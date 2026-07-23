@@ -1,0 +1,489 @@
+<!--
+  方案一：TDesign 简蓝
+  ============================================================
+  主色板：
+    品牌蓝 #0052D9 ｜ 页面背景 #F5F6F7 ｜ 卡片 #FFFFFF
+    文字主色 rgba(0,0,0,.9) · 次要 rgba(0,0,0,.5) · 占位 rgba(0,0,0,.4)
+    功能色：青 #0594FA / 绿 #00A870 / 橙 #ED7B2F / 紫 #834EC2 / 红 #E34D59 / 金 #D6A100 / 微信绿 #07C160
+  设计要点：
+    1. 严格对齐 TDesign 微信小程序视觉规范：卡片圆角 12px、按钮圆角 6px、全局发丝线分隔；
+    2. 登录页输入框采用底部发丝线 + 灰色前缀图标（#00000066）的无边框样式，对应 t-input；
+    3. 应用宫格图标使用品牌色系约 10% 浅底 + 同色描边图标；"敬请期待"虚线描边置灰，体现应用入口预留；
+    4. "高级技师"以品牌蓝描边小标签呈现（t-tag），列表项品牌蓝左图标 + 右侧辅助信息 + 箭头（t-cell）；
+    5. 组件对应关系：t-navbar（首页/我的导航栏）、t-tab-bar（底部标签栏）、t-button（登录/微信一键登录/退出登录）、
+       t-input（账号、密码输入框）、t-grid（应用中心 4 列宫格）、t-cell（我的页功能列表）、
+       t-avatar（用户头像）、t-tag（技师标签）、t-notice-bar（首页公告条）。
+  ============================================================
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案一 · TDesign 简蓝 — 检修一班工具箱</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  svg { display: block; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", Arial, sans-serif;
+    background: #EAECF0;
+    color: #1f2329;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- 页面外层（简洁标题栏） ---------- */
+  .page-header { text-align: center; padding: 48px 24px 4px; }
+  .page-header h1 { font-size: 26px; font-weight: 700; letter-spacing: .5px; }
+  .page-header p { margin-top: 10px; font-size: 14px; color: #6b7280; }
+  .palette { display: flex; justify-content: center; flex-wrap: wrap; gap: 14px; margin-top: 18px; }
+  .swatch { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6b7280; }
+  .swatch i { width: 14px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.07); }
+
+  /* ---------- 机框舞台 ---------- */
+  .stage {
+    display: flex; justify-content: center; align-items: flex-start;
+    gap: 56px; flex-wrap: wrap; padding: 40px 24px 80px;
+  }
+  .frame { display: flex; flex-direction: column; align-items: center; }
+  .phone {
+    width: 399px; padding: 12px;
+    background: linear-gradient(150deg, #2c3037, #13151a);
+    border-radius: 56px;
+    box-shadow: 0 30px 70px rgba(15, 23, 42, .22), 0 8px 20px rgba(15, 23, 42, .10);
+  }
+  .screen {
+    width: 375px; height: 812px; border-radius: 44px; overflow: hidden;
+    position: relative; display: flex; flex-direction: column;
+    background: #F5F6F7;
+  }
+  .screen-login { background: #FFFFFF; }
+  .frame-label { margin-top: 18px; font-size: 14px; font-weight: 600; color: #374151; }
+  .frame-label span { display: block; text-align: center; margin-top: 4px; font-size: 12px; font-weight: 400; color: #9aa1ac; }
+
+  /* ---------- 状态栏 / 指示条 / 导航栏 / 标签栏 ---------- */
+  .status-bar {
+    height: 44px; flex: none; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 26px 0 30px; color: #000;
+  }
+  .status-bar .time { font-size: 14px; font-weight: 600; letter-spacing: .3px; }
+  .status-icons { display: flex; align-items: center; gap: 6px; }
+  .home-indicator {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 8px;
+    width: 134px; height: 5px; border-radius: 3px; background: rgba(0,0,0,.85); z-index: 10;
+  }
+  .navbar { height: 44px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .navbar .title { font-size: 16px; font-weight: 600; color: rgba(0,0,0,.9); }
+  .tabbar {
+    flex: none; height: 78px; padding: 6px 0 26px;
+    background: #fff; border-top: 1px solid rgba(0,0,0,.08);
+    display: flex;
+  }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; color: rgba(0,0,0,.5); }
+  .tab .t-label { font-size: 10px; }
+  .tab.active { color: #0052D9; }
+
+  /* ---------- 登录页 ---------- */
+  .login-body { flex: 1; display: flex; flex-direction: column; padding: 0 32px; }
+  .logo-wrap { margin-top: 52px; display: flex; flex-direction: column; align-items: center; }
+  .logo {
+    width: 72px; height: 72px; border-radius: 18px; background: #0052D9;
+    display: flex; align-items: center; justify-content: center; color: #fff;
+    box-shadow: 0 10px 24px rgba(0, 82, 217, .28);
+  }
+  .app-name { margin-top: 16px; font-size: 21px; font-weight: 700; color: rgba(0,0,0,.9); }
+  .app-slogan { margin-top: 6px; font-size: 13px; color: rgba(0,0,0,.5); }
+  .login-form { margin-top: 42px; }
+  .input-row {
+    display: flex; align-items: center; height: 56px;
+    border-bottom: 1px solid rgba(0,0,0,.08);
+  }
+  .input-row .prefix, .input-row .suffix { color: #00000066; display: flex; flex: none; }
+  .input-row .prefix { margin-right: 12px; }
+  .input-row input {
+    flex: 1; border: none; outline: none; background: transparent;
+    font-size: 15px; color: rgba(0,0,0,.9);
+  }
+  .input-row input::placeholder { color: rgba(0,0,0,.4); }
+  .btn-primary {
+    margin-top: 36px; height: 44px; border-radius: 6px;
+    background: #0052D9; color: #fff; font-size: 16px; font-weight: 500;
+    display: flex; align-items: center; justify-content: center; letter-spacing: 2px;
+  }
+  .divider { margin-top: 32px; display: flex; align-items: center; gap: 12px; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(0,0,0,.08); }
+  .divider span { font-size: 12px; color: rgba(0,0,0,.4); }
+  .btn-wechat {
+    margin-top: 24px; height: 44px; border-radius: 6px;
+    background: #fff; border: 1px solid #DCDCDC;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 15px; color: rgba(0,0,0,.9);
+  }
+  .agreement {
+    margin-top: 20px; display: flex; align-items: center; justify-content: center;
+    gap: 6px; font-size: 11px; color: rgba(0,0,0,.5);
+  }
+  .checkbox {
+    width: 14px; height: 14px; border-radius: 4px; background: #0052D9;
+    display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  .agreement a { color: #0052D9; text-decoration: none; }
+  .login-version { margin-top: auto; text-align: center; font-size: 11px; color: rgba(0,0,0,.4); padding-bottom: 30px; }
+
+  /* ---------- 首页 ---------- */
+  .page-body { flex: 1; overflow: hidden; }
+  .user-card {
+    margin: 12px 12px 0; background: #fff; border-radius: 12px;
+    padding: 18px 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .avatar {
+    width: 48px; height: 48px; border-radius: 50%; background: #0052D9; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 600; flex: none;
+  }
+  .greeting { font-size: 16px; font-weight: 600; color: rgba(0,0,0,.9); }
+  .role { margin-top: 6px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(0,0,0,.5); }
+  .tag {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 6px;
+    border-radius: 4px; border: 1px solid #0052D9; background: rgba(0,82,217,.05);
+    color: #0052D9; font-size: 10px; line-height: 1;
+  }
+  .notice-card {
+    margin: 12px 12px 0; background: #fff; border-radius: 12px;
+    padding: 13px 16px; display: flex; align-items: center; gap: 10px;
+  }
+  .notice-card .n-icon { color: #0052D9; display: flex; flex: none; }
+  .notice-card .n-label { font-size: 13px; font-weight: 600; color: rgba(0,0,0,.9); flex: none; }
+  .notice-card .n-text { font-size: 12px; color: rgba(0,0,0,.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .section-title { margin: 20px 16px 10px; font-size: 15px; font-weight: 600; color: rgba(0,0,0,.9); }
+  .grid-card {
+    margin: 0 12px; background: #fff; border-radius: 12px;
+    padding: 22px 8px 8px;
+    display: grid; grid-template-columns: repeat(4, 1fr); row-gap: 24px;
+  }
+  .g-item { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .g-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .g-item .g-label { font-size: 12px; color: rgba(0,0,0,.9); }
+  .g-item.is-soon .g-icon {
+    background: transparent; border: 1.5px dashed rgba(0,0,0,.18); color: rgba(0,0,0,.3);
+  }
+  .g-item.is-soon .g-label { color: rgba(0,0,0,.4); }
+  .grid-hint { margin-top: 18px; text-align: center; font-size: 12px; color: rgba(0,0,0,.4); }
+
+  /* ---------- 我的 ---------- */
+  .profile-card {
+    margin: 12px 12px 0; background: #fff; border-radius: 12px;
+    padding: 20px 16px; display: flex; align-items: center; gap: 14px;
+  }
+  .avatar-lg { width: 56px; height: 56px; font-size: 20px; }
+  .p-name { font-size: 17px; font-weight: 600; color: rgba(0,0,0,.9); }
+  .p-sub { margin-top: 6px; font-size: 12px; color: rgba(0,0,0,.5); }
+  .p-chev { margin-left: auto; color: rgba(0,0,0,.3); display: flex; }
+  .cell-group { margin: 12px 12px 0; background: #fff; border-radius: 12px; overflow: hidden; }
+  .cell { position: relative; display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 54px; }
+  .cell + .cell::before {
+    content: ""; position: absolute; left: 50px; right: 0; top: 0; height: 1px; background: rgba(0,0,0,.06);
+  }
+  .cell .c-icon { width: 22px; display: flex; justify-content: center; color: #0052D9; flex: none; }
+  .cell .c-label { font-size: 14px; color: rgba(0,0,0,.9); }
+  .cell .c-extra { margin-left: auto; font-size: 12px; color: rgba(0,0,0,.5); }
+  .cell .chev { color: rgba(0,0,0,.3); display: flex; flex: none; }
+  .btn-logout {
+    margin: 20px 12px 0; height: 50px; border-radius: 6px; background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    color: #E34D59; font-size: 15px; font-weight: 500;
+  }
+  /* ---------- 窄屏自适应：保持三机框同排 ---------- */
+  @media (max-width: 1380px) { .stage { zoom: .94; } }
+  @media (max-width: 1280px) { .stage { zoom: .85; } }
+  @media (max-width: 1170px) { .stage { zoom: .76; } }
+  @media (max-width: 1060px) { .stage { zoom: .68; } }
+  @media (max-width: 960px)  { .stage { zoom: .60; } }
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1>方案一 · TDesign 简蓝</h1>
+  <p>检修一班工具箱 —— 班组应用聚合平台｜严格遵循 TDesign 微信小程序组件库设计规范</p>
+  <div class="palette">
+    <span class="swatch"><i style="background:#0052D9"></i>#0052D9 品牌蓝</span>
+    <span class="swatch"><i style="background:#F5F6F7"></i>#F5F6F7 页面背景</span>
+    <span class="swatch"><i style="background:#00A870"></i>#00A870</span>
+    <span class="swatch"><i style="background:#ED7B2F"></i>#ED7B2F</span>
+    <span class="swatch"><i style="background:#E34D59"></i>#E34D59</span>
+    <span class="swatch"><i style="background:#07C160"></i>#07C160 微信绿</span>
+  </div>
+</header>
+
+<main class="stage">
+
+  <!-- ============ ① 登录页 ============ -->
+  <section class="frame">
+    <div class="phone">
+      <div class="screen screen-login">
+        <div class="status-bar">
+          <span class="time">9:41</span>
+          <span class="status-icons">
+            <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.6" y="4.8" width="3" height="6.2" rx="1"/><rect x="9.2" y="2.4" width="3" height="8.6" rx="1"/><rect x="13.8" y="0" width="3" height="11" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor"><path d="M8 9.8c.9 0 1.8.35 2.4.98L8 12 5.6 10.78A3.5 3.5 0 0 1 8 9.8z"/><path d="M8 6.2c1.75 0 3.4.68 4.62 1.83l-1.5 1.57A5 5 0 0 0 8 8.2c-1.2 0-2.3.5-3.12 1.4l-1.5-1.57A6.6 6.6 0 0 1 8 6.2z"/><path d="M8 2.4c2.6 0 5.1 1.02 6.93 2.76l-1.5 1.56A8.2 8.2 0 0 0 8 4.4c-2.2 0-4.2.86-5.43 2.32L1.07 5.16A10.2 10.2 0 0 1 8 2.4z"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="currentColor" stroke-opacity=".35"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/><path d="M23.3 4v4a2.17 2.17 0 0 0 0-4z" fill="currentColor" fill-opacity=".4"/></svg>
+          </span>
+        </div>
+
+        <div class="login-body">
+          <div class="logo-wrap">
+            <div class="logo">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            </div>
+            <div class="app-name">检修一班工具箱</div>
+            <div class="app-slogan">班组数字化工具平台</div>
+          </div>
+
+          <div class="login-form">
+            <div class="input-row">
+              <span class="prefix">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.8"/><path d="M5.5 19.6c.9-3.4 3.5-5.2 6.5-5.2s5.6 1.8 6.5 5.2"/></svg>
+              </span>
+              <input type="text" placeholder="请输入账号">
+            </div>
+            <div class="input-row">
+              <span class="prefix">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V7.8a3.5 3.5 0 0 1 7 0v2.7"/><path d="M12 14.3v2.2"/></svg>
+              </span>
+              <input type="password" placeholder="请输入密码">
+              <span class="suffix">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 12S6.2 5.9 12 5.9 21.2 12 21.2 12 17.8 18.1 12 18.1 2.8 12 2.8 12z"/><circle cx="12" cy="12" r="2.7"/></svg>
+              </span>
+            </div>
+
+            <div class="btn-primary">登 录</div>
+
+            <div class="divider"><span>其他登录方式</span></div>
+
+            <div class="btn-wechat">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#07C160" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.6c-4.1 0-7.4 2.6-7.4 5.9 0 1.8 1 3.4 2.6 4.5l-.7 2.7 3-1.7c.8.2 1.6.3 2.5.3 4.1 0 7.4-2.6 7.4-5.9s-3.3-5.8-7.4-5.8z"/><circle cx="9.3" cy="10.3" r="1" fill="#07C160" stroke="none"/><circle cx="14.7" cy="10.3" r="1" fill="#07C160" stroke="none"/></svg>
+              微信一键登录
+            </div>
+
+            <div class="agreement">
+              <span class="checkbox">
+                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5l2.3 2.3L9.5 4"/></svg>
+              </span>
+              <span>已阅读并同意<a>《用户协议》</a>和<a>《隐私政策》</a></span>
+            </div>
+          </div>
+
+          <div class="login-version">v1.0.0</div>
+        </div>
+
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <div class="frame-label">① 登录页<span>t-input · t-button · t-avatar</span></div>
+  </section>
+
+  <!-- ============ ② 首页 · 应用中心 ============ -->
+  <section class="frame">
+    <div class="phone">
+      <div class="screen">
+        <div class="status-bar">
+          <span class="time">9:41</span>
+          <span class="status-icons">
+            <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.6" y="4.8" width="3" height="6.2" rx="1"/><rect x="9.2" y="2.4" width="3" height="8.6" rx="1"/><rect x="13.8" y="0" width="3" height="11" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor"><path d="M8 9.8c.9 0 1.8.35 2.4.98L8 12 5.6 10.78A3.5 3.5 0 0 1 8 9.8z"/><path d="M8 6.2c1.75 0 3.4.68 4.62 1.83l-1.5 1.57A5 5 0 0 0 8 8.2c-1.2 0-2.3.5-3.12 1.4l-1.5-1.57A6.6 6.6 0 0 1 8 6.2z"/><path d="M8 2.4c2.6 0 5.1 1.02 6.93 2.76l-1.5 1.56A8.2 8.2 0 0 0 8 4.4c-2.2 0-4.2.86-5.43 2.32L1.07 5.16A10.2 10.2 0 0 1 8 2.4z"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="currentColor" stroke-opacity=".35"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/><path d="M23.3 4v4a2.17 2.17 0 0 0 0-4z" fill="currentColor" fill-opacity=".4"/></svg>
+          </span>
+        </div>
+
+        <div class="navbar"><span class="title">检修一班工具箱</span></div>
+
+        <div class="page-body">
+          <!-- 用户卡片 -->
+          <div class="user-card">
+            <div class="avatar">张</div>
+            <div>
+              <div class="greeting">早上好，张三</div>
+              <div class="role">检修一班 ·<span class="tag">高级技师</span></div>
+            </div>
+          </div>
+
+          <!-- 公告条 -->
+          <div class="notice-card">
+            <span class="n-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 4.5L7 9H4.8a1.3 1.3 0 0 0-1.3 1.3v3.4A1.3 1.3 0 0 0 4.8 15H7l11.5 4.5v-15z"/><path d="M7.5 15.4V18a1.5 1.5 0 0 0 3 0v-2.2"/></svg>
+            </span>
+            <span class="n-label">公告</span>
+            <span class="n-text">本周五 22:00 平台例行维护，请提前保存工作内容</span>
+          </div>
+
+          <!-- 应用中心 -->
+          <div class="section-title">应用中心</div>
+          <div class="grid-card">
+            <div class="g-item">
+              <div class="g-icon" style="background:rgba(0,82,217,.10);color:#0052D9">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.6C10.5 5.2 8.6 4.6 4.6 4.6v13c4 0 5.9.6 7.4 1.9 1.5-1.3 3.4-1.9 7.4-1.9v-13c-4 0-5.9.6-7.4 2z"/><path d="M12 6.6v12.9"/></svg>
+              </div>
+              <span class="g-label">AI知识库</span>
+            </div>
+            <div class="g-item">
+              <div class="g-icon" style="background:rgba(5,148,250,.10);color:#0594FA">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.8 4.5 4.5 1.8-4.5 1.8L12 16.8l-1.8-4.5-4.5-1.8 4.5-1.8L12 4.2z"/><path d="M18.4 15.6l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8.8-2.1z"/></svg>
+              </div>
+              <span class="g-label">智能助手</span>
+            </div>
+            <div class="g-item">
+              <div class="g-icon" style="background:rgba(0,168,112,.10);color:#00A870">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="4.8" width="13" height="15.7" rx="2"/><rect x="9" y="2.9" width="6" height="3.6" rx="1.2"/><path d="M9.2 11.8h5.6M9.2 15.4h5.6"/></svg>
+              </div>
+              <span class="g-label">检修工单</span>
+            </div>
+            <div class="g-item">
+              <div class="g-icon" style="background:rgba(237,123,47,.10);color:#ED7B2F">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.6" width="16" height="6.4" rx="1.8"/><rect x="4" y="13" width="16" height="6.4" rx="1.8"/><path d="M7.4 7.8h.01M7.4 16.2h.01"/></svg>
+              </div>
+              <span class="g-label">设备台账</span>
+            </div>
+            <div class="g-item">
+              <div class="g-icon" style="background:rgba(131,78,194,.10);color:#834EC2">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              </div>
+              <span class="g-label">工具管理</span>
+            </div>
+            <div class="g-item">
+              <div class="g-icon" style="background:rgba(227,77,89,.10);color:#E34D59">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l7.6 4.1v9.4L12 20.8l-7.6-4.1V7.3L12 3.2z"/><path d="M4.4 7.3L12 11.4l7.6-4.1M12 11.4v9.4"/></svg>
+              </div>
+              <span class="g-label">备件查询</span>
+            </div>
+            <div class="g-item">
+              <div class="g-icon" style="background:rgba(214,161,0,.10);color:#D6A100">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.4l7 2.7v5.1c0 4.4-2.9 7.5-7 9.4-4.1-1.9-7-5-7-9.4V6.1l7-2.7z"/><path d="M8.9 11.9l2.2 2.2 4-4.2"/></svg>
+              </div>
+              <span class="g-label">安全学习</span>
+            </div>
+            <div class="g-item is-soon">
+              <div class="g-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5v11M6.5 12h11"/></svg>
+              </div>
+              <span class="g-label">敬请期待</span>
+            </div>
+          </div>
+          <div class="grid-hint">更多班组应用持续接入中…</div>
+        </div>
+
+        <div class="tabbar">
+          <div class="tab active">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 9.8L12 3.2l7.8 6.6V19a1.8 1.8 0 0 1-1.8 1.8H6A1.8 1.8 0 0 1 4.2 19V9.8z"/><path d="M9.4 20.8v-8h5.2v8"/></svg>
+            <span class="t-label">首页</span>
+          </div>
+          <div class="tab">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.8"/><path d="M5.5 19.6c.9-3.4 3.5-5.2 6.5-5.2s5.6 1.8 6.5 5.2"/></svg>
+            <span class="t-label">我的</span>
+          </div>
+        </div>
+
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <div class="frame-label">② 首页 · 应用中心<span>t-navbar · t-grid · t-tag · t-notice-bar · t-tab-bar</span></div>
+  </section>
+
+  <!-- ============ ③ 我的 ============ -->
+  <section class="frame">
+    <div class="phone">
+      <div class="screen">
+        <div class="status-bar">
+          <span class="time">9:41</span>
+          <span class="status-icons">
+            <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.6" y="4.8" width="3" height="6.2" rx="1"/><rect x="9.2" y="2.4" width="3" height="8.6" rx="1"/><rect x="13.8" y="0" width="3" height="11" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor"><path d="M8 9.8c.9 0 1.8.35 2.4.98L8 12 5.6 10.78A3.5 3.5 0 0 1 8 9.8z"/><path d="M8 6.2c1.75 0 3.4.68 4.62 1.83l-1.5 1.57A5 5 0 0 0 8 8.2c-1.2 0-2.3.5-3.12 1.4l-1.5-1.57A6.6 6.6 0 0 1 8 6.2z"/><path d="M8 2.4c2.6 0 5.1 1.02 6.93 2.76l-1.5 1.56A8.2 8.2 0 0 0 8 4.4c-2.2 0-4.2.86-5.43 2.32L1.07 5.16A10.2 10.2 0 0 1 8 2.4z"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="currentColor" stroke-opacity=".35"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/><path d="M23.3 4v4a2.17 2.17 0 0 0 0-4z" fill="currentColor" fill-opacity=".4"/></svg>
+          </span>
+        </div>
+
+        <div class="navbar"><span class="title">我的</span></div>
+
+        <div class="page-body">
+          <!-- 用户大卡 -->
+          <div class="profile-card">
+            <div class="avatar avatar-lg">张</div>
+            <div>
+              <div class="p-name">张三</div>
+              <div class="p-sub">账号 zhangsan · 工号 G1024</div>
+            </div>
+            <span class="p-chev">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg>
+            </span>
+          </div>
+
+          <!-- 功能列表 -->
+          <div class="cell-group">
+            <div class="cell">
+              <span class="c-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.2" cy="8.2" r="4.4"/><path d="M11.4 11.4L20 20M16.8 16.8l2.3-2.3M14.2 14.2l1.6-1.6"/></svg>
+              </span>
+              <span class="c-label">我的权限</span>
+              <span class="c-extra">8 个应用</span>
+              <span class="chev">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg>
+              </span>
+            </div>
+            <div class="cell">
+              <span class="c-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9.6a6 6 0 1 0-12 0c0 5.8-2.4 7-2.4 7h16.8s-2.4-1.2-2.4-7"/><path d="M10.1 20a2.1 2.1 0 0 0 3.8 0"/></svg>
+              </span>
+              <span class="c-label">消息通知</span>
+              <span class="c-extra"></span>
+              <span class="chev">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg>
+              </span>
+            </div>
+            <div class="cell">
+              <span class="c-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V7.8a3.5 3.5 0 0 1 7 0v2.7"/><path d="M12 14.3v2.2"/></svg>
+              </span>
+              <span class="c-label">账号与安全</span>
+              <span class="c-extra"></span>
+              <span class="chev">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg>
+              </span>
+            </div>
+            <div class="cell">
+              <span class="c-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 11.2v5"/><path d="M12 7.6h.01"/></svg>
+              </span>
+              <span class="c-label">关于工具箱</span>
+              <span class="c-extra">v1.0.0</span>
+              <span class="chev">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="btn-logout">退出登录</div>
+        </div>
+
+        <div class="tabbar">
+          <div class="tab">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 9.8L12 3.2l7.8 6.6V19a1.8 1.8 0 0 1-1.8 1.8H6A1.8 1.8 0 0 1 4.2 19V9.8z"/><path d="M9.4 20.8v-8h5.2v8"/></svg>
+            <span class="t-label">首页</span>
+          </div>
+          <div class="tab active">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.8"/><path d="M5.5 19.6c.9-3.4 3.5-5.2 6.5-5.2s5.6 1.8 6.5 5.2"/></svg>
+            <span class="t-label">我的</span>
+          </div>
+        </div>
+
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <div class="frame-label">③ 我的<span>t-cell · t-avatar · t-button · t-tab-bar</span></div>
+  </section>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,64 @@
+/* ---------- 用户大卡 ---------- */
+.me-card {
+  margin-bottom: 32rpx;
+  animation: fadeUp 0.3s ease both; /* 页面入场 */
+}
+
+.me-body {
+  display: flex;
+  align-items: center;
+  padding: 52rpx 32rpx 32rpx; /* 顶部预留警示斜纹高度 */
+}
+
+.avatar {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 24rpx;
+  background: #22314E;
+  color: #FFFFFF;
+  font-size: 52rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.me-info {
+  margin-left: 24rpx;
+  min-width: 0;
+}
+
+.me-name {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #22314E;
+}
+
+.me-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #6B7690;
+}
+
+/* ---------- 功能列表 ---------- */
+.cells-card {
+  overflow: hidden;
+  margin-bottom: 32rpx;
+}
+
+.admin-sec {
+  margin-bottom: 20rpx;
+}
+
+/* ---------- 退出登录 ---------- */
+.logout {
+  height: 96rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #CF4444;
+  font-size: 30rpx;
+  font-weight: 500;
+  transition: background-color 0.15s ease;
+}

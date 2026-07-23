@@ -1,0 +1,31 @@
+.nav-wrap {
+  width: 100%;
+}
+
+.nav-row {
+  position: relative;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+}
+
+.nav-left {
+  position: relative;
+  z-index: 2;
+  width: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-title {
+  position: absolute;
+  left: 160rpx;
+  right: 160rpx; /* 右侧避开微信胶囊按钮区域 */
+  text-align: center;
+  font-size: 34rpx;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

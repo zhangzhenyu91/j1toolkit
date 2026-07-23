@@ -1,0 +1,31 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/login/login",
+    "pages/me/me",
+    "pages/admin/users/users",
+    "pages/admin/perms/perms"
+  ],
+  "subPackages": [
+    {
+      "root": "pkg-callme",
+      "name": "callme",
+      "pages": [
+        "pages/sessions/sessions",
+        "pages/chat/chat"
+      ]
+    }
+  ],
+  "window": {
+    "navigationStyle": "custom",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F4F1EA",
+    "backgroundTextStyle": "dark"
+  },
+  "networkTimeout": {
+    "request": 120000
+  },
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json"
+}

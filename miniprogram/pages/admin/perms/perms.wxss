@@ -1,0 +1,127 @@
+.list-card {
+  overflow: hidden;
+  margin-top: 20rpx;
+}
+
+/* ---------- 员工行 ---------- */
+.u-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 28rpx;
+  transition: background-color 0.15s ease;
+}
+
+.u-item + .u-item {
+  border-top: 1rpx solid #F0EBDD;
+}
+
+.u-item-on {
+  background: #FDF6EF;
+}
+
+.u-avatar {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 14rpx;
+  background: #22314E;
+  color: #FFFFFF;
+  font-size: 32rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.u-main {
+  margin-left: 20rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.u-name {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: #22314E;
+}
+
+.u-sub {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #A89F8A;
+}
+
+/* ---------- 应用行 ---------- */
+.app-sec {
+  margin-top: 32rpx;
+}
+
+.a-item {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 28rpx;
+  transition: background-color 0.15s ease;
+}
+
+.a-item + .a-item {
+  border-top: 1rpx solid #F0EBDD;
+}
+
+.cbx {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 8rpx;
+  border: 2rpx solid #D9CFBA;
+  color: #FFFFFF;
+  font-size: 24rpx;
+  line-height: 36rpx;
+  text-align: center;
+  margin-right: 20rpx;
+  flex: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cbx-on {
+  background: #F26D21;
+  border-color: #F26D21;
+}
+
+.a-ico {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 14rpx;
+  background: #FDEEE2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.a-main {
+  margin-left: 20rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.a-name {
+  font-size: 28rpx;
+  color: #22314E;
+  font-weight: 500;
+}
+
+.a-key {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #A89F8A;
+}
+
+.save-bar {
+  margin-top: 32rpx;
+}
+
+.hint {
+  margin-top: 48rpx;
+  text-align: center;
+  color: #C4BBA6;
+  font-size: 24rpx;
+}

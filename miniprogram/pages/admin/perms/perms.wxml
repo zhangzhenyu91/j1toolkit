@@ -1,0 +1,65 @@
+<!-- 权限管理（管理员）：选择员工 → 勾选应用 → 保存授权 -->
+<navbar back title="权限管理" />
+
+<view class="page-body">
+  <!-- 员工选择 -->
+  <view class="section-title">选择员工</view>
+  <view class="card list-card">
+    <t-empty wx:if="{{!loading && users.length === 0}}" description="暂无员工账号" />
+    <view
+      class="u-item {{item.id === selectedUserId ? 'u-item-on' : ''}}"
+      hover-class="hover-bg-warm"
+      wx:for="{{users}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      bindtap="onSelectUser"
+    >
+      <view class="u-avatar">{{item.char}}</view>
+      <view class="u-main">
+        <view class="u-name">{{item.nickname || item.username}}</view>
+        <view class="u-sub">{{item.username}}<text wx:if="{{item.team}}"> · {{item.team}}</text></view>
+      </view>
+      <t-icon
+        wx:if="{{item.id === selectedUserId}}"
+        name="check"
+        size="40rpx"
+        color="#F26D21"
+      />
+    </view>
+  </view>
+
+  <!-- 应用授权 -->
+  <block wx:if="{{selectedUserId}}">
+    <view class="section-title app-sec">应用权限</view>
+    <view class="card list-card">
+      <t-empty wx:if="{{apps.length === 0}}" description="暂无已上架应用" />
+      <view
+        class="a-item"
+        hover-class="hover-bg-warm"
+        wx:for="{{apps}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="onToggle"
+      >
+        <view class="cbx {{checkedMap[item.id] ? 'cbx-on' : ''}}">{{checkedMap[item.id] ? '✓' : ''}}</view>
+        <view class="a-ico">
+          <t-icon name="{{item.icon || 'app'}}" size="44rpx" color="#F26D21" />
+        </view>
+        <view class="a-main">
+          <view class="a-name">{{item.name}}</view>
+          <view class="a-key">{{item.app_key}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="save-bar">
+      <t-button block size="large" theme="primary" loading="{{saving}}" bind:tap="onSave">
+        保存授权
+      </t-button>
+    </view>
+  </block>
+
+  <view wx:else class="hint">请先选择一名员工，再勾选其有权限的应用</view>
+</view>
+
+<t-toast id="t-toast" />

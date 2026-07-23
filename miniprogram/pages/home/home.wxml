@@ -1,0 +1,68 @@
+<!-- 首页 · 应用中心（方案五：警示斜纹用户卡 + 宫格入口） -->
+<block wx:if="{{gate}}">
+  <navbar title="检修一班工具箱" />
+
+  <view class="page-body">
+    <!-- 用户卡片 -->
+    <view class="u-card card hazard-top">
+      <view class="u-body">
+        <view class="avatar">{{avatarChar}}</view>
+        <view class="u-info">
+          <view class="u-name">{{greeting}}，{{userInfo.nickname || '同事'}}</view>
+          <view class="u-sub">
+            <text class="badge-outline" wx:if="{{userInfo.team}}">{{userInfo.team}}</text>
+            <text class="u-account">{{userInfo.username}}</text>
+          </view>
+        </view>
+        <view class="u-side">
+          <view class="u-date">{{today}}</view>
+          <view class="u-week">{{weekday}}</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 应用中心 -->
+    <view class="section-title app-sec">应用中心</view>
+    <view class="card grid-card">
+      <view class="grid">
+        <view
+          class="g-item"
+          hover-class="hover-scale"
+          wx:for="{{apps}}"
+          wx:key="app_key"
+          data-path="{{item.path}}"
+          data-name="{{item.name}}"
+          bindtap="onAppTap"
+        >
+          <view class="g-ico">
+            <t-icon name="{{item.icon || 'app'}}" size="48rpx" color="#F26D21" />
+          </view>
+          <text class="g-name">{{item.name}}</text>
+        </view>
+
+        <!-- 预留应用入口（占位） -->
+        <view class="g-item" hover-class="hover-scale" bindtap="onSoon">
+          <view class="g-ico g-soon">
+            <t-icon name="add" size="44rpx" color="#C9BEA6" />
+          </view>
+          <text class="g-name g-name-soon">敬请期待</text>
+        </view>
+      </view>
+
+      <view wx:if="{{!loading && apps.length === 0}}" class="empty">
+        暂无可用应用，请联系管理员开通权限
+      </view>
+    </view>
+
+    <view class="tip">更多班组应用持续接入中</view>
+  </view>
+
+  <tabbar active="home" />
+</block>
+
+<!-- 启动加载页（自动登录校验中） -->
+<view wx:else class="gate-loading">
+  <image class="gate-logo" src="/assets/toolbox.png" mode="aspectFit" />
+</view>
+
+<t-toast id="t-toast" />

@@ -1,0 +1,11 @@
+<!-- 底部标签栏：首页 / 我的（方案五：白底 + #E8E0CD 发丝线 + 激活安全橙） -->
+<view class="tabbar">
+  <view class="tab {{active === 'home' ? 'on' : ''}}" hover-class="hover-scale" bindtap="go" data-url="/pages/home/home" data-key="home">
+    <t-icon name="home" size="48rpx" color="{{active === 'home' ? '#F26D21' : '#A89F8A'}}" />
+    <text class="tab-text">首页</text>
+  </view>
+  <view class="tab {{active === 'me' ? 'on' : ''}}" hover-class="hover-scale" bindtap="go" data-url="/pages/me/me" data-key="me">
+    <t-icon name="user" size="48rpx" color="{{active === 'me' ? '#F26D21' : '#A89F8A'}}" />
+    <text class="tab-text">我的</text>
+  </view>
+</view>

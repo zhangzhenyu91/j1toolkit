@@ -1,0 +1,84 @@
+.tip-bar {
+  margin-bottom: 24rpx;
+  color: #6B7690;
+  font-size: 24rpx;
+  text-align: center;
+}
+
+.s-item {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 28rpx;
+  background: #FFFFFF;
+  transition: background-color 0.15s ease;
+}
+
+.s-icon {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 16rpx;
+  background: #FDEEE2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.s-main {
+  margin-left: 20rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.s-title {
+  font-size: 28rpx;
+  color: #22314E;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.s-time {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #A89F8A;
+}
+
+.list-card {
+  overflow: hidden;
+}
+
+.swipe-actions {
+  display: flex;
+  height: 100%;
+}
+
+.s-action {
+  width: 128rpx;
+  height: 100%;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.s-rename {
+  background: #22314E;
+}
+
+.s-delete {
+  background: #CF4444;
+}
+
+/* 新建对话按钮（固定底部） */
+.create-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
+  background: #F4F1EA;
+}

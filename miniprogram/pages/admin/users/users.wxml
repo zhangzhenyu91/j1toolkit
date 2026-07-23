@@ -1,0 +1,65 @@
+<!-- 员工管理（管理员）：账号列表 + 新建/禁用/重置密码 -->
+<navbar back title="员工管理" />
+
+<view class="page-body">
+  <t-empty wx:if="{{!loading && users.length === 0}}" description="暂无员工账号" />
+
+  <view class="card list-card" wx:if="{{users.length > 0}}">
+    <view
+      class="u-item"
+      hover-class="hover-bg-warm"
+      wx:for="{{users}}"
+      wx:key="id"
+      data-index="{{index}}"
+      bindtap="onActions"
+    >
+      <view class="u-avatar {{item.status !== 1 ? 'u-avatar-off' : ''}}">{{item.char}}</view>
+      <view class="u-main">
+        <view class="u-name">
+          {{item.nickname || item.username}}
+          <text class="badge-outline" wx:if="{{item.role === 'admin'}}">管理员</text>
+        </view>
+        <view class="u-sub">{{item.username}}<text wx:if="{{item.team}}"> · {{item.team}}</text></view>
+      </view>
+      <view class="u-status {{item.status === 1 ? '' : 'u-status-off'}}">
+        {{item.status === 1 ? '正常' : '已禁用'}}
+      </view>
+    </view>
+  </view>
+
+  <view class="hint">点击员工可进行「重置密码 / 禁用·启用」操作</view>
+</view>
+
+<!-- 新建员工（固定底部主按钮，避开右上角胶囊区域） -->
+<view class="create-bar">
+  <t-button block size="large" theme="primary" icon="user-add" bind:tap="openAdd">新建员工</t-button>
+</view>
+
+<!-- 新建员工对话框 -->
+<t-dialog
+  id="add-dialog"
+  visible="{{showAdd}}"
+  title="新建员工"
+  confirm-btn="创建"
+  cancel-btn="取消"
+  bind:confirm="onAddConfirm"
+  bind:cancel="closeAdd"
+>
+  <view slot="content" class="form">
+    <view class="form-field">
+      <t-input borderless placeholder="登录账号（字母/数字/下划线）" value="{{form.username}}" data-k="username" bind:change="onField" />
+    </view>
+    <view class="form-field">
+      <t-input borderless placeholder="姓名/昵称" value="{{form.nickname}}" data-k="nickname" bind:change="onField" />
+    </view>
+    <view class="form-field">
+      <t-input borderless placeholder="班组（如：检修一班）" value="{{form.team}}" data-k="team" bind:change="onField" />
+    </view>
+    <view class="form-field">
+      <t-input borderless type="password" placeholder="初始密码（至少 6 位）" value="{{form.password}}" data-k="password" bind:change="onField" />
+    </view>
+  </view>
+</t-dialog>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

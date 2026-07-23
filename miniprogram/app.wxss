@@ -1,0 +1,128 @@
+/* ============================================================
+   全局样式 —— 方案五「安全橙 · 浅色工业风」× TDesign 定制主题
+   设计 token 见 AGENTS.md 第四节 / 项目文档.md 第八章
+   ============================================================ */
+
+page {
+  /* TDesign 主题变量覆盖（注入方案五色板） */
+  --td-brand-color: #F26D21;
+  --td-brand-color-active: #D85A12;
+  --td-brand-color-light: #FDEEE2;
+  --td-brand-color-focus: #FDEEE2;
+  --td-error-color: #CF4444;
+  --td-tab-bar-active-color: #F26D21;
+  --td-tab-bar-bg-color: #FFFFFF;
+  --td-tab-bar-border-color: #E8E0CD;
+
+  background: #F4F1EA; /* 暖纸底 */
+  color: #22314E; /* 藏青主文字 */
+  font-size: 28rpx;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
+}
+
+/* ---------- 通用元素 ---------- */
+
+/* 白色卡片（圆角 10px） */
+.card {
+  background: #FFFFFF;
+  border-radius: 20rpx;
+}
+
+/* 卡片顶部橙青警示斜纹条（特征元素，配合 padding-top 使用） */
+.hazard-top {
+  position: relative;
+  overflow: hidden;
+}
+.hazard-top::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 16rpx;
+  background: repeating-linear-gradient(
+    45deg,
+    #F26D21 0,
+    #F26D21 20rpx,
+    #22314E 20rpx,
+    #22314E 40rpx
+  );
+}
+
+/* 板块标题（左侧 4px 橙色竖条） */
+.section-title {
+  display: flex;
+  align-items: center;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #22314E;
+}
+.section-title::before {
+  content: '';
+  width: 8rpx;
+  height: 26rpx;
+  background: #F26D21;
+  border-radius: 4rpx;
+  margin-right: 12rpx;
+}
+
+/* 描边徽章（身份标签） */
+.badge-outline {
+  display: inline-block;
+  padding: 2rpx 14rpx;
+  border: 1rpx solid #F26D21;
+  color: #F26D21;
+  border-radius: 8rpx;
+  font-size: 20rpx;
+  line-height: 1.6;
+}
+
+/* 文字层级 */
+.text-sub {
+  color: #6B7690;
+}
+.text-ph {
+  color: #A89F8A;
+}
+
+/* 页面内容容器（为自定义 tabbar 预留底部空间） */
+.page-body {
+  padding: 24rpx 28rpx 160rpx;
+}
+
+/* ---------- 交互动效（克制的按压反馈与过渡） ---------- */
+
+/* 按压反馈类（配合 hover-class 使用；!important 保证覆盖页面基础样式） */
+.hover-scale {
+  transform: scale(0.94) !important;
+  opacity: 0.85 !important;
+}
+
+.hover-bg-warm {
+  background-color: #F7F3EA !important;
+}
+
+.hover-opacity {
+  opacity: 0.6 !important;
+}
+
+/* 入场动画 */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -1,0 +1,161 @@
+/* ---------- 用户卡片 ---------- */
+.u-card {
+  margin-bottom: 32rpx;
+  animation: fadeUp 0.3s ease both; /* 页面入场 */
+}
+
+.grid-card {
+  animation: fadeUp 0.3s 0.06s ease both; /* 错峰入场 */
+}
+
+.app-sec {
+  animation: fadeUp 0.3s ease both;
+}
+
+.u-body {
+  display: flex;
+  align-items: center;
+  padding: 48rpx 28rpx 28rpx; /* 顶部预留警示斜纹高度 */
+}
+
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 20rpx;
+  background: #22314E;
+  color: #FFFFFF;
+  font-size: 44rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.u-info {
+  margin-left: 20rpx;
+  min-width: 0;
+}
+
+.u-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #22314E;
+}
+
+.u-sub {
+  margin-top: 12rpx;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.u-account {
+  font-size: 22rpx;
+  color: #A89F8A;
+}
+
+.u-side {
+  margin-left: auto;
+  text-align: right;
+  flex: none;
+}
+
+.u-date {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #22314E;
+}
+
+.u-week {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #A89F8A;
+}
+
+/* ---------- 应用宫格 ---------- */
+.app-sec {
+  margin-bottom: 20rpx;
+}
+
+.grid-card {
+  padding: 28rpx 12rpx 12rpx;
+}
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.g-item {
+  width: 25%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 28rpx;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.g-ico {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 20rpx;
+  background: #FDEEE2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.g-soon {
+  background: transparent;
+  border: 2rpx dashed #D9CFBA;
+}
+
+.g-name {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #22314E;
+}
+
+.g-name-soon {
+  color: #A89F8A;
+}
+
+.empty {
+  padding: 24rpx 28rpx 32rpx;
+  text-align: center;
+  color: #A89F8A;
+  font-size: 24rpx;
+}
+
+.tip {
+  margin-top: 24rpx;
+  text-align: center;
+  color: #C4BBA6;
+  font-size: 22rpx;
+}
+
+/* ---------- 启动门控加载页 ---------- */
+.gate-loading {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gate-logo {
+  width: 160rpx;
+  height: 160rpx;
+  animation: gatePulse 1.2s ease-in-out infinite;
+}
+
+@keyframes gatePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}

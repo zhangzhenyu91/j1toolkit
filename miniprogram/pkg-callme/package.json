@@ -1,0 +1,13 @@
+{
+  "name": "j1toolkit-pkg-callme",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Call Me 分包专用依赖（构建进分包 miniprogram_npm，不占主包体积）",
+  "dependencies": {
+    "markdown-it": "^14.3.0",
+    "mp-html": "^2.5.2"
+  },
+  "overrides": {
+    "argparse": "1.0.10"
+  }
+}

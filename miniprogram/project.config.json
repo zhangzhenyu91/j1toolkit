@@ -1,0 +1,28 @@
+{
+  "compileType": "miniprogram",
+  "libVersion": "latest",
+  "appid": "wx060bd23e09e0cd71",
+  "projectname": "j1toolkit-miniprogram",
+  "setting": {
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": false,
+    "ignoreUploadUnusedFiles": true,
+    "packNpmManually": true,
+    "packNpmRelationList": [
+      {
+        "packageJsonPath": "./package.json",
+        "miniprogramNpmDistDir": "./"
+      },
+      {
+        "packageJsonPath": "./pkg-callme/package.json",
+        "miniprogramNpmDistDir": "./pkg-callme"
+      }
+    ]
+  },
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  }
+}

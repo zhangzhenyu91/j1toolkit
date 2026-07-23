@@ -1,0 +1,108 @@
+<!-- Call Me · 对话页（SSE 流式，方案五气泡） -->
+<view class="page">
+  <navbar back title="{{title}}" />
+
+  <!-- 消息列表 -->
+  <scroll-view
+    class="chat-scroll"
+    scroll-y
+    enhanced
+    show-scrollbar="{{false}}"
+    scroll-into-view="{{toView}}"
+    scroll-with-animation
+  >
+    <view class="msg-list">
+      <view
+        wx:for="{{messages}}"
+        wx:key="index"
+        class="msg-row {{item.role === 'user' ? 'msg-right' : 'msg-left'}}"
+      >
+        <!-- 用户消息：右侧安全橙气泡 -->
+        <view wx:if="{{item.role === 'user'}}" class="bubble user-bubble">
+          <image
+            wx:if="{{item.image}}"
+            src="{{item.image}}"
+            class="msg-img"
+            mode="widthFix"
+            data-src="{{item.image}}"
+            bindtap="previewImage"
+          />
+          <text wx:if="{{item.content}}" user-select>{{item.content}}</text>
+        </view>
+
+        <!-- AI 消息：左侧白卡气泡 -->
+        <view wx:else class="ai-side">
+          <!-- 思考内容：流式期间展开，回答完毕自动折叠，可点击再展开 -->
+          <view wx:if="{{item.thinking}}" class="think-box">
+            <view class="think-head" hover-class="hover-opacity" data-index="{{index}}" bindtap="toggleThinking">
+              <view class="think-title">
+                <view class="think-dot {{item.streaming ? 'think-dot-on' : ''}}"></view>
+                <text>{{item.streaming ? '正在思考…' : '思考过程'}}</text>
+              </view>
+              <t-icon
+                name="chevron-down"
+                size="32rpx"
+                color="#A89F8A"
+                class="think-arrow {{item.streaming || item.thinkingExpanded ? 'think-arrow-open' : ''}}"
+              />
+            </view>
+            <view wx:if="{{item.streaming || item.thinkingExpanded}}" class="think-content">
+              {{item.thinking}}
+            </view>
+          </view>
+
+          <view class="bubble ai-bubble {{item.error ? 'ai-error' : ''}}">
+            <mp-html
+              wx:if="{{item.html}}"
+              content="{{item.html}}"
+              container-style="{{mdContainerStyle}}"
+              tag-style="{{mdTagStyle}}"
+              selectable="{{true}}"
+            />
+            <text wx:elif="{{item.content}}" user-select>{{item.content}}</text>
+            <text wx:if="{{item.streaming}}" class="cursor">▍</text>
+            <view wx:if="{{item.streaming && !item.content && !item.thinking}}" class="thinking">
+              正在思考…
+            </view>
+          </view>
+        </view>
+      </view>
+      <view id="msg-bottom" class="bottom-anchor"></view>
+    </view>
+  </scroll-view>
+
+  <!-- 输入栏（键盘弹出时整体上移、底边与键盘顶齐平；弹起期间去掉刘海屏安全区底留白） -->
+  <view
+    class="input-bar"
+    style="margin-bottom: {{keyboardHeight}}px; {{keyboardHeight > 0 ? 'padding-bottom: 16rpx;' : ''}}"
+  >
+    <view wx:if="{{pendingImage}}" class="img-chip">
+      <image src="{{pendingImage.path}}" mode="aspectFill" />
+      <view class="chip-close" hover-class="hover-scale" bindtap="removeImage">✕</view>
+    </view>
+    <view class="input-row">
+      <view class="tool-btn" hover-class="hover-opacity" bindtap="chooseImage">
+        <t-icon name="image-add" size="48rpx" color="#A89F8A" />
+      </view>
+      <textarea
+        class="chat-input"
+        auto-height
+        maxlength="2000"
+        placeholder="向检修一班AI知识库提问…"
+        placeholder-class="input-ph"
+        value="{{inputValue}}"
+        bindinput="onInput"
+        confirm-type="send"
+        bindconfirm="onSend"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        show-confirm-bar="{{false}}"
+      />
+      <view class="send-btn {{canSend ? '' : 'send-disabled'}}" hover-class="hover-scale" bindtap="onSend">
+        <t-icon name="send" size="40rpx" color="#FFFFFF" />
+      </view>
+    </view>
+  </view>
+
+  <t-toast id="t-toast" />
+</view>

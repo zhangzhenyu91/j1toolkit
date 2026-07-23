@@ -1,0 +1,46 @@
+<!-- Call Me · 会话列表（检修一班AI知识库） -->
+<navbar back title="Call Me" />
+
+<view class="page-body">
+  <view class="tip-bar">检修一班 AI 知识库 · 左滑对话可重命名 / 删除</view>
+
+  <t-empty
+    wx:if="{{!loading && !creating && sessions.length === 0}}"
+    description="暂无对话，点击下方按钮新建"
+  />
+
+  <view class="card list-card" wx:if="{{sessions.length > 0}}">
+    <t-swipe-cell wx:for="{{sessions}}" wx:key="id" id="swipe-{{item.id}}">
+      <view class="s-item" hover-class="hover-bg-warm" bindtap="onOpen" data-id="{{item.id}}" data-title="{{item.title}}">
+        <view class="s-icon">
+          <t-icon name="chat" size="40rpx" color="#F26D21" />
+        </view>
+        <view class="s-main">
+          <view class="s-title">{{item.title || '未命名对话'}}</view>
+          <view class="s-time">{{item.timeText}}</view>
+        </view>
+        <t-icon name="chevron-right" size="36rpx" color="#C9BEA6" />
+      </view>
+      <view slot="right" class="swipe-actions">
+        <view
+          class="s-action s-rename"
+          bindtap="onRename"
+          data-id="{{item.id}}"
+          data-index="{{index}}"
+          data-title="{{item.title}}"
+        >重命名</view>
+        <view class="s-action s-delete" bindtap="onDelete" data-id="{{item.id}}" data-index="{{index}}">
+          删除
+        </view>
+      </view>
+    </t-swipe-cell>
+  </view>
+</view>
+
+<!-- 新建对话（固定底部主按钮） -->
+<view class="create-bar">
+  <t-button block size="large" theme="primary" icon="chat-add" bind:tap="onCreate">新建对话</t-button>
+</view>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

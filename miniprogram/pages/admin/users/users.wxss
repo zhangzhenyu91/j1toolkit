@@ -1,0 +1,93 @@
+.list-card {
+  overflow: hidden;
+}
+
+.u-item {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 28rpx;
+  transition: background-color 0.15s ease;
+}
+
+.u-item + .u-item {
+  border-top: 1rpx solid #F0EBDD;
+}
+
+.u-avatar {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 16rpx;
+  background: #22314E;
+  color: #FFFFFF;
+  font-size: 36rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.u-avatar-off {
+  background: #C4BBA6;
+}
+
+.u-main {
+  margin-left: 20rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.u-name {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: #22314E;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.u-sub {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #A89F8A;
+}
+
+.u-status {
+  flex: none;
+  font-size: 22rpx;
+  color: #2F9E6E;
+}
+
+.u-status-off {
+  color: #CF4444;
+}
+
+.hint {
+  margin-top: 24rpx;
+  text-align: center;
+  color: #C4BBA6;
+  font-size: 22rpx;
+}
+
+/* 新建员工按钮（固定底部，避开右上角胶囊区域） */
+.create-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
+  background: #F4F1EA;
+}
+
+/* 新建员工表单 */
+.form {
+  padding-top: 8rpx;
+}
+
+.form-field {
+  background: #F4F1EA;
+  border-radius: 12rpx;
+  padding: 0 16rpx;
+  margin-bottom: 16rpx;
+}

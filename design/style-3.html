@@ -1,0 +1,423 @@
+<!--
+风格名称：方案三 · 微信原生简约风
+主色板：页面背景 #EDEDED / 主色微信绿 #07C160（登录主按钮、激活 Tab、Logo 底、协议勾选框）/ 链接色 #576B95（协议名）/ 文字主色 #111111、次要 #888888、占位 #B2B2B2 / 发丝线 #F0F0F0 · #E5E5E5 / 警示红 #E64340 / TabBar #F7F7F7
+设计要点：
+1. 内容区采用全宽白色分组 + 组内发丝线分隔，不使用大圆角卡片，还原微信原生列表质感。
+2. 微信绿只出现在关键操作上（登录主按钮、激活 Tab、Logo、勾选框），用色克制、层级清晰。
+3. 头像为微信式 6px 圆角矩形；导航栏白底黑字 + 底部分隔线；TabBar #F7F7F7 底、激活绿。
+4. 宫格图标使用低饱和浅色底 + 柔和彩色图标，不刺眼；"敬请期待"虚线描边置灰占位，体现应用入口预留。
+5. "我的"页为经典微信布局：白底用户大卡（头像 + 名字 + 微信号样式账号）+ 白底分组功能列表 + 白底整行红色"退出登录"。
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案三 · 微信原生简约风 — 检修一班工具箱</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    background: #F2F2F4;
+    color: #111111;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== 页面外层：简洁标题栏 ===== */
+  .page-head { text-align: center; padding: 36px 20px 4px; }
+  .page-head h1 { font-size: 20px; font-weight: 700; color: #1B1B1E; letter-spacing: .5px; }
+  .page-head p { margin-top: 7px; font-size: 13px; color: #777; }
+
+  /* ===== 机框排布 ===== */
+  .stage { display: flex; flex-wrap: wrap; justify-content: center; gap: 42px; padding: 28px 20px 48px; }
+  .phone-col { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+  .phone {
+    width: 397px; height: 834px;
+    background: #1B1B1E;
+    border-radius: 54px;
+    padding: 11px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.20), 0 4px 14px rgba(0,0,0,.12);
+  }
+  .screen {
+    width: 375px; height: 812px;
+    background: #EDEDED;
+    border-radius: 43px;
+    overflow: hidden;
+    position: relative;
+    display: flex; flex-direction: column;
+  }
+  .phone-label { font-size: 13px; font-weight: 500; color: #555; letter-spacing: .5px; }
+
+  /* ===== 通用小件 ===== */
+  .icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .sb {
+    height: 48px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 27px 0 31px;
+    color: #111111;
+    position: relative;
+  }
+  .sb .time { font-size: 14px; font-weight: 600; letter-spacing: .2px; }
+  .sb .sicons { display: flex; align-items: center; gap: 6px; }
+  .island { position: absolute; left: 50%; top: 11px; transform: translateX(-50%); width: 108px; height: 25px; background: #0B0B0D; border-radius: 14px; }
+  .home-indicator { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); width: 132px; height: 5px; border-radius: 3px; background: rgba(17,17,17,.30); }
+
+  .navbar {
+    height: 46px; flex-shrink: 0;
+    background: #FFFFFF;
+    border-bottom: 1px solid #E5E5E5;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 600; color: #111111;
+  }
+  .group { background: #FFFFFF; border-top: 1px solid #E5E5E5; border-bottom: 1px solid #E5E5E5; }
+  .sep { height: 1px; background: #F0F0F0; margin-left: 16px; }
+  .sep-in { height: 1px; background: #F0F0F0; margin-left: 52px; }
+  .gap { height: 10px; }
+  .content { flex: 1; overflow: hidden; }
+
+  /* ===== TabBar ===== */
+  .tabbar {
+    margin-top: auto; flex-shrink: 0;
+    height: 64px;
+    background: #F7F7F7;
+    border-top: 1px solid #E5E5E5;
+    display: flex;
+    padding: 7px 0 17px;
+  }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #888888; }
+  .tab.on { color: #07C160; }
+  .tab .tl { font-size: 10px; }
+
+  /* ===== 登录页 ===== */
+  .login-hero { padding: 42px 0 30px; display: flex; flex-direction: column; align-items: center; }
+  .logo {
+    width: 64px; height: 64px; border-radius: 16px;
+    background: #07C160;
+    display: flex; align-items: center; justify-content: center;
+    color: #FFFFFF;
+    box-shadow: 0 6px 16px rgba(7,193,96,.28);
+  }
+  .logo svg { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .app-name { margin-top: 14px; font-size: 20px; font-weight: 600; color: #111111; letter-spacing: .5px; }
+  .app-slogan { margin-top: 5px; font-size: 12px; color: #888888; letter-spacing: 1px; }
+  .form-group input {
+    display: block; width: 100%;
+    border: none; outline: none; background: transparent;
+    font-size: 15px; color: #111111;
+    padding: 15px 16px;
+  }
+  .form-group input::placeholder { color: #B2B2B2; }
+  .btn-primary {
+    display: block; width: calc(100% - 40px);
+    margin: 24px 20px 0; height: 46px;
+    border: none; border-radius: 8px;
+    background: #07C160; color: #FFFFFF;
+    font-size: 16px; font-weight: 600; letter-spacing: 2px;
+  }
+  .divider { margin: 22px 26px 16px; display: flex; align-items: center; gap: 12px; color: #B2B2B2; font-size: 12px; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: #DCDCDC; }
+  .btn-secondary {
+    width: calc(100% - 40px); margin: 0 20px; height: 46px;
+    border: 1px solid #E5E5E5; border-radius: 8px;
+    background: #FFFFFF; color: #111111;
+    font-size: 15px; font-weight: 500;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-secondary svg { width: 20px; height: 20px; color: #07C160; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .agreement { margin-top: 20px; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 11px; color: #888888; }
+  .checkbox { width: 14px; height: 14px; border-radius: 3px; background: #07C160; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .checkbox svg { width: 10px; height: 10px; fill: none; stroke: #FFFFFF; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+  .agreement a { color: #576B95; text-decoration: none; }
+  .version { margin-top: auto; text-align: center; padding-bottom: 32px; font-size: 11px; color: #B2B2B2; letter-spacing: .3px; }
+
+  /* ===== 首页 ===== */
+  .user-card { display: flex; align-items: center; gap: 12px; padding: 16px; }
+  .avatar {
+    width: 44px; height: 44px; border-radius: 6px; flex-shrink: 0;
+    background: #07C160; color: #FFFFFF;
+    font-size: 18px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .greet { font-size: 16px; font-weight: 600; color: #111111; }
+  .role { margin-top: 3px; font-size: 12px; color: #888888; }
+  .section-label { padding: 14px 16px 7px; font-size: 12px; color: #888888; }
+  .app-grid { display: grid; grid-template-columns: repeat(4, 1fr); padding: 14px 0 10px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 7px 0 9px; }
+  .cell .ib { width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+  .cell .cl { font-size: 11px; color: #111111; }
+  .cell.soon .ib { background: transparent; border: 1.5px dashed #C6C6C6; color: #B2B2B2; }
+  .cell.soon .cl { color: #B2B2B2; }
+  .more-hint { text-align: center; padding-top: 18px; font-size: 11px; color: #B2B2B2; letter-spacing: 1px; }
+  .i-blue   { background: #E9F1FD; color: #5B8DEF; }
+  .i-purple { background: #F1EBFB; color: #8F6BD8; }
+  .i-orange { background: #FCF0E2; color: #DF9440; }
+  .i-teal   { background: #E6F4F0; color: #3BA88F; }
+  .i-green  { background: #E7F6EC; color: #07C160; }
+  .i-yellow { background: #F9F3DF; color: #C2A03A; }
+  .i-red    { background: #FAECEC; color: #D96B62; }
+
+  /* ===== 我的 ===== */
+  .me-card { display: flex; align-items: center; gap: 12px; padding: 20px 16px; position: relative; }
+  .me-card .avatar { width: 52px; height: 52px; font-size: 20px; }
+  .me-name { font-size: 17px; font-weight: 600; color: #111111; }
+  .me-id { margin-top: 4px; font-size: 12px; color: #888888; }
+  .chev { width: 18px; height: 18px; color: #C7C7CC; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .me-card .chev { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); }
+  .li { display: flex; align-items: center; gap: 12px; padding: 11px 16px; font-size: 15px; color: #111111; }
+  .li .lic { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
+  .li .rv { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 13px; color: #888888; }
+  .c-green  { color: #07C160; }
+  .c-orange { color: #DF9440; }
+  .c-blue   { color: #5B8DEF; }
+  .c-purple { color: #8F6BD8; }
+  .logout { padding: 14px 0; text-align: center; font-size: 16px; color: #E64340; }
+  /* ---------- 窄屏自适应：保持三机框同排 ---------- */
+  @media (max-width: 1380px) { .stage { zoom: .94; } }
+  @media (max-width: 1280px) { .stage { zoom: .85; } }
+  @media (max-width: 1170px) { .stage { zoom: .76; } }
+  @media (max-width: 1060px) { .stage { zoom: .68; } }
+  @media (max-width: 960px)  { .stage { zoom: .60; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>方案三 · 微信原生简约风</h1>
+  <p>像微信原生页面一样自然的班组工具平台 —— 克制配色 · 全宽白色分组 · 发丝线分隔</p>
+</header>
+
+<main class="stage">
+
+  <!-- ============ ① 登录页 ============ -->
+  <div class="phone-col">
+    <div class="phone">
+      <div class="screen">
+        <div class="sb">
+          <span class="time">9:41</span>
+          <span class="island"></span>
+          <span class="sicons">
+            <svg width="17" height="11" viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="1" fill="currentColor"/><rect x="4.5" y="4.8" width="3" height="6.2" rx="1" fill="currentColor"/><rect x="9" y="2.4" width="3" height="8.6" rx="1" fill="currentColor"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="currentColor"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12"><path d="M1.2 4.4C2.8 2.8 5.3 1.9 8 1.9s5.2.9 6.8 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M3.5 7C4.6 6 6.2 5.4 8 5.4s3.4.6 4.5 1.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="9.9" r="1.3" fill="currentColor"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="currentColor" opacity="0.4"/><rect x="2.2" y="2.2" width="15.5" height="7.6" rx="1.8" fill="currentColor"/><path d="M23.2 4v4c1-.3 1.6-1 1.6-2s-.6-1.7-1.6-2z" fill="currentColor" opacity="0.5"/></svg>
+          </span>
+        </div>
+
+        <div class="login-hero">
+          <div class="logo">
+            <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          </div>
+          <div class="app-name">检修一班工具箱</div>
+          <div class="app-slogan">班组数字化工具平台</div>
+        </div>
+
+        <div class="group form-group">
+          <input type="text" placeholder="请输入账号">
+          <div class="sep"></div>
+          <input type="password" placeholder="请输入密码">
+        </div>
+
+        <button class="btn-primary">登 录</button>
+
+        <div class="divider">其他登录方式</div>
+
+        <button class="btn-secondary">
+          <svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.4 0-2.7-.3-3.8-.9L3 21l2-5.3a8.5 8.5 0 1 1 16-4.2z"/><circle cx="9" cy="11.3" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="11.3" r="1.1" fill="currentColor" stroke="none"/></svg>
+          微信一键登录
+        </button>
+
+        <div class="agreement">
+          <span class="checkbox"><svg viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></span>
+          <span>已阅读并同意<a>《用户协议》</a>和<a>《隐私政策》</a></span>
+        </div>
+
+        <div class="version">v1.0.0</div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <div class="phone-label">① 登录页</div>
+  </div>
+
+  <!-- ============ ② 首页 · 应用中心 ============ -->
+  <div class="phone-col">
+    <div class="phone">
+      <div class="screen">
+        <div class="sb" style="background:#FFFFFF;">
+          <span class="time">9:41</span>
+          <span class="island"></span>
+          <span class="sicons">
+            <svg width="17" height="11" viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="1" fill="currentColor"/><rect x="4.5" y="4.8" width="3" height="6.2" rx="1" fill="currentColor"/><rect x="9" y="2.4" width="3" height="8.6" rx="1" fill="currentColor"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="currentColor"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12"><path d="M1.2 4.4C2.8 2.8 5.3 1.9 8 1.9s5.2.9 6.8 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M3.5 7C4.6 6 6.2 5.4 8 5.4s3.4.6 4.5 1.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="9.9" r="1.3" fill="currentColor"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="currentColor" opacity="0.4"/><rect x="2.2" y="2.2" width="15.5" height="7.6" rx="1.8" fill="currentColor"/><path d="M23.2 4v4c1-.3 1.6-1 1.6-2s-.6-1.7-1.6-2z" fill="currentColor" opacity="0.5"/></svg>
+          </span>
+        </div>
+        <div class="navbar">检修一班工具箱</div>
+
+        <div class="content">
+          <div class="group user-card">
+            <div class="avatar">张</div>
+            <div>
+              <div class="greet">早上好，张三</div>
+              <div class="role">检修一班 · 高级技师</div>
+            </div>
+          </div>
+
+          <div class="section-label">应用中心</div>
+          <div class="group app-grid">
+            <div class="cell">
+              <div class="ib i-blue">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z"/></svg>
+              </div>
+              <div class="cl">AI知识库</div>
+            </div>
+            <div class="cell">
+              <div class="ib i-purple">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M12 3l1.9 5.4 5.6 1.6-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.6z"/></svg>
+              </div>
+              <div class="cl">智能助手</div>
+            </div>
+            <div class="cell">
+              <div class="ib i-orange">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>
+              </div>
+              <div class="cl">检修工单</div>
+            </div>
+            <div class="cell">
+              <div class="ib i-teal">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6.5" rx="1.6"/><rect x="3" y="13.5" width="18" height="6.5" rx="1.6"/><path d="M7 7.2h.01M7 16.7h.01"/></svg>
+              </div>
+              <div class="cl">设备台账</div>
+            </div>
+            <div class="cell">
+              <div class="ib i-green">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              </div>
+              <div class="cl">工具管理</div>
+            </div>
+            <div class="cell">
+              <div class="ib i-yellow">
+                <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20.5 20.5L16 16"/></svg>
+              </div>
+              <div class="cl">备件查询</div>
+            </div>
+            <div class="cell">
+              <div class="ib i-red">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M12 3l7 2.8V11c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V5.8z"/><path d="M9 11.8l2 2 4-4"/></svg>
+              </div>
+              <div class="cl">安全学习</div>
+            </div>
+            <div class="cell soon">
+              <div class="ib">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg>
+              </div>
+              <div class="cl">敬请期待</div>
+            </div>
+          </div>
+          <div class="more-hint">更多应用持续接入中</div>
+        </div>
+
+        <div class="tabbar">
+          <div class="tab on">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M3.5 10.5L12 3l8.5 7.5"/><path d="M5.5 9.5V21h4.8v-6h3.4v6h4.8V9.5"/></svg>
+            <span class="tl">首页</span>
+          </div>
+          <div class="tab">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c.9-3.6 3.6-5.6 7-5.6s6.1 2 7 5.6"/></svg>
+            <span class="tl">我的</span>
+          </div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <div class="phone-label">② 首页 · 应用中心</div>
+  </div>
+
+  <!-- ============ ③ 我的 ============ -->
+  <div class="phone-col">
+    <div class="phone">
+      <div class="screen">
+        <div class="sb" style="background:#FFFFFF;">
+          <span class="time">9:41</span>
+          <span class="island"></span>
+          <span class="sicons">
+            <svg width="17" height="11" viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="1" fill="currentColor"/><rect x="4.5" y="4.8" width="3" height="6.2" rx="1" fill="currentColor"/><rect x="9" y="2.4" width="3" height="8.6" rx="1" fill="currentColor"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="currentColor"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12"><path d="M1.2 4.4C2.8 2.8 5.3 1.9 8 1.9s5.2.9 6.8 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M3.5 7C4.6 6 6.2 5.4 8 5.4s3.4.6 4.5 1.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="9.9" r="1.3" fill="currentColor"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="currentColor" opacity="0.4"/><rect x="2.2" y="2.2" width="15.5" height="7.6" rx="1.8" fill="currentColor"/><path d="M23.2 4v4c1-.3 1.6-1 1.6-2s-.6-1.7-1.6-2z" fill="currentColor" opacity="0.5"/></svg>
+          </span>
+        </div>
+        <div class="navbar">我的</div>
+
+        <div class="content">
+          <div class="group me-card">
+            <div class="avatar">张</div>
+            <div>
+              <div class="me-name">张三</div>
+              <div class="me-id">账号：zhangsan · 工号 G1024</div>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg>
+          </div>
+
+          <div class="gap"></div>
+
+          <div class="group">
+            <div class="li">
+              <span class="lic c-green">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg>
+              </span>
+              我的权限
+              <span class="rv">8 个应用<svg class="chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg></span>
+            </div>
+            <div class="sep-in"></div>
+            <div class="li">
+              <span class="lic c-orange">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M18 8.5a6 6 0 0 0-12 0c0 6.5-2.5 8.5-2.5 8.5h17S18 15 18 8.5"/><path d="M10.2 20.5a2 2 0 0 0 3.6 0"/></svg>
+              </span>
+              消息通知
+              <span class="rv"><svg class="chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg></span>
+            </div>
+          </div>
+
+          <div class="gap"></div>
+
+          <div class="group">
+            <div class="li">
+              <span class="lic c-blue">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+              </span>
+              账号与安全
+              <span class="rv"><svg class="chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg></span>
+            </div>
+            <div class="sep-in"></div>
+            <div class="li">
+              <span class="lic c-purple">
+                <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 8h.01M11 12h1v4.5h1"/></svg>
+              </span>
+              关于工具箱
+              <span class="rv">v1.0.0<svg class="chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg></span>
+            </div>
+          </div>
+
+          <div class="gap"></div>
+
+          <div class="group logout">退出登录</div>
+        </div>
+
+        <div class="tabbar">
+          <div class="tab">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M3.5 10.5L12 3l8.5 7.5"/><path d="M5.5 9.5V21h4.8v-6h3.4v6h4.8V9.5"/></svg>
+            <span class="tl">首页</span>
+          </div>
+          <div class="tab on">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c.9-3.6 3.6-5.6 7-5.6s6.1 2 7 5.6"/></svg>
+            <span class="tl">我的</span>
+          </div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <div class="phone-label">③ 我的</div>
+  </div>
+
+</main>
+
+</body>
+</html>

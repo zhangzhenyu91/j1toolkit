@@ -1,0 +1,22 @@
+{
+  "name": "j1toolkit-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "检修一班工具箱后端服务（登录鉴权 / 应用权限 / Call Me · WeKnora 代理）",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ioredis": "^5.4.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.12.0"
+  }
+}

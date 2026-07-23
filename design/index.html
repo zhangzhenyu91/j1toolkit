@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>检修一班工具箱 · UI 设计稿</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    background: #F3F4F6;
+    color: #1F2329;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 1280px; margin: 0 auto; padding: 48px 32px 64px; }
+
+  /* ===== 页头 ===== */
+  .page-header { text-align: center; margin-bottom: 40px; }
+  .page-header h1 {
+    font-size: 32px; font-weight: 700; letter-spacing: 0.5px; color: #16181D;
+  }
+  .page-header .subtitle {
+    margin-top: 10px; font-size: 16px; color: #646A73; font-weight: 400;
+  }
+  .page-header .tip {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-top: 18px; padding: 8px 16px;
+    background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 999px;
+    font-size: 13px; color: #646A73;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  }
+  .page-header .tip svg { flex: none; color: #8F959E; }
+
+  /* ===== 方案 Section 卡片 ===== */
+  .scheme {
+    background: #FFFFFF;
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
+    padding: 32px 32px 28px;
+    margin-bottom: 40px;
+  }
+  .scheme-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+    margin-bottom: 6px;
+  }
+  .scheme-index {
+    font-size: 13px; font-weight: 600; color: #FFFFFF;
+    background: #16181D; border-radius: 8px;
+    min-width: 28px; height: 28px; padding: 0 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    align-self: center;
+  }
+  .scheme-name { font-size: 22px; font-weight: 700; color: #16181D; }
+  .scheme-tagline { font-size: 14px; color: #646A73; }
+
+  .scheme-meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    margin: 14px 0 20px;
+  }
+  .meta-label { font-size: 13px; color: #8F959E; margin-right: 2px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 12px 5px 6px;
+    background: #F7F8FA; border: 1px solid #EEF0F3; border-radius: 999px;
+    font-size: 12px; color: #4B505A;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .chip .dot {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    flex: none;
+  }
+
+  .scheme-frame {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #E5E7EB;
+    background: #F7F8FA;
+  }
+  .scheme-frame iframe {
+    display: block;
+    width: 100%;
+    height: 1080px;
+    border: 0;
+  }
+
+  /* ===== 对比表格 ===== */
+  .compare { padding-bottom: 32px; }
+  .compare h2 { font-size: 20px; font-weight: 700; color: #16181D; margin-bottom: 4px; }
+  .compare .compare-sub { font-size: 13px; color: #8F959E; margin-bottom: 18px; }
+  .table-wrap { overflow-x: auto; border: 1px solid #EEF0F3; border-radius: 12px; }
+  table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13.5px; min-width: 860px;
+  }
+  thead th {
+    text-align: left; font-weight: 600; color: #4B505A;
+    background: #F7F8FA;
+    padding: 12px 16px;
+    border-bottom: 1px solid #EEF0F3;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 14px 16px; color: #3E434D;
+    border-bottom: 1px solid #F2F4F7;
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: #FAFBFC; }
+  td .t-name { font-weight: 600; color: #16181D; white-space: nowrap; }
+  td .t-colors { display: inline-flex; gap: 4px; vertical-align: -3px; margin-left: 6px; }
+  td .t-colors i {
+    width: 14px; height: 14px; border-radius: 4px; display: inline-block;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+  }
+  td .t-hex { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+
+  .page-footer {
+    text-align: center; font-size: 12px; color: #A9AEB8; margin-top: 8px;
+  }
+
+  @media (max-width: 720px) {
+    .page { padding: 32px 16px 48px; }
+    .scheme { padding: 22px 18px 20px; }
+    .page-header h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ========== 页头 ========== -->
+  <header class="page-header">
+    <h1>检修一班工具箱 · UI 设计稿</h1>
+    <p class="subtitle">5 套候选风格 × 3 个核心页面（登录 / 首页·应用中心 / 我的）</p>
+    <p class="tip">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 8h.01M12 11v5"></path>
+      </svg>
+      每套为独立自包含 HTML，也可单独打开 style-N.html 查看大图
+    </p>
+  </header>
+
+  <!-- ========== 方案 1：TDesign 简蓝 ========== -->
+  <section class="scheme">
+    <div class="scheme-head">
+      <span class="scheme-index">1</span>
+      <span class="scheme-name">TDesign 简蓝</span>
+      <span class="scheme-tagline">参考 TDesign 小程序组件库 —— 企业级规范，可直接映射 t- 组件</span>
+    </div>
+    <div class="scheme-meta">
+      <span class="meta-label">主色板</span>
+      <span class="chip"><i class="dot" style="background:#0052D9"></i>#0052D9</span>
+      <span class="chip"><i class="dot" style="background:#E7EFFC"></i>#E7EFFC</span>
+      <span class="chip"><i class="dot" style="background:#F3F5F8"></i>#F3F5F8</span>
+      <span class="chip"><i class="dot" style="background:#181818"></i>#181818</span>
+    </div>
+    <div class="scheme-frame">
+      <iframe src="style-1.html" title="方案 1 · TDesign 简蓝" loading="lazy"></iframe>
+    </div>
+  </section>
+
+  <!-- ========== 方案 2：暗夜工坊 ========== -->
+  <section class="scheme">
+    <div class="scheme-head">
+      <span class="scheme-index">2</span>
+      <span class="scheme-name">暗夜工坊</span>
+      <span class="scheme-tagline">深色工业风 —— 夜间作业场景，工业控制台质感</span>
+    </div>
+    <div class="scheme-meta">
+      <span class="meta-label">主色板</span>
+      <span class="chip"><i class="dot" style="background:#121519"></i>#121519</span>
+      <span class="chip"><i class="dot" style="background:#FFB224"></i>#FFB224</span>
+      <span class="chip"><i class="dot" style="background:#1C2027"></i>#1C2027</span>
+      <span class="chip"><i class="dot" style="background:#8B93A1"></i>#8B93A1</span>
+    </div>
+    <div class="scheme-frame">
+      <iframe src="style-2.html" title="方案 2 · 暗夜工坊" loading="lazy"></iframe>
+    </div>
+  </section>
+
+  <!-- ========== 方案 3：微信原生 ========== -->
+  <section class="scheme">
+    <div class="scheme-head">
+      <span class="scheme-index">3</span>
+      <span class="scheme-name">微信原生</span>
+      <span class="scheme-tagline">微信简约风 —— 贴近微信官方语言，用户零学习成本</span>
+    </div>
+    <div class="scheme-meta">
+      <span class="meta-label">主色板</span>
+      <span class="chip"><i class="dot" style="background:#07C160"></i>#07C160</span>
+      <span class="chip"><i class="dot" style="background:#EDEDED"></i>#EDEDED</span>
+      <span class="chip"><i class="dot" style="background:#FFFFFF;border-color:rgba(0,0,0,.15)"></i>#FFFFFF</span>
+      <span class="chip"><i class="dot" style="background:#353535"></i>#353535</span>
+    </div>
+    <div class="scheme-frame">
+      <iframe src="style-3.html" title="方案 3 · 微信原生" loading="lazy"></iframe>
+    </div>
+  </section>
+
+  <!-- ========== 方案 4：流光溢彩 ========== -->
+  <section class="scheme">
+    <div class="scheme-head">
+      <span class="scheme-index">4</span>
+      <span class="scheme-name">流光溢彩</span>
+      <span class="scheme-tagline">现代渐变风 —— 蓝紫流光渐变，年轻活力</span>
+    </div>
+    <div class="scheme-meta">
+      <span class="meta-label">主色板</span>
+      <span class="chip"><i class="dot" style="background:#5F7CFF"></i>#5F7CFF</span>
+      <span class="chip"><i class="dot" style="background:#8A5CFF"></i>#8A5CFF</span>
+      <span class="chip"><i class="dot" style="background:linear-gradient(135deg,#5F7CFF,#8A5CFF)"></i>#5F7CFF → #8A5CFF</span>
+      <span class="chip"><i class="dot" style="background:#F5F6FA"></i>#F5F6FA</span>
+    </div>
+    <div class="scheme-frame">
+      <iframe src="style-4.html" title="方案 4 · 流光溢彩" loading="lazy"></iframe>
+    </div>
+  </section>
+
+  <!-- ========== 方案 5：安全橙 ========== -->
+  <section class="scheme">
+    <div class="scheme-head">
+      <span class="scheme-index">5</span>
+      <span class="scheme-name">安全橙</span>
+      <span class="scheme-tagline">浅色工业风 —— 藏青 × 安全橙，车间安全文化</span>
+    </div>
+    <div class="scheme-meta">
+      <span class="meta-label">主色板</span>
+      <span class="chip"><i class="dot" style="background:#22314E"></i>#22314E</span>
+      <span class="chip"><i class="dot" style="background:#F26D21"></i>#F26D21</span>
+      <span class="chip"><i class="dot" style="background:#FFF3EA"></i>#FFF3EA</span>
+      <span class="chip"><i class="dot" style="background:#F5F6F8"></i>#F5F6F8</span>
+    </div>
+    <div class="scheme-frame">
+      <iframe src="style-5.html" title="方案 5 · 安全橙" loading="lazy"></iframe>
+    </div>
+  </section>
+
+  <!-- ========== 对比表格 ========== -->
+  <section class="scheme compare">
+    <h2>五套方案横向对比</h2>
+    <p class="compare-sub">从气质、适用场景到前端落地成本的快速对照</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>风格</th>
+            <th>主色</th>
+            <th>气质</th>
+            <th>适用场景</th>
+            <th>前端实现说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="t-name">1 · TDesign 简蓝</span></td>
+            <td><span class="t-hex">#0052D9</span><span class="t-colors"><i style="background:#0052D9"></i></span></td>
+            <td>专业、克制、企业级</td>
+            <td>班组正式办公场景，需要长期扩展多应用的平台型产品</td>
+            <td>直接引入 TDesign 小程序组件库（tdesign-miniprogram），色板 / 圆角 / 间距与 t- 组件 Token 一一对应，开发成本最低</td>
+          </tr>
+          <tr>
+            <td><span class="t-name">2 · 暗夜工坊</span></td>
+            <td><span class="t-hex">#121519 + #FFB224</span><span class="t-colors"><i style="background:#121519"></i><i style="background:#FFB224"></i></span></td>
+            <td>硬核、沉浸、工业控制台</td>
+            <td>夜间 / 弱光作业环境，设备监控、巡检等读屏密集型场景</td>
+            <td>需全局深色变量体系（背景分层 + 发丝线亮度梯度），建议 CSS 变量管理；第三方组件需逐套覆盖深色样式，工作量中等偏高</td>
+          </tr>
+          <tr>
+            <td><span class="t-name">3 · 微信原生</span></td>
+            <td><span class="t-hex">#07C160 + #EDEDED</span><span class="t-colors"><i style="background:#07C160"></i><i style="background:#EDEDED"></i></span></td>
+            <td>熟悉、轻量、零学习成本</td>
+            <td>面向年龄跨度大的班组成员，强调上手即用、少培训</td>
+            <td>遵循微信官方设计指南，可直接使用 WeUI / weui-miniprogram 组件，几乎无定制样式负担，实现最快</td>
+          </tr>
+          <tr>
+            <td><span class="t-name">4 · 流光溢彩</span></td>
+            <td><span class="t-hex">#5F7CFF → #8A5CFF</span><span class="t-colors"><i style="background:linear-gradient(135deg,#5F7CFF,#8A5CFF)"></i></span></td>
+            <td>年轻、活力、现代感</td>
+            <td>希望传递创新形象的团队，偏展示与轻度工具场景</td>
+            <td>渐变以 CSS linear-gradient 实现，注意小程序部分组件（导航栏 / 按钮）渐变的兼容写法；需控制渐变使用面积避免视觉疲劳</td>
+          </tr>
+          <tr>
+            <td><span class="t-name">5 · 安全橙</span></td>
+            <td><span class="t-hex">#22314E + #F26D21</span><span class="t-colors"><i style="background:#22314E"></i><i style="background:#F26D21"></i></span></td>
+            <td>稳重、醒目、安全文化</td>
+            <td>车间安全生产场景，与安全警示色体系一脉相承的班组工具</td>
+            <td>浅色底 + 双主色，橙仅用于关键操作与强调位；可基于 TDesign / Vant 主题定制实现，定制量中等</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="page-footer">检修一班工具箱 · 班组数字化工具平台 · UI 设计评审稿 v1.0.0</footer>
+
+</div>
+</body>
+</html>

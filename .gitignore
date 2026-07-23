@@ -1,0 +1,14 @@
+# 依赖目录
+node_modules/
+
+# 小程序 npm 构建产物（开发者工具「构建 npm」生成，可重建）
+miniprogram_npm/
+
+# 环境变量（真实配置绝不入仓）
+.env
+
+# 系统文件
+.DS_Store
+
+# 会话数据
+.kimi-code/

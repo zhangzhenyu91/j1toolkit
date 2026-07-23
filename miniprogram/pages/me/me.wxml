@@ -1,0 +1,68 @@
+<!-- 我的（方案五：警示斜纹大卡 + 功能列表 + 退出登录） -->
+<navbar title="我的" />
+
+<view class="page-body">
+  <!-- 用户大卡 -->
+  <view class="me-card card hazard-top">
+    <view class="me-body">
+      <view class="avatar">{{avatarChar}}</view>
+      <view class="me-info">
+        <view class="me-name">{{userInfo.nickname || '同事'}}</view>
+        <view class="me-sub">账号：{{userInfo.username || '-'}}</view>
+        <view class="me-sub" wx:if="{{userInfo.team}}">{{userInfo.team}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 功能列表 -->
+  <view class="card cells-card">
+    <t-cell
+      title="我的权限"
+      left-icon="key"
+      note="{{appCount}} 个应用"
+      arrow
+      hover
+      bind:click="onPerms"
+    />
+    <t-cell
+      title="关于工具箱"
+      left-icon="book"
+      note="v1.0.0"
+      arrow
+      hover
+      bordered="{{false}}"
+      bind:click="onAbout"
+    />
+  </view>
+
+  <!-- 管理功能（仅管理员可见） -->
+  <block wx:if="{{userInfo.role === 'admin'}}">
+    <view class="section-title admin-sec">管理功能</view>
+    <view class="card cells-card">
+      <t-cell
+        title="员工管理"
+        left-icon="usergroup"
+        note="账号与状态"
+        arrow
+        hover
+        bind:click="goUsers"
+      />
+      <t-cell
+        title="权限管理"
+        left-icon="lock-on"
+        note="应用授权"
+        arrow
+        hover
+        bordered="{{false}}"
+        bind:click="goPerms"
+      />
+    </view>
+  </block>
+
+  <!-- 退出登录 -->
+  <view class="logout card" hover-class="hover-bg-warm" bindtap="onLogout">退出登录</view>
+</view>
+
+<tabbar active="me" />
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

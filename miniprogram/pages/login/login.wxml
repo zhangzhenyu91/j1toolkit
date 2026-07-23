@@ -1,0 +1,64 @@
+<!-- 登录页：藏青品牌横幅 + 账号密码 / 微信登录（方案五） -->
+<view class="page">
+  <!-- 藏青横幅 -->
+  <view class="banner" style="padding-top: {{statusBarHeight}}px;">
+    <image class="logo" src="/assets/toolbox.png" mode="aspectFit" />
+    <view class="app-name">检修一班工具箱</view>
+    <view class="app-slogan">班组数字化工具平台</view>
+  </view>
+
+  <!-- 登录表单 -->
+  <view class="form">
+    <view class="field">
+      <t-input
+        borderless
+        clearable
+        placeholder="请输入账号"
+        prefix-icon="user"
+        value="{{username}}"
+        bind:change="onUsername"
+      />
+    </view>
+    <view class="field">
+      <t-input
+        borderless
+        type="password"
+        placeholder="请输入密码"
+        prefix-icon="lock-on"
+        value="{{password}}"
+        bind:change="onPassword"
+      />
+    </view>
+
+    <t-button
+      block
+      size="large"
+      loading="{{loading}}"
+      custom-style="background: #22314E; color: #FFFFFF; border: none; border-radius: 16rpx; font-weight: 600; letter-spacing: 8rpx;"
+      bind:tap="onAccountLogin"
+    >登 录</t-button>
+
+    <view class="divider">
+      <view class="line"></view>
+      <text>其他登录方式</text>
+      <view class="line"></view>
+    </view>
+
+    <t-button
+      block
+      size="large"
+      variant="outline"
+      custom-style="background: #FFFFFF; border: 1rpx solid #DDD5C2; color: #22314E; border-radius: 16rpx;"
+      bind:tap="onWxLogin"
+    >
+      <view class="wx-inner">
+        <t-icon name="chat" size="40rpx" color="#07C160" />
+        <text>微信一键登录</text>
+      </view>
+    </t-button>
+
+    <view class="version">v1.0.0</view>
+  </view>
+
+  <t-toast id="t-toast" />
+</view>
