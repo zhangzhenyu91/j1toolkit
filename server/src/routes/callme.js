@@ -1,5 +1,6 @@
 // Call Me 应用路由：WeKnora 知识库对话代理（需登录 + call-me 应用权限）
-// SSE 转发与解析细节见《WeKnora-API对接指南》第四、六节
+// SSE 转发与解析细节见《WeKnora-API对接指南》第四、六节；
+// 所有调用携带 X-External-User-ID（user_{本系统用户id}），会话按用户隔离
 const express = require('express');
 const weknora = require('../services/weknora');
 const auth = require('../middleware/auth');
@@ -26,28 +27,38 @@ function weknoraError(res, err, next) {
 router.post('/sessions', async (req, res, next) => {
   try {
     const title = (req.body && req.body.title) || '新对话';
-    const data = await weknora.createSession(title);
+    const data = await weknora.createSession(req.user.username, title);
     return ok(res, data.data || data);
   } catch (err) {
     return weknoraError(res, err, next);
   }
 });
 
-// GET /api/v1/callme/sessions 会话列表（透传 WeKnora）
+// GET /api/v1/callme/sessions 会话列表（透传 WeKnora，按当前用户隔离）
 router.get('/sessions', async (req, res, next) => {
   try {
-    const data = await weknora.listSessions();
+    const data = await weknora.listSessions(req.user.username);
     return ok(res, data.data !== undefined ? data.data : data);
   } catch (err) {
     return weknoraError(res, err, next);
   }
 });
 
-// GET /api/v1/callme/sessions/:id 会话详情（含历史消息，透传 WeKnora）
+// GET /api/v1/callme/sessions/:id 会话详情 + 历史消息
+// 该版本 WeKnora 的 GET /sessions/{id} 只返回元数据，消息在 GET /messages/{id}/load，
+// 这里合并后统一返回（前端读 data.messages，按创建时间升序）
 router.get('/sessions/:id', async (req, res, next) => {
   try {
-    const data = await weknora.getSession(req.params.id);
-    return ok(res, data.data !== undefined ? data.data : data);
+    const [detail, messagesRaw] = await Promise.all([
+      weknora.getSession(req.user.username, req.params.id),
+      weknora.listMessages(req.user.username, req.params.id),
+    ]);
+    const session = detail.data !== undefined ? detail.data : detail;
+    const mdata = messagesRaw.data !== undefined ? messagesRaw.data : messagesRaw;
+    const messages = (Array.isArray(mdata) ? mdata : mdata.list || mdata.messages || [])
+      .slice()
+      .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+    return ok(res, { ...session, messages });
   } catch (err) {
     return weknoraError(res, err, next);
   }
@@ -58,7 +69,7 @@ router.put('/sessions/:id', async (req, res, next) => {
   try {
     const title = ((req.body && req.body.title) || '').trim();
     if (!title) return fail(res, 400, 40016, '会话名称不能为空');
-    const data = await weknora.updateSession(req.params.id, title);
+    const data = await weknora.updateSession(req.user.username, req.params.id, title);
     return ok(res, data.data !== undefined ? data.data : data, '已保存');
   } catch (err) {
     return weknoraError(res, err, next);
@@ -68,7 +79,7 @@ router.put('/sessions/:id', async (req, res, next) => {
 // DELETE /api/v1/callme/sessions/:id 删除会话
 router.delete('/sessions/:id', async (req, res, next) => {
   try {
-    await weknora.deleteSession(req.params.id);
+    await weknora.deleteSession(req.user.username, req.params.id);
     return ok(res, null, '已删除');
   } catch (err) {
     return weknoraError(res, err, next);
@@ -110,7 +121,7 @@ router.post('/chat', async (req, res) => {
   });
 
   try {
-    const wres = await weknora.agentChatStream(sessionId, { query, images });
+    const wres = await weknora.agentChatStream(req.user.username, sessionId, { query, images });
     upstream = wres.data;
 
     const parser = createSseParser((data) => {

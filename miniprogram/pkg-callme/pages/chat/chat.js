@@ -129,12 +129,18 @@ Page({
       const messages = [];
       for (const m of raw) {
         const role = m.role === 'user' ? 'user' : m.role === 'assistant' || m.role === 'ai' ? 'assistant' : null;
-        const content = m.content || m.message || '';
+        const content = m.content || m.message || m.text || '';
         if (!role || !content) continue;
         messages.push({
           role,
           content,
           html: role === 'assistant' ? this.renderMd(content) : '',
+          // 历史消息的思考过程（agent_steps[].reasoning_content），折叠展示
+          thinking:
+            role === 'assistant' && Array.isArray(m.agent_steps) && m.agent_steps.length
+              ? m.agent_steps.map((s) => s.reasoning_content || '').filter(Boolean).join('\n')
+              : '',
+          thinkingExpanded: false,
         });
       }
       if (messages.length) {

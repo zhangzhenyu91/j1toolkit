@@ -25,6 +25,18 @@ X-API-Key: sk-xxxxxxxxxxxxxxxxxxxx
 
 > **注意**：不是 `Authorization: Bearer xxx`，是 `X-API-Key`。
 
+### 2.1 终端用户标识（X-External-User-ID）
+
+会话按终端用户隔离，**所有会话与对话接口**还需携带：
+
+```http
+X-External-User-ID: user_123
+```
+
+- 取值由调用方自定（建议直接用本系统的**登录账号**，如 `zhangzhenyu91`，不带任何前缀）；同一用户的会话列表、历史记录、对话上下文均按此标识隔离；
+- **不传该头的坑**：历史记录/会话列表可能取不回（且所有调用方共享同一批会话，互相可见）；
+- `POST /agent-chat/{session_id}` 的 payload 建议同时携带 `"channel": "api"`。
+
 ---
 
 ## 三、核心流程
@@ -95,10 +107,11 @@ X-API-Key: sk-xxx
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/sessions` | 获取会话列表 |
-| GET | `/sessions/{id}` | 获取会话详情 |
+| GET | `/sessions/{id}` | 获取会话详情（**仅元数据，不含消息**） |
+| GET | `/messages/{session_id}/load` | **获取会话历史消息**（`before_time`/`limit` 分页，默认 20 条） |
 | PUT | `/sessions/{id}` | 更新会话（标题等） |
 | DELETE | `/sessions/{id}` | 删除会话 |
-| DELETE | `/sessions/{id}/messages` | 清空会话消息 |
+| DELETE | `/messages/{session_id}/{id}` | 删除单条消息（旧文档的 `DELETE /sessions/{id}/messages` 已失效） |
 | POST | `/sessions/{id}/generate_title` | 自动生成会话标题 |
 
 ---
