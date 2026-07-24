@@ -86,6 +86,16 @@ router.delete('/sessions/:id', async (req, res, next) => {
   }
 });
 
+// DELETE /api/v1/callme/sessions/:id/messages/:msgId 删除单条消息
+router.delete('/sessions/:id/messages/:msgId', async (req, res, next) => {
+  try {
+    await weknora.deleteMessage(req.user.username, req.params.id, req.params.msgId);
+    return ok(res, null, '已删除');
+  } catch (err) {
+    return weknoraError(res, err, next);
+  }
+});
+
 // POST /api/v1/callme/chat 发送消息（SSE 流式转发）
 // 入参：{ session_id, query, images? }；出参：text/event-stream
 // 事件格式（已归一化）：data: {"type":"thinking|answer|done|error","content":"...","done":bool}

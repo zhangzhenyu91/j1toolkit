@@ -65,6 +65,21 @@
               正在思考…
             </view>
           </view>
+
+          <!-- 操作条：复制 / 删除图标 + 时间（回答完成后显示） -->
+          <view wx:if="{{!item.streaming && !item.error}}" class="msg-actions">
+            <view class="action-btn" hover-class="hover-opacity" data-index="{{index}}" bindtap="onCopy">
+              <t-icon
+                name="{{item.copied ? 'check' : 'copy'}}"
+                size="28rpx"
+                color="{{item.copied ? '#F26D21' : '#A89F8A'}}"
+              />
+            </view>
+            <view class="action-btn" hover-class="hover-opacity" data-index="{{index}}" bindtap="onDelete">
+              <t-icon name="delete" size="28rpx" color="#A89F8A" />
+            </view>
+            <text class="msg-time" wx:if="{{item.timeText}}">{{item.timeText}}</text>
+          </view>
         </view>
       </view>
       <view id="msg-bottom" class="bottom-anchor"></view>

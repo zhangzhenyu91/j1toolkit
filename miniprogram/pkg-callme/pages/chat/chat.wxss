@@ -146,6 +146,26 @@
   border-radius: 12rpx;
 }
 
+/* ---------- 回答操作条（复制/时间） ---------- */
+.msg-actions {
+  margin-top: 8rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  padding: 4rpx 0;
+  transition: opacity 0.15s ease;
+}
+
+.msg-time {
+  font-size: 24rpx;
+  color: #A89F8A;
+}
+
 .bottom-anchor {
   height: 1rpx;
 }

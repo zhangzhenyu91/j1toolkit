@@ -66,6 +66,15 @@ async function deleteSession(username, id) {
   return res.data;
 }
 
+// 删除单条消息（DELETE /messages/{session_id}/{id}）
+async function deleteMessage(username, sessionId, messageId) {
+  ensureConfigured();
+  const res = await client.delete(`/messages/${sessionId}/${messageId}`, {
+    headers: extHeaders(username),
+  });
+  return res.data;
+}
+
 // Agent 对话（SSE 流式），返回 axios 流式响应，由调用方读取 res.data 流
 async function agentChatStream(username, sessionId, { query, images }) {
   ensureConfigured();
@@ -94,5 +103,6 @@ module.exports = {
   listMessages,
   updateSession,
   deleteSession,
+  deleteMessage,
   agentChatStream,
 };

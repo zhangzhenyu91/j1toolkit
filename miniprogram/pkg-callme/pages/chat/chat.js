@@ -33,11 +33,21 @@ const MD_TAG_STYLE = {
 };
 const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#22314E;word-break:break-word;';
 
+// 消息时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm
+function timeTextOf(input) {
+  const d = input ? new Date(input) : new Date();
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
+}
+
 Page({
   data: {
     sessionId: '',
     title: 'Call Me',
-    // { role, content, html?, thinking?, thinkingExpanded?, image?, streaming?, error? }
+    // { msgId?, role, content, html?, thinking?, thinkingExpanded?, image?, streaming?, error?, timeText?, copied? }
     messages: [],
     inputValue: '',
     pendingImage: null, // { path: 本地预览路径, data: base64 dataURL }
@@ -120,8 +130,90 @@ Page({
     }
   },
 
+  // 复制回答内容到剪贴板（图标短暂变为"已复制"）
+  onCopy(e) {
+    const index = e.currentTarget.dataset.index;
+    const msg = this.data.messages[index];
+    if (!msg || !msg.content) return;
+    wx.setClipboardData({
+      data: msg.content,
+      success: () => {
+        const key = `messages[${index}].copied`;
+        this.setData({ [key]: true });
+        setTimeout(() => this.setData({ [key]: false }), 1500);
+      },
+    });
+  },
+
+  // 删除本条消息（与复制同行；确认后调 WeKnora 删除接口）
+  onDelete(e) {
+    if (this.data.sending) return;
+    const index = e.currentTarget.dataset.index;
+    const msg = this.data.messages[index];
+    if (!msg) return;
+    if (!msg.msgId) {
+      this.toast('消息同步中，请稍后再试');
+      return;
+    }
+    wx.showModal({
+      title: '删除消息',
+      content: '确定删除这条回答吗？删除后不可恢复。',
+      confirmText: '删除',
+      confirmColor: '#CF4444',
+      success: async (res) => {
+        if (!res.confirm) return;
+        try {
+          await request({
+            url: `/api/v1/callme/sessions/${this.data.sessionId}/messages/${msg.msgId}`,
+            method: 'DELETE',
+          });
+          const messages = this.data.messages.slice();
+          messages.splice(index, 1);
+          this.setData({ messages });
+          this.toast('已删除');
+        } catch (err) {
+          this.toast(err.message);
+        }
+      },
+    });
+  },
+
+  // 静默同步本轮新消息的服务端 msgId（历史消息已带 id；仅更新尾部一两条，不重绘列表）
+  async syncRecentIds() {
+    try {
+      const data = await request({ url: `/api/v1/callme/sessions/${this.data.sessionId}` });
+      const raw = data.messages || [];
+      // 服务端已按时间升序，从尾部找最近的一问一答
+      let assistant = null;
+      let user = null;
+      for (let i = raw.length - 1; i >= 0; i -= 1) {
+        const role = raw[i].role;
+        if (!assistant && (role === 'assistant' || role === 'ai')) {
+          assistant = raw[i];
+        } else if (!user && role === 'user') {
+          user = raw[i];
+          break;
+        }
+      }
+      const updates = {};
+      const messages = this.data.messages;
+      for (let i = messages.length - 1; i >= 0 && i >= messages.length - 2; i -= 1) {
+        const m = messages[i];
+        if (m.role === 'assistant' && assistant && !m.msgId) {
+          updates[`messages[${i}].msgId`] = assistant.id;
+        }
+        if (m.role === 'user' && user && !m.msgId) {
+          updates[`messages[${i}].msgId`] = user.id;
+        }
+      }
+      if (Object.keys(updates).length) this.setData(updates);
+    } catch (err) {
+      // 同步失败不影响使用（下次进入会话时历史消息自带 id）
+    }
+  },
+
   // ---------- 历史消息 ----------
-  // 对 WeKnora 会话详情结构做兼容处理，实际字段以云端返回为准
+  // 消息取自 GET /messages/:id/load（后端已按时间升序合并返回）
   async loadHistory() {
     try {
       const data = await request({ url: `/api/v1/callme/sessions/${this.data.sessionId}` });
@@ -132,6 +224,7 @@ Page({
         const content = m.content || m.message || m.text || '';
         if (!role || !content) continue;
         messages.push({
+          msgId: m.id,
           role,
           content,
           html: role === 'assistant' ? this.renderMd(content) : '',
@@ -141,6 +234,7 @@ Page({
               ? m.agent_steps.map((s) => s.reasoning_content || '').filter(Boolean).join('\n')
               : '',
           thinkingExpanded: false,
+          timeText: timeTextOf(m.created_at),
         });
       }
       if (messages.length) {
@@ -207,7 +301,7 @@ Page({
 
     const { pendingImage } = this.data;
     const messages = this.data.messages.concat([
-      { role: 'user', content: query, image: pendingImage ? pendingImage.path : '' },
+      { role: 'user', content: query, image: pendingImage ? pendingImage.path : '', timeText: timeTextOf() },
       {
         role: 'assistant',
         content: '',
@@ -280,18 +374,23 @@ Page({
         [`${key}.error`]: true,
         [`${key}.streaming`]: false,
         [`${key}.thinkingExpanded`]: false,
+        [`${key}.timeText`]: timeTextOf(),
       });
       this.renderNow(index);
       this.setData({ sending: false, canSend: !!this.data.inputValue.trim() });
     } else if (evt.type === 'done') {
-      // 回答完毕：思考内容自动折叠
-      this.setData({ [`${key}.streaming`]: false, [`${key}.thinkingExpanded`]: false });
+      // 回答完毕：思考内容自动折叠，记录完成时间
+      this.setData({
+        [`${key}.streaming`]: false,
+        [`${key}.thinkingExpanded`]: false,
+        [`${key}.timeText`]: timeTextOf(),
+      });
       this.renderNow(index);
       this.setData({ sending: false, canSend: !!this.data.inputValue.trim() });
     }
   },
 
-  // 流结束收尾：无内容且非错误时给出兜底提示
+  // 流结束收尾：无内容且非错误时给出兜底提示；并静默同步本轮消息 id
   finalizeAnswer(index, errorMessage) {
     const key = `messages[${index}]`;
     const msg = this.data.messages[index];
@@ -304,10 +403,15 @@ Page({
       } else if (!msg.content && !msg.error) {
         this.setData({ [`${key}.content`]: '（未收到有效回答，请重试）' });
       }
-      this.setData({ [`${key}.streaming`]: false, [`${key}.thinkingExpanded`]: false });
+      this.setData({
+        [`${key}.streaming`]: false,
+        [`${key}.thinkingExpanded`]: false,
+        [`${key}.timeText`]: msg.timeText || timeTextOf(),
+      });
       this.renderNow(index);
     }
     this.setData({ sending: false, canSend: !!this.data.inputValue.trim() });
+    this.syncRecentIds();
     this.scrollToBottom();
   },
 });
