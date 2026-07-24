@@ -10,6 +10,7 @@
 
 - `项目文档.md` —— 需求、架构、数据库、接口、环境变量清单
 - `开发指南.md` —— 添加新应用的执行手册与踩坑约定（接入新应用前必读）
+- `design/style-5.html` —— UI 定稿设计稿（方案五，见第四节）
 - `WeKnora-API对接指南.md` —— WeKnora 知识库对接（后续应用接入用）
 
 ## 二、协作与部署规则（最高优先级）
@@ -34,7 +35,7 @@
 
 ## 四、UI 设计规范（已定稿：方案五「安全橙」× TDesign 定制）
 
-**实现方式**：组件使用 tdesign-miniprogram，在全局样式（`app.wxss`）覆盖 `--td-*` CSS 变量注入下列 token；警示斜纹、描边徽章等特征元素用 wxss 自绘。所有页面及后续应用子页面必须沿用同一套 token，与本体风格一致。定稿 token 以下表为准（原设计稿 design/ 已移除）。
+**实现方式**：组件使用 tdesign-miniprogram，在全局样式（`app.wxss`）覆盖 `--td-*` CSS 变量注入下列 token；警示斜纹、描边徽章等特征元素用 wxss 自绘。所有页面及后续应用子页面必须沿用同一套 token，与本体风格一致。定稿 token 以下表为准，参照设计稿 `design/style-5.html`。
 
 | 用途 | 值 | 说明 |
 |------|----|------|
@@ -58,6 +59,7 @@
 
 - `miniprogram/` —— 微信小程序（原生 + tdesign-miniprogram）
 - `server/` —— 后端 Node.js 服务
+- `design/` —— UI 设计稿（仅保留定稿 `style-5.html`）
 - 根目录 —— 项目文档与规则文件
 
 新应用接入 = 小程序分包页面 + 后端 `sys_app` 表配置（详见 `项目文档.md` 第七章）。
