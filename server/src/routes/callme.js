@@ -86,11 +86,32 @@ router.delete('/sessions/:id', async (req, res, next) => {
   }
 });
 
-// DELETE /api/v1/callme/sessions/:id/messages/:msgId 删除单条消息
+// DELETE /api/v1/callme/sessions/:id/messages/:msgId 删除消息（问答成对删除：
+// 一问一答在 WeKnora 共享 request_id，连同配对消息一起删除）
 router.delete('/sessions/:id/messages/:msgId', async (req, res, next) => {
   try {
-    await weknora.deleteMessage(req.user.username, req.params.id, req.params.msgId);
-    return ok(res, null, '已删除');
+    const sessionId = req.params.id;
+    const msgId = req.params.msgId;
+
+    // 找出该消息所在问答对的全部消息 id
+    let ids = [msgId];
+    try {
+      const data = await weknora.listMessages(req.user.username, sessionId);
+      const mdata = data.data !== undefined ? data.data : data;
+      const list = Array.isArray(mdata) ? mdata : mdata.list || mdata.messages || [];
+      const target = list.find((m) => m.id === msgId);
+      if (target && target.request_id) {
+        const pairIds = list.filter((m) => m.request_id === target.request_id).map((m) => m.id);
+        ids = [...new Set([...pairIds, msgId])];
+      }
+    } catch (e) {
+      // 列表获取失败时退化为仅删除本条
+    }
+
+    for (const id of ids) {
+      await weknora.deleteMessage(req.user.username, sessionId, id);
+    }
+    return ok(res, { deleted: ids.length }, '已删除');
   } catch (err) {
     return weknoraError(res, err, next);
   }

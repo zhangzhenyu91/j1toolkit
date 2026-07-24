@@ -145,7 +145,7 @@ Page({
     });
   },
 
-  // 删除本条消息（与复制同行；确认后调 WeKnora 删除接口）
+  // 删除本条消息（与复制同行；问答成对删除，确认后调后端接口）
   onDelete(e) {
     if (this.data.sending) return;
     const index = e.currentTarget.dataset.index;
@@ -156,8 +156,8 @@ Page({
       return;
     }
     wx.showModal({
-      title: '删除消息',
-      content: '确定删除这条回答吗？删除后不可恢复。',
+      title: '删除问答',
+      content: '确定删除这条问答吗？对应的问题和回答将一并删除，且不可恢复。',
       confirmText: '删除',
       confirmColor: '#CF4444',
       success: async (res) => {
@@ -167,8 +167,17 @@ Page({
             url: `/api/v1/callme/sessions/${this.data.sessionId}/messages/${msg.msgId}`,
             method: 'DELETE',
           });
+          // 本地同步移除该回答及其上方最近的一条问题
           const messages = this.data.messages.slice();
+          let qIndex = -1;
+          for (let i = index - 1; i >= 0; i -= 1) {
+            if (messages[i].role === 'user') {
+              qIndex = i;
+              break;
+            }
+          }
           messages.splice(index, 1);
+          if (qIndex >= 0) messages.splice(qIndex, 1);
           this.setData({ messages });
           this.toast('已删除');
         } catch (err) {
