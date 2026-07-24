@@ -2,14 +2,13 @@
 
 班组应用聚合平台微信小程序：本体提供统一登录（账号密码 + 微信）与应用权限控制，各应用以分包形式接入。已接入首个应用 **Call Me**（基于 WeKnora 的检修一班 AI 知识库问答）。
 
-规则与约定见 `AGENTS.md`；需求与方案见 `项目文档.md`；UI 定稿见 `design/style-5.html`（方案五 × TDesign 定制）。
+规则与约定见 `AGENTS.md`；需求与方案见 `项目文档.md`；UI 定稿为方案五 × TDesign 定制（token 见 `项目文档.md` 第八章）。
 
 ## 目录结构
 
 ```
 miniprogram/   微信小程序（原生 + tdesign-miniprogram）
 server/        后端 Node.js 服务（Express + MySQL + Redis）
-design/        UI 设计稿（style-5.html 为定稿参照）
 ```
 
 ## 后端部署（云服务器 Docker）
