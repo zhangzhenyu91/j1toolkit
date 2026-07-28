@@ -27,7 +27,7 @@
     <t-cell
       title="关于工具箱"
       left-icon="book"
-      note="v1.0.0"
+      note="v0.2"
       arrow
       hover
       bordered="{{false}}"

@@ -72,7 +72,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于工具箱',
-      content: '检修一班工具箱 v1.0.0，班组数字化工具平台。',
+      content: '检修一班工具箱 v0.2',
       confirmBtn: '知道了',
     });
   },
