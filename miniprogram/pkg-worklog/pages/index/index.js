@@ -73,6 +73,7 @@ Page({
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
+    dayAnim: '', // 日期切换平移动效：'' / from-right / from-left
     // 日历弹层
     calVisible: false,
     calValue: null,
@@ -187,11 +188,48 @@ Page({
     this.shiftDay(1);
   },
 
-  shiftDay(delta) {
-    const d = parseDate(this.data.dateStr);
-    d.setDate(d.getDate() + delta);
-    this.applyDate(fmtDate(d));
-    this.loadLogs();
+  // 两段式平移动效：当前内容先沿滑动方向移出，加载后新内容从对侧滑入
+  async shiftDay(delta) {
+    if (this._daySwitching) return; // 连滑防抖
+    this._daySwitching = true;
+    try {
+      // 出场：后一天向左移出、前一天向右移出
+      this.setData({ dayAnim: delta > 0 ? 'out-left' : 'out-right' });
+      await new Promise((r) => setTimeout(r, 80));
+      const d = parseDate(this.data.dateStr);
+      d.setDate(d.getDate() + delta);
+      this.applyDate(fmtDate(d));
+      await this.loadLogs();
+      this.playDayAnim(delta);
+    } finally {
+      this._daySwitching = false;
+    }
+  },
+
+  // 入场：后一天从右侧滑入、前一天从左侧滑入（先清空再 nextTick 重放，保证连切也触发）
+  playDayAnim(delta) {
+    this.setData({ dayAnim: '' });
+    wx.nextTick(() => {
+      this.setData({ dayAnim: delta > 0 ? 'from-right' : 'from-left' });
+    });
+  },
+
+  // ---------- 左右滑动切换日期 ----------
+  // 横向位移 ≥60px 且明显横向（|dx| > 2|dy|）才触发，不影响纵向滚动与点按
+  onTouchStart(e) {
+    const t = e.touches[0];
+    this._touch = { x: t.clientX, y: t.clientY };
+  },
+
+  onTouchEnd(e) {
+    if (!this._touch) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - this._touch.x;
+    const dy = t.clientY - this._touch.y;
+    this._touch = null;
+    if (Math.abs(dx) >= 60 && Math.abs(dx) > Math.abs(dy) * 2) {
+      this.shiftDay(dx < 0 ? 1 : -1); // 左滑后一天，右滑前一天
+    }
   },
 
   // ---------- 视图开关（全部 / 仅看我） ----------

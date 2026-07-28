@@ -1,7 +1,10 @@
 @import '../../style/common.wxss';
 
-/* 底部固定区较高（管理员入口 + 主按钮），预留空间 */
+/* 底部固定区较高（管理员入口 + 主按钮），预留空间；
+   min-height 撑满屏高：无日志的空白区域也能响应左右滑动切日 */
 .page-body {
+  min-height: 100vh;
+  box-sizing: border-box;
   padding-bottom: 260rpx;
 }
 
@@ -63,6 +66,67 @@
   font-size: 26rpx;
   color: #a89f8a;
   letter-spacing: 2rpx;
+}
+
+/* ---------- 日期切换平移动效（两段式：先沿滑动方向移出，再从对侧滑入） ---------- */
+@keyframes wl-out-left {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-48rpx);
+    opacity: 0;
+  }
+}
+
+@keyframes wl-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(48rpx);
+    opacity: 0;
+  }
+}
+
+@keyframes wl-from-right {
+  from {
+    transform: translateX(48rpx);
+    opacity: 0.2;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes wl-from-left {
+  from {
+    transform: translateX(-48rpx);
+    opacity: 0.2;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.day-pane.out-left {
+  animation: wl-out-left 0.08s ease-in forwards;
+}
+
+.day-pane.out-right {
+  animation: wl-out-right 0.08s ease-in forwards;
+}
+
+.day-pane.from-right {
+  animation: wl-from-right 0.12s ease-out;
+}
+
+.day-pane.from-left {
+  animation: wl-from-left 0.12s ease-out;
 }
 
 /* ---------- 日志卡片 ---------- */
