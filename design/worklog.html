@@ -5,11 +5,11 @@
   设计要点：
   1. 全部页面沿用本体 token：暖纸底、白卡 10px 圆角、警示斜纹条、4px 橙色竖条板块标题、描边徽章，与首页/我的风格一致；
   2. 全部操作在一级页面完成（无二级编辑页）：主页日期条 ±1 天 + 日历入口（t-calendar 弹层，按日着色：全部通过=绿底 / 有未通过=红底 / 无记录或仅免验证=无底色，「今天」橙色加粗小圆点）；日期条下为「全部 / 仅看我」视图开关（仅看我=仅显示/统计用车人含自己的卡片，个人口径：我未打卡、没有含我照片或照片未通过=红）；底部「批量下载 + 新建日志」双按钮，管理员另见「常用数据管理」次级入口（右上角禁放按钮）；新建/修改均唤起底部表单弹层（点亮成员即自动落库，改动实时同步）；
-  3. 一卡片 = 一次派车；卡片完整展示，顺序：用车人 → 巡视内容 → 打卡情况 → 水印照片；右上角角标为记录验证状态（验证通过·绿 / 未通过·红 / 未出车免验证·灰）；
+  3. 一卡片 = 一次派车；卡片完整展示：车牌号下方为「巡视内容」主内容块（橙条浅底、最大字号，与其他信息区分），其下依次打卡情况（含全部用车人，不再单设用车人员行）、水印照片；右上角角标为记录验证状态（验证通过·绿 / 未通过·红 / 未出车免验证·灰）；
   4. 记录验证通过逻辑：① 未出车不验证 ② 所有内容均已填写 ③ 至少一张水印照片且全部已通过 ④ 用车人与照片人名并集一致 ⑤ 多张照片施工内容一致；
   5. 车牌/目的地下拉面板顶部固定筛选输入框（t-popup + t-search 自绘列表）；人员点亮 t-check-tag，人员与车牌、目的地同由管理端维护，无自定义添加；
   6. 「未出车」联动：目的地整行置灰禁用，人员选择 / 打卡统计 / 水印照片三段整段隐藏，仅以提示条说明；
-  7. 水印照片竖向排列，右侧四块：① 人名标签（点击弹修改点亮框）② 施工内容（直接显示值）③ 验证状态（验证中·橙 / 通过·绿 / 日期不符·红 / 目的地不符·红）④ 经纬度（经度,纬度 / 纬度,经度 两组，点击复制到剪贴板 wx.setClipboardData）；每人限一张，已有照片人名在点亮框中置灰；
+  7. 水印照片竖向排列，右侧与缩略图等高、自上而下四块：① 人名标签（点击弹修改点亮框）② 验证状态（验证中·橙 / 通过·绿 / 日期不符·红 / 目的地不符·红 / 验证失败·红+重新验证按钮）③ 施工内容（直接显示值，行尾复制图标点击复制）④ 经纬度置底（经度,纬度 / 纬度,经度 两组，点击复制到剪贴板 wx.setClipboardData）；每人限一张，已有照片人名在点亮框中置灰；
   8. 管理页（仅 admin）：t-segmented 切换车牌号 / 目的地 / 人员，顶部输入即添加，行内编辑/停用；
   9. 照片验证：Dify workflows/run（blocking），inputs=date/destination/picture(COS remote_url 单文件对象)，user=登录账号，回写 date_verify/destination_verify/title/lng/lat，详见《开发指南》7.2。
   组件映射（tdesign-miniprogram 1.15.3，已经本地包核实）：t-calendar 日历 ｜ t-popup + t-search 筛选下拉 ｜ t-check-tag 点亮 ｜ t-tag 状态标签 ｜ t-segmented 管理页分段 ｜ 照片加号自绘 + wx.chooseMedia。
@@ -385,6 +385,29 @@
   .dl-go { margin-left:auto; width:120px; height:40px; border-radius:8px; background:#22314E; color:#fff;
            display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; letter-spacing:3px; }
 
+  /* ===== v2 卡片排版调整：字体放大 / 巡视内容主块 / 照片右侧等高重排 ===== */
+  .lc-row { padding:4px 0; font-size:15px; }
+  .lc-row .k { font-size:13px; width:64px; }
+  .ck-chip { gap:4px; height:26px; padding:0 10px; border-radius:13px; font-size:12px; }
+  /* 巡视内容：车牌号下方单独主内容块，与其他信息区分 */
+  .lc-patrol { margin-top:10px; background:#FAF8F1; border-left:4px solid #F26D21;
+               border-radius:8px; padding:9px 12px 10px; }
+  .lc-patrol-label { font-size:13px; font-weight:700; color:#A89F8A; letter-spacing:3px; }
+  .lc-patrol-text { margin-top:4px; font-size:15px; font-weight:600; color:#22314E; line-height:1.6; }
+  /* 照片右侧：与缩略图等高不溢出，顺序=人名→验证状态→施工内容(可复制)→经纬度(置底)；间距放开 */
+  .photo-item { align-items:stretch; }
+  .ph-img { width:78px; height:120px; }
+  .ph-right { height:120px; }
+  .ph-names .ntag { font-size:12px; }
+  .ph-status { margin-top:7px; }
+  .ph-wc { margin-top:7px; font-size:13px; }
+  .wc-line { display:flex; align-items:center; gap:6px; }
+  .wc-copy { width:13px; height:13px; color:#A89F8A; flex:none; }
+  .ph-geo { margin-top:auto; padding-top:6px; }
+  /* 标签与内容字号统一（经,纬 标签同内容字号） */
+  .geo-line { font-size:11px; padding:2px 0; }
+  .geo-line .gl-label { font-size:11px; }
+
   /* ---------- 窄屏自适应 ---------- */
   @media (max-width: 1380px) { .stage { zoom: .94; } }
   @media (max-width: 1280px) { .stage { zoom: .85; } }
@@ -447,10 +470,12 @@
                 <div class="plate">辽A·D12345</div>
                 <span class="badge green">验证通过</span>
               </div>
+              <div class="lc-patrol">
+                <div class="lc-patrol-label">巡视内容</div>
+                <div class="lc-patrol-text">10kV 配电室巡视，无异常。</div>
+              </div>
               <div class="lc-rows">
-                <div class="lc-row"><span class="k">用车人</span><span class="v">赵登、郑海楠</span></div>
-                <div class="lc-row"><span class="k">巡视</span><span class="v dim">10kV 配电室巡视，无异常。</span></div>
-                <div class="lc-row"><span class="k">打卡</span>
+                <div class="lc-row"><span class="k">打卡情况</span>
                   <span class="cks">
                     <span class="ck-chip yes">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                     <span class="ck-chip yes">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
@@ -465,8 +490,8 @@
                   </div>
                   <div class="ph-right">
                     <div class="ph-names"><span class="ntag">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                    <div class="ph-wc">更换 10kV 开关柜触头</div>
                     <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>通过</span></div>
+                    <div class="ph-wc wc-line">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                     <div class="ph-geo">
                       <div class="geo-line"><span class="gl-label">经,纬</span>112.3456789,37.1234567<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                       <div class="geo-line"><span class="gl-label">纬,经</span>37.1234567,112.3456789<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
@@ -480,8 +505,8 @@
                   </div>
                   <div class="ph-right">
                     <div class="ph-names"><span class="ntag">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                    <div class="ph-wc">更换 10kV 开关柜触头</div>
                     <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>通过</span></div>
+                    <div class="ph-wc wc-line">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                     <div class="ph-geo">
                       <div class="geo-line"><span class="gl-label">经,纬</span>112.3456791,37.1234565<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                       <div class="geo-line"><span class="gl-label">纬,经</span>37.1234565,112.3456791<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
@@ -518,7 +543,7 @@
       </div>
     </div>
     <div class="cap"><i>①</i>日志主页 · 默认当天</div>
-    <div class="sub">卡片完整展示：用车人 → 巡视内容 → 打卡情况 → 水印照片；右上角为记录验证状态（绿·验证通过 / 红·未通过 / 灰·未出车免验证）。通过逻辑：内容填全 ＋ 至少一张照片且全部已通过 ＋ 用车人与照片人名一致 ＋ 多张施工内容一致；未出车不验证。卡片直接交互：打卡 chips 点击即切换、照片区可加/删/改人名、操作区仅保留「删除」，全部实时同步。</div>
+    <div class="sub">卡片完整展示：车牌号下方为「巡视内容」主内容块（橙条浅底、字号最大，与其他信息区分），其下依次为打卡情况（含全部用车人）、水印照片；右上角为记录验证状态（绿·验证通过 / 红·未通过 / 灰·未出车免验证）。通过逻辑：内容填全 ＋ 至少一张照片且全部已通过 ＋ 用车人与照片人名一致 ＋ 多张施工内容一致；未出车不验证。卡片直接交互：打卡 chips 点击即切换、照片区可加/删/改人名、操作区仅保留「删除」，全部实时同步。</div>
   </div>
 
   <!-- ================= ② 日志主页 · 验证状态角标（未通过 / 免验证） ================= -->
@@ -557,10 +582,12 @@
                 <div class="plate">辽A·E67890</div>
                 <span class="badge red">未通过</span>
               </div>
+              <div class="lc-patrol">
+                <div class="lc-patrol-label">巡视内容</div>
+                <div class="lc-patrol-text">10kV 开关柜检修。</div>
+              </div>
               <div class="lc-rows">
-                <div class="lc-row"><span class="k">用车人</span><span class="v">赵登、郑海楠</span></div>
-                <div class="lc-row"><span class="k">巡视</span><span class="v dim">10kV 开关柜检修。</span></div>
-                <div class="lc-row"><span class="k">打卡</span>
+                <div class="lc-row"><span class="k">打卡情况</span>
                   <span class="cks">
                     <span class="ck-chip yes">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                     <span class="ck-chip no">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></span>
@@ -575,8 +602,8 @@
                   </div>
                   <div class="ph-right">
                     <div class="ph-names"><span class="ntag">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                    <div class="ph-wc">更换 10kV 开关柜触头</div>
                     <div class="ph-status"><span class="vtag bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>日期不符</span></div>
+                    <div class="ph-wc wc-line">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                     <div class="ph-geo">
                       <div class="geo-line"><span class="gl-label">经,纬</span>112.3456789,37.1234567<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                       <div class="geo-line"><span class="gl-label">纬,经</span>37.1234567,112.3456789<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
@@ -602,8 +629,9 @@
                 <div class="plate">未出车</div>
                 <span class="badge gray">免验证</span>
               </div>
-              <div class="lc-rows">
-                <div class="lc-row"><span class="k">巡视</span><span class="v dim">下午站内设备巡视，3# 主变油温正常。</span></div>
+              <div class="lc-patrol">
+                <div class="lc-patrol-label">巡视内容</div>
+                <div class="lc-patrol-text">下午站内设备巡视，3# 主变油温正常。</div>
               </div>
               <div class="lc-actions">
                 <div class="act act-del">删 除</div>
@@ -795,7 +823,7 @@
       </div>
     </div>
     <div class="cap"><i>④</i>新建 / 修改 · 底部表单弹层</div>
-    <div class="sub">二级编辑页已取缔：新建按钮、卡片「用车人」行/「巡视」行/车牌头部均在主页唤起本弹层（修改时回填该卡数据）；车牌/目的地下拉在面板内联展开、顶部固定筛选输入框，末位固定「未出车」；点亮成员即自动落库，改动实时同步，「完成」或遮罩关闭。</div>
+    <div class="sub">二级编辑页已取缔：新建按钮、卡片「巡视内容」主块/车牌头部均在主页唤起本弹层（修改时回填该卡数据）；车牌/目的地下拉在面板内联展开、顶部固定筛选输入框，末位固定「未出车」；点亮成员即自动落库，改动实时同步，「完成」或遮罩关闭。</div>
   </div>
 
   <!-- ================= ⑤ 未出车态 ================= -->
@@ -928,8 +956,8 @@
               </div>
               <div class="ph-right">
                 <div class="ph-names"><span class="ntag">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                <div class="ph-wc empty">验证后回填施工内容</div>
                 <div class="ph-status"><span class="vtag bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>验证失败</span><span class="v-retry">重新验证</span></div>
+                <div class="ph-wc empty">验证后回填施工内容</div>
                 <div class="ph-geo">
                   <div class="geo-line"><span class="gl-label">经,纬</span>验证后回填</div>
                   <div class="geo-line"><span class="gl-label">纬,经</span>验证后回填</div>
@@ -946,8 +974,8 @@
                   <span class="ntag">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span>
                   <span class="ntag">薛忠亮<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span>
                 </div>
-                <div class="ph-wc">更换 10kV 开关柜触头</div>
                 <div class="ph-status"><span class="vtag bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>日期不符</span></div>
+                <div class="ph-wc wc-line">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                 <div class="ph-geo">
                   <div class="geo-line"><span class="gl-label">经,纬</span>112.3456789,37.1234567<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                   <div class="geo-line"><span class="gl-label">纬,经</span>37.1234567,112.3456789<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
@@ -961,8 +989,8 @@
               </div>
               <div class="ph-right">
                 <div class="ph-names"><span class="ntag">任舒诺<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                <div class="ph-wc">电容器组巡检与紧固</div>
                 <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>通过</span></div>
+                <div class="ph-wc wc-line">电容器组巡检与紧固<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                 <div class="ph-geo">
                   <div class="geo-line"><span class="gl-label">经,纬</span>112.3456791,37.1234565<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
                   <div class="geo-line"><span class="gl-label">纬,经</span>37.1234565,112.3456791<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
@@ -980,7 +1008,7 @@
       </div>
     </div>
     <div class="cap"><i>⑥</i>主页卡片 · 打卡与照片交互</div>
-    <div class="sub">布局参照（以下交互均在一级页面卡片上进行）：打卡默认红叉（未打卡），点击人名变绿勾（已打卡）；照片右侧四块：① 人名标签（点击弹⑦修改）② 施工内容（直接显示值）③ 验证状态（验证中 / 通过 / 日期不符 / 目的地不符 / 验证失败；失败时旁置「重新验证」按钮，点击重置为验证中重新调 Dify）④ 经纬度两组格式，点击复制到剪贴板；照片区尾端灰底虚线加号唤起上传，右上角删除图标删照片。</div>
+    <div class="sub">布局参照（以下交互均在一级页面卡片上进行）：打卡默认红叉（未打卡），点击人名变绿勾（已打卡）；照片右侧与缩略图等高、自上而下四块：① 人名标签（点击弹⑦修改）② 验证状态（验证中 / 通过 / 日期不符 / 目的地不符 / 验证失败；失败时旁置「重新验证」按钮）③ 施工内容（直接显示值，行尾复制图标点击复制）④ 经纬度两组格式置底，点击复制到剪贴板；照片区尾端灰底虚线加号唤起上传，右上角删除图标删照片。</div>
   </div>
 
   <!-- ================= ⑦ 上传照片 · 人名点亮弹层 ================= -->

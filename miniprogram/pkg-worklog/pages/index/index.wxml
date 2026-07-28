@@ -25,7 +25,7 @@
   <!-- 空列表虚线占位（文案随视图口径适配） -->
   <view class="empty-box" wx:if="{{!loading && list.length === 0}}">{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点击下方新建'}}</view>
 
-  <!-- 日志卡片：用车人 → 巡视 → 打卡 → 水印照片 -->
+  <!-- 日志卡片：巡视内容（主内容块）→ 打卡情况 → 水印照片 -->
   <view class="card hazard-top logcard" wx:for="{{list}}" wx:key="id">
     <view class="lc-body">
       <!-- 车牌头部可点击：打开表单面板并回填该卡（改派车/用车人/巡视） -->
@@ -37,19 +37,18 @@
         <view class="badge {{item.badge.cls}}">{{item.badge.text}}</view>
       </view>
 
+      <!-- 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分；点击打开表单面板修改） -->
+      <view class="lc-patrol" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
+        <view class="lc-patrol-head">
+          <view class="lc-patrol-label">巡视内容</view>
+          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
+        </view>
+        <view class="lc-patrol-text">{{item.patrolText}}</view>
+      </view>
+
       <view class="lc-rows">
-        <view class="lc-row" wx:if="{{item.membersText}}" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
-          <text class="k">用车人</text>
-          <text class="v">{{item.membersText}}</text>
-          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
-        </view>
-        <view class="lc-row" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
-          <text class="k">巡视</text>
-          <text class="v dim">{{item.patrolText}}</text>
-          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
-        </view>
         <view class="lc-row" wx:if="{{item.checks.length}}">
-          <text class="k">打卡</text>
+          <text class="k">打卡情况</text>
           <view class="cks">
             <view
               class="ck-chip {{m.checked ? 'yes' : 'no'}}"
@@ -97,9 +96,7 @@
                 bind:click="onPhotoMembers"
               >{{n}}</t-tag>
             </view>
-            <!-- ② 施工内容 -->
-            <view class="ph-wc {{p.workContent ? '' : 'empty'}}">{{p.workContent || '验证后回填'}}</view>
-            <!-- ③ 验证状态（验证失败可重新验证） -->
+            <!-- ② 验证状态（验证失败可重新验证） -->
             <view class="ph-status">
               <text class="vtag {{p.status.cls}}">{{p.status.text}}</text>
               <text
@@ -110,7 +107,20 @@
                 data-pid="{{p.id}}"
               >重新验证</text>
             </view>
-            <!-- ④ 经纬度两组，点击复制 -->
+            <!-- ③ 施工内容（行尾复制按钮，点击复制） -->
+            <view class="ph-wc {{p.workContent ? '' : 'empty'}}">
+              <text class="wc-text">{{p.workContent || '验证后回填'}}</text>
+              <t-icon
+                wx:if="{{p.workContent}}"
+                class="wc-copy"
+                name="copy"
+                size="26rpx"
+                color="#A89F8A"
+                catchtap="onCopyWc"
+                data-text="{{p.workContent}}"
+              />
+            </view>
+            <!-- ④ 经纬度两组置底，点击复制 -->
             <view class="ph-geo">
               <view class="geo-line {{p.hasGeo ? '' : 'geo-empty'}}" bindtap="onCopyGeo" data-text="{{p.geoLngLat}}" data-has="{{p.hasGeo}}">
                 <text class="gl-label">经,纬</text>
@@ -338,11 +348,12 @@
     <!-- 日期范围行（改日期：先关本面板再开 range 日历，规避叠层 z-index 冲突） -->
     <view class="dl-range">
       <text class="dl-range-text">{{dlRangeText}}</text>
+      <view class="dl-mine {{dlOnlyMine ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onDlToggleMine">仅看我</view>
       <view class="dl-change" hover-class="hover-opacity" bindtap="onDlChangeDate">改日期</view>
     </view>
 
     <scroll-view scroll-y class="dl-body" enhanced show-scrollbar="{{false}}">
-      <view class="dl-empty" wx:if="{{!dlLoading && dlTotal === 0}}">该范围内暂无水印照片</view>
+      <view class="dl-empty" wx:if="{{!dlLoading && dlTotal === 0}}">{{dlOnlyMine ? '该范围内暂无含你名字的水印照片' : '该范围内暂无水印照片'}}</view>
       <!-- 一个月份一个卡片 -->
       <view class="dl-month-card" wx:for="{{dlGroups}}" wx:for-item="g" wx:for-index="gi" wx:key="month">
         <view class="dl-month-title">{{g.title}}</view>

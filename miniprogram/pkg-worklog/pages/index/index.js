@@ -12,6 +12,23 @@ const parseDate = (s) => {
   return new Date(y, m - 1, d);
 };
 
+// 日历按日着色缓存（模块级）与 format 回调
+// 注意：t-calendar 的 format 是函数型属性，setData / wxml 绑定传函数在微信下都会被剥离，
+// 只能直接写组件实例的 cal.base.format（见 recolorCalendar）；着色数据写入本缓存后手动重算
+const DAY_STATUS = {};
+
+function calFormat(day) {
+  if (day.type === 'disabled') return day;
+  const d = day.date;
+  const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const cls = [];
+  const st = DAY_STATUS[key];
+  if (st) cls.push(st === 'passed' ? 'wl-cal-passed' : 'wl-cal-failed');
+  if (key === fmtDate(new Date())) cls.push('wl-cal-today');
+  if (!cls.length) return day;
+  return { ...day, className: `${day.className || ''} ${cls.join(' ')}`.trim() };
+}
+
 // 照片验证状态 → 展示（含义见《开发指南》7.2：date_verify/destination_verify 映射，日期优先）
 const PHOTO_STATUS = {
   pending: { cls: 'ing', text: '验证中' },
@@ -95,6 +112,7 @@ Page({
     dlSelected: 0,
     dlAllChecked: false,
     dlLoading: false,
+    dlOnlyMine: false, // 仅看我：筛选仅显示含自己名字的水印照片
     // 下载面板改日期（range 日历；与下载面板互斥开合，避免叠层 z-index 冲突）
     dlCalVisible: false,
     dlCalValue: null,
@@ -127,6 +145,7 @@ Page({
   passGate() {
     if (this.data.gate) return;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
+    this._myName = user.nickname || ''; // 「仅看我」匹配成员名用（同后端 scope=mine 口径）
     this.setData({ gate: true, isAdmin: user.role === 'admin' });
     this.loadMeta();
     this.loadLogs();
@@ -182,7 +201,7 @@ Page({
     if (!scope || scope === this.data.scope) return;
     this.setData({ scope });
     // 口径变化：清空日历着色缓存并强制重拉当前月（mine 为个人口径）
-    this._dayStatus = {};
+    Object.keys(DAY_STATUS).forEach((k) => delete DAY_STATUS[k]);
     this._dayStatusMonths = {};
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
@@ -206,7 +225,6 @@ Page({
           hasVehicle: !!e.vehicle_id,
           plateText: e.vehicle_id ? e.plate_no : '未出车',
           badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
-          membersText: (e.members || []).map((m) => m.name).join('、'),
           patrolText: e.patrol_content || '—',
           checks: (e.members || []).map((m) => ({ mid: m.id, name: m.name, checked: !!m.checked })),
           photos,
@@ -270,42 +288,33 @@ Page({
     this.loadDayStatus(`${year}-${pad(month)}`);
   },
 
-  // 日历着色数据缓存：this._dayStatus = { 'YYYY-MM-DD': 'passed'|'failed' }，按月去重拉取
+  // 日历着色数据：按月去重拉取，写入模块级缓存（DAY_STATUS）后手动重算日历
   async loadDayStatus(month, force) {
-    this._dayStatus = this._dayStatus || {};
     this._dayStatusMonths = this._dayStatusMonths || {};
     if (!force && this._dayStatusMonths[month]) {
-      this.injectCalendarFormat();
+      this.recolorCalendar();
       return;
     }
     try {
       const data = await request({ url: `/api/v1/worklog/day-status?month=${month}${this.scopeQuery()}` });
-      Object.assign(this._dayStatus, (data && data.map) || {});
+      Object.assign(DAY_STATUS, (data && data.map) || {});
       this._dayStatusMonths[month] = true;
-      this.injectCalendarFormat();
+      this.recolorCalendar();
     } catch (err) {
       // 着色失败不阻塞选日，仅静默跳过
     }
   },
 
-  // format 属性需注入函数：selectComponent 后 setData（每次换新的函数引用以触发组件重算）
-  injectCalendarFormat() {
+  // 强制日历重算：format 函数经 setData / wxml 绑定传递在微信下不可靠（会被剥离），
+  // 直接写入组件内部 TCalendar 实例的 format（纯 JS 引用，无序列化），再手动重算。
+  // 注意 switch-mode="month" 时网格渲染的是 currentMonth（由 months 推导），
+  // 只 calcMonths 不够，必须再 updateCurrentMonth——否则点过日期才着色
+  recolorCalendar() {
     const cal = this.selectComponent('#wl-calendar');
-    if (cal) cal.setData({ format: (day) => this.formatCalDay(day) });
-  },
-
-  // 给当日有记录的日期单元格追加着色 className，「今天」追加醒目标记（样式见 index.wxss）
-  formatCalDay(day) {
-    const d = day.date;
-    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    const cls = [];
-    if (day.type !== 'disabled') {
-      const st = this._dayStatus && this._dayStatus[key];
-      if (st) cls.push(st === 'passed' ? 'wl-cal-passed' : 'wl-cal-failed');
-      if (key === fmtDate(new Date())) cls.push('wl-cal-today');
-    }
-    if (!cls.length) return day;
-    return { ...day, className: `${day.className || ''} ${cls.join(' ')}`.trim() };
+    if (!cal || !cal.base || typeof cal.calcMonths !== 'function') return;
+    cal.base.format = calFormat;
+    cal.calcMonths();
+    if (typeof cal.updateCurrentMonth === 'function') cal.updateCurrentMonth();
   },
 
   // ---------- 卡片交互 ----------
@@ -326,6 +335,13 @@ Page({
   onPreview(e) {
     const { url, urls } = e.currentTarget.dataset;
     wx.previewImage({ current: url, urls });
+  },
+
+  // 复制施工内容（系统自弹「内容已复制」，不再重复提示）
+  onCopyWc(e) {
+    const { text } = e.currentTarget.dataset;
+    if (!text) return;
+    wx.setClipboardData({ data: text });
   },
 
   // 复制经纬度（经,纬 / 纬,经 两组；wx.setClipboardData 成功时微信会自弹「内容已复制」，不再重复提示）
@@ -392,7 +408,7 @@ Page({
     this.openForm(0);
   },
 
-  // 卡片「用车人」行/「巡视」行/车牌头部：打开同一面板并回填该卡数据
+  // 卡片「巡视内容」主块/车牌头部：打开同一面板并回填该卡数据（改派车/用车人/巡视）
   onOpenForm(e) {
     this.openForm(Number(e.currentTarget.dataset.id) || 0);
   },
@@ -880,34 +896,52 @@ Page({
     try {
       const { dlFrom, dlTo } = this.data;
       const data = await request({ url: `/api/v1/worklog/photos?from=${dlFrom}&to=${dlTo}` });
-      const list = (data && data.list) || [];
-      const groups = [];
-      const groupMap = {};
-      list.forEach((p) => {
-        if (!groupMap[p.month]) {
-          const [y, m] = p.month.split('-');
-          groupMap[p.month] = { month: p.month, title: `${Number(y)} 年 ${Number(m)} 月`, photos: [] };
-          groups.push(groupMap[p.month]);
-        }
-        groupMap[p.month].photos.push({
-          id: p.id,
-          url: p.url,
-          log_date: p.log_date,
-          day: p.day, // 后端字段，从 1 开始
-          selected: true, // 默认全选，点圈可反选
-        });
-      });
-      this.setData({
-        dlGroups: groups,
-        dlUrls: list.map((p) => p.url),
-        dlRangeText: `${dlFrom} ~ ${dlTo}`,
-        dlLoading: false,
-      });
-      this.recountDl();
+      this._dlRaw = (data && data.list) || [];
+      this.buildDlGroups();
+      this.setData({ dlRangeText: `${dlFrom} ~ ${dlTo}`, dlLoading: false });
     } catch (err) {
       this.setData({ dlLoading: false });
       this.toast(err.message);
     }
+  },
+
+  // 按当前开关（dlOnlyMine=仅含自己名字的照片）把原始列表组装为月份分组
+  buildDlGroups() {
+    let list = this._dlRaw || [];
+    if (this.data.dlOnlyMine && this._myName) {
+      list = list.filter((p) => (p.members || []).includes(this._myName));
+    }
+    const groups = [];
+    const groupMap = {};
+    list.forEach((p) => {
+      if (!groupMap[p.month]) {
+        const [y, m] = p.month.split('-');
+        groupMap[p.month] = { month: p.month, title: `${Number(y)} 年 ${Number(m)} 月`, photos: [] };
+        groups.push(groupMap[p.month]);
+      }
+      groupMap[p.month].photos.push({
+        id: p.id,
+        url: p.url,
+        log_date: p.log_date,
+        day: p.day, // 后端字段，从 1 开始
+        selected: true, // 默认全选，点圈可反选
+      });
+    });
+    this.setData({
+      dlGroups: groups,
+      dlUrls: list.map((p) => p.url),
+    });
+    this.recountDl();
+  },
+
+  // 「仅看我」开关：筛选仅显示含自己名字的水印照片（按昵称匹配成员名，同视图开关口径）
+  onDlToggleMine() {
+    if (!this._myName) {
+      this.toast('未匹配到你的成员名');
+      return;
+    }
+    this.setData({ dlOnlyMine: !this.data.dlOnlyMine });
+    this.buildDlGroups();
   },
 
   // 已选计数 / 全选态

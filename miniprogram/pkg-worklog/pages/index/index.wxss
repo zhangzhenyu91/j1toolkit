@@ -130,6 +130,39 @@
   color: #a89f8a;
 }
 
+/* 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分） */
+.lc-patrol {
+  margin-top: 20rpx;
+  background: #faf8f1;
+  border-left: 8rpx solid #f26d21;
+  border-radius: 16rpx;
+  padding: 18rpx 24rpx 20rpx;
+}
+
+.lc-patrol-head {
+  display: flex;
+  align-items: center;
+}
+
+.lc-patrol-label {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #a89f8a;
+  letter-spacing: 6rpx;
+}
+
+.lc-patrol-head .row-edit {
+  margin-left: auto;
+}
+
+.lc-patrol-text {
+  margin-top: 8rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #22314e;
+  line-height: 1.6;
+}
+
 .lc-rows {
   margin-top: 16rpx;
 }
@@ -138,15 +171,15 @@
   display: flex;
   align-items: baseline;
   gap: 16rpx;
-  padding: 6rpx 0;
-  font-size: 26rpx;
+  padding: 8rpx 0;
+  font-size: 30rpx;
 }
 
 .lc-row .k {
   flex: none;
   color: #a89f8a;
-  font-size: 24rpx;
-  width: 104rpx;
+  font-size: 26rpx;
+  width: 112rpx;
 }
 
 .lc-row .v {
@@ -169,11 +202,11 @@
 .ck-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6rpx;
-  height: 44rpx;
-  padding: 0 16rpx;
-  border-radius: 22rpx;
-  font-size: 22rpx;
+  gap: 8rpx;
+  height: 52rpx;
+  padding: 0 20rpx;
+  border-radius: 26rpx;
+  font-size: 24rpx;
   font-weight: 700;
   border: 2rpx solid;
   box-sizing: border-box;
@@ -334,6 +367,15 @@
   background: #f26d21;
 }
 
+/* 选中日同为「今天」时：橙底上文字与圆点改白（后置覆盖，避免橙橙相消看不见数字） */
+.t-calendar .t-calendar__dates-item.t-calendar__dates-item--selected.wl-cal-today {
+  color: #ffffff;
+}
+
+.t-calendar .t-calendar__dates-item--selected.wl-cal-today::after {
+  background: #ffffff;
+}
+
 /* ============================================================
    视图开关 / 可点行提示 / 底部双按钮 / 表单弹层 / 批量下载面板
    ============================================================ */
@@ -473,6 +515,23 @@
   color: #f26d21;
   font-weight: 700;
   padding: 4rpx 12rpx;
+}
+
+/* 「仅看我」开关（筛选仅含自己名字的水印照片） */
+.dl-mine {
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #6b7690;
+  border: 2rpx solid #e3dccb;
+  border-radius: 24rpx;
+  padding: 6rpx 20rpx;
+  background: #ffffff;
+}
+
+.dl-mine.on {
+  color: #f26d21;
+  border-color: #f26d21;
+  background: #fdeee2;
 }
 
 .dl-body {

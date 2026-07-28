@@ -130,12 +130,13 @@
   margin-left: 6rpx;
 }
 
-/* ---------- 水印照片项：左缩略图 + 右侧四块 ---------- */
+/* ---------- 水印照片项：左缩略图 + 右侧四块（与缩略图等高，不溢出） ---------- */
 .photo-item {
   display: flex;
   gap: 24rpx;
   padding: 20rpx 28rpx;
   position: relative;
+  align-items: stretch;
 }
 
 .photo-item + .photo-item {
@@ -143,8 +144,8 @@
 }
 
 .ph-img {
-  width: 140rpx;
-  height: 180rpx;
+  width: 156rpx;
+  height: 240rpx;
   flex: none;
   border-radius: 16rpx;
   background: #e9e2d2;
@@ -153,8 +154,10 @@
 .ph-right {
   flex: 1;
   min-width: 0;
+  height: 240rpx;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* ① 人名标签（t-tag 橙描边） */
@@ -165,26 +168,45 @@
   align-items: center;
 }
 
-/* ② 施工内容 */
-.ph-wc {
-  margin-top: 8rpx;
+.ph-names .t-tag {
   font-size: 24rpx;
+}
+
+/* ② 验证状态 */
+.ph-status {
+  margin-top: 14rpx;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+/* ③ 施工内容（行尾复制按钮） */
+.ph-wc {
+  margin-top: 14rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  font-size: 26rpx;
   font-weight: 600;
   color: #22314e;
   line-height: 1.5;
 }
 
+.ph-wc .wc-text {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.ph-wc .wc-copy {
+  flex: none;
+}
+
 .ph-wc.empty {
   color: #a89f8a;
   font-weight: 400;
-}
-
-/* ③ 验证状态 */
-.ph-status {
-  margin-top: 8rpx;
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
 }
 
 .vtag {
@@ -228,10 +250,10 @@
   color: #cf4444;
 }
 
-/* ④ 经纬度（两组，点击复制） */
+/* ④ 经纬度（两组置底，点击复制；标签与内容字号统一） */
 .ph-geo {
-  margin-top: 10rpx;
-  padding-top: 8rpx;
+  margin-top: auto;
+  padding-top: 12rpx;
   border-top: 2rpx dashed #ede6d4;
 }
 
@@ -239,15 +261,15 @@
   display: flex;
   align-items: center;
   gap: 12rpx;
-  padding: 2rpx 0;
-  font-size: 21rpx;
+  padding: 4rpx 0;
+  font-size: 22rpx;
   color: #6b7690;
   font-family: Consolas, 'Courier New', monospace;
 }
 
 .geo-line .gl-label {
   flex: none;
-  font-size: 20rpx;
+  font-size: 22rpx;
   color: #a89f8a;
 }
 
@@ -261,7 +283,7 @@
   color: #a89f8a;
 }
 
-/* 照片右上角删除小图标（编辑页） */
+/* 照片右上角删除小图标 */
 .ph-del {
   position: absolute;
   top: 14rpx;
