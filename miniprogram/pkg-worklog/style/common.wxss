@@ -1,0 +1,524 @@
+/* ============================================================
+   出工日志分包共享样式（主页 index 使用；edit 二级页已取缔，
+   新建/编辑表单收进主页底部弹层，样式同源保留于此）
+   转写自设计稿 design/worklog.html，token 同 app.wxss（方案五）
+   ============================================================ */
+
+/* ---------- 板块标题行（标题本体用全局 .section-title） ---------- */
+.sec-row {
+  display: flex;
+  align-items: center;
+  margin: 28rpx 8rpx 18rpx;
+}
+
+.sec-note {
+  margin-left: auto;
+  font-size: 22rpx;
+  color: #a89f8a;
+}
+
+/* ---------- 底部固定操作区（右上角禁放按钮，主操作置底） ---------- */
+.bottombar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  padding: 16rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
+  background: #f4f1ea;
+}
+
+.btn-primary {
+  height: 96rpx;
+  border-radius: 16rpx;
+  background: #22314e;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  letter-spacing: 8rpx;
+  box-shadow: 0 24rpx 48rpx rgba(34, 49, 78, 0.3);
+}
+
+/* ---------- 日期 chip（编辑页展示当前日志日期） ---------- */
+.date-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 4rpx 8rpx 0;
+  background: #fdeee2;
+  color: #f26d21;
+  border-radius: 12rpx;
+  padding: 8rpx 20rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+}
+
+/* ---------- 提示条（「未出车」联动说明） ---------- */
+.tip {
+  margin-top: 28rpx;
+  background: #fdeee2;
+  border-radius: 20rpx;
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  padding: 24rpx 30rpx;
+}
+
+.tip .ti {
+  width: 64rpx;
+  height: 64rpx;
+  flex: none;
+  border-radius: 18rpx;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tip .tip-t {
+  display: block;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #22314e;
+}
+
+.tip .tip-p {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+  line-height: 1.6;
+}
+
+/* ---------- 人员点亮区（t-check-tag） ---------- */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18rpx;
+  padding: 4rpx 4rpx 0;
+}
+
+/* check-tag 外观对齐设计稿 .ctag（圆角胶囊、白底灰字 → 橙边橙字浅橙底） */
+.tags .t-tag {
+  min-width: 144rpx;
+  height: 68rpx;
+  border-radius: 34rpx;
+  justify-content: center;
+  font-size: 26rpx;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+
+.tags .t-tag--outline.t-tag--default {
+  background: #ffffff;
+  border-color: #e3dccb;
+  color: #6b7690;
+}
+
+.tags .t-tag--disabled {
+  background: #f4f1ea;
+  border-color: #ede6d4;
+  color: #c6ba9c;
+}
+
+.ctag-note {
+  font-size: 20rpx;
+  margin-left: 6rpx;
+}
+
+/* ---------- 水印照片项：左缩略图 + 右侧四块 ---------- */
+.photo-item {
+  display: flex;
+  gap: 24rpx;
+  padding: 20rpx 28rpx;
+  position: relative;
+}
+
+.photo-item + .photo-item {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.ph-img {
+  width: 140rpx;
+  height: 180rpx;
+  flex: none;
+  border-radius: 16rpx;
+  background: #e9e2d2;
+}
+
+.ph-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ① 人名标签（t-tag 橙描边） */
+.ph-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  align-items: center;
+}
+
+/* ② 施工内容 */
+.ph-wc {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #22314e;
+  line-height: 1.5;
+}
+
+.ph-wc.empty {
+  color: #a89f8a;
+  font-weight: 400;
+}
+
+/* ③ 验证状态 */
+.ph-status {
+  margin-top: 8rpx;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.vtag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  height: 38rpx;
+  padding: 0 14rpx;
+  border-radius: 8rpx;
+  font-size: 20rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+}
+
+/* 验证失败后的「重新验证」小按钮 */
+.v-retry {
+  display: inline-flex;
+  align-items: center;
+  height: 38rpx;
+  padding: 0 16rpx;
+  border-radius: 8rpx;
+  border: 2rpx solid #f26d21;
+  color: #f26d21;
+  font-size: 20rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+}
+
+.vtag.ing {
+  background: #fdeee2;
+  color: #f26d21;
+}
+
+.vtag.ok {
+  background: #e3f2ec;
+  color: #2ba471;
+}
+
+.vtag.bad {
+  background: #fbe9e9;
+  color: #cf4444;
+}
+
+/* ④ 经纬度（两组，点击复制） */
+.ph-geo {
+  margin-top: 10rpx;
+  padding-top: 8rpx;
+  border-top: 2rpx dashed #ede6d4;
+}
+
+.geo-line {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 2rpx 0;
+  font-size: 21rpx;
+  color: #6b7690;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.geo-line .gl-label {
+  flex: none;
+  font-size: 20rpx;
+  color: #a89f8a;
+}
+
+.geo-line .gl-val {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.geo-line.geo-empty {
+  color: #a89f8a;
+}
+
+/* 照片右上角删除小图标（编辑页） */
+.ph-del {
+  position: absolute;
+  top: 14rpx;
+  right: 18rpx;
+  width: 52rpx;
+  height: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+/* 添加水印照片（灰底虚线，通栏铺满卡片） */
+.add-photo {
+  margin: 4rpx 0 0;
+  height: 104rpx;
+  border-radius: 20rpx;
+  background: #f0ebdd;
+  border: 3rpx dashed #d9cfba;
+  color: #a89f8a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  letter-spacing: 4rpx;
+}
+
+/* 无用车人时置灰禁用（点击仅提示） */
+.add-photo.disabled {
+  opacity: 0.5;
+}
+
+/* ---------- 底部弹层（筛选下拉 / 人名点亮共用） ---------- */
+.sheet {
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.sheet-title {
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 4rpx;
+  color: #22314e;
+}
+
+.sheet-note {
+  text-align: center;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.sheet .tags {
+  margin-top: 32rpx;
+  padding: 0 4rpx;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 40rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 88rpx;
+  border-radius: 16rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #6b7690;
+  letter-spacing: 6rpx;
+  box-sizing: border-box;
+}
+
+.btn-dark {
+  flex: 2;
+  height: 88rpx;
+  border-radius: 16rpx;
+  background: #22314e;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+}
+
+/* ============================================================
+   表单底部弹层（新建/编辑合一，移植自已取缔的 edit 页）
+   ============================================================ */
+
+/* ---------- 巡视内容输入框 ---------- */
+.textarea-wrap {
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  padding: 20rpx 28rpx;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 132rpx;
+  font-size: 28rpx;
+  color: #22314e;
+  line-height: 1.7;
+  box-sizing: border-box;
+}
+
+.ph {
+  color: #a89f8a;
+}
+
+/* ---------- 派车情况表单卡 ---------- */
+.form-card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  overflow: hidden;
+  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+}
+
+.frow {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 32rpx;
+}
+
+.frow + .frow {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.frow .fk {
+  flex: none;
+  width: 128rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.frow .fv {
+  flex: 1;
+  font-size: 28rpx;
+  color: #22314e;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.frow .fv.placeholder {
+  color: #a89f8a;
+  font-weight: 400;
+}
+
+.frow.disabled {
+  background: #faf8f1;
+}
+
+.frow.disabled .fk,
+.frow.disabled .fv {
+  color: #a89f8a;
+}
+
+.frow.disabled .fv {
+  font-weight: 400;
+}
+
+/* 「无派车」灰徽章 */
+.badge-mini {
+  flex: none;
+  border: 2rpx solid #d9cfba;
+  color: #a89f8a;
+  border-radius: 8rpx;
+  padding: 0 12rpx;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 32rpx;
+}
+
+/* ---------- 内联筛选下拉（手风琴展开于表单行下方，结构参照设计稿屏④ .drop-panel） ---------- */
+.drop-panel {
+  border-top: 2rpx solid #f1ebdc;
+  background: #faf8f1;
+  padding: 16rpx 24rpx 20rpx;
+}
+
+.drop-search {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  padding: 16rpx 24rpx;
+}
+
+.drop-input {
+  flex: 1;
+  font-size: 26rpx;
+  color: #22314e;
+}
+
+.drop-list {
+  margin-top: 16rpx;
+  max-height: 480rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.drop-item {
+  padding: 18rpx 28rpx;
+  font-size: 26rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.drop-item + .drop-item {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.drop-item .t-icon {
+  margin-left: auto;
+}
+
+.drop-item.on {
+  color: #f26d21;
+  font-weight: 700;
+  background: #fdeee2;
+}
+
+.drop-item.none {
+  color: #6b7690;
+}
+
+.drop-item.none .badge-mini {
+  margin-left: auto;
+}
+
+.drop-empty {
+  margin-top: 16rpx;
+  padding: 40rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: #a89f8a;
+}

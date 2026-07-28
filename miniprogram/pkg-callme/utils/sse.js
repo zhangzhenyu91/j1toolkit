@@ -1,5 +1,5 @@
 // 小程序端 SSE 工具：ArrayBuffer 转字符串 + 兼容 data:/data: 两种格式的解析器
-// 对接细节见《WeKnora-API对接指南》第五节
+// 对接细节见《开发指南》第六章
 
 // ArrayBuffer → 字符串（含中文 UTF-8 处理）
 function arrayBufferToString(buffer) {

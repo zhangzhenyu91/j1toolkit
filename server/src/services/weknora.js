@@ -1,4 +1,4 @@
-// WeKnora API 封装（对接细节见《WeKnora-API对接指南》）
+// WeKnora API 封装（对接细节见《开发指南》第六章）
 // 认证方式：X-API-Key 请求头（不是 Authorization Bearer）；
 // 另需 X-External-User-ID 标识终端用户（直接用本系统登录账号），会话按用户隔离
 const axios = require('axios');

@@ -1,0 +1,50 @@
+<!-- 出工日志 · 常用数据管理（仅 admin） -->
+<navbar back title="常用数据管理" />
+
+<view class="page-body" wx:if="{{isAdmin}}">
+  <!-- 三分段：车牌号 / 目的地 / 人员 -->
+  <view class="seg-wrap">
+    <t-segmented
+      block
+      options="{{segOptions}}"
+      value="{{seg}}"
+      bind:change="onSegChange"
+    />
+  </view>
+
+  <!-- 顶部输入即添加 -->
+  <view class="addbar">
+    <view class="inp">
+      <input
+        class="inp-input"
+        value="{{keyword}}"
+        bindinput="onKeywordInput"
+        bindconfirm="onAdd"
+        placeholder="{{placeholder}}"
+        placeholder-class="ph"
+      />
+    </view>
+    <view class="btn-add" hover-class="hover-opacity" bindtap="onAdd">
+      <t-icon name="add" size="30rpx" color="#FFFFFF" />
+      添加
+    </view>
+  </view>
+
+  <!-- 字典列表（编辑 / 停用；不提供删除，被引用项后端拒绝删除） -->
+  <view class="card mlist">
+    <view class="mrow {{item.status === 1 ? '' : 'off'}}" wx:for="{{list}}" wx:key="id">
+      <view class="mi">
+        <t-icon name="{{icon}}" size="32rpx" color="#F26D21" />
+      </view>
+      <text class="mt">{{item.name}}</text>
+      <text class="moff-tip" wx:if="{{item.status !== 1}}">已停用</text>
+      <view class="ops">
+        <text class="edit" hover-class="hover-opacity" bindtap="onEdit" data-id="{{item.id}}" data-name="{{item.name}}">编辑</text>
+        <text class="off" hover-class="hover-opacity" bindtap="onToggle" data-id="{{item.id}}" data-status="{{item.status}}">{{item.status === 1 ? '停用' : '启用'}}</text>
+      </view>
+    </view>
+    <view class="mempty" wx:if="{{!loading && list.length === 0}}">暂无数据，可在上方添加</view>
+  </view>
+</view>
+
+<t-toast id="t-toast" />

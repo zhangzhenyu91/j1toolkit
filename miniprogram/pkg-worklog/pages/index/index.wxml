@@ -1,0 +1,422 @@
+<!-- 出工日志 · 主页（默认当天，一卡片 = 一次派车；新建/编辑收进底部表单弹层） -->
+<navbar back title="出工日志" />
+
+<view class="page-body" wx:if="{{gate}}">
+  <!-- 日期条：±1 天 + 日历入口 -->
+  <view class="datebar">
+    <view class="arrow" hover-class="hover-scale" bindtap="onPrevDay">
+      <t-icon name="chevron-left" size="32rpx" color="#6B7690" />
+    </view>
+    <view class="dtxt">{{dateText}} {{weekText}}<text class="today" wx:if="{{isToday}}">今天</text></view>
+    <view class="arrow" hover-class="hover-scale" bindtap="onNextDay">
+      <t-icon name="chevron-right" size="32rpx" color="#6B7690" />
+    </view>
+    <view class="cal" hover-class="hover-scale" bindtap="onOpenCalendar">
+      <t-icon name="calendar" size="36rpx" color="#F26D21" />
+    </view>
+  </view>
+
+  <!-- 视图开关：全部 / 仅看我（mine 由后端按 sys_user.nickname 匹配成员） -->
+  <view class="scopebar">
+    <view class="scope-pill {{scope === 'all' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onScopeChange" data-scope="all">全部</view>
+    <view class="scope-pill {{scope === 'mine' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onScopeChange" data-scope="mine">仅看我</view>
+  </view>
+
+  <!-- 空列表虚线占位（文案随视图口径适配） -->
+  <view class="empty-box" wx:if="{{!loading && list.length === 0}}">{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点击下方新建'}}</view>
+
+  <!-- 日志卡片：用车人 → 巡视 → 打卡 → 水印照片 -->
+  <view class="card hazard-top logcard" wx:for="{{list}}" wx:key="id">
+    <view class="lc-body">
+      <!-- 车牌头部可点击：打开表单面板并回填该卡（改派车/用车人/巡视） -->
+      <view class="lc-head" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
+        <view class="ci {{item.hasVehicle ? '' : 'ci-gray'}}">
+          <t-icon name="vehicle" size="36rpx" color="{{item.hasVehicle ? '#F26D21' : '#A89F8A'}}" />
+        </view>
+        <view class="plate">{{item.plateText}}</view>
+        <view class="badge {{item.badge.cls}}">{{item.badge.text}}</view>
+      </view>
+
+      <view class="lc-rows">
+        <view class="lc-row" wx:if="{{item.membersText}}" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
+          <text class="k">用车人</text>
+          <text class="v">{{item.membersText}}</text>
+          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
+        </view>
+        <view class="lc-row" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
+          <text class="k">巡视</text>
+          <text class="v dim">{{item.patrolText}}</text>
+          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
+        </view>
+        <view class="lc-row" wx:if="{{item.checks.length}}">
+          <text class="k">打卡</text>
+          <view class="cks">
+            <view
+              class="ck-chip {{m.checked ? 'yes' : 'no'}}"
+              wx:for="{{item.checks}}"
+              wx:for-item="m"
+              wx:key="name"
+              hover-class="hover-opacity"
+              bindtap="onCheckToggle"
+              data-entry-id="{{item.id}}"
+              data-mid="{{m.mid}}"
+              data-index="{{index}}"
+            >
+              {{m.name}}
+              <t-icon name="{{m.checked ? 'check' : 'close'}}" size="20rpx" color="{{m.checked ? '#2BA471' : '#CF4444'}}" />
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 水印照片（无照片且无派车时不显示该区；派车卡无照片时直接显示添加栏） -->
+      <view class="lc-photos" wx:if="{{item.showPhotos}}">
+        <view class="photo-item" wx:for="{{item.photos}}" wx:for-item="p" wx:key="id">
+          <image
+            class="ph-img"
+            src="{{p.url}}"
+            mode="aspectFill"
+            bindtap="onPreview"
+            data-url="{{p.url}}"
+            data-urls="{{item.photoUrls}}"
+          />
+          <view class="ph-right">
+            <!-- ① 人名标签（点击弹人名点亮层修改） -->
+            <view class="ph-names">
+              <t-tag
+                wx:for="{{p.members}}"
+                wx:for-item="n"
+                wx:key="*this"
+                theme="primary"
+                variant="outline"
+                size="small"
+                icon="edit-1"
+                data-entry-id="{{item.id}}"
+                data-pid="{{p.id}}"
+                data-names="{{p.members}}"
+                bind:click="onPhotoMembers"
+              >{{n}}</t-tag>
+            </view>
+            <!-- ② 施工内容 -->
+            <view class="ph-wc {{p.workContent ? '' : 'empty'}}">{{p.workContent || '验证后回填'}}</view>
+            <!-- ③ 验证状态（验证失败可重新验证） -->
+            <view class="ph-status">
+              <text class="vtag {{p.status.cls}}">{{p.status.text}}</text>
+              <text
+                class="v-retry"
+                wx:if="{{p.statusKey === 'failed'}}"
+                hover-class="hover-opacity"
+                catchtap="onRetryVerify"
+                data-pid="{{p.id}}"
+              >重新验证</text>
+            </view>
+            <!-- ④ 经纬度两组，点击复制 -->
+            <view class="ph-geo">
+              <view class="geo-line {{p.hasGeo ? '' : 'geo-empty'}}" bindtap="onCopyGeo" data-text="{{p.geoLngLat}}" data-has="{{p.hasGeo}}">
+                <text class="gl-label">经,纬</text>
+                <text class="gl-val">{{p.hasGeo ? p.geoLngLat : '验证后回填'}}</text>
+                <t-icon wx:if="{{p.hasGeo}}" name="copy" size="24rpx" color="#A89F8A" />
+              </view>
+              <view class="geo-line {{p.hasGeo ? '' : 'geo-empty'}}" bindtap="onCopyGeo" data-text="{{p.geoLatLng}}" data-has="{{p.hasGeo}}">
+                <text class="gl-label">纬,经</text>
+                <text class="gl-val">{{p.hasGeo ? p.geoLatLng : '验证后回填'}}</text>
+                <t-icon wx:if="{{p.hasGeo}}" name="copy" size="24rpx" color="#A89F8A" />
+              </view>
+            </view>
+          </view>
+          <!-- 删除照片 -->
+          <view class="ph-del" hover-class="hover-scale" catchtap="onDeletePhoto" data-pid="{{p.id}}">
+            <t-icon name="delete" size="32rpx" color="#CF4444" />
+          </view>
+        </view>
+        <!-- 添加水印照片（仅派车卡；无用车人时点击提示） -->
+        <view
+          class="add-photo"
+          wx:if="{{item.hasVehicle}}"
+          hover-class="hover-opacity"
+          bindtap="onAddPhoto"
+          data-entry-id="{{item.id}}"
+        >
+          <t-icon name="add" size="40rpx" color="#A89F8A" />
+          添加水印照片
+        </view>
+      </view>
+
+      <view class="lc-actions">
+        <view class="act act-del" hover-class="hover-opacity" bindtap="onDelete" data-id="{{item.id}}">删 除</view>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- 底部固定区：管理员入口 + 批量下载/新建日志（1:2） -->
+<view class="bottombar" wx:if="{{gate}}">
+  <view class="admin-link" wx:if="{{isAdmin}}" hover-class="hover-opacity" bindtap="onManage">
+    <text class="admin-link-b">常用数据管理</text>
+  </view>
+  <view class="btns">
+    <view class="btn-download" hover-class="hover-opacity" bindtap="onOpenDownload">
+      <t-icon name="download" size="32rpx" color="#22314E" />
+      批量下载
+    </view>
+    <view class="btn-primary btn-create" hover-class="hover-opacity" bindtap="onCreate">
+      <t-icon name="add" size="36rpx" color="#FFFFFF" />
+      新建日志
+    </view>
+  </view>
+</view>
+
+<!-- 日历选日（按日验证状态着色；单选无确认按钮，点日期即选中并自动关闭） -->
+<t-calendar
+  id="wl-calendar"
+  visible="{{calVisible}}"
+  value="{{calValue}}"
+  type="single"
+  switch-mode="month"
+  min-date="{{minDate}}"
+  max-date="{{maxDate}}"
+  confirm-btn="{{null}}"
+  bind:change="onCalChange"
+  bind:close="onCalClose"
+  bind:panel-change="onCalPanelChange"
+>
+  <view slot="title" class="cal-title">
+    选择日期
+    <view class="cal-legend">
+      <text><text class="lg lg-g"></text>全部通过</text>
+      <text><text class="lg lg-b"></text>有未通过</text>
+      <text>无底色＝无记录 / 仅免验证</text>
+    </view>
+  </view>
+</t-calendar>
+
+<!-- 新建/编辑表单底部弹层（edit 二级页取缔后内嵌；键盘弹起时动态抬高底部 padding） -->
+<t-popup visible="{{formVisible}}" placement="bottom" bind:visible-change="onFormVisibleChange">
+  <view class="form-sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(24rpx + env(safe-area-inset-bottom))'}};">
+    <view class="sheet-title">{{formId ? '修改日志' : '新建日志'}}</view>
+    <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
+      <!-- 日期 chip -->
+      <view class="date-chip">
+        <t-icon name="calendar" size="28rpx" color="#F26D21" />
+        {{formDateStr}}
+      </view>
+
+      <!-- 巡视内容（可空，失焦且有变化才自动 PUT） -->
+      <view class="sec-row">
+        <view class="section-title">巡视内容</view>
+        <view class="sec-note">可空</view>
+      </view>
+      <view class="textarea-wrap">
+        <textarea
+          class="textarea"
+          value="{{patrol}}"
+          bindinput="onFormPatrolInput"
+          bindblur="onFormPatrolBlur"
+          placeholder="请输入巡视内容（可空）"
+          placeholder-class="ph"
+          adjust-position="{{false}}"
+          bindkeyboardheightchange="onKeyboardHeight"
+          auto-height
+          maxlength="-1"
+        />
+      </view>
+
+      <!-- 派车情况（车牌/目的地行内联展开筛选下拉，手风琴互斥） -->
+      <view class="sec-row">
+        <view class="section-title">派车情况</view>
+      </view>
+      <view class="form-card">
+        <view class="frow" hover-class="hover-bg-warm" bindtap="onToggleVehicleDrop">
+          <text class="fk">车牌号</text>
+          <view class="fv {{vehicleId === 0 ? 'placeholder' : ''}}">
+            {{vehicleId === 0 ? '请选择车牌号' : vehicleText}}
+            <text class="badge-mini" wx:if="{{isNoVehicle}}">无派车</text>
+          </view>
+          <t-icon name="{{dropType === 'vehicle' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#C9C0AB" />
+        </view>
+        <!-- 内联展开：车牌筛选面板（末位固定「未出车」带灰徽章） -->
+        <view class="drop-panel" wx:if="{{dropType === 'vehicle'}}">
+          <view class="drop-search">
+            <t-icon name="search" size="30rpx" color="#A89F8A" />
+            <input class="drop-input" value="{{dropKeyword}}" bindinput="onDropInput" placeholder="输入关键字筛选" placeholder-class="ph" />
+          </view>
+          <scroll-view scroll-y class="drop-list" wx:if="{{dropList.length}}">
+            <view
+              class="drop-item {{item.selected ? 'on' : ''}} {{item.none ? 'none' : ''}}"
+              wx:for="{{dropList}}"
+              wx:key="id"
+              hover-class="hover-bg-warm"
+              bindtap="onDropSelect"
+              data-id="{{item.id}}"
+            >
+              <text>{{item.name}}</text>
+              <text class="badge-mini" wx:if="{{item.none}}">无派车</text>
+              <t-icon wx:if="{{item.selected && !item.none}}" name="check" size="28rpx" color="#F26D21" />
+            </view>
+          </scroll-view>
+          <view class="drop-empty" wx:else>无匹配项</view>
+        </view>
+        <view class="frow {{isNoVehicle ? 'disabled' : ''}}" hover-class="{{isNoVehicle ? '' : 'hover-bg-warm'}}" bindtap="onToggleDestDrop">
+          <text class="fk">目的地</text>
+          <view class="fv {{destId === 0 || isNoVehicle ? 'placeholder' : ''}}">
+            {{isNoVehicle ? '未出车不可选' : destId === 0 ? '请选择目的地' : destText}}
+          </view>
+          <t-icon wx:if="{{!isNoVehicle}}" name="{{dropType === 'dest' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#C9C0AB" />
+        </view>
+        <!-- 内联展开：目的地筛选面板 -->
+        <view class="drop-panel" wx:if="{{dropType === 'dest'}}">
+          <view class="drop-search">
+            <t-icon name="search" size="30rpx" color="#A89F8A" />
+            <input class="drop-input" value="{{dropKeyword}}" bindinput="onDropInput" placeholder="输入关键字筛选" placeholder-class="ph" />
+          </view>
+          <scroll-view scroll-y class="drop-list" wx:if="{{dropList.length}}">
+            <view
+              class="drop-item {{item.selected ? 'on' : ''}}"
+              wx:for="{{dropList}}"
+              wx:key="id"
+              hover-class="hover-bg-warm"
+              bindtap="onDropSelect"
+              data-id="{{item.id}}"
+            >
+              <text>{{item.name}}</text>
+              <t-icon wx:if="{{item.selected}}" name="check" size="28rpx" color="#F26D21" />
+            </view>
+          </scroll-view>
+          <view class="drop-empty" wx:else>无匹配项</view>
+        </view>
+      </view>
+
+      <!-- 未出车联动提示条 -->
+      <view class="tip" wx:if="{{isNoVehicle}}">
+        <view class="ti">
+          <t-icon name="info-circle" size="36rpx" color="#F26D21" />
+        </view>
+        <view>
+          <text class="tip-t">已选择「未出车」</text>
+          <view class="tip-p">人员选择已隐藏；未出车卡片不参与记录验证（免验证）。派车卡改未出车前需先删除水印照片。</view>
+        </view>
+      </view>
+
+      <!-- 人员选择（点亮即用车人；新建时点亮首个成员即自动落库） -->
+      <block wx:if="{{!isNoVehicle}}">
+        <view class="sec-row">
+          <view class="section-title">人员选择</view>
+          <view class="sec-note">点亮即用车人</view>
+        </view>
+        <view class="tags">
+          <t-check-tag
+            wx:for="{{members}}"
+            wx:key="id"
+            checked="{{item.checked}}"
+            content=""
+            data-index="{{index}}"
+            bind:change="onMemberTagChange"
+            shape="round"
+            variant="outline"
+            size="medium"
+          >{{item.name}}</t-check-tag>
+        </view>
+      </block>
+    </scroll-view>
+
+    <!-- 底部「完 成」（遮罩关闭同效） -->
+    <view class="form-foot">
+      <view class="btn-primary" hover-class="hover-opacity" bindtap="onFormDone">完 成</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 批量下载面板（近全屏，圆角顶；照片按月份分卡、3 列网格） -->
+<t-popup visible="{{dlVisible}}" placement="bottom" bind:visible-change="onDlVisibleChange">
+  <view class="dl-sheet">
+    <view class="dl-head">
+      <view class="dl-title">批量下载水印照片</view>
+      <view class="dl-close" hover-class="hover-opacity" bindtap="onCloseDownload">
+        <t-icon name="close" size="36rpx" color="#6B7690" />
+      </view>
+    </view>
+    <!-- 日期范围行（改日期：先关本面板再开 range 日历，规避叠层 z-index 冲突） -->
+    <view class="dl-range">
+      <text class="dl-range-text">{{dlRangeText}}</text>
+      <view class="dl-change" hover-class="hover-opacity" bindtap="onDlChangeDate">改日期</view>
+    </view>
+
+    <scroll-view scroll-y class="dl-body" enhanced show-scrollbar="{{false}}">
+      <view class="dl-empty" wx:if="{{!dlLoading && dlTotal === 0}}">该范围内暂无水印照片</view>
+      <!-- 一个月份一个卡片 -->
+      <view class="dl-month-card" wx:for="{{dlGroups}}" wx:for-item="g" wx:for-index="gi" wx:key="month">
+        <view class="dl-month-title">{{g.title}}</view>
+        <view class="dl-grid">
+          <view class="dl-cell" wx:for="{{g.photos}}" wx:for-item="p" wx:for-index="pi" wx:key="id">
+            <image class="dl-thumb" src="{{p.url}}" mode="aspectFill" bindtap="onDlPreview" data-url="{{p.url}}" />
+            <view class="dl-day">{{p.day}}日</view>
+            <view class="dl-ring {{p.selected ? 'on' : ''}}" catchtap="onDlToggle" data-gi="{{gi}}" data-pi="{{pi}}">
+              <t-icon wx:if="{{p.selected}}" name="check" size="22rpx" color="#FFFFFF" />
+            </view>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+
+    <!-- 底部固定栏：全选 + 已选计数 / 下载主按钮 -->
+    <view class="dl-foot">
+      <view class="dl-all" hover-class="hover-opacity" bindtap="onDlToggleAll">
+        <view class="dl-ring dl-ring-static {{dlAllChecked ? 'on' : ''}}">
+          <t-icon wx:if="{{dlAllChecked}}" name="check" size="22rpx" color="#FFFFFF" />
+        </view>
+        <text>全选</text>
+        <text class="dl-count">已选 {{dlSelected}} 张</text>
+      </view>
+      <view class="dl-btn {{dlSelected === 0 ? 'disabled' : ''}}" hover-class="{{dlSelected === 0 ? '' : 'hover-opacity'}}" bindtap="onDlDownload">下 载</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 下载面板改日期：range 日历（与下载面板互斥开合；confirm 取 e.detail.value 两个时间戳） -->
+<t-calendar
+  visible="{{dlCalVisible}}"
+  value="{{dlCalValue}}"
+  type="range"
+  allow-same-day
+  switch-mode="month"
+  min-date="{{minDate}}"
+  max-date="{{maxDate}}"
+  title="选择下载范围"
+  confirm-btn="确定选择"
+  bind:confirm="onDlCalConfirm"
+  bind:close="onDlCalClose"
+/>
+
+<!-- 照片人名点亮弹层（添加 / 修改复用） -->
+<t-popup visible="{{memberVisible}}" placement="bottom" bind:visible-change="onMemberVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">选择照片所属人名</view>
+    <view class="sheet-note">点亮即本张水印照片中包含的人名（可多选）</view>
+    <view class="tags">
+      <t-check-tag
+        wx:for="{{candidates}}"
+        wx:key="name"
+        checked="{{item.checked}}"
+        disabled="{{item.disabled}}"
+        content=""
+        data-index="{{index}}"
+        bind:change="onCandidateChange"
+        shape="round"
+        variant="outline"
+        size="medium"
+      >
+        {{item.name}}<text class="ctag-note" wx:if="{{item.disabled}}">已上传</text>
+      </t-check-tag>
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onMemberCancel">取 消</view>
+      <view class="btn-dark" hover-class="hover-opacity" bindtap="onMemberConfirm">
+        <t-icon name="{{memberMode === 'add' ? 'image' : 'check'}}" size="34rpx" color="#FFFFFF" />
+        {{memberMode === 'add' ? '确认，选择照片' : '确认修改'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

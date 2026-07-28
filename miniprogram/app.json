@@ -14,6 +14,14 @@
         "pages/sessions/sessions",
         "pages/chat/chat"
       ]
+    },
+    {
+      "root": "pkg-worklog",
+      "name": "worklog",
+      "pages": [
+        "pages/index/index",
+        "pages/manage/manage"
+      ]
     }
   ],
   "window": {

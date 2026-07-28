@@ -1,5 +1,5 @@
 // Call Me 应用路由：WeKnora 知识库对话代理（需登录 + call-me 应用权限）
-// SSE 转发与解析细节见《WeKnora-API对接指南》第四、六节；
+// SSE 转发与解析细节见《开发指南》第六章；
 // 所有调用携带 X-External-User-ID（user_{本系统用户id}），会话按用户隔离
 const express = require('express');
 const weknora = require('../services/weknora');

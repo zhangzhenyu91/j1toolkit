@@ -44,6 +44,21 @@ const config = {
     apiKey: str('WEKNORA_API_KEY'),
     agentId: str('WEKNORA_AGENT_ID'),
   },
+  cos: {
+    secretId: str('COS_SECRET_ID'),
+    secretKey: str('COS_SECRET_KEY'),
+    bucket: str('COS_BUCKET'),
+    region: str('COS_REGION'),
+  },
+  dify: {
+    apiUrl: str('DIFY_API_URL'),
+  },
+  worklog: {
+    enabled: str('WORKLOG_ENABLED') === 'true',
+    cosPrefix: str('COS_WORKLOG_PREFIX', 'worklog/'),
+    cosBaseUrl: str('COS_WORKLOG_BASE_URL'),
+    difyKey: str('DIFY_WORKLOG_API_KEY'),
+  },
 };
 
 // 启动必需项：缺失即拒绝启动，避免带病运行

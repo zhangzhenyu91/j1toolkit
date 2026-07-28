@@ -14,7 +14,7 @@ const pool = mysql.createPool({
   charset: 'utf8mb4',
 });
 
-// 表结构（对应《项目文档》第五章）
+// 表结构（对应《开发指南》第三章）
 const DDL = [
   `CREATE TABLE IF NOT EXISTS sys_user (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -125,6 +125,12 @@ async function ensureSchema() {
     'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
     [adminId, APP_CALL_ME.key]
   );
+
+  // 出工日志：WORKLOG_ENABLED=true 时建表并写入应用/成员种子
+  if (config.worklog.enabled) {
+    await require('./worklog/schema').ensureWorklogSchema(pool);
+    console.log('[初始化] 出工日志已开启（WORKLOG_ENABLED=true），表结构与应用/成员种子就绪');
+  }
 }
 
 module.exports = { pool, ensureSchema };

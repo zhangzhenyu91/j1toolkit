@@ -42,6 +42,10 @@ app.use('/api/v1/app', require('./routes/app'));
 app.use('/api/v1/user', require('./routes/user'));
 app.use('/api/v1/callme', require('./routes/callme'));
 app.use('/api/v1/admin', require('./routes/admin'));
+// 出工日志：env WORKLOG_ENABLED=true 时才挂载（建表/种子见 db.js）
+if (config.worklog.enabled) {
+  app.use('/api/v1/worklog', require('./worklog'));
+}
 
 // 404 与统一错误处理
 app.use((req, res) => fail(res, 404, 40404, '接口不存在'));

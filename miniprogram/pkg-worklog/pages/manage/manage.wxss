@@ -1,0 +1,129 @@
+/* ---------- 分段（激活态藏青底白字，对齐设计稿 .seg） ---------- */
+.seg-wrap {
+  /* CSS 变量穿透组件（apply-shared），覆盖 t-segmented 主题 */
+  --td-segmented-bg-color: #ffffff;
+  --td-segmented-item-active-bg: #22314e;
+  --td-segmented-item-active-color: #ffffff;
+  --td-segmented-item-color: #6b7690;
+}
+
+.seg-wrap .t-segmented {
+  border-radius: 20rpx;
+  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+}
+
+/* ---------- 添加栏 ---------- */
+.addbar {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 28rpx;
+}
+
+.inp {
+  flex: 1;
+  height: 84rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  padding: 0 28rpx;
+  box-sizing: border-box;
+}
+
+.inp-input {
+  flex: 1;
+  font-size: 26rpx;
+  color: #22314e;
+}
+
+.ph {
+  color: #a89f8a;
+}
+
+.btn-add {
+  width: 172rpx;
+  height: 84rpx;
+  flex: none;
+  border-radius: 16rpx;
+  background: #f26d21;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+  box-shadow: 0 16rpx 32rpx rgba(242, 109, 33, 0.3);
+}
+
+/* ---------- 字典列表 ---------- */
+.mlist {
+  margin-top: 28rpx;
+}
+
+.mrow {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 32rpx;
+}
+
+.mrow + .mrow {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.mrow .mi {
+  width: 60rpx;
+  height: 60rpx;
+  flex: none;
+  border-radius: 16rpx;
+  background: #fdeee2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mrow .mt {
+  font-size: 28rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+}
+
+.mrow.off .mt {
+  color: #a89f8a;
+  font-weight: 400;
+}
+
+.moff-tip {
+  font-size: 20rpx;
+  color: #a89f8a;
+  border: 2rpx solid #d9cfba;
+  border-radius: 8rpx;
+  padding: 0 10rpx;
+  line-height: 30rpx;
+}
+
+.mrow .ops {
+  margin-left: auto;
+  display: flex;
+  gap: 28rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.mrow .ops .edit {
+  color: #f26d21;
+}
+
+.mrow .ops .off {
+  color: #a89f8a;
+}
+
+.mempty {
+  padding: 48rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: #a89f8a;
+}
