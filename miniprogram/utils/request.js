@@ -32,6 +32,7 @@ function request({ url, method = 'GET', data, header = {}, timeout = 30000, auth
         }
         const err = new Error(body.message || `请求失败（${res.statusCode}）`);
         err.statusCode = res.statusCode;
+        err.code = body.code; // 业务错误码（如 40313 微信未绑定），供调用方区分场景
         reject(err);
       },
       fail() {

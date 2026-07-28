@@ -101,9 +101,10 @@ router.post('/login', async (req, res, next) => {
 });
 
 // POST /api/v1/auth/wx-login 微信登录：小程序 wx.login 得 code，后端向微信换 openid
+// 仅允许已绑定账号的微信号登录；未绑定时返回 40313，提示先账号密码登录一次（登录过程自动完成绑定）
 router.post('/wx-login', async (req, res, next) => {
   try {
-    const { code, nickname, avatar } = req.body || {};
+    const { code } = req.body || {};
     if (!code) return fail(res, 400, 40002, '缺少微信 code');
     if (!config.wx.appid || !config.wx.secret) {
       return fail(res, 503, 50301, '微信登录未配置（WX_APPID / WX_SECRET）');
@@ -116,20 +117,12 @@ router.post('/wx-login', async (req, res, next) => {
       return fail(res, 400, 40012, `微信登录失败：${err.message}`);
     }
     const { openid } = wxData;
-    const unionid = wxData.unionid || null;
 
-    let [rows] = await pool.query('SELECT * FROM sys_user WHERE openid = ?', [openid]);
-    let user = rows[0];
+    const [rows] = await pool.query('SELECT * FROM sys_user WHERE openid = ?', [openid]);
+    const user = rows[0];
     if (!user) {
-      // 未绑定任何账号时创建独立账号（默认无应用权限，由管理员开通；
-      // 后续账号密码登录会自动把微信号绑定到已有账号）
-      const name = nickname || `微信用户${openid.slice(-4)}`;
-      const [r] = await pool.query(
-        'INSERT INTO sys_user (username, password_hash, nickname, avatar, openid, unionid, team) VALUES (?, NULL, ?, ?, ?, ?, ?)',
-        [`wx_${openid}`, name, avatar || '', openid, unionid, '检修一班']
-      );
-      [rows] = await pool.query('SELECT * FROM sys_user WHERE id = ?', [r.insertId]);
-      user = rows[0];
+      // 微信号未绑定任何账号：不再自动创建独立账号，引导用户先用账号密码登录完成绑定
+      return fail(res, 403, 40313, '该微信号尚未绑定账号，请先使用账号密码登录一次后再使用微信登录');
     }
     if (user.status !== 1) return fail(res, 403, 40302, '账号已被禁用，请联系管理员');
 

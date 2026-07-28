@@ -92,7 +92,17 @@ Page({
           });
           this.afterLogin(data);
         } catch (err) {
-          this.toast(err.message);
+          if (err.code === 40313) {
+            // 微信号未绑定账号：弹窗引导先用账号密码登录（登录时自动绑定微信号）
+            wx.showModal({
+              title: '微信号未绑定',
+              content: '该微信号尚未绑定账号，请先用账号密码登录一次，绑定成功后即可使用微信登录。',
+              showCancel: false,
+              confirmText: '知道了',
+            });
+          } else {
+            this.toast(err.message);
+          }
         }
       },
       fail: () => this.toast('微信登录失败，请重试'),
