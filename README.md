@@ -6,6 +6,7 @@
 
 - **Call Me**（`pkg-callme`）：基于 WeKnora 的检修一班 AI 知识库问答（SSE 流式对话）
 - **出工日志**（`pkg-worklog`）：派车/巡视/打卡记录，水印照片经 Dify 工作流验证（`WORKLOG_ENABLED` 开关）
+- **安全日活动记录**（`pkg-safeday` 引导页 + `SafeDayLogs/` 网页端平台）：上传活动文档经 Dify 工作流生成记录文件；网页端登录仅允许拥有 `safe-day` 应用权限的用户
 
 **文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；出工日志 UI 定稿见 `design/`。
 
@@ -25,10 +26,12 @@
 miniprogram/   微信小程序（主包：登录/首页/我的/管理页）
   pkg-callme/    Call Me 分包
   pkg-worklog/   出工日志分包（主页 + 常用数据管理页）
+  pkg-safeday/   安全日活动记录分包（网页端应用引导页）
 server/        后端 Node.js 服务
   src/routes/    本体路由（auth/user/app/admin/callme）
   src/worklog/   出工日志后端子模块（schema/cos/dify/verify/路由）
 design/        UI 定稿设计稿（style-5.html、worklog.html）
+SafeDayLogs/   安全日活动记录生成平台（独立部署网页端，登录走主平台权限校验）
 ```
 
 ## 后端部署（云服务器 Docker）
@@ -52,7 +55,7 @@ proxy_read_timeout 300s;  # 推荐：长生成不被掐断（服务端另有 15s
 client_max_body_size 20m; # 图片上传（base64）需要
 ```
 
-**初始化**：首次启动自动建 `sys_user` / `sys_app` / `sys_user_app` 三张表，写入 Call Me 应用记录，创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 6 张业务表并写入应用与 7 名成员种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
+**初始化**：首次启动自动建 `sys_user` / `sys_app` / `sys_user_app` 三张表，写入 Call Me、安全日活动记录应用记录，创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 6 张业务表并写入应用与 7 名成员种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
 
 ## 环境变量清单
 
