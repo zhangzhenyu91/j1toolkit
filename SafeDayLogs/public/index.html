@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>安全日活动记录生成平台</title>
+<link rel="icon" type="image/svg+xml" href="safe.svg">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<!-- 顶部横幅 -->
+<header class="banner">
+  <div class="banner-inner">
+    <div class="user-chip" id="userChip" style="display:none">
+      <span id="userName"></span>
+      <button class="btn-logout" id="logoutBtn" type="button">退出登录</button>
+    </div>
+    <div class="logo-badge reveal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/>
+        <path d="M9 12l2 2 4-4"/>
+      </svg>
+    </div>
+    <h1 class="reveal" style="animation-delay:.08s">安全日活动记录生成平台</h1>
+    <p class="reveal" style="animation-delay:.16s">上传活动文档，自动生成安全日活动记录</p>
+  </div>
+  <svg class="wave" viewBox="0 0 1440 90" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,50 C220,88 460,10 720,38 C980,66 1220,18 1440,54 L1440,90 L0,90 Z" fill="#f4f6fb"/>
+  </svg>
+</header>
+
+<main class="container">
+
+  <!-- 卡片一：生成新记录 -->
+  <section class="card reveal" style="animation-delay:.24s">
+    <div class="card-head">
+      <span class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M12 8v8M8 12h8"/>
+        </svg>
+      </span>
+      <div>
+        <h2>生成新记录</h2>
+        <small>上传活动文档并选择日期，一键生成记录文件</small>
+      </div>
+    </div>
+
+    <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="选择或拖拽文件">
+      <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M16 16l-4-4-4 4"/>
+        <path d="M12 12v9"/>
+        <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+      </svg>
+      <p class="dz-main">点击选择文件，或将文件拖拽到此处</p>
+      <p class="dz-hint">支持 pdf、doc、docx、ppt、pptx、xls、xlsx；单文件任意格式，多文件需全部为 PDF（将自动合并）</p>
+    </div>
+    <input type="file" id="fileInput" hidden multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx">
+
+    <div class="tags" id="tags"></div>
+
+    <div class="form-row">
+      <label for="dateInput">活动日期</label>
+      <input type="date" id="dateInput">
+      <span class="date-preview" id="datePreview">提交格式：—</span>
+    </div>
+
+    <div class="actions">
+      <button class="btn-primary" id="genBtn" type="button" disabled>生成记录</button>
+    </div>
+  </section>
+
+  <!-- 卡片二：历史记录 -->
+  <section class="card reveal" style="animation-delay:.36s">
+    <div class="card-head">
+      <span class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+          <path d="M3 3v5h5"/>
+          <path d="M12 7v5l3 3"/>
+        </svg>
+      </span>
+      <div>
+        <h2>历史记录</h2>
+        <small>最近生成的安全日活动记录</small>
+      </div>
+    </div>
+
+    <div id="recordList"></div>
+    <p class="empty-tip" id="emptyTip">暂无生成记录</p>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>
+  <a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener" class="police-link"><img src="public-security.png" alt="公安" class="police-icon" onerror="this.style.display='none'">晋公网安备14118202000050号</a>
+</footer>
+
+<!-- 文件名确认弹窗 -->
+<div class="overlay" id="overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <button class="modal-x" id="modalX" type="button" aria-label="关闭">&times;</button>
+    <h3 id="modalTitle">确认记录文件名</h3>
+    <p class="modal-sub">该名称将写入记录内容，可修改后开始生成</p>
+    <input type="text" id="nameInput" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn-ghost" id="cancelBtn" type="button">取消</button>
+      <button class="btn-primary btn-sm" id="confirmBtn" type="button">确定，开始生成</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+</body>
+</html>

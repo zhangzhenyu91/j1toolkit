@@ -1,0 +1,24 @@
+networks:
+    1panel-network:
+        external: true
+
+services:
+  docx-mcp:
+    build: .
+    container_name: docx-mcp
+    restart: unless-stopped
+    networks:
+      - 1panel-network
+    ports:
+      - "8002:8002"
+    volumes:
+      # 关键映射：网站项目的 docs/ → 容器内 /app/docs
+      # Dify 通过 MCP 写入 docs/{date}.docx 后，网站即可检测并提供下载
+      - ../docs:/app/docs
+    environment:
+      # 传输协议：streamable-http（默认，Dify 1.6+ 支持）；旧版 Dify 改为 sse
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8002"
+      # streamable-http 默认 /mcp/；改用 sse 时建议改为 /sse/
+      MCP_PATH: /mcp/

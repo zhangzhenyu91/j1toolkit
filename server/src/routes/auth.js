@@ -100,6 +100,35 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
+// POST /api/v1/auth/app-login 应用登录校验（供外部网页应用调用，如 SafeDayLogs 安全日活动记录平台）：
+// 一次完成「账号密码 + 指定应用权限」校验；不签发本平台 JWT，会话由调用方自行管理
+router.post('/app-login', async (req, res, next) => {
+  try {
+    const { username, password, app_key: appKey } = req.body || {};
+    if (!username || !password || !appKey) return fail(res, 400, 40001, '请输入账号和密码');
+
+    const [rows] = await pool.query('SELECT * FROM sys_user WHERE username = ? AND status = 1', [username]);
+    const user = rows[0];
+    if (!user || !user.password_hash) return fail(res, 401, 40111, '账号或密码错误');
+
+    const matched = await bcrypt.compare(password, user.password_hash);
+    if (!matched) return fail(res, 401, 40111, '账号或密码错误');
+
+    // 应用权限校验（与 requireApp 中间件同一口径）
+    const [permRows] = await pool.query(
+      `SELECT a.id FROM sys_user_app ua
+       JOIN sys_app a ON a.id = ua.app_id
+       WHERE ua.user_id = ? AND a.app_key = ? AND a.status = 1`,
+      [user.id, appKey]
+    );
+    if (!permRows.length) return fail(res, 403, 40301, '暂无该应用的使用权限');
+
+    return ok(res, { user: publicUser(user) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // POST /api/v1/auth/wx-login 微信登录：小程序 wx.login 得 code，后端向微信换 openid
 // 仅允许已绑定账号的微信号登录；未绑定时返回 40313，提示先账号密码登录一次（登录过程自动完成绑定）
 router.post('/wx-login', async (req, res, next) => {

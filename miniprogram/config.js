@@ -4,4 +4,6 @@
 // 配置为 request 合法域名（按域名放行，子路径 /j1toolkit 无需单独配置）。
 module.exports = {
   BASE_URL: 'https://j1net.com/j1toolkit',
+  // 安全日活动记录（网页端应用）访问地址：小程序内仅展示与复制，引导电脑端使用，不直接打开
+  SAFEDAY_WEB_URL: 'https://j1net.com/sdl/',
 };

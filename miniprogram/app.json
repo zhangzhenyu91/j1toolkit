@@ -22,6 +22,13 @@
         "pages/index/index",
         "pages/manage/manage"
       ]
+    },
+    {
+      "root": "pkg-safeday",
+      "name": "safeday",
+      "pages": [
+        "pages/index/index"
+      ]
     }
   ],
   "window": {

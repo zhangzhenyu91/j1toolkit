@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · 安全日活动记录生成平台</title>
+<link rel="icon" type="image/svg+xml" href="safe.svg">
+<link rel="stylesheet" href="style.css">
+<script src="login.js" defer></script>
+</head>
+<body>
+
+<!-- 顶部横幅 -->
+<header class="banner">
+  <div class="banner-inner">
+    <div class="logo-badge reveal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/>
+        <path d="M9 12l2 2 4-4"/>
+      </svg>
+    </div>
+    <h1 class="reveal" style="animation-delay:.08s">安全日活动记录生成平台</h1>
+    <p class="reveal" style="animation-delay:.16s">请使用「检修一班工具箱」账号登录</p>
+  </div>
+  <svg class="wave" viewBox="0 0 1440 90" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,50 C220,88 460,10 720,38 C980,66 1220,18 1440,54 L1440,90 L0,90 Z" fill="#f4f6fb"/>
+  </svg>
+</header>
+
+<main class="container">
+
+  <!-- 登录卡片 -->
+  <section class="card reveal" style="animation-delay:.24s">
+    <div class="card-head">
+      <span class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="11" width="16" height="10" rx="2"/>
+          <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+        </svg>
+      </span>
+      <div>
+        <h2>账号登录</h2>
+        <small>仅限拥有本应用权限的用户登录</small>
+      </div>
+    </div>
+
+    <form id="loginForm" class="login-form" autocomplete="off">
+      <div class="login-field">
+        <label for="usernameInput">账号</label>
+        <input class="login-input" type="text" id="usernameInput" autocomplete="username" placeholder="请输入登录账号">
+      </div>
+      <div class="login-field">
+        <label for="passwordInput">密码</label>
+        <input class="login-input" type="password" id="passwordInput" autocomplete="current-password" placeholder="请输入登录密码">
+      </div>
+      <p class="login-error" id="loginError" role="alert"></p>
+      <div class="login-actions">
+        <button class="btn-primary" id="loginBtn" type="submit">登 录</button>
+      </div>
+    </form>
+
+    <p class="login-note">登录账号密码与微信小程序「检修一班工具箱」一致；<br>仅限拥有「安全日活动记录」应用权限的用户，权限请在小程序「我的 → 权限管理」中开通。</p>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>
+  <a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener" class="police-link"><img src="public-security.png" alt="公安" class="police-icon" onerror="this.style.display='none'">晋公网安备14118202000050号</a>
+</footer>
+
+</body>
+</html>

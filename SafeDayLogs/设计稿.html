@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>安全日活动记录生成平台 — 设计稿</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: #f2f4f8;
+    color: #1f2937;
+    min-height: 100vh;
+  }
+
+  /* ===== 顶部 ===== */
+  .header {
+    background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+    color: #fff;
+    padding: 28px 24px;
+    box-shadow: 0 2px 8px rgba(30, 64, 175, .25);
+  }
+  .header-inner { max-width: 880px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+  .header-logo {
+    width: 44px; height: 44px; border-radius: 10px;
+    background: rgba(255,255,255,.16);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; flex-shrink: 0;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; letter-spacing: 1px; }
+  .header p { font-size: 13px; opacity: .82; margin-top: 4px; }
+
+  .container { max-width: 880px; margin: 24px auto 60px; padding: 0 24px; }
+
+  /* ===== 卡片 ===== */
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, .08);
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .card-title {
+    font-size: 16px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 18px;
+  }
+  .card-title::before {
+    content: ""; width: 4px; height: 16px; border-radius: 2px; background: #2563eb;
+  }
+
+  /* ===== 上传区 ===== */
+  .dropzone {
+    border: 2px dashed #c7d2e8;
+    border-radius: 10px;
+    background: #f8fafc;
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: #2563eb;
+    background: #eff6ff;
+  }
+  .dropzone-icon { font-size: 34px; margin-bottom: 10px; }
+  .dropzone-text { font-size: 14px; color: #374151; }
+  .dropzone-hint { font-size: 12px; color: #9ca3af; margin-top: 6px; }
+
+  /* ===== 已选文件 ===== */
+  .file-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8;
+    font-size: 13px; padding: 5px 10px; border-radius: 999px;
+    max-width: 100%;
+  }
+  .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+  .chip button {
+    border: none; background: none; color: #60a5fa; cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 0 2px;
+  }
+  .chip button:hover { color: #dc2626; }
+
+  /* ===== 表单行 ===== */
+  .form-row { display: flex; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+  .form-label { font-size: 14px; color: #374151; flex-shrink: 0; }
+  input[type="date"], .text-input {
+    font-family: inherit; font-size: 14px; color: #1f2937;
+    border: 1px solid #d1d5db; border-radius: 8px;
+    padding: 9px 12px; outline: none; transition: border-color .2s, box-shadow .2s;
+  }
+  input[type="date"]:focus, .text-input:focus {
+    border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+  }
+  .date-preview { font-size: 13px; color: #6b7280; }
+
+  /* ===== 按钮 ===== */
+  .btn {
+    font-family: inherit; font-size: 14px; border-radius: 8px;
+    padding: 10px 22px; cursor: pointer; border: none;
+    transition: background .2s, opacity .2s;
+  }
+  .btn-primary { background: #2563eb; color: #fff; font-weight: 500; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+  .btn-ghost { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+  .btn-ghost:hover { background: #f3f4f6; }
+  .btn-download {
+    background: #fff; color: #2563eb; border: 1px solid #bfdbfe;
+    padding: 6px 14px; font-size: 13px; border-radius: 6px;
+  }
+  .btn-download:hover { background: #eff6ff; }
+  .generate-wrap { margin-top: 22px; text-align: right; }
+
+  /* ===== 弹窗 ===== */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: #fff; border-radius: 12px; width: 90%; max-width: 480px;
+    padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,.2);
+    animation: pop .18s ease-out;
+  }
+  @keyframes pop { from { transform: scale(.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .modal h3 { font-size: 16px; margin-bottom: 6px; }
+  .modal .modal-desc { font-size: 13px; color: #6b7280; margin-bottom: 14px; }
+  .modal .text-input { width: 100%; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+  /* ===== 记录列表 ===== */
+  .record-list { list-style: none; }
+  .record-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 4px; border-bottom: 1px solid #f1f5f9;
+  }
+  .record-item:last-child { border-bottom: none; }
+  .record-icon {
+    width: 38px; height: 38px; border-radius: 8px; flex-shrink: 0;
+    background: #eff6ff; color: #2563eb;
+    display: flex; align-items: center; justify-content: center; font-size: 17px;
+  }
+  .record-main { flex: 1; min-width: 0; }
+  .record-name {
+    font-size: 14px; font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .record-meta { font-size: 12px; color: #9ca3af; margin-top: 3px; }
+
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; flex-shrink: 0; }
+  .status-processing { color: #d97706; }
+  .status-done { color: #059669; }
+  .status-failed { color: #dc2626; }
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid #fde68a; border-top-color: #d97706;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty-tip { text-align: center; color: #9ca3af; font-size: 13px; padding: 28px 0; }
+
+  @media (max-width: 600px) {
+    .record-item { flex-wrap: wrap; }
+    .generate-wrap { text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <div class="header-logo">🛡️</div>
+    <div>
+      <h1>安全日活动记录生成平台</h1>
+      <p>上传活动文档，自动生成安全日活动记录</p>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- 生成卡片 -->
+  <section class="card">
+    <div class="card-title">生成新记录</div>
+
+    <div class="dropzone" id="dropzone">
+      <div class="dropzone-icon">📄</div>
+      <div class="dropzone-text">点击选择文件，或将文件拖拽到此处</div>
+      <div class="dropzone-hint">支持 pdf、doc、docx、ppt、pptx、xls、xlsx，可多选；多文件将自动合并</div>
+      <input type="file" id="fileInput" hidden multiple
+             accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx">
+    </div>
+
+    <div class="file-chips" id="fileChips"></div>
+
+    <div class="form-row">
+      <label class="form-label" for="dateInput">活动日期</label>
+      <input type="date" id="dateInput">
+      <span class="date-preview" id="datePreview"></span>
+    </div>
+
+    <div class="generate-wrap">
+      <button class="btn btn-primary" id="generateBtn" disabled>生成记录</button>
+    </div>
+  </section>
+
+  <!-- 记录卡片 -->
+  <section class="card">
+    <div class="card-title">历史记录</div>
+    <ul class="record-list" id="recordList">
+      <li class="record-item">
+        <div class="record-icon">📋</div>
+        <div class="record-main">
+          <div class="record-name">《7月安全生产例会纪要、防暑降温工作安排》</div>
+          <div class="record-meta">记录文件：2025.07.18.docx · 2 个源文件合并</div>
+        </div>
+        <span class="status status-processing"><span class="spinner"></span>生成中</span>
+      </li>
+      <li class="record-item">
+        <div class="record-icon">📋</div>
+        <div class="record-main">
+          <div class="record-name">《刘总在安全例会上的讲话》</div>
+          <div class="record-meta">记录文件：2025.06.01.docx · 2 个源文件</div>
+        </div>
+        <span class="status status-done">✓ 已完成</span>
+        <button class="btn btn-download">下载</button>
+      </li>
+      <li class="record-item">
+        <div class="record-icon">📋</div>
+        <div class="record-main">
+          <div class="record-name">《五一节前安全检查通报》</div>
+          <div class="record-meta">记录文件：2025.04.28.docx · 1 个源文件</div>
+        </div>
+        <span class="status status-done">✓ 已完成</span>
+        <button class="btn btn-download">下载</button>
+      </li>
+    </ul>
+    <div class="empty-tip" id="emptyTip" style="display:none">暂无生成记录</div>
+  </section>
+
+</div>
+
+<!-- 文件名编辑弹窗 -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal">
+    <h3>确认记录文件名</h3>
+    <div class="modal-desc">该名称将写入记录文件，可修改后点击确定开始生成</div>
+    <input class="text-input" id="nameInput" type="text">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="modalCancel">取消</button>
+      <button class="btn btn-primary" id="modalOk">确定，开始生成</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===== 以下为设计稿演示脚本：仅模拟交互，无真实后端 ===== */
+
+const dropzone   = document.getElementById('dropzone');
+const fileInput  = document.getElementById('fileInput');
+const fileChips  = document.getElementById('fileChips');
+const dateInput  = document.getElementById('dateInput');
+const datePreview= document.getElementById('datePreview');
+const generateBtn= document.getElementById('generateBtn');
+const modalMask  = document.getElementById('modalMask');
+const nameInput  = document.getElementById('nameInput');
+const recordList = document.getElementById('recordList');
+
+let files = [];
+
+// 日期默认今天，预览 YYYY.MM.DD 格式
+const today = new Date();
+dateInput.value = today.toISOString().slice(0, 10);
+function updatePreview() {
+  datePreview.textContent = '提交格式：' + dateInput.value.replaceAll('-', '.');
+}
+dateInput.addEventListener('change', updatePreview);
+updatePreview();
+
+// 上传交互
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('dragover');
+  addFiles([...e.dataTransfer.files]);
+});
+fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+
+function addFiles(list) {
+  files.push(...list);
+  renderChips();
+}
+function renderChips() {
+  fileChips.innerHTML = '';
+  files.forEach((f, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `<span>📎 ${f.name}</span><button title="移除">×</button>`;
+    chip.querySelector('button').onclick = () => { files.splice(i, 1); renderChips(); };
+    fileChips.appendChild(chip);
+  });
+  generateBtn.disabled = files.length === 0;
+}
+
+// 点击生成 → 弹窗，预填《文件1、文件2》
+generateBtn.addEventListener('click', () => {
+  const base = files.map(f => f.name.replace(/\.[^.]+$/, '')).join('、');
+  nameInput.value = '《' + base + '》';
+  modalMask.classList.add('show');
+});
+document.getElementById('modalCancel').onclick = () => modalMask.classList.remove('show');
+modalMask.addEventListener('click', e => { if (e.target === modalMask) modalMask.classList.remove('show'); });
+
+// 确定 → 列表顶部插入一条"生成中"，6 秒后模拟变为已完成
+document.getElementById('modalOk').onclick = () => {
+  modalMask.classList.remove('show');
+  const li = document.createElement('li');
+  li.className = 'record-item';
+  li.innerHTML = `
+    <div class="record-icon">📋</div>
+    <div class="record-main">
+      <div class="record-name">${nameInput.value}</div>
+      <div class="record-meta">记录文件：${dateInput.value.replaceAll('-', '.')}.docx · ${files.length} 个源文件</div>
+    </div>
+    <span class="status status-processing"><span class="spinner"></span>生成中</span>`;
+  recordList.prepend(li);
+  files = []; renderChips();
+
+  // 模拟轮询检测到 docs/{date}.docx 出现
+  setTimeout(() => {
+    li.querySelector('.status').outerHTML =
+      '<span class="status status-done">✓ 已完成</span><button class="btn btn-download">下载</button>';
+  }, 6000);
+};
+</script>
+</body>
+</html>
