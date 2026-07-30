@@ -1,6 +1,7 @@
 // 出工日志：Dify 照片验证工作流封装（接口细节见《开发指南》7.2）
 // POST {DIFY_API_URL}/v1/workflows/run（blocking，/v1 由代码拼接）；inputs：date / destination / picture(COS 图片地址)；
-// 输出 date_verify / destination_verify（'true'/'false'）、title（施工内容）、lng / lat（经纬度）
+// 输出 date_verify / destination_verify（'true'/'false'）、title（施工内容）、time（拍摄时间）、
+// weather（天气）、location（地点）、lng / lat（经纬度）
 const axios = require('axios');
 const config = require('../config');
 
@@ -47,12 +48,18 @@ async function verifyPhoto({ username, date, destination, url }) {
       }
     );
     const outputs = (res.data && res.data.data && res.data.data.outputs) || {};
-    let status = 'passed';
-    if (isFalse(outputs.date_verify)) status = 'date_mismatch';
-    else if (isFalse(outputs.destination_verify)) status = 'dest_mismatch';
+    // 未通过项逐项记录：date_verify/destination_verify 任一 'false' 即该项不符
+    const dateOk = !isFalse(outputs.date_verify);
+    const destOk = !isFalse(outputs.destination_verify);
+    const status = dateOk && destOk ? 'passed' : 'mismatch';
     return {
       status,
+      dateOk,
+      destOk,
       workContent: outputs.title == null ? '' : String(outputs.title),
+      time: outputs.time == null ? '' : String(outputs.time),
+      weather: outputs.weather == null ? '' : String(outputs.weather),
+      location: outputs.location == null ? '' : String(outputs.location),
       lng: outputs.lng == null ? '' : String(outputs.lng),
       lat: outputs.lat == null ? '' : String(outputs.lat),
     };
@@ -60,7 +67,7 @@ async function verifyPhoto({ username, date, destination, url }) {
     // Dify 的 4xx 响应体含具体原因（invalid_param 等），连同入参一并打出便于排查
     const detail = err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
     console.error('[出工日志] Dify 照片验证失败：', detail, '｜入参:', JSON.stringify({ date, destination, url }));
-    return { status: 'failed', workContent: '', lng: '', lat: '' };
+    return { status: 'failed', dateOk: null, destOk: null, workContent: '', time: '', weather: '', location: '', lng: '', lat: '' };
   }
 }
 

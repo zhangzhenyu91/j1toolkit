@@ -82,7 +82,18 @@
             data-urls="{{item.photoUrls}}"
           />
           <view class="ph-right">
-            <!-- ① 人名标签（点击弹人名点亮层修改） -->
+            <!-- ① 照片验证情况（核验通过 / 逐项列出未通过项；验证失败可重新验证） -->
+            <view class="ph-status">
+              <text class="vtag {{p.verify.cls}}">{{p.verify.text}}</text>
+              <text
+                class="v-retry"
+                wx:if="{{p.statusKey === 'failed'}}"
+                hover-class="hover-opacity"
+                catchtap="onRetryVerify"
+                data-pid="{{p.id}}"
+              >重新验证</text>
+            </view>
+            <!-- ② 照片所属人员（点击弹人名点亮层修改） -->
             <view class="ph-names">
               <t-tag
                 wx:for="{{p.members}}"
@@ -98,17 +109,6 @@
                 bind:click="onPhotoMembers"
               >{{n}}</t-tag>
             </view>
-            <!-- ② 验证状态（验证失败可重新验证） -->
-            <view class="ph-status">
-              <text class="vtag {{p.status.cls}}">{{p.status.text}}</text>
-              <text
-                class="v-retry"
-                wx:if="{{p.statusKey === 'failed'}}"
-                hover-class="hover-opacity"
-                catchtap="onRetryVerify"
-                data-pid="{{p.id}}"
-              >重新验证</text>
-            </view>
             <!-- ③ 施工内容（行尾复制按钮，点击复制） -->
             <view class="ph-wc {{p.workContent ? '' : 'empty'}}">
               <text class="wc-text">{{p.workContent || '验证后回填'}}</text>
@@ -122,18 +122,13 @@
                 data-text="{{p.workContent}}"
               />
             </view>
-            <!-- ④ 经纬度两组置底，点击复制 -->
-            <view class="ph-geo">
-              <view class="geo-line {{p.hasGeo ? '' : 'geo-empty'}}" bindtap="onCopyGeo" data-text="{{p.geoLngLat}}" data-has="{{p.hasGeo}}">
-                <text class="gl-label">经,纬</text>
-                <text class="gl-val">{{p.hasGeo ? p.geoLngLat : '验证后回填'}}</text>
-                <t-icon wx:if="{{p.hasGeo}}" name="copy" size="24rpx" color="#A89F8A" />
-              </view>
-              <view class="geo-line {{p.hasGeo ? '' : 'geo-empty'}}" bindtap="onCopyGeo" data-text="{{p.geoLatLng}}" data-has="{{p.hasGeo}}">
-                <text class="gl-label">纬,经</text>
-                <text class="gl-val">{{p.hasGeo ? p.geoLatLng : '验证后回填'}}</text>
-                <t-icon wx:if="{{p.hasGeo}}" name="copy" size="24rpx" color="#A89F8A" />
-              </view>
+            <!-- ④~⑧ 拍摄时间 / 天气 / 地点 / 经度 / 纬度 -->
+            <view class="ph-meta">
+              <view class="meta-line"><text class="meta-label">拍摄时间</text><text class="meta-val">{{p.shotTime || '验证后回填'}}</text></view>
+              <view class="meta-line"><text class="meta-label">天气</text><text class="meta-val">{{p.weather || '—'}}</text></view>
+              <view class="meta-line"><text class="meta-label">地点</text><text class="meta-val">{{p.location || '—'}}</text></view>
+              <view class="meta-line"><text class="meta-label">经度</text><text class="meta-val">{{p.lng || '—'}}</text></view>
+              <view class="meta-line"><text class="meta-label">纬度</text><text class="meta-val">{{p.lat || '—'}}</text></view>
             </view>
           </view>
           <!-- 删除照片 -->
@@ -428,6 +423,98 @@
         <t-icon name="{{memberMode === 'add' ? 'image' : 'check'}}" size="34rpx" color="#FFFFFF" />
         {{memberMode === 'add' ? '确认，选择照片' : '确认修改'}}
       </view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 水印字段编辑弹层（「选择照片并添加水印」选片后弹出；确认后由服务端加水印再走原上传/验证流程） -->
+<t-popup visible="{{wmVisible}}" placement="bottom" bind:visible-change="onWmVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">编辑水印信息</view>
+    <view class="sheet-note">确认后由服务端将水印叠加到所选照片，并上传进入验证</view>
+    <scroll-view scroll-y class="wm-scroll" enhanced show-scrollbar="{{false}}">
+      <!-- 所选原图 + 所属人名 -->
+      <view class="wm-head">
+        <image class="wm-thumb" src="{{wmPhotoPath}}" mode="aspectFill" />
+        <view class="wm-head-r">
+          <view class="wm-names">
+            <t-tag wx:for="{{wmNames}}" wx:key="*this" theme="primary" variant="outline" size="small">{{item}}</t-tag>
+          </view>
+          <view class="wm-names-tip">照片所属人名</view>
+        </view>
+      </view>
+      <view class="form-card wm-card">
+        <view class="wm-row-col">
+          <text class="fk">施工内容</text>
+          <view class="textarea-wrap wm-textarea">
+            <textarea
+              class="textarea"
+              value="{{wmForm.content}}"
+              data-field="content"
+              bindinput="onWmInput"
+              placeholder="请输入施工内容"
+              placeholder-class="ph"
+              auto-height
+              maxlength="500"
+            />
+          </view>
+        </view>
+        <view class="frow">
+          <text class="fk">拍摄时间</text>
+          <input class="wm-input" value="{{wmForm.time}}" data-field="time" bindinput="onWmInput" placeholder="请输入拍摄时间" placeholder-class="ph" maxlength="16" />
+        </view>
+        <view class="frow">
+          <text class="fk">天气</text>
+          <input class="wm-input" value="{{wmForm.weather}}" data-field="weather" bindinput="onWmInput" placeholder="请输入天气" placeholder-class="ph" maxlength="64" />
+        </view>
+        <view class="frow">
+          <text class="fk">地点</text>
+          <input class="wm-input" value="{{wmForm.location}}" data-field="location" bindinput="onWmInput" placeholder="请输入地点" placeholder-class="ph" maxlength="250" />
+        </view>
+        <view class="frow">
+          <text class="fk">经度</text>
+          <input class="wm-input" value="{{wmForm.lng}}" data-field="lng" bindinput="onWmInput" type="digit" placeholder="请输入经度" placeholder-class="ph" maxlength="16" />
+        </view>
+        <view class="frow">
+          <text class="fk">纬度</text>
+          <input class="wm-input" value="{{wmForm.lat}}" data-field="lat" bindinput="onWmInput" type="digit" placeholder="请输入纬度" placeholder-class="ph" maxlength="16" />
+        </view>
+        <!-- 防伪码：自动生成，不可编辑 -->
+        <view class="frow">
+          <text class="fk">防伪码</text>
+          <view class="fv wm-code">{{wmCode}}</view>
+          <view class="wm-refresh" hover-class="hover-opacity" bindtap="onWmCodeRefresh">
+            <t-icon name="refresh" size="30rpx" color="#F26D21" />
+            <text>换一换</text>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onWmCancel">取 消</view>
+      <view class="btn-dark" hover-class="hover-opacity" bindtap="onWmConfirm">
+        <t-icon name="image" size="34rpx" color="#FFFFFF" />
+        {{wmUploading ? '正在加水印上传…' : '确认，加水印上传'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 添加照片二选一（自绘弹层；不用 t-action-sheet——其仅分包使用会触发主包冗余 JS 审计警告） -->
+<t-popup visible="{{addSheetVisible}}" placement="bottom" bind:visible-change="onAddSheetVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">添加水印照片</view>
+    <view class="sheet-note">请选择上传方式</view>
+    <view class="addsheet-btns">
+      <view class="addsheet-opt" hover-class="hover-bg-warm" bindtap="onAddSheetRaw">
+        <view class="ao-title">选择水印照片上传</view>
+        <view class="ao-note">照片已带水印，直接上传进入验证</view>
+      </view>
+      <view class="addsheet-opt" hover-class="hover-bg-warm" bindtap="onAddSheetWm">
+        <view class="ao-title">选择照片并添加水印</view>
+        <view class="ao-note">选原图并编辑字段，由服务端添加水印后上传</view>
+      </view>
+      <view class="btn-ghost addsheet-cancel" hover-class="hover-opacity" bindtap="onAddSheetCancel">取 消</view>
     </view>
   </view>
 </t-popup>

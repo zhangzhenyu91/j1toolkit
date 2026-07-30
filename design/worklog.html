@@ -9,7 +9,7 @@
   4. 记录验证通过逻辑：① 未出车不验证 ② 所有内容均已填写 ③ 至少一张水印照片且全部已通过 ④ 用车人与照片人名并集一致 ⑤ 多张照片施工内容一致；
   5. 车牌/目的地下拉面板顶部固定筛选输入框（t-popup + t-search 自绘列表）；人员点亮 t-check-tag，人员与车牌、目的地同由管理端维护，无自定义添加；
   6. 「未出车」联动：目的地整行置灰禁用，人员选择 / 打卡统计 / 水印照片三段整段隐藏，仅以提示条说明；
-  7. 水印照片竖向排列，右侧与缩略图等高、自上而下四块：① 人名标签（点击弹修改点亮框）② 验证状态（验证中·橙 / 通过·绿 / 日期不符·红 / 目的地不符·红 / 验证失败·红+重新验证按钮）③ 施工内容（直接显示值，行尾复制图标点击复制）④ 经纬度置底（经度,纬度 / 纬度,经度 两组，点击复制到剪贴板 wx.setClipboardData）；每人限一张，已有照片人名在点亮框中置灰；
+  7. 水印照片竖向排列，右侧与缩略图等高、自上而下八项：① 验证情况（核验通过·绿 / 逐项未通过项·红 / 验证失败·红+重新验证按钮）② 照片所属人员（人名标签，点击弹修改点亮框）③ 施工内容（直接显示值，行尾复制图标）④ 拍摄时间 ⑤ 天气 ⑥ 地点 ⑦ 经度 ⑧ 纬度（后五项来自 Dify 新增输出 time/weather/location/lng/lat）；每人限一张，已有照片人名在点亮框中置灰；
   8. 管理页（仅 admin）：t-segmented 切换车牌号 / 目的地 / 人员，顶部输入即添加，行内编辑/停用；
   9. 照片验证：Dify workflows/run（blocking），inputs=date/destination/picture(COS remote_url 单文件对象)，user=登录账号，回写 date_verify/destination_verify/title/lng/lat，详见《开发指南》7.2。
   组件映射（tdesign-miniprogram 1.15.3，已经本地包核实）：t-calendar 日历 ｜ t-popup + t-search 筛选下拉 ｜ t-check-tag 点亮 ｜ t-tag 状态标签 ｜ t-segmented 管理页分段 ｜ 照片加号自绘 + wx.chooseMedia。
@@ -260,11 +260,6 @@
   .v-retry { display:inline-flex; align-items:center; height:19px; padding:0 8px; border-radius:4px;
              border:1px solid #F26D21; color:#F26D21; font-size:10px; font-weight:700; letter-spacing:1px;
              margin-left:6px; }
-  .ph-geo { margin-top:5px; padding-top:4px; border-top:1px dashed #EDE6D4; }
-  .geo-line { display:flex; align-items:center; gap:6px; padding:1px 0;
-              font-size:10.5px; color:#6B7690; font-family:Consolas,"Courier New",monospace; }
-  .geo-line .gl-label { flex:none; font-size:10px; color:#A89F8A; font-family:inherit; }
-  .geo-line svg { width:12px; height:12px; color:#A89F8A; flex:none; }
   .add-photo { margin:2px 14px 14px; height:52px; border-radius:8px; background:#F0EBDD;
                border:1.5px dashed #D9CFBA; color:#A89F8A;
                display:flex; align-items:center; justify-content:center; gap:8px;
@@ -394,19 +389,20 @@
                border-radius:8px; padding:9px 12px 10px; }
   .lc-patrol-label { font-size:13px; font-weight:700; color:#A89F8A; letter-spacing:3px; }
   .lc-patrol-text { margin-top:4px; font-size:15px; font-weight:600; color:#22314E; line-height:1.6; }
-  /* 照片右侧：与缩略图等高不溢出，顺序=人名→验证状态→施工内容(可复制)→经纬度(置底)；间距放开 */
+  /* 照片右侧：与缩略图等高不溢出，八项=验证情况→人员→施工内容(可复制)→拍摄时间/天气/地点/经度/纬度 */
   .photo-item { align-items:stretch; }
-  .ph-img { width:78px; height:120px; }
-  .ph-right { height:120px; }
+  .ph-img { width:84px; height:170px; }
+  .ph-right { height:170px; }
+  .ph-status { margin-top:0; }
+  .ph-names { margin-top:6px; }
   .ph-names .ntag { font-size:12px; }
-  .ph-status { margin-top:7px; }
-  .ph-wc { margin-top:7px; font-size:13px; }
+  .ph-wc { margin-top:6px; font-size:13px; }
   .wc-line { display:flex; align-items:center; gap:6px; }
   .wc-copy { width:13px; height:13px; color:#A89F8A; flex:none; }
-  .ph-geo { margin-top:auto; padding-top:6px; }
-  /* 标签与内容字号统一（经,纬 标签同内容字号） */
-  .geo-line { font-size:11px; padding:2px 0; }
-  .geo-line .gl-label { font-size:11px; }
+  /* ④~⑧ 信息行（标签与内容字号统一） */
+  .ph-meta { margin-top:7px; padding-top:5px; border-top:1px dashed #EDE6D4; }
+  .meta-line { display:flex; gap:6px; font-size:11px; color:#6B7690; line-height:1.55; }
+  .meta-line .meta-label { flex:none; width:48px; color:#A89F8A; font-size:11px; }
 
   /* ---------- 窄屏自适应 ---------- */
   @media (max-width: 1380px) { .stage { zoom: .94; } }
@@ -489,12 +485,15 @@
                     <div class="wm">2026-07-28 09:12<br>浑南库房</div>
                   </div>
                   <div class="ph-right">
+                    <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span></div>
                     <div class="ph-names"><span class="ntag">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                    <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>通过</span></div>
                     <div class="ph-wc wc-line">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                    <div class="ph-geo">
-                      <div class="geo-line"><span class="gl-label">经,纬</span>112.3456789,37.1234567<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                      <div class="geo-line"><span class="gl-label">纬,经</span>37.1234567,112.3456789<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
+                    <div class="ph-meta">
+                      <div class="meta-line"><span class="meta-label">拍摄时间</span>2026-07-28 09:12</div>
+                      <div class="meta-line"><span class="meta-label">天气</span>雾 26°C 东北风2级</div>
+                      <div class="meta-line"><span class="meta-label">地点</span>浑南库房</div>
+                      <div class="meta-line"><span class="meta-label">经度</span>112.3456789</div>
+                      <div class="meta-line"><span class="meta-label">纬度</span>37.1234567</div>
                     </div>
                   </div>
                 </div>
@@ -504,12 +503,15 @@
                     <div class="wm">2026-07-28 09:15<br>浑南库房</div>
                   </div>
                   <div class="ph-right">
+                    <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span></div>
                     <div class="ph-names"><span class="ntag">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                    <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>通过</span></div>
                     <div class="ph-wc wc-line">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                    <div class="ph-geo">
-                      <div class="geo-line"><span class="gl-label">经,纬</span>112.3456791,37.1234565<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                      <div class="geo-line"><span class="gl-label">纬,经</span>37.1234565,112.3456791<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
+                    <div class="ph-meta">
+                      <div class="meta-line"><span class="meta-label">拍摄时间</span>2026-07-28 09:15</div>
+                      <div class="meta-line"><span class="meta-label">天气</span>雾 26°C 东北风2级</div>
+                      <div class="meta-line"><span class="meta-label">地点</span>浑南库房</div>
+                      <div class="meta-line"><span class="meta-label">经度</span>112.3456791</div>
+                      <div class="meta-line"><span class="meta-label">纬度</span>37.1234565</div>
                     </div>
                   </div>
                 </div>
@@ -601,12 +603,15 @@
                     <div class="wm">2026-07-26 16:20<br>浑南库房</div>
                   </div>
                   <div class="ph-right">
+                    <div class="ph-status"><span class="vtag bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>日期不符、地点不符</span></div>
                     <div class="ph-names"><span class="ntag">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                    <div class="ph-status"><span class="vtag bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>日期不符</span></div>
                     <div class="ph-wc wc-line">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                    <div class="ph-geo">
-                      <div class="geo-line"><span class="gl-label">经,纬</span>112.3456789,37.1234567<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                      <div class="geo-line"><span class="gl-label">纬,经</span>37.1234567,112.3456789<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
+                    <div class="ph-meta">
+                      <div class="meta-line"><span class="meta-label">拍摄时间</span>2026-07-26 16:20</div>
+                      <div class="meta-line"><span class="meta-label">天气</span>晴 31°C 南风3级</div>
+                      <div class="meta-line"><span class="meta-label">地点</span>浑南库房</div>
+                      <div class="meta-line"><span class="meta-label">经度</span>112.3456789</div>
+                      <div class="meta-line"><span class="meta-label">纬度</span>37.1234567</div>
                     </div>
                   </div>
                 </div>
@@ -955,12 +960,15 @@
                 <div class="wm">2026-07-28 09:12<br>浑南库房</div>
               </div>
               <div class="ph-right">
-                <div class="ph-names"><span class="ntag">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
                 <div class="ph-status"><span class="vtag bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>验证失败</span><span class="v-retry">重新验证</span></div>
+                <div class="ph-names"><span class="ntag">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
                 <div class="ph-wc empty">验证后回填施工内容</div>
-                <div class="ph-geo">
-                  <div class="geo-line"><span class="gl-label">经,纬</span>验证后回填</div>
-                  <div class="geo-line"><span class="gl-label">纬,经</span>验证后回填</div>
+                <div class="ph-meta">
+                  <div class="meta-line"><span class="meta-label">拍摄时间</span>验证后回填</div>
+                  <div class="meta-line"><span class="meta-label">天气</span>验证后回填</div>
+                  <div class="meta-line"><span class="meta-label">地点</span>验证后回填</div>
+                  <div class="meta-line"><span class="meta-label">经度</span>验证后回填</div>
+                  <div class="meta-line"><span class="meta-label">纬度</span>验证后回填</div>
                 </div>
               </div>
             </div>
@@ -970,15 +978,18 @@
                 <div class="wm">2026-07-27 15:40<br>浑南库房</div>
               </div>
               <div class="ph-right">
+                <div class="ph-status"><span class="vtag bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>日期不符、地点不符</span></div>
                 <div class="ph-names">
                   <span class="ntag">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span>
                   <span class="ntag">薛忠亮<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span>
                 </div>
-                <div class="ph-status"><span class="vtag bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>日期不符</span></div>
                 <div class="ph-wc wc-line">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                <div class="ph-geo">
-                  <div class="geo-line"><span class="gl-label">经,纬</span>112.3456789,37.1234567<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                  <div class="geo-line"><span class="gl-label">纬,经</span>37.1234567,112.3456789<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
+                <div class="ph-meta">
+                  <div class="meta-line"><span class="meta-label">拍摄时间</span>2026-07-27 15:40</div>
+                  <div class="meta-line"><span class="meta-label">天气</span>阴 28°C 东风2级</div>
+                  <div class="meta-line"><span class="meta-label">地点</span>浑南库房</div>
+                  <div class="meta-line"><span class="meta-label">经度</span>112.3456789</div>
+                  <div class="meta-line"><span class="meta-label">纬度</span>37.1234567</div>
                 </div>
               </div>
             </div>
@@ -988,12 +999,15 @@
                 <div class="wm">2026-07-28 10:05<br>浑南库房</div>
               </div>
               <div class="ph-right">
+                <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span></div>
                 <div class="ph-names"><span class="ntag">任舒诺<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
-                <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>通过</span></div>
                 <div class="ph-wc wc-line">电容器组巡检与紧固<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                <div class="ph-geo">
-                  <div class="geo-line"><span class="gl-label">经,纬</span>112.3456791,37.1234565<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
-                  <div class="geo-line"><span class="gl-label">纬,经</span>37.1234565,112.3456791<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
+                <div class="ph-meta">
+                  <div class="meta-line"><span class="meta-label">拍摄时间</span>2026-07-28 10:05</div>
+                  <div class="meta-line"><span class="meta-label">天气</span>雾 26°C 东北风2级</div>
+                  <div class="meta-line"><span class="meta-label">地点</span>浑南库房</div>
+                  <div class="meta-line"><span class="meta-label">经度</span>112.3456791</div>
+                  <div class="meta-line"><span class="meta-label">纬度</span>37.1234565</div>
                 </div>
               </div>
             </div>
@@ -1008,7 +1022,7 @@
       </div>
     </div>
     <div class="cap"><i>⑥</i>主页卡片 · 打卡与照片交互</div>
-    <div class="sub">布局参照（以下交互均在一级页面卡片上进行）：打卡默认红叉（未打卡），点击人名变绿勾（已打卡）；照片右侧与缩略图等高、自上而下四块：① 人名标签（点击弹⑦修改）② 验证状态（验证中 / 通过 / 日期不符 / 目的地不符 / 验证失败；失败时旁置「重新验证」按钮）③ 施工内容（直接显示值，行尾复制图标点击复制）④ 经纬度两组格式置底，点击复制到剪贴板；照片区尾端灰底虚线加号唤起上传，右上角删除图标删照片。</div>
+    <div class="sub">布局参照（以下交互均在一级页面卡片上进行）：打卡默认红叉（未打卡），点击人名变绿勾（已打卡）；照片右侧与缩略图等高、自上而下八项：① 验证情况（核验通过 / 逐项未通过项 / 验证失败时旁置「重新验证」）② 照片所属人员（点击弹⑦修改）③ 施工内容（行尾复制图标点击复制）④ 拍摄时间 ⑤ 天气 ⑥ 地点 ⑦ 经度 ⑧ 纬度；照片区尾端灰底虚线加号唤起上传，右上角删除图标删照片。</div>
   </div>
 
   <!-- ================= ⑦ 上传照片 · 人名点亮弹层 ================= -->
@@ -1043,10 +1057,6 @@
                 <div class="ph-names"><span class="ntag">赵登</span></div>
                 <div class="ph-wc empty">验证后回填施工内容</div>
                 <div class="ph-status"><span class="vtag ing">验证中</span></div>
-                <div class="ph-geo">
-                  <div class="geo-line"><span class="gl-label">经,纬</span>验证后回填</div>
-                  <div class="geo-line"><span class="gl-label">纬,经</span>验证后回填</div>
-                </div>
               </div>
             </div>
             <div class="add-photo">

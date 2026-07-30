@@ -58,6 +58,9 @@ const config = {
     cosPrefix: str('COS_WORKLOG_PREFIX', 'worklog/'),
     cosBaseUrl: str('COS_WORKLOG_BASE_URL'),
     difyKey: str('DIFY_WORKLOG_API_KEY'),
+    // 和风天气（「选照片并添加水印」预填当前地点/天气用；未配置时对应字段留空手填）
+    qweatherApiId: str('QWEATHER_API_ID'),
+    qweatherApiKey: str('QWEATHER_API_KEY'),
   },
 };
 
