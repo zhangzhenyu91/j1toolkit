@@ -400,7 +400,7 @@ async function checkPhotoMembers(entryId, names, excludePhotoId) {
 }
 
 // GET /geo?lng=&lat=：按经纬度取当前「地点 + 天气」（和风），供「选照片并添加水印」无历史照片时预填；
-// 未配置 QWEATHER_API_KEY 或调用失败时返回空串，前端留空手填
+// 未配置 TENCENT_MAP_KEY 或调用失败时返回空串，前端留空手填
 router.get('/geo', async (req, res, next) => {
   try {
     const lng = Number(req.query.lng);
