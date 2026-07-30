@@ -882,8 +882,22 @@ Page({
     });
   },
 
-  // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤500m，避免完全一致）；
-  // 无历史 → 施工内容留空、拍摄时间取当前、经纬度/地点/天气按当前定位取值（和风）
+  // 历史带入的拍摄时间：保留日期，时分随机为 10:00-12:00 内且不与历史值相同
+  randomWmTime(shotTime) {
+    const m = /^(\d{4}\.\d{2}\.\d{2})\s+(\d{1,2}):(\d{2})$/.exec(String(shotTime || '').trim());
+    const datePart = m ? m[1] : fmtWmTime(new Date()).split(' ')[0];
+    const oldHm = m ? `${m[2]}:${m[3]}` : '';
+    let hm = oldHm;
+    while (hm === oldHm) {
+      const h = 10 + Math.floor(Math.random() * 2); // 10 或 11
+      const min = Math.floor(Math.random() * 60);
+      hm = `${pad(h)}:${pad(min)}`;
+    }
+    return `${datePart} ${hm}`;
+  },
+
+  // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤500m，拍摄时间随机化为 10:00-12:00，避免完全一致）；
+  // 无历史 → 施工内容留空、拍摄时间取当前、经纬度/地点/天气按当前定位取值（腾讯地图）
   prefillWmForm() {
     const entry = this.data.list.find((x) => x.id === this.data.memberEntryId);
     const photos = (entry && entry.photos) || [];
@@ -897,7 +911,7 @@ Page({
         wmVisible: true,
         wmForm: {
           content: last.workContent || '',
-          time: last.shotTime || '',
+          time: this.randomWmTime(last.shotTime),
           weather: last.weather || '',
           location: last.location || '',
           lng: jittered.lng,
@@ -913,7 +927,7 @@ Page({
     this.fillWmByLocation();
   },
 
-  // 当前定位取值：经纬度直接填；地点/天气调后端 /geo（和风）。授权被拒或失败均留空手填
+  // 当前定位取值：经纬度直接填；地点/天气调后端 /geo（腾讯地图）。授权被拒或失败均留空手填
   fillWmByLocation() {
     wx.getLocation({
       type: 'gcj02',
