@@ -23,6 +23,11 @@ app.use((req, res, next) => {
   next();
 });
 
+// 出工日志上传原图（加水印用）体积更大：worklog 路由单独放宽 JSON 上限到 20mb。
+// 需挂在全局 12mb 解析器之前；body 已被解析过后续解析器会自动跳过
+if (config.worklog.enabled) {
+  app.use('/api/v1/worklog', express.json({ limit: '20mb' }));
+}
 app.use(express.json({ limit: '12mb' })); // 聊天图片以 base64 上送，放宽体积限制
 
 // 简易访问日志

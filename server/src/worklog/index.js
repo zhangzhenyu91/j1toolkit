@@ -9,6 +9,9 @@ const { ok, fail } = require('../utils/resp');
 const config = require('../config');
 const cos = require('./cos');
 const dify = require('./dify');
+const geo = require('./geo');
+const Watermark = require('./watermark');
+const { renderWatermarkedPhoto } = require('./render-photo');
 const { computeVerifyPassed } = require('./verify');
 
 const router = express.Router();
@@ -50,7 +53,8 @@ async function loadEntries(where, params) {
     [ids]
   );
   const [photos] = await pool.query(
-    `SELECT id, entry_id, cos_key, url, members, verify_status, work_content, lng, lat, created_at
+    `SELECT id, entry_id, cos_key, url, members, verify_status, work_content,
+            shot_time, weather, location, lng, lat, date_ok, dest_ok, created_at
      FROM worklog_photo WHERE entry_id IN (?) ORDER BY id`,
     [ids]
   );
@@ -69,8 +73,13 @@ async function loadEntries(where, params) {
       members: typeof p.members === 'string' ? JSON.parse(p.members) : p.members,
       verify_status: p.verify_status,
       work_content: p.work_content,
+      shot_time: p.shot_time,
+      weather: p.weather,
+      location: p.location,
       lng: p.lng,
       lat: p.lat,
+      date_ok: p.date_ok,
+      dest_ok: p.dest_ok,
     });
   });
 
@@ -390,7 +399,42 @@ async function checkPhotoMembers(entryId, names, excludePhotoId) {
   return null;
 }
 
+// GET /geo?lng=&lat=：按经纬度取当前「地点 + 天气」（和风），供「选照片并添加水印」无历史照片时预填；
+// 未配置 QWEATHER_API_KEY 或调用失败时返回空串，前端留空手填
+router.get('/geo', async (req, res, next) => {
+  try {
+    const lng = Number(req.query.lng);
+    const lat = Number(req.query.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) {
+      return fail(res, 400, 40016, '经纬度参数无效');
+    }
+    const r = await geo.fetchLocationWeather(lng, lat);
+    return ok(res, r);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// 水印字段清洗：字符串、去首尾空格、按库列宽截断（work_content 512 / shot_time 32 / weather 64 / location 255）
+function sanitizeWm(wm) {
+  const cut = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+  const fields = {
+    content: cut(wm.content, 500),
+    time: cut(wm.time, 32),
+    weather: cut(wm.weather, 64),
+    location: cut(wm.location, 250),
+    longitude: cut(wm.longitude, 32),
+    latitude: cut(wm.latitude, 32),
+  };
+  // 防伪码：14 位字符集内才采信前端值，否则服务端重新生成（不由用户输入）
+  const code = cut(wm.antiCode, 14);
+  fields.antiCode = /^[A-HJ-NP-Z2-9]{14}$/.test(code) ? code : Watermark.randomCode(14);
+  return fields;
+}
+
 // POST /logs/:id/photos：上传水印照片（base64 → COS），异步触发 Dify 验证
+// body.wm 可选：「选照片并添加水印」时携带 { content/time/weather/location/longitude/latitude/antiCode/orientation }，
+// 服务端先把水印渲染到原图上，再按同一流程传 COS、触发验证
 router.post('/logs/:id/photos', async (req, res, next) => {
   try {
     const entryId = Number(req.params.id);
@@ -403,7 +447,7 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     if (!entry) return fail(res, 404, 40400, '日志不存在');
     if (!entry.vehicle_id) return fail(res, 400, 40001, '未出车不可上传水印照片');
 
-    const { image, members } = req.body || {};
+    const { image, members, wm } = req.body || {};
     const names = Array.isArray(members) ? members.filter((n) => typeof n === 'string' && n.trim()) : [];
     if (!names.length) return fail(res, 400, 40009, '请选择照片所属人名');
     const memberErr = await checkPhotoMembers(entryId, names, null);
@@ -411,14 +455,26 @@ router.post('/logs/:id/photos', async (req, res, next) => {
 
     const match = /^data:image\/(jpeg|jpg|png);base64,(.+)$/.exec(image || '');
     if (!match) return fail(res, 400, 40010, '照片格式应为 jpeg/png（base64 dataURL）');
-    const buf = Buffer.from(match[2], 'base64');
-    if (!buf.length || buf.length > 10 * 1024 * 1024) {
-      return fail(res, 400, 40011, '照片大小应在 10MB 以内');
+    let buf = Buffer.from(match[2], 'base64');
+    if (!buf.length || buf.length > 15 * 1024 * 1024) {
+      return fail(res, 400, 40011, '照片大小应在 15MB 以内');
+    }
+
+    // 需要加水印时：服务端渲染（EXIF 方向矫正 + 防伪码校验），产物统一为 JPEG
+    let contentType = `image/${match[1] === 'png' ? 'png' : 'jpeg'}`;
+    if (wm && typeof wm === 'object') {
+      try {
+        buf = await renderWatermarkedPhoto(buf, sanitizeWm(wm), wm.orientation);
+        contentType = 'image/jpeg';
+      } catch (err) {
+        console.error('[出工日志] 水印渲染失败：', err.message);
+        return fail(res, 400, 40015, '水印渲染失败，请重试');
+      }
     }
 
     const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
-    const key = `${prefix}${dots(entry.log_date)}/${entryId}-${Date.now()}.${match[1] === 'png' ? 'png' : 'jpg'}`;
-    await cos.putBuffer(key, buf, `image/${match[1] === 'png' ? 'png' : 'jpeg'}`);
+    const key = `${prefix}${dots(entry.log_date)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
+    await cos.putBuffer(key, buf, contentType);
     const url = cos.publicUrl(key);
 
     const [r] = await pool.query(
@@ -437,8 +493,9 @@ router.post('/logs/:id/photos', async (req, res, next) => {
       })
       .then((vr) =>
         pool.query(
-          'UPDATE worklog_photo SET verify_status = ?, work_content = ?, lng = ?, lat = ? WHERE id = ?',
-          [vr.status, vr.workContent, vr.lng, vr.lat, photoId]
+          `UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?, location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
+          [vr.status, vr.workContent, vr.time, vr.weather, vr.location, vr.lng, vr.lat,
+            vr.dateOk == null ? null : vr.dateOk ? 1 : 0, vr.destOk == null ? null : vr.destOk ? 1 : 0, photoId]
         )
       )
       .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
@@ -468,7 +525,7 @@ router.post('/photos/:id/verify', async (req, res, next) => {
       return fail(res, 400, 40014, '仅验证失败的照片可重新验证');
     }
     await pool.query(
-      `UPDATE worklog_photo SET verify_status = 'pending', work_content = '', lng = '', lat = '' WHERE id = ?`,
+      `UPDATE worklog_photo SET verify_status = 'pending', work_content = '', shot_time = '', weather = '', location = '', lng = '', lat = '', date_ok = NULL, dest_ok = NULL WHERE id = ?`,
       [photoId]
     );
     // 异步重调 Dify 并回写（不阻塞响应，前端轮询 verify_status）
@@ -481,8 +538,9 @@ router.post('/photos/:id/verify', async (req, res, next) => {
       })
       .then((vr) =>
         pool.query(
-          'UPDATE worklog_photo SET verify_status = ?, work_content = ?, lng = ?, lat = ? WHERE id = ?',
-          [vr.status, vr.workContent, vr.lng, vr.lat, photoId]
+          `UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?, location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
+          [vr.status, vr.workContent, vr.time, vr.weather, vr.location, vr.lng, vr.lat,
+            vr.dateOk == null ? null : vr.dateOk ? 1 : 0, vr.destOk == null ? null : vr.destOk ? 1 : 0, photoId]
         )
       )
       .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));

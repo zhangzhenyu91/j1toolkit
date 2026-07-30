@@ -144,8 +144,8 @@
 }
 
 .ph-img {
-  width: 156rpx;
-  height: 240rpx;
+  width: 168rpx;
+  height: 340rpx;
   flex: none;
   border-radius: 16rpx;
   background: #e9e2d2;
@@ -154,14 +154,22 @@
 .ph-right {
   flex: 1;
   min-width: 0;
-  height: 240rpx;
+  height: 340rpx;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-/* ① 人名标签（t-tag 橙描边） */
+/* ① 验证情况（顶部） */
+.ph-status {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+/* ② 人名标签（t-tag 橙描边） */
 .ph-names {
+  margin-top: 12rpx;
   display: flex;
   flex-wrap: wrap;
   gap: 12rpx;
@@ -172,17 +180,9 @@
   font-size: 24rpx;
 }
 
-/* ② 验证状态 */
-.ph-status {
-  margin-top: 14rpx;
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
-}
-
 /* ③ 施工内容（行尾复制按钮） */
 .ph-wc {
-  margin-top: 14rpx;
+  margin-top: 12rpx;
   display: flex;
   align-items: center;
   gap: 10rpx;
@@ -207,6 +207,36 @@
 .ph-wc.empty {
   color: #a89f8a;
   font-weight: 400;
+}
+
+/* ④~⑧ 拍摄时间 / 天气 / 地点 / 经度 / 纬度（标签与内容字号统一） */
+.ph-meta {
+  margin-top: 12rpx;
+  padding-top: 10rpx;
+  border-top: 2rpx dashed #ede6d4;
+}
+
+.meta-line {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  padding: 3rpx 0;
+  font-size: 22rpx;
+  color: #6b7690;
+  line-height: 1.4;
+}
+
+.meta-line .meta-label {
+  flex: none;
+  width: 96rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+}
+
+.meta-line .meta-val {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
 }
 
 .vtag {
@@ -248,39 +278,6 @@
 .vtag.bad {
   background: #fbe9e9;
   color: #cf4444;
-}
-
-/* ④ 经纬度（两组置底，点击复制；标签与内容字号统一） */
-.ph-geo {
-  margin-top: auto;
-  padding-top: 12rpx;
-  border-top: 2rpx dashed #ede6d4;
-}
-
-.geo-line {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  padding: 4rpx 0;
-  font-size: 22rpx;
-  color: #6b7690;
-  font-family: Consolas, 'Courier New', monospace;
-}
-
-.geo-line .gl-label {
-  flex: none;
-  font-size: 22rpx;
-  color: #a89f8a;
-}
-
-.geo-line .gl-val {
-  flex: 1;
-  min-width: 0;
-  word-break: break-all;
-}
-
-.geo-line.geo-empty {
-  color: #a89f8a;
 }
 
 /* 照片右上角删除小图标 */

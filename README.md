@@ -78,6 +78,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `WORKLOG_ENABLED` | 出工日志后端开关：`true` 开启（建表/种子/挂载路由），`false` 关闭 |
 | `COS_WORKLOG_PREFIX` | 出工日志照片在 COS 的独立文件夹前缀（如 `worklog/`） |
 | `COS_WORKLOG_BASE_URL` | 照片访问域名（可选；留空按 `https://{bucket}.cos.{region}.myqcloud.com` 拼接） |
+| `QWEATHER_API_ID` / `QWEATHER_API_KEY` | 和风天气（出工日志「选择照片并添加水印」预填当前地点/天气；未配置则对应字段手填，见开发指南 7.3） |
 
 ## 小程序开发（微信开发者工具）
 

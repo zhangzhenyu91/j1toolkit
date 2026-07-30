@@ -302,6 +302,12 @@
   border-top: 2rpx dashed #ede6d4;
 }
 
+/* 无照片时添加栏是区块首个子元素，与顶部分隔线拉开距离；
+   有照片时保持原间距（photo-item 的 18rpx 下内边距已够） */
+.lc-photos .add-photo:first-child {
+  margin-top: 20rpx;
+}
+
 /* 卡片底部操作 */
 .lc-actions {
   display: flex;
@@ -431,12 +437,13 @@
   background: #f26d21;
 }
 
-/* 选中日同为「今天」时：橙底上文字与圆点改白（后置覆盖，避免橙橙相消看不见数字） */
-.t-calendar .t-calendar__dates-item.t-calendar__dates-item--selected.wl-cal-today {
+/* 选中日同为「今天」且无验证底色时：橙底上文字与圆点改白（避免橙橙相消看不见数字）；
+   有验证底色（passed/failed）时保持绿/红状态色，否则浅底上白字不可见 */
+.t-calendar .t-calendar__dates-item.t-calendar__dates-item--selected.wl-cal-today:not(.wl-cal-passed):not(.wl-cal-failed) {
   color: #ffffff;
 }
 
-.t-calendar .t-calendar__dates-item--selected.wl-cal-today::after {
+.t-calendar .t-calendar__dates-item--selected.wl-cal-today:not(.wl-cal-passed):not(.wl-cal-failed)::after {
   background: #ffffff;
 }
 
@@ -734,4 +741,131 @@
 
 .dl-btn.disabled {
   opacity: 0.4;
+}
+
+/* ============================================================
+   水印字段编辑弹层（「选择照片并添加水印」）
+   ============================================================ */
+
+.wm-scroll {
+  max-height: 62vh;
+  margin-top: 28rpx;
+}
+
+/* 原图缩略 + 所属人名 */
+.wm-head {
+  display: flex;
+  gap: 20rpx;
+  align-items: center;
+}
+
+.wm-thumb {
+  flex: none;
+  width: 144rpx;
+  height: 144rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #e3dccb;
+  background: #f4f1ea;
+}
+
+.wm-head-r {
+  flex: 1;
+  min-width: 0;
+}
+
+.wm-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.wm-names-tip {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.wm-card {
+  margin-top: 24rpx;
+}
+
+/* 施工内容独占一行（标签在上、输入在下） */
+.wm-row-col {
+  padding: 24rpx 32rpx;
+}
+
+.wm-row-col .fk {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+
+.wm-row-col + .frow {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.wm-textarea {
+  padding: 16rpx 20rpx;
+}
+
+.wm-textarea .textarea {
+  min-height: 96rpx;
+}
+
+/* 单行输入：与 .fv 同占剩余空间、右对齐视觉 */
+.wm-input {
+  flex: 1;
+  font-size: 28rpx;
+  color: #22314e;
+  font-weight: 600;
+}
+
+/* 防伪码：等宽观感 + 橙色换一换 */
+.wm-code {
+  letter-spacing: 2rpx;
+}
+
+.wm-refresh {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #f26d21;
+}
+
+/* ---------- 添加照片二选一弹层（自绘选项卡） ---------- */
+
+.addsheet-btns {
+  margin-top: 32rpx;
+}
+
+.addsheet-opt {
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  padding: 28rpx 32rpx;
+}
+
+.addsheet-opt + .addsheet-opt {
+  margin-top: 20rpx;
+}
+
+.ao-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #22314e;
+}
+
+.ao-note {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 1rpx;
+}
+
+.addsheet-cancel {
+  margin-top: 24rpx;
 }

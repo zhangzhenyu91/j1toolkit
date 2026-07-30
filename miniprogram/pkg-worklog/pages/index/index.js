@@ -7,6 +7,17 @@ import { request } from '../../../utils/request';
 const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// 水印拍摄时间格式：2026.07.30 11:02（与今日水印相机样式一致）
+const fmtWmTime = (d) =>
+  `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+// 防伪码字符集：14 位大写字母+数字，去 0/O、1/I 等易混淆字符（与服务端校验规则一致）
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const genAntiCode = () => {
+  let out = '';
+  for (let i = 0; i < 14; i += 1) out += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
+  return out;
+};
 const parseDate = (s) => {
   const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d);
@@ -29,15 +40,7 @@ function calFormat(day) {
   return { ...day, className: `${day.className || ''} ${cls.join(' ')}`.trim() };
 }
 
-// 照片验证状态 → 展示（含义见《开发指南》7.2：date_verify/destination_verify 映射，日期优先）
-const PHOTO_STATUS = {
-  pending: { cls: 'ing', text: '验证中' },
-  passed: { cls: 'ok', text: '通过' },
-  date_mismatch: { cls: 'bad', text: '日期不符' },
-  dest_mismatch: { cls: 'bad', text: '目的地不符' },
-  failed: { cls: 'bad', text: '验证失败' },
-};
-
+// 照片验证状态 → 展示（逐项判定：date_verify/destination_verify 任一 'false' 即该项不符，见《开发指南》7.2）
 // 记录验证状态角标（后端按 5 条规则实时计算，见开发指南 7.1）
 const VERIFY_BADGE = {
   passed: { cls: 'green', text: '验证通过' },
@@ -45,20 +48,36 @@ const VERIFY_BADGE = {
   exempt: { cls: 'gray', text: '免验证' },
 };
 
-// 照片字段 → 展示结构（卡片直改与表单面板共用，保持一份）
+// 照片字段 → 展示结构（右侧八项：验证情况/人员/施工内容/拍摄时间/天气/地点/经度/纬度）
 function mapPhoto(p) {
-  const hasGeo = !!(p.lng && p.lat);
+  // 验证情况：pending=验证中 / failed=验证失败（可重试）/ 完成态逐项列出未通过项
+  let verify;
+  if (p.verify_status === 'pending') {
+    verify = { cls: 'ing', text: '验证中' };
+  } else if (p.verify_status === 'failed') {
+    verify = { cls: 'bad', text: '验证失败' };
+  } else {
+    const bad = [];
+    // 新数据读 date_ok/dest_ok；历史数据（NULL）回退到旧状态值判定
+    const dateBad = p.date_ok === 0 || (p.date_ok == null && p.verify_status === 'date_mismatch');
+    const destBad = p.dest_ok === 0 || (p.dest_ok == null && p.verify_status === 'dest_mismatch');
+    if (dateBad) bad.push('日期不符');
+    if (destBad) bad.push('地点不符');
+    verify = bad.length ? { cls: 'bad', text: bad.join('、') } : { cls: 'ok', text: '核验通过' };
+  }
   return {
     id: p.id,
     url: p.url,
     members: p.members || [],
     workContent: p.work_content || '',
-    status: PHOTO_STATUS[p.verify_status] || PHOTO_STATUS.failed,
+    verify,
     statusKey: p.verify_status, // failed 时显示「重新验证」按钮
-    pending: p.verify_status === 'pending',
-    hasGeo,
-    geoLngLat: hasGeo ? `${p.lng},${p.lat}` : '',
-    geoLatLng: hasGeo ? `${p.lat},${p.lng}` : '',
+    pending: p.verify_status === 'pending', // 轮询依据
+    shotTime: p.shot_time || '',
+    weather: p.weather || '',
+    location: p.location || '',
+    lng: p.lng || '',
+    lat: p.lat || '',
   };
 }
 
@@ -82,9 +101,19 @@ Page({
     // 照片人名点亮弹层（添加/修改复用）
     memberVisible: false,
     memberMode: 'add', // add=上传新照片 / edit=修改已有照片人名
+    memberAction: 'raw', // memberMode=add 时的二选一：raw=选择水印照片上传 / wm=选照片并添加水印
     memberPhotoId: 0,
     memberEntryId: 0, // 当前操作的卡片 id
     candidates: [], // [{name, checked, disabled}]
+    // 添加照片二选一弹层（自绘，替代 t-action-sheet）
+    addSheetVisible: false,
+    // ---------- 「选择照片并添加水印」字段编辑弹层 ----------
+    wmVisible: false,
+    wmPhotoPath: '', // 用户所选原图临时路径
+    wmNames: [], // 人名点亮层确认的人名
+    wmForm: { content: '', time: '', weather: '', location: '', lng: '', lat: '' },
+    wmCode: '', // 防伪码（自动生成，用户不可编辑）
+    wmUploading: false,
     // ---------- 新建/编辑表单底部弹层（逻辑移植自已取缔的 edit 页） ----------
     formVisible: false,
     formId: 0, // 0=新建
@@ -379,13 +408,6 @@ Page({
   onCopyWc(e) {
     const { text } = e.currentTarget.dataset;
     if (!text) return;
-    wx.setClipboardData({ data: text });
-  },
-
-  // 复制经纬度（经,纬 / 纬,经 两组；wx.setClipboardData 成功时微信会自弹「内容已复制」，不再重复提示）
-  onCopyGeo(e) {
-    const { text, has } = e.currentTarget.dataset;
-    if (!has) return;
     wx.setClipboardData({ data: text });
   },
 
@@ -729,7 +751,7 @@ Page({
     return used;
   },
 
-  // 添加照片：弹人名点亮层（候选 = 本卡用车人，已上传者置灰）
+  // 添加照片：先弹二选一（①选择水印照片上传 ②选择照片并添加水印），再进人名点亮层
   onAddPhoto(e) {
     const { entryId } = e.currentTarget.dataset;
     const entry = this.data.list.find((x) => x.id === entryId);
@@ -737,10 +759,37 @@ Page({
       this.toast('本卡暂无用车人');
       return;
     }
+    this._pendingPhotoEntryId = entryId;
+    this.setData({ addSheetVisible: true });
+  },
+
+  onAddSheetVisibleChange(e) {
+    if (!e.detail.visible) this.setData({ addSheetVisible: false });
+  },
+
+  onAddSheetCancel() {
+    this.setData({ addSheetVisible: false });
+  },
+
+  onAddSheetRaw() {
+    this.setData({ addSheetVisible: false });
+    this.openMemberPicker(this._pendingPhotoEntryId, 'raw');
+  },
+
+  onAddSheetWm() {
+    this.setData({ addSheetVisible: false });
+    this.openMemberPicker(this._pendingPhotoEntryId, 'wm');
+  },
+
+  // 人名点亮层（候选 = 本卡用车人，已上传者置灰）；action: raw=直接上传 / wm=加水印上传
+  openMemberPicker(entryId, action) {
+    const entry = this.data.list.find((x) => x.id === entryId);
+    if (!entry) return;
     const used = this.usedPhotoNames(entry, 0);
     this.setData({
       memberVisible: true,
       memberMode: 'add',
+      memberAction: action,
       memberPhotoId: 0,
       memberEntryId: entryId,
       candidates: entry.checks.map((m) => ({
@@ -806,7 +855,158 @@ Page({
       return;
     }
     this.setData({ memberVisible: false });
-    this.chooseAndUpload(names);
+    if (this.data.memberAction === 'wm') {
+      this.choosePhotoForWm(names);
+    } else {
+      this.chooseAndUpload(names);
+    }
+  },
+
+  // ---------- 「选择照片并添加水印」：选片 → 编辑字段 → 服务端加水印上传 ----------
+
+  // 相册选原图后进字段编辑弹层（sizeType 限定 original：压缩图加水印后会明显模糊）
+  choosePhotoForWm(names) {
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sourceType: ['album'],
+      sizeType: ['original'],
+      success: (res) => {
+        this.setData({
+          wmPhotoPath: res.tempFiles[0].tempFilePath,
+          wmNames: names,
+          wmCode: genAntiCode(),
+        });
+        this.prefillWmForm();
+      },
+    });
+  },
+
+  // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤500m，避免完全一致）；
+  // 无历史 → 施工内容留空、拍摄时间取当前、经纬度/地点/天气按当前定位取值（和风）
+  prefillWmForm() {
+    const entry = this.data.list.find((x) => x.id === this.data.memberEntryId);
+    const photos = (entry && entry.photos) || [];
+    const history = photos.filter((p) => p.shotTime || p.workContent || p.location || p.lng || p.lat);
+    const last = history[history.length - 1];
+    if (last) {
+      const lng = parseFloat(last.lng);
+      const lat = parseFloat(last.lat);
+      const jittered = Number.isFinite(lng) && Number.isFinite(lat) ? this.jitterCoord(lng, lat) : { lng: '', lat: '' };
+      this.setData({
+        wmVisible: true,
+        wmForm: {
+          content: last.workContent || '',
+          time: last.shotTime || '',
+          weather: last.weather || '',
+          location: last.location || '',
+          lng: jittered.lng,
+          lat: jittered.lat,
+        },
+      });
+      return;
+    }
+    this.setData({
+      wmVisible: true,
+      wmForm: { content: '', time: fmtWmTime(new Date()), weather: '', location: '', lng: '', lat: '' },
+    });
+    this.fillWmByLocation();
+  },
+
+  // 当前定位取值：经纬度直接填；地点/天气调后端 /geo（和风）。授权被拒或失败均留空手填
+  fillWmByLocation() {
+    wx.getLocation({
+      type: 'gcj02',
+      success: (loc) => {
+        if (!this.data.wmVisible) return; // 弹层已关则不再回填
+        this.setData({
+          'wmForm.lng': loc.longitude.toFixed(6),
+          'wmForm.lat': loc.latitude.toFixed(6),
+        });
+        request({ url: `/api/v1/worklog/geo?lng=${loc.longitude}&lat=${loc.latitude}`, timeout: 10000 })
+          .then((r) => {
+            if (!this.data.wmVisible) return;
+            this.setData({
+              'wmForm.weather': this.data.wmForm.weather || (r && r.weather) || '',
+              'wmForm.location': this.data.wmForm.location || (r && r.location) || '',
+            });
+          })
+          .catch(() => {}); // geo 未配置/失败：留空手填
+      },
+      fail: () => {}, // 用户拒绝定位授权：留空手填
+    });
+  },
+
+  // 经纬度随机偏移：半径 ≤400m（对 500m 上限留余量），角度随机
+  jitterCoord(lng, lat) {
+    const r = Math.random() * 400;
+    const a = Math.random() * Math.PI * 2;
+    const dLat = (r * Math.sin(a)) / 111320;
+    const cosLat = Math.cos((lat * Math.PI) / 180);
+    const dLng = (r * Math.cos(a)) / (111320 * (Math.abs(cosLat) > 1e-6 ? cosLat : 1e-6));
+    return { lng: (lng + dLng).toFixed(6), lat: (lat + dLat).toFixed(6) };
+  },
+
+  onWmInput(e) {
+    const { field } = e.currentTarget.dataset;
+    this.setData({ [`wmForm.${field}`]: e.detail.value });
+  },
+
+  onWmCodeRefresh() {
+    this.setData({ wmCode: genAntiCode() });
+  },
+
+  onWmCancel() {
+    this.setData({ wmVisible: false });
+  },
+
+  onWmVisibleChange(e) {
+    if (!e.detail.visible) this.setData({ wmVisible: false });
+  },
+
+  // 经纬度补方向后缀：只填数字时自动补 °E/°N（已带符号则原样）
+  withDegSuffix(v, suffix) {
+    const s = String(v || '').trim();
+    if (!s) return '';
+    return /[°NSEWnsew]/.test(s) ? s : `${s}${suffix}`;
+  },
+
+  // 确认：取 EXIF 方向 → 原图 base64 → 连同字段上传（服务端加水印）
+  onWmConfirm() {
+    if (this.data.wmUploading) return;
+    this.setData({ wmUploading: true });
+    wx.getImageInfo({
+      src: this.data.wmPhotoPath,
+      success: (info) => this.readAndUploadWm((info && info.orientation) || ''),
+      fail: () => this.readAndUploadWm(''),
+    });
+  },
+
+  readAndUploadWm(orientation) {
+    const f = this.data.wmForm;
+    const wm = {
+      content: f.content,
+      time: f.time,
+      weather: f.weather,
+      location: f.location,
+      longitude: this.withDegSuffix(f.lng, '°E'),
+      latitude: this.withDegSuffix(f.lat, '°N'),
+      antiCode: this.data.wmCode,
+      orientation,
+    };
+    wx.getFileSystemManager().readFile({
+      filePath: this.data.wmPhotoPath,
+      encoding: 'base64',
+      success: (r) => {
+        const ext = (this.data.wmPhotoPath.split('.').pop() || 'jpeg').toLowerCase();
+        const mime = ext === 'png' ? 'png' : 'jpeg';
+        this.uploadPhoto(`data:image/${mime};base64,${r.data}`, this.data.wmNames, wm);
+      },
+      fail: () => {
+        this.setData({ wmUploading: false });
+        this.toast('图片读取失败');
+      },
+    });
   },
 
   // 相册选片 → base64 → 上传（沿用 Call Me 聊天图片先例）
@@ -831,20 +1031,23 @@ Page({
     });
   },
 
-  async uploadPhoto(image, members) {
-    wx.showLoading({ title: '正在上传…', mask: true });
+  // 上传：wm 存在时走「加水印上传」（服务端渲染水印），否则为原「水印照片上传」
+  async uploadPhoto(image, members, wm) {
+    wx.showLoading({ title: wm ? '正在加水印上传…' : '正在上传…', mask: true });
     try {
       await request({
         url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
         method: 'POST',
-        data: { image, members },
-        timeout: 60000,
+        data: wm ? { image, members, wm } : { image, members },
+        timeout: 120000,
       });
       wx.hideLoading();
+      this.setData({ wmVisible: false, wmUploading: false });
       this.toast('已上传，验证中');
       this.loadLogs(); // 刷新后自动进入 pending 轮询
     } catch (err) {
       wx.hideLoading();
+      this.setData({ wmUploading: false });
       this.toast(err.message);
     }
   },

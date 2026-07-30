@@ -40,10 +40,15 @@ const DDL = [
     cos_key VARCHAR(255) NOT NULL COMMENT 'COS 对象键',
     url VARCHAR(512) NOT NULL COMMENT '照片访问地址',
     members JSON NOT NULL COMMENT '所属人名数组',
-    verify_status VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT 'pending/passed/date_mismatch/dest_mismatch/failed',
+    verify_status VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT 'pending/passed/mismatch/failed（旧值 date_mismatch/dest_mismatch 仅历史数据）',
     work_content VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Dify 返回施工内容（title）',
+    shot_time VARCHAR(32) NOT NULL DEFAULT '' COMMENT '水印拍摄时间（time）',
+    weather VARCHAR(64) NOT NULL DEFAULT '' COMMENT '天气（weather）',
+    location VARCHAR(255) NOT NULL DEFAULT '' COMMENT '地点（location）',
     lng VARCHAR(32) NOT NULL DEFAULT '' COMMENT '经度',
     lat VARCHAR(32) NOT NULL DEFAULT '' COMMENT '纬度',
+    date_ok TINYINT NULL COMMENT '日期核验：1 相符 0 不符（NULL=历史数据未存）',
+    dest_ok TINYINT NULL COMMENT '地点核验：1 相符 0 不符（NULL=历史数据未存）',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_entry (entry_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -73,6 +78,26 @@ const DDL = [
 async function ensureWorklogSchema(pool) {
   for (const sql of DDL) {
     await pool.query(sql);
+  }
+
+  // 老库兼容：worklog_photo 补充 Dify 新增输出列（MySQL 的 ALTER 不支持 IF NOT EXISTS，先查 information_schema）
+  const PHOTO_NEW_COLUMNS = [
+    ['shot_time', `shot_time VARCHAR(32) NOT NULL DEFAULT '' COMMENT '水印拍摄时间（time）' AFTER work_content`],
+    ['weather', `weather VARCHAR(64) NOT NULL DEFAULT '' COMMENT '天气（weather）' AFTER shot_time`],
+    ['location', `location VARCHAR(255) NOT NULL DEFAULT '' COMMENT '地点（location）' AFTER weather`],
+    ['date_ok', `date_ok TINYINT NULL COMMENT '日期核验：1 相符 0 不符' AFTER lat`],
+    ['dest_ok', `dest_ok TINYINT NULL COMMENT '地点核验：1 相符 0 不符' AFTER date_ok`],
+  ];
+  for (const [col, ddl] of PHOTO_NEW_COLUMNS) {
+    const [cols] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_photo' AND COLUMN_NAME = ?`,
+      [col]
+    );
+    if (!cols.length) {
+      await pool.query(`ALTER TABLE worklog_photo ADD COLUMN ${ddl}`);
+      console.log(`[初始化] 已为 worklog_photo 补充 ${col} 列`);
+    }
   }
 
   // 写入/更新应用记录（同 Call Me 种子模式）
