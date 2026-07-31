@@ -877,13 +877,12 @@ Page({
 
   // ---------- 「选择照片并添加水印」：选片 → 编辑字段 → 服务端加水印上传 ----------
 
-  // 按来源取原图（拍摄/相册）后进字段编辑弹层（sizeType 限定 original：压缩图加水印后会明显模糊）
+  // 按来源取图（拍摄/相册）后进字段编辑弹层（不限 sizeType：原图/压缩图均可，由用户选）
   choosePhotoForWm(names) {
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
       sourceType: [this.data.wmSourceType === 'camera' ? 'camera' : 'album'],
-      sizeType: ['original'],
       success: (res) => {
         this.setData({
           wmPhotoPath: res.tempFiles[0].tempFilePath,
