@@ -11,7 +11,8 @@ let fontsReady = false;
 function ensureFonts() {
   if (fontsReady) return;
   GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'HYQiHeiX2-65J.ttf'), 'HYQiHei');
-  GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'FZRuiZhengHei.ttf'), 'FZRuiZhengHei');
+  GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'PTMono-1.ttc'), 'PTMono'); // 防伪码码值（等宽）
+  GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'SourceHanSansSC-Bold-2.otf'), 'SourceHanSansSC'); // 「防伪」前缀
   fontsReady = true;
 }
 

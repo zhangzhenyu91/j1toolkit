@@ -419,6 +419,16 @@
     </view>
     <view class="sheet-actions">
       <view class="btn-ghost" hover-class="hover-opacity" bindtap="onMemberCancel">取 消</view>
+      <!-- 加水印流程多出「拍摄」：点亮人名后直接调相机 -->
+      <view
+        class="btn-dark flex-even"
+        wx:if="{{memberMode === 'add' && memberAction === 'wm'}}"
+        hover-class="hover-opacity"
+        bindtap="onMemberShoot"
+      >
+        <t-icon name="camera" size="34rpx" color="#FFFFFF" />
+        拍 摄
+      </view>
       <view class="btn-dark" hover-class="hover-opacity" bindtap="onMemberConfirm">
         <t-icon name="{{memberMode === 'add' ? 'image' : 'check'}}" size="34rpx" color="#FFFFFF" />
         {{memberMode === 'add' ? '确认，选择照片' : '确认修改'}}
@@ -511,8 +521,8 @@
         <view class="ao-note">照片已带水印，直接上传进入验证</view>
       </view>
       <view class="addsheet-opt" hover-class="hover-bg-warm" bindtap="onAddSheetWm">
-        <view class="ao-title">选择照片并添加水印</view>
-        <view class="ao-note">选原图并编辑字段，由服务端添加水印后上传</view>
+        <view class="ao-title">拍摄/选择照片并添加水印</view>
+        <view class="ao-note">拍照或选原图并编辑字段，由服务端添加水印后上传</view>
       </view>
       <view class="btn-ghost addsheet-cancel" hover-class="hover-opacity" bindtap="onAddSheetCancel">取 消</view>
     </view>

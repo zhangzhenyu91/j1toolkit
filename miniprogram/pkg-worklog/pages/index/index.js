@@ -107,6 +107,7 @@ Page({
     candidates: [], // [{name, checked, disabled}]
     // 添加照片二选一弹层（自绘，替代 t-action-sheet）
     addSheetVisible: false,
+    wmSourceType: 'album', // 加水印流程的照片来源（camera=拍摄 / album=相册，由人名层按钮决定）
     // ---------- 「选择照片并添加水印」字段编辑弹层 ----------
     wmVisible: false,
     wmPhotoPath: '', // 用户所选原图临时路径
@@ -751,7 +752,7 @@ Page({
     return used;
   },
 
-  // 添加照片：先弹二选一（①选择水印照片上传 ②选择照片并添加水印），再进人名点亮层
+  // 添加照片：先弹二选一（①选择水印照片上传 ②拍摄/选择照片并添加水印），再进人名点亮层
   onAddPhoto(e) {
     const { entryId } = e.currentTarget.dataset;
     const entry = this.data.list.find((x) => x.id === entryId);
@@ -856,20 +857,32 @@ Page({
     }
     this.setData({ memberVisible: false });
     if (this.data.memberAction === 'wm') {
+      this.setData({ wmSourceType: 'album' });
       this.choosePhotoForWm(names);
     } else {
       this.chooseAndUpload(names);
     }
   },
 
+  // 人名层「拍摄」：点亮人名后直接调相机（加水印流程）
+  onMemberShoot() {
+    const names = this.data.candidates.filter((c) => c.checked && !c.disabled).map((c) => c.name);
+    if (!names.length) {
+      this.toast('请选择照片所属人名');
+      return;
+    }
+    this.setData({ memberVisible: false, wmSourceType: 'camera' });
+    this.choosePhotoForWm(names);
+  },
+
   // ---------- 「选择照片并添加水印」：选片 → 编辑字段 → 服务端加水印上传 ----------
 
-  // 相册选原图后进字段编辑弹层（sizeType 限定 original：压缩图加水印后会明显模糊）
+  // 按来源取原图（拍摄/相册）后进字段编辑弹层（sizeType 限定 original：压缩图加水印后会明显模糊）
   choosePhotoForWm(names) {
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
-      sourceType: ['album'],
+      sourceType: [this.data.wmSourceType === 'camera' ? 'camera' : 'album'],
       sizeType: ['original'],
       success: (res) => {
         this.setData({

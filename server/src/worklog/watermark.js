@@ -29,7 +29,8 @@
     showBrand: true,          // 右下角品牌块（logo 图 + 防伪码）开关
     brandImage: null,         // 品牌 logo 图片（HTMLImage 或小程序 canvas.createImage() 对象）
     fontFamily: '"HYQiHei", "Microsoft YaHei", sans-serif',
-    codeFontFamily: '"FZRuiZhengHei", "HYQiHei", "Microsoft YaHei", sans-serif', // 防伪码字体
+    codeFontFamily: '"PTMono", "HYQiHei", "Microsoft YaHei", sans-serif', // 防伪码码值字体（等宽）
+    codePrefixFontFamily: '"SourceHanSansSC", "HYQiHei", "Microsoft YaHei", sans-serif', // 「防伪」前缀字体
     fontWeight: ''            // 字重；汉仪旗黑 65J 本身即中黑，留空避免合成加粗
   };
 
@@ -68,13 +69,13 @@
     glyphH: 0.0333,       // 字形高（用于卡片高度计算）
     bodyBottomPad: 0.01,  // 末行下到卡片底的距离
     textColor: '#111111',
-    // 右下品牌块
-    logoW: 0.18,       // logo 图宽
-    logoRight: 0.0167, // logo 右边距
-    logoBottom: 0.0383,// logo 底边距
-    codeFont: 0.0159,
-    codeRight: 0.0217,
-    codeCy: 0.018,     // 防伪码文字中心到底边的距离
+    // 右下品牌块（按官方样图实测：logo 视觉宽 0.132·B，防伪行左缘超出其左缘）
+    logoW: 0.14,       // logo 图宽
+    logoRight: 0.01,   // logo 右边距
+    logoBottom: 0.025, // logo 底边距
+    codeFont: 0.0145,
+    codeRight: 0.016,
+    codeCy: 0.0165,    // 防伪码文字中心到底边的距离
     codeColor: 'rgba(255,255,255,0.92)'
   };
 
@@ -132,6 +133,9 @@
     }
     function codeFont(px) {
       return Math.round(px) + 'px ' + o.codeFontFamily;
+    }
+    function codePrefixFont(px) {
+      return Math.round(px) + 'px ' + o.codePrefixFontFamily;
     }
 
     /* 缩放基准：短边。横版照片水印不会随宽度放大（实测自 4160x3134 横版样图） */
@@ -258,15 +262,24 @@
     if (o.showBrand) {
       ctx.save();
 
-      // 防伪码（可编辑文字）
+      // 防伪码：「防伪 」前缀与码值分字体绘制（前缀 SourceHanSansSC / 码值 PTMono），整体右对齐
       ctx.shadowColor = 'rgba(0,0,0,0.35)';
       ctx.shadowBlur = 6 * B / 1200;
       ctx.shadowOffsetY = 2 * B / 1200;
       ctx.fillStyle = M.codeColor;
-      ctx.font = codeFont(M.codeFont * B);
-      ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
-      ctx.fillText('防伪 ' + o.antiCode, W - M.codeRight * B, H - M.codeCy * B);
+      ctx.textAlign = 'left';
+      var codeFs = M.codeFont * B;
+      var codePrefix = '防伪 ';
+      ctx.font = codeFont(codeFs);
+      var codeW = ctx.measureText(o.antiCode).width;
+      ctx.font = codePrefixFont(codeFs);
+      var prefixW = ctx.measureText(codePrefix).width;
+      var rightX = W - M.codeRight * B;
+      var codeCy = H - M.codeCy * B;
+      ctx.fillText(codePrefix, rightX - prefixW - codeW, codeCy);
+      ctx.font = codeFont(codeFs);
+      ctx.fillText(o.antiCode, rightX - codeW, codeCy);
 
       // 品牌 logo 图（抠自官方样图，含「今日水印/相机/真实可验」）
       if (o.brandImage) {
