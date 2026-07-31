@@ -1,5 +1,5 @@
 // 出工日志 · 主页：日期条切换 / 视图开关（全部·仅看我）/ 日志卡片直改 / 日历选日（按日验证状态着色）
-// 新建/编辑表单收进底部弹层（edit 二级页已取缔）；底部另有批量下载水印照片面板
+// 新建/编辑表单收进底部弹层（edit 二级页已取缔）；底部另有批量下载水印照片面板与验证不通过报告面板
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -113,6 +113,7 @@ Page({
     wmPhotoPath: '', // 用户所选原图临时路径
     wmNames: [], // 人名点亮层确认的人名
     wmForm: { content: '', time: '', weather: '', location: '', lng: '', lat: '' },
+    wmQuickInputs: ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'], // 施工内容快捷输入（点击追加到内容末尾）
     wmCode: '', // 防伪码（自动生成，用户不可编辑）
     wmUploading: false,
     // ---------- 新建/编辑表单底部弹层（逻辑移植自已取缔的 edit 页） ----------
@@ -144,9 +145,18 @@ Page({
     dlAllChecked: false,
     dlLoading: false,
     dlOnlyMine: false, // 仅看我：筛选仅显示含自己名字的水印照片
-    // 下载面板改日期（range 日历；与下载面板互斥开合，避免叠层 z-index 冲突）
+    // 下载面板改日期（range 日历；与下载/报告面板互斥开合，避免叠层 z-index 冲突；_rangeCalFor 标记回开对象）
     dlCalVisible: false,
     dlCalValue: null,
+    // ---------- 验证不通过报告面板 ----------
+    rpVisible: false,
+    rpFrom: '',
+    rpTo: '',
+    rpRangeText: '',
+    rpGroups: [], // [{date, title, items:[{id, plateText, membersText, reasons}]}]
+    rpTotal: 0,
+    rpLoading: false,
+    rpOnlyMine: false, // 仅看我：仅「我未打卡 / 我未上传水印照片 / 我的水印照片未通过」的记录（后端 scope=mine）
   },
 
   onLoad() {
@@ -293,6 +303,7 @@ Page({
           hasVehicle: !!e.vehicle_id,
           plateText: e.vehicle_id ? e.plate_no : '未出车',
           badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
+          failReasons: e.verify_reasons || [], // 未通过明细（角标为「未通过」时逐行展示）
           patrolText: e.patrol_content || '—',
           checks: (e.members || []).map((m) => ({ mid: m.id, name: m.name, checked: !!m.checked })),
           photos,
@@ -978,6 +989,14 @@ Page({
     this.setData({ [`wmForm.${field}`]: e.detail.value });
   },
 
+  // 施工内容快捷输入：点击将字符追加到当前输入内容末尾（不超出 textarea 的 maxlength 500）
+  onWmQuickInput(e) {
+    const { text } = e.currentTarget.dataset;
+    if (!text) return;
+    const content = (this.data.wmForm.content + text).slice(0, 500);
+    this.setData({ 'wmForm.content': content });
+  },
+
   onWmCodeRefresh() {
     this.setData({ wmCode: genAntiCode() });
   },
@@ -1128,8 +1147,8 @@ Page({
 
   // ---------- 批量下载水印照片 ----------
 
-  // 首次打开默认范围：当天 1~10 日 → 上月整月；11 日及以后 → 本月 1 号到今天
-  defaultDlRange() {
+  // 首次打开默认范围：当天 1~10 日 → 上月整月；11 日及以后 → 本月 1 号到今天（批量下载 / 查看报告共用）
+  defaultRange() {
     const now = new Date();
     let from;
     let to;
@@ -1144,7 +1163,7 @@ Page({
   },
 
   onOpenDownload() {
-    const { from, to } = this.defaultDlRange();
+    const { from, to } = this.defaultRange();
     this.setData({ dlVisible: true, dlFrom: from, dlTo: to });
     this.loadDlPhotos();
   },
@@ -1252,6 +1271,7 @@ Page({
   // 「改日期」：先关下载面板再开 range 日历（两弹层互斥，规避叠层 z-index 冲突），选完重开
   onDlChangeDate() {
     const { dlFrom, dlTo } = this.data;
+    this._rangeCalFor = 'dl'; // range 日历与报告面板共用，标记回开对象
     this.setData({
       dlVisible: false,
       dlCalValue: [parseDate(dlFrom).getTime(), parseDate(dlTo).getTime()],
@@ -1259,25 +1279,31 @@ Page({
     });
   },
 
-  // range 日历确认：e.detail.value 为两个时间戳
+  // range 日历确认：e.detail.value 为两个时间戳；按 _rangeCalFor 回写并重开来源面板
   onDlCalConfirm(e) {
     const value = e.detail.value;
     if (!Array.isArray(value) || value.length < 2) {
       this.toast('请选择起止日期');
       return;
     }
-    this.setData({
-      dlCalVisible: false,
-      dlFrom: fmtDate(new Date(value[0])),
-      dlTo: fmtDate(new Date(value[1])),
-      dlVisible: true,
-    });
+    const from = fmtDate(new Date(value[0]));
+    const to = fmtDate(new Date(value[1]));
+    if (this._rangeCalFor === 'rp') {
+      this.setData({ dlCalVisible: false, rpFrom: from, rpTo: to, rpVisible: true });
+      this.loadReport();
+      return;
+    }
+    this.setData({ dlCalVisible: false, dlFrom: from, dlTo: to, dlVisible: true });
     this.loadDlPhotos();
   },
 
-  // 未选直接关闭日历：重开下载面板（保留原范围）
+  // 未选直接关闭日历：重开来源面板（保留原范围）
   onDlCalClose() {
     if (!this.data.dlCalVisible) return;
+    if (this._rangeCalFor === 'rp') {
+      this.setData({ dlCalVisible: false, rpVisible: true });
+      return;
+    }
     this.setData({ dlCalVisible: false, dlVisible: true });
   },
 
@@ -1347,5 +1373,81 @@ Page({
     }
     wx.hideLoading();
     this.toast(`已保存 ${saved} 张到相册`);
+  },
+
+  // ---------- 验证不通过报告 ----------
+
+  onOpenReport() {
+    const { from, to } = this.defaultRange();
+    this.setData({ rpVisible: true, rpFrom: from, rpTo: to });
+    this.loadReport();
+  },
+
+  onCloseReport() {
+    this.setData({ rpVisible: false });
+  },
+
+  onRpVisibleChange(e) {
+    if (!e.detail.visible && this.data.rpVisible) this.setData({ rpVisible: false });
+  },
+
+  // 拉取范围内不通过记录并按日期分组（后端已按日期+卡片序排列，遇序分组即日期升序）
+  async loadReport() {
+    this.setData({ rpLoading: true });
+    try {
+      const { rpFrom, rpTo, rpOnlyMine } = this.data;
+      const scope = rpOnlyMine ? '&scope=mine' : '';
+      const data = await request({ url: `/api/v1/worklog/report?from=${rpFrom}&to=${rpTo}${scope}` });
+      const list = (data && data.list) || [];
+      const groups = [];
+      const groupMap = {};
+      list.forEach((e) => {
+        if (!groupMap[e.log_date]) {
+          const d = parseDate(e.log_date);
+          groupMap[e.log_date] = {
+            date: e.log_date,
+            title: `${d.getMonth() + 1}月${d.getDate()}日 ${WEEK[d.getDay()]}`,
+            items: [],
+          };
+          groups.push(groupMap[e.log_date]);
+        }
+        groupMap[e.log_date].items.push({
+          id: e.id,
+          plateText: e.plate_no,
+          membersText: (e.members || []).join('、'),
+          reasons: e.reasons || [],
+        });
+      });
+      this.setData({
+        rpGroups: groups,
+        rpTotal: list.length,
+        rpRangeText: `${rpFrom} ~ ${rpTo}`,
+        rpLoading: false,
+      });
+    } catch (err) {
+      this.setData({ rpLoading: false });
+      this.toast(err.message);
+    }
+  },
+
+  // 「仅看我」开关：仅「我未打卡 / 我未上传水印照片 / 我的水印照片未通过」的记录（后端 scope=mine，同视图开关口径）
+  onRpToggleMine() {
+    if (!this._myName) {
+      this.toast('未匹配到你的成员名');
+      return;
+    }
+    this.setData({ rpOnlyMine: !this.data.rpOnlyMine });
+    this.loadReport();
+  },
+
+  // 「改日期」：与下载面板共用 range 日历（先关报告面板，_rangeCalFor='rp' 选完重开）
+  onRpChangeDate() {
+    const { rpFrom, rpTo } = this.data;
+    this._rangeCalFor = 'rp';
+    this.setData({
+      rpVisible: false,
+      dlCalValue: [parseDate(rpFrom).getTime(), parseDate(rpTo).getTime()],
+      dlCalVisible: true,
+    });
   },
 });

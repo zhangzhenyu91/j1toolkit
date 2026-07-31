@@ -194,6 +194,33 @@
   color: #a89f8a;
 }
 
+/* 未通过明细：红底块逐行列出全部不满足项（与右上角角标同源，后端 verify_reasons） */
+.lc-fail {
+  margin-top: 16rpx;
+  background: #fbe9e9;
+  border-radius: 12rpx;
+  padding: 12rpx 20rpx;
+}
+
+.lc-fail-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #cf4444;
+  line-height: 1.7;
+}
+
+.lc-fail-line::before {
+  content: '';
+  flex: none;
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #cf4444;
+}
+
 /* 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分） */
 .lc-patrol {
   margin-top: 20rpx;
@@ -481,7 +508,7 @@
   flex: none;
 }
 
-/* ---------- 底部固定区：批量下载（白底描边 ghost）+ 新建日志（藏青），1:2 ---------- */
+/* ---------- 底部固定区：批量下载/查看报告（白底描边 ghost）+ 新建日志（藏青），1:1:1.5 ---------- */
 .btns {
   display: flex;
   gap: 20rpx;
@@ -504,8 +531,12 @@
   letter-spacing: 4rpx;
 }
 
+.btn-report {
+  flex: 1;
+}
+
 .btn-create {
-  flex: 2;
+  flex: 1.5;
 }
 
 /* ---------- 新建/编辑表单底部弹层 ---------- */
@@ -802,6 +833,35 @@
   margin-bottom: 16rpx;
 }
 
+/* 施工内容标题行：左侧标题 + 右侧快捷输入（空间不足时 chips 自动折行） */
+.wm-wc-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.wm-wc-head .fk {
+  margin-bottom: 0;
+}
+
+.wm-quick {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.wm-quick-chip {
+  margin-left: 12rpx;
+  padding: 4rpx 16rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #F26D21;
+  background: #FDEEE2;
+  border: 1rpx solid #F26D21;
+  border-radius: 8rpx;
+}
+
 .wm-row-col + .frow {
   border-top: 2rpx solid #f1ebdc;
 }
@@ -873,4 +933,47 @@
 /* 人名层三按钮并排时「拍摄」的宽度配比（取消1 / 拍摄1.4 / 确认2） */
 .btn-dark.flex-even {
   flex: 1.4;
+}
+
+/* ---------- 验证不通过报告面板（骨架复用 dl-* 类，此处仅记录条目样式） ---------- */
+/* 一条不通过记录：车牌行 + 原因行；条目间虚线分隔 */
+.rp-item + .rp-item {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 2rpx dashed #ede6d4;
+}
+
+.rp-plate {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+  font-size: 28rpx;
+  font-weight: 800;
+  color: #22314e;
+}
+
+.rp-members {
+  font-size: 22rpx;
+  font-weight: 400;
+  color: #a89f8a;
+}
+
+.rp-reason {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #cf4444;
+  line-height: 1.6;
+}
+
+.rp-reason::before {
+  content: '';
+  flex: none;
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #cf4444;
 }
