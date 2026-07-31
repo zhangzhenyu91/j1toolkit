@@ -38,8 +38,8 @@ async function fetchLocationWeather(lng, lat) {
       console.error('[出工日志] 腾讯天气获取失败：', d, '｜入参:', coord);
     }
 
-    // 地点：区县·具体位置。具体位置优先取乡镇/街道（address_reference.town），
-    // 无则回退道路（address_component.street）；区县为空回退市
+    // 地点：区县·地标（如 汾阳市·景和府）。取 address_reference 地标，依次回退
+    // landmark_l2 → landmark_l1 → 乡镇/街道（town.title）→ 道路（address_component.street）；区县为空回退市
     let location = '';
     const geoRes = geoSet.status === 'fulfilled' ? geoSet.value : null;
     const r = geoRes && geoRes.data && geoRes.data.result;
@@ -47,7 +47,12 @@ async function fetchLocationWeather(lng, lat) {
       const ac = r.address_component || {};
       const ref = r.address_reference || {};
       const area = ac.district || ac.city || '';
-      const detail = (ref.town && ref.town.title) || ac.street || '';
+      const detail =
+        (ref.landmark_l2 && ref.landmark_l2.title) ||
+        (ref.landmark_l1 && ref.landmark_l1.title) ||
+        (ref.town && ref.town.title) ||
+        ac.street ||
+        '';
       location = area && detail ? `${area}·${detail}` : area || detail;
     } else if (geoRes && geoRes.data && geoRes.data.status !== 0) {
       console.error('[出工日志] 腾讯逆地址解析返回异常：', geoRes.data.status, geoRes.data.message);
