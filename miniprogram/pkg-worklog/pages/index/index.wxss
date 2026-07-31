@@ -869,3 +869,8 @@
 .addsheet-cancel {
   margin-top: 24rpx;
 }
+
+/* 人名层三按钮并排时「拍摄」的宽度配比（取消1 / 拍摄1.4 / 确认2） */
+.btn-dark.flex-even {
+  flex: 1.4;
+}
