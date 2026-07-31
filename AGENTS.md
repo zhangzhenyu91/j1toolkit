@@ -61,6 +61,7 @@
 - `SafeDayLogs/` —— 安全日活动记录生成平台（独立部署的网页端应用，登录经主平台 app-login 校验应用权限）
 - `design/` —— UI 设计稿（仅保留定稿 `style-5.html`）
 - 根目录 —— 文档与规则文件（仅 AGENTS.md / README.md / 开发指南.md）
+- `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
 
 新应用接入 = 小程序分包页面 + 后端 `sys_app` 表配置（详见 `开发指南.md` 第五章）。
 
