@@ -39,6 +39,11 @@
         <view class="badge {{item.badge.cls}}">{{item.badge.text}}</view>
       </view>
 
+      <!-- 未通过明细：角标为「未通过」时逐行列出全部不满足项（后端 verify_reasons，与角标同源） -->
+      <view class="lc-fail" wx:if="{{item.failReasons.length}}">
+        <view class="lc-fail-line" wx:for="{{item.failReasons}}" wx:key="*this">{{item}}</view>
+      </view>
+
       <!-- 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分；点击打开表单面板修改） -->
       <view class="lc-patrol" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
         <view class="lc-patrol-head">
@@ -157,7 +162,7 @@
   </view>
 </view>
 
-<!-- 底部固定区：管理员入口 + 批量下载/新建日志（1:2） -->
+<!-- 底部固定区：管理员入口 + 批量下载/查看报告/新建日志（1:1:1.5） -->
 <view class="bottombar" wx:if="{{gate}}">
   <view class="admin-link" wx:if="{{isAdmin}}" hover-class="hover-opacity" bindtap="onManage">
     <text class="admin-link-b">常用数据管理</text>
@@ -166,6 +171,10 @@
     <view class="btn-download" hover-class="hover-opacity" bindtap="onOpenDownload">
       <t-icon name="download" size="32rpx" color="#22314E" />
       批量下载
+    </view>
+    <view class="btn-download btn-report" hover-class="hover-opacity" bindtap="onOpenReport">
+      <t-icon name="chart-bar" size="32rpx" color="#22314E" />
+      查看报告
     </view>
     <view class="btn-primary btn-create" hover-class="hover-opacity" bindtap="onCreate">
       <t-icon name="add" size="36rpx" color="#FFFFFF" />
@@ -381,7 +390,37 @@
   </view>
 </t-popup>
 
-<!-- 下载面板改日期：range 日历（与下载面板互斥开合；confirm 取 e.detail.value 两个时间戳） -->
+<!-- 验证不通过报告面板（近全屏，骨架复用 dl-* 类；按日期分组列出不通过记录及全部原因） -->
+<t-popup visible="{{rpVisible}}" placement="bottom" bind:visible-change="onRpVisibleChange">
+  <view class="dl-sheet">
+    <view class="dl-head">
+      <view class="dl-title">验证不通过报告</view>
+      <view class="dl-close" hover-class="hover-opacity" bindtap="onCloseReport">
+        <t-icon name="close" size="36rpx" color="#6B7690" />
+      </view>
+    </view>
+    <!-- 日期范围行（仅看我=个人口径；改日期：先关本面板再开 range 日历，规避叠层 z-index 冲突） -->
+    <view class="dl-range">
+      <text class="dl-range-text">{{rpRangeText}}</text>
+      <view class="dl-mine {{rpOnlyMine ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onRpToggleMine">仅看我</view>
+      <view class="dl-change" hover-class="hover-opacity" bindtap="onRpChangeDate">改日期</view>
+    </view>
+
+    <scroll-view scroll-y class="dl-body" enhanced show-scrollbar="{{false}}">
+      <view class="dl-empty" wx:if="{{!rpLoading && rpTotal === 0}}">{{rpOnlyMine ? '该范围内暂无与你相关的不通过记录' : '该范围内暂无验证不通过记录'}}</view>
+      <!-- 一个日期一个卡片 -->
+      <view class="dl-month-card" wx:for="{{rpGroups}}" wx:key="date">
+        <view class="dl-month-title">{{item.title}}</view>
+        <view class="rp-item" wx:for="{{item.items}}" wx:for-item="r" wx:key="id">
+          <view class="rp-plate">{{r.plateText}}<text class="rp-members">用车人：{{r.membersText}}</text></view>
+          <view class="rp-reason" wx:for="{{r.reasons}}" wx:for-item="reason" wx:key="*this">{{reason}}</view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+</t-popup>
+
+<!-- 下载/报告面板改日期：range 日历（与两面板互斥开合，_rangeCalFor 标记回开对象；confirm 取 e.detail.value 两个时间戳） -->
 <t-calendar
   visible="{{dlCalVisible}}"
   value="{{dlCalValue}}"
@@ -390,7 +429,7 @@
   switch-mode="month"
   min-date="{{minDate}}"
   max-date="{{maxDate}}"
-  title="选择下载范围"
+  title="选择日期范围"
   confirm-btn="确定选择"
   bind:confirm="onDlCalConfirm"
   bind:close="onDlCalClose"
@@ -455,7 +494,19 @@
       </view>
       <view class="form-card wm-card">
         <view class="wm-row-col">
-          <text class="fk">施工内容</text>
+          <view class="wm-wc-head">
+            <text class="fk">施工内容</text>
+            <view class="wm-quick">
+              <text
+                wx:for="{{wmQuickInputs}}"
+                wx:key="*this"
+                class="wm-quick-chip"
+                hover-class="hover-opacity"
+                data-text="{{item}}"
+                bindtap="onWmQuickInput"
+              >{{item}}</text>
+            </view>
+          </view>
           <view class="textarea-wrap wm-textarea">
             <textarea
               class="textarea"

@@ -12,7 +12,7 @@ const dify = require('./dify');
 const geo = require('./geo');
 const Watermark = require('./watermark');
 const { renderWatermarkedPhoto } = require('./render-photo');
-const { computeVerifyPassed } = require('./verify');
+const { computeVerifyPassed, computeFailReasons, myReportReasons } = require('./verify');
 
 const router = express.Router();
 router.use(auth, requireApp('work-log'));
@@ -90,6 +90,7 @@ async function loadEntries(where, params) {
       photos: photoMap[e.id] || [],
     };
     entry.verify_passed = computeVerifyPassed(entry);
+    entry.verify_reasons = computeFailReasons(entry);
     return entry;
   });
 }
@@ -372,6 +373,47 @@ router.get('/photos', async (req, res, next) => {
       r.members = typeof r.members === 'string' ? JSON.parse(r.members) : r.members;
     });
     return ok(res, { list: rows });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /report?from=&to=&scope=all|mine：日期范围内验证不通过记录及原因（「查看报告」面板用）
+// scope=mine 个人口径：仅含「我未打卡 / 我未上传水印照片 / 我的水印照片未通过」的卡片，且原因只列个人相关项
+router.get('/report', async (req, res, next) => {
+  try {
+    const { from, to } = req.query;
+    if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '')) {
+      return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    }
+    if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
+
+    let me = null;
+    if (req.query.scope === 'mine') {
+      me = await myMember(req.user.id);
+      if (!me) return ok(res, { list: [] });
+    }
+    const list = await loadEntries('e.log_date BETWEEN ? AND ?', [from, to]);
+    const items = [];
+    list.forEach((e) => {
+      let reasons;
+      if (me) {
+        reasons = myReportReasons(e, me);
+      } else {
+        if (e.verify_passed !== 'failed') return;
+        reasons = e.verify_reasons;
+      }
+      if (!reasons.length) return;
+      items.push({
+        id: e.id,
+        log_date: e.log_date,
+        plate_no: e.plate_no || '未出车',
+        members: e.members.map((m) => m.name),
+        reasons,
+      });
+    });
+    items.sort((a, b) => (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : a.id - b.id));
+    return ok(res, { list: items });
   } catch (err) {
     return next(err);
   }

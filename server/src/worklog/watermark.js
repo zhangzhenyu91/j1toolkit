@@ -42,22 +42,22 @@
     cardW: 0.518,    // 卡片宽
     cardB: 0.0213,   // 底边距（卡片底到图片底；卡片向上生长，此值不变）
     radius: 0.016,   // 卡片圆角
-    // 头部（纯色蓝；实测目标样图头部外观 rgb(79,121,196)。因头部叠在白卡身之上、
-    // 底色恒定，直接用目标外观色不透明填充，任何照片背景下均与样图一致）
+    // 头部（纯色蓝，直接画在照片上——蓝块与白块不重叠、底下不再垫白块；
+    // 按目标样图在其深色背景上的实测外观 rgb(79,121,196) 反解：rgb(84,147,245) @75%）
     headerH: 0.06,
-    headerColor: 'rgb(79,121,196)',
-    bodyColor: 'rgba(255,255,255,0.75)',
+    headerColor: 'rgba(69,136,249,0.7)',
+    bodyColor: 'rgba(255,255,255,0.7)',
     // 黄点（颜色经用户确认）
     dotColor: '#FAC441',
     dotDia: 0.0146,
     dotCx: 0.028,    // 中心 x（相对卡片左缘）
     // 标题
-    titleFont: 0.0393,
+    titleFont: 0.0355,
     titleCy: 0.0335, // 中心 y（相对卡片顶，头高 0.06 的 0.56 处，与原比例一致）
     titleDx: 0.018,  // 中心 x 相对卡片中心右移（视觉居中，避开左侧黄点）
     // 正文（内部 x 均为卡片宽度 cardW 的比例——实测：不同分辨率下冒号列恒为
     // 0.3233·cardW、值列恒为 ≈0.374·cardW，即布局随卡片整体缩放）
-    labelFont: 0.0363,
+    labelFont: 0.033,
     labelX: 0.0302,   // 标签首字 x（相对 cardW）
     labelPitch: 0.076,// 标签字槽间距（相对 cardW）：标签逐字分散对齐，两字标签第 2 字落第 3 槽
     colonX: 0.3233,   // 冒号 x（相对 cardW）
@@ -65,9 +65,9 @@
     valuePadR: 0.033, // 值换行右边界到卡片右缘的距离（相对 cardW，与左侧留白对称）
     valueScaleX: 0.95,// 值文字横向缩放（原样图字形略窄于 HYQiHeiX2）
     row0Cy: 0.0258,   // 首行文字中心 y（相对头/身分界线，相对 B）
-    rowPitch: 0.0493, // 行距（换行样图实测 0.0433~0.0493，取黑底样图实测值）
+    rowPitch: 0.0475, // 行距（2160x2880 目标样图实测 ≈0.0476）
     bodyTopPad: 0.0092,   // 卡身首行上到分界线的距离（推算：cardH 分解）
-    glyphH: 0.0333,       // 字形高（用于卡片高度计算）
+    glyphH: 0.03,         // 字形高（用于卡片高度计算，随 labelFont 0.033 同步缩小）
     bodyBottomPad: 0.01,  // 末行下到卡片底的距离
     textColor: '#111111',
     // 右下品牌块（按官方样图实测：logo 视觉宽 0.132·B，防伪行左缘超出其左缘）
@@ -75,6 +75,8 @@
     logoRight: 0.01,   // logo 右边距
     logoBottom: 0.025, // logo 底边距
     codeFont: 0.0145,
+    codeFontScale: 1.2, // 码值字号相对前缀的放大倍数（实测同 em 下思源黑 CJK 高 0.92em、PTMono 大写仅 0.67em）
+    codeXScale: 0.88,    // 码值横向压缩（字号放大后保持整行宽 ≈0.154·B 与官方一致）
     codeRight: 0.016,
     codeBaseline: 0.008, // 防伪码行基线（alphabetic）到底边的距离；行视觉中心≈0.0157
     codeColor: 'rgba(255,255,255,0.92)'
@@ -209,8 +211,8 @@
     /* ================= 左下角卡片 ================= */
     ctx.save();
 
-    // 卡身：白色半透明，四角圆
-    roundedPath(ctx, cardX, cardY, cardW, cardH, radius, [true, true, true, true]);
+    // 卡身：白色半透明，仅头部分界线以下（下圆角；与头部蓝块互不重叠，不垫在蓝块下面）
+    roundedPath(ctx, cardX, cardY + headerH, cardW, cardH - headerH, radius, [false, false, true, true]);
     ctx.fillStyle = M.bodyColor;
     ctx.fill();
 
@@ -273,15 +275,20 @@
       ctx.textAlign = 'left';
       var codeFs = M.codeFont * B;
       var codePrefix = '防伪 ';
-      ctx.font = codeFont(codeFs);
-      var codeW = ctx.measureText(o.antiCode).width;
+      ctx.font = codeFont(codeFs * M.codeFontScale);
+      var codeW = ctx.measureText(o.antiCode).width * M.codeXScale;
       ctx.font = codePrefixFont(codeFs);
       var prefixW = ctx.measureText(codePrefix).width;
       var rightX = W - M.codeRight * B;
       var baselineY = H - M.codeBaseline * B;
       ctx.fillText(codePrefix, rightX - prefixW - codeW, baselineY);
-      ctx.font = codeFont(codeFs);
-      ctx.fillText(o.antiCode, rightX - codeW, baselineY);
+      // 码值：字号放大（字高对齐「防伪」）+ 横向压缩（行宽不超限）
+      ctx.save();
+      ctx.translate(rightX - codeW, baselineY);
+      ctx.scale(M.codeXScale, 1);
+      ctx.font = codeFont(codeFs * M.codeFontScale);
+      ctx.fillText(o.antiCode, 0, 0);
+      ctx.restore();
 
       // 品牌 logo 图（抠自官方样图，含「今日水印/相机/真实可验」）
       if (o.brandImage) {
