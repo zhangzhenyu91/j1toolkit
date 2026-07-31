@@ -37,22 +37,23 @@
   /* 实测几何/颜色参数（全部为图片短边 min(W,H) 的比例，基准图 1200x1600；
      缩放基准实测自 4160x3134 横版样图：横竖版水印绝对尺寸一致） */
   var M = {
-    // 卡片
-    cardL: 0.0325,   // 左边距
-    cardW: 0.5517,   // 卡片宽
-    cardB: 0.0342,   // 底边距（卡片底到图片底；卡片向上生长，此值不变）
+    // 卡片（按 2160x2880 目标样图实测微调：左缘 0.02、宽 0.518、底边距 0.0213、头高 0.06）
+    cardL: 0.02,     // 左边距
+    cardW: 0.518,    // 卡片宽
+    cardB: 0.0213,   // 底边距（卡片底到图片底；卡片向上生长，此值不变）
     radius: 0.016,   // 卡片圆角
-    // 头部（纯色蓝，非渐变；颜色经用户确认 #156DFB，半透明 50%）
-    headerH: 0.0708,
-    headerColor: 'rgba(21,109,251,0.5)',    // #156DFB @50%
-    bodyColor: 'rgba(255,255,255,0.72)',
+    // 头部（纯色蓝；实测目标样图头部外观 rgb(79,121,196)。因头部叠在白卡身之上、
+    // 底色恒定，直接用目标外观色不透明填充，任何照片背景下均与样图一致）
+    headerH: 0.06,
+    headerColor: 'rgb(79,121,196)',
+    bodyColor: 'rgba(255,255,255,0.75)',
     // 黄点（颜色经用户确认）
     dotColor: '#FAC441',
     dotDia: 0.0146,
     dotCx: 0.028,    // 中心 x（相对卡片左缘）
     // 标题
     titleFont: 0.0393,
-    titleCy: 0.0396, // 中心 y（相对卡片顶）
+    titleCy: 0.0335, // 中心 y（相对卡片顶，头高 0.06 的 0.56 处，与原比例一致）
     titleDx: 0.018,  // 中心 x 相对卡片中心右移（视觉居中，避开左侧黄点）
     // 正文（内部 x 均为卡片宽度 cardW 的比例——实测：不同分辨率下冒号列恒为
     // 0.3233·cardW、值列恒为 ≈0.374·cardW，即布局随卡片整体缩放）
@@ -75,7 +76,7 @@
     logoBottom: 0.025, // logo 底边距
     codeFont: 0.0145,
     codeRight: 0.016,
-    codeCy: 0.0165,    // 防伪码文字中心到底边的距离
+    codeBaseline: 0.008, // 防伪码行基线（alphabetic）到底边的距离；行视觉中心≈0.0157
     codeColor: 'rgba(255,255,255,0.92)'
   };
 
@@ -262,12 +263,13 @@
     if (o.showBrand) {
       ctx.save();
 
-      // 防伪码：「防伪 」前缀与码值分字体绘制（前缀 SourceHanSansSC / 码值 PTMono），整体右对齐
+      // 防伪码：「防伪 」前缀与码值分字体绘制（前缀 SourceHanSansSC / 码值 PTMono）。
+      // 共用 alphabetic 基线保证两字体在同一水平线上（middle 基线因两字体度量不同会错位），整体右对齐
       ctx.shadowColor = 'rgba(0,0,0,0.35)';
       ctx.shadowBlur = 6 * B / 1200;
       ctx.shadowOffsetY = 2 * B / 1200;
       ctx.fillStyle = M.codeColor;
-      ctx.textBaseline = 'middle';
+      ctx.textBaseline = 'alphabetic';
       ctx.textAlign = 'left';
       var codeFs = M.codeFont * B;
       var codePrefix = '防伪 ';
@@ -276,10 +278,10 @@
       ctx.font = codePrefixFont(codeFs);
       var prefixW = ctx.measureText(codePrefix).width;
       var rightX = W - M.codeRight * B;
-      var codeCy = H - M.codeCy * B;
-      ctx.fillText(codePrefix, rightX - prefixW - codeW, codeCy);
+      var baselineY = H - M.codeBaseline * B;
+      ctx.fillText(codePrefix, rightX - prefixW - codeW, baselineY);
       ctx.font = codeFont(codeFs);
-      ctx.fillText(o.antiCode, rightX - codeW, codeCy);
+      ctx.fillText(o.antiCode, rightX - codeW, baselineY);
 
       // 品牌 logo 图（抠自官方样图，含「今日水印/相机/真实可验」）
       if (o.brandImage) {
