@@ -158,6 +158,7 @@
     var maxValueW = cardW * (1 - M.valuePadR) - M.valueX * cardW;
 
     /* ---- 1) 值换行：先按 \n 分段，段内再按宽度贪心换行 ---- */
+    // 天气为空时整行删除（卡片高度随总行数自适应减少）
     var fields = [
       ['施工内容', o.content],
       ['拍摄时间', o.time],
@@ -165,7 +166,7 @@
       ['地点', o.location],
       ['经度', o.longitude],
       ['纬度', o.latitude]
-    ];
+    ].filter(function (f) { return f[0] !== '天气' || String(f[1] || '').trim(); });
     ctx.font = font(fs);
     function wrapValue(text) {
       var segments = String(text).split('\n');
