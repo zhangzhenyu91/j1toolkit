@@ -116,6 +116,18 @@ Page({
     wmQuickInputs: ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'], // 施工内容快捷输入（点击追加到内容末尾）
     wmCode: '', // 防伪码（自动生成，用户不可编辑）
     wmUploading: false,
+    // ---------- 4:3 裁剪层（加水印流程：拍摄必裁；相册非 4:3 才裁，横拍锁 4:3 / 纵拍锁 3:4） ----------
+    cropVisible: false,
+    cropSrc: '', // 待裁原图临时路径
+    cropLandscape: true, // true=横向 4:3 / false=纵向 3:4
+    cropFrameW: 0, // 取景框尺寸（px）
+    cropFrameH: 0,
+    cropViewW: 0, // 图片 cover 适配后的显示尺寸（px，未缩放）
+    cropViewH: 0,
+    cropX: 0, // movable-view 位置（px；缩放原点为视图中心，事件值存于 _cropX/_cropY/_cropScale）
+    cropY: 0,
+    cropScale: 1,
+    cropExporting: false,
     // ---------- 新建/编辑表单底部弹层（逻辑移植自已取缔的 edit 页） ----------
     formVisible: false,
     formId: 0, // 0=新建
@@ -886,23 +898,189 @@ Page({
     this.choosePhotoForWm(names);
   },
 
-  // ---------- 「选择照片并添加水印」：选片 → 编辑字段 → 服务端加水印上传 ----------
+  // ---------- 「选择照片并添加水印」：选片 →（按需 4:3 裁剪）→ 编辑字段 → 服务端加水印上传 ----------
 
-  // 按来源取图（拍摄/相册）后进字段编辑弹层（不限 sizeType：原图/压缩图均可，由用户选）
+  // 按来源取图（拍摄/相册）后判定是否进 4:3 裁剪层（不限 sizeType：原图/压缩图均可，由用户选）
   choosePhotoForWm(names) {
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
       sourceType: [this.data.wmSourceType === 'camera' ? 'camera' : 'album'],
       success: (res) => {
-        this.setData({
-          wmPhotoPath: res.tempFiles[0].tempFilePath,
-          wmNames: names,
-          wmCode: genAntiCode(),
+        const path = res.tempFiles[0].tempFilePath;
+        wx.getImageInfo({
+          src: path,
+          success: (info) => this.afterPickWmPhoto(path, names, info || {}),
+          fail: () => this.afterPickWmPhoto(path, names, {}),
         });
-        this.prefillWmForm();
       },
     });
+  },
+
+  // 取图后分流：拍摄一律进裁剪；相册已为 4:3/3:4（±0.02 容差）则免裁直进表单。
+  // EXIF 旋转 90/270° 时显示宽高互换；取信息失败按已是 4:3 处理（保持旧流程）
+  afterPickWmPhoto(path, names, info) {
+    const rotated = ['left', 'right', 'left-mirrored', 'right-mirrored'].indexOf(info.orientation) >= 0;
+    const dispW = rotated ? info.height : info.width;
+    const dispH = rotated ? info.width : info.height;
+    const ratio = dispW && dispH ? dispW / dispH : 4 / 3;
+    const is43 = Math.abs(ratio - 4 / 3) <= 0.02 || Math.abs(ratio - 3 / 4) <= 0.02;
+    if (this.data.wmSourceType === 'album' && is43) {
+      this.proceedWmForm(path, names);
+      return;
+    }
+    this.openWmCrop(path, names, dispW || 4, dispH || 3, info.orientation || '');
+  },
+
+  // 裁剪完成/免裁：记录照片路径与人名、生成防伪码，进字段编辑弹层
+  proceedWmForm(path, names) {
+    this.setData({ wmPhotoPath: path, wmNames: names, wmCode: genAntiCode() });
+    this.prefillWmForm();
+  },
+
+  // ---------- 4:3 裁剪层 ----------
+  // 交互：movable-view 拖拽 + 双指缩放（scale 原点为视图中心）；取景框锁定 4:3（横）/ 3:4（纵）
+  // 导出：离屏 type=2d canvas 按可视区重绘裁出（createImage 解码应用 EXIF；个别机型未应用时手动旋转兜底）
+
+  // 打开裁剪层：取景框横向顶满屏宽、纵向受高度限制；图片按 cover 适配并居中
+  openWmCrop(path, names, dispW, dispH, orientation) {
+    const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const maxW = win.windowWidth - 48;
+    const maxH = Math.max(win.windowHeight - 260, 200); // 标题/提示/按钮预留
+    let fw;
+    let fh;
+    if (dispW >= dispH) {
+      fw = maxW;
+      fh = (fw * 3) / 4;
+    } else {
+      fh = Math.min((maxW * 4) / 3, maxH);
+      fw = (fh * 3) / 4;
+    }
+    const k = Math.max(fw / dispW, fh / dispH); // cover 适配
+    const vw = dispW * k;
+    const vh = dispH * k;
+    const x = (fw - vw) / 2;
+    const y = (fh - vh) / 2;
+    this._cropNames = names;
+    this._cropOrientation = orientation;
+    this._cropDispW = dispW;
+    this._cropDispH = dispH;
+    this._cropX = x;
+    this._cropY = y;
+    this._cropScale = 1;
+    this.setData({
+      cropVisible: true,
+      cropSrc: path,
+      cropLandscape: dispW >= dispH,
+      cropFrameW: fw,
+      cropFrameH: fh,
+      cropViewW: vw,
+      cropViewH: vh,
+      cropX: x,
+      cropY: y,
+      cropScale: 1,
+      cropExporting: false,
+    });
+  },
+
+  onCropMove(e) {
+    this._cropX = e.detail.x;
+    this._cropY = e.detail.y;
+  },
+
+  onCropScale(e) {
+    this._cropX = e.detail.x;
+    this._cropY = e.detail.y;
+    this._cropScale = e.detail.scale;
+  },
+
+  onCropCancel() {
+    this.setData({ cropVisible: false, cropExporting: false });
+  },
+
+  onCropVisibleChange(e) {
+    if (!e.detail.visible) this.setData({ cropVisible: false });
+  },
+
+  // 确认裁剪：可视区换算到图片像素 → 离屏 canvas 重绘导出（长边压到 2560 内）→ 进字段编辑弹层
+  onCropConfirm() {
+    if (this.data.cropExporting) return;
+    this.setData({ cropExporting: true });
+    const { cropFrameW: fw, cropFrameH: fh, cropViewW: vw, cropViewH: vh } = this.data;
+    const s = this._cropScale || 1;
+    const dispW = this._cropDispW || vw;
+    const dispH = this._cropDispH || vh;
+    // movable-view 缩放原点为中心：取景框左/上缘在图片显示坐标中的位置
+    const left = (vw * s) / 2 - (this._cropX + vw / 2);
+    const top = (vh * s) / 2 - (this._cropY + vh / 2);
+    const sx = Math.max(0, (left * dispW) / (vw * s));
+    const sy = Math.max(0, (top * dispH) / (vh * s));
+    const sw = Math.min(dispW - sx, (fw * dispW) / (vw * s));
+    const sh = Math.min(dispH - sy, (fh * dispH) / (vh * s));
+    const outK = Math.min(1, 2560 / Math.max(sw, sh));
+    const ow = Math.round(sw * outK);
+    const oh = Math.round(sh * outK);
+    wx.createSelectorQuery()
+      .select('#wmCropCanvas')
+      .fields({ node: true })
+      .exec((res) => {
+        const canvas = res && res[0] && res[0].node;
+        if (!canvas) {
+          this.setData({ cropExporting: false });
+          this.toast('裁剪失败，请重试');
+          return;
+        }
+        canvas.width = ow;
+        canvas.height = oh;
+        const ctx = canvas.getContext('2d');
+        const img = canvas.createImage();
+        img.onload = () => {
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, ow, oh); // jpg 无透明通道，兜黑底
+          // EXIF 兜底：解码后宽高未按 EXIF 互换（个别机型）时按 orientation 手动旋转
+          const swapped = ['left', 'right', 'left-mirrored', 'right-mirrored'].indexOf(this._cropOrientation) >= 0;
+          const dimsMatch = Math.abs(img.width - dispW) <= 2 && Math.abs(img.height - dispH) <= 2;
+          if (swapped && !dimsMatch) {
+            this.drawCropRotated(ctx, img, sx, sy, sw, sh, ow, oh);
+          } else {
+            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ow, oh);
+          }
+          wx.canvasToTempFilePath({
+            canvas,
+            fileType: 'jpg',
+            quality: 0.92,
+            success: (r) => {
+              // 导出期间用户已取消：丢弃结果，不再进字段编辑弹层
+              if (!this.data.cropVisible) return;
+              this.setData({ cropVisible: false, cropExporting: false });
+              this.proceedWmForm(r.tempFilePath, this._cropNames);
+            },
+            fail: () => {
+              this.setData({ cropExporting: false });
+              this.toast('裁剪失败，请重试');
+            },
+          });
+        };
+        img.onerror = () => {
+          this.setData({ cropExporting: false });
+          this.toast('图片读取失败');
+        };
+        img.src = this.data.cropSrc;
+      });
+  },
+
+  // EXIF 90/270° 手动旋转兜底：sx/sy/sw/sh 为显示坐标系裁剪框，换算到底图原始坐标后旋转绘制
+  drawCropRotated(ctx, img, sx, sy, sw, sh, ow, oh) {
+    if (this._cropOrientation === 'left' || this._cropOrientation === 'left-mirrored') {
+      ctx.translate(0, oh);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(img, img.width - sy - sh, sx, sh, sw, 0, 0, oh, ow);
+    } else {
+      // right / right-mirrored
+      ctx.translate(ow, 0);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(img, sy, img.height - sx - sw, sh, sw, 0, 0, oh, ow);
+    }
   },
 
   // 历史带入的拍摄时间：保留日期，时分随机为 10:00-12:00 内且不与历史值相同
