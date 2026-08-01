@@ -75,11 +75,12 @@
     logoRight: 0.01,   // logo 右边距
     logoBottom: 0.025, // logo 底边距
     codeFont: 0.0145,
-    codeFontScale: 1.2, // 码值字号相对前缀的放大倍数（实测同 em 下思源黑 CJK 高 0.92em、PTMono 大写仅 0.67em）
-    codeXScale: 0.88,    // 码值横向压缩（字号放大后保持整行宽 ≈0.154·B 与官方一致）
+    codeFontScale: 1.1, // 码值字号相对前缀的放大倍数（思源黑 CJK 可见高 0.96em、PTMono 大写 0.71em，1.1× 使码值略小于「防伪」二字）
+    codeXScale: 1,    // 码值横向压缩（字号放大后保持整行宽 ≈0.154·B 与官方一致）
     codeRight: 0.016,
     codeBaseline: 0.008, // 防伪码行基线（alphabetic）到底边的距离；行视觉中心≈0.0157
-    codeColor: 'rgba(255,255,255,0.92)'
+    codeColor: 'rgba(255,255,255,1)',
+    codeShadowAlpha: 0.6 // 防伪/码值各自下方的扁平椭圆阴影中心不透明度
   };
 
   // 防伪码字符集：去掉 0/O、1/I 等易混淆字符
@@ -267,23 +268,59 @@
       ctx.save();
 
       // 防伪码：「防伪 」前缀与码值分字体绘制（前缀 SourceHanSansSC / 码值 PTMono）。
-      // 共用 alphabetic 基线保证两字体在同一水平线上（middle 基线因两字体度量不同会错位），整体右对齐
-      ctx.shadowColor = 'rgba(0,0,0,0.35)';
-      ctx.shadowBlur = 6 * B / 1200;
-      ctx.shadowOffsetY = 2 * B / 1200;
+      // 中线对齐：两段可见字形的垂直中心在同一水平线（非底线对齐——思源黑 CJK 比 PTMono 大写高，
+      // 底线对齐会让「防伪」中心偏高）；按 actualBoundingBox* 实测两段中心残差校正前缀基线，
+      // 度量缺失时退回共用 alphabetic 基线（两字体中心本已近乎重合），任意分辨率恒平。
+      // 阴影：不用文字投影，按参考图在「防伪」与码值各自正下方垫一个扁平椭圆软影（径向渐变）。
       ctx.fillStyle = M.codeColor;
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = 'left';
       var codeFs = M.codeFont * B;
       var codePrefix = '防伪 ';
+      ctx.font = codePrefixFont(codeFs);
+      var preM = ctx.measureText('防');
+      // 字形度量不可用的环境按实测常量兜底（思源黑 CJK：上 0.86em / 下 0.10em）
+      var preAsc = typeof preM.actualBoundingBoxAscent === 'number' ? preM.actualBoundingBoxAscent : codeFs * 0.86;
+      var preDesc = typeof preM.actualBoundingBoxDescent === 'number' ? preM.actualBoundingBoxDescent : codeFs * 0.1;
       ctx.font = codeFont(codeFs * M.codeFontScale);
-      var codeW = ctx.measureText(o.antiCode).width * M.codeXScale;
+      var codeM = ctx.measureText(o.antiCode);
+      var codeW = codeM.width * M.codeXScale;
+      // PTMono 大写：上 0.71em / 下 ≈0
+      var codeAsc = typeof codeM.actualBoundingBoxAscent === 'number' ? codeM.actualBoundingBoxAscent : codeFs * M.codeFontScale * 0.71;
+      var codeDesc = typeof codeM.actualBoundingBoxDescent === 'number' ? codeM.actualBoundingBoxDescent : 0;
       ctx.font = codePrefixFont(codeFs);
       var prefixW = ctx.measureText(codePrefix).width;
       var rightX = W - M.codeRight * B;
       var baselineY = H - M.codeBaseline * B;
-      ctx.fillText(codePrefix, rightX - prefixW - codeW, baselineY);
-      // 码值：字号放大（字高对齐「防伪」）+ 横向压缩（行宽不超限）
+      var prefixX = rightX - prefixW - codeW;
+      // 前缀基线偏移 = 码值中心偏移 - 前缀中心偏移（各中心 = 基线 + (下探-上探)/2）
+      var prefixBaselineY = baselineY + ((codeDesc - codeAsc) - (preDesc - preAsc)) / 2;
+      var prefixBottomY = prefixBaselineY + preDesc;
+      var codeBottomY = baselineY + codeDesc;
+
+      // 两个扁平椭圆软影：分别衬于「防伪」与码值正下方（中心略低于各自可见底）
+      function flatShadow(cx, cy, rx, ry) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(rx, ry);
+        var g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+        g.addColorStop(0, 'rgba(0,0,0,' + M.codeShadowAlpha + ')');
+        g.addColorStop(0.55, 'rgba(0,0,0,' + M.codeShadowAlpha * 0.5 + ')');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      var preGlyphW = 2 * codeFs; // 前缀两个字形宽（不含尾部空格）
+      var preH = preAsc + preDesc;
+      var codeH = codeAsc + codeDesc;
+      flatShadow(prefixX + preGlyphW / 2, prefixBottomY - preH * 0.12, preGlyphW / 2 + preH * 0.3, preH * 0.45);
+      flatShadow(rightX - codeW / 2, codeBottomY - codeH * 0.12, codeW / 2 + codeH * 0.25, codeH * 0.45);
+
+      ctx.fillText(codePrefix, prefixX, prefixBaselineY);
+      // 码值：字号放大 + 横向压缩（行宽不超限）
       ctx.save();
       ctx.translate(rightX - codeW, baselineY);
       ctx.scale(M.codeXScale, 1);
@@ -292,10 +329,13 @@
       ctx.restore();
 
       // 品牌 logo 图（抠自官方样图，含「今日水印/相机/真实可验」）
+      // 阴影沿用原参数（颜色/模糊/偏移全量重设，不继承上方防伪码的新阴影）
       if (o.brandImage) {
         var lw = M.logoW * B;
         var lh = lw * (o.brandImage.height / o.brandImage.width);
         ctx.shadowColor = 'rgba(0,0,0,0.35)';
+        ctx.shadowBlur = 6 * B / 1200;
+        ctx.shadowOffsetY = 2 * B / 1200;
         ctx.drawImage(o.brandImage, W - M.logoRight * B - lw, H - M.logoBottom * B - lh, lw, lh);
       }
       ctx.restore();

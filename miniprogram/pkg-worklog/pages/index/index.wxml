@@ -343,7 +343,7 @@
   </view>
 </t-popup>
 
-<!-- 批量下载面板（近全屏，圆角顶；照片按月份分卡、3 列网格） -->
+<!-- 批量下载面板（高度同日历展开，圆角顶；照片按月份分卡、3 列网格） -->
 <t-popup visible="{{dlVisible}}" placement="bottom" bind:visible-change="onDlVisibleChange">
   <view class="dl-sheet">
     <view class="dl-head">
@@ -390,7 +390,7 @@
   </view>
 </t-popup>
 
-<!-- 验证不通过报告面板（近全屏，骨架复用 dl-* 类；按日期分组列出不通过记录及全部原因） -->
+<!-- 验证不通过报告面板（高度同日历展开，骨架复用 dl-* 类；按日期分组列出不通过记录及全部原因） -->
 <t-popup visible="{{rpVisible}}" placement="bottom" bind:visible-change="onRpVisibleChange">
   <view class="dl-sheet">
     <view class="dl-head">
@@ -470,7 +470,7 @@
       </view>
       <view class="btn-dark" hover-class="hover-opacity" bindtap="onMemberConfirm">
         <t-icon name="{{memberMode === 'add' ? 'image' : 'check'}}" size="34rpx" color="#FFFFFF" />
-        {{memberMode === 'add' ? '确认，选择照片' : '确认修改'}}
+        {{memberMode === 'add' ? '选择照片' : '确认修改'}}
       </view>
     </view>
   </view>
@@ -579,6 +579,48 @@
     </view>
   </view>
 </t-popup>
+
+<!-- 4:3 裁剪层（加水印流程：拍摄必裁；相册非 4:3 才裁。横拍锁横向 4:3、纵拍锁纵向 3:4；拖拽/双指缩放调整取景） -->
+<t-popup visible="{{cropVisible}}" placement="bottom" bind:visible-change="onCropVisibleChange">
+  <view class="crop-sheet">
+    <view class="crop-title">调整裁剪区域</view>
+    <view class="crop-note">{{cropLandscape ? '已锁定横向 4:3' : '已锁定纵向 4:3'}}，拖动或双指缩放调整取景</view>
+    <view class="crop-stage" style="width: {{cropFrameW}}px; height: {{cropFrameH}}px;">
+      <movable-area class="crop-area" style="width: {{cropFrameW}}px; height: {{cropFrameH}}px;" scale-area>
+        <movable-view
+          class="crop-view"
+          style="width: {{cropViewW}}px; height: {{cropViewH}}px;"
+          x="{{cropX}}"
+          y="{{cropY}}"
+          scale
+          scale-min="1"
+          scale-max="5"
+          scale-value="{{cropScale}}"
+          direction="all"
+          bindchange="onCropMove"
+          bindscale="onCropScale"
+        >
+          <image class="crop-img" src="{{cropSrc}}" mode="scaleToFill" />
+        </movable-view>
+      </movable-area>
+      <!-- 四角取景框（橙色描边，特征元素） -->
+      <view class="crop-corner tl" />
+      <view class="crop-corner tr" />
+      <view class="crop-corner bl" />
+      <view class="crop-corner br" />
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onCropCancel">取 消</view>
+      <view class="btn-dark" hover-class="hover-opacity" bindtap="onCropConfirm">
+        <t-icon name="check" size="34rpx" color="#FFFFFF" />
+        {{cropExporting ? '正在处理…' : '确认裁剪'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 裁剪导出用离屏 canvas（type=2d；导出尺寸在 JS 中按裁剪结果设置） -->
+<canvas type="2d" id="wmCropCanvas" class="crop-canvas" />
 
 <t-dialog id="t-dialog" />
 <t-toast id="t-toast" />
