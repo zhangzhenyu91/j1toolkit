@@ -178,7 +178,7 @@ var state = {
   cal: { y: 0, m: 0 },                          // 日历弹层当前月（m 为 0 起）
   calCache: {},                                 // day-status 缓存：scope|YYYY-MM → map
   lib: { from: '', to: '', mine: false, list: [], sel: {}, loaded: false },
-  rep: { from: '', to: '', mine: false, loaded: false },
+  rep: { from: '', to: '', mine: false },
   adm: { seg: 'vehicles', list: [], kw: '', loaded: false }
 };
 
@@ -207,7 +207,8 @@ function initNav() {
 }
 function onPageEnter(p) {
   if (p === 'photos' && !state.lib.loaded) loadLibrary();
-  if (p === 'report' && !state.rep.loaded) loadReport();
+  /* 报告每次进入都重查（与小程序口径一致）：看板侧打卡/重验等操作后切回来即为最新 */
+  if (p === 'report') loadReport();
   if (p === 'data' && !state.adm.loaded) loadAdminSeg();
 }
 function renderUser() {
@@ -1543,7 +1544,6 @@ function initReport() {
 }
 async function loadReport() {
   if (!state.rep.from || !state.rep.to) { toast('请选择起止日期'); return; }
-  state.rep.loaded = true;
   $('#repBody').innerHTML = emptyHTML('加载中…', '');
   try {
     var d = await wl.report(state.rep.from, state.rep.to, state.rep.mine ? 'mine' : 'all');
