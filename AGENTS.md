@@ -59,6 +59,7 @@
 - `miniprogram/` —— 微信小程序（原生 + tdesign-miniprogram）
 - `server/` —— 后端 Node.js 服务
 - `SafeDayLogs/` —— 安全日活动记录生成平台（独立部署的网页端应用，登录经主平台 app-login 校验应用权限）
+- `WorkLogs/` —— 出工日志 PC 网页端（独立部署：登录取主平台 JWT 存于服务端会话，`/api/wl/*` 反向代理主平台 `/api/v1/worklog/*`；UI 定稿 `WorkLogs/design/设计稿B-留白.html`）
 - `design/` —— UI 设计稿（仅保留定稿 `style-5.html`）
 - 根目录 —— 文档与规则文件（仅 AGENTS.md / README.md / 开发指南.md）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
