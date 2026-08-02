@@ -278,6 +278,7 @@ async function loadLogs(opts) {
     renderCards();
     renderStats();
     schedulePending();
+    if (!opts.poll) loadCalMonth(true); // 非轮询刷新时强刷日历着色（打卡/照片状态可能已变）
   } catch (e) {
     toast(e.message, { type: 'err' });
     if (!opts.quiet) state.board.entries = []; // 非静默加载失败时清空，避免残留其他日期卡片
@@ -430,7 +431,7 @@ function renderStats() {
   $('#pr2t').textContent = psX + '/' + psY;
 }
 
-/* pending 轮询：有验证中照片时 3s 后自动重拉 */
+/* pending 轮询：有验证中照片时 3s 后自动重拉（poll 标记：不触发日历着色强刷） */
 function clearPending() {
   if (state.board.timer) { clearTimeout(state.board.timer); state.board.timer = 0; }
 }
@@ -440,7 +441,7 @@ function schedulePending() {
     return (e.photos || []).some(function (p) { return p.verify_status === 'pending'; });
   });
   if (has) {
-    state.board.timer = setTimeout(function () { loadLogs({ quiet: true }); }, 3000);
+    state.board.timer = setTimeout(function () { loadLogs({ quiet: true, poll: true }); }, 3000);
   }
 }
 
@@ -461,12 +462,18 @@ function slideFlow(dir, mid) {
     flow.style.opacity = '';
   }, 380);
 }
+/* 日历显示月份与看板日期对齐（跨月切换时日历随动） */
+function syncCalMonth(d) {
+  state.cal.y = d.getFullYear();
+  state.cal.m = d.getMonth();
+}
 function shiftDay(delta) {
   var d = parseDate(state.board.date);
   d.setDate(d.getDate() + delta);
   var nd = fmtDate(d);
   slideFlow(delta, function () {
     state.board.date = nd;
+    syncCalMonth(d);
     setDateLabel();
     loadLogs();
   });
@@ -476,30 +483,21 @@ function gotoDate(nd) {
   var dir = nd > state.board.date ? 1 : -1;
   slideFlow(dir, function () {
     state.board.date = nd;
+    syncCalMonth(parseDate(nd));
     setDateLabel();
     loadLogs();
   });
 }
 
-/* ---------- 日历弹层 ---------- */
-function openCal() {
-  var pop = $('#calPop');
-  if (pop.style.display !== 'none') { closeCal(); return; }
-  var d = parseDate(state.board.date);
-  state.cal.y = d.getFullYear();
-  state.cal.m = d.getMonth();
-  pop.style.display = '';
-  loadCalMonth();
-}
-function closeCal() { $('#calPop').style.display = 'none'; }
-function loadCalMonth() {
-  renderCal();
+/* ---------- 左侧常驻日历卡 ---------- */
+function loadCalMonth(force) {
   var ym = state.cal.y + '-' + pad(state.cal.m + 1);
   var key = state.board.scope + '|' + ym;
-  if (state.calCache[key] !== undefined) { renderCal(); return; }
+  renderCal(); // 先按现有缓存渲染（无缓存即无着色），数据回来后补着色
+  if (!force && state.calCache[key] !== undefined) return;
   wl.dayStatus(ym, state.board.scope)
     .then(function (d) { state.calCache[key] = (d && d.map) || {}; renderCal(); })
-    .catch(function (e) { toast(e.message, { type: 'err' }); });
+    .catch(function () { /* 着色失败不阻塞选日，静默跳过 */ });
 }
 function shiftCalMonth(delta) {
   var m = state.cal.m + delta;
@@ -517,11 +515,8 @@ function renderCal() {
   var prevDays = new Date(y, m, 0).getDate();
   var td = todayStr();
 
-  var html = '<div class="cal-nav">'
-    + '<button class="iconbtn" data-cal="-1">' + I.chevL + '</button>'
-    + '<span class="cal-ym">' + y + ' 年 ' + (m + 1) + ' 月</span>'
-    + '<button class="iconbtn" data-cal="1">' + I.chevR + '</button></div>'
-    + '<div class="cal-grid">'
+  $('#calYm').textContent = y + ' 年 ' + (m + 1) + ' 月';
+  var html = '<div class="cal-grid">'
     + '<span class="dow">一</span><span class="dow">二</span><span class="dow">三</span><span class="dow">四</span>'
     + '<span class="dow">五</span><span class="dow">六</span><span class="dow">日</span>';
   var i, ds, st;
@@ -535,19 +530,26 @@ function renderCal() {
   var tail = (7 - (off + days) % 7) % 7;
   for (i = 1; i <= tail; i++) html += '<span class="day dim">' + i + '</span>';
   html += '</div><div class="cal-legend"><span><i class="g"></i>全部通过</span><span><i class="r"></i>有未通过</span></div>';
-  $('#calPop').innerHTML = html;
+  $('#calBody').innerHTML = html;
 }
 function initCalendar() {
-  $('#calBtn').addEventListener('click', function (e) { e.stopPropagation(); openCal(); });
-  $('#calPop').addEventListener('click', function (e) {
-    e.stopPropagation();
+  /* 初始月份对齐看板日期并先渲染；着色数据由 loadLogs 后的 loadCalMonth(true) 拉取 */
+  syncCalMonth(parseDate(state.board.date));
+  var n = new Date();
+  $('#calToday').textContent = '今天 ' + (n.getMonth() + 1) + '/' + n.getDate();
+  renderCal();
+  $('#calCard').addEventListener('click', function (e) {
     var nav = e.target.closest('[data-cal]');
     if (nav) { shiftCalMonth(+nav.dataset.cal); return; }
     var day = e.target.closest('.day[data-d]');
-    if (day) { var ds = day.dataset.d; closeCal(); gotoDate(ds); }
+    if (day) gotoDate(day.dataset.d);
   });
-  document.addEventListener('click', function (e) {
-    if (!e.target.closest('#calPop') && !e.target.closest('#calBtn')) closeCal();
+  $('#calToday').addEventListener('click', function (e) {
+    e.stopPropagation();
+    var t = todayStr();
+    syncCalMonth(parseDate(t));
+    loadCalMonth(true);
+    if (state.board.date !== t) gotoDate(t);
   });
 }
 
@@ -1362,7 +1364,6 @@ function initLightbox() {
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
       if (lbInst) { closeLightbox(); return; }
-      closeCal();
       var top = modalStack[modalStack.length - 1];
       if (top) top.close();
       return;
@@ -1526,6 +1527,13 @@ function initReport() {
   $('#repFrom').addEventListener('change', function () { state.rep.from = this.value; });
   $('#repTo').addEventListener('change', function () { state.rep.to = this.value; });
   $('#repQuery').addEventListener('click', loadReport);
+  /* 报告行点击：切回日志看板并跳到该日（同日或无该卡时仅切板块） */
+  $('#repBody').addEventListener('click', function (e) {
+    var row = e.target.closest('.rep-row[data-d]');
+    if (!row) return;
+    $('.nav-btn[data-page="board"]').click();
+    gotoDate(row.dataset.d);
+  });
   $('#repMine').addEventListener('click', function () {
     var sw = $('.switch', this);
     sw.classList.toggle('on');
@@ -1561,10 +1569,12 @@ function renderReport(list) {
   $('#repBody').innerHTML = groups.map(function (g) {
     return '<div class="rep-group"><div class="rep-date">' + esc(fmtDateCN(g.date)) + ' <span class="cnt">' + g.items.length + ' 条未通过</span></div>'
       + g.items.map(function (r) {
-        return '<div class="rep-row">'
+        /* 行可点击：切回日志看板并跳到该记录所在日期（PC 屏幕大，无需定位到具体卡片） */
+        return '<div class="rep-row" data-d="' + r.log_date + '" title="点击查看该日看板">'
           + '<span class="rep-plate">' + esc(r.plate_no || '未出车') + '</span>'
           + '<span class="rep-members">' + esc((r.members || []).join('、')) + '</span>'
           + '<span class="rep-chips">' + (r.reasons || []).map(function (x) { return '<em class="reason">' + esc(x) + '</em>'; }).join('') + '</span>'
+          + '<span class="rep-go"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg></span>'
           + '</div>';
       }).join('') + '</div>';
   }).join('');

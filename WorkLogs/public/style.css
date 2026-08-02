@@ -28,9 +28,11 @@ body{
   color:var(--ink);
   font-size:14px;line-height:1.6;
   min-width:1200px;
+  height:100vh;overflow:hidden;  /* 全局不出滚动条：滚动内收到各板块列表容器，避免切换时滚动条闪现挤压布局 */
   -webkit-font-smoothing:antialiased;
   text-rendering:optimizeLegibility;
 }
+main{height:calc(100vh - 64px)}
 button{font-family:inherit;font-size:inherit;background:none;border:none;cursor:pointer;color:inherit}
 button[disabled]{opacity:.55;cursor:not-allowed}
 input,textarea{font-family:inherit}
@@ -71,7 +73,10 @@ svg{display:block}
 /* ---------- 页面容器与切换动效 ---------- */
 .wrap{max-width:1340px;margin:0 auto;padding:0 24px}
 .wrap.narrow{max-width:1080px}
-.page{display:none;padding-bottom:80px}
+.page{display:none;height:100%;overflow-y:auto;scrollbar-gutter:stable;padding-bottom:80px}
+/* 看板页整体不滚：仅中间卡片流内滚 */
+#page-board{overflow:hidden;padding-bottom:24px}
+#page-board .wrap{height:100%;display:flex;flex-direction:column}
 .page.active{display:block;animation:pageIn .45s var(--ease)}
 @keyframes pageIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 
@@ -156,9 +161,10 @@ textarea.text-input{resize:vertical;min-height:92px;line-height:1.6}
   background:var(--accent-soft);padding:2px 8px;border-radius:99px;margin:0 4px;
 }
 
-/* 两栏布局：中卡片流 / 右概览 */
-.board-grid{display:grid;grid-template-columns:minmax(0,860px) 300px;gap:24px;align-items:start;justify-content:center}
-#cardFlow{transition:transform .38s var(--ease),opacity .38s var(--ease)}
+/* 三栏布局：左日历卡 / 中卡片流 / 右概览 */
+.board-grid{display:grid;grid-template-columns:280px minmax(0,1fr) 300px;gap:24px;align-items:stretch;justify-content:center;flex:1;min-height:0}
+.board-grid>aside{min-height:0;overflow-y:auto}
+#cardFlow{transition:transform .38s var(--ease),opacity .38s var(--ease);overflow-y:auto;min-height:0;padding-right:6px;scrollbar-gutter:stable}
 #cardFlow.out-left{transform:translateX(-40px);opacity:0}
 #cardFlow.out-right{transform:translateX(40px);opacity:0}
 #cardFlow.flash{animation:flashUp .5s var(--ease)}
@@ -171,15 +177,15 @@ textarea.text-input{resize:vertical;min-height:92px;line-height:1.6}
   transition:opacity .6s var(--ease),transform .6s var(--ease),filter .6s var(--ease),box-shadow .35s var(--ease);
 }
 
-/* ---------- 日历弹层 ---------- */
-.cal-pop{
-  position:absolute;top:calc(100% + 10px);left:0;z-index:120;width:290px;
-  background:#fff;border:1px solid var(--line);border-radius:var(--r);
-  box-shadow:0 18px 50px rgba(0,0,0,.14);padding:18px;
-  animation:optsIn .25s var(--ease);
+/* ---------- 左：常驻日历卡 ---------- */
+.cal-head{display:flex;align-items:center;gap:2px;margin-bottom:12px}
+.cal-ym{font-size:15px;font-weight:700;font-family:var(--num);padding:0 4px;white-space:nowrap}
+.cal-today{
+  flex:none;font-size:12px;font-weight:600;color:var(--accent);
+  background:var(--accent-soft);border-radius:99px;padding:4px 12px;
+  transition:background .25s;
 }
-.cal-nav{display:flex;align-items:center;justify-content:space-between}
-.cal-ym{font-size:14px;font-weight:700;font-family:var(--num)}
+.cal-today:hover{background:rgba(36,80,240,.15)}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin-top:12px;text-align:center}
 .cal-grid .dow{font-size:11px;color:var(--faint);padding:4px 0}
 .cal-grid .day{
@@ -401,10 +407,12 @@ textarea.text-input{resize:vertical;min-height:92px;line-height:1.6}
 .rep-row{
   display:flex;align-items:center;gap:18px;flex-wrap:wrap;
   background:#fff;border:1px solid var(--line);border-radius:12px;
-  padding:14px 18px;margin-top:12px;
+  padding:14px 18px;margin-top:12px;cursor:pointer;
   transition:transform .3s var(--ease),box-shadow .3s var(--ease);
 }
 .rep-row:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.rep-go{display:inline-flex;color:var(--faint);flex:none;transition:color .25s,transform .25s var(--ease)}
+.rep-row:hover .rep-go{color:var(--accent);transform:translateX(2px)}
 .rep-plate{font-family:var(--num);font-weight:700;font-size:15px}
 .rep-members{font-size:12.5px;color:var(--sub)}
 .rep-chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
