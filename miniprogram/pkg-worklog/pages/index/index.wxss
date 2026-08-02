@@ -135,6 +135,21 @@
   box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
 }
 
+/* 报告跳转定位：目标卡片短暂高亮（橙色描边呼吸，1.6s 后由 JS 移除 flash 类） */
+.logcard.flash {
+  animation: wl-flash 0.8s ease-in-out 2;
+}
+
+@keyframes wl-flash {
+  0%,
+  100% {
+    box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+  }
+  50% {
+    box-shadow: 0 0 0 6rpx rgba(242, 109, 33, 0.45);
+  }
+}
+
 .lc-body {
   padding: 38rpx 32rpx 20rpx; /* 顶部留白给警示斜纹条 */
 }
@@ -980,6 +995,13 @@
   margin-top: 15rpx;
   border-radius: 50%;
   background: #cf4444;
+}
+
+/* 记录可点击的右箭头提示（rp-plate 为 baseline 弹性行，箭头居中靠右） */
+.rp-go {
+  margin-left: auto;
+  align-self: center;
+  flex: none;
 }
 
 /* ---------- 4:3 裁剪层（深色底衬照片；取景框尺寸由 JS 按横 4:3 / 纵 3:4 计算） ---------- */

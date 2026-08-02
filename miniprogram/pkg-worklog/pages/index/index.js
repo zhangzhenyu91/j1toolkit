@@ -44,7 +44,7 @@ function calFormat(day) {
 }
 
 // 照片验证状态 → 展示（逐项判定：date_verify/destination_verify 任一 'false' 即该项不符，见《开发指南》7.2）
-// 记录验证状态角标（后端按 5 条规则实时计算，见开发指南 7.1）
+// 记录验证状态角标（后端按 6 条规则实时计算，见开发指南 7.1）
 const VERIFY_BADGE = {
   passed: { cls: 'green', text: '验证通过' },
   failed: { cls: 'red', text: '未通过' },
@@ -95,6 +95,7 @@ Page({
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
+    flashId: 0, // 报告定位后高亮中的卡片 id（约 1.6s 后消退）
     dayAnim: '', // 日期切换平移动效：'' / from-right / from-left
     // 日历弹层
     calVisible: false,
@@ -223,6 +224,10 @@ Page({
 
   onUnload() {
     this.clearPoll();
+    if (this._flashTimer) {
+      clearTimeout(this._flashTimer);
+      this._flashTimer = null;
+    }
   },
 
   toast(message) {
@@ -1577,6 +1582,7 @@ Page({
         }
         groupMap[e.log_date].items.push({
           id: e.id,
+          date: e.log_date, // 点击定位用：跳到该卡片所在日期
           plateText: e.plate_no,
           membersText: (e.members || []).join('、'),
           reasons: e.reasons || [],
@@ -1613,5 +1619,38 @@ Page({
       dlCalValue: [parseDate(rpFrom).getTime(), parseDate(rpTo).getTime()],
       dlCalVisible: true,
     });
+  },
+
+  // 点报告记录：关闭报告面板并跳到该日对应卡片（滚动定位 + 短暂高亮）
+  async onRpItemTap(e) {
+    const { id, date } = e.currentTarget.dataset;
+    if (!id || !date) return;
+    this.setData({ rpVisible: false });
+    this.applyDate(date);
+    await this.loadLogs();
+    this.scrollToCard(Number(id));
+  },
+
+  // 滚动到指定卡片并闪烁高亮；当前视图口径下无此卡（如「仅看我」未含该记录）时提示
+  scrollToCard(id) {
+    if (!this.data.list.some((x) => x.id === id)) {
+      this.toast('当前视图下无该卡片，请切换到「全部」查看');
+      return;
+    }
+    this.setData({ flashId: id });
+    wx.nextTick(() => {
+      const q = wx.createSelectorQuery().in(this);
+      q.select(`#logcard-${id}`).boundingClientRect();
+      q.selectViewport().scrollOffset();
+      q.exec((res) => {
+        const rect = res && res[0];
+        const scroll = res && res[1];
+        if (!rect || !scroll) return;
+        const top = rect.top + scroll.scrollTop - 12; // 卡片距顶 12px 留白
+        wx.pageScrollTo({ scrollTop: Math.max(top, 0), duration: 300 });
+      });
+    });
+    if (this._flashTimer) clearTimeout(this._flashTimer);
+    this._flashTimer = setTimeout(() => this.setData({ flashId: 0 }), 1600);
   },
 });
