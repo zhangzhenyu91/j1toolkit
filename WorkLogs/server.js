@@ -40,18 +40,20 @@ if (!process.env.SESSION_SECRET) {
 const SESSION_EXPIRES = process.env.SESSION_EXPIRES || '7d';
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
 // 反代路径前缀（如 /wl；1Panel 不剥前缀转发时配置，与主平台同口径）
-const PROXY_PREFIX = (process.env.PROXY_PREFIX || '').trim();
+const PROXY_PREFIX = (process.env.PROXY_PREFIX || '').trim().replace(/\/+$/, '');
 const COOKIE_NAME = 'wl_session';
 
 const app = express();
 
 // 反代前缀兼容：1Panel/Nginx 若保留 PROXY_PREFIX 前缀转发（proxy_pass 无 URI 部分），
-// 这里剥离后再进入路由；前缀不存在时不影响任何请求（与主平台同口径）
+// 这里剥离后再进入路由；前缀不存在时不影响任何请求（与主平台同口径）。
+// 裸前缀（/wl，无尾斜杠）先 302 补尾斜杠：否则页内相对路径会按域根解析，丢失前缀
 app.use((req, res, next) => {
+  if (PROXY_PREFIX && req.url === PROXY_PREFIX) {
+    return res.redirect(`${PROXY_PREFIX}/`);
+  }
   if (PROXY_PREFIX && req.url.startsWith(`${PROXY_PREFIX}/`)) {
     req.url = req.url.slice(PROXY_PREFIX.length);
-  } else if (PROXY_PREFIX && req.url === PROXY_PREFIX) {
-    req.url = '/';
   }
   next();
 });
@@ -218,9 +220,11 @@ app.post('/api/logout', async (req, res) => {
 app.use((req, res, next) => {
   // 其余 API 一律要求登录（/api/login、/api/logout 已在上方先行注册）
   if (req.path.startsWith('/api/')) return requireAuth(req, res, next);
-  // 主页面仅登录后可见；未登录重定向到登录页（相对 Location，兼容反代前缀部署）
+  // 主页面仅登录后可见；未登录重定向到登录页。
+  // 用含 PROXY_PREFIX 的绝对路径：相对 Location 在裸前缀（/wl，无尾斜杠）下
+  // 会被浏览器按域根解析丢失前缀；反代剥/不剥前缀两种模式下绝对路径均正确
   if ((req.path === '/' || req.path === '/index.html') && !readSession(req)) {
-    return res.redirect('login.html');
+    return res.redirect(`${PROXY_PREFIX}/login.html`);
   }
   return next();
 });
