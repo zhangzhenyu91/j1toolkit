@@ -1,5 +1,6 @@
 // 出工日志 · 主页：日期条切换 / 视图开关（全部·仅看我）/ 日志卡片直改 / 日历选日（按日验证状态着色）
-// 新建/编辑表单收进底部弹层（edit 二级页已取缔）；底部另有批量下载水印照片面板与验证不通过报告面板
+// 新建与「改派车/用车人」共用底部表单弹层（仅「保 存」提交，无实时保存；改派车保存前弹内网派车单同步警告）；
+// 巡视内容点卡片主块单独弹层修改（带快捷输入）；底部另有批量下载水印照片面板与验证不通过报告面板
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -10,6 +11,8 @@ const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getD
 // 水印拍摄时间格式：2026.07.30 11:02（与今日水印相机样式一致）
 const fmtWmTime = (d) =>
   `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+// 随机时分：10:00-12:00（不含 12:00）内随机，历史带入与无历史预填共用此口径
+const randWmHm = () => `${pad(10 + Math.floor(Math.random() * 2))}:${pad(Math.floor(Math.random() * 60))}`;
 
 // 防伪码字符集：14 位大写字母+数字，去 0/O、1/I 等易混淆字符（与服务端校验规则一致）
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -113,7 +116,7 @@ Page({
     wmPhotoPath: '', // 用户所选原图临时路径
     wmNames: [], // 人名点亮层确认的人名
     wmForm: { content: '', time: '', weather: '', location: '', lng: '', lat: '' },
-    wmQuickInputs: ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'], // 施工内容快捷输入（点击追加到内容末尾）
+    quickInputs: ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'], // 快捷输入，点击追加到内容末尾（水印施工内容与巡视内容共用）
     wmCode: '', // 防伪码（自动生成，用户不可编辑）
     wmUploading: false,
     // ---------- 4:3 裁剪层（加水印流程：拍摄必裁；相册非 4:3 才裁，横拍锁 4:3 / 纵拍锁 3:4） ----------
@@ -128,23 +131,29 @@ Page({
     cropY: 0,
     cropScale: 1,
     cropExporting: false,
-    // ---------- 新建/编辑表单底部弹层（逻辑移植自已取缔的 edit 页） ----------
+    // ---------- 新建/改派车表单底部弹层（仅「保 存」提交，无实时保存） ----------
     formVisible: false,
     formId: 0, // 0=新建
     formDateStr: '',
     members: [], // meta 成员 + checked（点亮即用车人）
-    patrol: '',
+    patrol: '', // 面板不展示；改派车提交时原样带上（PUT 全量替换）
     vehicleId: -1, // -1 未出车（新建默认） / >0 车牌 id
     vehicleText: '',
     destId: 0, // 0 未选择
     destText: '',
     isNoVehicle: true,
+    formSaving: false, // 保存按钮防连点
     // 面板内联筛选下拉（手风琴互斥：'' 全关 / 'vehicle' / 'dest'）
     dropType: '',
     dropKeyword: '',
     dropList: [],
     // 键盘高度（textarea 不顶起整页，见开发指南键盘三件套）
     keyboardHeight: 0,
+    // ---------- 巡视内容修改弹层（点卡片巡视内容主块弹出，「保 存」才提交） ----------
+    patrolVisible: false,
+    patrolEntryId: 0, // 当前修改的卡片 id
+    patrolDraft: '', // 编辑中的巡视内容
+    patrolSaving: false,
     // ---------- 批量下载水印照片面板 ----------
     dlVisible: false,
     dlFrom: '',
@@ -454,7 +463,7 @@ Page({
     }
   },
 
-  // ---------- 新建/编辑表单底部弹层（时序沿用原 edit 页） ----------
+  // ---------- 新建/改派车表单底部弹层 ----------
 
   // meta：车牌/目的地/成员（下拉与点亮数据源），passGate 后加载
   async loadMeta() {
@@ -463,9 +472,7 @@ Page({
       this._vehicles = (data && data.vehicles) || [];
       this._destinations = (data && data.destinations) || [];
       this.setData({ members: ((data && data.members) || []).map((m) => ({ ...m, checked: false })) });
-      // 面板先于 meta 打开时，用列表数据重填点亮态；否则仅刷新车牌/目的地文案
-      if (this.data.formVisible && this.data.formId) this.backfillForm();
-      else this.refreshDictText();
+      this.refreshDictText();
     } catch (err) {
       this.toast(err.message);
     }
@@ -492,18 +499,12 @@ Page({
     this.openForm(0);
   },
 
-  // 卡片「巡视内容」主块/车牌头部：打开同一面板并回填该卡数据（改派车/用车人/巡视）
+  // 卡片车牌头部：打开改派车面板并回填该卡数据（派车情况/用车人；巡视内容不在此修改）
   onOpenForm(e) {
     this.openForm(Number(e.currentTarget.dataset.id) || 0);
   },
 
   openForm(id) {
-    // 清掉上一轮可能残留的防抖保存
-    if (this._saveTimer) {
-      clearTimeout(this._saveTimer);
-      this._saveTimer = null;
-    }
-    this._dirty = false;
     const base = {
       formVisible: true,
       formId: id,
@@ -512,10 +513,10 @@ Page({
       dropKeyword: '',
       dropList: [],
       keyboardHeight: 0,
+      formSaving: false,
     };
     if (!id) {
       // 新建：默认未出车，人员全部未点亮
-      this._lastPatrol = '';
       this.setData({
         ...base,
         patrol: '',
@@ -533,28 +534,15 @@ Page({
       this.toast('日志不存在或已被删除');
       return;
     }
-    this._lastPatrol = entry.patrol;
     this.setData({
       ...base,
-      patrol: entry.patrol,
+      patrol: entry.patrol, // 面板不展示；保存时原样带上（PUT 全量替换）
       vehicleId: entry.vehicleId > 0 ? entry.vehicleId : -1,
       isNoVehicle: !(entry.vehicleId > 0),
       destId: entry.destId || 0,
       members: this.data.members.map((m) => ({ ...m, checked: entry.memberIds.includes(m.id) })),
     });
     this.refreshDictText();
-  },
-
-  onFormPatrolInput(e) {
-    this._dirty = true;
-    this.setData({ patrol: e.detail.value });
-  },
-
-  // 巡视内容失焦且值有变化时自动保存（已保存卡片）
-  onFormPatrolBlur() {
-    if (!this.data.formId) return;
-    if (this.data.patrol === (this._lastPatrol || '')) return;
-    this.autoSave();
   },
 
   onKeyboardHeight(e) {
@@ -609,7 +597,6 @@ Page({
 
   onDropSelect(e) {
     const id = Number(e.currentTarget.dataset.id);
-    this._dirty = true;
     if (this.data.dropType === 'vehicle') {
       // 选中「未出车」：清空目的地与人员选择，人员段联动隐藏
       const isNoVehicle = id === -1;
@@ -629,27 +616,16 @@ Page({
       this.setData({ destId: id, dropType: '' });
       this.refreshDictText();
     }
-    // 已保存卡片：车牌/目的地变化防抖自动保存（后端拒绝时 toast + 回填回滚）
-    if (this.data.formId) this.scheduleAutoSave();
   },
 
   // ---------- 人员点亮 ----------
 
   onMemberTagChange(e) {
     const { index } = e.currentTarget.dataset;
-    this._dirty = true;
     this.setData({ [`members[${index}].checked`]: e.detail.checked });
-    if (!this.data.formId) {
-      // 新建且已选车牌：点亮首个成员后立即自动创建卡片，转入已保存态
-      if (this.data.vehicleId > 0 && this.data.members.some((m) => m.checked)) {
-        this.autoCreate();
-      }
-      return;
-    }
-    this.scheduleAutoSave();
   },
 
-  // ---------- 自动创建 / 自动保存 / 完成 ----------
+  // ---------- 保存（无实时保存：仅「保 存」按钮提交，遮罩关闭 = 放弃修改） ----------
 
   buildPayload() {
     const { formDateStr, patrol, vehicleId, destId, members } = this.data;
@@ -662,105 +638,117 @@ Page({
     };
   },
 
-  // 新建模式自动创建：点亮成员后立即落库（_autoCreating 防重入，失败保持新建态）
-  async autoCreate() {
-    if (this._autoCreating || this.data.formId) return;
-    this._autoCreating = true;
-    try {
-      const data = await request({ url: '/api/v1/worklog/logs', method: 'POST', data: this.buildPayload() });
-      this._lastPatrol = this.data.patrol;
-      this.setData({ formId: (data && data.id) || 0 });
-      this.toast('已自动保存');
-      this.loadLogs(); // 下方卡片实时同步
-      // 创建期间表单可能又有改动，防抖补一次保存
-      this.scheduleAutoSave();
-    } catch (err) {
-      this.toast(err.message); // 保持新建态，可继续编辑或由「完成」重试
-    } finally {
-      this._autoCreating = false;
+  // 底部「保 存」：新建→直接创建；改派车→先弹内网派车单同步警告，确认后保存
+  onFormSave() {
+    if (this.data.formSaving) return;
+    if (!this.data.formId) {
+      this.saveForm();
+      return;
     }
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: '保存派车修改',
+      content: '请确保内网派车单同步修改！',
+      confirmBtn: '我确认已修改',
+      cancelBtn: '取消',
+    })
+      .then(() => this.saveForm())
+      .catch(() => {});
   },
 
-  // 已保存卡片：表单变化防抖 400ms 自动 PUT
-  scheduleAutoSave() {
-    if (!this.data.formId) return;
-    if (this._saveTimer) clearTimeout(this._saveTimer);
-    this._saveTimer = setTimeout(() => {
-      this._saveTimer = null;
-      this.autoSave();
-    }, 400);
-  },
-
-  // _saving 防并发：保存进行中忽略新触发
-  async autoSave() {
-    if (!this.data.formId || this._saving) return;
-    this._saving = true;
+  // 实际提交：新建 POST / 改派车 PUT（全量字段，巡视内容沿用原值）；成功关闭并刷新，失败留面板可重试
+  async saveForm() {
+    if (this.data.formSaving) return;
+    this.setData({ formSaving: true });
     try {
-      await request({ url: `/api/v1/worklog/logs/${this.data.formId}`, method: 'PUT', data: this.buildPayload() });
-      this._lastPatrol = this.data.patrol;
-      await this.loadLogs(); // 下方卡片实时同步
-    } catch (err) {
-      this.toast(err.message);
-      await this.loadLogs();
-      this.backfillForm(); // 以最新 loadLogs 结果回填面板回滚
-    } finally {
-      this._saving = false;
-    }
-  },
-
-  // 自动保存失败回滚：用列表中的该卡数据重填表单（卡片已消失则保持现状）
-  backfillForm() {
-    if (!this.data.formVisible) return;
-    const entry = this.data.list.find((x) => x.id === this.data.formId);
-    if (!entry) return;
-    this._lastPatrol = entry.patrol;
-    this.setData({
-      patrol: entry.patrol,
-      vehicleId: entry.vehicleId > 0 ? entry.vehicleId : -1,
-      isNoVehicle: !(entry.vehicleId > 0),
-      destId: entry.destId || 0,
-      dropType: '',
-      members: this.data.members.map((m) => ({ ...m, checked: entry.memberIds.includes(m.id) })),
-    });
-    this.refreshDictText();
-  },
-
-  // 底部「完成」：已保存→补发待保存并关闭；新建有输入→先创建再关闭；无操作→直接关闭（不建空卡）
-  async onFormDone() {
-    if (this.data.formId) {
-      // 有待发的防抖保存则立即补发（autoSave 内部已成功/失败均 loadLogs）
-      if (this._saveTimer) {
-        clearTimeout(this._saveTimer);
-        this._saveTimer = null;
-        await this.autoSave();
+      if (this.data.formId) {
+        await request({ url: `/api/v1/worklog/logs/${this.data.formId}`, method: 'PUT', data: this.buildPayload() });
+      } else {
+        await request({ url: '/api/v1/worklog/logs', method: 'POST', data: this.buildPayload() });
       }
-      this.setData({ formVisible: false, dropType: '', keyboardHeight: 0 });
-      this.loadLogs();
-      return;
-    }
-    if (!this._dirty) {
-      this.setData({ formVisible: false, dropType: '', keyboardHeight: 0 });
-      return;
-    }
-    if (this._autoCreating) {
-      this.toast('正在自动保存，请稍候');
-      return;
-    }
-    this._autoCreating = true;
-    try {
-      await request({ url: '/api/v1/worklog/logs', method: 'POST', data: this.buildPayload() });
-      this.setData({ formVisible: false, dropType: '', keyboardHeight: 0 });
+      this.setData({ formVisible: false, formSaving: false, dropType: '', keyboardHeight: 0 });
       this.loadLogs();
     } catch (err) {
-      this.toast(err.message); // 失败留面板可重试
-    } finally {
-      this._autoCreating = false;
+      this.setData({ formSaving: false });
+      this.toast(err.message);
     }
   },
 
-  // 遮罩关闭等同「完成」
+  // 遮罩关闭 = 放弃修改（不提交）
   onFormVisibleChange(e) {
-    if (!e.detail.visible && this.data.formVisible) this.onFormDone();
+    if (!e.detail.visible && this.data.formVisible) {
+      this.setData({ formVisible: false, dropType: '', keyboardHeight: 0 });
+    }
+  },
+
+  // ---------- 巡视内容修改弹层（「保 存」才提交，无实时保存） ----------
+
+  // 卡片「巡视内容」主块：打开弹层并回填当前内容
+  onOpenPatrol(e) {
+    const id = Number(e.currentTarget.dataset.id) || 0;
+    const entry = this.data.list.find((x) => x.id === id);
+    if (!entry) {
+      this.toast('日志不存在或已被删除');
+      return;
+    }
+    this.setData({
+      patrolVisible: true,
+      patrolEntryId: id,
+      patrolDraft: entry.patrol,
+      patrolSaving: false,
+      keyboardHeight: 0,
+    });
+  },
+
+  onPatrolInput(e) {
+    this.setData({ patrolDraft: e.detail.value });
+  },
+
+  // 快捷输入（与水印施工内容一致）：点击将字符追加到当前内容末尾
+  onPatrolQuickInput(e) {
+    const { text } = e.currentTarget.dataset;
+    if (!text) return;
+    this.setData({ patrolDraft: this.data.patrolDraft + text });
+  },
+
+  onPatrolCancel() {
+    this.setData({ patrolVisible: false, keyboardHeight: 0 });
+  },
+
+  onPatrolVisibleChange(e) {
+    if (!e.detail.visible && this.data.patrolVisible) {
+      this.setData({ patrolVisible: false, keyboardHeight: 0 });
+    }
+  },
+
+  // 保存巡视内容：PUT 全量字段（车牌/目的地/用车人取保存时卡片最新值，仅替换巡视内容），失败留弹层可重试
+  async onPatrolSave() {
+    if (this.data.patrolSaving) return;
+    const entry = this.data.list.find((x) => x.id === this.data.patrolEntryId);
+    if (!entry) {
+      this.toast('日志不存在或已被删除');
+      this.setData({ patrolVisible: false, keyboardHeight: 0 });
+      return;
+    }
+    this.setData({ patrolSaving: true });
+    try {
+      await request({
+        url: `/api/v1/worklog/logs/${entry.id}`,
+        method: 'PUT',
+        data: {
+          patrol_content: this.data.patrolDraft,
+          vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
+          destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
+          member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
+        },
+      });
+      this.setData({ patrolVisible: false, patrolSaving: false, keyboardHeight: 0 });
+      this.loadLogs();
+    } catch (err) {
+      this.setData({ patrolSaving: false });
+      this.toast(err.message);
+    }
   },
 
   // ---------- 水印照片（卡片直接改） ----------
@@ -1089,16 +1077,12 @@ Page({
     const datePart = m ? m[1] : fmtWmTime(new Date()).split(' ')[0];
     const oldHm = m ? `${m[2]}:${m[3]}` : '';
     let hm = oldHm;
-    while (hm === oldHm) {
-      const h = 10 + Math.floor(Math.random() * 2); // 10 或 11
-      const min = Math.floor(Math.random() * 60);
-      hm = `${pad(h)}:${pad(min)}`;
-    }
+    while (hm === oldHm) hm = randWmHm();
     return `${datePart} ${hm}`;
   },
 
   // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤500m，拍摄时间随机化为 10:00-12:00，避免完全一致）；
-  // 无历史 → 施工内容留空、拍摄时间取当前、经纬度/地点/天气按当前定位取值（腾讯地图）
+  // 无历史 → 施工内容留空、拍摄时间取记录所在日期 10:00-12:00 内随机时间、经纬度/地点/天气按当前定位取值（腾讯地图）
   prefillWmForm() {
     const entry = this.data.list.find((x) => x.id === this.data.memberEntryId);
     const photos = (entry && entry.photos) || [];
@@ -1121,9 +1105,11 @@ Page({
       });
       return;
     }
+    // 无历史：拍摄时间取记录所在日期（当前列表日期 dateStr）10:00-12:00 内随机时间
+    const datePart = this.data.dateStr.replace(/-/g, '.');
     this.setData({
       wmVisible: true,
-      wmForm: { content: '', time: fmtWmTime(new Date()), weather: '', location: '', lng: '', lat: '' },
+      wmForm: { content: '', time: `${datePart} ${randWmHm()}`, weather: '', location: '', lng: '', lat: '' },
     });
     this.fillWmByLocation();
   },
