@@ -1,10 +1,11 @@
 // 出工日志：记录验证状态（verify_passed）与未通过明细（verify_reasons）计算，logs / day-status / report 共用
 // 规则（见《开发指南》7.1）：① 未出车不验证（exempt）；② 目的地已选且有用车人（巡视内容按需求可空，不计入）；
-// ③ 至少一张水印照片且全部已通过；④ 用车人名单与全部照片人名并集一致；⑤ 多张照片施工内容一致
+// ③ 至少一张水印照片且全部已通过；④ 用车人名单与全部照片人名并集一致；⑤ 多张照片施工内容一致；⑥ 全部用车人已打卡
 function computeVerifyPassed(entry) {
   if (!entry.vehicle_id) return 'exempt';
   if (!entry.destination_id) return 'failed';
   if (!entry.members.length) return 'failed';
+  if (entry.members.some((m) => !m.checked)) return 'failed';
   if (!entry.photos.length) return 'failed';
   if (!entry.photos.every((p) => p.verify_status === 'passed')) return 'failed';
 
@@ -42,6 +43,8 @@ function computeFailReasons(entry) {
   const reasons = [];
   if (!entry.destination_id) reasons.push('未选择目的地');
   if (!entry.members.length) reasons.push('未选择用车人');
+  const unchecked = entry.members.filter((m) => !m.checked).map((m) => m.name);
+  if (unchecked.length) reasons.push(`${unchecked.join('、')}未打卡`);
   if (!entry.photos.length) {
     reasons.push('未上传水印照片');
     return reasons; // 无照片时不再判定人名/施工内容

@@ -27,8 +27,8 @@
   <!-- 空列表虚线占位（文案随视图口径适配） -->
   <view class="empty-box" wx:if="{{!loading && list.length === 0}}">{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点击下方新建'}}</view>
 
-  <!-- 日志卡片：巡视内容（主内容块）→ 打卡情况 → 水印照片 -->
-  <view class="card hazard-top logcard" wx:for="{{list}}" wx:key="id">
+  <!-- 日志卡片：巡视内容（主内容块）→ 打卡情况 → 水印照片（id 供报告定位滚动；flash=报告跳转后的短暂高亮） -->
+  <view class="card hazard-top logcard {{flashId === item.id ? 'flash' : ''}}" id="logcard-{{item.id}}" wx:for="{{list}}" wx:key="id">
     <view class="lc-body">
       <!-- 车牌头部可点击：打开改派车面板并回填该卡（派车情况/用车人，保存前弹内网派车单同步警告） -->
       <view class="lc-head" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
@@ -431,8 +431,9 @@
       <!-- 一个日期一个卡片 -->
       <view class="dl-month-card" wx:for="{{rpGroups}}" wx:key="date">
         <view class="dl-month-title">{{item.title}}</view>
-        <view class="rp-item" wx:for="{{item.items}}" wx:for-item="r" wx:key="id">
-          <view class="rp-plate">{{r.plateText}}<text class="rp-members">用车人：{{r.membersText}}</text></view>
+        <!-- 记录可点击：关闭报告并跳到该日对应卡片（滚动定位 + 高亮） -->
+        <view class="rp-item" wx:for="{{item.items}}" wx:for-item="r" wx:key="id" hover-class="hover-opacity" bindtap="onRpItemTap" data-id="{{r.id}}" data-date="{{r.date}}">
+          <view class="rp-plate">{{r.plateText}}<text class="rp-members">用车人：{{r.membersText}}</text><t-icon class="rp-go" name="chevron-right" size="28rpx" color="#C9C0AB" /></view>
           <view class="rp-reason" wx:for="{{r.reasons}}" wx:for-item="reason" wx:key="*this">{{reason}}</view>
         </view>
       </view>
