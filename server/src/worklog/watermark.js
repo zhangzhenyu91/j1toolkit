@@ -70,13 +70,16 @@
     glyphH: 0.03,         // 字形高（用于卡片高度计算，随 labelFont 0.033 同步缩小）
     bodyBottomPad: 0.01,  // 末行下到卡片底的距离
     textColor: '#111111',
-    // 右下品牌块（按官方样图实测：logo 视觉宽 0.132·B，防伪行左缘超出其左缘）
+    // 右下品牌块（logo 按官方样图实测；防伪行右缘固定 codeRight 不动，
+    // 整体等比缩小至「防」左缘刚好超过上方 logo 中「相」字左缘）
     logoW: 0.14,       // logo 图宽
     logoRight: 0.01,   // logo 右边距
     logoBottom: 0.025, // logo 底边距
-    codeFont: 0.0145,
+    logoXiangL: 0.01,  // 「相」字左缘在 logo 图内的位置（相对图宽，按 alpha 通道实测 5/502）
+    codeBeyondXiang: 0.001, // 「防」左缘超出「相」左缘的量（刚刚超过即可）
+    codeFont: 0.0145,  // 防伪行基准字号：仅用于量宽，实际字号按「相」字对齐目标等比缩放
     codeFontScale: 1.1, // 码值字号相对前缀的放大倍数（思源黑 CJK 可见高 0.96em、PTMono 大写 0.71em，1.1× 使码值略小于「防伪」二字）
-    codeXScale: 1,    // 码值横向压缩（字号放大后保持整行宽 ≈0.154·B 与官方一致）
+    codeXScale: 1,    // 码值横向压缩
     codeRight: 0.016,
     codeBaseline: 0.008, // 防伪码行基线（alphabetic）到底边的距离；行视觉中心≈0.0157
     codeColor: 'rgba(255,255,255,1)',
@@ -136,10 +139,10 @@
       return (o.fontWeight ? o.fontWeight + ' ' : '') + Math.round(px) + 'px ' + o.fontFamily;
     }
     function codeFont(px) {
-      return Math.round(px) + 'px ' + o.codeFontFamily;
+      return px + 'px ' + o.codeFontFamily;
     }
     function codePrefixFont(px) {
-      return Math.round(px) + 'px ' + o.codePrefixFontFamily;
+      return px + 'px ' + o.codePrefixFontFamily;
     }
 
     /* 缩放基准：短边。横版照片水印不会随宽度放大（实测自 4160x3134 横版样图） */
@@ -268,6 +271,8 @@
       ctx.save();
 
       // 防伪码：「防伪 」前缀与码值分字体绘制（前缀 SourceHanSansSC / 码值 PTMono）。
+      // 横向：行右缘固定 codeRight 不动；先按基准字号量行宽，再等比缩小（纵横比不变）
+      // 至「防」左缘刚好超过上方 logo 中「相」字左缘（logoXiangL / codeBeyondXiang）。
       // 中线对齐：两段可见字形的垂直中心在同一水平线（非底线对齐——思源黑 CJK 比 PTMono 大写高，
       // 底线对齐会让「防伪」中心偏高）；按 actualBoundingBox* 实测两段中心残差校正前缀基线，
       // 度量缺失时退回共用 alphabetic 基线（两字体中心本已近乎重合），任意分辨率恒平。
@@ -275,8 +280,18 @@
       ctx.fillStyle = M.codeColor;
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = 'left';
-      var codeFs = M.codeFont * B;
+      var rightX = W - M.codeRight * B;
+      var baselineY = H - M.codeBaseline * B;
       var codePrefix = '防伪 ';
+      var codeFs = M.codeFont * B;
+      // 基准字号下量行宽（前缀宽 + 码值宽），按目标行宽求等比缩放
+      ctx.font = codePrefixFont(codeFs);
+      var prefixW0 = ctx.measureText(codePrefix).width;
+      ctx.font = codeFont(codeFs * M.codeFontScale);
+      var codeW0 = ctx.measureText(o.antiCode).width * M.codeXScale;
+      var xiangX = W - (M.logoRight + M.logoW - M.logoXiangL * M.logoW) * B; // 「相」字左缘
+      codeFs *= (rightX - xiangX + M.codeBeyondXiang * B) / (prefixW0 + codeW0);
+      // 浮点字号（不取整）：取整会让缩放后的行宽偏离目标 1-2px，左缘对不上「相」字
       ctx.font = codePrefixFont(codeFs);
       var preM = ctx.measureText('防');
       // 字形度量不可用的环境按实测常量兜底（思源黑 CJK：上 0.86em / 下 0.10em）
@@ -285,13 +300,13 @@
       ctx.font = codeFont(codeFs * M.codeFontScale);
       var codeM = ctx.measureText(o.antiCode);
       var codeW = codeM.width * M.codeXScale;
-      // PTMono 大写：上 0.71em / 下 ≈0
+      // PTMono 大写：上 0.71em；下探恒 0——码值字符集只有大写+数字，无下伸笔画，
+      // 且 @napi-rs/canvas 的 actualBoundingBoxDescent 返回字体级下探（非字形实测），
+      // 采信会让码值中心算偏高、「防伪」与码值中线不齐
       var codeAsc = typeof codeM.actualBoundingBoxAscent === 'number' ? codeM.actualBoundingBoxAscent : codeFs * M.codeFontScale * 0.71;
-      var codeDesc = typeof codeM.actualBoundingBoxDescent === 'number' ? codeM.actualBoundingBoxDescent : 0;
+      var codeDesc = 0;
       ctx.font = codePrefixFont(codeFs);
       var prefixW = ctx.measureText(codePrefix).width;
-      var rightX = W - M.codeRight * B;
-      var baselineY = H - M.codeBaseline * B;
       var prefixX = rightX - prefixW - codeW;
       // 前缀基线偏移 = 码值中心偏移 - 前缀中心偏移（各中心 = 基线 + (下探-上探)/2）
       var prefixBaselineY = baselineY + ((codeDesc - codeAsc) - (preDesc - preAsc)) / 2;

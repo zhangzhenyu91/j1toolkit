@@ -30,7 +30,7 @@
   <!-- 日志卡片：巡视内容（主内容块）→ 打卡情况 → 水印照片 -->
   <view class="card hazard-top logcard" wx:for="{{list}}" wx:key="id">
     <view class="lc-body">
-      <!-- 车牌头部可点击：打开表单面板并回填该卡（改派车/用车人/巡视） -->
+      <!-- 车牌头部可点击：打开改派车面板并回填该卡（派车情况/用车人，保存前弹内网派车单同步警告） -->
       <view class="lc-head" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
         <view class="ci {{item.hasVehicle ? '' : 'ci-gray'}}">
           <t-icon name="vehicle" size="36rpx" color="{{item.hasVehicle ? '#F26D21' : '#A89F8A'}}" />
@@ -44,8 +44,8 @@
         <view class="lc-fail-line" wx:for="{{item.failReasons}}" wx:key="*this">{{item}}</view>
       </view>
 
-      <!-- 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分；点击打开表单面板修改） -->
-      <view class="lc-patrol" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
+      <!-- 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分；点击弹出巡视内容修改层） -->
+      <view class="lc-patrol" hover-class="hover-bg-warm" bindtap="onOpenPatrol" data-id="{{item.id}}">
         <view class="lc-patrol-head">
           <view class="lc-patrol-label">巡视内容</view>
           <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
@@ -207,35 +207,15 @@
   </view>
 </t-calendar>
 
-<!-- 新建/编辑表单底部弹层（edit 二级页取缔后内嵌；键盘弹起时动态抬高底部 padding） -->
+<!-- 新建/改派车表单底部弹层（无实时保存，「保 存」提交；键盘弹起时动态抬高底部 padding） -->
 <t-popup visible="{{formVisible}}" placement="bottom" bind:visible-change="onFormVisibleChange">
   <view class="form-sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(24rpx + env(safe-area-inset-bottom))'}};">
-    <view class="sheet-title">{{formId ? '修改日志' : '新建日志'}}</view>
+    <view class="sheet-title">{{formId ? '修改派车' : '新建日志'}}</view>
     <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
       <!-- 日期 chip -->
       <view class="date-chip">
         <t-icon name="calendar" size="28rpx" color="#F26D21" />
         {{formDateStr}}
-      </view>
-
-      <!-- 巡视内容（可空，失焦且有变化才自动 PUT） -->
-      <view class="sec-row">
-        <view class="section-title">巡视内容</view>
-        <view class="sec-note">可空</view>
-      </view>
-      <view class="textarea-wrap">
-        <textarea
-          class="textarea"
-          value="{{patrol}}"
-          bindinput="onFormPatrolInput"
-          bindblur="onFormPatrolBlur"
-          placeholder="请输入巡视内容（可空）"
-          placeholder-class="ph"
-          adjust-position="{{false}}"
-          bindkeyboardheightchange="onKeyboardHeight"
-          auto-height
-          maxlength="-1"
-        />
       </view>
 
       <!-- 派车情况（车牌/目的地行内联展开筛选下拉，手风琴互斥） -->
@@ -314,7 +294,7 @@
         </view>
       </view>
 
-      <!-- 人员选择（点亮即用车人；新建时点亮首个成员即自动落库） -->
+      <!-- 人员选择（点亮即用车人） -->
       <block wx:if="{{!isNoVehicle}}">
         <view class="sec-row">
           <view class="section-title">人员选择</view>
@@ -336,9 +316,49 @@
       </block>
     </scroll-view>
 
-    <!-- 底部「完 成」（遮罩关闭同效） -->
+    <!-- 底部「保 存」（遮罩关闭 = 放弃修改） -->
     <view class="form-foot">
-      <view class="btn-primary" hover-class="hover-opacity" bindtap="onFormDone">完 成</view>
+      <view class="btn-primary" hover-class="hover-opacity" bindtap="onFormSave">{{formSaving ? '正在保存…' : '保 存'}}</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 巡视内容修改弹层（点卡片巡视内容主块弹出；快捷输入同水印施工内容；「保 存」提交，无实时保存） -->
+<t-popup visible="{{patrolVisible}}" placement="bottom" bind:visible-change="onPatrolVisibleChange">
+  <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
+    <view class="sheet-title">修改巡视内容</view>
+    <view class="sec-row">
+      <view class="section-title">巡视内容</view>
+      <view class="wm-quick">
+        <text
+          wx:for="{{quickInputs}}"
+          wx:key="*this"
+          class="wm-quick-chip"
+          hover-class="hover-opacity"
+          data-text="{{item}}"
+          bindtap="onPatrolQuickInput"
+        >{{item}}</text>
+      </view>
+    </view>
+    <view class="textarea-wrap">
+      <textarea
+        class="textarea"
+        value="{{patrolDraft}}"
+        bindinput="onPatrolInput"
+        placeholder="请输入巡视内容（可空）"
+        placeholder-class="ph"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        auto-height
+        maxlength="-1"
+      />
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onPatrolCancel">取 消</view>
+      <view class="btn-dark" hover-class="hover-opacity" bindtap="onPatrolSave">
+        <t-icon name="check" size="34rpx" color="#FFFFFF" />
+        {{patrolSaving ? '正在保存…' : '保 存'}}
+      </view>
     </view>
   </view>
 </t-popup>
@@ -498,7 +518,7 @@
             <text class="fk">施工内容</text>
             <view class="wm-quick">
               <text
-                wx:for="{{wmQuickInputs}}"
+                wx:for="{{quickInputs}}"
                 wx:key="*this"
                 class="wm-quick-chip"
                 hover-class="hover-opacity"
