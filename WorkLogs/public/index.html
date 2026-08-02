@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>出工日志 · WorkLogs</title>
+<link rel="icon" type="image/svg+xml" href="worklogs.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ================= 顶部通栏导航 ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M13 2 4.6 13.4h6L9.4 22 19 10.2h-6.2L13 2Z"/></svg>
+    </span>
+    出工日志
+    <small>WorkLogs</small>
+  </div>
+  <nav class="nav">
+    <button class="nav-btn on" data-page="board">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>
+      日志看板
+    </button>
+    <button class="nav-btn" data-page="photos">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17.5 10 12l4 4 3-3 3.5 3.5"/></svg>
+      照片库
+    </button>
+    <button class="nav-btn" data-page="report">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6l-7-2.5Z"/><path d="m9 11.8 2.2 2.2L15.4 9.6"/></svg>
+      验证报告
+    </button>
+    <button class="nav-btn" data-page="data" id="navData">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.6 3.4 2.9 7.5 2.9s7.5-1.3 7.5-2.9v-13"/><path d="M4.5 12c0 1.6 3.4 2.9 7.5 2.9s7.5-1.3 7.5-2.9"/></svg>
+      数据管理
+    </button>
+    <span class="nav-underline" id="navUnderline"></span>
+  </nav>
+  <div class="userbox">
+    <span class="avatar" id="userAvatar">·</span>
+    <span class="name" id="userName">—</span>
+    <span class="vline"></span>
+    <button class="quit" id="quitBtn">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4.5H7A1.5 1.5 0 0 0 5.5 6v12A1.5 1.5 0 0 0 7 19.5h8"/><path d="M11.5 12h9m0 0-3-3m3 3-3 3"/></svg>
+      退出
+    </button>
+  </div>
+</header>
+
+<main>
+<!-- ================= 板块一：日志看板 ================= -->
+<section id="page-board" class="page active">
+  <div class="wrap">
+    <div class="toolbar">
+      <div class="date-nav" id="dateNav">
+        <button class="iconbtn" id="prevDay" title="前一日">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+        </button>
+        <span class="dtxt"><b id="dMain">—</b><i id="dSub"></i></span>
+        <button class="iconbtn" id="nextDay" title="后一日">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+        </button>
+        <em class="today-tag" id="todayTag" style="display:none">今天</em>
+        <span class="vline" style="margin:0 4px"></span>
+        <button class="linkbtn" id="backToday">回到今天</button>
+        <button class="iconbtn" id="calBtn" title="日历">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg>
+        </button>
+        <!-- 日历弹层（JS 渲染） -->
+        <div class="cal-pop" id="calPop" style="display:none"></div>
+      </div>
+      <div class="seg" id="segBoard">
+        <span class="pill"></span>
+        <button class="on" data-v="all">全部</button>
+        <button data-v="mine">仅看我</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn-primary" id="newLogBtn">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        新建日志
+      </button>
+    </div>
+
+    <div class="board-grid">
+      <!-- 中：日志卡片流（JS 渲染） -->
+      <div id="cardFlow"></div>
+
+      <!-- 右：今日概览 -->
+      <aside>
+        <div class="side-card">
+          <div class="side-title">今日概览</div>
+          <div class="stat-grid">
+            <div class="stat"><div class="num"><b id="stCar">0</b><small> 台</small></div><div class="lbl">出车台数</div></div>
+            <div class="stat"><div class="num"><b id="stCk">0</b><small id="stCkY">/0</small></div><div class="lbl">完成打卡</div></div>
+            <div class="stat"><div class="num"><b id="stPh">0</b><small> 张</small></div><div class="lbl">水印照片</div></div>
+            <div class="stat"><div class="num"><b id="stPs">0</b><small id="stPsY">/0</small></div><div class="lbl">验证通过</div></div>
+          </div>
+          <div class="pr-row"><span>打卡率</span><div class="pr"><i id="pr1"></i></div><b id="pr1t">0/0</b></div>
+          <div class="pr-row"><span>通过率</span><div class="pr"><i id="pr2" class="g"></i></div><b id="pr2t">0/0</b></div>
+          <div class="side-sub">快捷操作</div>
+          <div class="quick">
+            <button class="ghost" id="quickNew">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              新建日志
+            </button>
+            <button class="ghost" id="quickPhotos">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17.5 10 12l4 4 3-3 3.5 3.5"/></svg>
+              前往照片库
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 板块二：照片库 ================= -->
+<section id="page-photos" class="page">
+  <div class="wrap narrow">
+    <div class="rangebar card-lite">
+      <input type="date" id="libFrom">
+      <span class="range-sep">~</span>
+      <input type="date" id="libTo">
+      <button class="linkbtn" id="libQuery">查询</button>
+      <span class="vline"></span>
+      <span class="sw-wrap" id="libMine"><span class="switch"></span>仅看我</span>
+      <div class="spacer"></div>
+      <span class="range-note" id="libTotal"></span>
+    </div>
+    <div id="libBody"></div>
+    <div class="lib-bar" id="libBar" style="display:none">
+      <span class="lib-count" id="libCount">已选 0/0</span>
+      <button class="linkbtn" id="selAllBtn">全不选</button>
+      <div class="spacer"></div>
+      <button class="btn-primary" id="dlBtn">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M4.5 19.5h15"/></svg>
+        下载所选（ZIP）
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 板块三：验证报告 ================= -->
+<section id="page-report" class="page">
+  <div class="wrap narrow">
+    <div class="rangebar card-lite">
+      <input type="date" id="repFrom">
+      <span class="range-sep">~</span>
+      <input type="date" id="repTo">
+      <button class="linkbtn" id="repQuery">重新查询</button>
+      <span class="vline"></span>
+      <span class="sw-wrap" id="repMine"><span class="switch"></span>仅看我</span>
+      <div class="spacer"></div>
+      <span class="range-note" id="repTotal"></span>
+    </div>
+    <div id="repBody"></div>
+  </div>
+</section>
+
+<!-- ================= 板块四：数据管理（admin） ================= -->
+<section id="page-data" class="page">
+  <div class="wrap narrow">
+    <div class="data-top card-lite">
+      <div class="seg" id="segData">
+        <span class="pill"></span>
+        <button class="on" data-v="vehicles">车牌号</button>
+        <button data-v="destinations">目的地</button>
+        <button data-v="members">人员</button>
+      </div>
+      <input class="text-input" id="dataFilter" placeholder="关键词过滤">
+      <div class="spacer"></div>
+      <input class="text-input" id="dataInput" placeholder="输入新车牌号，回车快速添加">
+      <button class="btn-primary" id="dataAddBtn">添加</button>
+    </div>
+    <ul class="data-list" id="dataList"></ul>
+  </div>
+</section>
+</main>
+
+<!-- ================= 照片预览 Lightbox ================= -->
+<div class="lightbox" id="lightbox"></div>
+
+<!-- ================= Toast 容器 ================= -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<!-- 隐藏文件选择器（添加照片用） -->
+<input type="file" id="filePicker" accept="image/jpeg,image/png" style="display:none">
+
+<script src="app.js"></script>
+</body>
+</html>

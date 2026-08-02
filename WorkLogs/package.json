@@ -1,0 +1,19 @@
+{
+  "name": "work-logs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "出工日志网页端后端",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

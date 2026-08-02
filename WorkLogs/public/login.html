@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登录 · 出工日志 WorkLogs</title>
+<link rel="icon" type="image/svg+xml" href="worklogs.svg">
+<style>
+/* ========== 登录页：沿用设计稿 B「留白」令牌 ========== */
+:root{
+  --bg:#FBFBF9; --card:#FFFFFF; --line:#EBE9E2;
+  --ink:#16171B; --sub:#6E7278; --faint:#C6C4BB;
+  --accent:#2450F0; --red:#E5484D;
+  --r:14px;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px rgba(0,0,0,.06);
+  --ease:cubic-bezier(0.22,1,0.36,1);
+  --font:"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:var(--font);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.6;min-height:100vh;
+  display:grid;place-items:center;padding:24px;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;font-size:inherit;border:none;cursor:pointer}
+input{font-family:inherit}
+::selection{background:rgba(36,80,240,.16)}
+
+/* 居中卡片 */
+.login-card{
+  width:380px;background:var(--card);border:1px solid var(--line);
+  border-radius:18px;box-shadow:var(--shadow);padding:38px 36px 32px;
+  animation:cardIn .5s var(--ease);
+}
+@keyframes cardIn{from{opacity:0;transform:translateY(16px);filter:blur(6px)}to{opacity:1;transform:none;filter:blur(0)}}
+
+/* 极简品牌区 */
+.brand{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:26px}
+.brand .logo{
+  width:44px;height:44px;border-radius:12px;background:var(--accent);
+  display:grid;place-items:center;box-shadow:0 6px 18px rgba(36,80,240,.3);
+}
+.brand .name{font-size:19px;font-weight:700;letter-spacing:.02em}
+.brand .sub{font-size:12px;color:var(--sub);letter-spacing:.14em}
+
+.field{margin-top:16px}
+.field label{display:block;font-size:12.5px;color:var(--sub);margin-bottom:6px;letter-spacing:.04em}
+.text-input{
+  width:100%;border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;font-size:14px;background:#fff;outline:none;color:var(--ink);
+  transition:border-color .25s,box-shadow .25s;
+}
+.text-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(36,80,240,.12)}
+
+/* 错误红字 */
+.login-err{min-height:20px;margin-top:12px;font-size:12.5px;color:var(--red)}
+
+.btn-primary{
+  width:100%;margin-top:6px;background:var(--accent);color:#fff;border-radius:11px;
+  padding:11px 0;font-size:14.5px;font-weight:600;
+  box-shadow:0 1px 2px rgba(36,80,240,.24),0 6px 16px rgba(36,80,240,.18);
+  transition:transform .25s var(--ease),box-shadow .25s var(--ease);
+}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 2px 4px rgba(36,80,240,.28),0 10px 26px rgba(36,80,240,.24)}
+.btn-primary:active{transform:translateY(0)}
+.btn-primary[disabled]{opacity:.6;cursor:not-allowed;transform:none}
+
+.foot{margin-top:20px;text-align:center;font-size:11.5px;color:var(--faint);letter-spacing:.06em}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <!-- 品牌区 -->
+  <div class="brand">
+    <span class="logo">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="#fff"><path d="M13 2 4.6 13.4h6L9.4 22 19 10.2h-6.2L13 2Z"/></svg>
+    </span>
+    <span class="name">出工日志 · WorkLogs</span>
+    <span class="sub">电力检修班组出工记录</span>
+  </div>
+
+  <form id="loginForm" autocomplete="off">
+    <div class="field">
+      <label>账号</label>
+      <input class="text-input" id="username" placeholder="请输入账号" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input class="text-input" id="password" type="password" placeholder="请输入密码" autocomplete="current-password">
+    </div>
+    <div class="login-err" id="errBox"></div>
+    <button class="btn-primary" id="loginBtn" type="submit">登 录</button>
+  </form>
+
+  <div class="foot">出工日志 · WorkLogs</div>
+</div>
+
+<script src="login.js"></script>
+</body>
+</html>

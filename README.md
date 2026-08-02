@@ -5,7 +5,7 @@
 已接入应用：
 
 - **Call Me**（`pkg-callme`）：基于 WeKnora 的检修一班 AI 知识库问答（SSE 流式对话）
-- **出工日志**（`pkg-worklog`）：派车/巡视/打卡记录，水印照片经 Dify 工作流验证（`WORKLOG_ENABLED` 开关）
+- **出工日志**（`pkg-worklog`）：派车/巡视/打卡记录，水印照片经 Dify 工作流验证（`WORKLOG_ENABLED` 开关）；另有 `WorkLogs/` PC 网页端（同一套业务接口，功能与小程序对齐）
 - **安全日活动记录**（`pkg-safeday` 引导页 + `SafeDayLogs/` 网页端平台）：上传活动文档经 Dify 工作流生成记录文件；网页端登录仅允许拥有 `safe-day` 应用权限的用户
 
 **文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；出工日志 UI 定稿见 `design/`。
@@ -32,6 +32,7 @@ server/        后端 Node.js 服务
   src/worklog/   出工日志后端子模块（schema/cos/dify/verify/路由）
 design/        UI 定稿设计稿（style-5.html、worklog.html）
 SafeDayLogs/   安全日活动记录生成平台（独立部署网页端，登录走主平台权限校验）
+WorkLogs/      出工日志 PC 网页端（独立部署，会话 + /api/wl 代理主平台出工日志接口）
 ```
 
 ## 后端部署（云服务器 Docker）

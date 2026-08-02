@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<title>出工日志 PC 端 · 设计稿 B「留白」</title>
+<style>
+/* ============================================================
+   方案 B「留白 · Air」—— 极简浅白 / 大量留白 / 排版驱动
+   设计令牌
+   ============================================================ */
+:root{
+  --bg:#FBFBF9;            /* 页面底色：暖白 */
+  --card:#FFFFFF;          /* 卡片底 */
+  --line:#EBE9E2;          /* 发丝分隔线 */
+  --ink:#16171B;           /* 主文字 墨黑 */
+  --sub:#6E7278;           /* 次级文字 */
+  --faint:#C6C4BB;         /* 更弱一级（置灰日期等） */
+  --accent:#2450F0;        /* 强调电蓝：仅主按钮 / 激活态 / 链接 */
+  --accent-soft:rgba(36,80,240,.08);
+  --green:#1F9D55;         /* 核验通过 */
+  --red:#E5484D;           /* 未通过 */
+  --r:14px;                /* 统一圆角 */
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px rgba(0,0,0,.06); /* 柔和双层投影 */
+  --ease:cubic-bezier(0.22,1,0.36,1);
+  --font:"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+  --num:"Bahnschrift","DIN Alternate","PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:"Cascadia Mono","Consolas",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--font);
+  background:var(--bg);
+  color:var(--ink);
+  font-size:14px;line-height:1.6;
+  min-width:1200px;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+button{font-family:inherit;font-size:inherit;background:none;border:none;cursor:pointer;color:inherit}
+input{font-family:inherit}
+::selection{background:rgba(36,80,240,.16)}
+svg{display:block}
+
+/* ---------- 方案角标：固定右上、半透明不抢戏 ---------- */
+.plan-badge{
+  position:fixed;top:74px;right:18px;z-index:90;
+  padding:4px 12px;border-radius:999px;
+  background:rgba(255,255,255,.62);backdrop-filter:blur(8px);
+  border:1px solid var(--line);
+  color:var(--sub);font-size:12px;letter-spacing:.06em;opacity:.85;
+  pointer-events:none;
+}
+
+/* ---------- 顶部通栏导航 ---------- */
+.topbar{
+  position:sticky;top:0;z-index:80;height:64px;
+  display:flex;align-items:center;gap:40px;
+  padding:0 32px;
+  background:rgba(251,251,249,.82);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:.01em}
+.brand .logo{width:30px;height:30px;border-radius:9px;background:var(--accent);display:grid;place-items:center;box-shadow:0 4px 12px rgba(36,80,240,.3)}
+.brand small{font-weight:500;font-size:11px;color:var(--sub);border-left:1px solid var(--line);padding-left:10px;margin-left:2px;letter-spacing:.08em}
+.nav{position:relative;display:flex;gap:2px;margin:0 auto;height:64px}
+.nav-btn{
+  position:relative;padding:0 18px;height:64px;
+  color:var(--sub);font-size:14px;display:flex;align-items:center;gap:7px;
+  transition:color .25s var(--ease);
+}
+.nav-btn:hover{color:var(--ink)}
+.nav-btn.on{color:var(--ink);font-weight:600}
+.nav-underline{
+  position:absolute;bottom:0;height:2.5px;border-radius:2px;
+  background:var(--accent);
+  transition:left .38s var(--ease),width .38s var(--ease);
+}
+.userbox{display:flex;align-items:center;gap:10px}
+.avatar{width:30px;height:30px;border-radius:50%;background:#EDECE6;color:#57595E;display:grid;place-items:center;font-size:13px;font-weight:600}
+.userbox .name{font-size:13.5px;font-weight:600}
+.userbox .quit{font-size:12.5px;color:var(--sub);display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:8px;transition:.25s}
+.userbox .quit:hover{color:var(--red);background:rgba(229,72,77,.06)}
+.vline{width:1px;height:18px;background:var(--line)}
+
+/* ---------- 页面容器与切换动效 ---------- */
+.wrap{max-width:1340px;margin:0 auto;padding:0 24px}
+.wrap.narrow{max-width:1080px}
+.page{display:none;padding-bottom:80px}
+.page.active{display:block;animation:pageIn .45s var(--ease)}
+@keyframes pageIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
+/* ---------- 通用小元件 ---------- */
+.iconbtn{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--sub);transition:.25s var(--ease)}
+.iconbtn:hover{background:#F2F1EC;color:var(--ink)}
+.linkbtn{color:var(--accent);font-size:13px;padding:6px 8px;border-radius:8px;transition:.25s}
+.linkbtn:hover{background:var(--accent-soft)}
+.spacer{flex:1}
+.mini{
+  border:1px solid var(--line);background:#fff;border-radius:8px;
+  padding:4px 11px;font-size:12px;color:var(--sub);
+  transition:all .25s var(--ease);
+}
+.mini:hover{color:var(--accent);border-color:rgba(36,80,240,.4);transform:translateY(-1px)}
+.mini.danger:hover{color:var(--red);border-color:rgba(229,72,77,.4)}
+.ghost{
+  display:inline-flex;align-items:center;gap:6px;
+  border:1px solid var(--line);background:#fff;border-radius:10px;
+  padding:8px 14px;font-size:13px;color:#3B3E44;
+  transition:all .25s var(--ease);
+}
+.ghost:hover{border-color:#D6D4CB;transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.05)}
+.btn-primary{
+  display:inline-flex;align-items:center;gap:7px;
+  background:var(--accent);color:#fff;border-radius:11px;
+  padding:9px 18px;font-size:14px;font-weight:600;
+  box-shadow:0 1px 2px rgba(36,80,240,.24),0 6px 16px rgba(36,80,240,.18);
+  transition:transform .25s var(--ease),box-shadow .25s var(--ease);
+}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 2px 4px rgba(36,80,240,.28),0 10px 26px rgba(36,80,240,.24)}
+.btn-primary:active{transform:translateY(0)}
+.text-input{
+  width:100%;border:1px solid var(--line);border-radius:10px;
+  padding:9px 12px;font-size:14px;background:#fff;outline:none;color:var(--ink);
+  transition:border-color .25s,box-shadow .25s;
+}
+.text-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(36,80,240,.12)}
+.text-input[readonly]{background:#F7F6F2;color:var(--sub)}
+
+/* ---------- 分段开关（药丸滑动） ---------- */
+.seg{position:relative;display:flex;background:#EFEEE9;border-radius:11px;padding:3px;flex:none}
+.seg .pill{
+  position:absolute;top:3px;bottom:3px;left:3px;width:60px;
+  border-radius:8px;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.1);
+  transition:left .32s var(--ease),width .32s var(--ease);
+}
+.seg button{position:relative;z-index:1;padding:6px 18px;color:var(--sub);font-size:13px;border-radius:8px;transition:color .25s;white-space:nowrap}
+.seg button.on{color:var(--ink);font-weight:600}
+
+/* ---------- 小开关（仅看我） ---------- */
+.sw-wrap{display:flex;align-items:center;gap:8px;color:var(--sub);font-size:13px;cursor:pointer;user-select:none}
+.switch{position:relative;width:38px;height:22px;border-radius:999px;background:#DDDAD0;transition:background .3s var(--ease);flex:none}
+.switch::after{
+  content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.22);
+  transition:transform .3s var(--ease);
+}
+.switch.on{background:var(--accent)}
+.switch.on::after{transform:translateX(16px)}
+
+/* ============================================================
+   板块一：日志看板
+   ============================================================ */
+.toolbar{display:flex;align-items:center;gap:16px;margin:26px 0 22px}
+.date-nav{
+  display:flex;align-items:center;gap:4px;
+  background:#fff;border:1px solid var(--line);border-radius:12px;padding:5px 8px;
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
+}
+.date-nav .dtxt{font-family:var(--num);padding:0 10px;min-width:196px;text-align:center}
+.date-nav .dtxt b{font-size:15px;font-weight:700;letter-spacing:.02em}
+.date-nav .dtxt i{font-style:normal;font-size:12px;color:var(--sub);margin-left:8px}
+
+/* 三栏布局：左日历 / 中卡片流 / 右概览 */
+.board-grid{display:grid;grid-template-columns:268px minmax(0,760px) 300px;gap:24px;align-items:start;justify-content:center}
+#cardFlow{transition:transform .38s var(--ease),opacity .38s var(--ease)}
+#cardFlow.out-left{transform:translateX(-40px);opacity:0}
+#cardFlow.out-right{transform:translateX(40px);opacity:0}
+#cardFlow.flash{animation:flashUp .5s var(--ease)}
+@keyframes flashUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* 入场：blur(6px) → 0 + fade + 上浮，staggered */
+.anim-in.pre{opacity:0;transform:translateY(16px);filter:blur(6px)}
+.anim-in.in{
+  opacity:1;transform:none;filter:blur(0);
+  transition:opacity .6s var(--ease),transform .6s var(--ease),filter .6s var(--ease),box-shadow .35s var(--ease);
+}
+
+/* ---------- 日志卡片 ---------- */
+.log-card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);
+  padding:22px 24px;margin-bottom:20px;
+}
+.log-card:hover{transform:translateY(-2px);box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 44px rgba(0,0,0,.09)}
+.lc-head{display:flex;align-items:center;gap:12px}
+.plate{font-family:var(--num);font-weight:700;font-size:17px;letter-spacing:.03em}
+.plate.nocar{color:var(--sub)}
+.dest{color:var(--sub);font-size:13px;border-left:1px solid var(--line);padding-left:12px}
+.vbadge{font-size:12px;padding:3px 10px;border-radius:999px;font-weight:600;letter-spacing:.02em}
+.vbadge.pass{color:var(--green);background:rgba(31,157,85,.1)}
+.vbadge.fail{color:var(--red);background:rgba(229,72,77,.1)}
+.lc-ops{margin-left:auto;display:flex;gap:6px;opacity:.65;transition:opacity .25s}
+.log-card:hover .lc-ops{opacity:1}
+
+/* 未通过明细 */
+.fail-list{
+  margin-top:14px;border:1px solid rgba(229,72,77,.2);background:rgba(229,72,77,.045);
+  border-radius:10px;padding:10px 14px;
+  display:flex;flex-direction:column;gap:6px;
+}
+.fail-row{display:flex;align-items:center;gap:8px;font-size:13px;color:#B4363A}
+.fail-row svg{flex:none}
+
+/* 用车人 chips：点亮=已打卡，置灰=未打卡，点击切换 */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:5px 13px;border-radius:999px;
+  border:1px solid var(--line);background:#fff;color:var(--sub);
+  font-size:13px;cursor:pointer;user-select:none;
+  transition:all .25s var(--ease);
+}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:#C9C7BE;transition:.25s}
+.chip.on{color:var(--ink);border-color:rgba(36,80,240,.35);background:var(--accent-soft)}
+.chip.on .dot{background:var(--green)}
+.chip:hover{transform:translateY(-1px)}
+
+/* 巡视内容 */
+.patrol{
+  margin-top:14px;background:#FAFAF7;border:1px solid var(--line);
+  border-radius:10px;padding:12px 14px;font-size:13.5px;color:#3B3E44;
+}
+.patrol .tag{font-size:12px;color:var(--sub);margin-right:10px;letter-spacing:.05em}
+
+/* ---------- 水印照片 ---------- */
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.photo{
+  position:relative;aspect-ratio:4/3;border-radius:10px;overflow:hidden;
+  border:1px solid var(--line);cursor:zoom-in;background:#C9D4DE;
+}
+.photo .scene{
+  position:absolute;inset:0;
+  background:linear-gradient(180deg,#A9BFD6 0%,#CBD8E2 52%,#8F9078 53%,#6E6D58 100%);
+  transition:transform .6s var(--ease);
+}
+.photo.v2 .scene{background:linear-gradient(180deg,#B7C4D8 0%,#D9DEE2 50%,#9A8F6E 51%,#6F6750 100%)}
+.photo.v3 .scene{background:linear-gradient(180deg,#B9C2CC 0%,#D5DADD 52%,#7E8470 53%,#5F6352 100%)}
+.photo:hover .scene{transform:scale(1.045)}
+/* 水印条：底部半透明深色渐变 + 等宽白字分行 */
+.wm{
+  position:absolute;left:0;right:0;bottom:0;z-index:2;
+  background:linear-gradient(180deg,rgba(12,14,12,0) 0%,rgba(12,14,12,.55) 22%,rgba(12,14,12,.68) 100%);
+  color:rgba(255,255,255,.94);
+  font-family:var(--mono);font-size:9px;line-height:1.55;letter-spacing:.02em;
+  padding:14px 8px 6px;
+}
+.wm-row{display:flex;justify-content:space-between;gap:8px;white-space:nowrap}
+/* 验证状态角标 */
+.ph-st{
+  position:absolute;top:8px;right:8px;z-index:3;
+  font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;color:#fff;
+  backdrop-filter:blur(4px);
+}
+.ph-st.pass{background:rgba(31,157,85,.88)}
+.ph-st.fail{background:rgba(229,72,77,.9)}
+.ph-st.ing{background:rgba(36,80,240,.85);animation:breathe 1.7s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:1}50%{opacity:.45}}
+/* 未通过照片：hover 显示重新验证 */
+.ph-re{
+  position:absolute;inset:0;z-index:4;display:grid;place-items:center;
+  background:rgba(22,23,27,.42);opacity:0;transition:opacity .3s var(--ease);
+}
+.photo:hover .ph-re{opacity:1}
+.ph-re button{
+  background:#fff;color:var(--red);border-radius:9px;
+  padding:7px 15px;font-size:12.5px;font-weight:600;
+  box-shadow:0 4px 16px rgba(0,0,0,.2);
+  transition:transform .25s var(--ease);
+}
+.ph-re button:hover{transform:translateY(-1px)}
+/* 添加照片 */
+.add-photo{
+  aspect-ratio:4/3;border:1.5px dashed #D8D6CD;border-radius:10px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  color:var(--sub);font-size:12.5px;cursor:pointer;background:#FCFCFA;
+  transition:all .3s var(--ease);
+}
+.add-photo:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+/* ---------- 左：迷你日历卡 ---------- */
+.side-card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:20px;
+}
+.side-card.pulse{animation:ring 1s var(--ease)}
+@keyframes ring{0%{box-shadow:0 0 0 0 rgba(36,80,240,.32)}100%{box-shadow:0 0 0 16px rgba(36,80,240,0)}}
+.side-title{font-size:14px;font-weight:700}
+.cal-head{display:flex;align-items:center;justify-content:space-between}
+.cal-today{font-size:11.5px;color:var(--accent);font-weight:600;background:var(--accent-soft);padding:2px 8px;border-radius:99px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin-top:12px;text-align:center}
+.cal-grid .dow{font-size:11px;color:var(--faint);padding:4px 0}
+.cal-grid .day{
+  position:relative;font-family:var(--num);font-size:12.5px;color:#3B3E44;
+  padding:5px 0 7px;border-radius:8px;cursor:default;transition:background .2s;
+}
+.cal-grid .day:hover{background:#F4F4F0}
+.cal-grid .day.dim{color:var(--faint)}
+.cal-grid .day.today{background:var(--accent);color:#fff;font-weight:700;box-shadow:0 4px 10px rgba(36,80,240,.3)}
+.cal-grid .day.today:hover{background:var(--accent)}
+.cal-grid .day .dm{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%}
+.dm.g{background:var(--green)}
+.dm.r{background:var(--red)}
+.cal-legend{display:flex;gap:16px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:11.5px;color:var(--sub)}
+.cal-legend i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.cal-legend .g{background:var(--green)}
+.cal-legend .r{background:var(--red)}
+
+/* ---------- 右：今日概览 ---------- */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 12px;margin-top:16px}
+.stat .num{font-family:var(--num);font-size:26px;font-weight:700;line-height:1.15;letter-spacing:.01em}
+.stat .num small{font-size:13px;color:var(--sub);font-weight:500}
+.stat .lbl{font-size:12px;color:var(--sub);margin-top:1px}
+.pr-row{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px;color:var(--sub)}
+.pr-row b{font-family:var(--num);font-size:12px;color:var(--ink);font-weight:600;min-width:26px;text-align:right}
+.pr{flex:1;height:6px;border-radius:99px;background:#F0EFE9;overflow:hidden}
+.pr i{display:block;height:100%;width:0;border-radius:99px;background:var(--accent);transition:width 1s var(--ease) .4s}
+.pr i.g{background:var(--green)}
+.side-sub{font-size:12px;color:var(--sub);letter-spacing:.08em;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.quick{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.quick .ghost{justify-content:flex-start;width:100%}
+
+/* ============================================================
+   板块二：照片库
+   ============================================================ */
+.card-lite{
+  background:#fff;border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);
+}
+.rangebar{display:flex;align-items:center;gap:12px;padding:12px 18px;margin:26px 0 20px}
+.range-text{font-family:var(--mono);font-size:13.5px;font-weight:600;letter-spacing:.02em}
+.range-text i{font-style:normal;color:var(--faint);margin:0 6px}
+.lib-date,.rep-date{font-family:var(--num);font-size:16px;font-weight:700;display:flex;align-items:baseline;gap:10px}
+.lib-date .cnt,.rep-date .cnt{font-size:12px;color:var(--sub);font-weight:500;font-family:var(--font)}
+.ph-lib-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px}
+.lib{cursor:pointer}
+.lib .sel-circle{
+  position:absolute;top:8px;left:8px;z-index:5;
+  width:20px;height:20px;border-radius:50%;
+  border:2px solid rgba(255,255,255,.95);background:rgba(10,12,14,.3);
+  display:grid;place-items:center;cursor:pointer;
+  transition:all .25s var(--ease);
+}
+.lib .sel-circle svg{opacity:0;transform:scale(.5);transition:all .25s var(--ease)}
+.lib.sel .sel-circle{background:var(--accent);border-color:var(--accent)}
+.lib.sel .sel-circle svg{opacity:1;transform:scale(1)}
+.lib.sel{box-shadow:0 0 0 2px var(--accent),0 8px 20px rgba(36,80,240,.14)}
+.lib-bar{
+  position:sticky;bottom:20px;margin-top:22px;
+  display:flex;align-items:center;gap:16px;
+  background:rgba(255,255,255,.88);backdrop-filter:blur(12px);
+  border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:12px 18px;
+}
+.lib-count{font-family:var(--num);font-size:14px;font-weight:600}
+
+/* ============================================================
+   板块三：验证报告
+   ============================================================ */
+.rep-group{margin-top:26px}
+.rep-row{
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  padding:14px 18px;margin-top:12px;
+  transition:transform .3s var(--ease),box-shadow .3s var(--ease);
+}
+.rep-row:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.rep-plate{font-family:var(--num);font-weight:700;font-size:15px}
+.rep-dest{font-size:13px;color:var(--sub);border-left:1px solid var(--line);padding-left:14px}
+.rep-members{font-size:12.5px;color:var(--sub)}
+.rep-chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.reason{
+  font-style:normal;font-size:12px;padding:3px 11px;border-radius:999px;
+  background:rgba(229,72,77,.08);color:#C3363B;border:1px solid rgba(229,72,77,.16);
+}
+
+/* ============================================================
+   板块四：数据管理
+   ============================================================ */
+.data-top{display:flex;align-items:center;gap:14px;padding:14px 16px;margin:26px 0 20px}
+.data-top .text-input{max-width:300px}
+.data-top .btn-primary{padding:8px 20px}
+.data-list{
+  list-style:none;background:#fff;border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);overflow:hidden;
+}
+.data-row{
+  display:flex;align-items:center;gap:14px;
+  padding:13px 20px;border-top:1px solid var(--line);
+  transition:opacity .3s var(--ease),background .25s;
+}
+.data-row:first-child{border-top:none}
+.data-row:hover{background:#FCFCFA}
+.data-row.off{opacity:.42}
+.d-name{font-family:var(--num);font-size:14.5px;font-weight:600}
+#list-user .d-name{font-family:var(--font)}
+.st-badge{font-size:12px;padding:2px 10px;border-radius:999px;font-weight:600}
+.st-badge.on{background:rgba(31,157,85,.1);color:var(--green)}
+.st-badge.off{background:#F0EFE9;color:var(--sub)}
+.d-ops{margin-left:auto;display:flex;gap:6px}
+.edit-inp{max-width:220px;padding:5px 10px;font-size:13.5px}
+
+/* ============================================================
+   模态框（新建日志）
+   ============================================================ */
+.mask{
+  position:fixed;inset:0;z-index:200;
+  background:rgba(22,23,27,.32);backdrop-filter:blur(8px);
+  display:grid;place-items:center;
+  opacity:0;pointer-events:none;transition:opacity .3s var(--ease);
+}
+.mask.open{opacity:1;pointer-events:auto}
+.modal{
+  width:520px;background:#fff;border-radius:18px;
+  box-shadow:0 24px 80px rgba(0,0,0,.2);
+  padding:24px 26px;
+  transform:translateY(16px) scale(.98);
+  transition:transform .38s var(--ease);
+}
+.mask.open .modal{transform:none}
+.m-head{display:flex;align-items:center;justify-content:space-between}
+.m-title{font-size:16px;font-weight:700}
+.field{margin-top:16px}
+.field label{display:block;font-size:12.5px;color:var(--sub);margin-bottom:6px;letter-spacing:.04em}
+.select{position:relative}
+.select-btn{
+  width:100%;display:flex;align-items:center;justify-content:space-between;
+  border:1px solid var(--line);border-radius:10px;background:#fff;
+  padding:9px 12px;font-size:14px;text-align:left;
+  transition:border-color .25s,box-shadow .25s;
+}
+.select-btn:hover{border-color:#D6D4CB}
+.select.open .select-btn{border-color:var(--accent);box-shadow:0 0 0 3px rgba(36,80,240,.12)}
+.select-btn .ph{color:var(--faint)}
+.select-btn svg{color:var(--sub);transition:transform .3s var(--ease)}
+.select.open .select-btn svg{transform:rotate(180deg)}
+.opts{
+  position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:6;
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 12px 40px rgba(0,0,0,.13);
+  padding:6px;display:none;max-height:216px;overflow:auto;
+}
+.select.open .opts{display:block;animation:optsIn .22s var(--ease)}
+@keyframes optsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.opts .opt{
+  padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13.5px;
+  display:flex;align-items:center;justify-content:space-between;
+  transition:background .18s;
+}
+.opts .opt:hover{background:#F4F4F0}
+.opts .opt.sel{color:var(--accent);font-weight:600}
+.opts .opt.sel::after{content:'✓';font-size:12px}
+.m-chips{margin-top:2px}
+.m-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}
+.shake{animation:shake .3s var(--ease)}
+@keyframes shake{0%,100%{transform:none}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+
+/* ---------- Toast：顶部滑入，2s 自动消失 ---------- */
+.toast-wrap{
+  position:fixed;top:22px;left:50%;transform:translateX(-50%);z-index:400;
+  display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;
+}
+.toast{
+  display:flex;align-items:center;gap:8px;
+  background:#16171B;color:#fff;
+  padding:10px 18px;border-radius:11px;font-size:13.5px;
+  box-shadow:0 10px 30px rgba(0,0,0,.24);
+  animation:toastIn .38s var(--ease);
+}
+.toast svg{color:#4ADE80}
+.toast.bye{animation:toastOut .3s var(--ease) forwards}
+@keyframes toastIn{from{opacity:0;transform:translateY(-18px)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateY(-14px)}}
+
+/* ---------- 照片预览 Lightbox ---------- */
+.lightbox{
+  position:fixed;inset:0;z-index:300;
+  background:rgba(15,16,20,.72);backdrop-filter:blur(6px);
+  display:grid;place-items:center;
+  opacity:0;pointer-events:none;transition:opacity .3s var(--ease);
+}
+.lightbox.open{opacity:1;pointer-events:auto}
+.lightbox .photo{width:min(780px,82vw);cursor:zoom-out;box-shadow:0 30px 90px rgba(0,0,0,.5)}
+.lightbox .photo .wm{font-size:12.5px;padding:20px 14px 10px}
+
+/* ---------- 动效降级 ---------- */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+
+<div class="plan-badge">方案 B · 留白</div>
+
+<!-- ================= 顶部通栏导航 ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M13 2 4.6 13.4h6L9.4 22 19 10.2h-6.2L13 2Z"/></svg>
+    </span>
+    出工日志
+    <small>电力检修班组</small>
+  </div>
+  <nav class="nav">
+    <button class="nav-btn on" data-page="board">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>
+      日志看板
+    </button>
+    <button class="nav-btn" data-page="photos">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17.5 10 12l4 4 3-3 3.5 3.5"/></svg>
+      照片库
+    </button>
+    <button class="nav-btn" data-page="report">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6l-7-2.5Z"/><path d="m9 11.8 2.2 2.2L15.4 9.6"/></svg>
+      验证报告
+    </button>
+    <button class="nav-btn" data-page="data">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.6 3.4 2.9 7.5 2.9s7.5-1.3 7.5-2.9v-13"/><path d="M4.5 12c0 1.6 3.4 2.9 7.5 2.9s7.5-1.3 7.5-2.9"/></svg>
+      数据管理
+    </button>
+    <span class="nav-underline" id="navUnderline"></span>
+  </nav>
+  <div class="userbox">
+    <span class="avatar">张</span>
+    <span class="name">张伟</span>
+    <span class="vline"></span>
+    <button class="quit" id="quitBtn">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4.5H7A1.5 1.5 0 0 0 5.5 6v12A1.5 1.5 0 0 0 7 19.5h8"/><path d="M11.5 12h9m0 0-3-3m3 3-3 3"/></svg>
+      退出
+    </button>
+  </div>
+</header>
+
+<main>
+<!-- ================= 板块一：日志看板 ================= -->
+<section id="page-board" class="page active">
+  <div class="wrap">
+    <div class="toolbar">
+      <div class="date-nav">
+        <button class="iconbtn" id="prevDay" title="前一日">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+        </button>
+        <span class="dtxt"><b id="dMain">2026年8月2日</b><i id="dSub">周日</i></span>
+        <button class="iconbtn" id="nextDay" title="后一日">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+        </button>
+        <span class="vline" style="margin:0 4px"></span>
+        <button class="linkbtn" id="backToday">回到今天</button>
+        <button class="iconbtn" id="calBtn" title="日历">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg>
+        </button>
+      </div>
+      <div class="seg" id="segBoard">
+        <span class="pill"></span>
+        <button class="on" data-v="all">全部</button>
+        <button data-v="mine">仅看我</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn-primary" id="newLogBtn">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        新建日志
+      </button>
+    </div>
+
+    <div class="board-grid">
+      <!-- 左：迷你日历 -->
+      <aside>
+        <div class="side-card anim-in" id="calCard">
+          <div class="cal-head">
+            <span class="side-title">2026 年 8 月</span>
+            <span class="cal-today">今天 8/2</span>
+          </div>
+          <div class="cal-grid">
+            <span class="dow">一</span><span class="dow">二</span><span class="dow">三</span><span class="dow">四</span><span class="dow">五</span><span class="dow">六</span><span class="dow">日</span>
+            <!-- 8 月 1 日为周六，前置 7 月 27~31 -->
+            <span class="day dim" title="7月27日 · 有未通过">27<i class="dm r"></i></span>
+            <span class="day dim">28</span>
+            <span class="day dim">29</span>
+            <span class="day dim" title="7月30日 · 有未通过">30<i class="dm r"></i></span>
+            <span class="day dim">31</span>
+            <span class="day" title="8月1日 · 全部通过">1<i class="dm g"></i></span>
+            <span class="day today">2</span>
+            <span class="day">3</span><span class="day">4</span><span class="day">5</span><span class="day">6</span><span class="day">7</span><span class="day">8</span><span class="day">9</span>
+            <span class="day">10</span><span class="day">11</span><span class="day">12</span><span class="day">13</span><span class="day">14</span><span class="day">15</span><span class="day">16</span>
+            <span class="day">17</span><span class="day">18</span><span class="day">19</span><span class="day">20</span><span class="day">21</span><span class="day">22</span><span class="day">23</span>
+            <span class="day">24</span><span class="day">25</span><span class="day">26</span><span class="day">27</span><span class="day">28</span><span class="day">29</span><span class="day">30</span>
+            <span class="day">31</span>
+            <span class="day dim">1</span><span class="day dim">2</span><span class="day dim">3</span><span class="day dim">4</span><span class="day dim">5</span><span class="day dim">6</span>
+          </div>
+          <div class="cal-legend">
+            <span><i class="g"></i>全部通过</span>
+            <span><i class="r"></i>有未通过</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 中：日志卡片流 -->
+      <div id="cardFlow">
+
+        <!-- 卡片 1：粤B·D7321 · 验证通过 -->
+        <article class="log-card anim-in">
+          <div class="lc-head">
+            <span class="plate">粤B·D7321</span>
+            <span class="dest">110kV 前海站</span>
+            <span class="vbadge pass">验证通过</span>
+            <span class="lc-ops">
+              <button class="mini reassign">改派车</button>
+              <button class="mini danger del">删除</button>
+            </span>
+          </div>
+          <div class="chips">
+            <button class="chip on"><i class="dot"></i>张伟</button>
+            <button class="chip on"><i class="dot"></i>李强</button>
+            <button class="chip on"><i class="dot"></i>王磊</button>
+            <button class="chip on"><i class="dot"></i>赵鹏</button>
+          </div>
+          <div class="patrol"><span class="tag">巡视内容</span>110kV 前界线Ⅰ母巡视，未发现异常。</div>
+          <div class="photos">
+            <figure class="photo v1">
+              <div class="scene"></div>
+              <span class="ph-st pass">核验通过</span>
+              <figcaption class="wm wm-full">
+                <div class="wm-row"><span>110kV 前界线巡视</span><span>2026.08.02 10:24</span></div>
+                <div class="wm-row"><span>晴 33°C</span><span>深圳市南山区前湾一路</span></div>
+                <div class="wm-row"><span>113.891234°E</span><span>22.534567°N</span></div>
+                <div class="wm-row"><span>防伪码 K7P2X9M4Q8W2TR</span></div>
+              </figcaption>
+            </figure>
+            <figure class="photo v2">
+              <div class="scene"></div>
+              <span class="ph-st pass">核验通过</span>
+              <figcaption class="wm">
+                <div class="wm-row"><span>110kV 前界线巡视</span><span>2026.08.02 10:31</span></div>
+              </figcaption>
+            </figure>
+            <figure class="photo v3">
+              <div class="scene"></div>
+              <span class="ph-st pass">核验通过</span>
+              <figcaption class="wm">
+                <div class="wm-row"><span>110kV 前界线巡视</span><span>2026.08.02 10:47</span></div>
+              </figcaption>
+            </figure>
+            <div class="add-photo">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              添加照片
+            </div>
+          </div>
+        </article>
+
+        <!-- 卡片 2：粤B·T8856 · 未通过 -->
+        <article class="log-card anim-in">
+          <div class="lc-head">
+            <span class="plate">粤B·T8856</span>
+            <span class="dest">220kV 龙井线</span>
+            <span class="vbadge fail">未通过</span>
+            <span class="lc-ops">
+              <button class="mini reassign">改派车</button>
+              <button class="mini danger del">删除</button>
+            </span>
+          </div>
+          <div class="fail-list">
+            <div class="fail-row">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.2"/></svg>
+              刘洋未打卡
+            </div>
+            <div class="fail-row">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.2"/></svg>
+              1 张水印照片未通过
+            </div>
+          </div>
+          <div class="chips">
+            <button class="chip"><i class="dot"></i>刘洋</button>
+            <button class="chip on"><i class="dot"></i>陈杰</button>
+            <button class="chip on"><i class="dot"></i>孙浩</button>
+          </div>
+          <div class="patrol"><span class="tag">巡视内容</span>220kV 龙井线通道巡视，发现 12# 塔基附近有施工迹象，已上报。</div>
+          <div class="photos">
+            <figure class="photo v1">
+              <div class="scene"></div>
+              <span class="ph-st pass">核验通过</span>
+              <figcaption class="wm">
+                <div class="wm-row"><span>220kV 龙井线巡视</span><span>2026.08.02 09:12</span></div>
+              </figcaption>
+            </figure>
+            <figure class="photo v2">
+              <div class="scene"></div>
+              <span class="ph-st fail">未通过 · 地点不符</span>
+              <figcaption class="wm">
+                <div class="wm-row"><span>220kV 龙井线巡视</span><span>2026.08.02 09:40</span></div>
+                <div class="wm-row"><span>深圳市福田区香蜜湖路</span></div>
+              </figcaption>
+              <div class="ph-re"><button type="button">重新验证</button></div>
+            </figure>
+            <figure class="photo v3">
+              <div class="scene"></div>
+              <span class="ph-st ing">验证中</span>
+              <figcaption class="wm">
+                <div class="wm-row"><span>220kV 龙井线巡视</span><span>2026.08.02 09:58</span></div>
+              </figcaption>
+            </figure>
+            <div class="add-photo">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              添加照片
+            </div>
+          </div>
+        </article>
+
+        <!-- 卡片 3：未出车 · 站内作业 -->
+        <article class="log-card anim-in">
+          <div class="lc-head">
+            <span class="plate nocar">未出车</span>
+            <span class="dest">站内作业</span>
+            <span class="vbadge pass">验证通过</span>
+            <span class="lc-ops">
+              <button class="mini reassign">改派车</button>
+              <button class="mini danger del">删除</button>
+            </span>
+          </div>
+          <div class="chips">
+            <button class="chip on"><i class="dot"></i>王磊</button>
+            <button class="chip on"><i class="dot"></i>孙浩</button>
+          </div>
+          <div class="patrol"><span class="tag">巡视内容</span>站内 10kV 开关柜巡检。</div>
+          <div class="photos">
+            <figure class="photo v2">
+              <div class="scene"></div>
+              <span class="ph-st pass">核验通过</span>
+              <figcaption class="wm wm-full">
+                <div class="wm-row"><span>站内 10kV 开关柜巡检</span><span>2026.08.02 14:05</span></div>
+                <div class="wm-row"><span>晴 33°C</span><span>深圳市南山区前海站院内</span></div>
+                <div class="wm-row"><span>113.892100°E</span><span>22.534001°N</span></div>
+                <div class="wm-row"><span>防伪码 M3W8Q2K7P4X9TR</span></div>
+              </figcaption>
+            </figure>
+            <figure class="photo v3">
+              <div class="scene"></div>
+              <span class="ph-st pass">核验通过</span>
+              <figcaption class="wm">
+                <div class="wm-row"><span>站内 10kV 开关柜巡检</span><span>2026.08.02 14:20</span></div>
+              </figcaption>
+            </figure>
+            <div class="add-photo">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              添加照片
+            </div>
+          </div>
+        </article>
+
+      </div>
+
+      <!-- 右：今日概览 -->
+      <aside>
+        <div class="side-card anim-in">
+          <div class="side-title">今日概览</div>
+          <div class="stat-grid">
+            <div class="stat"><div class="num"><b data-count="2">0</b><small> 台</small></div><div class="lbl">今日出车</div></div>
+            <div class="stat"><div class="num"><b data-count="8">0</b><small>/9</small></div><div class="lbl">完成打卡</div></div>
+            <div class="stat"><div class="num"><b data-count="8">0</b><small> 张</small></div><div class="lbl">水印照片</div></div>
+            <div class="stat"><div class="num"><b data-count="6">0</b><small>/8</small></div><div class="lbl">验证通过</div></div>
+          </div>
+          <div class="pr-row"><span>打卡率</span><div class="pr"><i id="pr1"></i></div><b>8/9</b></div>
+          <div class="pr-row"><span>通过率</span><div class="pr"><i id="pr2" class="g"></i></div><b>6/8</b></div>
+          <div class="side-sub">快捷操作</div>
+          <div class="quick">
+            <button class="ghost" id="quickNew">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              新建日志
+            </button>
+            <button class="ghost" id="quickExport">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M4.5 19.5h15"/></svg>
+              导出今日日志
+            </button>
+            <button class="ghost" id="quickPhotos">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17.5 10 12l4 4 3-3 3.5 3.5"/></svg>
+              前往照片库
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 板块二：照片库 ================= -->
+<section id="page-photos" class="page">
+  <div class="wrap narrow">
+    <div class="rangebar card-lite">
+      <span class="range-text">2026-08-01<i>~</i>2026-08-02</span>
+      <button class="linkbtn chdate">改日期</button>
+      <span class="vline"></span>
+      <span class="sw-wrap"><span class="switch"></span>仅看我</span>
+      <div class="spacer"></div>
+      <span style="font-size:12.5px;color:var(--sub)">共 8 张照片</span>
+    </div>
+    <div class="lib-group">
+      <div class="lib-date">2026年8月 <span class="cnt">8 张</span></div>
+      <div class="ph-lib-grid" id="libGrid"><!-- JS 生成照片网格 --></div>
+    </div>
+    <div class="lib-bar">
+      <span class="lib-count" id="libCount">已选 8/8</span>
+      <button class="linkbtn" id="selAllBtn">清空</button>
+      <div class="spacer"></div>
+      <button class="btn-primary" id="dlBtn">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M4.5 19.5h15"/></svg>
+        下载所选
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 板块三：验证报告 ================= -->
+<section id="page-report" class="page">
+  <div class="wrap narrow">
+    <div class="rangebar card-lite">
+      <span class="range-text">2026-08-01<i>~</i>2026-08-02</span>
+      <button class="linkbtn chdate">改日期</button>
+      <span class="vline"></span>
+      <span class="sw-wrap"><span class="switch"></span>仅看我</span>
+      <div class="spacer"></div>
+      <button class="ghost" id="repExport">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M4.5 19.5h15"/></svg>
+        导出报告
+      </button>
+    </div>
+
+    <div class="rep-group">
+      <div class="rep-date">2026年8月2日 · 周日 <span class="cnt">1 条未通过</span></div>
+      <div class="rep-row">
+        <span class="rep-plate">粤B·T8856</span>
+        <span class="rep-dest">220kV 龙井线</span>
+        <span class="rep-members">刘洋 · 陈杰 · 孙浩</span>
+        <span class="rep-chips">
+          <em class="reason">刘洋未打卡</em>
+          <em class="reason">水印照片未通过：地点不符</em>
+        </span>
+      </div>
+    </div>
+
+    <div class="rep-group">
+      <div class="rep-date">2026年8月1日 · 周六 <span class="cnt">2 条未通过</span></div>
+      <div class="rep-row">
+        <span class="rep-plate">粤B·M3099</span>
+        <span class="rep-dest">110kV 塘朗站</span>
+        <span class="rep-members">李强 · 王磊</span>
+        <span class="rep-chips">
+          <em class="reason">李强未打卡</em>
+        </span>
+      </div>
+      <div class="rep-row">
+        <span class="rep-plate">粤B·K5567</span>
+        <span class="rep-dest">220kV 西丽站</span>
+        <span class="rep-members">陈杰 · 赵鹏</span>
+        <span class="rep-chips">
+          <em class="reason">水印照片未通过：时间异常</em>
+          <em class="reason">水印照片未通过：地点不符</em>
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 板块四：数据管理 ================= -->
+<section id="page-data" class="page">
+  <div class="wrap narrow">
+    <div class="data-top card-lite">
+      <div class="seg" id="segData">
+        <span class="pill"></span>
+        <button class="on" data-v="car">车牌号</button>
+        <button data-v="dest">目的地</button>
+        <button data-v="user">人员</button>
+      </div>
+      <div class="spacer"></div>
+      <input class="text-input" id="dataInput" placeholder="输入新车牌号，回车快速添加">
+      <button class="btn-primary" id="dataAddBtn">添加</button>
+    </div>
+
+    <ul class="data-list" id="list-car">
+      <li class="data-row"><span class="d-name">粤B·D7321</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row"><span class="d-name">粤B·T8856</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row"><span class="d-name">粤B·M3099</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row off"><span class="d-name">粤B·K5567</span><span class="st-badge off">已停用</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">启用</button></span></li>
+    </ul>
+    <ul class="data-list" id="list-dest" style="display:none">
+      <li class="data-row"><span class="d-name">110kV 前海站</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row"><span class="d-name">220kV 龙井线</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row"><span class="d-name">220kV 西丽站</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row off"><span class="d-name">110kV 塘朗站</span><span class="st-badge off">已停用</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">启用</button></span></li>
+    </ul>
+    <ul class="data-list" id="list-user" style="display:none">
+      <li class="data-row"><span class="d-name">张伟</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row"><span class="d-name">李强</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row"><span class="d-name">王磊</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row"><span class="d-name">刘洋</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row"><span class="d-name">陈杰</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+      <li class="data-row off"><span class="d-name">赵鹏</span><span class="st-badge off">已停用</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">启用</button></span></li>
+      <li class="data-row"><span class="d-name">孙浩</span><span class="st-badge on">启用中</span><span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span></li>
+    </ul>
+  </div>
+</section>
+</main>
+
+<!-- ================= 模态框：新建日志 ================= -->
+<div class="mask" id="modalMask">
+  <div class="modal">
+    <div class="m-head">
+      <span class="m-title">新建日志</span>
+      <button class="iconbtn" id="modalX">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="field">
+      <label>日期</label>
+      <input class="text-input" value="2026-08-02" readonly>
+    </div>
+    <div class="field">
+      <label>派车情况</label>
+      <div class="select" id="carSelect">
+        <input class="text-input" id="carInput" placeholder="搜索或选择车牌" autocomplete="off">
+        <div class="opts">
+          <div class="opt" data-v="粤B·D7321">粤B·D7321</div>
+          <div class="opt" data-v="粤B·T8856">粤B·T8856</div>
+          <div class="opt" data-v="粤B·M3099">粤B·M3099</div>
+          <div class="opt" data-v="粤B·K5567">粤B·K5567</div>
+          <div class="opt" data-v="未出车">未出车（站内作业）</div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <label>目的地</label>
+      <div class="select" id="destSelect">
+        <button class="select-btn" id="destBtn" type="button">
+          <span id="destVal" class="ph">请选择目的地</span>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9.5 6 6 6-6"/></svg>
+        </button>
+        <div class="opts">
+          <div class="opt" data-v="110kV 前海站">110kV 前海站</div>
+          <div class="opt" data-v="220kV 龙井线">220kV 龙井线</div>
+          <div class="opt" data-v="220kV 西丽站">220kV 西丽站</div>
+          <div class="opt" data-v="110kV 塘朗站">110kV 塘朗站</div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <label>用车人</label>
+      <div class="chips m-chips">
+        <button class="chip" type="button"><i class="dot"></i>张伟</button>
+        <button class="chip" type="button"><i class="dot"></i>李强</button>
+        <button class="chip" type="button"><i class="dot"></i>王磊</button>
+        <button class="chip" type="button"><i class="dot"></i>刘洋</button>
+        <button class="chip" type="button"><i class="dot"></i>陈杰</button>
+        <button class="chip" type="button"><i class="dot"></i>赵鹏</button>
+        <button class="chip" type="button"><i class="dot"></i>孙浩</button>
+      </div>
+    </div>
+    <div class="m-foot">
+      <button class="ghost" id="cancelLog">取消</button>
+      <button class="btn-primary" id="saveLog">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 照片预览 Lightbox ================= -->
+<div class="lightbox" id="lightbox"></div>
+
+<!-- ================= Toast 容器 ================= -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+/* ================= 工具 ================= */
+const $=(s,c=document)=>c.querySelector(s);
+const $$=(s,c=document)=>[...c.querySelectorAll(s)];
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* JS 生成内容所需的 SVG 片段（线性风格，无外部引用） */
+const I={
+  check:'<svg viewBox="0 0 12 12" width="11" height="11"><path d="M2.2 6.4 4.8 8.9 9.8 3.4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  toastOk:'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.6 2.6L16 9.5"/></svg>',
+  /* 电塔剪影：线条勾勒，叠加在渐变场景上 */
+  tower:'<svg viewBox="0 0 200 150" preserveAspectRatio="xMidYMax slice" style="position:absolute;inset:0;width:100%;height:100%">'
+    +'<g fill="none" stroke="rgba(28,30,26,.38)" stroke-width="2.4" stroke-linecap="round">'
+    +'<path d="M100 16 76 134"/><path d="M100 16 124 134"/>'
+    +'<path d="M83 98h34"/><path d="M88 72h24"/><path d="M92 48h16"/>'
+    +'<path d="M68 42h64"/><path d="M80 27h40"/><path d="M100 16V8"/><path d="M76 134h48"/>'
+    +'<path d="M86 118l12-10M114 118l-12-10" stroke-width="1.6"/>'
+    +'<path d="M2 40Q40 56 68 42" stroke-width="1.4" opacity=".7"/><path d="M132 42Q166 54 198 40" stroke-width="1.4" opacity=".7"/>'
+    +'<path d="M2 24Q44 40 80 27" stroke-width="1.4" opacity=".7"/><path d="M120 27Q158 40 198 26" stroke-width="1.4" opacity=".7"/>'
+    +'</g></svg>'
+};
+/* 给所有照片场景注入电塔剪影 */
+function injectScene(scope){
+  $$('.scene',scope||document).forEach(el=>{ if(!el.dataset.done){ el.innerHTML=I.tower; el.dataset.done='1'; } });
+}
+injectScene();
+
+/* ================= Toast：顶部滑入，2s 自动消失 ================= */
+function toast(msg){
+  const wrap=$('#toastWrap');
+  const t=document.createElement('div');
+  t.className='toast';
+  t.innerHTML=I.toastOk+'<span></span>';
+  t.querySelector('span').textContent=msg;
+  wrap.appendChild(t);
+  setTimeout(()=>{ t.classList.add('bye'); setTimeout(()=>t.remove(),320); },2000);
+}
+
+/* ================= 顶部导航：四板块切换 + 滑动下划线 ================= */
+const pages={board:$('#page-board'),photos:$('#page-photos'),report:$('#page-report'),data:$('#page-data')};
+const navBtns=$$('.nav-btn');
+const underline=$('#navUnderline');
+function moveUnderline(btn){
+  underline.style.left=btn.offsetLeft+'px';
+  underline.style.width=btn.offsetWidth+'px';
+}
+navBtns.forEach(b=>b.addEventListener('click',()=>{
+  if(b.classList.contains('on'))return;
+  navBtns.forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  moveUnderline(b);
+  Object.values(pages).forEach(p=>p.classList.remove('active'));
+  const pg=pages[b.dataset.page];
+  void pg.offsetWidth;            /* 强制回流，重放进入动画 */
+  pg.classList.add('active');
+}));
+requestAnimationFrame(()=>moveUnderline($('.nav-btn.on')));
+addEventListener('resize',()=>moveUnderline($('.nav-btn.on')));
+
+/* ================= 看板入场：staggered blur→0 + fade，数字 count-up ================= */
+function staggerIn(){
+  const items=$$('#page-board .anim-in');
+  items.forEach((el,i)=>{
+    el.classList.add('pre');
+    setTimeout(()=>el.classList.add('in'), RM?0:120+i*80);   /* 每张间隔 80ms */
+  });
+}
+function countUps(){
+  $$('b[data-count]').forEach(el=>{
+    const target=+el.dataset.count;
+    if(RM){ el.textContent=target; return; }
+    const dur=800,t0=performance.now();
+    (function tick(now){
+      const p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
+      el.textContent=Math.round(target*e);
+      if(p<1)requestAnimationFrame(tick);
+    })(t0);
+  });
+  /* 进度条 */
+  $('#pr1').style.width='89%';
+  $('#pr2').style.width='75%';
+}
+staggerIn();
+setTimeout(countUps, RM?0:380);
+
+/* ================= 日期 ‹ › 切换：卡片流平移滑出 / 滑入 ================= */
+let offset=0;
+const dayMap={'-3':['2026年7月30日','周四'],'-2':['2026年7月31日','周五'],'-1':['2026年8月1日','周六'],'0':['2026年8月2日','周日'],'1':['2026年8月3日','周一'],'2':['2026年8月4日','周二'],'3':['2026年8月5日','周三']};
+function setDateLabel(){
+  const[d,w]=dayMap[String(offset)];
+  $('#dMain').textContent=d;
+  $('#dSub').textContent=w;
+}
+function slideFlow(dir){
+  const flow=$('#cardFlow');
+  if(RM)return;
+  flow.classList.add(dir>0?'out-left':'out-right');
+  setTimeout(()=>{
+    flow.classList.remove('out-left','out-right');
+    flow.style.transition='none';
+    flow.style.transform='translateX('+(dir>0?40:-40)+'px)';
+    flow.style.opacity='0';
+    void flow.offsetWidth;
+    flow.style.transition='';
+    flow.style.transform='';
+    flow.style.opacity='';
+  },380);
+}
+$('#prevDay').addEventListener('click',()=>{
+  if(offset<=-3){toast('仅演示近一周数据');return;}
+  offset--;slideFlow(-1);setDateLabel();
+});
+$('#nextDay').addEventListener('click',()=>{
+  if(offset>=3){toast('仅演示近一周数据');return;}
+  offset++;slideFlow(1);setDateLabel();
+});
+$('#backToday').addEventListener('click',()=>{
+  if(offset===0){toast('已是今天');return;}
+  offset=0;slideFlow(1);setDateLabel();toast('已回到今天');
+});
+$('#calBtn').addEventListener('click',()=>{
+  const c=$('#calCard');
+  c.classList.remove('pulse');void c.offsetWidth;c.classList.add('pulse');
+});
+
+/* ================= 分段开关：药丸滑动 ================= */
+function initSeg(id,onChange){
+  const seg=$(id);if(!seg)return;
+  const pill=$('.pill',seg),btns=$$('button',seg);
+  const place=b=>{ pill.style.left=b.offsetLeft+'px'; pill.style.width=b.offsetWidth+'px'; };
+  btns.forEach(b=>b.addEventListener('click',()=>{
+    if(b.classList.contains('on'))return;
+    btns.forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    place(b);
+    onChange&&onChange(b.dataset.v);
+  }));
+  requestAnimationFrame(()=>place($('button.on',seg)));
+  addEventListener('resize',()=>place($('button.on',seg)));
+}
+/* 看板：全部 / 仅看我 */
+initSeg('#segBoard',()=>{
+  const f=$('#cardFlow');
+  f.classList.remove('flash');void f.offsetWidth;f.classList.add('flash');
+});
+/* 数据管理：车牌号 / 目的地 / 人员 */
+const dataLists={car:'#list-car',dest:'#list-dest',user:'#list-user'};
+const phText={car:'输入新车牌号，回车快速添加',dest:'输入新目的地，回车快速添加',user:'输入新成员姓名，回车快速添加'};
+initSeg('#segData',v=>{
+  Object.entries(dataLists).forEach(([k,sel])=>{ $(sel).style.display=(k===v)?'':'none'; });
+  $('#dataInput').placeholder=phText[v];
+});
+
+/* ================= 用车人 chips：点击切换点亮 ================= */
+document.addEventListener('click',e=>{
+  const c=e.target.closest('.chip');
+  if(c)c.classList.toggle('on');
+});
+
+/* ================= 模态框：新建日志 ================= */
+const mask=$('#modalMask');
+const openModal=()=>mask.classList.add('open');
+const closeModal=()=>mask.classList.remove('open');
+$('#newLogBtn').addEventListener('click',openModal);
+$('#quickNew').addEventListener('click',openModal);
+$$('.reassign').forEach(b=>b.addEventListener('click',openModal));   /* 改派车：复用弹窗演示 */
+$$('.del').forEach(b=>b.addEventListener('click',()=>toast('演示环境：删除操作略')));
+$('#modalX').addEventListener('click',closeModal);
+$('#cancelLog').addEventListener('click',closeModal);
+mask.addEventListener('click',e=>{ if(e.target===mask)closeModal(); });
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ closeModal(); $('#lightbox').classList.remove('open'); }
+});
+/* 派车情况：可搜索下拉 */
+const carBox=$('#carSelect'),carInput=$('#carInput');
+function filterCar(kw){
+  $$('.opt',carBox).forEach(o=>{ o.style.display=o.textContent.includes(kw)?'':'none'; });
+}
+carInput.addEventListener('focus',()=>{ carBox.classList.add('open'); filterCar(''); });
+carInput.addEventListener('input',()=>{ carInput.dataset.v=''; filterCar(carInput.value.trim()); });
+carInput.addEventListener('blur',()=>setTimeout(()=>carBox.classList.remove('open'),160));
+$$('.opt',carBox).forEach(o=>o.addEventListener('mousedown',()=>{
+  carInput.value=o.dataset.v;
+  carInput.dataset.v=o.dataset.v;
+  $$('.opt',carBox).forEach(x=>x.classList.remove('sel'));
+  o.classList.add('sel');
+  carBox.classList.remove('open');
+}));
+/* 目的地：普通下拉 */
+const destBox=$('#destSelect'),destBtn=$('#destBtn'),destVal=$('#destVal');
+destBtn.addEventListener('click',()=>destBox.classList.toggle('open'));
+$$('.opt',destBox).forEach(o=>o.addEventListener('click',()=>{
+  destVal.textContent=o.dataset.v;
+  destVal.classList.remove('ph');
+  destBox.dataset.v=o.dataset.v;
+  $$('.opt',destBox).forEach(x=>x.classList.remove('sel'));
+  o.classList.add('sel');
+  destBox.classList.remove('open');
+}));
+document.addEventListener('click',e=>{
+  if(!e.target.closest('#destSelect'))destBox.classList.remove('open');
+});
+function shake(el){ el.classList.remove('shake');void el.offsetWidth;el.classList.add('shake'); }
+$('#saveLog').addEventListener('click',()=>{
+  if(!carInput.dataset.v){ toast('请选择派车情况'); shake(carBox); return; }
+  if(!destBox.dataset.v){ toast('请选择目的地'); shake(destBox); return; }
+  closeModal();
+  toast('已保存');
+});
+
+/* ================= 照片：预览 / 重新验证 / 添加 ================= */
+const lb=$('#lightbox');
+function openLB(ph){
+  const c=ph.cloneNode(true);
+  const sc=c.querySelector('.sel-circle');if(sc)sc.remove();
+  const re=c.querySelector('.ph-re');if(re)re.remove();
+  c.classList.remove('sel');
+  lb.innerHTML='';
+  lb.appendChild(c);
+  lb.classList.add('open');
+}
+lb.addEventListener('click',()=>lb.classList.remove('open'));
+/* 未通过照片：重新验证（先变验证中，再转通过） */
+function reverify(ph){
+  const st=$('.ph-st',ph);
+  st.className='ph-st ing';st.textContent='验证中';
+  const ov=$('.ph-re',ph);if(ov)ov.remove();
+  setTimeout(()=>{ st.className='ph-st pass'; st.textContent='核验通过'; toast('重新验证通过'); },RM?0:1500);
+}
+/* 全局点击委派：选择圈 / 重新验证 / 照片预览 */
+document.addEventListener('click',e=>{
+  const sc=e.target.closest('.sel-circle');
+  if(sc){
+    e.stopPropagation();
+    sc.closest('.lib').classList.toggle('sel');
+    updateLibCount();
+    return;
+  }
+  const re=e.target.closest('.ph-re button');
+  if(re){ reverify(re.closest('.photo')); return; }
+  const p=e.target.closest('.photo');
+  if(p && !e.target.closest('.lightbox'))openLB(p);
+});
+/* 添加照片：模拟上传 → 验证中 → 通过 */
+document.addEventListener('click',e=>{
+  const ap=e.target.closest('.add-photo');
+  if(!ap)return;
+  const f=document.createElement('figure');
+  f.className='photo v2';
+  f.innerHTML='<div class="scene"></div><span class="ph-st ing">验证中</span>'
+    +'<figcaption class="wm"><div class="wm-row"><span>110kV 前界线巡视</span><span>2026.08.02 11:05</span></div></figcaption>';
+  ap.parentNode.insertBefore(f,ap);
+  injectScene(f);
+  toast('已上传 1 张照片，验证中');
+  setTimeout(()=>{
+    const st=f.querySelector('.ph-st');
+    st.className='ph-st pass';st.textContent='核验通过';
+  },RM?0:1600);
+});
+
+/* ================= 照片库：生成网格 + 选择联动 ================= */
+const libData=[
+  {c:'110kV 前界线巡视',t:'08.01 09:12',v:'v1',s:'pass',st:'核验通过'},
+  {c:'110kV 前界线巡视',t:'08.01 09:30',v:'v2',s:'pass',st:'核验通过'},
+  {c:'220kV 龙井线巡视',t:'08.01 10:05',v:'v3',s:'pass',st:'核验通过'},
+  {c:'220kV 龙井线巡视',t:'08.01 10:41',v:'v1',s:'pass',st:'核验通过'},
+  {c:'110kV 前界线巡视',t:'08.02 10:24',v:'v1',s:'pass',st:'核验通过'},
+  {c:'220kV 龙井线巡视',t:'08.02 09:12',v:'v2',s:'pass',st:'核验通过'},
+  {c:'站内 10kV 开关柜巡检',t:'08.02 14:05',v:'v3',s:'pass',st:'核验通过'},
+  {c:'站内 10kV 开关柜巡检',t:'08.02 14:20',v:'v2',s:'ing',st:'验证中'}
+];
+(function buildLib(){
+  const grid=$('#libGrid');
+  libData.forEach(d=>{
+    const f=document.createElement('figure');
+    f.className='photo lib sel '+d.v;
+    f.innerHTML='<div class="scene"></div>'
+      +'<span class="sel-circle">'+I.check+'</span>'
+      +'<span class="ph-st '+d.s+'">'+d.st+'</span>'
+      +'<figcaption class="wm"><div class="wm-row"><span>'+d.c+'</span><span>'+d.t+'</span></div></figcaption>';
+    grid.appendChild(f);
+  });
+  injectScene(grid);
+})();
+function updateLibCount(){
+  const total=$$('#libGrid .lib').length;
+  const n=$$('#libGrid .lib.sel').length;
+  $('#libCount').textContent='已选 '+n+'/'+total;
+  $('#selAllBtn').textContent=(n===total)?'清空':'全选';
+}
+updateLibCount();
+$('#selAllBtn').addEventListener('click',()=>{
+  const all=$$('#libGrid .lib');
+  const n=all.filter(f=>f.classList.contains('sel')).length;
+  const to=!(n===all.length);
+  all.forEach(f=>f.classList.toggle('sel',to));
+  updateLibCount();
+});
+$('#dlBtn').addEventListener('click',()=>{
+  const n=$$('#libGrid .lib.sel').length;
+  toast(n?('已开始下载 '+n+' 张照片'):'请先选择照片');
+});
+
+/* ================= 仅看我小开关 / 其他演示按钮 ================= */
+$$('.sw-wrap').forEach(w=>w.addEventListener('click',()=>{
+  const s=$('.switch',w);
+  s.classList.toggle('on');
+  toast(s.classList.contains('on')?'已开启「仅看我」':'已关闭「仅看我」');
+}));
+$$('.chdate').forEach(b=>b.addEventListener('click',()=>toast('演示环境：日期选择略')));
+$('#repExport').addEventListener('click',()=>toast('验证报告导出任务已创建'));
+$('#quickExport').addEventListener('click',()=>toast('今日日志导出任务已创建'));
+$('#quickPhotos').addEventListener('click',()=>{ $('.nav-btn[data-page="photos"]').click(); });
+$('#quitBtn').addEventListener('click',()=>toast('演示环境：退出登录略'));
+
+/* ================= 数据管理：添加 / 编辑 / 停用·启用 ================= */
+function addDataRow(){
+  const inp=$('#dataInput');
+  const v=inp.value.trim();
+  if(!v){ toast('请输入名称'); shake(inp); return; }
+  const active=$('#segData button.on').dataset.v;
+  const ul=$(dataLists[active]);
+  const li=document.createElement('li');
+  li.className='data-row';
+  li.innerHTML='<span class="d-name"></span><span class="st-badge on">启用中</span>'
+    +'<span class="d-ops"><button class="mini act-edit">编辑</button><button class="mini act-toggle">停用</button></span>';
+  li.querySelector('.d-name').textContent=v;
+  ul.prepend(li);
+  inp.value='';
+  toast('已添加');
+}
+$('#dataInput').addEventListener('keydown',e=>{ if(e.key==='Enter')addDataRow(); });
+$('#dataAddBtn').addEventListener('click',addDataRow);
+/* 行内编辑 */
+function startEdit(row){
+  const nameEl=$('.d-name',row);
+  if(!nameEl)return;
+  const old=nameEl.textContent;
+  const inp=document.createElement('input');
+  inp.className='text-input edit-inp';
+  inp.value=old;
+  nameEl.replaceWith(inp);
+  inp.focus();inp.select();
+  let finished=false;
+  const done=commit=>{
+    if(finished)return;finished=true;
+    const v=inp.value.trim()||old;
+    const span=document.createElement('span');
+    span.className='d-name';span.textContent=v;
+    inp.replaceWith(span);
+    if(commit&&v!==old)toast('已更新');
+  };
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Enter')done(true);
+    if(e.key==='Escape')done(false);
+  });
+  inp.addEventListener('blur',()=>done(true));
+}
+$('#page-data').addEventListener('click',e=>{
+  const row=e.target.closest('.data-row');
+  if(!row)return;
+  if(e.target.closest('.act-toggle')){
+    const off=row.classList.toggle('off');
+    const b=$('.st-badge',row);
+    b.className='st-badge '+(off?'off':'on');
+    b.textContent=off?'已停用':'启用中';
+    e.target.closest('.act-toggle').textContent=off?'启用':'停用';
+    toast(off?'已停用':'已启用');
+  }else if(e.target.closest('.act-edit')){
+    startEdit(row);
+  }
+});
+</script>
+</body>
+</html>
