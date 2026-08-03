@@ -24,11 +24,16 @@ APPS = {
 }
 
 WATERMARK_CROP = 64  # 裁掉底部 AI 生成水印
+SHARE_RATIO = 5 / 4  # 微信分享缩略图按 5:4 显示，源头直接用 5:4 避免被裁偏
 
 
 def load_background() -> Image.Image:
     bg = Image.open(BG_PATH).convert('RGB')
-    return bg.crop((0, 0, bg.width, bg.height - WATERMARK_CROP))
+    bg = bg.crop((0, 0, bg.width, bg.height - WATERMARK_CROP))
+    # 居中裁成 5:4（微信分享图推荐比例）
+    target_w = round(bg.height * SHARE_RATIO)
+    x0 = (bg.width - target_w) // 2
+    return bg.crop((x0, 0, x0 + target_w, bg.height))
 
 
 def make_card(size: int, radius: int) -> Image.Image:
