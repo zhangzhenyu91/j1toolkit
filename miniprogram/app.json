@@ -2,7 +2,6 @@
   "pages": [
     "pages/home/home",
     "pages/login/login",
-    "pages/me/me",
     "pages/admin/users/users",
     "pages/admin/perms/perms"
   ],

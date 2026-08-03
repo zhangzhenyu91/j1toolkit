@@ -5,6 +5,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { formatTime } from '../../../utils/util';
+import { shareAppMessage } from '../../../utils/share';
 
 Page({
   data: {
@@ -172,5 +173,9 @@ Page({
         this.toast(err.message);
       }
     }).catch(() => {});
+  },
+
+  onShareAppMessage() {
+    return shareAppMessage(this, { app: 'call-me', title: 'Call Me' });
   },
 });

@@ -1,6 +1,7 @@
 // 权限管理（仅管理员）：按员工设置应用授权
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
+import { shareAppMessage } from '../../../utils/share';
 
 Page({
   data: {
@@ -88,5 +89,9 @@ Page({
     } finally {
       this.setData({ saving: false });
     }
+  },
+
+  onShareAppMessage() {
+    return shareAppMessage(this, { title: '权限管理' });
   },
 });

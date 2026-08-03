@@ -2,6 +2,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../utils/request';
 import { wxLoginCode } from '../../utils/util';
+import { shareAppMessage } from '../../utils/share';
 
 Page({
   data: {
@@ -107,5 +108,10 @@ Page({
       },
       fail: () => this.toast('微信登录失败，请重试'),
     });
+  },
+
+  // 分享统一落到首页（首页登录门控会自动处理未登录跳转）
+  onShareAppMessage() {
+    return shareAppMessage(this, { path: '/pages/home/home' });
   },
 });
