@@ -1,19 +1,24 @@
-// 首页 · 应用中心（小程序入口页：自动登录门控）
+// 首页 · 应用中心（小程序入口页：自动登录门控；「我的」为同页滑动面板，tab 切换左右滑动）
 import Toast from 'tdesign-miniprogram/toast/index';
+import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../utils/request';
 import { greeting } from '../../utils/util';
+import { shareAppMessage } from '../../utils/share';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
 Page({
   data: {
     gate: false, // 门控是否已通过（未通过时显示启动加载页）
+    tab: 'home', // 当前面板：home / me
     greeting: '',
     today: '',
     weekday: '',
     userInfo: {},
     avatarChar: '检',
     apps: [],
+    appCount: 0, // 「我的」面板：可见应用数量
+    appNames: [], // 「我的」面板：可见应用名称（我的权限弹窗）
     loading: true,
   },
 
@@ -78,17 +83,27 @@ Page({
     });
   },
 
-  // 当前用户可见应用列表
+  // 当前用户可见应用列表（首页面板宫格 + 「我的」面板数量/权限清单共用一次请求）
   async loadApps() {
     this.setData({ loading: true });
     try {
       const data = await request({ url: '/api/v1/app/list' });
-      this.setData({ apps: (data && data.list) || [] });
+      const apps = (data && data.list) || [];
+      this.setData({
+        apps,
+        appCount: apps.length,
+        appNames: apps.map((item) => item.name),
+      });
     } catch (err) {
       this.toast(err.message);
     } finally {
       this.setData({ loading: false });
     }
+  },
+
+  // tab 切换（swiper 左右滑动动画）
+  onTabSwitch(e) {
+    this.setData({ tab: e.detail.key });
   },
 
   // 进入应用（分包页面）
@@ -106,5 +121,66 @@ Page({
 
   onSoon() {
     this.toast('更多应用接入中，敬请期待');
+  },
+
+  /* ---------- 「我的」面板 ---------- */
+
+  // 我的权限：列出可见应用
+  onPerms() {
+    const content = this.data.appNames.length
+      ? this.data.appNames.join('、')
+      : '暂无可用应用，请联系管理员开通权限';
+    Dialog.alert({
+      context: this,
+      selector: '#t-dialog',
+      title: '我的权限',
+      content,
+      confirmBtn: '知道了',
+    });
+  },
+
+  onAbout() {
+    Dialog.alert({
+      context: this,
+      selector: '#t-dialog',
+      title: '关于工具箱',
+      content: '检修一班工具箱 v0.2',
+      confirmBtn: '知道了',
+    });
+  },
+
+  // 管理功能入口（仅管理员可见）
+  goUsers() {
+    wx.navigateTo({ url: '/pages/admin/users/users' });
+  },
+
+  goPerms() {
+    wx.navigateTo({ url: '/pages/admin/perms/perms' });
+  },
+
+  // 退出登录：确认后调用后端使 token 失效，清理本地登录态
+  onLogout() {
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: '退出登录',
+      content: '确定要退出当前账号吗？',
+      confirmBtn: '退出',
+      cancelBtn: '取消',
+    }).then(async () => {
+      try {
+        await request({ url: '/api/v1/auth/logout', method: 'POST' });
+      } catch (err) {
+        // 后端不可达也允许本地退出
+      }
+      wx.removeStorageSync('token');
+      wx.removeStorageSync('userInfo');
+      getApp().globalData.userInfo = null;
+      wx.reLaunch({ url: '/pages/login/login' });
+    }).catch(() => {});
+  },
+
+  onShareAppMessage() {
+    return shareAppMessage(this);
   },
 });

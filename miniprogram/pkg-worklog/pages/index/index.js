@@ -4,6 +4,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
+import { shareAppMessage } from '../../../utils/share';
 
 const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
@@ -1087,7 +1088,8 @@ Page({
   },
 
   // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤500m，拍摄时间随机化为 10:00-12:00，避免完全一致）；
-  // 无历史 → 施工内容留空、拍摄时间取记录所在日期 10:00-12:00 内随机时间、经纬度/地点/天气按当前定位取值（腾讯地图）
+  // 无历史 → 施工内容留空、经纬度/地点/天气按当前定位取值（腾讯地图）；
+  //          拍摄时间当日取当前时间，非当日仅能确定日期 → 取记录日期 10:00-12:00 内随机时间
   prefillWmForm() {
     const entry = this.data.list.find((x) => x.id === this.data.memberEntryId);
     const photos = (entry && entry.photos) || [];
@@ -1110,16 +1112,18 @@ Page({
       });
       return;
     }
-    // 无历史：拍摄时间取记录所在日期（当前列表日期 dateStr）10:00-12:00 内随机时间
-    const datePart = this.data.dateStr.replace(/-/g, '.');
+    // 无历史：拍摄时间当日取当前时间，非当日取记录日期 10:00-12:00 内随机时间；经纬度/地点/天气均按当前定位取值
+    const time = this.data.dateStr === fmtDate(new Date())
+      ? fmtWmTime(new Date())
+      : `${this.data.dateStr.replace(/-/g, '.')} ${randWmHm()}`;
     this.setData({
       wmVisible: true,
-      wmForm: { content: '', time: `${datePart} ${randWmHm()}`, weather: '', location: '', lng: '', lat: '' },
+      wmForm: { content: '', time, weather: '', location: '', lng: '', lat: '' },
     });
     this.fillWmByLocation();
   },
 
-  // 当前定位取值：经纬度直接填；地点/天气调后端 /geo（腾讯地图）。授权被拒或失败均留空手填
+  // 当前定位取值：经纬度直接填；地点/天气调后端 /geo（腾讯地图）。授权被拒或失败均留空手填（失败原因打控制台）
   fillWmByLocation() {
     wx.getLocation({
       type: 'gcj02',
@@ -1137,9 +1141,9 @@ Page({
               'wmForm.location': this.data.wmForm.location || (r && r.location) || '',
             });
           })
-          .catch(() => {}); // geo 未配置/失败：留空手填
+          .catch((err) => console.error('[出工日志] /geo 地点天气获取失败（留空手填）：', err));
       },
-      fail: () => {}, // 用户拒绝定位授权：留空手填
+      fail: (err) => console.error('[出工日志] wx.getLocation 定位失败（留空手填）：', err),
     });
   },
 
@@ -1652,5 +1656,9 @@ Page({
     });
     if (this._flashTimer) clearTimeout(this._flashTimer);
     this._flashTimer = setTimeout(() => this.setData({ flashId: 0 }), 1600);
+  },
+
+  onShareAppMessage() {
+    return shareAppMessage(this, { app: 'work-log', title: '出工日志' });
   },
 });

@@ -2,6 +2,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
+import { shareAppMessage } from '../../../utils/share';
 
 Page({
   data: {
@@ -148,5 +149,9 @@ Page({
         }
       },
     });
+  },
+
+  onShareAppMessage() {
+    return shareAppMessage(this, { title: '用户管理' });
   },
 });

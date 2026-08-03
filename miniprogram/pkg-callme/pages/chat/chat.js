@@ -5,6 +5,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { BASE_URL } from '../../../config';
 import { request } from '../../../utils/request';
 import { arrayBufferToString, createSseParser } from '../../utils/sse';
+import { shareAppMessage } from '../../../utils/share';
 
 const MarkdownIt = require('markdown-it');
 
@@ -422,5 +423,9 @@ Page({
     this.setData({ sending: false, canSend: !!this.data.inputValue.trim() });
     this.syncRecentIds();
     this.scrollToBottom();
+  },
+
+  onShareAppMessage() {
+    return shareAppMessage(this, { app: 'call-me', title: 'Call Me' });
   },
 });

@@ -1,63 +1,147 @@
-<!-- 首页 · 应用中心（方案五：警示斜纹用户卡 + 宫格入口） -->
+<!-- 首页 · 应用中心 + 我的（同页双面板，tab 切换左右滑动） -->
 <block wx:if="{{gate}}">
-  <navbar title="检修一班工具箱" />
+  <swiper
+    class="main-swiper"
+    current="{{tab === 'me' ? 1 : 0}}"
+    duration="250"
+    easing-function="easeOutCubic"
+    disable-touch="{{true}}"
+  >
+    <!-- 首页面板（方案五：警示斜纹用户卡 + 宫格入口） -->
+    <swiper-item>
+      <view class="panel">
+        <navbar title="检修一班工具箱" />
+        <scroll-view scroll-y class="panel-scroll">
+          <view class="page-body">
+            <!-- 用户卡片 -->
+            <view class="u-card card hazard-top">
+              <view class="u-body">
+                <view class="avatar">{{avatarChar}}</view>
+                <view class="u-info">
+                  <view class="u-name">{{greeting}}，{{userInfo.nickname || '同事'}}</view>
+                  <view class="u-sub">
+                    <text class="badge-outline" wx:if="{{userInfo.team}}">{{userInfo.team}}</text>
+                    <text class="u-account">{{userInfo.username}}</text>
+                  </view>
+                </view>
+                <view class="u-side">
+                  <view class="u-date">{{today}}</view>
+                  <view class="u-week">{{weekday}}</view>
+                </view>
+              </view>
+            </view>
 
-  <view class="page-body">
-    <!-- 用户卡片 -->
-    <view class="u-card card hazard-top">
-      <view class="u-body">
-        <view class="avatar">{{avatarChar}}</view>
-        <view class="u-info">
-          <view class="u-name">{{greeting}}，{{userInfo.nickname || '同事'}}</view>
-          <view class="u-sub">
-            <text class="badge-outline" wx:if="{{userInfo.team}}">{{userInfo.team}}</text>
-            <text class="u-account">{{userInfo.username}}</text>
+            <!-- 应用中心 -->
+            <view class="section-title app-sec">应用中心</view>
+            <view class="card grid-card">
+              <view class="grid">
+                <view
+                  class="g-item"
+                  hover-class="hover-scale"
+                  wx:for="{{apps}}"
+                  wx:key="app_key"
+                  data-path="{{item.path}}"
+                  data-name="{{item.name}}"
+                  bindtap="onAppTap"
+                >
+                  <view class="g-ico">
+                    <t-icon name="{{item.icon || 'app'}}" size="48rpx" color="#F26D21" />
+                  </view>
+                  <text class="g-name">{{item.name}}</text>
+                </view>
+
+                <!-- 预留应用入口（占位） -->
+                <view class="g-item" hover-class="hover-scale" bindtap="onSoon">
+                  <view class="g-ico g-soon">
+                    <t-icon name="add" size="44rpx" color="#C9BEA6" />
+                  </view>
+                  <text class="g-name g-name-soon">敬请期待</text>
+                </view>
+              </view>
+
+              <view wx:if="{{!loading && apps.length === 0}}" class="empty">
+                暂无可用应用，请联系管理员开通权限
+              </view>
+            </view>
+
+            <view class="tip">更多班组应用持续接入中</view>
           </view>
-        </view>
-        <view class="u-side">
-          <view class="u-date">{{today}}</view>
-          <view class="u-week">{{weekday}}</view>
-        </view>
+        </scroll-view>
       </view>
-    </view>
+    </swiper-item>
 
-    <!-- 应用中心 -->
-    <view class="section-title app-sec">应用中心</view>
-    <view class="card grid-card">
-      <view class="grid">
-        <view
-          class="g-item"
-          hover-class="hover-scale"
-          wx:for="{{apps}}"
-          wx:key="app_key"
-          data-path="{{item.path}}"
-          data-name="{{item.name}}"
-          bindtap="onAppTap"
-        >
-          <view class="g-ico">
-            <t-icon name="{{item.icon || 'app'}}" size="48rpx" color="#F26D21" />
+    <!-- 我的面板（方案五：警示斜纹大卡 + 功能列表 + 退出登录） -->
+    <swiper-item>
+      <view class="panel me-panel">
+        <navbar title="我的" />
+        <scroll-view scroll-y class="panel-scroll">
+          <view class="page-body">
+            <!-- 用户大卡 -->
+            <view class="me-card card hazard-top">
+              <view class="me-body">
+                <view class="avatar">{{avatarChar}}</view>
+                <view class="me-info">
+                  <view class="me-name">{{userInfo.nickname || '同事'}}</view>
+                  <view class="me-sub">账号：{{userInfo.username || '-'}}</view>
+                  <view class="me-sub" wx:if="{{userInfo.team}}">{{userInfo.team}}</view>
+                </view>
+              </view>
+            </view>
+
+            <!-- 功能列表 -->
+            <view class="card cells-card">
+              <t-cell
+                title="我的权限"
+                left-icon="key"
+                note="{{appCount}} 个应用"
+                arrow
+                hover
+                bind:click="onPerms"
+              />
+              <t-cell
+                title="关于工具箱"
+                left-icon="book"
+                note="v0.2"
+                arrow
+                hover
+                bordered="{{false}}"
+                bind:click="onAbout"
+              />
+            </view>
+
+            <!-- 管理功能（仅管理员可见） -->
+            <block wx:if="{{userInfo.role === 'admin'}}">
+              <view class="section-title admin-sec">管理功能</view>
+              <view class="card cells-card">
+                <t-cell
+                  title="员工管理"
+                  left-icon="usergroup"
+                  note="账号与状态"
+                  arrow
+                  hover
+                  bind:click="goUsers"
+                />
+                <t-cell
+                  title="权限管理"
+                  left-icon="lock-on"
+                  note="应用授权"
+                  arrow
+                  hover
+                  bordered="{{false}}"
+                  bind:click="goPerms"
+                />
+              </view>
+            </block>
+
+            <!-- 退出登录 -->
+            <view class="logout card" hover-class="hover-bg-warm" bindtap="onLogout">退出登录</view>
           </view>
-          <text class="g-name">{{item.name}}</text>
-        </view>
-
-        <!-- 预留应用入口（占位） -->
-        <view class="g-item" hover-class="hover-scale" bindtap="onSoon">
-          <view class="g-ico g-soon">
-            <t-icon name="add" size="44rpx" color="#C9BEA6" />
-          </view>
-          <text class="g-name g-name-soon">敬请期待</text>
-        </view>
+        </scroll-view>
       </view>
+    </swiper-item>
+  </swiper>
 
-      <view wx:if="{{!loading && apps.length === 0}}" class="empty">
-        暂无可用应用，请联系管理员开通权限
-      </view>
-    </view>
-
-    <view class="tip">更多班组应用持续接入中</view>
-  </view>
-
-  <tabbar active="home" />
+  <tabbar active="{{tab}}" bind:switch="onTabSwitch" />
 </block>
 
 <!-- 启动加载页（自动登录校验中） -->
@@ -65,4 +149,5 @@
   <image class="gate-logo" src="/assets/toolbox.png" mode="aspectFit" />
 </view>
 
+<t-dialog id="t-dialog" />
 <t-toast id="t-toast" />

@@ -88,6 +88,7 @@ function createModal(html, opts) {
   opts = opts || {};
   var mask = document.createElement('div');
   mask.className = 'mask';
+  if (lbInst) mask.style.zIndex = '320'; // 照片预览（z-index 300）之上再叠模态
   var box = document.createElement('div');
   box.className = 'modal';
   if (opts.width) box.style.width = opts.width + 'px';
@@ -254,11 +255,6 @@ function findEntry(eid) {
   state.board.entries.forEach(function (e) { if (e.id === eid) r = e; });
   return r;
 }
-function findPhoto(entry, pid) {
-  var r = null;
-  (entry.photos || []).forEach(function (p) { if (p.id === pid) r = p; });
-  return r;
-}
 
 function setDateLabel() {
   var s = state.board.date;
@@ -279,6 +275,7 @@ async function loadLogs(opts) {
     renderCards();
     renderStats();
     schedulePending();
+    lbLiveSync(); // 联动已打开的照片预览（验证回写/人名修改/删除）
     if (!opts.poll) loadCalMonth(true); // 非轮询刷新时强刷日历着色（打卡/照片状态可能已变）
   } catch (e) {
     toast(e.message, { type: 'err' });
@@ -329,13 +326,7 @@ function photoHTML(e, p) {
     html += '<span class="ph-miss">' + mis.map(function (m) { return '<span class="ph-mis">' + m + '</span>'; }).join('') + '</span>';
   }
   html += '<figcaption class="ph-info"><span>' + esc((p.members || []).join('、')) + '</span>'
-    + '<span>' + esc(String(p.shot_time || '').slice(0, 16)) + '</span></figcaption>'
-    + '<div class="ph-ops"><div class="ph-ops-in">'
-    + '<button data-op="view">预览</button>'
-    + '<button data-op="members">改人名</button>'
-    + (p.verify_status === 'failed' ? '<button data-op="reverify">重新验证</button>' : '')
-    + '<button data-op="del" class="danger">删除</button>'
-    + '</div></div></figure>';
+    + '<span>' + esc(String(p.shot_time || '').slice(0, 16)) + '</span></figcaption></figure>';
   return html;
 }
 
@@ -579,9 +570,6 @@ function initBoard() {
   /* 卡片流点击委派 */
   $('#cardFlow').addEventListener('click', function (ev) {
     var t = ev.target;
-    /* 照片 hover 操作钮 */
-    var opBtn = t.closest('[data-op]');
-    if (opBtn) { onPhotoOp(opBtn); return; }
     /* 用车人打卡切换 */
     var chip = t.closest('.chip[data-mid]');
     if (chip) { onCheck(chip); return; }
@@ -601,9 +589,9 @@ function initBoard() {
       }
       return;
     }
-    /* 点击照片本体 = 预览 */
+    /* 点击照片本体 = 预览（改人名/重新验证/删除在预览侧栏内操作） */
     var fig = t.closest('.photo[data-pid]');
-    if (fig && !t.closest('.ph-ops')) {
+    if (fig) {
       var cd = fig.closest('.log-card');
       var en = findEntry(+cd.dataset.eid);
       if (en) openPhotoLightbox(en, +fig.dataset.pid);
@@ -644,20 +632,7 @@ function onDelLog(entry) {
   });
 }
 
-/* 照片操作：预览 / 改人名 / 重新验证 / 删除 */
-function onPhotoOp(btn) {
-  var fig = btn.closest('.photo');
-  var card = fig.closest('.log-card');
-  var entry = findEntry(+card.dataset.eid);
-  if (!entry) return;
-  var p = findPhoto(entry, +fig.dataset.pid);
-  if (!p) return;
-  var op = btn.dataset.op;
-  if (op === 'view') openPhotoLightbox(entry, p.id);
-  else if (op === 'members') openPhotoMembersModal(entry, p);
-  else if (op === 'reverify') onReverify(btn, p);
-  else if (op === 'del') onDelPhoto(p);
-}
+/* 照片操作实现（预览侧栏内调用）：改人名 / 重新验证 / 删除 */
 function onReverify(btn, p) {
   if (btn.disabled) return;
   btn.disabled = true;
@@ -1274,17 +1249,17 @@ function openWmForm(entry, names, dataUrl) {
   });
 }
 
-/* ================= Lightbox（大图 + 信息侧栏） ================= */
-var lbInst = null; // {items:[{url,photo?}], idx}
+/* ================= Lightbox（大图 + 信息侧栏 + 照片操作） ================= */
+var lbInst = null; // {items:[{url,photo?}], idx, entryId}（entryId=0 表示照片库预览，无操作）
 function openPhotoLightbox(entry, pid) {
   var items = (entry.photos || []).map(function (p) { return { url: p.url, photo: p }; });
   var idx = 0;
   (entry.photos || []).forEach(function (p, i) { if (p.id === pid) idx = i; });
-  openLightbox(items, idx);
+  openLightbox(items, idx, entry.id);
 }
-function openLightbox(items, idx) {
+function openLightbox(items, idx, entryId) {
   if (!items.length) return;
-  lbInst = { items: items, idx: idx };
+  lbInst = { items: items, idx: idx, entryId: entryId || 0 };
   renderLB();
   $('#lightbox').classList.add('open');
 }
@@ -1319,7 +1294,11 @@ function renderLB() {
       + lbRow('地点', esc(p.location))
       + lbRow('经度', esc(p.lng))
       + lbRow('纬度', esc(p.lat))
-      + '</aside>';
+      + '<div class="lb-ops">'
+      + (p.verify_status === 'failed' ? '<button class="ghost" data-lb="reverify">重新验证</button>' : '')
+      + '<button class="ghost" data-lb="members">改人名</button>'
+      + '<button class="ghost danger" data-lb="del">删除</button>'
+      + '</div></aside>';
   }
   var lb = $('#lightbox');
   lb.innerHTML = html;
@@ -1337,6 +1316,42 @@ function renderLB() {
       e.stopPropagation();
       copyText($('#lbWork', lb).textContent);
     });
+  }
+  /* 侧栏照片操作（改人名 / 重新验证 / 删除） */
+  $$('[data-lb]', lb).forEach(function (b) {
+    b.addEventListener('click', function (e) { e.stopPropagation(); onLbOp(b); });
+  });
+}
+
+/* 预览侧栏操作：成功后经 loadLogs → lbLiveSync 联动刷新（删除则自动关闭预览） */
+function onLbOp(btn) {
+  var it = lbInst && lbInst.items[lbInst.idx];
+  var p = it && it.photo;
+  if (!p) return;
+  var entry = findEntry(lbInst.entryId);
+  if (!entry) { closeLightbox(); return; }
+  var op = btn.dataset.lb;
+  if (op === 'members') openPhotoMembersModal(entry, p);
+  else if (op === 'reverify') onReverify(btn, p);
+  else if (op === 'del') onDelPhoto(p);
+}
+
+/* 看板数据每次刷新（含验证回写轮询）后联动预览：当前照片被删 → 关闭；状态/人名/施工内容变化 → 重渲染 */
+function lbLiveSync() {
+  if (!lbInst || !lbInst.entryId) return;
+  var en = findEntry(lbInst.entryId);
+  var cur = lbInst.items[lbInst.idx];
+  var np = en && cur && cur.photo
+    ? (en.photos || []).filter(function (x) { return x.id === cur.photo.id; })[0]
+    : null;
+  if (!np) { closeLightbox(); return; }
+  if (np.verify_status !== cur.photo.verify_status
+    || (np.members || []).join('、') !== (cur.photo.members || []).join('、')
+    || np.work_content !== cur.photo.work_content) {
+    var idx0 = lbInst.idx;
+    lbInst.items = (en.photos || []).map(function (x) { return { url: x.url, photo: x }; });
+    lbInst.idx = Math.min(idx0, lbInst.items.length - 1);
+    renderLB();
   }
 }
 function copyText(t) {

@@ -1,6 +1,7 @@
 // 出工日志 · 派车数据管理（仅 admin）：车牌号 / 目的地 / 人员 三类字典同构维护
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
+import { shareAppMessage } from '../../../utils/share';
 
 // 分段配置：接口路径段 / 名称 / 行图标 / 添加占位
 const SEGMENTS = [
@@ -140,5 +141,9 @@ Page({
     } catch (err) {
       this.toast(err.message);
     }
+  },
+
+  onShareAppMessage() {
+    return shareAppMessage(this, { app: 'work-log', title: '出工日志管理' });
   },
 });
