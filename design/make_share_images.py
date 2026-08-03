@@ -25,6 +25,7 @@ APPS = {
 
 WATERMARK_CROP = 64  # 裁掉底部 AI 生成水印
 SHARE_RATIO = 5 / 4  # 微信分享缩略图按 5:4 显示，源头直接用 5:4 避免被裁偏
+FINAL_WIDTH = 1000   # 出图宽度（高按 5:4 = 800）：兼顾清晰度与单张 <100KB（体验评分要求图片资源不超过 200K）
 
 
 def load_background() -> Image.Image:
@@ -80,7 +81,9 @@ def compose(bg: Image.Image, icon: Image.Image) -> Image.Image:
     ix = (out.width - icon.width) // 2
     iy = (out.height - icon.height) // 2
     out.alpha_composite(icon, (ix, iy))
-    return out.convert('RGB')
+    # 出图缩到 FINAL_WIDTH 宽（5:4），控制单张体积
+    final = (FINAL_WIDTH, round(FINAL_WIDTH / SHARE_RATIO))
+    return out.convert('RGB').resize(final, Image.LANCZOS)
 
 
 def main():
@@ -92,14 +95,14 @@ def main():
         glyph = render_glyph(cp, ICON_SIZE * 2, ORANGE)
         img = compose(bg, glyph)
         path = OUT_DIR / f'share-{key}.jpg'
-        img.save(path, 'JPEG', quality=88)
+        img.save(path, 'JPEG', quality=80)
         print(f'{path.name}: {img.size}, {path.stat().st_size // 1024}KB')
 
     # 通用分享图（工具箱图标，复用 assets/toolbox.png）
     toolbox = Image.open(TOOLBOX_PATH).convert('RGBA')
     img = compose(bg, toolbox)
     path = OUT_DIR / 'share-toolbox.jpg'
-    img.save(path, 'JPEG', quality=88)
+    img.save(path, 'JPEG', quality=80)
     print(f'{path.name}: {img.size}, {path.stat().st_size // 1024}KB')
 
 
