@@ -1,11 +1,11 @@
 @import '../../style/common.wxss';
 
-/* 底部固定区较高（管理员入口 + 主按钮），预留空间；
+/* 底部为右下悬浮主钮（≈108rpx + 底部偏移），预留 200rpx 避免最后一张卡片被遮挡；
    min-height 撑满屏高：无日志的空白区域也能响应左右滑动切日 */
 .page-body {
   min-height: 100vh;
   box-sizing: border-box;
-  padding-bottom: 260rpx;
+  padding-bottom: 200rpx;
 }
 
 /* ---------- 日期条 ---------- */
@@ -380,20 +380,6 @@
   box-sizing: border-box;
 }
 
-/* ---------- 底部固定区 ---------- */
-.admin-link {
-  text-align: center;
-  font-size: 22rpx;
-  color: #6b7690;
-  margin-bottom: 16rpx;
-  letter-spacing: 2rpx;
-}
-
-.admin-link .admin-link-b {
-  color: #f26d21;
-  font-weight: 700;
-}
-
 /* ---------- 日历弹层标题与图例 ---------- */
 /* 使用 title 插槽自定义「标题+图例」，隐藏组件默认标题文案避免重复 */
 .t-calendar__title > text {
@@ -525,35 +511,82 @@
   flex: none;
 }
 
-/* ---------- 底部固定区：批量下载/查看报告（白底描边 ghost）+ 新建日志（藏青），1:1:1.5 ---------- */
-.btns {
-  display: flex;
-  gap: 20rpx;
+/* ---------- 右下悬浮按钮（speed dial：主钮＋/× 点按展开，遮罩淡出关闭；原底部固定区已删除） ---------- */
+.fab-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: rgba(27, 39, 64, 0.3);
+  animation: fabFade 0.25s ease both;
 }
 
-.btn-download {
-  flex: 1;
-  height: 96rpx;
-  border-radius: 16rpx;
-  background: #ffffff;
-  border: 2rpx solid #22314e;
-  box-sizing: border-box;
+.fabs {
+  position: fixed;
+  right: 28rpx;
+  bottom: calc(40rpx + env(safe-area-inset-bottom));
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 24rpx;
+}
+
+/* 展开项：wx:if 挂载即播入场动画，自上而下错峰 */
+.fab-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  animation: fabUp 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.fab-item:nth-child(2) { animation-delay: 0.04s; }
+.fab-item:nth-child(3) { animation-delay: 0.08s; }
+.fab-item:nth-child(4) { animation-delay: 0.12s; }
+
+.fab-lab {
+  font-size: 22rpx;
+  font-weight: 700;
   color: #22314e;
+  letter-spacing: 2rpx;
+  background: #ffffff;
+  border-radius: 12rpx;
+  padding: 8rpx 18rpx;
+  box-shadow: 0 8rpx 20rpx rgba(34, 49, 78, 0.14);
+}
+
+.fab-lab.accent { color: #f26d21; }
+
+.fab {
+  width: 92rpx;
+  height: 92rpx;
+  flex: none;
+  border-radius: 50%;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12rpx;
-  font-size: 28rpx;
-  font-weight: 700;
-  letter-spacing: 4rpx;
+  box-shadow: 0 12rpx 28rpx rgba(34, 49, 78, 0.2);
 }
 
-.btn-report {
-  flex: 1;
+.fab-main {
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 50%;
+  background: #f26d21;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 16rpx 36rpx rgba(242, 109, 33, 0.4);
 }
 
-.btn-create {
-  flex: 1.5;
+@keyframes fabUp {
+  from { opacity: 0; transform: translateY(24rpx) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fabFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ---------- 新建/编辑表单底部弹层 ---------- */
@@ -634,23 +667,6 @@
   color: #f26d21;
   font-weight: 700;
   padding: 4rpx 12rpx;
-}
-
-/* 「仅看我」开关（筛选仅含自己名字的水印照片） */
-.dl-mine {
-  font-size: 22rpx;
-  font-weight: 700;
-  color: #6b7690;
-  border: 2rpx solid #e3dccb;
-  border-radius: 24rpx;
-  padding: 6rpx 20rpx;
-  background: #ffffff;
-}
-
-.dl-mine.on {
-  color: #f26d21;
-  border-color: #f26d21;
-  background: #fdeee2;
 }
 
 .dl-body {

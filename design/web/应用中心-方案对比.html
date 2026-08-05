@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<!--
+  Shade 壹匣 · 网页端「应用中心」方案对比稿（自包含静态页，零外部资源）
+  背景：工作台应用中心卡片列表被指「太普通」，本稿同页纵向给出 4 版截然不同的设计方案供挑选。
+  四个方案（均沿用方案A「安全橙传承」token：暖纸底 #F4F1EA / 藏青 #22314E / 安全橙 #F26D21 / 浅橙 #FDEEE2 / 警示斜纹）：
+    方案一「排行大卡片」—— 每应用一张宽卡，序号 + 左图标 + 中文案 + 右进入按钮，发丝线分行；
+                            理念：信息一条线读到底，秩序感最强；hover 整行亮起、箭头滑出。
+    方案二「Bento 磁贴宫格」—— 大小不一的磁贴网格，主磁贴内嵌迷你动态示意
+                            （Call Me 模拟对话气泡、出工日志迷你月历点阵），占位磁贴虚线；
+                            理念：重点应用给足舞台，让入口「活」起来；hover 浮起 + 光扫。
+    方案三「经典图标宫格 · 桌面演绎」—— 回归小程序式紧凑宫格（浅橙底图标 + 名称），
+                            桌面化为卡片容器承载；理念：最熟悉的心智模型，hover 图标 3D 翻牌露「进入」。
+    方案四「极简画廊列表」—— 去卡片、大留白，每行大标题 + 描述 + 右侧「进入 →」；
+                            理念：内容本身成为主角，画廊感；hover 文字微移、橙色竖线自左侧划入。
+  数据：3 个真实应用（robot / task / file-safety 图标，stroke 1.7 自绘 inline SVG）+ 1 个「敬请期待」占位。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>应用中心 · 方案对比 — Shade 壹匣</title>
+<style>
+  /* ============ 设计 Token（方案A「安全橙传承」） ============ */
+  :root{
+    --paper:#F4F1EA;        /* 暖纸底 */
+    --navy:#22314E;         /* 藏青主色 */
+    --orange:#F26D21;       /* 安全橙 */
+    --orange-soft:#FDEEE2;  /* 图标浅橙底 */
+    --red:#CF4444;          /* 警示红 */
+    --line:#E3DCCB;         /* 描边 */
+    --hair:#E8E0CD;         /* 发丝分隔线 */
+    --sub:#6B7690;          /* 次级文字 */
+    --ph:#A89F8A;           /* 占位文字 */
+    --dash:#D9CFBA;         /* 虚线占位 */
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+    background:var(--paper); color:var(--navy);
+    padding:52px 48px 96px; min-width:1280px;
+    -webkit-font-smoothing:antialiased;
+  }
+  svg{display:block}
+
+  /* ============ 页头 ============ */
+  .page-head{max-width:1400px;margin:0 auto 44px;animation:fadeUp .6s both}
+  .page-head .kicker{font-size:12px;letter-spacing:3px;color:var(--orange);font-weight:700}
+  .page-head h1{font-size:32px;letter-spacing:1px;margin-top:10px}
+  .page-head p{color:var(--sub);font-size:13.5px;margin-top:10px;line-height:1.8}
+
+  /* ============ 区块外壳（编号 + 方案名 + 理念 + 浏览器框 mock） ============ */
+  .block{max-width:1400px;margin:0 auto 76px;animation:fadeUp .7s both}
+  .block:nth-of-type(2){animation-delay:.08s}
+  .block:nth-of-type(3){animation-delay:.16s}
+  .block:nth-of-type(4){animation-delay:.24s}
+  .block:nth-of-type(5){animation-delay:.32s}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+  .block-cap{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+  .block-cap i{font-style:normal;background:var(--navy);color:#fff;font-size:12px;font-weight:600;
+               padding:5px 12px;border-radius:6px;letter-spacing:1px;flex:none}
+  .block-cap h2{font-size:21px;letter-spacing:.5px;flex:none}
+  .block-cap span{color:var(--sub);font-size:13px}
+  .browser{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+           box-shadow:0 18px 42px -26px rgba(34,49,78,.28)}
+  /* 特征元素：警示斜纹条（缓慢流动） */
+  .stripe{height:6px;flex:none;
+          background:repeating-linear-gradient(-45deg,var(--orange) 0 9px,var(--navy) 9px 18px);
+          animation:stripeFlow 3.2s linear infinite}
+  @keyframes stripeFlow{to{background-position:25.46px 0}}
+  .browser-bar{display:flex;align-items:center;gap:8px;padding:11px 18px;
+               border-bottom:1px solid var(--hair);background:#FBF9F4}
+  .bdot{width:11px;height:11px;border-radius:50%}
+  .bdot.r{background:#E8674D}.bdot.y{background:#E8B84D}.bdot.g{background:#67B77A}
+  .url{flex:1;max-width:460px;margin:0 auto;display:flex;align-items:center;justify-content:center;gap:6px;
+       font-size:12px;color:var(--sub);background:#F1EDE2;border-radius:6px;padding:5px 14px}
+  .mock{padding:32px 40px 42px;min-width:1180px}
+  /* mock 内统一的板块标题：左侧 4px 橙色竖条 */
+  .sec-t{display:flex;align-items:baseline;gap:14px;margin-bottom:24px}
+  .sec-t b{font-size:18px;padding-left:12px;border-left:4px solid var(--orange);letter-spacing:.5px}
+  .sec-t span{color:var(--sub);font-size:12.5px}
+  /* 特性标签 */
+  .tag{font-style:normal;font-size:11px;padding:2px 9px;border-radius:20px;white-space:nowrap}
+  .tag.to{color:var(--orange);border:1px solid rgba(242,109,33,.45);background:#FFF7F0}
+  .tag.tn{color:var(--navy);border:1px solid var(--line);background:#FBF9F3}
+
+  /* ============================================================
+     方案一「排行大卡片」：宽卡 + 序号 + 发丝线，hover 整行亮起滑出箭头
+     ============================================================ */
+  .m1 .r1-card{background:#FFFEFB;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .r1-row{display:flex;align-items:center;gap:24px;padding:24px 30px;
+          border-bottom:1px solid var(--hair);cursor:pointer;transition:background .3s}
+  .r1-row:last-child{border-bottom:none}
+  .r1-no{width:28px;flex:none;font-size:13px;font-weight:700;letter-spacing:1px;
+         color:var(--ph);transition:color .3s}
+  .r1-ic{width:56px;height:56px;flex:none;border-radius:14px;background:var(--orange-soft);
+         color:var(--orange);display:flex;align-items:center;justify-content:center;
+         transition:transform .3s}
+  .r1-tx{flex:1;min-width:0}
+  .r1-name{font-size:16px;font-weight:600}
+  .r1-desc{font-size:13px;color:var(--sub);margin-top:5px}
+  .r1-tags{margin-top:9px;display:flex;gap:8px}
+  .r1-go{display:flex;align-items:center;gap:8px;flex:none;color:var(--orange);
+         font-size:13.5px;font-weight:600;white-space:nowrap}
+  .r1-go em{font-style:normal;opacity:.55;transition:opacity .3s}
+  .r1-go svg{transform:translateX(-8px);opacity:0;transition:transform .3s,opacity .3s}
+  .r1-row:hover{background:linear-gradient(90deg,#FFF6EE 0%,#FFFDF9 70%)}
+  .r1-row:hover .r1-no{color:var(--orange)}
+  .r1-row:hover .r1-ic{transform:scale(1.07)}
+  .r1-row:hover .r1-go em{opacity:1}
+  .r1-row:hover .r1-go svg{transform:none;opacity:1}
+  /* 占位行：虚线图标、整体置灰 */
+  .r1-row.soon{cursor:default}
+  .r1-row.soon .r1-ic{background:transparent;border:1.5px dashed var(--dash);color:var(--ph)}
+  .r1-row.soon .r1-name{color:var(--ph)}
+  .r1-row.soon .r1-desc{color:var(--ph);font-size:12.5px}
+  .r1-row.soon:hover{background:#FBF8F1}
+  .r1-row.soon:hover .r1-no{color:var(--ph)}
+  .r1-row.soon:hover .r1-ic{transform:none}
+
+  /* ============================================================
+     方案二「Bento 磁贴宫格」：大小不一磁贴 + 迷你动态示意，hover 浮起 + 光扫
+     ============================================================ */
+  .m2 .bento{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:196px;gap:16px}
+  .tile{position:relative;overflow:hidden;background:#FFFEFB;border:1px solid var(--line);
+        border-radius:14px;padding:22px 24px;cursor:pointer;
+        transition:transform .35s,box-shadow .35s}
+  .tile:hover{transform:translateY(-5px);box-shadow:0 22px 36px -22px rgba(34,49,78,.38)}
+  /* 光扫 */
+  .tile::after{content:"";position:absolute;inset:0;pointer-events:none;
+               background:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.6) 50%,transparent 58%);
+               transform:translateX(-130%);transition:transform .8s ease}
+  .tile:hover::after{transform:translateX(130%)}
+  .tl-head{display:flex;align-items:center;gap:13px}
+  .tl-ic{width:46px;height:46px;flex:none;border-radius:12px;background:var(--orange-soft);
+         color:var(--orange);display:flex;align-items:center;justify-content:center}
+  .tl-name b{font-size:15px;display:block}
+  .tl-name small{font-size:11.5px;color:var(--sub);display:block;margin-top:3px}
+  .tl-desc{font-size:12.5px;color:var(--sub);line-height:1.7;margin-top:12px}
+  .tl-tags{display:flex;gap:8px;margin-top:12px}
+  /* Call Me 大磁贴（2×2）：内嵌模拟对话气泡 */
+  .t-callme{grid-column:span 2;grid-row:span 2;display:flex;flex-direction:column}
+  .chat{margin-top:auto;padding-top:18px;display:flex;flex-direction:column;gap:10px}
+  .bq{align-self:flex-end;background:var(--navy);color:#fff;font-size:12px;line-height:1.6;
+      padding:8px 14px;border-radius:12px 12px 3px 12px;max-width:76%}
+  .ba{align-self:flex-start;background:var(--orange-soft);color:var(--navy);font-size:12px;line-height:1.6;
+      padding:8px 14px;border-radius:12px 12px 12px 3px;max-width:78%}
+  .ba.typing{display:flex;align-items:center;gap:5px;padding:11px 14px}
+  .ba.typing i{width:5px;height:5px;border-radius:50%;background:var(--orange);animation:blink 1.2s infinite}
+  .ba.typing i:nth-child(2){animation-delay:.2s}
+  .ba.typing i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  /* 出工日志磁贴（2×1）：迷你月历点阵 */
+  .t-work{grid-column:span 2;display:flex;gap:26px}
+  .t-work .wl{flex:1;min-width:0;display:flex;flex-direction:column}
+  .t-work .stat{margin-top:auto;font-size:12px;color:var(--sub)}
+  .t-work .stat b{font-size:20px;color:var(--orange);font-weight:700;margin-right:2px}
+  .cal{flex:none;width:206px;display:grid;grid-template-columns:repeat(7,1fr);
+       gap:10px 0;align-content:center}
+  .cal i{width:8px;height:8px;border-radius:50%;background:#EBE4D3;justify-self:center}
+  .cal i.on{background:var(--orange)}
+  .cal i.today{background:#fff;border:2px solid var(--orange);box-sizing:border-box;
+               animation:todayPulse 2s ease-in-out infinite}
+  @keyframes todayPulse{0%,100%{box-shadow:0 0 0 0 rgba(242,109,33,.35)}50%{box-shadow:0 0 0 5px rgba(242,109,33,0)}}
+  /* 安全日磁贴（1×1） */
+  .t-safe .tl-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  /* 占位磁贴：虚线描边置灰 */
+  .tile.soon{border:1.5px dashed var(--dash);background:transparent;cursor:default;
+             display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+             color:var(--ph);text-align:center}
+  .tile.soon:hover{transform:none;box-shadow:none}
+  .tile.soon::after{display:none}
+  .tile.soon b{font-size:14px;font-weight:600;color:var(--ph)}
+  .tile.soon small{font-size:11.5px}
+
+  /* ============================================================
+     方案三「经典图标宫格 · 桌面演绎」：紧凑宫格 + hover 图标 3D 翻牌
+     ============================================================ */
+  .m3 .g3-card{background:#FFFEFB;border:1px solid var(--line);border-radius:12px;padding:30px 26px}
+  .g3{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .g3-cell{text-align:center;padding:26px 14px 22px;border-radius:12px;cursor:pointer;
+           transition:background .3s,transform .3s}
+  .g3-cell:hover{background:#FBF6EC;transform:translateY(-3px)}
+  .g3-flip{width:72px;height:72px;margin:0 auto;perspective:420px}
+  .g3-flip .in{position:relative;width:100%;height:100%;transform-style:preserve-3d;
+               transition:transform .55s cubic-bezier(.2,.7,.3,1.15)}
+  .g3-cell:hover .g3-flip .in{transform:rotateY(180deg)}
+  .g3-face{position:absolute;inset:0;border-radius:18px;display:flex;flex-direction:column;
+           align-items:center;justify-content:center;gap:3px;backface-visibility:hidden}
+  .g3-face.f{background:var(--orange-soft);color:var(--orange)}
+  .g3-face.b{background:var(--orange);color:#fff;transform:rotateY(180deg);
+             font-size:12px;font-weight:700;letter-spacing:1px}
+  .g3-name{margin-top:14px;font-size:14.5px;font-weight:600}
+  .g3-desc{margin-top:6px;font-size:12px;color:var(--sub);line-height:1.6;
+           display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .g3-tags{margin-top:10px;display:flex;gap:6px;justify-content:center}
+  /* 占位格：虚线描边、不翻牌 */
+  .g3-cell.soon{cursor:default}
+  .g3-cell.soon:hover{background:transparent;transform:none}
+  .g3-cell.soon .g3-face.f{background:transparent;border:1.5px dashed var(--dash);color:var(--ph)}
+  .g3-cell.soon:hover .g3-flip .in{transform:none}
+  .g3-cell.soon .g3-name{color:var(--ph)}
+
+  /* ============================================================
+     方案四「极简画廊列表」：无卡片大留白，hover 文字微移 + 橙色竖线划入
+     ============================================================ */
+  .m4 .r4{padding:4px 10px}
+  .r4-row{position:relative;display:flex;align-items:center;gap:30px;
+          padding:40px 20px 40px 24px;border-bottom:1px solid var(--hair);cursor:pointer}
+  .r4-row:first-child{padding-top:30px}
+  .r4-row:last-child{border-bottom:none;padding-bottom:30px}
+  /* 左侧橙色竖线：hover 时划入 */
+  .r4-row::before{content:"";position:absolute;left:0;top:50%;width:4px;height:54%;
+                  border-radius:2px;background:var(--orange);
+                  transform:translateY(-50%) scaleY(0);transform-origin:center;
+                  transition:transform .35s cubic-bezier(.2,.7,.3,1)}
+  .r4-row:hover::before{transform:translateY(-50%) scaleY(1)}
+  .r4-ic{width:44px;height:44px;flex:none;border-radius:11px;background:var(--orange-soft);
+         color:var(--orange);display:flex;align-items:center;justify-content:center}
+  .r4-main{flex:1;min-width:0}
+  .r4-main h4{font-size:24px;font-weight:600;letter-spacing:.5px;transition:transform .35s}
+  .r4-main p{font-size:13px;color:var(--sub);margin-top:9px;transition:transform .35s .04s}
+  .r4-tags{display:flex;gap:8px;flex:none}
+  .r4-go{display:flex;align-items:center;gap:9px;flex:none;font-size:14.5px;font-weight:600;
+         color:var(--navy);transition:color .3s}
+  .r4-go svg{transition:transform .3s}
+  .r4-row:hover .r4-main h4{transform:translateX(12px)}
+  .r4-row:hover .r4-main p{transform:translateX(12px)}
+  .r4-row:hover .r4-go{color:var(--orange)}
+  .r4-row:hover .r4-go svg{transform:translateX(6px)}
+  /* 占位行：虚线分隔、整体置灰 */
+  .r4-row.soon{border-bottom:1px dashed var(--dash);cursor:default}
+  .r4-row.soon .r4-ic{background:transparent;border:1.5px dashed var(--dash);color:var(--ph)}
+  .r4-row.soon .r4-main h4{color:var(--ph)}
+  .r4-row.soon .r4-main p{color:var(--ph)}
+  .r4-row.soon .r4-go{color:var(--ph);font-weight:400}
+  .r4-row.soon:hover::before{transform:translateY(-50%) scaleY(0)}
+  .r4-row.soon:hover .r4-main h4,.r4-row.soon:hover .r4-main p{transform:none}
+  .r4-row.soon:hover .r4-go{color:var(--ph)}
+  .r4-row.soon:hover .r4-go svg{transform:none}
+
+  /* ============ 页尾注 ============ */
+  .page-foot{max-width:1400px;margin:0 auto;color:var(--ph);font-size:12px;
+             text-align:center;letter-spacing:1px}
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="kicker">SHADE 壹匣 · 网页端设计稿</div>
+  <h1>应用中心 · 方案对比</h1>
+  <p>同一批数据（3 个真实应用 + 1 个「敬请期待」占位）的 4 版截然不同的设计方案，均为 1180px 以上全宽真实比例 mock。<br>
+     风格统一沿用方案A「安全橙传承」token：暖纸底 / 藏青 / 安全橙 / 浅橙图标底 / 警示斜纹特征元素，动效克制。</p>
+</header>
+
+<!-- ================= 方案一：排行大卡片 ================= -->
+<section class="block" id="s1">
+  <div class="block-cap"><i>方案一</i><h2>排行大卡片</h2><span>宽卡排行：序号 + 左图标 + 中文案 + 右进入按钮，发丝线分行 —— 信息一条线读到底，hover 整行亮起、箭头滑出</span></div>
+  <div class="browser">
+    <div class="stripe"></div>
+    <div class="browser-bar">
+      <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+      <span class="url">toolkit.j1net.com · 工作台 · 应用中心</span>
+      <span style="width:52px"></span>
+    </div>
+    <div class="mock m1">
+      <div class="sec-t"><b>应用中心</b><span>按权限自动下发 · 共 3 个可用应用</span></div>
+      <div class="r1-card">
+        <div class="r1-row">
+          <span class="r1-no">01</span>
+          <span class="r1-ic" data-ic="robot" data-sz="30"></span>
+          <div class="r1-tx">
+            <div class="r1-name">Call Me · AI 知识库</div>
+            <div class="r1-desc">对接 WeKnora 企业知识库，规程、图纸与检修经验随问随答，流式输出、来源可溯。</div>
+            <div class="r1-tags"><i class="tag to">AI 问答</i><i class="tag tn">WeKnora</i></div>
+          </div>
+          <span class="r1-go"><em>进入应用</em><span data-ic="arrow-right" data-sz="18"></span></span>
+        </div>
+        <div class="r1-row">
+          <span class="r1-no">02</span>
+          <span class="r1-ic" data-ic="task" data-sz="30"></span>
+          <div class="r1-tx">
+            <div class="r1-name">出工日志</div>
+            <div class="r1-desc">班组出工记录、水印照片存证与防伪码核验，月历视图一目了然，日志真实可查。</div>
+            <div class="r1-tags"><i class="tag to">记录存证</i><i class="tag tn">防伪核验</i></div>
+          </div>
+          <span class="r1-go"><em>进入应用</em><span data-ic="arrow-right" data-sz="18"></span></span>
+        </div>
+        <div class="r1-row">
+          <span class="r1-no">03</span>
+          <span class="r1-ic" data-ic="file-safety" data-sz="30"></span>
+          <div class="r1-tx">
+            <div class="r1-name">安全日活动记录</div>
+            <div class="r1-desc">上传班组活动 PDF / Office 文件，Dify 工作流自动生成活动记录，一键下载归档。</div>
+            <div class="r1-tags"><i class="tag to">文件生成</i><i class="tag tn">Dify</i></div>
+          </div>
+          <span class="r1-go"><em>进入应用</em><span data-ic="arrow-right" data-sz="18"></span></span>
+        </div>
+        <div class="r1-row soon">
+          <span class="r1-no">04</span>
+          <span class="r1-ic" data-ic="ellipsis" data-sz="30"></span>
+          <div class="r1-tx">
+            <div class="r1-name">敬请期待</div>
+            <div class="r1-desc">新应用接入中，由平台统一配置下发</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 方案二：Bento 磁贴宫格 ================= -->
+<section class="block" id="s2">
+  <div class="block-cap"><i>方案二</i><h2>Bento 磁贴宫格</h2><span>大小不一的磁贴网格，主磁贴内嵌迷你动态示意（模拟对话气泡 / 月历点阵）—— 重点应用给足舞台，hover 浮起 + 光扫</span></div>
+  <div class="browser">
+    <div class="stripe"></div>
+    <div class="browser-bar">
+      <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+      <span class="url">toolkit.j1net.com · 工作台 · 应用中心</span>
+      <span style="width:52px"></span>
+    </div>
+    <div class="mock m2">
+      <div class="sec-t"><b>应用中心</b><span>按权限自动下发 · 共 3 个可用应用</span></div>
+      <div class="bento">
+        <!-- 主磁贴：Call Me（2×2），内嵌模拟对话气泡 -->
+        <div class="tile t-callme">
+          <div class="tl-head">
+            <span class="tl-ic" data-ic="robot" data-sz="26"></span>
+            <div class="tl-name"><b>Call Me · AI 知识库</b><small>AI 问答 · WeKnora</small></div>
+          </div>
+          <div class="tl-desc">对接 WeKnora 企业知识库，规程、图纸与检修经验随问随答，流式输出、来源可溯。</div>
+          <div class="chat">
+            <div class="bq">变压器有载调压开关检修要点？</div>
+            <div class="ba">关键步骤：停电验电 → 吊芯检查 → 触头磨损测量 → 油样化验……</div>
+            <div class="ba typing"><i></i><i></i><i></i></div>
+          </div>
+        </div>
+        <!-- 出工日志（2×1）：迷你月历点阵 -->
+        <div class="tile t-work">
+          <div class="wl">
+            <div class="tl-head">
+              <span class="tl-ic" data-ic="task" data-sz="26"></span>
+              <div class="tl-name"><b>出工日志</b><small>记录存证 · 防伪核验</small></div>
+            </div>
+            <div class="tl-desc">班组出工记录、水印照片存证与防伪码核验，月历视图一目了然，日志真实可查。</div>
+            <div class="stat"><b>21</b>天 · 本月工作日</div>
+          </div>
+          <div class="cal" id="cal2"></div>
+        </div>
+        <!-- 安全日活动记录（1×1） -->
+        <div class="tile t-safe">
+          <div class="tl-head">
+            <span class="tl-ic" data-ic="file-safety" data-sz="26"></span>
+            <div class="tl-name"><b>安全日活动记录</b><small>文件生成 · Dify</small></div>
+          </div>
+          <div class="tl-desc">上传班组活动 PDF / Office 文件，Dify 工作流自动生成活动记录，一键下载归档。</div>
+        </div>
+        <!-- 敬请期待（1×1，虚线占位） -->
+        <div class="tile soon">
+          <span data-ic="ellipsis" data-sz="26"></span>
+          <b>敬请期待</b>
+          <small>新应用接入中</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 方案三：经典图标宫格 · 桌面演绎 ================= -->
+<section class="block" id="s3">
+  <div class="block-cap"><i>方案三</i><h2>经典图标宫格 · 桌面演绎</h2><span>小程序式紧凑宫格的桌面化：卡片容器 + 浅橙底图标 —— 最熟悉的心智模型，hover 图标 3D 翻牌露「进入」</span></div>
+  <div class="browser">
+    <div class="stripe"></div>
+    <div class="browser-bar">
+      <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+      <span class="url">toolkit.j1net.com · 工作台 · 应用中心</span>
+      <span style="width:52px"></span>
+    </div>
+    <div class="mock m3">
+      <div class="sec-t"><b>应用中心</b><span>按权限自动下发 · 共 3 个可用应用</span></div>
+      <div class="g3-card">
+        <div class="g3">
+          <div class="g3-cell">
+            <div class="g3-flip"><div class="in">
+              <div class="g3-face f" data-ic="robot" data-sz="34"></div>
+              <div class="g3-face b">进入<span data-ic="arrow-right" data-sz="16"></span></div>
+            </div></div>
+            <div class="g3-name">Call Me · AI 知识库</div>
+            <div class="g3-desc">规程图纸随问随答，流式输出、来源可溯</div>
+            <div class="g3-tags"><i class="tag to">AI 问答</i><i class="tag tn">WeKnora</i></div>
+          </div>
+          <div class="g3-cell">
+            <div class="g3-flip"><div class="in">
+              <div class="g3-face f" data-ic="task" data-sz="34"></div>
+              <div class="g3-face b">进入<span data-ic="arrow-right" data-sz="16"></span></div>
+            </div></div>
+            <div class="g3-name">出工日志</div>
+            <div class="g3-desc">出工记录、水印存证与防伪码核验</div>
+            <div class="g3-tags"><i class="tag to">记录存证</i><i class="tag tn">防伪核验</i></div>
+          </div>
+          <div class="g3-cell">
+            <div class="g3-flip"><div class="in">
+              <div class="g3-face f" data-ic="file-safety" data-sz="34"></div>
+              <div class="g3-face b">进入<span data-ic="arrow-right" data-sz="16"></span></div>
+            </div></div>
+            <div class="g3-name">安全日活动记录</div>
+            <div class="g3-desc">上传活动文件，AI 生成记录一键归档</div>
+            <div class="g3-tags"><i class="tag to">文件生成</i><i class="tag tn">Dify</i></div>
+          </div>
+          <div class="g3-cell soon">
+            <div class="g3-flip"><div class="in">
+              <div class="g3-face f" data-ic="ellipsis" data-sz="34"></div>
+            </div></div>
+            <div class="g3-name">敬请期待</div>
+            <div class="g3-desc" style="color:var(--ph)">新应用接入中</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 方案四：极简画廊列表 ================= -->
+<section class="block" id="s4">
+  <div class="block-cap"><i>方案四</i><h2>极简画廊列表</h2><span>去卡片、大留白：每行大标题 + 描述 + 右侧「进入 →」—— 内容本身成为主角，hover 文字微移、橙色竖线自左侧划入</span></div>
+  <div class="browser">
+    <div class="stripe"></div>
+    <div class="browser-bar">
+      <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+      <span class="url">toolkit.j1net.com · 工作台 · 应用中心</span>
+      <span style="width:52px"></span>
+    </div>
+    <div class="mock m4">
+      <div class="sec-t"><b>应用中心</b><span>按权限自动下发 · 共 3 个可用应用</span></div>
+      <div class="r4">
+        <div class="r4-row">
+          <span class="r4-ic" data-ic="robot" data-sz="24"></span>
+          <div class="r4-main">
+            <h4>Call Me · AI 知识库</h4>
+            <p>对接 WeKnora 企业知识库，规程、图纸与检修经验随问随答，流式输出、来源可溯。</p>
+          </div>
+          <div class="r4-tags"><i class="tag to">AI 问答</i><i class="tag tn">WeKnora</i></div>
+          <span class="r4-go">进入<span data-ic="arrow-right" data-sz="18"></span></span>
+        </div>
+        <div class="r4-row">
+          <span class="r4-ic" data-ic="task" data-sz="24"></span>
+          <div class="r4-main">
+            <h4>出工日志</h4>
+            <p>班组出工记录、水印照片存证与防伪码核验，月历视图一目了然，日志真实可查。</p>
+          </div>
+          <div class="r4-tags"><i class="tag to">记录存证</i><i class="tag tn">防伪核验</i></div>
+          <span class="r4-go">进入<span data-ic="arrow-right" data-sz="18"></span></span>
+        </div>
+        <div class="r4-row">
+          <span class="r4-ic" data-ic="file-safety" data-sz="24"></span>
+          <div class="r4-main">
+            <h4>安全日活动记录</h4>
+            <p>上传班组活动 PDF / Office 文件，Dify 工作流自动生成活动记录，一键下载归档。</p>
+          </div>
+          <div class="r4-tags"><i class="tag to">文件生成</i><i class="tag tn">Dify</i></div>
+          <span class="r4-go">进入<span data-ic="arrow-right" data-sz="18"></span></span>
+        </div>
+        <div class="r4-row soon">
+          <span class="r4-ic" data-ic="ellipsis" data-sz="24"></span>
+          <div class="r4-main">
+            <h4>敬请期待</h4>
+            <p>新应用接入中，由平台统一配置下发</p>
+          </div>
+          <span class="r4-go">即将上线</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="page-foot">SHADE 壹匣 · 检修一班 · 应用中心方案对比稿（四选一，细节可按选定方案深化）</footer>
+
+<script>
+/* ============ 内联图标库（与 server/public/assets/icons.js 同源，stroke 1.7） ============ */
+(function () {
+  var P = {
+    'robot': '<rect x="4" y="8" width="16" height="11.5" rx="2.5"/><path d="M12 4.5V8"/><circle cx="12" cy="3.8" r=".9" fill="currentColor" stroke="none"/><circle cx="9" cy="13" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="13" r="1" fill="currentColor" stroke="none"/><path d="M9.5 16.5h5"/>',
+    'task': '<path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 12.5l2 2 4-4"/>',
+    'file-safety': '<path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5z"/><path d="M13.5 3v4.5H19"/><path d="M12 11l2.4.9v1.8c0 1.5-1 2.5-2.4 3.2-1.4-.7-2.4-1.7-2.4-3.2v-1.8z"/><path d="M10.9 14.1l.8.8 1.4-1.5"/>',
+    'ellipsis': '<circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/>',
+    'arrow-right': '<path d="M5 12h14M13 6l6 6-6 6"/>'
+  };
+  // 将 data-ic 占位元素替换为 inline SVG（data-sz 为边长像素）
+  document.querySelectorAll('[data-ic]').forEach(function (el) {
+    var n = el.getAttribute('data-ic'), sz = el.getAttribute('data-sz') || 24;
+    if (!P[n]) return;
+    el.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz +
+      '" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+      P[n] + '</svg>';
+  });
+
+  // 方案二 · 出工日志磁贴：生成 8 月迷你月历点阵（工作日橙点，4 日为「今天」带呼吸环）
+  var cal = document.getElementById('cal2');
+  if (cal) {
+    var html = '';
+    for (var d = 1; d <= 31; d++) {
+      var wd = new Date(2026, 7, d).getDay();           // 2026-08-01 为周六
+      var workday = wd !== 0 && wd !== 6;
+      if (d === 4) html += '<i class="today" title="今天"></i>';
+      else if (workday) html += '<i class="on"></i>';
+      else html += '<i></i>';
+    }
+    cal.innerHTML = html;
+  }
+})();
+</script>
+</body>
+</html>

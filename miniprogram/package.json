@@ -2,7 +2,7 @@
   "name": "j1toolkit-miniprogram",
   "version": "1.0.0",
   "private": true,
-  "description": "检修一班工具箱微信小程序",
+  "description": "Shade 壹匣微信小程序",
   "dependencies": {
     "tdesign-miniprogram": "^1.15.3"
   }

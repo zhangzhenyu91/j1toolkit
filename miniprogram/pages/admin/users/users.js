@@ -41,7 +41,7 @@ Page({
   openAdd() {
     this.setData({
       showAdd: true,
-      form: { username: '', nickname: '', team: '检修一班', password: '' },
+      form: { username: '', nickname: '', team: '', password: '' },
     });
   },
 

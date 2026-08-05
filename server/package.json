@@ -1,8 +1,8 @@
 {
-  "name": "j1toolkit-server",
+  "name": "shade-yixia",
   "version": "1.0.0",
   "private": true,
-  "description": "检修一班工具箱后端服务（登录鉴权 / 应用权限 / Call Me · WeKnora 代理）",
+  "description": "Shade 壹匣 · 班组数字化工具平台（后端 + 网页端）",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js"
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.3",
+    "archiver": "^7.0.1",
     "axios": "^1.7.9",
     "bcryptjs": "^2.4.3",
     "cos-nodejs-sdk-v5": "^3.0.0",
@@ -19,6 +20,8 @@
     "express": "^4.21.2",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.12.0"
+    "multer": "^1.4.5-lts.2",
+    "mysql2": "^3.12.0",
+    "pdf-lib": "^1.17.1"
   }
 }

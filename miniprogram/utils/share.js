@@ -12,7 +12,7 @@ const SHARE_IMAGES = {
 // page 传页面实例（取当前页路径作为分享路径）；app 传 sys_app 的 app_key，缺省用工具箱分享图
 function shareAppMessage(page, { title, app, path } = {}) {
   return {
-    title: title ? `${title} · 检修一班工具箱` : '检修一班工具箱',
+    title: title ? `${title} · Shade 壹匣` : 'Shade 壹匣',
     path: path || `/${page.route}`,
     imageUrl: SHARE_IMAGES[app] || SHARE_IMAGES.toolbox,
   };

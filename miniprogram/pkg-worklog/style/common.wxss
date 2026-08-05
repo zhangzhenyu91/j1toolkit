@@ -17,17 +17,7 @@
   color: #a89f8a;
 }
 
-/* ---------- 底部固定操作区（右上角禁放按钮，主操作置底） ---------- */
-.bottombar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 100;
-  padding: 16rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
-  background: #f4f1ea;
-}
-
+/* 底部固定操作区（.bottombar 纸底色条）已随主页悬浮按钮化删除；表单弹层主按钮沿用 .btn-primary */
 .btn-primary {
   height: 96rpx;
   border-radius: 16rpx;

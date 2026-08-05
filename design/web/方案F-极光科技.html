@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案F「极光科技」（Web 端设计稿）
+  主色板：浅底 #F7F8FC ｜ 主文字 #1A2233 ｜ 次级 #5C667A ｜ 安全橙 #F26D21（主强调） ｜ 极光青 #2DD4BF（辅） ｜ 极光紫 #8B7CF6（点缀）
+  设计要点：
+  1. 极光氛围：页面与卡片背后叠加大面积低透明度 radial-gradient 极光光晕（橙/青/紫），缓慢漂移动画，浅底之上营造通透的科技温度；
+  2. 玻璃吸顶导航：backdrop-filter 毛玻璃 + 半透明白底，导航激活项使用滑动胶囊指示（JS 跟随点击滑动），Linear/Vercel 式现代 SaaS 质感；
+  3. 胶囊语言：按钮 / 标签 / 输入框统一全圆角胶囊，主按钮橙→浅橙渐变 + hover 微放大与光晕（磁吸感），卡片 16~20px 大圆角 + 多层柔和阴影；
+  4. 卡片微交互：应用卡片 hover 浮起并显露底部橙青渐变描边；验证状态以橙青双色彩点表达（青=已验证 / 橙=待验证），语义与品牌色统一；
+  5. 跨端统一：Web 端 token（圆角 / 色彩 / 图标语言）下沉至小程序手机框预览，极光渐变元素同步出现，证明同一套风格可双端落地。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案F · 极光科技 — Shade 壹匣 · Web 端设计稿</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#F7F8FC; --ink:#1A2233; --sub:#5C667A; --faint:#9AA3B7;
+    --orange:#F26D21; --teal:#2DD4BF; --purple:#8B7CF6;
+    --line:#E7EAF3; --card:#FFFFFF;
+    --sh-card:0 1px 2px rgba(26,34,51,.04), 0 10px 30px rgba(26,34,51,.06);
+    --sh-lift:0 2px 4px rgba(26,34,51,.05), 0 24px 48px rgba(26,34,51,.12);
+  }
+  html { scroll-behavior:smooth; }
+  body {
+    background:var(--bg);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Segoe UI","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    padding:0 24px 110px;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  svg { display:block; }
+
+  /* ===== 极光氛围背景 ===== */
+  .aurora { position:fixed; inset:0; z-index:-2; overflow:hidden; pointer-events:none; }
+  .aurora i { position:absolute; border-radius:50%; filter:blur(90px); }
+  .aurora .a1 { width:760px; height:760px; top:-280px; left:-200px;
+    background:radial-gradient(circle,rgba(242,109,33,.26),transparent 68%);
+    animation:drift1 30s ease-in-out infinite alternate; }
+  .aurora .a2 { width:820px; height:820px; top:-220px; right:-260px;
+    background:radial-gradient(circle,rgba(45,212,191,.24),transparent 68%);
+    animation:drift2 36s ease-in-out infinite alternate; }
+  .aurora .a3 { width:700px; height:700px; top:38%; left:34%;
+    background:radial-gradient(circle,rgba(139,124,246,.20),transparent 68%);
+    animation:drift3 42s ease-in-out infinite alternate; }
+  .aurora .a4 { width:640px; height:640px; bottom:-260px; left:-140px;
+    background:radial-gradient(circle,rgba(45,212,191,.16),transparent 68%);
+    animation:drift1 38s ease-in-out infinite alternate-reverse; }
+  .aurora .a5 { width:600px; height:600px; bottom:-220px; right:-120px;
+    background:radial-gradient(circle,rgba(242,109,33,.15),transparent 68%);
+    animation:drift2 34s ease-in-out infinite alternate-reverse; }
+  @keyframes drift1 { to { transform:translate(140px,90px) scale(1.16); } }
+  @keyframes drift2 { to { transform:translate(-120px,110px) scale(1.12); } }
+  @keyframes drift3 { to { transform:translate(90px,-120px) scale(1.2); } }
+  .bg-grid { position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background-image:linear-gradient(rgba(26,34,51,.035) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(26,34,51,.035) 1px,transparent 1px);
+    background-size:44px 44px;
+    -webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 30%,transparent 100%);
+            mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 30%,transparent 100%);
+  }
+
+  /* ===== 页首 ===== */
+  .page-head { text-align:center; padding:64px 0 20px; animation:fadeUp .9s cubic-bezier(.2,.7,.3,1) both; }
+  .page-head h1 { font-size:30px; font-weight:800; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal;
+    background:linear-gradient(100deg,var(--orange) 10%,#FF9A5C 45%,var(--teal) 90%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .page-head h1 small { margin-left:12px; font-size:14px; font-weight:600; color:var(--sub); letter-spacing:5px; }
+  .page-head p { margin-top:14px; font-size:13.5px; color:var(--sub); letter-spacing:1px; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(26px); } to { opacity:1; transform:none; } }
+
+  /* ===== 屏幕区块 ===== */
+  .block { max-width:1180px; margin:96px auto 0; }
+  .block-cap { display:flex; align-items:baseline; gap:14px; margin:0 6px 22px; }
+  .block-cap .no { font-size:13px; font-weight:800; color:#fff; letter-spacing:0;
+    background:linear-gradient(135deg,var(--orange),#FF8F4D); border-radius:999px; padding:4px 14px;
+    box-shadow:0 6px 16px rgba(242,109,33,.35); }
+  .block-cap h2 { font-size:19px; font-weight:800; letter-spacing:1.5px; }
+  .block-cap span { font-size:12.5px; color:var(--faint); letter-spacing:1px; }
+
+  /* ===== 浏览器框 ===== */
+  .browser { background:rgba(255,255,255,.78); backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px);
+    border:1px solid rgba(255,255,255,.9); border-radius:22px; overflow:hidden;
+    box-shadow:0 40px 90px rgba(26,34,51,.12), 0 6px 20px rgba(26,34,51,.06); }
+  .chrome { display:flex; align-items:center; gap:16px; padding:13px 20px;
+    border-bottom:1px solid var(--line); background:rgba(255,255,255,.55); }
+  .dots { display:flex; gap:8px; }
+  .dots span { width:11px; height:11px; border-radius:50%; }
+  .dots span:nth-child(1){ background:#FF5F57; } .dots span:nth-child(2){ background:#FEBC2E; } .dots span:nth-child(3){ background:#28C840; }
+  .url { flex:1; max-width:430px; margin:0 auto; display:flex; align-items:center; justify-content:center; gap:7px;
+    background:#F0F2F9; border-radius:999px; padding:6.5px 18px; font-size:12px; color:var(--sub); letter-spacing:.4px; }
+  .url svg { width:12px; height:12px; color:#8A93A8; }
+  .view { background:var(--bg); position:relative; }
+
+  /* ===== 滚动 reveal ===== */
+  .reveal { opacity:0; transform:translateY(30px); transition:opacity .8s cubic-bezier(.2,.7,.3,1), transform .8s cubic-bezier(.2,.7,.3,1); }
+  .reveal.in { opacity:1; transform:none; }
+
+  /* ===== 通用元件 ===== */
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    border-radius:999px; font-weight:700; cursor:pointer; user-select:none;
+    transition:transform .25s cubic-bezier(.2,.7,.3,1), box-shadow .25s; }
+  .btn-primary { background:linear-gradient(120deg,var(--orange),#FF8F4D); color:#fff;
+    box-shadow:0 10px 24px rgba(242,109,33,.35), inset 0 1px 0 rgba(255,255,255,.3); }
+  .btn-primary:hover { transform:translateY(-2px) scale(1.03);
+    box-shadow:0 16px 34px rgba(242,109,33,.45), 0 0 0 6px rgba(242,109,33,.12); }
+  .btn-ghost { background:#fff; color:var(--ink); border:1px solid var(--line); box-shadow:0 2px 8px rgba(26,34,51,.05); }
+  .btn-ghost:hover { transform:translateY(-2px); box-shadow:0 10px 22px rgba(26,34,51,.1); border-color:#D8DDEB; }
+  .tag { display:inline-flex; align-items:center; gap:5px; border-radius:999px;
+    font-size:11px; font-weight:700; padding:3.5px 11px; letter-spacing:.5px; }
+  .t-orange { background:rgba(242,109,33,.1); color:var(--orange); }
+  .t-teal { background:rgba(45,212,191,.14); color:#0E9F8D; }
+  .t-purple { background:rgba(139,124,246,.12); color:#6F5BE0; }
+  .t-gray { background:#F0F2F8; color:var(--sub); }
+  .icon-tile { display:flex; align-items:center; justify-content:center; border-radius:14px; color:#fff; flex:none; }
+  .it-o { background:linear-gradient(135deg,var(--orange),#FF9A5C); box-shadow:0 8px 18px rgba(242,109,33,.35); }
+  .it-t { background:linear-gradient(135deg,#14B8A6,var(--teal)); box-shadow:0 8px 18px rgba(45,212,191,.35); }
+  .it-p { background:linear-gradient(135deg,#7C6AE8,var(--purple)); box-shadow:0 8px 18px rgba(139,124,246,.35); }
+
+  /* ================= ① Web 登录页 ================= */
+  .login-wrap { display:grid; grid-template-columns:1.08fr 1fr; min-height:640px; }
+  .brand-panel { position:relative; overflow:hidden; padding:58px 56px;
+    display:flex; flex-direction:column; background:#fff; border-right:1px solid var(--line); }
+  .brand-panel .glow { position:absolute; border-radius:50%; filter:blur(60px); pointer-events:none; }
+  .brand-panel .g1 { width:420px; height:420px; top:-160px; right:-120px;
+    background:radial-gradient(circle,rgba(242,109,33,.22),transparent 70%); animation:drift1 24s ease-in-out infinite alternate; }
+  .brand-panel .g2 { width:380px; height:380px; bottom:-140px; left:-110px;
+    background:radial-gradient(circle,rgba(45,212,191,.2),transparent 70%); animation:drift2 28s ease-in-out infinite alternate; }
+  .brand-logo { display:flex; align-items:center; gap:14px; position:relative; }
+  .brand-logo .icon-tile { width:52px; height:52px; border-radius:16px; }
+  .brand-logo .icon-tile svg { width:27px; height:27px; }
+  .brand-logo b { font-size:21px; font-weight:800; letter-spacing:1px; }
+  .brand-logo i { display:block; font-style:normal; font-size:11px; color:var(--faint); letter-spacing:3px; margin-top:3px; }
+  .brand-slogan { position:relative; margin-top:66px; }
+  .brand-slogan h3 { font-size:34px; font-weight:800; line-height:1.5; letter-spacing:1px; }
+  .brand-slogan h3 em { font-style:normal;
+    background:linear-gradient(100deg,var(--orange),var(--teal));
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .brand-slogan p { margin-top:16px; font-size:13.5px; color:var(--sub); line-height:1.9; letter-spacing:.5px; }
+  .feat { position:relative; margin-top:auto; display:flex; flex-direction:column; gap:15px; }
+  .feat div { display:flex; align-items:center; gap:11px; font-size:13px; font-weight:600; color:var(--sub); }
+  .feat .fi { width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex:none; }
+  .feat .fi svg { width:16px; height:16px; }
+  .fi.f1 { background:rgba(242,109,33,.1); color:var(--orange); }
+  .fi.f2 { background:rgba(45,212,191,.14); color:#0E9F8D; }
+  .fi.f3 { background:rgba(139,124,246,.13); color:#6F5BE0; }
+
+  .login-card { display:flex; flex-direction:column; justify-content:center; padding:56px 62px; position:relative; }
+  .login-card h4 { font-size:24px; font-weight:800; letter-spacing:1px; }
+  .login-card .lc-sub { margin-top:9px; font-size:13px; color:var(--faint); letter-spacing:.5px; }
+  .lg-field { position:relative; margin-top:18px; }
+  .lg-field > svg { position:absolute; left:18px; top:50%; transform:translateY(-50%); width:18px; height:18px; color:var(--faint); z-index:1; }
+  .lg-field input { width:100%; height:50px; border:1px solid var(--line); border-radius:999px; background:#fff;
+    padding:0 20px 0 47px; font-size:14px; color:var(--ink); outline:none;
+    transition:border-color .25s, box-shadow .25s; }
+  .lg-field input::placeholder { color:#B4BCCD; }
+  .lg-field input:focus { border-color:var(--orange); box-shadow:0 0 0 4px rgba(242,109,33,.13); }
+  .lg-row { display:flex; align-items:center; justify-content:space-between; margin-top:16px; font-size:12.5px; color:var(--sub); }
+  .lg-row .rem { display:flex; align-items:center; gap:7px; cursor:pointer; }
+  .ck { width:16px; height:16px; border-radius:5px; background:linear-gradient(135deg,var(--orange),#FF8F4D);
+    display:flex; align-items:center; justify-content:center; flex:none; }
+  .lg-row a { color:var(--orange); text-decoration:none; font-weight:600; }
+  .btn-login { height:50px; margin-top:24px; font-size:15.5px; letter-spacing:8px; text-indent:8px; width:100%; }
+  .divider { display:flex; align-items:center; gap:14px; margin:26px 2px 16px; font-size:11px; color:#B4BCCD; letter-spacing:2px; }
+  .divider::before, .divider::after { content:""; flex:1; height:1px; background:var(--line); }
+  .btn-wx { height:46px; width:100%; font-size:13.5px; }
+  .btn-wx svg { width:20px; height:20px; }
+  .agree { margin-top:26px; display:flex; align-items:center; justify-content:center; gap:7px; font-size:11.5px; color:var(--sub); }
+  .agree a { color:var(--orange); text-decoration:none; font-weight:600; }
+</style>
+<style>
+  /* ================= ② Web 门户工作台 ================= */
+  .topnav { position:relative; display:flex; align-items:center; gap:26px; padding:14px 30px;
+    background:rgba(255,255,255,.68); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    border-bottom:1px solid rgba(231,234,243,.8); }
+  .nv-logo { display:flex; align-items:center; gap:11px; flex:none; }
+  .nv-logo .icon-tile { width:36px; height:36px; border-radius:11px; }
+  .nv-logo .icon-tile svg { width:19px; height:19px; }
+  .nv-logo b { font-size:16px; font-weight:800; letter-spacing:.5px; }
+  .nav-links { position:relative; display:flex; gap:4px; }
+  .nav-links a { position:relative; z-index:1; padding:8px 17px; font-size:13.5px; font-weight:600;
+    color:var(--sub); text-decoration:none; border-radius:999px; transition:color .25s; cursor:pointer; }
+  .nav-links a:hover { color:var(--ink); }
+  .nav-links a.on { color:var(--ink); font-weight:700; }
+  .nav-pill { position:absolute; top:3px; bottom:3px; left:0; width:0; border-radius:999px; background:#fff;
+    box-shadow:0 4px 12px rgba(26,34,51,.1), 0 0 0 1px var(--line);
+    transition:left .35s cubic-bezier(.3,.8,.3,1), width .35s cubic-bezier(.3,.8,.3,1); }
+  .nv-right { margin-left:auto; display:flex; align-items:center; gap:16px; }
+  .nv-search { display:flex; align-items:center; gap:8px; background:#F0F2F9; border-radius:999px;
+    padding:8px 16px; font-size:12.5px; color:#B4BCCD; width:172px; transition:box-shadow .25s, background .25s; }
+  .nv-search:hover { background:#fff; box-shadow:0 0 0 1.5px var(--line), 0 6px 14px rgba(26,34,51,.06); }
+  .nv-search svg { width:15px; height:15px; }
+  .bell { position:relative; width:38px; height:38px; border-radius:50%; background:#fff; border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; color:var(--sub); cursor:pointer;
+    transition:transform .25s, box-shadow .25s; }
+  .bell:hover { transform:translateY(-2px); box-shadow:0 8px 18px rgba(26,34,51,.1); }
+  .bell svg { width:18px; height:18px; }
+  .bell i { position:absolute; top:8px; right:9px; width:8px; height:8px; border-radius:50%;
+    background:var(--orange); border:2px solid #fff; }
+  .nv-user { display:flex; align-items:center; gap:10px; cursor:pointer; }
+  .nv-avatar { width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,var(--orange),#FF9A5C);
+    color:#fff; font-size:14px; font-weight:800; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 6px 14px rgba(242,109,33,.35); }
+  .nv-user div b { display:block; font-size:13px; font-weight:700; }
+  .nv-user div span { font-size:11px; color:var(--faint); }
+
+  .portal { padding:30px 34px 40px; position:relative; overflow:hidden; }
+  .portal .pglow { position:absolute; border-radius:50%; filter:blur(70px); pointer-events:none; }
+  .portal .pg1 { width:460px; height:460px; top:-200px; right:-80px;
+    background:radial-gradient(circle,rgba(45,212,191,.18),transparent 70%); animation:drift2 26s ease-in-out infinite alternate; }
+  .portal .pg2 { width:420px; height:420px; top:120px; left:-160px;
+    background:radial-gradient(circle,rgba(242,109,33,.15),transparent 70%); animation:drift1 30s ease-in-out infinite alternate; }
+
+  .hero-card { position:relative; display:flex; align-items:center; gap:20px; padding:26px 30px;
+    background:rgba(255,255,255,.82); backdrop-filter:blur(14px); border:1px solid rgba(255,255,255,.95);
+    border-radius:20px; box-shadow:var(--sh-card); overflow:hidden; }
+  .hero-card::before { content:""; position:absolute; inset:0 auto 0 0; width:5px;
+    background:linear-gradient(180deg,var(--orange),var(--teal)); }
+  .hc-avatar { width:60px; height:60px; border-radius:18px; background:linear-gradient(135deg,var(--orange),#FF9A5C);
+    color:#fff; font-size:23px; font-weight:800; display:flex; align-items:center; justify-content:center; flex:none;
+    box-shadow:0 10px 22px rgba(242,109,33,.35); }
+  .hero-card .hello { font-size:20px; font-weight:800; letter-spacing:.5px; }
+  .hero-card .role { margin-top:7px; display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--sub); }
+  .hc-stats { margin-left:auto; display:flex; gap:14px; }
+  .hc-stat { text-align:center; padding:10px 20px; border-radius:14px; background:#F7F8FC; border:1px solid var(--line); }
+  .hc-stat b { font-size:19px; font-weight:800; }
+  .hc-stat span { display:block; margin-top:3px; font-size:11px; color:var(--faint); letter-spacing:1px; }
+  .hc-stat.h1 b { color:var(--orange); } .hc-stat.h2 b { color:#0E9F8D; } .hc-stat.h3 b { color:#6F5BE0; }
+
+  .apps-head { position:relative; display:flex; align-items:center; gap:10px; margin:30px 2px 16px; }
+  .apps-head::before { content:""; width:4px; height:16px; border-radius:2px;
+    background:linear-gradient(180deg,var(--orange),#FF9A5C); }
+  .apps-head h3 { font-size:15.5px; font-weight:800; letter-spacing:1px; }
+  .apps-head span { font-size:12px; color:var(--faint); margin-left:auto; }
+
+  .app-grid { position:relative; display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .app-card { position:relative; background:#fff; border:1px solid var(--line); border-radius:18px;
+    padding:22px; box-shadow:var(--sh-card); cursor:pointer; overflow:hidden;
+    transition:transform .3s cubic-bezier(.2,.7,.3,1), box-shadow .3s; }
+  .app-card::after { content:""; position:absolute; left:0; right:0; bottom:0; height:4px;
+    background:linear-gradient(90deg,var(--orange),var(--teal),var(--purple));
+    transform:scaleX(0); transform-origin:left; transition:transform .35s cubic-bezier(.2,.7,.3,1); }
+  .app-card:hover { transform:translateY(-6px); box-shadow:var(--sh-lift); }
+  .app-card:hover::after { transform:scaleX(1); }
+  .app-card .app-ic { width:46px; height:46px; border-radius:14px; }
+  .app-card .app-ic svg { width:23px; height:23px; }
+  .app-card h4 { margin-top:15px; font-size:15.5px; font-weight:800; letter-spacing:.5px;
+    display:flex; align-items:center; gap:8px; }
+  .app-card p { margin-top:9px; font-size:12.5px; color:var(--sub); line-height:1.75; }
+  .app-card .app-tags { margin-top:13px; display:flex; gap:7px; flex-wrap:wrap; }
+  .app-card .app-foot { margin-top:15px; display:flex; align-items:center; gap:6px;
+    font-size:12px; font-weight:700; color:var(--orange); }
+  .app-card .app-foot svg { width:14px; height:14px; transition:transform .3s; }
+  .app-card:hover .app-foot svg { transform:translateX(4px); }
+  .app-card.soon { border:1.5px dashed #D8DDEB; background:rgba(255,255,255,.6); box-shadow:none; cursor:default;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:26px; }
+  .app-card.soon::after { display:none; }
+  .app-card.soon:hover { transform:none; box-shadow:none; }
+  .app-card.soon .soon-ic { width:44px; height:44px; border-radius:14px; background:#F0F2F8; color:#B4BCCD;
+    display:flex; align-items:center; justify-content:center; }
+  .app-card.soon .soon-ic svg { width:22px; height:22px; }
+  .app-card.soon h4 { margin-top:12px; color:#B4BCCD; font-size:14px; }
+  .app-card.soon p { margin-top:6px; font-size:11.5px; color:#C3CAD9; }
+
+  /* ================= ③ Call Me AI 对话 ================= */
+  .cm-wrap { display:grid; grid-template-columns:262px 1fr; min-height:660px; }
+  .cm-side { background:rgba(255,255,255,.66); backdrop-filter:blur(16px); border-right:1px solid var(--line);
+    padding:20px 16px; display:flex; flex-direction:column; gap:14px; }
+  .cm-new { height:42px; width:100%; font-size:13.5px; letter-spacing:1px; }
+  .cm-search { display:flex; align-items:center; gap:8px; background:#F0F2F9; border-radius:999px;
+    padding:8.5px 15px; font-size:12px; color:#B4BCCD; }
+  .cm-search svg { width:14px; height:14px; }
+  .cm-list { display:flex; flex-direction:column; gap:5px; }
+  .cm-list .grp { font-size:11px; color:var(--faint); letter-spacing:2px; padding:10px 10px 5px; }
+  .ss-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; cursor:pointer;
+    transition:background .25s; }
+  .ss-item:hover { background:#F2F4FA; }
+  .ss-item.on { background:#fff; box-shadow:0 4px 14px rgba(26,34,51,.08), 0 0 0 1px var(--line); }
+  .ss-item svg { width:15px; height:15px; color:var(--faint); flex:none; }
+  .ss-item.on svg { color:var(--orange); }
+  .ss-item div { min-width:0; flex:1; }
+  .ss-item b { display:block; font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ss-item span { font-size:10.5px; color:var(--faint); }
+  .cm-side .side-foot { margin-top:auto; display:flex; align-items:center; gap:9px; padding:10px 8px 2px;
+    border-top:1px solid var(--line); font-size:11.5px; color:var(--sub); }
+  .side-foot .dotok { width:7px; height:7px; border-radius:50%; background:var(--teal); flex:none;
+    box-shadow:0 0 0 3px rgba(45,212,191,.2); }
+
+  .cm-main { display:flex; flex-direction:column; position:relative; overflow:hidden; }
+  .cm-head { display:flex; align-items:center; gap:12px; padding:15px 26px; border-bottom:1px solid var(--line);
+    background:rgba(255,255,255,.6); backdrop-filter:blur(14px); }
+  .cm-head h4 { font-size:14.5px; font-weight:800; }
+  .cm-head .cm-more { margin-left:auto; width:32px; height:32px; border-radius:10px; border:1px solid var(--line);
+    background:#fff; display:flex; align-items:center; justify-content:center; color:var(--sub); cursor:pointer; }
+  .cm-body { flex:1; padding:26px 30px 10px; display:flex; flex-direction:column; gap:22px; overflow:hidden; position:relative; }
+  .msg { display:flex; gap:12px; max-width:88%; }
+  .msg .m-avatar { width:34px; height:34px; border-radius:12px; flex:none;
+    display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px; font-weight:800; }
+  .msg.user { align-self:flex-end; flex-direction:row-reverse; }
+  .msg.user .m-avatar { background:linear-gradient(135deg,var(--purple),#A79BFA); box-shadow:0 6px 14px rgba(139,124,246,.35); }
+  .msg.ai .m-avatar { background:linear-gradient(135deg,var(--orange),#FF9A5C); box-shadow:0 6px 14px rgba(242,109,33,.35); }
+  .msg.ai .m-avatar svg { width:18px; height:18px; }
+  .bubble { padding:13px 17px; font-size:13.5px; line-height:1.85; border-radius:16px; }
+  .msg.user .bubble { background:linear-gradient(120deg,var(--orange),#FF8F4D); color:#fff; border-top-right-radius:5px;
+    box-shadow:0 10px 22px rgba(242,109,33,.3); }
+  .msg.ai .bubble { background:#fff; border:1px solid var(--line); border-top-left-radius:5px; box-shadow:var(--sh-card); }
+  .msg.ai .bubble p + p { margin-top:8px; }
+  .msg.ai .bubble ol { margin:8px 0 2px 20px; }
+  .msg.ai .bubble ol li { margin-top:4px; }
+  .msg.ai .bubble b.k { color:var(--orange); }
+  .think { display:flex; align-items:center; gap:8px; margin-bottom:11px; padding:8px 13px; width:fit-content;
+    background:#F7F8FC; border:1px solid var(--line); border-radius:999px; font-size:11.5px; color:var(--sub);
+    cursor:pointer; transition:box-shadow .25s; }
+  .think:hover { box-shadow:0 4px 12px rgba(26,34,51,.08); }
+  .think .spark { width:14px; height:14px; color:#6F5BE0; animation:pulseSoft 2.2s ease-in-out infinite; }
+  .think svg.arr { width:12px; height:12px; color:var(--faint); transition:transform .3s; }
+  .think.open svg.arr { transform:rotate(180deg); }
+  .think-detail { display:none; margin:-4px 0 11px 4px; padding:10px 14px; border-left:2px solid rgba(139,124,246,.4);
+    font-size:12px; color:var(--sub); line-height:1.9; }
+  .think-detail i { font-style:normal; color:#6F5BE0; font-weight:700; }
+  @keyframes pulseSoft { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+  .code { margin-top:10px; background:#1A2233; border-radius:12px; padding:14px 17px;
+    font-family:"SFMono-Regular",Consolas,"Courier New",monospace; font-size:12px; line-height:1.9; overflow:hidden; }
+  .code .c-h { display:flex; align-items:center; justify-content:space-between; color:#7C879E; font-size:10.5px;
+    letter-spacing:1px; margin-bottom:8px; }
+  .code .c-h span:last-child { cursor:pointer; }
+  .code pre { white-space:pre-wrap; color:#D7DEEC; }
+  .code .ck-k { color:#FF9A5C; } .code .ck-s { color:#5EEAD4; } .code .ck-c { color:#66738C; }
+  .src-chips { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .src-chips span { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--sub);
+    background:#F7F8FC; border:1px solid var(--line); border-radius:999px; padding:4px 11px; cursor:pointer; }
+  .src-chips svg { width:12px; height:12px; color:var(--teal); }
+  .typing-dots { display:inline-flex; gap:4px; margin-right:8px; vertical-align:middle; }
+  .typing-dots i { width:6px; height:6px; border-radius:50%; background:var(--orange); animation:blinkDot 1.2s ease-in-out infinite; }
+  .typing-dots i:nth-child(2){ animation-delay:.18s; background:var(--teal); }
+  .typing-dots i:nth-child(3){ animation-delay:.36s; background:var(--purple); }
+  @keyframes blinkDot { 0%,100% { opacity:.25; transform:translateY(0); } 50% { opacity:1; transform:translateY(-3px); } }
+  .cursor { display:inline-block; width:8px; height:16px; margin-left:3px; vertical-align:-2px; border-radius:2px;
+    background:var(--orange); animation:cursorBlink 1s steps(1) infinite; }
+  @keyframes cursorBlink { 50% { opacity:0; } }
+  .cm-input { margin:14px 26px 22px; display:flex; align-items:center; gap:10px; padding:8px 8px 8px 20px;
+    background:#fff; border:1px solid var(--line); border-radius:999px; box-shadow:0 10px 26px rgba(26,34,51,.08);
+    transition:box-shadow .25s, border-color .25s; }
+  .cm-input:focus-within { border-color:var(--orange); box-shadow:0 0 0 4px rgba(242,109,33,.12), 0 10px 26px rgba(26,34,51,.08); }
+  .cm-input input { flex:1; border:none; outline:none; font-size:13.5px; color:var(--ink); background:transparent; }
+  .cm-input input::placeholder { color:#B4BCCD; }
+  .cm-input .att { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    color:var(--faint); cursor:pointer; transition:background .25s; }
+  .cm-input .att:hover { background:#F2F4FA; }
+  .cm-input .att svg { width:17px; height:17px; }
+  .cm-send { width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,var(--orange),#FF8F4D);
+    display:flex; align-items:center; justify-content:center; color:#fff; cursor:pointer; flex:none;
+    box-shadow:0 8px 18px rgba(242,109,33,.4); transition:transform .25s, box-shadow .25s; }
+  .cm-send:hover { transform:scale(1.08); box-shadow:0 12px 24px rgba(242,109,33,.5), 0 0 0 5px rgba(242,109,33,.12); }
+  .cm-send svg { width:17px; height:17px; }
+</style>
+<style>
+  /* ================= ④ 出工日志 ================= */
+  .wl-view { padding:28px 32px 38px; position:relative; overflow:hidden; }
+  .wl-top { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  .wl-top h4 { font-size:17px; font-weight:800; letter-spacing:1px; display:flex; align-items:center; gap:10px; }
+  .wl-top h4::before { content:""; width:4px; height:16px; border-radius:2px;
+    background:linear-gradient(180deg,var(--orange),#FF9A5C); }
+  .wl-top .wl-acts { margin-left:auto; display:flex; gap:10px; }
+  .wl-acts .btn { height:36px; padding:0 18px; font-size:12.5px; }
+  .wl-acts svg { width:14px; height:14px; }
+  .wl-wrap { display:grid; grid-template-columns:1.12fr 1fr; gap:20px; align-items:start; }
+
+  .cal-card { background:#fff; border:1px solid var(--line); border-radius:18px; box-shadow:var(--sh-card); padding:20px 22px; }
+  .cal-head { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .cal-head b { font-size:15px; font-weight:800; letter-spacing:1px; }
+  .cal-head .cal-nav { margin-left:auto; display:flex; gap:8px; }
+  .cal-head .cn { width:30px; height:30px; border-radius:10px; border:1px solid var(--line); background:#fff;
+    display:flex; align-items:center; justify-content:center; color:var(--sub); cursor:pointer; transition:all .25s; }
+  .cal-head .cn:hover { border-color:var(--orange); color:var(--orange); box-shadow:0 4px 10px rgba(242,109,33,.15); }
+  .cal-head .cn svg { width:14px; height:14px; }
+  .cal-wk { display:grid; grid-template-columns:repeat(7,1fr); margin-bottom:6px; }
+  .cal-wk span { text-align:center; font-size:11px; color:var(--faint); letter-spacing:2px; padding:6px 0; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .cd { position:relative; aspect-ratio:1/.86; border-radius:11px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:4px; font-size:13px; font-weight:600; color:var(--ink);
+    cursor:pointer; transition:background .2s, transform .2s; }
+  .cd:hover { background:#F2F4FA; }
+  .cd.dim { color:#C3CAD9; font-weight:500; }
+  .cd i { width:5px; height:5px; border-radius:50%; }
+  .cd i.ok { background:var(--teal); box-shadow:0 0 0 2.5px rgba(45,212,191,.2); }
+  .cd i.pend { background:var(--orange); box-shadow:0 0 0 2.5px rgba(242,109,33,.18); }
+  .cd i.none { background:transparent; }
+  .cd.today { background:linear-gradient(135deg,var(--orange),#FF8F4D); color:#fff;
+    box-shadow:0 8px 18px rgba(242,109,33,.4); }
+  .cd.today i { background:#fff; box-shadow:none; }
+  .cal-legend { display:flex; gap:18px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line);
+    font-size:11.5px; color:var(--sub); }
+  .cal-legend span { display:flex; align-items:center; gap:7px; }
+  .cal-legend i { width:7px; height:7px; border-radius:50%; }
+  .cal-legend .l1 { background:var(--teal); } .cal-legend .l2 { background:var(--orange); } .cal-legend .l3 { background:#D8DDEB; }
+
+  .log-card { background:#fff; border:1px solid var(--line); border-radius:18px; box-shadow:var(--sh-card);
+    padding:22px 24px; position:relative; overflow:hidden; }
+  .log-card::before { content:""; position:absolute; top:0; left:0; right:0; height:5px;
+    background:linear-gradient(90deg,var(--teal),var(--orange)); }
+  .log-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .log-head b { font-size:15.5px; font-weight:800; letter-spacing:.5px; }
+  .log-head .tag { margin-left:auto; }
+  .lf { display:grid; grid-template-columns:1fr 1fr; gap:12px 18px; margin-top:17px; }
+  .lf div { background:#F7F8FC; border:1px solid var(--line); border-radius:12px; padding:10px 14px; }
+  .lf span { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--faint); letter-spacing:1.5px; }
+  .lf span svg { width:12px; height:12px; }
+  .lf b { display:block; margin-top:5px; font-size:13px; font-weight:700; }
+  .photo-sec { margin-top:16px; }
+  .photo-sec > span { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--faint); letter-spacing:1.5px; }
+  .photo-sec > span svg { width:12px; height:12px; }
+  .photo-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:9px; }
+  .ph { position:relative; aspect-ratio:4/3; border-radius:12px; overflow:hidden; cursor:zoom-in;
+    transition:transform .3s, box-shadow .3s; }
+  .ph:hover { transform:translateY(-3px); box-shadow:0 10px 22px rgba(26,34,51,.18); }
+  .ph.p1 { background:linear-gradient(150deg,#3E4C63,#22314E 60%,#18223A); }
+  .ph.p2 { background:linear-gradient(150deg,#14B8A6,#0E9F8D 60%,#0B7A6D); }
+  .ph.p3 { background:linear-gradient(150deg,#FF8F4D,#F26D21 60%,#D65410); }
+  .ph .ph-ic { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:rgba(255,255,255,.5); }
+  .ph .ph-ic svg { width:26px; height:26px; }
+  .ph .wm { position:absolute; left:0; right:0; bottom:0; padding:7px 9px 6px;
+    background:linear-gradient(0deg,rgba(10,16,28,.62),transparent);
+    font-size:8.5px; line-height:1.6; color:rgba(255,255,255,.92); letter-spacing:.3px; }
+  .fy { margin-top:16px; display:flex; align-items:center; gap:10px; padding:11px 15px;
+    background:linear-gradient(100deg,rgba(45,212,191,.1),rgba(242,109,33,.07));
+    border:1px solid rgba(45,212,191,.35); border-radius:12px; }
+  .fy svg { width:16px; height:16px; color:#0E9F8D; flex:none; }
+  .fy span { font-size:11px; color:var(--sub); letter-spacing:.5px; }
+  .fy code { margin-left:auto; font-family:"SFMono-Regular",Consolas,monospace; font-size:12px; font-weight:700;
+    color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:8px; padding:3px 10px; letter-spacing:1px; }
+  .fy .cp { width:26px; height:26px; border-radius:8px; background:#fff; border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; color:var(--sub); cursor:pointer; transition:all .25s; }
+  .fy .cp:hover { color:var(--orange); border-color:var(--orange); }
+  .fy .cp svg { width:12px; height:12px; color:inherit; }
+
+  /* ================= ⑤ 安全日活动记录 ================= */
+  .sd-view { padding:28px 32px 38px; }
+  .sd-top { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  .sd-top h4 { font-size:17px; font-weight:800; letter-spacing:1px; display:flex; align-items:center; gap:10px; }
+  .sd-top h4::before { content:""; width:4px; height:16px; border-radius:2px;
+    background:linear-gradient(180deg,var(--purple),var(--teal)); }
+  .sd-top span { font-size:12px; color:var(--faint); }
+  .sd-upload { background:#fff; border:1px solid var(--line); border-radius:18px; box-shadow:var(--sh-card); padding:22px 24px; }
+  .dz { border:1.8px dashed #D3D9E8; border-radius:16px; padding:30px 20px; text-align:center; cursor:pointer;
+    background:linear-gradient(180deg,rgba(139,124,246,.04),rgba(45,212,191,.04));
+    transition:border-color .3s, background .3s, transform .3s; }
+  .dz:hover { border-color:var(--purple); background:linear-gradient(180deg,rgba(139,124,246,.08),rgba(45,212,191,.07)); }
+  .dz .dz-ic { width:52px; height:52px; margin:0 auto 13px; border-radius:16px;
+    background:linear-gradient(135deg,#7C6AE8,var(--purple)); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 10px 22px rgba(139,124,246,.35); animation:floatY 3.4s ease-in-out infinite; }
+  .dz .dz-ic svg { width:25px; height:25px; }
+  @keyframes floatY { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-6px); } }
+  .dz b { font-size:14px; font-weight:800; letter-spacing:.5px; }
+  .dz p { margin-top:8px; font-size:11.5px; color:var(--faint); letter-spacing:.5px; }
+  .dz p em { font-style:normal; color:var(--orange); font-weight:700; }
+  .file-item { display:flex; align-items:center; gap:13px; margin-top:16px; padding:13px 16px;
+    background:#F7F8FC; border:1px solid var(--line); border-radius:14px; }
+  .file-item .f-ic { width:38px; height:38px; border-radius:11px; background:rgba(242,109,33,.1); color:var(--orange);
+    display:flex; align-items:center; justify-content:center; flex:none; }
+  .file-item .f-ic svg { width:19px; height:19px; }
+  .file-item .f-info { flex:1; min-width:0; }
+  .file-item b { font-size:13px; font-weight:700; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .file-item .f-sub { margin-top:3px; font-size:11px; color:var(--faint); }
+  .prog { margin-top:8px; height:6px; border-radius:3px; background:#E9ECF5; overflow:hidden; }
+  .prog i { display:block; height:100%; width:62%; border-radius:3px;
+    background:linear-gradient(90deg,var(--purple),var(--teal)); position:relative; }
+  .prog i::after { content:""; position:absolute; inset:0;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+    animation:shimmer 1.6s linear infinite; }
+  @keyframes shimmer { from { transform:translateX(-100%); } to { transform:translateX(100%); } }
+  .steps { display:flex; align-items:center; gap:0; margin-top:18px; }
+  .st { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600; color:var(--faint); flex:none; }
+  .st .st-dot { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:#F0F2F8; color:var(--faint); flex:none; }
+  .st .st-dot svg { width:12px; height:12px; }
+  .st.done { color:#0E9F8D; }
+  .st.done .st-dot { background:rgba(45,212,191,.16); color:#0E9F8D; }
+  .st.doing { color:var(--orange); }
+  .st.doing .st-dot { background:rgba(242,109,33,.12); color:var(--orange); position:relative; }
+  .st.doing .st-dot::after { content:""; position:absolute; inset:-4px; border-radius:50%;
+    border:1.6px solid rgba(242,109,33,.5); animation:ripple 1.6s ease-out infinite; }
+  @keyframes ripple { from { transform:scale(.7); opacity:1; } to { transform:scale(1.25); opacity:0; } }
+  .st-line { flex:1; height:2px; margin:0 12px; border-radius:1px; background:#E9ECF5; min-width:20px; }
+  .st-line.fill { background:linear-gradient(90deg,var(--teal),var(--orange)); }
+  .sd-table-card { margin-top:20px; background:#fff; border:1px solid var(--line); border-radius:18px;
+    box-shadow:var(--sh-card); overflow:hidden; }
+  .sd-table-head { display:flex; align-items:center; gap:10px; padding:17px 24px; border-bottom:1px solid var(--line); }
+  .sd-table-head b { font-size:14px; font-weight:800; letter-spacing:.5px; }
+  .sd-table-head span { margin-left:auto; font-size:11.5px; color:var(--faint); }
+  table.sd { width:100%; border-collapse:collapse; }
+  table.sd th { text-align:left; font-size:11px; color:var(--faint); letter-spacing:1.5px; font-weight:600;
+    padding:11px 24px; background:#FAFBFE; border-bottom:1px solid var(--line); }
+  table.sd td { padding:14px 24px; font-size:13px; border-bottom:1px solid #F0F2F8; vertical-align:middle; }
+  table.sd tr:last-child td { border-bottom:none; }
+  table.sd tbody tr { transition:background .2s; }
+  table.sd tbody tr:hover { background:#F9FAFD; }
+  table.sd .rn { font-weight:700; display:flex; align-items:center; gap:9px; }
+  table.sd .rn svg { width:15px; height:15px; color:var(--purple); flex:none; }
+  table.sd .src { color:var(--sub); font-size:12px; }
+  .row-acts { display:flex; gap:8px; }
+  .ra { width:30px; height:30px; border-radius:9px; border:1px solid var(--line); background:#fff;
+    display:flex; align-items:center; justify-content:center; color:var(--sub); cursor:pointer; transition:all .25s; }
+  .ra svg { width:14px; height:14px; }
+  .ra.dl:hover { color:#0E9F8D; border-color:var(--teal); box-shadow:0 4px 10px rgba(45,212,191,.2); transform:translateY(-2px); }
+  .ra.del:hover { color:#E05252; border-color:#F3B3B3; box-shadow:0 4px 10px rgba(224,82,82,.16); transform:translateY(-2px); }
+
+  /* ================= ⑥ 小程序首页预览 ================= */
+  .phone-stage { display:flex; justify-content:center; padding:36px 0 44px;
+    background:radial-gradient(ellipse 70% 60% at 50% 0%,rgba(139,124,246,.08),transparent 70%); }
+  .phone { padding:12px; background:linear-gradient(150deg,#3A4256 0%,#171C28 60%,#10141C 100%);
+    border-radius:62px; box-shadow:0 40px 80px rgba(26,34,51,.3), 0 10px 24px rgba(26,34,51,.16); }
+  .screen { position:relative; width:375px; height:812px; background:#F7F8FC; border-radius:50px;
+    overflow:hidden; display:flex; flex-direction:column; }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    width:120px; height:32px; border-radius:18px; background:#10141C; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+    width:134px; height:5px; border-radius:3px; background:rgba(16,20,28,.9); z-index:40; }
+  .sb { height:54px; flex:none; padding:20px 30px 0; display:flex; justify-content:space-between; align-items:center;
+    font-size:14px; font-weight:700; letter-spacing:.5px; position:relative; z-index:20; color:var(--ink); }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+  .m-nav { height:50px; flex:none; display:flex; align-items:center; justify-content:center; gap:9px;
+    font-size:16.5px; font-weight:800; letter-spacing:1px;
+    background:rgba(247,248,252,.72); backdrop-filter:blur(14px); }
+  .m-nav .icon-tile { width:26px; height:26px; border-radius:8px; }
+  .m-nav .icon-tile svg { width:14px; height:14px; }
+  .m-content { flex:1; padding:10px 16px 12px; overflow:hidden; position:relative; }
+  .m-content .m-glow { position:absolute; top:-90px; right:-80px; width:260px; height:260px; border-radius:50%;
+    background:radial-gradient(circle,rgba(242,109,33,.14),transparent 70%); filter:blur(40px); pointer-events:none; }
+  .m-user { position:relative; background:#fff; border-radius:18px; padding:18px; box-shadow:var(--sh-card);
+    display:flex; align-items:center; gap:14px; overflow:hidden; border:1px solid rgba(255,255,255,.9); }
+  .m-user::before { content:""; position:absolute; inset:0 auto 0 0; width:4px;
+    background:linear-gradient(180deg,var(--orange),var(--teal)); }
+  .m-user .avatar { width:54px; height:54px; flex:none; border-radius:16px;
+    background:linear-gradient(135deg,var(--orange),#FF9A5C); color:#fff; font-size:20px; font-weight:800;
+    display:flex; align-items:center; justify-content:center; box-shadow:0 8px 18px rgba(242,109,33,.35); }
+  .m-user .hello { font-size:17px; font-weight:800; }
+  .m-user .role { margin-top:6px; display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--sub); }
+  .m-sec { display:flex; align-items:center; gap:8px; margin:22px 4px 12px; }
+  .m-sec::before { content:""; width:4px; height:14px; border-radius:2px;
+    background:linear-gradient(180deg,var(--orange),#FF9A5C); }
+  .m-sec h3 { font-size:14.5px; font-weight:800; letter-spacing:1px; }
+  .m-grid-card { background:#fff; border-radius:18px; padding:20px 6px 8px; box-shadow:var(--sh-card); }
+  .m-grid { display:grid; grid-template-columns:repeat(4,1fr); }
+  .m-g { display:flex; flex-direction:column; align-items:center; gap:8px; margin-bottom:15px; }
+  .m-g .gi { width:50px; height:50px; border-radius:15px; display:flex; align-items:center; justify-content:center; color:#fff; }
+  .m-g .gi svg { width:23px; height:23px; }
+  .m-g span { font-size:10.5px; color:var(--ink); letter-spacing:.5px; }
+  .m-g.soon .gi { background:transparent; border:1.5px dashed #D3D9E8; color:#C3CAD9; box-shadow:none; }
+  .m-g.soon span { color:#B4BCCD; }
+  .m-tip { margin-top:16px; background:linear-gradient(100deg,rgba(45,212,191,.12),rgba(242,109,33,.08));
+    border:1px solid rgba(45,212,191,.3); border-radius:16px; display:flex; align-items:center; gap:11px; padding:13px 15px; }
+  .m-tip .ti { width:34px; height:34px; flex:none; border-radius:11px; background:#fff; color:#0E9F8D;
+    display:flex; align-items:center; justify-content:center; box-shadow:0 4px 10px rgba(45,212,191,.2); }
+  .m-tip .ti svg { width:18px; height:18px; }
+  .m-tip b { display:block; font-size:12px; font-weight:700; }
+  .m-tip p { margin-top:3px; font-size:10.5px; color:var(--sub); }
+  .m-tabbar { flex:none; height:76px; background:rgba(255,255,255,.86); backdrop-filter:blur(16px);
+    border-top:1px solid var(--line); display:flex; padding:10px 40px 20px; gap:10px; }
+  .m-tab { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+    font-size:10px; color:var(--sub); letter-spacing:1px; border-radius:999px; }
+  .m-tab svg { width:22px; height:22px; }
+  .m-tab.on { color:var(--orange); font-weight:700; background:rgba(242,109,33,.09); }
+
+  /* ---------- 窄屏自适应 ---------- */
+  @media (max-width: 1280px) { .block { zoom:.92; } }
+  @media (max-width: 1160px) { .block { zoom:.84; } }
+  @media (max-width: 1040px) { .block { zoom:.75; } }
+  @media (max-width: 920px)  { .block { zoom:.66; } }
+</style>
+</head>
+<body>
+
+<div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i><i class="a4"></i><i class="a5"></i></div>
+<div class="bg-grid"></div>
+
+<header class="page-head">
+  <h1>方案F · <em>极光科技</em><small>WEB 端设计稿</small></h1>
+  <p>浅底之上极光流动，玻璃导航与胶囊语言 —— Shade 壹匣 · 班组数字化工具平台</p>
+</header>
+
+<!-- ================= ① Web 登录页 ================= -->
+<section class="block reveal">
+  <div class="block-cap"><span class="no">①</span><h2>Web 登录页</h2><span>品牌区 + 账号密码登录 + 协议勾选</span></div>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>portal.shade-yixia.cn/login</div>
+      <div style="width:52px"></div>
+    </div>
+    <div class="view">
+      <div class="login-wrap">
+        <div class="brand-panel">
+          <i class="glow g1"></i><i class="glow g2"></i>
+          <div class="brand-logo">
+            <div class="icon-tile it-o">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l7.8 4.4v8.8L12 20.8l-7.8-4.4V7.6z"/><path d="M12 12l7.8-4.4M12 12v8.8M12 12L4.2 7.6"/></svg>
+            </div>
+            <div><b>Shade 壹匣</b><i>班组数字化工具平台</i></div>
+          </div>
+          <div class="brand-slogan">
+            <h3>一个入口，<br>装下班组的<em>全部工具</em>。</h3>
+            <p>统一身份认证与应用权限管控，Call Me AI 知识库、出工日志、安全日活动记录等业务应用持续接入，数据安全可控。</p>
+          </div>
+          <div class="feat">
+            <div><span class="fi f1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></span>统一身份认证，一次登录通达全部应用</div>
+            <div><span class="fi f2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="6.6" rx="2"/><rect x="4" y="12.9" width="16" height="6.6" rx="2"/><circle cx="7.8" cy="7.8" r=".9" fill="currentColor" stroke="none"/><circle cx="7.8" cy="16.2" r=".9" fill="currentColor" stroke="none"/><path d="M12 7.8h5M12 16.2h5"/></svg></span>应用按权限开通，班组管理清晰可控</div>
+            <div><span class="fi f3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/><circle cx="12" cy="15.2" r="1.1" fill="currentColor" stroke="none"/></svg></span>数据加密存储，操作留痕安全合规</div>
+          </div>
+        </div>
+        <div class="login-card">
+          <h4>欢迎回来</h4>
+          <p class="lc-sub">登录 Shade 壹匣，进入班组工作台</p>
+          <div class="lg-field">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.4a6.4 6.4 0 0 1 12.8 0"/></svg>
+            <input type="text" placeholder="请输入账号" value="zhangsan">
+          </div>
+          <div class="lg-field">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/><circle cx="12" cy="15.2" r="1.1" fill="currentColor" stroke="none"/></svg>
+            <input type="password" placeholder="请输入密码" value="123456">
+          </div>
+          <div class="lg-row">
+            <span class="rem"><span class="ck"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>记住我</span>
+            <a>忘记密码？</a>
+          </div>
+          <div class="btn btn-primary btn-login">登 录</div>
+          <div class="divider">其他登录方式</div>
+          <div class="btn btn-ghost btn-wx">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#07C160" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.1 4.3c-3.4 0-6 2.2-6 5 0 1.6.9 3 2.4 3.9l-.6 2 2.2-1.1c.6.2 1.3.3 2 .3"/><path d="M21.3 14.5c0-2.6-2.4-4.8-5.5-4.8s-5.5 2.2-5.5 4.8 2.4 4.8 5.5 4.8c.7 0 1.3-.1 1.9-.3l1.9 1-.5-1.8c1.3-.8 2.2-2.2 2.2-3.7z" fill="#fff"/><circle cx="13.9" cy="14.3" r=".9" fill="#07C160" stroke="none"/><circle cx="17.7" cy="14.3" r=".9" fill="#07C160" stroke="none"/></svg>
+            微信扫码登录
+          </div>
+          <div class="agree">
+            <span class="ck"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+            已阅读并同意<a>《用户协议》</a>和<a>《隐私政策》</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ② Web 门户工作台 ================= -->
+<section class="block reveal">
+  <div class="block-cap"><span class="no">②</span><h2>Web 门户工作台</h2><span>玻璃导航 · 用户卡片 · 应用中心</span></div>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>portal.shade-yixia.cn/dashboard</div>
+      <div style="width:52px"></div>
+    </div>
+    <div class="view">
+      <nav class="topnav">
+        <div class="nv-logo">
+          <div class="icon-tile it-o">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l7.8 4.4v8.8L12 20.8l-7.8-4.4V7.6z"/><path d="M12 12l7.8-4.4M12 12v8.8M12 12L4.2 7.6"/></svg>
+          </div>
+          <b>Shade 壹匣</b>
+        </div>
+        <div class="nav-links" id="navLinks">
+          <span class="nav-pill" id="navPill"></span>
+          <a class="on">工作台</a><a>应用中心</a><a>消息通知</a><a>帮助文档</a>
+        </div>
+        <div class="nv-right">
+          <div class="nv-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.2 4.2"/></svg>
+            搜索应用 / 功能
+          </div>
+          <div class="bell"><i></i>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+          </div>
+          <div class="nv-user">
+            <div class="nv-avatar">张</div>
+            <div><b>张三</b><span>检修一班</span></div>
+          </div>
+        </div>
+      </nav>
+      <div class="portal">
+        <i class="pglow pg1"></i><i class="pglow pg2"></i>
+        <div class="hero-card">
+          <div class="hc-avatar">张</div>
+          <div>
+            <div class="hello">下午好，张三</div>
+            <div class="role">检修一班 · <span class="tag t-orange">高级技师</span><span style="color:#C3CAD9">｜</span>2026年8月4日 星期二</div>
+          </div>
+          <div class="hc-stats">
+            <div class="hc-stat h1"><b>4</b><span>本周出工</span></div>
+            <div class="hc-stat h2"><b>2</b><span>待办事项</span></div>
+            <div class="hc-stat h3"><b>3</b><span>未读消息</span></div>
+          </div>
+        </div>
+        <div class="apps-head"><h3>应用中心</h3><span>3 个已开通应用</span></div>
+        <div class="app-grid">
+          <div class="app-card">
+            <div class="icon-tile it-o app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4.5 19.5l1.5-4A7.5 7.5 0 1 1 20 11.5z"/><path d="M9 10.2h6M9 13h3.5"/><path d="M17.8 2.4l.45 1.05 1.05.45-1.05.45-.45 1.05-.45-1.05-1.05-.45 1.05-.45z" fill="currentColor" stroke="none"/></svg></div>
+            <h4>Call Me <span class="tag t-orange">AI 知识库</span></h4>
+            <p>对接 WeKnora 知识库，检修规程、安全规范随问随答，支持流式输出与多轮会话。</p>
+            <div class="app-tags"><span class="tag t-gray">智能问答</span><span class="tag t-gray">流式对话</span></div>
+            <div class="app-foot">进入应用<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6.5l5.5 5.5-5.5 5.5"/></svg></div>
+          </div>
+          <div class="app-card">
+            <div class="icon-tile it-t app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.8" y="5" width="16.4" height="15.4" rx="2.5"/><path d="M3.8 9.8h16.4M8 3v3.4M16 3v3.4"/><path d="M9.3 14.6l2 2 3.4-3.6"/></svg></div>
+            <h4>出工日志 <span class="tag t-teal">已验证 12 条</span></h4>
+            <p>班组出工记录日历化呈现，派车信息、水印照片与防伪码一应俱全，真实可溯。</p>
+            <div class="app-tags"><span class="tag t-gray">日历视图</span><span class="tag t-gray">水印照片</span><span class="tag t-gray">防伪码</span></div>
+            <div class="app-foot">进入应用<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6.5l5.5 5.5-5.5 5.5"/></svg></div>
+          </div>
+          <div class="app-card">
+            <div class="icon-tile it-p app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/><path d="M12 11l3.4 1.3v2.6c0 2.2-1.5 3.8-3.4 4.7-1.9-.9-3.4-2.5-3.4-4.7v-2.6z"/><path d="M10.8 14.6l.9.9 1.6-1.7"/></svg></div>
+            <h4>安全日活动记录 <span class="tag t-purple">Dify 工作流</span></h4>
+            <p>上传活动资料 PDF / Office 文件，AI 自动生成标准活动记录，一键下载归档。</p>
+            <div class="app-tags"><span class="tag t-gray">文件上传</span><span class="tag t-gray">AI 生成</span></div>
+            <div class="app-foot">进入应用<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6.5l5.5 5.5-5.5 5.5"/></svg></div>
+          </div>
+          <div class="app-card soon">
+            <div class="soon-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6M9 14h6"/></svg></div>
+            <h4>检修工单</h4>
+            <p>敬请期待</p>
+          </div>
+          <div class="app-card soon">
+            <div class="soon-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+            <h4>更多应用</h4>
+            <p>敬请期待</p>
+          </div>
+          <div class="app-card soon">
+            <div class="soon-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M4 12h16"/></svg></div>
+            <h4>申请新应用</h4>
+            <p>向管理员提交接入需求</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ③ Call Me AI 对话界面 ================= -->
+<section class="block reveal">
+  <div class="block-cap"><span class="no">③</span><h2>Call Me AI 对话</h2><span>会话列表 · 流式回复 · 已思考折叠块</span></div>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>portal.shade-yixia.cn/callme</div>
+      <div style="width:52px"></div>
+    </div>
+    <div class="view">
+      <div class="cm-wrap">
+        <aside class="cm-side">
+          <div class="btn btn-primary cm-new">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            新建会话
+          </div>
+          <div class="cm-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.2 4.2"/></svg>
+            搜索会话
+          </div>
+          <div class="cm-list">
+            <div class="grp">今天</div>
+            <div class="ss-item on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4.5 19.5l1.5-4A7.5 7.5 0 1 1 20 11.5z"/></svg>
+              <div><b>变压器检修规程问答</b><span>14:32 · 6 条消息</span></div>
+            </div>
+            <div class="ss-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4.5 19.5l1.5-4A7.5 7.5 0 1 1 20 11.5z"/></svg>
+              <div><b>安全工器具使用规范</b><span>10:15 · 3 条消息</span></div>
+            </div>
+            <div class="grp">本周</div>
+            <div class="ss-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4.5 19.5l1.5-4A7.5 7.5 0 1 1 20 11.5z"/></svg>
+              <div><b>开关柜二次回路排查思路</b><span>周二 · 12 条消息</span></div>
+            </div>
+            <div class="ss-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4.5 19.5l1.5-4A7.5 7.5 0 1 1 20 11.5z"/></svg>
+              <div><b>上周安全会议纪要整理</b><span>周一 · 8 条消息</span></div>
+            </div>
+          </div>
+          <div class="side-foot"><span class="dotok"></span>WeKnora 知识库已连接 · 4 个知识库</div>
+        </aside>
+        <div class="cm-main">
+          <div class="cm-head">
+            <h4>变压器检修规程问答</h4>
+            <span class="tag t-teal">知识库：检修规程库</span>
+            <div class="cm-more"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5.5" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.1" fill="currentColor" stroke="none"/></svg></div>
+          </div>
+          <div class="cm-body">
+            <div class="msg user">
+              <div class="m-avatar">张</div>
+              <div class="bubble">油浸式变压器检修前需要做哪些安全措施？</div>
+            </div>
+            <div class="msg ai">
+              <div class="m-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9.5" width="14" height="9.5" rx="3"/><path d="M12 9.5V6"/><circle cx="12" cy="4.6" r="1.3"/><circle cx="9.3" cy="13.8" r="1" fill="currentColor" stroke="none"/><circle cx="14.7" cy="13.8" r="1" fill="currentColor" stroke="none"/><path d="M10 16.6h4"/></svg></div>
+              <div>
+                <div class="think" id="thinkBtn">
+                  <svg class="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.7 4.4 4.4 1.7-4.4 1.7L12 15.7l-1.7-4.4-4.4-1.7 4.4-1.7z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>
+                  已思考 12.4s · 检索 3 个知识片段
+                  <svg class="arr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+                </div>
+                <div class="think-detail" id="thinkDetail">
+                  <i>检索</i>《变压器检修规程》第 4.2 节 · 安全措施<br>
+                  <i>检索</i>《电业安全工作规程》第 2.1 节 · 停电验电<br>
+                  <i>推理</i> 按「停电 → 验电 → 接地 → 悬挂标示牌」顺序组织答案
+                </div>
+                <div class="bubble">
+                  <p>检修前须严格执行以下安全措施，缺一不可：</p>
+                  <ol>
+                    <li><b class="k">停电</b>：断开各侧断路器与隔离开关，拉开控制电源；</li>
+                    <li><b class="k">验电</b>：使用合格验电器逐相验明确无电压；</li>
+                    <li><b class="k">装设接地线</b>：先接接地端，后接导体端；</li>
+                    <li><b class="k">悬挂标示牌</b>：「禁止合闸，有人工作」并装设遮栏。</li>
+                  </ol>
+                  <div class="code">
+                    <div class="c-h"><span>工作票登记示例</span><span>复制</span></div>
+                    <pre><span class="ck-c"># 第一种工作票</span>
+<span class="ck-k">工作票编号</span>：<span class="ck-s">GD-2026-0802</span>
+<span class="ck-k">工作地点</span>  ：<span class="ck-s">220kV 滨河变电站 #2 主变</span>
+<span class="ck-k">许可人</span>    ：<span class="ck-s">李四（值班长）</span></pre>
+                  </div>
+                  <div class="src-chips">
+                    <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/></svg>变压器检修规程.pdf</span>
+                    <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/></svg>电业安全工作规程.pdf</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="msg ai">
+              <div class="m-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9.5" width="14" height="9.5" rx="3"/><path d="M12 9.5V6"/><circle cx="12" cy="4.6" r="1.3"/><circle cx="9.3" cy="13.8" r="1" fill="currentColor" stroke="none"/><circle cx="14.7" cy="13.8" r="1" fill="currentColor" stroke="none"/><path d="M10 16.6h4"/></svg></div>
+              <div class="bubble"><span class="typing-dots"><i></i><i></i><i></i></span>正在检索检修规程库，为您整理补充说明<span class="cursor"></span></div>
+            </div>
+          </div>
+          <div class="cm-input">
+            <input type="text" placeholder="输入你的问题，Enter 发送，Shift + Enter 换行…">
+            <span class="att"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 11.3l-8.6 8.6a5.4 5.4 0 0 1-7.7-7.7l9-9a3.6 3.6 0 0 1 5.1 5.1l-8.8 8.8a1.8 1.8 0 0 1-2.6-2.6l8-8"/></svg></span>
+            <span class="cm-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 3.5L10 14"/><path d="M20.5 3.5l-6.8 17-3.7-6.5-6.5-3.7z"/></svg></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ④ 出工日志界面 ================= -->
+<section class="block reveal">
+  <div class="block-cap"><span class="no">④</span><h2>出工日志</h2><span>月历状态色点 · 日志卡片 · 水印照片 · 防伪码</span></div>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>portal.shade-yixia.cn/worklog</div>
+      <div style="width:52px"></div>
+    </div>
+    <div class="view wl-view">
+      <div class="wl-top">
+        <h4>出工日志</h4>
+        <span class="tag t-teal">本月已验证 12 条</span>
+        <div class="wl-acts">
+          <div class="btn btn-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 11l4.5 4.5L16.5 11"/><path d="M4.5 19.5h15"/></svg>导出</div>
+          <div class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>新建日志</div>
+        </div>
+      </div>
+      <div class="wl-wrap">
+        <div class="cal-card">
+          <div class="cal-head">
+            <b>2026 年 8 月</b>
+            <div class="cal-nav">
+              <span class="cn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></span>
+              <span class="cn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></span>
+            </div>
+          </div>
+          <div class="cal-wk"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+          <div class="cal-grid">
+            <div class="cd dim">27<i class="none"></i></div><div class="cd dim">28<i class="none"></i></div><div class="cd dim">29<i class="none"></i></div><div class="cd dim">30<i class="none"></i></div><div class="cd dim">31<i class="none"></i></div>
+            <div class="cd">1<i class="ok"></i></div><div class="cd">2<i class="none"></i></div>
+            <div class="cd">3<i class="ok"></i></div><div class="cd today">4<i></i></div><div class="cd">5<i class="pend"></i></div><div class="cd">6<i class="ok"></i></div><div class="cd">7<i class="none"></i></div><div class="cd">8<i class="none"></i></div><div class="cd">9<i class="none"></i></div>
+            <div class="cd">10<i class="ok"></i></div><div class="cd">11<i class="pend"></i></div><div class="cd">12<i class="none"></i></div><div class="cd">13<i class="ok"></i></div><div class="cd">14<i class="ok"></i></div><div class="cd">15<i class="none"></i></div><div class="cd">16<i class="none"></i></div>
+            <div class="cd">17<i class="ok"></i></div><div class="cd">18<i class="ok"></i></div><div class="cd">19<i class="none"></i></div><div class="cd">20<i class="pend"></i></div><div class="cd">21<i class="ok"></i></div><div class="cd">22<i class="none"></i></div><div class="cd">23<i class="none"></i></div>
+            <div class="cd">24<i class="ok"></i></div><div class="cd">25<i class="ok"></i></div><div class="cd">26<i class="none"></i></div><div class="cd">27<i class="ok"></i></div><div class="cd">28<i class="ok"></i></div><div class="cd">29<i class="none"></i></div><div class="cd">30<i class="none"></i></div>
+            <div class="cd">31<i class="pend"></i></div><div class="cd dim">1<i class="none"></i></div><div class="cd dim">2<i class="none"></i></div><div class="cd dim">3<i class="none"></i></div><div class="cd dim">4<i class="none"></i></div><div class="cd dim">5<i class="none"></i></div><div class="cd dim">6<i class="none"></i></div>
+          </div>
+          <div class="cal-legend">
+            <span><i class="l1"></i>已验证</span>
+            <span><i class="l2"></i>待验证</span>
+            <span><i class="l3"></i>无记录</span>
+          </div>
+        </div>
+        <div class="log-card">
+          <div class="log-head">
+            <b>8 月 4 日 · 出工日志</b>
+            <span class="tag t-teal">已验证</span>
+          </div>
+          <div class="lf">
+            <div><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/></svg>派车单号</span><b>PC-20260804-018</b></div>
+            <div><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.4a6.4 6.4 0 0 1 12.8 0"/></svg>用车人</span><b>张三 · 高级技师</b></div>
+            <div><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6.5-5.3 6.5-10.2A6.5 6.5 0 0 0 5.5 10.8C5.5 15.7 12 21 12 21z"/><circle cx="12" cy="10.6" r="2.3"/></svg>目的地</span><b>220kV 滨河变电站</b></div>
+            <div><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.2V12l3.4 2"/></svg>出车 / 返回</span><b>08:30 — 17:20</b></div>
+          </div>
+          <div class="photo-sec">
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="6.5" width="17" height="13" rx="2.5"/><circle cx="12" cy="13" r="3.4"/><path d="M8.5 6.5l1.4-2.2h4.2l1.4 2.2"/></svg>水印照片（3 张）</span>
+            <div class="photo-row">
+              <div class="ph p1">
+                <div class="ph-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="6.5" width="17" height="13" rx="2.5"/><circle cx="12" cy="13" r="3.4"/></svg></div>
+                <div class="wm">张三 · 2026-08-04 09:12<br>220kV 滨河变电站</div>
+              </div>
+              <div class="ph p2">
+                <div class="ph-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="6.5" width="17" height="13" rx="2.5"/><circle cx="12" cy="13" r="3.4"/></svg></div>
+                <div class="wm">张三 · 2026-08-04 11:47<br>#2 主变检修现场</div>
+              </div>
+              <div class="ph p3">
+                <div class="ph-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="6.5" width="17" height="13" rx="2.5"/><circle cx="12" cy="13" r="3.4"/></svg></div>
+                <div class="wm">张三 · 2026-08-04 16:58<br>工作终结验收</div>
+              </div>
+            </div>
+          </div>
+          <div class="fy">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg>
+            <span>防伪码 · 扫码可验证真伪</span>
+            <code>WL-0804-7F3K9X</code>
+            <span class="cp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ⑤ 安全日活动记录界面 ================= -->
+<section class="block reveal">
+  <div class="block-cap"><span class="no">⑤</span><h2>安全日活动记录</h2><span>文件上传 · Dify 生成进度 · 记录管理</span></div>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>portal.shade-yixia.cn/safeday</div>
+      <div style="width:52px"></div>
+    </div>
+    <div class="view sd-view">
+      <div class="sd-top">
+        <h4>安全日活动记录</h4>
+        <span>上传活动资料，AI 自动生成标准化活动记录</span>
+      </div>
+      <div class="sd-upload">
+        <div class="dz">
+          <div class="dz-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5v-11M7.8 8.7L12 4.5l4.2 4.2"/><path d="M4.5 15.5v2.2a2.3 2.3 0 0 0 2.3 2.3h10.4a2.3 2.3 0 0 0 2.3-2.3v-2.2"/></svg></div>
+          <b>点击或拖拽文件到此处上传</b>
+          <p>支持 <em>PDF / DOC / DOCX / PPT</em> 活动资料，单个文件不超过 50MB</p>
+        </div>
+        <div class="file-item">
+          <div class="f-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/><path d="M8.5 13.5h7M8.5 16.5h4.5"/></svg></div>
+          <div class="f-info">
+            <b>7月安全日活动签到表.pdf</b>
+            <div class="f-sub">2.4 MB · 上传完成，正在生成活动记录…</div>
+            <div class="prog"><i></i></div>
+          </div>
+          <span class="tag t-purple">生成中 62%</span>
+        </div>
+        <div class="steps">
+          <div class="st done"><span class="st-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>文件上传</div>
+          <div class="st-line fill"></div>
+          <div class="st done"><span class="st-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>文档解析</div>
+          <div class="st-line fill"></div>
+          <div class="st doing"><span class="st-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.7 4.4 4.4 1.7-4.4 1.7L12 15.7l-1.7-4.4-4.4-1.7 4.4-1.7z"/></svg></span>Dify 工作流生成中</div>
+          <div class="st-line"></div>
+          <div class="st"><span class="st-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>完成归档</div>
+        </div>
+      </div>
+      <div class="sd-table-card">
+        <div class="sd-table-head"><b>生成记录</b><span>共 6 条 · 按活动日期倒序</span></div>
+        <table class="sd">
+          <thead>
+            <tr><th style="width:130px">活动日期</th><th>记录名称</th><th>来源文件</th><th style="width:150px">生成时间</th><th style="width:100px">状态</th><th style="width:96px">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>2026-07-28</td>
+              <td class="rn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/></svg>7月安全日活动记录</td>
+              <td class="src">7月安全日活动签到表.pdf</td>
+              <td class="src">2026-07-28 16:42</td>
+              <td><span class="tag t-teal">已生成</span></td>
+              <td><div class="row-acts">
+                <span class="ra dl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 11l4.5 4.5L16.5 11"/><path d="M4.5 19.5h15"/></svg></span>
+                <span class="ra del"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.5 6V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3V6M6.5 6.5l.8 12a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12"/><path d="M10 10.8v5.4M14 10.8v5.4"/></svg></span>
+              </div></td>
+            </tr>
+            <tr>
+              <td>2026-06-30</td>
+              <td class="rn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/></svg>6月安全日活动记录</td>
+              <td class="src">6月活动照片与签到.docx</td>
+              <td class="src">2026-06-30 15:10</td>
+              <td><span class="tag t-teal">已生成</span></td>
+              <td><div class="row-acts">
+                <span class="ra dl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 11l4.5 4.5L16.5 11"/><path d="M4.5 19.5h15"/></svg></span>
+                <span class="ra del"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.5 6V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3V6M6.5 6.5l.8 12a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12"/><path d="M10 10.8v5.4M14 10.8v5.4"/></svg></span>
+              </div></td>
+            </tr>
+            <tr>
+              <td>2026-05-26</td>
+              <td class="rn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/></svg>5月安全日活动记录</td>
+              <td class="src">5月安全学习材料.pptx</td>
+              <td class="src">2026-05-26 17:05</td>
+              <td><span class="tag t-teal">已生成</span></td>
+              <td><div class="row-acts">
+                <span class="ra dl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 11l4.5 4.5L16.5 11"/><path d="M4.5 19.5h15"/></svg></span>
+                <span class="ra del"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.5 6V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3V6M6.5 6.5l.8 12a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12"/><path d="M10 10.8v5.4M14 10.8v5.4"/></svg></span>
+              </div></td>
+            </tr>
+            <tr>
+              <td>2026-04-28</td>
+              <td class="rn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/></svg>4月安全日活动记录</td>
+              <td class="src">4月活动签到表.pdf</td>
+              <td class="src">2026-04-28 16:30</td>
+              <td><span class="tag t-orange">待复核</span></td>
+              <td><div class="row-acts">
+                <span class="ra dl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 11l4.5 4.5L16.5 11"/><path d="M4.5 19.5h15"/></svg></span>
+                <span class="ra del"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.5 6V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3V6M6.5 6.5l.8 12a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12"/><path d="M10 10.8v5.4M14 10.8v5.4"/></svg></span>
+              </div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ⑥ 小程序首页预览 ================= -->
+<section class="block reveal">
+  <div class="block-cap"><span class="no">⑥</span><h2>小程序首页预览</h2><span>同一套极光 token 跨端落地</span></div>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>微信小程序 · Shade 壹匣</div>
+      <div style="width:52px"></div>
+    </div>
+    <div class="view phone-stage">
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="sb">
+            <span>9:41</span>
+            <div class="ic-set">
+              <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+              <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+              <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+          <div class="m-nav">
+            <div class="icon-tile it-o">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l7.8 4.4v8.8L12 20.8l-7.8-4.4V7.6z"/><path d="M12 12l7.8-4.4M12 12v8.8M12 12L4.2 7.6"/></svg>
+            </div>
+            Shade 壹匣
+          </div>
+          <div class="m-content">
+            <i class="m-glow"></i>
+            <div class="m-user">
+              <div class="avatar">张</div>
+              <div>
+                <div class="hello">下午好，张三</div>
+                <div class="role">检修一班 · <span class="tag t-orange" style="font-size:10px;padding:1.5px 8px">高级技师</span></div>
+              </div>
+            </div>
+            <div class="m-sec"><h3>应用中心</h3></div>
+            <div class="m-grid-card">
+              <div class="m-grid">
+                <div class="m-g">
+                  <div class="gi icon-tile it-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4.5 19.5l1.5-4A7.5 7.5 0 1 1 20 11.5z"/><path d="M9 10.2h6M9 13h3.5"/></svg></div>
+                  <span>Call Me</span>
+                </div>
+                <div class="m-g">
+                  <div class="gi icon-tile it-t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.8" y="5" width="16.4" height="15.4" rx="2.5"/><path d="M3.8 9.8h16.4M8 3v3.4M16 3v3.4"/><path d="M9.3 14.6l2 2 3.4-3.6"/></svg></div>
+                  <span>出工日志</span>
+                </div>
+                <div class="m-g">
+                  <div class="gi icon-tile it-p"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7.2A2.2 2.2 0 0 0 5 5.7v12.6a2.2 2.2 0 0 0 2.2 2.2h9.6a2.2 2.2 0 0 0 2.2-2.2V9.2z"/><path d="M13.5 3.5V9a.9.9 0 0 0 .9.9H19"/><path d="M12 11l3.4 1.3v2.6c0 2.2-1.5 3.8-3.4 4.7-1.9-.9-3.4-2.5-3.4-4.7v-2.6z"/></svg></div>
+                  <span>安全日记录</span>
+                </div>
+                <div class="m-g soon">
+                  <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+                  <span>敬请期待</span>
+                </div>
+                <div class="m-g">
+                  <div class="gi icon-tile it-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9.5" width="14" height="9.5" rx="3"/><path d="M12 9.5V6"/><circle cx="12" cy="4.6" r="1.3"/><circle cx="9.3" cy="13.8" r="1" fill="currentColor" stroke="none"/><circle cx="14.7" cy="13.8" r="1" fill="currentColor" stroke="none"/><path d="M10 16.6h4"/></svg></div>
+                  <span>智能助手</span>
+                </div>
+                <div class="m-g">
+                  <div class="gi icon-tile it-t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6M9 14h6"/></svg></div>
+                  <span>检修工单</span>
+                </div>
+                <div class="m-g">
+                  <div class="gi icon-tile it-p"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+                  <span>工具管理</span>
+                </div>
+                <div class="m-g soon">
+                  <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+                  <span>敬请期待</span>
+                </div>
+              </div>
+            </div>
+            <div class="m-tip">
+              <div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></div>
+              <div>
+                <b>安全生产，预防为主</b>
+                <p>上岗前请完成今日安全学习</p>
+              </div>
+            </div>
+          </div>
+          <div class="m-tabbar">
+            <div class="m-tab on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.2L12 3.8l7.5 6.4"/><path d="M6.6 8.9V20h10.8V8.9"/><path d="M10.4 20v-5h3.2v5"/></svg>
+              首页
+            </div>
+            <div class="m-tab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.6a6.4 6.4 0 0 1 12.8 0"/></svg>
+              我的
+            </div>
+          </div>
+          <div class="home-ind"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  /* 滚动 reveal */
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { threshold: 0.06 });
+  document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+
+  /* 门户导航滑动胶囊指示 */
+  var nav = document.getElementById('navLinks');
+  var pill = document.getElementById('navPill');
+  function movePill(a) {
+    if (!a) return;
+    pill.style.left = a.offsetLeft + 'px';
+    pill.style.width = a.offsetWidth + 'px';
+  }
+  nav.querySelectorAll('a').forEach(function (a) {
+    a.addEventListener('click', function () {
+      nav.querySelectorAll('a').forEach(function (x) { x.classList.remove('on'); });
+      a.classList.add('on');
+      movePill(a);
+    });
+  });
+  window.addEventListener('resize', function () { movePill(nav.querySelector('a.on')); });
+  movePill(nav.querySelector('a.on'));
+
+  /* 「已思考」折叠块 */
+  var thinkBtn = document.getElementById('thinkBtn');
+  var thinkDetail = document.getElementById('thinkDetail');
+  thinkBtn.addEventListener('click', function () {
+    var open = thinkDetail.style.display === 'block';
+    thinkDetail.style.display = open ? 'none' : 'block';
+    thinkBtn.classList.toggle('open', !open);
+  });
+</script>
+
+</body>
+</html>

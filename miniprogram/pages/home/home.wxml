@@ -10,7 +10,7 @@
     <!-- 首页面板（方案五：警示斜纹用户卡 + 宫格入口） -->
     <swiper-item>
       <view class="panel">
-        <navbar title="检修一班工具箱" />
+        <navbar title="Shade 壹匣" />
         <scroll-view scroll-y class="panel-scroll">
           <view class="page-body">
             <!-- 用户卡片 -->
@@ -20,7 +20,6 @@
                 <view class="u-info">
                   <view class="u-name">{{greeting}}，{{userInfo.nickname || '同事'}}</view>
                   <view class="u-sub">
-                    <text class="badge-outline" wx:if="{{userInfo.team}}">{{userInfo.team}}</text>
                     <text class="u-account">{{userInfo.username}}</text>
                   </view>
                 </view>
@@ -83,7 +82,6 @@
                 <view class="me-info">
                   <view class="me-name">{{userInfo.nickname || '同事'}}</view>
                   <view class="me-sub">账号：{{userInfo.username || '-'}}</view>
-                  <view class="me-sub" wx:if="{{userInfo.team}}">{{userInfo.team}}</view>
                 </view>
               </view>
             </view>
@@ -99,7 +97,7 @@
                 bind:click="onPerms"
               />
               <t-cell
-                title="关于工具箱"
+                title="关于 Shade 壹匣"
                 left-icon="book"
                 note="v0.2"
                 arrow

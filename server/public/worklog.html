@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 出工日志网页版（方案A「安全橙传承」④：月历验证状态色点 + 当日日志卡片）
+     功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容 / 打卡 /
+     照片人名·重新验证·删除 / 新建·删除日志）；右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化）；
+     API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>出工日志 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ===== 整页不滚动：仅日志卡片列表内部滚动（body 锁定 100vh，主内容 flex 撑满剩余视口） ===== */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  body > .topbar { flex: none; }
+  /* theme.css 的 .page 带 margin:0 auto，body 为 flex 容器时 auto 外边距会使 stretch 失效、
+     页面宽度退化为按内容收缩（空态/有记录态版心不一致的根源），此处显式 width:100% 恢复满宽 */
+  .page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; }
+  /* 版心：页头行与两栏主体共用同一居中栏宽（宽屏限宽居中），空态/有记录态版心一致不跳变 */
+  .wl-wrap { flex: 1; min-height: 0; width: 100%; max-width: 1560px; margin: 0 auto; display: flex; flex-direction: column; }
+  .wl-head { flex: none; }
+
+  /* ===== 页头操作区 ===== */
+  .wl-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .wl-head .section-title { margin: 0; }
+  .wl-head .acts { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  /* 全部 / 仅看我 分段开关 */
+  .seg { display: inline-flex; gap: 2px; padding: 3px; background: #fff; border: 1px solid var(--line); border-radius: 9px; }
+  .seg button {
+    border: none; background: transparent; height: 30px; padding: 0 14px; border-radius: 7px;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; color: var(--sub); letter-spacing: 1px; cursor: pointer;
+    transition: background .25s, color .25s;
+  }
+  .seg button:hover { color: var(--navy); }
+  .seg button.on { background: var(--navy); color: #fff; font-weight: 700; }
+
+  /* ===== 记录 / 批量下载 / 验证报告 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条） ===== */
+  .wl-tabs { position: relative; display: flex; gap: 4px; margin-top: 14px; border-bottom: 1px solid var(--hair); }
+  .wl-tabs button {
+    padding: 11px 20px; border: none; background: none; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 14px; font-weight: 600; color: var(--sub); letter-spacing: 1.5px;
+    transition: color .25s;
+  }
+  .wl-tabs button:hover { color: var(--navy); }
+  .wl-tabs button.on { color: var(--orange); }
+  .wl-tabs button svg { width: 15px; height: 15px; }
+  .wl-tab-ind {
+    position: absolute; bottom: -1px; left: 0; width: 0; height: 3px;
+    border-radius: 2px; background: var(--orange);
+    transition: left .3s cubic-bezier(.16, 1, .3, 1), width .3s cubic-bezier(.16, 1, .3, 1);
+  }
+
+  /* ===== 主体两栏：左月历 / 右当日卡片流（撑满剩余高度，列内容超高时各自内部滚动） ===== */
+  .wl-body { display: flex; gap: 20px; margin-top: 16px; flex: 1; min-height: 0; }
+
+  /* ----- 月历卡（自适应内容高度，超高时自身滚动，不再 sticky——全局已无滚动条） ----- */
+  .cal { width: 400px; flex: none; padding: 20px 22px 16px; align-self: flex-start; max-height: 100%; overflow-y: auto; }
+  .cal-h { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .cal-h b { font-size: 15.5px; font-weight: 800; letter-spacing: 1px; }
+  .cal-today {
+    border: none; background: transparent; color: var(--orange); font-size: 11.5px; font-weight: 700;
+    letter-spacing: 1px; cursor: pointer; padding: 3px 6px; border-radius: 6px; transition: background .25s;
+  }
+  .cal-today:hover { background: var(--orange-soft); }
+  .cal-nav { margin-left: auto; display: flex; gap: 6px; }
+  .cal-nav button {
+    width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: #fff;
+    display: flex; align-items: center; justify-content: center; color: var(--sub); cursor: pointer;
+    transition: border-color .25s, color .25s;
+  }
+  .cal-nav button:hover { border-color: var(--orange); color: var(--orange); }
+  .cal-nav svg { width: 13px; height: 13px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-wd { text-align: center; font-size: 11px; color: var(--ph); padding: 6px 0; letter-spacing: 1px; }
+  .day {
+    position: relative; aspect-ratio: 1.08; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; border-radius: 9px; font-size: 13px; cursor: pointer;
+    border: 1px solid transparent; transition: background .2s, box-shadow .2s;
+  }
+  .day:hover { background: var(--paper); }
+  .day.dim { color: #CFC7B2; cursor: default; }
+  .day.dim:hover { background: transparent; }
+  .day .ds { display: flex; gap: 3px; height: 5px; margin-top: 3px; }
+  .dt { width: 5px; height: 5px; border-radius: 50%; }
+  .dt-ok { background: var(--green); }
+  .dt-bad { background: var(--red); }
+  .day.today { background: var(--navy); color: #fff; font-weight: 700; }
+  .day.today .dt-ok { background: #7ED3A5; }
+  .day.sel { box-shadow: 0 0 0 2px var(--orange); }
+  .cal-lg {
+    display: flex; gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hair);
+    font-size: 11px; color: var(--sub); letter-spacing: .5px;
+  }
+  .cal-lg span { display: flex; align-items: center; gap: 6px; }
+  .cal-lg .dt { width: 6px; height: 6px; }
+
+  /* ----- 当日日志卡片流（日期导航由月历承担，无日期条，卡顶与月历卡顶齐平） ----- */
+  .wl-list { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  /* 记录 / 批量下载 / 验证报告 三页签共用同一列表位：切换时上浮淡入，页签内容各自内部滚动 */
+  .wl-list .pane { display: none; flex: 1; min-height: 0; }
+  .wl-list .pane.on { display: flex; flex-direction: column; animation: paneIn .34s cubic-bezier(.16, 1, .3, 1); }
+  @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .pane > .rep-bar { flex: none; margin-bottom: 12px; }
+  .pane-scroll {
+    flex: 1; min-height: 0; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent;
+  }
+  .pane-foot { flex: none; display: flex; align-items: center; gap: 12px; padding-top: 14px; }
+  .pane-foot .sp { margin-left: auto; display: flex; gap: 10px; }
+  /* 页头控件按页签显隐用 hidden 属性；author display 规则优先级高于 UA [hidden]，需显式兜底 */
+  .wl-head [hidden] { display: none !important; }
+  /* 日志卡片列表容器：页面唯一滚动区；scrollbar-gutter 常驻槽位，滚动条出现/消失不引起横向抖动 */
+  #cardFlow {
+    flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; transition: opacity .18s ease;
+    scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent;
+  }
+  /* 切日/切范围加载中：保留旧内容微透明过渡（不再骨架闪屏），期间禁点 */
+  #cardFlow.switching { opacity: .45; pointer-events: none; }
+  /* 细滚动条：半透明藏青、悬停加深（弹层 .m-scroll 同口径，比米色实心更轻） */
+  #cardFlow::-webkit-scrollbar, .cal::-webkit-scrollbar, .pane-scroll::-webkit-scrollbar { width: 5px; }
+  #cardFlow::-webkit-scrollbar-thumb, .cal::-webkit-scrollbar-thumb, .pane-scroll::-webkit-scrollbar-thumb {
+    background: rgba(34, 49, 78, .16); border-radius: 3px;
+  }
+  #cardFlow::-webkit-scrollbar-thumb:hover, .cal::-webkit-scrollbar-thumb:hover,
+  .pane-scroll::-webkit-scrollbar-thumb:hover { background: rgba(34, 49, 78, .34); }
+  #cardFlow::-webkit-scrollbar-track, .cal::-webkit-scrollbar-track, .pane-scroll::-webkit-scrollbar-track { background: transparent; }
+  .linkbtn {
+    border: none; background: transparent; color: var(--orange); font-size: 12px; font-weight: 700;
+    letter-spacing: 1px; cursor: pointer; padding: 4px 6px; border-radius: 6px; transition: background .25s;
+  }
+  .linkbtn:hover { background: var(--orange-soft); }
+  .photo-cnt { font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
+
+  /* ----- 日志卡片 ----- */
+  .log-card { overflow: hidden; margin-bottom: 16px; }
+  .log-h { display: flex; align-items: center; gap: 10px; padding: 15px 22px; border-bottom: 1px solid var(--hair); }
+  .log-h b { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
+  .log-h small { font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
+  .log-h .tag { margin-left: auto; }
+  /* 卡片主体：左栏信息 / 右栏照片两栏，黄金分割（照片侧为大侧 61.8%），间以发丝竖线 */
+  .log-body { display: flex; align-items: stretch; }
+  .log-side-l { width: 38.2%; flex: none; min-width: 0; display: flex; flex-direction: column; }
+  .log-side-r { flex: 1; min-width: 0; border-left: 1px solid var(--hair); display: flex; flex-direction: column; }
+  .log-rows { padding: 6px 22px; }
+  .lrow { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px dashed var(--hair); }
+  .lrow:last-child { border-bottom: none; }
+  .lrow .li {
+    width: 30px; height: 30px; flex: none; border-radius: 8px; background: var(--orange-soft);
+    color: var(--orange); display: flex; align-items: center; justify-content: center;
+  }
+  .lrow .li svg { width: 16px; height: 16px; }
+  .lrow .lk { width: 56px; flex: none; font-size: 12px; color: var(--ph); }
+  .lrow .lv { font-size: 13.5px; font-weight: 600; }
+  .lrow .lv small { display: block; margin-top: 2px; font-size: 11px; color: var(--ph); font-weight: 400; }
+  /* 卡片头部可点击：打开改派车/用车人编辑弹层（同小程序点车牌头部） */
+  .log-h { cursor: pointer; transition: background .25s; }
+  .log-h:hover { background: #FFFDF9; }
+  .log-h .he {
+    flex: none; width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
+    color: var(--ph); transition: color .25s, background .25s;
+  }
+  .log-h:hover .he { color: var(--orange); background: var(--orange-soft); }
+  .log-h .he svg { width: 14px; height: 14px; }
+  /* 用车人打卡胶囊（点击切换打卡，同小程序 chips 直改） */
+  .mchip {
+    display: inline-flex; align-items: center; gap: 5px; margin: 2px 6px 2px 0; padding: 2px 10px;
+    border: 1px solid var(--dash); border-radius: 999px; font-size: 12px; font-weight: 400; color: var(--sub);
+    cursor: pointer; user-select: none; transition: border-color .25s, color .25s, background .25s;
+  }
+  .mchip:hover { border-color: var(--orange); color: var(--orange); }
+  /* 已打卡为绿色（与「已验证」日历色点同 token）；.mchip.on 与 .mchip:hover 等优先级且居后，悬停仍保持绿色 */
+  .mchip.on { border-color: var(--green); color: var(--green); background: #EAF5EF; font-weight: 600; }
+  .m-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--dash); }
+  .mchip.on .m-dot { background: var(--green); }
+  /* 左栏底部操作行（margin-top:auto 沉底，与右侧照片区高度无关） */
+  .log-acts { display: flex; justify-content: flex-end; margin-top: auto; padding: 4px 22px 14px; }
+  .act-del {
+    border: none; background: transparent; color: var(--red); font-size: 12px; letter-spacing: 1px;
+    cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background .25s;
+  }
+  .act-del:hover { background: #FBE9E9; }
+  /* 未通过原因逐行（上方留 12px 呼吸，与卡片头部分隔线节奏一致） */
+  .fail-list { margin: 12px 22px 0; padding: 10px 14px; border-radius: 9px; background: #FBE9E9; }
+  .fail-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--red); padding: 2.5px 0; }
+  .fail-row svg { width: 13px; height: 13px; flex: none; }
+  /* 巡视内容块（点击弹层看全文） */
+  .patrol {
+    margin: 12px 22px 0; padding: 10px 14px; border: 1px solid var(--hair); border-radius: 9px;
+    font-size: 12.5px; color: var(--navy); line-height: 1.7; cursor: pointer;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    transition: border-color .25s, background .25s;
+  }
+  .patrol:hover { border-color: var(--orange); background: #FFFDF9; }
+  .patrol .p-tag {
+    display: inline-block; margin-right: 8px; font-size: 10.5px; font-weight: 700; color: var(--orange);
+    background: var(--orange-soft); border-radius: 4px; padding: 1px 6px; letter-spacing: 1px;
+  }
+  /* 巡视内容块（点击弹层修改，同小程序） */
+  .patrol .p-edit { float: right; color: var(--ph); display: flex; align-items: center; }
+  .patrol .p-edit svg { width: 12px; height: 12px; }
+  .patrol:hover .p-edit { color: var(--orange); }
+  .patrol.none { color: var(--ph); }
+  /* 水印照片网格（右栏内）：flex:1 + 行高 1fr 均分吃满右栏剩余高度，照片少时自动拉长与左侧信息栏底部齐平；
+     照片多于左侧时按 .ph 最小高度（≈4/3）自然撑开卡片 */
+  .ph-lab { padding: 14px 22px 8px; font-size: 12px; color: var(--ph); letter-spacing: 1px; }
+  .photos {
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; gap: 10px;
+    padding: 0 22px 20px; flex: 1;
+  }
+  .ph {
+    position: relative; min-height: 148px; border-radius: 9px; overflow: hidden; cursor: pointer;
+    border: 1px solid var(--hair); background: var(--paper); transition: transform .3s, box-shadow .3s;
+  }
+  .ph:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+  .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ph-st {
+    position: absolute; top: 6px; left: 6px; border-radius: 4px; padding: 1px 6px;
+    font-size: 10px; font-weight: 700; letter-spacing: .5px; color: #fff;
+  }
+  .ph-st.pass { background: rgba(242, 109, 33, .92); }
+  .ph-st.ing { background: rgba(107, 118, 144, .92); }
+  .ph-st.fail { background: rgba(207, 68, 68, .92); }
+  .ph-miss { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+  .ph-mis { border-radius: 4px; padding: 1px 5px; font-size: 9.5px; font-weight: 700; color: #fff; background: rgba(207, 68, 68, .92); }
+  .ph-info {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 8px 4px; display: flex; justify-content: space-between;
+    font-size: 9.5px; color: rgba(255, 255, 255, .94); letter-spacing: .5px;
+    background: linear-gradient(transparent, rgba(34, 49, 78, .68));
+  }
+  /* 无照片占位：虚线框撑满右栏（flex:1），边框可见、底部与左侧内容齐平 */
+  .photos-empty {
+    flex: 1; min-height: 140px; margin: 14px 22px 20px; border: 1.5px dashed var(--dash); border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--ph); letter-spacing: 1px;
+  }
+
+  /* ===== 骨架屏 ===== */
+  .sk-card { padding: 22px; margin-bottom: 16px; }
+  .sk-l { height: 14px; border-radius: 6px; margin-bottom: 12px; }
+  .sk-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+  .sk-row i { aspect-ratio: 4 / 3; border-radius: 9px; }
+
+  /* ===== 大图遮罩层（Lightbox） ===== */
+  .lb {
+    position: fixed; inset: 0; z-index: 300; padding: 36px;
+    background: rgba(27, 39, 64, .84); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center; gap: 18px;
+    opacity: 0; pointer-events: none; transition: opacity .3s;
+  }
+  .lb.open { opacity: 1; pointer-events: auto; }
+  .lb-stage { position: relative; max-width: min(68vw, 960px); display: flex; align-items: center; justify-content: center; }
+  .lb-img {
+    max-width: 100%; max-height: 84vh; border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .4); opacity: 0; transition: opacity .4s;
+  }
+  .lb-img.show { opacity: 1; }
+  .lb-count {
+    position: absolute; bottom: -30px; left: 50%; transform: translateX(-50%);
+    color: rgba(255, 255, 255, .8); font-size: 12px; letter-spacing: 2px;
+  }
+  .lb-x {
+    position: absolute; top: 18px; right: 18px; width: 38px; height: 38px; border-radius: 50%;
+    border: none; background: rgba(255, 255, 255, .14); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: background .25s;
+  }
+  .lb-x:hover { background: rgba(255, 255, 255, .28); }
+  .lb-x svg { width: 17px; height: 17px; }
+  .lb-arrow {
+    position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px; border-radius: 50%;
+    border: none; background: rgba(255, 255, 255, .14); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: background .25s; z-index: 2;
+  }
+  .lb-arrow:hover { background: rgba(255, 255, 255, .28); }
+  .lb-arrow svg { width: 18px; height: 18px; }
+  .lb-arrow.l { left: 14px; }
+  .lb-arrow.r { right: 14px; }
+  /* 照片与信息卡的行容器：顶部对齐，信息卡高度按内容自适应（不再与照片等高拉伸） */
+  .lb-main { display: flex; align-items: flex-start; gap: 18px; max-width: 100%; }
+  .lb-side {
+    width: 290px; flex: none; max-height: 84vh; overflow-y: auto;
+    background: #fff; border-radius: 12px; padding: 18px 20px;
+  }
+  .lb-row { padding: 8px 0; border-bottom: 1px dashed var(--hair); }
+  .lb-row:last-child { border-bottom: none; }
+  .lb-row .k { font-size: 11px; color: var(--ph); letter-spacing: 1px; margin-bottom: 3px; }
+  .lb-row .v { font-size: 13px; font-weight: 600; line-height: 1.6; word-break: break-all; }
+  .lb-row .v.good { color: var(--orange); }
+  .lb-row .v.bad { color: var(--red); }
+  /* 防伪码提示（防伪码只嵌印在水印照片画面中，接口不返回，此处引导核对） */
+  .acode {
+    margin-top: 12px; border: 1.5px dashed var(--dash); border-radius: 10px;
+    padding: 12px 14px; display: flex; align-items: center; gap: 10px; background: #FDFCF8;
+  }
+  .acode > svg { width: 20px; height: 20px; flex: none; color: var(--orange); }
+  .acode small { font-size: 10.5px; color: var(--ph); line-height: 1.7; letter-spacing: .5px; }
+  /* 信息卡内照片操作（重新验证 / 修改人名 / 删除，同小程序卡片直改） */
+  .lb-acts { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hair); display: flex; flex-direction: column; gap: 8px; }
+  .lb-acts .btn { width: 100%; justify-content: center; }
+  .lb-acts .act-danger { color: var(--red); }
+  .lb-acts .act-danger:hover { background: #FBE9E9; border-color: var(--red); }
+
+  /* ===== 编辑弹层表单（改派车 / 巡视内容 / 照片人名） ===== */
+  .f-lab { display: block; font-size: 12px; color: var(--ph); letter-spacing: 1px; margin: 14px 0 7px; }
+  .f-lab:first-of-type { margin-top: 2px; }
+  .f-sel, .f-ta {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; outline: none;
+    font-size: 13px; color: var(--navy); font-family: inherit; transition: border-color .25s, box-shadow .25s;
+  }
+  .f-sel { height: 36px; padding: 0 10px; }
+  .f-sel:focus, .f-ta:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(242, 109, 33, .12); }
+  .f-sel:disabled { background: var(--paper); color: var(--ph); cursor: not-allowed; }
+  .f-ta { min-height: 110px; padding: 10px 12px; line-height: 1.7; resize: vertical; }
+  .f-hint { margin-top: 6px; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
+  /* 点亮 chips（用车人选择 / 照片人名 / 快捷输入共用） */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--sub);
+    font-size: 12.5px; padding: 5px 14px; cursor: pointer; font-family: inherit;
+    transition: border-color .25s, color .25s, background .25s;
+  }
+  .chip:hover:not(:disabled) { border-color: var(--orange); color: var(--orange); }
+  .chip.on { border-color: var(--orange); background: var(--orange-soft); color: var(--orange); font-weight: 600; }
+  .chip:disabled { opacity: .45; cursor: not-allowed; }
+  .chip.sm { padding: 3px 10px; font-size: 11.5px; }
+
+  /* ===== 下载页签（日期范围 + 按月分组勾选；页签内嵌后自适应列宽） ===== */
+  .dl-meta { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
+  .dl-month { font-size: 12.5px; font-weight: 800; letter-spacing: 1px; margin: 14px 0 8px; }
+  .dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+  .dl-ph {
+    position: relative; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; cursor: pointer;
+    border: 2px solid var(--hair); background: var(--paper); transition: border-color .2s, opacity .2s;
+  }
+  .dl-ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .dl-ph.sel { border-color: var(--orange); }
+  .dl-ph:not(.sel) img { opacity: .45; }
+  .dl-tick {
+    position: absolute; top: 5px; right: 5px; width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(255, 255, 255, .92); border: 1.5px solid var(--dash); color: transparent;
+    display: flex; align-items: center; justify-content: center; transition: background .2s, border-color .2s;
+  }
+  .dl-tick svg { width: 11px; height: 11px; }
+  .dl-ph.sel .dl-tick { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .dl-day {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 6px 3px; text-align: center;
+    font-size: 9.5px; color: rgba(255, 255, 255, .95); letter-spacing: .5px;
+    background: linear-gradient(transparent, rgba(34, 49, 78, .68));
+  }
+
+  /* ===== 通用弹层（巡视内容 / 编辑 / 新建日志；下载与报告已页签化不再用弹层） ===== */
+  .mask {
+    position: fixed; inset: 0; z-index: 320; padding: 24px;
+    background: rgba(27, 39, 64, .5); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mask.open { opacity: 1; }
+  /* 外壳 overflow:hidden 保四角圆角；滚动内凹到 .m-scroll（外壳 6px 内边距 + 内层自带圆角），
+     滚动条不贴右缘、不挤直角，样式维持细暖色 */
+  .modal {
+    background: #fff; border-radius: 14px; width: 560px; max-width: 94vw; max-height: 86vh;
+    overflow: hidden; padding: 6px; display: flex; flex-direction: column;
+    box-shadow: 0 24px 60px rgba(27, 39, 64, .25);
+    transform: translateY(16px) scale(.98); transition: transform .35s cubic-bezier(.16, 1, .3, 1);
+  }
+  .m-scroll {
+    flex: 1; min-height: 0; overflow-y: auto; border-radius: 9px; padding: 14px 18px 16px;
+    scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent;
+  }
+  /* 细滚动条：半透明藏青、悬停加深，与页面滚动区同口径 */
+  .m-scroll::-webkit-scrollbar { width: 5px; }
+  .m-scroll::-webkit-scrollbar-thumb { background: rgba(34, 49, 78, .16); border-radius: 3px; }
+  .m-scroll::-webkit-scrollbar-thumb:hover { background: rgba(34, 49, 78, .34); }
+  .m-scroll::-webkit-scrollbar-track { background: transparent; }
+  .mask.open .modal { transform: none; }
+  .m-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .m-title { font-size: 15.5px; font-weight: 800; letter-spacing: 1px; }
+  .m-x {
+    margin-left: auto; width: 30px; height: 30px; border: none; border-radius: 8px; background: var(--paper);
+    color: var(--sub); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .25s, color .25s;
+  }
+  .m-x:hover { background: var(--orange-soft); color: var(--orange); }
+  .m-x svg { width: 14px; height: 14px; }
+  .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+  /* ===== 验证报告 ===== */
+  .rep-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .rep-bar input[type="date"] {
+    height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px;
+    font-size: 12.5px; color: var(--navy); background: #fff; outline: none; font-family: inherit;
+    transition: border-color .25s, box-shadow .25s;
+  }
+  .rep-bar input[type="date"]:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(242, 109, 33, .12); }
+  .rep-sep { color: var(--ph); font-size: 12px; }
+  .rep-total { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
+  .rep-mine {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub);
+    cursor: pointer; user-select: none; letter-spacing: 1px;
+  }
+  .rep-mine .sw {
+    width: 30px; height: 17px; border-radius: 9px; background: var(--dash); position: relative;
+    transition: background .25s; flex: none;
+  }
+  .rep-mine .sw::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%;
+    background: #fff; transition: left .25s; box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+  }
+  .rep-mine.on { color: var(--orange); }
+  .rep-mine.on .sw { background: var(--orange); }
+  .rep-mine.on .sw::after { left: 15px; }
+  .rep-date { font-size: 12.5px; font-weight: 800; letter-spacing: 1px; margin: 14px 0 8px; }
+  .rep-date .cnt { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--red); }
+  /* 报告行：上行车牌 + 用车人 + 跳转箭头，下行不通过说明独占一行自然换行（页签内嵌白底卡片） */
+  .rep-row {
+    display: block; padding: 12px 16px; border: 1px solid var(--hair); background: #fff;
+    border-radius: 10px; margin-bottom: 10px; cursor: pointer; transition: border-color .25s, background .25s;
+  }
+  .rep-row:hover { border-color: var(--orange); background: #FFFDF9; }
+  .rep-top { display: flex; align-items: center; gap: 12px; }
+  .rep-plate { flex: none; font-size: 13.5px; font-weight: 700; }
+  .rep-members { font-size: 12px; color: var(--sub); line-height: 1.6; }
+  .rep-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .reason {
+    font-style: normal; font-size: 11px; font-weight: 700; color: var(--red);
+    background: #FBE9E9; border-radius: 5px; padding: 3px 9px; letter-spacing: .5px; line-height: 1.55;
+  }
+  .rep-go { margin-left: auto; flex: none; color: var(--ph); display: flex; }
+  .rep-go svg { width: 14px; height: 14px; }
+  .rep-row:hover .rep-go { color: var(--orange); }
+
+  /* ===== 卡片入场动效（克制：短距上浮 + 错峰） ===== */
+  .anim-in { opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s cubic-bezier(.16, 1, .3, 1); }
+  .anim-in.in { opacity: 1; transform: none; }
+
+  @media (max-width: 1024px) {
+    .wl-body { flex-direction: column; }
+    /* 窄屏纵向排列：月历限高（自身滚动），避免挤压下方日志列表 */
+    .cal { width: 100%; max-height: 46vh; }
+  }
+  @media (max-width: 640px) {
+    .photos { grid-template-columns: repeat(2, 1fr); }
+    /* 窄屏卡片两栏回退为上下堆叠 */
+    .log-body { flex-direction: column; }
+    .log-side-l { width: 100%; }
+    .log-side-r { border-left: none; border-top: 1px solid var(--hair); margin-top: 12px; }
+    .lb { padding: 18px; overflow-y: auto; }
+    .lb-main { flex-direction: column; align-items: center; }
+    .lb-side { width: 100%; max-height: none; }
+    .topbar-nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<!-- 顶部导航由 Shade.topbar({active:'worklog'}) 统一渲染（见 script） -->
+
+<main class="page">
+  <div class="wl-wrap">
+  <!-- 页头：标题 + 记录页专属操作（范围切换 / 新建） -->
+  <div class="wl-head fade-up">
+    <div class="section-title"><h3>出工日志</h3><span class="more">月历色点看验证状态，点击日期查看当日记录</span></div>
+    <div class="acts">
+      <span class="photo-cnt" id="photoCnt"></span>
+      <div class="seg" id="segScope">
+        <button class="on" data-v="all">全部</button>
+        <button data-v="mine">仅看我</button>
+      </div>
+      <button class="btn" id="btnCreate"></button>
+    </div>
+  </div>
+  <!-- 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条），三页共用同一列表位 -->
+  <div class="wl-tabs fade-up" id="wlTabs">
+    <button class="on" data-p="Record">记录</button>
+    <button data-p="Dl">批量下载</button>
+    <button data-p="Rep">验证报告</button>
+    <span class="wl-tab-ind" id="wlTabInd"></span>
+  </div>
+
+  <div class="wl-body">
+    <!-- 左：月历（按 day-status 着色） -->
+    <aside class="card cal rv">
+      <div class="cal-h">
+        <b id="calYm">—</b>
+        <button class="cal-today" id="calToday">今天</button>
+        <div class="cal-nav">
+          <button id="calPrev" title="上一月"></button>
+          <button id="calNext" title="下一月"></button>
+        </div>
+      </div>
+      <div class="cal-grid" id="calBody"></div>
+      <div class="cal-lg">
+        <span><i class="dt dt-ok"></i>已验证</span>
+        <span><i class="dt dt-bad"></i>待核实</span>
+      </div>
+    </aside>
+
+    <!-- 右：记录 / 下载 / 报告 三页签共用同一列表位（顶部与月历卡顶齐平） -->
+    <section class="wl-list rv">
+      <!-- 记录：当日日志卡片流（日期导航由月历承担） -->
+      <div class="pane on" id="paneRecord"><div id="cardFlow"></div></div>
+
+      <!-- 下载：日期范围 + 按月分组勾选 + 底部操作行（原批量下载弹层页签化；仅看我走页头全局开关） -->
+      <div class="pane" id="paneDl">
+        <div class="rep-bar">
+          <input type="date" id="dlFrom"><span class="rep-sep">~</span><input type="date" id="dlTo">
+          <button class="btn btn-sm" id="dlQuery">查询</button>
+          <button class="linkbtn" id="dlToday">仅今天</button>
+          <span class="dl-meta" id="dlMeta"></span>
+        </div>
+        <div class="pane-scroll" id="dlBody"></div>
+        <div class="pane-foot">
+          <span class="rep-mine on" id="dlAll"><span class="sw"></span>全选</span>
+          <span class="dl-meta" id="dlSelCnt"></span>
+          <span class="sp"><button class="btn btn-accent" id="dlGo" disabled></button></span>
+        </div>
+      </div>
+
+      <!-- 报告：日期范围 + 不通过记录分组列表（原验证报告弹层页签化；仅看我走页头全局开关） -->
+      <div class="pane" id="paneRep">
+        <div class="rep-bar">
+          <input type="date" id="repFrom"><span class="rep-sep">~</span><input type="date" id="repTo">
+          <button class="btn btn-sm" id="repQuery">查询</button>
+          <span class="rep-total" id="repTotal"></span>
+        </div>
+        <div class="pane-scroll" id="repBody"></div>
+      </div>
+    </section>
+  </div>
+  </div>
+</main>
+
+<!-- 照片大图遮罩层 -->
+<div class="lb" id="lightbox"></div>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+/* ============================================================
+   出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·验证报告三页签（原下载、报告弹层已页签化）
+   编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容 / 打卡 / 照片人名·重新验证·删除 / 新建·删除日志
+   （水印照片上传依赖小程序拍摄·裁剪·定位加水印流程，网页端不提供，见回报说明）
+   ============================================================ */
+(function () {
+'use strict';
+Shade.requireAuth();
+/* 统一顶部导航（当前应用：出工日志） */
+Shade.topbar({ active: 'worklog' });
+
+/* ================= 工具 ================= */
+var $ = function (s, c) { return (c || document).querySelector(s); };
+var $$ = function (s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); };
+var RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+var esc = Shade.esc;
+
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function fmtDate(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function parseDate(s) { var a = s.split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
+var DOW = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+/* 「M月D日 周X」 */
+function fmtDateCN(s) { var d = parseDate(s); return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + DOW[d.getDay()]; }
+function todayStr() { return fmtDate(new Date()); }
+/* 「2026 年 8 月」 */
+function fmtMonthCN(m) { var a = m.split('-'); return a[0] + ' 年 ' + (+a[1]) + ' 月'; }
+/* 报告默认范围：当天 ≤10 号 → 上月整月，否则本月 1 号 ~ 今天（沿用旧网页端口径） */
+function defaultRange() {
+  var now = new Date();
+  if (now.getDate() <= 10) {
+    return {
+      from: fmtDate(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+      to: fmtDate(new Date(now.getFullYear(), now.getMonth(), 0))
+    };
+  }
+  return { from: fmtDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: fmtDate(now) };
+}
+
+/* 页面特有的内联 SVG（icons.js 未收录的：车辆 / 左右箭头 / 警告） */
+var SVG_CAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5l1.6-5A2 2 0 0 1 8 9h8a2 2 0 0 1 1.9 1.5l1.6 5"/><rect x="3.5" y="15.5" width="17" height="4" rx="1.5"/><circle cx="7.5" cy="19.5" r="1.4"/><circle cx="16.5" cy="19.5" r="1.4"/></svg>';
+var SVG_CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>';
+var SVG_CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>';
+var SVG_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.2"/></svg>';
+/* 快捷输入（与小程序一致：巡视内容与水印施工内容共用） */
+var QUICK_INPUTS = ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'];
+
+/* ================= 全局状态 ================= */
+var state = {
+  date: todayStr(),          // 当前选中日期 YYYY-MM-DD
+  scope: 'all',              // all | mine
+  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 验证报告
+  entries: [],               // 当日日志卡片
+  calY: 0, calM: 0,          // 月历当前显示月份（calM 为 0 起）
+  calCache: {},              // day-status 缓存：scope|YYYY-MM → map
+  timer: 0,                  // 验证中照片的轮询定时器
+  rep: { from: '', to: '', loaded: false },
+  meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
+  dl: { from: '', to: '', list: null, saving: false } // 下载页签（list 项带 selected）
+};
+
+/* ================= 顶部导航 ================= */
+function renderTopUser(u) {
+  var name = (u && (u.nickname || u.username)) || '班组成员';
+  $('#miniAvatar').textContent = name.charAt(0);
+  $('#topName').textContent = name;
+}
+
+/* ================= 通用弹层（可叠层，Esc / 点遮罩关闭） ================= */
+var modalStack = [];
+function mHead(title) {
+  return '<div class="m-head"><span class="m-title">' + esc(title) + '</span>'
+    + '<button class="m-x">' + Shade.icon('close', 14) + '</button></div>';
+}
+function createModal(html, opts) {
+  opts = opts || {};
+  var mask = document.createElement('div');
+  mask.className = 'mask';
+  var box = document.createElement('div');
+  box.className = 'modal';
+  if (opts.width) box.style.width = opts.width + 'px';
+  /* 内容包一层滚动容器：外壳 overflow:hidden 保圆角，滚动条内凹不贴角 */
+  box.innerHTML = '<div class="m-scroll">' + html + '</div>';
+  mask.appendChild(box);
+  document.body.appendChild(mask);
+  requestAnimationFrame(function () { mask.classList.add('open'); });
+  var inst = {
+    mask: mask, box: box, closed: false,
+    close: function () {
+      if (inst.closed) return;
+      inst.closed = true;
+      var i = modalStack.indexOf(inst);
+      if (i >= 0) modalStack.splice(i, 1);
+      mask.classList.remove('open');
+      setTimeout(function () { mask.remove(); }, 300);
+      if (opts.onClose) opts.onClose();
+    }
+  };
+  mask.addEventListener('mousedown', function (e) { if (e.target === mask) inst.close(); });
+  modalStack.push(inst);
+  $$('.m-x', box).forEach(function (b) { b.addEventListener('click', inst.close); });
+  return inst;
+}
+
+/* ================= 当日日志 ================= */
+function findEntry(eid) {
+  var r = null;
+  state.entries.forEach(function (e) { if (e.id === eid) r = e; });
+  return r;
+}
+
+/* 加载当日日志；quiet=true 时保留现有内容（轮询静默刷新）。
+   仅首次进页用骨架占位；之后切日/切范围保留旧内容加 .switching 微透明过渡、禁点，
+   数据到位直接落位（不重播入场动画），避免骨架/卡片闪烁 */
+async function loadLogs(opts) {
+  opts = opts || {};
+  clearPending();
+  var flow = $('#cardFlow');
+  var booted = flow.getAttribute('data-boot') === '1';
+  if (!opts.quiet) {
+    if (booted) flow.classList.add('switching');
+    else renderSkeleton();
+  }
+  try {
+    var r = await Shade.api('/api/v1/worklog/logs?date=' + state.date + '&scope=' + state.scope);
+    state.entries = (r.data && r.data.list) || [];
+    renderCards(!!opts.quiet || booted); // 静默刷新 / 切日切换不重播入场动画
+    flow.setAttribute('data-boot', '1');
+    flow.classList.remove('switching');
+    if (!opts.quiet) flow.scrollTop = 0;
+    if (!opts.poll) loadCalMonth(true); // 非轮询刷新时强刷月历着色
+    schedulePending();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+    flow.classList.remove('switching');
+    if (!opts.quiet && !booted) { // 首次加载失败才清空为占位；切日失败保留旧内容
+      state.entries = [];
+      renderCards();
+      flow.setAttribute('data-boot', '1');
+    }
+  }
+}
+
+function renderSkeleton() {
+  var one = '<div class="card sk-card">'
+    + '<div class="sk-l skeleton" style="width:42%"></div>'
+    + '<div class="sk-l skeleton" style="width:86%"></div>'
+    + '<div class="sk-row"><i class="skeleton"></i><i class="skeleton"></i><i class="skeleton"></i></div></div>';
+  $('#cardFlow').innerHTML = one + one;
+  $('#photoCnt').textContent = '';
+}
+
+/* 空态轻量占位：同一 #cardFlow 内渲染，与卡片同宽同顶对齐（无卡片白底），入场动效与有记录态一致 */
+function emptyHTML(t, sub) {
+  return '<div class="empty anim-in">' + Shade.icon('calendar', 44)
+    + '<p>' + esc(t) + '</p>'
+    + (sub ? '<p style="font-size:11.5px">' + esc(sub) + '</p>' : '') + '</div>';
+}
+
+/* 照片验证状态角标（与后端 verify_status 口径一致；旧值 date_mismatch/dest_mismatch 归入失败） */
+function photoStatus(p) {
+  if (p.verify_status === 'pending') return { cls: 'ing', txt: '验证中' };
+  if (p.verify_status === 'passed') return { cls: 'pass', txt: '核验通过' };
+  return { cls: 'fail', txt: '验证失败' };
+}
+/* 完成态逐项列「日期不符」「地点不符」 */
+function photoMismatch(p) {
+  var arr = [];
+  if (p.date_ok === 0 || (p.date_ok == null && p.verify_status === 'date_mismatch')) arr.push('日期不符');
+  if (p.dest_ok === 0 || (p.dest_ok == null && p.verify_status === 'dest_mismatch')) arr.push('地点不符');
+  return arr;
+}
+function verifyText(p) {
+  if (p.verify_status === 'pending') return '验证中';
+  if (p.verify_status === 'passed') return '核验通过';
+  var mis = photoMismatch(p);
+  return '验证失败' + (mis.length ? '（' + mis.join('、') + '）' : '');
+}
+
+function photoHTML(p) {
+  var st = photoStatus(p);
+  var mis = photoMismatch(p);
+  var html = '<figure class="ph" data-pid="' + p.id + '">'
+    + '<img src="' + esc(p.url) + '" loading="lazy" alt="水印照片">'
+    + '<span class="ph-st ' + st.cls + '">' + st.txt + '</span>';
+  if (mis.length) {
+    html += '<span class="ph-miss">' + mis.map(function (m) { return '<span class="ph-mis">' + m + '</span>'; }).join('') + '</span>';
+  }
+  html += '<figcaption class="ph-info"><span>' + esc((p.members || []).join('、')) + '</span>'
+    + '<span>' + esc(String(p.shot_time || '').slice(0, 16)) + '</span></figcaption></figure>';
+  return html;
+}
+
+/* 卡片验证状态 tag：验证通过=橙 / 未通过=红 / 免验证=藏青 */
+function verifyTag(e) {
+  if (e.verify_passed === 'passed') return '<span class="tag tag-orange">验证通过</span>';
+  if (e.verify_passed === 'failed') return '<span class="tag tag-red">未通过</span>';
+  return '<span class="tag tag-navy">免验证</span>';
+}
+
+function cardHTML(e, idx, total) {
+  var noCar = e.vehicle_id == null;
+  var html = '<article class="card log-card anim-in" data-eid="' + e.id + '">'
+    + '<div class="hazard-top"></div>'
+    + '<div class="log-h" data-act="edit" title="点击修改派车 / 用车人"><b>' + esc(noCar ? '站内作业' : e.plate_no) + '</b>'
+    + '<small>' + esc(state.date.replace(/-/g, '.')) + ' · 第 ' + (idx + 1) + ' / ' + total + ' 条</small>'
+    + verifyTag(e)
+    + '<span class="he">' + Shade.icon('edit', 14) + '</span></div>';
+
+  /* 未通过原因逐行 */
+  if (e.verify_passed === 'failed' && e.verify_reasons && e.verify_reasons.length) {
+    html += '<div class="fail-list">' + e.verify_reasons.map(function (r) {
+      return '<div class="fail-row">' + SVG_WARN + '<span>' + esc(r) + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  /* 卡片主体：左栏信息（派车 / 用车人 / 目的地 / 巡视内容 / 删除），右栏照片，黄金分割且照片侧为大侧 */
+  html += '<div class="log-body"><div class="log-side-l">';
+
+  /* 信息行：派车车辆 / 用车人 / 目的地（出工时间行已按反馈移除，created_at 字段数据保留） */
+  var members = (e.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
+  var memberHtml = members.length
+    ? members.map(function (m) {
+      return '<span class="mchip' + (m.checked ? ' on' : '') + '" data-act="check" data-mid="' + m.id + '" title="点击切换打卡">'
+        + '<span class="m-dot"></span>' + esc(m.name) + '</span>';
+    }).join('')
+    : '<span style="color:var(--ph)">无</span>';
+  var checkedN = members.filter(function (m) { return m.checked; }).length;
+  html += '<div class="log-rows">'
+    + '<div class="lrow"><div class="li">' + SVG_CAR + '</div><div class="lk">派车车辆</div>'
+    + '<div class="lv">' + esc(noCar ? '未出车' : e.plate_no) + '<small>' + (noCar ? '站内作业，不参与验证' : '工程车辆') + '</small></div></div>'
+    + '<div class="lrow"><div class="li">' + Shade.icon('user', 16) + '</div><div class="lk">用车人</div>'
+    + '<div class="lv">' + memberHtml + (members.length ? '<small>已打卡 ' + checkedN + ' / ' + members.length + ' 人</small>' : '') + '</div></div>'
+    + '<div class="lrow"><div class="li">' + Shade.icon('location', 16) + '</div><div class="lk">目的地</div>'
+    + '<div class="lv">' + esc(noCar ? '—' : (e.destination_name || '未选择')) + '</div></div>'
+    + '</div>';
+
+  /* 巡视内容块：点击弹层修改（无内容也可点击填写），快捷输入同小程序 */
+  var pEdit = '<span class="p-edit">' + Shade.icon('edit', 12) + '</span>';
+  if (e.patrol_content) {
+    html += '<div class="patrol" data-act="patrol" title="点击修改巡视内容"><span class="p-tag">巡视内容</span>' + pEdit + esc(e.patrol_content) + '</div>';
+  } else {
+    html += '<div class="patrol none" data-act="patrol" title="点击填写巡视内容"><span class="p-tag">巡视内容</span>' + pEdit + '未填写巡视内容</div>';
+  }
+
+  /* 左栏底部操作行：删除日志（同小程序卡片直改） */
+  html += '<div class="log-acts"><button class="act-del" data-act="del">删除</button></div>';
+  html += '</div><div class="log-side-r">';
+
+  /* 水印照片网格（右栏） */
+  var photos = e.photos || [];
+  if (photos.length) {
+    html += '<div class="ph-lab">水印照片 · ' + photos.length + ' 张（点击查看大图与核验信息）</div>'
+      + '<div class="photos">' + photos.map(photoHTML).join('') + '</div>';
+  } else {
+    html += '<div class="photos-empty">暂无水印照片</div>';
+  }
+  html += '</div></div>';
+  return html + '</article>';
+}
+
+function renderCards(noAnim) {
+  var flow = $('#cardFlow');
+  var es = state.entries;
+  /* 照片计数提示；批量下载走日期范围弹层（可选任意日期），不再与当日照片联动禁用 */
+  var photoN = 0;
+  es.forEach(function (e) { photoN += (e.photos || []).length; });
+  $('#photoCnt').textContent = es.length ? ('共 ' + es.length + ' 条日志 · ' + photoN + ' 张照片') : '';
+
+  /* 空态与有记录态同构：同一 #cardFlow 渲染，容器结构不变、入场动效一致，切换范围/日期不跳动 */
+  if (!es.length) {
+    flow.innerHTML = emptyHTML('当日暂无出工日志', state.scope === 'mine' ? '可切换「全部」查看班组当日记录' : '切换月历日期查看历史记录');
+  } else {
+    flow.innerHTML = es.map(function (e, i) { return cardHTML(e, i, es.length); }).join('');
+  }
+  /* 卡片入场：短距上浮错峰（静默刷新时直接落位；空态占位同口径） */
+  $$('#cardFlow .anim-in').forEach(function (el, i) {
+    if (noAnim) { el.classList.add('in'); return; }
+    setTimeout(function () { el.classList.add('in'); }, RM ? 0 : 40 + i * 70);
+  });
+}
+
+/* 验证中照片轮询：3s 后静默重拉（poll 标记：不触发月历强刷） */
+function clearPending() {
+  if (state.timer) { clearTimeout(state.timer); state.timer = 0; }
+}
+function schedulePending() {
+  clearPending();
+  var has = state.entries.some(function (e) {
+    return (e.photos || []).some(function (p) { return p.verify_status === 'pending'; });
+  });
+  if (has) {
+    state.timer = setTimeout(function () { loadLogs({ quiet: true, poll: true }); }, 3000);
+  }
+}
+
+/* ================= 月历 ================= */
+function syncCalMonth(d) {
+  state.calY = d.getFullYear();
+  state.calM = d.getMonth();
+}
+function loadCalMonth(force) {
+  var ym = state.calY + '-' + pad(state.calM + 1);
+  var key = state.scope + '|' + ym;
+  renderCal(); // 先按缓存渲染（无缓存即无着色），数据回来后补着色
+  if (!force && state.calCache[key] !== undefined) return;
+  Shade.api('/api/v1/worklog/day-status?month=' + ym + '&scope=' + state.scope)
+    .then(function (r) {
+      state.calCache[key] = (r.data && r.data.map) || {};
+      renderCal();
+    })
+    .catch(function () { /* 着色失败不阻塞选日，静默跳过 */ });
+}
+function shiftCalMonth(delta) {
+  var m = state.calM + delta;
+  state.calM = (m + 12) % 12;
+  state.calY += (m < 0 ? -1 : (m > 11 ? 1 : 0));
+  loadCalMonth();
+}
+function renderCal() {
+  var y = state.calY, m = state.calM;
+  var ym = y + '-' + pad(m + 1);
+  var map = state.calCache[state.scope + '|' + ym] || {};
+  var first = new Date(y, m, 1);
+  var off = (first.getDay() + 6) % 7;            // 周一为一周开始
+  var days = new Date(y, m + 1, 0).getDate();
+  var prevDays = new Date(y, m, 0).getDate();
+  var td = todayStr();
+
+  $('#calYm').textContent = y + ' 年 ' + (m + 1) + ' 月';
+  var html = '<span class="cal-wd">一</span><span class="cal-wd">二</span><span class="cal-wd">三</span>'
+    + '<span class="cal-wd">四</span><span class="cal-wd">五</span><span class="cal-wd">六</span><span class="cal-wd">日</span>';
+  var i, ds, st, dot;
+  for (i = off - 1; i >= 0; i--) html += '<span class="day dim">' + (prevDays - i) + '</span>';
+  for (i = 1; i <= days; i++) {
+    ds = ym + '-' + pad(i);
+    st = map[ds];
+    dot = '';
+    if (st === 'passed') dot = '<i class="dt dt-ok"></i>';
+    else if (st === 'failed') dot = '<i class="dt dt-bad"></i>';
+    html += '<span class="day' + (ds === td ? ' today' : '') + (ds === state.date ? ' sel' : '') + '" data-d="' + ds + '">'
+      + i + '<span class="ds">' + dot + '</span></span>';
+  }
+  var tail = (7 - (off + days) % 7) % 7;
+  for (i = 1; i <= tail; i++) html += '<span class="day dim">' + i + '</span>';
+  $('#calBody').innerHTML = html;
+}
+
+/* 切日（含跨月时月历随动） */
+function gotoDate(nd) {
+  if (nd === state.date) return;
+  state.date = nd;
+  var d = parseDate(nd);
+  var crossMonth = (d.getFullYear() !== state.calY || d.getMonth() !== state.calM);
+  syncCalMonth(d);
+  renderCal();
+  loadLogs();
+  if (crossMonth) loadCalMonth();
+}
+
+/* ================= 照片大图遮罩层 ================= */
+var lbInst = null; // {eid, items:[photo], idx}
+function openLightbox(entry, idx) {
+  if (!entry || !(entry.photos || []).length) return;
+  lbInst = { eid: entry.id, items: entry.photos, idx: idx };
+  renderLB();
+  $('#lightbox').classList.add('open');
+}
+function closeLightbox() {
+  lbInst = null;
+  $('#lightbox').classList.remove('open');
+}
+/* 编辑/删除后按当前照片 id 在新数据里重定位；照片已删（或卡片已删）则关闭 */
+function refreshLightbox() {
+  if (!lbInst) return;
+  var cur = lbInst.items[lbInst.idx];
+  var en = findEntry(lbInst.eid);
+  if (cur && en) {
+    var idx = -1;
+    (en.photos || []).forEach(function (p, i) { if (p.id === cur.id) idx = i; });
+    if (idx >= 0) {
+      lbInst.items = en.photos;
+      lbInst.idx = idx;
+      renderLB();
+      return;
+    }
+  }
+  closeLightbox();
+}
+function shiftLB(delta) {
+  if (!lbInst) return;
+  var n = lbInst.items.length;
+  lbInst.idx = (lbInst.idx + delta + n) % n;
+  renderLB();
+}
+function lbRow(k, v, cls) {
+  return '<div class="lb-row"><div class="k">' + esc(k) + '</div><div class="v' + (cls ? ' ' + cls : '') + '">' + (v ? v : '—') + '</div></div>';
+}
+function renderLB() {
+  var p = lbInst.items[lbInst.idx];
+  var many = lbInst.items.length > 1;
+  var stCls = p.verify_status === 'passed' ? 'good' : (p.verify_status === 'pending' ? '' : 'bad');
+  var html = '<button class="lb-x">' + Shade.icon('close', 17) + '</button>'
+    + (many ? '<button class="lb-arrow l">' + SVG_CHEV_L + '</button><button class="lb-arrow r">' + SVG_CHEV_R + '</button>' : '')
+    + '<div class="lb-main">'
+    + '<div class="lb-stage"><img class="lb-img" alt="水印照片大图"><div class="lb-count">' + (lbInst.idx + 1) + ' / ' + lbInst.items.length + '</div></div>'
+    + '<aside class="lb-side">'
+    + lbRow('验证情况', esc(verifyText(p)), stCls)
+    + lbRow('人名', esc((p.members || []).join('、')))
+    + lbRow('施工内容', esc(p.work_content))
+    + lbRow('拍摄时间', esc(p.shot_time))
+    + lbRow('天气', esc(p.weather))
+    + lbRow('地点', esc(p.location))
+    + lbRow('经度', esc(p.lng))
+    + lbRow('纬度', esc(p.lat))
+    + '<div class="acode">' + Shade.icon('shield', 20)
+    + '<small>防伪码已随水印嵌印在照片画面中，放大照片即可核对 14 位防伪码</small></div>'
+    /* 照片直改（同小程序）：验证失败可重新验证；人名可改；可删除 */
+    + '<div class="lb-acts">'
+    + (p.verify_status === 'failed'
+      ? '<button class="btn btn-sm" data-lba="retry">' + Shade.icon('refresh', 14) + '重新验证</button>' : '')
+    + '<button class="btn btn-sm" data-lba="members">' + Shade.icon('user', 14) + '修改人名</button>'
+    + '<button class="btn btn-sm act-danger" data-lba="del">' + Shade.icon('delete', 14) + '删除照片</button>'
+    + '</div>'
+    + '</aside></div>';
+  var lb = $('#lightbox');
+  lb.innerHTML = html;
+  var img = $('.lb-img', lb);
+  img.onload = function () { img.classList.add('show'); };
+  img.src = p.url;
+  $('.lb-x', lb).addEventListener('click', function (e) { e.stopPropagation(); closeLightbox(); });
+  if (many) {
+    $('.lb-arrow.l', lb).addEventListener('click', function (e) { e.stopPropagation(); shiftLB(-1); });
+    $('.lb-arrow.r', lb).addEventListener('click', function (e) { e.stopPropagation(); shiftLB(1); });
+  }
+  $$('[data-lba]', lb).forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!lbInst) return;
+      var photo = lbInst.items[lbInst.idx];
+      var act = b.dataset.lba;
+      if (act === 'retry') { retryVerify(photo.id); return; }
+      if (act === 'del') { deletePhoto(photo.id); return; }
+      var en = findEntry(lbInst.eid);
+      if (en) openPhotoMembersModal(en, photo);
+    });
+  });
+}
+
+/* ================= 卡片直改（口径与小程序一致） ================= */
+/* 通用确认弹层（叠层）：返回 Promise<boolean>，遮罩/Esc/取消均视为否 */
+function confirmAction(opts) {
+  return new Promise(function (resolve) {
+    var done = false;
+    function finish(v) { if (!done) { done = true; resolve(v); } }
+    var html = mHead(opts.title)
+      + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
+      + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+      + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
+    var inst = createModal(html, { width: 420, onClose: function () { finish(false); } });
+    $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+    $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
+  });
+}
+
+/* 编辑表单字典（车牌/目的地/成员），首次编辑时拉取并缓存 */
+async function ensureMeta() {
+  if (state.meta) return state.meta;
+  var r = await Shade.api('/api/v1/worklog/meta');
+  state.meta = r.data || { vehicles: [], destinations: [], members: [] };
+  return state.meta;
+}
+
+/* 点亮 chips（sel 为 id 数组，dis 为禁用 id 数组；cid 为 string 比对） */
+function chipsHTML(list, sel, dis) {
+  return '<div class="chips">' + list.map(function (m) {
+    var on = sel.indexOf(m.id) >= 0;
+    var disabled = dis && dis.indexOf(m.id) >= 0;
+    return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-cid="' + m.id + '"'
+      + (disabled ? ' disabled' : '') + '>' + esc(m.name) + '</button>';
+  }).join('') + '</div>';
+}
+function bindChips(box) {
+  $$('.chip[data-cid]', box).forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.disabled) return;
+      b.classList.toggle('on');
+    });
+  });
+}
+function chipSelIds(box) {
+  return $$('.chip.on[data-cid]', box).map(function (b) { return +b.dataset.cid; });
+}
+
+/* PUT 全量替换口径（同小程序）：未出车时目的地/用车人强制置空 */
+function payloadOf(entry, patrol, vehicleId, destId, memberIds) {
+  return {
+    log_date: entry ? entry.log_date : state.date,
+    patrol_content: patrol || '',
+    vehicle_id: vehicleId > 0 ? vehicleId : null,
+    destination_id: vehicleId > 0 && destId > 0 ? destId : null,
+    member_ids: vehicleId > 0 ? memberIds : []
+  };
+}
+
+/* 保存后静默重拉当日数据（不闪骨架、不重播动画），并联动刷新大图层 */
+async function refreshAfterEdit() {
+  await loadLogs({ quiet: true });
+  refreshLightbox();
+}
+
+/* ---------- 新建 / 改派车·用车人·目的地（共用弹层，同小程序 openForm） ---------- */
+async function openEntryForm(entry) {
+  try { await ensureMeta(); } catch (e) { Shade.toast(e.message, 'error'); return; }
+  var meta = state.meta;
+  var vehicleId = entry ? (entry.vehicle_id > 0 ? entry.vehicle_id : -1) : -1;
+  var destId = entry ? (entry.destination_id || 0) : 0;
+  var memberIds = entry ? (entry.members || []).map(function (m) { return m.member_id; }) : [];
+  var optsV = '<option value="-1">未出车</option>' + meta.vehicles.map(function (v) {
+    return '<option value="' + v.id + '"' + (v.id === vehicleId ? ' selected' : '') + '>' + esc(v.plate_no) + '</option>';
+  }).join('');
+  var optsD = '<option value="0">未选择</option>' + meta.destinations.map(function (d) {
+    return '<option value="' + d.id + '"' + (d.id === destId ? ' selected' : '') + '>' + esc(d.name) + '</option>';
+  }).join('');
+  var html = mHead(entry ? '修改派车 / 用车人' : '新建日志')
+    + '<div class="f-hint" style="margin:0 0 2px">' + esc(fmtDateCN(entry ? entry.log_date : state.date)) + '</div>'
+    + '<label class="f-lab">派车车辆</label><select class="f-sel" id="efVehicle">' + optsV + '</select>'
+    + '<div id="efDrive">'
+    + '<label class="f-lab">目的地</label><select class="f-sel" id="efDest">' + optsD + '</select>'
+    + '<label class="f-lab">用车人（点亮即为用车人）</label>' + chipsHTML(meta.members, memberIds)
+    + '</div>'
+    + '<div class="f-hint" id="efHint" style="display:none">未出车为站内作业，不参与验证，不可选目的地与用车人</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+  var inst = createModal(html, { width: 520 });
+  var saving = false;
+  function syncVehicle() {
+    var noCar = +$('#efVehicle', inst.box).value <= 0;
+    $('#efDrive', inst.box).style.display = noCar ? 'none' : '';
+    $('#efHint', inst.box).style.display = noCar ? '' : 'none';
+  }
+  $('#efVehicle', inst.box).addEventListener('change', syncVehicle);
+  syncVehicle();
+  bindChips(inst.box);
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    if (saving) return;
+    var vid = +$('#efVehicle', inst.box).value;
+    var payload = payloadOf(entry, entry ? entry.patrol_content : '', vid, +$('#efDest', inst.box).value, chipSelIds(inst.box));
+    /* 改派车保存前确认内网派车单已同步修改（同小程序）；新建直接保存 */
+    if (entry) {
+      var yes = await confirmAction({ title: '保存派车修改', content: '请确保内网派车单同步修改！', confirmText: '我确认已修改' });
+      if (!yes) return;
+    }
+    saving = true;
+    try {
+      if (entry) {
+        await Shade.api('/api/v1/worklog/logs/' + entry.id, { method: 'PUT', body: payload });
+      } else {
+        await Shade.api('/api/v1/worklog/logs', { method: 'POST', body: payload });
+      }
+      inst.close();
+      Shade.toast(entry ? '已保存' : '已新建', 'success');
+      refreshAfterEdit();
+    } catch (e) {
+      saving = false;
+      Shade.toast(e.message, 'error'); // 失败留弹层可重试（同小程序）
+    }
+  });
+}
+
+/* ---------- 巡视内容修改（点卡片巡视内容块弹出；快捷输入同小程序） ---------- */
+function openPatrolModal(entry) {
+  var html = mHead('修改巡视内容')
+    + '<div class="f-hint" style="margin:0 0 2px">' + esc(fmtDateCN(entry.log_date)) + ' · ' + esc(entry.vehicle_id == null ? '未出车' : entry.plate_no) + '</div>'
+    + '<div class="chips" style="margin:10px 0">' + QUICK_INPUTS.map(function (t) {
+      return '<button type="button" class="chip sm" data-q="' + esc(t) + '">' + esc(t) + '</button>';
+    }).join('') + '</div>'
+    + '<textarea class="f-ta" id="ptTa" placeholder="请输入巡视内容（可空）">' + esc(entry.patrol_content || '') + '</textarea>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+  var inst = createModal(html, { width: 560 });
+  var saving = false;
+  $$('[data-q]', inst.box).forEach(function (b) {
+    b.addEventListener('click', function () {
+      var ta = $('#ptTa', inst.box);
+      ta.value += b.dataset.q; // 快捷输入：追加到内容末尾（同小程序）
+      ta.focus();
+    });
+  });
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    if (saving) return;
+    saving = true;
+    try {
+      /* PUT 全量字段：车牌/目的地/用车人取卡片最新值，仅替换巡视内容（同小程序） */
+      var payload = payloadOf(entry, $('#ptTa', inst.box).value, entry.vehicle_id > 0 ? entry.vehicle_id : -1,
+        entry.destination_id || 0, (entry.members || []).map(function (m) { return m.member_id; }));
+      await Shade.api('/api/v1/worklog/logs/' + entry.id, { method: 'PUT', body: payload });
+      inst.close();
+      Shade.toast('已保存', 'success');
+      refreshAfterEdit();
+    } catch (e) {
+      saving = false;
+      Shade.toast(e.message, 'error');
+    }
+  });
+}
+
+/* ---------- 用车人打卡切换（点打卡胶囊；失败回滚，同小程序） ---------- */
+async function toggleCheck(entry, mid, chipEl) {
+  try {
+    var r = await Shade.api('/api/v1/worklog/logs/' + entry.id + '/members/' + mid + '/check', { method: 'PUT' });
+    chipEl.classList.toggle('on', !!(r.data && r.data.checked));
+    refreshAfterEdit(); // 刷新验证角标与月历着色
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+    refreshAfterEdit(); // 回滚展示
+  }
+}
+
+/* ---------- 照片人名修改（候选为本卡用车人，被本卡其他照片占用者置灰——每人限一张） ---------- */
+function openPhotoMembersModal(entry, photo) {
+  var used = {};
+  (entry.photos || []).forEach(function (p) {
+    if (p.id === photo.id) return;
+    (p.members || []).forEach(function (n) { used[n] = 1; });
+  });
+  var members = (entry.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
+  var html = mHead('修改照片人名')
+    + '<div class="f-hint" style="margin:0 0 2px">候选为本卡用车人；每人限一张，已被其他照片占用者不可选</div>'
+    + '<div class="chips" style="margin-top:10px">' + members.map(function (m) {
+      var on = (photo.members || []).indexOf(m.name) >= 0;
+      return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-name="' + esc(m.name) + '"'
+        + (used[m.name] ? ' disabled' : '') + '>' + esc(m.name) + '</button>';
+    }).join('') + '</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">确 认</button></div>';
+  var inst = createModal(html, { width: 460 });
+  var saving = false;
+  bindChips(inst.box);
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    if (saving) return;
+    var names = $$('.chip.on[data-name]', inst.box).map(function (b) { return b.dataset.name; });
+    if (!names.length) { Shade.toast('请选择照片所属人名', 'info'); return; }
+    saving = true;
+    try {
+      await Shade.api('/api/v1/worklog/photos/' + photo.id + '/members', { method: 'PUT', body: { members: names } });
+      inst.close();
+      Shade.toast('人名已修改', 'success');
+      refreshAfterEdit();
+    } catch (e) {
+      saving = false;
+      Shade.toast(e.message, 'error');
+    }
+  });
+}
+
+/* ---------- 照片：重新验证（仅 failed 可见入口）/ 删除 ---------- */
+async function retryVerify(pid) {
+  try {
+    await Shade.api('/api/v1/worklog/photos/' + pid + '/verify', { method: 'POST' });
+    Shade.toast('已重新提交验证', 'success');
+    refreshAfterEdit(); // pending 后轮询自动接管
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+async function deletePhoto(pid) {
+  var yes = await confirmAction({ title: '删除照片', content: '删除后不可恢复，确定删除该水印照片吗？', confirmText: '删除', danger: true });
+  if (!yes) return;
+  try {
+    await Shade.api('/api/v1/worklog/photos/' + pid, { method: 'DELETE' });
+    Shade.toast('已删除', 'success');
+    refreshAfterEdit();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* ---------- 删除日志（卡片内照片一并删除） ---------- */
+async function deleteEntry(entry) {
+  var yes = await confirmAction({ title: '删除日志', content: '删除后不可恢复，卡片内照片一并删除，确定删除吗？', confirmText: '删除', danger: true });
+  if (!yes) return;
+  try {
+    await Shade.api('/api/v1/worklog/logs/' + entry.id, { method: 'DELETE' });
+    Shade.toast('已删除', 'success');
+    refreshAfterEdit();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* ================= 下载页签（日期范围可选，口径同小程序下载面板） ================= */
+/* Content-Disposition 文件名解析（RFC5987 优先） */
+function cdFilename(cd) {
+  var m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if (m) { try { return decodeURIComponent(m[1].replace(/"/g, '')); } catch (e) { } }
+  m = /filename="?([^";]+)"?/i.exec(cd);
+  return m ? m[1] : '';
+}
+/* POST /api/v1/worklog/zip：打包选中照片（二进制响应 fetch + blob 下载），btn 为触发按钮（加载态） */
+async function postZip(photos, btn) {
+  btn.disabled = true;
+  var old = btn.innerHTML;
+  btn.innerHTML = Shade.icon('download', 15) + '打包下载中…';
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    var token = localStorage.getItem('shade_token');
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    var res = await fetch('/api/v1/worklog/zip', {
+      method: 'POST', headers: headers, body: JSON.stringify({ photos: photos })
+    });
+    if (res.status === 401) {
+      localStorage.removeItem('shade_token');
+      localStorage.removeItem('shade_user');
+      location.href = '/login.html';
+      return;
+    }
+    if (!res.ok) {
+      var ej = null;
+      try { ej = await res.json(); } catch (e) { }
+      throw new Error((ej && (ej.message || ej.error)) || ('打包下载失败（' + res.status + '）'));
+    }
+    var name = cdFilename(res.headers.get('Content-Disposition') || '') || '水印照片.zip';
+    var blob = await res.blob();
+    var a = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    Shade.toast('已开始下载 ' + photos.length + ' 张照片', 'success');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = old;
+}
+
+/* 下载页签：起止日期默认值在 init 注入（与报告同口径）；查询/仅今天/仅看我/全选事件在 initEvents 绑定 */
+async function loadDlPhotos() {
+  if (!state.dl.from || !state.dl.to) { Shade.toast('请选择起止日期', 'info'); return; }
+  if (state.dl.from > state.dl.to) { Shade.toast('开始日期不能晚于结束日期', 'info'); return; }
+  var body = $('#dlBody');
+  body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+  $('#dlGo').disabled = true;
+  try {
+    var r = await Shade.api('/api/v1/worklog/photos?from=' + state.dl.from + '&to=' + state.dl.to);
+    state.dl.list = ((r.data && r.data.list) || []).map(function (p) {
+      p.selected = true; // 默认全选，点缩略图反选（同小程序）
+      return p;
+    });
+    renderDlPhotos();
+  } catch (e) {
+    state.dl.list = null;
+    body.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) + '<p>' + esc(e.message) + '</p></div>';
+    $('#dlMeta').textContent = '';
+  }
+}
+/* 「仅看我」为页头全局开关（state.scope）：记录与月历直接传 scope 接口筛选；
+   下载页签沿用前端筛选（按昵称匹配照片人名，同小程序，photos 接口无 scope 参数） */
+function dlVisibleList() {
+  var mine = (Shade.user() && Shade.user().nickname) || '';
+  return (state.dl.list || []).filter(function (p) {
+    return state.scope !== 'mine' || (mine && (p.members || []).indexOf(mine) >= 0);
+  });
+}
+/* 勾选态就地同步：不重渲染列表（否则全选开关 / 缩略图勾选的过渡动画随 DOM 重建丢失） */
+function syncDlSelection() {
+  var list = dlVisibleList();
+  var selN = 0;
+  list.forEach(function (p) { if (p.selected) selN++; });
+  $$('#dlBody .dl-ph[data-pid]').forEach(function (fig) {
+    var hit = null;
+    list.forEach(function (p) { if (p.id === +fig.dataset.pid) hit = p; });
+    if (hit) fig.classList.toggle('sel', !!hit.selected);
+  });
+  $('#dlAll').classList.toggle('on', list.length > 0 && selN === list.length);
+  $('#dlSelCnt').textContent = '已选 ' + selN + ' / ' + list.length + ' 张';
+  var go = $('#dlGo');
+  go.disabled = !selN;
+  go.innerHTML = Shade.icon('download', 15) + '打包下载（' + selN + '）';
+}
+/* 按月分组渲染（后端已按日期+上传序排列）；全选开关与已选计数在底部操作行，由 syncDlSelection 同步 */
+function renderDlPhotos() {
+  var body = $('#dlBody');
+  var list = dlVisibleList();
+  if (!list.length) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('image', 44) + '<p>该范围内暂无水印照片</p></div>';
+    $('#dlMeta').textContent = '';
+    $('#dlSelCnt').textContent = '';
+    $('#dlAll').classList.remove('on');
+    $('#dlGo').disabled = true;
+    return;
+  }
+  var groups = [], cur = null;
+  list.forEach(function (p) {
+    if (!cur || cur.month !== p.month) { cur = { month: p.month, items: [] }; groups.push(cur); }
+    cur.items.push(p);
+  });
+  body.innerHTML = groups.map(function (g) {
+    return '<div class="dl-month">' + esc(fmtMonthCN(g.month)) + '</div>'
+      + '<div class="dl-grid">' + g.items.map(function (p) {
+        return '<figure class="dl-ph' + (p.selected ? ' sel' : '') + '" data-pid="' + p.id + '" title="点击切换选中">'
+          + '<img src="' + esc(p.url) + '" loading="lazy" alt="水印照片">'
+          + '<span class="dl-tick">' + Shade.icon('check', 11) + '</span>'
+          + '<span class="dl-day">' + esc(p.log_date.slice(5).replace('-', '月')) + '日</span>'
+          + '</figure>';
+      }).join('') + '</div>';
+  }).join('');
+  $('#dlMeta').textContent = state.dl.from + ' ~ ' + state.dl.to;
+  syncDlSelection();
+}
+
+/* ================= 页签切换（记录 / 批量下载 / 验证报告 共用同一列表位） ================= */
+/* 页签指示条跟随（instant=true 首帧/窗口缩放直接落位，不滑残影） */
+function moveWlTabInd(tab, instant) {
+  if (!tab) return;
+  var ind = $('#wlTabInd');
+  if (instant) {
+    ind.style.transition = 'none';
+    ind.style.left = tab.offsetLeft + 'px';
+    ind.style.width = tab.offsetWidth + 'px';
+    void ind.offsetHeight; // 强制回流后恢复过渡
+    ind.style.transition = '';
+    return;
+  }
+  ind.style.left = tab.offsetLeft + 'px';
+  ind.style.width = tab.offsetWidth + 'px';
+}
+function switchPane(key) {
+  if (state.pane === key) return;
+  state.pane = key;
+  $$('#wlTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === key); });
+  moveWlTabInd($('#wlTabs button.on'));
+  $$('.wl-list .pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane' + key); });
+  /* 记录页专属控件（新建 / 计数）仅记录页显示；「全部 / 仅看我」为全局开关，三个页签常驻 */
+  var isRec = key === 'Record';
+  $('#photoCnt').hidden = !isRec;
+  $('#btnCreate').hidden = !isRec;
+  /* 首次进入页签时按默认范围自动加载 */
+  if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
+  if (key === 'Rep' && !state.rep.loaded) loadReport();
+}
+
+/* ================= 验证报告（页签内嵌：验证不通过记录查看） ================= */
+async function loadReport() {
+  if (!state.rep.from || !state.rep.to) { Shade.toast('请选择起止日期', 'info'); return; }
+  var body = $('#repBody');
+  body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+  try {
+    var r = await Shade.api('/api/v1/worklog/report?from=' + state.rep.from + '&to=' + state.rep.to
+      + '&scope=' + state.scope);
+    var list = (r.data && r.data.list) || [];
+    state.rep.loaded = true;
+    $('#repTotal').textContent = '合计 ' + list.length + ' 条';
+    if (!list.length) {
+      body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44) + '<p>该范围内全部通过</p></div>';
+      return;
+    }
+    /* 按 log_date 分组（保持接口顺序） */
+    var groups = [], cur = null;
+    list.forEach(function (it) {
+      if (!cur || cur.date !== it.log_date) { cur = { date: it.log_date, items: [] }; groups.push(cur); }
+      cur.items.push(it);
+    });
+    body.innerHTML = groups.map(function (g) {
+      return '<div class="rep-group"><div class="rep-date">' + esc(fmtDateCN(g.date))
+        + '<span class="cnt">' + g.items.length + ' 条未通过</span></div>'
+        + g.items.map(function (it) {
+          return '<div class="rep-row" data-d="' + it.log_date + '" title="点击查看该日记录">'
+            + '<div class="rep-top"><span class="rep-plate">' + esc(it.plate_no || '未出车') + '</span>'
+            + '<span class="rep-members">' + esc((it.members || []).join('、')) + '</span>'
+            + '<span class="rep-go">' + Shade.icon('chevron-right', 14) + '</span></div>'
+            + '<div class="rep-chips">' + (it.reasons || []).map(function (x) { return '<em class="reason">' + esc(x) + '</em>'; }).join('') + '</div></div>';
+        }).join('') + '</div>';
+    }).join('');
+  } catch (e) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) + '<p>' + esc(e.message) + '</p></div>';
+    $('#repTotal').textContent = '';
+  }
+}
+
+/* ================= 事件绑定 ================= */
+function initEvents() {
+  /* 月历 */
+  $('#calPrev').addEventListener('click', function () { shiftCalMonth(-1); });
+  $('#calNext').addEventListener('click', function () { shiftCalMonth(1); });
+  $('#calBody').addEventListener('click', function (e) {
+    var day = e.target.closest('.day[data-d]');
+    if (day) gotoDate(day.dataset.d);
+  });
+  $('#calToday').addEventListener('click', function () {
+    var t = todayStr();
+    syncCalMonth(parseDate(t));
+    loadCalMonth(true);
+    gotoDate(t);
+  });
+  /* 全部 / 仅看我（全局开关，三页签共用）：切换后重拉记录并清空月历缓存；
+     下载页签已加载则前端重筛，报告页签已加载则按新 scope 重查 */
+  $$('#segScope button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.classList.contains('on')) return;
+      $$('#segScope button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      state.scope = b.dataset.v;
+      state.calCache = {};
+      loadLogs();
+      if (state.dl.list !== null) renderDlPhotos();
+      if (state.rep.loaded) loadReport();
+    });
+  });
+  /* 记录 / 批量下载 / 验证报告 页签切换；新建日志 */
+  $$('#wlTabs button').forEach(function (b) {
+    b.addEventListener('click', function () { switchPane(b.dataset.p); });
+  });
+  window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); });
+  $('#btnCreate').addEventListener('click', function () { openEntryForm(null); });
+  /* 下载页签：查询 / 仅今天 / 全选 / 缩略图勾选 / 打包下载（仅看我走页头全局开关） */
+  $('#dlQuery').addEventListener('click', function () {
+    state.dl.from = $('#dlFrom').value;
+    state.dl.to = $('#dlTo').value;
+    loadDlPhotos();
+  });
+  $('#dlToday').addEventListener('click', function () {
+    state.dl.from = state.dl.to = todayStr();
+    $('#dlFrom').value = state.dl.from;
+    $('#dlTo').value = state.dl.to;
+    loadDlPhotos();
+  });
+  $('#dlAll').addEventListener('click', function () {
+    var target = !this.classList.contains('on');
+    (state.dl.list || []).forEach(function (p) { p.selected = target; });
+    syncDlSelection();
+  });
+  $('#dlBody').addEventListener('click', function (e) {
+    var fig = e.target.closest('.dl-ph[data-pid]');
+    if (!fig) return;
+    (state.dl.list || []).forEach(function (p) { if (p.id === +fig.dataset.pid) p.selected = !p.selected; });
+    syncDlSelection();
+  });
+  $('#dlGo').addEventListener('click', function () {
+    var picked = (state.dl.list || []).filter(function (p) { return p.selected; });
+    if (!picked.length) { Shade.toast('请先勾选要下载的照片', 'info'); return; }
+    /* 按 (log_date, id) 排序，文件名沿用旧网页端规则：日期-照片id.jpg */
+    picked.sort(function (a, b) { return a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : a.id - b.id; });
+    var photos = picked.map(function (p) { return { url: p.url, name: p.log_date + '-' + p.id + '.jpg' }; });
+    postZip(photos, this);
+  });
+  /* 报告页签：查询（仅看我走页头全局开关，scope 为接口传参）/ 点击报告行切回记录页签并跳到该日 */
+  $('#repQuery').addEventListener('click', function () {
+    state.rep.from = $('#repFrom').value;
+    state.rep.to = $('#repTo').value;
+    loadReport();
+  });
+  $('#repBody').addEventListener('click', function (e) {
+    var row = e.target.closest('.rep-row[data-d]');
+    if (!row) return;
+    switchPane('Record');
+    gotoDate(row.dataset.d);
+  });
+  /* 卡片流点击委派：改派车 / 打卡切换 / 删除日志 / 巡视内容编辑 / 照片大图 */
+  $('#cardFlow').addEventListener('click', function (e) {
+    var actEl = e.target.closest('[data-act]');
+    if (actEl) {
+      var card = actEl.closest('.log-card');
+      var entry = card && findEntry(+card.dataset.eid);
+      if (!entry) return;
+      var act = actEl.dataset.act;
+      if (act === 'edit') { openEntryForm(entry); return; }
+      if (act === 'patrol') { openPatrolModal(entry); return; }
+      if (act === 'del') { deleteEntry(entry); return; }
+      if (act === 'check') { toggleCheck(entry, +actEl.dataset.mid, actEl); return; }
+      return;
+    }
+    var fig = e.target.closest('.ph[data-pid]');
+    if (fig) {
+      var cd = fig.closest('.log-card');
+      var en = findEntry(+cd.dataset.eid);
+      if (!en) return;
+      var idx = 0;
+      (en.photos || []).forEach(function (p, i) { if (p.id === +fig.dataset.pid) idx = i; });
+      openLightbox(en, idx);
+    }
+  });
+  /* 大图遮罩层：点空白关闭；Esc 关闭弹层/大图；左右箭头切换 */
+  $('#lightbox').addEventListener('click', function (e) {
+    if (e.target === this) closeLightbox();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (lbInst) { closeLightbox(); return; }
+      var top = modalStack[modalStack.length - 1];
+      if (top) top.close();
+      return;
+    }
+    if (lbInst && e.key === 'ArrowLeft') shiftLB(-1);
+    if (lbInst && e.key === 'ArrowRight') shiftLB(1);
+  });
+}
+
+/* ================= 启动 ================= */
+function init() {
+  /* 静态图标注入 */
+  $$('#wlTabs button').forEach(function (b) {
+    b.insertAdjacentHTML('afterbegin', Shade.icon({ Record: 'task', Dl: 'download', Rep: 'file-safety' }[b.dataset.p], 14));
+  });
+  moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
+  $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
+  $('#dlGo').innerHTML = Shade.icon('download', 15) + '打包下载';
+  $('#calPrev').innerHTML = SVG_CHEV_L;
+  $('#calNext').innerHTML = SVG_CHEV_R;
+
+  /* 下载 / 报告页签默认日期范围（同口径：当天 ≤10 号上月整月，否则本月 1 号~今天） */
+  var dr = defaultRange();
+  state.dl.from = dr.from; state.dl.to = dr.to;
+  state.rep.from = dr.from; state.rep.to = dr.to;
+  $('#dlFrom').value = dr.from; $('#dlTo').value = dr.to;
+  $('#repFrom').value = dr.from; $('#repTo').value = dr.to;
+
+  /* 顶栏用户：接口失败回退本地缓存 */
+  Shade.api('/api/v1/user/profile').then(function (r) {
+    renderTopUser(r.data);
+  }).catch(function () {
+    renderTopUser(Shade.user());
+  });
+
+  initEvents();
+  syncCalMonth(parseDate(state.date));
+  loadCalMonth(true); // 月历先渲染（API 失败也保证网格展示），着色数据回来后补色
+  loadLogs();
+  Shade.reveal();
+}
+init();
+
+})();
+</script>
+</body>
+</html>

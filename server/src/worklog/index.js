@@ -1,6 +1,7 @@
 // 出工日志路由：全部接口需登录 + work-log 应用权限；/admin/* 再叠加管理员角色校验
 // 业务规则与设计稿见《开发指南》第四、七章与 design/worklog.html
 const express = require('express');
+const archiver = require('archiver');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const requireAdmin = require('../middleware/requireAdmin');
@@ -623,6 +624,98 @@ router.delete('/photos/:id', async (req, res, next) => {
     }
     await pool.query('DELETE FROM worklog_photo WHERE id = ?', [photoId]);
     return ok(res, null);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ===== 照片 ZIP 打包下载（自 WorkLogs 独立服务移植，请求体形状不变：{ photos: [{ url, name }] }）=====
+const ZIP_MAX_PHOTOS = 300;
+const PHOTO_MAX_BYTES = 50 * 1024 * 1024;
+
+// 文件名净化：去路径分隔符与非法字符，防止 zip 内路径穿越
+function sanitizeFileName(name) {
+  const cleaned = String(name || '')
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, '_')
+    .trim();
+  return cleaned || 'photo.jpg';
+}
+
+// POST /zip：批量打包水印照片，逐张下载流式写入 zip；失败记录进清单继续，全部失败才报错
+router.post('/zip', async (req, res, next) => {
+  try {
+    const photos = req.body && Array.isArray(req.body.photos) ? req.body.photos : [];
+    if (!photos.length) {
+      return fail(res, 400, 40017, '没有可下载的照片');
+    }
+    if (photos.length > ZIP_MAX_PHOTOS) {
+      return fail(res, 400, 40017, `一次最多打包 ${ZIP_MAX_PHOTOS} 张照片`);
+    }
+    const list = [];
+    for (const p of photos) {
+      const url = String((p && p.url) || '');
+      if (!/^https?:\/\//i.test(url)) {
+        return fail(res, 400, 40017, '照片地址不合法（仅支持 http/https）');
+      }
+      list.push({ url, name: sanitizeFileName(p && p.name) });
+    }
+
+    // RFC5987 编码中文文件名，附 ASCII fallback
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="photos.zip"; filename*=UTF-8''${encodeURIComponent('水印照片.zip')}`
+    );
+
+    // store 模式：图片本身已是压缩格式，不再二次压缩
+    const archive = archiver('zip', { store: true });
+    archive.on('warning', (e) => console.warn(`[出工日志] ZIP 警告：${e && e.message ? e.message : e}`));
+    archive.on('error', (e) => console.error(`[出工日志] ZIP 错误：${e && e.message ? e.message : e}`));
+    // 客户端中断时及时清理，停止后续下载
+    res.on('close', () => {
+      archive.destroy();
+    });
+    archive.pipe(res);
+
+    const failed = [];
+    let success = 0;
+    for (const item of list) {
+      if (archive.destroyed) return; // 客户端已断开
+      try {
+        const resp = await fetch(item.url, { signal: AbortSignal.timeout(30000) });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const declared = Number(resp.headers.get('content-length') || 0);
+        if (declared > PHOTO_MAX_BYTES) throw new Error('照片超过 50MB，已跳过');
+        const buf = Buffer.from(await resp.arrayBuffer());
+        if (buf.length > PHOTO_MAX_BYTES) throw new Error('照片超过 50MB，已跳过');
+        archive.append(buf, { name: item.name });
+        success++;
+      } catch (e) {
+        console.warn(`[出工日志] 照片下载失败（${item.url}）：${e && e.message ? e.message : e}`);
+        failed.push(item);
+      }
+    }
+
+    if (success === 0) {
+      // 尚无字节写出，可安全改回 JSON 错误响应
+      archive.unpipe(res);
+      archive.destroy();
+      res.removeHeader('Content-Type');
+      res.removeHeader('Content-Disposition');
+      return fail(res, 500, 50001, '照片下载失败');
+    }
+
+    if (failed.length) {
+      const content = failed.map((f) => `${f.name} ${f.url}`).join('\n');
+      archive.append(content, { name: '下载失败清单.txt' });
+    }
+
+    try {
+      await archive.finalize();
+    } catch (e) {
+      console.error(`[出工日志] ZIP 打包失败：${e && e.message ? e.message : e}`);
+      archive.destroy();
+    }
   } catch (err) {
     return next(err);
   }

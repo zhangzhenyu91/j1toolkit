@@ -53,7 +53,7 @@
       <t-input borderless placeholder="姓名/昵称" value="{{form.nickname}}" data-k="nickname" bind:change="onField" />
     </view>
     <view class="form-field">
-      <t-input borderless placeholder="班组（如：检修一班）" value="{{form.team}}" data-k="team" bind:change="onField" />
+      <t-input borderless placeholder="班组（选填）" value="{{form.team}}" data-k="team" bind:change="onField" />
     </view>
     <view class="form-field">
       <t-input borderless type="password" placeholder="初始密码（至少 6 位）" value="{{form.password}}" data-k="password" bind:change="onField" />

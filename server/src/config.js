@@ -12,8 +12,6 @@ function num(name, def) {
 
 const config = {
   port: num('PORT', 3000),
-  // 反向代理路径前缀（如 /j1toolkit）：反代保留前缀转发时，服务端先剥离再路由；留空则不处理
-  proxyPrefix: str('PROXY_PREFIX').replace(/\/+$/, ''),
   jwt: {
     secret: str('JWT_SECRET'),
     expiresIn: str('JWT_EXPIRES', '7d'),
@@ -53,6 +51,10 @@ const config = {
   dify: {
     apiUrl: str('DIFY_API_URL'),
   },
+  // basemetas 文件预览服务（安全日记录在线预览用；留空=未启用，网页端不显示预览）
+  basemetas: {
+    url: str('BASEMETAS_URL'),
+  },
   worklog: {
     enabled: str('WORKLOG_ENABLED') === 'true',
     cosPrefix: str('COS_WORKLOG_PREFIX', 'worklog/'),
@@ -61,6 +63,15 @@ const config = {
     // 腾讯位置服务（「选照片并添加水印」预填当前地点/天气用；未配置时对应字段留空手填）
     // 控制台 lbs.qq.com 创建应用时勾选 WebServiceAPI
     tencentMapKey: str('TENCENT_MAP_KEY'),
+  },
+  // 安全日活动记录（自 SafeDayLogs 独立服务合并的子模块，文件存储，不建库表）
+  safeday: {
+    enabled: str('SAFEDAY_ENABLED') === 'true',
+    // 记录 records.json 与生成产物（docs/）存放目录，相对路径按服务启动目录（server/）解析
+    dataDir: str('SAFEDAY_DATA_DIR', './data/safeday'),
+    difyKey: str('DIFY_SAFEDAY_API_KEY'),
+    // Dify 回调 token：留空则回调不做 token 校验（与原 CALLBACK_TOKEN 行为一致）
+    callbackToken: str('SAFEDAY_CALLBACK_TOKEN'),
   },
 };
 

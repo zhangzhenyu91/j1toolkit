@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<!--
+  出工日志 · 主页操作按钮悬浮化设计稿（审批用，通过后据此改 pkg-worklog/pages/index）
+  背景：底部固定操作区（白/纸底一条 + 三个横排按钮）删除，批量下载 / 查看报告 / 常用数据管理 / 新建日志改为悬浮按钮；
+  图标（tdesign-miniprogram 已核实存在）：批量下载=download ｜ 查看报告=task-checked（审核图标）｜ 常用数据管理=setting ｜ 新建日志=add；
+  方案一：右下竖排悬浮列（图标圆钮 + 左侧标签），全部常显；
+  方案二：右下单主钮（＋新建日志），点按向上展开三个次级钮（speed dial），默认收起更省空间。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>出工日志 · 悬浮按钮设计稿 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#F4F1EA;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:#22314E; padding:52px 24px 80px; -webkit-font-smoothing:antialiased;
+  }
+  .page-head { text-align:center; margin-bottom:18px; }
+  .page-head h1 { font-size:26px; font-weight:800; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal; color:#F26D21; }
+  .page-head p { margin-top:12px; font-size:13px; color:#6B7690; letter-spacing:1px; }
+  .legend { max-width:960px; margin:0 auto 48px; background:#fff; border-radius:10px;
+            padding:14px 18px; font-size:12px; line-height:2; color:#6B7690;
+            box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .legend b { color:#22314E; }
+  .legend i { font-style:normal; color:#F26D21; font-weight:700; }
+
+  .stage { display:flex; flex-wrap:wrap; justify-content:center; gap:64px 72px; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .cap { font-size:15px; font-weight:800; letter-spacing:2px; color:#22314E; }
+  .cap i { font-style:normal; color:#F26D21; margin-right:6px; }
+  .sub { max-width:375px; text-align:center; font-size:12px; line-height:1.9; color:#6B7690; }
+
+  .phone { padding:12px; background:linear-gradient(150deg,#3b4354 0%,#171c26 60%,#10141c 100%);
+           border-radius:62px; box-shadow:0 34px 70px rgba(34,49,78,.28), 0 8px 20px rgba(34,49,78,.16); }
+  .screen { position:relative; width:375px; height:812px; background:#F4F1EA; border-radius:50px;
+            overflow:hidden; display:flex; flex-direction:column; }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:120px; height:32px; border-radius:18px; background:#10141c; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(16,20,28,.9); z-index:60; }
+
+  /* 导航栏 */
+  .nav { flex:none; height:88px; padding:44px 16px 0; display:flex; align-items:center; justify-content:center;
+         position:relative; z-index:20; }
+  .nav b { font-size:17px; font-weight:800; letter-spacing:2px; }
+  .nav .back { position:absolute; left:16px; bottom:6px; color:#22314E; display:flex; }
+
+  /* 页面内容（简化示意：日期条 + 视图开关 + 日志卡） */
+  .cnt { flex:1; padding:12px 16px 0; position:relative; z-index:10; }
+  .datebar { background:#fff; border-radius:10px; height:52px; display:flex; align-items:center;
+             justify-content:space-between; padding:0 14px; box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .datebar b { font-size:15px; font-weight:800; letter-spacing:1px; }
+  .datebar span { font-size:11px; color:#A89F8A; }
+  .scopes { display:flex; gap:10px; margin:14px 2px; }
+  .scp { font-size:12px; font-weight:700; color:#6B7690; border:1px solid #E3DCCB; border-radius:999px;
+         padding:5px 16px; background:#fff; }
+  .scp.on { color:#F26D21; border-color:#F26D21; background:#FDEEE2; }
+  .card { background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 8px 20px rgba(34,49,78,.06); margin-bottom:16px; }
+  .hazard { height:8px; background:repeating-linear-gradient(-45deg,#F26D21 0 10px,#22314E 10px 20px); }
+  .card-h { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid #E8E0CD; }
+  .card-h b { font-size:15px; font-weight:800; }
+  .card-h .tag { margin-left:auto; font-size:10px; font-weight:700; color:#CF4444; background:#FBE9E9;
+                 border-radius:4px; padding:2px 7px; }
+  .card-h .tag.green { color:#2BA471; background:#E4F5EC; }
+  .crow { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px dashed #E8E0CD; }
+  .crow:last-child { border-bottom:none; }
+  .ci { width:26px; height:26px; flex:none; border-radius:7px; background:#FDEEE2; display:flex;
+        align-items:center; justify-content:center; color:#F26D21; }
+  .ck { width:52px; flex:none; font-size:11px; color:#A89F8A; }
+  .cv { font-size:13px; font-weight:600; }
+  .chips { display:flex; gap:6px; }
+  .mchip { font-size:11px; border:1px solid #D9CFBA; border-radius:999px; padding:2px 9px; color:#6B7690; }
+  .mchip.on { color:#2BA471; border-color:#2BA471; background:#E4F5EC; font-weight:700; }
+  .photos { display:flex; gap:8px; padding:12px 14px 14px; }
+  .ph { width:72px; height:54px; border-radius:8px; background:linear-gradient(135deg,#DCE3EE,#C4CEDF);
+        border:1px solid #E8E0CD; }
+  .patrol { margin:10px 14px 12px; padding:9px 12px; border:1px solid #E8E0CD; border-radius:8px;
+            font-size:12px; color:#22314E; }
+  .patrol em { font-style:normal; font-size:10px; font-weight:700; color:#F26D21; background:#FDEEE2;
+               border-radius:4px; padding:1px 6px; margin-right:6px; }
+
+  /* ===== 悬浮按钮（FAB） ===== */
+  .fabs { position:absolute; right:14px; bottom:26px; z-index:50;
+          display:flex; flex-direction:column; align-items:flex-end; gap:14px; }
+  .fab-row { display:flex; align-items:center; gap:10px; }
+  .fab-lab { font-size:11px; font-weight:700; color:#22314E; letter-spacing:1px; background:#fff;
+             border-radius:8px; padding:5px 10px; box-shadow:0 6px 16px rgba(34,49,78,.14); }
+  .fab { border-radius:50%; display:flex; align-items:center; justify-content:center;
+         background:#fff; color:#22314E; box-shadow:0 10px 24px rgba(34,49,78,.20); }
+  .fab.sm { width:46px; height:46px; }
+  .fab.sm svg { width:21px; height:21px; }
+  .fab.main { width:58px; height:58px; background:#F26D21; color:#fff;
+              box-shadow:0 14px 30px rgba(242,109,33,.40); }
+  .fab.main svg { width:27px; height:27px; }
+  .fab-note { font-size:10px; color:#A89F8A; letter-spacing:1px; text-align:right; }
+
+  /* 方案二展开态遮罩 */
+  .dim { position:absolute; inset:0; background:rgba(27,39,64,.30); z-index:45; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>出工日志 <em>操作按钮悬浮化</em></h1>
+  <p>底部固定操作区（含底色条）整片删除，四个操作改为右下悬浮按钮 · 图标用 TDesign：download / task-checked / setting / add（已按审批意见在方案二展开项中补上「新建日志」）</p>
+</div>
+
+<div class="legend">
+  <b>设计说明：</b>① 底部白底横条（bottombar 背景）删除，内容区直通屏幕底边；② 悬浮按钮位于右下安全区上方，不遮挡卡片主内容；③ 方案一主按钮=<b>新建日志</b>（橙底白加号 58px 常显）；方案二主按钮为展开开关（＋/×），<b>新建日志</b>为展开项之一（橙色加号白底，离主钮最近），其余次钮 46px 白底；④ <i>常用数据管理</i>（setting 图标）仅管理员渲染；⑤ 查看报告图标由 chart-bar 改为 <i>task-checked</i>（审核语义，TDesign 已核实存在）；⑥ 小程序无悬停态，点按反馈用 hover-class 透明度，与现有按钮一致。
+</div>
+
+<div class="stage">
+
+  <!-- ============ 方案一：竖排悬浮列（全部常显） ============ -->
+  <div class="unit">
+    <div class="cap"><i>方案一</i>竖排悬浮列 · 全部常显</div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="nav"><span class="back">‹</span><b>出工日志</b></div>
+      <div class="cnt">
+        <div class="datebar"><b>8月5日 周二</b><span>日历</span></div>
+        <div class="scopes"><span class="scp on">全部</span><span class="scp">仅看我</span></div>
+        <div class="card">
+          <div class="hazard"></div>
+          <div class="card-h"><b>晋JDU359</b><span class="tag">未通过</span></div>
+          <div class="crow"><span class="ci">车</span><span class="ck">派车车辆</span><span class="cv">晋JDU359</span></div>
+          <div class="crow"><span class="ci">人</span><span class="ck">用车人</span>
+            <span class="chips"><span class="mchip on">曹万鑫</span><span class="mchip on">张振宇</span><span class="mchip">高麒涵</span></span></div>
+          <div class="crow"><span class="ci">址</span><span class="ck">目的地</span><span class="cv">文水县</span></div>
+          <div class="patrol"><em>巡视内容</em>运输防火弹。（张振宇、高麒涵）</div>
+          <div class="photos"><span class="ph"></span><span class="ph"></span><span class="ph"></span></div>
+        </div>
+        <div class="card">
+          <div class="hazard"></div>
+          <div class="card-h"><b>站内作业</b><span class="tag green">免验证</span></div>
+          <div class="crow"><span class="ci">车</span><span class="ck">派车车辆</span><span class="cv">未出车</span></div>
+        </div>
+      </div>
+      <!-- 悬浮列：自上而下 管理（仅 admin）/ 批量下载 / 查看报告 / 新建日志（主钮） -->
+      <div class="fabs">
+        <div class="fab-row"><span class="fab-lab">数据管理·仅管理员</span>
+          <span class="fab sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg></span></div>
+        <div class="fab-row"><span class="fab-lab">批量下载</span>
+          <span class="fab sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11M7 10l5 5 5-5"/><path d="M4.5 19.5h15"/></svg></span></div>
+        <div class="fab-row"><span class="fab-lab">查看报告</span>
+          <span class="fab sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 12.5l2 2 4-4"/></svg></span></div>
+        <div class="fab-row"><span class="fab-lab">新建日志</span>
+          <span class="fab main"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="sub">四个操作一列常显，左侧带文字标签，所见即所得、无需学习；缺点：按钮较多时右下一列较高，会盖住底部卡片右缘一小块。</div>
+  </div>
+
+  <!-- ============ 方案二：主按钮展开（speed dial） ============ -->
+  <div class="unit">
+    <div class="cap"><i>方案二</i>主按钮＋ 点按展开</div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="nav"><span class="back">‹</span><b>出工日志</b></div>
+      <div class="cnt">
+        <div class="datebar"><b>8月5日 周二</b><span>日历</span></div>
+        <div class="scopes"><span class="scp on">全部</span><span class="scp">仅看我</span></div>
+        <div class="card">
+          <div class="hazard"></div>
+          <div class="card-h"><b>晋JDU359</b><span class="tag">未通过</span></div>
+          <div class="crow"><span class="ci">车</span><span class="ck">派车车辆</span><span class="cv">晋JDU359</span></div>
+          <div class="crow"><span class="ci">人</span><span class="ck">用车人</span>
+            <span class="chips"><span class="mchip on">曹万鑫</span><span class="mchip on">张振宇</span><span class="mchip">高麒涵</span></span></div>
+          <div class="crow"><span class="ci">址</span><span class="ck">目的地</span><span class="cv">文水县</span></div>
+          <div class="patrol"><em>巡视内容</em>运输防火弹。（张振宇、高麒涵）</div>
+          <div class="photos"><span class="ph"></span><span class="ph"></span><span class="ph"></span></div>
+        </div>
+        <div class="card">
+          <div class="hazard"></div>
+          <div class="card-h"><b>站内作业</b><span class="tag green">免验证</span></div>
+          <div class="crow"><span class="ci">车</span><span class="ck">派车车辆</span><span class="cv">未出车</span></div>
+        </div>
+      </div>
+      <!-- 展开态示意：默认只显示橙色主钮，点按后遮罩 + 向上展开三个次钮 -->
+      <div class="dim"></div>
+      <div class="fabs">
+        <div class="fab-row"><span class="fab-lab">数据管理·仅管理员</span>
+          <span class="fab sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg></span></div>
+        <div class="fab-row"><span class="fab-lab">批量下载</span>
+          <span class="fab sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11M7 10l5 5 5-5"/><path d="M4.5 19.5h15"/></svg></span></div>
+        <div class="fab-row"><span class="fab-lab">查看报告</span>
+          <span class="fab sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 12.5l2 2 4-4"/></svg></span></div>
+        <div class="fab-row"><span class="fab-lab" style="color:#F26D21">新建日志</span>
+          <span class="fab sm" style="color:#F26D21"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></div>
+        <div class="fab-row"><span class="fab-lab">收起</span>
+          <span class="fab main"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="sub">默认只有右下角一枚橙色「＋」主钮，最干净；点按后主钮变「×」、淡入遮罩并向上展开 数据管理（仅管理员）/ 批量下载 / 查看报告 / 新建日志（橙色加号，离主钮最近）。缺点：各操作需多点一次。</div>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案C「极简光影」浅色极简主义
+  主色板：暖白底 #FCFCFA ｜ 墨色 #1C2333 ｜ 安全橙 #F26D21（极克制点睛） ｜ 发丝线 #ECEAE4 ｜ 次级文字 #5A6272 ｜ 占位文字 #9AA0AC ｜ 状态色：已验证 #4C9A77 / 待验证 #D9A03C / 危险 #C05555
+  设计要点：
+  1. 画廊式留白：暖白底 + 1px 发丝分隔线，阴影只用低透明度、大半径的柔光长投影，层级全靠排版驱动（粗字重大标题 × 宽字距小标签）；
+  2. 几乎无彩色：墨色承载全部文字与图标，安全橙仅落在激活态、关键按钮与「高级技师」徽章三处，一眼锁定视觉焦点；
+  3. 动效以「光」为主题：按钮高光扫过、输入框聚焦晕光、卡片 hover 阴影缓慢加深并上浮 3px、全页元素随滚动渐次渐显；
+  4. 背景氛围极淡：CSS 径向柔光 + 细网格隐现，像一间光线很好的画廊，不抢夺内容注意力；
+  5. 六屏同构：Web 登录 / 门户工作台 / Call Me 对话 / 出工日志 / 安全日活动记录 / 小程序首页预览共用同一套 token，验证跨端统一落地。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案C · 极简光影 — Shade 壹匣</title>
+<style>
+  :root{
+    --bg:#FCFCFA;
+    --card:#FFFFFF;
+    --ink:#1C2333;
+    --ink-2:#5A6272;
+    --ink-3:#9AA0AC;
+    --line:#ECEAE4;
+    --line-2:#F5F3ED;
+    --tile:#F6F5F1;
+    --orange:#F26D21;
+    --orange-soft:#FDF2E9;
+    --ok:#4C9A77;
+    --warn:#D9A03C;
+    --danger:#C05555;
+    --sh-s:0 1px 2px rgba(28,35,51,.03),0 14px 34px -18px rgba(28,35,51,.10);
+    --sh-m:0 2px 6px rgba(28,35,51,.05),0 30px 60px -24px rgba(28,35,51,.18);
+    --ease:cubic-bezier(.4,0,.2,1);
+    --spring:cubic-bezier(.34,1.3,.64,1);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    padding:72px 32px 96px;
+  }
+  /* 氛围：径向柔光 + 细网格（纯 CSS） */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:
+      radial-gradient(1000px 560px at 12% -8%, rgba(242,109,33,.045), transparent 62%),
+      radial-gradient(900px 560px at 88% 0%, rgba(28,35,51,.035), transparent 60%),
+      radial-gradient(1100px 700px at 50% 115%, rgba(226,216,192,.35), transparent 62%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background-image:
+      linear-gradient(rgba(28,35,51,.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(28,35,51,.028) 1px, transparent 1px);
+    background-size:72px 72px;
+    -webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 0%, #000 30%, transparent 78%);
+            mask-image:radial-gradient(ellipse 90% 60% at 50% 0%, #000 30%, transparent 78%);
+  }
+
+  /* ===== 滚动渐显 ===== */
+  .rv{opacity:0;transform:translateY(26px);
+      transition:opacity .9s var(--ease),transform .9s var(--spring);
+      transition-delay:var(--d,0s);}
+  .rv.in{opacity:1;transform:none;}
+
+  /* ===== 页首 ===== */
+  .page-head{max-width:1180px;margin:0 auto 88px;}
+  .ph-label{font-size:11px;letter-spacing:.42em;color:var(--ink-3);font-weight:600;}
+  .ph-label i{font-style:normal;color:var(--orange);}
+  .page-head h1{margin-top:18px;font-size:46px;font-weight:800;letter-spacing:.06em;line-height:1.2;}
+  .page-head h1 em{font-style:normal;color:var(--orange);}
+  .page-head h1 small{margin-left:14px;font-size:15px;font-weight:600;letter-spacing:.34em;color:var(--ink-2);}
+  .ph-desc{margin-top:16px;max-width:640px;font-size:14px;line-height:1.9;color:var(--ink-2);letter-spacing:.04em;}
+  .ph-palette{margin-top:30px;display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center;}
+  .sw{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.12em;color:var(--ink-3);}
+  .sw i{width:18px;height:18px;border-radius:6px;border:1px solid var(--line);}
+  .ph-rule{margin-top:36px;height:1px;background:linear-gradient(90deg,var(--line),transparent);}
+
+  /* ===== 区块骨架 ===== */
+  .stack{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:120px;}
+  .cap{display:flex;align-items:baseline;gap:14px;margin-bottom:26px;}
+  .cap i{font-style:normal;font-size:13px;font-weight:800;color:var(--orange);letter-spacing:.1em;}
+  .cap h2{font-size:20px;font-weight:800;letter-spacing:.14em;}
+  .cap span{margin-left:auto;font-size:10.5px;letter-spacing:.34em;color:var(--ink-3);font-weight:600;}
+
+  /* ===== 浏览器框 ===== */
+  .browser{
+    background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;
+    box-shadow:0 1px 2px rgba(28,35,51,.03),0 40px 90px -40px rgba(28,35,51,.22);
+  }
+  .b-bar{height:46px;display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid var(--line);}
+  .b-dots{display:flex;gap:7px;}
+  .b-dots i{width:11px;height:11px;border-radius:50%;background:#E9E6DE;border:1px solid #DFDCD2;}
+  .b-url{flex:1;max-width:440px;margin:0 auto;height:28px;border-radius:999px;background:var(--tile);
+         display:flex;align-items:center;justify-content:center;gap:7px;
+         font-size:11px;letter-spacing:.08em;color:var(--ink-3);}
+  .b-url svg{width:11px;height:11px;}
+  .b-body{background:var(--bg);}
+
+  /* ===== 共享组件 ===== */
+  .btn-p{
+    position:relative;overflow:hidden;border:none;cursor:pointer;
+    background:var(--orange);color:#fff;font:inherit;font-weight:600;
+    border-radius:12px;letter-spacing:.12em;
+    box-shadow:0 1px 2px rgba(242,109,33,.28),0 10px 22px -10px rgba(242,109,33,.5);
+    transition:transform .4s var(--spring),box-shadow .4s var(--spring);
+  }
+  .btn-p:hover{transform:translateY(-2px);
+    box-shadow:0 2px 4px rgba(242,109,33,.3),0 16px 32px -10px rgba(242,109,33,.55);}
+  .btn-p:active{transform:scale(.98);}
+  .btn-p::after{ /* 高光扫过 */
+    content:"";position:absolute;top:0;left:-80%;width:45%;height:100%;
+    background:linear-gradient(105deg,transparent,rgba(255,255,255,.42),transparent);
+    transform:skewX(-20deg);transition:left .65s var(--ease);
+  }
+  .btn-p:hover::after{left:135%;}
+  .btn-g{
+    border:1px solid var(--line);background:#fff;color:var(--ink-2);font:inherit;
+    border-radius:11px;cursor:pointer;letter-spacing:.08em;
+    transition:color .3s var(--ease),border-color .3s var(--ease),transform .35s var(--spring),box-shadow .35s var(--spring);
+  }
+  .btn-g:hover{color:var(--ink);border-color:#D6D2C6;transform:translateY(-1px);
+    box-shadow:0 8px 18px -10px rgba(28,35,51,.18);}
+  .field{position:relative;}
+  .field > svg{position:absolute;left:16px;top:50%;transform:translateY(-50%);
+               width:18px;height:18px;color:var(--ink-3);transition:color .3s var(--ease);pointer-events:none;}
+  .field input{
+    width:100%;height:48px;border:1px solid var(--line);border-radius:12px;background:#fff;
+    padding:0 16px 0 44px;font:inherit;font-size:14px;color:var(--ink);outline:none;
+    transition:border-color .3s var(--ease),box-shadow .35s var(--ease);
+  }
+  .field input::placeholder{color:var(--ink-3);letter-spacing:.04em;}
+  .field input:focus{border-color:var(--orange);box-shadow:0 0 0 4px rgba(242,109,33,.10);}
+  .field input:focus + svg,.field:focus-within > svg{color:var(--orange);}
+  .badge-o{ /* 「高级技师」唯一橙色徽章 */
+    display:inline-flex;align-items:center;height:20px;padding:0 8px;
+    border:1px solid var(--orange);color:var(--orange);border-radius:6px;
+    font-size:10.5px;font-weight:700;letter-spacing:.12em;line-height:1;
+  }
+  .tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:7px;
+       font-size:11px;font-weight:600;letter-spacing:.1em;}
+  .tag i{width:5px;height:5px;border-radius:50%;}
+  .tag.ok{background:rgba(76,154,119,.10);color:var(--ok);}
+  .tag.ok i{background:var(--ok);}
+  .tag.warn{background:rgba(217,160,60,.12);color:#B5822A;}
+  .tag.warn i{background:var(--warn);}
+  .tag.ink{background:var(--tile);color:var(--ink-2);}
+  .tag.ink i{background:var(--ink-3);}
+  .sec-label{display:flex;align-items:baseline;gap:12px;}
+  .sec-label h3{font-size:15px;font-weight:800;letter-spacing:.2em;}
+  .sec-label span{font-size:10px;letter-spacing:.34em;color:var(--ink-3);font-weight:600;}
+  .avatar-ink{border-radius:14px;background:var(--ink);color:#fff;
+              display:flex;align-items:center;justify-content:center;font-weight:700;}
+  svg.ic{display:block;}
+
+  /* ================= ① Web 登录页 ================= */
+  .lg-wrap{display:flex;min-height:640px;background:#fff;}
+  .lg-brand{
+    flex:1.15;position:relative;overflow:hidden;
+    padding:64px 60px;display:flex;flex-direction:column;
+    border-right:1px solid var(--line);
+  }
+  .lg-brand::before{ /* 一束斜光 */
+    content:"";position:absolute;top:-30%;left:-20%;width:70%;height:160%;
+    background:linear-gradient(100deg,transparent 20%,rgba(242,109,33,.05) 48%,rgba(28,35,51,.03) 55%,transparent 80%);
+    transform:rotate(8deg);pointer-events:none;
+  }
+  .lg-logo{display:flex;align-items:center;gap:12px;}
+  .lg-mark{width:42px;height:42px;border-radius:12px;background:var(--ink);color:#fff;
+           display:flex;align-items:center;justify-content:center;
+           box-shadow:0 10px 22px -10px rgba(28,35,51,.45);}
+  .lg-mark svg{width:22px;height:22px;}
+  .lg-logo b{font-size:16px;font-weight:800;letter-spacing:.1em;}
+  .lg-logo span{font-size:10px;letter-spacing:.3em;color:var(--ink-3);font-weight:600;}
+  .lg-hero{margin-top:86px;}
+  .lg-hero .en{font-size:11px;letter-spacing:.5em;color:var(--ink-3);font-weight:600;}
+  .lg-hero h3{margin-top:16px;font-size:44px;font-weight:800;letter-spacing:.08em;line-height:1.25;}
+  .lg-hero h3 em{font-style:normal;color:var(--orange);}
+  .lg-hero p{margin-top:18px;font-size:13.5px;letter-spacing:.24em;color:var(--ink-2);}
+  .lg-feats{margin-top:auto;display:flex;flex-direction:column;gap:14px;}
+  .lg-feats div{display:flex;align-items:center;gap:10px;font-size:12.5px;letter-spacing:.12em;color:var(--ink-2);}
+  .lg-feats i{width:5px;height:5px;border-radius:50%;background:var(--ink);opacity:.85;}
+  .lg-form{flex:1;display:flex;flex-direction:column;justify-content:center;padding:60px 64px;}
+  .lg-form h4{font-size:22px;font-weight:800;letter-spacing:.14em;}
+  .lg-form .sub{margin-top:8px;font-size:12px;letter-spacing:.16em;color:var(--ink-3);}
+  .lg-form .field{margin-top:16px;}
+  .lg-form .field:first-of-type{margin-top:30px;}
+  .lg-login{width:100%;height:50px;margin-top:24px;font-size:15px;letter-spacing:.5em;text-indent:.5em;}
+  .lg-agree{margin-top:22px;display:flex;align-items:center;justify-content:center;gap:8px;
+            font-size:11.5px;color:var(--ink-2);letter-spacing:.04em;}
+  .ck{width:16px;height:16px;flex:none;border-radius:5px;background:var(--orange);
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 3px 8px -2px rgba(242,109,33,.5);}
+  .lg-agree a{color:var(--ink);font-weight:600;text-decoration:none;border-bottom:1px solid var(--line);}
+  .lg-ver{margin-top:56px;text-align:center;font-size:10.5px;letter-spacing:.3em;color:var(--ink-3);}
+
+  /* ================= ② Web 门户工作台 ================= */
+  .pt-nav{height:62px;background:#fff;border-bottom:1px solid var(--line);
+          display:flex;align-items:center;gap:34px;padding:0 36px;}
+  .pt-logo{display:flex;align-items:center;gap:10px;}
+  .pt-logo .lg-mark{width:34px;height:34px;border-radius:10px;}
+  .pt-logo .lg-mark svg{width:18px;height:18px;}
+  .pt-logo b{font-size:14.5px;font-weight:800;letter-spacing:.08em;}
+  .pt-links{display:flex;gap:26px;margin-left:8px;}
+  .pt-links a{position:relative;font-size:13px;letter-spacing:.1em;color:var(--ink-2);
+              text-decoration:none;padding:6px 2px;transition:color .3s var(--ease);}
+  .pt-links a:hover{color:var(--ink);}
+  .pt-links a.on{color:var(--ink);font-weight:700;}
+  .pt-links a.on::after{content:"";position:absolute;left:50%;bottom:-14px;transform:translateX(-50%);
+                        width:4px;height:4px;border-radius:50%;background:var(--orange);}
+  .pt-me{margin-left:auto;display:flex;align-items:center;gap:18px;}
+  .pt-me .ic-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:#fff;
+                 display:flex;align-items:center;justify-content:center;color:var(--ink-2);
+                 transition:transform .35s var(--spring),box-shadow .35s var(--spring);}
+  .pt-me .ic-btn:hover{transform:translateY(-1px);box-shadow:var(--sh-s);}
+  .pt-me .ic-btn svg{width:16px;height:16px;}
+  .pt-me .ic-btn{position:relative;}
+  .pt-me .ic-btn .dot{position:absolute;top:8px;right:9px;width:6px;height:6px;border-radius:50%;
+                      background:var(--orange);border:1.5px solid #fff;}
+  .pt-user{display:flex;align-items:center;gap:10px;}
+  .pt-user .avatar-ink{width:34px;height:34px;border-radius:11px;font-size:13px;}
+  .pt-user b{font-size:13px;letter-spacing:.06em;}
+  .pt-user svg{width:13px;height:13px;color:var(--ink-3);}
+  .pt-body{padding:40px 44px 48px;}
+  .pt-hello{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;}
+  .pt-hello .en{font-size:10.5px;letter-spacing:.42em;color:var(--ink-3);font-weight:600;}
+  .pt-hello h3{margin-top:12px;font-size:32px;font-weight:800;letter-spacing:.06em;}
+  .pt-hello .who{margin-top:12px;display:flex;align-items:center;gap:10px;
+                 font-size:12.5px;letter-spacing:.1em;color:var(--ink-2);}
+  .pt-date{text-align:right;font-size:12px;letter-spacing:.14em;color:var(--ink-3);line-height:2;}
+  .pt-date b{display:block;font-size:15px;color:var(--ink);letter-spacing:.1em;}
+  .pt-card{
+    margin-top:30px;background:#fff;border:1px solid var(--line);border-radius:16px;
+    padding:24px 28px;display:flex;align-items:center;gap:22px;
+    box-shadow:var(--sh-s);
+    transition:transform .5s var(--spring),box-shadow .5s var(--spring);
+  }
+  .pt-card:hover{transform:translateY(-3px);box-shadow:var(--sh-m);}
+  .pt-card .avatar-ink{width:58px;height:58px;border-radius:16px;font-size:22px;}
+  .pt-card .nm{font-size:17px;font-weight:800;letter-spacing:.08em;}
+  .pt-card .rl{margin-top:7px;display:flex;align-items:center;gap:9px;font-size:12px;color:var(--ink-2);letter-spacing:.1em;}
+  .pt-stats{margin-left:auto;display:flex;gap:0;}
+  .pt-stats div{padding:0 24px;text-align:center;}
+  .pt-stats div + div{border-left:1px solid var(--line);}
+  .pt-stats b{font-size:22px;font-weight:800;letter-spacing:.02em;}
+  .pt-stats span{display:block;margin-top:5px;font-size:10.5px;letter-spacing:.22em;color:var(--ink-3);}
+  .pt-apps{margin-top:40px;}
+  .pt-grid{margin-top:20px;display:grid;grid-template-columns:repeat(4,1fr);gap:18px;}
+  .app-card{
+    background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px 22px 22px;
+    box-shadow:var(--sh-s);cursor:pointer;position:relative;
+    transition:transform .5s var(--spring),box-shadow .5s var(--spring),border-color .4s var(--ease);
+  }
+  .app-card:hover{transform:translateY(-3px);box-shadow:var(--sh-m);border-color:#E4E1D7;}
+  .app-card .ai{
+    width:46px;height:46px;border-radius:13px;background:var(--tile);color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    transition:background .4s var(--ease),color .4s var(--ease);
+  }
+  .app-card .ai svg{width:23px;height:23px;}
+  .app-card:hover .ai{background:var(--orange-soft);color:var(--orange);}
+  .app-card h4{margin-top:16px;font-size:14.5px;font-weight:800;letter-spacing:.08em;}
+  .app-card p{margin-top:8px;font-size:11.5px;line-height:1.8;color:var(--ink-3);letter-spacing:.05em;}
+  .app-card .go{position:absolute;top:22px;right:20px;width:15px;height:15px;color:var(--ink-3);
+                opacity:0;transform:translateX(-6px);transition:opacity .35s var(--ease),transform .4s var(--spring);}
+  .app-card:hover .go{opacity:1;transform:none;}
+  .app-card.soon{border-style:dashed;border-color:#DDD8CA;background:transparent;box-shadow:none;cursor:default;}
+  .app-card.soon .ai{background:transparent;border:1.5px dashed #DDD8CA;color:#C6C0AF;}
+  .app-card.soon h4{color:var(--ink-3);}
+  .app-card.soon:hover{transform:none;box-shadow:none;}
+  .app-card.soon:hover .ai{background:transparent;color:#C6C0AF;}
+
+  /* ================= ③ Call Me AI 对话 ================= */
+  .cm-wrap{display:flex;height:720px;background:#fff;}
+  .cm-side{width:262px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg);}
+  .cm-side-head{padding:20px 18px 14px;}
+  .cm-new{width:100%;height:42px;display:flex;align-items:center;justify-content:center;gap:8px;
+          font-size:13px;font-weight:600;background:#fff;}
+  .cm-new svg{width:15px;height:15px;}
+  .cm-list{flex:1;padding:6px 10px;overflow:hidden;}
+  .cm-list .lb{padding:12px 10px 8px;font-size:10px;letter-spacing:.3em;color:var(--ink-3);font-weight:600;}
+  .cm-item{
+    position:relative;display:flex;align-items:center;gap:10px;
+    padding:11px 12px;border-radius:11px;cursor:pointer;
+    transition:background .3s var(--ease);
+  }
+  .cm-item:hover{background:#fff;}
+  .cm-item svg{width:15px;height:15px;flex:none;color:var(--ink-3);}
+  .cm-item .t{min-width:0;}
+  .cm-item .t b{display:block;font-size:12.5px;font-weight:600;letter-spacing:.04em;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cm-item .t span{display:block;margin-top:3px;font-size:10.5px;color:var(--ink-3);letter-spacing:.04em;}
+  .cm-item.on{background:#fff;box-shadow:var(--sh-s);}
+  .cm-item.on::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:2px;background:var(--orange);}
+  .cm-item.on svg{color:var(--orange);}
+  .cm-side-foot{padding:14px 18px;border-top:1px solid var(--line);
+                display:flex;align-items:center;gap:10px;font-size:11px;color:var(--ink-3);letter-spacing:.08em;}
+  .cm-side-foot .avatar-ink{width:28px;height:28px;border-radius:9px;font-size:11px;}
+  .cm-main{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .cm-top{height:58px;flex:none;border-bottom:1px solid var(--line);
+          display:flex;align-items:center;gap:12px;padding:0 26px;background:#fff;}
+  .cm-top b{font-size:14px;font-weight:800;letter-spacing:.06em;}
+  .cm-top .tag{height:22px;font-size:10px;}
+  .cm-top .rt{margin-left:auto;display:flex;gap:10px;color:var(--ink-3);}
+  .cm-top .rt svg{width:16px;height:16px;}
+  .cm-flow{flex:1;padding:28px 30px;overflow:hidden;display:flex;flex-direction:column;gap:22px;background:var(--bg);}
+  .msg{display:flex;gap:12px;max-width:82%;}
+  .msg .av{width:32px;height:32px;flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;}
+  .msg .av svg{width:17px;height:17px;}
+  .msg.ai .av{background:var(--ink);color:#fff;}
+  .msg .bub{
+    background:#fff;border:1px solid var(--line);border-radius:4px 16px 16px 16px;
+    padding:15px 18px;font-size:13px;line-height:1.85;color:var(--ink);letter-spacing:.02em;
+    box-shadow:var(--sh-s);
+  }
+  .msg .bub b{font-weight:700;}
+  .msg .bub ol{margin:8px 0 0 18px;display:flex;flex-direction:column;gap:4px;}
+  .msg.me{align-self:flex-end;flex-direction:row-reverse;}
+  .msg.me .av{background:var(--orange);color:#fff;font-size:12px;font-weight:700;}
+  .msg.me .bub{background:var(--ink);color:#fff;border-color:var(--ink);border-radius:16px 4px 16px 16px;}
+  .think{
+    margin-bottom:12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);
+    padding:10px 14px;
+  }
+  .think .th-h{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--ink-2);}
+  .think .th-h svg{width:13px;height:13px;color:var(--orange);}
+  .think .th-h em{font-style:normal;font-weight:500;color:var(--ink-3);letter-spacing:.06em;}
+  .think .th-h .chv{margin-left:auto;width:12px;height:12px;color:var(--ink-3);}
+  .think .th-b{margin-top:8px;font-size:11px;line-height:1.8;color:var(--ink-3);letter-spacing:.03em;}
+  .code{
+    margin-top:12px;border-radius:11px;background:var(--ink);color:#E8EAF0;
+    padding:13px 16px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"PingFang SC",monospace;
+    font-size:11.5px;line-height:1.9;letter-spacing:.02em;
+  }
+  .code .cm-h{display:flex;align-items:center;justify-content:space-between;
+              font-size:9.5px;letter-spacing:.28em;color:#8B93A5;margin-bottom:8px;}
+  .code .k{color:#F0A878;}
+  .cursor{display:inline-block;width:8px;height:15px;margin-left:3px;vertical-align:-2px;
+          background:var(--orange);border-radius:1.5px;animation:blink 1.05s steps(2,start) infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  .dots{display:inline-flex;gap:5px;align-items:center;padding:2px 0;}
+  .dots i{width:6px;height:6px;border-radius:50%;background:#B9BDC7;animation:bre 1.4s ease-in-out infinite;}
+  .dots i:nth-child(2){animation-delay:.18s;}
+  .dots i:nth-child(3){animation-delay:.36s;}
+  @keyframes bre{0%,100%{opacity:.35;transform:translateY(0);}50%{opacity:1;transform:translateY(-3px);}}
+  .cm-input{flex:none;padding:16px 26px 20px;background:#fff;border-top:1px solid var(--line);}
+  .cm-bar{
+    display:flex;align-items:center;gap:10px;height:52px;padding:0 8px 0 18px;
+    border:1px solid var(--line);border-radius:999px;background:#fff;
+    transition:border-color .3s var(--ease),box-shadow .35s var(--ease);
+  }
+  .cm-bar:focus-within{border-color:var(--orange);box-shadow:0 0 0 4px rgba(242,109,33,.10);}
+  .cm-bar > svg{width:18px;height:18px;color:var(--ink-3);flex:none;}
+  .cm-bar input{flex:1;border:none;outline:none;font:inherit;font-size:13.5px;color:var(--ink);background:transparent;letter-spacing:.03em;}
+  .cm-bar input::placeholder{color:var(--ink-3);}
+  .cm-send{width:38px;height:38px;flex:none;border:none;border-radius:50%;background:var(--orange);color:#fff;
+           display:flex;align-items:center;justify-content:center;cursor:pointer;
+           box-shadow:0 6px 14px -4px rgba(242,109,33,.55);
+           transition:transform .35s var(--spring),box-shadow .35s var(--spring);}
+  .cm-send:hover{transform:translateY(-2px);box-shadow:0 10px 20px -6px rgba(242,109,33,.6);}
+  .cm-send svg{width:16px;height:16px;}
+  .cm-tip{margin-top:10px;text-align:center;font-size:10px;letter-spacing:.22em;color:var(--ink-3);}
+
+  /* ================= ④ 出工日志 ================= */
+  .wl-body{padding:34px 40px 44px;background:var(--bg);}
+  .wl-head{display:flex;align-items:center;gap:20px;}
+  .wl-head .sec-label h3{font-size:19px;}
+  .wl-month{margin-left:auto;display:flex;align-items:center;gap:6px;background:#fff;
+            border:1px solid var(--line);border-radius:999px;padding:4px;}
+  .wl-month button{width:28px;height:28px;border:none;border-radius:50%;background:transparent;color:var(--ink-2);
+                   cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .3s var(--ease);}
+  .wl-month button:hover{background:var(--tile);}
+  .wl-month button svg{width:13px;height:13px;}
+  .wl-month b{padding:0 10px;font-size:12.5px;letter-spacing:.14em;}
+  .wl-new{height:38px;padding:0 20px;font-size:12.5px;display:flex;align-items:center;gap:7px;}
+  .wl-new svg{width:14px;height:14px;}
+  .wl-cols{margin-top:24px;display:flex;gap:22px;align-items:flex-start;}
+  .wl-cal{
+    flex:1.25;background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 22px 16px;
+    box-shadow:var(--sh-s);
+  }
+  .wl-wk,.wl-days{display:grid;grid-template-columns:repeat(7,1fr);}
+  .wl-wk span{text-align:center;font-size:10px;letter-spacing:.2em;color:var(--ink-3);padding:6px 0 10px;font-weight:600;}
+  .wl-day{position:relative;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+          border-radius:11px;font-size:12.5px;letter-spacing:.03em;cursor:pointer;
+          transition:background .3s var(--ease);}
+  .wl-day:hover{background:var(--tile);}
+  .wl-day.dim{color:#C9CBC2;cursor:default;}
+  .wl-day.dim:hover{background:transparent;}
+  .wl-day.we{color:var(--ink-3);}
+  .wl-day i{width:5px;height:5px;border-radius:50%;}
+  .wl-day i.ok{background:var(--ok);}
+  .wl-day i.warn{background:var(--warn);}
+  .wl-day i.none{visibility:hidden;}
+  .wl-day.today{background:var(--ink);color:#fff;font-weight:700;box-shadow:0 8px 16px -6px rgba(28,35,51,.4);}
+  .wl-day.today:hover{background:var(--ink);}
+  .wl-day.today i.warn{background:var(--warn);}
+  .wl-legend{margin-top:14px;padding-top:14px;border-top:1px solid var(--line-2);
+             display:flex;gap:20px;font-size:10.5px;letter-spacing:.14em;color:var(--ink-3);}
+  .wl-legend i{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:1px;}
+  .wl-legend .lo i{background:var(--ok);}
+  .wl-legend .lw i{background:var(--warn);}
+  .wl-detail{flex:1;display:flex;flex-direction:column;gap:16px;min-width:0;}
+  .wl-card{
+    background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px 26px;
+    box-shadow:var(--sh-s);
+    transition:transform .5s var(--spring),box-shadow .5s var(--spring);
+  }
+  .wl-card:hover{transform:translateY(-3px);box-shadow:var(--sh-m);}
+  .wl-card-h{display:flex;align-items:center;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--line-2);}
+  .wl-card-h b{font-size:15px;font-weight:800;letter-spacing:.08em;}
+  .wl-card-h .tag{margin-left:auto;}
+  .wl-rows{margin-top:6px;}
+  .wl-row{display:flex;align-items:center;gap:12px;padding:11px 0;font-size:12.5px;}
+  .wl-row + .wl-row{border-top:1px solid var(--line-2);}
+  .wl-row svg{width:15px;height:15px;color:var(--ink-3);flex:none;}
+  .wl-row .k{width:64px;flex:none;color:var(--ink-3);letter-spacing:.16em;font-size:11px;}
+  .wl-row .v{font-weight:600;letter-spacing:.05em;}
+  .wl-row .v small{margin-left:10px;font-weight:400;color:var(--ink-3);letter-spacing:.04em;}
+  .wl-photos{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  .wl-ph{
+    position:relative;aspect-ratio:4/3;border-radius:11px;overflow:hidden;
+    border:1px solid var(--line);
+  }
+  .wl-ph .scene{position:absolute;inset:0;}
+  .wl-ph .wm{ /* 水印文字 */
+    position:absolute;left:-12%;top:44%;width:130%;transform:rotate(-16deg);
+    font-size:8.5px;letter-spacing:.14em;color:rgba(255,255,255,.85);text-align:center;line-height:2.1;
+    text-shadow:0 1px 2px rgba(28,35,51,.25);
+  }
+  .wl-ph .wm2{top:14%;}
+  .wl-ph .cam{
+    position:absolute;left:8px;bottom:7px;display:flex;align-items:center;gap:4px;
+    color:rgba(255,255,255,.92);font-size:8.5px;letter-spacing:.1em;
+  }
+  .wl-ph .cam svg{width:10px;height:10px;}
+  .scene.s1{background:linear-gradient(160deg,#8E9AAF 0%,#5D6B82 55%,#3E4A5F 100%);}
+  .scene.s2{background:linear-gradient(160deg,#B9AE9B 0%,#8C8270 55%,#61594B 100%);}
+  .scene.s3{background:linear-gradient(160deg,#7F8C79 0%,#5B6A57 55%,#3E4A3C 100%);}
+  .scene::after{content:"";position:absolute;left:12%;bottom:0;width:76%;height:42%;
+                background:rgba(28,35,51,.22);border-radius:8px 8px 0 0;}
+  .wl-anti{
+    margin-top:16px;display:flex;align-items:center;gap:12px;
+    background:var(--bg);border:1px dashed #DDD8CA;border-radius:11px;padding:11px 14px;
+  }
+  .wl-anti svg{width:16px;height:16px;color:var(--ink-2);flex:none;}
+  .wl-anti .cd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+               font-size:12.5px;font-weight:700;letter-spacing:.14em;}
+  .wl-anti .cp{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:10.5px;
+               letter-spacing:.14em;color:var(--ink-3);cursor:pointer;transition:color .3s var(--ease);}
+  .wl-anti .cp:hover{color:var(--ink);}
+  .wl-anti .cp svg{width:12px;height:12px;}
+
+  /* ================= ⑤ 安全日活动记录 ================= */
+  .sd-body{padding:34px 40px 44px;background:var(--bg);display:flex;flex-direction:column;gap:22px;}
+  .sd-head{display:flex;align-items:baseline;gap:16px;}
+  .sd-head p{margin-left:auto;font-size:11px;letter-spacing:.2em;color:var(--ink-3);}
+  .sd-card{
+    background:#fff;border:1px solid var(--line);border-radius:16px;padding:26px 28px;
+    box-shadow:var(--sh-s);
+  }
+  .sd-card-h{display:flex;align-items:baseline;justify-content:space-between;
+             padding-bottom:18px;border-bottom:1px solid var(--line-2);margin-bottom:20px;}
+  .drop{
+    border:1.5px dashed #DDD8CA;border-radius:14px;padding:38px 20px;text-align:center;cursor:pointer;
+    transition:border-color .35s var(--ease),background .35s var(--ease),transform .4s var(--spring);
+  }
+  .drop:hover{border-color:rgba(242,109,33,.5);background:var(--orange-soft);transform:translateY(-1px);}
+  .drop .di{width:42px;height:42px;margin:0 auto 14px;border-radius:12px;background:var(--tile);color:var(--ink);
+            display:flex;align-items:center;justify-content:center;}
+  .drop .di svg{width:21px;height:21px;}
+  .drop b{font-size:13px;letter-spacing:.06em;}
+  .drop p{margin-top:8px;font-size:11px;color:var(--ink-3);letter-spacing:.08em;}
+  .sd-pills{margin-top:14px;display:flex;flex-wrap:wrap;gap:9px;}
+  .pill{
+    display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 8px 0 13px;
+    background:var(--tile);border:1px solid var(--line);border-radius:999px;
+    font-size:11.5px;letter-spacing:.04em;color:var(--ink);
+  }
+  .pill svg{width:13px;height:13px;color:var(--ink-3);}
+  .pill .x{width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+           color:var(--ink-3);cursor:pointer;transition:background .25s var(--ease),color .25s var(--ease);}
+  .pill .x:hover{background:rgba(28,35,51,.08);color:var(--ink);}
+  .pill .x svg{width:9px;height:9px;}
+  .sd-row{margin-top:18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .sd-row .fl{font-size:12px;letter-spacing:.14em;color:var(--ink-2);}
+  .sd-date{height:38px;border:1px solid var(--line);border-radius:10px;background:#fff;padding:0 13px;
+           font:inherit;font-size:12.5px;color:var(--ink);outline:none;letter-spacing:.04em;
+           transition:border-color .3s var(--ease),box-shadow .3s var(--ease);}
+  .sd-date:focus{border-color:var(--orange);box-shadow:0 0 0 4px rgba(242,109,33,.10);}
+  .sd-gen{margin-left:auto;height:40px;padding:0 24px;font-size:13px;display:flex;align-items:center;gap:8px;}
+  .sd-gen svg{width:15px;height:15px;}
+  /* 生成进度 */
+  .sd-prog{display:flex;align-items:center;gap:14px;}
+  .spin{
+    width:17px;height:17px;flex:none;border-radius:50%;
+    background:conic-gradient(from 0deg,rgba(242,109,33,0) 12%,var(--orange));
+    -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2.5px));
+            mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2.5px));
+    animation:spin .9s cubic-bezier(.62,.28,.38,.72) infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .sd-prog .pt{font-size:12.5px;letter-spacing:.08em;animation:breathe 2.2s ease-in-out infinite;}
+  @keyframes breathe{0%,100%{opacity:1;}50%{opacity:.45;}}
+  .sd-prog .fn{margin-left:auto;font-size:10.5px;letter-spacing:.12em;color:var(--ink-3);}
+  .sd-steps{margin-top:18px;display:flex;align-items:center;}
+  .stp{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.1em;color:var(--ink-3);}
+  .stp i{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);background:#fff;
+         display:flex;align-items:center;justify-content:center;font-style:normal;}
+  .stp.done{color:var(--ink);}
+  .stp.done i{border-color:var(--ink);background:var(--ink);color:#fff;}
+  .stp.done i svg{width:9px;height:9px;}
+  .stp.cur{color:var(--orange);font-weight:700;}
+  .stp.cur i{border-color:var(--orange);}
+  .stp.cur i::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--orange);
+                    animation:breathe 1.6s ease-in-out infinite;}
+  .stp-line{flex:1;height:1px;background:var(--line);margin:0 12px;}
+  .sd-bar{margin-top:16px;height:3px;border-radius:2px;background:var(--line-2);overflow:hidden;}
+  .sd-bar i{display:block;height:100%;width:62%;border-radius:2px;background:var(--orange);
+            animation:barSlide 2.6s var(--ease) infinite;}
+  @keyframes barSlide{0%{transform:translateX(-100%);}100%{transform:translateX(280%);}}
+  /* 记录表格 */
+  .sd-table{width:100%;border-collapse:collapse;}
+  .sd-table th{
+    text-align:left;font-size:10px;letter-spacing:.28em;color:var(--ink-3);font-weight:600;
+    padding:0 14px 12px;border-bottom:1px solid var(--line);
+  }
+  .sd-table td{padding:15px 14px;font-size:12.5px;border-bottom:1px solid var(--line-2);vertical-align:middle;}
+  .sd-table tr:last-child td{border-bottom:none;}
+  .sd-table tbody tr{transition:background .3s var(--ease);}
+  .sd-table tbody tr:hover{background:var(--bg);}
+  .sd-file{display:flex;align-items:center;gap:11px;}
+  .sd-file .fi{width:32px;height:32px;flex:none;border-radius:9px;background:var(--tile);color:var(--ink-2);
+               display:flex;align-items:center;justify-content:center;}
+  .sd-file .fi svg{width:15px;height:15px;}
+  .sd-file b{display:block;font-size:12.5px;font-weight:700;letter-spacing:.04em;}
+  .sd-file span{display:block;margin-top:2px;font-size:10px;color:var(--ink-3);letter-spacing:.08em;}
+  .sd-op{display:flex;gap:8px;}
+  .sd-op button{
+    height:28px;padding:0 13px;border-radius:8px;font-size:11px;letter-spacing:.1em;cursor:pointer;
+    display:inline-flex;align-items:center;gap:5px;font-family:inherit;
+    transition:all .3s var(--ease);
+  }
+  .sd-op button svg{width:12px;height:12px;}
+  .sd-op .dl{border:1px solid var(--line);background:#fff;color:var(--ink);}
+  .sd-op .dl:hover{border-color:var(--ink);transform:translateY(-1px);box-shadow:var(--sh-s);}
+  .sd-op .del{border:1px solid transparent;background:transparent;color:var(--ink-3);}
+  .sd-op .del:hover{color:var(--danger);background:rgba(192,85,85,.07);}
+  .sd-ing{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-2);letter-spacing:.06em;}
+  .sd-ing .spin{width:13px;height:13px;}
+
+  /* ================= ⑥ 小程序首页预览 ================= */
+  .mp-stage{display:flex;justify-content:center;}
+  .phone{
+    padding:12px;border-radius:58px;
+    background:linear-gradient(150deg,#3A4150 0%,#191E29 60%,#12161F 100%);
+    box-shadow:0 40px 90px -30px rgba(28,35,51,.4),0 12px 28px -12px rgba(28,35,51,.25);
+  }
+  .screen{
+    position:relative;width:375px;height:812px;border-radius:46px;overflow:hidden;
+    background:var(--bg);display:flex;flex-direction:column;
+  }
+  .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);
+         width:116px;height:30px;border-radius:17px;background:#12161F;z-index:30;}
+  .home-ind{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
+            width:130px;height:5px;border-radius:3px;background:rgba(18,22,31,.9);z-index:40;}
+  .sb{height:52px;flex:none;padding:18px 30px 0;display:flex;justify-content:space-between;align-items:center;
+      font-size:14px;font-weight:700;color:var(--ink);position:relative;z-index:20;}
+  .sb .ic-set{display:flex;align-items:center;gap:7px;}
+  .mp-nav{height:50px;flex:none;display:flex;align-items:center;justify-content:center;gap:8px;
+          font-size:16px;font-weight:800;letter-spacing:.12em;}
+  .mp-nav svg{width:19px;height:19px;color:var(--ink);}
+  .mp-body{flex:1;padding:10px 16px 14px;overflow:hidden;}
+  .mp-ucard{
+    background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px 18px;
+    display:flex;align-items:center;gap:14px;box-shadow:var(--sh-s);
+  }
+  .mp-ucard .avatar-ink{width:52px;height:52px;border-radius:15px;font-size:20px;}
+  .mp-ucard .hello{font-size:17px;font-weight:800;letter-spacing:.05em;}
+  .mp-ucard .role{margin-top:7px;display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-2);letter-spacing:.06em;}
+  .mp-sec{margin:24px 4px 14px;display:flex;align-items:baseline;gap:10px;}
+  .mp-sec h3{font-size:14px;font-weight:800;letter-spacing:.22em;}
+  .mp-sec span{font-size:9px;letter-spacing:.3em;color:var(--ink-3);font-weight:600;}
+  .mp-grid-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 8px 6px;box-shadow:var(--sh-s);}
+  .mp-grid{display:grid;grid-template-columns:repeat(4,1fr);}
+  .mp-g{display:flex;flex-direction:column;align-items:center;gap:9px;margin-bottom:18px;}
+  .mp-g .gi{width:50px;height:50px;border-radius:14px;background:var(--tile);color:var(--ink);
+            display:flex;align-items:center;justify-content:center;}
+  .mp-g .gi svg{width:24px;height:24px;}
+  .mp-g .gi.hot{background:var(--orange-soft);color:var(--orange);}
+  .mp-g span{font-size:10.5px;color:var(--ink);letter-spacing:.03em;}
+  .mp-g.soon .gi{background:transparent;border:1.5px dashed #DDD8CA;color:#C6C0AF;}
+  .mp-g.soon span{color:var(--ink-3);}
+  .mp-tip{
+    margin-top:18px;background:#fff;border:1px solid var(--line);border-radius:14px;
+    display:flex;align-items:center;gap:12px;padding:13px 15px;box-shadow:var(--sh-s);
+  }
+  .mp-tip .ti{width:34px;height:34px;flex:none;border-radius:10px;background:var(--orange-soft);color:var(--orange);
+              display:flex;align-items:center;justify-content:center;}
+  .mp-tip .ti svg{width:18px;height:18px;}
+  .mp-tip b{display:block;font-size:12px;font-weight:700;letter-spacing:.06em;}
+  .mp-tip p{margin-top:3px;font-size:10.5px;color:var(--ink-3);letter-spacing:.04em;}
+  .mp-list{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--sh-s);}
+  .mp-row{display:flex;align-items:center;gap:11px;padding:12px 15px;}
+  .mp-row + .mp-row{border-top:1px solid var(--line-2);}
+  .mp-row .ri{width:30px;height:30px;flex:none;border-radius:9px;background:var(--tile);color:var(--ink);
+              display:flex;align-items:center;justify-content:center;}
+  .mp-row .ri svg{width:16px;height:16px;}
+  .mp-row .mt{min-width:0;}
+  .mp-row .mt b{display:block;font-size:11.5px;font-weight:700;letter-spacing:.04em;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .mp-row .mt span{display:block;margin-top:3px;font-size:9.5px;color:var(--ink-3);letter-spacing:.04em;}
+  .mp-row .st{margin-left:auto;flex:none;width:6px;height:6px;border-radius:50%;}
+  .mp-row .st.warn{background:var(--warn);}
+  .mp-row .st.ok{background:var(--ok);}
+  .mp-tabbar{
+    flex:none;height:76px;background:#fff;border-top:1px solid var(--line);
+    display:flex;padding:9px 0 20px;
+  }
+  .mp-tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+          font-size:10px;color:var(--ink-3);letter-spacing:.08em;}
+  .mp-tab svg{width:23px;height:23px;}
+  .mp-tab.on{color:var(--orange);font-weight:700;}
+
+  /* ===== 页脚 ===== */
+  .foot{max-width:1180px;margin:96px auto 0;padding-top:28px;border-top:1px solid var(--line);
+        display:flex;align-items:center;justify-content:space-between;
+        font-size:10.5px;letter-spacing:.3em;color:var(--ink-3);}
+
+  /* ===== 窄屏兜底 ===== */
+  @media (max-width:960px){
+    body{padding:48px 16px 72px;}
+    .page-head h1{font-size:32px;}
+    .lg-wrap{flex-direction:column;}
+    .lg-brand{border-right:none;border-bottom:1px solid var(--line);padding:44px 32px;}
+    .lg-hero{margin-top:40px;}
+    .lg-form{padding:40px 32px;}
+    .pt-grid{grid-template-columns:repeat(2,1fr);}
+    .cm-side{display:none;}
+    .wl-cols{flex-direction:column;}
+    .pt-links{display:none;}
+    .foot{flex-direction:column;gap:10px;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= 页首 ================= -->
+<header class="page-head rv in">
+  <div class="ph-label">SHADE 壹匣 · WEB UI 设计方案 <i>·</i> 供视觉评审</div>
+  <h1>方案C · <em>极简光影</em><small>浅色极简主义</small></h1>
+  <p class="ph-desc">纯白暖底、发丝分隔、柔光长投影。墨色承载信息，安全橙只作点睛——激活态、关键按钮、一处徽章。动效以「光」为主题：高光扫过、聚焦晕光、渐次渐显，整体像一间光线很好的画廊。</p>
+  <div class="ph-palette">
+    <span class="sw"><i style="background:#FCFCFA"></i>#FCFCFA 暖白底</span>
+    <span class="sw"><i style="background:#1C2333"></i>#1C2333 墨色</span>
+    <span class="sw"><i style="background:#F26D21"></i>#F26D21 安全橙 · 点睛</span>
+    <span class="sw"><i style="background:#ECEAE4"></i>#ECEAE4 发丝线</span>
+    <span class="sw"><i style="background:#F6F5F1"></i>#F6F5F1 图标浅底</span>
+    <span class="sw"><i style="background:#9AA0AC"></i>#9AA0AC 占位文字</span>
+  </div>
+  <div class="ph-rule"></div>
+</header>
+
+<main class="stack">
+
+  <!-- ================= ① Web 登录页 ================= -->
+  <section class="blk">
+    <div class="cap rv"><i>①</i><h2>Web 登录页</h2><span>LOGIN · 统一账号密码登录</span></div>
+    <div class="browser rv" style="--d:.08s">
+      <div class="b-bar">
+        <div class="b-dots"><i></i><i></i><i></i></div>
+        <div class="b-url">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>
+          portal.shade-yixia.cn/login
+        </div>
+        <div style="width:52px"></div>
+      </div>
+      <div class="b-body">
+        <div class="lg-wrap">
+          <!-- 品牌区 -->
+          <div class="lg-brand">
+            <div class="lg-logo">
+              <div class="lg-mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="7.5" width="17" height="12.5" rx="2.5"/><path d="M3.5 12h17"/><path d="M9.5 15.5h5"/><path d="M8 7.5V5.6A1.6 1.6 0 0 1 9.6 4h4.8A1.6 1.6 0 0 1 16 5.6v1.9"/></svg>
+              </div>
+              <div>
+                <b>Shade 壹匣</b><br>
+                <span>SHADE TOOLBOX</span>
+              </div>
+            </div>
+            <div class="lg-hero">
+              <div class="en">ONE BOX · FOR THE CREW</div>
+              <h3>班组应用<br>一匣尽收<em>。</em></h3>
+              <p>班组数字化工具平台</p>
+            </div>
+            <div class="lg-feats">
+              <div><i></i>统一登录 · 账号密码 / 微信一键直达</div>
+              <div><i></i>应用权限按人分配，入口清晰可控</div>
+              <div><i></i>Call Me 知识库 · 出工日志 · 安全日活动记录</div>
+            </div>
+          </div>
+          <!-- 登录表单 -->
+          <div class="lg-form">
+            <h4>欢迎回来</h4>
+            <div class="sub">请使用班组账号登录工作台</div>
+            <div class="field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.4a6.4 6.4 0 0 1 12.8 0"/></svg>
+              <input type="text" placeholder="请输入账号" value="zhangsan">
+            </div>
+            <div class="field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/><circle cx="12" cy="15.2" r="1.1" fill="currentColor" stroke="none"/></svg>
+              <input type="password" placeholder="请输入密码" value="········">
+            </div>
+            <button class="btn-p lg-login">登 录</button>
+            <div class="lg-agree">
+              <span class="ck">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+              </span>
+              已阅读并同意<a href="javascript:void(0)">《用户协议》</a>和<a href="javascript:void(0)">《隐私政策》</a>
+            </div>
+            <div class="lg-ver">SHADE 壹匣 · V1.0.0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ② Web 门户工作台 ================= -->
+  <section class="blk">
+    <div class="cap rv"><i>②</i><h2>Web 门户工作台</h2><span>WORKBENCH · 应用中心</span></div>
+    <div class="browser rv" style="--d:.08s">
+      <div class="b-bar">
+        <div class="b-dots"><i></i><i></i><i></i></div>
+        <div class="b-url">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>
+          portal.shade-yixia.cn/workbench
+        </div>
+        <div style="width:52px"></div>
+      </div>
+      <div class="b-body">
+        <!-- 顶部导航 -->
+        <nav class="pt-nav">
+          <div class="pt-logo">
+            <div class="lg-mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="7.5" width="17" height="12.5" rx="2.5"/><path d="M3.5 12h17"/><path d="M9.5 15.5h5"/><path d="M8 7.5V5.6A1.6 1.6 0 0 1 9.6 4h4.8A1.6 1.6 0 0 1 16 5.6v1.9"/></svg>
+            </div>
+            <b>Shade 壹匣</b>
+          </div>
+          <div class="pt-links">
+            <a class="on" href="javascript:void(0)">工作台</a>
+            <a href="javascript:void(0)">应用中心</a>
+            <a href="javascript:void(0)">消息通知</a>
+          </div>
+          <div class="pt-me">
+            <span class="ic-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+            </span>
+            <span class="ic-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+              <i class="dot"></i>
+            </span>
+            <div class="pt-user">
+              <span class="avatar-ink">张</span>
+              <b>张三</b>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+            </div>
+          </div>
+        </nav>
+        <div class="pt-body">
+          <!-- 欢迎区 -->
+          <div class="pt-hello rv">
+            <div>
+              <div class="en">GOOD MORNING · TUESDAY</div>
+              <h3>早上好，张三</h3>
+              <div class="who">检修一班 · 今日有 1 条出工日志待验证</div>
+            </div>
+            <div class="pt-date"><b>2026 年 8 月 4 日</b>星期二 · 天气晴 34℃</div>
+          </div>
+          <!-- 用户卡片 -->
+          <div class="pt-card rv" style="--d:.06s">
+            <span class="avatar-ink">张</span>
+            <div>
+              <div class="nm">张三</div>
+              <div class="rl">检修一班 · 工号 G1024 <span class="badge-o">高级技师</span></div>
+            </div>
+            <div class="pt-stats">
+              <div><b>12</b><span>本月出工</span></div>
+              <div><b>36</b><span>知识库会话</span></div>
+              <div><b>8</b><span>活动记录</span></div>
+            </div>
+          </div>
+          <!-- 应用中心 -->
+          <div class="pt-apps">
+            <div class="sec-label rv"><h3>应用中心</h3><span>APPS</span></div>
+            <div class="pt-grid">
+              <div class="app-card rv" style="--d:.05s">
+                <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
+                <div class="ai">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.5-4.6A8.5 8.5 0 1 1 20.5 11.5z"/><path d="M12 8l.9 2.1 2.1.9-2.1.9L12 14l-.9-2.1-2.1-.9 2.1-.9z" fill="currentColor" stroke="none"/></svg>
+                </div>
+                <h4>Call Me · AI 知识库</h4>
+                <p>对接 WeKnora 知识库，规程制度、检修经验即问即答</p>
+              </div>
+              <div class="app-card rv" style="--d:.1s">
+                <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
+                <div class="ai">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15.5" rx="2.5"/><path d="M4 9.5h16"/><path d="M8.5 3v3M15.5 3v3"/><path d="M9.3 15.2l1.8 1.8 3.4-3.4"/></svg>
+                </div>
+                <h4>出工日志</h4>
+                <p>班组出工记录、水印照片与验证状态，防伪可溯源</p>
+              </div>
+              <div class="app-card rv" style="--d:.15s">
+                <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
+                <div class="ai">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/><path d="M12 11l3.6 1.3v2.8c0 2.3-1.5 3.9-3.6 4.8-2.1-.9-3.6-2.5-3.6-4.8v-2.8z"/></svg>
+                </div>
+                <h4>安全日活动记录</h4>
+                <p>上传活动文档，Dify 工作流自动生成活动记录</p>
+              </div>
+              <div class="app-card soon rv" style="--d:.2s">
+                <div class="ai">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.1" fill="currentColor" stroke="none"/></svg>
+                </div>
+                <h4>敬请期待</h4>
+                <p>更多班组应用陆续接入中</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ③ Call Me AI 对话 ================= -->
+  <section class="blk">
+    <div class="cap rv"><i>③</i><h2>Call Me · AI 知识库问答</h2><span>CHAT · 对接 WEKNORA</span></div>
+    <div class="browser rv" style="--d:.08s">
+      <div class="b-bar">
+        <div class="b-dots"><i></i><i></i><i></i></div>
+        <div class="b-url">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>
+          portal.shade-yixia.cn/callme
+        </div>
+        <div style="width:52px"></div>
+      </div>
+      <div class="b-body">
+        <div class="cm-wrap">
+          <!-- 会话列表 -->
+          <aside class="cm-side">
+            <div class="cm-side-head">
+              <button class="btn-g cm-new">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                新建会话
+              </button>
+            </div>
+            <div class="cm-list">
+              <div class="lb">今天</div>
+              <div class="cm-item on">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.5-4.6A8.5 8.5 0 1 1 20.5 11.5z"/></svg>
+                <div class="t"><b>开关柜检修前安全措施</b><span>刚刚 · 3 条回复</span></div>
+              </div>
+              <div class="cm-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.5-4.6A8.5 8.5 0 1 1 20.5 11.5z"/></svg>
+                <div class="t"><b>今日安全交底要点</b><span>09:12</span></div>
+              </div>
+              <div class="lb">近 7 天</div>
+              <div class="cm-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.5-4.6A8.5 8.5 0 1 1 20.5 11.5z"/></svg>
+                <div class="t"><b>备用电源切换操作流程</b><span>8 月 2 日</span></div>
+              </div>
+              <div class="cm-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.5-4.6A8.5 8.5 0 1 1 20.5 11.5z"/></svg>
+                <div class="t"><b>工器具领用与归还规定</b><span>7 月 30 日</span></div>
+              </div>
+            </div>
+            <div class="cm-side-foot">
+              <span class="avatar-ink">张</span>
+              张三 · 检修一班
+            </div>
+          </aside>
+          <!-- 对话流 -->
+          <div class="cm-main">
+            <div class="cm-top">
+              <b>开关柜检修前安全措施</b>
+              <span class="tag ink"><i></i>WeKnora 知识库</span>
+              <div class="rt">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.2" fill="currentColor" stroke="none"/></svg>
+              </div>
+            </div>
+            <div class="cm-flow">
+              <!-- 用户提问 -->
+              <div class="msg me rv">
+                <span class="av">张</span>
+                <div class="bub">10kV 开关柜停电检修，开工前要做哪些安全措施？</div>
+              </div>
+              <!-- AI 回复：已思考折叠块 + markdown + 代码块 -->
+              <div class="msg ai rv" style="--d:.08s">
+                <span class="av">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.1 2.7 2.7 1.1-2.7 1.1L12 11.1l-1.1-2.7-2.7-1.1 2.7-1.1z"/><path d="M18.5 12.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"/><path d="M6 15.5l.7 1.7 1.7.7-1.7.7L6 20.3l-.7-1.7-1.7-.7 1.7-.7z"/></svg>
+                </span>
+                <div class="bub">
+                  <div class="think">
+                    <div class="th-h">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3.8a4.2 4.2 0 0 0-2.4 7.6c.7.6 1.1 1.4 1.3 2.3h7.2c.2-.9.6-1.7 1.3-2.3a4.2 4.2 0 0 0-2.4-7.6 4.3 4.3 0 0 0-5 0z"/><path d="M9 17.3h6M9.8 20h4.4"/></svg>
+                      已思考 <em>· 参考知识库文档 3 篇 · 用时 2.1s</em>
+                      <svg class="chv" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+                    </div>
+                    <div class="th-b">已检索《检修一班安全操作规程》《10kV 开关设备检修导则》《变电站安全工作规程》，综合整理开工前安全措施要点。</div>
+                  </div>
+                  根据 <b>《检修一班安全操作规程》第 4.2 节</b>，10kV 开关柜停电检修开工前，必须完成以下安全措施：
+                  <ol>
+                    <li>断开上级电源，验明无电压；</li>
+                    <li>在开关柜前后挂设「禁止合闸，有人工作」标示牌；</li>
+                    <li>装设接地线后方可许可开工。</li>
+                  </ol>
+                  <div class="code">
+                    <div class="cm-h"><span>作业许可流程</span><span>SOP</span></div>
+                    <span class="k">验电</span> → 放电 → 挂接地线 → 悬挂标示牌 → 办理工作票 → 许可开工
+                  </div>
+                </div>
+              </div>
+              <!-- 流式输出中 -->
+              <div class="msg ai rv" style="--d:.14s">
+                <span class="av">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.1 2.7 2.7 1.1-2.7 1.1L12 11.1l-1.1-2.7-2.7-1.1 2.7-1.1z"/><path d="M18.5 12.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"/><path d="M6 15.5l.7 1.7 1.7.7-1.7.7L6 20.3l-.7-1.7-1.7-.7 1.7-.7z"/></svg>
+                </span>
+                <div class="bub">
+                  另外提醒：今日 14:00 变电站有配合停电计划，建议上午完成验电挂线<span class="cursor"></span>
+                  <div style="margin-top:10px"><span class="dots"><i></i><i></i><i></i></span></div>
+                </div>
+              </div>
+            </div>
+            <!-- 输入框 -->
+            <div class="cm-input">
+              <div class="cm-bar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5l-8.2 8.2a5 5 0 0 1-7-7l8.4-8.4a3.4 3.4 0 0 1 4.8 4.8l-8.4 8.4a1.8 1.8 0 0 1-2.6-2.6l7.6-7.6"/></svg>
+                <input type="text" placeholder="向 Call Me 提问，规程、流程、经验随问随答…">
+                <button class="cm-send">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5.5 11.5L12 5l6.5 6.5"/></svg>
+                </button>
+              </div>
+              <div class="cm-tip">内容由 AI 基于班组知识库生成，关键操作请以现场规程为准</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ④ 出工日志 ================= -->
+  <section class="blk">
+    <div class="cap rv"><i>④</i><h2>出工日志</h2><span>WORK LOG · 月历与验证</span></div>
+    <div class="browser rv" style="--d:.08s">
+      <div class="b-bar">
+        <div class="b-dots"><i></i><i></i><i></i></div>
+        <div class="b-url">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>
+          portal.shade-yixia.cn/worklog
+        </div>
+        <div style="width:52px"></div>
+      </div>
+      <div class="b-body">
+        <div class="wl-body">
+          <div class="wl-head rv">
+            <div class="sec-label"><h3>出工日志</h3><span>WORK LOG</span></div>
+            <div class="wl-month">
+              <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></button>
+              <b>2026 年 8 月</b>
+              <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></button>
+            </div>
+            <button class="btn-p wl-new">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              新建日志
+            </button>
+          </div>
+          <div class="wl-cols">
+            <!-- 月历 -->
+            <div class="wl-cal rv" style="--d:.06s">
+              <div class="wl-wk">
+                <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+              </div>
+              <div class="wl-days">
+                <div class="wl-day dim">27<i class="none"></i></div>
+                <div class="wl-day dim">28<i class="none"></i></div>
+                <div class="wl-day dim">29<i class="none"></i></div>
+                <div class="wl-day dim">30<i class="none"></i></div>
+                <div class="wl-day dim">31<i class="none"></i></div>
+                <div class="wl-day we">1<i class="none"></i></div>
+                <div class="wl-day we">2<i class="none"></i></div>
+                <div class="wl-day">3<i class="ok"></i></div>
+                <div class="wl-day today">4<i class="warn"></i></div>
+                <div class="wl-day">5<i class="none"></i></div>
+                <div class="wl-day">6<i class="ok"></i></div>
+                <div class="wl-day">7<i class="none"></i></div>
+                <div class="wl-day we">8<i class="none"></i></div>
+                <div class="wl-day we">9<i class="none"></i></div>
+                <div class="wl-day">10<i class="ok"></i></div>
+                <div class="wl-day">11<i class="none"></i></div>
+                <div class="wl-day">12<i class="none"></i></div>
+                <div class="wl-day">13<i class="ok"></i></div>
+                <div class="wl-day">14<i class="none"></i></div>
+                <div class="wl-day we">15<i class="none"></i></div>
+                <div class="wl-day we">16<i class="none"></i></div>
+                <div class="wl-day">17<i class="warn"></i></div>
+                <div class="wl-day">18<i class="none"></i></div>
+                <div class="wl-day">19<i class="none"></i></div>
+                <div class="wl-day">20<i class="ok"></i></div>
+                <div class="wl-day">21<i class="none"></i></div>
+                <div class="wl-day we">22<i class="none"></i></div>
+                <div class="wl-day we">23<i class="none"></i></div>
+                <div class="wl-day">24<i class="ok"></i></div>
+                <div class="wl-day">25<i class="none"></i></div>
+                <div class="wl-day">26<i class="none"></i></div>
+                <div class="wl-day">27<i class="none"></i></div>
+                <div class="wl-day">28<i class="none"></i></div>
+                <div class="wl-day we">29<i class="none"></i></div>
+                <div class="wl-day we">30<i class="none"></i></div>
+                <div class="wl-day">31<i class="none"></i></div>
+                <div class="wl-day dim">1<i class="none"></i></div>
+                <div class="wl-day dim">2<i class="none"></i></div>
+                <div class="wl-day dim">3<i class="none"></i></div>
+                <div class="wl-day dim">4<i class="none"></i></div>
+                <div class="wl-day dim">5<i class="none"></i></div>
+                <div class="wl-day dim">6<i class="none"></i></div>
+              </div>
+              <div class="wl-legend">
+                <span class="lo"><i></i>已验证</span>
+                <span class="lw"><i></i>待验证</span>
+              </div>
+            </div>
+            <!-- 当日日志卡片 -->
+            <div class="wl-detail">
+              <div class="wl-card rv" style="--d:.1s">
+                <div class="wl-card-h">
+                  <b>8 月 4 日 · 出工记录</b>
+                  <span class="tag warn"><i></i>待验证</span>
+                </div>
+                <div class="wl-rows">
+                  <div class="wl-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 13.5l1.4-4.2A2.5 2.5 0 0 1 8.3 7.5h7.4a2.5 2.5 0 0 1 2.4 1.8l1.4 4.2"/><rect x="3.5" y="13.5" width="17" height="4.5" rx="1.6"/><circle cx="7.6" cy="19.4" r="1.4"/><circle cx="16.4" cy="19.4" r="1.4"/></svg>
+                    <span class="k">派车</span>
+                    <span class="v">粤B·D7316 工程抢险车<small>含司机 1 人</small></span>
+                  </div>
+                  <div class="wl-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.4a6.4 6.4 0 0 1 12.8 0"/></svg>
+                    <span class="k">用车人</span>
+                    <span class="v">张三 等 4 人<small>检修一班</small></span>
+                  </div>
+                  <div class="wl-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.3-6.5-10.2a6.5 6.5 0 0 1 13 0C18.5 15.7 12 21 12 21z"/><circle cx="12" cy="10.6" r="2.2"/></svg>
+                    <span class="k">目的地</span>
+                    <span class="v">220kV 梧桐变电站</span>
+                  </div>
+                  <div class="wl-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.5V12l3 2"/></svg>
+                    <span class="k">时段</span>
+                    <span class="v">08:30 — 17:40<small>共 9.2 小时</small></span>
+                  </div>
+                </div>
+                <div class="wl-photos">
+                  <div class="wl-ph">
+                    <div class="scene s1"></div>
+                    <div class="wm">检修一班 · 2026-08-04 09:12<br>220kV 梧桐变电站</div>
+                    <div class="cam"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.5-2.5h7L17 8.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z"/><circle cx="12" cy="13.6" r="3.2"/></svg>水印照片</div>
+                  </div>
+                  <div class="wl-ph">
+                    <div class="scene s2"></div>
+                    <div class="wm wm2">检修一班 · 2026-08-04 11:05<br>开关柜检修作业面</div>
+                    <div class="cam"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.5-2.5h7L17 8.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z"/><circle cx="12" cy="13.6" r="3.2"/></svg>水印照片</div>
+                  </div>
+                  <div class="wl-ph">
+                    <div class="scene s3"></div>
+                    <div class="wm">检修一班 · 2026-08-04 16:48<br>完工验收现场</div>
+                    <div class="cam"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.5-2.5h7L17 8.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z"/><circle cx="12" cy="13.6" r="3.2"/></svg>水印照片</div>
+                  </div>
+                </div>
+                <div class="wl-anti">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg>
+                  <div>
+                    <div style="font-size:10px;letter-spacing:.2em;color:var(--ink-3)">防伪码 · 扫码可溯源</div>
+                    <div class="cd">WL-20260804-9F3K2</div>
+                  </div>
+                  <span class="cp">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11.5" height="11.5" rx="2"/><path d="M5.5 15h-1a2 2 0 0 1-2-2V4.5a2 2 0 0 1 2-2H13a2 2 0 0 1 2 2v1"/></svg>
+                    复制
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ⑤ 安全日活动记录 ================= -->
+  <section class="blk">
+    <div class="cap rv"><i>⑤</i><h2>安全日活动记录</h2><span>SAFE DAY · DIFY 工作流生成</span></div>
+    <div class="browser rv" style="--d:.08s">
+      <div class="b-bar">
+        <div class="b-dots"><i></i><i></i><i></i></div>
+        <div class="b-url">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>
+          portal.shade-yixia.cn/safeday
+        </div>
+        <div style="width:52px"></div>
+      </div>
+      <div class="b-body">
+        <div class="sd-body">
+          <div class="sd-head rv">
+            <div class="sec-label"><h3>安全日活动记录</h3><span>SAFE DAY</span></div>
+            <p>上传活动文档 · 自动生成活动记录</p>
+          </div>
+
+          <!-- 生成新记录 -->
+          <div class="sd-card rv" style="--d:.06s">
+            <div class="sd-card-h">
+              <div class="sec-label"><h3>生成新记录</h3></div>
+              <span class="tag ink"><i></i>Dify 工作流</span>
+            </div>
+            <div class="drop">
+              <div class="di">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 15.5v3.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-3.5"/><path d="M16.5 8L12 3.5 7.5 8"/><path d="M12 3.5V15"/></svg>
+              </div>
+              <b>点击选择文件，或将文件拖拽到此处</b>
+              <p>支持 pdf / doc / docx / ppt / pptx / xls / xlsx · 单文件不超过 50MB</p>
+            </div>
+            <div class="sd-pills">
+              <span class="pill">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/></svg>
+                8月安全日活动-现场照片汇总.pdf
+                <span class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+              </span>
+              <span class="pill">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/></svg>
+                活动签到表.docx
+                <span class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+              </span>
+            </div>
+            <div class="sd-row">
+              <span class="fl">活动日期</span>
+              <input type="date" class="sd-date" value="2026-08-04">
+              <button class="btn-p sd-gen">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.1 2.7 2.7 1.1-2.7 1.1L12 11.1l-1.1-2.7-2.7-1.1 2.7-1.1z"/><path d="M18.5 12.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"/><path d="M6 15.5l.7 1.7 1.7.7-1.7.7L6 20.3l-.7-1.7-1.7-.7 1.7-.7z"/></svg>
+                生成活动记录
+              </button>
+            </div>
+          </div>
+
+          <!-- 生成进度 -->
+          <div class="sd-card rv" style="--d:.1s">
+            <div class="sd-prog">
+              <span class="spin"></span>
+              <span class="pt">Dify 工作流生成中 · 正在整理活动内容与参会人员…</span>
+              <span class="fn">8月安全日活动-现场照片汇总.pdf</span>
+            </div>
+            <div class="sd-steps">
+              <span class="stp done"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></i>文件上传</span>
+              <span class="stp-line"></span>
+              <span class="stp done"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></i>内容解析</span>
+              <span class="stp-line"></span>
+              <span class="stp cur"><i></i>记录生成</span>
+              <span class="stp-line"></span>
+              <span class="stp"><i></i>完成入库</span>
+            </div>
+            <div class="sd-bar"><i></i></div>
+          </div>
+
+          <!-- 记录列表 -->
+          <div class="sd-card rv" style="--d:.14s">
+            <div class="sd-card-h">
+              <div class="sec-label"><h3>记录列表</h3></div>
+              <span class="tag ink"><i></i>共 8 条</span>
+            </div>
+            <table class="sd-table">
+              <thead>
+                <tr>
+                  <th style="width:42%">记录名称</th>
+                  <th>活动日期</th>
+                  <th>生成时间</th>
+                  <th>状态</th>
+                  <th style="text-align:right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="sd-file">
+                      <span class="fi">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/></svg>
+                      </span>
+                      <div><b>8 月安全日活动记录.docx</b><span>2 个源文件 · 约 1 分钟前</span></div>
+                    </div>
+                  </td>
+                  <td>2026-08-04</td>
+                  <td>10:32</td>
+                  <td><span class="sd-ing"><span class="spin"></span>生成中</span></td>
+                  <td>
+                    <div class="sd-op" style="justify-content:flex-end">
+                      <button class="dl" disabled style="opacity:.45;cursor:not-allowed">下载</button>
+                      <button class="del">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6V4.8A1.3 1.3 0 0 1 10.8 3.5h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7"/><path d="M6.5 6.5l.8 12.3a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-12.3"/></svg>
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="sd-file">
+                      <span class="fi">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/></svg>
+                      </span>
+                      <div><b>7 月安全日活动记录.docx</b><span>主题：高温作业防护专题</span></div>
+                    </div>
+                  </td>
+                  <td>2026-07-07</td>
+                  <td>07-07 15:20</td>
+                  <td><span class="tag ok"><i></i>已生成</span></td>
+                  <td>
+                    <div class="sd-op" style="justify-content:flex-end">
+                      <button class="dl">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5V15"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 19.5h15"/></svg>
+                        下载
+                      </button>
+                      <button class="del">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6V4.8A1.3 1.3 0 0 1 10.8 3.5h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7"/><path d="M6.5 6.5l.8 12.3a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-12.3"/></svg>
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="sd-file">
+                      <span class="fi">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/></svg>
+                      </span>
+                      <div><b>6 月安全日活动记录.docx</b><span>主题：安全生产月总结</span></div>
+                    </div>
+                  </td>
+                  <td>2026-06-02</td>
+                  <td>06-02 11:08</td>
+                  <td><span class="tag ok"><i></i>已生成</span></td>
+                  <td>
+                    <div class="sd-op" style="justify-content:flex-end">
+                      <button class="dl">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5V15"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 19.5h15"/></svg>
+                        下载
+                      </button>
+                      <button class="del">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6V4.8A1.3 1.3 0 0 1 10.8 3.5h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7"/><path d="M6.5 6.5l.8 12.3a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-12.3"/></svg>
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="sd-file">
+                      <span class="fi">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/></svg>
+                      </span>
+                      <div><b>5 月安全日活动记录.docx</b><span>主题：防汛应急演练</span></div>
+                    </div>
+                  </td>
+                  <td>2026-05-12</td>
+                  <td>05-12 16:45</td>
+                  <td><span class="tag ok"><i></i>已生成</span></td>
+                  <td>
+                    <div class="sd-op" style="justify-content:flex-end">
+                      <button class="dl">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5V15"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 19.5h15"/></svg>
+                        下载
+                      </button>
+                      <button class="del">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6V4.8A1.3 1.3 0 0 1 10.8 3.5h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7"/><path d="M6.5 6.5l.8 12.3a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-12.3"/></svg>
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ⑥ 小程序首页预览 ================= -->
+  <section class="blk">
+    <div class="cap rv"><i>⑥</i><h2>小程序首页预览</h2><span>MINI PROGRAM · 同一套 TOKEN 跨端落地</span></div>
+    <div class="mp-stage rv" style="--d:.08s">
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+
+          <div class="sb">
+            <span>9:41</span>
+            <div class="ic-set">
+              <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+              <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+              <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+
+          <div class="mp-nav">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="7.5" width="17" height="12.5" rx="2.5"/><path d="M3.5 12h17"/><path d="M9.5 15.5h5"/><path d="M8 7.5V5.6A1.6 1.6 0 0 1 9.6 4h4.8A1.6 1.6 0 0 1 16 5.6v1.9"/></svg>
+            Shade 壹匣
+          </div>
+
+          <div class="mp-body">
+            <div class="mp-ucard">
+              <span class="avatar-ink">张</span>
+              <div>
+                <div class="hello">早上好，张三</div>
+                <div class="role">检修一班 · <span class="badge-o">高级技师</span></div>
+              </div>
+            </div>
+
+            <div class="mp-sec"><h3>应用中心</h3><span>APPS</span></div>
+
+            <div class="mp-grid-card">
+              <div class="mp-grid">
+                <div class="mp-g">
+                  <div class="gi hot">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.5-4.6A8.5 8.5 0 1 1 20.5 11.5z"/><path d="M12 8l.9 2.1 2.1.9-2.1.9L12 14l-.9-2.1-2.1-.9 2.1-.9z" fill="currentColor" stroke="none"/></svg>
+                  </div>
+                  <span>Call Me</span>
+                </div>
+                <div class="mp-g">
+                  <div class="gi">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15.5" rx="2.5"/><path d="M4 9.5h16"/><path d="M8.5 3v3M15.5 3v3"/><path d="M9.3 15.2l1.8 1.8 3.4-3.4"/></svg>
+                  </div>
+                  <span>出工日志</span>
+                </div>
+                <div class="mp-g">
+                  <div class="gi">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/><path d="M12 11l3.6 1.3v2.8c0 2.3-1.5 3.9-3.6 4.8-2.1-.9-3.6-2.5-3.6-4.8v-2.8z"/></svg>
+                  </div>
+                  <span>安全日活动</span>
+                </div>
+                <div class="mp-g soon">
+                  <div class="gi">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.1" fill="currentColor" stroke="none"/></svg>
+                  </div>
+                  <span>敬请期待</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mp-tip">
+              <div class="ti">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg>
+              </div>
+              <div>
+                <b>安全生产，预防为主</b>
+                <p>今日 1 条出工日志待验证，记得及时处理</p>
+              </div>
+            </div>
+
+            <div class="mp-sec"><h3>最近动态</h3><span>RECENT</span></div>
+
+            <div class="mp-list">
+              <div class="mp-row">
+                <div class="ri">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15.5" rx="2.5"/><path d="M4 9.5h16"/><path d="M8.5 3v3M15.5 3v3"/><path d="M9.3 15.2l1.8 1.8 3.4-3.4"/></svg>
+                </div>
+                <div class="mt"><b>8 月 4 日出工日志待验证</b><span>出工日志 · 10 分钟前</span></div>
+                <i class="st warn"></i>
+              </div>
+              <div class="mp-row">
+                <div class="ri">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.5-4.6A8.5 8.5 0 1 1 20.5 11.5z"/></svg>
+                </div>
+                <div class="mt"><b>新会话「开关柜检修前安全措施」</b><span>Call Me · 刚刚</span></div>
+                <i class="st ok"></i>
+              </div>
+              <div class="mp-row">
+                <div class="ri">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5z"/><path d="M13.5 3.5v6H19"/><path d="M12 11l3.6 1.3v2.8c0 2.3-1.5 3.9-3.6 4.8-2.1-.9-3.6-2.5-3.6-4.8v-2.8z"/></svg>
+                </div>
+                <div class="mt"><b>7 月安全日活动记录已生成</b><span>安全日活动 · 昨天 15:20</span></div>
+                <i class="st ok"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="mp-tabbar">
+            <div class="mp-tab on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.2L12 3.8l7.5 6.4"/><path d="M6.6 8.9V20h10.8V8.9"/><path d="M10.4 20v-5h3.2v5"/></svg>
+              首页
+            </div>
+            <div class="mp-tab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.6a6.4 6.4 0 0 1 12.8 0"/></svg>
+              我的
+            </div>
+          </div>
+
+          <div class="home-ind"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ================= 页脚 ================= -->
+<footer class="foot rv">
+  <span>SHADE 壹匣 · 班组数字化工具平台</span>
+  <span>方案C「极简光影」· 仅供视觉评审</span>
+</footer>
+
+<script>
+  // 滚动渐显：进入视口的元素渐次浮起
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.rv').forEach(function (el) { io.observe(el); });
+</script>
+
+</body>
+</html>

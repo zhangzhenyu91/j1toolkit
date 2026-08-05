@@ -1,8 +1,8 @@
-<!-- Call Me · 会话列表（检修一班AI知识库） -->
+<!-- Call Me · 会话列表（AI 知识库） -->
 <navbar back title="Call Me" />
 
 <view class="page-body">
-  <view class="tip-bar">检修一班 AI 知识库 · 左滑对话可重命名 / 删除</view>
+  <view class="tip-bar">AI 知识库 · 左滑对话可重命名 / 删除</view>
 
   <t-empty
     wx:if="{{!loading && !creating && sessions.length === 0}}"
