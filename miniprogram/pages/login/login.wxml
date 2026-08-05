@@ -3,7 +3,7 @@
   <!-- 藏青横幅 -->
   <view class="banner" style="padding-top: {{statusBarHeight}}px;">
     <image class="logo" src="/assets/toolbox.png" mode="aspectFit" />
-    <view class="app-name">检修一班工具箱</view>
+    <view class="app-name">Shade 壹匣</view>
     <view class="app-slogan">班组数字化工具平台</view>
   </view>
 

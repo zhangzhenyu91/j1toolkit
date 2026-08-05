@@ -25,7 +25,7 @@
   <!-- 日期切换动效容器：随方向从新侧滑入 -->
   <view class="day-pane {{dayAnim}}">
   <!-- 空列表虚线占位（文案随视图口径适配） -->
-  <view class="empty-box" wx:if="{{!loading && list.length === 0}}">{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点击下方新建'}}</view>
+  <view class="empty-box" wx:if="{{!loading && list.length === 0}}">{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点右下角 ＋ 新建'}}</view>
 
   <!-- 日志卡片：巡视内容（主内容块）→ 打卡情况 → 水印照片（id 供报告定位滚动；flash=报告跳转后的短暂高亮） -->
   <view class="card hazard-top logcard {{flashId === item.id ? 'flash' : ''}}" id="logcard-{{item.id}}" wx:for="{{list}}" wx:key="id">
@@ -162,24 +162,30 @@
   </view>
 </view>
 
-<!-- 底部固定区：管理员入口 + 批量下载/查看报告/新建日志（1:1:1.5） -->
-<view class="bottombar" wx:if="{{gate}}">
-  <view class="admin-link" wx:if="{{isAdmin}}" hover-class="hover-opacity" bindtap="onManage">
-    <text class="admin-link-b">常用数据管理</text>
-  </view>
-  <view class="btns">
-    <view class="btn-download" hover-class="hover-opacity" bindtap="onOpenDownload">
-      <t-icon name="download" size="32rpx" color="#22314E" />
-      批量下载
+<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（仅 admin）/ 批量下载 / 查看报告 / 新建日志；
+     原底部固定操作区（含底色条 bottombar）已删除，内容区直通屏幕底边 -->
+<view class="fab-mask" wx:if="{{fabOpen}}" bindtap="onFabToggle"></view>
+<view class="fabs" wx:if="{{gate}}">
+  <block wx:if="{{fabOpen}}">
+    <view class="fab-item" wx:if="{{isAdmin}}" hover-class="hover-opacity" bindtap="onManage">
+      <text class="fab-lab">数据管理</text>
+      <view class="fab"><t-icon name="setting" size="40rpx" color="#22314E" /></view>
     </view>
-    <view class="btn-download btn-report" hover-class="hover-opacity" bindtap="onOpenReport">
-      <t-icon name="chart-bar" size="32rpx" color="#22314E" />
-      查看报告
+    <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenDownload">
+      <text class="fab-lab">批量下载</text>
+      <view class="fab"><t-icon name="download" size="40rpx" color="#22314E" /></view>
     </view>
-    <view class="btn-primary btn-create" hover-class="hover-opacity" bindtap="onCreate">
-      <t-icon name="add" size="36rpx" color="#FFFFFF" />
-      新建日志
+    <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenReport">
+      <text class="fab-lab">查看报告</text>
+      <view class="fab"><t-icon name="task-checked" size="40rpx" color="#22314E" /></view>
     </view>
+    <view class="fab-item" hover-class="hover-opacity" bindtap="onCreate">
+      <text class="fab-lab accent">新建日志</text>
+      <view class="fab"><t-icon name="add" size="44rpx" color="#F26D21" /></view>
+    </view>
+  </block>
+  <view class="fab-main" hover-class="hover-opacity" bindtap="onFabToggle">
+    <t-icon name="{{fabOpen ? 'close' : 'add'}}" size="52rpx" color="#FFFFFF" />
   </view>
 </view>
 
@@ -372,15 +378,14 @@
         <t-icon name="close" size="36rpx" color="#6B7690" />
       </view>
     </view>
-    <!-- 日期范围行（改日期：先关本面板再开 range 日历，规避叠层 z-index 冲突） -->
+    <!-- 日期范围行（仅看我随主页视图开关；改日期：先关本面板再开 range 日历，规避叠层 z-index 冲突） -->
     <view class="dl-range">
       <text class="dl-range-text">{{dlRangeText}}</text>
-      <view class="dl-mine {{dlOnlyMine ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onDlToggleMine">仅看我</view>
       <view class="dl-change" hover-class="hover-opacity" bindtap="onDlChangeDate">改日期</view>
     </view>
 
     <scroll-view scroll-y class="dl-body" enhanced show-scrollbar="{{false}}">
-      <view class="dl-empty" wx:if="{{!dlLoading && dlTotal === 0}}">{{dlOnlyMine ? '该范围内暂无含你名字的水印照片' : '该范围内暂无水印照片'}}</view>
+      <view class="dl-empty" wx:if="{{!dlLoading && dlTotal === 0}}">{{scope === 'mine' ? '该范围内暂无含你名字的水印照片' : '该范围内暂无水印照片'}}</view>
       <!-- 一个月份一个卡片 -->
       <view class="dl-month-card" wx:for="{{dlGroups}}" wx:for-item="g" wx:for-index="gi" wx:key="month">
         <view class="dl-month-title">{{g.title}}</view>
@@ -419,15 +424,14 @@
         <t-icon name="close" size="36rpx" color="#6B7690" />
       </view>
     </view>
-    <!-- 日期范围行（仅看我=个人口径；改日期：先关本面板再开 range 日历，规避叠层 z-index 冲突） -->
+    <!-- 日期范围行（仅看我随主页视图开关；改日期：先关本面板再开 range 日历，规避叠层 z-index 冲突） -->
     <view class="dl-range">
       <text class="dl-range-text">{{rpRangeText}}</text>
-      <view class="dl-mine {{rpOnlyMine ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onRpToggleMine">仅看我</view>
       <view class="dl-change" hover-class="hover-opacity" bindtap="onRpChangeDate">改日期</view>
     </view>
 
     <scroll-view scroll-y class="dl-body" enhanced show-scrollbar="{{false}}">
-      <view class="dl-empty" wx:if="{{!rpLoading && rpTotal === 0}}">{{rpOnlyMine ? '该范围内暂无与你相关的不通过记录' : '该范围内暂无验证不通过记录'}}</view>
+      <view class="dl-empty" wx:if="{{!rpLoading && rpTotal === 0}}">{{scope === 'mine' ? '该范围内暂无与你相关的不通过记录' : '该范围内暂无验证不通过记录'}}</view>
       <!-- 一个日期一个卡片 -->
       <view class="dl-month-card" wx:for="{{rpGroups}}" wx:key="date">
         <view class="dl-month-title">{{item.title}}</view>

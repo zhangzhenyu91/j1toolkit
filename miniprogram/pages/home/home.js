@@ -143,8 +143,8 @@ Page({
     Dialog.alert({
       context: this,
       selector: '#t-dialog',
-      title: '关于工具箱',
-      content: '检修一班工具箱 v0.2',
+      title: '关于 Shade 壹匣',
+      content: 'Shade 壹匣 v0.2',
       confirmBtn: '知道了',
     });
   },

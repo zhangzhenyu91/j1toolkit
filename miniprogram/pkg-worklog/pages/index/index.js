@@ -93,6 +93,7 @@ Page({
     weekText: '',
     isToday: false,
     isAdmin: false,
+    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理·仅 admin / 批量下载 / 查看报告 / 新建日志）
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
@@ -167,7 +168,6 @@ Page({
     dlSelected: 0,
     dlAllChecked: false,
     dlLoading: false,
-    dlOnlyMine: false, // 仅看我：筛选仅显示含自己名字的水印照片
     // 下载面板改日期（range 日历；与下载/报告面板互斥开合，避免叠层 z-index 冲突；_rangeCalFor 标记回开对象）
     dlCalVisible: false,
     dlCalValue: null,
@@ -179,7 +179,6 @@ Page({
     rpGroups: [], // [{date, title, items:[{id, plateText, membersText, reasons}]}]
     rpTotal: 0,
     rpLoading: false,
-    rpOnlyMine: false, // 仅看我：仅「我未打卡 / 我未上传水印照片 / 我的水印照片未通过」的记录（后端 scope=mine）
   },
 
   onLoad() {
@@ -310,6 +309,9 @@ Page({
     this._dayStatusMonths = {};
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
+    // 批量下载 / 查看报告面板的「仅看我」已收拢到本开关，面板打开时随动刷新
+    if (this.data.dlVisible) this.buildDlGroups();
+    if (this.data.rpVisible) this.loadReport();
   },
 
   // scope=mine 时请求追加个人口径参数
@@ -502,7 +504,13 @@ Page({
 
   // 「＋ 新建日志」：不再跳页，打开表单底部弹层（默认未出车）
   onCreate() {
+    this.setData({ fabOpen: false });
     this.openForm(0);
+  },
+
+  // ---------- 右下悬浮主钮（speed dial 展开/收起） ----------
+  onFabToggle() {
+    this.setData({ fabOpen: !this.data.fabOpen });
   },
 
   // 卡片车牌头部：打开改派车面板并回填该卡数据（派车情况/用车人；巡视内容不在此修改）
@@ -1315,6 +1323,7 @@ Page({
   },
 
   onManage() {
+    this.setData({ fabOpen: false });
     wx.navigateTo({ url: '/pkg-worklog/pages/manage/manage' });
   },
 
@@ -1337,7 +1346,7 @@ Page({
 
   onOpenDownload() {
     const { from, to } = this.defaultRange();
-    this.setData({ dlVisible: true, dlFrom: from, dlTo: to });
+    this.setData({ dlVisible: true, dlFrom: from, dlTo: to, fabOpen: false });
     this.loadDlPhotos();
   },
 
@@ -1364,10 +1373,10 @@ Page({
     }
   },
 
-  // 按当前开关（dlOnlyMine=仅含自己名字的照片）把原始列表组装为月份分组
+  // 按当前视图开关（scope=mine 时仅含自己名字的照片）把原始列表组装为月份分组
   buildDlGroups() {
     let list = this._dlRaw || [];
-    if (this.data.dlOnlyMine && this._myName) {
+    if (this.data.scope === 'mine' && this._myName) {
       list = list.filter((p) => (p.members || []).includes(this._myName));
     }
     const groups = [];
@@ -1391,16 +1400,6 @@ Page({
       dlUrls: list.map((p) => p.url),
     });
     this.recountDl();
-  },
-
-  // 「仅看我」开关：筛选仅显示含自己名字的水印照片（按昵称匹配成员名，同视图开关口径）
-  onDlToggleMine() {
-    if (!this._myName) {
-      this.toast('未匹配到你的成员名');
-      return;
-    }
-    this.setData({ dlOnlyMine: !this.data.dlOnlyMine });
-    this.buildDlGroups();
   },
 
   // 已选计数 / 全选态
@@ -1552,7 +1551,7 @@ Page({
 
   onOpenReport() {
     const { from, to } = this.defaultRange();
-    this.setData({ rpVisible: true, rpFrom: from, rpTo: to });
+    this.setData({ rpVisible: true, rpFrom: from, rpTo: to, fabOpen: false });
     this.loadReport();
   },
 
@@ -1564,13 +1563,12 @@ Page({
     if (!e.detail.visible && this.data.rpVisible) this.setData({ rpVisible: false });
   },
 
-  // 拉取范围内不通过记录并按日期分组（后端已按日期+卡片序排列，遇序分组即日期升序）
+  // 拉取范围内不通过记录并按日期分组（后端已按日期+卡片序排列，遇序分组即日期升序；仅看我随主页视图开关）
   async loadReport() {
     this.setData({ rpLoading: true });
     try {
-      const { rpFrom, rpTo, rpOnlyMine } = this.data;
-      const scope = rpOnlyMine ? '&scope=mine' : '';
-      const data = await request({ url: `/api/v1/worklog/report?from=${rpFrom}&to=${rpTo}${scope}` });
+      const { rpFrom, rpTo } = this.data;
+      const data = await request({ url: `/api/v1/worklog/report?from=${rpFrom}&to=${rpTo}${this.scopeQuery()}` });
       const list = (data && data.list) || [];
       const groups = [];
       const groupMap = {};
@@ -1602,16 +1600,6 @@ Page({
       this.setData({ rpLoading: false });
       this.toast(err.message);
     }
-  },
-
-  // 「仅看我」开关：仅「我未打卡 / 我未上传水印照片 / 我的水印照片未通过」的记录（后端 scope=mine，同视图开关口径）
-  onRpToggleMine() {
-    if (!this._myName) {
-      this.toast('未匹配到你的成员名');
-      return;
-    }
-    this.setData({ rpOnlyMine: !this.data.rpOnlyMine });
-    this.loadReport();
   },
 
   // 「改日期」：与下载面板共用 range 日历（先关报告面板，_rangeCalFor='rp' 选完重开）

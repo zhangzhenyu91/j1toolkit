@@ -1,10 +1,10 @@
-# AGENTS.md — 检修一班工具箱
+# AGENTS.md — Shade 壹匣
 
 本文件是面向 AI 编码助手及新加入开发者的项目规则。开始任何改动前请先读完本文件。
 
 ## 一、项目概述
 
-「检修一班工具箱」是班组应用聚合平台微信小程序：本体负责统一登录（账号密码 + 微信登录）与应用权限控制，各业务应用以子页面/分包形式持续接入。
+「Shade 壹匣」是班组数字化工具平台：微信小程序 + 网页端（`server/public/`，与 API 同端口托管），本体负责统一登录（账号密码 + 微信登录）与应用权限控制，各业务应用以子页面/分包/网页形式持续接入。「检修一班」为班组名，保留不变。
 
 必读资料：
 
@@ -18,7 +18,7 @@
 2. **交付即可运行**：后端代码由用户上传至云服务器 Node.js Docker 环境，以 `npm run start` 启动。因此必须保证：
    - `package.json` 包含 `"start"` 脚本（如 `node src/index.js`）；
    - 全部依赖写入 `package.json` 的 `dependencies` 并维护 `package-lock.json`，不得依赖全局安装或本地未声明的包；
-   - 服务监听 `0.0.0.0`，端口从 env 读取（`PORT`，默认 `3000`）；
+   - 服务监听 `0.0.0.0`，端口从 env 读取（`PORT`，默认 `3000`）；单端口同时托管网页端（`server/public/`）与 `/api/v1`，用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，无路径前缀配置（旧 `PROXY_PREFIX` 已废弃删除）；
    - 避免需要编译原生模块的依赖，确有必要时在文档中注明。
 3. **配置与密钥**：所有环境相关配置一律从 env 读取，不硬编码、不入仓；只维护 `.env.example`，绝不创建真实 `.env` 或写入任何真实密钥。
 4. **不擅自做 git 操作**：`git commit` / `push` / `reset` 等需用户明确指示。
@@ -27,14 +27,14 @@
 
 | 层 | 选型 |
 |----|------|
-| 前端 | 微信小程序原生 + tdesign-miniprogram 组件库 |
+| 前端 | 微信小程序原生 + tdesign-miniprogram 组件库；网页端原生 HTML/JS（`server/public/`，同一套 token） |
 | 后端 | Node.js（云服务器 Docker 运行，`npm run start` 启动） |
 | 存储 | MySQL（业务数据）/ Redis（会话、缓存）/ 腾讯云 COS（文件） |
 | 鉴权 | JWT + Redis（建议方案，详见 `开发指南.md` 第二章） |
 
 ## 四、UI 设计规范（已定稿：方案五「安全橙」× TDesign 定制）
 
-**实现方式**：组件使用 tdesign-miniprogram，在全局样式（`app.wxss`）覆盖 `--td-*` CSS 变量注入下列 token；警示斜纹、描边徽章等特征元素用 wxss 自绘。所有页面及后续应用子页面必须沿用同一套 token，与本体风格一致。定稿 token 以下表为准，参照设计稿 `design/style-5.html`。
+**实现方式**：组件使用 tdesign-miniprogram，在全局样式（`app.wxss`）覆盖 `--td-*` CSS 变量注入下列 token；警示斜纹、描边徽章等特征元素用 wxss 自绘。所有页面及后续应用子页面必须沿用同一套 token，与本体风格一致。定稿 token 以下表为准，参照设计稿 `design/style-5.html`。网页端同用本套 token（`server/public/assets/theme.css` 注入），Web 演绎定稿见 `design/web/方案A-安全橙传承.html`（`design/web/index.html` 为六方案索引）。
 
 | 用途 | 值 | 说明 |
 |------|----|------|
@@ -57,14 +57,15 @@
 ## 五、目录结构约定
 
 - `miniprogram/` —— 微信小程序（原生 + tdesign-miniprogram）
-- `server/` —— 后端 Node.js 服务
-- `SafeDayLogs/` —— 安全日活动记录生成平台（独立部署的网页端应用，登录经主平台 app-login 校验应用权限）
-- `WorkLogs/` —— 出工日志 PC 网页端（独立部署：登录取主平台 JWT 存于服务端会话，`/api/wl/*` 反向代理主平台 `/api/v1/worklog/*`；UI 定稿 `WorkLogs/design/设计稿B-留白.html`）
-- `design/` —— UI 设计稿（仅保留定稿 `style-5.html`）
+- `server/` —— 后端 Node.js 单端口整合服务（API + 托管网页端）
+- `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / safeday.html，公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`）
+- `SafeDayLogs/` —— 安全日活动记录生成平台，**已整合进主服务**（`server/src/safeday/` + `server/public/safeday.html`），本目录仅作历史归档，不再维护部署
+- `WorkLogs/` —— 出工日志 PC 网页端，**已整合进主服务**（`server/public/worklog.html` 同源直连 `/api/v1/worklog`，原 `/api/wl/*` 反代模式废弃），本目录仅作历史归档，不再维护部署
+- `design/` —— UI 设计稿：小程序定稿 `style-5.html`；`design/web/` 网页端设计稿（`index.html` 六方案索引，定稿方案A「安全橙传承」）
 - 根目录 —— 文档与规则文件（仅 AGENTS.md / README.md / 开发指南.md）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
 
-新应用接入 = 小程序分包页面 + 后端 `sys_app` 表配置（详见 `开发指南.md` 第五章）。
+新应用接入 = 小程序分包页面 + 后端 `sys_app` 表配置（详见 `开发指南.md` 第五章；网页端页面接入见 `开发指南.md` 第十一节）。
 
 ## 六、编码规范
 

@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 安全日活动记录（方案A「安全橙传承」⑤：拖传上传 + Dify 生成进度 + 记录表格）
+     接口信封 {ok,error,...} 且上传为 multipart，均直接 fetch，不走 Shade.api -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>安全日活动记录 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ===== 布局：左列上传/参数/进度 + 右侧记录表 ===== */
+  .sd-body { display: flex; gap: 20px; align-items: flex-start; }
+  .sd-left { width: 340px; flex: none; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ===== 拖传上传区 ===== */
+  .upzone {
+    border: 1.5px dashed var(--dash); border-radius: var(--radius); background: #fff;
+    padding: 28px 22px; text-align: center; cursor: pointer;
+    transition: border-color .3s, background .3s, box-shadow .3s;
+  }
+  .upzone:hover, .upzone.dragover { border-color: var(--orange); background: #FFFDF9; }
+  .upzone.dragover { box-shadow: inset 0 0 0 3px rgba(242, 109, 33, .12); }
+  .up-ic {
+    width: 56px; height: 56px; margin: 0 auto 12px; border-radius: 16px;
+    background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .up-ic svg { width: 28px; height: 28px; }
+  .upzone b { font-size: 14px; font-weight: 800; }
+  .upzone b i { font-style: normal; color: var(--orange); }
+  .upzone p { margin-top: 8px; font-size: 11.5px; color: var(--ph); line-height: 1.8; }
+
+  /* ===== 已选文件条 ===== */
+  .ftags { display: flex; flex-direction: column; gap: 8px; }
+  .ftag {
+    display: flex; align-items: center; gap: 9px;
+    background: #fff; border: 1px solid var(--hair); border-radius: 9px; padding: 8px 10px;
+    animation: fadeUp .4s cubic-bezier(.16, 1, .3, 1) both;
+  }
+  .ftag > svg { width: 15px; height: 15px; flex: none; color: var(--orange); }
+  .ftag .fn { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ftag .fs { flex: none; font-size: 11px; color: var(--ph); }
+  .ftag .fx {
+    flex: none; width: 22px; height: 22px; border: none; border-radius: 6px;
+    background: transparent; color: var(--ph); cursor: pointer; font-size: 15px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    transition: color .2s, background .2s;
+  }
+  .ftag .fx:hover { color: var(--red); background: #FDF1F1; }
+
+  /* ===== 生成参数卡 ===== */
+  .gen { padding: 18px 20px; }
+  .gen label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--sub); }
+  .gen .date-row { display: flex; align-items: center; gap: 10px; }
+  .gen .input { height: 40px; flex: 1; min-width: 0; color-scheme: light; }
+  .gen .dp { flex: none; font-size: 11px; color: var(--ph); white-space: nowrap; }
+  .gen .gen-btn { width: 100%; height: 44px; margin-top: 14px; font-size: 14px; font-weight: 700; letter-spacing: 2px; }
+
+  /* ===== 生成进度卡 ===== */
+  .prog { padding: 18px 20px; }
+  .prog.idle { display: flex; align-items: center; gap: 12px; color: var(--ph); font-size: 12.5px; letter-spacing: .5px; }
+  .prog.idle svg { width: 26px; height: 26px; flex: none; color: var(--dash); }
+  .prog .fh { display: flex; align-items: center; gap: 10px; }
+  .file-ic {
+    width: 34px; height: 34px; flex: none; border-radius: 9px;
+    background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .file-ic svg { width: 18px; height: 18px; }
+  .prog .fn { font-size: 13px; font-weight: 700; word-break: break-all; }
+  .prog .fs { margin-top: 2px; font-size: 11px; color: var(--ph); }
+  .steps { margin-top: 16px; }
+  .step { position: relative; display: flex; gap: 11px; padding-bottom: 15px; }
+  .step:last-child { padding-bottom: 0; }
+  .step::before { content: ""; position: absolute; left: 9.5px; top: 22px; bottom: 0; width: 2px; background: var(--hair); }
+  .step:last-child::before { display: none; }
+  .sd-ic {
+    position: relative; z-index: 1; width: 20px; height: 20px; flex: none; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; background: #fff;
+  }
+  .step.done .sd-ic { background: var(--orange); color: #fff; }
+  .step.done::before { background: var(--orange); }
+  .step.doing .sd-ic { border: 2px solid var(--orange); }
+  .step.doing .sd-ic i { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); animation: breath 1.2s ease-in-out infinite; }
+  .step.todo .sd-ic { border: 2px solid var(--dash); }
+  .step.fail .sd-ic { background: var(--red); color: #fff; }
+  .step .st { font-size: 12.5px; font-weight: 700; }
+  .step.todo .st { color: var(--ph); }
+  .step.fail .st { color: var(--red); }
+  .step .ss { margin-top: 2px; font-size: 11px; color: var(--ph); line-height: 1.6; }
+  @keyframes breath { 0%, 100% { transform: scale(.7); opacity: .55; } 50% { transform: scale(1); opacity: 1; } }
+  /* 流光进度条 */
+  .pbar { height: 6px; margin-top: 14px; border-radius: 3px; background: var(--hair); overflow: hidden; }
+  .pbar i {
+    position: relative; display: block; height: 100%; width: 0; border-radius: 3px;
+    background: linear-gradient(90deg, var(--orange), #F59A5E); overflow: hidden;
+    transition: width .9s cubic-bezier(.16, 1, .3, 1);
+  }
+  .pbar i::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, .55), transparent 75%);
+    transform: translateX(-100%); animation: shimmer 1.8s ease-in-out infinite;
+  }
+  .pbar.fail i { background: linear-gradient(90deg, var(--red), #E28080); }
+  .pbar.fail i::after { display: none; }
+  .pnum { margin-top: 8px; display: flex; justify-content: space-between; font-size: 11px; color: var(--sub); }
+  .pnum b { color: var(--orange); }
+  .pnum.fail b { color: var(--red); }
+
+  /* ===== 记录表格 ===== */
+  .tbl { flex: 1; min-width: 0; overflow: hidden; }
+  .tbl-h { display: flex; align-items: center; gap: 10px; padding: 16px 22px; border-bottom: 1px solid var(--hair); }
+  .tbl-h b { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
+  .tbl-h .cnt { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; white-space: nowrap; }
+  .rtable { width: 100%; border-collapse: collapse; }
+  .rtable th {
+    padding: 11px 22px; background: #FBF9F2; border-bottom: 1px solid var(--hair);
+    font-size: 11.5px; font-weight: 600; color: var(--ph); text-align: left; letter-spacing: 1px; white-space: nowrap;
+  }
+  .rtable td { padding: 14px 22px; border-bottom: 1px solid var(--hair); font-size: 13px; vertical-align: middle; }
+  .rtable tbody tr:last-child td { border-bottom: none; }
+  .rtable tbody tr { transition: background .2s; }
+  .rtable tbody tr:hover { background: #FBF7EE; }
+  .rtable tr.row-new { animation: fadeUp .5s cubic-bezier(.16, 1, .3, 1) both; }
+  /* 已生成行整行可点击预览：指针 + hover 微亮 */
+  .rtable tbody tr.row-prev { cursor: pointer; }
+  .rtable tbody tr.row-prev:hover { background: #F8F0DE; }
+  .rtable .rn { font-weight: 700; }
+  .rtable .rf { margin-top: 3px; font-size: 11px; color: var(--ph); display: flex; align-items: center; gap: 5px; }
+  .rtable .rf svg { width: 12px; height: 12px; flex: none; }
+  .rtable td.mut { color: var(--sub); white-space: nowrap; }
+  .pulse-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--sub); animation: breath 1.2s ease-in-out infinite; }
+  .op { display: flex; gap: 8px; }
+  .opb {
+    width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: #fff;
+    display: flex; align-items: center; justify-content: center; color: var(--sub); cursor: pointer;
+    transition: border-color .25s, color .25s, background .25s;
+  }
+  .opb svg { width: 15px; height: 15px; }
+  .opb:hover { border-color: var(--orange); color: var(--orange); }
+  .opb.del:hover { border-color: var(--red); color: var(--red); background: #FDF1F1; }
+  .opb[disabled] { opacity: .38; cursor: not-allowed; }
+  .opb[disabled]:hover { border-color: var(--line); color: var(--sub); background: #fff; }
+
+  /* ===== 弹层（生成确认 / 删除确认） ===== */
+  .mask {
+    position: fixed; inset: 0; z-index: 100; padding: 20px;
+    background: rgba(34, 49, 78, .45); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .3s;
+  }
+  .mask.open { opacity: 1; pointer-events: auto; }
+  .dialog {
+    width: 420px; max-width: 100%; background: #fff; border-radius: var(--radius);
+    box-shadow: 0 30px 60px rgba(34, 49, 78, .25); padding: 26px 26px 22px;
+    transform: translateY(16px) scale(.97); transition: transform .35s cubic-bezier(.16, 1, .3, 1);
+  }
+  .mask.open .dialog { transform: none; }
+  .dialog h3 { font-size: 16px; font-weight: 800; letter-spacing: .5px; }
+  .dialog .dsub { margin-top: 6px; font-size: 12px; color: var(--sub); line-height: 1.7; word-break: break-all; }
+  .dialog .input { margin-top: 14px; }
+  .d-ic {
+    width: 44px; height: 44px; margin-bottom: 12px; border-radius: 12px;
+    background: #FBE9E9; color: var(--red);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .d-ic svg { width: 22px; height: 22px; }
+  .d-actions { margin-top: 18px; display: flex; justify-content: flex-end; gap: 10px; }
+
+  @media (max-width: 960px) {
+    .sd-body { flex-direction: column; }
+    .sd-left { width: 100%; }
+    .tbl { width: 100%; overflow-x: auto; }
+    .rtable { min-width: 640px; }
+  }
+  @media (max-width: 640px) {
+    .topbar-nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<!-- 顶部导航由 Shade.topbar({active:'safeday'}) 统一渲染（见 script） -->
+
+<main class="page">
+  <div class="section-title rv"><h3>安全日活动记录</h3><span class="more">上传活动文件 · AI 自动生成活动记录</span></div>
+
+  <div class="sd-body">
+    <!-- 左列：上传区 + 已选文件 + 生成参数 + 生成进度 -->
+    <div class="sd-left rv">
+      <div class="upzone" id="dropzone" role="button" tabindex="0" aria-label="选择或拖拽文件">
+        <div class="up-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15.5V7.5M8.8 10.7L12 7.5l3.2 3.2"/><path d="M6.8 15.9a4 4 0 0 1-1-7.9A5.5 5.5 0 0 1 16.5 6.4 4.6 4.6 0 0 1 17.2 15.9"/></svg>
+        </div>
+        <b>点击选择文件，或拖拽到此处<i>上传</i></b>
+        <p>支持 pdf / doc / docx / ppt / pptx / xls / xlsx<br>单文件 ≤ 50MB，最多 10 个；多文件需全部为 PDF（自动合并）</p>
+      </div>
+      <input type="file" id="fileInput" hidden multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx">
+
+      <div class="ftags" id="ftags"></div>
+
+      <div class="card gen">
+        <label for="dateInput">活动日期</label>
+        <div class="date-row">
+          <input type="date" class="input" id="dateInput">
+          <span class="dp" id="datePreview">提交格式：—</span>
+        </div>
+        <button class="btn btn-accent gen-btn" id="genBtn" type="button" disabled>生成记录</button>
+      </div>
+
+      <div class="card prog idle" id="progCard"></div>
+    </div>
+
+    <!-- 右侧：记录表格 -->
+    <div class="card tbl rv">
+      <div class="tbl-h">
+        <b>活动记录列表</b>
+        <span class="cnt" id="tblCnt">加载中…</span>
+      </div>
+      <table class="rtable">
+        <thead>
+          <tr><th>记录文件</th><th>活动日期</th><th>提交时间</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="loading" id="loadingBox"><span class="spin"></span><span>正在加载记录…</span></div>
+      <div class="empty" id="emptyBox" style="display:none">
+        <span id="emptyIcon"></span>
+        <p>暂无生成记录，上传活动文件开始生成</p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- 生成确认弹层（确认记录名称） -->
+<div class="mask" id="genMask">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="genTitle">
+    <h3 id="genTitle">确认记录名称</h3>
+    <p class="dsub">该名称将写入记录内容，可修改后开始生成</p>
+    <input type="text" class="input" id="nameInput" autocomplete="off">
+    <div class="d-actions">
+      <button class="btn" id="genCancel" type="button">取消</button>
+      <button class="btn btn-accent" id="genConfirm" type="button">确定，开始生成</button>
+    </div>
+  </div>
+</div>
+
+<!-- 删除确认弹层 -->
+<div class="mask" id="delMask">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="delTitle">
+    <div class="d-ic" id="delIcon"></div>
+    <h3 id="delTitle">删除这条记录？</h3>
+    <p class="dsub" id="delText">已生成的记录文件将一并删除，该操作不可恢复。</p>
+    <div class="d-actions">
+      <button class="btn" id="delCancel" type="button">取消</button>
+      <button class="btn btn-danger" id="delConfirm" type="button">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  Shade.requireAuth();
+  // 统一顶部导航（当前应用：安全日活动记录）
+  Shade.topbar({ active: 'safeday' });
+
+  /* ===== 常量与页面状态 ===== */
+  var API_BASE = '/api/v1/safeday';
+  var POLL_INTERVAL = 5000;              // 与原端一致：存在生成中记录时按 5s 轮询 records
+  var MAX_FILES = 10;                    // 与服务端 multer 限制一致
+  var MAX_SIZE = 50 * 1024 * 1024;       // 单文件 50MB，与服务端一致
+  var ALLOWED = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
+
+  var files = [];                        // 已选待上传文件
+  var pollTimer = null;
+  var knownIds = {};                     // 已渲染记录 id（识别新记录播入场动画）
+  var firstRender = true;
+  var lastRecords = [];                  // 最近一次记录列表（下载取 fileName 用）
+  var track = null;                      // 进度卡跟踪对象 { id,name,sourceCount,createdAt,phase,error }
+  var phaseTimer = null;
+  var submitting = false;                // 生成请求中
+  var deleting = false;                  // 删除请求中
+  var delId = null;                      // 待删除记录 id
+
+  /* ===== DOM 引用 ===== */
+  var dz = document.getElementById('dropzone');
+  var fileInput = document.getElementById('fileInput');
+  var ftags = document.getElementById('ftags');
+  var genBtn = document.getElementById('genBtn');
+  var dateInput = document.getElementById('dateInput');
+  var datePreview = document.getElementById('datePreview');
+  var progCard = document.getElementById('progCard');
+  var tbody = document.getElementById('tbody');
+  var tblCnt = document.getElementById('tblCnt');
+  var loadingBox = document.getElementById('loadingBox');
+  var emptyBox = document.getElementById('emptyBox');
+  var genMask = document.getElementById('genMask');
+  var nameInput = document.getElementById('nameInput');
+  var genCancel = document.getElementById('genCancel');
+  var genConfirm = document.getElementById('genConfirm');
+  var delMask = document.getElementById('delMask');
+  var delText = document.getElementById('delText');
+  var delCancel = document.getElementById('delCancel');
+  var delConfirm = document.getElementById('delConfirm');
+
+  /* ===== 小工具 ===== */
+  function extOf(name) { return name.split('.').pop().toLowerCase(); }
+  function baseOf(name) { return name.replace(/\.[^.]+$/, ''); }
+  function toDots(iso) { return iso.replace(/-/g, '.'); }   // YYYY-MM-DD → YYYY.MM.DD（服务端要求的日期格式）
+  function todayISO() {
+    var d = new Date();
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  function fmtSize(n) {
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+    if (n >= 1024) return Math.round(n / 1024) + ' KB';
+    return n + ' B';
+  }
+  function isPdf(f) { return extOf(f.name) === 'pdf'; }
+
+  /* ===== safeday 接口封装（信封 {ok,error}，手动带 token，401 清登录态跳登录页） ===== */
+  function sdFetch(path, opts) {
+    opts = opts || {};
+    var headers = Object.assign({}, opts.headers);
+    var token = localStorage.getItem('shade_token');
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    return fetch(API_BASE + path, Object.assign({}, opts, { headers: headers })).then(function (res) {
+      if (res.status === 401) {
+        localStorage.removeItem('shade_token');
+        localStorage.removeItem('shade_user');
+        location.href = '/login.html';
+        throw new Error('登录已过期，请重新登录');
+      }
+      return res;
+    });
+  }
+  /* 解析 {ok,error} 信封，非 ok 一律抛错 */
+  function parseOk(res) {
+    return res.json().catch(function () {
+      throw new Error('服务器响应异常（' + res.status + '）');
+    }).then(function (data) {
+      if (!res.ok || !data || data.ok === false) {
+        throw new Error((data && data.error) || ('请求失败（' + res.status + '）'));
+      }
+      return data;
+    });
+  }
+
+  /* ===== 记录列表与轮询（逻辑同原端：有 processing 记录则 5s 轮询，全终态停止） ===== */
+  function fetchRecords() {
+    return sdFetch('/records', { headers: { 'Accept': 'application/json' } })
+      .then(parseOk)
+      .then(function (data) { return data.records || []; });
+  }
+  function stopPolling() {
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  }
+  function schedulePoll() {
+    stopPolling();
+    pollTimer = setTimeout(function () { refreshRecords(false); }, POLL_INTERVAL);
+  }
+  function hasProcessing(records) {
+    return records.some(function (r) { return r.status === 'processing'; });
+  }
+
+  function refreshRecords(isInitial) {
+    return fetchRecords().then(function (records) {
+      lastRecords = records;
+      renderTable(records, isInitial);
+      syncTrack(records);
+      if (hasProcessing(records)) { schedulePoll(); } else { stopPolling(); }
+    }).catch(function (err) {
+      if (isInitial) {
+        loadingBox.style.display = 'none';
+        tblCnt.textContent = '加载失败';
+      }
+      Shade.toast(err.message || '记录列表加载失败', 'error');
+      /* 轮询中出错：仍按已知 processing 状态继续轮询，避免状态卡死 */
+      if (!isInitial && hasProcessing(lastRecords)) { schedulePoll(); }
+    });
+  }
+
+  /* ===== 记录表格渲染 ===== */
+  function statusTag(rec) {
+    if (rec.status === 'done') { return '<span class="tag tag-orange">已生成</span>'; }
+    if (rec.status === 'failed') {
+      return '<span class="tag tag-red" title="' + Shade.esc(rec.error || '生成失败') + '">生成失败</span>';
+    }
+    return '<span class="tag tag-navy"><span class="pulse-dot"></span>生成中</span>';
+  }
+
+  function rowHtml(rec, animate) {
+    var id = String(rec.id);
+    var done = rec.status === 'done';
+    /* 主列：生成的记录文件名为主标题；副行展示上传源文件名（多个顿号连接），
+       历史记录无 sources 字段时回退为「N 个源文件」 */
+    var sub = (rec.sources && rec.sources.length)
+      ? '《' + rec.sources.join('、') + '》'
+      : (rec.sourceCount || 1) + ' 个源文件';
+    /* 已生成行整行可点击预览（row-prev），生成中行下载按钮置灰（disabled），删除始终可用 */
+    var cls = done ? (animate ? 'row-prev row-new' : 'row-prev') : (animate ? 'row-new' : '');
+    return '<tr data-id="' + Shade.esc(id) + '"' + (cls ? ' class="' + cls + '"' : '') +
+      (done ? ' title="点击预览"' : '') + '>' +
+      '<td><div class="rn">' + Shade.esc(rec.fileName || '—') + '</div>' +
+      '<div class="rf">' + Shade.icon('file', 12) + '<span>' + Shade.esc(sub) + '</span></div></td>' +
+      '<td class="mut">' + Shade.esc(rec.date || '—') + '</td>' +
+      '<td class="mut">' + Shade.esc(Shade.fmtDate(rec.createdAt, true) || '—') + '</td>' +
+      '<td>' + statusTag(rec) + '</td>' +
+      '<td><div class="op">' +
+      '<button class="opb" type="button" data-act="dl" data-id="' + Shade.esc(id) + '" title="下载记录文件"' +
+      (done ? '' : ' disabled') + '>' + Shade.icon('download', 15) + '</button>' +
+      '<button class="opb del" type="button" data-act="del" data-id="' + Shade.esc(id) + '" data-name="' +
+      Shade.esc(rec.name) + '" title="删除记录">' + Shade.icon('delete', 15) + '</button>' +
+      '</div></td></tr>';
+  }
+
+  function renderTable(records, isInitial) {
+    var html = '';
+    records.forEach(function (rec) {
+      var isNew = !knownIds[String(rec.id)];
+      html += rowHtml(rec, !isInitial && isNew);
+    });
+    tbody.innerHTML = html;
+    knownIds = {};
+    records.forEach(function (rec) { knownIds[String(rec.id)] = true; });
+    var processing = records.filter(function (r) { return r.status === 'processing'; }).length;
+    tblCnt.textContent = '共 ' + records.length + ' 条' + (processing ? ' · ' + processing + ' 条生成中' : '');
+    loadingBox.style.display = 'none';
+    emptyBox.style.display = records.length ? 'none' : '';
+    firstRender = false;
+  }
+
+  /* 行点击预览 / 下载 / 删除按钮：事件委托（按钮命中即 return，不再触发行预览） */
+  tbody.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('.opb') : null;
+    if (btn && tbody.contains(btn)) {
+      if (btn.disabled) { return; }
+      var bid = btn.getAttribute('data-id');
+      if (btn.getAttribute('data-act') === 'dl') { downloadRecord(bid); }
+      else { openDelMask(bid, btn.getAttribute('data-name')); }
+      return;
+    }
+    var tr = e.target.closest ? e.target.closest('tr.row-prev') : null;
+    if (tr && tbody.contains(tr)) { previewRecord(tr.getAttribute('data-id')); }
+  });
+
+  /* 下载：接口需鉴权头，用 fetch + blob 落地 */
+  function downloadRecord(id) {
+    var rec = null;
+    lastRecords.forEach(function (r) { if (String(r.id) === String(id)) { rec = r; } });
+    sdFetch('/records/' + encodeURIComponent(id) + '/download')
+      .then(function (res) {
+        if (!res.ok) {
+          return res.json().then(function (d) {
+            throw new Error((d && d.error) || ('下载失败（' + res.status + '）'));
+          }, function () { throw new Error('下载失败（' + res.status + '）'); });
+        }
+        return res.blob();
+      })
+      .then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = (rec && rec.fileName) || '安全日活动记录.docx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+      })
+      .catch(function (err) { Shade.toast(err.message || '下载失败', 'error'); });
+  }
+
+  /* 预览：调 preview 接口取 basemetas 预览地址，新标签打开；未配置预览服务时提示改用下载 */
+  function previewRecord(id) {
+    sdFetch('/records/' + encodeURIComponent(id) + '/preview')
+      .then(parseOk)
+      .then(function (data) { window.open(data.url, '_blank'); })
+      .catch(function (err) {
+        Shade.toast((err.message || '预览失败') + '，可改用下载按钮', 'info');
+      });
+  }
+
+  /* ===== 生成进度卡 =====
+     进度来源与原端一致（轮询 records 判定终态）：
+     提交成功 → 上传完成/内容解析（短暂展示）→ Dify 生成中 → 轮询到 done 后记录入库 */
+  var STEP_TEXTS = [
+    ['上传完成', '文件已存至服务器'],
+    ['内容解析', '提取活动主题与要点'],
+    ['Dify 生成中', '正在按模板撰写活动记录…'],
+    ['记录入库', '生成后自动加入记录列表']
+  ];
+  var CHECK_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  var CROSS_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+  function stepStates(phase) {
+    if (phase === 'parse') { return ['done', 'doing', 'todo', 'todo']; }
+    if (phase === 'dify') { return ['done', 'done', 'doing', 'todo']; }
+    if (phase === 'done') { return ['done', 'done', 'done', 'done']; }
+    return ['done', 'done', 'fail', 'todo'];   // failed
+  }
+  function phasePct(phase) {
+    return phase === 'parse' ? 45 : phase === 'dify' ? 75 : phase === 'done' ? 100 : 75;
+  }
+
+  function renderProg() {
+    if (!track) {
+      progCard.className = 'card prog idle';
+      progCard.innerHTML = Shade.icon('time', 26) + '<span>提交生成后，这里将实时展示生成进度</span>';
+      return;
+    }
+    progCard.className = 'card prog';
+    var states = stepStates(track.phase);
+    var failed = track.phase === 'failed';
+    var steps = '';
+    STEP_TEXTS.forEach(function (s, i) {
+      var st = states[i];
+      var icon = st === 'done' ? CHECK_SVG : st === 'doing' ? '<i></i>' : st === 'fail' ? CROSS_SVG : '';
+      steps += '<div class="step ' + st + '"><span class="sd-ic">' + icon + '</span><div>' +
+        '<div class="st">' + s[0] + '</div>' +
+        '<div class="ss">' + (st === 'fail' ? Shade.esc(track.error || '生成失败') : s[1]) + '</div></div></div>';
+    });
+    progCard.innerHTML =
+      '<div class="fh"><div class="file-ic">' + Shade.icon('file', 18) + '</div><div>' +
+      '<div class="fn">' + Shade.esc(track.name) + '</div>' +
+      '<div class="fs">' + (track.sourceCount || 1) + ' 个源文件 · 提交于 ' +
+      Shade.esc(Shade.fmtDate(track.createdAt, true) || '—') + '</div>' +
+      '</div></div>' +
+      '<div class="steps">' + steps + '</div>' +
+      '<div class="pbar' + (failed ? ' fail' : '') + '"><i></i></div>' +
+      '<div class="pnum' + (failed ? ' fail' : '') + '"><span>' + (failed ? '生成失败' : '生成进度') +
+      '</span><b>' + phasePct(track.phase) + '%</b></div>';
+    /* 双 rAF 让宽度从 0 过渡到目标值，进度条带生长动效 */
+    var bar = progCard.querySelector('.pbar i');
+    var pct = phasePct(track.phase);
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { bar.style.width = pct + '%'; });
+    });
+  }
+
+  /* 提交成功后开始跟踪新记录（先「内容解析」短暂展示，再进入「Dify 生成中」） */
+  function startTrack(rec) {
+    track = {
+      id: String(rec.id), name: rec.name, sourceCount: rec.sourceCount,
+      createdAt: rec.createdAt, phase: 'parse', error: ''
+    };
+    renderProg();
+    clearTimeout(phaseTimer);
+    phaseTimer = setTimeout(function () {
+      if (track && track.phase === 'parse') { track.phase = 'dify'; renderProg(); }
+    }, 1500);
+  }
+
+  /* 每次轮询后同步跟踪状态；页面刷新时若有生成中记录则接管跟踪 */
+  function syncTrack(records) {
+    if (track) {
+      var rec = null;
+      records.forEach(function (r) { if (String(r.id) === track.id) { rec = r; } });
+      if (!rec) { track = null; renderProg(); return; }   // 记录已被删除
+      if (rec.status === 'done' && track.phase !== 'done') {
+        track.phase = 'done';
+        renderProg();
+        Shade.toast('活动记录已生成，可在列表中下载', 'success');
+      } else if (rec.status === 'failed' && track.phase !== 'failed') {
+        track.phase = 'failed';
+        track.error = rec.error || '生成失败';
+        renderProg();
+        Shade.toast(track.error, 'error');
+      }
+      return;
+    }
+    for (var i = 0; i < records.length; i++) {
+      if (records[i].status === 'processing') {
+        track = {
+          id: String(records[i].id), name: records[i].name, sourceCount: records[i].sourceCount,
+          createdAt: records[i].createdAt, phase: 'dify', error: ''
+        };
+        renderProg();
+        break;
+      }
+    }
+  }
+
+  /* ===== 文件选择与校验（类型 / 大小 / 数量 / 多文件纯 PDF / 去重） ===== */
+  function addFiles(fileList) {
+    var badType = 0;
+    var badSize = 0;
+    var incoming = [];
+    Array.prototype.forEach.call(fileList, function (f) {
+      if (ALLOWED.indexOf(extOf(f.name)) === -1) { badType++; return; }
+      if (f.size > MAX_SIZE) { badSize++; return; }
+      if (files.some(function (x) { return x.name === f.name; })) { return; }
+      if (incoming.some(function (x) { return x.name === f.name; })) { return; }
+      incoming.push(f);
+    });
+    var merged = files.concat(incoming);
+    if (merged.length > MAX_FILES) {
+      Shade.toast('最多上传 ' + MAX_FILES + ' 个文件', 'error');
+      return;
+    }
+    /* 多文件时须全部为 PDF，否则整批阻止（与服务端规则一致） */
+    if (merged.length >= 2 && merged.some(function (f) { return !isPdf(f); })) {
+      Shade.toast('多文件合并仅支持 PDF，请先转换为 PDF 或逐个生成', 'error');
+      return;
+    }
+    files = merged;
+    if (badType > 0) { Shade.toast('已忽略 ' + badType + ' 个不支持的文件', 'info'); }
+    if (badSize > 0) { Shade.toast('已忽略 ' + badSize + ' 个超过 50MB 的文件', 'info'); }
+    renderTags();
+  }
+
+  function renderTags() {
+    ftags.innerHTML = '';
+    files.forEach(function (f, i) {
+      var tag = document.createElement('div');
+      tag.className = 'ftag';
+      tag.innerHTML = Shade.icon('file', 15) +
+        '<span class="fn" title="' + Shade.esc(f.name) + '">' + Shade.esc(f.name) + '</span>' +
+        '<span class="fs">' + fmtSize(f.size) + '</span>';
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'fx';
+      x.setAttribute('aria-label', '移除 ' + f.name);
+      x.innerHTML = '&times;';
+      x.addEventListener('click', function () {
+        files.splice(i, 1);
+        renderTags();
+      });
+      tag.appendChild(x);
+      ftags.appendChild(tag);
+    });
+    genBtn.disabled = files.length === 0;
+  }
+
+  function clearFiles() {
+    files = [];
+    renderTags();
+  }
+
+  /* 拖传交互（dragDepth 计数防止子元素进出闪烁） */
+  dz.addEventListener('click', function () { fileInput.click(); });
+  dz.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener('change', function () {
+    addFiles(fileInput.files);
+    fileInput.value = '';
+  });
+  var dragDepth = 0;
+  dz.addEventListener('dragenter', function (e) {
+    e.preventDefault();
+    dragDepth++;
+    dz.classList.add('dragover');
+  });
+  dz.addEventListener('dragover', function (e) { e.preventDefault(); });
+  dz.addEventListener('dragleave', function () {
+    dragDepth--;
+    if (dragDepth <= 0) { dragDepth = 0; dz.classList.remove('dragover'); }
+  });
+  dz.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dragDepth = 0;
+    dz.classList.remove('dragover');
+    if (e.dataTransfer && e.dataTransfer.files) { addFiles(e.dataTransfer.files); }
+  });
+
+  /* ===== 活动日期（提交格式 YYYY.MM.DD，实时预览） ===== */
+  function syncDatePreview() {
+    datePreview.textContent = dateInput.value ? ('提交格式：' + toDots(dateInput.value)) : '提交格式：—';
+  }
+  dateInput.value = todayISO();
+  syncDatePreview();
+  dateInput.addEventListener('input', syncDatePreview);
+
+  /* ===== 生成确认弹层 ===== */
+  function openGenMask() {
+    var names = files.map(function (f) { return baseOf(f.name); }).join('、');
+    nameInput.value = '《' + names + '》';
+    genMask.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    setTimeout(function () { nameInput.focus(); nameInput.select(); }, 260);
+  }
+  function closeGenMask() {
+    if (submitting) { return; }
+    genMask.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  function forceCloseGenMask() {
+    genMask.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  genBtn.addEventListener('click', openGenMask);
+  genCancel.addEventListener('click', closeGenMask);
+
+  function setSubmitting(on) {
+    submitting = on;
+    genConfirm.disabled = on;
+    genCancel.disabled = on;
+    genConfirm.textContent = on ? '正在生成…' : '确定，开始生成';
+  }
+
+  /* 提交生成：multipart 上传（字段名 files），成功后开始跟踪进度并轮询列表 */
+  genConfirm.addEventListener('click', function () {
+    if (submitting) { return; }
+    var name = nameInput.value.trim();
+    if (!name) {
+      Shade.toast('请输入记录名称', 'error');
+      nameInput.focus();
+      return;
+    }
+    if (files.length === 0) {
+      Shade.toast('请先选择文件', 'error');
+      return;
+    }
+    /* 提交前再校验一次多文件 PDF 规则 */
+    if (files.length >= 2 && files.some(function (f) { return !isPdf(f); })) {
+      Shade.toast('多文件合并仅支持 PDF，请先转换为 PDF 或逐个生成', 'error');
+      return;
+    }
+    var dateDots = toDots(dateInput.value || todayISO());
+
+    var fd = new FormData();
+    fd.append('name', name);
+    fd.append('date', dateDots);
+    files.forEach(function (f) { fd.append('files', f, f.name); });
+
+    setSubmitting(true);
+    sdFetch('/generate', { method: 'POST', body: fd })
+      .then(parseOk)
+      .then(function (data) {
+        forceCloseGenMask();
+        clearFiles();
+        Shade.toast('已开始生成，请稍候…', 'success');
+        if (data.record) { startTrack(data.record); }
+        /* 立即刷新列表；新记录为 processing，refresh 内部会恢复轮询 */
+        refreshRecords(false);
+      })
+      .catch(function (err) {
+        Shade.toast(err.message || '生成请求失败', 'error');
+      })
+      .then(function () { setSubmitting(false); });
+  });
+
+  /* ===== 删除确认弹层 ===== */
+  function openDelMask(id, name) {
+    delId = id;
+    delText.innerHTML = '记录「' + Shade.esc(name || '') + '」及已生成的记录文件将一并删除，该操作不可恢复。';
+    delMask.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDelMask() {
+    if (deleting) { return; }
+    delMask.classList.remove('open');
+    document.body.style.overflow = '';
+    delId = null;
+  }
+  function forceCloseDelMask() {
+    delMask.classList.remove('open');
+    document.body.style.overflow = '';
+    delId = null;
+  }
+  function setDeleting(on) {
+    deleting = on;
+    delConfirm.disabled = on;
+    delCancel.disabled = on;
+    delConfirm.textContent = on ? '删除中…' : '确认删除';
+  }
+  delCancel.addEventListener('click', closeDelMask);
+  delConfirm.addEventListener('click', function () {
+    if (deleting || !delId) { return; }
+    setDeleting(true);
+    sdFetch('/records/' + encodeURIComponent(delId), { method: 'DELETE' })
+      .then(parseOk)
+      .then(function (data) {
+        forceCloseDelMask();
+        /* 服务端可能返回 warning（记录已删但文件删除失败） */
+        if (data.warning) { Shade.toast(data.warning, 'info'); }
+        else { Shade.toast('记录已删除', 'success'); }
+        refreshRecords(false);
+      })
+      .catch(function (err) { Shade.toast(err.message || '删除失败', 'error'); })
+      .then(function () { setDeleting(false); });
+  });
+
+  /* 弹层不绑定遮罩点击关闭，防误点丢失已编辑内容；Esc 可关闭（请求中除外） */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') { return; }
+    if (genMask.classList.contains('open')) { closeGenMask(); }
+    if (delMask.classList.contains('open')) { closeDelMask(); }
+  });
+
+  /* ===== 静态图标与初始化 ===== */
+  document.getElementById('delIcon').innerHTML = Shade.icon('delete', 22);
+  document.getElementById('emptyIcon').innerHTML = Shade.icon('file-safety', 44);
+
+  renderTags();
+  renderProg();
+  Shade.reveal();
+  refreshRecords(true);
+</script>
+</body>
+</html>

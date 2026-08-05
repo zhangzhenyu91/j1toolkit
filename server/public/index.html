@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 网页版门户工作台（方案A「安全橙传承」②：顶部导航 + 警示斜纹用户卡 + 应用中心） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工作台 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ===== 用户大卡（警示斜纹 + 问候） ===== */
+  .user-card { overflow: hidden; }
+  .uc-body { display: flex; align-items: center; gap: 18px; padding: 24px 28px; }
+  .uc-avatar {
+    width: 62px; height: 62px; flex: none; border-radius: 17px;
+    background: var(--navy); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700;
+  }
+  .uc-hello { font-size: 20px; font-weight: 800; letter-spacing: .5px; }
+  .uc-hello small { margin-left: 10px; font-size: 12px; font-weight: 500; color: var(--ph); letter-spacing: 1px; }
+  .uc-role { margin-top: 8px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--sub); }
+  .uc-role .uname { color: var(--ph); }
+  .uc-side { margin-left: auto; text-align: right; font-size: 12px; color: var(--ph); line-height: 1.9; letter-spacing: .5px; }
+
+  /* ===== 应用中心宫格（宽屏自然多列） ===== */
+  .apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
+  .app-card { display: block; padding: 22px; color: inherit; }
+  .app-card:link, .app-card:visited { color: inherit; }
+  .app-ic {
+    width: 50px; height: 50px; border-radius: 14px;
+    background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .3s;
+  }
+  .app-card:hover .app-ic { transform: scale(1.08) rotate(-4deg); }
+  .app-ic svg { width: 26px; height: 26px; }
+  .app-card h4 { margin-top: 16px; font-size: 15.5px; font-weight: 800; letter-spacing: .5px; }
+  .app-card > p { margin-top: 8px; font-size: 12.5px; color: var(--sub); line-height: 1.8; min-height: 45px; }
+  .app-meta { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--hair); }
+  .app-go { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; color: var(--orange); }
+  .app-go svg { width: 14px; height: 14px; transition: transform .3s; }
+  .app-card:hover .app-go svg { transform: translateX(4px); }
+  /* 「敬请期待」虚线占位 */
+  .app-soon {
+    background: transparent; border: 1.5px dashed var(--dash); box-shadow: none;
+    min-height: 150px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 9px;
+  }
+  .app-soon .app-ic { width: 44px; height: 44px; background: transparent; border: 1.5px dashed var(--dash); color: #C6BA9C; }
+  .app-soon .app-ic svg { width: 22px; height: 22px; }
+  .app-soon h4 { margin-top: 2px; font-size: 13.5px; color: var(--ph); }
+  .app-soon p { font-size: 11.5px; color: #C6BA9C; }
+  /* 宫格内空态占满整行 */
+  .apps .empty { grid-column: 1 / -1; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow-card); }
+  /* 骨架卡片 */
+  .app-sk { height: 150px; }
+
+  /* ===== 安全提示条 ===== */
+  .safety {
+    margin-top: 26px; display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; font-size: 12.5px; color: var(--sub); letter-spacing: .5px;
+  }
+  .safety .si {
+    width: 34px; height: 34px; flex: none; border-radius: 9px;
+    background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .safety .si svg { width: 18px; height: 18px; }
+  .safety b { color: var(--navy); letter-spacing: 1px; }
+
+  @media (max-width: 640px) {
+    .uc-body { flex-wrap: wrap; }
+    .uc-side { display: none; }
+    .topbar-nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<!-- 顶部导航由 Shade.topbar({active:'index'}) 统一渲染（见 script） -->
+
+<main class="page">
+  <!-- 用户大卡 -->
+  <section class="card user-card rv">
+    <div class="hazard-top"></div>
+    <div class="uc-body">
+      <div class="uc-avatar" id="ucAvatar">·</div>
+      <div>
+        <div class="uc-hello"><span id="helloText">你好</span><small id="dateText"></small></div>
+        <div class="uc-role" id="roleRow"></div>
+      </div>
+      <div class="uc-side" id="sideInfo"></div>
+    </div>
+  </section>
+
+  <!-- 应用中心 -->
+  <div class="section-title rv"><h3>应用中心</h3><span class="more" id="appCount">加载中…</span></div>
+  <section class="apps rv" id="appGrid">
+    <div class="card app-sk skeleton"></div>
+    <div class="card app-sk skeleton"></div>
+    <div class="card app-sk skeleton"></div>
+  </section>
+
+  <!-- 外部应用（纯链接跳转，全员可见，不接入权限机制；清单在 script 的 EXT_APPS 本地维护） -->
+  <div class="section-title rv"><h3>外部应用</h3><span class="more">点击跳转 · 全员可用</span></div>
+  <section class="apps rv" id="extGrid"></section>
+
+  <!-- 安全提示条 -->
+  <section class="card safety rv">
+    <span class="si" id="safetyIcon"></span>
+    <span><b>安全生产，预防为主。</b>上工前请确认劳保用品佩戴齐全，作业按规程执行。</span>
+  </section>
+</main>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  Shade.requireAuth();
+  // 统一顶部导航（工作台为当前页；管理入口按缓存角色显隐，接口资料回来后再校正）
+  Shade.topbar({ active: 'index' });
+
+  // 应用落地页映射（网页版路由，与小程序分包无关；key 与 sys_app 种子一致）
+  var APP_ROUTES = {
+    'call-me': '/callme.html',
+    'work-log': '/worklog.html',
+    'safe-day': '/safeday.html',
+  };
+
+  // 应用描述与特性标签（接口无此字段，按设计稿 方案A② 的文案本地维护；新应用未登记时不渲染该行）
+  var APP_META = {
+    'call-me': {
+      desc: '对接 WeKnora 企业知识库，规程、图纸与检修经验随问随答，流式输出、来源可溯。',
+      tags: [['AI 问答', 'tag-orange'], ['WeKnora', 'tag-navy']],
+    },
+    'work-log': {
+      desc: '班组出工记录、水印照片存证与防伪码核验，月历视图一目了然，日志真实可查。',
+      tags: [['记录存证', 'tag-orange'], ['防伪核验', 'tag-navy']],
+    },
+    'safe-day': {
+      desc: '上传班组活动 PDF / Office 文件，Dify 工作流自动生成活动记录，一键下载归档。',
+      tags: [['文件生成', 'tag-orange'], ['Dify', 'tag-navy']],
+    },
+  };
+
+  // 静态图标注入
+  document.getElementById('safetyIcon').innerHTML = Shade.icon('shield', 18);
+
+  // 外部应用（纯链接跳转，全员可见，不接入权限机制；新增/下架在此维护）
+  var EXT_APPS = [
+    { name: '网盘', url: 'https://cloud.j1net.com', icon: 'cloud',
+      desc: '班组文件云端存储与共享，资料随时随地安全存取。' },
+    { name: '机械作业距离预警', url: 'https://ula-admin.j1net.com/login.php', icon: 'warn',
+      desc: '机械作业安全距离实时监测与预警管理后台。' },
+    { name: 'Dify', url: 'https://ai.j1net.com', icon: 'robot',
+      desc: 'AI 应用搭建平台，工作流与智能体可视化管理。' },
+    { name: 'GL·iNet Kvm Cloud', url: 'https://master.kvm.j1net.com', icon: 'monitor',
+      desc: '远程控制设备中台，现场设备远程接入与集中管理。' },
+  ];
+
+  // 渲染外部应用宫格（样式与应用中心一致，新窗口打开）
+  function renderExtApps() {
+    document.getElementById('extGrid').innerHTML = EXT_APPS.map(function (it) {
+      return '<a class="card card-hover app-card" href="' + it.url + '" target="_blank" rel="noopener">' +
+        '<div class="app-ic">' + Shade.icon(it.icon, 26, '#F26D21') + '</div>' +
+        '<h4>' + Shade.esc(it.name) + '</h4>' +
+        '<p>' + Shade.esc(it.desc) + '</p>' +
+        '<div class="app-meta"><span class="tag tag-navy">外部链接</span>' +
+        '<span class="app-go">打开应用' + Shade.icon('arrow-right', 14) + '</span></div>' +
+        '</a>';
+    }).join('');
+  }
+  renderExtApps();
+
+  // 按时段问候
+  function greeting() {
+    var h = new Date().getHours();
+    if (h < 6) return '夜深了';
+    if (h < 9) return '早上好';
+    if (h < 12) return '上午好';
+    if (h < 14) return '中午好';
+    if (h < 18) return '下午好';
+    return '晚上好';
+  }
+
+  // 渲染用户资料（接口失败时回退本地缓存）
+  function renderProfile(u) {
+    var name = u.nickname || u.username || '班组成员';
+    var ch = name.charAt(0);
+    document.getElementById('miniAvatar').textContent = ch;
+    document.getElementById('ucAvatar').textContent = ch;
+    document.getElementById('topName').textContent = name;
+    document.getElementById('helloText').textContent = greeting() + '，' + name;
+
+    var now = new Date();
+    var week = '日一二三四五六'.charAt(now.getDay());
+    document.getElementById('dateText').textContent =
+      now.getFullYear() + ' 年 ' + (now.getMonth() + 1) + ' 月 ' + now.getDate() + ' 日 · 星期' + week;
+
+    // 角色徽章：admin→管理员，其他→普通用户（描边徽章样式不变）
+    var roleHtml = '<span class="badge-outline">' + (u.role === 'admin' ? '管理员' : '普通用户') + '</span>';
+    if (u.username) roleHtml += '<span class="uname">账号：' + Shade.esc(u.username) + '</span>';
+    document.getElementById('roleRow').innerHTML = roleHtml;
+
+    // 管理入口仅 admin 可见
+    if (u.role === 'admin') document.getElementById('navAdmin').hidden = false;
+
+    document.getElementById('sideInfo').innerHTML =
+      '班组数字化工具平台<br> Shade 壹匣 · 网页版';
+  }
+
+  // 渲染应用宫格
+  function renderApps(list) {
+    var grid = document.getElementById('appGrid');
+    var html = '';
+    list.forEach(function (item) {
+      var href = APP_ROUTES[item.app_key] || '';
+      var meta = APP_META[item.app_key];
+      var tags = meta
+        ? meta.tags.map(function (t) { return '<span class="tag ' + t[1] + '">' + t[0] + '</span>'; }).join('')
+        : '';
+      html += '<a class="card card-hover app-card" href="' + (href || 'javascript:void 0') + '"' +
+        (href ? '' : ' data-soon="1"') + '>' +
+        '<div class="app-ic">' + Shade.icon(item.icon || 'app', 26, '#F26D21') + '</div>' +
+        '<h4>' + Shade.esc(item.name) + '</h4>' +
+        (meta ? '<p>' + Shade.esc(meta.desc) + '</p>' : '') +
+        '<div class="app-meta">' + tags +
+        '<span class="app-go">进入应用' + Shade.icon('arrow-right', 14) + '</span></div>' +
+        '</a>';
+    });
+    // 虚线占位入口
+    html += '<div class="card app-card app-soon">' +
+      '<div class="app-ic">' + Shade.icon('ellipsis', 22) + '</div>' +
+      '<h4>敬请期待</h4><p>新应用接入中</p>' +
+      '</div>';
+    grid.innerHTML = html;
+
+    document.getElementById('appCount').textContent =
+      '按权限自动下发 · 共 ' + list.length + ' 个可用应用';
+
+    if (!list.length) {
+      grid.innerHTML = '<div class="empty">' + Shade.icon('app', 44) +
+        '<p>暂无可用应用，请联系管理员开通权限</p></div>' +
+        '<div class="card app-card app-soon"><div class="app-ic">' + Shade.icon('ellipsis', 22) +
+        '</div><h4>敬请期待</h4><p>新应用接入中</p></div>';
+    }
+
+    // 未开通网页版的应用：拦截并提示
+    grid.querySelectorAll('[data-soon]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        Shade.toast('该应用暂未开通网页版，请使用小程序访问', 'info');
+      });
+    });
+  }
+
+  // 加载数据
+  (async function () {
+    try {
+      var r = await Shade.api('/api/v1/user/profile');
+      renderProfile(r.data);
+    } catch (e) {
+      var cached = Shade.user();
+      if (cached) renderProfile(cached);
+      else Shade.toast(e.message, 'error');
+    }
+    try {
+      var r2 = await Shade.api('/api/v1/app/list');
+      renderApps(r2.data.list || []);
+    } catch (e) {
+      document.getElementById('appCount').textContent = '加载失败';
+      document.getElementById('appGrid').innerHTML =
+        '<div class="empty">' + Shade.icon('error-circle', 44) +
+        '<p>' + Shade.esc(e.message || '应用列表加载失败') + '</p></div>';
+    }
+    Shade.reveal();
+  })();
+</script>
+</body>
+</html>

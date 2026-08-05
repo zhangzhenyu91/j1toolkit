@@ -103,7 +103,7 @@
         class="chat-input"
         auto-height
         maxlength="2000"
-        placeholder="向检修一班AI知识库提问…"
+        placeholder="向 AI 知识库提问…"
         placeholder-class="input-ph"
         value="{{inputValue}}"
         bindinput="onInput"

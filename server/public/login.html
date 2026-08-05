@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 网页版登录页（方案A「安全橙传承」①：左品牌区 + 右账号密码表单） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ===== 登录页布局（body flex 纵列中 flex:1 撑满视口；本页 data-beian="off" 跳过全局页脚，
+     备案链接改放右侧表单块底部；左品牌区 + 右表单） ===== */
+  .login-page { flex: 1; display: flex; flex-direction: column; }
+  .login-box { flex: 1; width: 100%; display: flex; background: #fff; }
+  /* 左侧品牌区：藏青底 + 网格光晕 + 底部警示斜纹，黄金分割占 61.8% */
+  .login-brand {
+    width: 61.8%; flex: none; position: relative;
+    display: flex; flex-direction: column;
+    background: var(--navy); color: #fff; overflow: hidden;
+  }
+  .login-brand::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      radial-gradient(420px 300px at 110% 0%, rgba(242, 109, 33, .22), transparent 60%),
+      linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
+    background-size: auto, 38px 38px, 38px 38px;
+  }
+  .brand-top { position: relative; display: flex; align-items: center; gap: 12px; padding: 32px 38px 0; }
+  .brand-top .logo-mark { width: 46px; height: 46px; }
+  .brand-name { font-size: 18px; font-weight: 800; letter-spacing: 2px; }
+  .brand-name small { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 500; color: rgba(255, 255, 255, .55); letter-spacing: 3px; }
+  /* 品牌区内容按黄金分割置于左区上半部：::before/::after 弹性间隔 382:618，
+     内容整体中心约在左区高度 38.2% 处；水平居中保持（文字组内部保持左对齐的阅读秩序） */
+  .brand-mid {
+    position: relative; flex: 1; padding: 36px 38px;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center;
+  }
+  .brand-mid::before, .brand-mid::after { content: ""; display: block; }
+  .brand-mid::before { flex: 382 0 0; }
+  .brand-mid::after { flex: 618 0 0; }
+  .brand-mid h2 { font-size: 29px; line-height: 1.5; font-weight: 800; letter-spacing: 1px; }
+  .brand-mid h2 em { font-style: normal; color: var(--orange); }
+  .brand-mid > p { margin-top: 14px; font-size: 13px; line-height: 1.9; color: rgba(255, 255, 255, .6); letter-spacing: .5px; }
+  .brand-feats { margin-top: 32px; display: inline-flex; flex-direction: column; gap: 15px; text-align: left; }
+  .feat { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255, 255, 255, .85); letter-spacing: 1px; }
+  .feat i {
+    width: 32px; height: 32px; flex: none; border-radius: 9px;
+    background: rgba(242, 109, 33, .16); border: 1px solid rgba(242, 109, 33, .45); color: #F59A5E;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .feat i svg { width: 17px; height: 17px; }
+  .login-brand .hazard-top { position: relative; }
+  /* 右侧表单：黄金分割窄侧（38.2%），纵列布局——.form-core 弹性居中表单主体，备案页脚垫底 */
+  .login-form { flex: 1; display: flex; flex-direction: column; padding: 48px 66px; background: #fff; }
+  .form-core { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; }
+  .form-core > * { width: 100%; max-width: 400px; margin-left: auto; margin-right: auto; }
+  .login-form h2 { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+  /* margin 简写必须带 auto：.login-form .sub 优先级高于 .form-core>*，
+     写成 8px 0 26px 会把左右 auto 冲掉，导致该块脱离 400px 版心歪向左侧 */
+  .login-form .sub { margin: 8px auto 26px; font-size: 12.5px; color: var(--sub); letter-spacing: .5px; }
+  /* margin 需带 auto：等优先级下后置规则会覆盖 .form-core>* 的居中，导致此行错位 */
+  .form-row { display: flex; align-items: center; justify-content: space-between; margin: 2px auto 18px; font-size: 12.5px; color: var(--sub); }
+  .form-row .ck-l { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+  .form-row a { color: var(--sub); transition: color .25s; }
+  .form-row a:hover { color: var(--orange); }
+  .ck {
+    width: 16px; height: 16px; flex: none; border-radius: 4px;
+    border: 1px solid var(--line); background: #fff; color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background .2s, border-color .2s;
+  }
+  .ck.on { background: var(--orange); border-color: var(--orange); }
+  .ck svg { width: 10px; height: 10px; opacity: 0; transition: opacity .2s; }
+  .ck.on svg { opacity: 1; }
+  .agree { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; color: var(--sub); }
+  .agree a { color: var(--orange); font-weight: 600; cursor: pointer; }
+  .login-foot { margin-top: 30px; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
+
+  /* 移动端上下堆叠：品牌区在上，表单在下 */
+  @media (max-width: 860px) {
+    .login-box { flex-direction: column; }
+    .login-brand { width: 100%; }
+    .brand-mid h2 { font-size: 24px; }
+    .login-form { padding: 36px 28px; }
+  }
+</style>
+</head>
+<body data-beian="off">
+<div class="login-page">
+  <div class="login-box fade-up">
+    <!-- 左侧品牌区 -->
+    <div class="login-brand">
+      <div class="brand-top">
+        <span class="logo-mark" id="logoMark"></span>
+        <div class="brand-name">Shade 壹匣<small>班组数字化工具平台</small></div>
+      </div>
+      <div class="brand-mid">
+        <h2>班组应用，<br>一匣尽纳，<br><em>安全每一班。</em></h2>
+        <p>统一登录 · 应用聚合 · 权限管控，班组的一站式数字化工作台。</p>
+        <div class="brand-feats">
+          <div class="feat"><i id="featUser"></i>统一身份认证，班组账号一键登录</div>
+          <div class="feat"><i id="featApp"></i>应用中心聚合，业务应用按权限自动下发</div>
+          <div class="feat"><i id="featShield"></i>数据安全可溯，操作留痕符合班组管理规范</div>
+        </div>
+      </div>
+      <div class="hazard-top"></div>
+    </div>
+    <!-- 右侧登录表单：.form-core 垂直居中主体，备案页脚垫底（本页 data-beian="off"，不注入全局页脚） -->
+    <form class="login-form" id="loginForm" novalidate>
+      <div class="form-core">
+        <h2>欢迎回来</h2>
+        <div class="sub">请使用班组账号登录 Shade 壹匣工作台</div>
+        <div class="field" id="fUser">
+          <input class="input" type="text" id="username" placeholder="请输入账号" autocomplete="username">
+        </div>
+        <div class="field" id="fPass">
+          <input class="input" type="password" id="password" placeholder="请输入密码" autocomplete="current-password">
+        </div>
+        <div class="form-row">
+          <label class="ck-l" for="remember">
+            <input type="checkbox" id="remember" hidden>
+            <span class="ck" id="ckRemember"></span>记住账号
+          </label>
+          <a href="javascript:void 0" id="forgot">忘记密码？</a>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" id="btnLogin">登 录</button>
+        <div class="agree">登录即代表已阅读并同意<a id="linkUla">《用户协议》</a>和<a id="linkPp">《隐私政策》</a></div>
+        <div class="login-foot">
+          <div>© 2026 Shade 壹匣</div>
+        </div>
+      </div>
+      <footer class="beian-foot">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener"><img src="/public-security.png" alt="公安备案">晋公网安备14118202000050号</a>
+      </footer>
+    </form>
+  </div>
+</div>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  // 已登录则直接进入工作台
+  if (localStorage.getItem('shade_token')) location.replace('/index.html');
+
+  // 品牌 Logo 用工具箱.svg，其余注入线性图标
+  document.getElementById('logoMark').innerHTML = '<img src="/favicon.svg" alt="Shade 壹匣">';
+  document.getElementById('featUser').innerHTML = Shade.icon('user', 17);
+  document.getElementById('featApp').innerHTML = Shade.icon('app', 17);
+  document.getElementById('featShield').innerHTML = Shade.icon('shield', 17);
+  document.getElementById('fUser').insertAdjacentHTML('afterbegin', Shade.icon('user', 18));
+  document.getElementById('fPass').insertAdjacentHTML('afterbegin', Shade.icon('lock-on', 18));
+  document.getElementById('ckRemember').innerHTML = Shade.icon('check', 10, '#fff');
+
+  var $username = document.getElementById('username');
+  var $password = document.getElementById('password');
+  var $remember = document.getElementById('remember');
+  var $ck = document.getElementById('ckRemember');
+  var $btn = document.getElementById('btnLogin');
+
+  // 记住账号：回显上次登录的账号
+  var remembered = localStorage.getItem('shade_remember') || '';
+  if (remembered) {
+    $username.value = remembered;
+    $remember.checked = true;
+    $ck.classList.add('on');
+  }
+  $remember.addEventListener('change', function () {
+    $ck.classList.toggle('on', $remember.checked);
+  });
+
+  document.getElementById('forgot').addEventListener('click', function () {
+    Shade.toast('请联系管理员重置密码', 'info');
+  });
+  document.getElementById('linkUla').addEventListener('click', function () {
+    Shade.toast('用户协议由班组管理员发布，请遵守平台使用规范', 'info');
+  });
+  document.getElementById('linkPp').addEventListener('click', function () {
+    Shade.toast('平台数据仅用于班组内部业务管理', 'info');
+  });
+
+  // 提交登录
+  document.getElementById('loginForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var username = $username.value.trim();
+    var password = $password.value;
+    if (!username || !password) {
+      Shade.toast('请输入账号和密码', 'error');
+      return;
+    }
+    $btn.disabled = true;
+    $btn.textContent = '登录中…';
+    try {
+      var r = await Shade.api('/api/v1/auth/login', {
+        method: 'POST',
+        body: { username: username, password: password },
+      });
+      Shade.setAuth(r.data.token, r.data.user);
+      if ($remember.checked) localStorage.setItem('shade_remember', username);
+      else localStorage.removeItem('shade_remember');
+      Shade.toast('登录成功，正在进入工作台', 'success');
+      setTimeout(function () { location.href = '/index.html'; }, 300);
+    } catch (err) {
+      Shade.toast(err.message || '登录失败，请稍后重试', 'error');
+      $btn.disabled = false;
+      $btn.textContent = '登 录';
+    }
+  });
+</script>
+</body>
+</html>

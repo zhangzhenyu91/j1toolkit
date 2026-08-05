@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 网页版管理页（方案A「安全橙传承」）：员工管理 + 权限管理，仅管理员可用
+     接口：/api/v1/admin/*（需登录 + admin 角色），交互对齐小程序 pages/admin/users 与 pages/admin/perms -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ===== 页签（滑动指示条） ===== */
+  .tabs { position: relative; display: flex; gap: 4px; border-bottom: 1px solid var(--hair); }
+  .tab {
+    padding: 11px 20px; border: none; background: none; cursor: pointer;
+    font-size: 14px; font-weight: 600; color: var(--sub); letter-spacing: 1.5px;
+    transition: color .25s;
+  }
+  .tab:hover { color: var(--navy); }
+  .tab.on { color: var(--orange); }
+  .tab-ind {
+    position: absolute; bottom: -1px; left: 0; width: 0; height: 3px;
+    border-radius: 2px; background: var(--orange);
+    transition: left .3s cubic-bezier(.16, 1, .3, 1), width .3s cubic-bezier(.16, 1, .3, 1);
+  }
+  .pane { display: none; }
+  .pane.on { display: block; }
+  /* 身份校验通过后主区/无权限卡的入场动效（此前 display 直出会闪跳） */
+  .page-entry { animation: fadeUp .55s cubic-bezier(.16, 1, .3, 1) both; }
+
+  /* ===== 工具条 ===== */
+  .toolbar { display: flex; align-items: center; gap: 10px; margin: 20px 0 14px; }
+  .toolbar .cnt { font-size: 12.5px; color: var(--ph); letter-spacing: 1px; }
+  .toolbar .sp { margin-left: auto; display: flex; gap: 10px; }
+
+  /* ===== 员工表格 ===== */
+  .tbl-card { overflow: hidden; }
+  .tbl-wrap { overflow-x: auto; }
+  table.tbl { width: 100%; border-collapse: collapse; min-width: 760px; }
+  .tbl th, .tbl td {
+    padding: 13px 16px; text-align: left; font-size: 13px;
+    border-bottom: 1px solid var(--hair); white-space: nowrap;
+  }
+  .tbl th {
+    font-size: 12px; font-weight: 700; color: var(--sub); letter-spacing: 1.5px;
+    background: #FBF9F3;
+  }
+  .tbl tbody tr:last-child td { border-bottom: none; }
+  .tbl tbody tr { transition: background .2s; }
+  .tbl tbody tr:hover { background: #FBF9F3; }
+  .tbl .uname { font-weight: 700; }
+  .tbl .mut { color: var(--ph); }
+  /* 行内操作按钮 */
+  .act {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 9px; border: none; border-radius: 6px; background: none; cursor: pointer;
+    font-size: 12px; font-weight: 600; color: var(--sub); letter-spacing: .5px;
+    transition: color .2s, background .2s;
+  }
+  .act svg { width: 13px; height: 13px; }
+  .act:hover { color: var(--orange); background: var(--orange-soft); }
+  .act.danger:hover { color: var(--red); background: #FBE9E9; }
+
+  /* ===== 权限管理：左用户 / 右应用 ===== */
+  .perm-wrap { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start; margin-top: 20px; }
+  .pm-side { overflow: hidden; }
+  .pm-search { padding: 14px 14px 10px; border-bottom: 1px solid var(--hair); }
+  .pm-search .field { margin-bottom: 0; }
+  .pm-search .field .input { height: 40px; }
+  .pm-list { max-height: 520px; overflow-y: auto; padding: 8px; }
+  .pm-user {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 9px 10px; border: none; border-radius: 9px; background: none; cursor: pointer;
+    text-align: left; transition: background .2s;
+  }
+  .pm-user:hover { background: var(--paper); }
+  .pm-user.on { background: var(--orange-soft); }
+  .pm-ava {
+    width: 36px; height: 36px; flex: none; border-radius: 10px;
+    background: var(--navy); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700;
+  }
+  .pm-user.on .pm-ava { background: var(--orange); }
+  .pm-user .nm { font-size: 13.5px; font-weight: 700; color: var(--navy); }
+  .pm-user .un { font-size: 11.5px; color: var(--ph); margin-top: 1px; }
+  .pm-main { overflow: hidden; }
+  .pm-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 15px 20px; border-bottom: 1px solid var(--hair);
+    font-size: 13px; color: var(--sub); letter-spacing: .5px;
+  }
+  .pm-head b { color: var(--navy); }
+  .pm-head .st { margin-left: auto; font-size: 12px; color: var(--ph); }
+  .pm-apps { padding: 10px 14px 16px; max-height: 560px; overflow-y: auto; }
+  .app-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 12px; border-radius: 10px; cursor: pointer;
+    transition: background .2s;
+  }
+  .app-item:hover { background: var(--paper); }
+  .app-item .cbx {
+    width: 19px; height: 19px; flex: none; border-radius: 6px;
+    border: 1.5px solid var(--line); background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .2s, border-color .2s;
+  }
+  .app-item .cbx svg { width: 12px; height: 12px; color: #fff; opacity: 0; transition: opacity .15s; }
+  .app-item.on .cbx { background: var(--orange); border-color: var(--orange); }
+  .app-item.on .cbx svg { opacity: 1; }
+  .app-item .ai-ic {
+    width: 38px; height: 38px; flex: none; border-radius: 10px;
+    background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .app-item .ai-ic svg { width: 20px; height: 20px; }
+  .app-item .ai-nm { font-size: 13.5px; font-weight: 700; }
+  .app-item .ai-key { font-size: 11.5px; color: var(--ph); margin-top: 1px; }
+  .app-item.off-app { opacity: .45; }
+  .app-item .ai-state { margin-left: auto; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
+
+  /* ===== 弹层 ===== */
+  .mask {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(27, 39, 64, .42);
+    display: none; align-items: center; justify-content: center; padding: 20px;
+  }
+  .mask.show { display: flex; }
+  .modal {
+    width: 100%; max-width: 420px; background: #fff; border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(34, 49, 78, .25);
+    animation: fadeUp .35s cubic-bezier(.16, 1, .3, 1) both;
+  }
+  .modal-hd {
+    display: flex; align-items: center; padding: 18px 22px 0;
+    font-size: 15.5px; font-weight: 800; letter-spacing: 1px;
+  }
+  .modal-hd .x {
+    margin-left: auto; border: none; background: none; cursor: pointer;
+    color: var(--ph); padding: 4px; border-radius: 6px; transition: color .2s, background .2s;
+  }
+  .modal-hd .x:hover { color: var(--navy); background: var(--paper); }
+  .modal-hd .x svg { width: 16px; height: 16px; }
+  .modal-bd { padding: 18px 22px 6px; }
+  .modal-bd .tip { font-size: 13px; color: var(--sub); line-height: 1.8; margin-bottom: 14px; }
+  .f-row { margin-bottom: 14px; }
+  .f-row label { display: block; font-size: 12.5px; font-weight: 700; color: var(--sub); letter-spacing: 1px; margin-bottom: 7px; }
+  .f-row label i { font-style: normal; color: var(--ph); font-weight: 500; }
+  .f-row .input { height: 42px; }
+  select.input { appearance: none; cursor: pointer; }
+  .modal-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 22px 20px; }
+
+  /* ===== 无权限 ===== */
+  .noperm { max-width: 460px; margin: 90px auto 0; text-align: center; padding: 46px 30px; }
+  .noperm .np-ic {
+    width: 64px; height: 64px; margin: 0 auto 18px; border-radius: 18px;
+    background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .noperm .np-ic svg { width: 30px; height: 30px; }
+  .noperm h3 { font-size: 17px; letter-spacing: 1px; }
+  .noperm p { margin: 10px 0 22px; font-size: 13px; color: var(--sub); line-height: 1.8; }
+
+  @media (max-width: 860px) {
+    .perm-wrap { grid-template-columns: 1fr; }
+    .pm-list, .pm-apps { max-height: none; }
+  }
+  @media (max-width: 640px) { .topbar-nav { display: none; } }
+</style>
+</head>
+<body>
+<!-- 顶部导航由 Shade.topbar({active:'admin'}) 统一渲染（见 script） -->
+
+<main class="page" id="mainWrap" style="display:none">
+  <!-- 页签 -->
+  <div class="tabs">
+    <button class="tab on" data-pane="users">员工管理</button>
+    <button class="tab" data-pane="perms">权限管理</button>
+    <span class="tab-ind" id="tabInd"></span>
+  </div>
+
+  <!-- ===== 员工管理 ===== -->
+  <section class="pane on" id="pane-users">
+    <div class="toolbar">
+      <span class="cnt" id="userCnt">加载中…</span>
+      <span class="sp">
+        <button class="btn btn-sm" id="btnRefresh">刷新</button>
+        <button class="btn btn-sm btn-accent" id="btnAdd">新建员工</button>
+      </span>
+    </div>
+    <div class="card tbl-card">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>账号</th><th>昵称</th><th>班组</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="userTbody">
+            <tr><td colspan="7"><div class="loading"><span class="spin"></span>加载中</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 权限管理 ===== -->
+  <section class="pane" id="pane-perms">
+    <div class="perm-wrap">
+      <aside class="card pm-side">
+        <div class="pm-search">
+          <div class="field">
+            <input class="input" id="permSearch" placeholder="搜索账号 / 昵称" autocomplete="off">
+          </div>
+        </div>
+        <div class="pm-list" id="permUserList">
+          <div class="loading"><span class="spin"></span>加载中</div>
+        </div>
+      </aside>
+      <div class="card pm-main">
+        <div class="pm-head" id="permHead">
+          <span>请先选择左侧员工</span>
+        </div>
+        <div class="pm-apps" id="permAppList">
+          <div class="empty" id="permEmpty"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 无权限提示 -->
+<div class="card noperm" id="noPerm" style="display:none">
+  <div class="np-ic" id="npIcon"></div>
+  <h3>无权限访问</h3>
+  <p>管理页仅对管理员开放。<br>如需权限请联系班组管理员。</p>
+  <a class="btn btn-primary" href="/index.html">返回工作台</a>
+</div>
+
+<!-- 新建员工弹层 -->
+<div class="mask" id="addMask">
+  <div class="modal">
+    <div class="modal-hd">新建员工<button class="x" data-close="addMask" title="关闭"></button></div>
+    <div class="modal-bd">
+      <div class="f-row">
+        <label>账号</label>
+        <input class="input" id="addUsername" placeholder="2-64 位字母、数字或下划线" autocomplete="off">
+      </div>
+      <div class="f-row">
+        <label>昵称 <i>选填</i></label>
+        <input class="input" id="addNickname" placeholder="选填" autocomplete="off">
+      </div>
+      <div class="f-row">
+        <label>班组 <i>选填</i></label>
+        <input class="input" id="addTeam" placeholder="选填" autocomplete="off">
+      </div>
+      <div class="f-row">
+        <label>初始密码</label>
+        <input class="input" id="addPassword" type="password" placeholder="至少 6 位" autocomplete="new-password">
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn" data-close="addMask">取消</button>
+      <button class="btn btn-accent" id="btnAddSubmit">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑员工弹层 -->
+<div class="mask" id="editMask">
+  <div class="modal">
+    <div class="modal-hd">编辑员工<button class="x" data-close="editMask" title="关闭"></button></div>
+    <div class="modal-bd">
+      <div class="tip" id="editTip"></div>
+      <div class="f-row">
+        <label>昵称</label>
+        <input class="input" id="editNickname" placeholder="选填" autocomplete="off">
+      </div>
+      <div class="f-row">
+        <label>班组</label>
+        <input class="input" id="editTeam" placeholder="选填" autocomplete="off">
+      </div>
+      <div class="f-row">
+        <label>角色</label>
+        <select class="input" id="editRole">
+          <option value="user">普通用户</option>
+          <option value="admin">管理员</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn" data-close="editMask">取消</button>
+      <button class="btn btn-accent" id="btnEditSubmit">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 重置密码弹层 -->
+<div class="mask" id="pwdMask">
+  <div class="modal">
+    <div class="modal-hd">重置密码<button class="x" data-close="pwdMask" title="关闭"></button></div>
+    <div class="modal-bd">
+      <div class="tip" id="pwdTip"></div>
+      <div class="f-row">
+        <label>新密码</label>
+        <input class="input" id="pwdInput" type="password" placeholder="请输入新密码（至少 6 位）" autocomplete="new-password">
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn" data-close="pwdMask">取消</button>
+      <button class="btn btn-accent" id="btnPwdSubmit">重置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 启用 / 停用确认弹层 -->
+<div class="mask" id="cfmMask">
+  <div class="modal">
+    <div class="modal-hd" id="cfmTitle">确认操作</div>
+    <div class="modal-bd">
+      <div class="tip" id="cfmTip"></div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn" data-close="cfmMask">取消</button>
+      <button class="btn" id="btnCfmOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  function el(id) { return document.getElementById(id); }
+
+  // 静态图标注入（顶栏 Logo / 退出按钮由 Shade.topbar 统一渲染）
+  el('npIcon').innerHTML = Shade.icon('lock-on', 30);
+  el('btnAdd').insertAdjacentHTML('afterbegin', Shade.icon('add', 14));
+  el('btnRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 14));
+  document.querySelectorAll('.modal-hd .x').forEach(function (b) {
+    b.innerHTML = Shade.icon('close', 16);
+  });
+  el('permEmpty').innerHTML = Shade.icon('usergroup', 44) + '<p>选择左侧员工后勾选应用，勾选即保存</p>';
+
+  // ===== 全局状态 =====
+  var users = [];        // 员工列表
+  var apps = [];         // 全部应用
+  var me = null;         // 当前登录管理员
+  var editing = null;    // 正在编辑 / 重置密码 / 启停用的员工
+  var permUserId = 0;    // 权限管理选中的员工 id
+  var checkedMap = {};   // { app_id: true }
+  var savingPerm = false;
+  var permDirty = false; // 保存期间又有新勾选
+
+  // ===== 初始化：校验管理员身份 =====
+  async function initAdmin() {
+    var cached = Shade.user() || {};
+    fillTopbar(cached);
+    me = cached;
+    try {
+      var r = await Shade.api('/api/v1/user/profile');
+      me = r.data;
+      fillTopbar(me);
+    } catch (e) { /* 接口失败时回退本地缓存身份 */ }
+    if (!me || me.role !== 'admin') {
+      el('noPerm').style.display = '';
+      el('noPerm').classList.add('page-entry');
+      return;
+    }
+    el('mainWrap').style.display = '';
+    el('mainWrap').classList.add('page-entry');
+    moveTabInd(document.querySelector('.tab.on'), true);
+    loadUsers();
+    loadApps();
+  }
+
+  function fillTopbar(u) {
+    var name = u.nickname || u.username || '管理员';
+    el('miniAvatar').textContent = name.charAt(0);
+    el('topName').textContent = name;
+  }
+
+  // ===== 页签切换（滑动指示条；instant=true 首帧直接落位，避免从左侧滑入的残影） =====
+  function moveTabInd(tab, instant) {
+    var ind = el('tabInd');
+    if (instant) {
+      ind.style.transition = 'none';
+      ind.style.left = tab.offsetLeft + 'px';
+      ind.style.width = tab.offsetWidth + 'px';
+      void ind.offsetHeight; // 强制回流后恢复过渡
+      ind.style.transition = '';
+      return;
+    }
+    ind.style.left = tab.offsetLeft + 'px';
+    ind.style.width = tab.offsetWidth + 'px';
+  }
+  document.querySelectorAll('.tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('on'); });
+      document.querySelectorAll('.pane').forEach(function (p) { p.classList.remove('on'); });
+      tab.classList.add('on');
+      el('pane-' + tab.dataset.pane).classList.add('on');
+      moveTabInd(tab);
+    });
+  });
+  window.addEventListener('resize', function () {
+    moveTabInd(document.querySelector('.tab.on'));
+  });
+
+  // ===== 弹层开关 =====
+  function openMask(id) { el(id).classList.add('show'); }
+  function closeMask(id) { el(id).classList.remove('show'); }
+  document.querySelectorAll('[data-close]').forEach(function (b) {
+    b.addEventListener('click', function () { closeMask(b.dataset.close); });
+  });
+  document.querySelectorAll('.mask').forEach(function (m) {
+    m.addEventListener('click', function (e) { if (e.target === m) m.classList.remove('show'); });
+  });
+
+  // ============================================================
+  // 员工管理
+  // ============================================================
+  async function loadUsers() {
+    el('userCnt').textContent = '加载中…';
+    try {
+      var r = await Shade.api('/api/v1/admin/users');
+      users = r.data.list || [];
+      renderUsers();
+      renderPermUsers();
+    } catch (e) {
+      users = [];
+      el('userCnt').textContent = '加载失败';
+      el('userTbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
+        Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '员工列表加载失败') + '</p></div></td></tr>';
+      renderPermUsers();
+    }
+  }
+
+  function renderUsers() {
+    el('userCnt').textContent = '共 ' + users.length + ' 名员工';
+    if (!users.length) {
+      el('userTbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
+        Shade.icon('usergroup', 44) + '<p>暂无员工，点击右上角「新建员工」创建</p></div></td></tr>';
+      return;
+    }
+    el('userTbody').innerHTML = users.map(function (u) {
+      var name = u.nickname || '';
+      var disabling = u.status === 1;
+      return '<tr>' +
+        '<td class="uname">' + Shade.esc(u.username) + '</td>' +
+        '<td>' + (name ? Shade.esc(name) : '<span class="mut">—</span>') + '</td>' +
+        '<td>' + (u.team ? Shade.esc(u.team) : '<span class="mut">—</span>') + '</td>' +
+        '<td>' + (u.role === 'admin'
+          ? '<span class="badge-outline">管理员</span>'
+          : '<span class="tag tag-navy">普通用户</span>') + '</td>' +
+        '<td>' + (disabling
+          ? '<span class="tag tag-orange">启用</span>'
+          : '<span class="tag tag-red">停用</span>') + '</td>' +
+        '<td class="mut">' + Shade.esc(Shade.fmtDate(u.created_at)) + '</td>' +
+        '<td>' +
+          '<button class="act" data-op="edit" data-id="' + u.id + '">' + Shade.icon('edit', 13) + '编辑</button>' +
+          '<button class="act" data-op="pwd" data-id="' + u.id + '">' + Shade.icon('key', 13) + '重置密码</button>' +
+          '<button class="act' + (disabling ? ' danger' : '') + '" data-op="toggle" data-id="' + u.id + '">' +
+            (disabling ? Shade.icon('lock-on', 13) + '停用' : Shade.icon('check-circle', 13) + '启用') + '</button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  // 表格行内操作（事件委托）
+  el('userTbody').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-op]');
+    if (!btn) return;
+    var u = users.find(function (x) { return x.id === Number(btn.dataset.id); });
+    if (!u) return;
+    if (btn.dataset.op === 'edit') openEdit(u);
+    if (btn.dataset.op === 'pwd') openPwd(u);
+    if (btn.dataset.op === 'toggle') openToggle(u);
+  });
+
+  el('btnRefresh').addEventListener('click', function () { loadUsers(); });
+
+  // ---------- 新建员工 ----------
+  el('btnAdd').addEventListener('click', function () {
+    el('addUsername').value = '';
+    el('addNickname').value = '';
+    el('addTeam').value = '';
+    el('addPassword').value = '';
+    openMask('addMask');
+    el('addUsername').focus();
+  });
+
+  el('btnAddSubmit').addEventListener('click', async function () {
+    var username = el('addUsername').value.trim();
+    var nickname = el('addNickname').value.trim();
+    var team = el('addTeam').value.trim();
+    var password = el('addPassword').value;
+    if (!username || !password) {
+      Shade.toast('请填写账号和初始密码', 'info');
+      return;
+    }
+    var btn = el('btnAddSubmit');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await Shade.api('/api/v1/admin/users', {
+        method: 'POST',
+        body: { username: username, nickname: nickname, team: team, password: password },
+      });
+      Shade.toast('已创建', 'success');
+      closeMask('addMask');
+      loadUsers();
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- 编辑员工（昵称 / 班组 / 角色） ----------
+  function openEdit(u) {
+    editing = u;
+    el('editTip').textContent = '账号：' + u.username;
+    el('editNickname').value = u.nickname || '';
+    el('editTeam').value = u.team || '';
+    el('editRole').value = u.role === 'admin' ? 'admin' : 'user';
+    openMask('editMask');
+  }
+
+  el('btnEditSubmit').addEventListener('click', async function () {
+    if (!editing) return;
+    var btn = el('btnEditSubmit');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await Shade.api('/api/v1/admin/users/' + editing.id, {
+        method: 'PUT',
+        body: {
+          nickname: el('editNickname').value.trim(),
+          team: el('editTeam').value.trim(),
+          role: el('editRole').value,
+        },
+      });
+      Shade.toast('已保存', 'success');
+      closeMask('editMask');
+      loadUsers();
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- 重置密码 ----------
+  function openPwd(u) {
+    editing = u;
+    el('pwdTip').textContent = '重置密码：' + (u.nickname || u.username);
+    el('pwdInput').value = '';
+    openMask('pwdMask');
+    el('pwdInput').focus();
+  }
+
+  el('btnPwdSubmit').addEventListener('click', async function () {
+    if (!editing) return;
+    var password = el('pwdInput').value.trim();
+    if (password.length < 6) {
+      Shade.toast('密码至少 6 位', 'info');
+      return;
+    }
+    var btn = el('btnPwdSubmit');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await Shade.api('/api/v1/admin/users/' + editing.id, {
+        method: 'PUT',
+        body: { password: password },
+      });
+      Shade.toast('密码已重置', 'success');
+      closeMask('pwdMask');
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- 启用 / 停用 ----------
+  function openToggle(u) {
+    editing = u;
+    var disabling = u.status === 1;
+    el('cfmTitle').textContent = disabling ? '停用账号' : '启用账号';
+    el('cfmTip').textContent = '确定' + (disabling ? '停用' : '启用') + '「' +
+      (u.nickname || u.username) + '」吗？' + (disabling ? '停用后该账号将无法登录。' : '');
+    var okBtn = el('btnCfmOk');
+    okBtn.className = disabling ? 'btn btn-danger' : 'btn btn-accent';
+    openMask('cfmMask');
+  }
+
+  el('btnCfmOk').addEventListener('click', async function () {
+    if (!editing) return;
+    var disabling = editing.status === 1;
+    var btn = el('btnCfmOk');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await Shade.api('/api/v1/admin/users/' + editing.id, {
+        method: 'PUT',
+        body: { status: disabling ? 0 : 1 },
+      });
+      Shade.toast(disabling ? '已停用' : '已启用', 'success');
+      closeMask('cfmMask');
+      loadUsers();
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ============================================================
+  // 权限管理
+  // ============================================================
+  async function loadApps() {
+    try {
+      var r = await Shade.api('/api/v1/admin/apps');
+      apps = r.data.list || [];
+    } catch (e) {
+      apps = [];
+      el('permAppList').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+        '<p>' + Shade.esc(e.message || '应用列表加载失败') + '</p></div>';
+    }
+  }
+
+  // 左侧员工列表（可搜索，账号 / 昵称模糊匹配）
+  el('permSearch').addEventListener('input', function () { renderPermUsers(); });
+  document.querySelector('.pm-search .field').insertAdjacentHTML('afterbegin', Shade.icon('search', 18));
+
+  function renderPermUsers() {
+    var kw = el('permSearch').value.trim().toLowerCase();
+    var list = users.filter(function (u) {
+      if (!kw) return true;
+      return (u.username || '').toLowerCase().indexOf(kw) >= 0 ||
+             (u.nickname || '').toLowerCase().indexOf(kw) >= 0;
+    });
+    if (!list.length) {
+      el('permUserList').innerHTML = '<div class="empty">' + Shade.icon('search', 44) +
+        '<p>' + (users.length ? '没有匹配的员工' : '暂无员工') + '</p></div>';
+      return;
+    }
+    el('permUserList').innerHTML = list.map(function (u) {
+      var name = u.nickname || u.username;
+      return '<button class="pm-user' + (u.id === permUserId ? ' on' : '') + '" data-id="' + u.id + '">' +
+        '<span class="pm-ava">' + Shade.esc(name.charAt(0)) + '</span>' +
+        '<span><span class="nm">' + Shade.esc(name) + '</span><br>' +
+        '<span class="un">' + Shade.esc(u.username) + '</span></span>' +
+      '</button>';
+    }).join('');
+  }
+
+  el('permUserList').addEventListener('click', function (e) {
+    var btn = e.target.closest('.pm-user');
+    if (!btn) return;
+    selectPermUser(Number(btn.dataset.id));
+  });
+
+  // 选中员工：加载其已授权应用
+  async function selectPermUser(id) {
+    if (id === permUserId) return;
+    permUserId = id;
+    checkedMap = {};
+    renderPermUsers();
+    var u = users.find(function (x) { return x.id === id; });
+    el('permHead').innerHTML = '<span>正在为 <b>' + Shade.esc(u ? (u.nickname || u.username) : '') +
+      '</b> 配置应用权限</span><span class="st">勾选即保存</span>';
+    el('permAppList').innerHTML = '<div class="loading"><span class="spin"></span>加载中</div>';
+    try {
+      var r = await Shade.api('/api/v1/admin/users/' + id + '/apps');
+      checkedMap = {};
+      (r.data.app_ids || []).forEach(function (appId) { checkedMap[appId] = true; });
+      renderPermApps();
+    } catch (e) {
+      el('permAppList').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+        '<p>' + Shade.esc(e.message || '授权信息加载失败') + '</p></div>';
+    }
+  }
+
+  // 右侧应用勾选列表
+  function renderPermApps() {
+    if (!apps.length) {
+      el('permAppList').innerHTML = '<div class="empty">' + Shade.icon('app', 44) +
+        '<p>暂无应用，请先在 sys_app 表配置应用</p></div>';
+      return;
+    }
+    el('permAppList').innerHTML = apps.map(function (a) {
+      var on = !!checkedMap[a.id];
+      var offApp = a.status !== 1;
+      return '<div class="app-item' + (on ? ' on' : '') + (offApp ? ' off-app' : '') + '" data-id="' + a.id + '">' +
+        '<span class="cbx">' + Shade.icon('check', 12) + '</span>' +
+        '<span class="ai-ic">' + Shade.icon(a.icon || 'app', 20, '#F26D21') + '</span>' +
+        '<span><span class="ai-nm">' + Shade.esc(a.name) + '</span><br>' +
+        '<span class="ai-key">' + Shade.esc(a.app_key) + '</span></span>' +
+        (offApp ? '<span class="ai-state">已下架</span>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  // 勾选 / 取消勾选 → 立即全量保存（与小程序提交口径一致：app_ids 全量替换）
+  el('permAppList').addEventListener('click', function (e) {
+    var item = e.target.closest('.app-item');
+    if (!item || !permUserId) return;
+    var id = Number(item.dataset.id);
+    checkedMap[id] = !checkedMap[id];
+    item.classList.toggle('on', !!checkedMap[id]);
+    savePerms();
+  });
+
+  async function savePerms() {
+    if (savingPerm) { permDirty = true; return; }
+    savingPerm = true;
+    var appIds = Object.keys(checkedMap).filter(function (k) { return checkedMap[k]; }).map(Number);
+    try {
+      await Shade.api('/api/v1/admin/users/' + permUserId + '/apps', {
+        method: 'PUT',
+        body: { app_ids: appIds },
+      });
+      Shade.toast('授权已保存', 'success');
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    } finally {
+      savingPerm = false;
+      // 保存期间产生的勾选，补一次保存
+      if (permDirty) {
+        permDirty = false;
+        savePerms();
+      }
+    }
+  }
+
+  // ===== 登录门控：未登录跳登录页；已登录渲染统一顶栏并校验管理员身份初始化 =====
+  if (Shade.requireAuth()) {
+    Shade.topbar({ active: 'admin' });
+    initAdmin();
+  }
+</script>
+</body>
+</html>

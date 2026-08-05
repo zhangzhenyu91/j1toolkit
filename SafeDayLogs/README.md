@@ -1,5 +1,7 @@
 # 安全日活动记录生成平台
 
+> **⚠️ 已废弃归档**：本服务已整合进主服务（`server/`）——后端合并为 `server/src/safeday/`（`/api/v1/safeday`），网页端重构为 `server/public/safeday.html`。本目录仅作历史归档，不再维护、不再部署。以下内容为历史文档。
+
 上传学习文档（pdf/doc/docx/ppt/pptx/xls/xlsx）+ 填写日期，后端调用 Dify 工作流生成《安全日活动记录》，产物 `{date}.docx` 由 Dify 写入项目根目录的 `docs/` 文件夹（通过外部目录映射）。
 
 ## 环境要求
