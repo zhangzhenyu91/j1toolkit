@@ -83,7 +83,7 @@
     codeRight: 0.016,
     codeBaseline: 0.008, // 防伪码行基线（alphabetic）到底边的距离；行视觉中心≈0.0157
     codeColor: 'rgba(255,255,255,1)',
-    codeShadowAlpha: 0.6 // 防伪/码值各自下方的扁平椭圆阴影中心不透明度
+    codeShadowAlpha: 0.3 // 防伪/码值软影峰值不透明度（官方样图间隙实测 ≈0.27-0.35，取其下限偏轻）
   };
 
   // 防伪码字符集：去掉 0/O、1/I 等易混淆字符
@@ -276,7 +276,7 @@
       // 中线对齐：两段可见字形的垂直中心在同一水平线（非底线对齐——思源黑 CJK 比 PTMono 大写高，
       // 底线对齐会让「防伪」中心偏高）；按 actualBoundingBox* 实测两段中心残差校正前缀基线，
       // 度量缺失时退回共用 alphabetic 基线（两字体中心本已近乎重合），任意分辨率恒平。
-      // 阴影：不用文字投影，按参考图在「防伪」与码值各自正下方垫一个扁平椭圆软影（径向渐变）。
+      // 阴影：不用文字投影，按官方样图在「防伪」与码值各自的可见字形边界上垫圆角矩形软影（边缘渐隐）。
       ctx.fillStyle = M.codeColor;
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = 'left';
@@ -310,29 +310,44 @@
       var prefixX = rightX - prefixW - codeW;
       // 前缀基线偏移 = 码值中心偏移 - 前缀中心偏移（各中心 = 基线 + (下探-上探)/2）
       var prefixBaselineY = baselineY + ((codeDesc - codeAsc) - (preDesc - preAsc)) / 2;
-      var prefixBottomY = prefixBaselineY + preDesc;
-      var codeBottomY = baselineY + codeDesc;
 
-      // 两个扁平椭圆软影：分别衬于「防伪」与码值正下方（中心略低于各自可见底）
-      function flatShadow(cx, cy, rx, ry) {
+      // 两个圆角矩形软影：按官方样图，渐隐大部分收在各自可见字形边界之内——
+      // 「防伪」的渐隐外限几乎不超出二字边界；码值的渐隐外限左右收在码值边界之内、
+      // 上下仅微超出。offX/offY 为渐隐外限相对字形边界的超出量（负值=收进边界内），
+      // 全浓度核心 = 外限再内缩一圈渐隐带宽。实现为外→内逐层加强的圆角矩形叠印：
+      // 按余弦目标剖面反解每层 alpha（源覆盖合成 1-Π(1-a)），外扩 grow 时圆角同步 +grow
+      // 保持等距平行边；纯路径填充，不依赖 ctx 投影/滤镜，三端一致。
+      // （save/restore 隔离 fillStyle，避免污染后续文字绘制的颜色）
+      function softRectShadow(x, y, w, h, offX, offY) {
         ctx.save();
-        ctx.translate(cx, cy);
-        ctx.scale(rx, ry);
-        var g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-        g.addColorStop(0, 'rgba(0,0,0,' + M.codeShadowAlpha + ')');
-        g.addColorStop(0.55, 'rgba(0,0,0,' + M.codeShadowAlpha * 0.5 + ')');
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(0, 0, 1, 0, Math.PI * 2);
-        ctx.fill();
+        var blur = h * 0.3;        // 渐隐带宽（外限到全浓度核心的距离）
+        var r0 = h * 0.15;         // 核心圆角半径
+        var cx = x - offX + blur;  // 全浓度核心矩形 = 渐隐外限各边内缩 blur
+        var cy = y - offY + blur;
+        var cw = w + offX * 2 - blur * 2;
+        var ch = h + offY * 2 - blur * 2;
+        var N = 16;          // 分层数（足够密，视觉上即连续渐变）
+        var remain = 1;      // 已绘各层的累计剩余透明度 Π(1-a)
+        for (var i = N; i >= 0; i--) {
+          var t = i / N;
+          var target = M.codeShadowAlpha * (1 + Math.cos(Math.PI * t)) / 2; // t=0 核心峰值，t=1 外缘为 0
+          var a = 1 - (1 - target) / remain;
+          if (a > 0) {
+            var grow = blur * t;
+            roundedPath(ctx, cx - grow, cy - grow, cw + grow * 2, ch + grow * 2, r0 + grow, [true, true, true, true]);
+            ctx.fillStyle = 'rgba(0,0,0,' + a.toFixed(4) + ')';
+            ctx.fill();
+          }
+          remain = 1 - target;
+        }
         ctx.restore();
       }
       var preGlyphW = 2 * codeFs; // 前缀两个字形宽（不含尾部空格）
       var preH = preAsc + preDesc;
       var codeH = codeAsc + codeDesc;
-      flatShadow(prefixX + preGlyphW / 2, prefixBottomY - preH * 0.12, preGlyphW / 2 + preH * 0.3, preH * 0.45);
-      flatShadow(rightX - codeW / 2, codeBottomY - codeH * 0.12, codeW / 2 + codeH * 0.25, codeH * 0.45);
+      // 渐隐外限：「防伪」几乎不越出二字边界；码值左右收进边界 ≈0.08 倍字高、上下微超出 ≈0.1 倍字高
+      softRectShadow(prefixX, prefixBaselineY - preAsc, preGlyphW, preH, -0.02 * preH, 0.05 * preH);
+      softRectShadow(rightX - codeW, baselineY - codeAsc, codeW, codeH, -0.08 * codeH, 0.1 * codeH);
 
       ctx.fillText(codePrefix, prefixX, prefixBaselineY);
       // 码值：字号放大 + 横向压缩（行宽不超限）

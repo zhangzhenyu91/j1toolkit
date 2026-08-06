@@ -48,6 +48,10 @@ if (config.worklog.enabled) {
 if (config.safeday.enabled) {
   app.use('/api/v1/safeday', require('./safeday'));
 }
+// KVM 远程管理：env KVM_ENABLED=true 时才挂载（设备列表代理自 GLKVM 平台）
+if (config.kvm.enabled) {
+  app.use('/api/v1/kvm', require('./kvm'));
+}
 
 // 404 与统一错误处理
 app.use((req, res) => fail(res, 404, 40404, '接口不存在'));

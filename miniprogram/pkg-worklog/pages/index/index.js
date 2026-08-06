@@ -1,9 +1,11 @@
 // 出工日志 · 主页：日期条切换 / 视图开关（全部·仅看我）/ 日志卡片直改 / 日历选日（按日验证状态着色）
 // 新建与「改派车/用车人」共用底部表单弹层（仅「保 存」提交，无实时保存；改派车保存前弹内网派车单同步警告）；
-// 巡视内容点卡片主块单独弹层修改（带快捷输入）；底部另有批量下载水印照片面板与验证不通过报告面板
+// 巡视内容点卡片主块单独弹层修改（带快捷输入）；备注（文字+附件传 COS）点「备 注」按钮或备注块弹层编辑；
+// 底部另有批量下载水印照片面板与验证报告面板（范围 = 不通过记录 ∪ 有备注记录，备注黄色展示）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
+import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 
 const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -38,7 +40,8 @@ function calFormat(day) {
   const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const cls = [];
   const st = DAY_STATUS[key];
-  if (st) cls.push(st === 'passed' ? 'wl-cal-passed' : 'wl-cal-failed');
+  // 着色三态：failed 红 / remark 黄（通过但有备注）/ passed 绿
+  if (st) cls.push(st === 'passed' ? 'wl-cal-passed' : st === 'remark' ? 'wl-cal-remark' : 'wl-cal-failed');
   if (key === fmtDate(new Date())) cls.push('wl-cal-today');
   if (!cls.length) return day;
   return { ...day, className: `${day.className || ''} ${cls.join(' ')}`.trim() };
@@ -93,7 +96,7 @@ Page({
     weekText: '',
     isToday: false,
     isAdmin: false,
-    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理·仅 admin / 批量下载 / 查看报告 / 新建日志）
+    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理·仅 admin / 批量下载 / 验证报告 / 新建日志）
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
@@ -104,6 +107,7 @@ Page({
     calValue: null,
     minDate: 0,
     maxDate: 0,
+    calAnim: '', // 滑动切换月份动效（落在 t-class）：'' / wl-cal-from-right / wl-cal-from-left
     // 照片人名点亮弹层（添加/修改复用）
     memberVisible: false,
     memberMode: 'add', // add=上传新照片 / edit=修改已有照片人名
@@ -157,6 +161,14 @@ Page({
     patrolEntryId: 0, // 当前修改的卡片 id
     patrolDraft: '', // 编辑中的巡视内容
     patrolSaving: false,
+    // ---------- 备注编辑弹层（点「备 注」按钮或备注块弹出；附件保存时才上传 COS） ----------
+    rmkVisible: false,
+    rmkEntryId: 0,
+    rmkDraft: '', // 编辑中的备注文字
+    rmkFiles: [], // [{type,name,url?,cos_key?,size?,tempFilePath?,preview,key,isNew}]
+    rmkMedia: [], // rmkFiles 中 image/video（缩略图区展示）
+    rmkDocs: [], // rmkFiles 中 doc（文件条区展示）
+    rmkSaving: false,
     // ---------- 批量下载水印照片面板 ----------
     dlVisible: false,
     dlFrom: '',
@@ -171,12 +183,12 @@ Page({
     // 下载面板改日期（range 日历；与下载/报告面板互斥开合，避免叠层 z-index 冲突；_rangeCalFor 标记回开对象）
     dlCalVisible: false,
     dlCalValue: null,
-    // ---------- 验证不通过报告面板 ----------
+    // ---------- 验证报告面板（不通过 ∪ 有备注） ----------
     rpVisible: false,
     rpFrom: '',
     rpTo: '',
     rpRangeText: '',
-    rpGroups: [], // [{date, title, items:[{id, plateText, membersText, reasons}]}]
+    rpGroups: [], // [{date, title, cntText, items:[{id, plateText, membersText, verifyText, verifyCls, reasons, remarkText, hasFiles}]}]
     rpTotal: 0,
     rpLoading: false,
   },
@@ -309,7 +321,7 @@ Page({
     this._dayStatusMonths = {};
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
-    // 批量下载 / 查看报告面板的「仅看我」已收拢到本开关，面板打开时随动刷新
+    // 批量下载 / 验证报告面板的「仅看我」已收拢到本开关，面板打开时随动刷新
     if (this.data.dlVisible) this.buildDlGroups();
     if (this.data.rpVisible) this.loadReport();
   },
@@ -327,6 +339,7 @@ Page({
       const data = await request({ url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}` });
       const list = ((data && data.list) || []).map((e) => {
         const photos = (e.photos || []).map(mapPhoto);
+        const remarkFiles = (e.remark_files || []).map((f) => ({ ...f }));
         return {
           id: e.id,
           hasVehicle: !!e.vehicle_id,
@@ -337,6 +350,12 @@ Page({
           checks: (e.members || []).map((m) => ({ mid: m.id, name: m.name, checked: !!m.checked })),
           photos,
           photoUrls: photos.map((p) => p.url),
+          // 备注（文字 + 附件；均为空即 hasRemark=false，卡片不渲染备注块）
+          remark: e.remark || '',
+          remarkFiles,
+          remarkMedia: remarkFiles.filter((f) => f.type === 'image' || f.type === 'video'),
+          remarkDocs: remarkFiles.filter((f) => f.type === 'doc'),
+          hasRemark: !!(e.remark || remarkFiles.length),
           // 无照片且无派车时不显示水印照片区
           showPhotos: !!e.vehicle_id || photos.length > 0,
           // 表单面板回填用的原始字段
@@ -394,6 +413,49 @@ Page({
   onCalPanelChange(e) {
     const { year, month } = e.detail;
     this.loadDayStatus(`${year}-${pad(month)}`);
+  },
+
+  // ---------- 日历左右滑动切换月份（与页面切日同口径手势，带平移进入动画） ----------
+
+  onCalTouchStart(e) {
+    const t = e.touches[0];
+    this._calTouch = { x: t.clientX, y: t.clientY };
+  },
+
+  onCalTouchEnd(e) {
+    if (!this._calTouch) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - this._calTouch.x;
+    const dy = t.clientY - this._calTouch.y;
+    this._calTouch = null;
+    if (Math.abs(dx) >= 60 && Math.abs(dx) > Math.abs(dy) * 2) {
+      this.switchCalMonth(dx < 0 ? 1 : -1); // 左滑下一月，右滑上一月
+    }
+  },
+
+  // 与翻月箭头同口径（getCurrentDate/calcCurrentMonth 均为组件方法）：越出 minDate/maxDate 当月不切换；
+  // 切换后按新月份拉着色数据（等同 panel-change 链路），新网格按滑动方向平移进入
+  switchCalMonth(delta) {
+    if (this._calSwitching) return; // 动画期间连滑防抖
+    const cal = this.selectComponent('#wl-calendar');
+    if (!cal || typeof cal.getCurrentDate !== 'function') return;
+    const cur = new Date(cal.getCurrentDate());
+    const target = new Date(cur.getFullYear(), cur.getMonth() + delta, 1);
+    const min = new Date(this.data.minDate);
+    const max = new Date(this.data.maxDate);
+    if (target < new Date(min.getFullYear(), min.getMonth(), 1)) return;
+    if (target > new Date(max.getFullYear(), max.getMonth(), 1)) return;
+    this._calSwitching = true;
+    cal.calcCurrentMonth(target.getTime());
+    this.loadDayStatus(`${target.getFullYear()}-${pad(target.getMonth() + 1)}`);
+    // 先清空再 nextTick 重放，保证连切同向也重新触发动画（同 playDayAnim 模式）
+    this.setData({ calAnim: '' });
+    wx.nextTick(() => {
+      this.setData({ calAnim: delta > 0 ? 'wl-cal-from-right' : 'wl-cal-from-left' });
+    });
+    setTimeout(() => {
+      this._calSwitching = false;
+    }, 280);
   },
 
   // 日历着色数据：按月去重拉取，写入模块级缓存（DAY_STATUS）后手动重算日历
@@ -763,6 +825,239 @@ Page({
       this.setData({ patrolSaving: false });
       this.toast(err.message);
     }
+  },
+
+  // ---------- 备注编辑弹层（文字 + 附件；「保 存」时新附件先传 COS 再 PUT 全量字段） ----------
+
+  // 打开：点卡片「备 注」按钮或备注块，回填当前备注与附件（已传附件带 cos_key，保存时原样回传）
+  onOpenRemark(e) {
+    const id = Number(e.currentTarget.dataset.id) || 0;
+    const entry = this.data.list.find((x) => x.id === id);
+    if (!entry) {
+      this.toast('日志不存在或已被删除');
+      return;
+    }
+    const files = (entry.remarkFiles || []).map((f) => ({
+      ...f, key: f.cos_key, preview: f.url, isNew: false,
+    }));
+    this.setData({
+      rmkVisible: true,
+      rmkEntryId: id,
+      rmkDraft: entry.remark || '',
+      rmkFiles: files,
+      rmkSaving: false,
+      keyboardHeight: 0,
+    });
+    this.deriveRmkLists(files);
+  },
+
+  // 派生展示列表：图片/视频进缩略图区，doc 进文件条区
+  deriveRmkLists(files) {
+    this.setData({
+      rmkMedia: files.filter((f) => f.type === 'image' || f.type === 'video'),
+      rmkDocs: files.filter((f) => f.type === 'doc'),
+    });
+  },
+
+  onRmkInput(e) {
+    this.setData({ rmkDraft: e.detail.value });
+  },
+
+  onRmkCancel() {
+    this.setData({ rmkVisible: false, keyboardHeight: 0 });
+  },
+
+  onRmkVisibleChange(e) {
+    if (!e.detail.visible && this.data.rmkVisible) {
+      this.setData({ rmkVisible: false, keyboardHeight: 0 });
+    }
+  },
+
+  // 添加图片/视频附件（wx.chooseMedia，相册/拍摄均可；超过 50MB 直接剔除并提示）
+  onRmkAddMedia() {
+    const left = 9 - this.data.rmkFiles.length;
+    if (left <= 0) {
+      this.toast('附件最多 9 个');
+      return;
+    }
+    wx.chooseMedia({
+      count: left,
+      mediaType: ['image', 'video'],
+      sourceType: ['album', 'camera'],
+      success: (res) => {
+        const now = new Date();
+        const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
+          + `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        const files = this.data.rmkFiles.slice();
+        (res.tempFiles || []).forEach((t, i) => {
+          if (t.size > 50 * 1024 * 1024) {
+            this.toast('单个附件不超过 50MB');
+            return;
+          }
+          const type = t.fileType === 'video' ? 'video' : 'image';
+          const ext = (t.tempFilePath.split('.').pop() || (type === 'video' ? 'mp4' : 'jpg')).toLowerCase();
+          files.push({
+            type,
+            name: `${type === 'video' ? '视频' : '图片'}-${stamp}${i ? `-${i}` : ''}.${ext}`,
+            size: t.size,
+            tempFilePath: t.tempFilePath,
+            key: t.tempFilePath,
+            preview: t.tempFilePath,
+            isNew: true,
+          });
+        });
+        this.setData({ rmkFiles: files.slice(0, 9) });
+        this.deriveRmkLists(this.data.rmkFiles);
+      },
+    });
+  },
+
+  // 添加 Office 文档附件（wx.chooseMessageFile 从聊天文件选择；服务端按扩展名白名单复核）
+  onRmkAddDoc() {
+    const left = 9 - this.data.rmkFiles.length;
+    if (left <= 0) {
+      this.toast('附件最多 9 个');
+      return;
+    }
+    const DOC_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf'];
+    wx.chooseMessageFile({
+      count: left,
+      type: 'file',
+      extension: DOC_EXTS,
+      success: (res) => {
+        const files = this.data.rmkFiles.slice();
+        (res.tempFiles || []).forEach((t) => {
+          const ext = (t.name.split('.').pop() || '').toLowerCase();
+          if (!DOC_EXTS.includes(ext)) {
+            this.toast(`不支持的文件类型：${t.name}`);
+            return;
+          }
+          if (t.size > 50 * 1024 * 1024) {
+            this.toast('单个附件不超过 50MB');
+            return;
+          }
+          files.push({ type: 'doc', name: t.name, size: t.size, tempFilePath: t.path, key: t.path, isNew: true });
+        });
+        this.setData({ rmkFiles: files.slice(0, 9) });
+        this.deriveRmkLists(this.data.rmkFiles);
+      },
+    });
+  },
+
+  // 移除附件（仅改本地清单；已传 COS 的旧附件在保存时随全量清单差集由服务端删除）
+  onRmkFileDel(e) {
+    const { key } = e.currentTarget.dataset;
+    const files = this.data.rmkFiles.filter((f) => f.key !== key);
+    this.setData({ rmkFiles: files });
+    this.deriveRmkLists(files);
+  },
+
+  // 保存：新附件逐个 wx.uploadFile 传 COS → PUT 全量字段（派车/目的地/用车人取卡片最新值）+ 备注
+  async onRmkSave() {
+    if (this.data.rmkSaving) return;
+    const entry = this.data.list.find((x) => x.id === this.data.rmkEntryId);
+    if (!entry) {
+      this.toast('日志不存在或已被删除');
+      this.setData({ rmkVisible: false, keyboardHeight: 0 });
+      return;
+    }
+    this.setData({ rmkSaving: true });
+    try {
+      const metas = [];
+      for (const f of this.data.rmkFiles) {
+        if (f.isNew) {
+          // 逐个上传，失败整体中止留弹层可重试
+          // eslint-disable-next-line no-await-in-loop
+          metas.push(await this.uploadRemarkFile(entry.id, f));
+        } else {
+          metas.push({ name: f.name, url: f.url, cos_key: f.cos_key, type: f.type, size: f.size });
+        }
+      }
+      await request({
+        url: `/api/v1/worklog/logs/${entry.id}`,
+        method: 'PUT',
+        data: {
+          patrol_content: entry.patrol,
+          vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
+          destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
+          member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
+          remark: this.data.rmkDraft.trim(),
+          remark_files: metas,
+        },
+      });
+      this.setData({ rmkVisible: false, rmkSaving: false, keyboardHeight: 0 });
+      this.toast('备注已保存');
+      this.loadLogs();
+    } catch (err) {
+      this.setData({ rmkSaving: false });
+      this.toast(err.message);
+    }
+  },
+
+  // 上传单个备注附件（multipart 与网页端同接口；返回入库用文件元数据）
+  uploadRemarkFile(entryId, f) {
+    const token = wx.getStorageSync('token');
+    return new Promise((resolve, reject) => {
+      wx.uploadFile({
+        url: `${BASE_URL}/api/v1/worklog/logs/${entryId}/remark-files`,
+        filePath: f.tempFilePath,
+        name: 'file',
+        header: token ? { Authorization: `Bearer ${token}` } : {},
+        formData: { name: f.name },
+        success: (res) => {
+          let body = {};
+          try {
+            body = JSON.parse(res.data || '{}');
+          } catch (e) {
+            // 非 JSON 响应按失败处理
+          }
+          if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {
+            resolve(body.data);
+            return;
+          }
+          reject(new Error(body.message || `附件上传失败（${res.statusCode}）`));
+        },
+        fail: () => reject(new Error('网络异常，请检查网络后重试')),
+      });
+    });
+  },
+
+  // 卡片备注附件：图片/视频 wx.previewMedia 全屏（视频直接播放）
+  onRemarkMedia(e) {
+    const { entryId, url } = e.currentTarget.dataset;
+    const entry = this.data.list.find((x) => x.id === entryId);
+    if (!entry) return;
+    const sources = entry.remarkMedia.map((f) => ({ url: f.url, type: f.type }));
+    const current = entry.remarkMedia.findIndex((f) => f.url === url);
+    wx.previewMedia({ sources, current: Math.max(current, 0) });
+  },
+
+  // 卡片备注附件：Office 文档下载后 wx.openDocument 打开（showMenu 显示右上角菜单）
+  onRemarkDoc(e) {
+    const { url, name } = e.currentTarget.dataset;
+    const ext = (String(name).split('.').pop() || '').toLowerCase();
+    wx.showLoading({ title: '正在打开…', mask: true });
+    // 注意：COS 域名需配置为小程序 downloadFile 合法域名（与水印照片下载同域，部署侧事项）
+    wx.downloadFile({
+      url,
+      success: (r) => {
+        if (r.statusCode !== 200) {
+          wx.hideLoading();
+          this.toast('文件下载失败');
+          return;
+        }
+        wx.openDocument({
+          filePath: r.tempFilePath,
+          fileType: ext,
+          showMenu: true,
+          complete: () => wx.hideLoading(),
+        });
+      },
+      fail: () => {
+        wx.hideLoading();
+        this.toast('文件下载失败');
+      },
+    });
   },
 
   // ---------- 水印照片（卡片直接改） ----------
@@ -1261,20 +1556,40 @@ Page({
   async uploadPhoto(image, members, wm) {
     wx.showLoading({ title: wm ? '正在加水印上传…' : '正在上传…', mask: true });
     try {
-      await request({
+      const data = await request({
         url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
         method: 'POST',
         data: wm ? { image, members, wm } : { image, members },
         timeout: 120000,
       });
+      // 加水印流程：服务端完成加水印后，把加了水印的照片自动存入用户相册（失败不阻塞上传）
+      let albumTip = '';
+      if (wm && data && data.url) {
+        wx.showLoading({ title: '正在保存到相册…', mask: true });
+        albumTip = await this.saveWmPhotoToAlbum(data.url);
+      }
       wx.hideLoading();
       this.setData({ wmVisible: false, wmUploading: false });
-      this.toast('已上传，验证中');
+      this.toast(albumTip || '已上传，验证中');
       this.loadLogs(); // 刷新后自动进入 pending 轮询
     } catch (err) {
       wx.hideLoading();
       this.setData({ wmUploading: false });
       this.toast(err.message);
+    }
+  },
+
+  // 加水印上传成功后自动保存到相册（复用批量下载的授权/下载/保存三件套）；
+  // 返回完整提示语，授权被拒或下载保存失败均不抛出（上传已成功）
+  async saveWmPhotoToAlbum(url) {
+    try {
+      const authed = await this.ensureAlbumAuth();
+      if (!authed) return '已上传，验证中（保存相册需授权）';
+      const tempFilePath = await this.dlFile(url);
+      await this.saveToAlbum(tempFilePath);
+      return '已上传，水印照片已存相册';
+    } catch (err) {
+      return '已上传，验证中（相册保存失败）';
     }
   },
 
@@ -1329,7 +1644,7 @@ Page({
 
   // ---------- 批量下载水印照片 ----------
 
-  // 首次打开默认范围：当天 1~10 日 → 上月整月；11 日及以后 → 本月 1 号到今天（批量下载 / 查看报告共用）
+  // 首次打开默认范围：当天 1~10 日 → 上月整月；11 日及以后 → 本月 1 号到今天（批量下载 / 验证报告共用）
   defaultRange() {
     const now = new Date();
     let from;
@@ -1547,7 +1862,7 @@ Page({
     this.toast(`已保存 ${saved} 张到相册`);
   },
 
-  // ---------- 验证不通过报告 ----------
+  // ---------- 验证报告（不通过 ∪ 有备注） ----------
 
   onOpenReport() {
     const { from, to } = this.defaultRange();
@@ -1563,7 +1878,7 @@ Page({
     if (!e.detail.visible && this.data.rpVisible) this.setData({ rpVisible: false });
   },
 
-  // 拉取范围内不通过记录并按日期分组（后端已按日期+卡片序排列，遇序分组即日期升序；仅看我随主页视图开关）
+  // 拉取范围内报告记录（不通过 ∪ 有备注）并按日期分组（后端已按日期+卡片序排列，遇序分组即日期升序；仅看我随主页视图开关）
   async loadReport() {
     this.setData({ rpLoading: true });
     try {
@@ -1582,13 +1897,29 @@ Page({
           };
           groups.push(groupMap[e.log_date]);
         }
+        const reasons = e.reasons || [];
+        const failed = reasons.length > 0;
         groupMap[e.log_date].items.push({
           id: e.id,
           date: e.log_date, // 点击定位用：跳到该卡片所在日期
           plateText: e.plate_no,
           membersText: (e.members || []).join('、'),
-          reasons: e.reasons || [],
+          // 验证徽章：有不通过原因即「未通过」；否则按 verify（exempt=免验证 / 其余=通过）
+          verifyText: failed ? '未通过' : e.verify === 'exempt' ? '免验证' : '通过',
+          verifyCls: failed ? 'red' : e.verify === 'exempt' ? 'gray' : 'green',
+          reasons,
+          remarkText: e.remark || '',
+          hasFiles: !!e.remark_has_files,
         });
+      });
+      // 组统计：N 条未通过 · M 条备注（均为 0 不会出现，因入组前提是二者居一）
+      groups.forEach((g) => {
+        const failedN = g.items.filter((r) => r.reasons.length).length;
+        const rmkN = g.items.filter((r) => r.remarkText || r.hasFiles).length;
+        const parts = [];
+        if (failedN) parts.push(`${failedN} 条未通过`);
+        if (rmkN) parts.push(`${rmkN} 条备注`);
+        g.cntText = parts.join(' · ');
       });
       this.setData({
         rpGroups: groups,

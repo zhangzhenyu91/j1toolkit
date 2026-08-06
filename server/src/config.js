@@ -73,6 +73,12 @@ const config = {
     // Dify 回调 token：留空则回调不做 token 校验（与原 CALLBACK_TOKEN 行为一致）
     callbackToken: str('SAFEDAY_CALLBACK_TOKEN'),
   },
+  // KVM 远程管理（GLKVM Cloud 平台对接：员工账号代登取设备列表 + 平台深链跳转，见 开发指南.md 第十二节）
+  kvm: {
+    enabled: str('KVM_ENABLED') === 'true',
+    url: str('GLKVM_URL').replace(/\/+$/, ''),
+    password: str('GLKVM_PASSWORD'),
+  },
 };
 
 // 启动必需项：缺失即拒绝启动，避免带病运行

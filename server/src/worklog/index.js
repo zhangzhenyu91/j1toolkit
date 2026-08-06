@@ -2,6 +2,8 @@
 // 业务规则与设计稿见《开发指南》第四、七章与 design/worklog.html
 const express = require('express');
 const archiver = require('archiver');
+const multer = require('multer');
+const { Readable } = require('stream');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const requireAdmin = require('../middleware/requireAdmin');
@@ -26,6 +28,26 @@ function dots(dateStr) {
   return dateStr.replace(/-/g, '.');
 }
 
+// 备注附件 JSON 解析（mysql2 对 JSON 列可能返回字符串或已解析对象，与 photo.members 同口径防御）
+function parseRemarkFiles(raw) {
+  if (!raw) return [];
+  const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  return Array.isArray(arr) ? arr : [];
+}
+
+// 备注附件入库前清洗：字段形状校验 + 长度截断；不合法返回 null（cos_key 仅作留存，删除集合只取库内旧值）
+function sanitizeRemarkFile(f) {
+  if (!f || typeof f !== 'object') return null;
+  const name = String(f.name || '').trim().slice(0, 128);
+  const url = String(f.url || '').trim().slice(0, 512);
+  const cosKey = String(f.cos_key || '').trim().slice(0, 255);
+  const type = String(f.type || '');
+  const size = Number(f.size) || 0;
+  if (!name || !/^https?:\/\//i.test(url) || !cosKey || cosKey.includes('..')) return null;
+  if (!['image', 'video', 'doc'].includes(type)) return null;
+  return { name, url, cos_key: cosKey, type, size };
+}
+
 // 装配某日期范围内的卡片全量（含用车人、照片、verify_passed）
 async function loadEntries(where, params) {
   // 超时兜底：pending 超 10 分钟视为验证失败（如服务端在 Dify 回调途中重启导致回写丢失；
@@ -36,6 +58,7 @@ async function loadEntries(where, params) {
   );
   const [entries] = await pool.query(
     `SELECT e.id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.patrol_content,
+            e.remark, e.remark_files,
             e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name,
             e.created_by, e.created_at
      FROM worklog_entry e
@@ -87,6 +110,8 @@ async function loadEntries(where, params) {
   return entries.map((e) => {
     const entry = {
       ...e,
+      remark: e.remark || '',
+      remark_files: parseRemarkFiles(e.remark_files),
       members: memberMap[e.id] || [],
       photos: photoMap[e.id] || [],
     };
@@ -151,6 +176,7 @@ router.get('/logs', async (req, res, next) => {
 });
 
 // GET /day-status?month=YYYY-MM&scope=all|mine：当月每日验证状态映射，供日历着色
+// 状态优先级：failed 红 > remark 黄（验证通过但有备注）> passed 绿；免验证不参与着色
 // scope=mine 个人视图：仅统计用车人包含自己的卡片；红色 = 我未打卡 / 没有含我名字的水印照片 / 含我照片未通过（含验证中/失败）
 router.get('/day-status', async (req, res, next) => {
   try {
@@ -173,6 +199,9 @@ router.get('/day-status', async (req, res, next) => {
         if (!myRow || !myRow.checked) st = 'failed';
         else if (!myPhotos.length) st = 'failed';
         else if (myPhotos.some((p) => p.verify_status !== 'passed')) st = 'failed';
+        // 通过但有备注 → 黄（不覆盖红；已有黄不被绿覆盖）
+        if (st === 'passed' && (e.remark || e.remark_files.length)) st = 'remark';
+        if (st === 'passed' && map[e.log_date] === 'remark') return;
         map[e.log_date] = st;
       });
       return ok(res, { map });
@@ -183,7 +212,11 @@ router.get('/day-status', async (req, res, next) => {
     list.forEach((e) => {
       if (e.verify_passed === 'exempt') return; // 免验证不参与着色
       if (map[e.log_date] === 'failed') return; // 有未通过即锁定红
-      map[e.log_date] = e.verify_passed === 'failed' ? 'failed' : 'passed';
+      let st = e.verify_passed === 'failed' ? 'failed' : 'passed';
+      // 通过但有备注 → 黄（不覆盖红；已有黄不被绿覆盖）
+      if (st === 'passed' && (e.remark || e.remark_files.length)) st = 'remark';
+      if (st === 'passed' && map[e.log_date] === 'remark') return;
+      map[e.log_date] = st;
     });
     return ok(res, { map });
   } catch (err) {
@@ -312,22 +345,65 @@ router.put('/logs/:id', async (req, res, next) => {
         [entryId, m.id, checkedMap.get(m.id) || 0, m.sort]
       );
     }
+
+    // 备注与附件：仅在请求显式携带对应字段时更新（巡视内容/派车等保存不带备注字段，避免误清）
+    const hasRemark = Object.prototype.hasOwnProperty.call(req.body || {}, 'remark');
+    const hasFiles = Object.prototype.hasOwnProperty.call(req.body || {}, 'remark_files');
+    if (hasRemark || hasFiles) {
+      const [oldRows] = await pool.query('SELECT remark, remark_files FROM worklog_entry WHERE id = ?', [entryId]);
+      const oldFiles = parseRemarkFiles(oldRows[0] && oldRows[0].remark_files);
+      const newRemark = hasRemark
+        ? String(req.body.remark || '').trim().slice(0, 500)
+        : (oldRows[0].remark || '');
+      let newFiles = oldFiles;
+      if (hasFiles) {
+        const rawFiles = req.body.remark_files;
+        if (!Array.isArray(rawFiles) || rawFiles.length > 9) {
+          return fail(res, 400, 40020, '备注附件最多 9 个');
+        }
+        newFiles = [];
+        for (const f of rawFiles) {
+          const clean = sanitizeRemarkFile(f);
+          if (!clean) return fail(res, 400, 40018, '备注附件数据不完整或格式不支持');
+          newFiles.push(clean);
+        }
+      }
+      await pool.query('UPDATE worklog_entry SET remark = ?, remark_files = ? WHERE id = ?', [
+        newRemark, JSON.stringify(newFiles), entryId,
+      ]);
+      // 被移除的附件同步删除 COS 对象（删除集合只来自库内旧值，客户端传值不会触发删除）
+      const keptKeys = new Set(newFiles.map((f) => f.cos_key));
+      for (const f of oldFiles) {
+        if (!keptKeys.has(f.cos_key)) {
+          try {
+            await cos.deleteObject(f.cos_key);
+          } catch (err) {
+            console.error('[出工日志] 删除备注附件 COS 对象失败（继续保存）：', f.cos_key, err.message);
+          }
+        }
+      }
+    }
     return ok(res, { id: entryId });
   } catch (err) {
     return next(err);
   }
 });
 
-// DELETE /logs/:id：删除卡片（先删 COS 对象，再删行）
+// DELETE /logs/:id：删除卡片（先删 COS 对象（水印照片 + 备注附件），再删行）
 router.delete('/logs/:id', async (req, res, next) => {
   try {
     const entryId = Number(req.params.id);
     const [photos] = await pool.query('SELECT cos_key FROM worklog_photo WHERE entry_id = ?', [entryId]);
-    for (const p of photos) {
+    const [entryRows] = await pool.query('SELECT remark_files FROM worklog_entry WHERE id = ?', [entryId]);
+    const cosKeys = photos.map((p) => p.cos_key);
+    if (entryRows.length) {
+      parseRemarkFiles(entryRows[0].remark_files).forEach((f) => cosKeys.push(f.cos_key));
+    }
+    for (const key of cosKeys) {
       try {
-        await cos.deleteObject(p.cos_key);
+        await cos.deleteObject(key);
       } catch (err) {
-        console.error('[出工日志] 删除 COS 对象失败（继续删库记录）：', p.cos_key, err.message);
+        console.error('[出工日志] 删除 COS 对象失败（继续删库记录）：', key, err.message);
       }
     }
     await pool.query('DELETE FROM worklog_photo WHERE entry_id = ?', [entryId]);
@@ -379,8 +455,10 @@ router.get('/photos', async (req, res, next) => {
   }
 });
 
-// GET /report?from=&to=&scope=all|mine：日期范围内验证不通过记录及原因（「查看报告」面板用）
-// scope=mine 个人口径：仅含「我未打卡 / 我未上传水印照片 / 我的水印照片未通过」的卡片，且原因只列个人相关项
+// GET /report?from=&to=&scope=all|mine：验证报告（原「验证不通过报告」）——范围为「不通过记录 ∪ 有备注的记录」
+// 不通过记录带全部原因（scope=mine 个人口径仅列个人相关原因）；备注不论通过与否均带出（remark / remark_has_files），
+// 通过/免验证记录仅备注时 reasons 为空，前端按 reasons 有无 + verify 区分角标
+// scope=mine 个人口径：仅含「我未打卡 / 我未上传水印照片 / 我的水印照片未通过」的卡片，或我是用车人且有备注的卡片
 router.get('/report', async (req, res, next) => {
   try {
     const { from, to } = req.query;
@@ -397,24 +475,147 @@ router.get('/report', async (req, res, next) => {
     const list = await loadEntries('e.log_date BETWEEN ? AND ?', [from, to]);
     const items = [];
     list.forEach((e) => {
+      const hasRemark = !!(e.remark || e.remark_files.length);
       let reasons;
       if (me) {
         reasons = myReportReasons(e, me);
+        const amMember = e.members.some((m) => m.member_id === me.id);
+        if (!reasons.length && !(amMember && hasRemark)) return;
       } else {
-        if (e.verify_passed !== 'failed') return;
-        reasons = e.verify_reasons;
+        reasons = e.verify_passed === 'failed' ? e.verify_reasons : [];
+        if (!reasons.length && !hasRemark) return;
       }
-      if (!reasons.length) return;
       items.push({
         id: e.id,
         log_date: e.log_date,
         plate_no: e.plate_no || '未出车',
         members: e.members.map((m) => m.name),
+        verify: e.verify_passed, // passed / failed / exempt（角标以 reasons 有无优先判定未通过）
         reasons,
+        remark: e.remark,
+        remark_has_files: e.remark_files.length > 0,
       });
     });
     items.sort((a, b) => (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : a.id - b.id));
     return ok(res, { list: items });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ===== 备注附件（图片 / 视频 / Office 文档，传 COS；格式白名单见 REMARK_EXTS） =====
+const remarkUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+});
+
+const REMARK_EXTS = {
+  image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'],
+  video: ['mp4', 'mov', 'm4v'],
+  doc: ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf'],
+};
+
+const REMARK_MIME = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  pdf: 'application/pdf',
+};
+
+function getFileExt(name) {
+  const idx = String(name || '').lastIndexOf('.');
+  return idx === -1 ? '' : String(name).slice(idx + 1).toLowerCase();
+}
+
+// 按 entryId + cos_key 定位备注附件（预览/下载共用；key 必须确属该卡，防止拿任意外地拉扯）
+async function findRemarkFile(entryId, key) {
+  const [rows] = await pool.query('SELECT remark_files FROM worklog_entry WHERE id = ?', [entryId]);
+  if (!rows.length) return { entry: false };
+  const file = parseRemarkFiles(rows[0].remark_files).find((f) => f.cos_key === key);
+  return { entry: true, file };
+}
+
+// POST /logs/:id/remark-files：上传单个备注附件（multipart 字段 file；表单 name 可覆盖文件名）
+router.post(
+  '/logs/:id/remark-files',
+  // multer 错误（超限等）转成业务响应，避免落入全局 500
+  (req, res, next) => {
+    remarkUpload.single('file')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') return fail(res, 400, 40019, '附件大小应在 50MB 以内');
+        return next(err);
+      }
+      return next();
+    });
+  },
+  async (req, res, next) => {
+    try {
+      const entryId = Number(req.params.id);
+      const [entries] = await pool.query(
+        `SELECT id, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date FROM worklog_entry WHERE id = ?`,
+        [entryId]
+      );
+      if (!entries.length) return fail(res, 404, 40400, '日志不存在');
+      if (!req.file || !req.file.buffer || !req.file.buffer.length) {
+        return fail(res, 400, 40018, '请选择要上传的附件');
+      }
+      // 文件名：表单 name 优先（小程序 chooseMedia 临时文件名无意义）；回退原始名并修正 latin1 乱码
+      const fallback = Buffer.from(req.file.originalname || '', 'latin1').toString('utf8').trim();
+      const name = (String((req.body && req.body.name) || '').trim() || fallback || '附件').slice(0, 128);
+      const ext = getFileExt(name);
+      const type = Object.keys(REMARK_EXTS).find((t) => REMARK_EXTS[t].includes(ext));
+      if (!type) {
+        return fail(res, 400, 40018, '仅支持图片、视频或 Office 文档（doc/docx/xls/xlsx/ppt/pptx/pdf）');
+      }
+      const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
+      const key = `${prefix}remark/${dots(entries[0].log_date)}/${entryId}-${Date.now()}.${ext}`;
+      await cos.putBuffer(key, req.file.buffer, REMARK_MIME[ext] || 'application/octet-stream');
+      return ok(res, { name, url: cos.publicUrl(key), cos_key: key, type, size: req.file.buffer.length });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// GET /logs/:id/remark-preview?key=：拼接 basemetas 预览地址（同安全日记录口径；COS 公共读，预览服务直接回源 COS）
+router.get('/logs/:id/remark-preview', async (req, res, next) => {
+  try {
+    const { entry, file } = await findRemarkFile(Number(req.params.id), String(req.query.key || ''));
+    if (!entry) return fail(res, 404, 40400, '日志不存在');
+    if (!file) return fail(res, 404, 40400, '附件不存在');
+    if (file.type !== 'doc') return fail(res, 400, 40021, '仅 Office 文档支持在线预览');
+    const base = (config.basemetas.url || '').replace(/\/+$/, '');
+    if (!base) return fail(res, 400, 40021, '未配置文件预览服务');
+    const url = `${base}/preview/view?url=${encodeURIComponent(cos.publicUrl(file.cos_key))}`
+      + `&fileName=${encodeURIComponent(file.name)}&displayName=${encodeURIComponent(file.name)}`;
+    return ok(res, { url });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /logs/:id/remark-download?key=：附件下载代理（COS 跨域无 CORS，网页端经本接口回源并附下载文件名）
+router.get('/logs/:id/remark-download', async (req, res, next) => {
+  try {
+    const { entry, file } = await findRemarkFile(Number(req.params.id), String(req.query.key || ''));
+    if (!entry) return fail(res, 404, 40400, '日志不存在');
+    if (!file) return fail(res, 404, 40400, '附件不存在');
+    const resp = await fetch(cos.publicUrl(file.cos_key), { signal: AbortSignal.timeout(60000) });
+    if (!resp.ok) return fail(res, 502, 50201, `附件回源失败（HTTP ${resp.status}）`);
+    res.setHeader('Content-Type', resp.headers.get('content-type') || 'application/octet-stream');
+    const len = Number(resp.headers.get('content-length') || 0);
+    if (len) res.setHeader('Content-Length', len);
+    // RFC5987 编码中文文件名，附 ASCII fallback（同 ZIP 下载口径）
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="file"; filename*=UTF-8''${encodeURIComponent(file.name || '附件')}`
+    );
+    Readable.fromWeb(resp.body).pipe(res);
   } catch (err) {
     return next(err);
   }

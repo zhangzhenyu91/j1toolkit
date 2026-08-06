@@ -1,0 +1,147 @@
+/* KVM 远程管理 · 设备状态列表（卡片结构与网页端 kvm.html 同口径，无动效；设计 token 见 AGENTS.md 第四节） */
+
+.page-body {
+  padding-bottom: 60rpx;
+}
+
+/* 板块副标题（设备数量 + 数据来源说明） */
+.cnt {
+  margin: 10rpx 0 20rpx 20rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 1rpx;
+}
+
+/* ---------- 设备卡片 ---------- */
+.dev {
+  margin-bottom: 24rpx;
+}
+
+.dv-in {
+  padding: 36rpx 32rpx 30rpx; /* 顶部留出警示斜纹条高度 */
+}
+
+.dv-top {
+  display: flex;
+  align-items: center;
+}
+
+/* 状态点 + 文案（同网页端 .st：在线绿 / 离线灰 / 禁用红） */
+.st {
+  display: inline-flex;
+  align-items: center;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.st .dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  margin-right: 12rpx;
+}
+
+.st-online {
+  color: #3fa66a;
+}
+.st-online .dot {
+  background: #3fa66a;
+  box-shadow: 0 0 0 6rpx rgba(63, 166, 106, 0.15);
+}
+
+.st-offline {
+  color: #a89f8a;
+}
+.st-offline .dot {
+  background: #d9cfba;
+}
+
+.st-disabled {
+  color: #cf4444;
+}
+.st-disabled .dot {
+  background: #cf4444;
+}
+
+/* 设备组标签（同网页端 tag-navy） */
+.dv-tag {
+  margin-left: auto;
+  padding: 2rpx 14rpx;
+  border-radius: 8rpx;
+  background: #edf0f6;
+  color: #22314e;
+  font-size: 20rpx;
+}
+
+.dv-name {
+  margin-top: 20rpx;
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 1rpx;
+  word-break: break-all;
+}
+
+.dv-ddns {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  word-break: break-all;
+}
+
+.mono {
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+}
+
+/* 信息行：标签左、值右 */
+.dv-info {
+  margin-top: 24rpx;
+}
+
+.dv-info .row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 12rpx;
+}
+
+.dv-info .row:first-child {
+  margin-top: 0;
+}
+
+.dv-info .lab {
+  flex: none;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.dv-info .val {
+  margin-left: 24rpx;
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #22314e;
+  text-align: right;
+  word-break: break-all;
+}
+
+/* ---------- 空态/加载/错误虚线占位（同出工日志 empty-box 口径） ---------- */
+.empty-box {
+  margin-top: 24rpx;
+  border: 3rpx dashed #d9cfba;
+  border-radius: 20rpx;
+  padding: 64rpx 32rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.empty-box .retry {
+  display: inline-block;
+  margin-top: 24rpx;
+  padding: 10rpx 40rpx;
+  border-radius: 12rpx;
+  background: #22314e;
+  color: #ffffff;
+  font-size: 24rpx;
+}

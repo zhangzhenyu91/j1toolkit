@@ -58,6 +58,8 @@
     'cloud': '<path d="M17.8 19.5a4.3 4.3 0 0 0 .4-8.58A6 6 0 0 0 6.5 9.7 4.8 4.8 0 0 0 6.7 19.5z"/>',
     'warn': '<path d="M10.3 4.1L2.4 17.6a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 4.1a2 2 0 0 0-3.4 0z"/><path d="M12 9.2v4"/><circle cx="12" cy="16.8" r="1" fill="currentColor" stroke="none"/>',
     'monitor': '<rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/>',
+    /* KVM 应用（与 tdesign terminal 同名） */
+    'terminal': '<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7 9.5l3 3-3 3"/><path d="M12.5 15.5H17"/>',
   };
 
   /**

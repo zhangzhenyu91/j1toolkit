@@ -18,6 +18,8 @@ const DDL = [
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     log_date DATE NOT NULL COMMENT '日志日期',
     patrol_content TEXT NULL COMMENT '巡视内容（可空）',
+    remark TEXT NULL COMMENT '备注（可空）',
+    remark_files JSON NULL COMMENT '备注附件 [{name,url,cos_key,type,size}]（type=image/video/doc）',
     vehicle_id BIGINT UNSIGNED NULL COMMENT '车牌，关联 worklog_vehicle.id；NULL=未出车',
     destination_id BIGINT UNSIGNED NULL COMMENT '目的地，关联 worklog_destination.id',
     created_by BIGINT UNSIGNED NOT NULL COMMENT '创建人，关联 sys_user.id',
@@ -97,6 +99,23 @@ async function ensureWorklogSchema(pool) {
     if (!cols.length) {
       await pool.query(`ALTER TABLE worklog_photo ADD COLUMN ${ddl}`);
       console.log(`[初始化] 已为 worklog_photo 补充 ${col} 列`);
+    }
+  }
+
+  // 老库兼容：worklog_entry 补充备注列（备注文字 + 附件 JSON，同上方查 information_schema 模式）
+  const ENTRY_NEW_COLUMNS = [
+    ['remark', `remark TEXT NULL COMMENT '备注（可空）' AFTER patrol_content`],
+    ['remark_files', `remark_files JSON NULL COMMENT '备注附件 [{name,url,cos_key,type,size}]（type=image/video/doc）' AFTER remark`],
+  ];
+  for (const [col, ddl] of ENTRY_NEW_COLUMNS) {
+    const [cols] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_entry' AND COLUMN_NAME = ?`,
+      [col]
+    );
+    if (!cols.length) {
+      await pool.query(`ALTER TABLE worklog_entry ADD COLUMN ${ddl}`);
+      console.log(`[初始化] 已为 worklog_entry 补充 ${col} 列`);
     }
   }
 
