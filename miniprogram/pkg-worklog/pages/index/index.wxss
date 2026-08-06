@@ -388,11 +388,11 @@
   box-sizing: border-box;
 }
 
-/* ---------- 备注块（「添加水印照片」虚线框下方；绿条浅底与巡视内容橙条同族，无备注不渲染） ---------- */
+/* ---------- 备注块（「添加水印照片」虚线框下方；黄条浅底与巡视内容橙条同族，无备注不渲染） ---------- */
 .lc-rmk {
   margin-top: 20rpx;
-  background: #f0f7f2;
-  border-left: 8rpx solid #2ba471;
+  background: #fdf6e3;
+  border-left: 8rpx solid #eab308;
   border-radius: 16rpx;
   padding: 16rpx 24rpx 20rpx;
 }
@@ -402,7 +402,7 @@
   align-items: center;
   font-size: 22rpx;
   font-weight: 700;
-  color: #2ba471;
+  color: #eab308;
   letter-spacing: 6rpx;
 }
 
@@ -410,12 +410,12 @@
   margin-left: auto;
 }
 
-/* 备注文字：与照片右侧施工内容同字号（26rpx/600），绿色 */
+/* 备注文字：与照片右侧施工内容同字号（26rpx），明黄（与验证报告备注同色，加重字重保证浅底可读） */
 .lc-rmk-text {
   margin-top: 6rpx;
   font-size: 26rpx;
-  font-weight: 600;
-  color: #2ba471;
+  font-weight: 700;
+  color: #eab308;
   line-height: 1.6;
 }
 
@@ -432,7 +432,7 @@
   height: 92rpx;
   border-radius: 16rpx;
   overflow: hidden;
-  border: 2rpx solid #dceae1;
+  border: 2rpx solid #efe3bc;
   background: #22314e;
 }
 

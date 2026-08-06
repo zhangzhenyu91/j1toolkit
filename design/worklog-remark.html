@@ -3,8 +3,7 @@
   出工日志 ·「备注」功能展示位置设计稿（审批稿，审批通过后实施）
   沿用方案五「安全橙」定稿 token：暖纸底 #F4F1EA ｜ 藏青 #22314E ｜ 安全橙 #F26D21 ｜ 浅橙 #FDEEE2 ｜ 警示红 #CF4444 ｜ 描边 #E3DCCB / #E8E0CD
   本稿新增/借用色：
-    备注绿：小程序 #2BA471（TDesign success，与打卡勾、核验通过同 token）｜ 网页 var(--green) #3FA66A
-    备注黄（验证报告）：#EAB308 明金黄（提高亮度与纯度，与安全橙 / 警示红 / 备注绿明确区分）
+    备注黄（两端卡片 + 验证报告）：#EAB308 明金黄（与橙 / 红 / 绿明确区分；两端卡片初版为绿，后按意见统一改黄）
     Office 文件名链接：下划线 + 安全橙 #F26D21（token 中「链接」即用橙）
   覆盖需求：
     1. 记录新增备注（文字 + 附件，附件传 COS：图片 / 视频 / Office 文档）
@@ -166,16 +165,16 @@
                font-size:12px; font-weight:600; letter-spacing:2px; }
   .add-photo svg { width:20px; height:20px; }
 
-  /* ===== ① 新增：备注块（添加水印照片虚线框下方） ===== */
-  .lc-rmk { margin-top:10px; background:#F0F7F2; border-left:4px solid #2BA471;
+  /* ===== ① 新增：备注块（添加水印照片虚线框下方；黄条浅底，与报告备注同色） ===== */
+  .lc-rmk { margin-top:10px; background:#FDF6E3; border-left:4px solid #EAB308;
             border-radius:8px; padding:8px 12px 10px; }
-  .lc-rmk-label { display:flex; align-items:center; font-size:11px; font-weight:700; color:#2BA471; letter-spacing:3px; }
+  .lc-rmk-label { display:flex; align-items:center; font-size:11px; font-weight:700; color:#EAB308; letter-spacing:3px; }
   .lc-rmk-label svg { width:11px; height:11px; margin-left:auto; color:#A89F8A; }
-  .lc-rmk-text { margin-top:3px; font-size:13px; font-weight:600; color:#2BA471; line-height:1.6; }
+  .lc-rmk-text { margin-top:3px; font-size:13px; font-weight:700; color:#EAB308; line-height:1.6; }
   /* 附件：图片 / 视频缩略图（点击全屏打开） */
   .rmk-files { margin-top:7px; display:flex; flex-wrap:wrap; gap:8px; }
   .rf-thumb { width:46px; height:46px; flex:none; border-radius:8px; position:relative; overflow:hidden;
-              border:1px solid #DCEAE1; background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
+              border:1px solid #EFE3BC; background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
               display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.92); }
   .rf-thumb svg { width:18px; height:18px; }
   .rf-thumb .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -322,14 +321,14 @@
   .mchip .m-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#D9CFBA; }
   .mchip.on { border-color:#3FA66A; color:#3FA66A; background:#EAF5EF; font-weight:600; }
   .mchip.on .m-dot { background:#3FA66A; }
-  /* ③ 新增：网页端备注块（左栏目的地下方） */
-  .rmk { margin:12px 18px 0; padding:9px 13px 11px; border:1px solid #DDEAE2; background:#F3FAF6;
+  /* ③ 新增：网页端备注块（左栏目的地下方；与小程序及报告同色的明黄系） */
+  .rmk { margin:12px 18px 0; padding:9px 13px 11px; border:1px solid #EFE3BC; background:#FDF6E3;
          border-radius:9px; }
-  .rmk .rk-tag { display:inline-block; margin-right:8px; font-size:10.5px; font-weight:700; color:#3FA66A;
-                 background:#E3F2EC; border-radius:4px; padding:1px 6px; letter-spacing:1px; }
+  .rmk .rk-tag { display:inline-block; margin-right:8px; font-size:10.5px; font-weight:700; color:#fff;
+                 background:#EAB308; border-radius:4px; padding:1px 6px; letter-spacing:1px; }
   .rmk .rk-edit { float:right; color:#A89F8A; display:flex; align-items:center; }
   .rmk .rk-edit svg { width:12px; height:12px; }
-  .rmk .rk-text { font-size:12.5px; font-weight:600; color:#3FA66A; line-height:1.7; }
+  .rmk .rk-text { font-size:12.5px; font-weight:700; color:#EAB308; line-height:1.7; }
   .rmk .rk-files { margin-top:8px; display:flex; flex-wrap:wrap; gap:8px; }
   .rmk .rf-thumb { width:46px; height:46px; border-radius:8px; }
   .rmk .rk-docs { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
@@ -401,10 +400,8 @@
 <div class="legend">
   <b>数据口径：</b>记录新增备注字段 = 备注文字 + 附件列表（图片 / 视频 / Office 文档 doc·docx·xls·xlsx·ppt·pptx·pdf，走现有 COS 上传通道）。备注一般为空；<b>无文字且无附件时，卡片与验证报告均不渲染备注</b>。<br>
   <b>新用色：</b>
-  <span class="sw"><i style="background:#2BA471"></i>备注绿（小程序 #2BA471，同打卡/核验绿）</span>
-  <span class="sw"><i style="background:#3FA66A"></i>备注绿（网页 var(--green)）</span>
-  <span class="sw"><i style="background:#F26D21"></i>Office 文件名链接＝下划线 + 安全橙（token 链接色）</span>
-  <span class="sw"><i style="background:#EAB308"></i>验证报告备注黄 #EAB308（明金黄，与橙/红/绿区分）</span><br>
+  <span class="sw"><i style="background:#EAB308"></i>备注黄（两端卡片 + 验证报告 #EAB308）</span>
+  <span class="sw"><i style="background:#F26D21"></i>Office 文件名链接＝下划线 + 安全橙（token 链接色）</span><br>
   <b>附件点击行为：</b>小程序 —— 图片/视频 wx.previewMedia 全屏（视频直接播放），Office 用 wx.openDocument 打开（showMenu:true，右上角显示菜单）；网页端 —— 图片点击走水印照片同款 Lightbox 大图，视频点击在 Lightbox 内播放，Office 新标签页打开 basemetas 预览地址（同安全日记录 /preview 口径）；<b>附件均为点击预览，故网页端另设下载按钮</b>：Office 文件名行尾下载钮、媒体大图层右上角下载钮（均经服务端回源代理下载，带原文件名）。<br>
   <b>验证报告口径变化：</b>小程序悬浮菜单「查看报告」更名「验证报告」，面板标题「验证不通过报告」同步更名；报告范围由「仅不通过记录」扩为「不通过记录 ∪ 有备注的记录」——不通过记录：备注在不通过说明下行；通过记录：仅展示备注行（不再只列不通过）。备注行黄色、不展示文件，有附件时以曲别针标记。<br>
   <b>编辑入口：</b>无备注时由卡片底部操作行「备 注」按钮进入编辑；有备注时点击备注块本身亦可编辑（铅笔图标暗示）。网页端同（左栏操作行「备注」按钮 / 点备注块）。
@@ -519,7 +516,7 @@
     </div>
     <div class="cap"><i>①</i>记录卡片 · 备注展示位</div>
     <div class="sub">
-      <span class="mk-row"><span class="mk">1</span><span>备注块位于「添加水印照片」虚线框下方、底部操作行上方：绿条浅底（与巡视内容橙条同族），文字 26rpx/600 绿色 #2BA471，<b>与照片右侧施工内容同字号</b>；点击整块进编辑。</span></span>
+      <span class="mk-row"><span class="mk">1</span><span>备注块位于「添加水印照片」虚线框下方、底部操作行上方：黄条浅底（与巡视内容橙条同族），文字 26rpx 明黄 #EAB308（与验证报告备注同色），<b>与照片右侧施工内容同字号</b>；点击整块进编辑。</span></span>
       <span class="mk-row" style="margin-top:6px"><span class="mk">2</span><span>图片/视频附件显示缩略图（视频带播放角标），点击 wx.previewMedia 全屏查看/播放。</span></span>
       <span class="mk-row" style="margin-top:6px"><span class="mk">3</span><span>Office 附件仅显示可点击文件名（下划线 + 安全橙 #F26D21），点击 wx.openDocument 打开（showMenu:true）。</span></span><br>
       无备注时整块不渲染；此时编辑入口为底部操作行新增的「备 注」按钮。未出车卡无照片区时，备注块位于打卡情况下方同一顺位。
@@ -769,7 +766,7 @@
     <div class="cap"><i>④</i>记录卡片 · 巡视内容上移 + 备注位于目的地下方</div>
     <div class="wsub">
       <span class="mk-row" style="max-width:640px;margin:0 auto"><span class="mk">5</span><span>巡视内容块由现行「目的地下方」<b>上移至派车车辆上方</b>（点击弹层修改的交互不变）。</span></span>
-      <span class="mk-row" style="max-width:640px;margin:6px auto 0"><span class="mk">6</span><span>备注块位于左栏<b>目的地下方</b>：浅绿底 + 绿色「备注」签，文字绿色 var(--green)；图片/视频缩略图（点击走水印照片同款 Lightbox 大图 / 播放，大图层右上角带下载钮），Office 仅文件名（下划线 + 安全橙），点击新标签页打开 basemetas 预览（同安全日记录）。无备注整块不渲染，编辑入口为操作行「备注」按钮。</span></span>
+      <span class="mk-row" style="max-width:640px;margin:6px auto 0"><span class="mk">6</span><span>备注块位于左栏<b>目的地下方</b>：浅黄底 + 黄色「备注」签，文字明黄 #EAB308（与小程序及验证报告同色）；图片/视频缩略图（点击走水印照片同款 Lightbox 大图 / 播放，大图层右上角带下载钮），Office 仅文件名（下划线 + 安全橙），点击新标签页打开 basemetas 预览（同安全日记录）。无备注整块不渲染，编辑入口为操作行「备注」按钮。</span></span>
       <span class="mk-row" style="max-width:640px;margin:6px auto 0"><span class="mk" style="background:#22314E">8</span><span><b>下载按钮（后补）</b>：附件点击均为预览，故 Office 文件名行尾设下载钮、图片/视频在大图层右上角设下载钮；均经服务端回源代理下载并带原文件名（COS 跨域无 CORS，浏览器不能直接拉取）。</span></span>
     </div>
   </div>
