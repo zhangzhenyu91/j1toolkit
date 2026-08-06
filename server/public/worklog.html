@@ -208,25 +208,26 @@
   .patrol .p-edit svg { width: 12px; height: 12px; }
   .patrol:hover .p-edit { color: var(--orange); }
   .patrol.none { color: var(--ph); }
-  /* 备注块（左栏目的地下方；浅绿底 + 绿签绿字；无文字且无附件时不渲染，点击块进编辑） */
+  /* 备注块（左栏目的地下方；浅黄底 + 黄签黄字，与小程序及验证报告备注同色 #EAB308；
+     无文字且无附件时不渲染，点击块进编辑） */
   .rmk {
-    margin: 12px 22px 0; padding: 10px 14px; border: 1px solid #DDEAE2; background: #F3FAF6;
+    margin: 12px 22px 0; padding: 10px 14px; border: 1px solid #EFE3BC; background: #FDF6E3;
     border-radius: 9px; cursor: pointer; transition: border-color .25s, background .25s;
   }
-  .rmk:hover { border-color: var(--green); background: #EFF8F2; }
+  .rmk:hover { border-color: #EAB308; background: #FCF3D7; }
   .rmk .rk-tag {
-    display: inline-block; margin-right: 8px; font-size: 10.5px; font-weight: 700; color: var(--green);
-    background: #E3F2EC; border-radius: 4px; padding: 1px 6px; letter-spacing: 1px;
+    display: inline-block; margin-right: 8px; font-size: 10.5px; font-weight: 700; color: #fff;
+    background: #EAB308; border-radius: 4px; padding: 1px 6px; letter-spacing: 1px;
   }
   .rmk .rk-edit { float: right; color: var(--ph); display: flex; align-items: center; }
   .rmk .rk-edit svg { width: 12px; height: 12px; }
-  .rmk:hover .rk-edit { color: var(--green); }
-  .rmk .rk-text { font-size: 12.5px; font-weight: 600; color: var(--green); line-height: 1.7; word-break: break-all; }
+  .rmk:hover .rk-edit { color: #EAB308; }
+  .rmk .rk-text { font-size: 12.5px; font-weight: 700; color: #EAB308; line-height: 1.7; word-break: break-all; }
   /* 附件：图片 / 视频缩略图（视频深色底 + 播放标；点击进媒体大图层） */
   .rmk .rk-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .rk-thumb {
     position: relative; width: 52px; height: 52px; border-radius: 8px; overflow: hidden;
-    border: 1px solid #DDEAE2; background: var(--navy); cursor: zoom-in; display: block;
+    border: 1px solid #EFE3BC; background: var(--navy); cursor: zoom-in; display: block;
   }
   .rk-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .rk-thumb .rk-play {
