@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · KVM 远程管理（设备卡片实时数据代理自 GLKVM Cloud 平台；终端/远程控制经
+     /api/v1/kvm/jump 签发带态跳转地址（平台 jump.html 种 sid Cookie），实现仅能通过壹匣登录平台；
+     本页不直连设备） 接口走 /api/v1/kvm（{code,message,data} 信封，Shade.api 自动带登录态） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KVM 远程管理 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ===== 筛选工具条 ===== */
+  .bar { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; flex-wrap: wrap; }
+  .bar .input { height: 38px; width: 210px; font-size: 13px; }
+  .bar .ops-r { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+  /* 状态分段开关（与出工日志「全部/仅看我」同族） */
+  .seg { display: inline-flex; gap: 2px; padding: 3px; background: #fff; border: 1px solid var(--line); border-radius: 9px; }
+  .seg button {
+    border: none; background: transparent; height: 30px; padding: 0 14px; border-radius: 7px;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; color: var(--sub); letter-spacing: 1px; cursor: pointer;
+    transition: background .25s, color .25s;
+  }
+  .seg button:hover { color: var(--navy); }
+  .seg button.on { background: var(--navy); color: #fff; font-weight: 700; }
+
+  /* 手动刷新期间按钮图标转圈（不重排卡片、不出骨架，避免闪现） */
+  .btn.refreshing svg { animation: rot 1s linear infinite; }
+
+  /* ===== 设备卡片宫格（同工作台应用宫格口径）；卡顶警示斜纹条（hazard-top，theme.css） ===== */
+  .dev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+  .dev { display: flex; flex-direction: column; overflow: hidden; }
+  .dv-in { flex: 1; display: flex; flex-direction: column; padding: 16px 22px 20px; }
+  .dv-top { display: flex; align-items: center; gap: 8px; }
+  .dv-top .tag { margin-left: auto; }
+
+  /* 状态点 + 文案 */
+  .st { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .st i { width: 8px; height: 8px; border-radius: 50%; }
+  .st-online { color: var(--green); } .st-online i { background: var(--green); box-shadow: 0 0 0 3px rgba(63,166,106,.15); }
+  .st-offline { color: var(--ph); } .st-offline i { background: var(--dash); }
+  .st-disabled { color: var(--red); } .st-disabled i { background: var(--red); }
+
+  .dv-name { margin-top: 12px; font-size: 15.5px; font-weight: 800; letter-spacing: .3px; word-break: break-all; }
+  .dv-ddns { margin-top: 4px; font-size: 11.5px; color: var(--ph); word-break: break-all; }
+  .mono { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+
+  /* 信息行：标签左、值右 */
+  .dv-info { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .dv-info > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .dv-info span { flex: none; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
+  .dv-info b { font-size: 12.5px; font-weight: 600; color: var(--navy); word-break: break-all; text-align: right; }
+
+  /* 卡底操作条（带态跳转平台；离线置灰） */
+  .dv-ops { margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--hair); display: flex; align-items: center; gap: 16px; }
+  .act { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .act svg { width: 13px; height: 13px; }
+  .act.off { color: var(--dash); cursor: not-allowed; }
+  .dv-ops .hint { margin-left: auto; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
+
+  /* 宫格内空态/错误态占满整行；骨架卡片 */
+  .dev-grid .empty { grid-column: 1 / -1; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow-card); }
+  .dev-sk { height: 224px; }
+
+  @media (max-width: 640px) {
+    .bar .input { width: 140px; }
+  }
+</style>
+</head>
+<body>
+<!-- 顶部导航由 Shade.topbar({active:'kvm'}) 统一渲染 -->
+
+<main class="page">
+  <div class="section-title rv"><h3>设备列表</h3><span class="more" id="devCnt">数据实时取自 GLKVM 平台</span></div>
+
+  <div class="bar rv">
+    <div class="seg" id="segStatus">
+      <button class="on" data-v="">全部</button>
+      <button data-v="online">在线</button>
+      <button data-v="offline">离线</button>
+      <button data-v="disabled">禁用</button>
+    </div>
+    <input class="input" id="fltQ" placeholder="搜索名称 / IP / MAC">
+    <div class="ops-r">
+      <button class="btn btn-sm" id="btnRefresh">刷新</button>
+    </div>
+  </div>
+
+  <section class="dev-grid" id="devGrid"></section>
+</main>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  Shade.requireAuth();
+  Shade.topbar({ active: 'kvm' });
+  Shade.reveal();
+  document.getElementById('btnRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 15));
+
+  var state = { q: '', status: '', loaded: false, timer: null };
+
+  function statusHtml(s) {
+    if (s === 'online') return '<span class="st st-online"><i></i>在线</span>';
+    if (s === 'disabled') return '<span class="st st-disabled"><i></i>禁用</span>';
+    return '<span class="st st-offline"><i></i>离线</span>';
+  }
+
+  // 带态跳转平台：后端以当前员工账号取平台会话 sid，返回平台 jump.html 地址（sid 走 hash 不进服务器日志）
+  var jumping = false;
+  async function jump(to, ddns) {
+    if (jumping) return;
+    jumping = true;
+    try {
+      var r = await Shade.api('/api/v1/kvm/jump', {
+        method: 'POST',
+        body: { to: to, ddns: ddns || '' },
+      });
+      window.open(r.data.url, '_blank');
+    } catch (e) {
+      Shade.toast(e.message || '跳转失败', 'error');
+    } finally {
+      jumping = false;
+    }
+  }
+
+  // 卡底操作：仅在线设备可跳（与平台设备列表的交互口径一致）
+  function actionHtml(d) {
+    if (d.status === 'online' && d.ddns) {
+      return '<a class="act" data-jump="term" data-ddns="' + Shade.esc(d.ddns) + '">' +
+          Shade.icon('terminal', 13) + '终端</a>' +
+        '<a class="act" data-jump="desk" data-ddns="' + Shade.esc(d.ddns) + '">' +
+          Shade.icon('monitor', 13) + '远程控制</a>';
+    }
+    return '<span class="act off">' + Shade.icon('terminal', 13) + '终端</span>' +
+      '<span class="act off">' + Shade.icon('monitor', 13) + '远程控制</span>' +
+      '<span class="hint">离线不可用</span>';
+  }
+
+  // 渲染设备卡片；connectedTime 为 unix 秒（平台 last_seen_at）
+  // animate=true 时卡片带 fade-up 入场动画（逐项 40ms 阶梯延迟）；手动/定时刷新不重播
+  function renderCards(items, animate) {
+    var grid = document.getElementById('devGrid');
+    document.getElementById('devCnt').textContent = '共 ' + items.length + ' 台设备 · 每 30s 自动刷新';
+    if (!items.length) {
+      grid.innerHTML = '<div class="empty">' + Shade.icon('monitor', 44) +
+        '<p>暂无设备' + (state.q || state.status ? '，试试调整筛选条件' : '，或联系管理员开通平台设备权限') + '</p></div>';
+      return;
+    }
+    grid.innerHTML = items.map(function (d, i) {
+      var name = d.description || d.ddns || ('设备 #' + d.id);
+      var last = d.status === 'online' ? '当前在线'
+        : (d.connectedTime ? Shade.fmtDate(d.connectedTime * 1000, true) : '—');
+      var anim = animate
+        ? ' fade-up" style="animation-delay:' + Math.min(i * 40, 240) + 'ms'
+        : '';
+      return '<div class="card card-hover dev' + anim + '">' +
+        '<div class="hazard-top"></div>' +
+        '<div class="dv-in">' +
+          '<div class="dv-top">' + statusHtml(d.status) +
+            (d.deviceGroupName ? '<span class="tag tag-navy">' + Shade.esc(d.deviceGroupName) + '</span>' : '') +
+          '</div>' +
+          '<div class="dv-name">' + Shade.esc(name) + '</div>' +
+          '<div class="dv-ddns mono">' + Shade.esc(d.ddns || '') + '</div>' +
+          '<div class="dv-info">' +
+            '<div><span>IP 地址</span><b class="mono">' + Shade.esc(d.ip || '—') + '</b></div>' +
+            '<div><span>MAC</span><b class="mono">' + Shade.esc(d.mac || '—') + '</b></div>' +
+            '<div><span>最近在线</span><b>' + last + '</b></div>' +
+          '</div>' +
+          '<div class="dv-ops">' + actionHtml(d) + '</div>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+    grid.querySelectorAll('[data-jump]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        jump(el.getAttribute('data-jump'), el.getAttribute('data-ddns'));
+      });
+    });
+  }
+
+  function renderError(e) {
+    document.getElementById('devCnt').textContent = '加载失败';
+    document.getElementById('devGrid').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+      '<p>' + Shade.esc(e.message || '设备列表加载失败') + '</p>' +
+      '<button class="btn btn-sm" id="btnRetry">重新加载</button></div>';
+    document.getElementById('btnRetry').addEventListener('click', function () { loadDevices('init'); });
+  }
+
+  function renderLoading() {
+    document.getElementById('devGrid').innerHTML =
+      '<div class="card dev-sk skeleton"></div>'.repeat(3);
+  }
+
+  // 加载模式：init 首屏（骨架+入场动画）；filter 筛选（重排+动画）；
+  // manual 手动刷新（保留现有卡片，按钮图标转圈，避免骨架闪现）；auto 定时静默
+  async function loadDevices(mode) {
+    if (mode === 'init') renderLoading();
+    var btn = document.getElementById('btnRefresh');
+    if (mode === 'manual') btn.classList.add('refreshing');
+    try {
+      var qs = [];
+      if (state.q) qs.push('q=' + encodeURIComponent(state.q));
+      if (state.status) qs.push('status=' + encodeURIComponent(state.status));
+      var r = await Shade.api('/api/v1/kvm/devices' + (qs.length ? '?' + qs.join('&') : ''));
+      state.loaded = true;
+      renderCards(r.data.items || [], mode === 'init' || mode === 'filter');
+    } catch (e) {
+      if (mode === 'auto') return; // 静默刷新失败不打断页面
+      if (state.loaded) Shade.toast(e.message || '刷新失败', 'error'); // 已有内容时仅提示
+      else renderError(e);
+    } finally {
+      if (mode === 'manual') btn.classList.remove('refreshing');
+    }
+  }
+
+  /* ===== 筛选与刷新 ===== */
+  document.querySelectorAll('#segStatus button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.classList.contains('on')) return;
+      document.querySelectorAll('#segStatus button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      state.status = b.getAttribute('data-v');
+      loadDevices('filter');
+    });
+  });
+  document.getElementById('fltQ').addEventListener('input', function () {
+    var v = this.value.trim();
+    clearTimeout(state.qTimer);
+    state.qTimer = setTimeout(function () { state.q = v; loadDevices('filter'); }, 400);
+  });
+  document.getElementById('btnRefresh').addEventListener('click', function () { loadDevices('manual'); });
+
+  loadDevices('init');
+  state.timer = setInterval(function () { loadDevices('auto'); }, 30000);
+</script>
+</body>
+</html>

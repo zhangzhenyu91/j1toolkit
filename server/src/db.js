@@ -58,13 +58,22 @@ const APP_CALL_ME = {
   sort: 1,
 };
 
-// 「安全日活动记录」：网页端应用（SafeDayLogs 独立部署），小程序内为引导页
+// 「安全日活动记录」：网页端应用，小程序无页面且宫格入口已隐藏（仅隐藏入口，不影响权限授予与网页端使用）
 const APP_SAFE_DAY = {
   key: 'safe-day',
   name: '安全日活动记录',
   icon: 'file-safety',
-  path: '/pkg-safeday/pages/index/index',
+  path: '',
   sort: 3,
+};
+
+// 「KVM 远程管理」：GLKVM Cloud 平台对接；小程序分包页仅展示设备状态（无终端/远程控制入口），操作端在网页端 kvm.html
+const APP_KVM = {
+  key: 'kvm',
+  name: 'KVM 远程管理',
+  icon: 'terminal',
+  path: '/pkg-kvm/pages/index/index',
+  sort: 4,
 };
 
 function sleep(ms) {
@@ -120,6 +129,13 @@ async function ensureSchema() {
     [APP_SAFE_DAY.key, APP_SAFE_DAY.name, APP_SAFE_DAY.icon, APP_SAFE_DAY.path, APP_SAFE_DAY.sort]
   );
 
+  // 写入/更新 KVM 远程管理 应用记录
+  await pool.query(
+    `INSERT INTO sys_app (app_key, name, icon, path, sort, status) VALUES (?, ?, ?, ?, ?, 1)
+     ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path), sort = VALUES(sort)`,
+    [APP_KVM.key, APP_KVM.name, APP_KVM.icon, APP_KVM.path, APP_KVM.sort]
+  );
+
   // 初始管理员（仅当账号不存在时创建，密码 bcrypt 存储）
   const [rows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [config.admin.username]);
   let adminId = rows[0] && rows[0].id;
@@ -146,6 +162,12 @@ async function ensureSchema() {
   await pool.query(
     'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
     [adminId, APP_SAFE_DAY.key]
+  );
+
+  // 管理员默认授予 KVM 远程管理 权限
+  await pool.query(
+    'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
+    [adminId, APP_KVM.key]
   );
 
   // 出工日志：WORKLOG_ENABLED=true 时建表并写入应用/成员种子

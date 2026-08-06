@@ -154,7 +154,49 @@
         </view>
       </view>
 
+      <!-- 备注（无文字且无附件时不渲染；位于「添加水印照片」虚线框下方，点击块进编辑） -->
+      <view class="lc-rmk" wx:if="{{item.hasRemark}}" hover-class="hover-bg-warm" bindtap="onOpenRemark" data-id="{{item.id}}">
+        <view class="lc-rmk-label">
+          备 注
+          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
+        </view>
+        <view class="lc-rmk-text" wx:if="{{item.remark}}">{{item.remark}}</view>
+        <!-- 图片 / 视频附件：缩略图（视频无封面用深色底 + 播放标），点击 wx.previewMedia 全屏 -->
+        <view class="rmk-files" wx:if="{{item.remarkMedia.length}}">
+          <view
+            class="rf-thumb"
+            wx:for="{{item.remarkMedia}}"
+            wx:for-item="f"
+            wx:key="url"
+            catchtap="onRemarkMedia"
+            data-entry-id="{{item.id}}"
+            data-url="{{f.url}}"
+          >
+            <image wx:if="{{f.type === 'image'}}" class="rf-img" src="{{f.url}}" mode="aspectFill" />
+            <view wx:else class="rf-video">
+              <t-icon name="play-circle-filled" size="44rpx" color="#FFFFFF" />
+            </view>
+          </view>
+        </view>
+        <!-- Office 附件：仅可点击文件名（下划线 + 安全橙），点击 wx.openDocument 打开 -->
+        <view class="rmk-docs" wx:if="{{item.remarkDocs.length}}">
+          <view
+            class="rf-doc"
+            wx:for="{{item.remarkDocs}}"
+            wx:for-item="f"
+            wx:key="url"
+            catchtap="onRemarkDoc"
+            data-name="{{f.name}}"
+            data-url="{{f.url}}"
+          >
+            <t-icon name="file" size="26rpx" color="#A89F8A" />
+            <text class="fn">{{f.name}}</text>
+          </view>
+        </view>
+      </view>
+
       <view class="lc-actions">
+        <view class="act act-note" hover-class="hover-opacity" bindtap="onOpenRemark" data-id="{{item.id}}">备 注</view>
         <view class="act act-del" hover-class="hover-opacity" bindtap="onDelete" data-id="{{item.id}}">删 除</view>
       </view>
     </view>
@@ -162,7 +204,7 @@
   </view>
 </view>
 
-<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（仅 admin）/ 批量下载 / 查看报告 / 新建日志；
+<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（仅 admin）/ 批量下载 / 验证报告 / 新建日志；
      原底部固定操作区（含底色条 bottombar）已删除，内容区直通屏幕底边 -->
 <view class="fab-mask" wx:if="{{fabOpen}}" bindtap="onFabToggle"></view>
 <view class="fabs" wx:if="{{gate}}">
@@ -176,7 +218,7 @@
       <view class="fab"><t-icon name="download" size="40rpx" color="#22314E" /></view>
     </view>
     <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenReport">
-      <text class="fab-lab">查看报告</text>
+      <text class="fab-lab">验证报告</text>
       <view class="fab"><t-icon name="task-checked" size="40rpx" color="#22314E" /></view>
     </view>
     <view class="fab-item" hover-class="hover-opacity" bindtap="onCreate">
@@ -189,7 +231,7 @@
   </view>
 </view>
 
-<!-- 日历选日（按日验证状态着色；单选无确认按钮，点日期即选中并自动关闭） -->
+<!-- 日历选日（按日验证状态着色；单选无确认按钮，点日期即选中并自动关闭；左右滑动切换月份，新网格平移进入） -->
 <t-calendar
   id="wl-calendar"
   visible="{{calVisible}}"
@@ -199,14 +241,18 @@
   min-date="{{minDate}}"
   max-date="{{maxDate}}"
   confirm-btn="{{null}}"
+  t-class="{{calAnim}}"
   bind:change="onCalChange"
   bind:close="onCalClose"
   bind:panel-change="onCalPanelChange"
+  bindtouchstart="onCalTouchStart"
+  bindtouchend="onCalTouchEnd"
 >
   <view slot="title" class="cal-title">
     选择日期
     <view class="cal-legend">
       <text><text class="lg lg-g"></text>全部通过</text>
+      <text><text class="lg lg-y"></text>有备注</text>
       <text><text class="lg lg-b"></text>有未通过</text>
       <text>无底色＝无记录 / 仅免验证</text>
     </view>
@@ -355,6 +401,7 @@
         placeholder-class="ph"
         adjust-position="{{false}}"
         bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
         auto-height
         maxlength="-1"
       />
@@ -364,6 +411,73 @@
       <view class="btn-dark" hover-class="hover-opacity" bindtap="onPatrolSave">
         <t-icon name="check" size="34rpx" color="#FFFFFF" />
         {{patrolSaving ? '正在保存…' : '保 存'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 备注编辑弹层（点卡片「备 注」按钮或备注块弹出；附件在「保 存」时才上传 COS，遮罩关闭 = 放弃修改） -->
+<t-popup visible="{{rmkVisible}}" placement="bottom" bind:visible-change="onRmkVisibleChange">
+  <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
+    <view class="sheet-title">编辑备注</view>
+    <view class="sec-row">
+      <view class="section-title">备注内容</view>
+      <view class="sec-note">可空；文字与附件全空即移除备注</view>
+    </view>
+    <view class="textarea-wrap">
+      <textarea
+        class="textarea"
+        value="{{rmkDraft}}"
+        bindinput="onRmkInput"
+        placeholder="请输入备注（可空）"
+        placeholder-class="ph"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        auto-height
+        maxlength="500"
+      />
+    </view>
+    <view class="sec-row">
+      <view class="section-title">附件</view>
+      <view class="sec-note">图片 / 视频 / Office 文档，{{rmkFiles.length}}/9</view>
+    </view>
+    <!-- 图片 / 视频附件（缩略图，右上角 × 移除） -->
+    <view class="re-grid" wx:if="{{rmkMedia.length || rmkFiles.length < 9}}">
+      <view class="re-cell" wx:for="{{rmkMedia}}" wx:for-item="f" wx:key="key">
+        <view class="re-thumb">
+          <image wx:if="{{f.type === 'image'}}" src="{{f.preview}}" mode="aspectFill" />
+          <t-icon wx:else name="play-circle-filled" size="44rpx" color="#FFFFFF" />
+        </view>
+        <view class="re-x" hover-class="hover-scale" catchtap="onRmkFileDel" data-key="{{f.key}}">
+          <t-icon name="close" size="20rpx" color="#FFFFFF" />
+        </view>
+      </view>
+      <view class="re-add" wx:if="{{rmkFiles.length < 9}}" hover-class="hover-opacity" bindtap="onRmkAddMedia">
+        <t-icon name="add" size="36rpx" color="#A89F8A" />
+        <text>图片/视频</text>
+      </view>
+      <view class="re-add" wx:if="{{rmkFiles.length < 9}}" hover-class="hover-opacity" bindtap="onRmkAddDoc">
+        <t-icon name="file-attachment" size="36rpx" color="#A89F8A" />
+        <text>Office 文档</text>
+      </view>
+    </view>
+    <!-- Office 文档附件（文件条，行尾 × 移除） -->
+    <view class="re-docs" wx:if="{{rmkDocs.length}}">
+      <view class="re-doc" wx:for="{{rmkDocs}}" wx:for-item="f" wx:key="key">
+        <t-icon name="file" size="26rpx" color="#A89F8A" />
+        <text class="nm">{{f.name}}</text>
+        <view class="x" hover-class="hover-opacity" catchtap="onRmkFileDel" data-key="{{f.key}}">
+          <t-icon name="close" size="26rpx" color="#A89F8A" />
+        </view>
+      </view>
+    </view>
+    <view class="rmk-hint">Office 文档支持 doc / docx / xls / xlsx / ppt / pptx / pdf（从聊天文件中选择）；单个附件不超过 50MB，保存时上传。</view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onRmkCancel">取 消</view>
+      <view class="btn-dark" hover-class="hover-opacity" bindtap="onRmkSave">
+        <t-icon name="check" size="34rpx" color="#FFFFFF" />
+        {{rmkSaving ? '正在保存…' : '保 存'}}
       </view>
     </view>
   </view>
@@ -415,11 +529,11 @@
   </view>
 </t-popup>
 
-<!-- 验证不通过报告面板（高度同日历展开，骨架复用 dl-* 类；按日期分组列出不通过记录及全部原因） -->
+<!-- 验证报告面板（原「验证不通过报告」；高度同日历展开，骨架复用 dl-* 类；范围 = 不通过记录 ∪ 有备注记录） -->
 <t-popup visible="{{rpVisible}}" placement="bottom" bind:visible-change="onRpVisibleChange">
   <view class="dl-sheet">
     <view class="dl-head">
-      <view class="dl-title">验证不通过报告</view>
+      <view class="dl-title">验证报告</view>
       <view class="dl-close" hover-class="hover-opacity" bindtap="onCloseReport">
         <t-icon name="close" size="36rpx" color="#6B7690" />
       </view>
@@ -431,14 +545,19 @@
     </view>
 
     <scroll-view scroll-y class="dl-body" enhanced show-scrollbar="{{false}}">
-      <view class="dl-empty" wx:if="{{!rpLoading && rpTotal === 0}}">{{scope === 'mine' ? '该范围内暂无与你相关的不通过记录' : '该范围内暂无验证不通过记录'}}</view>
+      <view class="dl-empty" wx:if="{{!rpLoading && rpTotal === 0}}">{{scope === 'mine' ? '该范围内暂无与你相关的不通过或备注记录' : '该范围内暂无验证不通过或备注记录'}}</view>
       <!-- 一个日期一个卡片 -->
       <view class="dl-month-card" wx:for="{{rpGroups}}" wx:key="date">
-        <view class="dl-month-title">{{item.title}}</view>
+        <view class="dl-month-title">{{item.title}}<text class="rp-cnt" wx:if="{{item.cntText}}">{{item.cntText}}</text></view>
         <!-- 记录可点击：关闭报告并跳到该日对应卡片（滚动定位 + 高亮） -->
         <view class="rp-item" wx:for="{{item.items}}" wx:for-item="r" wx:key="id" hover-class="hover-opacity" bindtap="onRpItemTap" data-id="{{r.id}}" data-date="{{r.date}}">
-          <view class="rp-plate">{{r.plateText}}<text class="rp-members">用车人：{{r.membersText}}</text><t-icon class="rp-go" name="chevron-right" size="28rpx" color="#C9C0AB" /></view>
+          <view class="rp-plate">{{r.plateText}}<view class="badge {{r.verifyCls}}">{{r.verifyText}}</view><text class="rp-members">用车人：{{r.membersText}}</text><t-icon class="rp-go" name="chevron-right" size="28rpx" color="#C9C0AB" /></view>
           <view class="rp-reason" wx:for="{{r.reasons}}" wx:for-item="reason" wx:key="*this">{{reason}}</view>
+          <!-- 备注行：黄色，不展示文件；有附件时行首曲别针标记（不通过说明的下行 / 通过记录仅此行） -->
+          <view class="rp-rmk" wx:if="{{r.remarkText || r.hasFiles}}">
+            <t-icon wx:if="{{r.hasFiles}}" name="attach" size="26rpx" color="#EAB308" />
+            <text><text class="lab">备注：</text>{{r.remarkText || '（仅附件）'}}</text>
+          </view>
         </view>
       </view>
     </scroll-view>
@@ -540,6 +659,7 @@
               bindinput="onWmInput"
               placeholder="请输入施工内容"
               placeholder-class="ph"
+              hold-keyboard
               auto-height
               maxlength="500"
             />

@@ -124,6 +124,7 @@
     'call-me': '/callme.html',
     'work-log': '/worklog.html',
     'safe-day': '/safeday.html',
+    'kvm': '/kvm.html',
   };
 
   // 应用描述与特性标签（接口无此字段，按设计稿 方案A② 的文案本地维护；新应用未登记时不渲染该行）
@@ -140,6 +141,10 @@
       desc: '上传班组活动 PDF / Office 文件，Dify 工作流自动生成活动记录，一键下载归档。',
       tags: [['文件生成', 'tag-orange'], ['Dify', 'tag-navy']],
     },
+    'kvm': {
+      desc: '接入 GLKVM Cloud 设备中台，现场设备在线状态实时查看，网页内一键开启 SSH 终端。',
+      tags: [['设备状态', 'tag-orange'], ['SSH 终端', 'tag-navy']],
+    },
   };
 
   // 静态图标注入
@@ -153,8 +158,6 @@
       desc: '机械作业安全距离实时监测与预警管理后台。' },
     { name: 'Dify', url: 'https://ai.j1net.com', icon: 'robot',
       desc: 'AI 应用搭建平台，工作流与智能体可视化管理。' },
-    { name: 'GL·iNet Kvm Cloud', url: 'https://master.kvm.j1net.com', icon: 'monitor',
-      desc: '远程控制设备中台，现场设备远程接入与集中管理。' },
   ];
 
   // 渲染外部应用宫格（样式与应用中心一致，新窗口打开）

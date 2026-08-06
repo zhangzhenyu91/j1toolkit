@@ -23,8 +23,8 @@
       ]
     },
     {
-      "root": "pkg-safeday",
-      "name": "safeday",
+      "root": "pkg-kvm",
+      "name": "kvm",
       "pages": [
         "pages/index/index"
       ]

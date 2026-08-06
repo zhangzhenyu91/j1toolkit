@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<!--
+  出工日志 ·「备注」功能展示位置设计稿（审批稿，审批通过后实施）
+  沿用方案五「安全橙」定稿 token：暖纸底 #F4F1EA ｜ 藏青 #22314E ｜ 安全橙 #F26D21 ｜ 浅橙 #FDEEE2 ｜ 警示红 #CF4444 ｜ 描边 #E3DCCB / #E8E0CD
+  本稿新增/借用色：
+    备注绿：小程序 #2BA471（TDesign success，与打卡勾、核验通过同 token）｜ 网页 var(--green) #3FA66A
+    备注黄（验证报告）：#EAB308 明金黄（提高亮度与纯度，与安全橙 / 警示红 / 备注绿明确区分）
+    Office 文件名链接：下划线 + 安全橙 #F26D21（token 中「链接」即用橙）
+  覆盖需求：
+    1. 记录新增备注（文字 + 附件，附件传 COS：图片 / 视频 / Office 文档）
+    2. 无备注不展示（卡片与报告均不渲染）
+    3. 展示位置：小程序在「添加水印照片」虚线框下方；网页端在左栏目的地下方，巡视内容上移至派车车辆上方
+    4. 验证报告（小程序原「查看报告」改名）无论通过与否均展示备注，黄色，有附件加曲别针标记
+    5. 网页端附件均为点击预览（Lightbox / basemetas），另设下载按钮（Office 文件名行尾 + 媒体大图层右上角，经服务端回源代理带原文件名）
+    6. 日历着色补充：验证通过但有备注的日期标黄（小程序单元格黄底、网页端黄点；优先级 红 > 黄 > 绿，day-status 以 remark 状态返回）
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>出工日志 · 备注功能设计稿（待审批）— 检修一班工具箱</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#F4F1EA;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:#22314E;
+    padding:52px 24px 80px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 外层标题栏 ===== */
+  .page-head { text-align:center; margin-bottom:18px; }
+  .page-head h1 { font-size:26px; font-weight:800; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal; color:#F26D21; }
+  .page-head h1 small { margin-left:10px; font-size:14px; font-weight:600; color:#6B7690; letter-spacing:4px; }
+  .page-head p { margin-top:12px; font-size:13px; color:#6B7690; letter-spacing:1px; }
+  .legend { max-width:1020px; margin:0 auto 12px; background:#fff; border-radius:10px;
+            padding:14px 18px; font-size:12px; line-height:2; color:#6B7690;
+            box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .legend b { color:#22314E; }
+  .legend .sw { display:inline-flex; align-items:center; gap:5px; margin:0 12px 0 2px; white-space:nowrap; }
+  .legend .sw i { width:12px; height:12px; border-radius:4px; flex:none; }
+
+  .group-title { text-align:center; margin:46px 0 4px; font-size:17px; font-weight:800; letter-spacing:6px; color:#22314E; }
+  .group-title em { font-style:normal; color:#F26D21; }
+  .group-sub { text-align:center; font-size:12px; color:#A89F8A; letter-spacing:2px; margin-bottom:28px; }
+
+  /* ===== 机框舞台（小程序） ===== */
+  .stage { display:flex; flex-wrap:wrap; justify-content:center; gap:64px 56px; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .cap { font-size:14px; font-weight:700; letter-spacing:2px; color:#22314E; }
+  .cap i { font-style:normal; color:#F26D21; margin-right:6px; }
+  .sub { max-width:375px; text-align:center; font-size:12px; line-height:1.8; color:#6B7690; }
+  .sub b { color:#22314E; }
+
+  .phone {
+    padding:12px;
+    background:linear-gradient(150deg,#3b4354 0%,#171c26 60%,#10141c 100%);
+    border-radius:62px;
+    box-shadow:0 34px 70px rgba(34,49,78,.28), 0 8px 20px rgba(34,49,78,.16);
+  }
+  .screen {
+    position:relative;
+    width:375px; height:812px;
+    background:#F4F1EA;
+    border-radius:50px;
+    overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  .notch {
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    width:120px; height:32px; border-radius:18px; background:#10141c; z-index:30;
+  }
+  .home-ind {
+    position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+    width:134px; height:5px; border-radius:3px; background:rgba(16,20,28,.9); z-index:40;
+  }
+  .sb { height:54px; flex:none; padding:20px 30px 0;
+        display:flex; justify-content:space-between; align-items:center;
+        font-size:14px; font-weight:700; letter-spacing:.5px; position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+  .sb-dark { color:#22314E; }
+  .navbar { height:52px; flex:none; position:relative; display:flex; align-items:center; justify-content:center;
+            font-size:17px; font-weight:800; letter-spacing:1px; color:#22314E; }
+  .navbar .back { position:absolute; left:14px; top:50%; transform:translateY(-50%);
+                  width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; }
+  .navbar .back svg { width:20px; height:20px; }
+  .content { flex:1; padding:8px 16px 12px; overflow:hidden; }
+
+  /* 警示斜纹卡片 */
+  .stripe-card { position:relative; background:#fff; border-radius:10px; overflow:hidden;
+                 box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .stripe-card::before {
+    content:""; display:block; height:8px;
+    background:repeating-linear-gradient(-45deg,#F26D21 0 10px,#22314E 10px 20px);
+  }
+  .logcard { margin-top:12px; }
+  .badge { border:1px solid #F26D21; color:#F26D21; border-radius:4px; padding:0 6px;
+           font-size:10px; font-weight:700; line-height:16px; white-space:nowrap; }
+  .badge.gray { border-color:#D9CFBA; color:#A89F8A; }
+  .badge.green { border-color:#2BA471; color:#2BA471; }
+  .badge.red { border-color:#CF4444; color:#CF4444; }
+
+  /* ===== 小程序卡片 ===== */
+  .datebar { display:flex; align-items:center; gap:6px; background:#fff; border-radius:10px;
+             padding:11px 12px; box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .datebar .arrow { width:28px; height:28px; flex:none; border-radius:8px; background:#F4F1EA;
+                    display:flex; align-items:center; justify-content:center; color:#6B7690; }
+  .datebar .arrow svg { width:16px; height:16px; }
+  .datebar .dtxt { flex:1; text-align:center; font-size:15px; font-weight:800; letter-spacing:1px; }
+  .datebar .dtxt small { margin-left:6px; font-size:11px; font-weight:600; color:#6B7690; }
+  .datebar .cal { width:32px; height:32px; flex:none; border-radius:8px; background:#FDEEE2; color:#F26D21;
+                  display:flex; align-items:center; justify-content:center; }
+  .datebar .cal svg { width:17px; height:17px; }
+
+  .lc-body { padding:11px 16px 10px; }
+  .lc-head { display:flex; align-items:center; gap:9px; }
+  .lc-head .ci { width:32px; height:32px; flex:none; border-radius:9px; background:#FDEEE2; color:#F26D21;
+                 display:flex; align-items:center; justify-content:center; }
+  .lc-head .ci svg { width:18px; height:18px; }
+  .lc-head .plate { font-size:16px; font-weight:800; letter-spacing:.5px; }
+  .lc-head .badge { margin-left:auto; }
+  .lc-patrol { margin-top:10px; background:#FAF8F1; border-left:4px solid #F26D21;
+               border-radius:8px; padding:9px 12px 10px; }
+  .lc-patrol-label { font-size:13px; font-weight:700; color:#A89F8A; letter-spacing:3px; }
+  .lc-patrol-text { margin-top:4px; font-size:15px; font-weight:600; color:#22314E; line-height:1.6; }
+  .lc-rows { margin-top:8px; }
+  .lc-row { display:flex; align-items:baseline; gap:8px; padding:4px 0; font-size:14px; }
+  .lc-row .k { flex:none; color:#A89F8A; font-size:12px; width:56px; }
+  .cks { display:flex; flex-wrap:wrap; gap:6px; }
+  .ck-chip { display:inline-flex; align-items:center; gap:3px; height:24px; padding:0 9px;
+             border-radius:12px; font-size:12px; font-weight:700; border:1px solid; }
+  .ck-chip svg { width:11px; height:11px; }
+  .ck-chip.yes { border-color:#2BA471; color:#2BA471; background:#E3F2EC; }
+  .ck-chip.no { border-color:#CF4444; color:#CF4444; background:#FBE9E9; }
+
+  /* 水印照片 */
+  .lc-photos { margin-top:8px; border-top:1px dashed #EDE6D4; }
+  .photo-item { display:flex; gap:12px; padding:10px 0; align-items:stretch; }
+  .ph-img { width:84px; height:150px; flex:none; border-radius:8px; position:relative; overflow:hidden;
+            background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
+            display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.9); }
+  .ph-img svg { width:22px; height:22px; }
+  .ph-img .wm { position:absolute; left:0; right:0; bottom:0; padding:3px 5px;
+                background:rgba(16,20,28,.55); color:#fff; font-size:8px; line-height:1.5; }
+  .ph-right { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .ph-names { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:6px; }
+  .ph-names .ntag { height:22px; padding:0 9px; border-radius:11px; background:#FDEEE2; border:1px solid #F26D21;
+                    color:#F26D21; font-size:11px; font-weight:700;
+                    display:inline-flex; align-items:center; gap:4px; }
+  .ph-names .ntag svg { width:11px; height:11px; }
+  .vtag { display:inline-flex; align-items:center; gap:4px; height:19px; padding:0 7px; border-radius:4px;
+          font-size:10px; font-weight:700; letter-spacing:1px; }
+  .vtag svg { width:11px; height:11px; }
+  .vtag.ok { background:#E3F2EC; color:#2BA471; }
+  .ph-wc { margin-top:6px; font-size:13px; font-weight:600; color:#22314E; line-height:1.5;
+           display:flex; align-items:center; gap:6px; }
+  .ph-wc .wc-copy { width:13px; height:13px; color:#A89F8A; flex:none; }
+  .ph-meta { margin-top:6px; padding-top:5px; border-top:1px dashed #EDE6D4; }
+  .meta-line { display:flex; gap:6px; font-size:11px; color:#6B7690; line-height:1.55; }
+  .meta-line .meta-label { flex:none; width:48px; color:#A89F8A; }
+  .add-photo { margin-top:2px; height:52px; border-radius:8px; background:#F0EBDD;
+               border:1.5px dashed #D9CFBA; color:#A89F8A;
+               display:flex; align-items:center; justify-content:center; gap:8px;
+               font-size:12px; font-weight:600; letter-spacing:2px; }
+  .add-photo svg { width:20px; height:20px; }
+
+  /* ===== ① 新增：备注块（添加水印照片虚线框下方） ===== */
+  .lc-rmk { margin-top:10px; background:#F0F7F2; border-left:4px solid #2BA471;
+            border-radius:8px; padding:8px 12px 10px; }
+  .lc-rmk-label { display:flex; align-items:center; font-size:11px; font-weight:700; color:#2BA471; letter-spacing:3px; }
+  .lc-rmk-label svg { width:11px; height:11px; margin-left:auto; color:#A89F8A; }
+  .lc-rmk-text { margin-top:3px; font-size:13px; font-weight:600; color:#2BA471; line-height:1.6; }
+  /* 附件：图片 / 视频缩略图（点击全屏打开） */
+  .rmk-files { margin-top:7px; display:flex; flex-wrap:wrap; gap:8px; }
+  .rf-thumb { width:46px; height:46px; flex:none; border-radius:8px; position:relative; overflow:hidden;
+              border:1px solid #DCEAE1; background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
+              display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.92); }
+  .rf-thumb svg { width:18px; height:18px; }
+  .rf-thumb .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                    background:rgba(16,20,28,.28); }
+  .rf-thumb .play i { width:20px; height:20px; border-radius:50%; background:rgba(16,20,28,.6);
+                      display:flex; align-items:center; justify-content:center; }
+  .rf-thumb .play svg { width:9px; height:9px; color:#fff; margin-left:1px; }
+  /* 附件：Office 文档仅可点击文件名（下划线 + 安全橙） */
+  .rmk-docs { margin-top:7px; display:flex; flex-direction:column; gap:4px; }
+  .rf-doc { display:flex; align-items:center; gap:6px; font-size:12px; min-width:0; }
+  .rf-doc svg { width:13px; height:13px; flex:none; color:#A89F8A; }
+  .rf-doc .fn { color:#F26D21; font-weight:600; text-decoration:underline; text-underline-offset:2px;
+                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* 卡片底部操作（新增「备 注」入口按钮） */
+  .lc-actions { display:flex; gap:10px; margin-top:11px; padding-top:10px; border-top:1px solid #F1EBDC; }
+  .lc-actions .act { flex:1; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+                     font-size:13px; font-weight:700; letter-spacing:2px; }
+  .act-note { background:#fff; color:#22314E; border:1px solid #C7CFDD; }
+  .act-del { background:#fff; color:#CF4444; border:1px solid #EFC9C9; }
+
+  /* ===== 弹层（备注编辑） ===== */
+  .mask { position:absolute; inset:0; background:rgba(34,49,78,.45); z-index:35; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; z-index:36;
+           background:#fff; border-radius:16px 16px 0 0; padding:18px 18px 26px; }
+  .sheet h4 { text-align:center; font-size:16px; font-weight:800; letter-spacing:2px; }
+  .sheet .sheet-note { text-align:center; margin-top:6px; font-size:11px; color:#A89F8A; letter-spacing:1px; }
+  .sec-lab { display:flex; align-items:center; gap:8px; margin:14px 2px 8px; font-size:13px; font-weight:800;
+             letter-spacing:1px; }
+  .sec-lab::before { content:""; width:4px; height:14px; border-radius:2px; background:#F26D21; }
+  .sec-lab .n { font-weight:400; font-size:11px; color:#A89F8A; }
+  .textarea { width:100%; min-height:76px; border:1px solid #E3DCCB; border-radius:8px; background:#fff;
+              padding:9px 12px; font-size:13px; color:#22314E; line-height:1.6; }
+  .textarea .ph { color:#A89F8A; }
+  .att-grid { display:flex; flex-wrap:wrap; gap:10px; }
+  .att-cell { position:relative; width:54px; height:54px; border-radius:8px; overflow:visible; }
+  .att-cell .thumb { width:54px; height:54px; border-radius:8px; border:1px solid #E3DCCB; overflow:hidden;
+                     background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
+                     display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.92); }
+  .att-cell .thumb svg { width:20px; height:20px; }
+  .att-x { position:absolute; top:-6px; right:-6px; width:17px; height:17px; border-radius:50%;
+           background:#22314E; color:#fff; display:flex; align-items:center; justify-content:center; z-index:2; }
+  .att-x svg { width:9px; height:9px; }
+  .att-add { width:54px; height:54px; border-radius:8px; border:1.5px dashed #D9CFBA; color:#A89F8A;
+             display:flex; align-items:center; justify-content:center; }
+  .att-add svg { width:22px; height:22px; }
+  .att-docs { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+  .att-doc { display:flex; align-items:center; gap:7px; height:30px; padding:0 10px;
+             border:1px solid #E3DCCB; border-radius:6px; background:#FAF8F1;
+             font-size:11.5px; color:#22314E; font-weight:600; }
+  .att-doc svg.fi { width:13px; height:13px; color:#A89F8A; flex:none; }
+  .att-doc .x { margin-left:auto; color:#A89F8A; display:flex; }
+  .att-doc .x svg { width:11px; height:11px; }
+  .f-hint { margin-top:10px; font-size:10.5px; color:#A89F8A; line-height:1.7; letter-spacing:.5px; }
+  .sheet-actions { display:flex; gap:10px; margin-top:16px; }
+  .btn-ghost { flex:1; height:44px; border-radius:8px; border:1px solid #E3DCCB; background:#fff;
+               display:flex; align-items:center; justify-content:center;
+               font-size:14px; font-weight:700; color:#6B7690; letter-spacing:3px; }
+  .btn-dark { flex:2; height:44px; border-radius:8px; background:#22314E; color:#fff;
+              display:flex; align-items:center; justify-content:center; gap:7px;
+              font-size:14px; font-weight:700; letter-spacing:2px; }
+  .btn-dark svg { width:16px; height:16px; }
+
+  /* ===== 验证报告面板（小程序底部弹层，骨架同批量下载） ===== */
+  .dl-sheet { position:absolute; left:0; right:0; bottom:0; top:64px; z-index:36; background:#F4F1EA;
+              border-radius:16px 16px 0 0; display:flex; flex-direction:column; overflow:hidden; }
+  .dl-head { flex:none; display:flex; align-items:center; padding:16px 18px 10px; background:#fff; }
+  .dl-head h4 { flex:1; text-align:center; font-size:16px; font-weight:800; letter-spacing:2px; }
+  .dl-head .x { width:28px; height:28px; color:#A89F8A; display:flex; align-items:center; justify-content:center; }
+  .dl-head .x svg { width:16px; height:16px; }
+  .dl-range { flex:none; display:flex; align-items:center; gap:8px; padding:10px 18px; background:#fff;
+              border-top:1px solid #F1EBDC; font-size:12px; color:#6B7690; }
+  .dl-range b { color:#22314E; font-weight:700; }
+  .dl-range .dl-change { margin-left:auto; color:#F26D21; font-weight:700; font-size:12px; }
+  .dl-body { flex:1; overflow:hidden; padding:12px 14px; }
+  .dl-card { background:#fff; border-radius:10px; padding:12px; box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .dl-card + .dl-card { margin-top:12px; }
+  .dl-card h5 { font-size:13px; font-weight:800; letter-spacing:1px; margin-bottom:4px; }
+  .dl-card h5 .cnt { margin-left:6px; font-size:10px; font-weight:400; color:#A89F8A; }
+  .rp-item { padding:9px 0; }
+  .rp-item + .rp-item { border-top:1px dashed #EDE6D4; }
+  .rp-plate { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:800; }
+  .rp-plate .rp-members { font-size:11px; font-weight:400; color:#6B7690; }
+  .rp-plate .rp-go { margin-left:auto; color:#C9C0AB; display:flex; }
+  .rp-plate .rp-go svg { width:14px; height:14px; }
+  .rp-reason { display:flex; align-items:flex-start; gap:5px; margin-top:5px;
+               font-size:12px; font-weight:600; color:#CF4444; line-height:1.5; }
+  .rp-reason::before { content:""; flex:none; width:4px; height:4px; margin-top:7px;
+                       border-radius:50%; background:#CF4444; }
+  /* ② 新增：报告备注行（黄色，有附件加曲别针） */
+  .rp-rmk { display:flex; align-items:flex-start; gap:5px; margin-top:5px;
+            font-size:12px; font-weight:700; color:#EAB308; line-height:1.55; }
+  .rp-rmk svg { width:12px; height:12px; flex:none; margin-top:2px; }
+  .rp-rmk .lab { flex:none; font-weight:800; letter-spacing:1px; }
+
+  /* ===== 网页端浏览器框 ===== */
+  .wstage { display:flex; flex-direction:column; align-items:center; gap:60px; }
+  .wunit { display:flex; flex-direction:column; align-items:center; gap:14px; width:100%; }
+  .wsub { max-width:960px; text-align:center; font-size:12px; line-height:1.8; color:#6B7690; }
+  .wsub b { color:#22314E; }
+  .browser { width:min(1060px,96vw); background:#F4F1EA; border-radius:14px; overflow:hidden;
+             border:1px solid #E3DCCB; box-shadow:0 24px 60px rgba(34,49,78,.18); }
+  .bb-bar { display:flex; align-items:center; gap:10px; background:#fff; padding:9px 14px;
+            border-bottom:1px solid #EDE6D4; }
+  .bb-bar .dots { display:flex; gap:6px; }
+  .bb-bar .dots i { width:11px; height:11px; border-radius:50%; }
+  .bb-bar .dots i:nth-child(1) { background:#EFC9C9; }
+  .bb-bar .dots i:nth-child(2) { background:#F0E3C0; }
+  .bb-bar .dots i:nth-child(3) { background:#C9E3D6; }
+  .bb-url { flex:1; max-width:420px; margin:0 auto; background:#F4F1EA; border-radius:7px;
+            text-align:center; font-size:11px; color:#6B7690; padding:5px 12px; letter-spacing:1px; }
+  .bb-body { padding:20px 24px 28px; }
+
+  /* 网页端记录卡片（对齐 worklog.html 现行样式） */
+  .wcard { background:#fff; border-radius:10px; box-shadow:0 8px 20px rgba(34,49,78,.06);
+           overflow:hidden; position:relative; }
+  .wcard::before { content:""; display:block; height:8px;
+                   background:repeating-linear-gradient(-45deg,#F26D21 0 10px,#22314E 10px 20px); }
+  .log-h { display:flex; align-items:center; gap:10px; padding:13px 20px; border-bottom:1px solid #EDE6D4; }
+  .log-h b { font-size:15px; font-weight:800; letter-spacing:.5px; }
+  .log-h small { font-size:11.5px; color:#A89F8A; letter-spacing:1px; }
+  .log-h .tag { margin-left:auto; }
+  .log-body { display:flex; align-items:stretch; }
+  .ls-l { width:38.2%; flex:none; min-width:0; display:flex; flex-direction:column; }
+  .ls-r { flex:1; min-width:0; border-left:1px solid #EDE6D4; display:flex; flex-direction:column; }
+  /* 巡视内容块（上移至派车车辆上方） */
+  .patrol { margin:12px 18px 0; padding:9px 13px; border:1px solid #EDE6D4; border-radius:9px;
+            font-size:12.5px; color:#22314E; line-height:1.7; }
+  .patrol .p-tag { display:inline-block; margin-right:8px; font-size:10.5px; font-weight:700; color:#F26D21;
+                   background:#FDEEE2; border-radius:4px; padding:1px 6px; letter-spacing:1px; }
+  .patrol .p-edit { float:right; color:#A89F8A; display:flex; align-items:center; }
+  .patrol .p-edit svg { width:12px; height:12px; }
+  .lrows { padding:4px 18px; }
+  .lrow { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px dashed #EDE6D4; }
+  .lrow:last-child { border-bottom:none; }
+  .lrow .li { width:28px; height:28px; flex:none; border-radius:8px; background:#FDEEE2; color:#F26D21;
+              display:flex; align-items:center; justify-content:center; }
+  .lrow .li svg { width:15px; height:15px; }
+  .lrow .lk { width:56px; flex:none; font-size:12px; color:#A89F8A; }
+  .lrow .lv { font-size:13px; font-weight:600; }
+  .lrow .lv small { display:block; margin-top:2px; font-size:11px; color:#A89F8A; font-weight:400; }
+  .mchip { display:inline-flex; align-items:center; gap:5px; margin:2px 6px 2px 0; padding:2px 10px;
+           border:1px solid #D9CFBA; border-radius:999px; font-size:12px; color:#6B7690; }
+  .mchip .m-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#D9CFBA; }
+  .mchip.on { border-color:#3FA66A; color:#3FA66A; background:#EAF5EF; font-weight:600; }
+  .mchip.on .m-dot { background:#3FA66A; }
+  /* ③ 新增：网页端备注块（左栏目的地下方） */
+  .rmk { margin:12px 18px 0; padding:9px 13px 11px; border:1px solid #DDEAE2; background:#F3FAF6;
+         border-radius:9px; }
+  .rmk .rk-tag { display:inline-block; margin-right:8px; font-size:10.5px; font-weight:700; color:#3FA66A;
+                 background:#E3F2EC; border-radius:4px; padding:1px 6px; letter-spacing:1px; }
+  .rmk .rk-edit { float:right; color:#A89F8A; display:flex; align-items:center; }
+  .rmk .rk-edit svg { width:12px; height:12px; }
+  .rmk .rk-text { font-size:12.5px; font-weight:600; color:#3FA66A; line-height:1.7; }
+  .rmk .rk-files { margin-top:8px; display:flex; flex-wrap:wrap; gap:8px; }
+  .rmk .rf-thumb { width:46px; height:46px; border-radius:8px; }
+  .rmk .rk-docs { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+  .log-acts { display:flex; justify-content:flex-end; gap:8px; margin-top:auto; padding:10px 18px 14px; }
+  .abtn { border:1px solid #E3DCCB; background:#fff; color:#6B7690; font-size:12px; letter-spacing:1px;
+          border-radius:6px; padding:4px 12px; }
+  .abtn.note { color:#22314E; border-color:#C7CFDD; }
+  .abtn.del { color:#CF4444; border-color:#EFC9C9; }
+  .ph-lab { padding:12px 18px 8px; font-size:12px; color:#A89F8A; letter-spacing:1px; }
+  .photos { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding:0 18px 18px; flex:1; }
+  .wph { position:relative; min-height:104px; border-radius:9px; overflow:hidden; border:1px solid #EDE6D4;
+         background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
+         display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.9); }
+  .wph svg { width:22px; height:22px; }
+  .wph .wm { position:absolute; left:0; right:0; bottom:0; padding:4px 6px; font-size:9px; color:rgba(255,255,255,.94);
+             background:linear-gradient(transparent,rgba(34,49,78,.68)); display:flex; justify-content:space-between; }
+  .wph .st { position:absolute; top:6px; left:6px; border-radius:4px; padding:1px 6px;
+             font-size:10px; font-weight:700; color:#fff; background:rgba(242,109,33,.92); }
+
+  /* 网页端验证报告页签 */
+  .wtabs { display:flex; gap:20px; border-bottom:1px solid #EDE6D4; background:#fff;
+           border-radius:10px 10px 0 0; padding:0 18px; }
+  .wtabs span { padding:11px 2px 9px; font-size:13px; font-weight:600; color:#6B7690; letter-spacing:1px; }
+  .wtabs span.on { color:#F26D21; font-weight:800; border-bottom:2px solid #F26D21; }
+  .wrep { background:#fff; border-radius:0 0 10px 10px; padding:16px 18px 20px;
+          box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .rep-bar { display:flex; align-items:center; gap:8px; }
+  .rep-bar .dt { height:32px; border:1px solid #E3DCCB; border-radius:8px; padding:0 10px;
+                 font-size:12px; color:#22314E; background:#fff; display:inline-flex; align-items:center; }
+  .rep-bar .sep { color:#A89F8A; font-size:12px; }
+  .rep-bar .qbtn { height:32px; padding:0 16px; border-radius:8px; background:#22314E; color:#fff;
+                   font-size:12px; font-weight:700; letter-spacing:2px;
+                   display:inline-flex; align-items:center; }
+  .rep-bar .total { margin-left:auto; font-size:11.5px; color:#A89F8A; letter-spacing:1px; }
+  .rep-date { font-size:12.5px; font-weight:800; letter-spacing:1px; margin:14px 0 8px; }
+  .rep-date .cnt { margin-left:8px; font-size:11px; font-weight:400; color:#CF4444; }
+  .rep-row { display:block; padding:11px 15px; border:1px solid #EDE6D4; background:#fff;
+             border-radius:10px; margin-bottom:10px; }
+  .rep-top { display:flex; align-items:center; gap:10px; }
+  .rep-plate { flex:none; font-size:13.5px; font-weight:700; }
+  .rep-members { font-size:12px; color:#6B7690; }
+  .rep-go { margin-left:auto; color:#A89F8A; display:flex; }
+  .rep-go svg { width:14px; height:14px; }
+  .rep-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .reason { font-style:normal; font-size:11px; font-weight:700; color:#CF4444;
+            background:#FBE9E9; border-radius:5px; padding:3px 9px; letter-spacing:.5px; }
+  .reason.ok { color:#3FA66A; background:#EAF5EF; }
+  .rep-rmk-w { display:flex; align-items:flex-start; gap:6px; margin-top:8px;
+               font-size:12px; font-weight:700; color:#EAB308; line-height:1.6; }
+  .rep-rmk-w svg { width:13px; height:13px; flex:none; margin-top:2px; }
+
+  /* 编号角标（标注新增/变动元素） */
+  .mk { display:inline-flex; width:16px; height:16px; border-radius:50%; background:#F26D21; color:#fff;
+        font-size:10px; font-weight:800; font-style:normal; align-items:center; justify-content:center;
+        flex:none; letter-spacing:0; }
+  .mk-row { display:flex; align-items:flex-start; gap:7px; }
+
+  @media (max-width: 1280px) { .stage { zoom: .9; } }
+  @media (max-width: 1060px) { .stage { zoom: .8; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>出工日志 <em>备注功能</em><small>展示位置设计稿 · 待审批</small></h1>
+  <p>记录新增备注（文字 + 附件传 COS）｜ 无备注不展示 ｜ 验证报告无论通过与否均带备注 ｜ 小程序 / 网页端同步</p>
+</header>
+
+<div class="legend">
+  <b>数据口径：</b>记录新增备注字段 = 备注文字 + 附件列表（图片 / 视频 / Office 文档 doc·docx·xls·xlsx·ppt·pptx·pdf，走现有 COS 上传通道）。备注一般为空；<b>无文字且无附件时，卡片与验证报告均不渲染备注</b>。<br>
+  <b>新用色：</b>
+  <span class="sw"><i style="background:#2BA471"></i>备注绿（小程序 #2BA471，同打卡/核验绿）</span>
+  <span class="sw"><i style="background:#3FA66A"></i>备注绿（网页 var(--green)）</span>
+  <span class="sw"><i style="background:#F26D21"></i>Office 文件名链接＝下划线 + 安全橙（token 链接色）</span>
+  <span class="sw"><i style="background:#EAB308"></i>验证报告备注黄 #EAB308（明金黄，与橙/红/绿区分）</span><br>
+  <b>附件点击行为：</b>小程序 —— 图片/视频 wx.previewMedia 全屏（视频直接播放），Office 用 wx.openDocument 打开（showMenu:true，右上角显示菜单）；网页端 —— 图片点击走水印照片同款 Lightbox 大图，视频点击在 Lightbox 内播放，Office 新标签页打开 basemetas 预览地址（同安全日记录 /preview 口径）；<b>附件均为点击预览，故网页端另设下载按钮</b>：Office 文件名行尾下载钮、媒体大图层右上角下载钮（均经服务端回源代理下载，带原文件名）。<br>
+  <b>验证报告口径变化：</b>小程序悬浮菜单「查看报告」更名「验证报告」，面板标题「验证不通过报告」同步更名；报告范围由「仅不通过记录」扩为「不通过记录 ∪ 有备注的记录」——不通过记录：备注在不通过说明下行；通过记录：仅展示备注行（不再只列不通过）。备注行黄色、不展示文件，有附件时以曲别针标记。<br>
+  <b>编辑入口：</b>无备注时由卡片底部操作行「备 注」按钮进入编辑；有备注时点击备注块本身亦可编辑（铅笔图标暗示）。网页端同（左栏操作行「备注」按钮 / 点备注块）。
+</div>
+
+<h2 class="group-title">小程序端 <em>MINI-PROGRAM</em></h2>
+<div class="group-sub">iphone 375×812 机框 ｜ 出工日志主页 + 底部弹层</div>
+
+<main class="stage">
+
+  <!-- ================= ① 小程序记录卡片 · 备注展示位 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content">
+          <div class="datebar">
+            <div class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+            <div class="dtxt">7月28日 周二<small>今天</small></div>
+            <div class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></div>
+            <div class="cal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17"/><path d="M8 3v3.5M16 3v3.5"/></svg></div>
+          </div>
+
+          <div class="stripe-card logcard">
+            <div class="lc-body">
+              <div class="lc-head">
+                <div class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/><circle cx="7.2" cy="14.2" r=".9" fill="currentColor" stroke="none"/><circle cx="16.8" cy="14.2" r=".9" fill="currentColor" stroke="none"/></svg></div>
+                <div class="plate">辽A·D12345</div>
+                <span class="badge green">验证通过</span>
+              </div>
+              <div class="lc-patrol">
+                <div class="lc-patrol-label">巡视内容</div>
+                <div class="lc-patrol-text">10kV 开关柜检修。</div>
+              </div>
+              <div class="lc-rows">
+                <div class="lc-row"><span class="k">打卡情况</span>
+                  <span class="cks">
+                    <span class="ck-chip yes">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+                    <span class="ck-chip yes">郑海楠<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+                  </span>
+                </div>
+              </div>
+              <div class="lc-photos">
+                <div class="photo-item">
+                  <div class="ph-img">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                    <div class="wm">2026-07-28 09:12<br>浑南库房</div>
+                  </div>
+                  <div class="ph-right">
+                    <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span></div>
+                    <div class="ph-names"><span class="ntag">赵登<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span></div>
+                    <div class="ph-wc">更换 10kV 开关柜触头<svg class="wc-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/></svg></div>
+                    <div class="ph-meta">
+                      <div class="meta-line"><span class="meta-label">拍摄时间</span>2026-07-28 09:12</div>
+                      <div class="meta-line"><span class="meta-label">地点</span>浑南库房</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="add-photo">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+                  添加水印照片
+                </div>
+                <!-- ❶ 备注块：添加水印照片虚线框下方 -->
+                <div class="lc-rmk">
+                  <div class="lc-rmk-label"><span class="mk" style="margin-right:6px">1</span>备 注<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></div>
+                  <div class="lc-rmk-text">下午 3 点调度停电 30 分钟，已通知用户；剩余两组触头明日继续更换。</div>
+                  <!-- ❷ 图片 / 视频附件：缩略图，点击 wx.previewMedia 全屏 -->
+                  <div class="rmk-files">
+                    <div class="rf-thumb">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                    </div>
+                    <div class="rf-thumb">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6.5" width="13" height="11" rx="2"/><path d="M21 8.5l-5 3.5 5 3.5z"/></svg>
+                      <div class="play"><i><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5l11 6.5-11 6.5z"/></svg></i></div>
+                    </div>
+                  </div>
+                  <!-- ❸ Office 附件：仅可点击文件名（下划线 + 安全橙），wx.openDocument 打开 -->
+                  <div class="rmk-docs">
+                    <div class="rf-doc">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>
+                      <span class="fn">开关柜检修方案.docx</span>
+                    </div>
+                    <div class="rf-doc">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>
+                      <span class="fn">耐压试验报告.xlsx</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="lc-actions">
+                <div class="act act-note">备 注</div>
+                <div class="act act-del">删 除</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>①</i>记录卡片 · 备注展示位</div>
+    <div class="sub">
+      <span class="mk-row"><span class="mk">1</span><span>备注块位于「添加水印照片」虚线框下方、底部操作行上方：绿条浅底（与巡视内容橙条同族），文字 26rpx/600 绿色 #2BA471，<b>与照片右侧施工内容同字号</b>；点击整块进编辑。</span></span>
+      <span class="mk-row" style="margin-top:6px"><span class="mk">2</span><span>图片/视频附件显示缩略图（视频带播放角标），点击 wx.previewMedia 全屏查看/播放。</span></span>
+      <span class="mk-row" style="margin-top:6px"><span class="mk">3</span><span>Office 附件仅显示可点击文件名（下划线 + 安全橙 #F26D21），点击 wx.openDocument 打开（showMenu:true）。</span></span><br>
+      无备注时整块不渲染；此时编辑入口为底部操作行新增的「备 注」按钮。未出车卡无照片区时，备注块位于打卡情况下方同一顺位。
+    </div>
+  </div>
+
+  <!-- ================= ② 小程序 · 备注编辑弹层 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+        <div class="content">
+          <div class="stripe-card logcard" style="opacity:.55">
+            <div class="lc-body">
+              <div class="lc-head">
+                <div class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/></svg></div>
+                <div class="plate">辽A·D12345</div>
+                <span class="badge green">验证通过</span>
+              </div>
+              <div class="lc-patrol">
+                <div class="lc-patrol-label">巡视内容</div>
+                <div class="lc-patrol-text">10kV 开关柜检修。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>编辑备注</h4>
+          <div class="sheet-note">点卡片「备 注」按钮或备注块弹出；「保 存」提交，无实时保存</div>
+          <div class="sec-lab">备注内容</div>
+          <div class="textarea">下午 3 点调度停电 30 分钟，已通知用户；剩余两组触头明日继续更换。</div>
+          <div class="sec-lab">附件<span class="n">图片 / 视频 / Office 文档，上传至 COS</span></div>
+          <div class="att-grid">
+            <div class="att-cell">
+              <div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg></div>
+              <div class="att-x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+            </div>
+            <div class="att-cell">
+              <div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6.5" width="13" height="11" rx="2"/><path d="M21 8.5l-5 3.5 5 3.5z"/></svg></div>
+              <div class="att-x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+            </div>
+            <div class="att-add">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+            </div>
+          </div>
+          <div class="att-docs">
+            <div class="att-doc">
+              <svg class="fi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>
+              开关柜检修方案.docx
+              <span class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+            </div>
+          </div>
+          <div class="f-hint">图片/视频经 wx.chooseMedia 选择；Office 文档（doc·docx·xls·xlsx·ppt·pptx·pdf）经 wx.chooseMessageFile 从聊天文件中选择。文字清空且删除全部附件 = 移除备注。</div>
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>保 存</div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>②</i>备注编辑弹层</div>
+    <div class="sub">结构与巡视内容修改弹层一致（底部弹层、取消/保存）：备注文字输入框 + 附件管理（缩略图右上角 × 删除、虚线框添加；Office 文档以文件条列出）。保存时新附件先传 COS 再随记录一并提交。</div>
+  </div>
+
+  <!-- ================= ③ 小程序 · 验证报告面板 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="mask"></div>
+        <div class="dl-sheet">
+          <div class="dl-head">
+            <h4>验证报告<span class="mk" style="margin-left:8px">4</span></h4>
+            <div class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+          </div>
+          <div class="dl-range">
+            <b>2026-07-01 至 2026-07-31</b>
+            <div class="dl-change">改日期</div>
+          </div>
+          <div class="dl-body">
+            <div class="dl-card">
+              <h5>7月28日 周二<span class="cnt">1 条未通过 · 2 条备注</span></h5>
+              <!-- 不通过记录：备注在不通过说明下行 -->
+              <div class="rp-item">
+                <div class="rp-plate">辽A·E67890<span class="badge red">未通过</span><span class="rp-members">用车人：赵登、郑海楠</span><span class="rp-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></span></div>
+                <div class="rp-reason">郑海楠未打卡</div>
+                <div class="rp-reason">照片施工内容不一致</div>
+                <div class="rp-rmk">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  <span><span class="lab">备注：</span>郑海楠下午补卡，现场以第二张照片为准。</span>
+                </div>
+              </div>
+              <!-- 通过记录：仅展示备注行 -->
+              <div class="rp-item">
+                <div class="rp-plate">辽A·D12345<span class="badge green">通过</span><span class="rp-members">用车人：赵登、郑海楠</span><span class="rp-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></span></div>
+                <div class="rp-rmk">
+                  <span><span class="lab">备注：</span>剩余两组触头明日继续更换。</span>
+                </div>
+              </div>
+            </div>
+            <div class="dl-card">
+              <h5>7月27日 周一<span class="cnt">1 条备注</span></h5>
+              <div class="rp-item">
+                <div class="rp-plate">辽A·F24680<span class="badge green">通过</span><span class="rp-members">用车人：王振宇</span><span class="rp-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></span></div>
+                <div class="rp-rmk">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  <span><span class="lab">备注：</span>电缆试验合格，报告见附件。</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>③</i>验证报告（原「查看报告」）</div>
+    <div class="sub">
+      <span class="mk-row"><span class="mk">4</span><span>悬浮菜单「查看报告」更名「验证报告」，面板标题同步由「验证不通过报告」改为「验证报告」。</span></span><br>
+      报告范围扩为「不通过 ∪ 有备注」：<b>不通过记录</b>备注在不通过说明下行展示（如首条）；<b>通过记录</b>仅展示备注行（如次条），并以通过/未通过徽章区分。备注行黄色 #EAB308、不展示文件，有附件时行首加曲别针标记；无备注的不通过记录维持现状。点击记录仍跳转到对应卡片。
+    </div>
+  </div>
+
+</main>
+
+<h2 class="group-title">网页端 <em>WEB</em></h2>
+<div class="group-sub">worklog.html ｜ 记录卡片 + 验证报告页签</div>
+
+<main class="wstage">
+
+  <!-- ================= ④ 网页端记录卡片 · 巡视内容上移 + 备注位 ================= -->
+  <div class="wunit">
+    <div class="browser">
+      <div class="bb-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="bb-url">toolkit.j1net.com/worklog.html</div>
+      </div>
+      <div class="bb-body">
+        <div class="wcard">
+          <div class="log-h">
+            <b>辽A·D12345</b>
+            <small>2026-07-28 周二 · 赵登 创建</small>
+            <span class="tag badge green" style="font-size:11px;line-height:20px;padding:0 8px">验证通过</span>
+          </div>
+          <div class="log-body">
+            <div class="ls-l">
+              <!-- ❺ 巡视内容块：由目的地下方上移至派车车辆上方 -->
+              <div class="patrol"><span class="mk" style="margin-right:6px">5</span><span class="p-tag">巡视内容</span><span class="p-edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span>10kV 开关柜检修。</div>
+              <div class="lrows">
+                <div class="lrow">
+                  <div class="li"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/></svg></div>
+                  <div class="lk">派车车辆</div>
+                  <div class="lv">辽A·D12345<small>工程车辆</small></div>
+                </div>
+                <div class="lrow">
+                  <div class="li"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1.2-3.4 3.8-5 7-5s5.8 1.6 7 5"/></svg></div>
+                  <div class="lk">用车人</div>
+                  <div class="lv">
+                    <span class="mchip on"><span class="m-dot"></span>赵登</span><span class="mchip on"><span class="m-dot"></span>郑海楠</span>
+                    <small>已打卡 2 / 2 人</small>
+                  </div>
+                </div>
+                <div class="lrow">
+                  <div class="li"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.3-6.5-10.2A6.5 6.5 0 0 1 12 4.3a6.5 6.5 0 0 1 6.5 6.5C18.5 15.7 12 21 12 21z"/><circle cx="12" cy="10.6" r="2.2"/></svg></div>
+                  <div class="lk">目的地</div>
+                  <div class="lv">浑南库房</div>
+                </div>
+              </div>
+              <!-- ❻ 备注块：左栏目的地下方 -->
+              <div class="rmk">
+                <span class="mk" style="margin-right:6px">6</span><span class="rk-tag">备注</span><span class="rk-edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2l3 3L8.5 18.5 4.6 19.5l1-3.9z"/></svg></span>
+                <div class="rk-text">下午 3 点调度停电 30 分钟，已通知用户；剩余两组触头明日继续更换。</div>
+                <div class="rk-files">
+                  <div class="rf-thumb">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                  </div>
+                  <div class="rf-thumb">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6.5" width="13" height="11" rx="2"/><path d="M21 8.5l-5 3.5 5 3.5z"/></svg>
+                    <div class="play"><i><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5l11 6.5-11 6.5z"/></svg></i></div>
+                  </div>
+                </div>
+                <div class="rk-docs">
+                  <div class="rf-doc">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>
+                    <span class="fn">开关柜检修方案.docx</span>
+                    <span class="mk" style="background:#22314E" title="下载按钮">8</span>
+                    <svg style="width:13px;height:13px;color:#A89F8A;flex:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7.5 11.5L12 16l4.5-4.5"/><path d="M5 19.5h14"/></svg>
+                  </div>
+                </div>
+              </div>
+              <div class="log-acts">
+                <span class="abtn note">备注</span>
+                <span class="abtn del">删除</span>
+              </div>
+            </div>
+            <div class="ls-r">
+              <div class="ph-lab">水印照片 · 3 张（点击查看大图与核验信息）</div>
+              <div class="photos">
+                <div class="wph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                  <span class="st">已核验</span>
+                  <div class="wm"><span>赵登</span><span>09:12</span></div>
+                </div>
+                <div class="wph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                  <span class="st">已核验</span>
+                  <div class="wm"><span>郑海楠</span><span>09:15</span></div>
+                </div>
+                <div class="wph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                  <span class="st">已核验</span>
+                  <div class="wm"><span>赵登</span><span>09:20</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><i>④</i>记录卡片 · 巡视内容上移 + 备注位于目的地下方</div>
+    <div class="wsub">
+      <span class="mk-row" style="max-width:640px;margin:0 auto"><span class="mk">5</span><span>巡视内容块由现行「目的地下方」<b>上移至派车车辆上方</b>（点击弹层修改的交互不变）。</span></span>
+      <span class="mk-row" style="max-width:640px;margin:6px auto 0"><span class="mk">6</span><span>备注块位于左栏<b>目的地下方</b>：浅绿底 + 绿色「备注」签，文字绿色 var(--green)；图片/视频缩略图（点击走水印照片同款 Lightbox 大图 / 播放，大图层右上角带下载钮），Office 仅文件名（下划线 + 安全橙），点击新标签页打开 basemetas 预览（同安全日记录）。无备注整块不渲染，编辑入口为操作行「备注」按钮。</span></span>
+      <span class="mk-row" style="max-width:640px;margin:6px auto 0"><span class="mk" style="background:#22314E">8</span><span><b>下载按钮（后补）</b>：附件点击均为预览，故 Office 文件名行尾设下载钮、图片/视频在大图层右上角设下载钮；均经服务端回源代理下载并带原文件名（COS 跨域无 CORS，浏览器不能直接拉取）。</span></span>
+    </div>
+  </div>
+
+  <!-- ================= ⑤ 网页端验证报告页签 · 备注行 ================= -->
+  <div class="wunit">
+    <div class="browser">
+      <div class="bb-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="bb-url">toolkit.j1net.com/worklog.html</div>
+      </div>
+      <div class="bb-body">
+        <div class="wtabs">
+          <span>记录</span><span>批量下载</span><span class="on">验证报告</span>
+        </div>
+        <div class="wrep">
+          <div class="rep-bar">
+            <span class="dt">2026-07-01</span><span class="sep">至</span><span class="dt">2026-07-31</span>
+            <span class="qbtn">查 询</span>
+            <span class="total">合计 3 条（1 条未通过 · 3 条备注）</span>
+          </div>
+          <div class="rep-date">2026年7月28日 星期二<span class="cnt">1 条未通过</span></div>
+          <div class="rep-row">
+            <div class="rep-top">
+              <span class="rep-plate">辽A·E67890</span>
+              <span class="rep-members">赵登、郑海楠</span>
+              <span class="rep-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></span>
+            </div>
+            <div class="rep-chips"><em class="reason">郑海楠未打卡</em><em class="reason">照片施工内容不一致</em></div>
+            <!-- ❼ 不通过说明下行：备注（黄色 + 曲别针） -->
+            <div class="rep-rmk-w">
+              <span class="mk" style="margin-top:1px">7</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              <span><b>备注：</b>郑海楠下午补卡，现场以第二张照片为准。</span>
+            </div>
+          </div>
+          <div class="rep-row">
+            <div class="rep-top">
+              <span class="rep-plate">辽A·D12345</span>
+              <span class="rep-members">赵登、郑海楠</span>
+              <span class="rep-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></span>
+            </div>
+            <div class="rep-chips"><em class="reason ok">通过</em></div>
+            <div class="rep-rmk-w">
+              <span><b>备注：</b>剩余两组触头明日继续更换。</span>
+            </div>
+          </div>
+          <div class="rep-date">2026年7月27日 星期一</div>
+          <div class="rep-row">
+            <div class="rep-top">
+              <span class="rep-plate">辽A·F24680</span>
+              <span class="rep-members">王振宇</span>
+              <span class="rep-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></span>
+            </div>
+            <div class="rep-chips"><em class="reason ok">通过</em></div>
+            <div class="rep-rmk-w">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              <span><b>备注：</b>电缆试验合格，报告见附件。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><i>⑤</i>验证报告页签 · 备注行</div>
+    <div class="wsub">
+      <span class="mk-row" style="max-width:640px;margin:0 auto"><span class="mk">7</span><span>与小程序同口径：报告范围扩为「不通过 ∪ 有备注」；<b>不通过记录</b>的备注在不通过说明（红色 chips）下行展示，<b>通过记录</b>以绿色「通过」签标识、仅展示备注行。备注黄色 #EAB308、不展示文件，有附件加曲别针标记；点击行仍跳转该日记录。</span></span>
+    </div>
+  </div>
+
+</main>
+
+</body>
+</html>

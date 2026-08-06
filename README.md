@@ -6,7 +6,8 @@
 
 - **Call Me**（`pkg-callme` + 网页端 `callme.html`）：基于 WeKnora 的 AI 知识库问答（SSE 流式对话）
 - **出工日志**（`pkg-worklog` + 网页端 `worklog.html`）：派车/巡视/打卡记录，水印照片经 Dify 工作流验证（`WORKLOG_ENABLED` 开关）；网页端重构自旧 `WorkLogs/` 独立服务，同源直连 `/api/v1/worklog`
-- **安全日活动记录**（`pkg-safeday` 引导页 + 网页端 `safeday.html`）：上传活动文档经 Dify 工作流生成记录文件；后端已合并进主服务（`server/src/safeday/`，`SAFEDAY_ENABLED` 开关），网页端登录要求 `safe-day` 应用权限
+- **安全日活动记录**（网页端 `safeday.html`）：上传活动文档经 Dify 工作流生成记录文件；后端已合并进主服务（`server/src/safeday/`，`SAFEDAY_ENABLED` 开关），网页端登录要求 `safe-day` 应用权限；小程序无页面，宫格点击统一提示前往 PC 端壹匣
+- **KVM 远程管理**（网页端 `kvm.html`）：对接 GLKVM Cloud 平台（员工同名账号代登取设备列表，卡片展示实时状态），终端/远程控制经带态跳转进平台页（仅能通过壹匣登录平台）；后端子模块 `server/src/kvm/`（`KVM_ENABLED` 开关），网页端登录要求 `kvm` 应用权限
 
 **文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；小程序 UI 定稿见 `design/style-5.html`，网页端 UI 定稿见 `design/web/`（方案A「安全橙传承」）。
 
@@ -26,12 +27,12 @@
 miniprogram/   微信小程序（主包：登录/首页/我的/管理页）
   pkg-callme/    Call Me 分包
   pkg-worklog/   出工日志分包（主页 + 常用数据管理页）
-  pkg-safeday/   安全日活动记录分包（网页端应用引导页）
 server/        后端 Node.js 单端口整合服务（API + 托管网页端）
-  public/        网页端（login.html / index.html 工作台 / callme / worklog / safeday + assets 公共资源）
+  public/        网页端（login.html / index.html 工作台 / callme / worklog / safeday / kvm + assets 公共资源）
   src/routes/    本体路由（auth/user/app/admin/callme）
   src/worklog/   出工日志后端子模块（schema/cos/dify/verify/路由）
   src/safeday/   安全日活动记录后端子模块（dify/merge/store/路由）
+  src/kvm/       KVM 远程管理后端子模块（GLKVM 平台 API 客户端/路由）
 design/        UI 设计稿（小程序定稿 style-5.html；design/web/ 网页端六方案，定稿方案A）
 SafeDayLogs/   安全日活动记录旧独立服务（已整合进 server/，仅作历史归档，不再维护部署）
 WorkLogs/      出工日志旧 PC 网页端独立服务（已整合进 server/，仅作历史归档，不再维护部署）
@@ -50,7 +51,7 @@ npm run start # 监听 0.0.0.0:$PORT（默认 3000）
 
 4. 验证：`curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常。
 
-**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html`，管理员另有 `admin.html`（员工与权限管理）。
+**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html`，管理员另有 `admin.html`（员工与权限管理）。
 
 **反向代理（1Panel/Nginx）**：用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，**一个端口同时服务网页与 API，无任何路径前缀配置**（旧 `PROXY_PREFIX` 机制已删除）；**SSE 流式对话必须**在反代配置补充：
 
@@ -60,7 +61,7 @@ proxy_read_timeout 300s;  # 推荐：长生成不被掐断（服务端另有 15s
 client_max_body_size 20m; # 图片上传（base64）需要
 ```
 
-**初始化**：首次启动自动建 `sys_user` / `sys_app` / `sys_user_app` 三张表，写入 Call Me、安全日活动记录应用记录，创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 6 张业务表并写入应用与 7 名成员种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
+**初始化**：首次启动自动建 `sys_user` / `sys_app` / `sys_user_app` 三张表，写入 Call Me、安全日活动记录、KVM 远程管理应用记录，创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 6 张业务表并写入应用与 7 名成员种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
 
 ## 环境变量清单
 
@@ -88,6 +89,8 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `DIFY_SAFEDAY_API_KEY` | 安全日记录生成工作流的 Dify API Key（与出工日志工作流共用 `DIFY_API_URL`） |
 | `SAFEDAY_CALLBACK_TOKEN` | Dify 回调 token（可选；配置后回调接口须带 `?token=` 校验，留空则不校验） |
 | `BASEMETAS_URL` | basemetas 文件预览服务地址（可选，如 `https://cloud.j1net.com/view`；配置后安全日记录可点击预览） |
+| `KVM_ENABLED` | KVM 远程管理后端开关：`true` 开启（挂载 `/api/v1/kvm`），`false` 关闭 |
+| `GLKVM_URL` / `GLKVM_PASSWORD` | GLKVM Cloud 平台地址与员工平台账号统一密码（以员工同名账号代登平台取设备列表；详见 开发指南.md 第十二节） |
 
 ## 小程序开发（微信开发者工具）
 

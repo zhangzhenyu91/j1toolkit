@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 出工日志网页版（方案A「安全橙传承」④：月历验证状态色点 + 当日日志卡片）
-     功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容 / 打卡 /
-     照片人名·重新验证·删除 / 新建·删除日志）；右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化）；
+     功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 /
+     照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志）；
+     右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化；验证报告范围 = 不通过 ∪ 有备注）；
      API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
 <html lang="zh-CN">
 <head>
@@ -88,8 +89,11 @@
   .dt { width: 5px; height: 5px; border-radius: 50%; }
   .dt-ok { background: var(--green); }
   .dt-bad { background: var(--red); }
+  /* 黄点 = 验证通过但有备注 */
+  .dt-warn { background: #EAB308; }
   .day.today { background: var(--navy); color: #fff; font-weight: 700; }
   .day.today .dt-ok { background: #7ED3A5; }
+  .day.today .dt-warn { background: #F5D96B; }
   .day.sel { box-shadow: 0 0 0 2px var(--orange); }
   .cal-lg {
     display: flex; gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hair);
@@ -204,6 +208,52 @@
   .patrol .p-edit svg { width: 12px; height: 12px; }
   .patrol:hover .p-edit { color: var(--orange); }
   .patrol.none { color: var(--ph); }
+  /* 备注块（左栏目的地下方；浅绿底 + 绿签绿字；无文字且无附件时不渲染，点击块进编辑） */
+  .rmk {
+    margin: 12px 22px 0; padding: 10px 14px; border: 1px solid #DDEAE2; background: #F3FAF6;
+    border-radius: 9px; cursor: pointer; transition: border-color .25s, background .25s;
+  }
+  .rmk:hover { border-color: var(--green); background: #EFF8F2; }
+  .rmk .rk-tag {
+    display: inline-block; margin-right: 8px; font-size: 10.5px; font-weight: 700; color: var(--green);
+    background: #E3F2EC; border-radius: 4px; padding: 1px 6px; letter-spacing: 1px;
+  }
+  .rmk .rk-edit { float: right; color: var(--ph); display: flex; align-items: center; }
+  .rmk .rk-edit svg { width: 12px; height: 12px; }
+  .rmk:hover .rk-edit { color: var(--green); }
+  .rmk .rk-text { font-size: 12.5px; font-weight: 600; color: var(--green); line-height: 1.7; word-break: break-all; }
+  /* 附件：图片 / 视频缩略图（视频深色底 + 播放标；点击进媒体大图层） */
+  .rmk .rk-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .rk-thumb {
+    position: relative; width: 52px; height: 52px; border-radius: 8px; overflow: hidden;
+    border: 1px solid #DDEAE2; background: var(--navy); cursor: zoom-in; display: block;
+  }
+  .rk-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .rk-thumb .rk-play {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff;
+  }
+  .rk-thumb .rk-play svg { width: 20px; height: 20px; }
+  /* 附件：Office 文档仅可点击文件名（下划线 + 安全橙，点击 basemetas 预览），行尾下载钮 */
+  .rmk .rk-docs { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+  .rk-doc { display: flex; align-items: center; gap: 7px; font-size: 12px; min-width: 0; }
+  .rk-doc > svg { width: 13px; height: 13px; flex: none; color: var(--ph); }
+  .rk-doc .fn {
+    color: var(--orange); font-weight: 600; text-decoration: underline; text-underline-offset: 2px;
+    cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .rk-doc .dl {
+    flex: none; margin-left: auto; color: var(--ph); cursor: pointer; display: flex; align-items: center;
+    padding: 3px; border-radius: 5px; transition: color .25s, background .25s;
+  }
+  .rk-doc .dl:hover { color: var(--orange); background: var(--orange-soft); }
+  .rk-doc .dl svg { width: 13px; height: 13px; }
+  /* 左栏操作行「备注」入口（与删除同族文字钮） */
+  .log-acts { gap: 4px; }
+  .act-note {
+    border: none; background: transparent; color: var(--sub); font-size: 12px; letter-spacing: 1px;
+    cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background .25s, color .25s;
+  }
+  .act-note:hover { background: var(--paper); color: var(--navy); }
   /* 水印照片网格（右栏内）：flex:1 + 行高 1fr 均分吃满右栏剩余高度，照片少时自动拉长与左侧信息栏底部齐平；
      照片多于左侧时按 .ph 最小高度（≈4/3）自然撑开卡片 */
   .ph-lab { padding: 14px 22px 8px; font-size: 12px; color: var(--ph); letter-spacing: 1px; }
@@ -268,6 +318,14 @@
   }
   .lb-x:hover { background: rgba(255, 255, 255, .28); }
   .lb-x svg { width: 17px; height: 17px; }
+  /* 媒体大图层下载钮（备注附件：图片/视频可下载，位置在关闭钮左侧） */
+  .lb-dl {
+    position: absolute; top: 18px; right: 64px; width: 38px; height: 38px; border-radius: 50%;
+    border: none; background: rgba(255, 255, 255, .14); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: background .25s;
+  }
+  .lb-dl:hover { background: rgba(255, 255, 255, .28); }
+  .lb-dl svg { width: 16px; height: 16px; }
   .lb-arrow {
     position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px; border-radius: 50%;
     border: none; background: rgba(255, 255, 255, .14); color: #fff; cursor: pointer;
@@ -314,6 +372,39 @@
   .f-sel:disabled { background: var(--paper); color: var(--ph); cursor: not-allowed; }
   .f-ta { min-height: 110px; padding: 10px 12px; line-height: 1.7; resize: vertical; }
   .f-hint { margin-top: 6px; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
+  /* 备注编辑弹层附件：缩略图 × 移除 + 虚线添加钮；文档文件条 */
+  .att-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+  .att-cell { position: relative; width: 56px; height: 56px; }
+  .att-thumb {
+    width: 56px; height: 56px; border-radius: 8px; border: 1px solid var(--hair); overflow: hidden;
+    background: var(--navy); display: flex; align-items: center; justify-content: center; color: #fff;
+  }
+  .att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .att-thumb .att-play svg { width: 22px; height: 22px; }
+  .att-x {
+    position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--navy); color: #fff; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .att-x svg { width: 10px; height: 10px; }
+  .att-add {
+    width: 56px; height: 56px; border-radius: 8px; border: 1.5px dashed var(--dash); background: transparent;
+    color: var(--ph); cursor: pointer; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 3px; font-size: 10px; letter-spacing: 0; transition: border-color .25s, color .25s;
+  }
+  .att-add:hover { border-color: var(--orange); color: var(--orange); }
+  .att-add svg { width: 17px; height: 17px; }
+  .att-docs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .att-docrow {
+    display: flex; align-items: center; gap: 7px; padding: 6px 10px;
+    border: 1px solid var(--hair); border-radius: 6px; background: #FAF8F1;
+    font-size: 12px; font-weight: 600; color: var(--navy);
+  }
+  .att-docrow > svg { width: 13px; height: 13px; flex: none; color: var(--ph); }
+  .att-docrow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att-docrow .att-x { position: static; width: 20px; height: 20px; background: transparent; color: var(--ph); }
+  .att-docrow .att-x:hover { color: var(--red); }
+  .att-docrow .att-x svg { width: 11px; height: 11px; }
   /* 点亮 chips（用车人选择 / 照片人名 / 快捷输入共用） */
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip {
@@ -428,6 +519,14 @@
     font-style: normal; font-size: 11px; font-weight: 700; color: var(--red);
     background: #FBE9E9; border-radius: 5px; padding: 3px 9px; letter-spacing: .5px; line-height: 1.55;
   }
+  /* 通过 / 免验证标识签（报告范围扩为「不通过 ∪ 有备注」后用于区分） */
+  .reason.ok { color: var(--green); background: #EAF5EF; }
+  .reason.exempt { color: var(--sub); background: var(--paper); }
+  /* 报告备注行：明金黄 #EAB308；不展示文件，有附件时行首曲别针标记 */
+  .rep-rmk { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 700; color: #EAB308; line-height: 1.6; }
+  .rep-rmk svg { width: 13px; height: 13px; flex: none; margin-top: 2px; }
+  /* 日期标题右侧备注计数（未通过计数沿用 .cnt 红色） */
+  .rep-date .cnt2 { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--ph); }
   .rep-go { margin-left: auto; flex: none; color: var(--ph); display: flex; }
   .rep-go svg { width: 14px; height: 14px; }
   .rep-row:hover .rep-go { color: var(--orange); }
@@ -493,6 +592,7 @@
       <div class="cal-grid" id="calBody"></div>
       <div class="cal-lg">
         <span><i class="dt dt-ok"></i>已验证</span>
+        <span><i class="dt dt-warn"></i>有备注</span>
         <span><i class="dt dt-bad"></i>待核实</span>
       </div>
     </aside>
@@ -540,7 +640,8 @@
 <script>
 /* ============================================================
    出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·验证报告三页签（原下载、报告弹层已页签化）
-   编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容 / 打卡 / 照片人名·重新验证·删除 / 新建·删除日志
+   编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
+   验证报告范围 = 不通过记录 ∪ 有备注记录（备注黄色行，不展示文件，有附件以曲别针标记）
    （水印照片上传依赖小程序拍摄·裁剪·定位加水印流程，网页端不提供，见回报说明）
    ============================================================ */
 (function () {
@@ -581,6 +682,10 @@ var SVG_CAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 var SVG_CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>';
 var SVG_CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>';
 var SVG_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.2"/></svg>';
+/* 备注附件用：播放 / 文档 / 曲别针（报告附件标记） */
+var SVG_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" fill="rgba(0,0,0,.38)"/><path d="M10 8.5l6 3.5-6 3.5z"/></svg>';
+var SVG_DOC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>';
+var SVG_CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 /* 快捷输入（与小程序一致：巡视内容与水印施工内容共用） */
 var QUICK_INPUTS = ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'];
 
@@ -753,8 +858,16 @@ function cardHTML(e, idx, total) {
     }).join('') + '</div>';
   }
 
-  /* 卡片主体：左栏信息（派车 / 用车人 / 目的地 / 巡视内容 / 删除），右栏照片，黄金分割且照片侧为大侧 */
+  /* 卡片主体：左栏信息（巡视内容 / 派车 / 用车人 / 目的地 / 备注 / 删除），右栏照片，黄金分割且照片侧为大侧 */
   html += '<div class="log-body"><div class="log-side-l">';
+
+  /* 巡视内容块：点击弹层修改（无内容也可点击填写），快捷输入同小程序；位置在派车车辆上方 */
+  var pEdit = '<span class="p-edit">' + Shade.icon('edit', 12) + '</span>';
+  if (e.patrol_content) {
+    html += '<div class="patrol" data-act="patrol" title="点击修改巡视内容"><span class="p-tag">巡视内容</span>' + pEdit + esc(e.patrol_content) + '</div>';
+  } else {
+    html += '<div class="patrol none" data-act="patrol" title="点击填写巡视内容"><span class="p-tag">巡视内容</span>' + pEdit + '未填写巡视内容</div>';
+  }
 
   /* 信息行：派车车辆 / 用车人 / 目的地（出工时间行已按反馈移除，created_at 字段数据保留） */
   var members = (e.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
@@ -774,16 +887,35 @@ function cardHTML(e, idx, total) {
     + '<div class="lv">' + esc(noCar ? '—' : (e.destination_name || '未选择')) + '</div></div>'
     + '</div>';
 
-  /* 巡视内容块：点击弹层修改（无内容也可点击填写），快捷输入同小程序 */
-  var pEdit = '<span class="p-edit">' + Shade.icon('edit', 12) + '</span>';
-  if (e.patrol_content) {
-    html += '<div class="patrol" data-act="patrol" title="点击修改巡视内容"><span class="p-tag">巡视内容</span>' + pEdit + esc(e.patrol_content) + '</div>';
-  } else {
-    html += '<div class="patrol none" data-act="patrol" title="点击填写巡视内容"><span class="p-tag">巡视内容</span>' + pEdit + '未填写巡视内容</div>';
+  /* 备注块：目的地下方；无文字且无附件时不渲染。点击块进编辑；附件点击预览（图片/视频媒体层、文档 basemetas），不冒泡 */
+  var rmkFiles = Array.isArray(e.remark_files) ? e.remark_files : [];
+  if (e.remark || rmkFiles.length) {
+    var media = [];
+    var docs = [];
+    rmkFiles.forEach(function (f) { (f.type === 'doc' ? docs : media).push(f); });
+    html += '<div class="rmk" data-act="remark" title="点击修改备注">'
+      + '<span class="rk-tag">备注</span><span class="rk-edit">' + Shade.icon('edit', 12) + '</span>'
+      + (e.remark ? '<div class="rk-text">' + esc(e.remark) + '</div>' : '');
+    if (media.length) {
+      html += '<div class="rk-files">' + media.map(function (f, i) {
+        var inner = f.type === 'image'
+          ? '<img src="' + esc(f.url) + '" loading="lazy" alt="备注图片">'
+          : '<span class="rk-play">' + SVG_PLAY + '</span>';
+        return '<span class="rk-thumb" data-ract="media" data-idx="' + i + '" title="点击预览">' + inner + '</span>';
+      }).join('') + '</div>';
+    }
+    if (docs.length) {
+      html += '<div class="rk-docs">' + docs.map(function (f) {
+        return '<span class="rk-doc">' + SVG_DOC
+          + '<span class="fn" data-ract="doc" data-key="' + esc(f.cos_key) + '" title="点击预览">' + esc(f.name) + '</span>'
+          + '<span class="dl" data-ract="dl" data-key="' + esc(f.cos_key) + '" title="下载">' + Shade.icon('download', 13) + '</span></span>';
+      }).join('') + '</div>';
+    }
+    html += '</div>';
   }
 
-  /* 左栏底部操作行：删除日志（同小程序卡片直改） */
-  html += '<div class="log-acts"><button class="act-del" data-act="del">删除</button></div>';
+  /* 左栏底部操作行：备注 / 删除日志（同小程序卡片直改） */
+  html += '<div class="log-acts"><button class="act-note" data-act="remark">备注</button><button class="act-del" data-act="del">删除</button></div>';
   html += '</div><div class="log-side-r">';
 
   /* 水印照片网格（右栏） */
@@ -877,6 +1009,7 @@ function renderCal() {
     dot = '';
     if (st === 'passed') dot = '<i class="dt dt-ok"></i>';
     else if (st === 'failed') dot = '<i class="dt dt-bad"></i>';
+    else if (st === 'remark') dot = '<i class="dt dt-warn"></i>'; // 通过但有备注 → 黄点
     html += '<span class="day' + (ds === td ? ' today' : '') + (ds === state.date ? ' sel' : '') + '" data-d="' + ds + '">'
       + i + '<span class="ds">' + dot + '</span></span>';
   }
@@ -983,6 +1116,229 @@ function renderLB() {
       var en = findEntry(lbInst.eid);
       if (en) openPhotoMembersModal(en, photo);
     });
+  });
+}
+
+/* ================= 备注附件：媒体大图层（图片同水印照片大图逻辑 / 视频点击播放） ================= */
+var mlbInst = null; // {eid, items:[file], idx}
+function openMediaLb(entry, items, idx) {
+  if (!items.length) return;
+  closeLightbox(); // 与照片大图层共用 #lightbox 容器，互斥打开
+  mlbInst = { eid: entry.id, items: items, idx: idx };
+  renderMediaLb();
+  $('#lightbox').classList.add('open');
+}
+function closeMediaLb() {
+  mlbInst = null;
+  $('#lightbox').classList.remove('open');
+}
+function shiftMediaLb(delta) {
+  if (!mlbInst) return;
+  var n = mlbInst.items.length;
+  mlbInst.idx = (mlbInst.idx + delta + n) % n;
+  renderMediaLb();
+}
+function renderMediaLb() {
+  var it = mlbInst.items[mlbInst.idx];
+  var many = mlbInst.items.length > 1;
+  var html = '<button class="lb-x">' + Shade.icon('close', 17) + '</button>'
+    + '<button class="lb-dl" title="下载附件">' + Shade.icon('download', 16) + '</button>'
+    + (many ? '<button class="lb-arrow l">' + SVG_CHEV_L + '</button><button class="lb-arrow r">' + SVG_CHEV_R + '</button>' : '')
+    + '<div class="lb-main"><div class="lb-stage">'
+    + (it.type === 'video'
+      ? '<video class="lb-img" src="' + esc(it.url) + '" controls autoplay playsinline></video>'
+      : '<img class="lb-img" src="' + esc(it.url) + '" alt="备注附件大图">')
+    + '<div class="lb-count">' + esc(it.name) + (many ? ' · ' + (mlbInst.idx + 1) + ' / ' + mlbInst.items.length : '') + '</div>'
+    + '</div></div>';
+  var lb = $('#lightbox');
+  lb.innerHTML = html;
+  $('.lb-x', lb).addEventListener('click', function (e) { e.stopPropagation(); closeMediaLb(); });
+  $('.lb-dl', lb).addEventListener('click', function (e) {
+    e.stopPropagation();
+    var en = findEntry(mlbInst.eid);
+    if (en) dlRemarkFile(en, mlbInst.items[mlbInst.idx]);
+  });
+  if (many) {
+    $('.lb-arrow.l', lb).addEventListener('click', function (e) { e.stopPropagation(); shiftMediaLb(-1); });
+    $('.lb-arrow.r', lb).addEventListener('click', function (e) { e.stopPropagation(); shiftMediaLb(1); });
+  }
+}
+
+/* ================= 备注附件：下载 / 文档预览 / 上传 ================= */
+/* 下载：经服务端回源代理（COS 跨域无 CORS），fetch + blob 落地（同 ZIP 打包下载口径） */
+async function dlRemarkFile(entry, f) {
+  try {
+    var headers = {};
+    var token = localStorage.getItem('shade_token');
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    var res = await fetch('/api/v1/worklog/logs/' + entry.id + '/remark-download?key=' + encodeURIComponent(f.cos_key), { headers: headers });
+    if (res.status === 401) {
+      localStorage.removeItem('shade_token');
+      localStorage.removeItem('shade_user');
+      location.href = '/login.html';
+      return;
+    }
+    if (!res.ok) {
+      var ej = null;
+      try { ej = await res.json(); } catch (e) { }
+      throw new Error((ej && ej.message) || ('下载失败（' + res.status + '）'));
+    }
+    var blob = await res.blob();
+    var a = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = f.name || '附件';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* Office 文档预览：调 remark-preview 取 basemetas 地址新标签打开（同安全日记录）；未配置预览服务时回退直接下载 */
+async function openRemarkDoc(entry, f) {
+  try {
+    var r = await Shade.api('/api/v1/worklog/logs/' + entry.id + '/remark-preview?key=' + encodeURIComponent(f.cos_key));
+    if (r.data && r.data.url) {
+      window.open(r.data.url, '_blank');
+      return;
+    }
+    throw new Error('预览地址为空');
+  } catch (e) {
+    Shade.toast((e.message || '预览失败') + '，已改为直接下载', 'info');
+    dlRemarkFile(entry, f);
+  }
+}
+
+/* 上传单个备注附件（multipart；返回入库用文件元数据） */
+async function uploadRemarkFile(entryId, f) {
+  var fd = new FormData();
+  fd.append('name', f.name);
+  fd.append('file', f.file, f.name);
+  var headers = {};
+  var token = localStorage.getItem('shade_token');
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  var res = await fetch('/api/v1/worklog/logs/' + entryId + '/remark-files', { method: 'POST', headers: headers, body: fd });
+  if (res.status === 401) {
+    localStorage.removeItem('shade_token');
+    localStorage.removeItem('shade_user');
+    location.href = '/login.html';
+    throw new Error('登录已过期');
+  }
+  var j = null;
+  try { j = await res.json(); } catch (e) { }
+  if (res.ok && j && j.code === 0) return j.data;
+  throw new Error((j && j.message) || ('附件上传失败（' + res.status + '）'));
+}
+
+/* ================= 备注编辑弹层（文字 + 附件；「保 存」时新附件先传 COS 再 PUT 全量字段） ================= */
+var RMK_DOC_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf'];
+var RMK_IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+var RMK_VIDEO_EXTS = ['mp4', 'mov', 'm4v'];
+function fileExt(name) {
+  var i = String(name || '').lastIndexOf('.');
+  return i === -1 ? '' : String(name).slice(i + 1).toLowerCase();
+}
+function openRemarkModal(entry) {
+  /* files：已传附件带 cos_key（isNew=false 原样回传）；新选文件带 File 对象（isNew=true 保存时上传）；
+     k 为本地唯一键（已传附件用 cos_key，新选文件用随机键），供移除定位 */
+  var files = (entry.remark_files || []).map(function (f) {
+    return { k: f.cos_key, name: f.name, url: f.url, cos_key: f.cos_key, type: f.type, size: f.size, isNew: false };
+  });
+  var html = mHead('编辑备注')
+    + '<div class="f-hint" style="margin:0 0 2px">' + esc(fmtDateCN(entry.log_date)) + ' · ' + esc(entry.vehicle_id == null ? '未出车' : entry.plate_no) + '</div>'
+    + '<label class="f-lab">备注内容</label>'
+    + '<textarea class="f-ta" id="rkTa" placeholder="请输入备注（可空）" maxlength="500">' + esc(entry.remark || '') + '</textarea>'
+    + '<label class="f-lab">附件（图片 / 视频 / Office 文档，最多 9 个）</label>'
+    + '<div class="att-grid" id="rkGrid"></div>'
+    + '<div class="att-docs" id="rkDocs"></div>'
+    + '<div class="f-hint">Office 文档支持 doc / docx / xls / xlsx / ppt / pptx / pdf；单个附件不超过 50MB，保存时上传</div>'
+    + '<input type="file" id="rkFileMedia" hidden multiple accept="image/*,video/*">'
+    + '<input type="file" id="rkFileDoc" hidden multiple accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf">'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+  var inst = createModal(html, { width: 560 });
+  var saving = false;
+
+  function renderAtt() {
+    var media = files.filter(function (f) { return f.type !== 'doc'; });
+    var docs = files.filter(function (f) { return f.type === 'doc'; });
+    $('#rkGrid', inst.box).innerHTML = media.map(function (f) {
+      var inner = f.type === 'video'
+        ? '<span class="att-play">' + SVG_PLAY + '</span>'
+        : '<img src="' + esc(f.url) + '" alt="备注附件">';
+      return '<span class="att-cell"><span class="att-thumb">' + inner + '</span>'
+        + '<button class="att-x" data-k="' + esc(f.k) + '" title="移除">' + Shade.icon('close', 10) + '</button></span>';
+    }).join('') + (files.length < 9
+      ? '<button class="att-add" data-t="media">' + Shade.icon('add', 16) + '图片/视频</button>'
+        + '<button class="att-add" data-t="doc">' + SVG_DOC + 'Office 文档</button>'
+      : '');
+    $('#rkDocs', inst.box).innerHTML = docs.map(function (f) {
+      return '<span class="att-docrow">' + SVG_DOC + '<span class="nm" title="' + esc(f.name) + '">' + esc(f.name) + '</span>'
+        + '<button class="att-x" data-k="' + esc(f.k) + '" title="移除">' + Shade.icon('close', 11) + '</button></span>';
+    }).join('');
+    $$('.att-x', inst.box).forEach(function (b) {
+      b.addEventListener('click', function () {
+        files = files.filter(function (f) { return f.k !== b.dataset.k; });
+        renderAtt();
+      });
+    });
+    $$('.att-add', inst.box).forEach(function (b) {
+      b.addEventListener('click', function () {
+        $(b.dataset.t === 'doc' ? '#rkFileDoc' : '#rkFileMedia', inst.box).click();
+      });
+    });
+  }
+
+  function pickFiles(list, kind) {
+    Array.prototype.slice.call(list).forEach(function (file) {
+      if (files.length >= 9) { Shade.toast('附件最多 9 个', 'info'); return; }
+      if (file.size > 50 * 1024 * 1024) { Shade.toast('单个附件不超过 50MB', 'info'); return; }
+      var ext = fileExt(file.name);
+      var type = RMK_IMG_EXTS.indexOf(ext) >= 0 ? 'image' : (RMK_VIDEO_EXTS.indexOf(ext) >= 0 ? 'video' : (RMK_DOC_EXTS.indexOf(ext) >= 0 ? 'doc' : ''));
+      if (!type || (kind === 'doc') !== (type === 'doc')) {
+        Shade.toast('不支持的文件类型：' + file.name, 'info');
+        return;
+      }
+      files.push({
+        k: 'new-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+        name: file.name, type: type, size: file.size, file: file, isNew: true,
+        url: type === 'image' ? URL.createObjectURL(file) : '',
+      });
+    });
+    renderAtt();
+  }
+  $('#rkFileMedia', inst.box).addEventListener('change', function () { pickFiles(this.files, 'media'); this.value = ''; });
+  $('#rkFileDoc', inst.box).addEventListener('change', function () { pickFiles(this.files, 'doc'); this.value = ''; });
+
+  renderAtt();
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    if (saving) return;
+    saving = true;
+    try {
+      /* 新附件逐个上传（失败整体中止留弹层可重试）；已传附件原样回传 */
+      var metas = [];
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        if (f.isNew) metas.push(await uploadRemarkFile(entry.id, f));
+        else metas.push({ name: f.name, url: f.url, cos_key: f.cos_key, type: f.type, size: f.size });
+      }
+      /* PUT 全量字段：车牌/目的地/用车人取卡片最新值，仅替换备注（同小程序） */
+      var payload = payloadOf(entry, entry.patrol_content, entry.vehicle_id > 0 ? entry.vehicle_id : -1,
+        entry.destination_id || 0, (entry.members || []).map(function (m) { return m.member_id; }));
+      payload.remark = $('#rkTa', inst.box).value.trim();
+      payload.remark_files = metas;
+      await Shade.api('/api/v1/worklog/logs/' + entry.id, { method: 'PUT', body: payload });
+      inst.close();
+      Shade.toast('备注已保存', 'success');
+      refreshAfterEdit();
+    } catch (e2) {
+      saving = false;
+      Shade.toast(e2.message, 'error');
+    }
   });
 }
 
@@ -1381,12 +1737,12 @@ function switchPane(key) {
   var isRec = key === 'Record';
   $('#photoCnt').hidden = !isRec;
   $('#btnCreate').hidden = !isRec;
-  /* 首次进入页签时按默认范围自动加载 */
+  /* 下载页签首次进入按默认范围自动加载；验证报告每次切回都重查（卡片可直改备注，避免陈旧数据） */
   if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
-  if (key === 'Rep' && !state.rep.loaded) loadReport();
+  if (key === 'Rep') loadReport();
 }
 
-/* ================= 验证报告（页签内嵌：验证不通过记录查看） ================= */
+/* ================= 验证报告（页签内嵌：不通过记录 ∪ 有备注记录） ================= */
 async function loadReport() {
   if (!state.rep.from || !state.rep.to) { Shade.toast('请选择起止日期', 'info'); return; }
   var body = $('#repBody');
@@ -1396,9 +1752,11 @@ async function loadReport() {
       + '&scope=' + state.scope);
     var list = (r.data && r.data.list) || [];
     state.rep.loaded = true;
-    $('#repTotal').textContent = '合计 ' + list.length + ' 条';
+    var failedTotal = list.filter(function (x) { return (x.reasons || []).length; }).length;
+    var rmkTotal = list.filter(function (x) { return x.remark || x.remark_has_files; }).length;
+    $('#repTotal').textContent = '合计 ' + list.length + ' 条（未通过 ' + failedTotal + ' · 备注 ' + rmkTotal + '）';
     if (!list.length) {
-      body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44) + '<p>该范围内全部通过</p></div>';
+      body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44) + '<p>该范围内全部通过，亦无备注记录</p></div>';
       return;
     }
     /* 按 log_date 分组（保持接口顺序） */
@@ -1408,14 +1766,28 @@ async function loadReport() {
       cur.items.push(it);
     });
     body.innerHTML = groups.map(function (g) {
+      var failedN = g.items.filter(function (x) { return (x.reasons || []).length; }).length;
+      var rmkN = g.items.filter(function (x) { return x.remark || x.remark_has_files; }).length;
       return '<div class="rep-group"><div class="rep-date">' + esc(fmtDateCN(g.date))
-        + '<span class="cnt">' + g.items.length + ' 条未通过</span></div>'
+        + (failedN ? '<span class="cnt">' + failedN + ' 条未通过</span>' : '')
+        + (rmkN ? '<span class="cnt2">' + rmkN + ' 条备注</span>' : '') + '</div>'
         + g.items.map(function (it) {
+          var failed = (it.reasons || []).length > 0;
+          /* 不通过原因 chips；无原因（仅备注入列）时以 通过/免验证 签标识 */
+          var chips = failed
+            ? it.reasons.map(function (x) { return '<em class="reason">' + esc(x) + '</em>'; }).join('')
+            : '<em class="reason ' + (it.verify === 'exempt' ? 'exempt' : 'ok') + '">'
+              + (it.verify === 'exempt' ? '免验证' : '通过') + '</em>';
+          /* 备注行：黄色，不展示文件，有附件时行首曲别针标记 */
+          var rmk = (it.remark || it.remark_has_files)
+            ? '<div class="rep-rmk">' + (it.remark_has_files ? SVG_CLIP : '')
+              + '<span><b>备注：</b>' + esc(it.remark || '（仅附件）') + '</span></div>'
+            : '';
           return '<div class="rep-row" data-d="' + it.log_date + '" title="点击查看该日记录">'
             + '<div class="rep-top"><span class="rep-plate">' + esc(it.plate_no || '未出车') + '</span>'
             + '<span class="rep-members">' + esc((it.members || []).join('、')) + '</span>'
             + '<span class="rep-go">' + Shade.icon('chevron-right', 14) + '</span></div>'
-            + '<div class="rep-chips">' + (it.reasons || []).map(function (x) { return '<em class="reason">' + esc(x) + '</em>'; }).join('') + '</div></div>';
+            + '<div class="rep-chips">' + chips + '</div>' + rmk + '</div>';
         }).join('') + '</div>';
     }).join('');
   } catch (e) {
@@ -1502,8 +1874,28 @@ function initEvents() {
     switchPane('Record');
     gotoDate(row.dataset.d);
   });
-  /* 卡片流点击委派：改派车 / 打卡切换 / 删除日志 / 巡视内容编辑 / 照片大图 */
+  /* 卡片流点击委派：改派车 / 打卡切换 / 删除日志 / 巡视内容·备注编辑 / 备注附件预览·下载 / 照片大图 */
   $('#cardFlow').addEventListener('click', function (e) {
+    /* 备注附件：优先于备注块编辑（不冒泡到 data-act） */
+    var ractEl = e.target.closest('[data-ract]');
+    if (ractEl) {
+      var rCard = ractEl.closest('.log-card');
+      var rEntry = rCard && findEntry(+rCard.dataset.eid);
+      if (!rEntry) return;
+      var files = rEntry.remark_files || [];
+      var ract = ractEl.dataset.ract;
+      if (ract === 'media') {
+        var media = files.filter(function (f) { return f.type === 'image' || f.type === 'video'; });
+        openMediaLb(rEntry, media, +ractEl.dataset.idx || 0);
+        return;
+      }
+      var hit = null;
+      files.forEach(function (f) { if (f.cos_key === ractEl.dataset.key) hit = f; });
+      if (!hit) return;
+      if (ract === 'doc') openRemarkDoc(rEntry, hit);
+      else if (ract === 'dl') dlRemarkFile(rEntry, hit);
+      return;
+    }
     var actEl = e.target.closest('[data-act]');
     if (actEl) {
       var card = actEl.closest('.log-card');
@@ -1512,6 +1904,7 @@ function initEvents() {
       var act = actEl.dataset.act;
       if (act === 'edit') { openEntryForm(entry); return; }
       if (act === 'patrol') { openPatrolModal(entry); return; }
+      if (act === 'remark') { openRemarkModal(entry); return; }
       if (act === 'del') { deleteEntry(entry); return; }
       if (act === 'check') { toggleCheck(entry, +actEl.dataset.mid, actEl); return; }
       return;
@@ -1526,19 +1919,25 @@ function initEvents() {
       openLightbox(en, idx);
     }
   });
-  /* 大图遮罩层：点空白关闭；Esc 关闭弹层/大图；左右箭头切换 */
+  /* 大图遮罩层：点空白关闭（照片大图 / 备注媒体层）；Esc 关闭弹层/大图；左右箭头切换 */
   $('#lightbox').addEventListener('click', function (e) {
-    if (e.target === this) closeLightbox();
+    if (e.target === this) {
+      if (lbInst) closeLightbox();
+      if (mlbInst) closeMediaLb();
+    }
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
       if (lbInst) { closeLightbox(); return; }
+      if (mlbInst) { closeMediaLb(); return; }
       var top = modalStack[modalStack.length - 1];
       if (top) top.close();
       return;
     }
     if (lbInst && e.key === 'ArrowLeft') shiftLB(-1);
-    if (lbInst && e.key === 'ArrowRight') shiftLB(1);
+    else if (lbInst && e.key === 'ArrowRight') shiftLB(1);
+    else if (mlbInst && e.key === 'ArrowLeft') shiftMediaLb(-1);
+    else if (mlbInst && e.key === 'ArrowRight') shiftMediaLb(1);
   });
 }
 
