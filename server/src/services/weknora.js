@@ -45,11 +45,13 @@ async function getSession(username, id) {
 
 // 会话消息列表（该版本 WeKnora 的 GET /sessions/{id} 只返回元数据，
 // 消息在独立接口 GET /messages/{session_id}/load，支持 before_time/limit 分页）
-async function listMessages(username, id, limit = 50) {
+async function listMessages(username, id, { limit = 50, beforeTime } = {}) {
   ensureConfigured();
+  const params = { limit };
+  if (beforeTime) params.before_time = beforeTime;
   const res = await client.get(`/messages/${id}/load`, {
     headers: extHeaders(username),
-    params: { limit },
+    params,
   });
   return res.data;
 }
@@ -83,7 +85,6 @@ async function agentChatStream(username, sessionId, { query, images }) {
     agent_id: config.weknora.agentId,
     agent_enabled: true,
     web_search_enabled: false,
-    enable_memory: true,
     channel: 'api',
   };
   if (Array.isArray(images) && images.length) {

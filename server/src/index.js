@@ -57,8 +57,15 @@ if (config.kvm.enabled) {
 app.use((req, res) => fail(res, 404, 40404, '接口不存在'));
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  // body-parser 的解析错误带有 err.type，映射为准确的状态码（默认会吞成 500）
+  if (err.type === 'entity.too.large') {
+    return fail(res, 413, 41301, '请求体过大，图片请控制在 8MB 以内');
+  }
+  if (err.type === 'entity.parse.failed') {
+    return fail(res, 400, 40001, '请求体不是合法 JSON');
+  }
   console.error('[服务错误]', err);
-  fail(res, 500, 50000, '服务器开小差了，请稍后再试');
+  return fail(res, 500, 50000, '服务器开小差了，请稍后再试');
 });
 
 ensureSchema()

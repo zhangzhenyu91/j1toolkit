@@ -12,9 +12,19 @@
     scroll-with-animation
   >
     <view class="msg-list">
+      <!-- 更早消息分页入口 -->
+      <view
+        wx:if="{{hasMore}}"
+        class="load-earlier"
+        hover-class="hover-opacity"
+        bindtap="loadEarlier"
+      >
+        加载更早消息
+      </view>
       <view
         wx:for="{{messages}}"
-        wx:key="index"
+        wx:key="key"
+        id="m-{{item.key}}"
         class="msg-row {{item.role === 'user' ? 'msg-right' : 'msg-left'}}"
       >
         <!-- 用户消息：右侧安全橙气泡 -->
@@ -30,14 +40,14 @@
           <text wx:if="{{item.content}}" user-select>{{item.content}}</text>
         </view>
 
-        <!-- AI 消息：左侧白卡气泡 -->
+        <!-- AI 消息：无气泡，步骤树 + 纯文本回答（对齐官方前端） -->
         <view wx:else class="ai-side">
-          <!-- 思考内容：流式期间展开，回答完毕自动折叠，可点击再展开 -->
-          <view wx:if="{{item.thinking}}" class="think-box">
+          <!-- 步骤树：流式期间展开，回答完毕自动折叠为摘要行，可点击再展开 -->
+          <view wx:if="{{item.steps.length}}" class="think-box">
             <view class="think-head" hover-class="hover-opacity" data-index="{{index}}" bindtap="toggleThinking">
               <view class="think-title">
                 <view class="think-dot {{item.streaming ? 'think-dot-on' : ''}}"></view>
-                <text>{{item.streaming ? '正在思考…' : '思考过程'}}</text>
+                <text>{{item.thinkLabel || (item.streaming ? '正在思考…' : '思考过程')}}</text>
               </view>
               <t-icon
                 name="chevron-down"
@@ -46,9 +56,42 @@
                 class="think-arrow {{item.streaming || item.thinkingExpanded ? 'think-arrow-open' : ''}}"
               />
             </view>
-            <view wx:if="{{item.streaming || item.thinkingExpanded}}" class="think-content">
-              {{item.thinking}}
-            </view>
+            <!-- 限高滚动盒（与网页端一致）：流式期间 scroll-into-view 跟随最新消息，
+                 完结后的展开态为静态内滚，避免长思考把页面拉得过长 -->
+            <scroll-view
+              wx:if="{{item.streaming || item.thinkingExpanded}}"
+              class="step-scroll"
+              scroll-y
+              enhanced
+              show-scrollbar="{{false}}"
+              scroll-into-view="{{item.stepToView}}"
+            >
+              <view class="step-list">
+                <view wx:for="{{item.steps}}" wx:for-item="step" wx:key="sid" class="step">
+                  <view class="step-rail">
+                    <view class="step-icon {{step.status === 'running' ? 'step-icon-run' : ''}}">
+                      <t-icon
+                        name="{{step.icon}}"
+                        size="28rpx"
+                        color="{{step.status === 'running' ? '#F26D21' : (step.status === 'error' ? '#CF4444' : '#A89F8A')}}"
+                      />
+                    </view>
+                    <view wx:if="{{index < item.steps.length - 1}}" class="step-line"></view>
+                  </view>
+                  <view class="step-main">
+                    <view
+                      wx:if="{{step.kind === 'tool'}}"
+                      class="step-title {{step.status === 'running' ? 'step-title-run' : ''}} {{step.status === 'error' ? 'step-title-err' : ''}}"
+                    >
+                      {{step.title}}
+                    </view>
+                    <view wx:if="{{step.summary}}" class="step-summary">{{step.summary}}</view>
+                    <view wx:if="{{step.kind === 'thought'}}" class="step-text">{{step.text}}</view>
+                  </view>
+                </view>
+              </view>
+              <view id="se-{{item.key}}" class="step-end"></view>
+            </scroll-view>
           </view>
 
           <view class="bubble ai-bubble {{item.error ? 'ai-error' : ''}}">
@@ -61,8 +104,16 @@
             />
             <text wx:elif="{{item.content}}" user-select>{{item.content}}</text>
             <text wx:if="{{item.streaming}}" class="cursor">▍</text>
-            <view wx:if="{{item.streaming && !item.content && !item.thinking}}" class="thinking">
+            <view wx:if="{{item.streaming && !item.content && !item.steps.length}}" class="thinking">
               正在思考…
+            </view>
+          </view>
+
+          <!-- 引用来源（回答完成后随气泡展示） -->
+          <view wx:if="{{item.references && item.references.length}}" class="ref-box">
+            <view class="ref-title">参考来源</view>
+            <view wx:for="{{item.references}}" wx:for-item="ref" wx:key="id" class="ref-item">
+              {{ref.title}}
             </view>
           </view>
 

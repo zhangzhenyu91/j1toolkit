@@ -60,6 +60,9 @@
     'monitor': '<rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/>',
     /* KVM 应用（与 tdesign terminal 同名） */
     'terminal': '<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7 9.5l3 3-3 3"/><path d="M12.5 15.5H17"/>',
+    /* Call Me 步骤树（与 tdesign lightbulb / tools 同名） */
+    'lightbulb': '<path d="M9.5 18.5h5M10.5 21h3"/><path d="M12 3.5a5.8 5.8 0 0 0-3.6 10.3c.8.7 1.4 1.6 1.6 2.7h4c.2-1.1.8-2 1.6-2.7A5.8 5.8 0 0 0 12 3.5z"/>',
+    'tools': '<path d="M14.6 6.2a4 4 0 0 0-5.5 5.2L4 16.5V20h3.5l5.1-5.1a4 4 0 0 0 5.2-5.5l-2.7 2.7-2.4-.6-.6-2.4z"/>',
   };
 
   /**
