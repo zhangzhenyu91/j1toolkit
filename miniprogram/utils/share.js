@@ -5,6 +5,7 @@ const SHARE_IMAGES = {
   'call-me': '/images/share/share-call-me.jpg',
   'work-log': '/images/share/share-work-log.jpg',
   'safe-day': '/images/share/share-safe-day.jpg',
+  'file-transfer': '/images/share/share-file-transfer.jpg',
 };
 
 // 在页面 onShareAppMessage 中调用：

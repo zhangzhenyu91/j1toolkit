@@ -1,0 +1,156 @@
+<!-- 安全日活动记录 · 小程序端（双端应用，app_key safe-day）
+     布局与逻辑同网页端 safeday.html：上传卡（选文件/活动日期/生成）+ 生成进度卡 + 记录列表；
+     上传走 wx.chooseMessageFile 聊天选取，记录点击经 wx.openDocument 打开 -->
+<navbar back title="安全日活动记录" />
+
+<view class="page-body">
+  <!-- 上传活动文件卡 -->
+  <view class="section-title">上传活动文件</view>
+  <view class="card hazard-top up-card">
+    <!-- 选取入口（聊天文件） -->
+    <view class="upzone" hover-class="hover-opacity" bindtap="onPickFiles">
+      <view class="up-ic">
+        <t-icon name="upload" size="48rpx" color="#F26D21" />
+      </view>
+      <view class="up-t">从聊天选取文件<text class="accent">上传</text></view>
+      <view class="up-p">支持 pdf / doc / docx / ppt / pptx / xls / xlsx</view>
+      <view class="up-p">单文件 ≤ 50MB，最多 10 个；多文件需全部为 PDF（自动合并）</view>
+    </view>
+
+    <!-- 已选文件条 -->
+    <block wx:if="{{files.length}}">
+      <view class="ftag" wx:for="{{files}}" wx:key="path">
+        <t-icon name="file" size="30rpx" color="#F26D21" />
+        <view class="fn">{{item.name}}</view>
+        <view class="fs">{{item.sizeText}}</view>
+        <view class="fx" hover-class="hover-opacity" catchtap="onRemoveFile" data-index="{{index}}">
+          <t-icon name="close" size="30rpx" color="#A89F8A" />
+        </view>
+      </view>
+    </block>
+
+    <!-- 活动日期（提交格式 YYYY.MM.DD） -->
+    <view class="date-row">
+      <view class="date-lab">活动日期</view>
+      <picker mode="date" value="{{dateStr}}" bindchange="onDateChange">
+        <view class="date-val" hover-class="hover-opacity">
+          <text>{{dateStr}}</text>
+          <t-icon name="calendar" size="30rpx" color="#A89F8A" />
+        </view>
+      </picker>
+      <view class="dp">{{dateDots}}</view>
+    </view>
+
+    <view class="btn-primary {{!files.length ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenTap">生成记录</view>
+  </view>
+
+  <!-- 生成进度卡（跟踪态） -->
+  <view wx:if="{{track}}" class="card prog">
+    <view class="fh">
+      <view class="file-ic">
+        <t-icon name="file" size="34rpx" color="#F26D21" />
+      </view>
+      <view class="fh-r">
+        <view class="fn">{{track.name}}</view>
+        <view class="fs">{{track.sourceCount || 1}} 个源文件 · 提交于 {{track.createdText || '—'}}</view>
+      </view>
+    </view>
+    <view class="steps">
+      <view class="step {{item.state}}" wx:for="{{steps}}" wx:key="t">
+        <view class="sd-ic">
+          <t-icon wx:if="{{item.state === 'done'}}" name="check" size="20rpx" color="#FFFFFF" />
+          <view wx:elif="{{item.state === 'doing'}}" class="dot-ing"></view>
+          <t-icon wx:elif="{{item.state === 'fail'}}" name="close" size="18rpx" color="#FFFFFF" />
+        </view>
+        <view class="step-r">
+          <view class="st">{{item.t}}</view>
+          <view class="ss">{{item.state === 'fail' ? (track.error || '生成失败') : item.s}}</view>
+        </view>
+      </view>
+    </view>
+    <view class="pbar {{track.phase === 'failed' ? 'fail' : ''}}">
+      <view class="pbar-in" style="width: {{pct}}%;"></view>
+    </view>
+    <view class="pnum {{track.phase === 'failed' ? 'fail' : ''}}">
+      <text>{{track.phase === 'failed' ? '生成失败' : '生成进度'}}</text>
+      <text class="pct">{{pct}}%</text>
+    </view>
+  </view>
+  <!-- 生成进度卡（空闲态） -->
+  <view wx:else class="card prog idle">
+    <t-icon name="time" size="44rpx" color="#D9CFBA" />
+    <text>提交生成后，这里将实时展示生成进度</text>
+  </view>
+
+  <!-- 记录列表 -->
+  <view class="sec-row">
+    <view class="section-title">活动记录列表</view>
+    <view class="cnt">{{cntText}}</view>
+  </view>
+
+  <block wx:if="{{records.length}}">
+    <view class="card rec" wx:for="{{records}}" wx:key="id" data-id="{{item.id}}"
+          hover-class="{{item.done ? 'hover-bg-warm' : ''}}" bindtap="onOpenRecord">
+      <view class="rec-head">
+        <view class="rn">{{item.fileName}}</view>
+        <view class="tag tag-{{item.status}}">
+          <view wx:if="{{item.status === 'processing'}}" class="pulse-dot"></view>
+          {{item.statusText}}
+        </view>
+      </view>
+      <view class="rf">
+        <t-icon name="file" size="22rpx" color="#A89F8A" />
+        <text>{{item.sub}}</text>
+      </view>
+      <view class="rmeta">活动日期 {{item.date}} · 提交 {{item.createdText}}</view>
+      <view wx:if="{{item.failed && item.error}}" class="rerr">{{item.error}}</view>
+      <!-- 操作行：打开（未生成置灰）+ 删除 -->
+      <view class="ops">
+        <view class="opb {{item.done ? '' : 'off'}}" catchtap="onOpenRecord" data-id="{{item.id}}">
+          <block wx:if="{{openingId === item.id}}">
+            <text class="opb-ing">打开中…</text>
+          </block>
+          <block wx:else>
+            <t-icon name="download" size="30rpx" color="{{item.done ? '#F26D21' : '#D9CFBA'}}" />
+            <text>打开</text>
+          </block>
+        </view>
+        <view class="opb del" hover-class="hover-opacity" catchtap="onDeleteRecord"
+              data-id="{{item.id}}" data-name="{{item.name}}">
+          <t-icon name="delete" size="30rpx" color="#6B7690" />
+          <text>删除</text>
+        </view>
+      </view>
+    </view>
+  </block>
+  <view wx:elif="{{loading}}" class="empty-box">正在加载记录…</view>
+  <view wx:else class="empty-box">暂无生成记录，上传活动文件开始生成</view>
+</view>
+
+<!-- 记录名称确认弹层（确认后开始生成；键盘弹起时动态抬高底部 padding，同出工日志弹层） -->
+<t-popup visible="{{genOpen}}" placement="bottom" bind:visible-change="onGenVisibleChange">
+  <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
+    <view class="sheet-title">确认记录名称</view>
+    <view class="sheet-sub">该名称将写入记录内容，可修改后开始生成</view>
+    <input
+      class="name-input"
+      value="{{nameDraft}}"
+      bindinput="onNameInput"
+      adjust-position="{{false}}"
+      bindkeyboardheightchange="onKeyboardHeight"
+      hold-keyboard
+      maxlength="100"
+      placeholder="请输入记录名称"
+      placeholder-class="ph"
+    />
+    <view class="sheet-ops">
+      <view class="btn-ghost {{submitting ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenCancel">取消</view>
+      <view class="btn-accent {{submitting ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenConfirm">
+        {{submitting ? '正在生成…' : '确定，开始生成'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

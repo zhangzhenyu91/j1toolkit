@@ -36,6 +36,7 @@ const DDL = [
     name VARCHAR(64) NOT NULL COMMENT '应用名称',
     icon VARCHAR(64) NOT NULL DEFAULT 'app' COMMENT 'TDesign 图标名',
     path VARCHAR(255) NOT NULL DEFAULT '' COMMENT '小程序页面路径',
+    terminal VARCHAR(16) NOT NULL DEFAULT 'both' COMMENT '适配终端：both 双端 / mobile 移动端 / pc PC端',
     sort INT NOT NULL DEFAULT 0 COMMENT '宫格排序，小的在前',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '1 上架 0 下架',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -50,30 +51,44 @@ const DDL = [
 ];
 
 // 首个接入的应用：「Call Me」AI 知识库
+// terminal 取值：both 双端 / mobile 仅小程序 / pc 仅网页端（宫格按端过滤展示）
 const APP_CALL_ME = {
   key: 'call-me',
   name: 'Call Me',
   icon: 'robot',
   path: '/pkg-callme/pages/sessions/sessions',
   sort: 1,
+  terminal: 'both',
 };
 
-// 「安全日活动记录」：网页端应用，小程序无页面且宫格入口已隐藏（仅隐藏入口，不影响权限授予与网页端使用）
+// 「安全日活动记录」：双端应用（小程序 pkg-safeday + 网页端 safeday.html）
 const APP_SAFE_DAY = {
   key: 'safe-day',
   name: '安全日活动记录',
   icon: 'file-safety',
-  path: '',
+  path: '/pkg-safeday/pages/index/index',
   sort: 3,
+  terminal: 'both',
 };
 
-// 「KVM 远程管理」：GLKVM Cloud 平台对接；小程序分包页仅展示设备状态（无终端/远程控制入口），操作端在网页端 kvm.html
+// 「远程连接计算机」（原 KVM 远程管理）：GLKVM Cloud 平台对接，PC 端应用（网页端 kvm.html）
 const APP_KVM = {
   key: 'kvm',
-  name: 'KVM 远程管理',
+  name: '远程连接计算机',
   icon: 'terminal',
-  path: '/pkg-kvm/pages/index/index',
+  path: '',
   sort: 4,
+  terminal: 'pc',
+};
+
+// 「文件传输」：移动端应用（小程序 pkg-filetransfer），向 KVM 设备虚拟 U 盘推送/取回文件
+const APP_FILE_TRANSFER = {
+  key: 'file-transfer',
+  name: '文件传输',
+  icon: 'swap',
+  path: '/pkg-filetransfer/pages/index/index',
+  sort: 5,
+  terminal: 'mobile',
 };
 
 function sleep(ms) {
@@ -115,26 +130,28 @@ async function ensureSchema() {
     console.log('[初始化] 已为 sys_user 补充 role 列');
   }
 
-  // 写入/更新 Call Me 应用记录
-  await pool.query(
-    `INSERT INTO sys_app (app_key, name, icon, path, sort, status) VALUES (?, ?, ?, ?, ?, 1)
-     ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path), sort = VALUES(sort)`,
-    [APP_CALL_ME.key, APP_CALL_ME.name, APP_CALL_ME.icon, APP_CALL_ME.path, APP_CALL_ME.sort]
+  // 老库兼容：sys_app 补 terminal 列（适配终端：both 双端 / mobile 移动端 / pc PC端）
+  const [termCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_app' AND COLUMN_NAME = 'terminal'`
   );
+  if (!termCols.length) {
+    await pool.query(
+      `ALTER TABLE sys_app ADD COLUMN terminal VARCHAR(16) NOT NULL DEFAULT 'both'
+       COMMENT '适配终端：both 双端 / mobile 移动端 / pc PC端' AFTER path`
+    );
+    console.log('[初始化] 已为 sys_app 补充 terminal 列');
+  }
 
-  // 写入/更新 安全日活动记录 应用记录
-  await pool.query(
-    `INSERT INTO sys_app (app_key, name, icon, path, sort, status) VALUES (?, ?, ?, ?, ?, 1)
-     ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path), sort = VALUES(sort)`,
-    [APP_SAFE_DAY.key, APP_SAFE_DAY.name, APP_SAFE_DAY.icon, APP_SAFE_DAY.path, APP_SAFE_DAY.sort]
-  );
-
-  // 写入/更新 KVM 远程管理 应用记录
-  await pool.query(
-    `INSERT INTO sys_app (app_key, name, icon, path, sort, status) VALUES (?, ?, ?, ?, ?, 1)
-     ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path), sort = VALUES(sort)`,
-    [APP_KVM.key, APP_KVM.name, APP_KVM.icon, APP_KVM.path, APP_KVM.sort]
-  );
+  // 写入/更新应用记录（terminal 随种子刷新）
+  for (const app of [APP_CALL_ME, APP_SAFE_DAY, APP_KVM, APP_FILE_TRANSFER]) {
+    await pool.query(
+      `INSERT INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES (?, ?, ?, ?, ?, ?, 1)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path),
+         terminal = VALUES(terminal), sort = VALUES(sort)`,
+      [app.key, app.name, app.icon, app.path, app.terminal, app.sort]
+    );
+  }
 
   // 初始管理员（仅当账号不存在时创建，密码 bcrypt 存储）
   const [rows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [config.admin.username]);
@@ -168,6 +185,12 @@ async function ensureSchema() {
   await pool.query(
     'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
     [adminId, APP_KVM.key]
+  );
+
+  // 管理员默认授予 文件传输 权限
+  await pool.query(
+    'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
+    [adminId, APP_FILE_TRANSFER.key]
   );
 
   // 出工日志：WORKLOG_ENABLED=true 时建表并写入应用/成员种子

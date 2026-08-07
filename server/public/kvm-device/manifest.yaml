@@ -1,0 +1,3 @@
+name: FileShare
+description: Push files to the shared USB media (yixia integration)
+daemon: fileshare

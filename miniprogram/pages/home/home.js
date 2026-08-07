@@ -8,9 +8,6 @@ import config from '../../config';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
-// 宫格隐藏入口的应用（仅不在小程序宫格展示，权限授予与「我的权限」清单不受影响）
-const HIDDEN_APPS = ['safe-day'];
-
 Page({
   data: {
     gate: false, // 门控是否已通过（未通过时显示启动加载页）
@@ -88,14 +85,15 @@ Page({
   },
 
   // 当前用户可见应用列表（首页面板宫格 + 「我的」面板数量/权限清单共用一次请求；
-  // 宫格过滤 HIDDEN_APPS 隐藏入口，数量/权限清单仍按完整列表统计）
+  // 宫格按 terminal 过滤：小程序只展示 双端/移动端 应用（PC 端应用仅网页端可见），
+  // 数量/权限清单仍按完整列表统计）
   async loadApps() {
     this.setData({ loading: true });
     try {
       const data = await request({ url: '/api/v1/app/list' });
       const list = (data && data.list) || [];
       this.setData({
-        apps: list.filter((item) => !HIDDEN_APPS.includes(item.app_key)),
+        apps: list.filter((item) => item.terminal !== 'pc'),
         appCount: list.length,
         appNames: list.map((item) => item.name),
       });
@@ -111,7 +109,7 @@ Page({
     this.setData({ tab: e.detail.key });
   },
 
-  // 进入应用（分包页面）；无小程序页面的网页端应用（如安全日活动记录，宫格入口已隐藏、此处为兜底）
+  // 进入应用（分包页面）；无小程序页面的应用（path 为空）
   // 统一提示前往 PC 端 Shade 壹匣，确认即复制网址
   onAppTap(e) {
     const { path, name } = e.currentTarget.dataset;
@@ -159,7 +157,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: 'Shade 壹匣 v0.2',
+      content: '版本号：v1.4 \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },

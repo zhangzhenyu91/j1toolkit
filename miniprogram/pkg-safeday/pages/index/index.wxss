@@ -1,0 +1,570 @@
+/* 安全日活动记录 · 小程序端（布局/观感同网页端 safeday.html；
+   设计 token 见 AGENTS.md 第四节，卡片/弹层写法同 pkg-filetransfer） */
+
+/* ---------- 上传活动文件卡 ---------- */
+.up-card {
+  margin-top: 20rpx;
+  padding: 40rpx 32rpx 32rpx; /* 顶部留出警示斜纹条高度 */
+}
+
+/* 选取入口（虚线区，同网页端 upzone） */
+.upzone {
+  border: 3rpx dashed #d9cfba;
+  border-radius: 20rpx;
+  padding: 36rpx 24rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.up-ic {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 32rpx;
+  background: #fdeee2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16rpx;
+}
+
+.up-t {
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.up-t .accent {
+  color: #f26d21;
+}
+
+.up-p {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  line-height: 1.8;
+  text-align: center;
+}
+
+/* 已选文件条（同网页端 ftag） */
+.ftag {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  background: #fbf9f2;
+  border: 2rpx solid #e8e0cd;
+  border-radius: 18rpx;
+  padding: 16rpx 20rpx;
+  margin-top: 16rpx;
+}
+
+.ftag .fn {
+  flex: 1;
+  min-width: 0;
+  font-size: 25rpx;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ftag .fs {
+  flex: none;
+  font-size: 21rpx;
+  color: #a89f8a;
+}
+
+.ftag .fx {
+  flex: none;
+  padding: 4rpx;
+}
+
+/* 活动日期行 */
+.date-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 28rpx;
+}
+
+.date-lab {
+  flex: none;
+  font-size: 24rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+  color: #6b7690;
+}
+
+.date-val {
+  flex: 1;
+  min-width: 0;
+  height: 72rpx;
+  padding: 0 20rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.dp {
+  flex: none;
+  font-size: 21rpx;
+  color: #a89f8a;
+}
+
+/* 生成按钮（主按钮藏青底，同 filetransfer btn-primary） */
+.btn-primary {
+  margin-top: 28rpx;
+  height: 88rpx;
+  border-radius: 18rpx;
+  background: #22314e;
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 700;
+  letter-spacing: 6rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary.disabled {
+  opacity: 0.5;
+}
+
+/* ---------- 生成进度卡 ---------- */
+.prog {
+  margin-top: 24rpx;
+  padding: 32rpx;
+}
+
+.prog.idle {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  color: #a89f8a;
+  font-size: 25rpx;
+  letter-spacing: 1rpx;
+}
+
+.prog .fh {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.file-ic {
+  width: 68rpx;
+  height: 68rpx;
+  flex: none;
+  border-radius: 18rpx;
+  background: #fdeee2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prog .fh-r {
+  flex: 1;
+  min-width: 0;
+}
+
+.prog .fn {
+  font-size: 26rpx;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.prog .fs {
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  color: #a89f8a;
+}
+
+/* 步骤条（同网页端 steps/step，圆点间竖线连接） */
+.steps {
+  margin-top: 28rpx;
+}
+
+.step {
+  position: relative;
+  display: flex;
+  gap: 20rpx;
+  padding-bottom: 28rpx;
+}
+
+.step:last-child {
+  padding-bottom: 0;
+}
+
+.step::before {
+  content: '';
+  position: absolute;
+  left: 19rpx;
+  top: 44rpx;
+  bottom: 0;
+  width: 4rpx;
+  background: #e8e0cd;
+}
+
+.step:last-child::before {
+  display: none;
+}
+
+.sd-ic {
+  position: relative;
+  z-index: 1;
+  width: 40rpx;
+  height: 40rpx;
+  flex: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+}
+
+.step.done .sd-ic {
+  background: #f26d21;
+}
+
+.step.done::before {
+  background: #f26d21;
+}
+
+.step.doing .sd-ic {
+  border: 4rpx solid #f26d21;
+}
+
+.step.todo .sd-ic {
+  border: 4rpx solid #d9cfba;
+}
+
+.step.fail .sd-ic {
+  background: #cf4444;
+}
+
+.dot-ing {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #f26d21;
+  animation: breath 1.2s ease-in-out infinite;
+}
+
+.step .st {
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.step.todo .st {
+  color: #a89f8a;
+}
+
+.step.fail .st {
+  color: #cf4444;
+}
+
+.step .ss {
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  color: #a89f8a;
+  line-height: 1.6;
+}
+
+/* 进度条（流光同网页端 pbar） */
+.pbar {
+  height: 12rpx;
+  margin-top: 28rpx;
+  border-radius: 6rpx;
+  background: #e8e0cd;
+  overflow: hidden;
+}
+
+.pbar-in {
+  position: relative;
+  height: 100%;
+  border-radius: 6rpx;
+  background: linear-gradient(90deg, #f26d21, #f59a5e);
+  overflow: hidden;
+  transition: width 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pbar-in::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.55), transparent 75%);
+  transform: translateX(-100%);
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+.pbar.fail .pbar-in {
+  background: linear-gradient(90deg, #cf4444, #e28080);
+}
+
+.pbar.fail .pbar-in::after {
+  display: none;
+}
+
+.pnum {
+  margin-top: 12rpx;
+  display: flex;
+  justify-content: space-between;
+  font-size: 21rpx;
+  color: #6b7690;
+}
+
+.pnum .pct {
+  font-weight: 700;
+  color: #f26d21;
+}
+
+.pnum.fail .pct {
+  color: #cf4444;
+}
+
+/* ---------- 记录列表 ---------- */
+.sec-row {
+  margin-top: 36rpx;
+  display: flex;
+  align-items: center;
+}
+
+.cnt {
+  margin-left: auto;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 1rpx;
+}
+
+.rec {
+  margin-top: 20rpx;
+  padding: 28rpx 28rpx 24rpx;
+}
+
+.rec-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+}
+
+.rec-head .rn {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+/* 状态标签（同网页端 tag-orange / tag-navy / tag-red） */
+.tag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 10rpx;
+  font-size: 20rpx;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tag-done {
+  background: #fdeee2;
+  color: #f26d21;
+}
+
+.tag-processing {
+  background: #edf0f6;
+  color: #22314e;
+}
+
+.tag-failed {
+  background: #fbe9e9;
+  color: #cf4444;
+}
+
+.pulse-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #22314e;
+  animation: breath 1.2s ease-in-out infinite;
+}
+
+/* 副行：源文件名 */
+.rf {
+  margin-top: 10rpx;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  font-size: 21rpx;
+  color: #a89f8a;
+  word-break: break-all;
+}
+
+.rmeta {
+  margin-top: 10rpx;
+  font-size: 21rpx;
+  color: #6b7690;
+}
+
+.rerr {
+  margin-top: 10rpx;
+  font-size: 21rpx;
+  color: #cf4444;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+/* 操作行（打开未生成置灰；删除危险色悬停态省略，保持描边徽章风） */
+.ops {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 2rpx solid #e8e0cd;
+  display: flex;
+  gap: 20rpx;
+}
+
+.opb {
+  flex: 1;
+  height: 68rpx;
+  border-radius: 16rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  font-size: 25rpx;
+  font-weight: 700;
+  color: #22314e;
+}
+
+.opb.off {
+  border: none;
+  background: #f4f1ea;
+  color: #d9cfba;
+}
+
+.opb .opb-ing {
+  font-size: 24rpx;
+  color: #a89f8a;
+}
+
+.opb.del text {
+  color: #6b7690;
+}
+
+/* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
+.empty-box {
+  margin-top: 24rpx;
+  border: 3rpx dashed #d9cfba;
+  border-radius: 20rpx;
+  padding: 64rpx 32rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+/* ---------- 记录名称确认弹层（底部弹层，同出工日志弹层族） ---------- */
+.sheet {
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 32rpx 40rpx;
+}
+
+.sheet-title {
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 1rpx;
+}
+
+.sheet-sub {
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  color: #6b7690;
+  line-height: 1.7;
+}
+
+.name-input {
+  margin-top: 24rpx;
+  height: 80rpx;
+  padding: 0 24rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  font-size: 27rpx;
+  color: #22314e;
+}
+
+.ph {
+  color: #a89f8a;
+}
+
+.sheet-ops {
+  margin-top: 32rpx;
+  display: flex;
+  gap: 20rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 84rpx;
+  border-radius: 18rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  color: #22314e;
+  font-size: 28rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-accent {
+  flex: 2;
+  height: 84rpx;
+  border-radius: 18rpx;
+  background: #f26d21;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-ghost.disabled,
+.btn-accent.disabled {
+  opacity: 0.5;
+}
+
+/* ---------- 动画 ---------- */
+@keyframes breath {
+  0%, 100% {
+    transform: scale(0.7);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}

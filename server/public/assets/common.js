@@ -114,7 +114,7 @@
     { key: 'callme', name: 'Call Me', href: '/callme.html' },
     { key: 'worklog', name: '出工日志', href: '/worklog.html' },
     { key: 'safeday', name: '安全日活动', href: '/safeday.html' },
-    { key: 'kvm', name: 'KVM 管理', href: '/kvm.html' },
+    { key: 'kvm', name: '远程连接', href: '/kvm.html' },
   ];
   function topbar(opts) {
     opts = opts || {};

@@ -86,4 +86,48 @@ async function listDevices(query, username) {
   return (data && data.items) || [];
 }
 
-module.exports = { listDevices, getSessionToken: getToken };
+// 按平台设备 ID 取 ddns（/web/ 链路与设备子域名都以 ddns 寻址）
+async function getDeviceDdns(deviceId, username) {
+  const items = await listDevices({}, username);
+  const dev = items.find((d) => Number(d.id) === Number(deviceId));
+  if (!dev) throw Object.assign(new Error('设备不存在，或当前平台账号对其不可见'), { status: 404 });
+  if (!dev.ddns) throw Object.assign(new Error('该设备缺少 ddns 标识'), { status: 400 });
+  return dev.ddns;
+}
+
+// 经平台 /web/ 链路换设备子域名代理会话（rttysid），供转发点直连设备 fileshare 服务
+// 返回 { origin, cookie }：origin 形如 https://<ddns>.kvm.j1net.com，cookie 为 rtty-http-sid
+// 注意：/web/ 属平台 legacy authorized 组，只认 sid Cookie（不认 Bearer）
+async function getProxySession(deviceId, username) {
+  const ddns = await getDeviceDdns(deviceId, username);
+  let sid = await getToken(username);
+  for (let retry = 0; retry < 2; retry += 1) {
+    let res;
+    try {
+      res = await client.get(
+        `${config.kvm.url}/web/${encodeURIComponent(ddns)}/https/${encodeURIComponent('127.0.0.1:443/')}`,
+        {
+          headers: { Cookie: `sid=${sid}` },
+          maxRedirects: 0,
+          validateStatus: (s) => s < 500,
+        }
+      );
+    } catch (err) {
+      throw new Error(`GLKVM 平台连接失败：${err.message}`);
+    }
+    if (res.status === 401 || res.status === 403) {
+      sessions.delete(username);
+      sid = await getToken(username);
+      continue;
+    }
+    const loc = res.headers.location || '';
+    const m = loc.match(/^(https?:\/\/[^/]+)\/.*[?&]rttysid=([^&]+)/);
+    if (res.status === 302 && m) {
+      return { origin: m[1], cookie: `rtty-http-sid=${m[2]}` };
+    }
+    throw new Error(`平台未签发代理会话（HTTP ${res.status}），设备可能离线`);
+  }
+  throw new Error('GLKVM 平台登录态刷新失败');
+}
+
+module.exports = { listDevices, getSessionToken: getToken, getProxySession };

@@ -1,0 +1,41 @@
+#!/bin/sh
+# 文件分享推送 API（壹匣集成）：python3 + aiohttp，监听 0.0.0.0:8901
+DAEMON="/usr/bin/python3"
+DAEMON_ARGS="/etc/kvmd/user/fileshare/fileshare.py"
+PIDFILE="/var/run/fileshare.pid"
+
+. /etc/profile
+
+start() {
+    printf "Starting fileshare: "
+    start-stop-daemon --start --quiet --background --make-pidfile --pidfile $PIDFILE --exec /bin/sh -- -c "exec $DAEMON $DAEMON_ARGS 2>&1 | logger -t fileshare -p daemon.info"
+    [ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+
+stop() {
+    printf "Stopping fileshare: "
+    # 按命令行模式杀（与 S98kvmd 同口径），pidfile 只作参考——exec 包装下可能记的是 sh 的 pid
+    pgrep -f 'fileshare\.py' | xargs -r kill
+    rm -f $PIDFILE
+    echo "OK"
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}
+
+status() {
+    if pgrep -f 'fileshare\.py' >/dev/null 2>&1; then
+        echo "running (pid: $(pgrep -f 'fileshare\.py' | head -1))"
+        return 0
+    fi
+    echo "stopped"
+    return 1
+}
+
+case "$1" in
+    start|stop|restart|status) $1 ;;
+    *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
