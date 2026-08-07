@@ -1,0 +1,144 @@
+<!-- 文件传输 · 设备列表 + 虚拟 U 盘上传/下载（移动端应用，app_key file-transfer）
+     设备卡片与网页端 kvm.html 同口径；上传/下载弹层与出工日志批量下载同为 t-popup 底部弹层 -->
+<navbar back title="文件传输" />
+
+<view class="page-body">
+  <view class="section-title">设备列表</view>
+  <view class="cnt">{{list.length ? '共 ' + list.length + ' 台设备 · ' : ''}}数据实时取自 GLKVM 平台</view>
+
+  <!-- 设备卡片（卡顶警示斜纹条为全局 hazard-top） -->
+  <block wx:if="{{list.length}}">
+    <view class="card hazard-top dev" wx:for="{{list}}" wx:key="id">
+      <view class="dv-in">
+        <view class="dv-top">
+          <view class="st st-{{item.statusKey}}">
+            <view class="dot"></view>
+            <text>{{item.statusText}}</text>
+          </view>
+          <view wx:if="{{item.group}}" class="dv-tag">{{item.group}}</view>
+        </view>
+        <view class="dv-name">{{item.name}}</view>
+        <view class="dv-ddns" wx:if="{{item.ddns}}">{{item.ddns}}</view>
+        <view class="dv-info">
+          <view class="row">
+            <text class="lab">IP 地址</text>
+            <text class="val mono">{{item.ip}}</text>
+          </view>
+          <view class="row">
+            <text class="lab">MAC</text>
+            <text class="val mono">{{item.mac}}</text>
+          </view>
+          <view class="row">
+            <text class="lab">最近在线</text>
+            <text class="val">{{item.last}}</text>
+          </view>
+        </view>
+        <!-- 卡底按钮行：左上传右下载；离线置灰 -->
+        <view class="dv-ops">
+          <view class="dv-btn up {{item.statusKey !== 'online' ? 'off' : ''}}" hover-class="hover-opacity"
+                data-item="{{item}}" bindtap="onOpenUpload">
+            <t-icon name="upload" size="30rpx" color="{{item.statusKey === 'online' ? '#F26D21' : '#D9CFBA'}}" />上传文件
+          </view>
+          <view class="dv-btn dl {{item.statusKey !== 'online' ? 'off' : ''}}" hover-class="hover-opacity"
+                data-item="{{item}}" bindtap="onOpenDownload">
+            <t-icon name="download" size="30rpx" color="{{item.statusKey === 'online' ? '#22314E' : '#D9CFBA'}}" />下载文件
+          </view>
+        </view>
+      </view>
+    </view>
+  </block>
+
+  <!-- 首屏加载中 -->
+  <view wx:elif="{{loading}}" class="empty-box">设备列表加载中…</view>
+
+  <!-- 首屏加载失败（如平台账号未接入/开启 2FA/密码不一致，按后端返回文案展示） -->
+  <view wx:elif="{{error}}" class="empty-box">
+    <view>{{error}}</view>
+    <view class="retry" hover-class="hover-opacity" bindtap="onRetry">重新加载</view>
+  </view>
+
+  <!-- 空态 -->
+  <view wx:else class="empty-box">暂无设备，或联系管理员开通平台设备权限</view>
+</view>
+
+<!-- 上传文件弹层（t-popup 底部弹层，同出工日志批量下载结构） -->
+<t-popup visible="{{upOpen}}" placement="bottom" bind:visible-change="onUpVisibleChange">
+  <view class="sheet">
+    <view class="sh-head">
+      <view class="sh-title">上传文件<text class="sh-sub">{{upDevice.name}}</text></view>
+      <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseUpload">
+        <t-icon name="close" size="36rpx" color="#6B7690" />
+      </view>
+    </view>
+
+    <!-- 两种添加方式 -->
+    <view class="pick-row">
+      <view class="pick" hover-class="hover-opacity" bindtap="onPickMedia">
+        <t-icon name="file-image" size="48rpx" color="#F26D21" />
+        <view class="pick-name">从手机选择</view>
+        <view class="pick-note">图片 / 视频</view>
+      </view>
+      <view class="pick" hover-class="hover-opacity" bindtap="onPickChat">
+        <t-icon name="chat" size="48rpx" color="#F26D21" />
+        <view class="pick-name">从聊天选取</view>
+        <view class="pick-note">任意类型文件</view>
+      </view>
+    </view>
+
+    <!-- 已添加文件列表 -->
+    <view class="fl-head">
+      <text>已添加（{{upFiles.length}}）</text>
+      <text class="fl-sum">合计 {{upTotalText}}</text>
+    </view>
+    <scroll-view scroll-y class="fl-list">
+      <view class="frow" wx:for="{{upFiles}}" wx:key="path">
+        <t-icon name="{{item.icon}}" size="34rpx" color="#F26D21" />
+        <view class="fn">{{item.name}}</view>
+        <view class="fs">{{item.sizeText}}</view>
+        <view class="fx" hover-class="hover-opacity" data-index="{{index}}" catchtap="onRemoveUpFile">
+          <t-icon name="close" size="30rpx" color="#A89F8A" />
+        </view>
+      </view>
+      <view wx:if="{{!upFiles.length}}" class="fl-empty">尚未添加文件，点上方入口添加</view>
+    </scroll-view>
+
+    <view class="sh-note">逐文件依次推送，全部成功后统一挂载到被控机；同名文件覆盖，单文件 ≤200MB。</view>
+    <view class="sh-foot">
+      <view class="btn-primary {{(!upFiles.length || uploading) ? 'disabled' : ''}}" hover-class="hover-opacity"
+            bindtap="onUploadStart">
+        {{uploading ? '正在上传 ' + upIndex + '/' + upFiles.length + '…' : '开始上传'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 下载文件弹层 -->
+<t-popup visible="{{dlOpen}}" placement="bottom" bind:visible-change="onDlVisibleChange">
+  <view class="sheet">
+    <view class="sh-head">
+      <view class="sh-title">下载文件<text class="sh-sub">{{dlDevice.name}} · 虚拟 U 盘</text></view>
+      <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseDownload">
+        <t-icon name="close" size="36rpx" color="#6B7690" />
+      </view>
+    </view>
+
+    <scroll-view scroll-y class="fl-list">
+      <view wx:if="{{dlLoading}}" class="fl-empty">正在读取盘内文件…</view>
+      <view wx:elif="{{!dlFiles.length}}" class="fl-empty">盘内暂无文件</view>
+      <block wx:else>
+        <view class="frow" wx:for="{{dlFiles}}" wx:key="name" data-file="{{item}}"
+              hover-class="hover-opacity" bindtap="onDlFileTap">
+          <t-icon name="{{item.icon}}" size="34rpx" color="#F26D21" />
+          <view class="fn">{{item.name}}</view>
+          <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
+          <view wx:else class="fs">{{item.sizeText}}</view>
+          <t-icon name="chevron-right" size="30rpx" color="#A89F8A" />
+        </view>
+      </block>
+    </scroll-view>
+
+    <view class="sh-note">图片 / 视频下载后保存至相册；其他类型经微信打开（可另存 / 转发）。列出与下载期间 U 盘保持断开共享。</view>
+  </view>
+</t-popup>
+
+<t-toast id="t-toast" />

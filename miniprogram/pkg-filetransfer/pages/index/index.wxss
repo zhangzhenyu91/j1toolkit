@@ -1,0 +1,346 @@
+/* 文件传输 · 设备列表 + 上传/下载弹层（卡片结构与网页端 kvm.html 同口径；弹层与出工日志批量下载同族；
+   设计 token 见 AGENTS.md 第四节，设计稿 design/kvm-filetransfer.html） */
+
+.page-body {
+  padding-bottom: 60rpx;
+}
+
+/* 板块副标题（设备数量 + 数据来源说明） */
+.cnt {
+  margin: 10rpx 0 20rpx 20rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 1rpx;
+}
+
+/* ---------- 设备卡片 ---------- */
+.dev {
+  margin-bottom: 24rpx;
+}
+
+.dv-in {
+  padding: 36rpx 32rpx 30rpx; /* 顶部留出警示斜纹条高度 */
+}
+
+.dv-top {
+  display: flex;
+  align-items: center;
+}
+
+/* 状态点 + 文案（同网页端 .st：在线绿 / 离线灰 / 禁用红） */
+.st {
+  display: inline-flex;
+  align-items: center;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.st .dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  margin-right: 12rpx;
+}
+
+.st-online {
+  color: #3fa66a;
+}
+.st-online .dot {
+  background: #3fa66a;
+  box-shadow: 0 0 0 6rpx rgba(63, 166, 106, 0.15);
+}
+
+.st-offline {
+  color: #a89f8a;
+}
+.st-offline .dot {
+  background: #d9cfba;
+}
+
+.st-disabled {
+  color: #cf4444;
+}
+.st-disabled .dot {
+  background: #cf4444;
+}
+
+/* 设备组标签（同网页端 tag-navy） */
+.dv-tag {
+  margin-left: auto;
+  padding: 2rpx 14rpx;
+  border-radius: 8rpx;
+  background: #edf0f6;
+  color: #22314e;
+  font-size: 20rpx;
+}
+
+.dv-name {
+  margin-top: 20rpx;
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 1rpx;
+  word-break: break-all;
+}
+
+.dv-ddns {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  word-break: break-all;
+}
+
+.mono {
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+}
+
+/* 信息行：标签左、值右 */
+.dv-info {
+  margin-top: 24rpx;
+}
+
+.dv-info .row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 12rpx;
+}
+
+.dv-info .row:first-child {
+  margin-top: 0;
+}
+
+.dv-info .lab {
+  flex: none;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.dv-info .val {
+  margin-left: 24rpx;
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #22314e;
+  text-align: right;
+  word-break: break-all;
+}
+
+/* ---------- 卡底按钮行：左上传（浅橙底橙字）右下载（白底描边）；离线置灰 ---------- */
+.dv-ops {
+  margin-top: 26rpx;
+  padding-top: 24rpx;
+  border-top: 2rpx solid #e8e0cd;
+  display: flex;
+  gap: 20rpx;
+}
+
+.dv-btn {
+  flex: 1;
+  height: 72rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+}
+
+.dv-btn.up {
+  background: #fdeee2;
+  color: #f26d21;
+}
+
+.dv-btn.dl {
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  color: #22314e;
+}
+
+.dv-btn.off {
+  background: #f4f1ea;
+  border: none;
+  color: #d9cfba;
+}
+
+/* ---------- 底部弹层（t-popup 内容容器，同出工日志批量下载面板） ---------- */
+.sheet {
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 28rpx 32rpx 48rpx;
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.sh-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
+.sh-title {
+  font-size: 30rpx;
+  font-weight: 800;
+  letter-spacing: 1rpx;
+}
+
+.sh-sub {
+  margin-left: 14rpx;
+  font-size: 21rpx;
+  font-weight: 400;
+  color: #a89f8a;
+}
+
+.sh-close {
+  margin-left: auto;
+  padding: 6rpx;
+}
+
+/* 上传：两种添加方式入口（虚线卡） */
+.pick-row {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 24rpx;
+}
+
+.pick {
+  flex: 1;
+  border: 3rpx dashed #d9cfba;
+  border-radius: 20rpx;
+  padding: 24rpx 12rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.pick-name {
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.pick-note {
+  font-size: 20rpx;
+  color: #a89f8a;
+}
+
+/* 文件列表 */
+.fl-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 14rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+}
+
+.fl-sum {
+  margin-left: auto;
+  font-size: 21rpx;
+  font-weight: 400;
+  color: #a89f8a;
+}
+
+.fl-list {
+  max-height: 44vh;
+}
+
+.frow {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  background: #fbf9f2;
+  border: 2rpx solid #e8e0cd;
+  border-radius: 18rpx;
+  padding: 16rpx 20rpx;
+  margin-bottom: 14rpx;
+}
+
+.frow .fn {
+  flex: 1;
+  min-width: 0;
+  font-size: 25rpx;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frow .fs {
+  flex: none;
+  font-size: 21rpx;
+  color: #a89f8a;
+}
+
+.frow .doing {
+  flex: none;
+  font-size: 21rpx;
+  font-weight: 700;
+  color: #f26d21;
+}
+
+.frow .fx {
+  flex: none;
+  padding: 4rpx;
+}
+
+.fl-empty {
+  padding: 48rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+/* 弹层说明与底部操作 */
+.sh-note {
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #a89f8a;
+  line-height: 1.8;
+}
+
+.sh-foot {
+  margin-top: 20rpx;
+}
+
+.btn-primary {
+  height: 88rpx;
+  border-radius: 18rpx;
+  background: #22314e;
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 700;
+  letter-spacing: 6rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary.disabled {
+  opacity: 0.5;
+}
+
+/* ---------- 空态/加载/错误虚线占位（同出工日志 empty-box 口径） ---------- */
+.empty-box {
+  margin-top: 24rpx;
+  border: 3rpx dashed #d9cfba;
+  border-radius: 20rpx;
+  padding: 64rpx 32rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.empty-box .retry {
+  display: inline-block;
+  margin-top: 24rpx;
+  padding: 10rpx 40rpx;
+  border-radius: 12rpx;
+  background: #22314e;
+  color: #ffffff;
+  font-size: 24rpx;
+}

@@ -94,7 +94,7 @@ router.put('/users/:id', async (req, res, next) => {
 router.get('/apps', async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, app_key, name, icon, path, sort, status FROM sys_app ORDER BY sort, id'
+      'SELECT id, app_key, name, icon, path, terminal, sort, status FROM sys_app ORDER BY sort, id'
     );
     return ok(res, { list: rows });
   } catch (err) {

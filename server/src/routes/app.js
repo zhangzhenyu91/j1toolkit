@@ -10,7 +10,7 @@ const router = express.Router();
 router.get('/list', auth, async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT a.app_key, a.name, a.icon, a.path, a.sort
+      `SELECT a.app_key, a.name, a.icon, a.path, a.terminal, a.sort
        FROM sys_user_app ua
        JOIN sys_app a ON a.id = ua.app_id
        WHERE ua.user_id = ? AND a.status = 1

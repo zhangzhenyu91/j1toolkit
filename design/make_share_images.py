@@ -18,9 +18,10 @@ ICON_SIZE = 300
 
 # 应用图标：TDesign 图标名 -> 码点（与 sys_app.icon / t-icon 一致）
 APPS = {
-    'call-me': 0xE6EC,    # robot
-    'work-log': 0xE11B,   # calendar
-    'safe-day': 0xE367,   # file-safety
+    'call-me': 0xE6EC,        # robot
+    'work-log': 0xE11B,       # calendar
+    'safe-day': 0xE367,       # file-safety
+    'file-transfer': 0xE7A7,  # swap
 }
 
 WATERMARK_CROP = 64  # 裁掉底部 AI 生成水印

@@ -23,8 +23,15 @@
       ]
     },
     {
-      "root": "pkg-kvm",
-      "name": "kvm",
+      "root": "pkg-filetransfer",
+      "name": "filetransfer",
+      "pages": [
+        "pages/index/index"
+      ]
+    },
+    {
+      "root": "pkg-safeday",
+      "name": "safeday",
       "pages": [
         "pages/index/index"
       ]

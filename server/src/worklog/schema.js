@@ -8,6 +8,7 @@ const APP_WORK_LOG = {
   icon: 'calendar',
   path: '/pkg-worklog/pages/index/index',
   sort: 2,
+  terminal: 'both', // 适配终端：双端（见 db.js sys_app.terminal 口径）
 };
 
 // 首批出工成员种子（sort 即点亮按钮顺序）
@@ -119,11 +120,13 @@ async function ensureWorklogSchema(pool) {
     }
   }
 
-  // 写入/更新应用记录（同 Call Me 种子模式）
+  // 写入/更新应用记录（同 Call Me 种子模式；terminal 随种子刷新）
   await pool.query(
-    `INSERT INTO sys_app (app_key, name, icon, path, sort, status) VALUES (?, ?, ?, ?, ?, 1)
-     ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path), sort = VALUES(sort)`,
-    [APP_WORK_LOG.key, APP_WORK_LOG.name, APP_WORK_LOG.icon, APP_WORK_LOG.path, APP_WORK_LOG.sort]
+    `INSERT INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES (?, ?, ?, ?, ?, ?, 1)
+     ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path),
+       terminal = VALUES(terminal), sort = VALUES(sort)`,
+    [APP_WORK_LOG.key, APP_WORK_LOG.name, APP_WORK_LOG.icon, APP_WORK_LOG.path,
+      APP_WORK_LOG.terminal, APP_WORK_LOG.sort]
   );
 
   // 首批成员种子（仅在空表时写入，管理端后续自行维护）

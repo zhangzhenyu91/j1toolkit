@@ -142,8 +142,8 @@
       tags: [['文件生成', 'tag-orange'], ['Dify', 'tag-navy']],
     },
     'kvm': {
-      desc: '接入 GLKVM Cloud 设备中台，现场设备在线状态实时查看，网页内一键开启 SSH 终端。',
-      tags: [['设备状态', 'tag-orange'], ['SSH 终端', 'tag-navy']],
+      desc: '接入 GLKVM Cloud 设备中台，现场设备在线状态实时查看，一键开启远程终端与桌面控制。',
+      tags: [['远程终端', 'tag-orange'], ['桌面控制', 'tag-navy']],
     },
   };
 
@@ -267,7 +267,8 @@
     }
     try {
       var r2 = await Shade.api('/api/v1/app/list');
-      renderApps(r2.data.list || []);
+      // 网页端宫格按 terminal 过滤：只展示 双端/PC端 应用（移动端应用仅小程序可见）
+      renderApps((r2.data.list || []).filter(function (item) { return item.terminal !== 'mobile'; }));
     } catch (e) {
       document.getElementById('appCount').textContent = '加载失败';
       document.getElementById('appGrid').innerHTML =
