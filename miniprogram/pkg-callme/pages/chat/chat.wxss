@@ -48,21 +48,24 @@
 }
 
 .ai-side {
-  max-width: 85%;
+  max-width: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
 }
 
+/* AI 回答不用气泡（对齐官方前端）：纯文本流式内容，仅用户问题保留气泡 */
 .ai-bubble {
-  background: #FFFFFF;
+  background: transparent;
   color: #22314E;
-  border-bottom-left-radius: 6rpx;
+  border-radius: 0;
   max-width: 100%;
+  padding: 0;
   white-space: pre-wrap;
 }
 
 .ai-error {
-  background: #FBEDEB;
+  background: transparent;
   color: #CF4444;
 }
 
@@ -73,20 +76,17 @@
   line-height: 1.5;
 }
 
-/* ---------- 思考内容折叠盒 ---------- */
+/* ---------- 步骤树（思考过程） ---------- */
 .think-box {
   margin-bottom: 8rpx;
-  background: #F7F3EA;
-  border: 1rpx solid #EDE5D2;
-  border-radius: 14rpx;
-  overflow: hidden;
 }
 
 .think-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12rpx 20rpx;
+  padding: 4rpx 0;
+  transition: opacity 0.15s ease;
 }
 
 .think-title {
@@ -109,26 +109,112 @@
   animation: blink 1s infinite;
 }
 
-.think-content {
-  padding: 0 20rpx 16rpx;
-  font-size: 22rpx;
-  color: #A89F8A;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  animation: fadeIn 0.2s ease; /* 展开时淡入 */
-}
-
-.think-head {
-  transition: opacity 0.15s ease;
-}
-
 .think-arrow {
   transition: transform 0.2s;
 }
 
 .think-arrow-open {
   transform: rotate(180deg);
+}
+
+.step-scroll {
+  /* 限高滚动盒（与网页端 240px 相当）：盒内跟随最新消息，页面不被长思考拉长 */
+  max-height: 480rpx;
+}
+
+.step-list {
+  padding: 8rpx 0 4rpx;
+  animation: fadeIn 0.2s ease; /* 展开时淡入 */
+}
+
+.step-end {
+  height: 1rpx;
+}
+
+.step {
+  display: flex;
+  align-items: stretch;
+}
+
+.step-rail {
+  width: 44rpx;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.step-icon {
+  width: 44rpx;
+  height: 44rpx;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 正在执行的步骤：图标呼吸脉冲 + 标题明暗动效 */
+.step-icon-run {
+  animation: stepPulse 1.2s ease-in-out infinite;
+}
+
+.step-line {
+  width: 2rpx;
+  flex: 1;
+  min-height: 8rpx;
+  background: #EDE5D2;
+}
+
+.step-main {
+  flex: 1;
+  min-width: 0;
+  padding: 6rpx 0 18rpx 12rpx;
+}
+
+.step:last-child .step-main {
+  padding-bottom: 4rpx;
+}
+
+.step-title {
+  font-size: 24rpx;
+  color: #22314E;
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.step-title-run {
+  color: #F26D21;
+  animation: stepBreath 1.6s ease-in-out infinite;
+}
+
+.step-title-err {
+  color: #CF4444;
+}
+
+.step-summary {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #A89F8A;
+  line-height: 1.5;
+}
+
+.step-text {
+  font-size: 22rpx;
+  color: #A89F8A;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@keyframes stepPulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+
+@keyframes stepBreath {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 
 .cursor {
@@ -164,6 +250,44 @@
 .msg-time {
   font-size: 24rpx;
   color: #A89F8A;
+}
+
+/* ---------- 引用来源 ---------- */
+.ref-box {
+  margin-top: 8rpx;
+  padding: 12rpx 20rpx;
+  background: #F7F3EA;
+  border: 1rpx solid #EDE5D2;
+  border-radius: 14rpx;
+}
+
+.ref-title {
+  font-size: 20rpx;
+  color: #A89F8A;
+  letter-spacing: 2rpx;
+  margin-bottom: 6rpx;
+}
+
+.ref-item {
+  font-size: 22rpx;
+  color: #6B7690;
+  line-height: 1.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 加载更早消息 ---------- */
+.load-earlier {
+  align-self: center;
+  margin: 0 auto 20rpx;
+  padding: 8rpx 28rpx;
+  font-size: 22rpx;
+  color: #A89F8A;
+  background: #FFFFFF;
+  border: 1rpx solid #E3DCCB;
+  border-radius: 28rpx;
+  width: fit-content;
 }
 
 .bottom-anchor {

@@ -7,6 +7,7 @@ const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const { ok, fail } = require('../utils/resp');
 const { createSseParser } = require('../utils/sse');
+const agentSteps = require('../utils/agentsteps');
 
 const router = express.Router();
 router.use(auth, requireApp('call-me'));
@@ -46,19 +47,39 @@ router.get('/sessions', async (req, res, next) => {
 
 // GET /api/v1/callme/sessions/:id 会话详情 + 历史消息
 // 该版本 WeKnora 的 GET /sessions/{id} 只返回元数据，消息在 GET /messages/{id}/load，
-// 这里合并后统一返回（前端读 data.messages，按创建时间升序）
+// 这里合并后统一返回（前端读 data.messages，按创建时间升序）；
+// 支持 limit / before_time 分页参数，has_more 提示是否还有更早消息
 router.get('/sessions/:id', async (req, res, next) => {
   try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const beforeTime = req.query.before_time || undefined;
     const [detail, messagesRaw] = await Promise.all([
       weknora.getSession(req.user.username, req.params.id),
-      weknora.listMessages(req.user.username, req.params.id),
+      weknora.listMessages(req.user.username, req.params.id, { limit, beforeTime }),
     ]);
     const session = detail.data !== undefined ? detail.data : detail;
     const mdata = messagesRaw.data !== undefined ? messagesRaw.data : messagesRaw;
-    const messages = (Array.isArray(mdata) ? mdata : mdata.list || mdata.messages || [])
+    const list = Array.isArray(mdata) ? mdata : mdata.list || mdata.messages || [];
+    const messages = list
       .slice()
-      .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
-    return ok(res, { ...session, messages });
+      .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
+      .map((m) => {
+        // assistant 消息附带展示就绪的步骤树（思考/工具调用）与统计，两端直接渲染
+        if (
+          (m.role === 'assistant' || m.role === 'ai') &&
+          Array.isArray(m.agent_steps) &&
+          m.agent_steps.length
+        ) {
+          const { steps, meta } = agentSteps.buildSteps(m.agent_steps);
+          return {
+            ...m,
+            steps,
+            steps_meta: { ...meta, durationMs: Number(m.agent_duration_ms) || 0 },
+          };
+        }
+        return m;
+      });
+    return ok(res, { ...session, messages, has_more: list.length >= limit });
   } catch (err) {
     return weknoraError(res, err, next);
   }
@@ -119,7 +140,10 @@ router.delete('/sessions/:id/messages/:msgId', async (req, res, next) => {
 
 // POST /api/v1/callme/chat 发送消息（SSE 流式转发）
 // 入参：{ session_id, query, images? }；出参：text/event-stream
-// 事件格式（已归一化）：data: {"type":"thinking|answer|done|error","content":"...","done":bool}
+// 事件格式（已归一化）：data: {"type":"thinking|answer|preamble|tool_start|tool_end|title|references|done|error", ...}
+// thinking：思考增量；preamble：工具调用前的过渡语需从回答区挪入思考区（对齐官方 UI 语义）；
+// tool_start/tool_end：步骤树工具节点（展示就绪：title/summary 由 utils/agentsteps 生成）；
+// title：自动生成的会话标题；references：引用来源列表 [{id, title}]
 router.post('/chat', async (req, res) => {
   const { session_id: sessionId, query, images } = req.body || {};
   if (!sessionId || !query) {
@@ -146,29 +170,109 @@ router.post('/chat', async (req, res) => {
   };
 
   let upstream = null;
-  // 客户端中途断开时销毁上游流
-  req.on('close', () => {
-    if (upstream && !res.writableEnded) upstream.destroy();
+  // 客户端断连检测必须挂在 res 上：req 的 close 在请求体收完时即触发（那时 upstream 尚未
+  // 建立，判断恒为空操作），只有 res 的 close 才是真正的断连信号。断连后清理心跳并销毁
+  // 上游流，避免 WeKnora 继续空转生成。
+  res.on('close', () => {
+    clearInterval(heartbeat);
+    if (upstream) upstream.destroy();
   });
+  // 断连后的迟滞写入会触发 EPIPE/ERR_STREAM_DESTROYED，吞掉防止未处理异常
+  res.on('error', () => {});
 
   try {
     const wres = await weknora.agentChatStream(req.user.username, sessionId, { query, images });
     upstream = wres.data;
 
+    // 是否已向端侧流出过回答内容（用于判定 tool_call 前的 answer 是过渡语）
+    let answerForwarded = false;
+    // tool_call_id → { name, args }：tool_result 到达时生成完成态标题/摘要需要入参
+    const toolCalls = new Map();
+
+    // 工具结束（tool_result 或带 tool_call_id 的 error 帧）归一化为 tool_end
+    const emitToolEnd = (frame) => {
+      const meta = frame.data || {};
+      const id = meta.tool_call_id || '';
+      const name = meta.tool_name || '';
+      const startInfo = toolCalls.get(id) || {};
+      toolCalls.delete(id);
+      const success = frame.response_type !== 'error' && meta.success !== false;
+      send({
+        type: 'tool_end',
+        id,
+        name,
+        success,
+        title: agentSteps.doneTitle(name, startInfo.args, meta, success),
+        summary: success
+          ? agentSteps.toolSummary(name, meta)
+          : String(meta.error || frame.content || '').slice(0, 120),
+        durationMs: Number(meta.duration_ms) || 0,
+      });
+    };
+
     const parser = createSseParser((data) => {
       // 只上送小程序端需要的事件类型，保持端侧简单
       switch (data.response_type) {
         case 'answer':
+          if (data.content) answerForwarded = true;
           send({ type: 'answer', content: data.content || '', done: !!data.done });
           break;
         case 'thinking':
           send({ type: 'thinking', content: data.content || '' });
           break;
+        case 'tool_call': {
+          // WeKnora 会把工具调用前的过渡语以 answer 事件乐观流出，且不发出显式撤回信号
+          // （官方约定：tool_call 事件本身即"之前不是最终回答"的标记，见 engine.go）。
+          // 通知端侧把已流出的回答并入思考区，再开出工具步骤节点。
+          if (answerForwarded) {
+            send({ type: 'preamble' });
+            answerForwarded = false;
+          }
+          // 同一次调用会发两帧 tool_call：LLM 决策时的 pending 帧（无 arguments）+ 执行前的
+          // hint 帧（带 arguments，见 think.go/act.go），tool_call_id 相同。已注册过则合并
+          // 信息并标记 update，端侧更新既有节点而不是重复开节点（否则残留"正在调用"）。
+          const meta = data.data || {};
+          const id = meta.tool_call_id || '';
+          const prev = id ? toolCalls.get(id) : null;
+          const hasArgs = meta.arguments && Object.keys(meta.arguments).length;
+          const args = hasArgs ? meta.arguments : (prev && prev.args) || {};
+          const name = meta.tool_name || (prev && prev.name) || '';
+          if (id) toolCalls.set(id, { name, args });
+          send({ type: 'tool_start', id, name, title: agentSteps.pendingTitle(name), update: !!prev });
+          break;
+        }
+        case 'tool_result':
+          emitToolEnd(data);
+          break;
+        case 'references': {
+          // 引用来源：按知识条目去重后只上送展示所需字段
+          const refs = Array.isArray(data.knowledge_references) ? data.knowledge_references : [];
+          const seen = new Set();
+          const list = [];
+          for (const r of refs) {
+            const id = r.knowledge_id || r.id;
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            list.push({ id, title: r.knowledge_title || r.knowledge_filename || '未命名资料' });
+          }
+          if (list.length) send({ type: 'references', list });
+          break;
+        }
+        case 'session_title':
+          // WeKnora 自动生成的会话标题，端侧据此实时改名
+          if (data.content) send({ type: 'title', content: data.content });
+          break;
         case 'error':
-          send({ type: 'error', content: data.content || 'AI 服务返回错误' });
+          // 工具执行失败也以 error 帧下发（带 tool_call_id），并非整流终态：
+          // 归一化为失败的 tool_end 节点；只有无 tool_call_id 的 error 才是回答级错误
+          if (data.data && data.data.tool_call_id) {
+            emitToolEnd(data);
+          } else {
+            send({ type: 'error', content: data.content || 'AI 服务返回错误' });
+          }
           break;
         default:
-          break; // agent_query / tool_call / tool_result / references 暂不上送
+          break; // agent_query / complete 等暂不上送
       }
     });
 
