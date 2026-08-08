@@ -743,10 +743,10 @@
           <text class="sel-fk">电压等级</text>
           <view class="sel-box {{towerOpen === 'level' ? 'open' : ''}}" hover-class="hover-opacity" data-key="level" bindtap="onTowerToggle">
             <text class="{{towerLevel ? '' : 'ph'}}">{{towerLevel || '请选择电压等级'}}</text>
-            <t-icon name="chevron-down" size="28rpx" color="#A89F8A" />
+            <view class="chev {{towerOpen === 'level' ? 'up' : ''}}"><t-icon name="chevron-down" size="28rpx" color="#A89F8A" /></view>
           </view>
         </view>
-        <scroll-view scroll-y class="opt-list" wx:if="{{towerOpen === 'level'}}" enhanced show-scrollbar="{{false}}">
+        <scroll-view scroll-y class="opt-list {{towerOpen === 'level' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
           <view
             class="opt {{towerLevel === item ? 'on' : ''}}"
             wx:for="{{towerLevels}}"
@@ -773,10 +773,10 @@
               placeholder-class="ph"
               maxlength="32"
             />
-            <t-icon name="chevron-down" size="28rpx" color="{{towerLevel ? '#A89F8A' : '#D9CFBA'}}" data-key="line" bindtap="onTowerToggle" />
+            <view class="chev {{towerOpen === 'line' ? 'up' : ''}}" data-key="line" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLevel ? '#A89F8A' : '#D9CFBA'}}" /></view>
           </view>
         </view>
-        <scroll-view scroll-y class="opt-list" wx:if="{{towerOpen === 'line'}}" enhanced show-scrollbar="{{false}}">
+        <scroll-view scroll-y class="opt-list {{towerOpen === 'line' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
           <view
             class="opt {{towerLine === item ? 'on' : ''}}"
             wx:for="{{towerLines}}"
@@ -799,10 +799,10 @@
             bindtap="onTowerToggle"
           >
             <text class="{{towerTower ? '' : 'ph'}}">{{towerTower ? towerTower.no : (towerLine ? '请选择杆塔号' : '请先选择线路名称')}}</text>
-            <t-icon name="chevron-down" size="28rpx" color="{{towerLine ? '#A89F8A' : '#D9CFBA'}}" />
+            <view class="chev {{towerOpen === 'tower' ? 'up' : ''}}"><t-icon name="chevron-down" size="28rpx" color="{{towerLine ? '#A89F8A' : '#D9CFBA'}}" /></view>
           </view>
         </view>
-        <scroll-view scroll-y class="opt-list" wx:if="{{towerOpen === 'tower'}}" enhanced show-scrollbar="{{false}}">
+        <scroll-view scroll-y class="opt-list {{towerOpen === 'tower' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
           <view
             class="opt {{towerTower && towerTower.no === item.no ? 'on' : ''}}"
             wx:for="{{towerTowers}}"

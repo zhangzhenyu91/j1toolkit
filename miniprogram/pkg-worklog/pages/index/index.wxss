@@ -1104,6 +1104,7 @@
   align-items: center;
   justify-content: center;
   gap: 8rpx;
+  transition: background-color 0.2s ease-out;
 }
 
 .tower-btn .tb-text {
@@ -1194,6 +1195,7 @@
   font-size: 28rpx;
   font-weight: 600;
   color: #22314e;
+  transition: border-color 0.2s ease-out, background-color 0.2s ease-out;
 }
 
 .sel-box .ph {
@@ -1222,13 +1224,32 @@
   background: #f4f1ea;
 }
 
-/* 选项列表：内嵌展开于对应行下方，超高滚动 */
+/* 选项列表：内嵌展开于对应行下方，超高滚动；展开/收起带 max-height + 透明度动效（wx:if 无过渡，改 class 开关） */
 .opt-list {
-  margin: 4rpx 0 8rpx 148rpx;
-  border: 2rpx solid #e3dccb;
+  margin: 0 0 0 148rpx;
+  border: 2rpx solid transparent;
   border-radius: 16rpx;
   background: #ffffff;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.25s ease-out, opacity 0.2s ease-out, border-color 0.2s ease-out, margin 0.25s ease-out;
+}
+
+.opt-list.show {
+  margin: 4rpx 0 8rpx 148rpx;
+  border-color: #e3dccb;
   max-height: 336rpx;
+  opacity: 1;
+}
+
+/* 下拉箭头随展开/收起旋转 */
+.chev {
+  display: flex;
+  transition: transform 0.2s ease-out;
+}
+
+.chev.up {
+  transform: rotate(180deg);
 }
 
 .opt {
@@ -1240,6 +1261,7 @@
   padding: 0 24rpx;
   font-size: 28rpx;
   color: #22314e;
+  transition: background-color 0.15s ease-out, color 0.15s ease-out;
 }
 
 .opt + .opt {
@@ -1252,13 +1274,25 @@
   background: #fdeee2;
 }
 
-/* 三级选齐后的坐标预览卡 */
+/* 三级选齐后的坐标预览卡（淡入上移） */
 .coord-card {
   margin: 16rpx 0 8rpx;
   background: #fdeee2;
   border-left: 8rpx solid #f26d21;
   border-radius: 12rpx;
   padding: 18rpx 24rpx;
+  animation: coord-in 0.25s ease-out;
+}
+
+@keyframes coord-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .cc-title {
