@@ -168,6 +168,23 @@ router.post('/devices/:id/mount', requireAnyApp(KVM_OR_FT), async (req, res) => 
   }
 });
 
+// 删除盘内文件（设备 /delete：JSON {"names": [...]}，共享中自动断开）
+router.post('/devices/:id/delete', requireAnyApp(KVM_OR_FT), async (req, res) => {
+  const names = req.body && req.body.names;
+  if (!Array.isArray(names) || !names.length) {
+    return fail(res, 400, 40001, '参数错误：names（文件名数组）');
+  }
+  try {
+    const ps = await glkvm.getProxySession(req.params.id, req.user.username);
+    const r = await axios.post(`${ps.origin}/api/fileshare/delete`,
+      { names: names.map((n) => String(n).slice(0, 255)) },
+      { headers: { Cookie: ps.cookie }, timeout: 60000 });
+    return ok(res, r.data);
+  } catch (err) {
+    return relayFail(res, err);
+  }
+});
+
 // multer 错误（超限等）统一返回可读文案（与 safeday 同口径）
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {

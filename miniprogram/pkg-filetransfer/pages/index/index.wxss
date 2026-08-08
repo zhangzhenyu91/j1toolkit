@@ -281,6 +281,12 @@
   color: #f26d21;
 }
 
+/* 行内删除小标（下载弹层文件行，红色 delete 图标） */
+.fdel {
+  flex: none;
+  padding: 6rpx;
+}
+
 .frow .fx {
   flex: none;
   padding: 4rpx;

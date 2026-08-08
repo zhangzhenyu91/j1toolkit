@@ -2,6 +2,7 @@
 // 列表数据实时代理自 GLKVM Cloud 平台（/api/v1/kvm/devices，kvm 或 file-transfer 任一权限）；
 // 上传/下载经壹匣转发点（/api/v1/kvm/devices/{id}/push|files|download|mount），平台链路直达设备
 import Toast from 'tdesign-miniprogram/toast/index';
+import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import config from '../../../config';
@@ -369,29 +370,18 @@ Page({
       url: `${config.BASE_URL}/api/v1/kvm/devices/${this.data.dlDevice.id}/download?name=${encodeURIComponent(file.name)}`,
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
       timeout: 120000,
+      // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
+      filePath: `${wx.env.USER_DATA_PATH}/${file.name}`,
       success: (res) => {
         if (res.statusCode !== 200) {
           this.toast(`下载失败（${res.statusCode}）`);
           return;
         }
-        this.saveDownload(file, this.renameTemp(res.tempFilePath, file.name));
+        this.saveDownload(file, res.filePath);
       },
       fail: () => this.toast('网络异常，请检查网络后重试'),
       complete: () => this.setData({ downloading: '' }),
     });
-  },
-
-  // downloadFile 的临时路径名是随机的，重命名为真实文件名再打开/保存
-  renameTemp(tempPath, name) {
-    const fsm = wx.getFileSystemManager();
-    const target = `${wx.env.USER_DATA_PATH}/${name}`;
-    try { fsm.unlinkSync(target); } catch (e) { /* 目标不存在则忽略 */ }
-    try {
-      fsm.renameSync(tempPath, target);
-      return target;
-    } catch (e) {
-      return tempPath; // 重命名失败退回临时路径
-    }
   },
 
   saveDownload(file, tempFilePath) {
@@ -418,6 +408,39 @@ Page({
       ...(DOC_EXTS.includes(ext) ? { fileType: ext } : {}),
       fail: () => this.toast('该类型暂不支持打开'),
     });
+  },
+
+  // 删除盘内文件（图标小按钮 + 二次确认，同 Call Me 删除对话交互）
+  onDeleteFile(e) {
+    const { name, index } = e.currentTarget.dataset;
+    if (this.data.downloading === name) {
+      this.toast('该文件正在下载，请稍候');
+      return;
+    }
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: '删除文件',
+      content: `删除后不可恢复，确定删除「${name}」吗？`,
+      confirmBtn: '删除',
+      cancelBtn: '取消',
+    }).then(async () => {
+      try {
+        const data = await request({
+          url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/delete`,
+          method: 'POST',
+          data: { names: [name] },
+          timeout: 60000,
+        });
+        // deleted/missing 均视为已不在盘内，从列表移除
+        const dlFiles = this.data.dlFiles.slice();
+        dlFiles.splice(index, 1);
+        this.setData({ dlFiles });
+        this.toast((data && (data.deleted || []).includes(name)) ? '已删除' : '文件已不存在');
+      } catch (err) {
+        this.toast(err.message);
+      }
+    }).catch(() => {});
   },
 
   onShareAppMessage() {

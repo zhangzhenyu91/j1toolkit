@@ -8,6 +8,7 @@
 #   POST /mount                挂载（共享）到被控机
 #   GET  /list                 反向操作：确保断开共享（分区挂载回设备本机）→ 返回全部文件名
 #   GET  /download/<文件名>    下载盘内文件（同样确保断开共享；URL 编码的文件名）
+#   POST /delete               删除盘内文件（同样确保断开共享；JSON：{"names": ["a.txt", ...]}）
 #
 # 注意：/list 与 /download 结束后分区保持「非共享」状态（文件仅在本机挂载时可读），
 #       被控机要重新看到 U 盘需再推送或到平台 UI 手动连接。
@@ -158,6 +159,39 @@ async def list_(request):
         return web.json_response({'ok': True, 'shared': False, 'files': list_files()})
 
 
+async def delete(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    names = isinstance(body, dict) and body.get('names')
+    if not isinstance(names, list) or not names:
+        return web.json_response(
+            {'ok': False, 'error': '参数错误：需要 JSON {"names": ["文件名", ...]}'}, status=400)
+
+    deleted = []
+    missing = []
+    async with media_lock:
+        await ensure_unshared()
+        for raw in names[:50]:  # 单次最多 50 个
+            name = safe_name(str(raw))
+            path = os.path.join(MEDIA_DIR, name)
+            if not os.path.isfile(path):
+                missing.append(name)
+                continue
+            try:
+                os.remove(path)
+                deleted.append(name)
+                log.info('deleted %s', name)
+            except OSError as e:
+                return web.json_response(
+                    {'ok': False, 'error': '删除失败：%s（%s）' % (name, e),
+                     'deleted': deleted, 'missing': missing + [n for n in names[len(deleted)+len(missing):]]},
+                    status=500)
+        os.sync()
+    return web.json_response({'ok': True, 'shared': False, 'deleted': deleted, 'missing': missing})
+
+
 async def download(request):
     name = safe_name(request.match_info['name'])
     async with media_lock:
@@ -180,6 +214,7 @@ def main():
     app.router.add_post('/mount', mount)
     app.router.add_get('/list', list_)
     app.router.add_get('/download/{name}', download)
+    app.router.add_post('/delete', delete)
     web.run_app(app, host=LISTEN_HOST, port=LISTEN_PORT, print=None)
 
 
