@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<!--
+  新子应用 ·「水印添加」设计稿（审批稿，审批通过后实施）
+  沿用方案五「安全橙」定稿 token：暖纸底 #F4F1EA ｜ 藏青 #22314E ｜ 安全橙 #F26D21 ｜ 浅橙 #FDEEE2 ｜ 警示红 #CF4444 ｜ 描边 #E3DCCB / #E8E0CD
+  定位：移动端独立子应用，复制出工日志「拍摄/选择照片并添加水印」能力，与出工日志解耦（不生成出工记录）。
+  流程：
+    1. 工作台宫格入口进入 → 起始页二选一（拍摄 / 从相册选择）
+    2. 4:3 检查裁剪（拍摄必裁；相册已是 4:3/3:4 ±0.02 免裁；横拍锁横向 4:3、纵拍锁纵向 3:4）——与出工日志同口径
+    3. 编辑水印信息（与出工日志「无历史照片」口径一致：当前定位自动带出拍摄时间/经纬度/地点/天气；
+       经纬度行右侧跨两行「选择杆塔坐标」按钮保留，≤50m 波动带入并刷新地点天气）
+    4. 后端渲染水印：仅返回加水印后的图片（不传 COS、不入库、不触发 Dify 验证）
+    5. 前端自动保存到用户相册（wx.saveImageToPhotosAlbum），并调微信全屏展示（wx.previewImage）
+  与出工日志差异：无派车/用车人上下文 → 无人名点亮步骤、水印编辑无「所属人名」区；
+                  产物只回给本人，不落任何业务数据。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>新子应用 · 水印添加设计稿（待审批）— 检修一班工具箱</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#F4F1EA;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:#22314E;
+    padding:52px 24px 80px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 外层标题栏 ===== */
+  .page-head { text-align:center; margin-bottom:18px; }
+  .page-head h1 { font-size:26px; font-weight:800; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal; color:#F26D21; }
+  .page-head h1 small { margin-left:10px; font-size:14px; font-weight:600; color:#6B7690; letter-spacing:4px; }
+  .page-head p { margin-top:12px; font-size:13px; color:#6B7690; letter-spacing:1px; }
+  .legend { max-width:1020px; margin:0 auto 12px; background:#fff; border-radius:10px;
+            padding:14px 18px; font-size:12px; line-height:2; color:#6B7690;
+            box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .legend b { color:#22314E; }
+
+  .group-title { text-align:center; margin:46px 0 4px; font-size:17px; font-weight:800; letter-spacing:6px; color:#22314E; }
+  .group-title em { font-style:normal; color:#F26D21; }
+  .group-sub { text-align:center; font-size:12px; color:#A89F8A; letter-spacing:2px; margin-bottom:28px; }
+
+  /* ===== 机框舞台 ===== */
+  .stage { display:flex; flex-wrap:wrap; justify-content:center; gap:64px 56px; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .cap { font-size:14px; font-weight:700; letter-spacing:2px; color:#22314E; }
+  .cap i { font-style:normal; color:#F26D21; margin-right:6px; }
+  .sub { max-width:375px; text-align:center; font-size:12px; line-height:1.8; color:#6B7690; }
+  .sub b { color:#22314E; }
+
+  .phone {
+    padding:12px;
+    background:linear-gradient(150deg,#3b4354 0%,#171c26 60%,#10141c 100%);
+    border-radius:62px;
+    box-shadow:0 34px 70px rgba(34,49,78,.28), 0 8px 20px rgba(34,49,78,.16);
+  }
+  .screen {
+    position:relative;
+    width:375px; height:812px;
+    background:#F4F1EA;
+    border-radius:50px;
+    overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  .notch {
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    width:120px; height:32px; border-radius:18px; background:#10141c; z-index:30;
+  }
+  .home-ind {
+    position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+    width:134px; height:5px; border-radius:3px; background:rgba(16,20,28,.9); z-index:40;
+  }
+  .sb { height:54px; flex:none; padding:20px 30px 0;
+        display:flex; justify-content:space-between; align-items:center;
+        font-size:14px; font-weight:700; letter-spacing:.5px; position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+  .sb-dark { color:#22314E; }
+  .sb-light { color:#fff; }
+  .navbar { height:52px; flex:none; position:relative; display:flex; align-items:center; justify-content:center;
+            font-size:17px; font-weight:800; letter-spacing:1px; color:#22314E; }
+  .navbar .back { position:absolute; left:14px; top:50%; transform:translateY(-50%);
+                  width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; }
+  .navbar .back svg { width:20px; height:20px; }
+  .content { flex:1; padding:8px 16px 12px; overflow:hidden; }
+
+  /* ===== ① 工作台宫格 ===== */
+  .usercard { position:relative; background:#fff; border-radius:10px; overflow:hidden;
+              box-shadow:0 8px 20px rgba(34,49,78,.06); padding:14px 16px; display:flex; align-items:center; gap:12px; }
+  .usercard::before { content:""; position:absolute; left:0; right:0; top:0; height:8px;
+              background:repeating-linear-gradient(-45deg,#F26D21 0 10px,#22314E 10px 20px); }
+  .avatar { width:44px; height:44px; border-radius:50%; background:#FDEEE2; color:#F26D21;
+            display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; }
+  .usercard .uname { font-size:16px; font-weight:800; }
+  .usercard .ubadge { margin-top:3px; display:inline-block; border:1px solid #F26D21; color:#F26D21;
+            border-radius:4px; padding:0 6px; font-size:10px; font-weight:700; line-height:16px; }
+  .sec-lab { display:flex; align-items:center; gap:8px; margin:16px 2px 10px; font-size:14px; font-weight:800; letter-spacing:2px; }
+  .sec-lab::before { content:""; width:4px; height:14px; border-radius:2px; background:#F26D21; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .gcell { position:relative; background:#fff; border-radius:10px; box-shadow:0 8px 20px rgba(34,49,78,.06);
+           padding:16px 8px 13px; display:flex; flex-direction:column; align-items:center; gap:9px; }
+  .gcell .gi { width:46px; height:46px; border-radius:12px; background:#FDEEE2; color:#F26D21;
+               display:flex; align-items:center; justify-content:center; }
+  .gcell .gi svg { width:24px; height:24px; }
+  .gcell .gn { font-size:12px; font-weight:700; letter-spacing:1px; }
+  .gcell.dashed { background:#FAF8F1; border:1.5px dashed #D9CFBA; box-shadow:none; color:#A89F8A; }
+  .gcell.dashed .gi { background:#F0EBDD; color:#A89F8A; }
+  .gcell.new { outline:2px solid #F26D21; outline-offset:-2px; }
+
+  /* ===== ② 起始页 ===== */
+  .flow-card { background:#fff; border-radius:10px; box-shadow:0 8px 20px rgba(34,49,78,.06); padding:14px 16px; }
+  .flow-title { font-size:13px; font-weight:800; letter-spacing:2px; display:flex; align-items:center; gap:8px; }
+  .flow-title::before { content:""; width:4px; height:14px; border-radius:2px; background:#F26D21; }
+  .flow-steps { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
+  .fstep { display:flex; align-items:center; gap:9px; font-size:12px; color:#6B7690; }
+  .fstep .no { flex:none; width:18px; height:18px; border-radius:50%; background:#FDEEE2; color:#F26D21;
+               font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  .fstep b { color:#22314E; font-weight:700; }
+  .pick-btns { margin-top:16px; display:flex; flex-direction:column; gap:12px; }
+  .pick-opt { background:#fff; border:2px solid #E3DCCB; border-radius:12px; padding:16px;
+              display:flex; align-items:center; gap:14px; }
+  .pick-opt .pi { flex:none; width:48px; height:48px; border-radius:12px; background:#FDEEE2; color:#F26D21;
+                  display:flex; align-items:center; justify-content:center; }
+  .pick-opt .pi svg { width:24px; height:24px; }
+  .pick-opt .pt { font-size:15px; font-weight:800; letter-spacing:1px; }
+  .pick-opt .pn { margin-top:3px; font-size:11px; color:#A89F8A; letter-spacing:.5px; }
+
+  /* ===== 弹层通用 ===== */
+  .mask { position:absolute; inset:0; background:rgba(34,49,78,.45); z-index:35; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; z-index:36;
+           background:#fff; border-radius:16px 16px 0 0; padding:16px 18px 24px;
+           display:flex; flex-direction:column; max-height:730px; }
+  .sheet h4 { text-align:center; font-size:16px; font-weight:800; letter-spacing:2px; }
+  .sheet .sheet-note { text-align:center; margin-top:5px; font-size:11px; color:#A89F8A; letter-spacing:1px; }
+  .sheet-scroll { margin-top:12px; overflow:hidden; }
+  .sheet-actions { display:flex; gap:10px; margin-top:14px; flex:none; }
+  .btn-ghost { flex:1; height:44px; border-radius:8px; border:1px solid #E3DCCB; background:#fff;
+               display:flex; align-items:center; justify-content:center;
+               font-size:14px; font-weight:700; color:#6B7690; letter-spacing:3px; }
+  .btn-dark { flex:2; height:44px; border-radius:8px; background:#22314E; color:#fff;
+              display:flex; align-items:center; justify-content:center; gap:7px;
+              font-size:14px; font-weight:700; letter-spacing:2px; }
+  .btn-dark svg { width:16px; height:16px; }
+
+  /* ===== ③ 裁剪层 ===== */
+  .crop-sheet { position:absolute; left:0; right:0; bottom:0; top:70px; z-index:36;
+                background:#10141c; border-radius:16px 16px 0 0; padding:16px 18px 24px;
+                display:flex; flex-direction:column; }
+  .crop-title { text-align:center; font-size:16px; font-weight:800; letter-spacing:2px; color:#fff; }
+  .crop-note { text-align:center; margin-top:5px; font-size:11px; color:rgba(255,255,255,.55); letter-spacing:1px; }
+  .crop-stage { position:relative; margin:18px auto 0; width:339px; height:254px; }
+  .crop-img { position:absolute; inset:0; border-radius:4px;
+              background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
+              display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.9); }
+  .crop-img svg { width:30px; height:30px; }
+  .crop-corner { position:absolute; width:22px; height:22px; border:3px solid #F26D21; }
+  .crop-corner.tl { top:-2px; left:-2px; border-right:none; border-bottom:none; border-radius:4px 0 0 0; }
+  .crop-corner.tr { top:-2px; right:-2px; border-left:none; border-bottom:none; border-radius:0 4px 0 0; }
+  .crop-corner.bl { bottom:-2px; left:-2px; border-right:none; border-top:none; border-radius:0 0 0 4px; }
+  .crop-corner.br { bottom:-2px; right:-2px; border-left:none; border-top:none; border-radius:0 0 4px 0; }
+  .crop-sheet .sheet-actions { margin-top:auto; }
+
+  /* ===== ④ 水印编辑弹层（同出工日志无历史口径） ===== */
+  .form-card { background:#FAF8F1; border:1px solid #F1EBDC; border-radius:10px; padding:4px 12px 8px; }
+  .frow { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed #EDE6D4; }
+  .frow:last-child { border-bottom:none; }
+  .frow .fk { flex:none; width:56px; font-size:12px; color:#A89F8A; }
+  .frow .fv { flex:1; font-size:13px; font-weight:600; color:#22314E; }
+  .finput { flex:1; height:32px; border:1px solid #E3DCCB; border-radius:8px; background:#fff;
+            padding:0 10px; font-size:13px; color:#22314E; display:flex; align-items:center; }
+  .ftextarea { flex:1; min-height:58px; border:1px solid #E3DCCB; border-radius:8px; background:#fff;
+               padding:8px 10px; font-size:13px; color:#A89F8A; line-height:1.6; }
+  .wm-code { letter-spacing:1px; }
+  .wm-refresh { display:inline-flex; align-items:center; gap:3px; font-size:11px; color:#F26D21; font-weight:700; }
+  .wm-refresh svg { width:13px; height:13px; }
+  .geo-zone { display:flex; gap:10px; align-items:stretch; padding:4px 0; border-bottom:1px dashed #EDE6D4; }
+  .geo-rows { flex:1; min-width:0; }
+  .geo-rows .frow { border-bottom:1px dashed #EDE6D4; }
+  .geo-rows .frow:last-child { border-bottom:none; }
+  .tower-btn {
+    position:relative;
+    flex:none; width:92px; margin:4px 0;
+    border:1px solid #F26D21; border-radius:8px; background:#FDEEE2;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px;
+    color:#F26D21; font-size:12px; font-weight:800; letter-spacing:1px; line-height:1.35;
+  }
+  .tower-btn svg { width:20px; height:20px; }
+
+  /* ===== ⑤ 全屏展示 + 保存相册 toast ===== */
+  .preview-screen { position:absolute; inset:0; background:#000; z-index:36;
+                    display:flex; align-items:center; justify-content:center; }
+  .preview-photo { width:375px; height:281px; position:relative; overflow:hidden;
+                   background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
+                   display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.85); }
+  .preview-photo svg { width:34px; height:34px; }
+  .preview-wm { position:absolute; left:0; right:0; bottom:0; padding:6px 8px;
+                background:linear-gradient(transparent,rgba(34,49,78,.72));
+                color:#fff; font-size:8px; line-height:1.6; }
+  .preview-wm b { font-size:9px; }
+  .toast { position:absolute; left:50%; top:44%; transform:translate(-50%,-50%); z-index:50;
+           background:rgba(34,49,78,.88); color:#fff; border-radius:8px; padding:10px 18px;
+           font-size:13px; font-weight:600; letter-spacing:1px; white-space:nowrap;
+           display:flex; align-items:center; gap:7px; }
+  .toast svg { width:16px; height:16px; }
+
+  /* 编号角标 */
+  .mk { display:inline-flex; width:16px; height:16px; border-radius:50%; background:#F26D21; color:#fff;
+        font-size:10px; font-weight:800; font-style:normal; align-items:center; justify-content:center;
+        flex:none; letter-spacing:0; }
+  .mk-row { display:flex; align-items:flex-start; gap:7px; text-align:left; }
+
+  @media (max-width: 1280px) { .stage { zoom: .9; } }
+  @media (max-width: 1060px) { .stage { zoom: .8; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>新子应用 <em>水印添加</em><small>设计稿 · 待审批</small></h1>
+  <p>选片/拍摄 → 4:3 裁剪 → 编辑水印（定位带出 + 杆塔选择）→ 服务端渲染仅回图 → 自动存相册 + 全屏展示</p>
+</header>
+
+<div class="legend">
+  <b>应用定位：</b>独立移动端子应用（app_key <b>wm-add</b>，小程序新分包 <b>pkg-wmadd</b>），复制出工日志「拍摄/选择照片并添加水印」能力，<b>与出工日志解耦</b>：不生成出工记录、无派车/用车人上下文，产物只回给本人。<br>
+  <b>流程口径（①~③ 与出工日志完全一致并直接复用实现）</b>：拍摄必裁；相册经尺寸判定已是 4:3/3:4（±0.02）免裁直进表单；横拍锁横向 4:3、纵拍锁纵向 3:4；裁剪导出长边 ≤2560 JPEG。<br>
+  <b>水印编辑</b>：与出工日志「无历史照片」同口径 —— 拍摄时间取当前、经纬度/地点/天气按当前定位自动带出（腾讯地图，失败留空手填）；「选择杆塔坐标」入口保留（≤50m 波动带入并刷新地点天气）；字段 6 项 + 防伪码（自动生成可换一换）；<b>无人名点亮步骤、无「所属人名」区</b>。<br>
+  <b>服务端（差异点）</b>：新增 <b>POST /api/v1/wmadd/render</b>（需登录 + wm-add 应用权限），复用出工日志 render-photo/watermark 渲染核心，<b>仅渲染并 base64 返回加水印图片：不传 COS、不入库、不触发 Dify 验证</b>；路由单独 20mb json 限制（同 worklog 口径）。<br>
+  <b>落地</b>：前端收 base64 → 写临时文件 → <b>wx.saveImageToPhotosAlbum 自动存相册</b>（首次弹授权，拒绝则引导开启）→ <b>wx.previewImage 全屏展示</b>（微信原生黑底，可双指缩放/长按转发）。
+</div>
+
+<h2 class="group-title">小程序端 <em>MINI-PROGRAM</em></h2>
+<div class="group-sub">iphone 375×812 机框 ｜ 入口 → 起始页 → 裁剪 → 编辑 → 生成落地</div>
+
+<main class="stage">
+
+  <!-- ================= ① 工作台宫格入口 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">壹匣</div>
+        <div class="content">
+          <div class="usercard">
+            <div class="avatar">赵</div>
+            <div>
+              <div class="uname">赵登</div>
+              <span class="ubadge">高级技师</span>
+            </div>
+          </div>
+          <div class="sec-lab">应用</div>
+          <div class="grid">
+            <div class="gcell">
+              <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/></svg></div>
+              <div class="gn">出工日志</div>
+            </div>
+            <div class="gcell">
+              <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+              <div class="gn">安全日记录</div>
+            </div>
+            <div class="gcell">
+              <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h13v9H8l-4 3.5z"/><path d="M17 9.5h3v9l-3-2.5"/></svg></div>
+              <div class="gn">随叫随到</div>
+            </div>
+            <!-- ❶ 新增应用入口 -->
+            <div class="gcell new">
+              <span class="mk" style="position:absolute; top:-7px; right:-7px">1</span>
+              <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="9" cy="11" r="1.6"/><path d="M4.5 17l4.5-4 3.5 3 3-2.5 4 3.5"/></svg></div>
+              <div class="gn">水印添加</div>
+            </div>
+            <div class="gcell dashed">
+              <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg></div>
+              <div class="gn">敬请期待</div>
+            </div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>①</i>工作台 · 新增应用入口</div>
+    <div class="sub">
+      <span class="mk-row"><span class="mk">1</span><span>宫格新增「水印添加」（线性图片图标 + 浅橙底，同其他应用）；可见性由 sys_app 应用权限控制，无权限不显示。</span></span>
+    </div>
+  </div>
+
+  <!-- ================= ② 起始页 · 选片方式 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          水印添加
+        </div>
+        <div class="content">
+          <div class="flow-card">
+            <div class="flow-title">使用流程</div>
+            <div class="flow-steps">
+              <div class="fstep"><span class="no">1</span><span><b>拍摄 / 从相册选择</b>一张原图</span></div>
+              <div class="fstep"><span class="no">2</span><span>非 4:3 / 3:4 时<b>裁剪取景</b>（已是则免裁）</span></div>
+              <div class="fstep"><span class="no">3</span><span><b>编辑水印信息</b>，确认后由服务端渲染水印</span></div>
+              <div class="fstep"><span class="no">4</span><span><b>自动存入相册</b>并全屏展示，仅本人持有</span></div>
+            </div>
+          </div>
+          <div class="pick-btns">
+            <div class="pick-opt">
+              <div class="pi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg></div>
+              <div>
+                <div class="pt">拍 摄</div>
+                <div class="pn">调相机取原图，必裁 4:3 / 3:4</div>
+              </div>
+            </div>
+            <div class="pick-opt">
+              <div class="pi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="9" cy="11" r="1.6"/><path d="M4.5 17l4.5-4 3.5 3 3-2.5 4 3.5"/></svg></div>
+              <div>
+                <div class="pt">从相册选择</div>
+                <div class="pn">已是 4:3 / 3:4 免裁剪直进编辑</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>②</i>起始页 · 选片方式</div>
+    <div class="sub">
+      单页应用：上部流程说明卡，下部两个大选项（无出工日志的二选一弹层与人名点亮）。「拍 摄」走 wx.chooseMedia(camera)；「从相册选择」走 wx.chooseMedia(album)，sizeType 均限定 original 原图。
+    </div>
+  </div>
+
+  <!-- ================= ③ 4:3 裁剪层 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          水印添加
+        </div>
+        <div class="content"></div>
+
+        <div class="crop-sheet">
+          <div class="crop-title">调整裁剪区域</div>
+          <div class="crop-note">已锁定横向 4:3，拖动或双指缩放调整取景</div>
+          <div class="crop-stage">
+            <div class="crop-img"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="9" cy="11" r="1.6"/><path d="M4.5 17l4.5-4 3.5 3 3-2.5 4 3.5"/></svg></div>
+            <div class="crop-corner tl"></div>
+            <div class="crop-corner tr"></div>
+            <div class="crop-corner bl"></div>
+            <div class="crop-corner br"></div>
+          </div>
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>确认裁剪</div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>③</i>4:3 裁剪层</div>
+    <div class="sub">
+      直接复用出工日志裁剪层实现：拍摄必裁；相册已是 4:3/3:4（±0.02）免裁直进④；横拍锁横向 4:3、纵拍锁纵向 3:4；movable 拖拽 + 双指缩放，四角橙色取景框；导出长边 ≤2560 JPEG。
+    </div>
+  </div>
+
+  <!-- ================= ④ 编辑水印信息 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          水印添加
+        </div>
+        <div class="content"></div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>编辑水印信息</h4>
+          <div class="sheet-note">确认后由服务端渲染水印并返回图片，不上传、不存档</div>
+          <div class="sheet-scroll">
+            <div class="form-card">
+              <div class="frow"><span class="fk">施工内容</span><div class="ftextarea">请输入施工内容</div></div>
+              <div class="frow"><span class="fk">拍摄时间</span><div class="finput">2026.08.08 10:23</div></div>
+              <div class="frow"><span class="fk">天气</span><div class="finput">晴 32℃</div></div>
+              <div class="frow"><span class="fk">地点</span><div class="finput">山西省吕梁市孝义市新义街道</div></div>
+              <div class="geo-zone">
+                <div class="geo-rows">
+                  <div class="frow"><span class="fk">经度</span><div class="finput">111.782163</div></div>
+                  <div class="frow"><span class="fk">纬度</span><div class="finput">37.145082</div></div>
+                </div>
+                <div class="tower-btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.3-6.5-10a6.5 6.5 0 0 1 13 0c0 4.7-6.5 10-6.5 10z"/><circle cx="12" cy="10.8" r="2.3"/></svg>
+                  <span>选择杆塔<br>坐标</span>
+                </div>
+              </div>
+              <div class="frow">
+                <span class="fk">防伪码</span>
+                <span class="fv wm-code">K7X3PD9GM2TQ4W</span>
+                <span class="wm-refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 1 0 18.9 14"/><path d="M20 5v6h-6"/></svg>换一换</span>
+              </div>
+            </div>
+          </div>
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="9" cy="11" r="1.6"/><path d="M4.5 17l4.5-4 3.5 3 3-2.5 4 3.5"/></svg>确认，生成水印照片</div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>④</i>编辑水印信息</div>
+    <div class="sub">
+      与出工日志「无历史照片」完全同口径：拍摄时间取当前（可改）、经纬度/地点/天气按当前定位自动带出（失败留空手填）、<b>「选择杆塔坐标」入口保留</b>（≤50m 波动带入并刷新地点天气）、防伪码自动生成可换；差异：无「所属人名」区、按钮为「确认，生成水印照片」。
+    </div>
+  </div>
+
+  <!-- ================= ⑤ 自动存相册 + 全屏展示 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen" style="background:#000">
+        <div class="sb sb-light">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="preview-screen">
+          <div class="preview-photo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="9" cy="11" r="1.6"/><path d="M4.5 17l4.5-4 3.5 3 3-2.5 4 3.5"/></svg>
+            <div class="preview-wm">
+              <b>110kV 胜白Ⅰ线巡视</b><br>
+              拍摄时间 2026.08.08 10:23　天气 晴 32℃<br>
+              地点 山西省吕梁市孝义市新义街道　经度 111.782163°E　纬度 37.145082°N<br>
+              防伪 K7X3PD9GM2TQ4W
+            </div>
+          </div>
+        </div>
+        <div class="toast">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          已保存到相册
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>⑤</i>生成落地 · 存相册 + 全屏展示</div>
+    <div class="sub">
+      服务端仅回图（base64）后：前端写临时文件 → <b>wx.saveImageToPhotosAlbum 自动存相册</b>（首次弹相册授权，拒绝则 toast 并引导开启）→ toast「已保存到相册」→ <b>wx.previewImage 微信原生全屏展示</b>（黑底可缩放、长按可转发）。全程不传 COS、不入库、不验证。
+    </div>
+  </div>
+
+</main>
+
+</body>
+</html>

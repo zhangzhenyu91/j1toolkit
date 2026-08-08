@@ -126,6 +126,20 @@ Page({
     quickInputs: ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'], // 快捷输入，点击追加到内容末尾（水印施工内容与巡视内容共用）
     wmCode: '', // 防伪码（自动生成，用户不可编辑）
     wmUploading: false,
+    // ---------- 选择杆塔坐标弹层（仅无历史照片预填场景显示入口） ----------
+    wmNoHistory: false, // 本次预填是否无历史照片（决定「选择杆塔坐标」按钮显隐）
+    wmTowerPicked: null, // 已选杆塔 { level, line, no, lng, lat }；未选为 null（已选后天气/地点行显「已更新」标）
+    towerVisible: false,
+    towerLoading: false,
+    towerRows: null, // 全量行 [电压等级, 线路名称, 杆塔号, 经度, 纬度]（storage 缓存优先，后台静默刷新）
+    towerOpen: '', // 当前展开选项列表的级：level / line / tower（''=全收起）
+    towerLevels: [],
+    towerLevel: '',
+    towerLines: [], // 当前展示的线路选项（= 本电压等级全部线路按 towerLineKw 关键字过滤）
+    towerLineKw: '', // 线路名称输入框内容（搜索关键字 / 已选线路名）
+    towerLine: '',
+    towerTowers: [], // [{ no, lng, lat, lngText, latText }]
+    towerTower: null,
     // ---------- 4:3 裁剪层（加水印流程：拍摄必裁；相册非 4:3 才裁，横拍锁 4:3 / 纵拍锁 3:4） ----------
     cropVisible: false,
     cropSrc: '', // 待裁原图临时路径
@@ -1393,9 +1407,10 @@ Page({
   },
 
   // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤500m，拍摄时间随机化为 10:00-12:00，避免完全一致）；
-  // 无历史 → 施工内容留空、经纬度/地点/天气按当前定位取值（腾讯地图）；
+  // 无历史 → 施工内容留空、经纬度/地点/天气按当前定位取值（腾讯地图），并显示「选择杆塔坐标」入口；
   //          拍摄时间当日取当前时间，非当日仅能确定日期 → 取记录日期 10:00-12:00 内随机时间
   prefillWmForm() {
+    this.resetTowerState();
     const entry = this.data.list.find((x) => x.id === this.data.memberEntryId);
     const photos = (entry && entry.photos) || [];
     const history = photos.filter((p) => p.shotTime || p.workContent || p.location || p.lng || p.lat);
@@ -1406,6 +1421,7 @@ Page({
       const jittered = Number.isFinite(lng) && Number.isFinite(lat) ? this.jitterCoord(lng, lat) : { lng: '', lat: '' };
       this.setData({
         wmVisible: true,
+        wmNoHistory: false,
         wmForm: {
           content: last.workContent || '',
           time: this.randomWmTime(last.shotTime),
@@ -1423,9 +1439,25 @@ Page({
       : `${this.data.dateStr.replace(/-/g, '.')} ${randWmHm()}`;
     this.setData({
       wmVisible: true,
+      wmNoHistory: true,
       wmForm: { content: '', time, weather: '', location: '', lng: '', lat: '' },
     });
     this.fillWmByLocation();
+  },
+
+  // 每次进入水印编辑前重置杆塔选择态（towerRows 坐标数据缓存保留，供下次直接打开）
+  resetTowerState() {
+    this.setData({
+      wmTowerPicked: null,
+      towerVisible: false,
+      towerOpen: '',
+      towerLevel: '',
+      towerLine: '',
+      towerLineKw: '',
+      towerLines: [],
+      towerTowers: [],
+      towerTower: null,
+    });
   },
 
   // 当前定位取值：经纬度直接填；地点/天气调后端 /geo（腾讯地图）。授权被拒或失败均留空手填（失败原因打控制台）
@@ -1434,13 +1466,14 @@ Page({
       type: 'gcj02',
       success: (loc) => {
         if (!this.data.wmVisible) return; // 弹层已关则不再回填
+        if (this.data.wmTowerPicked) return; // 已选杆塔坐标，定位结果不再覆盖
         this.setData({
           'wmForm.lng': loc.longitude.toFixed(6),
           'wmForm.lat': loc.latitude.toFixed(6),
         });
         request({ url: `/api/v1/worklog/geo?lng=${loc.longitude}&lat=${loc.latitude}`, timeout: 10000 })
           .then((r) => {
-            if (!this.data.wmVisible) return;
+            if (!this.data.wmVisible || this.data.wmTowerPicked) return;
             this.setData({
               'wmForm.weather': this.data.wmForm.weather || (r && r.weather) || '',
               'wmForm.location': this.data.wmForm.location || (r && r.location) || '',
@@ -1452,9 +1485,9 @@ Page({
     });
   },
 
-  // 经纬度随机偏移：半径 ≤400m（对 500m 上限留余量），角度随机
-  jitterCoord(lng, lat) {
-    const r = Math.random() * 400;
+  // 经纬度随机偏移：角度随机，半径 ≤maxMeters（历史带入取 400——对 500m 上限留余量；杆塔坐标带入取 50）
+  jitterCoord(lng, lat, maxMeters = 400) {
+    const r = Math.random() * maxMeters;
     const a = Math.random() * Math.PI * 2;
     const dLat = (r * Math.sin(a)) / 111320;
     const cosLat = Math.cos((lat * Math.PI) / 180);
@@ -1485,6 +1518,174 @@ Page({
 
   onWmVisibleChange(e) {
     if (!e.detail.visible) this.setData({ wmVisible: false });
+  },
+
+  // ---------- 选择杆塔坐标（无历史预填场景） ----------
+
+  // 杆塔坐标数据：storage 缓存优先并后台静默刷新；无缓存则请求服务端（全量约 1366 行）
+  loadTowerRows() {
+    const KEY = 'worklog_towers';
+    const cached = wx.getStorageSync(KEY);
+    if (cached && Array.isArray(cached.rows) && cached.rows.length) {
+      request({ url: '/api/v1/worklog/towers', timeout: 10000 })
+        .then((r) => { if (r && Array.isArray(r.rows) && r.rows.length) wx.setStorageSync(KEY, r); })
+        .catch(() => {});
+      return Promise.resolve(cached.rows);
+    }
+    return request({ url: '/api/v1/worklog/towers', timeout: 10000 }).then((r) => {
+      if (!r || !Array.isArray(r.rows) || !r.rows.length) throw new Error('杆塔坐标数据为空');
+      wx.setStorageSync(KEY, r);
+      return r.rows;
+    });
+  },
+
+  towerLinesOf(level) {
+    const rows = this.data.towerRows || [];
+    return [...new Set(rows.filter((r) => r[0] === level).map((r) => r[1]))];
+  },
+
+  towerTowersOf(level, line) {
+    const rows = this.data.towerRows || [];
+    return rows
+      .filter((r) => r[0] === level && r[1] === line)
+      .map((r) => ({ no: r[2], lng: r[3], lat: r[4], lngText: r[3].toFixed(6), latText: r[4].toFixed(6) }));
+  },
+
+  // 「选择杆塔坐标」按钮：打开级联弹层；首次打开需先加载数据（失败关层提示，已选状态保留供重选带回）
+  onOpenTower() {
+    if (this.data.towerRows) {
+      this.setData({ towerVisible: true, towerOpen: '' });
+      return;
+    }
+    this.setData({ towerVisible: true, towerLoading: true });
+    this.loadTowerRows()
+      .then((rows) => {
+        if (!this.data.towerVisible) return;
+        this.setData({
+          towerRows: rows,
+          towerLoading: false,
+          towerLevels: [...new Set(rows.map((r) => r[0]))],
+        });
+      })
+      .catch((err) => {
+        console.error('[出工日志] 杆塔坐标加载失败：', err);
+        this.setData({ towerLoading: false, towerVisible: false });
+        this.toast('杆塔坐标加载失败，请稍后重试');
+      });
+  },
+
+  // 展开/收起某级选项列表（禁用级不响应：选线路需先选电压等级，选杆塔需先选线路名称）；
+  // 线路行经箭头展开时恢复完整列表（清空输入过滤，便于改选）
+  onTowerToggle(e) {
+    const { key } = e.currentTarget.dataset;
+    if (key === 'line' && !this.data.towerLevel) return;
+    if (key === 'tower' && !this.data.towerLine) return;
+    const open = this.data.towerOpen === key ? '' : key;
+    const patch = { towerOpen: open };
+    if (key === 'line' && open === 'line') patch.towerLines = this.towerLinesOf(this.data.towerLevel);
+    this.setData(patch);
+  },
+
+  // 选中上级后清空下级并自动展开下一级选项
+  onPickLevel(e) {
+    const v = e.currentTarget.dataset.v;
+    if (v === this.data.towerLevel) {
+      this.setData({ towerOpen: '' });
+      return;
+    }
+    this.setData({
+      towerLevel: v,
+      towerLines: this.towerLinesOf(v),
+      towerLine: '',
+      towerLineKw: '',
+      towerTowers: [],
+      towerTower: null,
+      towerOpen: 'line',
+    });
+  },
+
+  // 线路名称输入：按关键字过滤下拉选项并展开；输入与已选值不一致时清空已选及下级
+  onTowerLineInput(e) {
+    const v = e.detail.value;
+    const kw = v.trim();
+    const all = this.towerLinesOf(this.data.towerLevel);
+    const patch = {
+      towerLineKw: v,
+      towerLines: kw ? all.filter((n) => n.indexOf(kw) !== -1) : all,
+      towerOpen: 'line',
+    };
+    if (this.data.towerLine && v !== this.data.towerLine) {
+      patch.towerLine = '';
+      patch.towerTower = null;
+      patch.towerTowers = [];
+    }
+    this.setData(patch);
+  },
+
+  onTowerLineFocus() {
+    if (this.data.towerLevel) this.setData({ towerOpen: 'line' });
+  },
+
+  onPickLine(e) {
+    const v = e.currentTarget.dataset.v;
+    if (v === this.data.towerLine) {
+      this.setData({ towerOpen: '' });
+      return;
+    }
+    this.setData({
+      towerLine: v,
+      towerLineKw: v,
+      towerTowers: this.towerTowersOf(this.data.towerLevel, v),
+      towerTower: null,
+      towerOpen: 'tower',
+    });
+  },
+
+  onPickTower(e) {
+    const t = this.data.towerTowers[e.currentTarget.dataset.i];
+    if (!t) return;
+    this.setData({ towerTower: t, towerOpen: '' });
+  },
+
+  // 确定：所选杆塔坐标按 ≤50m 随机波动后填入水印表单（不直接带入原值，仍可手改），
+  // 并再次调腾讯地图接口按波动后坐标覆盖刷新地点、天气
+  onTowerConfirm() {
+    const t = this.data.towerTower;
+    if (!t) return;
+    const jittered = this.jitterCoord(t.lng, t.lat, 50);
+    this.setData({
+      towerVisible: false,
+      wmTowerPicked: { level: this.data.towerLevel, line: this.data.towerLine, no: t.no, lng: t.lng, lat: t.lat },
+      'wmForm.lng': jittered.lng,
+      'wmForm.lat': jittered.lat,
+    });
+    this.refreshWmGeoByTower(jittered.lng, jittered.lat);
+  },
+
+  // 杆塔选定后调后端 /geo（腾讯地图）覆盖刷新地点/天气；失败清空留空手填（与定位失败口径一致）
+  refreshWmGeoByTower(lng, lat) {
+    request({ url: `/api/v1/worklog/geo?lng=${lng}&lat=${lat}`, timeout: 10000 })
+      .then((r) => {
+        if (!this.data.wmVisible || !this.data.wmTowerPicked) return;
+        this.setData({
+          'wmForm.weather': (r && r.weather) || '',
+          'wmForm.location': (r && r.location) || '',
+        });
+        this.toast('已按杆塔坐标更新地点、天气');
+      })
+      .catch((err) => {
+        console.error('[出工日志] 杆塔坐标 /geo 刷新失败（地点天气留空手填）：', err);
+        if (!this.data.wmVisible) return;
+        this.setData({ 'wmForm.weather': '', 'wmForm.location': '' });
+      });
+  },
+
+  onTowerCancel() {
+    this.setData({ towerVisible: false });
+  },
+
+  onTowerVisibleChange(e) {
+    if (!e.detail.visible) this.setData({ towerVisible: false });
   },
 
   // 经纬度补方向后缀：只填数字时自动补 °E/°N（已带符号则原样）

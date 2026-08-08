@@ -1072,6 +1072,213 @@
   color: #f26d21;
 }
 
+/* ---------- 经纬度区：无历史场景右侧跨两行「选择杆塔坐标」按钮 ---------- */
+.geo-zone {
+  display: flex;
+  align-items: stretch;
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.geo-zone + .frow {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.geo-rows {
+  flex: 1;
+  min-width: 0;
+}
+
+.geo-rows .frow {
+  padding-right: 0;
+}
+
+.tower-btn {
+  flex: none;
+  width: 184rpx;
+  margin: 16rpx 32rpx 16rpx 20rpx;
+  border: 2rpx solid #f26d21;
+  border-radius: 16rpx;
+  background: #fdeee2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+
+.tower-btn .tb-text {
+  width: 96rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #f26d21;
+  letter-spacing: 2rpx;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.tower-btn.picked {
+  background: #ffffff;
+}
+
+.tower-btn .tb-no {
+  max-width: 152rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #22314e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tower-btn .tb-re {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #f26d21;
+  text-decoration: underline;
+  text-underline-offset: 4rpx;
+  letter-spacing: 4rpx;
+}
+
+/* 天气/地点行「已按杆塔坐标更新」角标 */
+.upd-tag {
+  flex: none;
+  font-size: 20rpx;
+  font-weight: 700;
+  color: #f26d21;
+  background: #fdeee2;
+  border-radius: 8rpx;
+  padding: 2rpx 12rpx;
+  letter-spacing: 2rpx;
+}
+
+/* ---------- 选择杆塔坐标弹层（电压等级 → 线路名称 → 杆塔号 三级级联） ---------- */
+.tower-scroll {
+  max-height: 62vh;
+  margin-top: 28rpx;
+}
+
+.tower-loading {
+  padding: 60rpx 0;
+  text-align: center;
+  font-size: 26rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.sel-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 16rpx 0;
+}
+
+.sel-fk {
+  flex: none;
+  width: 128rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.sel-box {
+  flex: 1;
+  min-width: 0;
+  height: 80rpx;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #22314e;
+}
+
+.sel-box .ph {
+  color: #a89f8a;
+  font-weight: 400;
+}
+
+/* 线路名称行：输入搜索筛选 + 右侧箭头展开完整列表 */
+.sel-box .sel-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #22314e;
+}
+
+.sel-box.disabled .sel-input {
+  color: #a89f8a;
+}
+
+.sel-box.open {
+  border-color: #f26d21;
+}
+
+.sel-box.disabled {
+  background: #f4f1ea;
+}
+
+/* 选项列表：内嵌展开于对应行下方，超高滚动 */
+.opt-list {
+  margin: 4rpx 0 8rpx 148rpx;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  max-height: 336rpx;
+}
+
+.opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  height: 76rpx;
+  padding: 0 24rpx;
+  font-size: 28rpx;
+  color: #22314e;
+}
+
+.opt + .opt {
+  border-top: 2rpx dashed #ede6d4;
+}
+
+.opt.on {
+  color: #f26d21;
+  font-weight: 700;
+  background: #fdeee2;
+}
+
+/* 三级选齐后的坐标预览卡 */
+.coord-card {
+  margin: 16rpx 0 8rpx;
+  background: #fdeee2;
+  border-left: 8rpx solid #f26d21;
+  border-radius: 12rpx;
+  padding: 18rpx 24rpx;
+}
+
+.cc-title {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #f26d21;
+  letter-spacing: 2rpx;
+}
+
+.cc-line {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #22314e;
+}
+
+.btn-dark.disabled {
+  background: #c9c0ab;
+}
+
 /* ---------- 添加照片二选一弹层（自绘选项卡） ---------- */
 
 .addsheet-btns {

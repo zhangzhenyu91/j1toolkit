@@ -35,6 +35,13 @@
       "pages": [
         "pages/index/index"
       ]
+    },
+    {
+      "root": "pkg-wmadd",
+      "name": "wmadd",
+      "pages": [
+        "pages/index/index"
+      ]
     }
   ],
   "window": {

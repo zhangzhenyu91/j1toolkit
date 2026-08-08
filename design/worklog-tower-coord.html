@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<!--
+  出工日志 ·「水印杆塔坐标选择」设计稿（审批稿，审批通过后实施）
+  沿用方案五「安全橙」定稿 token：暖纸底 #F4F1EA ｜ 藏青 #22314E ｜ 安全橙 #F26D21 ｜ 浅橙 #FDEEE2 ｜ 警示红 #CF4444 ｜ 描边 #E3DCCB / #E8E0CD
+  需求覆盖：
+    1. 「拍摄/选择照片并添加水印」无历史照片场景：除按当前定位自动带出信息外，
+       在「经度 / 纬度」两行右侧跨两行设「选择杆塔坐标」按钮
+    2. 坐标数据：检修一班杆塔坐标.xlsx（1366 条：110kV 24 条线路 / 220kV 6 条线路）
+       列序：电压等级 / 线路名称 / 杆塔号 / 经度 / 纬度
+    3. 用户依次下拉选择 电压等级 → 线路名称（支持输入关键字实时过滤后再点选）→ 杆塔号（逐级解锁，上级变更清空下级），点「确定」
+    4. 确定后：所选坐标按 ≤50m 随机波动后填入水印表单（不直接带入原值），并再次调腾讯地图接口（/api/v1/worklog/geo）
+       按波动后坐标刷新「地点 / 天气」（覆盖按当前定位的自动值），toast 提示
+    5. 已选后按钮区变已选态（显示杆塔号 + 可重选）
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>出工日志 · 水印杆塔坐标选择设计稿（待审批）— 检修一班工具箱</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#F4F1EA;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:#22314E;
+    padding:52px 24px 80px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 外层标题栏 ===== */
+  .page-head { text-align:center; margin-bottom:18px; }
+  .page-head h1 { font-size:26px; font-weight:800; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal; color:#F26D21; }
+  .page-head h1 small { margin-left:10px; font-size:14px; font-weight:600; color:#6B7690; letter-spacing:4px; }
+  .page-head p { margin-top:12px; font-size:13px; color:#6B7690; letter-spacing:1px; }
+  .legend { max-width:1020px; margin:0 auto 12px; background:#fff; border-radius:10px;
+            padding:14px 18px; font-size:12px; line-height:2; color:#6B7690;
+            box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .legend b { color:#22314E; }
+
+  .group-title { text-align:center; margin:46px 0 4px; font-size:17px; font-weight:800; letter-spacing:6px; color:#22314E; }
+  .group-title em { font-style:normal; color:#F26D21; }
+  .group-sub { text-align:center; font-size:12px; color:#A89F8A; letter-spacing:2px; margin-bottom:28px; }
+
+  /* ===== 机框舞台（小程序） ===== */
+  .stage { display:flex; flex-wrap:wrap; justify-content:center; gap:64px 56px; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .cap { font-size:14px; font-weight:700; letter-spacing:2px; color:#22314E; }
+  .cap i { font-style:normal; color:#F26D21; margin-right:6px; }
+  .sub { max-width:375px; text-align:center; font-size:12px; line-height:1.8; color:#6B7690; }
+  .sub b { color:#22314E; }
+
+  .phone {
+    padding:12px;
+    background:linear-gradient(150deg,#3b4354 0%,#171c26 60%,#10141c 100%);
+    border-radius:62px;
+    box-shadow:0 34px 70px rgba(34,49,78,.28), 0 8px 20px rgba(34,49,78,.16);
+  }
+  .screen {
+    position:relative;
+    width:375px; height:812px;
+    background:#F4F1EA;
+    border-radius:50px;
+    overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  .notch {
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    width:120px; height:32px; border-radius:18px; background:#10141c; z-index:30;
+  }
+  .home-ind {
+    position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+    width:134px; height:5px; border-radius:3px; background:rgba(16,20,28,.9); z-index:40;
+  }
+  .sb { height:54px; flex:none; padding:20px 30px 0;
+        display:flex; justify-content:space-between; align-items:center;
+        font-size:14px; font-weight:700; letter-spacing:.5px; position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+  .sb-dark { color:#22314E; }
+  .navbar { height:52px; flex:none; position:relative; display:flex; align-items:center; justify-content:center;
+            font-size:17px; font-weight:800; letter-spacing:1px; color:#22314E; }
+  .navbar .back { position:absolute; left:14px; top:50%; transform:translateY(-50%);
+                  width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; }
+  .navbar .back svg { width:20px; height:20px; }
+  .content { flex:1; padding:8px 16px 12px; overflow:hidden; }
+
+  /* 背景记录卡片（弹层下压暗） */
+  .stripe-card { position:relative; background:#fff; border-radius:10px; overflow:hidden;
+                 box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .stripe-card::before {
+    content:""; display:block; height:8px;
+    background:repeating-linear-gradient(-45deg,#F26D21 0 10px,#22314E 10px 20px);
+  }
+  .logcard { margin-top:12px; }
+  .badge { border:1px solid #F26D21; color:#F26D21; border-radius:4px; padding:0 6px;
+           font-size:10px; font-weight:700; line-height:16px; white-space:nowrap; }
+  .lc-body { padding:11px 16px 10px; }
+  .lc-head { display:flex; align-items:center; gap:9px; }
+  .lc-head .ci { width:32px; height:32px; flex:none; border-radius:9px; background:#FDEEE2; color:#F26D21;
+                 display:flex; align-items:center; justify-content:center; }
+  .lc-head .ci svg { width:18px; height:18px; }
+  .lc-head .plate { font-size:16px; font-weight:800; letter-spacing:.5px; }
+  .lc-head .badge { margin-left:auto; }
+  .lc-patrol { margin-top:10px; background:#FAF8F1; border-left:4px solid #F26D21;
+               border-radius:8px; padding:9px 12px 10px; }
+  .lc-patrol-label { font-size:13px; font-weight:700; color:#A89F8A; letter-spacing:3px; }
+  .lc-patrol-text { margin-top:4px; font-size:15px; font-weight:600; color:#22314E; line-height:1.6; }
+
+  /* ===== 弹层通用 ===== */
+  .mask { position:absolute; inset:0; background:rgba(34,49,78,.45); z-index:35; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; z-index:36;
+           background:#fff; border-radius:16px 16px 0 0; padding:16px 18px 24px;
+           display:flex; flex-direction:column; max-height:730px; }
+  .sheet h4 { text-align:center; font-size:16px; font-weight:800; letter-spacing:2px; }
+  .sheet .sheet-note { text-align:center; margin-top:5px; font-size:11px; color:#A89F8A; letter-spacing:1px; }
+  .sheet-scroll { margin-top:12px; overflow:hidden; }
+  .sheet-actions { display:flex; gap:10px; margin-top:14px; flex:none; }
+  .btn-ghost { flex:1; height:44px; border-radius:8px; border:1px solid #E3DCCB; background:#fff;
+               display:flex; align-items:center; justify-content:center;
+               font-size:14px; font-weight:700; color:#6B7690; letter-spacing:3px; }
+  .btn-dark { flex:2; height:44px; border-radius:8px; background:#22314E; color:#fff;
+              display:flex; align-items:center; justify-content:center; gap:7px;
+              font-size:14px; font-weight:700; letter-spacing:2px; }
+  .btn-dark svg { width:16px; height:16px; }
+  .btn-dark.disabled { background:#C9C0AB; }
+
+  /* ===== 水印编辑弹层（对齐现行 wxml：wm-head / form-card / frow） ===== */
+  .wm-head { display:flex; gap:12px; align-items:center; margin-bottom:10px; }
+  .wm-thumb { width:56px; height:76px; flex:none; border-radius:8px; border:1px solid #EDE6D4;
+              background:linear-gradient(160deg,#C9CFD9 0%,#9AA3B2 55%,#7E8798 100%);
+              display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.92); }
+  .wm-thumb svg { width:20px; height:20px; }
+  .wm-names { display:flex; flex-wrap:wrap; gap:6px; }
+  .wm-names .ntag { height:22px; padding:0 9px; border-radius:6px; background:#fff; border:1px solid #F26D21;
+                    color:#F26D21; font-size:11px; font-weight:700;
+                    display:inline-flex; align-items:center; }
+  .wm-names-tip { margin-top:5px; font-size:10px; color:#A89F8A; letter-spacing:1px; }
+
+  .form-card { background:#FAF8F1; border:1px solid #F1EBDC; border-radius:10px; padding:4px 12px 8px; }
+  .frow { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed #EDE6D4; }
+  .frow:last-child { border-bottom:none; }
+  .frow .fk { flex:none; width:56px; font-size:12px; color:#A89F8A; }
+  .frow .fv { flex:1; font-size:13px; font-weight:600; color:#22314E; }
+  .finput { flex:1; height:32px; border:1px solid #E3DCCB; border-radius:8px; background:#fff;
+            padding:0 10px; font-size:13px; color:#22314E; display:flex; align-items:center; }
+  .finput .ph { color:#A89F8A; }
+  .ftextarea { flex:1; min-height:58px; border:1px solid #E3DCCB; border-radius:8px; background:#fff;
+               padding:8px 10px; font-size:13px; color:#A89F8A; line-height:1.6; }
+  .wm-code { letter-spacing:1px; }
+  .wm-refresh { display:inline-flex; align-items:center; gap:3px; font-size:11px; color:#F26D21; font-weight:700; }
+  .wm-refresh svg { width:13px; height:13px; }
+
+  /* ===== ① 新增：经纬度区（左两行输入 + 右跨两行「选择杆塔坐标」按钮） ===== */
+  .geo-zone { display:flex; gap:10px; align-items:stretch; padding:4px 0; border-bottom:1px dashed #EDE6D4; }
+  .geo-rows { flex:1; min-width:0; }
+  .geo-rows .frow { border-bottom:1px dashed #EDE6D4; }
+  .geo-rows .frow:last-child { border-bottom:none; }
+  .tower-btn {
+    position:relative;
+    flex:none; width:92px; margin:4px 0;
+    border:1px solid #F26D21; border-radius:8px; background:#FDEEE2;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px;
+    color:#F26D21; font-size:12px; font-weight:800; letter-spacing:1px; line-height:1.35;
+  }
+  .tower-btn svg { width:20px; height:20px; }
+  /* 已选态：白底橙描边，显示所选杆塔号 + 重选 */
+  .tower-btn.picked { background:#fff; }
+  .tower-btn .tb-no { font-size:11px; font-weight:800; color:#22314E; letter-spacing:0;
+                      max-width:76px; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tower-btn .tb-re { font-size:10px; font-weight:700; color:#F26D21; text-decoration:underline;
+                      text-underline-offset:2px; letter-spacing:2px; }
+
+  /* ② 确定后被刷新的字段角标 */
+  .upd-tag { flex:none; margin-left:2px; font-size:10px; font-weight:700; color:#F26D21;
+             background:#FDEEE2; border-radius:4px; padding:1px 6px; letter-spacing:1px; }
+
+  /* ===== 选择杆塔坐标弹层 ===== */
+  .sel-row { display:flex; align-items:center; gap:10px; padding:9px 0; }
+  .sel-row .fk { flex:none; width:64px; font-size:13px; font-weight:700; color:#22314E; letter-spacing:1px; }
+  .sel-box { flex:1; height:40px; border:1px solid #E3DCCB; border-radius:8px; background:#fff;
+             padding:0 12px; display:flex; align-items:center; gap:8px;
+             font-size:13px; font-weight:600; color:#22314E; }
+  .sel-box .ph { color:#A89F8A; font-weight:400; }
+  .sel-box .chev { margin-left:auto; color:#A89F8A; display:flex; }
+  .sel-box .chev svg { width:14px; height:14px; }
+  .sel-box.open { border-color:#F26D21; box-shadow:0 0 0 2px rgba(242,109,33,.12); }
+  .sel-box.disabled { background:#F4F1EA; color:#A89F8A; font-weight:400; }
+  .sel-box.disabled .chev { color:#D9CFBA; }
+  /* 展开的选项列表（内嵌于对应行下方，可滚动） */
+  .opt-list { margin:2px 0 4px 74px; border:1px solid #E3DCCB; border-radius:8px; background:#fff;
+              max-height:168px; overflow:hidden; position:relative; }
+  .opt { display:flex; align-items:center; height:38px; padding:0 12px; font-size:13px; color:#22314E; }
+  .opt + .opt { border-top:1px dashed #EDE6D4; }
+  .opt.on { color:#F26D21; font-weight:700; background:#FDEEE2; }
+  .opt.on svg { width:14px; height:14px; margin-left:auto; }
+  .opt-fade { position:absolute; left:0; right:0; bottom:0; height:34px;
+              background:linear-gradient(transparent,#fff);
+              display:flex; align-items:flex-end; justify-content:center;
+              font-size:10px; color:#A89F8A; letter-spacing:1px; padding-bottom:3px; }
+  /* 坐标预览卡 */
+  .coord-card { margin-top:8px; background:#FDEEE2; border-left:4px solid #F26D21; border-radius:8px;
+                padding:9px 12px 10px; }
+  .coord-card .cc-title { font-size:12px; font-weight:800; color:#F26D21; letter-spacing:1px; }
+  .coord-card .cc-line { margin-top:4px; font-size:12px; color:#22314E; font-weight:600; line-height:1.7; }
+  .coord-card .cc-line b { font-family:"SFMono-Regular",Consolas,monospace; }
+
+  /* toast */
+  .toast { position:absolute; left:50%; top:44%; transform:translate(-50%,-50%); z-index:50;
+           background:rgba(34,49,78,.88); color:#fff; border-radius:8px; padding:10px 18px;
+           font-size:13px; font-weight:600; letter-spacing:1px; white-space:nowrap; }
+
+  /* 编号角标（标注新增/变动元素） */
+  .mk { display:inline-flex; width:16px; height:16px; border-radius:50%; background:#F26D21; color:#fff;
+        font-size:10px; font-weight:800; font-style:normal; align-items:center; justify-content:center;
+        flex:none; letter-spacing:0; }
+  .mk-row { display:flex; align-items:flex-start; gap:7px; text-align:left; }
+
+  @media (max-width: 1280px) { .stage { zoom: .9; } }
+  @media (max-width: 1060px) { .stage { zoom: .8; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>出工日志 <em>水印杆塔坐标选择</em><small>设计稿 · 待审批</small></h1>
+  <p>无历史照片预填场景 ｜ 经度 / 纬度右侧跨两行「选择杆塔坐标」 ｜ 三级级联下拉 ｜ 确定后带出经纬度并刷新地点天气</p>
+</header>
+
+<div class="legend">
+  <b>场景口径：</b>仅「拍摄/选择照片并添加水印」且该派车卡<b>无历史水印照片</b>时显示本入口（有历史带入上张字段时不显示）。无历史时现行逻辑不变：拍摄时间 / 经纬度 / 地点 / 天气仍按当前定位自动带出，按钮只是额外入口。<br>
+  <b>数据源：</b>根目录 <b>检修一班杆塔坐标.xlsx</b>，共 1366 条（110kV × 24 条线路、220kV × 6 条线路）；列序：电压等级 / 线路名称 / 杆塔号 / 经度 / 纬度。<br>
+  <b>级联规则：</b>电压等级 → 线路名称 → 杆塔号，逐级解锁（未选上级时下级禁用置灰）；上级变更清空下级已选；三级选齐前「确 定」禁用。<b>线路名称支持输入关键字实时过滤后再下拉点选</b>（点右侧箭头恢复完整列表）；选项列表内嵌展开、超高滚动。<br>
+  <b>确定行为：</b>所选坐标<b>按 ≤50m 随机波动后</b>填入水印表单（不直接带入原值，仍可手改），并<b>再次调腾讯地图接口</b>（GET /api/v1/worklog/geo?lng=&lat=，与现行定位回填同一接口）按波动后坐标<b>覆盖刷新</b>「地点 / 天气」，toast「已按杆塔坐标更新地点、天气」；接口失败则保留已填经纬度、地点天气留空手填。<br>
+  <b>已选态：</b>确定后按钮区显示所选杆塔号，点击可重选（重新打开级联弹层，带回已选项）。<br>
+  <b>实现口径（供审批）：</b>xlsx 离线转为 JSON 由服务端托管，新增 GET /api/v1/worklog/towers 全量返回（约 1366 条，gzip 后体积小）；小程序首次打开选择弹层时拉取并 wx.setStorage 缓存，后续优先读缓存。不打包进分包，避免包体膨胀。
+</div>
+
+<h2 class="group-title">小程序端 <em>MINI-PROGRAM</em></h2>
+<div class="group-sub">iphone 375×812 机框 ｜ 水印编辑弹层 + 杆塔坐标级联选择弹层</div>
+
+<main class="stage">
+
+  <!-- ================= ① 水印编辑弹层（无历史照片）· 新增「选择杆塔坐标」按钮 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+        <div class="content">
+          <div class="stripe-card logcard" style="opacity:.55">
+            <div class="lc-body">
+              <div class="lc-head">
+                <div class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/></svg></div>
+                <div class="plate">晋J·D12345</div>
+                <span class="badge">派车</span>
+              </div>
+              <div class="lc-patrol">
+                <div class="lc-patrol-label">巡视内容</div>
+                <div class="lc-patrol-text">110kV 胜白Ⅰ线巡视。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>编辑水印信息</h4>
+          <div class="sheet-note">确认后由服务端将水印叠加到所选照片，并上传进入验证</div>
+          <div class="sheet-scroll">
+            <div class="wm-head">
+              <div class="wm-thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg></div>
+              <div>
+                <div class="wm-names"><span class="ntag">赵登</span><span class="ntag">郑海楠</span></div>
+                <div class="wm-names-tip">照片所属人名</div>
+              </div>
+            </div>
+            <div class="form-card">
+              <div class="frow"><span class="fk">施工内容</span><div class="ftextarea">请输入施工内容</div></div>
+              <div class="frow"><span class="fk">拍摄时间</span><div class="finput">2026.08.08 10:23</div></div>
+              <div class="frow"><span class="fk">天气</span><div class="finput">晴 32℃</div></div>
+              <div class="frow"><span class="fk">地点</span><div class="finput">山西省吕梁市孝义市新义街道</div></div>
+              <!-- ❶ 经纬度区：左两行输入 + 右跨两行按钮 -->
+              <div class="geo-zone">
+                <div class="geo-rows">
+                  <div class="frow"><span class="fk">经度</span><div class="finput">111.782163</div></div>
+                  <div class="frow"><span class="fk">纬度</span><div class="finput">37.145082</div></div>
+                </div>
+                <div class="tower-btn">
+                  <span class="mk" style="position:absolute; margin:-64px 0 0 76px">1</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.3-6.5-10a6.5 6.5 0 0 1 13 0c0 4.7-6.5 10-6.5 10z"/><circle cx="12" cy="10.8" r="2.3"/></svg>
+                  <span>选择杆塔<br>坐标</span>
+                </div>
+              </div>
+              <div class="frow">
+                <span class="fk">防伪码</span>
+                <span class="fv wm-code">K7X3PD9GM2TQ4W</span>
+                <span class="wm-refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 1 0 18.9 14"/><path d="M20 5v6h-6"/></svg>换一换</span>
+              </div>
+            </div>
+          </div>
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="9" cy="11" r="1.6"/><path d="M4.5 17l4.5-4 3.5 3 3-2.5 4 3.5"/></svg>确认，加水印上传</div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>①</i>水印编辑弹层 · 新增入口按钮</div>
+    <div class="sub">
+      <span class="mk-row"><span class="mk">1</span><span><b>「选择杆塔坐标」按钮</b>：位于「经度 / 纬度」两行右侧、<b>跨两行</b>；浅橙底 #FDEEE2 + 橙色描边 + 定位图标，宽 184rpx。仅无历史照片的预填场景显示；有历史带入时不渲染，经纬度区恢复整宽。</span></span><br>
+      其余字段与现行一致：拍摄时间 / 经纬度 / 地点 / 天气按当前定位自动带出，均可手改。
+    </div>
+  </div>
+
+  <!-- ================= ② 选择杆塔坐标弹层 · 级联选择中 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+        <div class="content">
+          <div class="stripe-card logcard" style="opacity:.55">
+            <div class="lc-body">
+              <div class="lc-head">
+                <div class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/></svg></div>
+                <div class="plate">晋J·D12345</div>
+                <span class="badge">派车</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>选择杆塔坐标</h4>
+          <div class="sheet-note">依次选择电压等级 → 线路名称 → 杆塔号，确定后带出经纬度</div>
+          <div class="sheet-scroll">
+            <div class="sel-row">
+              <span class="fk">电压等级</span>
+              <div class="sel-box">110kV<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg></span></div>
+            </div>
+            <div class="sel-row">
+              <span class="fk">线路名称</span>
+              <div class="sel-box open">胜白<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14.5l6-6 6 6"/></svg></span></div>
+            </div>
+            <!-- 线路名称：输入关键字实时过滤后的下拉选项 -->
+            <div class="opt-list">
+              <div class="opt">胜白I线</div>
+              <div class="opt">胜白II线</div>
+              <div class="opt-fade">按「胜白」过滤 · 共 2 条（点箭头恢复完整列表）</div>
+            </div>
+            <div class="sel-row">
+              <span class="fk">杆塔号</span>
+              <div class="sel-box disabled">请先选择线路名称<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg></span></div>
+            </div>
+          </div>
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-dark disabled">确 定</div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>②</i>级联选择 · 逐级解锁</div>
+    <div class="sub">
+      点「选择杆塔坐标」弹出本层。三级下拉<b>逐级解锁</b>：未选上级时下级置灰禁用；<b>线路名称可直接输入关键字实时过滤</b>（图示输入「胜白」后仅余 2 条），也可点右侧箭头展开完整列表；上级变更清空下级。三级选齐前「确 定」置灰禁用。
+    </div>
+  </div>
+
+  <!-- ================= ③ 选择杆塔坐标弹层 · 选齐待确定 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+        <div class="content">
+          <div class="stripe-card logcard" style="opacity:.55">
+            <div class="lc-body">
+              <div class="lc-head">
+                <div class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/></svg></div>
+                <div class="plate">晋J·D12345</div>
+                <span class="badge">派车</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>选择杆塔坐标</h4>
+          <div class="sheet-note">依次选择电压等级 → 线路名称 → 杆塔号，确定后带出经纬度</div>
+          <div class="sheet-scroll">
+            <div class="sel-row">
+              <span class="fk">电压等级</span>
+              <div class="sel-box">110kV<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg></span></div>
+            </div>
+            <div class="sel-row">
+              <span class="fk">线路名称</span>
+              <div class="sel-box">胜白I线<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg></span></div>
+            </div>
+            <div class="sel-row">
+              <span class="fk">杆塔号</span>
+              <div class="sel-box">胜白Ⅰ线#002<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg></span></div>
+            </div>
+            <!-- 选齐后坐标预览 -->
+            <div class="coord-card">
+              <div class="cc-title">胜白Ⅰ线#002 · 坐标预览</div>
+              <div class="cc-line">经度 <b>111.678167</b>　纬度 <b>37.098541</b></div>
+            </div>
+          </div>
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-dark">确 定</div>
+          </div>
+        </div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>③</i>选齐预览 · 确定带出</div>
+    <div class="sub">
+      三级选齐后下方出现<b>坐标预览卡</b>（浅橙底橙条，与巡视内容块同族），显示所选杆塔台账经度 / 纬度（六位小数）；「确 定」转藏青可用态，点击后坐标<b>按 ≤50m 随机波动</b>再填入表单。
+    </div>
+  </div>
+
+  <!-- ================= ④ 确定后回填 · 刷新地点天气 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+        <div class="content">
+          <div class="stripe-card logcard" style="opacity:.55">
+            <div class="lc-body">
+              <div class="lc-head">
+                <div class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/></svg></div>
+                <div class="plate">晋J·D12345</div>
+                <span class="badge">派车</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>编辑水印信息</h4>
+          <div class="sheet-note">确认后由服务端将水印叠加到所选照片，并上传进入验证</div>
+          <div class="sheet-scroll">
+            <div class="wm-head">
+              <div class="wm-thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg></div>
+              <div>
+                <div class="wm-names"><span class="ntag">赵登</span><span class="ntag">郑海楠</span></div>
+                <div class="wm-names-tip">照片所属人名</div>
+              </div>
+            </div>
+            <div class="form-card">
+              <div class="frow"><span class="fk">施工内容</span><div class="ftextarea">请输入施工内容</div></div>
+              <div class="frow"><span class="fk">拍摄时间</span><div class="finput">2026.08.08 10:23</div></div>
+              <!-- ❷ 地点 / 天气已被杆塔坐标刷新 -->
+              <div class="frow"><span class="fk">天气</span><div class="finput">晴 33℃</div><span class="upd-tag"><span class="mk" style="margin-right:3px">2</span>已更新</span></div>
+              <div class="frow"><span class="fk">地点</span><div class="finput">山西省吕梁市孝义市胜溪湖街道</div><span class="upd-tag"><span class="mk" style="margin-right:3px">2</span>已更新</span></div>
+              <div class="geo-zone">
+                <div class="geo-rows">
+                  <div class="frow"><span class="fk">经度</span><div class="finput">111.678167</div></div>
+                  <div class="frow"><span class="fk">纬度</span><div class="finput">37.098541</div></div>
+                </div>
+                <!-- 已选态按钮：显示杆塔号 + 重选 -->
+                <div class="tower-btn picked">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                  <span class="tb-no">胜白Ⅰ线#002</span>
+                  <span class="tb-re">重选</span>
+                </div>
+              </div>
+              <div class="frow">
+                <span class="fk">防伪码</span>
+                <span class="fv wm-code">K7X3PD9GM2TQ4W</span>
+                <span class="wm-refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 1 0 18.9 14"/><path d="M20 5v6h-6"/></svg>换一换</span>
+              </div>
+            </div>
+          </div>
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><circle cx="9" cy="11" r="1.6"/><path d="M4.5 17l4.5-4 3.5 3 3-2.5 4 3.5"/></svg>确认，加水印上传</div>
+          </div>
+        </div>
+        <div class="toast">已按杆塔坐标更新地点、天气</div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>④</i>确定回填 · 刷新地点天气</div>
+    <div class="sub">
+      <span class="mk-row"><span class="mk">2</span><span>确定后：经纬度<b>按 ≤50m 随机波动</b>填入（图示为波动后值，仍可手改）；<b>再次调腾讯地图接口</b>按波动后坐标<b>覆盖刷新</b>「地点 / 天气」，两行右侧显「已更新」橙标并 toast 提示；接口失败保留经纬度、地点天气留空手填。</span></span><br>
+      按钮区变已选态：✓ + 杆塔号 + 下划线「重选」（重新打开级联弹层并带回已选项）。
+    </div>
+  </div>
+
+</main>
+
+</body>
+</html>

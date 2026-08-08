@@ -1,0 +1,603 @@
+/* 水印添加 · 单页（起始页 + 水印编辑/杆塔选择/裁剪三个弹层）
+   弹层/表单样式与出工日志 pkg-worklog 同口径（复制自其 common.wxss 与页面 wxss，保持分包独立） */
+
+/* ---------- 起始页：流程说明卡 ---------- */
+.flow-card {
+  padding: 28rpx 32rpx;
+}
+
+.flow-title {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-size: 28rpx;
+  font-weight: 800;
+  letter-spacing: 4rpx;
+  color: #22314e;
+}
+
+.flow-title::before {
+  content: '';
+  width: 8rpx;
+  height: 28rpx;
+  border-radius: 4rpx;
+  background: #f26d21;
+}
+
+.flow-steps {
+  margin-top: 20rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.fstep {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  font-size: 24rpx;
+  color: #6b7690;
+}
+
+.fstep .no {
+  flex: none;
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  background: #fdeee2;
+  color: #f26d21;
+  font-size: 22rpx;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fstep .b {
+  color: #22314e;
+  font-weight: 700;
+}
+
+/* ---------- 起始页：选片方式两个大选项 ---------- */
+.pick-btns {
+  margin-top: 24rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+.pick-opt {
+  background: #ffffff;
+  border: 4rpx solid #e3dccb;
+  border-radius: 20rpx;
+  padding: 32rpx;
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+}
+
+.pick-opt .pi {
+  flex: none;
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 24rpx;
+  background: #fdeee2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pick-opt .pt {
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 4rpx;
+  color: #22314e;
+}
+
+.pick-opt .pn {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 1rpx;
+}
+
+/* ---------- 底部弹层通用（同出工日志 common.wxss） ---------- */
+.sheet {
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.sheet-title {
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 4rpx;
+  color: #22314e;
+}
+
+.sheet-note {
+  text-align: center;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 40rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 88rpx;
+  border-radius: 16rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #6b7690;
+  letter-spacing: 6rpx;
+  box-sizing: border-box;
+}
+
+.btn-dark {
+  flex: 2;
+  height: 88rpx;
+  border-radius: 16rpx;
+  background: #22314e;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+}
+
+.btn-dark.disabled {
+  background: #c9c0ab;
+}
+
+/* ---------- 表单卡 / 行 ---------- */
+.form-card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  overflow: hidden;
+  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+}
+
+.frow {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 32rpx;
+}
+
+.frow + .frow {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.frow .fk {
+  flex: none;
+  width: 128rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.frow .fv {
+  flex: 1;
+  font-size: 28rpx;
+  color: #22314e;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.textarea-wrap {
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  padding: 20rpx 28rpx;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 132rpx;
+  font-size: 28rpx;
+  color: #22314e;
+  line-height: 1.7;
+  box-sizing: border-box;
+}
+
+.ph {
+  color: #a89f8a;
+}
+
+/* ---------- 水印字段编辑弹层 ---------- */
+.wm-scroll {
+  max-height: 62vh;
+  margin-top: 28rpx;
+}
+
+.wm-card {
+  margin-top: 0;
+}
+
+/* 施工内容独占一行（标签在上、输入在下） */
+.wm-row-col {
+  padding: 24rpx 32rpx;
+}
+
+.wm-row-col .fk {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+
+/* 施工内容标题行：左侧标题 + 右侧快捷输入（空间不足时 chips 自动折行） */
+.wm-wc-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.wm-wc-head .fk {
+  margin-bottom: 0;
+}
+
+.wm-quick {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.wm-quick-chip {
+  margin-left: 12rpx;
+  padding: 4rpx 16rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #F26D21;
+  background: #FDEEE2;
+  border: 1rpx solid #F26D21;
+  border-radius: 8rpx;
+}
+
+.wm-row-col + .frow {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.wm-textarea {
+  padding: 16rpx 20rpx;
+}
+
+.wm-textarea .textarea {
+  min-height: 96rpx;
+}
+
+/* 单行输入：与 .fv 同占剩余空间 */
+.wm-input {
+  flex: 1;
+  font-size: 28rpx;
+  color: #22314e;
+  font-weight: 600;
+}
+
+/* 防伪码：等宽观感 + 橙色换一换 */
+.wm-code {
+  letter-spacing: 2rpx;
+}
+
+.wm-refresh {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #f26d21;
+}
+
+/* ---------- 经纬度区：右侧跨两行「选择杆塔坐标」按钮 ---------- */
+.geo-zone {
+  display: flex;
+  align-items: stretch;
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.geo-zone + .frow {
+  border-top: 2rpx solid #f1ebdc;
+}
+
+.geo-rows {
+  flex: 1;
+  min-width: 0;
+}
+
+.geo-rows .frow {
+  padding-right: 0;
+}
+
+.tower-btn {
+  flex: none;
+  width: 184rpx;
+  margin: 16rpx 32rpx 16rpx 20rpx;
+  border: 2rpx solid #f26d21;
+  border-radius: 16rpx;
+  background: #fdeee2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+
+.tower-btn .tb-text {
+  width: 96rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #f26d21;
+  letter-spacing: 2rpx;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.tower-btn.picked {
+  background: #ffffff;
+}
+
+.tower-btn .tb-no {
+  max-width: 152rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #22314e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tower-btn .tb-re {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #f26d21;
+  text-decoration: underline;
+  text-underline-offset: 4rpx;
+  letter-spacing: 4rpx;
+}
+
+/* 天气/地点行「已按杆塔坐标更新」角标 */
+.upd-tag {
+  flex: none;
+  font-size: 20rpx;
+  font-weight: 700;
+  color: #f26d21;
+  background: #fdeee2;
+  border-radius: 8rpx;
+  padding: 2rpx 12rpx;
+  letter-spacing: 2rpx;
+}
+
+/* ---------- 选择杆塔坐标弹层（电压等级 → 线路名称 → 杆塔号 三级级联） ---------- */
+.tower-scroll {
+  max-height: 62vh;
+  margin-top: 28rpx;
+}
+
+.tower-loading {
+  padding: 60rpx 0;
+  text-align: center;
+  font-size: 26rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+.sel-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 16rpx 0;
+}
+
+.sel-fk {
+  flex: none;
+  width: 128rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.sel-box {
+  flex: 1;
+  min-width: 0;
+  height: 80rpx;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #22314e;
+}
+
+.sel-box .ph {
+  color: #a89f8a;
+  font-weight: 400;
+}
+
+/* 线路名称行：输入搜索筛选 + 右侧箭头展开完整列表 */
+.sel-box .sel-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #22314e;
+}
+
+.sel-box.disabled .sel-input {
+  color: #a89f8a;
+}
+
+.sel-box.open {
+  border-color: #f26d21;
+}
+
+.sel-box.disabled {
+  background: #f4f1ea;
+}
+
+/* 选项列表：内嵌展开于对应行下方，超高滚动 */
+.opt-list {
+  margin: 4rpx 0 8rpx 148rpx;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  max-height: 336rpx;
+}
+
+.opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  height: 76rpx;
+  padding: 0 24rpx;
+  font-size: 28rpx;
+  color: #22314e;
+}
+
+.opt + .opt {
+  border-top: 2rpx dashed #ede6d4;
+}
+
+.opt.on {
+  color: #f26d21;
+  font-weight: 700;
+  background: #fdeee2;
+}
+
+/* 三级选齐后的坐标预览卡 */
+.coord-card {
+  margin: 16rpx 0 8rpx;
+  background: #fdeee2;
+  border-left: 8rpx solid #f26d21;
+  border-radius: 12rpx;
+  padding: 18rpx 24rpx;
+}
+
+.cc-title {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #f26d21;
+  letter-spacing: 2rpx;
+}
+
+.cc-line {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #22314e;
+}
+
+/* ---------- 4:3 裁剪层（黑底；同出工日志） ---------- */
+.crop-sheet {
+  background: #15181d;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 32rpx 24rpx calc(32rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.crop-title {
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 4rpx;
+  color: #ffffff;
+}
+
+.crop-note {
+  margin: 12rpx 0 24rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 1rpx;
+}
+
+.crop-stage {
+  position: relative;
+}
+
+/* movable-area 默认裁剪溢出内容，此处显式声明兜底 */
+.crop-area {
+  overflow: hidden;
+  background: #000000;
+}
+
+.crop-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 四角取景框：橙色 L 形描边（不遮挡拖动，仅装饰） */
+.crop-corner {
+  position: absolute;
+  width: 36rpx;
+  height: 36rpx;
+  border: 6rpx solid #f26d21;
+  pointer-events: none;
+}
+
+.crop-corner.tl {
+  top: 0;
+  left: 0;
+  border-right: none;
+  border-bottom: none;
+}
+
+.crop-corner.tr {
+  top: 0;
+  right: 0;
+  border-left: none;
+  border-bottom: none;
+}
+
+.crop-corner.bl {
+  bottom: 0;
+  left: 0;
+  border-right: none;
+  border-top: none;
+}
+
+.crop-corner.br {
+  right: 0;
+  bottom: 0;
+  border-left: none;
+  border-top: none;
+}
+
+.crop-sheet .sheet-actions {
+  width: 100%;
+}
+
+/* 离屏导出 canvas 移出视口（display:none 会导致节点取不到） */
+.crop-canvas {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  width: 300px;
+  height: 150px;
+}
