@@ -18,6 +18,8 @@ app.disable('x-powered-by');
 if (config.worklog.enabled) {
   app.use('/api/v1/worklog', express.json({ limit: '20mb' }));
 }
+// 水印添加同口径：原图 base64 上送渲染，单独放宽 JSON 上限
+app.use('/api/v1/wmadd', express.json({ limit: '20mb' }));
 app.use(express.json({ limit: '12mb' })); // 聊天图片以 base64 上送，放宽体积限制
 
 // 简易访问日志
@@ -44,6 +46,8 @@ app.use('/api/v1/admin', require('./routes/admin'));
 if (config.worklog.enabled) {
   app.use('/api/v1/worklog', require('./worklog'));
 }
+// 水印添加：移动端独立子应用（仅渲染回图，无业务表、无 env 开关，依赖出工日志渲染/地理模块）
+app.use('/api/v1/wmadd', require('./wmadd'));
 // 安全日活动记录：env SAFEDAY_ENABLED=true 时才挂载（文件存储，上传走 multer 不经 JSON 解析器）
 if (config.safeday.enabled) {
   app.use('/api/v1/safeday', require('./safeday'));

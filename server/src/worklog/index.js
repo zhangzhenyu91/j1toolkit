@@ -13,6 +13,7 @@ const config = require('../config');
 const cos = require('./cos');
 const dify = require('./dify');
 const geo = require('./geo');
+const { getTowers } = require('./towers');
 const Watermark = require('./watermark');
 const { renderWatermarkedPhoto } = require('./render-photo');
 const { computeVerifyPassed, computeFailReasons, myReportReasons } = require('./verify');
@@ -654,6 +655,15 @@ router.get('/geo', async (req, res, next) => {
     }
     const r = await geo.fetchLocationWeather(lng, lat);
     return ok(res, r);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /towers：检修一班杆塔坐标全量（行 = [电压等级, 线路名称, 杆塔号, 经度, 纬度]），数据读写见 towers.js
+router.get('/towers', async (req, res, next) => {
+  try {
+    return ok(res, getTowers());
   } catch (err) {
     return next(err);
   }

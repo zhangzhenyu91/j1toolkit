@@ -672,18 +672,41 @@
         <view class="frow">
           <text class="fk">天气</text>
           <input class="wm-input" value="{{wmForm.weather}}" data-field="weather" bindinput="onWmInput" placeholder="请输入天气" placeholder-class="ph" maxlength="64" />
+          <text class="upd-tag" wx:if="{{wmTowerPicked}}">已更新</text>
         </view>
         <view class="frow">
           <text class="fk">地点</text>
           <input class="wm-input" value="{{wmForm.location}}" data-field="location" bindinput="onWmInput" placeholder="请输入地点" placeholder-class="ph" maxlength="250" />
+          <text class="upd-tag" wx:if="{{wmTowerPicked}}">已更新</text>
         </view>
-        <view class="frow">
-          <text class="fk">经度</text>
-          <input class="wm-input" value="{{wmForm.lng}}" data-field="lng" bindinput="onWmInput" type="digit" placeholder="请输入经度" placeholder-class="ph" maxlength="16" />
-        </view>
-        <view class="frow">
-          <text class="fk">纬度</text>
-          <input class="wm-input" value="{{wmForm.lat}}" data-field="lat" bindinput="onWmInput" type="digit" placeholder="请输入纬度" placeholder-class="ph" maxlength="16" />
+        <!-- 经纬度区：无历史预填场景在右侧跨两行设「选择杆塔坐标」按钮（已选则显示杆塔号 + 重选） -->
+        <view class="geo-zone">
+          <view class="geo-rows">
+            <view class="frow">
+              <text class="fk">经度</text>
+              <input class="wm-input" value="{{wmForm.lng}}" data-field="lng" bindinput="onWmInput" type="digit" placeholder="请输入经度" placeholder-class="ph" maxlength="16" />
+            </view>
+            <view class="frow">
+              <text class="fk">纬度</text>
+              <input class="wm-input" value="{{wmForm.lat}}" data-field="lat" bindinput="onWmInput" type="digit" placeholder="请输入纬度" placeholder-class="ph" maxlength="16" />
+            </view>
+          </view>
+          <view
+            class="tower-btn {{wmTowerPicked ? 'picked' : ''}}"
+            wx:if="{{wmNoHistory}}"
+            hover-class="hover-opacity"
+            bindtap="onOpenTower"
+          >
+            <block wx:if="{{!wmTowerPicked}}">
+              <t-icon name="location" size="36rpx" color="#F26D21" />
+              <text class="tb-text">选择杆塔坐标</text>
+            </block>
+            <block wx:else>
+              <t-icon name="check" size="32rpx" color="#F26D21" />
+              <text class="tb-no">{{wmTowerPicked.no}}</text>
+              <text class="tb-re">重选</text>
+            </block>
+          </view>
         </view>
         <!-- 防伪码：自动生成，不可编辑 -->
         <view class="frow">
@@ -702,6 +725,106 @@
         <t-icon name="image" size="34rpx" color="#FFFFFF" />
         {{wmUploading ? '正在加水印上传…' : '确认，加水印上传'}}
       </view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 选择杆塔坐标弹层（无历史水印预填场景，由「选择杆塔坐标」按钮弹出；电压等级→线路名称→杆塔号三级级联，
+     逐级解锁、上级变更清空下级；确定将所选坐标按 ≤50m 随机波动后填入水印表单，并按波动后坐标再次调 /geo 刷新地点、天气） -->
+<t-popup visible="{{towerVisible}}" placement="bottom" bind:visible-change="onTowerVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">选择杆塔坐标</view>
+    <view class="sheet-note">依次选择电压等级 → 线路名称 → 杆塔号，确定后带出经纬度</view>
+    <scroll-view scroll-y class="tower-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="tower-loading" wx:if="{{towerLoading}}">杆塔坐标加载中…</view>
+      <block wx:if="{{!towerLoading}}">
+        <!-- 电压等级 -->
+        <view class="sel-row">
+          <text class="sel-fk">电压等级</text>
+          <view class="sel-box {{towerOpen === 'level' ? 'open' : ''}}" hover-class="hover-opacity" data-key="level" bindtap="onTowerToggle">
+            <text class="{{towerLevel ? '' : 'ph'}}">{{towerLevel || '请选择电压等级'}}</text>
+            <t-icon name="chevron-down" size="28rpx" color="#A89F8A" />
+          </view>
+        </view>
+        <scroll-view scroll-y class="opt-list" wx:if="{{towerOpen === 'level'}}" enhanced show-scrollbar="{{false}}">
+          <view
+            class="opt {{towerLevel === item ? 'on' : ''}}"
+            wx:for="{{towerLevels}}"
+            wx:key="*this"
+            hover-class="hover-bg-warm"
+            data-v="{{item}}"
+            bindtap="onPickLevel"
+          >
+            <text>{{item}}</text>
+            <t-icon wx:if="{{towerLevel === item}}" name="check" size="28rpx" color="#F26D21" />
+          </view>
+        </scroll-view>
+        <!-- 线路名称（未选电压等级时禁用；支持输入关键字筛选后再下拉选择） -->
+        <view class="sel-row">
+          <text class="sel-fk">线路名称</text>
+          <view class="sel-box {{towerOpen === 'line' ? 'open' : ''}} {{towerLevel ? '' : 'disabled'}}">
+            <input
+              class="sel-input"
+              value="{{towerLineKw}}"
+              disabled="{{!towerLevel}}"
+              bindinput="onTowerLineInput"
+              bindfocus="onTowerLineFocus"
+              placeholder="{{towerLevel ? '输入关键字搜索或下拉选择' : '请先选择电压等级'}}"
+              placeholder-class="ph"
+              maxlength="32"
+            />
+            <t-icon name="chevron-down" size="28rpx" color="{{towerLevel ? '#A89F8A' : '#D9CFBA'}}" data-key="line" bindtap="onTowerToggle" />
+          </view>
+        </view>
+        <scroll-view scroll-y class="opt-list" wx:if="{{towerOpen === 'line'}}" enhanced show-scrollbar="{{false}}">
+          <view
+            class="opt {{towerLine === item ? 'on' : ''}}"
+            wx:for="{{towerLines}}"
+            wx:key="*this"
+            hover-class="hover-bg-warm"
+            data-v="{{item}}"
+            bindtap="onPickLine"
+          >
+            <text>{{item}}</text>
+            <t-icon wx:if="{{towerLine === item}}" name="check" size="28rpx" color="#F26D21" />
+          </view>
+        </scroll-view>
+        <!-- 杆塔号（未选线路名称时禁用） -->
+        <view class="sel-row">
+          <text class="sel-fk">杆塔号</text>
+          <view
+            class="sel-box {{towerOpen === 'tower' ? 'open' : ''}} {{towerLine ? '' : 'disabled'}}"
+            hover-class="{{towerLine ? 'hover-opacity' : ''}}"
+            data-key="tower"
+            bindtap="onTowerToggle"
+          >
+            <text class="{{towerTower ? '' : 'ph'}}">{{towerTower ? towerTower.no : (towerLine ? '请选择杆塔号' : '请先选择线路名称')}}</text>
+            <t-icon name="chevron-down" size="28rpx" color="{{towerLine ? '#A89F8A' : '#D9CFBA'}}" />
+          </view>
+        </view>
+        <scroll-view scroll-y class="opt-list" wx:if="{{towerOpen === 'tower'}}" enhanced show-scrollbar="{{false}}">
+          <view
+            class="opt {{towerTower && towerTower.no === item.no ? 'on' : ''}}"
+            wx:for="{{towerTowers}}"
+            wx:key="no"
+            hover-class="hover-bg-warm"
+            data-i="{{index}}"
+            bindtap="onPickTower"
+          >
+            <text>{{item.no}}</text>
+            <t-icon wx:if="{{towerTower && towerTower.no === item.no}}" name="check" size="28rpx" color="#F26D21" />
+          </view>
+        </scroll-view>
+        <!-- 三级选齐后坐标预览 -->
+        <view class="coord-card" wx:if="{{towerTower}}">
+          <view class="cc-title">{{towerTower.no}} · 坐标预览</view>
+          <view class="cc-line">经度 {{towerTower.lngText}}　纬度 {{towerTower.latText}}</view>
+        </view>
+      </block>
+    </scroll-view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onTowerCancel">取 消</view>
+      <view class="btn-dark {{towerTower ? '' : 'disabled'}}" hover-class="hover-opacity" bindtap="onTowerConfirm">确 定</view>
     </view>
   </view>
 </t-popup>

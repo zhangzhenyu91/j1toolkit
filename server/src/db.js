@@ -91,6 +91,16 @@ const APP_FILE_TRANSFER = {
   terminal: 'mobile',
 };
 
+// 「水印添加」：移动端应用（小程序 pkg-wmadd），选片/拍摄 → 4:3 裁剪 → 编辑水印 → 服务端渲染仅回图 → 存相册
+const APP_WM_ADD = {
+  key: 'wm-add',
+  name: '水印添加',
+  icon: 'image',
+  path: '/pkg-wmadd/pages/index/index',
+  sort: 6,
+  terminal: 'mobile',
+};
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -144,7 +154,7 @@ async function ensureSchema() {
   }
 
   // 写入/更新应用记录（terminal 随种子刷新）
-  for (const app of [APP_CALL_ME, APP_SAFE_DAY, APP_KVM, APP_FILE_TRANSFER]) {
+  for (const app of [APP_CALL_ME, APP_SAFE_DAY, APP_KVM, APP_FILE_TRANSFER, APP_WM_ADD]) {
     await pool.query(
       `INSERT INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES (?, ?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path),
@@ -191,6 +201,12 @@ async function ensureSchema() {
   await pool.query(
     'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
     [adminId, APP_FILE_TRANSFER.key]
+  );
+
+  // 管理员默认授予 水印添加 权限
+  await pool.query(
+    'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
+    [adminId, APP_WM_ADD.key]
   );
 
   // 出工日志：WORKLOG_ENABLED=true 时建表并写入应用/成员种子
