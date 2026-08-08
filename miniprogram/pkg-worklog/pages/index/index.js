@@ -1040,6 +1040,8 @@ Page({
     // 注意：COS 域名需配置为小程序 downloadFile 合法域名（与水印照片下载同域，部署侧事项）
     wx.downloadFile({
       url,
+      // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
+      filePath: `${wx.env.USER_DATA_PATH}/${name}`,
       success: (r) => {
         if (r.statusCode !== 200) {
           wx.hideLoading();
@@ -1047,7 +1049,7 @@ Page({
           return;
         }
         wx.openDocument({
-          filePath: r.tempFilePath,
+          filePath: r.filePath,
           fileType: ext,
           showMenu: true,
           complete: () => wx.hideLoading(),

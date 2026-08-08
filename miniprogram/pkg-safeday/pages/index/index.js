@@ -519,6 +519,8 @@ Page({
       url: `${BASE_URL}${API_BASE}/records/${encodeURIComponent(id)}/download`,
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
       timeout: 120000,
+      // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
+      filePath: `${wx.env.USER_DATA_PATH}/${rec.fileName || '安全日活动记录.docx'}`,
       success: (res) => {
         if (res.statusCode === 401) {
           this.onExpired();
@@ -529,7 +531,7 @@ Page({
           return;
         }
         wx.openDocument({
-          filePath: this.renameTemp(res.tempFilePath, rec.fileName || '安全日活动记录.docx'),
+          filePath: res.filePath,
           fileType: 'docx',
           showMenu: true, // 右上角菜单可另存/转发
           fail: () => this.toast('该类型暂不支持打开'),
@@ -538,19 +540,6 @@ Page({
       fail: () => this.toast('网络异常，请检查网络后重试'),
       complete: () => this.setData({ openingId: '' }),
     });
-  },
-
-  // downloadFile 的临时路径名是随机的，重命名为真实文件名再打开（同文件传输 renameTemp）
-  renameTemp(tempPath, name) {
-    const fsm = wx.getFileSystemManager();
-    const target = `${wx.env.USER_DATA_PATH}/${name}`;
-    try { fsm.unlinkSync(target); } catch (err) { /* 目标不存在则忽略 */ }
-    try {
-      fsm.renameSync(tempPath, target);
-      return target;
-    } catch (err) {
-      return tempPath; // 重命名失败退回临时路径
-    }
   },
 
   /* ==================== 删除记录 ==================== */

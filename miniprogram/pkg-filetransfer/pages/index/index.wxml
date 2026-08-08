@@ -132,6 +132,11 @@
           <view class="fn">{{item.name}}</view>
           <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
           <view wx:else class="fs">{{item.sizeText}}</view>
+          <!-- 删除小标（catchtap 拦截，不触发下载） -->
+          <view class="fdel" hover-class="hover-opacity" data-name="{{item.name}}" data-index="{{index}}"
+                catchtap="onDeleteFile">
+            <t-icon name="delete" size="32rpx" color="#CF4444" />
+          </view>
           <t-icon name="chevron-right" size="30rpx" color="#A89F8A" />
         </view>
       </block>
@@ -142,3 +147,4 @@
 </t-popup>
 
 <t-toast id="t-toast" />
+<t-dialog id="t-dialog" />
