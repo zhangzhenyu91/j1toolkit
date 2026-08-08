@@ -3,7 +3,9 @@
 <view class="nav-wrap" style="background: {{bg}}; padding-top: {{statusBarHeight}}px;">
   <view class="nav-row">
     <view class="nav-left" bindtap="onBack">
-      <t-icon wx:if="{{back}}" name="chevron-left" size="44rpx" color="{{color}}" />
+      <!-- 栈底页（分享进入）显示首页图标，否则按 back 属性显示返回箭头 -->
+      <t-icon wx:if="{{isRoot && !isHome}}" name="home" size="44rpx" color="{{color}}" />
+      <t-icon wx:elif="{{back}}" name="chevron-left" size="44rpx" color="{{color}}" />
     </view>
     <view class="nav-title" style="color: {{color}};">{{title}}</view>
   </view>
