@@ -1,6 +1,6 @@
 // 文件传输 · 设备列表 + 虚拟 U 盘上传/下载（移动端应用，app_key file-transfer）
 // 列表数据实时代理自 GLKVM Cloud 平台（/api/v1/kvm/devices，kvm 或 file-transfer 任一权限）；
-// 上传/下载经壹匣转发点（/api/v1/kvm/devices/{id}/push|files|download|mount），平台链路直达设备
+// 上传/下载经壹匣转发点（/api/v1/kvm/devices/{id}/push|files|download|mount|status），平台链路直达设备
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -62,12 +62,14 @@ Page({
     uploading: false,
     upIndex: 0,
 
-    // 下载弹层
+    // 下载弹层（dlState：checking 查询挂载状态 / shared 已挂载到目标计算机 / local 挂载在 KVM 显示文件列表）
     dlOpen: false,
     dlDevice: {},
+    dlState: 'checking',
     dlFiles: [], // [{name, size, sizeText, icon}]
-    dlLoading: false,
+    dlLoading: false, // 「获取文件列表」执行中（断开共享并拉列表）
     downloading: '', // 正在下载的文件名
+    mounting: false, // 正在挂载到目标计算机
   },
 
   onLoad() {
@@ -324,14 +326,17 @@ Page({
 
   /* ==================== 下载 ==================== */
 
+  // 打开弹层不直接拉列表：先查挂载状态（设备 /status 被动查询，不切换状态）
   onOpenDownload(e) {
     const dev = e.currentTarget.dataset.item;
     if (dev.statusKey !== 'online') {
       this.toast('设备离线，不可传输文件');
       return;
     }
-    this.setData({ dlOpen: true, dlDevice: dev, dlFiles: [], dlLoading: true });
-    this.loadDlFiles();
+    this.setData({
+      dlOpen: true, dlDevice: dev, dlFiles: [], dlLoading: false, dlState: 'checking',
+    });
+    this.checkDlState();
   },
 
   onCloseDownload() {
@@ -342,19 +347,44 @@ Page({
     if (!e.detail.visible) this.setData({ dlOpen: false });
   },
 
+  // 挂载状态分流：已共享给目标计算机则先给「获取文件列表」按钮（列出会断开共享，由用户确认）；
+  // 挂载在 KVM 本机则直接展示盘内文件（status 响应自带 files，无需二次调用）
+  async checkDlState() {
+    try {
+      const data = await request({
+        url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/status`,
+        timeout: 60000,
+      });
+      if (data && data.shared) {
+        this.setData({ dlState: 'shared' });
+      } else {
+        this.setData({ dlFiles: this.mapDlFiles(data && data.files), dlState: 'local' });
+      }
+    } catch (err) {
+      // 状态查询失败（如设备侧旧版无 /status）：回退直接拉列表，持续故障由列表报错带出
+      this.loadDlFiles();
+    }
+  },
+
+  mapDlFiles(files) {
+    return (files || []).map((f) => ({
+      name: f.name,
+      size: f.size,
+      sizeText: fmtSize(f.size),
+      icon: iconOf(f.name),
+    }));
+  },
+
+  // 「获取文件列表」（设备 /list：共享中先断开、挂载回 KVM，再返回列表）
   async loadDlFiles() {
+    if (this.data.dlLoading) return;
+    this.setData({ dlLoading: true });
     try {
       const data = await request({
         url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/files`,
         timeout: 60000,
       });
-      const dlFiles = ((data && data.files) || []).map((f) => ({
-        name: f.name,
-        size: f.size,
-        sizeText: fmtSize(f.size),
-        icon: iconOf(f.name),
-      }));
-      this.setData({ dlFiles, dlLoading: false });
+      this.setData({ dlFiles: this.mapDlFiles(data && data.files), dlLoading: false, dlState: 'local' });
     } catch (err) {
       this.setData({ dlLoading: false, dlOpen: false });
       this.toast(err.message || '读取盘内文件失败');
@@ -441,6 +471,27 @@ Page({
         this.toast(err.message);
       }
     }).catch(() => {});
+  },
+
+  // 挂载 U 盘至目标计算机（被控机向盘内放入文件场景：挂载后弹层切到 shared 态，
+  // 放好后点「获取文件列表」断开共享并读取新文件）
+  async onMount() {
+    const { dlDevice, mounting, downloading } = this.data;
+    if (mounting) return;
+    if (downloading) {
+      this.toast('文件下载中，请稍候');
+      return;
+    }
+    this.setData({ mounting: true });
+    try {
+      await request({ url: `/api/v1/kvm/devices/${dlDevice.id}/mount`, method: 'POST', timeout: 60000 });
+      this.setData({ dlState: 'shared' });
+      this.toast('已挂载到目标计算机，可在该机向 U 盘放入文件');
+    } catch (err) {
+      this.toast(`挂载失败：${err.message}`);
+    } finally {
+      this.setData({ mounting: false });
+    }
   },
 
   onShareAppMessage() {

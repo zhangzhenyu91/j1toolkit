@@ -109,6 +109,7 @@ Page({
 
   // 字段预填（无历史口径）：施工内容留空、拍摄时间取当前、经纬度/地点/天气按当前定位取值（腾讯地图）
   prefillWmForm() {
+    this._wmGeoKey = null; // 「上次取值坐标」记录随表单一起重置（手动改经纬度防抖刷新去重用）
     this.setData({
       wmVisible: true,
       wmForm: { content: '', time: fmtWmTime(new Date()), weather: '', location: '', lng: '', lat: '' },
@@ -138,11 +139,14 @@ Page({
       success: (loc) => {
         if (!this.data.wmVisible) return; // 弹层已关则不再回填
         if (this.data.wmTowerPicked) return; // 已选杆塔坐标，定位结果不再覆盖
+        const lng = loc.longitude.toFixed(6);
+        const lat = loc.latitude.toFixed(6);
         this.setData({
-          'wmForm.lng': loc.longitude.toFixed(6),
-          'wmForm.lat': loc.latitude.toFixed(6),
+          'wmForm.lng': lng,
+          'wmForm.lat': lat,
         });
-        request({ url: `/api/v1/wmadd/geo?lng=${loc.longitude}&lat=${loc.latitude}`, timeout: 10000 })
+        this._wmGeoKey = `${parseFloat(lng)},${parseFloat(lat)}`; // 与手动改经纬度的去重口径一致
+        request({ url: `/api/v1/wmadd/geo?lng=${lng}&lat=${lat}`, timeout: 10000 })
           .then((r) => {
             if (!this.data.wmVisible || this.data.wmTowerPicked) return;
             this.setData({
@@ -305,6 +309,7 @@ Page({
   onWmInput(e) {
     const { field } = e.currentTarget.dataset;
     this.setData({ [`wmForm.${field}`]: e.detail.value });
+    if (field === 'lng' || field === 'lat') this.scheduleWmGeoRefresh(); // 手动改经纬度同样刷新地点/天气
   },
 
   // 施工内容快捷输入：点击将字符追加到当前输入内容末尾（不超出 textarea 的 maxlength 500）
@@ -483,25 +488,44 @@ Page({
       'wmForm.lng': jittered.lng,
       'wmForm.lat': jittered.lat,
     });
-    this.refreshWmGeoByTower(jittered.lng, jittered.lat);
+    this.refreshWmGeo(jittered.lng, jittered.lat, '已按杆塔坐标更新地点、天气');
   },
 
-  // 杆塔选定后调后端 /geo（腾讯地图）覆盖刷新地点/天气；失败清空留空手填（与定位失败口径一致）
-  refreshWmGeoByTower(lng, lat) {
+  // 经纬度变化（杆塔选定 / 手动修改）统一调后端 /geo（腾讯地图）覆盖刷新地点/天气；失败清空留空手填（与定位失败口径一致）。
+  // 响应仅在弹层仍打开且表单经纬度未被再次改动时应用，避免旧响应覆盖新输入
+  refreshWmGeo(lng, lat, tip) {
+    lng = parseFloat(lng);
+    lat = parseFloat(lat);
+    this._wmGeoKey = `${lng},${lat}`; // 记录本次取值坐标，供手动输入防抖去重
     request({ url: `/api/v1/wmadd/geo?lng=${lng}&lat=${lat}`, timeout: 10000 })
       .then((r) => {
-        if (!this.data.wmVisible || !this.data.wmTowerPicked) return;
+        if (!this.data.wmVisible) return;
+        if (parseFloat(this.data.wmForm.lng) !== lng || parseFloat(this.data.wmForm.lat) !== lat) return;
         this.setData({
           'wmForm.weather': (r && r.weather) || '',
           'wmForm.location': (r && r.location) || '',
         });
-        this.toast('已按杆塔坐标更新地点、天气');
+        if (tip) this.toast(tip);
       })
       .catch((err) => {
-        console.error('[水印添加] 杆塔坐标 /geo 刷新失败（地点天气留空手填）：', err);
+        console.error('[水印添加] /geo 地点天气刷新失败（留空手填）：', err);
         if (!this.data.wmVisible) return;
+        if (parseFloat(this.data.wmForm.lng) !== lng || parseFloat(this.data.wmForm.lat) !== lat) return;
         this.setData({ 'wmForm.weather': '', 'wmForm.location': '' });
       });
+  },
+
+  // 手动改经纬度：停顿 800ms 防抖后按新坐标刷新地点/天气；
+  // 经纬度未填完整或超出合法范围不请求，与上次取值坐标相同则跳过
+  scheduleWmGeoRefresh() {
+    clearTimeout(this._wmGeoTimer);
+    this._wmGeoTimer = setTimeout(() => {
+      const lng = parseFloat(this.data.wmForm.lng);
+      const lat = parseFloat(this.data.wmForm.lat);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) return;
+      if (`${lng},${lat}` === this._wmGeoKey) return;
+      this.refreshWmGeo(lng, lat, '已按经纬度更新地点、天气');
+    }, 800);
   },
 
   onTowerCancel() {

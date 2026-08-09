@@ -96,6 +96,19 @@ function relayFail(res, err) {
   return fail(res, status === 401 ? 502 : status, 50201, msg);
 }
 
+// 挂载状态查询（设备 /status：被动查询不切换状态；shared=true 表示已共享给被控机）
+router.get('/devices/:id/status', requireAnyApp(KVM_OR_FT), async (req, res) => {
+  try {
+    const ps = await glkvm.getProxySession(req.params.id, req.user.username);
+    const r = await axios.get(`${ps.origin}/api/fileshare/status`, {
+      headers: { Cookie: ps.cookie }, timeout: 60000,
+    });
+    return ok(res, r.data);
+  } catch (err) {
+    return relayFail(res, err);
+  }
+});
+
 // 盘内文件列表（设备 /list：共享中则先断开）
 router.get('/devices/:id/files', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
