@@ -126,8 +126,7 @@ Page({
     quickInputs: ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'], // 快捷输入，点击追加到内容末尾（水印施工内容与巡视内容共用）
     wmCode: '', // 防伪码（自动生成，用户不可编辑）
     wmUploading: false,
-    // ---------- 选择杆塔坐标弹层（仅无历史照片预填场景显示入口） ----------
-    wmNoHistory: false, // 本次预填是否无历史照片（决定「选择杆塔坐标」按钮显隐）
+    // ---------- 选择杆塔坐标弹层（有/无历史照片预填场景均显示入口） ----------
     wmTowerPicked: null, // 已选杆塔 { level, line, no, lng, lat }；未选为 null（已选后天气/地点行显「已更新」标）
     towerVisible: false,
     towerLoading: false,
@@ -138,8 +137,10 @@ Page({
     towerLines: [], // 当前展示的线路选项（= 本电压等级全部线路按 towerLineKw 关键字过滤）
     towerLineKw: '', // 线路名称输入框内容（搜索关键字 / 已选线路名）
     towerLine: '',
-    towerTowers: [], // [{ no, lng, lat, lngText, latText }]
+    towerTowers: [], // 当前展示的杆塔号选项（= 本线路全部杆塔按 towerTowerKw 关键字过滤）[{ no, lng, lat, lngText, latText }]
     towerTower: null,
+    towerTowerKw: '', // 杆塔号输入框内容（搜索关键字 / 已选杆塔号）
+    towerScrollInto: '', // 聚焦输入框所在行 id（键盘弹起时滚动区 scroll-into-view 到该行）
     // ---------- 4:3 裁剪层（加水印流程：拍摄必裁；相册非 4:3 才裁，横拍锁 4:3 / 纵拍锁 3:4） ----------
     cropVisible: false,
     cropSrc: '', // 待裁原图临时路径
@@ -1407,8 +1408,9 @@ Page({
   },
 
   // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤500m，拍摄时间随机化为 10:00-12:00，避免完全一致）；
-  // 无历史 → 施工内容留空、经纬度/地点/天气按当前定位取值（腾讯地图），并显示「选择杆塔坐标」入口；
+  // 无历史 → 施工内容留空、经纬度/地点/天气按当前定位取值（腾讯地图）；
   //          拍摄时间当日取当前时间，非当日仅能确定日期 → 取记录日期 10:00-12:00 内随机时间
+  // （两种预填场景均显示「选择杆塔坐标」入口，已选杆塔后定位回填不再覆盖）
   prefillWmForm() {
     this._wmGeoKey = null; // 「上次取值坐标」记录随表单一起重置（手动改经纬度防抖刷新去重用）
     this.resetTowerState();
@@ -1422,7 +1424,6 @@ Page({
       const jittered = Number.isFinite(lng) && Number.isFinite(lat) ? this.jitterCoord(lng, lat) : { lng: '', lat: '' };
       this.setData({
         wmVisible: true,
-        wmNoHistory: false,
         wmForm: {
           content: last.workContent || '',
           time: this.randomWmTime(last.shotTime),
@@ -1440,7 +1441,6 @@ Page({
       : `${this.data.dateStr.replace(/-/g, '.')} ${randWmHm()}`;
     this.setData({
       wmVisible: true,
-      wmNoHistory: true,
       wmForm: { content: '', time, weather: '', location: '', lng: '', lat: '' },
     });
     this.fillWmByLocation();
@@ -1455,9 +1455,13 @@ Page({
       towerLevel: '',
       towerLine: '',
       towerLineKw: '',
+      towerLevels: this.towerLevelsOf(),
       towerLines: [],
       towerTowers: [],
       towerTower: null,
+      towerTowerKw: '',
+      towerScrollInto: '',
+      keyboardHeight: 0,
     });
   },
 
@@ -1525,7 +1529,7 @@ Page({
     if (!e.detail.visible) this.setData({ wmVisible: false });
   },
 
-  // ---------- 选择杆塔坐标（无历史预填场景） ----------
+  // ---------- 选择杆塔坐标（有/无历史预填场景均可进入） ----------
 
   // 杆塔坐标数据：storage 缓存优先并后台静默刷新；无缓存则请求服务端（全量约 1366 行）
   loadTowerRows() {
@@ -1544,6 +1548,11 @@ Page({
     });
   },
 
+  towerLevelsOf() {
+    const rows = this.data.towerRows || [];
+    return [...new Set(rows.map((r) => r[0]))];
+  },
+
   towerLinesOf(level) {
     const rows = this.data.towerRows || [];
     return [...new Set(rows.filter((r) => r[0] === level).map((r) => r[1]))];
@@ -1558,11 +1567,13 @@ Page({
 
   // 「选择杆塔坐标」按钮：打开级联弹层；首次打开需先加载数据（失败关层提示，已选状态保留供重选带回）
   onOpenTower() {
+    wx.hideKeyboard(); // 收起施工内容等 hold-keyboard 输入残留的键盘，弹层统一从键盘收起态布局
+    const base = { towerVisible: true, towerOpen: '', keyboardHeight: 0, towerScrollInto: '', towerLevels: this.towerLevelsOf() };
     if (this.data.towerRows) {
-      this.setData({ towerVisible: true, towerOpen: '' });
+      this.setData(base);
       return;
     }
-    this.setData({ towerVisible: true, towerLoading: true });
+    this.setData({ ...base, towerLoading: true });
     this.loadTowerRows()
       .then((rows) => {
         if (!this.data.towerVisible) return;
@@ -1580,14 +1591,16 @@ Page({
   },
 
   // 展开/收起某级选项列表（禁用级不响应：选线路需先选电压等级，选杆塔需先选线路名称）；
-  // 线路行经箭头展开时恢复完整列表（清空输入过滤，便于改选）
+  // 经箭头展开时恢复该级完整列表（清空输入过滤，便于改选）
   onTowerToggle(e) {
     const { key } = e.currentTarget.dataset;
     if (key === 'line' && !this.data.towerLevel) return;
     if (key === 'tower' && !this.data.towerLine) return;
     const open = this.data.towerOpen === key ? '' : key;
     const patch = { towerOpen: open };
+    if (key === 'level' && open === 'level') patch.towerLevels = this.towerLevelsOf();
     if (key === 'line' && open === 'line') patch.towerLines = this.towerLinesOf(this.data.towerLevel);
+    if (key === 'tower' && open === 'tower') patch.towerTowers = this.towerTowersOf(this.data.towerLevel, this.data.towerLine);
     this.setData(patch);
   },
 
@@ -1605,6 +1618,7 @@ Page({
       towerLineKw: '',
       towerTowers: [],
       towerTower: null,
+      towerTowerKw: '',
       towerOpen: 'line',
     });
   },
@@ -1622,13 +1636,14 @@ Page({
     if (this.data.towerLine && v !== this.data.towerLine) {
       patch.towerLine = '';
       patch.towerTower = null;
+      patch.towerTowerKw = '';
       patch.towerTowers = [];
     }
     this.setData(patch);
   },
 
   onTowerLineFocus() {
-    if (this.data.towerLevel) this.setData({ towerOpen: 'line' });
+    if (this.data.towerLevel) this.setData({ towerOpen: 'line', towerScrollInto: 'tower-row-line' });
   },
 
   onPickLine(e) {
@@ -1642,14 +1657,38 @@ Page({
       towerLineKw: v,
       towerTowers: this.towerTowersOf(this.data.towerLevel, v),
       towerTower: null,
+      towerTowerKw: '',
       towerOpen: 'tower',
     });
+  },
+
+  // 杆塔号输入：按关键字过滤下拉选项并展开；输入与已选值不一致时清空已选
+  onTowerTowerInput(e) {
+    const v = e.detail.value;
+    const kw = v.trim();
+    const all = this.towerTowersOf(this.data.towerLevel, this.data.towerLine);
+    const patch = {
+      towerTowerKw: v,
+      towerTowers: kw ? all.filter((t) => String(t.no).indexOf(kw) !== -1) : all,
+      towerOpen: 'tower',
+    };
+    if (this.data.towerTower && v !== this.data.towerTower.no) patch.towerTower = null;
+    this.setData(patch);
+  },
+
+  onTowerTowerFocus() {
+    if (this.data.towerLine) this.setData({ towerOpen: 'tower', towerScrollInto: 'tower-row-tower' });
   },
 
   onPickTower(e) {
     const t = this.data.towerTowers[e.currentTarget.dataset.i];
     if (!t) return;
-    this.setData({ towerTower: t, towerOpen: '' });
+    this.setData({ towerTower: t, towerTowerKw: t.no, towerOpen: '' });
+  },
+
+  // 级联输入框失焦：复位滚动定位，下次聚焦可再次触发 scroll-into-view
+  onTowerInputBlur() {
+    this.setData({ towerScrollInto: '' });
   },
 
   // 确定：所选杆塔坐标按 ≤50m 随机波动后填入水印表单（不直接带入原值，仍可手改），

@@ -132,16 +132,25 @@
   </view>
 </t-popup>
 
-<!-- 选择杆塔坐标弹层（与出工日志同实现同口径：电压等级→线路名称→杆塔号三级级联，线路名称可输入关键字过滤；
+<!-- 选择杆塔坐标弹层（与出工日志同实现同口径：电压等级→线路名称→杆塔号三级级联，线路名称/杆塔号可输入关键字过滤；
      确定将所选坐标按 ≤50m 随机波动后填入水印表单，并按波动后坐标再次调 /geo 刷新地点、天气） -->
 <t-popup visible="{{towerVisible}}" placement="bottom" bind:visible-change="onTowerVisibleChange">
-  <view class="sheet">
+  <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
     <view class="sheet-title">选择杆塔坐标</view>
     <view class="sheet-note">依次选择电压等级 → 线路名称 → 杆塔号，确定后带出经纬度</view>
-    <scroll-view scroll-y class="tower-scroll" enhanced show-scrollbar="{{false}}">
+    <!-- 键盘弹起时页面不上推（输入框 adjust-position=false），底部 padding 抬高、滚动区同步收减，避免布局跳变 -->
+    <scroll-view
+      scroll-y
+      class="tower-scroll"
+      style="max-height: {{keyboardHeight ? 'calc(62vh - ' + keyboardHeight + 'px)' : '62vh'}};"
+      scroll-into-view="{{towerScrollInto}}"
+      scroll-with-animation
+      enhanced
+      show-scrollbar="{{false}}"
+    >
       <view class="tower-loading" wx:if="{{towerLoading}}">杆塔坐标加载中…</view>
       <block wx:if="{{!towerLoading}}">
-        <!-- 电压等级 -->
+        <!-- 电压等级（仅下拉选择，不输入筛选） -->
         <view class="sel-row">
           <text class="sel-fk">电压等级</text>
           <view class="sel-box {{towerOpen === 'level' ? 'open' : ''}}" hover-class="hover-opacity" data-key="level" bindtap="onTowerToggle">
@@ -163,7 +172,7 @@
           </view>
         </scroll-view>
         <!-- 线路名称（未选电压等级时禁用；支持输入关键字筛选后再下拉选择） -->
-        <view class="sel-row">
+        <view class="sel-row" id="tower-row-line">
           <text class="sel-fk">线路名称</text>
           <view class="sel-box {{towerOpen === 'line' ? 'open' : ''}} {{towerLevel ? '' : 'disabled'}}">
             <input
@@ -172,6 +181,10 @@
               disabled="{{!towerLevel}}"
               bindinput="onTowerLineInput"
               bindfocus="onTowerLineFocus"
+              bindblur="onTowerInputBlur"
+              adjust-position="{{false}}"
+              bindkeyboardheightchange="onKeyboardHeight"
+              hold-keyboard
               placeholder="{{towerLevel ? '输入关键字搜索或下拉选择' : '请先选择电压等级'}}"
               placeholder-class="ph"
               maxlength="32"
@@ -192,17 +205,25 @@
             <t-icon wx:if="{{towerLine === item}}" name="check" size="28rpx" color="#F26D21" />
           </view>
         </scroll-view>
-        <!-- 杆塔号（未选线路名称时禁用） -->
-        <view class="sel-row">
+        <!-- 杆塔号（未选线路名称时禁用；支持输入关键字筛选后再下拉选择） -->
+        <view class="sel-row" id="tower-row-tower">
           <text class="sel-fk">杆塔号</text>
-          <view
-            class="sel-box {{towerOpen === 'tower' ? 'open' : ''}} {{towerLine ? '' : 'disabled'}}"
-            hover-class="{{towerLine ? 'hover-opacity' : ''}}"
-            data-key="tower"
-            bindtap="onTowerToggle"
-          >
-            <text class="{{towerTower ? '' : 'ph'}}">{{towerTower ? towerTower.no : (towerLine ? '请选择杆塔号' : '请先选择线路名称')}}</text>
-            <view class="chev {{towerOpen === 'tower' ? 'up' : ''}}"><t-icon name="chevron-down" size="28rpx" color="{{towerLine ? '#A89F8A' : '#D9CFBA'}}" /></view>
+          <view class="sel-box {{towerOpen === 'tower' ? 'open' : ''}} {{towerLine ? '' : 'disabled'}}">
+            <input
+              class="sel-input"
+              value="{{towerTowerKw}}"
+              disabled="{{!towerLine}}"
+              bindinput="onTowerTowerInput"
+              bindfocus="onTowerTowerFocus"
+              bindblur="onTowerInputBlur"
+              adjust-position="{{false}}"
+              bindkeyboardheightchange="onKeyboardHeight"
+              hold-keyboard
+              placeholder="{{towerLine ? '输入关键字搜索或下拉选择' : '请先选择线路名称'}}"
+              placeholder-class="ph"
+              maxlength="32"
+            />
+            <view class="chev {{towerOpen === 'tower' ? 'up' : ''}}" data-key="tower" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLine ? '#A89F8A' : '#D9CFBA'}}" /></view>
           </view>
         </view>
         <scroll-view scroll-y class="opt-list {{towerOpen === 'tower' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">

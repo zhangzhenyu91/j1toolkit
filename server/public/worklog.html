@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 出工日志网页版（方案A「安全橙传承」④：月历验证状态色点 + 当日日志卡片）
      功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 /
-     照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志）；
+     照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志 /
+     水印照片上传（选择水印照片直传 / 选片裁剪加水印后上传，服务端渲染，链路同小程序））；
      右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化；验证报告范围 = 不通过 ∪ 有备注）；
      API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
 <html lang="zh-CN">
@@ -287,6 +288,84 @@
     flex: 1; min-height: 140px; margin: 14px 22px 20px; border: 1.5px dashed var(--dash); border-radius: 9px;
     display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--ph); letter-spacing: 1px;
   }
+  /* 添加水印照片入口（仅出车卡渲染）：网格尾部虚线块 / 空态虚线框可点，悬停转橙 */
+  .ph-add {
+    min-height: 148px; border: 1.5px dashed var(--dash); border-radius: 9px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    font-size: 12px; color: var(--ph); letter-spacing: 1px;
+    transition: border-color .25s, color .25s, background .25s;
+  }
+  .ph-add svg { width: 20px; height: 20px; }
+  .ph-add:hover, .photos-empty.can-add:hover { border-color: var(--orange); color: var(--orange); background: #FFFDF9; }
+  .photos-empty.can-add { cursor: pointer; transition: border-color .25s, color .25s, background .25s; }
+
+  /* ===== 水印照片上传：方式二选一 / 4:3 裁剪层 / 水印字段编辑 ===== */
+  /* 方式二选一选项行 */
+  .sheet-opt {
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font-family: inherit;
+    border: 1px solid var(--hair); border-radius: 10px; background: #fff; padding: 13px 14px;
+    cursor: pointer; transition: border-color .25s, background .25s;
+  }
+  .sheet-opt + .sheet-opt { margin-top: 10px; }
+  .sheet-opt:hover { border-color: var(--orange); background: #FFFDF9; }
+  .sheet-opt .ic {
+    width: 38px; height: 38px; flex: none; border-radius: 9px; background: var(--orange-soft);
+    color: var(--orange); display: flex; align-items: center; justify-content: center;
+  }
+  .sheet-opt .ic svg { width: 19px; height: 19px; }
+  .sheet-opt b { display: block; font-size: 13.5px; font-weight: 700; letter-spacing: .5px; }
+  .sheet-opt small { display: block; margin-top: 3px; font-size: 11px; color: var(--ph); line-height: 1.6; letter-spacing: .5px; }
+  .sheet-opt > svg { margin-left: auto; width: 15px; height: 15px; color: var(--ph); flex: none; }
+  /* 裁剪层：取景框锁 4:3（横）/ 3:4（纵），图片拖拽平移 + 滑块/滚轮缩放（cover 适配，缩放保底） */
+  .crop-frame {
+    position: relative; overflow: hidden; border-radius: 10px; background: #1B2740; margin: 0 auto;
+    touch-action: none; user-select: none; cursor: grab;
+  }
+  .crop-frame.dragging { cursor: grabbing; }
+  .crop-img { position: absolute; max-width: none; -webkit-user-drag: none; }
+  .crop-bar { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .crop-bar .crop-z { flex: 1; accent-color: var(--orange); }
+  .crop-bar .crop-z-lab, .crop-bar .crop-pct { font-size: 11.5px; color: var(--ph); letter-spacing: 1px; flex: none; }
+  .crop-bar .crop-pct { width: 42px; text-align: right; }
+  /* 水印编辑：缩略图 + 人名头部；经纬度行；防伪码行；「已更新」小签 */
+  .wm-head { display: flex; align-items: center; gap: 12px; margin-bottom: 2px; }
+  .wm-thumb { width: 72px; height: 54px; flex: none; object-fit: cover; border-radius: 8px; border: 1px solid var(--hair); }
+  .wm-names { font-size: 13.5px; font-weight: 700; word-break: break-all; }
+  .wm-names-tip { margin-top: 3px; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
+  .wm-co { display: flex; align-items: center; gap: 8px; }
+  .wm-co .f-sel { flex: 1; min-width: 0; }
+  .wm-upd {
+    margin-left: 8px; font-size: 10px; font-weight: 700; color: var(--orange);
+    background: var(--orange-soft); border-radius: 4px; padding: 1px 6px; letter-spacing: 1px;
+  }
+  .wm-code-row { display: flex; align-items: center; gap: 12px; }
+  .wm-code { font-family: Consolas, monospace; font-size: 15px; font-weight: 700; letter-spacing: 2px; }
+  /* 可筛选下拉（杆塔坐标级联）：输入关键字实时过滤；选项列表内联展开（同小程序），随弹层滚动不被裁剪；
+     展开/收起走 grid 0fr→1fr 高度过渡 + 淡入，避免弹层被瞬间拉长 */
+  .combo { position: relative; }
+  .combo .f-sel { padding-right: 30px; }
+  .combo-chev {
+    position: absolute; right: 9px; top: 18px; transform: translateY(-50%);
+    display: flex; color: var(--ph); cursor: pointer;
+  }
+  .combo-chev svg { width: 13px; height: 13px; }
+  .combo-list {
+    display: grid; grid-template-rows: 0fr; overflow: hidden; margin-top: 0; opacity: 0;
+    transition: grid-template-rows .28s cubic-bezier(.16, 1, .3, 1), opacity .22s ease, margin-top .28s cubic-bezier(.16, 1, .3, 1);
+  }
+  .combo-list.open { grid-template-rows: 1fr; opacity: 1; margin-top: 4px; }
+  .combo-list-in {
+    min-height: 0; max-height: 208px; overflow-y: auto; background: #fff;
+    border: 1px solid var(--line); border-radius: 8px;
+    scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent;
+  }
+  .combo-list-in::-webkit-scrollbar { width: 5px; }
+  .combo-list-in::-webkit-scrollbar-thumb { background: rgba(34, 49, 78, .16); border-radius: 3px; }
+  .combo-list-in::-webkit-scrollbar-track { background: transparent; }
+  .combo-opt { padding: 8px 12px; font-size: 12.5px; cursor: pointer; word-break: break-all; transition: background .2s, color .2s; }
+  .combo-opt:hover { background: var(--orange-soft); color: var(--orange); }
+  .combo-none { padding: 10px 12px; font-size: 12px; color: var(--ph); letter-spacing: .5px; }
+  @media (prefers-reduced-motion: reduce) { .combo-list { transition: none; } }
 
   /* ===== 骨架屏 ===== */
   .sk-card { padding: 22px; margin-bottom: 16px; }
@@ -643,7 +722,9 @@
    出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·验证报告三页签（原下载、报告弹层已页签化）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
    验证报告范围 = 不通过记录 ∪ 有备注记录（备注黄色行，不展示文件，有附件以曲别针标记）
-   （水印照片上传依赖小程序拍摄·裁剪·定位加水印流程，网页端不提供，见回报说明）
+   水印照片上传与小程序同链路（POST /logs/{id}/photos）：① 选择水印照片上传＝原图 base64 直传；
+   ② 选择照片并添加水印＝选片 → 4:3/3:4 判定（按需 canvas 裁剪）→ 水印字段编辑（历史带入 / 浏览器定位 WGS84→GCJ02 /
+   杆塔坐标级联预填，防抖调 /geo 刷新地点天气）→ 服务端渲染水印上传；图片经 canvas 重绘导出，EXIF 方向已归一（orientation 恒 up）
    ============================================================ */
 (function () {
 'use strict';
@@ -682,11 +763,15 @@ function defaultRange() {
 var SVG_CAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5l1.6-5A2 2 0 0 1 8 9h8a2 2 0 0 1 1.9 1.5l1.6 5"/><rect x="3.5" y="15.5" width="17" height="4" rx="1.5"/><circle cx="7.5" cy="19.5" r="1.4"/><circle cx="16.5" cy="19.5" r="1.4"/></svg>';
 var SVG_CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>';
 var SVG_CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>';
+/* 可筛选下拉（杆塔坐标级联）输入框右侧下拉箭头 */
+var SVG_CHEV_D = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 9.5 12 16l6.5-6.5"/></svg>';
 var SVG_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.2"/></svg>';
 /* 备注附件用：播放 / 文档 / 曲别针（报告附件标记） */
 var SVG_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" fill="rgba(0,0,0,.38)"/><path d="M10 8.5l6 3.5-6 3.5z"/></svg>';
 var SVG_DOC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>';
 var SVG_CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+/* 上传水印照片用：相机（「选择照片并添加水印」选项图标） */
+var SVG_CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h2.6l1.7-2.6h7.4l1.7 2.6H20a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 20.5H4A1.5 1.5 0 0 1 2.5 19v-9A1.5 1.5 0 0 1 4 8.5z"/><circle cx="12" cy="13.8" r="3.6"/></svg>';
 /* 快捷输入（与小程序一致：巡视内容与水印施工内容共用） */
 var QUICK_INPUTS = ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'];
 
@@ -701,6 +786,7 @@ var state = {
   timer: 0,                  // 验证中照片的轮询定时器
   rep: { from: '', to: '', loaded: false },
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
+  towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
   dl: { from: '', to: '', list: null, saving: false } // 下载页签（list 项带 selected）
 };
 
@@ -919,11 +1005,18 @@ function cardHTML(e, idx, total) {
   html += '<div class="log-acts"><button class="act-note" data-act="remark">备注</button><button class="act-del" data-act="del">删除</button></div>';
   html += '</div><div class="log-side-r">';
 
-  /* 水印照片网格（右栏） */
+  /* 水印照片网格（右栏）；出车卡渲染「添加水印照片」入口（网格尾部虚线块 / 空态框可点，同小程序） */
   var photos = e.photos || [];
+  var canAdd = e.vehicle_id != null;
   if (photos.length) {
     html += '<div class="ph-lab">水印照片 · ' + photos.length + ' 张（点击查看大图与核验信息）</div>'
-      + '<div class="photos">' + photos.map(photoHTML).join('') + '</div>';
+      + '<div class="photos">' + photos.map(photoHTML).join('')
+      + (canAdd
+        ? '<div class="ph-add" data-act="addphoto" title="上传水印照片">' + Shade.icon('add', 20) + '<span>添加水印照片</span></div>'
+        : '')
+      + '</div>';
+  } else if (canAdd) {
+    html += '<div class="photos-empty can-add" data-act="addphoto" title="上传水印照片">＋ 添加水印照片</div>';
   } else {
     html += '<div class="photos-empty">暂无水印照片</div>';
   }
@@ -1376,8 +1469,9 @@ function chipsHTML(list, sel, dis) {
       + (disabled ? ' disabled' : '') + '>' + esc(m.name) + '</button>';
   }).join('') + '</div>';
 }
+/* 点亮 chips 点击切换（用车人选择 data-cid / 照片人名 data-name 两类均绑定；disabled 不响应） */
 function bindChips(box) {
-  $$('.chip[data-cid]', box).forEach(function (b) {
+  $$('.chip[data-cid], .chip[data-name]', box).forEach(function (b) {
     b.addEventListener('click', function () {
       if (b.disabled) return;
       b.classList.toggle('on');
@@ -1573,6 +1667,637 @@ async function deletePhoto(pid) {
   } catch (e) {
     Shade.toast(e.message, 'error');
   }
+}
+
+/* ================= 水印照片上传（与小程序同链路） =================
+   入口为卡片照片区「添加水印照片」（仅出车卡）→ 方式二选一 → 人名点亮 →
+   ① 选择水印照片上传：本地读 base64 直传；② 选择照片并添加水印：4:3 判定/裁剪 →
+   水印字段编辑（历史带入 / 浏览器定位 / 杆塔坐标预填）→ 服务端渲染水印上传（同一 POST /photos 接口） */
+/* 水印拍摄时间格式：2026.07.30 11:02（与今日水印相机样式一致） */
+function fmtWmTime(d) {
+  return d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+/* 随机时分：10:00-12:00（不含 12:00），历史带入与无历史预填共用此口径（同小程序） */
+function randWmHm() { return pad(10 + Math.floor(Math.random() * 2)) + ':' + pad(Math.floor(Math.random() * 60)); }
+/* 历史带入的拍摄时间：保留日期，时分随机化为 10:00-12:00 且不与历史值相同（同小程序） */
+function randomWmTime(shotTime) {
+  var m = /^(\d{4}\.\d{2}\.\d{2})\s+(\d{1,2}):(\d{2})$/.exec(String(shotTime || '').trim());
+  var datePart = m ? m[1] : fmtWmTime(new Date()).split(' ')[0];
+  var oldHm = m ? m[2] + ':' + m[3] : '';
+  var hm = oldHm;
+  while (hm === oldHm) hm = randWmHm();
+  return datePart + ' ' + hm;
+}
+/* 防伪码字符集：14 位大写字母+数字，去 0/O、1/I 等易混淆字符（与服务端校验规则一致） */
+var CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function genAntiCode() {
+  var out = '';
+  for (var i = 0; i < 14; i += 1) out += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
+  return out;
+}
+/* 经纬度随机偏移：角度随机，半径 ≤maxMeters（历史带入 400，杆塔坐标带入 50，同小程序） */
+function jitterCoord(lng, lat, maxMeters) {
+  var r = Math.random() * maxMeters;
+  var a = Math.random() * Math.PI * 2;
+  var dLat = (r * Math.sin(a)) / 111320;
+  var cosLat = Math.cos((lat * Math.PI) / 180);
+  var dLng = (r * Math.cos(a)) / (111320 * (Math.abs(cosLat) > 1e-6 ? cosLat : 1e-6));
+  return { lng: (lng + dLng).toFixed(6), lat: (lat + dLat).toFixed(6) };
+}
+/* 经纬度补方向后缀：只填数字时自动补 °E/°N（已带符号则原样，同小程序） */
+function withDegSuffix(v, suffix) {
+  var s = String(v || '').trim();
+  if (!s) return '';
+  return /[°NSEWnsew]/.test(s) ? s : s + suffix;
+}
+/* WGS84 → GCJ02：浏览器 geolocation 为 WGS84，/geo 逆地址解析为腾讯 GCJ02 口径；中国境外原样返回 */
+function wgs2gcj(lng, lat) {
+  var a = 6378245.0, ee = 0.006693421622965943;
+  if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) return [lng, lat];
+  function tLat(x, y) {
+    var r = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+    r += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+    r += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0;
+    r += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320.0 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0;
+    return r;
+  }
+  function tLng(x, y) {
+    var r = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+    r += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+    r += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0;
+    r += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0;
+    return r;
+  }
+  var dLat = tLat(lng - 105.0, lat - 35.0);
+  var dLng = tLng(lng - 105.0, lat - 35.0);
+  var radLat = (lat / 180.0) * Math.PI;
+  var magic = Math.sin(radLat);
+  magic = 1 - ee * magic * magic;
+  var sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / (((a * (1 - ee)) / (magic * sqrtMagic)) * Math.PI);
+  dLng = (dLng * 180.0) / ((a / sqrtMagic) * Math.cos(radLat) * Math.PI);
+  return [lng + dLng, lat + dLat];
+}
+/* 已被占用人名（每人限一张，同小程序 usedPhotoNames） */
+function usedPhotoNames(entry) {
+  var used = {};
+  (entry.photos || []).forEach(function (p) { (p.members || []).forEach(function (n) { used[n] = 1; }); });
+  return used;
+}
+/* 唤起系统文件选择（单张图片） */
+function pickImage(accept, cb) {
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = accept;
+  inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.addEventListener('change', function () {
+    var f = inp.files && inp.files[0];
+    inp.remove();
+    if (f) cb(f);
+  });
+  inp.click();
+}
+/* 统一上传：POST /logs/{id}/photos（wm 存在时服务端先渲染水印）；成功后静默重拉进 pending 轮询 */
+async function uploadPhoto(entry, image, names, wm, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = wm ? '加水印上传中…' : '上传中…'; }
+  var wait = null;
+  if (!btn) { // 原图直传无表单弹层，用轻量进度层提示
+    wait = createModal('<div class="loading"><span class="spin"></span>正在上传…</div>', { width: 280 });
+  }
+  try {
+    await Shade.api('/api/v1/worklog/logs/' + entry.id + '/photos', {
+      method: 'POST',
+      body: wm ? { image: image, members: names, wm: wm } : { image: image, members: names }
+    });
+    if (wait) wait.close();
+    Shade.toast('已上传，验证中', 'success');
+    refreshAfterEdit();
+    return true;
+  } catch (e) {
+    if (wait) wait.close();
+    if (btn) { btn.disabled = false; btn.textContent = wm ? '加水印并上传' : '上传'; } // 失败留弹层可重试（同小程序）
+    Shade.toast(e.message, 'error');
+    return false;
+  }
+}
+
+/* ---------- 入口：方式二选一弹层（原图直传 / 选片加水印） ---------- */
+function openAddSheet(entry) {
+  if (!(entry.members || []).length) { Shade.toast('本卡暂无用车人', 'info'); return; }
+  var html = mHead('添加水印照片')
+    + '<button class="sheet-opt" data-m="raw"><span class="ic">' + Shade.icon('image', 19) + '</span>'
+    + '<span><b>选择水印照片上传</b><small>已带水印的照片（如今日水印相机拍摄）直接上传</small></span>'
+    + Shade.icon('chevron-right', 15) + '</button>'
+    + '<button class="sheet-opt" data-m="wm"><span class="ic">' + SVG_CAMERA + '</span>'
+    + '<span><b>选择照片并添加水印</b><small>选择原图裁剪 4:3，编辑水印字段后由服务端渲染水印</small></span>'
+    + Shade.icon('chevron-right', 15) + '</button>';
+  var inst = createModal(html, { width: 440 });
+  $$('.sheet-opt', inst.box).forEach(function (b) {
+    b.addEventListener('click', function () {
+      var m = b.dataset.m;
+      inst.close();
+      openPhotoPickModal(entry, m);
+    });
+  });
+}
+
+/* ---------- 人名点亮层（候选 = 本卡用车人，已上传者置灰；确认后按方式选片） ---------- */
+function openPhotoPickModal(entry, action) {
+  var used = usedPhotoNames(entry);
+  var members = (entry.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
+  var html = mHead('选择照片所属人名')
+    + '<div class="f-hint" style="margin:0 0 2px">候选为本卡用车人；每人限一张，已上传者不可选</div>'
+    + '<div class="chips" style="margin-top:10px">' + members.map(function (m) {
+      return '<button type="button" class="chip" data-name="' + esc(m.name) + '"'
+        + (used[m.name] ? ' disabled' : '') + '>' + esc(m.name) + '</button>';
+    }).join('') + '</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">选择照片</button></div>';
+  var inst = createModal(html, { width: 460 });
+  bindChips(inst.box);
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', function () {
+    var names = $$('.chip.on[data-name]', inst.box).map(function (b) { return b.dataset.name; });
+    if (!names.length) { Shade.toast('请选择照片所属人名', 'info'); return; }
+    inst.close();
+    if (action === 'wm') pickForWm(entry, names);
+    else pickRaw(entry, names);
+  });
+}
+
+/* ---------- ① 选择水印照片上传：jpeg/png ≤15MB 原图 base64 直传（同小程序原链路） ---------- */
+function pickRaw(entry, names) {
+  pickImage('image/jpeg,image/png', function (file) {
+    if (!/^image\/(jpeg|jpg|png)$/.test(file.type || '')) { Shade.toast('照片格式应为 jpeg/png', 'info'); return; }
+    if (file.size > 15 * 1024 * 1024) { Shade.toast('照片大小应在 15MB 以内', 'info'); return; }
+    var rd = new FileReader();
+    rd.onload = function () { uploadPhoto(entry, String(rd.result || ''), names, null); };
+    rd.onerror = function () { Shade.toast('图片读取失败', 'error'); };
+    rd.readAsDataURL(file);
+  });
+}
+
+/* ---------- ② 选择照片并添加水印：选片 → 4:3 判定（按需裁剪）→ 水印字段编辑 → 上传 ---------- */
+/* createImageBitmap 默认按 EXIF 方向解码（imageOrientation:from-image），宽高即显示宽高，
+   后续 canvas 重绘导出 JPEG，方向已归一（上送 orientation 恒为 up） */
+function pickForWm(entry, names) {
+  pickImage('image/*', function (file) {
+    if (!/^image\//.test(file.type || '')) { Shade.toast('请选择图片文件', 'info'); return; }
+    createImageBitmap(file).then(function (bmp) {
+      var ratio = bmp.width / bmp.height;
+      /* 已是 4:3/3:4（±0.02 容差）免裁直进表单（同小程序相册口径），否则进裁剪层 */
+      var is43 = Math.abs(ratio - 4 / 3) <= 0.02 || Math.abs(ratio - 3 / 4) <= 0.02;
+      if (is43) {
+        var image = bitmapToJpeg(bmp, 4096);
+        if (bmp.close) bmp.close();
+        openWmFormModal(entry, names, image);
+        return;
+      }
+      openCropModal(file, bmp, function (image2) {
+        openWmFormModal(entry, names, image2);
+      });
+    }).catch(function () { Shade.toast('图片读取失败', 'error'); });
+  });
+}
+/* 位图 → JPEG dataURL：长边压到 maxEdge 内，黑底兜透明通道（同小程序裁剪导出口径） */
+function bitmapToJpeg(bmp, maxEdge) {
+  var k = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+  var w = Math.max(1, Math.round(bmp.width * k));
+  var h = Math.max(1, Math.round(bmp.height * k));
+  var cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  var cx = cv.getContext('2d');
+  cx.fillStyle = '#000000';
+  cx.fillRect(0, 0, w, h);
+  cx.drawImage(bmp, 0, 0, w, h);
+  return cv.toDataURL('image/jpeg', 0.92);
+}
+
+/* ---------- 4:3 裁剪层（横拍锁 4:3 / 纵拍锁 3:4；拖拽平移 + 滑块/滚轮缩放，cover 适配） ---------- */
+function openCropModal(file, bmp, onDone) {
+  var landscape = bmp.width >= bmp.height;
+  var maxW = Math.max(200, Math.min(500, window.innerWidth * 0.94 - 60)); // 弹层宽度 560（窄屏 94vw）扣除内边距
+  var maxH = Math.max(window.innerHeight - 360, 220); // 标题/提示/缩放条/按钮预留
+  var fw, fh;
+  if (landscape) { fw = maxW; fh = (fw * 3) / 4; }
+  else { fh = Math.min((maxW * 4) / 3, maxH); fw = (fh * 3) / 4; }
+  var imgUrl = URL.createObjectURL(file);
+  var html = mHead('裁剪照片（' + (landscape ? '4:3' : '3:4') + '）')
+    + '<div class="f-hint" style="margin:0 0 10px">拖动调整位置，滑块或滚轮缩放；水印按取景框范围渲染</div>'
+    + '<div class="crop-frame" style="width:' + fw + 'px;height:' + fh + 'px"><img class="crop-img" src="' + imgUrl + '" draggable="false" alt="待裁剪照片"></div>'
+    + '<div class="crop-bar"><span class="crop-z-lab">缩放</span><input type="range" class="crop-z" min="1" max="6" step="0.01" value="1"><span class="crop-pct">100%</span></div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">确认裁剪</button></div>';
+  var inst = createModal(html, {
+    width: 560,
+    onClose: function () { URL.revokeObjectURL(imgUrl); if (bmp.close) bmp.close(); }
+  });
+  var frame = $('.crop-frame', inst.box);
+  var img = $('.crop-img', inst.box);
+  var slider = $('.crop-z', inst.box);
+  var pct = $('.crop-pct', inst.box);
+  var bw = bmp.width, bh = bmp.height;
+  var k = Math.max(fw / bw, fh / bh); // cover 适配基准倍率
+  var z = 1;
+  var x = (fw - bw * k) / 2;
+  var y = (fh - bh * k) / 2;
+  function clampPos() {
+    var rw = bw * k * z, rh = bh * k * z;
+    x = Math.min(0, Math.max(fw - rw, x));
+    y = Math.min(0, Math.max(fh - rh, y));
+  }
+  function draw() {
+    img.style.width = (bw * k * z) + 'px';
+    img.style.left = x + 'px';
+    img.style.top = y + 'px';
+    slider.value = z;
+    pct.textContent = Math.round(z * 100) + '%';
+  }
+  /* 缩放保持锚点（缺省取景框中心）下的图片点不动 */
+  function setZoom(nz, ax, ay) {
+    nz = Math.min(6, Math.max(1, nz));
+    if (ax == null) { ax = fw / 2; ay = fh / 2; }
+    var s0 = k * z, s1 = k * nz;
+    x = ax - ((ax - x) / s0) * s1;
+    y = ay - ((ay - y) / s0) * s1;
+    z = nz;
+    clampPos();
+    draw();
+  }
+  var drag = null;
+  frame.addEventListener('pointerdown', function (e) {
+    drag = { px: e.clientX, py: e.clientY, x: x, y: y };
+    frame.setPointerCapture(e.pointerId);
+    frame.classList.add('dragging');
+  });
+  frame.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    x = drag.x + e.clientX - drag.px;
+    y = drag.y + e.clientY - drag.py;
+    clampPos();
+    draw();
+  });
+  ['pointerup', 'pointercancel'].forEach(function (ev) {
+    frame.addEventListener(ev, function () { drag = null; frame.classList.remove('dragging'); });
+  });
+  frame.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var r = frame.getBoundingClientRect();
+    setZoom(z * (e.deltaY < 0 ? 1.09 : 1 / 1.09), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+  slider.addEventListener('input', function () { setZoom(parseFloat(slider.value)); });
+  draw();
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', function () {
+    /* 可视区换算到图片像素 → 离屏 canvas 重绘裁出（长边 ≤2560，JPEG q0.92，同小程序口径） */
+    var s = k * z;
+    var sx = Math.max(0, -x / s);
+    var sy = Math.max(0, -y / s);
+    var sw = Math.min(bw - sx, fw / s);
+    var sh = Math.min(bh - sy, fh / s);
+    var ok = Math.min(1, 2560 / Math.max(sw, sh));
+    var ow = Math.max(1, Math.round(sw * ok));
+    var oh = Math.max(1, Math.round(sh * ok));
+    var cv = document.createElement('canvas');
+    cv.width = ow;
+    cv.height = oh;
+    var cx = cv.getContext('2d');
+    cx.fillStyle = '#000000';
+    cx.fillRect(0, 0, ow, oh);
+    cx.drawImage(bmp, sx, sy, sw, sh, 0, 0, ow, oh);
+    var out = cv.toDataURL('image/jpeg', 0.92);
+    inst.close();
+    onDone(out);
+  });
+}
+
+/* ---------- 水印字段编辑弹层（预填规则同小程序：历史带入 / 无历史按定位取值 + 杆塔坐标入口） ---------- */
+function openWmFormModal(entry, names, image) {
+  var photos = entry.photos || [];
+  var history = photos.filter(function (p) { return p.shot_time || p.work_content || p.location || p.lng || p.lat; });
+  var last = history[history.length - 1];
+  var noHistory = !last; // 无历史照片预填场景（决定是否按定位预填；「选择杆塔坐标」入口两种场景均显示，同小程序）
+  var form = { content: '', time: '', weather: '', location: '', lng: '', lat: '' };
+  if (last) {
+    var l0 = parseFloat(last.lng), a0 = parseFloat(last.lat);
+    var jd = Number.isFinite(l0) && Number.isFinite(a0) ? jitterCoord(l0, a0, 400) : { lng: '', lat: '' };
+    form = {
+      content: last.work_content || '',
+      time: randomWmTime(last.shot_time),
+      weather: last.weather || '',
+      location: last.location || '',
+      lng: jd.lng,
+      lat: jd.lat
+    };
+  } else {
+    /* 无历史：拍摄时间当日取当前时间，非当日仅能确定日期 → 取记录日期 10:00-12:00 内随机时间（同小程序） */
+    form.time = state.date === todayStr() ? fmtWmTime(new Date()) : state.date.replace(/-/g, '.') + ' ' + randWmHm();
+  }
+  var html = mHead('编辑水印信息')
+    + '<div class="wm-head"><img class="wm-thumb" src="' + image + '" alt="待加水印照片">'
+    + '<div><div class="wm-names">' + esc(names.join('、')) + '</div><div class="wm-names-tip">照片所属人名</div></div></div>'
+    + '<label class="f-lab">施工内容</label>'
+    + '<div class="chips" style="margin:0 0 8px">' + QUICK_INPUTS.map(function (t) {
+      return '<button type="button" class="chip sm" data-q="' + esc(t) + '">' + esc(t) + '</button>';
+    }).join('') + '</div>'
+    + '<textarea class="f-ta" id="wmContent" style="min-height:76px" maxlength="500" placeholder="请输入施工内容">' + esc(form.content) + '</textarea>'
+    + '<label class="f-lab">拍摄时间</label><input class="f-sel" id="wmTime" maxlength="16" placeholder="YYYY.MM.DD HH:mm">'
+    + '<label class="f-lab">天气<span class="wm-upd" id="wmUpdW" hidden>已更新</span></label><input class="f-sel" id="wmWeather" maxlength="64" placeholder="请输入天气">'
+    + '<label class="f-lab">地点<span class="wm-upd" id="wmUpdL" hidden>已更新</span></label><input class="f-sel" id="wmLoc" maxlength="250" placeholder="请输入地点">'
+    + '<label class="f-lab">经纬度</label><div class="wm-co">'
+    + '<input class="f-sel" id="wmLng" placeholder="经度" maxlength="16"><input class="f-sel" id="wmLat" placeholder="纬度" maxlength="16">'
+    + '<button class="btn btn-sm" id="wmTowerBtn" type="button">' + Shade.icon('location', 14) + '选择杆塔坐标</button>'
+    + '</div>'
+    + '<label class="f-lab">防伪码</label><div class="wm-code-row"><span class="wm-code" id="wmCode"></span>'
+    + '<button class="linkbtn" id="wmCodeNew" type="button">换一换</button></div>'
+    + '<div class="f-hint">确认后由服务端渲染水印并上传，随后自动进入验证</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">加水印并上传</button></div>';
+  var inst = createModal(html, { width: 560 });
+  var elContent = $('#wmContent', inst.box), elTime = $('#wmTime', inst.box);
+  var elWeather = $('#wmWeather', inst.box), elLoc = $('#wmLoc', inst.box);
+  var elLng = $('#wmLng', inst.box), elLat = $('#wmLat', inst.box);
+  elTime.value = form.time;
+  elWeather.value = form.weather;
+  elLoc.value = form.location;
+  elLng.value = form.lng;
+  elLat.value = form.lat;
+  var code = genAntiCode();
+  var geoKey = null;      // 「上次取值坐标」记录（手动改经纬度防抖刷新去重用，同小程序 _wmGeoKey）
+  var towerPicked = false; // 已选杆塔坐标（定位结果不再覆盖；天气/地点行显「已更新」标）
+  var geoTimer = 0;
+  var saving = false;
+  $('#wmCode', inst.box).textContent = code;
+  $('#wmCodeNew', inst.box).addEventListener('click', function () {
+    code = genAntiCode();
+    $('#wmCode', inst.box).textContent = code;
+  });
+  /* 快捷输入：点击追加到内容末尾（同小程序） */
+  $$('[data-q]', inst.box).forEach(function (b) {
+    b.addEventListener('click', function () {
+      elContent.value = (elContent.value + b.dataset.q).slice(0, 500);
+      elContent.focus();
+    });
+  });
+  /* 经纬度变化统一调 /geo 覆盖刷新地点/天气；响应仅在弹层仍开且经纬度未再改动时应用（同小程序 refreshWmGeo） */
+  function refreshGeo(lng, lat, tip) {
+    lng = parseFloat(lng);
+    lat = parseFloat(lat);
+    geoKey = lng + ',' + lat;
+    Shade.api('/api/v1/worklog/geo?lng=' + lng + '&lat=' + lat).then(function (r) {
+      if (inst.closed) return;
+      if (parseFloat(elLng.value) !== lng || parseFloat(elLat.value) !== lat) return;
+      elWeather.value = (r.data && r.data.weather) || '';
+      elLoc.value = (r.data && r.data.location) || '';
+      if (tip) Shade.toast(tip, 'success');
+    }).catch(function () {
+      if (inst.closed) return;
+      if (parseFloat(elLng.value) !== lng || parseFloat(elLat.value) !== lat) return;
+      elWeather.value = ''; // 失败清空留空手填（同小程序口径）
+      elLoc.value = '';
+    });
+  }
+  /* 手动改经纬度：停顿 800ms 防抖后按新坐标刷新地点/天气（同小程序 scheduleWmGeoRefresh） */
+  function scheduleGeo() {
+    clearTimeout(geoTimer);
+    geoTimer = setTimeout(function () {
+      var lng = parseFloat(elLng.value);
+      var lat = parseFloat(elLat.value);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) return;
+      if (lng + ',' + lat === geoKey) return;
+      refreshGeo(lng, lat, '已按经纬度更新地点、天气');
+    }, 800);
+  }
+  elLng.addEventListener('input', scheduleGeo);
+  elLat.addEventListener('input', scheduleGeo);
+  /* 「选择杆塔坐标」（有/无历史场景均显示）：级联选择后 ≤50m 波动带入并刷新地点、天气（同小程序） */
+  var towerBtn = $('#wmTowerBtn', inst.box);
+  if (towerBtn) {
+    towerBtn.addEventListener('click', function () {
+      openTowerModal(function (t) {
+        var jd = jitterCoord(t.lng, t.lat, 50);
+        towerPicked = true;
+        elLng.value = jd.lng;
+        elLat.value = jd.lat;
+        $('#wmUpdW', inst.box).hidden = false;
+        $('#wmUpdL', inst.box).hidden = false;
+        refreshGeo(jd.lng, jd.lat, '已按杆塔坐标更新地点、天气');
+      });
+    });
+  }
+  /* 无历史预填：浏览器定位（WGS84→GCJ02）取经纬度并调 /geo 预填地点/天气；授权被拒或失败均留空手填（同小程序口径） */
+  if (noHistory && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      if (inst.closed || towerPicked) return;
+      var g = wgs2gcj(pos.coords.longitude, pos.coords.latitude);
+      var lng = g[0].toFixed(6), lat = g[1].toFixed(6);
+      elLng.value = lng;
+      elLat.value = lat;
+      geoKey = parseFloat(lng) + ',' + parseFloat(lat);
+      Shade.api('/api/v1/worklog/geo?lng=' + lng + '&lat=' + lat).then(function (r) {
+        if (inst.closed || towerPicked) return;
+        if (!elWeather.value) elWeather.value = (r.data && r.data.weather) || '';
+        if (!elLoc.value) elLoc.value = (r.data && r.data.location) || '';
+      }).catch(function () { /* 反查失败留空手填 */ });
+    }, function () { /* 授权被拒留空手填 */ }, { timeout: 10000 });
+  }
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    if (saving) return;
+    saving = true;
+    var wm = {
+      content: elContent.value,
+      time: elTime.value.trim(),
+      weather: elWeather.value.trim(),
+      location: elLoc.value.trim(),
+      longitude: withDegSuffix(elLng.value, '°E'),
+      latitude: withDegSuffix(elLat.value, '°N'),
+      antiCode: code,
+      orientation: 'up' // 网页端图片已经 canvas 重绘，EXIF 方向归一
+    };
+    var ok = await uploadPhoto(entry, image, names, wm, this);
+    if (ok) inst.close();
+    saving = false;
+  });
+}
+
+/* ---------- 选择杆塔坐标（电压等级 → 线路名称 → 杆塔号 级联，均可输入关键字筛选；数据 GET /towers 内存缓存） ---------- */
+function loadTowerRows() {
+  if (state.towerRows) return Promise.resolve(state.towerRows);
+  return Shade.api('/api/v1/worklog/towers').then(function (r) {
+    var rows = (r.data && r.data.rows) || [];
+    if (!rows.length) throw new Error('杆塔坐标数据为空');
+    state.towerRows = rows;
+    return rows;
+  });
+}
+/* 可筛选下拉：输入关键字实时过滤（子串匹配）；点击输入框/箭头展开，箭头恢复完整列表（同小程序）；
+   选中回填并触发 onPick；输入与已选不一致时触发 onEdit（级联清空下级，仅触发一次） */
+function comboHTML(id) {
+  return '<div class="combo" id="' + id + '">'
+    + '<input class="f-sel combo-in" type="text" autocomplete="off" spellcheck="false">'
+    + '<span class="combo-chev">' + SVG_CHEV_D + '</span>'
+    + '<div class="combo-list"><div class="combo-list-in"></div></div>'
+    + '</div>';
+}
+function makeCombo(box, id, hooks) {
+  var root = $('#' + id, box);
+  var input = $('.combo-in', root);
+  var listEl = $('.combo-list', root);   // 外层：grid 高度过渡容器（.open 展开）
+  var listIn = $('.combo-list-in', root); // 内层：边框/滚动/选项内容
+  var items = [];   // [{label, ...}]（杆塔项另带 no/lng/lat）
+  var cur = null;   // 已选项 label（输入与之不一致即视为改选）
+  var isOpen = false;
+  function render(kw) {
+    var k = String(kw || '').trim();
+    var html = '';
+    items.forEach(function (it, i) {
+      if (k && it.label.indexOf(k) === -1) return;
+      html += '<div class="combo-opt" data-i="' + i + '">' + esc(it.label) + '</div>';
+    });
+    listIn.innerHTML = html || '<div class="combo-none">无匹配项</div>';
+    listEl.classList.add('open');
+    isOpen = true;
+  }
+  function close() { listEl.classList.remove('open'); isOpen = false; }
+  function pick(i) {
+    var it = items[i];
+    if (!it) return;
+    cur = it.label;
+    input.value = it.label;
+    close();
+    hooks.onPick(it);
+  }
+  /* 展开：当前值即已选值时恢复完整列表，否则按当前值过滤 */
+  input.addEventListener('focus', function () { if (!input.disabled) render(cur !== null && input.value === cur ? '' : input.value); });
+  input.addEventListener('input', function () {
+    if (input.value === cur) return;
+    if (cur !== null) { cur = null; hooks.onEdit(); }
+    render(input.value);
+  });
+  input.addEventListener('blur', function () { setTimeout(close, 120); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { close(); input.blur(); return; }
+    if (e.key === 'Enter' && isOpen) {
+      var first = $('.combo-opt', listEl);
+      if (first) pick(+first.dataset.i); // 回车快捷选中首个匹配项
+    }
+  });
+  $('.combo-chev', root).addEventListener('mousedown', function (e) {
+    e.preventDefault(); // 保持输入框焦点
+    if (input.disabled) return;
+    if (isOpen) { close(); return; }
+    render(''); // 箭头点击恢复完整列表（同小程序）
+  });
+  listEl.addEventListener('mousedown', function (e) {
+    var opt = e.target.closest('.combo-opt');
+    if (!opt) return;
+    e.preventDefault(); // 先于 blur 选中，避免列表被提前关闭
+    pick(+opt.dataset.i);
+  });
+  return {
+    setItems: function (list, ph) {
+      items = list || [];
+      cur = null;
+      input.value = '';
+      input.placeholder = ph || '';
+      input.disabled = false;
+      close();
+    },
+    setDisabled: function (ph) {
+      items = [];
+      cur = null;
+      input.value = '';
+      input.placeholder = ph || '';
+      input.disabled = true;
+      close();
+    },
+    value: function () { return cur; }
+  };
+}
+function openTowerModal(onPick) {
+  var html = mHead('选择杆塔坐标')
+    + '<div class="f-hint" style="margin:0 0 2px">三级均可输入关键字快捷筛选；所选杆塔坐标按 ≤50m 随机波动后填入水印字段，填入后仍可手改</div>'
+    + '<label class="f-lab">电压等级</label>' + comboHTML('twLevel')
+    + '<label class="f-lab">线路名称</label>' + comboHTML('twLine')
+    + '<label class="f-lab">杆塔号</label>' + comboHTML('twTower')
+    + '<div class="f-hint" id="twCoord" style="display:none"></div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes" disabled>确 定</button></div>';
+  var inst = createModal(html, { width: 460 });
+  var coordEl = $('#twCoord', inst.box);
+  var okBtn = $('[data-a="yes"]', inst.box);
+  var picked = null; // {no, lng, lat}
+  function syncPicked() {
+    okBtn.disabled = !picked;
+    if (picked) {
+      coordEl.textContent = picked.no + ' · 经度 ' + picked.lng.toFixed(6) + '　纬度 ' + picked.lat.toFixed(6);
+      coordEl.style.display = '';
+    } else {
+      coordEl.style.display = 'none';
+    }
+  }
+  /* 上级选中填充下级；任一上级改选（onEdit）清空下级与已选杆塔（同小程序级联口径） */
+  var lineC;
+  var towerC;
+  var levelC = makeCombo(inst.box, 'twLevel', {
+    onPick: function (it) {
+      var lines = [];
+      state.towerRows.forEach(function (r) { if (r[0] === it.label && lines.indexOf(r[1]) < 0) lines.push(r[1]); });
+      lineC.setItems(lines.map(function (n) { return { label: n }; }), '输入关键字筛选或直接选择');
+      towerC.setDisabled('请先选择线路名称');
+      picked = null;
+      syncPicked();
+    },
+    onEdit: function () {
+      lineC.setDisabled('请先选择电压等级');
+      towerC.setDisabled('请先选择线路名称');
+      picked = null;
+      syncPicked();
+    }
+  });
+  lineC = makeCombo(inst.box, 'twLine', {
+    onPick: function (it) {
+      var rows = state.towerRows.filter(function (r) { return r[0] === levelC.value() && r[1] === it.label; });
+      towerC.setItems(rows.map(function (r) { return { label: r[2], no: r[2], lng: r[3], lat: r[4] }; }), '输入关键字筛选或直接选择');
+      picked = null;
+      syncPicked();
+    },
+    onEdit: function () {
+      towerC.setDisabled('请先选择线路名称');
+      picked = null;
+      syncPicked();
+    }
+  });
+  towerC = makeCombo(inst.box, 'twTower', {
+    onPick: function (it) {
+      picked = { no: it.no, lng: it.lng, lat: it.lat };
+      syncPicked();
+    },
+    onEdit: function () {
+      picked = null;
+      syncPicked();
+    }
+  });
+  levelC.setDisabled('杆塔坐标加载中…');
+  lineC.setDisabled('请先选择电压等级');
+  towerC.setDisabled('请先选择线路名称');
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  okBtn.addEventListener('click', function () {
+    if (!picked) return;
+    inst.close();
+    onPick(picked);
+  });
+  loadTowerRows().then(function () {
+    var levels = [];
+    state.towerRows.forEach(function (r) { if (levels.indexOf(r[0]) < 0) levels.push(r[0]); });
+    levelC.setItems(levels.map(function (n) { return { label: n }; }), '请选择电压等级');
+  }).catch(function (e) {
+    inst.close();
+    Shade.toast(e.message === '杆塔坐标数据为空' ? e.message : '杆塔坐标加载失败，请稍后重试', 'error');
+  });
 }
 
 /* ---------- 删除日志（卡片内照片一并删除） ---------- */
@@ -1875,7 +2600,7 @@ function initEvents() {
     switchPane('Record');
     gotoDate(row.dataset.d);
   });
-  /* 卡片流点击委派：改派车 / 打卡切换 / 删除日志 / 巡视内容·备注编辑 / 备注附件预览·下载 / 照片大图 */
+  /* 卡片流点击委派：改派车 / 打卡切换 / 删除日志 / 巡视内容·备注编辑 / 添加水印照片 / 备注附件预览·下载 / 照片大图 */
   $('#cardFlow').addEventListener('click', function (e) {
     /* 备注附件：优先于备注块编辑（不冒泡到 data-act） */
     var ractEl = e.target.closest('[data-ract]');
@@ -1908,6 +2633,7 @@ function initEvents() {
       if (act === 'remark') { openRemarkModal(entry); return; }
       if (act === 'del') { deleteEntry(entry); return; }
       if (act === 'check') { toggleCheck(entry, +actEl.dataset.mid, actEl); return; }
+      if (act === 'addphoto') { openAddSheet(entry); return; }
       return;
     }
     var fig = e.target.closest('.ph[data-pid]');

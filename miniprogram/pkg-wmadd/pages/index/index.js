@@ -40,8 +40,11 @@ Page({
     towerLines: [], // 当前展示的线路选项（= 本电压等级全部线路按 towerLineKw 关键字过滤）
     towerLineKw: '', // 线路名称输入框内容（搜索关键字 / 已选线路名）
     towerLine: '',
-    towerTowers: [], // [{ no, lng, lat, lngText, latText }]
+    towerTowers: [], // 当前展示的杆塔号选项（= 本线路全部杆塔按 towerTowerKw 关键字过滤）[{ no, lng, lat, lngText, latText }]
     towerTower: null,
+    towerTowerKw: '', // 杆塔号输入框内容（搜索关键字 / 已选杆塔号）
+    towerScrollInto: '', // 聚焦输入框所在行 id（键盘弹起时滚动区 scroll-into-view 到该行）
+    keyboardHeight: 0, // 键盘弹起高度（px；级联输入框 adjust-position=false，弹层底部 padding/滚动区高度随其动态调整）
     // ---------- 4:3 裁剪层（拍摄必裁；相册非 4:3 才裁，横拍锁 4:3 / 纵拍锁 3:4） ----------
     cropVisible: false,
     cropSrc: '', // 待裁原图临时路径
@@ -126,9 +129,13 @@ Page({
       towerLevel: '',
       towerLine: '',
       towerLineKw: '',
+      towerLevels: this.towerLevelsOf(),
       towerLines: [],
       towerTowers: [],
       towerTower: null,
+      towerTowerKw: '',
+      towerScrollInto: '',
+      keyboardHeight: 0,
     });
   },
 
@@ -368,6 +375,11 @@ Page({
     });
   },
 
+  towerLevelsOf() {
+    const rows = this.data.towerRows || [];
+    return [...new Set(rows.map((r) => r[0]))];
+  },
+
   towerLinesOf(level) {
     const rows = this.data.towerRows || [];
     return [...new Set(rows.filter((r) => r[0] === level).map((r) => r[1]))];
@@ -380,13 +392,21 @@ Page({
       .map((r) => ({ no: r[2], lng: r[3], lat: r[4], lngText: r[3].toFixed(6), latText: r[4].toFixed(6) }));
   },
 
+  // 级联输入框键盘高度变化：记录键盘高度，弹层底部 padding 与滚动区高度随其调整（页面不被键盘上推，避免布局跳变）
+  onKeyboardHeight(e) {
+    const h = e.detail.height || 0;
+    this.setData({ keyboardHeight: h > 0 ? h : 0 });
+  },
+
   // 「选择杆塔坐标」按钮：打开级联弹层；首次打开需先加载数据（失败关层提示，已选状态保留供重选带回）
   onOpenTower() {
+    wx.hideKeyboard(); // 收起施工内容等 hold-keyboard 输入残留的键盘，弹层统一从键盘收起态布局
+    const base = { towerVisible: true, towerOpen: '', keyboardHeight: 0, towerScrollInto: '', towerLevels: this.towerLevelsOf() };
     if (this.data.towerRows) {
-      this.setData({ towerVisible: true, towerOpen: '' });
+      this.setData(base);
       return;
     }
-    this.setData({ towerVisible: true, towerLoading: true });
+    this.setData({ ...base, towerLoading: true });
     this.loadTowerRows()
       .then((rows) => {
         if (!this.data.towerVisible) return;
@@ -404,14 +424,16 @@ Page({
   },
 
   // 展开/收起某级选项列表（禁用级不响应：选线路需先选电压等级，选杆塔需先选线路名称）；
-  // 线路行经箭头展开时恢复完整列表（清空输入过滤，便于改选）
+  // 经箭头展开时恢复该级完整列表（清空输入过滤，便于改选）
   onTowerToggle(e) {
     const { key } = e.currentTarget.dataset;
     if (key === 'line' && !this.data.towerLevel) return;
     if (key === 'tower' && !this.data.towerLine) return;
     const open = this.data.towerOpen === key ? '' : key;
     const patch = { towerOpen: open };
+    if (key === 'level' && open === 'level') patch.towerLevels = this.towerLevelsOf();
     if (key === 'line' && open === 'line') patch.towerLines = this.towerLinesOf(this.data.towerLevel);
+    if (key === 'tower' && open === 'tower') patch.towerTowers = this.towerTowersOf(this.data.towerLevel, this.data.towerLine);
     this.setData(patch);
   },
 
@@ -429,6 +451,7 @@ Page({
       towerLineKw: '',
       towerTowers: [],
       towerTower: null,
+      towerTowerKw: '',
       towerOpen: 'line',
     });
   },
@@ -446,13 +469,14 @@ Page({
     if (this.data.towerLine && v !== this.data.towerLine) {
       patch.towerLine = '';
       patch.towerTower = null;
+      patch.towerTowerKw = '';
       patch.towerTowers = [];
     }
     this.setData(patch);
   },
 
   onTowerLineFocus() {
-    if (this.data.towerLevel) this.setData({ towerOpen: 'line' });
+    if (this.data.towerLevel) this.setData({ towerOpen: 'line', towerScrollInto: 'tower-row-line' });
   },
 
   onPickLine(e) {
@@ -466,14 +490,38 @@ Page({
       towerLineKw: v,
       towerTowers: this.towerTowersOf(this.data.towerLevel, v),
       towerTower: null,
+      towerTowerKw: '',
       towerOpen: 'tower',
     });
+  },
+
+  // 杆塔号输入：按关键字过滤下拉选项并展开；输入与已选值不一致时清空已选
+  onTowerTowerInput(e) {
+    const v = e.detail.value;
+    const kw = v.trim();
+    const all = this.towerTowersOf(this.data.towerLevel, this.data.towerLine);
+    const patch = {
+      towerTowerKw: v,
+      towerTowers: kw ? all.filter((t) => String(t.no).indexOf(kw) !== -1) : all,
+      towerOpen: 'tower',
+    };
+    if (this.data.towerTower && v !== this.data.towerTower.no) patch.towerTower = null;
+    this.setData(patch);
+  },
+
+  onTowerTowerFocus() {
+    if (this.data.towerLine) this.setData({ towerOpen: 'tower', towerScrollInto: 'tower-row-tower' });
   },
 
   onPickTower(e) {
     const t = this.data.towerTowers[e.currentTarget.dataset.i];
     if (!t) return;
-    this.setData({ towerTower: t, towerOpen: '' });
+    this.setData({ towerTower: t, towerTowerKw: t.no, towerOpen: '' });
+  },
+
+  // 级联输入框失焦：复位滚动定位，下次聚焦可再次触发 scroll-into-view
+  onTowerInputBlur() {
+    this.setData({ towerScrollInto: '' });
   },
 
   // 确定：所选杆塔坐标按 ≤50m 随机波动后填入水印表单（不直接带入原值，仍可手改），
