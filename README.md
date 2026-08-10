@@ -1,5 +1,17 @@
 # Shade 壹匣
 
+[![GitHub stars](https://img.shields.io/github/stars/zhangzhenyu91/j1toolkit)](https://github.com/zhangzhenyu91/j1toolkit/stargazers)
+[![GitHub license](https://img.shields.io/github/license/zhangzhenyu91/j1toolkit)](https://github.com/zhangzhenyu91/j1toolkit/blob/main/LICENSE)
+[![GitHub last commit](https://img.shields.io/github/last-commit/zhangzhenyu91/j1toolkit)](https://github.com/zhangzhenyu91/j1toolkit/commits/main)
+![微信小程序](https://img.shields.io/badge/微信小程序-原生-07C160?logo=wechat&logoColor=white)
+![TDesign](https://img.shields.io/badge/TDesign-Miniprogram-0052D9)
+![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)
+![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-业务存储-4479A1?logo=mysql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-会话缓存-DC382D?logo=redis&logoColor=white)
+![腾讯云COS](https://img.shields.io/badge/腾讯云_COS-文件存储-006DFF)
+![JWT](https://img.shields.io/badge/鉴权-JWT-000000?logo=jsonwebtokens&logoColor=white)
+
 班组数字化工具平台：微信小程序 + 网页端，本体提供统一登录（账号密码 + 微信）与应用权限控制，各应用以分包/网页形式持续接入。
 
 已接入应用：
