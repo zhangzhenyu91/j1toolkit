@@ -1397,11 +1397,12 @@ Page({
     }
   },
 
-  // 历史带入的拍摄时间：保留日期，时分随机为 10:00-12:00 内且不与历史值相同
+  // 历史带入的拍摄时间：保留日期（兼容 - / . 分隔、带秒或无时分等 OCR 回写格式差异），时分随机为 10:00-12:00 内且不与历史值相同；
+  // 历史值缺失/无法识别时回退到记录日期（不能取当天——补录历史记录时当天 ≠ 记录日期）
   randomWmTime(shotTime) {
-    const m = /^(\d{4}\.\d{2}\.\d{2})\s+(\d{1,2}):(\d{2})$/.exec(String(shotTime || '').trim());
-    const datePart = m ? m[1] : fmtWmTime(new Date()).split(' ')[0];
-    const oldHm = m ? `${m[2]}:${m[3]}` : '';
+    const m = /^(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/.exec(String(shotTime || '').trim());
+    const datePart = m ? `${m[1]}.${pad(Number(m[2]))}.${pad(Number(m[3]))}` : this.data.dateStr.replace(/-/g, '.');
+    const oldHm = m && m[4] ? `${m[4]}:${m[5]}` : '';
     let hm = oldHm;
     while (hm === oldHm) hm = randWmHm();
     return `${datePart} ${hm}`;
