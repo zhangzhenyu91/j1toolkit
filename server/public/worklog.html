@@ -1181,10 +1181,11 @@ function renderLB() {
     + lbRow('纬度', esc(p.lat))
     + '<div class="acode">' + Shade.icon('shield', 20)
     + '<small>防伪码已随水印嵌印在照片画面中，放大照片即可核对 14 位防伪码</small></div>'
-    /* 照片直改（同小程序）：验证失败可重新验证；人名可改；可删除 */
+    /* 照片直改（同小程序）：可下载；验证失败可重新验证；人名可改；可删除 */
     + '<div class="lb-acts">'
     + (p.verify_status === 'failed'
       ? '<button class="btn btn-sm" data-lba="retry">' + Shade.icon('refresh', 14) + '重新验证</button>' : '')
+    + '<button class="btn btn-sm" data-lba="dl">' + Shade.icon('download', 14) + '下载照片</button>'
     + '<button class="btn btn-sm" data-lba="members">' + Shade.icon('user', 14) + '修改人名</button>'
     + '<button class="btn btn-sm act-danger" data-lba="del">' + Shade.icon('delete', 14) + '删除照片</button>'
     + '</div>'
@@ -1206,11 +1207,44 @@ function renderLB() {
       var photo = lbInst.items[lbInst.idx];
       var act = b.dataset.lba;
       if (act === 'retry') { retryVerify(photo.id); return; }
+      if (act === 'dl') { downloadPhoto(photo); return; }
       if (act === 'del') { deletePhoto(photo.id); return; }
       var en = findEntry(lbInst.eid);
       if (en) openPhotoMembersModal(en, photo);
     });
   });
+}
+
+/* 单张下载：经服务端回源代理（COS 跨域无 CORS），fetch + blob 落地（同备注附件下载口径） */
+async function downloadPhoto(photo) {
+  try {
+    var headers = {};
+    var token = localStorage.getItem('shade_token');
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    var res = await fetch('/api/v1/worklog/photos/' + photo.id + '/download', { headers: headers });
+    if (res.status === 401) {
+      localStorage.removeItem('shade_token');
+      localStorage.removeItem('shade_user');
+      location.href = '/login.html';
+      return;
+    }
+    if (!res.ok) {
+      var ej = null;
+      try { ej = await res.json(); } catch (e) { }
+      throw new Error((ej && ej.message) || ('下载失败（' + res.status + '）'));
+    }
+    var blob = await res.blob();
+    var a = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = cdFilename(res.headers.get('Content-Disposition') || '') || ('照片-' + photo.id + '.jpg');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
 }
 
 /* ================= 备注附件：媒体大图层（图片同水印照片大图逻辑 / 视频点击播放） ================= */

@@ -840,6 +840,33 @@ router.delete('/photos/:id', async (req, res, next) => {
   }
 });
 
+// GET /photos/:id/download：单张照片下载代理（COS 跨域无 CORS，网页端经本接口回源并附下载文件名）
+router.get('/photos/:id/download', async (req, res, next) => {
+  try {
+    const photoId = Number(req.params.id);
+    const [rows] = await pool.query(
+      `SELECT p.cos_key, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date
+       FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ?`,
+      [photoId]
+    );
+    if (!rows.length) return fail(res, 404, 40400, '照片不存在');
+    const resp = await fetch(cos.publicUrl(rows[0].cos_key), { signal: AbortSignal.timeout(60000) });
+    if (!resp.ok) return fail(res, 502, 50201, `照片回源失败（HTTP ${resp.status}）`);
+    res.setHeader('Content-Type', resp.headers.get('content-type') || 'application/octet-stream');
+    const len = Number(resp.headers.get('content-length') || 0);
+    if (len) res.setHeader('Content-Length', len);
+    // 文件名沿用打包下载规则：日期-照片id.jpg；RFC5987 编码，附 ASCII fallback
+    const name = `${rows[0].log_date || '照片'}-${photoId}.jpg`;
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="photo-${photoId}.jpg"; filename*=UTF-8''${encodeURIComponent(name)}`
+    );
+    Readable.fromWeb(resp.body).pipe(res);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // ===== 照片 ZIP 打包下载（自 WorkLogs 独立服务移植，请求体形状不变：{ photos: [{ url, name }] }）=====
 const ZIP_MAX_PHOTOS = 300;
 const PHOTO_MAX_BYTES = 50 * 1024 * 1024;
