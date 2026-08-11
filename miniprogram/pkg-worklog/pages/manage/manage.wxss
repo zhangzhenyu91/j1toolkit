@@ -127,3 +127,226 @@
   font-size: 24rpx;
   color: #a89f8a;
 }
+
+/* ---------- 人员来源标（屏六 .sync-pill/.hand-pill） ---------- */
+.sync-pill {
+  font-size: 19rpx;
+  color: #3fa66a;
+  background: #eaf6ee;
+  border-radius: 8rpx;
+  padding: 2rpx 12rpx;
+  font-weight: 700;
+}
+
+.hand-pill {
+  font-size: 19rpx;
+  color: #6b7690;
+  background: #edf0f6;
+  border-radius: 8rpx;
+  padding: 2rpx 12rpx;
+  font-weight: 700;
+}
+
+/* ---------- 杆塔坐标板块（屏六 .tower-bar） ---------- */
+.tower-sec {
+  margin: 36rpx 8rpx 18rpx;
+}
+
+.tower-bar {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 22rpx 26rpx;
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+}
+
+.tower-bar .tb-n {
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.tower-bar .tb-s {
+  font-size: 20rpx;
+  color: #a89f8a;
+  margin-top: 4rpx;
+}
+
+.tb-btn {
+  font-size: 22rpx;
+  font-weight: 700;
+  border-radius: 14rpx;
+  padding: 12rpx 20rpx;
+}
+
+.tb-btn.tpl {
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  color: #22314e;
+}
+
+.tb-btn.imp {
+  background: #fdeee2;
+  color: #f26d21;
+}
+
+.tower-bar .tb-btns {
+  margin-left: auto;
+  display: flex;
+  gap: 16rpx;
+  flex: none;
+}
+
+/* ---------- 导入弹层（屏七：底部弹层 + 三步） ---------- */
+.sheet {
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.sheet-title {
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 4rpx;
+  color: #22314e;
+}
+
+.imp-steps {
+  margin-top: 32rpx;
+}
+
+.imp-step {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 28rpx;
+}
+
+.imp-step .no {
+  width: 40rpx;
+  height: 40rpx;
+  flex: none;
+  border-radius: 50%;
+  background: #22314e;
+  color: #ffffff;
+  font-size: 22rpx;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2rpx;
+}
+
+.imp-step .st-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.imp-step .st-t {
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.imp-step .st-d {
+  font-size: 21rpx;
+  color: #a89f8a;
+  margin-top: 4rpx;
+  line-height: 1.6;
+}
+
+.dl-line {
+  margin-top: 14rpx;
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+  font-size: 23rpx;
+  font-weight: 700;
+  color: #f26d21;
+  background: #fdeee2;
+  border-radius: 14rpx;
+  padding: 12rpx 22rpx;
+}
+
+.pick-file {
+  margin-top: 14rpx;
+  border: 3rpx dashed #d9cfba;
+  border-radius: 18rpx;
+  padding: 22rpx;
+  text-align: center;
+}
+
+.pick-file .pfn {
+  font-size: 24rpx;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.pick-file .pfn .pfx {
+  margin-left: 12rpx;
+  color: #a89f8a;
+  font-weight: 400;
+}
+
+.pick-file .pfd {
+  font-size: 20rpx;
+  color: #a89f8a;
+  margin-top: 6rpx;
+}
+
+.imp-sum {
+  margin-top: 14rpx;
+  background: #fbf9f2;
+  border: 2rpx solid #e8e0cd;
+  border-radius: 18rpx;
+  padding: 18rpx 24rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+  line-height: 1.8;
+}
+
+.imp-sum b {
+  color: #f26d21;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 12rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 88rpx;
+  border-radius: 16rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #6b7690;
+  letter-spacing: 6rpx;
+  box-sizing: border-box;
+}
+
+.btn-dark {
+  flex: 2;
+  height: 88rpx;
+  border-radius: 16rpx;
+  background: #22314e;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+}
+
+.btn-ghost.disabled,
+.btn-dark.disabled {
+  opacity: 0.5;
+}

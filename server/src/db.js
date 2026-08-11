@@ -16,6 +16,14 @@ const pool = mysql.createPool({
 
 // 表结构（对应《开发指南》第三章）
 const DDL = [
+  `CREATE TABLE IF NOT EXISTS sys_team (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(64) NOT NULL UNIQUE COMMENT '班组名称',
+    kvm_group_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT 'GLKVM 平台设备组名，空=与班组同名',
+    sort INT NOT NULL DEFAULT 0 COMMENT '排序，小的在前（首个启用班组即默认班组）',
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '1 启用 0 停用',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   `CREATE TABLE IF NOT EXISTS sys_user (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(64) NOT NULL UNIQUE COMMENT '登录账号',
@@ -24,8 +32,9 @@ const DDL = [
     avatar VARCHAR(512) NOT NULL DEFAULT '' COMMENT '头像地址',
     openid VARCHAR(64) NULL UNIQUE COMMENT '微信 openid',
     unionid VARCHAR(64) NULL COMMENT '微信 unionid',
-    team VARCHAR(64) NOT NULL DEFAULT '' COMMENT '所属班组',
-    role VARCHAR(16) NOT NULL DEFAULT 'user' COMMENT '角色：admin 管理员 / user 普通用户',
+    team VARCHAR(64) NOT NULL DEFAULT '' COMMENT '所属班组（已废弃，由 team_id 取代，仅迁移期保留）',
+    team_id BIGINT UNSIGNED NULL COMMENT '所属班组，关联 sys_team.id；NULL=未分配',
+    role VARCHAR(16) NOT NULL DEFAULT 'user' COMMENT '角色：admin 超级管理员 / team_admin 班组管理员 / user 普通用户',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '1 正常 0 禁用',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -153,6 +162,46 @@ async function ensureSchema() {
     console.log('[初始化] 已为 sys_app 补充 terminal 列');
   }
 
+  // ===== 班组（sys_team）与 sys_user.team_id =====
+  // 老库兼容：sys_user 补 team_id 列（原 team 文本列废弃，仅迁移期保留）
+  const [teamIdCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'team_id'`
+  );
+  if (!teamIdCols.length) {
+    await pool.query(
+      `ALTER TABLE sys_user ADD COLUMN team_id BIGINT UNSIGNED NULL
+       COMMENT '所属班组，关联 sys_team.id；NULL=未分配' AFTER team`
+    );
+    console.log('[初始化] 已为 sys_user 补充 team_id 列');
+  }
+
+  // 班组种子（仅空表时写入）：检修一班 = 默认班组（首个启用班组，sort 最小）
+  const [teamCnt] = await pool.query('SELECT COUNT(*) AS cnt FROM sys_team');
+  if (!teamCnt[0].cnt) {
+    await pool.query('INSERT INTO sys_team (name, sort) VALUES (?, 1), (?, 2)', ['检修一班', '运维二班']);
+    console.log('[初始化] 已写入班组种子：检修一班 / 运维二班');
+  }
+
+  // 老库 sys_user.team 文本值去重并入 sys_team（不丢老数据里的班名）
+  await pool.query(
+    `INSERT IGNORE INTO sys_team (name, sort)
+     SELECT DISTINCT u.team, 100 FROM sys_user u
+     WHERE u.team <> '' AND u.team NOT IN (SELECT name FROM sys_team)`
+  );
+
+  // role 列注释归一（含 team_admin；注释不同才 ALTER，避免每次启动元数据变更）
+  const [roleComment] = await pool.query(
+    `SELECT COLUMN_COMMENT FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'role'`
+  );
+  if (roleComment.length && !roleComment[0].COLUMN_COMMENT.includes('team_admin')) {
+    await pool.query(
+      `ALTER TABLE sys_user MODIFY COLUMN role VARCHAR(16) NOT NULL DEFAULT 'user'
+       COMMENT '角色：admin 超级管理员 / team_admin 班组管理员 / user 普通用户'`
+    );
+  }
+
   // 写入/更新应用记录（terminal 随种子刷新）
   for (const app of [APP_CALL_ME, APP_SAFE_DAY, APP_KVM, APP_FILE_TRANSFER, APP_WM_ADD]) {
     await pool.query(
@@ -178,6 +227,12 @@ async function ensureSchema() {
 
   // 保证环境变量指定的管理员始终具备 admin 角色（防止误改）
   await pool.query('UPDATE sys_user SET role = ? WHERE username = ?', ['admin', config.admin.username]);
+
+  // 按旧 team 文本回填 sys_user.team_id（含管理员账号；空 team 保持 NULL = 未分配班组）
+  await pool.query(
+    `UPDATE sys_user u JOIN sys_team t ON t.name = u.team
+     SET u.team_id = t.id WHERE u.team_id IS NULL AND u.team <> ''`
+  );
 
   // 管理员默认授予 Call Me 权限
   await pool.query(
@@ -213,6 +268,11 @@ async function ensureSchema() {
   if (config.worklog.enabled) {
     await require('./worklog/schema').ensureWorklogSchema(pool);
     console.log('[初始化] 出工日志已开启（WORKLOG_ENABLED=true），表结构与应用/成员种子就绪');
+  }
+
+  // 安全日活动记录：SAFEDAY_ENABLED=true 时做班组迁移（records.json 回填班组、docs 旧文件迁入班组子目录）
+  if (config.safeday.enabled) {
+    await require('./safeday/migrate').migrateSafedayTeams();
   }
 }
 

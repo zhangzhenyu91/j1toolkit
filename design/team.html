@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<!--
+  设计稿：班组数据隔离 + 三级角色（超级管理员 / 班组管理员 / 普通用户）
+  背景：平台现有数据全班组混排；现按班组隔离——班组由超管手动维护（检修一班 / 运维二班），
+        员工管理分班组展示；出工日志、安全日活动记录、KVM（远程连接 + 文件传输）按班组出数据；
+        班组管理员可维护本班子应用参数（车牌 / 目的地 / 出工成员 / 杆塔坐标）。
+  本稿内容（同稿呈现小程序端与网页端）：
+    屏一 · 班组管理列表（超管）            屏二 · 新增 / 编辑班组弹层
+    屏三 · 员工管理（班组分组 + 角色徽章）  屏四 · 编辑员工弹层（班组下拉 + 角色三选）
+    屏五 · 出工日志主页 · 超管班组切换器    屏六 · 数据管理页 · 班组管理员视角（含杆塔坐标板块）
+    屏七 · 杆塔坐标 Excel 导入弹层         屏八 · 安全日活动记录 · 超管视角（含「全部班组」视图）
+    屏九 · 文件传输 · 班组设备回退提示      屏十 · 未分配班组空态
+    屏十一 · 网页端 admin.html（员工管理 + 班组管理页签）
+    屏十二 · 网页端 worklog.html（班组切换器）
+    屏十三 · 网页端 safeday.html（班组切换器 + 班组列）
+    屏十四 · 网页端 kvm.html（设备回退提示横幅）
+    附 · 权限矩阵 / 数据模型与迁移 / 接口变更 / 存储路径 / Dify 配套 / KVM 绑定回退 / 成员同步与杆塔导入
+  色板沿用方案五「安全橙」定稿 token（与 style-5.html / theme.css 同源）
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计稿 · 班组数据隔离与三级角色 · Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#F4F1EA; --navy:#22314E; --orange:#F26D21; --orange-soft:#FDEEE2;
+    --red:#CF4444; --green:#3FA66A; --line:#E3DCCB; --hair:#E8E0CD;
+    --sub:#6B7690; --ph:#A89F8A; --dash:#D9CFBA; --amber:#EAB308; --amber-soft:#FDF3CF;
+  }
+  body {
+    background:var(--paper);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:var(--navy); padding:52px 24px 80px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page-head { text-align:center; margin-bottom:46px; }
+  .page-head h1 { font-size:26px; font-weight:800; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal; color:var(--orange); }
+  .page-head p { margin-top:12px; font-size:13px; color:var(--sub); letter-spacing:1px; line-height:1.9; }
+
+  .stage { display:flex; flex-wrap:wrap; justify-content:center; gap:64px 56px; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:22px; }
+  .cap { font-size:14px; font-weight:700; letter-spacing:2px; max-width:400px; text-align:center; }
+  .cap i { font-style:normal; color:var(--orange); margin-right:6px; }
+  .cap small { display:block; margin-top:6px; font-size:11px; font-weight:400; color:var(--ph); letter-spacing:1px; line-height:1.8; }
+
+  .phone { padding:12px; background:linear-gradient(150deg,#3b4354,#171c26 60%,#10141c); border-radius:62px;
+           box-shadow:0 34px 70px rgba(34,49,78,.28), 0 8px 20px rgba(34,49,78,.16); }
+  .screen { position:relative; width:375px; height:812px; background:var(--paper); border-radius:50px;
+            overflow:hidden; display:flex; flex-direction:column; }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%); width:120px; height:32px;
+           border-radius:18px; background:#10141c; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:134px; height:5px;
+              border-radius:3px; background:rgba(16,20,28,.9); z-index:40; }
+
+  /* ===== 小程序导航条 ===== */
+  .mnav { flex:none; padding:52px 18px 12px; display:flex; align-items:center; gap:10px; }
+  .mnav .back { width:22px; height:22px; border-left:2.2px solid var(--navy); border-bottom:2.2px solid var(--navy);
+                transform:rotate(45deg); margin-left:6px; }
+  .mnav b { font-size:17px; font-weight:800; letter-spacing:1px; }
+  .mnav .badge-role { margin-left:auto; font-size:10px; font-weight:700; border-radius:4px; padding:1px 7px; letter-spacing:1px; }
+  .badge-role.b-admin { background:var(--navy); color:#fff; }
+  .badge-role.b-team { border:1px solid var(--orange); color:var(--orange); }
+
+  .mbody { flex:1; padding:6px 18px 30px; overflow:hidden; display:flex; flex-direction:column; }
+  .section-title { display:flex; align-items:center; gap:9px; margin:10px 0 6px; }
+  .section-title::before { content:""; width:4px; height:16px; border-radius:2px; background:var(--orange); }
+  .section-title h3 { font-size:15.5px; font-weight:800; letter-spacing:1px; }
+  .section-title .st-right { margin-left:auto; font-size:10.5px; color:var(--ph); }
+  .cnt { font-size:10.5px; color:var(--ph); letter-spacing:.5px; margin:0 0 12px 13px; }
+
+  /* ===== 角色徽章 ===== */
+  .role { display:inline-block; border-radius:4px; padding:1px 7px; font-size:10px; font-weight:700; letter-spacing:.5px; }
+  .role.r-admin { background:var(--navy); color:#fff; }
+  .role.r-team { border:1px solid var(--orange); color:var(--orange); }
+  .role.r-user { background:#EDF0F6; color:var(--sub); }
+
+  /* ===== 班组管理列表 ===== */
+  .trow { background:#fff; border-radius:12px; padding:13px 15px; margin-bottom:10px; display:flex;
+          align-items:center; gap:10px; box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .trow .tn { font-size:14.5px; font-weight:800; display:flex; align-items:center; }
+  .trow .tm { font-size:10.5px; color:var(--ph); margin-top:3px; }
+  .trow .go { margin-left:auto; color:var(--ph); font-size:13px; }
+  .def-pill { font-size:9.5px; color:var(--orange); background:var(--orange-soft); border-radius:4px;
+              padding:1px 6px; font-weight:700; margin-left:7px; }
+  .stop-pill { font-size:9.5px; color:var(--sub); background:#EDF0F6; border-radius:4px;
+               padding:1px 6px; font-weight:700; margin-left:7px; }
+  .btn-block { height:44px; border-radius:10px; background:var(--navy); color:#fff; font-size:14px; font-weight:700;
+               letter-spacing:3px; display:flex; align-items:center; justify-content:center; margin-top:6px; }
+  .tip-line { margin-top:12px; font-size:10px; color:var(--ph); line-height:1.8; text-align:center; }
+
+  /* ===== 表单 ===== */
+  .f-item { margin-bottom:13px; }
+  .f-item label { display:block; font-size:11px; color:var(--sub); letter-spacing:1px; margin-bottom:6px; }
+  .f-in { background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:13px;
+          display:flex; align-items:center; justify-content:space-between; }
+  .f-in .ph { color:var(--ph); font-size:12.5px; }
+  .f-in .arr { color:var(--ph); font-size:11px; }
+  .seg { display:flex; gap:8px; }
+  .seg .sg { flex:1; text-align:center; padding:9px 0; border-radius:8px; border:1px solid var(--line);
+             background:#fff; font-size:11.5px; font-weight:600; color:var(--sub); }
+  .seg .sg.on { border-color:var(--orange); color:var(--orange); background:var(--orange-soft); }
+  .f-row { display:flex; align-items:center; justify-content:space-between; }
+  .f-row .fr-lab { font-size:13px; font-weight:600; }
+  .switch { width:38px; height:22px; border-radius:11px; background:var(--orange); position:relative; flex:none; }
+  .switch::after { content:""; position:absolute; right:3px; top:3px; width:16px; height:16px; border-radius:50%; background:#fff; }
+
+  /* ===== 底部弹层（t-popup 同构） ===== */
+  .mask { position:absolute; inset:0; background:rgba(27,39,64,.45); z-index:35; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; z-index:36; background:#fff;
+           border-radius:16px 16px 0 0; max-height:82%; display:flex; flex-direction:column;
+           box-shadow:0 -12px 40px rgba(27,39,64,.18); }
+  .sh-head { display:flex; align-items:center; padding:16px 18px 10px; }
+  .sh-title { font-size:15px; font-weight:800; letter-spacing:.5px; }
+  .sh-sub { margin-left:8px; font-size:10.5px; color:var(--ph); }
+  .sh-close { margin-left:auto; width:26px; height:26px; color:var(--ph); font-size:17px; text-align:center; line-height:24px; }
+  .sh-body { padding:2px 18px 14px; overflow:hidden; }
+  .sh-note { padding:0 18px 12px; font-size:10px; color:var(--ph); line-height:1.7; }
+  .sh-note b { color:var(--orange); font-weight:700; }
+  .sh-foot { flex:none; padding:10px 18px 26px; border-top:1px solid var(--hair); display:flex; align-items:center; gap:12px; }
+  .sh-foot .sum { font-size:11px; color:var(--sub); }
+  .sh-foot .sum b { color:var(--orange); }
+  .btn-primary { flex:1; height:42px; border-radius:9px; background:var(--navy); color:#fff; font-size:14px;
+                 font-weight:700; letter-spacing:3px; display:flex; align-items:center; justify-content:center; }
+
+  /* ===== 员工管理 ===== */
+  .ttabs { display:flex; gap:8px; margin:2px 0 12px; }
+  .ttab { flex:none; padding:5px 13px; border-radius:999px; font-size:11.5px; font-weight:600;
+          background:#fff; border:1px solid var(--line); color:var(--sub); }
+  .ttab.on { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .grp-title { display:flex; align-items:center; gap:8px; margin:8px 0 8px; }
+  .grp-title::before { content:""; width:4px; height:13px; border-radius:2px; background:var(--orange); }
+  .grp-title b { font-size:12.5px; font-weight:800; letter-spacing:1px; }
+  .grp-title span { font-size:10px; color:var(--ph); }
+  .emp { display:flex; align-items:center; gap:10px; background:#fff; border-radius:10px; padding:9px 12px; margin-bottom:8px; }
+  .av { width:34px; height:34px; border-radius:50%; background:var(--orange-soft); color:var(--orange); flex:none;
+        display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; }
+  .av.navy { background:#EDF0F6; color:var(--navy); }
+  .emp .nm { font-size:13.5px; font-weight:700; }
+  .emp .ac { font-size:10px; color:var(--ph); margin-top:2px; }
+  .emp .role { margin-left:auto; }
+
+  /* ===== 班组切换器（子应用页面顶部，仅超管可点开） ===== */
+  .tswitch { position:relative; margin:0 0 10px; }
+  .ts-cur { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--line);
+            border-radius:999px; padding:6px 14px; font-size:12.5px; font-weight:700; }
+  .ts-cur .arr { color:var(--orange); font-size:9px; }
+  .ts-cur .lock-hint { font-size:9.5px; color:var(--ph); font-weight:400; }
+  .ts-drop { position:absolute; top:40px; left:0; z-index:20; background:#fff; border-radius:12px;
+             box-shadow:0 12px 32px rgba(34,49,78,.18); padding:6px; min-width:158px; }
+  .ts-opt { display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:8px; font-size:12.5px; font-weight:600; }
+  .ts-opt.on { background:var(--orange-soft); color:var(--orange); }
+  .ts-opt .ck { margin-left:auto; font-size:11px; }
+
+  /* ===== 出工日志主页元素（简化） ===== */
+  .datebar { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .datebar .darr { color:var(--ph); font-size:13px; padding:0 6px; }
+  .datebar b { font-size:15px; font-weight:800; letter-spacing:1px; }
+  .datebar .dweek { font-size:10.5px; color:var(--ph); margin-left:6px; font-weight:400; }
+  .scope-sw { margin-left:auto; font-size:10.5px; color:var(--sub); display:flex; align-items:center; gap:5px; }
+  .wl-card { background:#fff; border-radius:12px; box-shadow:0 8px 20px rgba(34,49,78,.06); overflow:hidden; opacity:.62; }
+  .hazard-top { height:8px; background:repeating-linear-gradient(-45deg,var(--orange) 0 10px,var(--navy) 10px 20px); }
+  .wl-in { padding:12px 14px; }
+  .wl-plate { font-size:14px; font-weight:800; }
+  .wl-sub { margin-top:6px; font-size:10.5px; color:var(--ph); }
+
+  /* ===== 数据管理字典 ===== */
+  .dict-row { display:flex; align-items:center; gap:8px; background:#fff; border-radius:9px;
+              padding:8px 12px; margin-bottom:7px; }
+  .dict-row .dn { font-size:12.5px; font-weight:600; }
+  .sync-pill { font-size:9.5px; color:var(--green); background:#EAF6EE; border-radius:4px; padding:1px 6px; font-weight:700; }
+  .hand-pill { font-size:9.5px; color:var(--sub); background:#EDF0F6; border-radius:4px; padding:1px 6px; font-weight:700; }
+  .dict-row .ops { margin-left:auto; display:flex; gap:10px; color:var(--ph); font-size:12px; }
+  .dict-add { border:1.5px dashed var(--dash); border-radius:9px; padding:8px; text-align:center;
+              font-size:11.5px; color:var(--ph); margin-bottom:6px; }
+  .tower-bar { background:#fff; border-radius:10px; padding:11px 13px; display:flex; align-items:center; gap:9px; }
+  .tower-bar .tb-n { font-size:12.5px; font-weight:700; }
+  .tower-bar .tb-s { font-size:10px; color:var(--ph); margin-top:2px; }
+  .tb-btn { font-size:11px; font-weight:700; border-radius:7px; padding:6px 10px; }
+  .tb-btn.tpl { background:#fff; border:1px solid var(--line); color:var(--navy); }
+  .tb-btn.imp { background:var(--orange-soft); color:var(--orange); }
+  .tower-bar .tb-btns { margin-left:auto; display:flex; gap:8px; }
+
+  /* ===== 导入弹层 ===== */
+  .step { display:flex; gap:10px; margin-bottom:12px; }
+  .step .no { width:20px; height:20px; flex:none; border-radius:50%; background:var(--navy); color:#fff;
+              font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; margin-top:1px; }
+  .step .st-body { flex:1; }
+  .step .st-t { font-size:12.5px; font-weight:700; }
+  .step .st-d { font-size:10.5px; color:var(--ph); margin-top:2px; line-height:1.6; }
+  .dl-line { margin-top:7px; display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:700;
+             color:var(--orange); background:var(--orange-soft); border-radius:7px; padding:6px 11px; }
+  .pick-file { margin-top:7px; border:1.5px dashed var(--dash); border-radius:9px; padding:11px; text-align:center; }
+  .pick-file .pfn { font-size:12px; font-weight:700; }
+  .pick-file .pfd { font-size:10px; color:var(--ph); margin-top:3px; }
+  .imp-sum { margin-top:7px; background:#FBF9F2; border:1px solid var(--hair); border-radius:9px; padding:9px 12px;
+             font-size:11px; color:var(--sub); line-height:1.8; }
+  .imp-sum b { color:var(--orange); }
+
+  /* ===== 安全日记录行 ===== */
+  .rec { display:flex; align-items:center; gap:10px; background:#fff; border-radius:10px; padding:11px 13px; margin-bottom:9px; }
+  .rec .ri { width:34px; height:34px; flex:none; border-radius:9px; background:var(--orange-soft); color:var(--orange);
+             display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .rec .rn { font-size:13px; font-weight:700; }
+  .rec .rs { font-size:10px; color:var(--ph); margin-top:2px; }
+  .rec .rk { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
+  .st-pill { font-size:10px; font-weight:700; border-radius:4px; padding:1px 7px; }
+  .st-pill.done { background:#EAF6EE; color:var(--green); }
+  .team-pill { font-size:9.5px; font-weight:700; border-radius:4px; padding:1px 7px; background:#EDF0F6; color:var(--navy); }
+
+  /* ===== 设备回退提示横幅 ===== */
+  .fbanner { display:flex; gap:8px; align-items:flex-start; background:var(--amber-soft); border-radius:10px;
+             padding:9px 12px; margin-bottom:12px; }
+  .fbanner .ic { color:var(--amber); font-size:13px; line-height:1.5; flex:none; }
+  .fbanner p { font-size:11px; color:var(--amber); line-height:1.6; font-weight:600; }
+
+  /* ===== 设备卡片（简化，同 kvm-filetransfer 稿） ===== */
+  .dev { background:#fff; border-radius:12px; box-shadow:0 8px 20px rgba(34,49,78,.06); overflow:hidden; margin-bottom:14px; }
+  .dv-in { padding:12px 15px 13px; }
+  .dv-top { display:flex; align-items:center; gap:8px; }
+  .st { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; }
+  .st .dot { width:8px; height:8px; border-radius:50%; }
+  .st-online { color:var(--green); } .st-online .dot { background:var(--green); box-shadow:0 0 0 3px rgba(63,166,106,.15); }
+  .dv-tag { margin-left:auto; font-size:10px; font-weight:700; color:var(--navy); background:#EDF0F6;
+            border-radius:4px; padding:2px 8px; letter-spacing:.5px; }
+  .dv-name { margin-top:8px; font-size:15px; font-weight:800; }
+  .dv-ddns { margin-top:3px; font-size:10.5px; color:var(--ph); font-family:ui-monospace,Consolas,monospace; }
+
+  /* ===== 空态 ===== */
+  .empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:11px; }
+  .empty .eic { width:64px; height:64px; border-radius:18px; background:var(--orange-soft); color:var(--orange);
+                font-size:28px; display:flex; align-items:center; justify-content:center; }
+  .empty b { font-size:15px; letter-spacing:1px; }
+  .empty p { font-size:11.5px; color:var(--sub); text-align:center; line-height:1.8; }
+
+  /* ===== 网页端浏览器框 ===== */
+  .browser { width:600px; background:#fff; border-radius:16px; overflow:hidden;
+             box-shadow:0 24px 60px rgba(34,49,78,.16); }
+  .b-bar { display:flex; align-items:center; gap:7px; background:#EDF0F6; padding:9px 14px; }
+  .b-bar .dt { width:10px; height:10px; border-radius:50%; flex:none; }
+  .b-url { flex:1; max-width:300px; margin:0 auto; background:#fff; border-radius:6px; font-size:10.5px;
+           color:var(--ph); text-align:center; padding:3px 10px; font-family:ui-monospace,Consolas,monospace; }
+  .b-body { background:var(--paper); height:420px; display:flex; flex-direction:column; overflow:hidden; }
+  .w-top { display:flex; align-items:center; gap:15px; background:#fff; padding:0 18px; height:44px;
+           flex:none; box-shadow:0 1px 0 var(--hair); }
+  .w-logo { font-size:13px; font-weight:800; letter-spacing:1px; }
+  .w-logo i { color:var(--orange); font-style:normal; }
+  .w-nav { font-size:11px; color:var(--sub); }
+  .w-nav.on { color:var(--orange); font-weight:700; }
+  .w-user { margin-left:auto; font-size:11px; color:var(--navy); font-weight:600; }
+  .w-main { flex:1; padding:14px 18px; overflow:hidden; }
+  .w-card { background:#fff; border-radius:10px; box-shadow:0 8px 20px rgba(34,49,78,.06); padding:13px 16px; }
+  .w-tabs { display:flex; gap:4px; margin-bottom:12px; }
+  .w-tab { font-size:12px; font-weight:600; color:var(--sub); padding:6px 13px; border-radius:8px; }
+  .w-tab.on { color:var(--orange); background:var(--orange-soft); font-weight:700; }
+  .w-tab .new-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--orange); margin-left:4px; vertical-align:2px; }
+  .w-toolbar { display:flex; align-items:center; gap:9px; margin-bottom:11px; }
+  .w-sel { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:#fff;
+           border-radius:7px; padding:5px 11px; font-size:11.5px; font-weight:600; }
+  .w-sel .arr { color:var(--orange); font-size:9px; }
+  .w-search { flex:1; max-width:200px; border:1px solid var(--line); border-radius:7px; padding:5px 11px;
+              font-size:11.5px; color:var(--ph); background:#fff; }
+  .w-btn { margin-left:auto; background:var(--navy); color:#fff; font-size:11.5px; font-weight:700;
+           border-radius:7px; padding:6px 14px; letter-spacing:1px; }
+  .w-hint { font-size:10px; color:var(--ph); }
+  table.wtab { width:100%; border-collapse:collapse; }
+  .wtab th { font-size:10.5px; color:var(--ph); text-align:left; padding:6px 8px; border-bottom:1px solid var(--hair); font-weight:600; }
+  .wtab td { font-size:11.5px; padding:7px 8px; border-bottom:1px solid var(--hair); }
+  .wtab tr:last-child td { border-bottom:none; }
+  .w-skeleton { display:flex; gap:14px; }
+  .w-skel-card { background:#fff; border-radius:10px; box-shadow:0 8px 20px rgba(34,49,78,.06); padding:13px 16px; }
+  .skl { height:10px; border-radius:5px; background:#EFEAE0; margin-bottom:9px; }
+
+  /* ===== 附：规则说明 ===== */
+  .spec { max-width:1080px; margin:70px auto 0; }
+  .spec h2 { font-size:18px; font-weight:800; letter-spacing:2px; text-align:center; margin-bottom:22px; }
+  .spec h2 i { font-style:normal; color:var(--orange); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .card-s { background:#fff; border-radius:12px; box-shadow:0 8px 20px rgba(34,49,78,.06); padding:20px 22px; }
+  .card-s h4 { font-size:14px; font-weight:800; letter-spacing:1px; margin-bottom:12px;
+               display:flex; align-items:center; gap:8px; }
+  .card-s h4::before { content:""; width:4px; height:14px; border-radius:2px; background:var(--orange); }
+  .card-s table { width:100%; border-collapse:collapse; }
+  .card-s th { font-size:11px; color:var(--ph); text-align:left; padding:7px 8px; border-bottom:1px solid var(--hair); font-weight:600; }
+  .card-s td { font-size:12px; padding:7px 8px; border-bottom:1px solid var(--hair); }
+  .card-s tr:last-child td { border-bottom:none; }
+  .card-s ul { padding-left:18px; }
+  .card-s li { font-size:12px; color:var(--sub); line-height:1.95; }
+  .card-s li b { color:var(--navy); }
+  .card-s code { background:#F4F1EA; border-radius:4px; padding:1px 6px; font-size:11px; color:var(--orange); }
+  .card-s pre { background:#22314E; color:#E8E0CD; border-radius:9px; padding:12px 14px; font-size:11px;
+                line-height:1.75; overflow:auto; margin-top:8px; font-family:ui-monospace,Consolas,monospace; }
+  .card-s pre em { color:#F26D21; font-style:normal; }
+  .ok-c { color:var(--green); font-weight:700; }
+  .no-c { color:var(--ph); }
+  @media (max-width:820px){ .grid2 { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>班组数据隔离 <em>×</em> 三级角色</h1>
+  <p>班组由超级管理员手动维护（检修一班 / 运维二班）；出工日志、安全日活动记录、KVM（远程连接 + 文件传输）按班组出数据<br>
+  班组管理员维护本班子应用参数（车牌 / 目的地 / 出工成员 / 杆塔坐标） ｜ 色板沿用方案五定稿 token</p>
+</div>
+
+<div class="stage">
+
+  <!-- ================= 屏一：班组管理列表（超管） ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>班组管理</b><span class="badge-role b-admin">超级管理员</span></div>
+      <div class="mbody">
+        <div class="section-title"><h3>班组列表</h3><span class="st-right">共 2 个</span></div>
+        <div class="cnt">入口：我的 → 管理区 → 班组管理（仅超管可见）</div>
+
+        <div class="trow">
+          <div>
+            <div class="tn">检修一班<span class="def-pill">默认班组</span></div>
+            <div class="tm">成员 7 人 · 既有数据已归入</div>
+          </div>
+          <span class="go">编辑 ›</span>
+        </div>
+        <div class="trow">
+          <div>
+            <div class="tn">运维二班</div>
+            <div class="tm">成员 3 人 · 设备组同名绑定，无设备时回退显示默认班组设备</div>
+          </div>
+          <span class="go">编辑 ›</span>
+        </div>
+
+        <div class="btn-block">＋ 新增班组</div>
+        <div class="tip-line">删除仅限无任何数据的班组；有数据的班组只能停用，<br>停用后不再出现在任何选择器，历史数据保留。</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏一</i>班组管理列表<small>仅超管可入；「默认班组」= 既有数据迁移归属 + KVM 设备回退来源</small></div>
+  </div>
+
+  <!-- ================= 屏二：新增 / 编辑班组弹层 ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>班组管理</b><span class="badge-role b-admin">超级管理员</span></div>
+      <div class="mbody">
+        <div class="trow" style="opacity:.55">
+          <div><div class="tn">检修一班<span class="def-pill">默认班组</span></div>
+          <div class="tm">成员 7 人</div></div>
+          <span class="go">编辑 ›</span>
+        </div>
+      </div>
+
+      <div class="mask"></div>
+      <div class="sheet">
+        <div class="sh-head">
+          <span class="sh-title">编辑班组</span><span class="sh-sub">新增同此弹层</span>
+          <span class="sh-close">✕</span>
+        </div>
+        <div class="sh-body">
+          <div class="f-item">
+            <label>班组名称</label>
+            <div class="f-in">运维二班</div>
+          </div>
+          <div class="f-item f-row">
+            <span class="fr-lab">启用状态</span>
+            <span class="switch"></span>
+          </div>
+        </div>
+        <div class="sh-note">
+          KVM 设备组与班组<b>同名绑定</b>（平台设备对象自带 deviceGroupName，无需单独设置）；组内无设备时，本班组的远程连接 / 文件传输回退显示默认班组设备并带提示横幅。<br>
+          班组改名自动级联安全日记录与 docs 子目录；<b>改名后 GLKVM 平台侧设备组需同步改名</b>，否则回退提示会被触发。
+        </div>
+        <div class="sh-foot">
+          <span class="sum">改名即时生效</span>
+          <div class="btn-primary">保 存</div>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏二</i>新增 / 编辑班组弹层<small>名称 + 启停用；KVM 设备组与班组同名绑定（无需单独设置）；改名级联安全日文件目录，平台侧设备组需同步改名</small></div>
+  </div>
+
+  <!-- ================= 屏三：员工管理（班组分组 + 角色徽章） ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>员工管理</b><span class="badge-role b-admin">超级管理员</span></div>
+      <div class="mbody">
+        <div class="ttabs">
+          <span class="ttab on">全部</span>
+          <span class="ttab">检修一班</span>
+          <span class="ttab">运维二班</span>
+          <span class="ttab">未分组</span>
+        </div>
+
+        <div class="grp-title"><b>检修一班</b><span>7 人</span></div>
+        <div class="emp">
+          <span class="av">张</span>
+          <div><div class="nm">张振宇</div><div class="ac">zhangzhenyu91</div></div>
+          <span class="role r-admin">超级管理员</span>
+        </div>
+        <div class="emp">
+          <span class="av">赵</span>
+          <div><div class="nm">赵登</div><div class="ac">zhaodeng</div></div>
+          <span class="role r-team">班组管理员</span>
+        </div>
+        <div class="emp">
+          <span class="av">郑</span>
+          <div><div class="nm">郑海楠</div><div class="ac">zhenghainan</div></div>
+          <span class="role r-user">普通用户</span>
+        </div>
+        <div class="emp" style="opacity:.55">
+          <span class="av navy">任</span>
+          <div><div class="nm">任舒诺</div><div class="ac">renshunuo</div></div>
+          <span class="role r-user">普通用户</span>
+        </div>
+
+        <div class="grp-title"><b>运维二班</b><span>3 人（示意）</span></div>
+        <div class="emp">
+          <span class="av navy">王</span>
+          <div><div class="nm">王海峰</div><div class="ac">wanghaifeng</div></div>
+          <span class="role r-team">班组管理员</span>
+        </div>
+        <div class="emp" style="opacity:.55">
+          <span class="av navy">李</span>
+          <div><div class="nm">李国强</div><div class="ac">liguoqiang</div></div>
+          <span class="role r-user">普通用户</span>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏三</i>员工管理 · 分班组展示<small>顶部 tab 筛选（含「未分组」），列表按班组分组；角色三态徽章：藏青=超管 / 橙描边=班组管理员 / 灰=普通用户</small></div>
+  </div>
+
+  <!-- ================= 屏四：编辑员工弹层 ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>员工管理</b><span class="badge-role b-admin">超级管理员</span></div>
+      <div class="mbody">
+        <div class="emp" style="opacity:.55">
+          <span class="av">赵</span>
+          <div><div class="nm">赵登</div><div class="ac">zhaodeng</div></div>
+          <span class="role r-team">班组管理员</span>
+        </div>
+      </div>
+
+      <div class="mask"></div>
+      <div class="sheet">
+        <div class="sh-head">
+          <span class="sh-title">编辑员工</span><span class="sh-sub">zhaodeng</span>
+          <span class="sh-close">✕</span>
+        </div>
+        <div class="sh-body">
+          <div class="f-item">
+            <label>昵称 / 姓名</label>
+            <div class="f-in">赵登</div>
+          </div>
+          <div class="f-item">
+            <label>所属班组（下拉取自班组表，不再手输）</label>
+            <div class="f-in">检修一班<span class="arr">▾</span></div>
+          </div>
+          <div class="f-item">
+            <label>角色</label>
+            <div class="seg">
+              <span class="sg">超级管理员</span>
+              <span class="sg on">班组管理员</span>
+              <span class="sg">普通用户</span>
+            </div>
+          </div>
+          <div class="f-item f-row">
+            <span class="fr-lab">账号状态</span>
+            <span class="switch"></span>
+          </div>
+        </div>
+        <div class="sh-note">
+          班组管理员 = 可维护<b>本班</b>出工日志字典与杆塔坐标，无员工 / 权限 / 班组管理入口；<br>
+          保存后出工成员字典自动同步：昵称变更 / 调入班组 → 自动增补成员；调出 / 停用 → 成员自动停用（不删除，历史记录保留）。
+        </div>
+        <div class="sh-foot">
+          <span class="sum">重置密码入口保持不变</span>
+          <div class="btn-primary">保 存</div>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏四</i>编辑员工弹层<small>班组改下拉、角色三选；超管仍不能禁用 / 降级自己（既有保护保留）</small></div>
+  </div>
+
+  <!-- ================= 屏五：出工日志主页 · 超管班组切换器 ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>出工日志</b><span class="badge-role b-admin">超级管理员</span></div>
+      <div class="mbody">
+        <div class="tswitch">
+          <span class="ts-cur">检修一班<span class="arr">▾</span></span>
+          <div class="ts-drop">
+            <div class="ts-opt on">检修一班<span class="ck">✓</span></div>
+            <div class="ts-opt">运维二班</div>
+          </div>
+        </div>
+        <div class="datebar">
+          <span class="darr">‹</span>
+          <b>2026.08.05<span class="dweek">周三</span></b>
+          <span class="darr">›</span>
+          <span class="scope-sw">全部 / 仅看我 ●</span>
+        </div>
+        <div class="wl-card">
+          <div class="hazard-top"></div>
+          <div class="wl-in">
+            <div class="wl-plate">晋A·D12345</div>
+            <div class="wl-sub">巡视内容 / 打卡 / 水印照片 …（按所选班组过滤）</div>
+          </div>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏五</i>出工日志主页 · 超管班组切换器<small>仅超管可点开切换；班组管理员 / 普通用户此处为静态班组名标签（不可切换）。切换影响全部口径：当日卡片 / 日历着色 / 批量下载 / 验证报告 / 数据管理</small></div>
+  </div>
+
+  <!-- ================= 屏六：出工日志 · 数据管理页（班组管理员视角） ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>数据管理</b><span class="badge-role b-team">班组管理员 · 检修一班</span></div>
+      <div class="mbody">
+        <div class="section-title"><h3>车牌号</h3><span class="st-right">3 个</span></div>
+        <div class="dict-row"><span class="dn">晋A·D12345</span><span class="ops">✎ ⊘</span></div>
+        <div class="dict-add">＋ 添加车牌号</div>
+
+        <div class="section-title"><h3>出工成员</h3><span class="st-right">7 人 · 绿标为账号同步</span></div>
+        <div class="dict-row"><span class="dn">赵登</span><span class="sync-pill">账号同步</span><span class="ops">≡ ⊘</span></div>
+        <div class="dict-row"><span class="dn">郑海楠</span><span class="sync-pill">账号同步</span><span class="ops">≡ ⊘</span></div>
+        <div class="dict-row"><span class="dn">外协·刘师傅</span><span class="hand-pill">手动添加</span><span class="ops">≡ ✎ ⊘</span></div>
+        <div class="dict-add">＋ 手动添加成员（非账号人员）</div>
+
+        <div class="section-title"><h3>杆塔坐标</h3><span class="st-right">新增板块</span></div>
+        <div class="tower-bar">
+          <div>
+            <div class="tb-n">1366 条坐标</div>
+            <div class="tb-s">最近导入 2026.07.30 · 仅作用于本班组</div>
+          </div>
+          <div class="tb-btns">
+            <span class="tb-btn tpl">下载模板</span>
+            <span class="tb-btn imp">导入 Excel</span>
+          </div>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏六</i>数据管理 · 班组管理员视角<small>仅见本班字典（车牌 / 目的地 / 成员同构，图中略目的地）；成员默认「账号同步」自本班账号昵称，可手动增补非账号人员；超管进此页管「当前切换班组」的字典</small></div>
+  </div>
+
+  <!-- ================= 屏七：杆塔坐标 Excel 导入弹层 ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>数据管理</b><span class="badge-role b-team">班组管理员 · 检修一班</span></div>
+      <div class="mbody">
+        <div class="tower-bar" style="opacity:.55">
+          <div><div class="tb-n">1366 条坐标</div><div class="tb-s">最近导入 2026.07.30</div></div>
+        </div>
+      </div>
+
+      <div class="mask"></div>
+      <div class="sheet">
+        <div class="sh-head">
+          <span class="sh-title">导入杆塔坐标</span><span class="sh-sub">检修一班</span>
+          <span class="sh-close">✕</span>
+        </div>
+        <div class="sh-body">
+          <div class="step">
+            <span class="no">1</span>
+            <div class="st-body">
+              <div class="st-t">下载模板</div>
+              <div class="st-d">列固定为：电压等级 / 线路名称 / 杆塔号 / 经度 / 纬度</div>
+              <span class="dl-line">⬇ 杆塔坐标导入模板.xlsx</span>
+            </div>
+          </div>
+          <div class="step">
+            <span class="no">2</span>
+            <div class="st-body">
+              <div class="st-t">选择填写好的 Excel</div>
+              <div class="pick-file">
+                <div class="pfn">检修一班杆塔坐标-202608.xlsx ✕</div>
+                <div class="pfd">从聊天选取（wx.chooseMessageFile）· 仅 .xlsx</div>
+              </div>
+            </div>
+          </div>
+          <div class="step">
+            <span class="no">3</span>
+            <div class="st-body">
+              <div class="st-t">确认导入</div>
+              <div class="imp-sum">识别 <b>1382</b> 行有效坐标，2 行缺列已跳过；<br>导入后<b>全量替换</b>本班组现有 1366 条，不影响其他班组。</div>
+            </div>
+          </div>
+        </div>
+        <div class="sh-foot">
+          <span class="sum">导入期间旧数据仍可用</span>
+          <div class="btn-primary">开始导入</div>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏七</i>杆塔坐标导入弹层<small>班组管理员导本班、超管导当前切换班组；坐标改存数据库按 team_id 隔离，既有坐标文件随迁移入库（检修一班）</small></div>
+  </div>
+
+  <!-- ================= 屏八：安全日活动记录 · 超管视角 ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>安全日活动记录</b><span class="badge-role b-admin">超级管理员</span></div>
+      <div class="mbody">
+        <div class="tswitch">
+          <span class="ts-cur">全部班组<span class="arr">▾</span></span>
+        </div>
+        <div class="section-title"><h3>生成记录</h3><span class="st-right">按生成时间倒序</span></div>
+
+        <div class="rec">
+          <span class="ri">📄</span>
+          <div>
+            <div class="rn">2026.08.05.docx</div>
+            <div class="rs">安全生产例会学习材料 · 今天 09:32</div>
+          </div>
+          <div class="rk">
+            <span class="team-pill">检修一班</span>
+            <span class="st-pill done">已生成</span>
+          </div>
+        </div>
+        <div class="rec">
+          <span class="ri">📄</span>
+          <div>
+            <div class="rn">2026.08.05.docx</div>
+            <div class="rs">迎峰度夏专项学习 · 今天 08:10</div>
+          </div>
+          <div class="rk">
+            <span class="team-pill">运维二班</span>
+            <span class="st-pill done">已生成</span>
+          </div>
+        </div>
+        <div class="rec" style="opacity:.55">
+          <span class="ri">📄</span>
+          <div>
+            <div class="rn">2026.07.29.docx</div>
+            <div class="rs">事故通报学习 · 07.29 15:20</div>
+          </div>
+          <div class="rk">
+            <span class="team-pill">检修一班</span>
+            <span class="st-pill done">已生成</span>
+          </div>
+        </div>
+
+        <div class="tip-line">生成时 Dify 自动带入 class = 当前所选班组；<br>产物保存为 docs/{班组}/{日期}.docx</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏八</i>安全日活动记录 · 超管视角<small>切换器多出「全部班组」选项（记录为流水列表，混排时以班组徽章区分）；出工日志卡片按单日单班展示，不设「全部」。班组管理员 / 普通用户只见本班</small></div>
+  </div>
+
+  <!-- ================= 屏九：文件传输 · 班组设备回退提示 ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>文件传输</b><span class="badge-role b-team">运维二班</span></div>
+      <div class="mbody">
+        <div class="section-title"><h3>设备列表</h3></div>
+
+        <div class="fbanner">
+          <span class="ic">⚠</span>
+          <p>本班组暂未接入设备，当前展示「检修一班」的设备；本班组设备组接入后自动切换、此提示消失。</p>
+        </div>
+
+        <div class="dev">
+          <div class="hazard-top"></div>
+          <div class="dv-in">
+            <div class="dv-top">
+              <view class="st st-online"><span class="dot"></span>在线</view>
+              <span class="dv-tag">检修一班</span>
+            </div>
+            <div class="dv-name">银河麒麟V10</div>
+            <div class="dv-ddns">rvfe1ca</div>
+          </div>
+        </div>
+        <div class="dev" style="opacity:.62">
+          <div class="hazard-top"></div>
+          <div class="dv-in">
+            <div class="dv-top">
+              <view class="st st-online"><span class="dot"></span>在线</view>
+              <span class="dv-tag">检修一班</span>
+            </div>
+            <div class="dv-name">Windows7</div>
+            <div class="dv-ddns">sqeb05e</div>
+          </div>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏九</i>文件传输 · 设备回退提示<small>本班组同名设备组内无设备 → 回退显示默认班组（检修一班）设备 + 黄色提示横幅；组内一旦有设备（无论在线离线）立即只显示本班组设备。远程连接（PC）与文件传输（小程序）同一口径</small></div>
+  </div>
+
+  <!-- ================= 屏十：未分配班组空态 ================= -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="mnav"><span class="back"></span><b>出工日志</b></div>
+      <div class="mbody">
+        <div class="empty">
+          <span class="eic">👷</span>
+          <b>未分配班组</b>
+          <p>你的账号尚未加入任何班组，暂无可查看的数据。<br>请联系超级管理员分配班组后再使用。</p>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><i>屏十</i>未分配班组空态<small>出工日志 / 安全日活动记录 / 文件传输同一口径（远程连接网页端同文案）；超管无班组时默认落第一个班组</small></div>
+  </div>
+
+</div>
+
+<!-- ================= 网页端 ================= -->
+<div class="page-head" style="margin-top:76px">
+  <h1>网页端 <em>·</em> 同稿呈现</h1>
+  <p>布局骨架沿用方案A「安全橙传承」与现行页面结构，仅呈现本次差异点（切换器 / 分组 / 横幅）</p>
+</div>
+
+<div class="stage">
+
+  <!-- ================= 屏十一：网页端 admin.html ================= -->
+  <div class="unit">
+    <div class="browser">
+      <div class="b-bar">
+        <span class="dt" style="background:#CF4444"></span>
+        <span class="dt" style="background:#EAB308"></span>
+        <span class="dt" style="background:#3FA66A"></span>
+        <span class="b-url">toolkit.j1net.com/admin.html</span>
+      </div>
+      <div class="b-body">
+        <div class="w-top">
+          <span class="w-logo">壹<i>匣</i></span>
+          <span class="w-nav">工作台</span><span class="w-nav">出工日志</span>
+          <span class="w-nav">安全日</span><span class="w-nav">远程连接</span>
+          <span class="w-nav on">管理</span>
+          <span class="w-user">张振宇 ▾</span>
+        </div>
+        <div class="w-main">
+          <div class="w-tabs">
+            <span class="w-tab on">员工管理</span>
+            <span class="w-tab">权限管理</span>
+            <span class="w-tab">班组管理<span class="new-dot"></span></span>
+          </div>
+          <div class="w-card">
+            <div class="w-toolbar">
+              <span class="w-sel">全部班组 ▾</span>
+              <span class="w-search">🔍 搜索账号 / 昵称</span>
+              <span class="w-btn">＋ 新建员工</span>
+            </div>
+            <table class="wtab">
+              <tr><th>姓名</th><th>账号</th><th>班组</th><th>角色</th><th>状态</th><th>操作</th></tr>
+              <tr><td>张振宇</td><td>zhangzhenyu91</td><td>检修一班</td>
+                  <td><span class="role r-admin">超级管理员</span></td><td>正常</td><td>编辑</td></tr>
+              <tr><td>赵登</td><td>zhaodeng</td><td>检修一班</td>
+                  <td><span class="role r-team">班组管理员</span></td><td>正常</td><td>编辑</td></tr>
+              <tr><td>郑海楠</td><td>zhenghainan</td><td>检修一班</td>
+                  <td><span class="role r-user">普通用户</span></td><td>正常</td><td>编辑</td></tr>
+              <tr><td>王海峰</td><td>wanghaifeng</td><td>运维二班</td>
+                  <td><span class="role r-team">班组管理员</span></td><td>正常</td><td>编辑</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><i>屏十一</i>网页端 · 管理页<small>新增「班组管理」页签（列表 + 新增/编辑弹窗，字段同小程序屏二）；员工管理加「班组筛选」下拉与角色徽章列；新建/编辑员工弹窗中班组为下拉、角色三选</small></div>
+  </div>
+
+  <!-- ================= 屏十二：网页端 worklog.html ================= -->
+  <div class="unit">
+    <div class="browser">
+      <div class="b-bar">
+        <span class="dt" style="background:#CF4444"></span>
+        <span class="dt" style="background:#EAB308"></span>
+        <span class="dt" style="background:#3FA66A"></span>
+        <span class="b-url">toolkit.j1net.com/worklog.html</span>
+      </div>
+      <div class="b-body">
+        <div class="w-top">
+          <span class="w-logo">壹<i>匣</i></span>
+          <span class="w-nav">工作台</span><span class="w-nav on">出工日志</span>
+          <span class="w-nav">安全日</span><span class="w-nav">远程连接</span>
+          <span class="w-nav">管理</span>
+          <span class="w-user">张振宇 ▾</span>
+        </div>
+        <div class="w-main">
+          <div class="w-toolbar">
+            <b style="font-size:14px; letter-spacing:1px">出工日志</b>
+            <span class="w-sel">检修一班 ▾</span>
+            <span class="w-hint">仅超级管理员可切换班组；其余角色固定为本班组</span>
+          </div>
+          <div class="w-skeleton">
+            <div class="w-skel-card" style="width:218px">
+              <div class="skl" style="width:60%"></div><div class="skl"></div><div class="skl" style="width:80%"></div>
+              <div class="skl"></div><div class="skl" style="width:45%"></div><div class="skl" style="width:70%"></div>
+            </div>
+            <div class="w-skel-card" style="flex:1">
+              <div class="skl" style="width:40%"></div><div class="skl"></div><div class="skl" style="width:85%"></div>
+              <div class="skl" style="width:70%"></div><div class="skl"></div><div class="skl" style="width:55%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><i>屏十二</i>网页端 · 出工日志<small>标题区右侧加班组切换下拉（仅超管）；月历着色 / 日志卡片 / 批量下载 / 验证报告均按所选班组出数</small></div>
+  </div>
+
+  <!-- ================= 屏十三：网页端 safeday.html ================= -->
+  <div class="unit">
+    <div class="browser">
+      <div class="b-bar">
+        <span class="dt" style="background:#CF4444"></span>
+        <span class="dt" style="background:#EAB308"></span>
+        <span class="dt" style="background:#3FA66A"></span>
+        <span class="b-url">toolkit.j1net.com/safeday.html</span>
+      </div>
+      <div class="b-body">
+        <div class="w-top">
+          <span class="w-logo">壹<i>匣</i></span>
+          <span class="w-nav">工作台</span><span class="w-nav">出工日志</span>
+          <span class="w-nav on">安全日</span><span class="w-nav">远程连接</span>
+          <span class="w-nav">管理</span>
+          <span class="w-user">张振宇 ▾</span>
+        </div>
+        <div class="w-main">
+          <div class="w-toolbar">
+            <b style="font-size:14px; letter-spacing:1px">安全日活动记录</b>
+            <span class="w-sel">全部班组 ▾</span>
+          </div>
+          <div class="w-card">
+            <table class="wtab">
+              <tr><th>生成文件</th><th>学习文件</th><th>班组</th><th>状态</th><th>时间</th><th>操作</th></tr>
+              <tr><td>2026.08.05.docx</td><td>安全生产例会学习材料</td>
+                  <td><span class="team-pill">检修一班</span></td>
+                  <td><span class="st-pill done">已生成</span></td><td>今天 09:32</td><td>预览 下载 删除</td></tr>
+              <tr><td>2026.08.05.docx</td><td>迎峰度夏专项学习</td>
+                  <td><span class="team-pill">运维二班</span></td>
+                  <td><span class="st-pill done">已生成</span></td><td>今天 08:10</td><td>预览 下载 删除</td></tr>
+              <tr><td>2026.07.29.docx</td><td>事故通报学习</td>
+                  <td><span class="team-pill">检修一班</span></td>
+                  <td><span class="st-pill done">已生成</span></td><td>07.29 15:20</td><td>预览 下载 删除</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><i>屏十三</i>网页端 · 安全日活动记录<small>切换器含「全部班组」（记录表新增班组列）；普通角色固定本班；下载 / 预览 / 删除按记录班组归属校验</small></div>
+  </div>
+
+  <!-- ================= 屏十四：网页端 kvm.html ================= -->
+  <div class="unit">
+    <div class="browser">
+      <div class="b-bar">
+        <span class="dt" style="background:#CF4444"></span>
+        <span class="dt" style="background:#EAB308"></span>
+        <span class="dt" style="background:#3FA66A"></span>
+        <span class="b-url">toolkit.j1net.com/kvm.html</span>
+      </div>
+      <div class="b-body">
+        <div class="w-top">
+          <span class="w-logo">壹<i>匣</i></span>
+          <span class="w-nav">工作台</span><span class="w-nav">出工日志</span>
+          <span class="w-nav">安全日</span><span class="w-nav on">远程连接</span>
+          <span class="w-nav">管理</span>
+          <span class="w-user">王海峰 ▾</span>
+        </div>
+        <div class="w-main">
+          <div class="fbanner" style="margin-bottom:12px">
+            <span class="ic">⚠</span>
+            <p>本班组（运维二班）暂未接入设备，当前展示「检修一班」的设备；本班组设备组接入后自动切换、此提示消失。</p>
+          </div>
+          <div style="display:flex; gap:12px">
+            <div class="w-card" style="flex:1">
+              <div class="dv-top">
+                <view class="st st-online"><span class="dot"></span>在线</view>
+                <span class="dv-tag">检修一班</span>
+              </div>
+              <div class="dv-name" style="font-size:13.5px">银河麒麟V10</div>
+              <div class="dv-ddns">rvfe1ca</div>
+            </div>
+            <div class="w-card" style="flex:1">
+              <div class="dv-top">
+                <view class="st st-online"><span class="dot"></span>在线</view>
+                <span class="dv-tag">检修一班</span>
+              </div>
+              <div class="dv-name" style="font-size:13.5px">Windows7</div>
+              <div class="dv-ddns">sqeb05e</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><i>屏十四</i>网页端 · 远程连接计算机<small>回退提示横幅与小程序端同文案；设备卡片班组标签取自设备组归属；绑定与回退规则见附录「KVM 班组绑定与回退」</small></div>
+  </div>
+
+</div>
+
+<!-- ================= 附：规则与接口映射 ================= -->
+<div class="spec">
+  <h2>附 · <i>班组隔离</i> 规则与接口映射（待审核确认后实施）</h2>
+  <div class="grid2">
+
+    <div class="card-s">
+      <h4>三级角色与权限矩阵</h4>
+      <table>
+        <tr><th>能力</th><th>超级管理员</th><th>班组管理员</th><th>普通用户</th></tr>
+        <tr><td>班组管理（增/改/停用）</td><td class="ok-c">✓</td><td class="no-c">—</td><td class="no-c">—</td></tr>
+        <tr><td>员工管理 / 权限管理</td><td class="ok-c">✓ 全部班组</td><td class="no-c">—</td><td class="no-c">—</td></tr>
+        <tr><td>出工日志 / 安全日数据</td><td class="ok-c">✓ 切换器选班</td><td>仅本班</td><td>仅本班</td></tr>
+        <tr><td>出工字典（车牌/目的地/成员）</td><td class="ok-c">✓ 当前切换班</td><td class="ok-c">✓ 仅本班</td><td class="no-c">—</td></tr>
+        <tr><td>杆塔坐标导入</td><td class="ok-c">✓ 当前切换班</td><td class="ok-c">✓ 仅本班</td><td class="no-c">—</td></tr>
+        <tr><td>KVM / 文件传输设备</td><td class="ok-c">✓ 切换器选班</td><td>本班组（可回退）</td><td>本班组（可回退）</td></tr>
+        <tr><td>Call Me / 水印添加</td><td colspan="3">不分班组，按既有应用授权</td></tr>
+      </table>
+    </div>
+
+    <div class="card-s">
+      <h4>数据模型与迁移</h4>
+      <ul>
+        <li><b>新表 <code>sys_team</code></b>：id / name 唯一 / sort / status / <code>kvm_group_name</code>（已废弃保留列，设备组与班组同名绑定）/ created_at；种子 = 检修一班（默认班组）+ 运维二班。</li>
+        <li><b><code>sys_user</code></b>：新增 <code>team_id</code>（替代 team 文本列，旧列迁移后弃用不删）；<code>role</code> 扩为 <code>admin / team_admin / user</code>；ADMIN_USERNAME 恒为超管。</li>
+        <li><b>出工日志</b>：<code>worklog_entry / vehicle / destination / member</code> 加 <code>team_id</code>；字典唯一约束改为（班组 + 名称）。</li>
+        <li><b>新表 <code>worklog_tower</code></b>：team_id / 电压等级 / 线路名称 / 杆塔号 / 经纬度；既有 tower-coords.json 迁入检修一班。</li>
+        <li><b>迁移口径</b>：全部既有数据（用户、日志、字典、杆塔、安全日记录）归入 <b>检修一班</b>；安全日 records.json 旧记录回填 team，docs 根目录散落 docx 移入 <code>docs/检修一班/</code>（保留双路径兜底）。</li>
+        <li><b>员工调班</b>：历史数据定格在原班组（记录带 team_id），新数据进新班组。</li>
+      </ul>
+    </div>
+
+    <div class="card-s">
+      <h4>接口变更清单</h4>
+      <ul>
+        <li><b>班组</b>：<code>GET/POST/PUT/DELETE /admin/teams</code>（超管；DELETE 仅限无数据班组）。</li>
+        <li><b>员工</b>：<code>GET /admin/users?team_id=</code> 增加筛选；新建 / 编辑支持 <code>team_id</code> + <code>role</code> 三态（team_admin 必须有班组）。</li>
+        <li><b>出工日志</b>：全部业务接口按班组强制过滤（防按 id 越权）；超管以 <code>?team_id=</code> 指定目标班组；<code>/worklog/admin/*</code> 字典接口放开为 超管 或 本班 team_admin。</li>
+        <li><b>杆塔</b>：<code>GET /worklog/towers</code> 按班组出数；新增 <code>GET /worklog/towers/template</code>（模板下载）与 <code>POST /worklog/towers/import</code>（xlsx 全量替换本班坐标）。</li>
+        <li><b>安全日</b>：<code>/records</code> 按班组过滤（超管可 <code>?team=</code> 或全部）；下载 / 预览 / 删除校验记录班组归属。</li>
+        <li><b>KVM</b>：<code>/kvm/devices</code> 按本班组绑定设备组过滤；回退时响应带 <code>fallback: true</code> 与来源班组名。</li>
+        <li><b>依赖</b>：新增 <code>xlsx</code>（SheetJS，纯 JS 无原生编译）用于导入解析与模板生成。</li>
+      </ul>
+    </div>
+
+    <div class="card-s">
+      <h4>存储与路径规则</h4>
+      <ul>
+        <li><b>COS 照片</b>：<code>{COS_WORKLOG_PREFIX}{班组名}/{yyyy.MM.dd}/{entryId}-{ts}.jpg</code></li>
+        <li><b>COS 备注附件</b>：<code>{COS_WORKLOG_PREFIX}remark/{班组名}/{yyyy.MM.dd}/{entryId}-{ts}.{ext}</code></li>
+        <li><b>安全日产物</b>：<code>{SAFEDAY_DATA_DIR}/docs/{班组名}/{date}.docx</code></li>
+        <li>旧数据一律不搬迁 COS / 不动存量 key（库内已存全量 url / cos_key，天然兼容）；仅安全日 docs 根目录旧文件启动时移入默认班班子目录。</li>
+      </ul>
+    </div>
+
+    <div class="card-s">
+      <h4>Dify 侧配套改动（需在工作流控制台完成）</h4>
+      <ul>
+        <li>工作流添加入参 <code>class</code>（服务端注入，= 当前用户 / 所选班组，前端不传）。</li>
+        <li>写文件节点改为写入 <code>docs/{class}/</code> 子目录（先建目录），文件名不变。</li>
+        <li>回调请求体加 <code>class</code>，否则多班组同时生成时会互相误判失败。</li>
+      </ul>
+      <pre>POST https://toolkit.j1net.com/api/v1/safeday/callback?token=&lt;SAFEDAY_CALLBACK_TOKEN&gt;
+Content-Type: application/json
+
+{
+  "date":  "2026.08.10",   <em>// 可选，与现行为一致</em>
+  "class": "检修一班"        <em>// 新增：只终判该班组处理中的记录</em>
+}</pre>
+    </div>
+
+    <div class="card-s">
+      <h4>KVM 班组绑定与回退</h4>
+      <ul>
+        <li>平台设备对象自带 <code>deviceGroupName</code>（现有设备卡片的班组标签即取自它），<b>设备组与班组同名绑定</b>（约定平台设备组名 = 班组名，无需单独设置，也无需数字 ID）。</li>
+        <li><b>生效设备</b> = 当前员工平台可见设备中 <code>deviceGroupName</code> 命中本班组名的设备（服务端拉全量后按名称过滤，不走平台 groupId 参数）；<b>组内 0 台</b> → 回退默认班组（检修一班）设备 + 提示横幅。</li>
+        <li>组内一旦有设备（无论在线离线）即只显示本班组设备，回退自动解除。</li>
+        <li><b>班组改名后</b>，GLKVM 平台侧设备组需同步改名，否则触发回退提示。</li>
+        <li><b>平台侧前提</b>：员工平台账号需对「本班组组 + 回退组」均可见（平台授权设备组），否则列表为空。</li>
+        <li>远程连接（PC）与文件传输（小程序）共用 <code>/kvm/devices</code>，同一口径。</li>
+      </ul>
+    </div>
+
+    <div class="card-s">
+      <h4>出工成员同步 与 杆塔导入规则</h4>
+      <ul>
+        <li><b>成员默认同步</b>：班组内所有账号的昵称自动进入本班出工成员字典（启用、sort 追加），标记「账号同步」。</li>
+        <li><b>触发点</b>：新建员工 / 改昵称 / 调班组 / 停启用账号；<b>只增不删</b>——调出或停用账号 → 成员自动停用（保留历史引用）。</li>
+        <li><b>手动增补</b>：非账号人员（如外协）仍可手动添加 / 改名 / 停启用 / 排序；同班同名去重。</li>
+        <li><b>杆塔导入</b>：模板列固定「电压等级 / 线路名称 / 杆塔号 / 经度 / 纬度」；导入为<b>本班组全量替换</b>（先校验后落库，缺列行跳过并提示行数）；超管按当前切换班组导入。</li>
+        <li><b>未分配班组</b>：子应用统一空态「未分配班组，请联系管理员」；超管无班组时默认落第一个班组。</li>
+      </ul>
+    </div>
+
+    <div class="card-s">
+      <h4>不在本次范围（确认项）</h4>
+      <ul>
+        <li>Call Me、水印添加不分班组（Call Me 会话本来就按用户隔离）。</li>
+        <li>权限管理（应用授权）仍为超管专属，不开放给班组管理员；「按班组批量授权」暂不做。</li>
+        <li>出工日志「仅看我」口径不变（按昵称匹配本班成员字典）。</li>
+        <li>班组改名对出工 / 员工数据无感（team_id 关联），仅安全日记录与 docs 目录需级联（服务端自动处理）。</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

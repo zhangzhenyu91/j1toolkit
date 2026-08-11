@@ -99,7 +99,7 @@
               <t-cell
                 title="关于 Shade 壹匣"
                 left-icon="book"
-                note="v1.5.3"
+                note="v2.0.0"
                 arrow
                 hover
                 bordered="{{false}}"
@@ -125,8 +125,16 @@
                   note="应用授权"
                   arrow
                   hover
-                  bordered="{{false}}"
                   bind:click="goPerms"
+                />
+                <t-cell
+                  title="班组管理"
+                  left-icon="server"
+                  note="班组与设备组"
+                  arrow
+                  hover
+                  bordered="{{false}}"
+                  bind:click="goTeams"
                 />
               </view>
             </block>

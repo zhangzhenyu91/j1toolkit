@@ -1,12 +1,14 @@
 // 安全日活动记录路由（自 SafeDayLogs 独立服务合并而来，业务逻辑与请求/响应形状保持同构：
 // 响应仍为 { ok, error, ... }，非主平台 {code,message,data} 信封）
 // 鉴权：/callback 凭 SAFEDAY_CALLBACK_TOKEN 校验（不做登录）；其余接口需登录 + safe-day 应用权限
+// 班组隔离：记录带 team 字段（班组名），产物存 docs/{班组名}/ 子目录；超管可 ?team_id= 指定或 all 全部
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const multer = require('multer');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
+const teamUtil = require('../utils/team');
 const config = require('../config');
 const store = require('./store');
 const { mergePdfs } = require('./merge');
@@ -35,10 +37,20 @@ function getExt(fileName) {
   return idx === -1 ? '' : fileName.slice(idx + 1).toLowerCase();
 }
 
+// 记录产物路径：优先 docs/{班组}/ 子目录，旧记录回退 docs/ 根目录（迁移后一般不存在）
+function recordFilePath(record) {
+  const base = path.basename(record.fileName || '');
+  if (record.team) {
+    const nested = path.join(DOCS_DIR, record.team, base);
+    if (fs.existsSync(nested)) return nested;
+  }
+  return path.join(DOCS_DIR, base);
+}
+
 // 一次性判定：文件存在即置 done，不存在即置 failed
 // （Dify 回调到来时文件应已写完；不存在说明工作流未产出，判定失败）
 function judgeOnce(record) {
-  const filePath = path.join(DOCS_DIR, path.basename(record.fileName));
+  const filePath = recordFilePath(record);
   let exists = false;
   try {
     exists = fs.statSync(filePath).isFile();
@@ -66,7 +78,12 @@ router.post('/callback', (req, res) => {
   try {
     const body = req.body || {};
     const date = typeof body.date === 'string' ? body.date.trim() : '';
+    // class（班组名）可选：带上时只终判该班组处理中的记录，避免多班组并行生成时互相误判
+    const className = typeof body.class === 'string' ? body.class.trim() : '';
     let records = store.list().filter((r) => r.status === 'processing');
+    if (className) {
+      records = records.filter((r) => (r.team || '') === className);
+    }
     if (date) {
       records = records.filter((r) => r.date === date);
     }
@@ -142,6 +159,12 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
       });
     }
 
+    // 生效班组：超管可用表单 team_id 指定；其余角色固定本班（未分配拒绝生成）
+    const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id);
+    if (!team) {
+      return res.status(400).json({ ok: false, error: '未分配班组，请联系管理员分配后再生成' });
+    }
+
     // 合并或取单文件 buffer
     let fileBuffer;
     let fileName;
@@ -160,23 +183,26 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
       fileName = files[0].originalname;
     }
 
-    // 先建记录（同一 date 只保留最新一条；sources 记录上传源文件名，供列表副行展示）
+    // 先建记录（同一班组同一 date 只保留最新一条；sources 记录上传源文件名，供列表副行展示）
     const record = store.create({
       name,
       date,
       fileName: `${date}.docx`,
+      team: team.name,
       status: 'processing',
       sourceCount: files.length,
       sources: files.map((f) => f.originalname),
     });
 
-    // 上传 Dify 并触发工作流（触发后立即返回，不等工作流完成）
+    // 上传 Dify 并触发工作流（触发后立即返回，不等工作流完成）；class 供工作流写入 docs/{class}/ 子目录
     try {
+      fs.mkdirSync(path.join(DOCS_DIR, team.name), { recursive: true });
       await dify.uploadAndRun({
         fileBuffer,
         fileName,
         date,
         name,
+        className: team.name,
         onFailed: (error) => {
           store.update(record.id, { status: 'failed', error });
         },
@@ -197,9 +223,15 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
 });
 
 // 记录列表（纯读取；完成判定只在 Dify 回调时进行一次，防止误判运行中的空文件）
-router.get('/records', (req, res) => {
+// 班组过滤：超管 ?team_id=all 全部班组、?team_id=N 指定班组（缺省落自己/默认班组）；其余角色仅本班
+router.get('/records', async (req, res) => {
   try {
-    return res.json({ ok: true, records: store.list() });
+    if (req.user.role === 'admin' && String(req.query.team_id || '') === 'all') {
+      return res.json({ ok: true, records: store.list() });
+    }
+    const team = await teamUtil.resolveTeam(req.user, req.query.team_id);
+    if (!team) return res.json({ ok: true, records: [] });
+    return res.json({ ok: true, records: store.list(team.name) });
   } catch (e) {
     return res.status(500).json({
       ok: false,
@@ -208,13 +240,23 @@ router.get('/records', (req, res) => {
   }
 });
 
+// 记录归属校验：超管任意班组；其余角色仅本班（按班组名比对）
+async function canAccess(req, record) {
+  if (req.user.role === 'admin') return true;
+  const team = await teamUtil.resolveTeam(req.user);
+  return !!team && (record.team || '') === team.name;
+}
+
 // 下载产物
-router.get('/records/:id/download', (req, res) => {
+router.get('/records/:id/download', async (req, res) => {
   const record = store.get(req.params.id);
   if (!record || record.status !== 'done') {
     return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
   }
-  const filePath = path.join(DOCS_DIR, record.fileName);
+  if (!(await canAccess(req, record))) {
+    return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
+  }
+  const filePath = recordFilePath(record);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ ok: false, error: '文件不存在，可能已被清理' });
   }
@@ -222,10 +264,13 @@ router.get('/records/:id/download', (req, res) => {
 });
 
 // 在线预览：拼接 basemetas 预览地址（预览服务器凭地址内 ?token= 回源拉取文件，见上方 token 映射中间件）
-router.get('/records/:id/preview', (req, res) => {
+router.get('/records/:id/preview', async (req, res) => {
   const record = store.get(req.params.id);
   if (!record || record.status !== 'done') {
     return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
+  }
+  if (!(await canAccess(req, record))) {
+    return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
   }
   const base = config.basemetas.url.replace(/\/+$/, '');
   if (!base) {
@@ -242,14 +287,18 @@ router.get('/records/:id/preview', (req, res) => {
 });
 
 // 删除记录（连带删除已生成的 docx 文件）
-router.delete('/records/:id', (req, res) => {
+router.delete('/records/:id', async (req, res) => {
   try {
+    const target = store.get(req.params.id);
+    if (target && !(await canAccess(req, target))) {
+      return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
+    }
     const record = store.remove(req.params.id);
     if (!record) {
       return res.status(404).json({ ok: false, error: '记录不存在' });
     }
     if (record.fileName) {
-      const filePath = path.join(DOCS_DIR, path.basename(record.fileName));
+      const filePath = recordFilePath(record);
       try {
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);

@@ -5,8 +5,9 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const { ok, fail } = require('../utils/resp');
+const teamUtil = require('../utils/team');
 const geo = require('../worklog/geo');
-const { getTowers } = require('../worklog/towers');
+const towers = require('../worklog/towers');
 const { renderWatermarkedPhoto } = require('../worklog/render-photo');
 const Watermark = require('../worklog/watermark');
 
@@ -29,10 +30,13 @@ router.get('/geo', async (req, res, next) => {
   }
 });
 
-// GET /towers：检修一班杆塔坐标全量（行 = [电压等级, 线路名称, 杆塔号, 经度, 纬度]），数据读写见 worklog/towers.js
+// GET /towers：当前用户班组杆塔坐标全量（行 = [电压等级, 线路名称, 杆塔号, 经度, 纬度]），数据读写见 worklog/towers.js
+// 未分配班组返回空数组（前端三级级联显示为空列表）
 router.get('/towers', async (req, res, next) => {
   try {
-    return ok(res, getTowers());
+    const team = await teamUtil.resolveReqTeam(req);
+    if (!team) return ok(res, []);
+    return ok(res, await towers.getTowers(team.id));
   } catch (err) {
     return next(err);
   }

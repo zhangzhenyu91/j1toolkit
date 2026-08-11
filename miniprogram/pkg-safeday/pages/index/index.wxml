@@ -3,7 +3,29 @@
      上传走 wx.chooseMessageFile 聊天选取，记录点击经 wx.openDocument 打开 -->
 <navbar back title="安全日活动记录" />
 
-<view class="page-body">
+<view class="page-body" wx:if="{{!noTeam}}">
+  <!-- 班组切换器（屏八）：超管可切「全部班组」+ 各班组；其余角色为静态班组名标签 -->
+  <view class="tswitch">
+    <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
+      <text>{{teamName}}</text>
+      <text class="arr" wx:if="{{isAdmin}}">▾</text>
+    </view>
+    <view class="ts-drop" wx:if="{{teamDropOpen}}">
+      <view
+        class="ts-opt {{item.on ? 'on' : ''}}"
+        wx:for="{{teamOptions}}"
+        wx:key="id"
+        hover-class="hover-bg-warm"
+        bindtap="onTeamPick"
+        data-id="{{item.id}}"
+      >
+        <text>{{item.name}}</text>
+        <text class="ck" wx:if="{{item.on}}">✓</text>
+      </view>
+    </view>
+  </view>
+  <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
+
   <!-- 上传活动文件卡 -->
   <view class="section-title">上传活动文件</view>
   <view class="card hazard-top up-card">
@@ -38,7 +60,6 @@
           <t-icon name="calendar" size="30rpx" color="#A89F8A" />
         </view>
       </picker>
-      <view class="dp">{{dateDots}}</view>
     </view>
 
     <view class="btn-primary {{!files.length ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenTap">生成记录</view>
@@ -93,6 +114,8 @@
           hover-class="{{item.done ? 'hover-bg-warm' : ''}}" bindtap="onOpenRecord">
       <view class="rec-head">
         <view class="rn">{{item.fileName}}</view>
+        <!-- 班组徽章（.team-pill，仅「全部班组」混排视图展示） -->
+        <text class="team-pill" wx:if="{{showTeamPill && item.team}}">{{item.team}}</text>
         <view class="tag tag-{{item.status}}">
           <view wx:if="{{item.status === 'processing'}}" class="pulse-dot"></view>
           {{item.statusText}}
@@ -125,6 +148,16 @@
   </block>
   <view wx:elif="{{loading}}" class="empty-box">正在加载记录…</view>
   <view wx:else class="empty-box">暂无生成记录，上传活动文件开始生成</view>
+</view>
+
+<!-- 未分配班组空态（屏十：非超管且未加入任何班组；整页替代，不发业务请求） -->
+<view class="page-body" wx:if="{{noTeam}}">
+  <view class="team-empty">
+    <view class="te-ic">👷</view>
+    <view class="te-t">未分配班组</view>
+    <view class="te-p">你的账号尚未加入任何班组，暂无可查看的数据。</view>
+    <view class="te-p">请联系超级管理员分配班组后再使用。</view>
+  </view>
 </view>
 
 <!-- 记录名称确认弹层（确认后开始生成；键盘弹起时动态抬高底部 padding，同出工日志弹层） -->

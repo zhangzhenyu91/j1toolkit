@@ -69,8 +69,9 @@ async function consumeStream(response, onFailed) {
  * 上传文件到 Dify 并触发工作流。
  * 触发成功后立即返回，SSE 流在后台消费；
  * 工作流 failed/stopped 或流读取异常时调用 onFailed(error)。
+ * className = 班组名：工作流据此把产物写入 docs/{class}/ 班组子目录，并在回调中带回 class
  */
-async function uploadAndRun({ fileBuffer, fileName, date, name, onFailed }) {
+async function uploadAndRun({ fileBuffer, fileName, date, name, className, onFailed }) {
   const base = BASE_URL();
   if (!base || !API_KEY()) {
     throw new Error('未配置 DIFY_API_URL 或 DIFY_SAFEDAY_API_KEY');
@@ -112,6 +113,7 @@ async function uploadAndRun({ fileBuffer, fileName, date, name, onFailed }) {
         },
         date,
         name,
+        class: className || '',
       },
       response_mode: 'streaming',
       user: USER(),

@@ -33,14 +33,16 @@ function writeAll(records) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(records, null, 2), 'utf8');
 }
 
-// 按 createdAt 倒序
-function list() {
-  return readAll().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+// 按 createdAt 倒序；teamName 传入时只列该班组
+function list(teamName) {
+  const all = readAll().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  if (!teamName) return all;
+  return all.filter((r) => (r.team || '') === teamName);
 }
 
-// 同一 date 只保留最新一条：插入前删除同 date 旧记录
+// 同一（班组 + date）只保留最新一条：插入前删除同班组同 date 旧记录
 function create(record) {
-  const records = readAll().filter((r) => r.date !== record.date);
+  const records = readAll().filter((r) => !(r.date === record.date && (r.team || '') === (record.team || '')));
   const full = {
     id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     status: 'processing',
@@ -77,4 +79,32 @@ function remove(id) {
   return removed;
 }
 
-module.exports = { list, create, update, get, remove };
+// 班组迁移：无 team 字段的旧记录统一回填为指定班组名；返回是否有改动
+function backfillTeam(defaultTeamName) {
+  const records = readAll();
+  let changed = false;
+  for (const r of records) {
+    if (!r.team) {
+      r.team = defaultTeamName;
+      changed = true;
+    }
+  }
+  if (changed) writeAll(records);
+  return changed;
+}
+
+// 班组改名级联：同步改写所有记录的 team 字段；返回改动条数
+function renameTeam(oldName, newName) {
+  const records = readAll();
+  let count = 0;
+  for (const r of records) {
+    if (r.team === oldName) {
+      r.team = newName;
+      count++;
+    }
+  }
+  if (count) writeAll(records);
+  return count;
+}
+
+module.exports = { list, create, update, get, remove, backfillTeam, renameTeam };

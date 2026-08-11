@@ -11,6 +11,7 @@ const { pool } = require('../db');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const { ok, fail } = require('../utils/resp');
+const teamUtil = require('../utils/team');
 const glkvm = require('./glkvm');
 
 const router = express.Router();
@@ -48,11 +49,53 @@ function requireAnyApp(appKeys) {
 
 const KVM_OR_FT = ['kvm', 'file-transfer'];
 
-// 设备列表（透传 q/status/groupId 过滤；以当前员工账号代登平台，可见范围随其平台权限）
+// 班组设备口径（远程连接与文件传输同一套）：
+// 生效设备 = 当前员工平台可见设备中 deviceGroupName 命中本班组名的设备（设备组与班组同名绑定，无需单独设置）；
+// 本班组组内 0 台 → 回退默认班组（首个启用班组，即检修一班）设备，响应带 fallback 标记供前端提示
+async function teamDevices(req) {
+  const team = await teamUtil.resolveReqTeam(req);
+  if (!team) return { team: null, items: [], fallback: false, fallbackTeam: '' };
+  const all = await glkvm.listDevices(req.query, req.user.username);
+  let items = all.filter((d) => (d.deviceGroupName || '') === team.name);
+  let fallback = false;
+  let fallbackTeam = '';
+  if (!items.length) {
+    const def = await teamUtil.getDefaultTeam();
+    if (def && def.id !== team.id) {
+      items = all.filter((d) => (d.deviceGroupName || '') === def.name);
+      if (items.length) {
+        fallback = true;
+        fallbackTeam = def.name;
+      }
+    }
+  }
+  return { team, items, fallback, fallbackTeam };
+}
+
+// 校验目标设备在当前生效班组可见集内（含回退集），防跨班组按 id / ddns 直访
+async function assertTeamDevice(req, { id, ddns }) {
+  const ctx = await teamDevices(req);
+  const dev = ctx.items.find(
+    (d) => (id && Number(d.id) === Number(id)) || (ddns && String(d.ddns) === String(ddns))
+  );
+  if (!dev) {
+    const err = new Error('设备不存在，或不属于当前班组');
+    err.status = 404;
+    throw err;
+  }
+  return dev;
+}
+
+// 设备列表（透传 q/status 过滤；以当前员工账号代登平台，可见范围随其平台权限；再按班组过滤 + 回退）
 router.get('/devices', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
-    const items = await glkvm.listDevices(req.query, req.user.username);
-    return ok(res, { items });
+    const ctx = await teamDevices(req);
+    return ok(res, {
+      items: ctx.items,
+      team: ctx.team ? ctx.team.name : '',
+      fallback: ctx.fallback,
+      fallback_team: ctx.fallbackTeam,
+    });
   } catch (err) {
     // glkvm.js 抛出的均为组装好的对用户可读文案
     return fail(res, 502, 50201, err && err.message ? err.message : 'GLKVM 平台访问失败');
@@ -74,12 +117,13 @@ router.post('/jump', requireApp('kvm'), async (req, res) => {
   // ddns 仅允许字母数字与 . _ -（禁止路径字符，防拼接注入）
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(ddns)) return fail(res, 400, 40001, '参数错误：ddns');
   try {
+    await assertTeamDevice(req, { ddns }); // 仅可跳本班组（含回退集）设备
     const sid = await glkvm.getSessionToken(req.user.username);
     const url = `${config.kvm.url}/jump.html#sid=${encodeURIComponent(sid)}` +
       `&to=${encodeURIComponent(build(ddns))}`;
     return ok(res, { url });
   } catch (err) {
-    return fail(res, 502, 50201, err && err.message ? err.message : 'GLKVM 平台访问失败');
+    return fail(res, err.status || 502, 50201, err && err.message ? err.message : 'GLKVM 平台访问失败');
   }
 });
 
@@ -99,6 +143,7 @@ function relayFail(res, err) {
 // 挂载状态查询（设备 /status：被动查询不切换状态；shared=true 表示已共享给被控机）
 router.get('/devices/:id/status', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
+    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.get(`${ps.origin}/api/fileshare/status`, {
       headers: { Cookie: ps.cookie }, timeout: 60000,
@@ -112,6 +157,7 @@ router.get('/devices/:id/status', requireAnyApp(KVM_OR_FT), async (req, res) => 
 // 盘内文件列表（设备 /list：共享中则先断开）
 router.get('/devices/:id/files', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
+    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.get(`${ps.origin}/api/fileshare/list`, {
       headers: { Cookie: ps.cookie }, timeout: 60000,
@@ -127,6 +173,7 @@ router.post('/devices/:id/push', requireAnyApp(KVM_OR_FT), upload.array('files',
   const files = req.files || [];
   if (!files.length) return fail(res, 400, 40001, '请至少上传一个文件（字段名 files）');
   try {
+    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const fd = new FormData();
     for (const f of files) {
@@ -154,6 +201,7 @@ router.get('/devices/:id/download', requireAnyApp(KVM_OR_FT), async (req, res) =
   const name = String(req.query.name || '');
   if (!name) return fail(res, 400, 40001, '参数错误：name');
   try {
+    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.get(
       `${ps.origin}/api/fileshare/download/${encodeURIComponent(name)}`,
@@ -171,6 +219,7 @@ router.get('/devices/:id/download', requireAnyApp(KVM_OR_FT), async (req, res) =
 // 挂载（共享）到被控机（设备 /mount；推送全部完成后再调一次）
 router.post('/devices/:id/mount', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
+    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.post(`${ps.origin}/api/fileshare/mount`, null, {
       headers: { Cookie: ps.cookie }, timeout: 60000,
@@ -188,6 +237,7 @@ router.post('/devices/:id/delete', requireAnyApp(KVM_OR_FT), async (req, res) =>
     return fail(res, 400, 40001, '参数错误：names（文件名数组）');
   }
   try {
+    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.post(`${ps.origin}/api/fileshare/delete`,
       { names: names.map((n) => String(n).slice(0, 255)) },

@@ -4,6 +4,7 @@
     "navbar": "/components/navbar/navbar",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-segmented": "tdesign-miniprogram/segmented/segmented",
+    "t-popup": "tdesign-miniprogram/popup/popup",
     "t-toast": "tdesign-miniprogram/toast/toast"
   }
 }

@@ -26,11 +26,16 @@ function publicUser(u) {
     username: u.username,
     nickname: u.nickname,
     avatar: u.avatar,
-    team: u.team,
+    team: u.team_name || '', // 班组名（sys_team 关联；未分配为空串）
+    team_id: u.team_id || null,
     role: u.role,
     wx_bound: !!u.openid, // 是否已绑定微信（前端据此允许静默微信登录）
   };
 }
+
+// 登录类查询统一口径：联出班组名
+const USER_SELECT =
+  'SELECT u.*, t.name AS team_name FROM sys_user u LEFT JOIN sys_team t ON t.id = u.team_id';
 
 // 用微信 code 换取 openid/unionid（失败抛错，调用方自行映射为响应）
 async function code2openid(code) {
@@ -56,7 +61,7 @@ router.post('/login', async (req, res, next) => {
     const { username, password, wx_code: wxCode } = req.body || {};
     if (!username || !password) return fail(res, 400, 40001, '请输入账号和密码');
 
-    const [rows] = await pool.query('SELECT * FROM sys_user WHERE username = ? AND status = 1', [username]);
+    const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [username]);
     const user = rows[0];
     if (!user || !user.password_hash) return fail(res, 401, 40111, '账号或密码错误');
 
@@ -107,7 +112,7 @@ router.post('/app-login', async (req, res, next) => {
     const { username, password, app_key: appKey } = req.body || {};
     if (!username || !password || !appKey) return fail(res, 400, 40001, '请输入账号和密码');
 
-    const [rows] = await pool.query('SELECT * FROM sys_user WHERE username = ? AND status = 1', [username]);
+    const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [username]);
     const user = rows[0];
     if (!user || !user.password_hash) return fail(res, 401, 40111, '账号或密码错误');
 
@@ -147,7 +152,7 @@ router.post('/wx-login', async (req, res, next) => {
     }
     const { openid } = wxData;
 
-    const [rows] = await pool.query('SELECT * FROM sys_user WHERE openid = ?', [openid]);
+    const [rows] = await pool.query(`${USER_SELECT} WHERE u.openid = ?`, [openid]);
     const user = rows[0];
     if (!user) {
       // 微信号未绑定任何账号：不再自动创建独立账号，引导用户先用账号密码登录完成绑定

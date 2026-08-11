@@ -96,7 +96,13 @@ Page({
     weekText: '',
     isToday: false,
     isAdmin: false,
-    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理·仅 admin / 批量下载 / 验证报告 / 新建日志）
+    canManage: false, // 「数据管理」入口可见性：超管 / 班组管理员
+    // 班组切换器（屏五）：超管可点 chip 下拉切换生效班组；其余角色为静态班组名标签
+    noTeam: false, // 非超管且未分配班组：整页空态（屏十），不发业务请求
+    teamName: '', // 切换器 chip 展示名
+    teamOptions: [], // 超管下拉选项 [{id, name, on}]
+    teamDropOpen: false,
+    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理·超管与班组管理员 / 批量下载 / 验证报告 / 新建日志）
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
@@ -236,13 +242,100 @@ Page({
     if (this.data.gate) return;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
     this._myName = user.nickname || ''; // 「仅看我」匹配成员名用（同后端 scope=mine 口径）
-    this.setData({ gate: true, isAdmin: user.role === 'admin' });
+    this._role = user.role || 'user';
+    this._teamId = 0; // 生效班组 id（仅超管经切换器指定；0=不带参数，后端落自己/默认班组）
+    // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
+    if (this._role !== 'admin' && !user.team) {
+      this.setData({ gate: true, noTeam: true, loading: false });
+      return;
+    }
+    this.setData({
+      gate: true,
+      isAdmin: this._role === 'admin',
+      canManage: this._role === 'admin' || this._role === 'team_admin',
+      teamName: user.team || '',
+    });
+    if (this._role === 'admin') {
+      this.initTeams(user); // 超管先定生效班组，再整页加载
+      return;
+    }
     this.loadMeta();
     this.loadLogs();
   },
 
+  // ---------- 班组切换器（屏五；仅超管可切换，其余角色静态展示本班名） ----------
+
+  // 超管：拉启用班组（/admin/teams 取 status=1）→ 生效班组（storage 优先 → 自己班组 → 第一个）→ 整页数据
+  async initTeams(user) {
+    let teams = [];
+    try {
+      const data = await request({ url: '/api/v1/admin/teams' });
+      teams = ((data && data.list) || []).filter((t) => t.status === 1);
+    } catch (err) {
+      this.toast(err.message);
+    }
+    this._teams = teams;
+    const saved = Number(wx.getStorageSync('worklog_team_id')) || 0;
+    const cur = teams.find((t) => t.id === saved)
+      || teams.find((t) => t.id === Number(user.team_id))
+      || teams[0] || null;
+    this.applyTeam(cur ? cur.id : 0, false);
+    this.loadMeta();
+    this.loadLogs();
+  },
+
+  // 生效班组 query 片段（lead 为前导连接符；仅超管 _teamId>0 时携带，其余角色后端强制本班无需传）
+  teamQuery(lead) {
+    return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
+  },
+
+  // 生效班组 body 注入（POST/PUT JSON 用，口径同 teamQuery）
+  teamBody(data) {
+    return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
+  },
+
+  // 记录当前生效班组并刷新切换器展示；switching=true 表示用户主动切换，整页口径随之重拉
+  applyTeam(id, switching) {
+    this._teamId = id;
+    if (id) wx.setStorageSync('worklog_team_id', id);
+    const cur = ((this._teams || []).find((t) => t.id === id)) || null;
+    this.setData({
+      teamName: cur ? cur.name : this.data.teamName,
+      teamDropOpen: false,
+      teamOptions: (this._teams || []).map((t) => ({ id: t.id, name: t.name, on: t.id === id })),
+    });
+    if (!switching) return;
+    // 切换班组 = 整页口径变化：清日历着色缓存与杆塔坐标缓存，重拉全部数据（含开着的面板）
+    Object.keys(DAY_STATUS).forEach((k) => delete DAY_STATUS[k]);
+    this._dayStatusMonths = {};
+    this.setData({ towerRows: null });
+    this.loadMeta();
+    this.loadLogs();
+    this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
+    if (this.data.dlVisible) this.loadDlPhotos();
+    if (this.data.rpVisible) this.loadReport();
+  },
+
+  onTeamChipTap() {
+    if (!this.data.isAdmin || !(this._teams || []).length) return;
+    this.setData({ teamDropOpen: !this.data.teamDropOpen });
+  },
+
+  onTeamDropClose() {
+    if (this.data.teamDropOpen) this.setData({ teamDropOpen: false });
+  },
+
+  onTeamPick(e) {
+    const id = Number(e.currentTarget.dataset.id);
+    if (!id || id === this._teamId) {
+      this.setData({ teamDropOpen: false });
+      return;
+    }
+    this.applyTeam(id, true);
+  },
+
   onShow() {
-    if (this.data.gate) this.loadLogs();
+    if (this.data.gate && !this.data.noTeam) this.loadLogs();
   },
 
   onHide() {
@@ -351,7 +444,7 @@ Page({
     this.clearPoll();
     this.setData({ loading: true });
     try {
-      const data = await request({ url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}` });
+      const data = await request({ url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}${this.teamQuery()}` });
       const list = ((data && data.list) || []).map((e) => {
         const photos = (e.photos || []).map(mapPhoto);
         const remarkFiles = (e.remark_files || []).map((f) => ({ ...f }));
@@ -481,7 +574,7 @@ Page({
       return;
     }
     try {
-      const data = await request({ url: `/api/v1/worklog/day-status?month=${month}${this.scopeQuery()}` });
+      const data = await request({ url: `/api/v1/worklog/day-status?month=${month}${this.scopeQuery()}${this.teamQuery()}` });
       Object.assign(DAY_STATUS, (data && data.map) || {});
       this._dayStatusMonths[month] = true;
       this.recolorCalendar();
@@ -509,7 +602,7 @@ Page({
   async onRetryVerify(e) {
     const { pid } = e.currentTarget.dataset;
     try {
-      await request({ url: `/api/v1/worklog/photos/${pid}/verify`, method: 'POST' });
+      await request({ url: `/api/v1/worklog/photos/${pid}/verify`, method: 'POST', data: this.teamBody({}) });
       this.toast('已重新提交验证');
       this.loadLogs();
     } catch (err) {
@@ -536,6 +629,7 @@ Page({
       const data = await request({
         url: `/api/v1/worklog/logs/${entryId}/members/${mid}/check`,
         method: 'PUT',
+        data: this.teamBody({}),
       });
       const ei = this.data.list.findIndex((x) => x.id === entryId);
       if (ei >= 0) {
@@ -553,7 +647,7 @@ Page({
   // meta：车牌/目的地/成员（下拉与点亮数据源），passGate 后加载
   async loadMeta() {
     try {
-      const data = await request({ url: '/api/v1/worklog/meta' });
+      const data = await request({ url: `/api/v1/worklog/meta${this.teamQuery('?')}` });
       this._vehicles = (data && data.vehicles) || [];
       this._destinations = (data && data.destinations) || [];
       this.setData({ members: ((data && data.members) || []).map((m) => ({ ...m, checked: false })) });
@@ -754,9 +848,9 @@ Page({
     this.setData({ formSaving: true });
     try {
       if (this.data.formId) {
-        await request({ url: `/api/v1/worklog/logs/${this.data.formId}`, method: 'PUT', data: this.buildPayload() });
+        await request({ url: `/api/v1/worklog/logs/${this.data.formId}`, method: 'PUT', data: this.teamBody(this.buildPayload()) });
       } else {
-        await request({ url: '/api/v1/worklog/logs', method: 'POST', data: this.buildPayload() });
+        await request({ url: '/api/v1/worklog/logs', method: 'POST', data: this.teamBody(this.buildPayload()) });
       }
       this.setData({ formVisible: false, formSaving: false, dropType: '', keyboardHeight: 0 });
       this.loadLogs();
@@ -827,12 +921,12 @@ Page({
       await request({
         url: `/api/v1/worklog/logs/${entry.id}`,
         method: 'PUT',
-        data: {
+        data: this.teamBody({
           patrol_content: this.data.patrolDraft,
           vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
           destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
           member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
-        },
+        }),
       });
       this.setData({ patrolVisible: false, patrolSaving: false, keyboardHeight: 0 });
       this.loadLogs();
@@ -991,14 +1085,14 @@ Page({
       await request({
         url: `/api/v1/worklog/logs/${entry.id}`,
         method: 'PUT',
-        data: {
+        data: this.teamBody({
           patrol_content: entry.patrol,
           vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
           destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
           member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
           remark: this.data.rmkDraft.trim(),
           remark_files: metas,
-        },
+        }),
       });
       this.setData({ rmkVisible: false, rmkSaving: false, keyboardHeight: 0 });
       this.toast('备注已保存');
@@ -1018,7 +1112,7 @@ Page({
         filePath: f.tempFilePath,
         name: 'file',
         header: token ? { Authorization: `Bearer ${token}` } : {},
-        formData: { name: f.name },
+        formData: this._teamId ? { name: f.name, team_id: this._teamId } : { name: f.name },
         success: (res) => {
           let body = {};
           try {
@@ -1182,7 +1276,7 @@ Page({
         await request({
           url: `/api/v1/worklog/photos/${this.data.memberPhotoId}/members`,
           method: 'PUT',
-          data: { members: names },
+          data: this.teamBody({ members: names }),
         });
         this.setData({ memberVisible: false });
         this.toast('人名已修改');
@@ -1533,16 +1627,17 @@ Page({
   // ---------- 选择杆塔坐标（有/无历史预填场景均可进入） ----------
 
   // 杆塔坐标数据：storage 缓存优先并后台静默刷新；无缓存则请求服务端（全量约 1366 行）
+  // 坐标按班组隔离：缓存键带生效班组 id，避免串班组的旧缓存（切换班组后 applyTeam 已清 towerRows）
   loadTowerRows() {
-    const KEY = 'worklog_towers';
+    const KEY = `worklog_towers_${this._teamId || 0}`;
     const cached = wx.getStorageSync(KEY);
     if (cached && Array.isArray(cached.rows) && cached.rows.length) {
-      request({ url: '/api/v1/worklog/towers', timeout: 10000 })
+      request({ url: `/api/v1/worklog/towers${this.teamQuery('?')}`, timeout: 10000 })
         .then((r) => { if (r && Array.isArray(r.rows) && r.rows.length) wx.setStorageSync(KEY, r); })
         .catch(() => {});
       return Promise.resolve(cached.rows);
     }
-    return request({ url: '/api/v1/worklog/towers', timeout: 10000 }).then((r) => {
+    return request({ url: `/api/v1/worklog/towers${this.teamQuery('?')}`, timeout: 10000 }).then((r) => {
       if (!r || !Array.isArray(r.rows) || !r.rows.length) throw new Error('杆塔坐标数据为空');
       wx.setStorageSync(KEY, r);
       return r.rows;
@@ -1826,7 +1921,7 @@ Page({
       const data = await request({
         url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
         method: 'POST',
-        data: wm ? { image, members, wm } : { image, members },
+        data: this.teamBody(wm ? { image, members, wm } : { image, members }),
         timeout: 120000,
       });
       // 加水印流程：服务端完成加水印后，把加了水印的照片自动存入用户相册（失败不阻塞上传）
@@ -1872,7 +1967,7 @@ Page({
     })
       .then(async () => {
         try {
-          await request({ url: `/api/v1/worklog/photos/${pid}`, method: 'DELETE' });
+          await request({ url: `/api/v1/worklog/photos/${pid}${this.teamQuery('?')}`, method: 'DELETE' });
           this.toast('已删除');
           this.loadLogs();
         } catch (err) {
@@ -1894,7 +1989,7 @@ Page({
     })
       .then(async () => {
         try {
-          await request({ url: `/api/v1/worklog/logs/${id}`, method: 'DELETE' });
+          await request({ url: `/api/v1/worklog/logs/${id}${this.teamQuery('?')}`, method: 'DELETE' });
           this.toast('已删除');
           this.loadLogs();
         } catch (err) {
@@ -1945,7 +2040,7 @@ Page({
     this.setData({ dlLoading: true });
     try {
       const { dlFrom, dlTo } = this.data;
-      const data = await request({ url: `/api/v1/worklog/photos?from=${dlFrom}&to=${dlTo}` });
+      const data = await request({ url: `/api/v1/worklog/photos?from=${dlFrom}&to=${dlTo}${this.teamQuery()}` });
       this._dlRaw = (data && data.list) || [];
       this.buildDlGroups();
       this.setData({ dlRangeText: `${dlFrom} ~ ${dlTo}`, dlLoading: false });
@@ -2150,7 +2245,7 @@ Page({
     this.setData({ rpLoading: true });
     try {
       const { rpFrom, rpTo } = this.data;
-      const data = await request({ url: `/api/v1/worklog/report?from=${rpFrom}&to=${rpTo}${this.scopeQuery()}` });
+      const data = await request({ url: `/api/v1/worklog/report?from=${rpFrom}&to=${rpTo}${this.scopeQuery()}${this.teamQuery()}` });
       const list = (data && data.list) || [];
       const groups = [];
       const groupMap = {};

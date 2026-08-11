@@ -358,9 +358,11 @@ Page({
 
   // ---------- 选择杆塔坐标 ----------
 
-  // 杆塔坐标数据：storage 缓存优先并后台静默刷新；无缓存则请求服务端（与出工日志共用同一 storage 键）
+  // 杆塔坐标数据：storage 缓存优先并后台静默刷新；无缓存则请求服务端
+  // 坐标按班组隔离：缓存键带本人班组 id（userInfo.team_id），避免串班组的旧缓存
   loadTowerRows() {
-    const KEY = 'worklog_towers';
+    const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
+    const KEY = `worklog_towers_${user.team_id || 0}`;
     const cached = wx.getStorageSync(KEY);
     if (cached && Array.isArray(cached.rows) && cached.rows.length) {
       request({ url: '/api/v1/wmadd/towers', timeout: 10000 })

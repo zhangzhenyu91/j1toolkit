@@ -2,9 +2,12 @@
 // 上传活动文件 → 确认记录名称 → 提交生成 → 进度卡跟踪 → 记录列表 5s 轮询至终态）
 // 上传：wx.chooseMessageFile 从聊天选取；下载：wx.downloadFile 取回后 wx.openDocument 打开
 // 接口信封 {ok,error,...}（非主平台 {code,message,data}），故不用 utils/request，本地封装 sdFetch
+// 班组口径（屏八）：超管顶部切换器可选「全部班组」+ 各班组（records 带 team_id，全部=all）；
+// 其余角色固定本班；非超管未分配班组 → 整页空态（屏十）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { BASE_URL } from '../../../config';
+import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 
 const API_BASE = '/api/v1/safeday';
@@ -98,9 +101,15 @@ const phasePct = (phase) => ({ parse: 45, dify: 75, done: 100 }[phase] || 75);
 Page({
   data: {
     gate: false, // 门控（参照首页 gate 模式）
+    // 班组切换器（屏八）：超管可切「全部班组」+ 各班组；其余角色为静态班组名标签
+    isAdmin: false,
+    noTeam: false, // 非超管且未分配班组：整页空态（屏十），不发业务请求
+    teamName: '',
+    teamOptions: [], // [{id('all' 或班组 id), name, on}]
+    teamDropOpen: false,
+    showTeamPill: false, // 仅「全部班组」混排视图在记录行显示班组徽章
     files: [], // 已选待上传文件 [{name, size, sizeText, path}]
-    dateStr: '', // 活动日期 YYYY-MM-DD（picker 值）
-    dateDots: '', // 提交格式 YYYY.MM.DD
+    dateStr: '', // 活动日期 YYYY-MM-DD（picker 值；提交时转 YYYY.MM.DD）
     // 生成进度卡
     track: null, // {id,name,sourceCount,createdText,phase,error}
     steps: [], // [{t,s,state}] state: done/doing/todo/fail
@@ -118,8 +127,7 @@ Page({
   },
 
   onLoad() {
-    const today = todayISO();
-    this.setData({ dateStr: today, dateDots: toDots(today) });
+    this.setData({ dateStr: todayISO() });
 
     // gate 兜底：首页宫格已做权限过滤，此处仅保证登录态就绪后再加载
     if (wx.getStorageSync('token')) {
@@ -139,13 +147,90 @@ Page({
 
   passGate() {
     if (this.data.gate) return;
-    this.setData({ gate: true });
+    const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
+    this._role = user.role || 'user';
+    this._teamSel = 'all'; // 超管切换器选中值：'all' 或班组 id（仅超管生效）
+    // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
+    if (this._role !== 'admin' && !user.team) {
+      this.setData({ gate: true, noTeam: true, loading: false, cntText: '' });
+      return;
+    }
+    this.setData({ gate: true, isAdmin: this._role === 'admin', teamName: user.team || '' });
+    if (this._role === 'admin') {
+      this.initTeams(user); // 超管先定选中班组，再拉记录
+      return;
+    }
     this.refreshRecords(true);
+  },
+
+  // ---------- 班组切换器（屏八；仅超管可切换，其余角色静态展示本班名） ----------
+
+  // 超管：拉启用班组（/admin/teams 取 status=1，主平台信封故走 utils/request）→
+  // 选中项（storage 优先 → 自己班组 → 第一项「全部班组」）→ 记录列表
+  async initTeams(user) {
+    let teams = [];
+    try {
+      const data = await request({ url: '/api/v1/admin/teams' });
+      teams = ((data && data.list) || []).filter((t) => t.status === 1);
+    } catch (err) {
+      this.toast(err.message);
+    }
+    this._teams = teams;
+    const saved = String(wx.getStorageSync('safeday_team_id') || '');
+    let sel = 'all';
+    if (saved === 'all' || (saved && teams.some((t) => t.id === Number(saved)))) {
+      sel = saved === 'all' ? 'all' : Number(saved);
+    } else if (teams.some((t) => t.id === Number(user.team_id))) {
+      sel = Number(user.team_id);
+    }
+    this.applyTeam(sel, false);
+    this.refreshRecords(true);
+  },
+
+  // 记录当前选中班组并刷新切换器展示；switching=true 表示用户主动切换，重拉记录列表
+  applyTeam(sel, switching) {
+    this._teamSel = sel;
+    wx.setStorageSync('safeday_team_id', String(sel));
+    const all = sel === 'all';
+    const cur = all ? null : (this._teams || []).find((t) => t.id === sel);
+    this.setData({
+      teamName: all ? '全部班组' : (cur ? cur.name : this.data.teamName),
+      teamDropOpen: false,
+      showTeamPill: all, // 仅「全部班组」混排视图显示班组徽章
+      teamOptions: [{ id: 'all', name: '全部班组', on: all }].concat(
+        (this._teams || []).map((t) => ({ id: t.id, name: t.name, on: !all && t.id === sel }))
+      ),
+    });
+    if (switching) this.refreshRecords(false);
+  },
+
+  onTeamChipTap() {
+    if (!this.data.isAdmin || !(this._teams || []).length) return;
+    this.setData({ teamDropOpen: !this.data.teamDropOpen });
+  },
+
+  onTeamDropClose() {
+    if (this.data.teamDropOpen) this.setData({ teamDropOpen: false });
+  },
+
+  onTeamPick(e) {
+    const { id } = e.currentTarget.dataset;
+    const sel = id === 'all' ? 'all' : Number(id);
+    if (sel === this._teamSel) {
+      this.setData({ teamDropOpen: false });
+      return;
+    }
+    this.applyTeam(sel, true);
+  },
+
+  // records 的生效班组参数（仅超管携带：'all'=全部班组）
+  teamQuery() {
+    return this._role === 'admin' ? `?team_id=${this._teamSel || 'all'}` : '';
   },
 
   onShow() {
     // 切回页面时静默刷新一次（生成可能已完成）；轮询随 refresh 内部恢复
-    if (this.data.gate && this._loaded) this.refreshRecords(false);
+    if (this.data.gate && !this.data.noTeam && this._loaded) this.refreshRecords(false);
   },
 
   onHide() {
@@ -161,6 +246,10 @@ Page({
   },
 
   onPullDownRefresh() {
+    if (this.data.noTeam) {
+      wx.stopPullDownRefresh();
+      return;
+    }
     this.refreshRecords(false).finally(() => wx.stopPullDownRefresh());
   },
 
@@ -219,7 +308,7 @@ Page({
   },
 
   refreshRecords(isInitial) {
-    return this.sdFetch('/records')
+    return this.sdFetch(`/records${this.teamQuery()}`)
       .then((data) => {
         const records = data.records || [];
         this._records = records; // 原始记录（下载取 fileName 用）
@@ -249,6 +338,7 @@ Page({
       sub: (r.sources && r.sources.length) ? `《${r.sources.join('、')}》` : `${r.sourceCount || 1} 个源文件`,
       date: r.date || '—',
       createdText: fmtCreated(r.createdAt) || '—',
+      team: r.team || '', // 班组徽章（仅「全部班组」混排视图展示）
       status: r.status,
       statusText: done ? '已生成' : r.status === 'failed' ? '生成失败' : '生成中',
       done,
@@ -385,11 +475,10 @@ Page({
     this.setData({ files });
   },
 
-  /* ==================== 活动日期（提交格式 YYYY.MM.DD） ==================== */
+  /* ==================== 活动日期（提交时转 YYYY.MM.DD，页面不再展示格式预览） ==================== */
 
   onDateChange(e) {
-    const dateStr = e.detail.value;
-    this.setData({ dateStr, dateDots: toDots(dateStr) });
+    this.setData({ dateStr: e.detail.value });
   },
 
   /* ==================== 记录名称确认弹层 ==================== */
@@ -443,7 +532,12 @@ Page({
       this.toast('多文件合并仅支持 PDF，请先转换为 PDF 或逐个生成');
       return;
     }
-    const date = this.data.dateDots || toDots(todayISO());
+    // 超管在「全部班组」视图下不可生成（生成须归属具体班组）
+    if (this._role === 'admin' && this._teamSel === 'all') {
+      this.toast('请先切换到具体班组再生成');
+      return;
+    }
+    const date = toDots(this.data.dateStr || todayISO());
     this.setData({ submitting: true });
     this.uploadGenerate(name, date, files)
       .then((data) => {
@@ -469,6 +563,10 @@ Page({
     };
     pushField('name', name);
     pushField('date', date);
+    // 生效班组（仅超管携带选中的 team_id；其余角色后端强制本班）
+    if (this._role === 'admin' && this._teamSel && this._teamSel !== 'all') {
+      pushField('team_id', String(this._teamSel));
+    }
     files.forEach((f) => {
       parts.push(utf8Buffer(
         `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${f.name}"\r\n` +

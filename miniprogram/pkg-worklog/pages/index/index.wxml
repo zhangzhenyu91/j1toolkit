@@ -1,7 +1,29 @@
 <!-- 出工日志 · 主页（默认当天，一卡片 = 一次派车；新建/编辑收进底部表单弹层） -->
 <navbar back title="出工日志" />
 
-<view class="page-body" wx:if="{{gate}}" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
+<view class="page-body" wx:if="{{gate && !noTeam}}" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
+  <!-- 班组切换器（屏五）：超管可点 chip 展开下拉切换生效班组；班组管理员/普通用户为静态班组名标签 -->
+  <view class="tswitch">
+    <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
+      <text>{{teamName}}</text>
+      <text class="arr" wx:if="{{isAdmin}}">▾</text>
+    </view>
+    <view class="ts-drop" wx:if="{{teamDropOpen}}">
+      <view
+        class="ts-opt {{item.on ? 'on' : ''}}"
+        wx:for="{{teamOptions}}"
+        wx:key="id"
+        hover-class="hover-bg-warm"
+        bindtap="onTeamPick"
+        data-id="{{item.id}}"
+      >
+        <text>{{item.name}}</text>
+        <text class="ck" wx:if="{{item.on}}">✓</text>
+      </view>
+    </view>
+  </view>
+  <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
+
   <!-- 日期条：±1 天 + 日历入口 -->
   <view class="datebar">
     <view class="arrow" hover-class="hover-scale" bindtap="onPrevDay">
@@ -204,12 +226,22 @@
   </view>
 </view>
 
-<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（仅 admin）/ 批量下载 / 验证报告 / 新建日志；
+<!-- 未分配班组空态（屏十：非超管且未加入任何班组；整页替代，不发业务请求） -->
+<view class="page-body" wx:if="{{gate && noTeam}}">
+  <view class="team-empty">
+    <view class="te-ic">👷</view>
+    <view class="te-t">未分配班组</view>
+    <view class="te-p">你的账号尚未加入任何班组，暂无可查看的数据。</view>
+    <view class="te-p">请联系超级管理员分配班组后再使用。</view>
+  </view>
+</view>
+
+<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 批量下载 / 验证报告 / 新建日志；
      原底部固定操作区（含底色条 bottombar）已删除，内容区直通屏幕底边 -->
 <view class="fab-mask" wx:if="{{fabOpen}}" bindtap="onFabToggle"></view>
-<view class="fabs" wx:if="{{gate}}">
+<view class="fabs" wx:if="{{gate && !noTeam}}">
   <block wx:if="{{fabOpen}}">
-    <view class="fab-item" wx:if="{{isAdmin}}" hover-class="hover-opacity" bindtap="onManage">
+    <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onManage">
       <text class="fab-lab">数据管理</text>
       <view class="fab"><t-icon name="setting" size="40rpx" color="#22314E" /></view>
     </view>

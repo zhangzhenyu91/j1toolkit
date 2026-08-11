@@ -1,25 +1,44 @@
-// 出工日志路由：全部接口需登录 + work-log 应用权限；/admin/* 再叠加管理员角色校验
+// 出工日志路由：全部接口需登录 + work-log 应用权限 + 生效班组（req.team，见 utils/team.js）；
+// /admin/* 字典接口超管可管任意班组（?team_id= 指定），班组管理员仅本班
 // 业务规则与设计稿见《开发指南》第四、七章与 design/worklog.html
 const express = require('express');
 const archiver = require('archiver');
 const multer = require('multer');
+const XLSX = require('xlsx');
 const { Readable } = require('stream');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
-const requireAdmin = require('../middleware/requireAdmin');
 const { pool } = require('../db');
 const { ok, fail } = require('../utils/resp');
+const teamUtil = require('../utils/team');
 const config = require('../config');
 const cos = require('./cos');
 const dify = require('./dify');
 const geo = require('./geo');
-const { getTowers } = require('./towers');
+const towers = require('./towers');
 const Watermark = require('./watermark');
 const { renderWatermarkedPhoto } = require('./render-photo');
 const { computeVerifyPassed, computeFailReasons, myReportReasons } = require('./verify');
 
 const router = express.Router();
 router.use(auth, requireApp('work-log'));
+
+// 班组上下文：解析生效班组（超管可用 ?team_id= 指定；其余角色固定本班，未分配 → null）
+router.use(async (req, res, next) => {
+  try {
+    req.team = await teamUtil.resolveReqTeam(req);
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// 字典管理权限：超管任意班组（req.team 由 ?team_id= 解析），班组管理员仅本班
+function requireDictAdmin(req, res, next) {
+  if (req.user.role === 'admin') return next();
+  if (req.user.role === 'team_admin' && req.team && req.user.team_id === req.team.id) return next();
+  return fail(res, 403, 40304, '仅管理员可执行此操作');
+}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
@@ -122,33 +141,40 @@ async function loadEntries(where, params) {
   });
 }
 
-// 校验车牌/目的地/成员 id 有效（车牌、目的地需启用）
-async function validDictId(table, id, needEnabled) {
+// 校验车牌/目的地/成员 id 有效且归属当前生效班组（车牌、目的地需启用）
+async function validDictId(table, id, needEnabled, teamId) {
   if (!id) return true;
-  const [rows] = await pool.query(`SELECT id, status FROM ${table} WHERE id = ?`, [id]);
+  const [rows] = await pool.query(`SELECT id, status FROM ${table} WHERE id = ? AND team_id = ?`, [id, teamId]);
   if (!rows.length) return false;
   return needEnabled ? rows[0].status === 1 : true;
 }
 
-// 当前登录用户对应的出工成员（按 sys_user.nickname == worklog_member.name 匹配，仅查看个人视图用）
-async function myMember(userId) {
-  const [users] = await pool.query('SELECT nickname FROM sys_user WHERE id = ?', [userId]);
-  if (!users.length || !users[0].nickname) return null;
-  const [members] = await pool.query('SELECT id, name FROM worklog_member WHERE name = ?', [users[0].nickname]);
+// 当前登录用户对应的出工成员（按 sys_user.nickname == worklog_member.name 班组内匹配，仅查看个人视图用）
+async function myMember(req) {
+  const nickname = req.user.nickname;
+  if (!nickname || !req.team) return null;
+  const [members] = await pool.query(
+    'SELECT id, name FROM worklog_member WHERE name = ? AND team_id = ?',
+    [nickname, req.team.id]
+  );
   return members.length ? members[0] : null;
 }
 
-// GET /meta：下拉/点亮数据源（前端自行补「未出车」固定项）
+// GET /meta：下拉/点亮数据源（前端自行补「未出车」固定项）；按生效班组出数
 router.get('/meta', async (req, res, next) => {
   try {
+    if (!req.team) return ok(res, { vehicles: [], destinations: [], members: [] });
     const [vehicles] = await pool.query(
-      'SELECT id, plate_no FROM worklog_vehicle WHERE status = 1 ORDER BY sort, id'
+      'SELECT id, plate_no FROM worklog_vehicle WHERE status = 1 AND team_id = ? ORDER BY sort, id',
+      [req.team.id]
     );
     const [destinations] = await pool.query(
-      'SELECT id, name FROM worklog_destination WHERE status = 1 ORDER BY sort, id'
+      'SELECT id, name FROM worklog_destination WHERE status = 1 AND team_id = ? ORDER BY sort, id',
+      [req.team.id]
     );
     const [members] = await pool.query(
-      'SELECT id, name, sort FROM worklog_member WHERE status = 1 ORDER BY sort, id'
+      'SELECT id, name, sort FROM worklog_member WHERE status = 1 AND team_id = ? ORDER BY sort, id',
+      [req.team.id]
     );
     return ok(res, { vehicles, destinations, members });
   } catch (err) {
@@ -161,10 +187,11 @@ router.get('/logs', async (req, res, next) => {
   try {
     const { date } = req.query;
     if (!DATE_RE.test(date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
-    let where = 'e.log_date = ?';
-    const params = [date];
+    if (!req.team) return ok(res, { list: [] });
+    let where = 'e.log_date = ? AND e.team_id = ?';
+    const params = [date, req.team.id];
     if (req.query.scope === 'mine') {
-      const me = await myMember(req.user.id);
+      const me = await myMember(req);
       if (!me) return ok(res, { list: [] });
       where += ' AND e.id IN (SELECT entry_id FROM worklog_entry_member WHERE member_id = ?)';
       params.push(me.id);
@@ -183,13 +210,14 @@ router.get('/day-status', async (req, res, next) => {
   try {
     const { month } = req.query;
     if (!MONTH_RE.test(month || '')) return fail(res, 400, 40000, '月份格式应为 YYYY-MM');
+    if (!req.team) return ok(res, { map: {} });
 
     if (req.query.scope === 'mine') {
-      const me = await myMember(req.user.id);
+      const me = await myMember(req);
       if (!me) return ok(res, { map: {} });
       const list = await loadEntries(
-        `DATE_FORMAT(e.log_date, '%Y-%m') = ? AND e.id IN (SELECT entry_id FROM worklog_entry_member WHERE member_id = ?)`,
-        [month, me.id]
+        `DATE_FORMAT(e.log_date, '%Y-%m') = ? AND e.team_id = ? AND e.id IN (SELECT entry_id FROM worklog_entry_member WHERE member_id = ?)`,
+        [month, req.team.id, me.id]
       );
       const map = {};
       list.forEach((e) => {
@@ -208,7 +236,7 @@ router.get('/day-status', async (req, res, next) => {
       return ok(res, { map });
     }
 
-    const list = await loadEntries(`DATE_FORMAT(e.log_date, '%Y-%m') = ?`, [month]);
+    const list = await loadEntries(`DATE_FORMAT(e.log_date, '%Y-%m') = ? AND e.team_id = ?`, [month, req.team.id]);
     const map = {};
     list.forEach((e) => {
       if (e.verify_passed === 'exempt') return; // 免验证不参与着色
@@ -225,9 +253,10 @@ router.get('/day-status', async (req, res, next) => {
   }
 });
 
-// POST /logs：新建卡片（一卡片一派车；vehicle_id 空=未出车）
+// POST /logs：新建卡片（一卡片一派车；vehicle_id 空=未出车）；归入当前生效班组
 router.post('/logs', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const { log_date, patrol_content = '', vehicle_id = null, destination_id = null } = req.body || {};
     let { member_ids = [] } = req.body || {};
     if (!DATE_RE.test(log_date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
@@ -238,20 +267,20 @@ router.post('/logs', async (req, res, next) => {
         return fail(res, 400, 40001, '未出车时不可填写目的地与用车人');
       }
     } else {
-      if (!(await validDictId('worklog_vehicle', vehicle_id, true))) {
+      if (!(await validDictId('worklog_vehicle', vehicle_id, true, req.team.id))) {
         return fail(res, 400, 40002, '车牌号无效或已停用');
       }
-      if (destination_id && !(await validDictId('worklog_destination', destination_id, true))) {
+      if (destination_id && !(await validDictId('worklog_destination', destination_id, true, req.team.id))) {
         return fail(res, 400, 40003, '目的地无效或已停用');
       }
     }
 
-    // 成员 id 校验并取 sort
+    // 成员 id 校验并取 sort（限本班组启用成员）
     let memberRows = [];
     if (member_ids.length) {
       const [rows] = await pool.query(
-        'SELECT id, sort FROM worklog_member WHERE id IN (?) AND status = 1',
-        [member_ids]
+        'SELECT id, sort FROM worklog_member WHERE id IN (?) AND status = 1 AND team_id = ?',
+        [member_ids, req.team.id]
       );
       if (rows.length !== new Set(member_ids).size) {
         return fail(res, 400, 40004, '存在无效或已停用的成员');
@@ -260,8 +289,8 @@ router.post('/logs', async (req, res, next) => {
     }
 
     const [r] = await pool.query(
-      'INSERT INTO worklog_entry (log_date, patrol_content, vehicle_id, destination_id, created_by) VALUES (?, ?, ?, ?, ?)',
-      [log_date, patrol_content, vehicle_id, destination_id, req.user.id]
+      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.team.id, log_date, patrol_content, vehicle_id, destination_id, req.user.id]
     );
     const entryId = r.insertId;
     for (const m of memberRows) {
@@ -279,8 +308,9 @@ router.post('/logs', async (req, res, next) => {
 // PUT /logs/:id：修改卡片（用车人全量替换，保留仍在名单者的打卡状态）
 router.put('/logs/:id', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
-    const [exist] = await pool.query('SELECT id FROM worklog_entry WHERE id = ?', [entryId]);
+    const [exist] = await pool.query('SELECT id FROM worklog_entry WHERE id = ? AND team_id = ?', [entryId, req.team.id]);
     if (!exist.length) return fail(res, 404, 40400, '日志不存在');
 
     const { patrol_content = '', vehicle_id = null, destination_id = null } = req.body || {};
@@ -293,10 +323,10 @@ router.put('/logs/:id', async (req, res, next) => {
       const [photoRows] = await pool.query('SELECT COUNT(*) AS cnt FROM worklog_photo WHERE entry_id = ?', [entryId]);
       if (photoRows[0].cnt) return fail(res, 400, 40005, '存在水印照片，不可改为未出车，请先删除照片');
     } else {
-      if (!(await validDictId('worklog_vehicle', vehicle_id, true))) {
+      if (!(await validDictId('worklog_vehicle', vehicle_id, true, req.team.id))) {
         return fail(res, 400, 40002, '车牌号无效或已停用');
       }
-      if (destination_id && !(await validDictId('worklog_destination', destination_id, true))) {
+      if (destination_id && !(await validDictId('worklog_destination', destination_id, true, req.team.id))) {
         return fail(res, 400, 40003, '目的地无效或已停用');
       }
     }
@@ -304,8 +334,8 @@ router.put('/logs/:id', async (req, res, next) => {
     let memberRows = [];
     if (member_ids.length) {
       const [rows] = await pool.query(
-        'SELECT id, sort FROM worklog_member WHERE id IN (?) AND status = 1',
-        [member_ids]
+        'SELECT id, sort FROM worklog_member WHERE id IN (?) AND status = 1 AND team_id = ?',
+        [member_ids, req.team.id]
       );
       if (rows.length !== new Set(member_ids).size) {
         return fail(res, 400, 40004, '存在无效或已停用的成员');
@@ -393,13 +423,16 @@ router.put('/logs/:id', async (req, res, next) => {
 // DELETE /logs/:id：删除卡片（先删 COS 对象（水印照片 + 备注附件），再删行）
 router.delete('/logs/:id', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
+    const [entryRows] = await pool.query(
+      'SELECT remark_files FROM worklog_entry WHERE id = ? AND team_id = ?',
+      [entryId, req.team.id]
+    );
+    if (!entryRows.length) return fail(res, 404, 40400, '日志不存在');
     const [photos] = await pool.query('SELECT cos_key FROM worklog_photo WHERE entry_id = ?', [entryId]);
-    const [entryRows] = await pool.query('SELECT remark_files FROM worklog_entry WHERE id = ?', [entryId]);
     const cosKeys = photos.map((p) => p.cos_key);
-    if (entryRows.length) {
-      parseRemarkFiles(entryRows[0].remark_files).forEach((f) => cosKeys.push(f.cos_key));
-    }
+    parseRemarkFiles(entryRows[0].remark_files).forEach((f) => cosKeys.push(f.cos_key));
     for (const key of cosKeys) {
       try {
         await cos.deleteObject(key);
@@ -409,7 +442,7 @@ router.delete('/logs/:id', async (req, res, next) => {
     }
     await pool.query('DELETE FROM worklog_photo WHERE entry_id = ?', [entryId]);
     await pool.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
-    const [r] = await pool.query('DELETE FROM worklog_entry WHERE id = ?', [entryId]);
+    const [r] = await pool.query('DELETE FROM worklog_entry WHERE id = ? AND team_id = ?', [entryId, req.team.id]);
     if (!r.affectedRows) return fail(res, 404, 40400, '日志不存在');
     return ok(res, null);
   } catch (err) {
@@ -420,9 +453,11 @@ router.delete('/logs/:id', async (req, res, next) => {
 // PUT /logs/:id/members/:mid/check：打卡切换
 router.put('/logs/:id/members/:mid/check', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const [r] = await pool.query(
-      'UPDATE worklog_entry_member SET checked = 1 - checked WHERE id = ? AND entry_id = ?',
-      [Number(req.params.mid), Number(req.params.id)]
+      `UPDATE worklog_entry_member em JOIN worklog_entry e ON e.id = em.entry_id
+       SET em.checked = 1 - em.checked WHERE em.id = ? AND em.entry_id = ? AND e.team_id = ?`,
+      [Number(req.params.mid), Number(req.params.id), req.team.id]
     );
     if (!r.affectedRows) return fail(res, 404, 40400, '打卡记录不存在');
     const [rows] = await pool.query('SELECT checked FROM worklog_entry_member WHERE id = ?', [Number(req.params.mid)]);
@@ -440,12 +475,13 @@ router.get('/photos', async (req, res, next) => {
       return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     }
     if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
+    if (!req.team) return ok(res, { list: [] });
     const [rows] = await pool.query(
       `SELECT p.id, p.url, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date,
               DATE_FORMAT(e.log_date, '%Y-%m') AS month, DAYOFMONTH(e.log_date) AS day, p.members
        FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-       WHERE e.log_date BETWEEN ? AND ? ORDER BY e.log_date, p.id`,
-      [from, to]
+       WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ? ORDER BY e.log_date, p.id`,
+      [from, to, req.team.id]
     );
     rows.forEach((r) => {
       r.members = typeof r.members === 'string' ? JSON.parse(r.members) : r.members;
@@ -467,13 +503,14 @@ router.get('/report', async (req, res, next) => {
       return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     }
     if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
+    if (!req.team) return ok(res, { list: [] });
 
     let me = null;
     if (req.query.scope === 'mine') {
-      me = await myMember(req.user.id);
+      me = await myMember(req);
       if (!me) return ok(res, { list: [] });
     }
-    const list = await loadEntries('e.log_date BETWEEN ? AND ?', [from, to]);
+    const list = await loadEntries('e.log_date BETWEEN ? AND ? AND e.team_id = ?', [from, to, req.team.id]);
     const items = [];
     list.forEach((e) => {
       const hasRemark = !!(e.remark || e.remark_files.length);
@@ -533,9 +570,12 @@ function getFileExt(name) {
   return idx === -1 ? '' : String(name).slice(idx + 1).toLowerCase();
 }
 
-// 按 entryId + cos_key 定位备注附件（预览/下载共用；key 必须确属该卡，防止拿任意外地拉扯）
-async function findRemarkFile(entryId, key) {
-  const [rows] = await pool.query('SELECT remark_files FROM worklog_entry WHERE id = ?', [entryId]);
+// 按 entryId + cos_key 定位备注附件（预览/下载共用；key 必须确属该卡且该卡归属当前班组，防止拿任意外地拉扯）
+async function findRemarkFile(entryId, key, teamId) {
+  const [rows] = await pool.query(
+    'SELECT remark_files FROM worklog_entry WHERE id = ? AND team_id = ?',
+    [entryId, teamId]
+  );
   if (!rows.length) return { entry: false };
   const file = parseRemarkFiles(rows[0].remark_files).find((f) => f.cos_key === key);
   return { entry: true, file };
@@ -556,10 +596,13 @@ router.post(
   },
   async (req, res, next) => {
     try {
+      // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（兼容 formData 携带 team_id）
+      const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
+      if (!team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
       const entryId = Number(req.params.id);
       const [entries] = await pool.query(
-        `SELECT id, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date FROM worklog_entry WHERE id = ?`,
-        [entryId]
+        `SELECT id, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date FROM worklog_entry WHERE id = ? AND team_id = ?`,
+        [entryId, team.id]
       );
       if (!entries.length) return fail(res, 404, 40400, '日志不存在');
       if (!req.file || !req.file.buffer || !req.file.buffer.length) {
@@ -574,7 +617,7 @@ router.post(
         return fail(res, 400, 40018, '仅支持图片、视频或 Office 文档（doc/docx/xls/xlsx/ppt/pptx/pdf）');
       }
       const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
-      const key = `${prefix}remark/${dots(entries[0].log_date)}/${entryId}-${Date.now()}.${ext}`;
+      const key = `${prefix}remark/${team.name}/${dots(entries[0].log_date)}/${entryId}-${Date.now()}.${ext}`;
       await cos.putBuffer(key, req.file.buffer, REMARK_MIME[ext] || 'application/octet-stream');
       return ok(res, { name, url: cos.publicUrl(key), cos_key: key, type, size: req.file.buffer.length });
     } catch (err) {
@@ -586,7 +629,8 @@ router.post(
 // GET /logs/:id/remark-preview?key=：拼接 basemetas 预览地址（同安全日记录口径；COS 公共读，预览服务直接回源 COS）
 router.get('/logs/:id/remark-preview', async (req, res, next) => {
   try {
-    const { entry, file } = await findRemarkFile(Number(req.params.id), String(req.query.key || ''));
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const { entry, file } = await findRemarkFile(Number(req.params.id), String(req.query.key || ''), req.team.id);
     if (!entry) return fail(res, 404, 40400, '日志不存在');
     if (!file) return fail(res, 404, 40400, '附件不存在');
     if (file.type !== 'doc') return fail(res, 400, 40021, '仅 Office 文档支持在线预览');
@@ -603,7 +647,8 @@ router.get('/logs/:id/remark-preview', async (req, res, next) => {
 // GET /logs/:id/remark-download?key=：附件下载代理（COS 跨域无 CORS，网页端经本接口回源并附下载文件名）
 router.get('/logs/:id/remark-download', async (req, res, next) => {
   try {
-    const { entry, file } = await findRemarkFile(Number(req.params.id), String(req.query.key || ''));
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const { entry, file } = await findRemarkFile(Number(req.params.id), String(req.query.key || ''), req.team.id);
     if (!entry) return fail(res, 404, 40400, '日志不存在');
     if (!file) return fail(res, 404, 40400, '附件不存在');
     const resp = await fetch(cos.publicUrl(file.cos_key), { signal: AbortSignal.timeout(60000) });
@@ -660,14 +705,120 @@ router.get('/geo', async (req, res, next) => {
   }
 });
 
-// GET /towers：检修一班杆塔坐标全量（行 = [电压等级, 线路名称, 杆塔号, 经度, 纬度]），数据读写见 towers.js
+// GET /towers：当前生效班组杆塔坐标全量（行 = [电压等级, 线路名称, 杆塔号, 经度, 纬度]），数据读写见 towers.js
 router.get('/towers', async (req, res, next) => {
   try {
-    return ok(res, getTowers());
+    if (!req.team) return ok(res, []);
+    return ok(res, await towers.getTowers(req.team.id));
   } catch (err) {
     return next(err);
   }
 });
+
+// GET /towers/template：杆塔坐标导入模板（xlsx，表头 + 示例行）
+router.get('/towers/template', requireDictAdmin, async (req, res, next) => {
+  try {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['电压等级', '线路名称', '杆塔号', '经度', '纬度'],
+      ['110kV', '示例线路', 'N1', '111.123456', '37.123456'],
+    ]);
+    ws['!cols'] = [{ wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '杆塔坐标');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="tower-template.xlsx"; filename*=UTF-8''${encodeURIComponent('杆塔坐标导入模板.xlsx')}`
+    );
+    return res.send(buf);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /towers/import：导入杆塔坐标 Excel（.xlsx），全量替换本班组坐标（事务）
+const towerUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+router.post(
+  '/towers/import',
+  requireDictAdmin,
+  (req, res, next) => {
+    towerUpload.single('file')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') return fail(res, 400, 40022, '文件大小应在 10MB 以内');
+        return next(err);
+      }
+      return next();
+    });
+  },
+  async (req, res, next) => {
+    try {
+      // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（兼容 formData 携带 team_id）
+      const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
+      if (!team) return fail(res, 400, 40022, '无可用班组');
+      if (req.user.role === 'team_admin' && req.user.team_id !== team.id) {
+        return fail(res, 403, 40304, '仅管理员可执行此操作');
+      }
+      if (!req.file || !req.file.buffer || !req.file.buffer.length) {
+        return fail(res, 400, 40022, '请选择要上传的 Excel 文件');
+      }
+      const fname = Buffer.from(req.file.originalname || '', 'latin1').toString('utf8');
+      if (!/\.xlsx$/i.test(fname)) return fail(res, 400, 40022, '仅支持 .xlsx 文件，请使用模板填写');
+
+      let rows;
+      try {
+        const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+      } catch (e) {
+        return fail(res, 400, 40022, 'Excel 解析失败，请使用模板文件填写');
+      }
+
+      // 逐行校验：空行跳过；表头行跳过；缺列或经纬度非数字计为跳过
+      const data = [];
+      let skipped = 0;
+      for (const r of rows) {
+        const cells = (Array.isArray(r) ? r : []).map((c) => String(c).trim());
+        if (cells.every((c) => !c)) continue;
+        if (cells[0].includes('电压') || cells[2].includes('杆塔')) continue;
+        const [voltage, line, towerNo, lng, lat] = cells;
+        if (!voltage || !line || !towerNo || !lng || !lat
+          || Number.isNaN(Number(lng)) || Number.isNaN(Number(lat))) {
+          skipped++;
+          continue;
+        }
+        data.push([
+          req.team.id,
+          voltage.slice(0, 32), line.slice(0, 64), towerNo.slice(0, 64),
+          lng.slice(0, 32), lat.slice(0, 32),
+        ]);
+      }
+      if (!data.length) return fail(res, 400, 40022, '未识别到有效坐标行，请按模板列填写');
+
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        await conn.query('DELETE FROM worklog_tower WHERE team_id = ?', [team.id]);
+        for (let i = 0; i < data.length; i += 500) {
+          const chunk = data.slice(i, i + 500).map((r, j) => [...r, i + j + 1]);
+          await conn.query(
+            'INSERT INTO worklog_tower (team_id, voltage_level, line_name, tower_no, lng, lat, sort) VALUES ?',
+            [chunk]
+          );
+        }
+        await conn.commit();
+      } catch (e) {
+        await conn.rollback().catch(() => {});
+        throw e;
+      } finally {
+        conn.release();
+      }
+      towers.invalidate(team.id);
+      return ok(res, { imported: data.length, skipped }, `已导入 ${data.length} 条坐标`);
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
 
 // 水印字段清洗：字符串、去首尾空格、按库列宽截断（work_content 512 / shot_time 32 / weather 64 / location 255）
 function sanitizeWm(wm) {
@@ -691,11 +842,13 @@ function sanitizeWm(wm) {
 // 服务端先把水印渲染到原图上，再按同一流程传 COS、触发验证
 router.post('/logs/:id/photos', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
     const [entries] = await pool.query(
       `SELECT e.id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.vehicle_id, d.name AS destination_name
-       FROM worklog_entry e LEFT JOIN worklog_destination d ON d.id = e.destination_id WHERE e.id = ?`,
-      [entryId]
+       FROM worklog_entry e LEFT JOIN worklog_destination d ON d.id = e.destination_id
+       WHERE e.id = ? AND e.team_id = ?`,
+      [entryId, req.team.id]
     );
     const entry = entries[0];
     if (!entry) return fail(res, 404, 40400, '日志不存在');
@@ -727,7 +880,7 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     }
 
     const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
-    const key = `${prefix}${dots(entry.log_date)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
+    const key = `${prefix}${req.team.name}/${dots(entry.log_date)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
     await cos.putBuffer(key, buf, contentType);
     const url = cos.publicUrl(key);
 
@@ -763,6 +916,7 @@ router.post('/logs/:id/photos', async (req, res, next) => {
 // POST /photos/:id/verify：验证失败（failed）后重新验证——重置为 pending 并异步重调 Dify
 router.post('/photos/:id/verify', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
       `SELECT p.id, p.url, p.verify_status,
@@ -770,8 +924,8 @@ router.post('/photos/:id/verify', async (req, res, next) => {
        FROM worklog_photo p
        JOIN worklog_entry e ON e.id = p.entry_id
        LEFT JOIN worklog_destination d ON d.id = e.destination_id
-       WHERE p.id = ?`,
-      [photoId]
+       WHERE p.id = ? AND e.team_id = ?`,
+      [photoId, req.team.id]
     );
     const photo = rows[0];
     if (!photo) return fail(res, 404, 40400, '照片不存在');
@@ -807,8 +961,13 @@ router.post('/photos/:id/verify', async (req, res, next) => {
 // PUT /photos/:id/members：修改照片所属人名
 router.put('/photos/:id/members', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
-    const [rows] = await pool.query('SELECT entry_id FROM worklog_photo WHERE id = ?', [photoId]);
+    const [rows] = await pool.query(
+      `SELECT p.entry_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+       WHERE p.id = ? AND e.team_id = ?`,
+      [photoId, req.team.id]
+    );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     const { members } = req.body || {};
     const names = Array.isArray(members) ? members.filter((n) => typeof n === 'string' && n.trim()) : [];
@@ -825,8 +984,13 @@ router.put('/photos/:id/members', async (req, res, next) => {
 // DELETE /photos/:id：删除照片（同步删 COS 对象）
 router.delete('/photos/:id', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
-    const [rows] = await pool.query('SELECT cos_key FROM worklog_photo WHERE id = ?', [photoId]);
+    const [rows] = await pool.query(
+      `SELECT p.cos_key FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+       WHERE p.id = ? AND e.team_id = ?`,
+      [photoId, req.team.id]
+    );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     try {
       await cos.deleteObject(rows[0].cos_key);
@@ -843,11 +1007,12 @@ router.delete('/photos/:id', async (req, res, next) => {
 // GET /photos/:id/download：单张照片下载代理（COS 跨域无 CORS，网页端经本接口回源并附下载文件名）
 router.get('/photos/:id/download', async (req, res, next) => {
   try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
       `SELECT p.cos_key, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date
-       FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ?`,
-      [photoId]
+       FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ? AND e.team_id = ?`,
+      [photoId, req.team.id]
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     const resp = await fetch(cos.publicUrl(rows[0].cos_key), { signal: AbortSignal.timeout(60000) });
@@ -959,24 +1124,37 @@ router.post('/zip', async (req, res, next) => {
   }
 });
 
-// ===== 管理接口（admin）：车牌号 / 目的地 / 人员 三类字典同构维护 =====
+// ===== 管理接口（车牌号 / 目的地 / 人员 三类字典同构维护，按生效班组隔离）=====
+// 权限：超管可管任意班组（?team_id= 指定），班组管理员仅本班（requireDictAdmin）
 function dictRoutes(path, table, field, label, countRefs) {
-  router.get(`/admin/${path}`, requireAdmin, async (req, res, next) => {
+  router.get(`/admin/${path}`, requireDictAdmin, async (req, res, next) => {
     try {
-      const [rows] = await pool.query(`SELECT id, ${field} AS name, sort, status FROM ${table} ORDER BY sort, id`);
+      if (!req.team) return ok(res, { list: [] });
+      const extra = table === 'worklog_member' ? ', user_id' : '';
+      const [rows] = await pool.query(
+        `SELECT id, ${field} AS name, sort, status${extra} FROM ${table} WHERE team_id = ? ORDER BY sort, id`,
+        [req.team.id]
+      );
       return ok(res, { list: rows });
     } catch (err) {
       return next(err);
     }
   });
 
-  router.post(`/admin/${path}`, requireAdmin, async (req, res, next) => {
+  router.post(`/admin/${path}`, requireDictAdmin, async (req, res, next) => {
     try {
+      if (!req.team) return fail(res, 400, 40010, '无可用班组');
       const name = String((req.body && req.body.name) || '').trim();
       if (!name) return fail(res, 400, 40012, `请输入${label}名称`);
-      const [maxRows] = await pool.query(`SELECT COALESCE(MAX(sort), 0) AS maxSort FROM ${table}`);
+      const [maxRows] = await pool.query(
+        `SELECT COALESCE(MAX(sort), 0) AS maxSort FROM ${table} WHERE team_id = ?`,
+        [req.team.id]
+      );
       try {
-        const [r] = await pool.query(`INSERT INTO ${table} (${field}, sort) VALUES (?, ?)`, [name, maxRows[0].maxSort + 1]);
+        const [r] = await pool.query(
+          `INSERT INTO ${table} (team_id, ${field}, sort) VALUES (?, ?, ?)`,
+          [req.team.id, name, maxRows[0].maxSort + 1]
+        );
         return ok(res, { id: r.insertId });
       } catch (err) {
         if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 40900, `「${name}」已存在`);
@@ -987,10 +1165,11 @@ function dictRoutes(path, table, field, label, countRefs) {
     }
   });
 
-  router.put(`/admin/${path}/:id`, requireAdmin, async (req, res, next) => {
+  router.put(`/admin/${path}/:id`, requireDictAdmin, async (req, res, next) => {
     try {
+      if (!req.team) return fail(res, 400, 40010, '无可用班组');
       const id = Number(req.params.id);
-      const [exist] = await pool.query(`SELECT id FROM ${table} WHERE id = ?`, [id]);
+      const [exist] = await pool.query(`SELECT id FROM ${table} WHERE id = ? AND team_id = ?`, [id, req.team.id]);
       if (!exist.length) return fail(res, 404, 40400, `${label}不存在`);
       const { name, sort, status } = req.body || {};
       if (name !== undefined) {
@@ -1015,12 +1194,13 @@ function dictRoutes(path, table, field, label, countRefs) {
     }
   });
 
-  router.delete(`/admin/${path}/:id`, requireAdmin, async (req, res, next) => {
+  router.delete(`/admin/${path}/:id`, requireDictAdmin, async (req, res, next) => {
     try {
+      if (!req.team) return fail(res, 400, 40010, '无可用班组');
       const id = Number(req.params.id);
       const refs = await countRefs(id);
       if (refs > 0) return fail(res, 409, 40901, `该${label}已被 ${refs} 条日志引用，请改为停用`);
-      const [r] = await pool.query(`DELETE FROM ${table} WHERE id = ?`, [id]);
+      const [r] = await pool.query(`DELETE FROM ${table} WHERE id = ? AND team_id = ?`, [id, req.team.id]);
       if (!r.affectedRows) return fail(res, 404, 40400, `${label}不存在`);
       return ok(res, null);
     } catch (err) {

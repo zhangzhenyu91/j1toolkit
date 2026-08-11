@@ -3,7 +3,10 @@
      功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 /
      照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志 /
      水印照片上传（选择水印照片直传 / 选片裁剪加水印后上传，服务端渲染，链路同小程序））；
-     右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化；验证报告范围 = 不通过 ∪ 有备注）；
+     右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化；验证报告范围 = 不通过 ∪ 有备注），
+     管理员（超管 / 班组管理员）另见「数据管理」页签：车牌号 / 目的地 / 出工成员 三字典维护 + 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
+     班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
+     非超管固定本班、未分配班组整页空态（屏十口径）；
      API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
 <html lang="zh-CN">
 <head>
@@ -105,7 +108,7 @@
 
   /* ----- 当日日志卡片流（日期导航由月历承担，无日期条，卡顶与月历卡顶齐平） ----- */
   .wl-list { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-  /* 记录 / 批量下载 / 验证报告 三页签共用同一列表位：切换时上浮淡入，页签内容各自内部滚动 */
+  /* 记录 / 批量下载 / 验证报告 / 数据管理 页签共用同一列表位：切换时上浮淡入，页签内容各自内部滚动 */
   .wl-list .pane { display: none; flex: 1; min-height: 0; }
   .wl-list .pane.on { display: flex; flex-direction: column; animation: paneIn .34s cubic-bezier(.16, 1, .3, 1); }
   @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -138,6 +141,39 @@
     letter-spacing: 1px; cursor: pointer; padding: 4px 6px; border-radius: 6px; transition: background .25s;
   }
   .linkbtn:hover { background: var(--orange-soft); }
+  .linkbtn.dgr { color: var(--red); }
+  .linkbtn.dgr:hover { background: #FBE9E9; }
+  .linkbtn[disabled] { color: var(--dash); cursor: not-allowed; background: none; }
+
+  /* ===== 数据管理页签（字典三板块 + 杆塔坐标；仅 admin / team_admin 可见页签） ===== */
+  .dsec { margin-bottom: 14px; overflow: hidden; }
+  .dsec-h { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; }
+  .dsec-h::before { content: ""; width: 4px; height: 14px; border-radius: 2px; background: var(--orange); }
+  .dsec-h b { font-size: 13.5px; letter-spacing: 1px; }
+  .dsec-h .cnt { font-size: 11px; color: var(--ph); letter-spacing: 1px; }
+  .drow { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-top: 1px solid var(--hair); font-size: 13px; }
+  .drow .dn { font-weight: 600; word-break: break-all; }
+  .drow.off .dn { opacity: .45; }
+  .dpill { flex: none; border-radius: 4px; padding: 1px 7px; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; }
+  .dpill-sync { background: #EAF5EF; color: var(--green); }
+  .dpill-hand { background: var(--paper); color: var(--ph); }
+  .doff-tip { flex: none; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
+  .drow .dops { margin-left: auto; flex: none; display: flex; gap: 2px; }
+  .dempty { padding: 14px 16px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--ph); letter-spacing: 1px; }
+  /* 板块底部虚线添加行（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
+  .dadd {
+    display: flex; align-items: center; gap: 10px; margin: 10px 12px 12px;
+    padding: 4px 4px 4px 12px; border: 1.5px dashed var(--dash); border-radius: 9px;
+  }
+  .dadd-in {
+    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+    font-size: 13px; color: var(--navy); font-family: inherit;
+  }
+  .dadd-in::placeholder { color: var(--ph); }
+  .tower-bar { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-top: 1px solid var(--hair); }
+  .tb-n { font-size: 13.5px; font-weight: 700; letter-spacing: .5px; }
+  .tb-s { margin-top: 2px; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
+  .tb-btns { margin-left: auto; flex: none; display: flex; gap: 10px; }
   .photo-cnt { font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
 
   /* ----- 日志卡片 ----- */
@@ -638,10 +674,11 @@
 
 <main class="page">
   <div class="wl-wrap">
-  <!-- 页头：标题 + 记录页专属操作（范围切换 / 新建） -->
+  <!-- 页头：标题 + 记录页专属操作（范围切换 / 新建；超管另加班组切换下拉） -->
   <div class="wl-head fade-up">
     <div class="section-title"><h3>出工日志</h3><span class="more">月历色点看验证状态，点击日期查看当日记录</span></div>
     <div class="acts">
+      <select id="teamSel" title="仅超级管理员可切换班组；其余角色固定为本班组"></select>
       <span class="photo-cnt" id="photoCnt"></span>
       <div class="seg" id="segScope">
         <button class="on" data-v="all">全部</button>
@@ -650,11 +687,15 @@
       <button class="btn" id="btnCreate"></button>
     </div>
   </div>
+  <!-- 未分配班组空态（非超管且无班组时整页只显示它，屏十口径） -->
+  <div class="card" id="noTeam" hidden></div>
+
   <!-- 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条），三页共用同一列表位 -->
   <div class="wl-tabs fade-up" id="wlTabs">
     <button class="on" data-p="Record">记录</button>
     <button data-p="Dl">批量下载</button>
     <button data-p="Rep">验证报告</button>
+    <button data-p="Dict" id="tabDict" style="display:none">数据管理</button>
     <span class="wl-tab-ind" id="wlTabInd"></span>
   </div>
 
@@ -677,7 +718,7 @@
       </div>
     </aside>
 
-    <!-- 右：记录 / 下载 / 报告 三页签共用同一列表位（顶部与月历卡顶齐平） -->
+    <!-- 右：记录 / 下载 / 报告 / 数据管理 页签共用同一列表位（顶部与月历卡顶齐平） -->
     <section class="wl-list rv">
       <!-- 记录：当日日志卡片流（日期导航由月历承担） -->
       <div class="pane on" id="paneRecord"><div id="cardFlow"></div></div>
@@ -707,10 +748,16 @@
         </div>
         <div class="pane-scroll" id="repBody"></div>
       </div>
+
+      <!-- 数据管理：车牌号 / 目的地 / 出工成员 字典 + 杆塔坐标（仅超管 / 班组管理员可见页签） -->
+      <div class="pane" id="paneDict"><div class="pane-scroll" id="dictBody"></div></div>
     </section>
   </div>
   </div>
 </main>
+
+<!-- 杆塔坐标导入：隐藏文件选择（仅 .xlsx ≤10MB，前端先校验） -->
+<input type="file" id="impFileInput" accept=".xlsx" hidden>
 
 <!-- 照片大图遮罩层 -->
 <div class="lb" id="lightbox"></div>
@@ -720,6 +767,7 @@
 <script>
 /* ============================================================
    出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·验证报告三页签（原下载、报告弹层已页签化）
+   + 数据管理页签（仅超管 / 班组管理员：三字典维护 + 杆塔坐标导入，接口 /worklog/admin/* 按生效班组隔离）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
    验证报告范围 = 不通过记录 ∪ 有备注记录（备注黄色行，不展示文件，有附件以曲别针标记）
    水印照片上传与小程序同链路（POST /logs/{id}/photos）：① 选择水印照片上传＝原图 base64 直传；
@@ -780,6 +828,7 @@ var state = {
   date: todayStr(),          // 当前选中日期 YYYY-MM-DD
   scope: 'all',              // all | mine
   pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 验证报告
+  teamId: 0,                 // 超管当前切换的班组 id（0=未指定，由后端落默认班组；非超管恒 0）
   entries: [],               // 当日日志卡片
   calY: 0, calM: 0,          // 月历当前显示月份（calM 为 0 起）
   calCache: {},              // day-status 缓存：scope|YYYY-MM → map
@@ -787,8 +836,15 @@ var state = {
   rep: { from: '', to: '', loaded: false },
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
+  dict: { lists: {}, towerCount: null }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）
   dl: { from: '', to: '', list: null, saving: false } // 下载页签（list 项带 selected）
 };
+
+/* 班组隔离：超管所有 /worklog/* 请求统一带 team_id（query 优先于 body，后端 resolveReqTeam 同口径） */
+function wl(path) {
+  if (!state.teamId) return path;
+  return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'team_id=' + state.teamId;
+}
 
 /* ================= 顶部导航 ================= */
 function renderTopUser(u) {
@@ -853,7 +909,7 @@ async function loadLogs(opts) {
     else renderSkeleton();
   }
   try {
-    var r = await Shade.api('/api/v1/worklog/logs?date=' + state.date + '&scope=' + state.scope);
+    var r = await Shade.api(wl('/api/v1/worklog/logs?date=' + state.date + '&scope=' + state.scope));
     state.entries = (r.data && r.data.list) || [];
     renderCards(!!opts.quiet || booted); // 静默刷新 / 切日切换不重播入场动画
     flow.setAttribute('data-boot', '1');
@@ -1069,7 +1125,7 @@ function loadCalMonth(force) {
   var key = state.scope + '|' + ym;
   renderCal(); // 先按缓存渲染（无缓存即无着色），数据回来后补着色
   if (!force && state.calCache[key] !== undefined) return;
-  Shade.api('/api/v1/worklog/day-status?month=' + ym + '&scope=' + state.scope)
+  Shade.api(wl('/api/v1/worklog/day-status?month=' + ym + '&scope=' + state.scope))
     .then(function (r) {
       state.calCache[key] = (r.data && r.data.map) || {};
       renderCal();
@@ -1221,7 +1277,7 @@ async function downloadPhoto(photo) {
     var headers = {};
     var token = localStorage.getItem('shade_token');
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch('/api/v1/worklog/photos/' + photo.id + '/download', { headers: headers });
+    var res = await fetch(wl('/api/v1/worklog/photos/' + photo.id + '/download'), { headers: headers });
     if (res.status === 401) {
       localStorage.removeItem('shade_token');
       localStorage.removeItem('shade_user');
@@ -1299,7 +1355,7 @@ async function dlRemarkFile(entry, f) {
     var headers = {};
     var token = localStorage.getItem('shade_token');
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch('/api/v1/worklog/logs/' + entry.id + '/remark-download?key=' + encodeURIComponent(f.cos_key), { headers: headers });
+    var res = await fetch(wl('/api/v1/worklog/logs/' + entry.id + '/remark-download?key=' + encodeURIComponent(f.cos_key)), { headers: headers });
     if (res.status === 401) {
       localStorage.removeItem('shade_token');
       localStorage.removeItem('shade_user');
@@ -1328,7 +1384,7 @@ async function dlRemarkFile(entry, f) {
 /* Office 文档预览：调 remark-preview 取 basemetas 地址新标签打开（同安全日记录）；未配置预览服务时回退直接下载 */
 async function openRemarkDoc(entry, f) {
   try {
-    var r = await Shade.api('/api/v1/worklog/logs/' + entry.id + '/remark-preview?key=' + encodeURIComponent(f.cos_key));
+    var r = await Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/remark-preview?key=' + encodeURIComponent(f.cos_key)));
     if (r.data && r.data.url) {
       window.open(r.data.url, '_blank');
       return;
@@ -1348,7 +1404,7 @@ async function uploadRemarkFile(entryId, f) {
   var headers = {};
   var token = localStorage.getItem('shade_token');
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  var res = await fetch('/api/v1/worklog/logs/' + entryId + '/remark-files', { method: 'POST', headers: headers, body: fd });
+  var res = await fetch(wl('/api/v1/worklog/logs/' + entryId + '/remark-files'), { method: 'POST', headers: headers, body: fd });
   if (res.status === 401) {
     localStorage.removeItem('shade_token');
     localStorage.removeItem('shade_user');
@@ -1459,7 +1515,7 @@ function openRemarkModal(entry) {
         entry.destination_id || 0, (entry.members || []).map(function (m) { return m.member_id; }));
       payload.remark = $('#rkTa', inst.box).value.trim();
       payload.remark_files = metas;
-      await Shade.api('/api/v1/worklog/logs/' + entry.id, { method: 'PUT', body: payload });
+      await Shade.api(wl('/api/v1/worklog/logs/' + entry.id), { method: 'PUT', body: payload });
       inst.close();
       Shade.toast('备注已保存', 'success');
       refreshAfterEdit();
@@ -1489,7 +1545,7 @@ function confirmAction(opts) {
 /* 编辑表单字典（车牌/目的地/成员），首次编辑时拉取并缓存 */
 async function ensureMeta() {
   if (state.meta) return state.meta;
-  var r = await Shade.api('/api/v1/worklog/meta');
+  var r = await Shade.api(wl('/api/v1/worklog/meta'));
   state.meta = r.data || { vehicles: [], destinations: [], members: [] };
   return state.meta;
 }
@@ -1579,9 +1635,9 @@ async function openEntryForm(entry) {
     saving = true;
     try {
       if (entry) {
-        await Shade.api('/api/v1/worklog/logs/' + entry.id, { method: 'PUT', body: payload });
+        await Shade.api(wl('/api/v1/worklog/logs/' + entry.id), { method: 'PUT', body: payload });
       } else {
-        await Shade.api('/api/v1/worklog/logs', { method: 'POST', body: payload });
+        await Shade.api(wl('/api/v1/worklog/logs'), { method: 'POST', body: payload });
       }
       inst.close();
       Shade.toast(entry ? '已保存' : '已新建', 'success');
@@ -1620,7 +1676,7 @@ function openPatrolModal(entry) {
       /* PUT 全量字段：车牌/目的地/用车人取卡片最新值，仅替换巡视内容（同小程序） */
       var payload = payloadOf(entry, $('#ptTa', inst.box).value, entry.vehicle_id > 0 ? entry.vehicle_id : -1,
         entry.destination_id || 0, (entry.members || []).map(function (m) { return m.member_id; }));
-      await Shade.api('/api/v1/worklog/logs/' + entry.id, { method: 'PUT', body: payload });
+      await Shade.api(wl('/api/v1/worklog/logs/' + entry.id), { method: 'PUT', body: payload });
       inst.close();
       Shade.toast('已保存', 'success');
       refreshAfterEdit();
@@ -1634,7 +1690,7 @@ function openPatrolModal(entry) {
 /* ---------- 用车人打卡切换（点打卡胶囊；失败回滚，同小程序） ---------- */
 async function toggleCheck(entry, mid, chipEl) {
   try {
-    var r = await Shade.api('/api/v1/worklog/logs/' + entry.id + '/members/' + mid + '/check', { method: 'PUT' });
+    var r = await Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/members/' + mid + '/check'), { method: 'PUT' });
     chipEl.classList.toggle('on', !!(r.data && r.data.checked));
     refreshAfterEdit(); // 刷新验证角标与月历着色
   } catch (e) {
@@ -1670,7 +1726,7 @@ function openPhotoMembersModal(entry, photo) {
     if (!names.length) { Shade.toast('请选择照片所属人名', 'info'); return; }
     saving = true;
     try {
-      await Shade.api('/api/v1/worklog/photos/' + photo.id + '/members', { method: 'PUT', body: { members: names } });
+      await Shade.api(wl('/api/v1/worklog/photos/' + photo.id + '/members'), { method: 'PUT', body: { members: names } });
       inst.close();
       Shade.toast('人名已修改', 'success');
       refreshAfterEdit();
@@ -1684,7 +1740,7 @@ function openPhotoMembersModal(entry, photo) {
 /* ---------- 照片：重新验证（仅 failed 可见入口）/ 删除 ---------- */
 async function retryVerify(pid) {
   try {
-    await Shade.api('/api/v1/worklog/photos/' + pid + '/verify', { method: 'POST' });
+    await Shade.api(wl('/api/v1/worklog/photos/' + pid + '/verify'), { method: 'POST' });
     Shade.toast('已重新提交验证', 'success');
     refreshAfterEdit(); // pending 后轮询自动接管
   } catch (e) {
@@ -1695,7 +1751,7 @@ async function deletePhoto(pid) {
   var yes = await confirmAction({ title: '删除照片', content: '删除后不可恢复，确定删除该水印照片吗？', confirmText: '删除', danger: true });
   if (!yes) return;
   try {
-    await Shade.api('/api/v1/worklog/photos/' + pid, { method: 'DELETE' });
+    await Shade.api(wl('/api/v1/worklog/photos/' + pid), { method: 'DELETE' });
     Shade.toast('已删除', 'success');
     refreshAfterEdit();
   } catch (e) {
@@ -1801,7 +1857,7 @@ async function uploadPhoto(entry, image, names, wm, btn) {
     wait = createModal('<div class="loading"><span class="spin"></span>正在上传…</div>', { width: 280 });
   }
   try {
-    await Shade.api('/api/v1/worklog/logs/' + entry.id + '/photos', {
+    await Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/photos'), {
       method: 'POST',
       body: wm ? { image: image, members: names, wm: wm } : { image: image, members: names }
     });
@@ -2081,7 +2137,7 @@ function openWmFormModal(entry, names, image) {
     lng = parseFloat(lng);
     lat = parseFloat(lat);
     geoKey = lng + ',' + lat;
-    Shade.api('/api/v1/worklog/geo?lng=' + lng + '&lat=' + lat).then(function (r) {
+    Shade.api(wl('/api/v1/worklog/geo?lng=' + lng + '&lat=' + lat)).then(function (r) {
       if (inst.closed) return;
       if (parseFloat(elLng.value) !== lng || parseFloat(elLat.value) !== lat) return;
       elWeather.value = (r.data && r.data.weather) || '';
@@ -2131,7 +2187,7 @@ function openWmFormModal(entry, names, image) {
       elLng.value = lng;
       elLat.value = lat;
       geoKey = parseFloat(lng) + ',' + parseFloat(lat);
-      Shade.api('/api/v1/worklog/geo?lng=' + lng + '&lat=' + lat).then(function (r) {
+      Shade.api(wl('/api/v1/worklog/geo?lng=' + lng + '&lat=' + lat)).then(function (r) {
         if (inst.closed || towerPicked) return;
         if (!elWeather.value) elWeather.value = (r.data && r.data.weather) || '';
         if (!elLoc.value) elLoc.value = (r.data && r.data.location) || '';
@@ -2161,7 +2217,7 @@ function openWmFormModal(entry, names, image) {
 /* ---------- 选择杆塔坐标（电压等级 → 线路名称 → 杆塔号 级联，均可输入关键字筛选；数据 GET /towers 内存缓存） ---------- */
 function loadTowerRows() {
   if (state.towerRows) return Promise.resolve(state.towerRows);
-  return Shade.api('/api/v1/worklog/towers').then(function (r) {
+  return Shade.api(wl('/api/v1/worklog/towers')).then(function (r) {
     var rows = (r.data && r.data.rows) || [];
     if (!rows.length) throw new Error('杆塔坐标数据为空');
     state.towerRows = rows;
@@ -2340,7 +2396,7 @@ async function deleteEntry(entry) {
   var yes = await confirmAction({ title: '删除日志', content: '删除后不可恢复，卡片内照片一并删除，确定删除吗？', confirmText: '删除', danger: true });
   if (!yes) return;
   try {
-    await Shade.api('/api/v1/worklog/logs/' + entry.id, { method: 'DELETE' });
+    await Shade.api(wl('/api/v1/worklog/logs/' + entry.id), { method: 'DELETE' });
     Shade.toast('已删除', 'success');
     refreshAfterEdit();
   } catch (e) {
@@ -2365,7 +2421,7 @@ async function postZip(photos, btn) {
     var headers = { 'Content-Type': 'application/json' };
     var token = localStorage.getItem('shade_token');
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch('/api/v1/worklog/zip', {
+    var res = await fetch(wl('/api/v1/worklog/zip'), {
       method: 'POST', headers: headers, body: JSON.stringify({ photos: photos })
     });
     if (res.status === 401) {
@@ -2405,7 +2461,7 @@ async function loadDlPhotos() {
   body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
   $('#dlGo').disabled = true;
   try {
-    var r = await Shade.api('/api/v1/worklog/photos?from=' + state.dl.from + '&to=' + state.dl.to);
+    var r = await Shade.api(wl('/api/v1/worklog/photos?from=' + state.dl.from + '&to=' + state.dl.to));
     state.dl.list = ((r.data && r.data.list) || []).map(function (p) {
       p.selected = true; // 默认全选，点缩略图反选（同小程序）
       return p;
@@ -2472,6 +2528,245 @@ function renderDlPhotos() {
   syncDlSelection();
 }
 
+/* ================= 数据管理页签（车牌号 / 目的地 / 出工成员 字典 + 杆塔坐标；与小程序 manage 页同口径） ================= */
+var DICT_SEGS = [
+  { key: 'vehicles', label: '车牌号', ph: '输入新车牌号', err: '' },
+  { key: 'destinations', label: '目的地', ph: '输入新目的地名称', err: '' },
+  { key: 'members', label: '出工成员', ph: '输入新成员姓名', err: '' }
+];
+function dictSeg(key) {
+  var hit = null;
+  DICT_SEGS.forEach(function (s) { if (s.key === key) hit = s; });
+  return hit;
+}
+
+/* 整页加载：三字典列表 + 杆塔条数并发拉取（杆塔全量约 1400 行，取 length 即弃，不进缓存） */
+async function loadDict() {
+  $('#dictBody').innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+  await Promise.all(DICT_SEGS.map(loadDictSeg).concat([loadTowerCount()]));
+  renderDict();
+}
+async function loadDictSeg(seg) {
+  try {
+    var r = await Shade.api(wl('/api/v1/worklog/admin/' + seg.key));
+    state.dict.lists[seg.key] = (r.data && r.data.list) || [];
+    seg.err = '';
+    state.meta = null; // 字典可能已变更：让记录页编辑表单的字典缓存（/meta）下次重拉
+  } catch (e) {
+    state.dict.lists[seg.key] = [];
+    seg.err = e.message || '加载失败';
+  }
+}
+async function loadTowerCount() {
+  try {
+    var r = await Shade.api(wl('/api/v1/worklog/towers'));
+    state.dict.towerCount = r.data && r.data.rows ? r.data.rows.length : 0;
+  } catch (e) {
+    state.dict.towerCount = -1;
+  }
+}
+
+function dictRowHtml(seg, it) {
+  var off = it.status !== 1;
+  return '<div class="drow' + (off ? ' off' : '') + '" data-seg="' + seg.key + '" data-id="' + it.id +
+    '" data-name="' + esc(it.name) + '" data-status="' + it.status + '">' +
+    '<span class="dn">' + esc(it.name) + '</span>' +
+    (seg.key === 'members' // 成员来源标（屏六）：user_id 非空=账号同步（绿），空=手动添加（灰）
+      ? '<span class="dpill ' + (it.user_id ? 'dpill-sync">账号同步' : 'dpill-hand">手动添加') + '</span>'
+      : '') +
+    (off ? '<span class="doff-tip">已停用</span>' : '') +
+    '<span class="dops">' +
+      '<button class="linkbtn" data-dact="edit">改名</button>' +
+      '<button class="linkbtn" data-dact="toggle">' + (off ? '启用' : '停用') + '</button>' +
+      '<button class="linkbtn dgr" data-dact="del">删除</button>' +
+    '</span>' +
+  '</div>';
+}
+
+function renderDict() {
+  var html = DICT_SEGS.map(function (seg) {
+    var list = state.dict.lists[seg.key] || [];
+    return '<div class="card dsec">' +
+      '<div class="dsec-h"><b>' + seg.label + '</b><span class="cnt">' +
+        (seg.err ? '加载失败' : list.length + ' 条') + '</span></div>' +
+      (seg.err
+        ? '<div class="dempty">' + esc(seg.err) + '</div>'
+        : (list.length
+          ? list.map(function (it) { return dictRowHtml(seg, it); }).join('')
+          : '<div class="dempty">暂无数据，可在下方添加</div>')) +
+      '<div class="dadd" data-seg="' + seg.key + '">' +
+        '<input class="dadd-in" placeholder="' + seg.ph + '" maxlength="64" autocomplete="off">' +
+        '<button class="btn btn-sm btn-accent" data-dadd="' + seg.key + '">添加</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  var tc = state.dict.towerCount;
+  html += '<div class="card dsec">' +
+    '<div class="dsec-h"><b>杆塔坐标</b></div>' +
+    '<div class="tower-bar">' +
+      '<div><div class="tb-n">' + (tc === null ? '坐标加载中…' : (tc < 0 ? '条数加载失败' : tc + ' 条坐标')) + '</div>' +
+      '<div class="tb-s">仅作用于当前班组</div></div>' +
+      '<div class="tb-btns">' +
+        '<button class="btn btn-sm" data-tact="tpl">' + Shade.icon('download', 14) + '下载模板</button>' +
+        '<button class="btn btn-sm btn-accent" data-tact="imp">' + Shade.icon('upload', 14) + '导入 Excel</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+  $('#dictBody').innerHTML = html;
+}
+
+/* 底部虚线行添加（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
+async function dictAdd(segKey, btn) {
+  var seg = dictSeg(segKey);
+  var wrap = $('#dictBody .dadd[data-seg="' + segKey + '"]');
+  var input = wrap ? $('.dadd-in', wrap) : null;
+  var name = input ? input.value.trim() : '';
+  if (!name) { Shade.toast('请' + seg.ph, 'info'); return; }
+  if (btn) btn.disabled = true;
+  try {
+    await Shade.api(wl('/api/v1/worklog/admin/' + segKey), { method: 'POST', body: { name: name } });
+    Shade.toast('已添加', 'success');
+    await loadDictSeg(seg);
+    renderDict();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* 改名（弹小层，回车 / 保存提交；名称不变直接关闭） */
+function dictRename(seg, item) {
+  var html = mHead('编辑' + seg.label)
+    + '<input class="f-sel" id="drInput" style="height:40px" maxlength="64" autocomplete="off">'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+  var inst = createModal(html, { width: 420 });
+  var input = $('#drInput', inst.box);
+  input.value = item.name;
+  input.focus();
+  input.select();
+  var saving = false;
+  async function submit() {
+    var name = input.value.trim();
+    if (!name) { Shade.toast('名称不能为空', 'info'); return; }
+    if (name === item.name) { inst.close(); return; }
+    if (saving) return;
+    saving = true;
+    try {
+      await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), { method: 'PUT', body: { name: name } });
+      inst.close();
+      Shade.toast('已保存', 'success');
+      await loadDictSeg(seg);
+      renderDict();
+    } catch (e) {
+      saving = false;
+      Shade.toast(e.message, 'error');
+    }
+  }
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+}
+
+/* 停启用切换（停用行半透明 + 「已停用」标记） */
+async function dictToggle(seg, item) {
+  try {
+    await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), {
+      method: 'PUT',
+      body: { status: item.status === 1 ? 0 : 1 }
+    });
+    Shade.toast(item.status === 1 ? '已停用' : '已启用', 'success');
+    await loadDictSeg(seg);
+    renderDict();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* 删除（二次确认；被日志引用时后端 409 拒绝，toast 后端文案提示改停用） */
+async function dictDelete(seg, item) {
+  var yes = await confirmAction({
+    title: '删除' + seg.label,
+    content: '删除后不可恢复，确定删除「' + item.name + '」吗？',
+    confirmText: '删除',
+    danger: true
+  });
+  if (!yes) return;
+  try {
+    await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), { method: 'DELETE' });
+    Shade.toast('已删除', 'success');
+    await loadDictSeg(seg);
+    renderDict();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* 杆塔模板下载：xlsx 二进制，fetch + blob 落地（口径同照片 / 备注附件下载） */
+async function downloadTowerTpl(btn) {
+  btn.disabled = true;
+  try {
+    var headers = {};
+    var token = localStorage.getItem('shade_token');
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    var res = await fetch(wl('/api/v1/worklog/towers/template'), { headers: headers });
+    if (res.status === 401) {
+      localStorage.removeItem('shade_token');
+      localStorage.removeItem('shade_user');
+      location.href = '/login.html';
+      return;
+    }
+    if (!res.ok) {
+      var ej = null;
+      try { ej = await res.json(); } catch (e) { }
+      throw new Error((ej && ej.message) || ('模板下载失败（' + res.status + '）'));
+    }
+    var blob = await res.blob();
+    var a = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = cdFilename(res.headers.get('Content-Disposition') || '') || '杆塔坐标导入模板.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+/* 杆塔导入：FormData 上传（字段 file；team_id 经 wl() 走 query，后端同口径解析）→ toast 后端 message → 刷新条数 */
+async function importTowers(f) {
+  var fd = new FormData();
+  fd.append('file', f, f.name);
+  var wait = createModal('<div class="loading"><span class="spin"></span>正在导入…</div>', { width: 280 });
+  try {
+    var headers = {};
+    var token = localStorage.getItem('shade_token');
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    var res = await fetch(wl('/api/v1/worklog/towers/import'), { method: 'POST', headers: headers, body: fd });
+    if (res.status === 401) {
+      localStorage.removeItem('shade_token');
+      localStorage.removeItem('shade_user');
+      location.href = '/login.html';
+      throw new Error('登录已过期');
+    }
+    var j = null;
+    try { j = await res.json(); } catch (e) { }
+    if (!res.ok || !j || j.code !== 0) throw new Error((j && j.message) || ('导入失败（' + res.status + '）'));
+    wait.close();
+    var skipped = j.data && j.data.skipped;
+    Shade.toast((j.message || '导入完成') + (skipped ? '（跳过 ' + skipped + ' 行）' : ''), 'success');
+    state.towerRows = null; // 加水印「选择杆塔坐标」缓存同步失效
+    await loadTowerCount();
+    renderDict();
+  } catch (e) {
+    wait.close();
+    Shade.toast(e.message, 'error');
+  }
+}
+
 /* ================= 页签切换（记录 / 批量下载 / 验证报告 共用同一列表位） ================= */
 /* 页签指示条跟随（instant=true 首帧/窗口缩放直接落位，不滑残影） */
 function moveWlTabInd(tab, instant) {
@@ -2498,9 +2793,11 @@ function switchPane(key) {
   var isRec = key === 'Record';
   $('#photoCnt').hidden = !isRec;
   $('#btnCreate').hidden = !isRec;
-  /* 下载页签首次进入按默认范围自动加载；验证报告每次切回都重查（卡片可直改备注，避免陈旧数据） */
+  /* 下载页签首次进入按默认范围自动加载；验证报告每次切回都重查（卡片可直改备注，避免陈旧数据）；
+     数据管理每次切回都重拉（字典可能被其他管理员改动） */
   if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
   if (key === 'Rep') loadReport();
+  if (key === 'Dict') loadDict();
 }
 
 /* ================= 验证报告（页签内嵌：不通过记录 ∪ 有备注记录） ================= */
@@ -2509,8 +2806,8 @@ async function loadReport() {
   var body = $('#repBody');
   body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
   try {
-    var r = await Shade.api('/api/v1/worklog/report?from=' + state.rep.from + '&to=' + state.rep.to
-      + '&scope=' + state.scope);
+    var r = await Shade.api(wl('/api/v1/worklog/report?from=' + state.rep.from + '&to=' + state.rep.to
+      + '&scope=' + state.scope));
     var list = (r.data && r.data.list) || [];
     state.rep.loaded = true;
     var failedTotal = list.filter(function (x) { return (x.reasons || []).length; }).length;
@@ -2635,6 +2932,43 @@ function initEvents() {
     switchPane('Record');
     gotoDate(row.dataset.d);
   });
+  /* 数据管理页签：行内操作（改名 / 停启用 / 删除）/ 虚线行添加（按钮 + 输入框回车）/ 杆塔模板·导入（事件委托） */
+  $('#dictBody').addEventListener('click', function (e) {
+    var addBtn = e.target.closest('[data-dadd]');
+    if (addBtn) { dictAdd(addBtn.dataset.dadd, addBtn); return; }
+    var tBtn = e.target.closest('[data-tact]');
+    if (tBtn) {
+      if (tBtn.dataset.tact === 'tpl') downloadTowerTpl(tBtn);
+      else $('#impFileInput').click();
+      return;
+    }
+    var actBtn = e.target.closest('[data-dact]');
+    if (!actBtn) return;
+    var row = actBtn.closest('.drow');
+    if (!row) return;
+    var seg = dictSeg(row.dataset.seg);
+    var item = { id: Number(row.dataset.id), name: row.dataset.name, status: Number(row.dataset.status) };
+    if (!seg) return;
+    if (actBtn.dataset.dact === 'edit') dictRename(seg, item);
+    else if (actBtn.dataset.dact === 'toggle') dictToggle(seg, item);
+    else if (actBtn.dataset.dact === 'del') dictDelete(seg, item);
+  });
+  $('#dictBody').addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var input = e.target.closest ? e.target.closest('.dadd-in') : null;
+    if (!input) return;
+    var wrap = input.closest('.dadd');
+    if (wrap) dictAdd(wrap.dataset.seg, $('button[data-dadd]', wrap));
+  });
+  /* 杆塔导入文件选择（前端先校验扩展名与大小） */
+  $('#impFileInput').addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    this.value = '';
+    if (!f) return;
+    if (!/\.xlsx$/i.test(f.name)) { Shade.toast('仅支持 .xlsx 文件，请使用模板填写', 'info'); return; }
+    if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
+    importTowers(f);
+  });
   /* 卡片流点击委派：改派车 / 打卡切换 / 删除日志 / 巡视内容·备注编辑 / 添加水印照片 / 备注附件预览·下载 / 照片大图 */
   $('#cardFlow').addEventListener('click', function (e) {
     /* 备注附件：优先于备注块编辑（不冒泡到 data-act） */
@@ -2703,11 +3037,66 @@ function initEvents() {
   });
 }
 
+/* ================= 超管班组切换器 ================= */
+/* 自绘下拉（原 select 隐藏保留为数据源），初始隐藏，超管加载班组列表后显示 */
+var teamDd = Shade.dropdown($('#teamSel'), { width: 'auto', minWidth: '132px', height: 36 });
+teamDd.el.style.display = 'none';
+
+/* 数据源 GET /admin/teams（仅启用班组）；选择持久化 localStorage.worklog_team_id，切换后整页数据重载 */
+async function setupTeamSel() {
+  var me = Shade.user() || {};
+  if (me.role !== 'admin') return;
+  try {
+    var r = await Shade.api('/api/v1/admin/teams');
+    var list = ((r.data && r.data.list) || []).filter(function (t) { return t.status === 1; });
+    if (!list.length) return;
+    var sel = $('#teamSel');
+    sel.innerHTML = list.map(function (t) { return '<option value="' + t.id + '">' + esc(t.name) + '</option>'; }).join('');
+    var saved = Number(localStorage.getItem('worklog_team_id')) || 0;
+    state.teamId = list.some(function (t) { return t.id === saved; }) ? saved : list[0].id;
+    sel.value = String(state.teamId);
+    localStorage.setItem('worklog_team_id', String(state.teamId));
+    teamDd.sync();
+    teamDd.el.style.display = '';
+    sel.addEventListener('change', function () {
+      state.teamId = Number(this.value) || 0;
+      localStorage.setItem('worklog_team_id', String(state.teamId));
+      reloadTeamData();
+    });
+  } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
+}
+
+/* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表） */
+function reloadTeamData() {
+  state.calCache = {};
+  state.meta = null;
+  state.towerRows = null;
+  state.dl.list = null;
+  state.rep.loaded = false;
+  loadCalMonth(true);
+  loadLogs();
+  if (state.pane === 'Dl') loadDlPhotos();
+  if (state.pane === 'Rep') loadReport();
+  if (state.pane === 'Dict') loadDict(); // 数据管理页签随动刷新
+}
+
+/* 未分配班组空态（屏十口径）：隐藏页头操作区 / 页签 / 双栏主体，仅显示提示卡 */
+function renderNoTeam() {
+  $('.wl-head .acts').style.display = 'none';
+  $('#wlTabs').style.display = 'none';
+  $('.wl-body').style.display = 'none';
+  var box = $('#noTeam');
+  box.hidden = false;
+  box.innerHTML = '<div class="empty">' + Shade.icon('usergroup', 44) +
+    '<p><b>未分配班组</b></p>' +
+    '<p style="font-size:12px">你的账号尚未加入任何班组，暂无可查看的数据。<br>请联系超级管理员分配班组后再使用。</p></div>';
+}
+
 /* ================= 启动 ================= */
-function init() {
+async function init() {
   /* 静态图标注入 */
   $$('#wlTabs button').forEach(function (b) {
-    b.insertAdjacentHTML('afterbegin', Shade.icon({ Record: 'task', Dl: 'download', Rep: 'file-safety' }[b.dataset.p], 14));
+    b.insertAdjacentHTML('afterbegin', Shade.icon({ Record: 'task', Dl: 'download', Rep: 'file-safety', Dict: 'tools' }[b.dataset.p], 14));
   });
   moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
   $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
@@ -2728,6 +3117,17 @@ function init() {
   }).catch(function () {
     renderTopUser(Shade.user());
   });
+
+  /* 班组隔离门控：非超管未分配班组 → 整页空态（屏十口径）；超管先选定切换班组再出数 */
+  var me = Shade.user() || {};
+  /* 数据管理页签仅超管 / 班组管理员可见 */
+  if (me.role === 'admin' || me.role === 'team_admin') $('#tabDict').style.display = '';
+  if (me.role !== 'admin' && !me.team_id) {
+    renderNoTeam();
+    Shade.reveal();
+    return;
+  }
+  if (me.role === 'admin') await setupTeamSel();
 
   initEvents();
   syncCalMonth(parseDate(state.date));

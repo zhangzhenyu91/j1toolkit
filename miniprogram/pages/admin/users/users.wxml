@@ -1,33 +1,53 @@
-<!-- 员工管理（管理员）：账号列表 + 新建/禁用/重置密码 -->
+<!-- 员工管理（仅超管）：班组筛选 + 分组列表 + 新建/编辑/重置密码 -->
 <navbar back title="员工管理" />
 
 <view class="page-body">
-  <t-empty wx:if="{{!loading && users.length === 0}}" description="暂无员工账号" />
-
-  <view class="card list-card" wx:if="{{users.length > 0}}">
-    <view
-      class="u-item"
-      hover-class="hover-bg-warm"
-      wx:for="{{users}}"
-      wx:key="id"
-      data-index="{{index}}"
-      bindtap="onActions"
-    >
-      <view class="u-avatar {{item.status !== 1 ? 'u-avatar-off' : ''}}">{{item.char}}</view>
-      <view class="u-main">
-        <view class="u-name">
-          {{item.nickname || item.username}}
-          <text class="badge-outline" wx:if="{{item.role === 'admin'}}">管理员</text>
-        </view>
-        <view class="u-sub">{{item.username}}<text wx:if="{{item.team}}"> · {{item.team}}</text></view>
-      </view>
-      <view class="u-status {{item.status === 1 ? '' : 'u-status-off'}}">
-        {{item.status === 1 ? '正常' : '已禁用'}}
-      </view>
+  <!-- 班组筛选 tab（与关键词搜索叠加过滤） -->
+  <scroll-view scroll-x enhanced show-scrollbar="{{false}}" class="ttabs-scroll">
+    <view class="ttabs">
+      <view class="ttab {{teamTab === '' ? 'on' : ''}}" hover-class="hover-opacity" data-id="" bindtap="onTeamTab">全部</view>
+      <view
+        class="ttab {{teamTab === item.id ? 'on' : ''}}"
+        hover-class="hover-opacity"
+        wx:for="{{teams}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="onTeamTab"
+      >{{item.name}}</view>
+      <view class="ttab {{teamTab === 0 ? 'on' : ''}}" hover-class="hover-opacity" data-id="0" bindtap="onTeamTab">未分组</view>
     </view>
+  </scroll-view>
+
+  <!-- 关键词搜索 -->
+  <view class="search-field">
+    <t-input borderless prefix-icon="search" placeholder="搜索姓名 / 账号" value="{{keyword}}" bind:change="onKeyword" />
   </view>
 
-  <view class="hint">点击员工可进行「重置密码 / 禁用·启用」操作</view>
+  <t-empty wx:if="{{!loading && groups.length === 0}}" description="暂无员工账号" />
+
+  <!-- 分组列表（「全部」时按班组分组，未分组排最后） -->
+  <block wx:for="{{groups}}" wx:key="name" wx:for-item="grp">
+    <view class="grp-title">{{grp.name}}<text class="grp-cnt">{{grp.users.length}} 人</text></view>
+    <view class="card list-card">
+      <view
+        class="u-item {{item.status !== 1 ? 'u-item-off' : ''}}"
+        hover-class="hover-bg-warm"
+        wx:for="{{grp.users}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="openEdit"
+      >
+        <view class="u-avatar {{item.status !== 1 ? 'u-avatar-off' : ''}}">{{item.char}}</view>
+        <view class="u-main">
+          <view class="u-name">{{item.nickname || item.username}}</view>
+          <view class="u-sub">{{item.username}}<text wx:if="{{item.status !== 1}}"> · 已禁用</text></view>
+        </view>
+        <view class="role role-{{item.role}}">{{item.roleText}}</view>
+      </view>
+    </view>
+  </block>
+
+  <view class="hint">点击员工可编辑资料 / 重置密码</view>
 </view>
 
 <!-- 新建员工（固定底部主按钮，避开右上角胶囊区域） -->
@@ -35,31 +55,93 @@
   <t-button block size="large" theme="primary" icon="user-add" bind:tap="openAdd">新建员工</t-button>
 </view>
 
-<!-- 新建员工对话框 -->
-<t-dialog
-  id="add-dialog"
-  visible="{{showAdd}}"
-  title="新建员工"
-  confirm-btn="创建"
-  cancel-btn="取消"
-  bind:confirm="onAddConfirm"
-  bind:cancel="closeAdd"
->
-  <view slot="content" class="form">
-    <view class="form-field">
-      <t-input borderless placeholder="登录账号（字母/数字/下划线）" value="{{form.username}}" data-k="username" bind:change="onField" />
+<!-- 新建 / 编辑员工弹层 -->
+<t-popup visible="{{showEdit}}" placement="bottom" bind:visible-change="onVisibleChange">
+  <view class="sheet">
+    <view class="sh-head">
+      <view class="sh-title">{{form.id ? '编辑员工' : '新建员工'}}<text class="sh-sub" wx:if="{{form.id}}">{{form.username}}</text></view>
+      <view class="sh-close" hover-class="hover-opacity" bindtap="closeEdit">
+        <t-icon name="close" size="36rpx" color="#6B7690" />
+      </view>
     </view>
-    <view class="form-field">
-      <t-input borderless placeholder="姓名/昵称" value="{{form.nickname}}" data-k="nickname" bind:change="onField" />
+
+    <scroll-view scroll-y class="sh-body">
+      <view class="f-item" wx:if="{{!form.id}}">
+        <view class="f-label">登录账号</view>
+        <view class="f-field">
+          <t-input borderless placeholder="字母/数字/下划线" value="{{form.username}}" data-k="username" bind:change="onField" />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">昵称 / 姓名</view>
+        <view class="f-field">
+          <t-input borderless placeholder="姓名/昵称" value="{{form.nickname}}" data-k="nickname" bind:change="onField" />
+        </view>
+      </view>
+      <view class="f-item" wx:if="{{!form.id}}">
+        <view class="f-label">初始密码</view>
+        <view class="f-field">
+          <t-input borderless type="password" placeholder="至少 6 位" value="{{form.password}}" data-k="password" bind:change="onField" />
+        </view>
+      </view>
+
+      <!-- 所属班组（下拉取自班组表，可清空为未分配） -->
+      <view class="f-item">
+        <view class="f-label">所属班组</view>
+        <view class="f-in" hover-class="hover-opacity" bindtap="toggleTeam">
+          <text class="{{form.team_id ? '' : 'f-in-ph'}}">{{teamName}}</text>
+          <t-icon name="chevron-down" size="28rpx" color="#A89F8A" />
+        </view>
+        <view class="team-opts" wx:if="{{teamOpen}}">
+          <view class="opt {{form.team_id === null ? 'opt-on' : ''}}" hover-class="hover-bg-warm" data-id="" bindtap="onTeamPick">
+            未分配
+            <t-icon wx:if="{{form.team_id === null}}" name="check" size="30rpx" color="#F26D21" />
+          </view>
+          <view
+            class="opt {{form.team_id === item.id ? 'opt-on' : ''}}"
+            hover-class="hover-bg-warm"
+            wx:for="{{teams}}"
+            wx:key="id"
+            data-id="{{item.id}}"
+            bindtap="onTeamPick"
+          >
+            {{item.name}}
+            <t-icon wx:if="{{form.team_id === item.id}}" name="check" size="30rpx" color="#F26D21" />
+          </view>
+        </view>
+      </view>
+
+      <!-- 角色三选 -->
+      <view class="f-item">
+        <view class="f-label">角色{{isSelf ? '（本人不可降级）' : ''}}</view>
+        <view class="seg {{isSelf ? 'seg-off' : ''}}">
+          <view
+            class="sg {{form.role === item.value ? 'sg-on' : ''}}"
+            hover-class="{{isSelf ? '' : 'hover-opacity'}}"
+            wx:for="{{roleOptions}}"
+            wx:key="value"
+            data-value="{{item.value}}"
+            bindtap="onRolePick"
+          >{{item.label}}</view>
+        </view>
+      </view>
+
+      <view class="f-item f-row" wx:if="{{form.id}}">
+        <view class="fr-lab">账号状态{{isSelf ? '（本人不可禁用）' : ''}}</view>
+        <t-switch value="{{form.status === 1}}" disabled="{{isSelf}}" bind:change="onStatusChange" />
+      </view>
+    </scroll-view>
+
+    <view class="sh-note">
+      班组管理员 = 可维护本班出工日志字典与杆塔坐标，无员工 / 权限 / 班组管理入口；保存后出工成员字典自动同步：昵称变更 / 调入班组 → 自动增补成员；调出 / 停用 → 成员自动停用（不删除，历史记录保留）。
     </view>
-    <view class="form-field">
-      <t-input borderless placeholder="班组（选填）" value="{{form.team}}" data-k="team" bind:change="onField" />
-    </view>
-    <view class="form-field">
-      <t-input borderless type="password" placeholder="初始密码（至少 6 位）" value="{{form.password}}" data-k="password" bind:change="onField" />
+
+    <view class="sh-foot">
+      <view class="pwd-link" hover-class="hover-opacity" wx:if="{{form.id}}" bindtap="resetPassword">重置密码</view>
+      <view class="sum" wx:else>创建后可再编辑班组与角色</view>
+      <view class="btn-primary {{saving ? 'btn-disabled' : ''}}" hover-class="hover-opacity" bindtap="onSave">保 存</view>
     </view>
   </view>
-</t-dialog>
+</t-popup>
 
-<t-dialog id="t-dialog" />
 <t-toast id="t-toast" />

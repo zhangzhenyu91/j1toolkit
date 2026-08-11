@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 远程连接计算机（PC 端应用，app_key kvm；设备卡片实时数据代理自 GLKVM Cloud 平台；终端/远程控制经
      /api/v1/kvm/jump 签发带态跳转地址（平台 jump.html 种 sid Cookie），实现仅能通过壹匣登录平台；
-     本页不直连设备） 接口走 /api/v1/kvm（{code,message,data} 信封，Shade.api 自动带登录态） -->
+     本页不直连设备） 接口走 /api/v1/kvm（{code,message,data} 信封，Shade.api 自动带登录态）；
+     班组隔离：本班组未绑定设备组或组内无设备时回退默认班组设备并显示黄色提示横幅（响应 fallback/fallback_team）；
+     超管筛选行加班组切换下拉（localStorage.kvm_team_id，devices 与 jump 请求带 team_id） -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -15,16 +17,15 @@
   .bar .input { height: 38px; width: 210px; font-size: 13px; }
   .bar .ops-r { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 
-  /* 状态分段开关（与出工日志「全部/仅看我」同族） */
-  .seg { display: inline-flex; gap: 2px; padding: 3px; background: #fff; border: 1px solid var(--line); border-radius: 9px; }
-  .seg button {
-    border: none; background: transparent; height: 30px; padding: 0 14px; border-radius: 7px;
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 12.5px; color: var(--sub); letter-spacing: 1px; cursor: pointer;
-    transition: background .25s, color .25s;
+  /* 班组设备回退提示横幅（黄底黄字圆角条，屏十四口径） */
+  .fb-banner {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 18px;
+    padding: 10px 14px; border-radius: 10px;
+    background: #FDF3CF; color: #EAB308;
+    font-size: 12.5px; font-weight: 600; letter-spacing: .5px; line-height: 1.7;
   }
-  .seg button:hover { color: var(--navy); }
-  .seg button.on { background: var(--navy); color: #fff; font-weight: 700; }
+  .fb-banner .ic { flex: none; font-size: 14px; }
+  .fb-banner[hidden] { display: none; }
 
   /* 手动刷新期间按钮图标转圈（不重排卡片、不出骨架，避免闪现） */
   .btn.refreshing svg { animation: rot 1s linear infinite; }
@@ -76,16 +77,17 @@
   <div class="section-title rv"><h3>设备列表</h3><span class="more" id="devCnt">数据实时取自 GLKVM 平台</span></div>
 
   <div class="bar rv">
-    <div class="seg" id="segStatus">
-      <button class="on" data-v="">全部</button>
-      <button data-v="online">在线</button>
-      <button data-v="offline">离线</button>
-      <button data-v="disabled">禁用</button>
-    </div>
     <input class="input" id="fltQ" placeholder="搜索名称 / IP / MAC">
     <div class="ops-r">
+      <select class="input" id="teamSel" hidden title="仅超级管理员可切换班组；其余角色固定为本班组"></select>
       <button class="btn btn-sm" id="btnRefresh">刷新</button>
     </div>
+  </div>
+
+  <!-- 班组设备回退提示（fallback=true 时显示，屏十四口径） -->
+  <div class="fb-banner" id="fbBanner" hidden>
+    <span class="ic">⚠</span>
+    <p id="fbText"></p>
   </div>
 
   <section class="dev-grid" id="devGrid"></section>
@@ -99,7 +101,47 @@
   Shade.reveal();
   document.getElementById('btnRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 15));
 
-  var state = { q: '', status: '', loaded: false, timer: null };
+  var state = { q: '', loaded: false, timer: null, teamId: 0 };
+
+  /* ===== 超管班组切换器（数据源 GET /admin/teams 启用班组；选择持久化 localStorage.kvm_team_id） ===== */
+  /* 自绘下拉（原 select 隐藏保留为数据源），初始隐藏，超管加载班组列表后显示 */
+  var teamDd = Shade.dropdown(document.getElementById('teamSel'), { width: 'auto', minWidth: '132px', height: 38 });
+  teamDd.el.style.display = 'none';
+
+  async function setupTeamSel() {
+    var me = Shade.user() || {};
+    if (me.role !== 'admin') return;
+    try {
+      var r = await Shade.api('/api/v1/admin/teams');
+      var list = ((r.data && r.data.list) || []).filter(function (t) { return t.status === 1; });
+      if (!list.length) return;
+      var sel = document.getElementById('teamSel');
+      sel.innerHTML = list.map(function (t) { return '<option value="' + t.id + '">' + Shade.esc(t.name) + '</option>'; }).join('');
+      var saved = Number(localStorage.getItem('kvm_team_id')) || 0;
+      state.teamId = list.some(function (t) { return t.id === saved; }) ? saved : list[0].id;
+      sel.value = String(state.teamId);
+      localStorage.setItem('kvm_team_id', String(state.teamId));
+      teamDd.sync();
+      teamDd.el.style.display = '';
+      sel.addEventListener('change', function () {
+        state.teamId = Number(this.value) || 0;
+        localStorage.setItem('kvm_team_id', String(state.teamId));
+        loadDevices('filter');
+      });
+    } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
+  }
+
+  /* 班组设备回退提示横幅：fallback=true 时展示来源班组（屏十四文案口径） */
+  function renderFallback(data) {
+    var banner = document.getElementById('fbBanner');
+    if (data && data.fallback) {
+      document.getElementById('fbText').textContent =
+        '本班组暂未接入设备，当前展示「' + (data.fallback_team || '默认班组') + '」的设备；本班组设备组接入后自动切换、此提示消失。';
+      banner.hidden = false;
+    } else {
+      banner.hidden = true;
+    }
+  }
 
   function statusHtml(s) {
     if (s === 'online') return '<span class="st st-online"><i></i>在线</span>';
@@ -113,9 +155,11 @@
     if (jumping) return;
     jumping = true;
     try {
+      var body = { to: to, ddns: ddns || '' };
+      if (state.teamId) body.team_id = state.teamId; // 超管指定班组（仅超管生效）
       var r = await Shade.api('/api/v1/kvm/jump', {
         method: 'POST',
-        body: { to: to, ddns: ddns || '' },
+        body: body,
       });
       window.open(r.data.url, '_blank');
     } catch (e) {
@@ -145,7 +189,7 @@
     document.getElementById('devCnt').textContent = '共 ' + items.length + ' 台设备 · 每 30s 自动刷新';
     if (!items.length) {
       grid.innerHTML = '<div class="empty">' + Shade.icon('monitor', 44) +
-        '<p>暂无设备' + (state.q || state.status ? '，试试调整筛选条件' : '，或联系管理员开通平台设备权限') + '</p></div>';
+        '<p>暂无设备' + (state.q ? '，试试更换搜索关键字' : '，或联系管理员开通平台设备权限') + '</p></div>';
       return;
     }
     grid.innerHTML = items.map(function (d, i) {
@@ -201,9 +245,10 @@
     try {
       var qs = [];
       if (state.q) qs.push('q=' + encodeURIComponent(state.q));
-      if (state.status) qs.push('status=' + encodeURIComponent(state.status));
+      if (state.teamId) qs.push('team_id=' + state.teamId); // 超管指定班组（仅超管生效）
       var r = await Shade.api('/api/v1/kvm/devices' + (qs.length ? '?' + qs.join('&') : ''));
       state.loaded = true;
+      renderFallback(r.data);
       renderCards(r.data.items || [], mode === 'init' || mode === 'filter');
     } catch (e) {
       if (mode === 'auto') return; // 静默刷新失败不打断页面
@@ -215,15 +260,6 @@
   }
 
   /* ===== 筛选与刷新 ===== */
-  document.querySelectorAll('#segStatus button').forEach(function (b) {
-    b.addEventListener('click', function () {
-      if (b.classList.contains('on')) return;
-      document.querySelectorAll('#segStatus button').forEach(function (x) { x.classList.remove('on'); });
-      b.classList.add('on');
-      state.status = b.getAttribute('data-v');
-      loadDevices('filter');
-    });
-  });
   document.getElementById('fltQ').addEventListener('input', function () {
     var v = this.value.trim();
     clearTimeout(state.qTimer);
@@ -231,8 +267,12 @@
   });
   document.getElementById('btnRefresh').addEventListener('click', function () { loadDevices('manual'); });
 
-  loadDevices('init');
-  state.timer = setInterval(function () { loadDevices('auto'); }, 30000);
+  /* 超管先选定切换班组（非超管内部直接返回），再拉设备列表 */
+  (async function () {
+    await setupTeamSel();
+    loadDevices('init');
+    state.timer = setInterval(function () { loadDevices('auto'); }, 30000);
+  })();
 </script>
 </body>
 </html>

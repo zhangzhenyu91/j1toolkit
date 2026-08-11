@@ -2,31 +2,50 @@
 <navbar back title="权限管理" />
 
 <view class="page-body">
-  <!-- 员工选择 -->
-  <view class="section-title">选择员工</view>
-  <view class="card list-card">
-    <t-empty wx:if="{{!loading && users.length === 0}}" description="暂无员工账号" />
-    <view
-      class="u-item {{item.id === selectedUserId ? 'u-item-on' : ''}}"
-      hover-class="hover-bg-warm"
-      wx:for="{{users}}"
-      wx:key="id"
-      data-id="{{item.id}}"
-      bindtap="onSelectUser"
-    >
-      <view class="u-avatar">{{item.char}}</view>
-      <view class="u-main">
-        <view class="u-name">{{item.nickname || item.username}}</view>
-        <view class="u-sub">{{item.username}}<text wx:if="{{item.team}}"> · {{item.team}}</text></view>
-      </view>
-      <t-icon
-        wx:if="{{item.id === selectedUserId}}"
-        name="check"
-        size="40rpx"
-        color="#F26D21"
-      />
+  <!-- 班组筛选 tab -->
+  <scroll-view scroll-x enhanced show-scrollbar="{{false}}" class="ttabs-scroll">
+    <view class="ttabs">
+      <view class="ttab {{teamTab === '' ? 'on' : ''}}" hover-class="hover-opacity" data-id="" bindtap="onTeamTab">全部</view>
+      <view
+        class="ttab {{teamTab === item.id ? 'on' : ''}}"
+        hover-class="hover-opacity"
+        wx:for="{{teams}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="onTeamTab"
+      >{{item.name}}</view>
+      <view class="ttab {{teamTab === 0 ? 'on' : ''}}" hover-class="hover-opacity" data-id="0" bindtap="onTeamTab">未分组</view>
     </view>
-  </view>
+  </scroll-view>
+
+  <!-- 员工选择（按班组分组，未分组排最后） -->
+  <view class="section-title">选择员工</view>
+  <t-empty wx:if="{{!loading && groups.length === 0}}" description="暂无员工账号" />
+  <block wx:for="{{groups}}" wx:key="name" wx:for-item="grp">
+    <view class="grp-title">{{grp.name}}<text class="grp-cnt">{{grp.users.length}} 人</text></view>
+    <view class="card list-card">
+      <view
+        class="u-item {{item.id === selectedUserId ? 'u-item-on' : ''}}"
+        hover-class="hover-bg-warm"
+        wx:for="{{grp.users}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="onSelectUser"
+      >
+        <view class="u-avatar">{{item.char}}</view>
+        <view class="u-main">
+          <view class="u-name">{{item.nickname || item.username}}</view>
+          <view class="u-sub">{{item.username}}<text wx:if="{{item.team}}"> · {{item.team}}</text></view>
+        </view>
+        <t-icon
+          wx:if="{{item.id === selectedUserId}}"
+          name="check"
+          size="40rpx"
+          color="#F26D21"
+        />
+      </view>
+    </view>
+  </block>
 
   <!-- 应用授权 -->
   <block wx:if="{{selectedUserId}}">

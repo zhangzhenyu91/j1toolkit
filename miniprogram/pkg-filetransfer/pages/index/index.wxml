@@ -2,9 +2,37 @@
      设备卡片与网页端 kvm.html 同口径；上传/下载弹层与出工日志批量下载同为 t-popup 底部弹层 -->
 <navbar back title="文件传输" />
 
-<view class="page-body">
+<view class="page-body" wx:if="{{!noTeam}}">
+  <!-- 班组切换器（超管可点 chip 下拉切换生效班组；其余角色为静态班组名标签） -->
+  <view class="tswitch">
+    <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
+      <text>{{teamName}}</text>
+      <text class="arr" wx:if="{{isAdmin}}">▾</text>
+    </view>
+    <view class="ts-drop" wx:if="{{teamDropOpen}}">
+      <view
+        class="ts-opt {{item.on ? 'on' : ''}}"
+        wx:for="{{teamOptions}}"
+        wx:key="id"
+        hover-class="hover-bg-warm"
+        bindtap="onTeamPick"
+        data-id="{{item.id}}"
+      >
+        <text>{{item.name}}</text>
+        <text class="ck" wx:if="{{item.on}}">✓</text>
+      </view>
+    </view>
+  </view>
+  <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
+
   <view class="section-title">设备列表</view>
   <view class="cnt">{{list.length ? '共 ' + list.length + ' 台设备 · ' : ''}}数据实时取自 GLKVM 平台</view>
+
+  <!-- 班组设备回退提示（屏九 .fbanner：本班组暂未接入设备，回退展示默认班组设备） -->
+  <view class="fbanner" wx:if="{{fallback}}">
+    <text class="ic">⚠</text>
+    <text class="fb-p">本班组暂未接入设备，当前展示「{{fallbackTeam}}」的设备；本班组设备组接入后自动切换、此提示消失。</text>
+  </view>
 
   <!-- 设备卡片（卡顶警示斜纹条为全局 hazard-top） -->
   <block wx:if="{{list.length}}">
@@ -59,6 +87,16 @@
 
   <!-- 空态 -->
   <view wx:else class="empty-box">暂无设备，或联系管理员开通平台设备权限</view>
+</view>
+
+<!-- 未分配班组空态（屏十：非超管且未加入任何班组；整页替代，不发业务请求） -->
+<view class="page-body" wx:if="{{noTeam}}">
+  <view class="team-empty">
+    <view class="te-ic">👷</view>
+    <view class="te-t">未分配班组</view>
+    <view class="te-p">你的账号尚未加入任何班组，暂无可查看的数据。</view>
+    <view class="te-p">请联系超级管理员分配班组后再使用。</view>
+  </view>
 </view>
 
 <!-- 上传文件弹层（t-popup 底部弹层，同出工日志批量下载结构） -->

@@ -1,6 +1,9 @@
 // 文件传输 · 设备列表 + 虚拟 U 盘上传/下载（移动端应用，app_key file-transfer）
 // 列表数据实时代理自 GLKVM Cloud 平台（/api/v1/kvm/devices，kvm 或 file-transfer 任一权限）；
 // 上传/下载经壹匣转发点（/api/v1/kvm/devices/{id}/push|files|download|mount|status），平台链路直达设备
+// 班组口径（屏九）：设备按生效班组过滤，本班组无设备时回退默认班组设备并显示黄色提示横幅（fallback）；
+// 超管顶部切换器可切班组（storage filetransfer_team_id，全部请求带 team_id）；
+// 非超管未分配班组 → 整页空态（屏十）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -53,6 +56,15 @@ Page({
     list: [],
     loading: true, // 首屏加载中
     error: '', // 首屏加载失败文案（已有内容时失败仅 toast）
+    // 班组设备回退提示（屏九）：本班组无设备时回退展示默认班组设备
+    fallback: false,
+    fallbackTeam: '',
+    // 班组切换器（同 pkg-worklog 口径）：超管可点 chip 下拉切换；其余角色为静态班组名标签
+    isAdmin: false,
+    noTeam: false, // 非超管且未分配班组：整页空态（屏十），不发业务请求
+    teamName: '',
+    teamOptions: [], // [{id, name, on}]
+    teamDropOpen: false,
 
     // 上传弹层
     upOpen: false,
@@ -91,13 +103,87 @@ Page({
 
   passGate() {
     if (this.data.gate) return;
-    this.setData({ gate: true });
+    const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
+    this._role = user.role || 'user';
+    this._teamId = 0; // 生效班组 id（仅超管经切换器指定；0=不带参数，后端落自己/默认班组）
+    // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
+    if (this._role !== 'admin' && !user.team) {
+      this.setData({ gate: true, noTeam: true, loading: false });
+      return;
+    }
+    this.setData({ gate: true, isAdmin: this._role === 'admin', teamName: user.team || '' });
+    if (this._role === 'admin') {
+      this.initTeams(user); // 超管先定生效班组，再加载设备
+      return;
+    }
     this.loadDevices('init');
     this.startTimer();
   },
 
+  // ---------- 班组切换器（仅超管可切换，其余角色静态展示本班名） ----------
+
+  // 超管：拉启用班组（/admin/teams 取 status=1）→ 生效班组（storage 优先 → 自己班组 → 第一个）→ 设备列表
+  async initTeams(user) {
+    let teams = [];
+    try {
+      const data = await request({ url: '/api/v1/admin/teams' });
+      teams = ((data && data.list) || []).filter((t) => t.status === 1);
+    } catch (err) {
+      this.toast(err.message);
+    }
+    this._teams = teams;
+    const saved = Number(wx.getStorageSync('filetransfer_team_id')) || 0;
+    const cur = teams.find((t) => t.id === saved)
+      || teams.find((t) => t.id === Number(user.team_id))
+      || teams[0] || null;
+    this.applyTeam(cur ? cur.id : 0, false);
+    this.loadDevices('init');
+    this.startTimer();
+  },
+
+  // 生效班组 query 片段（lead 为前导连接符；仅超管 _teamId>0 时携带，其余角色后端强制本班无需传）
+  teamQuery(lead) {
+    return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
+  },
+
+  // 生效班组 body 注入（POST JSON 用，口径同 teamQuery）
+  teamBody(data) {
+    return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
+  },
+
+  // 记录当前生效班组并刷新切换器展示；switching=true 表示用户主动切换，重拉设备列表
+  applyTeam(id, switching) {
+    this._teamId = id;
+    if (id) wx.setStorageSync('filetransfer_team_id', id);
+    const cur = ((this._teams || []).find((t) => t.id === id)) || null;
+    this.setData({
+      teamName: cur ? cur.name : this.data.teamName,
+      teamDropOpen: false,
+      teamOptions: (this._teams || []).map((t) => ({ id: t.id, name: t.name, on: t.id === id })),
+    });
+    if (switching) this.loadDevices('manual');
+  },
+
+  onTeamChipTap() {
+    if (!this.data.isAdmin || !(this._teams || []).length) return;
+    this.setData({ teamDropOpen: !this.data.teamDropOpen });
+  },
+
+  onTeamDropClose() {
+    if (this.data.teamDropOpen) this.setData({ teamDropOpen: false });
+  },
+
+  onTeamPick(e) {
+    const id = Number(e.currentTarget.dataset.id);
+    if (!id || id === this._teamId) {
+      this.setData({ teamDropOpen: false });
+      return;
+    }
+    this.applyTeam(id, true);
+  },
+
   onShow() {
-    if (!this.data.gate) return;
+    if (!this.data.gate || this.data.noTeam) return;
     // 首屏由 passGate 触发 init，此处仅后续进场（切后台回来等）静默刷新
     if (this._loaded) this.loadDevices('auto');
     this.startTimer();
@@ -124,6 +210,10 @@ Page({
   },
 
   onPullDownRefresh() {
+    if (this.data.noTeam) {
+      wx.stopPullDownRefresh();
+      return;
+    }
     this.loadDevices('manual').finally(() => wx.stopPullDownRefresh());
   },
 
@@ -139,7 +229,7 @@ Page({
   async loadDevices(mode) {
     if (mode === 'init') this.setData({ loading: true, error: '' });
     try {
-      const data = await request({ url: '/api/v1/kvm/devices' });
+      const data = await request({ url: `/api/v1/kvm/devices${this.teamQuery('?')}` });
       const list = (((data && data.items) || [])).map((d) => {
         const st = STATUS_MAP[d.status] || STATUS_MAP.offline;
         return {
@@ -155,7 +245,14 @@ Page({
         };
       });
       this._loaded = true;
-      this.setData({ list, loading: false, error: '' });
+      this.setData({
+        list,
+        loading: false,
+        error: '',
+        // 班组设备回退提示（屏九）：本班组无设备时展示默认班组设备 + 黄色横幅
+        fallback: !!(data && data.fallback),
+        fallbackTeam: (data && data.fallback_team) || '',
+      });
     } catch (err) {
       // 静默刷新失败不打断页面；已有内容时仅提示
       if (mode === 'auto' || this._loaded) {
@@ -269,7 +366,7 @@ Page({
         url: `${config.BASE_URL}/api/v1/kvm/devices/${deviceId}/push`,
         filePath: file.path,
         name: 'files',
-        formData: { filename: file.name },
+        formData: this._teamId ? { filename: file.name, team_id: this._teamId } : { filename: file.name },
         header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
         timeout: 120000,
         success(res) {
@@ -308,7 +405,7 @@ Page({
 
     if (okCount > 0) {
       try {
-        await request({ url: `/api/v1/kvm/devices/${upDevice.id}/mount`, method: 'POST', timeout: 60000 });
+        await request({ url: `/api/v1/kvm/devices/${upDevice.id}/mount`, method: 'POST', data: this.teamBody({}), timeout: 60000 });
       } catch (err) {
         this.setData({ uploading: false });
         this.toast(`挂载失败：${err.message}（文件已在盘内，可重试挂载）`);
@@ -352,7 +449,7 @@ Page({
   async checkDlState() {
     try {
       const data = await request({
-        url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/status`,
+        url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/status${this.teamQuery('?')}`,
         timeout: 60000,
       });
       if (data && data.shared) {
@@ -381,7 +478,7 @@ Page({
     this.setData({ dlLoading: true });
     try {
       const data = await request({
-        url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/files`,
+        url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/files${this.teamQuery('?')}`,
         timeout: 60000,
       });
       this.setData({ dlFiles: this.mapDlFiles(data && data.files), dlLoading: false, dlState: 'local' });
@@ -397,7 +494,7 @@ Page({
     if (this.data.downloading) return;
     this.setData({ downloading: file.name });
     wx.downloadFile({
-      url: `${config.BASE_URL}/api/v1/kvm/devices/${this.data.dlDevice.id}/download?name=${encodeURIComponent(file.name)}`,
+      url: `${config.BASE_URL}/api/v1/kvm/devices/${this.data.dlDevice.id}/download?name=${encodeURIComponent(file.name)}${this.teamQuery()}`,
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
       timeout: 120000,
       // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
@@ -459,7 +556,7 @@ Page({
         const data = await request({
           url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/delete`,
           method: 'POST',
-          data: { names: [name] },
+          data: this.teamBody({ names: [name] }),
           timeout: 60000,
         });
         // deleted/missing 均视为已不在盘内，从列表移除
@@ -484,7 +581,7 @@ Page({
     }
     this.setData({ mounting: true });
     try {
-      await request({ url: `/api/v1/kvm/devices/${dlDevice.id}/mount`, method: 'POST', timeout: 60000 });
+      await request({ url: `/api/v1/kvm/devices/${dlDevice.id}/mount`, method: 'POST', data: this.teamBody({}), timeout: 60000 });
       this.setData({ dlState: 'shared' });
       this.toast('已挂载到目标计算机，可在该机向 U 盘放入文件');
     } catch (err) {

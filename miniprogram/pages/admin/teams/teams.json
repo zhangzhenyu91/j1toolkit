@@ -6,6 +6,7 @@
     "t-input": "tdesign-miniprogram/input/input",
     "t-popup": "tdesign-miniprogram/popup/popup",
     "t-switch": "tdesign-miniprogram/switch/switch",
+    "t-dialog": "tdesign-miniprogram/dialog/dialog",
     "t-empty": "tdesign-miniprogram/empty/empty",
     "t-toast": "tdesign-miniprogram/toast/toast",
     "t-button": "tdesign-miniprogram/button/button"

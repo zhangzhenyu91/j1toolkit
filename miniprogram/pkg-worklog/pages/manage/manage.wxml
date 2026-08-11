@@ -1,4 +1,4 @@
-<!-- 出工日志 · 常用数据管理（仅 admin） -->
+<!-- 出工日志 · 常用数据管理（超管 / 班组管理员） -->
 <navbar back title="常用数据管理" />
 
 <view class="page-body" wx:if="{{isAdmin}}">
@@ -37,6 +37,8 @@
         <t-icon name="{{icon}}" size="32rpx" color="#F26D21" />
       </view>
       <text class="mt">{{item.name}}</text>
+      <!-- 人员来源标（屏六）：user_id 非空=账号同步（绿），空=手动添加（灰） -->
+      <text wx:if="{{seg === 'members'}}" class="{{item.user_id ? 'sync-pill' : 'hand-pill'}}">{{item.user_id ? '账号同步' : '手动添加'}}</text>
       <text class="moff-tip" wx:if="{{item.status !== 1}}">已停用</text>
       <view class="ops">
         <text class="edit" hover-class="hover-opacity" bindtap="onEdit" data-id="{{item.id}}" data-name="{{item.name}}">编辑</text>
@@ -45,6 +47,71 @@
     </view>
     <view class="mempty" wx:if="{{!loading && list.length === 0}}">暂无数据，可在上方添加</view>
   </view>
+
+  <!-- 杆塔坐标（屏六：按当前生效班组全量替换，不影响其他班组） -->
+  <view class="section-title tower-sec">杆塔坐标</view>
+  <view class="tower-bar">
+    <view class="tb-l">
+      <view class="tb-n">{{towerCount === null ? '坐标加载中…' : towerCount + ' 条坐标'}}</view>
+      <view class="tb-s">仅作用于当前班组</view>
+    </view>
+    <view class="tb-btns">
+      <view class="tb-btn tpl" hover-class="hover-opacity" bindtap="onTplDownload">下载模板</view>
+      <view class="tb-btn imp" hover-class="hover-opacity" bindtap="onOpenImport">导入 Excel</view>
+    </view>
+  </view>
 </view>
+
+<!-- 杆塔坐标导入弹层（屏七三步：下载模板 → 选择 .xlsx → 确认导入） -->
+<t-popup visible="{{impOpen}}" placement="bottom" bind:visible-change="onImpVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">导入杆塔坐标</view>
+    <view class="imp-steps">
+      <view class="imp-step">
+        <view class="no">1</view>
+        <view class="st-body">
+          <view class="st-t">下载模板</view>
+          <view class="st-d">列固定为：电压等级 / 线路名称 / 杆塔号 / 经度 / 纬度</view>
+          <view class="dl-line" hover-class="hover-opacity" bindtap="onTplDownload">
+            <t-icon name="download" size="26rpx" color="#F26D21" />
+            杆塔坐标导入模板.xlsx
+          </view>
+        </view>
+      </view>
+      <view class="imp-step">
+        <view class="no">2</view>
+        <view class="st-body">
+          <view class="st-t">选择填写好的 Excel</view>
+          <view class="pick-file" hover-class="hover-opacity" bindtap="onImpPick">
+            <block wx:if="{{impFile}}">
+              <view class="pfn">
+                {{impFile.name}}
+                <text class="pfx" catchtap="onImpRemove">✕</text>
+              </view>
+              <view class="pfd">点击可重新选择 · 仅 .xlsx</view>
+            </block>
+            <block wx:else>
+              <view class="pfn">点击选择文件</view>
+              <view class="pfd">从聊天选取（wx.chooseMessageFile）· 仅 .xlsx</view>
+            </block>
+          </view>
+        </view>
+      </view>
+      <view class="imp-step" wx:if="{{impFile}}">
+        <view class="no">3</view>
+        <view class="st-body">
+          <view class="st-t">确认导入</view>
+          <view class="imp-sum">导入后<b>全量替换</b>本班组现有坐标，不影响其他班组。</view>
+        </view>
+      </view>
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost {{importing ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onImpClose">取 消</view>
+      <view class="btn-dark {{!impFile || importing ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onImpStart">
+        {{importing ? '正在导入…' : '开始导入'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
 
 <t-toast id="t-toast" />

@@ -10,7 +10,8 @@ const router = express.Router();
 router.get('/profile', auth, async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, username, nickname, avatar, team, role, openid, created_at FROM sys_user WHERE id = ?',
+      `SELECT u.id, u.username, u.nickname, u.avatar, u.team_id, t.name AS team, u.role, u.openid, u.created_at
+       FROM sys_user u LEFT JOIN sys_team t ON t.id = u.team_id WHERE u.id = ?`,
       [req.user.id]
     );
     if (!rows.length) return fail(res, 404, 40401, '用户不存在');
@@ -20,7 +21,8 @@ router.get('/profile', auth, async (req, res, next) => {
       username: u.username,
       nickname: u.nickname,
       avatar: u.avatar,
-      team: u.team,
+      team: u.team || '',
+      team_id: u.team_id,
       role: u.role,
       wx_bound: !!u.openid, // 不返回 openid 本体，只给绑定状态
       created_at: u.created_at,

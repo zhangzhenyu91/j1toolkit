@@ -8,6 +8,130 @@
   padding-bottom: 200rpx;
 }
 
+/* ---------- 班组切换器（屏五：超管可点 chip 下拉切换；其余角色静态班组名标签） ---------- */
+.tswitch {
+  position: relative;
+  z-index: 20;
+  margin-bottom: 20rpx;
+}
+
+.ts-cur {
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 999rpx;
+  padding: 12rpx 28rpx;
+  font-size: 25rpx;
+  font-weight: 700;
+  color: #22314e;
+}
+
+.ts-cur .arr {
+  color: #f26d21;
+  font-size: 18rpx;
+}
+
+/* 下拉入场：chip 下方轻微上浮 + 淡入（克制，同全局 fadeUp/fadeIn 风格）；收起直消不加动画 */
+@keyframes ts-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ts-drop {
+  position: absolute;
+  top: 76rpx;
+  left: 0;
+  z-index: 21;
+  background: #ffffff;
+  border-radius: 24rpx;
+  box-shadow: 0 24rpx 64rpx rgba(34, 49, 78, 0.18);
+  padding: 12rpx;
+  min-width: 300rpx;
+  animation: ts-drop-in 0.2s ease-out;
+}
+
+.ts-opt {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 18rpx 24rpx;
+  border-radius: 16rpx;
+  font-size: 25rpx;
+  font-weight: 600;
+}
+
+.ts-opt.on {
+  background: #fdeee2;
+  color: #f26d21;
+}
+
+.ts-opt .ck {
+  margin-left: auto;
+  font-size: 22rpx;
+}
+
+/* 点空白处收起下拉（层级低于切换器本体）；遮罩淡入 */
+@keyframes ts-mask-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ts-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  animation: ts-mask-in 0.15s ease-out;
+}
+
+/* ---------- 未分配班组空态（屏十） ---------- */
+.team-empty {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22rpx;
+}
+
+.team-empty .te-ic {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 36rpx;
+  background: #fdeee2;
+  font-size: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.team-empty .te-t {
+  font-size: 30rpx;
+  font-weight: 800;
+  letter-spacing: 2rpx;
+}
+
+.team-empty .te-p {
+  font-size: 23rpx;
+  color: #6b7690;
+  line-height: 1.8;
+  text-align: center;
+}
+
 /* ---------- 日期条 ---------- */
 .datebar {
   display: flex;

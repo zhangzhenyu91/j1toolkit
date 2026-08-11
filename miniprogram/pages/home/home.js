@@ -157,7 +157,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v1.5.3 \n 应用权限申请联系 zzy',
+      content: '版本号：v2.0.0 \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },
@@ -169,6 +169,10 @@ Page({
 
   goPerms() {
     wx.navigateTo({ url: '/pages/admin/perms/perms' });
+  },
+
+  goTeams() {
+    wx.navigateTo({ url: '/pages/admin/teams/teams' });
   },
 
   // 退出登录：确认后调用后端使 token 失效，清理本地登录态

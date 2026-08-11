@@ -3,7 +3,8 @@
     "pages/home/home",
     "pages/login/login",
     "pages/admin/users/users",
-    "pages/admin/perms/perms"
+    "pages/admin/perms/perms",
+    "pages/admin/teams/teams"
   ],
   "subPackages": [
     {
