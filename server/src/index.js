@@ -56,6 +56,10 @@ if (config.safeday.enabled) {
 if (config.kvm.enabled) {
   app.use('/api/v1/kvm', require('./kvm'));
 }
+// 题库刷题：env QUIZ_ENABLED=true 时才挂载（建表/种子见 db.js）
+if (config.quiz.enabled) {
+  app.use('/api/v1/quiz', require('./quiz'));
+}
 
 // 404 与统一错误处理
 app.use((req, res) => fail(res, 404, 40404, '接口不存在'));

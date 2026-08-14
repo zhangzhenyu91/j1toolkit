@@ -12,7 +12,7 @@
    Shade.requireAuth()        → 无 token 直接跳 /login.html；有 token 返回 true
    Shade.icon(name, size, color) → inline SVG 字符串（见 assets/icons.js）
    Shade.topbar(opts)         → 统一渲染顶部导航（插入 body 开头；需 icons.js 先加载）
-     opts.active: 'index' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin'（当前页，渲染为无链接激活态）
+     opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin'（当前页，渲染为无链接激活态）
      结构：左侧 Logo（点击回 /index.html）+ 常驻导航（TOP_NAV：工作台与全部应用始终显示，当前页高亮）；
            右侧「管理」链接（仅 role==='admin' 可见）
            + 分隔线 + 头像字 + 昵称（取 Shade.user() 缓存）+ 退出按钮
@@ -114,6 +114,7 @@
   // 右侧「管理」（仅 admin 可见）+ 用户区 + 退出
   var TOP_NAV = [
     { key: 'index', name: '工作台', href: '/index.html' },
+    { key: 'quiz', name: '题库刷题', href: '/quiz.html' },
     { key: 'callme', name: 'Call Me', href: '/callme.html' },
     { key: 'worklog', name: '出工日志', href: '/worklog.html' },
     { key: 'safeday', name: '安全日活动', href: '/safeday.html' },

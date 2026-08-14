@@ -1,0 +1,404 @@
+/* 题库刷题 · 题库管理（设计稿 design/quiz.html 屏 05；设计 token 见 AGENTS.md 第四节，
+   三步卡对齐出工日志 manage 页导入弹层模式，弹层同 safeday 名称弹层族） */
+
+/* ---------- Excel 导入三步卡（屏 05 .import-card / .step） ---------- */
+.import-card {
+  margin-top: 20rpx;
+  padding: 30rpx 28rpx;
+}
+
+.step {
+  display: flex;
+  gap: 20rpx;
+  align-items: flex-start;
+}
+
+.step + .step {
+  margin-top: 26rpx;
+}
+
+.step .no {
+  width: 44rpx;
+  height: 44rpx;
+  flex: none;
+  border-radius: 50%;
+  background: #f26d21;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.step .tx {
+  flex: 1;
+  min-width: 0;
+}
+
+.step .tx b {
+  font-size: 27rpx;
+  font-weight: 800;
+}
+
+.step .tx p {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+  line-height: 1.6;
+}
+
+.btn-ghost-sm {
+  height: 60rpx;
+  border-radius: 14rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  color: #22314e;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  padding: 0 22rpx;
+  flex: none;
+  box-sizing: border-box;
+}
+
+/* ② 选择文件（虚线区，已选显示文件名） */
+.upload-zone {
+  margin-top: 14rpx;
+  border: 3rpx dashed #d9cfba;
+  border-radius: 16rpx;
+  padding: 22rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  font-size: 24rpx;
+  color: #a89f8a;
+  font-weight: 600;
+}
+
+.upload-zone .up-name {
+  color: #22314e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-zone .up-x {
+  flex: none;
+  color: #a89f8a;
+  padding: 0 6rpx;
+}
+
+/* ③ 目标题库选择 + 导入按钮 */
+.imp-row {
+  margin-top: 16rpx;
+  display: flex;
+  gap: 16rpx;
+  align-items: center;
+}
+
+.bank-sel {
+  flex: 1;
+  min-width: 0;
+  height: 64rpx;
+  padding: 0 20rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 14rpx;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-size: 25rpx;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+
+.bank-sel.open {
+  border-color: #f26d21;
+}
+
+.bank-sel.ph .bs-t {
+  color: #a89f8a;
+  font-weight: 400;
+}
+
+.bank-sel .bs-t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bank-sel .bs-arr {
+  flex: none;
+  color: #f26d21;
+  font-size: 18rpx;
+}
+
+.bank-drop {
+  margin-top: 12rpx;
+  max-height: 400rpx;
+  background: #fbf9f2;
+  border: 2rpx solid #e8e0cd;
+  border-radius: 14rpx;
+}
+
+.bd-opt {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 18rpx 22rpx;
+  font-size: 25rpx;
+  font-weight: 600;
+}
+
+.bd-opt.on {
+  color: #f26d21;
+}
+
+.bd-opt .ck {
+  margin-left: auto;
+  font-size: 22rpx;
+}
+
+.btn-orange-sm {
+  height: 64rpx;
+  border-radius: 14rpx;
+  background: #f26d21;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 25rpx;
+  font-weight: 700;
+  padding: 0 32rpx;
+  letter-spacing: 2rpx;
+  flex: none;
+  box-shadow: 0 12rpx 28rpx rgba(242, 109, 33, 0.3);
+}
+
+.btn-orange-sm.disabled {
+  background: #f4f1ea;
+  color: #a89f8a;
+  box-shadow: none;
+}
+
+/* ---------- 新建题库（虚线占位按钮） ---------- */
+.new-bank {
+  margin-top: 24rpx;
+  height: 88rpx;
+  border: 3rpx dashed #d9cfba;
+  border-radius: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  font-size: 27rpx;
+  font-weight: 700;
+  color: #f26d21;
+  letter-spacing: 2rpx;
+}
+
+/* ---------- 题库管理列表（屏 05 .mg-item） ---------- */
+.sec-row {
+  margin-top: 32rpx;
+  margin-bottom: 20rpx;
+  display: flex;
+  align-items: center;
+}
+
+.cnt {
+  margin-left: auto;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 1rpx;
+}
+
+.mg-item {
+  padding: 26rpx 28rpx;
+}
+
+.mg-item + .mg-item {
+  margin-top: 20rpx;
+}
+
+.mg-item .hd {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.mg-item .hd b {
+  font-size: 28rpx;
+  font-weight: 800;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mg-item .hd .ops {
+  display: flex;
+  gap: 24rpx;
+  flex: none;
+}
+
+.mg-item .hd .ops .op {
+  display: flex;
+  padding: 4rpx;
+}
+
+.mg-item .sub {
+  margin-top: 8rpx;
+  font-size: 23rpx;
+  color: #6b7690;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+/* 解析状态行：解析中进度 / 失败重试 */
+.ai-line {
+  margin-top: 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+}
+
+.ai-line .progress {
+  flex: 1;
+  height: 12rpx;
+  border-radius: 6rpx;
+  background: #efe9da;
+  overflow: hidden;
+}
+
+.ai-line .progress-in {
+  height: 100%;
+  border-radius: 6rpx;
+  background: #f26d21;
+}
+
+.ai-line .retry {
+  color: #f26d21;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+/* ---------- 标签 ---------- */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2rpx 14rpx;
+  border-radius: 8rpx;
+  font-size: 20rpx;
+  line-height: 1.6;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tag-green {
+  background: #e8f5ef;
+  color: #2ba471;
+}
+
+.tag-red {
+  background: #fae9e9;
+  color: #cf4444;
+}
+
+/* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
+.empty-box {
+  margin-top: 24rpx;
+  border: 3rpx dashed #d9cfba;
+  border-radius: 20rpx;
+  padding: 64rpx 32rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+}
+
+/* ---------- 新建/编辑题库弹层（底部弹层，同 safeday 名称弹层族） ---------- */
+.sheet {
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 32rpx 40rpx;
+}
+
+.sheet-title {
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 1rpx;
+}
+
+.sheet-sub {
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  color: #6b7690;
+  line-height: 1.7;
+}
+
+.name-input {
+  margin-top: 24rpx;
+  height: 80rpx;
+  padding: 0 24rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 16rpx;
+  font-size: 27rpx;
+  color: #22314e;
+}
+
+.ph {
+  color: #a89f8a;
+}
+
+.sheet-ops {
+  margin-top: 32rpx;
+  display: flex;
+  gap: 20rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 84rpx;
+  border-radius: 18rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  color: #22314e;
+  font-size: 28rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-accent {
+  flex: 2;
+  height: 84rpx;
+  border-radius: 18rpx;
+  background: #f26d21;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-ghost.disabled,
+.btn-accent.disabled {
+  opacity: 0.5;
+}

@@ -7,6 +7,7 @@ const SHARE_IMAGES = {
   'safe-day': '/images/share/share-safe-day.jpg',
   'file-transfer': '/images/share/share-file-transfer.jpg',
   'wm-add': '/images/share/share-wm-add.jpg',
+  quiz: '/images/share/share-quiz.jpg',
 };
 
 // 在页面 onShareAppMessage 中调用：

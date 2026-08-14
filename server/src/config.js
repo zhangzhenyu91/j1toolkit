@@ -79,6 +79,11 @@ const config = {
     url: str('GLKVM_URL').replace(/\/+$/, ''),
     password: str('GLKVM_PASSWORD'),
   },
+  // 题库刷题（AI 解析走 Dify「题目解析」工作流；未配置 DIFY_QUIZ_API_KEY 时解析停用，刷题照常）
+  quiz: {
+    enabled: str('QUIZ_ENABLED') === 'true',
+    difyKey: str('DIFY_QUIZ_API_KEY'),
+  },
 };
 
 // 启动必需项：缺失即拒绝启动，避免带病运行

@@ -43,6 +43,16 @@
       "pages": [
         "pages/index/index"
       ]
+    },
+    {
+      "root": "pkg-quiz",
+      "name": "quiz",
+      "pages": [
+        "pages/index/index",
+        "pages/practice/practice",
+        "pages/wrong/wrong",
+        "pages/manage/manage"
+      ]
     }
   ],
   "window": {

@@ -1,0 +1,101 @@
+<!-- 题库刷题 · 题库列表（设计稿 design/quiz.html 屏 01）
+     统计卡沿用警示斜纹特征元素；错题本入口置顶；题库卡含进度与 AI 解析状态；
+     底部主按钮与「管理」入口仅管理角色可见 -->
+<navbar back title="题库刷题" />
+
+<view class="page-body {{isManager ? 'has-bar' : ''}}" wx:if="{{!noTeam}}">
+  <!-- 班组切换器（超管可点 chip 下拉切换生效班组；其余角色为静态班组名标签） -->
+  <view class="tswitch">
+    <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
+      <text>{{teamName}}</text>
+      <text class="arr" wx:if="{{isAdmin}}">▾</text>
+    </view>
+    <view class="ts-drop" wx:if="{{teamDropOpen}}">
+      <view
+        class="ts-opt {{item.on ? 'on' : ''}}"
+        wx:for="{{teamOptions}}"
+        wx:key="id"
+        hover-class="hover-bg-warm"
+        bindtap="onTeamPick"
+        data-id="{{item.id}}"
+      >
+        <text>{{item.name}}</text>
+        <text class="ck" wx:if="{{item.on}}">✓</text>
+      </view>
+    </view>
+  </view>
+  <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
+
+  <!-- 统计卡（卡顶警示斜纹条为全局 hazard-top） -->
+  <view class="card hazard-top stat-card">
+    <view class="cell"><b>{{overview ? overview.totalAnswered : '—'}}</b><span>累计练习</span></view>
+    <view class="cell"><b><em>{{overview && overview.rightRate !== null ? overview.rightRate + '%' : '—'}}</em></b><span>正确率</span></view>
+    <view class="cell"><b>{{overview ? overview.wrongCount : '—'}}</b><span>错题待攻克</span></view>
+  </view>
+
+  <!-- 错题本入口卡（专项练习 0 题时禁用） -->
+  <view class="card wrong-entry" hover-class="hover-bg-warm" bindtap="onWrongTap">
+    <view class="icon-box"><t-icon name="refresh" size="40rpx" color="#F26D21" /></view>
+    <view class="tx">
+      <b>错题本 <span class="tag tag-red" wx:if="{{overview && overview.wrongCount}}">{{overview.wrongCount}} 题</span></b>
+      <p>答错自动收录 · 连续答对 3 次自动移出</p>
+    </view>
+    <view class="btn-orange {{!overview || !overview.wrongCount ? 'disabled' : ''}}"
+          hover-class="hover-opacity" catchtap="onWrongPractice">
+      {{overview && overview.wrongCount ? '专项练习' : '暂无错题'}}
+    </view>
+  </view>
+
+  <!-- 我的题库（管理入口仅管理角色可见） -->
+  <view class="sec-row">
+    <view class="section-title">我的题库</view>
+    <view class="more" wx:if="{{isManager}}" hover-class="hover-opacity" bindtap="onManageTap">
+      管理 <t-icon name="chevron-right" size="26rpx" color="#A89F8A" />
+    </view>
+  </view>
+
+  <block wx:if="{{banks.length}}">
+    <view class="card bank-item" wx:for="{{banks}}" wx:key="id"
+          hover-class="hover-bg-warm" bindtap="onBankTap" data-id="{{item.id}}" data-name="{{item.name}}">
+      <view class="icon-box"><t-icon name="book" size="40rpx" color="#F26D21" /></view>
+      <view class="tx">
+        <b>
+          {{item.name}}
+          <span class="badge-outline" wx:if="{{item.aiReady}}">AI 解析</span>
+          <span class="tag tag-navy" wx:if="{{item.notStarted}}">未开始</span>
+        </b>
+        <view class="meta">
+          <span>{{item.questionCount}} 题</span>
+          <span wx:if="{{item.analyzing}}">{{item.analyzingText}}</span>
+          <span wx:else>正确率 {{item.rightRateText}}</span>
+        </view>
+        <view class="pg">
+          <view class="progress"><view class="progress-in" style="width: {{item.pct}}%;"></view></view>
+          <span>{{item.answeredCount}} / {{item.questionCount}}</span>
+        </view>
+      </view>
+    </view>
+  </block>
+  <view wx:elif="{{loading}}" class="empty-box">题库加载中…</view>
+  <view wx:else class="empty-box">暂无题库{{isManager ? '，点击下方按钮新建或导入' : '，请联系管理员导入'}}</view>
+</view>
+
+<!-- 底部主按钮（仅管理角色）：新建题库 / Excel 导入，同进 manage 页 -->
+<view class="bottom-bar" wx:if="{{isManager && !noTeam}}">
+  <view class="btn-navy" hover-class="hover-opacity" bindtap="onManageTap">
+    <t-icon name="add" size="34rpx" color="#FFFFFF" />
+    新建题库 / Excel 导入
+  </view>
+</view>
+
+<!-- 未分配班组空态（非超管且未加入任何班组；整页替代，不发业务请求） -->
+<view class="page-body" wx:if="{{noTeam}}">
+  <view class="team-empty">
+    <view class="te-ic">👷</view>
+    <view class="te-t">未分配班组</view>
+    <view class="te-p">你的账号尚未加入任何班组，暂无可查看的数据。</view>
+    <view class="te-p">请联系超级管理员分配班组后再使用。</view>
+  </view>
+</view>
+
+<t-toast id="t-toast" />

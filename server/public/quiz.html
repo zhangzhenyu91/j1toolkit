@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 题库刷题网页版（设计稿 design/quiz.html W1 刷题 / W2 题库管理，双视图单页）
+     视图：hash 路由 #/practice（默认，刷题 + 错题本）与 #/manage（题库管理，仅 admin / team_admin 可见可入）；
+     左卡两视图共用：错题本入口（虚线描边）+ 题库列表（选中浅橙高亮，管理视图带编辑/删除）；
+     刷题：单选（圆形字母块）/ 多选（方形块）/ 判断（正确·错误双大按钮 96px），顺序断点存 localStorage quiz_seq_{bankId}，
+     提交后解析态（对绿 #2BA471 / 错选红 / 漏选绿虚线 + 正确答案行 + AI 解析卡），答错自动入错题本；
+     管理：模板下载（fetch + blob）/ Excel 导入 / 失败解析重试 / 题目增删改 + 分页搜索，AI 解析进行中 5s 轮询 /banks；
+     班组隔离：超管左卡加班组切换下拉（localStorage.quiz_team_id，全部 /quiz/* 请求统一带 team_id，见 qz()）；
+     API 直连主平台 /api/v1/quiz/*（Bearer token 经 Shade.api） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>题库刷题 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ===== 整页不滚动：仅卡片内部滚动（body 锁定 100vh，骨架同 worklog） ===== */
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+  body > .topbar { flex: none; }
+  /* theme.css 的 .page 带 margin:0 auto，flex 容器内显式 width:100% 恢复满宽（同 worklog 口径） */
+  .page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; padding: 22px 40px 30px; }
+  .qz-wrap { flex: 1; min-height: 0; width: 100%; max-width: 1560px; margin: 0 auto; display: flex; gap: 20px; }
+
+  /* 答题对错用色对齐设计稿：克制绿 #2BA471（theme 无此 token，页内定义） */
+  .tag-green { background: #E8F5EF; color: #2BA471; }
+
+  /* 细滚动条：半透明藏青，全页滚动区统一口径（同 worklog） */
+  .side-scroll, .pr-body, .pane-scroll, .qtable { scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent; }
+  .side-scroll::-webkit-scrollbar, .pr-body::-webkit-scrollbar,
+  .pane-scroll::-webkit-scrollbar, .qtable::-webkit-scrollbar, .m-scroll::-webkit-scrollbar { width: 5px; }
+  .side-scroll::-webkit-scrollbar-thumb, .pr-body::-webkit-scrollbar-thumb,
+  .pane-scroll::-webkit-scrollbar-thumb, .qtable::-webkit-scrollbar-thumb,
+  .m-scroll::-webkit-scrollbar-thumb { background: rgba(34, 49, 78, .16); border-radius: 3px; }
+  .side-scroll::-webkit-scrollbar-thumb:hover, .pr-body::-webkit-scrollbar-thumb:hover,
+  .pane-scroll::-webkit-scrollbar-thumb:hover, .qtable::-webkit-scrollbar-thumb:hover,
+  .m-scroll::-webkit-scrollbar-thumb:hover { background: rgba(34, 49, 78, .34); }
+  .side-scroll::-webkit-scrollbar-track, .pr-body::-webkit-scrollbar-track,
+  .pane-scroll::-webkit-scrollbar-track, .qtable::-webkit-scrollbar-track,
+  .m-scroll::-webkit-scrollbar-track { background: transparent; }
+
+  /* ===== 左卡：题库列表（两视图共用） ===== */
+  .qz-side { width: 300px; flex: none; min-height: 0; display: flex; flex-direction: column; padding: 18px 16px; }
+  .qz-side [hidden] { display: none !important; } /* author display 规则优先于 UA [hidden]，显式兜底 */
+  .side-head { flex: none; display: flex; align-items: center; gap: 8px; }
+  .side-head b { flex: 1; font-size: 15.5px; font-weight: 800; letter-spacing: 1px; }
+  .mini-btn {
+    width: 30px; height: 30px; flex: none; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    color: var(--sub); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: border-color .25s, color .25s;
+  }
+  .mini-btn:hover { border-color: var(--orange); color: var(--orange); }
+  .mini-btn svg { width: 15px; height: 15px; }
+  .side-team { flex: none; margin-top: 12px; }
+  .side-scroll { flex: 1; min-height: 0; overflow-y: auto; margin-top: 12px; padding-right: 2px; }
+  .side-item {
+    position: relative; display: flex; align-items: center; gap: 10px; padding: 11px 12px;
+    border: 1px solid transparent; border-radius: 9px; cursor: pointer; transition: background .2s;
+  }
+  .side-item + .side-item { margin-top: 8px; }
+  .side-item:hover { background: var(--paper); }
+  .side-item.on { background: var(--orange-soft); }
+  .side-item.on .tx b { color: var(--orange); }
+  .side-item > svg { flex: none; }
+  .side-item .tx { flex: 1; min-width: 0; }
+  .side-item .tx b { display: block; font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-item .tx span { display: block; margin-top: 2px; font-size: 10.5px; color: var(--ph); }
+  /* 错题本入口：虚线描边（设计稿特征元素） */
+  .side-item.wrong { border: 1px dashed var(--dash); }
+  /* 管理视图题库项的编辑/删除小图标 */
+  .side-item .ops { display: flex; gap: 2px; flex: none; }
+  .side-item .ops button {
+    border: none; background: none; padding: 5px; color: var(--ph); cursor: pointer;
+    border-radius: 6px; display: flex; transition: color .2s, background .2s;
+  }
+  .side-item .ops button:hover { color: var(--orange); background: #fff; }
+  .side-item .ops svg { width: 14px; height: 14px; }
+  .side-scroll .empty { padding: 36px 8px; }
+  .sk-item { height: 54px; border-radius: 9px; }
+  .sk-item + .sk-item { margin-top: 8px; }
+
+  /* ===== 右卡：刷题 / 错题本 / 管理 三位一切换 ===== */
+  .qz-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 20px 24px; }
+  .qz-main [hidden] { display: none !important; }
+  .pane { display: none; flex: 1; min-height: 0; }
+  .pane.on { display: flex; flex-direction: column; animation: paneIn .34s cubic-bezier(.16, 1, .3, 1); }
+  @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .pane-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+
+  .progress { height: 6px; border-radius: 3px; background: #EFE9DA; overflow: hidden; }
+  .progress i { display: block; height: 100%; border-radius: 3px; background: var(--orange); transition: width .3s; }
+
+  /* ----- 刷题视图（W1） ----- */
+  .pr-head { flex: none; display: flex; align-items: center; gap: 12px; }
+  .pr-head .progress { flex: 1; }
+  .pr-head > b { font-size: 13px; font-weight: 800; white-space: nowrap; }
+  .pr-head > b em { font-style: normal; color: var(--orange); }
+  .mode-chips { display: flex; gap: 6px; flex: none; }
+  .mode-chip {
+    height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--line); background: #fff;
+    color: var(--sub); font-size: 11.5px; font-weight: 600; letter-spacing: 1px; cursor: pointer;
+    font-family: inherit; transition: border-color .2s, color .2s, background .2s;
+  }
+  .mode-chip:hover { border-color: var(--orange); color: var(--orange); }
+  .mode-chip.on { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 700; }
+  .pr-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 16px 2px 6px; }
+  .q-stem { font-size: 16.5px; font-weight: 700; line-height: 1.8; }
+  .multi-tip { margin-top: 10px; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
+  /* 选项卡：白底 1px 描边，选中浅橙底；提交后 lock 禁点 */
+  .opt {
+    margin-top: 10px; padding: 13px 14px; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    display: flex; align-items: center; gap: 11px; font-size: 14px; line-height: 1.6; cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  .opt .ot { flex: 1; min-width: 0; }
+  .opt .ab {
+    width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1.5px solid var(--dash);
+    color: var(--sub); display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800;
+  }
+  .opt.sq .ab { border-radius: 7px; } /* 多选为方形字母块 */
+  .opt:not(.lock):hover { border-color: var(--orange); }
+  .opt.sel { border-color: var(--orange); background: var(--orange-soft); }
+  .opt.sel .ab { border-color: var(--orange); background: var(--orange); color: #fff; }
+  .opt.right { border-color: #2BA471; background: #E8F5EF; }
+  .opt.right .ab { border-color: #2BA471; background: #2BA471; color: #fff; }
+  .opt.wrong { border-color: var(--red); background: #FBE9E9; }
+  .opt.wrong .ab { border-color: var(--red); background: var(--red); color: #fff; }
+  .opt.miss { border: 1.5px dashed #2BA471; }
+  .opt.miss .ab { border-color: #2BA471; color: #2BA471; }
+  .opt.lock { cursor: default; }
+  .opt .st { margin-left: auto; flex: none; display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; }
+  /* 判断题：正确 / 错误 双大按钮（96px，对齐设计稿） */
+  .judge-row { margin-top: 18px; display: flex; gap: 16px; }
+  .judge-btn {
+    flex: 1; height: 96px; border-radius: 10px; border: 1px solid var(--line); background: #fff; color: var(--navy);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    font-size: 16px; font-weight: 800; cursor: pointer; font-family: inherit;
+    transition: border-color .2s, background .2s, color .2s;
+  }
+  .judge-btn svg { width: 26px; height: 26px; }
+  .judge-btn:not(.lock):hover { border-color: var(--orange); }
+  .judge-btn.sel { border-color: var(--orange); background: var(--orange-soft); color: var(--orange); }
+  .judge-btn.right { border-color: #2BA471; background: #E8F5EF; color: #2BA471; }
+  .judge-btn.wrong { border-color: var(--red); background: #FBE9E9; color: var(--red); }
+  .judge-btn.miss { border: 1.5px dashed #2BA471; color: #2BA471; }
+  .judge-btn.lock { cursor: default; }
+  /* 提交后解析态：banner 对绿错红 */
+  .result-banner { margin-bottom: 12px; padding: 11px 14px; border-radius: 8px; display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 700; }
+  .result-banner > svg { width: 17px; height: 17px; flex: none; }
+  .result-banner.good { background: #E8F5EF; color: #2BA471; }
+  .result-banner.bad { background: #FBE9E9; color: var(--red); }
+  .result-banner small { margin-left: auto; font-size: 11px; font-weight: 600; opacity: .78; }
+  .ans-line { margin-top: 14px; font-size: 13px; font-weight: 700; letter-spacing: .5px; }
+  .ans-line b { color: #2BA471; }
+  /* AI 解析卡：浅橙底 + 灯泡图标 */
+  .analysis-card { margin-top: 14px; padding: 14px 15px; background: var(--orange-soft); border-radius: 10px; }
+  .analysis-card .hd { display: flex; align-items: center; gap: 8px; color: var(--orange); font-size: 13.5px; font-weight: 800; letter-spacing: 1px; }
+  .analysis-card .hd svg { width: 17px; height: 17px; }
+  .analysis-card .bd { margin-top: 9px; font-size: 12.8px; line-height: 1.8; color: #4A5670; }
+  .analysis-card .ft { margin-top: 9px; font-size: 10.5px; color: #C29B7E; letter-spacing: .5px; }
+  .pr-foot {
+    flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding-top: 14px; border-top: 1px solid var(--hair);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; background: var(--paper); border: 1px solid var(--hair);
+    border-radius: 16px; padding: 5px 12px; font-size: 11.5px; color: var(--sub); font-weight: 600; white-space: nowrap;
+  }
+  .pr-foot .sp { flex: 1; }
+
+  /* ----- 错题本列表态 ----- */
+  .wr-head { flex: none; display: flex; align-items: center; gap: 16px; }
+  .wr-head .num b { font-size: 24px; font-weight: 800; color: var(--red); }
+  .wr-head .num span { font-size: 14px; font-weight: 800; margin-left: 4px; }
+  .wr-head .num p { margin-top: 3px; font-size: 11.5px; color: var(--sub); letter-spacing: 1px; }
+  .wr-head .btn { margin-left: auto; flex: none; }
+  #wrBody { margin-top: 14px; }
+  .wrong-item { border: 1px solid var(--hair); border-radius: 10px; padding: 13px 14px; background: #fff; }
+  .wrong-item + .wrong-item { margin-top: 10px; }
+  .wrong-item .q {
+    font-size: 13.5px; font-weight: 700; line-height: 1.65;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .wrong-item .q .tag { margin-right: 6px; vertical-align: 1.5px; }
+  .wrong-item .ft { margin-top: 9px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--sub); }
+  .wrong-item .rm {
+    margin-left: auto; border: none; background: none; padding: 3px 6px; border-radius: 6px;
+    color: var(--ph); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit;
+    display: inline-flex; align-items: center; gap: 4px; transition: color .2s, background .2s;
+  }
+  .wrong-item .rm:hover { color: var(--red); background: #FBE9E9; }
+  .wrong-item .rm svg { width: 13px; height: 13px; }
+  .rule-note { flex: none; padding-top: 12px; font-size: 10.5px; color: var(--ph); letter-spacing: .5px; display: flex; align-items: center; gap: 5px; }
+  .rule-note svg { width: 13px; height: 13px; flex: none; }
+
+  /* ----- 题库管理视图（W2） ----- */
+  .mg-head { flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .mg-head .tx { flex: 1; min-width: 220px; }
+  .mg-head .tx b { font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+  .mg-head .tx p { margin-top: 3px; font-size: 11.5px; color: var(--sub); }
+  /* AI 解析进行中通知条（5s 轮询，归零停） */
+  .ai-notice {
+    flex: none; margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: var(--orange-soft);
+    display: flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 600; color: #9A5B2E;
+  }
+  .ai-notice > svg { width: 15px; height: 15px; flex: none; }
+  .ai-notice .txt { flex: 1; min-width: 0; }
+  .ai-notice .progress { width: 180px; flex: none; }
+  .ai-notice b { white-space: nowrap; }
+  .mg-tools { flex: none; margin-top: 14px; display: flex; align-items: center; gap: 10px; }
+  .mg-search { position: relative; width: 260px; }
+  .mg-search > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--ph); pointer-events: none; }
+  .mg-search .input { height: 36px; padding-left: 36px; font-size: 12.5px; }
+  .mg-total { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
+  /* 题目表格：行内 flex，表头 sticky， tbody 区独立滚动 */
+  .qtable { flex: 1; min-height: 0; overflow-y: auto; margin-top: 12px; border: 1px solid var(--hair); border-radius: 10px; }
+  .qtable .tr { display: flex; align-items: center; gap: 12px; padding: 11px 14px; font-size: 12.5px; background: #fff; }
+  .qtable .tr + .tr { border-top: 1px solid var(--hair); }
+  .qtable .tr.hd { position: sticky; top: 0; z-index: 1; background: #FBF9F2; font-size: 11.5px; font-weight: 700; color: var(--sub); letter-spacing: 1px; }
+  .qtable .c-t { width: 52px; flex: none; justify-content: center; }
+  .qtable .c-q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .qtable .c-a { width: 64px; flex: none; font-weight: 800; }
+  .qtable .c-s { width: 92px; flex: none; }
+  .qtable .c-o { width: 64px; flex: none; display: flex; gap: 10px; }
+  .qtable .c-o button {
+    border: none; background: none; padding: 3px; color: var(--ph); cursor: pointer;
+    display: flex; border-radius: 6px; transition: color .2s, background .2s;
+  }
+  .qtable .c-o button:hover { color: var(--orange); background: var(--paper); }
+  .qtable .c-o svg { width: 15px; height: 15px; }
+  .tag-retry { cursor: pointer; }
+  .qtable .empty { padding: 44px 20px; }
+  /* 分页器 */
+  .pager { flex: none; margin-top: 12px; display: flex; justify-content: flex-end; gap: 6px; }
+  .pager button {
+    min-width: 28px; height: 28px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); background: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 11.5px; color: var(--sub);
+    cursor: pointer; font-family: inherit; transition: border-color .2s, color .2s;
+  }
+  .pager button:hover:not([disabled]) { border-color: var(--orange); color: var(--orange); }
+  .pager button.on { background: var(--orange); border-color: var(--orange); color: #fff; font-weight: 700; }
+  .pager button[disabled] { opacity: .45; cursor: not-allowed; }
+  .pager .pg-dots { min-width: 20px; border: none; background: none; cursor: default; color: var(--ph); }
+
+  /* ===== 通用弹层（题库 / 题目编辑；同 worklog 结构：外壳保圆角、滚动内凹 .m-scroll） ===== */
+  .mask {
+    position: fixed; inset: 0; z-index: 320; padding: 24px;
+    background: rgba(27, 39, 64, .5); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mask.open { opacity: 1; }
+  .modal {
+    background: #fff; border-radius: 14px; width: 560px; max-width: 94vw; max-height: 86vh;
+    overflow: hidden; padding: 6px; display: flex; flex-direction: column;
+    box-shadow: 0 24px 60px rgba(27, 39, 64, .25);
+    transform: translateY(16px) scale(.98); transition: transform .35s cubic-bezier(.16, 1, .3, 1);
+  }
+  .mask.open .modal { transform: none; }
+  .m-scroll {
+    flex: 1; min-height: 0; overflow-y: auto; border-radius: 9px; padding: 14px 18px 16px;
+    scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent;
+  }
+  .m-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .m-title { font-size: 15.5px; font-weight: 800; letter-spacing: 1px; }
+  .m-x {
+    margin-left: auto; width: 30px; height: 30px; border: none; border-radius: 8px; background: var(--paper);
+    color: var(--sub); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .25s, color .25s;
+  }
+  .m-x:hover { background: var(--orange-soft); color: var(--orange); }
+  .m-x svg { width: 14px; height: 14px; }
+  .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  /* 弹层表单 */
+  .f-label { margin: 14px 0 8px; font-size: 12.5px; font-weight: 800; letter-spacing: 1px; }
+  .f-tip { margin-top: 6px; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
+  .type-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--paper); border: 1px solid var(--line); border-radius: 9px; }
+  .type-seg button {
+    border: none; background: transparent; height: 30px; padding: 0 16px; border-radius: 7px;
+    font-size: 12.5px; color: var(--sub); letter-spacing: 1px; cursor: pointer; font-family: inherit;
+    transition: background .25s, color .25s;
+  }
+  .type-seg button:hover { color: var(--navy); }
+  .type-seg button.on { background: var(--navy); color: #fff; font-weight: 700; }
+  .opt-edit { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .opt-edit .ab {
+    width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1.5px solid var(--dash);
+    color: var(--sub); display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800;
+  }
+  .opt-edit .input { height: 38px; flex: 1; }
+  .ans-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .a-chip {
+    min-width: 38px; height: 32px; padding: 0 13px; border: 1px solid var(--line); border-radius: 8px;
+    background: #fff; color: var(--sub); font-size: 12.5px; font-weight: 700; cursor: pointer;
+    font-family: inherit; transition: border-color .2s, background .2s, color .2s;
+  }
+  .a-chip:hover { border-color: var(--orange); color: var(--orange); }
+  .a-chip.on { border-color: var(--orange); background: var(--orange-soft); color: var(--orange); }
+
+  /* 窄屏回退：左右卡收窄 */
+  @media (max-width: 900px) {
+    .page { padding: 16px; }
+    .qz-side { width: 240px; }
+    .qz-main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<!-- 顶部导航由 Shade.topbar({active:'quiz'}) 统一渲染（见 script） -->
+
+<main class="page">
+  <div class="qz-wrap fade-up">
+    <!-- 左卡：题库刷题 / 题库管理 两视图共用（管理角色另见新建、导入按钮；超管另见班组切换） -->
+    <aside class="card qz-side">
+      <div class="side-head">
+        <b id="sideTitle">题库刷题</b>
+        <button class="mini-btn" id="btnNewBank" title="新建题库" hidden></button>
+        <button class="mini-btn" id="btnQuickImport" title="导入 Excel" hidden></button>
+      </div>
+      <div class="side-team" id="sideTeam" hidden>
+        <select id="teamSel" title="仅超级管理员可切换班组；其余角色固定为本班组"></select>
+      </div>
+      <div class="side-scroll" id="sideScroll">
+        <!-- 错题本入口（虚线描边，仅刷题视图显示） -->
+        <div class="side-item wrong" id="wrongEntry"></div>
+        <div id="bankList"></div>
+      </div>
+    </aside>
+
+    <!-- 右卡：刷题（W1） / 错题本列表 / 题库管理（W2）三位一切换 -->
+    <section class="card qz-main">
+      <!-- 刷题：题型 tag + 进度 + 模式 chip / 题干选项 / 统计 chips + 操作按钮 -->
+      <div class="pane on" id="panePractice">
+        <div class="pr-head" id="prHead"></div>
+        <div class="pr-body" id="prBody"></div>
+        <div class="pr-foot" id="prFoot"></div>
+      </div>
+
+      <!-- 错题本列表态：汇总行 + 错题卡列表 -->
+      <div class="pane" id="paneWrong">
+        <div class="wr-head" id="wrHead"></div>
+        <div class="pane-scroll" id="wrBody"></div>
+        <div class="rule-note" id="ruleNote"></div>
+      </div>
+
+      <!-- 题库管理：头部按钮组 + AI 解析通知条 + 搜索 + 题目表格 + 分页 -->
+      <div class="pane" id="paneManage">
+        <div class="mg-head" id="mgHead"></div>
+        <div class="ai-notice" id="aiNotice" hidden></div>
+        <div class="mg-tools">
+          <div class="mg-search" id="mgSearch"><input class="input" id="mgQ" placeholder="搜索题干" maxlength="50"></div>
+          <span class="mg-total" id="mgTotal"></span>
+        </div>
+        <div class="qtable" id="mgTable"></div>
+        <div class="pager" id="mgPager"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- 题库 Excel 导入：隐藏文件选择（仅 .xlsx ≤10MB，前端先校验） -->
+<input type="file" id="impFile" accept=".xlsx" hidden>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+/* ============================================================
+   题库刷题网页版：刷题（顺序 / 随机 / 错题）+ 错题本 + 题库管理（Excel 导入 / AI 解析状态）双视图单页
+   hash 路由：#/practice（默认）、#/manage（仅 admin / team_admin 可入，其余角色强制回刷题视图）
+   接口同源 /api/v1/quiz/*，响应信封由 Shade.api 解包（code!==0 抛错）；模板 xlsx 走 fetch + blob 下载
+   ============================================================ */
+(function () {
+'use strict';
+Shade.requireAuth();
+/* 统一顶部导航（当前应用：题库刷题） */
+Shade.topbar({ active: 'quiz' });
+
+/* ================= 工具 ================= */
+var $ = function (s, c) { return (c || document).querySelector(s); };
+var $$ = function (s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); };
+var esc = Shade.esc;
+var API = '/api/v1/quiz';
+var LETTERS = 'ABCDEF'; // 选项字母（最多 6 项 A~F）
+var TYPE_META = {
+  single: { tag: '单选', cls: 'tag-orange' },
+  multiple: { tag: '多选', cls: 'tag-orange' },
+  judge: { tag: '判断', cls: 'tag-navy' }
+};
+var MODE_NAME = { seq: '顺序', rand: '随机', wrong: '错题' };
+
+/* ================= 全局状态 ================= */
+var me = Shade.user() || {};
+var state = {
+  role: me.role || 'user',                                    // admin 超管 / team_admin 班组管理员 / user 普通用户
+  isManager: me.role === 'admin' || me.role === 'team_admin', // 管理角色：题库/题目增删改、导入
+  view: 'practice',          // practice 刷题 | manage 题库管理
+  teamId: 0,                 // 超管当前切换的班组 id（0=未指定，由后端落默认班组；非超管恒 0）
+  overview: null,            // { totalAnswered, rightRate, wrongCount }
+  banks: null,               // 题库列表（null=加载中）
+  banksErr: '',
+  sel: 'bank',               // 左卡选中：bank 题库 | wrong 错题本
+  practicing: false,         // 刷题视图下右卡是否处于刷题态（false 且 sel=wrong 时显示错题列表）
+  pr: null,                  // 刷题状态（见 newPractice）
+  wrongs: null,              // 错题列表（null=未加载）
+  wrongsErr: '',
+  mBankId: 0,                // 管理视图当前题库 id
+  mq: null,                  // 管理视图题目分页（见 newMq）
+  pollTimer: 0,              // AI 解析进度轮询定时器
+  pendingImport: false       // 左卡「上传」快捷导入：进管理视图后自动唤起文件选择
+};
+function newPractice() {
+  return { bankId: 0, mode: 'seq', list: [], base: 0, total: 0, idx: 0, sel: [], results: {}, loading: false, err: '' };
+}
+function newMq() {
+  return { page: 1, size: 20, q: '', total: 0, list: null, err: '' };
+}
+state.pr = newPractice();
+state.mq = newMq();
+
+/* 班组隔离：超管所有 /quiz/* 请求统一带 team_id（query，与后端 resolveReqTeam 同口径） */
+function qz(path) {
+  if (!state.teamId) return path;
+  return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'team_id=' + state.teamId;
+}
+function findBank(id) {
+  var b = null;
+  (state.banks || []).forEach(function (x) { if (x.id === id) b = x; });
+  return b;
+}
+/* 当前生效题库（按视图取 pr.bankId / mBankId） */
+function curBank() {
+  return findBank(state.view === 'manage' ? state.mBankId : state.pr.bankId);
+}
+/* 正确率字段兼容 0~1 小数与 0~100 百分数两种口径 */
+function fmtRate(r) {
+  if (r === null || r === undefined || isNaN(Number(r))) return '--';
+  var v = Number(r);
+  if (v <= 1) v *= 100;
+  return Math.round(v) + '%';
+}
+/* AI 解析进度：x=已解析，y=应解析总数（已解析+排队中） */
+function aiProgress(b) {
+  var a = (b && b.analysis) || {};
+  return { x: a.done || 0, y: (a.done || 0) + (a.pending || 0), pending: a.pending || 0, failed: a.failed || 0 };
+}
+/* 判断题答案字母转中文（options 固定 ["正确","错误"]，A=正确 B=错误） */
+function answerText(type, answer) {
+  if (type === 'judge') return answer === 'A' ? '正确' : '错误';
+  return answer || '';
+}
+
+/* ================= 通用弹层（可叠层，Esc / 点遮罩关闭；同 worklog 模式） ================= */
+var modalStack = [];
+function mHead(title) {
+  return '<div class="m-head"><span class="m-title">' + esc(title) + '</span>'
+    + '<button class="m-x">' + Shade.icon('close', 14) + '</button></div>';
+}
+function createModal(html, opts) {
+  opts = opts || {};
+  var mask = document.createElement('div');
+  mask.className = 'mask';
+  var box = document.createElement('div');
+  box.className = 'modal';
+  if (opts.width) box.style.width = opts.width + 'px';
+  /* 内容包一层滚动容器：外壳 overflow:hidden 保圆角，滚动条内凹不贴角 */
+  box.innerHTML = '<div class="m-scroll">' + html + '</div>';
+  mask.appendChild(box);
+  document.body.appendChild(mask);
+  requestAnimationFrame(function () { mask.classList.add('open'); });
+  var inst = {
+    mask: mask, box: box, closed: false,
+    close: function () {
+      if (inst.closed) return;
+      inst.closed = true;
+      var i = modalStack.indexOf(inst);
+      if (i >= 0) modalStack.splice(i, 1);
+      mask.classList.remove('open');
+      setTimeout(function () { mask.remove(); }, 300);
+      if (opts.onClose) opts.onClose();
+    }
+  };
+  mask.addEventListener('mousedown', function (e) { if (e.target === mask) inst.close(); });
+  modalStack.push(inst);
+  $$('.m-x', box).forEach(function (b) { b.addEventListener('click', inst.close); });
+  return inst;
+}
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') {
+    var top = modalStack[modalStack.length - 1];
+    if (top) top.close();
+  }
+});
+/* 通用确认弹层（叠层）：返回 Promise<boolean>，遮罩/Esc/取消均视为否 */
+function confirmAction(opts) {
+  return new Promise(function (resolve) {
+    var done = false;
+    function finish(v) { if (!done) { done = true; resolve(v); } }
+    var html = mHead(opts.title)
+      + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
+      + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+      + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
+    var inst = createModal(html, { width: 420, onClose: function () { finish(false); } });
+    $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+    $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
+  });
+}
+
+/* ================= 超管班组切换器 ================= */
+/* 自绘下拉（原 select 隐藏保留为数据源），初始隐藏，超管加载班组列表后显示 */
+var teamDd = Shade.dropdown($('#teamSel'), { width: '100%', height: 36 });
+
+/* 数据源 GET /admin/teams（仅启用班组）；选择持久化 localStorage.quiz_team_id，切换后整页数据重载 */
+async function setupTeamSel() {
+  if (state.role !== 'admin') return;
+  try {
+    var r = await Shade.api('/api/v1/admin/teams');
+    var list = ((r.data && r.data.list) || []).filter(function (t) { return t.status === 1; });
+    if (!list.length) return;
+    var sel = $('#teamSel');
+    sel.innerHTML = list.map(function (t) { return '<option value="' + t.id + '">' + esc(t.name) + '</option>'; }).join('');
+    var saved = Number(localStorage.getItem('quiz_team_id')) || 0;
+    state.teamId = list.some(function (t) { return t.id === saved; }) ? saved : list[0].id;
+    sel.value = String(state.teamId);
+    localStorage.setItem('quiz_team_id', String(state.teamId));
+    teamDd.sync();
+    $('#sideTeam').hidden = false;
+    sel.addEventListener('change', function () {
+      state.teamId = Number(this.value) || 0;
+      localStorage.setItem('quiz_team_id', String(state.teamId));
+      reloadTeamData();
+    });
+  } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
+}
+
+/* 切换班组后整页重载：清空全部按班组缓存（统计 / 题库 / 刷题 / 错题 / 管理分页） */
+function reloadTeamData() {
+  stopPoll();
+  state.overview = null;
+  state.banks = null; state.banksErr = '';
+  state.sel = 'bank'; state.practicing = false;
+  state.pr = newPractice();
+  state.wrongs = null; state.wrongsErr = '';
+  state.mBankId = 0;
+  state.mq = newMq();
+  $('#mgQ').value = '';
+  enterView();
+}
+
+/* ================= 左卡数据 ================= */
+async function loadOverview(quiet) {
+  try {
+    var r = await Shade.api(qz(API + '/overview'));
+    state.overview = r.data || { totalAnswered: 0, rightRate: null, wrongCount: 0 };
+  } catch (e) { if (!quiet) Shade.toast(e.message, 'error'); }
+}
+async function loadBanks(quiet) {
+  if (!quiet) { state.banks = null; state.banksErr = ''; renderSide(); }
+  try {
+    var r = await Shade.api(qz(API + '/banks'));
+    state.banks = (r.data && r.data.list) || [];
+    state.banksErr = '';
+  } catch (e) {
+    if (!quiet) { state.banks = []; state.banksErr = e.message; }
+  }
+  renderSide();
+}
+
+/* ================= 左卡渲染 ================= */
+function bankMetaPractice(b) {
+  var t = b.questionCount + ' 题 · 已练 ' + (b.answeredCount || 0);
+  var p = aiProgress(b);
+  if (p.pending > 0) t += ' · 解析中 ' + p.x + '/' + p.y;
+  return t;
+}
+function bankMetaManage(b) {
+  var p = aiProgress(b);
+  var t = b.questionCount + ' 题 · ';
+  if (p.pending > 0) t += '解析中 ' + p.x + '/' + p.y;
+  else if (p.failed > 0) t += p.failed + ' 题解析失败';
+  else t += '解析完成';
+  return t;
+}
+function renderSide() {
+  var isMg = state.view === 'manage';
+  $('#sideTitle').textContent = isMg ? '题库管理' : '题库刷题';
+  /* 错题本入口（仅刷题视图） */
+  var we = $('#wrongEntry');
+  we.style.display = isMg ? 'none' : '';
+  var wc = state.overview ? (state.overview.wrongCount || 0) : 0;
+  $('#wrongCnt').textContent = wc > 0 ? wc + ' 题待攻克' : '暂无错题';
+  we.classList.toggle('on', !isMg && state.sel === 'wrong');
+
+  var box = $('#bankList');
+  if (!state.banks) {
+    box.innerHTML = '<div class="skeleton sk-item"></div><div class="skeleton sk-item"></div><div class="skeleton sk-item"></div>';
+    return;
+  }
+  if (state.banksErr) {
+    box.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 40) + '<p>' + esc(state.banksErr) + '</p>'
+      + '<button class="btn btn-sm" id="sideRetry">重试</button></div>';
+    $('#sideRetry').addEventListener('click', function () { loadBanks(); });
+    return;
+  }
+  if (!state.banks.length) {
+    box.innerHTML = '<div class="empty">' + Shade.icon('book', 40) + '<p>暂无题库</p>'
+      + '<p style="font-size:11px">' + (state.isManager ? '点击右上角 + 新建题库，Excel 一键导入' : '等待管理员导入题库') + '</p></div>';
+    return;
+  }
+  box.innerHTML = state.banks.map(function (b) {
+    var on = isMg ? (b.id === state.mBankId) : (state.sel === 'bank' && b.id === state.pr.bankId);
+    var meta = isMg ? bankMetaManage(b) : bankMetaPractice(b);
+    var ops = isMg
+      ? '<span class="ops"><button data-op="edit" data-id="' + b.id + '" title="编辑题库">' + Shade.icon('edit', 14) + '</button>'
+        + '<button data-op="del" data-id="' + b.id + '" title="删除题库">' + Shade.icon('delete', 14) + '</button></span>'
+      : '';
+    return '<div class="side-item' + (on ? ' on' : '') + '" data-id="' + b.id + '">'
+      + Shade.icon('book', 17, on ? '#F26D21' : '#6B7690')
+      + '<div class="tx"><b>' + esc(b.name) + '</b><span>' + esc(meta) + '</span></div>' + ops + '</div>';
+  }).join('');
+}
+
+/* ================= 视图路由（hash） ================= */
+function currentView() { return location.hash === '#/manage' ? 'manage' : 'practice'; }
+function onRoute() {
+  var v = currentView();
+  if (v === 'manage' && !state.isManager) { location.replace('#/practice'); return; } // 非管理角色禁入管理视图
+  state.view = v;
+  enterView();
+}
+/* 切视图（对齐 onShow）：题库列表为两视图数据源，每次进入刷新 */
+async function enterView() {
+  stopPoll();
+  renderSide();
+  await loadBanks();
+  loadOverview(true).then(renderSide); // 错题数异步到位后刷新左卡入口文案
+  if (state.view === 'manage') { showPane('manage'); enterManage(); }
+  else if (state.sel === 'wrong' && !state.practicing) { showPane('wrong'); loadWrongs(); }
+  else { showPane('practice'); enterPractice(); }
+}
+function showPane(name) {
+  $$('.pane', $('.qz-main')).forEach(function (p) { p.classList.remove('on'); });
+  $('#pane' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('on');
+}
+
+/* ================= 刷题 ================= */
+function enterPractice() {
+  if (!state.banks.length) { renderPractice(); return; } // 无题库：空态
+  if (!state.pr.bankId || !findBank(state.pr.bankId)) startPractice(state.banks[0].id, 'seq');
+  else if (!state.pr.list.length && !state.pr.loading && !state.pr.err) fetchQuestions(true);
+  else renderPractice();
+}
+/* 顺序练习断点：localStorage quiz_seq_{bankId} 存绝对题序（0 起） */
+function seqOffset(bankId) { return Number(localStorage.getItem('quiz_seq_' + bankId)) || 0; }
+function saveSeq() {
+  var pr = state.pr;
+  if (pr.mode === 'seq' && pr.bankId) localStorage.setItem('quiz_seq_' + pr.bankId, String(pr.base + pr.idx));
+}
+function startPractice(bankId, mode) {
+  var pr = state.pr;
+  pr.bankId = bankId; pr.mode = mode;
+  pr.list = []; pr.total = 0; pr.idx = 0; pr.sel = []; pr.results = {}; pr.err = '';
+  pr.base = mode === 'seq' ? seqOffset(bankId) : 0;
+  state.practicing = true;
+  showPane('practice');
+  renderSide();
+  fetchQuestions(true);
+}
+/* 拉取题目：reset=true 从头（顺序模式从断点）起拉，false 追加下一批；返回是否追加到新题 */
+async function fetchQuestions(reset) {
+  var pr = state.pr;
+  if (pr.loading) return false;
+  pr.loading = true; pr.err = '';
+  if (reset) renderPractice();
+  try {
+    var offset = reset ? pr.base : pr.base + pr.list.length;
+    var url = API + '/practice/questions?mode=' + pr.mode + '&offset=' + offset + '&limit=20';
+    if (pr.bankId) url += '&bankId=' + pr.bankId; // 错题模式不带 bankId 时跨全部题库
+    var r = await Shade.api(qz(url));
+    var d = r.data || {};
+    var list = d.list || [];
+    pr.total = d.total || 0;
+    if (reset) {
+      // 断点越界（题目已删减）：清断点从头再拉
+      if (pr.mode === 'seq' && pr.base > 0 && !list.length && pr.total > 0) {
+        pr.base = 0;
+        localStorage.setItem('quiz_seq_' + pr.bankId, '0');
+        pr.loading = false;
+        return fetchQuestions(true);
+      }
+      pr.list = list;
+      pr.idx = 0;
+      pr.sel = [];
+    } else {
+      pr.list = pr.list.concat(list);
+    }
+  } catch (e) {
+    if (reset) pr.err = e.message;
+    else Shade.toast(e.message, 'error'); // 追加失败不打断当前题面
+  }
+  pr.loading = false;
+  renderPractice();
+  return true;
+}
+function switchMode(m) {
+  var pr = state.pr;
+  if (m === pr.mode) return;
+  if (m !== 'wrong') {
+    // 顺序 / 随机需题库上下文：当前无题库则落首个题库
+    var bid = pr.bankId || (state.banks[0] && state.banks[0].id) || 0;
+    if (!bid) { Shade.toast('暂无题库', 'info'); return; }
+    state.sel = 'bank';
+    startPractice(bid, m);
+  } else {
+    // 错题练习：有题库上下文只攻本库错题，否则跨全部题库
+    if (!pr.bankId) state.sel = 'wrong';
+    startPractice(pr.bankId || 0, 'wrong');
+  }
+}
+function renderPractice() {
+  renderPrHead();
+  renderPrBody();
+  renderPrFoot();
+}
+function renderPrHead() {
+  var pr = state.pr, q = pr.list[pr.idx];
+  var pos = pr.total ? Math.min(pr.base + pr.idx + 1, pr.total) : 0;
+  var pct = pr.total ? Math.round(pos / pr.total * 100) : 0;
+  var tag = q ? '<span class="tag ' + TYPE_META[q.type].cls + '">' + TYPE_META[q.type].tag + '题</span>' : '';
+  var chips = ['seq', 'rand', 'wrong'].map(function (m) {
+    return '<button class="mode-chip' + (pr.mode === m ? ' on' : '') + '" data-mode="' + m + '">' + MODE_NAME[m] + '</button>';
+  }).join('');
+  $('#prHead').innerHTML = tag + '<div class="progress"><i style="width:' + pct + '%"></i></div>'
+    + '<b><em>' + pos + '</em> / ' + pr.total + '</b><div class="mode-chips">' + chips + '</div>';
+}
+function renderPrBody() {
+  var pr = state.pr;
+  var body = $('#prBody');
+  if (pr.loading && !pr.list.length) {
+    body.innerHTML = '<div class="loading"><span class="spin"></span>题目加载中…</div>';
+    return;
+  }
+  if (pr.err) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) + '<p>' + esc(pr.err) + '</p>'
+      + '<button class="btn btn-sm" id="prRetry">重试</button></div>';
+    $('#prRetry').addEventListener('click', function () { fetchQuestions(true); });
+    return;
+  }
+  if (!pr.list.length) {
+    var txt, sub, ic = 'book';
+    if (pr.mode === 'wrong') { txt = '错题已全部攻克'; sub = '答错自动收录 · 答对 2 次自动移出'; ic = 'check-circle'; }
+    else if (!state.banks || !state.banks.length) {
+      txt = '暂无题库';
+      sub = state.isManager ? '点击左卡右上角 + 新建题库，Excel 一键导入' : '等待管理员导入题库';
+    } else {
+      txt = '该题库还没有题目';
+      sub = state.isManager ? '切换到「题库管理」导入 Excel 或新增题目' : '请耐心等待管理员录题';
+    }
+    body.innerHTML = '<div class="empty">' + Shade.icon(ic, 44) + '<p>' + txt + '</p>'
+      + '<p style="font-size:11px">' + sub + '</p></div>';
+    return;
+  }
+  var q = pr.list[pr.idx];
+  var res = pr.results[q.id];
+  var html = '';
+  if (res) html += bannerHtml(res);
+  html += '<div class="q-stem">' + esc(q.content) + '</div>';
+  html += q.type === 'judge' ? judgeHtml(q, res) : optsHtml(q, res);
+  if (res) {
+    html += '<div class="ans-line">正确答案：<b>' + esc(answerText(q.type, res.answer)) + '</b></div>';
+    html += analysisHtml(res);
+  }
+  body.innerHTML = html;
+}
+/* 结果 banner：对绿错红；答错提示已入错题本，错题本中答对提示连对进度 */
+function bannerHtml(res) {
+  if (res.right) {
+    var small = '';
+    if (res.wrong && res.wrong.inBook && !res.wrong.removed) {
+      small = '<small>再答对 ' + Math.max(1, 2 - (res.wrong.rightStreak || 0)) + ' 次移出错题本</small>';
+    } else if (res.wrong && res.wrong.removed) {
+      small = '<small>已移出错题本</small>';
+    }
+    return '<div class="result-banner good">' + Shade.icon('check-circle', 17) + '回答正确' + small + '</div>';
+  }
+  var note = (!res.wrong || res.wrong.inBook) ? '<small>已自动加入错题本</small>' : '';
+  return '<div class="result-banner bad">' + Shade.icon('error-circle', 17) + '回答错误' + note + '</div>';
+}
+/* 单选 / 多选选项列表（解析态三态着色：对绿 / 错选红 / 漏选绿虚线） */
+function optsHtml(q, res) {
+  var pr = state.pr;
+  var selArr = res ? res.sel : pr.sel;
+  var ans = res ? String(res.answer || '') : '';
+  var sq = q.type === 'multiple' ? ' sq' : '';
+  var lock = res ? ' lock' : '';
+  var html = (q.type === 'multiple' && !res) ? '<p class="multi-tip">多选题：请选择所有正确选项</p>' : '';
+  html += (q.options || []).map(function (text, i) {
+    var L = LETTERS[i];
+    var cls = 'opt' + sq + lock, st = '';
+    if (res) {
+      var inAns = ans.indexOf(L) >= 0, inSel = selArr.indexOf(L) >= 0;
+      if (inAns && inSel) { cls += ' right'; st = '<span class="st" style="color:#2BA471">' + Shade.icon('check', 13) + '正确</span>'; }
+      else if (inSel) { cls += ' wrong'; st = '<span class="st" style="color:#CF4444">' + Shade.icon('close', 13) + '你的选择</span>'; }
+      else if (inAns) { cls += ' miss'; st = '<span class="st" style="color:#2BA471">漏选</span>'; }
+    } else if (selArr.indexOf(L) >= 0) { cls += ' sel'; }
+    return '<div class="' + cls + '" data-l="' + L + '"><span class="ab">' + L + '</span>'
+      + '<span class="ot">' + esc(text) + '</span>' + st + '</div>';
+  }).join('');
+  return html;
+}
+/* 判断题：正确 / 错误 双大按钮 */
+function judgeHtml(q, res) {
+  var pr = state.pr;
+  var selArr = res ? res.sel : pr.sel;
+  var ans = res ? String(res.answer || '') : '';
+  var lock = res ? ' lock' : '';
+  return '<div class="judge-row">' + ['A', 'B'].map(function (L, i) {
+    var label = (q.options && q.options[i]) || (i === 0 ? '正确' : '错误');
+    var cls = 'judge-btn' + lock;
+    if (res) {
+      var inAns = ans === L, inSel = selArr.indexOf(L) >= 0;
+      if (inAns && inSel) cls += ' right';
+      else if (inSel) cls += ' wrong';
+      else if (inAns) cls += ' miss';
+    } else if (selArr.indexOf(L) >= 0) { cls += ' sel'; }
+    return '<button class="' + cls + '" data-l="' + L + '">'
+      + Shade.icon(i === 0 ? 'check-circle' : 'close', 26) + esc(label) + '</button>';
+  }).join('') + '</div>';
+}
+/* AI 解析卡：有解析出文本，无解析提示生成中 */
+function analysisHtml(res) {
+  var bd = res.analysis
+    ? esc(res.analysis)
+    : '解析生成中，稍后可查看';
+  return '<div class="analysis-card"><div class="hd">' + Shade.icon('lightbulb', 17) + 'AI 解析</div>'
+    + '<div class="bd">' + bd + '</div>'
+    + '<div class="ft">解析由 AI 生成，仅供参考</div></div>';
+}
+function renderPrFoot() {
+  var pr = state.pr, q = pr.list[pr.idx];
+  var res = q && pr.results[q.id];
+  var b = pr.bankId ? findBank(pr.bankId) : null;
+  var chips = '';
+  if (pr.mode === 'wrong' && !b) {
+    chips = '<span class="chip">错题 ' + pr.total + ' 道</span><span class="chip">答对 2 次自动移出</span>';
+  } else if (b) {
+    var p = aiProgress(b);
+    var ai = p.pending > 0 ? 'AI 解析中 ' + p.x + '/' + p.y
+      : (p.failed > 0 ? p.failed + ' 题解析失败' : (p.x > 0 ? 'AI 解析已就绪' : '暂无 AI 解析'));
+    chips = '<span class="chip">已练 ' + (b.answeredCount || 0) + ' 题</span>'
+      + '<span class="chip">正确率 ' + fmtRate(b.rightRate) + '</span>'
+      + '<span class="chip">' + ai + '</span>';
+  }
+  var noMore = (pr.base + pr.list.length) >= pr.total;
+  var isLast = (pr.idx + 1 >= pr.list.length) && noMore;
+  var submitBtn = res ? ''
+    : '<button class="btn btn-primary" id="btnSubmit"' + (pr.sel.length ? '' : ' disabled') + '>提交答案</button>';
+  $('#prFoot').innerHTML = chips + '<span class="sp"></span>'
+    + '<button class="btn" id="btnPrev"' + (pr.idx > 0 ? '' : ' disabled') + '>' + Shade.icon('arrow-left', 15) + '上一题</button>'
+    + submitBtn
+    + '<button class="btn' + (res ? ' btn-primary' : '') + '" id="btnNext"' + (isLast || !q ? ' disabled' : '') + '>下一题' + Shade.icon('arrow-right', 15) + '</button>';
+}
+/* 未提交可改选：单选 / 判断单选语义，多选切换 */
+function toggleSelect(L) {
+  var pr = state.pr, q = pr.list[pr.idx];
+  if (!q || pr.results[q.id]) return;
+  if (q.type === 'multiple') {
+    var i = pr.sel.indexOf(L);
+    if (i >= 0) pr.sel.splice(i, 1);
+    else pr.sel.push(L);
+  } else {
+    pr.sel = [L];
+  }
+  renderPrBody();
+  renderPrFoot();
+}
+async function submitAnswer() {
+  var pr = state.pr, q = pr.list[pr.idx];
+  if (!q || !pr.sel.length || pr.results[q.id]) return;
+  var btn = $('#btnSubmit');
+  if (btn) btn.disabled = true;
+  var answer = pr.sel.slice().sort().join('');
+  try {
+    var r = await Shade.api(qz(API + '/practice/answer'), {
+      method: 'POST',
+      body: { questionId: q.id, answer: answer }
+    });
+    pr.results[q.id] = Object.assign({}, r.data, { sel: pr.sel.slice() }); // 留档本次选择供解析态着色
+    renderPractice();
+    $('#prBody').scrollTop = 0;
+    /* 静默刷新统计：左卡错题数 / 题库已练正确率 / 底部 chips */
+    loadOverview(true).then(renderSide);
+    loadBanks(true).then(renderPrFoot);
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+function prevQ() {
+  var pr = state.pr;
+  if (pr.idx <= 0) return;
+  pr.idx--;
+  pr.sel = [];
+  saveSeq();
+  renderPractice();
+  $('#prBody').scrollTop = 0;
+}
+async function nextQ() {
+  var pr = state.pr;
+  if (pr.idx + 1 < pr.list.length) {
+    pr.idx++; pr.sel = []; saveSeq();
+    renderPractice();
+    $('#prBody').scrollTop = 0;
+    return;
+  }
+  /* 已到已加载末尾：还有存量则追加下一批再前进 */
+  if (pr.base + pr.list.length < pr.total) {
+    var btn = $('#btnNext');
+    if (btn) btn.disabled = true;
+    var before = pr.list.length;
+    await fetchQuestions(false);
+    if (pr.list.length > before) {
+      pr.idx++; pr.sel = []; saveSeq();
+      renderPractice();
+      $('#prBody').scrollTop = 0;
+    } else if (btn) { btn.disabled = false; }
+  }
+}
+
+/* ================= 错题本 ================= */
+async function loadWrongs(quiet) {
+  if (!quiet) { state.wrongs = null; state.wrongsErr = ''; renderWrongs(); }
+  try {
+    var r = await Shade.api(qz(API + '/wrongs'));
+    state.wrongs = (r.data && r.data.list) || [];
+    state.wrongsErr = '';
+  } catch (e) {
+    if (!quiet) { state.wrongs = []; state.wrongsErr = e.message; }
+  }
+  renderWrongs();
+}
+function renderWrongs() {
+  var head = $('#wrHead'), body = $('#wrBody');
+  var list = state.wrongs;
+  var n = list ? list.length : 0;
+  head.innerHTML = '<div class="num"><b>' + n + '</b><span>道错题</span><p>答错自动收录 · 答对 2 次自动移出</p></div>'
+    + '<button class="btn btn-accent" id="btnWrongGo"' + (n ? '' : ' disabled') + '>'
+    + Shade.icon('refresh', 15) + '开始错题专项练习</button>';
+  if (!list) {
+    body.innerHTML = '<div class="loading"><span class="spin"></span>错题加载中…</div>';
+    return;
+  }
+  if (state.wrongsErr) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) + '<p>' + esc(state.wrongsErr) + '</p>'
+      + '<button class="btn btn-sm" id="wrRetry">重试</button></div>';
+    $('#wrRetry').addEventListener('click', function () { loadWrongs(); });
+    return;
+  }
+  if (!n) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44) + '<p>暂无错题，继续保持</p></div>';
+    return;
+  }
+  body.innerHTML = list.map(function (w) {
+    var tm = TYPE_META[w.type] || TYPE_META.single;
+    return '<div class="wrong-item">'
+      + '<div class="q"><span class="tag ' + tm.cls + '">' + tm.tag + '</span>' + esc(w.content) + '</div>'
+      + '<div class="ft"><span class="tag tag-red">错 ' + (w.wrongCount || 1) + ' 次</span>'
+      + '<span>' + esc(w.bankName || '') + '</span>'
+      + '<span>' + esc(Shade.fmtDate(w.lastWrongAt) || '') + '</span>'
+      + '<button class="rm" data-qid="' + w.questionId + '">' + Shade.icon('delete', 13) + '移除</button></div></div>';
+  }).join('');
+}
+async function removeWrong(qid) {
+  var yes = await confirmAction({ title: '移出错题', content: '确定将该题移出错题本吗？', confirmText: '移除' });
+  if (!yes) return;
+  try {
+    await Shade.api(qz(API + '/wrongs/' + qid), { method: 'DELETE' });
+    Shade.toast('已移出错题本', 'success');
+    loadWrongs(true);
+    loadOverview(true).then(renderSide);
+  } catch (e) { Shade.toast(e.message, 'error'); }
+}
+
+/* ================= 题库管理 ================= */
+function enterManage() {
+  if (!state.banks.length) {
+    state.mBankId = 0;
+    state.mq = newMq();
+    renderMgHead(); renderMgNotice(); renderMgTable(); renderPager();
+    $('#mgTotal').textContent = '';
+    return;
+  }
+  if (!state.mBankId || !findBank(state.mBankId)) { state.mBankId = state.banks[0].id; state.mq.page = 1; }
+  renderSide();
+  renderMgHead(); renderMgNotice();
+  loadMgQuestions();
+  syncPoll();
+  /* 左卡「上传」快捷入口：进管理视图后自动唤起文件选择 */
+  if (state.pendingImport) { state.pendingImport = false; openImportPicker(); }
+}
+function renderMgHead() {
+  var b = curBank();
+  var head = $('#mgHead');
+  if (!b) {
+    head.innerHTML = '<div class="tx"><b>暂无题库</b><p>点击左卡右上角 + 新建题库</p></div>';
+    return;
+  }
+  var p = aiProgress(b);
+  var sub = b.questionCount + ' 题 · 已解析 ' + p.x + ' · 解析中 ' + p.pending + ' · 失败 ' + p.failed
+    + (b.description ? ' · ' + b.description : '');
+  head.innerHTML = '<div class="tx"><b>' + esc(b.name) + ' <span class="badge-outline">AI 解析</span></b>'
+    + '<p>' + esc(sub) + '</p></div>'
+    + '<button class="btn btn-sm" id="mgTpl">' + Shade.icon('download', 14) + '下载模板</button>'
+    + '<button class="btn btn-sm btn-accent" id="mgImport">' + Shade.icon('upload', 14) + '导入 Excel</button>'
+    + '<button class="btn btn-sm" id="mgRetry"' + (p.failed > 0 ? '' : ' disabled') + '>' + Shade.icon('refresh', 14) + '重试失败解析</button>'
+    + '<button class="btn btn-sm btn-primary" id="mgAdd">' + Shade.icon('add', 14) + '新增题目</button>';
+}
+function renderMgNotice() {
+  var b = curBank();
+  var box = $('#aiNotice');
+  var p = b ? aiProgress(b) : null;
+  if (!b || !p.pending) { box.hidden = true; return; }
+  box.hidden = false;
+  var pct = p.y ? Math.round(p.x / p.y * 100) : 0;
+  box.innerHTML = Shade.icon('lightbulb', 15)
+    + '<span class="txt">「' + esc(b.name) + '」AI 解析进行中，期间可正常刷题</span>'
+    + '<div class="progress"><i style="width:' + pct + '%"></i></div><b>' + p.x + ' / ' + p.y + '</b>';
+}
+/* 解析状态三态标签：已解析绿 / 解析中橙 / 失败红（点击重试，走库级 analyze-retry） */
+function stTag(q) {
+  var s = q.analysisStatus || 'none';
+  if (s === 'done') return '<span class="tag tag-green">已解析</span>';
+  if (s === 'pending') return '<span class="tag tag-orange">解析中…</span>';
+  if (s === 'failed') return '<span class="tag tag-red tag-retry" title="点击重试解析">失败 · 重试</span>';
+  return '<span class="tag tag-navy">未解析</span>';
+}
+function renderMgTable() {
+  var mq = state.mq;
+  var box = $('#mgTable');
+  var hd = '<div class="tr hd"><span class="c-t">题型</span><span class="c-q">题干</span>'
+    + '<span class="c-a">答案</span><span class="c-s">解析状态</span><span class="c-o">操作</span></div>';
+  if (!state.mBankId) {
+    box.innerHTML = hd + '<div class="empty">' + Shade.icon('book', 44) + '<p>暂无题库</p></div>';
+    return;
+  }
+  if (!mq.list) {
+    box.innerHTML = hd + '<div class="loading"><span class="spin"></span>题目加载中…</div>';
+    return;
+  }
+  if (mq.err) {
+    box.innerHTML = hd + '<div class="empty">' + Shade.icon('error-circle', 44) + '<p>' + esc(mq.err) + '</p>'
+      + '<button class="btn btn-sm" id="mqRetry">重试</button></div>';
+    $('#mqRetry').addEventListener('click', function () { loadMgQuestions(); });
+    return;
+  }
+  if (!mq.list.length) {
+    box.innerHTML = hd + '<div class="empty">' + Shade.icon('search', 44)
+      + '<p>' + (mq.q ? '未搜到相关题目' : '暂无题目，点击右上角导入或新增') + '</p></div>';
+    return;
+  }
+  box.innerHTML = hd + mq.list.map(function (q) {
+    var tm = TYPE_META[q.type] || TYPE_META.single;
+    return '<div class="tr">'
+      + '<span class="tag ' + tm.cls + ' c-t">' + tm.tag + '</span>'
+      + '<span class="c-q" title="' + esc(q.content) + '">' + esc(q.content) + '</span>'
+      + '<span class="c-a">' + esc(answerText(q.type, q.answer)) + '</span>'
+      + '<span class="c-s">' + stTag(q) + '</span>'
+      + '<span class="c-o"><button data-op="edit" data-id="' + q.id + '" title="编辑">' + Shade.icon('edit', 15) + '</button>'
+      + '<button data-op="del" data-id="' + q.id + '" title="删除">' + Shade.icon('delete', 15) + '</button></span></div>';
+  }).join('');
+}
+function renderPager() {
+  var mq = state.mq;
+  var box = $('#mgPager');
+  var pages = Math.max(1, Math.ceil(mq.total / mq.size));
+  if (!state.mBankId || pages <= 1) { box.innerHTML = ''; return; }
+  var cur = mq.page;
+  var nums = [];
+  if (pages <= 7) {
+    for (var i = 1; i <= pages; i++) nums.push(i);
+  } else {
+    nums.push(1);
+    var lo = Math.max(2, cur - 1), hi = Math.min(pages - 1, cur + 1);
+    if (lo > 2) nums.push('…');
+    for (var j = lo; j <= hi; j++) nums.push(j);
+    if (hi < pages - 1) nums.push('…');
+    nums.push(pages);
+  }
+  box.innerHTML = '<button data-pg="' + (cur - 1) + '"' + (cur <= 1 ? ' disabled' : '') + '>‹</button>'
+    + nums.map(function (p) {
+      if (p === '…') return '<button class="pg-dots" disabled>…</button>';
+      return '<button data-pg="' + p + '"' + (p === cur ? ' class="on"' : '') + '>' + p + '</button>';
+    }).join('')
+    + '<button data-pg="' + (cur + 1) + '"' + (cur >= pages ? ' disabled' : '') + '>›</button>';
+}
+async function loadMgQuestions(quiet) {
+  var mq = state.mq;
+  if (!state.mBankId) { mq.list = []; mq.total = 0; renderMgTable(); renderPager(); return; }
+  if (!quiet) { mq.list = null; mq.err = ''; renderMgTable(); }
+  try {
+    var url = API + '/banks/' + state.mBankId + '/questions?page=' + mq.page + '&size=' + mq.size
+      + '&q=' + encodeURIComponent(mq.q || '');
+    var r = await Shade.api(qz(url));
+    mq.list = (r.data && r.data.list) || [];
+    mq.total = (r.data && r.data.total) || 0;
+    mq.err = '';
+    /* 页码越界回退（删除尾页最后一条后自动回一页） */
+    if (!mq.list.length && mq.page > 1 && mq.total > 0) {
+      mq.page = Math.max(1, Math.ceil(mq.total / mq.size));
+      return loadMgQuestions(true);
+    }
+  } catch (e) {
+    if (!quiet) { mq.list = []; mq.err = e.message; }
+  }
+  renderMgTable();
+  renderPager();
+  $('#mgTotal').textContent = mq.err ? '' : ('共 ' + mq.total + ' 题');
+}
+/* AI 解析进度轮询：管理视图且当前题库有排队时 5s 一刷 /banks，归零停 */
+function stopPoll() {
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = 0; }
+}
+function syncPoll() {
+  var b = state.view === 'manage' ? curBank() : null;
+  if (!b || !aiProgress(b).pending) { stopPoll(); return; }
+  if (state.pollTimer) return;
+  state.pollTimer = setInterval(async function () {
+    try {
+      await loadBanks(true);          // 左卡与头部统计静默刷新
+      renderMgHead(); renderMgNotice();
+      loadMgQuestions(true);          // 表格解析状态标签同步
+    } catch (e) { /* 轮询失败下轮再试 */ }
+    var nb = curBank();
+    if (!nb || !aiProgress(nb).pending) stopPoll();
+  }, 5000);
+}
+async function analyzeRetry() {
+  if (!state.mBankId) return;
+  try {
+    var r = await Shade.api(qz(API + '/banks/' + state.mBankId + '/analyze-retry'), { method: 'POST' });
+    Shade.toast('已重新排队 ' + ((r.data && r.data.queued) || 0) + ' 题', 'success');
+    await loadBanks(true);
+    renderMgHead(); renderMgNotice();
+    loadMgQuestions(true);
+    syncPoll();
+  } catch (e) { Shade.toast(e.message, 'error'); }
+}
+/* 导入模板 xlsx 下载：Shade.api 不支持二进制，fetch + blob 触发下载（token 手工带） */
+async function downloadTemplate() {
+  try {
+    var res = await fetch(qz(API + '/banks/template'), {
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('shade_token') || '') }
+    });
+    if (!res.ok) {
+      var j = await res.json().catch(function () { return null; });
+      throw new Error((j && j.message) || ('下载失败（HTTP ' + res.status + '）'));
+    }
+    var blob = await res.blob();
+    /* 文件名优先取 Content-Disposition，缺省固定名 */
+    var cd = res.headers.get('Content-Disposition') || '';
+    var m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd);
+    var fname = m ? decodeURIComponent(m[1].replace(/"/g, '')) : '题库导入模板.xlsx';
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  } catch (e) { Shade.toast(e.message, 'error'); }
+}
+function openImportPicker() {
+  if (!state.banks || !state.banks.length) { Shade.toast('请先新建题库', 'info'); return; }
+  $('#impFile').click();
+}
+async function importExcel(file) {
+  var bid = state.mBankId || state.pr.bankId || (state.banks[0] && state.banks[0].id) || 0;
+  if (!bid) { Shade.toast('请先新建题库', 'info'); return; }
+  var fd = new FormData();
+  fd.append('file', file);
+  try {
+    var r = await Shade.api(qz(API + '/banks/' + bid + '/import'), { method: 'POST', body: fd });
+    var d = r.data || {};
+    Shade.toast('导入 ' + (d.imported || 0) + ' 题，AI 解析排队 ' + (d.queued || 0) + ' 题', 'success');
+    await loadBanks(true);
+    if (state.view === 'manage') {
+      renderMgHead(); renderMgNotice();
+      loadMgQuestions(true);
+      syncPoll();
+    }
+  } catch (e) { Shade.toast(e.message, 'error'); }
+}
+
+/* ================= 题库新增 / 编辑 / 删除 ================= */
+function openBankModal(bank) {
+  var html = mHead(bank ? '编辑题库' : '新建题库')
+    + '<div class="f-label">题库名称</div>'
+    + '<input class="input" id="bkName" maxlength="50" placeholder="如：电力安全工作规程" value="' + esc(bank ? bank.name : '') + '">'
+    + '<div class="f-label">题库描述</div>'
+    + '<textarea class="input" id="bkDesc" placeholder="选填：题库范围或说明">' + esc(bank ? (bank.description || '') : '') + '</textarea>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-primary" data-a="yes">保存</button></div>';
+  var inst = createModal(html, { width: 460 });
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    var name = $('#bkName', inst.box).value.trim();
+    var desc = $('#bkDesc', inst.box).value.trim();
+    if (!name) { Shade.toast('请填写题库名称', 'info'); return; }
+    this.disabled = true;
+    try {
+      if (bank) {
+        await Shade.api(qz(API + '/banks/' + bank.id), { method: 'PUT', body: { name: name, description: desc } });
+      } else {
+        await Shade.api(qz(API + '/banks'), { method: 'POST', body: { name: name, description: desc } });
+      }
+      Shade.toast(bank ? '题库已保存' : '题库已创建', 'success');
+      inst.close();
+      await loadBanks(true);
+      if (state.view === 'manage') enterManage();
+      else enterPractice();
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+      this.disabled = false;
+    }
+  });
+}
+async function deleteBank(bank) {
+  if (!bank) return;
+  var yes = await confirmAction({
+    title: '删除题库',
+    content: '将同时清空该题库所有题目与全员答题记录，确定删除「' + bank.name + '」吗？',
+    confirmText: '删除', danger: true
+  });
+  if (!yes) return;
+  try {
+    await Shade.api(qz(API + '/banks/' + bank.id), { method: 'DELETE' });
+    Shade.toast('题库已删除', 'success');
+    if (state.mBankId === bank.id) { state.mBankId = 0; state.mq = newMq(); }
+    if (state.pr.bankId === bank.id) { state.pr = newPractice(); }
+    await loadBanks(true);
+    if (state.view === 'manage') enterManage();
+    else enterPractice();
+  } catch (e) { Shade.toast(e.message, 'error'); }
+}
+
+/* ================= 题目新增 / 编辑 / 删除 ================= */
+/* 题目弹层：题型切换动态选项行（A~F 可加可删，判断题固定 正确/错误 两项） */
+function openQuestionModal(q) {
+  var isEdit = !!q;
+  var qm = {
+    id: q ? q.id : 0,
+    type: q ? q.type : 'single',
+    options: q && q.options ? q.options.slice() : ['', ''],
+    answer: q ? String(q.answer || '').split('') : []
+  };
+  if (qm.type === 'judge') qm.options = ['正确', '错误'];
+
+  var html = mHead(isEdit ? '编辑题目' : '新增题目')
+    + '<div class="f-label">题型</div><div class="type-seg" id="qmType">'
+    + '<button data-t="single">单选题</button><button data-t="multiple">多选题</button><button data-t="judge">判断题</button></div>'
+    + '<div class="f-label">题干</div>'
+    + '<textarea class="input" id="qmContent" placeholder="请输入题干">' + esc(q ? q.content : '') + '</textarea>'
+    + '<div class="f-label">选项</div><div id="qmOpts"></div>'
+    + '<button class="btn btn-sm" id="qmAddOpt" style="margin-top:10px">' + Shade.icon('add', 14) + '添加选项</button>'
+    + '<div class="f-label">答案</div><div class="ans-chips" id="qmAns"></div>'
+    + '<div class="f-tip" id="qmAnsTip"></div>'
+    + '<div class="f-label">解析</div>'
+    + '<textarea class="input" id="qmAnalysis" placeholder="留空则由 AI 自动生成">' + esc(q ? (q.analysis || '') : '') + '</textarea>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-primary" data-a="yes">保存</button></div>';
+  var inst = createModal(html, { width: 620 });
+
+  function renderType() {
+    $$('#qmType button', inst.box).forEach(function (b) { b.classList.toggle('on', b.dataset.t === qm.type); });
+    $('#qmAddOpt', inst.box).style.display = qm.type === 'judge' ? 'none' : '';
+  }
+  function renderOpts() {
+    var box = $('#qmOpts', inst.box);
+    if (qm.type === 'judge') {
+      box.innerHTML = ['正确', '错误'].map(function (t, i) {
+        return '<div class="opt-edit"><span class="ab">' + LETTERS[i] + '</span>'
+          + '<input class="input" value="' + t + '" disabled></div>';
+      }).join('');
+      return;
+    }
+    box.innerHTML = qm.options.map(function (text, i) {
+      return '<div class="opt-edit"><span class="ab">' + LETTERS[i] + '</span>'
+        + '<input class="input" data-i="' + i + '" value="' + esc(text) + '" placeholder="选项 ' + LETTERS[i] + '" maxlength="200">'
+        + '<button class="mini-btn qm-del" data-i="' + i + '" title="删除选项"'
+        + (qm.options.length <= 2 ? ' disabled style="opacity:.4;cursor:not-allowed"' : '') + '>'
+        + Shade.icon('delete', 14) + '</button></div>';
+    }).join('');
+  }
+  function renderAns() {
+    var box = $('#qmAns', inst.box);
+    var tip = $('#qmAnsTip', inst.box);
+    if (qm.type === 'judge') {
+      box.innerHTML = ['A', 'B'].map(function (L, i) {
+        return '<button class="a-chip' + (qm.answer.indexOf(L) >= 0 ? ' on' : '') + '" data-l="' + L + '">'
+          + (i === 0 ? '正确' : '错误') + '</button>';
+      }).join('');
+      tip.textContent = '判断题答案：A=正确，B=错误';
+      return;
+    }
+    tip.textContent = qm.type === 'multiple' ? '多选题可点选多个选项字母' : '单选题点选一个选项字母';
+    box.innerHTML = qm.options.map(function (_, i) {
+      var L = LETTERS[i];
+      return '<button class="a-chip' + (qm.answer.indexOf(L) >= 0 ? ' on' : '') + '" data-l="' + L + '">' + L + '</button>';
+    }).join('');
+  }
+  /* 选项行是非受控 input，结构操作前先把当前输入值收回 qm.options */
+  function syncOptsFromInputs() {
+    if (qm.type === 'judge') return;
+    $$('input[data-i]', $('#qmOpts', inst.box)).forEach(function (inp) {
+      qm.options[Number(inp.dataset.i)] = inp.value;
+    });
+  }
+  renderType(); renderOpts(); renderAns();
+
+  $('#qmType', inst.box).addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-t]');
+    if (!b || b.dataset.t === qm.type) return;
+    syncOptsFromInputs();
+    qm.type = b.dataset.t;
+    /* 切题型重置选项与答案，避免旧答案字母错位 */
+    if (qm.type === 'judge') { qm.options = ['正确', '错误']; qm.answer = []; }
+    else { qm.options = ['', '']; qm.answer = []; }
+    renderType(); renderOpts(); renderAns();
+  });
+  $('#qmAddOpt', inst.box).addEventListener('click', function () {
+    syncOptsFromInputs();
+    if (qm.options.length >= 6) { Shade.toast('最多 6 个选项（A~F）', 'info'); return; }
+    qm.options.push('');
+    renderOpts(); renderAns();
+  });
+  $('#qmOpts', inst.box).addEventListener('click', function (e) {
+    var del = e.target.closest('.qm-del');
+    if (!del || del.disabled) return;
+    syncOptsFromInputs();
+    qm.options.splice(Number(del.dataset.i), 1);
+    qm.answer = []; // 删除选项后字母前移，原答案对应关系失效，清空重选
+    renderOpts(); renderAns();
+  });
+  $('#qmAns', inst.box).addEventListener('click', function (e) {
+    var c = e.target.closest('.a-chip');
+    if (!c) return;
+    var L = c.dataset.l;
+    if (qm.type === 'multiple') {
+      var i = qm.answer.indexOf(L);
+      if (i >= 0) qm.answer.splice(i, 1);
+      else qm.answer.push(L);
+    } else {
+      qm.answer = [L];
+    }
+    renderAns();
+  });
+
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    syncOptsFromInputs();
+    var content = $('#qmContent', inst.box).value.trim();
+    var analysis = $('#qmAnalysis', inst.box).value.trim();
+    if (!content) { Shade.toast('请填写题干', 'info'); return; }
+    if (qm.type !== 'judge' && qm.options.some(function (t) { return !t.trim(); })) {
+      Shade.toast('请填写完整选项内容', 'info'); return;
+    }
+    if (!qm.answer.length) { Shade.toast('请设置答案', 'info'); return; }
+    var body = {
+      type: qm.type,
+      content: content,
+      options: qm.type === 'judge' ? ['正确', '错误'] : qm.options.map(function (t) { return t.trim(); }),
+      answer: qm.answer.slice().sort().join(''),
+      analysis: analysis // 留空则由后端排队 AI 生成
+    };
+    this.disabled = true;
+    try {
+      if (isEdit) await Shade.api(qz(API + '/questions/' + qm.id), { method: 'PUT', body: body });
+      else await Shade.api(qz(API + '/banks/' + state.mBankId + '/questions'), { method: 'POST', body: body });
+      Shade.toast(isEdit ? '题目已保存' : '题目已新增', 'success');
+      inst.close();
+      loadBanks(true);
+      renderMgHead(); renderMgNotice();
+      loadMgQuestions(true);
+      syncPoll();
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+      this.disabled = false;
+    }
+  });
+}
+async function deleteQuestion(id) {
+  var yes = await confirmAction({
+    title: '删除题目', content: '删除后不可恢复，确定删除该题目吗？', confirmText: '删除', danger: true
+  });
+  if (!yes) return;
+  try {
+    await Shade.api(qz(API + '/questions/' + id), { method: 'DELETE' });
+    Shade.toast('题目已删除', 'success');
+    loadBanks(true);
+    renderMgHead(); renderMgNotice();
+    loadMgQuestions();
+  } catch (e) { Shade.toast(e.message, 'error'); }
+}
+
+/* ================= 事件绑定 ================= */
+function bindEvents() {
+  /* 左卡：题库选择 / 错题本入口 / 管理视图的题库编辑·删除 */
+  $('#sideScroll').addEventListener('click', function (e) {
+    var opBtn = e.target.closest('.ops button');
+    if (opBtn) {
+      e.stopPropagation();
+      var bank = findBank(Number(opBtn.dataset.id));
+      if (opBtn.dataset.op === 'edit') openBankModal(bank);
+      else deleteBank(bank);
+      return;
+    }
+    if (e.target.closest('#wrongEntry')) {
+      if (state.view !== 'practice') return;
+      state.sel = 'wrong';
+      state.practicing = false;
+      renderSide();
+      showPane('wrong');
+      loadWrongs();
+      return;
+    }
+    var item = e.target.closest('.side-item[data-id]');
+    if (!item) return;
+    var bid = Number(item.dataset.id);
+    if (state.view === 'manage') {
+      if (bid !== state.mBankId) {
+        state.mBankId = bid;
+        state.mq.page = 1;
+        renderSide(); renderMgHead(); renderMgNotice();
+        loadMgQuestions();
+        syncPoll();
+      }
+    } else {
+      state.sel = 'bank';
+      if (bid !== state.pr.bankId) startPractice(bid, state.pr.mode === 'wrong' ? 'seq' : state.pr.mode);
+      else { state.practicing = true; renderSide(); showPane('practice'); renderPractice(); }
+    }
+  });
+  /* 左卡头部：新建题库 / 快捷导入（跳管理视图后自动唤起文件选择） */
+  $('#btnNewBank').addEventListener('click', function () { openBankModal(null); });
+  $('#btnQuickImport').addEventListener('click', function () {
+    if (!state.banks || !state.banks.length) { Shade.toast('请先新建题库', 'info'); return; }
+    if (state.view === 'manage') { openImportPicker(); return; }
+    state.pendingImport = true;
+    if (!state.mBankId) state.mBankId = state.pr.bankId || state.banks[0].id;
+    location.hash = '#/manage';
+  });
+  /* 刷题：模式 chip 切换 */
+  $('#prHead').addEventListener('click', function (e) {
+    var chip = e.target.closest('.mode-chip');
+    if (chip) switchMode(chip.dataset.mode);
+  });
+  /* 刷题：选项 / 判断按钮点选（提交后 lock 不响应） */
+  $('#prBody').addEventListener('click', function (e) {
+    var el = e.target.closest('.opt[data-l], .judge-btn[data-l]');
+    if (!el || el.classList.contains('lock')) return;
+    toggleSelect(el.dataset.l);
+  });
+  /* 刷题底部：上一题 / 提交答案 / 下一题 */
+  $('#prFoot').addEventListener('click', function (e) {
+    if (e.target.closest('#btnPrev')) prevQ();
+    else if (e.target.closest('#btnSubmit')) submitAnswer();
+    else if (e.target.closest('#btnNext')) nextQ();
+  });
+  /* 错题本：开始专项练习 / 移除 */
+  $('#paneWrong').addEventListener('click', function (e) {
+    if (e.target.closest('#btnWrongGo')) {
+      state.sel = 'wrong';
+      startPractice(0, 'wrong'); // bankId=0：跨全部题库的错题
+      return;
+    }
+    var rm = e.target.closest('.rm');
+    if (rm) removeWrong(Number(rm.dataset.qid));
+  });
+  /* 管理头部按钮组 */
+  $('#mgHead').addEventListener('click', function (e) {
+    if (e.target.closest('#mgTpl')) downloadTemplate();
+    else if (e.target.closest('#mgImport')) openImportPicker();
+    else if (e.target.closest('#mgRetry')) { if (!e.target.closest('#mgRetry').disabled) analyzeRetry(); }
+    else if (e.target.closest('#mgAdd')) openQuestionModal(null);
+  });
+  /* 题目表格：编辑 / 删除 / 失败行点击重试（库级 analyze-retry） */
+  $('#mgTable').addEventListener('click', function (e) {
+    if (e.target.closest('.tag-retry')) { analyzeRetry(); return; }
+    var btn = e.target.closest('.c-o button');
+    if (!btn) return;
+    var id = Number(btn.dataset.id);
+    if (btn.dataset.op === 'edit') {
+      var q = null;
+      (state.mq.list || []).forEach(function (x) { if (x.id === id) q = x; });
+      if (q) openQuestionModal(q);
+    } else {
+      deleteQuestion(id);
+    }
+  });
+  /* 分页器 */
+  $('#mgPager').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-pg]');
+    if (!btn || btn.disabled) return;
+    state.mq.page = Number(btn.dataset.pg);
+    loadMgQuestions();
+  });
+  /* 题干搜索：防抖 300ms */
+  var qTimer = 0;
+  $('#mgQ').addEventListener('input', function () {
+    clearTimeout(qTimer);
+    qTimer = setTimeout(function () {
+      state.mq.q = $('#mgQ').value.trim();
+      state.mq.page = 1;
+      loadMgQuestions();
+    }, 300);
+  });
+  /* Excel 导入：隐藏 file input（仅 .xlsx ≤10MB，前端先校验） */
+  $('#impFile').addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    this.value = '';
+    if (!f) return;
+    if (!/\.xlsx$/i.test(f.name)) { Shade.toast('仅支持 .xlsx 文件', 'error'); return; }
+    if (f.size > 10 * 1024 * 1024) { Shade.toast('文件不能超过 10MB', 'error'); return; }
+    importExcel(f);
+  });
+}
+
+/* ================= 初始化 ================= */
+(function init() {
+  /* 静态图标注入 */
+  $('#btnNewBank').innerHTML = Shade.icon('add', 15);
+  $('#btnQuickImport').innerHTML = Shade.icon('upload', 15);
+  $('#wrongEntry').innerHTML = Shade.icon('refresh', 17, '#CF4444')
+    + '<div class="tx"><b>错题本</b><span id="wrongCnt">加载中…</span></div>';
+  $('#mgSearch').insertAdjacentHTML('afterbegin', Shade.icon('search', 15));
+  $('#ruleNote').innerHTML = Shade.icon('info-circle', 13)
+    + '规则：刷题答错自动收录；同一题连续答对 2 次自动移出，也可手动移除。';
+  /* 管理入口按角色显隐（管理视图入口 = 左卡头部两按钮 + hash 直访拦截） */
+  if (state.isManager) {
+    $('#btnNewBank').hidden = false;
+    $('#btnQuickImport').hidden = false;
+  }
+  bindEvents();
+  setupTeamSel();
+  window.addEventListener('hashchange', onRoute);
+  onRoute();
+})();
+})();
+</script>
+</body>
+</html>

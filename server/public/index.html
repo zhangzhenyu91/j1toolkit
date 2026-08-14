@@ -122,6 +122,7 @@
   // 应用落地页映射（网页版路由，与小程序分包无关；key 与 sys_app 种子一致）
   var APP_ROUTES = {
     'call-me': '/callme.html',
+    'quiz': '/quiz.html',
     'work-log': '/worklog.html',
     'safe-day': '/safeday.html',
     'kvm': '/kvm.html',
@@ -144,6 +145,10 @@
     'kvm': {
       desc: '接入 GLKVM Cloud 设备中台，现场设备在线状态实时查看，一键开启远程终端与桌面控制。',
       tags: [['远程终端', 'tag-orange'], ['桌面控制', 'tag-navy']],
+    },
+    'quiz': {
+      desc: 'Excel 导入题库即导即练，单选 / 多选 / 判断全覆盖，错题自动归集专项攻克，AI 逐题生成解析。',
+      tags: [['刷题练习', 'tag-orange'], ['AI 解析', 'tag-navy']],
     },
   };
 

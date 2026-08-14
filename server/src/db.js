@@ -274,6 +274,12 @@ async function ensureSchema() {
   if (config.safeday.enabled) {
     await require('./safeday/migrate').migrateSafedayTeams();
   }
+
+  // 题库刷题：QUIZ_ENABLED=true 时建表并写入应用种子
+  if (config.quiz.enabled) {
+    await require('./quiz/schema').ensureQuizSchema(pool);
+    console.log('[初始化] 题库刷题已开启（QUIZ_ENABLED=true），表结构与应用种子就绪');
+  }
 }
 
 module.exports = { pool, ensureSchema };

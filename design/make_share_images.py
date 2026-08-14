@@ -23,6 +23,7 @@ APPS = {
     'safe-day': 0xE367,       # file-safety
     'file-transfer': 0xE7A7,  # swap
     'wm-add': 0xE498,         # image
+    'quiz': 0xE0CB,           # book
 }
 
 WATERMARK_CROP = 64  # 裁掉底部 AI 生成水印
