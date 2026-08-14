@@ -30,6 +30,9 @@
         </view>
       </view>
 
+      <!-- 切题动画容器：题干 + 选项 + 解析区（进度行固定不参与）；左右滑动切题手势绑在此层，
+           不绑整页 scroll-view，避免干扰纵向滚动 -->
+      <view class="q-pane {{qAnim}}" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
       <!-- 结果 banner（答题模式解析态） -->
       <view class="result-banner {{result.right ? 'good' : 'bad'}}" wx:if="{{viewMode === 'answer' && submitted && result}}">
         <t-icon name="{{result.right ? 'check-circle' : 'close-circle'}}" size="34rpx"
@@ -47,7 +50,7 @@
           class="judge-btn {{item.cls}}"
           wx:for="{{cur.options}}"
           wx:key="letter"
-          hover-class="{{submitted ? '' : 'hover-opacity'}}"
+          hover-class="{{submitted ? '' : 'opt-hover'}}"
           bindtap="onOptTap"
           data-letter="{{item.letter}}"
         >
@@ -63,7 +66,7 @@
           class="opt {{cur.type === 'multiple' ? 'sq' : ''}} {{item.cls}}"
           wx:for="{{cur.options}}"
           wx:key="letter"
-          hover-class="{{submitted ? '' : 'hover-opacity'}}"
+          hover-class="{{submitted ? '' : 'opt-hover'}}"
           bindtap="onOptTap"
           data-letter="{{item.letter}}"
         >
@@ -89,6 +92,7 @@
         <view class="bd" wx:if="{{result.analysis}}">{{result.analysis}}</view>
         <view class="bd ph" wx:else>解析生成中，稍后可查看</view>
         <view class="ft" wx:if="{{result.analysis}}">解析由 AI 生成，仅供参考</view>
+      </view>
       </view>
     </view>
 

@@ -72,6 +72,8 @@
 
 .wrong-item {
   padding: 26rpx 28rpx;
+  /* 列表入场 fadeUp，组内逐项 stagger 由行内 animation-delay 控制（40ms/项，上限 5 项） */
+  animation: fadeUp 0.25s ease both;
 }
 
 .wrong-item + .wrong-item {

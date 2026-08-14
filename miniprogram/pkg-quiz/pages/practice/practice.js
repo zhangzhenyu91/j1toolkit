@@ -5,6 +5,7 @@
 // seq 断点续刷：wx.setStorageSync(`quiz_seq_${bankId}`, 大纲下标)，进入时恢复
 // 双模式：答题（提交判分 + 解析态三态）/ 背题（直接标出正确答案，常显答案行 + AI 解析卡，不提交不写记录）；
 // 答题卡弹层：按题型分区块题号导航（未答灰 / 答对绿 / 答错红 / 当前橙框），底部可清空做题记录（错题本保留）
+// 切题：底部按钮 / 答题卡跳题 / 内容区左右滑动（左滑下一题、右滑上一题），统一走两段式滑动动画（旧内容滑出 → 换数据 → 对侧滑入）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -31,6 +32,7 @@ Page({
     pct: 0,
     // 当前题
     cur: null, // { id, type, typeText, content, options:[{letter,text,cls,st,stIcon}] }
+    qAnim: '', // 切题动画类：'' / out-left / out-right / from-left / from-right
     submitted: false, // 当前题已提交（解析态；背题模式恒 true）
     canSubmit: false, // 已选至少一项
     multiple: false, // 当前题为多选（底部提示）
@@ -63,6 +65,8 @@ Page({
     this._idx = 0; // 当前题的大纲下标
     this._sel = [];
     this._inflight = null; // 进行中的批次请求（防并发重拉）
+    this._switching = false; // 切题动画进行中（期间忽略翻题与手势）
+    this._touch = null; // 滑动手势起点
 
     // gate 兜底：本页由已门控的列表页进入，此处仅保证登录态就绪
     if (wx.getStorageSync('token')) {
@@ -351,35 +355,78 @@ Page({
 
   /* ==================== 翻题 ==================== */
 
-  // 跳转到指定大纲下标（必要时先拉所在批次）
-  async goIndex(idx) {
-    if (this._jumping) return;
+  // 跳转到指定大纲下标（必要时先拉所在批次）；dir>0 左出右进 / dir<0 右出左进 / 缺省不播动画
+  async goIndex(idx, dir) {
+    if (this._jumping || this._switching) return; // 批次加载中 / 切题动画进行中忽略
     this._jumping = true;
+    const anim = !!dir && !!this.data.cur; // 首屏等无当前题场景不播动画
     try {
+      if (anim) {
+        // 出场：旧内容沿切题方向滑出淡出（滑出终点不可见时再换数据，避免内容提前闪换）
+        this._switching = true;
+        this.setData({ qAnim: dir > 0 ? 'out-left' : 'out-right' });
+        await new Promise((r) => setTimeout(r, 180));
+      }
       await this.ensureBatch(idx, false);
     } catch (err) {
       this.toast(err.message);
+      if (anim) this.paneIn(dir, true); // 拉取失败：原内容原路播回
       return;
     } finally {
       this._jumping = false;
     }
     if (!this.getQuestion(idx)) {
       this.toast('题目加载失败，请重试');
+      if (anim) this.paneIn(dir, true);
       return;
     }
     this._idx = idx;
     this._sel = [];
     this.renderCurrent();
+    if (anim) this.paneIn(dir, false);
+  },
+
+  // 切题入场：新内容从对侧滑入；back=true 为失败播回（从滑出侧回位）。
+  // out-* 与 from-* 类名两两相异，直接换类即重启 CSS 动画，无需清空重放
+  paneIn(dir, back) {
+    const cls = back
+      ? (dir > 0 ? 'from-left' : 'from-right')
+      : (dir > 0 ? 'from-right' : 'from-left');
+    this.setData({ qAnim: cls });
+    setTimeout(() => { this._switching = false; }, 210); // 入场播完解锁
   },
 
   onPrev() {
     if (this._idx <= 0) return;
-    this.goIndex(this._idx - 1);
+    this.goIndex(this._idx - 1, -1);
   },
 
   onNext() {
     if (this.data.isLast) return;
-    this.goIndex(this._idx + 1);
+    this.goIndex(this._idx + 1, 1);
+  },
+
+  /* ==================== 左右滑动切题 ==================== */
+
+  // 手势绑在题目内容区（.q-pane）而非整页 scroll-view，仅 touchend 一次判定，不做跟手拖拽
+  onTouchStart(e) {
+    const t = e.touches[0];
+    this._touch = { x: t.clientX, y: t.clientY };
+  },
+
+  onTouchEnd(e) {
+    if (!this._touch) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - this._touch.x;
+    const dy = t.clientY - this._touch.y;
+    this._touch = null;
+    // 批次加载中 / 切题动画进行中 / 答题卡弹层打开时忽略手势
+    if (this._jumping || this._switching || this.data.sheetOpen) return;
+    // 横向滑动：|dx| ≥ 50px 且明显横向（|dx| > 1.5|dy|），不干扰纵向滚动
+    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy) * 1.5) return;
+    // 左滑下一题、右滑上一题（与按钮同口径，到顶/到底处理沿用 onPrev/onNext 现逻辑）
+    if (dx < 0) this.onNext();
+    else this.onPrev();
   },
 
   // 解析态/背题主按钮：末尾题=完成返回，否则下一题（wxml 事件绑定不支持动态表达式，统一入口内分支）
@@ -431,12 +478,12 @@ Page({
     if (this.data.sheetOpen) this.setData({ sheetOpen: false });
   },
 
-  // 点题号：跳转到该题（所在批次未缓存则先拉批）并关闭弹层
+  // 点题号：跳转到该题（所在批次未缓存则先拉批）并关闭弹层；方向按目标与当前下标比较（大=左出右进）
   onSheetJump(e) {
     const idx = Number(e.currentTarget.dataset.idx);
     this.setData({ sheetOpen: false });
     if (Number.isNaN(idx) || idx === this._idx) return;
-    this.goIndex(idx);
+    this.goIndex(idx, idx > this._idx ? 1 : -1);
   },
 
   // 清空做题记录：仅清本题库练习记录与进度（错题本保留）→ 重拉大纲与第一批

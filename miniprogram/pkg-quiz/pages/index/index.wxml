@@ -56,6 +56,7 @@
 
   <block wx:if="{{banks.length}}">
     <view class="card bank-item" wx:for="{{banks}}" wx:key="id"
+          style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;"
           hover-class="hover-bg-warm" bindtap="onBankTap" data-id="{{item.id}}" data-name="{{item.name}}">
       <view class="icon-box"><t-icon name="book" size="40rpx" color="#F26D21" /></view>
       <view class="tx">

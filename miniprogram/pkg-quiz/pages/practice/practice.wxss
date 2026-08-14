@@ -25,6 +25,68 @@
   letter-spacing: 2rpx;
 }
 
+/* ---------- 切题滑动动画（两段式：旧内容沿切题方向滑出淡出 → 换数据 → 新内容从对侧滑入；
+   口径同 worklog 切日，位移 ±60rpx、出场 180ms / 入场 200ms） ---------- */
+@keyframes q-out-left {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-60rpx);
+    opacity: 0;
+  }
+}
+
+@keyframes q-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(60rpx);
+    opacity: 0;
+  }
+}
+
+@keyframes q-from-right {
+  from {
+    transform: translateX(60rpx);
+    opacity: 0.2;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes q-from-left {
+  from {
+    transform: translateX(-60rpx);
+    opacity: 0.2;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.q-pane.out-left {
+  animation: q-out-left 0.18s ease-in forwards;
+}
+
+.q-pane.out-right {
+  animation: q-out-right 0.18s ease-in forwards;
+}
+
+.q-pane.from-right {
+  animation: q-from-right 0.2s ease-out;
+}
+
+.q-pane.from-left {
+  animation: q-from-left 0.2s ease-out;
+}
+
 /* ---------- 顶部进度行（屏 02 .pg-line：模式切换 + 细进度条 + 答题卡入口） ---------- */
 .pg-line {
   display: flex;
@@ -92,7 +154,7 @@
   color: #f26d21;
 }
 
-/* ---------- 结果 banner（屏 03 .result-banner） ---------- */
+/* ---------- 结果 banner（屏 03 .result-banner；提交后淡入） ---------- */
 .result-banner {
   margin-bottom: 20rpx;
   padding: 20rpx 26rpx;
@@ -102,6 +164,7 @@
   gap: 16rpx;
   font-size: 27rpx;
   font-weight: 700;
+  animation: fadeIn 0.2s ease both;
 }
 
 .result-banner.good {
@@ -156,7 +219,7 @@
   color: #22314e;
 }
 
-/* ---------- 选项卡（屏 02/03 .opt：白卡描边，选中浅橙底） ---------- */
+/* ---------- 选项卡（屏 02/03 .opt：白卡描边，选中浅橙底；着色 180ms 过渡） ---------- */
 .opt {
   margin-top: 20rpx;
   padding: 24rpx 26rpx;
@@ -168,6 +231,13 @@
   gap: 20rpx;
   font-size: 28rpx;
   line-height: 1.6;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+/* 点按未提交选项的轻微反馈（hover-class）：轻微内缩 + 浅橙底 */
+.opt-hover {
+  transform: scale(0.99);
+  background-color: #fdeee2 !important;
 }
 
 .opt .ab {
@@ -183,6 +253,7 @@
   font-size: 25rpx;
   font-weight: 800;
   box-sizing: border-box;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 /* 多选：方形字母块 */
@@ -276,6 +347,7 @@
   gap: 14rpx;
   font-size: 31rpx;
   font-weight: 800;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
 .judge-btn.sel {
@@ -305,12 +377,13 @@
   letter-spacing: 1rpx;
 }
 
-/* ---------- 答案行（解析态） ---------- */
+/* ---------- 答案行（解析态；同场淡入） ---------- */
 .answer-row {
   margin-top: 22rpx;
   font-size: 27rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
+  animation: fadeIn 0.2s ease both;
 }
 
 .answer-row b {
@@ -319,12 +392,13 @@
   letter-spacing: 2rpx;
 }
 
-/* ---------- AI 解析卡（屏 03 .analysis-card：浅橙底 + 灯泡图标） ---------- */
+/* ---------- AI 解析卡（屏 03 .analysis-card：浅橙底 + 灯泡图标；fadeUp 入场，延迟 70ms 与 banner 错层） ---------- */
 .analysis-card {
   margin-top: 22rpx;
   padding: 26rpx 28rpx;
   background: #fdeee2;
   border-radius: 20rpx;
+  animation: fadeUp 0.22s 0.07s ease both;
 }
 
 .analysis-card .hd {
@@ -449,6 +523,8 @@
   flex: 1;
   min-height: 0;
   margin-top: 28rpx;
+  /* 弹层每次打开内容重挂载，chips 区块整体轻微 fadeUp 一次（不逐项） */
+  animation: fadeUp 0.25s ease both;
 }
 
 .sheet-sec + .sheet-sec {

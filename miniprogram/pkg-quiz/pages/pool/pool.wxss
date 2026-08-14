@@ -39,6 +39,8 @@
   display: flex;
   gap: 22rpx;
   align-items: center;
+  /* 列表入场 fadeUp，逐项 stagger 由行内 animation-delay 控制（40ms/项，上限 5 项） */
+  animation: fadeUp 0.25s ease both;
 }
 
 .pool-item + .pool-item {

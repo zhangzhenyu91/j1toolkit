@@ -5,7 +5,8 @@
 
 <view class="page-body" wx:if="{{!noTeam}}">
   <block wx:if="{{pool.length}}">
-    <view class="card pool-item" wx:for="{{pool}}" wx:key="id">
+    <view class="card pool-item" wx:for="{{pool}}" wx:key="id"
+          style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;">
       <view class="icon-box"><t-icon name="book" size="40rpx" color="#F26D21" /></view>
       <view class="tx">
         <b>

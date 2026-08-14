@@ -22,7 +22,8 @@
       <text class="g-go" hover-class="hover-opacity" catchtap="onGroupPractice"
             data-id="{{item.bankId}}" data-name="{{item.bankName}}">练这组</text>
     </view>
-    <view class="card wrong-item" wx:for="{{item.items}}" wx:for-item="w" wx:key="questionId">
+    <view class="card wrong-item" wx:for="{{item.items}}" wx:for-item="w" wx:key="questionId"
+          style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;">
       <view class="q"><span class="tag {{w.typeCls}}">{{w.typeText}}</span>{{w.content}}</view>
       <view class="ft">
         <span class="tag tag-red">错 {{w.wrongCount}} 次</span>
