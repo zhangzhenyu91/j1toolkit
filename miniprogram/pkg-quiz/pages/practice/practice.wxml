@@ -1,132 +1,144 @@
-<!-- 题库刷题 · 刷题页（设计稿 design/quiz.html 屏 02 答题态 / 屏 03 解析态）
-     顶部进度行：答题/背题双 pill 切换 + 细进度条 + 答题卡入口；选项白卡描边、选中浅橙底，
-     解析态对=绿/错选=红/漏选=绿虚线；背题模式直接标出正确答案并常显答案行 + AI 解析卡；
-     答题卡弹层按题型分区块导航，底部可清空做题记录（错题本保留） -->
-<view class="page" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
+<!-- 题库刷题 · 刷题页（交互参考考试宝：一题一页，swiper 跟手左右滑动翻页；单选/判断点选即判分）
+     顶部进度行：答题/背题双 pill 切换 + 细进度条 + x/total；swiper 三窗格窗口化渲染（当前题 ±1），
+     翻页落定后窗口平移并复位中间格；解析态：正确答案/您的选择 + 作答统计 + AI 解析卡；
+     底栏（考试宝式）：收藏星标 / 对错计数 / 已做题（点开答题卡）/ 主按钮（多选提交、解析态下一题）；
+     答题卡弹层按题型分区块导航 + 图例，底部可清空做题记录（错题本保留） -->
+<view class="page">
   <navbar back title="{{navTitle}}" />
 
-  <scroll-view
-    class="q-scroll"
-    scroll-y
-    enhanced
-    show-scrollbar="{{false}}"
-    scroll-into-view="{{intoView}}"
-    scroll-with-animation="{{false}}"
-    wx:if="{{!emptyText}}"
-  >
-    <view class="q-body" wx:if="{{cur}}">
-      <!-- 进度行：模式切换 + 细进度条 + x/total + 答题卡入口 -->
-      <view class="pg-line" id="qtop">
-        <view class="vm-switch">
-          <view class="vm-opt {{viewMode === 'answer' ? 'on' : ''}}" hover-class="hover-opacity"
-                bindtap="onViewTap" data-v="answer">答题</view>
-          <view class="vm-opt {{viewMode === 'recite' ? 'on' : ''}}" hover-class="hover-opacity"
-                bindtap="onViewTap" data-v="recite">背题</view>
-        </view>
-        <view class="progress"><view class="progress-in" style="width: {{pct}}%;"></view></view>
-        <b><em>{{posText}}</em> / {{total}}</b>
-        <view class="sheet-entry" hover-class="hover-opacity" bindtap="onSheetOpen">
-          <t-icon name="view-module" size="30rpx" color="#22314E" />答题卡
-        </view>
+  <block wx:if="{{!emptyText}}">
+    <!-- 进度行：模式切换 + 细进度条 + x/total -->
+    <view class="pg-line">
+      <view class="vm-switch">
+        <view class="vm-opt {{viewMode === 'answer' ? 'on' : ''}}" hover-class="hover-opacity"
+              bindtap="onViewTap" data-v="answer">答题</view>
+        <view class="vm-opt {{viewMode === 'recite' ? 'on' : ''}}" hover-class="hover-opacity"
+              bindtap="onViewTap" data-v="recite">背题</view>
       </view>
-
-      <!-- 切题动画容器：题干 + 选项 + 解析区（进度行固定不参与）；
-           左右滑动切题手势绑在页面根节点 .page（全屏可划；仅横向占优滑动触发，纵向滚动不受影响） -->
-      <view class="q-pane {{qAnim}}">
-      <!-- 结果 banner（答题模式解析态） -->
-      <view class="result-banner {{result.right ? 'good' : 'bad'}}" wx:if="{{viewMode === 'answer' && submitted && result}}">
-        <t-icon name="{{result.right ? 'check-circle' : 'close-circle'}}" size="34rpx"
-                color="{{result.right ? '#2BA471' : '#CF4444'}}" />
-        {{result.right ? '回答正确' : '回答错误'}}
-        <small wx:if="{{result.bannerSub}}">{{result.bannerSub}}</small>
-      </view>
-
-      <!-- 题干卡 -->
-      <view class="card stem-card"><span class="tag {{cur.type === 'judge' ? 'tag-navy' : 'tag-orange'}}">{{cur.typeText}}</span>{{cur.content}}</view>
-
-      <!-- 判断题：「正确 / 错误」两个大选项卡 -->
-      <view class="judge-row" wx:if="{{cur.type === 'judge'}}">
-        <view
-          class="judge-btn {{item.cls}}"
-          wx:for="{{cur.options}}"
-          wx:key="letter"
-          hover-class="{{submitted ? '' : 'opt-hover'}}"
-          bindtap="onOptTap"
-          data-letter="{{item.letter}}"
-        >
-          <t-icon name="{{item.letter === 'A' ? 'check-circle' : 'close-circle'}}" size="52rpx"
-                  color="{{item.cls === 'sel' ? '#F26D21' : item.cls === 'right' || item.cls === 'miss' ? '#2BA471' : item.cls === 'wrong' ? '#CF4444' : '#A89F8A'}}" />
-          {{item.text}}
-        </view>
-      </view>
-
-      <!-- 单选/多选：字母块选项卡（多选为方形字母块） -->
-      <block wx:else>
-        <view
-          class="opt {{cur.type === 'multiple' ? 'sq' : ''}} {{item.cls}}"
-          wx:for="{{cur.options}}"
-          wx:key="letter"
-          hover-class="{{submitted ? '' : 'opt-hover'}}"
-          bindtap="onOptTap"
-          data-letter="{{item.letter}}"
-        >
-          <span class="ab">{{item.letter}}</span>
-          <view class="opt-tx">{{item.text}}</view>
-          <span class="st {{item.cls === 'wrong' ? 'st-red' : 'st-green'}}" wx:if="{{item.st}}">
-            <t-icon wx:if="{{item.stIcon}}" name="{{item.stIcon}}" size="26rpx"
-                    color="{{item.cls === 'wrong' ? '#CF4444' : '#2BA471'}}" />{{item.st}}
-          </span>
-        </view>
-        <!-- 多选底部提示 -->
-        <view class="multi-hint" wx:if="{{multiple}}">多选题：可选择多个选项，全部选对才算答对</view>
-      </block>
-
-      <!-- 答案行（解析态；背题模式常显） -->
-      <view class="answer-row" wx:if="{{submitted && result}}">
-        正确答案：<b>{{result.answerText}}</b>
-      </view>
-
-      <!-- AI 解析卡（解析态；背题模式常显；解析未生成时占位文案） -->
-      <view class="analysis-card" wx:if="{{submitted && result}}">
-        <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#F26D21" />AI 解析</view>
-        <view class="bd" wx:if="{{result.analysis}}">{{result.analysis}}</view>
-        <view class="bd ph" wx:else>解析生成中，稍后可查看</view>
-        <view class="ft" wx:if="{{result.analysis}}">解析由 AI 生成，仅供参考</view>
-      </view>
-      </view>
+      <view class="progress"><view class="progress-in" style="width: {{pct}}%;"></view></view>
+      <b><em>{{posText}}</em> / {{total}}</b>
     </view>
 
-    <!-- 首屏加载中 -->
-    <view class="q-loading" wx:if="{{loading}}">题目加载中…</view>
-  </scroll-view>
+    <!-- 跟手翻页 swiper（窗口化：仅渲染当前题 ±1；落定后复位中间格，内容一致无感切换） -->
+    <swiper
+      class="q-swiper"
+      wx:if="{{win.length}}"
+      current="{{swiperCurrent}}"
+      duration="{{260}}"
+      bindanimationfinish="onSwiperFinish"
+    >
+      <swiper-item wx:for="{{win}}" wx:key="idx">
+        <scroll-view class="q-item" scroll-y enhanced show-scrollbar="{{false}}">
+          <view class="q-item-in" wx:if="{{!item.empty}}">
+            <!-- 题干卡 -->
+            <view class="card stem-card"><span class="tag {{item.type === 'judge' ? 'tag-navy' : 'tag-orange'}}">{{item.typeText}}</span>{{item.content}}</view>
 
-  <!-- 空态（无题目 / 无错题） -->
+            <!-- 判断题：「正确 / 错误」两个大选项卡 -->
+            <view class="judge-row" wx:if="{{item.type === 'judge'}}">
+              <view
+                class="judge-btn {{o.cls}}"
+                wx:for="{{item.options}}"
+                wx:key="letter"
+                wx:for-item="o"
+                hover-class="{{item.submitted ? '' : 'opt-hover'}}"
+                catchtap="onOptTap"
+                data-letter="{{o.letter}}"
+              >
+                <t-icon name="{{o.letter === 'A' ? 'check-circle' : 'close-circle'}}" size="52rpx"
+                        color="{{o.cls === 'sel' ? '#F26D21' : o.cls === 'right' ? '#2BA471' : o.cls === 'wrong' ? '#CF4444' : '#A89F8A'}}" />
+                {{o.text}}
+              </view>
+            </view>
+
+            <!-- 单选/多选：字母块选项卡（解析态字母块变对勾/红叉；多选为方形字母块） -->
+            <block wx:else>
+              <view
+                class="opt {{item.type === 'multiple' ? 'sq' : ''}} {{o.cls}}"
+                wx:for="{{item.options}}"
+                wx:key="letter"
+                wx:for-item="o"
+                hover-class="{{item.submitted ? '' : 'opt-hover'}}"
+                catchtap="onOptTap"
+                data-letter="{{o.letter}}"
+              >
+                <span class="ab">
+                  <t-icon wx:if="{{o.icon}}" name="{{o.icon}}" size="30rpx" color="#FFFFFF" />
+                  <block wx:else>{{o.letter}}</block>
+                </span>
+                <view class="opt-tx">{{o.text}}</view>
+              </view>
+              <!-- 多选底部提示 -->
+              <view class="multi-hint" wx:if="{{item.type === 'multiple' && !item.submitted && viewMode === 'answer'}}">多选题：勾选后点底部「提交答案」，全部选对才算答对</view>
+            </block>
+
+            <!-- 结果区（考试宝式：正确答案/您的选择 + 本人/全员作答统计 + 错题本动态） -->
+            <view class="result-block" wx:if="{{item.submitted && item.result}}">
+              <view class="r-main">
+                <text>正确答案 <b class="ok">{{item.result.answerText}}</b></text>
+                <text wx:if="{{item.result.yourText}}">您的选择 <b class="{{item.result.right ? 'ok' : 'bad'}}">{{item.result.yourText}}</b></text>
+              </view>
+              <view class="r-sub" wx:if="{{item.result.myStatsText}}">{{item.result.myStatsText}}</view>
+              <view class="r-sub" wx:if="{{item.result.allStatsText}}">{{item.result.allStatsText}}</view>
+              <view class="r-sub orange" wx:if="{{item.result.bannerSub}}">{{item.result.bannerSub}}</view>
+            </view>
+
+            <!-- AI 解析卡（解析态；背题模式常显；解析未生成时占位文案） -->
+            <view class="analysis-card" wx:if="{{item.submitted && item.result}}">
+              <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#F26D21" />试题详解</view>
+              <view class="bd" wx:if="{{item.result.analysis}}">{{item.result.analysis}}</view>
+              <view class="bd ph" wx:else>解析生成中，稍后可查看</view>
+              <view class="ft" wx:if="{{item.result.analysis}}">解析由 AI 生成，仅供参考</view>
+            </view>
+          </view>
+
+          <!-- 批次未拉到的占位格（静默预拉兜底，极少出现） -->
+          <view class="q-loading" wx:else>题目加载中…</view>
+        </scroll-view>
+      </swiper-item>
+    </swiper>
+
+    <!-- 首屏加载中 -->
+    <view class="q-loading" wx:if="{{loading && !win.length}}">题目加载中…</view>
+  </block>
+
+  <!-- 空态（无题目 / 无错题 / 无收藏） -->
   <view class="q-empty" wx:if="{{emptyText}}">
     <t-icon name="check-circle" size="96rpx" color="#2BA471" wx:if="{{mode === 'wrong'}}" />
     <view class="q-empty-t">{{emptyText}}</view>
     <view class="btn-ghost q-empty-btn" hover-class="hover-opacity" bindtap="onFinish">返回题库</view>
   </view>
 
-  <!-- 底部操作栏：答题态 提交答案；解析态/背题 下一题（藏青主按钮）/ 完成返回 -->
-  <view class="practice-bar" wx:if="{{cur && !emptyText}}">
-    <view class="btn-ghost {{isFirst ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onPrev">
-      <t-icon name="chevron-left" size="30rpx" color="#6B7690" />上一题
+  <!-- 底栏（考试宝式）：收藏 / 对错计数 / 已做题（点开答题卡）/ 主按钮 -->
+  <view class="practice-bar" wx:if="{{win.length && !emptyText}}">
+    <view class="b-item {{curFav ? 'faved' : ''}}" hover-class="hover-opacity" bindtap="onFavTap">
+      <t-icon name="{{curFav ? 'star-filled' : 'star'}}" size="38rpx" color="{{curFav ? '#F26D21' : '#6B7690'}}" />
+      <text>{{curFav ? '已收藏' : '收藏'}}</text>
     </view>
-    <block wx:if="{{!submitted}}">
-      <view class="btn-navy {{canSubmit ? '' : 'disabled'}}" hover-class="hover-opacity" bindtap="onSubmit">提交答案</view>
-      <view class="btn-ghost {{isLast ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onNext">
-        下一题<t-icon name="chevron-right" size="30rpx" color="#6B7690" />
-      </view>
-    </block>
-    <view wx:else class="btn-navy" hover-class="hover-opacity" bindtap="onNextOrFinish">
-      {{isLast ? '已完成本批 · 返回题库' : '下一题'}}
+    <view class="b-item counts">
+      <text class="ok">✓ {{rightCount}}</text>
+      <text class="bad">✗ {{wrongCount}}</text>
     </view>
+    <view class="b-item" hover-class="hover-opacity" bindtap="onSheetOpen">
+      <t-icon name="view-module" size="34rpx" color="#22314E" />
+      <text>{{answeredCount}}/{{total}}</text>
+    </view>
+    <view class="btn-navy bar-main {{canSubmit ? '' : 'disabled'}}" wx:if="{{showSubmit}}"
+          hover-class="hover-opacity" bindtap="onSubmit">提交答案</view>
+    <view class="btn-navy bar-main" wx:elif="{{showNext}}" hover-class="hover-opacity" bindtap="onNextOrFinish">
+      {{isLast ? '完成' : '下一题'}}
+    </view>
+    <view class="bar-hint" wx:else>左右滑动切题 · 点选即判分</view>
   </view>
 
-  <!-- 答题卡弹层（按题型分区块；背题模式仅导航，chips 全灰 + 当前橙框） -->
+  <!-- 答题卡弹层（按题型分区块 + 图例；背题模式仅导航，chips 全灰 + 当前橙框） -->
   <t-popup visible="{{sheetOpen}}" placement="bottom" bind:visible-change="onSheetVisibleChange">
     <view class="sheet-pop">
-      <view class="sheet-hd">答题卡（已答 {{sheetAnswered}}/{{total}}）</view>
+      <view class="sheet-hd">答题卡（已答 {{answeredCount}}/{{total}}）</view>
+      <view class="sheet-legend">
+        <span><i class="dot"></i>未作答</span>
+        <span><i class="dot green"></i>答对</span>
+        <span><i class="dot red"></i>答错</span>
+      </view>
       <scroll-view scroll-y class="sheet-scroll">
         <view class="sheet-sec" wx:for="{{sheetGroups}}" wx:key="type" wx:for-item="sec">
           <view class="sec-hd">{{sec.typeText}}（{{sec.count}} 题）</view>

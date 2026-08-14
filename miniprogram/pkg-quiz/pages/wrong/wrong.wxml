@@ -1,13 +1,14 @@
-<!-- 题库刷题 · 错题本（设计稿 design/quiz.html 屏 04）
-     汇总卡 + 专项练习橙色主按钮置顶（练全部错题）；错题按题库分组：组头（题库名 + 题数 + 练这组）+
+<!-- 题库刷题 · 错题本（设计稿 design/quiz.html 屏 04；按题库过滤，跟着题库走）
+     汇总卡 + 专项练习橙色主按钮置顶（带 bankId 时只练本题库错题）；错题按题库分组：组头（题库名 + 题数 + 练这组）+
      组内错题卡（题型 tag / 错 N 次 / 相对时间 / 手动移除）；空态 check-circle +「暂无错题，继续保持」 -->
-<navbar back title="错题本" />
+<navbar back title="{{navTitle}}" />
 
 <view class="page-body" wx:if="{{groups.length}}">
   <!-- 汇总卡（卡顶警示斜纹条为全局 hazard-top） -->
   <view class="card hazard-top wrong-sum">
     <b><em>{{total}}</em> 道错题</b>
-    <p>覆盖 {{groups.length}} 个题库 · 按最近答错排序</p>
+    <p wx:if="{{scoped}}">按最近答错排序 · 连续答对 3 次自动移出</p>
+    <p wx:else>覆盖 {{groups.length}} 个题库 · 按最近答错排序</p>
     <view class="btn-orange" hover-class="hover-opacity" bindtap="onPractice">
       <t-icon name="refresh" size="32rpx" color="#FFFFFF" />
       开始错题专项练习

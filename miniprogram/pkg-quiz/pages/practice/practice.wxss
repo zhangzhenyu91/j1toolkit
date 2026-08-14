@@ -1,5 +1,5 @@
-/* 题库刷题 · 刷题页（设计稿 design/quiz.html 屏 02/03；设计 token 见 AGENTS.md 第四节，
-   固定底栏布局同 pkg-callme chat 页：flex 列 + scroll-view 自适应 + 底部操作栏） */
+/* 题库刷题 · 刷题页（交互参考考试宝：swiper 跟手翻页 + 考试宝式底栏；设计 token 见 AGENTS.md 第四节，
+   固定底栏布局同 pkg-callme chat 页：flex 列 + 内容区自适应 + 底部操作栏） */
 
 .page {
   display: flex;
@@ -8,13 +8,19 @@
   background: #f4f1ea;
 }
 
-.q-scroll {
+/* ---------- 跟手翻页 swiper（一题一页；每格内独立纵向滚动） ---------- */
+.q-swiper {
   flex: 1;
   min-height: 0;
 }
 
-.q-body {
-  padding: 16rpx 32rpx 32rpx;
+.q-item {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.q-item-in {
+  padding: 4rpx 32rpx 40rpx;
 }
 
 .q-loading {
@@ -25,74 +31,13 @@
   letter-spacing: 2rpx;
 }
 
-/* ---------- 切题滑动动画（两段式：旧内容沿切题方向滑出淡出 → 换数据 → 新内容从对侧滑入；
-   口径同 worklog 切日，位移 ±60rpx、出场 180ms / 入场 200ms） ---------- */
-@keyframes q-out-left {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(-60rpx);
-    opacity: 0;
-  }
-}
-
-@keyframes q-out-right {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(60rpx);
-    opacity: 0;
-  }
-}
-
-@keyframes q-from-right {
-  from {
-    transform: translateX(60rpx);
-    opacity: 0.2;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes q-from-left {
-  from {
-    transform: translateX(-60rpx);
-    opacity: 0.2;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.q-pane.out-left {
-  animation: q-out-left 0.18s ease-in forwards;
-}
-
-.q-pane.out-right {
-  animation: q-out-right 0.18s ease-in forwards;
-}
-
-.q-pane.from-right {
-  animation: q-from-right 0.2s ease-out;
-}
-
-.q-pane.from-left {
-  animation: q-from-left 0.2s ease-out;
-}
-
-/* ---------- 顶部进度行（屏 02 .pg-line：模式切换 + 细进度条 + 答题卡入口） ---------- */
+/* ---------- 顶部进度行（模式切换 + 细进度条 + x/total） ---------- */
 .pg-line {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 18rpx;
-  margin: 4rpx 4rpx 22rpx;
+  padding: 16rpx 32rpx 20rpx;
 }
 
 /* 答题 / 背题 双 pill 切换 */
@@ -115,17 +60,6 @@
 .vm-opt.on {
   background: #22314e;
   color: #ffffff;
-}
-
-/* 答题卡入口（图标 + 文字） */
-.sheet-entry {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  font-size: 22rpx;
-  font-weight: 700;
-  color: #22314e;
 }
 
 .progress {
@@ -154,41 +88,7 @@
   color: #f26d21;
 }
 
-/* ---------- 结果 banner（屏 03 .result-banner；提交后淡入） ---------- */
-.result-banner {
-  margin-bottom: 20rpx;
-  padding: 20rpx 26rpx;
-  border-radius: 16rpx;
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-  font-size: 27rpx;
-  font-weight: 700;
-  animation: fadeIn 0.2s ease both;
-}
-
-.result-banner.good {
-  background: #e8f5ef;
-  color: #2ba471;
-}
-
-.result-banner.bad {
-  background: #fae9e9;
-  color: #cf4444;
-}
-
-.result-banner small {
-  margin-left: auto;
-  font-size: 21rpx;
-  font-weight: 600;
-  color: #b0746f;
-}
-
-.result-banner.good small {
-  color: #5f9e83;
-}
-
-/* ---------- 题干卡（屏 02 .stem-card） ---------- */
+/* ---------- 题干卡 ---------- */
 .stem-card {
   padding: 30rpx 28rpx;
   font-size: 30rpx;
@@ -219,7 +119,7 @@
   color: #22314e;
 }
 
-/* ---------- 选项卡（屏 02/03 .opt：白卡描边，选中浅橙底；着色 180ms 过渡） ---------- */
+/* ---------- 选项卡（白卡描边，选中浅橙底；解析态字母块变对勾/红叉，文字同着色；180ms 过渡） ---------- */
 .opt {
   margin-top: 20rpx;
   padding: 24rpx 26rpx;
@@ -277,7 +177,7 @@
   color: #ffffff;
 }
 
-/* 解析态三态：正确绿 / 你的错选红 / 漏选绿虚线 */
+/* 解析态（考试宝式）：正确项绿底绿勾 / 错选项红底红叉，文字同步着色 */
 .opt.right {
   border-color: #2ba471;
   background: #e8f5ef;
@@ -287,6 +187,10 @@
   border-color: #2ba471;
   background: #2ba471;
   color: #ffffff;
+}
+
+.opt.right .opt-tx {
+  color: #2ba471;
 }
 
 .opt.wrong {
@@ -300,34 +204,11 @@
   color: #ffffff;
 }
 
-.opt.miss {
-  border: 3rpx dashed #2ba471;
-}
-
-.opt.miss .ab {
-  border-color: #2ba471;
-  color: #2ba471;
-}
-
-.opt .st {
-  margin-left: auto;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.opt .st-green {
-  color: #2ba471;
-}
-
-.opt .st-red {
+.opt.wrong .opt-tx {
   color: #cf4444;
 }
 
-/* ---------- 判断题大选项卡（屏 02 注：「正确 / 错误」双大卡，同网页端 .judge-btn） ---------- */
+/* ---------- 判断题大选项卡（「正确 / 错误」双大卡） ---------- */
 .judge-row {
   margin-top: 20rpx;
   display: flex;
@@ -377,22 +258,51 @@
   letter-spacing: 1rpx;
 }
 
-/* ---------- 答案行（解析态；同场淡入） ---------- */
-.answer-row {
+/* ---------- 结果区（考试宝式：正确答案/您的选择 + 本人/全员作答统计 + 错题本动态） ---------- */
+.result-block {
   margin-top: 22rpx;
-  font-size: 27rpx;
-  font-weight: 700;
-  letter-spacing: 1rpx;
+  padding: 24rpx 28rpx;
+  background: #ffffff;
+  border-radius: 16rpx;
   animation: fadeIn 0.2s ease both;
 }
 
-.answer-row b {
-  color: #2ba471;
+.result-block .r-main {
+  display: flex;
+  align-items: baseline;
+  gap: 32rpx;
+  flex-wrap: wrap;
+  font-size: 27rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+}
+
+.result-block .r-main b {
   font-weight: 800;
   letter-spacing: 2rpx;
 }
 
-/* ---------- AI 解析卡（屏 03 .analysis-card：浅橙底 + 灯泡图标；fadeUp 入场，延迟 70ms 与 banner 错层） ---------- */
+.result-block .ok {
+  color: #2ba471;
+}
+
+.result-block .bad {
+  color: #cf4444;
+}
+
+.result-block .r-sub {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+  letter-spacing: 1rpx;
+}
+
+.result-block .r-sub.orange {
+  color: #f26d21;
+  font-weight: 600;
+}
+
+/* ---------- AI 解析卡（浅橙底 + 灯泡图标；fadeUp 入场） ---------- */
 .analysis-card {
   margin-top: 22rpx;
   padding: 26rpx 28rpx;
@@ -429,20 +339,82 @@
   letter-spacing: 1rpx;
 }
 
-/* ---------- 底部操作栏（屏 02/03 .practice-bar） ---------- */
+/* ---------- 底栏（考试宝式：白底 + 发丝顶边；收藏 / 对错计数 / 已做题 / 主按钮） ---------- */
 .practice-bar {
   flex: none;
   display: flex;
-  gap: 20rpx;
-  padding: 20rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
+  align-items: center;
+  gap: 8rpx;
+  padding: 12rpx 20rpx calc(16rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  border-top: 2rpx solid #e8e0cd;
 }
 
-.practice-bar .btn-ghost {
+.b-item {
+  min-width: 92rpx;
+  padding: 6rpx 10rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4rpx;
+  font-size: 20rpx;
+  color: #6b7690;
+  box-sizing: border-box;
+}
+
+.b-item.faved {
+  color: #f26d21;
+  font-weight: 700;
+}
+
+/* 本 session 对错计数（绿勾 / 红叉） */
+.b-item.counts {
+  flex-direction: row;
+  gap: 14rpx;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.b-item.counts .ok {
+  color: #2ba471;
+}
+
+.b-item.counts .bad {
+  color: #cf4444;
+}
+
+.bar-main {
   flex: 1;
+  margin-left: 12rpx;
 }
 
-.practice-bar .btn-navy {
-  flex: 2;
+/* 单选/判断未答时的操作提示（点选即判分，无主按钮） */
+.bar-hint {
+  flex: 1;
+  margin-left: 12rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #a89f8a;
+  letter-spacing: 1rpx;
+}
+
+.btn-navy {
+  height: 84rpx;
+  border-radius: 16rpx;
+  background: #22314e;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 29rpx;
+  font-weight: 700;
+  letter-spacing: 6rpx;
+  box-shadow: 0 16rpx 36rpx rgba(34, 49, 78, 0.26);
+}
+
+.btn-navy.disabled {
+  opacity: 0.4;
 }
 
 .btn-ghost {
@@ -458,25 +430,6 @@
   font-size: 27rpx;
   font-weight: 600;
   box-sizing: border-box;
-}
-
-.btn-navy {
-  height: 88rpx;
-  border-radius: 16rpx;
-  background: #22314e;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 29rpx;
-  font-weight: 700;
-  letter-spacing: 6rpx;
-  box-shadow: 0 16rpx 36rpx rgba(34, 49, 78, 0.26);
-}
-
-.btn-ghost.disabled,
-.btn-navy.disabled {
-  opacity: 0.4;
 }
 
 /* ---------- 空态 ---------- */
@@ -519,10 +472,42 @@
   letter-spacing: 1rpx;
 }
 
+/* 图例行（未作答灰 / 答对绿 / 答错红） */
+.sheet-legend {
+  flex: none;
+  margin-top: 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 32rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+}
+
+.sheet-legend .dot {
+  display: inline-block;
+  width: 20rpx;
+  height: 20rpx;
+  border-radius: 50%;
+  background: #f4f1ea;
+  border: 2rpx solid #e3dccb;
+  margin-right: 8rpx;
+  vertical-align: -4rpx;
+}
+
+.sheet-legend .dot.green {
+  background: #2ba471;
+  border-color: #2ba471;
+}
+
+.sheet-legend .dot.red {
+  background: #cf4444;
+  border-color: #cf4444;
+}
+
 .sheet-scroll {
   flex: 1;
   min-height: 0;
-  margin-top: 28rpx;
+  margin-top: 24rpx;
   /* 弹层每次打开内容重挂载，chips 区块整体轻微 fadeUp 一次（不逐项） */
   animation: fadeUp 0.25s ease both;
 }

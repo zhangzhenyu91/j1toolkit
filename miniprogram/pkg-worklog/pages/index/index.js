@@ -107,7 +107,7 @@ Page({
     list: [],
     loading: true,
     flashId: 0, // 报告定位后高亮中的卡片 id（约 1.6s 后消退）
-    dayAnim: '', // 日期切换平移动效：'' / from-right / from-left
+    dayStyle: '', // 日期切换位移内联样式（跟手拖拽 transform；含过渡声明）
     // 日历弹层
     calVisible: false,
     calValue: null,
@@ -374,13 +374,14 @@ Page({
     this.shiftDay(1);
   },
 
-  // 两段式平移动效：当前内容先沿滑动方向移出，加载后新内容从对侧滑入
+  // 切日两段式平移动效（跟手版）：当前内容沿切日方向顺势滑出，加载后新内容从对侧滑入；
+  // 位移与过渡均走 dayStyle 内联样式（拖拽跟手与按钮切日共用）
   async shiftDay(delta) {
     if (this._daySwitching) return; // 连滑防抖
     this._daySwitching = true;
     try {
-      // 出场：后一天向左移出、前一天向右移出
-      this.setData({ dayAnim: delta > 0 ? 'out-left' : 'out-right' });
+      // 出场：后一天向左移出、前一天向右移出（跟手拖拽松手时自当前位移顺势滑出）
+      this.setData({ dayStyle: `transform: translateX(${delta > 0 ? '-48rpx' : '48rpx'}); transition: transform 0.08s ease-in;` });
       await new Promise((r) => setTimeout(r, 80));
       const d = parseDate(this.data.dateStr);
       d.setDate(d.getDate() + delta);
@@ -392,29 +393,49 @@ Page({
     }
   },
 
-  // 入场：后一天从右侧滑入、前一天从左侧滑入（先清空再 nextTick 重放，保证连切也触发）
+  // 入场：后一天从右侧滑入、前一天从左侧滑入（先无过渡摆到入场侧，再 nextTick 过渡回位，保证连切也触发）
   playDayAnim(delta) {
-    this.setData({ dayAnim: '' });
+    this.setData({ dayStyle: `transform: translateX(${delta > 0 ? '48rpx' : '-48rpx'});` });
     wx.nextTick(() => {
-      this.setData({ dayAnim: delta > 0 ? 'from-right' : 'from-left' });
+      this.setData({ dayStyle: 'transform: translateX(0); transition: transform 0.12s ease-out;' });
     });
   },
 
-  // ---------- 左右滑动切换日期 ----------
-  // 横向位移 ≥60px 且明显横向（|dx| > 2|dy|）才触发，不影响纵向滚动与点按
+  // ---------- 左右滑动切换日期（跟手拖拽：横向位移跟手，松手过阈值切日、否则回弹） ----------
   onTouchStart(e) {
+    if (this._daySwitching) { // 切日加载中不接收新拖拽
+      this._touch = null;
+      return;
+    }
     const t = e.touches[0];
-    this._touch = { x: t.clientX, y: t.clientY };
+    this._touch = { x: t.clientX, y: t.clientY, drag: false, dx: 0 };
+  },
+
+  onTouchMove(e) {
+    const s = this._touch;
+    if (!s) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    if (!s.drag) {
+      // 首次判定：明显横向（≥10px 且 |dx| > 2|dy|）才进入跟手拖拽，不干扰纵向滚动与点按
+      if (Math.abs(dx) >= 10 && Math.abs(dx) > Math.abs(dy) * 2) s.drag = true;
+      else return;
+    }
+    s.dx = dx;
+    this.setData({ dayStyle: `transform: translateX(${dx}px);` });
   },
 
   onTouchEnd(e) {
-    if (!this._touch) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - this._touch.x;
-    const dy = t.clientY - this._touch.y;
+    const s = this._touch;
+    if (!s) return;
     this._touch = null;
-    if (Math.abs(dx) >= 60 && Math.abs(dx) > Math.abs(dy) * 2) {
-      this.shiftDay(dx < 0 ? 1 : -1); // 左滑后一天，右滑前一天
+    if (!s.drag) return;
+    // 松手：横向位移 ≥60px 切日（左滑后一天，右滑前一天），否则过渡回弹复位
+    if (Math.abs(s.dx) >= 60) {
+      this.shiftDay(s.dx < 0 ? 1 : -1);
+    } else {
+      this.setData({ dayStyle: 'transform: translateX(0); transition: transform 0.15s ease-out;' });
     }
   },
 

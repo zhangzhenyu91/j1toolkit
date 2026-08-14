@@ -192,65 +192,9 @@
   letter-spacing: 2rpx;
 }
 
-/* ---------- 日期切换平移动效（两段式：先沿滑动方向移出，再从对侧滑入） ---------- */
-@keyframes wl-out-left {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(-48rpx);
-    opacity: 0;
-  }
-}
-
-@keyframes wl-out-right {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(48rpx);
-    opacity: 0;
-  }
-}
-
-@keyframes wl-from-right {
-  from {
-    transform: translateX(48rpx);
-    opacity: 0.2;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes wl-from-left {
-  from {
-    transform: translateX(-48rpx);
-    opacity: 0.2;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.day-pane.out-left {
-  animation: wl-out-left 0.08s ease-in forwards;
-}
-
-.day-pane.out-right {
-  animation: wl-out-right 0.08s ease-in forwards;
-}
-
-.day-pane.from-right {
-  animation: wl-from-right 0.12s ease-out;
-}
-
-.day-pane.from-left {
-  animation: wl-from-left 0.12s ease-out;
+/* ---------- 日期切日容器（左右滑动跟手位移：transform/transition 由 dayStyle 内联驱动） ---------- */
+.day-pane {
+  will-change: transform;
 }
 
 /* ---------- 日志卡片 ---------- */

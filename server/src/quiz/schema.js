@@ -66,6 +66,14 @@ const DDL = [
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_user_bank (user_id, bank_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人题库订阅'`,
+  `CREATE TABLE IF NOT EXISTS quiz_favorite (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL COMMENT '所属用户，关联 sys_user.id',
+    bank_id BIGINT UNSIGNED NOT NULL COMMENT '所属题库，关联 quiz_bank.id',
+    question_id BIGINT UNSIGNED NOT NULL COMMENT '题目，关联 quiz_question.id',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_user_q (user_id, question_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='题目收藏'`,
 ];
 
 async function ensureQuizSchema(pool) {

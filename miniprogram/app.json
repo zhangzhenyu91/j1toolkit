@@ -49,6 +49,7 @@
       "name": "quiz",
       "pages": [
         "pages/index/index",
+        "pages/bank/bank",
         "pages/practice/practice",
         "pages/wrong/wrong",
         "pages/manage/manage",

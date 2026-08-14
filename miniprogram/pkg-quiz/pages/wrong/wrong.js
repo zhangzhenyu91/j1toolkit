@@ -1,5 +1,6 @@
-// 题库刷题 · 错题本（设计稿 design/quiz.html 屏 04）
-// 汇总卡（N 道错题 + 专项练习橙色主按钮，练全部错题）+ 错题按题库分组渲染
+// 题库刷题 · 错题本（设计稿 design/quiz.html 屏 04；按题库过滤，跟着题库走）
+// 入参 { bankId, title }：自题库主页（pages/bank/bank）「我的错题」进入，只展示本题库错题；
+// 汇总卡（N 道错题 + 专项练习橙色主按钮，练本题库错题）+ 错题按题库分组渲染
 // （组头：题库名 + 组内题数 +「练这组」→ practice mode=wrong&bankId=X；组内错题卡：题型 tag / 错 N 次 / 相对时间 / 移除）
 // 规则：刷题答错自动收录；同一题连续答对 3 次自动移出，也可手动移除
 import Toast from 'tdesign-miniprogram/toast/index';
@@ -29,12 +30,20 @@ const relTime = (iso) => {
 Page({
   data: {
     gate: false,
+    navTitle: '错题本',
+    scoped: false, // 按题库过滤（自题库主页进入时 true）
     groups: [], // 按题库分组 [{bankId, bankName, items:[...]}]
     total: 0, // 错题总数（汇总卡）
     loading: true,
   },
 
-  onLoad() {
+  onLoad(options) {
+    // 生效题库（自题库主页进入时携带；错题跟着题库走）
+    const opts = options || {};
+    this._bankId = opts.bankId ? String(opts.bankId) : '';
+    const title = opts.title ? decodeURIComponent(opts.title) : '';
+    if (title) this.setData({ navTitle: title, scoped: true });
+    else if (this._bankId) this.setData({ scoped: true });
     // gate 兜底：本页由已门控的列表页进入，此处仅保证登录态就绪
     if (wx.getStorageSync('token')) {
       this.passGate();
@@ -73,7 +82,10 @@ Page({
   async loadList(isInitial) {
     if (isInitial) this.setData({ loading: true });
     try {
-      const data = await request({ url: `${API_BASE}/wrongs` });
+      // bankId 可选过滤（题库主页进入时只回本题库错题）
+      let url = `${API_BASE}/wrongs`;
+      if (this._bankId) url += `?bankId=${encodeURIComponent(this._bankId)}`;
+      const data = await request({ url });
       const list = ((data && data.list) || []).map((w) => ({
         questionId: w.questionId,
         bankId: w.bankId,
@@ -108,12 +120,12 @@ Page({
     }
   },
 
-  // 开始错题专项练习（全部错题，0 题时禁用）
+  // 开始错题专项练习（带 bankId 时只练本题库错题，0 题时禁用）
   onPractice() {
     if (!this.data.total) return;
-    wx.navigateTo({
-      url: `/pkg-quiz/pages/practice/practice?mode=wrong&title=${encodeURIComponent('错题专项练习')}`,
-    });
+    let url = `/pkg-quiz/pages/practice/practice?mode=wrong&title=${encodeURIComponent(this.data.navTitle || '错题专项练习')}`;
+    if (this._bankId) url += `&bankId=${encodeURIComponent(this._bankId)}`;
+    wx.navigateTo({ url });
   },
 
   // 组头「练这组」：只练该题库下的错题

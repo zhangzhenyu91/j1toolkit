@@ -167,35 +167,7 @@
   letter-spacing: 2rpx;
 }
 
-/* ---------- 错题本入口卡（屏 01 .wrong-entry） ---------- */
-.wrong-entry {
-  margin-top: 24rpx;
-  padding: 26rpx 28rpx;
-  display: flex;
-  align-items: center;
-  gap: 22rpx;
-}
-
-.wrong-entry .tx {
-  flex: 1;
-  min-width: 0;
-}
-
-.wrong-entry .tx b {
-  font-size: 28rpx;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-}
-
-.wrong-entry .tx p {
-  margin-top: 6rpx;
-  font-size: 22rpx;
-  color: #6b7690;
-}
-
-/* ---------- 通用：浅橙底图标盒 / 进度条 / 标签 / 橙色按钮 ---------- */
+/* ---------- 通用：浅橙底图标盒 / 进度条 / 标签 ---------- */
 .icon-box {
   width: 84rpx;
   height: 84rpx;
@@ -231,11 +203,6 @@
   white-space: nowrap;
 }
 
-.tag-red {
-  background: #fae9e9;
-  color: #cf4444;
-}
-
 .tag-navy {
   background: #edf0f6;
   color: #22314e;
@@ -249,28 +216,6 @@
 .tag-green {
   background: #e8f5ef;
   color: #2ba471;
-}
-
-.btn-orange {
-  height: 72rpx;
-  border-radius: 16rpx;
-  background: #f26d21;
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 25rpx;
-  font-weight: 700;
-  padding: 0 30rpx;
-  letter-spacing: 2rpx;
-  flex: none;
-  box-shadow: 0 12rpx 28rpx rgba(242, 109, 33, 0.3);
-}
-
-.btn-orange.disabled {
-  background: #f4f1ea;
-  color: #a89f8a;
-  box-shadow: none;
 }
 
 /* ---------- 「我的题库」板块行（右侧管理入口） ---------- */
@@ -342,7 +287,7 @@
   white-space: nowrap;
 }
 
-/* ---------- 题库池入口卡（二级页入口，风格同错题本入口卡） ---------- */
+/* ---------- 题库池入口卡（二级页入口） ---------- */
 .pool-entry {
   margin-top: 32rpx;
   padding: 26rpx 28rpx;

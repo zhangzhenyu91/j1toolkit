@@ -1,6 +1,7 @@
 // 题库刷题路由：全部接口需登录 + quiz 应用权限；班组上下文 req.team 见 utils/team.js
 // 双题库池：scope=team 班组池（本班成员可见）/ scope=all 全部池（仅超管维护，全员可见，team_id 为 NULL）
 // 个人题库：用户从池中「添加」（quiz_user_bank 订阅），GET /banks 只回我的题库，与班组无关
+// 错题本（quiz_wrong）/ 收藏（quiz_favorite）为个人口径，按题库过滤展示（题库主页 GET /banks/:id/home）
 // 管理接口（[manage]）：requireQuizAdmin 粗筛角色，findManageBank 细粒度校验归属——
 // 超管可管任意题库（含他班班组池与全部池），班组管理员仅本班班组池
 const express = require('express');
@@ -259,6 +260,47 @@ router.get('/banks/pool', async (req, res, next) => {
   }
 });
 
+// GET /banks/:id/home：题库主页（小程序 bank 页）——题库信息 + 题数/解析状态 + 本人已练题数/正确率 + 本题库错题数/收藏数
+router.get('/banks/:id/home', async (req, res, next) => {
+  try {
+    const bank = await findVisibleBank(req.params.id, req);
+    if (!bank) return fail(res, 404, 40400, '题库不存在或不可见');
+    const [rows] = await pool.query(
+      `SELECT b.name, b.description, b.scope, t.name AS team_name
+       FROM quiz_bank b LEFT JOIN sys_team t ON b.scope = 'team' AND t.id = b.team_id
+       WHERE b.id = ?`,
+      [bank.id]
+    );
+    const b = rows[0];
+    const st = (await loadBankStats([bank.id]))[bank.id] || emptyStats();
+    // 本人本题库答题统计（已练题数按不同题计，正确率按答题记录计）
+    const [us] = await pool.query(
+      `SELECT COUNT(DISTINCT question_id) AS answered, COUNT(*) AS total, SUM(is_right) AS rights
+       FROM quiz_record WHERE user_id = ? AND bank_id = ?`,
+      [req.user.id, bank.id]
+    );
+    const uTotal = us[0] ? Number(us[0].total) || 0 : 0;
+    // 错题/收藏均为个人口径，按本题库过滤（跟着题库走）
+    const [wr] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_wrong WHERE user_id = ? AND bank_id = ?', [req.user.id, bank.id]);
+    const [fv] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_favorite WHERE user_id = ? AND bank_id = ?', [req.user.id, bank.id]);
+    return ok(res, {
+      id: bank.id,
+      name: b.name,
+      description: b.description,
+      scope: b.scope,
+      teamName: b.scope === 'team' ? b.team_name || null : null,
+      questionCount: st.questionCount,
+      analysis: st.analysis,
+      answeredCount: us[0] ? Number(us[0].answered) || 0 : 0,
+      rightRate: uTotal ? Math.round((Number(us[0].rights) / uTotal) * 100) : null,
+      wrongCount: Number(wr[0].cnt) || 0,
+      favCount: Number(fv[0].cnt) || 0,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // GET /banks/manage：管理列表 [manage]——超管：全部池 + 生效班组班组池；班组管理员：本班班组池
 router.get('/banks/manage', requireQuizAdmin, async (req, res, next) => {
   try {
@@ -397,7 +439,7 @@ router.put('/banks/:id', requireQuizAdmin, async (req, res, next) => {
   }
 });
 
-// DELETE /banks/:id：删除题库（事务连带删题目/答题记录/错题/个人订阅） [manage]
+// DELETE /banks/:id：删除题库（事务连带删题目/答题记录/错题/收藏/个人订阅） [manage]
 router.delete('/banks/:id', requireQuizAdmin, async (req, res, next) => {
   try {
     const bank = await findManageBank(req.params.id, req);
@@ -407,6 +449,7 @@ router.delete('/banks/:id', requireQuizAdmin, async (req, res, next) => {
       await conn.beginTransaction();
       await conn.query('DELETE FROM quiz_record WHERE bank_id = ?', [bank.id]);
       await conn.query('DELETE FROM quiz_wrong WHERE bank_id = ?', [bank.id]);
+      await conn.query('DELETE FROM quiz_favorite WHERE bank_id = ?', [bank.id]);
       await conn.query('DELETE FROM quiz_question WHERE bank_id = ?', [bank.id]);
       await conn.query('DELETE FROM quiz_user_bank WHERE bank_id = ?', [bank.id]);
       await conn.query('DELETE FROM quiz_bank WHERE id = ?', [bank.id]);
@@ -540,9 +583,10 @@ router.post(
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
-        // 全量替换：先删该库旧答题记录/错题/题目，再分批插入（sort 按行序）
+        // 全量替换：先删该库旧答题记录/错题/收藏/题目，再分批插入（sort 按行序）
         await conn.query('DELETE FROM quiz_record WHERE bank_id = ?', [bank.id]);
         await conn.query('DELETE FROM quiz_wrong WHERE bank_id = ?', [bank.id]);
+        await conn.query('DELETE FROM quiz_favorite WHERE bank_id = ?', [bank.id]);
         await conn.query('DELETE FROM quiz_question WHERE bank_id = ?', [bank.id]);
         for (let i = 0; i < data.length; i += 500) {
           const chunk = data.slice(i, i + 500).map((r, j) => [bank.id, ...r, i + j + 1]);
@@ -642,7 +686,7 @@ router.put('/questions/:id', requireQuizAdmin, async (req, res, next) => {
   }
 });
 
-// DELETE /questions/:id：删除题目（连带删答题记录/错题） [manage]
+// DELETE /questions/:id：删除题目（连带删答题记录/错题/收藏） [manage]
 router.delete('/questions/:id', requireQuizAdmin, async (req, res, next) => {
   try {
     const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ?', [Number(req.params.id) || 0]);
@@ -651,6 +695,7 @@ router.delete('/questions/:id', requireQuizAdmin, async (req, res, next) => {
     if (!bank) return fail(res, 404, 40400, '题目不存在');
     await pool.query('DELETE FROM quiz_record WHERE question_id = ?', [rows[0].id]);
     await pool.query('DELETE FROM quiz_wrong WHERE question_id = ?', [rows[0].id]);
+    await pool.query('DELETE FROM quiz_favorite WHERE question_id = ?', [rows[0].id]);
     await pool.query('DELETE FROM quiz_question WHERE id = ?', [rows[0].id]);
     return ok(res, null);
   } catch (err) {
@@ -670,20 +715,21 @@ router.post('/banks/:id/analyze-retry', requireQuizAdmin, async (req, res, next)
   }
 });
 
-// GET /practice/questions：刷题取题（默认严禁带答案与解析）
-// mode=seq 顺序（按 sort,id 分页）；mode=rand 随机（ORDER BY RAND()，忽略 offset）；mode=wrong 错题本（最近答错倒序，bankId 可选过滤）
+// GET /practice/questions：刷题取题（默认严禁带答案与解析；非 lite 出参含 fav 收藏标记）
+// mode=seq 顺序（按 sort,id 分页）；mode=rand 随机（ORDER BY RAND()，忽略 offset）；
+// mode=wrong 错题本（最近答错倒序）/ mode=fav 收藏（最近收藏倒序）——wrong/fav 的 bankId 均为可选过滤
 // lite=1：答题卡大纲模式，忽略 offset/limit 返回全量有序列表，项仅含 { id, type }（withAnswer 同时传入时忽略）
 // withAnswer=1：背题模式用，分页 list 项追加 answer 与 analysis（无解析为 null）；不传则出参不含答案/解析
-// 可见性：bankId 必传时经 findVisibleBank 校验；wrong 模式只回可见题库（全部池 + 本班班组池）的错题
+// 可见性：bankId 必传时经 findVisibleBank 校验；wrong/fav 模式只回可见题库（全部池 + 本班班组池）的题
 router.get('/practice/questions', async (req, res, next) => {
   try {
-    const mode = ['seq', 'rand', 'wrong'].includes(req.query.mode) ? req.query.mode : 'seq';
+    const mode = ['seq', 'rand', 'wrong', 'fav'].includes(req.query.mode) ? req.query.mode : 'seq';
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const bankId = Number(req.query.bankId) || 0;
     const lite = req.query.lite === '1';
     const withAnswer = !lite && req.query.withAnswer === '1'; // lite 时忽略 withAnswer
-    if (mode !== 'wrong' && !bankId) return fail(res, 400, 40030, '请选择题库');
+    if (mode !== 'wrong' && mode !== 'fav' && !bankId) return fail(res, 400, 40030, '请选择题库');
     if (bankId) {
       const bank = await findVisibleBank(bankId, req);
       if (!bank) return fail(res, 404, 40400, '题库不存在');
@@ -715,6 +761,28 @@ router.get('/practice/questions', async (req, res, next) => {
          ORDER BY RAND() ${lite ? '' : `LIMIT ${limit}`}`,
         [bankId]
       );
+    } else if (mode === 'fav') {
+      // 收藏：联表取题，仅可见题库（同 wrong 口径），按最近收藏倒序分页
+      const teamId = req.team ? req.team.id : 0;
+      const where = bankId ? 'AND f.bank_id = ?' : '';
+      const params = bankId ? [req.user.id, teamId, bankId] : [req.user.id, teamId];
+      const [cnt] = await pool.query(
+        `SELECT COUNT(*) AS total FROM quiz_favorite f
+         JOIN quiz_question q ON q.id = f.question_id AND q.status = 1
+         JOIN quiz_bank b ON b.id = f.bank_id
+         WHERE f.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}`,
+        params
+      );
+      total = Number(cnt[0].total);
+      const qCols = cols.replace(/\b(id|type|content|options|answer|analysis)\b/g, 'q.$1');
+      [rows] = await pool.query(
+        `SELECT ${qCols} FROM quiz_favorite f
+         JOIN quiz_question q ON q.id = f.question_id AND q.status = 1
+         JOIN quiz_bank b ON b.id = f.bank_id
+         WHERE f.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}
+         ORDER BY f.id DESC ${pageClause}`,
+        params
+      );
     } else {
       // 错题本：联表取题，仅可见题库（全部池 + 本班班组池；teamId=0 时班组池部分自然为空，last_wrong_at 倒序分页）
       const teamId = req.team ? req.team.id : 0;
@@ -738,10 +806,19 @@ router.get('/practice/questions', async (req, res, next) => {
         params
       );
     }
+    // 本批题目的本人收藏标记（lite 大纲不带）
+    let favSet = new Set();
+    if (!lite && rows.length) {
+      const [frows] = await pool.query(
+        'SELECT question_id FROM quiz_favorite WHERE user_id = ? AND question_id IN (?)',
+        [req.user.id, rows.map((r) => r.id)]
+      );
+      favSet = new Set(frows.map((f) => f.question_id));
+    }
     // 出参：lite 仅 id/type；默认严格不含 answer/analysis；withAnswer 才追加
     const list = rows.map((r) => {
       if (lite) return { id: r.id, type: r.type };
-      const item = { id: r.id, type: r.type, content: r.content, options: parseOptions(r.options) };
+      const item = { id: r.id, type: r.type, content: r.content, options: parseOptions(r.options), fav: favSet.has(r.id) ? 1 : 0 };
       if (withAnswer) {
         item.answer = r.answer;
         item.analysis = r.analysis || null;
@@ -820,24 +897,44 @@ router.post('/practice/answer', async (req, res, next) => {
         }
       }
     }
-    return ok(res, { right: !!right, answer: q.answer, analysis: q.analysis || null, wrong });
+    // 本题作答统计（含本次提交；本人/全员两个口径，刷题页解析态展示）
+    const [allSt] = await pool.query(
+      'SELECT COUNT(*) AS total, SUM(is_right) AS rights FROM quiz_record WHERE question_id = ?',
+      [q.id]
+    );
+    const [mySt] = await pool.query(
+      'SELECT COUNT(*) AS total, SUM(is_right) AS rights FROM quiz_record WHERE question_id = ? AND user_id = ?',
+      [q.id, req.user.id]
+    );
+    const allTimes = Number(allSt[0].total) || 0;
+    const myTimes = Number(mySt[0].total) || 0;
+    const stats = {
+      myTimes,
+      myRightRate: myTimes ? Math.round((Number(mySt[0].rights) / myTimes) * 100) : null,
+      allTimes,
+      allRightRate: allTimes ? Math.round((Number(allSt[0].rights) / allTimes) * 100) : null,
+    };
+    return ok(res, { right: !!right, answer: q.answer, analysis: q.analysis || null, wrong, stats });
   } catch (err) {
     return next(err);
   }
 });
 
-// GET /wrongs：当前用户错题本（按人跨池，最近答错倒序，含来源题库）
+// GET /wrongs：当前用户错题本（按人跨池，最近答错倒序，含来源题库；bankId 可选过滤，错题跟着题库走）
 router.get('/wrongs', async (req, res, next) => {
   try {
+    const bankId = Number(req.query.bankId) || 0;
+    const where = bankId ? 'AND w.bank_id = ?' : '';
+    const params = bankId ? [req.user.id, bankId] : [req.user.id];
     const [rows] = await pool.query(
       `SELECT w.question_id, w.bank_id, b.name AS bank_name, q.type, q.content, q.options,
          w.wrong_count, w.right_streak, DATE_FORMAT(w.last_wrong_at, '%Y-%m-%d %H:%i:%s') AS last_wrong_at
        FROM quiz_wrong w
        JOIN quiz_question q ON q.id = w.question_id
        JOIN quiz_bank b ON b.id = w.bank_id
-       WHERE w.user_id = ?
+       WHERE w.user_id = ? ${where}
        ORDER BY w.last_wrong_at DESC, w.id DESC`,
-      [req.user.id]
+      params
     );
     const list = rows.map((r) => ({
       questionId: r.question_id,
@@ -860,6 +957,39 @@ router.get('/wrongs', async (req, res, next) => {
 router.delete('/wrongs/:questionId', async (req, res, next) => {
   try {
     await pool.query('DELETE FROM quiz_wrong WHERE user_id = ? AND question_id = ?', [
+      req.user.id,
+      Number(req.params.questionId) || 0,
+    ]);
+    return ok(res, null);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /favorites/:questionId：收藏某题（幂等；题目所属题库需对用户可见，bank_id 随题落库）
+router.post('/favorites/:questionId', async (req, res, next) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, bank_id FROM quiz_question WHERE id = ? AND status = 1',
+      [Number(req.params.questionId) || 0]
+    );
+    if (!rows.length) return fail(res, 404, 40400, '题目不存在');
+    const bank = await findVisibleBank(rows[0].bank_id, req);
+    if (!bank) return fail(res, 404, 40400, '题目不存在');
+    await pool.query(
+      'INSERT IGNORE INTO quiz_favorite (user_id, bank_id, question_id) VALUES (?, ?, ?)',
+      [req.user.id, rows[0].bank_id, rows[0].id]
+    );
+    return ok(res, null);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// DELETE /favorites/:questionId：取消收藏（按人，与班组无关）
+router.delete('/favorites/:questionId', async (req, res, next) => {
+  try {
+    await pool.query('DELETE FROM quiz_favorite WHERE user_id = ? AND question_id = ?', [
       req.user.id,
       Number(req.params.questionId) || 0,
     ]);

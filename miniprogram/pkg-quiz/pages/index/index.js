@@ -1,6 +1,7 @@
 // 题库刷题 · 题库列表（app_key quiz；设计稿 design/quiz.html 屏 01）
-// 统计卡（累计练习/正确率/错题待攻克）+ 错题本入口卡 + 我的题库列表（个人口径，GET /banks）+
+// 统计卡（累计练习/正确率/错题待攻克）+ 我的题库列表（个人口径，GET /banks）+
 // 题库池入口卡（二级页 pages/pool/pool，添加/移出后回本页 onShow 自动刷新）；
+// 点题库卡进题库主页（pages/bank/bank：顺序/随机练习与本题库错题/收藏/移出题库，参考考试宝科目页）；
 // 管理角色（admin/team_admin）另有「管理」入口与底部「新建题库」主按钮（进 manage 页）
 // 班组口径（同 pkg-filetransfer）：超管顶部切换器切班组（storage quiz_team_id，banks 请求带 team_id）；
 // 其余角色固定本班（后端强制）；非超管未分配班组 → 整页空态，不发业务请求
@@ -194,37 +195,17 @@ Page({
 
   /* ==================== 交互 ==================== */
 
-  // 点题库卡：选择练习模式后进入刷题页
+  // 点题库卡：进题库主页（练习入口与本题库错题/收藏/移出题库都在主页内，跟着题库走）
   onBankTap(e) {
     const { id, name } = e.currentTarget.dataset;
-    wx.showActionSheet({
-      itemList: ['顺序练习', '随机练习'],
-      success: (res) => {
-        const mode = res.tapIndex === 1 ? 'rand' : 'seq';
-        wx.navigateTo({
-          url: `/pkg-quiz/pages/practice/practice?bankId=${id}&mode=${mode}&title=${encodeURIComponent(name)}`,
-        });
-      },
+    wx.navigateTo({
+      url: `/pkg-quiz/pages/bank/bank?bankId=${id}&title=${encodeURIComponent(name)}`,
     });
-  },
-
-  // 错题本入口卡：进错题本页
-  onWrongTap() {
-    wx.navigateTo({ url: '/pkg-quiz/pages/wrong/wrong' });
   },
 
   // 题库池入口卡：进题库池二级页（添加/移出后回本页 onShow 刷新我的题库）
   onPoolTap() {
     wx.navigateTo({ url: '/pkg-quiz/pages/pool/pool' });
-  },
-
-  // 错题专项练习（0 题时按钮禁用）
-  onWrongPractice() {
-    const ov = this.data.overview;
-    if (!ov || !ov.wrongCount) return;
-    wx.navigateTo({
-      url: `/pkg-quiz/pages/practice/practice?mode=wrong&title=${encodeURIComponent('错题专项练习')}`,
-    });
   },
 
   // 管理入口（板块标题右侧「管理」与底部主按钮同进 manage 页）

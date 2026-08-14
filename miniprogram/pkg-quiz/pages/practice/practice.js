@@ -1,11 +1,14 @@
-// 题库刷题 · 刷题页（设计稿 design/quiz.html 屏 02 答题态 / 屏 03 解析态）
-// 入参 { bankId, mode=seq|rand|wrong, title }；wrong 模式 bankId 可空（错题专项练习）
-// 题序大纲：进入先拉 lite=1 全量大纲（seq 按 sort,id 升序 / rand 本 session 随机序 / wrong 按最近答错倒序），
-// 题目内容按 20/批按需拉取（offset=批首大纲下标；答题模式不带答案，背题模式 withAnswer=1 带 answer/analysis）
+// 题库刷题 · 刷题页（交互参考考试宝：一题一页，swiper 跟手左右滑动翻页；单选/判断点选即判分）
+// 入参 { bankId, mode=seq|rand|wrong|fav, title }；wrong/fav 模式 bankId 可空（页面入口均已带 bankId）
+// 题序大纲：进入先拉 lite=1 全量大纲（seq 按 sort,id 升序 / rand 本 session 随机序 / wrong 按最近答错倒序 / fav 按最近收藏倒序），
+// 题目内容按 20/批按需拉取（offset=批首大纲下标；答题模式不带答案，背题模式 withAnswer=1 带 answer/analysis；批次带 fav 收藏标记）
 // seq 断点续刷：wx.setStorageSync(`quiz_seq_${bankId}`, 大纲下标)，进入时恢复
-// 双模式：答题（提交判分 + 解析态三态）/ 背题（直接标出正确答案，常显答案行 + AI 解析卡，不提交不写记录）；
-// 答题卡弹层：按题型分区块题号导航（未答灰 / 答对绿 / 答错红 / 当前橙框），底部可清空做题记录（错题本保留）
-// 切题：底部按钮 / 答题卡跳题 / 内容区左右滑动（左滑下一题、右滑上一题），统一走两段式滑动动画（旧内容滑出 → 换数据 → 对侧滑入）
+// 翻页：swiper 三窗格窗口化渲染（仅渲染 当前题±1），bindanimationfinish 后窗口平移到新当前题并无感复位中间格；
+// 答题卡跳题直接重建窗口（无动画）；相邻题批次静默预拉，翻页不卡
+// 双模式：答题（单选/判断点选即判分、多选底部提交；解析态=正确答案/您的选择 + 本人/全员作答统计 + AI 解析卡）/
+// 背题（直接标出正确答案，常显答案行 + AI 解析卡，不提交不写记录）
+// 底栏（考试宝式）：收藏星标切换 / 本 session 对错计数 / 已做题（点开答题卡）/ 主按钮（多选提交、解析态下一题）
+// 答题卡弹层：按题型分区块题号导航（未答灰 / 答对绿 / 答错红 / 当前橙框）+ 图例行，底部可清空做题记录（错题本保留）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -30,43 +33,47 @@ Page({
     total: 0,
     posText: '0', // 当前题序（全局，1 起）
     pct: 0,
-    // 当前题
-    cur: null, // { id, type, typeText, content, options:[{letter,text,cls,st,stIcon}] }
-    qAnim: '', // 切题动画类：'' / out-left / out-right / from-left / from-right
+    // swiper 窗口（当前题 ±1，边界处缩减；项结构见 buildItem）
+    win: [],
+    swiperCurrent: 0,
+    // 底栏镜像（随窗口重建/作答/收藏同步）
+    curFav: 0, // 当前题已收藏
     submitted: false, // 当前题已提交（解析态；背题模式恒 true）
     canSubmit: false, // 已选至少一项
-    multiple: false, // 当前题为多选（底部提示）
-    // 解析态数据
-    result: null, // { right, answerText, analysis, bannerSub }
-    isFirst: true,
+    showSubmit: false, // 多选未提交：底部「提交答案」
+    showNext: false, // 已提交/背题：底部「下一题/完成」
     isLast: false, // 已到大纲末尾
-    intoView: '', // scroll-view 回顶锚点
+    // 本 session 作答计数（底栏与答题卡）
+    answeredCount: 0,
+    rightCount: 0,
+    wrongCount: 0,
     // 答题卡弹层
     sheetOpen: false,
     sheetGroups: [], // [{ type, typeText, count, items:[{idx,num,st,cur}] }]
-    sheetAnswered: 0, // 已答数（本 session 提交口径）
     canReset: false, // 「清空做题记录」可点（答题模式 + 有 bankId + 已答数>0）
   },
 
   onLoad(options) {
     const opts = options || {};
     this._bankId = opts.bankId ? String(opts.bankId) : '';
-    this._mode = ['seq', 'rand', 'wrong'].includes(opts.mode) ? opts.mode : 'seq';
+    this._mode = ['seq', 'rand', 'wrong', 'fav'].includes(opts.mode) ? opts.mode : 'seq';
     const title = opts.title ? decodeURIComponent(opts.title) : '';
     this.setData({
       mode: this._mode,
-      navTitle: title || (this._mode === 'wrong' ? '错题专项练习' : '刷题'),
+      navTitle: title || (this._mode === 'wrong' ? '错题专项练习' : this._mode === 'fav' ? '收藏练习' : '刷题'),
     });
 
-    // 内部状态：全量题序大纲 / 批次内容缓存（批首下标 → 题目数组）/ 逐题作答结果
+    // 内部状态：全量题序大纲 / 批次内容缓存（批首下标 → 题目数组）/ 逐题作答结果 / 收藏标记
     this._outline = []; // [{id,type}]
     this._cache = {};
-    this._results = {}; // qid → { selected, right, answer, analysis, wrong }
+    this._results = {}; // qid → { selected, right, answer, analysis, wrong, stats }
+    this._favs = {}; // qid → 1/0
     this._idx = 0; // 当前题的大纲下标
     this._sel = [];
     this._inflight = null; // 进行中的批次请求（防并发重拉）
-    this._switching = false; // 切题动画进行中（期间忽略翻题与手势）
-    this._touch = null; // 滑动手势起点
+    this._committing = false; // 翻页/跳题提交中（期间忽略手势落定）
+    this._submitting = false; // 判分请求进行中（点选即判分防连点）
+    this._favToggling = false; // 收藏切换进行中（防连点）
 
     // gate 兜底：本页由已门控的列表页进入，此处仅保证登录态就绪
     if (wx.getStorageSync('token')) {
@@ -102,7 +109,11 @@ Page({
       if (!this._outline.length) {
         this.setData({
           loading: false,
-          emptyText: this._mode === 'wrong' ? '暂无错题，继续保持' : '该题库暂无题目',
+          emptyText: this._mode === 'wrong'
+            ? '暂无错题，继续保持'
+            : this._mode === 'fav'
+              ? '暂无收藏题目，刷题时点星标收藏'
+              : '该题库暂无题目',
         });
         return;
       }
@@ -117,7 +128,7 @@ Page({
         return;
       }
       this.setData({ loading: false, total: this._outline.length });
-      this.renderCurrent();
+      this.rebuildWindow();
     } catch (err) {
       this.toast(err.message);
       this.setData({ loading: false, emptyText: '题目加载失败，请返回重试' });
@@ -154,6 +165,8 @@ Page({
       raw.forEach((q) => { map[q.id] = q; });
       const seg = this._outline.slice(start, start + LIMIT).map((o) => map[o.id]).filter(Boolean);
       this._cache[start] = seg.length ? seg : raw;
+      // 收藏标记入本地表（收藏切换先改本地，失败回滚）
+      this._cache[start].forEach((q) => { this._favs[q.id] = q.fav ? 1 : 0; });
     } finally {
       this._inflight = null;
       if (!silent) wx.hideLoading();
@@ -166,83 +179,65 @@ Page({
     return (this._cache[start] || [])[idx - start] || null;
   },
 
-  /* ==================== 渲染当前题 ==================== */
+  /* ==================== 窗口化渲染（当前题 ±1 三窗格） ==================== */
 
-  renderCurrent() {
-    const q = this.getQuestion(this._idx);
-    if (!q) return;
+  // 大纲下标 → swiper 窗格展示结构（批次未拉到时为 empty 占位格）
+  buildItem(idx) {
+    const q = this.getQuestion(idx);
+    if (!q) return { idx, empty: true };
     const recite = this.data.viewMode === 'recite';
     const res = this._results[q.id];
     const type = q.type || 'single';
-    const isMulti = type === 'multiple';
     const opts = (q.options || []).map((text, i) => {
       const letter = LETTERS[i] || String(i + 1);
       let cls = '';
-      let st = '';
-      let stIcon = '';
+      let icon = '';
       if (recite) {
         // 背题：直接标出正确答案（绿底绿勾），其余普通
         if ((q.answer || '').includes(letter)) {
-          cls = 'right'; st = '正确'; stIcon = 'check';
+          cls = 'right'; icon = 'check';
         }
       } else if (!res) {
-        cls = (this._sel || []).includes(letter) ? 'sel' : '';
+        // 选中态只属当前题（_sel 随翻题清空）
+        cls = idx === this._idx && (this._sel || []).includes(letter) ? 'sel' : '';
       } else {
+        // 解析态（考试宝式）：正确项统一绿勾，错选项红叉，其余保持普通
         const inAns = (res.answer || '').includes(letter);
         const inSel = (res.selected || []).includes(letter);
-        if (inAns && inSel) {
-          cls = 'right'; st = '正确'; stIcon = 'check';
-        } else if (inAns && !inSel) {
-          // 多选漏选单独绿虚线；单选/判断直接绿色标出正确答案
-          cls = isMulti ? 'miss' : 'right';
-          st = isMulti ? '漏选' : '';
-        } else if (!inAns && inSel) {
-          cls = 'wrong'; st = '你的选择'; stIcon = 'close';
+        if (inAns) {
+          cls = 'right'; icon = 'check';
+        } else if (inSel) {
+          cls = 'wrong'; icon = 'close';
         }
       }
-      return { letter, text, cls, st, stIcon };
+      return { letter, text, cls, icon };
     });
 
-    const total = this._outline.length;
-    const isLast = this._idx >= total - 1;
-    this.setData({
-      cur: {
-        id: q.id,
-        type,
-        typeText: TYPE_TEXT[type] || '单选题',
-        content: q.content || '',
-        options: opts,
-      },
-      multiple: isMulti && !recite && !res,
-      submitted: recite || !!res, // 背题恒解析态版式（无 banner、无提交按钮）
-      canSubmit: !recite && !!(this._sel || []).length,
-      result: recite ? this.buildReciteResult(q) : (res ? this.buildResult(res) : null),
-      total,
-      posText: String(this._idx + 1),
-      pct: total ? Math.min(100, Math.round(((this._idx + 1) / total) * 100)) : 0,
-      isFirst: this._idx === 0,
-      isLast,
-      intoView: '',
-    });
-    // 回顶（两次赋值保证 scroll-into-view 重复触发）
-    wx.nextTick(() => this.setData({ intoView: 'qtop' }));
-    // seq 断点保存（大纲下标，0 起）
-    if (this._mode === 'seq' && this._bankId) {
-      wx.setStorageSync(`quiz_seq_${this._bankId}`, this._idx);
-    }
-    // 临近批尾静默预拉下一批
-    const nstart = Math.floor(this._idx / LIMIT) * LIMIT + LIMIT;
-    if (nstart < total && !this._cache[nstart]) {
-      this.ensureBatch(nstart, true).catch(() => {});
-    }
+    return {
+      idx,
+      id: q.id,
+      empty: false,
+      type,
+      typeText: TYPE_TEXT[type] || '单选题',
+      content: q.content || '',
+      options: opts,
+      submitted: recite || !!res, // 背题恒解析态版式（无统计、无提交按钮）
+      result: recite ? this.buildReciteResult(q) : (res ? this.buildResult(res, q) : null),
+      fav: this._favs[q.id] ? 1 : 0,
+    };
   },
 
-  // 作答结果 → 解析态展示结构（答案行文案 + banner 副文案）
-  buildResult(res) {
-    const q = this.getQuestion(this._idx);
+  // 作答结果 → 解析态展示结构（答案行 + 本人/全员作答统计 + 错题本动态文案）
+  buildResult(res, q) {
     const type = (q || {}).type;
     let answerText = res.answer || '';
-    if (type === 'judge') answerText = answerText === 'A' ? '正确' : '错误'; // judge 固定 A=正确 B=错误
+    let yourText = (res.selected || []).join('');
+    if (type === 'judge') {
+      // judge 固定 A=正确 B=错误
+      const jm = { A: '正确', B: '错误' };
+      answerText = jm[answerText] || answerText;
+      yourText = jm[yourText] || yourText;
+    }
     let bannerSub = '';
     const w = res.wrong || {};
     if (res.right) {
@@ -253,11 +248,15 @@ Page({
     } else if (w.inBook !== false) {
       bannerSub = '已自动加入错题本';
     }
+    const st = res.stats || {};
     return {
       right: !!res.right,
       answerText,
+      yourText,
       analysis: res.analysis || '',
       bannerSub,
+      myStatsText: st.myTimes ? `本人作答 ${st.myTimes} 次 · 正确率 ${st.myRightRate}%` : '',
+      allStatsText: st.allTimes ? `全员作答 ${st.allTimes} 次 · 正确率 ${st.allRightRate}%` : '',
     };
   },
 
@@ -268,9 +267,101 @@ Page({
     return {
       right: true,
       answerText,
+      yourText: '',
       analysis: q.analysis || '',
       bannerSub: '',
+      myStatsText: '',
+      allStatsText: '',
     };
+  },
+
+  // 以 _idx 为中心重建三窗格窗口并复位 swiper 到当前格（中间格内容与用户所见一致，无感切换）
+  rebuildWindow() {
+    const total = this._outline.length;
+    const win = [];
+    for (let i = this._idx - 1; i <= this._idx + 1; i += 1) {
+      if (i < 0 || i >= total) continue;
+      win.push(this.buildItem(i));
+    }
+    const cur = win.findIndex((w) => w.idx === this._idx);
+    this.setData({
+      win,
+      swiperCurrent: Math.max(cur, 0),
+      total,
+      posText: String(this._idx + 1),
+      pct: total ? Math.min(100, Math.round(((this._idx + 1) / total) * 100)) : 0,
+      isLast: this._idx >= total - 1,
+    });
+    this.refreshBar();
+    // seq 断点保存（大纲下标，0 起）
+    if (this._mode === 'seq' && this._bankId) {
+      wx.setStorageSync(`quiz_seq_${this._bankId}`, this._idx);
+    }
+    // 相邻题所在批次静默预拉（跟手翻页不卡）
+    [this._idx - 1, this._idx + 1].forEach((i) => {
+      if (i < 0 || i >= total) return;
+      const start = Math.floor(i / LIMIT) * LIMIT;
+      if (!this._cache[start]) this.ensureBatch(i, true).catch(() => {});
+    });
+  },
+
+  // 仅重渲当前格（作答选择/提交判分/收藏切换后）
+  refreshCurrentItem() {
+    const pos = this.data.win.findIndex((w) => w.idx === this._idx);
+    if (pos < 0) return;
+    this.setData({ [`win[${pos}]`]: this.buildItem(this._idx) });
+    this.refreshBar();
+  },
+
+  // 底栏镜像同步（收藏态 / 提交与下一题主按钮 / 已选可提交）
+  refreshBar() {
+    const item = this.data.win.find((w) => w.idx === this._idx);
+    const recite = this.data.viewMode === 'recite';
+    const submitted = item ? item.submitted : false;
+    const isMulti = item ? item.type === 'multiple' : false;
+    this.setData({
+      curFav: item ? item.fav : 0,
+      submitted,
+      canSubmit: !recite && !!(this._sel || []).length,
+      showSubmit: !recite && !submitted && isMulti,
+      showNext: !!submitted,
+    });
+  },
+
+  /* ==================== swiper 跟手翻页 ==================== */
+
+  // 翻页落定（仅响应用户手势；程序化复位 source 为空直接忽略）。
+  // 此时用户所见即目标格内容：平移窗口并把 current 收回中间格，内容一致故无感
+  onSwiperFinish(e) {
+    if (!e.detail || e.detail.source !== 'touch') return;
+    if (this._committing) return;
+    const item = this.data.win[e.detail.current];
+    if (!item || item.idx === this._idx) return; // 拖拽回弹未换题
+    this.commitIndex(item.idx);
+  },
+
+  // 切换到新当前题（必要时先拉批次）；答题卡跳题同走此路（无动画直切）
+  async commitIndex(idx) {
+    if (this._committing) return;
+    this._committing = true;
+    try {
+      await this.ensureBatch(idx, false);
+    } catch (err) {
+      this.toast(err.message);
+      this.rebuildWindow(); // 拉取失败：复位回当前题
+      this._committing = false;
+      return;
+    }
+    if (!this.getQuestion(idx)) {
+      this.toast('题目加载失败，请重试');
+      this.rebuildWindow();
+      this._committing = false;
+      return;
+    }
+    this._idx = idx;
+    this._sel = [];
+    this.rebuildWindow();
+    this._committing = false;
   },
 
   /* ==================== 模式切换（答题 / 背题） ==================== */
@@ -293,39 +384,41 @@ Page({
     }
     this._sel = [];
     this.setData({ viewMode: v });
-    this.renderCurrent();
+    this.rebuildWindow();
   },
 
   /* ==================== 选项与提交（仅答题模式） ==================== */
 
   onOptTap(e) {
-    if (this.data.submitted) return; // 解析态/背题不可改选
+    if (this.data.submitted || this._submitting) return; // 解析态/背题/判分中不可改选
     const { letter } = e.currentTarget.dataset;
     const q = this.getQuestion(this._idx);
-    const type = (q || {}).type;
-    let sel = this._sel || [];
+    if (!q) return;
+    const type = q.type || 'single';
     if (type === 'multiple') {
-      sel = sel.includes(letter) ? sel.filter((l) => l !== letter) : sel.concat(letter);
-    } else {
-      sel = [letter]; // 单选/判断：单选可改选
+      // 多选：勾选切换，底部「提交答案」判分
+      const sel = (this._sel || []).includes(letter)
+        ? this._sel.filter((l) => l !== letter)
+        : (this._sel || []).concat(letter);
+      this._sel = sel;
+      this.refreshCurrentItem();
+      return;
     }
-    this._sel = sel;
-    const opts = this.data.cur.options.map((o) => ({
-      letter: o.letter,
-      text: o.text,
-      cls: sel.includes(o.letter) ? 'sel' : '',
-      st: '',
-      stIcon: '',
-    }));
-    this.setData({ 'cur.options': opts, canSubmit: sel.length > 0 });
+    // 单选/判断：点选即判分（考试宝交互；短暂延时先呈现选中态再出结果）
+    this._sel = [letter];
+    this.refreshCurrentItem();
+    this._submitting = true;
+    setTimeout(() => {
+      this.onSubmit().finally(() => { this._submitting = false; });
+    }, 150);
   },
 
   async onSubmit() {
     if (this.data.submitted || !this.canAnswer()) return;
     const q = this.getQuestion(this._idx);
+    if (!q) return;
     // 多选答案按字母序拼接（如 AC）
     const answer = [...(this._sel || [])].sort().join('');
-    wx.showLoading({ title: '提交中…', mask: true });
     try {
       const data = await request({
         url: `${API_BASE}/practice/answer`,
@@ -338,14 +431,14 @@ Page({
         answer: (data && data.answer) || '',
         analysis: (data && data.analysis) || '',
         wrong: (data && data.wrong) || {},
+        stats: (data && data.stats) || null,
       };
       this._sel = [];
-      this.renderCurrent();
+      this.refreshCounts();
+      this.refreshCurrentItem();
       if (this._results[q.id].wrong.removed) this.toast('已移出错题本');
     } catch (err) {
       this.toast(err.message);
-    } finally {
-      wx.hideLoading();
     }
   },
 
@@ -353,92 +446,54 @@ Page({
     return (this._sel || []).length > 0;
   },
 
-  /* ==================== 翻题 ==================== */
+  // 本 session 作答计数（底栏对错数与「已做题」）
+  refreshCounts() {
+    const rs = Object.keys(this._results).map((k) => this._results[k]);
+    const right = rs.filter((r) => r.right).length;
+    this.setData({
+      answeredCount: rs.length,
+      rightCount: right,
+      wrongCount: rs.length - right,
+    });
+  },
 
-  // 跳转到指定大纲下标（必要时先拉所在批次）；dir>0 左出右进 / dir<0 右出左进 / 缺省不播动画
-  async goIndex(idx, dir) {
-    if (this._jumping || this._switching) return; // 批次加载中 / 切题动画进行中忽略
-    this._jumping = true;
-    const anim = !!dir && !!this.data.cur; // 首屏等无当前题场景不播动画
+  /* ==================== 收藏（星标切换，先本地后请求，失败回滚） ==================== */
+
+  async onFavTap() {
+    if (this._favToggling) return;
+    const q = this.getQuestion(this._idx);
+    if (!q) return;
+    const was = this._favs[q.id] ? 1 : 0;
+    this._favToggling = true;
+    this._favs[q.id] = was ? 0 : 1;
+    this.refreshCurrentItem();
     try {
-      if (anim) {
-        // 出场：旧内容沿切题方向滑出淡出（滑出终点不可见时再换数据，避免内容提前闪换）
-        this._switching = true;
-        this.setData({ qAnim: dir > 0 ? 'out-left' : 'out-right' });
-        await new Promise((r) => setTimeout(r, 180));
-      }
-      await this.ensureBatch(idx, false);
+      await request({
+        url: `${API_BASE}/favorites/${encodeURIComponent(q.id)}`,
+        method: was ? 'DELETE' : 'POST',
+      });
+      this.toast(was ? '已取消收藏' : '已收藏');
     } catch (err) {
+      this._favs[q.id] = was;
+      this.refreshCurrentItem();
       this.toast(err.message);
-      if (anim) this.paneIn(dir, true); // 拉取失败：原内容原路播回
-      return;
     } finally {
-      this._jumping = false;
+      this._favToggling = false;
     }
-    if (!this.getQuestion(idx)) {
-      this.toast('题目加载失败，请重试');
-      if (anim) this.paneIn(dir, true);
-      return;
-    }
-    this._idx = idx;
-    this._sel = [];
-    this.renderCurrent();
-    if (anim) this.paneIn(dir, false);
   },
 
-  // 切题入场：新内容从对侧滑入；back=true 为失败播回（从滑出侧回位）。
-  // out-* 与 from-* 类名两两相异，直接换类即重启 CSS 动画，无需清空重放
-  paneIn(dir, back) {
-    const cls = back
-      ? (dir > 0 ? 'from-left' : 'from-right')
-      : (dir > 0 ? 'from-right' : 'from-left');
-    this.setData({ qAnim: cls });
-    setTimeout(() => { this._switching = false; }, 210); // 入场播完解锁
-  },
+  /* ==================== 翻题与完成 ==================== */
 
-  onPrev() {
-    if (this._idx <= 0) return;
-    this.goIndex(this._idx - 1, -1);
-  },
-
-  onNext() {
-    if (this.data.isLast) return;
-    this.goIndex(this._idx + 1, 1);
-  },
-
-  /* ==================== 左右滑动切题 ==================== */
-
-  // 手势绑在题目内容区（.q-pane）而非整页 scroll-view，仅 touchend 一次判定，不做跟手拖拽
-  onTouchStart(e) {
-    const t = e.touches[0];
-    this._touch = { x: t.clientX, y: t.clientY };
-  },
-
-  onTouchEnd(e) {
-    if (!this._touch) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - this._touch.x;
-    const dy = t.clientY - this._touch.y;
-    this._touch = null;
-    // 批次加载中 / 切题动画进行中 / 答题卡弹层打开时忽略手势
-    if (this._jumping || this._switching || this.data.sheetOpen) return;
-    // 横向滑动：|dx| ≥ 50px 且明显横向（|dx| > 1.5|dy|），不干扰纵向滚动
-    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy) * 1.5) return;
-    // 左滑下一题、右滑上一题（与按钮同口径，到顶/到底处理沿用 onPrev/onNext 现逻辑）
-    if (dx < 0) this.onNext();
-    else this.onPrev();
-  },
-
-  // 解析态/背题主按钮：末尾题=完成返回，否则下一题（wxml 事件绑定不支持动态表达式，统一入口内分支）
+  // 解析态/背题主按钮：末尾题=完成返回，否则下一题（等价于左滑一题）
   onNextOrFinish() {
     if (this.data.isLast) {
       this.onFinish();
       return;
     }
-    this.onNext();
+    this.commitIndex(this._idx + 1);
   },
 
-  // 本批完成：返回题库列表
+  // 本批完成：返回题库主页
   onFinish() {
     wx.navigateBack({
       fail: () => wx.reLaunch({ url: '/pkg-quiz/pages/index/index' }),
@@ -464,12 +519,10 @@ Page({
       });
       if (items.length) groups.push({ type: t, typeText: TYPE_TEXT[t], count: items.length, items });
     });
-    const answered = Object.keys(this._results).length;
     this.setData({
       sheetOpen: true,
       sheetGroups: groups,
-      sheetAnswered: answered,
-      canReset: !recite && !!this._bankId && answered > 0,
+      canReset: !recite && !!this._bankId && this.data.answeredCount > 0,
     });
   },
 
@@ -478,12 +531,12 @@ Page({
     if (this.data.sheetOpen) this.setData({ sheetOpen: false });
   },
 
-  // 点题号：跳转到该题（所在批次未缓存则先拉批）并关闭弹层；方向按目标与当前下标比较（大=左出右进）
+  // 点题号：跳转到该题（所在批次未缓存则先拉批）并关闭弹层
   onSheetJump(e) {
     const idx = Number(e.currentTarget.dataset.idx);
     this.setData({ sheetOpen: false });
     if (Number.isNaN(idx) || idx === this._idx) return;
-    this.goIndex(idx, idx > this._idx ? 1 : -1);
+    this.commitIndex(idx);
   },
 
   // 清空做题记录：仅清本题库练习记录与进度（错题本保留）→ 重拉大纲与第一批
@@ -510,6 +563,7 @@ Page({
       // 清空本地断点与已答状态（rand 大纲一并换新的 session 随机序）
       this._results = {};
       this._cache = {};
+      this._favs = {};
       this._sel = [];
       this._idx = 0;
       if (this._mode === 'seq') wx.removeStorageSync(`quiz_seq_${this._bankId}`);
@@ -517,12 +571,13 @@ Page({
       try {
         await this.fetchOutline();
         if (!this._outline.length) {
-          this.setData({ cur: null, total: 0, emptyText: '该题库暂无题目' });
+          this.setData({ win: [], total: 0, emptyText: '该题库暂无题目' });
+          this.refreshCounts();
           return;
         }
         await this.ensureBatch(0, false);
-        this.setData({ total: this._outline.length });
-        this.renderCurrent();
+        this.refreshCounts();
+        this.rebuildWindow();
       } catch (err) {
         this.toast(err.message);
         return;

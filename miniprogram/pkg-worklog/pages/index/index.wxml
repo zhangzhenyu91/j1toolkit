@@ -1,7 +1,7 @@
 <!-- 出工日志 · 主页（默认当天，一卡片 = 一次派车；新建/编辑收进底部表单弹层） -->
 <navbar back title="出工日志" />
 
-<view class="page-body" wx:if="{{gate && !noTeam}}" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
+<view class="page-body" wx:if="{{gate && !noTeam}}" bindtouchstart="onTouchStart" bindtouchmove="onTouchMove" bindtouchend="onTouchEnd">
   <!-- 班组切换器（屏五）：超管可点 chip 展开下拉切换生效班组；班组管理员/普通用户为静态班组名标签 -->
   <view class="tswitch">
     <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
@@ -44,8 +44,8 @@
     <view class="scope-pill {{scope === 'mine' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onScopeChange" data-scope="mine">仅看我</view>
   </view>
 
-  <!-- 日期切换动效容器：随方向从新侧滑入 -->
-  <view class="day-pane {{dayAnim}}">
+  <!-- 日期切换容器：左右滑动跟手位移，松手过阈值切日、否则回弹（位移/过渡走 dayStyle 内联样式） -->
+  <view class="day-pane" style="{{dayStyle}}">
   <!-- 空列表虚线占位（文案随视图口径适配） -->
   <view class="empty-box" wx:if="{{!loading && list.length === 0}}">{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点右下角 ＋ 新建'}}</view>
 
