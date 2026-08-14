@@ -122,7 +122,7 @@ function normalizeAnswer(type, raw, optionCount) {
   const uniq = [...new Set(s.toUpperCase().replace(/[^A-Z]/g, ''))].sort();
   if (!uniq.length) return { error: '答案不能为空' };
   const maxLetter = LETTERS[optionCount - 1] || 'A';
-  if (uniq.some((c) => c > maxLetter)) return { error: `答案超出选项范围（A~${maxLetter}）` };
+  if (uniq.some((c) => c > maxLetter)) return { error: `答案超出选项范围：识别到 ${optionCount} 个选项（A~${maxLetter}），请检查该行选项是否填写完整` };
   if (type === 'single' && uniq.length !== 1) return { error: '单选题答案应为 1 个字母' };
   if (type === 'multiple' && uniq.length < 2) return { error: '多选题答案应至少 2 个字母' };
   return { answer: uniq.join('') };
@@ -438,7 +438,7 @@ router.get('/banks/template', async (req, res, next) => {
       ['1. 只读取第一张 sheet，首行表头固定为：题型 | 题干 | 选项A~F | 答案 | 解析。'],
       ['2. 题型列填写：单选题、多选题、判断题（兼容 单选/多选/判断 及 single/multiple/judge，不区分大小写）。'],
       ['3. 单选/多选题选项A~F 至少填写 2 个，按序取非空列；判断题无需填写选项，固定为「正确/错误」。'],
-      ['4. 答案列：单选填 1 个字母（如 A）；多选填 2 个及以上字母（如 ABC，顺序不限）；判断填 对/错（或 A/B）。'],
+      ['4. 答案列：单选填 1 个字母（如 A）；多选填 2 个及以上字母（如 ABC，顺序不限）；判断填 对/错（或 A/B）。答案引用 E/F 时，对应 选项E/选项F 列必须已填写内容。'],
       ['5. 解析列可留空，留空的题目入库后由 AI 自动生成解析（需配置 DIFY_QUIZ_API_KEY）。'],
       ['6. 导入为全量替换该题库题目，导入前请删除第一张 sheet 的 3 行示例，仅保留表头与正式题目。'],
     ]);
