@@ -2,7 +2,7 @@
      顶部进度行：答题/背题双 pill 切换 + 细进度条 + 答题卡入口；选项白卡描边、选中浅橙底，
      解析态对=绿/错选=红/漏选=绿虚线；背题模式直接标出正确答案并常显答案行 + AI 解析卡；
      答题卡弹层按题型分区块导航，底部可清空做题记录（错题本保留） -->
-<view class="page">
+<view class="page" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
   <navbar back title="{{navTitle}}" />
 
   <scroll-view
@@ -30,9 +30,9 @@
         </view>
       </view>
 
-      <!-- 切题动画容器：题干 + 选项 + 解析区（进度行固定不参与）；左右滑动切题手势绑在此层，
-           不绑整页 scroll-view，避免干扰纵向滚动 -->
-      <view class="q-pane {{qAnim}}" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
+      <!-- 切题动画容器：题干 + 选项 + 解析区（进度行固定不参与）；
+           左右滑动切题手势绑在页面根节点 .page（全屏可划；仅横向占优滑动触发，纵向滚动不受影响） -->
+      <view class="q-pane {{qAnim}}">
       <!-- 结果 banner（答题模式解析态） -->
       <view class="result-banner {{result.right ? 'good' : 'bad'}}" wx:if="{{viewMode === 'answer' && submitted && result}}">
         <t-icon name="{{result.right ? 'check-circle' : 'close-circle'}}" size="34rpx"

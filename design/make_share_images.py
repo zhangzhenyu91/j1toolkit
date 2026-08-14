@@ -98,14 +98,14 @@ def main():
         glyph = render_glyph(cp, ICON_SIZE * 2, ORANGE)
         img = compose(bg, glyph)
         path = OUT_DIR / f'share-{key}.jpg'
-        img.save(path, 'JPEG', quality=75)
+        img.save(path, 'JPEG', quality=55, optimize=True)
         print(f'{path.name}: {img.size}, {path.stat().st_size // 1024}KB')
 
     # 通用分享图（工具箱图标，复用 assets/toolbox.png）
     toolbox = Image.open(TOOLBOX_PATH).convert('RGBA')
     img = compose(bg, toolbox)
     path = OUT_DIR / 'share-toolbox.jpg'
-    img.save(path, 'JPEG', quality=75)
+    img.save(path, 'JPEG', quality=55, optimize=True)
     print(f'{path.name}: {img.size}, {path.stat().st_size // 1024}KB')
 
 
