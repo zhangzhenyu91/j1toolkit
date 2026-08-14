@@ -108,27 +108,55 @@
     <view class="btn-ghost q-empty-btn" hover-class="hover-opacity" bindtap="onFinish">返回题库</view>
   </view>
 
-  <!-- 底栏（考试宝式）：收藏 / 对错计数 / 已做题（点开答题卡）/ 主按钮 -->
+  <!-- 底栏（考试宝式单行图标位，无小字）：收藏 / 对错计数 / 已做题（点开答题卡）/ 设置 / 主按钮 -->
   <view class="practice-bar" wx:if="{{win.length && !emptyText}}">
     <view class="b-item {{curFav ? 'faved' : ''}}" hover-class="hover-opacity" bindtap="onFavTap">
-      <t-icon name="{{curFav ? 'star-filled' : 'star'}}" size="38rpx" color="{{curFav ? '#F26D21' : '#6B7690'}}" />
-      <text>{{curFav ? '已收藏' : '收藏'}}</text>
+      <t-icon name="{{curFav ? 'star-filled' : 'star'}}" size="40rpx" color="{{curFav ? '#F26D21' : '#6B7690'}}" />
     </view>
     <view class="b-item counts">
-      <text class="ok">✓ {{rightCount}}</text>
-      <text class="bad">✗ {{wrongCount}}</text>
+      <view class="cnt ok"><t-icon name="check" size="32rpx" color="#2BA471" /><text>{{rightCount}}</text></view>
+      <view class="cnt bad"><t-icon name="close" size="32rpx" color="#CF4444" /><text>{{wrongCount}}</text></view>
     </view>
-    <view class="b-item" hover-class="hover-opacity" bindtap="onSheetOpen">
+    <view class="b-item sheet" hover-class="hover-opacity" bindtap="onSheetOpen">
       <t-icon name="view-module" size="34rpx" color="#22314E" />
       <text>{{answeredCount}}/{{total}}</text>
+    </view>
+    <view class="b-item" hover-class="hover-opacity" bindtap="onSetTap">
+      <t-icon name="setting" size="36rpx" color="#22314E" />
     </view>
     <view class="btn-navy bar-main {{canSubmit ? '' : 'disabled'}}" wx:if="{{showSubmit}}"
           hover-class="hover-opacity" bindtap="onSubmit">提交答案</view>
     <view class="btn-navy bar-main" wx:elif="{{showNext}}" hover-class="hover-opacity" bindtap="onNextOrFinish">
       {{isLast ? '完成' : '下一题'}}
     </view>
-    <view class="bar-hint" wx:else>左右滑动切题 · 点选即判分</view>
+    <view class="bar-hint" wx:else>
+      <view>左右滑动切题</view>
+      <view>点选即判分</view>
+    </view>
   </view>
+
+  <!-- 刷题设置弹层（答对自动下一题 / 选项乱序；本地 storage 持久化） -->
+  <t-popup visible="{{setOpen}}" placement="bottom" bind:visible-change="onSetVisibleChange">
+    <view class="set-pop">
+      <view class="set-hd">刷题设置</view>
+      <view class="set-row">
+        <view class="set-tx">
+          <b>答对自动下一题</b>
+        </view>
+        <view class="set-sw {{autoNext ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onToggleAutoNext">
+          <view class="dot"></view>
+        </view>
+      </view>
+      <view class="set-row">
+        <view class="set-tx">
+          <b>选项乱序</b>
+        </view>
+        <view class="set-sw {{shuffleOpt ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onToggleShuffle">
+          <view class="dot"></view>
+        </view>
+      </view>
+    </view>
+  </t-popup>
 
   <!-- 答题卡弹层（按题型分区块 + 图例；背题模式仅导航，chips 全灰 + 当前橙框） -->
   <t-popup visible="{{sheetOpen}}" placement="bottom" bind:visible-change="onSheetVisibleChange">
@@ -139,7 +167,7 @@
         <span><i class="dot green"></i>答对</span>
         <span><i class="dot red"></i>答错</span>
       </view>
-      <scroll-view scroll-y class="sheet-scroll">
+      <scroll-view scroll-y class="sheet-scroll" show-scrollbar="{{false}}">
         <view class="sheet-sec" wx:for="{{sheetGroups}}" wx:key="type" wx:for-item="sec">
           <view class="sec-hd">{{sec.typeText}}（{{sec.count}} 题）</view>
           <view class="chip-grid">

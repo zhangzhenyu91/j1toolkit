@@ -350,38 +350,52 @@
   border-top: 2rpx solid #e8e0cd;
 }
 
+/* 底栏图标位（考试宝式单行：无小字，统一 76rpx 高居中，天然对齐） */
 .b-item {
-  min-width: 92rpx;
-  padding: 6rpx 10rpx;
+  height: 76rpx;
+  min-width: 76rpx;
+  padding: 0 12rpx;
+  box-sizing: border-box;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4rpx;
-  font-size: 20rpx;
   color: #6b7690;
-  box-sizing: border-box;
 }
 
 .b-item.faved {
   color: #f26d21;
-  font-weight: 700;
 }
 
-/* 本 session 对错计数（绿勾 / 红叉） */
+/* 本 session 对错计数（绿勾 / 红叉 + 数字） */
 .b-item.counts {
-  flex-direction: row;
-  gap: 14rpx;
+  gap: 18rpx;
+}
+
+.b-item.counts .cnt {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+}
+
+.b-item.counts .cnt text {
   font-size: 26rpx;
   font-weight: 800;
 }
 
-.b-item.counts .ok {
+.b-item.counts .ok text {
   color: #2ba471;
 }
 
-.b-item.counts .bad {
+.b-item.counts .bad text {
   color: #cf4444;
+}
+
+/* 已做题（答题卡入口：图标 + x/total 同行） */
+.b-item.sheet {
+  gap: 8rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #22314e;
 }
 
 .bar-main {
@@ -389,14 +403,82 @@
   margin-left: 12rpx;
 }
 
-/* 单选/判断未答时的操作提示（点选即判分，无主按钮） */
+/* 单选/判断未答时的操作提示（点选即判分，无主按钮；两行居中） */
 .bar-hint {
   flex: 1;
   margin-left: 12rpx;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   font-size: 22rpx;
+  line-height: 1.5;
   color: #a89f8a;
   letter-spacing: 1rpx;
+}
+
+/* ---------- 刷题设置弹层（底部弹层圆角卡片；自绘开关） ---------- */
+.set-pop {
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.set-hd {
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 1rpx;
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  padding: 26rpx 0;
+}
+
+.set-row + .set-row {
+  border-top: 2rpx solid #f0ebdd;
+}
+
+.set-tx {
+  flex: 1;
+  min-width: 0;
+}
+
+.set-tx b {
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+/* 开关（橙色轨道 + 白色圆点，180ms 过渡） */
+.set-sw {
+  flex: none;
+  width: 88rpx;
+  height: 52rpx;
+  border-radius: 999rpx;
+  background: #e3dccb;
+  padding: 4rpx;
+  box-sizing: border-box;
+  transition: background-color 0.18s ease;
+}
+
+.set-sw .dot {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 4rpx 10rpx rgba(34, 49, 78, 0.18);
+  transition: transform 0.18s ease;
+}
+
+.set-sw.on {
+  background: #f26d21;
+}
+
+.set-sw.on .dot {
+  transform: translateX(36rpx);
 }
 
 .btn-navy {
@@ -512,6 +594,14 @@
   animation: fadeUp 0.25s ease both;
 }
 
+/* 隐藏滚动条（show-scrollbar=false 之外的 WXSS 双保险） */
+.sheet-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+  color: transparent;
+}
+
 .sheet-sec + .sheet-sec {
   margin-top: 28rpx;
 }
@@ -524,10 +614,11 @@
   letter-spacing: 1rpx;
 }
 
-/* 题号 chips：未答灰底 / 答对绿底白字 / 答错红底白字 / 当前橙描边 */
+/* 题号 chips：每行居中排布（中心对称）；未答灰底 / 答对绿底白字 / 答错红底白字 / 当前橙描边 */
 .chip-grid {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 16rpx;
 }
 

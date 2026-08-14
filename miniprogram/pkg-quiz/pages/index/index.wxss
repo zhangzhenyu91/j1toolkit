@@ -306,12 +306,6 @@
   font-weight: 800;
 }
 
-.pool-entry .tx p {
-  margin-top: 6rpx;
-  font-size: 22rpx;
-  color: #6b7690;
-}
-
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;

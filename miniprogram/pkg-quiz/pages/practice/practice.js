@@ -7,7 +7,9 @@
 // 答题卡跳题直接重建窗口（无动画）；相邻题批次静默预拉，翻页不卡
 // 双模式：答题（单选/判断点选即判分、多选底部提交；解析态=正确答案/您的选择 + 本人/全员作答统计 + AI 解析卡）/
 // 背题（直接标出正确答案，常显答案行 + AI 解析卡，不提交不写记录）
-// 底栏（考试宝式）：收藏星标切换 / 本 session 对错计数 / 已做题（点开答题卡）/ 主按钮（多选提交、解析态下一题）
+// 底栏（考试宝式，四项等高对齐）：收藏星标切换 / 本 session 对错计数 / 已做题（点开答题卡）/ 设置 / 主按钮（多选提交、解析态下一题）
+// 刷题设置（本地 storage quiz_settings 持久化）：答对自动下一题（答错停留看解析，末尾题不自动）；
+// 选项乱序（仅答题模式单/多选生效，展示字母重排、提交与答案判定映射回原始字母；已答题保留作答时的显示顺序）
 // 答题卡弹层：按题型分区块题号导航（未答灰 / 答对绿 / 答错红 / 当前橙框）+ 图例行，底部可清空做题记录（错题本保留）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
@@ -20,6 +22,19 @@ const WRONG_CLEAR_STREAK = 3; // 错题连续答对移出错题本次数（与�
 
 const TYPE_TEXT = { single: '单选题', multiple: '多选题', judge: '判断题' };
 const LETTERS = 'ABCDEFGH';
+
+// 选项乱序：生成长度 n 的随机排列（展示位 → 原选项下标；Fisher-Yates）
+const shuffleIdx = (n) => {
+  const a = [];
+  for (let i = 0; i < n; i += 1) a.push(i);
+  for (let i = a.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i];
+    a[i] = a[j];
+    a[j] = t;
+  }
+  return a;
+};
 
 Page({
   data: {
@@ -51,6 +66,10 @@ Page({
     sheetOpen: false,
     sheetGroups: [], // [{ type, typeText, count, items:[{idx,num,st,cur}] }]
     canReset: false, // 「清空做题记录」可点（答题模式 + 有 bankId + 已答数>0）
+    // 刷题设置（本地 storage quiz_settings 持久化）
+    setOpen: false,
+    autoNext: false, // 答对自动下一题
+    shuffleOpt: false, // 选项乱序
   },
 
   onLoad(options) {
@@ -74,6 +93,11 @@ Page({
     this._committing = false; // 翻页/跳题提交中（期间忽略手势落定）
     this._submitting = false; // 判分请求进行中（点选即判分防连点）
     this._favToggling = false; // 收藏切换进行中（防连点）
+    this._shuffle = {}; // qid → 展示位→原选项下标 映射（选项乱序；本题已答则保留以与其作答记录一致）
+    this._autoTimer = null; // 答对自动下一题延时器
+    // 刷题设置（本地持久化）
+    const st = wx.getStorageSync('quiz_settings') || {};
+    this.setData({ autoNext: !!st.autoNext, shuffleOpt: !!st.shuffleOpt });
 
     // gate 兜底：本页由已门控的列表页进入，此处仅保证登录态就绪
     if (wx.getStorageSync('token')) {
@@ -188,22 +212,34 @@ Page({
     const recite = this.data.viewMode === 'recite';
     const res = this._results[q.id];
     const type = q.type || 'single';
-    const opts = (q.options || []).map((text, i) => {
-      const letter = LETTERS[i] || String(i + 1);
+    // 选项乱序映射（展示位 i → 原选项下标）：仅答题模式、单/多选、开启设置且未答时新建；已答题保留作答时的映射
+    let order = null;
+    if (!recite && type !== 'judge') {
+      if (this._shuffle[q.id]) {
+        order = this._shuffle[q.id];
+      } else if (this.data.shuffleOpt && !res) {
+        order = this._shuffle[q.id] = shuffleIdx((q.options || []).length);
+      }
+    }
+    const opts = (q.options || []).map((_, i) => {
+      const origIdx = order ? order[i] : i;
+      const letter = LETTERS[i] || String(i + 1); // 展示字母（乱序后重排）
+      const origLetter = LETTERS[origIdx] || letter; // 原始字母（提交与答案判定口径）
+      const text = q.options[origIdx];
       let cls = '';
       let icon = '';
       if (recite) {
-        // 背题：直接标出正确答案（绿底绿勾），其余普通
-        if ((q.answer || '').includes(letter)) {
+        // 背题：直接标出正确答案（绿底绿勾），其余普通（乱序不参与背题）
+        if ((q.answer || '').includes(origLetter)) {
           cls = 'right'; icon = 'check';
         }
       } else if (!res) {
-        // 选中态只属当前题（_sel 随翻题清空）
+        // 选中态只属当前题（_sel 随翻题清空；存展示字母）
         cls = idx === this._idx && (this._sel || []).includes(letter) ? 'sel' : '';
       } else {
         // 解析态（考试宝式）：正确项统一绿勾，错选项红叉，其余保持普通
-        const inAns = (res.answer || '').includes(letter);
-        const inSel = (res.selected || []).includes(letter);
+        const inAns = (res.answer || '').includes(origLetter); // 服务端答案为原始字母
+        const inSel = (res.selected || []).includes(letter); // 作答记录为展示字母
         if (inAns) {
           cls = 'right'; icon = 'check';
         } else if (inSel) {
@@ -230,8 +266,20 @@ Page({
   // 作答结果 → 解析态展示结构（答案行 + 本人/全员作答统计 + 错题本动态文案）
   buildResult(res, q) {
     const type = (q || {}).type;
+    // 乱序题：服务端答案为原始字母，映射回展示字母（作答记录本身即展示字母）
+    const order = this._shuffle[(q || {}).id];
     let answerText = res.answer || '';
-    let yourText = (res.selected || []).join('');
+    if (order && answerText) {
+      answerText = answerText
+        .split('')
+        .map((ol) => {
+          const di = order.indexOf(LETTERS.indexOf(ol));
+          return di >= 0 ? LETTERS[di] : ol;
+        })
+        .sort()
+        .join('');
+    }
+    let yourText = [...(res.selected || [])].sort().join('');
     if (type === 'judge') {
       // judge 固定 A=正确 B=错误
       const jm = { A: '正确', B: '错误' };
@@ -417,8 +465,12 @@ Page({
     if (this.data.submitted || !this.canAnswer()) return;
     const q = this.getQuestion(this._idx);
     if (!q) return;
-    // 多选答案按字母序拼接（如 AC）
-    const answer = [...(this._sel || [])].sort().join('');
+    // 多选答案按字母序拼接（如 AC）；乱序题把展示字母映射回原始字母再提交
+    const order = this._shuffle[q.id];
+    const answer = [...(this._sel || [])]
+      .map((l) => (order ? LETTERS[order[LETTERS.indexOf(l)]] : l))
+      .sort()
+      .join('');
     try {
       const data = await request({
         url: `${API_BASE}/practice/answer`,
@@ -437,6 +489,16 @@ Page({
       this.refreshCounts();
       this.refreshCurrentItem();
       if (this._results[q.id].wrong.removed) this.toast('已移出错题本');
+      // 答对自动下一题（设置开启；答错停留看解析；末尾题不自动）
+      if (this.data.autoNext && this._results[q.id].right && !this.data.isLast) {
+        const qid = q.id;
+        if (this._autoTimer) clearTimeout(this._autoTimer);
+        this._autoTimer = setTimeout(() => {
+          this._autoTimer = null;
+          const cur = this.getQuestion(this._idx);
+          if (cur && cur.id === qid) this.commitIndex(this._idx + 1); // 期间已手动翻题则不自动
+        }, 500);
+      }
     } catch (err) {
       this.toast(err.message);
     }
@@ -480,6 +542,44 @@ Page({
     } finally {
       this._favToggling = false;
     }
+  },
+
+  /* ==================== 刷题设置（本地 storage 持久化） ==================== */
+
+  onSetTap() {
+    this.setData({ setOpen: true });
+  },
+
+  onSetVisibleChange(e) {
+    if (e.detail.visible) return;
+    if (this.data.setOpen) this.setData({ setOpen: false });
+  },
+
+  saveSettings() {
+    wx.setStorageSync('quiz_settings', {
+      autoNext: this.data.autoNext,
+      shuffleOpt: this.data.shuffleOpt,
+    });
+  },
+
+  // 答对自动下一题
+  onToggleAutoNext() {
+    this.setData({ autoNext: !this.data.autoNext });
+    this.saveSettings();
+  },
+
+  // 选项乱序：关闭时清掉未答题的乱序映射（已答题保留，保证与其作答记录一致）
+  onToggleShuffle() {
+    const v = !this.data.shuffleOpt;
+    this.setData({ shuffleOpt: v });
+    if (!v) {
+      Object.keys(this._shuffle).forEach((qid) => {
+        if (!this._results[qid]) delete this._shuffle[qid];
+      });
+    }
+    this._sel = []; // 当前题未提交的选择按新显示口径重选
+    this.rebuildWindow();
+    this.saveSettings();
   },
 
   /* ==================== 翻题与完成 ==================== */
@@ -564,6 +664,11 @@ Page({
       this._results = {};
       this._cache = {};
       this._favs = {};
+      this._shuffle = {};
+      if (this._autoTimer) {
+        clearTimeout(this._autoTimer);
+        this._autoTimer = null;
+      }
       this._sel = [];
       this._idx = 0;
       if (this._mode === 'seq') wx.removeStorageSync(`quiz_seq_${this._bankId}`);

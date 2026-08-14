@@ -107,7 +107,10 @@ Page({
     list: [],
     loading: true,
     flashId: 0, // 报告定位后高亮中的卡片 id（约 1.6s 后消退）
-    dayStyle: '', // 日期切换位移内联样式（跟手拖拽 transform；含过渡声明）
+    // 切日 swiper（三窗格预渲染 前/今/后 一天；落定后窗口平移并复位中间格）
+    win: [], // [{dateStr, list, ready}]；ready=false 为预拉中的加载占位格
+    swiperCurrent: 1, // 恒定位中间格（当前日）
+    intoView: '', // 中间格滚区 scroll-into-view 锚点（报告定位滚动用）
     // 日历弹层
     calVisible: false,
     calValue: null,
@@ -244,6 +247,9 @@ Page({
     this._myName = user.nickname || ''; // 「仅看我」匹配成员名用（同后端 scope=mine 口径）
     this._role = user.role || 'user';
     this._teamId = 0; // 生效班组 id（仅超管经切换器指定；0=不带参数，后端落自己/默认班组）
+    this._dayLists = {}; // 邻日预拉缓存（key `${date}|${scope}|${team}` → 映射后的卡片列表；按窗格裁剪）
+    this._inflightDays = {}; // 进行中的按日请求（key 同上，并发去重）
+    this._daySwitching = false; // 切日落定处理中（防抖）
     // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
     if (this._role !== 'admin' && !user.team) {
       this.setData({ gate: true, noTeam: true, loading: false });
@@ -305,10 +311,11 @@ Page({
       teamOptions: (this._teams || []).map((t) => ({ id: t.id, name: t.name, on: t.id === id })),
     });
     if (!switching) return;
-    // 切换班组 = 整页口径变化：清日历着色缓存与杆塔坐标缓存，重拉全部数据（含开着的面板）
+    // 切换班组 = 整页口径变化：清日历着色缓存、杆塔坐标缓存与邻日预拉缓存、重置切日窗格，重拉全部数据（含开着的面板）
     Object.keys(DAY_STATUS).forEach((k) => delete DAY_STATUS[k]);
     this._dayStatusMonths = {};
-    this.setData({ towerRows: null });
+    this._dayLists = {};
+    this.setData({ towerRows: null, win: [] });
     this.loadMeta();
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
@@ -367,76 +374,131 @@ Page({
   },
 
   onPrevDay() {
-    this.shiftDay(-1);
+    this.nudgeSwiper(0); // 定到左格（前一天），原生滑动画
   },
 
   onNextDay() {
-    this.shiftDay(1);
+    this.nudgeSwiper(2); // 定到右格（后一天）
   },
 
-  // 切日两段式平移动效（跟手版）：当前内容沿切日方向顺势滑出，加载后新内容从对侧滑入；
-  // 位移与过渡均走 dayStyle 内联样式（拖拽跟手与按钮切日共用）
-  async shiftDay(delta) {
-    if (this._daySwitching) return; // 连滑防抖
+  // 日期条按钮：把 swiper 定到目标格，落定与手势同走 onDaySwiperFinish
+  nudgeSwiper(pos) {
+    if (this._daySwitching || this.data.swiperCurrent !== 1 || this.data.win.length !== 3) return;
+    this.setData({ swiperCurrent: pos });
+  },
+
+  // 切日落定（手势/按钮把 swiper 定到左/右格；current=1 为回弹未切日，忽略）：
+  // 窗口平移到新当前日并复位中间格（中间格内容即用户所见，无感切换），再预拉新邻日
+  async onDaySwiperFinish(e) {
+    const pos = e.detail.current;
+    if (pos === 1 || this._daySwitching) return;
+    const target = this.data.win[pos];
+    if (!target) return;
     this._daySwitching = true;
-    try {
-      // 出场：后一天向左移出、前一天向右移出（跟手拖拽松手时自当前位移顺势滑出）
-      this.setData({ dayStyle: `transform: translateX(${delta > 0 ? '-48rpx' : '48rpx'}); transition: transform 0.08s ease-in;` });
-      await new Promise((r) => setTimeout(r, 80));
-      const d = parseDate(this.data.dateStr);
-      d.setDate(d.getDate() + delta);
-      this.applyDate(fmtDate(d));
-      await this.loadLogs();
-      this.playDayAnim(delta);
-    } finally {
-      this._daySwitching = false;
+    // 日期条随落定更新（新当前日 = 目标格日期）
+    this.applyDate(target.dateStr);
+    // 目标日列表：预拉通常已命中；未命中则等拉取（该格为加载占位，落定即填充）
+    let list = this._dayLists[this.dayKey(target.dateStr)];
+    if (!list) {
+      try {
+        list = await this.fetchDayList(target.dateStr);
+      } catch (err) {
+        this.toast(err.message);
+        list = [];
+      }
     }
+    const d = parseDate(target.dateStr);
+    const prev = new Date(d.getTime());
+    prev.setDate(prev.getDate() - 1);
+    const next = new Date(d.getTime());
+    next.setDate(next.getDate() + 1);
+    const prevDs = fmtDate(prev);
+    const nextDs = fmtDate(next);
+    const prevList = this._dayLists[this.dayKey(prevDs)] || null;
+    const nextList = this._dayLists[this.dayKey(nextDs)] || null;
+    this.setData({
+      list,
+      win: [
+        { dateStr: prevDs, list: prevList || [], ready: !!prevList },
+        { dateStr: target.dateStr, list, ready: true },
+        { dateStr: nextDs, list: nextList || [], ready: !!nextList },
+      ],
+      swiperCurrent: 1,
+      intoView: '',
+    });
+    this._daySwitching = false;
+    this.pruneDayLists();
+    this.prefetchDays();
   },
 
-  // 入场：后一天从右侧滑入、前一天从左侧滑入（先无过渡摆到入场侧，再 nextTick 过渡回位，保证连切也触发）
-  playDayAnim(delta) {
-    this.setData({ dayStyle: `transform: translateX(${delta > 0 ? '48rpx' : '-48rpx'});` });
-    wx.nextTick(() => {
-      this.setData({ dayStyle: 'transform: translateX(0); transition: transform 0.12s ease-out;' });
+  // 预拉缓存 key（口径=日期+视图+班组）
+  dayKey(ds) {
+    return `${ds}|${this.data.scope}|${this._teamId || 0}`;
+  },
+
+  // 拉取并映射某天日志列表（带缓存与并发去重；缓存由 pruneDayLists 按窗格裁剪）
+  fetchDayList(ds) {
+    const ck = this.dayKey(ds);
+    if (this._dayLists[ck]) return Promise.resolve(this._dayLists[ck]);
+    if (this._inflightDays[ck]) return this._inflightDays[ck];
+    const p = request({ url: `/api/v1/worklog/logs?date=${ds}${this.scopeQuery()}${this.teamQuery()}` })
+      .then((data) => {
+        const list = this.mapLogList(data);
+        this._dayLists[ck] = list;
+        return list;
+      })
+      .finally(() => { delete this._inflightDays[ck]; });
+    this._inflightDays[ck] = p;
+    return p;
+  },
+
+  // 静默预拉窗格中未就绪的邻日（首屏两侧 / 切日后的新邻日），拉到即填充对应格
+  prefetchDays() {
+    (this.data.win || []).forEach((w) => {
+      if (w.ready) return;
+      this.fetchDayList(w.dateStr).then((list) => {
+        const idx = (this.data.win || []).findIndex((x) => x.dateStr === w.dateStr);
+        if (idx >= 0 && !this.data.win[idx].ready) {
+          this.setData({ [`win[${idx}].list`]: list, [`win[${idx}].ready`]: true });
+        }
+      }).catch(() => {});
     });
   },
 
-  // ---------- 左右滑动切换日期（跟手拖拽：横向位移跟手，松手过阈值切日、否则回弹） ----------
-  onTouchStart(e) {
-    if (this._daySwitching) { // 切日加载中不接收新拖拽
-      this._touch = null;
-      return;
-    }
-    const t = e.touches[0];
-    this._touch = { x: t.clientX, y: t.clientY, drag: false, dx: 0 };
+  // 预拉缓存裁剪：只留当前窗格三天（防多日连滑堆积）
+  pruneDayLists() {
+    const keep = {};
+    (this.data.win || []).forEach((w) => { keep[this.dayKey(w.dateStr)] = 1; });
+    Object.keys(this._dayLists).forEach((k) => { if (!keep[k]) delete this._dayLists[k]; });
   },
 
-  onTouchMove(e) {
-    const s = this._touch;
-    if (!s) return;
-    const t = e.touches[0];
-    const dx = t.clientX - s.x;
-    const dy = t.clientY - s.y;
-    if (!s.drag) {
-      // 首次判定：明显横向（≥10px 且 |dx| > 2|dy|）才进入跟手拖拽，不干扰纵向滚动与点按
-      if (Math.abs(dx) >= 10 && Math.abs(dx) > Math.abs(dy) * 2) s.drag = true;
-      else return;
-    }
-    s.dx = dx;
-    this.setData({ dayStyle: `transform: translateX(${dx}px);` });
+  // 首屏/口径变化后建窗格（当前日已加载；两侧占位，由 prefetchDays 填充）
+  buildWin() {
+    const d = parseDate(this.data.dateStr);
+    const prev = new Date(d.getTime());
+    prev.setDate(prev.getDate() - 1);
+    const next = new Date(d.getTime());
+    next.setDate(next.getDate() + 1);
+    this.setData({
+      win: [
+        { dateStr: fmtDate(prev), list: [], ready: false },
+        { dateStr: this.data.dateStr, list: this.data.list, ready: true },
+        { dateStr: fmtDate(next), list: [], ready: false },
+      ],
+      swiperCurrent: 1,
+      intoView: '',
+    });
+    this.prefetchDays();
   },
 
-  onTouchEnd(e) {
-    const s = this._touch;
-    if (!s) return;
-    this._touch = null;
-    if (!s.drag) return;
-    // 松手：横向位移 ≥60px 切日（左滑后一天，右滑前一天），否则过渡回弹复位
-    if (Math.abs(s.dx) >= 60) {
-      this.shiftDay(s.dx < 0 ? 1 : -1);
-    } else {
-      this.setData({ dayStyle: 'transform: translateX(0); transition: transform 0.15s ease-out;' });
+  // 中间格（当前日）列表同步；win 未建时仅更新镜像 list
+  setCurPane(list) {
+    const patch = { list, loading: false };
+    if (this.data.win.length === 3) {
+      patch['win[1].list'] = list;
+      patch['win[1].ready'] = true;
     }
+    this.setData(patch);
   },
 
   // ---------- 视图开关（全部 / 仅看我） ----------
@@ -445,9 +507,11 @@ Page({
     const scope = e.currentTarget.dataset.scope;
     if (!scope || scope === this.data.scope) return;
     this.setData({ scope });
-    // 口径变化：清空日历着色缓存并强制重拉当前月（mine 为个人口径）
+    // 口径变化：清空日历着色缓存与邻日预拉缓存、重置切日窗格并强制重拉当前月（mine 为个人口径）
     Object.keys(DAY_STATUS).forEach((k) => delete DAY_STATUS[k]);
     this._dayStatusMonths = {};
+    this._dayLists = {};
+    this.setData({ win: [] });
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
     // 批量下载 / 验证报告面板的「仅看我」已收拢到本开关，面板打开时随动刷新
@@ -460,47 +524,54 @@ Page({
     return this.data.scope === 'mine' ? '&scope=mine' : '';
   },
 
-  // 当日日志卡片列表
+  // 当日日志卡片列表（始终网络重拉保证新鲜；完成后写缓存、同步中间窗格并预拉邻日；首屏顺带建窗格）
   async loadLogs() {
     this.clearPoll();
     this.setData({ loading: true });
     try {
       const data = await request({ url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}${this.teamQuery()}` });
-      const list = ((data && data.list) || []).map((e) => {
-        const photos = (e.photos || []).map(mapPhoto);
-        const remarkFiles = (e.remark_files || []).map((f) => ({ ...f }));
-        return {
-          id: e.id,
-          hasVehicle: !!e.vehicle_id,
-          plateText: e.vehicle_id ? e.plate_no : '未出车',
-          badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
-          failReasons: e.verify_reasons || [], // 未通过明细（角标为「未通过」时逐行展示）
-          patrolText: e.patrol_content || '—',
-          checks: (e.members || []).map((m) => ({ mid: m.id, name: m.name, checked: !!m.checked })),
-          photos,
-          photoUrls: photos.map((p) => p.url),
-          // 备注（文字 + 附件；均为空即 hasRemark=false，卡片不渲染备注块）
-          remark: e.remark || '',
-          remarkFiles,
-          remarkMedia: remarkFiles.filter((f) => f.type === 'image' || f.type === 'video'),
-          remarkDocs: remarkFiles.filter((f) => f.type === 'doc'),
-          hasRemark: !!(e.remark || remarkFiles.length),
-          // 无照片且无派车时不显示水印照片区
-          showPhotos: !!e.vehicle_id || photos.length > 0,
-          // 表单面板回填用的原始字段
-          patrol: e.patrol_content || '',
-          vehicleId: e.vehicle_id || 0,
-          destId: e.destination_id || 0,
-          memberIds: (e.members || []).map((m) => m.member_id),
-        };
-      });
-      this.setData({ list });
+      const list = this.mapLogList(data);
+      this._dayLists[this.dayKey(this.data.dateStr)] = list;
+      this.setCurPane(list);
       this.schedulePoll(list);
+      if (this.data.win.length) this.prefetchDays();
+      else this.buildWin();
     } catch (err) {
       this.toast(err.message);
-    } finally {
       this.setData({ loading: false });
     }
+  },
+
+  // 接口日志列表 → 卡片展示结构
+  mapLogList(data) {
+    return ((data && data.list) || []).map((e) => {
+      const photos = (e.photos || []).map(mapPhoto);
+      const remarkFiles = (e.remark_files || []).map((f) => ({ ...f }));
+      return {
+        id: e.id,
+        hasVehicle: !!e.vehicle_id,
+        plateText: e.vehicle_id ? e.plate_no : '未出车',
+        badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
+        failReasons: e.verify_reasons || [], // 未通过明细（角标为「未通过」时逐行展示）
+        patrolText: e.patrol_content || '—',
+        checks: (e.members || []).map((m) => ({ mid: m.id, name: m.name, checked: !!m.checked })),
+        photos,
+        photoUrls: photos.map((p) => p.url),
+        // 备注（文字 + 附件；均为空即 hasRemark=false，卡片不渲染备注块）
+        remark: e.remark || '',
+        remarkFiles,
+        remarkMedia: remarkFiles.filter((f) => f.type === 'image' || f.type === 'video'),
+        remarkDocs: remarkFiles.filter((f) => f.type === 'doc'),
+        hasRemark: !!(e.remark || remarkFiles.length),
+        // 无照片且无派车时不显示水印照片区
+        showPhotos: !!e.vehicle_id || photos.length > 0,
+        // 表单面板回填用的原始字段
+        patrol: e.patrol_content || '',
+        vehicleId: e.vehicle_id || 0,
+        destId: e.destination_id || 0,
+        memberIds: (e.members || []).map((m) => m.member_id),
+      };
+    });
   },
 
   // 有照片处于「验证中」时 3 秒后自动刷新（Dify 异步回写）
@@ -533,7 +604,8 @@ Page({
   onCalChange(e) {
     const value = e.detail.value;
     if (!value) return;
-    this.setData({ calVisible: false });
+    // 跨日跳转：重置切日窗格（loadLogs 后以新日期为中心重建）
+    this.setData({ calVisible: false, win: [] });
     this.applyDate(fmtDate(new Date(value)));
     this.loadLogs();
   },
@@ -577,7 +649,7 @@ Page({
     this._calSwitching = true;
     cal.calcCurrentMonth(target.getTime());
     this.loadDayStatus(`${target.getFullYear()}-${pad(target.getMonth() + 1)}`);
-    // 先清空再 nextTick 重放，保证连切同向也重新触发动画（同 playDayAnim 模式）
+    // 先清空再 nextTick 重放，保证连切同向也重新触发动画（同切日 swiper 复位模式）
     this.setData({ calAnim: '' });
     wx.nextTick(() => {
       this.setData({ calAnim: delta > 0 ? 'wl-cal-from-right' : 'wl-cal-from-left' });
@@ -2337,25 +2409,15 @@ Page({
     this.scrollToCard(Number(id));
   },
 
-  // 滚动到指定卡片并闪烁高亮；当前视图口径下无此卡（如「仅看我」未含该记录）时提示
+  // 滚动到指定卡片并闪烁高亮（中间格滚区 scroll-into-view）；当前视图口径下无此卡（如「仅看我」未含该记录）时提示
   scrollToCard(id) {
     if (!this.data.list.some((x) => x.id === id)) {
       this.toast('当前视图下无该卡片，请切换到「全部」查看');
       return;
     }
-    this.setData({ flashId: id });
-    wx.nextTick(() => {
-      const q = wx.createSelectorQuery().in(this);
-      q.select(`#logcard-${id}`).boundingClientRect();
-      q.selectViewport().scrollOffset();
-      q.exec((res) => {
-        const rect = res && res[0];
-        const scroll = res && res[1];
-        if (!rect || !scroll) return;
-        const top = rect.top + scroll.scrollTop - 12; // 卡片距顶 12px 留白
-        wx.pageScrollTo({ scrollTop: Math.max(top, 0), duration: 300 });
-      });
-    });
+    // 两次赋值保证 scroll-into-view 重复触发（先清空再 nextTick 写入锚点）
+    this.setData({ flashId: id, intoView: '' });
+    wx.nextTick(() => this.setData({ intoView: `logcard-${id}` }));
     if (this._flashTimer) clearTimeout(this._flashTimer);
     this._flashTimer = setTimeout(() => this.setData({ flashId: 0 }), 1600);
   },

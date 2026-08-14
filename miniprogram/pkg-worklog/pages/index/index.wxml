@@ -1,7 +1,10 @@
-<!-- 出工日志 · 主页（默认当天，一卡片 = 一次派车；新建/编辑收进底部表单弹层） -->
+<!-- 出工日志 · 主页（默认当天，一卡片 = 一次派车；新建/编辑收进底部表单弹层）
+     左右滑动切日为考试宝式真分页：swiper 三窗格预渲染 前/今/后 一天（邻日数据预拉缓存），
+     拖动时邻日内容跟手探入；落定（animationfinish）后窗口平移到新当前日并复位中间格；
+     「仅看我」按钮以下通高（flex 纵列 + swiper flex:1），每格独立纵向滚动，内容不再被截断 -->
 <navbar back title="出工日志" />
 
-<view class="page-body" wx:if="{{gate && !noTeam}}" bindtouchstart="onTouchStart" bindtouchmove="onTouchMove" bindtouchend="onTouchEnd">
+<view class="page-body" wx:if="{{gate && !noTeam}}">
   <!-- 班组切换器（屏五）：超管可点 chip 展开下拉切换生效班组；班组管理员/普通用户为静态班组名标签 -->
   <view class="tswitch">
     <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
@@ -44,13 +47,31 @@
     <view class="scope-pill {{scope === 'mine' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onScopeChange" data-scope="mine">仅看我</view>
   </view>
 
-  <!-- 日期切换容器：左右滑动跟手位移，松手过阈值切日、否则回弹（位移/过渡走 dayStyle 内联样式） -->
-  <view class="day-pane" style="{{dayStyle}}">
-  <!-- 空列表虚线占位（文案随视图口径适配） -->
-  <view class="empty-box" wx:if="{{!loading && list.length === 0}}">{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点右下角 ＋ 新建'}}</view>
+  <!-- 切日 swiper：三窗格预渲染（前/今/后一天），落定后复位中间格；
+       「仅看我」按钮以下通高（flex:1），每格独立纵向滚动（内容不再被截断） -->
+  <swiper
+    class="day-swiper"
+    current="{{swiperCurrent}}"
+    duration="{{220}}"
+    bindanimationfinish="onDaySwiperFinish"
+    wx:if="{{win.length}}"
+  >
+    <swiper-item wx:for="{{win}}" wx:key="dateStr" wx:for-item="day" wx:for-index="pane">
+      <scroll-view
+        class="day-scroll"
+        scroll-y
+        enhanced
+        show-scrollbar="{{false}}"
+        scroll-into-view="{{pane === 1 ? intoView : ''}}"
+        scroll-with-animation
+      >
+        <view class="day-pane">
+  <!-- 空列表虚线占位（文案随视图口径适配）；未就绪为加载占位（首元素 mt-0，间距由 .day-swiper 掌管） -->
+  <view class="empty-box mt-0" wx:if="{{day.ready && day.list.length === 0}}">{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点右下角 ＋ 新建'}}</view>
+  <view class="empty-box mt-0" wx:if="{{!day.ready}}">日志加载中…</view>
 
   <!-- 日志卡片：巡视内容（主内容块）→ 打卡情况 → 水印照片（id 供报告定位滚动；flash=报告跳转后的短暂高亮） -->
-  <view class="card hazard-top logcard {{flashId === item.id ? 'flash' : ''}}" id="logcard-{{item.id}}" wx:for="{{list}}" wx:key="id">
+  <view class="card hazard-top logcard {{flashId === item.id ? 'flash' : ''}} {{index === 0 ? 'mt-0' : ''}}" id="logcard-{{item.id}}" wx:for="{{day.list}}" wx:key="id">
     <view class="lc-body">
       <!-- 车牌头部可点击：打开改派车面板并回填该卡（派车情况/用车人，保存前弹内网派车单同步警告） -->
       <view class="lc-head" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
@@ -223,7 +244,10 @@
       </view>
     </view>
   </view>
-  </view>
+        </view>
+      </scroll-view>
+    </swiper-item>
+  </swiper>
 </view>
 
 <!-- 未分配班组空态（屏十：非超管且未加入任何班组；整页替代，不发业务请求） -->

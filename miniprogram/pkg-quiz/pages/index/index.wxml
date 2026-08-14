@@ -73,7 +73,6 @@
     <view class="icon-box"><t-icon name="app" size="40rpx" color="#F26D21" /></view>
     <view class="tx">
       <b>题库池</b>
-      <p>挑选管理员上传的题库</p>
     </view>
     <t-icon name="chevron-right" size="36rpx" color="#A89F8A" />
   </view>

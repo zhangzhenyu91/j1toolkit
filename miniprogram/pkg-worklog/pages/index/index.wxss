@@ -1,11 +1,45 @@
 @import '../../style/common.wxss';
 
-/* 底部为右下悬浮主钮（≈108rpx + 底部偏移），预留 200rpx 避免最后一张卡片被遮挡；
-   min-height 撑满屏高：无日志的空白区域也能响应左右滑动切日 */
+/* 整页 flex 纵列：导航/班组切换/日期条/视图开关固定，「仅看我」按钮以下为通高切日 swiper 区；
+   底部为右下悬浮主钮（≈108rpx + 底部偏移），窗格内容底部预留 220rpx 避免最后一张卡片被遮挡 */
+page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 .page-body {
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
   box-sizing: border-box;
-  padding-bottom: 200rpx;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0; /* 全局 .page-body 的底部留白改到 .day-pane（滚区内部） */
+}
+
+/* ---------- 切日 swiper（三窗格预渲染 前/今/后一天；通高 flex:1，每格独立纵向滚动） ---------- */
+.day-swiper {
+  flex: 1;
+  min-height: 0;
+  /* 与视图开关上方留白一致；左缘吃到屏幕左（-28rpx 抵消 page-body 侧 padding），
+     右缘再向屏外多伸 28rpx——配合窗格右内边距 28rpx：静止时卡片完全通栏零留白，
+     滑动时相邻两天卡片之间露出 28rpx 间隙（伸出段落在屏外不可见） */
+  margin: 28rpx -56rpx 0 -28rpx;
+}
+
+.day-pane .mt-0 {
+  margin-top: 0; /* 窗格首元素（首卡/空态）去上 margin，与视图开关的间距统一由 .day-swiper 掌管 */
+}
+
+.day-scroll {
+  height: 100%;
+  box-sizing: border-box;
+  padding-right: 28rpx; /* 窗格间隙来源（见 .day-swiper 注释）；左缘不内缩，卡片通栏 */
+}
+
+.day-pane {
+  box-sizing: border-box;
+  padding-bottom: 220rpx; /* 悬浮主钮避让（原 page-body 底部留白移入滚区） */
 }
 
 /* ---------- 班组切换器（屏五：超管可点 chip 下拉切换；其余角色静态班组名标签） ---------- */
@@ -190,11 +224,6 @@
   font-size: 26rpx;
   color: #a89f8a;
   letter-spacing: 2rpx;
-}
-
-/* ---------- 日期切日容器（左右滑动跟手位移：transform/transition 由 dayStyle 内联驱动） ---------- */
-.day-pane {
-  will-change: transform;
 }
 
 /* ---------- 日志卡片 ---------- */
