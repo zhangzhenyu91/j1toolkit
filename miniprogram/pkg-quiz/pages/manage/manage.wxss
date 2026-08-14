@@ -312,6 +312,55 @@
   color: #2ba471;
 }
 
+.tag-orange {
+  background: #fdeee2;
+  color: #f26d21;
+}
+
+.tag-navy {
+  background: #edf0f6;
+  color: #22314e;
+}
+
+/* 题库卡头部范围 tag 不压缩 */
+.mg-item .hd .tag {
+  flex: none;
+}
+
+/* ---------- 弹层「上传至」选择（仅超管可见） ---------- */
+.scope-label {
+  margin-top: 24rpx;
+  font-size: 23rpx;
+  color: #6b7690;
+  letter-spacing: 2rpx;
+}
+
+.scope-row {
+  margin-top: 12rpx;
+  display: flex;
+  gap: 16rpx;
+}
+
+.scope-opt {
+  flex: 1;
+  min-width: 0;
+  border: 2rpx solid #e3dccb;
+  border-radius: 14rpx;
+  padding: 18rpx 12rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #6b7690;
+  text-align: center;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.scope-opt.on {
+  border-color: #f26d21;
+  background: #fdeee2;
+  color: #f26d21;
+}
+
 .tag-red {
   background: #fae9e9;
   color: #cf4444;
@@ -401,4 +450,55 @@
 .btn-ghost.disabled,
 .btn-accent.disabled {
   opacity: 0.5;
+}
+
+/* ===== 导入校验失败明细弹层 ===== */
+.err-pop {
+  width: 620rpx;
+  max-width: 86vw;
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 32rpx 32rpx 28rpx;
+}
+.err-title {
+  font-size: 32rpx;
+  font-weight: 800;
+  color: #22314e;
+  letter-spacing: 2rpx;
+}
+.err-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #6b7690;
+}
+.err-list {
+  margin-top: 16rpx;
+  max-height: 46vh;
+}
+.err-item {
+  display: flex;
+  gap: 16rpx;
+  padding: 16rpx 4rpx;
+  border-bottom: 1rpx solid #e8e0cd;
+  font-size: 25rpx;
+  color: #22314e;
+  line-height: 1.6;
+}
+.err-item:last-child {
+  border-bottom: none;
+}
+.err-row {
+  flex: none;
+  font-weight: 800;
+  color: #cf4444;
+}
+.err-btn {
+  margin-top: 24rpx;
+  height: 80rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  letter-spacing: 4rpx;
 }

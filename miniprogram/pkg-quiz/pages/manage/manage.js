@@ -1,10 +1,11 @@
 // 题库刷题 · 题库管理（超管 / 班组管理员；设计稿 design/quiz.html 屏 05）
 // 「Excel 导入」三步卡（下载模板 → 选 .xlsx → 选题库导入）+ 新建题库 + 题库管理列表
-// （编辑/删除/解析状态三态：解析完成 / 解析中进度 / 失败重试）；
-// analysis.pending>0 时 5s 轮询 /banks 刷新解析状态，全部终态后停轮询（同 safeday 轮询模式）
+// （GET /banks/manage；编辑/删除/解析状态三态：解析完成 / 解析中进度 / 失败重试）；
+// analysis.pending>0 时 5s 轮询 /banks/manage 刷新解析状态，全部终态后停轮询（同 safeday 轮询模式）
 // 文件上传不走 utils/request：wx.downloadFile 下载模板 / wx.chooseMessageFile 选文件 /
 // wx.uploadFile 手写 Authorization 头导入（name:'file'，formData 带 team_id），手工 JSON.parse 按 code===0 判定
-// 班组口径：超管按主页切换器存下的 quiz_team_id 生效（全部请求带 team_id）；其余角色后端强制本班
+// 班组口径：超管按主页切换器存下的 quiz_team_id 生效（全部管理请求统一带 team_id：URL 用 teamQuery、body 用 teamBody）；
+// 其余角色后端强制本班。题库范围 scope：team=班组池 / all=全部池（仅超管可建/改全部池，弹层「上传至」选择）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -17,6 +18,8 @@ const POLL_INTERVAL = 5000; // 有解析中题库时按 5s 轮询（同 safeday 
 Page({
   data: {
     isManager: false, // 门控：仅 admin / team_admin 可见页面内容
+    isAdmin: false, // 超管：弹层显示「上传至」选择（可建/改全部池）
+    teamName: '', // 当前生效班组名（「上传至-班组池」选项展示）
     banks: [],
     loading: true,
     // Excel 导入三步卡
@@ -25,12 +28,16 @@ Page({
     impBankName: '',
     bankDropOpen: false, // 题库选择下拉
     importing: false,
+    impErrOpen: false, // 导入校验失败明细弹层
+    impErrMsg: '',
+    impErrors: [],
     // 新建/编辑题库弹层
     bankOpen: false,
     bankMode: 'create', // create / edit
     bankId: 0, // 编辑目标
     bankName: '',
     bankDesc: '',
+    bankScope: 'team', // 上传至：team=班组池 / all=全部池（仅超管可选可传）
     bankSaving: false,
     keyboardHeight: 0,
   },
@@ -47,7 +54,11 @@ Page({
     this._role = user.role;
     // 生效班组：取主页切换器存下的 team_id（仅超管真正生效；其余角色后端强制本班，带上也无妨）
     this._teamId = Number(wx.getStorageSync('quiz_team_id')) || 0;
-    this.setData({ isManager: true });
+    this.setData({
+      isManager: true,
+      isAdmin: user.role === 'admin',
+      teamName: wx.getStorageSync('quiz_team_name') || '',
+    });
     this.loadBanks(true);
   },
 
@@ -95,7 +106,7 @@ Page({
   async loadBanks(isInitial) {
     if (isInitial) this.setData({ loading: true });
     try {
-      const data = await request({ url: `${API_BASE}/banks${this.teamQuery('?')}` });
+      const data = await request({ url: `${API_BASE}/banks/manage${this.teamQuery('?')}` });
       const banks = ((data && data.list) || []).map((b) => this.mapBank(b));
       this._loaded = true;
       this.setData({ banks, loading: false });
@@ -110,7 +121,7 @@ Page({
     }
   },
 
-  // 题库 → 展示结构（解析状态三态：解析完成 / 解析中 x/y / N 题失败 + 重试）
+  // 题库 → 展示结构（scope 范围标签；解析状态三态：解析完成 / 解析中 x/y / N 题失败 + 重试）
   mapBank(b) {
     const an = b.analysis || {};
     const anDone = an.done || 0;
@@ -121,6 +132,8 @@ Page({
       id: b.id,
       name: b.name || '',
       description: b.description || '',
+      scope: b.scope === 'all' ? 'all' : 'team',
+      teamName: b.teamName || '',
       questionCount: b.questionCount || 0,
       analyzing: anPending > 0,
       anDone,
@@ -224,11 +237,31 @@ Page({
           this.loadBanks(false);
           return;
         }
+        // 校验未通过：弹层逐行列出行号与原因（后端最多返回 20 条，行号含表头偏移）
+        const errs = body.data && body.data.errors;
+        if (errs && errs.length) {
+          this.setData({
+            impErrOpen: true,
+            impErrMsg: body.message || '请修正后重新导入',
+            impErrors: errs,
+          });
+          return;
+        }
         this.toast(body.message || `导入失败（${res.statusCode}）`);
       },
       fail: () => this.toast('网络异常，请检查网络后重试'),
       complete: () => this.setData({ importing: false }),
     });
+  },
+
+  /* ==================== 导入校验失败明细弹层 ==================== */
+
+  onImpErrClose() {
+    this.setData({ impErrOpen: false });
+  },
+
+  onImpErrVisibleChange(e) {
+    this.setData({ impErrOpen: e.detail.visible });
   },
 
   /* ==================== 新建 / 编辑题库弹层 ==================== */
@@ -240,20 +273,28 @@ Page({
       bankId: 0,
       bankName: '',
       bankDesc: '',
+      bankScope: 'team', // 新建默认班组池
       keyboardHeight: 0,
     });
   },
 
   onOpenEdit(e) {
-    const { id, name, description } = e.currentTarget.dataset;
+    const { id, name, description, scope } = e.currentTarget.dataset;
     this.setData({
       bankOpen: true,
       bankMode: 'edit',
       bankId: id,
       bankName: name || '',
       bankDesc: description || '',
+      bankScope: scope === 'all' ? 'all' : 'team', // 回填现范围
       keyboardHeight: 0,
     });
+  },
+
+  // 「上传至」选择（仅超管可见可点）
+  onScopePick(e) {
+    const scope = e.currentTarget.dataset.scope === 'all' ? 'all' : 'team';
+    this.setData({ bankScope: scope });
   },
 
   onBankNameInput(e) {
@@ -293,12 +334,15 @@ Page({
     }
     const description = (this.data.bankDesc || '').trim();
     const isEdit = this.data.bankMode === 'edit';
+    // scope 仅超管可传（'all' 仅超管可建/改；team_admin 固定班组池，不传 scope）
+    const payload = { name, description };
+    if (this._role === 'admin') payload.scope = this.data.bankScope;
     this.setData({ bankSaving: true });
     try {
       await request({
-        url: isEdit ? `${API_BASE}/banks/${this.data.bankId}` : `${API_BASE}/banks`,
+        url: `${isEdit ? `${API_BASE}/banks/${this.data.bankId}` : `${API_BASE}/banks`}${this.teamQuery('?')}`,
         method: isEdit ? 'PUT' : 'POST',
-        data: this.teamBody({ name, description }),
+        data: this.teamBody(payload),
       });
       this.setData({ bankOpen: false, keyboardHeight: 0 });
       this.toast(isEdit ? '已保存' : '已新建题库');
@@ -322,8 +366,9 @@ Page({
       confirmBtn: '确认删除',
       cancelBtn: '取消',
     }).then(() => {
+      // 删除请求无 body：team_id 走 query（超管缺 team_id 会落到默认班组匹配失败 404）
       request({
-        url: `${API_BASE}/banks/${encodeURIComponent(id)}`,
+        url: `${API_BASE}/banks/${encodeURIComponent(id)}${this.teamQuery('?')}`,
         method: 'DELETE',
       }).then(() => {
         this.toast('题库已删除');
@@ -345,7 +390,7 @@ Page({
       cancelBtn: '取消',
     }).then(() => {
       request({
-        url: `${API_BASE}/banks/${encodeURIComponent(id)}/analyze-retry`,
+        url: `${API_BASE}/banks/${encodeURIComponent(id)}/analyze-retry${this.teamQuery('?')}`,
         method: 'POST',
         data: this.teamBody({}),
       }).then((data) => {

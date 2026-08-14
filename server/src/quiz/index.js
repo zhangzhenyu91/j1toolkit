@@ -1,6 +1,8 @@
-// 题库刷题路由：全部接口需登录 + quiz 应用权限 + 生效班组（req.team，见 utils/team.js）；
-// 管理接口（[manage]）超管可管任意班组（?team_id= 指定），班组管理员仅本班（照 worklog requireDictAdmin 口径）
-// req.team 为 null（未分配班组）时：只读接口返回空 list/零统计，写操作 400
+// 题库刷题路由：全部接口需登录 + quiz 应用权限；班组上下文 req.team 见 utils/team.js
+// 双题库池：scope=team 班组池（本班成员可见）/ scope=all 全部池（仅超管维护，全员可见，team_id 为 NULL）
+// 个人题库：用户从池中「添加」（quiz_user_bank 订阅），GET /banks 只回我的题库，与班组无关
+// 管理接口（[manage]）：requireQuizAdmin 粗筛角色，findManageBank 细粒度校验归属——
+// 超管可管任意题库（含他班班组池与全部池），班组管理员仅本班班组池
 const express = require('express');
 const multer = require('multer');
 const XLSX = require('xlsx');
@@ -24,7 +26,8 @@ router.use(async (req, res, next) => {
   }
 });
 
-// 题库管理权限：超管任意班组（req.team 由 ?team_id= 解析），班组管理员仅本班
+// 题库管理权限粗筛：超管任意班组（req.team 由 ?team_id= 解析），班组管理员仅本班；
+// 题库归属的细粒度校验由各接口内 findManageBank 完成
 function requireQuizAdmin(req, res, next) {
   if (req.user.role === 'admin') return next();
   if (req.user.role === 'team_admin' && req.team && req.user.team_id === req.team.id) return next();
@@ -40,10 +43,60 @@ function parseOptions(raw) {
   return Array.isArray(arr) ? arr : [];
 }
 
-// 取当前生效班组下的题库（防跨班越权）
-async function findTeamBank(bankId, teamId) {
-  const [rows] = await pool.query('SELECT id, team_id FROM quiz_bank WHERE id = ?', [Number(bankId) || 0]);
-  return rows[0] && rows[0].team_id === teamId ? rows[0] : null;
+// 取题库行（含池与归属班组）；可见性/管理权由下面两个助手判断
+async function findBank(bankId) {
+  const [rows] = await pool.query('SELECT id, team_id, scope FROM quiz_bank WHERE id = ?', [Number(bankId) || 0]);
+  return rows[0] || null;
+}
+
+// 可见性：全部池全员可见；班组池仅本班（req.team 为生效班组，无班组用户只见全部池）
+async function findVisibleBank(bankId, req) {
+  const bank = await findBank(bankId);
+  if (!bank) return null;
+  if (bank.scope === 'all') return bank;
+  if (req.team && bank.team_id === req.team.id) return bank;
+  return null;
+}
+
+// 管理权：超管可管任意题库（含他班班组池与全部池）；班组管理员仅本班班组池
+async function findManageBank(bankId, req) {
+  const bank = await findBank(bankId);
+  if (!bank) return null;
+  if (req.user.role === 'admin') return bank;
+  if (req.user.role === 'team_admin' && bank.scope === 'team' && req.team && bank.team_id === req.team.id) return bank;
+  return null;
+}
+
+// 批量取题库的题目数与解析四状态统计（GET /banks、/banks/pool、/banks/manage 共用），返回 { bankId: { questionCount, analysis } }
+async function loadBankStats(ids) {
+  if (!ids.length) return {};
+  const [rows] = await pool.query(
+    `SELECT bank_id, COUNT(*) AS total,
+       SUM(CASE WHEN analysis_status = 'none' THEN 1 ELSE 0 END) AS none_cnt,
+       SUM(CASE WHEN analysis_status = 'pending' THEN 1 ELSE 0 END) AS pending_cnt,
+       SUM(CASE WHEN analysis_status = 'failed' THEN 1 ELSE 0 END) AS failed_cnt,
+       SUM(CASE WHEN analysis_status = 'done' THEN 1 ELSE 0 END) AS done_cnt
+     FROM quiz_question WHERE bank_id IN (?) AND status = 1 GROUP BY bank_id`,
+    [ids]
+  );
+  const map = {};
+  rows.forEach((s) => {
+    map[s.bank_id] = {
+      questionCount: Number(s.total) || 0,
+      analysis: {
+        none: Number(s.none_cnt) || 0,
+        pending: Number(s.pending_cnt) || 0,
+        failed: Number(s.failed_cnt) || 0,
+        done: Number(s.done_cnt) || 0,
+      },
+    };
+  });
+  return map;
+}
+
+// 空统计（库内无启用题目时的默认值）
+function emptyStats() {
+  return { questionCount: 0, analysis: { none: 0, pending: 0, failed: 0, done: 0 } };
 }
 
 // 题型归一：单选/单选题/single → single，多选/多选题/multiple → multiple，判断/判断题/judge → judge
@@ -101,10 +154,9 @@ function validateQuestionPayload(body) {
   return { type, content, options, answer: a.answer, analysis: String(body.analysis || '').trim() };
 }
 
-// GET /overview：当前用户答题总览（记录总数、正确率%、错题本题数）
+// GET /overview：当前用户答题总览（按人跨池统计：记录总数、正确率%、错题本题数）
 router.get('/overview', async (req, res, next) => {
   try {
-    if (!req.team) return ok(res, { totalAnswered: 0, rightRate: null, wrongCount: 0 });
     const [rec] = await pool.query(
       'SELECT COUNT(*) AS total, SUM(is_right) AS rights FROM quiz_record WHERE user_id = ?',
       [req.user.id]
@@ -122,53 +174,43 @@ router.get('/overview', async (req, res, next) => {
   }
 });
 
-// GET /banks：当前班组启用题库列表（含题目数/解析状态统计、当前用户答题进度）
+// GET /banks：我的题库（从池中添加的订阅，按添加时间升序；与班组无关，无班组用户同样可见已订阅的全部池题库）
 router.get('/banks', async (req, res, next) => {
   try {
-    if (!req.team) return ok(res, { list: [] });
     const [banks] = await pool.query(
-      'SELECT id, name, description FROM quiz_bank WHERE team_id = ? AND status = 1 ORDER BY id',
-      [req.team.id]
+      `SELECT b.id, b.name, b.description, b.scope, t.name AS team_name
+       FROM quiz_user_bank ub
+       JOIN quiz_bank b ON b.id = ub.bank_id AND b.status = 1
+       LEFT JOIN sys_team t ON b.scope = 'team' AND t.id = b.team_id
+       WHERE ub.user_id = ?
+       ORDER BY ub.created_at, ub.id`,
+      [req.user.id]
     );
     if (!banks.length) return ok(res, { list: [] });
     const ids = banks.map((b) => b.id);
-    // 各库题目数 + 四状态解析统计
-    const [qstats] = await pool.query(
-      `SELECT bank_id, COUNT(*) AS total,
-         SUM(CASE WHEN analysis_status = 'none' THEN 1 ELSE 0 END) AS none_cnt,
-         SUM(CASE WHEN analysis_status = 'pending' THEN 1 ELSE 0 END) AS pending_cnt,
-         SUM(CASE WHEN analysis_status = 'failed' THEN 1 ELSE 0 END) AS failed_cnt,
-         SUM(CASE WHEN analysis_status = 'done' THEN 1 ELSE 0 END) AS done_cnt
-       FROM quiz_question WHERE bank_id IN (?) AND status = 1 GROUP BY bank_id`,
-      [ids]
-    );
+    const stats = await loadBankStats(ids);
     // 当前用户各库答题统计（答过题数按不同题计，正确率按答题记录计）
     const [ustats] = await pool.query(
       `SELECT bank_id, COUNT(DISTINCT question_id) AS answered, COUNT(*) AS total, SUM(is_right) AS rights
        FROM quiz_record WHERE user_id = ? AND bank_id IN (?) GROUP BY bank_id`,
       [req.user.id, ids]
     );
-    const qmap = {};
-    qstats.forEach((s) => { qmap[s.bank_id] = s; });
     const umap = {};
     ustats.forEach((s) => { umap[s.bank_id] = s; });
     const list = banks.map((b) => {
-      const qs = qmap[b.id] || {};
+      const st = stats[b.id] || emptyStats();
       const us = umap[b.id];
       const uTotal = us ? Number(us.total) : 0;
       return {
         id: b.id,
         name: b.name,
         description: b.description,
-        questionCount: Number(qs.total) || 0,
+        scope: b.scope,
+        teamName: b.scope === 'team' ? b.team_name || null : null,
+        questionCount: st.questionCount,
         answeredCount: us ? Number(us.answered) : 0,
         rightRate: uTotal ? Math.round((Number(us.rights) / uTotal) * 100) : null,
-        analysis: {
-          none: Number(qs.none_cnt) || 0,
-          pending: Number(qs.pending_cnt) || 0,
-          failed: Number(qs.failed_cnt) || 0,
-          done: Number(qs.done_cnt) || 0,
-        },
+        analysis: st.analysis,
       };
     });
     return ok(res, { list });
@@ -177,17 +219,132 @@ router.get('/banks', async (req, res, next) => {
   }
 });
 
-// POST /banks：新建题库 [manage]
+// GET /banks/pool：可见题库池（全部池 + 本班班组池；全部池在前，其次班组池，再按 id；无班组用户只回全部池）
+router.get('/banks/pool', async (req, res, next) => {
+  try {
+    const teamId = req.team ? req.team.id : 0; // team_id 为正数，0 不匹配任何班组池行
+    const [banks] = await pool.query(
+      `SELECT b.id, b.name, b.description, b.scope, t.name AS team_name
+       FROM quiz_bank b
+       LEFT JOIN sys_team t ON b.scope = 'team' AND t.id = b.team_id
+       WHERE b.status = 1 AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))
+       ORDER BY CASE WHEN b.scope = 'all' THEN 0 ELSE 1 END, b.id`,
+      [teamId]
+    );
+    if (!banks.length) return ok(res, { list: [] });
+    const ids = banks.map((b) => b.id);
+    const stats = await loadBankStats(ids);
+    // 是否已加入我的题库
+    const [subs] = await pool.query(
+      'SELECT bank_id FROM quiz_user_bank WHERE user_id = ? AND bank_id IN (?)',
+      [req.user.id, ids]
+    );
+    const addedSet = new Set(subs.map((s) => s.bank_id));
+    const list = banks.map((b) => {
+      const st = stats[b.id] || emptyStats();
+      return {
+        id: b.id,
+        name: b.name,
+        description: b.description,
+        scope: b.scope,
+        teamName: b.scope === 'team' ? b.team_name || null : null,
+        questionCount: st.questionCount,
+        added: addedSet.has(b.id) ? 1 : 0,
+        analysis: st.analysis,
+      };
+    });
+    return ok(res, { list });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /banks/manage：管理列表 [manage]——超管：全部池 + 生效班组班组池；班组管理员：本班班组池
+router.get('/banks/manage', requireQuizAdmin, async (req, res, next) => {
+  try {
+    const teamId = req.team ? req.team.id : 0; // 超管无生效班组时只回全部池
+    const where = req.user.role === 'admin'
+      ? "(b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))"
+      : "(b.scope = 'team' AND b.team_id = ?)";
+    const [banks] = await pool.query(
+      `SELECT b.id, b.name, b.description, b.scope, t.name AS team_name,
+         DATE_FORMAT(b.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM quiz_bank b
+       LEFT JOIN sys_team t ON b.scope = 'team' AND t.id = b.team_id
+       WHERE ${where}
+       ORDER BY b.id DESC`,
+      [teamId]
+    );
+    if (!banks.length) return ok(res, { list: [] });
+    const stats = await loadBankStats(banks.map((b) => b.id));
+    const list = banks.map((b) => {
+      const st = stats[b.id] || emptyStats();
+      return {
+        id: b.id,
+        name: b.name,
+        description: b.description,
+        scope: b.scope,
+        teamName: b.scope === 'team' ? b.team_name || null : null,
+        questionCount: st.questionCount,
+        analysis: st.analysis,
+        createdAt: b.created_at,
+      };
+    });
+    return ok(res, { list });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /banks/:id/join：把池中题库添加进我的题库（重复添加幂等）
+router.post('/banks/:id/join', async (req, res, next) => {
+  try {
+    const bank = await findVisibleBank(req.params.id, req);
+    if (!bank) return fail(res, 404, 40400, '题库不存在或不可见');
+    await pool.query('INSERT IGNORE INTO quiz_user_bank (user_id, bank_id) VALUES (?, ?)', [req.user.id, bank.id]);
+    return ok(res, null);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// DELETE /banks/:id/join：从我的题库移出（仅删订阅；练习记录/错题保留，文案由前端提示）
+router.delete('/banks/:id/join', async (req, res, next) => {
+  try {
+    await pool.query('DELETE FROM quiz_user_bank WHERE user_id = ? AND bank_id = ?', [
+      req.user.id,
+      Number(req.params.id) || 0,
+    ]);
+    return ok(res, null);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /banks：新建题库 [manage]（scope 默认 team 班组池挂生效班组；scope=all 全部池仅超管，team_id 存 NULL）
 router.post('/banks', requireQuizAdmin, async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '无可用班组');
+    const scope = req.body && req.body.scope === 'all' ? 'all' : 'team';
+    if (scope === 'all' && req.user.role !== 'admin') {
+      return fail(res, 403, 40304, '仅超管可上传至全部池');
+    }
+    let teamId = null;
+    if (scope === 'team') {
+      if (!req.team) return fail(res, 400, 40030, '无可用班组');
+      teamId = req.team.id;
+    }
     const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
     const description = String((req.body && req.body.description) || '').trim().slice(0, 255);
     if (!name) return fail(res, 400, 40030, '请输入题库名称');
+    if (scope === 'all') {
+      // uk_team_name 唯一键对 NULL team_id 不生效，全部池重名走应用层校验
+      const [dup] = await pool.query("SELECT id FROM quiz_bank WHERE scope = 'all' AND name = ? LIMIT 1", [name]);
+      if (dup.length) return fail(res, 409, 40900, `「${name}」已存在`);
+    }
     try {
       const [r] = await pool.query(
-        'INSERT INTO quiz_bank (team_id, name, description, created_by) VALUES (?, ?, ?, ?)',
-        [req.team.id, name, description, req.user.id]
+        'INSERT INTO quiz_bank (team_id, name, description, scope, created_by) VALUES (?, ?, ?, ?, ?)',
+        [teamId, name, description, scope, req.user.id]
       );
       return ok(res, { id: r.insertId });
     } catch (err) {
@@ -199,17 +356,37 @@ router.post('/banks', requireQuizAdmin, async (req, res, next) => {
   }
 });
 
-// PUT /banks/:id：修改题库名称/简介 [manage]
+// PUT /banks/:id：修改题库名称/简介 [manage]；body 带 scope 且与现值不同 → 仅超管可变更题库池
 router.put('/banks/:id', requireQuizAdmin, async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '无可用班组');
-    const bank = await findTeamBank(req.params.id, req.team.id);
+    const bank = await findManageBank(req.params.id, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在');
     const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
     const description = String((req.body && req.body.description) || '').trim().slice(0, 255);
     if (!name) return fail(res, 400, 40030, '请输入题库名称');
+    let scope = bank.scope;
+    let teamId = bank.team_id;
+    if (req.body && req.body.scope !== undefined) {
+      const wanted = req.body.scope === 'all' ? 'all' : 'team';
+      if (wanted !== bank.scope) {
+        if (req.user.role !== 'admin') return fail(res, 403, 40304, '仅超管可变更题库池');
+        if (wanted === 'all') {
+          scope = 'all';
+          teamId = null; // 全部池不属任何班组
+        } else {
+          if (!req.team) return fail(res, 400, 40030, '无可用班组');
+          scope = 'team';
+          teamId = req.team.id; // 转入班组池：挂当前生效班组
+        }
+      }
+    }
+    if (scope === 'all') {
+      // uk_team_name 唯一键对 NULL team_id 不生效，全部池重名走应用层校验
+      const [dup] = await pool.query("SELECT id FROM quiz_bank WHERE scope = 'all' AND name = ? AND id <> ? LIMIT 1", [name, bank.id]);
+      if (dup.length) return fail(res, 409, 40900, `「${name}」已存在`);
+    }
     try {
-      await pool.query('UPDATE quiz_bank SET name = ?, description = ? WHERE id = ?', [name, description, bank.id]);
+      await pool.query('UPDATE quiz_bank SET name = ?, description = ?, scope = ?, team_id = ? WHERE id = ?', [name, description, scope, teamId, bank.id]);
       return ok(res, null);
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 40900, `「${name}」已存在`);
@@ -220,11 +397,10 @@ router.put('/banks/:id', requireQuizAdmin, async (req, res, next) => {
   }
 });
 
-// DELETE /banks/:id：删除题库（事务连带删题目/答题记录/错题） [manage]
+// DELETE /banks/:id：删除题库（事务连带删题目/答题记录/错题/个人订阅） [manage]
 router.delete('/banks/:id', requireQuizAdmin, async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '无可用班组');
-    const bank = await findTeamBank(req.params.id, req.team.id);
+    const bank = await findManageBank(req.params.id, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在');
     const conn = await pool.getConnection();
     try {
@@ -232,6 +408,7 @@ router.delete('/banks/:id', requireQuizAdmin, async (req, res, next) => {
       await conn.query('DELETE FROM quiz_record WHERE bank_id = ?', [bank.id]);
       await conn.query('DELETE FROM quiz_wrong WHERE bank_id = ?', [bank.id]);
       await conn.query('DELETE FROM quiz_question WHERE bank_id = ?', [bank.id]);
+      await conn.query('DELETE FROM quiz_user_bank WHERE bank_id = ?', [bank.id]);
       await conn.query('DELETE FROM quiz_bank WHERE id = ?', [bank.id]);
       await conn.commit();
     } catch (e) {
@@ -251,15 +428,15 @@ router.get('/banks/template', async (req, res, next) => {
   try {
     const ws = XLSX.utils.aoa_to_sheet([
       ['题型', '题干', '选项A', '选项B', '选项C', '选项D', '选项E', '选项F', '答案', '解析'],
-      ['单选', '示例：安全带的正确挂扣方式是（ ）。', '高挂低用', '低挂高用', '平挂平用', '随意挂扣', '', '', 'A', '安全带应高挂低用，坠落时冲击力更小。'],
-      ['多选', '示例：下列属于个人安全防护用品的有（ ）。', '安全帽', '安全带', '绝缘手套', '普通布鞋', '', '', 'ABC', '普通布鞋不属于安全防护用品。'],
-      ['判断', '示例：雷雨天气可以进行户外登塔作业。', '', '', '', '', '', '', 'B', '雷雨天气禁止户外登塔作业。'],
+      ['单选题', '示例：安全带的正确挂扣方式是（ ）。', '高挂低用', '低挂高用', '平挂平用', '随意挂扣', '', '', 'A', '安全带应高挂低用，坠落时冲击力更小。'],
+      ['多选题', '示例：下列属于个人安全防护用品的有（ ）。', '安全帽', '安全带', '绝缘手套', '普通布鞋', '', '', 'ABC', '普通布鞋不属于安全防护用品。'],
+      ['判断题', '示例：雷雨天气可以进行户外登塔作业。', '', '', '', '', '', '', 'B', '雷雨天气禁止户外登塔作业。'],
     ]);
     ws['!cols'] = [{ wch: 8 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 40 }];
     const tips = XLSX.utils.aoa_to_sheet([
       ['题库导入填写说明'],
       ['1. 只读取第一张 sheet，首行表头固定为：题型 | 题干 | 选项A~F | 答案 | 解析。'],
-      ['2. 题型列支持：单选/单选题/single、多选/多选题/multiple、判断/判断题/judge（不区分大小写）。'],
+      ['2. 题型列填写：单选题、多选题、判断题（兼容 单选/多选/判断 及 single/multiple/judge，不区分大小写）。'],
       ['3. 单选/多选题选项A~F 至少填写 2 个，按序取非空列；判断题无需填写选项，固定为「正确/错误」。'],
       ['4. 答案列：单选填 1 个字母（如 A）；多选填 2 个及以上字母（如 ABC，顺序不限）；判断填 对/错（或 A/B）。'],
       ['5. 解析列可留空，留空的题目入库后由 AI 自动生成解析（需配置 DIFY_QUIZ_API_KEY）。'],
@@ -297,13 +474,10 @@ router.post(
   },
   async (req, res, next) => {
     try {
-      // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（兼容 formData 携带 team_id）
-      const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
-      if (!team) return fail(res, 400, 40030, '无可用班组');
-      if (req.user.role === 'team_admin' && req.user.team_id !== team.id) {
-        return fail(res, 403, 40304, '仅管理员可执行此操作');
-      }
-      const bank = await findTeamBank(req.params.id, team.id);
+      // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（兼容 formData 携带 team_id），
+      // 归属校验统一走 findManageBank（超管任意题库，班组管理员仅本班班组池）
+      req.team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
+      const bank = await findManageBank(req.params.id, req);
       if (!bank) return fail(res, 404, 40400, '题库不存在');
       if (!req.file || !req.file.buffer || !req.file.buffer.length) {
         return fail(res, 400, 40030, '请选择要上传的 Excel 文件');
@@ -330,7 +504,7 @@ router.post(
         let error = '';
         const type = normalizeType(cells[0]);
         if (!type) {
-          error = '题型无法识别（应为 单选/多选/判断）';
+          error = '题型无法识别（应为 单选题/多选题/判断题）';
         } else if (!cells[1]) {
           error = '题干不能为空';
         } else {
@@ -397,8 +571,7 @@ router.post(
 // GET /banks/:id/questions：题目分页列表（q 模糊匹配题干） [manage]
 router.get('/banks/:id/questions', requireQuizAdmin, async (req, res, next) => {
   try {
-    if (!req.team) return ok(res, { total: 0, list: [] });
-    const bank = await findTeamBank(req.params.id, req.team.id);
+    const bank = await findManageBank(req.params.id, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在');
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const size = Math.min(100, Math.max(1, parseInt(req.query.size, 10) || 20));
@@ -433,8 +606,7 @@ router.get('/banks/:id/questions', requireQuizAdmin, async (req, res, next) => {
 // POST /banks/:id/questions：新增题目（解析为空则入库后入 AI 队列） [manage]
 router.post('/banks/:id/questions', requireQuizAdmin, async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '无可用班组');
-    const bank = await findTeamBank(req.params.id, req.team.id);
+    const bank = await findManageBank(req.params.id, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在');
     const v = validateQuestionPayload(req.body || {});
     if (v.error) return fail(res, 400, 40030, v.error);
@@ -453,12 +625,10 @@ router.post('/banks/:id/questions', requireQuizAdmin, async (req, res, next) => 
 // PUT /questions/:id：修改题目（解析为空 → 置 none 并入 AI 队列；非空 → 存值置 done） [manage]
 router.put('/questions/:id', requireQuizAdmin, async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '无可用班组');
-    const [rows] = await pool.query(
-      'SELECT q.id FROM quiz_question q JOIN quiz_bank b ON b.id = q.bank_id WHERE q.id = ? AND b.team_id = ?',
-      [Number(req.params.id) || 0, req.team.id]
-    );
+    const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ?', [Number(req.params.id) || 0]);
     if (!rows.length) return fail(res, 404, 40400, '题目不存在');
+    const bank = await findManageBank(rows[0].bank_id, req);
+    if (!bank) return fail(res, 404, 40400, '题目不存在');
     const v = validateQuestionPayload(req.body || {});
     if (v.error) return fail(res, 400, 40030, v.error);
     await pool.query(
@@ -475,12 +645,10 @@ router.put('/questions/:id', requireQuizAdmin, async (req, res, next) => {
 // DELETE /questions/:id：删除题目（连带删答题记录/错题） [manage]
 router.delete('/questions/:id', requireQuizAdmin, async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '无可用班组');
-    const [rows] = await pool.query(
-      'SELECT q.id FROM quiz_question q JOIN quiz_bank b ON b.id = q.bank_id WHERE q.id = ? AND b.team_id = ?',
-      [Number(req.params.id) || 0, req.team.id]
-    );
+    const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ?', [Number(req.params.id) || 0]);
     if (!rows.length) return fail(res, 404, 40400, '题目不存在');
+    const bank = await findManageBank(rows[0].bank_id, req);
+    if (!bank) return fail(res, 404, 40400, '题目不存在');
     await pool.query('DELETE FROM quiz_record WHERE question_id = ?', [rows[0].id]);
     await pool.query('DELETE FROM quiz_wrong WHERE question_id = ?', [rows[0].id]);
     await pool.query('DELETE FROM quiz_question WHERE id = ?', [rows[0].id]);
@@ -493,8 +661,7 @@ router.delete('/questions/:id', requireQuizAdmin, async (req, res, next) => {
 // POST /banks/:id/analyze-retry：把该库解析状态为 none/failed 的题全部重新入 AI 队列 [manage]
 router.post('/banks/:id/analyze-retry', requireQuizAdmin, async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '无可用班组');
-    const bank = await findTeamBank(req.params.id, req.team.id);
+    const bank = await findManageBank(req.params.id, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在');
     const queued = await analyzer.enqueueBank(bank.id, ['none', 'failed']);
     return ok(res, { queued });
@@ -505,16 +672,16 @@ router.post('/banks/:id/analyze-retry', requireQuizAdmin, async (req, res, next)
 
 // GET /practice/questions：刷题取题（严禁带答案与解析）
 // mode=seq 顺序（按 sort,id 分页）；mode=rand 随机（ORDER BY RAND()，忽略 offset）；mode=wrong 错题本（最近答错倒序，bankId 可选过滤）
+// 可见性：bankId 必传时经 findVisibleBank 校验；wrong 模式只回可见题库（全部池 + 本班班组池）的错题
 router.get('/practice/questions', async (req, res, next) => {
   try {
-    if (!req.team) return ok(res, { total: 0, list: [] });
     const mode = ['seq', 'rand', 'wrong'].includes(req.query.mode) ? req.query.mode : 'seq';
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const bankId = Number(req.query.bankId) || 0;
     if (mode !== 'wrong' && !bankId) return fail(res, 400, 40030, '请选择题库');
     if (bankId) {
-      const bank = await findTeamBank(bankId, req.team.id);
+      const bank = await findVisibleBank(bankId, req);
       if (!bank) return fail(res, 404, 40400, '题库不存在');
     }
     let total = 0;
@@ -542,14 +709,15 @@ router.get('/practice/questions', async (req, res, next) => {
         [bankId]
       );
     } else {
-      // 错题本：联表取题，仅当前班组题库（last_wrong_at 倒序分页）
+      // 错题本：联表取题，仅可见题库（全部池 + 本班班组池；teamId=0 时班组池部分自然为空，last_wrong_at 倒序分页）
+      const teamId = req.team ? req.team.id : 0;
       const where = bankId ? 'AND w.bank_id = ?' : '';
-      const params = bankId ? [req.user.id, req.team.id, bankId] : [req.user.id, req.team.id];
+      const params = bankId ? [req.user.id, teamId, bankId] : [req.user.id, teamId];
       const [cnt] = await pool.query(
         `SELECT COUNT(*) AS total FROM quiz_wrong w
          JOIN quiz_question q ON q.id = w.question_id AND q.status = 1
          JOIN quiz_bank b ON b.id = w.bank_id
-         WHERE w.user_id = ? AND b.team_id = ? ${where}`,
+         WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}`,
         params
       );
       total = Number(cnt[0].total);
@@ -557,7 +725,7 @@ router.get('/practice/questions', async (req, res, next) => {
         `SELECT q.id, q.type, q.content, q.options FROM quiz_wrong w
          JOIN quiz_question q ON q.id = w.question_id AND q.status = 1
          JOIN quiz_bank b ON b.id = w.bank_id
-         WHERE w.user_id = ? AND b.team_id = ? ${where}
+         WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}
          ORDER BY w.last_wrong_at DESC, w.id DESC LIMIT ${limit} OFFSET ${offset}`,
         params
       );
@@ -574,17 +742,17 @@ router.get('/practice/questions', async (req, res, next) => {
 // 写答题记录 + 维护错题本（答错 upsert；答对连对 +1，达 3 移出）
 router.post('/practice/answer', async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '未分配班组，请联系管理员分配');
     const questionId = Number(req.body && req.body.questionId);
     if (!questionId) return fail(res, 400, 40030, '参数不完整');
     const [rows] = await pool.query(
-      `SELECT q.id, q.bank_id, q.answer, q.analysis FROM quiz_question q
-       JOIN quiz_bank b ON b.id = q.bank_id
-       WHERE q.id = ? AND q.status = 1 AND b.team_id = ?`,
-      [questionId, req.team.id]
+      'SELECT id, bank_id, answer, analysis FROM quiz_question WHERE id = ? AND status = 1',
+      [questionId]
     );
     const q = rows[0];
     if (!q) return fail(res, 404, 40400, '题目不存在');
+    // 题目所属题库需对用户可见（全部池全员可答；班组池仅本班，防跨班直答题）
+    const bank = await findVisibleBank(q.bank_id, req);
+    if (!bank) return fail(res, 404, 40400, '题目不存在');
     const userAnswer = normalizeUserAnswer(req.body && req.body.answer);
     if (!userAnswer) return fail(res, 400, 40030, '请作答后再提交');
     const right = userAnswer === q.answer ? 1 : 0;
@@ -627,19 +795,18 @@ router.post('/practice/answer', async (req, res, next) => {
   }
 });
 
-// GET /wrongs：当前用户错题本（按最近答错倒序，仅当前班组题库）
+// GET /wrongs：当前用户错题本（按人跨池，最近答错倒序，含来源题库）
 router.get('/wrongs', async (req, res, next) => {
   try {
-    if (!req.team) return ok(res, { list: [] });
     const [rows] = await pool.query(
       `SELECT w.question_id, w.bank_id, b.name AS bank_name, q.type, q.content, q.options,
          w.wrong_count, w.right_streak, DATE_FORMAT(w.last_wrong_at, '%Y-%m-%d %H:%i:%s') AS last_wrong_at
        FROM quiz_wrong w
        JOIN quiz_question q ON q.id = w.question_id
        JOIN quiz_bank b ON b.id = w.bank_id
-       WHERE w.user_id = ? AND b.team_id = ?
+       WHERE w.user_id = ?
        ORDER BY w.last_wrong_at DESC, w.id DESC`,
-      [req.user.id, req.team.id]
+      [req.user.id]
     );
     const list = rows.map((r) => ({
       questionId: r.question_id,
@@ -658,10 +825,9 @@ router.get('/wrongs', async (req, res, next) => {
   }
 });
 
-// DELETE /wrongs/:questionId：把某题移出当前用户错题本
+// DELETE /wrongs/:questionId：把某题移出当前用户错题本（按人，与班组无关）
 router.delete('/wrongs/:questionId', async (req, res, next) => {
   try {
-    if (!req.team) return fail(res, 400, 40030, '未分配班组，请联系管理员分配');
     await pool.query('DELETE FROM quiz_wrong WHERE user_id = ? AND question_id = ?', [
       req.user.id,
       Number(req.params.questionId) || 0,

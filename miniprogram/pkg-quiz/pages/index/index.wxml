@@ -77,7 +77,32 @@
     </view>
   </block>
   <view wx:elif="{{loading}}" class="empty-box">题库加载中…</view>
-  <view wx:else class="empty-box">暂无题库{{isManager ? '，点击下方按钮新建或导入' : '，请联系管理员导入'}}</view>
+  <view wx:else class="empty-box">尚未添加题库，从下方题库池挑选</view>
+
+  <!-- 题库池（可见题库：全部池 + 本班组池；添加后进「我的题库」，池为空整块隐藏） -->
+  <block wx:if="{{pool.length}}">
+    <view class="sec-row">
+      <view class="section-title">题库池</view>
+    </view>
+    <view class="card pool-item" wx:for="{{pool}}" wx:key="id">
+      <view class="icon-box"><t-icon name="book" size="40rpx" color="#F26D21" /></view>
+      <view class="tx">
+        <b>
+          {{item.name}}
+          <span class="tag tag-orange" wx:if="{{item.scope === 'all'}}">全部池</span>
+          <span class="tag tag-navy" wx:else>{{item.teamName}}</span>
+        </b>
+        <view class="meta">
+          <span>{{item.questionCount}} 题</span>
+          <span wx:if="{{item.analyzing}}">{{item.analyzingText}}</span>
+        </view>
+      </view>
+      <view class="btn-join" wx:if="{{!item.added}}" hover-class="hover-opacity"
+            catchtap="onPoolJoin" data-id="{{item.id}}">添加</view>
+      <view class="joined" wx:else hover-class="hover-opacity"
+            catchtap="onPoolLeave" data-id="{{item.id}}" data-name="{{item.name}}">已加入</view>
+    </view>
+  </block>
 </view>
 
 <!-- 底部主按钮（仅管理角色）：新建题库 / Excel 导入，同进 manage 页 -->
@@ -98,4 +123,5 @@
   </view>
 </view>
 
+<t-dialog id="t-dialog" />
 <t-toast id="t-toast" />

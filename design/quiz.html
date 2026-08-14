@@ -7,8 +7,10 @@
   2. 统计卡沿用用户卡片特征元素：顶部 8px 橙青警示斜纹条；题库图标统一浅橙底 #FDEEE2 + 橙色线性图标；
   3. 刷题页答题反馈：正确=克制绿（#2BA471）、错误=警示红（#CF4444）、漏选=绿虚线描边，选项统一白卡 1px 描边、选中浅橙底；
   4. AI 解析卡：浅橙底 + 灯泡图标 + 「AI 解析」标题，页脚标注「解析由 AI 生成，仅供参考」，与 Call Me 的 AI 语义一致；
-  5. 错题本规则显性化：答错自动入本、答对 2 次自动移出、可手动移除；专项练习为橙色主按钮置顶；
+  5. 错题本规则显性化：答错自动入本、答对 3 次自动移出、可手动移除；专项练习为橙色主按钮置顶；
   6. 网页端沿用方案A「安全橙传承」布局骨架：统一 topbar + 左题库卡 + 右内容卡悬浮双卡，管理态为表格（解析状态三态：已解析/解析中/失败重试）。
+  V2 调整（双池 + 个人题库）：题库分班组池/全部池两级（超管/班组长传班组池，仅超管可传全部池），用户从题库池自行添加进「我的题库」（移出保留练习记录）；
+  错题本按题库分组、组头「练这组」分库突破；网页端管理视图补「返回刷题」出口（修复进管理后无法返回的缺陷）。
 -->
 <html lang="zh-CN">
 <head>
@@ -109,6 +111,17 @@
   .bank-item .pg .progress { flex:1; }
   .bank-item .pg span { font-size:10.5px; color:var(--ph); white-space:nowrap; }
   .bottom-bar { flex:none; padding:10px 16px 26px; }
+
+  /* ===== V2：题库池 / 错题分组 ===== */
+  .pool-item { padding:10px 14px; }
+  .icon-box.sm { width:36px; height:36px; border-radius:8px; }
+  .pool-btn { flex:none; border:1px solid var(--orange); color:var(--orange); border-radius:7px;
+              padding:5px 14px; font-size:12px; font-weight:700; }
+  .pool-btn.added { border-color:transparent; color:var(--ph); font-weight:600; }
+  .wgroup-hd { display:flex; align-items:center; gap:8px; margin:14px 2px 10px; font-size:13px; }
+  .wgroup-hd b { font-weight:800; }
+  .wgroup-hd span { font-size:11px; color:var(--sub); }
+  .wgroup-hd .go { margin-left:auto; color:var(--orange); font-weight:700; font-size:12px; }
 
   /* ===== 屏2/3：刷题 ===== */
   .pg-line { display:flex; align-items:center; gap:10px; margin:2px 2px 12px; }
@@ -245,7 +258,7 @@
   .qtable .c-o { width:64px; flex:none; display:flex; gap:10px; color:var(--ph); }
   .mg-head { display:flex; align-items:center; gap:10px; }
   .mg-head .tx { flex:1; min-width:0; }
-  .mg-head .tx b { font-size:16px; font-weight:800; display:flex; align-items:center; gap:8px; }
+  .mg-head .tx b { font-size:16px; font-weight:800; display:flex; align-items:center; gap:8px; white-space:nowrap; }
   .mg-head .tx p { margin-top:3px; font-size:11.5px; color:var(--sub); }
   .wbtn { height:34px; border-radius:8px; padding:0 13px; display:inline-flex; align-items:center; gap:6px;
           font-size:12.5px; font-weight:700; border:1px solid var(--hair); background:#fff; color:var(--navy); }
@@ -287,7 +300,7 @@
 
         <div class="card wrong-entry">
           <div class="icon-box"><svg class="ic" width="22" height="22" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></div>
-          <div class="tx"><b>错题本 <span class="tag tag-red">37 题</span></b><p>答错自动收录 · 答对 2 次自动移出</p></div>
+          <div class="tx"><b>错题本 <span class="tag tag-red">37 题</span></b><p>答错自动收录 · 答对 3 次自动移出</p></div>
           <div class="btn-orange">专项练习</div>
         </div>
 
@@ -309,13 +322,22 @@
             <div class="pg"><div class="progress"><i style="width:30%"></i></div><span>47 / 158</span></div>
           </div>
         </div>
-        <div class="card bank-item">
-          <div class="icon-box"><svg class="ic" width="21" height="21" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+        <div class="sec-t"><h3>题库池</h3><span class="more">管理员上传 · 自行挑选</span></div>
+        <div class="card bank-item pool-item">
+          <div class="icon-box sm"><svg class="ic" width="19" height="19" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
           <div class="tx">
-            <b>配电安规 <span class="tag tag-navy">未开始</span></b>
-            <div class="meta"><span>96 题</span><span>AI 解析中 84/96</span></div>
-            <div class="pg"><div class="progress"><i style="width:0%"></i></div><span>0 / 96</span></div>
+            <b>高压试验规程 <span class="tag tag-orange">全部池</span></b>
+            <div class="meta"><span>120 题</span><span>AI 解析完成</span></div>
           </div>
+          <div class="pool-btn">添加</div>
+        </div>
+        <div class="card bank-item pool-item">
+          <div class="icon-box sm"><svg class="ic" width="19" height="19" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+          <div class="tx">
+            <b>配电安规 <span class="tag tag-navy">检修一班</span></b>
+            <div class="meta"><span>96 题</span><span>AI 解析中 84/96</span></div>
+          </div>
+          <div class="pool-btn added">已加入</div>
         </div>
       </div>
       <div class="bottom-bar"><div class="btn-navy">
@@ -324,7 +346,7 @@
       </div></div>
     </div></div>
     <div class="cap"><i>01</i>题库列表（小程序首页）
-      <small>统计卡沿用警示斜纹特征元素 · 错题本入口置顶 · 题库卡含进度与 AI 解析状态 · 底部主按钮仅管理权限可见</small>
+      <small>统计卡沿用警示斜纹特征元素 · 错题本入口置顶 · 我的题库卡含进度与 AI 解析状态 · 题库池（全部池/班组池）自行添加 · 底部主按钮仅管理权限可见</small>
     </div>
   </div>
 
@@ -421,30 +443,31 @@
             开始错题专项练习
           </div>
         </div>
-        <div class="sec-t"><h3>错题列表</h3><span class="more">全部题库</span></div>
+        <div class="wgroup-hd"><b>电力安全工作规程</b><span>2 题</span><span class="go">练这组 ›</span></div>
         <div class="card wrong-item">
           <div class="q"><span class="tag tag-orange">多选</span>下列哪些情况应禁止动火作业？（多选）</div>
-          <div class="ft"><span class="tag tag-red">错 3 次</span><span>电力安全工作规程</span><span>今天</span>
+          <div class="ft"><span class="tag tag-red">错 3 次</span><span>今天</span>
             <span class="rm"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>移除</span></div>
         </div>
         <div class="card wrong-item">
           <div class="q"><span class="tag tag-navy">判断</span>高处作业时，安全带可低挂高用。（　）</div>
-          <div class="ft"><span class="tag tag-red">错 2 次</span><span>电力安全工作规程</span><span>昨天</span>
+          <div class="ft"><span class="tag tag-red">错 2 次</span><span>昨天</span>
             <span class="rm"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>移除</span></div>
         </div>
+        <div class="wgroup-hd"><b>输电线路检修规程</b><span>1 题</span><span class="go">练这组 ›</span></div>
         <div class="card wrong-item">
           <div class="q"><span class="tag tag-orange">单选</span>绝缘操作杆的有效绝缘长度，110kV 不得小于（　）m。</div>
-          <div class="ft"><span class="tag tag-red">错 1 次</span><span>输电线路检修规程</span><span>3 天前</span>
+          <div class="ft"><span class="tag tag-red">错 1 次</span><span>3 天前</span>
             <span class="rm"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2 2v2"/></svg>移除</span></div>
         </div>
         <div class="rule-note">
           <svg class="ic" width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          规则：刷题答错自动收录；同一题连续答对 2 次自动移出，也可手动移除。
+          规则：刷题答错自动收录；同一题连续答对 3 次自动移出，也可手动移除。
         </div>
       </div>
     </div></div>
     <div class="cap"><i>04</i>错题本
-      <small>汇总卡 + 专项练习橙色主按钮 · 错题卡含题型 tag / 错 N 次 / 来源题库 · 规则说明显性化</small>
+      <small>汇总卡 + 全量专项练习 · 错题按题库分组、组头「练这组」分库突破 · 规则说明显性化</small>
     </div>
   </div>
 
@@ -482,7 +505,7 @@
         </div>
         <div class="sec-t"><h3>题库列表</h3><span class="more">3 个题库</span></div>
         <div class="card mg-item">
-          <div class="hd"><b>电力安全工作规程</b>
+          <div class="hd"><b>电力安全工作规程 <span class="tag tag-orange">全部池</span></b>
             <span class="ops">
               <svg class="ic" width="17" height="17" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               <svg class="ic" width="17" height="17" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -490,7 +513,7 @@
           <div class="sub"><span>206 题</span><span>导入于 08-02</span><span class="tag tag-green">解析完成</span></div>
         </div>
         <div class="card mg-item">
-          <div class="hd"><b>配电安规</b>
+          <div class="hd"><b>配电安规 <span class="tag tag-navy">班组池</span></b>
             <span class="ops">
               <svg class="ic" width="17" height="17" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               <svg class="ic" width="17" height="17" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -502,7 +525,7 @@
           </div>
         </div>
         <div class="card mg-item">
-          <div class="hd"><b>输电线路检修规程</b>
+          <div class="hd"><b>输电线路检修规程 <span class="tag tag-navy">班组池</span></b>
             <span class="ops">
               <svg class="ic" width="17" height="17" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               <svg class="ic" width="17" height="17" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -515,7 +538,7 @@
       </div>
     </div></div>
     <div class="cap"><i>05</i>题库管理（管理权限可见）
-      <small>导入三步卡对齐出工日志 manage 页模式 · AI 解析进度实时轮询 · 失败可一键重试</small>
+      <small>导入三步卡对齐出工日志 manage 页模式 · 题库标注全部池/班组池（仅超管可传全部池）· AI 解析进度实时轮询 · 失败可一键重试</small>
     </div>
   </div>
 
@@ -560,6 +583,9 @@
             <div class="side-item">
               <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--sub)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
               <div class="tx"><b>配电安规</b><span>96 题 · 未开始</span></div>
+            </div>
+            <div class="side-item wrong" style="justify-content:center;">
+              <span style="font-size:12.5px; font-weight:700; color:var(--ph);">＋ 添加题库（从题库池挑选）</span>
             </div>
           </div>
           <div class="card main-card">
@@ -628,7 +654,8 @@
           </div>
           <div class="card main-card">
             <div class="mg-head">
-              <div class="tx"><b>电力安全工作规程 <span class="badge-o">AI 解析</span></b><p>206 题 · 单选 120 / 多选 46 / 判断 40 · 导入于 2026-08-02</p></div>
+              <span class="wbtn">← 返回刷题</span>
+              <div class="tx"><b>电力安全工作规程 <span class="badge-o">AI 解析</span> <span class="tag tag-orange">全部池</span></b><p>206 题 · 单选 120 / 多选 46 / 判断 40 · 导入于 2026-08-02</p></div>
               <span class="wbtn"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>下载模板</span>
               <span class="wbtn orange"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>导入 Excel</span>
               <span class="wbtn"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>重试失败解析</span>

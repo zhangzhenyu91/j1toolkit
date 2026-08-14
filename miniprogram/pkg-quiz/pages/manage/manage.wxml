@@ -76,9 +76,12 @@
     <view class="card mg-item" wx:for="{{banks}}" wx:key="id">
       <view class="hd">
         <b>{{item.name}}</b>
+        <span class="tag tag-orange" wx:if="{{item.scope === 'all'}}">全部池</span>
+        <span class="tag tag-navy" wx:else>{{item.teamName || '班组池'}}</span>
         <span class="ops">
           <text class="op" hover-class="hover-opacity" catchtap="onOpenEdit"
-                data-id="{{item.id}}" data-name="{{item.name}}" data-description="{{item.description}}">
+                data-id="{{item.id}}" data-name="{{item.name}}" data-description="{{item.description}}"
+                data-scope="{{item.scope}}">
             <t-icon name="edit" size="32rpx" color="#A89F8A" />
           </text>
           <text class="op" hover-class="hover-opacity" catchtap="onDeleteBank"
@@ -112,6 +115,20 @@
   <view wx:else class="empty-box">暂无题库，点上方「新建题库」或 Excel 导入</view>
 </view>
 
+<!-- 导入校验失败明细弹层（逐行列出行号与原因） -->
+<t-popup visible="{{impErrOpen}}" placement="center" bind:visible-change="onImpErrVisibleChange">
+  <view class="err-pop">
+    <view class="err-title">导入校验未通过</view>
+    <view class="err-sub">{{impErrMsg}}</view>
+    <scroll-view scroll-y class="err-list">
+      <view wx:for="{{impErrors}}" wx:key="row" class="err-item">
+        <text class="err-row">第 {{item.row}} 行</text>{{item.message}}
+      </view>
+    </scroll-view>
+    <view class="btn-accent err-btn" hover-class="hover-opacity" bindtap="onImpErrClose">知道了</view>
+  </view>
+</t-popup>
+
 <!-- 新建 / 编辑题库弹层（底部弹层，同 safeday 名称弹层族；键盘弹起时动态抬高底部 padding） -->
 <t-popup visible="{{bankOpen}}" placement="bottom" bind:visible-change="onBankVisibleChange">
   <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
@@ -139,6 +156,16 @@
       placeholder="题库简介（选填）"
       placeholder-class="ph"
     />
+    <!-- 上传至（仅超管可见；team_admin 固定班组池不传 scope） -->
+    <block wx:if="{{isAdmin}}">
+      <view class="scope-label">上传至</view>
+      <view class="scope-row">
+        <view class="scope-opt {{bankScope === 'team' ? 'on' : ''}}" hover-class="hover-opacity"
+              bindtap="onScopePick" data-scope="team">班组池（{{teamName || '当前班组'}}）</view>
+        <view class="scope-opt {{bankScope === 'all' ? 'on' : ''}}" hover-class="hover-opacity"
+              bindtap="onScopePick" data-scope="all">全部池（所有班组可拉取）</view>
+      </view>
+    </block>
     <view class="sheet-ops">
       <view class="btn-ghost {{bankSaving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onBankCancel">取消</view>
       <view class="btn-accent {{bankSaving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onBankSave">

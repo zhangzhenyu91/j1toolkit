@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 题库刷题网页版（设计稿 design/quiz.html W1 刷题 / W2 题库管理，双视图单页）
-     视图：hash 路由 #/practice（默认，刷题 + 错题本）与 #/manage（题库管理，仅 admin / team_admin 可见可入）；
-     左卡两视图共用：错题本入口（虚线描边）+ 题库列表（选中浅橙高亮，管理视图带编辑/删除）；
+     视图：hash 路由 #/practice（默认，刷题 + 错题本）与 #/manage（题库管理，仅 admin / team_admin 可见可入，头部与左卡均有「返回刷题」）；
+     左卡两视图共用：错题本入口（虚线描边）+ 题库列表（选中浅橙高亮）+ 底部「添加题库」（题库池弹窗，POST/DELETE /banks/:id/join）；
+     题库口径：刷题视图 = 我的题库 GET /banks（个人订阅，空态引导题库池）；管理视图 = GET /banks/manage（带编辑/删除，scope 范围 tag：all 橙「全部池」/ team 藏青班组名）；
      刷题：单选（圆形字母块）/ 多选（方形块）/ 判断（正确·错误双大按钮 96px），顺序断点存 localStorage quiz_seq_{bankId}，
-     提交后解析态（对绿 #2BA471 / 错选红 / 漏选绿虚线 + 正确答案行 + AI 解析卡），答错自动入错题本；
-     管理：模板下载（fetch + blob）/ Excel 导入 / 失败解析重试 / 题目增删改 + 分页搜索，AI 解析进行中 5s 轮询 /banks；
+     提交后解析态（对绿 #2BA471 / 错选红 / 漏选绿虚线 + 正确答案行 + AI 解析卡），答错自动入错题本；错题本列表按题库分组，可练全量或单组（mode=wrong&bankId）；
+     管理：模板下载（fetch + blob）/ Excel 导入 / 失败解析重试 / 题目增删改 + 分页搜索，AI 解析进行中 5s 轮询 /banks/manage；
      班组隔离：超管左卡加班组切换下拉（localStorage.quiz_team_id，全部 /quiz/* 请求统一带 team_id，见 qz()）；
      API 直连主平台 /api/v1/quiz/*（Bearer token 经 Shade.api） -->
 <html lang="zh-CN">
@@ -79,6 +80,17 @@
   .side-scroll .empty { padding: 36px 8px; }
   .sk-item { height: 54px; border-radius: 9px; }
   .sk-item + .sk-item { margin-top: 8px; }
+  /* 管理视图左卡「返回刷题」文字入口（标题下方整宽，沿用 mini-btn 描边语言） */
+  .side-back {
+    flex: none; margin-top: 10px; height: 30px; width: 100%; border: 1px solid var(--line); border-radius: 8px;
+    background: #fff; color: var(--sub); font-size: 11.5px; font-weight: 600; letter-spacing: 1px;
+    cursor: pointer; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 5px;
+    transition: border-color .25s, color .25s;
+  }
+  .side-back:hover { border-color: var(--orange); color: var(--orange); }
+  .side-back svg { width: 13px; height: 13px; }
+  /* 左卡底部「添加题库」入口（题库池弹窗，全角色可见） */
+  .side-pool { flex: none; width: 100%; margin-top: 12px; }
 
   /* ===== 右卡：刷题 / 错题本 / 管理 三位一切换 ===== */
   .qz-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 20px 24px; }
@@ -193,6 +205,20 @@
   .wrong-item .rm svg { width: 13px; height: 13px; }
   .rule-note { flex: none; padding-top: 12px; font-size: 10.5px; color: var(--ph); letter-spacing: .5px; display: flex; align-items: center; gap: 5px; }
   .rule-note svg { width: 13px; height: 13px; flex: none; }
+  /* 错题本按题库分组：组头（题库名 + 组内题数 + 练习本组） */
+  .wr-group + .wr-group { margin-top: 18px; }
+  .wr-ghead { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .wr-ghead b { font-size: 13.5px; font-weight: 800; }
+  .wr-ghead .cnt { font-size: 11px; color: var(--ph); }
+  .wr-ghead .btn { margin-left: auto; flex: none; }
+
+  /* 题库池弹窗列表项（名称 + 范围 tag + 题数/解析中，右侧 添加/已加入） */
+  .pool-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--hair); border-radius: 9px; }
+  .pool-item + .pool-item { margin-top: 8px; }
+  .pool-item .tx { flex: 1; min-width: 0; }
+  .pool-item .tx b { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+  .pool-item .tx > span { display: block; margin-top: 3px; font-size: 10.5px; color: var(--ph); }
+  .pool-item .btn { flex: none; }
 
   /* ----- 题库管理视图（W2） ----- */
   .mg-head { flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -274,6 +300,10 @@
   .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
   /* 弹层表单 */
   .f-label { margin: 14px 0 8px; font-size: 12.5px; font-weight: 800; letter-spacing: 1px; }
+  .imp-err-tip { margin-top: 12px; font-size: 12.5px; color: var(--sub); }
+  .imp-err { display: flex; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  .imp-err b { flex: none; color: var(--red); }
+  .imp-err span { color: var(--navy); line-height: 1.6; }
   .f-tip { margin-top: 6px; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
   .type-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--paper); border: 1px solid var(--line); border-radius: 9px; }
   .type-seg button {
@@ -318,6 +348,8 @@
         <button class="mini-btn" id="btnNewBank" title="新建题库" hidden></button>
         <button class="mini-btn" id="btnQuickImport" title="导入 Excel" hidden></button>
       </div>
+      <!-- 管理视图「返回刷题」文字入口（仅 #/manage 显示，显隐见 renderSide） -->
+      <button class="side-back" id="btnBackPractice" hidden></button>
       <div class="side-team" id="sideTeam" hidden>
         <select id="teamSel" title="仅超级管理员可切换班组；其余角色固定为本班组"></select>
       </div>
@@ -326,6 +358,8 @@
         <div class="side-item wrong" id="wrongEntry"></div>
         <div id="bankList"></div>
       </div>
+      <!-- 题库池入口：全角色可见，弹窗添加/移出「我的题库」 -->
+      <button class="btn btn-sm side-pool" id="btnPool"></button>
     </aside>
 
     <!-- 右卡：刷题（W1） / 错题本列表 / 题库管理（W2）三位一切换 -->
@@ -444,6 +478,17 @@ function aiProgress(b) {
   var a = (b && b.analysis) || {};
   return { x: a.done || 0, y: (a.done || 0) + (a.pending || 0), pending: a.pending || 0, failed: a.failed || 0 };
 }
+/* 题库范围 tag：all=橙「全部池」；team=藏青班组名（teamName 缺省落「班组池」） */
+function scopeTag(b) {
+  if (b && b.scope === 'all') return '<span class="tag tag-orange">全部池</span>';
+  return '<span class="tag tag-navy">' + esc((b && b.teamName) || '班组池') + '</span>';
+}
+/* 当前生效班组名（超管班组切换下拉选中项；题库「上传至」radio 文案用） */
+function curTeamName() {
+  var sel = $('#teamSel');
+  var opt = sel && sel.options && sel.options[sel.selectedIndex];
+  return opt ? opt.text : '当前班组';
+}
 /* 判断题答案字母转中文（options 固定 ["正确","错误"]，A=正确 B=错误） */
 function answerText(type, answer) {
   if (type === 'judge') return answer === 'A' ? '正确' : '错误';
@@ -557,7 +602,9 @@ async function loadOverview(quiet) {
 async function loadBanks(quiet) {
   if (!quiet) { state.banks = null; state.banksErr = ''; renderSide(); }
   try {
-    var r = await Shade.api(qz(API + '/banks'));
+    /* 口径分视图：刷题 = 我的题库 GET /banks（个人订阅）；管理 = GET /banks/manage（可管理列表，含 scope/teamName） */
+    var url = state.view === 'manage' ? API + '/banks/manage' : API + '/banks';
+    var r = await Shade.api(qz(url));
     state.banks = (r.data && r.data.list) || [];
     state.banksErr = '';
   } catch (e) {
@@ -584,6 +631,7 @@ function bankMetaManage(b) {
 function renderSide() {
   var isMg = state.view === 'manage';
   $('#sideTitle').textContent = isMg ? '题库管理' : '题库刷题';
+  $('#btnBackPractice').hidden = !isMg; // 管理视图左卡「返回刷题」文字入口
   /* 错题本入口（仅刷题视图） */
   var we = $('#wrongEntry');
   we.style.display = isMg ? 'none' : '';
@@ -603,20 +651,24 @@ function renderSide() {
     return;
   }
   if (!state.banks.length) {
-    box.innerHTML = '<div class="empty">' + Shade.icon('book', 40) + '<p>暂无题库</p>'
-      + '<p style="font-size:11px">' + (state.isManager ? '点击右上角 + 新建题库，Excel 一键导入' : '等待管理员导入题库') + '</p></div>';
+    /* 空态分视图：刷题 = 我的题库未添加（引导题库池）；管理 = 无可管理题库（引导新建导入） */
+    box.innerHTML = '<div class="empty">' + Shade.icon('book', 40)
+      + '<p>' + (isMg ? '暂无题库' : '尚未添加题库') + '</p>'
+      + '<p style="font-size:11px">' + (isMg ? '点击右上角 + 新建题库，Excel 一键导入' : '点下方按钮从题库池挑选') + '</p></div>';
     return;
   }
   box.innerHTML = state.banks.map(function (b) {
     var on = isMg ? (b.id === state.mBankId) : (state.sel === 'bank' && b.id === state.pr.bankId);
     var meta = isMg ? bankMetaManage(b) : bankMetaPractice(b);
+    /* 管理态列表项带范围 tag（all 橙「全部池」/ team 藏青班组名） */
+    var metaHtml = (isMg ? scopeTag(b) + ' ' : '') + esc(meta);
     var ops = isMg
       ? '<span class="ops"><button data-op="edit" data-id="' + b.id + '" title="编辑题库">' + Shade.icon('edit', 14) + '</button>'
         + '<button data-op="del" data-id="' + b.id + '" title="删除题库">' + Shade.icon('delete', 14) + '</button></span>'
       : '';
     return '<div class="side-item' + (on ? ' on' : '') + '" data-id="' + b.id + '">'
       + Shade.icon('book', 17, on ? '#F26D21' : '#6B7690')
-      + '<div class="tx"><b>' + esc(b.name) + '</b><span>' + esc(meta) + '</span></div>' + ops + '</div>';
+      + '<div class="tx"><b>' + esc(b.name) + '</b><span>' + metaHtml + '</span></div>' + ops + '</div>';
   }).join('');
 }
 
@@ -746,9 +798,17 @@ function renderPrBody() {
     $('#prRetry').addEventListener('click', function () { fetchQuestions(true); });
     return;
   }
+  /* 我的题库为空：空态引导打开题库池添加（错题模式除外：跨库错题不依赖已加入题库） */
+  if (!pr.list.length && pr.mode !== 'wrong' && state.banks && !state.banks.length) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('book', 44) + '<p>尚未添加题库</p>'
+      + '<p style="font-size:11px">从题库池挑选共享题库，一键加入开始刷题</p>'
+      + '<button class="btn btn-sm btn-accent" id="prOpenPool">' + Shade.icon('add', 14) + '添加题库</button></div>';
+    $('#prOpenPool').addEventListener('click', openPoolModal);
+    return;
+  }
   if (!pr.list.length) {
     var txt, sub, ic = 'book';
-    if (pr.mode === 'wrong') { txt = '错题已全部攻克'; sub = '答错自动收录 · 答对 2 次自动移出'; ic = 'check-circle'; }
+    if (pr.mode === 'wrong') { txt = '错题已全部攻克'; sub = '答错自动收录 · 答对 3 次自动移出'; ic = 'check-circle'; }
     else if (!state.banks || !state.banks.length) {
       txt = '暂无题库';
       sub = state.isManager ? '点击左卡右上角 + 新建题库，Excel 一键导入' : '等待管理员导入题库';
@@ -842,7 +902,7 @@ function renderPrFoot() {
   var b = pr.bankId ? findBank(pr.bankId) : null;
   var chips = '';
   if (pr.mode === 'wrong' && !b) {
-    chips = '<span class="chip">错题 ' + pr.total + ' 道</span><span class="chip">答对 2 次自动移出</span>';
+    chips = '<span class="chip">错题 ' + pr.total + ' 道</span><span class="chip">答对 3 次自动移出</span>';
   } else if (b) {
     var p = aiProgress(b);
     var ai = p.pending > 0 ? 'AI 解析中 ' + p.x + '/' + p.y
@@ -943,7 +1003,7 @@ function renderWrongs() {
   var head = $('#wrHead'), body = $('#wrBody');
   var list = state.wrongs;
   var n = list ? list.length : 0;
-  head.innerHTML = '<div class="num"><b>' + n + '</b><span>道错题</span><p>答错自动收录 · 答对 2 次自动移出</p></div>'
+  head.innerHTML = '<div class="num"><b>' + n + '</b><span>道错题</span><p>答错自动收录 · 答对 3 次自动移出</p></div>'
     + '<button class="btn btn-accent" id="btnWrongGo"' + (n ? '' : ' disabled') + '>'
     + Shade.icon('refresh', 15) + '开始错题专项练习</button>';
   if (!list) {
@@ -960,15 +1020,29 @@ function renderWrongs() {
     body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44) + '<p>暂无错题，继续保持</p></div>';
     return;
   }
-  body.innerHTML = list.map(function (w) {
-    var tm = TYPE_META[w.type] || TYPE_META.single;
-    return '<div class="wrong-item">'
-      + '<div class="q"><span class="tag ' + tm.cls + '">' + tm.tag + '</span>' + esc(w.content) + '</div>'
-      + '<div class="ft"><span class="tag tag-red">错 ' + (w.wrongCount || 1) + ' 次</span>'
-      + '<span>' + esc(w.bankName || '') + '</span>'
-      + '<span>' + esc(Shade.fmtDate(w.lastWrongAt) || '') + '</span>'
-      + '<button class="rm" data-qid="' + w.questionId + '">' + Shade.icon('delete', 13) + '移除</button></div></div>';
+  /* 按题库分组渲染（保持首次出现顺序）：组头题库名 + 组内题数 +「练习本组」；组空随数据整组消失 */
+  var groups = [], gmap = {};
+  list.forEach(function (w) {
+    var key = String(w.bankId || 0);
+    if (!gmap[key]) { gmap[key] = { bankId: w.bankId || 0, bankName: w.bankName || '未命名题库', items: [] }; groups.push(gmap[key]); }
+    gmap[key].items.push(w);
+  });
+  body.innerHTML = groups.map(function (g) {
+    return '<div class="wr-group"><div class="wr-ghead"><b>' + esc(g.bankName) + '</b>'
+      + '<span class="cnt">' + g.items.length + ' 题</span>'
+      + '<button class="btn btn-sm" data-wrbank="' + g.bankId + '">' + Shade.icon('refresh', 13) + '练习本组</button></div>'
+      + g.items.map(wrongItemHtml).join('') + '</div>';
   }).join('');
+}
+/* 组内错题卡（移除逻辑不变，卡内保留题库名与原字段） */
+function wrongItemHtml(w) {
+  var tm = TYPE_META[w.type] || TYPE_META.single;
+  return '<div class="wrong-item">'
+    + '<div class="q"><span class="tag ' + tm.cls + '">' + tm.tag + '</span>' + esc(w.content) + '</div>'
+    + '<div class="ft"><span class="tag tag-red">错 ' + (w.wrongCount || 1) + ' 次</span>'
+    + '<span>' + esc(w.bankName || '') + '</span>'
+    + '<span>' + esc(Shade.fmtDate(w.lastWrongAt) || '') + '</span>'
+    + '<button class="rm" data-qid="' + w.questionId + '">' + Shade.icon('delete', 13) + '移除</button></div></div>';
 }
 async function removeWrong(qid) {
   var yes = await confirmAction({ title: '移出错题', content: '确定将该题移出错题本吗？', confirmText: '移除' });
@@ -979,6 +1053,76 @@ async function removeWrong(qid) {
     loadWrongs(true);
     loadOverview(true).then(renderSide);
   } catch (e) { Shade.toast(e.message, 'error'); }
+}
+
+/* ================= 题库池（添加 / 移出「我的题库」） ================= */
+/* 弹窗数据源 GET /banks/pool（含 added 订阅标记）；加入 POST /banks/:id/join、移出 DELETE join（练习记录与错题保留） */
+function openPoolModal() {
+  var inst = createModal(mHead('题库池') + '<div id="poolBody"></div>', { width: 520 });
+  var pool = null, poolErr = '';
+  function render() {
+    var box = $('#poolBody', inst.box);
+    if (!box) return;
+    if (!pool) { box.innerHTML = '<div class="loading"><span class="spin"></span>题库池加载中…</div>'; return; }
+    if (poolErr) {
+      box.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 40) + '<p>' + esc(poolErr) + '</p>'
+        + '<button class="btn btn-sm" data-act="retry">重试</button></div>';
+      return;
+    }
+    if (!pool.length) {
+      box.innerHTML = '<div class="empty">' + Shade.icon('book', 40) + '<p>暂无可选题库</p></div>';
+      return;
+    }
+    box.innerHTML = pool.map(function (b) {
+      var p = aiProgress(b);
+      var meta = b.questionCount + ' 题' + (p.pending > 0 ? ' · 解析中 ' + p.x + '/' + p.y : '');
+      var btn = b.added
+        ? '<button class="btn btn-sm" data-act="leave" data-id="' + b.id + '">已加入</button>'
+        : '<button class="btn btn-sm btn-accent" data-act="join" data-id="' + b.id + '">添加</button>';
+      return '<div class="pool-item"><div class="tx"><b>' + esc(b.name) + scopeTag(b) + '</b>'
+        + '<span>' + esc(meta) + '</span></div>' + btn + '</div>';
+    }).join('');
+  }
+  async function refresh() {
+    try {
+      var r = await Shade.api(qz(API + '/banks/pool'));
+      pool = (r.data && r.data.list) || []; poolErr = '';
+    } catch (e) { pool = []; poolErr = e.message; }
+    render();
+  }
+  inst.box.addEventListener('click', async function (e) {
+    var btn = e.target.closest('[data-act]');
+    if (!btn || btn.disabled) return;
+    var act = btn.dataset.act;
+    if (act === 'retry') { pool = null; poolErr = ''; render(); refresh(); return; }
+    var id = Number(btn.dataset.id);
+    if (act === 'leave') {
+      var yes = await confirmAction({
+        title: '移出题库', content: '移出后练习记录与错题保留，确定移出该题库吗？', confirmText: '移出'
+      });
+      if (!yes) return;
+    }
+    btn.disabled = true;
+    try {
+      await Shade.api(qz(API + '/banks/' + id + '/join'), { method: act === 'join' ? 'POST' : 'DELETE' });
+      Shade.toast(act === 'join' ? '已加入我的题库' : '已移出我的题库', 'success');
+      refresh();
+      afterPoolChange();
+    } catch (err) {
+      Shade.toast(err.message, 'error');
+      btn.disabled = false;
+    }
+  });
+  render();
+  refresh();
+}
+/* 加入/移出后刷新左卡「我的题库」：练习中的题库被移出则重置练习态；空态下加入首个题库自动开练 */
+async function afterPoolChange() {
+  await loadBanks(true);
+  if (state.view !== 'practice') return;
+  if (state.sel === 'wrong' && !state.practicing) return; // 错题列表态不受影响
+  if (state.pr.bankId && !findBank(state.pr.bankId)) state.pr = newPractice();
+  enterPractice();
 }
 
 /* ================= 题库管理 ================= */
@@ -1001,14 +1145,16 @@ function enterManage() {
 function renderMgHead() {
   var b = curBank();
   var head = $('#mgHead');
+  /* 返回刷题：管理视图回 #/practice 的 UI 出口（hashchange → onRoute 双向切换） */
+  var backBtn = '<button class="btn btn-sm" id="mgBack">' + Shade.icon('arrow-left', 14) + '返回刷题</button>';
   if (!b) {
-    head.innerHTML = '<div class="tx"><b>暂无题库</b><p>点击左卡右上角 + 新建题库</p></div>';
+    head.innerHTML = backBtn + '<div class="tx"><b>暂无题库</b><p>点击左卡右上角 + 新建题库</p></div>';
     return;
   }
   var p = aiProgress(b);
   var sub = b.questionCount + ' 题 · 已解析 ' + p.x + ' · 解析中 ' + p.pending + ' · 失败 ' + p.failed
     + (b.description ? ' · ' + b.description : '');
-  head.innerHTML = '<div class="tx"><b>' + esc(b.name) + ' <span class="badge-outline">AI 解析</span></b>'
+  head.innerHTML = backBtn + '<div class="tx"><b>' + esc(b.name) + ' ' + scopeTag(b) + ' <span class="badge-outline">AI 解析</span></b>'
     + '<p>' + esc(sub) + '</p></div>'
     + '<button class="btn btn-sm" id="mgTpl">' + Shade.icon('download', 14) + '下载模板</button>'
     + '<button class="btn btn-sm btn-accent" id="mgImport">' + Shade.icon('upload', 14) + '导入 Excel</button>'
@@ -1116,7 +1262,7 @@ async function loadMgQuestions(quiet) {
   renderPager();
   $('#mgTotal').textContent = mq.err ? '' : ('共 ' + mq.total + ' 题');
 }
-/* AI 解析进度轮询：管理视图且当前题库有排队时 5s 一刷 /banks，归零停 */
+/* AI 解析进度轮询：管理视图且当前题库有排队时 5s 一刷 /banks/manage，归零停 */
 function stopPoll() {
   if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = 0; }
 }
@@ -1189,30 +1335,69 @@ async function importExcel(file) {
       loadMgQuestions(true);
       syncPoll();
     }
-  } catch (e) { Shade.toast(e.message, 'error'); }
+  } catch (e) {
+    var errs = e.data && e.data.errors;
+    if (!errs || !errs.length) { Shade.toast(e.message, 'error'); return; }
+    /* 校验失败：弹窗逐行列出行号与原因（后端最多返回 20 条，行号含表头偏移） */
+    var html = mHead('导入校验未通过')
+      + '<div class="imp-err-tip">' + esc(e.message) + '</div>'
+      + errs.map(function (x) {
+        return '<div class="imp-err"><b>第 ' + x.row + ' 行</b><span>' + esc(x.message) + '</span></div>';
+      }).join('')
+      + '<div class="m-foot"><button class="btn btn-sm btn-primary" data-a="ok">知道了</button></div>';
+    var inst = createModal(html, { width: 480 });
+    $('[data-a="ok"]', inst.box).addEventListener('click', inst.close);
+  }
 }
 
 /* ================= 题库新增 / 编辑 / 删除 ================= */
 function openBankModal(bank) {
+  /* 上传至 radio 仅超管可见可改：team 班组池（当前生效班组）/ all 全部池；team_admin 固定 team 不传 scope */
+  var isAdmin = state.role === 'admin';
+  var scope = bank && bank.scope === 'all' ? 'all' : 'team';
   var html = mHead(bank ? '编辑题库' : '新建题库')
     + '<div class="f-label">题库名称</div>'
     + '<input class="input" id="bkName" maxlength="50" placeholder="如：电力安全工作规程" value="' + esc(bank ? bank.name : '') + '">'
     + '<div class="f-label">题库描述</div>'
     + '<textarea class="input" id="bkDesc" placeholder="选填：题库范围或说明">' + esc(bank ? (bank.description || '') : '') + '</textarea>'
+    + (isAdmin
+      ? '<div class="f-label">上传至</div><div class="type-seg" id="bkScope">'
+        + '<button data-s="team">班组池（' + esc(curTeamName()) + '）</button>'
+        + '<button data-s="all">全部池（所有用户可拉取）</button></div>'
+      : '')
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-primary" data-a="yes">保存</button></div>';
   var inst = createModal(html, { width: 460 });
+  function renderScope() {
+    $$('#bkScope button', inst.box).forEach(function (b) { b.classList.toggle('on', b.dataset.s === scope); });
+  }
+  if (isAdmin) {
+    renderScope();
+    $('#bkScope', inst.box).addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-s]');
+      if (!b) return;
+      scope = b.dataset.s;
+      renderScope();
+    });
+  }
   $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
   $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
     var name = $('#bkName', inst.box).value.trim();
     var desc = $('#bkDesc', inst.box).value.trim();
     if (!name) { Shade.toast('请填写题库名称', 'info'); return; }
+    var body = { name: name, description: desc };
+    if (isAdmin) body.scope = scope;
     this.disabled = true;
     try {
       if (bank) {
-        await Shade.api(qz(API + '/banks/' + bank.id), { method: 'PUT', body: { name: name, description: desc } });
+        await Shade.api(qz(API + '/banks/' + bank.id), { method: 'PUT', body: body });
       } else {
-        await Shade.api(qz(API + '/banks'), { method: 'POST', body: { name: name, description: desc } });
+        var r = await Shade.api(qz(API + '/banks'), { method: 'POST', body: body });
+        /* 新建后自动加入「我的题库」（后端若已自动订阅，重复 join 静默忽略） */
+        var newId = r.data && r.data.id;
+        if (newId) {
+          try { await Shade.api(qz(API + '/banks/' + newId + '/join'), { method: 'POST' }); } catch (e2) { /* 已订阅则忽略 */ }
+        }
       }
       Shade.toast(bank ? '题库已保存' : '题库已创建', 'success');
       inst.close();
@@ -1443,6 +1628,10 @@ function bindEvents() {
   });
   /* 左卡头部：新建题库 / 快捷导入（跳管理视图后自动唤起文件选择） */
   $('#btnNewBank').addEventListener('click', function () { openBankModal(null); });
+  /* 左卡「返回刷题」文字入口（管理视图）：hash 路由回 #/practice */
+  $('#btnBackPractice').addEventListener('click', function () { location.hash = '#/practice'; });
+  /* 左卡底部「添加题库」：题库池弹窗 */
+  $('#btnPool').addEventListener('click', openPoolModal);
   $('#btnQuickImport').addEventListener('click', function () {
     if (!state.banks || !state.banks.length) { Shade.toast('请先新建题库', 'info'); return; }
     if (state.view === 'manage') { openImportPicker(); return; }
@@ -1467,18 +1656,25 @@ function bindEvents() {
     else if (e.target.closest('#btnSubmit')) submitAnswer();
     else if (e.target.closest('#btnNext')) nextQ();
   });
-  /* 错题本：开始专项练习 / 移除 */
+  /* 错题本：开始专项练习（全部错题）/ 练习本组（仅本库错题）/ 移除 */
   $('#paneWrong').addEventListener('click', function (e) {
     if (e.target.closest('#btnWrongGo')) {
       state.sel = 'wrong';
       startPractice(0, 'wrong'); // bankId=0：跨全部题库的错题
       return;
     }
+    var gb = e.target.closest('[data-wrbank]');
+    if (gb) {
+      state.sel = 'wrong';
+      startPractice(Number(gb.dataset.wrbank), 'wrong'); // 仅练本组题库错题（mode=wrong&bankId）
+      return;
+    }
     var rm = e.target.closest('.rm');
     if (rm) removeWrong(Number(rm.dataset.qid));
   });
-  /* 管理头部按钮组 */
+  /* 管理头部按钮组（最左「返回刷题」回 #/practice） */
   $('#mgHead').addEventListener('click', function (e) {
+    if (e.target.closest('#mgBack')) { location.hash = '#/practice'; return; }
     if (e.target.closest('#mgTpl')) downloadTemplate();
     else if (e.target.closest('#mgImport')) openImportPicker();
     else if (e.target.closest('#mgRetry')) { if (!e.target.closest('#mgRetry').disabled) analyzeRetry(); }
@@ -1531,11 +1727,13 @@ function bindEvents() {
   /* 静态图标注入 */
   $('#btnNewBank').innerHTML = Shade.icon('add', 15);
   $('#btnQuickImport').innerHTML = Shade.icon('upload', 15);
+  $('#btnBackPractice').innerHTML = Shade.icon('arrow-left', 13) + '返回刷题';
+  $('#btnPool').innerHTML = Shade.icon('add', 14) + '添加题库';
   $('#wrongEntry').innerHTML = Shade.icon('refresh', 17, '#CF4444')
     + '<div class="tx"><b>错题本</b><span id="wrongCnt">加载中…</span></div>';
   $('#mgSearch').insertAdjacentHTML('afterbegin', Shade.icon('search', 15));
   $('#ruleNote').innerHTML = Shade.icon('info-circle', 13)
-    + '规则：刷题答错自动收录；同一题连续答对 2 次自动移出，也可手动移除。';
+    + '规则：刷题答错自动收录；同一题连续答对 3 次自动移出，也可手动移除。';
   /* 管理入口按角色显隐（管理视图入口 = 左卡头部两按钮 + hash 直访拦截） */
   if (state.isManager) {
     $('#btnNewBank').hidden = false;

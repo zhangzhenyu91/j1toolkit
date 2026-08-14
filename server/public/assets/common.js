@@ -64,7 +64,12 @@
     }
     const json = await res.json().catch(function () { return null; });
     if (!json) throw new Error('服务响应异常（HTTP ' + res.status + '）');
-    if (json.code !== 0) throw new Error(json.message || '请求失败（' + json.code + '）');
+    if (json.code !== 0) {
+      const err = new Error(json.message || '请求失败（' + json.code + '）');
+      err.code = json.code;
+      err.data = json.data; // 业务明细随错误下发（如题库导入校验的逐行错误）
+      throw err;
+    }
     return json;
   }
 

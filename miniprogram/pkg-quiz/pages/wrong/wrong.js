@@ -1,5 +1,6 @@
 // 题库刷题 · 错题本（设计稿 design/quiz.html 屏 04）
-// 汇总卡（N 道错题 + 专项练习橙色主按钮）+ 错题卡列表（题型 tag / 错 N 次 / 来源题库 / 相对时间 / 移除）
+// 汇总卡（N 道错题 + 专项练习橙色主按钮，练全部错题）+ 错题按题库分组渲染
+// （组头：题库名 + 组内题数 +「练这组」→ practice mode=wrong&bankId=X；组内错题卡：题型 tag / 错 N 次 / 相对时间 / 移除）
 // 规则：刷题答错自动收录；同一题连续答对 3 次自动移出，也可手动移除
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
@@ -28,8 +29,8 @@ const relTime = (iso) => {
 Page({
   data: {
     gate: false,
-    list: [],
-    bankCount: 0, // 覆盖题库数（汇总卡副行）
+    groups: [], // 按题库分组 [{bankId, bankName, items:[...]}]
+    total: 0, // 错题总数（汇总卡）
     loading: true,
   },
 
@@ -84,10 +85,21 @@ Page({
         rightStreak: w.rightStreak || 0,
         relTime: relTime(w.lastWrongAt),
       }));
+      // 按题库分组（保持接口返回顺序：组按首题出现先后，组内按最近答错排序）
+      const groups = [];
+      const gmap = {};
+      list.forEach((w) => {
+        const key = String(w.bankId);
+        if (!gmap[key]) {
+          gmap[key] = { bankId: w.bankId, bankName: w.bankName || '未命名题库', items: [] };
+          groups.push(gmap[key]);
+        }
+        gmap[key].items.push(w);
+      });
       this._loaded = true;
       this.setData({
-        list,
-        bankCount: new Set(list.map((w) => String(w.bankId))).size,
+        groups,
+        total: list.length,
         loading: false,
       });
     } catch (err) {
@@ -96,15 +108,23 @@ Page({
     }
   },
 
-  // 开始错题专项练习（0 题时禁用）
+  // 开始错题专项练习（全部错题，0 题时禁用）
   onPractice() {
-    if (!this.data.list.length) return;
+    if (!this.data.total) return;
     wx.navigateTo({
       url: `/pkg-quiz/pages/practice/practice?mode=wrong&title=${encodeURIComponent('错题专项练习')}`,
     });
   },
 
-  // 手动移除（Dialog 二次确认 → DELETE → 本地移除）
+  // 组头「练这组」：只练该题库下的错题
+  onGroupPractice(e) {
+    const { id, name } = e.currentTarget.dataset;
+    wx.navigateTo({
+      url: `/pkg-quiz/pages/practice/practice?mode=wrong&bankId=${encodeURIComponent(id)}&title=${encodeURIComponent(`${name}-错题`)}`,
+    });
+  },
+
+  // 手动移除（Dialog 二次确认 → DELETE → 本地移除；组内清空则整组消失）
   onRemove(e) {
     const { id } = e.currentTarget.dataset;
     Dialog.confirm({
@@ -119,11 +139,12 @@ Page({
         url: `${API_BASE}/wrongs/${encodeURIComponent(id)}`,
         method: 'DELETE',
       }).then(() => {
-        const list = this.data.list.filter((w) => String(w.questionId) !== String(id));
-        this.setData({
-          list,
-          bankCount: new Set(list.map((w) => String(w.bankId))).size,
+        const groups = [];
+        this.data.groups.forEach((g) => {
+          const items = g.items.filter((w) => String(w.questionId) !== String(id));
+          if (items.length) groups.push({ bankId: g.bankId, bankName: g.bankName, items });
         });
+        this.setData({ groups, total: Math.max(this.data.total - 1, 0) });
         this.toast('已移出错题本');
       }).catch((err) => this.toast(err.message));
     }).catch(() => {});

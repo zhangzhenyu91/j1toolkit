@@ -38,9 +38,36 @@
   box-shadow: 0 12rpx 28rpx rgba(242, 109, 33, 0.3);
 }
 
-/* ---------- 错题列表（屏 04 .wrong-item） ---------- */
-.sec-t {
+/* ---------- 错题分组（组头：题库名 + 题数 + 练这组；组内 .wrong-item 不变） ---------- */
+.g-hd {
   margin: 32rpx 4rpx 20rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.g-hd b {
+  font-size: 28rpx;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.g-hd .g-cnt {
+  flex: none;
+  font-size: 22rpx;
+  color: #a89f8a;
+}
+
+/* 「练这组」橙色文字按钮 */
+.g-hd .g-go {
+  margin-left: auto;
+  flex: none;
+  padding: 6rpx 4rpx 6rpx 16rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #f26d21;
 }
 
 .wrong-item {
@@ -69,12 +96,6 @@
   gap: 16rpx;
   font-size: 22rpx;
   color: #6b7690;
-}
-
-.wrong-item .ft .src {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .wrong-item .ft .rm {

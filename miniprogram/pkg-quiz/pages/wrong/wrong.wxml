@@ -1,30 +1,36 @@
 <!-- 题库刷题 · 错题本（设计稿 design/quiz.html 屏 04）
-     汇总卡 + 专项练习橙色主按钮置顶；错题卡含题型 tag / 错 N 次 / 来源题库 / 相对时间 / 手动移除；
-     规则说明显性化；空态 check-circle +「暂无错题，继续保持」 -->
+     汇总卡 + 专项练习橙色主按钮置顶（练全部错题）；错题按题库分组：组头（题库名 + 题数 + 练这组）+
+     组内错题卡（题型 tag / 错 N 次 / 相对时间 / 手动移除）；空态 check-circle +「暂无错题，继续保持」 -->
 <navbar back title="错题本" />
 
-<view class="page-body" wx:if="{{list.length}}">
+<view class="page-body" wx:if="{{groups.length}}">
   <!-- 汇总卡（卡顶警示斜纹条为全局 hazard-top） -->
   <view class="card hazard-top wrong-sum">
-    <b><em>{{list.length}}</em> 道错题</b>
-    <p>覆盖 {{bankCount}} 个题库 · 按最近答错排序</p>
+    <b><em>{{total}}</em> 道错题</b>
+    <p>覆盖 {{groups.length}} 个题库 · 按最近答错排序</p>
     <view class="btn-orange" hover-class="hover-opacity" bindtap="onPractice">
       <t-icon name="refresh" size="32rpx" color="#FFFFFF" />
       开始错题专项练习
     </view>
   </view>
 
-  <!-- 错题列表 -->
-  <view class="section-title sec-t">错题列表</view>
-  <view class="card wrong-item" wx:for="{{list}}" wx:key="questionId">
-    <view class="q"><span class="tag {{item.typeCls}}">{{item.typeText}}</span>{{item.content}}</view>
-    <view class="ft">
-      <span class="tag tag-red">错 {{item.wrongCount}} 次</span>
-      <span class="src">{{item.bankName}}</span>
-      <span>{{item.relTime}}</span>
-      <span class="rm" hover-class="hover-opacity" catchtap="onRemove" data-id="{{item.questionId}}">
-        <t-icon name="delete" size="26rpx" color="#A89F8A" />移除
-      </span>
+  <!-- 错题列表（按题库分组；组内错题移除一空整组消失） -->
+  <view class="group" wx:for="{{groups}}" wx:key="bankId">
+    <view class="g-hd">
+      <b>{{item.bankName}}</b>
+      <span class="g-cnt">{{item.items.length}} 题</span>
+      <text class="g-go" hover-class="hover-opacity" catchtap="onGroupPractice"
+            data-id="{{item.bankId}}" data-name="{{item.bankName}}">练这组</text>
+    </view>
+    <view class="card wrong-item" wx:for="{{item.items}}" wx:for-item="w" wx:key="questionId">
+      <view class="q"><span class="tag {{w.typeCls}}">{{w.typeText}}</span>{{w.content}}</view>
+      <view class="ft">
+        <span class="tag tag-red">错 {{w.wrongCount}} 次</span>
+        <span>{{w.relTime}}</span>
+        <span class="rm" hover-class="hover-opacity" catchtap="onRemove" data-id="{{w.questionId}}">
+          <t-icon name="delete" size="26rpx" color="#A89F8A" />移除
+        </span>
+      </view>
     </view>
   </view>
 

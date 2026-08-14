@@ -1,9 +1,11 @@
 // 题库刷题 · 题库列表（app_key quiz；设计稿 design/quiz.html 屏 01）
-// 统计卡（累计练习/正确率/错题待攻克）+ 错题本入口卡 + 我的题库列表；
+// 统计卡（累计练习/正确率/错题待攻克）+ 错题本入口卡 + 我的题库列表（个人口径，GET /banks）+
+// 题库池板块（GET /banks/pool，添加/移出即 join 接口，池为空整块隐藏）；
 // 管理角色（admin/team_admin）另有「管理」入口与底部「新建题库 / Excel 导入」主按钮（进 manage 页）
 // 班组口径（同 pkg-filetransfer）：超管顶部切换器切班组（storage quiz_team_id，banks 请求带 team_id）；
 // 其余角色固定本班（后端强制）；非超管未分配班组 → 整页空态，不发业务请求
 import Toast from 'tdesign-miniprogram/toast/index';
+import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 
@@ -22,6 +24,7 @@ Page({
     overview: null, // {totalAnswered, rightRate|null, wrongCount}
     // 题库列表
     banks: [],
+    pool: [], // 题库池（可见题库，added 标记是否已加入我的题库；空数组整块隐藏）
     loading: true,
     isManager: false, // admin / team_admin：显示管理入口与底部主按钮
   },
@@ -96,6 +99,8 @@ Page({
     this._teamId = id;
     if (id) wx.setStorageSync('quiz_team_id', id);
     const cur = ((this._teams || []).find((t) => t.id === id)) || null;
+    // 生效班组名一并存下（manage 页「上传至」选项展示用）
+    if (cur) wx.setStorageSync('quiz_team_name', cur.name);
     this.setData({
       teamName: cur ? cur.name : this.data.teamName,
       teamDropOpen: false,
@@ -127,13 +132,21 @@ Page({
     if (this.data.gate && !this.data.noTeam && this._loaded) this.loadAll(false);
   },
 
+  onPullDownRefresh() {
+    if (!this.data.gate || this.data.noTeam) {
+      wx.stopPullDownRefresh();
+      return;
+    }
+    this.loadAll(false).finally(() => wx.stopPullDownRefresh());
+  },
+
   toast(message) {
     Toast({ context: this, selector: '#t-toast', message });
   },
 
   /* ==================== 数据加载 ==================== */
 
-  // overview 为个人口径（不带 team_id）；banks 按生效班组
+  // overview 为个人口径（不带 team_id）；banks（我的题库）与 pool（题库池）按生效班组
   loadAll(isInitial) {
     if (isInitial) this.setData({ loading: true });
     return Promise.all([
@@ -145,11 +158,16 @@ Page({
         this.toast(err.message);
         return null;
       }),
-    ]).then(([ov, bk]) => {
+      request({ url: `${API_BASE}/banks/pool${this.teamQuery('?')}` }).catch((err) => {
+        this.toast(err.message);
+        return null;
+      }),
+    ]).then(([ov, bk, pl]) => {
       this._loaded = true;
       this.setData({
         overview: ov || this.data.overview,
         banks: bk ? ((bk.list || []).map((b) => this.mapBank(b))) : this.data.banks,
+        pool: pl ? ((pl.list || []).map((b) => this.mapPool(b))) : this.data.pool,
         loading: false,
       });
     });
@@ -179,6 +197,62 @@ Page({
       // 解析就绪徽章：无排队且有已生成解析
       aiReady: anPending === 0 && anDone > 0,
     };
+  },
+
+  // 题库池项 → 展示结构（scope：all=全部池 / team=班组池；added 标记是否已加入我的题库）
+  mapPool(b) {
+    const an = b.analysis || {};
+    const anDone = an.done || 0;
+    const anPending = an.pending || 0;
+    const anTotal = (an.none || 0) + anPending + (an.failed || 0) + anDone;
+    return {
+      id: b.id,
+      name: b.name || '',
+      scope: b.scope === 'all' ? 'all' : 'team',
+      teamName: b.teamName || '班组池',
+      questionCount: b.questionCount || 0,
+      added: !!b.added,
+      analyzing: anPending > 0,
+      analyzingText: `AI 解析中 ${anDone}/${anTotal || b.questionCount || 0}`,
+    };
+  },
+
+  /* ==================== 题库池：加入 / 移出我的题库 ==================== */
+
+  // 「添加」：POST join 后刷新两个板块（个人行为，不带 team_id）
+  onPoolJoin(e) {
+    const { id } = e.currentTarget.dataset;
+    if (this._joining) return; // 防连点
+    this._joining = true;
+    request({
+      url: `${API_BASE}/banks/${encodeURIComponent(id)}/join`,
+      method: 'POST',
+    }).then(() => {
+      this.toast('已加入我的题库');
+      this.loadAll(false);
+    }).catch((err) => this.toast(err.message))
+      .finally(() => { this._joining = false; });
+  },
+
+  // 「已加入」：Dialog 确认（移出后练习记录与错题保留）→ DELETE join → 刷新
+  onPoolLeave(e) {
+    const { id, name } = e.currentTarget.dataset;
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: `移出题库「${name || ''}」？`,
+      content: '移出后练习记录与错题保留，可随时从题库池重新添加。',
+      confirmBtn: '确认移出',
+      cancelBtn: '取消',
+    }).then(() => {
+      request({
+        url: `${API_BASE}/banks/${encodeURIComponent(id)}/join`,
+        method: 'DELETE',
+      }).then(() => {
+        this.toast('已移出我的题库');
+        this.loadAll(false);
+      }).catch((err) => this.toast(err.message));
+    }).catch(() => {});
   },
 
   /* ==================== 交互 ==================== */

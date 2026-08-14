@@ -13,9 +13,10 @@ const APP_QUIZ = {
 const DDL = [
   `CREATE TABLE IF NOT EXISTS quiz_bank (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    team_id BIGINT UNSIGNED NOT NULL COMMENT '所属班组，关联 sys_team.id',
+    team_id BIGINT UNSIGNED NULL COMMENT '所属班组，关联 sys_team.id；scope=all 时为 NULL',
     name VARCHAR(100) NOT NULL COMMENT '题库名称（班组内唯一）',
     description VARCHAR(255) NOT NULL DEFAULT '' COMMENT '题库简介',
+    scope VARCHAR(10) NOT NULL DEFAULT 'team' COMMENT '题库池：team 班组池 / all 全部池',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '1 启用 0 停用',
     created_by BIGINT UNSIGNED NULL COMMENT '创建人，关联 sys_user.id',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -58,11 +59,44 @@ const DDL = [
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_user_q (user_id, question_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS quiz_user_bank (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL COMMENT '订阅用户，关联 sys_user.id',
+    bank_id BIGINT UNSIGNED NOT NULL COMMENT '题库，关联 quiz_bank.id',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_user_bank (user_id, bank_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人题库订阅'`,
 ];
 
 async function ensureQuizSchema(pool) {
   for (const sql of DDL) {
     await pool.query(sql);
+  }
+
+  // 老库兼容：quiz_bank 补 scope 列（双题库池；MySQL 的 ALTER 不支持 IF NOT EXISTS，先查 information_schema）
+  const [scopeCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quiz_bank' AND COLUMN_NAME = 'scope'`
+  );
+  if (!scopeCols.length) {
+    await pool.query(
+      `ALTER TABLE quiz_bank ADD COLUMN scope VARCHAR(10) NOT NULL DEFAULT 'team'
+       COMMENT '题库池：team 班组池 / all 全部池' AFTER description`
+    );
+    console.log('[初始化] 已为 quiz_bank 补充 scope 列');
+  }
+
+  // 老库兼容：quiz_bank.team_id 放宽为可空（all 池题库不属任何班组；存量行保持原值与 scope='team' 不动）
+  const [teamIdCols] = await pool.query(
+    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quiz_bank' AND COLUMN_NAME = 'team_id'`
+  );
+  if (teamIdCols.length && teamIdCols[0].IS_NULLABLE === 'NO') {
+    await pool.query(
+      `ALTER TABLE quiz_bank MODIFY COLUMN team_id BIGINT UNSIGNED NULL
+       COMMENT '所属班组，关联 sys_team.id；scope=all 时为 NULL'`
+    );
+    console.log('[初始化] 已将 quiz_bank.team_id 放宽为可空');
   }
 
   // 启动自愈：进程重启会把「生成中」的回写弄丢，复位为 none 防止永远卡 pending（可经 analyze-retry 重新入队）
