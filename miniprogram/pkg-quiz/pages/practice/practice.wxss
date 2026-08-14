@@ -25,12 +25,45 @@
   letter-spacing: 2rpx;
 }
 
-/* ---------- 顶部细进度条（屏 02 .pg-line） ---------- */
+/* ---------- 顶部进度行（屏 02 .pg-line：模式切换 + 细进度条 + 答题卡入口） ---------- */
 .pg-line {
   display: flex;
   align-items: center;
   gap: 18rpx;
   margin: 4rpx 4rpx 22rpx;
+}
+
+/* 答题 / 背题 双 pill 切换 */
+.vm-switch {
+  flex: none;
+  display: flex;
+  padding: 4rpx;
+  background: #efe9da;
+  border-radius: 999rpx;
+}
+
+.vm-opt {
+  padding: 6rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #6b7690;
+}
+
+.vm-opt.on {
+  background: #22314e;
+  color: #ffffff;
+}
+
+/* 答题卡入口（图标 + 文字） */
+.sheet-entry {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #22314e;
 }
 
 .progress {
@@ -392,4 +425,97 @@
 
 .q-empty-btn {
   width: 320rpx;
+}
+
+/* ---------- 答题卡弹层（底部弹层圆角卡片，约 70vh） ---------- */
+.sheet-pop {
+  height: 70vh;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 32rpx 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet-hd {
+  flex: none;
+  font-size: 32rpx;
+  font-weight: 800;
+  letter-spacing: 1rpx;
+}
+
+.sheet-scroll {
+  flex: 1;
+  min-height: 0;
+  margin-top: 28rpx;
+}
+
+.sheet-sec + .sheet-sec {
+  margin-top: 28rpx;
+}
+
+.sec-hd {
+  margin-bottom: 16rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #6b7690;
+  letter-spacing: 1rpx;
+}
+
+/* 题号 chips：未答灰底 / 答对绿底白字 / 答错红底白字 / 当前橙描边 */
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.chip {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 18rpx;
+  border: 2rpx solid transparent;
+  box-sizing: border-box;
+  background: #f4f1ea;
+  color: #6b7690;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.chip.cur {
+  border-color: #f26d21;
+  color: #f26d21;
+}
+
+.chip.right {
+  background: #2ba471;
+  color: #ffffff;
+}
+
+.chip.wrong {
+  background: #cf4444;
+  color: #ffffff;
+}
+
+/* 底部「清空做题记录」红色文字按钮 */
+.sheet-ft {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 20rpx 0 calc(28rpx + env(safe-area-inset-bottom));
+}
+
+.reset-link {
+  padding: 8rpx 24rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #cf4444;
+  letter-spacing: 2rpx;
+}
+
+.reset-link.disabled {
+  color: #d9cfba;
 }

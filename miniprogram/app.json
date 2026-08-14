@@ -51,7 +51,8 @@
         "pages/index/index",
         "pages/practice/practice",
         "pages/wrong/wrong",
-        "pages/manage/manage"
+        "pages/manage/manage",
+        "pages/pool/pool"
       ]
     }
   ],

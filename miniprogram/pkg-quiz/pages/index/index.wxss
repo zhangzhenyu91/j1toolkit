@@ -340,63 +340,29 @@
   white-space: nowrap;
 }
 
-/* ---------- 题库池（屏 01 新增板块：范围 tag + 添加/已加入） ---------- */
-.pool-item {
+/* ---------- 题库池入口卡（二级页入口，风格同错题本入口卡） ---------- */
+.pool-entry {
+  margin-top: 32rpx;
   padding: 26rpx 28rpx;
   display: flex;
-  gap: 22rpx;
   align-items: center;
+  gap: 22rpx;
 }
 
-.pool-item + .pool-item {
-  margin-top: 20rpx;
-}
-
-.pool-item .tx {
+.pool-entry .tx {
   flex: 1;
   min-width: 0;
 }
 
-.pool-item .tx b {
+.pool-entry .tx b {
   font-size: 28rpx;
   font-weight: 800;
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
 }
 
-.pool-item .meta {
+.pool-entry .tx p {
   margin-top: 6rpx;
   font-size: 22rpx;
   color: #6b7690;
-  display: flex;
-  gap: 20rpx;
-}
-
-/* 「添加」橙描边小按钮 */
-.btn-join {
-  height: 56rpx;
-  border-radius: 999rpx;
-  border: 2rpx solid #f26d21;
-  color: #f26d21;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24rpx;
-  font-weight: 700;
-  padding: 0 28rpx;
-  letter-spacing: 2rpx;
-  flex: none;
-  box-sizing: border-box;
-}
-
-/* 「已加入」灰文字（点击弹确认移出） */
-.pool-item .joined {
-  flex: none;
-  padding: 10rpx 4rpx 10rpx 16rpx;
-  font-size: 24rpx;
-  color: #a89f8a;
-  font-weight: 600;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */

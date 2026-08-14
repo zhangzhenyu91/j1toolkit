@@ -670,8 +670,10 @@ router.post('/banks/:id/analyze-retry', requireQuizAdmin, async (req, res, next)
   }
 });
 
-// GET /practice/questions：刷题取题（严禁带答案与解析）
+// GET /practice/questions：刷题取题（默认严禁带答案与解析）
 // mode=seq 顺序（按 sort,id 分页）；mode=rand 随机（ORDER BY RAND()，忽略 offset）；mode=wrong 错题本（最近答错倒序，bankId 可选过滤）
+// lite=1：答题卡大纲模式，忽略 offset/limit 返回全量有序列表，项仅含 { id, type }（withAnswer 同时传入时忽略）
+// withAnswer=1：背题模式用，分页 list 项追加 answer 与 analysis（无解析为 null）；不传则出参不含答案/解析
 // 可见性：bankId 必传时经 findVisibleBank 校验；wrong 模式只回可见题库（全部池 + 本班班组池）的错题
 router.get('/practice/questions', async (req, res, next) => {
   try {
@@ -679,11 +681,16 @@ router.get('/practice/questions', async (req, res, next) => {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const bankId = Number(req.query.bankId) || 0;
+    const lite = req.query.lite === '1';
+    const withAnswer = !lite && req.query.withAnswer === '1'; // lite 时忽略 withAnswer
     if (mode !== 'wrong' && !bankId) return fail(res, 400, 40030, '请选择题库');
     if (bankId) {
       const bank = await findVisibleBank(bankId, req);
       if (!bank) return fail(res, 404, 40400, '题库不存在');
     }
+    // lite 只取 id/type；withAnswer 追加 answer/analysis；rand 原有逻辑忽略 offset，非 lite 时仍需 LIMIT
+    const cols = lite ? 'id, type' : `id, type, content, options${withAnswer ? ', answer, analysis' : ''}`;
+    const pageClause = lite ? '' : `LIMIT ${limit} OFFSET ${offset}`;
     let total = 0;
     let rows = [];
     if (mode === 'seq') {
@@ -693,8 +700,8 @@ router.get('/practice/questions', async (req, res, next) => {
       );
       total = Number(cnt[0].total);
       [rows] = await pool.query(
-        `SELECT id, type, content, options FROM quiz_question WHERE bank_id = ? AND status = 1
-         ORDER BY sort, id LIMIT ${limit} OFFSET ${offset}`,
+        `SELECT ${cols} FROM quiz_question WHERE bank_id = ? AND status = 1
+         ORDER BY sort, id ${pageClause}`,
         [bankId]
       );
     } else if (mode === 'rand') {
@@ -704,8 +711,8 @@ router.get('/practice/questions', async (req, res, next) => {
       );
       total = Number(cnt[0].total);
       [rows] = await pool.query(
-        `SELECT id, type, content, options FROM quiz_question WHERE bank_id = ? AND status = 1
-         ORDER BY RAND() LIMIT ${limit}`,
+        `SELECT ${cols} FROM quiz_question WHERE bank_id = ? AND status = 1
+         ORDER BY RAND() ${lite ? '' : `LIMIT ${limit}`}`,
         [bankId]
       );
     } else {
@@ -721,18 +728,42 @@ router.get('/practice/questions', async (req, res, next) => {
         params
       );
       total = Number(cnt[0].total);
+      const qCols = cols.replace(/\b(id|type|content|options|answer|analysis)\b/g, 'q.$1');
       [rows] = await pool.query(
-        `SELECT q.id, q.type, q.content, q.options FROM quiz_wrong w
+        `SELECT ${qCols} FROM quiz_wrong w
          JOIN quiz_question q ON q.id = w.question_id AND q.status = 1
          JOIN quiz_bank b ON b.id = w.bank_id
          WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}
-         ORDER BY w.last_wrong_at DESC, w.id DESC LIMIT ${limit} OFFSET ${offset}`,
+         ORDER BY w.last_wrong_at DESC, w.id DESC ${pageClause}`,
         params
       );
     }
-    // 出参严格不含 answer/analysis
-    const list = rows.map((r) => ({ id: r.id, type: r.type, content: r.content, options: parseOptions(r.options) }));
+    // 出参：lite 仅 id/type；默认严格不含 answer/analysis；withAnswer 才追加
+    const list = rows.map((r) => {
+      if (lite) return { id: r.id, type: r.type };
+      const item = { id: r.id, type: r.type, content: r.content, options: parseOptions(r.options) };
+      if (withAnswer) {
+        item.answer = r.answer;
+        item.analysis = r.analysis || null;
+      }
+      return item;
+    });
     return ok(res, { total, list });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /practice/reset：清空当前用户在某题库的做题记录（body { bankId } 必传，findVisibleBank 校验）
+// 只删 quiz_record 练习记录，错题本 quiz_wrong 保留
+router.post('/practice/reset', async (req, res, next) => {
+  try {
+    const bankId = Number(req.body && req.body.bankId) || 0;
+    if (!bankId) return fail(res, 400, 40030, '请选择题库');
+    const bank = await findVisibleBank(bankId, req);
+    if (!bank) return fail(res, 404, 40400, '题库不存在');
+    const [r] = await pool.query('DELETE FROM quiz_record WHERE user_id = ? AND bank_id = ?', [req.user.id, bankId]);
+    return ok(res, { cleared: Number(r.affectedRows) || 0 }, '已清空做题记录');
   } catch (err) {
     return next(err);
   }

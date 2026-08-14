@@ -1,15 +1,12 @@
 // 题库刷题 · 题库管理（超管 / 班组管理员；设计稿 design/quiz.html 屏 05）
-// 「Excel 导入」三步卡（下载模板 → 选 .xlsx → 选题库导入）+ 新建题库 + 题库管理列表
-// （GET /banks/manage；编辑/删除/解析状态三态：解析完成 / 解析中进度 / 失败重试）；
+// 新建题库 + 题库管理列表（GET /banks/manage；编辑/删除/解析状态三态：解析完成 / 解析中进度 / 失败重试）；
+// Excel 批量导入已移至网页端（页底小字提示），小程序端仅保留建库与维护
 // analysis.pending>0 时 5s 轮询 /banks/manage 刷新解析状态，全部终态后停轮询（同 safeday 轮询模式）
-// 文件上传不走 utils/request：wx.downloadFile 下载模板 / wx.chooseMessageFile 选文件 /
-// wx.uploadFile 手写 Authorization 头导入（name:'file'，formData 带 team_id），手工 JSON.parse 按 code===0 判定
 // 班组口径：超管按主页切换器存下的 quiz_team_id 生效（全部管理请求统一带 team_id：URL 用 teamQuery、body 用 teamBody）；
 // 其余角色后端强制本班。题库范围 scope：team=班组池 / all=全部池（仅超管可建/改全部池，弹层「上传至」选择）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
-import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 
 const API_BASE = '/api/v1/quiz';
@@ -22,15 +19,6 @@ Page({
     teamName: '', // 当前生效班组名（「上传至-班组池」选项展示）
     banks: [],
     loading: true,
-    // Excel 导入三步卡
-    impFile: null, // 待导入文件 {name, path}
-    impBankId: 0, // 目标题库 id（0=未选择）
-    impBankName: '',
-    bankDropOpen: false, // 题库选择下拉
-    importing: false,
-    impErrOpen: false, // 导入校验失败明细弹层
-    impErrMsg: '',
-    impErrors: [],
     // 新建/编辑题库弹层
     bankOpen: false,
     bankMode: 'create', // create / edit
@@ -145,125 +133,6 @@ Page({
     };
   },
 
-  /* ==================== Excel 导入（三步卡） ==================== */
-
-  // ① 下载模板：二进制 xlsx，wx.downloadFile 后 wx.openDocument 打开（同出工日志杆塔模板链路）
-  onTplDownload() {
-    wx.showLoading({ title: '正在下载…', mask: true });
-    wx.downloadFile({
-      url: `${BASE_URL}${API_BASE}/banks/template${this.teamQuery('?')}`,
-      header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
-      // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
-      filePath: `${wx.env.USER_DATA_PATH}/题库导入模板.xlsx`,
-      success: (r) => {
-        if (r.statusCode !== 200) {
-          this.toast('模板下载失败');
-          return;
-        }
-        wx.openDocument({
-          filePath: r.filePath,
-          fileType: 'xlsx',
-          showMenu: true, // 右上角菜单可另存/转发
-          fail: () => this.toast('该类型暂不支持打开'),
-        });
-      },
-      fail: () => this.toast('网络异常，请检查网络后重试'),
-      complete: () => wx.hideLoading(),
-    });
-  },
-
-  // ② 选择填写好的 Excel（wx.chooseMessageFile 从聊天选取，仅 .xlsx）
-  onImpPick() {
-    if (this.data.importing) return;
-    wx.chooseMessageFile({
-      count: 1,
-      type: 'file',
-      extension: ['xlsx'],
-      success: (res) => {
-        const f = (res.tempFiles || [])[0];
-        if (!f) return;
-        if (!/\.xlsx$/i.test(f.name || '')) {
-          this.toast('仅支持 .xlsx 文件，请使用模板填写');
-          return;
-        }
-        this.setData({ impFile: { name: f.name, path: f.path } });
-      },
-    });
-  },
-
-  // 重选文件
-  onImpRemove() {
-    if (this.data.importing) return;
-    this.setData({ impFile: null });
-  },
-
-  // ③ 目标题库选择（自绘下拉，题库数不受 ActionSheet 6 项上限约束）
-  onBankDropTap() {
-    if (this.data.importing || !this.data.banks.length) return;
-    this.setData({ bankDropOpen: !this.data.bankDropOpen });
-  },
-
-  onBankDropClose() {
-    if (this.data.bankDropOpen) this.setData({ bankDropOpen: false });
-  },
-
-  onBankPick(e) {
-    const { id, name } = e.currentTarget.dataset;
-    this.setData({ impBankId: Number(id), impBankName: name, bankDropOpen: false });
-  },
-
-  // 开始导入：wx.uploadFile POST /banks/:id/import（文件字段名 file，formData 带 team_id）
-  onImpStart() {
-    const f = this.data.impFile;
-    if (!f || !this.data.impBankId || this.data.importing) return;
-    this.setData({ importing: true });
-    wx.uploadFile({
-      url: `${BASE_URL}${API_BASE}/banks/${this.data.impBankId}/import`,
-      filePath: f.path,
-      name: 'file',
-      header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
-      formData: this._teamId ? { team_id: this._teamId } : {},
-      success: (res) => {
-        let body = {};
-        try {
-          body = JSON.parse(res.data || '{}');
-        } catch (e) {
-          // 非 JSON 响应按失败处理
-        }
-        if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {
-          const d = body.data || {};
-          this.setData({ impFile: null });
-          this.toast(`导入 ${d.imported || 0} 题 · AI 解析排队 ${d.queued || 0} 题`);
-          this.loadBanks(false);
-          return;
-        }
-        // 校验未通过：弹层逐行列出行号与原因（后端最多返回 20 条，行号含表头偏移）
-        const errs = body.data && body.data.errors;
-        if (errs && errs.length) {
-          this.setData({
-            impErrOpen: true,
-            impErrMsg: body.message || '请修正后重新导入',
-            impErrors: errs,
-          });
-          return;
-        }
-        this.toast(body.message || `导入失败（${res.statusCode}）`);
-      },
-      fail: () => this.toast('网络异常，请检查网络后重试'),
-      complete: () => this.setData({ importing: false }),
-    });
-  },
-
-  /* ==================== 导入校验失败明细弹层 ==================== */
-
-  onImpErrClose() {
-    this.setData({ impErrOpen: false });
-  },
-
-  onImpErrVisibleChange(e) {
-    this.setData({ impErrOpen: e.detail.visible });
-  },
-
   /* ==================== 新建 / 编辑题库弹层 ==================== */
 
   onOpenCreate() {
@@ -372,8 +241,6 @@ Page({
         method: 'DELETE',
       }).then(() => {
         this.toast('题库已删除');
-        // 删除的是导入目标时同步清空选择
-        if (Number(id) === this.data.impBankId) this.setData({ impBankId: 0, impBankName: '' });
         this.loadBanks(false);
       }).catch((err) => this.toast(err.message));
     }).catch(() => {});

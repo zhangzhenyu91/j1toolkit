@@ -1,6 +1,7 @@
 <!-- 题库刷题 · 刷题页（设计稿 design/quiz.html 屏 02 答题态 / 屏 03 解析态）
-     顶部细进度条；选项白卡描边、选中浅橙底，解析态对=绿/错选=红/漏选=绿虚线；
-     判断题渲染为「正确 / 错误」两个大选项卡；AI 解析卡浅橙底 + 灯泡图标 -->
+     顶部进度行：答题/背题双 pill 切换 + 细进度条 + 答题卡入口；选项白卡描边、选中浅橙底，
+     解析态对=绿/错选=红/漏选=绿虚线；背题模式直接标出正确答案并常显答案行 + AI 解析卡；
+     答题卡弹层按题型分区块导航，底部可清空做题记录（错题本保留） -->
 <view class="page">
   <navbar back title="{{navTitle}}" />
 
@@ -14,14 +15,23 @@
     wx:if="{{!emptyText}}"
   >
     <view class="q-body" wx:if="{{cur}}">
-      <!-- 顶部细进度条 + x/total -->
+      <!-- 进度行：模式切换 + 细进度条 + x/total + 答题卡入口 -->
       <view class="pg-line" id="qtop">
+        <view class="vm-switch">
+          <view class="vm-opt {{viewMode === 'answer' ? 'on' : ''}}" hover-class="hover-opacity"
+                bindtap="onViewTap" data-v="answer">答题</view>
+          <view class="vm-opt {{viewMode === 'recite' ? 'on' : ''}}" hover-class="hover-opacity"
+                bindtap="onViewTap" data-v="recite">背题</view>
+        </view>
         <view class="progress"><view class="progress-in" style="width: {{pct}}%;"></view></view>
         <b><em>{{posText}}</em> / {{total}}</b>
+        <view class="sheet-entry" hover-class="hover-opacity" bindtap="onSheetOpen">
+          <t-icon name="view-module" size="30rpx" color="#22314E" />答题卡
+        </view>
       </view>
 
-      <!-- 结果 banner（解析态） -->
-      <view class="result-banner {{result.right ? 'good' : 'bad'}}" wx:if="{{submitted && result}}">
+      <!-- 结果 banner（答题模式解析态） -->
+      <view class="result-banner {{result.right ? 'good' : 'bad'}}" wx:if="{{viewMode === 'answer' && submitted && result}}">
         <t-icon name="{{result.right ? 'check-circle' : 'close-circle'}}" size="34rpx"
                 color="{{result.right ? '#2BA471' : '#CF4444'}}" />
         {{result.right ? '回答正确' : '回答错误'}}
@@ -68,12 +78,12 @@
         <view class="multi-hint" wx:if="{{multiple}}">多选题：可选择多个选项，全部选对才算答对</view>
       </block>
 
-      <!-- 答案行（解析态） -->
+      <!-- 答案行（解析态；背题模式常显） -->
       <view class="answer-row" wx:if="{{submitted && result}}">
         正确答案：<b>{{result.answerText}}</b>
       </view>
 
-      <!-- AI 解析卡（解析态；解析未生成时占位文案） -->
+      <!-- AI 解析卡（解析态；背题模式常显；解析未生成时占位文案） -->
       <view class="analysis-card" wx:if="{{submitted && result}}">
         <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#F26D21" />AI 解析</view>
         <view class="bd" wx:if="{{result.analysis}}">{{result.analysis}}</view>
@@ -93,7 +103,7 @@
     <view class="btn-ghost q-empty-btn" hover-class="hover-opacity" bindtap="onFinish">返回题库</view>
   </view>
 
-  <!-- 底部操作栏：答题态 提交答案；解析态 下一题 / 完成返回 -->
+  <!-- 底部操作栏：答题态 提交答案；解析态/背题 下一题（藏青主按钮）/ 完成返回 -->
   <view class="practice-bar" wx:if="{{cur && !emptyText}}">
     <view class="btn-ghost {{isFirst ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onPrev">
       <t-icon name="chevron-left" size="30rpx" color="#6B7690" />上一题
@@ -109,5 +119,32 @@
     </view>
   </view>
 
+  <!-- 答题卡弹层（按题型分区块；背题模式仅导航，chips 全灰 + 当前橙框） -->
+  <t-popup visible="{{sheetOpen}}" placement="bottom" bind:visible-change="onSheetVisibleChange">
+    <view class="sheet-pop">
+      <view class="sheet-hd">答题卡（已答 {{sheetAnswered}}/{{total}}）</view>
+      <scroll-view scroll-y class="sheet-scroll">
+        <view class="sheet-sec" wx:for="{{sheetGroups}}" wx:key="type" wx:for-item="sec">
+          <view class="sec-hd">{{sec.typeText}}（{{sec.count}} 题）</view>
+          <view class="chip-grid">
+            <view
+              class="chip {{item.st}} {{item.cur ? 'cur' : ''}}"
+              wx:for="{{sec.items}}"
+              wx:key="idx"
+              hover-class="hover-opacity"
+              bindtap="onSheetJump"
+              data-idx="{{item.idx}}"
+            >{{item.num}}</view>
+          </view>
+        </view>
+      </scroll-view>
+      <view class="sheet-ft">
+        <view class="reset-link {{canReset ? '' : 'disabled'}}" hover-class="{{canReset ? 'hover-opacity' : ''}}"
+              bindtap="onResetRecords">清空做题记录</view>
+      </view>
+    </view>
+  </t-popup>
+
+  <t-dialog id="t-dialog" />
   <t-toast id="t-toast" />
 </view>

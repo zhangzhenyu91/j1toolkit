@@ -1,0 +1,39 @@
+<!-- 题库刷题 · 题库池（二级页；原题库列表页题库池板块迁入）
+     可见题库：全部池 + 本班组池；范围 tag（全部池橙 / 班组池藏青 teamName）；
+     右侧「添加」橙描边按钮 /「已加入」灰字（点击确认移出，记录与错题保留） -->
+<navbar back title="题库池" />
+
+<view class="page-body" wx:if="{{!noTeam}}">
+  <block wx:if="{{pool.length}}">
+    <view class="card pool-item" wx:for="{{pool}}" wx:key="id">
+      <view class="icon-box"><t-icon name="book" size="40rpx" color="#F26D21" /></view>
+      <view class="tx">
+        <b>
+          {{item.name}}
+          <span class="tag tag-orange" wx:if="{{item.scope === 'all'}}">全部池</span>
+          <span class="tag tag-navy" wx:else>{{item.teamName}}</span>
+        </b>
+        <view class="meta">
+          <span>{{item.questionCount}} 题</span>
+          <span wx:if="{{item.analyzing}}">{{item.analyzingText}}</span>
+        </view>
+      </view>
+      <view class="btn-join" wx:if="{{!item.added}}" hover-class="hover-opacity"
+            catchtap="onPoolJoin" data-id="{{item.id}}">添加</view>
+      <view class="joined" wx:else hover-class="hover-opacity"
+            catchtap="onPoolLeave" data-id="{{item.id}}" data-name="{{item.name}}">已加入</view>
+    </view>
+  </block>
+  <view wx:elif="{{loading}}" class="empty-box">题库池加载中…</view>
+  <view wx:else class="empty-box">暂无可选题库</view>
+</view>
+
+<!-- 未分配班组空态（非超管且未加入任何班组；整页替代，不发业务请求） -->
+<view class="page-body" wx:if="{{noTeam}}">
+  <view class="empty-box no-team">
+    你的账号尚未加入任何班组，暂无可查看的题库，请联系超级管理员分配班组后再使用。
+  </view>
+</view>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

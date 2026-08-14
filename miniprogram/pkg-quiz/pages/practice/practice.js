@@ -1,9 +1,12 @@
 // 题库刷题 · 刷题页（设计稿 design/quiz.html 屏 02 答题态 / 屏 03 解析态）
 // 入参 { bankId, mode=seq|rand|wrong, title }；wrong 模式 bankId 可空（错题专项练习）
-// 分批拉题（offset 分页 limit 20，快用完自动续批；rand/wrong 每批 offset=0 拉新批并按已见 id 去重）；
-// seq 模式断点续刷：wx.setStorageSync(`quiz_seq_${bankId}`, 全局题序)，进入时按批恢复
-// 解析态：结果 banner + 选项三态（正确绿/错选红/漏选绿虚线）+ 答案行 + AI 解析卡（浅橙底）
+// 题序大纲：进入先拉 lite=1 全量大纲（seq 按 sort,id 升序 / rand 本 session 随机序 / wrong 按最近答错倒序），
+// 题目内容按 20/批按需拉取（offset=批首大纲下标；答题模式不带答案，背题模式 withAnswer=1 带 answer/analysis）
+// seq 断点续刷：wx.setStorageSync(`quiz_seq_${bankId}`, 大纲下标)，进入时恢复
+// 双模式：答题（提交判分 + 解析态三态）/ 背题（直接标出正确答案，常显答案行 + AI 解析卡，不提交不写记录）；
+// 答题卡弹层：按题型分区块题号导航（未答灰 / 答对绿 / 答错红 / 当前橙框），底部可清空做题记录（错题本保留）
 import Toast from 'tdesign-miniprogram/toast/index';
+import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 
@@ -19,6 +22,7 @@ Page({
     gate: false,
     navTitle: '刷题',
     mode: 'seq',
+    viewMode: 'answer', // answer=答题 / recite=背题
     loading: true, // 首屏加载中
     emptyText: '', // 空态文案（非空即整页空态）
     // 顶部进度
@@ -27,14 +31,19 @@ Page({
     pct: 0,
     // 当前题
     cur: null, // { id, type, typeText, content, options:[{letter,text,cls,st,stIcon}] }
-    submitted: false, // 当前题已提交（解析态）
+    submitted: false, // 当前题已提交（解析态；背题模式恒 true）
     canSubmit: false, // 已选至少一项
     multiple: false, // 当前题为多选（底部提示）
     // 解析态数据
     result: null, // { right, answerText, analysis, bannerSub }
     isFirst: true,
-    isLast: false, // 已到本批末尾且无更多题
+    isLast: false, // 已到大纲末尾
     intoView: '', // scroll-view 回顶锚点
+    // 答题卡弹层
+    sheetOpen: false,
+    sheetGroups: [], // [{ type, typeText, count, items:[{idx,num,st,cur}] }]
+    sheetAnswered: 0, // 已答数（本 session 提交口径）
+    canReset: false, // 「清空做题记录」可点（答题模式 + 有 bankId + 已答数>0）
   },
 
   onLoad(options) {
@@ -47,15 +56,13 @@ Page({
       navTitle: title || (this._mode === 'wrong' ? '错题专项练习' : '刷题'),
     });
 
-    // 内部状态：已加载题目 / 逐题作答结果 / 去重表 / 续批标记
-    this._qs = [];
+    // 内部状态：全量题序大纲 / 批次内容缓存（批首下标 → 题目数组）/ 逐题作答结果
+    this._outline = []; // [{id,type}]
+    this._cache = {};
     this._results = {}; // qid → { selected, right, answer, analysis, wrong }
-    this._seen = {};
-    this._idx = 0;
-    this._base = 0; // 已加载首题的全局题序（seq 断点恢复用）
-    this._noMore = false;
-    this._loadingMore = false;
-    this._restoreIdx = 0; // seq 断点：进入时恢复到的批内下标
+    this._idx = 0; // 当前题的大纲下标
+    this._sel = [];
+    this._inflight = null; // 进行中的批次请求（防并发重拉）
 
     // gate 兜底：本页由已门控的列表页进入，此处仅保证登录态就绪
     if (wx.getStorageSync('token')) {
@@ -76,14 +83,6 @@ Page({
   passGate() {
     if (this.data.gate) return;
     this.setData({ gate: true });
-    // seq 断点：按批对齐 base，批内下标恢复
-    if (this._mode === 'seq' && this._bankId) {
-      const saved = Number(wx.getStorageSync(`quiz_seq_${this._bankId}`)) || 0;
-      if (saved > 0) {
-        this._base = Math.floor(saved / LIMIT) * LIMIT;
-        this._restoreIdx = saved - this._base;
-      }
-    }
     this.initLoad();
   },
 
@@ -91,58 +90,84 @@ Page({
     Toast({ context: this, selector: '#t-toast', message });
   },
 
-  /* ==================== 拉题（分批 + 自动续批） ==================== */
+  /* ==================== 拉题（大纲 + 分批内容） ==================== */
 
   async initLoad() {
-    const added = await this.loadMore().catch((err) => {
+    try {
+      await this.fetchOutline();
+      if (!this._outline.length) {
+        this.setData({
+          loading: false,
+          emptyText: this._mode === 'wrong' ? '暂无错题，继续保持' : '该题库暂无题目',
+        });
+        return;
+      }
+      // seq 断点恢复（大纲下标；题库缩水越界则兜底到末尾题）
+      if (this._mode === 'seq' && this._bankId) {
+        const saved = Number(wx.getStorageSync(`quiz_seq_${this._bankId}`)) || 0;
+        this._idx = Math.min(Math.max(saved, 0), this._outline.length - 1);
+      }
+      await this.ensureBatch(this._idx, true);
+      if (!this.getQuestion(this._idx)) {
+        this.setData({ loading: false, emptyText: '题目加载失败，请返回重试' });
+        return;
+      }
+      this.setData({ loading: false, total: this._outline.length });
+      this.renderCurrent();
+    } catch (err) {
       this.toast(err.message);
-      return -1;
-    });
-    if (added < 0) {
       this.setData({ loading: false, emptyText: '题目加载失败，请返回重试' });
-      return;
     }
-    if (!this._qs.length) {
-      this.setData({
-        loading: false,
-        emptyText: this._mode === 'wrong' ? '暂无错题，继续保持' : '该题库暂无题目',
-      });
-      return;
-    }
-    // 断点恢复：越界（题库已缩水）则回到本批首题
-    this._idx = Math.min(this._restoreIdx, this._qs.length - 1);
-    this.setData({ loading: false, total: this._total });
-    this.renderCurrent();
   },
 
-  // 追加一批题目；返回新增条数（去重后）。rand/wrong 每批 offset=0 拉随机/当前批并去重
-  async loadMore() {
-    if (this._loadingMore || this._noMore) return 0;
-    this._loadingMore = true;
-    const offset = this._mode === 'seq' ? this._base + this._qs.length : 0;
-    let url = `${API_BASE}/practice/questions?mode=${this._mode}&offset=${offset}&limit=${LIMIT}`;
+  // 全量题序大纲（lite=1：仅 id + type，不分页）
+  async fetchOutline() {
+    let url = `${API_BASE}/practice/questions?mode=${this._mode}&lite=1`;
     if (this._bankId) url += `&bankId=${encodeURIComponent(this._bankId)}`;
-    try {
-      const data = await request({ url });
-      const raw = (data && data.list) || [];
-      this._total = (data && data.total) || 0;
-      let list = raw;
-      if (this._mode !== 'seq') list = raw.filter((q) => !this._seen[q.id]);
-      list.forEach((q) => { this._seen[q.id] = 1; });
-      this._qs = this._qs.concat(list);
-      // 本批原始不足 limit 或去重后无新题（rand/wrong 题池已刷完）即到底
-      if (raw.length < LIMIT || !list.length) this._noMore = true;
-      return list.length;
-    } finally {
-      this._loadingMore = false;
+    const data = await request({ url });
+    this._outline = (data && data.list) || [];
+  },
+
+  // 下标所在批次内容（offset=批首下标；背题模式 withAnswer=1 带 answer/analysis）。silent=静默预拉
+  async ensureBatch(idx, silent) {
+    const start = Math.floor(idx / LIMIT) * LIMIT;
+    if (this._cache[start]) return;
+    // 有进行中的请求先等它落定（翻页与预拉可能撞批），再复查缓存
+    if (this._inflight) {
+      await this._inflight.catch(() => {});
+      if (this._cache[start]) return;
     }
+    if (!silent) wx.showLoading({ title: '加载中…', mask: true });
+    let url = `${API_BASE}/practice/questions?mode=${this._mode}&offset=${start}&limit=${LIMIT}`;
+    if (this._bankId) url += `&bankId=${encodeURIComponent(this._bankId)}`;
+    if (this.data.viewMode === 'recite') url += '&withAnswer=1';
+    this._inflight = request({ url });
+    try {
+      const data = await this._inflight;
+      const raw = (data && data.list) || [];
+      // 按大纲区间 id 对齐重排（对不上则按响应原序兜底）
+      const map = {};
+      raw.forEach((q) => { map[q.id] = q; });
+      const seg = this._outline.slice(start, start + LIMIT).map((o) => map[o.id]).filter(Boolean);
+      this._cache[start] = seg.length ? seg : raw;
+    } finally {
+      this._inflight = null;
+      if (!silent) wx.hideLoading();
+    }
+  },
+
+  // 取大纲下标对应题目（所在批次须已缓存）
+  getQuestion(idx) {
+    const start = Math.floor(idx / LIMIT) * LIMIT;
+    return (this._cache[start] || [])[idx - start] || null;
   },
 
   /* ==================== 渲染当前题 ==================== */
 
   renderCurrent() {
-    const q = this._qs[this._idx];
+    const q = this.getQuestion(this._idx);
     if (!q) return;
+    const recite = this.data.viewMode === 'recite';
     const res = this._results[q.id];
     const type = q.type || 'single';
     const isMulti = type === 'multiple';
@@ -151,7 +176,12 @@ Page({
       let cls = '';
       let st = '';
       let stIcon = '';
-      if (!res) {
+      if (recite) {
+        // 背题：直接标出正确答案（绿底绿勾），其余普通
+        if ((q.answer || '').includes(letter)) {
+          cls = 'right'; st = '正确'; stIcon = 'check';
+        }
+      } else if (!res) {
         cls = (this._sel || []).includes(letter) ? 'sel' : '';
       } else {
         const inAns = (res.answer || '').includes(letter);
@@ -169,9 +199,8 @@ Page({
       return { letter, text, cls, st, stIcon };
     });
 
-    const globalPos = this._base + this._idx + 1;
-    const total = this._total || 0;
-    const isLast = this._idx >= this._qs.length - 1 && this._noMore;
+    const total = this._outline.length;
+    const isLast = this._idx >= total - 1;
     this.setData({
       cur: {
         id: q.id,
@@ -180,38 +209,34 @@ Page({
         content: q.content || '',
         options: opts,
       },
-      multiple: isMulti && !res,
-      submitted: !!res,
-      canSubmit: !!(this._sel || []).length,
-      result: res ? this.buildResult(res) : null,
+      multiple: isMulti && !recite && !res,
+      submitted: recite || !!res, // 背题恒解析态版式（无 banner、无提交按钮）
+      canSubmit: !recite && !!(this._sel || []).length,
+      result: recite ? this.buildReciteResult(q) : (res ? this.buildResult(res) : null),
       total,
-      posText: String(globalPos),
-      pct: total ? Math.min(100, Math.round((globalPos / total) * 100)) : 0,
+      posText: String(this._idx + 1),
+      pct: total ? Math.min(100, Math.round(((this._idx + 1) / total) * 100)) : 0,
       isFirst: this._idx === 0,
       isLast,
       intoView: '',
     });
     // 回顶（两次赋值保证 scroll-into-view 重复触发）
     wx.nextTick(() => this.setData({ intoView: 'qtop' }));
-    // seq 断点保存（全局题序，0 起）
+    // seq 断点保存（大纲下标，0 起）
     if (this._mode === 'seq' && this._bankId) {
-      wx.setStorageSync(`quiz_seq_${this._bankId}`, this._base + this._idx);
+      wx.setStorageSync(`quiz_seq_${this._bankId}`, this._idx);
     }
-    // 快用完自动续批
-    if (!this._noMore && this._qs.length - this._idx <= 3) {
-      this.loadMore().then(() => {
-        // 续批后重算总数与末尾态（拉到 0 道新题即到底）
-        this.setData({
-          total: this._total,
-          isLast: this._idx >= this._qs.length - 1 && this._noMore,
-        });
-      }).catch(() => {});
+    // 临近批尾静默预拉下一批
+    const nstart = Math.floor(this._idx / LIMIT) * LIMIT + LIMIT;
+    if (nstart < total && !this._cache[nstart]) {
+      this.ensureBatch(nstart, true).catch(() => {});
     }
   },
 
   // 作答结果 → 解析态展示结构（答案行文案 + banner 副文案）
   buildResult(res) {
-    const type = (this._qs[this._idx] || {}).type;
+    const q = this.getQuestion(this._idx);
+    const type = (q || {}).type;
     let answerText = res.answer || '';
     if (type === 'judge') answerText = answerText === 'A' ? '正确' : '错误'; // judge 固定 A=正确 B=错误
     let bannerSub = '';
@@ -232,12 +257,48 @@ Page({
     };
   },
 
-  /* ==================== 选项与提交 ==================== */
+  // 背题模式展示结构（答案/解析取自题目本身；analysis 为 null 时占位「解析生成中」）
+  buildReciteResult(q) {
+    let answerText = q.answer || '';
+    if ((q.type || 'single') === 'judge') answerText = answerText === 'A' ? '正确' : '错误';
+    return {
+      right: true,
+      answerText,
+      analysis: q.analysis || '',
+      bannerSub: '',
+    };
+  },
+
+  /* ==================== 模式切换（答题 / 背题） ==================== */
+
+  async onViewTap(e) {
+    const v = e.currentTarget.dataset.v === 'recite' ? 'recite' : 'answer';
+    if (v === this.data.viewMode) return;
+    // 两种模式出参不同（背题带答案），批次缓存整体作废；先按新模式拉当前批，成功再切换
+    const oldMode = this.data.viewMode;
+    const oldCache = this._cache;
+    this._cache = {};
+    this.data.viewMode = v; // 直接改实例值让 ensureBatch 按新模式拼参（不触发渲染）
+    try {
+      await this.ensureBatch(this._idx, false);
+    } catch (err) {
+      this.data.viewMode = oldMode;
+      this._cache = oldCache;
+      this.toast(err.message);
+      return;
+    }
+    this._sel = [];
+    this.setData({ viewMode: v });
+    this.renderCurrent();
+  },
+
+  /* ==================== 选项与提交（仅答题模式） ==================== */
 
   onOptTap(e) {
-    if (this.data.submitted) return; // 解析态不可改选
+    if (this.data.submitted) return; // 解析态/背题不可改选
     const { letter } = e.currentTarget.dataset;
-    const type = (this._qs[this._idx] || {}).type;
+    const q = this.getQuestion(this._idx);
+    const type = (q || {}).type;
     let sel = this._sel || [];
     if (type === 'multiple') {
       sel = sel.includes(letter) ? sel.filter((l) => l !== letter) : sel.concat(letter);
@@ -257,7 +318,7 @@ Page({
 
   async onSubmit() {
     if (this.data.submitted || !this.canAnswer()) return;
-    const q = this._qs[this._idx];
+    const q = this.getQuestion(this._idx);
     // 多选答案按字母序拼接（如 AC）
     const answer = [...(this._sel || [])].sort().join('');
     wx.showLoading({ title: '提交中…', mask: true });
@@ -290,37 +351,38 @@ Page({
 
   /* ==================== 翻题 ==================== */
 
+  // 跳转到指定大纲下标（必要时先拉所在批次）
+  async goIndex(idx) {
+    if (this._jumping) return;
+    this._jumping = true;
+    try {
+      await this.ensureBatch(idx, false);
+    } catch (err) {
+      this.toast(err.message);
+      return;
+    } finally {
+      this._jumping = false;
+    }
+    if (!this.getQuestion(idx)) {
+      this.toast('题目加载失败，请重试');
+      return;
+    }
+    this._idx = idx;
+    this._sel = [];
+    this.renderCurrent();
+  },
+
   onPrev() {
     if (this._idx <= 0) return;
-    this._idx -= 1;
-    this._sel = [];
-    this.renderCurrent();
+    this.goIndex(this._idx - 1);
   },
 
-  async onNext() {
+  onNext() {
     if (this.data.isLast) return;
-    // 已加载末尾：先续批再前进
-    if (this._idx >= this._qs.length - 1) {
-      if (this._noMore) return;
-      wx.showLoading({ title: '加载中…', mask: true });
-      const added = await this.loadMore().catch((err) => {
-        this.toast(err.message);
-        return -1;
-      });
-      wx.hideLoading();
-      if (added > 0) this.setData({ total: this._total });
-      if (added <= 0) {
-        // 拉取失败或已无新题：停在本题并把末尾态上屏
-        this.setData({ isLast: this._noMore });
-        return;
-      }
-    }
-    this._idx += 1;
-    this._sel = [];
-    this.renderCurrent();
+    this.goIndex(this._idx + 1);
   },
 
-  // 解析态主按钮：末尾题=完成返回，否则下一题（wxml 事件绑定不支持动态表达式，统一入口内分支）
+  // 解析态/背题主按钮：末尾题=完成返回，否则下一题（wxml 事件绑定不支持动态表达式，统一入口内分支）
   onNextOrFinish() {
     if (this.data.isLast) {
       this.onFinish();
@@ -334,6 +396,92 @@ Page({
     wx.navigateBack({
       fail: () => wx.reLaunch({ url: '/pkg-quiz/pages/index/index' }),
     });
+  },
+
+  /* ==================== 答题卡弹层 ==================== */
+
+  // 打开弹层：按题型分区块构建题号 chips（背题模式仅导航，chips 全灰 + 当前橙框）
+  onSheetOpen() {
+    const recite = this.data.viewMode === 'recite';
+    const groups = [];
+    ['single', 'multiple', 'judge'].forEach((t) => {
+      const items = [];
+      this._outline.forEach((o, i) => {
+        if ((o.type || 'single') !== t) return;
+        let st = '';
+        if (!recite) {
+          const r = this._results[o.id];
+          if (r) st = r.right ? 'right' : 'wrong';
+        }
+        items.push({ idx: i, num: i + 1, st, cur: i === this._idx });
+      });
+      if (items.length) groups.push({ type: t, typeText: TYPE_TEXT[t], count: items.length, items });
+    });
+    const answered = Object.keys(this._results).length;
+    this.setData({
+      sheetOpen: true,
+      sheetGroups: groups,
+      sheetAnswered: answered,
+      canReset: !recite && !!this._bankId && answered > 0,
+    });
+  },
+
+  onSheetVisibleChange(e) {
+    if (e.detail.visible) return;
+    if (this.data.sheetOpen) this.setData({ sheetOpen: false });
+  },
+
+  // 点题号：跳转到该题（所在批次未缓存则先拉批）并关闭弹层
+  onSheetJump(e) {
+    const idx = Number(e.currentTarget.dataset.idx);
+    this.setData({ sheetOpen: false });
+    if (Number.isNaN(idx) || idx === this._idx) return;
+    this.goIndex(idx);
+  },
+
+  // 清空做题记录：仅清本题库练习记录与进度（错题本保留）→ 重拉大纲与第一批
+  onResetRecords() {
+    if (!this.data.canReset) return;
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: '清空做题记录？',
+      content: '仅清空本题库的练习记录与进度，错题本保留。',
+      confirmBtn: '确认清空',
+      cancelBtn: '取消',
+    }).then(async () => {
+      try {
+        await request({
+          url: `${API_BASE}/practice/reset`,
+          method: 'POST',
+          data: { bankId: this._bankId },
+        });
+      } catch (err) {
+        this.toast(err.message);
+        return;
+      }
+      // 清空本地断点与已答状态（rand 大纲一并换新的 session 随机序）
+      this._results = {};
+      this._cache = {};
+      this._sel = [];
+      this._idx = 0;
+      if (this._mode === 'seq') wx.removeStorageSync(`quiz_seq_${this._bankId}`);
+      this.setData({ sheetOpen: false });
+      try {
+        await this.fetchOutline();
+        if (!this._outline.length) {
+          this.setData({ cur: null, total: 0, emptyText: '该题库暂无题目' });
+          return;
+        }
+        await this.ensureBatch(0, false);
+        this.setData({ total: this._outline.length });
+        this.renderCurrent();
+      } catch (err) {
+        this.toast(err.message);
+        return;
+      }
+      this.toast('已清空做题记录');
+    }).catch(() => {});
   },
 
   onShareAppMessage() {

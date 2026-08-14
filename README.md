@@ -21,7 +21,7 @@
 - **安全日活动记录**（分包 `pkg-safeday` + 网页端 `safeday.html`）：上传活动文档经 Dify 工作流生成记录文件；后端已合并进主服务（`server/src/safeday/`，`SAFEDAY_ENABLED` 开关），两端均要求 `safe-day` 应用权限；小程序端上传从聊天选取文件，记录经 `wx.openDocument` 打开
 - **远程连接计算机**（PC 端，网页端 `kvm.html`）：对接 GLKVM Cloud 平台（员工同名账号代登取设备列表，卡片展示实时状态），终端/远程控制经带态跳转进平台页（仅能通过壹匣登录平台）；后端子模块 `server/src/kvm/`（`KVM_ENABLED` 开关），要求 `kvm` 应用权限
 - **文件传输**（移动端，小程序分包 `pkg-filetransfer`）：向 KVM 设备虚拟 U 盘推送/取回文件（设备列表同上；上传弹层逐文件推送后统一挂载，下载点按即存相册或打开）；经壹匣转发点 `/api/v1/kvm/devices/{id}/push|mount|files|download`，要求 `file-transfer` 应用权限
-- **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断），顺序/随机刷题，错题本与专项练习（连对 3 次自动移出），Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；后端 `server/src/quiz/`（`QUIZ_ENABLED` 开关），要求 `quiz` 应用权限
+- **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断，仅网页端上传），顺序/随机/错题三模式刷题 + 背题模式（答案解析常显）+ 答题卡跳题与清空做题记录（保留错题本），错题本按题库分组专项练习（连对 3 次自动移出），题库分班组池/全部池、用户自行添加进个人题库，Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；网页端仅题库管理；后端 `server/src/quiz/`（`QUIZ_ENABLED` 开关），要求 `quiz` 应用权限
 
 应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。
 
