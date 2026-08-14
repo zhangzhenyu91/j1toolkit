@@ -3,7 +3,8 @@
      功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 /
      照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志 /
      水印照片上传（选择水印照片直传 / 选片裁剪加水印后上传，服务端渲染，链路同小程序））；
-     右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化；验证报告范围 = 不通过 ∪ 有备注），
+     版心满宽贴边；右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化；验证报告范围 = 不通过 ∪ 有备注），
+     宽屏（≥1600px）记录页签下验证报告常驻卡片流右侧栏（syncSideReport；切到报告页签仍可满宽查看）；
      管理员（超管 / 班组管理员）另见「数据管理」页签：车牌号 / 目的地 / 出工成员 三字典维护 + 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
@@ -23,8 +24,8 @@
   /* theme.css 的 .page 带 margin:0 auto，body 为 flex 容器时 auto 外边距会使 stretch 失效、
      页面宽度退化为按内容收缩（空态/有记录态版心不一致的根源），此处显式 width:100% 恢复满宽 */
   .page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; }
-  /* 版心：页头行与两栏主体共用同一居中栏宽（宽屏限宽居中），空态/有记录态版心一致不跳变 */
-  .wl-wrap { flex: 1; min-height: 0; width: 100%; max-width: 1560px; margin: 0 auto; display: flex; flex-direction: column; }
+  /* 版心满宽贴边（不再限宽居中），空态/有记录态版心一致不跳变 */
+  .wl-wrap { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
   .wl-head { flex: none; }
 
   /* ===== 页头操作区 ===== */
@@ -119,6 +120,13 @@
   }
   .pane-foot { flex: none; display: flex; align-items: center; gap: 12px; padding-top: 14px; }
   .pane-foot .sp { margin-left: auto; display: flex; gap: 10px; }
+
+  /* 宽屏（≥1600px）：记录页签下验证报告常驻右侧栏（与当日卡片流并列；切到报告页签仍可满宽查看） */
+  @media (min-width: 1600px) {
+    .wl-list.rep-side { flex-direction: row; gap: 20px; }
+    .wl-list.rep-side #paneRecord { flex: 1; min-width: 0; }
+    .wl-list.rep-side #paneRep { display: flex; flex-direction: column; width: 480px; flex: none; animation: none; }
+  }
   /* 页头控件按页签显隐用 hidden 属性；author display 规则优先级高于 UA [hidden]，需显式兜底 */
   .wl-head [hidden] { display: none !important; }
   /* 日志卡片列表容器：页面唯一滚动区；scrollbar-gutter 常驻槽位，滚动条出现/消失不引起横向抖动 */
@@ -2798,6 +2806,15 @@ function switchPane(key) {
   if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
   if (key === 'Rep') loadReport();
   if (key === 'Dict') loadDict();
+  syncSideReport();
+}
+
+/* 宽屏（≥1600px）且处于记录页签时，验证报告常驻卡片流右侧（窄屏或其他页签仍为页签切换；
+   首次进入按需加载，loaded 复位后（切班组等）自动重查） */
+function syncSideReport() {
+  var on = window.innerWidth >= 1600 && state.pane === 'Record';
+  $('.wl-list').classList.toggle('rep-side', on);
+  if (on && !state.rep.loaded) loadReport();
 }
 
 /* ================= 验证报告（页签内嵌：不通过记录 ∪ 有备注记录） ================= */
@@ -2887,7 +2904,7 @@ function initEvents() {
   $$('#wlTabs button').forEach(function (b) {
     b.addEventListener('click', function () { switchPane(b.dataset.p); });
   });
-  window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); });
+  window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); syncSideReport(); });
   $('#btnCreate').addEventListener('click', function () { openEntryForm(null); });
   /* 下载页签：查询 / 仅今天 / 全选 / 缩略图勾选 / 打包下载（仅看我走页头全局开关） */
   $('#dlQuery').addEventListener('click', function () {
@@ -3078,6 +3095,7 @@ function reloadTeamData() {
   if (state.pane === 'Dl') loadDlPhotos();
   if (state.pane === 'Rep') loadReport();
   if (state.pane === 'Dict') loadDict(); // 数据管理页签随动刷新
+  syncSideReport(); // 宽屏常驻报告栏随班组切换重查
 }
 
 /* 未分配班组空态（屏十口径）：隐藏页头操作区 / 页签 / 双栏主体，仅显示提示卡 */
@@ -3133,6 +3151,7 @@ async function init() {
   syncCalMonth(parseDate(state.date));
   loadCalMonth(true); // 月历先渲染（API 失败也保证网格展示），着色数据回来后补色
   loadLogs();
+  syncSideReport(); // 宽屏（≥1600px）记录页签下验证报告常驻右侧
   Shade.reveal();
 }
 init();

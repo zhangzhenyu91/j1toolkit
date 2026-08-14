@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · Call Me AI 知识库对话（网页版，方案A「安全橙传承」③）
-     布局：topbar + .page 呼吸边距；左侧会话列表为悬浮白卡（窄屏收为抽屉），右侧为暖纸画布——
+     布局：topbar + .page 呼吸边距满宽贴边；左侧会话列表为悬浮白卡（贴页面最左，窄屏收为抽屉），右侧为暖纸画布——
      消息直接落在画布上（问题藏青气泡 / 回答无气泡纯文本 / 步骤树折叠块含进行中动效），
-     输入框为右侧区域底部居中的悬浮卡片（对齐官方前端布局）
+     输入框为右侧区域底部满宽的悬浮卡片（默认 3 行高，随内容自增至 150px）
      协议对齐小程序端 pkg-callme：POST /api/v1/callme/chat 为 SSE 流（fetch + ReadableStream 解析，
      事件 {type: thinking|answer|preamble|tool_start|tool_end|title|references|done|error}，心跳 ': ping' 行忽略），图片 base64 dataURL 上送 -->
 <html lang="zh-CN">
@@ -22,8 +22,8 @@
      页面宽度退化为按内容收缩，此处显式 width:100% 恢复满宽（同 worklog 的踩坑记录） */
   .cm-page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; padding: 28px 40px 32px; }
 
-  /* ===== 对话区骨架：左右两张悬浮卡片（白底 14px 圆角 + 柔和投影），宽屏限宽居中 ===== */
-  .cm { flex: 1; min-height: 0; display: flex; gap: 20px; width: 100%; max-width: 1560px; margin: 0 auto; }
+  /* ===== 对话区骨架：左右两张悬浮卡片（白底 14px 圆角 + 柔和投影），满宽贴边（左侧会话栏即页面最左） ===== */
+  .cm { flex: 1; min-height: 0; display: flex; gap: 20px; width: 100%; }
   .cm-mask {
     display: none; position: fixed; inset: 60px 0 0 0; z-index: 110;
     background: rgba(27, 39, 64, .4); opacity: 0; pointer-events: none; transition: opacity .3s;
@@ -124,7 +124,7 @@
   }
 
   .cm-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 30px 30px; }
-  .msg-list { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+  .msg-list { display: flex; flex-direction: column; gap: 20px; }
   .chat-start { text-align: center; font-size: 12px; color: var(--ph); letter-spacing: 1px; padding: 6px 0; }
   .sk-bubble { width: min(460px, 70%); height: 96px; border-radius: 4px 12px 12px 12px; }
 
@@ -272,9 +272,9 @@
   }
   .md-code pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
 
-  /* ===== 底部输入区：悬浮卡片，居中于右侧区域底部；chips 在卡上、提示在卡下 ===== */
+  /* ===== 底部输入区：悬浮卡片，满宽落于右侧区域底部；chips 在卡上、提示在卡下 ===== */
   .cm-input { flex: none; padding: 0 30px 12px; }
-  .cm-chip-row { max-width: 900px; margin: 0 auto 10px; }
+  .cm-chip-row { margin-bottom: 10px; }
   .img-chip { position: relative; width: 56px; height: 56px; }
   .img-chip img { width: 56px; height: 56px; border-radius: 9px; object-fit: cover; border: 1px solid var(--hair); background: #fff; }
   .chip-x {
@@ -283,7 +283,7 @@
   }
   .chip-x svg { width: 10px; height: 10px; }
   .cm-box {
-    max-width: 900px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px;
+    display: flex; align-items: flex-end; gap: 8px;
     background: #fff; border: 1px solid var(--hair); border-radius: 14px; padding: 8px;
     box-shadow: var(--shadow-card);
     transition: border-color .25s, box-shadow .25s;
@@ -310,7 +310,7 @@
   .cm-send svg { width: 17px; height: 17px; }
   .cm-send:hover { transform: translateY(-2px); }
   .cm-send.off { opacity: .4; cursor: not-allowed; transform: none !important; box-shadow: none; }
-  .cm-hint { max-width: 900px; margin: 9px auto 0; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
+  .cm-hint { margin: 9px 0 0; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
 
   /* ===== 通用弹窗（新建/重命名输入 + 删除确认） ===== */
   .modal-mask {
@@ -414,7 +414,7 @@
       </div>
       <div class="cm-box">
         <button class="cm-tool" id="btnAttach" title="添加图片"></button>
-        <textarea class="cm-text" id="cmText" rows="1" maxlength="2000"
+        <textarea class="cm-text" id="cmText" rows="3" maxlength="2000"
           placeholder="向 AI 知识库提问，Enter 发送 / Shift+Enter 换行"></textarea>
         <button class="cm-send off" id="btnSend" title="发送"></button>
       </div>

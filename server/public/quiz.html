@@ -21,10 +21,10 @@
   body > .topbar { flex: none; }
   /* theme.css 的 .page 带 margin:0 auto，flex 容器内显式 width:100% 恢复满宽（同 worklog 口径） */
   .page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; padding: 22px 40px 30px; }
-  .qz-wrap { flex: 1; min-height: 0; width: 100%; max-width: 1560px; margin: 0 auto; display: flex; gap: 20px; }
+  .qz-wrap { flex: 1; min-height: 0; width: 100%; display: flex; gap: 20px; }
   .qz-wrap[hidden] { display: none !important; } /* author display 规则优先于 UA [hidden]，显式兜底 */
   /* 非管理角色提示卡：替代左右双卡，整卡居中 */
-  .qz-deny { flex: 1; min-height: 0; width: 100%; max-width: 1560px; margin: 0 auto; display: flex; align-items: center; justify-content: center; }
+  .qz-deny { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
   .qz-deny[hidden] { display: none !important; }
   .qz-deny .empty { width: 100%; }
 
