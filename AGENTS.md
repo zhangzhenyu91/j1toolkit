@@ -59,8 +59,8 @@
 - `miniprogram/` —— 微信小程序（原生 + tdesign-miniprogram）
 - `server/` —— 后端 Node.js 单端口整合服务（API + 托管网页端）
 - `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / safeday.html / kvm.html / quiz.html，公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`；`kvm-device/` 为 KVM 设备一键接入安装包）
-- `SafeDayLogs/` —— 安全日活动记录生成平台，**已整合进主服务**（`server/src/safeday/` + `server/public/safeday.html`），本目录仅作历史归档，不再维护部署
-- `WorkLogs/` —— 出工日志 PC 网页端，**已整合进主服务**（`server/public/worklog.html` 同源直连 `/api/v1/worklog`，原 `/api/wl/*` 反代模式废弃），本目录仅作历史归档，不再维护部署
+- `DOCX-MCP/` —— DOCX 处理 MCP 服务（独立小工具，Docker 部署）
+- `idea/` —— 待开发应用的想法与示例素材（如线路巡视台账）
 - `design/` —— UI 设计稿：小程序定稿 `style-5.html`；`design/web/` 网页端设计稿（`index.html` 六方案索引，定稿方案A「安全橙传承」）
 - 根目录 —— 文档与规则文件（仅 AGENTS.md / README.md / 开发指南.md）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
