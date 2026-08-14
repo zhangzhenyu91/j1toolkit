@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · Call Me AI 知识库对话（网页版，方案A「安全橙传承」③）
      布局：topbar + .page 呼吸边距满宽贴边；左侧会话列表为悬浮白卡（贴页面最左，窄屏收为抽屉），右侧为暖纸画布——
-     消息直接落在画布上（问题藏青气泡 / 回答无气泡纯文本 / 步骤树折叠块含进行中动效），
-     输入框为右侧区域底部满宽的悬浮卡片（默认 3 行高，随内容自增至 150px）
+     聊天列限宽 960px 居中于右区（两侧留白防超宽难读），消息直接落在画布上（问题藏青气泡 / 回答无气泡纯文本 / 步骤树折叠块含进行中动效），
+     输入框为聊天列底部的悬浮卡片（默认 3 行高，随内容自增至 150px）
      协议对齐小程序端 pkg-callme：POST /api/v1/callme/chat 为 SSE 流（fetch + ReadableStream 解析，
      事件 {type: thinking|answer|preamble|tool_start|tool_end|title|references|done|error}，心跳 ': ping' 行忽略），图片 base64 dataURL 上送 -->
 <html lang="zh-CN">
@@ -99,9 +99,11 @@
   .cm-side-foot .nm { font-size: 12.5px; font-weight: 700; }
   .cm-side-foot .rl { font-size: 10.5px; color: var(--ph); margin-top: 1px; }
 
-  /* ===== 右侧对话区：无卡片，消息直接落在暖纸画布上（对齐官方前端） ===== */
+  /* ===== 右侧对话区：无卡片，消息直接落在暖纸画布上（对齐官方前端）；
+         聊天列限宽 960px 居中于右区（auto 外边距吸收剩余宽度），两侧留白防超宽难读 ===== */
   .cm-main {
-    flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+    flex: 1; min-width: 0; max-width: 960px; margin: 0 auto;
+    display: flex; flex-direction: column; overflow: hidden;
   }
   .cm-head {
     height: 56px; flex: none;

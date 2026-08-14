@@ -121,11 +121,17 @@ if [ -n "$WEKNORA_PUBLISH_TOKEN" ]; then
 fi
 if [ -f "$ENV_FILE" ]; then
     # 已配置令牌：确保 index.html 引用了浮窗脚本（固件升级重写后自动恢复）
+    # 必须带 defer：脚本在 <head> 内，同步执行时 document.body 尚未解析，浮窗初始化会报错
     if [ -f "$INDEX" ] && ! grep -qF 'weknora-widget.js' "$INDEX"; then
-        sed -i 's|</head>|<script src="https://know.j1net.com/weknora-widget.js" data-channel="7dcdaea7-00f4-444f-8f57-451d9be35379" data-token-endpoint="/api/fileshare/weknora/embed-token" data-position="bottom-right" data-primary-color="#F26D21" data-title="壹匣助手"></script></head>|' "$INDEX" \
+        sed -i 's|</head>|<script defer src="https://know.j1net.com/weknora-widget.js" data-channel="7dcdaea7-00f4-444f-8f57-451d9be35379" data-token-endpoint="/api/fileshare/weknora/embed-token" data-position="bottom-right" data-primary-color="#F26D21" data-title="壹匣助手"></script></head>|' "$INDEX" \
             || fail "index.html 注入浮窗脚本失败"
         [ -f "${INDEX}.gz" ] && gzip -c "$INDEX" > "${INDEX}.gz"
         info "    已向 index.html 注入浮窗脚本"
+    elif [ -f "$INDEX" ] && ! grep -qF 'script defer src="https://know.j1net.com/weknora-widget.js"' "$INDEX"; then
+        # 旧版注入缺 defer，补齐
+        sed -i 's|<script src="https://know.j1net.com/weknora-widget.js"|<script defer src="https://know.j1net.com/weknora-widget.js"|' "$INDEX"
+        [ -f "${INDEX}.gz" ] && gzip -c "$INDEX" > "${INDEX}.gz"
+        info "    已为浮窗脚本补 defer"
     fi
 else
     info "    WeKnora 浮窗：未提供 WEKNORA_PUBLISH_TOKEN，跳过（需要时设该环境变量后重跑）"
