@@ -9,6 +9,8 @@
 #   GET  /list                 反向操作：确保断开共享（分区挂载回设备本机）→ 返回全部文件名
 #   GET  /download/<文件名>    下载盘内文件（同样确保断开共享；URL 编码的文件名）
 #   POST /delete               删除盘内文件（同样确保断开共享；JSON：{"names": ["a.txt", ...]}）
+#   GET  /weknora/embed-token  WeKnora 浮窗会话令牌：以发布令牌（仅存设备 env，不下发浏览器）
+#                              向 know.j1net.com 换短期 session_token 返回给浮窗脚本
 #
 # 注意：/list 与 /download 结束后分区保持「非共享」状态（文件仅在本机挂载时可读），
 #       被控机要重新看到 U 盘需再推送或到平台 UI 手动连接。
@@ -31,6 +33,13 @@ KVMD_SOCK = '/run/kvmd/kvmd.sock'
 LISTEN_HOST = '0.0.0.0'
 LISTEN_PORT = 8901
 SWITCH_TIMEOUT = 30  # 共享状态切换等待上限（秒）
+
+# WeKnora 浮窗（网页嵌入渠道）：发布令牌只放设备 env（/etc/kvmd/user/fileshare/env），不入仓
+WEKNORA_API = os.environ.get('WEKNORA_API', 'https://know.j1net.com')
+WEKNORA_CHANNEL = os.environ.get('WEKNORA_CHANNEL', '7dcdaea7-00f4-444f-8f57-451d9be35379')
+WEKNORA_TOKEN = os.environ.get('WEKNORA_PUBLISH_TOKEN', '')
+# exchange 的 Origin 头须命中渠道 allowed_origins；优先取本变量，缺省按请求自动推导页面来源
+WEKNORA_ORIGIN = os.environ.get('WEKNORA_EMBED_ORIGIN', '')
 
 log = logging.getLogger('fileshare')
 media_lock = asyncio.Lock()  # 所有读写分区/切换共享的操作串行化，防止互相打断
@@ -206,6 +215,37 @@ async def download(request):
         })
 
 
+async def weknora_token(request):
+    # 浮窗脚本（weknora-widget.js secure 模式）GET 本接口取短期 session_token
+    if not WEKNORA_TOKEN:
+        return web.json_response(
+            {'ok': False, 'error': '未配置 WEKNORA_PUBLISH_TOKEN（/etc/kvmd/user/fileshare/env）'},
+            status=503)
+    headers = {'Authorization': 'Embed ' + WEKNORA_TOKEN}
+    # 浮窗脚本是同源 GET，浏览器一般不带 Origin；按转发头/Host 推导页面真实来源
+    origin = (WEKNORA_ORIGIN or request.headers.get('Origin')
+              or '%s://%s' % (request.headers.get('X-Forwarded-Proto', request.scheme),
+                              request.headers.get('X-Forwarded-Host', request.host)))
+    headers['Origin'] = origin
+    try:
+        async with ClientSession() as s:
+            async with s.post(
+                    '%s/api/v1/embed/%s/exchange' % (WEKNORA_API, WEKNORA_CHANNEL),
+                    headers=headers, timeout=15) as r:
+                body = await r.json(content_type=None)
+    except Exception as e:
+        log.warning('weknora exchange failed: %s', e)
+        return web.json_response({'ok': False, 'error': '令牌交换请求失败：%s' % e}, status=502)
+    data = (body or {}).get('data') or {}
+    tok = data.get('session_token')
+    if not tok:
+        # 原样带出上游错误（如 origin not allowed），便于排查渠道白名单
+        err = (body or {}).get('error') or 'mint failed'
+        log.warning('weknora mint failed (origin=%s): %s', origin, err)
+        return web.json_response({'ok': False, 'error': err}, status=502)
+    return web.json_response({'token': tok, 'expiresIn': data.get('expires_in', 1800)})
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format='%(name)s: %(message)s')
     app = web.Application(client_max_size=0)  # 上传大小不限（局域网可信来源；盘 26.8G 自有限制）
@@ -215,6 +255,7 @@ def main():
     app.router.add_get('/list', list_)
     app.router.add_get('/download/{name}', download)
     app.router.add_post('/delete', delete)
+    app.router.add_get('/weknora/embed-token', weknora_token)
     web.run_app(app, host=LISTEN_HOST, port=LISTEN_PORT, print=None)
 
 

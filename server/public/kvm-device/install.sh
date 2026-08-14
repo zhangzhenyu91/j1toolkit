@@ -5,6 +5,8 @@
 # 作用：
 #   1) 关闭设备 Web UI 登录认证（远程控制直达控制界面，不再二次登录）
 #   2) 安装文件分享 API（push 上传 / list 列表 / download 下载 / status 状态）
+#   3) 注入壹匣主题 CSS（j1-theme.css，覆盖 Web UI 为安全橙风格）
+#   4) 可选：嵌入 WeKnora 浮窗（先 export WEKNORA_PUBLISH_TOKEN=em_xxx 再执行）
 #
 # 用法（SSH 登录设备后执行一行）：
 #   curl -fsSL https://toolkit.j1net.com/kvm-device/install.sh | sh
@@ -59,6 +61,76 @@ fetch manifest.yaml           /usr/share/kvmd/extras/fileshare/manifest.yaml
 chmod +x /etc/init.d/S99fileshare
 /usr/bin/python3 -m py_compile /etc/kvmd/user/fileshare/fileshare.py || fail "fileshare.py 语法校验失败"
 
+# 2b) 注入壹匣主题（覆盖 Web UI 为安全橙风格）
+# 原理见 j1-theme.css 头部注释：CSS 变量 !important 覆盖，不改 JS
+info "    注入壹匣主题 CSS"
+mkdir -p /etc/kvmd/user/theme
+fetch j1-theme.css /etc/kvmd/user/theme/j1-theme.css
+INDEX=/usr/share/kvmd/glweb/index.html
+if [ -f "$INDEX" ]; then
+    if grep -qF 'j1-theme.css' "$INDEX"; then
+        info "    index.html 已引用主题，跳过"
+    else
+        [ -f "${INDEX}.bak-j1theme" ] || cp "$INDEX" "${INDEX}.bak-j1theme"
+        sed -i 's|</head>|<link rel="stylesheet" href="/j1-theme.css" /></head>|' "$INDEX" \
+            || fail "index.html 注入主题引用失败"
+        # 同步更新预压缩副本，避免旧 .gz 被优先返回
+        [ -f "${INDEX}.gz" ] && gzip -c "$INDEX" > "${INDEX}.gz"
+        info "    已向 index.html 注入主题引用（备份：${INDEX}.bak-j1theme）"
+    fi
+else
+    info "    警告：未找到 $INDEX，仅落地 CSS（固件布局变更时需人工检查）"
+fi
+
+# 2b-2) 补丁前端主题常量：antd token 与品牌图标的蓝紫色是构建时内联进 JS/CSS 的，
+# CSS 变量覆盖不到，需直接替换构建产物中的色值（键名带 hash，固件升级后重跑即可）
+info "    补丁前端主题色常量（蓝紫 → 安全橙）"
+ASSETS=/usr/share/kvmd/glweb/assets
+COLOR_PAIRS="5271EC:F26D21 A8B8F5:F98A4B 26367A:D95E15 CBD4F9:F8C9A6 DCE2FC:FDEEE2 \
+4660C9:F26D21 384CA0:F98A4B 909FDE:F8C9A6 1C2650:22314E 859BF5:F98A4B \
+E04C7E:CF4444 FFF0F2:FBEDEA 00C8B5:3FA66A E6FFF8:EAF5EF \
+F3F3F4:F4F1EA EEEEF0:F8F5EC E0E1E5:E3DCCB C44671:CF4444 37262C:3A2426"
+SED_RULES=""
+ALT=""
+for pair in $COLOR_PAIRS; do
+    src=${pair%%:*}; dst=${pair##*:}
+    up=$(printf '%s' "$src" | tr 'a-f' 'A-F'); lo=$(printf '%s' "$src" | tr 'A-F' 'a-f')
+    SED_RULES="$SED_RULES s|#$up|#$dst|g; s|#$lo|#$dst|g; s|%23$up|%23$dst|g; s|%23$lo|%23$dst|g;"
+    ALT="${ALT:+$ALT|}$up"
+done
+if [ -d "$ASSETS" ]; then
+    find "$ASSETS" \( -name '*.js' -o -name '*.css' -o -name '*.svg' \) | while read -r f; do
+        grep -qiE "(#|%23)($ALT)" "$f" || continue
+        [ -f "${f}.bak-j1theme" ] || cp "$f" "${f}.bak-j1theme"
+        sed -i "$SED_RULES" "$f"
+        [ -f "${f}.gz" ] && gzip -c "$f" > "${f}.gz"
+        info "    已补丁：$(basename "$f")"
+    done
+fi
+
+# 2c) WeKnora 浮窗（可选）：提供发布令牌时启用
+# 用法：export WEKNORA_PUBLISH_TOKEN=em_xxx 后再执行本脚本（或 curl ... | WEKNORA_PUBLISH_TOKEN=em_xxx sh）
+# 令牌只落设备 env 文件（权限 600），不下发浏览器；浮窗走同源接口换短期令牌
+ENV_FILE=/etc/kvmd/user/fileshare/env
+if [ -n "$WEKNORA_PUBLISH_TOKEN" ]; then
+    info "    配置 WeKnora 浮窗"
+    ( umask 077 && printf 'export WEKNORA_PUBLISH_TOKEN=%s\n' "$WEKNORA_PUBLISH_TOKEN" > "$ENV_FILE" )
+    # exchange 的 Origin 须命中渠道 allowed_origins，可用 WEKNORA_EMBED_ORIGIN 指定
+    [ -n "$WEKNORA_EMBED_ORIGIN" ] \
+        && printf 'export WEKNORA_EMBED_ORIGIN=%s\n' "$WEKNORA_EMBED_ORIGIN" >> "$ENV_FILE"
+fi
+if [ -f "$ENV_FILE" ]; then
+    # 已配置令牌：确保 index.html 引用了浮窗脚本（固件升级重写后自动恢复）
+    if [ -f "$INDEX" ] && ! grep -qF 'weknora-widget.js' "$INDEX"; then
+        sed -i 's|</head>|<script src="https://know.j1net.com/weknora-widget.js" data-channel="7dcdaea7-00f4-444f-8f57-451d9be35379" data-token-endpoint="/api/fileshare/weknora/embed-token" data-position="bottom-right" data-primary-color="#F26D21" data-title="壹匣助手"></script></head>|' "$INDEX" \
+            || fail "index.html 注入浮窗脚本失败"
+        [ -f "${INDEX}.gz" ] && gzip -c "$INDEX" > "${INDEX}.gz"
+        info "    已向 index.html 注入浮窗脚本"
+    fi
+else
+    info "    WeKnora 浮窗：未提供 WEKNORA_PUBLISH_TOKEN，跳过（需要时设该环境变量后重跑）"
+fi
+
 # 3) 重启相关服务
 info "3/4 重启服务"
 if [ "$NEED_KVMD_RESTART" = 1 ]; then
@@ -83,6 +155,17 @@ info "    fileshare 直连（:8901）：$STATUS"
 VIA443=$(curl -sk https://127.0.0.1/api/fileshare/status)
 printf '%s\n' "$VIA443" | grep -q '"ok": true' || fail "自检：/api/fileshare 响应异常：$VIA443"
 info "    经 nginx（443 /api/fileshare/）：正常"
+THEME=$(curl -sk https://127.0.0.1/j1-theme.css | grep -c 'F26D21')
+[ "$THEME" -gt 0 ] && info "    壹匣主题 CSS（443 /j1-theme.css）：正常" || fail "自检：/j1-theme.css 未取到主题内容"
+curl -sk https://127.0.0.1/ | grep -qF 'j1-theme.css' \
+    && info "    首页主题引用：已注入" || info "    警告：首页未见主题引用（如刚升级固件请重跑本脚本）"
+if [ -f /etc/kvmd/user/fileshare/env ]; then
+    WK=$(curl -sk https://127.0.0.1/api/fileshare/weknora/embed-token)
+    case "$WK" in
+        *'"token"'*) info "    WeKnora 令牌接口：正常" ;;
+        *) info "    警告：WeKnora 令牌接口返回：$WK（多为渠道 allowed_origins 未放行，见开发指南第十二节）" ;;
+    esac
+fi
 
 info "完成。文件分享 API："
 info "    推送  curl -F \"files=@文件\" http://<设备IP>:8901/push"

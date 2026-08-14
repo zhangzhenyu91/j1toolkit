@@ -8,6 +8,8 @@ PIDFILE="/var/run/fileshare.pid"
 
 start() {
     printf "Starting fileshare: "
+    # 可选环境变量（WeKnora 发布令牌等，权限 600，不入仓）：install.sh 或人工写入
+    [ -f /etc/kvmd/user/fileshare/env ] && . /etc/kvmd/user/fileshare/env
     start-stop-daemon --start --quiet --background --make-pidfile --pidfile $PIDFILE --exec /bin/sh -- -c "exec $DAEMON $DAEMON_ARGS 2>&1 | logger -t fileshare -p daemon.info"
     [ $? = 0 ] && echo "OK" || echo "FAIL"
 }
