@@ -6,7 +6,7 @@
 #   1) 关闭设备 Web UI 登录认证（远程控制直达控制界面，不再二次登录）
 #   2) 安装文件分享 API（push 上传 / list 列表 / download 下载 / status 状态）
 #   3) 注入壹匣主题 CSS（j1-theme.css，覆盖 Web UI 为安全橙风格）
-#   4) 可选：嵌入 WeKnora 浮窗（先 export WEKNORA_PUBLISH_TOKEN=em_xxx 再执行）
+#   4) 嵌入 Call Me 浮窗（LangBot，bot.j1net.com，无需令牌）
 #
 # 用法（SSH 登录设备后执行一行）：
 #   curl -fsSL https://toolkit.j1net.com/kvm-device/install.sh | sh
@@ -108,33 +108,21 @@ if [ -d "$ASSETS" ]; then
     done
 fi
 
-# 2c) WeKnora 浮窗（可选）：提供发布令牌时启用
-# 用法：export WEKNORA_PUBLISH_TOKEN=em_xxx 后再执行本脚本（或 curl ... | WEKNORA_PUBLISH_TOKEN=em_xxx sh）
-# 令牌只落设备 env 文件（权限 600），不下发浏览器；浮窗走同源接口换短期令牌
-ENV_FILE=/etc/kvmd/user/fileshare/env
-if [ -n "$WEKNORA_PUBLISH_TOKEN" ]; then
-    info "    配置 WeKnora 浮窗"
-    ( umask 077 && printf 'export WEKNORA_PUBLISH_TOKEN=%s\n' "$WEKNORA_PUBLISH_TOKEN" > "$ENV_FILE" )
-    # exchange 的 Origin 须命中渠道 allowed_origins，可用 WEKNORA_EMBED_ORIGIN 指定
-    [ -n "$WEKNORA_EMBED_ORIGIN" ] \
-        && printf 'export WEKNORA_EMBED_ORIGIN=%s\n' "$WEKNORA_EMBED_ORIGIN" >> "$ENV_FILE"
-fi
-if [ -f "$ENV_FILE" ]; then
-    # 已配置令牌：确保 index.html 引用了浮窗脚本（固件升级重写后自动恢复）
-    # 必须带 defer：脚本在 <head> 内，同步执行时 document.body 尚未解析，浮窗初始化会报错
-    if [ -f "$INDEX" ] && ! grep -qF 'weknora-widget.js' "$INDEX"; then
-        sed -i 's|</head>|<script defer src="https://know.j1net.com/weknora-widget.js" data-channel="7dcdaea7-00f4-444f-8f57-451d9be35379" data-token-endpoint="/api/fileshare/weknora/embed-token" data-position="bottom-right" data-primary-color="#F26D21" data-title="壹匣助手"></script></head>|' "$INDEX" \
+# 2c) 嵌入 Call Me 浮窗（LangBot）：shadow DOM 自带样式，无需令牌
+# 必须带 defer：脚本在 <head> 内，同步执行时 document.body 尚未解析，浮窗初始化会报错
+WIDGET_TAG='<script defer data-title="Call Me" src="https://bot.j1net.com/api/v1/embed/703eb087-cb29-49b1-b0f4-4955d744db88/widget.js"></script>'
+if [ -f "$INDEX" ]; then
+    if grep -qF 'bot.j1net.com/api/v1/embed' "$INDEX"; then
+        info "    浮窗脚本已注入，跳过"
+    else
+        # 旧版 WeKnora 浮窗（含缺 defer 的形态）先移除，再注入 LangBot
+        grep -qF 'weknora-widget.js' "$INDEX" && \
+            sed -i 's|<script defer src="https://know.j1net.com/weknora-widget.js"[^>]*></script>||; s|<script src="https://know.j1net.com/weknora-widget.js"[^>]*></script>||' "$INDEX"
+        sed -i "s|</head>|$WIDGET_TAG</head>|" "$INDEX" \
             || fail "index.html 注入浮窗脚本失败"
         [ -f "${INDEX}.gz" ] && gzip -c "$INDEX" > "${INDEX}.gz"
-        info "    已向 index.html 注入浮窗脚本"
-    elif [ -f "$INDEX" ] && ! grep -qF 'script defer src="https://know.j1net.com/weknora-widget.js"' "$INDEX"; then
-        # 旧版注入缺 defer，补齐
-        sed -i 's|<script src="https://know.j1net.com/weknora-widget.js"|<script defer src="https://know.j1net.com/weknora-widget.js"|' "$INDEX"
-        [ -f "${INDEX}.gz" ] && gzip -c "$INDEX" > "${INDEX}.gz"
-        info "    已为浮窗脚本补 defer"
+        info "    已向 index.html 注入 Call Me 浮窗"
     fi
-else
-    info "    WeKnora 浮窗：未提供 WEKNORA_PUBLISH_TOKEN，跳过（需要时设该环境变量后重跑）"
 fi
 
 # 3) 重启相关服务
@@ -165,13 +153,8 @@ THEME=$(curl -sk https://127.0.0.1/j1-theme.css | grep -c 'F26D21')
 [ "$THEME" -gt 0 ] && info "    壹匣主题 CSS（443 /j1-theme.css）：正常" || fail "自检：/j1-theme.css 未取到主题内容"
 curl -sk https://127.0.0.1/ | grep -qF 'j1-theme.css' \
     && info "    首页主题引用：已注入" || info "    警告：首页未见主题引用（如刚升级固件请重跑本脚本）"
-if [ -f /etc/kvmd/user/fileshare/env ]; then
-    WK=$(curl -sk https://127.0.0.1/api/fileshare/weknora/embed-token)
-    case "$WK" in
-        *'"token"'*) info "    WeKnora 令牌接口：正常" ;;
-        *) info "    警告：WeKnora 令牌接口返回：$WK（多为渠道 allowed_origins 未放行，见开发指南第十二节）" ;;
-    esac
-fi
+curl -sk https://127.0.0.1/ | grep -qF 'bot.j1net.com/api/v1/embed' \
+    && info "    Call Me 浮窗：已注入" || info "    警告：首页未见浮窗脚本（如刚升级固件请重跑本脚本）"
 
 info "完成。文件分享 API："
 info "    推送  curl -F \"files=@文件\" http://<设备IP>:8901/push"
