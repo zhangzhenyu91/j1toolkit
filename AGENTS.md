@@ -60,6 +60,7 @@
 - `server/` —— 后端 Node.js 单端口整合服务（API + 托管网页端）
 - `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / safeday.html / kvm.html / quiz.html，公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`；`kvm-device/` 为 KVM 设备一键接入安装包）
 - `DOCX-MCP/` —— DOCX 处理 MCP 服务（独立小工具，Docker 部署）
+- `WorkLogs/` —— 旧独立服务的历史数据归档（`constant/` 出工日志班组模板、`docs/` 安全日生成产物、`records.json` 安全日记录数据）；代码已删除并整合进主服务，本目录仅存数据
 - `idea/` —— 待开发应用的想法与示例素材（如线路巡视台账）
 - `design/` —— UI 设计稿：小程序定稿 `style-5.html`；`design/web/` 网页端设计稿（`index.html` 六方案索引，定稿方案A「安全橙传承」）
 - 根目录 —— 文档与规则文件（仅 AGENTS.md / README.md / 开发指南.md）
