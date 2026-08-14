@@ -305,7 +305,7 @@ function curBank() {
 /* AI 解析进度：x=已解析，y=应解析总数（已解析+排队中） */
 function aiProgress(b) {
   var a = (b && b.analysis) || {};
-  return { x: a.done || 0, y: (a.done || 0) + (a.pending || 0), pending: a.pending || 0, failed: a.failed || 0 };
+  return { x: a.done || 0, y: (a.done || 0) + (a.pending || 0), pending: a.pending || 0, failed: a.failed || 0, none: a.none || 0 };
 }
 /* 题库范围 tag：all=橙「全部池」；team=藏青班组名（teamName 缺省落「班组池」） */
 function scopeTag(b) {
@@ -437,6 +437,7 @@ function bankMetaManage(b) {
   var t = b.questionCount + ' 题 · ';
   if (p.pending > 0) t += '解析中 ' + p.x + '/' + p.y;
   else if (p.failed > 0) t += p.failed + ' 题解析失败';
+  else if (p.none > 0) t += p.none + ' 题待解析';
   else t += '解析完成';
   return t;
 }
@@ -508,7 +509,7 @@ function renderMgHead() {
     + '<p>' + esc(sub) + '</p></div>'
     + '<button class="btn btn-sm" id="mgTpl">' + Shade.icon('download', 14) + '下载模板</button>'
     + '<button class="btn btn-sm btn-accent" id="mgImport">' + Shade.icon('upload', 14) + '导入 Excel</button>'
-    + '<button class="btn btn-sm" id="mgRetry"' + (p.failed > 0 ? '' : ' disabled') + '>' + Shade.icon('refresh', 14) + '重试失败解析</button>'
+    + '<button class="btn btn-sm" id="mgRetry"' + (p.pending === 0 && (p.failed + p.none) > 0 ? '' : ' disabled') + '>' + Shade.icon('refresh', 14) + (p.failed > 0 ? '重试失败解析' : '继续解析') + '</button>'
     + '<button class="btn btn-sm btn-primary" id="mgAdd">' + Shade.icon('add', 14) + '新增题目</button>';
 }
 function renderMgNotice() {

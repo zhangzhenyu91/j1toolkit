@@ -45,11 +45,11 @@
         <view class="progress"><view class="progress-in" style="width: {{item.anPct}}%;"></view></view>
         <text>{{item.anDone}} / {{item.anTotal}}</text>
       </view>
-      <!-- 失败重试 -->
-      <view class="ai-line" wx:if="{{item.anFailed > 0}}">
+      <!-- 失败重试 / 中断续跑（有待解析或失败题且不在解析中时显示） -->
+      <view class="ai-line" wx:if="{{item.anRetryable}}">
         <span class="retry" hover-class="hover-opacity" catchtap="onRetryAnalyze"
               data-id="{{item.id}}" data-name="{{item.name}}">
-          <t-icon name="refresh" size="26rpx" color="#F26D21" />重试失败解析
+          <t-icon name="refresh" size="26rpx" color="#F26D21" />{{item.anFailed > 0 ? '重试失败解析' : '继续解析'}}
         </span>
       </view>
     </view>

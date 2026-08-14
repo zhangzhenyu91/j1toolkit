@@ -109,13 +109,14 @@ Page({
     }
   },
 
-  // 题库 → 展示结构（scope 范围标签；解析状态三态：解析完成 / 解析中 x/y / N 题失败 + 重试）
+  // 题库 → 展示结构（scope 范围标签；解析状态：解析完成 / 解析中 x/y / 待解析·失败可续跑）
   mapBank(b) {
     const an = b.analysis || {};
     const anDone = an.done || 0;
     const anPending = an.pending || 0;
     const anFailed = an.failed || 0;
-    const anTotal = (an.none || 0) + anPending + anFailed + anDone;
+    const anNone = an.none || 0;
+    const anTotal = anNone + anPending + anFailed + anDone;
     return {
       id: b.id,
       name: b.name || '',
@@ -130,6 +131,8 @@ Page({
       anPct: anTotal ? Math.round((anDone / anTotal) * 100) : 0,
       // 解析完成：无排队无失败且有已生成解析
       anFinished: anPending === 0 && anFailed === 0 && anDone > 0,
+      // 可续跑：不在解析中且有失败/待解析题（服务重启后 pending 自愈回退 none，经此入口续跑）
+      anRetryable: anPending === 0 && (anFailed + anNone) > 0,
     };
   },
 
