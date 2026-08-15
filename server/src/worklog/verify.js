@@ -1,6 +1,18 @@
 // 出工日志：记录验证状态（verify_passed）与未通过明细（verify_reasons）计算，logs / day-status / report 共用
 // 规则（见《开发指南》7.1）：① 未出车不验证（exempt）；② 目的地已选且有用车人（巡视内容按需求可空，不计入）；
 // ③ 至少一张水印照片且全部已通过；④ 用车人名单与全部照片人名并集一致；⑤ 多张照片施工内容一致；⑥ 全部用车人已打卡
+
+// 单张照片水印信息核验（Dify 只返回识别结果，日期/地点比对在后端，见《开发指南》7.2）：
+// 日期相符 = 识别拍摄时间 time 包含记录日期 logDate（YYYY.MM.DD 点分格式，调用方已 dots() 格式化）；
+// 地点相符 = 识别地点 location 包含派车目的地（目的地为空不约束，卡片级规则另判「未选择目的地」）；
+// 两者皆符 → passed，否则 → mismatch
+function checkWatermark({ time, location, logDate, destination }) {
+  const dateOk = typeof time === 'string' && !!logDate && time.includes(logDate);
+  const dest = String(destination || '').trim();
+  const destOk = !dest || String(location || '').includes(dest);
+  return { dateOk, destOk, status: dateOk && destOk ? 'passed' : 'mismatch' };
+}
+
 function computeVerifyPassed(entry) {
   if (!entry.vehicle_id) return 'exempt';
   if (!entry.destination_id) return 'failed';
@@ -84,4 +96,4 @@ function myReportReasons(entry, me) {
   return reasons;
 }
 
-module.exports = { computeVerifyPassed, computeFailReasons, photoIssues, myReportReasons };
+module.exports = { computeVerifyPassed, computeFailReasons, photoIssues, myReportReasons, checkWatermark };
