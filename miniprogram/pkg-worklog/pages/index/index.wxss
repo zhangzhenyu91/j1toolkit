@@ -21,10 +21,10 @@ page {
 .day-swiper {
   flex: 1;
   min-height: 0;
-  /* 与视图开关上方留白一致；左缘吃到屏幕左（-28rpx 抵消 page-body 侧 padding），
-     右缘再向屏外多伸 28rpx——配合窗格右内边距 28rpx：静止时卡片完全通栏零留白，
-     滑动时相邻两天卡片之间露出 28rpx 间隙（伸出段落在屏外不可见） */
-  margin: 28rpx -56rpx 0 -28rpx;
+  /* 与视图开关上方留白一致；左右各 -28rpx 恰好抵消 page-body 侧 padding 吃到屏边（不再向屏外多伸）——
+     配合窗格左右各 28rpx 内边距：静止时卡片与上方日期条/开关对齐留白（28rpx），
+     滑动时相邻两天卡片之间露出 56rpx 间隙（左右内边距之和） */
+  margin: 28rpx -28rpx 0 -28rpx;
 }
 
 .day-pane .mt-0 {
@@ -34,7 +34,7 @@ page {
 .day-scroll {
   height: 100%;
   box-sizing: border-box;
-  padding-right: 28rpx; /* 窗格间隙来源（见 .day-swiper 注释）；左缘不内缩，卡片通栏 */
+  padding: 0 28rpx; /* 卡片静止时左右留白与页面对齐；滑动时邻卡间隙 = 左右内边距之和（56rpx） */
 }
 
 .day-pane {
