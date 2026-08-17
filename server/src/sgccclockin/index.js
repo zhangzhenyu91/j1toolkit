@@ -838,11 +838,15 @@ async function syncOne(account, date, scope) {
   }
 }
 
-// 整班单日核查
+// 整班单日核查（仅当日用车人：非用车人数据界面不展示，跳过可省一轮商旅 API，
+// 也避免照片对账记「成员当日无出工记录」噪音日志）
 async function syncTeamDay(teamId, date, scope) {
   const [accounts] = await pool.query(
-    'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND member_id IS NOT NULL',
-    [teamId]
+    `SELECT DISTINCT a.* FROM worklog_sgcc_account a
+     JOIN worklog_entry e ON e.team_id = a.team_id AND e.log_date = ?
+     JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a.member_id
+     WHERE a.team_id = ? AND a.member_id IS NOT NULL`,
+    [date, teamId]
   );
   for (const account of accounts) {
     try {
@@ -854,7 +858,7 @@ async function syncTeamDay(teamId, date, scope) {
 }
 
 // POST /sync/pull：手动从商旅拉取 {date: 'YYYY-MM-DD'} 或 {from: 'YYYY-MM-DD', to: 'YYYY-MM-DD'}（日期区段，最多跨 62 天），team_id?
-// 所有 work-log 权限用户可用：触发本班组指定日期（区段）全部绑定成员从商旅拉取（一律以商旅为准覆盖本地）；
+// 所有 work-log 权限用户可用：触发本班组指定日期（区段）内当日用车人中的绑定成员从商旅拉取（一律以商旅为准覆盖本地）；
 // team_id 仅超管生效（沿用 resolveReqTeam 口径：班组管理员/普通用户传了也被收敛到本班）；
 // 区段逐日串行异步执行，结果见 GET /sync/logs
 router.post('/sync/pull', async (req, res, next) => {
