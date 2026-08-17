@@ -40,8 +40,8 @@
           <text wx:if="{{item.content}}" user-select>{{item.content}}</text>
         </view>
 
-        <!-- AI 消息：无气泡，步骤树 + 纯文本回答（对齐官方前端） -->
-        <view wx:else class="ai-side">
+        <!-- 回复消息：无气泡，步骤树 + 纯文本回答（对齐官方前端） -->
+        <view wx:else class="reply-side">
           <!-- 步骤树：流式期间展开，回答完毕自动折叠为摘要行，可点击再展开 -->
           <view wx:if="{{item.steps.length}}" class="think-box">
             <view class="think-head" hover-class="hover-opacity" data-index="{{index}}" bindtap="toggleThinking">
@@ -94,7 +94,7 @@
             </scroll-view>
           </view>
 
-          <view class="bubble ai-bubble {{item.error ? 'ai-error' : ''}}">
+          <view class="bubble reply-bubble {{item.error ? 'reply-error' : ''}}">
             <mp-html
               wx:if="{{item.html}}"
               content="{{item.html}}"
@@ -154,7 +154,7 @@
         class="chat-input"
         auto-height
         maxlength="2000"
-        placeholder="向 AI 知识库提问…"
+        placeholder="请输入问题…"
         placeholder-class="input-ph"
         value="{{inputValue}}"
         bindinput="onInput"

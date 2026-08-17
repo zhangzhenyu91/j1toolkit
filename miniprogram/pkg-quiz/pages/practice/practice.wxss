@@ -302,7 +302,7 @@
   font-weight: 600;
 }
 
-/* ---------- AI 解析卡（浅橙底 + 灯泡图标；fadeUp 入场） ---------- */
+/* ---------- 解析卡（浅橙底 + 灯泡图标；fadeUp 入场） ---------- */
 .analysis-card {
   margin-top: 22rpx;
   padding: 26rpx 28rpx;

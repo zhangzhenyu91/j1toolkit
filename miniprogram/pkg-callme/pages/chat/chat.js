@@ -10,7 +10,7 @@ import { shareAppMessage } from '../../../utils/share';
 
 const MarkdownIt = require('markdown-it');
 
-// html:false —— 不透传原始 HTML 标签，防止 AI 输出中的标签被原样注入
+// html:false —— 不透传原始 HTML 标签，防止回复内容中的标签被原样注入
 const md = new MarkdownIt({ html: false, linkify: true });
 
 // Markdown 排版样式（方案五色板；mp-html 的 tag-style 按标签名生效）
@@ -686,7 +686,7 @@ Page({
       this.setData({ [`${key}.references`]: evt.list });
     } else if (evt.type === 'error') {
       const patch = {
-        [`${key}.content`]: evt.content || 'AI 服务返回错误',
+        [`${key}.content`]: evt.content || '服务返回错误',
         [`${key}.error`]: true,
         [`${key}.streaming`]: false,
         [`${key}.thinkingExpanded`]: false,

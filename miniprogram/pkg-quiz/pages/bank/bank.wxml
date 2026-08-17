@@ -1,5 +1,5 @@
 <!-- 题库刷题 · 题库主页（参考考试宝科目页：练习入口与错题/收藏都跟着题库走）
-     信息卡（卡顶警示斜纹条为全局 hazard-top；题数/已练/正确率 + 进度条 + AI 解析状态）；
+     信息卡（卡顶警示斜纹条为全局 hazard-top；题数/已练/正确率 + 进度条 + 解析状态）；
      宫格四入口：顺序练习（本地断点进度）/ 随机练习 / 我的错题（本题库口径，进错题本页）/ 我的收藏（进刷题）；
      底部「移出题库」红色文字按钮（记录与错题保留，可从题库池重新添加） -->
 <navbar back title="{{navTitle}}" />
@@ -11,7 +11,7 @@
       {{bank.name}}
       <span class="tag tag-orange" wx:if="{{bank.scope === 'all'}}">全部池</span>
       <span class="tag tag-navy" wx:elif="{{bank.teamName}}">{{bank.teamName}}</span>
-      <span class="badge-outline" wx:if="{{bank.aiReady}}">AI 解析</span>
+      <span class="badge-outline" wx:if="{{bank.anReady}}">解析</span>
     </view>
     <view class="desc" wx:if="{{bank.description}}">{{bank.description}}</view>
     <view class="stat-row">

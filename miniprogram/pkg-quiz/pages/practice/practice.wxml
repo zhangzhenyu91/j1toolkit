@@ -1,6 +1,6 @@
 <!-- 题库刷题 · 刷题页（交互参考考试宝：一题一页，swiper 跟手左右滑动翻页；单选/判断点选即判分）
      顶部进度行：答题/背题双 pill 切换 + 细进度条 + x/total；swiper 三窗格窗口化渲染（当前题 ±1），
-     翻页落定后窗口平移并复位中间格；解析态：正确答案/您的选择 + 作答统计 + AI 解析卡；
+     翻页落定后窗口平移并复位中间格；解析态：正确答案/您的选择 + 作答统计 + 解析卡；
      底栏（考试宝式）：收藏星标 / 对错计数 / 已做题（点开答题卡）/ 主按钮（多选提交、解析态下一题）；
      答题卡弹层按题型分区块导航 + 图例，底部可清空做题记录（错题本保留） -->
 <view class="page">
@@ -82,12 +82,12 @@
               <view class="r-sub orange" wx:if="{{item.result.bannerSub}}">{{item.result.bannerSub}}</view>
             </view>
 
-            <!-- AI 解析卡（解析态；背题模式常显；解析未生成时占位文案） -->
+            <!-- 解析卡（解析态；背题模式常显；解析未生成时占位文案） -->
             <view class="analysis-card" wx:if="{{item.submitted && item.result}}">
               <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#F26D21" />试题详解</view>
               <view class="bd" wx:if="{{item.result.analysis}}">{{item.result.analysis}}</view>
               <view class="bd ph" wx:else>解析生成中，稍后可查看</view>
-              <view class="ft" wx:if="{{item.result.analysis}}">解析由 AI 生成，仅供参考</view>
+              <view class="ft" wx:if="{{item.result.analysis}}">解析内容仅供参考</view>
             </view>
           </view>
 

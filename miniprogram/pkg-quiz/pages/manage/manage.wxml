@@ -38,15 +38,15 @@
         <span class="tag tag-green" wx:if="{{item.anFinished}}">解析完成</span>
         <span class="tag tag-red" wx:if="{{item.anFailed > 0}}">{{item.anFailed}} 题解析失败</span>
       </view>
-      <!-- AI 解析中：橙色进度条 -->
-      <view class="ai-line" wx:if="{{item.analyzing}}">
+      <!-- 解析中：橙色进度条 -->
+      <view class="an-line" wx:if="{{item.analyzing}}">
         <t-icon name="lightbulb" size="26rpx" color="#F26D21" />
-        <text>AI 解析中</text>
+        <text>解析中</text>
         <view class="progress"><view class="progress-in" style="width: {{item.anPct}}%;"></view></view>
         <text>{{item.anDone}} / {{item.anTotal}}</text>
       </view>
       <!-- 失败重试 / 中断续跑（有待解析或失败题且不在解析中时显示） -->
-      <view class="ai-line" wx:if="{{item.anRetryable}}">
+      <view class="an-line" wx:if="{{item.anRetryable}}">
         <span class="retry" hover-class="hover-opacity" catchtap="onRetryAnalyze"
               data-id="{{item.id}}" data-name="{{item.name}}">
           <t-icon name="refresh" size="26rpx" color="#F26D21" />{{item.anFailed > 0 ? '重试失败解析' : '继续解析'}}

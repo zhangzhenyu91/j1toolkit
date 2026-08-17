@@ -47,15 +47,15 @@
   gap: 12rpx;
 }
 
-.ai-side {
+.reply-side {
   max-width: 100%;
   width: 100%;
   display: flex;
   flex-direction: column;
 }
 
-/* AI 回答不用气泡（对齐官方前端）：纯文本流式内容，仅用户问题保留气泡 */
-.ai-bubble {
+/* 回答不用气泡（对齐官方前端）：纯文本流式内容，仅用户问题保留气泡 */
+.reply-bubble {
   background: transparent;
   color: #22314E;
   border-radius: 0;
@@ -64,7 +64,7 @@
   white-space: pre-wrap;
 }
 
-.ai-error {
+.reply-error {
   background: transparent;
   color: #CF4444;
 }

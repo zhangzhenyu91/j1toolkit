@@ -94,7 +94,7 @@ Page({
       questionCount: b.questionCount || 0,
       added: !!b.added,
       analyzing: anPending > 0,
-      analyzingText: `AI 解析中 ${anDone}/${anTotal || b.questionCount || 0}`,
+      analyzingText: `解析中 ${anDone}/${anTotal || b.questionCount || 0}`,
     };
   },
 

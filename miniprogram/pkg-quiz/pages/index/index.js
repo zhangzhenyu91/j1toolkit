@@ -187,9 +187,9 @@ Page({
       notStarted: answered === 0,
       pct: total ? Math.round((answered / total) * 100) : 0,
       analyzing: anPending > 0,
-      analyzingText: `AI 解析中 ${anDone}/${anTotal || total}`,
+      analyzingText: `解析中 ${anDone}/${anTotal || total}`,
       // 解析就绪徽章：无排队且有已生成解析
-      aiReady: anPending === 0 && anDone > 0,
+      anReady: anPending === 0 && anDone > 0,
     };
   },
 

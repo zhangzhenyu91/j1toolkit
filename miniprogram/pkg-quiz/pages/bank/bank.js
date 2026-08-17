@@ -1,5 +1,5 @@
 // 题库刷题 · 题库主页（参考考试宝科目页：练习入口与错题/收藏都跟着题库走，不再全局混排）
-// 信息卡（题数/已练/正确率 + 进度条 + AI 解析状态，GET /banks/:id/home）+ 宫格四入口：
+// 信息卡（题数/已练/正确率 + 进度条 + 解析状态，GET /banks/:id/home）+ 宫格四入口：
 // 顺序练习（进度读本地断点 quiz_seq_{bankId}）/ 随机练习 → practice 页；
 // 我的错题 → 错题本页（按本题库过滤）；我的收藏 → practice mode=fav 刷题；
 // 底部「移出题库」= DELETE /banks/:id/join（保留练习记录与错题），返回列表页 onShow 自动刷新
@@ -104,9 +104,9 @@ Page({
       wrongCount: h.wrongCount || 0,
       favCount: h.favCount || 0,
       analyzing: anPending > 0,
-      analyzingText: `AI 解析中 ${anDone}/${anTotal || total}`,
+      analyzingText: `解析中 ${anDone}/${anTotal || total}`,
       // 解析就绪徽章：无排队且有已生成解析
-      aiReady: anPending === 0 && anDone > 0,
+      anReady: anPending === 0 && anDone > 0,
     };
   },
 

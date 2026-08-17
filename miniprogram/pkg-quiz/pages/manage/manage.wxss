@@ -77,7 +77,7 @@
 }
 
 /* 解析状态行：解析中进度 / 失败重试 */
-.ai-line {
+.an-line {
   margin-top: 16rpx;
   display: flex;
   align-items: center;
@@ -86,7 +86,7 @@
   color: #6b7690;
 }
 
-.ai-line .progress {
+.an-line .progress {
   flex: 1;
   height: 12rpx;
   border-radius: 6rpx;
@@ -94,13 +94,13 @@
   overflow: hidden;
 }
 
-.ai-line .progress-in {
+.an-line .progress-in {
   height: 100%;
   border-radius: 6rpx;
   background: #f26d21;
 }
 
-.ai-line .retry {
+.an-line .retry {
   color: #f26d21;
   font-weight: 700;
   display: flex;
