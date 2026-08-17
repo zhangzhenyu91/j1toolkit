@@ -60,6 +60,10 @@ if (config.kvm.enabled) {
 if (config.quiz.enabled) {
   app.use('/api/v1/quiz', require('./quiz'));
 }
+// 商旅打卡（出工日志扩展）：env SGCC_CLOCKIN_ENABLED=true 时才挂载（建表/种子见 db.js）
+if (config.sgcc.enabled) {
+  app.use('/api/v1/sgcc', require('./sgccclockin'));
+}
 
 // 404 与统一错误处理
 app.use((req, res) => fail(res, 404, 40404, '接口不存在'));

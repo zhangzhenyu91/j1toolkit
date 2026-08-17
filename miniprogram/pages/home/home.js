@@ -21,6 +21,9 @@ Page({
     appCount: 0, // 「我的」面板：可见应用数量
     appNames: [], // 「我的」面板：可见应用名称（我的权限弹窗）
     loading: true,
+    // 「我的」面板「商旅打卡」行：三态文案（未绑定/已绑定/登录已过期）
+    sgccNote: '未绑定',
+    sgccExpired: false, // true=已绑定但商旅登录已过期（红字）
   },
 
   onLoad() {
@@ -57,6 +60,7 @@ Page({
     if (this.data.gate) {
       this.loadProfile();
       this.loadApps();
+      this.loadSgccStatus();
     }
   },
 
@@ -137,6 +141,30 @@ Page({
   },
 
   /* ---------- 「我的」面板 ---------- */
+
+  // 商旅打卡绑定状态刷新（三态：未绑定 / 已绑定 / 登录已过期）；
+  // 无 sgcc-clockin 应用权限或后端未开启时接口 403/404，静默降级为「未绑定」不报错
+  async loadSgccStatus() {
+    try {
+      const teamId = Number(wx.getStorageSync('worklog_team_id')) || 0; // 班组口径同 pkg-worklog
+      const data = await request({
+        url: `/api/v1/sgcc/account${teamId ? `?team_id=${teamId}` : ''}`,
+      });
+      const bound = !!(data && data.bound);
+      const expired = bound && Number(data.tokenStatus) !== 1;
+      this.setData({
+        sgccNote: bound ? (expired ? '登录已过期' : '已绑定') : '未绑定',
+        sgccExpired: expired,
+      });
+    } catch (err) {
+      this.setData({ sgccNote: '未绑定', sgccExpired: false });
+    }
+  },
+
+  // 进入「商旅打卡」绑定页（pkg-worklog 分包）
+  goSgccBind() {
+    wx.navigateTo({ url: '/pkg-worklog/pages/sgccbind/sgccbind' });
+  },
 
   // 我的权限：列出可见应用
   onPerms() {

@@ -1,0 +1,166 @@
+<!-- 商旅打卡 · 账号绑定页（未绑定：短信登录三步；已绑定：账号状态 + 解除绑定/重新登录） -->
+<navbar back title="商旅打卡" />
+
+<view class="page-body" wx:if="{{gate && !loading}}">
+  <!-- ================= 未绑定态（设计稿②屏） ================= -->
+  <block wx:if="{{!bound}}">
+    <!-- 顶部提示卡 -->
+    <view class="tip sg-tip-first">
+      <view class="ti">
+        <t-icon name="info-circle" size="36rpx" color="#F26D21" />
+      </view>
+      <view>
+        <text class="tip-t">绑定本人商旅账号</text>
+        <view class="tip-p">打卡、费用与照片均以本人账号提交商旅平台；请用商旅 App 注册手机号短信登录（与 App 登录互不影响）。</view>
+      </view>
+    </view>
+
+    <!-- 短信登录 -->
+    <view class="sec-row">
+      <view class="section-title">短信登录</view>
+    </view>
+    <view class="card sg-card">
+      <view class="field">
+        <t-icon name="mobile" size="38rpx" color="#A89F8A" />
+        <input
+          class="fi"
+          type="number"
+          maxlength="11"
+          placeholder="商旅注册手机号"
+          placeholder-class="ph"
+          value="{{formMobile}}"
+          bindinput="onMobileInput"
+        />
+      </view>
+      <view class="field">
+        <t-icon name="check-rectangle" size="38rpx" color="#A89F8A" />
+        <input
+          class="fi"
+          placeholder="图形验证码"
+          placeholder-class="ph"
+          value="{{imgCode}}"
+          bindinput="onImgCodeInput"
+        />
+        <image
+          wx:if="{{captchaImg}}"
+          class="captcha"
+          src="{{captchaImg}}"
+          mode="aspectFit"
+          hover-class="hover-opacity"
+          bindtap="onCaptcha"
+        />
+        <view wx:else class="captcha captcha-empty" hover-class="hover-opacity" bindtap="onCaptcha">点击获取</view>
+      </view>
+      <view class="field">
+        <t-icon name="lock-on" size="38rpx" color="#A89F8A" />
+        <input
+          class="fi"
+          type="number"
+          maxlength="6"
+          placeholder="短信验证码"
+          placeholder-class="ph"
+          value="{{smsCode}}"
+          bindinput="onSmsCodeInput"
+        />
+        <view class="suffix {{smsCountdown > 0 ? 'off' : ''}}" hover-class="hover-opacity" bindtap="onSendSms">
+          {{smsCountdown > 0 ? smsCountdown + 's 后重发' : '获取验证码'}}
+        </view>
+      </view>
+      <view class="btn-primary sg-bind-btn {{binding ? 'off' : ''}}" hover-class="hover-opacity" bindtap="onBind">
+        {{binding ? '绑定中…' : '登录并绑定'}}
+      </view>
+    </view>
+
+    <!-- 打卡设备信息（随绑定一并提交） -->
+    <view class="sec-row">
+      <view class="section-title">打卡设备信息</view>
+      <text class="sec-note">将显示在商旅打卡记录中</text>
+    </view>
+    <view class="card sg-card">
+      <view class="kv" hover-class="hover-bg-warm" bindtap="onEditDevice" data-field="deviceType">
+        <text class="k">设备型号</text>
+        <view class="v">
+          {{deviceType}}
+          <text class="v-sub">「厂商 型号」格式，本人可改；谁帮打卡都上传本人的此项设置</text>
+        </view>
+        <view class="rt"><text class="badge-outline">可修改</text></view>
+      </view>
+      <view class="kv" hover-class="hover-bg-warm" bindtap="onEditDevice" data-field="systemVersion">
+        <text class="k">系统版本</text>
+        <view class="v">{{systemVersion}}</view>
+        <view class="rt"><text class="badge-outline">可修改</text></view>
+      </view>
+    </view>
+  </block>
+
+  <!-- ================= 已绑定态（设计稿③屏） ================= -->
+  <block wx:else>
+    <!-- 头部斜纹卡：昵称首字头像 + 已绑定徽章 -->
+    <view class="card hazard-top sg-head-card">
+      <view class="sg-head">
+        <view class="sg-avatar">{{avatarChar}}</view>
+        <view class="sg-head-info">
+          <view class="sg-name">{{userInfo.nickname || '同事'}}</view>
+          <view class="sg-badges">
+            <text class="badge-outline green">已绑定</text>
+            <text class="sg-team" wx:if="{{userInfo.team}}">{{userInfo.team}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 账号状态 -->
+    <view class="sec-row">
+      <view class="section-title">账号状态</view>
+    </view>
+    <view class="card sg-card">
+      <view class="kv">
+        <text class="k">商旅账号</text>
+        <view class="v">{{mobile}}</view>
+      </view>
+      <view class="kv">
+        <text class="k">登录状态</text>
+        <view class="v {{tokenStatus === 1 ? 'ok' : 'bad'}}">
+          {{tokenStatus === 1 ? '有效' : '已过期'}}
+          <text class="v-sub">{{tokenStatus === 1 ? '每次打卡/上传前实时校验；失效提醒重新登录' : '商旅登录已过期，请重新登录恢复打卡与同步'}}</text>
+        </view>
+      </view>
+      <view class="kv" hover-class="hover-bg-warm" bindtap="onEditDevice" data-field="deviceType">
+        <text class="k">设备型号</text>
+        <view class="v">{{deviceType}}</view>
+        <view class="rt"><text class="badge-outline">可修改</text></view>
+      </view>
+      <view class="kv" hover-class="hover-bg-warm" bindtap="onEditDevice" data-field="systemVersion">
+        <text class="k">系统版本</text>
+        <view class="v">{{systemVersion}}</view>
+        <view class="rt"><text class="badge-outline">可修改</text></view>
+      </view>
+      <view class="kv">
+        <text class="k">今日打卡</text>
+        <view class="v">
+          {{clockCount > 0 ? clockCount + ' 次' : '未打卡'}}
+          <text class="v-sub" wx:if="{{clockLine}}">{{clockLine}}</text>
+        </view>
+      </view>
+      <view class="kv">
+        <text class="k">今日费用</text>
+        <view class="v">
+          {{feeText}}
+          <text class="v-sub" wx:if="{{feeSub}}">{{feeSub}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 底部操作：解除绑定（二次确认）/ 重新登录 -->
+    <view class="sheet-actions sg-actions">
+      <view class="btn-ghost danger" hover-class="hover-opacity" bindtap="onUnbind">解除绑定</view>
+      <view class="btn-dark" hover-class="hover-opacity" bindtap="onRelogin">
+        <t-icon name="refresh" size="34rpx" color="#FFFFFF" />
+        重新登录
+      </view>
+    </view>
+  </block>
+</view>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

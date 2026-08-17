@@ -1,0 +1,1367 @@
+<!DOCTYPE html>
+<!--
+  商旅打卡 · 出工日志扩展设计稿（沿用方案五「安全橙」定稿 token）【待审批 v3】
+  主色板：暖纸底 #F4F1EA ｜ 藏青 #22314E ｜ 安全橙 #F26D21 ｜ 浅橙 #FDEEE2 ｜ 警示红 #CF4444 ｜ 成功绿 #2BA471 ｜ 描边 #E3DCCB / #E8E0CD
+
+  定位：商旅打卡不作为独立应用，而是「出工日志」的扩展能力（小程序 pkg-worklog 内扩展 + 「我的」页加入口 + 后端新增 server/src/sgccclockin/ 模块，app_key `sgcc-clockin`；网页端 server/public/worklog.html 在其现有结构上改造，不另起炉灶）。
+  架构：后端中继 —— 端侧不直连商旅；壹匣后端转发商旅 API 并同事务双写本地表。商旅协议已全通（jsonx 双通道，slapp 通道 dCu 公钥加密 / wLA 私钥解密，saveFeeInfoNew 已实测保存成功）。
+  隐私：Web 端与小程序端任何页面均不出现平台所属方名称，统称「商旅平台 / 商旅 App」。
+
+  设计要点（v3 修订）：
+  1. 绑定入口在「我的」页（row：商旅打卡）；每个用车人绑定自己的商旅账号（短信验证码登录，密码登录有滑块风控不做）；设备型号「厂商 型号」格式（例 Xiaomi 2509FPN0BC）由本人编辑；代打卡时上传的是被打卡人绑定的机型，与操作者设备无关；
+  2. 打卡两次制：开始打卡 + 结束打卡，打满后各自「更新」（updateMark 只改地点）；同一条记录已有其他用车人打卡时地点自动带入（取先打卡人定位，可改）；chip 三态：未打卡（橙虚线）/ 已打卡（绿勾+时间地点+工时）/ 未绑定（锁标）；打卡备注默认「110kV及220kV输电线路巡视」，仅作为商旅 remarks，与记录卡片备注（纯本地）无关；
+  3. 照片模块完全沿用现有三入口结构（小程序 index.wxml:909 自绘方式层 / Web openAddSheet 同款）：
+     ①「选择水印照片上传」—— 已有水印照片（如今日水印相机拍摄）相册直传，不裁剪不编辑，上传即验证；
+     ②「拍摄/选择照片并添加水印」—— 4:3 裁剪 + 水印字段编辑（施工内容/拍摄时间/天气/地点/经纬度/杆塔级联/14 位防伪码），服务端渲染水印后上传并验证；
+     ③【新增】「非水印照片」—— 直接上传所选原图，不渲染、不验证、不占每人限一张名额；
+     三人共用人名点亮层；三类照片全部同步进被选中人的当日商旅费用照片；
+  4. 选人前批量校验候选人商旅登录态：过期者红框置灰 + 弹提醒，恢复前不可选；
+  5. 照片同步与 Dify 时机：壹匣内上传 → 立即 Dify；商旅侧新增（App 直接传的）→ 每晚 23:00 核查 / 手动「同步核查」发现入库 → 此时才异步 Dify；壹匣上传过的按商旅图片 id 去重不重复验证；
+  6. 验证报告改为「汇总前核验」：仅列出有问题的记录（卡片 + 规则 + 明细），全部通过时只显示绿色通过态；规则 5 条：
+     a. 用车人均已完成两次打卡（开始+结束；仅对已绑定商旅的人生效）
+     b. 用车人均已上传水印照片
+     c. 同记录不同水印照片的施工内容相同
+     d. 水印照片的地点信息均包含派车目的地
+     e. 水印照片的拍摄时间均为记录当天
+     （未出车免验证沿用；非水印照片不参与）
+  7. 老数据：绑定成功后一次性回填 8 月数据（打卡/费用/照片对账入库）；8 月之前的商旅数据不同步、本地已同步的删除；
+  8. Web 端改造基于现有页面（server/public/worklog.html）：左月历 + 右卡片流 + 页签结构不变——记录卡片「用车人」行的打卡胶囊扩为每人「始/终」两枚（Web 端仅展示，打卡写操作在小程序完成，因需真实定位）；照片网格加「非水印」「商旅已同步」角标；「验证报告」页签改为「汇总前核验」（仅问题记录，按日分组沿用现有结构）；「添加水印照片」方式层与 Lightbox 同步扩展。
+  9. 费用：首次「开始打卡」成功自动弹当日费用弹层；费用数据本地优先，每晚核查 + 手动同步。
+
+  本地表（新）：worklog_sgcc_account（商旅 token/设备型号/系统版本/状态/回填标记）｜ worklog_clockin（打卡流水：开始/结束各一条，含 detailId/时间/地点/经纬度）｜ worklog_fee（费用）｜ worklog_sync_log（核查记录）；worklog_photo 加列：source（壹匣上传/商旅同步）、sgcc_img_id、is_watermark。
+  组件映射（tdesign-miniprogram 1.15.3）：t-popup 底部弹层 ｜ t-check-tag 人名点亮 ｜ t-dialog 过期提醒 ｜ t-input/t-picker 费用表单；方式选择/人名点亮/裁剪/水印编辑均沿用现有自绘弹层；Web 端复用 theme.css token 与 createModal 叠层模式。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>商旅打卡 · 出工日志扩展设计稿 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#F4F1EA;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:#22314E;
+    padding:52px 24px 80px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 外层标题栏 ===== */
+  .page-head { text-align:center; margin-bottom:18px; }
+  .page-head h1 { font-size:26px; font-weight:800; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal; color:#F26D21; }
+  .page-head h1 small { margin-left:10px; font-size:14px; font-weight:600; color:#6B7690; letter-spacing:4px; }
+  .page-head p { margin-top:12px; font-size:13px; color:#6B7690; letter-spacing:1px; }
+  .legend { max-width:960px; margin:0 auto 48px; background:#fff; border-radius:10px;
+            padding:14px 18px; font-size:12px; line-height:2; color:#6B7690;
+            box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .legend b { color:#22314E; }
+
+  /* ===== 机框舞台 ===== */
+  .stage { display:flex; flex-wrap:wrap; justify-content:center; gap:64px 56px; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .cap { font-size:14px; font-weight:700; letter-spacing:2px; color:#22314E; }
+  .cap i { font-style:normal; color:#F26D21; margin-right:6px; }
+  .sub { max-width:375px; text-align:center; font-size:12px; line-height:1.8; color:#6B7690; }
+  .sub.wide { max-width:680px; }
+
+  .phone {
+    padding:12px;
+    background:linear-gradient(150deg,#3b4354 0%,#171c26 60%,#10141c 100%);
+    border-radius:62px;
+    box-shadow:0 34px 70px rgba(34,49,78,.28), 0 8px 20px rgba(34,49,78,.16);
+  }
+  .screen {
+    position:relative; width:375px; height:812px; background:#F4F1EA;
+    border-radius:50px; overflow:hidden; display:flex; flex-direction:column;
+  }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:120px; height:32px; border-radius:18px; background:#10141c; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(16,20,28,.9); z-index:40; }
+
+  .sb { height:54px; flex:none; padding:20px 30px 0;
+        display:flex; justify-content:space-between; align-items:center;
+        font-size:14px; font-weight:700; letter-spacing:.5px; position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+  .sb-dark { color:#22314E; }
+
+  .navbar { height:52px; flex:none; position:relative; display:flex; align-items:center; justify-content:center;
+            font-size:17px; font-weight:800; letter-spacing:1px; color:#22314E; }
+  .navbar .back { position:absolute; left:14px; top:50%; transform:translateY(-50%);
+                  width:30px; height:30px; display:flex; align-items:center; justify-content:center; color:#22314E; }
+  .navbar .back svg { width:20px; height:20px; }
+
+  .content { flex:1; padding:8px 16px 12px; overflow:hidden; }
+
+  .sec { display:flex; align-items:center; gap:8px; margin:20px 4px 12px; }
+  .sec::before { content:""; width:4px; height:15px; border-radius:2px; background:#F26D21; }
+  .sec h3 { font-size:15px; font-weight:800; letter-spacing:1px; }
+  .sec .sec-note { margin-left:auto; font-size:11px; color:#A89F8A; }
+
+  .card { background:#fff; border-radius:10px; padding:14px; box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .stripe-card { position:relative; background:#fff; border-radius:10px; overflow:hidden;
+                 box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .stripe-card::before { content:""; display:block; height:8px;
+    background:repeating-linear-gradient(-45deg,#F26D21 0 10px,#22314E 10px 20px); }
+
+  .badge { border:1px solid #F26D21; color:#F26D21; border-radius:4px; padding:0 6px;
+           font-size:10px; font-weight:700; line-height:16px; }
+  .badge.green { border-color:#2BA471; color:#2BA471; }
+  .badge.red { border-color:#CF4444; color:#CF4444; }
+  .badge.gray { border-color:#A89F8A; color:#A89F8A; }
+
+  /* 「我的」页 */
+  .m-body { display:flex; align-items:center; gap:14px; padding:20px 18px; }
+  .m-name { font-size:18px; font-weight:800; }
+  .m-sub { margin-top:6px; font-size:12px; color:#6B7690; letter-spacing:.5px; }
+  .avatar { width:56px; height:56px; flex:none; border-radius:15px; background:#22314E; color:#fff;
+            display:flex; align-items:center; justify-content:center; font-size:21px; font-weight:700; }
+  .list { background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .row { display:flex; align-items:center; gap:12px; padding:13px 16px; }
+  .row + .row { border-top:1px solid #F1EBDC; }
+  .ri { width:30px; height:30px; flex:none; border-radius:8px; background:#FDEEE2; color:#F26D21;
+        display:flex; align-items:center; justify-content:center; }
+  .ri svg { width:17px; height:17px; }
+  .row .t { font-size:14px; font-weight:600; }
+  .row .rt { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:12px; color:#A89F8A; }
+  .row .rt svg { width:15px; height:15px; color:#C9C0AB; }
+
+  /* 绑定页 */
+  .field { position:relative; margin-bottom:14px; }
+  .field > svg { position:absolute; left:15px; top:50%; transform:translateY(-50%);
+                 width:19px; height:19px; color:#A89F8A; }
+  .field input { width:100%; height:50px; border:1px solid #E3DCCB; border-radius:8px; background:#fff;
+                 padding:0 16px 0 45px; font-size:14px; color:#22314E; outline:none; }
+  .field input::placeholder { color:#A89F8A; }
+  .field .suffix { position:absolute; right:12px; top:50%; transform:translateY(-50%);
+                   font-size:12px; color:#F26D21; font-weight:700; }
+  .field .captcha { position:absolute; right:8px; top:50%; transform:translateY(-50%);
+                    width:76px; height:34px; border-radius:6px; background:#22314E; color:#fff;
+                    display:flex; align-items:center; justify-content:center;
+                    font-size:14px; font-weight:800; letter-spacing:3px; font-style:italic; }
+  .btn-primary-lg { height:50px; margin-top:8px; border-radius:8px; background:#22314E; color:#fff;
+                    display:flex; align-items:center; justify-content:center;
+                    font-size:16px; font-weight:700; letter-spacing:8px; text-indent:8px;
+                    box-shadow:0 12px 24px rgba(34,49,78,.3); }
+  .bind-ok { display:flex; align-items:center; gap:14px; padding:6px 2px 2px; }
+  .bind-ok .avatar { width:52px; height:52px; border-radius:14px; font-size:19px; }
+  .kv { display:flex; align-items:center; padding:11px 2px; font-size:13px; }
+  .kv + .kv { border-top:1px solid #F1EBDC; }
+  .kv .k { width:88px; flex:none; color:#A89F8A; font-size:12px; }
+  .kv .v { font-weight:600; }
+  .kv .v small { display:block; margin-top:2px; font-size:11px; color:#6B7690; font-weight:400; }
+  .kv .rt { margin-left:auto; }
+
+  /* 主页卡片 · 两次打卡区 */
+  .lc-body { padding:14px; }
+  .lc-head { display:flex; align-items:center; gap:9px; margin-bottom:10px; }
+  .lc-head .ci { width:34px; height:34px; flex:none; border-radius:9px; background:#FDEEE2; color:#F26D21;
+                 display:flex; align-items:center; justify-content:center; }
+  .lc-head .ci svg { width:19px; height:19px; }
+  .plate { font-size:16px; font-weight:800; letter-spacing:1px; }
+  .lc-head .badge { margin-left:auto; }
+  .lc-patrol { background:#FDF6EF; border-left:4px solid #F26D21; border-radius:6px; padding:9px 12px; margin-bottom:10px; }
+  .lc-patrol-label { font-size:10px; color:#A89F8A; letter-spacing:1px; }
+  .lc-patrol-text { margin-top:3px; font-size:14px; font-weight:700; line-height:1.6; }
+
+  .ck-person { padding:10px 0; }
+  .ck-person + .ck-person { border-top:1px dashed #F1EBDC; }
+  .ck-person-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .ck-person-head .pname { font-size:13px; font-weight:800; }
+  .ck-person-head .pstat { margin-left:auto; font-size:10px; color:#A89F8A; display:flex; align-items:center; gap:5px; }
+  .ck-person-head .pstat svg { width:13px; height:13px; }
+  .ck-row { display:flex; gap:8px; }
+  .ck-slot { flex:1; border-radius:8px; padding:7px 9px; position:relative; }
+  .ck-slot .t1 { font-size:11px; font-weight:800; display:flex; align-items:center; gap:4px; }
+  .ck-slot .t1 svg { width:12px; height:12px; }
+  .ck-slot .t2 { margin-top:3px; font-size:10px; line-height:1.5; }
+  .ck-slot .upd { position:absolute; right:6px; top:6px; font-size:10px; font-weight:700;
+                  display:flex; align-items:center; gap:2px; }
+  .ck-slot .upd svg { width:11px; height:11px; }
+  .ck-slot.todo { border:1.5px dashed #F26D21; color:#F26D21; }
+  .ck-slot.todo .t2 { color:#C99A6C; }
+  .ck-slot.done { border:1px solid #DDF0E7; background:#F2FBF7; color:#1E7E54; }
+  .ck-slot.done .t2 { color:#5C8A76; }
+  .ck-slot.done .upd { color:#2BA471; }
+  .ck-slot.lock { border:1px solid #EFE9DA; background:#FAF7F0; color:#B4AA90; }
+  .ck-slot.lock .t2 { color:#C6BCA3; }
+
+  /* 照片区 */
+  .photo-item { display:flex; gap:10px; padding:10px 0; }
+  .photo-item + .photo-item { border-top:1px solid #F1EBDC; }
+  .ph-img { width:92px; height:118px; flex:none; border-radius:8px; background:#22314E; color:rgba(255,255,255,.85);
+            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; }
+  .ph-img svg { width:26px; height:26px; opacity:.7; }
+  .ph-img .wm { font-size:9px; text-align:center; line-height:1.5; opacity:.85; }
+  .ph-img.plain { background:#6B7690; }
+  .ph-right { flex:1; display:flex; flex-direction:column; gap:5px; min-width:0; }
+  .ph-status { display:flex; align-items:center; gap:6px; }
+  .vtag { display:inline-flex; align-items:center; gap:3px; font-size:10px; font-weight:800; padding:2px 7px; border-radius:4px; }
+  .vtag svg { width:11px; height:11px; }
+  .vtag.ok { background:#E7F7EF; color:#1E7E54; }
+  .vtag.bad { background:#FDECEC; color:#CF4444; }
+  .vtag.ing { background:#FDF3E3; color:#B97B1E; }
+  .vtag.skip { background:#EFF1F5; color:#6B7690; }
+  .ph-names { display:flex; gap:5px; flex-wrap:wrap; }
+  .ntag { display:inline-flex; align-items:center; gap:3px; font-size:10px; font-weight:700; color:#22314E;
+          background:#F4F1EA; border-radius:4px; padding:2px 7px; }
+  .ph-wc { font-size:11px; font-weight:600; color:#22314E; }
+  .ph-meta .meta-line { font-size:10px; color:#6B7690; line-height:1.7; }
+  .ph-meta .meta-label { display:inline-block; width:44px; color:#A89F8A; }
+  .add-photo { margin-top:8px; height:40px; border:1.5px dashed #D9CFBA; border-radius:8px;
+               display:flex; align-items:center; justify-content:center; gap:7px;
+               font-size:12px; color:#A89F8A; }
+  .add-photo svg { width:16px; height:16px; }
+
+  /* 底部弹层 */
+  .mask { position:absolute; inset:0; background:rgba(23,28,38,.45); z-index:50; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; z-index:60; background:#fff;
+           border-radius:16px 16px 0 0; padding:18px 18px 26px;
+           box-shadow:0 -12px 34px rgba(23,28,38,.18); max-height:700px; overflow:hidden; }
+  .sheet h4 { font-size:16px; font-weight:800; letter-spacing:1px; }
+  .sheet-note { margin-top:6px; font-size:11px; color:#A89F8A; line-height:1.7; }
+  .sheet-note b { color:#F26D21; }
+  .sheet-actions { display:flex; gap:10px; margin-top:16px; }
+  .btn-ghost { flex:1; height:46px; border:1px solid #E3DCCB; border-radius:8px;
+               display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:600; color:#6B7690; }
+  .btn-dark { flex:2; height:46px; border-radius:8px; background:#22314E; color:#fff;
+              display:flex; align-items:center; justify-content:center; gap:8px;
+              font-size:14px; font-weight:700; letter-spacing:1px; }
+  .btn-dark svg { width:17px; height:17px; }
+  .btn-orange { flex:2; height:46px; border-radius:8px; background:#F26D21; color:#fff;
+                display:flex; align-items:center; justify-content:center; gap:8px;
+                font-size:14px; font-weight:700; letter-spacing:1px; }
+
+  /* 方式三选（沿用现有自绘方式层样式） */
+  .way { display:flex; align-items:center; gap:12px; padding:13px 12px; border-radius:10px; background:#F8F5ED; }
+  .way + .way { margin-top:10px; }
+  .way .wi { width:40px; height:40px; flex:none; border-radius:10px; background:#fff; color:#F26D21;
+             display:flex; align-items:center; justify-content:center; }
+  .way .wi svg { width:21px; height:21px; }
+  .way b { display:block; font-size:13px; font-weight:800; }
+  .way p { margin-top:3px; font-size:10.5px; color:#6B7690; line-height:1.6; }
+  .way.new { outline:1.5px dashed #F26D21; outline-offset:-1.5px; }
+  .way .wnew { flex:none; align-self:flex-start; }
+
+  .tags { display:flex; flex-wrap:wrap; gap:9px; margin-top:14px; }
+  .ctag { display:inline-flex; align-items:center; gap:4px; padding:7px 13px; border-radius:7px;
+          background:#F4F1EA; font-size:12px; font-weight:600; color:#22314E; }
+  .ctag svg { width:13px; height:13px; }
+  .ctag.on { background:#FDEEE2; color:#F26D21; border:1px solid #F26D21; padding:6px 12px; }
+  .ctag.disabled { background:#F1EDE2; color:#B4AA90; }
+  .ctag.disabled small { font-size:9px; }
+  .ctag.expired { background:#FDECEC; color:#CF4444; border:1px dashed #CF4444; padding:6px 12px; }
+  .ctag.expired small { font-size:9px; font-weight:400; }
+
+  .loc-card { margin-top:12px; border:1px solid #E3DCCB; border-radius:10px; padding:12px; }
+  .loc-line { display:flex; align-items:flex-start; gap:8px; font-size:13px; font-weight:600; line-height:1.6; }
+  .loc-line svg { width:16px; height:16px; flex:none; margin-top:2px; color:#F26D21; }
+  .loc-sub { margin-top:8px; font-size:11px; color:#6B7690; line-height:1.7; }
+  .loc-repick { margin-top:9px; display:flex; gap:8px; }
+  .mini-btn { font-size:11px; font-weight:700; color:#F26D21; border:1px solid #F26D21;
+              border-radius:6px; padding:5px 10px; display:inline-flex; align-items:center; gap:4px; }
+  .mini-btn svg { width:12px; height:12px; }
+  .form-row { margin-top:12px; }
+  .form-row .fl { font-size:11px; color:#A89F8A; margin-bottom:6px; display:flex; align-items:center; gap:5px; }
+  .form-row .fl small { margin-left:auto; font-weight:400; }
+  .form-row .fi { border:1px solid #E3DCCB; border-radius:8px; height:44px; display:flex; align-items:center;
+                  padding:0 13px; font-size:13px; color:#22314E; background:#fff; }
+
+  .fee-grid { margin-top:12px; }
+  .fee-row { display:flex; align-items:center; gap:10px; padding:10px 0; }
+  .fee-row + .fee-row { border-top:1px solid #F1EBDC; }
+  .fee-row .fk { width:76px; flex:none; font-size:12px; font-weight:700; }
+  .fee-row .fv { flex:1; font-size:13px; font-weight:600; }
+  .fee-row .fv small { display:block; font-size:10px; color:#A89F8A; font-weight:400; margin-top:2px; }
+  .fee-row .fe { font-size:11px; color:#F26D21; font-weight:700; }
+  .fee-img { display:flex; gap:8px; margin-top:6px; }
+  .fee-img .fi-img { width:52px; height:52px; border-radius:8px; background:#22314E;
+                     display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.8); }
+  .fee-img .fi-img svg { width:20px; height:20px; }
+  .fee-img .fi-add { width:52px; height:52px; border-radius:8px; border:1.5px dashed #D9CFBA;
+                     display:flex; align-items:center; justify-content:center; color:#A89F8A; }
+  .fee-img .fi-add svg { width:18px; height:18px; }
+
+  /* 汇总前核验 */
+  .issue-card { border:1px solid #F1D2D2; background:#FFFBFB; border-radius:10px; padding:12px; margin-top:10px; }
+  .issue-head { display:flex; align-items:center; gap:8px; }
+  .issue-head .plate { font-size:14px; }
+  .issue-head .badge { margin-left:auto; }
+  .issue-line { display:flex; align-items:flex-start; gap:8px; margin-top:9px; font-size:12px; line-height:1.6; }
+  .issue-line .ric { width:18px; height:18px; flex:none; border-radius:50%; background:#FDECEC; color:#CF4444;
+                     display:flex; align-items:center; justify-content:center; margin-top:1px; }
+  .issue-line .ric svg { width:10px; height:10px; }
+  .issue-line em { font-style:normal; color:#CF4444; font-weight:700; }
+  .all-ok { margin-top:14px; background:#F2FBF7; border:1px solid #DDF0E7; border-radius:10px;
+            display:flex; align-items:center; gap:11px; padding:14px; }
+  .all-ok .ai { width:36px; height:36px; flex:none; border-radius:10px; background:#fff; color:#2BA471;
+                display:flex; align-items:center; justify-content:center; }
+  .all-ok .ai svg { width:19px; height:19px; }
+  .all-ok b { font-size:13px; color:#1E7E54; display:block; }
+  .all-ok p { font-size:11px; color:#5C8A76; margin-top:2px; }
+
+  .sync-head { display:flex; align-items:center; gap:10px; margin-top:12px; }
+  .sync-head .st-ic { width:38px; height:38px; flex:none; border-radius:10px; background:#FDEEE2; color:#F26D21;
+                      display:flex; align-items:center; justify-content:center; }
+  .sync-head .st-ic svg { width:20px; height:20px; }
+  .sync-item { display:flex; align-items:center; gap:9px; padding:9px 0; font-size:12px; }
+  .sync-item + .sync-item { border-top:1px dashed #F1EBDC; }
+  .sync-item .si-k { width:64px; flex:none; color:#A89F8A; font-size:11px; }
+  .sync-item .si-v { flex:1; font-weight:600; line-height:1.6; }
+  .sync-item .si-v small { display:block; font-weight:400; color:#6B7690; font-size:10px; }
+  .diff { color:#B97B1E; }
+  .okc { color:#1E7E54; }
+
+  .tip { margin-top:14px; background:#FDEEE2; border-radius:10px;
+         display:flex; align-items:center; gap:11px; padding:12px 14px; }
+  .tip .ti { width:32px; height:32px; flex:none; border-radius:9px; background:#fff; color:#F26D21;
+             display:flex; align-items:center; justify-content:center; }
+  .tip .ti svg { width:18px; height:18px; }
+  .tip b { display:block; font-size:12px; font-weight:700; }
+  .tip p { margin-top:3px; font-size:11px; color:#6B7690; line-height:1.6; }
+  .tip.warn { background:#FDECEC; }
+  .tip.warn .ti { color:#CF4444; }
+  .tip.warn b { color:#CF4444; }
+
+  /* ===== Web 端（按现有 worklog.html 结构演绎） ===== */
+  .browser { width:680px; background:#fff; border-radius:14px; overflow:hidden; border:1px solid #E8E0CD;
+             box-shadow:0 24px 50px rgba(34,49,78,.14); }
+  .browser-bar { height:38px; background:#FBF9F2; border-bottom:1px solid #E8E0CD;
+                 display:flex; align-items:center; gap:7px; padding:0 16px; }
+  .bdot { width:10px; height:10px; border-radius:50%; }
+  .bdot.r { background:#EFB49C; } .bdot.y { background:#EFD08E; } .bdot.g { background:#B6C6AB; }
+  .url { flex:1; max-width:320px; margin:0 auto; height:24px; background:#F4F1EA; border:1px solid #E8E0CD;
+         border-radius:6px; display:flex; align-items:center; justify-content:center;
+         font-size:10.5px; color:#6B7690; letter-spacing:.5px; }
+  /* 页头 + 页签（对应 .wl-head / .wl-tabs） */
+  .wl { padding:14px 18px 18px; background:#F4F1EA; }
+  .wl-head { display:flex; align-items:center; gap:12px; }
+  .wl-head h3 { font-size:16px; font-weight:800; display:flex; align-items:center; gap:8px; }
+  .wl-head h3::before { content:""; width:4px; height:15px; border-radius:2px; background:#F26D21; }
+  .wl-head .wl-sub { font-size:11px; color:#A89F8A; }
+  .wl-head .acts { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .wl-head .acts .cnt { font-size:11px; color:#6B7690; }
+  .wl-btn { font-size:11.5px; font-weight:700; border-radius:7px; padding:6px 12px; }
+  .wl-btn.pri { background:#22314E; color:#fff; }
+  .wl-btn.ghost { border:1px solid #E3DCCB; color:#6B7690; background:#fff; }
+  .wl-tabs { display:flex; gap:16px; margin-top:12px; border-bottom:1px solid #E8E0CD; }
+  .wl-tab { font-size:12px; font-weight:600; color:#6B7690; padding:7px 2px; position:relative; }
+  .wl-tab.on { color:#F26D21; font-weight:800; }
+  .wl-tab.on::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2.5px; border-radius:2px; background:#F26D21; }
+  .wl-body { display:flex; gap:14px; margin-top:14px; }
+  /* 左：月历卡 */
+  .wl-cal { width:218px; flex:none; background:#fff; border-radius:10px; padding:12px;
+            box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .wl-cal .cal-t { font-size:12px; font-weight:800; text-align:center; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-top:10px; }
+  .cal-grid span { aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+                   font-size:9.5px; color:#6B7690; border-radius:50%; position:relative; }
+  .cal-grid span.hd { color:#A89F8A; font-weight:700; }
+  .cal-grid span.g { background:#E7F7EF; color:#1E7E54; font-weight:700; }
+  .cal-grid span.r { background:#FDECEC; color:#CF4444; font-weight:700; }
+  .cal-grid span.today::after { content:""; position:absolute; bottom:1px; width:4px; height:4px; border-radius:50%; background:#F26D21; }
+  .cal-legend { margin-top:10px; font-size:9px; color:#A89F8A; display:flex; gap:8px; justify-content:center; }
+  .cal-legend i { width:7px; height:7px; border-radius:50%; display:inline-block; margin-right:2px; }
+  /* 右：卡片流（现有 .log-card 结构演绎） */
+  .wl-flow { flex:1; display:flex; flex-direction:column; gap:12px; }
+  .log-card { background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .log-h { display:flex; align-items:center; gap:8px; padding:10px 12px 8px; }
+  .log-h .plate { font-size:13.5px; }
+  .log-h .seq { font-size:10px; color:#A89F8A; }
+  .log-h .badge { margin-left:auto; }
+  .log-cols { display:flex; border-top:1px solid #F4F0E4; }
+  .log-l { width:44%; padding:10px 12px; }
+  .log-r { flex:1; padding:10px 12px; border-left:1px solid #F4F0E4; }
+  .wl-patrol { background:#FDF6EF; border-left:3px solid #F26D21; border-radius:5px; padding:6px 9px;
+               font-size:11px; font-weight:700; line-height:1.5; margin-bottom:8px; }
+  .wl-patrol small { display:block; font-size:9px; color:#A89F8A; font-weight:400; }
+  .info-line { font-size:10.5px; color:#6B7690; margin-bottom:8px; }
+  .info-line b { color:#22314E; }
+  /* 用车人打卡胶囊（现有 .mchip 扩展为 始/终 两枚） */
+  .mchip2 { display:flex; flex-direction:column; gap:4px; padding:6px 0; }
+  .mchip2 + .mchip2 { border-top:1px dashed #F1EBDC; }
+  .mchip2 .mn { font-size:11px; font-weight:800; display:flex; align-items:center; gap:6px; }
+  .mchip2 .mn small { font-weight:400; color:#A89F8A; font-size:9.5px; }
+  .mchip2 .ms { display:flex; gap:5px; }
+  .mc { flex:1; font-size:9.5px; border-radius:5px; padding:3px 6px; display:inline-flex; align-items:center; gap:3px; }
+  .mc svg { width:9px; height:9px; }
+  .mc.yes { background:#E7F7EF; color:#1E7E54; font-weight:700; }
+  .mc.no { border:1px dashed #F26D21; color:#F26D21; font-weight:700; }
+  .mc.lock { background:#F4F1EA; color:#B4AA90; }
+  /* 照片网格（现有 .photos 三列） */
+  .photos-t { font-size:10.5px; color:#6B7690; margin-bottom:7px; }
+  .photos { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+  .ph { position:relative; aspect-ratio:4/3; border-radius:7px; background:#22314E; overflow:hidden;
+        display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.75); }
+  .ph svg { width:20px; height:20px; }
+  .ph.plain { background:#6B7690; }
+  .ph .ph-st { position:absolute; top:5px; left:5px; font-size:8.5px; font-weight:800; border-radius:3px; padding:1px 5px; }
+  .ph .ph-st.ok { background:#F26D21; color:#fff; }
+  .ph .ph-st.skip { background:rgba(255,255,255,.85); color:#6B7690; }
+  .ph .ph-sync { position:absolute; top:5px; right:5px; font-size:8.5px; font-weight:800; border-radius:3px;
+                 padding:1px 5px; background:#1D5DBF; color:#fff; }
+  .ph .ph-who { position:absolute; left:0; right:0; bottom:0; font-size:8.5px; padding:8px 6px 4px;
+                background:linear-gradient(transparent, rgba(16,20,28,.75)); color:#fff; }
+  .ph.add { background:transparent; border:1.5px dashed #D9CFBA; color:#A89F8A; font-size:9.5px;
+            flex-direction:column; gap:3px; }
+  /* 汇总前核验页签 */
+  .rep-day { background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 8px 20px rgba(34,49,78,.06); }
+  .rep-day-t { padding:9px 12px; font-size:11.5px; font-weight:800; background:#FBF9F2; border-bottom:1px solid #F4F0E4; }
+  .rep-row { display:flex; align-items:flex-start; gap:9px; padding:9px 12px; font-size:11px; }
+  .rep-row + .rep-row { border-top:1px solid #F8F4EA; }
+  .rep-row .rp { flex:none; font-weight:800; width:86px; }
+  .rep-row .rchips { display:flex; flex-wrap:wrap; gap:4px; }
+  .rchip { font-size:9.5px; font-weight:700; border-radius:4px; padding:2px 6px; background:#FDECEC; color:#CF4444; }
+
+  /* ---------- 窄屏自适应 ---------- */
+  @media (max-width: 1380px) { .stage { zoom: .94; } }
+  @media (max-width: 1280px) { .stage { zoom: .85; } }
+  @media (max-width: 1170px) { .stage { zoom: .76; } }
+  @media (max-width: 1060px) { .stage { zoom: .68; } }
+  @media (max-width: 960px)  { .stage { zoom: .60; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>商旅打卡 · <em>出工日志扩展</em><small>待审批稿 v3</small></h1>
+  <p>两次打卡 + 费用同步 + 照片三入口（已有水印直传 / 服务端加水印 / 非水印直传）+ 汇总前核验 —— 小程序 11 屏 + 网页端 2 屏。</p>
+</header>
+
+<div class="legend">
+  <b>阅读指引（v3）：</b>①「我的」页入口 ②绑定（短信登录）③已绑定态 ④主页卡片两次打卡区 ⑤打卡确认弹层 ⑥费用信息弹层 ⑦添加照片·方式三选（原有①②项保留，新增非水印）⑧人名点亮（商旅登录态置灰）⑨照片区展示 ⑩汇总前核验（仅问题记录）⑪同步核查 ⑫⑬ 网页端（基于现有 worklog.html 结构改造）。<br>
+  <b>机型口径：</b>「厂商 型号」（例 Xiaomi 2509FPN0BC）本人在「我的 → 商旅打卡」编辑；任何人代其打卡，上传的都是<b>被打卡人</b>绑定的机型。<br>
+  <b>地点口径：</b>同一记录已有其他用车人打卡时，打卡弹层自动带入相同地点（仍可重选）。<br>
+  <b>照片与 Dify 时机：</b>壹匣内上传 → 立即验证；商旅侧新增 → 每晚 23:00 / 手动核查发现入库 → 此时才异步验证；壹匣上传过的按商旅图片 id 去重。<br>
+  <b>老数据：</b>绑定成功即一次性回填 8 月数据；8 月之前的商旅数据不同步、本地已同步的清除。<br>
+  <b>隐私：</b>两端页面统称「商旅平台 / 商旅 App」，不出现平台所属方名称。
+</div>
+
+<main class="stage">
+
+  <!-- ================= ① 我的 · 商旅打卡入口 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">我的</div>
+
+        <div class="content">
+          <div class="stripe-card">
+            <div class="m-body">
+              <div class="avatar">任</div>
+              <div>
+                <div class="m-name">任舒诺</div>
+                <div class="m-sub">检修一班 · 高级技师</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="list" style="margin-top:16px;">
+            <div class="row" style="outline:2px solid #F26D21; outline-offset:-2px; border-radius:10px;">
+              <div class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.4"/></svg></div>
+              <div class="t">商旅打卡</div>
+              <div class="rt">未绑定<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg></div>
+            </div>
+          </div>
+
+          <div class="list" style="margin-top:16px;">
+            <div class="row">
+              <div class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="3.7"/><path d="M11.2 11.2L19.5 19.5"/><path d="M15.5 16.8l1.9-1.9M17.9 19.2l1.9-1.9"/></svg></div>
+              <div class="t">我的权限</div>
+              <div class="rt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg></div>
+            </div>
+            <div class="row">
+              <div class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg></div>
+              <div class="t">消息通知</div>
+              <div class="rt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg></div>
+            </div>
+            <div class="row">
+              <div class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 11.2V16"/><circle cx="12" cy="7.9" r="1.05" fill="currentColor" stroke="none"/></svg></div>
+              <div class="t">关于工具箱</div>
+              <div class="rt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></svg></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>①</i>我的 · 商旅打卡入口</div>
+    <div class="sub">「我的」页第一组列表首行新增「商旅打卡」：未绑定显示「未绑定」，已绑定显示「已绑定 / 登录已过期」。打卡、上传照片遇未绑定/过期也引导至此。</div>
+  </div>
+
+  <!-- ================= ② 商旅打卡 · 未绑定 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          商旅打卡
+        </div>
+
+        <div class="content">
+          <div class="tip">
+            <div class="ti">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 11.2V16"/><circle cx="12" cy="7.9" r="1.05" fill="currentColor" stroke="none"/></svg>
+            </div>
+            <div>
+              <b>绑定本人商旅账号</b>
+              <p>打卡、费用与照片均以本人账号提交商旅平台；请用商旅 App 注册手机号短信登录（与 App 登录互不影响）。</p>
+            </div>
+          </div>
+
+          <div class="sec"><h3>短信登录</h3></div>
+          <div class="card">
+            <div class="field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.8" width="12" height="18.4" rx="2.5"/><path d="M10.5 5h3"/></svg>
+              <input type="text" placeholder="商旅注册手机号">
+            </div>
+            <div class="field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="15" rx="2.5"/><path d="M8.5 12l2.5 2.5 4.5-4.5"/></svg>
+              <input type="text" placeholder="图形验证码">
+              <div class="captcha">8A3K</div>
+            </div>
+            <div class="field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5h14v8H5z"/><path d="M8 11.5V8.8a4 4 0 0 1 8 0v2.7"/></svg>
+              <input type="text" placeholder="短信验证码">
+              <div class="suffix">获取验证码</div>
+            </div>
+            <div class="btn-primary-lg">登录并绑定</div>
+          </div>
+
+          <div class="sec"><h3>打卡设备信息</h3><span class="sec-note">将显示在商旅打卡记录中</span></div>
+          <div class="card">
+            <div class="kv"><span class="k">设备型号</span><span class="v">Xiaomi 2509FPN0BC<small>「厂商 型号」格式，本人可改；谁帮打卡都上传本人的此项设置</small></span><span class="rt"><span class="badge">可修改</span></span></div>
+            <div class="kv"><span class="k">系统版本</span><span class="v">Android 16</span><span class="rt"><span class="badge">可修改</span></span></div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>②</i>商旅打卡 · 未绑定</div>
+    <div class="sub">登录链路：图形验证码 → 发短信 → 短信换 token（密码登录有滑块风控，不做）。设备型号/系统版本默认带出、本人随时可改。</div>
+  </div>
+
+  <!-- ================= ③ 商旅打卡 · 已绑定 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          商旅打卡
+        </div>
+
+        <div class="content">
+          <div class="stripe-card">
+            <div class="lc-body">
+              <div class="bind-ok">
+                <div class="avatar">任</div>
+                <div>
+                  <div style="font-size:16px;font-weight:800;">任舒诺</div>
+                  <div style="margin-top:5px;display:flex;gap:6px;align-items:center;">
+                    <span class="badge green">已绑定</span>
+                    <span style="font-size:11px;color:#6B7690;">输电运检中心</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sec"><h3>账号状态</h3></div>
+          <div class="card">
+            <div class="kv"><span class="k">商旅账号</span><span class="v">138****1234</span></div>
+            <div class="kv"><span class="k">登录状态</span><span class="v" style="color:#1E7E54;">有效<small>每次打卡/上传前实时校验；失效提醒重新登录</small></span></div>
+            <div class="kv"><span class="k">设备型号</span><span class="v">Xiaomi 2509FPN0BC</span><span class="rt"><span class="badge">可修改</span></span></div>
+            <div class="kv"><span class="k">系统版本</span><span class="v">Android 16</span><span class="rt"><span class="badge">可修改</span></span></div>
+            <div class="kv"><span class="k">今日打卡</span><span class="v">2 次<small>开始 08:12 · 结束 17:40（已同步商旅平台）</small></span></div>
+            <div class="kv"><span class="k">今日费用</span><span class="v">伙食 ¥60 · 交通 ¥0<small>成本中心 C0500J0227 吕梁-输电运检中心</small></span></div>
+          </div>
+
+          <div class="tip">
+            <div class="ti">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg>
+            </div>
+            <div>
+              <b>已完成 8 月数据回填</b>
+              <p>绑定成功时已一次性同步 8 月打卡/费用/照片；8 月之前的商旅数据不同步、不保留。</p>
+            </div>
+          </div>
+
+          <div class="sheet-actions" style="margin-top:16px;">
+            <div class="btn-ghost">解除绑定</div>
+            <div class="btn-dark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg>
+              重新登录
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>③</i>商旅打卡 · 已绑定</div>
+    <div class="sub">「重新登录」短信换新 token；「解除绑定」仅删本地绑定。回填提示仅绑定成功后展示一次（8 月回填 + 8 月前数据清除）。</div>
+  </div>
+
+  <!-- ================= ④ 主页卡片 · 两次打卡区（三态） ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content">
+          <div class="stripe-card">
+            <div class="lc-body">
+              <div class="lc-head">
+                <div class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/><circle cx="7.2" cy="14.2" r=".9" fill="currentColor" stroke="none"/><circle cx="16.8" cy="14.2" r=".9" fill="currentColor" stroke="none"/></svg></div>
+                <div class="plate">晋J·D12345</div>
+                <span class="badge red">未通过</span>
+              </div>
+              <div class="lc-patrol">
+                <div class="lc-patrol-label">巡视内容</div>
+                <div class="lc-patrol-text">110kV及220kV输电线路巡视</div>
+              </div>
+
+              <div class="ck-person">
+                <div class="ck-person-head">
+                  <span class="pname">任舒诺</span>
+                  <span class="pstat" style="color:#1E7E54;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>工时 9.5h</span>
+                </div>
+                <div class="ck-row">
+                  <div class="ck-slot done">
+                    <div class="t1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>开始 08:12</div>
+                    <div class="t2">汾阳市西河街道英雄北路</div>
+                    <div class="upd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg>更新</div>
+                  </div>
+                  <div class="ck-slot done">
+                    <div class="t1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>结束 17:40</div>
+                    <div class="t2">汾阳市西河街道文峰路</div>
+                    <div class="upd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg>更新</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ck-person">
+                <div class="ck-person-head">
+                  <span class="pname">郑海楠</span>
+                  <span class="pstat">还差结束打卡</span>
+                </div>
+                <div class="ck-row">
+                  <div class="ck-slot done">
+                    <div class="t1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>开始 08:15</div>
+                    <div class="t2">汾阳市西河街道英雄北路</div>
+                    <div class="upd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg>更新</div>
+                  </div>
+                  <div class="ck-slot todo">
+                    <div class="t1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.5V12l3 2"/></svg>结束打卡</div>
+                    <div class="t2">点击打卡 · 地点同开始</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ck-person">
+                <div class="ck-person-head">
+                  <span class="pname">曹万鑫</span>
+                  <span class="pstat" style="color:#CF4444;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>未绑定商旅</span>
+                </div>
+                <div class="ck-row">
+                  <div class="ck-slot lock">
+                    <div class="t1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>开始打卡</div>
+                    <div class="t2">引导本人至「我的」页绑定</div>
+                  </div>
+                  <div class="ck-slot lock">
+                    <div class="t1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>结束打卡</div>
+                    <div class="t2">引导本人至「我的」页绑定</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tip">
+            <div class="ti">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg>
+            </div>
+            <div>
+              <b>每日两次打卡：开始 + 结束</b>
+              <p>每人每日限 2 次；打满后「更新」仅改地点；代打卡上传被打卡人绑定的机型；打卡即提交商旅并双写本地。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>④</i>主页卡片 · 两次打卡区（三态）</div>
+    <div class="sub">未打卡=橙虚线（已有同记录人打卡时副文案提示「地点同开始」）；已打卡=绿底勾+时间+地点小字+「更新」；未绑定=灰锁，提示引导本人绑定。</div>
+  </div>
+
+  <!-- ================= ⑤ 打卡确认弹层 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content"></div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>结束打卡 · 郑海楠</h4>
+          <div class="sheet-note">本记录任舒诺已于 08:12 打卡，<b>地点已自动带入</b>；开始/结束/更新共用本弹层（更新时标题为「更新打卡地点」）。提交时使用<b>郑海楠绑定的机型</b>（Xiaomi 2509FPN0BC）。</div>
+
+          <div class="loc-card">
+            <div class="loc-line">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.4"/></svg>
+              中国山西省吕梁市汾阳市西河街道英雄北路
+            </div>
+            <div class="loc-sub">111.137640, 37.531655 · 同记录首打卡人定位（腾讯逆编码路/街道级，无则乡镇）</div>
+            <div class="loc-repick">
+              <div class="mini-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg>重新定位</div>
+              <div class="mini-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v18M16 3v18M3 8h18M3 16h18"/><circle cx="12" cy="12" r="2"/></svg>选择杆塔带入坐标</div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="fl">打卡备注（提交商旅）<small>与记录卡片备注无关</small></div>
+            <div class="fi">110kV及220kV输电线路巡视</div>
+          </div>
+
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-orange">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+              确认打卡
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>⑤</i>打卡确认弹层</div>
+    <div class="sub">地点优先级：同记录已有打卡地点 → 杆塔选择 → 当前定位逆编码；备注默认「110kV及220kV输电线路巡视」，仅作商旅 remarks。</div>
+  </div>
+
+  <!-- ================= ⑥ 费用信息弹层 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content"></div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>当日费用 · 任舒诺 · 8月17日</h4>
+          <div class="sheet-note">首次「开始打卡」成功自动弹出；此后从打卡区「费用」入口随时修改，保存即提交商旅。</div>
+
+          <div class="fee-grid">
+            <div class="fee-row"><span class="fk">伙食补助</span><span class="fv">¥60</span><span class="fe">修改</span></div>
+            <div class="fee-row"><span class="fk">交通费</span><span class="fv">¥0</span><span class="fe">修改</span></div>
+            <div class="fee-row"><span class="fk">成本中心</span><span class="fv">吕梁-输电运检中心<small>C0500J0227 · 成本分配默认项（共 5 个选项，选择后编码自动带出）</small></span><span class="fe">修改</span></div>
+            <div class="fee-row"><span class="fk">公司垫付</span><span class="fv" style="color:#A89F8A;">无</span><span class="fe">添加</span></div>
+            <div class="fee-row"><span class="fk">员工垫付</span><span class="fv" style="color:#A89F8A;">无</span><span class="fe">添加</span></div>
+          </div>
+
+          <div class="form-row">
+            <div class="fl">费用照片（≤9 张）<small>三类照片上传后自动关联至此</small></div>
+            <div class="fee-img">
+              <div class="fi-img"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4-3.5 3 2.5 4.5-4 3.5 3.2"/></svg></div>
+              <div class="fi-img"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4-3.5 3 2.5 4.5-4 3.5 3.2"/></svg></div>
+              <div class="fi-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg></div>
+            </div>
+          </div>
+
+          <div class="sheet-actions">
+            <div class="btn-ghost">稍后再填</div>
+            <div class="btn-dark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+              保存费用信息
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>⑥</i>费用信息弹层</div>
+    <div class="sub">表单按 getFeeInfoNew 动态模板渲染（成本分配/上传图片/公司垫付/员工垫付/补助明细 5 组件），保存走 saveFeeInfoNew；费用照片与该人当日商旅费用图片同源。</div>
+  </div>
+
+  <!-- ================= ⑦ 添加照片 · 方式三选（原两项保留 + 新增非水印） ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content"></div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>添加照片</h4>
+          <div class="sheet-note">请选择上传方式（前两项为原有水印流程，均进入验证）</div>
+
+          <div class="way">
+            <div class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4-3.5 3 2.5 4.5-4 3.5 3.2"/></svg></div>
+            <div>
+              <b>选择水印照片上传</b>
+              <p>照片已带水印（如今日水印相机拍摄），直接上传进入验证</p>
+            </div>
+          </div>
+          <div class="way">
+            <div class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/><path d="M12 10.8v2.2M10.9 12h2.2"/></svg></div>
+            <div>
+              <b>拍摄/选择照片并添加水印</b>
+              <p>拍照或选原图，裁剪 4:3 并编辑字段，由服务端添加水印后上传</p>
+            </div>
+          </div>
+          <div class="way new">
+            <div class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M4.5 17l4-3.5 3 2.5 4.5-4 3.5 3.2"/><circle cx="9" cy="10" r="1.4"/></svg></div>
+            <div>
+              <b>非水印照片 <span class="badge" style="margin-left:2px;">新增</span></b>
+              <p>直接上传所选原图，仅存档并同步商旅费用照片，不做验证、不占每人限一张</p>
+            </div>
+            <span class="wnew"></span>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>⑦</i>添加照片 · 方式三选</div>
+    <div class="sub">沿用现有自绘方式层（小程序 index.wxml 同款 / Web openAddSheet 同款），原「选择水印照片上传」「拍摄/选择照片并添加水印」两项与副文案保留不变，新增第三项「非水印照片」。</div>
+  </div>
+
+  <!-- ================= ⑧ 人名点亮（三方式共用，商旅登录态置灰） ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content"></div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>选择照片所属人名</h4>
+          <div class="sheet-note">点亮谁，照片就同步进谁的<b>当日商旅费用照片</b>（三种方式均同步）；红框=商旅登录已过期，不可选。</div>
+
+          <div class="tags">
+            <span class="ctag disabled">赵登<small>已上传</small></span>
+            <span class="ctag on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>郑海楠</span>
+            <span class="ctag">任舒诺</span>
+            <span class="ctag expired"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.5V12l3 2"/></svg>薛忠亮<small>登录过期</small></span>
+            <span class="ctag">曹万鑫</span>
+          </div>
+
+          <div class="tip warn">
+            <div class="ti">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l9.5 16.3H2.5z"/><path d="M12 10v4.5"/><circle cx="12" cy="17.4" r="1" fill="currentColor" stroke="none"/></svg>
+            </div>
+            <div>
+              <b>薛忠亮的商旅登录已过期</b>
+              <p>已置灰不可选；其本人在「我的 → 商旅打卡」重新登录后恢复。</p>
+            </div>
+          </div>
+
+          <div class="sheet-actions">
+            <div class="btn-ghost">取 消</div>
+            <div class="btn-dark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4-3.5 3 2.5 4.5-4 3.5 3.2"/></svg>
+              选择照片
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>⑧</i>选择照片所属人名</div>
+    <div class="sub">三种方式共用本层（加水印方式底部另有「拍 摄」钮，沿用现有）。水印方式维持「每人限一张 + 已上传置灰」；非水印方式不限张数；打开本层时批量校验候选人商旅登录态（有缓存，失败兜底实时探测）。</div>
+  </div>
+
+  <!-- ================= ⑨ 照片区展示（水印 + 非水印） ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content">
+          <div class="stripe-card">
+            <div class="lc-body">
+              <div class="lc-head">
+                <div class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11.5l1.6-4.2A2 2 0 0 1 8.5 6h7a2 2 0 0 1 1.9 1.3L19 11.5"/><rect x="3.5" y="11.5" width="17" height="5.5" rx="1.5"/><path d="M6.5 20v-3M17.5 20v-3"/><circle cx="7.2" cy="14.2" r=".9" fill="currentColor" stroke="none"/><circle cx="16.8" cy="14.2" r=".9" fill="currentColor" stroke="none"/></svg></div>
+                <div class="plate">晋J·D12345</div>
+                <span class="badge green">验证通过</span>
+              </div>
+
+              <div class="photo-item">
+                <div class="ph-img">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                  <div class="wm">2026-08-17 09:12<br>英雄北路</div>
+                </div>
+                <div class="ph-right">
+                  <div class="ph-status"><span class="vtag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span><span class="ntag" style="background:#E7F0FD;color:#1D5DBF;">已同步商旅</span></div>
+                  <div class="ph-names"><span class="ntag">任舒诺</span></div>
+                  <div class="ph-wc">110kV 线路通道巡视</div>
+                  <div class="ph-meta">
+                    <div class="meta-line"><span class="meta-label">拍摄时间</span>2026-08-17 09:12</div>
+                    <div class="meta-line"><span class="meta-label">地点</span>汾阳市西河街道英雄北路</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="photo-item">
+                <div class="ph-img plain">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4-3.5 3 2.5 4.5-4 3.5 3.2"/></svg>
+                  <div class="wm">现场图（无水印）</div>
+                </div>
+                <div class="ph-right">
+                  <div class="ph-status"><span class="vtag skip">非水印 · 免验证</span><span class="ntag" style="background:#E7F0FD;color:#1D5DBF;">已同步商旅</span></div>
+                  <div class="ph-names"><span class="ntag">郑海楠</span></div>
+                  <div class="ph-meta">
+                    <div class="meta-line"><span class="meta-label">说明</span>仅上传存档并同步商旅费用照片，不参与卡片验证</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="add-photo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+                添加照片（水印 / 非水印）
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>⑨</i>照片区 · 水印 / 非水印</div>
+    <div class="sub">两类照片均带「已同步商旅」标识（同步失败红标重试）；删除本地照片时联动解除商旅费用照片关联（重新 saveFeeInfoNew 剔除该图）。</div>
+  </div>
+
+  <!-- ================= ⑩ 汇总前核验（仅问题记录） ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content"></div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>汇总前核验 · 8月17日</h4>
+          <div class="sheet-note">仅列出有问题的记录；规则：a 两次打卡齐 · b 水印照片齐 · c 施工内容一致 · d 地点含目的地 · e 拍摄为当天。未出车免验证。</div>
+
+          <div class="issue-card">
+            <div class="issue-head">
+              <div class="plate">晋J·D12345</div>
+              <span class="badge red">2 项未过</span>
+            </div>
+            <div class="issue-line">
+              <div class="ric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+              <div><em>a. 郑海楠缺「结束打卡」</em>（任舒诺 2/2、薛忠亮 2/2）</div>
+            </div>
+            <div class="issue-line">
+              <div class="ric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+              <div><em>e. 1 张照片拍摄于 8月16日</em>，非记录当天</div>
+            </div>
+          </div>
+
+          <div class="issue-card">
+            <div class="issue-head">
+              <div class="plate">晋J·F67890</div>
+              <span class="badge red">1 项未过</span>
+            </div>
+            <div class="issue-line">
+              <div class="ric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+              <div><em>d. 1 张照片地点「孝义市」</em>不含派车目的地「汾阳市」</div>
+            </div>
+          </div>
+
+          <div class="all-ok">
+            <div class="ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+            <div>
+              <b>其余 3 条记录全部通过</b>
+              <p>处理完上述问题后即可汇总</p>
+            </div>
+          </div>
+
+          <div class="sheet-actions">
+            <div class="btn-ghost">返回处理</div>
+            <div class="btn-dark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+              仍要汇总
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>⑩</i>汇总前核验 · 仅问题记录</div>
+    <div class="sub">替代原「验证报告」：汇总提交前自动弹出；无问题时整层不弹（直接进汇总）。a 条仅对「已绑定商旅」的用车人生效，未绑定不参与。</div>
+  </div>
+
+  <!-- ================= ⑪ 同步核查面板 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <div class="sb sb-dark">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <div class="navbar">
+          <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></div>
+          出工日志
+        </div>
+
+        <div class="content"></div>
+
+        <div class="mask"></div>
+        <div class="sheet">
+          <h4>同步核查 · 8月17日</h4>
+          <div class="sheet-note">每晚 23:00 自动核查当日数据，也可手动触发；结果写入核查记录。绑定成功当晚加做一次 8 月整月回填。</div>
+
+          <div class="sync-head">
+            <div class="st-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg></div>
+            <div>
+              <b style="font-size:13px;">上次核查：昨晚 23:00（自动）</b>
+              <div style="font-size:11px;color:#6B7690;margin-top:2px;">本次为手动触发 · 刚刚完成</div>
+            </div>
+          </div>
+
+          <div style="margin-top:6px;">
+            <div class="sync-item"><span class="si-k">打卡对账</span><span class="si-v okc">3 人 × 2 次均一致<small>本地与商旅逐条比对 detailId / 时间 / 地点</small></span></div>
+            <div class="sync-item"><span class="si-k">照片对账</span><span class="si-v"><span class="diff">商旅侧新发现 1 张（薛忠亮 · App 直接上传）</span><small>已下载存 COS、关联至本卡并触发 Dify 验证（异步）；壹匣上传的 2 张按图片 id 去重跳过</small></span></div>
+            <div class="sync-item"><span class="si-k">费用对账</span><span class="si-v okc">伙食 ¥60 / 交通 ¥0 / 成本中心 C0500J0227，与商旅一致</span></div>
+            <div class="sync-item"><span class="si-k">登录态</span><span class="si-v"><span class="diff">薛忠亮登录已失效</span><small>已标记，照片选人层置灰；其余 2 人有效</small></span></div>
+          </div>
+
+          <div class="sheet-actions">
+            <div class="btn-ghost">查看核查记录</div>
+            <div class="btn-dark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12A8 8 0 1 1 12 4"/><path d="M20 4v5h-5"/></svg>
+              重新核查
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>⑪</i>同步核查面板</div>
+    <div class="sub">读数据只查本地表（本地优先），核查是唯一回写入口（商旅 → 本地单向对账）；照片差异补库并触发 Dify，登录态差异即时标记。</div>
+  </div>
+
+  <!-- ================= ⑫ Web 端 · 出工日志（现有结构改造） ================= -->
+  <div class="unit">
+    <div class="browser">
+      <div class="browser-bar">
+        <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+        <div class="url">toolkit.j1net.com/worklog.html</div>
+      </div>
+      <div class="wl">
+        <div class="wl-head">
+          <h3>出工日志</h3>
+          <span class="wl-sub">月历色点看验证状态，点击日期查看当日记录</span>
+          <div class="acts">
+            <span class="cnt">共 5 条日志 · 12 张照片</span>
+            <span class="wl-btn ghost">同步核查</span>
+            <span class="wl-btn pri">新建日志</span>
+          </div>
+        </div>
+        <div class="wl-tabs">
+          <span class="wl-tab on">记录</span>
+          <span class="wl-tab">批量下载</span>
+          <span class="wl-tab">汇总前核验</span>
+          <span class="wl-tab">数据管理</span>
+        </div>
+        <div class="wl-body">
+          <div class="wl-cal">
+            <div class="cal-t">2026 年 8 月</div>
+            <div class="cal-grid">
+              <span class="hd">一</span><span class="hd">二</span><span class="hd">三</span><span class="hd">四</span><span class="hd">五</span><span class="hd">六</span><span class="hd">日</span>
+              <span></span><span></span><span></span><span></span><span></span><span>1</span><span>2</span>
+              <span class="g">3</span><span class="g">4</span><span class="g">5</span><span class="g">6</span><span class="g">7</span><span>8</span><span>9</span>
+              <span class="g">10</span><span class="g">11</span><span class="r">12</span><span class="g">13</span><span class="g">14</span><span>15</span><span>16</span>
+              <span class="r today">17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span>
+            </div>
+            <div class="cal-legend"><span><i style="background:#2BA471;"></i>已验证</span><span><i style="background:#EAB308;"></i>有备注</span><span><i style="background:#CF4444;"></i>待核实</span></div>
+          </div>
+          <div class="wl-flow">
+            <div class="log-card">
+              <div class="log-h">
+                <span class="plate">晋J·D12345</span>
+                <span class="seq">2026.08.17 · 第 1 / 2 条</span>
+                <span class="badge red">未通过</span>
+              </div>
+              <div class="log-cols">
+                <div class="log-l">
+                  <div class="wl-patrol"><small>巡视内容</small>110kV及220kV输电线路巡视</div>
+                  <div class="info-line"><b>用车人</b>（始 / 终两次打卡，商旅口径）</div>
+                  <div class="mchip2">
+                    <div class="mn">任舒诺<small>工时 9.5h</small></div>
+                    <div class="ms">
+                      <span class="mc yes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>始 08:12</span>
+                      <span class="mc yes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>终 17:40</span>
+                    </div>
+                  </div>
+                  <div class="mchip2">
+                    <div class="mn">郑海楠<small>还差结束打卡</small></div>
+                    <div class="ms">
+                      <span class="mc yes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>始 08:15</span>
+                      <span class="mc no">终 未打卡</span>
+                    </div>
+                  </div>
+                  <div class="mchip2">
+                    <div class="mn">曹万鑫<small>未绑定商旅</small></div>
+                    <div class="ms">
+                      <span class="mc lock">始 --</span>
+                      <span class="mc lock">终 --</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="log-r">
+                  <div class="photos-t">照片 · 3 张（点击查看大图与核验信息）</div>
+                  <div class="photos">
+                    <div class="ph">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                      <span class="ph-st ok">核验通过</span>
+                      <span class="ph-sync">商旅</span>
+                      <span class="ph-who">任舒诺 · 08-17 09:12</span>
+                    </div>
+                    <div class="ph">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8.5h3l1.8-2.4h6.4L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                      <span class="ph-st ok">核验通过</span>
+                      <span class="ph-sync">商旅</span>
+                      <span class="ph-who">郑海楠 · 08-17 09:20</span>
+                    </div>
+                    <div class="ph plain">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4-3.5 3 2.5 4.5-4 3.5 3.2"/></svg>
+                      <span class="ph-st skip">非水印</span>
+                      <span class="ph-sync">商旅</span>
+                      <span class="ph-who">郑海楠 · 现场图</span>
+                    </div>
+                    <div class="ph add">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+                      添加照片
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><i>⑫</i>网页端 · 出工日志（现有结构改造）</div>
+    <div class="sub wide">页头加「同步核查」入口；页签「验证报告」更名「汇总前核验」；卡片左栏「用车人」行的打卡胶囊扩为每人始/终两枚（Web 端仅展示，打卡需真实定位在小程序完成）；照片网格加「商旅」同步角标与「非水印」角标；「添加水印照片」改「添加照片」，方式层与小程序 ⑦ 同三项；Lightbox 信息卡加「商旅同步状态」行。</div>
+  </div>
+
+  <!-- ================= ⑬ Web 端 · 汇总前核验页签 ================= -->
+  <div class="unit">
+    <div class="browser">
+      <div class="browser-bar">
+        <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+        <div class="url">toolkit.j1net.com/worklog.html</div>
+      </div>
+      <div class="wl">
+        <div class="wl-head">
+          <h3>出工日志</h3>
+          <span class="wl-sub">汇总前核验 · 仅显示有问题的记录</span>
+          <div class="acts">
+            <span class="wl-btn ghost">返回记录</span>
+            <span class="wl-btn pri">仍要汇总</span>
+          </div>
+        </div>
+        <div class="wl-tabs">
+          <span class="wl-tab">记录</span>
+          <span class="wl-tab">批量下载</span>
+          <span class="wl-tab on">汇总前核验</span>
+          <span class="wl-tab">数据管理</span>
+        </div>
+        <div class="wl-body">
+          <div class="wl-cal">
+            <div class="cal-t">2026 年 8 月</div>
+            <div class="cal-grid">
+              <span class="hd">一</span><span class="hd">二</span><span class="hd">三</span><span class="hd">四</span><span class="hd">五</span><span class="hd">六</span><span class="hd">日</span>
+              <span></span><span></span><span></span><span></span><span></span><span>1</span><span>2</span>
+              <span class="g">3</span><span class="g">4</span><span class="g">5</span><span class="g">6</span><span class="g">7</span><span>8</span><span>9</span>
+              <span class="g">10</span><span class="g">11</span><span class="r">12</span><span class="g">13</span><span class="g">14</span><span>15</span><span>16</span>
+              <span class="r today">17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span>
+            </div>
+            <div class="cal-legend"><span><i style="background:#2BA471;"></i>已验证</span><span><i style="background:#EAB308;"></i>有备注</span><span><i style="background:#CF4444;"></i>待核实</span></div>
+          </div>
+          <div class="wl-flow">
+            <div class="rep-day">
+              <div class="rep-day-t">8月17日 · 2 条有问题</div>
+              <div class="rep-row">
+                <span class="rp">晋J·D12345</span>
+                <div class="rchips">
+                  <span class="rchip">a 郑海楠缺「结束打卡」</span>
+                  <span class="rchip">e 1 张照片拍摄于 8月16日，非当天</span>
+                </div>
+              </div>
+              <div class="rep-row">
+                <span class="rp">晋J·F67890</span>
+                <div class="rchips">
+                  <span class="rchip">d 1 张照片地点「孝义市」不含目的地「汾阳市」</span>
+                </div>
+              </div>
+            </div>
+            <div style="background:#F2FBF7;border:1px solid #DDF0E7;border-radius:10px;padding:12px 14px;font-size:11.5px;color:#1E7E54;display:flex;align-items:center;gap:8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+              其余 3 条记录全部通过，未在此列出（规则 a~e；未出车免验证；非水印照片不参与）
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><i>⑬</i>网页端 · 汇总前核验页签</div>
+    <div class="sub wide">沿用现有「验证报告」页签的按日分组行结构（行=车牌+问题 chips），范围从「不通过 ∪ 有备注」收窄为「仅有问题」；与小程序 ⑩ 同一数据源、同一 5 条规则；点击行跳回记录页签该日。</div>
+  </div>
+
+</main>
+
+</body>
+</html>

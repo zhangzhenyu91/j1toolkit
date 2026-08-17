@@ -3,8 +3,12 @@
      功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 /
      照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志 /
      水印照片上传（选择水印照片直传 / 选片裁剪加水印后上传，服务端渲染，链路同小程序））；
-     版心满宽贴边；右侧列表位为「记录 / 批量下载 / 验证报告」三页签（原批量下载、验证报告弹层已页签化；验证报告范围 = 不通过 ∪ 有备注），
-     宽屏（≥1600px）记录页签下验证报告常驻卡片流右侧栏（syncSideReport；切到报告页签仍可满宽查看）；
+     版心满宽贴边；右侧列表位为「记录 / 批量下载 / 汇总前核验」三页签（原批量下载、验证报告弹层已页签化；
+     商旅打卡扩展后验证报告更名「汇总前核验」，范围收窄为仅未通过记录，底部绿色条提示其余全部通过；页头加「同步核查」入口），
+     宽屏（≥1600px）记录页签下汇总前核验常驻卡片流右侧栏（syncSideReport；切到核验页签仍可满宽查看）；
+     商旅打卡（design/sgcc-clockin.html ⑫⑬）：用车人行每人「始/终」两枚打卡胶囊（仅展示，打卡需真实定位在小程序完成）、
+     照片网格「商旅/同步失败/非水印」角标、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）；
+     隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
      管理员（超管 / 班组管理员）另见「数据管理」页签：车牌号 / 目的地 / 出工成员 三字典维护 + 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
@@ -43,7 +47,7 @@
   .seg button:hover { color: var(--navy); }
   .seg button.on { background: var(--navy); color: #fff; font-weight: 700; }
 
-  /* ===== 记录 / 批量下载 / 验证报告 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条） ===== */
+  /* ===== 记录 / 批量下载 / 汇总前核验 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条） ===== */
   .wl-tabs { position: relative; display: flex; gap: 4px; margin-top: 14px; border-bottom: 1px solid var(--hair); }
   .wl-tabs button {
     padding: 11px 20px; border: none; background: none; cursor: pointer;
@@ -109,7 +113,7 @@
 
   /* ----- 当日日志卡片流（日期导航由月历承担，无日期条，卡顶与月历卡顶齐平） ----- */
   .wl-list { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-  /* 记录 / 批量下载 / 验证报告 / 数据管理 页签共用同一列表位：切换时上浮淡入，页签内容各自内部滚动 */
+  /* 记录 / 批量下载 / 汇总前核验 / 数据管理 页签共用同一列表位：切换时上浮淡入，页签内容各自内部滚动 */
   .wl-list .pane { display: none; flex: 1; min-height: 0; }
   .wl-list .pane.on { display: flex; flex-direction: column; animation: paneIn .34s cubic-bezier(.16, 1, .3, 1); }
   @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -121,7 +125,7 @@
   .pane-foot { flex: none; display: flex; align-items: center; gap: 12px; padding-top: 14px; }
   .pane-foot .sp { margin-left: auto; display: flex; gap: 10px; }
 
-  /* 宽屏（≥1600px）：记录页签下验证报告常驻右侧栏（与当日卡片流并列；切到报告页签仍可满宽查看） */
+  /* 宽屏（≥1600px）：记录页签下汇总前核验常驻右侧栏（与当日卡片流并列；切到核验页签仍可满宽查看） */
   @media (min-width: 1600px) {
     .wl-list.rep-side { flex-direction: row; gap: 20px; }
     .wl-list.rep-side #paneRecord { flex: 1; min-width: 0; }
@@ -253,7 +257,7 @@
   .patrol .p-edit svg { width: 12px; height: 12px; }
   .patrol:hover .p-edit { color: var(--orange); }
   .patrol.none { color: var(--ph); }
-  /* 备注块（左栏目的地下方；浅黄底 + 黄签黄字，与小程序及验证报告备注同色 #EAB308；
+  /* 备注块（左栏目的地下方；浅黄底 + 黄签黄字，与小程序备注同色 #EAB308；
      无文字且无附件时不渲染，点击块进编辑） */
   .rmk {
     margin: 12px 22px 0; padding: 10px 14px; border: 1px solid #EFE3BC; background: #FDF6E3;
@@ -332,7 +336,7 @@
     flex: 1; min-height: 140px; margin: 14px 22px 20px; border: 1.5px dashed var(--dash); border-radius: 9px;
     display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--ph); letter-spacing: 1px;
   }
-  /* 添加水印照片入口（仅出车卡渲染）：网格尾部虚线块 / 空态虚线框可点，悬停转橙 */
+  /* 添加照片入口（仅出车卡渲染）：网格尾部虚线块 / 空态虚线框可点，悬停转橙 */
   .ph-add {
     min-height: 148px; border: 1.5px dashed var(--dash); border-radius: 9px; cursor: pointer;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
@@ -602,7 +606,7 @@
   .m-x svg { width: 14px; height: 14px; }
   .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
-  /* ===== 验证报告 ===== */
+  /* ===== 汇总前核验（原验证报告；范围已收窄为仅未通过记录） ===== */
   .rep-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
   .rep-bar input[type="date"] {
     height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px;
@@ -643,14 +647,6 @@
     font-style: normal; font-size: 11px; font-weight: 700; color: var(--red);
     background: #FBE9E9; border-radius: 5px; padding: 3px 9px; letter-spacing: .5px; line-height: 1.55;
   }
-  /* 通过 / 免验证标识签（报告范围扩为「不通过 ∪ 有备注」后用于区分） */
-  .reason.ok { color: var(--green); background: #EAF5EF; }
-  .reason.exempt { color: var(--sub); background: var(--paper); }
-  /* 报告备注行：明金黄 #EAB308；不展示文件，有附件时行首曲别针标记 */
-  .rep-rmk { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 700; color: #EAB308; line-height: 1.6; }
-  .rep-rmk svg { width: 13px; height: 13px; flex: none; margin-top: 2px; }
-  /* 日期标题右侧备注计数（未通过计数沿用 .cnt 红色） */
-  .rep-date .cnt2 { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--ph); }
   .rep-go { margin-left: auto; flex: none; color: var(--ph); display: flex; }
   .rep-go svg { width: 14px; height: 14px; }
   .rep-row:hover .rep-go { color: var(--orange); }
@@ -675,6 +671,60 @@
     .lb-side { width: 100%; max-height: none; }
     .topbar-nav { display: none; }
   }
+
+  /* ===== 商旅打卡（出工日志扩展，design/sgcc-clockin.html ⑫⑬） ===== */
+  /* 用车人行每人「始/终」两枚打卡小胶囊（跟在 .mchip 后；已打卡绿底时间 / 未打卡橙虚线 / 未绑定灰底；
+     Web 端仅展示不发起打卡——打卡需真实定位，在小程序完成，点击仅 toast 提示） */
+  .mck {
+    display: inline-flex; align-items: center; gap: 3px; margin: 2px 6px 2px 0; padding: 1px 8px;
+    border-radius: 999px; font-size: 10.5px; cursor: pointer; user-select: none;
+  }
+  .mck svg { width: 9px; height: 9px; }
+  .mck.yes { background: #EAF5EF; color: var(--green); font-weight: 700; }
+  .mck.no { border: 1px dashed var(--orange); color: var(--orange); font-weight: 700; }
+  .mck.lock { background: var(--paper); color: var(--ph); }
+  /* 照片右上商旅同步签（蓝=已同步 / 红=同步失败）；与右上「日期/地点不符」chips 同存时 chips 下移避让 */
+  .ph-sync {
+    position: absolute; top: 6px; right: 6px; border-radius: 4px; padding: 1px 6px;
+    font-size: 10px; font-weight: 700; letter-spacing: .5px; color: #fff; background: #1D5DBF;
+  }
+  .ph-sync.fail { background: rgba(207, 68, 68, .92); }
+  .ph.has-sync .ph-miss { top: 28px; }
+  /* 非水印照片：左上「非水印」灰签 + 灰底色调（仅存档并同步商旅费用照片，不参与验证、不计入水印计数） */
+  .ph.plain { background: #EDF0F6; }
+  .ph.plain img { filter: grayscale(.45) brightness(.97); }
+  .ph-st.skip { background: rgba(255, 255, 255, .88); color: var(--sub); }
+  /* 人名点亮层：商旅登录态标注（登录过期红框红字 / 未绑定灰字，均置灰不可选） */
+  .chip small { margin-left: 4px; font-size: 10px; font-weight: 700; }
+  .chip.exp { border-color: var(--red); }
+  .chip .ck-exp { color: var(--red); }
+  .chip .ck-unb { color: var(--ph); }
+  /* 汇总前核验：底部全部通过提示条（绿） */
+  .rep-okbar {
+    display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 12px 14px;
+    border-radius: 10px; background: #EAF5EF; color: var(--green); font-size: 12px; letter-spacing: .5px;
+  }
+  .rep-okbar svg { width: 15px; height: 15px; flex: none; }
+  /* Lightbox 信息卡：商旅同步行（已同步绿 / 同步失败红 + 重试） */
+  .sg-ok { color: var(--green); font-weight: 700; }
+  .sg-bad { color: var(--red); font-weight: 700; }
+  /* Lightbox 非水印照片说明（仅存档同步，不参与验证） */
+  .plain-note {
+    margin-top: 10px; padding: 9px 12px; border-radius: 8px; background: var(--paper);
+    font-size: 11.5px; color: var(--sub); letter-spacing: .5px; line-height: 1.7;
+  }
+  /* 同步核查弹层：核查记录行（结果色点 绿=一致 / 橙=有差异已回写 / 红=失败） */
+  .sg-logs { margin-top: 10px; border-top: 1px solid var(--hair); }
+  .sg-log { display: flex; align-items: flex-start; gap: 9px; padding: 9px 2px; border-bottom: 1px solid var(--hair); font-size: 12px; }
+  .sg-log:last-child { border-bottom: none; }
+  .sg-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; background: var(--dash); }
+  .sg-dot.ok { background: var(--green); }
+  .sg-dot.diff { background: var(--orange); }
+  .sg-dot.fail { background: var(--red); }
+  .sg-main { flex: 1; min-width: 0; }
+  .sg-main b { font-weight: 700; letter-spacing: .5px; }
+  .sg-main span { display: block; margin-top: 2px; color: var(--sub); line-height: 1.6; word-break: break-all; }
+  .sg-log time { flex: none; font-size: 10.5px; color: var(--ph); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -692,6 +742,8 @@
         <button class="on" data-v="all">全部</button>
         <button data-v="mine">仅看我</button>
       </div>
+      <!-- 商旅打卡：手动同步核查（弹层含发起当日核查 + 当月核查记录；仅记录页签显示，同新建钮） -->
+      <button class="btn" id="btnSyncCheck"></button>
       <button class="btn" id="btnCreate"></button>
     </div>
   </div>
@@ -702,7 +754,7 @@
   <div class="wl-tabs fade-up" id="wlTabs">
     <button class="on" data-p="Record">记录</button>
     <button data-p="Dl">批量下载</button>
-    <button data-p="Rep">验证报告</button>
+    <button data-p="Rep">汇总前核验</button>
     <button data-p="Dict" id="tabDict" style="display:none">数据管理</button>
     <span class="wl-tab-ind" id="wlTabInd"></span>
   </div>
@@ -747,7 +799,8 @@
         </div>
       </div>
 
-      <!-- 报告：日期范围 + 不通过记录分组列表（原验证报告弹层页签化；仅看我走页头全局开关） -->
+      <!-- 汇总前核验：日期范围 + 未通过记录分组列表（原验证报告弹层页签化；仅看我走页头全局开关；
+           商旅打卡后范围收窄为仅未通过记录，底部绿色条提示其余全部通过） -->
       <div class="pane" id="paneRep">
         <div class="rep-bar">
           <input type="date" id="repFrom"><span class="rep-sep">~</span><input type="date" id="repTo">
@@ -774,13 +827,16 @@
 <script src="/assets/common.js"></script>
 <script>
 /* ============================================================
-   出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·验证报告三页签（原下载、报告弹层已页签化）
+   出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验三页签（原下载、报告弹层已页签化）
    + 数据管理页签（仅超管 / 班组管理员：三字典维护 + 杆塔坐标导入，接口 /worklog/admin/* 按生效班组隔离）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
-   验证报告范围 = 不通过记录 ∪ 有备注记录（备注黄色行，不展示文件，有附件以曲别针标记）
+   汇总前核验范围 = 仅未通过记录（商旅打卡新 5 条规则 a~e；未出车免验证；非水印照片不参与），底部绿色条提示其余全部通过
    水印照片上传与小程序同链路（POST /logs/{id}/photos）：① 选择水印照片上传＝原图 base64 直传；
    ② 选择照片并添加水印＝选片 → 4:3/3:4 判定（按需 canvas 裁剪）→ 水印字段编辑（历史带入 / 浏览器定位 WGS84→GCJ02 /
    杆塔坐标级联预填，防抖调 /geo 刷新地点天气）→ 服务端渲染水印上传；图片经 canvas 重绘导出，EXIF 方向已归一（orientation 恒 up）
+   商旅打卡扩展（/api/v1/sgcc/*）：③ 非水印照片＝原图直传（plain:true，不渲染不验证不占每人限一张，verify_status=skipped 不进轮询）；
+   用车人行每人「始/终」打卡胶囊仅展示（打卡在小程序完成）；照片「商旅/同步失败」角标，Lightbox 同步失败可重试（resync）；
+   页头「同步核查」弹层：手动发起当日核查（POST /sync/check）+ 当月核查记录（GET /sync/logs）
    ============================================================ */
 (function () {
 'use strict';
@@ -795,6 +851,11 @@ var RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 var esc = Shade.esc;
 
 function pad(n) { return n < 10 ? '0' + n : '' + n; }
+/* 商旅打卡时间取 HH:mm（兼容「YYYY-MM-DD HH:mm:ss」与 ISO 串），无法识别返回空串 */
+function fmtClockHm(t) {
+  var m = /(\d{1,2}):(\d{2})/.exec(String(t || ''));
+  return m ? pad(Number(m[1])) + ':' + m[2] : '';
+}
 function fmtDate(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 function parseDate(s) { var a = s.split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
 var DOW = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -822,10 +883,9 @@ var SVG_CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 /* 可筛选下拉（杆塔坐标级联）输入框右侧下拉箭头 */
 var SVG_CHEV_D = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 9.5 12 16l6.5-6.5"/></svg>';
 var SVG_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.2"/></svg>';
-/* 备注附件用：播放 / 文档 / 曲别针（报告附件标记） */
+/* 备注附件用：播放 / 文档 */
 var SVG_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" fill="rgba(0,0,0,.38)"/><path d="M10 8.5l6 3.5-6 3.5z"/></svg>';
 var SVG_DOC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>';
-var SVG_CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 /* 上传水印照片用：相机（「选择照片并添加水印」选项图标） */
 var SVG_CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h2.6l1.7-2.6h7.4l1.7 2.6H20a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 20.5H4A1.5 1.5 0 0 1 2.5 19v-9A1.5 1.5 0 0 1 4 8.5z"/><circle cx="12" cy="13.8" r="3.6"/></svg>';
 /* 快捷输入（与小程序一致：巡视内容与水印施工内容共用） */
@@ -835,7 +895,7 @@ var QUICK_INPUTS = ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'];
 var state = {
   date: todayStr(),          // 当前选中日期 YYYY-MM-DD
   scope: 'all',              // all | mine
-  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 验证报告
+  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 汇总前核验
   teamId: 0,                 // 超管当前切换的班组 id（0=未指定，由后端落默认班组；非超管恒 0）
   entries: [],               // 当日日志卡片
   calY: 0, calM: 0,          // 月历当前显示月份（calM 为 0 起）
@@ -952,8 +1012,10 @@ function emptyHTML(t, sub) {
     + (sub ? '<p style="font-size:11.5px">' + esc(sub) + '</p>' : '') + '</div>';
 }
 
-/* 照片验证状态角标（与后端 verify_status 口径一致；旧值 date_mismatch/dest_mismatch 归入失败） */
+/* 照片验证状态角标（与后端 verify_status 口径一致；旧值 date_mismatch/dest_mismatch 归入失败；
+   skipped=非水印照片，免验证仅存档同步商旅） */
 function photoStatus(p) {
+  if (p.verify_status === 'skipped') return { cls: 'skip', txt: '非水印' };
   if (p.verify_status === 'pending') return { cls: 'ing', txt: '验证中' };
   if (p.verify_status === 'passed') return { cls: 'pass', txt: '核验通过' };
   return { cls: 'fail', txt: '验证失败' };
@@ -973,11 +1035,17 @@ function verifyText(p) {
 }
 
 function photoHTML(p) {
-  var st = photoStatus(p);
-  var mis = photoMismatch(p);
-  var html = '<figure class="ph" data-pid="' + p.id + '">'
-    + '<img src="' + esc(p.url) + '" loading="lazy" alt="水印照片">'
+  /* 非水印照片（is_watermark===0，仅商旅打卡开启后存在）：灰签灰调、不显示不符 chips（不参与验证） */
+  var plain = p.is_watermark === 0;
+  var st = plain ? { cls: 'skip', txt: '非水印' } : photoStatus(p);
+  var mis = plain ? [] : photoMismatch(p);
+  /* 商旅同步角标（仅商旅打卡开启时接口返回 sgcc_synced）：1 已同步蓝签 / 2 同步失败红签 */
+  var syncCls = p.sgcc_synced === 1 ? '商旅' : (p.sgcc_synced === 2 ? 'fail' : '');
+  var html = '<figure class="ph' + (plain ? ' plain' : '') + (syncCls ? ' has-sync' : '') + '" data-pid="' + p.id + '">'
+    + '<img src="' + esc(p.url) + '" loading="lazy" alt="' + (plain ? '非水印照片' : '水印照片') + '">'
     + '<span class="ph-st ' + st.cls + '">' + st.txt + '</span>';
+  if (p.sgcc_synced === 1) html += '<span class="ph-sync" title="已同步至商旅费用照片">商旅</span>';
+  else if (p.sgcc_synced === 2) html += '<span class="ph-sync fail" title="同步商旅失败，可在大图中重试">同步失败</span>';
   if (mis.length) {
     html += '<span class="ph-miss">' + mis.map(function (m) { return '<span class="ph-mis">' + m + '</span>'; }).join('') + '</span>';
   }
@@ -991,6 +1059,20 @@ function verifyTag(e) {
   if (e.verify_passed === 'passed') return '<span class="tag tag-orange">验证通过</span>';
   if (e.verify_passed === 'failed') return '<span class="tag tag-red">未通过</span>';
   return '<span class="tag tag-navy">免验证</span>';
+}
+
+/* 商旅打卡「始/终」小胶囊（Web 端仅展示，打卡需真实定位在小程序完成，点击仅提示）：
+   已打卡绿底 HH:mm（悬停见打卡地点）/ 未打卡橙虚线「未打卡」/ 未绑定灰底「未绑定」 */
+function clockChipHTML(m, ck, seq) {
+  var lab = seq === 1 ? '始' : '终';
+  if (!m.sgccBound) return '<span class="mck lock" data-act="sgccck">' + lab + ' 未绑定</span>';
+  var c = ck[m.member_id] && ck[m.member_id][seq];
+  var hm = c ? fmtClockHm(c.time) : '';
+  if (c && hm) {
+    return '<span class="mck yes" data-act="sgccck"' + (c.position ? ' title="' + esc(c.position) + '"' : '') + '>'
+      + Shade.icon('check', 9) + lab + ' ' + hm + '</span>';
+  }
+  return '<span class="mck no" data-act="sgccck">' + lab + ' 未打卡</span>';
 }
 
 function cardHTML(e, idx, total) {
@@ -1022,10 +1104,14 @@ function cardHTML(e, idx, total) {
 
   /* 信息行：派车车辆 / 用车人 / 目的地（出工时间行已按反馈移除，created_at 字段数据保留） */
   var members = (e.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
+  /* 商旅打卡开启时（成员带 sgccBound 字段）：每人名胶囊后加「始/终」两枚打卡胶囊（仅展示） */
+  var sgccOn = members.some(function (m) { return m.sgccBound !== undefined; });
+  var ck = e.clockinMap || {};
   var memberHtml = members.length
     ? members.map(function (m) {
-      return '<span class="mchip' + (m.checked ? ' on' : '') + '" data-act="check" data-mid="' + m.id + '" title="点击切换打卡">'
+      var chip = '<span class="mchip' + (m.checked ? ' on' : '') + '" data-act="check" data-mid="' + m.id + '" title="点击切换打卡">'
         + '<span class="m-dot"></span>' + esc(m.name) + '</span>';
+      return sgccOn ? chip + clockChipHTML(m, ck, 1) + clockChipHTML(m, ck, 2) : chip;
     }).join('')
     : '<span style="color:var(--ph)">无</span>';
   var checkedN = members.filter(function (m) { return m.checked; }).length;
@@ -1069,18 +1155,21 @@ function cardHTML(e, idx, total) {
   html += '<div class="log-acts"><button class="act-note" data-act="remark">备注</button><button class="act-del" data-act="del">删除</button></div>';
   html += '</div><div class="log-side-r">';
 
-  /* 水印照片网格（右栏）；出车卡渲染「添加水印照片」入口（网格尾部虚线块 / 空态框可点，同小程序） */
+  /* 照片网格（右栏）；出车卡渲染「添加照片」入口（网格尾部虚线块 / 空态框可点，同小程序）。
+     「水印照片 · N 张」计数与验证同口径：只算 is_watermark!==0 的水印照片；非水印照片单列计数（仅存档同步商旅） */
   var photos = e.photos || [];
+  var wmN = photos.filter(function (p) { return p.is_watermark !== 0; }).length;
+  var plainN = photos.length - wmN;
   var canAdd = e.vehicle_id != null;
   if (photos.length) {
-    html += '<div class="ph-lab">水印照片 · ' + photos.length + ' 张（点击查看大图与核验信息）</div>'
+    html += '<div class="ph-lab">水印照片 · ' + wmN + ' 张' + (plainN ? ' · 非水印 ' + plainN + ' 张' : '') + '（点击查看大图与核验信息）</div>'
       + '<div class="photos">' + photos.map(photoHTML).join('')
       + (canAdd
-        ? '<div class="ph-add" data-act="addphoto" title="上传水印照片">' + Shade.icon('add', 20) + '<span>添加水印照片</span></div>'
+        ? '<div class="ph-add" data-act="addphoto" title="上传照片">' + Shade.icon('add', 20) + '<span>添加照片</span></div>'
         : '')
       + '</div>';
   } else if (canAdd) {
-    html += '<div class="photos-empty can-add" data-act="addphoto" title="上传水印照片">＋ 添加水印照片</div>';
+    html += '<div class="photos-empty can-add" data-act="addphoto" title="上传照片">＋ 添加照片</div>';
   } else {
     html += '<div class="photos-empty">暂无水印照片</div>';
   }
@@ -1226,25 +1315,41 @@ function shiftLB(delta) {
 function lbRow(k, v, cls) {
   return '<div class="lb-row"><div class="k">' + esc(k) + '</div><div class="v' + (cls ? ' ' + cls : '') + '">' + (v ? v : '—') + '</div></div>';
 }
+/* 商旅同步行（仅商旅打卡开启、接口返回 sgcc_synced 字段时显示）：已同步 / 未同步 / 同步失败·重试 */
+function lbSyncRow(p) {
+  if (p.sgcc_synced === undefined || p.sgcc_synced === null) return '';
+  if (p.sgcc_synced === 1) return lbRow('商旅同步', '<span class="sg-ok">已同步</span>');
+  if (p.sgcc_synced === 2) {
+    return lbRow('商旅同步', '<span class="sg-bad">同步失败</span> <button class="linkbtn" data-lba="resync">重试</button>');
+  }
+  return lbRow('商旅同步', '未同步');
+}
 function renderLB() {
   var p = lbInst.items[lbInst.idx];
   var many = lbInst.items.length > 1;
+  /* 非水印照片：仅存档同步商旅、不参与验证——信息卡只留人名 + 说明 + 商旅同步，核验字段行与防伪码块不渲染 */
+  var plain = p.is_watermark === 0;
   var stCls = p.verify_status === 'passed' ? 'good' : (p.verify_status === 'pending' ? '' : 'bad');
+  var side = plain
+    ? lbRow('人名', esc((p.members || []).join('、')))
+      + '<div class="plain-note">非水印照片仅存档并同步商旅费用照片，不参与验证</div>'
+      + lbSyncRow(p)
+    : lbRow('验证情况', esc(verifyText(p)), stCls)
+      + lbRow('人名', esc((p.members || []).join('、')))
+      + lbRow('施工内容', esc(p.work_content))
+      + lbRow('拍摄时间', esc(p.shot_time))
+      + lbRow('天气', esc(p.weather))
+      + lbRow('地点', esc(p.location))
+      + lbRow('经度', esc(p.lng))
+      + lbRow('纬度', esc(p.lat))
+      + lbSyncRow(p)
+      + '<div class="acode">' + Shade.icon('shield', 20)
+      + '<small>防伪码已随水印嵌印在照片画面中，放大照片即可核对 14 位防伪码</small></div>';
   var html = '<button class="lb-x">' + Shade.icon('close', 17) + '</button>'
     + (many ? '<button class="lb-arrow l">' + SVG_CHEV_L + '</button><button class="lb-arrow r">' + SVG_CHEV_R + '</button>' : '')
     + '<div class="lb-main">'
-    + '<div class="lb-stage"><img class="lb-img" alt="水印照片大图"><div class="lb-count">' + (lbInst.idx + 1) + ' / ' + lbInst.items.length + '</div></div>'
-    + '<aside class="lb-side">'
-    + lbRow('验证情况', esc(verifyText(p)), stCls)
-    + lbRow('人名', esc((p.members || []).join('、')))
-    + lbRow('施工内容', esc(p.work_content))
-    + lbRow('拍摄时间', esc(p.shot_time))
-    + lbRow('天气', esc(p.weather))
-    + lbRow('地点', esc(p.location))
-    + lbRow('经度', esc(p.lng))
-    + lbRow('纬度', esc(p.lat))
-    + '<div class="acode">' + Shade.icon('shield', 20)
-    + '<small>防伪码已随水印嵌印在照片画面中，放大照片即可核对 14 位防伪码</small></div>'
+    + '<div class="lb-stage"><img class="lb-img" alt="' + (plain ? '非水印照片大图' : '水印照片大图') + '"><div class="lb-count">' + (lbInst.idx + 1) + ' / ' + lbInst.items.length + '</div></div>'
+    + '<aside class="lb-side">' + side
     /* 照片直改（同小程序）：可下载；验证失败可重新验证；人名可改；可删除 */
     + '<div class="lb-acts">'
     + (p.verify_status === 'failed'
@@ -1271,6 +1376,7 @@ function renderLB() {
       var photo = lbInst.items[lbInst.idx];
       var act = b.dataset.lba;
       if (act === 'retry') { retryVerify(photo.id); return; }
+      if (act === 'resync') { resyncSgccPhoto(photo.id); return; }
       if (act === 'dl') { downloadPhoto(photo); return; }
       if (act === 'del') { deletePhoto(photo.id); return; }
       var en = findEntry(lbInst.eid);
@@ -1755,6 +1861,16 @@ async function retryVerify(pid) {
     Shade.toast(e.message, 'error');
   }
 }
+/* ---------- 商旅同步失败重试（POST /api/v1/sgcc/photos/:id/resync；后端置回未同步后异步重传，刷新见最新状态） ---------- */
+async function resyncSgccPhoto(pid) {
+  try {
+    var r = await Shade.api(wl('/api/v1/sgcc/photos/' + pid + '/resync'), { method: 'POST' });
+    Shade.toast((r && r.message) || '已重新提交同步', 'success');
+    refreshAfterEdit(); // 重拉后 refreshLightbox 按照片 id 重定位，角标与同步行随数据更新
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
 async function deletePhoto(pid) {
   var yes = await confirmAction({ title: '删除照片', content: '删除后不可恢复，确定删除该水印照片吗？', confirmText: '删除', danger: true });
   if (!yes) return;
@@ -1767,10 +1883,12 @@ async function deletePhoto(pid) {
   }
 }
 
-/* ================= 水印照片上传（与小程序同链路） =================
-   入口为卡片照片区「添加水印照片」（仅出车卡）→ 方式二选一 → 人名点亮 →
+/* ================= 照片上传（与小程序同链路） =================
+   入口为卡片照片区「添加照片」（仅出车卡）→ 方式三选一 → 人名点亮 →
    ① 选择水印照片上传：本地读 base64 直传；② 选择照片并添加水印：4:3 判定/裁剪 →
-   水印字段编辑（历史带入 / 浏览器定位 / 杆塔坐标预填）→ 服务端渲染水印上传（同一 POST /photos 接口） */
+   水印字段编辑（历史带入 / 浏览器定位 / 杆塔坐标预填）→ 服务端渲染水印上传（同一 POST /photos 接口）；
+   ③ 非水印照片（商旅打卡扩展）：原图直传（plain:true），不渲染、不验证、不占每人限一张，
+   仅存档并同步进被选中人的当日商旅费用照片 */
 /* 水印拍摄时间格式：2026.07.30 11:02（与今日水印相机样式一致） */
 function fmtWmTime(d) {
   return d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
@@ -1857,20 +1975,21 @@ function pickImage(accept, cb) {
   });
   inp.click();
 }
-/* 统一上传：POST /logs/{id}/photos（wm 存在时服务端先渲染水印）；成功后静默重拉进 pending 轮询 */
-async function uploadPhoto(entry, image, names, wm, btn) {
+/* 统一上传：POST /logs/{id}/photos（wm 存在时服务端先渲染水印；plain=true 为非水印直传）；
+   成功后静默重拉——水印照片进 pending 轮询；非水印响应 verify_status=skipped，天然不进轮询（schedulePending 只盯 pending） */
+async function uploadPhoto(entry, image, names, wm, btn, plain) {
   if (btn) { btn.disabled = true; btn.textContent = wm ? '加水印上传中…' : '上传中…'; }
   var wait = null;
   if (!btn) { // 原图直传无表单弹层，用轻量进度层提示
     wait = createModal('<div class="loading"><span class="spin"></span>正在上传…</div>', { width: 280 });
   }
   try {
-    await Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/photos'), {
-      method: 'POST',
-      body: wm ? { image: image, members: names, wm: wm } : { image: image, members: names }
-    });
+    var body = wm ? { image: image, members: names, wm: wm } : { image: image, members: names };
+    if (plain) body.plain = true; // 非水印照片：原图直传、不渲染、不验证、不占每人限一张
+    var r = await Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/photos'), { method: 'POST', body: body });
     if (wait) wait.close();
-    Shade.toast('已上传，验证中', 'success');
+    var skipped = !!(r.data && r.data.verify_status === 'skipped'); // 非水印：仅存档同步商旅，不参与验证
+    Shade.toast(skipped ? '已上传（非水印照片仅存档同步，不参与验证）' : '已上传，验证中', 'success');
     refreshAfterEdit();
     return true;
   } catch (e) {
@@ -1881,15 +2000,18 @@ async function uploadPhoto(entry, image, names, wm, btn) {
   }
 }
 
-/* ---------- 入口：方式二选一弹层（原图直传 / 选片加水印） ---------- */
+/* ---------- 入口：方式三选一弹层（水印直传 / 选片加水印 / 非水印直传） ---------- */
 function openAddSheet(entry) {
   if (!(entry.members || []).length) { Shade.toast('本卡暂无用车人', 'info'); return; }
-  var html = mHead('添加水印照片')
+  var html = mHead('添加照片')
     + '<button class="sheet-opt" data-m="raw"><span class="ic">' + Shade.icon('image', 19) + '</span>'
     + '<span><b>选择水印照片上传</b><small>已带水印的照片（如今日水印相机拍摄）直接上传</small></span>'
     + Shade.icon('chevron-right', 15) + '</button>'
     + '<button class="sheet-opt" data-m="wm"><span class="ic">' + SVG_CAMERA + '</span>'
     + '<span><b>选择照片并添加水印</b><small>选择原图裁剪 4:3，编辑水印字段后由服务端渲染水印</small></span>'
+    + Shade.icon('chevron-right', 15) + '</button>'
+    + '<button class="sheet-opt" data-m="plain"><span class="ic">' + Shade.icon('upload', 19) + '</span>'
+    + '<span><b>非水印照片</b><small>直接上传所选原图，仅存档并同步商旅费用照片，不做验证、不占每人限一张</small></span>'
     + Shade.icon('chevron-right', 15) + '</button>';
   var inst = createModal(html, { width: 440 });
   $$('.sheet-opt', inst.box).forEach(function (b) {
@@ -1901,15 +2023,27 @@ function openAddSheet(entry) {
   });
 }
 
-/* ---------- 人名点亮层（候选 = 本卡用车人，已上传者置灰；确认后按方式选片） ---------- */
+/* ---------- 人名点亮层（候选 = 本卡用车人；确认后按方式选片） ----------
+   置灰规则：水印两种方式沿用「每人限一张，已上传者不可选」；非水印不占名额、不按已上传置灰。
+   商旅打卡开启时（成员带 sgccBound 字段）：登录过期（sgccTokenStatus===0，红字「登录过期」红框）、
+   未绑定（灰字「未绑定」）均置灰不可选——三类照片都会同步进被选中人的当日商旅费用照片 */
 function openPhotoPickModal(entry, action) {
-  var used = usedPhotoNames(entry);
+  var isPlain = action === 'plain';
+  var used = isPlain ? {} : usedPhotoNames(entry);
   var members = (entry.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
+  var hint = isPlain
+    ? '候选为本卡用车人；非水印照片不占每人限一张，上传后同步进被选中人的当日商旅费用照片'
+    : '候选为本卡用车人；每人限一张，已上传者不可选';
   var html = mHead('选择照片所属人名')
-    + '<div class="f-hint" style="margin:0 0 2px">候选为本卡用车人；每人限一张，已上传者不可选</div>'
+    + '<div class="f-hint" style="margin:0 0 2px">' + hint + '</div>'
     + '<div class="chips" style="margin-top:10px">' + members.map(function (m) {
-      return '<button type="button" class="chip" data-name="' + esc(m.name) + '"'
-        + (used[m.name] ? ' disabled' : '') + '>' + esc(m.name) + '</button>';
+      var expired = m.sgccTokenStatus === 0;           // 商旅登录过期（红框红字，恢复前不可选）
+      var unbound = !expired && m.sgccBound === false; // 未绑定商旅（灰字）
+      var off = !!used[m.name] || expired || unbound;
+      return '<button type="button" class="chip' + (expired ? ' exp' : '') + '" data-name="' + esc(m.name) + '"'
+        + (off ? ' disabled' : '') + '>' + esc(m.name)
+        + (expired ? '<small class="ck-exp">登录过期</small>' : (unbound ? '<small class="ck-unb">未绑定</small>' : ''))
+        + '</button>';
     }).join('') + '</div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">选择照片</button></div>';
@@ -1921,6 +2055,7 @@ function openPhotoPickModal(entry, action) {
     if (!names.length) { Shade.toast('请选择照片所属人名', 'info'); return; }
     inst.close();
     if (action === 'wm') pickForWm(entry, names);
+    else if (action === 'plain') pickPlain(entry, names);
     else pickRaw(entry, names);
   });
 }
@@ -1932,6 +2067,18 @@ function pickRaw(entry, names) {
     if (file.size > 15 * 1024 * 1024) { Shade.toast('照片大小应在 15MB 以内', 'info'); return; }
     var rd = new FileReader();
     rd.onload = function () { uploadPhoto(entry, String(rd.result || ''), names, null); };
+    rd.onerror = function () { Shade.toast('图片读取失败', 'error'); };
+    rd.readAsDataURL(file);
+  });
+}
+
+/* ---------- ③ 非水印照片：jpeg/png ≤15MB 原图 base64 直传（plain:true；不渲染不验证不占每人限一张） ---------- */
+function pickPlain(entry, names) {
+  pickImage('image/jpeg,image/png', function (file) {
+    if (!/^image\/(jpeg|jpg|png)$/.test(file.type || '')) { Shade.toast('照片格式应为 jpeg/png', 'info'); return; }
+    if (file.size > 15 * 1024 * 1024) { Shade.toast('照片大小应在 15MB 以内', 'info'); return; }
+    var rd = new FileReader();
+    rd.onload = function () { uploadPhoto(entry, String(rd.result || ''), names, null, null, true); };
     rd.onerror = function () { Shade.toast('图片读取失败', 'error'); };
     rd.readAsDataURL(file);
   });
@@ -2775,7 +2922,7 @@ async function importTowers(f) {
   }
 }
 
-/* ================= 页签切换（记录 / 批量下载 / 验证报告 共用同一列表位） ================= */
+/* ================= 页签切换（记录 / 批量下载 / 汇总前核验 共用同一列表位） ================= */
 /* 页签指示条跟随（instant=true 首帧/窗口缩放直接落位，不滑残影） */
 function moveWlTabInd(tab, instant) {
   if (!tab) return;
@@ -2797,11 +2944,12 @@ function switchPane(key) {
   $$('#wlTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === key); });
   moveWlTabInd($('#wlTabs button.on'));
   $$('.wl-list .pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane' + key); });
-  /* 记录页专属控件（新建 / 计数）仅记录页显示；「全部 / 仅看我」为全局开关，三个页签常驻 */
+  /* 记录页专属控件（新建 / 计数 / 同步核查）仅记录页显示；「全部 / 仅看我」为全局开关，三个页签常驻 */
   var isRec = key === 'Record';
   $('#photoCnt').hidden = !isRec;
   $('#btnCreate').hidden = !isRec;
-  /* 下载页签首次进入按默认范围自动加载；验证报告每次切回都重查（卡片可直改备注，避免陈旧数据）；
+  $('#btnSyncCheck').hidden = !isRec;
+  /* 下载页签首次进入按默认范围自动加载；汇总前核验每次切回都重查（卡片可直改备注，避免陈旧数据）；
      数据管理每次切回都重拉（字典可能被其他管理员改动） */
   if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
   if (key === 'Rep') loadReport();
@@ -2809,7 +2957,7 @@ function switchPane(key) {
   syncSideReport();
 }
 
-/* 宽屏（≥1600px）且处于记录页签时，验证报告常驻卡片流右侧（窄屏或其他页签仍为页签切换；
+/* 宽屏（≥1600px）且处于记录页签时，汇总前核验常驻卡片流右侧（窄屏或其他页签仍为页签切换；
    首次进入按需加载，loaded 复位后（切班组等）自动重查） */
 function syncSideReport() {
   var on = window.innerWidth >= 1600 && state.pane === 'Record';
@@ -2817,7 +2965,65 @@ function syncSideReport() {
   if (on && !state.rep.loaded) loadReport();
 }
 
-/* ================= 验证报告（页签内嵌：不通过记录 ∪ 有备注记录） ================= */
+/* ================= 商旅打卡：同步核查（手动发起当日核查 + 当月核查记录） ================= */
+var SG_LOG_TYPE = { auth: '登录态', clockin: '打卡', fee: '费用', photo: '照片' };
+var SG_LOG_SCOPE = { daily: '', backfill: '回填 · ' };
+/* 核查时间显示「M-D HH:mm」（兼容「YYYY-MM-DD HH:mm:ss」与 ISO 串） */
+function fmtSyncTime(s) {
+  var m = /(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(s || ''));
+  return m ? (Number(m[2]) + '-' + m[3] + ' ' + m[4] + ':' + m[5]) : '';
+}
+/* 当月核查记录（GET /api/v1/sgcc/sync/logs?month=，近 100 条）；结果色点：ok 一致 / diff 有差异已回写 / fail 失败 */
+async function loadSyncLogs(box) {
+  var listEl = $('#sgLogs', box);
+  listEl.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+  try {
+    var r = await Shade.api(wl('/api/v1/sgcc/sync/logs?month=' + state.date.slice(0, 7)));
+    var list = (r.data && r.data.list) || [];
+    if (!list.length) {
+      listEl.innerHTML = '<div class="f-hint" style="padding:12px 2px">当月暂无核查记录</div>';
+      return;
+    }
+    listEl.innerHTML = list.map(function (it) {
+      var res = it.result === 'ok' ? 'ok' : (it.result === 'fail' ? 'fail' : 'diff');
+      return '<div class="sg-log"><i class="sg-dot ' + res + '"></i>'
+        + '<div class="sg-main"><b>' + esc(it.member_name || '—') + ' · ' + esc(SG_LOG_TYPE[it.type] || it.type) + '</b>'
+        + '<span>' + esc(SG_LOG_SCOPE[it.scope] || '') + esc(it.detail || '') + '</span></div>'
+        + '<time>' + esc(fmtSyncTime(it.created_at)) + '</time></div>';
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div class="f-hint" style="padding:12px 2px">' + esc(e.message) + '</div>';
+  }
+}
+/* 页头「同步核查」弹层：说明 + 发起当日核查（POST /sync/check，异步）+ 当月核查记录 */
+function openSyncCheck() {
+  var d = parseDate(state.date);
+  var dateCN = (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  var html = mHead('商旅同步核查')
+    + '<div class="f-hint" style="margin:0">商旅数据每晚 23:00 自动核查当日（打卡 / 费用 / 照片 / 登录态对账，商旅 → 本地单向回写）；'
+    + '也可对当前选中日期手动发起。核查为异步执行，结果稍候写入下方核查记录。</div>'
+    + '<div class="m-foot" style="justify-content:flex-start;margin-top:12px">'
+    + '<button class="btn btn-sm btn-accent" data-a="check">' + Shade.icon('refresh', 14) + '发起核查 · ' + dateCN + '</button></div>'
+    + '<div class="f-lab" style="margin-top:16px">当月核查记录（近 100 条）</div>'
+    + '<div class="sg-logs" id="sgLogs"></div>';
+  var inst = createModal(html, { width: 520 });
+  loadSyncLogs(inst.box);
+  var saving = false;
+  $('[data-a="check"]', inst.box).addEventListener('click', async function () {
+    if (saving) return;
+    saving = true;
+    try {
+      var r = await Shade.api(wl('/api/v1/sgcc/sync/check'), { method: 'POST', body: { date: state.date } });
+      Shade.toast((r && r.message) || '已发起核查', 'success');
+      setTimeout(function () { if (!inst.closed) loadSyncLogs(inst.box); }, 3000); // 核查异步，稍候重拉记录
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    }
+    saving = false;
+  });
+}
+
+/* ================= 汇总前核验（页签内嵌：仅未通过记录） ================= */
 async function loadReport() {
   if (!state.rep.from || !state.rep.to) { Shade.toast('请选择起止日期', 'info'); return; }
   var body = $('#repBody');
@@ -2825,13 +3031,18 @@ async function loadReport() {
   try {
     var r = await Shade.api(wl('/api/v1/worklog/report?from=' + state.rep.from + '&to=' + state.rep.to
       + '&scope=' + state.scope));
-    var list = (r.data && r.data.list) || [];
+    /* 汇总前核验：范围收窄为仅未通过记录（verify==='failed'，前端筛即可），有备注的记录不再在此列出。
+       「其余 N 条」口径：接口返回（未通过 ∪ 有备注）中核查通过（含免验证）的条数——
+       通过且无备注的记录不在接口返回内，不计入 N */
+    var all = (r.data && r.data.list) || [];
+    var okN = all.filter(function (x) { return x.verify !== 'failed'; }).length;
+    var list = all.filter(function (x) { return x.verify === 'failed'; });
     state.rep.loaded = true;
-    var failedTotal = list.filter(function (x) { return (x.reasons || []).length; }).length;
-    var rmkTotal = list.filter(function (x) { return x.remark || x.remark_has_files; }).length;
-    $('#repTotal').textContent = '合计 ' + list.length + ' 条（未通过 ' + failedTotal + ' · 备注 ' + rmkTotal + '）';
+    $('#repTotal').textContent = '合计 ' + list.length + ' 条未通过';
     if (!list.length) {
-      body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44) + '<p>该范围内全部通过，亦无备注记录</p></div>';
+      body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44)
+        + '<p>该范围内记录全部通过</p>'
+        + '<p style="font-size:11.5px">规则 a~e；未出车免验证；非水印照片不参与</p></div>';
       return;
     }
     /* 按 log_date 分组（保持接口顺序） */
@@ -2841,30 +3052,21 @@ async function loadReport() {
       cur.items.push(it);
     });
     body.innerHTML = groups.map(function (g) {
-      var failedN = g.items.filter(function (x) { return (x.reasons || []).length; }).length;
-      var rmkN = g.items.filter(function (x) { return x.remark || x.remark_has_files; }).length;
       return '<div class="rep-group"><div class="rep-date">' + esc(fmtDateCN(g.date))
-        + (failedN ? '<span class="cnt">' + failedN + ' 条未通过</span>' : '')
-        + (rmkN ? '<span class="cnt2">' + rmkN + ' 条备注</span>' : '') + '</div>'
+        + '<span class="cnt">' + g.items.length + ' 条未通过</span></div>'
         + g.items.map(function (it) {
-          var failed = (it.reasons || []).length > 0;
-          /* 不通过原因 chips；无原因（仅备注入列）时以 通过/免验证 签标识 */
-          var chips = failed
-            ? it.reasons.map(function (x) { return '<em class="reason">' + esc(x) + '</em>'; }).join('')
-            : '<em class="reason ' + (it.verify === 'exempt' ? 'exempt' : 'ok') + '">'
-              + (it.verify === 'exempt' ? '免验证' : '通过') + '</em>';
-          /* 备注行：黄色，不展示文件，有附件时行首曲别针标记 */
-          var rmk = (it.remark || it.remark_has_files)
-            ? '<div class="rep-rmk">' + (it.remark_has_files ? SVG_CLIP : '')
-              + '<span><b>备注：</b>' + esc(it.remark || '（仅附件）') + '</span></div>'
-            : '';
+          var chips = (it.reasons || []).map(function (x) { return '<em class="reason">' + esc(x) + '</em>'; }).join('')
+            || '<em class="reason">未通过</em>';
           return '<div class="rep-row" data-d="' + it.log_date + '" title="点击查看该日记录">'
             + '<div class="rep-top"><span class="rep-plate">' + esc(it.plate_no || '未出车') + '</span>'
             + '<span class="rep-members">' + esc((it.members || []).join('、')) + '</span>'
             + '<span class="rep-go">' + Shade.icon('chevron-right', 14) + '</span></div>'
-            + '<div class="rep-chips">' + chips + '</div>' + rmk + '</div>';
+            + '<div class="rep-chips">' + chips + '</div></div>';
         }).join('') + '</div>';
-    }).join('');
+    }).join('')
+      /* 底部绿色通过条：范围内其余记录全部通过，未在此列出 */
+      + '<div class="rep-okbar">' + Shade.icon('check-circle', 15)
+      + '<span>其余 ' + okN + ' 条记录全部通过，未在此列出（规则 a~e；未出车免验证；非水印照片不参与）</span></div>';
   } catch (e) {
     body.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) + '<p>' + esc(e.message) + '</p></div>';
     $('#repTotal').textContent = '';
@@ -2887,7 +3089,7 @@ function initEvents() {
     gotoDate(t);
   });
   /* 全部 / 仅看我（全局开关，三页签共用）：切换后重拉记录并清空月历缓存；
-     下载页签已加载则前端重筛，报告页签已加载则按新 scope 重查 */
+     下载页签已加载则前端重筛，核验页签已加载则按新 scope 重查 */
   $$('#segScope button').forEach(function (b) {
     b.addEventListener('click', function () {
       if (b.classList.contains('on')) return;
@@ -2900,12 +3102,13 @@ function initEvents() {
       if (state.rep.loaded) loadReport();
     });
   });
-  /* 记录 / 批量下载 / 验证报告 页签切换；新建日志 */
+  /* 记录 / 批量下载 / 汇总前核验 页签切换；新建日志；商旅同步核查 */
   $$('#wlTabs button').forEach(function (b) {
     b.addEventListener('click', function () { switchPane(b.dataset.p); });
   });
   window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); syncSideReport(); });
   $('#btnCreate').addEventListener('click', function () { openEntryForm(null); });
+  $('#btnSyncCheck').addEventListener('click', function () { openSyncCheck(); });
   /* 下载页签：查询 / 仅今天 / 全选 / 缩略图勾选 / 打包下载（仅看我走页头全局开关） */
   $('#dlQuery').addEventListener('click', function () {
     state.dl.from = $('#dlFrom').value;
@@ -2937,7 +3140,7 @@ function initEvents() {
     var photos = picked.map(function (p) { return { url: p.url, name: p.log_date + '-' + p.id + '.jpg' }; });
     postZip(photos, this);
   });
-  /* 报告页签：查询（仅看我走页头全局开关，scope 为接口传参）/ 点击报告行切回记录页签并跳到该日 */
+  /* 报告页签：查询（仅看我走页头全局开关，scope 为接口传参）/ 点击核验行切回记录页签并跳到该日 */
   $('#repQuery').addEventListener('click', function () {
     state.rep.from = $('#repFrom').value;
     state.rep.to = $('#repTo').value;
@@ -2986,7 +3189,8 @@ function initEvents() {
     if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
     importTowers(f);
   });
-  /* 卡片流点击委派：改派车 / 打卡切换 / 删除日志 / 巡视内容·备注编辑 / 添加水印照片 / 备注附件预览·下载 / 照片大图 */
+  /* 卡片流点击委派：改派车 / 打卡切换 / 商旅打卡胶囊（仅展示，提示去小程序打卡）/ 删除日志 /
+     巡视内容·备注编辑 / 添加照片 / 备注附件预览·下载 / 照片大图 */
   $('#cardFlow').addEventListener('click', function (e) {
     /* 备注附件：优先于备注块编辑（不冒泡到 data-act） */
     var ractEl = e.target.closest('[data-ract]');
@@ -3019,6 +3223,8 @@ function initEvents() {
       if (act === 'remark') { openRemarkModal(entry); return; }
       if (act === 'del') { deleteEntry(entry); return; }
       if (act === 'check') { toggleCheck(entry, +actEl.dataset.mid, actEl); return; }
+      /* 商旅打卡胶囊：Web 端仅展示不发起打卡（打卡需真实定位，在小程序完成） */
+      if (act === 'sgccck') { Shade.toast('请在小程序端打卡', 'info'); return; }
       if (act === 'addphoto') { openAddSheet(entry); return; }
       return;
     }
@@ -3095,7 +3301,7 @@ function reloadTeamData() {
   if (state.pane === 'Dl') loadDlPhotos();
   if (state.pane === 'Rep') loadReport();
   if (state.pane === 'Dict') loadDict(); // 数据管理页签随动刷新
-  syncSideReport(); // 宽屏常驻报告栏随班组切换重查
+  syncSideReport(); // 宽屏常驻核验栏随班组切换重查
 }
 
 /* 未分配班组空态（屏十口径）：隐藏页头操作区 / 页签 / 双栏主体，仅显示提示卡 */
@@ -3118,6 +3324,7 @@ async function init() {
   });
   moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
   $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
+  $('#btnSyncCheck').innerHTML = Shade.icon('refresh', 15) + '同步核查';
   $('#dlGo').innerHTML = Shade.icon('download', 15) + '打包下载';
   $('#calPrev').innerHTML = SVG_CHEV_L;
   $('#calNext').innerHTML = SVG_CHEV_R;
@@ -3151,7 +3358,7 @@ async function init() {
   syncCalMonth(parseDate(state.date));
   loadCalMonth(true); // 月历先渲染（API 失败也保证网格展示），着色数据回来后补色
   loadLogs();
-  syncSideReport(); // 宽屏（≥1600px）记录页签下验证报告常驻右侧
+  syncSideReport(); // 宽屏（≥1600px）记录页签下汇总前核验常驻右侧
   Shade.reveal();
 }
 init();

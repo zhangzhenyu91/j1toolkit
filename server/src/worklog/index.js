@@ -77,7 +77,7 @@ async function loadEntries(where, params) {
      WHERE verify_status = 'pending' AND created_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE)`
   );
   const [entries] = await pool.query(
-    `SELECT e.id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.patrol_content,
+    `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.patrol_content,
             e.remark, e.remark_files,
             e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name,
             e.created_by, e.created_at
@@ -99,6 +99,7 @@ async function loadEntries(where, params) {
   const [photos] = await pool.query(
     `SELECT id, entry_id, cos_key, url, members, verify_status, work_content,
             shot_time, weather, location, lng, lat, date_ok, dest_ok, created_at
+       ${config.sgcc && config.sgcc.enabled ? ', is_watermark, source, sgcc_img_id, sgcc_synced' : ''}
      FROM worklog_photo WHERE entry_id IN (?) ORDER BY id`,
     [ids]
   );
@@ -124,16 +125,50 @@ async function loadEntries(where, params) {
       lat: p.lat,
       date_ok: p.date_ok,
       dest_ok: p.dest_ok,
+      ...(config.sgcc && config.sgcc.enabled
+        ? { is_watermark: p.is_watermark, source: p.source, sgcc_synced: p.sgcc_synced } : {}),
     });
   });
 
+  // 商旅打卡开启时：装配 绑定/登录态（成员级）与 当日两次打卡（clockinMap），供新 5 条规则与前端打卡区
+  let sgccByMember = {};
+  const clockinByDate = {}; // clockinByDate[log_date][member_id][seq]
+  if (config.sgcc && config.sgcc.enabled) {
+    const teamIds = [...new Set(entries.map((e) => e.team_id).filter(Boolean))];
+    if (teamIds.length) {
+      const [accounts] = await pool.query(
+        'SELECT member_id, token_status FROM worklog_sgcc_account WHERE team_id IN (?) AND member_id IS NOT NULL',
+        [teamIds]
+      );
+      accounts.forEach((a) => { sgccByMember[a.member_id] = a; });
+      const dates = [...new Set(entries.map((e) => e.log_date))];
+      const [clockins] = await pool.query(
+        `SELECT member_id, DATE_FORMAT(clock_date, '%Y-%m-%d') AS clock_date, seq, detail_id, clock_time, position, work_hours
+         FROM worklog_clockin WHERE team_id IN (?) AND clock_date IN (?)`,
+        [teamIds, dates]
+      );
+      clockins.forEach((c) => {
+        const d = (clockinByDate[c.clock_date] = clockinByDate[c.clock_date] || {});
+        const m = (d[c.member_id] = d[c.member_id] || {});
+        m[c.seq] = { detailId: c.detail_id, time: c.clock_time, position: c.position, workHours: c.work_hours };
+      });
+    }
+  }
+
   return entries.map((e) => {
+    const members = (memberMap[e.id] || []).map((m) => ({
+      ...m,
+      ...(config.sgcc && config.sgcc.enabled
+        ? { sgccBound: !!sgccByMember[m.member_id], sgccTokenStatus: sgccByMember[m.member_id] ? sgccByMember[m.member_id].token_status : null }
+        : {}),
+    }));
     const entry = {
       ...e,
       remark: e.remark || '',
       remark_files: parseRemarkFiles(e.remark_files),
-      members: memberMap[e.id] || [],
+      members,
       photos: photoMap[e.id] || [],
+      clockinMap: (clockinByDate[e.log_date] || {}),
     };
     entry.verify_passed = computeVerifyPassed(entry);
     entry.verify_reasons = computeFailReasons(entry);
@@ -692,7 +727,7 @@ router.get('/logs/:id/remark-download', async (req, res, next) => {
 });
 
 // 照片人名校验：⊆ 本卡用车人，且不与本卡其他照片冲突（每人限一张）
-async function checkPhotoMembers(entryId, names, excludePhotoId) {
+async function checkPhotoMembers(entryId, names, excludePhotoId, skipUsed) {
   const [memberRows] = await pool.query(
     'SELECT m.name FROM worklog_entry_member em JOIN worklog_member m ON m.id = em.member_id WHERE em.entry_id = ?',
     [entryId]
@@ -701,7 +736,13 @@ async function checkPhotoMembers(entryId, names, excludePhotoId) {
   for (const n of names) {
     if (!allowed.has(n)) return { code: 40007, message: `「${n}」不是本卡用车人` };
   }
-  const [photos] = await pool.query('SELECT id, members FROM worklog_photo WHERE entry_id = ?', [entryId]);
+  // 非水印照片（skipUsed）不占「每人限一张」名额，也不参与占用判定
+  const [photos] = await pool.query(
+    `SELECT id, members FROM worklog_photo WHERE entry_id = ?
+       ${config.sgcc && config.sgcc.enabled ? 'AND is_watermark = 1' : ''}`,
+    [entryId]
+  );
+  if (skipUsed) return null;
   const used = new Set();
   photos.forEach((p) => {
     if (excludePhotoId && p.id === excludePhotoId) return;
@@ -892,9 +933,10 @@ async function writeBackVerify(photoId, vr) {
   );
 }
 
-// POST /logs/:id/photos：上传水印照片（base64 → COS），异步触发 Dify 验证
-// body.wm 可选：「选照片并添加水印」时携带 { content/time/weather/location/longitude/latitude/antiCode/orientation }，
-// 服务端先把水印渲染到原图上，再按同一流程传 COS、触发验证
+// POST /logs/:id/photos：上传照片（base64 → COS）。body.wm 可选：「选照片并添加水印」时携带
+// { content/time/weather/location/longitude/latitude/antiCode/orientation }，服务端先渲染水印再传 COS、异步触发 Dify 验证；
+// body.plain=true 为非水印照片（商旅打卡开启时可用）：原图直传、不渲染、不验证、不占「每人限一张」
+// 三类照片（已有水印直传 / 服务端加水印 / 非水印）上传成功后均异步同步进所属人名的当日商旅费用照片
 router.post('/logs/:id/photos', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -907,12 +949,13 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     );
     const entry = entries[0];
     if (!entry) return fail(res, 404, 40400, '日志不存在');
-    if (!entry.vehicle_id) return fail(res, 400, 40001, '未出车不可上传水印照片');
+    if (!entry.vehicle_id) return fail(res, 400, 40001, '未出车不可上传照片');
 
-    const { image, members, wm } = req.body || {};
+    const { image, members, wm, plain } = req.body || {};
+    const isPlain = !!(plain && config.sgcc && config.sgcc.enabled);
     const names = Array.isArray(members) ? members.filter((n) => typeof n === 'string' && n.trim()) : [];
     if (!names.length) return fail(res, 400, 40009, '请选择照片所属人名');
-    const memberErr = await checkPhotoMembers(entryId, names, null);
+    const memberErr = await checkPhotoMembers(entryId, names, null, isPlain);
     if (memberErr) return fail(res, 400, memberErr.code, memberErr.message);
 
     const match = /^data:image\/(jpeg|jpg|png);base64,(.+)$/.exec(image || '');
@@ -922,9 +965,9 @@ router.post('/logs/:id/photos', async (req, res, next) => {
       return fail(res, 400, 40011, '照片大小应在 15MB 以内');
     }
 
-    // 需要加水印时：服务端渲染（EXIF 方向矫正 + 防伪码校验），产物统一为 JPEG
+    // 需要加水印时：服务端渲染（EXIF 方向矫正 + 防伪码校验），产物统一为 JPEG；非水印跳过渲染
     let contentType = `image/${match[1] === 'png' ? 'png' : 'jpeg'}`;
-    if (wm && typeof wm === 'object') {
+    if (!isPlain && wm && typeof wm === 'object') {
       try {
         buf = await renderWatermarkedPhoto(buf, sanitizeWm(wm), wm.orientation);
         contentType = 'image/jpeg';
@@ -940,23 +983,43 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     const url = cos.publicUrl(key);
 
     const [r] = await pool.query(
-      'INSERT INTO worklog_photo (entry_id, cos_key, url, members) VALUES (?, ?, ?, ?)',
+      `INSERT INTO worklog_photo (entry_id, cos_key, url, members)
+       VALUES (?, ?, ?, ?)`,
       [entryId, key, url, JSON.stringify(names)]
     );
     const photoId = r.insertId;
+    if (isPlain) {
+      // 非水印照片：免验证标记（不参与卡片验证规则）
+      await pool.query(
+        `UPDATE worklog_photo SET is_watermark = 0, verify_status = 'skipped' WHERE id = ?`,
+        [photoId]
+      );
+    }
 
-    // 异步执行 Dify 识别并回写（含后端日期/地点核验），不阻塞响应（前端轮询 verify_status）
-    dify
-      .verifyPhoto({
-        username: req.user.username,
-        date: dots(entry.log_date),
-        destination: entry.destination_name || '',
-        url,
-      })
-      .then((vr) => writeBackVerify(photoId, vr))
-      .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
+    if (!isPlain) {
+      // 异步执行 Dify 识别并回写（含后端日期/地点核验），不阻塞响应（前端轮询 verify_status）
+      dify
+        .verifyPhoto({
+          username: req.user.username,
+          date: dots(entry.log_date),
+          destination: entry.destination_name || '',
+          url,
+        })
+        .then((vr) => writeBackVerify(photoId, vr))
+        .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
+    }
 
-    return ok(res, { id: photoId, url, verify_status: 'pending' });
+    // 商旅打卡开启时：异步同步进所属人名的当日商旅费用照片（失败由 sgcc_synced=2 + resync 兜底）
+    if (config.sgcc && config.sgcc.enabled) {
+      require('../sgccclockin').syncPhotoToSgcc(photoId)
+        .catch((err) => console.error('[商旅打卡] 照片同步失败：', err.message));
+    }
+
+    return ok(res, {
+      id: photoId, url,
+      verify_status: isPlain ? 'skipped' : 'pending',
+      ...(isPlain ? { is_watermark: 0 } : {}),
+    });
   } catch (err) {
     return next(err);
   }
@@ -1018,13 +1081,18 @@ router.put('/photos/:id/members', async (req, res, next) => {
     const memberErr = await checkPhotoMembers(rows[0].entry_id, names, photoId);
     if (memberErr) return fail(res, 400, memberErr.code, memberErr.message);
     await pool.query('UPDATE worklog_photo SET members = ? WHERE id = ?', [JSON.stringify(names), photoId]);
+    // 商旅打卡开启时：人名变更后补同步（已同步过的成员自动跳过；非水印照片同样同步）
+    if (config.sgcc && config.sgcc.enabled) {
+      require('../sgccclockin').syncPhotoToSgcc(photoId)
+        .catch((err) => console.error('[商旅打卡] 照片人名变更后补同步失败：', err.message));
+    }
     return ok(res, null);
   } catch (err) {
     return next(err);
   }
 });
 
-// DELETE /photos/:id：删除照片（同步删 COS 对象）
+// DELETE /photos/:id：删除照片（同步删 COS 对象；商旅打卡开启时先异步解除商旅费用照片关联）
 router.delete('/photos/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -1035,6 +1103,10 @@ router.delete('/photos/:id', async (req, res, next) => {
       [photoId, req.team.id]
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
+    if (config.sgcc && config.sgcc.enabled) {
+      require('../sgccclockin').unlinkPhotoFromSgcc(photoId)
+        .catch((err) => console.error('[商旅打卡] 解除照片商旅关联失败：', err.message));
+    }
     try {
       await cos.deleteObject(rows[0].cos_key);
     } catch (err) {

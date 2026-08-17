@@ -1,7 +1,11 @@
 // 出工日志 · 主页：日期条切换 / 视图开关（全部·仅看我）/ 日志卡片直改 / 日历选日（按日验证状态着色）
 // 新建与「改派车/用车人」共用底部表单弹层（仅「保 存」提交，无实时保存；改派车保存前弹内网派车单同步警告）；
 // 巡视内容点卡片主块单独弹层修改（带快捷输入）；备注（文字+附件传 COS）点「备 注」按钮或备注块弹层编辑；
-// 底部另有批量下载水印照片面板与验证报告面板（范围 = 不通过记录 ∪ 有备注记录，备注黄色展示）
+// 底部另有批量下载水印照片面板与「汇总前核验」面板（仅列当日未通过记录）
+// 商旅打卡扩展（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨⑪）：卡片「商旅打卡」区每人开始/结束两枚 chip
+// （未打卡橙虚线 / 已打卡绿勾 / 未绑定灰锁三态）；打卡确认弹层（定位/同记录带入/杆塔带入 + 商旅备注）、
+// 费用弹层（首次开始打卡自动弹）、添加照片三选（新增非水印直传免验证）、人名点亮层商旅登录态置灰、
+// 照片区非水印展示与商旅同步标（失败重试）、悬浮钮「同步核查」面板（当日对账 + 核查记录 + 手动核查）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -29,6 +33,45 @@ const parseDate = (s) => {
   return new Date(y, m - 1, d);
 };
 
+// ---------- 商旅打卡展示辅助 ----------
+// 打卡时间 → HH:mm（clock_time 为 DATETIME，JSON 输出 ISO 串时按本地时区取时分；兼容 'YYYY-MM-DD HH:mm:ss' 直取）
+const fmtClockHm = (t) => {
+  const s = String(t || '');
+  if (!s) return '';
+  if (s.indexOf('T') > 0) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? '' : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  const m = /(\d{1,2}):(\d{2})/.exec(s);
+  return m ? `${pad(Number(m[1]))}:${m[2]}` : '';
+};
+// 核查记录时间 → M月D日 HH:mm（created_at 同为 DATETIME，口径同上）
+const fmtMdHm = (t) => {
+  const s = String(t || '');
+  if (!s) return '';
+  const d = new Date(s.indexOf('T') > 0 ? s : s.replace(/-/g, '/'));
+  if (Number.isNaN(d.getTime())) return s;
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+// 打卡地点短文案：去「中国」前缀与省级段，保留 市/区/县 + 街道/路段（如 中国山西省吕梁市汾阳市西河街道英雄北路 → 汾阳市西河街道英雄北路）
+const shortPosition = (p) => {
+  let s = String(p || '').replace(/^中国/, '').replace(/^[^省]{1,12}省/, '');
+  const m = /^[^市]{1,12}市(.+)$/.exec(s);
+  if (m && /[市区县]/.test(m[1])) s = m[1]; // 前段为地级市时去除（剩余仍含 市/区/县 才判为地级段）
+  return s;
+};
+// 工时展示：纯数字补 h 后缀（商旅原文为字符串，可能已带单位）
+const fmtWorkHours = (w) => {
+  const s = String(w || '').trim();
+  if (!s) return '';
+  return /^\d+(\.\d+)?$/.test(s) ? `${s}h` : s;
+};
+// 核查记录类型/结果展示映射（对应 worklog_sync_log.type / result）
+const SYNC_TYPE_TEXT = { clockin: '打卡对账', photo: '照片对账', fee: '费用对账', auth: '登录态' };
+const SYNC_RESULT = { ok: { cls: 'ok', text: '一致' }, diff: { cls: 'diff', text: '有差异' }, fail: { cls: 'fail', text: '失败' } };
+// 打卡备注默认值（仅作商旅 remarks 提交，与记录卡片备注无关）
+const CLOCK_REMARKS_DEFAULT = '110kV及220kV输电线路巡视';
+
 // 日历按日着色缓存（模块级）与 format 回调
 // 注意：t-calendar 的 format 是函数型属性，setData / wxml 绑定传函数在微信下都会被剥离，
 // 只能直接写组件实例的 cal.base.format（见 recolorCalendar）；着色数据写入本缓存后手动重算
@@ -48,7 +91,7 @@ function calFormat(day) {
 }
 
 // 照片验证状态 → 展示（逐项判定：date_verify/destination_verify 任一 'false' 即该项不符，见《开发指南》7.2）
-// 记录验证状态角标（后端按 6 条规则实时计算，见开发指南 7.1）
+// 记录验证状态角标（后端实时计算；商旅打卡开启后切换为新 5 条 a~e，见开发指南 7.1 与第十五节）
 const VERIFY_BADGE = {
   passed: { cls: 'green', text: '验证通过' },
   failed: { cls: 'red', text: '未通过' },
@@ -56,10 +99,14 @@ const VERIFY_BADGE = {
 };
 
 // 照片字段 → 展示结构（右侧八项：验证情况/人员/施工内容/拍摄时间/天气/地点/经度/纬度）
+// 非水印照片（is_watermark=0）：免验证固定「非水印 · 免验证」，仅存档并同步商旅费用照片，不参与卡片验证
 function mapPhoto(p) {
+  const isPlain = p.is_watermark === 0;
   // 验证情况：pending=验证中 / failed=验证失败（可重试）/ 完成态逐项列出未通过项
   let verify;
-  if (p.verify_status === 'pending') {
+  if (isPlain) {
+    verify = { cls: 'skip', text: '非水印 · 免验证' };
+  } else if (p.verify_status === 'pending') {
     verify = { cls: 'ing', text: '验证中' };
   } else if (p.verify_status === 'failed') {
     verify = { cls: 'bad', text: '验证失败' };
@@ -79,12 +126,15 @@ function mapPhoto(p) {
     workContent: p.work_content || '',
     verify,
     statusKey: p.verify_status, // failed 时显示「重新验证」按钮
-    pending: p.verify_status === 'pending', // 轮询依据
+    pending: !isPlain && p.verify_status === 'pending', // 轮询依据（非水印 skipped 不进轮询）
     shotTime: p.shot_time || '',
     weather: p.weather || '',
     location: p.location || '',
     lng: p.lng || '',
     lat: p.lat || '',
+    // 商旅打卡扩展：非水印标记 + 商旅费用照片同步态（0 未同步 / 1 已同步 / 2 同步失败可重试）
+    isPlain,
+    sgccSynced: p.sgcc_synced || 0,
   };
 }
 
@@ -120,10 +170,12 @@ Page({
     // 照片人名点亮弹层（添加/修改复用）
     memberVisible: false,
     memberMode: 'add', // add=上传新照片 / edit=修改已有照片人名
-    memberAction: 'raw', // memberMode=add 时的二选一：raw=选择水印照片上传 / wm=选照片并添加水印
+    memberAction: 'raw', // memberMode=add 时的三选一：raw=选择水印照片上传 / wm=选照片并添加水印 / plain=非水印照片直传
     memberPhotoId: 0,
     memberEntryId: 0, // 当前操作的卡片 id
-    candidates: [], // [{name, checked, disabled}]
+    candidates: [], // [{name, checked, disabled, note}]（note：已上传 / 登录过期 / 未绑定）
+    memberNote: '', // 层内说明（随方式变化）
+    memberOffTip: '', // 商旅登录过期提醒条（有过期候选人时显示）
     // 添加照片二选一弹层（自绘，替代 t-action-sheet）
     addSheetVisible: false,
     wmSourceType: 'album', // 加水印流程的照片来源（camera=拍摄 / album=相册，由人名层按钮决定）
@@ -204,17 +256,51 @@ Page({
     dlSelected: 0,
     dlAllChecked: false,
     dlLoading: false,
-    // 下载面板改日期（range 日历；与下载/报告面板互斥开合，避免叠层 z-index 冲突；_rangeCalFor 标记回开对象）
+    // 下载面板改日期（range 日历；与下载面板互斥开合，避免叠层 z-index 冲突）
     dlCalVisible: false,
     dlCalValue: null,
-    // ---------- 验证报告面板（不通过 ∪ 有备注） ----------
+    // ---------- 汇总前核验面板（原「验证报告」；仅列当日 verify_passed=failed 记录，数据取自已加载列表） ----------
     rpVisible: false,
-    rpFrom: '',
-    rpTo: '',
-    rpRangeText: '',
-    rpGroups: [], // [{date, title, cntText, items:[{id, plateText, membersText, verifyText, verifyCls, reasons, remarkText, hasFiles}]}]
-    rpTotal: 0,
-    rpLoading: false,
+    rpIssues: [], // [{id, plateText, membersText, reasons}]
+    rpOkCount: 0, // 当日通过/免验证记录数
+    rpOkText: '', // 绿色通过态文案（其余 N 条全部通过 / 当日 N 条全部通过）
+    rpEmpty: false, // 当日无记录
+    // ---------- 商旅打卡 · 打卡确认弹层（开始/结束/更新共用） ----------
+    ckVisible: false,
+    ckTitle: '', // 「开始打卡 · 姓名」/「结束打卡 · 姓名」/「更新打卡地点 · 姓名」
+    ckNote: '', // 层内说明（机型口径 / 同记录带入提示）
+    ckEntryId: 0,
+    ckMemberId: 0,
+    ckMemberName: '',
+    ckSeq: 1, // 1 开始打卡 / 2 结束打卡
+    ckAction: 'mark', // mark=打卡 / update=更新打卡地点
+    ckPosition: '', // 完整地址串（「中国」前缀，商旅口径）
+    ckLng: '',
+    ckLat: '',
+    ckCityCode: '',
+    ckCityName: '',
+    ckLocSub: '', // 位置卡副行（经纬度 + 来源标注）
+    ckLocating: false, // 定位中（位置行显示占位文案）
+    ckRemarks: '', // 打卡备注（默认 CLOCK_REMARKS_DEFAULT）
+    ckSaving: false,
+    // ---------- 商旅打卡 · 费用信息弹层 ----------
+    feeVisible: false,
+    feeMemberId: 0,
+    feeMemberName: '',
+    feeLoading: false,
+    feeFood: '', // 伙食补助（输入框字符串）
+    feeTransit: '', // 交通费
+    feeCostText: '', // 成本中心名称（只读展示）
+    feeCostCode: '', // 成本中心编码
+    feePhotos: [], // 商旅费用照片 [{id, url}]（模板 id=5 组件 value 解析）
+    feeSaving: false,
+    // ---------- 商旅打卡 · 同步核查面板 ----------
+    syVisible: false,
+    syLoading: false,
+    syLastText: '', // 上次核查时间
+    syTodayRows: [], // 当日对账 [{key, label, lines:[{text, cls}]}]（打卡/照片/费用/登录态 固定四行）
+    syAll: false, // 「查看核查记录」展开态
+    syLogs: [], // 当月核查记录（近 100 条，时间倒序）[{id, timeText, memberText, typeText, resultText, cls, detail}]
   },
 
   onLoad() {
@@ -320,7 +406,6 @@ Page({
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
     if (this.data.dlVisible) this.loadDlPhotos();
-    if (this.data.rpVisible) this.loadReport();
   },
 
   onTeamChipTap() {
@@ -354,6 +439,10 @@ Page({
     if (this._flashTimer) {
       clearTimeout(this._flashTimer);
       this._flashTimer = null;
+    }
+    if (this._syTimer) { // 同步核查的 5 秒重拉定时器
+      clearTimeout(this._syTimer);
+      this._syTimer = null;
     }
   },
 
@@ -514,9 +603,8 @@ Page({
     this.setData({ win: [] });
     this.loadLogs();
     this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
-    // 批量下载 / 验证报告面板的「仅看我」已收拢到本开关，面板打开时随动刷新
+    // 批量下载面板的「仅看我」已收拢到本开关，面板打开时随动刷新；汇总前核验由 loadLogs 内重建
     if (this.data.dlVisible) this.buildDlGroups();
-    if (this.data.rpVisible) this.loadReport();
   },
 
   // scope=mine 时请求追加个人口径参数
@@ -534,6 +622,7 @@ Page({
       this._dayLists[this.dayKey(this.data.dateStr)] = list;
       this.setCurPane(list);
       this.schedulePoll(list);
+      if (this.data.rpVisible) this.buildReport(list); // 汇总前核验面板开着时随列表刷新（数据源即当日列表）
       if (this.data.win.length) this.prefetchDays();
       else this.buildWin();
     } catch (err) {
@@ -547,14 +636,29 @@ Page({
     return ((data && data.list) || []).map((e) => {
       const photos = (e.photos || []).map(mapPhoto);
       const remarkFiles = (e.remark_files || []).map((f) => ({ ...f }));
+      const clockRaw = e.clockinMap || {}; // {memberId: {1:{detailId,time,position,workHours}, 2:{...}}}
+      const members = e.members || [];
+      // 商旅打卡区渲染前提：派车卡且后端已带商旅字段（sgcc 未开启时整区不渲染，旧角标逻辑不受影响）
+      const showClock = !!e.vehicle_id && members.some((m) => m.sgccBound !== undefined);
       return {
         id: e.id,
         hasVehicle: !!e.vehicle_id,
         plateText: e.vehicle_id ? e.plate_no : '未出车',
         badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
+        verifyKey: e.verify_passed, // 汇总前核验面板按 failed 过滤用
         failReasons: e.verify_reasons || [], // 未通过明细（角标为「未通过」时逐行展示）
         patrolText: e.patrol_content || '—',
-        checks: (e.members || []).map((m) => ({ mid: m.id, name: m.name, checked: !!m.checked })),
+        checks: members.map((m) => ({
+          mid: m.id,
+          memberId: m.member_id, // 打卡/费用接口口径（worklog_member.id）
+          name: m.name,
+          checked: !!m.checked,
+          sgccBound: m.sgccBound !== false, // 未绑定商旅 → 打卡 chip 置锁
+          sgccTokenStatus: m.sgccTokenStatus == null ? 1 : m.sgccTokenStatus, // 0=登录过期（人名点亮层置灰；打卡仍交由后端 40021 拦截）
+        })),
+        clockRaw,
+        clockRows: showClock ? this.buildClockRows(members, clockRaw) : [],
+        showClock,
         photos,
         photoUrls: photos.map((p) => p.url),
         // 备注（文字 + 附件；均为空即 hasRemark=false，卡片不渲染备注块）
@@ -574,7 +678,66 @@ Page({
     });
   },
 
-  // 有照片处于「验证中」时 3 秒后自动刷新（Dify 异步回写）
+  // 商旅打卡区行数据：每个用车人一行（状态小字 + 开始/结束两枚 chip 三态）
+  // chip 三态：done=已打卡（绿底勾+时间+地点+「更新」）/ todo=未打卡（橙虚线，同记录已有打卡时副文案「地点同开始」）/ lock=未绑定（灰锁禁用）
+  buildClockRows(members, clockRaw) {
+    const anyClocked = Object.keys(clockRaw).some((k) => clockRaw[k] && (clockRaw[k]['1'] || clockRaw[k]['2']));
+    const slot = (s, seq, bound) => {
+      const title = seq === 1 ? '开始打卡' : '结束打卡';
+      if (!bound) {
+        return { cls: 'lock', icon: 'lock-on', iconColor: '#B4AA90', title, sub: '引导本人至「我的」页绑定', done: false };
+      }
+      if (s) {
+        return {
+          cls: 'done',
+          icon: 'check',
+          iconColor: '#2BA471',
+          title: `${seq === 1 ? '开始' : '结束'} ${fmtClockHm(s.time)}`,
+          sub: shortPosition(s.position) || '地点未知',
+          done: true,
+        };
+      }
+      return { cls: 'todo', icon: 'time', iconColor: '#F26D21', title, sub: anyClocked ? '点击打卡 · 地点同开始' : '点击打卡', done: false };
+    };
+    return members.map((m) => {
+      const bound = m.sgccBound !== false;
+      const c = clockRaw[m.member_id] || {};
+      const s1 = c['1'];
+      const s2 = c['2'];
+      // 行首状态小字：工时（两次打满）/ 还差结束打卡 / 未绑定商旅；未开始打卡不显示
+      let statText = '';
+      let statCls = '';
+      let statIcon = '';
+      let statIconColor = '';
+      if (!bound) {
+        statText = '未绑定商旅';
+        statCls = 'red';
+        statIcon = 'lock-on';
+        statIconColor = '#CF4444';
+      } else if (s1 && s2) {
+        const wh = fmtWorkHours((s2 && s2.workHours) || (s1 && s1.workHours));
+        statText = wh ? `工时 ${wh}` : '已完成两次打卡';
+        statCls = 'ok';
+        statIcon = 'check';
+        statIconColor = '#1E7E54';
+      } else if (s1 && !s2) {
+        statText = '还差结束打卡';
+      }
+      return {
+        memberId: m.member_id,
+        name: m.name,
+        bound,
+        statText,
+        statCls,
+        statIcon,
+        statIconColor,
+        seq1: slot(s1, 1, bound),
+        seq2: slot(s2, 2, bound),
+      };
+    });
+  },
+
+  // 有照片处于「验证中」时 3 秒后自动刷新（Dify 异步回写；非水印 skipped 不触发）
   schedulePoll(list) {
     const hasPending = list.some((e) => e.photos.some((p) => p.pending));
     if (!hasPending) return;
@@ -715,6 +878,7 @@ Page({
     wx.setClipboardData({ data: text });
   },
 
+  // 旧「打卡情况」checked 开关逻辑（界面已不再渲染，打卡区由下方商旅打卡区替代；函数保留不删）
   // 打卡 chips 直接切换：成功本地取反并刷新角标，失败 toast 并回滚
   async onCheckToggle(e) {
     const { entryId, mid, index } = e.currentTarget.dataset;
@@ -732,6 +896,337 @@ Page({
     } catch (err) {
       this.toast(err.message);
       this.loadLogs(); // 回滚展示
+    }
+  },
+
+  // ---------- 商旅打卡 · 打卡确认弹层（设计稿⑤：开始/结束/更新共用） ----------
+
+  // 点打卡 chip：未绑定 toast 引导；已打卡进「更新打卡地点」，未打卡进「开始/结束打卡」
+  onClockTap(e) {
+    const { entryId, memberId, name, seq, bound, done } = e.currentTarget.dataset;
+    if (!bound) {
+      this.toast('该用车人未绑定商旅，请引导其本人在「我的 → 商旅打卡」绑定');
+      return;
+    }
+    this.openClockSheet(Number(entryId), Number(memberId), name, Number(seq) === 2 ? 2 : 1, done ? 'update' : 'mark');
+  },
+
+  // 打开弹层：位置优先级 = 同记录首打卡人带入 → 当前定位逆编码；坐标始终取本机定位（带入仅带入地址串）
+  openClockSheet(entryId, memberId, name, seq, action) {
+    const entry = this.data.list.find((x) => x.id === entryId);
+    if (!entry) {
+      this.toast('日志不存在或已被删除');
+      return;
+    }
+    // 同记录首打卡人（按用车人顺序找第一个 seq1 有位置者）：带入其地址串并标注
+    let first = null;
+    for (const m of entry.checks) {
+      const c = entry.clockRaw[m.memberId];
+      if (c && c['1'] && c['1'].position) {
+        first = { name: m.name, ...c['1'] };
+        break;
+      }
+    }
+    const mine = (entry.clockRaw[memberId] || {})[String(seq)];
+    const title = action === 'update' ? `更新打卡地点 · ${name}` : `${seq === 1 ? '开始' : '结束'}打卡 · ${name}`;
+    let note = `提交时使用 ${name} 绑定的机型；打卡即提交商旅并双写本地`;
+    let position = '';
+    let locTag = '';
+    if (action === 'update') {
+      // 更新：预填该次打卡现有地点（仅改地点）
+      position = (mine && mine.position) || (first && first.position) || '';
+      locTag = '当前打卡地点';
+      note = `仅修改打卡地点；提交时使用 ${name} 绑定的机型`;
+    } else if (first) {
+      position = first.position;
+      locTag = '同记录首打卡人定位';
+      note = `本记录 ${first.name} 已于 ${fmtClockHm(first.time)} 打卡，地点已自动带入；提交时使用 ${name} 绑定的机型`;
+    }
+    this._ckLocTag = locTag; // 定位回调覆盖位置时清掉带入标注
+    this.setData({
+      ckVisible: true,
+      ckTitle: title,
+      ckNote: note,
+      ckEntryId: entryId,
+      ckMemberId: memberId,
+      ckMemberName: name,
+      ckSeq: seq,
+      ckAction: action,
+      ckPosition: position,
+      ckLng: '',
+      ckLat: '',
+      ckCityCode: '',
+      ckCityName: '',
+      ckLocSub: '',
+      ckLocating: true,
+      ckRemarks: CLOCK_REMARKS_DEFAULT,
+      ckSaving: false,
+      keyboardHeight: 0,
+    });
+    this.ckLocate(!position); // 带入地址时仅补坐标，不覆盖位置文案
+  },
+
+  // 本机定位：成功拿经纬度；needGeo=true 时再调 /sgcc/geo 逆编码出完整地址串
+  ckLocate(needGeo) {
+    wx.getLocation({
+      type: 'gcj02',
+      success: (loc) => {
+        if (!this.data.ckVisible) return; // 弹层已关则不再回填
+        const lng = loc.longitude.toFixed(6);
+        const lat = loc.latitude.toFixed(6);
+        this.setData({ ckLng: lng, ckLat: lat, ckLocating: false });
+        this.setCkLocSub();
+        if (needGeo) this.ckGeo(lng, lat, '当前定位');
+      },
+      fail: (err) => {
+        console.error('[出工日志] 打卡定位失败（可重新定位或选择杆塔）：', err);
+        if (!this.data.ckVisible) return;
+        this.setData({ ckLocating: false });
+        this.setCkLocSub();
+      },
+    });
+  },
+
+  // 位置卡副行：经纬度 + 来源标注 / 失败提示
+  setCkLocSub(tag) {
+    const { ckLng, ckLat } = this.data;
+    const t = tag !== undefined ? tag : this._ckLocTag;
+    let sub = '';
+    if (ckLng && ckLat) sub = `${ckLng}, ${ckLat}${t ? ` · ${t}` : ''}`;
+    else if (!this.data.ckLocating) sub = '定位失败，可点「重新定位」或「选择杆塔带入坐标」';
+    this.setData({ ckLocSub: sub });
+  },
+
+  // 腾讯逆编码（/sgcc/geo）：经纬度 → 完整地址串 + 城市编码；空串=未配置（提交时由服务端兜底，失败 message 直弹）
+  ckGeo(lng, lat, tag) {
+    request({ url: `/api/v1/sgcc/geo?lng=${lng}&lat=${lat}${this.teamQuery()}`, timeout: 10000 })
+      .then((r) => {
+        if (!this.data.ckVisible) return;
+        if (this.data.ckLng !== lng || this.data.ckLat !== lat) return; // 坐标已变（重新定位/选杆塔），旧响应丢弃
+        this._ckLocTag = tag;
+        this.setData({
+          ckPosition: (r && r.position) || '',
+          ckCityCode: (r && r.cityCode) || '',
+          ckCityName: (r && r.cityName) || '',
+        });
+        this.setCkLocSub(tag);
+      })
+      .catch((err) => console.error('[出工日志] /sgcc/geo 逆编码失败（提交时由服务端兜底）：', err));
+  },
+
+  // 「重新定位」：重走定位 + 逆编码（覆盖带入地址）
+  onCkRelocate() {
+    this._ckLocTag = '当前定位';
+    this.setData({ ckLocating: true, ckPosition: '', ckLocSub: '' });
+    this.ckLocate(true);
+  },
+
+  // 「选择杆塔带入坐标」：复用杆塔三级级联弹层（_towerFor=ck 时确定回调写入本层）
+  onCkOpenTower() {
+    wx.hideKeyboard();
+    this._towerFor = 'ck';
+    this.resetTowerState(); // 清空三级选择态（towerRows 坐标缓存保留）
+    const base = { towerVisible: true, towerOpen: '', keyboardHeight: 0, towerScrollInto: '', towerLevels: this.towerLevelsOf() };
+    if (this.data.towerRows) {
+      this.setData(base);
+      return;
+    }
+    this.setData({ ...base, towerLoading: true });
+    this.loadTowerRows()
+      .then((rows) => {
+        if (!this.data.towerVisible) return;
+        this.setData({
+          towerRows: rows,
+          towerLoading: false,
+          towerLevels: [...new Set(rows.map((r) => r[0]))],
+        });
+      })
+      .catch((err) => {
+        console.error('[出工日志] 杆塔坐标加载失败：', err);
+        this.setData({ towerLoading: false, towerVisible: false });
+        this.toast('杆塔坐标加载失败，请稍后重试');
+      });
+  },
+
+  onCkRemarkInput(e) {
+    this.setData({ ckRemarks: e.detail.value });
+  },
+
+  onCkCancel() {
+    this.setData({ ckVisible: false, keyboardHeight: 0 });
+  },
+
+  onCkVisibleChange(e) {
+    if (!e.detail.visible && this.data.ckVisible) this.setData({ ckVisible: false, keyboardHeight: 0 });
+  },
+
+  // 确认打卡：POST /sgcc/clockin（mark：seq=1|2；update：更新地点）。失败 message 直弹；
+  // 40037 已打过 → 关层刷新（数据以服务端为准）。成功后本人今日首次「开始打卡」自动弹费用层
+  async onCkConfirm() {
+    if (this.data.ckSaving) return;
+    const { ckEntryId, ckMemberId, ckMemberName, ckSeq, ckAction, ckPosition, ckLng, ckLat, ckCityCode, ckCityName, ckRemarks } = this.data;
+    if (!ckLng || !ckLat) {
+      this.toast('请先完成定位（重新定位或选择杆塔带入坐标）');
+      return;
+    }
+    this.setData({ ckSaving: true });
+    try {
+      await request({
+        url: '/api/v1/sgcc/clockin',
+        method: 'POST',
+        data: this.teamBody({
+          entry_id: ckEntryId,
+          member_id: ckMemberId,
+          seq: ckSeq,
+          action: ckAction,
+          position: ckPosition,
+          longitude: ckLng,
+          latitude: ckLat,
+          cityCode: ckCityCode,
+          cityName: ckCityName,
+          remarks: ckRemarks || CLOCK_REMARKS_DEFAULT,
+        }),
+        timeout: 60000,
+      });
+      this.setData({ ckVisible: false, ckSaving: false, keyboardHeight: 0 });
+      this.toast('打卡成功');
+      this.loadLogs();
+      // 本人今日首次「开始打卡」成功（40037 已拦截重复，成功即首次）→ 自动打开费用弹层
+      if (ckAction === 'mark' && ckSeq === 1 && ckMemberName === this._myName) {
+        this.openFee(ckMemberId, ckMemberName);
+      }
+    } catch (err) {
+      this.setData({ ckSaving: false });
+      this.toast(err.message);
+      if (err.code === 40037) {
+        this.setData({ ckVisible: false, keyboardHeight: 0 });
+        this.loadLogs();
+      }
+    }
+  },
+
+  // ---------- 商旅打卡 · 费用信息弹层（设计稿⑥：首次开始打卡自动弹 + 打卡区「费用」入口） ----------
+
+  // 打卡区人名行末「费用」入口
+  onOpenFee(e) {
+    const { memberId, name } = e.currentTarget.dataset;
+    this.openFee(Number(memberId), name);
+  },
+
+  // 打开并加载：本地费用摘要优先，无值时从商旅模板 id=10 组件解析 {foodFee, arrive}；费用照片取模板 id=5
+  async openFee(memberId, name) {
+    this.setData({
+      feeVisible: true,
+      feeMemberId: memberId,
+      feeMemberName: name,
+      feeLoading: true,
+      feeFood: '',
+      feeTransit: '',
+      feeCostText: '',
+      feeCostCode: '',
+      feePhotos: [],
+      feeSaving: false,
+      keyboardHeight: 0,
+    });
+    try {
+      const data = await request({
+        url: `/api/v1/sgcc/fee?member_id=${memberId}&date=${this.data.dateStr}${this.teamQuery()}`,
+        timeout: 30000,
+      });
+      if (!this.data.feeVisible || this.data.feeMemberId !== memberId) return; // 层已关或已换人，丢弃
+      const local = (data && data.local) || null;
+      const comps = (data && data.clockTemplate && data.clockTemplate.dtComponentList) || [];
+      // 补助明细组件（id=10）：value 为 JSON 字符串 {foodFee, arrive}
+      let tplFood = '';
+      let tplArrive = '';
+      const c10 = comps.find((c) => c.id === 10);
+      if (c10 && c10.value) {
+        try {
+          const v = JSON.parse(c10.value);
+          tplFood = v.foodFee;
+          tplArrive = v.arrive;
+        } catch (e) { /* 模板值异常按无值处理 */ }
+      }
+      // 上传图片组件（id=5）：value 为 JSON 数组 [{id, url}]
+      let feePhotos = [];
+      const c5 = comps.find((c) => c.id === 5);
+      if (c5 && c5.value) {
+        try {
+          const arr = JSON.parse(c5.value);
+          if (Array.isArray(arr)) feePhotos = arr.filter((x) => x && x.url).map((x) => ({ id: x.id, url: x.url }));
+        } catch (e) { /* 模板值异常按空列表处理 */ }
+      }
+      const num = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? String(n) : '';
+      };
+      this.setData({
+        feeLoading: false,
+        feeFood: local ? num(local.food_fee) : num(tplFood) || '0',
+        feeTransit: local ? num(local.transit_fee) : num(tplArrive) || '0',
+        feeCostText: (local && local.cost_center_name) || '—',
+        feeCostCode: (local && local.cost_center_code) || '',
+        feePhotos,
+      });
+    } catch (err) {
+      if (!this.data.feeVisible) return;
+      this.setData({ feeLoading: false });
+      this.toast(err.message);
+    }
+  },
+
+  onFeeInput(e) {
+    const { field } = e.currentTarget.dataset;
+    this.setData({ [field]: e.detail.value });
+  },
+
+  onFeePhotoPreview(e) {
+    const { url } = e.currentTarget.dataset;
+    wx.previewImage({ current: url, urls: this.data.feePhotos.map((p) => p.url) });
+  },
+
+  onFeeCancel() {
+    this.setData({ feeVisible: false, keyboardHeight: 0 });
+  },
+
+  onFeeVisibleChange(e) {
+    if (!e.detail.visible && this.data.feeVisible) this.setData({ feeVisible: false, keyboardHeight: 0 });
+  },
+
+  // 保存费用信息：POST /sgcc/fee（成本分配修改联调后再开放，本层仅伙食/交通可编辑）
+  async onFeeSave() {
+    if (this.data.feeSaving) return;
+    this.setData({ feeSaving: true });
+    try {
+      await request({
+        url: '/api/v1/sgcc/fee',
+        method: 'POST',
+        data: this.teamBody({
+          member_id: this.data.feeMemberId,
+          date: this.data.dateStr,
+          foodFee: Number(this.data.feeFood) || 0,
+          transitFee: Number(this.data.feeTransit) || 0,
+        }),
+        timeout: 60000,
+      });
+      this.setData({ feeVisible: false, feeSaving: false, keyboardHeight: 0 });
+      this.toast('保存成功');
+    } catch (err) {
+      this.setData({ feeSaving: false });
+      this.toast(err.message);
+    }
+  },
+
+  // ---------- 商旅打卡 · 照片同步失败重试（设计稿⑨） ----------
+
+  async onResyncPhoto(e) {
+    const { pid } = e.currentTarget.dataset;
+    try {
+      await request({ url: `/api/v1/sgcc/photos/${pid}/resync`, method: 'POST', data: this.teamBody({}) });
+      this.toast('已重新提交同步');
+      this.loadLogs();
+    } catch (err) {
+      this.toast(err.message);
     }
   },
 
@@ -1266,10 +1761,11 @@ Page({
 
   // ---------- 水印照片（卡片直接改） ----------
 
-  // 已被占用人名（每人限一张；excludePid 为当前正在修改的照片）
+  // 已被占用人名（每人限一张；excludePid 为当前正在修改的照片；非水印照片不占名额，跳过统计）
   usedPhotoNames(entry, excludePid) {
     const used = new Set();
     ((entry && entry.photos) || []).forEach((p) => {
+      if (p.isPlain) return;
       if (excludePid && p.id === excludePid) return;
       (p.members || []).forEach((n) => used.add(n));
     });
@@ -1306,41 +1802,66 @@ Page({
     this.openMemberPicker(this._pendingPhotoEntryId, 'wm');
   },
 
-  // 人名点亮层（候选 = 本卡用车人，已上传者置灰）；action: raw=直接上传 / wm=加水印上传
+  // 新增第三项「非水印照片」：相册选原图直传，仅存档并同步商旅费用照片（plain:true，不验证、不占每人限一张）
+  onAddSheetPlain() {
+    this.setData({ addSheetVisible: false });
+    this.openMemberPicker(this._pendingPhotoEntryId, 'plain');
+  },
+
+  // 人名点亮层候选构建（三方式共用）：已上传置灰仅对水印方式（raw/wm，每人限一张）；非水印（plain）不限张数不受此限；
+  // 商旅登录过期（tokenStatus=0）红框置灰标「登录过期」、未绑定置灰标「未绑定」（edit 模式下已在照片上的名字保持可选，避免确认时误剔）
+  buildCandidates(entry, action, excludePid, checkedNames) {
+    const used = this.usedPhotoNames(entry, excludePid);
+    const checked = checkedNames || [];
+    let expiredNames = [];
+    const candidates = entry.checks.map((m) => {
+      const off = !m.sgccBound ? '未绑定' : m.sgccTokenStatus === 0 ? '登录过期' : '';
+      if (off === '登录过期') expiredNames.push(m.name);
+      const usedUp = action !== 'plain' && used.has(m.name);
+      const disabled = usedUp || (!!off && !checked.includes(m.name));
+      return { name: m.name, checked: checked.includes(m.name), disabled, note: usedUp ? '已上传' : disabled ? off : '' };
+    });
+    return {
+      candidates,
+      memberOffTip: expiredNames.length
+        ? `${expiredNames.join('、')} 的商旅登录已过期，已置灰不可选；其本人在「我的 → 商旅打卡」重新登录后恢复`
+        : '',
+    };
+  },
+
+  // 人名点亮层（候选 = 本卡用车人）；action: raw=水印直传 / wm=加水印上传 / plain=非水印直传
   openMemberPicker(entryId, action) {
     const entry = this.data.list.find((x) => x.id === entryId);
     if (!entry) return;
-    const used = this.usedPhotoNames(entry, 0);
+    const { candidates, memberOffTip } = this.buildCandidates(entry, action, 0, []);
     this.setData({
       memberVisible: true,
       memberMode: 'add',
       memberAction: action,
       memberPhotoId: 0,
       memberEntryId: entryId,
-      candidates: entry.checks.map((m) => ({
-        name: m.name,
-        checked: false,
-        disabled: used.has(m.name),
-      })),
+      candidates,
+      memberOffTip,
+      memberNote: action === 'plain'
+        ? '点亮即本张照片所属人名（可多选，不限张数）；仅上传存档并同步所选人当日商旅费用照片，不参与卡片验证'
+        : '点亮即本张水印照片中包含的人名（可多选）；照片同步进所选人当日商旅费用照片',
     });
   },
 
-  // 修改已有照片人名：复用弹层（当前人名保持点亮，被其他照片占用者置灰）
+  // 修改已有照片人名：复用弹层（当前人名保持点亮，被其他照片占用者置灰；登录过期/未绑定但未占用者同样置灰）
   onPhotoMembers(e) {
     const { entryId, pid, names } = e.currentTarget.dataset;
     const entry = this.data.list.find((x) => x.id === entryId);
     if (!entry) return;
-    const used = this.usedPhotoNames(entry, pid);
+    const { candidates, memberOffTip } = this.buildCandidates(entry, 'raw', pid, names || []);
     this.setData({
       memberVisible: true,
       memberMode: 'edit',
       memberPhotoId: pid,
       memberEntryId: entryId,
-      candidates: entry.checks.map((m) => ({
-        name: m.name,
-        checked: (names || []).includes(m.name),
-        disabled: used.has(m.name),
-      })),
+      candidates,
+      memberOffTip,
+      memberNote: '点亮即本张水印照片中包含的人名（可多选）',
     });
   },
 
@@ -1383,6 +1904,8 @@ Page({
     if (this.data.memberAction === 'wm') {
       this.setData({ wmSourceType: 'album' });
       this.choosePhotoForWm(names);
+    } else if (this.data.memberAction === 'plain') {
+      this.chooseAndUpload(names, true); // 非水印照片：相册选图直传（plain:true，免验证、不占每人限一张）
     } else {
       this.chooseAndUpload(names);
     }
@@ -1756,6 +2279,7 @@ Page({
 
   // 「选择杆塔坐标」按钮：打开级联弹层；首次打开需先加载数据（失败关层提示，已选状态保留供重选带回）
   onOpenTower() {
+    this._towerFor = 'wm'; // 级联确定回调的分流标记：wm=水印表单（默认）/ ck=打卡确认弹层（onCkOpenTower 进入）
     wx.hideKeyboard(); // 收起施工内容等 hold-keyboard 输入残留的键盘，弹层统一从键盘收起态布局
     const base = { towerVisible: true, towerOpen: '', keyboardHeight: 0, towerScrollInto: '', towerLevels: this.towerLevelsOf() };
     if (this.data.towerRows) {
@@ -1880,11 +2404,21 @@ Page({
     this.setData({ towerScrollInto: '' });
   },
 
-  // 确定：所选杆塔坐标按 ≤50m 随机波动后填入水印表单（不直接带入原值，仍可手改），
-  // 并再次调腾讯地图接口按波动后坐标覆盖刷新地点、天气
+  // 确定：默认（_towerFor=wm）将所选杆塔坐标按 ≤50m 随机波动后填入水印表单（不直接带入原值，仍可手改），
+  // 并再次调腾讯地图接口按波动后坐标覆盖刷新地点、天气；
+  // _towerFor=ck（打卡确认弹层「选择杆塔带入坐标」）：杆塔原坐标直接带入打卡层，再调 /sgcc/geo 逆编码出地址串
   onTowerConfirm() {
     const t = this.data.towerTower;
     if (!t) return;
+    if (this._towerFor === 'ck') {
+      this._towerFor = 'wm';
+      const lng = t.lng.toFixed(6);
+      const lat = t.lat.toFixed(6);
+      this._ckLocTag = `杆塔带入 · ${this.data.towerLine} ${t.no}`;
+      this.setData({ towerVisible: false, ckLng: lng, ckLat: lat, ckLocating: false });
+      this.ckGeo(lng, lat, this._ckLocTag);
+      return;
+    }
     const jittered = this.jitterCoord(t.lng, t.lat, 50);
     this.setData({
       towerVisible: false,
@@ -1985,8 +2519,8 @@ Page({
     });
   },
 
-  // 相册选片 → base64 → 上传（沿用 Call Me 聊天图片先例）
-  chooseAndUpload(names) {
+  // 相册选片 → base64 → 上传（沿用 Call Me 聊天图片先例）；plain=true 为非水印直传
+  chooseAndUpload(names, plain) {
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
@@ -1999,7 +2533,7 @@ Page({
           success: (r) => {
             const ext = (path.split('.').pop() || 'jpeg').toLowerCase();
             const mime = ext === 'png' ? 'png' : 'jpeg';
-            this.uploadPhoto(`data:image/${mime};base64,${r.data}`, names);
+            this.uploadPhoto(`data:image/${mime};base64,${r.data}`, names, null, !!plain);
           },
           fail: () => this.toast('图片读取失败'),
         });
@@ -2007,14 +2541,15 @@ Page({
     });
   },
 
-  // 上传：wm 存在时走「加水印上传」（服务端渲染水印），否则为原「水印照片上传」
-  async uploadPhoto(image, members, wm) {
+  // 上传：wm 存在时走「加水印上传」（服务端渲染水印）；plain=true 为「非水印照片」原图直传（免验证、不占每人限一张）；
+  // 否则为原「水印照片上传」。三类照片上传成功后均由后端异步同步进所属人名的当日商旅费用照片
+  async uploadPhoto(image, members, wm, plain) {
     wx.showLoading({ title: wm ? '正在加水印上传…' : '正在上传…', mask: true });
     try {
       const data = await request({
         url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
         method: 'POST',
-        data: this.teamBody(wm ? { image, members, wm } : { image, members }),
+        data: this.teamBody(wm ? { image, members, wm } : plain ? { image, members, plain: true } : { image, members }),
         timeout: 120000,
       });
       // 加水印流程：服务端完成加水印后，把加了水印的照片自动存入用户相册（失败不阻塞上传）
@@ -2025,8 +2560,8 @@ Page({
       }
       wx.hideLoading();
       this.setData({ wmVisible: false, wmUploading: false });
-      this.toast(albumTip || '已上传，验证中');
-      this.loadLogs(); // 刷新后自动进入 pending 轮询
+      this.toast(albumTip || (plain ? '已上传（非水印存档，不参与验证）' : '已上传，验证中'));
+      this.loadLogs(); // 刷新后自动进入 pending 轮询（非水印 verify_status=skipped 不触发）
     } catch (err) {
       wx.hideLoading();
       this.setData({ wmUploading: false });
@@ -2054,7 +2589,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '删除照片',
-      content: '删除后不可恢复，确定删除该水印照片吗？',
+      content: '删除后不可恢复，确定删除该照片吗？（已同步商旅费用照片的会联动解除关联）',
       confirmBtn: '删除',
       cancelBtn: '取消',
     })
@@ -2099,7 +2634,7 @@ Page({
 
   // ---------- 批量下载水印照片 ----------
 
-  // 首次打开默认范围：当天 1~10 日 → 上月整月；11 日及以后 → 本月 1 号到今天（批量下载 / 验证报告共用）
+  // 首次打开默认范围：当天 1~10 日 → 上月整月；11 日及以后 → 本月 1 号到今天（批量下载面板用）
   defaultRange() {
     const now = new Date();
     let from;
@@ -2213,7 +2748,6 @@ Page({
   // 「改日期」：先关下载面板再开 range 日历（两弹层互斥，规避叠层 z-index 冲突），选完重开
   onDlChangeDate() {
     const { dlFrom, dlTo } = this.data;
-    this._rangeCalFor = 'dl'; // range 日历与报告面板共用，标记回开对象
     this.setData({
       dlVisible: false,
       dlCalValue: [parseDate(dlFrom).getTime(), parseDate(dlTo).getTime()],
@@ -2221,7 +2755,7 @@ Page({
     });
   },
 
-  // range 日历确认：e.detail.value 为两个时间戳；按 _rangeCalFor 回写并重开来源面板
+  // range 日历确认：e.detail.value 为两个时间戳；回写下载面板范围并重开
   onDlCalConfirm(e) {
     const value = e.detail.value;
     if (!Array.isArray(value) || value.length < 2) {
@@ -2230,22 +2764,13 @@ Page({
     }
     const from = fmtDate(new Date(value[0]));
     const to = fmtDate(new Date(value[1]));
-    if (this._rangeCalFor === 'rp') {
-      this.setData({ dlCalVisible: false, rpFrom: from, rpTo: to, rpVisible: true });
-      this.loadReport();
-      return;
-    }
     this.setData({ dlCalVisible: false, dlFrom: from, dlTo: to, dlVisible: true });
     this.loadDlPhotos();
   },
 
-  // 未选直接关闭日历：重开来源面板（保留原范围）
+  // 未选直接关闭日历：重开下载面板（保留原范围）
   onDlCalClose() {
     if (!this.data.dlCalVisible) return;
-    if (this._rangeCalFor === 'rp') {
-      this.setData({ dlCalVisible: false, rpVisible: true });
-      return;
-    }
     this.setData({ dlCalVisible: false, dlVisible: true });
   },
 
@@ -2317,12 +2842,11 @@ Page({
     this.toast(`已保存 ${saved} 张到相册`);
   },
 
-  // ---------- 验证报告（不通过 ∪ 有备注） ----------
+  // ---------- 汇总前核验（设计稿⑩：替代原「验证报告」；仅列当日 verify_passed=failed 记录，数据取自已加载列表） ----------
 
   onOpenReport() {
-    const { from, to } = this.defaultRange();
-    this.setData({ rpVisible: true, rpFrom: from, rpTo: to, fabOpen: false });
-    this.loadReport();
+    this.setData({ rpVisible: true, fabOpen: false });
+    this.buildReport();
   },
 
   onCloseReport() {
@@ -2333,80 +2857,118 @@ Page({
     if (!e.detail.visible && this.data.rpVisible) this.setData({ rpVisible: false });
   },
 
-  // 拉取范围内报告记录（不通过 ∪ 有备注）并按日期分组（后端已按日期+卡片序排列，遇序分组即日期升序；仅看我随主页视图开关）
-  async loadReport() {
-    this.setData({ rpLoading: true });
+  // 由当日列表重建面板：问题卡 = verifyKey==='failed'（未出车免验证 exempt 不会入列）；其余视为通过
+  buildReport(list) {
+    const src = list || this.data.list || [];
+    const issues = src
+      .filter((x) => x.verifyKey === 'failed')
+      .map((x) => ({
+        id: x.id,
+        plateText: x.plateText,
+        membersText: (x.checks || []).map((c) => c.name).join('、'),
+        reasons: x.failReasons || [],
+      }));
+    const okCount = src.length - issues.length;
+    this.setData({
+      rpIssues: issues,
+      rpOkCount: okCount,
+      rpEmpty: !src.length,
+      rpOkText: src.length
+        ? issues.length
+          ? `其余 ${okCount} 条记录全部通过`
+          : `当日 ${okCount} 条记录全部通过`
+        : '',
+    });
+  },
+
+  // 点问题卡：关面板并滚动定位到该卡片（短暂高亮；当日列表必含此卡）
+  onRpIssueTap(e) {
+    const { id } = e.currentTarget.dataset;
+    if (!id) return;
+    this.setData({ rpVisible: false });
+    this.scrollToCard(Number(id));
+  },
+
+  // 「仍要汇总」：汇总功能本仓尚未实现（预留），仅关面板并提示
+  onRpSummary() {
+    this.setData({ rpVisible: false });
+    this.toast('汇总功能暂未开放（预留）');
+  },
+
+  // ---------- 商旅打卡 · 同步核查面板（设计稿⑪：悬浮主钮「同步核查」进入） ----------
+
+  onOpenSync() {
+    this.setData({ syVisible: true, syAll: false, syLoading: true, fabOpen: false });
+    this.loadSyncLogs();
+  },
+
+  onSyVisibleChange(e) {
+    if (!e.detail.visible && this.data.syVisible) this.setData({ syVisible: false });
+  },
+
+  onSyClose() {
+    this.setData({ syVisible: false });
+  },
+
+  // 拉当月核查记录（近 100 条，后端已按时间倒序）：派生「上次核查时间」与当日四类对账行
+  async loadSyncLogs() {
     try {
-      const { rpFrom, rpTo } = this.data;
-      const data = await request({ url: `/api/v1/worklog/report?from=${rpFrom}&to=${rpTo}${this.scopeQuery()}${this.teamQuery()}` });
-      const list = (data && data.list) || [];
-      const groups = [];
-      const groupMap = {};
-      list.forEach((e) => {
-        if (!groupMap[e.log_date]) {
-          const d = parseDate(e.log_date);
-          groupMap[e.log_date] = {
-            date: e.log_date,
-            title: `${d.getMonth() + 1}月${d.getDate()}日 ${WEEK[d.getDay()]}`,
-            items: [],
-          };
-          groups.push(groupMap[e.log_date]);
-        }
-        const reasons = e.reasons || [];
-        const failed = reasons.length > 0;
-        groupMap[e.log_date].items.push({
-          id: e.id,
-          date: e.log_date, // 点击定位用：跳到该卡片所在日期
-          plateText: e.plate_no,
-          membersText: (e.members || []).join('、'),
-          // 验证徽章：有不通过原因即「未通过」；否则按 verify（exempt=免验证 / 其余=通过）
-          verifyText: failed ? '未通过' : e.verify === 'exempt' ? '免验证' : '通过',
-          verifyCls: failed ? 'red' : e.verify === 'exempt' ? 'gray' : 'green',
-          reasons,
-          remarkText: e.remark || '',
-          hasFiles: !!e.remark_has_files,
-        });
-      });
-      // 组统计：N 条未通过 · M 条备注（均为 0 不会出现，因入组前提是二者居一）
-      groups.forEach((g) => {
-        const failedN = g.items.filter((r) => r.reasons.length).length;
-        const rmkN = g.items.filter((r) => r.remarkText || r.hasFiles).length;
-        const parts = [];
-        if (failedN) parts.push(`${failedN} 条未通过`);
-        if (rmkN) parts.push(`${rmkN} 条备注`);
-        g.cntText = parts.join(' · ');
+      const data = await request({ url: `/api/v1/sgcc/sync/logs?month=${this.data.dateStr.slice(0, 7)}${this.teamQuery()}` });
+      if (!this.data.syVisible) return; // 面板已关则丢弃
+      const rows = (data && data.list) || [];
+      const logs = rows.map((r) => ({
+        id: r.id,
+        timeText: fmtMdHm(r.created_at),
+        memberText: r.member_name || '整班',
+        typeText: SYNC_TYPE_TEXT[r.type] || r.type,
+        resultText: (SYNC_RESULT[r.result] || {}).text || r.result,
+        cls: (SYNC_RESULT[r.result] || {}).cls || '',
+        detail: r.detail || '',
+      }));
+      // 当日对账：按 sync_date=当前日过滤，固定四类各一行（行内逐条 成员+明细，颜色取该条结果）
+      const todayRows = ['clockin', 'photo', 'fee', 'auth'].map((type) => {
+        const items = rows.filter((r) => r.sync_date === this.data.dateStr && r.type === type);
+        return {
+          key: type,
+          label: SYNC_TYPE_TEXT[type],
+          lines: items.length
+            ? items.map((r) => ({
+                text: `${r.member_name || '整班'}：${r.detail}`,
+                cls: (SYNC_RESULT[r.result] || {}).cls || '',
+              }))
+            : [{ text: '当日暂无核查记录', cls: 'mut' }],
+        };
       });
       this.setData({
-        rpGroups: groups,
-        rpTotal: list.length,
-        rpRangeText: `${rpFrom} ~ ${rpTo}`,
-        rpLoading: false,
+        syLoading: false,
+        syLogs: logs,
+        syTodayRows: todayRows,
+        syLastText: rows.length ? fmtMdHm(rows[0].created_at) : '暂无核查记录',
       });
     } catch (err) {
-      this.setData({ rpLoading: false });
+      if (!this.data.syVisible) return;
+      this.setData({ syLoading: false });
       this.toast(err.message);
     }
   },
 
-  // 「改日期」：与下载面板共用 range 日历（先关报告面板，_rangeCalFor='rp' 选完重开）
-  onRpChangeDate() {
-    const { rpFrom, rpTo } = this.data;
-    this._rangeCalFor = 'rp';
-    this.setData({
-      rpVisible: false,
-      dlCalValue: [parseDate(rpFrom).getTime(), parseDate(rpTo).getTime()],
-      dlCalVisible: true,
-    });
+  // 「重新核查」：手动发起当日核查（异步执行），5 秒后自动重拉记录看结果
+  async onSyCheck() {
+    try {
+      await request({ url: '/api/v1/sgcc/sync/check', method: 'POST', data: this.teamBody({ date: this.data.dateStr }) });
+      this.toast('已发起核查，请稍后查看');
+      if (this._syTimer) clearTimeout(this._syTimer);
+      this._syTimer = setTimeout(() => {
+        if (this.data.syVisible) this.loadSyncLogs();
+      }, 5000);
+    } catch (err) {
+      this.toast(err.message);
+    }
   },
 
-  // 点报告记录：关闭报告面板并跳到该日对应卡片（滚动定位 + 短暂高亮）
-  async onRpItemTap(e) {
-    const { id, date } = e.currentTarget.dataset;
-    if (!id || !date) return;
-    this.setData({ rpVisible: false });
-    this.applyDate(date);
-    await this.loadLogs();
-    this.scrollToCard(Number(id));
+  // 「查看核查记录」：展开/收起当月完整列表
+  onSyToggleAll() {
+    this.setData({ syAll: !this.data.syAll });
   },
 
   // 滚动到指定卡片并闪烁高亮（中间格滚区 scroll-into-view）；当前视图口径下无此卡（如「仅看我」未含该记录）时提示

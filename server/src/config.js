@@ -84,6 +84,20 @@ const config = {
     enabled: str('QUIZ_ENABLED') === 'true',
     difyKey: str('DIFY_QUIZ_API_KEY'),
   },
+  // 商旅打卡（出工日志扩展）：env SGCC_CLOCKIN_ENABLED=true 时才挂载
+  // 协议密钥取自商旅 App 逆向分析（idea 仓 tools/sgcc_client.js 与 extracted/pem/），只走 env、不入仓
+  sgcc: {
+    enabled: str('SGCC_CLOCKIN_ENABLED') === 'true',
+    jwtSecret: str('SGCC_JWT_SECRET'),       // H5/App 自签 JWT 密钥
+    sm2ServerPub: str('SGCC_SM2_SERVER_PUB'), // jsonm 通道 SM2 服务器公钥
+    sm2ClientPriv: str('SGCC_SM2_CLIENT_PRIV'), // jsonm 通道 SM2 客户端私钥
+    rsaPub: str('SGCC_RSA_PUB'),             // jsonx default 通道请求加密公钥
+    rsaPriv: str('SGCC_RSA_PRIV'),           // jsonx default 通道响应解密私钥
+    dcuPub: str('SGCC_DCU_PUB'),             // jsonx slapp 通道请求加密公钥（res/dCu.pem 内容）
+    wlaPriv: str('SGCC_WLA_PRIV'),           // jsonx slapp 通道响应解密私钥（res/wLA.pem 内容）
+    // 每日自动核查时间（HH:mm，默认 23:00）
+    syncTime: str('SGCC_SYNC_TIME', '23:00'),
+  },
 };
 
 // 启动必需项：缺失即拒绝启动，避免带病运行

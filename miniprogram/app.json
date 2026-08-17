@@ -20,7 +20,8 @@
       "name": "worklog",
       "pages": [
         "pages/index/index",
-        "pages/manage/manage"
+        "pages/manage/manage",
+        "pages/sgccbind/sgccbind"
       ]
     },
     {

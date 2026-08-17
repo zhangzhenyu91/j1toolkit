@@ -225,6 +225,15 @@
   margin-bottom: 32rpx;
 }
 
+/* 「商旅打卡」行右侧状态文案（t-cell note 外部样式类）；已过期为警示红 */
+.me-panel .sgcc-note {
+  color: #A89F8A;
+}
+
+.me-panel .sgcc-note-expired {
+  color: #CF4444;
+}
+
 .me-panel .admin-sec {
   margin-bottom: 20rpx;
 }
