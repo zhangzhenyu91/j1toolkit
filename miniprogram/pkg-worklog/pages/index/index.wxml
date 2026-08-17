@@ -638,34 +638,41 @@
   </view>
 </t-popup>
 
-<!-- 汇总前核验面板（设计稿⑩，替代原「验证报告」；仅列当日未通过记录卡片，数据取自已加载列表，点卡可定位；
-     全部通过时只显示绿色通过态；「仍要汇总」为预留（汇总功能本仓未实现，仅提示）） -->
+<!-- 汇总前核验面板（设计稿⑩，替代原「验证报告」；按月列未通过记录卡片，默认当月、可翻月不看未来，
+     数据取 /worklog/report；点卡跳到该日定位；「仍要汇总」为预留（汇总功能本仓未实现，仅提示）） -->
 <t-popup visible="{{rpVisible}}" placement="bottom" bind:visible-change="onRpVisibleChange">
   <view class="sheet">
-    <view class="sheet-title">汇总前核验 · {{dateText}}</view>
+    <view class="sheet-title">汇总前核验</view>
+    <view class="rp-mbar">
+      <view class="rp-mbtn" hover-class="hover-opacity" bindtap="onRpMonthShift" data-d="-1"><t-icon name="chevron-left" size="32rpx" color="#22314E" /></view>
+      <view class="rp-mtext">{{rpMonthText}}</view>
+      <view class="rp-mbtn {{rpMonthAtCur ? 'disabled' : ''}}" hover-class="{{rpMonthAtCur ? '' : 'hover-opacity'}}" bindtap="onRpMonthShift" data-d="1"><t-icon name="chevron-right" size="32rpx" color="{{rpMonthAtCur ? '#C9C0AB' : '#22314E'}}" /></view>
+    </view>
     <view class="sheet-note">仅列出有问题的记录；规则：a 两次打卡齐 · b 水印照片齐 · c 施工内容一致 · d 地点含目的地 · e 拍摄为当天。未出车免验证</view>
     <scroll-view scroll-y class="rp-scroll" enhanced show-scrollbar="{{false}}">
-      <!-- 问题记录卡：车牌 + 未过项数徽章 + verify_reasons 逐条红叉 -->
-      <view class="issue-card" wx:for="{{rpIssues}}" wx:key="id" hover-class="hover-opacity" bindtap="onRpIssueTap" data-id="{{item.id}}">
-        <view class="issue-head">
-          <view class="issue-plate">{{item.plateText}}</view>
-          <view class="badge red">{{item.reasons.length}} 项未过</view>
-          <t-icon name="chevron-right" size="28rpx" color="#C9C0AB" />
+      <view class="dl-empty" wx:if="{{rpLoading}}">加载中…</view>
+      <block wx:if="{{!rpLoading}}">
+        <!-- 问题记录卡：日期 · 车牌 + 未过项数徽章 + verify_reasons 逐条红叉 -->
+        <view class="issue-card" wx:for="{{rpIssues}}" wx:key="id" hover-class="hover-opacity" bindtap="onRpIssueTap" data-id="{{item.id}}" data-date="{{item.logDate}}">
+          <view class="issue-head">
+            <view class="issue-plate">{{item.dateText}} · {{item.plateText}}</view>
+            <view class="badge red">{{item.reasons.length}} 项未过</view>
+            <t-icon name="chevron-right" size="28rpx" color="#C9C0AB" />
+          </view>
+          <view class="issue-line" wx:for="{{item.reasons}}" wx:for-item="reason" wx:key="*this">
+            <view class="issue-x"><t-icon name="close" size="20rpx" color="#CF4444" /></view>
+            <view class="issue-txt">{{reason}}</view>
+          </view>
         </view>
-        <view class="issue-line" wx:for="{{item.reasons}}" wx:for-item="reason" wx:key="*this">
-          <view class="issue-x"><t-icon name="close" size="20rpx" color="#CF4444" /></view>
-          <view class="issue-txt">{{reason}}</view>
+        <!-- 绿色通过态：有问题时「其余 N 条全部通过」，无问题时「当月无未通过记录」 -->
+        <view class="rp-ok">
+          <view class="rp-ok-ic"><t-icon name="check" size="36rpx" color="#2BA471" /></view>
+          <view>
+            <view class="rp-ok-t">{{rpOkText}}</view>
+            <view class="rp-ok-p" wx:if="{{rpIssues.length}}">处理完上述问题后即可汇总</view>
+          </view>
         </view>
-      </view>
-      <!-- 绿色通过态：有问题时「其余 N 条全部通过」，全部通过时整层仅此态 -->
-      <view class="rp-ok" wx:if="{{!rpEmpty}}">
-        <view class="rp-ok-ic"><t-icon name="check" size="36rpx" color="#2BA471" /></view>
-        <view>
-          <view class="rp-ok-t">{{rpOkText}}</view>
-          <view class="rp-ok-p" wx:if="{{rpIssues.length}}">处理完上述问题后即可汇总</view>
-        </view>
-      </view>
-      <view class="dl-empty" wx:if="{{rpEmpty}}">当日暂无记录</view>
+      </block>
     </scroll-view>
     <view class="sheet-actions">
       <view class="btn-ghost" hover-class="hover-opacity" bindtap="onCloseReport">返回处理</view>

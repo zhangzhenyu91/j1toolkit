@@ -604,15 +604,10 @@
   .m-x svg { width: 14px; height: 14px; }
   .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
-  /* ===== 汇总前核验（原验证报告；范围已收窄为仅未通过记录） ===== */
+  /* ===== 汇总前核验（原验证报告；整月切换，范围已收窄为仅未通过记录） ===== */
   .rep-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .rep-bar input[type="date"] {
-    height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px;
-    font-size: 12.5px; color: var(--navy); background: #fff; outline: none; font-family: inherit;
-    transition: border-color .25s, box-shadow .25s;
-  }
-  .rep-bar input[type="date"]:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(242, 109, 33, .12); }
-  .rep-sep { color: var(--ph); font-size: 12px; }
+  .rep-month { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: var(--navy); min-width: 84px; text-align: center; }
+  .rep-sep { color: var(--ph); font-size: 12px; } /* 下载页签日期分隔符也用此类 */
   .rep-total { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
   .rep-mine {
     display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub);
@@ -799,12 +794,15 @@
         </div>
       </div>
 
-      <!-- 汇总前核验：日期范围 + 未通过记录分组列表（原验证报告弹层页签化；仅看我走页头全局开关；
+      <!-- 汇总前核验：整月切换（默认当月，不看未来月）+ 未通过记录分组列表（原验证报告弹层页签化；仅看我走页头全局开关；
            商旅打卡后范围收窄为仅未通过记录，底部绿色条提示其余全部通过） -->
       <div class="pane" id="paneRep">
         <div class="rep-bar">
-          <input type="date" id="repFrom"><span class="rep-sep">~</span><input type="date" id="repTo">
-          <button class="btn btn-sm" id="repQuery">查询</button>
+          <div class="cal-nav" style="margin-left:0">
+            <button id="repPrev" title="上一月"></button>
+            <span class="rep-month" id="repMonth"></span>
+            <button id="repNext" title="下一月"></button>
+          </div>
           <span class="rep-total" id="repTotal"></span>
         </div>
         <div class="pane-scroll" id="repBody"></div>
@@ -901,7 +899,7 @@ var state = {
   calY: 0, calM: 0,          // 月历当前显示月份（calM 为 0 起）
   calCache: {},              // day-status 缓存：scope|YYYY-MM → map
   timer: 0,                  // 验证中照片的轮询定时器
-  rep: { from: '', to: '', loaded: false },
+  rep: { month: '', loaded: false }, // 汇总前核验当前查看月份 YYYY-MM（默认当月）
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
   dict: { lists: {}, towerCount: null }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）
@@ -3043,13 +3041,26 @@ function openSyncCheck() {
   });
 }
 
-/* ================= 汇总前核验（页签内嵌：仅未通过记录） ================= */
+/* ================= 汇总前核验（页签内嵌：整月切换，仅未通过记录） ================= */
+function syncRepMonthText() { $('#repMonth').textContent = fmtMonthCN(state.rep.month); }
+/* 翻月（不看未来月） */
+function shiftRepMonth(d) {
+  var a = state.rep.month.split('-');
+  var nm = fmtDate(new Date(+a[0], +a[1] - 1 + d, 1)).slice(0, 7);
+  if (nm > todayStr().slice(0, 7)) return;
+  state.rep.month = nm;
+  syncRepMonthText();
+  loadReport();
+}
 async function loadReport() {
-  if (!state.rep.from || !state.rep.to) { Shade.toast('请选择起止日期', 'info'); return; }
+  if (!state.rep.month) return;
+  var y = +state.rep.month.slice(0, 4), m = +state.rep.month.slice(5, 7);
+  var from = state.rep.month + '-01';
+  var to = fmtDate(new Date(y, m, 0)); // 当月最后一天
   var body = $('#repBody');
   body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
   try {
-    var r = await Shade.api(wl('/api/v1/worklog/report?from=' + state.rep.from + '&to=' + state.rep.to
+    var r = await Shade.api(wl('/api/v1/worklog/report?from=' + from + '&to=' + to
       + '&scope=' + state.scope));
     /* 汇总前核验：范围收窄为仅未通过记录（verify==='failed'，前端筛即可），有备注的记录不再在此列出。
        「其余 N 条」口径：接口返回（未通过 ∪ 有备注）中核查通过（含免验证）的条数——
@@ -3061,7 +3072,7 @@ async function loadReport() {
     $('#repTotal').textContent = '合计 ' + list.length + ' 条未通过';
     if (!list.length) {
       body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44)
-        + '<p>该范围内记录全部通过</p>'
+        + '<p>当月记录全部通过</p>'
         + '<p style="font-size:11.5px">规则 a~f；未出车免验证；非水印照片不参与</p></div>';
       return;
     }
@@ -3160,12 +3171,9 @@ function initEvents() {
     var photos = picked.map(function (p) { return { url: p.url, name: p.log_date + '-' + p.id + '.jpg' }; });
     postZip(photos, this);
   });
-  /* 报告页签：查询（仅看我走页头全局开关，scope 为接口传参）/ 点击核验行切回记录页签并跳到该日 */
-  $('#repQuery').addEventListener('click', function () {
-    state.rep.from = $('#repFrom').value;
-    state.rep.to = $('#repTo').value;
-    loadReport();
-  });
+  /* 报告页签：翻月（仅看我走页头全局开关，scope 为接口传参）/ 点击核验行切回记录页签并跳到该日 */
+  $('#repPrev').addEventListener('click', function () { shiftRepMonth(-1); });
+  $('#repNext').addEventListener('click', function () { shiftRepMonth(1); });
   $('#repBody').addEventListener('click', function (e) {
     var row = e.target.closest('.rep-row[data-d]');
     if (!row) return;
@@ -3349,12 +3357,13 @@ async function init() {
   $('#calPrev').innerHTML = SVG_CHEV_L;
   $('#calNext').innerHTML = SVG_CHEV_R;
 
-  /* 下载 / 报告页签默认日期范围（同口径：当天 ≤10 号上月整月，否则本月 1 号~今天） */
+  /* 下载页签默认日期范围（当天 ≤10 号上月整月，否则本月 1 号~今天）；核验页签默认当月 */
   var dr = defaultRange();
   state.dl.from = dr.from; state.dl.to = dr.to;
-  state.rep.from = dr.from; state.rep.to = dr.to;
   $('#dlFrom').value = dr.from; $('#dlTo').value = dr.to;
-  $('#repFrom').value = dr.from; $('#repTo').value = dr.to;
+  state.rep.month = todayStr().slice(0, 7);
+  syncRepMonthText();
+  $('#repPrev').innerHTML = SVG_CHEV_L; $('#repNext').innerHTML = SVG_CHEV_R;
 
   /* 顶栏用户：接口失败回退本地缓存 */
   Shade.api('/api/v1/user/profile').then(function (r) {

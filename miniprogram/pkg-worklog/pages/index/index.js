@@ -1,7 +1,7 @@
 // 出工日志 · 主页：日期条切换 / 视图开关（全部·仅看我）/ 日志卡片直改 / 日历选日（按日验证状态着色）
 // 新建与「改派车/用车人」共用底部表单弹层（仅「保 存」提交，无实时保存；改派车保存前弹内网派车单同步警告）；
 // 巡视内容点卡片主块单独弹层修改（带快捷输入）；备注（文字+附件传 COS）点「备 注」按钮或备注块弹层编辑；
-// 底部另有批量下载水印照片面板与「汇总前核验」面板（仅列当日未通过记录）
+// 底部另有批量下载水印照片面板与「汇总前核验」面板（按月列未通过记录，默认当月、可翻月）
 // 商旅打卡扩展（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨）：卡片「商旅打卡」区每人开始/结束两枚 chip
 // （未打卡橙虚线 / 已打卡绿勾 / 未绑定灰锁三态）；打卡确认弹层（定位/同记录同 seq 带入/杆塔带入 + 商旅备注）、
 // 费用弹层（首次开始打卡自动弹，仅伙食补助/交通费可编辑）、添加照片三选（非水印直传免验证）、人名点亮层商旅登录态置灰、
@@ -248,11 +248,14 @@ Page({
     // 下载面板改日期（range 日历；与下载面板互斥开合，避免叠层 z-index 冲突）
     dlCalVisible: false,
     dlCalValue: null,
-    // ---------- 汇总前核验面板（原「验证报告」；仅列当日 verify_passed=failed 记录，数据取自已加载列表） ----------
+    // ---------- 汇总前核验面板（原「验证报告」；按月列未通过记录，默认当月、可翻月不看未来；数据取 /worklog/report） ----------
     rpVisible: false,
-    rpIssues: [], // [{id, plateText, membersText, reasons}]
-    rpOkText: '', // 绿色通过态文案（其余 N 条全部通过 / 当日 N 条全部通过）
-    rpEmpty: false, // 当日无记录
+    rpMonth: '', // 当前查看月份 YYYY-MM（打开面板时默认当月）
+    rpMonthText: '', // 「2026 年 8 月」
+    rpMonthAtCur: true, // 已是当月：翻月「下一月」置灰
+    rpLoading: false,
+    rpIssues: [], // [{id, logDate, dateText, plateText, membersText, reasons}]
+    rpOkText: '', // 绿色通过态文案（其余 N 条全部通过 / 当月无未通过记录）
     // ---------- 商旅打卡 · 打卡确认弹层（开始/结束/更新共用） ----------
     ckVisible: false,
     ckTitle: '', // 「开始打卡 · 姓名」/「结束打卡 · 姓名」/「更新打卡地点 · 姓名」
@@ -600,7 +603,7 @@ Page({
       this._dayLists[this.dayKey(this.data.dateStr)] = list;
       this.setCurPane(list);
       this.schedulePoll(list);
-      if (this.data.rpVisible) this.buildReport(list); // 汇总前核验面板开着时随列表刷新（数据源即当日列表）
+      if (this.data.rpVisible) this.loadReport(); // 汇总前核验面板开着时随列表重查（按月口径）
       if (this.data.win.length) this.prefetchDays();
       else this.buildWin();
     } catch (err) {
@@ -625,7 +628,6 @@ Page({
         hasVehicle: !!e.vehicle_id,
         plateText: e.vehicle_id ? e.plate_no : '未出车',
         badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
-        verifyKey: e.verify_passed, // 汇总前核验面板按 failed 过滤用
         failReasons: e.verify_reasons || [], // 未通过明细（角标为「未通过」时逐行展示）
         patrolText: e.patrol_content || '—',
         checks: members.map((m) => ({
@@ -2830,11 +2832,17 @@ Page({
     this.toast(`已保存 ${saved} 张到相册`);
   },
 
-  // ---------- 汇总前核验（设计稿⑩：替代原「验证报告」；仅列当日 verify_passed=failed 记录，数据取自已加载列表） ----------
+  // ---------- 汇总前核验（设计稿⑩：替代原「验证报告」；按月列未通过记录，默认当月可翻月，数据取 /worklog/report） ----------
+
+  // 月份 → 面板字段（rpMonthText 展示文案 / rpMonthAtCur 控制「下一月」置灰，不看未来月）
+  rpMonthData(month) {
+    const [y, m] = month.split('-').map(Number);
+    return { rpMonth: month, rpMonthText: `${y} 年 ${m} 月`, rpMonthAtCur: month >= fmtDate(new Date()).slice(0, 7) };
+  },
 
   onOpenReport() {
-    this.setData({ rpVisible: true, fabOpen: false });
-    this.buildReport();
+    this.setData({ rpVisible: true, fabOpen: false, ...this.rpMonthData(this.data.rpMonth || fmtDate(new Date()).slice(0, 7)) });
+    this.loadReport();
   },
 
   onCloseReport() {
@@ -2845,34 +2853,60 @@ Page({
     if (!e.detail.visible && this.data.rpVisible) this.setData({ rpVisible: false });
   },
 
-  // 由当日列表重建面板：问题卡 = verifyKey==='failed'（未出车免验证 exempt 不会入列）；其余视为通过
-  buildReport(list) {
-    const src = list || this.data.list || [];
-    const issues = src
-      .filter((x) => x.verifyKey === 'failed')
-      .map((x) => ({
-        id: x.id,
-        plateText: x.plateText,
-        membersText: (x.checks || []).map((c) => c.name).join('、'),
-        reasons: x.failReasons || [],
-      }));
-    const okCount = src.length - issues.length;
-    this.setData({
-      rpIssues: issues,
-      rpEmpty: !src.length,
-      rpOkText: src.length
-        ? issues.length
-          ? `其余 ${okCount} 条记录全部通过`
-          : `当日 ${okCount} 条记录全部通过`
-        : '',
-    });
+  // 翻月（超过当月则忽略）
+  onRpMonthShift(e) {
+    const d = Number(e.currentTarget.dataset.d) || 0;
+    const [y, m] = this.data.rpMonth.split('-').map(Number);
+    const nd = new Date(y, m - 1 + d, 1);
+    const nm = `${nd.getFullYear()}-${pad(nd.getMonth() + 1)}`;
+    if (nm > fmtDate(new Date()).slice(0, 7)) return;
+    this.setData(this.rpMonthData(nm));
+    this.loadReport();
   },
 
-  // 点问题卡：关面板并滚动定位到该卡片（短暂高亮；当日列表必含此卡）
-  onRpIssueTap(e) {
-    const { id } = e.currentTarget.dataset;
+  // 拉取当前月份核验结果：问题卡 = reasons 非空（接口范围 = 未通过 ∪ 有备注；未出车免验证不入列）
+  async loadReport() {
+    const month = this.data.rpMonth;
+    if (!month) return;
+    const [y, m] = month.split('-').map(Number);
+    const from = `${month}-01`;
+    const to = fmtDate(new Date(y, m, 0)); // 当月最后一天
+    this.setData({ rpLoading: true });
+    try {
+      const data = await request({ url: `/api/v1/worklog/report?from=${from}&to=${to}${this.scopeQuery()}${this.teamQuery()}` });
+      const items = (data && data.list) || [];
+      const issues = items
+        .filter((x) => (x.reasons || []).length)
+        .map((x) => ({
+          id: x.id,
+          logDate: x.log_date,
+          dateText: `${Number(x.log_date.slice(5, 7))}月${Number(x.log_date.slice(8, 10))}日`,
+          plateText: x.plate_no,
+          membersText: (x.members || []).join('、'),
+          reasons: x.reasons,
+        }));
+      const okCount = items.length - issues.length; // 返回集内核查通过（含免验证、有备注）的条数
+      this.setData({
+        rpLoading: false,
+        rpIssues: issues,
+        rpOkText: issues.length ? `其余 ${okCount} 条记录全部通过` : '当月无未通过记录',
+      });
+    } catch (err) {
+      this.toast(err.message);
+      this.setData({ rpLoading: false });
+    }
+  },
+
+  // 点问题卡：关面板，跳到该卡所在日期后滚动定位（短暂高亮；当前视图口径下无此卡时提示）
+  async onRpIssueTap(e) {
+    const { id, date } = e.currentTarget.dataset;
     if (!id) return;
     this.setData({ rpVisible: false });
+    if (date && date !== this.data.dateStr) {
+      this.setData({ win: [] }); // 跨日跳转：重置切日窗格（同日历选日口径）
+      this.applyDate(date);
+      await this.loadLogs();
+    }
     this.scrollToCard(Number(id));
   },
 

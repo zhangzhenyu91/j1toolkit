@@ -1925,6 +1925,39 @@ page {
 }
 
 /* ---------- ⑩ 汇总前核验面板 ---------- */
+
+/* 月份切换条：左右翻月圆钮 + 居中月份文案（不看未来月，到当月置灰） */
+.rp-mbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 32rpx;
+  margin-top: 12rpx;
+}
+
+.rp-mbtn {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #f4f1ea;
+}
+
+.rp-mbtn.disabled {
+  opacity: 0.45;
+}
+
+.rp-mtext {
+  min-width: 180rpx;
+  text-align: center;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #22314e;
+  letter-spacing: 2rpx;
+}
+
 .rp-scroll {
   max-height: 60vh;
   margin-top: 20rpx;
