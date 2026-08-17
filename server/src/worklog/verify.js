@@ -1,5 +1,5 @@
 // 出工日志：记录验证状态（verify_passed）与未通过明细（verify_reasons）计算，logs / day-status / report 共用；
-// 个人口径 myReportReasons 仅 /report scope=mine 使用（/day-status scope=mine 为 index.js 内联自算，未复用本模块）
+// 个人口径 myReportReasons 供 /report 与 /day-status 的 scope=mine 共用
 // 规则（见《开发指南》7.1）：① 未出车不验证（exempt）；② 目的地已选且有用车人（巡视内容按需求可空，不计入）；
 // ③ 至少一张水印照片且全部已通过；④ 用车人名单与全部照片人名并集一致；⑤ 多张照片施工内容一致；⑥ 全部用车人已打卡
 //

@@ -253,7 +253,7 @@ router.get('/logs', async (req, res, next) => {
 
 // GET /day-status?month=YYYY-MM&scope=all|mine：当月每日验证状态映射，供日历着色
 // 状态优先级：failed 红 > remark 黄（验证通过但有备注）> passed 绿；免验证不参与着色
-// scope=mine 个人视图：仅统计用车人包含自己的卡片；红色 = 我未打卡 / 没有含我名字的水印照片 / 含我照片未通过（含验证中/失败）
+// scope=mine 个人视图：仅统计用车人包含自己的卡片；红色 = 我未打卡 / 我的费用不达标 / 没有含我名字的水印照片 / 含我照片未通过（含验证中/失败），口径同 /report scope=mine（verify.js myReportReasons）
 router.get('/day-status', async (req, res, next) => {
   try {
     const { month } = req.query;
@@ -270,12 +270,9 @@ router.get('/day-status', async (req, res, next) => {
       const map = {};
       list.forEach((e) => {
         if (map[e.log_date] === 'failed') return; // 有未通过即锁定红
-        const myRow = e.members.find((m) => m.member_id === me.id);
-        const myPhotos = e.photos.filter((p) => (p.members || []).includes(me.name));
-        let st = 'passed';
-        if (!myRow || !myRow.checked) st = 'failed';
-        else if (!myPhotos.length) st = 'failed';
-        else if (myPhotos.some((p) => p.verify_status !== 'passed')) st = 'failed';
+        // 个人口径与 /report scope=mine 同源（verify.js myReportReasons）：
+        // 剔除非水印照片；商旅开启时按两次打卡 + 规则 f 费用判定
+        let st = myReportReasons(e, me).length ? 'failed' : 'passed';
         // 通过但有备注 → 黄（不覆盖红；已有黄不被绿覆盖）
         if (st === 'passed' && (e.remark || e.remark_files.length)) st = 'remark';
         if (st === 'passed' && map[e.log_date] === 'remark') return;
