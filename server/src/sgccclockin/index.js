@@ -168,12 +168,14 @@ async function reverseGeocode(lng, lat) {
 
 // ---------- 绑定（短信登录三步；密码登录有顶象滑块风控，不做）----------
 
-// POST /login/captcha：取图形验证码（返回 dataURL）
+// POST /login/captcha：取图形验证码（统一补 dataURL 前缀，小程序 <image> 可直接贴）
 router.post('/login/captcha', async (req, res, next) => {
   try {
     const mobile = String((req.body && req.body.mobile) || '').trim();
     if (!/^1\d{10}$/.test(mobile)) return fail(res, 400, 40030, '手机号格式不正确');
-    const image = await sgcc.loginCaptcha(mobile);
+    let image = await sgcc.loginCaptcha(mobile);
+    // 商旅返回裸 base64（无 dataURL 前缀），统一补全；PNG 魔数 89504e47
+    if (image && !image.startsWith('data:')) image = `data:image/png;base64,${image}`;
     return ok(res, { image });
   } catch (err) { return next(err); }
 });
