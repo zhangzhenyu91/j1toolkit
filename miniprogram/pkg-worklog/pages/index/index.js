@@ -2,10 +2,10 @@
 // 新建与「改派车/用车人」共用底部表单弹层（仅「保 存」提交，无实时保存；改派车保存前弹内网派车单同步警告）；
 // 巡视内容点卡片主块单独弹层修改（带快捷输入）；备注（文字+附件传 COS）点「备 注」按钮或备注块弹层编辑；
 // 底部另有批量下载水印照片面板与「汇总前核验」面板（仅列当日未通过记录）
-// 商旅打卡扩展（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨⑪）：卡片「商旅打卡」区每人开始/结束两枚 chip
+// 商旅打卡扩展（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨）：卡片「商旅打卡」区每人开始/结束两枚 chip
 // （未打卡橙虚线 / 已打卡绿勾 / 未绑定灰锁三态）；打卡确认弹层（定位/同记录带入/杆塔带入 + 商旅备注）、
 // 费用弹层（首次开始打卡自动弹）、添加照片三选（新增非水印直传免验证）、人名点亮层商旅登录态置灰、
-// 照片区非水印展示与商旅同步标（失败重试）、悬浮钮「同步核查」面板（当日对账 + 核查记录 + 手动核查）
+// 照片区非水印展示与商旅同步标（失败重试）、卡片操作区「从商旅同步」（按日手动拉取，不一致以商旅为准覆盖）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -34,6 +34,11 @@ const parseDate = (s) => {
 };
 
 // ---------- 商旅打卡展示辅助 ----------
+// 当日日期串（YYYY-MM-DD，本机时区）：打卡仅当日开放（与后端 40041 口径一致）
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 // 打卡时间 → HH:mm（clock_time 为 DATETIME，JSON 输出 ISO 串时按本地时区取时分；兼容 'YYYY-MM-DD HH:mm:ss' 直取）
 const fmtClockHm = (t) => {
   const s = String(t || '');
@@ -44,14 +49,6 @@ const fmtClockHm = (t) => {
   }
   const m = /(\d{1,2}):(\d{2})/.exec(s);
   return m ? `${pad(Number(m[1]))}:${m[2]}` : '';
-};
-// 核查记录时间 → M月D日 HH:mm（created_at 同为 DATETIME，口径同上）
-const fmtMdHm = (t) => {
-  const s = String(t || '');
-  if (!s) return '';
-  const d = new Date(s.indexOf('T') > 0 ? s : s.replace(/-/g, '/'));
-  if (Number.isNaN(d.getTime())) return s;
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 // 打卡地点短文案：去「中国」前缀与省级段，保留 市/区/县 + 街道/路段（如 中国山西省吕梁市汾阳市西河街道英雄北路 → 汾阳市西河街道英雄北路）
 const shortPosition = (p) => {
@@ -66,9 +63,6 @@ const fmtWorkHours = (w) => {
   if (!s) return '';
   return /^\d+(\.\d+)?$/.test(s) ? `${s}h` : s;
 };
-// 核查记录类型/结果展示映射（对应 worklog_sync_log.type / result）
-const SYNC_TYPE_TEXT = { clockin: '打卡对账', photo: '照片对账', fee: '费用对账', auth: '登录态' };
-const SYNC_RESULT = { ok: { cls: 'ok', text: '一致' }, diff: { cls: 'diff', text: '有差异' }, fail: { cls: 'fail', text: '失败' } };
 // 打卡备注默认值（仅作商旅 remarks 提交，与记录卡片备注无关）
 const CLOCK_REMARKS_DEFAULT = '110kV及220kV输电线路巡视';
 
@@ -294,13 +288,6 @@ Page({
     feeCostCode: '', // 成本中心编码
     feePhotos: [], // 商旅费用照片 [{id, url}]（模板 id=5 组件 value 解析）
     feeSaving: false,
-    // ---------- 商旅打卡 · 同步核查面板 ----------
-    syVisible: false,
-    syLoading: false,
-    syLastText: '', // 上次核查时间
-    syTodayRows: [], // 当日对账 [{key, label, lines:[{text, cls}]}]（打卡/照片/费用/登录态 固定四行）
-    syAll: false, // 「查看核查记录」展开态
-    syLogs: [], // 当月核查记录（近 100 条，时间倒序）[{id, timeText, memberText, typeText, resultText, cls, detail}]
   },
 
   onLoad() {
@@ -440,9 +427,9 @@ Page({
       clearTimeout(this._flashTimer);
       this._flashTimer = null;
     }
-    if (this._syTimer) { // 同步核查的 5 秒重拉定时器
-      clearTimeout(this._syTimer);
-      this._syTimer = null;
+    if (this._pullTimer) { // 「从商旅同步」的 8 秒静默刷新定时器
+      clearTimeout(this._pullTimer);
+      this._pullTimer = null;
     }
   },
 
@@ -640,6 +627,8 @@ Page({
       const members = e.members || [];
       // 商旅打卡区渲染前提：派车卡且后端已带商旅字段（sgcc 未开启时整区不渲染，旧角标逻辑不受影响）
       const showClock = !!e.vehicle_id && members.some((m) => m.sgccBound !== undefined);
+      // 打卡仅当日开放（含更新）；非当日打卡 chip 置锁、副文案提示；费用修改不受限
+      const ckReadonly = e.log_date !== todayStr();
       return {
         id: e.id,
         hasVehicle: !!e.vehicle_id,
@@ -657,8 +646,9 @@ Page({
           sgccTokenStatus: m.sgccTokenStatus == null ? 1 : m.sgccTokenStatus, // 0=登录过期（人名点亮层置灰；打卡仍交由后端 40021 拦截）
         })),
         clockRaw,
-        clockRows: showClock ? this.buildClockRows(members, clockRaw) : [],
+        clockRows: showClock ? this.buildClockRows(members, clockRaw, ckReadonly) : [],
         showClock,
+        ckReadonly,
         photos,
         photoUrls: photos.map((p) => p.url),
         // 备注（文字 + 附件；均为空即 hasRemark=false，卡片不渲染备注块）
@@ -679,14 +669,11 @@ Page({
   },
 
   // 商旅打卡区行数据：每个用车人一行（状态小字 + 开始/结束两枚 chip 三态）
-  // chip 三态：done=已打卡（绿底勾+时间+地点+「更新」）/ todo=未打卡（橙虚线，同记录已有打卡时副文案「地点同开始」）/ lock=未绑定（灰锁禁用）
-  buildClockRows(members, clockRaw) {
+  // chip 三态：done=已打卡（绿底勾+时间+地点+「更新」，非当日不显示更新）/ todo=未打卡（橙虚线，同记录已有打卡时副文案「地点同开始」）/ lock=未绑定或非当日（灰锁禁用）
+  buildClockRows(members, clockRaw, readonly) {
     const anyClocked = Object.keys(clockRaw).some((k) => clockRaw[k] && (clockRaw[k]['1'] || clockRaw[k]['2']));
     const slot = (s, seq, bound) => {
       const title = seq === 1 ? '开始打卡' : '结束打卡';
-      if (!bound) {
-        return { cls: 'lock', icon: 'lock-on', iconColor: '#B4AA90', title, sub: '引导本人至「我的」页绑定', done: false };
-      }
       if (s) {
         return {
           cls: 'done',
@@ -695,9 +682,16 @@ Page({
           title: `${seq === 1 ? '开始' : '结束'} ${fmtClockHm(s.time)}`,
           sub: shortPosition(s.position) || '地点未知',
           done: true,
+          upd: !readonly, // 非当日不允许更新地点
         };
       }
-      return { cls: 'todo', icon: 'time', iconColor: '#F26D21', title, sub: anyClocked ? '点击打卡 · 地点同开始' : '点击打卡', done: false };
+      if (readonly) {
+        return { cls: 'lock', icon: 'lock-on', iconColor: '#B4AA90', title, sub: '仅当日可打卡', done: false, upd: false };
+      }
+      if (!bound) {
+        return { cls: 'lock', icon: 'lock-on', iconColor: '#B4AA90', title, sub: '引导本人至「我的」页绑定', done: false, upd: false };
+      }
+      return { cls: 'todo', icon: 'time', iconColor: '#F26D21', title, sub: anyClocked ? '点击打卡 · 地点同开始' : '点击打卡', done: false, upd: false };
     };
     return members.map((m) => {
       const bound = m.sgccBound !== false;
@@ -903,9 +897,13 @@ Page({
 
   // 点打卡 chip：未绑定 toast 引导；已打卡进「更新打卡地点」，未打卡进「开始/结束打卡」
   onClockTap(e) {
-    const { entryId, memberId, name, seq, bound, done } = e.currentTarget.dataset;
+    const { entryId, memberId, name, seq, bound, done, today } = e.currentTarget.dataset;
+    if (today === false || today === 'false') {
+      this.toast('仅当日日期可打卡');
+      return;
+    }
     if (!bound) {
-      this.toast('该用车人未绑定商旅，请引导其本人在「我的 → 商旅打卡」绑定');
+      this.toast('该用车人未绑定商旅，请引导其本人在「我的 → 绑定商旅」绑定');
       return;
     }
     this.openClockSheet(Number(entryId), Number(memberId), name, Number(seq) === 2 ? 2 : 1, done ? 'update' : 'mark');
@@ -1225,6 +1223,22 @@ Page({
       await request({ url: `/api/v1/sgcc/photos/${pid}/resync`, method: 'POST', data: this.teamBody({}) });
       this.toast('已重新提交同步');
       this.loadLogs();
+    } catch (err) {
+      this.toast(err.message);
+    }
+  },
+
+  // ---------- 商旅打卡 · 从商旅同步（卡片操作区入口，替代原悬浮钮「同步核查」） ----------
+
+  // 「从商旅同步」：按卡片日期手动拉取本班全部绑定成员当日数据（后端异步执行，不一致以商旅为准覆盖），
+  // 8 秒后静默刷新本日列表看结果
+  async onSyncPull(e) {
+    const { date } = e.currentTarget.dataset;
+    try {
+      await request({ url: '/api/v1/sgcc/sync/pull', method: 'POST', data: this.teamBody({ date }) });
+      this.toast('已发起从商旅同步，请稍后查看');
+      if (this._pullTimer) clearTimeout(this._pullTimer);
+      this._pullTimer = setTimeout(() => this.loadLogs(), 8000);
     } catch (err) {
       this.toast(err.message);
     }
@@ -1824,7 +1838,7 @@ Page({
     return {
       candidates,
       memberOffTip: expiredNames.length
-        ? `${expiredNames.join('、')} 的商旅登录已过期，已置灰不可选；其本人在「我的 → 商旅打卡」重新登录后恢复`
+        ? `${expiredNames.join('、')} 的商旅登录已过期，已置灰不可选；其本人在「我的 → 绑定商旅」重新登录后恢复`
         : '',
     };
   },
@@ -2893,82 +2907,6 @@ Page({
   onRpSummary() {
     this.setData({ rpVisible: false });
     this.toast('汇总功能暂未开放（预留）');
-  },
-
-  // ---------- 商旅打卡 · 同步核查面板（设计稿⑪：悬浮主钮「同步核查」进入） ----------
-
-  onOpenSync() {
-    this.setData({ syVisible: true, syAll: false, syLoading: true, fabOpen: false });
-    this.loadSyncLogs();
-  },
-
-  onSyVisibleChange(e) {
-    if (!e.detail.visible && this.data.syVisible) this.setData({ syVisible: false });
-  },
-
-  onSyClose() {
-    this.setData({ syVisible: false });
-  },
-
-  // 拉当月核查记录（近 100 条，后端已按时间倒序）：派生「上次核查时间」与当日四类对账行
-  async loadSyncLogs() {
-    try {
-      const data = await request({ url: `/api/v1/sgcc/sync/logs?month=${this.data.dateStr.slice(0, 7)}${this.teamQuery()}` });
-      if (!this.data.syVisible) return; // 面板已关则丢弃
-      const rows = (data && data.list) || [];
-      const logs = rows.map((r) => ({
-        id: r.id,
-        timeText: fmtMdHm(r.created_at),
-        memberText: r.member_name || '整班',
-        typeText: SYNC_TYPE_TEXT[r.type] || r.type,
-        resultText: (SYNC_RESULT[r.result] || {}).text || r.result,
-        cls: (SYNC_RESULT[r.result] || {}).cls || '',
-        detail: r.detail || '',
-      }));
-      // 当日对账：按 sync_date=当前日过滤，固定四类各一行（行内逐条 成员+明细，颜色取该条结果）
-      const todayRows = ['clockin', 'photo', 'fee', 'auth'].map((type) => {
-        const items = rows.filter((r) => r.sync_date === this.data.dateStr && r.type === type);
-        return {
-          key: type,
-          label: SYNC_TYPE_TEXT[type],
-          lines: items.length
-            ? items.map((r) => ({
-                text: `${r.member_name || '整班'}：${r.detail}`,
-                cls: (SYNC_RESULT[r.result] || {}).cls || '',
-              }))
-            : [{ text: '当日暂无核查记录', cls: 'mut' }],
-        };
-      });
-      this.setData({
-        syLoading: false,
-        syLogs: logs,
-        syTodayRows: todayRows,
-        syLastText: rows.length ? fmtMdHm(rows[0].created_at) : '暂无核查记录',
-      });
-    } catch (err) {
-      if (!this.data.syVisible) return;
-      this.setData({ syLoading: false });
-      this.toast(err.message);
-    }
-  },
-
-  // 「重新核查」：手动发起当日核查（异步执行），5 秒后自动重拉记录看结果
-  async onSyCheck() {
-    try {
-      await request({ url: '/api/v1/sgcc/sync/check', method: 'POST', data: this.teamBody({ date: this.data.dateStr }) });
-      this.toast('已发起核查，请稍后查看');
-      if (this._syTimer) clearTimeout(this._syTimer);
-      this._syTimer = setTimeout(() => {
-        if (this.data.syVisible) this.loadSyncLogs();
-      }, 5000);
-    } catch (err) {
-      this.toast(err.message);
-    }
-  },
-
-  // 「查看核查记录」：展开/收起当月完整列表
-  onSyToggleAll() {
-    this.setData({ syAll: !this.data.syAll });
   },
 
   // 滚动到指定卡片并闪烁高亮（中间格滚区 scroll-into-view）；当前视图口径下无此卡（如「仅看我」未含该记录）时提示

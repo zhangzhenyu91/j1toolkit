@@ -1,6 +1,6 @@
 {
   "navigationStyle": "custom",
-  "navigationBarTitleText": "商旅打卡",
+  "navigationBarTitleText": "绑定商旅",
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
     "t-icon": "tdesign-miniprogram/icon/icon",

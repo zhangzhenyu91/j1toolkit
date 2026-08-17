@@ -1,5 +1,5 @@
-<!-- 商旅打卡 · 账号绑定页（未绑定：短信登录三步；已绑定：账号状态 + 解除绑定/重新登录） -->
-<navbar back title="商旅打卡" />
+<!-- 绑定商旅 · 账号绑定页（未绑定：短信登录三步；已绑定：账号状态 + 解除绑定/重新登录） -->
+<navbar back title="绑定商旅" />
 
 <view class="page-body" wx:if="{{gate && !loading}}">
   <!-- ================= 未绑定态（设计稿②屏） ================= -->
@@ -134,20 +134,6 @@
         <text class="k">系统版本</text>
         <view class="v">{{systemVersion}}</view>
         <view class="rt"><text class="badge-outline">可修改</text></view>
-      </view>
-      <view class="kv">
-        <text class="k">今日打卡</text>
-        <view class="v">
-          {{clockCount > 0 ? clockCount + ' 次' : '未打卡'}}
-          <text class="v-sub" wx:if="{{clockLine}}">{{clockLine}}</text>
-        </view>
-      </view>
-      <view class="kv">
-        <text class="k">今日费用</text>
-        <view class="v">
-          {{feeText}}
-          <text class="v-sub" wx:if="{{feeSub}}">{{feeSub}}</text>
-        </view>
       </view>
     </view>
 

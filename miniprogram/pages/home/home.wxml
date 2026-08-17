@@ -88,9 +88,10 @@
 
             <!-- 功能列表 -->
             <view class="card cells-card">
-              <!-- 商旅打卡（出工日志扩展）：三态文案 未绑定/已绑定/登录已过期（红字） -->
+              <!-- 绑定商旅（出工日志扩展，仅出工日志权限可见）：三态文案 未绑定/已绑定/登录已过期（红字） -->
               <t-cell
-                title="商旅打卡"
+                wx:if="{{hasWorklog}}"
+                title="绑定商旅"
                 left-icon="location"
                 note="{{sgccNote}}"
                 t-class-note="sgcc-note{{sgccExpired ? ' sgcc-note-expired' : ''}}"

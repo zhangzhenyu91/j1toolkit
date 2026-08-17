@@ -4,7 +4,7 @@
      照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志 /
      水印照片上传（选择水印照片直传 / 选片裁剪加水印后上传，服务端渲染，链路同小程序））；
      版心满宽贴边；右侧列表位为「记录 / 批量下载 / 汇总前核验」三页签（原批量下载、验证报告弹层已页签化；
-     商旅打卡扩展后验证报告更名「汇总前核验」，范围收窄为仅未通过记录，底部绿色条提示其余全部通过；页头加「同步核查」入口），
+     商旅打卡扩展后验证报告更名「汇总前核验」，范围收窄为仅未通过记录，底部绿色条提示其余全部通过；页头加「从商旅拉取」入口），
      宽屏（≥1600px）记录页签下汇总前核验常驻卡片流右侧栏（syncSideReport；切到核验页签仍可满宽查看）；
      商旅打卡（design/sgcc-clockin.html ⑫⑬）：用车人行每人「始/终」两枚打卡胶囊（仅展示，打卡需真实定位在小程序完成）、
      照片网格「商旅/同步失败/非水印」角标、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）；
@@ -713,7 +713,7 @@
     margin-top: 10px; padding: 9px 12px; border-radius: 8px; background: var(--paper);
     font-size: 11.5px; color: var(--sub); letter-spacing: .5px; line-height: 1.7;
   }
-  /* 同步核查弹层：核查记录行（结果色点 绿=一致 / 橙=有差异已回写 / 红=失败） */
+  /* 从商旅拉取弹层：拉取记录行（结果色点 绿=一致 / 橙=有差异已回写 / 红=失败） */
   .sg-logs { margin-top: 10px; border-top: 1px solid var(--hair); }
   .sg-log { display: flex; align-items: flex-start; gap: 9px; padding: 9px 2px; border-bottom: 1px solid var(--hair); font-size: 12px; }
   .sg-log:last-child { border-bottom: none; }
@@ -742,7 +742,7 @@
         <button class="on" data-v="all">全部</button>
         <button data-v="mine">仅看我</button>
       </div>
-      <!-- 商旅打卡：手动同步核查（弹层含发起当日核查 + 当月核查记录；仅记录页签显示，同新建钮） -->
+      <!-- 商旅打卡：手动从商旅拉取（弹层含按日期发起拉取 + 当月拉取记录；仅记录页签显示，同新建钮） -->
       <button class="btn" id="btnSyncCheck"></button>
       <button class="btn" id="btnCreate"></button>
     </div>
@@ -836,7 +836,7 @@
    杆塔坐标级联预填，防抖调 /geo 刷新地点天气）→ 服务端渲染水印上传；图片经 canvas 重绘导出，EXIF 方向已归一（orientation 恒 up）
    商旅打卡扩展（/api/v1/sgcc/*）：③ 非水印照片＝原图直传（plain:true，不渲染不验证不占每人限一张，verify_status=skipped 不进轮询）；
    用车人行每人「始/终」打卡胶囊仅展示（打卡在小程序完成）；照片「商旅/同步失败」角标，Lightbox 同步失败可重试（resync）；
-   页头「同步核查」弹层：手动发起当日核查（POST /sync/check）+ 当月核查记录（GET /sync/logs）
+   页头「从商旅拉取」弹层：按日期手动拉取（POST /sync/pull，以商旅平台为准覆盖本地）+ 当月拉取记录（GET /sync/logs）
    ============================================================ */
 (function () {
 'use strict';
@@ -2944,7 +2944,7 @@ function switchPane(key) {
   $$('#wlTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === key); });
   moveWlTabInd($('#wlTabs button.on'));
   $$('.wl-list .pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane' + key); });
-  /* 记录页专属控件（新建 / 计数 / 同步核查）仅记录页显示；「全部 / 仅看我」为全局开关，三个页签常驻 */
+  /* 记录页专属控件（新建 / 计数 / 从商旅拉取）仅记录页显示；「全部 / 仅看我」为全局开关，三个页签常驻 */
   var isRec = key === 'Record';
   $('#photoCnt').hidden = !isRec;
   $('#btnCreate').hidden = !isRec;
@@ -2965,15 +2965,15 @@ function syncSideReport() {
   if (on && !state.rep.loaded) loadReport();
 }
 
-/* ================= 商旅打卡：同步核查（手动发起当日核查 + 当月核查记录） ================= */
+/* ================= 商旅打卡：从商旅拉取（按日期手动拉取 + 当月拉取记录） ================= */
 var SG_LOG_TYPE = { auth: '登录态', clockin: '打卡', fee: '费用', photo: '照片' };
 var SG_LOG_SCOPE = { daily: '', backfill: '回填 · ' };
-/* 核查时间显示「M-D HH:mm」（兼容「YYYY-MM-DD HH:mm:ss」与 ISO 串） */
+/* 拉取记录时间显示「M-D HH:mm」（兼容「YYYY-MM-DD HH:mm:ss」与 ISO 串） */
 function fmtSyncTime(s) {
   var m = /(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(s || ''));
   return m ? (Number(m[2]) + '-' + m[3] + ' ' + m[4] + ':' + m[5]) : '';
 }
-/* 当月核查记录（GET /api/v1/sgcc/sync/logs?month=，近 100 条）；结果色点：ok 一致 / diff 有差异已回写 / fail 失败 */
+/* 当月拉取记录（GET /api/v1/sgcc/sync/logs?month=，近 100 条）；结果色点：ok 一致 / diff 有差异已回写 / fail 失败 */
 async function loadSyncLogs(box) {
   var listEl = $('#sgLogs', box);
   listEl.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
@@ -2981,7 +2981,7 @@ async function loadSyncLogs(box) {
     var r = await Shade.api(wl('/api/v1/sgcc/sync/logs?month=' + state.date.slice(0, 7)));
     var list = (r.data && r.data.list) || [];
     if (!list.length) {
-      listEl.innerHTML = '<div class="f-hint" style="padding:12px 2px">当月暂无核查记录</div>';
+      listEl.innerHTML = '<div class="f-hint" style="padding:12px 2px">当月暂无拉取记录</div>';
       return;
     }
     listEl.innerHTML = list.map(function (it) {
@@ -2995,27 +2995,40 @@ async function loadSyncLogs(box) {
     listEl.innerHTML = '<div class="f-hint" style="padding:12px 2px">' + esc(e.message) + '</div>';
   }
 }
-/* 页头「同步核查」弹层：说明 + 发起当日核查（POST /sync/check，异步）+ 当月核查记录 */
+/* 页头「从商旅拉取」弹层：说明 + 选日期发起拉取（POST /sync/pull，以商旅平台为准覆盖本地）+ 当月拉取记录。
+   权限归属出工日志（无独立 sgcc 权限）；超管可选班组（选项复用页头 #teamSel 数据源），其余角色不显示（服务端收敛本班） */
 function openSyncCheck() {
-  var d = parseDate(state.date);
-  var dateCN = (d.getMonth() + 1) + '月' + d.getDate() + '日';
-  var html = mHead('商旅同步核查')
-    + '<div class="f-hint" style="margin:0">商旅数据每晚 23:00 自动核查当日（打卡 / 费用 / 照片 / 登录态对账，商旅 → 本地单向回写）；'
-    + '也可对当前选中日期手动发起。核查为异步执行，结果稍候写入下方核查记录。</div>'
+  var isAdmin = (Shade.user() || {}).role === 'admin';
+  var teamOpts = isAdmin ? $('#teamSel').innerHTML : '';
+  var html = mHead('从商旅拉取')
+    + '<div class="f-hint" style="margin:0">选择日期后，拉取班组内全部已绑定成员当日的打卡/费用/照片，以商旅平台为准覆盖本地。</div>'
+    + '<label class="f-lab">拉取日期</label><input type="date" class="f-sel" id="sgPullDate" value="' + state.date + '">'
+    + (teamOpts ? '<label class="f-lab">班组</label><select class="f-sel" id="sgPullTeam">' + teamOpts + '</select>' : '')
     + '<div class="m-foot" style="justify-content:flex-start;margin-top:12px">'
-    + '<button class="btn btn-sm btn-accent" data-a="check">' + Shade.icon('refresh', 14) + '发起核查 · ' + dateCN + '</button></div>'
-    + '<div class="f-lab" style="margin-top:16px">当月核查记录（近 100 条）</div>'
+    + '<button class="btn btn-sm btn-accent" data-a="pull">' + Shade.icon('refresh', 14) + '发起拉取</button></div>'
+    + '<div class="f-lab" style="margin-top:16px">当月拉取记录（近 100 条）</div>'
     + '<div class="sg-logs" id="sgLogs"></div>';
   var inst = createModal(html, { width: 520 });
+  var teamEl = $('#sgPullTeam', inst.box);
+  if (teamEl && state.teamId) teamEl.value = String(state.teamId); // 默认当前生效班组
   loadSyncLogs(inst.box);
   var saving = false;
-  $('[data-a="check"]', inst.box).addEventListener('click', async function () {
+  $('[data-a="pull"]', inst.box).addEventListener('click', async function () {
     if (saving) return;
+    var date = $('#sgPullDate', inst.box).value;
+    if (!date) { Shade.toast('请选择拉取日期', 'info'); return; }
+    /* team_id 仅超管且所选班组与当前生效班组不同时才带（相同由 wl() 查询串统一携带，其余角色服务端收敛本班） */
+    var body = { date: date };
+    if (teamEl) {
+      var tid = Number(teamEl.value) || 0;
+      if (tid && tid !== state.teamId) body.team_id = tid;
+    }
     saving = true;
     try {
-      var r = await Shade.api(wl('/api/v1/sgcc/sync/check'), { method: 'POST', body: { date: state.date } });
-      Shade.toast((r && r.message) || '已发起核查', 'success');
-      setTimeout(function () { if (!inst.closed) loadSyncLogs(inst.box); }, 3000); // 核查异步，稍候重拉记录
+      var r = await Shade.api(wl('/api/v1/sgcc/sync/pull'), { method: 'POST', body: body });
+      Shade.toast((r && r.message) || '拉取完成', 'success');
+      if (date === state.date) loadLogs(); // 覆盖当日：刷新卡片流以落最新数据
+      setTimeout(function () { if (!inst.closed) loadSyncLogs(inst.box); }, 3000); // 稍候重拉拉取记录
     } catch (e) {
       Shade.toast(e.message, 'error');
     }
@@ -3102,7 +3115,7 @@ function initEvents() {
       if (state.rep.loaded) loadReport();
     });
   });
-  /* 记录 / 批量下载 / 汇总前核验 页签切换；新建日志；商旅同步核查 */
+  /* 记录 / 批量下载 / 汇总前核验 页签切换；新建日志；从商旅拉取 */
   $$('#wlTabs button').forEach(function (b) {
     b.addEventListener('click', function () { switchPane(b.dataset.p); });
   });
@@ -3324,7 +3337,7 @@ async function init() {
   });
   moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
   $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
-  $('#btnSyncCheck').innerHTML = Shade.icon('refresh', 15) + '同步核查';
+  $('#btnSyncCheck').innerHTML = Shade.icon('refresh', 15) + '从商旅拉取';
   $('#dlGo').innerHTML = Shade.icon('download', 15) + '打包下载';
   $('#calPrev').innerHTML = SVG_CHEV_L;
   $('#calNext').innerHTML = SVG_CHEV_R;

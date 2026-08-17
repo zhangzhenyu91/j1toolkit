@@ -102,8 +102,10 @@
         <view class="ck-person" wx:for="{{item.clockRows}}" wx:for-item="c" wx:key="memberId">
           <view class="ck-person-head">
             <text class="ck-name">{{c.name}}</text>
-            <!-- 费用入口（费用弹层：伙食/交通可改，成本分配只读；首次开始打卡成功也会自动弹出） -->
-            <text class="ck-fee" wx:if="{{c.bound}}" hover-class="hover-opacity" catchtap="onOpenFee" data-member-id="{{c.memberId}}" data-name="{{c.name}}">费用</text>
+            <!-- 费用入口（描边胶囊小按钮，行右排列；费用弹层：伙食/交通可改，成本分配只读；首次开始打卡成功也会自动弹出） -->
+            <view class="ck-fee" wx:if="{{c.bound}}" hover-class="hover-opacity" catchtap="onOpenFee" data-member-id="{{c.memberId}}" data-name="{{c.name}}">
+              <t-icon name="money" size="24rpx" color="#F26D21" />费用
+            </view>
             <view class="ck-stat {{c.statCls}}" wx:if="{{c.statText}}">
               <t-icon wx:if="{{c.statIcon}}" name="{{c.statIcon}}" size="22rpx" color="{{c.statIconColor}}" />{{c.statText}}
             </view>
@@ -119,10 +121,11 @@
               data-seq="{{1}}"
               data-bound="{{c.bound}}"
               data-done="{{c.seq1.done}}"
+              data-today="{{item.ckReadonly ? false : true}}"
             >
               <view class="ck-t1"><t-icon name="{{c.seq1.icon}}" size="24rpx" color="{{c.seq1.iconColor}}" />{{c.seq1.title}}</view>
               <view class="ck-t2">{{c.seq1.sub}}</view>
-              <view class="ck-upd" wx:if="{{c.seq1.done}}"><t-icon name="refresh" size="20rpx" color="#2BA471" />更新</view>
+              <view class="ck-upd" wx:if="{{c.seq1.upd}}"><t-icon name="refresh" size="20rpx" color="#2BA471" />更新</view>
             </view>
             <view
               class="ck-slot {{c.seq2.cls}}"
@@ -134,10 +137,11 @@
               data-seq="{{2}}"
               data-bound="{{c.bound}}"
               data-done="{{c.seq2.done}}"
+              data-today="{{item.ckReadonly ? false : true}}"
             >
               <view class="ck-t1"><t-icon name="{{c.seq2.icon}}" size="24rpx" color="{{c.seq2.iconColor}}" />{{c.seq2.title}}</view>
               <view class="ck-t2">{{c.seq2.sub}}</view>
-              <view class="ck-upd" wx:if="{{c.seq2.done}}"><t-icon name="refresh" size="20rpx" color="#2BA471" />更新</view>
+              <view class="ck-upd" wx:if="{{c.seq2.upd}}"><t-icon name="refresh" size="20rpx" color="#2BA471" />更新</view>
             </view>
           </view>
         </view>
@@ -288,6 +292,8 @@
       </view>
 
       <view class="lc-actions">
+        <!-- 从商旅同步：按本卡日期手动拉取本班当日数据（与打卡区 showClock 同门控，后端未开启商旅时不显示） -->
+        <view class="act act-sync" wx:if="{{item.showClock}}" hover-class="hover-opacity" bindtap="onSyncPull" data-date="{{day.dateStr}}">从商旅同步</view>
         <view class="act act-note" hover-class="hover-opacity" bindtap="onOpenRemark" data-id="{{item.id}}">备 注</view>
         <view class="act act-del" hover-class="hover-opacity" bindtap="onDelete" data-id="{{item.id}}">删 除</view>
       </view>
@@ -309,7 +315,7 @@
   </view>
 </view>
 
-<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 批量下载 / 汇总前核验 / 同步核查 / 新建日志；
+<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 批量下载 / 汇总前核验 / 新建日志；
      原底部固定操作区（含底色条 bottombar）已删除，内容区直通屏幕底边 -->
 <view class="fab-mask" wx:if="{{fabOpen}}" bindtap="onFabToggle"></view>
 <view class="fabs" wx:if="{{gate && !noTeam}}">
@@ -325,11 +331,6 @@
     <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenReport">
       <text class="fab-lab">汇总前核验</text>
       <view class="fab"><t-icon name="task-checked" size="40rpx" color="#22314E" /></view>
-    </view>
-    <!-- 商旅打卡：同步核查（当日对账结果 + 手动重新核查 + 核查记录） -->
-    <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenSync">
-      <text class="fab-lab">同步核查</text>
-      <view class="fab"><t-icon name="swap" size="40rpx" color="#22314E" /></view>
     </view>
     <view class="fab-item" hover-class="hover-opacity" bindtap="onCreate">
       <text class="fab-lab accent">新建日志</text>
@@ -954,53 +955,6 @@
       <view class="btn-dark" hover-class="hover-opacity" bindtap="onFeeSave">
         <t-icon name="check" size="34rpx" color="#FFFFFF" />
         {{feeSaving ? '正在保存…' : '保存费用信息'}}
-      </view>
-    </view>
-  </view>
-</t-popup>
-
-<!-- 商旅打卡 · 同步核查面板（设计稿⑪：悬浮主钮「同步核查」进入；当日四类对账 + 重新核查 + 核查记录展开） -->
-<t-popup visible="{{syVisible}}" placement="bottom" bind:visible-change="onSyVisibleChange">
-  <view class="sheet">
-    <view class="sheet-title">同步核查 · {{dateText}}</view>
-    <view class="sheet-note">每晚 23:00 自动核查当日数据，也可手动触发；结果写入核查记录</view>
-    <scroll-view scroll-y class="sy-scroll" enhanced show-scrollbar="{{false}}">
-      <view class="sy-last">
-        <view class="sy-last-ic"><t-icon name="history" size="36rpx" color="#F26D21" /></view>
-        <view>
-          <view class="sy-last-t">上次核查：{{syLastText}}</view>
-          <view class="sy-last-p">核查为商旅 → 本地单向对账；登录态差异即时标记，照片差异补库并触发验证</view>
-        </view>
-      </view>
-      <view class="sy-loading" wx:if="{{syLoading}}">核查记录加载中…</view>
-      <block wx:if="{{!syLoading}}">
-        <view class="sy-item" wx:for="{{syTodayRows}}" wx:key="key">
-          <text class="sy-k">{{item.label}}</text>
-          <view class="sy-v">
-            <view class="sy-line {{ln.cls}}" wx:for="{{item.lines}}" wx:for-item="ln" wx:key="*this">{{ln.text}}</view>
-          </view>
-        </view>
-        <!-- 完整核查记录（近 100 条，按时间倒序；行 = 时间 + 成员 + 类型 + 结果 + 明细） -->
-        <block wx:if="{{syAll}}">
-          <view class="sy-allhead">核查记录（近 100 条）</view>
-          <view class="sy-log" wx:for="{{syLogs}}" wx:key="id">
-            <view class="sy-log-h">
-              <text>{{item.timeText}}</text>
-              <text>{{item.memberText}}</text>
-              <text>{{item.typeText}}</text>
-              <text class="sy-res {{item.cls}}">{{item.resultText}}</text>
-            </view>
-            <view class="sy-log-d">{{item.detail}}</view>
-          </view>
-          <view class="sy-log-empty" wx:if="{{!syLogs.length}}">本月暂无核查记录</view>
-        </block>
-      </block>
-    </scroll-view>
-    <view class="sheet-actions">
-      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onSyToggleAll">{{syAll ? '收起记录' : '查看核查记录'}}</view>
-      <view class="btn-dark" hover-class="hover-opacity" bindtap="onSyCheck">
-        <t-icon name="refresh" size="34rpx" color="#FFFFFF" />
-        重新核查
       </view>
     </view>
   </view>

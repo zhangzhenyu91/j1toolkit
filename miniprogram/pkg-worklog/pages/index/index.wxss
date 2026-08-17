@@ -470,6 +470,14 @@ page {
   letter-spacing: 4rpx;
 }
 
+/* 从商旅同步入口（与备注/删除同族幽灵钮，安全橙描边） */
+.act-sync {
+  background: #ffffff;
+  color: #f26d21;
+  border: 2rpx solid #f5c9a3;
+  box-sizing: border-box;
+}
+
 .act-del {
   background: #ffffff;
   color: #cf4444;
@@ -1646,7 +1654,7 @@ page {
 }
 
 /* ============================================================
-   商旅打卡（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨⑩⑪；token 同方案五）
+   商旅打卡（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨⑩；token 同方案五；⑪ 同步核查面板已下线，改为卡片操作区「从商旅同步」）
    ============================================================ */
 
 /* ---------- ④ 卡片「商旅打卡」区：每个用车人一行（姓名 + 状态小字 + 开始/结束两枚 chip 三态） ---------- */
@@ -1683,17 +1691,24 @@ page {
   color: #22314e;
 }
 
-/* 行末「费用」小入口（费用弹层；仅已绑定者显示） */
+/* 行右「费用」入口：描边胶囊小按钮（橙框橙字 + 图标，最小高度 48rpx；费用弹层；仅已绑定者显示） */
 .ck-fee {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  min-height: 48rpx;
+  padding: 0 18rpx;
   font-size: 22rpx;
   font-weight: 700;
   color: #f26d21;
-  padding: 2rpx 10rpx;
+  border: 2rpx solid #f26d21;
+  border-radius: 999rpx;
+  box-sizing: border-box;
 }
 
-/* 状态小字：工时（绿勾）/ 还差结束打卡（灰）/ 未绑定商旅（红锁） */
+/* 状态小字：工时（绿勾）/ 还差结束打卡（灰）/ 未绑定商旅（红锁）（紧随费用胶囊；未绑定行紧贴姓名） */
 .ck-stat {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 6rpx;
@@ -2173,160 +2188,4 @@ page {
   margin-top: 4rpx;
   font-size: 20rpx;
   color: #5c8a76;
-}
-
-/* ---------- ⑪ 同步核查面板 ---------- */
-.sy-scroll {
-  max-height: 60vh;
-  margin-top: 20rpx;
-}
-
-.sy-last {
-  display: flex;
-  align-items: center;
-  gap: 18rpx;
-}
-
-.sy-last-ic {
-  width: 72rpx;
-  height: 72rpx;
-  flex: none;
-  border-radius: 16rpx;
-  background: #fdeee2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sy-last-t {
-  font-size: 26rpx;
-  font-weight: 700;
-  color: #22314e;
-}
-
-.sy-last-p {
-  margin-top: 4rpx;
-  font-size: 20rpx;
-  color: #6b7690;
-  line-height: 1.6;
-}
-
-.sy-loading {
-  padding: 48rpx 0;
-  text-align: center;
-  font-size: 24rpx;
-  color: #a89f8a;
-  letter-spacing: 2rpx;
-}
-
-/* 当日对账固定四行：打卡 / 照片 / 费用 / 登录态 */
-.sy-item {
-  display: flex;
-  gap: 16rpx;
-  padding: 16rpx 0;
-}
-
-.sy-item + .sy-item {
-  border-top: 2rpx dashed #f1ebdc;
-}
-
-.sy-k {
-  flex: none;
-  width: 120rpx;
-  font-size: 22rpx;
-  color: #a89f8a;
-  padding-top: 2rpx;
-}
-
-.sy-v {
-  flex: 1;
-  min-width: 0;
-}
-
-.sy-line {
-  font-size: 24rpx;
-  font-weight: 600;
-  color: #22314e;
-  line-height: 1.6;
-}
-
-.sy-line + .sy-line {
-  margin-top: 4rpx;
-}
-
-.sy-line.ok {
-  color: #1e7e54;
-}
-
-.sy-line.diff {
-  color: #b97b1e;
-}
-
-.sy-line.fail {
-  color: #cf4444;
-}
-
-.sy-line.mut {
-  color: #a89f8a;
-  font-weight: 400;
-}
-
-/* 「查看核查记录」展开区（近 100 条，时间倒序） */
-.sy-allhead {
-  margin: 20rpx 0 8rpx;
-  font-size: 22rpx;
-  font-weight: 700;
-  color: #a89f8a;
-  letter-spacing: 4rpx;
-}
-
-.sy-log {
-  padding: 12rpx 0;
-}
-
-.sy-log + .sy-log {
-  border-top: 2rpx dashed #f1ebdc;
-}
-
-.sy-log-h {
-  display: flex;
-  gap: 14rpx;
-  font-size: 20rpx;
-  color: #6b7690;
-}
-
-.sy-res {
-  margin-left: auto;
-  font-weight: 700;
-}
-
-.sy-res.ok {
-  color: #1e7e54;
-}
-
-.sy-res.diff {
-  color: #b97b1e;
-}
-
-.sy-res.fail {
-  color: #cf4444;
-}
-
-.sy-log-d {
-  margin-top: 4rpx;
-  font-size: 22rpx;
-  color: #22314e;
-  line-height: 1.6;
-}
-
-.sy-log-empty {
-  padding: 32rpx 0;
-  text-align: center;
-  font-size: 22rpx;
-  color: #a89f8a;
-}
-
-/* 悬浮主钮展开项第五枚（同步核查）入场错峰 */
-.fab-item:nth-child(5) {
-  animation-delay: 0.16s;
 }

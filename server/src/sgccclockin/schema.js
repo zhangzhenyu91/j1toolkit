@@ -1,16 +1,6 @@
-// 商旅打卡：表结构初始化与应用种子（仅 SGCC_CLOCKIN_ENABLED=true 时由 db.js 调用）
-// 本模块是出工日志的扩展能力：打卡/费用/照片同步均以 worklog_member 为口径双写本地表
-const config = require('../config');
-
-// sys_app 种子：商旅打卡绑定页（小程序端；不是宫格入口型应用，仅作权限开关用）
-const APP_SGCC_CLOCKIN = {
-  key: 'sgcc-clockin',
-  name: '商旅打卡',
-  icon: 'location',
-  path: '/pkg-worklog/pages/sgccbind/sgccbind',
-  sort: 7,
-  terminal: 'mobile', // 绑定/打卡写操作仅小程序（需真实定位与短信登录）
-};
+// 商旅打卡：表结构初始化（仅 SGCC_CLOCKIN_ENABLED=true 时由 db.js 调用）
+// 本模块是出工日志的扩展能力：打卡/费用/照片同步均以 worklog_member 为口径双写本地表，
+// 应用权限归属出工日志（sys_app 统一走 work-log，不再单设 sgcc-clockin 应用）
 
 const DDL = [
   // 商旅账号绑定：一人一号（user_id 本人绑定；member_id 关联出工成员）
@@ -25,7 +15,7 @@ const DDL = [
     system_version VARCHAR(64) NOT NULL DEFAULT '' COMMENT '系统版本（同上）',
     token_status TINYINT NOT NULL DEFAULT 1 COMMENT '登录态：1 有效 0 已失效（打卡/上传/核查时探测标记）',
     last_check_at DATETIME NULL COMMENT '最近一次登录态探测时间',
-    backfill_done TINYINT NOT NULL DEFAULT 0 COMMENT '8 月数据一次性回填：0 未做 1 已做',
+    backfill_done TINYINT NOT NULL DEFAULT 0 COMMENT '（已废弃）原 8 月回填标记，列保留兼容老库，代码已不再读写',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_team_user (team_id, user_id),
@@ -44,7 +34,7 @@ const DDL = [
     longitude VARCHAR(32) NOT NULL DEFAULT '' COMMENT '经度',
     latitude VARCHAR(32) NOT NULL DEFAULT '' COMMENT '纬度',
     work_hours VARCHAR(16) NOT NULL DEFAULT '' COMMENT '工时（商旅服务端按两次打卡计算）',
-    source TINYINT NOT NULL DEFAULT 0 COMMENT '来源：0 壹匣打卡 1 商旅同步（核查回填）',
+    source TINYINT NOT NULL DEFAULT 0 COMMENT '来源：0 壹匣打卡 1 商旅同步（核查拉取）',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_member_date_seq (member_id, clock_date, seq),
@@ -67,13 +57,13 @@ const DDL = [
     UNIQUE KEY uk_member_date (member_id, fee_date),
     KEY idx_team_date (team_id, fee_date)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-  // 核查记录：每晚定时核查 + 手动同步核查 + 绑定回填的流水
+  // 核查记录：每晚定时核查 + 手动从商旅拉取的流水
   `CREATE TABLE IF NOT EXISTS worklog_sync_log (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     team_id BIGINT UNSIGNED NULL COMMENT '所属班组，关联 sys_team.id',
     member_id BIGINT UNSIGNED NULL COMMENT '关联 worklog_member.id（整班核查为 NULL）',
     sync_date DATE NOT NULL COMMENT '核查的数据日期',
-    scope VARCHAR(16) NOT NULL DEFAULT 'daily' COMMENT 'daily 当日核查 / backfill 绑定回填',
+    scope VARCHAR(16) NOT NULL DEFAULT 'daily' COMMENT 'daily 当日核查（历史值 backfill 为已删除的绑定回填）',
     type VARCHAR(16) NOT NULL COMMENT 'clockin 打卡 / photo 照片 / fee 费用 / auth 登录态',
     result VARCHAR(8) NOT NULL COMMENT 'ok 一致 / diff 有差异已回写 / fail 失败',
     detail VARCHAR(512) NOT NULL DEFAULT '' COMMENT '明细（如 商旅侧新发现照片 1 张）',
@@ -106,23 +96,14 @@ async function ensureSgccSchema(pool) {
     }
   }
 
-  // 写入/更新应用记录（terminal 随种子刷新）
-  await pool.query(
-    `INSERT INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES (?, ?, ?, ?, ?, ?, 1)
-     ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path),
-       terminal = VALUES(terminal), sort = VALUES(sort)`,
-    [APP_SGCC_CLOCKIN.key, APP_SGCC_CLOCKIN.name, APP_SGCC_CLOCKIN.icon, APP_SGCC_CLOCKIN.path,
-      APP_SGCC_CLOCKIN.terminal, APP_SGCC_CLOCKIN.sort]
-  );
-
-  // 管理员默认授予商旅打卡权限
-  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [config.admin.username]);
-  if (adminRows.length) {
-    await pool.query(
-      'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
-      [adminRows[0].id, APP_SGCC_CLOCKIN.key]
-    );
+  // 一次性清理：商旅打卡归属出工日志（权限统一走 work-log），删除旧 sgcc-clockin 应用及授权
+  // 先删子表 sys_user_app 再删 sys_app；删过后查不到行，天然幂等
+  const [appRows] = await pool.query('SELECT id FROM sys_app WHERE app_key = ?', ['sgcc-clockin']);
+  if (appRows.length) {
+    await pool.query('DELETE FROM sys_user_app WHERE app_id = ?', [appRows[0].id]);
+    await pool.query('DELETE FROM sys_app WHERE id = ?', [appRows[0].id]);
+    console.log('[初始化] 已清理 sgcc-clockin 应用及授权（商旅打卡归属出工日志，权限走 work-log）');
   }
 }
 
-module.exports = { ensureSgccSchema, APP_SGCC_CLOCKIN };
+module.exports = { ensureSgccSchema };

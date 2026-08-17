@@ -21,7 +21,8 @@ Page({
     appCount: 0, // 「我的」面板：可见应用数量
     appNames: [], // 「我的」面板：可见应用名称（我的权限弹窗）
     loading: true,
-    // 「我的」面板「商旅打卡」行：三态文案（未绑定/已绑定/登录已过期）
+    hasWorklog: false, // 是否拥有出工日志权限（按 /app/list 是否含 work-log 判定；控制「绑定商旅」行显隐）
+    // 「我的」面板「绑定商旅」行：三态文案（未绑定/已绑定/登录已过期）
     sgccNote: '未绑定',
     sgccExpired: false, // true=已绑定但商旅登录已过期（红字）
   },
@@ -100,6 +101,7 @@ Page({
         apps: list.filter((item) => item.terminal !== 'pc'),
         appCount: list.length,
         appNames: list.map((item) => item.name),
+        hasWorklog: list.some((item) => item.app_key === 'work-log'), // 「绑定商旅」行显隐（商旅打卡归属出工日志）
       });
     } catch (err) {
       this.toast(err.message);
@@ -143,7 +145,7 @@ Page({
   /* ---------- 「我的」面板 ---------- */
 
   // 商旅打卡绑定状态刷新（三态：未绑定 / 已绑定 / 登录已过期）；
-  // 无 sgcc-clockin 应用权限或后端未开启时接口 403/404，静默降级为「未绑定」不报错
+  // 无出工日志权限或后端未开启时接口 403/404，静默降级为「未绑定」不报错
   async loadSgccStatus() {
     try {
       const teamId = Number(wx.getStorageSync('worklog_team_id')) || 0; // 班组口径同 pkg-worklog
@@ -161,7 +163,7 @@ Page({
     }
   },
 
-  // 进入「商旅打卡」绑定页（pkg-worklog 分包）
+  // 进入「绑定商旅」绑定页（pkg-worklog 分包）
   goSgccBind() {
     wx.navigateTo({ url: '/pkg-worklog/pages/sgccbind/sgccbind' });
   },

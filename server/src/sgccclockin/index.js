@@ -1,5 +1,5 @@
-// 商旅打卡路由：出工日志扩展（后端中继商旅平台 + 同事务双写本地表）
-// 全部接口需登录 + sgcc-clockin 应用权限 + 生效班组（req.team）
+// 商旅打卡路由：出工日志的扩展能力（后端中继商旅平台 + 双写本地表），归属出工日志
+// 全部接口需登录 + work-log 应用权限 + 生效班组（req.team）
 // 协议细节全部在 protocol.js（移植自已实测的逆向客户端，勿改口径）；设计见 design/sgcc-clockin.html
 const express = require('express');
 const axios = require('axios');
@@ -10,9 +10,12 @@ const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
 const config = require('../config');
 const sgcc = require('./protocol');
+const cos = require('../worklog/cos');
+const dify = require('../worklog/dify');
+const { checkWatermark } = require('../worklog/verify');
 
 const router = express.Router();
-router.use(auth, requireApp('sgcc-clockin'));
+router.use(auth, requireApp('work-log'));
 
 // 班组上下文（与 worklog 同口径：超管 ?team_id= 指定，其余角色固定本班）
 router.use(async (req, res, next) => {
@@ -25,12 +28,15 @@ router.use(async (req, res, next) => {
 });
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-// 老数据口径：绑定成功后一次性回填 8 月数据；8 月之前不同步、本地已同步的删除
-const BACKFILL_FROM = '2026-08-01';
 
 function today() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// 日期串转点分格式（YYYY-MM-DD → YYYY.MM.DD，COS key 与 checkWatermark 的 logDate 口径，同 worklog）
+function dots(dateStr) {
+  return dateStr.replace(/-/g, '.');
 }
 
 // ---------- 账号工具 ----------
@@ -76,7 +82,7 @@ async function probeAuth(account) {
 async function requireMemberAccount(req, res, memberId) {
   const account = await accountByMember(req.team.id, memberId);
   if (!account) {
-    fail(res, 400, 40020, '该成员未绑定商旅账号，请其本人在「我的 → 商旅打卡」绑定');
+    fail(res, 400, 40020, '该成员未绑定商旅账号，请其本人在「我的 → 绑定商旅」绑定');
     return null;
   }
   if (account.token_status !== 1) {
@@ -90,13 +96,34 @@ async function requireMemberAccount(req, res, memberId) {
   return account;
 }
 
+// 商旅 clockInTime 口径混杂（毫秒时间戳 / YYYY-MM-DD HH:mm:ss / ISO），统一转北京时间 DATETIME 字符串
+function fmtCnDateTime(v) {
+  if (v === null || v === undefined || v === '') return null;
+  let d = null;
+  const s = String(v).trim();
+  if (/^\d{13}$/.test(s)) d = new Date(Number(s)); // 毫秒时间戳
+  else if (/^\d{10}$/.test(s)) d = new Date(Number(s) * 1000); // 秒时间戳
+  else {
+    const t = new Date(s.includes('T') ? s : s.replace(/-/g, '/'));
+    if (!Number.isNaN(t.getTime())) d = t;
+  }
+  if (!d) return null;
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(d).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
 // 打卡成功后用 dayNew 全量刷新该日打卡流水（开始/结束按时间排序定 seq，工时一并回写）
 async function refreshClockins(account, date) {
   const d = await sgcc.dayNew(account.token, date, devOpt(account));
   const body = d && Number(d.statusCode) === 200 && d.data && d.data.body;
   if (!body) return null;
-  const list = Array.isArray(body.clockInDetailList) ? body.clockInDetailList.slice() : [];
-  list.sort((a, b) => String(a.clockInTime || a.createTime || '').localeCompare(String(b.clockInTime || b.createTime || '')));
+  const list = (Array.isArray(body.clockInDetailList) ? body.clockInDetailList.slice() : [])
+    .map((it) => ({ ...it, _t: fmtCnDateTime(it.clockInTime ?? it.createTime) }))
+    .sort((a, b) => String(a._t || '').localeCompare(String(b._t || '')));
   for (let i = 0; i < Math.min(list.length, 2); i += 1) {
     const it = list[i];
     await pool.query(
@@ -106,7 +133,7 @@ async function refreshClockins(account, date) {
          position = VALUES(position), longitude = VALUES(longitude), latitude = VALUES(latitude),
          work_hours = VALUES(work_hours)`,
       [account.team_id, account.member_id, date, i + 1,
-        String(it.detailId ?? it.id ?? ''), it.clockInTime || null,
+        String(it.detailId ?? it.id ?? ''), it._t,
         String(it.position || ''), String(it.longitude ?? ''), String(it.latitude ?? ''),
         String(body.workHours ?? '')]
     );
@@ -193,7 +220,7 @@ router.post('/login/sms', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-// POST /login/bind：短信换 token 完成绑定（同事写入设备口径；成功后异步做 8 月回填）
+// POST /login/bind：短信换 token 完成绑定（同事写入设备口径）
 router.post('/login/bind', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -222,17 +249,11 @@ router.post('/login/bind', async (req, res, next) => {
       [req.team.id, req.user.id, memberId, String(mobile), token,
         deviceType || 'Xiaomi 2509FPN0BC', systemVersion || 'Android 16']
     );
-    const account = await myAccount(req);
-
-    // 异步回填 8 月数据（仅首次绑定做；不阻塞响应）
-    if (account && !account.backfill_done) {
-      backfillAccount(account).catch((err) => console.error('[商旅打卡] 8 月回填失败：', err.message));
-    }
     return ok(res, { bound: true });
   } catch (err) { return next(err); }
 });
 
-// GET /account：本人绑定状态 + 今日打卡/费用摘要（「我的 → 商旅打卡」页数据源）
+// GET /account：本人绑定状态 + 今日打卡/费用摘要（「我的 → 绑定商旅」页数据源）
 router.get('/account', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -240,7 +261,8 @@ router.get('/account', async (req, res, next) => {
     if (!account) return ok(res, { bound: false });
     const date = today();
     const [clockins] = await pool.query(
-      'SELECT seq, clock_time, position, work_hours FROM worklog_clockin WHERE member_id = ? AND clock_date = ? ORDER BY seq',
+      `SELECT seq, DATE_FORMAT(clock_time, '%Y-%m-%d %H:%i:%s') AS clock_time, position, work_hours
+       FROM worklog_clockin WHERE member_id = ? AND clock_date = ? ORDER BY seq`,
       [account.member_id, date]
     );
     const [fees] = await pool.query(
@@ -304,7 +326,8 @@ router.get('/day', async (req, res, next) => {
       [req.team.id]
     );
     const [clockins] = await pool.query(
-      'SELECT member_id, seq, detail_id, clock_time, position, work_hours FROM worklog_clockin WHERE team_id = ? AND clock_date = ?',
+      `SELECT member_id, seq, detail_id, DATE_FORMAT(clock_time, '%Y-%m-%d %H:%i:%s') AS clock_time, position, work_hours
+       FROM worklog_clockin WHERE team_id = ? AND clock_date = ?`,
       [req.team.id, date]
     );
     const [fees] = await pool.query(
@@ -357,6 +380,8 @@ router.post('/clockin', async (req, res, next) => {
     );
     if (!mrows.length) return fail(res, 400, 40007, '该成员不是本卡用车人');
     const date = entries[0].log_date;
+    // 打卡仅对当日开放（含更新）；费用修改不受此限
+    if (date !== today()) return fail(res, 400, 40041, '仅当日日期可打卡');
 
     // 定位兜底：未带地址时按经纬度服务端逆编码（完整地址串 + 城市编码）
     let geo = { position, cityCode: String(req.body.cityCode || ''), cityName: String(req.body.cityName || '') };
@@ -590,9 +615,128 @@ router.post('/photos/:id/resync', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-// ---------- 核查（每日定时 + 手动）----------
+// ---------- 核查（每晚定时 + 手动拉取，一律以商旅为准覆盖本地）----------
 
-// 单日单人对账：登录态 → 打卡 → 费用 → 照片（商旅侧新照片入库并触发验证）
+// Dify 识别结果回写（worklog 的 writeBackVerify 未导出，在此内联等价实现）：
+// 写库时重查记录日期与派车目的地，日期/地点核验由 checkWatermark 完成（logDate 用 dots 点分格式）
+async function writeBackPullVerify(photoId, vr) {
+  const [rows] = await pool.query(
+    `SELECT DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, d.name AS destination_name
+     FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+     LEFT JOIN worklog_destination d ON d.id = e.destination_id
+     WHERE p.id = ?`,
+    [photoId]
+  );
+  if (!rows.length) return; // 照片已删除
+  if (!vr.ok) {
+    await pool.query(
+      `UPDATE worklog_photo SET verify_status = 'failed', work_content = '', shot_time = '', weather = '', location = '', lng = '', lat = '', date_ok = NULL, dest_ok = NULL WHERE id = ?`,
+      [photoId]
+    );
+    return;
+  }
+  const chk = checkWatermark({
+    time: vr.time,
+    location: vr.location,
+    logDate: dots(rows[0].log_date),
+    destination: rows[0].destination_name,
+  });
+  await pool.query(
+    `UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?, location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
+    [chk.status, vr.workContent, vr.time, vr.weather, vr.location, vr.lng, vr.lat,
+      chk.dateOk ? 1 : 0, chk.destOk ? 1 : 0, photoId]
+  );
+}
+
+// 照片补拉：dayNew 响应 body.images 与本地比对，仅本地没有的下载入 COS + worklog_photo，并异步触发 Dify 验证
+// 【联调验证项】dayNew 的 body.images 结构未实测：按防御式解析——元素可能是 url 字符串，
+// 或含 url / imageUrl 字段的对象；只采信非空 http(s) 串，其余形状忽略
+async function pullPhotos(account, date, images, log) {
+  const urls = [];
+  for (const it of images) {
+    const u = typeof it === 'string' ? it : (it && (it.url || it.imageUrl));
+    if (typeof u === 'string' && /^https?:\/\//.test(u.trim())) urls.push(u.trim());
+  }
+  if (!urls.length) return;
+
+  // 本地已知集合：本班组当日全部照片的 url + sgcc_img_id（JSON map，值可能是商旅图片 id 或 url）里的字符串
+  const [photos] = await pool.query(
+    `SELECT p.url, p.sgcc_img_id FROM worklog_photo p
+     JOIN worklog_entry e ON e.id = p.entry_id
+     WHERE e.team_id = ? AND e.log_date = ?`,
+    [account.team_id, date]
+  );
+  const known = new Set();
+  for (const p of photos) {
+    if (p.url) known.add(String(p.url));
+    if (p.sgcc_img_id) {
+      try {
+        const map = typeof p.sgcc_img_id === 'string' ? JSON.parse(p.sgcc_img_id) : p.sgcc_img_id;
+        Object.values(map || {}).forEach((v) => { if (typeof v === 'string' && v) known.add(v); });
+      } catch (e) { /* 忽略脏数据 */ }
+    }
+  }
+  const newUrls = [...new Set(urls.filter((u) => !known.has(u)))]; // 本地没有 + images 内去重
+  if (!newUrls.length) return;
+
+  // 成员名与绑定人 username（照片 members 口径 / Dify user 入参）
+  const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
+  if (!mrows.length) return;
+  const memberName = mrows[0].name;
+  const [urows] = await pool.query('SELECT username FROM sys_user WHERE id = ?', [account.user_id]);
+  const username = urows.length ? urows[0].username : '';
+
+  // 该成员当日所在首个出工记录（照片须挂在记录下；找不到则记核查日志跳过）
+  const [erows] = await pool.query(
+    `SELECT e.id, d.name AS destination_name
+     FROM worklog_entry e
+     JOIN worklog_entry_member em ON em.entry_id = e.id
+     LEFT JOIN worklog_destination d ON d.id = e.destination_id
+     WHERE e.team_id = ? AND em.member_id = ? AND e.log_date = ?
+     ORDER BY e.id LIMIT 1`,
+    [account.team_id, account.member_id, date]
+  );
+  if (!erows.length) {
+    await log('photo', 'fail', `照片：商旅侧新发现 ${newUrls.length} 张，但成员当日无出工记录，已跳转入库`);
+    return;
+  }
+  const entry = erows[0];
+
+  // COS key 规则同 worklog 照片：{prefix}{班组名}/{YYYY.MM.DD}/{entryId}-{ts}.jpg
+  const [trows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [account.team_id]);
+  const teamName = trows.length ? trows[0].name : String(account.team_id);
+  const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
+
+  let saved = 0;
+  for (const u of newUrls) {
+    try {
+      const resp = await fetch(u, { signal: AbortSignal.timeout(60000) });
+      if (!resp.ok) throw new Error(`照片下载失败（HTTP ${resp.status}）`);
+      const buf = Buffer.from(await resp.arrayBuffer());
+      const key = `${prefix}${teamName}/${dots(date)}/${entry.id}-${Date.now()}.jpg`;
+      await cos.putBuffer(key, buf, 'image/jpeg');
+      const localUrl = cos.publicUrl(key);
+      const [r] = await pool.query(
+        `INSERT INTO worklog_photo (entry_id, cos_key, url, members, is_watermark, source, verify_status)
+         VALUES (?, ?, ?, ?, 1, 1, 'pending')`,
+        [entry.id, key, localUrl, JSON.stringify([memberName])]
+      );
+      // 异步 Dify 验证并回写（不阻塞拉取；写法同 worklog 上传照片）
+      dify
+        .verifyPhoto({ username, date: dots(date), destination: entry.destination_name || '', url: localUrl })
+        .then((vr) => writeBackPullVerify(r.insertId, vr))
+        .catch((err) => console.error('[商旅打卡] 补拉照片验证回写失败：', err.message));
+      saved += 1;
+    } catch (err) {
+      // 单张失败记核查日志继续，不抛出
+      console.error(`[商旅打卡] 照片补拉失败（成员 ${memberName} ${date}）：`, err.message);
+      await log('photo', 'fail', `照片：商旅侧照片入库失败：${String(err.message).slice(0, 200)}`);
+    }
+  }
+  if (saved) await log('photo', 'diff', `照片：新发现 ${saved} 张已入库并触发验证`);
+}
+
+// 单日单人对账：登录态 → 打卡 → 费用 → 照片（一律以商旅为准覆盖本地；商旅侧新照片入库并触发验证）
 async function syncOne(account, date, scope) {
   const log = (type, result, detail) => pool.query(
     `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
@@ -607,16 +751,25 @@ async function syncOne(account, date, scope) {
     return;
   }
 
-  // 打卡对账：商旅 detailId 集合 vs 本地
+  // 打卡对账：先全量刷新，再删除本地 seq 不在商旅返回集合内的行（商旅 0 条则全删，一律以商旅为准）
+  const [before] = await pool.query(
+    'SELECT COUNT(*) AS cnt FROM worklog_clockin WHERE member_id = ? AND clock_date = ?',
+    [account.member_id, date]
+  );
   const body = await refreshClockins(account, date);
   if (body) {
     const remote = Array.isArray(body.clockInDetailList) ? body.clockInDetailList.length : 0;
-    const [local] = await pool.query(
-      'SELECT COUNT(*) AS cnt FROM worklog_clockin WHERE member_id = ? AND clock_date = ?',
-      [account.member_id, date]
-    );
-    await log('clockin', local[0].cnt >= remote ? 'ok' : 'diff',
-      `商旅 ${remote} 条 / 本地 ${local[0].cnt} 条${local[0].cnt >= remote ? '，一致' : '，已按商旅回填'}`);
+    const keep = Math.min(remote, 2); // 本地仅落 seq 1/2（开始/结束）
+    if (keep === 0) {
+      await pool.query('DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ?', [account.member_id, date]);
+    } else {
+      await pool.query(
+        'DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ? AND seq > ?',
+        [account.member_id, date, keep]
+      );
+    }
+    await log('clockin', before[0].cnt === keep ? 'ok' : 'diff',
+      `打卡：商旅 ${remote} 条覆盖本地（本地原 ${before[0].cnt} 条）`);
   }
 
   // 费用对账：以商旅为准回写本地摘要
@@ -639,7 +792,12 @@ async function syncOne(account, date, scope) {
        ON DUPLICATE KEY UPDATE food_fee = VALUES(food_fee), transit_fee = VALUES(transit_fee), synced_at = NOW()`,
       [account.team_id, account.member_id, date, food, transit]
     );
-    await log('fee', changed ? 'diff' : 'ok', `伙食 ${food} / 交通 ${transit}${changed ? '，已按商旅回写' : '，一致'}`);
+    await log('fee', changed ? 'diff' : 'ok', `费用：伙食 ${food} / 交通 ${transit}${changed ? '，已按商旅覆盖' : '，一致'}`);
+  }
+
+  // 照片补拉：dayNew body.images 里本地没有的新照片入库并触发验证
+  if (body && Array.isArray(body.images) && body.images.length) {
+    await pullPhotos(account, date, body.images, log);
   }
 }
 
@@ -658,32 +816,17 @@ async function syncTeamDay(teamId, date, scope) {
   }
 }
 
-// 绑定后一次性回填：8/1 → 今天逐日对账；并清除 8 月之前的本地同步数据
-async function backfillAccount(account) {
-  const from = new Date(`${BACKFILL_FROM}T00:00:00`);
-  const end = new Date(`${today()}T00:00:00`);
-  for (let d = new Date(from); d <= end; d.setDate(d.getDate() + 1)) {
-    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    try {
-      await syncOne(account, date, 'backfill');
-    } catch (err) {
-      console.error(`[商旅打卡] 回填失败（成员 ${account.member_id} ${date}）：`, err.message);
-    }
-  }
-  await pool.query('DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date < ?', [account.member_id, BACKFILL_FROM]);
-  await pool.query('DELETE FROM worklog_fee WHERE member_id = ? AND fee_date < ?', [account.member_id, BACKFILL_FROM]);
-  await pool.query('UPDATE worklog_sgcc_account SET backfill_done = 1 WHERE id = ?', [account.id]);
-  console.log(`[商旅打卡] 成员 ${account.member_id} 8 月回填完成`);
-}
-
-// POST /sync/check：手动同步核查 {date?}（默认今天）
-router.post('/sync/check', async (req, res, next) => {
+// POST /sync/pull：手动从商旅拉取 {date: 'YYYY-MM-DD', team_id?}
+// 所有 work-log 权限用户可用：触发本班组当日全部绑定成员从商旅拉取（一律以商旅为准覆盖本地）；
+// team_id 仅超管生效（沿用 resolveReqTeam 口径：班组管理员/普通用户传了也被收敛到本班）；
+// 异步执行，结果见 GET /sync/logs
+router.post('/sync/pull', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const date = String((req.body && req.body.date) || today());
     if (!DATE_RE.test(date)) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
-    syncTeamDay(req.team.id, date, 'daily').catch((err) => console.error('[商旅打卡] 手动核查失败：', err.message));
-    return ok(res, null, '已发起核查，结果请稍后在核查记录中查看');
+    syncTeamDay(req.team.id, date, 'daily').catch((err) => console.error('[商旅打卡] 手动拉取失败：', err.message));
+    return ok(res, null, '已发起从商旅拉取，结果请稍后在核查记录中查看');
   } catch (err) { return next(err); }
 });
 
@@ -694,7 +837,7 @@ router.get('/sync/logs', async (req, res, next) => {
     const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : today().slice(0, 7);
     const [rows] = await pool.query(
       `SELECT l.id, DATE_FORMAT(l.sync_date, '%Y-%m-%d') AS sync_date, l.scope, l.type, l.result, l.detail,
-              l.created_at, m.name AS member_name
+              DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i') AS created_at, m.name AS member_name
        FROM worklog_sync_log l LEFT JOIN worklog_member m ON m.id = l.member_id
        WHERE l.team_id = ? AND DATE_FORMAT(l.sync_date, '%Y-%m') = ?
        ORDER BY l.id DESC LIMIT 100`,

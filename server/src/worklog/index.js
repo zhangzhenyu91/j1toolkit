@@ -143,7 +143,8 @@ async function loadEntries(where, params) {
       accounts.forEach((a) => { sgccByMember[a.member_id] = a; });
       const dates = [...new Set(entries.map((e) => e.log_date))];
       const [clockins] = await pool.query(
-        `SELECT member_id, DATE_FORMAT(clock_date, '%Y-%m-%d') AS clock_date, seq, detail_id, clock_time, position, work_hours
+        `SELECT member_id, DATE_FORMAT(clock_date, '%Y-%m-%d') AS clock_date, seq, detail_id,
+                DATE_FORMAT(clock_time, '%Y-%m-%d %H:%i:%s') AS clock_time, position, work_hours
          FROM worklog_clockin WHERE team_id IN (?) AND clock_date IN (?)`,
         [teamIds, dates]
       );
