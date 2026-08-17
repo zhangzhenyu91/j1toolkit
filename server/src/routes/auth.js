@@ -105,7 +105,7 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-// POST /api/v1/auth/app-login 应用登录校验（供外部网页应用调用，如 SafeDayLogs 安全日活动记录平台）：
+// POST /api/v1/auth/app-login 应用登录校验（供外部应用复用本平台账号体系做登录校验）：
 // 一次完成「账号密码 + 指定应用权限」校验；不签发本平台 JWT，会话由调用方自行管理
 router.post('/app-login', async (req, res, next) => {
   try {

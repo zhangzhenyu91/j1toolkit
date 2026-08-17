@@ -12,7 +12,7 @@ const API_BASE = '/api/v1/quiz';
 
 Page({
   data: {
-    gate: false, // 门控（参照 pool 页 gate 模式）
+    gate: false, // 门控（参照 index 页 gate 模式）
     navTitle: '题库',
     bank: null, // home 接口数据 + 展示字段
     seqText: '', // 顺序练习进度文案

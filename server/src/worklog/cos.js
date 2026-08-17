@@ -54,4 +54,4 @@ function publicUrl(key) {
   return `${base}/${key}`;
 }
 
-module.exports = { putBuffer, deleteObject, publicUrl, ensureConfigured };
+module.exports = { putBuffer, deleteObject, publicUrl };

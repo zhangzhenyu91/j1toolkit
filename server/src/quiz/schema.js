@@ -128,4 +128,4 @@ async function ensureQuizSchema(pool) {
   }
 }
 
-module.exports = { ensureQuizSchema, APP_QUIZ };
+module.exports = { ensureQuizSchema };

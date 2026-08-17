@@ -281,10 +281,10 @@ async function ensureSchema() {
     console.log('[初始化] 题库刷题已开启（QUIZ_ENABLED=true），表结构与应用种子就绪');
   }
 
-  // 商旅打卡（出工日志扩展）：SGCC_CLOCKIN_ENABLED=true 时建表并写入应用种子（依赖出工日志已开启）
+  // 商旅打卡（出工日志扩展）：SGCC_CLOCKIN_ENABLED=true 时建表并清理旧 sgcc-clockin 应用（依赖出工日志已开启）
   if (config.sgcc.enabled) {
     await require('./sgccclockin/schema').ensureSgccSchema(pool);
-    console.log('[初始化] 商旅打卡已开启（SGCC_CLOCKIN_ENABLED=true），表结构与应用种子就绪');
+    console.log('[初始化] 商旅打卡已开启（SGCC_CLOCKIN_ENABLED=true），表结构就绪，旧 sgcc-clockin 应用已清理');
   }
 }
 

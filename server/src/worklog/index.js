@@ -99,7 +99,7 @@ async function loadEntries(where, params) {
   const [photos] = await pool.query(
     `SELECT id, entry_id, cos_key, url, members, verify_status, work_content,
             shot_time, weather, location, lng, lat, date_ok, dest_ok, created_at
-       ${config.sgcc && config.sgcc.enabled ? ', is_watermark, source, sgcc_img_id, sgcc_synced' : ''}
+       ${config.sgcc && config.sgcc.enabled ? ', is_watermark, source, sgcc_synced' : ''}
      FROM worklog_photo WHERE entry_id IN (?) ORDER BY id`,
     [ids]
   );
@@ -130,9 +130,10 @@ async function loadEntries(where, params) {
     });
   });
 
-  // 商旅打卡开启时：装配 绑定/登录态（成员级）与 当日两次打卡（clockinMap），供新 5 条规则与前端打卡区
+  // 商旅打卡开启时：装配 绑定/登录态（成员级）、当日两次打卡（clockinMap）与 当日费用（feeMap），供新 6 条规则与前端打卡区
   let sgccByMember = {};
   const clockinByDate = {}; // clockinByDate[log_date][member_id][seq]
+  const feeByDate = {}; // feeByDate[log_date][member_id] = { foodFee, transitFee }（规则 f 判定用）
   if (config.sgcc && config.sgcc.enabled) {
     const teamIds = [...new Set(entries.map((e) => e.team_id).filter(Boolean))];
     if (teamIds.length) {
@@ -153,6 +154,16 @@ async function loadEntries(where, params) {
         const m = (d[c.member_id] = d[c.member_id] || {});
         m[c.seq] = { detailId: c.detail_id, time: c.clock_time, position: c.position, workHours: c.work_hours };
       });
+      // 当日费用（规则 f 用）：与 clockins 同口径按 team_id + 日期集合批量查
+      const [fees] = await pool.query(
+        `SELECT member_id, DATE_FORMAT(fee_date, '%Y-%m-%d') AS fee_date, food_fee, transit_fee
+         FROM worklog_fee WHERE team_id IN (?) AND fee_date IN (?)`,
+        [teamIds, dates]
+      );
+      fees.forEach((f) => {
+        const d = (feeByDate[f.fee_date] = feeByDate[f.fee_date] || {});
+        d[f.member_id] = { foodFee: Number(f.food_fee), transitFee: Number(f.transit_fee) };
+      });
     }
   }
 
@@ -170,6 +181,7 @@ async function loadEntries(where, params) {
       members,
       photos: photoMap[e.id] || [],
       clockinMap: (clockinByDate[e.log_date] || {}),
+      feeMap: (feeByDate[e.log_date] || {}),
     };
     entry.verify_passed = computeVerifyPassed(entry);
     entry.verify_reasons = computeFailReasons(entry);
@@ -738,12 +750,12 @@ async function checkPhotoMembers(entryId, names, excludePhotoId, skipUsed) {
     if (!allowed.has(n)) return { code: 40007, message: `「${n}」不是本卡用车人` };
   }
   // 非水印照片（skipUsed）不占「每人限一张」名额，也不参与占用判定
+  if (skipUsed) return null;
   const [photos] = await pool.query(
     `SELECT id, members FROM worklog_photo WHERE entry_id = ?
        ${config.sgcc && config.sgcc.enabled ? 'AND is_watermark = 1' : ''}`,
     [entryId]
   );
-  if (skipUsed) return null;
   const used = new Set();
   photos.forEach((p) => {
     if (excludePhotoId && p.id === excludePhotoId) return;
@@ -755,7 +767,7 @@ async function checkPhotoMembers(entryId, names, excludePhotoId, skipUsed) {
   return null;
 }
 
-// GET /geo?lng=&lat=：按经纬度取当前「地点 + 天气」（和风），供「选照片并添加水印」无历史照片时预填；
+// GET /geo?lng=&lat=：按经纬度取当前「地点 + 天气」（腾讯），供「选照片并添加水印」无历史照片时预填；
 // 未配置 TENCENT_MAP_KEY 或调用失败时返回空串，前端留空手填
 router.get('/geo', async (req, res, next) => {
   try {
@@ -886,7 +898,7 @@ router.post(
   }
 );
 
-// 水印字段清洗：字符串、去首尾空格、按库列宽截断（work_content 512 / shot_time 32 / weather 64 / location 255）
+// 水印字段清洗：字符串、去首尾空格、按库列宽截断（work_content 500 / shot_time 32 / weather 64 / location 250）
 function sanitizeWm(wm) {
   const cut = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
   const fields = {

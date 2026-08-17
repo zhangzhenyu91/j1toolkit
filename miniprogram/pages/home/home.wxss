@@ -20,14 +20,6 @@
   animation: fadeUp 0.3s ease both; /* 页面入场 */
 }
 
-.grid-card {
-  animation: fadeUp 0.3s 0.06s ease both; /* 错峰入场 */
-}
-
-.app-sec {
-  animation: fadeUp 0.3s ease both;
-}
-
 .u-body {
   display: flex;
   align-items: center;
@@ -92,10 +84,12 @@
 /* ---------- 应用宫格 ---------- */
 .app-sec {
   margin-bottom: 20rpx;
+  animation: fadeUp 0.3s ease both;
 }
 
 .grid-card {
   padding: 28rpx 12rpx 12rpx;
+  animation: fadeUp 0.3s 0.06s ease both; /* 错峰入场 */
 }
 
 .grid {

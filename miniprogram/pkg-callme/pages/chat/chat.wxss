@@ -338,6 +338,7 @@
 .tool-btn {
   padding: 12rpx 4rpx;
   flex: none;
+  transition: opacity 0.15s ease;
 }
 
 .chat-input {
@@ -365,10 +366,6 @@
   justify-content: center;
   flex: none;
   transition: transform 0.15s ease, opacity 0.15s ease;
-}
-
-.tool-btn {
-  transition: opacity 0.15s ease;
 }
 
 .send-disabled {

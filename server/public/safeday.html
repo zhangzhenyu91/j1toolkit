@@ -280,7 +280,6 @@
   var files = [];                        // 已选待上传文件
   var pollTimer = null;
   var knownIds = {};                     // 已渲染记录 id（识别新记录播入场动画）
-  var firstRender = true;
   var lastRecords = [];                  // 最近一次记录列表（下载取 fileName 用）
   var track = null;                      // 进度卡跟踪对象 { id,name,sourceCount,createdAt,phase,error }
   var phaseTimer = null;
@@ -442,7 +441,6 @@
     tblCnt.textContent = '共 ' + records.length + ' 条' + (processing ? ' · ' + processing + ' 条生成中' : '');
     loadingBox.style.display = 'none';
     emptyBox.style.display = records.length ? 'none' : '';
-    firstRender = false;
   }
 
   /* 行点击预览 / 下载 / 删除按钮：事件委托（按钮命中即 return，不再触发行预览） */

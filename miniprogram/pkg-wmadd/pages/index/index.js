@@ -347,7 +347,7 @@ Page({
   },
 
   // 经纬度随机偏移：角度随机，半径 ≤maxMeters（杆塔坐标带入取 50）
-  jitterCoord(lng, lat, maxMeters = 400) {
+  jitterCoord(lng, lat, maxMeters) {
     const r = Math.random() * maxMeters;
     const a = Math.random() * Math.PI * 2;
     const dLat = (r * Math.sin(a)) / 111320;

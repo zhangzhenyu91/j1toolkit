@@ -1,10 +1,12 @@
-// 出工日志：记录验证状态（verify_passed）与未通过明细（verify_reasons）计算，logs / day-status / report 共用
+// 出工日志：记录验证状态（verify_passed）与未通过明细（verify_reasons）计算，logs / day-status / report 共用；
+// 个人口径 myReportReasons 仅 /report scope=mine 使用（/day-status scope=mine 为 index.js 内联自算，未复用本模块）
 // 规则（见《开发指南》7.1）：① 未出车不验证（exempt）；② 目的地已选且有用车人（巡视内容按需求可空，不计入）；
 // ③ 至少一张水印照片且全部已通过；④ 用车人名单与全部照片人名并集一致；⑤ 多张照片施工内容一致；⑥ 全部用车人已打卡
 //
-// 商旅打卡开启（SGCC_CLOCKIN_ENABLED=true）后切换为新 5 条（design/sgcc-clockin.html 汇总前核验口径）：
+// 商旅打卡开启（SGCC_CLOCKIN_ENABLED=true）后切换为新 6 条（design/sgcc-clockin.html 汇总前核验口径）：
 // a. 已绑定商旅的用车人均完成两次打卡（开始+结束，未绑定不参与）；b. 用车人均已上传水印照片；
-// c. 同记录不同水印照片施工内容一致；d. 水印照片地点均包含派车目的地；e. 水印照片拍摄时间均为记录当天
+// c. 同记录不同水印照片施工内容一致；d. 水印照片地点均包含派车目的地；e. 水印照片拍摄时间均为记录当天；
+// f. 用车人当日费用信息均已填写且为 伙食60/交通0（业务固定口径；规则 a 不约束未绑定者，但费用未绑定者同样要补录，故全员约束）
 // （d/e 即照片级核验 date_ok/dest_ok；非水印照片 is_watermark=0 不参与；旧 checked 打卡开关不再计入）
 const config = require('../config');
 function sgccOn() { return !!(config.sgcc && config.sgcc.enabled); }
@@ -12,6 +14,11 @@ function sgccOn() { return !!(config.sgcc && config.sgcc.enabled); }
 function wmPhotos(entry) {
   const photos = entry.photos || [];
   return sgccOn() ? photos.filter((p) => p.is_watermark !== 0) : photos;
+}
+
+// 规则 f：当日费用信息达标 = 已填写且 伙食补助=60、交通费=0（业务固定口径；entry.feeMap 由 loadEntries 装配）
+function feeOk(f) {
+  return !!f && Number(f.foodFee) === 60 && Number(f.transitFee) === 0;
 }
 
 // 单张照片水印信息核验（Dify 只返回识别结果，日期/地点比对在后端，见《开发指南》7.2）：
@@ -39,6 +46,9 @@ function computeVerifyPassed(entry) {
       return !!c[1] && !!c[2];
     });
     if (!twoDone) return 'failed';
+    // f. 用车人费用信息均已填写且达标（伙食60/交通0；全员约束，未绑定商旅者费用同样要补录）
+    const fees = entry.feeMap || {};
+    if (entry.members.some((m) => !feeOk(fees[m.member_id]))) return 'failed';
     // b. 用车人均已上传水印照片（非水印不计）
     const photos = wmPhotos(entry);
     const photoNames = new Set();
@@ -86,7 +96,7 @@ function photoIssues(p) {
 
 // 记录未通过明细：逐条列出全部不满足项（与 computeVerifyPassed 同口径；passed/exempt 返回 []）
 // 与状态函数的差异：状态短路返回，本函数不短路，把所有不满足的规则都列出来
-// 商旅打卡开启后按新 5 条（a~e）措辞输出，供「汇总前核验」仅问题记录展示
+// 商旅打卡开启后按新 6 条（a~f）措辞输出，供「汇总前核验」仅问题记录展示
 function computeFailReasons(entry) {
   if (!entry.vehicle_id) return []; // 免验证
   const reasons = [];
@@ -102,6 +112,11 @@ function computeFailReasons(entry) {
       if (!c[1] && !c[2]) reasons.push(`${m.name}未打卡（缺开始与结束）`);
       else if (!c[1]) reasons.push(`${m.name}缺「开始打卡」`);
       else if (!c[2]) reasons.push(`${m.name}缺「结束打卡」`);
+    });
+    // f. 费用信息（全员约束，口径同状态函数；未绑定商旅者费用同样要补录）
+    const fees = entry.feeMap || {};
+    entry.members.forEach((m) => {
+      if (!feeOk(fees[m.member_id])) reasons.push(`${m.name}费用信息未填写或不为 伙食60/交通0`);
     });
     // b. 水印照片人名覆盖用车人（非水印不计）
     const photos = wmPhotos(entry);
@@ -150,7 +165,7 @@ function computeFailReasons(entry) {
 }
 
 // 个人口径报告原因：我未打卡 / 我未上传水印照片（用车人含我但无照片含我名字）/ 我的水印照片未通过项（验证中、验证失败、日期/地点不符）
-// 商旅打卡开启后：「我未打卡」按两次打卡（开始/结束）判定，非水印照片不计入
+// 商旅打卡开启后：「我未打卡」按两次打卡（开始/结束）判定，非水印照片不计入；另加规则 f「我的费用信息未填写或不达标」
 function myReportReasons(entry, me) {
   const reasons = [];
   const photos = wmPhotos(entry);
@@ -161,6 +176,8 @@ function myReportReasons(entry, me) {
       if (!c[1]) reasons.push('我缺「开始打卡」');
       if (!c[2]) reasons.push('我缺「结束打卡」');
     }
+    // f. 我的费用信息（全员约束：不论是否绑定商旅，费用均须填写且达标）
+    if (myRow && !feeOk((entry.feeMap || {})[me.id])) reasons.push('我的费用信息未填写或不达标');
   } else if (myRow && !myRow.checked) reasons.push('我未打卡');
   if (myRow && !photos.some((p) => (p.members || []).includes(me.name))) {
     reasons.push('我未上传水印照片');
@@ -172,4 +189,4 @@ function myReportReasons(entry, me) {
   return reasons;
 }
 
-module.exports = { computeVerifyPassed, computeFailReasons, photoIssues, myReportReasons, checkWatermark };
+module.exports = { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark };

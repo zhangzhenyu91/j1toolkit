@@ -208,16 +208,6 @@
   color: #22314e;
 }
 
-.tag-orange {
-  background: #fdeee2;
-  color: #f26d21;
-}
-
-.tag-green {
-  background: #e8f5ef;
-  color: #2ba471;
-}
-
 /* ---------- 「我的题库」板块行（右侧管理入口） ---------- */
 .sec-row {
   margin-top: 32rpx;

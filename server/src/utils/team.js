@@ -1,21 +1,7 @@
-// 班组工具：班组列表、默认班组、请求级「生效班组」解析
+// 班组工具：默认班组、按 ID 取班组、请求级「生效班组」解析
 // 生效班组口径：超管可用 query/body 的 team_id 指定任意启用班组（未指定时落自己班组，再无则默认班组）；
 // 班组管理员 / 普通用户固定为本人 team_id（未分配 → null，子应用按空态处理）
 const { pool } = require('../db');
-
-// 全部班组（含停用），sort 小的在前 —— 管理接口用
-async function listAllTeams() {
-  const [rows] = await pool.query('SELECT id, name, kvm_group_name, sort, status FROM sys_team ORDER BY sort, id');
-  return rows;
-}
-
-// 启用班组列表（下拉/切换器数据源）
-async function listEnabledTeams() {
-  const [rows] = await pool.query(
-    'SELECT id, name, kvm_group_name, sort FROM sys_team WHERE status = 1 ORDER BY sort, id'
-  );
-  return rows;
-}
 
 // 默认班组 = sort 最小的启用班组（种子即检修一班；既有数据迁移与 KVM 设备回退都归它）
 async function getDefaultTeam() {
@@ -61,4 +47,4 @@ function resolveReqTeam(req) {
   return resolveTeam(req.user, q !== undefined ? q : b);
 }
 
-module.exports = { listAllTeams, listEnabledTeams, getDefaultTeam, getTeamById, resolveTeam, resolveReqTeam };
+module.exports = { getDefaultTeam, getTeamById, resolveTeam, resolveReqTeam };

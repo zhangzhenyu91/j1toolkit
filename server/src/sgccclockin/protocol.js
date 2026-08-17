@@ -1,4 +1,4 @@
-// 商旅平台协议层 —— 移植自逆向分析仓 idea/tools/sgcc_client.js（全部已实测验证，勿改口径）
+// 商旅平台协议层 —— 移植自逆向分析仓 esgcc/sgcc/tools/sgcc_client.js（全部已实测验证，勿改口径）
 // 两条通道：
 //   jsonm（H5，gwslapi）：AES-128-ECB + SM2 加密 AES 密钥；用于短信登录三步与 uniID 池
 //   jsonx（App，gwslapi/gwslapizb）：RSA 分块加密（117B/128B，PKCS1）；
@@ -203,7 +203,7 @@ async function loginBySms(mobile, checkCode) {
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
   if (!token) throw new Error('短信登录失败：' + JSON.stringify(r.decoded || r.status));
-  return { token, raw: d };
+  return { token };
 }
 
 // 某日打卡详情（token 校验探测也用它：statusCode=200 即登录态有效）
@@ -234,7 +234,7 @@ async function getFeeInfoNew(token, { clockInDate, cityName = '', cityCode = '',
 }
 
 // DtComponentListBean 78 字段表（Moshi 语义：原始类型恒输出，装箱/String/List 仅非空）
-// 取自 classes4.dex ApplyDetailBean$DataBean$DtComponentListBean（idea 仓 extracted/comp_fields.txt）
+// 取自 classes4.dex ApplyDetailBean$DataBean$DtComponentListBean（逆向分析仓 esgcc/sgcc）
 const COMP_FIELDS = require('./comp_fields.json');
 function toMoshi(comp) {
   const out = {};
@@ -272,5 +272,4 @@ async function reimbEnclosureAdd(token, { imgBase64Str, fileName, fileSize, ext 
 module.exports = {
   loginCaptcha, loginSendSms, loginBySms,
   dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, reimbEnclosureAdd,
-  callJsonx, // 备用直通
 };

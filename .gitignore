@@ -13,3 +13,7 @@ miniprogram_npm/
 # 会话数据（mcp.json 为项目级 MCP 配置，需入仓随仓库分发，其余内容仍忽略）
 .kimi-code/*
 !.kimi-code/mcp.json
+
+# 商旅打卡逆向分析仓（esgcc/sgcc/）：base.apk 与 tools/ 内含商旅 App 协议密钥/会话 token，不入仓
+esgcc/sgcc/base.apk
+esgcc/sgcc/tools/

@@ -1,6 +1,6 @@
 // 文件传输 · 设备列表 + 虚拟 U 盘上传/下载（移动端应用，app_key file-transfer）
 // 列表数据实时代理自 GLKVM Cloud 平台（/api/v1/kvm/devices，kvm 或 file-transfer 任一权限）；
-// 上传/下载经壹匣转发点（/api/v1/kvm/devices/{id}/push|files|download|mount|status），平台链路直达设备
+// 上传/下载经壹匣转发点（/api/v1/kvm/devices/{id}/push|files|download|delete|mount|status），平台链路直达设备
 // 班组口径（屏九）：设备按生效班组过滤，本班组无设备时回退默认班组设备并显示黄色提示横幅（fallback）；
 // 超管顶部切换器可切班组（storage filetransfer_team_id，全部请求带 team_id）；
 // 非超管未分配班组 → 整页空态（屏十）

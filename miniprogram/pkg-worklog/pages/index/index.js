@@ -3,9 +3,9 @@
 // 巡视内容点卡片主块单独弹层修改（带快捷输入）；备注（文字+附件传 COS）点「备 注」按钮或备注块弹层编辑；
 // 底部另有批量下载水印照片面板与「汇总前核验」面板（仅列当日未通过记录）
 // 商旅打卡扩展（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨）：卡片「商旅打卡」区每人开始/结束两枚 chip
-// （未打卡橙虚线 / 已打卡绿勾 / 未绑定灰锁三态）；打卡确认弹层（定位/同记录带入/杆塔带入 + 商旅备注）、
-// 费用弹层（首次开始打卡自动弹）、添加照片三选（新增非水印直传免验证）、人名点亮层商旅登录态置灰、
-// 照片区非水印展示与商旅同步标（失败重试）、卡片操作区「从商旅同步」（按日手动拉取，不一致以商旅为准覆盖）
+// （未打卡橙虚线 / 已打卡绿勾 / 未绑定灰锁三态）；打卡确认弹层（定位/同记录同 seq 带入/杆塔带入 + 商旅备注）、
+// 费用弹层（首次开始打卡自动弹，仅伙食补助/交通费可编辑）、添加照片三选（非水印直传免验证）、人名点亮层商旅登录态置灰、
+// 照片区非水印展示（同款式渲染，仅无验证信息）与商旅同步标（失败重试）、卡片操作区「从商旅同步」（按日手动拉取，不一致以商旅为准覆盖）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -34,11 +34,6 @@ const parseDate = (s) => {
 };
 
 // ---------- 商旅打卡展示辅助 ----------
-// 当日日期串（YYYY-MM-DD，本机时区）：打卡仅当日开放（与后端 40041 口径一致）
-const todayStr = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
 // 打卡时间 → HH:mm（clock_time 为 DATETIME，JSON 输出 ISO 串时按本地时区取时分；兼容 'YYYY-MM-DD HH:mm:ss' 直取）
 const fmtClockHm = (t) => {
   const s = String(t || '');
@@ -84,7 +79,7 @@ function calFormat(day) {
   return { ...day, className: `${day.className || ''} ${cls.join(' ')}`.trim() };
 }
 
-// 照片验证状态 → 展示（逐项判定：date_verify/destination_verify 任一 'false' 即该项不符，见《开发指南》7.2）
+// 照片验证状态 → 展示（逐项判定：date_ok/dest_ok 任一 0 即该项不符；历史数据回退旧状态值，见《开发指南》7.2）
 // 记录验证状态角标（后端实时计算；商旅打卡开启后切换为新 5 条 a~e，见开发指南 7.1 与第十五节）
 const VERIFY_BADGE = {
   passed: { cls: 'green', text: '验证通过' },
@@ -93,25 +88,25 @@ const VERIFY_BADGE = {
 };
 
 // 照片字段 → 展示结构（右侧八项：验证情况/人员/施工内容/拍摄时间/天气/地点/经度/纬度）
-// 非水印照片（is_watermark=0）：免验证固定「非水印 · 免验证」，仅存档并同步商旅费用照片，不参与卡片验证
+// 非水印照片（is_watermark=0）：与水印照片同款式渲染，但不做验证也不显示验证状态/施工内容/时间地点行，仅存档并同步商旅费用照片
 function mapPhoto(p) {
   const isPlain = p.is_watermark === 0;
-  // 验证情况：pending=验证中 / failed=验证失败（可重试）/ 完成态逐项列出未通过项
-  let verify;
-  if (isPlain) {
-    verify = { cls: 'skip', text: '非水印 · 免验证' };
-  } else if (p.verify_status === 'pending') {
-    verify = { cls: 'ing', text: '验证中' };
-  } else if (p.verify_status === 'failed') {
-    verify = { cls: 'bad', text: '验证失败' };
-  } else {
-    const bad = [];
-    // 新数据读 date_ok/dest_ok；历史数据（NULL）回退到旧状态值判定
-    const dateBad = p.date_ok === 0 || (p.date_ok == null && p.verify_status === 'date_mismatch');
-    const destBad = p.dest_ok === 0 || (p.dest_ok == null && p.verify_status === 'dest_mismatch');
-    if (dateBad) bad.push('日期不符');
-    if (destBad) bad.push('地点不符');
-    verify = bad.length ? { cls: 'bad', text: bad.join('、') } : { cls: 'ok', text: '核验通过' };
+  // 验证情况：pending=验证中 / failed=验证失败（可重试）/ 完成态逐项列出未通过项（非水印照片无此信息，不渲染）
+  let verify = null;
+  if (!isPlain) {
+    if (p.verify_status === 'pending') {
+      verify = { cls: 'ing', text: '验证中' };
+    } else if (p.verify_status === 'failed') {
+      verify = { cls: 'bad', text: '验证失败' };
+    } else {
+      const bad = [];
+      // 新数据读 date_ok/dest_ok；历史数据（NULL）回退到旧状态值判定
+      const dateBad = p.date_ok === 0 || (p.date_ok == null && p.verify_status === 'date_mismatch');
+      const destBad = p.dest_ok === 0 || (p.dest_ok == null && p.verify_status === 'dest_mismatch');
+      if (dateBad) bad.push('日期不符');
+      if (destBad) bad.push('地点不符');
+      verify = bad.length ? { cls: 'bad', text: bad.join('、') } : { cls: 'ok', text: '核验通过' };
+    }
   }
   return {
     id: p.id,
@@ -256,7 +251,6 @@ Page({
     // ---------- 汇总前核验面板（原「验证报告」；仅列当日 verify_passed=failed 记录，数据取自已加载列表） ----------
     rpVisible: false,
     rpIssues: [], // [{id, plateText, membersText, reasons}]
-    rpOkCount: 0, // 当日通过/免验证记录数
     rpOkText: '', // 绿色通过态文案（其余 N 条全部通过 / 当日 N 条全部通过）
     rpEmpty: false, // 当日无记录
     // ---------- 商旅打卡 · 打卡确认弹层（开始/结束/更新共用） ----------
@@ -284,9 +278,6 @@ Page({
     feeLoading: false,
     feeFood: '', // 伙食补助（输入框字符串）
     feeTransit: '', // 交通费
-    feeCostText: '', // 成本中心名称（只读展示）
-    feeCostCode: '', // 成本中心编码
-    feePhotos: [], // 商旅费用照片 [{id, url}]（模板 id=5 组件 value 解析）
     feeSaving: false,
   },
 
@@ -627,8 +618,8 @@ Page({
       const members = e.members || [];
       // 商旅打卡区渲染前提：派车卡且后端已带商旅字段（sgcc 未开启时整区不渲染，旧角标逻辑不受影响）
       const showClock = !!e.vehicle_id && members.some((m) => m.sgccBound !== undefined);
-      // 打卡仅当日开放（含更新）；非当日打卡 chip 置锁、副文案提示；费用修改不受限
-      const ckReadonly = e.log_date !== todayStr();
+      // 打卡仅当日开放（含更新，当日口径与后端 40041 一致）；非当日打卡 chip 置锁、副文案提示；费用修改不受限
+      const ckReadonly = e.log_date !== fmtDate(new Date());
       return {
         id: e.id,
         hasVehicle: !!e.vehicle_id,
@@ -669,9 +660,10 @@ Page({
   },
 
   // 商旅打卡区行数据：每个用车人一行（状态小字 + 开始/结束两枚 chip 三态）
-  // chip 三态：done=已打卡（绿底勾+时间+地点+「更新」，非当日不显示更新）/ todo=未打卡（橙虚线，同记录已有打卡时副文案「地点同开始」）/ lock=未绑定或非当日（灰锁禁用）
+  // chip 三态：done=已打卡（绿底勾+时间+地点+「更新」，非当日不显示更新）/ todo=未打卡（橙虚线，同记录已有他人同 seq 打卡时副文案提示带入）/ lock=未绑定或非当日（灰锁禁用）
   buildClockRows(members, clockRaw, readonly) {
-    const anyClocked = Object.keys(clockRaw).some((k) => clockRaw[k] && (clockRaw[k]['1'] || clockRaw[k]['2']));
+    // 同 seq 已有他人打卡（与 openClockSheet 带入规则一致：开始/结束不互相带入）
+    const seqClocked = (seq) => Object.keys(clockRaw).some((k) => clockRaw[k] && clockRaw[k][String(seq)] && clockRaw[k][String(seq)].position);
     const slot = (s, seq, bound) => {
       const title = seq === 1 ? '开始打卡' : '结束打卡';
       if (s) {
@@ -691,7 +683,7 @@ Page({
       if (!bound) {
         return { cls: 'lock', icon: 'lock-on', iconColor: '#B4AA90', title, sub: '引导本人至「我的」页绑定', done: false, upd: false };
       }
-      return { cls: 'todo', icon: 'time', iconColor: '#F26D21', title, sub: anyClocked ? '点击打卡 · 地点同开始' : '点击打卡', done: false, upd: false };
+      return { cls: 'todo', icon: 'time', iconColor: '#F26D21', title, sub: seqClocked(seq) ? '点击打卡 · 带入同记录定位' : '点击打卡', done: false, upd: false };
     };
     return members.map((m) => {
       const bound = m.sgccBound !== false;
@@ -847,7 +839,6 @@ Page({
 
   // ---------- 卡片交互 ----------
 
-  // 预览水印照片
   // 验证失败 → 重新验证（重置为验证中并异步重调 Dify，随后轮询刷新）
   async onRetryVerify(e) {
     const { pid } = e.currentTarget.dataset;
@@ -860,6 +851,7 @@ Page({
     }
   },
 
+  // 预览水印照片
   onPreview(e) {
     const { url, urls } = e.currentTarget.dataset;
     wx.previewImage({ current: url, urls });
@@ -909,19 +901,21 @@ Page({
     this.openClockSheet(Number(entryId), Number(memberId), name, Number(seq) === 2 ? 2 : 1, done ? 'update' : 'mark');
   },
 
-  // 打开弹层：位置优先级 = 同记录首打卡人带入 → 当前定位逆编码；坐标始终取本机定位（带入仅带入地址串）
+  // 打开弹层：位置优先级 = 同记录他人同 seq 打卡带入 → 当前定位逆编码；坐标始终取本机定位（带入仅带入地址串）。
+  // 开始/结束不互相带入：seq=1 仅在同记录已有他人的「开始打卡」时带入，seq=2 仅在已有他人的「结束打卡」时带入，否则走当前定位
   openClockSheet(entryId, memberId, name, seq, action) {
     const entry = this.data.list.find((x) => x.id === entryId);
     if (!entry) {
       this.toast('日志不存在或已被删除');
       return;
     }
-    // 同记录首打卡人（按用车人顺序找第一个 seq1 有位置者）：带入其地址串并标注
+    // 同记录已打卡人（按用车人顺序找第一个同 seq 有位置的他人）：带入其地址串并标注
     let first = null;
     for (const m of entry.checks) {
+      if (m.memberId === memberId) continue; // 仅带入他人的打卡地点
       const c = entry.clockRaw[m.memberId];
-      if (c && c['1'] && c['1'].position) {
-        first = { name: m.name, ...c['1'] };
+      if (c && c[String(seq)] && c[String(seq)].position) {
+        first = { name: m.name, ...c[String(seq)] };
         break;
       }
     }
@@ -937,7 +931,7 @@ Page({
       note = `仅修改打卡地点；提交时使用 ${name} 绑定的机型`;
     } else if (first) {
       position = first.position;
-      locTag = '同记录首打卡人定位';
+      locTag = '同记录已打卡人定位';
       note = `本记录 ${first.name} 已于 ${fmtClockHm(first.time)} 打卡，地点已自动带入；提交时使用 ${name} 绑定的机型`;
     }
     this._ckLocTag = locTag; // 定位回调覆盖位置时清掉带入标注
@@ -1059,7 +1053,7 @@ Page({
   },
 
   // 确认打卡：POST /sgcc/clockin（mark：seq=1|2；update：更新地点）。失败 message 直弹；
-  // 40037 已打过 → 关层刷新（数据以服务端为准）。成功后本人今日首次「开始打卡」自动弹费用层
+  // 40037 已打过 → 关层刷新（数据以服务端为准）。成功后首次「开始打卡」（含代他人打卡）自动弹该成员费用层
   async onCkConfirm() {
     if (this.data.ckSaving) return;
     const { ckEntryId, ckMemberId, ckMemberName, ckSeq, ckAction, ckPosition, ckLng, ckLat, ckCityCode, ckCityName, ckRemarks } = this.data;
@@ -1089,8 +1083,8 @@ Page({
       this.setData({ ckVisible: false, ckSaving: false, keyboardHeight: 0 });
       this.toast('打卡成功');
       this.loadLogs();
-      // 本人今日首次「开始打卡」成功（40037 已拦截重复，成功即首次）→ 自动打开费用弹层
-      if (ckAction === 'mark' && ckSeq === 1 && ckMemberName === this._myName) {
+      // 首次「开始打卡」成功（40037 已拦截重复，成功即首次）→ 自动打开该成员费用弹层（代他人打卡 = 代填费用）
+      if (ckAction === 'mark' && ckSeq === 1) {
         this.openFee(ckMemberId, ckMemberName);
       }
     } catch (err) {
@@ -1111,7 +1105,7 @@ Page({
     this.openFee(Number(memberId), name);
   },
 
-  // 打开并加载：本地费用摘要优先，无值时从商旅模板 id=10 组件解析 {foodFee, arrive}；费用照片取模板 id=5
+  // 打开并加载：本地费用摘要优先，无值时从商旅模板 id=10 组件解析 {foodFee, arrive}（弹层仅伙食补助/交通费两项可编辑）
   async openFee(memberId, name) {
     this.setData({
       feeVisible: true,
@@ -1120,9 +1114,6 @@ Page({
       feeLoading: true,
       feeFood: '',
       feeTransit: '',
-      feeCostText: '',
-      feeCostCode: '',
-      feePhotos: [],
       feeSaving: false,
       keyboardHeight: 0,
     });
@@ -1145,15 +1136,6 @@ Page({
           tplArrive = v.arrive;
         } catch (e) { /* 模板值异常按无值处理 */ }
       }
-      // 上传图片组件（id=5）：value 为 JSON 数组 [{id, url}]
-      let feePhotos = [];
-      const c5 = comps.find((c) => c.id === 5);
-      if (c5 && c5.value) {
-        try {
-          const arr = JSON.parse(c5.value);
-          if (Array.isArray(arr)) feePhotos = arr.filter((x) => x && x.url).map((x) => ({ id: x.id, url: x.url }));
-        } catch (e) { /* 模板值异常按空列表处理 */ }
-      }
       const num = (v) => {
         const n = Number(v);
         return Number.isFinite(n) ? String(n) : '';
@@ -1162,9 +1144,6 @@ Page({
         feeLoading: false,
         feeFood: local ? num(local.food_fee) : num(tplFood) || '0',
         feeTransit: local ? num(local.transit_fee) : num(tplArrive) || '0',
-        feeCostText: (local && local.cost_center_name) || '—',
-        feeCostCode: (local && local.cost_center_code) || '',
-        feePhotos,
       });
     } catch (err) {
       if (!this.data.feeVisible) return;
@@ -1178,11 +1157,6 @@ Page({
     this.setData({ [field]: e.detail.value });
   },
 
-  onFeePhotoPreview(e) {
-    const { url } = e.currentTarget.dataset;
-    wx.previewImage({ current: url, urls: this.data.feePhotos.map((p) => p.url) });
-  },
-
   onFeeCancel() {
     this.setData({ feeVisible: false, keyboardHeight: 0 });
   },
@@ -1191,7 +1165,7 @@ Page({
     if (!e.detail.visible && this.data.feeVisible) this.setData({ feeVisible: false, keyboardHeight: 0 });
   },
 
-  // 保存费用信息：POST /sgcc/fee（成本分配修改联调后再开放，本层仅伙食/交通可编辑）
+  // 保存费用信息：POST /sgcc/fee（本层仅伙食补助/交通费两项可编辑）
   async onFeeSave() {
     if (this.data.feeSaving) return;
     this.setData({ feeSaving: true });
@@ -2885,7 +2859,6 @@ Page({
     const okCount = src.length - issues.length;
     this.setData({
       rpIssues: issues,
-      rpOkCount: okCount,
       rpEmpty: !src.length,
       rpOkText: src.length
         ? issues.length

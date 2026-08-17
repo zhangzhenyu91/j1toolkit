@@ -62,4 +62,4 @@ async function verifyPhoto({ username, date, destination, url }) {
   }
 }
 
-module.exports = { verifyPhoto, ensureConfigured };
+module.exports = { verifyPhoto };

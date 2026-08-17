@@ -85,7 +85,7 @@ const config = {
     difyKey: str('DIFY_QUIZ_API_KEY'),
   },
   // 商旅打卡（出工日志扩展）：env SGCC_CLOCKIN_ENABLED=true 时才挂载
-  // 协议密钥取自商旅 App 逆向分析（idea 仓 tools/sgcc_client.js 与 extracted/pem/），只走 env、不入仓
+  // 协议密钥取自商旅 App 逆向分析仓 esgcc/sgcc/tools/sgcc_client.js，只走 env、不入仓
   sgcc: {
     enabled: str('SGCC_CLOCKIN_ENABLED') === 'true',
     jwtSecret: str('SGCC_JWT_SECRET'),       // H5/App 自签 JWT 密钥

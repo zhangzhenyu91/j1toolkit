@@ -368,67 +368,6 @@ page {
   line-height: 1.6;
 }
 
-.lc-rows {
-  margin-top: 16rpx;
-}
-
-.lc-row {
-  display: flex;
-  align-items: baseline;
-  gap: 16rpx;
-  padding: 8rpx 0;
-  font-size: 30rpx;
-}
-
-.lc-row .k {
-  flex: none;
-  color: #a89f8a;
-  font-size: 26rpx;
-  width: 112rpx;
-}
-
-.lc-row .v {
-  color: #22314e;
-  font-weight: 600;
-}
-
-.lc-row .v.dim {
-  color: #6b7690;
-  font-weight: 400;
-}
-
-/* 打卡 chips：绿勾 / 红叉 */
-.cks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-}
-
-.ck-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8rpx;
-  height: 52rpx;
-  padding: 0 20rpx;
-  border-radius: 26rpx;
-  font-size: 24rpx;
-  font-weight: 700;
-  border: 2rpx solid;
-  box-sizing: border-box;
-}
-
-.ck-chip.yes {
-  color: #2ba471;
-  border-color: #bfe3d6;
-  background: #e3f2ec;
-}
-
-.ck-chip.no {
-  color: #cf4444;
-  border-color: #efc9c9;
-  background: #fbe9e9;
-}
-
 /* 卡片内水印照片区（覆盖共享 .photo-item 的内边距与分隔线） */
 .lc-photos {
   margin-top: 16rpx;
@@ -750,12 +689,6 @@ page {
   background: #f26d21;
   border-color: #f26d21;
   color: #ffffff;
-}
-
-/* ---------- 卡片可点行：行尾 edit-1 小图标（配合 hover-bg-warm 反馈） ---------- */
-.lc-row .row-edit {
-  margin-left: auto;
-  flex: none;
 }
 
 /* ---------- 右下悬浮按钮（speed dial：主钮＋/× 点按展开，遮罩淡出关闭；原底部固定区已删除） ---------- */
@@ -1681,7 +1614,7 @@ page {
 .ck-person-head {
   display: flex;
   align-items: center;
-  gap: 14rpx;
+  gap: 12rpx;
   margin-bottom: 12rpx;
 }
 
@@ -1691,7 +1624,7 @@ page {
   color: #22314e;
 }
 
-/* 行右「费用」入口：描边胶囊小按钮（橙框橙字 + 图标，最小高度 48rpx；费用弹层；仅已绑定者显示） */
+/* 行右「费用」入口：描边胶囊小按钮（橙框橙字 + 图标，最小高度 48rpx；费用弹层；仅已绑定者显示；margin-left:auto 固定最右端） */
 .ck-fee {
   margin-left: auto;
   display: flex;
@@ -1707,7 +1640,7 @@ page {
   box-sizing: border-box;
 }
 
-/* 状态小字：工时（绿勾）/ 还差结束打卡（灰）/ 未绑定商旅（红锁）（紧随费用胶囊；未绑定行紧贴姓名） */
+/* 状态小字：工时（绿勾）/ 还差结束打卡（灰）/ 未绑定商旅（红锁）（紧随姓名，与费用胶囊垂直居中） */
 .ck-stat {
   display: flex;
   align-items: center;
@@ -1804,11 +1737,7 @@ page {
   gap: 2rpx;
 }
 
-/* ---------- ⑨ 照片区：非水印标签 + 商旅同步标 ---------- */
-.vtag.skip {
-  background: #eff1f5;
-  color: #6b7690;
-}
+/* ---------- ⑨ 照片区：商旅同步标（水印/非水印同款式渲染，非水印仅无验证信息） ---------- */
 
 /* 「已同步商旅」蓝标 */
 .sync-tag {
@@ -1838,14 +1767,6 @@ page {
   letter-spacing: 2rpx;
 }
 
-/* 非水印照片右侧说明行（不显示验证状态/施工内容/时间地点） */
-.ph-plain-note {
-  margin-top: 12rpx;
-  font-size: 22rpx;
-  color: #a89f8a;
-  line-height: 1.6;
-}
-
 /* ---------- ⑧ 人名点亮层：商旅登录过期红框虚线（t-class 落在 check-tag 根上） ---------- */
 .tags .t-tag--disabled.ctag-expired {
   background: #fdecec;
@@ -1860,23 +1781,6 @@ page {
 
 .tip.warn .tip-t {
   color: #cf4444;
-}
-
-/* ---------- ⑦ 添加照片三选：第三项「非水印照片」新增虚线橙框 + 徽章 ---------- */
-.addsheet-opt.ao-new {
-  border: 2rpx dashed #f26d21;
-}
-
-.ao-badge {
-  margin-left: 8rpx;
-  border: 2rpx solid #f26d21;
-  color: #f26d21;
-  border-radius: 8rpx;
-  padding: 0 10rpx;
-  font-size: 18rpx;
-  font-weight: 700;
-  line-height: 28rpx;
-  vertical-align: 4rpx;
 }
 
 /* ---------- ⑤ 打卡确认弹层 ---------- */
@@ -1911,7 +1815,7 @@ page {
   font-weight: 400;
 }
 
-/* 副行：经纬度 + 来源标注（同记录首打卡人定位 / 当前定位 / 杆塔带入）或失败提示 */
+/* 副行：经纬度 + 来源标注（同记录已打卡人定位 / 当前定位 / 杆塔带入）或失败提示 */
 .ck-loc-sub {
   margin-top: 10rpx;
   font-size: 20rpx;
@@ -2018,73 +1922,6 @@ page {
   color: #22314e;
   font-weight: 600;
   box-sizing: border-box;
-}
-
-.fee-v {
-  flex: 1;
-  min-width: 0;
-  font-size: 26rpx;
-  font-weight: 600;
-  color: #22314e;
-}
-
-.fee-v.dim {
-  color: #a89f8a;
-  font-weight: 400;
-}
-
-.fee-sub {
-  display: block;
-  margin-top: 2rpx;
-  font-size: 20rpx;
-  color: #a89f8a;
-  font-weight: 400;
-}
-
-/* 只读标记（成本分配/垫付项联调前不开放修改） */
-.fee-ro {
-  flex: none;
-  font-size: 20rpx;
-  color: #c9c0ab;
-  font-weight: 700;
-  letter-spacing: 2rpx;
-}
-
-.fee-photo-head {
-  margin-top: 20rpx;
-  font-size: 22rpx;
-  color: #a89f8a;
-  display: flex;
-  align-items: center;
-}
-
-.fee-photo-note {
-  margin-left: auto;
-  font-size: 20rpx;
-}
-
-.fee-imgs {
-  margin-top: 12rpx;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-}
-
-.fee-img {
-  width: 104rpx;
-  height: 104rpx;
-  border-radius: 12rpx;
-  background: #e9e2d2;
-}
-
-.fee-img-empty {
-  margin-top: 12rpx;
-  padding: 32rpx 0;
-  text-align: center;
-  font-size: 22rpx;
-  color: #a89f8a;
-  border: 3rpx dashed #d9cfba;
-  border-radius: 16rpx;
 }
 
 /* ---------- ⑩ 汇总前核验面板 ---------- */

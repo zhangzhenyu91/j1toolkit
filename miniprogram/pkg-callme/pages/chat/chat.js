@@ -1,7 +1,7 @@
 // Call Me · 对话页：SSE 流式接收（对接细节见《开发指南》第六章）
 // 回答经 markdown-it 渲染为 HTML 后由 mp-html 展示（支持表格/标题/加粗/代码块等）；
 // 思考内容流式期间展开、回答完毕自动折叠，可点击再展开；
-// 归一化事件：thinking / answer / preamble / title / references / done / error
+// 归一化事件：thinking / answer / preamble / tool_start / tool_end / title / references / done / error
 import Toast from 'tdesign-miniprogram/toast/index';
 import { BASE_URL } from '../../../config';
 import { request } from '../../../utils/request';

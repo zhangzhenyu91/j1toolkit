@@ -77,14 +77,6 @@ page {
   line-height: 1.6;
 }
 
-/* 文字层级 */
-.text-sub {
-  color: #6B7690;
-}
-.text-ph {
-  color: #A89F8A;
-}
-
 /* 页面内容容器（为自定义 tabbar 预留底部空间） */
 .page-body {
   padding: 24rpx 28rpx 160rpx;

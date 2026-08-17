@@ -322,7 +322,7 @@ router.get('/day', async (req, res, next) => {
     if (!DATE_RE.test(date)) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     if (!req.team) return ok(res, { members: {} });
     const [accounts] = await pool.query(
-      'SELECT member_id, token_status, device_type FROM worklog_sgcc_account WHERE team_id = ? AND member_id IS NOT NULL',
+      'SELECT member_id, token_status FROM worklog_sgcc_account WHERE team_id = ? AND member_id IS NOT NULL',
       [req.team.id]
     );
     const [clockins] = await pool.query(
@@ -497,7 +497,7 @@ router.post('/fee', async (req, res, next) => {
 // 返回 { done:[memberId], skipped:[{memberId,reason}] }；任何一步失败不抛出（同步失败红标重试由 resync 兜底）
 async function syncPhotoToSgcc(photoId) {
   const [rows] = await pool.query(
-    `SELECT p.id, p.url, p.members, p.is_watermark, p.sgcc_img_id,
+    `SELECT p.id, p.url, p.members, p.sgcc_img_id,
             DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.team_id
      FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ?`,
     [photoId]
@@ -648,95 +648,127 @@ async function writeBackPullVerify(photoId, vr) {
   );
 }
 
-// 照片补拉：dayNew 响应 body.images 与本地比对，仅本地没有的下载入 COS + worklog_photo，并异步触发 Dify 验证
-// 【联调验证项】dayNew 的 body.images 结构未实测：按防御式解析——元素可能是 url 字符串，
-// 或含 url / imageUrl 字段的对象；只采信非空 http(s) 串，其余形状忽略
-async function pullPhotos(account, date, images, log) {
-  const urls = [];
-  for (const it of images) {
-    const u = typeof it === 'string' ? it : (it && (it.url || it.imageUrl));
-    if (typeof u === 'string' && /^https?:\/\//.test(u.trim())) urls.push(u.trim());
+// 费用照片双向对账（以商旅为准）：数据源为 getFeeInfoNew 模板 id=5「上传图片」组件的 value
+// （JSON 数组，元素含 id/url，结构已实测，见 esgcc/sgcc/tools/fee_probe3.js 联调口径）；比对键 = 商旅图片 id
+// 规则：商旅有本地无 → 下载存 COS 入库（members=[成员名]、source=1、is_watermark=1、
+//       sgcc_img_id={memberId:图片id}、verify_status='pending'，异步 Dify 验证回写沿用 writeBackPullVerify）；
+//       本地 source=1（商旅同步来的）有而商旅无 → 删除（COS 对象 + worklog_photo 行）；
+//       本地 source=0（壹匣上传）商旅无 → 不删不动（可能正在同步途中），记「待商旅侧确认」
+async function syncFeePhotos(account, date, remoteImgs, log) {
+  // 商旅侧集合：商旅图片 id → url（只采信带非空 id 的元素）
+  const remote = new Map();
+  for (const it of remoteImgs) {
+    if (it && it.id !== undefined && it.id !== null && String(it.id) !== '') {
+      remote.set(String(it.id), typeof it.url === 'string' ? it.url.trim() : '');
+    }
   }
-  if (!urls.length) return;
 
-  // 本地已知集合：本班组当日全部照片的 url + sgcc_img_id（JSON map，值可能是商旅图片 id 或 url）里的字符串
+  // 本地侧：本班组当日照片中与本成员相关的行（sgcc_img_id JSON map 含本成员 key，值即该成员商旅图片 id）；
+  // source=1 行参与删除对账，source=0（壹匣上传）行只比对不删除
   const [photos] = await pool.query(
-    `SELECT p.url, p.sgcc_img_id FROM worklog_photo p
-     JOIN worklog_entry e ON e.id = p.entry_id
+    `SELECT p.id, p.cos_key, p.source, p.sgcc_img_id
+     FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
      WHERE e.team_id = ? AND e.log_date = ?`,
     [account.team_id, date]
   );
-  const known = new Set();
+  const memberKey = String(account.member_id);
+  const known = new Set(); // 本地已知的本成员商旅图片 id
+  const localPulled = []; // source=1 且含本成员商旅图片 id 的本地照片
+  const localUploaded = []; // source=0（壹匣上传）且已推送过商旅（含本成员图片 id）的本地照片
   for (const p of photos) {
-    if (p.url) known.add(String(p.url));
+    let map = {};
     if (p.sgcc_img_id) {
-      try {
-        const map = typeof p.sgcc_img_id === 'string' ? JSON.parse(p.sgcc_img_id) : p.sgcc_img_id;
-        Object.values(map || {}).forEach((v) => { if (typeof v === 'string' && v) known.add(v); });
-      } catch (e) { /* 忽略脏数据 */ }
+      try { map = typeof p.sgcc_img_id === 'string' ? JSON.parse(p.sgcc_img_id) : p.sgcc_img_id; } catch (e) { map = {}; }
+    }
+    if (!map || typeof map !== 'object') map = {};
+    const imgId = map[memberKey] ? String(map[memberKey]) : '';
+    if (!imgId) continue; // 与本成员无关（该成员名下无商旅图片 id）
+    known.add(imgId);
+    if (p.source === 1) localPulled.push({ id: p.id, cosKey: p.cos_key, imgId });
+    else localUploaded.push({ id: p.id, imgId });
+  }
+
+  // 方向一：商旅有本地无 → 下载入库（挂到该成员当日首个出工记录下）
+  const toPull = [...remote.entries()].filter(([imgId]) => !known.has(imgId));
+  let pulled = 0;
+  if (toPull.length) {
+    // 成员名与绑定人 username（照片 members 口径 / Dify user 入参）
+    const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
+    const memberName = mrows.length ? mrows[0].name : '';
+    const [urows] = await pool.query('SELECT username FROM sys_user WHERE id = ?', [account.user_id]);
+    const username = urows.length ? urows[0].username : '';
+    // 该成员当日所在首个出工记录（照片须挂在记录下；找不到则记核查日志跳过）
+    const [erows] = await pool.query(
+      `SELECT e.id, d.name AS destination_name
+       FROM worklog_entry e
+       JOIN worklog_entry_member em ON em.entry_id = e.id
+       LEFT JOIN worklog_destination d ON d.id = e.destination_id
+       WHERE e.team_id = ? AND em.member_id = ? AND e.log_date = ?
+       ORDER BY e.id LIMIT 1`,
+      [account.team_id, account.member_id, date]
+    );
+    if (!erows.length) {
+      await log('photo', 'fail', `费用照片：商旅侧 ${toPull.length} 张本地无，但成员当日无出工记录，已跳过入库`);
+    } else if (!memberName) {
+      await log('photo', 'fail', `费用照片：成员 ${account.member_id} 不存在，已跳过入库`);
+    } else {
+      const entry = erows[0];
+      // COS key 规则同 worklog 照片：{prefix}{班组名}/{YYYY.MM.DD}/{entryId}-{ts}-{图片id}.jpg（带图片 id 防同毫秒撞键）
+      const [trows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [account.team_id]);
+      const teamName = trows.length ? trows[0].name : String(account.team_id);
+      const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
+      for (const [imgId, imgUrl] of toPull) {
+        try {
+          if (!/^https?:\/\//.test(imgUrl)) throw new Error('商旅侧未返回有效图片地址');
+          const resp = await fetch(imgUrl, { signal: AbortSignal.timeout(60000) });
+          if (!resp.ok) throw new Error(`照片下载失败（HTTP ${resp.status}）`);
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const key = `${prefix}${teamName}/${dots(date)}/${entry.id}-${Date.now()}-${imgId}.jpg`;
+          await cos.putBuffer(key, buf, 'image/jpeg');
+          const localUrl = cos.publicUrl(key);
+          const [r] = await pool.query(
+            `INSERT INTO worklog_photo (entry_id, cos_key, url, members, is_watermark, source, sgcc_img_id, verify_status)
+             VALUES (?, ?, ?, ?, 1, 1, ?, 'pending')`,
+            [entry.id, key, localUrl, JSON.stringify([memberName]), JSON.stringify({ [memberKey]: imgId })]
+          );
+          // 异步 Dify 验证并回写（不阻塞对账；写法同 worklog 上传照片）
+          dify
+            .verifyPhoto({ username, date: dots(date), destination: entry.destination_name || '', url: localUrl })
+            .then((vr) => writeBackPullVerify(r.insertId, vr))
+            .catch((err) => console.error('[商旅打卡] 补拉照片验证回写失败：', err.message));
+          pulled += 1;
+        } catch (err) {
+          // 单张失败记核查日志继续，不抛出
+          console.error(`[商旅打卡] 费用照片入库失败（成员 ${memberName} ${date} 图片 ${imgId}）：`, err.message);
+          await log('photo', 'fail', `费用照片：商旅图片 ${imgId} 入库失败：${String(err.message).slice(0, 200)}`);
+        }
+      }
     }
   }
-  const newUrls = [...new Set(urls.filter((u) => !known.has(u)))]; // 本地没有 + images 内去重
-  if (!newUrls.length) return;
 
-  // 成员名与绑定人 username（照片 members 口径 / Dify user 入参）
-  const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
-  if (!mrows.length) return;
-  const memberName = mrows[0].name;
-  const [urows] = await pool.query('SELECT username FROM sys_user WHERE id = ?', [account.user_id]);
-  const username = urows.length ? urows[0].username : '';
-
-  // 该成员当日所在首个出工记录（照片须挂在记录下；找不到则记核查日志跳过）
-  const [erows] = await pool.query(
-    `SELECT e.id, d.name AS destination_name
-     FROM worklog_entry e
-     JOIN worklog_entry_member em ON em.entry_id = e.id
-     LEFT JOIN worklog_destination d ON d.id = e.destination_id
-     WHERE e.team_id = ? AND em.member_id = ? AND e.log_date = ?
-     ORDER BY e.id LIMIT 1`,
-    [account.team_id, account.member_id, date]
-  );
-  if (!erows.length) {
-    await log('photo', 'fail', `照片：商旅侧新发现 ${newUrls.length} 张，但成员当日无出工记录，已跳转入库`);
-    return;
-  }
-  const entry = erows[0];
-
-  // COS key 规则同 worklog 照片：{prefix}{班组名}/{YYYY.MM.DD}/{entryId}-{ts}.jpg
-  const [trows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [account.team_id]);
-  const teamName = trows.length ? trows[0].name : String(account.team_id);
-  const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
-
-  let saved = 0;
-  for (const u of newUrls) {
+  // 方向二：本地 source=1 有而商旅无 → 删除（COS 对象 + worklog_photo 行）
+  let deleted = 0;
+  for (const p of localPulled.filter((x) => !remote.has(x.imgId))) {
     try {
-      const resp = await fetch(u, { signal: AbortSignal.timeout(60000) });
-      if (!resp.ok) throw new Error(`照片下载失败（HTTP ${resp.status}）`);
-      const buf = Buffer.from(await resp.arrayBuffer());
-      const key = `${prefix}${teamName}/${dots(date)}/${entry.id}-${Date.now()}.jpg`;
-      await cos.putBuffer(key, buf, 'image/jpeg');
-      const localUrl = cos.publicUrl(key);
-      const [r] = await pool.query(
-        `INSERT INTO worklog_photo (entry_id, cos_key, url, members, is_watermark, source, verify_status)
-         VALUES (?, ?, ?, ?, 1, 1, 'pending')`,
-        [entry.id, key, localUrl, JSON.stringify([memberName])]
-      );
-      // 异步 Dify 验证并回写（不阻塞拉取；写法同 worklog 上传照片）
-      dify
-        .verifyPhoto({ username, date: dots(date), destination: entry.destination_name || '', url: localUrl })
-        .then((vr) => writeBackPullVerify(r.insertId, vr))
-        .catch((err) => console.error('[商旅打卡] 补拉照片验证回写失败：', err.message));
-      saved += 1;
+      if (p.cosKey) await cos.deleteObject(p.cosKey);
+      await pool.query('DELETE FROM worklog_photo WHERE id = ?', [p.id]);
+      deleted += 1;
     } catch (err) {
-      // 单张失败记核查日志继续，不抛出
-      console.error(`[商旅打卡] 照片补拉失败（成员 ${memberName} ${date}）：`, err.message);
-      await log('photo', 'fail', `照片：商旅侧照片入库失败：${String(err.message).slice(0, 200)}`);
+      console.error(`[商旅打卡] 费用照片删除失败（照片 ${p.id}）：`, err.message);
+      await log('photo', 'fail', `费用照片：本地照片 ${p.id}（商旅图片 ${p.imgId}）删除失败：${String(err.message).slice(0, 200)}`);
     }
   }
-  if (saved) await log('photo', 'diff', `照片：新发现 ${saved} 张已入库并触发验证`);
+
+  // 本地 source=0（壹匣上传）商旅无 → 不删不动（照片可能正在同步途中，由上传钩子/手动重试兜底）
+  const pendingConfirm = localUploaded.filter((x) => !remote.has(x.imgId)).length;
+  if (pendingConfirm) {
+    await log('photo', 'ok', `费用照片：本地壹匣上传 ${pendingConfirm} 张商旅侧暂未见到，不删不动，待商旅侧确认`);
+  }
+
+  await log('photo', pulled || deleted ? 'diff' : 'ok', `费用照片：拉下 ${pulled} 张 / 删除 ${deleted} 张`);
 }
 
-// 单日单人对账：登录态 → 打卡 → 费用 → 照片（一律以商旅为准覆盖本地；商旅侧新照片入库并触发验证）
+// 单日单人对账：登录态 → 打卡 → 费用 → 费用照片（一律以商旅为准覆盖本地；照片双向对账：拉新入库并触发验证，商旅侧已删的同步照片本地同步删除）
 async function syncOne(account, date, scope) {
   const log = (type, result, detail) => pool.query(
     `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
@@ -795,9 +827,14 @@ async function syncOne(account, date, scope) {
     await log('fee', changed ? 'diff' : 'ok', `费用：伙食 ${food} / 交通 ${transit}${changed ? '，已按商旅覆盖' : '，一致'}`);
   }
 
-  // 照片补拉：dayNew body.images 里本地没有的新照片入库并触发验证
-  if (body && Array.isArray(body.images) && body.images.length) {
-    await pullPhotos(account, date, body.images, log);
+  // 费用照片双向对账（以商旅为准）：数据源为费用模板 id=5「上传图片」组件 value（复用费用对账已取的 tpl）
+  if (tpl) {
+    const comp5 = (tpl.dtComponentList || []).find((c) => c.id === 5);
+    let imgs = [];
+    if (comp5 && comp5.value) {
+      try { const v = JSON.parse(comp5.value); if (Array.isArray(v)) imgs = v; } catch (e) { /* 忽略脏数据 */ }
+    }
+    await syncFeePhotos(account, date, imgs, log);
   }
 }
 
@@ -816,17 +853,32 @@ async function syncTeamDay(teamId, date, scope) {
   }
 }
 
-// POST /sync/pull：手动从商旅拉取 {date: 'YYYY-MM-DD', team_id?}
-// 所有 work-log 权限用户可用：触发本班组当日全部绑定成员从商旅拉取（一律以商旅为准覆盖本地）；
+// POST /sync/pull：手动从商旅拉取 {date: 'YYYY-MM-DD'} 或 {from: 'YYYY-MM-DD', to: 'YYYY-MM-DD'}（日期区段，最多跨 62 天），team_id?
+// 所有 work-log 权限用户可用：触发本班组指定日期（区段）全部绑定成员从商旅拉取（一律以商旅为准覆盖本地）；
 // team_id 仅超管生效（沿用 resolveReqTeam 口径：班组管理员/普通用户传了也被收敛到本班）；
-// 异步执行，结果见 GET /sync/logs
+// 区段逐日串行异步执行，结果见 GET /sync/logs
 router.post('/sync/pull', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
-    const date = String((req.body && req.body.date) || today());
-    if (!DATE_RE.test(date)) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
-    syncTeamDay(req.team.id, date, 'daily').catch((err) => console.error('[商旅打卡] 手动拉取失败：', err.message));
-    return ok(res, null, '已发起从商旅拉取，结果请稍后在核查记录中查看');
+    const from = String((req.body && (req.body.from || req.body.date)) || today());
+    const to = String((req.body && req.body.to) || from);
+    if (!DATE_RE.test(from) || !DATE_RE.test(to)) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    if (from > to) return fail(res, 400, 40000, '日期区段不正确');
+    // 逐日展开（按 UTC 毫秒步进，避免本地时区影响）；最多跨 62 天
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const fromMs = Date.parse(`${from}T00:00:00Z`);
+    const days = Math.round((Date.parse(`${to}T00:00:00Z`) - fromMs) / DAY_MS) + 1;
+    if (days > 62) return fail(res, 400, 40000, '日期区段最多跨 62 天');
+    (async () => {
+      for (let i = 0; i < days; i += 1) {
+        const d = new Date(fromMs + i * DAY_MS).toISOString().slice(0, 10);
+        await syncTeamDay(req.team.id, d, 'daily');
+      }
+    })().catch((err) => console.error('[商旅打卡] 手动拉取失败：', err.message));
+    // 响应文案口径：M月D日（不补零）
+    const md = (s) => `${Number(s.slice(5, 7))}月${Number(s.slice(8, 10))}日`;
+    const msg = from === to ? `已发起从商旅拉取（${md(from)}）` : `已发起从商旅拉取（${md(from)} 至 ${md(to)}）`;
+    return ok(res, null, msg);
   } catch (err) { return next(err); }
 });
 
@@ -847,12 +899,23 @@ router.get('/sync/logs', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-// ---------- 每日定时核查（SGCC_SYNC_TIME，默认 23:00）----------
+// ---------- 每日定时核查（SGCC_SYNC_TIME，默认 23:00，按北京时间排程）----------
+// 时区口径：容器本地时区不固定（云端 Docker 通常为 UTC），若按本地时间排程，
+// SGCC_SYNC_TIME=23:00 会被排到北京时间次日 07:00；中国无夏令时，统一按 UTC+8 固定偏移换算：
+// 「当前 UTC 时间戳 + 8h」取北京年月日，再以 Date.UTC(北京年月日, 配置时分) − 8h 得触发的 UTC 时间戳
+const CN_OFFSET_MS = 8 * 60 * 60 * 1000; // 北京时间固定偏移（UTC+8）
+function nextDailyRunUtc(hh, mm) {
+  const now = Date.now();
+  const cn = new Date(now + CN_OFFSET_MS); // 其 UTC 年月日即北京日历日
+  let nextUtc = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate(), hh, mm, 0) - CN_OFFSET_MS;
+  if (nextUtc <= now) { // 今日北京时点已过 → 顺延次日（Date.UTC 自动处理跨月进位）
+    nextUtc = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate() + 1, hh, mm, 0) - CN_OFFSET_MS;
+  }
+  return { nextUtc, now };
+}
 function scheduleDaily() {
   const [hh, mm] = String(config.sgcc.syncTime || '23:00').split(':').map((s) => parseInt(s, 10));
-  const now = new Date();
-  const nextRun = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh || 23, mm || 0, 0);
-  if (nextRun <= now) nextRun.setDate(nextRun.getDate() + 1);
+  const { nextUtc, now } = nextDailyRunUtc(hh || 23, mm || 0);
   const timer = setTimeout(async () => {
     try {
       const [teams] = await pool.query('SELECT DISTINCT team_id FROM worklog_sgcc_account WHERE team_id IS NOT NULL');
@@ -864,9 +927,10 @@ function scheduleDaily() {
       console.error('[商旅打卡] 每日定时核查失败：', err.message);
     }
     scheduleDaily(); // 排次日
-  }, nextRun - now);
+  }, nextUtc - now);
   timer.unref(); // 不阻塞进程退出（服务常驻时正常生效）
-  console.log(`[商旅打卡] 每日核查已排程：${nextRun.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
+  // 日志按北京时间打印（与排程口径一致，避免容器 UTC 时误读）
+  console.log(`[商旅打卡] 每日核查已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
 }
 scheduleDaily();
 

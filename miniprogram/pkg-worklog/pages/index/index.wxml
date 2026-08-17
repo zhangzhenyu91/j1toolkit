@@ -102,12 +102,12 @@
         <view class="ck-person" wx:for="{{item.clockRows}}" wx:for-item="c" wx:key="memberId">
           <view class="ck-person-head">
             <text class="ck-name">{{c.name}}</text>
-            <!-- 费用入口（描边胶囊小按钮，行右排列；费用弹层：伙食/交通可改，成本分配只读；首次开始打卡成功也会自动弹出） -->
-            <view class="ck-fee" wx:if="{{c.bound}}" hover-class="hover-opacity" catchtap="onOpenFee" data-member-id="{{c.memberId}}" data-name="{{c.name}}">
-              <t-icon name="money" size="24rpx" color="#F26D21" />费用
-            </view>
             <view class="ck-stat {{c.statCls}}" wx:if="{{c.statText}}">
               <t-icon wx:if="{{c.statIcon}}" name="{{c.statIcon}}" size="22rpx" color="{{c.statIconColor}}" />{{c.statText}}
+            </view>
+            <!-- 费用入口（描边胶囊小按钮，固定最右端；费用弹层仅伙食/交通可改；首次开始打卡成功也会自动弹出） -->
+            <view class="ck-fee" wx:if="{{c.bound}}" hover-class="hover-opacity" catchtap="onOpenFee" data-member-id="{{c.memberId}}" data-name="{{c.name}}">
+              <t-icon name="money" size="24rpx" color="#F26D21" />费用
             </view>
           </view>
           <view class="ck-row2">
@@ -159,9 +159,9 @@
             data-urls="{{item.photoUrls}}"
           />
           <view class="ph-right">
-            <!-- ① 照片验证情况（非水印固定「非水印 · 免验证」）+ 商旅同步标（已同步蓝标 / 失败红标重试） -->
+            <!-- ① 照片验证情况（非水印照片不做验证、不显示验证状态）+ 商旅同步标（已同步蓝标 / 失败红标重试） -->
             <view class="ph-status">
-              <text class="vtag {{p.verify.cls}}">{{p.verify.text}}</text>
+              <text class="vtag {{p.verify.cls}}" wx:if="{{!p.isPlain}}">{{p.verify.text}}</text>
               <text class="sync-tag" wx:if="{{p.sgccSynced === 1}}">已同步商旅</text>
               <text
                 class="sync-retry"
@@ -206,8 +206,6 @@
                 >{{n}}</t-tag>
               </block>
             </view>
-            <!-- 非水印照片：仅说明行（只存档并同步商旅费用照片，不显示验证状态/施工内容/时间地点） -->
-            <view class="ph-plain-note" wx:if="{{p.isPlain}}">仅上传存档并同步商旅费用照片，不参与卡片验证</view>
             <block wx:if="{{!p.isPlain}}">
               <!-- ③ 施工内容（行尾复制按钮，点击复制） -->
               <view class="ph-wc {{p.workContent ? '' : 'empty'}}">
@@ -903,11 +901,11 @@
   </view>
 </t-popup>
 
-<!-- 商旅打卡 · 费用信息弹层（设计稿⑥：首次开始打卡成功自动弹 + 打卡区「费用」入口；伙食/交通可改，其余只读） -->
+<!-- 商旅打卡 · 费用信息弹层（设计稿⑥：首次开始打卡成功自动弹 + 打卡区「费用」入口；仅伙食补助/交通费可编辑） -->
 <t-popup visible="{{feeVisible}}" placement="bottom" bind:visible-change="onFeeVisibleChange">
   <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
     <view class="sheet-title">当日费用 · {{feeMemberName}} · {{dateText}}</view>
-    <view class="sheet-note">保存即提交商旅；成本分配/垫付项暂只读展示（修改联调后开放）</view>
+    <view class="sheet-note">保存即提交商旅</view>
     <scroll-view scroll-y class="fee-scroll" enhanced show-scrollbar="{{false}}">
       <view class="fee-loading" wx:if="{{feeLoading}}">费用信息加载中…</view>
       <block wx:if="{{!feeLoading}}">
@@ -919,35 +917,6 @@
           <text class="fee-k">交通费</text>
           <input class="fee-input" type="digit" value="{{feeTransit}}" data-field="feeTransit" bindinput="onFeeInput" placeholder="0" placeholder-class="ph" adjust-position="{{false}}" bindkeyboardheightchange="onKeyboardHeight" hold-keyboard />
         </view>
-        <view class="fee-row">
-          <text class="fee-k">成本中心</text>
-          <view class="fee-v">{{feeCostText}}<text class="fee-sub" wx:if="{{feeCostCode}}">{{feeCostCode}}</text></view>
-          <text class="fee-ro">只读</text>
-        </view>
-        <view class="fee-row">
-          <text class="fee-k">公司垫付</text>
-          <view class="fee-v dim">无</view>
-          <text class="fee-ro">只读</text>
-        </view>
-        <view class="fee-row">
-          <text class="fee-k">员工垫付</text>
-          <view class="fee-v dim">无</view>
-          <text class="fee-ro">只读</text>
-        </view>
-        <!-- 费用照片：商旅模板 id=5 组件现状（三类照片上传后自动关联至此） -->
-        <view class="fee-photo-head">费用照片<text class="fee-photo-note">三类照片上传后自动关联至此</text></view>
-        <view class="fee-imgs" wx:if="{{feePhotos.length}}">
-          <image
-            wx:for="{{feePhotos}}"
-            wx:key="id"
-            class="fee-img"
-            src="{{item.url}}"
-            mode="aspectFill"
-            bindtap="onFeePhotoPreview"
-            data-url="{{item.url}}"
-          />
-        </view>
-        <view class="fee-img-empty" wx:else>暂无费用照片</view>
       </block>
     </scroll-view>
     <view class="sheet-actions">
@@ -1083,7 +1052,7 @@
 </t-popup>
 
 <!-- 添加照片方式三选（自绘弹层；不用 t-action-sheet——其仅分包使用会触发主包冗余 JS 审计警告。
-     前两项为原有水印流程（均进入验证），第三项「非水印照片」为商旅打卡新增：直传免验证、不占每人限一张） -->
+     前两项为原有水印流程（均进入验证），第三项「非水印照片」为商旅打卡扩展：直传免验证、不占每人限一张） -->
 <t-popup visible="{{addSheetVisible}}" placement="bottom" bind:visible-change="onAddSheetVisibleChange">
   <view class="sheet">
     <view class="sheet-title">添加照片</view>
@@ -1097,8 +1066,8 @@
         <view class="ao-title">拍摄/选择照片并添加水印</view>
         <view class="ao-note">拍照或选原图并编辑字段，由服务端添加水印后上传</view>
       </view>
-      <view class="addsheet-opt ao-new" hover-class="hover-bg-warm" bindtap="onAddSheetPlain">
-        <view class="ao-title">非水印照片<text class="ao-badge">新增</text></view>
+      <view class="addsheet-opt" hover-class="hover-bg-warm" bindtap="onAddSheetPlain">
+        <view class="ao-title">非水印照片</view>
         <view class="ao-note">直接上传所选原图，仅存档并同步商旅费用照片，不做验证、不占每人限一张</view>
       </view>
       <view class="btn-ghost addsheet-cancel" hover-class="hover-opacity" bindtap="onAddSheetCancel">取 消</view>
@@ -1110,7 +1079,7 @@
 <t-popup visible="{{cropVisible}}" placement="bottom" bind:visible-change="onCropVisibleChange">
   <view class="crop-sheet">
     <view class="crop-title">调整裁剪区域</view>
-    <view class="crop-note">{{cropLandscape ? '已锁定横向 4:3' : '已锁定纵向 4:3'}}，拖动或双指缩放调整取景</view>
+    <view class="crop-note">{{cropLandscape ? '已锁定横向 4:3' : '已锁定纵向 3:4'}}，拖动或双指缩放调整取景</view>
     <view class="crop-stage" style="width: {{cropFrameW}}px; height: {{cropFrameH}}px;">
       <movable-area class="crop-area" style="width: {{cropFrameW}}px; height: {{cropFrameH}}px;" scale-area>
         <movable-view

@@ -156,10 +156,8 @@ function buildSteps(agentSteps) {
 }
 
 module.exports = {
-  toolLabel,
   pendingTitle,
   doneTitle,
   toolSummary,
-  extractQuery,
   buildSteps,
 };

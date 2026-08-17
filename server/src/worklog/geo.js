@@ -76,4 +76,4 @@ async function fetchLocationWeather(lng, lat) {
   }
 }
 
-module.exports = { fetchLocationWeather, configured };
+module.exports = { fetchLocationWeather };

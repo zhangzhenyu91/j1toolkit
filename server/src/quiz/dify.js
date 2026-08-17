@@ -64,4 +64,4 @@ async function analyzeQuestion({ id, type, content, options, answer }) {
   return String(analysis).trim();
 }
 
-module.exports = { analyzeQuestion, ensureConfigured, isConfigured };
+module.exports = { analyzeQuestion, isConfigured, LETTERS };

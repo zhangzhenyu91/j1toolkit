@@ -13,6 +13,7 @@ const { pool } = require('../db');
 const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
 const analyzer = require('./analyzer');
+const { LETTERS } = require('./dify');
 
 const router = express.Router();
 router.use(auth, requireApp('quiz'));
@@ -34,8 +35,6 @@ function requireQuizAdmin(req, res, next) {
   if (req.user.role === 'team_admin' && req.team && req.user.team_id === req.team.id) return next();
   return fail(res, 403, 40304, '仅管理员可执行此操作');
 }
-
-const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 // 选项 JSON 列防御解析（mysql2 可能返回字符串或已解析对象，与 worklog members 同口径）
 function parseOptions(raw) {
@@ -68,7 +67,7 @@ async function findManageBank(bankId, req) {
   return null;
 }
 
-// 批量取题库的题目数与解析四状态统计（GET /banks、/banks/pool、/banks/manage 共用），返回 { bankId: { questionCount, analysis } }
+// 批量取题库的题目数与解析四状态统计（GET /banks、/banks/pool、/banks/manage、/banks/:id/home 共用），返回 { bankId: { questionCount, analysis } }
 async function loadBankStats(ids) {
   if (!ids.length) return {};
   const [rows] = await pool.query(

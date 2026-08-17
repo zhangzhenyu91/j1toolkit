@@ -23,11 +23,6 @@ function formatTime(input) {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// 轻提示
-function toast(title) {
-  wx.showToast({ title, icon: 'none', duration: 2000 });
-}
-
 // 获取当前设备微信的登录 code（失败时返回空串，调用方自行兜底）
 function wxLoginCode() {
   return new Promise((resolve) => {
@@ -38,4 +33,4 @@ function wxLoginCode() {
   });
 }
 
-module.exports = { greeting, formatTime, toast, wxLoginCode };
+module.exports = { greeting, formatTime, wxLoginCode };
