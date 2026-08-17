@@ -97,6 +97,8 @@ const config = {
     wlaPriv: str('SGCC_WLA_PRIV'),           // jsonx slapp 通道响应解密私钥（res/wLA.pem 内容）
     // 每日自动核查时间（HH:mm，默认 23:00）
     syncTime: str('SGCC_SYNC_TIME', '23:00'),
+    // 批量拉取成员间隔（毫秒，防商旅侧风控；定时核查与手动 /sync/pull 共用）
+    syncIntervalMs: parseInt(str('SGCC_SYNC_INTERVAL_MS', '1500'), 10) || 1500,
   },
 };
 

@@ -408,6 +408,8 @@ router.post('/clockin', async (req, res, next) => {
         position: geo.position, longitude, latitude,
       }, opt);
       if (!d || Number(d.statusCode) !== 200) {
+        // 失败时探测登录态：已过期则置灰（token_status=0）并提示重新登录，区别于一般失败
+        if (!(await probeAuth(account))) return fail(res, 400, 40021, '该成员商旅登录已过期，请其本人重新登录');
         return fail(res, 400, 40036, (d && d.msg) || '商旅更新打卡失败，请重试');
       }
     } else {
@@ -422,6 +424,8 @@ router.post('/clockin', async (req, res, next) => {
         position: geo.position, longitude, latitude, remarks,
       }, seqNum === 2, opt);
       if (!d || Number(d.statusCode) !== 200) {
+        // 失败时探测登录态：已过期则置灰（token_status=0）并提示重新登录，区别于一般失败
+        if (!(await probeAuth(account))) return fail(res, 400, 40021, '该成员商旅登录已过期，请其本人重新登录');
         return fail(res, 400, 40036, (d && d.msg) || '商旅打卡失败，请重试');
       }
     }
@@ -854,6 +858,8 @@ async function syncTeamDay(teamId, date, scope) {
     } catch (err) {
       console.error(`[商旅打卡] 核查失败（成员 ${account.member_id} ${date}）：`, err.message);
     }
+    // 成员间间隔，防商旅侧风控（SGCC_SYNC_INTERVAL_MS，默认 1500ms）
+    await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
   }
 }
 

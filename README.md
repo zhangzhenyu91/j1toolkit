@@ -122,6 +122,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SGCC_RSA_PUB` / `SGCC_RSA_PRIV` | 商旅 jsonx default 通道（打卡/详情/模板）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_DCU_PUB` / `SGCC_WLA_PRIV` | 商旅 jsonx slapp 通道（费用保存必走）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_SYNC_TIME` | 商旅打卡每日自动核查时间（HH:mm，默认 `23:00`） |
+| `SGCC_SYNC_INTERVAL_MS` | 商旅打卡批量拉取成员间隔（毫秒，防风控，默认 `1500`） |
 
 ## 小程序开发（微信开发者工具）
 
