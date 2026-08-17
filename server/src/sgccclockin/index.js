@@ -249,6 +249,44 @@ router.post('/login/bind', async (req, res, next) => {
       [req.team.id, req.user.id, memberId, String(mobile), token,
         deviceType || 'Xiaomi 2509FPN0BC', systemVersion || 'Android 16']
     );
+
+    // 重新登录成功：补核此前因登录态过期而核查失败的日期（近 62 天、仅当日用车人，同定时核查口径）；
+    // 异步执行不阻塞响应，日期间按 SGCC_SYNC_INTERVAL_MS 间隔防风控；补核完成的日期清掉对应 auth 失败记录
+    if (memberId) {
+      (async () => {
+        const [accRows] = await pool.query(
+          'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND user_id = ?',
+          [req.team.id, req.user.id]
+        );
+        const account = accRows[0];
+        if (!account) return;
+        if (!(await probeAuth(account))) return; // 新 token 探测不过（异常）则不补核，避免误清失败记录
+        const [fails] = await pool.query(
+          `SELECT DISTINCT DATE_FORMAT(sync_date, '%Y-%m-%d') AS d FROM worklog_sync_log
+           WHERE team_id = ? AND member_id = ? AND type = 'auth' AND result = 'fail'
+             AND sync_date >= DATE_SUB(CURDATE(), INTERVAL 62 DAY) ORDER BY d`,
+          [account.team_id, account.member_id]
+        );
+        for (const { d } of fails) {
+          const [m] = await pool.query(
+            `SELECT 1 FROM worklog_entry e JOIN worklog_entry_member em ON em.entry_id = e.id
+             WHERE e.team_id = ? AND e.log_date = ? AND em.member_id = ? LIMIT 1`,
+            [account.team_id, d, account.member_id]
+          );
+          if (!m.length) continue; // 非当日用车人不补核
+          try {
+            await syncOne(account, d, 'daily');
+            await pool.query(
+              `DELETE FROM worklog_sync_log WHERE team_id = ? AND member_id = ? AND sync_date = ? AND type = 'auth' AND result = 'fail'`,
+              [account.team_id, account.member_id, d]
+            );
+          } catch (e) {
+            console.error(`[商旅打卡] 登录后补核失败（成员 ${account.member_id} ${d}）：`, e.message);
+          }
+          await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
+        }
+      })().catch((err) => console.error('[商旅打卡] 登录后补核失败：', err.message));
+    }
     return ok(res, { bound: true });
   } catch (err) { return next(err); }
 });
