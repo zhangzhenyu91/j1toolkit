@@ -842,11 +842,14 @@ page {
   letter-spacing: 1rpx;
 }
 
+/* 「改日期」明显按钮：实心安全橙药丸（任务单 / 费用汇总页同款口径） */
 .dl-change {
   font-size: 24rpx;
-  color: #f26d21;
+  color: #ffffff;
+  background: #f26d21;
   font-weight: 700;
-  padding: 4rpx 12rpx;
+  border-radius: 14rpx;
+  padding: 10rpx 28rpx;
 }
 
 .dl-body {

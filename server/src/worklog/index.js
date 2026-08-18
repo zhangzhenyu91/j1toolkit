@@ -1366,6 +1366,11 @@ function failIfVerifyFailed(res, failures) {
   return true;
 }
 
+// 强制执行：管理员确认后带 force=1 跳过生成前核验（预览地址内嵌的下载地址需同步携带，否则 basemetas 回源仍会被拦）
+function isForce(req) {
+  return req.query.force === '1';
+}
+
 // GET /task-sheet?from=&to=（或 date= 单日）：二进制 docx 响应（不走 {code,data} 信封；
 // 供小程序 downloadFile / 网页 fetch+blob / basemetas 回源三种消费方式）
 router.get('/task-sheet', requireDictAdmin, async (req, res, next) => {
@@ -1374,7 +1379,7 @@ router.get('/task-sheet', requireDictAdmin, async (req, res, next) => {
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    if (failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+    if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
     const result = await tasksheet.build(req.team, range.from, range.to);
     if (!result) return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的卡片');
     const fileName = sheetFileName(range.from, range.to);
@@ -1394,7 +1399,7 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    if (failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+    if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
     const base = (config.basemetas.url || '').replace(/\/+$/, '');
     if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
     // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应
@@ -1405,7 +1410,7 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
     const proto = req.headers['x-forwarded-proto'] || req.protocol;
     const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
     const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/task-sheet?from=${range.from}&to=${range.to}${teamQ}` +
-      `&token=${encodeURIComponent(req.token)}`;
+      `&token=${encodeURIComponent(req.token)}${isForce(req) ? '&force=1' : ''}`;
     const fileName = sheetFileName(range.from, range.to);
     const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
       `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;
@@ -1425,7 +1430,7 @@ router.get('/fee-sheet', requireDictAdmin, async (req, res, next) => {
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    if (failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+    if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
     const result = await feesheet.build(req.team, range.from, range.to);
     if (!result) return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的汇总');
     const fileName = feeFileName(range.from, range.to);
@@ -1445,7 +1450,7 @@ router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    if (failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+    if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
     const base = (config.basemetas.url || '').replace(/\/+$/, '');
     if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
     // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应（判定口径同任务单 hasRows）
@@ -1456,7 +1461,7 @@ router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
     const proto = req.headers['x-forwarded-proto'] || req.protocol;
     const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
     const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/fee-sheet?from=${range.from}&to=${range.to}${teamQ}` +
-      `&token=${encodeURIComponent(req.token)}`;
+      `&token=${encodeURIComponent(req.token)}${isForce(req) ? '&force=1' : ''}`;
     const fileName = feeFileName(range.from, range.to);
     const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
       `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;

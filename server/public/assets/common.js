@@ -13,7 +13,8 @@
    Shade.icon(name, size, color) → inline SVG 字符串（见 assets/icons.js）
    Shade.topbar(opts)         → 统一渲染顶部导航（插入 body 开头；需 icons.js 先加载）
      opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin'（当前页，渲染为无链接激活态）
-     结构：左侧 Logo（点击回 /index.html）+ 常驻导航（TOP_NAV：工作台与全部应用始终显示，当前页高亮）；
+     结构：左侧 Logo（点击回 /index.html）+ 常驻导航（工作台 + /api/v1/app/list 按权限下发的应用，
+           顺序同工作台宫格、无权限不显示，缓存 shade_apps 先渲染后校正，当前页高亮）；
            右侧「管理」链接（仅 role==='admin' 可见）
            + 分隔线 + 头像字 + 昵称（取 Shade.user() 缓存）+ 退出按钮
      渲染后页面可用接口最新资料刷新 #miniAvatar / #topName / #navAdmin（id 与各页既有逻辑兼容）
@@ -32,10 +33,12 @@
 (function () {
   const TOKEN_KEY = 'shade_token';
   const USER_KEY = 'shade_user';
+  const APPS_KEY = 'shade_apps'; // 顶栏导航用应用清单缓存（/api/v1/app/list 按权限下发，顺序同工作台宫格）
 
   function clearAuth() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(APPS_KEY);
   }
 
   // 统一接口调用
@@ -93,8 +96,9 @@
   if (document.body) beianFooter();
   else document.addEventListener('DOMContentLoaded', beianFooter);
 
-  // 写入登录态
+  // 写入登录态（换号登录时清掉顶栏应用清单缓存，避免串用户残留；接口回来后会重建）
   function setAuth(token, userObj) {
+    localStorage.removeItem(APPS_KEY);
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(USER_KEY, JSON.stringify(userObj || {}));
   }
@@ -115,16 +119,31 @@
     return true;
   }
 
-  // 统一顶部导航：左侧 Logo + 常驻导航（工作台与全部应用始终显示，当前页高亮）；
+  // 统一顶部导航：左侧 Logo + 常驻导航（工作台 + 按权限下发的应用，顺序同工作台宫格——同取 /api/v1/app/list，
+  // 无权限的应用不下发即不显示；本地缓存 shade_apps 先行渲染避免闪烁，接口回来后校正）；
   // 右侧「管理」（仅 admin 可见）+ 用户区 + 退出
-  var TOP_NAV = [
-    { key: 'index', name: '工作台', href: '/index.html' },
-    { key: 'quiz', name: '题库刷题', href: '/quiz.html' },
-    { key: 'callme', name: 'Call Me', href: '/callme.html' },
-    { key: 'worklog', name: '出工日志', href: '/worklog.html' },
-    { key: 'safeday', name: '安全日活动', href: '/safeday.html' },
-    { key: 'kvm', name: '远程连接', href: '/kvm.html' },
-  ];
+  var APP_NAV = { // 应用 → 网页版落地页（key 与 sys_app 种子一致；无网页版的应用不进顶栏）
+    'call-me': { key: 'callme', href: '/callme.html' },
+    'quiz': { key: 'quiz', href: '/quiz.html' },
+    'work-log': { key: 'worklog', href: '/worklog.html' },
+    'safe-day': { key: 'safeday', href: '/safeday.html' },
+    'kvm': { key: 'kvm', href: '/kvm.html' },
+  };
+  function cachedApps() {
+    try { return JSON.parse(localStorage.getItem(APPS_KEY) || 'null'); } catch (e) { return null; }
+  }
+  function renderLeftNav(active) {
+    var items = [{ key: 'index', name: '工作台', href: '/index.html' }];
+    (cachedApps() || []).forEach(function (a) {
+      var nav = APP_NAV[a.app_key];
+      if (nav && a.terminal !== 'mobile') items.push({ key: nav.key, name: a.name, href: nav.href });
+    });
+    return items.map(function (it) {
+      return it.key === active
+        ? '<span class="topbar-item on">' + esc(it.name) + '</span>'
+        : '<a class="topbar-item" href="' + it.href + '">' + esc(it.name) + '</a>';
+    }).join('');
+  }
   function topbar(opts) {
     opts = opts || {};
     var active = opts.active || 'index';
@@ -134,11 +153,7 @@
     var icon = window.Shade.icon;
 
     // 左侧常驻导航：当前页渲染为纯文本激活态（无链接），其余为可点链接
-    var leftNav = TOP_NAV.map(function (it) {
-      return it.key === active
-        ? '<span class="topbar-item on">' + it.name + '</span>'
-        : '<a class="topbar-item" href="' + it.href + '">' + it.name + '</a>';
-    }).join('');
+    var leftNav = renderLeftNav(active);
 
     // 右侧「管理」：仅 admin 可见；管理页时渲染为激活态
     var adminInner = icon('setting', 14) + '管理';
@@ -152,7 +167,7 @@
           '<span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣"></span>' +
           '<b>Shade <i>壹匣</i></b>' +
         '</a>' +
-        '<nav class="topbar-nav">' + leftNav + '</nav>' +
+        '<nav class="topbar-nav" id="topNavApps">' + leftNav + '</nav>' +
         '<div class="topbar-right">' +
           '<nav class="topbar-nav">' + adminNav + '</nav>' +
           '<div class="topbar-user">' +
@@ -163,6 +178,14 @@
         '</div>' +
       '</div></header>');
     document.getElementById('btnLogout').addEventListener('click', function () { logout(); });
+
+    // 拉取最新应用清单校正左侧导航（权限 / 排序变化即时生效；失败保留缓存渲染）
+    api('/api/v1/app/list').then(function (r) {
+      var list = (r.data && r.data.list) || [];
+      localStorage.setItem(APPS_KEY, JSON.stringify(list));
+      var nav = document.getElementById('topNavApps');
+      if (nav) nav.innerHTML = renderLeftNav(active);
+    }).catch(function () { /* 保留缓存渲染 */ });
   }
 
   // 顶部轻提示

@@ -14,7 +14,7 @@
      工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
      「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 tasksheet 页口径）；
      「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 feesheet 页口径）；
-     工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截并弹层列出明细（showVerifyFailures），请处理后再操作；
+     工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（Web 端专属，设计稿 design/worklog-dispatch-align.html）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
@@ -81,7 +81,7 @@
     letter-spacing: 1px; cursor: pointer; padding: 3px 6px; border-radius: 6px; transition: background .25s;
   }
   .cal-today:hover { background: var(--orange-soft); }
-  .cal-nav { margin-left: auto; display: flex; gap: 6px; }
+  .cal-nav { margin-left: auto; display: flex; gap: 6px; align-items: center; }
   .cal-nav button {
     width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: #fff;
     display: flex; align-items: center; justify-content: center; color: var(--sub); cursor: pointer;
@@ -680,6 +680,8 @@
 
   /* ===== 汇总前核验（原验证报告；整月切换，范围已收窄为仅未通过记录） ===== */
   .rep-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  /* 日期范围文本（批量下载 / 工作任务单 / 费用汇总 三页签同款：文本 + 实心橙「改日期」按钮，弹层选起止） */
+  .rg-text { font-size: 13px; font-weight: 700; color: var(--navy); letter-spacing: .5px; }
   .rep-month { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: var(--navy); min-width: 84px; text-align: center; }
   .rep-sep { color: var(--ph); font-size: 12px; } /* 下载页签日期分隔符也用此类 */
   .rep-total { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
@@ -856,12 +858,11 @@
       <!-- 记录：当日日志卡片流（日期导航由月历承担） -->
       <div class="pane on" id="paneRecord"><div id="cardFlow"></div></div>
 
-      <!-- 下载：日期范围 + 按月分组勾选 + 底部操作行（原批量下载弹层页签化；仅看我走页头全局开关） -->
+      <!-- 下载：日期范围（文本 +「改日期」弹层，默认当日单日）+ 按月分组勾选 + 底部操作行（原批量下载弹层页签化；仅看我走页头全局开关） -->
       <div class="pane" id="paneDl">
         <div class="rep-bar">
-          <input type="date" id="dlFrom"><span class="rep-sep">~</span><input type="date" id="dlTo">
-          <button class="btn btn-sm" id="dlQuery">查询</button>
-          <button class="linkbtn" id="dlToday">仅今天</button>
+          <span class="rg-text" id="dlRangeText"></span>
+          <button class="btn btn-sm btn-accent" id="dlChange">改日期</button>
           <span class="dl-meta" id="dlMeta"></span>
         </div>
         <div class="pane-scroll" id="dlBody"></div>
@@ -892,7 +893,8 @@
       <!-- 工作任务单：按日期范围生成出车卡片合并为单个 docx，一卡一页（仅超管 / 班组管理员可见页签；与数据管理平级） -->
       <div class="pane" id="paneTS">
         <div class="rep-bar">
-          <input type="date" class="f-sel" id="tsFrom"><span class="rep-sep">~</span><input type="date" class="f-sel" id="tsTo">
+          <span class="rg-text" id="tsRangeText"></span>
+          <button class="btn btn-sm btn-accent" id="tsChange">改日期</button>
           <span class="dl-meta">范围内全部出车卡片，一卡一页合并为一个 Word（单次最多 31 天）</span>
         </div>
         <div class="pane-scroll">
@@ -925,7 +927,8 @@
       <!-- 费用汇总：按日期范围生成「人 × 日」费用矩阵 docx，一卡一行、一人一列、末尾合计（仅超管 / 班组管理员可见页签；与工作任务单平级） -->
       <div class="pane" id="paneFS">
         <div class="rep-bar">
-          <input type="date" class="f-sel" id="fsFrom"><span class="rep-sep">~</span><input type="date" class="f-sel" id="fsTo">
+          <span class="rg-text" id="fsRangeText"></span>
+          <button class="btn btn-sm btn-accent" id="fsChange">改日期</button>
           <span class="dl-meta">范围内出车卡片一卡一行、用车人一人一列，末尾合计（单次最多 31 天）</span>
         </div>
         <div class="pane-scroll">
@@ -1000,17 +1003,6 @@ function fmtDateCN(s) { var d = parseDate(s); return (d.getMonth() + 1) + '月' 
 function todayStr() { return fmtDate(new Date()); }
 /* 「2026 年 8 月」 */
 function fmtMonthCN(m) { var a = m.split('-'); return a[0] + ' 年 ' + (+a[1]) + ' 月'; }
-/* 报告默认范围：当天 ≤10 号 → 上月整月，否则本月 1 号 ~ 今天（沿用旧网页端口径） */
-function defaultRange() {
-  var now = new Date();
-  if (now.getDate() <= 10) {
-    return {
-      from: fmtDate(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-      to: fmtDate(new Date(now.getFullYear(), now.getMonth(), 0))
-    };
-  }
-  return { from: fmtDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: fmtDate(now) };
-}
 
 /* 页面特有的内联 SVG（icons.js 未收录的：车辆 / 左右箭头 / 警告） */
 var SVG_CAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5l1.6-5A2 2 0 0 1 8 9h8a2 2 0 0 1 1.9 1.5l1.6 5"/><rect x="3.5" y="15.5" width="17" height="4" rx="1.5"/><circle cx="7.5" cy="19.5" r="1.4"/><circle cx="16.5" cy="19.5" r="1.4"/></svg>';
@@ -1031,7 +1023,7 @@ var QUICK_INPUTS = ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'];
 var state = {
   date: todayStr(),          // 当前选中日期 YYYY-MM-DD
   scope: 'all',              // all | mine
-  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 汇总前核验 | Dict 数据管理 | TS 工作任务单 | PA 派车对齐
+  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 汇总前核验 | Dict 数据管理 | TS 工作任务单 | FS 费用汇总 | PA 派车对齐
   teamId: 0,                 // 超管当前切换的班组 id（0=未指定，由后端落默认班组；非超管恒 0）
   entries: [],               // 当日日志卡片
   calY: 0, calM: 0,          // 月历当前显示月份（calM 为 0 起）
@@ -1042,6 +1034,8 @@ var state = {
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
   dict: { lists: {}, towerCount: null }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）
   dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
+  ts: { from: '', to: '' },    // 工作任务单页签：生成范围（默认当日单日，「改日期」弹层选择）
+  fs: { from: '', to: '' },    // 费用汇总页签：汇总范围（同工作任务单口径）
   pa: { files: [], result: null, done: {}, idx: 0, uploading: false } // 派车对齐页签（done：已处理条目，键=清单索引）
 };
 
@@ -3434,32 +3428,57 @@ async function downloadTowerTpl(btn) {
   btn.disabled = false;
 }
 
-/* 生成前核验拦截（工作任务单 / 费用汇总共用）：40901 时弹层列出未通过记录（日期 / 车牌 / 用车人 / 未通过项明细），
-   复用汇总前核验页签的 rep-row 样式；已拦截返回 true，调用方不再 toast */
-function showVerifyFailures(e) {
-  var failures = e && e.code === 40901 && e.data && e.data.failures;
-  if (!failures || !failures.length) return false;
+/* 生成前核验拦截（工作任务单 / 费用汇总共用）：40901 时弹小提示框——
+   「去汇总前核验」切到核验页签并定位到范围起始月；「仍要生成」为管理员强制执行（force=1 重试原动作） */
+function showVerifyFailures(e, from, onForce) {
+  if (!e || e.code !== 40901) return false;
   var html = mHead('存在未通过项')
-    + '<div class="f-hint" style="margin:0 0 10px">' + esc(e.message) + '，明细如下：</div>'
-    + failures.map(function (it) {
-      var chips = (it.reasons || []).map(function (x) { return '<em class="reason">' + esc(x) + '</em>'; }).join('')
-        || '<em class="reason">未通过</em>';
-      return '<div class="rep-row" style="cursor:default">'
-        + '<div class="rep-top"><span class="rep-plate">' + esc(fmtDateCN(it.log_date)) + '</span>'
-        + '<span class="rep-plate">' + esc(it.plate_no || '未出车') + '</span>'
-        + '<span class="rep-members">' + esc((it.members || []).join('、')) + '</span></div>'
-        + '<div class="rep-chips">' + chips + '</div></div>';
-    }).join('');
-  createModal(html, { width: 560 });
+    + '<div class="f-hint" style="margin:0">' + esc(e.message) + '。可先到「汇总前核验」逐项处理，或由管理员确认后直接生成。</div>'
+    + '<div class="m-foot" style="margin-top:14px">'
+    + '<button class="btn btn-sm" data-a="rep">去汇总前核验</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="force">仍要生成</button>'
+    + '</div>';
+  var inst = createModal(html, { width: 380 });
+  $('[data-a="rep"]', inst.box).addEventListener('click', function () {
+    inst.close();
+    state.rep.month = (from || state.date).slice(0, 7); // 核验页签定位到范围起始月
+    syncRepMonthText();
+    switchPane('Rep');
+    loadReport();
+  });
+  $('[data-a="force"]', inst.box).addEventListener('click', function () {
+    inst.close();
+    if (onForce) onForce();
+  });
   return true;
 }
 
-/* 工作任务单：读取范围入参并校验（from ≤ to；单日与跨天共用） */
+/* 日期范围文本同步（批量下载 / 工作任务单 / 费用汇总 三页签同款：范围文本 + 实心橙「改日期」按钮） */
+function syncRangeText(id, from, to) {
+  $(id).textContent = from === to ? from : from + ' ~ ' + to;
+}
+/* 日期范围选择弹层：起止两个日期输入 + 确定（from ≤ to 校验；确认即回写并回调） */
+function pickRange(from, to, onOk) {
+  var html = mHead('选择日期范围')
+    + '<div class="rep-bar" style="margin:0"><input type="date" class="f-sel" id="rpFrom" value="' + from + '">'
+    + '<span class="rep-sep">~</span><input type="date" class="f-sel" id="rpTo" value="' + to + '"></div>'
+    + '<div class="m-foot" style="margin-top:14px"><button class="btn btn-sm btn-accent" data-a="ok">确定</button></div>';
+  var inst = createModal(html, { width: 360 });
+  $('[data-a="ok"]', inst.box).addEventListener('click', function () {
+    var f = $('#rpFrom', inst.box).value;
+    var t = $('#rpTo', inst.box).value;
+    if (!f || !t) { Shade.toast('请选择起止日期', 'info'); return; }
+    if (f > t) { Shade.toast('开始日期不能晚于结束日期', 'info'); return; }
+    inst.close();
+    onOk(f, t);
+  });
+}
+
+/* 工作任务单：读取范围入参（state.ts，「改日期」弹层已保证 from ≤ to） */
 function tsRange() {
-  var from = $('#tsFrom') && $('#tsFrom').value;
-  var to = $('#tsTo') && $('#tsTo').value;
+  var from = state.ts.from;
+  var to = state.ts.to;
   if (!from || !to) { Shade.toast('请选择日期范围', 'info'); return null; }
-  if (from > to) { Shade.toast('开始日期不能晚于结束日期', 'info'); return null; }
   return { from: from, to: to };
 }
 /* 范围文件名口径同后端 sheetFileName */
@@ -3467,27 +3486,27 @@ function tsFileName(from, to) {
   return from === to ? '工作任务单-' + from + '.docx' : '工作任务单-' + from + '至' + to + '.docx';
 }
 
-/* 工作任务单：预览 = 调 preview 接口取 basemetas 地址新标签打开（同备注 Office 文档 / 安全日记录口径） */
-async function taskSheetPreview(btn) {
+/* 工作任务单：预览 = 调 preview 接口取 basemetas 地址新标签打开（同备注 Office 文档 / 安全日记录口径）；force=强制执行跳过生成前核验 */
+async function taskSheetPreview(btn, force) {
   var range = tsRange();
   if (!range) return;
   btn.disabled = true;
   try {
-    var r = await Shade.api(wl('/api/v1/worklog/task-sheet/preview?from=' + range.from + '&to=' + range.to));
+    var r = await Shade.api(wl('/api/v1/worklog/task-sheet/preview?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
     if (r.data && r.data.url) {
       window.open(r.data.url, '_blank');
       return;
     }
     throw new Error('预览地址为空');
   } catch (e) {
-    if (!showVerifyFailures(e)) Shade.toast(e.message, 'error');
+    if (!showVerifyFailures(e, range.from, function () { taskSheetPreview(btn, true); })) Shade.toast(e.message, 'error');
   } finally {
     btn.disabled = false;
   }
 }
 
-/* 工作任务单：下载 = docx 二进制，fetch + blob 落地（口径同杆塔模板下载） */
-async function taskSheetDownload(btn) {
+/* 工作任务单：下载 = docx 二进制，fetch + blob 落地（口径同杆塔模板下载）；force=强制执行跳过生成前核验 */
+async function taskSheetDownload(btn, force) {
   var range = tsRange();
   if (!range) return;
   btn.disabled = true;
@@ -3495,7 +3514,7 @@ async function taskSheetDownload(btn) {
     var headers = {};
     var token = localStorage.getItem('shade_token');
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/task-sheet?from=' + range.from + '&to=' + range.to), { headers: headers });
+    var res = await fetch(wl('/api/v1/worklog/task-sheet?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')), { headers: headers });
     if (res.status === 401) {
       localStorage.removeItem('shade_token');
       localStorage.removeItem('shade_user');
@@ -3520,17 +3539,16 @@ async function taskSheetDownload(btn) {
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
   } catch (e) {
-    if (!showVerifyFailures(e)) Shade.toast(e.message, 'error');
+    if (!showVerifyFailures(e, range.from, function () { taskSheetDownload(btn, true); })) Shade.toast(e.message, 'error');
   }
   btn.disabled = false;
 }
 
-/* 费用汇总：读取范围入参并校验（同 tsRange 口径） */
+/* 费用汇总：读取范围入参（state.fs，同 tsRange 口径） */
 function fsRange() {
-  var from = $('#fsFrom') && $('#fsFrom').value;
-  var to = $('#fsTo') && $('#fsTo').value;
+  var from = state.fs.from;
+  var to = state.fs.to;
   if (!from || !to) { Shade.toast('请选择日期范围', 'info'); return null; }
-  if (from > to) { Shade.toast('开始日期不能晚于结束日期', 'info'); return null; }
   return { from: from, to: to };
 }
 /* 范围文件名口径同后端 feeFileName */
@@ -3538,27 +3556,27 @@ function fsFileName(from, to) {
   return from === to ? '费用汇总-' + from + '.docx' : '费用汇总-' + from + '至' + to + '.docx';
 }
 
-/* 费用汇总：预览 = 调 preview 接口取 basemetas 地址新标签打开（同工作任务单口径） */
-async function feeSheetPreview(btn) {
+/* 费用汇总：预览 = 调 preview 接口取 basemetas 地址新标签打开（同工作任务单口径）；force=强制执行跳过生成前核验 */
+async function feeSheetPreview(btn, force) {
   var range = fsRange();
   if (!range) return;
   btn.disabled = true;
   try {
-    var r = await Shade.api(wl('/api/v1/worklog/fee-sheet/preview?from=' + range.from + '&to=' + range.to));
+    var r = await Shade.api(wl('/api/v1/worklog/fee-sheet/preview?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
     if (r.data && r.data.url) {
       window.open(r.data.url, '_blank');
       return;
     }
     throw new Error('预览地址为空');
   } catch (e) {
-    if (!showVerifyFailures(e)) Shade.toast(e.message, 'error');
+    if (!showVerifyFailures(e, range.from, function () { feeSheetPreview(btn, true); })) Shade.toast(e.message, 'error');
   } finally {
     btn.disabled = false;
   }
 }
 
-/* 费用汇总：下载 = docx 二进制，fetch + blob 落地（同工作任务单口径） */
-async function feeSheetDownload(btn) {
+/* 费用汇总：下载 = docx 二进制，fetch + blob 落地（同工作任务单口径）；force=强制执行跳过生成前核验 */
+async function feeSheetDownload(btn, force) {
   var range = fsRange();
   if (!range) return;
   btn.disabled = true;
@@ -3566,7 +3584,7 @@ async function feeSheetDownload(btn) {
     var headers = {};
     var token = localStorage.getItem('shade_token');
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/fee-sheet?from=' + range.from + '&to=' + range.to), { headers: headers });
+    var res = await fetch(wl('/api/v1/worklog/fee-sheet?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')), { headers: headers });
     if (res.status === 401) {
       localStorage.removeItem('shade_token');
       localStorage.removeItem('shade_user');
@@ -3591,7 +3609,7 @@ async function feeSheetDownload(btn) {
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
   } catch (e) {
-    if (!showVerifyFailures(e)) Shade.toast(e.message, 'error');
+    if (!showVerifyFailures(e, range.from, function () { feeSheetDownload(btn, true); })) Shade.toast(e.message, 'error');
   }
   btn.disabled = false;
 }
@@ -3809,10 +3827,22 @@ function initEvents() {
   $$('#wlTabs button').forEach(function (b) {
     b.addEventListener('click', function () { switchPane(b.dataset.p); });
   });
-  /* 工作任务单页签：预览（basemetas 新标签）/ 下载（fetch + blob），函数在数据管理区同族定义 */
+  /* 工作任务单页签：改日期（弹层选范围）/ 预览（basemetas 新标签）/ 下载（fetch + blob），函数在数据管理区同族定义 */
+  $('#tsChange').addEventListener('click', function () {
+    pickRange(state.ts.from, state.ts.to, function (f, t) {
+      state.ts.from = f; state.ts.to = t;
+      syncRangeText('#tsRangeText', f, t);
+    });
+  });
   $('#tsPrev').addEventListener('click', function () { taskSheetPreview(this); });
   $('#tsDl').addEventListener('click', function () { taskSheetDownload(this); });
-  /* 费用汇总页签：预览 / 下载（同工作任务单口径） */
+  /* 费用汇总页签：改日期 / 预览 / 下载（同工作任务单口径） */
+  $('#fsChange').addEventListener('click', function () {
+    pickRange(state.fs.from, state.fs.to, function (f, t) {
+      state.fs.from = f; state.fs.to = t;
+      syncRangeText('#fsRangeText', f, t);
+    });
+  });
   $('#fsPrev').addEventListener('click', function () { feeSheetPreview(this); });
   $('#fsDl').addEventListener('click', function () { feeSheetDownload(this); });
   /* 派车对齐页签：选文件 / 移除文件 / 开始对齐 / 清单行打开对照弹层 */
@@ -3843,17 +3873,13 @@ function initEvents() {
   window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); syncSideReport(); });
   $('#btnCreate').addEventListener('click', function () { openEntryForm(null); });
   $('#btnSyncCheck').addEventListener('click', function () { openSyncCheck(); });
-  /* 下载页签：查询 / 仅今天 / 全选 / 缩略图勾选 / 打包下载（仅看我走页头全局开关） */
-  $('#dlQuery').addEventListener('click', function () {
-    state.dl.from = $('#dlFrom').value;
-    state.dl.to = $('#dlTo').value;
-    loadDlPhotos();
-  });
-  $('#dlToday').addEventListener('click', function () {
-    state.dl.from = state.dl.to = todayStr();
-    $('#dlFrom').value = state.dl.from;
-    $('#dlTo').value = state.dl.to;
-    loadDlPhotos();
+  /* 下载页签：改日期（弹层选范围，确认即查询）/ 全选 / 缩略图勾选 / 打包下载（仅看我走页头全局开关） */
+  $('#dlChange').addEventListener('click', function () {
+    pickRange(state.dl.from, state.dl.to, function (f, t) {
+      state.dl.from = f; state.dl.to = t;
+      syncRangeText('#dlRangeText', f, t);
+      loadDlPhotos();
+    });
   });
   $('#dlAll').addEventListener('click', function () {
     var target = !this.classList.contains('on');
@@ -4063,19 +4089,19 @@ async function init() {
   $('#dlGo').innerHTML = Shade.icon('download', 15) + '打包下载';
   $('#tsPrev').innerHTML = Shade.icon('file', 15) + '预览';
   $('#tsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
-  $('#tsFrom').value = state.date; // 工作任务单范围默认取月历当前选中日期（单日）
-  $('#tsTo').value = state.date;
   $('#fsPrev').innerHTML = Shade.icon('file', 15) + '预览';
   $('#fsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
-  $('#fsFrom').value = state.date; // 费用汇总范围默认同工作任务单（单日）
-  $('#fsTo').value = state.date;
+  /* 批量下载 / 工作任务单 / 费用汇总 范围默认均仅当日单日（「改日期」弹层再选区间） */
+  state.ts.from = state.ts.to = state.date;
+  state.fs.from = state.fs.to = state.date;
+  state.dl.from = state.dl.to = state.date;
+  syncRangeText('#tsRangeText', state.date, state.date);
+  syncRangeText('#fsRangeText', state.date, state.date);
+  syncRangeText('#dlRangeText', state.date, state.date);
   $('#calPrev').innerHTML = SVG_CHEV_L;
   $('#calNext').innerHTML = SVG_CHEV_R;
 
-  /* 下载页签默认日期范围（当天 ≤10 号上月整月，否则本月 1 号~今天）；核验页签默认当月 */
-  var dr = defaultRange();
-  state.dl.from = dr.from; state.dl.to = dr.to;
-  $('#dlFrom').value = dr.from; $('#dlTo').value = dr.to;
+  /* 核验页签默认当月（下载 / 任务单 / 费用汇总默认范围已在上方置为当日） */
   state.rep.month = todayStr().slice(0, 7);
   syncRepMonthText();
   $('#repPrev').innerHTML = SVG_CHEV_L; $('#repNext').innerHTML = SVG_CHEV_R;

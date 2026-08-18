@@ -30,25 +30,29 @@
 }
 
 .range {
-  flex: none;
+  margin-top: 22rpx;
   display: flex;
   align-items: center;
-  gap: 10rpx;
+  justify-content: space-between;
+  gap: 18rpx;
 }
 
-.range-sep {
-  color: #a89f8a;
-  font-size: 22rpx;
+.range-text {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #22314e;
+  letter-spacing: 1rpx;
 }
 
-.date-pill {
+/* 「改日期」明显按钮：实心安全橙药丸（批量下载面板同款口径） */
+.range-open {
   flex: none;
   font-size: 24rpx;
   font-weight: 700;
-  color: #f26d21;
-  background: #fdeee2;
+  color: #ffffff;
+  background: #f26d21;
   border-radius: 14rpx;
-  padding: 14rpx 24rpx;
+  padding: 14rpx 32rpx;
 }
 
 .gen {

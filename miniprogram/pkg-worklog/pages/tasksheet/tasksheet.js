@@ -10,6 +10,10 @@ Page({
     from: '', // 生成范围起（默认今天）
     to: '', // 生成范围止（默认今天）
     generating: false,
+    calVisible: false, // range 日历展开态
+    calValue: null, // 日历当前选中（[起, 止] 时间戳）
+    minDate: 0, // 可选区间：去年今日 ~ 三个月后（同主页日历口径；不设置则组件默认今天起选不了历史日期）
+    maxDate: 0,
   },
 
   async onLoad() {
@@ -24,46 +28,77 @@ Page({
     this._teamId = Number(wx.getStorageSync('worklog_team_id')) || 0;
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    this.setData({ isAdmin: true, from: today, to: today });
+    this.setData({
+      isAdmin: true,
+      from: today,
+      to: today,
+      minDate: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).getTime(),
+      maxDate: new Date(now.getFullYear(), now.getMonth() + 3, now.getDate()).getTime(),
+    });
   },
 
   toast(message) {
     Toast({ context: this, selector: '#t-toast', message });
   },
 
-  onFromChange(e) {
-    this.setData({ from: e.detail.value });
+  // 「改日期」：展开 range 日历（同主页批量下载面板口径；allow-same-day 支持单日）
+  onOpenRange() {
+    const { from, to } = this.data;
+    this.setData({
+      calVisible: true,
+      calValue: [new Date(`${from}T00:00:00`).getTime(), new Date(`${to}T00:00:00`).getTime()],
+    });
   },
 
-  onToChange(e) {
-    this.setData({ to: e.detail.value });
+  // range 日历确认：e.detail.value 为两个时间戳；回写范围
+  onCalConfirm(e) {
+    const value = e.detail.value;
+    if (!Array.isArray(value) || value.length < 2) {
+      this.toast('请选择起止日期');
+      return;
+    }
+    const fmt = (t) => {
+      const d = new Date(t);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    this.setData({ from: fmt(value[0]), to: fmt(value[1]), calVisible: false });
   },
 
-  // 生成前核验拦截（40901）：错误响应 JSON 已随下载落盘，解析出未通过清单弹窗提示（费用汇总页同口径）
+  onCalClose() {
+    this.setData({ calVisible: false });
+  },
+
+  // 生成前核验拦截（40901）：小弹窗二选一——「去核验」返回主页并打开汇总前核验面板；「仍要生成」管理员强制执行（force=1 重试）
   showVerifyFailures(res) {
     let ej = null;
     try {
       const path = res.filePath || res.tempFilePath;
       if (path) ej = JSON.parse(wx.getFileSystemManager().readFileSync(path, 'utf8'));
     } catch (e) { /* 非 JSON 响应忽略，走通用错误提示 */ }
-    const failures = ej && ej.code === 40901 && ej.data && ej.data.failures;
-    if (!failures || !failures.length) return false;
-    const lines = failures.slice(0, 5).map((f) => {
-      const d = `${Number(f.log_date.slice(5, 7))}月${Number(f.log_date.slice(8, 10))}日`;
-      return `${d} ${f.plate_no || '未出车'}（${(f.members || []).join('、')}）：${(f.reasons || []).slice(0, 2).join('；')}`;
-    });
-    if (failures.length > 5) lines.push(`……等 ${failures.length} 条`);
+    if (!ej || ej.code !== 40901) return false;
     wx.showModal({
       title: '存在未通过项',
-      content: `${ej.message}：\n${lines.join('\n')}\n可到「汇总前核验」查看处理`,
-      showCancel: false,
-      confirmText: '知道了',
+      content: `${ej.message}。可先到「汇总前核验」逐项处理，或确认后直接生成。`,
+      confirmText: '仍要生成',
+      cancelText: '去核验',
+      success: (m) => {
+        if (m.confirm) {
+          this.onGenerate(true); // 强制执行
+          return;
+        }
+        if (m.cancel) {
+          const pages = getCurrentPages();
+          const prev = pages[pages.length - 2];
+          if (prev && prev.onOpenReport) prev.onOpenReport(); // 主页打开汇总前核验面板
+          wx.navigateBack();
+        }
+      },
     });
     return true;
   },
 
-  // 生成并打开：二进制 docx，wx.downloadFile 后 wx.openDocument 打开（同 manage 页模板下载链路）
-  onGenerate() {
+  // 生成并打开：二进制 docx，wx.downloadFile 后 wx.openDocument 打开（同 manage 页模板下载链路）；force=强制执行跳过生成前核验
+  onGenerate(force) {
     const { from, to } = this.data;
     if (!from || !to || this.data.generating) return;
     if (from > to) {
@@ -75,7 +110,8 @@ Page({
     // 文件名口径同后端 sheetFileName：单日带单日期，跨天带范围
     const fileName = from === to ? `工作任务单-${from}.docx` : `工作任务单-${from}至${to}.docx`;
     wx.downloadFile({
-      url: `${BASE_URL}/api/v1/worklog/task-sheet?from=${from}&to=${to}${this._teamId ? `&team_id=${this._teamId}` : ''}`,
+      // bindtap 直绑时 force 为事件对象，仅确认按钮传来 true 才算强制执行
+      url: `${BASE_URL}/api/v1/worklog/task-sheet?from=${from}&to=${to}${this._teamId ? `&team_id=${this._teamId}` : ''}${force === true ? '&force=1' : ''}`,
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
       // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
       filePath: `${wx.env.USER_DATA_PATH}/${fileName}`,

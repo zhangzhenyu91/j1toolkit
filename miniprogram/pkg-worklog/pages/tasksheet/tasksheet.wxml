@@ -1,22 +1,15 @@
-<!-- 出工日志 · 工作任务单（超管 / 班组管理员）：选日期 → 生成合并 Word 并打开 -->
+<!-- 出工日志 · 工作任务单（超管 / 班组管理员）：选日期范围 → 生成合并 Word 并打开 -->
 <navbar back title="工作任务单" />
 
 <view class="page-body" wx:if="{{isAdmin}}">
   <view class="card">
-    <view class="row">
-      <view class="r-l">
-        <view class="r-t">生成范围</view>
-        <view class="r-s">范围内全部出车卡片，一卡一页合并为一个 Word（单次最多 31 天）</view>
-      </view>
-      <view class="range">
-        <picker mode="date" value="{{from}}" bindchange="onFromChange">
-          <view class="date-pill" hover-class="hover-opacity">{{from}}</view>
-        </picker>
-        <text class="range-sep">~</text>
-        <picker mode="date" value="{{to}}" bindchange="onToChange">
-          <view class="date-pill" hover-class="hover-opacity">{{to}}</view>
-        </picker>
-      </view>
+    <view class="r-l">
+      <view class="r-t">生成范围</view>
+      <view class="r-s">范围内全部出车卡片，一卡一页合并为一个 Word（单次最多 31 天）</view>
+    </view>
+    <view class="range">
+      <text class="range-text">{{from}} ~ {{to}}</text>
+      <view class="range-open" hover-class="hover-opacity" bindtap="onOpenRange">改日期</view>
     </view>
     <view class="gen {{!from || !to || generating ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenerate">
       {{generating ? '正在生成…' : '生成并打开'}}
@@ -27,5 +20,20 @@
     字段口径：线路杆塔号＝本卡水印照片的施工内容；工作负责人＝排序最前的用车人（排序在「常用数据管理 → 人员」维护）；工作地点＝派车目的地；工作班成员＝用车人（空格间隔）；派车情况＝车牌号。未出车卡片不生成。
   </view>
 </view>
+
+<!-- 改日期：range 日历（同主页批量下载面板口径；confirm 取 e.detail.value 两个时间戳；min/max 不设置则默认今天起选不了历史日期） -->
+<t-calendar
+  visible="{{calVisible}}"
+  value="{{calValue}}"
+  type="range"
+  allow-same-day
+  switch-mode="month"
+  min-date="{{minDate}}"
+  max-date="{{maxDate}}"
+  title="选择日期范围"
+  confirm-btn="确定选择"
+  bind:confirm="onCalConfirm"
+  bind:close="onCalClose"
+/>
 
 <t-toast id="t-toast" />
