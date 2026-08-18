@@ -106,9 +106,10 @@ router.post('/callback', async (req, res) => {
           本班组参加人员: f.attendees || '',
           缺席人员: f.absentees || '无',
           缺席人员原因: f.absentReason || '无',
-          活动内容: String(body.activity_content || '').slice(0, 6000),
-          结合本次内容复盘分析: String(body.recap_analysis || '').slice(0, 6000),
-          结合实际岗位剖析内容: String(body.job_analysis || '').slice(0, 6000),
+          // 三段正文截 20000 字符兜底（防异常超长；实测活动通报类内容可达 8 千字，6000 会截断正文）
+          活动内容: String(body.activity_content || '').slice(0, 20000),
+          结合本次内容复盘分析: String(body.recap_analysis || '').slice(0, 20000),
+          结合实际岗位剖析内容: String(body.job_analysis || '').slice(0, 20000),
           记录人: f.recorder || '',
         });
         const outDir = path.join(DOCS_DIR, record.team || '');
