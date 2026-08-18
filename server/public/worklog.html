@@ -756,7 +756,8 @@
   .ck-slot.todo, .ck-slot.lock { display: flex; align-items: center; }
   .ck-t1 { display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 800; }
   .ck-t1 svg { width: 10px; height: 10px; flex: none; }
-  .ck-t2 { margin-top: 2px; font-size: 10px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* display:block：span 为行内元素时 overflow/ellipsis 不生效，地点长文案会超出 slot（小程序端为 view 天然块级） */
+  .ck-t2 { display: block; margin-top: 2px; font-size: 10px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ck-slot.done { border: 1px solid #DDF0E7; background: #F2FBF7; color: #1E7E54; }
   .ck-slot.done .ck-t2 { color: #5C8A76; }
   .ck-slot.todo { border: 1px dashed var(--orange); color: var(--orange); }
