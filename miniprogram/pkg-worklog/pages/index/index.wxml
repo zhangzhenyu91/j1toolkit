@@ -467,13 +467,14 @@
       <block wx:if="{{!isNoVehicle}}">
         <view class="sec-row">
           <view class="section-title">人员选择</view>
-          <view class="sec-note">点亮即用车人</view>
+          <view class="sec-note">点亮即用车人{{memberUsedTip ? '；灰色 = 当日已在其他卡片' : ''}}</view>
         </view>
         <view class="tags">
           <t-check-tag
             wx:for="{{members}}"
             wx:key="id"
             checked="{{item.checked}}"
+            disabled="{{item.disabled}}"
             content=""
             data-index="{{index}}"
             bind:change="onMemberTagChange"

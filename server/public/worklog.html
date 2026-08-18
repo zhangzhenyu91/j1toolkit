@@ -1881,37 +1881,65 @@ async function openEntryForm(entry) {
   var vehicleId = entry ? (entry.vehicle_id > 0 ? entry.vehicle_id : -1) : -1;
   var destId = entry ? (entry.destination_id || 0) : 0;
   var memberIds = entry ? (entry.members || []).map(function (m) { return m.member_id; }) : [];
-  var optsV = '<option value="-1">未出车</option>' + meta.vehicles.map(function (v) {
-    return '<option value="' + v.id + '"' + (v.id === vehicleId ? ' selected' : '') + '>' + esc(v.plate_no) + '</option>';
-  }).join('');
-  var optsD = '<option value="0">未选择</option>' + meta.destinations.map(function (d) {
-    return '<option value="' + d.id + '"' + (d.id === destId ? ' selected' : '') + '>' + esc(d.name) + '</option>';
-  }).join('');
+  /* 同日期同人唯一（后端 40020 配套）：当日其他卡片已占用的人名置灰不可点亮（编辑时排除本卡） */
+  var usedMids = [];
+  state.entries.forEach(function (e) {
+    if (entry && e.id === entry.id) return;
+    (e.members || []).forEach(function (m) {
+      if (usedMids.indexOf(m.member_id) < 0) usedMids.push(m.member_id);
+    });
+  });
   var html = mHead(entry ? '修改派车 / 用车人' : '新建日志')
     + '<div class="f-hint" style="margin:0 0 2px">' + esc(fmtDateCN(entry ? entry.log_date : state.date)) + '</div>'
-    + '<label class="f-lab">派车车辆</label><select class="f-sel" id="efVehicle">' + optsV + '</select>'
+    + '<label class="f-lab">派车车辆</label>' + comboHTML('efVehicle')
     + '<div id="efDrive">'
-    + '<label class="f-lab">目的地</label><select class="f-sel" id="efDest">' + optsD + '</select>'
-    + '<label class="f-lab">用车人（点亮即为用车人）</label>' + chipsHTML(meta.members, memberIds)
+    + '<label class="f-lab">目的地</label>' + comboHTML('efDest')
+    + '<label class="f-lab">用车人（点亮即为用车人' + (usedMids.length ? '；灰色 = 当日已在其他卡片' : '') + '）</label>' + chipsHTML(meta.members, memberIds, usedMids)
     + '</div>'
     + '<div class="f-hint" id="efHint" style="display:none">未出车为站内作业，不参与验证，不可选目的地与用车人</div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
   var inst = createModal(html, { width: 520 });
   var saving = false;
+  /* 车牌 / 目的地为可输入筛选下拉（combo 同杆塔坐标口径）：onPick 记已选 id，onEdit 清空（输入与已选不一致视为未选） */
+  var selVehicleId = null;
+  var selDestId = null;
   function syncVehicle() {
-    var noCar = +$('#efVehicle', inst.box).value <= 0;
+    var noCar = !(selVehicleId > 0);
     $('#efDrive', inst.box).style.display = noCar ? 'none' : '';
     $('#efHint', inst.box).style.display = noCar ? '' : 'none';
   }
-  $('#efVehicle', inst.box).addEventListener('change', syncVehicle);
+  var vehItems = [{ label: '未出车', id: -1 }].concat(meta.vehicles.map(function (v) { return { label: v.plate_no, id: v.id }; }));
+  var destItems = [{ label: '未选择', id: 0 }].concat(meta.destinations.map(function (d) { return { label: d.name, id: d.id }; }));
+  var destC = makeCombo(inst.box, 'efDest', {
+    onPick: function (it) { selDestId = it.id; },
+    onEdit: function () { selDestId = null; }
+  });
+  var vehC = makeCombo(inst.box, 'efVehicle', {
+    onPick: function (it) { selVehicleId = it.id; syncVehicle(); },
+    onEdit: function () { selVehicleId = null; syncVehicle(); }
+  });
+  /* 回填：新建默认「未出车」；编辑回填原车牌 / 目的地（未选则「未选择」） */
+  vehC.setItems(vehItems, '输入关键字筛选或直接选择');
+  destC.setItems(destItems, '输入关键字筛选或直接选择');
+  var hitV = vehItems.filter(function (it) { return it.id === vehicleId; })[0] || vehItems[0];
+  vehC.setValue(hitV);
+  selVehicleId = hitV.id;
+  var hitD = destItems.filter(function (it) { return it.id === destId; })[0] || destItems[0];
+  destC.setValue(hitD);
+  selDestId = hitD.id;
   syncVehicle();
   bindChips(inst.box);
   $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
   $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
     if (saving) return;
-    var vid = +$('#efVehicle', inst.box).value;
-    var payload = payloadOf(entry, entry ? entry.patrol_content : '', vid, +$('#efDest', inst.box).value, chipSelIds(inst.box));
+    if (selVehicleId == null) { Shade.toast('请从下拉列表选择派车车辆', 'info'); return; }
+    if (selDestId == null && $('#efDest .combo-in', inst.box).value.trim()) {
+      Shade.toast('请从下拉列表选择目的地', 'info');
+      return;
+    }
+    var vid = selVehicleId;
+    var payload = payloadOf(entry, entry ? entry.patrol_content : '', vid, selDestId || 0, chipSelIds(inst.box));
     /* 改派车保存前确认内网派车单已同步修改（同小程序）；新建直接保存 */
     if (entry) {
       var yes = await confirmAction({ title: '保存派车修改', content: '请确保内网派车单同步修改！', confirmText: '我确认已修改' });
@@ -2639,6 +2667,7 @@ function makeCombo(box, id, hooks) {
       input.disabled = true;
       close();
     },
+    setValue: function (it) { if (!it) return; cur = it.label; input.value = it.label; }, // 回填已选项（编辑场景预填，不触发 hooks）
     value: function () { return cur; }
   };
 }

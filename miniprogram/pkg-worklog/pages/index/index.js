@@ -207,7 +207,8 @@ Page({
     formVisible: false,
     formId: 0, // 0=新建
     formDateStr: '',
-    members: [], // meta 成员 + checked（点亮即用车人）
+    members: [], // meta 成员 + checked（点亮即用车人）+ disabled（当日已在其他卡片，置灰不可点亮）
+    memberUsedTip: false, // 有成员被当日其他卡片占用时，人员选择提示「灰色 = 当日已在其他卡片」
     patrol: '', // 面板不展示；改派车提交时原样带上（PUT 全量替换）
     vehicleId: -1, // -1 未出车（新建默认） / >0 车牌 id
     vehicleText: '',
@@ -1325,6 +1326,12 @@ Page({
       keyboardHeight: 0,
       formSaving: false,
     };
+    // 同日期同人唯一（后端 40020 配套）：当日其他卡片已占用的人名置灰不可点亮（编辑时排除本卡）
+    const usedMids = new Set();
+    this.data.list.forEach((x) => {
+      if (id && x.id === id) return;
+      (x.memberIds || []).forEach((mid) => usedMids.add(mid));
+    });
     if (!id) {
       // 新建：默认未出车，人员全部未点亮
       this.setData({
@@ -1335,7 +1342,8 @@ Page({
         destId: 0,
         destText: '',
         isNoVehicle: true,
-        members: this.data.members.map((m) => ({ ...m, checked: false })),
+        members: this.data.members.map((m) => ({ ...m, checked: false, disabled: usedMids.has(m.id) })),
+        memberUsedTip: usedMids.size > 0,
       });
       return;
     }
@@ -1350,7 +1358,8 @@ Page({
       vehicleId: entry.vehicleId > 0 ? entry.vehicleId : -1,
       isNoVehicle: !(entry.vehicleId > 0),
       destId: entry.destId || 0,
-      members: this.data.members.map((m) => ({ ...m, checked: entry.memberIds.includes(m.id) })),
+      members: this.data.members.map((m) => ({ ...m, checked: entry.memberIds.includes(m.id), disabled: usedMids.has(m.id) })),
+      memberUsedTip: usedMids.size > 0,
     });
     this.refreshDictText();
   },
@@ -1432,6 +1441,7 @@ Page({
 
   onMemberTagChange(e) {
     const { index } = e.currentTarget.dataset;
+    if (this.data.members[index] && this.data.members[index].disabled) return; // 当日已在其他卡片，不可点亮
     this.setData({ [`members[${index}].checked`]: e.detail.checked });
   },
 
