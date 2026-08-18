@@ -1254,13 +1254,12 @@ Page({
 
   // ---------- 商旅打卡 · 从商旅同步（卡片操作区入口，替代原悬浮钮「同步核查」） ----------
 
-  // 「从商旅同步」：按卡片日期手动拉取本班全部绑定成员当日数据（后端异步执行，不一致以商旅为准覆盖），
-  // 8 秒后静默刷新本日列表看结果
+  // 「从商旅同步」：仅拉取本卡用车人的当日数据（后端异步执行，不一致以商旅为准覆盖），8 秒后静默刷新本日列表看结果
   async onSyncPull(e) {
-    const { date } = e.currentTarget.dataset;
+    const { date, id } = e.currentTarget.dataset;
     try {
-      await request({ url: '/api/v1/sgcc/sync/pull', method: 'POST', data: this.teamBody({ date }) });
-      this.toast('已发起从商旅同步，请稍后查看');
+      await request({ url: '/api/v1/sgcc/sync/pull', method: 'POST', data: this.teamBody({ date, entry_id: Number(id) || undefined }) });
+      this.toast('已发起从商旅同步（仅本卡用车人），请稍后查看');
       if (this._pullTimer) clearTimeout(this._pullTimer);
       this._pullTimer = setTimeout(() => this.loadLogs(), 8000);
     } catch (err) {

@@ -290,8 +290,8 @@
       </view>
 
       <view class="lc-actions">
-        <!-- 从商旅同步：按本卡日期手动拉取本班当日数据（与打卡区 showClock 同门控，后端未开启商旅时不显示） -->
-        <view class="act act-sync" wx:if="{{item.showClock}}" hover-class="hover-opacity" bindtap="onSyncPull" data-date="{{day.dateStr}}">从商旅同步</view>
+        <!-- 从商旅同步：仅拉取本卡用车人的当日数据（与打卡区 showClock 同门控，后端未开启商旅时不显示） -->
+        <view class="act act-sync" wx:if="{{item.showClock}}" hover-class="hover-opacity" bindtap="onSyncPull" data-date="{{day.dateStr}}" data-id="{{item.id}}">从商旅同步</view>
         <view class="act act-note" hover-class="hover-opacity" bindtap="onOpenRemark" data-id="{{item.id}}">备 注</view>
         <view class="act act-del" hover-class="hover-opacity" bindtap="onDelete" data-id="{{item.id}}">删 除</view>
       </view>

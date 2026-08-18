@@ -1199,14 +1199,24 @@ async function syncOne(account, date, scope) {
 
 // 整班单日核查（仅当日用车人：非用车人数据界面不展示，跳过可省一轮商旅 API，
 // 也避免照片对账记「成员当日无出工记录」噪音日志）
-async function syncTeamDay(teamId, date, scope) {
-  const [accounts] = await pool.query(
-    `SELECT DISTINCT a.* FROM worklog_sgcc_account a
-     JOIN worklog_entry e ON e.team_id = a.team_id AND e.log_date = ?
-     JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a.member_id
-     WHERE a.team_id = ? AND a.member_id IS NOT NULL`,
-    [date, teamId]
-  );
+// onlyMemberIds 传入时仅同步这些成员（卡片级「从商旅同步」：仅本卡用车人）；缺省为当日用车人中的全部绑定成员
+async function syncTeamDay(teamId, date, scope, onlyMemberIds) {
+  let accounts;
+  if (Array.isArray(onlyMemberIds)) {
+    if (!onlyMemberIds.length) return;
+    [accounts] = await pool.query(
+      'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND member_id IN (?)',
+      [teamId, onlyMemberIds]
+    );
+  } else {
+    [accounts] = await pool.query(
+      `SELECT DISTINCT a.* FROM worklog_sgcc_account a
+       JOIN worklog_entry e ON e.team_id = a.team_id AND e.log_date = ?
+       JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a.member_id
+       WHERE a.team_id = ? AND a.member_id IS NOT NULL`,
+      [date, teamId]
+    );
+  }
   for (const account of accounts) {
     try {
       await syncOne(account, date, scope);
@@ -1218,15 +1228,33 @@ async function syncTeamDay(teamId, date, scope) {
   }
 }
 
-// POST /sync/pull：手动从商旅拉取 {date: 'YYYY-MM-DD'} 或 {from: 'YYYY-MM-DD', to: 'YYYY-MM-DD'}（日期区段，最多跨 62 天），team_id?
+// POST /sync/pull：手动从商旅拉取 {date: 'YYYY-MM-DD'} 或 {from, to}（区段最多跨 62 天）或 {entry_id}（卡片级：仅该卡用车人），team_id?
 // 所有 work-log 权限用户可用：触发本班组指定日期（区段）内当日用车人中的绑定成员从商旅拉取（一律以商旅为准覆盖本地）；
+// entry_id 传入时仅同步该卡片的用车人（日期以卡片 log_date 为准，from/to 忽略）；
 // team_id 仅超管生效（沿用 resolveReqTeam 口径：班组管理员/普通用户传了也被收敛到本班）；
 // 区段逐日串行异步执行，结果见 GET /sync/logs
 router.post('/sync/pull', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
-    const from = String((req.body && (req.body.from || req.body.date)) || today());
-    const to = String((req.body && req.body.to) || from);
+
+    // 卡片级：仅本卡用车人（日期以卡片为准）
+    const entryId = Number((req.body && req.body.entry_id) || 0);
+    let onlyMemberIds = null;
+    let entryDate = '';
+    if (entryId) {
+      const [erows] = await pool.query(
+        `SELECT id, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date FROM worklog_entry WHERE id = ? AND team_id = ?`,
+        [entryId, req.team.id]
+      );
+      if (!erows.length) return fail(res, 404, 40400, '日志不存在');
+      entryDate = erows[0].log_date;
+      const [mrows] = await pool.query('SELECT member_id FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
+      onlyMemberIds = mrows.map((r) => r.member_id);
+      if (!onlyMemberIds.length) return fail(res, 400, 40042, '该卡片暂无用车人，无需同步');
+    }
+
+    const from = entryDate || String((req.body && (req.body.from || req.body.date)) || today());
+    const to = entryDate || String((req.body && req.body.to) || from);
     if (!DATE_RE.test(from) || !DATE_RE.test(to)) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     if (from > to) return fail(res, 400, 40000, '日期区段不正确');
     // 逐日展开（按 UTC 毫秒步进，避免本地时区影响）；最多跨 62 天
@@ -1237,12 +1265,14 @@ router.post('/sync/pull', async (req, res, next) => {
     (async () => {
       for (let i = 0; i < days; i += 1) {
         const d = new Date(fromMs + i * DAY_MS).toISOString().slice(0, 10);
-        await syncTeamDay(req.team.id, d, 'daily');
+        await syncTeamDay(req.team.id, d, 'daily', onlyMemberIds || undefined);
       }
     })().catch((err) => console.error('[商旅打卡] 手动拉取失败：', err.message));
     // 响应文案口径：M月D日（不补零）
     const md = (s) => `${Number(s.slice(5, 7))}月${Number(s.slice(8, 10))}日`;
-    const msg = from === to ? `已发起从商旅拉取（${md(from)}）` : `已发起从商旅拉取（${md(from)} 至 ${md(to)}）`;
+    const msg = entryId
+      ? `已发起从商旅拉取（${md(from)}，仅本卡用车人）`
+      : from === to ? `已发起从商旅拉取（${md(from)}）` : `已发起从商旅拉取（${md(from)} 至 ${md(to)}）`;
     return ok(res, null, msg);
   } catch (err) { return next(err); }
 });
