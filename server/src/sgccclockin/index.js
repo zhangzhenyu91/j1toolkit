@@ -117,24 +117,52 @@ function fmtCnDateTime(v) {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
-// 打卡成功后用 dayNew 全量刷新该日打卡流水（开始/结束按时间排序定 seq，工时一并回写）
+// 打卡成功后用 dayNew 全量刷新该日打卡流水（工时一并回写）。
+// seq 分配规则：按 detailId 匹配本地已有记录保留原 seq（防止排序重排导致开始/结束互换）；
+// 新记录（本地无该 detailId）按时间排序分配到空余 seq 位。
 async function refreshClockins(account, date) {
   const d = await sgcc.dayNew(account.token, date, devOpt(account));
   const body = d && Number(d.statusCode) === 200 && d.data && d.data.body;
   if (!body) return null;
   const list = (Array.isArray(body.clockInDetailList) ? body.clockInDetailList.slice() : [])
-    .map((it) => ({ ...it, _t: fmtCnDateTime(it.clockInTime ?? it.createTime) }))
-    .sort((a, b) => String(a._t || '').localeCompare(String(b._t || '')));
-  for (let i = 0; i < Math.min(list.length, 2); i += 1) {
-    const it = list[i];
+    .map((it) => ({ ...it, _t: fmtCnDateTime(it.clockInTime ?? it.createTime), _detailId: String(it.detailId ?? it.id ?? '') }));
+
+  // 查本地已有记录，建立 detailId → seq 映射
+  const [existing] = await pool.query(
+    'SELECT seq, detail_id FROM worklog_clockin WHERE member_id = ? AND clock_date = ?',
+    [account.member_id, date]
+  );
+  const seqByDetailId = {};
+  for (const row of existing) {
+    if (row.detail_id) seqByDetailId[row.detail_id] = row.seq;
+  }
+
+  // 分离：已有记录（保持原 seq）与新记录（按时间排序分配空位）
+  const known = [];
+  const fresh = [];
+  for (const it of list) {
+    if (it._detailId && seqByDetailId[it._detailId]) known.push({ ...it, _seq: seqByDetailId[it._detailId] });
+    else fresh.push(it);
+  }
+  fresh.sort((a, b) => String(a._t || '').localeCompare(String(b._t || '')));
+  const usedSeqs = new Set(known.map((it) => it._seq));
+  let nextSeq = 1;
+  for (const it of fresh) {
+    while (usedSeqs.has(nextSeq)) nextSeq += 1;
+    it._seq = nextSeq;
+    usedSeqs.add(nextSeq);
+  }
+
+  for (const it of [...known, ...fresh]) {
+    if (it._seq > 2) continue; // 本地仅落 seq 1/2（开始/结束）
     await pool.query(
       `INSERT INTO worklog_clockin (team_id, member_id, clock_date, seq, detail_id, clock_time, position, longitude, latitude, work_hours, source)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
        ON DUPLICATE KEY UPDATE detail_id = VALUES(detail_id), clock_time = VALUES(clock_time),
          position = VALUES(position), longitude = VALUES(longitude), latitude = VALUES(latitude),
          work_hours = VALUES(work_hours)`,
-      [account.team_id, account.member_id, date, i + 1,
-        String(it.detailId ?? it.id ?? ''), it._t,
+      [account.team_id, account.member_id, date, it._seq,
+        it._detailId, it._t,
         String(it.position || ''), String(it.longitude ?? ''), String(it.latitude ?? ''),
         String(body.workHours ?? '')]
     );
@@ -1124,25 +1152,34 @@ async function syncOne(account, date, scope) {
     return;
   }
 
-  // 打卡对账：先全量刷新，再删除本地 seq 不在商旅返回集合内的行（商旅 0 条则全删，一律以商旅为准）
+  // 打卡对账：先全量刷新，再删除本地 detailId 不在商旅返回集合内的行（商旅 0 条则全删，一律以商旅为准）
   const [before] = await pool.query(
     'SELECT COUNT(*) AS cnt FROM worklog_clockin WHERE member_id = ? AND clock_date = ?',
     [account.member_id, date]
   );
   const body = await refreshClockins(account, date);
   if (body) {
-    const remote = Array.isArray(body.clockInDetailList) ? body.clockInDetailList.length : 0;
-    const keep = Math.min(remote, 2); // 本地仅落 seq 1/2（开始/结束）
-    if (keep === 0) {
+    const remoteIds = new Set(
+      (Array.isArray(body.clockInDetailList) ? body.clockInDetailList : [])
+        .map((it) => String(it.detailId ?? it.id ?? ''))
+        .filter(Boolean)
+    );
+    if (remoteIds.size === 0) {
       await pool.query('DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ?', [account.member_id, date]);
     } else {
-      await pool.query(
-        'DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ? AND seq > ?',
-        [account.member_id, date, keep]
+      // 删除本地有但商旅已无的记录（按 detailId 匹配，避免按 seq 位置误删）
+      const [localRows] = await pool.query(
+        'SELECT id, detail_id FROM worklog_clockin WHERE member_id = ? AND clock_date = ?',
+        [account.member_id, date]
       );
+      for (const row of localRows) {
+        if (!remoteIds.has(String(row.detail_id))) {
+          await pool.query('DELETE FROM worklog_clockin WHERE id = ?', [row.id]);
+        }
+      }
     }
-    await log('clockin', before[0].cnt === keep ? 'ok' : 'diff',
-      `打卡：商旅 ${remote} 条覆盖本地（本地原 ${before[0].cnt} 条）`);
+    await log('clockin', before[0].cnt === Math.min(remoteIds.size, 2) ? 'ok' : 'diff',
+      `打卡：商旅 ${remoteIds.size} 条覆盖本地（本地原 ${before[0].cnt} 条）`);
   }
 
   // 费用对账：以商旅为准回写本地摘要（含成本分配；城市参数补全取模板，缺省模板可能不带默认成本中心）
