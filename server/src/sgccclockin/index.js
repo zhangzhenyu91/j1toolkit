@@ -926,19 +926,26 @@ async function writeBackPullVerify(photoId, vr) {
 }
 
 // 费用照片双向对账（以商旅为准）：数据源为 getFeeInfoNew 模板 id=5「上传图片」组件的 value
-// （JSON 数组，元素含 id/url，结构已实测，见 esgcc/sgcc/tools/fee_probe3.js 联调口径）；比对键 = 商旅图片 id
+// （JSON 数组，元素含 id/url（App 手工上传可能为 imageUrl，两键兼容），结构见 esgcc/sgcc/tools/fee_probe3.js 联调口径）；比对键 = 商旅图片 id
 // 规则：商旅有本地无 → 下载存 COS 入库（members=[成员名]、source=1、is_watermark=1、
 //       sgcc_img_id={memberId:图片id}、verify_status='pending'，异步 Dify 验证回写沿用 writeBackPullVerify）；
-//       本地 source=1（商旅同步来的）有而商旅无 → 删除（COS 对象 + worklog_photo 行）；
-//       本地 source=0（壹匣上传）商旅无 → 不删不动（可能正在同步途中），记「待商旅侧确认」
+//       相同照片（MD5 一致）合并：人名/链接并入已有照片，一图多人标注；
+//       本地 source=1（商旅拉下的镜像）有而商旅无 → 整照删除（COS 对象 + worklog_photo 行）；
+//       本地 source=0（壹匣上传）本成员链接有而商旅无 → 摘除本成员链接与人名（摘空后整照删除）
 async function syncFeePhotos(account, date, remoteImgs, log) {
-  // 商旅侧集合：商旅图片 id → url（只采信带非空 id 的元素）
+  // 商旅侧集合：商旅图片 id → 图片地址（url / imageUrl 两键兼容；只采信带非空 id 的元素）
   const remote = new Map();
   for (const it of remoteImgs) {
-    if (it && it.id !== undefined && it.id !== null && String(it.id) !== '') {
-      remote.set(String(it.id), typeof it.url === 'string' ? it.url.trim() : '');
-    }
+    if (!it || it.id === undefined || it.id === null || String(it.id) === '') continue;
+    const url = typeof it.url === 'string' && it.url.trim()
+      ? it.url.trim()
+      : (typeof it.imageUrl === 'string' ? it.imageUrl.trim() : '');
+    remote.set(String(it.id), url);
   }
+
+  // 本成员名（摘除/入库标注用）
+  const [mnrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
+  const memberName = mnrows.length ? mnrows[0].name : '';
 
   // 本地侧：本班组当日照片中与本成员相关的行（sgcc_img_id JSON map 含本成员 key，值即该成员商旅图片 id）；
   // source=1 行参与删除对账，source=0（壹匣上传）行只比对不删除
@@ -971,9 +978,7 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
   let pulled = 0;
   let merged = 0;
   if (toPull.length) {
-    // 成员名与绑定人 username（照片 members 口径 / Dify user 入参）
-    const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
-    const memberName = mrows.length ? mrows[0].name : '';
+    // 绑定人 username（Dify user 入参；成员名 memberName 已在函数头部取好）
     const [urows] = await pool.query('SELECT username FROM sys_user WHERE id = ?', [account.user_id]);
     const username = urows.length ? urows[0].username : '';
     // 该成员当日所在首个出工记录（照片须挂在记录下；找不到则记核查日志跳过）
@@ -1047,8 +1052,10 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
     }
   }
 
-  // 方向二：本地 source=1 有而商旅无 → 删除（COS 对象 + worklog_photo 行）
+  // 方向二：商旅侧已删 → 本地同步删除（一切以商旅平台为准）
+  // source=1（商旅拉下的镜像）整照删除；source=0（壹匣上传）摘除本成员链接与人名，摘空后整照删除
   let deleted = 0;
+  let unlinked = 0;
   for (const p of localPulled.filter((x) => !remote.has(x.imgId))) {
     try {
       if (p.cosKey) await cos.deleteObject(p.cosKey);
@@ -1059,14 +1066,37 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
       await log('photo', 'fail', `费用照片：本地照片 ${p.id}（商旅图片 ${p.imgId}）删除失败：${String(err.message).slice(0, 200)}`);
     }
   }
-
-  // 本地 source=0（壹匣上传）商旅无 → 不删不动（照片可能正在同步途中，由上传钩子/手动重试兜底）
-  const pendingConfirm = localUploaded.filter((x) => !remote.has(x.imgId)).length;
-  if (pendingConfirm) {
-    await log('photo', 'ok', `费用照片：本地壹匣上传 ${pendingConfirm} 张商旅侧暂未见到，不删不动，待商旅侧确认`);
+  for (const p of localUploaded.filter((x) => !remote.has(x.imgId))) {
+    try {
+      // 逐行读当前值（members/links 可能被并发改动），仅摘除本成员的链接与人名
+      const [cur] = await pool.query('SELECT members, sgcc_img_id, cos_key FROM worklog_photo WHERE id = ?', [p.id]);
+      if (!cur.length) continue;
+      let names = typeof cur[0].members === 'string' ? JSON.parse(cur[0].members) : (cur[0].members || []);
+      let links = {};
+      if (cur[0].sgcc_img_id) {
+        try { links = typeof cur[0].sgcc_img_id === 'string' ? JSON.parse(cur[0].sgcc_img_id) : cur[0].sgcc_img_id; } catch (e) { links = {}; }
+      }
+      delete links[memberKey];
+      names = names.filter((n) => n !== memberName);
+      if (!names.length) {
+        if (cur[0].cos_key) await cos.deleteObject(cur[0].cos_key);
+        await pool.query('DELETE FROM worklog_photo WHERE id = ?', [p.id]);
+        deleted += 1;
+      } else {
+        await pool.query(
+          'UPDATE worklog_photo SET members = ?, sgcc_img_id = ? WHERE id = ?',
+          [JSON.stringify(names), JSON.stringify(links), p.id]
+        );
+        unlinked += 1;
+      }
+    } catch (err) {
+      console.error(`[商旅打卡] 费用照片摘除失败（照片 ${p.id} 成员 ${memberName}）：`, err.message);
+      await log('photo', 'fail', `费用照片：本地照片 ${p.id}（商旅图片 ${p.imgId}）摘除失败：${String(err.message).slice(0, 200)}`);
+    }
   }
 
-  await log('photo', pulled || deleted || merged ? 'diff' : 'ok', `费用照片：拉下 ${pulled} 张 / 合并 ${merged} 张 / 删除 ${deleted} 张`);
+  await log('photo', pulled || deleted || merged || unlinked ? 'diff' : 'ok',
+    `费用照片：拉下 ${pulled} 张 / 合并 ${merged} 张 / 删除 ${deleted} 张 / 摘除 ${unlinked} 人`);
 }
 
 // 单日单人对账：登录态 → 打卡 → 费用 → 费用照片（一律以商旅为准覆盖本地；照片双向对账：拉新入库并触发验证，商旅侧已删的同步照片本地同步删除）
@@ -1133,13 +1163,27 @@ async function syncOne(account, date, scope) {
   }
 
   // 费用照片双向对账（以商旅为准）：数据源为费用模板 id=5「上传图片」组件 value（复用费用对账已取的 tpl）
+  // 形状守卫：value 不是 JSON 数组（或组件缺失）时跳过对账并留诊断，防止误判「商旅无照片」把本地同步照片删光
   if (tpl) {
     const comp5 = (tpl.dtComponentList || []).find((c) => c.id === 5);
-    let imgs = [];
-    if (comp5 && comp5.value) {
-      try { const v = JSON.parse(comp5.value); if (Array.isArray(v)) imgs = v; } catch (e) { /* 忽略脏数据 */ }
+    let imgs = null;
+    if (comp5) {
+      if (!comp5.value || !String(comp5.value).trim()) {
+        imgs = []; // value 为空 = 当日无费用照片（正常）
+      } else {
+        try {
+          const v = JSON.parse(comp5.value);
+          if (Array.isArray(v)) imgs = v;
+        } catch (e) { /* 落下方诊断 */ }
+      }
     }
-    await syncFeePhotos(account, date, imgs, log);
+    if (imgs) {
+      console.log(`[商旅打卡] 费用照片对账（成员 ${account.member_id} ${date}）：远端 ${imgs.length} 张${imgs[0] ? `，样例键 ${Object.keys(imgs[0]).join('/')}` : ''}`);
+      await syncFeePhotos(account, date, imgs, log);
+    } else {
+      console.error(`[商旅打卡] 费用照片对账跳过（成员 ${account.member_id} ${date}）：comp5 ${comp5 ? `value 原文 ${String(comp5.value).slice(0, 300)}` : '缺失'}`);
+      await log('photo', 'fail', `费用照片：上传图片组件形态异常，已跳过对账（详见服务端日志）`);
+    }
   }
 }
 
