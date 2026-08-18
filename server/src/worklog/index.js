@@ -350,6 +350,17 @@ router.post('/logs', async (req, res, next) => {
         return fail(res, 400, 40004, '存在无效或已停用的成员');
       }
       memberRows = rows;
+      // 同日期同人唯一：一个成员同日只能作为一张出车卡片的用车人
+      const [dup] = await pool.query(
+        `SELECT m.name FROM worklog_entry_member em
+         JOIN worklog_entry e ON e.id = em.entry_id
+         JOIN worklog_member m ON m.id = em.member_id
+         WHERE e.team_id = ? AND e.log_date = ? AND em.member_id IN (?)`,
+        [req.team.id, log_date, member_ids]
+      );
+      if (dup.length) {
+        return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
+      }
     }
 
     const [r] = await pool.query(
@@ -374,7 +385,10 @@ router.put('/logs/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
-    const [exist] = await pool.query('SELECT id, destination_id FROM worklog_entry WHERE id = ? AND team_id = ?', [entryId, req.team.id]);
+    const [exist] = await pool.query(
+      `SELECT id, destination_id, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date FROM worklog_entry WHERE id = ? AND team_id = ?`,
+      [entryId, req.team.id]
+    );
     if (!exist.length) return fail(res, 404, 40400, '日志不存在');
 
     const { patrol_content = '', vehicle_id = null, destination_id = null } = req.body || {};
@@ -405,6 +419,17 @@ router.put('/logs/:id', async (req, res, next) => {
         return fail(res, 400, 40004, '存在无效或已停用的成员');
       }
       memberRows = rows;
+      // 同日期同人唯一：一个成员同日只能作为一张出车卡片的用车人（本卡除外）
+      const [dup] = await pool.query(
+        `SELECT m.name FROM worklog_entry_member em
+         JOIN worklog_entry e ON e.id = em.entry_id
+         JOIN worklog_member m ON m.id = em.member_id
+         WHERE e.team_id = ? AND e.log_date = ? AND e.id <> ? AND em.member_id IN (?)`,
+        [req.team.id, exist[0].log_date, entryId, member_ids]
+      );
+      if (dup.length) {
+        return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
+      }
     }
 
     // 被移出名单的成员若已有照片，拒绝（需先调整照片人名）
