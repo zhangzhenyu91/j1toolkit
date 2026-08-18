@@ -1070,9 +1070,10 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
           const key = `${prefix}${teamName}/${dots(date)}/${entry.id}-${Date.now()}-${imgId}.jpg`;
           await cos.putBuffer(key, buf, 'image/jpeg');
           const localUrl = cos.publicUrl(key);
+          // 拉下入库即视已同步（照片本就在商旅侧，勿落默认 0 误显「未同步」）
           const [r] = await pool.query(
-            `INSERT INTO worklog_photo (entry_id, cos_key, url, members, is_watermark, source, sgcc_img_id, verify_status, md5)
-             VALUES (?, ?, ?, ?, 1, 1, ?, 'pending', ?)`,
+            `INSERT INTO worklog_photo (entry_id, cos_key, url, members, is_watermark, source, sgcc_img_id, sgcc_synced, verify_status, md5)
+             VALUES (?, ?, ?, ?, 1, 1, ?, 1, 'pending', ?)`,
             [entry.id, key, localUrl, JSON.stringify([memberName]), JSON.stringify({ [memberKey]: imgId }), imgMd5]
           );
           // 异步 Dify 验证并回写（不阻塞对账；写法同 worklog 上传照片）

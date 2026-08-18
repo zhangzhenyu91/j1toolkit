@@ -1,10 +1,12 @@
 // 派车单对齐：解析派车系统导出表（.xls/.xlsx，每个驾驶员一份、可多份合并），按「日期＋用车人」与当天出车卡片配对，
-// 比对车牌号码与用车人集合，产出差异清单（本模块只读对齐不自动改；更正走既有 PUT /logs/{id}，车牌入字典走 POST /admin/vehicles）
+// 比对车牌号码、用车人集合与目的地，产出差异清单（本模块只读对齐不自动改；更正走既有 PUT /logs/{id}，车牌入字典走 POST /admin/vehicles）
 // 对齐口径（设计稿 design/worklog-dispatch-align.html 已审批）：
 //   · 仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略）
 //   · 匹配键：日期（预计用车时间的日期部分）＋用车人（空格分隔姓名集合）
 //   · 同日内按用车人重合度贪心配对（重合最多者成对，0 重合不配）
-//   · 差异类型：车牌不一致 / 用车人多出·缺少（matched）；表格有系统无（sheetOnly）；系统有表格无（entryOnly，仅出车卡片）
+//   · 目的地模糊比对：表格目的地常省略「市/县」等行政区字样（如卡片「孝义市」表格写「吕梁市孝义」），
+//     两侧去除「中国/省/市/县/区」后互相包含即视为一致（destSame）；表格目的地为空不约束
+//   · 差异类型：车牌不一致 / 用车人多出·缺少 / 目的地不一致（matched）；表格有系统无（sheetOnly）；系统有表格无（entryOnly，仅出车卡片）
 const XLSX = require('xlsx');
 const { pool } = require('../db');
 
@@ -56,6 +58,21 @@ function parseFile(buffer, fileName) {
     });
   }
   return { rows: out, skipped };
+}
+
+// 目的地模糊一致：表格目的地常省略行政区字样或带上级前缀（如卡片「孝义市」表格写「吕梁市孝义」、
+// 卡片「交城县」表格写「吕梁市交城」），两侧去除「中国/省/市/县/区」后互相包含即视为一致；
+// 归一化后不足 2 字回退原文包含（防单字误配）；表格目的地为空不约束，表格有而卡片未选 → 不一致
+function destSame(cardDest, sheetTo) {
+  const card = String(cardDest || '').trim();
+  const sheet = String(sheetTo || '').trim();
+  if (!sheet) return true;
+  if (!card) return false;
+  if (card === sheet || card.includes(sheet) || sheet.includes(card)) return true;
+  const nc = card.replace(/中国|省|市|县|区/g, '');
+  const ns = sheet.replace(/中国|省|市|县|区/g, '');
+  if (nc.length < 2 || ns.length < 2) return false;
+  return nc.includes(ns) || ns.includes(nc);
 }
 
 // 取日期范围内全部出车卡片（未出车卡片无车牌/用车人，不参与对齐）
@@ -145,6 +162,7 @@ async function align(team, files) {
   let consistent = 0;
   let plateCnt = 0;
   let memberCnt = 0;
+  let destCnt = 0;
   for (const date of Object.keys(byDate)) {
     const { rows, entries: ents } = byDate[date];
     const { matched, sheetOnly, entryOnly } = pairOneDay(rows, ents);
@@ -153,12 +171,14 @@ async function align(team, files) {
       const missing = row.members.filter((n) => !entryNames.includes(n)); // 表格有、卡片缺
       const extra = entryNames.filter((n) => !row.members.includes(n)); // 卡片有、表格无
       const plateDiff = row.plate !== (entry.plate_no || '');
-      if (!plateDiff && !missing.length && !extra.length) {
+      const destDiff = !destSame(entry.destination_name, row.to);
+      if (!plateDiff && !missing.length && !extra.length && !destDiff) {
         consistent += 1;
         continue;
       }
       if (plateDiff) plateCnt += 1;
       if (missing.length || extra.length) memberCnt += 1;
+      if (destDiff) destCnt += 1;
       items.push({
         kind: 'matched',
         date,
@@ -172,7 +192,7 @@ async function align(team, files) {
           patrol_content: entry.patrol_content || '', // PUT 整卡更新需带回，避免误清巡视内容
           members: entry.memberList,
         },
-        diffs: { plate: plateDiff, missing, extra },
+        diffs: { plate: plateDiff, missing, extra, dest: destDiff },
       });
     }
     sheetOnly.forEach((row) => items.push({ kind: 'sheetOnly', date, sheet: row, entry: null }));
@@ -200,6 +220,7 @@ async function align(team, files) {
       consistent,
       plate: plateCnt,
       members: memberCnt,
+      destination: destCnt,
       sheetOnly: items.filter((i) => i.kind === 'sheetOnly').length,
       entryOnly: items.filter((i) => i.kind === 'entryOnly').length,
     },
@@ -207,4 +228,4 @@ async function align(team, files) {
   };
 }
 
-module.exports = { align };
+module.exports = { align, destSame };

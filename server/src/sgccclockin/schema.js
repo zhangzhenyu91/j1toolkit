@@ -99,6 +99,13 @@ async function ensureSgccSchema(pool) {
     }
   }
 
+  // 一次性修正：早期商旅拉下（source=1）的照片误落 sgcc_synced=0（卡片/灯箱误显「未同步」），
+  // 拉下的照片本就在商旅侧，统一置 1 已同步；修正过的行不再满足条件，天然幂等
+  const [fixed] = await pool.query('UPDATE worklog_photo SET sgcc_synced = 1 WHERE source = 1 AND sgcc_synced = 0');
+  if (fixed.affectedRows) {
+    console.log(`[初始化] 已修正 ${fixed.affectedRows} 张商旅拉下照片的同步标记（sgcc_synced 0→1）`);
+  }
+
   // worklog_clockin 补充城市信息列（老库兼容：先查 information_schema 再 ALTER；打卡落库时写入，带入时随地址串一并带入）
   const CLOCKIN_CITY_COLUMNS = [
     ['city_code', `city_code VARCHAR(32) NOT NULL DEFAULT '' COMMENT '城市行政区编码（腾讯 adcode）' AFTER latitude`],
