@@ -1958,7 +1958,7 @@ async function toggleCheck(entry, mid, chipEl) {
   }
 }
 
-/* ---------- 照片人名修改（候选为本卡用车人，被本卡其他照片占用者置灰——每人限一张） ---------- */
+/* ---------- 照片人名修改（候选为本卡用车人；被本卡其他照片占用者置灰——每人限一张；未绑定商旅/登录过期者置灰锁定不可更改） ---------- */
 function openPhotoMembersModal(entry, photo) {
   var used = {};
   (entry.photos || []).forEach(function (p) {
@@ -1966,13 +1966,21 @@ function openPhotoMembersModal(entry, photo) {
     (p.members || []).forEach(function (n) { used[n] = 1; });
   });
   var members = (entry.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
+  var offNames = [];
   var html = mHead('修改照片人名')
-    + '<div class="f-hint" style="margin:0 0 2px">候选为本卡用车人；每人限一张，已被其他照片占用者不可选</div>'
+    + '<div class="f-hint" style="margin:0 0 2px">候选为本卡用车人；每人限一张，已被其他照片占用者不可选；新增人名将上传其商旅费用照片，剔除人名将从其商旅费用照片中删除</div>'
     + '<div class="chips" style="margin-top:10px">' + members.map(function (m) {
       var on = (photo.members || []).indexOf(m.name) >= 0;
+      var off = !m.sgccBound || m.sgccTokenStatus === 0;
+      if (off) offNames.push(esc(m.name) + '（' + (m.sgccBound ? '登录过期' : '未绑定') + '）');
       return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-name="' + esc(m.name) + '"'
-        + (used[m.name] ? ' disabled' : '') + '>' + esc(m.name) + '</button>';
+        + ((used[m.name] || off) ? ' disabled' : '')
+        + (off ? ' title="' + (m.sgccBound ? '商旅登录已过期' : '未绑定商旅账号') + '，人名状态不可更改"' : '')
+        + '>' + esc(m.name) + '</button>';
     }).join('') + '</div>'
+    + (offNames.length
+      ? '<div class="f-hint" style="margin-top:8px;color:var(--red)">' + offNames.join('、') + ' 已置灰锁定，人名状态不可更改；登录过期者本人在「我的 → 绑定商旅」重新登录后恢复</div>'
+      : '')
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">确 认</button></div>';
   var inst = createModal(html, { width: 460 });

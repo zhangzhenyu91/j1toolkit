@@ -3,6 +3,7 @@
 // 业务规则与设计稿见《开发指南》第四、七章与 design/worklog.html
 const express = require('express');
 const archiver = require('archiver');
+const crypto = require('crypto');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const { Readable } = require('stream');
@@ -1009,12 +1010,24 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     await cos.putBuffer(key, buf, contentType);
     const url = cos.publicUrl(key);
 
-    const [r] = await pool.query(
-      `INSERT INTO worklog_photo (entry_id, cos_key, url, members)
-       VALUES (?, ?, ?, ?)`,
-      [entryId, key, url, JSON.stringify(names)]
-    );
-    const photoId = r.insertId;
+    // 图片内容 MD5：商旅拉取按内容合并相同照片（一图多人标注）；列由商旅打卡模块补建，未开启时不写
+    let photoId;
+    if (config.sgcc && config.sgcc.enabled) {
+      const imgMd5 = crypto.createHash('md5').update(buf).digest('hex');
+      const [r] = await pool.query(
+        `INSERT INTO worklog_photo (entry_id, cos_key, url, members, md5)
+         VALUES (?, ?, ?, ?, ?)`,
+        [entryId, key, url, JSON.stringify(names), imgMd5]
+      );
+      photoId = r.insertId;
+    } else {
+      const [r] = await pool.query(
+        `INSERT INTO worklog_photo (entry_id, cos_key, url, members)
+         VALUES (?, ?, ?, ?)`,
+        [entryId, key, url, JSON.stringify(names)]
+      );
+      photoId = r.insertId;
+    }
     if (isPlain) {
       // 非水印照片：免验证标记（不参与卡片验证规则）
       await pool.query(
@@ -1091,13 +1104,14 @@ router.post('/photos/:id/verify', async (req, res, next) => {
   }
 });
 
-// PUT /photos/:id/members：修改照片所属人名
+// PUT /photos/:id/members：修改照片所属人名（商旅打卡开启时：未绑定/登录过期成员的人名状态不可更改；
+// 变更后差量同步——新增人名补传商旅费用照片，剔除人名从其商旅费用照片移除）
 router.put('/photos/:id/members', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
-      `SELECT p.entry_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+      `SELECT p.entry_id, p.members FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
        WHERE p.id = ? AND e.team_id = ?`,
       [photoId, req.team.id]
     );
@@ -1107,8 +1121,42 @@ router.put('/photos/:id/members', async (req, res, next) => {
     if (!names.length) return fail(res, 400, 40009, '请选择照片所属人名');
     const memberErr = await checkPhotoMembers(rows[0].entry_id, names, photoId);
     if (memberErr) return fail(res, 400, memberErr.code, memberErr.message);
+
+    const oldNames = typeof rows[0].members === 'string' ? JSON.parse(rows[0].members) : (rows[0].members || []);
+
+    // 商旅打卡开启时：先校验未绑定/登录过期成员的人名状态不可更改（增减均拒绝；此类成员的商旅联动无法进行）
+    if (config.sgcc && config.sgcc.enabled) {
+      const [mems] = await pool.query(
+        `SELECT m.name, a.token_status
+         FROM worklog_entry_member em
+         JOIN worklog_member m ON m.id = em.member_id
+         LEFT JOIN worklog_sgcc_account a ON a.member_id = m.id
+         WHERE em.entry_id = ?`,
+        [rows[0].entry_id]
+      );
+      for (const m of mems) {
+        if (m.token_status === 1) continue; // 绑定且登录态有效
+        const was = oldNames.includes(m.name);
+        const now = names.includes(m.name);
+        if (was !== now) {
+          return fail(res, 400, 40024,
+            `成员「${m.name}」${m.token_status === 0 ? '商旅登录已过期' : '未绑定商旅账号'}，人名状态不可更改`);
+        }
+      }
+      // 剔除人名：同步远端先删（一切以商旅平台为准——远端删除失败则本地不变更，全部中止）
+      const removed = oldNames.filter((n) => !names.includes(n));
+      if (removed.length) {
+        const r = await require('../sgccclockin').removePhotoMembersRemote(photoId, removed);
+        if (!r.ok) {
+          return fail(res, 400, 40025,
+            `成员「${r.failedName}」商旅费用照片删除失败（${r.error}），本地未修改，请重试`);
+        }
+      }
+    }
+
     await pool.query('UPDATE worklog_photo SET members = ? WHERE id = ?', [JSON.stringify(names), photoId]);
-    // 商旅打卡开启时：人名变更后补同步（已同步过的成员自动跳过；非水印照片同样同步）
+    // 商旅打卡开启时：新增人名异步补传（已链接成员跳过；失败记核查日志由 resync 兜底；
+    // 另覆盖一种自愈——上轮剔除部分成功后中止，缺链接的在名人随本次补传恢复商旅图片）
     if (config.sgcc && config.sgcc.enabled) {
       require('../sgccclockin').syncPhotoToSgcc(photoId)
         .catch((err) => console.error('[商旅打卡] 照片人名变更后补同步失败：', err.message));
@@ -1119,7 +1167,8 @@ router.put('/photos/:id/members', async (req, res, next) => {
   }
 });
 
-// DELETE /photos/:id：删除照片（同步删 COS 对象；商旅打卡开启时先异步解除商旅费用照片关联）
+// DELETE /photos/:id：删除照片（商旅打卡开启时先同步解除全部所属人名的商旅费用照片关联——
+// 一切以商旅平台为准：解除失败则本地不删除；成功后才删 COS 对象与库记录）
 router.delete('/photos/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -1131,8 +1180,11 @@ router.delete('/photos/:id', async (req, res, next) => {
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     if (config.sgcc && config.sgcc.enabled) {
-      require('../sgccclockin').unlinkPhotoFromSgcc(photoId)
-        .catch((err) => console.error('[商旅打卡] 解除照片商旅关联失败：', err.message));
+      const r = await require('../sgccclockin').unlinkPhotoFromSgcc(photoId);
+      if (!r.ok) {
+        return fail(res, 400, 40026,
+          `成员「${r.failedName}」商旅费用照片解除失败（${r.error}），本地未删除，请重试`);
+      }
     }
     try {
       await cos.deleteObject(rows[0].cos_key);

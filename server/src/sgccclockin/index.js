@@ -3,6 +3,7 @@
 // 协议细节全部在 protocol.js（移植自已实测的逆向客户端，勿改口径）；设计见 design/sgcc-clockin.html
 const express = require('express');
 const axios = require('axios');
+const crypto = require('crypto');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const { pool } = require('../db');
@@ -511,6 +512,51 @@ router.post('/clockin', async (req, res, next) => {
 
 // ---------- 费用 ----------
 
+// 费用模板请求参数补全：城市/位置取本成员当日首条打卡（worklog_clockin 本地口径），
+// 与逆向联调请求形状一致——城市参数缺失时模板「成本分配」可能不带默认成本中心，导致保存后成本分配为空
+async function feeTplParams(memberId, date) {
+  const [rows] = await pool.query(
+    'SELECT position, city_code, city_name FROM worklog_clockin WHERE member_id = ? AND clock_date = ? ORDER BY seq LIMIT 1',
+    [memberId, date]
+  );
+  const r = rows[0] || {};
+  return { clockInDate: date, cityName: r.city_name || '', cityCode: r.city_code || '', position: r.position || '' };
+}
+
+// 模板「成本分配」（id=4）兜底：商旅默认带出则沿用并回报当前值；空值时用本成员最近一次本地成本中心回填。
+// 注意 value 与 data 两字段不对称（value.value='1' 选项码 / data.value='成本中心' 选项文案），勿用同一串覆盖；
+// 返回 { code, name }（当前生效值，供本地摘要回写）或 null（无来源可填）
+async function ensureCostCenter(tpl, account) {
+  const comp = (tpl.dtComponentList || []).find((c) => c.id === 4);
+  if (!comp) return null;
+  let v = {};
+  try { v = comp.value ? JSON.parse(comp.value) : {}; } catch (e) { v = {}; }
+  if (v && v.costCenterCode) return { code: String(v.costCenterCode), name: String(v.costCenterName || '') };
+  const [rows] = await pool.query(
+    `SELECT cost_center_code, cost_center_name FROM worklog_fee
+     WHERE member_id = ? AND cost_center_code <> '' ORDER BY fee_date DESC LIMIT 1`,
+    [account.member_id]
+  );
+  if (!rows.length) return null;
+  const code = String(rows[0].cost_center_code);
+  const name = String(rows[0].cost_center_name || '');
+  comp.value = JSON.stringify({ costCenterName: name, value: '1', projectType: '', projectTypeName: '', costCenterCode: code });
+  comp.data = JSON.stringify({ costCenterName: name, value: '成本中心', projectType: '', projectTypeName: '', costCenterCode: code });
+  return { code, name };
+}
+
+// 费用模板组件提取成本分配（id=4）当前值；无则空串对
+function extractCostCenter(tpl) {
+  const comp = (tpl.dtComponentList || []).find((c) => c.id === 4);
+  if (!comp || !comp.value) return { code: '', name: '' };
+  try {
+    const v = JSON.parse(comp.value);
+    return { code: String(v.costCenterCode || ''), name: String(v.costCenterName || '') };
+  } catch (e) {
+    return { code: '', name: '' };
+  }
+}
+
 // GET /fee?member_id=&date=：费用弹层数据源（本地摘要 + 商旅实时模板原文，供成本分配等选项渲染）
 router.get('/fee', async (req, res, next) => {
   try {
@@ -524,11 +570,31 @@ router.get('/fee', async (req, res, next) => {
       'SELECT food_fee, transit_fee, cost_center_code, cost_center_name, extra FROM worklog_fee WHERE member_id = ? AND fee_date = ?',
       [memberId, date]
     );
-    // 商旅实时模板（成本分配选项/上传图片组件现状都在模板里）
-    const d = await sgcc.getFeeInfoNew(account.token, { clockInDate: date }, devOpt(account));
+    // 商旅实时模板（成本分配选项/上传图片组件现状都在模板里；城市参数补全，缺省模板可能不带默认成本中心）
+    const d = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account));
     const body = d && Number(d.statusCode) === 200 && d.data && d.data.body;
     if (!body || !body.clockTemplate) return fail(res, 400, 40038, '获取商旅费用模板失败，请重试');
-    return ok(res, { local: fees[0] || null, clockTemplate: body.clockTemplate });
+    // 成本分配（id=4）解析供弹层展示：选项文案按 optionsJsonObject 的 value 码反查；模板无值时回退本地摘要
+    let costAlloc = null;
+    const comp4 = (body.clockTemplate.dtComponentList || []).find((c) => c.id === 4);
+    if (comp4 && comp4.value) {
+      try {
+        const v = JSON.parse(comp4.value);
+        if (v && (v.costCenterCode || v.value)) {
+          const opts = Array.isArray(comp4.optionsJsonObject) ? comp4.optionsJsonObject : [];
+          const hit = opts.find((o) => String(o.value) === String(v.value));
+          costAlloc = {
+            label: hit ? String(hit.label || '') : '',
+            costCenterName: String(v.costCenterName || ''),
+            costCenterCode: String(v.costCenterCode || ''),
+          };
+        }
+      } catch (e) { /* 模板值异常按无值处理 */ }
+    }
+    if (!costAlloc && fees[0] && fees[0].cost_center_code) {
+      costAlloc = { label: '成本中心', costCenterName: fees[0].cost_center_name || '', costCenterCode: fees[0].cost_center_code };
+    }
+    return ok(res, { local: fees[0] || null, clockTemplate: body.clockTemplate, costAlloc });
   } catch (err) { return next(err); }
 });
 
@@ -542,9 +608,12 @@ router.post('/fee', async (req, res, next) => {
     const account = await requireMemberAccount(req, res, memberId);
     if (!account) return;
 
-    const d = await sgcc.getFeeInfoNew(account.token, { clockInDate: date }, devOpt(account));
+    const d = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account));
     const body = d && Number(d.statusCode) === 200 && d.data && d.data.body;
     if (!body || !body.clockTemplate) return fail(res, 400, 40038, '获取商旅费用模板失败，请重试');
+
+    // 成本分配（id=4）兜底：模板未带出时用本成员最近成本中心回填（勿用 overrides 同串覆盖，value/data 不对称）
+    const cc = await ensureCostCenter(body.clockTemplate, account);
 
     // 补助明细（id=10）：伙食/交通；其余组件经 overrides 原样透传
     const foodFee = Number(req.body.foodFee) || 0;
@@ -557,12 +626,15 @@ router.post('/fee', async (req, res, next) => {
       return fail(res, 400, 40039, (d2 && d2.msg) || '商旅费用保存失败，请重试');
     }
 
-    // 双写本地费用摘要（成本中心取模板现状值，由核查对账兜底）
+    // 双写本地费用摘要（成本中心随本次生效值一并回写；未取到则保留旧值）
     await pool.query(
-      `INSERT INTO worklog_fee (team_id, member_id, fee_date, food_fee, transit_fee, synced_at)
-       VALUES (?, ?, ?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE food_fee = VALUES(food_fee), transit_fee = VALUES(transit_fee), synced_at = NOW()`,
-      [req.team.id, memberId, date, foodFee, transitFee]
+      `INSERT INTO worklog_fee (team_id, member_id, fee_date, food_fee, transit_fee, cost_center_code, cost_center_name, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE food_fee = VALUES(food_fee), transit_fee = VALUES(transit_fee),
+         cost_center_code = IF(VALUES(cost_center_code) <> '', VALUES(cost_center_code), cost_center_code),
+         cost_center_name = IF(VALUES(cost_center_name) <> '', VALUES(cost_center_name), cost_center_name),
+         synced_at = NOW()`,
+      [req.team.id, memberId, date, foodFee, transitFee, cc ? cc.code : '', cc ? cc.name : '']
     );
     return ok(res, null, '保存成功');
   } catch (err) { return next(err); }
@@ -615,10 +687,11 @@ async function syncPhotoToSgcc(photoId) {
       const imgUrl = up && up.data && (up.data.imageUrl || (up.data.body && up.data.body.imageUrl));
       if (!imgId) throw new Error('商旅图片上传未返回 id');
 
-      // 关联进当日费用：上传图片组件（id=5）追加该图，整树重存
-      const fi = await sgcc.getFeeInfoNew(account.token, { clockInDate: photo.log_date }, devOpt(account));
+      // 关联进当日费用：上传图片组件（id=5）追加该图，整树重存；成本分配兜底同费用保存口径
+      const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, photo.log_date), devOpt(account));
       const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
       if (!tpl) throw new Error('获取费用模板失败');
+      await ensureCostCenter(tpl, account);
       const comp = (tpl.dtComponentList || []).find((c) => c.id === 5);
       let imgs = [];
       if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
@@ -646,35 +719,119 @@ async function syncPhotoToSgcc(photoId) {
   );
 }
 
-// 删除本地照片前解除商旅费用照片关联（重存费用剔除该图）；失败仅记日志，不阻塞删除
+// 从某成员当日商旅费用照片组件移除指定图片（同步；成本分配兜底同费用保存口径）
+// 返回 { ok: true }（含商旅侧本就没有该图）或 { ok: false, error }
+async function removeFeeImageRemote(account, date, imgId) {
+  const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(account.member_id, date), devOpt(account));
+  const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
+  if (!tpl) return { ok: false, error: '获取费用模板失败' };
+  await ensureCostCenter(tpl, account);
+  const comp = (tpl.dtComponentList || []).find((c) => c.id === 5);
+  let imgs = [];
+  if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
+  if (!Array.isArray(imgs)) imgs = [];
+  const kept = imgs.filter((it) => String(it.id) !== String(imgId));
+  if (kept.length === imgs.length) return { ok: true }; // 商旅侧本就没有该图，视为已删除
+  const sv = await sgcc.saveFeeInfoNew(account.token, date, tpl, { 5: JSON.stringify(kept) }, devOpt(account));
+  if (!sv || Number(sv.statusCode) !== 200) return { ok: false, error: (sv && sv.msg) || '商旅费用保存失败' };
+  return { ok: true };
+}
+
+// 照片人名剔除（同步远端先行，改人名接口在更新本地人名前调用）：逐个从被剔除成员的商旅费用照片移除该图。
+// 一切以商旅平台为准：任一成员远端删除失败即中止并返回失败（本地人名不变更；未删链接全部保留，防核查回拉人名复活；
+// 已成功成员的链接即时断开，重试编辑时由补传链路恢复其图片）；未绑定/登录过期视为失败（其商旅侧图片确实存在且无法操作）
+async function removePhotoMembersRemote(photoId, removedNames) {
+  const names = Array.isArray(removedNames) ? removedNames : [];
+  if (!names.length) return { ok: true };
+  const [rows] = await pool.query(
+    `SELECT p.sgcc_img_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.team_id
+     FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ?`,
+    [photoId]
+  );
+  if (!rows.length || !rows[0].sgcc_img_id) return { ok: true };
+  let links = {};
+  try { links = JSON.parse(rows[0].sgcc_img_id); } catch (e) { links = {}; }
+  const logDate = rows[0].log_date;
+  const teamId = rows[0].team_id;
+  for (const name of names) {
+    const [mrows] = await pool.query('SELECT id FROM worklog_member WHERE team_id = ? AND name = ?', [teamId, name]);
+    if (!mrows.length) continue;
+    const memberId = mrows[0].id;
+    const imgId = links[memberId];
+    if (!imgId) continue; // 该成员名下本就没同步成功过，无需远端删除
+    const account = await accountByMember(teamId, memberId);
+    let err = '';
+    if (!account || account.token_status !== 1) {
+      err = account && account.token_status === 0 ? '商旅登录已过期' : '未绑定商旅账号';
+    } else {
+      try {
+        const r = await removeFeeImageRemote(account, logDate, imgId);
+        if (!r.ok) err = r.error || '商旅侧删除失败';
+      } catch (e) {
+        err = e && e.message ? e.message : String(e);
+      }
+    }
+    if (err) {
+      await pool.query(
+        `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
+         VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
+        [teamId, memberId, logDate,
+          `照片 ${photoId} 剔除人名「${name}」：商旅侧图片删除失败（${String(err).slice(0, 120)}），本地未变更，请重试`]
+      );
+      return { ok: false, failedName: name, error: err };
+    }
+    // 成功：即时断开链接并落库（后续成员中止也不回退；重试编辑时 syncPhotoToSgcc 会为缺链接成员补传恢复）
+    delete links[memberId];
+    await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [JSON.stringify(links), photoId]);
+  }
+  return { ok: true };
+}
+
+// 删除本地照片前解除全部所属人名的商旅费用照片关联（同步远端先行，删除接口在删本地前调用）。
+// 一切以商旅平台为准：任一成员解除失败即中止并返回失败（本地照片不删除；已成功成员的链接即时断开，重试仅处理剩余链接）
 async function unlinkPhotoFromSgcc(photoId) {
   const [rows] = await pool.query(
     `SELECT p.sgcc_img_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.team_id
      FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ?`,
     [photoId]
   );
-  if (!rows.length || !rows[0].sgcc_img_id) return;
-  const links = JSON.parse(rows[0].sgcc_img_id);
-  for (const [memberId, imgId] of Object.entries(links)) {
-    const account = await accountByMember(rows[0].team_id, Number(memberId));
-    if (!account || account.token_status !== 1) continue;
-    try {
-      const fi = await sgcc.getFeeInfoNew(account.token, { clockInDate: rows[0].log_date }, devOpt(account));
-      const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
-      if (!tpl) continue;
-      const comp = (tpl.dtComponentList || []).find((c) => c.id === 5);
-      let imgs = [];
-      if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
-      if (!Array.isArray(imgs)) continue;
-      const kept = imgs.filter((it) => String(it.id) !== String(imgId));
-      if (kept.length !== imgs.length) {
-        await sgcc.saveFeeInfoNew(account.token, rows[0].log_date, tpl, { 5: JSON.stringify(kept) }, devOpt(account));
+  if (!rows.length || !rows[0].sgcc_img_id) return { ok: true };
+  let links = {};
+  try { links = JSON.parse(rows[0].sgcc_img_id); } catch (e) { links = {}; }
+  const logDate = rows[0].log_date;
+  const teamId = rows[0].team_id;
+  for (const memberIdStr of Object.keys(links)) {
+    const imgId = links[memberIdStr];
+    const memberId = Number(memberIdStr);
+    const account = await accountByMember(teamId, memberId);
+    const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [memberId]);
+    const name = mrows.length ? mrows[0].name : String(memberId);
+    let err = '';
+    if (!account || account.token_status !== 1) {
+      err = account && account.token_status === 0 ? '商旅登录已过期' : '未绑定商旅账号';
+    } else {
+      try {
+        const r = await removeFeeImageRemote(account, logDate, imgId);
+        if (!r.ok) err = r.error || '商旅侧删除失败';
+      } catch (e) {
+        err = e && e.message ? e.message : String(e);
       }
-    } catch (err) {
-      console.error(`[商旅打卡] 解除照片 ${photoId} 商旅关联失败（成员 ${memberId}）：`, err.message);
     }
+    if (err) {
+      await pool.query(
+        `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
+         VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
+        [teamId, memberId, logDate,
+          `照片 ${photoId} 删除：解除成员「${name}」商旅费用照片失败（${String(err).slice(0, 120)}），本地未删除，请重试`]
+      );
+      return { ok: false, failedName: name, error: err };
+    }
+    delete links[memberIdStr];
+    await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [JSON.stringify(links), photoId]);
   }
+  return { ok: true };
 }
+
 
 // POST /photos/:id/resync：同步失败的照片手动重试
 router.post('/photos/:id/resync', async (req, res, next) => {
@@ -765,9 +922,11 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
     else localUploaded.push({ id: p.id, imgId });
   }
 
-  // 方向一：商旅有本地无 → 下载入库（挂到该成员当日首个出工记录下）
+  // 方向一：商旅有本地无 → 下载入库（挂到该成员当日首个出工记录下）；
+  // 相同照片（内容 MD5 一致，如同一张图被传到多人费用）合并为一张：所属人名追加本成员，不再新建
   const toPull = [...remote.entries()].filter(([imgId]) => !known.has(imgId));
   let pulled = 0;
+  let merged = 0;
   if (toPull.length) {
     // 成员名与绑定人 username（照片 members 口径 / Dify user 入参）
     const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
@@ -800,13 +959,35 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
           const resp = await fetch(imgUrl, { signal: AbortSignal.timeout(60000) });
           if (!resp.ok) throw new Error(`照片下载失败（HTTP ${resp.status}）`);
           const buf = Buffer.from(await resp.arrayBuffer());
+          const imgMd5 = crypto.createHash('md5').update(buf).digest('hex');
+          // 相同照片内容合并（一图多人标注）：本班组当日已有同 MD5 照片 → 人名/链接并入，不再新建
+          const [dup] = await pool.query(
+            `SELECT p.id, p.members, p.sgcc_img_id FROM worklog_photo p
+             JOIN worklog_entry e ON e.id = p.entry_id
+             WHERE e.team_id = ? AND e.log_date = ? AND p.md5 = ? LIMIT 1`,
+            [account.team_id, date, imgMd5]
+          );
+          if (dup.length) {
+            const d = dup[0];
+            const oldNames = typeof d.members === 'string' ? JSON.parse(d.members) : (d.members || []);
+            let oldLinks = {};
+            if (d.sgcc_img_id) { try { oldLinks = typeof d.sgcc_img_id === 'string' ? JSON.parse(d.sgcc_img_id) : d.sgcc_img_id; } catch (e) { oldLinks = {}; } }
+            const newNames = oldNames.includes(memberName) ? oldNames : [...oldNames, memberName];
+            oldLinks[memberKey] = imgId;
+            await pool.query(
+              'UPDATE worklog_photo SET members = ?, sgcc_img_id = ? WHERE id = ?',
+              [JSON.stringify(newNames), JSON.stringify(oldLinks), d.id]
+            );
+            merged += 1;
+            continue;
+          }
           const key = `${prefix}${teamName}/${dots(date)}/${entry.id}-${Date.now()}-${imgId}.jpg`;
           await cos.putBuffer(key, buf, 'image/jpeg');
           const localUrl = cos.publicUrl(key);
           const [r] = await pool.query(
-            `INSERT INTO worklog_photo (entry_id, cos_key, url, members, is_watermark, source, sgcc_img_id, verify_status)
-             VALUES (?, ?, ?, ?, 1, 1, ?, 'pending')`,
-            [entry.id, key, localUrl, JSON.stringify([memberName]), JSON.stringify({ [memberKey]: imgId })]
+            `INSERT INTO worklog_photo (entry_id, cos_key, url, members, is_watermark, source, sgcc_img_id, verify_status, md5)
+             VALUES (?, ?, ?, ?, 1, 1, ?, 'pending', ?)`,
+            [entry.id, key, localUrl, JSON.stringify([memberName]), JSON.stringify({ [memberKey]: imgId }), imgMd5]
           );
           // 异步 Dify 验证并回写（不阻塞对账；写法同 worklog 上传照片）
           dify
@@ -842,7 +1023,7 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
     await log('photo', 'ok', `费用照片：本地壹匣上传 ${pendingConfirm} 张商旅侧暂未见到，不删不动，待商旅侧确认`);
   }
 
-  await log('photo', pulled || deleted ? 'diff' : 'ok', `费用照片：拉下 ${pulled} 张 / 删除 ${deleted} 张`);
+  await log('photo', pulled || deleted || merged ? 'diff' : 'ok', `费用照片：拉下 ${pulled} 张 / 合并 ${merged} 张 / 删除 ${deleted} 张`);
 }
 
 // 单日单人对账：登录态 → 打卡 → 费用 → 费用照片（一律以商旅为准覆盖本地；照片双向对账：拉新入库并触发验证，商旅侧已删的同步照片本地同步删除）
@@ -881,8 +1062,8 @@ async function syncOne(account, date, scope) {
       `打卡：商旅 ${remote} 条覆盖本地（本地原 ${before[0].cnt} 条）`);
   }
 
-  // 费用对账：以商旅为准回写本地摘要
-  const fi = await sgcc.getFeeInfoNew(account.token, { clockInDate: date }, devOpt(account));
+  // 费用对账：以商旅为准回写本地摘要（含成本分配；城市参数补全取模板，缺省模板可能不带默认成本中心）
+  const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(account.member_id, date), devOpt(account));
   const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
   if (tpl) {
     let food = 0; let transit = 0;
@@ -890,18 +1071,22 @@ async function syncOne(account, date, scope) {
     if (comp10 && comp10.value) {
       try { const v = JSON.parse(comp10.value); food = Number(v.foodFee) || 0; transit = Number(v.arrive) || 0; } catch (e) { /* 忽略 */ }
     }
+    const cc = extractCostCenter(tpl);
     const [old] = await pool.query(
-      'SELECT food_fee, transit_fee FROM worklog_fee WHERE member_id = ? AND fee_date = ?',
+      'SELECT food_fee, transit_fee, cost_center_code FROM worklog_fee WHERE member_id = ? AND fee_date = ?',
       [account.member_id, date]
     );
-    const changed = !old.length || Number(old[0].food_fee) !== food || Number(old[0].transit_fee) !== transit;
+    const changed = !old.length || Number(old[0].food_fee) !== food || Number(old[0].transit_fee) !== transit
+      || String(old[0].cost_center_code || '') !== cc.code;
     await pool.query(
-      `INSERT INTO worklog_fee (team_id, member_id, fee_date, food_fee, transit_fee, synced_at)
-       VALUES (?, ?, ?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE food_fee = VALUES(food_fee), transit_fee = VALUES(transit_fee), synced_at = NOW()`,
-      [account.team_id, account.member_id, date, food, transit]
+      `INSERT INTO worklog_fee (team_id, member_id, fee_date, food_fee, transit_fee, cost_center_code, cost_center_name, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE food_fee = VALUES(food_fee), transit_fee = VALUES(transit_fee),
+         cost_center_code = VALUES(cost_center_code), cost_center_name = VALUES(cost_center_name), synced_at = NOW()`,
+      [account.team_id, account.member_id, date, food, transit, cc.code, cc.name]
     );
-    await log('fee', changed ? 'diff' : 'ok', `费用：伙食 ${food} / 交通 ${transit}${changed ? '，已按商旅覆盖' : '，一致'}`);
+    await log('fee', changed ? 'diff' : 'ok',
+      `费用：伙食 ${food} / 交通 ${transit} / 成本中心 ${cc.code || '无'}${changed ? '，已按商旅覆盖' : '，一致'}`);
   }
 
   // 费用照片双向对账（以商旅为准）：数据源为费用模板 id=5「上传图片」组件 value（复用费用对账已取的 tpl）
@@ -1021,3 +1206,4 @@ module.exports = router;
 // 供 worklog 照片上传/删除钩子调用（config.sgcc.enabled 守卫在调用方）
 module.exports.syncPhotoToSgcc = syncPhotoToSgcc;
 module.exports.unlinkPhotoFromSgcc = unlinkPhotoFromSgcc;
+module.exports.removePhotoMembersRemote = removePhotoMembersRemote;

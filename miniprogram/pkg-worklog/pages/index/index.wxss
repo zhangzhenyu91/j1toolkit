@@ -1935,6 +1935,16 @@ page {
   box-sizing: border-box;
 }
 
+/* 成本分配只读展示值（无输入框，右对齐与输入值视觉同列） */
+.fee-v {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #22314e;
+  text-align: right;
+}
+
 /* ---------- ⑩ 汇总前核验面板 ---------- */
 
 /* 月份切换条：左右翻月圆钮 + 居中月份文案（不看未来月，到当月置灰） */

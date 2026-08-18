@@ -85,6 +85,7 @@ async function ensureSgccSchema(pool) {
     ['source', `source TINYINT NOT NULL DEFAULT 0 COMMENT '来源：0 壹匣上传 1 商旅同步（核查发现）' AFTER is_watermark`],
     ['sgcc_img_id', `sgcc_img_id VARCHAR(512) NOT NULL DEFAULT '' COMMENT '商旅费用照片关联（JSON：{worklog_member_id: 商旅图片id}）' AFTER source`],
     ['sgcc_synced', `sgcc_synced TINYINT NOT NULL DEFAULT 0 COMMENT '商旅费用照片同步：0 未同步 1 已同步 2 同步失败' AFTER sgcc_img_id`],
+    ['md5', `md5 VARCHAR(32) NOT NULL DEFAULT '' COMMENT '图片内容 MD5（商旅拉取按内容合并相同照片：一图多人标注）' AFTER sgcc_synced`],
   ];
   for (const [col, ddl] of PHOTO_SGCC_COLUMNS) {
     const [cols] = await pool.query(

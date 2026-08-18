@@ -708,13 +708,13 @@
   <view class="sheet">
     <view class="sheet-title">选择照片所属人名</view>
     <view class="sheet-note">{{memberNote}}</view>
-    <!-- 商旅登录过期提醒条（有过期候选人时显示） -->
+    <!-- 商旅状态提醒条（有未绑定/登录过期候选人时显示） -->
     <view class="tip warn" wx:if="{{memberOffTip}}">
       <view class="ti">
         <t-icon name="error-circle" size="36rpx" color="#CF4444" />
       </view>
       <view>
-        <text class="tip-t">商旅登录已过期</text>
+        <text class="tip-t">部分成员不可更改</text>
         <view class="tip-p">{{memberOffTip}}</view>
       </view>
     </view>
@@ -922,7 +922,7 @@
   </view>
 </t-popup>
 
-<!-- 商旅打卡 · 费用信息弹层（设计稿⑥：首次开始打卡成功自动弹 + 打卡区「费用」入口；仅伙食补助/交通费可编辑） -->
+<!-- 商旅打卡 · 费用信息弹层（设计稿⑥：首次开始打卡成功自动弹 + 打卡区「费用」入口；伙食补助/交通费可编辑，成本分配只读展示） -->
 <t-popup visible="{{feeVisible}}" placement="bottom" bind:visible-change="onFeeVisibleChange">
   <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
     <view class="sheet-title">当日费用 · {{feeMemberName}} · {{dateText}}</view>
@@ -930,6 +930,21 @@
     <scroll-view scroll-y class="fee-scroll" enhanced show-scrollbar="{{false}}">
       <view class="fee-loading" wx:if="{{feeLoading}}">费用信息加载中…</view>
       <block wx:if="{{!feeLoading}}">
+        <!-- 成本分配（只读展示：随保存自动带入成本中心与编码） -->
+        <block wx:if="{{feeAlloc}}">
+          <view class="fee-row">
+            <text class="fee-k">成本分配</text>
+            <text class="fee-v">{{feeAlloc.label || '成本中心'}}</text>
+          </view>
+          <view class="fee-row" wx:if="{{feeAlloc.costCenterName}}">
+            <text class="fee-k">成本中心</text>
+            <text class="fee-v">{{feeAlloc.costCenterName}}</text>
+          </view>
+          <view class="fee-row" wx:if="{{feeAlloc.costCenterCode}}">
+            <text class="fee-k">成本中心编码</text>
+            <text class="fee-v">{{feeAlloc.costCenterCode}}</text>
+          </view>
+        </block>
         <view class="fee-row">
           <text class="fee-k">伙食补助</text>
           <input class="fee-input" type="digit" value="{{feeFood}}" data-field="feeFood" bindinput="onFeeInput" placeholder="0" placeholder-class="ph" adjust-position="{{false}}" bindkeyboardheightchange="onKeyboardHeight" hold-keyboard />

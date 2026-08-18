@@ -1193,6 +1193,7 @@ Page({
         feeLoading: false,
         feeFood: local ? num(local.food_fee) : num(tplFood) || '0',
         feeTransit: local ? num(local.transit_fee) : num(tplArrive) || '0',
+        feeAlloc: (data && data.costAlloc) || null, // 成本分配展示（成本中心/编码，只读）
       });
     } catch (err) {
       if (!this.data.feeVisible) return;
@@ -1846,22 +1847,22 @@ Page({
   },
 
   // 人名点亮层候选构建（三方式共用）：已上传置灰仅对水印方式（raw/wm，每人限一张）；非水印（plain）不限张数不受此限；
-  // 商旅登录过期（tokenStatus=0）红框置灰标「登录过期」、未绑定置灰标「未绑定」（edit 模式下已在照片上的名字保持可选，避免确认时误剔）
+  // 商旅未绑定（标「未绑定」）/ 登录过期（标「登录过期」）一律置灰锁定——人名状态不可更改（无论增删），避免产生无法联动的商旅操作
   buildCandidates(entry, action, excludePid, checkedNames) {
     const used = this.usedPhotoNames(entry, excludePid);
     const checked = checkedNames || [];
-    let expiredNames = [];
+    const offNames = [];
     const candidates = entry.checks.map((m) => {
       const off = !m.sgccBound ? '未绑定' : m.sgccTokenStatus === 0 ? '登录过期' : '';
-      if (off === '登录过期') expiredNames.push(m.name);
+      if (off) offNames.push(`${m.name}（${off}）`);
       const usedUp = action !== 'plain' && used.has(m.name);
-      const disabled = usedUp || (!!off && !checked.includes(m.name));
-      return { name: m.name, checked: checked.includes(m.name), disabled, note: usedUp ? '已上传' : disabled ? off : '' };
+      const disabled = usedUp || !!off;
+      return { name: m.name, checked: checked.includes(m.name), disabled, note: usedUp ? '已上传' : off };
     });
     return {
       candidates,
-      memberOffTip: expiredNames.length
-        ? `${expiredNames.join('、')} 的商旅登录已过期，已置灰不可选；其本人在「我的 → 绑定商旅」重新登录后恢复`
+      memberOffTip: offNames.length
+        ? `${offNames.join('、')} 已置灰锁定，人名状态不可更改；登录过期者本人在「我的 → 绑定商旅」重新登录后恢复`
         : '',
     };
   },
@@ -1885,7 +1886,7 @@ Page({
     });
   },
 
-  // 修改已有照片人名：复用弹层（当前人名保持点亮，被其他照片占用者置灰；登录过期/未绑定但未占用者同样置灰）
+  // 修改已有照片人名：复用弹层（当前人名保持点亮；被其他照片占用者、未绑定/登录过期者均置灰锁定不可更改）
   onPhotoMembers(e) {
     const { entryId, pid, names } = e.currentTarget.dataset;
     const entry = this.data.list.find((x) => x.id === entryId);
@@ -1898,7 +1899,7 @@ Page({
       memberEntryId: entryId,
       candidates,
       memberOffTip,
-      memberNote: '点亮即本张水印照片中包含的人名（可多选）',
+      memberNote: '点亮即本张照片中包含的人名（可多选）；新增人名将上传其商旅费用照片，剔除人名将从其商旅费用照片中删除',
     });
   },
 
@@ -1915,9 +1916,10 @@ Page({
     this.setData({ [`candidates[${index}].checked`]: e.detail.checked });
   },
 
-  // 弹层确认：edit=提交人名修改；add=关闭后进相册选片上传
+  // 弹层确认：edit=提交人名修改；add=关闭后进相册选片上传。
+  // 取 checked 即可：置灰（已上传/未绑定/登录过期）标签不可点，checked 恒为初始态——锁定成员保持在名单内不被误剔
   async onMemberConfirm() {
-    const names = this.data.candidates.filter((c) => c.checked && !c.disabled).map((c) => c.name);
+    const names = this.data.candidates.filter((c) => c.checked).map((c) => c.name);
     if (!names.length) {
       this.toast('请选择照片所属人名');
       return;
@@ -1948,9 +1950,9 @@ Page({
     }
   },
 
-  // 人名层「拍摄」：点亮人名后直接调相机（加水印流程）
+  // 人名层「拍摄」：点亮人名后直接调相机（加水印流程；取 checked 口径同 onMemberConfirm）
   onMemberShoot() {
-    const names = this.data.candidates.filter((c) => c.checked && !c.disabled).map((c) => c.name);
+    const names = this.data.candidates.filter((c) => c.checked).map((c) => c.name);
     if (!names.length) {
       this.toast('请选择照片所属人名');
       return;
