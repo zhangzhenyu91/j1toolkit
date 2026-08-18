@@ -2,6 +2,7 @@
 // 比对车牌号码、用车人集合与目的地，产出差异清单（本模块只读对齐不自动改；更正走既有 PUT /logs/{id}，表格有系统无的补建走 POST /logs，车牌入字典走 POST /admin/vehicles）
 // 对齐口径（设计稿 design/worklog-dispatch-align.html 已审批）：
 //   · 仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略）
+//   · 导入行再按班组字典过滤：用车人中无本班成员（启用中）的行整行剔除（他班派车混入不进清单），全剔空报 400
 //   · 匹配键：日期（预计用车时间的日期部分）＋用车人（空格分隔姓名集合）
 //   · 同日内按用车人重合度贪心配对（重合最多者成对，0 重合不配）
 //   · 目的地模糊比对：表格目的地常省略「市/县」等行政区字样（如卡片「孝义市」表格写「吕梁市孝义」），
@@ -132,7 +133,7 @@ function pairOneDay(rows, entries) {
   };
 }
 
-// 对齐主流程：多文件合并解析 → 范围内出车卡片 → 按日配对 → 差异清单（按日期倒序）
+// 对齐主流程：多文件合并解析 → 剔除非本班用车人行 → 范围内出车卡片 → 按日配对 → 差异清单（按日期倒序）
 async function align(team, files) {
   const allRows = [];
   let skipped = 0;
@@ -147,11 +148,22 @@ async function align(team, files) {
     throw err;
   }
 
-  const dates = allRows.map((r) => r.date).sort();
+  // 剔除「用车人中无本班成员（启用中字典）」的行：他班派车混入导出件时不进清单，剔除数入 summary.outside
+  const [memRows] = await pool.query('SELECT name FROM worklog_member WHERE status = 1 AND team_id = ?', [team.id]);
+  const teamNames = new Set(memRows.map((m) => m.name));
+  const teamRows = allRows.filter((r) => r.members.some((n) => teamNames.has(n)));
+  const outside = allRows.length - teamRows.length;
+  if (!teamRows.length) {
+    const err = new Error(`导入行剔除后无剩余：全部 ${allRows.length} 行的用车人均不含本班成员，请确认导出件属于本班组`);
+    err.status = 400;
+    throw err;
+  }
+
+  const dates = teamRows.map((r) => r.date).sort();
   const entries = await loadEntries(team.id, dates[0], dates[dates.length - 1]);
 
   const byDate = {};
-  allRows.forEach((r) => {
+  teamRows.forEach((r) => {
     (byDate[r.date] = byDate[r.date] || { rows: [], entries: [] }).rows.push(r);
   });
   entries.forEach((e) => {
@@ -214,8 +226,9 @@ async function align(team, files) {
 
   return {
     summary: {
-      imported: allRows.length, // 参与对齐的有效行（已过滤非用车申请调度）
+      imported: teamRows.length, // 参与对齐的有效行（已过滤非用车申请调度、非本班用车人）
       skipped, // 预计用车时间无法识别而被跳过的行
+      outside, // 用车人中无本班成员被剔除的行（他班派车混入）
       files: files.length,
       consistent,
       plate: plateCnt,

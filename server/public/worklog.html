@@ -680,8 +680,9 @@
 
   /* ===== 汇总前核验（原验证报告；整月切换，范围已收窄为仅未通过记录） ===== */
   .rep-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  /* 日期范围文本（批量下载 / 工作任务单 / 费用汇总 三页签同款：文本 + 实心橙「改日期」按钮，弹层选起止） */
-  .rg-text { font-size: 13px; font-weight: 700; color: var(--navy); letter-spacing: .5px; }
+  /* 日期范围内联输入（批量下载 / 工作任务单 / 费用汇总 三页签同款：起止两个日期输入 + 分隔符，无弹层；
+     点击输入框任意位置即展开系统日期选择，JS 绑 showPicker） */
+  .rg-date { width: 148px; cursor: pointer; }
   .rep-month { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: var(--navy); min-width: 84px; text-align: center; }
   .rep-sep { color: var(--ph); font-size: 12px; } /* 下载页签日期分隔符也用此类 */
   .rep-total { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
@@ -858,11 +859,12 @@
       <!-- 记录：当日日志卡片流（日期导航由月历承担） -->
       <div class="pane on" id="paneRecord"><div id="cardFlow"></div></div>
 
-      <!-- 下载：日期范围（文本 +「改日期」弹层，默认当日单日）+ 按月分组勾选 + 底部操作行（原批量下载弹层页签化；仅看我走页头全局开关） -->
+      <!-- 下载：日期范围（内联起止两个日期输入，默认当日单日）+ 按月分组勾选 + 底部操作行（原批量下载弹层页签化；仅看我走页头全局开关） -->
       <div class="pane" id="paneDl">
         <div class="rep-bar">
-          <span class="rg-text" id="dlRangeText"></span>
-          <button class="btn btn-sm btn-accent" id="dlChange">改日期</button>
+          <input type="date" class="f-sel rg-date" id="dlFrom">
+          <span class="rep-sep">-</span>
+          <input type="date" class="f-sel rg-date" id="dlTo">
           <span class="dl-meta" id="dlMeta"></span>
         </div>
         <div class="pane-scroll" id="dlBody"></div>
@@ -893,8 +895,9 @@
       <!-- 工作任务单：按日期范围生成出车卡片合并为单个 docx，一卡一页（仅超管 / 班组管理员可见页签；与数据管理平级） -->
       <div class="pane" id="paneTS">
         <div class="rep-bar">
-          <span class="rg-text" id="tsRangeText"></span>
-          <button class="btn btn-sm btn-accent" id="tsChange">改日期</button>
+          <input type="date" class="f-sel rg-date" id="tsFrom">
+          <span class="rep-sep">-</span>
+          <input type="date" class="f-sel rg-date" id="tsTo">
           <span class="dl-meta">范围内全部出车卡片，一卡一页合并为一个 Word（单次最多 31 天）</span>
         </div>
         <div class="pane-scroll">
@@ -927,8 +930,9 @@
       <!-- 费用汇总：按日期范围生成「人 × 日」费用矩阵 docx，一卡一行、一人一列、末尾合计（仅超管 / 班组管理员可见页签；与工作任务单平级） -->
       <div class="pane" id="paneFS">
         <div class="rep-bar">
-          <span class="rg-text" id="fsRangeText"></span>
-          <button class="btn btn-sm btn-accent" id="fsChange">改日期</button>
+          <input type="date" class="f-sel rg-date" id="fsFrom">
+          <span class="rep-sep">-</span>
+          <input type="date" class="f-sel rg-date" id="fsTo">
           <span class="dl-meta">范围内出车卡片一卡一行、用车人一人一列，末尾合计（单次最多 31 天）</span>
         </div>
         <div class="pane-scroll">
@@ -1034,7 +1038,7 @@ var state = {
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
   dict: { lists: {}, towerCount: null }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）
   dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
-  ts: { from: '', to: '' },    // 工作任务单页签：生成范围（默认当日单日，「改日期」弹层选择）
+  ts: { from: '', to: '' },    // 工作任务单页签：生成范围（默认当日单日，页签内联起止输入选择）
   fs: { from: '', to: '' },    // 费用汇总页签：汇总范围（同工作任务单口径）
   pa: { files: [], result: null, done: {}, idx: 0, uploading: false } // 派车对齐页签（done：已处理条目，键=清单索引）
 };
@@ -2874,7 +2878,7 @@ function dictSeg(key) {
 /* ================= 派车对齐页签（Web 端专属；仅超管 / 班组管理员） =================
    流程：多文件上传 POST /dispatch/align（服务端只读对齐不写库）→ 不一致清单 → 对照弹层逐条处理；
    更正复用既有接口：改卡 PUT /logs/{id}（整卡更新，patrol_content 随条目带回避免误清）、补建卡 POST /logs、车牌入字典 POST /admin/vehicles；
-   口径：仅「用车申请调度」行参与，日期＋用车人配对；表格有系统无在弹层按表格预填快速建卡（手动确认才写库，非自动建），系统有表格无仅提示确认（设计稿 design/worklog-dispatch-align.html） */
+   口径：仅「用车申请调度」行参与，且剔除用车人中无本班成员的行；日期＋用车人配对；表格有系统无在弹层按表格预填快速建卡（手动确认才写库，非自动建），系统有表格无仅提示确认（设计稿 design/worklog-dispatch-align.html） */
 
 /* 文件选择 chips + 开始对齐按钮可用态 */
 function renderPaFiles() {
@@ -2922,7 +2926,7 @@ function paRowHtml(it, i) {
 function renderPA() {
   var ruleHtml = '<div class="card dsec"><div class="dsec-h"><b>对齐口径</b></div>' +
     '<div class="f-hint" style="padding:0 16px 14px;line-height:2">' +
-    '仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略）；按「日期＋用车人」匹配当日卡片，同日内取用车人重合最多者成对；' +
+    '仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略），且用车人中无本班成员的行整行剔除（他班派车不参与）；按「日期＋用车人」匹配当日卡片，同日内取用车人重合最多者成对；' +
     '配对后比对车牌号码、目的地与用车人集合；目的地为模糊比对（表格常省略「市/县」等字样，如「吕梁市孝义」视同「孝义市」），表格目的地为空不比对。车牌不一致以表格为准更正；用车人多 / 少在对照弹层内点亮调整；' +
     '「表格有系统无」在对照弹层按表格预填快速建卡（确认后才写库，非自动建）；「系统有表格无」仅提示确认，不自动删卡。更正后可重新导入再对齐（幂等）。</div></div>';
   var r = state.pa.result;
@@ -2948,6 +2952,9 @@ function renderPA() {
     : '<div class="dempty" style="text-align:center;padding:30px 0">全部一致，无需更正</div>';
   if (s.skipped) {
     html += '<div class="f-hint" style="margin-top:10px">另有 ' + s.skipped + ' 行「预计用车时间」无法识别，已跳过。</div>';
+  }
+  if (s.outside) {
+    html += '<div class="f-hint" style="margin-top:10px">已剔除 ' + s.outside + ' 行用车人均非本班成员的记录（他班派车不参与对齐）。</div>';
   }
   $('#paBody').innerHTML = html;
   renderPaFiles();
@@ -3192,7 +3199,7 @@ function bindAlignModal(inst, it, i, total) {
     b.addEventListener('click', function () {
       var act = b.dataset.pa;
       if (act === 'prev' && i > 0) { inst.close(); openAlign(i - 1); }
-      else if (act === 'skip') { inst.close(); }
+      else if (act === 'skip') { inst.close(); if (i + 1 < total) openAlign(i + 1); } // 跳过 = 不处理直接跳下一条（末条则关闭）
       else if (act === 'next') { inst.close(); if (i + 1 < total) openAlign(i + 1); }
       else if (act === 'addVeh') { paAddVehicle(it.sheet.plate, inst); }
       else if (act === 'save') { paSave(it, i, total, inst, false, b); }
@@ -3528,28 +3535,34 @@ function showVerifyFailures(e, from, onForce) {
   return true;
 }
 
-/* 日期范围文本同步（批量下载 / 工作任务单 / 费用汇总 三页签同款：范围文本 + 实心橙「改日期」按钮） */
-function syncRangeText(id, from, to) {
-  $(id).textContent = from === to ? from : from + ' ~ ' + to;
-}
-/* 日期范围选择弹层：起止两个日期输入 + 确定（from ≤ to 校验；确认即回写并回调） */
-function pickRange(from, to, onOk) {
-  var html = mHead('选择日期范围')
-    + '<div class="rep-bar" style="margin:0"><input type="date" class="f-sel" id="rpFrom" value="' + from + '">'
-    + '<span class="rep-sep">~</span><input type="date" class="f-sel" id="rpTo" value="' + to + '"></div>'
-    + '<div class="m-foot" style="margin-top:14px"><button class="btn btn-sm btn-accent" data-a="ok">确定</button></div>';
-  var inst = createModal(html, { width: 360 });
-  $('[data-a="ok"]', inst.box).addEventListener('click', function () {
-    var f = $('#rpFrom', inst.box).value;
-    var t = $('#rpTo', inst.box).value;
-    if (!f || !t) { Shade.toast('请选择起止日期', 'info'); return; }
-    if (f > t) { Shade.toast('开始日期不能晚于结束日期', 'info'); return; }
-    inst.close();
-    onOk(f, t);
+/* 日期范围内联输入绑定（批量下载 / 工作任务单 / 费用汇总 三页签同款：起止两个日期输入 + 分隔符，无弹层无确定钮）；
+   点击输入框任意位置即展开系统日期选择（showPicker，不支持的浏览器保留原生点击行为）；
+   change 时校验：缺值或 from > to 回退为状态值（f > t 时 toast 提示），合法则回写 st（{from,to} 状态对象）并触发 onChange */
+function bindRangeInput(fromSel, toSel, st, onChange) {
+  var fromEl = $(fromSel);
+  var toEl = $(toSel);
+  [fromEl, toEl].forEach(function (el) {
+    el.addEventListener('click', function () {
+      try { if (el.showPicker) el.showPicker(); } catch (e) { }
+    });
+    el.addEventListener('change', function () {
+      var f = fromEl.value;
+      var t = toEl.value;
+      if (!f || !t || f > t) {
+        if (f && t) Shade.toast('开始日期不能晚于结束日期', 'info');
+        fromEl.value = st.from;
+        toEl.value = st.to;
+        return;
+      }
+      if (f === st.from && t === st.to) return;
+      st.from = f;
+      st.to = t;
+      if (onChange) onChange();
+    });
   });
 }
 
-/* 工作任务单：读取范围入参（state.ts，「改日期」弹层已保证 from ≤ to） */
+/* 工作任务单：读取范围入参（state.ts，内联输入绑定已保证 from ≤ to） */
 function tsRange() {
   var from = state.ts.from;
   var to = state.ts.to;
@@ -3902,22 +3915,12 @@ function initEvents() {
   $$('#wlTabs button').forEach(function (b) {
     b.addEventListener('click', function () { switchPane(b.dataset.p); });
   });
-  /* 工作任务单页签：改日期（弹层选范围）/ 预览（basemetas 新标签）/ 下载（fetch + blob），函数在数据管理区同族定义 */
-  $('#tsChange').addEventListener('click', function () {
-    pickRange(state.ts.from, state.ts.to, function (f, t) {
-      state.ts.from = f; state.ts.to = t;
-      syncRangeText('#tsRangeText', f, t);
-    });
-  });
+  /* 工作任务单页签：内联起止日期（bindRangeInput 校验回写 state.ts）/ 预览（basemetas 新标签）/ 下载（fetch + blob），函数在数据管理区同族定义 */
+  bindRangeInput('#tsFrom', '#tsTo', state.ts, null);
   $('#tsPrev').addEventListener('click', function () { taskSheetPreview(this); });
   $('#tsDl').addEventListener('click', function () { taskSheetDownload(this); });
-  /* 费用汇总页签：改日期 / 预览 / 下载（同工作任务单口径） */
-  $('#fsChange').addEventListener('click', function () {
-    pickRange(state.fs.from, state.fs.to, function (f, t) {
-      state.fs.from = f; state.fs.to = t;
-      syncRangeText('#fsRangeText', f, t);
-    });
-  });
+  /* 费用汇总页签：内联起止日期 / 预览 / 下载（同工作任务单口径） */
+  bindRangeInput('#fsFrom', '#fsTo', state.fs, null);
   $('#fsPrev').addEventListener('click', function () { feeSheetPreview(this); });
   $('#fsDl').addEventListener('click', function () { feeSheetDownload(this); });
   /* 派车对齐页签：选文件 / 移除文件 / 开始对齐 / 清单行打开对照弹层 */
@@ -3948,14 +3951,8 @@ function initEvents() {
   window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); syncSideReport(); });
   $('#btnCreate').addEventListener('click', function () { openEntryForm(null); });
   $('#btnSyncCheck').addEventListener('click', function () { openSyncCheck(); });
-  /* 下载页签：改日期（弹层选范围，确认即查询）/ 全选 / 缩略图勾选 / 打包下载（仅看我走页头全局开关） */
-  $('#dlChange').addEventListener('click', function () {
-    pickRange(state.dl.from, state.dl.to, function (f, t) {
-      state.dl.from = f; state.dl.to = t;
-      syncRangeText('#dlRangeText', f, t);
-      loadDlPhotos();
-    });
-  });
+  /* 下载页签：内联起止日期（改动合法即回写并重新查询）/ 全选 / 缩略图勾选 / 打包下载（仅看我走页头全局开关） */
+  bindRangeInput('#dlFrom', '#dlTo', state.dl, loadDlPhotos);
   $('#dlAll').addEventListener('click', function () {
     var target = !this.classList.contains('on');
     (state.dl.list || []).forEach(function (p) { p.selected = target; });
@@ -4166,13 +4163,13 @@ async function init() {
   $('#tsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
   $('#fsPrev').innerHTML = Shade.icon('file', 15) + '预览';
   $('#fsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
-  /* 批量下载 / 工作任务单 / 费用汇总 范围默认均仅当日单日（「改日期」弹层再选区间） */
+  /* 批量下载 / 工作任务单 / 费用汇总 范围默认均仅当日单日（页签内联起止输入再调区间） */
   state.ts.from = state.ts.to = state.date;
   state.fs.from = state.fs.to = state.date;
   state.dl.from = state.dl.to = state.date;
-  syncRangeText('#tsRangeText', state.date, state.date);
-  syncRangeText('#fsRangeText', state.date, state.date);
-  syncRangeText('#dlRangeText', state.date, state.date);
+  $('#tsFrom').value = $('#tsTo').value = state.date;
+  $('#fsFrom').value = $('#fsTo').value = state.date;
+  $('#dlFrom').value = $('#dlTo').value = state.date;
   $('#calPrev').innerHTML = SVG_CHEV_L;
   $('#calNext').innerHTML = SVG_CHEV_R;
 
