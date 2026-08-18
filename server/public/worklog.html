@@ -2873,8 +2873,8 @@ function dictSeg(key) {
 /* 整页加载：三字典列表 + 杆塔条数并发拉取（杆塔全量约 1400 行，取 length 即弃，不进缓存） */
 /* ================= 派车对齐页签（Web 端专属；仅超管 / 班组管理员） =================
    流程：多文件上传 POST /dispatch/align（服务端只读对齐不写库）→ 不一致清单 → 对照弹层逐条处理；
-   更正复用既有接口：改卡 PUT /logs/{id}（整卡更新，patrol_content 随条目带回避免误清）、车牌入字典 POST /admin/vehicles；
-   口径：仅「用车申请调度」行参与，日期＋用车人配对，表格有系统无 / 系统有表格无 仅提示确认（设计稿 design/worklog-dispatch-align.html） */
+   更正复用既有接口：改卡 PUT /logs/{id}（整卡更新，patrol_content 随条目带回避免误清）、补建卡 POST /logs、车牌入字典 POST /admin/vehicles；
+   口径：仅「用车申请调度」行参与，日期＋用车人配对；表格有系统无在弹层按表格预填快速建卡（手动确认才写库，非自动建），系统有表格无仅提示确认（设计稿 design/worklog-dispatch-align.html） */
 
 /* 文件选择 chips + 开始对齐按钮可用态 */
 function renderPaFiles() {
@@ -2906,7 +2906,7 @@ function paRowHtml(it, i) {
     sum = '<b>' + esc(it.sheet.members.join(' ')) + '</b><span class="vs">｜</span>' + parts.join('<span class="vs">，</span>');
   } else if (it.kind === 'sheetOnly') {
     badges = '<span class="pa-badge none-sys">表格有·系统无</span>';
-    sum = '<b>' + esc(it.sheet.plate) + ' · ' + esc(it.sheet.members.join(' ')) + '</b><span class="vs">｜</span>当天系统无对应出车卡片，仅提示确认';
+    sum = '<b>' + esc(it.sheet.plate) + ' · ' + esc(it.sheet.members.join(' ')) + '</b><span class="vs">｜</span>当天系统无对应出车卡片，可在弹层快速建卡';
   } else {
     badges = '<span class="pa-badge none-sheet">系统有·表格无</span>';
     sum = '<b>' + esc(it.entry.plate) + ' · ' + esc(it.entry.members.map(function (m) { return m.name; }).join(' ')) + '</b><span class="vs">｜</span>派车单中无此记录，仅提示确认';
@@ -2914,7 +2914,7 @@ function paRowHtml(it, i) {
   return '<div class="pa-row' + (done ? ' done' : '') + '" data-idx="' + i + '">' +
     '<span class="pa-date">' + date + '</span>' + badges +
     '<span class="pa-sumline">' + sum + '</span>' +
-    (done ? '<span class="pa-done">✓ 已处理</span>' : '<span class="pa-act">' + (it.kind === 'matched' ? '处理 ›' : '查看 ›') + '</span>') +
+    (done ? '<span class="pa-done">✓ 已处理</span>' : '<span class="pa-act">' + (it.kind === 'entryOnly' ? '查看 ›' : '处理 ›') + '</span>') +
   '</div>';
 }
 
@@ -2924,7 +2924,7 @@ function renderPA() {
     '<div class="f-hint" style="padding:0 16px 14px;line-height:2">' +
     '仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略）；按「日期＋用车人」匹配当日卡片，同日内取用车人重合最多者成对；' +
     '配对后比对车牌号码、目的地与用车人集合；目的地为模糊比对（表格常省略「市/县」等字样，如「吕梁市孝义」视同「孝义市」），表格目的地为空不比对。车牌不一致以表格为准更正；用车人多 / 少在对照弹层内点亮调整；' +
-    '「表格有系统无」「系统有表格无」仅提示确认，不自动建卡或删卡。更正后可重新导入再对齐（幂等）。</div></div>';
+    '「表格有系统无」在对照弹层按表格预填快速建卡（确认后才写库，非自动建）；「系统有表格无」仅提示确认，不自动删卡。更正后可重新导入再对齐（幂等）。</div></div>';
   var r = state.pa.result;
   if (!r) {
     $('#paBody').innerHTML = ruleHtml +
@@ -3020,22 +3020,25 @@ function paDestSame(cardDest, sheetTo) {
   return nc.indexOf(ns) >= 0 || ns.indexOf(nc) >= 0;
 }
 
-/* 弹层页脚（matched = 保存组；其余 = 仅确认） */
-function paDlgFoot(i, total, matched) {
+/* 弹层页脚（save = 改卡保存组；create = 建卡组；其余 = 仅确认） */
+function paDlgFoot(i, total, mode) {
   var html = '<div class="pa-foot">' +
     '<button class="btn btn-sm" data-pa="prev"' + (i === 0 ? ' disabled' : '') + '>‹ 上一条</button>' +
     '<span class="skip" data-pa="skip">跳过本条</span>' +
     '<span class="sp">';
-  if (matched) {
+  if (mode === 'save') {
     html += '<button class="btn btn-sm btn-dark" data-pa="save">仅保存</button>' +
       '<button class="btn btn-sm btn-accent" data-pa="saveNext">' + (i + 1 < total ? '保存并下一条 ›' : '保存并收尾') + '</button>';
+  } else if (mode === 'create') {
+    html += '<button class="btn btn-sm btn-dark" data-pa="create">仅建卡</button>' +
+      '<button class="btn btn-sm btn-accent" data-pa="createNext">' + (i + 1 < total ? '建卡并下一条 ›' : '建卡并收尾') + '</button>';
   } else {
     html += '<button class="btn btn-sm btn-accent" data-pa="next">' + (i + 1 < total ? '知道了，下一条 ›' : '知道了') + '</button>';
   }
   return html + '</span></div>';
 }
 
-/* 打开第 i 条对照弹层（matched 右侧为可改卡片；sheetOnly / entryOnly 为提示态） */
+/* 打开第 i 条对照弹层（matched 右侧为可改卡片；sheetOnly 右侧为快速建卡表单；entryOnly 为提示态） */
 async function openAlign(i) {
   var r = state.pa.result;
   if (!r || !r.items[i]) return;
@@ -3046,27 +3049,19 @@ async function openAlign(i) {
     '<span class="pa-dlg-prog">第 ' + (i + 1) + ' / ' + total + ' 条 · ' + it.date + '</span>' +
     '<button class="m-x">' + Shade.icon('close', 14) + '</button></div>';
 
-  if (it.kind !== 'matched') {
+  if (it.kind === 'entryOnly') {
     /* 提示态：仅展示数据，无可改项 */
-    var infoCol;
-    if (it.kind === 'sheetOnly') {
-      infoCol = '<div class="pa-col"><div class="pa-col-h">派车单表格数据 <small>只读</small><span class="src">' + esc(it.sheet.file) + '</span></div>' +
-        '<div class="pa-rows">' + paSheetRows(it.sheet, null) + '</div></div>';
-    } else {
-      infoCol = '<div class="pa-col"><div class="pa-col-h">记录卡片 <small>只读</small><span class="src">卡片 #' + it.entry.id + '</span></div>' +
-        '<div class="pa-rows">' +
-        '<div class="pa-r"><span class="k">车牌号</span><span class="v">' + esc(it.entry.plate) + '</span></div>' +
-        '<div class="pa-r"><span class="k">用车人</span><span class="v">' + esc(it.entry.members.map(function (m) { return m.name; }).join(' ')) + '</span></div>' +
-        '<div class="pa-r"><span class="k">目的地</span><span class="v">' + esc(it.entry.destination || '—') + '</span></div>' +
-        '</div></div>';
-    }
+    var infoCol = '<div class="pa-col"><div class="pa-col-h">记录卡片 <small>只读</small><span class="src">卡片 #' + it.entry.id + '</span></div>' +
+      '<div class="pa-rows">' +
+      '<div class="pa-r"><span class="k">车牌号</span><span class="v">' + esc(it.entry.plate) + '</span></div>' +
+      '<div class="pa-r"><span class="k">用车人</span><span class="v">' + esc(it.entry.members.map(function (m) { return m.name; }).join(' ')) + '</span></div>' +
+      '<div class="pa-r"><span class="k">目的地</span><span class="v">' + esc(it.entry.destination || '—') + '</span></div>' +
+      '</div></div>';
     var tipCol = '<div class="pa-col"><div class="pa-col-h">提示</div><div class="pa-rows">' +
       '<div class="f-hint" style="padding:10px 0;line-height:2">' +
-      (it.kind === 'sheetOnly'
-        ? '当天系统里没有与该行用车人重合的出车卡片。请确认是否漏记卡片——如需补记，请到「记录」页签切至 ' + it.date + ' 新建日志；本功能不自动建卡。'
-        : '派车单中没有与该卡片对应的记录。可能为派车单导出不完整或该次出车未走派车申请；确认无误即可，本功能不自动删卡。') +
+      '派车单中没有与该卡片对应的记录。可能为派车单导出不完整或该次出车未走派车申请；确认无误即可，本功能不自动删卡。' +
       '</div></div></div>';
-    var instInfo = createModal(head + '<div class="pa-cmp">' + infoCol + tipCol + '</div>' + paDlgFoot(i, total, false), { width: 1020 });
+    var instInfo = createModal(head + '<div class="pa-cmp">' + infoCol + tipCol + '</div>' + paDlgFoot(i, total, null), { width: 1020 });
     bindAlignModal(instInfo, it, i, total);
     return;
   }
@@ -3076,6 +3071,49 @@ async function openAlign(i) {
     meta = await ensureMeta();
   } catch (e) {
     Shade.toast(e.message, 'error');
+    return;
+  }
+
+  if (it.kind === 'sheetOnly') {
+    /* 快速建卡：左栏表格只读，右栏按表格预填车牌 / 用车人 / 目的地，确认后 POST /logs 建卡 */
+    var sPlateHit = meta.vehicles.filter(function (v) { return v.plate_no === it.sheet.plate; })[0] || null;
+    var sPlateOpts = (sPlateHit ? '' : '<option value="">（请选择车牌）</option>') + meta.vehicles.map(function (v) {
+      return '<option value="' + v.id + '"' + (sPlateHit && v.id === sPlateHit.id ? ' selected' : '') + '>' + esc(v.plate_no) + '</option>';
+    }).join('');
+    var sPlateNote = sPlateHit
+      ? '<div class="pa-note">已按表格预填，可改选</div>'
+      : '<div class="pa-note red">表格车牌 ' + esc(it.sheet.plate) + ' 不在本班字典' +
+        '<button class="linkbtn" data-pa="addVeh">添加进字典</button></div>';
+    var sMemNames = meta.members.map(function (m) { return m.name; });
+    var sChips = '<div class="chips">' + meta.members.map(function (m) {
+      return '<span class="chip' + (it.sheet.members.indexOf(m.name) >= 0 ? ' on' : '') + '" data-mid="' + m.id + '">' + esc(m.name) + '</span>';
+    }).join('') + '</div>';
+    var sUnknown = it.sheet.members.filter(function (n) { return sMemNames.indexOf(n) < 0; });
+    var sMemNote = sUnknown.length
+      ? '<div class="pa-note red">表格用车人「' + esc(sUnknown.join(' ')) + '」不在本班成员字典，无法点亮（可在数据管理中添加成员）</div>'
+      : '';
+    var sDestHit = it.sheet.to
+      ? meta.destinations.filter(function (v) { return paDestSame(v.name, it.sheet.to); })[0] || null
+      : null;
+    var sDestOpts = '<option value="">（暂不选）</option>' + meta.destinations.map(function (v) {
+      return '<option value="' + v.id + '"' + (sDestHit && v.id === sDestHit.id ? ' selected' : '') + '>' + esc(v.name) + '</option>';
+    }).join('');
+    var sDestNote = sDestHit
+      ? '<div class="pa-note">已按表格模糊匹配预填，可改选</div>'
+      : (it.sheet.to
+        ? '<div class="pa-note red">表格目的地「' + esc(it.sheet.to) + '」与本班字典无匹配项，请手工选择或暂不选</div>'
+        : '');
+    var leftColS = '<div class="pa-col"><div class="pa-col-h">派车单表格数据 <small>只读</small><span class="src">' + esc(it.sheet.file) + '</span></div>' +
+      '<div class="pa-rows">' + paSheetRows(it.sheet, null) + '</div></div>';
+    var rightColS = '<div class="pa-col"><div class="pa-col-h">快速建卡 <small>按表格预填，确认后写入 ' + it.date + '</small></div>' +
+      '<div class="pa-rows">' +
+      '<div class="pa-f-row"><span class="k">车牌号</span><div class="c"><select class="f-sel" id="paPlate">' + sPlateOpts + '</select>' + sPlateNote + '</div></div>' +
+      '<div class="pa-f-row"><span class="k">用车人</span><div class="c">' + sChips + sMemNote + '</div></div>' +
+      '<div class="pa-f-row"><span class="k">目的地</span><div class="c"><select class="f-sel" id="paDest">' + sDestOpts + '</select>' + sDestNote + '</div></div>' +
+      '<div class="pa-f-row"><span class="k">巡视内容</span><div class="c" style="font-size:12px;color:#6B7690;line-height:1.8;padding-top:6px">建卡后为空，可到「记录」页签补填；打卡、水印照片与正常卡片相同</div></div>' +
+      '</div></div>';
+    var instS = createModal(head + '<div class="pa-cmp">' + leftColS + rightColS + '</div>' + paDlgFoot(i, total, 'create'), { width: 1020 });
+    bindAlignModal(instS, it, i, total);
     return;
   }
   var d = it.diffs;
@@ -3141,11 +3179,11 @@ async function openAlign(i) {
   var leftCol = '<div class="pa-col"><div class="pa-col-h">派车单表格数据 <small>只读</small><span class="src">' + esc(it.sheet.file) + '</span></div>' +
     '<div class="pa-rows">' + paSheetRows(it.sheet, d) + '</div></div>';
 
-  var inst = createModal(head + '<div class="pa-cmp">' + leftCol + rightCol + '</div>' + paDlgFoot(i, total, true), { width: 1020 });
+  var inst = createModal(head + '<div class="pa-cmp">' + leftCol + rightCol + '</div>' + paDlgFoot(i, total, 'save'), { width: 1020 });
   bindAlignModal(inst, it, i, total);
 }
 
-/* 弹层内交互绑定：chips 点亮 / 上一条 / 跳过 / 保存组 / 确认下一条 / 车牌入字典 */
+/* 弹层内交互绑定：chips 点亮 / 上一条 / 跳过 / 保存组 / 建卡组 / 确认下一条 / 车牌入字典 */
 function bindAlignModal(inst, it, i, total) {
   $$('.chip[data-mid]', inst.box).forEach(function (c) {
     c.addEventListener('click', function () { c.classList.toggle('on'); });
@@ -3159,6 +3197,8 @@ function bindAlignModal(inst, it, i, total) {
       else if (act === 'addVeh') { paAddVehicle(it.sheet.plate, inst); }
       else if (act === 'save') { paSave(it, i, total, inst, false, b); }
       else if (act === 'saveNext') { paSave(it, i, total, inst, true, b); }
+      else if (act === 'create') { paCreate(it, i, total, inst, false, b); }
+      else if (act === 'createNext') { paCreate(it, i, total, inst, true, b); }
     });
   });
 }
@@ -3205,6 +3245,41 @@ async function paSave(it, i, total, inst, advance, btn) {
     loadLogs({ quiet: true }); // 卡片流静默刷新（若被更正日期在视图中）
     state.rep.loaded = false; // 汇总前核验可能涉及用车人打卡口径，标记重查
     Shade.toast('已保存', 'success');
+    inst.close();
+    if (advance) {
+      if (i + 1 < total) openAlign(i + 1);
+      else Shade.toast('不一致条目已全部处理完', 'success');
+    }
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+/* 表格有系统无：按弹层预填快速建卡（POST /logs，巡视内容留空待补；建卡后标记已处理并静默刷新卡片流） */
+async function paCreate(it, i, total, inst, advance, btn) {
+  var plateSel = $('#paPlate', inst.box);
+  var destSel = $('#paDest', inst.box);
+  var vehicleId = plateSel ? Number(plateSel.value) || null : null;
+  if (!vehicleId) {
+    Shade.toast('请选择车牌号（表格车牌不在字典时可先「添加进字典」）', 'error');
+    return;
+  }
+  var body = {
+    log_date: it.date,
+    patrol_content: '',
+    vehicle_id: vehicleId,
+    destination_id: destSel ? Number(destSel.value) || null : null,
+    member_ids: $$('.chip.on[data-mid]', inst.box).map(function (c) { return Number(c.dataset.mid); })
+  };
+  btn.disabled = true;
+  try {
+    await Shade.api(wl('/api/v1/worklog/logs'), { method: 'POST', body: body });
+    state.pa.done[i] = true;
+    renderPA();
+    loadLogs({ quiet: true }); // 卡片流静默刷新（若建卡日期在视图中）
+    state.rep.loaded = false; // 汇总前核验可能涉及新卡，标记重查
+    Shade.toast('已建卡', 'success');
     inst.close();
     if (advance) {
       if (i + 1 < total) openAlign(i + 1);
