@@ -739,7 +739,8 @@ async function syncPhotoToSgcc(photoId) {
       let imgs = [];
       if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
       if (!Array.isArray(imgs)) imgs = [];
-      imgs.push({ id: imgId, url: imgUrl || '' });
+      // 元素形状与商旅 App 手工上传一致：{fileInfoId, url}（imgId 即 reimbEnclosureAdd 返回的 fileInfoId）
+      imgs.push({ fileInfoId: imgId, url: imgUrl || '' });
       const sv = await sgcc.saveFeeInfoNew(account.token, photo.log_date, tpl, { 5: JSON.stringify(imgs) }, devOpt(account));
       if (!sv || Number(sv.statusCode) !== 200) throw new Error('费用照片关联保存失败');
 
@@ -773,7 +774,7 @@ async function removeFeeImageRemote(account, date, imgId) {
   let imgs = [];
   if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
   if (!Array.isArray(imgs)) imgs = [];
-  const kept = imgs.filter((it) => String(it.id) !== String(imgId));
+  const kept = imgs.filter((it) => String(it && (it.id ?? it.fileInfoId ?? it.imageId)) !== String(imgId));
   if (kept.length === imgs.length) return { ok: true }; // 商旅侧本就没有该图，视为已删除
   const sv = await sgcc.saveFeeInfoNew(account.token, date, tpl, { 5: JSON.stringify(kept) }, devOpt(account));
   if (!sv || Number(sv.statusCode) !== 200) return { ok: false, error: (sv && sv.msg) || '商旅费用保存失败' };
@@ -933,14 +934,23 @@ async function writeBackPullVerify(photoId, vr) {
 //       本地 source=1（商旅拉下的镜像）有而商旅无 → 整照删除（COS 对象 + worklog_photo 行）；
 //       本地 source=0（壹匣上传）本成员链接有而商旅无 → 摘除本成员链接与人名（摘空后整照删除）
 async function syncFeePhotos(account, date, remoteImgs, log) {
-  // 商旅侧集合：商旅图片 id → 图片地址（url / imageUrl 两键兼容；只采信带非空 id 的元素）
+  // 商旅侧集合：商旅图片 id → 图片地址
+  // id 键兼容：壹匣保存写入 {id,url}，App 手工上传为 {fileInfoId,url}（另兼容 imageUrl）；
+  // 有数据但识别不出图片 id（键名再漂移）→ 跳过对账保护本地，防止误判「商旅无照片」删错
   const remote = new Map();
   for (const it of remoteImgs) {
-    if (!it || it.id === undefined || it.id === null || String(it.id) === '') continue;
+    if (!it) continue;
+    const rawId = it.id ?? it.fileInfoId ?? it.imageId;
+    if (rawId === undefined || rawId === null || String(rawId) === '') continue;
     const url = typeof it.url === 'string' && it.url.trim()
       ? it.url.trim()
       : (typeof it.imageUrl === 'string' ? it.imageUrl.trim() : '');
-    remote.set(String(it.id), url);
+    remote.set(String(rawId), url);
+  }
+  if (remoteImgs.length && !remote.size) {
+    console.error(`[商旅打卡] 费用照片对账跳过（成员 ${account.member_id} ${date}）：远端 ${remoteImgs.length} 张但无可识别图片 id，样例 ${JSON.stringify(remoteImgs[0]).slice(0, 300)}`);
+    await log('photo', 'fail', `费用照片：远端 ${remoteImgs.length} 张但无可识别图片 id（键名异常），已跳过对账（详见服务端日志）`);
+    return;
   }
 
   // 本成员名（摘除/入库标注用）
