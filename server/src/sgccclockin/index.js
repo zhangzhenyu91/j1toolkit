@@ -526,23 +526,57 @@ async function feeTplParams(memberId, date) {
 // 模板「成本分配」（id=4）兜底：商旅默认带出则沿用并回报当前值；空值时用本成员最近一次本地成本中心回填。
 // 注意 value 与 data 两字段不对称（value.value='1' 选项码 / data.value='成本中心' 选项文案），勿用同一串覆盖；
 // 返回 { code, name }（当前生效值，供本地摘要回写）或 null（无来源可填）
+// 成本分配选项码 ↔ 文案（组件 id=4 的五个选项；商旅自动带出时可能只给名称/编码、选中码缺失或误为文案，须归一否则保存不生效）
+const COST_ALLOC_OPTS = { 1: '成本中心', 2: 'WBS', 3: '内部订单号', 4: '成本中心&WBS', 5: '成本中心&内部订单号' };
+
+// 归一 comp4 的 value/data：选项码空 → 默认「成本中心」(1)；误写为选项文案 → 映射回选项码；
+// value.value=选项码 / data.value=选项文案（两字段不对称，勿同串覆盖）
+function normalizeCostAllocComp(comp, v) {
+  let code = String(v.value || '').trim();
+  if (!code) code = '1';
+  else if (!COST_ALLOC_OPTS[code]) {
+    const rev = Object.entries(COST_ALLOC_OPTS).find(([, label]) => label === v.value);
+    if (rev) code = rev[0];
+  }
+  const codeName = String(v.costCenterName || '');
+  const codeCode = String(v.costCenterCode || '');
+  comp.value = JSON.stringify({
+    costCenterName: codeName, value: code,
+    projectType: String(v.projectType || ''), projectTypeName: String(v.projectTypeName || ''),
+    costCenterCode: codeCode,
+  });
+  comp.data = JSON.stringify({
+    costCenterName: codeName, value: COST_ALLOC_OPTS[code] || '成本中心',
+    projectType: String(v.projectType || ''), projectTypeName: String(v.projectTypeName || ''),
+    costCenterCode: codeCode,
+  });
+  return code;
+}
+
+// 模板「成本分配」（id=4）兜底：商旅默认带出则归一后沿用并回报当前值；空值时用本成员最近一次本地成本中心回填。
+// 返回 { code, name }（当前生效值，供本地摘要回写）或 null（无来源可填）
 async function ensureCostCenter(tpl, account) {
   const comp = (tpl.dtComponentList || []).find((c) => c.id === 4);
   if (!comp) return null;
   let v = {};
   try { v = comp.value ? JSON.parse(comp.value) : {}; } catch (e) { v = {}; }
-  if (v && v.costCenterCode) return { code: String(v.costCenterCode), name: String(v.costCenterName || '') };
+  if (v && v.costCenterCode) {
+    // 编码已带出：选项码缺失/误写时归一（商旅自动带出常只给名称+编码不给选中码，原样透传保存不生效）
+    normalizeCostAllocComp(comp, v);
+    return { code: String(v.costCenterCode), name: String(v.costCenterName || '') };
+  }
   const [rows] = await pool.query(
     `SELECT cost_center_code, cost_center_name FROM worklog_fee
      WHERE member_id = ? AND cost_center_code <> '' ORDER BY fee_date DESC LIMIT 1`,
     [account.member_id]
   );
   if (!rows.length) return null;
-  const code = String(rows[0].cost_center_code);
-  const name = String(rows[0].cost_center_name || '');
-  comp.value = JSON.stringify({ costCenterName: name, value: '1', projectType: '', projectTypeName: '', costCenterCode: code });
-  comp.data = JSON.stringify({ costCenterName: name, value: '成本中心', projectType: '', projectTypeName: '', costCenterCode: code });
-  return { code, name };
+  normalizeCostAllocComp(comp, {
+    costCenterName: String(rows[0].cost_center_name || ''),
+    value: '',
+    costCenterCode: String(rows[0].cost_center_code),
+  });
+  return { code: String(rows[0].cost_center_code), name: String(rows[0].cost_center_name || '') };
 }
 
 // 费用模板组件提取成本分配（id=4）当前值；无则空串对
@@ -584,7 +618,7 @@ router.get('/fee', async (req, res, next) => {
           const opts = Array.isArray(comp4.optionsJsonObject) ? comp4.optionsJsonObject : [];
           const hit = opts.find((o) => String(o.value) === String(v.value));
           costAlloc = {
-            label: hit ? String(hit.label || '') : '',
+            label: hit ? String(hit.label || '') : (COST_ALLOC_OPTS[String(v.value)] || ''),
             costCenterName: String(v.costCenterName || ''),
             costCenterCode: String(v.costCenterCode || ''),
           };
@@ -625,6 +659,15 @@ router.post('/fee', async (req, res, next) => {
     if (!d2 || Number(d2.statusCode) !== 200) {
       return fail(res, 400, 40039, (d2 && d2.msg) || '商旅费用保存失败，请重试');
     }
+
+    // 保存后复核（排查用日志，不影响响应）：重新取模板确认成本分配是否已落商旅
+    sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account))
+      .then((d3) => {
+        const t3 = d3 && d3.data && d3.data.body && d3.data.body.clockTemplate;
+        const cc3 = t3 ? extractCostCenter(t3) : null;
+        console.log(`[商旅打卡] 费用保存复核（成员 ${memberId} ${date}）：成本分配 = ${cc3 && cc3.code ? `${cc3.code} ${cc3.name}` : '空'}`);
+      })
+      .catch(() => {});
 
     // 双写本地费用摘要（成本中心随本次生效值一并回写；未取到则保留旧值）
     await pool.query(
