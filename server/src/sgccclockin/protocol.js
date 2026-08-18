@@ -11,7 +11,7 @@ const config = require('../config');
 
 const HOST_H5 = 'gwslapi.esgcc.com.cn';   // jsonm 与 jsonx(default)
 const HOST_ZB = 'gwslapizb.esgcc.com.cn'; // jsonx(slapp)
-const VERSION = '3.3.5';
+const VERSION = config.sgcc.version || '3.3.5';
 
 // ---------- 基础工具 ----------
 function b64url(b) { return Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
