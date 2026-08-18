@@ -2677,6 +2677,12 @@ Page({
     wx.navigateTo({ url: '/pkg-worklog/pages/tasksheet/tasksheet' });
   },
 
+  // 费用汇总（超管 / 班组管理员；与工作任务单平级入口）
+  onFeeSheet() {
+    this.setData({ fabOpen: false });
+    wx.navigateTo({ url: '/pkg-worklog/pages/feesheet/feesheet' });
+  },
+
   // ---------- 批量下载水印照片 ----------
 
   // 首次打开默认范围：当天 1~10 日 → 上月整月；11 日及以后 → 本月 1 号到今天（批量下载面板用）

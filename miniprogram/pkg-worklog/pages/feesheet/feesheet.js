@@ -1,4 +1,4 @@
-// 出工日志 · 工作任务单（超管 / 班组管理员）：按日期范围把出车卡片合并生成为单个 docx 并打开（一卡一页供打印，单次最多 31 天）
+// 出工日志 · 费用汇总（超管 / 班组管理员）：按日期范围生成「人 × 日」费用矩阵 docx 并打开（一卡一行、一人一列、末尾合计，单次最多 31 天）
 // 班组口径同 manage 页：超管按主页切换器存下的 worklog_team_id 生效；班组管理员后端强制本班
 import Toast from 'tdesign-miniprogram/toast/index';
 import { BASE_URL } from '../../../config';
@@ -7,8 +7,8 @@ import { shareAppMessage } from '../../../utils/share';
 Page({
   data: {
     isAdmin: false,
-    from: '', // 生成范围起（默认今天）
-    to: '', // 生成范围止（默认今天）
+    from: '', // 汇总范围起（默认今天）
+    to: '', // 汇总范围止（默认今天）
     generating: false,
   },
 
@@ -39,7 +39,7 @@ Page({
     this.setData({ to: e.detail.value });
   },
 
-  // 生成前核验拦截（40901）：错误响应 JSON 已随下载落盘，解析出未通过清单弹窗提示（费用汇总页同口径）
+  // 生成前核验拦截（40901）：错误响应 JSON 已随下载落盘，解析出未通过清单弹窗提示（同工作任务单页口径）
   showVerifyFailures(res) {
     let ej = null;
     try {
@@ -72,10 +72,10 @@ Page({
     }
     this.setData({ generating: true });
     wx.showLoading({ title: '正在生成…', mask: true });
-    // 文件名口径同后端 sheetFileName：单日带单日期，跨天带范围
-    const fileName = from === to ? `工作任务单-${from}.docx` : `工作任务单-${from}至${to}.docx`;
+    // 文件名口径同后端 feeFileName：单日带单日期，跨天带范围
+    const fileName = from === to ? `费用汇总-${from}.docx` : `费用汇总-${from}至${to}.docx`;
     wx.downloadFile({
-      url: `${BASE_URL}/api/v1/worklog/task-sheet?from=${from}&to=${to}${this._teamId ? `&team_id=${this._teamId}` : ''}`,
+      url: `${BASE_URL}/api/v1/worklog/fee-sheet?from=${from}&to=${to}${this._teamId ? `&team_id=${this._teamId}` : ''}`,
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
       // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
       filePath: `${wx.env.USER_DATA_PATH}/${fileName}`,
@@ -101,6 +101,6 @@ Page({
   },
 
   onShareAppMessage() {
-    return shareAppMessage(this, { app: 'work-log', title: '工作任务单' });
+    return shareAppMessage(this, { app: 'work-log', title: '费用汇总' });
   },
 });

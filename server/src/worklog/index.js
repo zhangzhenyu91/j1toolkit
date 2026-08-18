@@ -21,6 +21,7 @@ const Watermark = require('./watermark');
 const { renderWatermarkedPhoto } = require('./render-photo');
 const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark } = require('./verify');
 const tasksheet = require('./tasksheet');
+const feesheet = require('./feesheet');
 const dispatch = require('./dispatch');
 
 const router = express.Router();
@@ -143,7 +144,7 @@ async function loadEntries(where, params) {
     });
   });
 
-  // 商旅打卡开启时：装配 绑定/登录态（成员级）、当日两次打卡（clockinMap）与 当日费用（feeMap），供新 6 条规则与前端打卡区
+  // 商旅打卡开启时：装配 绑定/登录态（成员级）、当日两次打卡（clockinMap）与 当日费用（feeMap），供新 7 条规则与前端打卡区
   let sgccByMember = {};
   const clockinByDate = {}; // clockinByDate[log_date][member_id][seq]
   const feeByDate = {}; // feeByDate[log_date][member_id] = { foodFee, transitFee }（规则 f 判定用）
@@ -1338,6 +1339,33 @@ function sheetFileName(from, to) {
   return from === to ? `工作任务单-${from}.docx` : `工作任务单-${from}至${to}.docx`;
 }
 
+// 费用汇总文件名：口径同任务单（单日带单日期，跨天带范围）
+function feeFileName(from, to) {
+  return from === to ? `费用汇总-${from}.docx` : `费用汇总-${from}至${to}.docx`;
+}
+
+// 生成前核验（工作任务单 / 费用汇总共用）：范围内存在未通过验证的记录时拦截，
+// 随 data.failures 下发未通过清单（日期/车牌/用车人/未通过项明细），前端弹层展示「请处理后再操作」
+async function sheetVerifyFailures(teamId, from, to) {
+  const list = await loadEntries('e.log_date BETWEEN ? AND ? AND e.team_id = ?', [from, to, teamId]);
+  const failed = list.filter((e) => e.verify_passed === 'failed');
+  if (!failed.length) return null;
+  return failed.map((e) => ({
+    id: e.id,
+    log_date: e.log_date,
+    plate_no: e.plate_no || '未出车',
+    members: e.members.map((m) => m.name),
+    reasons: e.verify_reasons,
+  }));
+}
+
+// 核验拦截：有未通过记录时按 40901 响应并返回 true（任务单 / 费用汇总的下载与预览四路由共用）
+function failIfVerifyFailed(res, failures) {
+  if (!failures) return false;
+  fail(res, 409, 40901, `所选范围内有 ${failures.length} 条记录存在未通过项，请处理后再操作`, { failures });
+  return true;
+}
+
 // GET /task-sheet?from=&to=（或 date= 单日）：二进制 docx 响应（不走 {code,data} 信封；
 // 供小程序 downloadFile / 网页 fetch+blob / basemetas 回源三种消费方式）
 router.get('/task-sheet', requireDictAdmin, async (req, res, next) => {
@@ -1346,6 +1374,7 @@ router.get('/task-sheet', requireDictAdmin, async (req, res, next) => {
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    if (failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
     const result = await tasksheet.build(req.team, range.from, range.to);
     if (!result) return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的卡片');
     const fileName = sheetFileName(range.from, range.to);
@@ -1365,6 +1394,7 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    if (failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
     const base = (config.basemetas.url || '').replace(/\/+$/, '');
     if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
     // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应
@@ -1377,6 +1407,57 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
     const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/task-sheet?from=${range.from}&to=${range.to}${teamQ}` +
       `&token=${encodeURIComponent(req.token)}`;
     const fileName = sheetFileName(range.from, range.to);
+    const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
+      `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;
+    return ok(res, { url });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ===== 出差费用汇总（管理员）：范围内出车卡片渲染为「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计行）=====
+// 列 = 范围内当过用车人的成员（按成员字典点亮顺序）；单元格 = {伙食补助+交通费}×1={计算值}；生成前核验同任务单
+
+// GET /fee-sheet?from=&to=（或 date= 单日）：二进制 docx 响应（消费方式同 /task-sheet）
+router.get('/fee-sheet', requireDictAdmin, async (req, res, next) => {
+  try {
+    const range = sheetRange(req);
+    if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
+    if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    if (failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+    const result = await feesheet.build(req.team, range.from, range.to);
+    if (!result) return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的汇总');
+    const fileName = feeFileName(range.from, range.to);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="fee-sheet-${range.from}.docx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    return res.send(result.buffer);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /fee-sheet/preview?from=&to=（或 date= 单日）：拼 basemetas 预览地址（口径同 /task-sheet/preview）
+router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
+  try {
+    const range = sheetRange(req);
+    if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
+    if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    if (failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+    const base = (config.basemetas.url || '').replace(/\/+$/, '');
+    if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
+    // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应（判定口径同任务单 hasRows）
+    if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
+      return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的汇总');
+    }
+    // 反代后 req.protocol 恒为 http（未开 trust proxy）：优先取 X-Forwarded-Proto 头回退
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
+    const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/fee-sheet?from=${range.from}&to=${range.to}${teamQ}` +
+      `&token=${encodeURIComponent(req.token)}`;
+    const fileName = feeFileName(range.from, range.to);
     const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
       `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;
     return ok(res, { url });

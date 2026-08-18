@@ -1,0 +1,7 @@
+{
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "navbar": "/components/navbar/navbar",
+    "t-toast": "tdesign-miniprogram/toast/toast"
+  }
+}

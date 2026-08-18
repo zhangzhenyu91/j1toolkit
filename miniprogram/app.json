@@ -22,6 +22,7 @@
         "pages/index/index",
         "pages/manage/manage",
         "pages/tasksheet/tasksheet",
+        "pages/feesheet/feesheet",
         "pages/sgccbind/sgccbind"
       ]
     },
