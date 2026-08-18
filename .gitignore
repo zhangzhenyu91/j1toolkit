@@ -14,6 +14,6 @@ miniprogram_npm/
 .kimi-code/*
 !.kimi-code/mcp.json
 
-# 商旅打卡逆向分析仓（esgcc/sgcc/）：base.apk 与 tools/ 内含商旅 App 协议密钥/会话 token，不入仓
+# 商旅打卡逆向分析仓（esgcc/sgcc/）：仓库已转私有，tools/（含协议密钥）入仓供后续开发；
+# base.apk 107MB 超 GitHub 单文件 100MB 上限，不入仓（本地留存）
 esgcc/sgcc/base.apk
-esgcc/sgcc/tools/
