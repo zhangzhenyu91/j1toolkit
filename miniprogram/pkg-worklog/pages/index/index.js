@@ -903,8 +903,11 @@ Page({
     this.openClockSheet(Number(entryId), Number(memberId), name, Number(seq) === 2 ? 2 : 1, done ? 'update' : 'mark');
   },
 
-  // 打开弹层：位置优先级 = 同记录他人同 seq 打卡带入 → 当前定位逆编码；坐标始终取本机定位（带入仅带入地址串）。
-  // 开始/结束不互相带入：seq=1 仅在同记录已有他人的「开始打卡」时带入，seq=2 仅在已有他人的「结束打卡」时带入，否则走当前定位
+  // 打开弹层：位置优先级 = 同记录他人同 seq 打卡带入 → 当前定位逆编码。
+  // 带入为**整套带入**（地址串+坐标+城市编码/城市名，保持地址与坐标城市对应；不取本机定位）；
+  // 开始/结束不互相带入：seq=1 仅在同记录已有他人的「开始打卡」时带入，seq=2 仅在已有他人的「结束打卡」时带入，否则走当前定位；
+  // 更新打卡遵循同一带入逻辑——视为该次打卡未打，不带入本人既有地点，带入同记录其他已打卡人（同 seq 第一个），无他人打卡则走当前定位；
+  // 地址串支持手动输入（手输后 geo 回填不覆盖；提交时经 /sgcc/geo 正向解析出坐标与城市信息，采用规范地址串）
   openClockSheet(entryId, memberId, name, seq, action) {
     const entry = this.data.list.find((x) => x.id === entryId);
     if (!entry) {
@@ -921,22 +924,21 @@ Page({
         break;
       }
     }
-    const mine = (entry.clockRaw[memberId] || {})[String(seq)];
     const title = action === 'update' ? `更新打卡地点 · ${name}` : `${seq === 1 ? '开始' : '结束'}打卡 · ${name}`;
     let note = `提交时使用 ${name} 绑定的机型；打卡即提交商旅并双写本地`;
     let position = '';
     let locTag = '';
-    if (action === 'update') {
-      // 更新：预填该次打卡现有地点（仅改地点）
-      position = (mine && mine.position) || (first && first.position) || '';
-      locTag = '当前打卡地点';
-      note = `仅修改打卡地点；提交时使用 ${name} 绑定的机型`;
-    } else if (first) {
+    if (first) {
       position = first.position;
       locTag = '同记录已打卡人定位';
       note = `本记录 ${first.name} 已于 ${fmtClockHm(first.time)} 打卡，地点已自动带入；提交时使用 ${name} 绑定的机型`;
     }
+    if (action === 'update') {
+      // 更新：仅改地点；带入逻辑同上（不带入本人既有地点）
+      note = `仅修改打卡地点；${note}`;
+    }
     this._ckLocTag = locTag; // 定位回调覆盖位置时清掉带入标注
+    this._ckManualPos = false; // 手动输入标记：手输地址后 geo 回填不覆盖（重新定位/选杆塔时清除）
     this.setData({
       ckVisible: true,
       ckTitle: title,
@@ -947,20 +949,28 @@ Page({
       ckSeq: seq,
       ckAction: action,
       ckPosition: position,
-      ckLng: '',
-      ckLat: '',
-      ckCityCode: '',
-      ckCityName: '',
+      // 带入他人打卡时同步带入全套定位信息（坐标+城市编码/城市名），保持地址与坐标城市对应
+      ckLng: (first && first.lng) || '',
+      ckLat: (first && first.lat) || '',
+      ckCityCode: (first && first.cityCode) || '',
+      ckCityName: (first && first.cityName) || '',
       ckLocSub: '',
-      ckLocating: true,
+      ckLocating: !(first && first.lng && first.lat),
       ckRemarks: CLOCK_REMARKS_DEFAULT,
       ckSaving: false,
       keyboardHeight: 0,
     });
-    this.ckLocate(!position); // 带入地址时仅补坐标，不覆盖位置文案
+    if (first && first.lng && first.lat) {
+      // 带入全套定位：不取本机坐标；带入缺城市信息（历史同步数据）时按带入坐标逆编码补齐（不覆盖地址串）
+      this.setCkLocSub();
+      if (!first.cityCode || !first.cityName) this.ckGeo(first.lng, first.lat, locTag, true);
+    } else {
+      this.ckLocate(!position); // 带入地址缺坐标时本机定位补坐标，逆编码仅补城市、不覆盖位置文案
+    }
   },
 
-  // 本机定位：成功拿经纬度；needGeo=true 时再调 /sgcc/geo 逆编码出完整地址串
+  // 本机定位：成功拿经纬度；随后必调 /sgcc/geo 逆编码——needGeo=true 时填充完整地址串，
+  // 带入他人地址串（needGeo=false）时只补城市编码/城市名、不覆盖带入的位置文案（否则上游报「打卡城市为空」）
   ckLocate(needGeo) {
     wx.getLocation({
       type: 'gcj02',
@@ -970,7 +980,7 @@ Page({
         const lat = loc.latitude.toFixed(6);
         this.setData({ ckLng: lng, ckLat: lat, ckLocating: false });
         this.setCkLocSub();
-        if (needGeo) this.ckGeo(lng, lat, '当前定位');
+        this.ckGeo(lng, lat, needGeo ? '当前定位' : this._ckLocTag, !needGeo);
       },
       fail: (err) => {
         console.error('[出工日志] 打卡定位失败（可重新定位或选择杆塔）：', err);
@@ -991,28 +1001,40 @@ Page({
     this.setData({ ckLocSub: sub });
   },
 
-  // 腾讯逆编码（/sgcc/geo）：经纬度 → 完整地址串 + 城市编码；空串=未配置（提交时由服务端兜底，失败 message 直弹）
-  ckGeo(lng, lat, tag) {
+  // 腾讯逆编码（/sgcc/geo）：经纬度 → 完整地址串 + 城市编码；keepPosition=true（带入他人地址串）时只补城市编码/城市名，
+  // 不覆盖带入的位置文案；空串=未配置（提交时由服务端兜底，失败 message 直弹）
+  ckGeo(lng, lat, tag, keepPosition) {
     request({ url: `/api/v1/sgcc/geo?lng=${lng}&lat=${lat}${this.teamQuery()}`, timeout: 10000 })
       .then((r) => {
         if (!this.data.ckVisible) return;
         if (this.data.ckLng !== lng || this.data.ckLat !== lat) return; // 坐标已变（重新定位/选杆塔），旧响应丢弃
         this._ckLocTag = tag;
-        this.setData({
-          ckPosition: (r && r.position) || '',
+        const patch = {
           ckCityCode: (r && r.cityCode) || '',
           ckCityName: (r && r.cityName) || '',
-        });
+        };
+        // keepPosition（带入他人地址串）或用户已手动输入地址时，不覆盖位置文案，只补城市编码/城市名
+        if (!keepPosition && !this._ckManualPos) patch.ckPosition = (r && r.position) || '';
+        this.setData(patch);
         this.setCkLocSub(tag);
       })
       .catch((err) => console.error('[出工日志] /sgcc/geo 逆编码失败（提交时由服务端兜底）：', err));
   },
 
-  // 「重新定位」：重走定位 + 逆编码（覆盖带入地址）
+  // 「重新定位」：重走定位 + 逆编码（覆盖带入/手输地址）
   onCkRelocate() {
     this._ckLocTag = '当前定位';
+    this._ckManualPos = false;
     this.setData({ ckLocating: true, ckPosition: '', ckLocSub: '' });
     this.ckLocate(true);
+  },
+
+  // 手动输入地点：置手动标记（geo 回填不覆盖手输文案；城市编码仍按本机坐标逆编码补齐）
+  onCkPositionInput(e) {
+    this._ckManualPos = true;
+    this._ckLocTag = '手动输入';
+    this.setData({ ckPosition: e.detail.value });
+    this.setCkLocSub();
   },
 
   // 「选择杆塔带入坐标」：复用杆塔三级级联弹层（_towerFor=ck 时确定回调写入本层）
@@ -1058,12 +1080,37 @@ Page({
   // 40037 已打过 → 关层刷新（数据以服务端为准）。成功后首次「开始打卡」（含代他人打卡）自动弹该成员费用层
   async onCkConfirm() {
     if (this.data.ckSaving) return;
-    const { ckEntryId, ckMemberId, ckMemberName, ckSeq, ckAction, ckPosition, ckLng, ckLat, ckCityCode, ckCityName, ckRemarks } = this.data;
+    const { ckEntryId, ckMemberId, ckMemberName, ckSeq, ckAction, ckRemarks } = this.data;
+    let { ckPosition, ckLng, ckLat, ckCityCode, ckCityName } = this.data;
+    this.setData({ ckSaving: true });
+    // 手输地址：先正向解析出坐标与城市信息（position 采用解析后的规范地址串；region 带本机城市缩小范围）
+    if (this._ckManualPos && ckPosition.trim()) {
+      try {
+        const r = await request({
+          url: `/api/v1/sgcc/geo?address=${encodeURIComponent(ckPosition.trim())}${ckCityName ? `&region=${encodeURIComponent(ckCityName)}` : ''}${this.teamQuery()}`,
+          timeout: 10000,
+        });
+        if (!r || !r.longitude || !r.latitude) {
+          this.setData({ ckSaving: false });
+          this.toast('无法识别该地址，请检查输入或改用定位/杆塔');
+          return;
+        }
+        ckPosition = r.position || ckPosition.trim();
+        ckLng = r.longitude;
+        ckLat = r.latitude;
+        ckCityCode = r.cityCode || '';
+        ckCityName = r.cityName || '';
+      } catch (err) {
+        this.setData({ ckSaving: false });
+        this.toast(err.message || '地址解析失败，请重试');
+        return;
+      }
+    }
     if (!ckLng || !ckLat) {
+      this.setData({ ckSaving: false });
       this.toast('请先完成定位（重新定位或选择杆塔带入坐标）');
       return;
     }
-    this.setData({ ckSaving: true });
     try {
       await request({
         url: '/api/v1/sgcc/clockin',
@@ -2405,6 +2452,7 @@ Page({
       const lng = t.lng.toFixed(6);
       const lat = t.lat.toFixed(6);
       this._ckLocTag = `杆塔带入 · ${this.data.towerLine} ${t.no}`;
+      this._ckManualPos = false; // 选杆塔视同重新定位：geo 回填覆盖带入/手输地址
       this.setData({ towerVisible: false, ckLng: lng, ckLat: lat, ckLocating: false });
       this.ckGeo(lng, lat, this._ckLocTag);
       return;

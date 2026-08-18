@@ -2,6 +2,7 @@
 // 响应仍为 { ok, error, ... }，非主平台 {code,message,data} 信封）
 // 鉴权：/callback 凭 SAFEDAY_CALLBACK_TOKEN 校验（不做登录）；其余接口需登录 + safe-day 应用权限
 // 班组隔离：记录带 team 字段（班组名），产物存 docs/{班组名}/ 子目录；超管可 ?team_id= 指定或 all 全部
+// 生成链路（新）：Dify 工作流只产出三段文字并经 /callback 回传 → 后端套模板渲染 docx 落盘（render.js），不再经 DOCX-MCP
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -13,6 +14,8 @@ const config = require('../config');
 const store = require('./store');
 const { mergePdfs } = require('./merge');
 const dify = require('./dify');
+const render = require('./render');
+const { pool } = require('../db');
 
 const DATA_DIR = path.resolve(config.safeday.dataDir);
 const DOCS_DIR = path.join(DATA_DIR, 'docs');
@@ -70,7 +73,10 @@ function judgeOnce(record) {
 
 // Dify 工作流结束回调：不做登录鉴权，凭 SAFEDAY_CALLBACK_TOKEN 校验
 // （token 未配置时不校验，与原 CALLBACK_TOKEN 行为一致；须挂在登录门控之前）
-router.post('/callback', (req, res) => {
+// 新链路：工作流末尾 HTTP 节点回传三段文字（activity_content 活动内容 / recap_analysis 结合本次内容复盘分析 /
+// job_analysis 结合实际岗位剖析内容）+ date + class，后端套模板渲染 docx 落盘 docs/{班组}/YYYY.MM.DD.docx；
+// 未带文字内容时按旧口径仅做文件存在性终判（兼容存量工作流）
+router.post('/callback', async (req, res) => {
   const token = config.safeday.callbackToken;
   if (token && req.query.token !== token) {
     return res.status(403).json({ ok: false, error: '回调 token 校验失败' });
@@ -80,6 +86,44 @@ router.post('/callback', (req, res) => {
     const date = typeof body.date === 'string' ? body.date.trim() : '';
     // class（班组名）可选：带上时只终判该班组处理中的记录，避免多班组并行生成时互相误判
     const className = typeof body.class === 'string' ? body.class.trim() : '';
+
+    // ===== 新链路：回传文字内容 → 后端渲染落盘 =====
+    const hasTexts = ['activity_content', 'recap_analysis', 'job_analysis']
+      .some((k) => typeof body[k] === 'string');
+    if (hasTexts) {
+      const record = store.list().find((r) =>
+        r.status === 'processing' && (!date || r.date === date) && (!className || (r.team || '') === className)
+      );
+      if (!record) return res.json({ ok: false, error: '未找到匹配的处理中记录（可能已被删除或重复回调）' });
+      try {
+        const f = record.form || {};
+        const buf = render.renderRecord({
+          班组名称: record.team || '',
+          学习内容: record.name || '',
+          活动时间: record.date || '',
+          主持人: f.host || '',
+          上级参加人员: f.superior || '',
+          本班组参加人员: f.attendees || '',
+          缺席人员: f.absentees || '无',
+          缺席人员原因: f.absentReason || '无',
+          活动内容: String(body.activity_content || '').slice(0, 6000),
+          结合本次内容复盘分析: String(body.recap_analysis || '').slice(0, 6000),
+          结合实际岗位剖析内容: String(body.job_analysis || '').slice(0, 6000),
+          记录人: f.recorder || '',
+        });
+        const outDir = path.join(DOCS_DIR, record.team || '');
+        fs.mkdirSync(outDir, { recursive: true });
+        fs.writeFileSync(path.join(outDir, path.basename(record.fileName)), buf);
+        store.update(record.id, { status: 'done' });
+        return res.json({ ok: true, done: 1, failed: 0 });
+      } catch (e) {
+        const msg = e && e.message ? e.message : String(e);
+        store.update(record.id, { status: 'failed', error: `文档渲染失败：${msg}` });
+        return res.status(500).json({ ok: false, error: `文档渲染失败：${msg}` });
+      }
+    }
+
+    // ===== 旧链路兼容：仅按产物文件存在性终判 =====
     let records = store.list().filter((r) => r.status === 'processing');
     if (className) {
       records = records.filter((r) => (r.team || '') === className);
@@ -119,7 +163,44 @@ router.use((req, res, next) => {
 // 其余接口一律需登录 + safe-day 应用权限
 router.use(auth, requireApp('safe-day'));
 
-// 生成记录：上传文件 + 触发 Dify 工作流
+// GET /form-meta：生成表单数据源（班组成员名单 + 按班组记忆的默认值）
+// 成员口径：WORKLOG_ENABLED=true 时取出工成员字典（status=1，按 sort 即「点亮按钮顺序」，顺序1=默认主持人）；
+// 否则回退班组账号昵称（sys_user）。默认值：superior 初始「任晓辉」、recorder 初始空（前端回落顺序1），生成成功后按班组记忆
+router.get('/form-meta', async (req, res) => {
+  try {
+    const team = await teamUtil.resolveTeam(req.user, req.query.team_id);
+    if (!team) return res.json({ ok: true, members: [], defaults: { superior: '任晓辉', recorder: '' } });
+    let members = [];
+    if (config.worklog && config.worklog.enabled) {
+      const [rows] = await pool.query(
+        'SELECT name FROM worklog_member WHERE team_id = ? AND status = 1 ORDER BY sort, id',
+        [team.id]
+      );
+      members = rows.map((r) => r.name);
+    } else {
+      const [rows] = await pool.query(
+        "SELECT nickname FROM sys_user WHERE team_id = ? AND status = 1 AND nickname <> '' ORDER BY id",
+        [team.id]
+      );
+      members = rows.map((r) => r.nickname);
+    }
+    const saved = store.getFormDefaults(team.name);
+    return res.json({
+      ok: true,
+      members,
+      defaults: { superior: saved.superior || '任晓辉', recorder: saved.recorder || '' },
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: `表单数据加载失败：${e && e.message ? e.message : e}` });
+  }
+});
+
+// 生成表单字段清洗：字符串、去首尾空格、限长（防异常超长入库存档）
+function cutForm(v, n) {
+  return (typeof v === 'string' ? v.trim() : '').slice(0, n);
+}
+
+// 生成记录：上传文件 + 生成表单（主持人/上级参加人员/参加与缺席人员/缺席原因/记录人）+ 触发 Dify 工作流
 router.post('/generate', upload.array('files', 10), async (req, res) => {
   try {
     const files = req.files || [];
@@ -183,7 +264,8 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
       fileName = files[0].originalname;
     }
 
-    // 先建记录（同一班组同一 date 只保留最新一条；sources 记录上传源文件名，供列表副行展示）
+    // 先建记录（同一班组同一 date 只保留最新一条；sources 记录上传源文件名，供列表副行展示；
+    // form 存生成表单字段，回调渲染 docx 时使用）
     const record = store.create({
       name,
       date,
@@ -192,16 +274,27 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
       status: 'processing',
       sourceCount: files.length,
       sources: files.map((f) => f.originalname),
+      form: {
+        host: cutForm(req.body.host, 64),
+        superior: cutForm(req.body.superior, 64),
+        recorder: cutForm(req.body.recorder, 64),
+        attendees: cutForm(req.body.attendees, 512),
+        absentees: cutForm(req.body.absentees, 512),
+        absentReason: cutForm(req.body.absentReason, 512),
+      },
     });
 
-    // 上传 Dify 并触发工作流（触发后立即返回，不等工作流完成）；class 供工作流写入 docs/{class}/ 子目录
+    // 按班组记忆表单默认值（上级参加人员 / 记录人，供下次生成预填；空值不覆盖）
+    store.saveFormDefaults(team.name, { superior: req.body.superior, recorder: req.body.recorder });
+
+    // 上传 Dify 并触发工作流（触发后立即返回，不等工作流完成）；
+    // 工作流产出三段文字后经 /callback 回传，由后端渲染 docx 落盘（render.js）
     try {
       fs.mkdirSync(path.join(DOCS_DIR, team.name), { recursive: true });
       await dify.uploadAndRun({
         fileBuffer,
         fileName,
         date,
-        name,
         className: team.name,
         onFailed: (error) => {
           store.update(record.id, { status: 'failed', error });

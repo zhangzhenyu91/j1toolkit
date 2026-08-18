@@ -107,4 +107,35 @@ function renameTeam(oldName, newName) {
   return count;
 }
 
-module.exports = { list, create, update, get, remove, backfillTeam, renameTeam };
+// ===== 生成表单默认值（按班组记忆：上级参加人员 / 记录人；存 form-defaults.json，键=班组名） =====
+const DEFAULTS_FILE = path.join(DATA_DIR, 'form-defaults.json');
+
+function readDefaults() {
+  ensureFile();
+  try {
+    if (!fs.existsSync(DEFAULTS_FILE)) return {};
+    const obj = JSON.parse(fs.readFileSync(DEFAULTS_FILE, 'utf8'));
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+// 取某班组的表单默认值（无记录返回空对象，调用方自行回落）
+function getFormDefaults(teamName) {
+  return readDefaults()[teamName] || {};
+}
+
+// 写入某班组的表单默认值（浅合并 patch；仅保留非空字符串值）
+function saveFormDefaults(teamName, patch) {
+  const all = readDefaults();
+  const cur = all[teamName] || {};
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (typeof v === 'string' && v.trim()) cur[k] = v.trim();
+  }
+  all[teamName] = cur;
+  ensureFile();
+  fs.writeFileSync(DEFAULTS_FILE, JSON.stringify(all, null, 2), 'utf8');
+}
+
+module.exports = { list, create, update, get, remove, backfillTeam, renameTeam, getFormDefaults, saveFormDefaults };

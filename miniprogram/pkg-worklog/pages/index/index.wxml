@@ -868,11 +868,21 @@
   <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
     <view class="sheet-title">{{ckTitle}}</view>
     <view class="sheet-note">{{ckNote}}</view>
-    <!-- 位置卡：完整地址串 + 经纬度/来源副行 + 重新定位 / 选择杆塔带入坐标 -->
+    <!-- 位置卡：地址串可手动输入（手输后 geo 回填不覆盖）+ 经纬度/来源副行 + 重新定位 / 选择杆塔带入坐标 -->
     <view class="ck-loc">
       <view class="ck-loc-line">
         <t-icon name="location" size="32rpx" color="#F26D21" />
-        <text class="ck-loc-text {{ckPosition ? '' : 'ph'}}">{{ckPosition || (ckLocating ? '定位中…' : '未获取到位置，请重新定位或选择杆塔')}}</text>
+        <input
+          class="ck-loc-input"
+          value="{{ckPosition}}"
+          bindinput="onCkPositionInput"
+          placeholder="{{ckLocating ? '定位中…' : '可手动输入地点，或重新定位 / 选择杆塔'}}"
+          placeholder-class="ph"
+          adjust-position="{{false}}"
+          bindkeyboardheightchange="onKeyboardHeight"
+          hold-keyboard
+          maxlength="255"
+        />
       </view>
       <view class="ck-loc-sub" wx:if="{{ckLocSub}}">{{ckLocSub}}</view>
       <view class="ck-loc-acts">

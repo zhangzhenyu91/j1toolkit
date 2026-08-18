@@ -143,16 +143,39 @@ async function refreshClockins(account, date) {
 
 // ---------- 打卡定位（腾讯逆编码完整地址串；打卡弹层预填与 /clockin 兜底共用）----------
 
-// GET /geo?lng=&lat=：返回 {position, cityCode, cityName}；未配置 TENCENT_MAP_KEY 或失败时返回空串由前端手填
-// position 口径：「中国」+ 腾讯 address 完整地址串（与商旅打卡 position 一致，如 中国山西省吕梁市汾阳市西河街道英雄北路）
+// GET /geo：打卡定位解析（腾讯，复用 TENCENT_MAP_KEY；未配置或失败返回空串由前端手填/兜底）
+//   ?lng=&lat=      逆编码：坐标 → {position, cityCode, cityName}（position =「中国」+ 完整地址串，与商旅打卡 position 同口径）
+//   ?address=&region=  正向解析（手动输入地址用）：地址文字 → 坐标+城市；region 可传本机城市名缩小范围，
+//                      返回 {position(规范地址串), cityCode, cityName, longitude, latitude}，解析失败全空
 router.get('/geo', async (req, res, next) => {
   try {
+    const empty = { position: '', cityCode: '', cityName: '', longitude: '', latitude: '' };
+    const address = String(req.query.address || '').trim();
+    if (address) {
+      // 正向解析：先 address → 坐标，再走逆编码拿规范地址串与城市名（与逆编码口径一致）
+      if (!config.worklog.tencentMapKey) return ok(res, empty);
+      const params = { address: address.slice(0, 120), key: config.worklog.tencentMapKey };
+      const region = String(req.query.region || '').trim();
+      if (region) params.region = region.slice(0, 32);
+      const resp = await axios.get('https://apis.map.qq.com/ws/geocoder/v1/', { params, timeout: 8000 });
+      const r = resp.data && resp.data.status === 0 && resp.data.result;
+      const fLng = r && r.location && Number(r.location.lng);
+      const fLat = r && r.location && Number(r.location.lat);
+      if (!Number.isFinite(fLng) || !Number.isFinite(fLat)) return ok(res, empty);
+      const rev = await reverseGeocode(fLng, fLat);
+      return ok(res, {
+        position: rev.position,
+        cityCode: String(r.adcode || rev.cityCode || ''),
+        cityName: rev.cityName,
+        longitude: fLng.toFixed(6),
+        latitude: fLat.toFixed(6),
+      });
+    }
     const lng = Number(req.query.lng);
     const lat = Number(req.query.lat);
     if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) {
       return fail(res, 400, 40040, '经纬度参数无效');
     }
-    const empty = { position: '', cityCode: '', cityName: '' };
     if (!config.worklog.tencentMapKey) return ok(res, empty);
     const resp = await axios.get('https://apis.map.qq.com/ws/geocoder/v1/', {
       params: { location: `${lat.toFixed(6)},${lng.toFixed(6)}`, key: config.worklog.tencentMapKey },
@@ -161,11 +184,13 @@ router.get('/geo', async (req, res, next) => {
     const r = resp.data && resp.data.status === 0 && resp.data.result;
     if (!r) return ok(res, empty);
     const ac = r.address_component || {};
-    const address = String(r.address || '').trim();
+    const addr = String(r.address || '').trim();
     return ok(res, {
-      position: address ? `中国${address}` : '',
+      position: addr ? `中国${addr}` : '',
       cityCode: String(ac.adcode || ''),
       cityName: String(ac.city || ac.district || ''),
+      longitude: lng.toFixed(6),
+      latitude: lat.toFixed(6),
     });
   } catch (err) { return next(err); }
 });
@@ -426,15 +451,21 @@ router.post('/clockin', async (req, res, next) => {
     if (!geo.position) {
       geo = await reverseGeocode(longitude, latitude);
       if (!geo.position) return fail(res, 400, 40034, '定位逆编码失败，请重新定位或选择杆塔');
+    } else if (!geo.cityCode || !geo.cityName) {
+      // 带入他人打卡地址串的场景前端只带地址、不带城市信息：按经纬度补齐城市编码/城市名
+      // （不覆盖已带入的地址串），否则上游报「打卡城市为空」
+      const filled = await reverseGeocode(longitude, latitude);
+      if (!geo.cityCode) geo.cityCode = filled.cityCode;
+      if (!geo.cityName) geo.cityName = filled.cityName;
     }
 
     const account = await requireMemberAccount(req, res, memberId);
     if (!account) return;
 
     const opt = devOpt(account);
+    const seqNum = Number(seq) === 2 ? 2 : 1;
     if (action === 'update') {
       // 更新：按本地存的 detailId 调用 updateMark（仅改地点）
-      const seqNum = Number(seq) === 2 ? 2 : 1;
       const [rows] = await pool.query(
         'SELECT detail_id FROM worklog_clockin WHERE member_id = ? AND clock_date = ? AND seq = ?',
         [memberId, date, seqNum]
@@ -451,7 +482,6 @@ router.post('/clockin', async (req, res, next) => {
         return fail(res, 400, 40036, (d && d.msg) || '商旅更新打卡失败，请重试');
       }
     } else {
-      const seqNum = Number(seq) === 2 ? 2 : 1;
       const [exists] = await pool.query(
         'SELECT id FROM worklog_clockin WHERE member_id = ? AND clock_date = ? AND seq = ?',
         [memberId, date, seqNum]
@@ -468,8 +498,13 @@ router.post('/clockin', async (req, res, next) => {
       }
     }
 
-    // 双写：从商旅全量刷新该日打卡流水（含工时）
+    // 双写：从商旅全量刷新该日打卡流水（含工时）；
+    // 随后补写城市信息（dayNew 明细不带城市编码，落库供后续打卡带入全套定位信息）
     await refreshClockins(account, date);
+    await pool.query(
+      'UPDATE worklog_clockin SET city_code = ?, city_name = ? WHERE member_id = ? AND clock_date = ? AND seq = ?',
+      [geo.cityCode, geo.cityName, memberId, date, seqNum]
+    );
     return ok(res, null, '打卡成功');
   } catch (err) { return next(err); }
 });

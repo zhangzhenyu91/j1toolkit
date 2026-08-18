@@ -1815,6 +1815,17 @@ page {
   font-weight: 400;
 }
 
+/* 地址串可手动输入（input 形态复用 .ck-loc-text 排版；placeholder 走全局 .ph） */
+.ck-loc-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #22314e;
+}
+
 /* 副行：经纬度 + 来源标注（同记录已打卡人定位 / 当前定位 / 杆塔带入）或失败提示 */
 .ck-loc-sub {
   margin-top: 10rpx;

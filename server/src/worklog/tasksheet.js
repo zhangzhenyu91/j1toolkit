@@ -1,4 +1,4 @@
-// 工作任务单生成：把某天全部出车卡片渲染进 Word 模板并合并为单个 docx（一卡一页），供管理员打印
+// 工作任务单生成：把日期范围内全部出车卡片渲染进 Word 模板并合并为单个 docx（一卡一页，按日期+创建序排列），供管理员打印
 // 模板：server/assets/worklog/task-sheet-template.docx（A4 横向，纯文本 {占位符}，docxtemplater 渲染，
 // 兼容占位符被 Word 拆散到多个 run 的情况）；占位符口径见《开发指南》出工日志章
 // 合并口径：各卡片同模板渲染产物 styles/fontTable/footer 完全一致、body 自包含（无图片无新增关系），
@@ -44,16 +44,16 @@ function mergeDocx(buffers) {
   return base.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-// 取某天出车卡片集合（未出车卡片无用车人/目的地，不生成任务单）：车牌 + 目的地 + 用车人 + 照片施工内容
-async function loadSheetRows(teamId, dateStr) {
+// 取范围内出车卡片集合（未出车卡片无用车人/目的地，不生成任务单）：车牌 + 目的地 + 用车人 + 照片施工内容
+async function loadSheetRows(teamId, from, to) {
   const [entries] = await pool.query(
-    `SELECT e.id, v.plate_no, d.name AS destination_name
+    `SELECT e.id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, v.plate_no, d.name AS destination_name
      FROM worklog_entry e
      LEFT JOIN worklog_vehicle v ON v.id = e.vehicle_id
      LEFT JOIN worklog_destination d ON d.id = e.destination_id
-     WHERE e.log_date = ? AND e.team_id = ? AND e.vehicle_id IS NOT NULL
-     ORDER BY e.created_at, e.id`,
-    [dateStr, teamId]
+     WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ? AND e.vehicle_id IS NOT NULL
+     ORDER BY e.log_date, e.created_at, e.id`,
+    [from, to, teamId]
   );
   if (!entries.length) return [];
 
@@ -83,6 +83,7 @@ async function loadSheetRows(teamId, dateStr) {
   });
 
   return entries.map((e) => ({
+    date: e.log_date,
     names: memberMap[e.id] || [],
     plate: e.plate_no || '',
     destination: e.destination_name || '',
@@ -90,15 +91,15 @@ async function loadSheetRows(teamId, dateStr) {
   }));
 }
 
-// 生成某天的工作任务单 docx；无出车卡片返回 null
-async function build(team, dateStr) {
-  const rows = await loadSheetRows(team.id, dateStr);
+// 生成范围内的工作任务单 docx（每张卡片按其自身日期填 {年}{月}{日}）；无出车卡片返回 null
+async function build(team, from, to) {
+  const rows = await loadSheetRows(team.id, from, to);
   if (!rows.length) return null;
 
-  const [y, m, d] = dateStr.split('-'); // log_date 已按 DATE_FORMAT 取 'YYYY-MM-DD'，月日即补零两位
   const tplBuf = fs.readFileSync(TEMPLATE_PATH);
-  const buffers = rows.map((row) =>
-    renderOne(tplBuf, {
+  const buffers = rows.map((row) => {
+    const [y, m, d] = row.date.split('-'); // log_date 已按 DATE_FORMAT 取 'YYYY-MM-DD'，月日即补零两位
+    return renderOne(tplBuf, {
       线路杆塔号: row.contents,
       工作班组: String(team.name || ''),
       工作负责人: row.names[0] || '',
@@ -108,16 +109,16 @@ async function build(team, dateStr) {
       工作地点: row.destination,
       工作班成员: row.names.join(' '),
       派车情况: row.plate,
-    })
-  );
+    });
+  });
   return { buffer: mergeDocx(buffers), count: rows.length };
 }
 
-// 轻量预检：预览前确认当天有出车卡片（避免预览服务回源拉到错误响应）
-async function hasRows(teamId, dateStr) {
+// 轻量预检：预览前确认范围内有出车卡片（避免预览服务回源拉到错误响应）
+async function hasRows(teamId, from, to) {
   const [rows] = await pool.query(
-    'SELECT COUNT(*) AS cnt FROM worklog_entry WHERE log_date = ? AND team_id = ? AND vehicle_id IS NOT NULL',
-    [dateStr, teamId]
+    'SELECT COUNT(*) AS cnt FROM worklog_entry WHERE log_date BETWEEN ? AND ? AND team_id = ? AND vehicle_id IS NOT NULL',
+    [from, to, teamId]
   );
   return rows[0].cnt > 0;
 }

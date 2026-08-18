@@ -160,22 +160,91 @@
   </view>
 </view>
 
-<!-- 记录名称确认弹层（确认后开始生成；键盘弹起时动态抬高底部 padding，同出工日志弹层） -->
+<!-- 生成表单弹层（学习内容 + 参会信息，确认后开始生成；参加/缺席互斥点亮；键盘弹起时动态抬高底部 padding，同出工日志弹层） -->
 <t-popup visible="{{genOpen}}" placement="bottom" bind:visible-change="onGenVisibleChange">
   <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
-    <view class="sheet-title">确认记录名称</view>
-    <view class="sheet-sub">该名称将写入记录内容，可修改后开始生成</view>
-    <input
-      class="name-input"
-      value="{{nameDraft}}"
-      bindinput="onNameInput"
-      adjust-position="{{false}}"
-      bindkeyboardheightchange="onKeyboardHeight"
-      hold-keyboard
-      maxlength="100"
-      placeholder="请输入记录名称"
-      placeholder-class="ph"
-    />
+    <view class="sheet-title">生成活动记录</view>
+    <view class="sheet-sub">确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</view>
+    <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="f-lab">学习内容（记录名称）</view>
+      <input
+        class="name-input"
+        value="{{nameDraft}}"
+        bindinput="onNameInput"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        maxlength="100"
+        placeholder="请输入记录名称"
+        placeholder-class="ph"
+      />
+      <view class="f-2col">
+        <view>
+          <view class="f-lab">主持人</view>
+          <picker range="{{members}}" value="{{hostIdx}}" bindchange="onHostChange">
+            <view class="pick-val">
+              <text>{{members[hostIdx] || '—'}}</text>
+              <t-icon name="chevron-down" size="26rpx" color="#A89F8A" />
+            </view>
+          </picker>
+        </view>
+        <view>
+          <view class="f-lab">记录人</view>
+          <picker range="{{members}}" value="{{recorderIdx}}" bindchange="onRecorderChange">
+            <view class="pick-val">
+              <text>{{members[recorderIdx] || '—'}}</text>
+              <t-icon name="chevron-down" size="26rpx" color="#A89F8A" />
+            </view>
+          </picker>
+        </view>
+      </view>
+      <view class="f-lab">上级参加人员</view>
+      <input
+        class="name-input"
+        value="{{superior}}"
+        bindinput="onSuperiorInput"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        maxlength="64"
+        placeholder="任晓辉"
+        placeholder-class="ph"
+      />
+      <view class="f-lab">本班组参加人员<text class="f-lab-sub">默认全员参加，点击名字改为缺席</text></view>
+      <view class="mchips">
+        <view
+          wx:for="{{members}}"
+          wx:key="name"
+          class="mchip {{attendFlags[index] ? 'on' : ''}}"
+          data-idx="{{index}}"
+          hover-class="hover-opacity"
+          bindtap="onToggleAttend"
+        >{{item}}</view>
+      </view>
+      <view class="f-lab">缺席人员<text class="f-lab-sub">与参加人员互斥，点击名字改为参加</text></view>
+      <view class="mchips absent">
+        <view
+          wx:for="{{members}}"
+          wx:key="name"
+          class="mchip {{attendFlags[index] ? '' : 'on'}}"
+          data-idx="{{index}}"
+          hover-class="hover-opacity"
+          bindtap="onToggleAttend"
+        >{{item}}</view>
+      </view>
+      <view class="f-lab">缺席人员原因</view>
+      <input
+        class="name-input"
+        value="{{absentReason}}"
+        bindinput="onAbsentReasonInput"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        maxlength="200"
+        placeholder="无"
+        placeholder-class="ph"
+      />
+    </scroll-view>
     <view class="sheet-ops">
       <view class="btn-ghost {{submitting ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenCancel">取消</view>
       <view class="btn-accent {{submitting ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenConfirm">

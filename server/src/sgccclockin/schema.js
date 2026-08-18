@@ -33,6 +33,8 @@ const DDL = [
     position VARCHAR(255) NOT NULL DEFAULT '' COMMENT '完整地址串（腾讯逆编码路/街道级）',
     longitude VARCHAR(32) NOT NULL DEFAULT '' COMMENT '经度',
     latitude VARCHAR(32) NOT NULL DEFAULT '' COMMENT '纬度',
+    city_code VARCHAR(32) NOT NULL DEFAULT '' COMMENT '城市行政区编码（腾讯 adcode；带入时随地址串一并带入）',
+    city_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '城市名（同上）',
     work_hours VARCHAR(16) NOT NULL DEFAULT '' COMMENT '工时（商旅服务端按两次打卡计算）',
     source TINYINT NOT NULL DEFAULT 0 COMMENT '来源：0 壹匣打卡 1 商旅同步（核查拉取）',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -93,6 +95,23 @@ async function ensureSgccSchema(pool) {
     if (!cols.length) {
       await pool.query(`ALTER TABLE worklog_photo ADD COLUMN ${ddl}`);
       console.log(`[初始化] 已为 worklog_photo 补充 ${col} 列`);
+    }
+  }
+
+  // worklog_clockin 补充城市信息列（老库兼容：先查 information_schema 再 ALTER；打卡落库时写入，带入时随地址串一并带入）
+  const CLOCKIN_CITY_COLUMNS = [
+    ['city_code', `city_code VARCHAR(32) NOT NULL DEFAULT '' COMMENT '城市行政区编码（腾讯 adcode）' AFTER latitude`],
+    ['city_name', `city_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '城市名' AFTER city_code`],
+  ];
+  for (const [col, ddl] of CLOCKIN_CITY_COLUMNS) {
+    const [cols] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_clockin' AND COLUMN_NAME = ?`,
+      [col]
+    );
+    if (!cols.length) {
+      await pool.query(`ALTER TABLE worklog_clockin ADD COLUMN ${ddl}`);
+      console.log(`[初始化] 已为 worklog_clockin 补充 ${col} 列`);
     }
   }
 

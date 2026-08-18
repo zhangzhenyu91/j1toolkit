@@ -12,7 +12,7 @@
      隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
      管理员（超管 / 班组管理员）另见三个平级页签：「数据管理」= 车牌号 / 目的地 / 出工成员 三字典维护（成员支持上移 / 下移排序，
      工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
-     「工作任务单」= 按日期生成当天全部出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 tasksheet 页口径）；
+     「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 tasksheet 页口径）；
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（Web 端专属，设计稿 design/worklog-dispatch-align.html）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
@@ -884,11 +884,11 @@
       <!-- 数据管理：车牌号 / 目的地 / 出工成员 字典 + 杆塔坐标（仅超管 / 班组管理员可见页签） -->
       <div class="pane" id="paneDict"><div class="pane-scroll" id="dictBody"></div></div>
 
-      <!-- 工作任务单：按日期生成当天全部出车卡片合并为单个 docx，一卡一页（仅超管 / 班组管理员可见页签；与数据管理平级） -->
+      <!-- 工作任务单：按日期范围生成出车卡片合并为单个 docx，一卡一页（仅超管 / 班组管理员可见页签；与数据管理平级） -->
       <div class="pane" id="paneTS">
         <div class="rep-bar">
-          <input type="date" class="f-sel" id="tsDate">
-          <span class="dl-meta">当天全部出车卡片，一卡一页合并为一个 Word</span>
+          <input type="date" class="f-sel" id="tsFrom"><span class="rep-sep">~</span><input type="date" class="f-sel" id="tsTo">
+          <span class="dl-meta">范围内全部出车卡片，一卡一页合并为一个 Word（单次最多 31 天）</span>
         </div>
         <div class="pane-scroll">
           <div class="card dsec">
@@ -935,7 +935,7 @@
 <script>
 /* ============================================================
    出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理·工作任务单·派车对齐六页签（原下载、报告弹层已页签化；
-   数据管理 / 工作任务单 / 派车对齐仅超管 / 班组管理员可见：三字典维护（成员可排序）+ 杆塔坐标导入；任务单按日期合并生成 docx；
+   数据管理 / 工作任务单 / 派车对齐仅超管 / 班组管理员可见：三字典维护（成员可排序）+ 杆塔坐标导入；任务单按日期范围合并生成 docx；
    派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（Web 端专属），接口 /worklog/admin/* 按生效班组隔离）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
    汇总前核验范围 = 仅未通过记录（商旅打卡新 6 条规则 a~f；未出车免验证；非水印照片不参与），底部绿色条提示其余全部通过
@@ -3364,13 +3364,26 @@ async function downloadTowerTpl(btn) {
   btn.disabled = false;
 }
 
+/* 工作任务单：读取范围入参并校验（from ≤ to；单日与跨天共用） */
+function tsRange() {
+  var from = $('#tsFrom') && $('#tsFrom').value;
+  var to = $('#tsTo') && $('#tsTo').value;
+  if (!from || !to) { Shade.toast('请选择日期范围', 'info'); return null; }
+  if (from > to) { Shade.toast('开始日期不能晚于结束日期', 'info'); return null; }
+  return { from: from, to: to };
+}
+/* 范围文件名口径同后端 sheetFileName */
+function tsFileName(from, to) {
+  return from === to ? '工作任务单-' + from + '.docx' : '工作任务单-' + from + '至' + to + '.docx';
+}
+
 /* 工作任务单：预览 = 调 preview 接口取 basemetas 地址新标签打开（同备注 Office 文档 / 安全日记录口径） */
 async function taskSheetPreview(btn) {
-  var date = $('#tsDate') && $('#tsDate').value;
-  if (!date) { Shade.toast('请选择日期', 'info'); return; }
+  var range = tsRange();
+  if (!range) return;
   btn.disabled = true;
   try {
-    var r = await Shade.api(wl('/api/v1/worklog/task-sheet/preview?date=' + date));
+    var r = await Shade.api(wl('/api/v1/worklog/task-sheet/preview?from=' + range.from + '&to=' + range.to));
     if (r.data && r.data.url) {
       window.open(r.data.url, '_blank');
       return;
@@ -3385,14 +3398,14 @@ async function taskSheetPreview(btn) {
 
 /* 工作任务单：下载 = docx 二进制，fetch + blob 落地（口径同杆塔模板下载） */
 async function taskSheetDownload(btn) {
-  var date = $('#tsDate') && $('#tsDate').value;
-  if (!date) { Shade.toast('请选择日期', 'info'); return; }
+  var range = tsRange();
+  if (!range) return;
   btn.disabled = true;
   try {
     var headers = {};
     var token = localStorage.getItem('shade_token');
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/task-sheet?date=' + date), { headers: headers });
+    var res = await fetch(wl('/api/v1/worklog/task-sheet?from=' + range.from + '&to=' + range.to), { headers: headers });
     if (res.status === 401) {
       localStorage.removeItem('shade_token');
       localStorage.removeItem('shade_user');
@@ -3408,7 +3421,7 @@ async function taskSheetDownload(btn) {
     var a = document.createElement('a');
     var url = URL.createObjectURL(blob);
     a.href = url;
-    a.download = '工作任务单-' + date + '.docx';
+    a.download = tsFileName(range.from, range.to);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -3883,7 +3896,8 @@ async function init() {
   $('#dlGo').innerHTML = Shade.icon('download', 15) + '打包下载';
   $('#tsPrev').innerHTML = Shade.icon('file', 15) + '预览';
   $('#tsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
-  $('#tsDate').value = state.date; // 工作任务单默认取月历当前选中日期
+  $('#tsFrom').value = state.date; // 工作任务单范围默认取月历当前选中日期（单日）
+  $('#tsTo').value = state.date;
   $('#calPrev').innerHTML = SVG_CHEV_L;
   $('#calNext').innerHTML = SVG_CHEV_R;
 

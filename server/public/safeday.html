@@ -169,6 +169,22 @@
   .d-ic svg { width: 22px; height: 22px; }
   .d-actions { margin-top: 18px; display: flex; justify-content: flex-end; gap: 10px; }
 
+  /* ===== 生成表单弹层（学习内容 + 主持人/记录人 + 上级参加人员 + 参加/缺席互斥 chips + 缺席原因） ===== */
+  .dialog.dlg-form { width: 560px; max-height: 88vh; overflow-y: auto; }
+  .dlg-form .f-lab { display: block; margin: 14px 0 7px; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--sub); }
+  .dlg-form .f-lab small { font-weight: 400; color: var(--ph); letter-spacing: 0; }
+  .dlg-form .input { margin-top: 0; width: 100%; }
+  .dlg-form .f-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  /* 成员点亮 chips：参加组点亮=橙实底；缺席组点亮=红实底；两组互斥镜像 */
+  .mchips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .mchip {
+    padding: 5px 13px; border-radius: 99px; border: 1.5px solid var(--dash); background: #fff;
+    font-size: 12px; font-weight: 600; color: var(--sub); cursor: pointer; transition: all .15s; user-select: none;
+  }
+  .mchip.on { border-color: var(--orange); background: var(--orange); color: #fff; }
+  .mchips.absent .mchip.on { border-color: var(--red); background: var(--red); }
+  .mchips:empty::after { content: "成员加载中…"; font-size: 12px; color: var(--ph); }
+
   @media (max-width: 960px) {
     .sd-body { flex-direction: column; }
     .sd-left { width: 100%; }
@@ -237,12 +253,31 @@
   </div>
 </main>
 
-<!-- 生成确认弹层（确认记录名称） -->
+<!-- 生成表单弹层（学习内容 + 参会信息，确认后开始生成；参加/缺席互斥点亮，上级参加人员与记录人按班组记忆为下次默认） -->
 <div class="mask" id="genMask">
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="genTitle">
-    <h3 id="genTitle">确认记录名称</h3>
-    <p class="dsub">该名称将写入记录内容，可修改后开始生成</p>
+  <div class="dialog dlg-form" role="dialog" aria-modal="true" aria-labelledby="genTitle">
+    <h3 id="genTitle">生成活动记录</h3>
+    <p class="dsub">确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</p>
+    <label class="f-lab" for="nameInput">学习内容（记录名称）</label>
     <input type="text" class="input" id="nameInput" autocomplete="off">
+    <div class="f-2col">
+      <div>
+        <label class="f-lab" for="hostSel">主持人</label>
+        <select class="input" id="hostSel"></select>
+      </div>
+      <div>
+        <label class="f-lab" for="recorderSel">记录人</label>
+        <select class="input" id="recorderSel"></select>
+      </div>
+    </div>
+    <label class="f-lab" for="superiorInput">上级参加人员</label>
+    <input type="text" class="input" id="superiorInput" autocomplete="off">
+    <label class="f-lab">本班组参加人员 <small>默认全员参加，点击名字改为缺席</small></label>
+    <div class="mchips" id="attendChips"></div>
+    <label class="f-lab">缺席人员 <small>与参加人员互斥，点击名字改为参加</small></label>
+    <div class="mchips absent" id="absentChips"></div>
+    <label class="f-lab" for="absentReasonInput">缺席人员原因</label>
+    <input type="text" class="input" id="absentReasonInput" placeholder="无" autocomplete="off">
     <div class="d-actions">
       <button class="btn" id="genCancel" type="button">取消</button>
       <button class="btn btn-accent" id="genConfirm" type="button">确定，开始生成</button>
@@ -301,6 +336,12 @@
   var emptyBox = document.getElementById('emptyBox');
   var genMask = document.getElementById('genMask');
   var nameInput = document.getElementById('nameInput');
+  var hostSel = document.getElementById('hostSel');
+  var recorderSel = document.getElementById('recorderSel');
+  var superiorInput = document.getElementById('superiorInput');
+  var attendChips = document.getElementById('attendChips');
+  var absentChips = document.getElementById('absentChips');
+  var absentReasonInput = document.getElementById('absentReasonInput');
   var genCancel = document.getElementById('genCancel');
   var genConfirm = document.getElementById('genConfirm');
   var delMask = document.getElementById('delMask');
@@ -679,12 +720,66 @@
   /* ===== 活动日期（默认当天；提交时由 toDots 转为 YYYY.MM.DD） ===== */
   dateInput.value = todayISO();
 
-  /* ===== 生成确认弹层 ===== */
+  /* ===== 生成表单弹层 ===== */
+  /* 表单元数据：班组成员名单 + 按班组记忆的默认值（GET /form-meta；按当前切换班组缓存，切班组后重拉） */
+  var formMeta = null;
+  var formMetaTeam = null;
+  function loadFormMeta() {
+    if (formMeta && formMetaTeam === teamId) return Promise.resolve(formMeta);
+    var q = teamId && teamId !== 'all' ? '?team_id=' + encodeURIComponent(teamId) : '';
+    return sdFetch('/form-meta' + q).then(parseOk).then(function (data) {
+      formMeta = { members: (data && data.members) || [], defaults: (data && data.defaults) || {} };
+      formMetaTeam = teamId;
+      return formMeta;
+    });
+  }
+
+  /* 参加/缺席互斥：attendSet = 参加人名集合，缺席为其补集；两组 chips 镜像渲染，点任一侧即切换归属 */
+  var attendSet = new Set();
+  function renderMemberChips() {
+    var members = (formMeta && formMeta.members) || [];
+    attendChips.innerHTML = members.map(function (m) {
+      return '<span class="mchip' + (attendSet.has(m) ? ' on' : '') + '" data-name="' + Shade.esc(m) + '">' + Shade.esc(m) + '</span>';
+    }).join('');
+    absentChips.innerHTML = members.map(function (m) {
+      return '<span class="mchip' + (attendSet.has(m) ? '' : ' on') + '" data-name="' + Shade.esc(m) + '">' + Shade.esc(m) + '</span>';
+    }).join('');
+  }
+  function onChipTap(e) {
+    var c = e.target.closest('.mchip');
+    if (!c) return;
+    var name = c.dataset.name;
+    if (attendSet.has(name)) attendSet.delete(name); else attendSet.add(name);
+    renderMemberChips();
+  }
+  attendChips.addEventListener('click', onChipTap);
+  absentChips.addEventListener('click', onChipTap);
+
+  /* 下拉填充：成员名单为选项，wanted 不在名单时回落首项 */
+  function fillMemberSel(sel, members, wanted) {
+    sel.innerHTML = members.map(function (m) {
+      return '<option value="' + Shade.esc(m) + '">' + Shade.esc(m) + '</option>';
+    }).join('');
+    sel.value = members.indexOf(wanted) >= 0 ? wanted : (members[0] || '');
+  }
+
   function openGenMask() {
     var names = files.map(function (f) { return baseOf(f.name); }).join('、');
     nameInput.value = '《' + names + '》';
     genMask.classList.add('open');
     document.body.style.overflow = 'hidden';
+    /* 先开层再异步填表单：成员未到时 chips 区显示加载占位 */
+    loadFormMeta().then(function () {
+      var members = formMeta.members;
+      fillMemberSel(hostSel, members, members[0]); // 主持人默认班组成员顺序1
+      fillMemberSel(recorderSel, members, formMeta.defaults.recorder || members[0]); // 记录人默认上次选择
+      superiorInput.value = formMeta.defaults.superior || '任晓辉';
+      absentReasonInput.value = '';
+      attendSet = new Set(members); // 默认全员参加
+      renderMemberChips();
+    }).catch(function (e) {
+      Shade.toast(e.message || '表单数据加载失败', 'error');
+    });
     setTimeout(function () { nameInput.focus(); nameInput.select(); }, 260);
   }
   function closeGenMask() {
@@ -737,12 +832,25 @@
     fd.append('name', name);
     fd.append('date', dateDots);
     if (teamId) { fd.append('team_id', teamId); } // 超管指定目标班组（仅超管生效）
+    /* 生成表单字段（后端存进记录，回调渲染 docx 时使用；上级参加人员/记录人另按班组记忆为下次默认） */
+    var members = (formMeta && formMeta.members) || [];
+    fd.append('host', hostSel.value || '');
+    fd.append('recorder', recorderSel.value || '');
+    fd.append('superior', superiorInput.value.trim());
+    fd.append('attendees', members.filter(function (m) { return attendSet.has(m); }).join(' '));
+    fd.append('absentees', members.filter(function (m) { return !attendSet.has(m); }).join(' '));
+    fd.append('absentReason', absentReasonInput.value.trim());
     files.forEach(function (f) { fd.append('files', f, f.name); });
 
     setSubmitting(true);
     sdFetch('/generate', { method: 'POST', body: fd })
       .then(parseOk)
       .then(function (data) {
+        /* 本地缓存同步新默认值，下次打开免重拉 */
+        if (formMeta) {
+          formMeta.defaults.superior = superiorInput.value.trim() || formMeta.defaults.superior;
+          formMeta.defaults.recorder = recorderSel.value || formMeta.defaults.recorder;
+        }
         forceCloseGenMask();
         clearFiles();
         Shade.toast('已开始生成，请稍候…', 'success');
@@ -815,6 +923,7 @@
   function switchTeam(v) {
     teamId = v;
     localStorage.setItem('safeday_team_id', v);
+    formMeta = null; // 生成表单元数据按班组缓存，切班组后重拉
     syncTeamCol();
     /* 切换视图后重置列表与进度跟踪（生成中记录归属原班组视图） */
     stopPolling();

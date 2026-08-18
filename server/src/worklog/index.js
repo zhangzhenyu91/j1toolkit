@@ -157,14 +157,19 @@ async function loadEntries(where, params) {
       const dates = [...new Set(entries.map((e) => e.log_date))];
       const [clockins] = await pool.query(
         `SELECT member_id, DATE_FORMAT(clock_date, '%Y-%m-%d') AS clock_date, seq, detail_id,
-                DATE_FORMAT(clock_time, '%Y-%m-%d %H:%i:%s') AS clock_time, position, work_hours
+                DATE_FORMAT(clock_time, '%Y-%m-%d %H:%i:%s') AS clock_time, position, longitude, latitude,
+                city_code, city_name, work_hours
          FROM worklog_clockin WHERE team_id IN (?) AND clock_date IN (?)`,
         [teamIds, dates]
       );
       clockins.forEach((c) => {
         const d = (clockinByDate[c.clock_date] = clockinByDate[c.clock_date] || {});
         const m = (d[c.member_id] = d[c.member_id] || {});
-        m[c.seq] = { detailId: c.detail_id, time: c.clock_time, position: c.position, workHours: c.work_hours };
+        // 带全套定位信息（坐标+城市编码/城市名）：打卡弹层带入他人打卡时整套带入，避免地址与城市不对应
+        m[c.seq] = {
+          detailId: c.detail_id, time: c.clock_time, position: c.position, workHours: c.work_hours,
+          lng: c.longitude, lat: c.latitude, cityCode: c.city_code, cityName: c.city_name,
+        };
       });
       // 当日费用（规则 f 用）：与 clockins 同口径按 team_id + 日期集合批量查
       const [fees] = await pool.query(
@@ -1261,45 +1266,65 @@ router.post('/zip', async (req, res, next) => {
   }
 });
 
-// ===== 工作任务单（管理员）：当天全部出车卡片渲染模板并合并为单个 docx，一卡一页，供打印 =====
+// ===== 工作任务单（管理员）：范围内全部出车卡片渲染模板并合并为单个 docx，一卡一页，供打印 =====
 
-// GET /task-sheet?date=YYYY-MM-DD：二进制 docx 响应（不走 {code,data} 信封；
+// 解析日期范围入参：from/to 优先；仅传 date 时视为单日（兼容旧调用）；范围上限 31 天（打印场景按周/月）
+function sheetRange(req) {
+  let { from, to } = req.query || {};
+  if (!from && !to && req.query.date) {
+    from = req.query.date;
+    to = req.query.date;
+  }
+  if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '') || from > to) return null;
+  const days = (new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000 + 1;
+  if (days > 31) return 'tooLong';
+  return { from, to };
+}
+
+// 范围文件名：单日 工作任务单-2026-08-18.docx；跨天 工作任务单-2026-08-18至2026-08-20.docx
+function sheetFileName(from, to) {
+  return from === to ? `工作任务单-${from}.docx` : `工作任务单-${from}至${to}.docx`;
+}
+
+// GET /task-sheet?from=&to=（或 date= 单日）：二进制 docx 响应（不走 {code,data} 信封；
 // 供小程序 downloadFile / 网页 fetch+blob / basemetas 回源三种消费方式）
 router.get('/task-sheet', requireDictAdmin, async (req, res, next) => {
   try {
-    const { date } = req.query;
-    if (!DATE_RE.test(date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    const range = sheetRange(req);
+    if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
+    if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    const result = await tasksheet.build(req.team, date);
-    if (!result) return fail(res, 404, 40402, '该日期没有出车记录，无可生成的卡片');
-    const fileName = `工作任务单-${date}.docx`;
+    const result = await tasksheet.build(req.team, range.from, range.to);
+    if (!result) return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的卡片');
+    const fileName = sheetFileName(range.from, range.to);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition',
-      `attachment; filename="task-sheet-${date}.docx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      `attachment; filename="task-sheet-${range.from}.docx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
     return res.send(result.buffer);
   } catch (err) {
     return next(err);
   }
 });
 
-// GET /task-sheet/preview?date=：拼 basemetas 预览地址（预览服务器凭地址内 ?token= 回源拉取上方下载接口；同安全日记录口径）
+// GET /task-sheet/preview?from=&to=（或 date= 单日）：拼 basemetas 预览地址（预览服务器凭地址内 ?token= 回源拉取上方下载接口；同安全日记录口径）
 router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
   try {
-    const { date } = req.query;
-    if (!DATE_RE.test(date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    const range = sheetRange(req);
+    if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
+    if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     const base = (config.basemetas.url || '').replace(/\/+$/, '');
     if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
     // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应
-    if (!(await tasksheet.hasRows(req.team.id, date))) {
-      return fail(res, 404, 40402, '该日期没有出车记录，无可生成的卡片');
+    if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
+      return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的卡片');
     }
     // 反代后 req.protocol 恒为 http（未开 trust proxy）：优先取 X-Forwarded-Proto 头回退
     const proto = req.headers['x-forwarded-proto'] || req.protocol;
     const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
-    const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/task-sheet?date=${date}${teamQ}` +
+    const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/task-sheet?from=${range.from}&to=${range.to}${teamQ}` +
       `&token=${encodeURIComponent(req.token)}`;
-    const fileName = `工作任务单-${date}.docx`;
+    const fileName = sheetFileName(range.from, range.to);
     const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
       `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;
     return ok(res, { url });

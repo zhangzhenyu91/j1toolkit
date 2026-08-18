@@ -1,5 +1,6 @@
 // 安全日活动记录 · 小程序端（app_key safe-day；与网页端 safeday.html 逻辑一致：
-// 上传活动文件 → 确认记录名称 → 提交生成 → 进度卡跟踪 → 记录列表 5s 轮询至终态）
+// 上传活动文件 → 弹层确认学习内容与参会信息（主持人/记录人/上级参加人员/参加缺席互斥点亮/缺席原因）→ 提交生成 → 进度卡跟踪 → 记录列表 5s 轮询至终态）
+// 文档由后端套模板生成（Dify 仅回传三段文字），见 server/src/safeday/render.js
 // 上传：wx.chooseMessageFile 从聊天选取；下载：wx.downloadFile 取回后 wx.openDocument 打开
 // 接口信封 {ok,error,...}（非主平台 {code,message,data}），故不用 utils/request，本地封装 sdFetch
 // 班组口径（屏八）：超管顶部切换器可选「全部班组」+ 各班组（records 带 team_id，全部=all）；
@@ -124,6 +125,13 @@ Page({
     nameDraft: '',
     submitting: false,
     keyboardHeight: 0,
+    // 生成表单扩展字段（成员名单与默认值来自 GET /form-meta）
+    members: [], // 班组成员名单（顺序=点亮按钮顺序，顺序1为默认主持人）
+    hostIdx: 0, // 主持人选中下标
+    recorderIdx: 0, // 记录人选中下标（默认上次选择）
+    superior: '', // 上级参加人员（默认记忆值/任晓辉）
+    attendFlags: [], // 参加标记（与 members 平行；false=缺席，两组 chips 互斥镜像）
+    absentReason: '',
   },
 
   onLoad() {
@@ -220,6 +228,7 @@ Page({
       this.setData({ teamDropOpen: false });
       return;
     }
+    this._formMeta = null; // 生成表单元数据按班组缓存，切班组后重拉
     this.applyTeam(sel, true);
   },
 
@@ -485,8 +494,59 @@ Page({
 
   onGenTap() {
     if (!this.data.files.length || this.data.submitting) return;
+    // 超管在「全部班组」视图下不可生成（生成须归属具体班组，同网页端口径）
+    if (this._role === 'admin' && this._teamSel === 'all') {
+      this.toast('请先切换到具体班组再生成');
+      return;
+    }
     const names = this.data.files.map((f) => baseOf(f.name)).join('、');
     this.setData({ genOpen: true, nameDraft: `《${names}》`, keyboardHeight: 0 });
+    // 打开弹层后异步拉表单元数据并填充（成员/默认值按当前生效班组）
+    this.loadFormMeta()
+      .then((meta) => {
+        const { members, defaults } = meta;
+        this.setData({
+          members,
+          hostIdx: 0, // 主持人默认班组成员顺序1
+          recorderIdx: Math.max(0, members.indexOf(defaults.recorder)), // 记录人默认上次选择
+          superior: defaults.superior || '任晓辉',
+          attendFlags: members.map(() => true), // 默认全员参加
+          absentReason: '',
+        });
+      })
+      .catch((err) => this.toast(err.message || '表单数据加载失败'));
+  },
+
+  // 生成表单元数据：班组成员 + 记忆默认值（按当前生效班组缓存，切班组失效）
+  loadFormMeta() {
+    if (this._formMeta && this._formMetaTeam === this._teamSel) return Promise.resolve(this._formMeta);
+    return this.sdFetch(`/form-meta${this.teamQuery()}`).then((data) => {
+      this._formMeta = { members: (data && data.members) || [], defaults: (data && data.defaults) || {} };
+      this._formMetaTeam = this._teamSel;
+      return this._formMeta;
+    });
+  },
+
+  onHostChange(e) {
+    this.setData({ hostIdx: Number(e.detail.value) });
+  },
+
+  onRecorderChange(e) {
+    this.setData({ recorderIdx: Number(e.detail.value) });
+  },
+
+  onSuperiorInput(e) {
+    this.setData({ superior: e.detail.value });
+  },
+
+  onAbsentReasonInput(e) {
+    this.setData({ absentReason: e.detail.value });
+  },
+
+  // 参加/缺席互斥：点名字即切换归属（两组 chips 镜像，无需分别维护）
+  onToggleAttend(e) {
+    const i = Number(e.currentTarget.dataset.idx);
+    this.setData({ [`attendFlags[${i}]`]: !this.data.attendFlags[i] });
   },
 
   onNameInput(e) {
@@ -538,9 +598,24 @@ Page({
       return;
     }
     const date = toDots(this.data.dateStr || todayISO());
+    // 生成表单字段（后端存进记录，回调渲染 docx 时使用）
+    const { members } = this.data;
+    const form = {
+      host: members[this.data.hostIdx] || '',
+      recorder: members[this.data.recorderIdx] || '',
+      superior: (this.data.superior || '').trim(),
+      attendees: members.filter((_, i) => this.data.attendFlags[i]).join(' '),
+      absentees: members.filter((_, i) => !this.data.attendFlags[i]).join(' '),
+      absentReason: (this.data.absentReason || '').trim(),
+    };
     this.setData({ submitting: true });
-    this.uploadGenerate(name, date, files)
+    this.uploadGenerate(name, date, files, form)
       .then((data) => {
+        // 本地缓存同步新默认值，下次打开免重拉
+        if (this._formMeta) {
+          if (form.superior) this._formMeta.defaults.superior = form.superior;
+          if (form.recorder) this._formMeta.defaults.recorder = form.recorder;
+        }
         this.setData({ genOpen: false, keyboardHeight: 0, files: [] });
         this.toast('已开始生成，请稍候…');
         if (data.record) this.startTrack(data.record);
@@ -553,8 +628,8 @@ Page({
       .finally(() => this.setData({ submitting: false }));
   },
 
-  // multipart 上传（字段名 files + name/date；字节格式与网页端 FormData 一致，见文件头注释）
-  uploadGenerate(name, date, files) {
+  // multipart 上传（字段名 files + name/date + 生成表单字段；字节格式与网页端 FormData 一致，见文件头注释）
+  uploadGenerate(name, date, files, form) {
     const boundary = `----ShadeSafeday${Date.now()}`;
     const fsm = wx.getFileSystemManager();
     const parts = [];
@@ -563,6 +638,13 @@ Page({
     };
     pushField('name', name);
     pushField('date', date);
+    // 生成表单字段（主持人/记录人/上级参加人员/参加与缺席人员/缺席原因）
+    pushField('host', form.host);
+    pushField('recorder', form.recorder);
+    pushField('superior', form.superior);
+    pushField('attendees', form.attendees);
+    pushField('absentees', form.absentees);
+    pushField('absentReason', form.absentReason);
     // 生效班组（仅超管携带选中的 team_id；其余角色后端强制本班）
     if (this._role === 'admin' && this._teamSel && this._teamSel !== 'all') {
       pushField('team_id', String(this._teamSel));

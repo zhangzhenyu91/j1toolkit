@@ -29,6 +29,18 @@
   margin-top: 6rpx;
 }
 
+.range {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.range-sep {
+  color: #a89f8a;
+  font-size: 22rpx;
+}
+
 .date-pill {
   flex: none;
   font-size: 24rpx;
