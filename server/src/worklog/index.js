@@ -19,8 +19,20 @@ const towers = require('./towers');
 const Watermark = require('./watermark');
 const { renderWatermarkedPhoto } = require('./render-photo');
 const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark } = require('./verify');
+const tasksheet = require('./tasksheet');
+const dispatch = require('./dispatch');
 
 const router = express.Router();
+
+// 文件预览服务器回源拉取下载地址时无法附带请求头：
+// 无 Authorization 头且 query 带 token 时，映射为 Authorization: Bearer 再走统一鉴权（同安全日记录口径）
+router.use((req, res, next) => {
+  if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+});
+
 router.use(auth, requireApp('work-log'));
 
 // 班组上下文：解析生效班组（超管可用 ?team_id= 指定；其余角色固定本班，未分配 → null）
@@ -1249,6 +1261,101 @@ router.post('/zip', async (req, res, next) => {
   }
 });
 
+// ===== 工作任务单（管理员）：当天全部出车卡片渲染模板并合并为单个 docx，一卡一页，供打印 =====
+
+// GET /task-sheet?date=YYYY-MM-DD：二进制 docx 响应（不走 {code,data} 信封；
+// 供小程序 downloadFile / 网页 fetch+blob / basemetas 回源三种消费方式）
+router.get('/task-sheet', requireDictAdmin, async (req, res, next) => {
+  try {
+    const { date } = req.query;
+    if (!DATE_RE.test(date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const result = await tasksheet.build(req.team, date);
+    if (!result) return fail(res, 404, 40402, '该日期没有出车记录，无可生成的卡片');
+    const fileName = `工作任务单-${date}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="task-sheet-${date}.docx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    return res.send(result.buffer);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /task-sheet/preview?date=：拼 basemetas 预览地址（预览服务器凭地址内 ?token= 回源拉取上方下载接口；同安全日记录口径）
+router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
+  try {
+    const { date } = req.query;
+    if (!DATE_RE.test(date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const base = (config.basemetas.url || '').replace(/\/+$/, '');
+    if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
+    // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应
+    if (!(await tasksheet.hasRows(req.team.id, date))) {
+      return fail(res, 404, 40402, '该日期没有出车记录，无可生成的卡片');
+    }
+    // 反代后 req.protocol 恒为 http（未开 trust proxy）：优先取 X-Forwarded-Proto 头回退
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
+    const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/task-sheet?date=${date}${teamQ}` +
+      `&token=${encodeURIComponent(req.token)}`;
+    const fileName = `工作任务单-${date}.docx`;
+    const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
+      `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;
+    return ok(res, { url });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /dispatch/align：导入派车单（multipart 字段 files，多文件合并解析）按「日期＋用车人」对齐当天出车卡片，
+// 返回差异清单（只读对齐不写库；更正走 PUT /logs/{id}，车牌入字典走 /admin/vehicles）
+const dispatchUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 20 } });
+router.post(
+  '/dispatch/align',
+  requireDictAdmin,
+  (req, res, next) => {
+    dispatchUpload.array('files', 20)(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') return fail(res, 400, 40023, '单个文件大小应在 10MB 以内');
+        if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+          return fail(res, 400, 40023, '一次最多导入 20 个文件');
+        }
+        return next(err);
+      }
+      return next();
+    });
+  },
+  async (req, res, next) => {
+    try {
+      // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（同 towers/import 口径）
+      const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
+      if (!team) return fail(res, 400, 40023, '无可用班组');
+      if (req.user.role === 'team_admin' && req.user.team_id !== team.id) {
+        return fail(res, 403, 40304, '仅管理员可执行此操作');
+      }
+      const files = (req.files || []).map((f) => ({
+        // multer 对中文文件名为 latin1，转回 utf8（同 towers/import 口径）
+        name: Buffer.from(f.originalname || '', 'latin1').toString('utf8'),
+        buffer: f.buffer,
+      }));
+      if (!files.length) return fail(res, 400, 40023, '请选择派车单文件');
+      for (const f of files) {
+        if (!/\.(xls|xlsx)$/i.test(f.name)) return fail(res, 400, 40023, `「${f.name}」不是 Excel 文件（仅支持 .xls / .xlsx）`);
+      }
+      try {
+        const result = await dispatch.align(team, files);
+        return ok(res, result, `对齐完成：${result.items.length} 条不一致`);
+      } catch (e) {
+        if (e.status === 400) return fail(res, 400, 40023, e.message);
+        throw e;
+      }
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
 // ===== 管理接口（车牌号 / 目的地 / 人员 三类字典同构维护，按生效班组隔离）=====
 // 权限：超管可管任意班组（?team_id= 指定），班组管理员仅本班（requireDictAdmin）
 function dictRoutes(path, table, field, label, countRefs) {
@@ -1345,6 +1452,44 @@ dictRoutes('destinations', 'worklog_destination', 'name', '目的地', async (id
 dictRoutes('members', 'worklog_member', 'name', '成员', async (id) => {
   const [rows] = await pool.query('SELECT COUNT(*) AS cnt FROM worklog_entry_member WHERE member_id = ?', [id]);
   return rows[0].cnt;
+});
+
+// PUT /admin/members/:id/move {dir:'up'|'down'}：成员排序（点亮按钮顺序；工作任务单「工作负责人」取排序最前的用车人）
+// 与班内相邻成员换位；事务内按当前顺序整体重写 sort 为连续 1..N（兼容历史同值 sort，避免交换后次序不变）
+router.put('/admin/members/:id/move', requireDictAdmin, async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const id = Number(req.params.id);
+    const dir = (req.body && req.body.dir) === 'up' ? 'up' : 'down';
+    await conn.beginTransaction();
+    const [rows] = await conn.query(
+      'SELECT id FROM worklog_member WHERE team_id = ? ORDER BY sort, id',
+      [req.team.id]
+    );
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx < 0) {
+      await conn.rollback();
+      return fail(res, 404, 40400, '成员不存在');
+    }
+    const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= rows.length) {
+      await conn.rollback();
+      return ok(res, null); // 已在顶端 / 底端，次序不变
+    }
+    const order = rows.map((r) => r.id);
+    order.splice(swapIdx, 0, order.splice(idx, 1)[0]);
+    for (let i = 0; i < order.length; i += 1) {
+      await conn.query('UPDATE worklog_member SET sort = ? WHERE id = ?', [i + 1, order[i]]);
+    }
+    await conn.commit();
+    return ok(res, null);
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    return next(err);
+  } finally {
+    conn.release();
+  }
 });
 
 module.exports = router;

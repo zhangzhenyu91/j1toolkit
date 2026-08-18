@@ -1,4 +1,4 @@
-// 出工日志 · 派车数据管理（超管 / 班组管理员）：车牌号 / 目的地 / 人员 三类字典同构维护 + 杆塔坐标导入
+// 出工日志 · 派车数据管理（超管 / 班组管理员）：车牌号 / 目的地 / 人员 三类字典同构维护（人员支持上移 / 下移排序）+ 杆塔坐标导入
 // 班组口径：超管按主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；
 // 班组管理员无需指定（后端强制本班，带上 storage 值也无妨，无则不传）
 import Toast from 'tdesign-miniprogram/toast/index';
@@ -159,6 +159,21 @@ Page({
         data: this.teamBody({ status: status === 1 ? 0 : 1 }),
       });
       this.toast(status === 1 ? '已停用' : '已启用');
+      this.loadList();
+    } catch (err) {
+      this.toast(err.message);
+    }
+  },
+
+  // 成员排序：上移 / 下移（点亮按钮顺序；工作任务单「工作负责人」取排序最前的用车人）
+  async onMemberMove(e) {
+    const { id, dir } = e.currentTarget.dataset;
+    try {
+      await request({
+        url: `/api/v1/worklog/admin/members/${id}/move`,
+        method: 'PUT',
+        data: this.teamBody({ dir }),
+      });
       this.loadList();
     } catch (err) {
       this.toast(err.message);

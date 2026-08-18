@@ -1,0 +1,65 @@
+/* ---------- 生成卡片（同 manage 页 tower-bar 族：白卡圆角 + 藏青主按钮） ---------- */
+.card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+}
+
+.r-l {
+  flex: 1;
+  min-width: 0;
+}
+
+.r-t {
+  font-size: 27rpx;
+  font-weight: 700;
+  color: #22314e;
+}
+
+.r-s {
+  font-size: 20rpx;
+  color: #a89f8a;
+  margin-top: 6rpx;
+}
+
+.date-pill {
+  flex: none;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #f26d21;
+  background: #fdeee2;
+  border-radius: 14rpx;
+  padding: 14rpx 24rpx;
+}
+
+.gen {
+  margin-top: 28rpx;
+  height: 88rpx;
+  border-radius: 16rpx;
+  background: #22314e;
+  color: #ffffff;
+  font-size: 27rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gen.disabled {
+  opacity: 0.45;
+}
+
+.hint {
+  margin-top: 24rpx;
+  padding: 0 8rpx;
+  font-size: 22rpx;
+  line-height: 1.8;
+  color: #6b7690;
+}

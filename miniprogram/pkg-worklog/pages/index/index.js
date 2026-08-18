@@ -141,7 +141,7 @@ Page({
     teamName: '', // 切换器 chip 展示名
     teamOptions: [], // 超管下拉选项 [{id, name, on}]
     teamDropOpen: false,
-    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理·超管与班组管理员 / 批量下载 / 验证报告 / 新建日志）
+    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理·工作任务单（均超管与班组管理员）/ 批量下载 / 验证报告 / 新建日志）
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
@@ -2620,6 +2620,12 @@ Page({
   onManage() {
     this.setData({ fabOpen: false });
     wx.navigateTo({ url: '/pkg-worklog/pages/manage/manage' });
+  },
+
+  // 工作任务单（超管 / 班组管理员；与数据管理平级入口）
+  onTaskSheet() {
+    this.setData({ fabOpen: false });
+    wx.navigateTo({ url: '/pkg-worklog/pages/tasksheet/tasksheet' });
   },
 
   // ---------- 批量下载水印照片 ----------

@@ -21,6 +21,7 @@
       "pages": [
         "pages/index/index",
         "pages/manage/manage",
+        "pages/tasksheet/tasksheet",
         "pages/sgccbind/sgccbind"
       ]
     },

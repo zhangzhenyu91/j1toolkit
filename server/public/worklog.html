@@ -10,7 +10,10 @@
      仅展示，打卡需真实定位在小程序完成）、
      照片网格「商旅/同步失败」角标（非水印照片同款展示，无验证角标）、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）；
      隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
-     管理员（超管 / 班组管理员）另见「数据管理」页签：车牌号 / 目的地 / 出工成员 三字典维护 + 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
+     管理员（超管 / 班组管理员）另见三个平级页签：「数据管理」= 车牌号 / 目的地 / 出工成员 三字典维护（成员支持上移 / 下移排序，
+     工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
+     「工作任务单」= 按日期生成当天全部出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 tasksheet 页口径）；
+     「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（Web 端专属，设计稿 design/worklog-dispatch-align.html）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
      API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
@@ -186,6 +189,74 @@
   .tb-s { margin-top: 2px; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
   .tb-btns { margin-left: auto; flex: none; display: flex; gap: 10px; }
   .photo-cnt { font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
+
+  /* ===== 派车对齐页签（导入 + 概览 + 不一致清单；仅 admin / team_admin 可见，Web 端专属） ===== */
+  .pa-files { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pa-fchip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; background: var(--orange-soft); color: var(--orange); font-size: 11.5px; font-weight: 700; }
+  .pa-fchip .x { cursor: pointer; opacity: .65; }
+  .pa-fchip .x:hover { opacity: 1; }
+  .pa-rule { border: 1px dashed var(--dash); border-radius: 10px; padding: 12px 16px; background: #FBF9F3; }
+  .pa-rule b { font-size: 12.5px; letter-spacing: 1px; }
+  .pa-rule p { font-size: 12px; color: #6B7690; line-height: 1.9; margin-top: 6px; }
+  .pa-rule code { background: var(--orange-soft); color: var(--orange); border-radius: 4px; padding: 0 5px; font-size: 11.5px; }
+  .pa-sums { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .pa-sum { flex: 1; min-width: 110px; background: #fff; border: 1px solid var(--hair); border-radius: 10px; padding: 10px 14px; }
+  .pa-sum .n { font-size: 20px; font-weight: 800; }
+  .pa-sum .t { font-size: 11px; color: #6B7690; margin-top: 2px; letter-spacing: 1px; }
+  .pa-sum.ok .n { color: var(--green); }
+  .pa-sum.warn .n { color: var(--orange); }
+  .pa-sum.bad .n { color: var(--red); }
+  .pa-sum.mut .n { color: var(--ph); }
+  .pa-list { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .pa-row { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid var(--hair); border-radius: 10px; padding: 12px 16px; cursor: pointer; transition: border-color .2s, transform .2s; }
+  .pa-row:hover { border-color: var(--orange); transform: translateY(-1px); }
+  .pa-row.done { opacity: .55; }
+  .pa-date { flex: none; font-size: 13px; font-weight: 800; letter-spacing: .5px; }
+  .pa-badge { flex: none; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 99px; letter-spacing: .5px; }
+  .pa-badge.plate { background: var(--orange-soft); color: var(--orange); }
+  .pa-badge.mem { background: #FDECEC; color: var(--red); }
+  .pa-badge.none-sys { background: #EFEBE0; color: var(--ph); }
+  .pa-badge.none-sheet { background: #E9EEF7; color: #4A6A9E; }
+  .pa-sumline { flex: 1; min-width: 0; font-size: 12.5px; color: #6B7690; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pa-sumline b { color: var(--navy); font-weight: 700; }
+  .pa-sumline .vs { color: var(--ph); margin: 0 6px; }
+  .pa-sumline .hl { color: var(--orange); font-weight: 800; }
+  .pa-sumline .hl-r { color: var(--red); font-weight: 800; }
+  .pa-act { flex: none; font-size: 12px; font-weight: 700; color: var(--orange); }
+  .pa-done { flex: none; font-size: 11px; color: var(--green); font-weight: 700; }
+  /* 对照弹层：左表格只读 / 右卡片可改，差异字段橙·红点高亮 */
+  .pa-dlg-prog { font-size: 12px; color: var(--ph); letter-spacing: 1px; margin-left: 8px; }
+  .pa-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 4px 2px 2px; }
+  @media (max-width: 900px) { .pa-cmp { grid-template-columns: 1fr; } }
+  .pa-col { border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; }
+  .pa-col-h { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 12.5px; font-weight: 800; letter-spacing: 1px; border-bottom: 1px solid var(--hair); background: #FBF9F3; }
+  .pa-col-h::before { content: ""; width: 4px; height: 12px; border-radius: 2px; background: var(--orange); }
+  .pa-col-h small { font-size: 10.5px; color: var(--ph); font-weight: 400; }
+  .pa-col-h .src { margin-left: auto; font-size: 10.5px; color: var(--ph); font-weight: 400; }
+  .pa-rows { padding: 4px 14px 10px; }
+  .pa-r { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--hair); font-size: 12.5px; }
+  .pa-r:last-child { border-bottom: none; }
+  .pa-r .k { flex: none; width: 72px; color: var(--ph); letter-spacing: 1px; }
+  .pa-r .v { flex: 1; min-width: 0; font-weight: 600; word-break: break-all; }
+  .pa-r .v .sub { display: block; font-size: 11px; color: var(--ph); font-weight: 400; margin-top: 2px; }
+  .pa-r .v.diff { color: var(--orange); font-weight: 800; }
+  .pa-r .v.diff::before { content: "● "; font-size: 9px; vertical-align: 2px; }
+  .pa-r .v.diff-bad { color: var(--red); font-weight: 800; }
+  .pa-r .v.diff-bad::before { content: "● "; font-size: 9px; vertical-align: 2px; }
+  .pa-f-row { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--hair); font-size: 12.5px; align-items: flex-start; }
+  .pa-f-row:last-child { border-bottom: none; }
+  .pa-f-row .k { flex: none; width: 72px; color: var(--ph); letter-spacing: 1px; padding-top: 7px; }
+  .pa-f-row .c { flex: 1; min-width: 0; }
+  .pa-f-row .f-sel.warn { border-color: var(--orange); background: #FFFBF6; box-shadow: 0 0 0 3px rgba(242, 109, 33, .12); }
+  .pa-note { font-size: 11px; color: var(--orange); margin-top: 5px; font-weight: 600; line-height: 1.7; }
+  .pa-note.red { color: var(--red); }
+  .pa-note .linkbtn { font-size: 11px; padding: 1px 6px; }
+  .pa-cmp .chip.add { border-style: dashed; border-color: var(--green); color: var(--green); }
+  .pa-cmp .chip.add.on { background: var(--green); border-style: solid; color: #fff; }
+  .pa-cmp .chip.extra.on { border-color: var(--red); background: #FDECEC; color: var(--red); }
+  .pa-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; }
+  .pa-foot .skip { font-size: 12.5px; color: #6B7690; font-weight: 700; cursor: pointer; padding: 0 6px; }
+  .pa-foot .sp { margin-left: auto; display: flex; gap: 10px; }
 
   /* ----- 日志卡片 ----- */
   .log-card { overflow: hidden; margin-bottom: 16px; }
@@ -745,12 +816,14 @@
   <!-- 未分配班组空态（非超管且无班组时整页只显示它，屏十口径） -->
   <div class="card" id="noTeam" hidden></div>
 
-  <!-- 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条），四页共用同一列表位 -->
+  <!-- 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条），六页共用同一列表位 -->
   <div class="wl-tabs fade-up" id="wlTabs">
     <button class="on" data-p="Record">记录</button>
     <button data-p="Dl">批量下载</button>
     <button data-p="Rep">汇总前核验</button>
     <button data-p="Dict" id="tabDict" style="display:none">数据管理</button>
+    <button data-p="TS" id="tabTS" style="display:none">工作任务单</button>
+    <button data-p="PA" id="tabPA" style="display:none">派车对齐</button>
     <span class="wl-tab-ind" id="wlTabInd"></span>
   </div>
 
@@ -810,6 +883,39 @@
 
       <!-- 数据管理：车牌号 / 目的地 / 出工成员 字典 + 杆塔坐标（仅超管 / 班组管理员可见页签） -->
       <div class="pane" id="paneDict"><div class="pane-scroll" id="dictBody"></div></div>
+
+      <!-- 工作任务单：按日期生成当天全部出车卡片合并为单个 docx，一卡一页（仅超管 / 班组管理员可见页签；与数据管理平级） -->
+      <div class="pane" id="paneTS">
+        <div class="rep-bar">
+          <input type="date" class="f-sel" id="tsDate">
+          <span class="dl-meta">当天全部出车卡片，一卡一页合并为一个 Word</span>
+        </div>
+        <div class="pane-scroll">
+          <div class="card dsec">
+            <div class="dsec-h"><b>字段口径</b></div>
+            <div class="f-hint" style="padding:0 16px 14px;line-height:2">
+              线路杆塔号＝本卡水印照片的施工内容；工作负责人＝排序最前的用车人（排序在「数据管理 → 出工成员」维护）；<br>
+              工作地点＝派车目的地；工作班成员＝用车人（空格间隔）；派车情况＝车牌号；未出车卡片不生成。
+            </div>
+          </div>
+        </div>
+        <div class="pane-foot">
+          <span class="sp">
+            <button class="btn" id="tsPrev">预览</button>
+            <button class="btn btn-accent" id="tsDl">下载 Word</button>
+          </span>
+        </div>
+      </div>
+
+      <!-- 派车对齐：导入派车系统导出表 → 差异清单 → 逐条对照更正（仅超管 / 班组管理员可见页签；Web 端专属，小程序不做） -->
+      <div class="pane" id="panePA">
+        <div class="rep-bar">
+          <button class="btn btn-sm" id="paPick">选择派车单文件…</button>
+          <span class="pa-files" id="paFiles"></span>
+          <button class="btn btn-sm btn-accent" id="paGo" disabled>开始对齐</button>
+        </div>
+        <div class="pane-scroll" id="paBody"></div>
+      </div>
     </section>
   </div>
   </div>
@@ -818,6 +924,9 @@
 <!-- 杆塔坐标导入：隐藏文件选择（仅 .xlsx ≤10MB，前端先校验） -->
 <input type="file" id="impFileInput" accept=".xlsx" hidden>
 
+<!-- 派车对齐：隐藏文件选择（.xls/.xlsx 多选，每个驾驶员一份，合并解析） -->
+<input type="file" id="paFileInput" accept=".xls,.xlsx" multiple hidden>
+
 <!-- 照片大图遮罩层 -->
 <div class="lb" id="lightbox"></div>
 
@@ -825,8 +934,9 @@
 <script src="/assets/common.js"></script>
 <script>
 /* ============================================================
-   出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理四页签（原下载、报告弹层已页签化；
-   数据管理仅超管 / 班组管理员可见：三字典维护 + 杆塔坐标导入，接口 /worklog/admin/* 按生效班组隔离）
+   出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理·工作任务单·派车对齐六页签（原下载、报告弹层已页签化；
+   数据管理 / 工作任务单 / 派车对齐仅超管 / 班组管理员可见：三字典维护（成员可排序）+ 杆塔坐标导入；任务单按日期合并生成 docx；
+   派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（Web 端专属），接口 /worklog/admin/* 按生效班组隔离）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
    汇总前核验范围 = 仅未通过记录（商旅打卡新 6 条规则 a~f；未出车免验证；非水印照片不参与），底部绿色条提示其余全部通过
    水印照片上传与小程序同链路（POST /logs/{id}/photos）：① 选择水印照片上传＝原图 base64 直传；
@@ -893,7 +1003,7 @@ var QUICK_INPUTS = ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'];
 var state = {
   date: todayStr(),          // 当前选中日期 YYYY-MM-DD
   scope: 'all',              // all | mine
-  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 汇总前核验 | Dict 数据管理
+  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 汇总前核验 | Dict 数据管理 | TS 工作任务单 | PA 派车对齐
   teamId: 0,                 // 超管当前切换的班组 id（0=未指定，由后端落默认班组；非超管恒 0）
   entries: [],               // 当日日志卡片
   calY: 0, calM: 0,          // 月历当前显示月份（calM 为 0 起）
@@ -903,7 +1013,8 @@ var state = {
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
   dict: { lists: {}, towerCount: null }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）
-  dl: { from: '', to: '', list: null, saving: false } // 下载页签（list 项带 selected）
+  dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
+  pa: { files: [], result: null, done: {}, idx: 0, uploading: false } // 派车对齐页签（done：已处理条目，键=清单索引）
 };
 
 /* 班组隔离：超管所有 /worklog/* 请求统一带 team_id（query 优先于 body，后端 resolveReqTeam 同口径） */
@@ -2730,6 +2841,317 @@ function dictSeg(key) {
 }
 
 /* 整页加载：三字典列表 + 杆塔条数并发拉取（杆塔全量约 1400 行，取 length 即弃，不进缓存） */
+/* ================= 派车对齐页签（Web 端专属；仅超管 / 班组管理员） =================
+   流程：多文件上传 POST /dispatch/align（服务端只读对齐不写库）→ 不一致清单 → 对照弹层逐条处理；
+   更正复用既有接口：改卡 PUT /logs/{id}（整卡更新，patrol_content 随条目带回避免误清）、车牌入字典 POST /admin/vehicles；
+   口径：仅「用车申请调度」行参与，日期＋用车人配对，表格有系统无 / 系统有表格无 仅提示确认（设计稿 design/worklog-dispatch-align.html） */
+
+/* 文件选择 chips + 开始对齐按钮可用态 */
+function renderPaFiles() {
+  $('#paFiles').innerHTML = state.pa.files.map(function (f, i) {
+    return '<span class="pa-fchip">' + esc(f.name) + '<span class="x" data-pafx="' + i + '">✕</span></span>';
+  }).join('');
+  $('#paGo').disabled = !state.pa.files.length || state.pa.uploading;
+}
+
+/* 不一致清单行 */
+function paRowHtml(it, i) {
+  var done = !!state.pa.done[i];
+  var date = it.date.slice(5); // MM-DD
+  var badges = '';
+  var sum = '';
+  if (it.kind === 'matched') {
+    if (it.diffs.plate) badges += '<span class="pa-badge plate">车牌不一致</span>';
+    if (it.diffs.missing.length || it.diffs.extra.length) badges += '<span class="pa-badge mem">用车人差异</span>';
+    var parts = [];
+    if (it.diffs.plate) {
+      parts.push('表格 <span class="hl">' + esc(it.sheet.plate) + '</span><span class="vs">→</span>系统 ' + esc(it.entry.plate));
+    }
+    if (it.diffs.extra.length) parts.push('卡片多 <span class="hl-r">' + esc(it.diffs.extra.join(' ')) + '</span>');
+    if (it.diffs.missing.length) parts.push('卡片少 <span class="hl-r">' + esc(it.diffs.missing.join(' ')) + '</span>');
+    sum = '<b>' + esc(it.sheet.members.join(' ')) + '</b><span class="vs">｜</span>' + parts.join('<span class="vs">，</span>');
+  } else if (it.kind === 'sheetOnly') {
+    badges = '<span class="pa-badge none-sys">表格有·系统无</span>';
+    sum = '<b>' + esc(it.sheet.plate) + ' · ' + esc(it.sheet.members.join(' ')) + '</b><span class="vs">｜</span>当天系统无对应出车卡片，仅提示确认';
+  } else {
+    badges = '<span class="pa-badge none-sheet">系统有·表格无</span>';
+    sum = '<b>' + esc(it.entry.plate) + ' · ' + esc(it.entry.members.map(function (m) { return m.name; }).join(' ')) + '</b><span class="vs">｜</span>派车单中无此记录，仅提示确认';
+  }
+  return '<div class="pa-row' + (done ? ' done' : '') + '" data-idx="' + i + '">' +
+    '<span class="pa-date">' + date + '</span>' + badges +
+    '<span class="pa-sumline">' + sum + '</span>' +
+    (done ? '<span class="pa-done">✓ 已处理</span>' : '<span class="pa-act">' + (it.kind === 'matched' ? '处理 ›' : '查看 ›') + '</span>') +
+  '</div>';
+}
+
+/* 页签主体渲染：常驻口径说明卡 +（有结果时）概览六宫格 + 不一致清单 */
+function renderPA() {
+  var ruleHtml = '<div class="card dsec"><div class="dsec-h"><b>对齐口径</b></div>' +
+    '<div class="f-hint" style="padding:0 16px 14px;line-height:2">' +
+    '仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略）；按「日期＋用车人」匹配当日卡片，同日内取用车人重合最多者成对；' +
+    '配对后比对车牌号码与用车人集合。车牌不一致以表格为准更正；用车人多 / 少在对照弹层内点亮调整；' +
+    '「表格有系统无」「系统有表格无」仅提示确认，不自动建卡或删卡。更正后可重新导入再对齐（幂等）。</div></div>';
+  var r = state.pa.result;
+  if (!r) {
+    $('#paBody').innerHTML = ruleHtml +
+      '<div class="dempty" style="text-align:center;padding:34px 0">请选择派车单文件后开始对齐（.xls / .xlsx，每个驾驶员一份，可多选合并解析）</div>';
+    renderPaFiles();
+    return;
+  }
+  var s = r.summary;
+  var html = ruleHtml +
+    '<div class="pa-sums">' +
+      '<div class="pa-sum"><div class="n">' + s.imported + '</div><div class="t">导入行数（已过滤）</div></div>' +
+      '<div class="pa-sum ok"><div class="n">' + s.consistent + '</div><div class="t">完全一致</div></div>' +
+      '<div class="pa-sum warn"><div class="n">' + s.plate + '</div><div class="t">车牌不一致</div></div>' +
+      '<div class="pa-sum bad"><div class="n">' + s.members + '</div><div class="t">用车人差异</div></div>' +
+      '<div class="pa-sum mut"><div class="n">' + s.sheetOnly + '</div><div class="t">表格有·系统无</div></div>' +
+      '<div class="pa-sum mut"><div class="n">' + s.entryOnly + '</div><div class="t">系统有·表格无</div></div>' +
+    '</div>';
+  html += r.items.length
+    ? '<div class="pa-list">' + r.items.map(function (it, i) { return paRowHtml(it, i); }).join('') + '</div>'
+    : '<div class="dempty" style="text-align:center;padding:30px 0">全部一致，无需更正</div>';
+  if (s.skipped) {
+    html += '<div class="f-hint" style="margin-top:10px">另有 ' + s.skipped + ' 行「预计用车时间」无法识别，已跳过。</div>';
+  }
+  $('#paBody').innerHTML = html;
+  renderPaFiles();
+}
+
+/* 上传并对齐（二进制/JSON 响应走 fetch；team_id 经 wl() 走 query，同杆塔导入口径） */
+async function paAlign() {
+  if (!state.pa.files.length || state.pa.uploading) return;
+  state.pa.uploading = true;
+  $('#paGo').textContent = '正在对齐…';
+  renderPaFiles();
+  var fd = new FormData();
+  state.pa.files.forEach(function (f) { fd.append('files', f, f.name); });
+  try {
+    var headers = {};
+    var token = localStorage.getItem('shade_token');
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    var res = await fetch(wl('/api/v1/worklog/dispatch/align'), { method: 'POST', headers: headers, body: fd });
+    if (res.status === 401) {
+      localStorage.removeItem('shade_token');
+      localStorage.removeItem('shade_user');
+      location.href = '/login.html';
+      return;
+    }
+    var j = null;
+    try { j = await res.json(); } catch (e) { }
+    if (!res.ok || !j || j.code !== 0) throw new Error((j && j.message) || ('对齐失败（' + res.status + '）'));
+    state.pa.result = j.data;
+    state.pa.done = {};
+    renderPA();
+    Shade.toast(j.message || '对齐完成', 'success');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+  state.pa.uploading = false;
+  $('#paGo').textContent = '开始对齐';
+  renderPaFiles();
+}
+
+/* ----- 对照弹层 ----- */
+
+/* 左栏只读行（sheet 侧） */
+function paSheetRows(s, diffs) {
+  function row(k, v, cls, sub) {
+    return '<div class="pa-r"><span class="k">' + k + '</span><span class="v' + (cls ? ' ' + cls : '') + '">' + v +
+      (sub ? '<span class="sub">' + sub + '</span>' : '') + '</span></div>';
+  }
+  var html = '';
+  html += row('派车单号', esc(s.orderNo || '—'));
+  html += row('用车日期', esc(s.date));
+  html += row('车牌号码', esc(s.plate), diffs && diffs.plate ? 'diff' : '');
+  html += row('驾驶员', esc(s.driver || '—'));
+  html += row('用车人', esc(s.members.join(' ') || '—'), diffs && (diffs.missing.length || diffs.extra.length) ? 'diff-bad' : '');
+  html += row('目的地', esc(s.to || '—'));
+  html += row('用车事由', esc(s.reason || '—'));
+  return html;
+}
+
+/* 弹层页脚（matched = 保存组；其余 = 仅确认） */
+function paDlgFoot(i, total, matched) {
+  var html = '<div class="pa-foot">' +
+    '<button class="btn btn-sm" data-pa="prev"' + (i === 0 ? ' disabled' : '') + '>‹ 上一条</button>' +
+    '<span class="skip" data-pa="skip">跳过本条</span>' +
+    '<span class="sp">';
+  if (matched) {
+    html += '<button class="btn btn-sm btn-dark" data-pa="save">仅保存</button>' +
+      '<button class="btn btn-sm btn-accent" data-pa="saveNext">' + (i + 1 < total ? '保存并下一条 ›' : '保存并收尾') + '</button>';
+  } else {
+    html += '<button class="btn btn-sm btn-accent" data-pa="next">' + (i + 1 < total ? '知道了，下一条 ›' : '知道了') + '</button>';
+  }
+  return html + '</span></div>';
+}
+
+/* 打开第 i 条对照弹层（matched 右侧为可改卡片；sheetOnly / entryOnly 为提示态） */
+async function openAlign(i) {
+  var r = state.pa.result;
+  if (!r || !r.items[i]) return;
+  state.pa.idx = i;
+  var it = r.items[i];
+  var total = r.items.length;
+  var head = '<div class="m-head"><span class="m-title">派车对齐 · 逐条处理</span>' +
+    '<span class="pa-dlg-prog">第 ' + (i + 1) + ' / ' + total + ' 条 · ' + it.date + '</span>' +
+    '<button class="m-x">' + Shade.icon('close', 14) + '</button></div>';
+
+  if (it.kind !== 'matched') {
+    /* 提示态：仅展示数据，无可改项 */
+    var infoCol;
+    if (it.kind === 'sheetOnly') {
+      infoCol = '<div class="pa-col"><div class="pa-col-h">派车单表格数据 <small>只读</small><span class="src">' + esc(it.sheet.file) + '</span></div>' +
+        '<div class="pa-rows">' + paSheetRows(it.sheet, null) + '</div></div>';
+    } else {
+      infoCol = '<div class="pa-col"><div class="pa-col-h">记录卡片 <small>只读</small><span class="src">卡片 #' + it.entry.id + '</span></div>' +
+        '<div class="pa-rows">' +
+        '<div class="pa-r"><span class="k">车牌号</span><span class="v">' + esc(it.entry.plate) + '</span></div>' +
+        '<div class="pa-r"><span class="k">用车人</span><span class="v">' + esc(it.entry.members.map(function (m) { return m.name; }).join(' ')) + '</span></div>' +
+        '<div class="pa-r"><span class="k">目的地</span><span class="v">' + esc(it.entry.destination || '—') + '</span></div>' +
+        '</div></div>';
+    }
+    var tipCol = '<div class="pa-col"><div class="pa-col-h">提示</div><div class="pa-rows">' +
+      '<div class="f-hint" style="padding:10px 0;line-height:2">' +
+      (it.kind === 'sheetOnly'
+        ? '当天系统里没有与该行用车人重合的出车卡片。请确认是否漏记卡片——如需补记，请到「记录」页签切至 ' + it.date + ' 新建日志；本功能不自动建卡。'
+        : '派车单中没有与该卡片对应的记录。可能为派车单导出不完整或该次出车未走派车申请；确认无误即可，本功能不自动删卡。') +
+      '</div></div></div>';
+    var instInfo = createModal(head + '<div class="pa-cmp">' + infoCol + tipCol + '</div>' + paDlgFoot(i, total, false), { width: 1020 });
+    bindAlignModal(instInfo, it, i, total);
+    return;
+  }
+
+  var meta;
+  try {
+    meta = await ensureMeta();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+    return;
+  }
+  var d = it.diffs;
+  var entryMids = it.entry.members.map(function (m) { return m.member_id; });
+  /* 表格车牌是否在本班字典（不在则给「添加进字典」入口；在且不一致则预填表格值） */
+  var plateInDict = meta.vehicles.some(function (v) { return v.plate_no === it.sheet.plate; });
+  var prefillPlateId = null;
+  if (d.plate && plateInDict) {
+    var hit = meta.vehicles.filter(function (v) { return v.plate_no === it.sheet.plate; })[0];
+    prefillPlateId = hit.id;
+  }
+  var plateOpts = meta.vehicles.map(function (v) {
+    var sel = prefillPlateId ? v.id === prefillPlateId : v.id === it.entry.vehicle_id;
+    return '<option value="' + v.id + '"' + (sel ? ' selected' : '') + '>' + esc(v.plate_no) + '</option>';
+  }).join('');
+  var plateNote = '';
+  if (d.plate && plateInDict) {
+    plateNote = '<div class="pa-note">与表格不一致，已按表格预填为 ' + esc(it.sheet.plate) + '，确认后保存</div>';
+  } else if (d.plate && !plateInDict) {
+    plateNote = '<div class="pa-note red">表格车牌 ' + esc(it.sheet.plate) + ' 不在本班字典，暂无法改派' +
+      '<button class="linkbtn" data-pa="addVeh">添加进字典</button></div>';
+  }
+  /* 用车人 chips：on=卡片当前用车人；extra=卡片有表格无（红点）；add=表格有卡片缺（绿虚框，须在字典内才可点亮） */
+  var memberNames = meta.members.map(function (m) { return m.name; });
+  var chipsHtml = '<div class="chips">' + meta.members.map(function (m) {
+    var cls = 'chip' + (entryMids.indexOf(m.id) >= 0 ? ' on' : '');
+    if (d.extra.indexOf(m.name) >= 0) cls += ' extra';
+    if (d.missing.indexOf(m.name) >= 0) cls += ' add';
+    return '<span class="' + cls + '" data-mid="' + m.id + '">' + esc(m.name) + '</span>';
+  }).join('') + '</div>';
+  var unknownMissing = d.missing.filter(function (n) { return memberNames.indexOf(n) < 0; });
+  var memNote = '';
+  if (d.extra.length || d.missing.length) {
+    memNote = '<div class="pa-note red">红点 = 卡片多出（点击取消）；绿虚框 = 表格有而卡片缺（点击补上）</div>';
+  }
+  if (unknownMissing.length) {
+    memNote += '<div class="pa-note red">表格用车人「' + esc(unknownMissing.join(' ')) + '」不在本班成员字典，无法点亮（可在数据管理中添加成员）</div>';
+  }
+  var destOpts = meta.destinations.map(function (v) {
+    return '<option value="' + v.id + '"' + (v.id === it.entry.destination_id ? ' selected' : '') + '>' + esc(v.name) + '</option>';
+  }).join('');
+
+  var rightCol = '<div class="pa-col"><div class="pa-col-h">记录卡片 <small>可修改，保存即写回当日卡片</small><span class="src">卡片 #' + it.entry.id + '</span></div>' +
+    '<div class="pa-rows">' +
+    '<div class="pa-f-row"><span class="k">车牌号</span><div class="c"><select class="f-sel' + (d.plate ? ' warn' : '') + '" id="paPlate">' + plateOpts + '</select>' + plateNote + '</div></div>' +
+    '<div class="pa-f-row"><span class="k">用车人</span><div class="c">' + chipsHtml + memNote + '</div></div>' +
+    '<div class="pa-f-row"><span class="k">目的地</span><div class="c"><select class="f-sel" id="paDest">' + destOpts + '</select></div></div>' +
+    '<div class="pa-f-row"><span class="k">巡视内容</span><div class="c" style="font-size:12px;color:#6B7690;line-height:1.8;padding-top:6px">' +
+      (esc(it.entry.patrol_content || '（空）') ) + '<span class="sub" style="display:block;font-size:11px;color:var(--ph)">不在对齐范围，只读展示</span></div></div>' +
+    '</div></div>';
+  var leftCol = '<div class="pa-col"><div class="pa-col-h">派车单表格数据 <small>只读</small><span class="src">' + esc(it.sheet.file) + '</span></div>' +
+    '<div class="pa-rows">' + paSheetRows(it.sheet, d) + '</div></div>';
+
+  var inst = createModal(head + '<div class="pa-cmp">' + leftCol + rightCol + '</div>' + paDlgFoot(i, total, true), { width: 1020 });
+  bindAlignModal(inst, it, i, total);
+}
+
+/* 弹层内交互绑定：chips 点亮 / 上一条 / 跳过 / 保存组 / 确认下一条 / 车牌入字典 */
+function bindAlignModal(inst, it, i, total) {
+  $$('.chip[data-mid]', inst.box).forEach(function (c) {
+    c.addEventListener('click', function () { c.classList.toggle('on'); });
+  });
+  $$('[data-pa]', inst.box).forEach(function (b) {
+    b.addEventListener('click', function () {
+      var act = b.dataset.pa;
+      if (act === 'prev' && i > 0) { inst.close(); openAlign(i - 1); }
+      else if (act === 'skip') { inst.close(); }
+      else if (act === 'next') { inst.close(); if (i + 1 < total) openAlign(i + 1); }
+      else if (act === 'addVeh') { paAddVehicle(it.sheet.plate, inst); }
+      else if (act === 'save') { paSave(it, i, total, inst, false, b); }
+      else if (act === 'saveNext') { paSave(it, i, total, inst, true, b); }
+    });
+  });
+}
+
+/* 表格车牌加入本班字典（就地添加后重建弹层，新车牌即按表格预填） */
+async function paAddVehicle(plate, inst) {
+  try {
+    await Shade.api(wl('/api/v1/worklog/admin/vehicles'), { method: 'POST', body: { name: plate } });
+    Shade.toast('已加入车牌字典', 'success');
+    state.meta = null; // 字典已变更：重建弹层时重拉
+    var idx = state.pa.idx;
+    inst.close();
+    openAlign(idx);
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* 保存更正：PUT 整卡更新（patrol_content 带回避免误清；被移出成员若有水印照片后端 40006 拒绝，toast 原话提示） */
+async function paSave(it, i, total, inst, advance, btn) {
+  var plateSel = $('#paPlate', inst.box);
+  var destSel = $('#paDest', inst.box);
+  if (!plateSel) return;
+  var body = {
+    patrol_content: it.entry.patrol_content,
+    vehicle_id: Number(plateSel.value) || null,
+    destination_id: destSel ? Number(destSel.value) || null : null,
+    member_ids: $$('.chip.on[data-mid]', inst.box).map(function (c) { return Number(c.dataset.mid); })
+  };
+  btn.disabled = true;
+  try {
+    await Shade.api(wl('/api/v1/worklog/logs/' + it.entry.id), { method: 'PUT', body: body });
+    /* 同步内存条目（重开弹层读新值）并标记已处理 */
+    var hitV = null;
+    (state.meta ? state.meta.vehicles : []).forEach(function (v) { if (v.id === body.vehicle_id) hitV = v; });
+    it.entry.vehicle_id = body.vehicle_id;
+    it.entry.plate = hitV ? hitV.plate_no : it.entry.plate;
+    it.entry.destination_id = body.destination_id;
+    state.pa.done[i] = true;
+    renderPA();
+    loadLogs({ quiet: true }); // 卡片流静默刷新（若被更正日期在视图中）
+    state.rep.loaded = false; // 汇总前核验可能涉及用车人打卡口径，标记重查
+    Shade.toast('已保存', 'success');
+    inst.close();
+    if (advance) {
+      if (i + 1 < total) openAlign(i + 1);
+      else Shade.toast('不一致条目已全部处理完', 'success');
+    }
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+    btn.disabled = false;
+  }
+}
+
 async function loadDict() {
   $('#dictBody').innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
   await Promise.all(DICT_SEGS.map(loadDictSeg).concat([loadTowerCount()]));
@@ -2755,7 +3177,7 @@ async function loadTowerCount() {
   }
 }
 
-function dictRowHtml(seg, it) {
+function dictRowHtml(seg, it, idx, total) {
   var off = it.status !== 1;
   return '<div class="drow' + (off ? ' off' : '') + '" data-seg="' + seg.key + '" data-id="' + it.id +
     '" data-name="' + esc(it.name) + '" data-status="' + it.status + '">' +
@@ -2765,6 +3187,9 @@ function dictRowHtml(seg, it) {
       : '') +
     (off ? '<span class="doff-tip">已停用</span>' : '') +
     '<span class="dops">' +
+      // 成员排序（仅成员字典）：点亮按钮顺序；工作任务单「工作负责人」取排序最前的用车人
+      (seg.key === 'members' && idx > 0 ? '<button class="linkbtn" data-dact="up">上移</button>' : '') +
+      (seg.key === 'members' && idx < total - 1 ? '<button class="linkbtn" data-dact="down">下移</button>' : '') +
       '<button class="linkbtn" data-dact="edit">改名</button>' +
       '<button class="linkbtn" data-dact="toggle">' + (off ? '启用' : '停用') + '</button>' +
       '<button class="linkbtn dgr" data-dact="del">删除</button>' +
@@ -2781,7 +3206,7 @@ function renderDict() {
       (seg.err
         ? '<div class="dempty">' + esc(seg.err) + '</div>'
         : (list.length
-          ? list.map(function (it) { return dictRowHtml(seg, it); }).join('')
+          ? list.map(function (it, idx) { return dictRowHtml(seg, it, idx, list.length); }).join('')
           : '<div class="dempty">暂无数据，可在下方添加</div>')) +
       '<div class="dadd" data-seg="' + seg.key + '">' +
         '<input class="dadd-in" placeholder="' + seg.ph + '" maxlength="64" autocomplete="off">' +
@@ -2872,6 +3297,20 @@ async function dictToggle(seg, item) {
   }
 }
 
+/* 成员排序：上移 / 下移（仅成员字典有此按钮；点亮按钮顺序，工作任务单「工作负责人」取排序最前的用车人） */
+async function dictMove(item, dir) {
+  try {
+    await Shade.api(wl('/api/v1/worklog/admin/members/' + item.id + '/move'), {
+      method: 'PUT',
+      body: { dir: dir }
+    });
+    await loadDictSeg(dictSeg('members'));
+    renderDict();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
 /* 删除（二次确认；被日志引用时后端 409 拒绝，toast 后端文案提示改停用） */
 async function dictDelete(seg, item) {
   var yes = await confirmAction({
@@ -2915,6 +3354,61 @@ async function downloadTowerTpl(btn) {
     var url = URL.createObjectURL(blob);
     a.href = url;
     a.download = cdFilename(res.headers.get('Content-Disposition') || '') || '杆塔坐标导入模板.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+/* 工作任务单：预览 = 调 preview 接口取 basemetas 地址新标签打开（同备注 Office 文档 / 安全日记录口径） */
+async function taskSheetPreview(btn) {
+  var date = $('#tsDate') && $('#tsDate').value;
+  if (!date) { Shade.toast('请选择日期', 'info'); return; }
+  btn.disabled = true;
+  try {
+    var r = await Shade.api(wl('/api/v1/worklog/task-sheet/preview?date=' + date));
+    if (r.data && r.data.url) {
+      window.open(r.data.url, '_blank');
+      return;
+    }
+    throw new Error('预览地址为空');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* 工作任务单：下载 = docx 二进制，fetch + blob 落地（口径同杆塔模板下载） */
+async function taskSheetDownload(btn) {
+  var date = $('#tsDate') && $('#tsDate').value;
+  if (!date) { Shade.toast('请选择日期', 'info'); return; }
+  btn.disabled = true;
+  try {
+    var headers = {};
+    var token = localStorage.getItem('shade_token');
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    var res = await fetch(wl('/api/v1/worklog/task-sheet?date=' + date), { headers: headers });
+    if (res.status === 401) {
+      localStorage.removeItem('shade_token');
+      localStorage.removeItem('shade_user');
+      location.href = '/login.html';
+      return;
+    }
+    if (!res.ok) {
+      var ej = null;
+      try { ej = await res.json(); } catch (e) { }
+      throw new Error((ej && ej.message) || ('生成失败（' + res.status + '）'));
+    }
+    var blob = await res.blob();
+    var a = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = '工作任务单-' + date + '.docx';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -2978,16 +3472,17 @@ function switchPane(key) {
   $$('#wlTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === key); });
   moveWlTabInd($('#wlTabs button.on'));
   $$('.wl-list .pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane' + key); });
-  /* 记录页专属控件（新建 / 计数 / 从商旅拉取）仅记录页显示；「全部 / 仅看我」为全局开关，四个页签常驻 */
+  /* 记录页专属控件（新建 / 计数 / 从商旅拉取）仅记录页显示；「全部 / 仅看我」为全局开关，六个页签常驻 */
   var isRec = key === 'Record';
   $('#photoCnt').hidden = !isRec;
   $('#btnCreate').hidden = !isRec;
   $('#btnSyncCheck').hidden = !isRec;
   /* 下载页签首次进入按默认范围自动加载；汇总前核验每次切回都重查（卡片可直改备注，避免陈旧数据）；
-     数据管理每次切回都重拉（字典可能被其他管理员改动） */
+     数据管理每次切回都重拉（字典可能被其他管理员改动）；派车对齐每次切回重渲染（本地状态，零开销） */
   if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
   if (key === 'Rep') loadReport();
   if (key === 'Dict') loadDict();
+  if (key === 'PA') renderPA();
   syncSideReport();
 }
 
@@ -3133,9 +3628,37 @@ function initEvents() {
       if (state.rep.loaded) loadReport();
     });
   });
-  /* 记录 / 批量下载 / 汇总前核验 / 数据管理 页签切换；新建日志；从商旅拉取 */
+  /* 记录 / 批量下载 / 汇总前核验 / 数据管理 / 工作任务单 页签切换；新建日志；从商旅拉取 */
   $$('#wlTabs button').forEach(function (b) {
     b.addEventListener('click', function () { switchPane(b.dataset.p); });
+  });
+  /* 工作任务单页签：预览（basemetas 新标签）/ 下载（fetch + blob），函数在数据管理区同族定义 */
+  $('#tsPrev').addEventListener('click', function () { taskSheetPreview(this); });
+  $('#tsDl').addEventListener('click', function () { taskSheetDownload(this); });
+  /* 派车对齐页签：选文件 / 移除文件 / 开始对齐 / 清单行打开对照弹层 */
+  $('#paPick').addEventListener('click', function () { $('#paFileInput').click(); });
+  $('#paGo').addEventListener('click', paAlign);
+  $('#paFileInput').addEventListener('change', function () {
+    var files = Array.prototype.slice.call(this.files || []);
+    this.value = '';
+    files.forEach(function (f) {
+      if (!/\.(xls|xlsx)$/i.test(f.name)) { Shade.toast('「' + f.name + '」不是 Excel 文件，已跳过', 'info'); return; }
+      if (f.size > 10 * 1024 * 1024) { Shade.toast('「' + f.name + '」超过 10MB，已跳过', 'info'); return; }
+      // 同名同大小视为重复，不再添加
+      if (state.pa.files.some(function (x) { return x.name === f.name && x.size === f.size; })) return;
+      state.pa.files.push(f);
+    });
+    renderPaFiles();
+  });
+  $('#paFiles').addEventListener('click', function (e) {
+    var x = e.target.closest('[data-pafx]');
+    if (!x) return;
+    state.pa.files.splice(Number(x.dataset.pafx), 1);
+    renderPaFiles();
+  });
+  $('#paBody').addEventListener('click', function (e) {
+    var row = e.target.closest('.pa-row');
+    if (row) openAlign(Number(row.dataset.idx));
   });
   window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); syncSideReport(); });
   $('#btnCreate').addEventListener('click', function () { openEntryForm(null); });
@@ -3199,6 +3722,8 @@ function initEvents() {
     if (!seg) return;
     if (actBtn.dataset.dact === 'edit') dictRename(seg, item);
     else if (actBtn.dataset.dact === 'toggle') dictToggle(seg, item);
+    else if (actBtn.dataset.dact === 'up') dictMove(item, 'up');
+    else if (actBtn.dataset.dact === 'down') dictMove(item, 'down');
     else if (actBtn.dataset.dact === 'del') dictDelete(seg, item);
   });
   $('#dictBody').addEventListener('keydown', function (e) {
@@ -3317,18 +3842,20 @@ async function setupTeamSel() {
   } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
 }
 
-/* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表） */
+/* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表 / 派车对齐结果） */
 function reloadTeamData() {
   state.calCache = {};
   state.meta = null;
   state.towerRows = null;
   state.dl.list = null;
   state.rep.loaded = false;
+  state.pa = { files: [], result: null, done: {}, idx: 0, uploading: false };
   loadCalMonth(true);
   loadLogs();
   if (state.pane === 'Dl') loadDlPhotos();
   if (state.pane === 'Rep') loadReport();
   if (state.pane === 'Dict') loadDict(); // 数据管理页签随动刷新
+  if (state.pane === 'PA') renderPA(); // 派车对齐页签随动刷新（结果已清空，回初始态）
   syncSideReport(); // 宽屏常驻核验栏随班组切换重查
 }
 
@@ -3348,12 +3875,15 @@ function renderNoTeam() {
 async function init() {
   /* 静态图标注入 */
   $$('#wlTabs button').forEach(function (b) {
-    b.insertAdjacentHTML('afterbegin', Shade.icon({ Record: 'task', Dl: 'download', Rep: 'file-safety', Dict: 'tools' }[b.dataset.p], 14));
+    b.insertAdjacentHTML('afterbegin', Shade.icon({ Record: 'task', Dl: 'download', Rep: 'file-safety', Dict: 'tools', TS: 'file', PA: 'copy' }[b.dataset.p], 14));
   });
   moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
   $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
   $('#btnSyncCheck').innerHTML = Shade.icon('refresh', 15) + '从商旅拉取';
   $('#dlGo').innerHTML = Shade.icon('download', 15) + '打包下载';
+  $('#tsPrev').innerHTML = Shade.icon('file', 15) + '预览';
+  $('#tsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
+  $('#tsDate').value = state.date; // 工作任务单默认取月历当前选中日期
   $('#calPrev').innerHTML = SVG_CHEV_L;
   $('#calNext').innerHTML = SVG_CHEV_R;
 
@@ -3374,8 +3904,12 @@ async function init() {
 
   /* 班组隔离门控：非超管未分配班组 → 整页空态（屏十口径）；超管先选定切换班组再出数 */
   var me = Shade.user() || {};
-  /* 数据管理页签仅超管 / 班组管理员可见 */
-  if (me.role === 'admin' || me.role === 'team_admin') $('#tabDict').style.display = '';
+  /* 数据管理 / 工作任务单 / 派车对齐页签仅超管 / 班组管理员可见 */
+  if (me.role === 'admin' || me.role === 'team_admin') {
+    $('#tabDict').style.display = '';
+    $('#tabTS').style.display = '';
+    $('#tabPA').style.display = '';
+  }
   if (me.role !== 'admin' && !me.team_id) {
     renderNoTeam();
     Shade.reveal();

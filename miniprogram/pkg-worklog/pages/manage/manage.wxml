@@ -41,6 +41,9 @@
       <text wx:if="{{seg === 'members'}}" class="{{item.user_id ? 'sync-pill' : 'hand-pill'}}">{{item.user_id ? '账号同步' : '手动添加'}}</text>
       <text class="moff-tip" wx:if="{{item.status !== 1}}">已停用</text>
       <view class="ops">
+        <!-- 成员排序（仅人员分段）：点亮按钮顺序；工作任务单「工作负责人」取排序最前的用车人 -->
+        <text wx:if="{{seg === 'members' && index > 0}}" class="edit" hover-class="hover-opacity" bindtap="onMemberMove" data-id="{{item.id}}" data-dir="up">上移</text>
+        <text wx:if="{{seg === 'members' && index < list.length - 1}}" class="edit" hover-class="hover-opacity" bindtap="onMemberMove" data-id="{{item.id}}" data-dir="down">下移</text>
         <text class="edit" hover-class="hover-opacity" bindtap="onEdit" data-id="{{item.id}}" data-name="{{item.name}}">编辑</text>
         <text class="off" hover-class="hover-opacity" bindtap="onToggle" data-id="{{item.id}}" data-status="{{item.status}}">{{item.status === 1 ? '停用' : '启用'}}</text>
       </view>
