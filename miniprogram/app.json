@@ -23,7 +23,8 @@
         "pages/manage/manage",
         "pages/tasksheet/tasksheet",
         "pages/feesheet/feesheet",
-        "pages/sgccbind/sgccbind"
+        "pages/sgccbind/sgccbind",
+        "pages/dispatch/dispatch"
       ]
     },
     {

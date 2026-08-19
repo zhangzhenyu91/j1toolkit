@@ -15,7 +15,7 @@
      「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 tasksheet 页口径）；
      「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 feesheet 页口径）；
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
-     「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（Web 端专属，设计稿 design/worklog-dispatch-align.html）；
+     「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；设计稿 design/worklog-dispatch-align.html）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
      API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
@@ -175,6 +175,8 @@
   .dpill-hand { background: var(--paper); color: var(--ph); }
   .doff-tip { flex: none; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
   .drow .dops { margin-left: auto; flex: none; display: flex; gap: 2px; }
+  /* 商旅绑定设备行：手机号 · 设备型号 / 系统版本（次级灰字，截断防挤压操作区） */
+  .drow .dspec { flex: 1; min-width: 0; font-size: 12px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dempty { padding: 14px 16px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--ph); letter-spacing: 1px; }
   /* 板块底部虚线添加行（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
   .dadd {
@@ -192,7 +194,7 @@
   .tb-btns { margin-left: auto; flex: none; display: flex; gap: 10px; }
   .photo-cnt { font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
 
-  /* ===== 派车对齐页签（导入 + 概览 + 不一致清单；仅 admin / team_admin 可见，Web 端专属） ===== */
+  /* ===== 派车对齐页签（导入 + 概览 + 不一致清单；仅 admin / team_admin 可见；小程序端同功能见 pkg-worklog/pages/dispatch） ===== */
   .pa-files { display: flex; gap: 6px; flex-wrap: wrap; }
   .pa-fchip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; background: var(--orange-soft); color: var(--orange); font-size: 11.5px; font-weight: 700; }
   .pa-fchip .x { cursor: pointer; opacity: .65; }
@@ -917,7 +919,7 @@
         </div>
       </div>
 
-      <!-- 派车对齐：导入派车系统导出表 → 差异清单 → 逐条对照更正（仅超管 / 班组管理员可见页签；Web 端专属，小程序不做） -->
+      <!-- 派车对齐：导入派车系统导出表 → 差异清单 → 逐条对照更正（仅超管 / 班组管理员可见页签；小程序端为悬浮钮「派车对齐」页） -->
       <div class="pane" id="panePA">
         <div class="rep-bar">
           <button class="btn btn-sm" id="paPick">选择派车单文件…</button>
@@ -971,7 +973,7 @@
 /* ============================================================
    出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理·工作任务单·费用汇总·派车对齐七页签（原下载、报告弹层已页签化；
    数据管理 / 工作任务单 / 费用汇总 / 派车对齐仅超管 / 班组管理员可见：三字典维护（成员可排序）+ 杆塔坐标导入；任务单按日期范围合并生成 docx，费用汇总按日期范围生成「人 × 日」费用矩阵 docx；
-   派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（Web 端专属），接口 /worklog/admin/* 按生效班组隔离）
+   派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（小程序端同功能见 pkg-worklog/pages/dispatch），接口 /worklog/admin/* 按生效班组隔离）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
    汇总前核验范围 = 仅未通过记录（商旅打卡新 7 条规则 a~g；未出车免验证；非水印照片不参与），底部绿色条提示其余全部通过
    水印照片上传与小程序同链路（POST /logs/{id}/photos）：① 选择水印照片上传＝原图 base64 直传；
@@ -1036,7 +1038,8 @@ var state = {
   rep: { month: '', loaded: false }, // 汇总前核验当前查看月份 YYYY-MM（默认当月）
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
-  dict: { lists: {}, towerCount: null }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）
+  dict: { lists: {}, towerCount: null, sgcc: { list: null, err: '' } }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）+ 商旅绑定设备（list null=未拉取）
+  sgccOn: false,             // 商旅打卡是否开启（由 logs 成员是否带 sgccBound 字段探测；开启时数据管理才显示「商旅绑定设备」区）
   dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
   ts: { from: '', to: '' },    // 工作任务单页签：生成范围（默认当日单日，页签内联起止输入选择）
   fs: { from: '', to: '' },    // 费用汇总页签：汇总范围（同工作任务单口径）
@@ -1114,6 +1117,14 @@ async function loadLogs(opts) {
   try {
     var r = await Shade.api(wl('/api/v1/worklog/logs?date=' + state.date + '&scope=' + state.scope));
     state.entries = (r.data && r.data.list) || [];
+    /* 商旅打卡探测：成员带 sgccBound 字段即开启（同卡片打卡区口径）；状态翻转且数据管理页签开着时补拉「商旅绑定设备」区 */
+    var sgOn = state.entries.some(function (e) {
+      return (e.members || []).some(function (m) { return m.sgccBound !== undefined; });
+    });
+    if (sgOn !== state.sgccOn) {
+      state.sgccOn = sgOn;
+      if (state.pane === 'Dict') loadDict();
+    }
     renderCards(!!opts.quiet || booted); // 静默刷新 / 切日切换不重播入场动画
     flow.setAttribute('data-boot', '1');
     flow.classList.remove('switching');
@@ -2904,7 +2915,7 @@ function dictSeg(key) {
 }
 
 /* 整页加载：三字典列表 + 杆塔条数并发拉取（杆塔全量约 1400 行，取 length 即弃，不进缓存） */
-/* ================= 派车对齐页签（Web 端专属；仅超管 / 班组管理员） =================
+/* ================= 派车对齐页签（仅超管 / 班组管理员；小程序端同功能见 pkg-worklog/pages/dispatch） =================
    流程：多文件上传 POST /dispatch/align（服务端只读对齐不写库）→ 不一致清单 → 对照弹层逐条处理；
    更正复用既有接口：改卡 PUT /logs/{id}（整卡更新，patrol_content 随条目带回避免误清）、补建卡 POST /logs、车牌入字典 POST /admin/vehicles；
    口径：仅「用车申请调度」行参与，且剔除用车人中无本班成员的行；日期＋用车人配对；表格有系统无在弹层按表格预填快速建卡（手动确认才写库，非自动建），系统有表格无仅提示确认（设计稿 design/worklog-dispatch-align.html） */
@@ -3329,7 +3340,7 @@ async function paCreate(it, i, total, inst, advance, btn) {
 
 async function loadDict() {
   $('#dictBody').innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
-  await Promise.all(DICT_SEGS.map(loadDictSeg).concat([loadTowerCount()]));
+  await Promise.all(DICT_SEGS.map(loadDictSeg).concat([loadTowerCount(), loadSgccAccounts()]));
   renderDict();
 }
 async function loadDictSeg(seg) {
@@ -3350,6 +3361,68 @@ async function loadTowerCount() {
   } catch (e) {
     state.dict.towerCount = -1;
   }
+}
+
+/* 商旅绑定设备（仅商旅打卡开启时拉取与展示；管理员可改设备型号 / 系统版本） */
+async function loadSgccAccounts() {
+  if (!state.sgccOn) { state.dict.sgcc = { list: null, err: '' }; return; }
+  try {
+    var r = await Shade.api(wl('/api/v1/sgcc/accounts'));
+    state.dict.sgcc = { list: (r.data && r.data.list) || [], err: '' };
+  } catch (e) {
+    state.dict.sgcc = { list: [], err: e.message || '加载失败' };
+  }
+}
+
+/* 绑定设备行：成员名 + 登录态标 + 手机号 · 设备型号 / 系统版本 +「改设备」 */
+function sgccRowHtml(it) {
+  return '<div class="drow" data-sgcc-id="' + it.id + '">' +
+    '<span class="dn">' + esc(it.memberName || '（未关联成员）') + '</span>' +
+    '<span class="dpill ' + (it.tokenStatus === 1 ? 'dpill-sync">登录有效' : 'dpill-hand">登录过期') + '</span>' +
+    '<span class="dspec">' + esc(it.mobile) + ' · ' + esc(it.deviceType || '—') +
+      (it.systemVersion ? ' / ' + esc(it.systemVersion) : '') + '</span>' +
+    '<span class="dops"><button class="linkbtn" data-sgcc-act="device">改设备</button></span>' +
+  '</div>';
+}
+
+/* 改设备弹层（设备型号 =「厂商 型号」格式；保存后重拉本区） */
+function sgccDeviceEdit(item) {
+  var html = mHead('改打卡设备 · ' + esc(item.memberName || item.mobile))
+    + '<label class="f-lab">设备型号（厂商 型号）</label>'
+    + '<input class="f-sel" id="sgDevType" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Xiaomi 2509FPN0BC">'
+    + '<label class="f-lab">系统版本</label>'
+    + '<input class="f-sel" id="sgDevSys" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Android 16">'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+  var inst = createModal(html, { width: 420 });
+  var typeEl = $('#sgDevType', inst.box);
+  var sysEl = $('#sgDevSys', inst.box);
+  typeEl.value = item.deviceType || '';
+  sysEl.value = item.systemVersion || '';
+  typeEl.focus();
+  var saving = false;
+  async function submit() {
+    var deviceType = typeEl.value.trim();
+    if (!deviceType) { Shade.toast('设备型号不能为空', 'info'); return; }
+    if (saving) return;
+    saving = true;
+    try {
+      await Shade.api(wl('/api/v1/sgcc/accounts/' + item.id + '/device'), {
+        method: 'PUT',
+        body: { deviceType: deviceType, systemVersion: sysEl.value.trim() }
+      });
+      inst.close();
+      Shade.toast('已保存', 'success');
+      await loadSgccAccounts();
+      renderDict();
+    } catch (e) {
+      saving = false;
+      Shade.toast(e.message, 'error');
+    }
+  }
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+  sysEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
 }
 
 function dictRowHtml(seg, it, idx, total) {
@@ -3401,6 +3474,21 @@ function renderDict() {
       '</div>' +
     '</div>' +
   '</div>';
+  /* 商旅绑定设备（仅商旅打卡开启时展示；无添加行，绑定由成员在小程序「我的 → 绑定商旅」完成） */
+  if (state.sgccOn) {
+    var sg = state.dict.sgcc;
+    html += '<div class="card dsec">' +
+      '<div class="dsec-h"><b>商旅绑定设备</b><span class="cnt">' +
+        (sg.err ? '加载失败' : (sg.list ? sg.list.length + ' 条' : '加载中…')) + '</span></div>' +
+      (sg.err
+        ? '<div class="dempty">' + esc(sg.err) + '</div>'
+        : (!sg.list
+          ? '<div class="dempty">加载中…</div>'
+          : (sg.list.length
+            ? sg.list.map(sgccRowHtml).join('')
+            : '<div class="dempty">本班组暂无绑定成员（成员可在小程序「我的 → 绑定商旅」绑定）</div>'))) +
+    '</div>';
+  }
   $('#dictBody').innerHTML = html;
 }
 
@@ -4010,7 +4098,7 @@ function initEvents() {
     switchPane('Record');
     gotoDate(row.dataset.d);
   });
-  /* 数据管理页签：行内操作（改名 / 停启用 / 删除）/ 虚线行添加（按钮 + 输入框回车）/ 杆塔模板·导入（事件委托） */
+  /* 数据管理页签：行内操作（改名 / 停启用 / 删除）/ 虚线行添加（按钮 + 输入框回车）/ 杆塔模板·导入 / 商旅绑定设备（事件委托） */
   $('#dictBody').addEventListener('click', function (e) {
     var addBtn = e.target.closest('[data-dadd]');
     if (addBtn) { dictAdd(addBtn.dataset.dadd, addBtn); return; }
@@ -4018,6 +4106,16 @@ function initEvents() {
     if (tBtn) {
       if (tBtn.dataset.tact === 'tpl') downloadTowerTpl(tBtn);
       else $('#impFileInput').click();
+      return;
+    }
+    /* 商旅绑定设备：改设备（按 data-sgcc-id 取行数据） */
+    var sgBtn = e.target.closest('[data-sgcc-act]');
+    if (sgBtn) {
+      var sgRow = sgBtn.closest('[data-sgcc-id]');
+      var sgList = (state.dict.sgcc && state.dict.sgcc.list) || [];
+      var sgItem = null;
+      sgList.forEach(function (x) { if (sgRow && x.id === Number(sgRow.dataset.sgccId)) sgItem = x; });
+      if (sgItem && sgBtn.dataset.sgccAct === 'device') sgccDeviceEdit(sgItem);
       return;
     }
     var actBtn = e.target.closest('[data-dact]');
@@ -4149,7 +4247,7 @@ async function setupTeamSel() {
   } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
 }
 
-/* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表 / 派车对齐结果） */
+/* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表 / 派车对齐结果 / 商旅绑定设备） */
 function reloadTeamData() {
   state.calCache = {};
   state.meta = null;
@@ -4157,6 +4255,8 @@ function reloadTeamData() {
   state.dl.list = null;
   state.rep.loaded = false;
   state.pa = { files: [], result: null, done: {}, idx: 0, uploading: false };
+  state.dict.sgcc = { list: null, err: '' };
+  state.sgccOn = false; // 由新班组 loadLogs 重新探测，翻转时随动补拉数据管理「商旅绑定设备」区
   loadCalMonth(true);
   loadLogs();
   if (state.pane === 'Dl') loadDlPhotos();

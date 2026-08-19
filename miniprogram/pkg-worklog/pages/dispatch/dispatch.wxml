@@ -1,0 +1,190 @@
+<!-- 出工日志 · 派车对齐（超管 / 班组管理员；与网页端「派车对齐」页签同口径）：
+     从聊天选派车单（多份合并）→ 开始对齐 → 概览 + 不一致清单 → 弹层逐条对照处理（改卡 / 快速建卡 / 仅确认） -->
+<navbar back title="派车对齐" />
+
+<view class="page-body" wx:if="{{gate}}">
+  <!-- 对齐口径（常驻说明卡，同网页端规则卡） -->
+  <view class="card rule">
+    <view class="rule-t">对齐口径</view>
+    <view class="rule-p">仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略），且用车人中无本班成员的行整行剔除（他班派车不参与）；按「日期＋用车人」匹配当日卡片，同日内取用车人重合最多者成对。</view>
+    <view class="rule-p">配对后比对车牌号码、目的地与用车人集合；目的地为模糊比对（表格常省略「市/县」等字样），表格目的地为空不比对。车牌不一致以表格为准更正；用车人多 / 少在弹层内点亮调整。</view>
+    <view class="rule-p">「表格有系统无」在弹层按表格预填快速建卡（确认后才写库，非自动建）；「系统有表格无」仅提示确认，不自动删卡。更正后可重新导入再对齐（幂等）。</view>
+  </view>
+
+  <!-- 派车单文件（聊天选取，多份合并） -->
+  <view class="card">
+    <view class="r-l">
+      <view class="r-t">派车单文件</view>
+      <view class="r-s">.xls / .xlsx，每个驾驶员一份，可多选合并解析（最多 20 份，单份 ≤10MB）</view>
+    </view>
+    <view class="fchips" wx:if="{{files.length}}">
+      <view class="fchip" wx:for="{{files}}" wx:key="name">
+        <text class="fchip-name">{{item.name}}</text>
+        <view class="fchip-x" hover-class="hover-opacity" catchtap="onRemoveFile" data-index="{{index}}">
+          <t-icon name="close" size="24rpx" color="#F26D21" />
+        </view>
+      </view>
+    </view>
+    <view class="pick {{uploading ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onPickFiles">
+      <t-icon name="file-copy" size="32rpx" color="#F26D21" />
+      <text>从聊天文件选择</text>
+    </view>
+    <view class="go {{!files.length || uploading ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onAlign">
+      {{uploading ? '正在对齐…' : '开始对齐'}}
+    </view>
+  </view>
+
+  <!-- 对齐结果：概览六宫格 + 不一致清单 -->
+  <block wx:if="{{hasResult}}">
+    <view class="sums">
+      <view class="sum {{item.cls}}" wx:for="{{sums}}" wx:key="t">
+        <view class="n">{{item.n}}</view>
+        <view class="t">{{item.t}}</view>
+      </view>
+    </view>
+    <view class="hint" wx:for="{{hints}}" wx:key="*this">{{item}}</view>
+    <view class="list" wx:if="{{items.length}}">
+      <view class="row {{item.done ? 'done' : ''}}" wx:for="{{items}}" wx:key="index" hover-class="hover-opacity" bindtap="onItemTap" data-index="{{index}}">
+        <view class="row-main">
+          <view class="row-head">
+            <text class="row-date">{{item.dateText}}</text>
+            <text class="pa-badge {{b.cls}}" wx:for="{{item.badges}}" wx:for-item="b" wx:key="t">{{b.t}}</text>
+          </view>
+          <view class="row-sum">
+            <text class="seg {{s.cls}}" wx:for="{{item.segs}}" wx:for-item="s" wx:key="index">{{s.t}}</text>
+          </view>
+        </view>
+        <view class="row-act {{item.done ? 'yes' : ''}}">{{item.done ? '✓ 已处理' : item.actText}}</view>
+      </view>
+    </view>
+    <view class="allok" wx:else>全部一致，无需更正</view>
+  </block>
+</view>
+
+<!-- 对照弹层：上表格只读 / 下卡片可改（matched）；建卡表单（sheetOnly）；纯提示（entryOnly） -->
+<t-popup visible="{{dlgVisible}}" placement="bottom" bind:visible-change="onDlgVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">派车对齐 · 逐条处理</view>
+    <view class="sheet-note">{{dlgProg}}</view>
+    <scroll-view scroll-y class="dlg-scroll" enhanced show-scrollbar="{{false}}">
+      <!-- 派车单表格数据（只读；matched 差异字段橙 / 红点高亮） -->
+      <view class="cmp-col" wx:if="{{dlgKind !== 'entryOnly'}}">
+        <view class="cmp-h">
+          <text>派车单表格数据</text>
+          <text class="sub">只读</text>
+          <text class="src">{{dlgSheetFile}}</text>
+        </view>
+        <view class="cmp-rows">
+          <view class="cmp-r" wx:for="{{dlgSheetRows}}" wx:key="k">
+            <text class="k">{{item.k}}</text>
+            <text class="v {{item.cls}}">{{item.v}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- entryOnly：卡片只读 + 提示 -->
+      <block wx:if="{{dlgKind === 'entryOnly'}}">
+        <view class="cmp-col">
+          <view class="cmp-h">
+            <text>记录卡片</text>
+            <text class="sub">只读</text>
+          </view>
+          <view class="cmp-rows">
+            <view class="cmp-r" wx:for="{{dlgEntryRows}}" wx:key="k">
+              <text class="k">{{item.k}}</text>
+              <text class="v">{{item.v}}</text>
+            </view>
+          </view>
+        </view>
+        <view class="dlg-tip">{{dlgTip}}</view>
+      </block>
+
+      <!-- matched 改卡 / sheetOnly 快速建卡 表单 -->
+      <view class="cmp-col" wx:if="{{dlgKind === 'matched' || dlgKind === 'sheetOnly'}}">
+        <view class="cmp-h">
+          <text>{{dlgKind === 'matched' ? '记录卡片' : '快速建卡'}}</text>
+          <text class="sub">{{dlgKind === 'matched' ? '可修改，保存即写回当日卡片' : '按表格预填，确认后写入'}}</text>
+        </view>
+        <view class="cmp-rows">
+          <view class="cmp-r top">
+            <text class="k">车牌号</text>
+            <view class="c">
+              <picker range="{{plateRange}}" value="{{plateIdx}}" bindchange="onPlateChange">
+                <view class="pick-val {{plateWarn ? 'warn' : ''}}">
+                  <text>{{plateRange[plateIdx]}}</text>
+                  <t-icon name="chevron-down" size="26rpx" color="#A89F8A" />
+                </view>
+              </picker>
+              <view class="note {{plateNoteRed ? 'red' : ''}}" wx:if="{{plateNote}}">
+                {{plateNote}}<text class="linkbtn" wx:if="{{showAddVeh}}" hover-class="hover-opacity" catchtap="onAddVeh">添加进字典</text>
+              </view>
+            </view>
+          </view>
+          <view class="cmp-r top">
+            <text class="k">用车人</text>
+            <view class="c">
+              <view class="chips">
+                <view
+                  class="chip {{c.on ? 'on' : ''}} {{c.extra ? 'extra' : ''}} {{c.add ? 'add' : ''}}"
+                  wx:for="{{chips}}"
+                  wx:for-item="c"
+                  wx:key="id"
+                  hover-class="hover-opacity"
+                  bindtap="onChipTap"
+                  data-index="{{index}}"
+                >{{c.name}}</view>
+              </view>
+              <view class="note red" wx:if="{{memNote}}">{{memNote}}</view>
+              <view class="note red" wx:if="{{memUnknown}}">{{memUnknown}}</view>
+            </view>
+          </view>
+          <view class="cmp-r top">
+            <text class="k">目的地</text>
+            <view class="c">
+              <picker range="{{destRange}}" value="{{destIdx}}" bindchange="onDestChange">
+                <view class="pick-val {{destWarn ? 'warn' : ''}}">
+                  <text>{{destRange[destIdx]}}</text>
+                  <t-icon name="chevron-down" size="26rpx" color="#A89F8A" />
+                </view>
+              </picker>
+              <view class="note {{destNoteRed ? 'red' : ''}}" wx:if="{{destNote}}">{{destNote}}</view>
+            </view>
+          </view>
+          <view class="cmp-r top">
+            <text class="k">巡视内容</text>
+            <view class="c patrol-ro" wx:if="{{dlgKind === 'matched'}}">
+              {{patrolText}}
+              <text class="sub">不在对齐范围，只读展示</text>
+            </view>
+            <view class="c patrol-ro" wx:else>建卡后为空，可到主页卡片补填；打卡、水印照片与正常卡片相同</view>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+
+    <!-- 弹层页脚：上一条 / 跳过本条 + 主操作组（按 kind 分派） -->
+    <view class="dlg-foot">
+      <view class="foot-nav">
+        <view class="btn-mini {{isFirst ? 'disabled' : ''}}" hover-class="{{isFirst ? '' : 'hover-opacity'}}" bindtap="onDlgPrev">‹ 上一条</view>
+        <view class="skip" hover-class="hover-opacity" bindtap="onDlgSkip">跳过本条</view>
+      </view>
+      <view class="sheet-actions" wx:if="{{dlgKind === 'matched'}}">
+        <view class="btn-ghost" hover-class="hover-opacity" bindtap="onDlgSave" data-advance="0">仅保存</view>
+        <view class="btn-dark {{dlgSaving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onDlgSave" data-advance="1">
+          {{isLast ? '保存并收尾' : '保存并下一条 ›'}}
+        </view>
+      </view>
+      <view class="sheet-actions" wx:elif="{{dlgKind === 'sheetOnly'}}">
+        <view class="btn-ghost" hover-class="hover-opacity" bindtap="onDlgCreate" data-advance="0">仅建卡</view>
+        <view class="btn-dark {{dlgSaving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onDlgCreate" data-advance="1">
+          {{isLast ? '建卡并收尾' : '建卡并下一条 ›'}}
+        </view>
+      </view>
+      <view class="sheet-actions" wx:else>
+        <view class="btn-dark" hover-class="hover-opacity" bindtap="onDlgNext">{{isLast ? '知道了' : '知道了，下一条 ›'}}</view>
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<t-toast id="t-toast" />

@@ -167,13 +167,15 @@
     <view class="sheet-sub">确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</view>
     <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
       <view class="f-lab">学习内容（记录名称）</view>
-      <input
-        class="name-input"
+      <!-- 多行编辑框：拉高至可容纳 5 行文本（同网页端 textarea 口径；maxlength 100 不变） -->
+      <textarea
+        class="name-input name-area"
         value="{{nameDraft}}"
         bindinput="onNameInput"
         adjust-position="{{false}}"
         bindkeyboardheightchange="onKeyboardHeight"
         hold-keyboard
+        show-confirm-bar="{{false}}"
         maxlength="100"
         placeholder="请输入记录名称"
         placeholder-class="ph"

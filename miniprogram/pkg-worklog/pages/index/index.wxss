@@ -2083,3 +2083,108 @@ page {
   font-size: 20rpx;
   color: #5c8a76;
 }
+
+/* 底部「批量从商旅同步」幽灵钮：7 字文案加宽配比、收窄字距（确认钮保持 btn-dark 主钮） */
+.sheet-actions .btn-ghost.sync-btn {
+  flex: 1.8;
+  gap: 10rpx;
+  letter-spacing: 2rpx;
+}
+
+
+/* ---------- 从商旅同步进度（卡片级进度条 + 批量同步全页遮罩；进度轮询 /sgcc/sync/progress） ---------- */
+
+/* 卡片级：同步中呈现于操作区上方（安全橙细条 + 百分比小字） */
+.card-sync {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 0 4rpx;
+}
+
+.cs-bar {
+  flex: 1;
+  height: 10rpx;
+  border-radius: 6rpx;
+  background: #f0ebdd;
+  overflow: hidden;
+}
+
+.cs-fill {
+  height: 100%;
+  border-radius: 6rpx;
+  background: #f26d21;
+  transition: width 0.4s ease;
+}
+
+.cs-t {
+  flex: none;
+  font-size: 20rpx;
+  font-weight: 700;
+  color: #f26d21;
+  letter-spacing: 1rpx;
+}
+
+/* 批量同步：全页遮罩（z-index 压过 t-popup 弹层），居中白卡 + 进度条 */
+.sync-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 16000;
+  background: rgba(34, 49, 78, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sync-card {
+  width: 560rpx;
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 48rpx 48rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 32rpx 80rpx rgba(34, 49, 78, 0.25);
+}
+
+.sync-ic {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 24rpx;
+  background: #fdeee2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sync-t {
+  margin-top: 20rpx;
+  font-size: 30rpx;
+  font-weight: 800;
+  letter-spacing: 4rpx;
+  color: #22314e;
+}
+
+.sync-bar {
+  margin-top: 28rpx;
+  width: 100%;
+  height: 14rpx;
+  border-radius: 8rpx;
+  background: #f0ebdd;
+  overflow: hidden;
+}
+
+.sync-fill {
+  height: 100%;
+  border-radius: 8rpx;
+  background: #f26d21;
+  transition: width 0.4s ease;
+}
+
+.sync-p {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+  letter-spacing: 1rpx;
+}

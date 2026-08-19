@@ -640,6 +640,14 @@
   color: #22314e;
 }
 
+/* 学习内容多行编辑框（textarea）：拉高至可容纳 5 行文本（27rpx × 1.6 行高 × 5 行 ≈ 216rpx + 上下 padding） */
+.name-input.name-area {
+  height: 260rpx;
+  padding: 20rpx 24rpx;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
 .ph {
   color: #a89f8a;
 }

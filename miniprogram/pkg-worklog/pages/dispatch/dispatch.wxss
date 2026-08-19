@@ -1,0 +1,578 @@
+/* 出工日志 · 派车对齐页（token 同 app.wxss 方案五；底部弹层 .sheet / .sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
+@import '../../style/common.wxss';
+
+/* ---------- 卡片（同 tasksheet 页族：白卡圆角 + 藏青主按钮） ---------- */
+.card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+}
+
+.card + .card,
+.sums,
+.list,
+.allok {
+  margin-top: 24rpx;
+}
+
+/* ---------- 对齐口径说明卡（虚线描边浅纸底，同网页端 .pa-rule） ---------- */
+.rule {
+  border: 2rpx dashed #d9cfba;
+  background: #fbf9f3;
+  box-shadow: none;
+}
+
+.rule-t {
+  font-size: 26rpx;
+  font-weight: 800;
+  letter-spacing: 2rpx;
+  color: #22314e;
+}
+
+.rule-p {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+  line-height: 1.9;
+}
+
+/* ---------- 派车单文件卡 ---------- */
+.r-l {
+  min-width: 0;
+}
+
+.r-t {
+  font-size: 27rpx;
+  font-weight: 700;
+  color: #22314e;
+}
+
+.r-s {
+  font-size: 20rpx;
+  color: #a89f8a;
+  margin-top: 6rpx;
+}
+
+/* 已选文件 chips（橙浅底 + 移除叉） */
+.fchips {
+  margin-top: 20rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.fchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  max-width: 100%;
+  padding: 8rpx 16rpx;
+  border-radius: 14rpx;
+  background: #fdeee2;
+  color: #f26d21;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.fchip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fchip-x {
+  flex: none;
+  display: flex;
+  align-items: center;
+  opacity: 0.65;
+}
+
+/* 「从聊天文件选择」虚线占位钮（同 .add-photo 族灰底虚线） */
+.pick {
+  margin-top: 22rpx;
+  height: 96rpx;
+  border-radius: 16rpx;
+  background: #f0ebdd;
+  border: 3rpx dashed #d9cfba;
+  color: #a89f8a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  letter-spacing: 4rpx;
+}
+
+.pick.disabled {
+  opacity: 0.45;
+}
+
+/* 「开始对齐」藏青主按钮 */
+.go {
+  margin-top: 22rpx;
+  height: 88rpx;
+  border-radius: 16rpx;
+  background: #22314e;
+  color: #ffffff;
+  font-size: 27rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.go.disabled {
+  opacity: 0.45;
+}
+
+/* ---------- 概览六宫格（三列两行） ---------- */
+.sums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.sum {
+  width: calc((100% - 32rpx) / 3);
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 2rpx solid #e8e0cd;
+  border-radius: 16rpx;
+  padding: 18rpx 20rpx;
+}
+
+.sum .n {
+  font-size: 36rpx;
+  font-weight: 800;
+  color: #22314e;
+}
+
+.sum .t {
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: #6b7690;
+  letter-spacing: 1rpx;
+}
+
+.sum.ok .n {
+  color: #2ba471;
+}
+
+.sum.warn .n {
+  color: #f26d21;
+}
+
+.sum.bad .n {
+  color: #cf4444;
+}
+
+.sum.mut .n {
+  color: #a89f8a;
+}
+
+.hint {
+  margin-top: 16rpx;
+  padding: 0 8rpx;
+  font-size: 22rpx;
+  line-height: 1.8;
+  color: #6b7690;
+}
+
+/* ---------- 不一致清单行 ---------- */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  background: #ffffff;
+  border: 2rpx solid #e8e0cd;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+}
+
+.row + .row {
+  margin-top: 16rpx;
+}
+
+.row.done {
+  opacity: 0.55;
+}
+
+.row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.row-date {
+  font-size: 26rpx;
+  font-weight: 800;
+  color: #22314e;
+  letter-spacing: 1rpx;
+}
+
+/* 差异徽章（配色同网页端 .pa-badge） */
+.pa-badge {
+  font-size: 20rpx;
+  font-weight: 700;
+  padding: 2rpx 14rpx;
+  border-radius: 999rpx;
+  letter-spacing: 1rpx;
+}
+
+.pa-badge.plate {
+  background: #fdeee2;
+  color: #f26d21;
+}
+
+.pa-badge.dest {
+  background: #fdf3cf;
+  color: #a16207;
+}
+
+.pa-badge.mem {
+  background: #fdecec;
+  color: #cf4444;
+}
+
+.pa-badge.none-sys {
+  background: #efebe0;
+  color: #a89f8a;
+}
+
+.pa-badge.none-sheet {
+  background: #e9eef7;
+  color: #4a6a9e;
+}
+
+.row-sum {
+  margin-top: 8rpx;
+  font-size: 23rpx;
+  color: #6b7690;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.seg.b {
+  color: #22314e;
+  font-weight: 700;
+}
+
+.seg.hl {
+  color: #f26d21;
+  font-weight: 800;
+}
+
+.seg.hl-r {
+  color: #cf4444;
+  font-weight: 800;
+}
+
+.seg.vs {
+  color: #a89f8a;
+}
+
+.row-act {
+  flex: none;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #f26d21;
+}
+
+.row-act.yes {
+  color: #2ba471;
+}
+
+.allok {
+  padding: 48rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: #a89f8a;
+}
+
+/* ---------- 对照弹层 ---------- */
+.dlg-scroll {
+  max-height: 56vh;
+  margin-top: 24rpx;
+}
+
+/* 对照列（弹层内上下排：表格只读 / 卡片可改；标题左侧 4px 橙竖条同板块标题规范） */
+.cmp-col {
+  border: 2rpx solid #e8e0cd;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.cmp-col + .cmp-col,
+.dlg-tip {
+  margin-top: 20rpx;
+}
+
+.cmp-h {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 16rpx 24rpx;
+  font-size: 24rpx;
+  font-weight: 800;
+  letter-spacing: 2rpx;
+  color: #22314e;
+  border-bottom: 2rpx solid #e8e0cd;
+  background: #fbf9f3;
+}
+
+.cmp-h::before {
+  content: '';
+  width: 8rpx;
+  height: 24rpx;
+  border-radius: 4rpx;
+  background: #f26d21;
+}
+
+.cmp-h .sub {
+  font-size: 20rpx;
+  color: #a89f8a;
+  font-weight: 400;
+}
+
+.cmp-h .src {
+  margin-left: auto;
+  font-size: 20rpx;
+  color: #a89f8a;
+  font-weight: 400;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmp-rows {
+  padding: 6rpx 24rpx 16rpx;
+}
+
+.cmp-r {
+  display: flex;
+  gap: 18rpx;
+  padding: 14rpx 0;
+  border-bottom: 2rpx dashed #e8e0cd;
+  font-size: 24rpx;
+  align-items: center;
+}
+
+.cmp-r.top {
+  align-items: flex-start;
+}
+
+.cmp-r:last-child {
+  border-bottom: none;
+}
+
+.cmp-r .k {
+  flex: none;
+  width: 120rpx;
+  color: #a89f8a;
+  letter-spacing: 2rpx;
+  padding-top: 4rpx;
+}
+
+.cmp-r .v {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: #22314e;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+/* 差异高亮：橙 = 可改差异（车牌 / 目的地），红 = 用车人差异 */
+.cmp-r .v.diff {
+  color: #f26d21;
+  font-weight: 800;
+}
+
+.cmp-r .v.diff-bad {
+  color: #cf4444;
+  font-weight: 800;
+}
+
+.cmp-r .c {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 下拉选择行（白底描边圆角，同输入框 token） */
+.pick-val {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  height: 72rpx;
+  padding: 0 20rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+  color: #22314e;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+
+.pick-val.warn {
+  border-color: #f26d21;
+  background: #fffbf6;
+}
+
+.note {
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #f26d21;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.note.red {
+  color: #cf4444;
+}
+
+.linkbtn {
+  margin-left: 10rpx;
+  padding: 2rpx 14rpx;
+  border: 2rpx solid #f26d21;
+  border-radius: 8rpx;
+  color: #f26d21;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+/* 用车人点亮 chips：点亮=橙实底；extra 红点=卡片多出；add 绿虚框=表格有卡片缺（点亮后绿实底） */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+}
+
+.chip {
+  min-width: 120rpx;
+  height: 60rpx;
+  padding: 0 20rpx;
+  border-radius: 30rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  color: #6b7690;
+  font-size: 24rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.chip.on {
+  background: #f26d21;
+  border-color: #f26d21;
+  color: #ffffff;
+}
+
+.chip.extra {
+  position: relative;
+}
+
+.chip.extra::after {
+  content: '';
+  position: absolute;
+  top: -4rpx;
+  right: -4rpx;
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #cf4444;
+}
+
+.chip.extra.on {
+  border-color: #cf4444;
+  background: #fdecec;
+  color: #cf4444;
+}
+
+.chip.add {
+  border-style: dashed;
+  border-color: #2ba471;
+  color: #2ba471;
+}
+
+.chip.add.on {
+  background: #2ba471;
+  border-style: solid;
+  color: #ffffff;
+}
+
+/* 巡视内容只读展示 */
+.patrol-ro {
+  font-size: 22rpx;
+  color: #6b7690;
+  line-height: 1.8;
+  padding-top: 6rpx;
+}
+
+.patrol-ro .sub {
+  display: block;
+  font-size: 20rpx;
+  color: #a89f8a;
+}
+
+.dlg-tip {
+  font-size: 22rpx;
+  color: #6b7690;
+  line-height: 2;
+  padding: 0 8rpx;
+}
+
+/* 弹层页脚：上一条 / 跳过本条 一行，主操作组沿用 .sheet-actions */
+.dlg-foot {
+  margin-top: 8rpx;
+}
+
+.foot-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16rpx;
+}
+
+.btn-mini {
+  height: 56rpx;
+  padding: 0 24rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #e3dccb;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #22314e;
+}
+
+.btn-mini.disabled {
+  color: #c6ba9c;
+  border-color: #ede6d4;
+}
+
+.skip {
+  font-size: 24rpx;
+  color: #6b7690;
+  font-weight: 700;
+  padding: 8rpx 12rpx;
+}

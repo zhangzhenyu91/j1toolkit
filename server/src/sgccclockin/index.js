@@ -404,6 +404,54 @@ router.delete('/account', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
+// ---------- 管理员维护绑定设备（网页端数据管理「商旅绑定设备」区；超管任意班组 / 班组管理员仅本班，同 worklog 字典口径） ----------
+function requireDictAdmin(req, res, next) {
+  if (req.user.role === 'admin') return next();
+  if (req.user.role === 'team_admin' && req.team && req.user.team_id === req.team.id) return next();
+  return fail(res, 403, 40304, '仅管理员可执行此操作');
+}
+
+// GET /accounts：本班组全部绑定账号（成员名 / 手机号脱敏 / 设备口径 / 登录态 / 最近核查时间）
+router.get('/accounts', requireDictAdmin, async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const [rows] = await pool.query(
+      `SELECT a.id, a.member_id, m.name AS member_name, a.mobile,
+              a.device_type, a.system_version, a.token_status,
+              DATE_FORMAT(a.last_check_at, '%Y-%m-%d %H:%i') AS last_check_at
+       FROM worklog_sgcc_account a LEFT JOIN worklog_member m ON m.id = a.member_id
+       WHERE a.team_id = ? ORDER BY m.sort IS NULL, m.sort, a.id`,
+      [req.team.id]
+    );
+    return ok(res, {
+      list: rows.map((r) => ({
+        id: r.id,
+        memberName: r.member_name || '', // 空 = 绑定账号昵称未匹配到出工成员
+        mobile: String(r.mobile || '').replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2'),
+        deviceType: r.device_type || '',
+        systemVersion: r.system_version || '',
+        tokenStatus: r.token_status,
+        lastCheckAt: r.last_check_at || '',
+      })),
+    });
+  } catch (err) { return next(err); }
+});
+
+// PUT /accounts/:id/device：管理员改绑定设备口径（设备型号 = 「厂商 型号」格式；作用范围限生效班组）
+router.put('/accounts/:id/device', requireDictAdmin, async (req, res, next) => {
+  try {
+    const deviceType = String(req.body.deviceType || '').trim().slice(0, 64);
+    const systemVersion = String(req.body.systemVersion || '').trim().slice(0, 64);
+    if (!deviceType) return fail(res, 400, 40033, '设备型号不能为空');
+    const [r] = await pool.query(
+      'UPDATE worklog_sgcc_account SET device_type = ?, system_version = ? WHERE id = ? AND team_id = ?',
+      [deviceType, systemVersion, Number(req.params.id) || 0, req.team ? req.team.id : 0]
+    );
+    if (!r.affectedRows) return fail(res, 404, 40400, '绑定记录不存在');
+    return ok(res, null);
+  } catch (err) { return next(err); }
+});
+
 // ---------- 打卡区数据与打卡操作 ----------
 
 // GET /day?date=YYYY-MM-DD：本班组当日全部成员的 绑定/登录态 + 两次打卡 + 费用（按 member_id 索引）
@@ -1238,7 +1286,8 @@ async function syncOne(account, date, scope) {
 // 整班单日核查（仅当日用车人：非用车人数据界面不展示，跳过可省一轮商旅 API，
 // 也避免照片对账记「成员当日无出工记录」噪音日志）
 // onlyMemberIds 传入时仅同步这些成员（卡片级「从商旅同步」：仅本卡用车人）；缺省为当日用车人中的全部绑定成员
-async function syncTeamDay(teamId, date, scope, onlyMemberIds) {
+// onStep：每处理完一名成员回调一次（手动拉取进度登记用；定时核查不传）
+async function syncTeamDay(teamId, date, scope, onlyMemberIds, onStep) {
   let accounts;
   if (Array.isArray(onlyMemberIds)) {
     if (!onlyMemberIds.length) return;
@@ -1261,8 +1310,38 @@ async function syncTeamDay(teamId, date, scope, onlyMemberIds) {
     } catch (err) {
       console.error(`[商旅打卡] 核查失败（成员 ${account.member_id} ${date}）：`, err.message);
     }
+    if (typeof onStep === 'function') onStep(); // 成败均计一步（失败明细见核查记录）
     // 成员间间隔，防商旅侧风控（SGCC_SYNC_INTERVAL_MS，默认 1500ms）
     await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
+  }
+}
+
+// ---------- 手动拉取进度（进程内存登记；仅 /sync/pull 手动任务，定时核查与登录补核不登记；重启即清零仅作进度展示） ----------
+const syncJobs = new Map(); // jobId → { teamId, total, done, finished, at }
+const SYNC_JOB_TTL = 30 * 60 * 1000; // 任务保留 30 分钟供端侧收尾查询，新建任务时顺手清理过期任务
+
+function newSyncJob(teamId, total) {
+  for (const [k, j] of syncJobs) {
+    if (Date.now() - j.at > SYNC_JOB_TTL) syncJobs.delete(k);
+  }
+  const id = `${teamId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  syncJobs.set(id, { teamId, total, done: 0, finished: total <= 0, at: Date.now() }); // 无绑定成员可同步 = 即刻完成
+  return id;
+}
+
+function stepSyncJob(id) {
+  const j = syncJobs.get(id);
+  if (j) {
+    j.done += 1;
+    j.at = Date.now();
+  }
+}
+
+function finishSyncJob(id) {
+  const j = syncJobs.get(id);
+  if (j) {
+    j.finished = true;
+    j.at = Date.now();
   }
 }
 
@@ -1300,18 +1379,51 @@ router.post('/sync/pull', async (req, res, next) => {
     const fromMs = Date.parse(`${from}T00:00:00Z`);
     const days = Math.round((Date.parse(`${to}T00:00:00Z`) - fromMs) / DAY_MS) + 1;
     if (days > 62) return fail(res, 400, 40000, '日期区段最多跨 62 天');
+    // 进度登记：总单元 = 区段内「日 × 绑定成员」数（卡片级 = 本卡绑定用车人数；选人口径与 syncTeamDay 一致），
+    // 端侧凭 jobId 轮询 GET /sync/progress 渲染进度条
+    let total = 0;
+    if (entryId) {
+      const [c] = await pool.query(
+        'SELECT COUNT(*) AS cnt FROM worklog_sgcc_account WHERE team_id = ? AND member_id IN (?)',
+        [req.team.id, onlyMemberIds]
+      );
+      total = c[0].cnt;
+    } else {
+      const [c] = await pool.query(
+        `SELECT COUNT(DISTINCT a.member_id, e.log_date) AS cnt
+         FROM worklog_sgcc_account a
+         JOIN worklog_entry e ON e.team_id = a.team_id AND e.log_date BETWEEN ? AND ?
+         JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a.member_id
+         WHERE a.team_id = ? AND a.member_id IS NOT NULL`,
+        [from, to, req.team.id]
+      );
+      total = c[0].cnt;
+    }
+    const jobId = newSyncJob(req.team.id, total);
     (async () => {
       for (let i = 0; i < days; i += 1) {
         const d = new Date(fromMs + i * DAY_MS).toISOString().slice(0, 10);
-        await syncTeamDay(req.team.id, d, 'daily', onlyMemberIds || undefined);
+        await syncTeamDay(req.team.id, d, 'daily', onlyMemberIds || undefined, () => stepSyncJob(jobId));
       }
-    })().catch((err) => console.error('[商旅打卡] 手动拉取失败：', err.message));
+    })()
+      .catch((err) => console.error('[商旅打卡] 手动拉取失败：', err.message))
+      .finally(() => finishSyncJob(jobId));
     // 响应文案口径：M月D日（不补零）
     const md = (s) => `${Number(s.slice(5, 7))}月${Number(s.slice(8, 10))}日`;
     const msg = entryId
       ? `已发起从商旅拉取（${md(from)}，仅本卡用车人）`
       : from === to ? `已发起从商旅拉取（${md(from)}）` : `已发起从商旅拉取（${md(from)} 至 ${md(to)}）`;
-    return ok(res, null, msg);
+    return ok(res, { jobId, total }, msg);
+  } catch (err) { return next(err); }
+});
+
+// GET /sync/progress?job_id=xxx：手动拉取进度轮询（仅本班组任务可查；任务不存在 / 已过期按已完成回，端侧据此收尾）
+router.get('/sync/progress', async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const j = syncJobs.get(String(req.query.job_id || ''));
+    if (!j || j.teamId !== req.team.id) return ok(res, { total: 0, done: 0, finished: true });
+    return ok(res, { total: j.total, done: j.done, finished: j.finished });
   } catch (err) { return next(err); }
 });
 
