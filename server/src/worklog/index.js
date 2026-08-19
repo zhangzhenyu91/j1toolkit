@@ -1130,6 +1130,58 @@ router.post('/photos/:id/verify', async (req, res, next) => {
   }
 });
 
+// PUT /photos/:id/wm：手动修正水印识别信息（Dify 小概率识别出错时用；仅水印照片、非识别中可改）。
+// 保存后按卡片记录日期与派车目的地重新核验（checkWatermark 同口径），卡片验证状态随 logs 查询实时重算
+router.put('/photos/:id/wm', async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const photoId = Number(req.params.id);
+    const [rows] = await pool.query(
+      `SELECT p.id, p.verify_status, p.is_watermark,
+              DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, d.name AS destination_name
+       FROM worklog_photo p
+       JOIN worklog_entry e ON e.id = p.entry_id
+       LEFT JOIN worklog_destination d ON d.id = e.destination_id
+       WHERE p.id = ? AND e.team_id = ?`,
+      [photoId, req.team.id]
+    );
+    const photo = rows[0];
+    if (!photo) return fail(res, 404, 40400, '照片不存在');
+    if (photo.is_watermark === 0) return fail(res, 400, 40014, '非水印照片不参与验证');
+    if (photo.verify_status === 'pending') return fail(res, 400, 40014, '照片识别中，请稍后再修正');
+
+    const workContent = String(req.body.workContent || '').trim().slice(0, 512);
+    // 拍摄时间归一：用户可能按 YYYY-MM-DD 输入，核验口径为点分格式（YYYY.MM.DD），先转换再判定
+    const shotTime = String(req.body.shotTime || '').trim().slice(0, 32)
+      .replace(/(\d{4})-(\d{1,2})-(\d{1,2})/g, (m, y, mo, d) => `${y}.${mo.padStart(2, '0')}.${d.padStart(2, '0')}`);
+    const weather = String(req.body.weather || '').trim().slice(0, 64);
+    const location = String(req.body.location || '').trim().slice(0, 255);
+    const lng = String(req.body.lng || '').trim().slice(0, 32);
+    const lat = String(req.body.lat || '').trim().slice(0, 32);
+    if (!workContent) return fail(res, 400, 40014, '施工内容不能为空');
+    if (!shotTime) return fail(res, 400, 40014, '拍摄时间不能为空');
+
+    const chk = checkWatermark({
+      time: shotTime,
+      location,
+      logDate: dots(photo.log_date),
+      destination: photo.destination_name,
+    });
+    await pool.query(
+      `UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?, location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
+      [chk.status, workContent, shotTime, weather, location, lng, lat, chk.dateOk ? 1 : 0, chk.destOk ? 1 : 0, photoId]
+    );
+    return ok(res, {
+      id: photoId,
+      verify_status: chk.status,
+      date_ok: chk.dateOk ? 1 : 0,
+      dest_ok: chk.destOk ? 1 : 0,
+    }, chk.status === 'passed' ? '已保存，照片核验通过' : '已保存，仍未通过核验');
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // PUT /photos/:id/members：修改照片所属人名（商旅打卡开启时：未绑定/登录过期成员的人名状态不可更改；
 // 变更后差量同步——新增人名补传商旅费用照片，剔除人名从其商旅费用照片移除）
 router.put('/photos/:id/members', async (req, res, next) => {

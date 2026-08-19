@@ -1286,7 +1286,7 @@ async function syncOne(account, date, scope) {
 // 整班单日核查（仅当日用车人：非用车人数据界面不展示，跳过可省一轮商旅 API，
 // 也避免照片对账记「成员当日无出工记录」噪音日志）
 // onlyMemberIds 传入时仅同步这些成员（卡片级「从商旅同步」：仅本卡用车人）；缺省为当日用车人中的全部绑定成员
-// onStep：每处理完一名成员回调一次（手动拉取进度登记用；定时核查不传）
+// onStep：每处理完一名成员回调一次（手动拉取与每日定时核查的进度登记用）
 async function syncTeamDay(teamId, date, scope, onlyMemberIds, onStep) {
   let accounts;
   if (Array.isArray(onlyMemberIds)) {
@@ -1316,17 +1316,28 @@ async function syncTeamDay(teamId, date, scope, onlyMemberIds, onStep) {
   }
 }
 
-// ---------- 手动拉取进度（进程内存登记；仅 /sync/pull 手动任务，定时核查与登录补核不登记；重启即清零仅作进度展示） ----------
-const syncJobs = new Map(); // jobId → { teamId, total, done, finished, at }
+// ---------- 手动拉取 / 每日核查进度（进程内存登记；重启即清零仅作进度展示） ----------
+// kind：batch=区段批量拉取（进行中锁定出工日志子应用，端侧轮询 /sync/active 出全页进度条）；
+//       card=卡片级同步（仅本卡进度条）；daily=每日定时核查（当日记录卡片挂进度条且不可操作）
+const syncJobs = new Map(); // jobId → { teamId, kind, date, total, done, finished, at }
 const SYNC_JOB_TTL = 30 * 60 * 1000; // 任务保留 30 分钟供端侧收尾查询，新建任务时顺手清理过期任务
 
-function newSyncJob(teamId, total) {
+function newSyncJob(teamId, total, kind, date) {
   for (const [k, j] of syncJobs) {
     if (Date.now() - j.at > SYNC_JOB_TTL) syncJobs.delete(k);
   }
   const id = `${teamId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  syncJobs.set(id, { teamId, total, done: 0, finished: total <= 0, at: Date.now() }); // 无绑定成员可同步 = 即刻完成
+  syncJobs.set(id, { teamId, kind: kind || 'batch', date: date || '', total, done: 0, finished: total <= 0, at: Date.now() }); // 无可同步成员 = 即刻完成
   return id;
+}
+
+// 本班组进行中（未完成）的同类任务（batch 同时只允许一个，/sync/pull 已做冲突拦截；daily 由排程器单实例保证）
+function activeJob(teamId, kind) {
+  let hit = null;
+  for (const j of syncJobs.values()) {
+    if (j.teamId === teamId && j.kind === kind && !j.finished && (!hit || j.at > hit.at)) hit = j;
+  }
+  return hit;
 }
 
 function stepSyncJob(id) {
@@ -1379,6 +1390,10 @@ router.post('/sync/pull', async (req, res, next) => {
     const fromMs = Date.parse(`${from}T00:00:00Z`);
     const days = Math.round((Date.parse(`${to}T00:00:00Z`) - fromMs) / DAY_MS) + 1;
     if (days > 62) return fail(res, 400, 40000, '日期区段最多跨 62 天');
+    // 批量拉取进行中锁定出工日志子应用：同班组同时只允许一个批量任务（卡片级不在此限）
+    if (!entryId && activeJob(req.team.id, 'batch')) {
+      return fail(res, 409, 40909, '本班组已有批量从商旅同步进行中，请等待完成后再发起');
+    }
     // 进度登记：总单元 = 区段内「日 × 绑定成员」数（卡片级 = 本卡绑定用车人数；选人口径与 syncTeamDay 一致），
     // 端侧凭 jobId 轮询 GET /sync/progress 渲染进度条
     let total = 0;
@@ -1399,7 +1414,7 @@ router.post('/sync/pull', async (req, res, next) => {
       );
       total = c[0].cnt;
     }
-    const jobId = newSyncJob(req.team.id, total);
+    const jobId = newSyncJob(req.team.id, total, entryId ? 'card' : 'batch');
     (async () => {
       for (let i = 0; i < days; i += 1) {
         const d = new Date(fromMs + i * DAY_MS).toISOString().slice(0, 10);
@@ -1427,20 +1442,57 @@ router.get('/sync/progress', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-// GET /sync/logs?month=YYYY-MM：核查记录（近 100 条）
+// GET /sync/active：本班组同步进行态。batch = 区段批量拉取（出工日志子应用全局锁：任何端任何人进入时据此出进度遮罩，完成后解锁）；
+// daily = 每日定时核查（仅当日本班：当日记录卡片挂进度条且不可操作，完成后解锁）
+router.get('/sync/active', async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const b = activeJob(req.team.id, 'batch');
+    const d = activeJob(req.team.id, 'daily');
+    const dailyToday = d && d.date === today() ? d : null; // 仅当日核查参与卡片锁定
+    return ok(res, {
+      running: !!b,
+      total: b ? b.total : 0,
+      done: b ? b.done : 0,
+      daily: dailyToday ? { running: true, total: dailyToday.total, done: dailyToday.done } : { running: false },
+    });
+  } catch (err) { return next(err); }
+});
+
+// GET /sync/logs：核查记录。?month=YYYY-MM（按月、近 100 条，原口径）或 ?from=&to=（按区段、近 200 条，批量同步面板日志区用）
 router.get('/sync/logs', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
-    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : today().slice(0, 7);
-    const [rows] = await pool.query(
-      `SELECT l.id, DATE_FORMAT(l.sync_date, '%Y-%m-%d') AS sync_date, l.scope, l.type, l.result, l.detail,
-              DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i') AS created_at, m.name AS member_name
-       FROM worklog_sync_log l LEFT JOIN worklog_member m ON m.id = l.member_id
-       WHERE l.team_id = ? AND DATE_FORMAT(l.sync_date, '%Y-%m') = ?
-       ORDER BY l.id DESC LIMIT 100`,
-      [req.team.id, month]
-    );
+    const from = DATE_RE.test(String(req.query.from || '')) ? String(req.query.from) : '';
+    const to = DATE_RE.test(String(req.query.to || '')) ? String(req.query.to) : '';
+    const rangeSql = from && to && from <= to;
+    const [rows] = rangeSql
+      ? await pool.query(
+          `SELECT l.id, DATE_FORMAT(l.sync_date, '%Y-%m-%d') AS sync_date, l.scope, l.type, l.result, l.detail,
+                  DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i') AS created_at, m.name AS member_name
+           FROM worklog_sync_log l LEFT JOIN worklog_member m ON m.id = l.member_id
+           WHERE l.team_id = ? AND l.sync_date BETWEEN ? AND ?
+           ORDER BY l.id DESC LIMIT 200`,
+          [req.team.id, from, to]
+        )
+      : await pool.query(
+          `SELECT l.id, DATE_FORMAT(l.sync_date, '%Y-%m-%d') AS sync_date, l.scope, l.type, l.result, l.detail,
+                  DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i') AS created_at, m.name AS member_name
+           FROM worklog_sync_log l LEFT JOIN worklog_member m ON m.id = l.member_id
+           WHERE l.team_id = ? AND DATE_FORMAT(l.sync_date, '%Y-%m') = ?
+           ORDER BY l.id DESC LIMIT 100`,
+          [req.team.id, /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : today().slice(0, 7)]
+        );
     return ok(res, { list: rows });
+  } catch (err) { return next(err); }
+});
+
+// DELETE /sync/logs：管理员一键清除本班组全部同步记录（批量同步面板「清除同步记录」）
+router.delete('/sync/logs', requireDictAdmin, async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const [r] = await pool.query('DELETE FROM worklog_sync_log WHERE team_id = ?', [req.team.id]);
+    return ok(res, { deleted: r.affectedRows }, `已清除 ${r.affectedRows} 条同步记录`);
   } catch (err) { return next(err); }
 });
 
@@ -1465,7 +1517,21 @@ function scheduleDaily() {
     try {
       const [teams] = await pool.query('SELECT DISTINCT team_id FROM worklog_sgcc_account WHERE team_id IS NOT NULL');
       for (const t of teams) {
-        await syncTeamDay(t.team_id, today(), 'daily');
+        // 进度登记（kind=daily，仅当日）：端侧据此给当日记录卡片挂进度条并置不可操作
+        const [c] = await pool.query(
+          `SELECT COUNT(DISTINCT a.member_id) AS cnt
+           FROM worklog_sgcc_account a
+           JOIN worklog_entry e ON e.team_id = a.team_id AND e.log_date = ?
+           JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a.member_id
+           WHERE a.team_id = ? AND a.member_id IS NOT NULL`,
+          [today(), t.team_id]
+        );
+        const jobId = newSyncJob(t.team_id, c[0].cnt, 'daily', today());
+        try {
+          await syncTeamDay(t.team_id, today(), 'daily', undefined, () => stepSyncJob(jobId));
+        } finally {
+          finishSyncJob(jobId);
+        }
       }
       console.log('[商旅打卡] 每日定时核查完成');
     } catch (err) {

@@ -270,6 +270,11 @@
   color: #cf4444;
 }
 
+/* 验证状态可点击（进手动修正层）：虚线下划提示可点 */
+.vtag.ed {
+  border-bottom: 2rpx dashed currentColor;
+}
+
 /* 照片右上角删除小图标 */
 .ph-del {
   position: absolute;

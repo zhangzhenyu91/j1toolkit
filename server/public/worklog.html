@@ -264,7 +264,16 @@
   .pa-foot .sp { margin-left: auto; display: flex; gap: 10px; }
 
   /* ----- 日志卡片 ----- */
-  .log-card { overflow: hidden; margin-bottom: 16px; }
+  .log-card { overflow: hidden; margin-bottom: 16px; position: relative; }
+  /* 每日定时核查同步中：当日出车卡整卡锁定（遮罩阻断操作，居中进度块；kind=daily 进行中且查看当日时） */
+  .card-lock {
+    position: absolute; inset: 0; z-index: 5; background: rgba(255, 255, 255, .78);
+    display: flex; align-items: center; justify-content: center; border-radius: inherit; cursor: not-allowed;
+  }
+  .cl-box { width: 240px; background: #fff; border: 1px solid var(--hair); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow-card); }
+  .cl-bar { height: 8px; border-radius: 5px; background: var(--paper); overflow: hidden; }
+  .cl-fill { height: 100%; border-radius: 5px; background: var(--orange); transition: width .4s ease; }
+  .cl-t { margin-top: 8px; font-size: 11px; font-weight: 700; color: var(--orange); letter-spacing: .5px; text-align: center; }
   .log-h { display: flex; align-items: center; gap: 10px; padding: 15px 22px; border-bottom: 1px solid var(--hair); }
   .log-h b { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
   .log-h small { font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
@@ -398,6 +407,26 @@
   .ph-st.pass { background: rgba(242, 109, 33, .92); }
   .ph-st.ing { background: rgba(107, 118, 144, .92); }
   .ph-st.fail { background: rgba(207, 68, 68, .92); }
+  /* 验证状态可点击（识别中除外）：进手动修正层，修正 Dify 识别错误后重新核验 */
+  .ph-st.ed { cursor: pointer; outline: 1px dashed rgba(255, 255, 255, .75); outline-offset: 1px; }
+  /* ===== 批量从商旅同步 · 子应用全局锁（本班组批量拉取进行中时全页遮罩，完成后解锁） ===== */
+  .sync-lock {
+    position: fixed; inset: 0; z-index: 2000; background: rgba(27, 39, 64, .55); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sync-lock[hidden] { display: none; }
+  .sl-card {
+    width: 380px; max-width: 90vw; background: #fff; border-radius: 14px; padding: 30px 30px 24px;
+    display: flex; flex-direction: column; align-items: center; box-shadow: 0 24px 60px rgba(27, 39, 64, .3);
+  }
+  .sl-ic {
+    width: 46px; height: 46px; border-radius: 13px; background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sl-t { margin-top: 12px; font-size: 15px; font-weight: 800; letter-spacing: 1px; color: var(--navy); }
+  .sl-bar { margin-top: 16px; width: 100%; height: 8px; border-radius: 5px; background: var(--paper); overflow: hidden; }
+  .sl-fill { height: 100%; border-radius: 5px; background: var(--orange); transition: width .4s ease; }
+  .sl-p { margin-top: 10px; font-size: 11.5px; color: var(--sub); letter-spacing: .5px; }
   .ph-miss { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
   .ph-mis { border-radius: 4px; padding: 1px 5px; font-size: 9.5px; font-weight: 700; color: #fff; background: rgba(207, 68, 68, .92); }
   .ph-info {
@@ -966,6 +995,15 @@
 
 <!-- 照片大图遮罩层 -->
 <div class="lb" id="lightbox"></div>
+<!-- 批量从商旅同步 · 子应用全局锁：本班组批量拉取进行中时全页进度遮罩（任何端任何人同锁，完成后解锁刷新） -->
+<div class="sync-lock" id="syncLock" hidden>
+  <div class="sl-card">
+    <div class="sl-ic" id="slIc"></div>
+    <div class="sl-t">正在从商旅同步</div>
+    <div class="sl-bar"><div class="sl-fill" id="slFill" style="width:0%"></div></div>
+    <div class="sl-p" id="slPct">0% · 同步完成前出工日志暂不可操作</div>
+  </div>
+</div>
 
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
@@ -1180,7 +1218,9 @@ function photoHTML(p) {
   var syncCls = p.sgcc_synced === 1 ? '商旅' : (p.sgcc_synced === 2 ? 'fail' : '');
   var html = '<figure class="ph' + (syncCls ? ' has-sync' : '') + '" data-pid="' + p.id + '">'
     + '<img src="' + esc(p.url) + '" loading="lazy" alt="' + (plain ? '非水印照片' : '水印照片') + '">'
-    + (st ? '<span class="ph-st ' + st.cls + '">' + st.txt + '</span>' : '');
+    /* 验证状态角标可点击（识别中 pending 除外）：进手动修正层 */
+    + (st ? '<span class="ph-st ' + st.cls + (p.verify_status !== 'pending' ? ' ed' : '') + '"' +
+      (p.verify_status !== 'pending' ? ' title="点击修正水印信息"' : '') + '>' + st.txt + '</span>' : '');
   if (p.sgcc_synced === 1) html += '<span class="ph-sync" title="已同步至商旅费用照片">商旅</span>';
   else if (p.sgcc_synced === 2) html += '<span class="ph-sync fail" title="同步商旅失败，可在大图中重试">同步失败</span>';
   if (mis.length) {
@@ -1249,8 +1289,14 @@ function clockPersonHTML(m, ck) {
 
 function cardHTML(e, idx, total) {
   var noCar = e.vehicle_id == null;
+  /* 每日定时核查进行中：当日出车卡整卡锁定（遮罩 + 进度；kind=daily 仅当日口径） */
+  var dlock = dailyLocking && e.log_date === todayStr() && !noCar;
   var html = '<article class="card log-card anim-in" data-eid="' + e.id + '">'
     + '<div class="hazard-top"></div>'
+    + (dlock
+      ? '<div class="card-lock"><div class="cl-box"><div class="cl-bar"><div class="cl-fill" style="width:' + dailyPct + '%"></div></div>'
+        + '<div class="cl-t">夜间同步中 <span class="cl-p">' + dailyPct + '</span>% · 暂不可操作</div></div></div>'
+      : '')
     + '<div class="log-h" data-act="edit" title="点击修改派车 / 用车人"><b>' + esc(noCar ? '站内作业' : e.plate_no) + '</b>'
     + '<small>' + esc(state.date.replace(/-/g, '.')) + ' · 第 ' + (idx + 1) + ' / ' + total + ' 条</small>'
     + verifyTag(e)
@@ -1523,10 +1569,12 @@ function renderLB() {
     + '<div class="lb-main">'
     + '<div class="lb-stage"><img class="lb-img" alt="' + (plain ? '非水印照片大图' : '水印照片大图') + '"><div class="lb-count">' + (lbInst.idx + 1) + ' / ' + lbInst.items.length + '</div></div>'
     + '<aside class="lb-side">' + side
-    /* 照片直改（同小程序）：可下载；验证失败可重新验证；人名可改；可删除 */
+    /* 照片直改（同小程序）：可下载；验证失败可重新验证；识别中之外可手动修正水印信息；人名可改；可删除 */
     + '<div class="lb-acts">'
     + (p.verify_status === 'failed'
       ? '<button class="btn btn-sm" data-lba="retry">' + Shade.icon('refresh', 14) + '重新验证</button>' : '')
+    + (!plain && p.verify_status !== 'pending'
+      ? '<button class="btn btn-sm" data-lba="wmedit">' + Shade.icon('edit', 14) + '手动修正</button>' : '')
     + '<button class="btn btn-sm" data-lba="dl">' + Shade.icon('download', 14) + '下载照片</button>'
     + '<button class="btn btn-sm" data-lba="members">' + Shade.icon('user', 14) + '修改人名</button>'
     + '<button class="btn btn-sm act-danger" data-lba="del">' + Shade.icon('delete', 14) + '删除照片</button>'
@@ -1550,6 +1598,7 @@ function renderLB() {
       var act = b.dataset.lba;
       if (act === 'retry') { retryVerify(photo.id); return; }
       if (act === 'resync') { resyncSgccPhoto(photo.id); return; }
+      if (act === 'wmedit') { var weEn = findEntry(lbInst.eid); if (weEn) openWmEditModal(weEn, photo); return; }
       if (act === 'dl') { downloadPhoto(photo); return; }
       if (act === 'del') { deletePhoto(photo.id); return; }
       var en = findEntry(lbInst.eid);
@@ -2069,6 +2118,68 @@ async function retryVerify(pid) {
   } catch (e) {
     Shade.toast(e.message, 'error');
   }
+}
+
+/* ---------- 水印信息手动修正（Dify 小概率识别出错时用；验证状态角标 / 大图「手动修正」进入；
+   保存走 PUT /photos/:id/wm，服务端按记录日期与派车目的地重新核验） ---------- */
+function openWmEditModal(entry, photo) {
+  function row(lab, id, val, ph) {
+    return '<label class="f-lab">' + lab + '</label>'
+      + '<input class="f-sel" id="' + id + '" style="height:40px" maxlength="255" autocomplete="off" placeholder="' + (ph || '') + '">';
+  }
+  var html = mHead('水印信息修正')
+    + '<div class="f-hint" style="margin:0 0 4px">Dify 小概率识别出错时手动修正；保存后重新判定本卡验证（日期须为记录当天 ' + esc(entry.log_date || '') + '，地点须包含派车目的地）。</div>'
+    + row('施工内容', 'wmContent', '', '如 110kVXX线巡视')
+    + row('拍摄时间（YYYY.MM.DD HH:mm）', 'wmTime', '', '如 2026.08.19 10:02')
+    + row('天气', 'wmWeather', '', '如 晴 28℃')
+    + row('地点（须包含派车目的地）', 'wmLocation', '', '如 山西省吕梁市孝义市…')
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    + '<div>' + row('经度', 'wmLng', '', '选填') + '</div>'
+    + '<div>' + row('纬度', 'wmLat', '', '选填') + '</div>'
+    + '</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">保存并重验</button></div>';
+  var inst = createModal(html, { width: 520 });
+  $('#wmContent', inst.box).value = photo.work_content || '';
+  $('#wmTime', inst.box).value = photo.shot_time || '';
+  $('#wmWeather', inst.box).value = photo.weather || '';
+  $('#wmLocation', inst.box).value = photo.location || '';
+  $('#wmLng', inst.box).value = photo.lng || '';
+  $('#wmLat', inst.box).value = photo.lat || '';
+  $('#wmContent', inst.box).focus();
+  var saving = false;
+  async function submit() {
+    var workContent = $('#wmContent', inst.box).value.trim();
+    var shotTime = $('#wmTime', inst.box).value.trim();
+    if (!workContent) { Shade.toast('施工内容不能为空', 'info'); return; }
+    if (!shotTime) { Shade.toast('拍摄时间不能为空', 'info'); return; }
+    if (saving) return;
+    saving = true;
+    try {
+      await Shade.api(wl('/api/v1/worklog/photos/' + photo.id + '/wm'), {
+        method: 'PUT',
+        body: {
+          workContent: workContent,
+          shotTime: shotTime,
+          weather: $('#wmWeather', inst.box).value.trim(),
+          location: $('#wmLocation', inst.box).value.trim(),
+          lng: $('#wmLng', inst.box).value.trim(),
+          lat: $('#wmLat', inst.box).value.trim()
+        }
+      });
+      inst.close();
+      Shade.toast('已保存并重新判定验证', 'success');
+      refreshAfterEdit(); // 重拉后 refreshLightbox 按照片 id 重定位，信息卡与角标随数据更新
+    } catch (e) {
+      saving = false;
+      Shade.toast(e.message, 'error');
+    }
+  }
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+  $$('input', inst.box).forEach(function (inp) {
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+  });
 }
 /* ---------- 商旅同步失败重试（POST /api/v1/sgcc/photos/:id/resync；后端置回未同步后异步重传，刷新见最新状态） ---------- */
 async function resyncSgccPhoto(pid) {
@@ -3919,12 +4030,97 @@ function openSyncCheck() {
     try {
       var r = await Shade.api(wl('/api/v1/sgcc/sync/pull'), { method: 'POST', body: body });
       Shade.toast((r && r.message) || '拉取完成', 'success');
-      if (from <= state.date && state.date <= to) loadLogs(); // 区段覆盖当前选中日期：刷新卡片流以落最新数据
+      enterSyncLock(); // 发起后本机同入全局锁遮罩（完成后自动解锁刷新）
     } catch (e) {
       Shade.toast(e.message, 'error');
+      if (e && e.code === 40909) enterSyncLock(); // 已有进行中任务：并入锁态轮询
     }
     saving = false;
   });
+}
+
+/* ================= 批量从商旅同步 · 子应用全局锁 =================
+   本班组有批量拉取进行中时（任何人发起），出工日志全页进度遮罩，完成后解锁并刷新；
+   进入页面与每 15s 空闲探测 GET /sgcc/sync/active，锁定中 1.5s 轮询（连续网络失败 20 次兜底解锁） */
+var slLocking = false;
+var dailyLocking = false; // 每日定时核查锁（kind=daily）：进行中时当日出车卡整卡锁定 + 进度条
+var dailyPct = 0;
+function setSyncPct(pct) {
+  $('#slFill').style.width = pct + '%';
+  $('#slPct').textContent = pct + '% · 同步完成前出工日志暂不可操作';
+}
+async function checkSyncLock() {
+  if (slLocking) return;
+  try {
+    var r = await Shade.api(wl('/api/v1/sgcc/sync/active'));
+    var d = r.data || {};
+    if (d.running) enterSyncLock();
+    // 每日定时核查：进行中 → 当日出车卡整卡锁定（仅当日口径）
+    if (d.daily && d.daily.running) enterDailyLock();
+  } catch (e) { /* 商旅未开启 / 网络异常：不锁定 */ }
+}
+function enterSyncLock() {
+  if (slLocking) return;
+  slLocking = true;
+  setSyncPct(0);
+  $('#syncLock').hidden = false;
+  pollSyncLock();
+}
+async function pollSyncLock() {
+  var fails = 0;
+  while (slLocking) {
+    var p = null;
+    try {
+      var r = await Shade.api(wl('/api/v1/sgcc/sync/active'));
+      p = r.data || {};
+    } catch (e) { fails += 1; }
+    if (p && p.running) {
+      fails = 0;
+      setSyncPct(p.total ? Math.min(99, Math.round(p.done / p.total * 100)) : 0);
+    } else if (p || fails > 20) {
+      break; // 完成（或连续失败兜底）
+    }
+    await new Promise(function (r) { setTimeout(r, 1500); });
+  }
+  slLocking = false;
+  $('#syncLock').hidden = true;
+  Shade.toast('从商旅同步完成', 'success');
+  loadLogs({ quiet: true });
+  if (state.pane === 'Rep') loadReport();
+}
+
+/* ---------- 每日定时核查（kind=daily）：进行中当日出车卡整卡锁定 + 进度条，完成后解锁刷新 ---------- */
+function enterDailyLock() {
+  if (dailyLocking) return;
+  dailyLocking = true;
+  dailyPct = 0;
+  renderCards(true); // 重渲染让当日出车卡挂锁
+  pollDailyLock();
+}
+function updateDailyLocks() {
+  $$('.card-lock .cl-fill').forEach(function (el) { el.style.width = dailyPct + '%'; });
+  $$('.card-lock .cl-p').forEach(function (el) { el.textContent = dailyPct; });
+}
+async function pollDailyLock() {
+  var fails = 0;
+  while (dailyLocking) {
+    var p = null;
+    try {
+      var r = await Shade.api(wl('/api/v1/sgcc/sync/active'));
+      p = r.data || {};
+    } catch (e) { fails += 1; }
+    if (p && p.daily && p.daily.running) {
+      fails = 0;
+      dailyPct = p.daily.total ? Math.min(99, Math.round(p.daily.done / p.daily.total * 100)) : 0;
+      updateDailyLocks();
+    } else if (p || fails > 20) {
+      break; // 完成（或连续失败兜底）
+    }
+    await new Promise(function (r) { setTimeout(r, 1500); });
+  }
+  dailyLocking = false;
+  dailyPct = 0;
+  loadLogs({ quiet: true }); // 解锁并落最新数据（卡片角标 / 打卡区随同步结果更新）
 }
 
 /* ================= 汇总前核验（页签内嵌：整月切换，仅未通过记录） ================= */
@@ -4177,6 +4373,16 @@ function initEvents() {
       if (act === 'addphoto') { openAddSheet(entry); return; }
       return;
     }
+    /* 验证状态角标（可点击进手动修正；不冒泡到大图） */
+    var stEl = e.target.closest('.ph-st.ed');
+    if (stEl) {
+      var stFig = stEl.closest('.ph[data-pid]');
+      var stCd = stFig && stFig.closest('.log-card');
+      var stEn = stCd && findEntry(+stCd.dataset.eid);
+      var stPhoto = stEn && (stEn.photos || []).filter(function (x) { return x.id === +stFig.dataset.pid; })[0];
+      if (stEn && stPhoto) openWmEditModal(stEn, stPhoto);
+      return;
+    }
     var fig = e.target.closest('.ph[data-pid]');
     if (fig) {
       var cd = fig.closest('.log-card');
@@ -4277,6 +4483,8 @@ async function init() {
   moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
   $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
   $('#btnSyncCheck').innerHTML = Shade.icon('refresh', 15) + '从商旅拉取';
+  $('#slIc').innerHTML = Shade.icon('refresh', 22); // 全局锁遮罩图标
+  setInterval(checkSyncLock, 15000); // 批量同步全局锁空闲探测（锁定中 1.5s 轮询，见 pollSyncLock）
   $('#dlGo').innerHTML = Shade.icon('download', 15) + '打包下载';
   $('#tsPrev').innerHTML = Shade.icon('file', 15) + '预览';
   $('#tsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
@@ -4321,6 +4529,7 @@ async function init() {
   if (me.role === 'admin') await setupTeamSel();
 
   initEvents();
+  checkSyncLock(); // 进入页面即探测批量同步全局锁（进行中直接出遮罩）
   syncCalMonth(parseDate(state.date));
   loadCalMonth(true); // 月历先渲染（API 失败也保证网格展示），着色数据回来后补色
   loadLogs();

@@ -161,7 +161,14 @@
           <view class="ph-right">
             <!-- ① 照片验证情况（非水印照片不做验证、不显示验证状态）+ 商旅同步标（已同步蓝标 / 失败红标重试） -->
             <view class="ph-status">
-              <text class="vtag {{p.verify.cls}}" wx:if="{{!p.isPlain}}">{{p.verify.text}}</text>
+              <!-- 验证状态可点击（识别中除外）：弹水印信息修正层，修正 Dify 识别错误后重新核验 -->
+              <text
+                class="vtag {{p.verify.cls}} {{p.editable ? 'ed' : ''}}"
+                wx:if="{{!p.isPlain}}"
+                hover-class="{{p.editable ? 'hover-opacity' : ''}}"
+                catchtap="onWmEdit"
+                data-pid="{{p.id}}"
+              >{{p.verify.text}}</text>
               <text class="sync-tag" wx:if="{{p.sgccSynced === 1}}">已同步商旅</text>
               <text
                 class="sync-retry"
@@ -289,16 +296,19 @@
         </view>
       </view>
 
-      <!-- 从商旅同步进度条：本卡同步中呈现（完成前覆盖操作区上方；进度轮询 /sgcc/sync/progress） -->
-      <view class="card-sync" wx:if="{{item.syncing}}">
-        <view class="cs-bar"><view class="cs-fill" style="width: {{item.syncPct}}%"></view></view>
-        <text class="cs-t">从商旅同步中 {{item.syncPct}}%</text>
-      </view>
       <view class="lc-actions">
-        <!-- 从商旅同步：仅拉取本卡用车人的当日数据（与打卡区 showClock 同门控，后端未开启商旅时不显示；同步中由进度条顶替） -->
+        <!-- 从商旅同步：仅拉取本卡用车人的当日数据（与打卡区 showClock 同门控，后端未开启商旅时不显示；同步中整卡锁定不显示） -->
         <view class="act act-sync" wx:if="{{item.showClock && !item.syncing}}" hover-class="hover-opacity" bindtap="onSyncPull" data-date="{{day.dateStr}}" data-id="{{item.id}}">从商旅同步</view>
         <view class="act act-note" hover-class="hover-opacity" bindtap="onOpenRemark" data-id="{{item.id}}">备 注</view>
         <view class="act act-del" hover-class="hover-opacity" bindtap="onDelete" data-id="{{item.id}}">删 除</view>
+      </view>
+    </view>
+
+    <!-- 从商旅同步进度：本卡手动同步 / 每晚定时核查进行中时整卡锁定（遮罩阻断全部操作，进度条居中；读完前不可操作） -->
+    <view class="card-lock" wx:if="{{item.syncing}}" catchtap="onSyncLockTap">
+      <view class="cs-box">
+        <view class="cs-bar"><view class="cs-fill" style="width: {{item.syncPct}}%"></view></view>
+        <text class="cs-t">从商旅同步中 {{item.syncPct}}% · 暂不可操作</text>
       </view>
     </view>
   </view>
@@ -318,7 +328,7 @@
   </view>
 </view>
 
-<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 工作任务单（超管 / 班组管理员）/ 费用汇总（超管 / 班组管理员）/ 派车对齐（超管 / 班组管理员）/ 批量下载 / 汇总前核验 / 新建日志；
+<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 工作任务单（超管 / 班组管理员）/ 费用汇总（超管 / 班组管理员）/ 派车对齐（超管 / 班组管理员）/ 批量从商旅同步 / 批量下载 / 汇总前核验 / 新建日志；
      原底部固定操作区（含底色条 bottombar）已删除，内容区直通屏幕底边 -->
 <view class="fab-mask" wx:if="{{fabOpen}}" bindtap="onFabToggle"></view>
 <view class="fabs" wx:if="{{gate && !noTeam}}">
@@ -338,6 +348,10 @@
     <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onDispatch">
       <text class="fab-lab">派车对齐</text>
       <view class="fab"><t-icon name="file-copy" size="40rpx" color="#22314E" /></view>
+    </view>
+    <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenBatchSync">
+      <text class="fab-lab">批量从商旅同步</text>
+      <view class="fab"><t-icon name="refresh" size="40rpx" color="#22314E" /></view>
     </view>
     <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenDownload">
       <text class="fab-lab">批量下载</text>
@@ -657,7 +671,7 @@
 </t-popup>
 
 <!-- 汇总前核验面板（设计稿⑩，替代原「验证报告」；按月列未通过记录卡片，默认当月、可翻月不看未来，
-     数据取 /worklog/report；点卡跳到该日定位；底部「批量从商旅同步」选区段手动拉取（同网页端页头「从商旅拉取」），「确认」关面板） -->
+     数据取 /worklog/report；点卡跳到该日定位；「确认」关面板；批量从商旅同步已迁移至悬浮钮独立面板） -->
 <t-popup visible="{{rpVisible}}" placement="bottom" bind:visible-change="onRpVisibleChange">
   <view class="sheet">
     <view class="sheet-title">汇总前核验</view>
@@ -693,12 +707,8 @@
       </block>
     </scroll-view>
     <view class="sheet-actions">
-      <!-- 批量从商旅同步：选区段手动拉取（同网页端页头「从商旅拉取」，POST /sgcc/sync/pull {from,to} 异步执行）；确认 = 关闭弹层 -->
-      <view class="btn-ghost sync-btn" hover-class="hover-opacity" bindtap="onRpSyncPull">
-        <t-icon name="refresh" size="32rpx" color="#6B7690" />
-        批量从商旅同步
-      </view>
-      <view class="btn-dark" hover-class="hover-opacity" bindtap="onCloseReport">
+      <!-- 批量同步入口已迁移至悬浮钮「批量从商旅同步」面板；此处仅保留确认关面板 -->
+      <view class="btn-dark" style="flex:1" hover-class="hover-opacity" bindtap="onCloseReport">
         <t-icon name="check" size="34rpx" color="#FFFFFF" />
         确 认
       </view>
@@ -706,7 +716,49 @@
   </view>
 </t-popup>
 
-<!-- 批量从商旅同步：range 日历选区段（与汇总前核验面板互斥开合，同下载面板口径；区段最多跨 62 天，服务端口径） -->
+<!-- 批量从商旅同步面板（悬浮钮入口，与数据管理/工作任务单/批量下载/汇总前核验同级）：
+     区段拉取（进行中出工日志子应用全局锁定，见 sync-mask）+ 同步日志（成功仅汇总条数，失败逐条明细；管理员可一键清除） -->
+<t-popup visible="{{bsVisible}}" placement="bottom" bind:visible-change="onBsVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">批量从商旅同步</view>
+    <view class="sheet-note">拉取班组内全部已绑定成员的打卡 / 费用 / 照片，以商旅平台为准覆盖本地；同步进行中出工日志全局锁定</view>
+    <view class="bs-range">
+      <text class="bs-range-text">{{bsFrom}} ~ {{bsTo}}</text>
+      <view class="bs-range-open" hover-class="hover-opacity" bindtap="onBsChangeDate">改日期</view>
+    </view>
+    <view class="btn-dark bs-go" hover-class="hover-opacity" bindtap="onBsSync">
+      <t-icon name="refresh" size="34rpx" color="#FFFFFF" />
+      发起同步
+    </view>
+    <view class="bs-log-h">
+      <text class="bs-log-t">同步日志</text>
+      <view class="bs-log-clear" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onBsClearLogs">清除全部记录</view>
+    </view>
+    <scroll-view scroll-y class="bs-log-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="dl-empty" wx:if="{{bsLoading}}">加载中…</view>
+      <block wx:if="{{!bsLoading}}">
+        <view class="bs-ok" wx:if="{{bsOkCount > 0}}">
+          <t-icon name="check" size="30rpx" color="#2BA471" />
+          <text>成功同步 {{bsOkCount}} 条记录</text>
+        </view>
+        <view class="bs-fail" wx:for="{{bsFails}}" wx:key="id">
+          <view class="bs-fail-h">
+            <text class="d">{{item.dateText}}</text>
+            <text class="m">{{item.memberName || '未匹配成员'}}</text>
+            <text class="t">{{item.typeText}}</text>
+          </view>
+          <view class="bs-fail-d">{{item.detail}}</view>
+        </view>
+        <view class="dl-empty" wx:if="{{!bsOkCount && !bsFails.length}}">该区段暂无同步记录</view>
+      </block>
+    </scroll-view>
+    <view class="sheet-actions">
+      <view class="btn-dark" style="flex:1" hover-class="hover-opacity" bindtap="onBsClose">关 闭</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 批量从商旅同步改区段：range 日历（与同步面板互斥开合；confirm 取 e.detail.value 两个时间戳） -->
 <t-calendar
   visible="{{sgCalVisible}}"
   value="{{sgCalValue}}"
@@ -720,6 +772,41 @@
   bind:confirm="onSgCalConfirm"
   bind:close="onSgCalClose"
 />
+
+<!-- 水印信息修正弹层（照片验证状态点击进入；修正 Dify 识别错误后按记录日期与派车目的地重新核验） -->
+<t-popup visible="{{wmEditVisible}}" placement="bottom" bind:visible-change="onWmEditVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">水印信息修正</view>
+    <view class="sheet-note">Dify 小概率识别出错时手动修正；保存后重新判定本卡验证</view>
+    <scroll-view scroll-y class="we-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="we-lab">施工内容</view>
+      <input class="we-in" value="{{wmEditDraft.content}}" data-k="content" bindinput="onWmEditInput" maxlength="200" placeholder="如 110kVXX线巡视" placeholder-class="ph" />
+      <view class="we-lab">拍摄时间（YYYY.MM.DD HH:mm，日期须为记录当天）</view>
+      <input class="we-in" value="{{wmEditDraft.time}}" data-k="time" bindinput="onWmEditInput" maxlength="32" placeholder="如 2026.08.19 10:02" placeholder-class="ph" />
+      <view class="we-lab">天气</view>
+      <input class="we-in" value="{{wmEditDraft.weather}}" data-k="weather" bindinput="onWmEditInput" maxlength="64" placeholder="如 晴 28℃" placeholder-class="ph" />
+      <view class="we-lab">地点（须包含派车目的地）</view>
+      <input class="we-in" value="{{wmEditDraft.location}}" data-k="location" bindinput="onWmEditInput" maxlength="255" placeholder="如 山西省吕梁市孝义市…" placeholder-class="ph" />
+      <view class="we-2col">
+        <view>
+          <view class="we-lab">经度</view>
+          <input class="we-in" value="{{wmEditDraft.lng}}" data-k="lng" bindinput="onWmEditInput" maxlength="32" placeholder="选填" placeholder-class="ph" />
+        </view>
+        <view>
+          <view class="we-lab">纬度</view>
+          <input class="we-in" value="{{wmEditDraft.lat}}" data-k="lat" bindinput="onWmEditInput" maxlength="32" placeholder="选填" placeholder-class="ph" />
+        </view>
+      </view>
+    </scroll-view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onWmEditClose">取 消</view>
+      <view class="btn-dark {{wmEditSaving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onWmEditSave">
+        <t-icon name="check" size="34rpx" color="#FFFFFF" />
+        {{wmEditSaving ? '保存中…' : '保存并重验'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
 
 <!-- 下载面板改日期：range 日历（与下载面板互斥开合；confirm 取 e.detail.value 两个时间戳） -->
 <t-calendar
@@ -1186,13 +1273,13 @@
 <!-- 裁剪导出用离屏 canvas（type=2d；导出尺寸在 JS 中按裁剪结果设置） -->
 <canvas type="2d" id="wmCropCanvas" class="crop-canvas" />
 
-<!-- 批量从商旅同步：全页进度遮罩（数据全部拉取完成前覆盖出工日志页面；z-index 压过全部弹层） -->
+<!-- 批量从商旅同步：全页进度遮罩（本班组批量拉取进行中时任何人进入出工日志均被覆盖，完成后解锁；z-index 压过全部弹层） -->
 <view class="sync-mask" wx:if="{{sgSyncVisible}}">
   <view class="sync-card">
     <view class="sync-ic"><t-icon name="refresh" size="44rpx" color="#F26D21" /></view>
     <view class="sync-t">正在从商旅同步</view>
     <view class="sync-bar"><view class="sync-fill" style="width: {{sgSyncPct}}%"></view></view>
-    <view class="sync-p">{{sgSyncPct}}% · 数据拉取完成前请稍候</view>
+    <view class="sync-p">{{sgSyncPct}}% · 同步完成前出工日志暂不可操作</view>
   </view>
 </view>
 

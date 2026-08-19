@@ -115,6 +115,7 @@ function mapPhoto(p) {
     workContent: p.work_content || '',
     verify,
     statusKey: p.verify_status, // failed 时显示「重新验证」按钮
+    editable: !isPlain && p.verify_status !== 'pending', // 验证状态可点击进手动修正（识别中不可改）
     pending: !isPlain && p.verify_status === 'pending', // 轮询依据（非水印 skipped 不进轮询）
     shotTime: p.shot_time || '',
     weather: p.weather || '',
@@ -257,12 +258,23 @@ Page({
     rpLoading: false,
     rpIssues: [], // [{id, logDate, dateText, plateText, membersText, reasons}]
     rpOkText: '', // 绿色通过态文案（其余 N 条全部通过 / 当月无未通过记录）
-    // 批量从商旅同步改区段（range 日历；与核验面板互斥开合，同下载面板口径）
+    // 批量从商旅同步面板（悬浮钮入口；改区段 range 日历与面板互斥开合，同下载面板口径）
+    bsVisible: false,
+    bsFrom: '', // 同步区段起 YYYY-MM-DD（默认当月 1 日）
+    bsTo: '', // 止（默认今天）
+    bsLoading: false,
+    bsOkCount: 0, // 区段内成功记录条数（仅汇总展示）
+    bsFails: [], // 失败明细 [{id, dateText, memberName, typeText, detail}]
     sgCalVisible: false,
     sgCalValue: null,
-    // 批量从商旅同步：全页进度遮罩（数据全部拉取完成前覆盖页面；进度轮询 GET /sgcc/sync/progress）
+    // 批量从商旅同步：全页进度遮罩（本班组有批量拉取进行中时任何人进入出工日志均被覆盖，完成后解锁；轮询 GET /sgcc/sync/active）
     sgSyncVisible: false,
     sgSyncPct: 0,
+    // ---------- 水印信息手动修正弹层（Dify 识别出错时用；保存后按记录日期与目的地重新核验） ----------
+    wmEditVisible: false,
+    wmEditPhotoId: 0,
+    wmEditDraft: { content: '', time: '', weather: '', location: '', lng: '', lat: '' },
+    wmEditSaving: false,
     // ---------- 商旅打卡 · 打卡确认弹层（开始/结束/更新共用） ----------
     ckVisible: false,
     ckTitle: '', // 「开始打卡 · 姓名」/「结束打卡 · 姓名」/「更新打卡地点 · 姓名」
@@ -418,6 +430,8 @@ Page({
 
   onShow() {
     if (this.data.gate && !this.data.noTeam) this.loadLogs();
+    this._lockCheckedAt = 0; // 切回页面强制探测一次全局锁（批量同步进行中立即出遮罩）
+    if (this.data.gate && !this.data.noTeam) this.checkSgccLock();
   },
 
   onHide() {
@@ -436,6 +450,15 @@ Page({
     }
     Object.keys(this._jobTimers || {}).forEach((k) => clearTimeout(this._jobTimers[k])); // 同步进度轮询全部停止
     this._jobTimers = {};
+    if (this._lockTimer) { // 全局锁遮罩轮询
+      clearTimeout(this._lockTimer);
+      this._lockTimer = null;
+    }
+    if (this._dailyTimer) { // 每日核查锁轮询
+      clearTimeout(this._dailyTimer);
+      this._dailyTimer = null;
+    }
+    this._dailySync = null;
   },
 
   toast(message) {
@@ -615,6 +638,7 @@ Page({
       this.setCurPane(list);
       this.schedulePoll(list);
       if (this.data.rpVisible) this.loadReport(); // 汇总前核验面板开着时随列表重查（按月口径）
+      this.checkSgccLock(); // 批量从商旅同步全局锁探测（10s 节流）
       if (this.data.win.length) this.prefetchDays();
       else this.buildWin();
     } catch (err) {
@@ -634,11 +658,13 @@ Page({
       const showClock = !!e.vehicle_id && members.some((m) => m.sgccBound !== undefined);
       // 打卡仅当日开放（含更新，当日口径与后端 40041 一致）；非当日打卡 chip 置锁、副文案提示；费用修改不受限
       const ckReadonly = e.log_date !== fmtDate(new Date());
-      const syncJob = (this._syncJobs || {})[e.id]; // 从商旅同步进行中：卡片挂进度条（切日窗格重建不丢）
+      // 同步进度：本卡手动同步（_syncJobs）优先；否则每晚定时核查进行中时当日出车卡同挂进度条（_dailySync）
+      const syncJob = (this._syncJobs || {})[e.id];
+      const dailyHit = !syncJob && this._dailySync && e.log_date === fmtDate(new Date()) && !!e.vehicle_id;
       return {
         id: e.id,
-        syncing: !!syncJob,
-        syncPct: syncJob ? syncJob.pct : 0,
+        syncing: !!syncJob || dailyHit,
+        syncPct: syncJob ? syncJob.pct : (dailyHit ? this._dailySync.pct : 0),
         hasVehicle: !!e.vehicle_id,
         plateText: e.vehicle_id ? e.plate_no : '未出车',
         badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
@@ -3002,7 +3028,7 @@ Page({
   },
 
   // ---------- 汇总前核验（设计稿⑩：替代原「验证报告」；按月列未通过记录，默认当月可翻月，数据取 /worklog/report） ----------
-  // 底部操作：「批量从商旅同步」选区段手动拉取（同网页端页头「从商旅拉取」，POST /sgcc/sync/pull {from,to}）；「确认」关面板
+  // 底部仅「确认」关面板；批量从商旅同步已迁移至悬浮钮独立面板（见下方「批量从商旅同步」分区）
 
   // 月份 → 面板字段（rpMonthText 展示文案 / rpMonthAtCur 控制「下一月」置灰，不看未来月）
   rpMonthData(month) {
@@ -3080,24 +3106,40 @@ Page({
     this.scrollToCard(Number(id));
   },
 
-  // 「批量从商旅同步」：先关核验面板再开 range 日历选区段（互斥，同下载面板改日期口径）；
-  // 默认区段 = 当前查看月份全月（月末不越今天，不看未来）
-  onRpSyncPull() {
-    const [y, m] = this.data.rpMonth.split('-').map(Number);
-    const from = `${this.data.rpMonth}-01`;
-    const monthEnd = fmtDate(new Date(y, m, 0));
-    const today = fmtDate(new Date());
-    const to = monthEnd < today ? monthEnd : today;
+  // ---------- 批量从商旅同步（悬浮钮独立面板，与数据管理/工作任务单/批量下载/汇总前核验同级） ----------
+  // 区段拉取 POST /sgcc/sync/pull {from,to}；进行中出工日志子应用全局锁定（任何端任何人被进度遮罩覆盖，完成后解锁）；
+  // 面板内同步日志：成功仅汇总「成功同步 N 条记录」，失败逐条明细；管理员可一键清除全部同步记录
+
+  onOpenBatchSync() {
+    const now = new Date();
     this.setData({
-      rpVisible: false,
-      sgCalValue: [parseDate(from).getTime(), parseDate(to).getTime()],
+      bsVisible: true,
+      fabOpen: false,
+      bsFrom: this.data.bsFrom || `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`,
+      bsTo: this.data.bsTo || fmtDate(now),
+    });
+    this.loadBsLogs();
+  },
+
+  onBsClose() {
+    this.setData({ bsVisible: false });
+  },
+
+  onBsVisibleChange(e) {
+    if (!e.detail.visible && this.data.bsVisible) this.setData({ bsVisible: false });
+  },
+
+  // 「改日期」：先关同步面板再开 range 日历（互斥，同下载面板改日期口径）
+  onBsChangeDate() {
+    this.setData({
+      bsVisible: false,
+      sgCalValue: [parseDate(this.data.bsFrom).getTime(), parseDate(this.data.bsTo).getTime()],
       sgCalVisible: true,
     });
   },
 
-  // range 日历确认：发起批量拉取（区段最多跨 62 天，服务端口径；逐日串行异步执行，
-  // 数据全部拉取完成前全页进度条覆盖，进度轮询 /sgcc/sync/progress；旧服务端无 jobId 时回退 8 秒静默刷新）
-  async onSgCalConfirm(e) {
+  // range 日历确认：回写同步面板区段并重开面板、重查日志（区段最多跨 62 天，服务端口径）
+  onSgCalConfirm(e) {
     const value = e.detail.value;
     if (!Array.isArray(value) || value.length < 2) {
       this.toast('请选择起止日期');
@@ -3110,45 +3152,259 @@ Page({
       this.toast('日期区段最多跨 62 天');
       return;
     }
-    this.setData({ sgCalVisible: false, rpVisible: true }); // 重开核验面板
-    let data = null;
-    try {
-      data = await request({ url: '/api/v1/sgcc/sync/pull', method: 'POST', data: this.teamBody({ from, to }) });
-      // 响应文案口径同服务端：M月D日（不补零）
-      const md = (s) => `${Number(s.slice(5, 7))}月${Number(s.slice(8, 10))}日`;
-      this.toast(from === to ? `已发起从商旅拉取（${md(from)}）` : `已发起从商旅拉取（${md(from)} 至 ${md(to)}）`);
-    } catch (err) {
-      this.toast(err.message);
-      return;
-    }
-    if (data && data.jobId) {
-      this.startBatchSync(data.jobId);
-      return;
-    }
-    // 与单卡「从商旅同步」同口径：8 秒静默刷新看结果（核验面板开着时重查，列表始终刷新）
-    if (this._pullTimer) clearTimeout(this._pullTimer);
-    this._pullTimer = setTimeout(() => {
-      if (this.data.rpVisible) this.loadReport();
-      this.loadLogs();
-    }, 8000);
+    this.setData({ sgCalVisible: false, bsVisible: true, bsFrom: from, bsTo: to });
+    this.loadBsLogs();
   },
 
-  // 批量同步全页进度条：遮罩覆盖出工日志页面直至任务完成；完成后静默刷新核验面板与卡片列表
-  async startBatchSync(jobId) {
-    this.setData({ sgSyncVisible: true, sgSyncPct: 0 });
-    await this.pollSyncJob(jobId, (pct) => {
-      if (this.data.sgSyncVisible) this.setData({ sgSyncPct: pct });
-    });
-    this.setData({ sgSyncVisible: false, sgSyncPct: 100 });
-    this.toast('从商旅同步完成');
-    if (this.data.rpVisible) this.loadReport();
-    this.loadLogs();
-  },
-
-  // 未选直接关闭日历：重开核验面板（保留原查看月份）
+  // 未选直接关闭日历：重开同步面板（保留原区段）
   onSgCalClose() {
     if (!this.data.sgCalVisible) return;
-    this.setData({ sgCalVisible: false, rpVisible: true });
+    this.setData({ sgCalVisible: false, bsVisible: true });
+  },
+
+  // 「发起同步」：POST /sgcc/sync/pull {from,to}；本机与他人同入全局锁遮罩（40909 = 已有进行中任务，并入锁态轮询）
+  async onBsSync() {
+    const { bsFrom, bsTo } = this.data;
+    if (!bsFrom || !bsTo) return;
+    if (this.data.sgSyncVisible) {
+      this.toast('已有批量同步进行中，请等待完成');
+      return;
+    }
+    try {
+      await request({ url: '/api/v1/sgcc/sync/pull', method: 'POST', data: this.teamBody({ from: bsFrom, to: bsTo }) });
+      this.toast('已发起批量从商旅同步');
+    } catch (err) {
+      this.toast(err.message);
+      if (err.code !== 40909) return;
+    }
+    this.lockByActive(); // 无论本机发起还是他人进行中：进入全局锁轮询
+  },
+
+  // 同步日志：区段内成功仅计条数（ok/diff 均为成功同步），失败逐条明细
+  async loadBsLogs() {
+    const { bsFrom, bsTo } = this.data;
+    if (!bsFrom || !bsTo) return;
+    this.setData({ bsLoading: true });
+    try {
+      const data = await request({ url: `/api/v1/sgcc/sync/logs?from=${bsFrom}&to=${bsTo}${this.teamQuery()}` });
+      const list = (data && data.list) || [];
+      const TYPE = { auth: '登录态', clockin: '打卡', fee: '费用', photo: '费用照片' };
+      const fails = list
+        .filter((x) => x.result === 'fail')
+        .map((x) => ({
+          id: x.id,
+          dateText: `${Number(x.sync_date.slice(5, 7))}月${Number(x.sync_date.slice(8, 10))}日`,
+          memberName: x.member_name || '',
+          typeText: TYPE[x.type] || x.type,
+          detail: x.detail || '',
+        }));
+      this.setData({ bsLoading: false, bsOkCount: list.length - fails.length, bsFails: fails });
+    } catch (err) {
+      this.setData({ bsLoading: false });
+      this.toast(err.message);
+    }
+  },
+
+  // 「清除全部记录」（管理员）：二次确认后清空本班组同步日志
+  onBsClearLogs() {
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: '清除全部同步记录？',
+      content: '本班组全部同步日志将被清空，该操作不可恢复。',
+      confirmBtn: '清除',
+      cancelBtn: '取消',
+    })
+      .then(async () => {
+        try {
+          await request({ url: `/api/v1/sgcc/sync/logs${this.teamQuery('?')}`, method: 'DELETE' });
+          this.toast('已清除全部同步记录');
+          this.loadBsLogs();
+        } catch (err) {
+          this.toast(err.message);
+        }
+      })
+      .catch(() => {});
+  },
+
+  // ---------- 批量从商旅同步 · 子应用全局锁 ----------
+
+  // 进入 / 刷新出工日志时探测：本班组有批量拉取进行中则出全页进度遮罩（任何人同锁；10s 节流避免随列表轮询过频）
+  async checkSgccLock() {
+    if (this.data.noTeam || this.data.sgSyncVisible) return; // 已锁定（含本机发起）时由锁内轮询收口
+    const now = Date.now();
+    if (this._lockCheckedAt && now - this._lockCheckedAt < 10000) return;
+    this._lockCheckedAt = now;
+    try {
+      const p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
+      if (p && p.running) this.lockByActive();
+      // 每晚定时核查：进行中且当日在视图内 → 当日出车卡挂进度条并整卡锁定
+      if (p && p.daily && p.daily.running && !this._dailySync) this.enterDailySync();
+    } catch (err) { /* 商旅未开启 / 网络异常：不锁定 */ }
+  },
+
+  // 全局锁遮罩：1.5s 轮询 /sync/active 直至完成；完成后解锁并刷新列表 / 核验面板 / 同步日志
+  async lockByActive() {
+    if (this.data.sgSyncVisible) return;
+    this.setData({ sgSyncVisible: true, sgSyncPct: 0 });
+    let fails = 0;
+    const tick = async () => {
+      let p = null;
+      try {
+        p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
+      } catch (err) { /* 网络抖动：计数后续轮 */ }
+      if (!p) {
+        fails += 1;
+        if (fails <= 20) {
+          this._lockTimer = setTimeout(tick, 1500);
+          return;
+        }
+      } else if (p.running) {
+        fails = 0;
+        this.setData({ sgSyncPct: p.total ? Math.min(99, Math.round((p.done / p.total) * 100)) : 0 });
+        this._lockTimer = setTimeout(tick, 1500);
+        return;
+      }
+      // 完成（或连续失败兜底）：解锁并刷新
+      this._lockTimer = null;
+      this.setData({ sgSyncVisible: false, sgSyncPct: 100 });
+      this.toast('从商旅同步完成');
+      this.loadLogs();
+      if (this.data.rpVisible) this.loadReport();
+      if (this.data.bsVisible) this.loadBsLogs();
+    };
+    tick();
+  },
+
+  // ---------- 每日定时核查：当日出车卡片进度条 + 整卡不可操作（kind=daily，仅当日口径） ----------
+
+  // 进入核查锁：重映射当日列表挂进度条，并起 1.5s 轮询直至完成
+  enterDailySync() {
+    if (this._dailySync) return;
+    this._dailySync = { pct: 0 };
+    this.loadLogs(); // mapLogList 据 _dailySync 给当日出车卡挂进度条
+    this.pollDailySync();
+  },
+
+  async pollDailySync() {
+    let fails = 0;
+    while (this._dailySync) {
+      let p = null;
+      try {
+        p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
+      } catch (err) { /* 网络抖动：计数后续轮 */ }
+      if (p && p.daily && p.daily.running) {
+        fails = 0;
+        this._dailySync.pct = p.daily.total ? Math.min(99, Math.round((p.daily.done / p.daily.total) * 100)) : 0;
+        this.patchDailyCards();
+      } else if (p || fails > 20) {
+        break; // 完成（或连续失败兜底）
+      } else {
+        fails += 1;
+      }
+      await new Promise((r) => {
+        this._dailyTimer = setTimeout(r, 1500);
+      });
+    }
+    this._dailySync = null;
+    this._dailyTimer = null;
+    this.loadLogs(); // 解锁并落最新数据（卡片角标 / 打卡区随同步结果更新）
+  },
+
+  // 当日出车卡进度补丁（仅当前窗格；本卡手动同步中的卡由各自 jobId 轮询更新，不覆盖）
+  patchDailyCards() {
+    if (this.data.dateStr !== fmtDate(new Date())) return;
+    const update = {};
+    const applyTo = (list, path) => {
+      (list || []).forEach((c, ci) => {
+        if (c.hasVehicle && c.syncing && !(this._syncJobs || {})[c.id]) {
+          update[`${path}[${ci}].syncPct`] = this._dailySync.pct;
+        }
+      });
+    };
+    applyTo(this.data.list, 'list');
+    if (this.data.win.length === 3) applyTo(this.data.win[1].list, 'win[1].list');
+    if (Object.keys(update).length) this.setData(update);
+  },
+
+  // 同步锁定中的卡片点击：仅提示（遮罩已阻断全部操作入口）
+  onSyncLockTap() {
+    this.toast('正在从商旅同步，暂不可操作');
+  },
+
+  // ---------- 水印信息手动修正（Dify 识别出错时用；照片验证状态点击进入，保存后重新核验） ----------
+
+  onWmEdit(e) {
+    const pid = Number(e.currentTarget.dataset.pid);
+    let photo = null;
+    (this.data.list || []).forEach((c) => (c.photos || []).forEach((p) => { if (p.id === pid) photo = p; }));
+    if (!photo || !photo.editable) return;
+    this.setData({
+      wmEditVisible: true,
+      wmEditPhotoId: pid,
+      wmEditDraft: {
+        content: photo.workContent || '',
+        time: photo.shotTime || '',
+        weather: photo.weather || '',
+        location: photo.location || '',
+        lng: photo.lng || '',
+        lat: photo.lat || '',
+      },
+    });
+  },
+
+  onWmEditInput(e) {
+    const k = e.currentTarget.dataset.k;
+    this.setData({ [`wmEditDraft.${k}`]: e.detail.value });
+  },
+
+  onWmEditClose() {
+    if (this.data.wmEditSaving) return;
+    this.setData({ wmEditVisible: false });
+  },
+
+  onWmEditVisibleChange(e) {
+    if (e.detail.visible) return;
+    if (this.data.wmEditSaving) {
+      this.setData({ wmEditVisible: true }); // 保存中不允许遮罩关闭
+      return;
+    }
+    if (this.data.wmEditVisible) this.setData({ wmEditVisible: false });
+  },
+
+  // 保存：PUT /photos/:id/wm（服务端按记录日期与派车目的地重新核验），成功后刷新列表看角标
+  async onWmEditSave() {
+    if (this.data.wmEditSaving) return;
+    const d = this.data.wmEditDraft;
+    if (!d.content.trim()) {
+      this.toast('施工内容不能为空');
+      return;
+    }
+    if (!d.time.trim()) {
+      this.toast('拍摄时间不能为空');
+      return;
+    }
+    this.setData({ wmEditSaving: true });
+    try {
+      await request({
+        url: `/api/v1/worklog/photos/${this.data.wmEditPhotoId}/wm`,
+        method: 'PUT',
+        data: this.teamBody({
+          workContent: d.content.trim(),
+          shotTime: d.time.trim(),
+          weather: d.weather.trim(),
+          location: d.location.trim(),
+          lng: d.lng.trim(),
+          lat: d.lat.trim(),
+        }),
+      });
+      this.setData({ wmEditVisible: false, wmEditSaving: false });
+      this.toast('已保存并重新判定验证');
+      this.loadLogs();
+    } catch (err) {
+      this.setData({ wmEditSaving: false });
+      this.toast(err.message);
+    }
   },
 
   // 滚动到指定卡片并闪烁高亮（中间格滚区 scroll-into-view）；当前视图口径下无此卡（如「仅看我」未含该记录）时提示
