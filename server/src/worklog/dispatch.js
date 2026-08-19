@@ -3,8 +3,8 @@
 // 对齐口径（设计稿 design/worklog-dispatch-align.html 已审批）：
 //   · 仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略）
 //   · 导入行再按班组字典过滤：用车人中无本班成员（启用中）的行整行剔除（他班派车混入不进清单），全剔空报 400
-//   · 匹配键：日期（预计用车时间的日期部分）＋用车人（空格分隔姓名集合）
-//   · 同日内按用车人重合度贪心配对（重合最多者成对，0 重合不配）
+//   · 匹配键：日期（预计用车时间只取到天，忽略时分配对）＋用车人（空格分隔姓名集合）
+//   · 同日内按用车人重合度贪心配对（重合最多者成对；有 1 个对上即匹配，0 重合不配）
 //   · 目的地模糊比对：表格目的地常省略「市/县」等行政区字样（如卡片「孝义市」表格写「吕梁市孝义」），
 //     两侧去除「中国/省/市/县/区」后互相包含即视为一致（destSame）；表格目的地为空不约束
 //   · 差异类型：车牌不一致 / 用车人多出·缺少 / 目的地不一致（matched）；表格有系统无（sheetOnly）；系统有表格无（entryOnly，仅出车卡片）
@@ -12,12 +12,29 @@ const XLSX = require('xlsx');
 const { pool } = require('../db');
 
 const DISPATCH_TYPE = '用车申请调度';
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// 必需表头列（按表头名定位列索引，兼容列序变化；「目的地」列名出现两次，取首个）
-const REQUIRED = ['车牌号码', '驾驶员', '用车人', '预计用车时间', '目的地', '用车事由', '派车单类型', '派车单号'];
+// 预计用车时间 → YYYY-MM-DD（只取到天，忽略时分）。
+// 导出表该列格式不固定（2026-08-19 14:30 / 2026/8/19 / 2026年8月19日 / Excel 序列数），
+// 仅按 YYYY-MM-DD 前缀截取会把这些误判为「无法识别」而跳过整行，故逐格式归一：
+// ① 年[-/年.]月[-/月.]日 文本；② 5 位 Excel 序列数（单元格为 General 时导出为数字文本，SSF 口径含 1900 闰年修正）
+function parseSheetDate(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const m = /(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})/.exec(s);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const dc = XLSX.SSF.parse_date_code(Number(s));
+    if (dc) return `${dc.y}-${String(dc.m).padStart(2, '0')}-${String(dc.d).padStart(2, '0')}`;
+  }
+  return '';
+}
 
-// 解析单份派车单 → { rows, skipped }；表头缺列抛错（消息带文件名）
+// 必需列：关键四列固定列位（用户指定口径，严格遵循，不按表头名定位）——B=车牌号 / F=用车人 / G=预计用车时间 / K=目的地；
+// 辅助列（驾驶员/用车事由/派车单号/派车单类型）仅展示与过滤用，仍按表头名定位（缺列置空，派车单类型缺失才报错——行过滤无从谈起）
+const COL = { plate: 1, members: 5, time: 6, to: 10 }; // 0 基列索引：B/F/G/K
+const AUX = ['驾驶员', '用车事由', '派车单号', '派车单类型'];
+
+// 解析单份派车单 → { rows, skipped }；缺「派车单类型」表头列抛错（消息带文件名）
 function parseFile(buffer, fileName) {
   let rows;
   try {
@@ -29,33 +46,31 @@ function parseFile(buffer, fileName) {
   if (!rows.length) throw new Error(`「${fileName}」为空表`);
 
   const header = (rows[0] || []).map((c) => String(c).trim());
-  const idx = {};
-  for (const name of REQUIRED) {
-    idx[name] = header.indexOf(name);
-    if (idx[name] < 0) throw new Error(`「${fileName}」缺少必需列「${name}」，请使用派车系统原始导出表`);
-  }
+  const aux = {};
+  for (const name of AUX) aux[name] = header.indexOf(name);
+  if (aux['派车单类型'] < 0) throw new Error(`「${fileName}」缺少必需列「派车单类型」，请使用派车系统原始导出表`);
 
   const out = [];
   let skipped = 0;
   for (let i = 1; i < rows.length; i += 1) {
     const cells = (Array.isArray(rows[i]) ? rows[i] : []).map((c) => String(c).trim());
     if (cells.every((c) => !c)) continue; // 空行
-    if (cells[idx['派车单类型']] !== DISPATCH_TYPE) continue; // 维保调度等非出工行忽略
-    const date = (cells[idx['预计用车时间']] || '').slice(0, 10);
-    if (!DATE_RE.test(date)) {
+    if (cells[aux['派车单类型']] !== DISPATCH_TYPE) continue; // 维保调度等非出工行忽略
+    const date = parseSheetDate(cells[COL.time]); // G 列，只取到天，忽略时分
+    if (!date) {
       skipped += 1; // 预计用车时间无法识别
       continue;
     }
     out.push({
       file: fileName,
       date,
-      plate: cells[idx['车牌号码']],
-      driver: cells[idx['驾驶员']],
-      members: cells[idx['用车人']].split(/\s+/).filter(Boolean),
+      plate: cells[COL.plate] || '', // B 列
+      driver: aux['驾驶员'] >= 0 ? cells[aux['驾驶员']] : '',
+      members: String(cells[COL.members] || '').split(/\s+/).filter(Boolean), // F 列
       from: '', // 出发地不参与对齐（设计稿仅展示目的地）
-      to: cells[idx['目的地']],
-      reason: cells[idx['用车事由']],
-      orderNo: cells[idx['派车单号']],
+      to: cells[COL.to] || '', // K 列
+      reason: aux['用车事由'] >= 0 ? cells[aux['用车事由']] : '',
+      orderNo: aux['派车单号'] >= 0 ? cells[aux['派车单号']] : '',
     });
   }
   return { rows: out, skipped };
