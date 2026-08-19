@@ -1038,8 +1038,7 @@ var state = {
   rep: { month: '', loaded: false }, // 汇总前核验当前查看月份 YYYY-MM（默认当月）
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
-  dict: { lists: {}, towerCount: null, sgcc: { list: null, err: '' } }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）+ 商旅绑定设备（list null=未拉取）
-  sgccOn: false,             // 商旅打卡是否开启（由 logs 成员是否带 sgccBound 字段探测；开启时数据管理才显示「商旅绑定设备」区）
+  dict: { lists: {}, towerCount: null, sgcc: { list: null, err: '', off: false } }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）+ 商旅绑定设备（list null=未拉取；off=商旅打卡未开启，整区不渲染）
   dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
   ts: { from: '', to: '' },    // 工作任务单页签：生成范围（默认当日单日，页签内联起止输入选择）
   fs: { from: '', to: '' },    // 费用汇总页签：汇总范围（同工作任务单口径）
@@ -1117,14 +1116,6 @@ async function loadLogs(opts) {
   try {
     var r = await Shade.api(wl('/api/v1/worklog/logs?date=' + state.date + '&scope=' + state.scope));
     state.entries = (r.data && r.data.list) || [];
-    /* 商旅打卡探测：成员带 sgccBound 字段即开启（同卡片打卡区口径）；状态翻转且数据管理页签开着时补拉「商旅绑定设备」区 */
-    var sgOn = state.entries.some(function (e) {
-      return (e.members || []).some(function (m) { return m.sgccBound !== undefined; });
-    });
-    if (sgOn !== state.sgccOn) {
-      state.sgccOn = sgOn;
-      if (state.pane === 'Dict') loadDict();
-    }
     renderCards(!!opts.quiet || booted); // 静默刷新 / 切日切换不重播入场动画
     flow.setAttribute('data-boot', '1');
     flow.classList.remove('switching');
@@ -3363,14 +3354,14 @@ async function loadTowerCount() {
   }
 }
 
-/* 商旅绑定设备（仅商旅打卡开启时拉取与展示；管理员可改设备型号 / 系统版本） */
+/* 商旅绑定设备（直接调接口探测：/sgcc 未挂载（40404）= 商旅打卡未开启，整区不渲染；其余错误区内容错展示；
+   管理员可改设备型号 / 系统版本） */
 async function loadSgccAccounts() {
-  if (!state.sgccOn) { state.dict.sgcc = { list: null, err: '' }; return; }
   try {
     var r = await Shade.api(wl('/api/v1/sgcc/accounts'));
-    state.dict.sgcc = { list: (r.data && r.data.list) || [], err: '' };
+    state.dict.sgcc = { list: (r.data && r.data.list) || [], err: '', off: false };
   } catch (e) {
-    state.dict.sgcc = { list: [], err: e.message || '加载失败' };
+    state.dict.sgcc = { list: [], err: e.message || '加载失败', off: e.code === 40404 };
   }
 }
 
@@ -3474,8 +3465,8 @@ function renderDict() {
       '</div>' +
     '</div>' +
   '</div>';
-  /* 商旅绑定设备（仅商旅打卡开启时展示；无添加行，绑定由成员在小程序「我的 → 绑定商旅」完成） */
-  if (state.sgccOn) {
+  /* 商旅绑定设备（商旅打卡未开启（/sgcc 未挂载）时整区不渲染；无添加行，绑定由成员在小程序「我的 → 绑定商旅」完成） */
+  if (!state.dict.sgcc.off) {
     var sg = state.dict.sgcc;
     html += '<div class="card dsec">' +
       '<div class="dsec-h"><b>商旅绑定设备</b><span class="cnt">' +
@@ -4255,8 +4246,7 @@ function reloadTeamData() {
   state.dl.list = null;
   state.rep.loaded = false;
   state.pa = { files: [], result: null, done: {}, idx: 0, uploading: false };
-  state.dict.sgcc = { list: null, err: '' };
-  state.sgccOn = false; // 由新班组 loadLogs 重新探测，翻转时随动补拉数据管理「商旅绑定设备」区
+  state.dict.sgcc = { list: null, err: '', off: false }; // 商旅绑定设备区随班组重拉（loadDict 内探测 /sgcc 挂载态）
   loadCalMonth(true);
   loadLogs();
   if (state.pane === 'Dl') loadDlPhotos();
