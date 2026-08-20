@@ -163,14 +163,17 @@ Page({
   async onCaptcha() {
     const mobile = this.checkMobile();
     if (!mobile) return;
+    wx.showLoading({ title: '正在获取验证码…', mask: true });
     try {
       const data = await request({
         url: '/api/v1/sgcc/login/captcha',
         method: 'POST',
         data: this.teamBody({ mobile }),
       });
+      wx.hideLoading();
       this.setData({ captchaImg: (data && data.image) || '' });
     } catch (err) {
+      wx.hideLoading();
       this.toast(err.message);
     }
   },
@@ -185,15 +188,18 @@ Page({
       this.toast('请填写图形验证码');
       return;
     }
+    wx.showLoading({ title: '正在发送短信…', mask: true });
     try {
       await request({
         url: '/api/v1/sgcc/login/sms',
         method: 'POST',
         data: this.teamBody({ mobile, checkImgCode }),
       });
+      wx.hideLoading();
       this.toast('验证码已发送');
       this.startSmsCountdown();
     } catch (err) {
+      wx.hideLoading();
       this.toast(err.message);
       // 图形验证码错误/失效时自动刷新一张，便于直接重试
       this.onCaptcha();
@@ -232,6 +238,7 @@ Page({
       return;
     }
     this.setData({ binding: true });
+    wx.showLoading({ title: '正在绑定…', mask: true });
     try {
       await request({
         url: '/api/v1/sgcc/login/bind',
@@ -243,10 +250,12 @@ Page({
           systemVersion: this.data.systemVersion,
         }),
       });
+      wx.hideLoading();
       this.toast('绑定成功');
       this.setData({ formMobile: '', imgCode: '', captchaImg: '', smsCode: '' });
       this.loadAccount();
     } catch (err) {
+      wx.hideLoading();
       this.toast(err.message);
     } finally {
       this.setData({ binding: false });

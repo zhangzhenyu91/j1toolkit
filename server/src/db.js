@@ -286,6 +286,9 @@ async function ensureSchema() {
     await require('./sgccclockin/schema').ensureSgccSchema(pool);
     console.log('[初始化] 商旅打卡已开启（SGCC_CLOCKIN_ENABLED=true），表结构就绪，旧 sgcc-clockin 应用已清理');
   }
+
+  // 通知推送：本体基础能力，无条件建表
+  await require('./notice/schema').ensureNoticeSchema(pool);
 }
 
 module.exports = { pool, ensureSchema };

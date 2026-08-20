@@ -1600,7 +1600,7 @@ function renderLB() {
       if (act === 'resync') { resyncSgccPhoto(photo.id); return; }
       if (act === 'wmedit') { var weEn = findEntry(lbInst.eid); if (weEn) openWmEditModal(weEn, photo); return; }
       if (act === 'dl') { downloadPhoto(photo); return; }
-      if (act === 'del') { deletePhoto(photo.id); return; }
+      if (act === 'del') { deletePhoto(photo.id, photo); return; }
       var en = findEntry(lbInst.eid);
       if (en) openPhotoMembersModal(en, photo);
     });
@@ -2097,12 +2097,18 @@ function openPhotoMembersModal(entry, photo) {
     var names = $$('.chip.on[data-name]', inst.box).map(function (b) { return b.dataset.name; });
     if (!names.length) { Shade.toast('请选择照片所属人名', 'info'); return; }
     saving = true;
+    /* 商旅开启时（成员带 sgccBound 字段）改人名先完成商旅侧增删（远端先行），后端同步等待，加阻断等待层 */
+    var sgccOn = members.some(function (m) { return m.sgccBound !== undefined; });
+    var wait = null;
+    if (sgccOn) wait = createModal('<div class="loading"><span class="spin"></span>正在同步商旅平台…</div>', { width: 280 });
     try {
       await Shade.api(wl('/api/v1/worklog/photos/' + photo.id + '/members'), { method: 'PUT', body: { members: names } });
+      if (wait) wait.close();
       inst.close();
       Shade.toast('人名已修改', 'success');
       refreshAfterEdit();
     } catch (e) {
+      if (wait) wait.close();
       saving = false;
       Shade.toast(e.message, 'error');
     }
@@ -2181,24 +2187,33 @@ function openWmEditModal(entry, photo) {
     inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
   });
 }
-/* ---------- 商旅同步失败重试（POST /api/v1/sgcc/photos/:id/resync；后端置回未同步后异步重传，刷新见最新状态） ---------- */
+/* ---------- 商旅同步失败重试（POST /api/v1/sgcc/photos/:id/resync；后端同步等待商旅重传完成才返回，失败报错带成员与原因） ---------- */
 async function resyncSgccPhoto(pid) {
+  var wait = createModal('<div class="loading"><span class="spin"></span>正在重新同步…</div>', { width: 280 });
   try {
-    var r = await Shade.api(wl('/api/v1/sgcc/photos/' + pid + '/resync'), { method: 'POST' });
-    Shade.toast((r && r.message) || '已重新提交同步', 'success');
+    await Shade.api(wl('/api/v1/sgcc/photos/' + pid + '/resync'), { method: 'POST' });
+    wait.close();
+    Shade.toast('同步成功', 'success');
     refreshAfterEdit(); // 重拉后 refreshLightbox 按照片 id 重定位，角标与同步行随数据更新
   } catch (e) {
+    wait.close();
     Shade.toast(e.message, 'error');
   }
 }
-async function deletePhoto(pid) {
+async function deletePhoto(pid, photo) {
   var yes = await confirmAction({ title: '删除照片', content: '删除后不可恢复，确定删除该水印照片吗？', confirmText: '删除', danger: true });
   if (!yes) return;
+  /* 商旅开启时（照片带 sgcc_synced 字段）删除先解除商旅关联（远端先行），后端同步等待，加阻断等待层 */
+  var sgccOn = !!(photo && photo.sgcc_synced !== undefined && photo.sgcc_synced !== null);
+  var wait = null;
+  if (sgccOn) wait = createModal('<div class="loading"><span class="spin"></span>正在解除商旅关联…</div>', { width: 280 });
   try {
     await Shade.api(wl('/api/v1/worklog/photos/' + pid), { method: 'DELETE' });
+    if (wait) wait.close();
     Shade.toast('已删除', 'success');
     refreshAfterEdit();
   } catch (e) {
+    if (wait) wait.close();
     Shade.toast(e.message, 'error');
   }
 }
@@ -2298,10 +2313,15 @@ function pickImage(accept, cb) {
 /* 统一上传：POST /logs/{id}/photos（wm 存在时服务端先渲染水印；plain=true 为非水印直传）；
    成功后静默重拉——水印照片进 pending 轮询；非水印响应 verify_status=skipped，天然不进轮询（schedulePending 只盯 pending） */
 async function uploadPhoto(entry, image, names, wm, btn, plain) {
-  if (btn) { btn.disabled = true; btn.textContent = wm ? '加水印上传中…' : '上传中…'; }
+  /* 商旅开启时（成员带 sgccBound 字段）后端先传商旅再落本地，同步等待较久，等待文案带商旅语义；未开启维持原文案 */
+  var sgccOn = (entry.members || []).some(function (m) { return m.sgccBound !== undefined; });
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = wm ? (sgccOn ? '正在加水印上传并同步商旅…' : '加水印上传中…') : (sgccOn ? '正在上传并同步商旅…' : '上传中…');
+  }
   var wait = null;
   if (!btn) { // 原图直传无表单弹层，用轻量进度层提示
-    wait = createModal('<div class="loading"><span class="spin"></span>正在上传…</div>', { width: 280 });
+    wait = createModal('<div class="loading"><span class="spin"></span>' + (sgccOn ? '正在上传并同步商旅平台…' : '正在上传…') + '</div>', { width: 280 });
   }
   try {
     var body = wm ? { image: image, members: names, wm: wm } : { image: image, members: names };

@@ -1,0 +1,33 @@
+<!-- 消息通知列表（点击行展开/收起全文，未读展开即标记已读） -->
+<navbar back title="消息通知" />
+
+<view class="page-body">
+  <!-- 全部已读（有未读时显示，列表上方右对齐，避开右上角胶囊区） -->
+  <view class="top-bar" wx:if="{{unread > 0}}">
+    <view class="read-all" hover-class="hover-opacity" bindtap="onReadAll">全部已读</view>
+  </view>
+
+  <t-empty wx:if="{{!loading && items.length === 0}}" description="暂无通知" />
+
+  <view class="card list-card" wx:if="{{items.length > 0}}">
+    <view
+      class="n-item"
+      hover-class="hover-bg-warm"
+      wx:for="{{items}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      bindtap="onItemTap"
+    >
+      <view class="n-head">
+        <view class="n-dot {{item.read ? '' : 'n-dot-on'}}"></view>
+        <view class="n-title {{item.read ? '' : 'n-title-unread'}}">{{item.title}}</view>
+        <view class="n-time">{{item.timeText}}</view>
+      </view>
+      <view class="n-content {{item.expanded ? 'n-content-full' : ''}}">{{item.content}}</view>
+    </view>
+  </view>
+
+  <view class="hint" wx:if="{{items.length > 0}}">点击通知可展开全文</view>
+</view>
+
+<t-toast id="t-toast" />

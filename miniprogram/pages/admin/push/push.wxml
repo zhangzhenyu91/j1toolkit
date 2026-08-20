@@ -1,0 +1,38 @@
+<!-- 消息推送（仅超管）：按角色推送站内通知 -->
+<navbar back title="消息推送" />
+
+<view class="page-body">
+  <view class="card form-card">
+    <view class="f-item">
+      <view class="f-label">通知标题</view>
+      <view class="f-field">
+        <t-input borderless maxlength="128" placeholder="不超过 128 字" value="{{title}}" bind:change="onTitle" />
+      </view>
+    </view>
+
+    <view class="f-item">
+      <view class="f-label">通知内容</view>
+      <view class="f-field f-field-area">
+        <t-textarea autosize="{{true}}" placeholder="请输入通知内容" value="{{content}}" style="background: transparent;" bind:change="onContent" />
+      </view>
+    </view>
+
+    <view class="f-item">
+      <view class="f-label">推送对象（至少选择一项）</view>
+      <t-checkbox-group value="{{targets}}" bind:change="onTargets">
+        <t-checkbox value="admin" label="超级管理员" />
+        <t-checkbox value="team_admin" label="班组管理员" />
+        <t-checkbox value="user" label="普通成员" />
+      </t-checkbox-group>
+    </view>
+  </view>
+
+  <view class="hint">推送后，所选角色的用户将在「消息通知」中看到此条通知</view>
+</view>
+
+<!-- 提交（固定底部主按钮，避开右上角胶囊区域） -->
+<view class="create-bar">
+  <t-button block size="large" theme="primary" loading="{{pushing}}" bind:tap="onSubmit">确认推送</t-button>
+</view>
+
+<t-toast id="t-toast" />

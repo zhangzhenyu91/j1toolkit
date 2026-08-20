@@ -2,9 +2,11 @@
   "pages": [
     "pages/home/home",
     "pages/login/login",
+    "pages/notice/list/list",
     "pages/admin/users/users",
     "pages/admin/perms/perms",
-    "pages/admin/teams/teams"
+    "pages/admin/teams/teams",
+    "pages/admin/push/push"
   ],
   "subPackages": [
     {

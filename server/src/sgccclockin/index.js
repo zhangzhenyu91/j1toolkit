@@ -65,7 +65,9 @@ function devOpt(account) {
   return { deviceType: account.device_type || 'Pixel 7', systemVersion: account.system_version || 'Android 13' };
 }
 
-// 登录态探测：dayNew 调通即有效；失效则标记 token_status=0（照片选人层据此置灰）
+// 登录态探测：dayNew 调通即有效；失效则标记 token_status=0（照片选人层据此置灰）。
+// 由有效探测为失效时自动通知本人与超管（见 16.3）：仅 1→0 跳变通知一次，
+// token_status 已是 0 的后续探测不重复通知；通知发送失败不影响业务流（fire-and-forget）
 async function probeAuth(account) {
   let valid = false;
   try {
@@ -76,7 +78,33 @@ async function probeAuth(account) {
     'UPDATE worklog_sgcc_account SET token_status = ?, last_check_at = NOW() WHERE id = ?',
     [valid ? 1 : 0, account.id]
   );
+  if (!valid && Number(account.token_status) === 1) {
+    account.token_status = 0; // 同步内存态，防同一 account 对象被连续探测时重复通知
+    notifyTokenExpired(account).catch((err) => console.error('[商旅打卡] 登录过期通知发送失败：', err.message));
+  }
   return valid;
+}
+
+// 登录过期通知：按人投放给本人（绑定账号）与全部超管（fire-and-forget，异常由调用方 catch）
+async function notifyTokenExpired(account) {
+  let name = '';
+  if (account.member_id) {
+    const [m] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
+    name = m.length ? m[0].name : '';
+  }
+  if (!name && account.user_id) {
+    const [u] = await pool.query('SELECT nickname FROM sys_user WHERE id = ?', [account.user_id]);
+    name = u.length ? u[0].nickname : '';
+  }
+  const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
+  const userIds = [...new Set([account.user_id, ...admins.map((a) => a.id)].filter(Boolean))];
+  if (!userIds.length) return;
+  await require('../notice').push({
+    userIds,
+    targets: [],
+    title: '商旅登录已过期',
+    content: `成员「${name || '未知'}」的商旅登录已过期，打卡、费用与照片同步已暂停。请本人尽快在「我的 → 商旅打卡」重新登录。`,
+  });
 }
 
 // 打卡/费用操作前置：取成员绑定行 + 校验登录态（失效实时探测一次兜底）
@@ -759,55 +787,50 @@ router.post('/fee', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-// ---------- 照片同步（worklog 上传钩子调用 + 手动重试）----------
+// ---------- 照片同步（worklog 上传远端先行调用 + 改人名补传 + 手动重试）----------
 
-// 单张照片同步进每个所属人名的当日商旅费用照片（reimbEnclosure/add → saveFeeInfoNew 关联上传图片组件）
-// 返回 { done:[memberId], skipped:[{memberId,reason}] }；任何一步失败不抛出（同步失败红标重试由 resync 兜底）
-async function syncPhotoToSgcc(photoId) {
-  const [rows] = await pool.query(
-    `SELECT p.id, p.url, p.members, p.sgcc_img_id,
-            DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.team_id
-     FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ?`,
-    [photoId]
-  );
-  const photo = rows[0];
-  if (!photo) return;
-  const names = typeof photo.members === 'string' ? JSON.parse(photo.members) : (photo.members || []);
-  const links = photo.sgcc_img_id ? JSON.parse(photo.sgcc_img_id) : {};
-
-  // 图片原文（COS 回源）
-  const resp = await fetch(photo.url, { signal: AbortSignal.timeout(60000) });
-  if (!resp.ok) throw new Error(`照片回源失败（HTTP ${resp.status}）`);
-  const buf = Buffer.from(await resp.arrayBuffer());
+// 把照片原文上传并关联进每个指定人名的当日商旅费用照片（reimbEnclosure/add → getFeeInfoNew → saveFeeInfoNew 关联上传图片组件）。
+// 远端先行核心，两处共用：worklog 照片上传（本地落库前调用，buf 在内存）与 syncPhotoToSgcc（改人名补传 / resync，COS 回源 buf）。
+// links 传已有链接（按成员去重，已链接者跳过，重试天然只补缺口）；未绑定成员跳过不计失败（记核查日志，与验证规则 a「未绑定者不参与」同口径）；
+// 登录过期视为硬失败（远端先行口径：商旅失败即整个操作失败，跳过会造成本地与商旅必然不一致）。任一绑定成员失败即中止。
+// 返回 { ok:true, links } / { ok:false, links, failedName, error }（links 含本次新成功成员，供调用方落库）
+async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileName, links = {}, photoId = null }) {
   const imgBase64Str = buf.toString('base64');
-
-  let changed = false;
+  const photoLabel = photoId ? `照片 ${photoId}` : '照片';
   for (const name of names) {
     const [mrows] = await pool.query(
-      'SELECT id FROM worklog_member WHERE team_id = ? AND name = ?', [photo.team_id, name]
+      'SELECT id FROM worklog_member WHERE team_id = ? AND name = ?', [teamId, name]
     );
     if (!mrows.length) continue;
     const memberId = mrows[0].id;
     if (links[memberId]) continue; // 该成员名下已同步过
-    const account = await accountByMember(photo.team_id, memberId);
-    if (!account || account.token_status !== 1) {
+    const account = await accountByMember(teamId, memberId);
+    if (!account) {
       await pool.query(
         `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
          VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
-        [photo.team_id, memberId, photo.log_date, `照片 ${photoId} 同步跳过：未绑定或登录已过期`]
+        [teamId, memberId, logDate, `${photoLabel} 同步跳过：成员「${name}」未绑定商旅账号`]
       );
       continue;
     }
+    if (account.token_status !== 1) {
+      await pool.query(
+        `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
+         VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
+        [teamId, memberId, logDate, `${photoLabel} 同步失败：成员「${name}」商旅登录已过期`]
+      );
+      return { ok: false, links, failedName: name, error: '商旅登录已过期，请重新登录商旅账号' };
+    }
     try {
       const up = await sgcc.reimbEnclosureAdd(account.token, {
-        imgBase64Str, fileName: `photo-${photoId}.jpg`, fileSize: buf.length, ext: '.jpg',
+        imgBase64Str, fileName, fileSize: buf.length, ext: '.jpg',
       }, devOpt(account));
       const imgId = up && up.data && (up.data.id || (up.data.body && up.data.body.id));
       const imgUrl = up && up.data && (up.data.imageUrl || (up.data.body && up.data.body.imageUrl));
       if (!imgId) throw new Error('商旅图片上传未返回 id');
 
       // 关联进当日费用：上传图片组件（id=5）追加该图，整树重存；成本分配兜底同费用保存口径
-      const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, photo.log_date), devOpt(account));
+      const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, logDate), devOpt(account));
       const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
       if (!tpl) throw new Error('获取费用模板失败');
       await ensureCostCenter(tpl, account);
@@ -817,26 +840,57 @@ async function syncPhotoToSgcc(photoId) {
       if (!Array.isArray(imgs)) imgs = [];
       // 元素形状与商旅 App 手工上传一致：{fileInfoId, url}（imgId 即 reimbEnclosureAdd 返回的 fileInfoId）
       imgs.push({ fileInfoId: imgId, url: imgUrl || '' });
-      const sv = await sgcc.saveFeeInfoNew(account.token, photo.log_date, tpl, { 5: JSON.stringify(imgs) }, devOpt(account));
+      const sv = await sgcc.saveFeeInfoNew(account.token, logDate, tpl, { 5: JSON.stringify(imgs) }, devOpt(account));
       if (!sv || Number(sv.statusCode) !== 200) throw new Error('费用照片关联保存失败');
 
       links[memberId] = imgId;
-      changed = true;
     } catch (err) {
-      console.error(`[商旅打卡] 照片 ${photoId} 同步到成员 ${name} 失败：`, err.message);
+      console.error(`[商旅打卡] ${photoLabel} 同步到成员 ${name} 失败：`, err.message);
       await pool.query(
         `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
          VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
-        [photo.team_id, memberId, photo.log_date, `照片 ${photoId} 同步失败：${String(err.message).slice(0, 200)}`]
+        [teamId, memberId, logDate, `${photoLabel} 同步失败：成员「${name}」${String(err.message).slice(0, 200)}`]
       );
+      return { ok: false, links, failedName: name, error: String(err.message).slice(0, 200) };
     }
   }
+  return { ok: true, links };
+}
 
-  const doneCount = Object.keys(links).length;
+// 单张照片同步进所属人名的当日商旅费用照片（同步等待，返回最终结果；改人名补传与 resync 手动重试调用）
+// targetNames 缺省读库内 members；改人名时传新全量名单（已链接成员天然跳过，并自愈历史缺链接的在名成员）。
+// sgcc_synced 判定：全部人名处理成功 =1，否则 =2（未绑定成员跳过不影响判定）；部分成功的链接即时落库，重试只补缺口。
+// 返回 { ok:true } / { ok:false, failedName, error }
+async function syncPhotoToSgcc(photoId, targetNames = null) {
+  const [rows] = await pool.query(
+    `SELECT p.id, p.url, p.members, p.sgcc_img_id,
+            DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.team_id
+     FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ?`,
+    [photoId]
+  );
+  const photo = rows[0];
+  if (!photo) return { ok: false, error: '照片不存在' };
+  const names = Array.isArray(targetNames) && targetNames.length
+    ? targetNames
+    : (typeof photo.members === 'string' ? JSON.parse(photo.members) : (photo.members || []));
+  const links = photo.sgcc_img_id ? JSON.parse(photo.sgcc_img_id) : {};
+
+  // 图片原文（COS 回源）
+  const resp = await fetch(photo.url, { signal: AbortSignal.timeout(60000) });
+  if (!resp.ok) throw new Error(`照片回源失败（HTTP ${resp.status}）`);
+  const buf = Buffer.from(await resp.arrayBuffer());
+
+  const r = await uploadPhotoToMembersRemote({
+    teamId: photo.team_id, logDate: photo.log_date, names, buf,
+    fileName: `photo-${photoId}.jpg`, links, photoId,
+  });
+  // 无论成败都落库最新链接与状态（部分成功的链接保留，重试只补缺口）
   await pool.query(
     'UPDATE worklog_photo SET sgcc_img_id = ?, sgcc_synced = ? WHERE id = ?',
-    [JSON.stringify(links), doneCount >= names.length && names.length ? 1 : 2, photoId]
+    [JSON.stringify(r.links), r.ok ? 1 : 2, photoId]
   );
+  if (!r.ok) return { ok: false, failedName: r.failedName, error: r.error };
+  return { ok: true };
 }
 
 // 从某成员当日商旅费用照片组件移除指定图片（同步；成本分配兜底同费用保存口径）
@@ -953,7 +1007,7 @@ async function unlinkPhotoFromSgcc(photoId) {
 }
 
 
-// POST /photos/:id/resync：同步失败的照片手动重试
+// POST /photos/:id/resync：同步失败的照片手动重试（同步等待商旅重传完成才返回；失败报错带成员与原因，sgcc_synced 随结果落库）
 router.post('/photos/:id/resync', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -963,9 +1017,13 @@ router.post('/photos/:id/resync', async (req, res, next) => {
       [photoId, req.team.id]
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
-    await pool.query('UPDATE worklog_photo SET sgcc_synced = 0 WHERE id = ?', [photoId]);
-    syncPhotoToSgcc(photoId).catch((err) => console.error('[商旅打卡] 照片重试同步失败：', err.message));
-    return ok(res, null, '已重新提交同步');
+    const r = await syncPhotoToSgcc(photoId);
+    if (!r.ok) {
+      return fail(res, 400, 40029, r.failedName
+        ? `成员「${r.failedName}」商旅同步失败（${r.error}），请重试`
+        : `商旅同步失败（${r.error}），请重试`);
+    }
+    return ok(res, null, '同步成功');
   } catch (err) { return next(err); }
 });
 
@@ -1510,6 +1568,38 @@ function nextDailyRunUtc(hh, mm) {
   }
   return { nextUtc, now };
 }
+// 每日核查附加检查：当日已开始打卡但结束打卡未打的成员 → 按人投放通知本人 + 本班班组管理员 + 超管（见 16.3）
+async function notifyMissingEndClockin(teamId, date) {
+  const [rows] = await pool.query(
+    `SELECT c.member_id, m.name, a.user_id,
+            DATE_FORMAT(MAX(CASE WHEN c.seq = 1 THEN c.clock_time END), '%H:%i') AS start_hm
+     FROM worklog_clockin c
+     JOIN worklog_member m ON m.id = c.member_id
+     LEFT JOIN worklog_sgcc_account a ON a.team_id = c.team_id AND a.member_id = c.member_id
+     WHERE c.team_id = ? AND c.clock_date = ?
+     GROUP BY c.member_id, m.name, a.user_id
+     HAVING MAX(CASE WHEN c.seq = 1 THEN 1 ELSE 0 END) = 1
+        AND MAX(CASE WHEN c.seq = 2 THEN 1 ELSE 0 END) = 0`,
+    [teamId, date]
+  );
+  if (!rows.length) return;
+  const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
+  const [teamAdmins] = await pool.query(
+    "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id = ? AND status = 1", [teamId]
+  );
+  const managerIds = [...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)];
+  for (const r of rows) {
+    const userIds = [...new Set([r.user_id, ...managerIds].filter(Boolean))];
+    if (!userIds.length) continue;
+    await require('../notice').push({
+      userIds,
+      targets: [],
+      title: '结束打卡未打',
+      content: `成员「${r.name}」今日${r.start_hm ? `已于 ${r.start_hm} 开始打卡` : '已开始打卡'}，截至每日核查仍未打结束打卡，请提醒本人尽快补打（仅当日可打卡）。`,
+    });
+  }
+}
+
 function scheduleDaily() {
   const [hh, mm] = String(config.sgcc.syncTime || '23:00').split(':').map((s) => parseInt(s, 10));
   const { nextUtc, now } = nextDailyRunUtc(hh || 23, mm || 0);
@@ -1532,6 +1622,12 @@ function scheduleDaily() {
         } finally {
           finishSyncJob(jobId);
         }
+        // 每日核查附加检查：开始打卡已打但结束打卡未打 → 通知本人/本班班组管理员/超管
+        try {
+          await notifyMissingEndClockin(t.team_id, today());
+        } catch (err) {
+          console.error('[商旅打卡] 结束打卡缺失检查失败：', err.message);
+        }
       }
       console.log('[商旅打卡] 每日定时核查完成');
     } catch (err) {
@@ -1546,7 +1642,8 @@ function scheduleDaily() {
 scheduleDaily();
 
 module.exports = router;
-// 供 worklog 照片上传/删除钩子调用（config.sgcc.enabled 守卫在调用方）
+// 供 worklog 照片上传（远端先行）/改人名补传/删除钩子调用（config.sgcc.enabled 守卫在调用方）
 module.exports.syncPhotoToSgcc = syncPhotoToSgcc;
+module.exports.uploadPhotoToMembersRemote = uploadPhotoToMembersRemote;
 module.exports.unlinkPhotoFromSgcc = unlinkPhotoFromSgcc;
 module.exports.removePhotoMembersRemote = removePhotoMembersRemote;

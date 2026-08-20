@@ -2,7 +2,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../utils/request';
-import { greeting } from '../../utils/util';
+import { greeting, formatTime } from '../../utils/util';
 import { shareAppMessage } from '../../utils/share';
 import config from '../../config';
 
@@ -21,6 +21,8 @@ Page({
     appCount: 0, // 「我的」面板：可见应用数量
     appNames: [], // 「我的」面板：可见应用名称（我的权限弹窗）
     loading: true,
+    notices: [], // 消息通知卡：最新 2 条（含 timeText 展示字段）
+    noticeUnread: 0, // 未读通知数（0 时不显示角标）
     hasWorklog: false, // 是否拥有出工日志权限（按 /app/list 是否含 work-log 判定；控制「绑定商旅」行显隐）
     // 「我的」面板「绑定商旅」行：三态文案（未绑定/已绑定/登录已过期）
     sgccNote: '未绑定',
@@ -55,6 +57,7 @@ Page({
     this.setData({ gate: true });
     this.loadProfile();
     this.loadApps();
+    this.loadNotices();
   },
 
   onShow() {
@@ -62,6 +65,7 @@ Page({
       this.loadProfile();
       this.loadApps();
       this.loadSgccStatus();
+      this.loadNotices();
     }
   },
 
@@ -108,6 +112,25 @@ Page({
     } finally {
       this.setData({ loading: false });
     }
+  },
+
+  // 消息通知卡：未读数 + 最新 2 条；接口失败静默，不阻断首页
+  async loadNotices() {
+    try {
+      const data = await request({ url: '/api/v1/notice/list?limit=3' });
+      const items = (data && data.items) || [];
+      this.setData({
+        noticeUnread: (data && data.unread) || 0,
+        notices: items.slice(0, 2).map((n) => ({ ...n, timeText: formatTime(n.createdAt) })),
+      });
+    } catch (err) {
+      // 静默失败：保留现状
+    }
+  },
+
+  // 进入消息通知列表
+  goNotices() {
+    wx.navigateTo({ url: '/pages/notice/list/list' });
   },
 
   // tab 切换（swiper 左右滑动动画）
@@ -187,7 +210,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v3.2.2k \n 应用权限申请联系 zzy',
+      content: '版本号：v3.3.0k \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },
@@ -199,6 +222,10 @@ Page({
 
   goPerms() {
     wx.navigateTo({ url: '/pages/admin/perms/perms' });
+  },
+
+  goPush() {
+    wx.navigateTo({ url: '/pages/admin/push/push' });
   },
 
   goTeams() {

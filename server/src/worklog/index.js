@@ -990,7 +990,8 @@ async function writeBackVerify(photoId, vr) {
 // POST /logs/:id/photos：上传照片（base64 → COS）。body.wm 可选：「选照片并添加水印」时携带
 // { content/time/weather/location/longitude/latitude/antiCode/orientation }，服务端先渲染水印再传 COS、异步触发 Dify 验证；
 // body.plain=true 为非水印照片（商旅打卡开启时可用）：原图直传、不渲染、不验证、不占「每人限一张」
-// 三类照片（已有水印直传 / 服务端加水印 / 非水印）上传成功后均异步同步进所属人名的当日商旅费用照片
+// 商旅打卡开启时远端先行：三类照片（已有水印直传 / 服务端加水印 / 非水印）先同步进所属人名的当日商旅费用照片，
+// 任一绑定成员失败即整体失败（本地零写入），全部成功才传 COS 落库
 router.post('/logs/:id/photos', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -1031,8 +1032,26 @@ router.post('/logs/:id/photos', async (req, res, next) => {
       }
     }
 
+    // 商旅打卡开启时：远端先行——先把照片上传并关联进每个绑定人名的当日商旅费用照片，
+    // 任一绑定成员失败即整体失败（本地零写入，无需回滚）；未绑定成员不参与同步，登录过期视为失败
+    let sgccLinks = {};
+    if (config.sgcc && config.sgcc.enabled) {
+      const rs = await require('../sgccclockin').uploadPhotoToMembersRemote({
+        teamId: req.team.id,
+        logDate: entry.log_date,
+        names,
+        buf,
+        fileName: `photo-${entryId}-${Date.now()}.jpg`,
+      });
+      if (!rs.ok) {
+        return fail(res, 400, 40027, `成员「${rs.failedName}」商旅同步失败（${rs.error}），照片未上传，请重试`);
+      }
+      sgccLinks = rs.links;
+    }
+
     const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
     const key = `${prefix}${req.team.name}/${dots(entry.log_date)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
+    // 商旅已先行成功，此处 COS/落库若失败（罕见），商旅侧已有图——由每日核查按 MD5 合并/拉回入库兜底对齐
     await cos.putBuffer(key, buf, contentType);
     const url = cos.publicUrl(key);
 
@@ -1041,9 +1060,9 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     if (config.sgcc && config.sgcc.enabled) {
       const imgMd5 = crypto.createHash('md5').update(buf).digest('hex');
       const [r] = await pool.query(
-        `INSERT INTO worklog_photo (entry_id, cos_key, url, members, md5)
-         VALUES (?, ?, ?, ?, ?)`,
-        [entryId, key, url, JSON.stringify(names), imgMd5]
+        `INSERT INTO worklog_photo (entry_id, cos_key, url, members, md5, sgcc_img_id, sgcc_synced)
+         VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [entryId, key, url, JSON.stringify(names), imgMd5, JSON.stringify(sgccLinks)]
       );
       photoId = r.insertId;
     } else {
@@ -1075,12 +1094,7 @@ router.post('/logs/:id/photos', async (req, res, next) => {
         .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
     }
 
-    // 商旅打卡开启时：异步同步进所属人名的当日商旅费用照片（失败由 sgcc_synced=2 + resync 兜底）
-    if (config.sgcc && config.sgcc.enabled) {
-      require('../sgccclockin').syncPhotoToSgcc(photoId)
-        .catch((err) => console.error('[商旅打卡] 照片同步失败：', err.message));
-    }
-
+    // 商旅同步已在上传前远端先行完成（失败即整体失败，本地零写入），此处无需再触发
     return ok(res, {
       id: photoId, url,
       verify_status: isPlain ? 'skipped' : 'pending',
@@ -1183,7 +1197,7 @@ router.put('/photos/:id/wm', async (req, res, next) => {
 });
 
 // PUT /photos/:id/members：修改照片所属人名（商旅打卡开启时：未绑定/登录过期成员的人名状态不可更改；
-// 变更后差量同步——新增人名补传商旅费用照片，剔除人名从其商旅费用照片移除）
+// 变更双向远端先行——剔除人名先从其商旅费用照片移除、新增人名先补传进商旅费用照片，全部成功后才变更本地）
 router.put('/photos/:id/members', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -1230,15 +1244,21 @@ router.put('/photos/:id/members', async (req, res, next) => {
             `成员「${r.failedName}」商旅费用照片删除失败（${r.error}），本地未修改，请重试`);
         }
       }
+      // 新增人名：同样远端先行——同步补传成功后才变更本地（传新全量名单：已链接成员天然跳过，
+      // 并自愈历史缺链接的在名成员；COS 回源等异常按 40028 同口径报出，本地未修改）
+      let ra;
+      try {
+        ra = await require('../sgccclockin').syncPhotoToSgcc(photoId, names);
+      } catch (e) {
+        return fail(res, 400, 40028, `商旅费用照片同步失败（${e.message}），本地未修改，请重试`);
+      }
+      if (!ra.ok) {
+        return fail(res, 400, 40028,
+          `成员「${ra.failedName}」商旅费用照片同步失败（${ra.error}），本地未修改，请重试`);
+      }
     }
 
     await pool.query('UPDATE worklog_photo SET members = ? WHERE id = ?', [JSON.stringify(names), photoId]);
-    // 商旅打卡开启时：新增人名异步补传（已链接成员跳过；失败记核查日志由 resync 兜底；
-    // 另覆盖一种自愈——上轮剔除部分成功后中止，缺链接的在名人随本次补传恢复商旅图片）
-    if (config.sgcc && config.sgcc.enabled) {
-      require('../sgccclockin').syncPhotoToSgcc(photoId)
-        .catch((err) => console.error('[商旅打卡] 照片人名变更后补同步失败：', err.message));
-    }
     return ok(res, null);
   } catch (err) {
     return next(err);

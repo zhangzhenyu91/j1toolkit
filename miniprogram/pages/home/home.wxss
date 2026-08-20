@@ -81,6 +81,83 @@
   color: #A89F8A;
 }
 
+/* ---------- 消息通知卡 ---------- */
+.notice-card {
+  margin-bottom: 32rpx;
+  padding: 24rpx 28rpx;
+  animation: fadeUp 0.3s 0.03s ease both; /* 错峰入场 */
+  transition: background-color 0.15s ease;
+}
+
+.n-head {
+  display: flex;
+  align-items: center;
+}
+
+.n-ico {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 14rpx;
+  background: #FDEEE2; /* 图标浅底 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.n-title {
+  margin-left: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #22314E;
+}
+
+/* 未读角标（橙色胶囊，0 未读时不渲染） */
+.n-badge {
+  margin-left: auto;
+  margin-right: 8rpx;
+  padding: 2rpx 16rpx;
+  border-radius: 999rpx;
+  background: #F26D21;
+  color: #FFFFFF;
+  font-size: 20rpx;
+  line-height: 1.8;
+}
+
+.n-row {
+  display: flex;
+  align-items: center;
+  margin-top: 20rpx;
+}
+
+.n-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 24rpx;
+  color: #6B7690;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.n-row-unread {
+  color: #22314E;
+  font-weight: 500;
+}
+
+.n-row-time {
+  margin-left: 16rpx;
+  flex: none;
+  font-size: 22rpx;
+  color: #A89F8A;
+}
+
+.n-empty {
+  margin-top: 20rpx;
+  font-size: 24rpx;
+  color: #A89F8A;
+}
+
 /* ---------- 应用宫格 ---------- */
 .app-sec {
   margin-bottom: 20rpx;

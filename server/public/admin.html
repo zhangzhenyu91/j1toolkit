@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 网页版管理页（方案A「安全橙传承」）：员工管理 + 权限管理 + 班组管理，仅超级管理员可用
+<!-- Shade 壹匣 · 网页版管理页（方案A「安全橙传承」）：员工管理 + 权限管理 + 班组管理 + 消息推送，仅超级管理员可用
      接口：/api/v1/admin/*（需登录 + admin 角色），交互对齐小程序 pages/admin/users 与 pages/admin/perms；
      班组隔离改造：员工按班组筛选 / 分组显示（两个页签各自独立）、角色三级徽章（admin/team_admin/user），
      班组管理页签维护班组（KVM 设备组与班组同名，不再单独设置）；下拉均为 Shade.dropdown 自绘 -->
@@ -201,6 +201,13 @@
   .f-row .dd-btn { height: 42px; } /* 自绘下拉与同行输入框同高 */
   .modal-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 22px 20px; }
 
+  /* ===== 消息推送 ===== */
+  .push-card { margin-top: 20px; padding: 22px 24px 16px; max-width: 640px; }
+  .push-targets { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; min-height: 42px; }
+  .push-ck { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; cursor: pointer; }
+  .push-ck input { width: 16px; height: 16px; margin: 0; accent-color: var(--orange); cursor: pointer; }
+  .push-ft { display: flex; justify-content: flex-end; }
+
   /* ===== 无权限 ===== */
   .noperm { max-width: 460px; margin: 90px auto 0; text-align: center; padding: 46px 30px; }
   .noperm .np-ic {
@@ -228,6 +235,7 @@
     <button class="tab on" data-pane="users">员工管理</button>
     <button class="tab" data-pane="perms">权限管理</button>
     <button class="tab" data-pane="teams">班组管理</button>
+    <button class="tab" data-pane="push">消息推送</button>
     <span class="tab-ind" id="tabInd"></span>
   </div>
 
@@ -307,6 +315,31 @@
             <tr><td colspan="4"><div class="loading"><span class="spin"></span>加载中</div></td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+  </section>
+  <!-- ===== 消息推送 ===== -->
+  <section class="pane" id="pane-push">
+    <div class="card push-card">
+      <div class="f-row">
+        <label>标题</label>
+        <input class="input" id="pushTitle" maxlength="128" placeholder="请输入通知标题（128 字以内）" autocomplete="off">
+      </div>
+      <div class="f-row">
+        <label>内容</label>
+        <textarea class="input" id="pushContent" placeholder="请输入通知内容，支持多行文本"></textarea>
+      </div>
+      <div class="f-row">
+        <label>推送对象 <i>至少选择一项</i></label>
+        <div class="push-targets">
+          <label class="push-ck"><input type="checkbox" value="admin">超级管理员</label>
+          <label class="push-ck"><input type="checkbox" value="team_admin">班组管理员</label>
+          <label class="push-ck"><input type="checkbox" value="user">普通成员</label>
+        </div>
+      </div>
+      <div class="f-note">通知按角色推送，成员在工作台「消息通知」与小程序首页的通知卡可见，未读数以橙色徽章提示。</div>
+      <div class="push-ft">
+        <button class="btn btn-accent" id="btnPushSubmit">推送</button>
       </div>
     </div>
   </section>
@@ -467,6 +500,7 @@
   el('btnRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 14));
   el('btnTeamAdd').insertAdjacentHTML('afterbegin', Shade.icon('add', 14));
   el('btnTeamRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 14));
+  el('btnPushSubmit').insertAdjacentHTML('afterbegin', Shade.icon('send', 14));
   document.querySelectorAll('.modal-hd .x').forEach(function (b) {
     b.innerHTML = Shade.icon('close', 16);
   });
@@ -1119,6 +1153,43 @@
       }
     }
   }
+
+  // ============================================================
+  // 消息推送
+  // ============================================================
+  el('btnPushSubmit').addEventListener('click', async function () {
+    var title = el('pushTitle').value.trim();
+    var content = el('pushContent').value.trim();
+    var targets = Array.prototype.map.call(
+      document.querySelectorAll('#pane-push .push-ck input:checked'),
+      function (ck) { return ck.value; }
+    );
+    if (!title || !content) {
+      Shade.toast('请填写标题和内容', 'info');
+      return;
+    }
+    if (!targets.length) {
+      Shade.toast('请至少选择一个推送对象', 'info');
+      return;
+    }
+    var btn = el('btnPushSubmit');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await Shade.api('/api/v1/notice/push', {
+        method: 'POST',
+        body: { title: title, content: content, targets: targets },
+      });
+      Shade.toast('推送成功', 'success');
+      el('pushTitle').value = '';
+      el('pushContent').value = '';
+      document.querySelectorAll('#pane-push .push-ck input').forEach(function (ck) { ck.checked = false; });
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // ===== 登录门控：未登录跳登录页；已登录渲染统一顶栏并校验管理员身份初始化 =====
   if (Shade.requireAuth()) {

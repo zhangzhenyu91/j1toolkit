@@ -69,6 +69,62 @@
   .safety .si svg { width: 18px; height: 18px; }
   .safety b { color: var(--navy); letter-spacing: 1px; }
 
+  /* ===== 消息通知卡 ===== */
+  .notice-card { overflow: hidden; }
+  .nt-badge {
+    display: inline-block; border-radius: 999px; padding: 2px 10px;
+    background: var(--orange); color: #fff;
+    font-size: 11px; font-weight: 700; letter-spacing: .5px;
+  }
+  #noticeBadge { cursor: pointer; }
+  .nt-item { display: flex; align-items: center; gap: 9px; padding: 13px 20px; border-bottom: 1px solid var(--hair); }
+  .nt-item:last-child { border-bottom: none; }
+  .nt-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--orange); }
+  .nt-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+  .nt-item.unread .nt-title { font-weight: 700; }
+  .nt-time { flex: none; font-size: 12px; color: var(--ph); }
+
+  /* ===== 通知列表弹层（仿管理页 .mask/.modal 弹层） ===== */
+  .mask {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(27, 39, 64, .42);
+    display: none; align-items: center; justify-content: center; padding: 20px;
+  }
+  .mask.show { display: flex; }
+  .modal {
+    width: 100%; max-width: 560px; background: #fff; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 24px 60px rgba(34, 49, 78, .25);
+    animation: fadeUp .35s cubic-bezier(.16, 1, .3, 1) both;
+  }
+  .modal-hd {
+    display: flex; align-items: center; gap: 10px; padding: 16px 22px;
+    border-bottom: 1px solid var(--hair);
+    font-size: 15.5px; font-weight: 800; letter-spacing: 1px;
+  }
+  .modal-hd .x {
+    border: none; background: none; cursor: pointer;
+    color: var(--ph); padding: 4px; border-radius: 6px; transition: color .2s, background .2s;
+  }
+  .modal-hd .x:hover { color: var(--navy); background: var(--paper); }
+  .modal-hd .x svg { width: 16px; height: 16px; }
+  /* 「全部已读」与关闭按钮的右对齐：按钮隐藏时关闭按钮补上 auto 外边距 */
+  #noticeReadAll { margin-left: auto; }
+  #noticeReadAll[hidden] { display: none; }
+  #noticeReadAll[hidden] + .x { margin-left: auto; }
+  .nm-list { max-height: 62vh; overflow-y: auto; }
+  .nm-item { padding: 14px 22px; border-bottom: 1px solid var(--hair); cursor: pointer; transition: background .2s; }
+  .nm-item:last-child { border-bottom: none; }
+  .nm-item:hover { background: #FBF9F3; }
+  .nm-head { display: flex; align-items: center; gap: 9px; }
+  .nm-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+  .nm-item.unread .nm-title { font-weight: 700; }
+  /* 内容默认两行折叠，点击条目展开全文 */
+  .nm-content {
+    margin-top: 7px; font-size: 12.5px; color: var(--sub); line-height: 1.8; white-space: pre-wrap;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .nm-item.open .nm-content { display: block; }
+
   @media (max-width: 640px) {
     .uc-body { flex-wrap: wrap; }
     .uc-side { display: none; }
@@ -93,6 +149,12 @@
     </div>
   </section>
 
+  <!-- 消息通知 -->
+  <div class="section-title rv"><h3>消息通知</h3><span class="more" id="noticeBadge">加载中…</span></div>
+  <section class="card card-hover notice-card rv" id="noticeCard">
+    <div id="noticeTop"><div class="loading"><span class="spin"></span>加载中</div></div>
+  </section>
+
   <!-- 应用中心 -->
   <div class="section-title rv"><h3>应用中心</h3><span class="more" id="appCount">加载中…</span></div>
   <section class="apps rv" id="appGrid">
@@ -111,6 +173,14 @@
     <span><b>安全生产，预防为主。</b>上工前请确认劳保用品佩戴齐全，作业按规程执行。</span>
   </section>
 </main>
+
+<!-- 通知列表弹层 -->
+<div class="mask" id="noticeMask">
+  <div class="modal">
+    <div class="modal-hd">消息通知<button class="btn btn-sm" id="noticeReadAll" hidden>全部已读</button><button class="x" id="noticeClose" title="关闭"></button></div>
+    <div class="nm-list" id="noticeList"></div>
+  </div>
+</div>
 
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
@@ -260,6 +330,145 @@
     });
   }
 
+  // ===== 消息通知 =====
+  var noticeTop = [];   // 工作台卡内最新 3 条
+  var noticeItems = []; // 弹层全量列表（limit=100）
+  var noticeUnread = 0; // 未读数（接口下发，随已读操作本地递减）
+
+  // 未读徽章：板块标题右侧橙色胶囊（无未读时显示「查看全部」入口提示）；同步弹层「全部已读」按钮显隐
+  function renderNoticeBadge() {
+    document.getElementById('noticeBadge').innerHTML = noticeUnread > 0
+      ? '<span class="nt-badge">' + noticeUnread + ' 条未读</span>'
+      : '查看全部';
+    document.getElementById('noticeReadAll').hidden = noticeUnread <= 0;
+  }
+
+  // 工作台通知卡：最新 3 条（未读标题前加橙色圆点、加粗）
+  function noticeCardRowHtml(n) {
+    return '<div class="nt-item' + (n.read ? '' : ' unread') + '">' +
+      (n.read ? '' : '<span class="nt-dot"></span>') +
+      '<span class="nt-title">' + Shade.esc(n.title) + '</span>' +
+      '<span class="nt-time">' + Shade.fmtDate(n.createdAt, true) + '</span>' +
+      '</div>';
+  }
+  function renderNoticeCard() {
+    var box = document.getElementById('noticeTop');
+    box.innerHTML = noticeTop.length
+      ? noticeTop.map(noticeCardRowHtml).join('')
+      : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
+  }
+
+  // 拉取通知卡数据（失败静默：仅卡内提示，不阻断工作台）
+  async function loadNotices() {
+    try {
+      var r = await Shade.api('/api/v1/notice/list?limit=3');
+      noticeTop = (r.data && r.data.items) || [];
+      noticeUnread = (r.data && r.data.unread) || 0;
+      renderNoticeBadge();
+      renderNoticeCard();
+    } catch (e) {
+      document.getElementById('noticeBadge').textContent = '查看全部';
+      document.getElementById('noticeTop').innerHTML = '<div class="empty">' +
+        Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '通知加载失败') + '</p></div>';
+    }
+  }
+
+  // 弹层列表行（未读圆点 + 加粗高亮；内容默认两行折叠，点击展开全文）
+  function noticeModalRowHtml(n) {
+    return '<div class="nm-item' + (n.read ? '' : ' unread') + '" data-id="' + n.id + '">' +
+      '<div class="nm-head">' +
+        (n.read ? '' : '<span class="nt-dot"></span>') +
+        '<span class="nm-title">' + Shade.esc(n.title) + '</span>' +
+        '<span class="nt-time">' + Shade.fmtDate(n.createdAt, true) + '</span>' +
+      '</div>' +
+      '<div class="nm-content">' + Shade.esc(n.content) + '</div>' +
+    '</div>';
+  }
+
+  // 打开通知列表弹层：拉全量（limit=100）
+  async function openNoticeModal() {
+    document.getElementById('noticeMask').classList.add('show');
+    var list = document.getElementById('noticeList');
+    list.innerHTML = '<div class="loading"><span class="spin"></span>加载中</div>';
+    try {
+      var r = await Shade.api('/api/v1/notice/list?limit=100');
+      noticeItems = (r.data && r.data.items) || [];
+      noticeUnread = (r.data && r.data.unread) || 0;
+      renderNoticeBadge();
+      list.innerHTML = noticeItems.length
+        ? noticeItems.map(noticeModalRowHtml).join('')
+        : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
+    } catch (e) {
+      list.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+        '<p>' + Shade.esc(e.message || '通知加载失败') + '</p></div>';
+    }
+  }
+
+  // 本地置已读：未读数递减、刷新徽章 / 工作台卡 / 弹层行（调用前需确认该条原为未读）
+  function markNoticeReadLocal(id) {
+    var n = noticeItems.find(function (x) { return x.id === id; });
+    if (n) n.read = 1;
+    var t = noticeTop.find(function (x) { return x.id === id; });
+    if (t && !t.read) { t.read = 1; renderNoticeCard(); }
+    noticeUnread = Math.max(0, noticeUnread - 1);
+    renderNoticeBadge();
+    var row = document.querySelector('.nm-item[data-id="' + id + '"]');
+    if (row) {
+      row.classList.remove('unread');
+      var dot = row.querySelector('.nt-dot');
+      if (dot) dot.remove();
+    }
+  }
+
+  // 弹层条目点击：展开 / 收起全文；未读条目上报已读后本地置已读、更新徽章
+  document.getElementById('noticeList').addEventListener('click', async function (e) {
+    var row = e.target.closest('.nm-item');
+    if (!row) return;
+    row.classList.toggle('open');
+    var id = Number(row.dataset.id);
+    var n = noticeItems.find(function (x) { return x.id === id; });
+    if (!n || n.read) return;
+    try {
+      await Shade.api('/api/v1/notice/' + id + '/read', { method: 'POST' });
+      markNoticeReadLocal(id);
+    } catch (err) { /* 已读上报失败静默，保留未读态 */ }
+  });
+
+  // 全部已读（有未读时显示）
+  document.getElementById('noticeReadAll').addEventListener('click', async function () {
+    var btn = this;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await Shade.api('/api/v1/notice/read-all', { method: 'POST' });
+      noticeUnread = 0;
+      noticeItems.forEach(function (n) { n.read = 1; });
+      noticeTop.forEach(function (n) { n.read = 1; });
+      renderNoticeBadge();
+      renderNoticeCard();
+      document.querySelectorAll('#noticeList .nm-item.unread').forEach(function (row) {
+        row.classList.remove('unread');
+        var dot = row.querySelector('.nt-dot');
+        if (dot) dot.remove();
+      });
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // 整卡与「查看全部」入口均可打开弹层
+  document.getElementById('noticeCard').addEventListener('click', openNoticeModal);
+  document.getElementById('noticeBadge').addEventListener('click', openNoticeModal);
+  document.getElementById('noticeClose').innerHTML = Shade.icon('close', 16);
+  document.getElementById('noticeClose').addEventListener('click', function () {
+    document.getElementById('noticeMask').classList.remove('show');
+  });
+  document.getElementById('noticeMask').addEventListener('click', function (e) {
+    if (e.target === this) this.classList.remove('show');
+  });
+
   // 加载数据
   (async function () {
     try {
@@ -280,6 +489,7 @@
         '<div class="empty">' + Shade.icon('error-circle', 44) +
         '<p>' + Shade.esc(e.message || '应用列表加载失败') + '</p></div>';
     }
+    loadNotices(); // 通知卡独立拉取，失败静默不阻断
     Shade.reveal();
   })();
 </script>

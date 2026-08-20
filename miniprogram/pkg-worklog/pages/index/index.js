@@ -166,6 +166,7 @@ Page({
     candidates: [], // [{name, checked, disabled, note}]（note：已上传 / 登录过期 / 未绑定）
     memberNote: '', // 层内说明（随方式变化）
     memberOffTip: '', // 商旅登录过期提醒条（有过期候选人时显示）
+    memberSaving: false, // 人名修改提交中（防连点；改人名需同步等待商旅结果，耗时较长）
     // 添加照片二选一弹层（自绘，替代 t-action-sheet）
     addSheetVisible: false,
     wmSourceType: 'album', // 加水印流程的照片来源（camera=拍摄 / album=相册，由人名层按钮决定）
@@ -681,6 +682,7 @@ Page({
         clockRaw,
         clockRows: showClock ? this.buildClockRows(members, clockRaw, ckReadonly) : [],
         showClock,
+        sgccOn: members.some((m) => m.sgccBound !== undefined), // 商旅是否开启（后端带商旅字段即开启；上传等待文案据此区分）
         ckReadonly,
         photos,
         photoUrls: photos.map((p) => p.url),
@@ -1151,6 +1153,7 @@ Page({
       this.toast('请先完成定位（重新定位或选择杆塔带入坐标）');
       return;
     }
+    wx.showLoading({ title: '正在打卡…', mask: true });
     try {
       await request({
         url: '/api/v1/sgcc/clockin',
@@ -1169,6 +1172,7 @@ Page({
         }),
         timeout: 60000,
       });
+      wx.hideLoading();
       this.setData({ ckVisible: false, ckSaving: false, keyboardHeight: 0 });
       this.toast('打卡成功');
       this.loadLogs();
@@ -1177,6 +1181,7 @@ Page({
         this.openFee(ckMemberId, ckMemberName);
       }
     } catch (err) {
+      wx.hideLoading();
       this.setData({ ckSaving: false });
       this.toast(err.message);
       if (err.code === 40037) {
@@ -1259,6 +1264,7 @@ Page({
   async onFeeSave() {
     if (this.data.feeSaving) return;
     this.setData({ feeSaving: true });
+    wx.showLoading({ title: '正在保存费用…', mask: true });
     try {
       await request({
         url: '/api/v1/sgcc/fee',
@@ -1271,9 +1277,11 @@ Page({
         }),
         timeout: 60000,
       });
+      wx.hideLoading();
       this.setData({ feeVisible: false, feeSaving: false, keyboardHeight: 0 });
       this.toast('保存成功');
     } catch (err) {
+      wx.hideLoading();
       this.setData({ feeSaving: false });
       this.toast(err.message);
     }
@@ -1281,13 +1289,17 @@ Page({
 
   // ---------- 商旅打卡 · 照片同步失败重试（设计稿⑨） ----------
 
+  // 重试同步：后端同步等待商旅结果后返回（失败 message 已含成员名与原因），成功刷新列表
   async onResyncPhoto(e) {
     const { pid } = e.currentTarget.dataset;
+    wx.showLoading({ title: '正在重新同步…', mask: true });
     try {
-      await request({ url: `/api/v1/sgcc/photos/${pid}/resync`, method: 'POST', data: this.teamBody({}) });
-      this.toast('已重新提交同步');
+      await request({ url: `/api/v1/sgcc/photos/${pid}/resync`, method: 'POST', data: this.teamBody({}), timeout: 120000 });
+      wx.hideLoading();
+      this.toast('同步成功');
       this.loadLogs();
     } catch (err) {
+      wx.hideLoading();
       this.toast(err.message);
     }
   },
@@ -2052,16 +2064,23 @@ Page({
       return;
     }
     if (this.data.memberMode === 'edit') {
+      if (this.data.memberSaving) return; // 防连点
+      this.setData({ memberSaving: true });
+      wx.showLoading({ title: '正在同步商旅平台…', mask: true });
       try {
         await request({
           url: `/api/v1/worklog/photos/${this.data.memberPhotoId}/members`,
           method: 'PUT',
           data: this.teamBody({ members: names }),
+          timeout: 120000,
         });
-        this.setData({ memberVisible: false });
+        wx.hideLoading();
+        this.setData({ memberVisible: false, memberSaving: false });
         this.toast('人名已修改');
         this.loadLogs();
       } catch (err) {
+        wx.hideLoading();
+        this.setData({ memberSaving: false });
         this.toast(err.message);
       }
       return;
@@ -2709,9 +2728,15 @@ Page({
   },
 
   // 上传：wm 存在时走「加水印上传」（服务端渲染水印）；plain=true 为「非水印照片」原图直传（免验证、不占每人限一张）；
-  // 否则为原「水印照片上传」。三类照片上传成功后均由后端异步同步进所属人名的当日商旅费用照片
+  // 否则为原「水印照片上传」。商旅开启时三类照片均由后端远端先行：先同步进所属人名的当日商旅费用照片，成功才落本地（失败则整个上传报错）
   async uploadPhoto(image, members, wm, plain) {
-    wx.showLoading({ title: wm ? '正在加水印上传…' : '正在上传…', mask: true });
+    // 商旅开启时后端需同步等待商旅结果，等待文案带商旅语义；未开启维持原文案
+    const entry = (this.data.list || []).find((x) => x.id === this.data.memberEntryId);
+    const sgccOn = !!(entry && entry.sgccOn);
+    const title = wm
+      ? (sgccOn ? '正在加水印上传并同步商旅…' : '正在加水印上传…')
+      : (sgccOn ? '正在上传并同步商旅…' : '正在上传…');
+    wx.showLoading({ title, mask: true });
     try {
       const data = await request({
         url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
@@ -2732,7 +2757,8 @@ Page({
     } catch (err) {
       wx.hideLoading();
       this.setData({ wmUploading: false });
-      this.toast(err.message);
+      // 商旅同步失败的报错较长（已含成员名与原因），用 Modal 完整展示
+      wx.showModal({ title: '上传失败', content: err.message || '上传失败，请重试', showCancel: false, confirmText: '知道了' });
     }
   },
 
@@ -2761,11 +2787,14 @@ Page({
       cancelBtn: '取消',
     })
       .then(async () => {
+        wx.showLoading({ title: '正在解除商旅关联…', mask: true });
         try {
-          await request({ url: `/api/v1/worklog/photos/${pid}${this.teamQuery('?')}`, method: 'DELETE' });
+          await request({ url: `/api/v1/worklog/photos/${pid}${this.teamQuery('?')}`, method: 'DELETE', timeout: 120000 });
+          wx.hideLoading();
           this.toast('已删除');
           this.loadLogs();
         } catch (err) {
+          wx.hideLoading();
           this.toast(err.message);
         }
       })

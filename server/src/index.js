@@ -42,6 +42,8 @@ app.use('/api/v1/app', require('./routes/app'));
 app.use('/api/v1/user', require('./routes/user'));
 app.use('/api/v1/callme', require('./routes/callme'));
 app.use('/api/v1/admin', require('./routes/admin'));
+// 通知推送：本体基础能力，无条件挂载（建表见 db.js）
+app.use('/api/v1/notice', require('./notice'));
 // 出工日志：env WORKLOG_ENABLED=true 时才挂载（建表/种子见 db.js）
 if (config.worklog.enabled) {
   app.use('/api/v1/worklog', require('./worklog'));

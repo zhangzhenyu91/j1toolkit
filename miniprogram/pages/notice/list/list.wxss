@@ -1,0 +1,94 @@
+/* 顶部操作条（全部已读入口，右对齐） */
+.top-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16rpx;
+}
+
+.read-all {
+  padding: 8rpx 4rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #F26D21;
+}
+
+.list-card {
+  overflow: hidden;
+}
+
+.n-item {
+  padding: 24rpx 28rpx;
+  transition: background-color 0.15s ease;
+}
+
+.n-item + .n-item {
+  border-top: 1rpx solid #F0EBDD;
+}
+
+.n-head {
+  display: flex;
+  align-items: center;
+}
+
+/* 未读圆点（已读透明占位，保持标题对齐） */
+.n-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: transparent;
+  flex: none;
+  margin-right: 12rpx;
+}
+
+.n-dot-on {
+  background: #F26D21;
+}
+
+.n-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  color: #22314E;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.n-title-unread {
+  font-weight: 600;
+}
+
+.n-time {
+  margin-left: 16rpx;
+  flex: none;
+  font-size: 22rpx;
+  color: #A89F8A;
+}
+
+/* 内容摘要：默认 2 行省略，展开显示全文 */
+.n-content {
+  margin-top: 12rpx;
+  padding-left: 24rpx; /* 与标题左对齐（圆点占位宽度） */
+  font-size: 24rpx;
+  color: #6B7690;
+  line-height: 1.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.n-content-full {
+  display: block;
+  overflow: visible;
+  white-space: pre-wrap; /* 保留通知原文换行 */
+  word-break: break-all;
+}
+
+.hint {
+  margin-top: 24rpx;
+  text-align: center;
+  color: #C4BBA6;
+  font-size: 22rpx;
+}
