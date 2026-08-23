@@ -241,9 +241,8 @@ router.get('/geo', async (req, res, next) => {
     const r = resp.data && resp.data.status === 0 && resp.data.result;
     if (!r) return ok(res, empty);
     const ac = r.address_component || {};
-    const addr = String(r.address || '').trim();
     return ok(res, {
-      position: addr ? `中国${addr}` : '',
+      position: composePosition(r),
       cityCode: String(ac.adcode || ''),
       cityName: String(ac.city || ac.district || ''),
       longitude: lng.toFixed(6),
@@ -251,6 +250,25 @@ router.get('/geo', async (req, res, next) => {
     });
   } catch (err) { return next(err); }
 });
+
+// 组装打卡 position：「中国」+ 腾讯 address 完整地址串（与商旅打卡 position 同口径）。
+// address 缺路/街道级（如「山西省临汾市尧都区」仅到区县）时按 address_reference 补「乡镇/街道 + 道路」
+// （town.title + street.title，street 回退 address_component.street），得到「…尧都区辛寺街道解放东路」口径；
+// address 已含该道路时不补（避免在门牌号后乱序追加）。
+function composePosition(r) {
+  const addr = String(r.address || '').trim();
+  if (!addr) return '';
+  const ac = r.address_component || {};
+  const ref = r.address_reference || {};
+  const town = ref.town && ref.town.title ? String(ref.town.title).trim() : '';
+  const street =
+    (ref.street && ref.street.title ? String(ref.street.title).trim() : '') ||
+    String(ac.street || '').trim();
+  let extra = '';
+  if (street && !addr.includes(street)) extra = (town && !addr.includes(town) ? town : '') + street;
+  else if (!street && town && !addr.includes(town)) extra = town;
+  return `中国${addr}${extra}`;
+}
 
 // 打卡定位兜底：前端未带 position 时按经纬度服务端逆编码
 async function reverseGeocode(lng, lat) {
@@ -263,9 +281,8 @@ async function reverseGeocode(lng, lat) {
     const r = resp.data && resp.data.status === 0 && resp.data.result;
     if (!r) return { position: '', cityCode: '', cityName: '' };
     const ac = r.address_component || {};
-    const address = String(r.address || '').trim();
     return {
-      position: address ? `中国${address}` : '',
+      position: composePosition(r),
       cityCode: String(ac.adcode || ''),
       cityName: String(ac.city || ac.district || ''),
     };
