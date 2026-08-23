@@ -12,6 +12,7 @@ Page({
     targets: [], // 推送对象：admin / team_admin / user 的非空子集
     preview: false, // 内容预览态（隐藏输入框，mp-html 渲染当前内容）
     previewHtml: '',
+    contentAutosize: { minHeight: 150 }, // 编辑框最小高度（px，约 6 行），随内容自增
     uploading: false, // 图片上传中（防并发选择）
     pushing: false,
     mdTagStyle: MD_TAG_STYLE,

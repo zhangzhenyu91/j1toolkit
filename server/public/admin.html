@@ -204,7 +204,8 @@
   /* ===== 消息推送 ===== */
   .push-card { margin-top: 20px; padding: 22px 24px 16px; max-width: 640px; }
   .push-targets { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; min-height: 42px; }
-  .push-ck { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; cursor: pointer; }
+  /* 选项 label 权重须压过 .f-row label（其 display:block+加粗会生效，使选框与文字退回基线对齐而不居中） */
+  .push-targets .push-ck { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 0; font-size: 13.5px; font-weight: 400; cursor: pointer; }
   .push-ck input { width: 16px; height: 16px; margin: 0; accent-color: var(--orange); cursor: pointer; }
   .push-ft { display: flex; justify-content: flex-end; }
   /* 内容编辑工具条（插入图片 / 预览） */
