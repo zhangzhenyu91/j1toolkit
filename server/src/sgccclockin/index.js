@@ -251,23 +251,23 @@ router.get('/geo', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-// 组装打卡 position：「中国」+ 腾讯 address 完整地址串（与商旅打卡 position 同口径）。
-// address 缺路/街道级（如「山西省临汾市尧都区」仅到区县）时按 address_reference 补「乡镇/街道 + 道路」
-// （town.title + street.title，street 回退 address_component.street），得到「…尧都区辛寺街道解放东路」口径；
-// address 已含该道路时不补（避免在门牌号后乱序追加）。
+// 组装打卡 position：address_component 部件拼接（与商旅打卡 position 同口径），不取腾讯 address 预拼串。
+// 口径：国家+省+市+区+乡镇/街道+道路（拼到道路为止，不带门牌号），如「中国山西省临汾市尧都区辛寺街道解放东路」：
+// ① 直辖市 city 与 province 同值去重（北京市北京市 → 北京市）；
+// ② 省直辖县级区划 city 与 district 同值去重（adcode 第 3、4 位为 9、0，如济源市 419001）；
+// ③ 乡镇/街道取 address_reference.town.title，插区与道路之间（与道路同名不重复）。
 function composePosition(r) {
-  const addr = String(r.address || '').trim();
-  if (!addr) return '';
   const ac = r.address_component || {};
   const ref = r.address_reference || {};
+  const nation = String(ac.nation || '').trim();
+  const province = String(ac.province || '').trim();
+  const rawCity = String(ac.city || '').trim();
+  const rawDistrict = String(ac.district || '').trim();
+  const street = String(ac.street || '').trim();
   const town = ref.town && ref.town.title ? String(ref.town.title).trim() : '';
-  const street =
-    (ref.street && ref.street.title ? String(ref.street.title).trim() : '') ||
-    String(ac.street || '').trim();
-  let extra = '';
-  if (street && !addr.includes(street)) extra = (town && !addr.includes(town) ? town : '') + street;
-  else if (!street && town && !addr.includes(town)) extra = town;
-  return `中国${addr}${extra}`;
+  const city = rawCity === province ? '' : rawCity; // 直辖市去重
+  const district = rawDistrict === rawCity ? '' : rawDistrict; // 省直辖县级区划去重
+  return [nation, province, city, district, town === street ? '' : town, street].filter(Boolean).join('');
 }
 
 // 打卡定位兜底：前端未带 position 时按经纬度服务端逆编码
