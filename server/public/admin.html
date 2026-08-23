@@ -207,6 +207,28 @@
   .push-ck { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; cursor: pointer; }
   .push-ck input { width: 16px; height: 16px; margin: 0; accent-color: var(--orange); cursor: pointer; }
   .push-ft { display: flex; justify-content: flex-end; }
+  /* 内容编辑工具条（插入图片 / 预览） */
+  .push-tools { display: flex; gap: 8px; margin-bottom: 8px; }
+  /* Markdown 预览区（对齐 index.html 通知弹层排版） */
+  .push-preview {
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-height: 96px;
+    font-size: 13.5px; line-height: 1.8; color: var(--navy); background: #FDFCF8; word-break: break-word;
+  }
+  .push-preview h1, .push-preview h2, .push-preview h3, .push-preview h4 { font-size: 15px; font-weight: 700; margin: 10px 0 6px; }
+  .push-preview p { margin: 4px 0; }
+  .push-preview ul, .push-preview ol { margin: 4px 0 4px 1.2em; padding: 0; }
+  .push-preview li { margin: 2px 0; }
+  .push-preview code { font-family: Menlo, Consolas, monospace; font-size: .92em; color: #D85A12; }
+  .push-preview pre { background: #F7F3EA; border: 1px solid var(--hair); border-radius: 8px; padding: 10px; margin: 8px 0; overflow-x: auto; }
+  .push-preview blockquote { border-left: 3px solid var(--orange); margin: 6px 0; padding: 2px 10px; color: var(--sub); background: #FDF6EF; }
+  .push-preview a { color: var(--orange); }
+  .push-preview hr { border: none; border-top: 1px solid var(--hair); margin: 10px 0; }
+  .push-preview table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+  .push-preview th, .push-preview td { border: 1px solid var(--hair); padding: 5px 9px; }
+  .push-preview th { background: #FDF6EF; }
+  .push-preview .md-img { display: block; max-width: 100%; border-radius: 8px; margin: 6px 0; }
+  .push-preview .md-code { margin: 8px 0; }
+  .push-preview .md-code-h { display: none; } /* 预览区不提供复制按钮 */
 
   /* ===== 无权限 ===== */
   .noperm { max-width: 460px; margin: 90px auto 0; text-align: center; padding: 46px 30px; }
@@ -326,8 +348,14 @@
         <input class="input" id="pushTitle" maxlength="128" placeholder="请输入通知标题（128 字以内）" autocomplete="off">
       </div>
       <div class="f-row">
-        <label>内容</label>
-        <textarea class="input" id="pushContent" placeholder="请输入通知内容，支持多行文本"></textarea>
+        <label>内容 <i>支持 Markdown 语法，可插入图片</i></label>
+        <div class="push-tools">
+          <button class="btn btn-sm" id="btnPushImg">插入图片</button>
+          <button class="btn btn-sm" id="btnPushPreview">预览</button>
+        </div>
+        <textarea class="input" id="pushContent" placeholder="请输入通知内容，支持 Markdown：# 标题、**加粗**、- 列表、![图片描述](图片地址) 等"></textarea>
+        <div class="push-preview" id="pushPreview" hidden></div>
+        <input type="file" id="pushImgFile" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none">
       </div>
       <div class="f-row">
         <label>推送对象 <i>至少选择一项</i></label>
@@ -337,7 +365,7 @@
           <label class="push-ck"><input type="checkbox" value="user">普通成员</label>
         </div>
       </div>
-      <div class="f-note">通知按角色推送，成员在工作台「消息通知」与小程序首页的通知卡可见，未读数以橙色徽章提示。</div>
+      <div class="f-note">通知按角色推送，成员在工作台「消息通知」与小程序首页的通知卡可见，未读数以橙色徽章提示。内容支持 Markdown 排版，图片经「插入图片」上传后自动引用。</div>
       <div class="push-ft">
         <button class="btn btn-accent" id="btnPushSubmit">推送</button>
       </div>
@@ -491,6 +519,7 @@
 
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
+<script src="/assets/md.js"></script>
 <script>
   function el(id) { return document.getElementById(id); }
 
@@ -1184,10 +1213,62 @@
       el('pushTitle').value = '';
       el('pushContent').value = '';
       document.querySelectorAll('#pane-push .push-ck input').forEach(function (ck) { ck.checked = false; });
+      // 预览态一并复位
+      pushPreviewOn = false;
+      el('pushPreview').hidden = true;
+      el('pushContent').style.display = '';
+      el('btnPushPreview').textContent = '预览';
     } catch (e) {
       Shade.toast(e.message, 'error');
     } finally {
       btn.disabled = false;
+    }
+  });
+
+  // ---------- 推送内容编辑：插入图片（上传 COS 后光标处插入 Markdown）/ 预览 ----------
+  var pushPreviewOn = false;
+  el('btnPushImg').addEventListener('click', function () { el('pushImgFile').click(); });
+  el('pushImgFile').addEventListener('change', async function () {
+    var file = this.files && this.files[0];
+    this.value = ''; // 置空以允许重复选择同一文件
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      Shade.toast('图片大小应在 5MB 以内', 'info');
+      return;
+    }
+    var fd = new FormData();
+    fd.append('file', file);
+    Shade.toast('图片上传中…', 'info');
+    try {
+      var r = await Shade.api('/api/v1/notice/upload-image', { method: 'POST', body: fd });
+      var url = r.data && r.data.url;
+      if (!url) throw new Error('上传失败，未返回图片地址');
+      insertAtCursor(el('pushContent'), '\n![图片](' + url + ')\n');
+      Shade.toast('图片已插入', 'success');
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    }
+  });
+  // 在 textarea 光标处插入文本（取不到光标时追加到末尾）
+  function insertAtCursor(ta, text) {
+    var s = ta.selectionStart;
+    var e2 = ta.selectionEnd;
+    if (typeof s !== 'number') {
+      ta.value += text;
+      return;
+    }
+    ta.value = ta.value.slice(0, s) + text + ta.value.slice(e2);
+    ta.selectionStart = ta.selectionEnd = s + text.length;
+    ta.focus();
+  }
+  el('btnPushPreview').addEventListener('click', function () {
+    pushPreviewOn = !pushPreviewOn;
+    el('pushPreview').hidden = !pushPreviewOn;
+    el('pushContent').style.display = pushPreviewOn ? 'none' : '';
+    this.textContent = pushPreviewOn ? '继续编辑' : '预览';
+    if (pushPreviewOn) {
+      var v = el('pushContent').value;
+      el('pushPreview').innerHTML = renderMd(v) || '<span style="color:var(--ph)">暂无内容</span>';
     }
   });
 

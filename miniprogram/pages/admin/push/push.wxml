@@ -11,9 +11,17 @@
     </view>
 
     <view class="f-item">
-      <view class="f-label">通知内容</view>
-      <view class="f-field f-field-area">
-        <t-textarea autosize="{{true}}" placeholder="请输入通知内容" value="{{content}}" style="background: transparent;" bind:change="onContent" />
+      <view class="f-label">通知内容（支持 Markdown，可插入图片）</view>
+      <view class="md-tools">
+        <view class="md-tool" hover-class="hover-opacity" bindtap="onInsertImage">插入图片</view>
+        <view class="md-tool" hover-class="hover-opacity" bindtap="onTogglePreview">{{preview ? '继续编辑' : '预览'}}</view>
+      </view>
+      <view class="f-field f-field-area" wx:if="{{!preview}}">
+        <t-textarea autosize="{{true}}" placeholder="支持 Markdown：# 标题、**加粗**、- 列表、![图片描述](图片地址) 等" value="{{content}}" style="background: transparent;" bind:change="onContent" />
+      </view>
+      <view class="md-preview" wx:else>
+        <mp-html wx:if="{{previewHtml}}" content="{{previewHtml}}" tag-style="{{mdTagStyle}}" container-style="{{mdContainerStyle}}" />
+        <view class="md-preview-empty" wx:else>暂无内容</view>
       </view>
     </view>
 

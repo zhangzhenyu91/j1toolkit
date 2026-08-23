@@ -1,10 +1,12 @@
 // 通知推送路由：全部接口需登录；可见性 = 角色命中 targets（角色数组子集）或 本人命中 user_ids（按人投放的用户 id 数组）
 // POST /push 为超管推送入口；模块另导出 push() 供其他后端模块系统自动触发（createdBy 缺省 NULL=系统）
 const express = require('express');
+const multer = require('multer');
 const auth = require('../middleware/auth');
 const requireAdmin = require('../middleware/requireAdmin');
 const { pool } = require('../db');
 const { ok, fail } = require('../utils/resp');
+const cos = require('../worklog/cos'); // 与 sgccclockin 同口径跨模块复用 COS 封装
 
 const router = express.Router();
 router.use(auth);
@@ -107,7 +109,7 @@ router.post('/read-all', async (req, res, next) => {
   }
 });
 
-// POST /api/v1/notice/push 超管推送通知（targets 为 ROLES 非空子集）
+// POST /api/v1/notice/push 超管推送通知（targets 为 ROLES 非空子集；content 支持 Markdown 原文，图片用 ![描述](url) 引用）
 router.post('/push', requireAdmin, async (req, res, next) => {
   try {
     const title = String((req.body && req.body.title) || '').trim();
@@ -120,6 +122,58 @@ router.post('/push', requireAdmin, async (req, res, next) => {
     if (!valid) return fail(res, 400, 40031, '推送对象不合法');
     const id = await push({ targets: [...new Set(targets)], title, content, createdBy: req.user.id });
     return ok(res, { id }, '推送成功');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/v1/notice/upload-image 超管上传通知配图（multipart 字段 file，仅 image/* ≤5MB），
+// 存 COS notice/ 前缀，返回 { url } 供 Markdown 以 ![描述](url) 引用；COS 未配置时报错（ensureConfigured expose）
+const IMG_MIME_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
+// 类型不在 fileFilter 拦截（拒绝时 req.file 为空会误报「请选择图片」），统一在处理器按 mimetype 校验报错
+const noticeImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+});
+router.post(
+  '/upload-image',
+  requireAdmin,
+  (req, res, next) => {
+    noticeImageUpload.single('file')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') return fail(res, 400, 40030, '图片大小应在 5MB 以内');
+        return next(err);
+      }
+      return next();
+    });
+  },
+  async (req, res, next) => {
+    try {
+      if (!req.file || !req.file.buffer || !req.file.buffer.length) {
+        return fail(res, 400, 40030, '请选择要上传的图片');
+      }
+      const ext = IMG_MIME_EXT[req.file.mimetype];
+      if (!ext) return fail(res, 400, 40030, '仅支持 JPG/PNG/GIF/WebP 图片');
+      const now = new Date();
+      const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const rand = Math.random().toString(36).slice(2, 8);
+      const key = `notice/${ym}/${Date.now()}-${rand}${ext}`;
+      await cos.putBuffer(key, req.file.buffer, req.file.mimetype);
+      return ok(res, { url: cos.publicUrl(key) });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// DELETE /api/v1/notice/:id 超管删除通知（连带删除全部已读记录）
+router.delete('/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const noticeId = Number(req.params.id) || 0;
+    const [r] = await pool.query('DELETE FROM sys_notice WHERE id = ?', [noticeId]);
+    if (!r.affectedRows) return fail(res, 404, 40403, '通知不存在');
+    await pool.query('DELETE FROM sys_notice_read WHERE notice_id = ?', [noticeId]);
+    return ok(res, null, '删除成功');
   } catch (err) {
     return next(err);
   }

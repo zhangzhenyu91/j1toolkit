@@ -25,6 +25,33 @@
   padding: 8rpx 16rpx;
 }
 
+/* 内容编辑工具条（插入图片 / 预览） */
+.md-tools {
+  display: flex;
+  gap: 24rpx;
+  margin-bottom: 10rpx;
+}
+
+.md-tool {
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #F26D21;
+  padding: 6rpx 4rpx;
+}
+
+/* Markdown 预览区（排版由 mdTagStyle / mdContainerStyle 控制） */
+.md-preview {
+  background: #F4F1EA;
+  border-radius: 12rpx;
+  padding: 16rpx 20rpx;
+  min-height: 120rpx;
+}
+
+.md-preview-empty {
+  font-size: 24rpx;
+  color: #A89F8A;
+}
+
 .hint {
   margin-top: 24rpx;
   text-align: center;

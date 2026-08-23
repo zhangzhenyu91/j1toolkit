@@ -3,6 +3,7 @@
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
     "t-empty": "tdesign-miniprogram/empty/empty",
-    "t-toast": "tdesign-miniprogram/toast/toast"
+    "t-toast": "tdesign-miniprogram/toast/toast",
+    "mp-html": "mp-html/index"
   }
 }
