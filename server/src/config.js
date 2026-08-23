@@ -60,9 +60,9 @@ const config = {
     cosPrefix: str('COS_WORKLOG_PREFIX', 'worklog/'),
     cosBaseUrl: str('COS_WORKLOG_BASE_URL'),
     difyKey: str('DIFY_WORKLOG_API_KEY'),
-    // 腾讯位置服务（「选照片并添加水印」预填当前地点/天气用；未配置时对应字段留空手填）
-    // 控制台 lbs.qq.com 创建应用时勾选 WebServiceAPI
-    tencentMapKey: str('TENCENT_MAP_KEY'),
+    // 高德地图（「选照片并添加水印」预填当前地点/天气、商旅打卡定位解析用；未配置时对应字段留空手填）
+    // 高德开放平台控制台 lbs.amap.com 创建应用，key 类型须为「Web 服务」
+    amapMapKey: str('AMAP_MAP_KEY'),
   },
   // 安全日活动记录（自 SafeDayLogs 独立服务合并的子模块，文件存储，不建库表）
   safeday: {

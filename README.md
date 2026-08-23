@@ -37,7 +37,7 @@
 | 后端 | Node.js + Express（云服务器 Docker，`npm run start` 启动；单端口同时托管网页端与 `/api/v1`） |
 | 存储 | MySQL（业务数据）/ Redis（JWT 黑名单、会话）/ 腾讯云 COS（文件/照片） |
 | 鉴权 | JWT + Redis，客户端 `Authorization: Bearer <token>` 携带（网页端 token 存 localStorage） |
-| 外部服务 | WeKnora 知识库（Call Me）、Dify 工作流（出工日志照片验证、安全日活动记录生成、题库 AI 解析）、GLKVM Cloud（远程连接计算机/文件传输）、腾讯位置服务（出工日志/水印添加/商旅打卡地点天气）、商旅平台中继（商旅打卡） |
+| 外部服务 | WeKnora 知识库（Call Me）、Dify 工作流（出工日志照片验证、安全日活动记录生成、题库 AI 解析）、GLKVM Cloud（远程连接计算机/文件传输）、高德地图 Web 服务（出工日志/水印添加/商旅打卡地点天气）、商旅平台中继（商旅打卡） |
 
 ## 目录结构
 
@@ -107,7 +107,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `WORKLOG_ENABLED` | 出工日志后端开关：`true` 开启（建表/种子/挂载路由），`false` 关闭 |
 | `COS_WORKLOG_PREFIX` | 出工日志照片在 COS 的独立文件夹前缀（如 `worklog/`） |
 | `COS_WORKLOG_BASE_URL` | 照片访问域名（可选；留空按 `https://{bucket}.cos.{region}.myqcloud.com` 拼接） |
-| `TENCENT_MAP_KEY` | 腾讯位置服务（出工日志「选择照片并添加水印」预填当前地点/天气；key 类型须勾选 WebServiceAPI，未配置则对应字段手填，见开发指南 7.3） |
+| `AMAP_MAP_KEY` | 高德地图 Web 服务（出工日志「选择照片并添加水印」预填当前地点/天气、商旅打卡定位解析；key 类型须为「Web 服务」，未配置则对应字段手填，见开发指南 7.3/15.5） |
 | `SAFEDAY_ENABLED` | 安全日活动记录后端开关：`true` 开启（初始化数据目录并挂载 `/api/v1/safeday`），`false` 关闭 |
 | `SAFEDAY_DATA_DIR` | 安全日记录 records.json 与生成产物（docs/）存放目录（默认 `./data/safeday`，相对路径按 server/ 解析） |
 | `DIFY_SAFEDAY_API_KEY` | 安全日记录生成工作流的 Dify API Key（与出工日志工作流共用 `DIFY_API_URL`） |

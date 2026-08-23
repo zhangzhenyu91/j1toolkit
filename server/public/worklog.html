@@ -2262,7 +2262,7 @@ function withDegSuffix(v, suffix) {
   if (!s) return '';
   return /[°NSEWnsew]/.test(s) ? s : s + suffix;
 }
-/* WGS84 → GCJ02：浏览器 geolocation 为 WGS84，/geo 逆地址解析为腾讯 GCJ02 口径；中国境外原样返回 */
+/* WGS84 → GCJ02：浏览器 geolocation 为 WGS84，/geo 逆地址解析为高德 GCJ02 口径；中国境外原样返回 */
 function wgs2gcj(lng, lat) {
   var a = 6378245.0, ee = 0.006693421622965943;
   if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) return [lng, lat];

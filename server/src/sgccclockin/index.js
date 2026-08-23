@@ -198,11 +198,11 @@ async function refreshClockins(account, date) {
   return body;
 }
 
-// ---------- 打卡定位（腾讯逆编码完整地址串；打卡弹层预填与 /clockin 兜底共用）----------
+// ---------- 打卡定位（高德逆编码完整地址串；打卡弹层预填与 /clockin 兜底共用）----------
 
-// GET /geo：打卡定位解析（腾讯，复用 TENCENT_MAP_KEY；未配置或失败返回空串由前端手填/兜底）
-//   ?lng=&lat=      逆编码：坐标 → {position, cityCode, cityName}（position =「中国」+ 完整地址串，与商旅打卡 position 同口径）
-//   ?address=&region=  正向解析（手动输入地址用）：地址文字 → 坐标+城市；region 可传本机城市名缩小范围，
+// GET /geo：打卡定位解析（高德，复用 AMAP_MAP_KEY；未配置或失败返回空串由前端手填/兜底）
+//   ?lng=&lat=      逆编码：坐标 → {position, cityCode, cityName}（position = 部件拼接完整地址串，与商旅打卡 position 同口径）
+//   ?address=&region=  正向解析（手动输入地址用）：地址文字 → 坐标+城市；region 可传本机城市名缩小范围（高德 city 参数），
 //                      返回 {position(规范地址串), cityCode, cityName, longitude, latitude}，解析失败全空
 router.get('/geo', async (req, res, next) => {
   try {
@@ -210,19 +210,21 @@ router.get('/geo', async (req, res, next) => {
     const address = String(req.query.address || '').trim();
     if (address) {
       // 正向解析：先 address → 坐标，再走逆编码拿规范地址串与城市名（与逆编码口径一致）
-      if (!config.worklog.tencentMapKey) return ok(res, empty);
-      const params = { address: address.slice(0, 120), key: config.worklog.tencentMapKey };
+      if (!config.worklog.amapMapKey) return ok(res, empty);
+      const params = { address: address.slice(0, 120), key: config.worklog.amapMapKey };
       const region = String(req.query.region || '').trim();
-      if (region) params.region = region.slice(0, 32);
-      const resp = await axios.get('https://apis.map.qq.com/ws/geocoder/v1/', { params, timeout: 8000 });
-      const r = resp.data && resp.data.status === 0 && resp.data.result;
-      const fLng = r && r.location && Number(r.location.lng);
-      const fLat = r && r.location && Number(r.location.lat);
+      if (region) params.city = region.slice(0, 32);
+      const resp = await axios.get('https://restapi.amap.com/v3/geocode/geo', { params, timeout: 8000 });
+      const d = resp.data || {};
+      const g = d.status === '1' && d.geocodes && d.geocodes[0];
+      const loc = g && typeof g.location === 'string' ? g.location.split(',') : []; // 高德 location：「经度,纬度」
+      const fLng = Number(loc[0]);
+      const fLat = Number(loc[1]);
       if (!Number.isFinite(fLng) || !Number.isFinite(fLat)) return ok(res, empty);
       const rev = await reverseGeocode(fLng, fLat);
       return ok(res, {
         position: rev.position,
-        cityCode: String(r.adcode || rev.cityCode || ''),
+        cityCode: gstr(g.adcode) || rev.cityCode,
         cityName: rev.cityName,
         longitude: fLng.toFixed(6),
         latitude: fLat.toFixed(6),
@@ -233,61 +235,64 @@ router.get('/geo', async (req, res, next) => {
     if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) {
       return fail(res, 400, 40040, '经纬度参数无效');
     }
-    if (!config.worklog.tencentMapKey) return ok(res, empty);
-    const resp = await axios.get('https://apis.map.qq.com/ws/geocoder/v1/', {
-      params: { location: `${lat.toFixed(6)},${lng.toFixed(6)}`, key: config.worklog.tencentMapKey },
+    if (!config.worklog.amapMapKey) return ok(res, empty);
+    const resp = await axios.get('https://restapi.amap.com/v3/geocode/regeo', {
+      params: { location: `${lng.toFixed(6)},${lat.toFixed(6)}`, key: config.worklog.amapMapKey }, // 高德：经度在前
       timeout: 8000,
     });
-    const r = resp.data && resp.data.status === 0 && resp.data.result;
-    if (!r) return ok(res, empty);
-    const ac = r.address_component || {};
+    const d = resp.data || {};
+    const ac = d.status === '1' && d.regeocode && d.regeocode.addressComponent;
+    if (!ac) return ok(res, empty);
     return ok(res, {
-      position: composePosition(r),
-      cityCode: String(ac.adcode || ''),
-      cityName: String(ac.city || ac.district || ''),
+      position: composePosition(ac),
+      cityCode: gstr(ac.adcode),
+      cityName: gstr(ac.city) || gstr(ac.district),
       longitude: lng.toFixed(6),
       latitude: lat.toFixed(6),
     });
   } catch (err) { return next(err); }
 });
 
-// 组装打卡 position：address_component 部件拼接（与商旅打卡 position 同口径），不取腾讯 address 预拼串。
+// 高德空值字段返回空数组（[]）而非空串，统一收敛为字符串
+function gstr(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+// 组装打卡 position：高德 addressComponent 部件拼接（与商旅打卡 position 同口径）。
 // 口径：国家+省+市+区+乡镇/街道+道路（拼到道路为止，不带门牌号），如「中国山西省临汾市尧都区辛寺街道解放东路」：
-// ① 直辖市 city 与 province 同值去重（北京市北京市 → 北京市）；
-// ② 省直辖县级区划 city 与 district 同值去重（adcode 第 3、4 位为 9、0，如济源市 419001）；
-// ③ 乡镇/街道取 address_reference.town.title，插区与道路之间（与道路同名不重复）。
-function composePosition(r) {
-  const ac = r.address_component || {};
-  const ref = r.address_reference || {};
-  const nation = String(ac.nation || '').trim();
-  const province = String(ac.province || '').trim();
-  const rawCity = String(ac.city || '').trim();
-  const rawDistrict = String(ac.district || '').trim();
-  const street = String(ac.street || '').trim();
-  const town = ref.town && ref.town.title ? String(ref.town.title).trim() : '';
-  const city = rawCity === province ? '' : rawCity; // 直辖市去重
-  const district = rawDistrict === rawCity ? '' : rawDistrict; // 省直辖县级区划去重
+// ① 乡镇/街道取 township（社区街道，非道路），插区与道路之间（与道路同名不重复）；
+// ② 道路取 streetNumber.street；
+// ③ 直辖市与省直辖县级区划 city 返回为空（高德口径），city===province 与 district===city 同值去重为防御口径。
+function composePosition(ac) {
+  const nation = gstr(ac.country);
+  const province = gstr(ac.province);
+  const rawCity = gstr(ac.city);
+  const rawDistrict = gstr(ac.district);
+  const town = gstr(ac.township);
+  const street = gstr(ac.streetNumber && ac.streetNumber.street);
+  const city = rawCity === province ? '' : rawCity; // 直辖市去重（防御）
+  const district = rawDistrict === rawCity ? '' : rawDistrict; // 省直辖县级区划去重（防御）
   return [nation, province, city, district, town === street ? '' : town, street].filter(Boolean).join('');
 }
 
 // 打卡定位兜底：前端未带 position 时按经纬度服务端逆编码
 async function reverseGeocode(lng, lat) {
-  if (!config.worklog.tencentMapKey) return { position: '', cityCode: '', cityName: '' };
+  if (!config.worklog.amapMapKey) return { position: '', cityCode: '', cityName: '' };
   try {
-    const resp = await axios.get('https://apis.map.qq.com/ws/geocoder/v1/', {
-      params: { location: `${Number(lat).toFixed(6)},${Number(lng).toFixed(6)}`, key: config.worklog.tencentMapKey },
+    const resp = await axios.get('https://restapi.amap.com/v3/geocode/regeo', {
+      params: { location: `${Number(lng).toFixed(6)},${Number(lat).toFixed(6)}`, key: config.worklog.amapMapKey }, // 高德：经度在前
       timeout: 8000,
     });
-    const r = resp.data && resp.data.status === 0 && resp.data.result;
-    if (!r) return { position: '', cityCode: '', cityName: '' };
-    const ac = r.address_component || {};
+    const d = resp.data || {};
+    const ac = d.status === '1' && d.regeocode && d.regeocode.addressComponent;
+    if (!ac) return { position: '', cityCode: '', cityName: '' };
     return {
-      position: composePosition(r),
-      cityCode: String(ac.adcode || ''),
-      cityName: String(ac.city || ac.district || ''),
+      position: composePosition(ac),
+      cityCode: gstr(ac.adcode),
+      cityName: gstr(ac.city) || gstr(ac.district),
     };
   } catch (err) {
-    console.error('[商旅打卡] 腾讯逆编码失败：', err.message);
+    console.error('[商旅打卡] 高德逆编码失败：', err.message);
     return { position: '', cityCode: '', cityName: '' };
   }
 }

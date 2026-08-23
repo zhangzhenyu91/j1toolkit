@@ -14,8 +14,8 @@ const Watermark = require('../worklog/watermark');
 const router = express.Router();
 router.use(auth, requireApp('wm-add'));
 
-// GET /geo?lng=&lat=：按经纬度取当前「地点 + 天气」（腾讯），与出工日志同口径；
-// 未配置 TENCENT_MAP_KEY 或调用失败时返回空串，前端留空手填
+// GET /geo?lng=&lat=：按经纬度取当前「地点 + 天气」（高德），与出工日志同口径；
+// 未配置 AMAP_MAP_KEY 或调用失败时返回空串，前端留空手填
 router.get('/geo', async (req, res, next) => {
   try {
     const lng = Number(req.query.lng);
