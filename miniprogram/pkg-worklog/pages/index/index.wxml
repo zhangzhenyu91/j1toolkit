@@ -1067,11 +1067,12 @@
         </block>
         <view class="fee-row">
           <text class="fee-k">伙食补助</text>
-          <input class="fee-input" type="digit" value="{{feeFood}}" data-field="feeFood" bindinput="onFeeInput" placeholder="0" placeholder-class="ph" adjust-position="{{false}}" bindkeyboardheightchange="onKeyboardHeight" hold-keyboard />
+          <!-- 受控焦点：hold-keyboard 下点页面不收键盘，关层时置 false 同步收起（iOS 数字键盘无完成键，否则关层后键盘滞留） -->
+          <input class="fee-input" type="digit" value="{{feeFood}}" data-field="feeFood" bindinput="onFeeInput" focus="{{feeFoodFocus}}" bindfocus="onFeeFocus" bindblur="onFeeBlur" placeholder="0" placeholder-class="ph" adjust-position="{{false}}" bindkeyboardheightchange="onKeyboardHeight" hold-keyboard />
         </view>
         <view class="fee-row">
           <text class="fee-k">交通费</text>
-          <input class="fee-input" type="digit" value="{{feeTransit}}" data-field="feeTransit" bindinput="onFeeInput" placeholder="0" placeholder-class="ph" adjust-position="{{false}}" bindkeyboardheightchange="onKeyboardHeight" hold-keyboard />
+          <input class="fee-input" type="digit" value="{{feeTransit}}" data-field="feeTransit" bindinput="onFeeInput" focus="{{feeTransitFocus}}" bindfocus="onFeeFocus" bindblur="onFeeBlur" placeholder="0" placeholder-class="ph" adjust-position="{{false}}" bindkeyboardheightchange="onKeyboardHeight" hold-keyboard />
         </view>
       </block>
     </scroll-view>

@@ -301,6 +301,8 @@ Page({
     feeLoading: false,
     feeFood: '', // 伙食补助（输入框字符串）
     feeTransit: '', // 交通费
+    feeFoodFocus: false, // 伙食补助输入框焦点（受控：hold-keyboard 下关层需同步收键盘）
+    feeTransitFocus: false, // 交通费输入框焦点（同上）
     feeSaving: false,
   },
 
@@ -1208,6 +1210,8 @@ Page({
       feeLoading: true,
       feeFood: '',
       feeTransit: '',
+      feeFoodFocus: false,
+      feeTransitFocus: false,
       feeSaving: false,
       keyboardHeight: 0,
     });
@@ -1252,12 +1256,33 @@ Page({
     this.setData({ [field]: e.detail.value });
   },
 
+  // 输入框焦点受控同步（data-field=feeFood/feeTransit → 焦点键 feeFoodFocus/feeTransitFocus）：
+  // hold-keyboard 下点页面不收键盘，关层时须把焦点键置 false 才能收起键盘
+  onFeeFocus(e) {
+    this.setData({ [`${e.currentTarget.dataset.field}Focus`]: true });
+  },
+
+  onFeeBlur(e) {
+    this.setData({ [`${e.currentTarget.dataset.field}Focus`]: false });
+  },
+
+  // 关层统一先失焦收键盘（iOS type=digit 数字键盘无完成键，否则键盘滞留无法关闭）
+  closeFee(extra) {
+    this.setData({
+      feeVisible: false,
+      keyboardHeight: 0,
+      feeFoodFocus: false,
+      feeTransitFocus: false,
+      ...extra,
+    });
+  },
+
   onFeeCancel() {
-    this.setData({ feeVisible: false, keyboardHeight: 0 });
+    this.closeFee();
   },
 
   onFeeVisibleChange(e) {
-    if (!e.detail.visible && this.data.feeVisible) this.setData({ feeVisible: false, keyboardHeight: 0 });
+    if (!e.detail.visible && this.data.feeVisible) this.closeFee();
   },
 
   // 保存费用信息：POST /sgcc/fee（本层仅伙食补助/交通费两项可编辑）
@@ -1278,7 +1303,7 @@ Page({
         timeout: 60000,
       });
       wx.hideLoading();
-      this.setData({ feeVisible: false, feeSaving: false, keyboardHeight: 0 });
+      this.closeFee({ feeSaving: false });
       this.toast('保存成功');
     } catch (err) {
       wx.hideLoading();
