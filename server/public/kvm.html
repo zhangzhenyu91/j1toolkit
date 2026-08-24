@@ -169,8 +169,13 @@
     }
   }
 
-  // 卡底操作：仅在线设备可跳（与平台设备列表的交互口径一致）
+  // 卡底操作：仅在线设备可跳（与平台设备列表的交互口径一致）；维护锁期间（每日派车单同步）置灰不可用
   function actionHtml(d) {
+    if (d.maintaining) {
+      return '<span class="act off">' + Shade.icon('terminal', 13) + '终端</span>' +
+        '<span class="act off">' + Shade.icon('monitor', 13) + '远程控制</span>' +
+        '<span class="hint">维护中</span>';
+    }
     if (d.status === 'online' && d.ddns) {
       return '<a class="act" data-jump="term" data-ddns="' + Shade.esc(d.ddns) + '">' +
           Shade.icon('terminal', 13) + '终端</a>' +

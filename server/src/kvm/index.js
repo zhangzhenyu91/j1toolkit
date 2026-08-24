@@ -13,6 +13,7 @@ const requireApp = require('../middleware/requireApp');
 const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
 const glkvm = require('./glkvm');
+const devlock = require('./devlock');
 
 const router = express.Router();
 
@@ -86,12 +87,27 @@ async function assertTeamDevice(req, { id, ddns }) {
   return dev;
 }
 
+// 设备操作前置：班组可见性 + 维护锁（锁定中返回 423 并响应，每日派车单同步窗口内该设备暂停操作）
+async function assertOperable(req, res, idOrDdns) {
+  const dev = await assertTeamDevice(req, idOrDdns);
+  const reason = await devlock.getReason(dev.ddns);
+  if (reason) {
+    fail(res, 423, 42301, `设备维护中：${reason}`);
+    return null;
+  }
+  return dev;
+}
+
 // 设备列表（透传 q/status 过滤；以当前员工账号代登平台，可见范围随其平台权限；再按班组过滤 + 回退）
 router.get('/devices', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
     const ctx = await teamDevices(req);
+    // 维护锁状态逐台标注（前端置灰「维护中」；锁存 Redis，逐台 GET，班组设备量级个位数）
+    const items = await Promise.all(
+      ctx.items.map(async (d) => ({ ...d, maintaining: Boolean(await devlock.getReason(d.ddns)) }))
+    );
     return ok(res, {
-      items: ctx.items,
+      items,
       team: ctx.team ? ctx.team.name : '',
       fallback: ctx.fallback,
       fallback_team: ctx.fallbackTeam,
@@ -117,7 +133,8 @@ router.post('/jump', requireApp('kvm'), async (req, res) => {
   // ddns 仅允许字母数字与 . _ -（禁止路径字符，防拼接注入）
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(ddns)) return fail(res, 400, 40001, '参数错误：ddns');
   try {
-    await assertTeamDevice(req, { ddns }); // 仅可跳本班组（含回退集）设备
+    const dev = await assertOperable(req, res, { ddns }); // 仅可跳本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
     const sid = await glkvm.getSessionToken(req.user.username);
     const url = `${config.kvm.url}/jump.html#sid=${encodeURIComponent(sid)}` +
       `&to=${encodeURIComponent(build(ddns))}`;
@@ -143,7 +160,8 @@ function relayFail(res, err) {
 // 挂载状态查询（设备 /status：被动查询不切换状态；shared=true 表示已共享给被控机）
 router.get('/devices/:id/status', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
-    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.get(`${ps.origin}/api/fileshare/status`, {
       headers: { Cookie: ps.cookie }, timeout: 60000,
@@ -157,7 +175,8 @@ router.get('/devices/:id/status', requireAnyApp(KVM_OR_FT), async (req, res) => 
 // 盘内文件列表（设备 /list：共享中则先断开）
 router.get('/devices/:id/files', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
-    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.get(`${ps.origin}/api/fileshare/list`, {
       headers: { Cookie: ps.cookie }, timeout: 60000,
@@ -173,7 +192,8 @@ router.post('/devices/:id/push', requireAnyApp(KVM_OR_FT), upload.array('files',
   const files = req.files || [];
   if (!files.length) return fail(res, 400, 40001, '请至少上传一个文件（字段名 files）');
   try {
-    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const fd = new FormData();
     for (const f of files) {
@@ -201,7 +221,8 @@ router.get('/devices/:id/download', requireAnyApp(KVM_OR_FT), async (req, res) =
   const name = String(req.query.name || '');
   if (!name) return fail(res, 400, 40001, '参数错误：name');
   try {
-    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.get(
       `${ps.origin}/api/fileshare/download/${encodeURIComponent(name)}`,
@@ -219,7 +240,8 @@ router.get('/devices/:id/download', requireAnyApp(KVM_OR_FT), async (req, res) =
 // 挂载（共享）到被控机（设备 /mount；推送全部完成后再调一次）
 router.post('/devices/:id/mount', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
-    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.post(`${ps.origin}/api/fileshare/mount`, null, {
       headers: { Cookie: ps.cookie }, timeout: 60000,
@@ -237,7 +259,8 @@ router.post('/devices/:id/delete', requireAnyApp(KVM_OR_FT), async (req, res) =>
     return fail(res, 400, 40001, '参数错误：names（文件名数组）');
   }
   try {
-    await assertTeamDevice(req, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.post(`${ps.origin}/api/fileshare/delete`,
       { names: names.map((n) => String(n).slice(0, 255)) },

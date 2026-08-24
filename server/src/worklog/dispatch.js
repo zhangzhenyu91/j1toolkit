@@ -256,4 +256,4 @@ async function align(team, files) {
   };
 }
 
-module.exports = { align, destSame };
+module.exports = { align, destSame, loadEntries };

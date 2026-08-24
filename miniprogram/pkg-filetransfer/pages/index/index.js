@@ -242,6 +242,7 @@ Page({
           ip: d.ip || '—',
           mac: d.mac || '—',
           last: d.status === 'online' ? '当前在线' : (d.connectedTime ? fmtLast(d.connectedTime) : '—'),
+          maintaining: Boolean(d.maintaining), // 维护锁（每日派车单同步窗口，后端锁定期间操作返回 423）
         };
       });
       this._loaded = true;
@@ -267,6 +268,10 @@ Page({
 
   onOpenUpload(e) {
     const dev = e.currentTarget.dataset.item;
+    if (dev.maintaining) {
+      this.toast('设备维护中，暂不可用');
+      return;
+    }
     if (dev.statusKey !== 'online') {
       this.toast('设备离线，不可传输文件');
       return;
@@ -426,6 +431,10 @@ Page({
   // 打开弹层不直接拉列表：先查挂载状态（设备 /status 被动查询，不切换状态）
   onOpenDownload(e) {
     const dev = e.currentTarget.dataset.item;
+    if (dev.maintaining) {
+      this.toast('设备维护中，暂不可用');
+      return;
+    }
     if (dev.statusKey !== 'online') {
       this.toast('设备离线，不可传输文件');
       return;

@@ -23,6 +23,7 @@ const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark
 const tasksheet = require('./tasksheet');
 const feesheet = require('./feesheet');
 const dispatch = require('./dispatch');
+const dispatchSync = require('./dispatch-sync');
 
 const router = express.Router();
 
@@ -1616,6 +1617,21 @@ router.post(
   }
 );
 
+// POST /dispatch/sync-now：手动触发「派车单每日自动同步」取件建卡（云端验证/失败补跑用；
+// 摘要回显且结果通知照常发送；需同时开启 KVM 与 WORKLOG_DISPATCH_SYNC_ENABLED）
+router.post('/dispatch/sync-now', requireDictAdmin, async (req, res, next) => {
+  try {
+    if (!config.kvm.enabled || !config.worklog.dispatchSync.enabled) {
+      return fail(res, 400, 40024, '派车单自动同步未启用（需同时开启 KVM 与 WORKLOG_DISPATCH_SYNC_ENABLED）');
+    }
+    const result = await dispatchSync.runFetchNow();
+    if (!result.ok) return fail(res, 500, 50024, result.message);
+    return ok(res, result, result.message);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // ===== 管理接口（车牌号 / 目的地 / 人员 三类字典同构维护，按生效班组隔离）=====
 // 权限：超管可管任意班组（?team_id= 指定），班组管理员仅本班（requireDictAdmin）
 function dictRoutes(path, table, field, label, countRefs) {
@@ -1751,5 +1767,10 @@ router.put('/admin/members/:id/move', requireDictAdmin, async (req, res, next) =
     conn.release();
   }
 });
+
+// 派车单每日自动同步排程启动（需同时开启 KVM 与同步开关；本模块已由 WORKLOG_ENABLED 门控挂载）
+if (config.kvm.enabled && config.worklog.dispatchSync.enabled) {
+  dispatchSync.start();
+}
 
 module.exports = router;

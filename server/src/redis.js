@@ -31,4 +31,4 @@ async function isBlacklisted(token) {
   }
 }
 
-module.exports = { blacklistToken, isBlacklisted };
+module.exports = { blacklistToken, isBlacklisted, client };

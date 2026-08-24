@@ -224,6 +224,16 @@
   font-size: 20rpx;
 }
 
+/* 维护中标签（维护锁期间展示；橙色浅底，与身份标签同族） */
+.dv-tag-maint {
+  margin-left: 12rpx;
+  padding: 2rpx 14rpx;
+  border-radius: 8rpx;
+  background: #fdeee2;
+  color: #f26d21;
+  font-size: 20rpx;
+}
+
 .dv-name {
   margin-top: 20rpx;
   font-size: 32rpx;

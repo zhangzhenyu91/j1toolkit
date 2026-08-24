@@ -44,6 +44,7 @@
             <text>{{item.statusText}}</text>
           </view>
           <view wx:if="{{item.group}}" class="dv-tag">{{item.group}}</view>
+          <view wx:if="{{item.maintaining}}" class="dv-tag-maint">维护中</view>
         </view>
         <view class="dv-name">{{item.name}}</view>
         <view class="dv-ddns" wx:if="{{item.ddns}}">{{item.ddns}}</view>
@@ -61,15 +62,15 @@
             <text class="val">{{item.last}}</text>
           </view>
         </view>
-        <!-- 卡底按钮行：左上传右下载；离线置灰 -->
+        <!-- 卡底按钮行：左上传右下载；离线/维护中置灰 -->
         <view class="dv-ops">
-          <view class="dv-btn up {{item.statusKey !== 'online' ? 'off' : ''}}" hover-class="hover-opacity"
+          <view class="dv-btn up {{(item.statusKey !== 'online' || item.maintaining) ? 'off' : ''}}" hover-class="hover-opacity"
                 data-item="{{item}}" bindtap="onOpenUpload">
-            <t-icon name="upload" size="30rpx" color="{{item.statusKey === 'online' ? '#F26D21' : '#D9CFBA'}}" />上传文件
+            <t-icon name="upload" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#F26D21' : '#D9CFBA'}}" />上传文件
           </view>
-          <view class="dv-btn dl {{item.statusKey !== 'online' ? 'off' : ''}}" hover-class="hover-opacity"
+          <view class="dv-btn dl {{(item.statusKey !== 'online' || item.maintaining) ? 'off' : ''}}" hover-class="hover-opacity"
                 data-item="{{item}}" bindtap="onOpenDownload">
-            <t-icon name="download" size="30rpx" color="{{item.statusKey === 'online' ? '#22314E' : '#D9CFBA'}}" />下载文件
+            <t-icon name="download" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#22314E' : '#D9CFBA'}}" />下载文件
           </view>
         </view>
       </view>

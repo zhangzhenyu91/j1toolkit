@@ -63,6 +63,18 @@ const config = {
     // 高德地图（「选照片并添加水印」预填当前地点/天气、商旅打卡定位解析用；未配置时对应字段留空手填）
     // 高德开放平台控制台 lbs.amap.com 创建应用，key 类型须为「Web 服务」
     amapMapKey: str('AMAP_MAP_KEY'),
+    // 派车单每日自动同步（经 KVM 文件传输链路取回被控机导出件自动建卡；需同时开启 KVM）
+    // 仅配置的班组生效（目前仅检修一班）；设备以 ddns 定位、MAC 校验防误操作他机
+    dispatchSync: {
+      enabled: str('WORKLOG_DISPATCH_SYNC_ENABLED') === 'true',
+      team: str('WORKLOG_DISPATCH_SYNC_TEAM'),
+      deviceDdns: str('WORKLOG_DISPATCH_DEVICE_DDNS'),
+      deviceMac: str('WORKLOG_DISPATCH_DEVICE_MAC'),
+      // 同步任务代登平台所用账号（须在 GLKVM 平台可见该设备组；留空回退 ADMIN_USERNAME）
+      kvmUser: str('WORKLOG_DISPATCH_KVM_USER'),
+      prepareTime: str('WORKLOG_DISPATCH_PREPARE_TIME', '09:25'), // 锁定设备并挂载 U 盘至被控机
+      fetchTime: str('WORKLOG_DISPATCH_FETCH_TIME', '09:40'), // 取件建卡并解禁
+    },
   },
   // 安全日活动记录（自 SafeDayLogs 独立服务合并的子模块，文件存储，不建库表）
   safeday: {
