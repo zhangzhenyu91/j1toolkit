@@ -1898,14 +1898,6 @@ page {
   margin-top: 20rpx;
 }
 
-.fee-loading {
-  padding: 60rpx 0;
-  text-align: center;
-  font-size: 26rpx;
-  color: #a89f8a;
-  letter-spacing: 2rpx;
-}
-
 .fee-row {
   display: flex;
   align-items: center;

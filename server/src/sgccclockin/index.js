@@ -811,21 +811,25 @@ router.post('/fee', async (req, res, next) => {
 
 // ---------- 照片同步（worklog 上传远端先行调用 + 改人名补传 + 手动重试）----------
 
+// 多成员商旅循环的可选进度回调 prog（{ addTotal(n), step() }）：由 newPhotoOp 的任务记录供给，
+// 每个成员处理完（含跳过）step 一次；失败中止不 step。addTotal 累加设计：改人名「剔除 + 补传」两段共用同一任务拼接连续进度。
+
 // 把照片原文上传并关联进每个指定人名的当日商旅费用照片（reimbEnclosure/add → getFeeInfoNew → saveFeeInfoNew 关联上传图片组件）。
 // 远端先行核心，两处共用：worklog 照片上传（本地落库前调用，buf 在内存）与 syncPhotoToSgcc（改人名补传 / resync，COS 回源 buf）。
 // links 传已有链接（按成员去重，已链接者跳过，重试天然只补缺口）；未绑定成员跳过不计失败（记核查日志，与验证规则 a「未绑定者不参与」同口径）；
 // 登录过期视为硬失败（远端先行口径：商旅失败即整个操作失败，跳过会造成本地与商旅必然不一致）。任一绑定成员失败即中止。
 // 返回 { ok:true, links } / { ok:false, links, failedName, error }（links 含本次新成功成员，供调用方落库）
-async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileName, links = {}, photoId = null }) {
+async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileName, links = {}, photoId = null, prog = null }) {
   const imgBase64Str = buf.toString('base64');
   const photoLabel = photoId ? `照片 ${photoId}` : '照片';
+  if (prog) prog.addTotal(names.length);
   for (const name of names) {
     const [mrows] = await pool.query(
       'SELECT id FROM worklog_member WHERE team_id = ? AND name = ?', [teamId, name]
     );
-    if (!mrows.length) continue;
+    if (!mrows.length) { if (prog) prog.step(); continue; }
     const memberId = mrows[0].id;
-    if (links[memberId]) continue; // 该成员名下已同步过
+    if (links[memberId]) { if (prog) prog.step(); continue; } // 该成员名下已同步过
     const account = await accountByMember(teamId, memberId);
     if (!account) {
       await pool.query(
@@ -833,6 +837,7 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileNam
          VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
         [teamId, memberId, logDate, `${photoLabel} 同步跳过：成员「${name}」未绑定商旅账号`]
       );
+      if (prog) prog.step();
       continue;
     }
     if (account.token_status !== 1) {
@@ -875,6 +880,7 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileNam
       );
       return { ok: false, links, failedName: name, error: String(err.message).slice(0, 200) };
     }
+    if (prog) prog.step(); // 成功路径 step（catch 已 return，失败中止不计进度）
   }
   return { ok: true, links };
 }
@@ -883,7 +889,7 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileNam
 // targetNames 缺省读库内 members；改人名时传新全量名单（已链接成员天然跳过，并自愈历史缺链接的在名成员）。
 // sgcc_synced 判定：全部人名处理成功 =1，否则 =2（未绑定成员跳过不影响判定）；部分成功的链接即时落库，重试只补缺口。
 // 返回 { ok:true } / { ok:false, failedName, error }
-async function syncPhotoToSgcc(photoId, targetNames = null) {
+async function syncPhotoToSgcc(photoId, targetNames = null, prog = null) {
   const [rows] = await pool.query(
     `SELECT p.id, p.url, p.members, p.sgcc_img_id,
             DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.team_id
@@ -904,7 +910,7 @@ async function syncPhotoToSgcc(photoId, targetNames = null) {
 
   const r = await uploadPhotoToMembersRemote({
     teamId: photo.team_id, logDate: photo.log_date, names, buf,
-    fileName: `photo-${photoId}.jpg`, links, photoId,
+    fileName: `photo-${photoId}.jpg`, links, photoId, prog,
   });
   // 无论成败都落库最新链接与状态（部分成功的链接保留，重试只补缺口）
   await pool.query(
@@ -936,7 +942,7 @@ async function removeFeeImageRemote(account, date, imgId) {
 // 照片人名剔除（同步远端先行，改人名接口在更新本地人名前调用）：逐个从被剔除成员的商旅费用照片移除该图。
 // 一切以商旅平台为准：任一成员远端删除失败即中止并返回失败（本地人名不变更；未删链接全部保留，防核查回拉人名复活；
 // 已成功成员的链接即时断开，重试编辑时由补传链路恢复其图片）；未绑定/登录过期视为失败（其商旅侧图片确实存在且无法操作）
-async function removePhotoMembersRemote(photoId, removedNames) {
+async function removePhotoMembersRemote(photoId, removedNames, prog = null) {
   const names = Array.isArray(removedNames) ? removedNames : [];
   if (!names.length) return { ok: true };
   const [rows] = await pool.query(
@@ -945,16 +951,17 @@ async function removePhotoMembersRemote(photoId, removedNames) {
     [photoId]
   );
   if (!rows.length || !rows[0].sgcc_img_id) return { ok: true };
+  if (prog) prog.addTotal(names.length);
   let links = {};
   try { links = JSON.parse(rows[0].sgcc_img_id); } catch (e) { links = {}; }
   const logDate = rows[0].log_date;
   const teamId = rows[0].team_id;
   for (const name of names) {
     const [mrows] = await pool.query('SELECT id FROM worklog_member WHERE team_id = ? AND name = ?', [teamId, name]);
-    if (!mrows.length) continue;
+    if (!mrows.length) { if (prog) prog.step(); continue; }
     const memberId = mrows[0].id;
     const imgId = links[memberId];
-    if (!imgId) continue; // 该成员名下本就没同步成功过，无需远端删除
+    if (!imgId) { if (prog) prog.step(); continue; } // 该成员名下本就没同步成功过，无需远端删除
     const account = await accountByMember(teamId, memberId);
     let err = '';
     if (!account || account.token_status !== 1) {
@@ -979,13 +986,14 @@ async function removePhotoMembersRemote(photoId, removedNames) {
     // 成功：即时断开链接并落库（后续成员中止也不回退；重试编辑时 syncPhotoToSgcc 会为缺链接成员补传恢复）
     delete links[memberId];
     await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [JSON.stringify(links), photoId]);
+    if (prog) prog.step();
   }
   return { ok: true };
 }
 
 // 删除本地照片前解除全部所属人名的商旅费用照片关联（同步远端先行，删除接口在删本地前调用）。
 // 一切以商旅平台为准：任一成员解除失败即中止并返回失败（本地照片不删除；已成功成员的链接即时断开，重试仅处理剩余链接）
-async function unlinkPhotoFromSgcc(photoId) {
+async function unlinkPhotoFromSgcc(photoId, prog = null) {
   const [rows] = await pool.query(
     `SELECT p.sgcc_img_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.team_id
      FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ?`,
@@ -994,6 +1002,7 @@ async function unlinkPhotoFromSgcc(photoId) {
   if (!rows.length || !rows[0].sgcc_img_id) return { ok: true };
   let links = {};
   try { links = JSON.parse(rows[0].sgcc_img_id); } catch (e) { links = {}; }
+  if (prog) prog.addTotal(Object.keys(links).length);
   const logDate = rows[0].log_date;
   const teamId = rows[0].team_id;
   for (const memberIdStr of Object.keys(links)) {
@@ -1024,28 +1033,35 @@ async function unlinkPhotoFromSgcc(photoId) {
     }
     delete links[memberIdStr];
     await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [JSON.stringify(links), photoId]);
+    if (prog) prog.step();
   }
   return { ok: true };
 }
 
 
-// POST /photos/:id/resync：同步失败的照片手动重试（同步等待商旅重传完成才返回；失败报错带成员与原因，sgcc_synced 随结果落库）
+// POST /photos/:id/resync：同步失败的照片手动重试（任务化异步执行：登记后立即返回 opId，商旅重传在后台串行队列执行，
+// 端侧凭 opId 轮询 GET /op/status 收尾；失败状态含成员与原因，sgcc_synced 随结果落库）
 router.post('/photos/:id/resync', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
-      'SELECT p.id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ? AND e.team_id = ?',
+      'SELECT p.id, p.entry_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ? AND e.team_id = ?',
       [photoId, req.team.id]
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
-    const r = await syncPhotoToSgcc(photoId);
-    if (!r.ok) {
-      return fail(res, 400, 40029, r.failedName
-        ? `成员「${r.failedName}」商旅同步失败（${r.error}），请重试`
-        : `商旅同步失败（${r.error}），请重试`);
+    if (activePhotoOp(req.team.id, rows[0].entry_id)) {
+      return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请稍后再试');
     }
-    return ok(res, null, '同步成功');
+    const op = newPhotoOp(req.team.id, 'resync', rows[0].entry_id, photoId);
+    runPhotoOp(op.id, async (rec) => {
+      const r = await syncPhotoToSgcc(photoId, null, op.prog);
+      if (!r.ok) {
+        rec.failedName = r.failedName || '';
+        throw new Error(r.error || '商旅同步失败');
+      }
+    });
+    return ok(res, { opId: op.id }, '已发起重新同步');
   } catch (err) { return next(err); }
 });
 
@@ -1396,6 +1412,75 @@ async function syncTeamDay(teamId, date, scope, onlyMemberIds, onStep) {
   }
 }
 
+// ---------- 照片单操作任务（上传/删除/改人名/resync；进程内存登记，TTL 30 分钟，重启清零仅作进度展示） ----------
+// 任务化异步执行：路由同步校验后登记任务并立即返回 opId，商旅多成员循环与本地落库/COS 操作在后台执行，
+// 端侧凭 GET /sync/active 的 ops（旁观者）与 GET /op/status（发起者收尾）渲染记录卡片进度条。
+// 全局串行队列：商旅费用组件为 getFeeInfoNew → 改 → saveFeeInfoNew 的 read-modify-write，串行防并发互踩。
+const photoOps = new Map(); // opId → { teamId, kind, entryId, photoId, total, done, status, error, failedName, photoUrl, at }
+const PHOTO_OP_TTL = 30 * 60 * 1000;
+let photoOpQueue = Promise.resolve();
+
+// 登记任务：prog（{ addTotal, step }）直接写任务记录，供四个多成员商旅循环函数透传（其体内 prog 调用形状不变）
+function newPhotoOp(teamId, kind, entryId, photoId) {
+  const now = Date.now();
+  for (const [k, v] of photoOps) { if (now - v.at > PHOTO_OP_TTL) photoOps.delete(k); } // 新建时顺手清理过期任务
+  const id = `op-${teamId}-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const rec = {
+    teamId, kind, entryId, photoId: photoId || null,
+    total: 0, done: 0, status: 'running', error: '', failedName: '', photoUrl: '', at: now,
+  };
+  photoOps.set(id, rec);
+  return {
+    id,
+    rec,
+    prog: {
+      addTotal(n) { rec.total += n; rec.at = Date.now(); },
+      step() { rec.done += 1; rec.at = Date.now(); },
+    },
+  };
+}
+
+// 本卡进行中（status=running）的照片任务：entryId 互斥——一卡同时只允许一个照片任务（路由据此 40909 拦截）
+function activePhotoOp(teamId, entryId) {
+  for (const v of photoOps.values()) {
+    if (v.teamId === teamId && v.entryId === entryId && v.status === 'running') return v;
+  }
+  return null;
+}
+
+// 串行执行：fn(rec) 成功置 ok；失败置 fail 并截断记录 error（任务体内可自填 rec.failedName / rec.photoUrl / rec.photoId）
+function runPhotoOp(id, fn) {
+  const rec = photoOps.get(id);
+  photoOpQueue = photoOpQueue.then(async () => {
+    try {
+      await fn(rec);
+      if (rec) rec.status = 'ok';
+    } catch (err) {
+      if (rec) {
+        rec.status = 'fail';
+        rec.error = String(err && err.message ? err.message : err).slice(0, 200);
+      }
+      console.error(`[商旅打卡] 照片任务 ${id}（${rec ? rec.kind : '?'}）失败：`, err && err.message ? err.message : err);
+    }
+    if (rec) rec.at = Date.now();
+  });
+}
+
+// GET /op/status?op_id=xxx：单任务状态轮询（仅本班组；发起者收尾巴用，含终态/错误/产物）；
+// 任务不存在或已过期按已完成回（与 /sync/progress 同口径，端侧据此收尾）
+router.get('/op/status', async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const v = photoOps.get(String(req.query.op_id || ''));
+    if (!v || v.teamId !== req.team.id) return ok(res, { status: 'ok', done: 0, total: 0 });
+    return ok(res, {
+      status: v.status, done: v.done, total: v.total,
+      error: v.error || '', failedName: v.failedName || '',
+      photoId: v.photoId || null, photoUrl: v.photoUrl || '',
+    });
+  } catch (err) { return next(err); }
+});
+
 // ---------- 手动拉取 / 每日核查进度（进程内存登记；重启即清零仅作进度展示） ----------
 // kind：batch=区段批量拉取（进行中锁定出工日志子应用，端侧轮询 /sync/active 出全页进度条）；
 //       card=卡片级同步（仅本卡进度条）；daily=每日定时核查（当日记录卡片挂进度条且不可操作）
@@ -1523,18 +1608,26 @@ router.get('/sync/progress', async (req, res, next) => {
 });
 
 // GET /sync/active：本班组同步进行态。batch = 区段批量拉取（出工日志子应用全局锁：任何端任何人进入时据此出进度遮罩，完成后解锁）；
-// daily = 每日定时核查（仅当日本班：当日记录卡片挂进度条且不可操作，完成后解锁）
+// daily = 每日定时核查（仅当日本班：当日记录卡片挂进度条且不可操作，完成后解锁）；
+// ops = 本班组进行中的照片单操作任务（上传/删除/改人名/resync：对应记录卡片挂进度条且整卡锁定，旁观者据此挂条）
 router.get('/sync/active', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const b = activeJob(req.team.id, 'batch');
     const d = activeJob(req.team.id, 'daily');
     const dailyToday = d && d.date === today() ? d : null; // 仅当日核查参与卡片锁定
+    const ops = [];
+    for (const [opId, v] of photoOps) {
+      if (v.teamId === req.team.id && v.status === 'running') {
+        ops.push({ opId, kind: v.kind, entryId: v.entryId, photoId: v.photoId, total: v.total, done: v.done });
+      }
+    }
     return ok(res, {
       running: !!b,
       total: b ? b.total : 0,
       done: b ? b.done : 0,
       daily: dailyToday ? { running: true, total: dailyToday.total, done: dailyToday.done } : { running: false },
+      ops,
     });
   } catch (err) { return next(err); }
 });
@@ -1669,3 +1762,7 @@ module.exports.syncPhotoToSgcc = syncPhotoToSgcc;
 module.exports.uploadPhotoToMembersRemote = uploadPhotoToMembersRemote;
 module.exports.unlinkPhotoFromSgcc = unlinkPhotoFromSgcc;
 module.exports.removePhotoMembersRemote = removePhotoMembersRemote;
+// 供 worklog 上传/改人名/删除路由登记照片单操作任务（任务化异步执行，端侧轮询 /sync/active 与 /op/status）
+module.exports.newPhotoOp = newPhotoOp;
+module.exports.activePhotoOp = activePhotoOp;
+module.exports.runPhotoOp = runPhotoOp;

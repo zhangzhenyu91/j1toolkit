@@ -1289,10 +1289,16 @@ function clockPersonHTML(m, ck) {
 
 function cardHTML(e, idx, total) {
   var noCar = e.vehicle_id == null;
+  /* 照片单操作任务进行中：本卡整卡锁定（任务化异步执行，任何端任何人可见；与每日核查锁同款样式，任务锁优先） */
+  var olock = photoOps[e.id];
   /* 每日定时核查进行中：当日出车卡整卡锁定（遮罩 + 进度；kind=daily 仅当日口径） */
-  var dlock = dailyLocking && e.log_date === todayStr() && !noCar;
+  var dlock = !olock && dailyLocking && e.log_date === todayStr() && !noCar;
   var html = '<article class="card log-card anim-in" data-eid="' + e.id + '">'
     + '<div class="hazard-top"></div>'
+    + (olock
+      ? '<div class="card-lock"><div class="cl-box"><div class="cl-bar"><div class="cl-fill" style="width:' + olock.pct + '%"></div></div>'
+        + '<div class="cl-t">' + (PHOTO_OP_TEXT[olock.kind] || '商旅同步中') + ' <span class="cl-p">' + olock.pct + '</span>% · 暂不可操作</div></div></div>'
+      : '')
     + (dlock
       ? '<div class="card-lock"><div class="cl-box"><div class="cl-bar"><div class="cl-fill" style="width:' + dailyPct + '%"></div></div>'
         + '<div class="cl-t">夜间同步中 <span class="cl-p">' + dailyPct + '</span>% · 暂不可操作</div></div></div>'
@@ -2097,18 +2103,29 @@ function openPhotoMembersModal(entry, photo) {
     var names = $$('.chip.on[data-name]', inst.box).map(function (b) { return b.dataset.name; });
     if (!names.length) { Shade.toast('请选择照片所属人名', 'info'); return; }
     saving = true;
-    /* 商旅开启时（成员带 sgccBound 字段）改人名先完成商旅侧增删（远端先行），后端同步等待，加阻断等待层 */
+    /* 商旅开启时（成员带 sgccBound 字段）任务化异步执行：改人名的商旅侧增删（远端先行）在后台完成，本卡挂进度条 */
     var sgccOn = members.some(function (m) { return m.sgccBound !== undefined; });
-    var wait = null;
-    if (sgccOn) wait = createModal('<div class="loading"><span class="spin"></span>正在同步商旅平台…</div>', { width: 280 });
+    var doSave = function () {
+      return Shade.api(wl('/api/v1/worklog/photos/' + photo.id + '/members'), { method: 'PUT', body: { members: names } });
+    };
+    if (sgccOn) {
+      try {
+        var r = await doSave();
+        inst.close();
+        Shade.toast('已发起，后台同步商旅中', 'success');
+        startCardOp(entry.id, r.data.opId, 'members');
+      } catch (e) {
+        saving = false;
+        Shade.toast(e.message, 'error');
+      }
+      return;
+    }
     try {
-      await Shade.api(wl('/api/v1/worklog/photos/' + photo.id + '/members'), { method: 'PUT', body: { members: names } });
-      if (wait) wait.close();
+      await doSave();
       inst.close();
       Shade.toast('人名已修改', 'success');
       refreshAfterEdit();
     } catch (e) {
-      if (wait) wait.close();
       saving = false;
       Shade.toast(e.message, 'error');
     }
@@ -2187,33 +2204,47 @@ function openWmEditModal(entry, photo) {
     inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
   });
 }
-/* ---------- 商旅同步失败重试（POST /api/v1/sgcc/photos/:id/resync；后端同步等待商旅重传完成才返回，失败报错带成员与原因） ---------- */
+/* ---------- 商旅同步失败重试（POST /api/v1/sgcc/photos/:id/resync：任务化异步执行，登记后立即返回 opId，
+   商旅重传在后台完成；本卡挂进度条，结果由 pollCardOp 收尾） ---------- */
 async function resyncSgccPhoto(pid) {
-  var wait = createModal('<div class="loading"><span class="spin"></span>正在重新同步…</div>', { width: 280 });
   try {
-    await Shade.api(wl('/api/v1/sgcc/photos/' + pid + '/resync'), { method: 'POST' });
-    wait.close();
-    Shade.toast('同步成功', 'success');
-    refreshAfterEdit(); // 重拉后 refreshLightbox 按照片 id 重定位，角标与同步行随数据更新
+    var r = await Shade.api(wl('/api/v1/sgcc/photos/' + pid + '/resync'), { method: 'POST' });
+    var eid = lbInst && lbInst.eid;
+    if (eid && r.data && r.data.opId) {
+      Shade.toast('已发起重新同步', 'success');
+      startCardOp(eid, r.data.opId, 'resync');
+      return;
+    }
+    refreshAfterEdit(); // 兜底：未拿到 opId 时按原口径刷新
   } catch (e) {
-    wait.close();
     Shade.toast(e.message, 'error');
   }
 }
 async function deletePhoto(pid, photo) {
   var yes = await confirmAction({ title: '删除照片', content: '删除后不可恢复，确定删除该水印照片吗？', confirmText: '删除', danger: true });
   if (!yes) return;
-  /* 商旅开启时（照片带 sgcc_synced 字段）删除先解除商旅关联（远端先行），后端同步等待，加阻断等待层 */
+  /* 商旅开启时（照片带 sgcc_synced 字段）任务化异步执行：解除商旅关联在后台完成，本卡挂进度条 */
   var sgccOn = !!(photo && photo.sgcc_synced !== undefined && photo.sgcc_synced !== null);
-  var wait = null;
-  if (sgccOn) wait = createModal('<div class="loading"><span class="spin"></span>正在解除商旅关联…</div>', { width: 280 });
+  var doDelete = function () {
+    return Shade.api(wl('/api/v1/worklog/photos/' + pid), { method: 'DELETE' });
+  };
+  if (sgccOn) {
+    try {
+      var r = await doDelete();
+      var eid = lbInst && lbInst.eid;
+      Shade.toast('已发起删除，后台解除商旅关联中', 'success');
+      if (eid && r.data && r.data.opId) startCardOp(eid, r.data.opId, 'delete');
+      else refreshAfterEdit(); // 兜底：未拿到 opId 时按原口径刷新
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+    }
+    return;
+  }
   try {
-    await Shade.api(wl('/api/v1/worklog/photos/' + pid), { method: 'DELETE' });
-    if (wait) wait.close();
+    await doDelete();
     Shade.toast('已删除', 'success');
     refreshAfterEdit();
   } catch (e) {
-    if (wait) wait.close();
     Shade.toast(e.message, 'error');
   }
 }
@@ -2313,20 +2344,36 @@ function pickImage(accept, cb) {
 /* 统一上传：POST /logs/{id}/photos（wm 存在时服务端先渲染水印；plain=true 为非水印直传）；
    成功后静默重拉——水印照片进 pending 轮询；非水印响应 verify_status=skipped，天然不进轮询（schedulePending 只盯 pending） */
 async function uploadPhoto(entry, image, names, wm, btn, plain) {
-  /* 商旅开启时（成员带 sgccBound 字段）后端先传商旅再落本地，同步等待较久，等待文案带商旅语义；未开启维持原文案 */
+  /* 商旅开启时（成员带 sgccBound 字段）任务化异步执行：登记后立即返回 opId（商旅远端先行 + COS 落库后台完成），
+     本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾；未开启维持原按钮文案/轻量进度层 */
   var sgccOn = (entry.members || []).some(function (m) { return m.sgccBound !== undefined; });
   if (btn) {
     btn.disabled = true;
-    btn.textContent = wm ? (sgccOn ? '正在加水印上传并同步商旅…' : '加水印上传中…') : (sgccOn ? '正在上传并同步商旅…' : '上传中…');
+    if (!sgccOn) btn.textContent = wm ? '加水印上传中…' : '上传中…';
   }
   var wait = null;
-  if (!btn) { // 原图直传无表单弹层，用轻量进度层提示
-    wait = createModal('<div class="loading"><span class="spin"></span>' + (sgccOn ? '正在上传并同步商旅平台…' : '正在上传…') + '</div>', { width: 280 });
+  if (!btn && !sgccOn) { // 原图直传无表单弹层，用轻量进度层提示
+    wait = createModal('<div class="loading"><span class="spin"></span>正在上传…</div>', { width: 280 });
   }
-  try {
+  var doUpload = function () {
     var body = wm ? { image: image, members: names, wm: wm } : { image: image, members: names };
     if (plain) body.plain = true; // 非水印照片：原图直传、不渲染、不验证、不占每人限一张
-    var r = await Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/photos'), { method: 'POST', body: body });
+    return Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/photos'), { method: 'POST', body: body });
+  };
+  if (sgccOn) {
+    try {
+      var r = await doUpload();
+      Shade.toast('已发起，后台同步商旅中', 'success');
+      startCardOp(entry.id, r.data.opId, 'upload');
+      return true;
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = wm ? '加水印并上传' : '上传'; } // 失败留弹层可重试（同小程序）
+      Shade.toast(e.message, 'error');
+      return false;
+    }
+  }
+  try {
+    var r = await doUpload();
     if (wait) wait.close();
     var skipped = !!(r.data && r.data.verify_status === 'skipped'); // 非水印：仅存档同步商旅，不参与验证
     Shade.toast(skipped ? '已上传（非水印照片仅存档同步，不参与验证）' : '已上传，验证中', 'success');
@@ -4059,6 +4106,129 @@ function openSyncCheck() {
   });
 }
 
+/* ================= 照片单操作任务（上传/删除/改人名/resync） =================
+   后端任务化异步执行：登记后立即返回 opId（商旅多成员循环在后台串行队列完成），退出页面不影响完成；
+   卡片挂进度条（样式同每日核查卡片锁 .card-lock/.cl-*）：发起者轮询 /op/status 收尾，
+   旁观者经 /sync/active 的 ops 挂条（任何端任何人进入页面均可见） */
+var photoOps = {}; // entryId → { opId, kind, pct, spectator? }
+var PHOTO_OP_TEXT = {
+  upload: '上传同步商旅中',
+  delete: '解除商旅关联中',
+  members: '人名同步商旅中',
+  resync: '商旅重新同步中'
+};
+var PHOTO_OP_OK_TEXT = {
+  upload: '已上传，验证中',
+  delete: '已删除',
+  members: '人名已修改',
+  resync: '同步成功'
+};
+
+/* 发起者入口：登记任务 → 重渲染挂锁 → 1.5s 轮询 /op/status 直至终态 */
+function startCardOp(entryId, opId, kind) {
+  photoOps[entryId] = { opId: opId, kind: kind, pct: 0 };
+  renderCards(true);
+  pollCardOp(entryId);
+}
+
+/* 任务锁进度补丁：按 entryId 定位卡片的进度条与百分比（仿 updateDailyLocks；各卡 pct 独立） */
+function updateOpLocks() {
+  Object.keys(photoOps).forEach(function (eid) {
+    var card = $('.log-card[data-eid="' + eid + '"]');
+    if (!card) return;
+    var fill = $('.card-lock .cl-fill', card);
+    var pct = $('.card-lock .cl-p', card);
+    if (fill) fill.style.width = photoOps[eid].pct + '%';
+    if (pct) pct.textContent = photoOps[eid].pct;
+  });
+}
+
+/* 发起者轮询：/op/status 含进度/终态/错误；ok 按 kind toast，fail 完整报错（含成员名） */
+async function pollCardOp(entryId) {
+  var op = photoOps[entryId];
+  if (!op || op.spectator) return;
+  var fails = 0;
+  while (photoOps[entryId] && !photoOps[entryId].spectator) {
+    var st = null;
+    try {
+      var r = await Shade.api(wl('/api/v1/sgcc/op/status?op_id=' + op.opId));
+      st = r.data || {};
+    } catch (e) { fails += 1; }
+    if (st && st.status === 'running') {
+      fails = 0;
+      photoOps[entryId].pct = st.total ? Math.min(99, Math.round(st.done / st.total * 100)) : 0;
+      updateOpLocks();
+    } else if (st) {
+      // 终态（任务不存在/过期按 ok 回，同走完成收尾）
+      delete photoOps[entryId];
+      if (st.status === 'fail') {
+        Shade.toast((st.failedName ? '成员「' + st.failedName + '」' : '') + (st.error || '商旅同步失败') + '，请重试', 'error');
+      } else {
+        Shade.toast(PHOTO_OP_OK_TEXT[op.kind] || '已完成', 'success');
+      }
+      loadLogs({ quiet: true });
+      return;
+    } else if (fails > 20) {
+      // 连续网络失败兜底：摘锁刷新（任务仍在后端执行，结果随刷新/核查呈现）
+      delete photoOps[entryId];
+      loadLogs({ quiet: true });
+      return;
+    }
+    await new Promise(function (r) { setTimeout(r, 1500); });
+  }
+}
+
+/* 旁观者挂条：/sync/active 的 ops（本班组进行中的照片任务，他人/他端发起或本端重新进入）→ 对应记录卡挂进度条；
+   spectator 项在 ops 中消失（完成/失败）时摘锁并刷新落最新数据。发起者记录（非 spectator）由 /op/status 收口，不在此动 */
+function syncSpectatorOps(ops) {
+  var seen = {};
+  var needRender = false;
+  var needReload = false;
+  (ops || []).forEach(function (o) {
+    seen[o.entryId] = o;
+    var cur = photoOps[o.entryId];
+    if (cur && !cur.spectator) return;
+    if (!cur) needRender = true;
+    photoOps[o.entryId] = {
+      opId: o.opId, kind: o.kind, spectator: true,
+      pct: o.total ? Math.min(99, Math.round(o.done / o.total * 100)) : 0
+    };
+  });
+  Object.keys(photoOps).forEach(function (eid) {
+    if (!photoOps[eid].spectator || seen[eid]) return;
+    delete photoOps[eid];
+    needRender = true;
+    needReload = true;
+  });
+  if (needReload) { loadLogs({ quiet: true }); return; } // 重拉后 renderCards 随数据重建（photoOps 已更新）
+  if (needRender) renderCards(true);
+  else updateOpLocks();
+}
+
+/* 旁观者轮询：ops 非空期间 1.5s 轮询 /sync/active 驱动卡片进度，ops 空即停 */
+var opPolling = false;
+async function pollSpectatorOps() {
+  if (opPolling) return;
+  opPolling = true;
+  var fails = 0;
+  for (;;) {
+    var p = null;
+    try {
+      var r = await Shade.api(wl('/api/v1/sgcc/sync/active'));
+      p = r.data || {};
+    } catch (e) { fails += 1; }
+    if (p) {
+      fails = 0;
+      syncSpectatorOps(p.ops || []);
+      if (!(p.ops || []).length) break; // 全部完成
+    } else if (fails > 20) {
+      break; // 连续网络失败兜底
+    }
+    await new Promise(function (r) { setTimeout(r, 1500); });
+  }
+  opPolling = false;
+}
+
 /* ================= 批量从商旅同步 · 子应用全局锁 =================
    本班组有批量拉取进行中时（任何人发起），出工日志全页进度遮罩，完成后解锁并刷新；
    进入页面与每 15s 空闲探测 GET /sgcc/sync/active，锁定中 1.5s 轮询（连续网络失败 20 次兜底解锁） */
@@ -4077,6 +4247,8 @@ async function checkSyncLock() {
     if (d.running) enterSyncLock();
     // 每日定时核查：进行中 → 当日出车卡整卡锁定（仅当日口径）
     if (d.daily && d.daily.running) enterDailyLock();
+    // 照片单操作任务（他人/他端发起或本端重新进入）：旁观者挂条并起轮询
+    if ((d.ops || []).length) { syncSpectatorOps(d.ops); pollSpectatorOps(); }
   } catch (e) { /* 商旅未开启 / 网络异常：不锁定 */ }
 }
 function enterSyncLock() {

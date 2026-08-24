@@ -304,11 +304,12 @@
       </view>
     </view>
 
-    <!-- 从商旅同步进度：本卡手动同步 / 每晚定时核查进行中时整卡锁定（遮罩阻断全部操作，进度条居中；读完前不可操作） -->
+    <!-- 从商旅同步/照片商旅任务进度：本卡手动同步 / 每晚定时核查 / 照片单操作（上传/删除/改人名/resync）进行中时整卡锁定
+     （遮罩阻断全部操作，进度条居中；读完前不可操作） -->
     <view class="card-lock" wx:if="{{item.syncing}}" catchtap="onSyncLockTap">
       <view class="cs-box">
         <view class="cs-bar"><view class="cs-fill" style="width: {{item.syncPct}}%"></view></view>
-        <text class="cs-t">从商旅同步中 {{item.syncPct}}% · 暂不可操作</text>
+        <text class="cs-t">{{item.syncText || '从商旅同步中'}} {{item.syncPct}}% · 暂不可操作</text>
       </view>
     </view>
   </view>
@@ -1048,7 +1049,6 @@
     <view class="sheet-title">当日费用 · {{feeMemberName}} · {{dateText}}</view>
     <view class="sheet-note">保存即提交商旅</view>
     <scroll-view scroll-y class="fee-scroll" enhanced show-scrollbar="{{false}}">
-      <view class="fee-loading" wx:if="{{feeLoading}}">费用信息加载中…</view>
       <block wx:if="{{!feeLoading}}">
         <!-- 成本分配（只读展示：随保存自动带入成本中心与编码） -->
         <block wx:if="{{feeAlloc}}">

@@ -534,11 +534,16 @@ router.put('/logs/:id', async (req, res, next) => {
   }
 });
 
-// DELETE /logs/:id：删除卡片（先删 COS 对象（水印照片 + 备注附件），再删行）
+// DELETE /logs/:id：删除卡片（先删 COS 对象（水印照片 + 备注附件），再删行；
+// 卡内有进行中的照片商旅任务时拒绝——任务引用的 entry/photo 不可中途删除）
 router.delete('/logs/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
+    if (config.sgcc && config.sgcc.enabled
+      && require('../sgccclockin').activePhotoOp(req.team.id, entryId)) {
+      return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请完成后再删除');
+    }
     const [entryRows] = await pool.query(
       'SELECT remark_files FROM worklog_entry WHERE id = ? AND team_id = ?',
       [entryId, req.team.id]
@@ -991,8 +996,8 @@ async function writeBackVerify(photoId, vr) {
 // POST /logs/:id/photos：上传照片（base64 → COS）。body.wm 可选：「选照片并添加水印」时携带
 // { content/time/weather/location/longitude/latitude/antiCode/orientation }，服务端先渲染水印再传 COS、异步触发 Dify 验证；
 // body.plain=true 为非水印照片（商旅打卡开启时可用）：原图直传、不渲染、不验证、不占「每人限一张」
-// 商旅打卡开启时远端先行：三类照片（已有水印直传 / 服务端加水印 / 非水印）先同步进所属人名的当日商旅费用照片，
-// 任一绑定成员失败即整体失败（本地零写入），全部成功才传 COS 落库
+// 商旅打卡开启时任务化异步执行：同步校验（格式/人名/水印渲染）通过即返回 { opId }，三类照片（已有水印直传 / 服务端加水印 / 非水印）
+// 的商旅远端先行（任一绑定成员失败即整体失败，本地零写入）+ COS 落库在后台串行队列完成，端侧轮询进度渲染卡片进度条
 router.post('/logs/:id/photos', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -1033,74 +1038,84 @@ router.post('/logs/:id/photos', async (req, res, next) => {
       }
     }
 
-    // 商旅打卡开启时：远端先行——先把照片上传并关联进每个绑定人名的当日商旅费用照片，
-    // 任一绑定成员失败即整体失败（本地零写入，无需回滚）；未绑定成员不参与同步，登录过期视为失败
-    let sgccLinks = {};
+    // 商旅打卡开启时：任务化异步执行——同步校验已全部通过，登记任务后立即返回 opId；
+    // 商旅远端先行（任一绑定成员失败即整体失败，本地零写入）+ COS 落库 + Dify 验证在后台串行队列完成，
+    // 端侧凭 GET /sync/active 的 ops 与 /op/status 渲染记录卡片进度条（退出页面不影响任务完成）
     if (config.sgcc && config.sgcc.enabled) {
-      const rs = await require('../sgccclockin').uploadPhotoToMembersRemote({
-        teamId: req.team.id,
-        logDate: entry.log_date,
-        names,
-        buf,
-        fileName: `photo-${entryId}-${Date.now()}.jpg`,
-      });
-      if (!rs.ok) {
-        return fail(res, 400, 40027, `成员「${rs.failedName}」商旅同步失败（${rs.error}），照片未上传，请重试`);
+      const sgcc = require('../sgccclockin');
+      if (sgcc.activePhotoOp(req.team.id, entryId)) {
+        return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请稍后再传');
       }
-      sgccLinks = rs.links;
+      const op = sgcc.newPhotoOp(req.team.id, 'upload', entryId, null);
+      const teamId = req.team.id;
+      const teamName = req.team.name;
+      const username = req.user.username;
+      const logDate = entry.log_date;
+      const destName = entry.destination_name || '';
+      sgcc.runPhotoOp(op.id, async (rec) => {
+        const rs = await sgcc.uploadPhotoToMembersRemote({
+          teamId,
+          logDate,
+          names,
+          buf,
+          fileName: `photo-${entryId}-${Date.now()}.jpg`,
+          prog: op.prog,
+        });
+        if (!rs.ok) {
+          rec.failedName = rs.failedName || '';
+          throw new Error(rs.error || '商旅同步失败');
+        }
+        const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
+        const key = `${prefix}${teamName}/${dots(logDate)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
+        // 商旅已先行成功，此处 COS/落库若失败（罕见），商旅侧已有图——由每日核查按 MD5 合并/拉回入库兜底对齐
+        await cos.putBuffer(key, buf, contentType);
+        const url = cos.publicUrl(key);
+        // 图片内容 MD5：商旅拉取按内容合并相同照片（一图多人标注）
+        const imgMd5 = crypto.createHash('md5').update(buf).digest('hex');
+        const [r] = await pool.query(
+          `INSERT INTO worklog_photo (entry_id, cos_key, url, members, md5, sgcc_img_id, sgcc_synced)
+           VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [entryId, key, url, JSON.stringify(names), imgMd5, JSON.stringify(rs.links)]
+        );
+        const photoId = r.insertId;
+        rec.photoId = photoId;
+        rec.photoUrl = url; // 小程序端任务收尾时取此 url 保存水印照片到相册
+        if (isPlain) {
+          // 非水印照片：免验证标记（不参与卡片验证规则）
+          await pool.query(`UPDATE worklog_photo SET is_watermark = 0, verify_status = 'skipped' WHERE id = ?`, [photoId]);
+        } else {
+          // 异步执行 Dify 识别并回写（含后端日期/地点核验），不阻塞任务（前端轮询 verify_status）
+          dify.verifyPhoto({ username, date: dots(logDate), destination: destName, url })
+            .then((vr) => writeBackVerify(photoId, vr))
+            .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
+        }
+      });
+      return ok(res, { opId: op.id }, '已发起上传，商旅同步中');
     }
 
+    // 未开启商旅：纯本地上传（同步落库并触发 Dify 验证，响应直返照片数据）
     const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
     const key = `${prefix}${req.team.name}/${dots(entry.log_date)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
-    // 商旅已先行成功，此处 COS/落库若失败（罕见），商旅侧已有图——由每日核查按 MD5 合并/拉回入库兜底对齐
     await cos.putBuffer(key, buf, contentType);
     const url = cos.publicUrl(key);
+    const [r] = await pool.query(
+      `INSERT INTO worklog_photo (entry_id, cos_key, url, members)
+       VALUES (?, ?, ?, ?)`,
+      [entryId, key, url, JSON.stringify(names)]
+    );
+    const photoId = r.insertId;
+    // 异步执行 Dify 识别并回写（含后端日期/地点核验），不阻塞响应（前端轮询 verify_status）
+    dify
+      .verifyPhoto({
+        username: req.user.username,
+        date: dots(entry.log_date),
+        destination: entry.destination_name || '',
+        url,
+      })
+      .then((vr) => writeBackVerify(photoId, vr))
+      .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
 
-    // 图片内容 MD5：商旅拉取按内容合并相同照片（一图多人标注）；列由商旅打卡模块补建，未开启时不写
-    let photoId;
-    if (config.sgcc && config.sgcc.enabled) {
-      const imgMd5 = crypto.createHash('md5').update(buf).digest('hex');
-      const [r] = await pool.query(
-        `INSERT INTO worklog_photo (entry_id, cos_key, url, members, md5, sgcc_img_id, sgcc_synced)
-         VALUES (?, ?, ?, ?, ?, ?, 1)`,
-        [entryId, key, url, JSON.stringify(names), imgMd5, JSON.stringify(sgccLinks)]
-      );
-      photoId = r.insertId;
-    } else {
-      const [r] = await pool.query(
-        `INSERT INTO worklog_photo (entry_id, cos_key, url, members)
-         VALUES (?, ?, ?, ?)`,
-        [entryId, key, url, JSON.stringify(names)]
-      );
-      photoId = r.insertId;
-    }
-    if (isPlain) {
-      // 非水印照片：免验证标记（不参与卡片验证规则）
-      await pool.query(
-        `UPDATE worklog_photo SET is_watermark = 0, verify_status = 'skipped' WHERE id = ?`,
-        [photoId]
-      );
-    }
-
-    if (!isPlain) {
-      // 异步执行 Dify 识别并回写（含后端日期/地点核验），不阻塞响应（前端轮询 verify_status）
-      dify
-        .verifyPhoto({
-          username: req.user.username,
-          date: dots(entry.log_date),
-          destination: entry.destination_name || '',
-          url,
-        })
-        .then((vr) => writeBackVerify(photoId, vr))
-        .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
-    }
-
-    // 商旅同步已在上传前远端先行完成（失败即整体失败，本地零写入），此处无需再触发
-    return ok(res, {
-      id: photoId, url,
-      verify_status: isPlain ? 'skipped' : 'pending',
-      ...(isPlain ? { is_watermark: 0 } : {}),
-    });
+    return ok(res, { id: photoId, url, verify_status: 'pending' });
   } catch (err) {
     return next(err);
   }
@@ -1198,7 +1213,8 @@ router.put('/photos/:id/wm', async (req, res, next) => {
 });
 
 // PUT /photos/:id/members：修改照片所属人名（商旅打卡开启时：未绑定/登录过期成员的人名状态不可更改；
-// 变更双向远端先行——剔除人名先从其商旅费用照片移除、新增人名先补传进商旅费用照片，全部成功后才变更本地）
+// 变更双向远端先行——剔除人名先从其商旅费用照片移除、新增人名先补传进商旅费用照片，全部成功后才变更本地；
+// 商旅阶段任务化异步执行：登记后返回 { opId }，端侧轮询 /op/status 收尾）
 router.put('/photos/:id/members', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -1237,26 +1253,37 @@ router.put('/photos/:id/members', async (req, res, next) => {
         }
       }
       // 剔除人名：同步远端先删（一切以商旅平台为准——远端删除失败则本地不变更，全部中止）
+      // 任务化异步执行：登记后立即返回 opId；剔除 + 补传两段共用同一 prog（addTotal 累加，进度连续），
+      // 全部成功才变更本地（远端先行口径不变），端侧轮询 /op/status 收尾
+      const sgcc = require('../sgccclockin');
+      if (sgcc.activePhotoOp(req.team.id, rows[0].entry_id)) {
+        return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请稍后再试');
+      }
       const removed = oldNames.filter((n) => !names.includes(n));
-      if (removed.length) {
-        const r = await require('../sgccclockin').removePhotoMembersRemote(photoId, removed);
-        if (!r.ok) {
-          return fail(res, 400, 40025,
-            `成员「${r.failedName}」商旅费用照片删除失败（${r.error}），本地未修改，请重试`);
+      const op = sgcc.newPhotoOp(req.team.id, 'members', rows[0].entry_id, photoId);
+      sgcc.runPhotoOp(op.id, async (rec) => {
+        if (removed.length) {
+          const r = await sgcc.removePhotoMembersRemote(photoId, removed, op.prog);
+          if (!r.ok) {
+            rec.failedName = r.failedName || '';
+            throw new Error(`商旅费用照片删除失败（${r.error}），本地未修改`);
+          }
         }
-      }
-      // 新增人名：同样远端先行——同步补传成功后才变更本地（传新全量名单：已链接成员天然跳过，
-      // 并自愈历史缺链接的在名成员；COS 回源等异常按 40028 同口径报出，本地未修改）
-      let ra;
-      try {
-        ra = await require('../sgccclockin').syncPhotoToSgcc(photoId, names);
-      } catch (e) {
-        return fail(res, 400, 40028, `商旅费用照片同步失败（${e.message}），本地未修改，请重试`);
-      }
-      if (!ra.ok) {
-        return fail(res, 400, 40028,
-          `成员「${ra.failedName}」商旅费用照片同步失败（${ra.error}），本地未修改，请重试`);
-      }
+        // 新增人名：同样远端先行——补传成功后才变更本地（传新全量名单：已链接成员天然跳过，
+        // 并自愈历史缺链接的在名成员；COS 回源等异常同口径报出，本地未修改）
+        let ra;
+        try {
+          ra = await sgcc.syncPhotoToSgcc(photoId, names, op.prog);
+        } catch (e) {
+          throw new Error(`商旅费用照片同步失败（${e.message}），本地未修改`);
+        }
+        if (!ra.ok) {
+          rec.failedName = ra.failedName || '';
+          throw new Error(`商旅费用照片同步失败（${ra.error}），本地未修改`);
+        }
+        await pool.query('UPDATE worklog_photo SET members = ? WHERE id = ?', [JSON.stringify(names), photoId]);
+      });
+      return ok(res, { opId: op.id }, '已发起人名修改，商旅同步中');
     }
 
     await pool.query('UPDATE worklog_photo SET members = ? WHERE id = ?', [JSON.stringify(names), photoId]);
@@ -1267,23 +1294,39 @@ router.put('/photos/:id/members', async (req, res, next) => {
 });
 
 // DELETE /photos/:id：删除照片（商旅打卡开启时先同步解除全部所属人名的商旅费用照片关联——
-// 一切以商旅平台为准：解除失败则本地不删除；成功后才删 COS 对象与库记录）
+// 一切以商旅平台为准：解除失败则本地不删除；成功后才删 COS 对象与库记录；
+// 商旅阶段任务化异步执行：登记后返回 { opId }，端侧轮询 /op/status 收尾）
 router.delete('/photos/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
-      `SELECT p.cos_key FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+      `SELECT p.cos_key, p.entry_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
        WHERE p.id = ? AND e.team_id = ?`,
       [photoId, req.team.id]
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     if (config.sgcc && config.sgcc.enabled) {
-      const r = await require('../sgccclockin').unlinkPhotoFromSgcc(photoId);
-      if (!r.ok) {
-        return fail(res, 400, 40026,
-          `成员「${r.failedName}」商旅费用照片解除失败（${r.error}），本地未删除，请重试`);
+      const sgcc = require('../sgccclockin');
+      if (sgcc.activePhotoOp(req.team.id, rows[0].entry_id)) {
+        return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请稍后再试');
       }
+      const cosKey = rows[0].cos_key;
+      const op = sgcc.newPhotoOp(req.team.id, 'delete', rows[0].entry_id, photoId);
+      sgcc.runPhotoOp(op.id, async (rec) => {
+        const r = await sgcc.unlinkPhotoFromSgcc(photoId, op.prog);
+        if (!r.ok) {
+          rec.failedName = r.failedName || '';
+          throw new Error(`商旅费用照片解除失败（${r.error}），本地未删除`);
+        }
+        try {
+          await cos.deleteObject(cosKey);
+        } catch (err) {
+          console.error('[出工日志] 删除 COS 对象失败（继续删库记录）：', cosKey, err.message);
+        }
+        await pool.query('DELETE FROM worklog_photo WHERE id = ?', [photoId]);
+      });
+      return ok(res, { opId: op.id }, '已发起删除，解除商旅关联中');
     }
     try {
       await cos.deleteObject(rows[0].cos_key);

@@ -87,6 +87,22 @@ const VERIFY_BADGE = {
   exempt: { cls: 'gray', text: '免验证' },
 };
 
+// 照片单操作任务（上传/删除/改人名/resync）kind → 卡片进度条文案（任务化异步执行，进度条样式同从商旅同步卡片锁）
+const PHOTO_OP_TEXT = {
+  upload: '上传同步商旅中',
+  delete: '解除商旅关联中',
+  members: '人名同步商旅中',
+  resync: '商旅重新同步中',
+};
+
+// 照片单操作任务完成 toast（kind → 文案；upload 的水印/非水印分支在 pollCardOp 内细分）
+const PHOTO_OP_OK_TEXT = {
+  upload: '已上传，验证中',
+  delete: '已删除',
+  members: '人名已修改',
+  resync: '同步成功',
+};
+
 // 照片字段 → 展示结构（右侧八项：验证情况/人员/施工内容/拍摄时间/天气/地点/经度/纬度）
 // 非水印照片（is_watermark=0）：与水印照片同款式渲染，但不做验证也不显示验证状态/施工内容/时间地点行，仅存档并同步商旅费用照片
 function mapPhoto(p) {
@@ -313,7 +329,6 @@ Page({
       maxDate: new Date(now.getFullYear(), now.getMonth() + 3, now.getDate()).getTime(),
     });
     this.applyDate(fmtDate(now));
-
     // gate 兜底：首页宫格已做权限过滤，此处仅保证登录态就绪后再加载
     if (wx.getStorageSync('token')) {
       this.passGate();
@@ -340,6 +355,7 @@ Page({
     this._inflightDays = {}; // 进行中的按日请求（key 同上，并发去重）
     this._daySwitching = false; // 切日落定处理中（防抖）
     this._syncJobs = {}; // 从商旅同步进行中任务（key 卡片 id → {jobId, pct}；mapLogList 据此给卡片挂进度条）
+    this._photoOps = {}; // 照片单操作进行中任务（key 卡片 id → {opId, kind, pct, spectator?, wm?}；同上挂条）
     this._jobTimers = {}; // 进度轮询定时器（key 任务 id）
     // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
     if (this._role !== 'admin' && !user.team) {
@@ -661,13 +677,16 @@ Page({
       const showClock = !!e.vehicle_id && members.some((m) => m.sgccBound !== undefined);
       // 打卡仅当日开放（含更新，当日口径与后端 40041 一致）；非当日打卡 chip 置锁、副文案提示；费用修改不受限
       const ckReadonly = e.log_date !== fmtDate(new Date());
-      // 同步进度：本卡手动同步（_syncJobs）优先；否则每晚定时核查进行中时当日出车卡同挂进度条（_dailySync）
+      // 同步进度：照片单操作任务（_photoOps：上传/删除/改人名/resync）与本卡手动同步（_syncJobs）优先；
+      // 否则每晚定时核查进行中时当日出车卡同挂进度条（_dailySync）
+      const photoOp = (this._photoOps || {})[e.id];
       const syncJob = (this._syncJobs || {})[e.id];
-      const dailyHit = !syncJob && this._dailySync && e.log_date === fmtDate(new Date()) && !!e.vehicle_id;
+      const dailyHit = !photoOp && !syncJob && this._dailySync && e.log_date === fmtDate(new Date()) && !!e.vehicle_id;
       return {
         id: e.id,
-        syncing: !!syncJob || dailyHit,
-        syncPct: syncJob ? syncJob.pct : (dailyHit ? this._dailySync.pct : 0),
+        syncing: !!photoOp || !!syncJob || dailyHit,
+        syncPct: photoOp ? photoOp.pct : (syncJob ? syncJob.pct : (dailyHit ? this._dailySync.pct : 0)),
+        syncText: photoOp ? PHOTO_OP_TEXT[photoOp.kind] : '从商旅同步中',
         hasVehicle: !!e.vehicle_id,
         plateText: e.vehicle_id ? e.plate_no : '未出车',
         badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
@@ -1215,11 +1234,13 @@ Page({
       feeSaving: false,
       keyboardHeight: 0,
     });
+    wx.showLoading({ title: '费用信息加载中…', mask: true }); // 单步操作：转圈等待动画
     try {
       const data = await request({
         url: `/api/v1/sgcc/fee?member_id=${memberId}&date=${this.data.dateStr}${this.teamQuery()}`,
         timeout: 30000,
       });
+      wx.hideLoading();
       if (!this.data.feeVisible || this.data.feeMemberId !== memberId) return; // 层已关或已换人，丢弃
       const local = (data && data.local) || null;
       const comps = (data && data.clockTemplate && data.clockTemplate.dtComponentList) || [];
@@ -1245,6 +1266,7 @@ Page({
         feeAlloc: (data && data.costAlloc) || null, // 成本分配展示（成本中心/编码，只读）
       });
     } catch (err) {
+      wx.hideLoading();
       if (!this.data.feeVisible) return;
       this.setData({ feeLoading: false });
       this.toast(err.message);
@@ -1314,17 +1336,20 @@ Page({
 
   // ---------- 商旅打卡 · 照片同步失败重试（设计稿⑨） ----------
 
-  // 重试同步：后端同步等待商旅结果后返回（失败 message 已含成员名与原因），成功刷新列表
+  // 重试同步：任务化异步执行（后端登记后立即返回 opId，商旅重传在后台完成），
+  // 本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾
   async onResyncPhoto(e) {
     const { pid } = e.currentTarget.dataset;
-    wx.showLoading({ title: '正在重新同步…', mask: true });
     try {
-      await request({ url: `/api/v1/sgcc/photos/${pid}/resync`, method: 'POST', data: this.teamBody({}), timeout: 120000 });
-      wx.hideLoading();
-      this.toast('同步成功');
-      this.loadLogs();
+      const data = await request({ url: `/api/v1/sgcc/photos/${pid}/resync`, method: 'POST', data: this.teamBody({}), timeout: 120000 });
+      const entry = (this.data.list || []).find((x) => (x.photos || []).some((p) => String(p.id) === String(pid)));
+      if (entry && data && data.opId) {
+        this.toast('已发起重新同步');
+        this.startCardOp(entry.id, data.opId, 'resync');
+        return;
+      }
+      this.loadLogs(); // 兜底：未拿到 opId 时按原口径刷新
     } catch (err) {
-      wx.hideLoading();
       this.toast(err.message);
     }
   },
@@ -1381,13 +1406,14 @@ Page({
   },
 
   // 卡片进度条补丁：镜像 list + 切日窗格三格 + 邻日预拉缓存内的同 id 卡片一并改（on=true 挂条 / false 摘除）
-  patchCardSync(entryId, pct, on) {
+  patchCardSync(entryId, pct, on, text) {
     const update = {};
     const applyTo = (list, path) => {
       (list || []).forEach((c, ci) => {
         if (c.id !== entryId) return;
         update[`${path}[${ci}].syncing`] = on;
         update[`${path}[${ci}].syncPct`] = pct;
+        update[`${path}[${ci}].syncText`] = text || '从商旅同步中';
       });
     };
     applyTo(this.data.list, 'list');
@@ -1397,6 +1423,7 @@ Page({
         if (c.id === entryId) {
           c.syncing = on;
           c.syncPct = pct;
+          c.syncText = text || '从商旅同步中';
         }
       });
     });
@@ -1421,6 +1448,106 @@ Page({
     } catch (err) {
       this.toast(err.message);
     }
+  },
+
+  // ---------- 照片单操作任务（上传/删除/改人名/resync）：后端任务化异步执行，退出页面不影响完成；
+  // 卡片挂进度条（样式同从商旅同步卡片锁），发起者轮询 /op/status 收尾，旁观者经 /sync/active 的 ops 挂条 ----------
+
+  // 发起者入口：登记任务 → 本卡挂进度条 → 1.5s 轮询直至终态
+  startCardOp(entryId, opId, kind, extra) {
+    this._photoOps[entryId] = { opId, kind, pct: 0, ...(extra || {}) };
+    this.patchCardSync(entryId, 0, true, PHOTO_OP_TEXT[kind]);
+    this.pollCardOp(entryId);
+  },
+
+  // 发起者轮询：/op/status 含进度/终态/错误/产物（photoUrl）；ok 按 kind toast（水印上传另存相册），fail 完整报错
+  async pollCardOp(entryId) {
+    const op = this._photoOps[entryId];
+    if (!op || op.spectator) return;
+    let fails = 0;
+    while (this._photoOps[entryId] && !this._photoOps[entryId].spectator) {
+      let st = null;
+      try {
+        st = await request({ url: `/api/v1/sgcc/op/status?op_id=${op.opId}${this.teamQuery('&')}` });
+      } catch (err) { fails += 1; }
+      if (st && st.status === 'running') {
+        fails = 0;
+        const pct = st.total ? Math.min(99, Math.round((st.done / st.total) * 100)) : 0;
+        this._photoOps[entryId].pct = pct;
+        this.patchCardSync(entryId, pct, true, PHOTO_OP_TEXT[op.kind]);
+      } else if (st) {
+        // 终态（任务不存在/过期按 ok 回，同走完成收尾）
+        delete this._photoOps[entryId];
+        this.patchCardSync(entryId, 0, false);
+        if (st.status === 'fail') {
+          wx.showModal({
+            title: '商旅同步失败',
+            content: `${st.failedName ? `成员「${st.failedName}」` : ''}${st.error || '商旅同步失败'}，请重试`,
+            showCancel: false,
+            confirmText: '知道了',
+          });
+        } else {
+          let tip = PHOTO_OP_OK_TEXT[op.kind] || '已完成';
+          if (op.kind === 'upload') {
+            if (op.wm && st.photoUrl) tip = await this.saveWmPhotoToAlbum(st.photoUrl); // 失败不阻塞（上传已成功）
+            else if (op.plain) tip = '已上传（非水印存档，不参与验证）';
+          }
+          this.toast(tip);
+        }
+        this.loadLogs();
+        return;
+      } else if (fails > 20) {
+        // 连续网络失败兜底：摘条刷新（任务仍在后端执行，结果随刷新/核查呈现）
+        delete this._photoOps[entryId];
+        this.patchCardSync(entryId, 0, false);
+        this.loadLogs();
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  },
+
+  // 旁观者挂条：/sync/active 的 ops（本班组进行中的照片任务，他人/他端发起或本端重新进入）→ 对应记录卡挂进度条；
+  // spectator 项在 ops 中消失（完成/失败）时摘条刷新。发起者记录（非 spectator）由 /op/status 轮询收口，不在此动
+  syncSpectatorOps(ops) {
+    const seen = {};
+    (ops || []).forEach((o) => {
+      seen[o.entryId] = o;
+      const cur = this._photoOps[o.entryId];
+      if (cur && !cur.spectator) return;
+      const pct = o.total ? Math.min(99, Math.round((o.done / o.total) * 100)) : 0;
+      this._photoOps[o.entryId] = { opId: o.opId, kind: o.kind, pct, spectator: true };
+      this.patchCardSync(o.entryId, pct, true, PHOTO_OP_TEXT[o.kind]);
+    });
+    Object.keys(this._photoOps).forEach((id) => {
+      const op = this._photoOps[id];
+      if (!op.spectator || seen[id]) return;
+      delete this._photoOps[id];
+      this.patchCardSync(Number(id), 0, false);
+      this.loadLogs();
+    });
+  },
+
+  // 旁观者轮询：ops 非空期间 1.5s 轮询 /sync/active 驱动卡片进度，ops 空即停
+  async pollSpectatorOps() {
+    if (this._opPolling) return;
+    this._opPolling = true;
+    let fails = 0;
+    for (;;) {
+      let p = null;
+      try {
+        p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
+      } catch (err) { fails += 1; }
+      if (p) {
+        fails = 0;
+        this.syncSpectatorOps(p.ops || []);
+        if (!(p.ops || []).length) break; // 全部完成
+      } else if (fails > 20) {
+        break; // 连续网络失败兜底
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    this._opPolling = false;
   },
 
   // ---------- 新建/改派车表单底部弹层 ----------
@@ -2091,14 +2218,30 @@ Page({
     if (this.data.memberMode === 'edit') {
       if (this.data.memberSaving) return; // 防连点
       this.setData({ memberSaving: true });
-      wx.showLoading({ title: '正在同步商旅平台…', mask: true });
+      // 商旅开启时任务化异步执行（剔除/补传在后台完成），本卡挂进度条；未开启为纯本地操作，维持文字等待
+      const entry = (this.data.list || []).find((x) => x.id === this.data.memberEntryId);
+      const sgccOn = !!(entry && entry.sgccOn);
+      const doSave = () => request({
+        url: `/api/v1/worklog/photos/${this.data.memberPhotoId}/members`,
+        method: 'PUT',
+        data: this.teamBody({ members: names }),
+        timeout: 120000,
+      });
+      if (sgccOn) {
+        try {
+          const data = await doSave();
+          this.setData({ memberVisible: false, memberSaving: false });
+          this.toast('已发起，后台同步商旅中');
+          this.startCardOp(this.data.memberEntryId, data.opId, 'members');
+        } catch (err) {
+          this.setData({ memberSaving: false });
+          this.toast(err.message);
+        }
+        return;
+      }
+      wx.showLoading({ title: '正在保存…', mask: true });
       try {
-        await request({
-          url: `/api/v1/worklog/photos/${this.data.memberPhotoId}/members`,
-          method: 'PUT',
-          data: this.teamBody({ members: names }),
-          timeout: 120000,
-        });
+        await doSave();
         wx.hideLoading();
         this.setData({ memberVisible: false, memberSaving: false });
         this.toast('人名已修改');
@@ -2755,20 +2898,31 @@ Page({
   // 上传：wm 存在时走「加水印上传」（服务端渲染水印）；plain=true 为「非水印照片」原图直传（免验证、不占每人限一张）；
   // 否则为原「水印照片上传」。商旅开启时三类照片均由后端远端先行：先同步进所属人名的当日商旅费用照片，成功才落本地（失败则整个上传报错）
   async uploadPhoto(image, members, wm, plain) {
-    // 商旅开启时后端需同步等待商旅结果，等待文案带商旅语义；未开启维持原文案
+    // 商旅开启时任务化异步执行：登记后立即返回 opId（商旅远端先行 + COS 落库在后台串行队列完成），
+    // 本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾；未开启为纯本地上传，维持文字等待
     const entry = (this.data.list || []).find((x) => x.id === this.data.memberEntryId);
     const sgccOn = !!(entry && entry.sgccOn);
-    const title = wm
-      ? (sgccOn ? '正在加水印上传并同步商旅…' : '正在加水印上传…')
-      : (sgccOn ? '正在上传并同步商旅…' : '正在上传…');
-    wx.showLoading({ title, mask: true });
+    const doUpload = () => request({
+      url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
+      method: 'POST',
+      data: this.teamBody(wm ? { image, members, wm } : plain ? { image, members, plain: true } : { image, members }),
+      timeout: 120000,
+    });
+    if (sgccOn) {
+      try {
+        const data = await doUpload();
+        this.setData({ wmVisible: false, wmUploading: false });
+        this.toast('已发起，后台同步商旅中');
+        this.startCardOp(this.data.memberEntryId, data.opId, 'upload', { wm: !!wm, plain: !!plain });
+      } catch (err) {
+        this.setData({ wmUploading: false });
+        wx.showModal({ title: '上传失败', content: err.message || '上传失败，请重试', showCancel: false, confirmText: '知道了' });
+      }
+      return;
+    }
+    wx.showLoading({ title: wm ? '正在加水印上传…' : '正在上传…', mask: true });
     try {
-      const data = await request({
-        url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
-        method: 'POST',
-        data: this.teamBody(wm ? { image, members, wm } : plain ? { image, members, plain: true } : { image, members }),
-        timeout: 120000,
-      });
+      const data = await doUpload();
       // 加水印流程：服务端完成加水印后，把加了水印的照片自动存入用户相册（失败不阻塞上传）
       let albumTip = '';
       if (wm && data && data.url) {
@@ -2782,7 +2936,6 @@ Page({
     } catch (err) {
       wx.hideLoading();
       this.setData({ wmUploading: false });
-      // 商旅同步失败的报错较长（已含成员名与原因），用 Modal 完整展示
       wx.showModal({ title: '上传失败', content: err.message || '上传失败，请重试', showCancel: false, confirmText: '知道了' });
     }
   },
@@ -2812,9 +2965,27 @@ Page({
       cancelBtn: '取消',
     })
       .then(async () => {
-        wx.showLoading({ title: '正在解除商旅关联…', mask: true });
+        // 商旅开启时任务化异步执行（解除商旅关联在后台完成），本卡挂进度条；未开启为纯本地删除，维持文字等待
+        const entry = (this.data.list || []).find((x) => (x.photos || []).some((p) => String(p.id) === String(pid)));
+        const sgccOn = !!(entry && entry.sgccOn);
+        const doDelete = () => request({
+          url: `/api/v1/worklog/photos/${pid}${this.teamQuery('?')}`,
+          method: 'DELETE',
+          timeout: 120000,
+        });
+        if (sgccOn) {
+          try {
+            const data = await doDelete();
+            this.toast('已发起删除，后台解除商旅关联中');
+            this.startCardOp(entry.id, data.opId, 'delete');
+          } catch (err) {
+            this.toast(err.message);
+          }
+          return;
+        }
+        wx.showLoading({ title: '正在删除…', mask: true });
         try {
-          await request({ url: `/api/v1/worklog/photos/${pid}${this.teamQuery('?')}`, method: 'DELETE', timeout: 120000 });
+          await doDelete();
           wx.hideLoading();
           this.toast('已删除');
           this.loadLogs();
@@ -3294,6 +3465,11 @@ Page({
       if (p && p.running) this.lockByActive();
       // 每晚定时核查：进行中且当日在视图内 → 当日出车卡挂进度条并整卡锁定
       if (p && p.daily && p.daily.running && !this._dailySync) this.enterDailySync();
+      // 照片单操作任务（他人/他端发起或本端重新进入）：旁观者挂条并起轮询
+      if (p && (p.ops || []).length) {
+        this.syncSpectatorOps(p.ops);
+        this.pollSpectatorOps();
+      }
     } catch (err) { /* 商旅未开启 / 网络异常：不锁定 */ }
   },
 
@@ -3383,7 +3559,7 @@ Page({
 
   // 同步锁定中的卡片点击：仅提示（遮罩已阻断全部操作入口）
   onSyncLockTap() {
-    this.toast('正在从商旅同步，暂不可操作');
+    this.toast('商旅同步中，暂不可操作');
   },
 
   // ---------- 水印信息手动修正（Dify 识别出错时用；照片验证状态点击进入，保存后重新核验） ----------
