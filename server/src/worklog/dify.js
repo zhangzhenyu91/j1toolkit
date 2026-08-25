@@ -4,20 +4,13 @@
 // date_verify / destination_verify 已由 Dify 侧移除，日期/地点比对由后端 verify.js checkWatermark 完成
 const axios = require('axios');
 const config = require('../config');
+const { workflowRunUrl, createEnsureConfigured } = require('../utils/dify');
 
-function ensureConfigured() {
-  if (!config.dify.apiUrl || !config.worklog.difyKey) {
-    const err = new Error('Dify 未配置（DIFY_API_URL / DIFY_WORKLOG_API_KEY）');
-    err.expose = true;
-    throw err;
-  }
-}
-
-// 工作流地址：DIFY_API_URL 只填域名即可（/v1 由代码拼接；配置已带 /v1 也不会重复）
-function workflowUrl() {
-  const base = config.dify.apiUrl.replace(/\/+$/, '');
-  return `${base}${base.endsWith('/v1') ? '' : '/v1'}/workflows/run`;
-}
+const ensureConfigured = createEnsureConfigured({
+  apiUrl: config.dify.apiUrl,
+  apiKey: config.worklog.difyKey,
+  keyEnvName: 'DIFY_WORKLOG_API_KEY',
+});
 
 // 识别单张照片水印信息，返回 { ok: true, workContent, time, weather, location, lng, lat }；
 // 任何异常一律归 { ok: false }（不抛出），日期/地点核验由调用方据识别结果在后端完成
@@ -25,7 +18,7 @@ async function verifyPhoto({ username, date, destination, url }) {
   try {
     ensureConfigured();
     const res = await axios.post(
-      workflowUrl(),
+      workflowRunUrl(config.dify.apiUrl),
       {
         inputs: {
           date,

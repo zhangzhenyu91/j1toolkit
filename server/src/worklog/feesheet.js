@@ -156,4 +156,4 @@ async function build(team, from, to) {
   return { buffer: zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }), count: data.entries.length };
 }
 
-module.exports = { build, renderXml, personColWidths }; // renderXml/personColWidths 导出供本地冒烟自测
+module.exports = { build };

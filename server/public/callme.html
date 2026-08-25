@@ -314,17 +314,17 @@
   .cm-send.off { opacity: .4; cursor: not-allowed; transform: none !important; box-shadow: none; }
   .cm-hint { margin: 9px 0 0; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
 
-  /* ===== 通用弹窗（新建/重命名输入 + 删除确认） ===== */
-  .modal-mask {
+  /* ===== 通用弹窗（新建/重命名输入 + 删除确认；结构由 Shade.modal 生成：.mask > .modal > .m-scroll，JS 侧补 card 类） ===== */
+  .mask {
     position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
     background: rgba(27, 39, 64, .42); opacity: 0; pointer-events: none; transition: opacity .25s;
   }
-  .modal-mask.show { opacity: 1; pointer-events: auto; }
-  .modal {
+  .mask.open { opacity: 1; pointer-events: auto; }
+  .mask .modal {
     width: 400px; max-width: 92vw; padding: 22px 24px 18px;
     transform: translateY(14px) scale(.97); transition: transform .3s cubic-bezier(.16, 1, .3, 1);
   }
-  .modal-mask.show .modal { transform: none; }
+  .mask.open .modal { transform: none; }
   .modal-t { font-size: 15px; font-weight: 800; letter-spacing: 1px; }
   .modal-b { margin: 14px 0 20px; font-size: 13px; color: var(--sub); line-height: 1.8; }
   .modal-b .input { height: 42px; }
@@ -428,18 +428,6 @@
 
 <!-- 图片选择（本地读取为 base64 dataURL 上送，不经 COS） -->
 <input type="file" id="fileInput" accept="image/*" style="display:none">
-
-<!-- 通用弹窗 -->
-<div class="modal-mask" id="modalMask">
-  <div class="modal card">
-    <div class="modal-t" id="modalTitle"></div>
-    <div class="modal-b" id="modalBody"></div>
-    <div class="modal-f">
-      <button class="btn btn-sm" id="modalCancel">取消</button>
-      <button class="btn btn-sm btn-accent" id="modalOk">确定</button>
-    </div>
-  </div>
-</div>
 
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
@@ -545,59 +533,39 @@
 
   /* ============================================================
      通用弹窗：promptModal（输入）/ confirmModal（确认）
+     基于 Shade.modal 动态弹层（可叠层，Esc / 点遮罩关闭均视为取消；外观沿用 .modal-t/.modal-b/.modal-f）
      ============================================================ */
-  var modalMask = document.getElementById('modalMask');
-  var modalTitle = document.getElementById('modalTitle');
-  var modalBody = document.getElementById('modalBody');
-  var modalOk = document.getElementById('modalOk');
-  var modalCancel = document.getElementById('modalCancel');
-  var modalResolve = null;
-
   function openModal(opts) {
-    modalTitle.textContent = opts.title || '';
-    modalBody.innerHTML = '';
-    var input = null;
-    if (opts.input) {
-      input = document.createElement('input');
-      input.className = 'input';
-      input.placeholder = opts.input.placeholder || '';
-      input.value = opts.input.value || '';
-      input.maxLength = 50;
-      modalBody.appendChild(input);
-      input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); modalOk.click(); }
-      });
-    } else {
-      modalBody.textContent = opts.content || '';
-    }
-    modalOk.textContent = opts.okText || '确定';
-    modalOk.className = 'btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent');
-    modalMask.classList.add('show');
-    if (input) setTimeout(function () { input.focus(); input.select(); }, 60);
     return new Promise(function (resolve) {
-      modalResolve = { resolve: resolve, input: input };
+      var done = false;
+      /* 取消口径：输入弹窗 resolve(null)，确认弹窗 resolve(false) */
+      function finish(v) { if (!done) { done = true; resolve(v); } }
+      var html = '<div class="modal-t">' + Shade.esc(opts.title || '') + '</div>'
+        + '<div class="modal-b">' + (opts.input ? '' : Shade.esc(opts.content || '')) + '</div>'
+        + '<div class="modal-f">'
+        + '<button class="btn btn-sm" data-a="no">取消</button>'
+        + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + Shade.esc(opts.okText || '确定') + '</button>'
+        + '</div>';
+      var inst = Shade.modal(html, { onClose: function () { finish(opts.input ? null : false); } });
+      inst.box.classList.add('card'); // 沿用原静态弹窗的白底卡片外观
+      var okBtn = inst.box.querySelector('[data-a="yes"]');
+      var input = null;
+      if (opts.input) {
+        input = document.createElement('input');
+        input.className = 'input';
+        input.placeholder = opts.input.placeholder || '';
+        input.value = opts.input.value || '';
+        input.maxLength = 50;
+        inst.box.querySelector('.modal-b').appendChild(input);
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); okBtn.click(); }
+        });
+        setTimeout(function () { input.focus(); input.select(); }, 60);
+      }
+      okBtn.addEventListener('click', function () { finish(input ? input.value : true); inst.close(); });
+      inst.box.querySelector('[data-a="no"]').addEventListener('click', inst.close);
     });
   }
-  function closeModal(val) {
-    modalMask.classList.remove('show');
-    if (modalResolve) {
-      modalResolve.resolve(val);
-      modalResolve = null;
-    }
-  }
-  modalOk.addEventListener('click', function () {
-    if (!modalResolve) return;
-    closeModal(modalResolve.input ? modalResolve.input.value : true);
-  });
-  modalCancel.addEventListener('click', function () {
-    closeModal(modalResolve && modalResolve.input ? null : false);
-  });
-  modalMask.addEventListener('click', function (e) {
-    if (e.target === modalMask) modalCancel.click();
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && modalResolve) modalCancel.click();
-  });
   function promptModal(title, input, okText) {
     return openModal({ title: title, input: input, okText: okText });
   }
@@ -1237,7 +1205,7 @@
   }
 
   /* ============================================================
-     发送与 SSE 流式接收（fetch + ReadableStream；EventSource 不支持 POST）
+     发送与 SSE 流式接收（Shade.apiRaw + ReadableStream；EventSource 不支持 POST）
      ============================================================ */
   function onSend() {
     var query = inputEl.value.trim();
@@ -1266,21 +1234,11 @@
     var timedOut = false;
     var timer = setTimeout(function () { timedOut = true; ctrl.abort(); }, 120000);
 
-    fetch('/api/v1/callme/chat', {
+    Shade.apiRaw('/api/v1/callme/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + (localStorage.getItem('shade_token') || ''),
-      },
-      body: JSON.stringify(payload),
+      body: payload,
       signal: ctrl.signal,
     }).then(async function (res) {
-      if (res.status === 401) {
-        localStorage.removeItem('shade_token');
-        localStorage.removeItem('shade_user');
-        location.href = '/login.html';
-        throw new Error('登录已过期，请重新登录');
-      }
       if (!res.ok || !res.body) {
         var m = 'AI 服务暂时不可用（HTTP ' + res.status + '）';
         try {
@@ -1533,16 +1491,10 @@
     // 角色口径与 index.html 用户卡一致：admin→管理员，其余→普通用户（不拼 team）
     document.getElementById('footRole').textContent = u.role === 'admin' ? '管理员' : '普通用户';
   }
-  (async function () {
-    var cached = Shade.user();
-    if (cached) renderUser(cached);
-    try {
-      var r = await Shade.api('/api/v1/user/profile');
-      renderUser(r.data);
-    } catch (e) {
-      if (!cached) Shade.toast(e.message, 'error');
-    }
-  })();
+  var cachedUser = Shade.user();
+  if (cachedUser) renderUser(cachedUser);
+  /* 接口最新资料刷新（失败回退本地缓存；顶栏头像/昵称由 refreshUser 统一更新，回调渲染侧栏用户条） */
+  Shade.refreshUser(function (u) { if (u) renderUser(u); });
 
   // 首次进入：加载会话列表并自动进入最近一次对话
   loadSessions(true);

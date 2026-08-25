@@ -13,26 +13,9 @@ const MarkdownIt = require('markdown-it');
 // html:false —— 不透传原始 HTML 标签，防止回复内容中的标签被原样注入
 const md = new MarkdownIt({ html: false, linkify: true });
 
-// Markdown 排版样式（方案五色板；mp-html 的 tag-style 按标签名生效）
-const MD_TAG_STYLE = {
-  h1: 'font-size:17px;font-weight:600;margin:10px 0 6px;color:#22314E',
-  h2: 'font-size:16px;font-weight:600;margin:10px 0 6px;color:#22314E',
-  h3: 'font-size:15px;font-weight:600;margin:8px 0 4px;color:#22314E',
-  h4: 'font-size:15px;font-weight:600;margin:8px 0 4px;color:#22314E',
-  p: 'margin:4px 0',
-  ul: 'margin:4px 0 4px 1.2em;padding:0',
-  ol: 'margin:4px 0 4px 1.2em;padding:0',
-  li: 'margin:2px 0',
-  table: 'border-collapse:collapse;margin:8px 0;font-size:13px;display:block;overflow-x:auto',
-  th: 'border:1px solid #E8E0CD;background:#FDF6EF;padding:6px 10px;font-weight:600;text-align:left;white-space:nowrap;color:#22314E',
-  td: 'border:1px solid #E8E0CD;padding:6px 10px',
-  code: 'font-family:Menlo,Consolas,monospace;font-size:0.9em;color:#D85A12',
-  pre: 'background:#F7F3EA;border:1px solid #E8E0CD;border-radius:8px;padding:10px;margin:8px 0;overflow-x:auto',
-  blockquote: 'border-left:3px solid #F26D21;margin:6px 0;padding:2px 10px;color:#6B7690;background:#FDF6EF',
-  a: 'color:#F26D21;text-decoration:underline',
-  strong: 'font-weight:600',
-  hr: 'border:none;border-top:1px solid #E8E0CD;margin:10px 0',
-};
+// Markdown 排版样式：tag 样式统一用 utils/markdown.js 那一份（方案五色板，mp-html 按标签名生效）；
+// 容器样式本地覆盖——聊天气泡字号略大（14.5px），其余与共享口径一致
+const { MD_TAG_STYLE } = require('../../../utils/markdown');
 const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#22314E;word-break:break-word;';
 
 // 消息时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm

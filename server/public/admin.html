@@ -522,27 +522,27 @@
 <script src="/assets/common.js"></script>
 <script src="/assets/md.js"></script>
 <script>
-  function el(id) { return document.getElementById(id); }
+  var $ = Shade.$; // DOM 选择助手（原按 id 取元素的 el() 收敛为 Shade.$，写作 $('#id')）
 
   // 静态图标注入（顶栏 Logo / 退出按钮由 Shade.topbar 统一渲染）
-  el('npIcon').innerHTML = Shade.icon('lock-on', 30);
-  el('btnAdd').insertAdjacentHTML('afterbegin', Shade.icon('add', 14));
-  el('btnRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 14));
-  el('btnTeamAdd').insertAdjacentHTML('afterbegin', Shade.icon('add', 14));
-  el('btnTeamRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 14));
-  el('btnPushSubmit').insertAdjacentHTML('afterbegin', Shade.icon('send', 14));
+  $('#npIcon').innerHTML = Shade.icon('lock-on', 30);
+  $('#btnAdd').insertAdjacentHTML('afterbegin', Shade.icon('add', 14));
+  $('#btnRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 14));
+  $('#btnTeamAdd').insertAdjacentHTML('afterbegin', Shade.icon('add', 14));
+  $('#btnTeamRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 14));
+  $('#btnPushSubmit').insertAdjacentHTML('afterbegin', Shade.icon('send', 14));
   document.querySelectorAll('.modal-hd .x').forEach(function (b) {
     b.innerHTML = Shade.icon('close', 16);
   });
-  el('permEmpty').innerHTML = Shade.icon('usergroup', 44) + '<p>选择左侧员工后勾选应用，勾选即保存</p>';
+  $('#permEmpty').innerHTML = Shade.icon('usergroup', 44) + '<p>选择左侧员工后勾选应用，勾选即保存</p>';
 
   // 原生 select 全部换为自绘下拉（原 select 隐藏保留为数据源；脚本改选项/值/disabled 后调 sync() 重绘）
-  var ddTeamFilter = Shade.dropdown(el('teamFilter'), { width: 'auto', minWidth: '140px', height: 38 });
-  var ddPermTeamFilter = Shade.dropdown(el('permTeamFilter'), {});
-  var ddAddTeam = Shade.dropdown(el('addTeam'), {});
-  var ddAddRole = Shade.dropdown(el('addRole'), {});
-  var ddEditTeam = Shade.dropdown(el('editTeam'), {});
-  var ddEditRole = Shade.dropdown(el('editRole'), {});
+  var ddTeamFilter = Shade.dropdown($('#teamFilter'), { width: 'auto', minWidth: '140px', height: 38 });
+  var ddPermTeamFilter = Shade.dropdown($('#permTeamFilter'), {});
+  var ddAddTeam = Shade.dropdown($('#addTeam'), {});
+  var ddAddRole = Shade.dropdown($('#addRole'), {});
+  var ddEditTeam = Shade.dropdown($('#editTeam'), {});
+  var ddEditRole = Shade.dropdown($('#editRole'), {});
 
   // ===== 全局状态 =====
   var users = [];        // 员工列表（员工管理页签，随班组筛选）
@@ -561,21 +561,16 @@
 
   // ===== 初始化：校验管理员身份 =====
   async function initAdmin() {
-    var cached = Shade.user() || {};
-    fillTopbar(cached);
-    me = cached;
-    try {
-      var r = await Shade.api('/api/v1/user/profile');
-      me = r.data;
-      fillTopbar(me);
-    } catch (e) { /* 接口失败时回退本地缓存身份 */ }
+    me = Shade.user() || {};
+    /* 顶栏用户资料刷新（接口失败回退本地缓存，回调拿到的即最新身份；顶栏头像/昵称由 refreshUser 统一更新） */
+    await Shade.refreshUser(function (u) { if (u) me = u; });
     if (!me || me.role !== 'admin') {
-      el('noPerm').style.display = '';
-      el('noPerm').classList.add('page-entry');
+      $('#noPerm').style.display = '';
+      $('#noPerm').classList.add('page-entry');
       return;
     }
-    el('mainWrap').style.display = '';
-    el('mainWrap').classList.add('page-entry');
+    $('#mainWrap').style.display = '';
+    $('#mainWrap').classList.add('page-entry');
     moveTabInd(document.querySelector('.tab.on'), true);
     loadTeams();
     loadUsers();
@@ -583,15 +578,9 @@
     loadApps();
   }
 
-  function fillTopbar(u) {
-    var name = u.nickname || u.username || '管理员';
-    el('miniAvatar').textContent = name.charAt(0);
-    el('topName').textContent = name;
-  }
-
   // ===== 页签切换（滑动指示条；instant=true 首帧直接落位，避免从左侧滑入的残影） =====
   function moveTabInd(tab, instant) {
-    var ind = el('tabInd');
+    var ind = $('#tabInd');
     if (instant) {
       ind.style.transition = 'none';
       ind.style.left = tab.offsetLeft + 'px';
@@ -608,7 +597,7 @@
       document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('on'); });
       document.querySelectorAll('.pane').forEach(function (p) { p.classList.remove('on'); });
       tab.classList.add('on');
-      el('pane-' + tab.dataset.pane).classList.add('on');
+      $('#pane-' + tab.dataset.pane).classList.add('on');
       moveTabInd(tab);
     });
   });
@@ -616,9 +605,9 @@
     moveTabInd(document.querySelector('.tab.on'));
   });
 
-  // ===== 弹层开关 =====
-  function openMask(id) { el(id).classList.add('show'); }
-  function closeMask(id) { el(id).classList.remove('show'); }
+  // ===== 弹层开关（静态遮罩：.mask + .show，HTML 内联表单与启动期自绘下拉绑定，不迁移 Shade.modal 动态弹层） =====
+  function openMask(id) { $('#' + id).classList.add('show'); }
+  function closeMask(id) { $('#' + id).classList.remove('show'); }
   document.querySelectorAll('[data-close]').forEach(function (b) {
     b.addEventListener('click', function () { closeMask(b.dataset.close); });
   });
@@ -638,8 +627,8 @@
     } catch (e) {
       teams = [];
       renderTeamFilter();
-      el('teamCnt').textContent = '加载失败';
-      el('teamTbody').innerHTML = '<tr><td colspan="4"><div class="empty">' +
+      $('#teamCnt').textContent = '加载失败';
+      $('#teamTbody').innerHTML = '<tr><td colspan="4"><div class="empty">' +
         Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '班组列表加载失败') + '</p></div></td></tr>';
     }
   }
@@ -649,20 +638,20 @@
     var optsHtml = '<option value="">全部班组</option>' + teams.map(function (t) {
       return '<option value="' + t.id + '">' + Shade.esc(t.name) + (t.status === 1 ? '' : '（已停用）') + '</option>';
     }).join('') + '<option value="0">未分组</option>';
-    el('teamFilter').innerHTML = optsHtml;
-    el('permTeamFilter').innerHTML = optsHtml;
-    el('teamFilter').value = teamFilter;
-    if (el('teamFilter').value !== teamFilter) teamFilter = el('teamFilter').value; // 所选班组已被删除时回退「全部班组」
-    el('permTeamFilter').value = permTeamFilter;
-    if (el('permTeamFilter').value !== permTeamFilter) permTeamFilter = el('permTeamFilter').value;
+    $('#teamFilter').innerHTML = optsHtml;
+    $('#permTeamFilter').innerHTML = optsHtml;
+    $('#teamFilter').value = teamFilter;
+    if ($('#teamFilter').value !== teamFilter) teamFilter = $('#teamFilter').value; // 所选班组已被删除时回退「全部班组」
+    $('#permTeamFilter').value = permTeamFilter;
+    if ($('#permTeamFilter').value !== permTeamFilter) permTeamFilter = $('#permTeamFilter').value;
     ddTeamFilter.sync();
     ddPermTeamFilter.sync();
   }
-  el('teamFilter').addEventListener('change', function () {
+  $('#teamFilter').addEventListener('change', function () {
     teamFilter = this.value;
     loadUsers();
   });
-  el('permTeamFilter').addEventListener('change', function () {
+  $('#permTeamFilter').addEventListener('change', function () {
     permTeamFilter = this.value;
     loadPermUsers();
   });
@@ -698,16 +687,16 @@
 
   function renderTeams() {
     if (!teams.length) {
-      el('teamCnt').textContent = '共 0 个班组';
-      el('teamTbody').innerHTML = '<tr><td colspan="4"><div class="empty">' +
+      $('#teamCnt').textContent = '共 0 个班组';
+      $('#teamTbody').innerHTML = '<tr><td colspan="4"><div class="empty">' +
         Shade.icon('usergroup', 44) + '<p>暂无班组，点击右上角「新增班组」创建</p></div></td></tr>';
       return;
     }
-    el('teamCnt').textContent = '共 ' + teams.length + ' 个班组';
+    $('#teamCnt').textContent = '共 ' + teams.length + ' 个班组';
     // 默认班组 = 首个启用班组（与后端 getDefaultTeam 同口径，KVM 设备回退归它）
     var defId = 0;
     teams.forEach(function (t) { if (!defId && t.status === 1) defId = t.id; });
-    el('teamTbody').innerHTML = teams.map(function (t) {
+    $('#teamTbody').innerHTML = teams.map(function (t) {
       return '<tr>' +
         '<td class="uname">' + Shade.esc(t.name) +
           (t.id === defId ? '<span class="def-pill">默认班组</span>' : '') + '</td>' +
@@ -720,36 +709,36 @@
     }).join('');
   }
 
-  el('teamTbody').addEventListener('click', function (e) {
+  $('#teamTbody').addEventListener('click', function (e) {
     var btn = e.target.closest('[data-tedit]');
     if (!btn) return;
     var t = teams.find(function (x) { return x.id === Number(btn.dataset.tedit); });
     if (t) openTeamModal(t);
   });
-  el('btnTeamRefresh').addEventListener('click', function () { loadTeams(); });
+  $('#btnTeamRefresh').addEventListener('click', function () { loadTeams(); });
 
   // ---------- 新增 / 编辑班组弹层 ----------
   function openTeamModal(t) {
     editingTeam = t || null;
-    el('teamTitle').textContent = t ? '编辑班组' : '新增班组';
-    el('teamName').value = t ? t.name : '';
+    $('#teamTitle').textContent = t ? '编辑班组' : '新增班组';
+    $('#teamName').value = t ? t.name : '';
     // 启用状态开关仅编辑态展示（新增默认启用）
-    el('teamStatusRow').style.display = t ? '' : 'none';
-    el('teamStatus').classList.toggle('on', !t || t.status === 1);
-    el('btnTeamDel').style.display = t ? '' : 'none';
+    $('#teamStatusRow').style.display = t ? '' : 'none';
+    $('#teamStatus').classList.toggle('on', !t || t.status === 1);
+    $('#btnTeamDel').style.display = t ? '' : 'none';
     openMask('teamMask');
-    el('teamName').focus();
+    $('#teamName').focus();
   }
-  el('btnTeamAdd').addEventListener('click', function () { openTeamModal(null); });
-  el('teamStatus').addEventListener('click', function () { this.classList.toggle('on'); });
+  $('#btnTeamAdd').addEventListener('click', function () { openTeamModal(null); });
+  $('#teamStatus').addEventListener('click', function () { this.classList.toggle('on'); });
 
-  el('btnTeamSubmit').addEventListener('click', async function () {
-    var name = el('teamName').value.trim();
+  $('#btnTeamSubmit').addEventListener('click', async function () {
+    var name = $('#teamName').value.trim();
     if (!name) {
       Shade.toast('请输入班组名称', 'info');
       return;
     }
-    var btn = el('btnTeamSubmit');
+    var btn = $('#btnTeamSubmit');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
@@ -758,7 +747,7 @@
           method: 'PUT',
           body: {
             name: name,
-            status: el('teamStatus').classList.contains('on') ? 1 : 0,
+            status: $('#teamStatus').classList.contains('on') ? 1 : 0,
           },
         });
       } else {
@@ -780,16 +769,16 @@
   });
 
   // ---------- 删除班组（二次确认；有数据时后端 409 拒绝，toast 后端文案） ----------
-  el('btnTeamDel').addEventListener('click', function () {
+  $('#btnTeamDel').addEventListener('click', function () {
     if (!editingTeam) return;
-    el('teamDelTip').textContent = '确定删除班组「' + editingTeam.name +
+    $('#teamDelTip').textContent = '确定删除班组「' + editingTeam.name +
       '」吗？删除后不可恢复；班组下仍有员工或业务数据时无法删除，可改为停用。';
     openMask('teamDelMask');
   });
 
-  el('btnTeamDelOk').addEventListener('click', async function () {
+  $('#btnTeamDelOk').addEventListener('click', async function () {
     if (!editingTeam) return;
-    var btn = el('btnTeamDelOk');
+    var btn = $('#btnTeamDelOk');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
@@ -811,15 +800,15 @@
   // 员工管理
   // ============================================================
   async function loadUsers() {
-    el('userCnt').textContent = '加载中…';
+    $('#userCnt').textContent = '加载中…';
     try {
       var r = await Shade.api('/api/v1/admin/users' + (teamFilter !== '' ? '?team_id=' + teamFilter : ''));
       users = r.data.list || [];
       renderUsers();
     } catch (e) {
       users = [];
-      el('userCnt').textContent = '加载失败';
-      el('userTbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
+      $('#userCnt').textContent = '加载失败';
+      $('#userTbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
         Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '员工列表加载失败') + '</p></div></td></tr>';
     }
   }
@@ -855,18 +844,18 @@
   }
 
   function renderUsers() {
-    el('userCnt').textContent = '共 ' + users.length + ' 名员工';
+    $('#userCnt').textContent = '共 ' + users.length + ' 名员工';
     if (!users.length) {
-      el('userTbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
+      $('#userTbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
         Shade.icon('usergroup', 44) + '<p>暂无员工，点击右上角「新建员工」创建</p></div></td></tr>';
       return;
     }
     // 选了具体班组 / 未分组 → 单组平铺；「全部班组」按班组分组（组标题行：橙条 + 班组名 + 人数，未分组排最后）
     if (teamFilter !== '') {
-      el('userTbody').innerHTML = users.map(userRowHtml).join('');
+      $('#userTbody').innerHTML = users.map(userRowHtml).join('');
       return;
     }
-    el('userTbody').innerHTML = groupByTeam(users).map(function (g) {
+    $('#userTbody').innerHTML = groupByTeam(users).map(function (g) {
       return '<tr class="grp-row"><td colspan="7">' + (g[0] ? Shade.esc(g[0]) : '未分组') +
         '<span class="grp-cnt">' + g[1].length + ' 人</span></td></tr>' +
         g[1].map(userRowHtml).join('');
@@ -874,7 +863,7 @@
   }
 
   // 表格行内操作（事件委托）
-  el('userTbody').addEventListener('click', function (e) {
+  $('#userTbody').addEventListener('click', function (e) {
     var btn = e.target.closest('[data-op]');
     if (!btn) return;
     var u = users.find(function (x) { return x.id === Number(btn.dataset.id); });
@@ -884,26 +873,26 @@
     if (btn.dataset.op === 'toggle') openToggle(u);
   });
 
-  el('btnRefresh').addEventListener('click', function () { loadUsers(); });
+  $('#btnRefresh').addEventListener('click', function () { loadUsers(); });
 
   // ---------- 新建员工 ----------
-  el('btnAdd').addEventListener('click', function () {
-    el('addUsername').value = '';
-    el('addNickname').value = '';
-    fillTeamSelect(el('addTeam'), ddAddTeam, 0);
-    el('addRole').value = 'user';
+  $('#btnAdd').addEventListener('click', function () {
+    $('#addUsername').value = '';
+    $('#addNickname').value = '';
+    fillTeamSelect($('#addTeam'), ddAddTeam, 0);
+    $('#addRole').value = 'user';
     ddAddRole.sync();
-    el('addPassword').value = '';
+    $('#addPassword').value = '';
     openMask('addMask');
-    el('addUsername').focus();
+    $('#addUsername').focus();
   });
 
-  el('btnAddSubmit').addEventListener('click', async function () {
-    var username = el('addUsername').value.trim();
-    var nickname = el('addNickname').value.trim();
-    var teamId = el('addTeam').value ? Number(el('addTeam').value) : null;
-    var role = el('addRole').value;
-    var password = el('addPassword').value;
+  $('#btnAddSubmit').addEventListener('click', async function () {
+    var username = $('#addUsername').value.trim();
+    var nickname = $('#addNickname').value.trim();
+    var teamId = $('#addTeam').value ? Number($('#addTeam').value) : null;
+    var role = $('#addRole').value;
+    var password = $('#addPassword').value;
     if (!username || !password) {
       Shade.toast('请填写账号和初始密码', 'info');
       return;
@@ -912,7 +901,7 @@
       Shade.toast('班组管理员必须有所属班组', 'info');
       return;
     }
-    var btn = el('btnAddSubmit');
+    var btn = $('#btnAddSubmit');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
@@ -935,34 +924,34 @@
   // ---------- 编辑员工（昵称 / 班组 / 角色） ----------
   function openEdit(u) {
     editing = u;
-    el('editTip').textContent = '账号：' + u.username;
-    el('editNickname').value = u.nickname || '';
-    fillTeamSelect(el('editTeam'), ddEditTeam, u.team_id);
-    el('editRole').value = u.role === 'admin' ? 'admin' : (u.role === 'team_admin' ? 'team_admin' : 'user');
+    $('#editTip').textContent = '账号：' + u.username;
+    $('#editNickname').value = u.nickname || '';
+    fillTeamSelect($('#editTeam'), ddEditTeam, u.team_id);
+    $('#editRole').value = u.role === 'admin' ? 'admin' : (u.role === 'team_admin' ? 'team_admin' : 'user');
     // 编辑自己时角色置灰（不能降级自己的账号，后端同口径拒绝）
     var isMe = me && u.id === me.id;
-    el('editRole').disabled = !!isMe;
-    el('editRoleHint').style.display = isMe ? '' : 'none';
+    $('#editRole').disabled = !!isMe;
+    $('#editRoleHint').style.display = isMe ? '' : 'none';
     ddEditRole.sync();
     openMask('editMask');
   }
 
-  el('btnEditSubmit').addEventListener('click', async function () {
+  $('#btnEditSubmit').addEventListener('click', async function () {
     if (!editing) return;
-    var teamId = el('editTeam').value ? Number(el('editTeam').value) : null;
-    var role = el('editRole').value;
+    var teamId = $('#editTeam').value ? Number($('#editTeam').value) : null;
+    var role = $('#editRole').value;
     if (role === 'team_admin' && !teamId) {
       Shade.toast('班组管理员必须有所属班组', 'info');
       return;
     }
-    var btn = el('btnEditSubmit');
+    var btn = $('#btnEditSubmit');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
       await Shade.api('/api/v1/admin/users/' + editing.id, {
         method: 'PUT',
         body: {
-          nickname: el('editNickname').value.trim(),
+          nickname: $('#editNickname').value.trim(),
           team_id: teamId, // null = 未分配
           role: role,
         },
@@ -982,20 +971,20 @@
   // ---------- 重置密码 ----------
   function openPwd(u) {
     editing = u;
-    el('pwdTip').textContent = '重置密码：' + (u.nickname || u.username);
-    el('pwdInput').value = '';
+    $('#pwdTip').textContent = '重置密码：' + (u.nickname || u.username);
+    $('#pwdInput').value = '';
     openMask('pwdMask');
-    el('pwdInput').focus();
+    $('#pwdInput').focus();
   }
 
-  el('btnPwdSubmit').addEventListener('click', async function () {
+  $('#btnPwdSubmit').addEventListener('click', async function () {
     if (!editing) return;
-    var password = el('pwdInput').value.trim();
+    var password = $('#pwdInput').value.trim();
     if (password.length < 6) {
       Shade.toast('密码至少 6 位', 'info');
       return;
     }
-    var btn = el('btnPwdSubmit');
+    var btn = $('#btnPwdSubmit');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
@@ -1016,18 +1005,18 @@
   function openToggle(u) {
     editing = u;
     var disabling = u.status === 1;
-    el('cfmTitle').textContent = disabling ? '停用账号' : '启用账号';
-    el('cfmTip').textContent = '确定' + (disabling ? '停用' : '启用') + '「' +
+    $('#cfmTitle').textContent = disabling ? '停用账号' : '启用账号';
+    $('#cfmTip').textContent = '确定' + (disabling ? '停用' : '启用') + '「' +
       (u.nickname || u.username) + '」吗？' + (disabling ? '停用后该账号将无法登录。' : '');
-    var okBtn = el('btnCfmOk');
+    var okBtn = $('#btnCfmOk');
     okBtn.className = disabling ? 'btn btn-danger' : 'btn btn-accent';
     openMask('cfmMask');
   }
 
-  el('btnCfmOk').addEventListener('click', async function () {
+  $('#btnCfmOk').addEventListener('click', async function () {
     if (!editing) return;
     var disabling = editing.status === 1;
-    var btn = el('btnCfmOk');
+    var btn = $('#btnCfmOk');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
@@ -1054,7 +1043,7 @@
       apps = r.data.list || [];
     } catch (e) {
       apps = [];
-      el('permAppList').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+      $('#permAppList').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
         '<p>' + Shade.esc(e.message || '应用列表加载失败') + '</p></div>';
     }
   }
@@ -1070,7 +1059,7 @@
     renderPermUsers();
   }
 
-  el('permSearch').addEventListener('input', function () { renderPermUsers(); });
+  $('#permSearch').addEventListener('input', function () { renderPermUsers(); });
   document.querySelector('.pm-search .field').insertAdjacentHTML('afterbegin', Shade.icon('search', 18));
 
   function pmUserBtn(u) {
@@ -1083,29 +1072,29 @@
   }
 
   function renderPermUsers() {
-    var kw = el('permSearch').value.trim().toLowerCase();
+    var kw = $('#permSearch').value.trim().toLowerCase();
     var list = permUsers.filter(function (u) {
       if (!kw) return true;
       return (u.username || '').toLowerCase().indexOf(kw) >= 0 ||
              (u.nickname || '').toLowerCase().indexOf(kw) >= 0;
     });
     if (!list.length) {
-      el('permUserList').innerHTML = '<div class="empty">' + Shade.icon('search', 44) +
+      $('#permUserList').innerHTML = '<div class="empty">' + Shade.icon('search', 44) +
         '<p>' + (permUsers.length ? '没有匹配的员工' : '暂无员工') + '</p></div>';
       return;
     }
     // 「全部班组」按班组分组（未分组排最后）；选了具体班组 / 未分组则单组平铺
     if (permTeamFilter !== '') {
-      el('permUserList').innerHTML = list.map(pmUserBtn).join('');
+      $('#permUserList').innerHTML = list.map(pmUserBtn).join('');
       return;
     }
-    el('permUserList').innerHTML = groupByTeam(list).map(function (g) {
+    $('#permUserList').innerHTML = groupByTeam(list).map(function (g) {
       return '<div class="pm-grp">' + (g[0] ? Shade.esc(g[0]) : '未分组') + ' · ' + g[1].length + ' 人</div>' +
         g[1].map(pmUserBtn).join('');
     }).join('');
   }
 
-  el('permUserList').addEventListener('click', function (e) {
+  $('#permUserList').addEventListener('click', function (e) {
     var btn = e.target.closest('.pm-user');
     if (!btn) return;
     selectPermUser(Number(btn.dataset.id));
@@ -1118,16 +1107,16 @@
     checkedMap = {};
     renderPermUsers();
     var u = permUsers.find(function (x) { return x.id === id; });
-    el('permHead').innerHTML = '<span>正在为 <b>' + Shade.esc(u ? (u.nickname || u.username) : '') +
+    $('#permHead').innerHTML = '<span>正在为 <b>' + Shade.esc(u ? (u.nickname || u.username) : '') +
       '</b> 配置应用权限</span><span class="st">勾选即保存</span>';
-    el('permAppList').innerHTML = '<div class="loading"><span class="spin"></span>加载中</div>';
+    $('#permAppList').innerHTML = '<div class="loading"><span class="spin"></span>加载中</div>';
     try {
       var r = await Shade.api('/api/v1/admin/users/' + id + '/apps');
       checkedMap = {};
       (r.data.app_ids || []).forEach(function (appId) { checkedMap[appId] = true; });
       renderPermApps();
     } catch (e) {
-      el('permAppList').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+      $('#permAppList').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
         '<p>' + Shade.esc(e.message || '授权信息加载失败') + '</p></div>';
     }
   }
@@ -1135,11 +1124,11 @@
   // 右侧应用勾选列表
   function renderPermApps() {
     if (!apps.length) {
-      el('permAppList').innerHTML = '<div class="empty">' + Shade.icon('app', 44) +
+      $('#permAppList').innerHTML = '<div class="empty">' + Shade.icon('app', 44) +
         '<p>暂无应用，请先在 sys_app 表配置应用</p></div>';
       return;
     }
-    el('permAppList').innerHTML = apps.map(function (a) {
+    $('#permAppList').innerHTML = apps.map(function (a) {
       var on = !!checkedMap[a.id];
       var offApp = a.status !== 1;
       return '<div class="app-item' + (on ? ' on' : '') + (offApp ? ' off-app' : '') + '" data-id="' + a.id + '">' +
@@ -1153,7 +1142,7 @@
   }
 
   // 勾选 / 取消勾选 → 立即全量保存（与小程序提交口径一致：app_ids 全量替换）
-  el('permAppList').addEventListener('click', function (e) {
+  $('#permAppList').addEventListener('click', function (e) {
     var item = e.target.closest('.app-item');
     if (!item || !permUserId) return;
     var id = Number(item.dataset.id);
@@ -1187,9 +1176,9 @@
   // ============================================================
   // 消息推送
   // ============================================================
-  el('btnPushSubmit').addEventListener('click', async function () {
-    var title = el('pushTitle').value.trim();
-    var content = el('pushContent').value.trim();
+  $('#btnPushSubmit').addEventListener('click', async function () {
+    var title = $('#pushTitle').value.trim();
+    var content = $('#pushContent').value.trim();
     var targets = Array.prototype.map.call(
       document.querySelectorAll('#pane-push .push-ck input:checked'),
       function (ck) { return ck.value; }
@@ -1202,7 +1191,7 @@
       Shade.toast('请至少选择一个推送对象', 'info');
       return;
     }
-    var btn = el('btnPushSubmit');
+    var btn = $('#btnPushSubmit');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
@@ -1211,14 +1200,14 @@
         body: { title: title, content: content, targets: targets },
       });
       Shade.toast('推送成功', 'success');
-      el('pushTitle').value = '';
-      el('pushContent').value = '';
+      $('#pushTitle').value = '';
+      $('#pushContent').value = '';
       document.querySelectorAll('#pane-push .push-ck input').forEach(function (ck) { ck.checked = false; });
       // 预览态一并复位
       pushPreviewOn = false;
-      el('pushPreview').hidden = true;
-      el('pushContent').style.display = '';
-      el('btnPushPreview').textContent = '预览';
+      $('#pushPreview').hidden = true;
+      $('#pushContent').style.display = '';
+      $('#btnPushPreview').textContent = '预览';
     } catch (e) {
       Shade.toast(e.message, 'error');
     } finally {
@@ -1228,8 +1217,8 @@
 
   // ---------- 推送内容编辑：插入图片（上传 COS 后光标处插入 Markdown）/ 预览 ----------
   var pushPreviewOn = false;
-  el('btnPushImg').addEventListener('click', function () { el('pushImgFile').click(); });
-  el('pushImgFile').addEventListener('change', async function () {
+  $('#btnPushImg').addEventListener('click', function () { $('#pushImgFile').click(); });
+  $('#pushImgFile').addEventListener('change', async function () {
     var file = this.files && this.files[0];
     this.value = ''; // 置空以允许重复选择同一文件
     if (!file) return;
@@ -1244,7 +1233,7 @@
       var r = await Shade.api('/api/v1/notice/upload-image', { method: 'POST', body: fd });
       var url = r.data && r.data.url;
       if (!url) throw new Error('上传失败，未返回图片地址');
-      insertAtCursor(el('pushContent'), '\n![图片](' + url + ')\n');
+      insertAtCursor($('#pushContent'), '\n![图片](' + url + ')\n');
       Shade.toast('图片已插入', 'success');
     } catch (e) {
       Shade.toast(e.message, 'error');
@@ -1262,14 +1251,14 @@
     ta.selectionStart = ta.selectionEnd = s + text.length;
     ta.focus();
   }
-  el('btnPushPreview').addEventListener('click', function () {
+  $('#btnPushPreview').addEventListener('click', function () {
     pushPreviewOn = !pushPreviewOn;
-    el('pushPreview').hidden = !pushPreviewOn;
-    el('pushContent').style.display = pushPreviewOn ? 'none' : '';
+    $('#pushPreview').hidden = !pushPreviewOn;
+    $('#pushContent').style.display = pushPreviewOn ? 'none' : '';
     this.textContent = pushPreviewOn ? '继续编辑' : '预览';
     if (pushPreviewOn) {
-      var v = el('pushContent').value;
-      el('pushPreview').innerHTML = renderMd(v) || '<span style="color:var(--ph)">暂无内容</span>';
+      var v = $('#pushContent').value;
+      $('#pushPreview').innerHTML = renderMd(v) || '<span style="color:var(--ph)">暂无内容</span>';
     }
   });
 

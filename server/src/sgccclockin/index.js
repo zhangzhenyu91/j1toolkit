@@ -1182,7 +1182,7 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
       // COS key 规则同 worklog 照片：{prefix}{班组名}/{YYYY.MM.DD}/{entryId}-{ts}-{图片id}.jpg（带图片 id 防同毫秒撞键）
       const [trows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [account.team_id]);
       const teamName = trows.length ? trows[0].name : String(account.team_id);
-      const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
+      const prefix = config.worklog.cosPrefix;
       for (const [imgId, imgUrl] of toPull) {
         try {
           if (!/^https?:\/\//.test(imgUrl)) throw new Error('商旅侧未返回有效图片地址');

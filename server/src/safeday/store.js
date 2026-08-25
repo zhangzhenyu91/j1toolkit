@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const config = require('../config');
 
-const DATA_DIR = path.resolve(config.safeday.dataDir);
+const DATA_DIR = config.safeday.dataDir;
 const DATA_FILE = path.join(DATA_DIR, 'records.json');
 
 function ensureFile() {

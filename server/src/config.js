@@ -1,4 +1,5 @@
 // 全局配置：所有环境相关值一律从环境变量读取（见 .env.example），不硬编码
+const path = require('path');
 require('dotenv').config();
 
 function str(name, def = '') {
@@ -8,6 +9,10 @@ function str(name, def = '') {
 function num(name, def) {
   const v = parseInt(process.env[name] || '', 10);
   return Number.isNaN(v) ? def : v;
+}
+// 路径/键前缀统一以 / 结尾（使用点不再行内拼接）；空串保持空串
+function withTrailingSlash(v) {
+  return v === '' || v.endsWith('/') ? v : `${v}/`;
 }
 
 const config = {
@@ -53,11 +58,11 @@ const config = {
   },
   // basemetas 文件预览服务（安全日记录在线预览用；留空=未启用，网页端不显示预览）
   basemetas: {
-    url: str('BASEMETAS_URL'),
+    url: str('BASEMETAS_URL').replace(/\/+$/, ''),
   },
   worklog: {
     enabled: str('WORKLOG_ENABLED') === 'true',
-    cosPrefix: str('COS_WORKLOG_PREFIX', 'worklog/'),
+    cosPrefix: withTrailingSlash(str('COS_WORKLOG_PREFIX', 'worklog/')),
     cosBaseUrl: str('COS_WORKLOG_BASE_URL'),
     difyKey: str('DIFY_WORKLOG_API_KEY'),
     // 高德地图（「选照片并添加水印」预填当前地点/天气、商旅打卡定位解析用；未配置时对应字段留空手填）
@@ -79,8 +84,8 @@ const config = {
   // 安全日活动记录（自 SafeDayLogs 独立服务合并的子模块，文件存储，不建库表）
   safeday: {
     enabled: str('SAFEDAY_ENABLED') === 'true',
-    // 记录 records.json 与生成产物（docs/）存放目录，相对路径按服务启动目录（server/）解析
-    dataDir: str('SAFEDAY_DATA_DIR', './data/safeday'),
+    // 记录 records.json 与生成产物（docs/）存放目录；已在 config 归一化为绝对路径（相对路径按服务启动目录解析）
+    dataDir: path.resolve(str('SAFEDAY_DATA_DIR', './data/safeday')),
     difyKey: str('DIFY_SAFEDAY_API_KEY'),
     // Dify 回调 token：留空则回调不做 token 校验（与原 CALLBACK_TOKEN 行为一致）
     callbackToken: str('SAFEDAY_CALLBACK_TOKEN'),

@@ -735,7 +735,7 @@ router.post(
       if (!type) {
         return fail(res, 400, 40018, '仅支持图片、视频或 Office 文档（doc/docx/xls/xlsx/ppt/pptx/pdf）');
       }
-      const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
+      const prefix = config.worklog.cosPrefix;
       const key = `${prefix}remark/${team.name}/${dots(entries[0].log_date)}/${entryId}-${Date.now()}.${ext}`;
       await cos.putBuffer(key, req.file.buffer, REMARK_MIME[ext] || 'application/octet-stream');
       return ok(res, { name, url: cos.publicUrl(key), cos_key: key, type, size: req.file.buffer.length });
@@ -753,7 +753,7 @@ router.get('/logs/:id/remark-preview', async (req, res, next) => {
     if (!entry) return fail(res, 404, 40400, '日志不存在');
     if (!file) return fail(res, 404, 40400, '附件不存在');
     if (file.type !== 'doc') return fail(res, 400, 40021, '仅 Office 文档支持在线预览');
-    const base = (config.basemetas.url || '').replace(/\/+$/, '');
+    const base = config.basemetas.url;
     if (!base) return fail(res, 400, 40021, '未配置文件预览服务');
     const url = `${base}/preview/view?url=${encodeURIComponent(cos.publicUrl(file.cos_key))}`
       + `&fileName=${encodeURIComponent(file.name)}&displayName=${encodeURIComponent(file.name)}`;
@@ -1065,7 +1065,7 @@ router.post('/logs/:id/photos', async (req, res, next) => {
           rec.failedName = rs.failedName || '';
           throw new Error(rs.error || '商旅同步失败');
         }
-        const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
+        const prefix = config.worklog.cosPrefix;
         const key = `${prefix}${teamName}/${dots(logDate)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
         // 商旅已先行成功，此处 COS/落库若失败（罕见），商旅侧已有图——由每日核查按 MD5 合并/拉回入库兜底对齐
         await cos.putBuffer(key, buf, contentType);
@@ -1094,7 +1094,7 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     }
 
     // 未开启商旅：纯本地上传（同步落库并触发 Dify 验证，响应直返照片数据）
-    const prefix = config.worklog.cosPrefix.endsWith('/') ? config.worklog.cosPrefix : `${config.worklog.cosPrefix}/`;
+    const prefix = config.worklog.cosPrefix;
     const key = `${prefix}${req.team.name}/${dots(entry.log_date)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
     await cos.putBuffer(key, buf, contentType);
     const url = cos.publicUrl(key);
@@ -1541,7 +1541,7 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
-    const base = (config.basemetas.url || '').replace(/\/+$/, '');
+    const base = config.basemetas.url;
     if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
     // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应
     if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
@@ -1592,7 +1592,7 @@ router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
-    const base = (config.basemetas.url || '').replace(/\/+$/, '');
+    const base = config.basemetas.url;
     if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
     // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应（判定口径同任务单 hasRows）
     if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {

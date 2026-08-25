@@ -1,8 +1,9 @@
 // 安全日活动记录：Dify 工作流封装（自 SafeDayLogs 独立服务移植）
 // 地址用各工作流共用的 DIFY_API_URL（/v1 由代码拼接），本模块用独立的 DIFY_SAFEDAY_API_KEY
 const config = require('../config');
+const { apiBaseUrl } = require('../utils/dify');
 
-const BASE_URL = () => (config.dify.apiUrl || '').replace(/\/+$/, '');
+const BASE_URL = () => apiBaseUrl(config.dify.apiUrl);
 const API_KEY = () => config.safeday.difyKey || '';
 const USER = () => 'safeday-web';
 

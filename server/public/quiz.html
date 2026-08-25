@@ -260,8 +260,7 @@ Shade.requireAuth();
 Shade.topbar({ active: 'quiz' });
 
 /* ================= 工具 ================= */
-var $ = function (s, c) { return (c || document).querySelector(s); };
-var $$ = function (s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); };
+var $ = Shade.$, $$ = Shade.$$;
 var esc = Shade.esc;
 var API = '/api/v1/quiz';
 var LETTERS = 'ABCDEF'; // 选项字母（最多 6 项 A~F）
@@ -289,10 +288,7 @@ function newMq() {
 state.mq = newMq();
 
 /* 班组隔离：超管所有 /quiz/* 请求统一带 team_id（query，与后端 resolveReqTeam 同口径） */
-function qz(path) {
-  if (!state.teamId) return path;
-  return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'team_id=' + state.teamId;
-}
+function qz(path) { return Shade.withTeam(path, state.teamId); }
 function findBank(id) {
   var b = null;
   (state.banks || []).forEach(function (x) { if (x.id === id) b = x; });
@@ -324,88 +320,25 @@ function answerText(type, answer) {
   return answer || '';
 }
 
-/* ================= 通用弹层（可叠层，Esc / 点遮罩关闭；同 worklog 模式） ================= */
-var modalStack = [];
-function mHead(title) {
-  return '<div class="m-head"><span class="m-title">' + esc(title) + '</span>'
-    + '<button class="m-x">' + Shade.icon('close', 14) + '</button></div>';
-}
-function createModal(html, opts) {
-  opts = opts || {};
-  var mask = document.createElement('div');
-  mask.className = 'mask';
-  var box = document.createElement('div');
-  box.className = 'modal';
-  if (opts.width) box.style.width = opts.width + 'px';
-  /* 内容包一层滚动容器：外壳 overflow:hidden 保圆角，滚动条内凹不贴角 */
-  box.innerHTML = '<div class="m-scroll">' + html + '</div>';
-  mask.appendChild(box);
-  document.body.appendChild(mask);
-  requestAnimationFrame(function () { mask.classList.add('open'); });
-  var inst = {
-    mask: mask, box: box, closed: false,
-    close: function () {
-      if (inst.closed) return;
-      inst.closed = true;
-      var i = modalStack.indexOf(inst);
-      if (i >= 0) modalStack.splice(i, 1);
-      mask.classList.remove('open');
-      setTimeout(function () { mask.remove(); }, 300);
-      if (opts.onClose) opts.onClose();
-    }
-  };
-  mask.addEventListener('mousedown', function (e) { if (e.target === mask) inst.close(); });
-  modalStack.push(inst);
-  $$('.m-x', box).forEach(function (b) { b.addEventListener('click', inst.close); });
-  return inst;
-}
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape') {
-    var top = modalStack[modalStack.length - 1];
-    if (top) top.close();
-  }
-});
+/* ================= 通用弹层（Shade.modal 动态弹层：可叠层，Esc / 点遮罩关闭） ================= */
 /* 通用确认弹层（叠层）：返回 Promise<boolean>，遮罩/Esc/取消均视为否 */
 function confirmAction(opts) {
   return new Promise(function (resolve) {
     var done = false;
     function finish(v) { if (!done) { done = true; resolve(v); } }
-    var html = mHead(opts.title)
+    var html = Shade.mHead(opts.title)
       + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
       + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
       + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
-    var inst = createModal(html, { width: 420, onClose: function () { finish(false); } });
+    var inst = Shade.modal(html, { width: 420, onClose: function () { finish(false); } });
     $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
     $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
   });
 }
 
 /* ================= 超管班组切换器 ================= */
-/* 自绘下拉（原 select 隐藏保留为数据源），初始隐藏，超管加载班组列表后显示 */
+/* 自绘下拉（原 select 隐藏保留为数据源），#sideTeam 侧栏块初始隐藏，超管加载班组列表后显示（装配见 init 内 Shade.setupTeamSel） */
 var teamDd = Shade.dropdown($('#teamSel'), { width: '100%', height: 36 });
-
-/* 数据源 GET /admin/teams（仅启用班组）；选择持久化 localStorage.quiz_team_id，切换后整页数据重载 */
-async function setupTeamSel() {
-  if (state.role !== 'admin') return;
-  try {
-    var r = await Shade.api('/api/v1/admin/teams');
-    var list = ((r.data && r.data.list) || []).filter(function (t) { return t.status === 1; });
-    if (!list.length) return;
-    var sel = $('#teamSel');
-    sel.innerHTML = list.map(function (t) { return '<option value="' + t.id + '">' + esc(t.name) + '</option>'; }).join('');
-    var saved = Number(localStorage.getItem('quiz_team_id')) || 0;
-    state.teamId = list.some(function (t) { return t.id === saved; }) ? saved : list[0].id;
-    sel.value = String(state.teamId);
-    localStorage.setItem('quiz_team_id', String(state.teamId));
-    teamDd.sync();
-    $('#sideTeam').hidden = false;
-    sel.addEventListener('change', function () {
-      state.teamId = Number(this.value) || 0;
-      localStorage.setItem('quiz_team_id', String(state.teamId));
-      reloadTeamData();
-    });
-  } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
-}
 
 /* 切换班组后整页重载：清空全部按班组缓存（题库 / 管理分页） */
 function reloadTeamData() {
@@ -642,29 +575,15 @@ async function analyzeRetry() {
     syncPoll();
   } catch (e) { Shade.toast(e.message, 'error'); }
 }
-/* 导入模板 xlsx 下载：Shade.api 不支持二进制，fetch + blob 触发下载（token 手工带） */
+/* 导入模板 xlsx 下载：apiRaw 拿原始响应 + saveBlob 落地（文件名取 Content-Disposition，缺省固定名） */
 async function downloadTemplate() {
   try {
-    var res = await fetch(qz(API + '/banks/template'), {
-      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('shade_token') || '') }
-    });
+    var res = await Shade.apiRaw(qz(API + '/banks/template'));
     if (!res.ok) {
       var j = await res.json().catch(function () { return null; });
       throw new Error((j && j.message) || ('下载失败（HTTP ' + res.status + '）'));
     }
-    var blob = await res.blob();
-    /* 文件名优先取 Content-Disposition，缺省固定名 */
-    var cd = res.headers.get('Content-Disposition') || '';
-    var m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd);
-    var fname = m ? decodeURIComponent(m[1].replace(/"/g, '')) : '题库导入模板.xlsx';
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = fname;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    await Shade.saveBlob(res, '题库导入模板.xlsx');
   } catch (e) { Shade.toast(e.message, 'error'); }
 }
 function openImportPicker() {
@@ -688,13 +607,13 @@ async function importExcel(file) {
     var errs = e.data && e.data.errors;
     if (!errs || !errs.length) { Shade.toast(e.message, 'error'); return; }
     /* 校验失败：弹窗逐行列出行号与原因（后端最多返回 20 条，行号含表头偏移） */
-    var html = mHead('导入校验未通过')
+    var html = Shade.mHead('导入校验未通过')
       + '<div class="imp-err-tip">' + esc(e.message) + '</div>'
       + errs.map(function (x) {
         return '<div class="imp-err"><b>第 ' + x.row + ' 行</b><span>' + esc(x.message) + '</span></div>';
       }).join('')
       + '<div class="m-foot"><button class="btn btn-sm btn-primary" data-a="ok">知道了</button></div>';
-    var inst = createModal(html, { width: 480 });
+    var inst = Shade.modal(html, { width: 480 });
     $('[data-a="ok"]', inst.box).addEventListener('click', inst.close);
   }
 }
@@ -704,7 +623,7 @@ function openBankModal(bank) {
   /* 上传至 radio 仅超管可见可改：team 班组池（当前生效班组）/ all 全部池；team_admin 固定 team 不传 scope */
   var isAdmin = state.role === 'admin';
   var scope = bank && bank.scope === 'all' ? 'all' : 'team';
-  var html = mHead(bank ? '编辑题库' : '新建题库')
+  var html = Shade.mHead(bank ? '编辑题库' : '新建题库')
     + '<div class="f-label">题库名称</div>'
     + '<input class="input" id="bkName" maxlength="50" placeholder="如：电力安全工作规程" value="' + esc(bank ? bank.name : '') + '">'
     + '<div class="f-label">题库描述</div>'
@@ -716,7 +635,7 @@ function openBankModal(bank) {
       : '')
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-primary" data-a="yes">保存</button></div>';
-  var inst = createModal(html, { width: 460 });
+  var inst = Shade.modal(html, { width: 460 });
   function renderScope() {
     $$('#bkScope button', inst.box).forEach(function (b) { b.classList.toggle('on', b.dataset.s === scope); });
   }
@@ -782,7 +701,7 @@ function openQuestionModal(q) {
   };
   if (qm.type === 'judge') qm.options = ['正确', '错误'];
 
-  var html = mHead(isEdit ? '编辑题目' : '新增题目')
+  var html = Shade.mHead(isEdit ? '编辑题目' : '新增题目')
     + '<div class="f-label">题型</div><div class="type-seg" id="qmType">'
     + '<button data-t="single">单选题</button><button data-t="multiple">多选题</button><button data-t="judge">判断题</button></div>'
     + '<div class="f-label">题干</div>'
@@ -795,7 +714,7 @@ function openQuestionModal(q) {
     + '<textarea class="input" id="qmAnalysis" placeholder="留空则由 AI 自动生成">' + esc(q ? (q.analysis || '') : '') + '</textarea>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-primary" data-a="yes">保存</button></div>';
-  var inst = createModal(html, { width: 620 });
+  var inst = Shade.modal(html, { width: 620 });
 
   function renderType() {
     $$('#qmType button', inst.box).forEach(function (b) { b.classList.toggle('on', b.dataset.t === qm.type); });
@@ -1021,7 +940,13 @@ function bindEvents() {
     return;
   }
   bindEvents();
-  setupTeamSel();
+  /* 超管班组切换器：数据源 GET /admin/teams（仅启用班组），localStorage.quiz_team_id 持久化，切换后整页数据重载；
+     与 boot() 并行装配（沿用原有时序），接口回来后写入生效班组 */
+  Shade.setupTeamSel({
+    select: $('#teamSel'), dropdown: teamDd, storageKey: 'quiz_team_id',
+    showEl: $('#sideTeam'),
+    onChange: function (v) { state.teamId = v; reloadTeamData(); }
+  }).then(function (ts) { if (ts) state.teamId = ts.getTeamId(); });
   boot();
 })();
 })();

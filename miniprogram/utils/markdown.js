@@ -1,5 +1,5 @@
 // 通知推送 Markdown 渲染配置：markdown-it 实例 + mp-html 排版样式（方案五色板）
-// 与 pkg-callme/pages/chat/chat.js 的 MD_TAG_STYLE 同口径；breaks:true 兼容历史多行纯文本通知的换行
+// MD_TAG_STYLE/MD_CONTAINER_STYLE 为全端唯一来源，pkg-callme 对话页同用（chat.js 仅覆盖容器字号）；breaks:true 兼容历史多行纯文本通知的换行
 const MarkdownIt = require('markdown-it');
 
 // html:false —— 不透传原始 HTML 标签，防止通知内容中的标签被原样注入

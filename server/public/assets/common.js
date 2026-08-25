@@ -6,10 +6,17 @@
      fetch 封装：baseUrl ''（同域）；自动带 Authorization: Bearer <shade_token>；
      opts.body 为普通对象时自动 JSON 序列化；HTTP 401 清本地登录态并跳 /login.html；
      业务码 code!==0 时抛 Error(message)。
+   Shade.apiRaw(path, opts)   → Promise<Response>：api() 的底层（token 注入 + fetch + 网络异常抛错
+     + 401 清登录态跳登录页），返回原始 Response（不解析 JSON、不校验业务码），
+     供二进制下载 / SSE 流式 / 需自处理响应信封的场景；AbortController 中止原样抛 AbortError
+   Shade.saveBlob(res, fallbackName) → 二进制 Response 落地为下载文件：文件名先解析
+     Content-Disposition（RFC5987 filename* 优先），缺省 fallbackName；临时 a 标签触发，延时回收 ObjectURL
    Shade.user()               → 本地缓存的用户对象（localStorage.shade_user），未登录为 null
    Shade.setAuth(token, user) → 写入登录态（shade_token / shade_user）
-   Shade.logout()             → 调 POST /api/v1/auth/logout（失败也继续），清本地登录态跳 /login.html
    Shade.requireAuth()        → 无 token 直接跳 /login.html；有 token 返回 true
+   Shade.$(s, c) / Shade.$$(s, c) → querySelector / querySelectorAll 数组（c 缺省 document）
+   Shade.withTeam(path, teamId) → 班组隔离 query 助手：teamId 非空时为 path 追加 team_id
+     （query 优先于 body，后端 resolveReqTeam 同口径）
    Shade.icon(name, size, color) → inline SVG 字符串（见 assets/icons.js）
    Shade.topbar(opts)         → 统一渲染顶部导航（插入 body 开头；需 icons.js 先加载）
      opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin'（当前页，渲染为无链接激活态）
@@ -17,11 +24,25 @@
            顺序同工作台宫格、无权限不显示，缓存 shade_apps 先渲染后校正，当前页高亮）；
            右侧「管理」链接（仅 role==='admin' 可见）
            + 分隔线 + 头像字 + 昵称（取 Shade.user() 缓存）+ 退出按钮
-     渲染后页面可用接口最新资料刷新 #miniAvatar / #topName / #navAdmin（id 与各页既有逻辑兼容）
+     渲染后页面可用 Shade.refreshUser 刷新 #miniAvatar / #topName（id 与各页既有逻辑兼容）
+   Shade.refreshUser(onUser)  → Promise：GET /api/v1/user/profile 成功更新 #miniAvatar/#topName
+     （元素存在才更新）并回调 onUser(data)；接口失败回退本地缓存 Shade.user() 同样更新并回调
+     （无缓存时回调 null，顶栏保持 topbar() 渲染的缓存/默认文案）；页面额外刷新逻辑放回调
    Shade.toast(msg, type)     → 顶部轻提示，type: 'info' | 'success' | 'error'
    Shade.dropdown(select, opts) → 把原生 <select> 换为自绘下拉（按钮触发器 + 弹出列表，样式 theme.css .dd）；
      原 select 隐藏保留为数据源：选中回写 value 并派发 change 事件；脚本改选项/value/disabled 后调返回实例的 sync()；
      opts: { width, minWidth, height }；返回 { el, sync, close }
+   Shade.modal(html, opts)    → 通用弹层（可叠层，Esc / 点遮罩关闭；.mask/.modal/.m-scroll/.m-head/.m-x
+     等样式由各页 CSS 提供）：opts: { width(px 数字), onClose }；返回 { mask, box, closed, close() }。
+     Esc 关顶层监听在此统一注册一份；页面可给 Shade.escGuard 赋值优先拦截函数（返回 true 表示已消费
+     本次 Esc，不再关弹层）——如 worklog 大图层需先于弹层响应 Esc
+   Shade.mHead(title)         → 弹层标题行 HTML（标题 + 右上角 .m-x 关闭钮，Shade.modal 内自动绑定关闭）
+   Shade.setupTeamSel(opts)   → Promise<{getTeamId}|undefined>：超管班组切换器统一装配
+     （role!=='admin' 直接返回 undefined）。opts: { select, dropdown, storageKey, allowAll, showEl, onChange }——
+     GET /admin/teams 过滤 status===1 渲染 options（allowAll 时前置「全部班组」value=all 且默认 'all'），
+     localStorage 回读校验持久化，dropdown.sync() 后显示 showEl（元素带 hidden 属性则 hidden=false，
+     否则 style.display=''），change 持久化并回调 onChange(value)（allowAll 时 value 为字符串，否则数字 id）；
+     班组列表拉取失败静默：不显示切换器，由后端落默认班组出数
    Shade.reveal()             → 给页面中未处理的 .rv 元素挂 IntersectionObserver，进入视口加 .in
    Shade.esc(html)            → HTML 转义，防注入
    Shade.fmtDate(d, withTime) → 'YYYY-MM-DD' 或 'YYYY-MM-DD HH:mm'；d 可为 Date/时间戳/字符串，缺省当前时间
@@ -41,8 +62,8 @@
     localStorage.removeItem(APPS_KEY);
   }
 
-  // 统一接口调用
-  async function api(path, opts) {
+  // 原始请求：token 注入 + fetch + 网络异常抛错 + 401 清登录态跳登录页；返回原始 Response 由调用方自处理
+  async function apiRaw(path, opts) {
     opts = opts || {};
     const headers = Object.assign({}, opts.headers);
     const token = localStorage.getItem(TOKEN_KEY);
@@ -58,6 +79,7 @@
     try {
       res = await fetch(path, Object.assign({}, opts, { headers: headers, body: body }));
     } catch (e) {
+      if (e && e.name === 'AbortError') throw e; // 调用方主动中止（如 SSE 超时 ctrl.abort()），原样抛出由调用方识别
       throw new Error('网络异常，无法连接服务器');
     }
     if (res.status === 401) {
@@ -65,6 +87,12 @@
       if (!/\/login\.html$/.test(location.pathname)) location.href = '/login.html';
       throw new Error('登录已过期，请重新登录');
     }
+    return res;
+  }
+
+  // 统一接口调用（apiRaw 之上解析 JSON 信封与业务码）
+  async function api(path, opts) {
+    const res = await apiRaw(path, opts);
     const json = await res.json().catch(function () { return null; });
     if (!json) throw new Error('服务响应异常（HTTP ' + res.status + '）');
     if (json.code !== 0) {
@@ -76,9 +104,40 @@
     return json;
   }
 
+  // 二进制 Response 落地为下载文件：文件名先解析 Content-Disposition（RFC5987 filename* 优先），缺省 fallbackName
+  async function saveBlob(res, fallbackName) {
+    const cd = res.headers.get('Content-Disposition') || '';
+    let m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    let name = '';
+    if (m) { try { name = decodeURIComponent(m[1].replace(/"/g, '')); } catch (e) { } }
+    if (!name) {
+      m = /filename="?([^";]+)"?/i.exec(cd);
+      name = m ? m[1] : '';
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = name || fallbackName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+
   // 本地缓存的用户对象
   function user() {
     try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; }
+  }
+
+  // DOM 选择助手（$$ 返回数组）
+  function $(s, c) { return (c || document).querySelector(s); }
+  function $$(s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); }
+
+  // 班组隔离 query 助手：teamId 非空时为 path 追加 team_id
+  function withTeam(path, teamId) {
+    if (!teamId) return path;
+    return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'team_id=' + teamId;
   }
 
   // 统一备案页脚：注入为 body 末尾 flex item（样式 theme.css .beian-foot）；
@@ -103,7 +162,7 @@
     localStorage.setItem(USER_KEY, JSON.stringify(userObj || {}));
   }
 
-  // 退出登录：通知后端注销 token（失败不阻塞本地清理）
+  // 退出登录：通知后端注销 token（失败不阻塞本地清理）；仅供顶栏退出按钮内部调用，不导出
   async function logout() {
     try { await api('/api/v1/auth/logout', { method: 'POST' }); } catch (e) { /* 忽略，本地照常清理 */ }
     clearAuth();
@@ -188,6 +247,26 @@
     }).catch(function () { /* 保留缓存渲染 */ });
   }
 
+  // 顶栏用户资料刷新：成功更新 #miniAvatar/#topName 并回调 onUser(data)；失败回退本地缓存同样更新并回调
+  function refreshUser(onUser) {
+    function paint(u) {
+      if (!u) return;
+      var name = u.nickname || u.username || '班组成员';
+      var av = document.getElementById('miniAvatar');
+      var nm = document.getElementById('topName');
+      if (av) av.textContent = name.charAt(0);
+      if (nm) nm.textContent = name;
+    }
+    return api('/api/v1/user/profile').then(function (r) {
+      paint(r.data);
+      if (onUser) onUser(r.data);
+    }).catch(function () {
+      var cached = user();
+      paint(cached);
+      if (onUser) onUser(cached);
+    });
+  }
+
   // 顶部轻提示
   function toast(msg, type) {
     type = type || 'info';
@@ -208,6 +287,52 @@
       setTimeout(function () { el.remove(); }, 320);
     }, 2600);
   }
+
+  /* ================= 通用弹层（可叠层，Esc / 点遮罩关闭） ================= */
+  /* 样式 .mask / .modal / .m-scroll / .m-head / .m-x 由各页 CSS 提供（worklog / quiz / callme 同套口径） */
+  var modalStack = [];
+  function mHead(title) {
+    return '<div class="m-head"><span class="m-title">' + esc(title) + '</span>'
+      + '<button class="m-x">' + window.Shade.icon('close', 14) + '</button></div>';
+  }
+  function modal(html, opts) {
+    opts = opts || {};
+    var mask = document.createElement('div');
+    mask.className = 'mask';
+    var box = document.createElement('div');
+    box.className = 'modal';
+    if (opts.width) box.style.width = opts.width + 'px';
+    /* 内容包一层滚动容器：外壳 overflow:hidden 保圆角，滚动条内凹不贴角 */
+    box.innerHTML = '<div class="m-scroll">' + html + '</div>';
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+    requestAnimationFrame(function () { mask.classList.add('open'); });
+    var inst = {
+      mask: mask, box: box, closed: false,
+      close: function () {
+        if (inst.closed) return;
+        inst.closed = true;
+        var i = modalStack.indexOf(inst);
+        if (i >= 0) modalStack.splice(i, 1);
+        mask.classList.remove('open');
+        setTimeout(function () { mask.remove(); }, 300);
+        if (opts.onClose) opts.onClose();
+      }
+    };
+    mask.addEventListener('mousedown', function (e) { if (e.target === mask) inst.close(); });
+    modalStack.push(inst);
+    $$('.m-x', box).forEach(function (b) { b.addEventListener('click', inst.close); });
+    return inst;
+  }
+  /* Esc 关顶层弹层，全页面统一注册一份；页面可给 Shade.escGuard 赋值优先拦截函数
+     （返回 true 表示已消费本次 Esc，不再关弹层）——如 worklog 大图层需先于弹层响应 Esc */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var guard = window.Shade && window.Shade.escGuard;
+    if (typeof guard === 'function' && guard()) return;
+    var top = modalStack[modalStack.length - 1];
+    if (top) top.close();
+  });
 
   // 滚动 reveal：.rv 进入视口时加 .in（可重复调用，自动跳过已观察元素）
   let rvObserver = null;
@@ -329,6 +454,45 @@
     return { el: wrap, sync: sync, close: close };
   }
 
+  /* 超管班组切换器统一装配：role!=='admin' 直接返回 undefined；GET /admin/teams 过滤启用班组渲染 options
+     （allowAll 时前置「全部班组」value=all 且默认 'all'），localStorage 回读校验持久化，dropdown.sync() 后显示
+     showEl（元素带 hidden 属性则 hidden=false，否则 style.display=''）；change 持久化并回调 onChange(value)
+     （allowAll 时 value 为字符串，否则为数字 id）。返回 { getTeamId } 供页面取初始生效值 */
+  async function setupTeamSel(opts) {
+    var me = user() || {};
+    if (me.role !== 'admin') return;
+    try {
+      var r = await api('/api/v1/admin/teams');
+      var list = ((r.data && r.data.list) || []).filter(function (t) { return t.status === 1; });
+      if (!list.length && !opts.allowAll) return;
+      var sel = opts.select;
+      sel.innerHTML = (opts.allowAll ? '<option value="all">全部班组</option>' : '')
+        + list.map(function (t) { return '<option value="' + t.id + '">' + esc(t.name) + '</option>'; }).join('');
+      var val;
+      if (opts.allowAll) {
+        var savedAll = localStorage.getItem(opts.storageKey) || 'all';
+        val = (savedAll === 'all' || list.some(function (t) { return String(t.id) === savedAll; })) ? savedAll : 'all';
+      } else {
+        var saved = Number(localStorage.getItem(opts.storageKey)) || 0;
+        val = list.some(function (t) { return t.id === saved; }) ? saved : list[0].id;
+      }
+      sel.value = String(val);
+      localStorage.setItem(opts.storageKey, String(val));
+      opts.dropdown.sync();
+      var showEl = opts.showEl;
+      if (showEl) {
+        if (showEl.hidden) showEl.hidden = false;
+        else showEl.style.display = '';
+      }
+      sel.addEventListener('change', function () {
+        val = opts.allowAll ? this.value : (Number(this.value) || 0);
+        localStorage.setItem(opts.storageKey, String(this.value));
+        if (opts.onChange) opts.onChange(val);
+      });
+      return { getTeamId: function () { return val; } };
+    } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
+  }
+
   // 日期格式化
   function fmtDate(d, withTime) {
     const dt = d ? new Date(d) : new Date();
@@ -341,15 +505,23 @@
 
   window.Shade = Object.assign(window.Shade || {}, {
     api: api,
+    apiRaw: apiRaw,
+    saveBlob: saveBlob,
     user: user,
     setAuth: setAuth,
-    logout: logout,
     requireAuth: requireAuth,
     topbar: topbar,
+    refreshUser: refreshUser,
     toast: toast,
     reveal: reveal,
     esc: esc,
     fmtDate: fmtDate,
     dropdown: dropdown,
+    modal: modal,
+    mHead: mHead,
+    setupTeamSel: setupTeamSel,
+    withTeam: withTeam,
+    $: $,
+    $$: $$,
   });
 })();

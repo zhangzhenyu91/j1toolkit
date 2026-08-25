@@ -565,14 +565,8 @@
 
   // 加载数据
   (async function () {
-    try {
-      var r = await Shade.api('/api/v1/user/profile');
-      renderProfile(r.data);
-    } catch (e) {
-      var cached = Shade.user();
-      if (cached) renderProfile(cached);
-      else Shade.toast(e.message, 'error');
-    }
+    /* 用户资料刷新（接口失败回退本地缓存）：顶栏 #miniAvatar/#topName 由 refreshUser 统一更新，用户卡等页面元素进回调 */
+    await Shade.refreshUser(function (u) { if (u) renderProfile(u); });
     try {
       var r2 = await Shade.api('/api/v1/app/list');
       // 网页端宫格按 terminal 过滤：只展示 双端/PC端 应用（移动端应用仅小程序可见）

@@ -6,7 +6,7 @@ const config = require('../config');
 const { pool } = require('../db');
 const store = require('./store');
 
-const DATA_DIR = path.resolve(config.safeday.dataDir);
+const DATA_DIR = config.safeday.dataDir;
 const DOCS_DIR = path.join(DATA_DIR, 'docs');
 
 // 默认班组名（首个启用班组；无可启用班组时回退任意首个）

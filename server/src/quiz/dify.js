@@ -4,24 +4,17 @@
 // 输出 outputs.analysis（解析文本）
 const axios = require('axios');
 const config = require('../config');
+const { workflowRunUrl, createEnsureConfigured } = require('../utils/dify');
 
-function ensureConfigured() {
-  if (!config.dify.apiUrl || !config.quiz.difyKey) {
-    const err = new Error('Dify 未配置（DIFY_API_URL / DIFY_QUIZ_API_KEY）');
-    err.expose = true;
-    throw err;
-  }
-}
+const ensureConfigured = createEnsureConfigured({
+  apiUrl: config.dify.apiUrl,
+  apiKey: config.quiz.difyKey,
+  keyEnvName: 'DIFY_QUIZ_API_KEY',
+});
 
 // 是否已配置（未配置时 AI 解析整体停用，入队静默跳过，其余功能照常）
 function isConfigured() {
   return Boolean(config.dify.apiUrl && config.quiz.difyKey);
-}
-
-// 工作流地址：DIFY_API_URL 只填域名即可（/v1 由代码拼接；配置已带 /v1 也不会重复）
-function workflowUrl() {
-  const base = config.dify.apiUrl.replace(/\/+$/, '');
-  return `${base}${base.endsWith('/v1') ? '' : '/v1'}/workflows/run`;
 }
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -35,7 +28,7 @@ async function analyzeQuestion({ id, type, content, options, answer }) {
   // 判断题答案附中文标注（A=正确 B=错误），便于工作流理解
   const answerText = type === 'judge' ? (answer === 'A' ? 'A（正确）' : 'B（错误）') : answer;
   const res = await axios.post(
-    workflowUrl(),
+    workflowRunUrl(config.dify.apiUrl),
     {
       inputs: {
         type: TYPE_TEXT[type] || type,

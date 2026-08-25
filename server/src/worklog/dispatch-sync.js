@@ -377,4 +377,4 @@ async function runFetchNow() {
   return fetchJob();
 }
 
-module.exports = { start, runFetchNow, parseOrders, planCards };
+module.exports = { start, runFetchNow };

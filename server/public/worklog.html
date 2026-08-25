@@ -1028,8 +1028,7 @@ Shade.requireAuth();
 Shade.topbar({ active: 'worklog' });
 
 /* ================= 工具 ================= */
-var $ = function (s, c) { return (c || document).querySelector(s); };
-var $$ = function (s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); };
+var $ = Shade.$, $$ = Shade.$$;
 var RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 var esc = Shade.esc;
 
@@ -1084,53 +1083,7 @@ var state = {
 };
 
 /* 班组隔离：超管所有 /worklog/* 请求统一带 team_id（query 优先于 body，后端 resolveReqTeam 同口径） */
-function wl(path) {
-  if (!state.teamId) return path;
-  return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'team_id=' + state.teamId;
-}
-
-/* ================= 顶部导航 ================= */
-function renderTopUser(u) {
-  var name = (u && (u.nickname || u.username)) || '班组成员';
-  $('#miniAvatar').textContent = name.charAt(0);
-  $('#topName').textContent = name;
-}
-
-/* ================= 通用弹层（可叠层，Esc / 点遮罩关闭） ================= */
-var modalStack = [];
-function mHead(title) {
-  return '<div class="m-head"><span class="m-title">' + esc(title) + '</span>'
-    + '<button class="m-x">' + Shade.icon('close', 14) + '</button></div>';
-}
-function createModal(html, opts) {
-  opts = opts || {};
-  var mask = document.createElement('div');
-  mask.className = 'mask';
-  var box = document.createElement('div');
-  box.className = 'modal';
-  if (opts.width) box.style.width = opts.width + 'px';
-  /* 内容包一层滚动容器：外壳 overflow:hidden 保圆角，滚动条内凹不贴角 */
-  box.innerHTML = '<div class="m-scroll">' + html + '</div>';
-  mask.appendChild(box);
-  document.body.appendChild(mask);
-  requestAnimationFrame(function () { mask.classList.add('open'); });
-  var inst = {
-    mask: mask, box: box, closed: false,
-    close: function () {
-      if (inst.closed) return;
-      inst.closed = true;
-      var i = modalStack.indexOf(inst);
-      if (i >= 0) modalStack.splice(i, 1);
-      mask.classList.remove('open');
-      setTimeout(function () { mask.remove(); }, 300);
-      if (opts.onClose) opts.onClose();
-    }
-  };
-  mask.addEventListener('mousedown', function (e) { if (e.target === mask) inst.close(); });
-  modalStack.push(inst);
-  $$('.m-x', box).forEach(function (b) { b.addEventListener('click', inst.close); });
-  return inst;
-}
+function wl(path) { return Shade.withTeam(path, state.teamId); }
 
 /* ================= 当日日志 ================= */
 function findEntry(eid) {
@@ -1613,33 +1566,16 @@ function renderLB() {
   });
 }
 
-/* 单张下载：经服务端回源代理（COS 跨域无 CORS），fetch + blob 落地（同备注附件下载口径） */
+/* 单张下载：经服务端回源代理（COS 跨域无 CORS），apiRaw + saveBlob 落地（同备注附件下载口径） */
 async function downloadPhoto(photo) {
   try {
-    var headers = {};
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/photos/' + photo.id + '/download'), { headers: headers });
-    if (res.status === 401) {
-      localStorage.removeItem('shade_token');
-      localStorage.removeItem('shade_user');
-      location.href = '/login.html';
-      return;
-    }
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/photos/' + photo.id + '/download'));
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
       throw new Error((ej && ej.message) || ('下载失败（' + res.status + '）'));
     }
-    var blob = await res.blob();
-    var a = document.createElement('a');
-    var url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = cdFilename(res.headers.get('Content-Disposition') || '') || ('照片-' + photo.id + '.jpg');
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    await Shade.saveBlob(res, '照片-' + photo.id + '.jpg');
   } catch (e) {
     Shade.toast(e.message, 'error');
   }
@@ -1691,33 +1627,16 @@ function renderMediaLb() {
 }
 
 /* ================= 备注附件：下载 / 文档预览 / 上传 ================= */
-/* 下载：经服务端回源代理（COS 跨域无 CORS），fetch + blob 落地（同 ZIP 打包下载口径） */
+/* 下载：经服务端回源代理（COS 跨域无 CORS），apiRaw + saveBlob 落地（同 ZIP 打包下载口径） */
 async function dlRemarkFile(entry, f) {
   try {
-    var headers = {};
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/logs/' + entry.id + '/remark-download?key=' + encodeURIComponent(f.cos_key)), { headers: headers });
-    if (res.status === 401) {
-      localStorage.removeItem('shade_token');
-      localStorage.removeItem('shade_user');
-      location.href = '/login.html';
-      return;
-    }
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/logs/' + entry.id + '/remark-download?key=' + encodeURIComponent(f.cos_key)));
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
       throw new Error((ej && ej.message) || ('下载失败（' + res.status + '）'));
     }
-    var blob = await res.blob();
-    var a = document.createElement('a');
-    var url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = f.name || '附件';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    await Shade.saveBlob(res, f.name || '附件');
   } catch (e) {
     Shade.toast(e.message, 'error');
   }
@@ -1738,21 +1657,12 @@ async function openRemarkDoc(entry, f) {
   }
 }
 
-/* 上传单个备注附件（multipart；返回入库用文件元数据） */
+/* 上传单个备注附件（multipart，apiRaw 直通 FormData；返回入库用文件元数据） */
 async function uploadRemarkFile(entryId, f) {
   var fd = new FormData();
   fd.append('name', f.name);
   fd.append('file', f.file, f.name);
-  var headers = {};
-  var token = localStorage.getItem('shade_token');
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  var res = await fetch(wl('/api/v1/worklog/logs/' + entryId + '/remark-files'), { method: 'POST', headers: headers, body: fd });
-  if (res.status === 401) {
-    localStorage.removeItem('shade_token');
-    localStorage.removeItem('shade_user');
-    location.href = '/login.html';
-    throw new Error('登录已过期');
-  }
+  var res = await Shade.apiRaw(wl('/api/v1/worklog/logs/' + entryId + '/remark-files'), { method: 'POST', body: fd });
   var j = null;
   try { j = await res.json(); } catch (e) { }
   if (res.ok && j && j.code === 0) return j.data;
@@ -1773,7 +1683,7 @@ function openRemarkModal(entry) {
   var files = (entry.remark_files || []).map(function (f) {
     return { k: f.cos_key, name: f.name, url: f.url, cos_key: f.cos_key, type: f.type, size: f.size, isNew: false };
   });
-  var html = mHead('编辑备注')
+  var html = Shade.mHead('编辑备注')
     + '<div class="f-hint" style="margin:0 0 2px">' + esc(fmtDateCN(entry.log_date)) + ' · ' + esc(entry.vehicle_id == null ? '未出车' : entry.plate_no) + '</div>'
     + '<label class="f-lab">备注内容</label>'
     + '<textarea class="f-ta" id="rkTa" placeholder="请输入备注（可空）" maxlength="500">' + esc(entry.remark || '') + '</textarea>'
@@ -1785,7 +1695,7 @@ function openRemarkModal(entry) {
     + '<input type="file" id="rkFileDoc" hidden multiple accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf">'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = createModal(html, { width: 560 });
+  var inst = Shade.modal(html, { width: 560 });
   var saving = false;
 
   function renderAtt() {
@@ -1874,11 +1784,11 @@ function confirmAction(opts) {
   return new Promise(function (resolve) {
     var done = false;
     function finish(v) { if (!done) { done = true; resolve(v); } }
-    var html = mHead(opts.title)
+    var html = Shade.mHead(opts.title)
       + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
       + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
       + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
-    var inst = createModal(html, { width: 420, onClose: function () { finish(false); } });
+    var inst = Shade.modal(html, { width: 420, onClose: function () { finish(false); } });
     $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
     $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
   });
@@ -1946,7 +1856,7 @@ async function openEntryForm(entry) {
       if (usedMids.indexOf(m.member_id) < 0) usedMids.push(m.member_id);
     });
   });
-  var html = mHead(entry ? '修改派车 / 用车人' : '新建日志')
+  var html = Shade.mHead(entry ? '修改派车 / 用车人' : '新建日志')
     + '<div class="f-hint" style="margin:0 0 2px">' + esc(fmtDateCN(entry ? entry.log_date : state.date)) + '</div>'
     + '<label class="f-lab">派车车辆</label>' + comboHTML('efVehicle')
     + '<div id="efDrive">'
@@ -1956,7 +1866,7 @@ async function openEntryForm(entry) {
     + '<div class="f-hint" id="efHint" style="display:none">未出车为站内作业，不参与验证，不可选目的地与用车人</div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = createModal(html, { width: 520 });
+  var inst = Shade.modal(html, { width: 520 });
   var saving = false;
   /* 车牌 / 目的地为可输入筛选下拉（combo 同杆塔坐标口径）：onPick 记已选 id，onEdit 清空（输入与已选不一致视为未选） */
   var selVehicleId = null;
@@ -2021,7 +1931,7 @@ async function openEntryForm(entry) {
 
 /* ---------- 巡视内容修改（点卡片巡视内容块弹出；快捷输入同小程序） ---------- */
 function openPatrolModal(entry) {
-  var html = mHead('修改巡视内容')
+  var html = Shade.mHead('修改巡视内容')
     + '<div class="f-hint" style="margin:0 0 2px">' + esc(fmtDateCN(entry.log_date)) + ' · ' + esc(entry.vehicle_id == null ? '未出车' : entry.plate_no) + '</div>'
     + '<div class="chips" style="margin:10px 0">' + QUICK_INPUTS.map(function (t) {
       return '<button type="button" class="chip sm" data-q="' + esc(t) + '">' + esc(t) + '</button>';
@@ -2029,7 +1939,7 @@ function openPatrolModal(entry) {
     + '<textarea class="f-ta" id="ptTa" placeholder="请输入巡视内容（可空）">' + esc(entry.patrol_content || '') + '</textarea>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = createModal(html, { width: 560 });
+  var inst = Shade.modal(html, { width: 560 });
   var saving = false;
   $$('[data-q]', inst.box).forEach(function (b) {
     b.addEventListener('click', function () {
@@ -2078,7 +1988,7 @@ function openPhotoMembersModal(entry, photo) {
   });
   var members = (entry.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
   var offNames = [];
-  var html = mHead('修改照片人名')
+  var html = Shade.mHead('修改照片人名')
     + '<div class="f-hint" style="margin:0 0 2px">候选为本卡用车人；每人限一张，已被其他照片占用者不可选；新增人名将上传其商旅费用照片，剔除人名将从其商旅费用照片中删除</div>'
     + '<div class="chips" style="margin-top:10px">' + members.map(function (m) {
       var on = (photo.members || []).indexOf(m.name) >= 0;
@@ -2094,7 +2004,7 @@ function openPhotoMembersModal(entry, photo) {
       : '')
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">确 认</button></div>';
-  var inst = createModal(html, { width: 460 });
+  var inst = Shade.modal(html, { width: 460 });
   var saving = false;
   bindChips(inst.box);
   $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
@@ -2150,7 +2060,7 @@ function openWmEditModal(entry, photo) {
     return '<label class="f-lab">' + lab + '</label>'
       + '<input class="f-sel" id="' + id + '" style="height:40px" maxlength="255" autocomplete="off" placeholder="' + (ph || '') + '">';
   }
-  var html = mHead('水印信息修正')
+  var html = Shade.mHead('水印信息修正')
     + '<div class="f-hint" style="margin:0 0 4px">Dify 小概率识别出错时手动修正；保存后重新判定本卡验证（日期须为记录当天 ' + esc(entry.log_date || '') + '，地点须包含派车目的地）。</div>'
     + row('施工内容', 'wmContent', '', '如 110kVXX线巡视')
     + row('拍摄时间（YYYY.MM.DD HH:mm）', 'wmTime', '', '如 2026.08.19 10:02')
@@ -2162,7 +2072,7 @@ function openWmEditModal(entry, photo) {
     + '</div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保存并重验</button></div>';
-  var inst = createModal(html, { width: 520 });
+  var inst = Shade.modal(html, { width: 520 });
   $('#wmContent', inst.box).value = photo.work_content || '';
   $('#wmTime', inst.box).value = photo.shot_time || '';
   $('#wmWeather', inst.box).value = photo.weather || '';
@@ -2353,7 +2263,7 @@ async function uploadPhoto(entry, image, names, wm, btn, plain) {
   }
   var wait = null;
   if (!btn && !sgccOn) { // 原图直传无表单弹层，用轻量进度层提示
-    wait = createModal('<div class="loading"><span class="spin"></span>正在上传…</div>', { width: 280 });
+    wait = Shade.modal('<div class="loading"><span class="spin"></span>正在上传…</div>', { width: 280 });
   }
   var doUpload = function () {
     var body = wm ? { image: image, members: names, wm: wm } : { image: image, members: names };
@@ -2390,7 +2300,7 @@ async function uploadPhoto(entry, image, names, wm, btn, plain) {
 /* ---------- 入口：方式三选一弹层（水印直传 / 选片加水印 / 非水印直传） ---------- */
 function openAddSheet(entry) {
   if (!(entry.members || []).length) { Shade.toast('本卡暂无用车人', 'info'); return; }
-  var html = mHead('添加照片')
+  var html = Shade.mHead('添加照片')
     + '<button class="sheet-opt" data-m="raw"><span class="ic">' + Shade.icon('image', 19) + '</span>'
     + '<span><b>选择水印照片上传</b><small>已带水印的照片（如今日水印相机拍摄）直接上传</small></span>'
     + Shade.icon('chevron-right', 15) + '</button>'
@@ -2400,7 +2310,7 @@ function openAddSheet(entry) {
     + '<button class="sheet-opt" data-m="plain"><span class="ic">' + Shade.icon('upload', 19) + '</span>'
     + '<span><b>非水印照片</b><small>直接上传所选原图，仅存档并同步商旅费用照片，不做验证、不占每人限一张</small></span>'
     + Shade.icon('chevron-right', 15) + '</button>';
-  var inst = createModal(html, { width: 440 });
+  var inst = Shade.modal(html, { width: 440 });
   $$('.sheet-opt', inst.box).forEach(function (b) {
     b.addEventListener('click', function () {
       var m = b.dataset.m;
@@ -2421,7 +2331,7 @@ function openPhotoPickModal(entry, action) {
   var hint = isPlain
     ? '候选为本卡用车人；非水印照片不占每人限一张，上传后同步进被选中人的当日商旅费用照片'
     : '候选为本卡用车人；每人限一张，已上传者不可选';
-  var html = mHead('选择照片所属人名')
+  var html = Shade.mHead('选择照片所属人名')
     + '<div class="f-hint" style="margin:0 0 2px">' + hint + '</div>'
     + '<div class="chips" style="margin-top:10px">' + members.map(function (m) {
       var expired = m.sgccTokenStatus === 0;           // 商旅登录过期（红框红字，恢复前不可选）
@@ -2434,7 +2344,7 @@ function openPhotoPickModal(entry, action) {
     }).join('') + '</div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">选择照片</button></div>';
-  var inst = createModal(html, { width: 460 });
+  var inst = Shade.modal(html, { width: 460 });
   bindChips(inst.box);
   $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
   $('[data-a="yes"]', inst.box).addEventListener('click', function () {
@@ -2517,13 +2427,13 @@ function openCropModal(file, bmp, onDone) {
   if (landscape) { fw = maxW; fh = (fw * 3) / 4; }
   else { fh = Math.min((maxW * 4) / 3, maxH); fw = (fh * 3) / 4; }
   var imgUrl = URL.createObjectURL(file);
-  var html = mHead('裁剪照片（' + (landscape ? '4:3' : '3:4') + '）')
+  var html = Shade.mHead('裁剪照片（' + (landscape ? '4:3' : '3:4') + '）')
     + '<div class="f-hint" style="margin:0 0 10px">拖动调整位置，滑块或滚轮缩放；水印按取景框范围渲染</div>'
     + '<div class="crop-frame" style="width:' + fw + 'px;height:' + fh + 'px"><img class="crop-img" src="' + imgUrl + '" draggable="false" alt="待裁剪照片"></div>'
     + '<div class="crop-bar"><span class="crop-z-lab">缩放</span><input type="range" class="crop-z" min="1" max="6" step="0.01" value="1"><span class="crop-pct">100%</span></div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">确认裁剪</button></div>';
-  var inst = createModal(html, {
+  var inst = Shade.modal(html, {
     width: 560,
     onClose: function () { URL.revokeObjectURL(imgUrl); if (bmp.close) bmp.close(); }
   });
@@ -2628,7 +2538,7 @@ function openWmFormModal(entry, names, image) {
     /* 无历史：拍摄时间当日取当前时间，非当日仅能确定日期 → 取记录日期 10:00-12:00 内随机时间（同小程序） */
     form.time = state.date === todayStr() ? fmtWmTime(new Date()) : state.date.replace(/-/g, '.') + ' ' + randWmHm();
   }
-  var html = mHead('编辑水印信息')
+  var html = Shade.mHead('编辑水印信息')
     + '<div class="wm-head"><img class="wm-thumb" src="' + image + '" alt="待加水印照片">'
     + '<div><div class="wm-names">' + esc(names.join('、')) + '</div><div class="wm-names-tip">照片所属人名</div></div></div>'
     + '<label class="f-lab">施工内容</label>'
@@ -2648,7 +2558,7 @@ function openWmFormModal(entry, names, image) {
     + '<div class="f-hint">确认后由服务端渲染水印并上传，随后自动进入验证</div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">加水印并上传</button></div>';
-  var inst = createModal(html, { width: 560 });
+  var inst = Shade.modal(html, { width: 560 });
   var elContent = $('#wmContent', inst.box), elTime = $('#wmTime', inst.box);
   var elWeather = $('#wmWeather', inst.box), elLoc = $('#wmLoc', inst.box);
   var elLng = $('#wmLng', inst.box), elLat = $('#wmLat', inst.box);
@@ -2852,7 +2762,7 @@ function makeCombo(box, id, hooks) {
   };
 }
 function openTowerModal(onPick) {
-  var html = mHead('选择杆塔坐标')
+  var html = Shade.mHead('选择杆塔坐标')
     + '<div class="f-hint" style="margin:0 0 2px">三级均可输入关键字快捷筛选；所选杆塔坐标按 ≤50m 随机波动后填入水印字段，填入后仍可手改</div>'
     + '<label class="f-lab">电压等级</label>' + comboHTML('twLevel')
     + '<label class="f-lab">线路名称</label>' + comboHTML('twLine')
@@ -2860,7 +2770,7 @@ function openTowerModal(onPick) {
     + '<div class="f-hint" id="twCoord" style="display:none"></div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes" disabled>确 定</button></div>';
-  var inst = createModal(html, { width: 460 });
+  var inst = Shade.modal(html, { width: 460 });
   var coordEl = $('#twCoord', inst.box);
   var okBtn = $('[data-a="yes"]', inst.box);
   var picked = null; // {no, lng, lat}
@@ -2948,46 +2858,21 @@ async function deleteEntry(entry) {
 }
 
 /* ================= 下载页签（日期范围可选，口径同小程序下载面板） ================= */
-/* Content-Disposition 文件名解析（RFC5987 优先） */
-function cdFilename(cd) {
-  var m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-  if (m) { try { return decodeURIComponent(m[1].replace(/"/g, '')); } catch (e) { } }
-  m = /filename="?([^";]+)"?/i.exec(cd);
-  return m ? m[1] : '';
-}
-/* POST /api/v1/worklog/zip：打包选中照片（二进制响应 fetch + blob 下载），btn 为触发按钮（加载态） */
+/* POST /api/v1/worklog/zip：打包选中照片（二进制响应 apiRaw + saveBlob 下载），btn 为触发按钮（加载态） */
 async function postZip(photos, btn) {
   btn.disabled = true;
   var old = btn.innerHTML;
   btn.innerHTML = Shade.icon('download', 15) + '打包下载中…';
   try {
-    var headers = { 'Content-Type': 'application/json' };
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/zip'), {
-      method: 'POST', headers: headers, body: JSON.stringify({ photos: photos })
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/zip'), {
+      method: 'POST', body: { photos: photos }
     });
-    if (res.status === 401) {
-      localStorage.removeItem('shade_token');
-      localStorage.removeItem('shade_user');
-      location.href = '/login.html';
-      return;
-    }
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
       throw new Error((ej && (ej.message || ej.error)) || ('打包下载失败（' + res.status + '）'));
     }
-    var name = cdFilename(res.headers.get('Content-Disposition') || '') || '水印照片.zip';
-    var blob = await res.blob();
-    var a = document.createElement('a');
-    var url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    await Shade.saveBlob(res, '水印照片.zip');
     Shade.toast('已开始下载 ' + photos.length + ' 张照片', 'success');
   } catch (e) {
     Shade.toast(e.message, 'error');
@@ -3169,7 +3054,7 @@ function renderPA() {
   renderPaFiles();
 }
 
-/* 上传并对齐（二进制/JSON 响应走 fetch；team_id 经 wl() 走 query，同杆塔导入口径） */
+/* 上传并对齐（apiRaw 请求，响应自行解析 JSON；team_id 经 wl() 走 query，同杆塔导入口径） */
 async function paAlign() {
   if (!state.pa.files.length || state.pa.uploading) return;
   state.pa.uploading = true;
@@ -3178,16 +3063,7 @@ async function paAlign() {
   var fd = new FormData();
   state.pa.files.forEach(function (f) { fd.append('files', f, f.name); });
   try {
-    var headers = {};
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/dispatch/align'), { method: 'POST', headers: headers, body: fd });
-    if (res.status === 401) {
-      localStorage.removeItem('shade_token');
-      localStorage.removeItem('shade_user');
-      location.href = '/login.html';
-      return;
-    }
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/dispatch/align'), { method: 'POST', body: fd });
     var j = null;
     try { j = await res.json(); } catch (e) { }
     if (!res.ok || !j || j.code !== 0) throw new Error((j && j.message) || ('对齐失败（' + res.status + '）'));
@@ -3277,7 +3153,7 @@ async function openAlign(i) {
       '<div class="f-hint" style="padding:10px 0;line-height:2">' +
       '派车单中没有与该卡片对应的记录。可能为派车单导出不完整或该次出车未走派车申请；确认无误即可，本功能不自动删卡。' +
       '</div></div></div>';
-    var instInfo = createModal(head + '<div class="pa-cmp">' + infoCol + tipCol + '</div>' + paDlgFoot(i, total, null), { width: 1020 });
+    var instInfo = Shade.modal(head + '<div class="pa-cmp">' + infoCol + tipCol + '</div>' + paDlgFoot(i, total, null), { width: 1020 });
     bindAlignModal(instInfo, it, i, total);
     return;
   }
@@ -3328,7 +3204,7 @@ async function openAlign(i) {
       '<div class="pa-f-row"><span class="k">目的地</span><div class="c"><select class="f-sel" id="paDest">' + sDestOpts + '</select>' + sDestNote + '</div></div>' +
       '<div class="pa-f-row"><span class="k">巡视内容</span><div class="c" style="font-size:12px;color:#6B7690;line-height:1.8;padding-top:6px">建卡后为空，可到「记录」页签补填；打卡、水印照片与正常卡片相同</div></div>' +
       '</div></div>';
-    var instS = createModal(head + '<div class="pa-cmp">' + leftColS + rightColS + '</div>' + paDlgFoot(i, total, 'create'), { width: 1020 });
+    var instS = Shade.modal(head + '<div class="pa-cmp">' + leftColS + rightColS + '</div>' + paDlgFoot(i, total, 'create'), { width: 1020 });
     bindAlignModal(instS, it, i, total);
     return;
   }
@@ -3395,7 +3271,7 @@ async function openAlign(i) {
   var leftCol = '<div class="pa-col"><div class="pa-col-h">派车单表格数据 <small>只读</small><span class="src">' + esc(it.sheet.file) + '</span></div>' +
     '<div class="pa-rows">' + paSheetRows(it.sheet, d) + '</div></div>';
 
-  var inst = createModal(head + '<div class="pa-cmp">' + leftCol + rightCol + '</div>' + paDlgFoot(i, total, 'save'), { width: 1020 });
+  var inst = Shade.modal(head + '<div class="pa-cmp">' + leftCol + rightCol + '</div>' + paDlgFoot(i, total, 'save'), { width: 1020 });
   bindAlignModal(inst, it, i, total);
 }
 
@@ -3556,14 +3432,14 @@ function sgccRowHtml(it) {
 
 /* 改设备弹层（设备型号 =「厂商 型号」格式；保存后重拉本区） */
 function sgccDeviceEdit(item) {
-  var html = mHead('改打卡设备 · ' + esc(item.memberName || item.mobile))
+  var html = Shade.mHead('改打卡设备 · ' + esc(item.memberName || item.mobile))
     + '<label class="f-lab">设备型号（厂商 型号）</label>'
     + '<input class="f-sel" id="sgDevType" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Xiaomi 2509FPN0BC">'
     + '<label class="f-lab">系统版本</label>'
     + '<input class="f-sel" id="sgDevSys" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Android 16">'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = createModal(html, { width: 420 });
+  var inst = Shade.modal(html, { width: 420 });
   var typeEl = $('#sgDevType', inst.box);
   var sysEl = $('#sgDevSys', inst.box);
   typeEl.value = item.deviceType || '';
@@ -3682,11 +3558,11 @@ async function dictAdd(segKey, btn) {
 
 /* 改名（弹小层，回车 / 保存提交；名称不变直接关闭） */
 function dictRename(seg, item) {
-  var html = mHead('编辑' + seg.label)
+  var html = Shade.mHead('编辑' + seg.label)
     + '<input class="f-sel" id="drInput" style="height:40px" maxlength="64" autocomplete="off">'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = createModal(html, { width: 420 });
+  var inst = Shade.modal(html, { width: 420 });
   var input = $('#drInput', inst.box);
   input.value = item.name;
   input.focus();
@@ -3762,34 +3638,17 @@ async function dictDelete(seg, item) {
   }
 }
 
-/* 杆塔模板下载：xlsx 二进制，fetch + blob 落地（口径同照片 / 备注附件下载） */
+/* 杆塔模板下载：xlsx 二进制，apiRaw + saveBlob 落地（口径同照片 / 备注附件下载） */
 async function downloadTowerTpl(btn) {
   btn.disabled = true;
   try {
-    var headers = {};
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/towers/template'), { headers: headers });
-    if (res.status === 401) {
-      localStorage.removeItem('shade_token');
-      localStorage.removeItem('shade_user');
-      location.href = '/login.html';
-      return;
-    }
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/towers/template'));
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
       throw new Error((ej && ej.message) || ('模板下载失败（' + res.status + '）'));
     }
-    var blob = await res.blob();
-    var a = document.createElement('a');
-    var url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = cdFilename(res.headers.get('Content-Disposition') || '') || '杆塔坐标导入模板.xlsx';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    await Shade.saveBlob(res, '杆塔坐标导入模板.xlsx');
   } catch (e) {
     Shade.toast(e.message, 'error');
   }
@@ -3800,13 +3659,13 @@ async function downloadTowerTpl(btn) {
    「去汇总前核验」切到核验页签并定位到范围起始月；「仍要生成」为管理员强制执行（force=1 重试原动作） */
 function showVerifyFailures(e, from, onForce) {
   if (!e || e.code !== 40901) return false;
-  var html = mHead('存在未通过项')
+  var html = Shade.mHead('存在未通过项')
     + '<div class="f-hint" style="margin:0">' + esc(e.message) + '。可先到「汇总前核验」逐项处理，或由管理员确认后直接生成。</div>'
     + '<div class="m-foot" style="margin-top:14px">'
     + '<button class="btn btn-sm" data-a="rep">去汇总前核验</button>'
     + '<button class="btn btn-sm btn-accent" data-a="force">仍要生成</button>'
     + '</div>';
-  var inst = createModal(html, { width: 380 });
+  var inst = Shade.modal(html, { width: 380 });
   $('[data-a="rep"]', inst.box).addEventListener('click', function () {
     inst.close();
     state.rep.month = (from || state.date).slice(0, 7); // 核验页签定位到范围起始月
@@ -3879,22 +3738,13 @@ async function taskSheetPreview(btn, force) {
   }
 }
 
-/* 工作任务单：下载 = docx 二进制，fetch + blob 落地（口径同杆塔模板下载）；force=强制执行跳过生成前核验 */
+/* 工作任务单：下载 = docx 二进制，apiRaw + saveBlob 落地（口径同杆塔模板下载）；force=强制执行跳过生成前核验 */
 async function taskSheetDownload(btn, force) {
   var range = tsRange();
   if (!range) return;
   btn.disabled = true;
   try {
-    var headers = {};
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/task-sheet?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')), { headers: headers });
-    if (res.status === 401) {
-      localStorage.removeItem('shade_token');
-      localStorage.removeItem('shade_user');
-      location.href = '/login.html';
-      return;
-    }
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/task-sheet?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
@@ -3903,15 +3753,7 @@ async function taskSheetDownload(btn, force) {
       err.data = ej && ej.data;
       throw err;
     }
-    var blob = await res.blob();
-    var a = document.createElement('a');
-    var url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = tsFileName(range.from, range.to);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    await Shade.saveBlob(res, tsFileName(range.from, range.to));
   } catch (e) {
     if (!showVerifyFailures(e, range.from, function () { taskSheetDownload(btn, true); })) Shade.toast(e.message, 'error');
   }
@@ -3949,22 +3791,13 @@ async function feeSheetPreview(btn, force) {
   }
 }
 
-/* 费用汇总：下载 = docx 二进制，fetch + blob 落地（同工作任务单口径）；force=强制执行跳过生成前核验 */
+/* 费用汇总：下载 = docx 二进制，apiRaw + saveBlob 落地（同工作任务单口径）；force=强制执行跳过生成前核验 */
 async function feeSheetDownload(btn, force) {
   var range = fsRange();
   if (!range) return;
   btn.disabled = true;
   try {
-    var headers = {};
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/fee-sheet?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')), { headers: headers });
-    if (res.status === 401) {
-      localStorage.removeItem('shade_token');
-      localStorage.removeItem('shade_user');
-      location.href = '/login.html';
-      return;
-    }
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/fee-sheet?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
@@ -3973,15 +3806,7 @@ async function feeSheetDownload(btn, force) {
       err.data = ej && ej.data;
       throw err;
     }
-    var blob = await res.blob();
-    var a = document.createElement('a');
-    var url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = fsFileName(range.from, range.to);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    await Shade.saveBlob(res, fsFileName(range.from, range.to));
   } catch (e) {
     if (!showVerifyFailures(e, range.from, function () { feeSheetDownload(btn, true); })) Shade.toast(e.message, 'error');
   }
@@ -3992,18 +3817,9 @@ async function feeSheetDownload(btn, force) {
 async function importTowers(f) {
   var fd = new FormData();
   fd.append('file', f, f.name);
-  var wait = createModal('<div class="loading"><span class="spin"></span>正在导入…</div>', { width: 280 });
+  var wait = Shade.modal('<div class="loading"><span class="spin"></span>正在导入…</div>', { width: 280 });
   try {
-    var headers = {};
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    var res = await fetch(wl('/api/v1/worklog/towers/import'), { method: 'POST', headers: headers, body: fd });
-    if (res.status === 401) {
-      localStorage.removeItem('shade_token');
-      localStorage.removeItem('shade_user');
-      location.href = '/login.html';
-      throw new Error('登录已过期');
-    }
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/towers/import'), { method: 'POST', body: fd });
     var j = null;
     try { j = await res.json(); } catch (e) { }
     if (!res.ok || !j || j.code !== 0) throw new Error((j && j.message) || ('导入失败（' + res.status + '）'));
@@ -4069,7 +3885,7 @@ function syncSideReport() {
 function openSyncCheck() {
   var isAdmin = (Shade.user() || {}).role === 'admin';
   var teamOpts = isAdmin ? $('#teamSel').innerHTML : '';
-  var html = mHead('从商旅拉取')
+  var html = Shade.mHead('从商旅拉取')
     + '<div class="f-hint" style="margin:0">选择区段后，拉取班组内全部已绑定成员的打卡/费用/照片，以商旅平台为准覆盖本地。</div>'
     + '<label class="f-lab">拉取区段</label>'
     + '<div class="sg-range"><input type="date" class="f-sel" id="sgPullFrom" value="' + state.date + '">'
@@ -4077,7 +3893,7 @@ function openSyncCheck() {
     + (teamOpts ? '<label class="f-lab">班组</label><select class="f-sel" id="sgPullTeam">' + teamOpts + '</select>' : '')
     + '<div class="m-foot" style="justify-content:flex-start;margin-top:12px">'
     + '<button class="btn btn-sm btn-accent" data-a="pull">' + Shade.icon('refresh', 14) + '发起拉取</button></div>';
-  var inst = createModal(html, { width: 520 });
+  var inst = Shade.modal(html, { width: 520 });
   var teamEl = $('#sgPullTeam', inst.box);
   if (teamEl && state.teamId) teamEl.value = String(state.teamId); // 默认当前生效班组
   var saving = false;
@@ -4585,21 +4401,20 @@ function initEvents() {
       openLightbox(en, idx);
     }
   });
-  /* 大图遮罩层：点空白关闭（照片大图 / 备注媒体层）；Esc 关闭弹层/大图；左右箭头切换 */
+  /* 大图遮罩层：点空白关闭（照片大图 / 备注媒体层）；Esc 关弹层由 common.js 统一监听，大图层经 Shade.escGuard 优先关闭；左右箭头切换 */
   $('#lightbox').addEventListener('click', function (e) {
     if (e.target === this) {
       if (lbInst) closeLightbox();
       if (mlbInst) closeMediaLb();
     }
   });
+  /* Esc 优先级：大图层在弹层之前关闭（guard 返回 true 表示已消费本次 Esc，common.js 不再关顶层弹层） */
+  Shade.escGuard = function () {
+    if (lbInst) { closeLightbox(); return true; }
+    if (mlbInst) { closeMediaLb(); return true; }
+    return false;
+  };
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-      if (lbInst) { closeLightbox(); return; }
-      if (mlbInst) { closeMediaLb(); return; }
-      var top = modalStack[modalStack.length - 1];
-      if (top) top.close();
-      return;
-    }
     if (lbInst && e.key === 'ArrowLeft') shiftLB(-1);
     else if (lbInst && e.key === 'ArrowRight') shiftLB(1);
     else if (mlbInst && e.key === 'ArrowLeft') shiftMediaLb(-1);
@@ -4608,33 +4423,9 @@ function initEvents() {
 }
 
 /* ================= 超管班组切换器 ================= */
-/* 自绘下拉（原 select 隐藏保留为数据源），初始隐藏，超管加载班组列表后显示 */
+/* 自绘下拉（原 select 隐藏保留为数据源），初始隐藏，超管加载班组列表后显示（装配见 init 内 Shade.setupTeamSel） */
 var teamDd = Shade.dropdown($('#teamSel'), { width: 'auto', minWidth: '132px', height: 36 });
 teamDd.el.style.display = 'none';
-
-/* 数据源 GET /admin/teams（仅启用班组）；选择持久化 localStorage.worklog_team_id，切换后整页数据重载 */
-async function setupTeamSel() {
-  var me = Shade.user() || {};
-  if (me.role !== 'admin') return;
-  try {
-    var r = await Shade.api('/api/v1/admin/teams');
-    var list = ((r.data && r.data.list) || []).filter(function (t) { return t.status === 1; });
-    if (!list.length) return;
-    var sel = $('#teamSel');
-    sel.innerHTML = list.map(function (t) { return '<option value="' + t.id + '">' + esc(t.name) + '</option>'; }).join('');
-    var saved = Number(localStorage.getItem('worklog_team_id')) || 0;
-    state.teamId = list.some(function (t) { return t.id === saved; }) ? saved : list[0].id;
-    sel.value = String(state.teamId);
-    localStorage.setItem('worklog_team_id', String(state.teamId));
-    teamDd.sync();
-    teamDd.el.style.display = '';
-    sel.addEventListener('change', function () {
-      state.teamId = Number(this.value) || 0;
-      localStorage.setItem('worklog_team_id', String(state.teamId));
-      reloadTeamData();
-    });
-  } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
-}
 
 /* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表 / 派车对齐结果 / 商旅绑定设备） */
 function reloadTeamData() {
@@ -4698,11 +4489,7 @@ async function init() {
   $('#repPrev').innerHTML = SVG_CHEV_L; $('#repNext').innerHTML = SVG_CHEV_R;
 
   /* 顶栏用户：接口失败回退本地缓存 */
-  Shade.api('/api/v1/user/profile').then(function (r) {
-    renderTopUser(r.data);
-  }).catch(function () {
-    renderTopUser(Shade.user());
-  });
+  Shade.refreshUser();
 
   /* 班组隔离门控：非超管未分配班组 → 整页空态（屏十口径）；超管先选定切换班组再出数 */
   var me = Shade.user() || {};
@@ -4718,7 +4505,15 @@ async function init() {
     Shade.reveal();
     return;
   }
-  if (me.role === 'admin') await setupTeamSel();
+  if (me.role === 'admin') {
+    /* 超管班组切换器：数据源 GET /admin/teams（仅启用班组），localStorage.worklog_team_id 持久化，切换后整页数据重载 */
+    var teamSel = await Shade.setupTeamSel({
+      select: $('#teamSel'), dropdown: teamDd, storageKey: 'worklog_team_id',
+      showEl: teamDd.el,
+      onChange: function (v) { state.teamId = v; reloadTeamData(); }
+    });
+    if (teamSel) state.teamId = teamSel.getTeamId();
+  }
 
   initEvents();
   checkSyncLock(); // 进入页面即探测批量同步全局锁（进行中直接出遮罩）

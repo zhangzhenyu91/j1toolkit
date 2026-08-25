@@ -1,7 +1,6 @@
 /*
  * 工程记录水印 — 核心渲染模块（v2，按黑底参考图实测值校准）
- * 无 DOM 依赖：浏览器 <script> 引入后用 window.Watermark；
- * 微信小程序 / Node 用 require('./watermark.js')。
+ * 无 DOM 依赖：Node.js 端 require('./watermark.js') 使用。
  *
  * 用法：
  *   Watermark.draw(ctx, width, height, options)
@@ -13,7 +12,7 @@
  * 所有尺寸均为图片宽度 W 的比例（实测自 1200px 宽参考图），任意分辨率自适应。
  * 颜色与透明度实测方式：黑底参考图 C = F·α，与原照片（墙面底色已知）联立求解。
  */
-(function (global) {
+(function () {
   'use strict';
 
   var defaults = {
@@ -383,9 +382,5 @@
     formatTime: formatTime
   };
 
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = Watermark;
-  } else {
-    global.Watermark = Watermark;
-  }
-})(typeof window !== 'undefined' ? window : this);
+  module.exports = Watermark;
+})();

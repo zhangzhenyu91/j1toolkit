@@ -275,4 +275,4 @@ async function ensureWorklogSchema(pool) {
   }
 }
 
-module.exports = { ensureWorklogSchema, APP_WORK_LOG };
+module.exports = { ensureWorklogSchema };

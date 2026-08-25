@@ -368,21 +368,9 @@
   }
   function isPdf(f) { return extOf(f.name) === 'pdf'; }
 
-  /* ===== safeday 接口封装（信封 {ok,error}，手动带 token，401 清登录态跳登录页） ===== */
+  /* ===== safeday 接口封装（信封 {ok,error} 由 parseOk 处理；token 注入与 401 清登录态走 Shade.apiRaw，返回原始 Response） ===== */
   function sdFetch(path, opts) {
-    opts = opts || {};
-    var headers = Object.assign({}, opts.headers);
-    var token = localStorage.getItem('shade_token');
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    return fetch(API_BASE + path, Object.assign({}, opts, { headers: headers })).then(function (res) {
-      if (res.status === 401) {
-        localStorage.removeItem('shade_token');
-        localStorage.removeItem('shade_user');
-        location.href = '/login.html';
-        throw new Error('登录已过期，请重新登录');
-      }
-      return res;
-    });
+    return Shade.apiRaw(API_BASE + path, opts);
   }
   /* 解析 {ok,error} 信封，非 ok 一律抛错 */
   function parseOk(res) {
@@ -940,26 +928,6 @@
     tblCnt.textContent = '加载中…';
     refreshRecords(true);
   }
-  async function setupTeamSel() {
-    var me = Shade.user() || {};
-    if (me.role !== 'admin') { return; }
-    try {
-      var r = await Shade.api('/api/v1/admin/teams');
-      var list = ((r.data && r.data.list) || []).filter(function (t) { return t.status === 1; });
-      var sel = document.getElementById('teamSel');
-      sel.innerHTML = '<option value="all">全部班组</option>' + list.map(function (t) {
-        return '<option value="' + t.id + '">' + Shade.esc(t.name) + '</option>';
-      }).join('');
-      var saved = localStorage.getItem('safeday_team_id') || 'all';
-      teamId = (saved === 'all' || list.some(function (t) { return String(t.id) === saved; })) ? saved : 'all';
-      sel.value = teamId;
-      localStorage.setItem('safeday_team_id', teamId);
-      teamDd.sync();
-      teamDd.el.style.display = '';
-      sel.addEventListener('change', function () { switchTeam(this.value); });
-      syncTeamCol();
-    } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
-  }
 
   /* 未分配班组空态（屏十口径）：隐藏上传与记录区，仅显示提示卡 */
   function renderNoTeam() {
@@ -986,7 +954,15 @@
       renderNoTeam();
       return;
     }
-    if (me.role === 'admin') { await setupTeamSel(); }
+    if (me.role === 'admin') {
+      /* 超管班组切换器：含「全部班组」（team_id=all 默认），localStorage.safeday_team_id 持久化，切换走 switchTeam */
+      var ts = await Shade.setupTeamSel({
+        select: document.getElementById('teamSel'), dropdown: teamDd, storageKey: 'safeday_team_id',
+        allowAll: true, showEl: teamDd.el,
+        onChange: function (v) { switchTeam(v); }
+      });
+      if (ts) { teamId = ts.getTeamId(); syncTeamCol(); }
+    }
     refreshRecords(true);
   })();
 </script>

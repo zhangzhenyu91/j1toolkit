@@ -17,7 +17,7 @@ const dify = require('./dify');
 const render = require('./render');
 const { pool } = require('../db');
 
-const DATA_DIR = path.resolve(config.safeday.dataDir);
+const DATA_DIR = config.safeday.dataDir;
 const DOCS_DIR = path.join(DATA_DIR, 'docs');
 
 // 初始化：确保记录与产物目录存在（本模块仅在 SAFEDAY_ENABLED=true 时被加载）
@@ -366,7 +366,7 @@ router.get('/records/:id/preview', async (req, res) => {
   if (!(await canAccess(req, record))) {
     return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
   }
-  const base = config.basemetas.url.replace(/\/+$/, '');
+  const base = config.basemetas.url;
   if (!base) {
     return res.json({ ok: false, error: '未配置文件预览服务' });
   }

@@ -59,7 +59,7 @@ server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   src/quiz/      题库刷题后端子模块（schema 建表种子/dify 解析/analyzer 队列/路由）
   src/wmadd/     水印添加后端子模块（渲染回图/geo/杆塔路由）
   src/sgccclockin/ 商旅打卡后端子模块（出工日志扩展：protocol 协议层/schema 建表种子/路由）
-design/        UI 设计稿（小程序定稿 style-5.html；design/web/ 网页端六方案，定稿方案A）
+design/        UI 设计稿（小程序定稿 style-5.html；design/web/ 网页端定稿方案A「安全橙传承」）
 WorkLogs/      旧独立服务的历史数据归档（出工日志班组模板 + 安全日记录数据与生成产物）；代码已整合进主服务，本目录仅存数据
 ```
 
@@ -86,7 +86,7 @@ proxy_read_timeout 300s;  # 推荐：长生成不被掐断（服务端另有 15s
 client_max_body_size 20m; # 图片上传（base64）需要
 ```
 
-**初始化**：首次启动自动建 `sys_user` / `sys_app` / `sys_user_app` 三张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 6 张业务表并写入应用与 7 名成员种子；`QUIZ_ENABLED=true` 时再建题库刷题 quiz_* 表并写入应用种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
+**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` 六张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 7 张业务表并写入应用与 7 名成员种子；`QUIZ_ENABLED=true` 时再建题库刷题 quiz_* 表并写入应用种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
 
 ## 环境变量清单
 
@@ -122,6 +122,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SGCC_JWT_SECRET` / `SGCC_SM2_SERVER_PUB` / `SGCC_SM2_CLIENT_PRIV` | 商旅平台协议密钥（取自商旅 App 逆向分析，联系维护者获取；密钥即 App 内固定值，各环境通用） |
 | `SGCC_RSA_PUB` / `SGCC_RSA_PRIV` | 商旅 jsonx default 通道（打卡/详情/模板）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_DCU_PUB` / `SGCC_WLA_PRIV` | 商旅 jsonx slapp 通道（费用保存必走）：请求加密公钥 / 响应解密私钥 |
+| `SGCC_VERSION` | 商旅 App 版本号（请求头 version，默认 `3.3.5`；App 升级后优先只改此项验证是否仍通） |
 | `SGCC_SYNC_TIME` | 商旅打卡每日自动核查时间（HH:mm，默认 `23:00`） |
 | `SGCC_SYNC_INTERVAL_MS` | 商旅打卡批量拉取成员间隔（毫秒，防风控，默认 `1500`） |
 | `WORKLOG_DISPATCH_SYNC_ENABLED` | 派车单每日自动同步开关：`true` 开启（每日定时取回被控机导出派车单自动建卡），`false` 关闭；需先开启出工日志与 KVM |
