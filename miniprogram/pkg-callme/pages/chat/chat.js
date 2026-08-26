@@ -16,12 +16,13 @@ const md = new MarkdownIt({ html: false, linkify: true });
 // Markdown 排版样式：tag 样式统一用 utils/markdown.js 那一份（方案五色板，mp-html 按标签名生效）；
 // 容器样式本地覆盖——聊天气泡字号略大（14.5px），其余与共享口径一致
 const { MD_TAG_STYLE } = require('../../../utils/markdown');
+const { parseDate } = require('../../../utils/util');
 const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#22314E;word-break:break-word;';
 
 // 消息时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm
 function timeTextOf(input) {
-  const d = input ? new Date(input) : new Date();
-  if (Number.isNaN(d.getTime())) return '';
+  const d = input ? parseDate(input) : new Date();
+  if (!d) return '';
   const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
   const sameDay = d.toDateString() === new Date().toDateString();
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;

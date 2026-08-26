@@ -6,16 +6,17 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
+import { parseDate } from '../../../utils/util';
 import { shareAppMessage } from '../../../utils/share';
 
 const API_BASE = '/api/v1/quiz';
 
 const TYPE_TEXT = { single: '单选', multiple: '多选', judge: '判断' };
 
-// ISO 时间 → 相对时间（今天 / 昨天 / N 天前 / 超 30 天显示日期）
+// 后端时间串（ISO 或 'yyyy-MM-dd HH:mm:ss'）→ 相对时间（今天 / 昨天 / N 天前 / 超 30 天显示日期）
 const relTime = (iso) => {
-  const d = iso ? new Date(iso) : null;
-  if (!d || Number.isNaN(d.getTime())) return '';
+  const d = parseDate(iso);
+  if (!d) return '';
   const now = new Date();
   const day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const day1 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();

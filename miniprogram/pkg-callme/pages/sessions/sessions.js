@@ -4,7 +4,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
-import { formatTime } from '../../../utils/util';
+import { formatTime, parseDate } from '../../../utils/util';
 import { shareAppMessage } from '../../../utils/share';
 
 Page({
@@ -38,7 +38,7 @@ Page({
         .map((item) => ({
           id: item.id,
           title: item.title,
-          ts: new Date(item.updated_at || item.created_at || 0).getTime() || 0,
+          ts: (parseDate(item.updated_at || item.created_at) || new Date(0)).getTime(),
           timeText: formatTime(item.updated_at || item.created_at),
         }))
         .sort((a, b) => b.ts - a.ts); // 最近更新在前
