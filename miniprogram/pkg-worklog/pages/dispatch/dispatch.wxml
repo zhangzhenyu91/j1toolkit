@@ -3,6 +3,15 @@
 <navbar back title="派车对齐" />
 
 <view class="page-body" wx:if="{{gate}}">
+  <!-- 每日自动同步派车单开关（按生效班组；切换需确认，次日起按排程执行） -->
+  <view class="card sync-card">
+    <view class="r-l">
+      <view class="r-t">每日自动同步派车单</view>
+      <view class="r-s">开启后每日 09:40 自动取回当日派车单，按本班成员匹配建出车卡片；用车人含多个班组人名的记录仅通知不建卡。开启 / 关闭均次日起按排程执行。</view>
+    </view>
+    <t-switch value="{{syncEnabled}}" disabled="{{syncSwitchLoading}}" bind:change="onSyncSwitch" />
+  </view>
+
   <!-- 对齐口径（常驻说明卡，同网页端规则卡） -->
   <view class="card rule">
     <view class="rule-t">对齐口径</view>
@@ -187,4 +196,5 @@
   </view>
 </t-popup>
 
+<t-dialog id="t-dialog" />
 <t-toast id="t-toast" />

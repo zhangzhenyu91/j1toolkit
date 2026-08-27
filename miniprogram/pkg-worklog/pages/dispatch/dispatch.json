@@ -4,6 +4,8 @@
     "navbar": "/components/navbar/navbar",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-popup": "tdesign-miniprogram/popup/popup",
+    "t-switch": "tdesign-miniprogram/switch/switch",
+    "t-dialog": "tdesign-miniprogram/dialog/dialog",
     "t-toast": "tdesign-miniprogram/toast/toast"
   }
 }

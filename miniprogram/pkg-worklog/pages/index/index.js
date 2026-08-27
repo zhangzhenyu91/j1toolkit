@@ -1,5 +1,7 @@
 // 出工日志 · 主页：日期条切换 / 视图开关（全部·仅看我）/ 日志卡片直改 / 日历选日（按日验证状态着色）
 // 新建与「改派车/用车人」共用底部表单弹层（仅「保 存」提交，无实时保存；改派车保存前弹内网派车单同步警告）；
+// 跨班日志（仅超管）：悬浮钮「跨班日志」新建 / 点跨班卡车牌头编辑均走 cross 模式（/logs/cross/*，全启用班组
+// 字典按名称选择，归属班组可选）；跨班卡车牌行加「跨班」徽章，非超管不可改派车 / 删除，他班跨班卡不显示「从商旅同步」；
 // 巡视内容点卡片主块单独弹层修改（带快捷输入）；备注（文字+附件传 COS）点「备 注」按钮或备注块弹层编辑；
 // 底部另有批量下载水印照片面板与「汇总前核验」面板（按月列未通过记录，默认当月、可翻月）
 // 商旅打卡扩展（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨）：卡片「商旅打卡」区每人开始/结束两枚 chip
@@ -225,6 +227,9 @@ Page({
     formVisible: false,
     formId: 0, // 0=新建
     formDateStr: '',
+    formCross: false, // 跨班日志模式（仅超管；归属班组可选，车牌/目的地/人员按名称选择，无字典 id）
+    crossTeamId: 0, // 跨班日志归属班组 id
+    crossTeamText: '', // 归属班组展示名
     members: [], // meta 成员 + checked（点亮即用车人）+ disabled（当日已在其他卡片，置灰不可点亮）
     memberUsedTip: false, // 有成员被当日其他卡片占用时，人员选择提示「灰色 = 当日已在其他卡片」
     patrol: '', // 面板不展示；改派车提交时原样带上（PUT 全量替换）
@@ -351,6 +356,7 @@ Page({
     this._myName = user.nickname || ''; // 「仅看我」匹配成员名用（同后端 scope=mine 口径）
     this._role = user.role || 'user';
     this._teamId = 0; // 生效班组 id（仅超管经切换器指定；0=不带参数，后端落自己/默认班组）
+    this._myTeamId = Number(user.team_id) || 0; // 自己所属班组 id（非超管的生效班组；他班跨班卡「从商旅同步」显隐用，取值 _teamId || _myTeamId）
     this._dayLists = {}; // 邻日预拉缓存（key `${date}|${scope}|${team}` → 映射后的卡片列表；按窗格裁剪）
     this._inflightDays = {}; // 进行中的按日请求（key 同上，并发去重）
     this._daySwitching = false; // 切日落定处理中（防抖）
@@ -689,6 +695,8 @@ Page({
         syncText: photoOp ? PHOTO_OP_TEXT[photoOp.kind] : '从商旅同步中',
         hasVehicle: !!e.vehicle_id,
         plateText: e.vehicle_id ? e.plate_no : '未出车',
+        crossTeam: !!e.cross_team, // 跨班日志（仅超管可改派车 / 删除，卡片头部加「跨班」徽章）
+        teamId: Number(e.team_id) || 0, // 归属班组 id（cross 编辑回填 / 商旅同步显隐用）
         badge: VERIFY_BADGE[e.verify_passed] || VERIFY_BADGE.failed,
         failReasons: e.verify_reasons || [], // 未通过明细（角标为「未通过」时逐行展示）
         patrolText: e.patrol_content || '—',
@@ -703,6 +711,8 @@ Page({
         clockRaw,
         clockRows: showClock ? this.buildClockRows(members, clockRaw, ckReadonly) : [],
         showClock,
+        // 他班跨班卡：不渲染「从商旅同步」（商旅账号按归属班绑定，仅归属班可同步）
+        syncHidden: !!e.cross_team && Number(e.team_id) !== ((this._teamId || this._myTeamId) || 0),
         sgccOn: members.some((m) => m.sgccBound !== undefined), // 商旅是否开启（后端带商旅字段即开启；上传等待文案据此区分）
         ckReadonly,
         photos,
@@ -719,6 +729,7 @@ Page({
         patrol: e.patrol_content || '',
         vehicleId: e.vehicle_id || 0,
         destId: e.destination_id || 0,
+        destText: e.destination_name || '', // cross 编辑模式按名称回填
         memberIds: (e.members || []).map((m) => m.member_id),
       };
     });
@@ -1558,7 +1569,9 @@ Page({
       const data = await request({ url: `/api/v1/worklog/meta${this.teamQuery('?')}` });
       this._vehicles = (data && data.vehicles) || [];
       this._destinations = (data && data.destinations) || [];
-      this.setData({ members: ((data && data.members) || []).map((m) => ({ ...m, checked: false })) });
+      // 成员字典另存 _members：cross 模式表单会改用跨班成员覆盖 data.members，普通模式以此为源重建
+      this._members = ((data && data.members) || []).map((m) => ({ ...m }));
+      this.setData({ members: this._members.map((m) => ({ ...m, checked: false })) });
       this.refreshDictText();
     } catch (err) {
       this.toast(err.message);
@@ -1581,9 +1594,29 @@ Page({
     this.setData({ vehicleText, destText });
   },
 
+  // 跨班日志字典（仅超管；全部启用班组车牌/目的地/成员按名称去重，teams 为来源班组名数组）：
+  // 首次进入 cross 模式拉取并缓存（跨班保存后失效重拉——车牌/目的地可能已在归属班字典自动补建）
+  async ensureCrossMeta() {
+    if (this._crossMeta) return this._crossMeta;
+    const data = await request({ url: '/api/v1/worklog/logs/cross/meta' });
+    this._crossMeta = {
+      teams: (data && data.teams) || [],
+      vehicles: (data && data.vehicles) || [],
+      destinations: (data && data.destinations) || [],
+      members: (data && data.members) || [],
+    };
+    return this._crossMeta;
+  },
+
   // 「＋ 新建日志」：不再跳页，打开表单底部弹层（默认未出车）
   onCreate() {
-    this.setData({ fabOpen: false });
+    this.setData({ fabOpen: false, formCross: false });
+    this.openForm(0);
+  },
+
+  // 「跨班日志」（仅超管）：打开 cross 模式表单（归属班组可选，车牌/目的地/人员按名称选择）
+  onCreateCross() {
+    this.setData({ fabOpen: false, formCross: true });
     this.openForm(0);
   },
 
@@ -1593,11 +1626,23 @@ Page({
   },
 
   // 卡片车牌头部：打开改派车面板并回填该卡数据（派车情况/用车人；巡视内容不在此修改）
+  // 跨班卡仅超管可改派车（非派车字段如备注/巡视内容不受限）；超管打开进入 cross 编辑模式
   onOpenForm(e) {
-    this.openForm(Number(e.currentTarget.dataset.id) || 0);
+    const id = Number(e.currentTarget.dataset.id) || 0;
+    const entry = this.data.list.find((x) => x.id === id);
+    if (!entry) {
+      this.toast('日志不存在或已被删除');
+      return;
+    }
+    if (entry.crossTeam && !this.data.isAdmin) {
+      this.toast('跨班日志仅超级管理员可修改派车');
+      return;
+    }
+    this.setData({ formCross: !!entry.crossTeam });
+    this.openForm(id);
   },
 
-  openForm(id) {
+  async openForm(id) {
     const base = {
       formVisible: true,
       formId: id,
@@ -1608,14 +1653,56 @@ Page({
       keyboardHeight: 0,
       formSaving: false,
     };
-    // 同日期同人唯一（后端 40020 配套）：当日其他卡片已占用的人名置灰不可点亮（编辑时排除本卡）
+    // 同日期同人唯一（后端 40020 配套）：当日其他卡片已占用的人名置灰不可点亮（编辑时排除本卡）；
+    // 普通模式按成员 id 比对，cross 模式无字典 id 改按人名集合比对
     const usedMids = new Set();
+    const usedNames = new Set();
     this.data.list.forEach((x) => {
       if (id && x.id === id) return;
       (x.memberIds || []).forEach((mid) => usedMids.add(mid));
+      (x.checks || []).forEach((c) => usedNames.add(c.name));
     });
+    // cross 模式：数据源为全启用班组合并字典（按名称选择），先拉字典再开面板
+    if (this.data.formCross) {
+      let meta;
+      try {
+        meta = await this.ensureCrossMeta();
+      } catch (err) {
+        this.toast(err.message);
+        return;
+      }
+      const entry = id ? this.data.list.find((x) => x.id === id) : null;
+      if (id && !entry) {
+        this.toast('日志不存在或已被删除');
+        return;
+      }
+      // 归属班组：编辑回填卡片归属班；新建默认当前生效班组（_teamId 为 0 取第一个）
+      const teamHit = meta.teams.find((t) => entry && t.id === entry.teamId)
+        || meta.teams.find((t) => t.id === this._teamId)
+        || meta.teams[0] || null;
+      this.setData({
+        ...base,
+        patrol: entry ? entry.patrol : '', // 面板不展示；保存时原样带上（PUT 全量替换）
+        crossTeamId: teamHit ? teamHit.id : 0,
+        crossTeamText: teamHit ? teamHit.name : '',
+        vehicleId: entry && entry.hasVehicle ? 1 : -1, // cross 车牌按名称选择，id 仅占位（0=未选 / -1=未出车 / 1=已选）
+        vehicleText: entry && entry.hasVehicle ? entry.plateText : '未出车',
+        isNoVehicle: !(entry && entry.hasVehicle),
+        destId: entry && entry.hasVehicle && entry.destText ? 1 : 0, // cross 目的地同按名称
+        destText: entry && entry.hasVehicle ? entry.destText : '',
+        members: meta.members.map((m) => ({
+          id: m.name, // cross 成员按名称点亮（t-check-tag wx:key 沿用 id 字段）
+          name: m.name,
+          sub: (m.teams || []).join('/'), // 来源班组小字（同名多班时可辨识）
+          checked: entry ? entry.checks.some((c) => c.name === m.name) : false,
+          disabled: usedNames.has(m.name),
+        })),
+        memberUsedTip: usedNames.size > 0,
+      });
+      return;
+    }
     if (!id) {
-      // 新建：默认未出车，人员全部未点亮
+      // 新建：默认未出车，人员全部未点亮（成员源取 _members 字典缓存，不受 cross 模式覆盖影响）
       this.setData({
         ...base,
         patrol: '',
@@ -1624,7 +1711,7 @@ Page({
         destId: 0,
         destText: '',
         isNoVehicle: true,
-        members: this.data.members.map((m) => ({ ...m, checked: false, disabled: usedMids.has(m.id) })),
+        members: (this._members || []).map((m) => ({ ...m, checked: false, disabled: usedMids.has(m.id) })),
         memberUsedTip: usedMids.size > 0,
       });
       return;
@@ -1640,7 +1727,7 @@ Page({
       vehicleId: entry.vehicleId > 0 ? entry.vehicleId : -1,
       isNoVehicle: !(entry.vehicleId > 0),
       destId: entry.destId || 0,
-      members: this.data.members.map((m) => ({ ...m, checked: entry.memberIds.includes(m.id), disabled: usedMids.has(m.id) })),
+      members: (this._members || []).map((m) => ({ ...m, checked: entry.memberIds.includes(m.id), disabled: usedMids.has(m.id) })),
       memberUsedTip: usedMids.size > 0,
     });
     this.refreshDictText();
@@ -1662,6 +1749,11 @@ Page({
     this.toggleDrop('dest');
   },
 
+  // 归属班组下拉（仅 cross 模式）
+  onToggleTeamDrop() {
+    this.toggleDrop('team');
+  },
+
   toggleDrop(type) {
     if (this.data.dropType === type) {
       this.setData({ dropType: '' });
@@ -1681,6 +1773,28 @@ Page({
     const { dropType, dropKeyword, vehicleId, destId } = this.data;
     const kw = (dropKeyword || '').trim();
     let list = [];
+    // cross 模式：车牌/目的地按名称选择（id 字段即名称），班组按 id；数据源为 _crossMeta
+    if (this.data.formCross) {
+      const meta = this._crossMeta || { teams: [], vehicles: [], destinations: [] };
+      if (dropType === 'team') {
+        list = meta.teams
+          .filter((t) => !kw || t.name.includes(kw))
+          .map((t) => ({ id: t.id, name: t.name, selected: t.id === this.data.crossTeamId }));
+      } else if (dropType === 'vehicle') {
+        list = meta.vehicles
+          .filter((v) => !kw || v.name.includes(kw))
+          .map((v) => ({ id: v.name, name: v.name, selected: !this.data.isNoVehicle && v.name === this.data.vehicleText }));
+        if (!kw || '未出车'.includes(kw)) {
+          list.push({ id: '', name: '未出车', none: true, selected: this.data.isNoVehicle });
+        }
+      } else {
+        list = meta.destinations
+          .filter((d) => !kw || d.name.includes(kw))
+          .map((d) => ({ id: d.name, name: d.name, selected: d.name === this.data.destText }));
+      }
+      this.setData({ dropList: list });
+      return;
+    }
     if (dropType === 'vehicle') {
       list = (this._vehicles || [])
         .filter((v) => !kw || v.plate_no.includes(kw))
@@ -1697,6 +1811,35 @@ Page({
   },
 
   onDropSelect(e) {
+    // cross 模式：班组按 id，车牌/目的地按名称（dataset.id 即名称；「未出车」为空串）
+    if (this.data.formCross) {
+      const raw = e.currentTarget.dataset.id;
+      if (this.data.dropType === 'team') {
+        const tid = Number(raw);
+        const hit = ((this._crossMeta && this._crossMeta.teams) || []).find((t) => t.id === tid);
+        this.setData({ crossTeamId: tid, crossTeamText: hit ? hit.name : '', dropType: '' });
+        return;
+      }
+      if (this.data.dropType === 'vehicle') {
+        // 选中「未出车」：清空目的地与人员选择，人员段联动隐藏（与普通模式一致）
+        const isNoVehicle = raw === '';
+        const patch = {
+          vehicleId: isNoVehicle ? -1 : 1, // id 仅占位（非 0 即已选），名称存 vehicleText
+          vehicleText: isNoVehicle ? '未出车' : raw,
+          isNoVehicle,
+          dropType: '',
+        };
+        if (isNoVehicle) {
+          patch.destId = 0;
+          patch.destText = '';
+          patch.members = this.data.members.map((m) => ({ ...m, checked: false }));
+        }
+        this.setData(patch);
+        return;
+      }
+      this.setData({ destId: 1, destText: raw, dropType: '' }); // cross 目的地同按名称
+      return;
+    }
     const id = Number(e.currentTarget.dataset.id);
     if (this.data.dropType === 'vehicle') {
       // 选中「未出车」：清空目的地与人员选择，人员段联动隐藏
@@ -1740,6 +1883,19 @@ Page({
     };
   },
 
+  // cross 模式提交体：车牌/目的地/成员均按名称（body 的 team_id 为归属班组；未出车不带目的地与人名）
+  buildCrossPayload() {
+    const { formDateStr, patrol, crossTeamId, vehicleText, destText, members, isNoVehicle } = this.data;
+    return {
+      log_date: formDateStr,
+      team_id: crossTeamId,
+      plate_no: isNoVehicle ? '' : (vehicleText || ''),
+      destination: isNoVehicle ? '' : (destText || ''),
+      member_names: isNoVehicle ? [] : members.filter((m) => m.checked).map((m) => m.name),
+      patrol_content: patrol,
+    };
+  },
+
   // 底部「保 存」：新建→直接创建；改派车→先弹内网派车单同步警告，确认后保存
   onFormSave() {
     if (this.data.formSaving) return;
@@ -1762,6 +1918,30 @@ Page({
   // 实际提交：新建 POST / 改派车 PUT（全量字段，巡视内容沿用原值）；成功关闭并刷新，失败留面板可重试
   async saveForm() {
     if (this.data.formSaving) return;
+    // cross 模式：走 /logs/cross 接口（body 的 team_id 是归属班组，不可叠加 teamBody 的生效班组，直接发原始 data）
+    if (this.data.formCross) {
+      if (!this.data.crossTeamId) {
+        this.toast('请选择归属班组');
+        return;
+      }
+      this.setData({ formSaving: true });
+      try {
+        const body = this.buildCrossPayload();
+        if (this.data.formId) {
+          delete body.log_date; // PUT 不改日期
+          await request({ url: `/api/v1/worklog/logs/cross/${this.data.formId}`, method: 'PUT', data: body });
+        } else {
+          await request({ url: '/api/v1/worklog/logs/cross', method: 'POST', data: body });
+        }
+        this._crossMeta = null; // 车牌/目的地可能已在归属班字典自动补建，下次进入重拉
+        this.setData({ formVisible: false, formSaving: false, dropType: '', keyboardHeight: 0 });
+        this.loadLogs();
+      } catch (err) {
+        this.setData({ formSaving: false });
+        this.toast(err.message);
+      }
+      return;
+    }
     this.setData({ formSaving: true });
     try {
       if (this.data.formId) {
@@ -2999,6 +3179,12 @@ Page({
 
   onDelete(e) {
     const { id } = e.currentTarget.dataset;
+    // 跨班卡仅超管可删除（按钮已对非超管隐藏，此处为前置拦截兜底）
+    const entry = this.data.list.find((x) => String(x.id) === String(id));
+    if (entry && entry.crossTeam && !this.data.isAdmin) {
+      this.toast('跨班日志仅超级管理员可删除');
+      return;
+    }
     Dialog.confirm({
       context: this,
       selector: '#t-dialog',
@@ -3285,7 +3471,8 @@ Page({
     this.loadReport();
   },
 
-  // 拉取当前月份核验结果：问题卡 = reasons 非空（接口范围 = 未通过 ∪ 有备注；未出车免验证不入列）
+  // 拉取当前月份核验结果：问题卡 = reasons 非空（接口范围 = 未通过 ∪ 有备注；未出车免验证不入列；
+  // total=范围内全量条数（接口新口径），其余=total−未通过数）
   async loadReport() {
     const month = this.data.rpMonth;
     if (!month) return;
@@ -3306,7 +3493,7 @@ Page({
           membersText: (x.members || []).join('、'),
           reasons: x.reasons,
         }));
-      const okCount = items.length - issues.length; // 返回集内核查通过（含免验证、有备注）的条数
+      const okCount = Number((data && data.total) || 0) - issues.length; // 其余 = total（范围内全量条数，接口新口径）− 未通过数
       this.setData({
         rpLoading: false,
         rpIssues: issues,

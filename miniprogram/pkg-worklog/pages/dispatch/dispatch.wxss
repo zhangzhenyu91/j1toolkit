@@ -16,6 +16,17 @@
   margin-top: 24rpx;
 }
 
+/* ---------- 每日自动同步开关卡（左标题说明 + 右侧开关） ---------- */
+.sync-card {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+}
+
+.sync-card .r-l {
+  flex: 1;
+}
+
 /* ---------- 对齐口径说明卡（虚线描边浅纸底，同网页端 .pa-rule） ---------- */
 .rule {
   border: 2rpx dashed #d9cfba;

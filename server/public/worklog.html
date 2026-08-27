@@ -16,6 +16,9 @@
      「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 feesheet 页口径）；
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；设计稿 design/worklog-dispatch-align.html）；
+     页签顶部「每日自动同步派车单」开关（/dispatch/sync-switch，按生效班组，仅 admin / team_admin）；
+     跨班日志：超管页头「跨班日志」入口（/logs/cross/* 全局字典，openCrossForm 新建 / 编辑；跨班卡车牌行加橙色描边「跨班」徽章，
+     非超管不可改派车 / 删除，他班跨班卡不渲染商旅打卡区）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
      API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
@@ -199,6 +202,9 @@
   .pa-fchip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; background: var(--orange-soft); color: var(--orange); font-size: 11.5px; font-weight: 700; }
   .pa-fchip .x { cursor: pointer; opacity: .65; }
   .pa-fchip .x:hover { opacity: 1; }
+  /* 每日自动同步派车单开关行（复用 .rep-mine 自绘开关） */
+  .pa-sync .tt { font-size: 13px; font-weight: 700; letter-spacing: 1px; }
+  .pa-sync .hint { font-size: 11.5px; color: var(--ph); letter-spacing: .5px; }
   .pa-rule { border: 1px dashed var(--dash); border-radius: 10px; padding: 12px 16px; background: #FBF9F3; }
   .pa-rule b { font-size: 12.5px; letter-spacing: 1px; }
   .pa-rule p { font-size: 12px; color: #6B7690; line-height: 1.9; margin-top: 6px; }
@@ -302,6 +308,12 @@
   }
   .log-h:hover .he { color: var(--orange); background: var(--orange-soft); }
   .log-h .he svg { width: 14px; height: 14px; }
+  /* 跨班日志徽章：橙色描边小签（车牌行内，身份标签同族） */
+  .tag-cross {
+    flex: none; display: inline-flex; align-items: center; border: 1px solid var(--orange);
+    border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+    color: var(--orange); letter-spacing: 1px; white-space: nowrap;
+  }
   /* 用车人打卡胶囊（点击切换打卡，同小程序 chips 直改） */
   .mchip {
     display: inline-flex; align-items: center; gap: 5px; margin: 2px 6px 2px 0; padding: 2px 10px;
@@ -647,6 +659,9 @@
   .chip.on { border-color: var(--orange); background: var(--orange-soft); color: var(--orange); font-weight: 600; }
   .chip:disabled { opacity: .45; cursor: not-allowed; }
   .chip.sm { padding: 3px 10px; font-size: 11.5px; }
+  /* 跨班日志用车人 chips：同名多班时名称后的来源班组小字 */
+  .chip small { margin-left: 4px; font-size: 10px; font-weight: 400; color: var(--ph); }
+  .chip.on small { color: var(--orange); }
 
   /* ===== 下载页签（日期范围 + 按月分组勾选；页签内嵌后自适应列宽） ===== */
   .dl-meta { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: 1px; }
@@ -849,6 +864,8 @@
       <!-- 商旅打卡：手动从商旅拉取（弹层按区段发起拉取；仅记录页签显示，同新建钮） -->
       <button class="btn" id="btnSyncCheck"></button>
       <button class="btn" id="btnCreate"></button>
+      <!-- 跨班日志：仅超级管理员可见（init 显隐，同管理页签口径），新建 / 编辑均走 openCrossForm -->
+      <button class="btn" id="btnCross" hidden></button>
     </div>
   </div>
   <!-- 未分配班组空态（非超管且无班组时整页只显示它，屏十口径） -->
@@ -950,6 +967,11 @@
 
       <!-- 派车对齐：导入派车系统导出表 → 差异清单 → 逐条对照更正（仅超管 / 班组管理员可见页签；小程序端为悬浮钮「派车对齐」页） -->
       <div class="pane" id="panePA">
+        <!-- 每日自动同步派车单开关（按生效班组；状态随页签展示与班组切换拉取，见 loadPaSyncSwitch） -->
+        <div class="rep-bar pa-sync">
+          <span class="rep-mine" id="paSyncSw"><span class="sw"></span><span class="tt">每日自动同步派车单</span></span>
+          <span class="hint">开启后每日 09:40 自动取回当日派车单，按本班成员匹配建出车卡片；用车人含多个班组人名的记录仅通知不建卡</span>
+        </div>
         <div class="rep-bar">
           <button class="btn btn-sm" id="paPick">选择派车单文件…</button>
           <span class="pa-files" id="paFiles"></span>
@@ -1011,7 +1033,8 @@
 /* ============================================================
    出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理·工作任务单·费用汇总·派车对齐七页签（原下载、报告弹层已页签化；
    数据管理 / 工作任务单 / 费用汇总 / 派车对齐仅超管 / 班组管理员可见：三字典维护（成员可排序）+ 杆塔坐标导入；任务单按日期范围合并生成 docx，费用汇总按日期范围生成「人 × 日」费用矩阵 docx；
-   派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（小程序端同功能见 pkg-worklog/pages/dispatch），接口 /worklog/admin/* 按生效班组隔离）
+   派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（小程序端同功能见 pkg-worklog/pages/dispatch），接口 /worklog/admin/* 按生效班组隔离；
+   页签顶部「每日自动同步派车单」开关（GET/PUT /dispatch/sync-switch，按生效班组）；超管另有「跨班日志」新建 / 编辑（/logs/cross/* 全局字典，openCrossForm）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
    汇总前核验范围 = 仅未通过记录（商旅打卡新 7 条规则 a~g；未出车免验证；非水印照片不参与），底部绿色条提示其余全部通过
    水印照片上传与小程序同链路（POST /logs/{id}/photos）：① 选择水印照片上传＝原图 base64 直传；
@@ -1074,6 +1097,7 @@ var state = {
   timer: 0,                  // 验证中照片的轮询定时器
   rep: { month: '', loaded: false }, // 汇总前核验当前查看月份 YYYY-MM（默认当月）
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
+  crossMeta: null,           // 跨班日志表单全局字典（teams/vehicles/destinations/members，GET /logs/cross/meta 缓存，仅超管；全局数据不随班组切换清空）
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
   dict: { lists: {}, towerCount: null, sgcc: { list: null, err: '', off: false } }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）+ 商旅绑定设备（list null=未拉取；off=商旅打卡未开启，整区不渲染）
   dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
@@ -1084,6 +1108,14 @@ var state = {
 
 /* 班组隔离：超管所有 /worklog/* 请求统一带 team_id（query 优先于 body，后端 resolveReqTeam 同口径） */
 function wl(path) { return Shade.withTeam(path, state.teamId); }
+
+/* 角色判定：仅超级管理员可新建 / 改派车 / 删除跨班日志（与 init 管理页签显隐同口径） */
+function isAdmin() { return (Shade.user() || {}).role === 'admin'; }
+/* 当前生效班组 id：超管取切换器选中的班组，其余角色固定本班（state.teamId 恒 0，取账号班组） */
+function effTeamId() {
+  var me = Shade.user() || {};
+  return me.role === 'admin' ? state.teamId : (me.team_id || 0);
+}
 
 /* ================= 当日日志 ================= */
 function findEntry(eid) {
@@ -1257,6 +1289,7 @@ function cardHTML(e, idx, total) {
         + '<div class="cl-t">夜间同步中 <span class="cl-p">' + dailyPct + '</span>% · 暂不可操作</div></div></div>'
       : '')
     + '<div class="log-h" data-act="edit" title="点击修改派车 / 用车人"><b>' + esc(noCar ? '站内作业' : e.plate_no) + '</b>'
+    + (e.cross_team ? '<span class="tag-cross">跨班</span>' : '')
     + '<small>' + esc(state.date.replace(/-/g, '.')) + ' · 第 ' + (idx + 1) + ' / ' + total + ' 条</small>'
     + verifyTag(e)
     + '<span class="he">' + Shade.icon('edit', 14) + '</span></div>';
@@ -1284,7 +1317,9 @@ function cardHTML(e, idx, total) {
   /* 商旅打卡开启时（成员带 sgccBound 字段）：用车人行整段换为打卡区——每用车人一行（状态小字 + 始/终两枚 slot，仅展示）；
      未开启时保留原 .mchip 打卡胶囊 + 「已打卡 x/n 人」副标（降级兼容） */
   var sgccOn = members.some(function (m) { return m.sgccBound !== undefined; });
-  var ckRow = sgccOn && members.length; // 打卡区行：人名多行纵排，行内图标/标签顶对齐（.lrow-ck）
+  /* 他班跨班卡（cross_team 且归属非当前生效班组）：商旅打卡区（「从商旅同步」同族入口）不渲染，回退普通用车人展示 */
+  var crossOther = e.cross_team && e.team_id && e.team_id !== effTeamId();
+  var ckRow = sgccOn && members.length && !crossOther; // 打卡区行：人名多行纵排，行内图标/标签顶对齐（.lrow-ck）
   var ck = e.clockinMap || {};
   var memberHtml = members.length
     ? (ckRow
@@ -1331,8 +1366,9 @@ function cardHTML(e, idx, total) {
     html += '</div>';
   }
 
-  /* 左栏底部操作行：备注 / 删除日志（同小程序卡片直改） */
-  html += '<div class="log-acts"><button class="act-note" data-act="remark">备注</button><button class="act-del" data-act="del">删除</button></div>';
+  /* 左栏底部操作行：备注 / 删除日志（同小程序卡片直改）；跨班卡仅超管可删（非超管不渲染删除钮，deleteEntry 内同口径拦截） */
+  html += '<div class="log-acts"><button class="act-note" data-act="remark">备注</button>'
+    + (!e.cross_team || isAdmin() ? '<button class="act-del" data-act="del">删除</button>' : '') + '</div>';
   html += '</div><div class="log-side-r">';
 
   /* 照片网格（右栏）；出车卡渲染「添加照片」入口（网格尾部虚线块 / 空态框可点，同小程序）。
@@ -1824,6 +1860,21 @@ function chipSelIds(box) {
   return $$('.chip.on[data-cid]', box).map(function (b) { return +b.dataset.cid; });
 }
 
+/* 跨班日志用车人 chips：名称键（data-cid 为原串）；同名多班时名称后带来源班组小字（teams 拼「 · 检修一班/运维二班」） */
+function crossChipsHTML(list, sel, dis) {
+  return '<div class="chips">' + list.map(function (m) {
+    var on = sel.indexOf(m.name) >= 0;
+    var disabled = dis && dis.indexOf(m.name) >= 0;
+    var sub = (m.teams || []).length > 1 ? '<small> · ' + esc(m.teams.join('/')) + '</small>' : '';
+    return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-cid="' + esc(m.name) + '"'
+      + (disabled ? ' disabled' : '') + '>' + esc(m.name) + sub + '</button>';
+  }).join('') + '</div>';
+}
+/* 跨班模式按原串收集点亮项（名称键，不做 chipSelIds 的数字转换） */
+function chipSelCids(box) {
+  return $$('.chip.on[data-cid]', box).map(function (b) { return b.dataset.cid; });
+}
+
 /* PUT 全量替换口径（同小程序）：未出车时目的地/用车人强制置空 */
 function payloadOf(entry, patrol, vehicleId, destId, memberIds) {
   return {
@@ -1925,6 +1976,121 @@ async function openEntryForm(entry) {
     } catch (e) {
       saving = false;
       Shade.toast(e.message, 'error'); // 失败留弹层可重试（同小程序）
+    }
+  });
+}
+
+/* ---------- 跨班日志（仅超管；新建 / 编辑共用弹层，交互同 openEntryForm） ---------- */
+/* 跨班表单全局字典（归属班组 / 车辆 / 目的地 / 成员均为跨班组全集，成员同名多班时带来源班组），首次打开时拉取并缓存 */
+async function ensureCrossMeta() {
+  if (state.crossMeta) return state.crossMeta;
+  var r = await Shade.api(wl('/api/v1/worklog/logs/cross/meta'));
+  state.crossMeta = r.data || { teams: [], vehicles: [], destinations: [], members: [] };
+  return state.crossMeta;
+}
+
+async function openCrossForm(entry) {
+  try { await ensureCrossMeta(); } catch (e) { Shade.toast(e.message, 'error'); return; }
+  var meta = state.crossMeta;
+  var teamId = entry ? entry.team_id : state.teamId;
+  var plateNo = entry ? (entry.plate_no || '') : ''; // 跨班卡车牌为空串 = 未出车
+  var destName = entry ? (entry.destination_name || '') : '';
+  var memberNames = entry ? (entry.members || []).map(function (m) { return m.name; }) : [];
+  /* 当日占用按人名集合置灰（跨班卡用车人跨班组，id 不可比；编辑时排除本卡） */
+  var usedNames = [];
+  state.entries.forEach(function (e) {
+    if (entry && e.id === entry.id) return;
+    (e.members || []).forEach(function (m) {
+      if (usedNames.indexOf(m.name) < 0) usedNames.push(m.name);
+    });
+  });
+  var html = Shade.mHead(entry ? '修改跨班日志' : '新建跨班日志')
+    + '<div class="f-hint" style="margin:0 0 2px">' + esc(fmtDateCN(entry ? entry.log_date : state.date)) + '</div>'
+    + '<label class="f-lab">归属班组</label>' + comboHTML('cfTeam')
+    + '<label class="f-lab">派车车辆</label>' + comboHTML('cfVehicle')
+    + '<div id="cfDrive">'
+    + '<label class="f-lab">目的地</label>' + comboHTML('cfDest')
+    + '<label class="f-lab">用车人（点亮即为用车人' + (usedNames.length ? '；灰色 = 当日已在其他卡片' : '') + '）</label>' + crossChipsHTML(meta.members, memberNames, usedNames)
+    + '</div>'
+    + '<div class="f-hint" id="cfHint" style="display:none">未出车为站内作业，不参与验证，不可选目的地与用车人</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+  var inst = Shade.modal(html, { width: 520 });
+  var saving = false;
+  /* 归属班组 / 车牌 / 目的地为可输入筛选下拉（同 openEntryForm 口径）：onPick 记已选值，onEdit 清空（输入与已选不一致视为未选） */
+  var selTeamId = null;
+  var selPlate = null; // '' = 未出车
+  var selDest = null;  // '' = 未选择
+  function syncVehicle() {
+    var noCar = selPlate === '';
+    $('#cfDrive', inst.box).style.display = noCar ? 'none' : '';
+    $('#cfHint', inst.box).style.display = noCar ? '' : 'none';
+  }
+  var teamItems = meta.teams.map(function (t) { return { label: t.name, id: t.id }; });
+  var vehItems = [{ label: '未出车', id: '' }].concat(meta.vehicles.map(function (v) { return { label: v.name, id: v.name }; }));
+  var destItems = [{ label: '未选择', id: '' }].concat(meta.destinations.map(function (d) { return { label: d.name, id: d.name }; }));
+  var teamC = makeCombo(inst.box, 'cfTeam', {
+    onPick: function (it) { selTeamId = it.id; },
+    onEdit: function () { selTeamId = null; }
+  });
+  var destC = makeCombo(inst.box, 'cfDest', {
+    onPick: function (it) { selDest = it.id; },
+    onEdit: function () { selDest = null; }
+  });
+  var vehC = makeCombo(inst.box, 'cfVehicle', {
+    onPick: function (it) { selPlate = it.id; syncVehicle(); },
+    onEdit: function () { selPlate = null; syncVehicle(); }
+  });
+  /* 回填：新建归属默认当前生效班组、默认「未出车」；编辑回填原班组 / 车牌 / 目的地（未选则「未选择」） */
+  teamC.setItems(teamItems, '输入关键字筛选或直接选择');
+  vehC.setItems(vehItems, '输入关键字筛选或直接选择');
+  destC.setItems(destItems, '输入关键字筛选或直接选择');
+  var hitT = teamItems.filter(function (it) { return it.id === teamId; })[0];
+  if (hitT) { teamC.setValue(hitT); selTeamId = hitT.id; }
+  var hitV = vehItems.filter(function (it) { return it.id === plateNo; })[0] || vehItems[0];
+  vehC.setValue(hitV);
+  selPlate = hitV.id;
+  var hitD = destItems.filter(function (it) { return it.id === destName; })[0] || destItems[0];
+  destC.setValue(hitD);
+  selDest = hitD.id;
+  syncVehicle();
+  bindChips(inst.box);
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    if (saving) return;
+    if (selTeamId == null) { Shade.toast('请从下拉列表选择归属班组', 'info'); return; }
+    if (selPlate == null) { Shade.toast('请从下拉列表选择派车车辆', 'info'); return; }
+    if (selDest == null && $('#cfDest .combo-in', inst.box).value.trim()) {
+      Shade.toast('请从下拉列表选择目的地', 'info');
+      return;
+    }
+    /* body.team_id 为归属班组（生效班组 team_id 由 wl() 走 query）；车牌空串 = 未出车，未出车时目的地 / 用车人强制置空 */
+    var body = {
+      team_id: selTeamId,
+      plate_no: selPlate || '',
+      destination: selPlate ? (selDest || '') : '',
+      member_names: selPlate ? chipSelCids(inst.box) : [],
+      patrol_content: entry ? (entry.patrol_content || '') : '' // 编辑带原值（本表单不改巡视内容）
+    };
+    if (!entry) body.log_date = state.date;
+    /* 改派车保存前确认内网派车单已同步修改（同 openEntryForm）；新建直接保存 */
+    if (entry) {
+      var yes = await confirmAction({ title: '保存派车修改', content: '请确保内网派车单同步修改！', confirmText: '我确认已修改' });
+      if (!yes) return;
+    }
+    saving = true;
+    try {
+      if (entry) {
+        await Shade.api(wl('/api/v1/worklog/logs/cross/' + entry.id), { method: 'PUT', body: body });
+      } else {
+        await Shade.api(wl('/api/v1/worklog/logs/cross'), { method: 'POST', body: body });
+      }
+      inst.close();
+      Shade.toast(entry ? '已保存' : '已新建', 'success');
+      refreshAfterEdit();
+    } catch (e) {
+      saving = false;
+      Shade.toast(e.message, 'error'); // 失败留弹层可重试（同 openEntryForm）
     }
   });
 }
@@ -2846,6 +3012,8 @@ function openTowerModal(onPick) {
 
 /* ---------- 删除日志（卡片内照片一并删除） ---------- */
 async function deleteEntry(entry) {
+  /* 跨班卡仅超管可删（卡片已对非超管隐藏删除钮，此处兜底拦截；后端 40304 同口径） */
+  if (entry.cross_team && !isAdmin()) { Shade.toast('跨班日志仅超级管理员可删除', 'info'); return; }
   var yes = await confirmAction({ title: '删除日志', content: '删除后不可恢复，卡片内照片一并删除，确定删除吗？', confirmText: '删除', danger: true });
   if (!yes) return;
   try {
@@ -3052,6 +3220,39 @@ function renderPA() {
   }
   $('#paBody').innerHTML = html;
   renderPaFiles();
+}
+
+/* ----- 每日自动同步派车单开关（按生效班组；仅超管 / 班组管理员可见本页签） ----- */
+/* 状态拉取渲染（PA 页签展示与生效班组变更时调用） */
+async function loadPaSyncSwitch() {
+  try {
+    var r = await Shade.api(wl('/api/v1/worklog/dispatch/sync-switch'));
+    $('#paSyncSw').classList.toggle('on', !!(r.data && r.data.enabled));
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* 开关点击：确认后 PUT，先乐观渲染、失败回退 */
+async function togglePaSyncSwitch() {
+  var sw = $('#paSyncSw');
+  var target = !sw.classList.contains('on');
+  var yes = await confirmAction({
+    title: target ? '开启每日自动同步' : '关闭每日自动同步',
+    content: target
+      ? '开启后每日 09:40 自动取回当日派车单，按本班成员匹配建出车卡片，确定开启吗？'
+      : '关闭后不再每日自动取回当日派车单建卡，确定关闭吗？',
+    confirmText: target ? '开启' : '关闭'
+  });
+  if (!yes) return;
+  sw.classList.toggle('on', target);
+  try {
+    await Shade.api(wl('/api/v1/worklog/dispatch/sync-switch'), { method: 'PUT', body: { enabled: target } });
+    Shade.toast(target ? '已开启每日自动同步' : '已关闭每日自动同步', 'success');
+  } catch (e) {
+    sw.classList.toggle('on', !target); // 失败回退
+    Shade.toast(e.message, 'error');
+  }
 }
 
 /* 上传并对齐（apiRaw 请求，响应自行解析 JSON；team_id 经 wl() 走 query，同杆塔导入口径） */
@@ -3857,17 +4058,18 @@ function switchPane(key) {
   $$('#wlTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === key); });
   moveWlTabInd($('#wlTabs button.on'));
   $$('.wl-list .pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane' + key); });
-  /* 记录页专属控件（新建 / 计数 / 从商旅拉取）仅记录页显示；「全部 / 仅看我」为全局开关，六个页签常驻 */
+  /* 记录页专属控件（新建 / 计数 / 从商旅拉取 / 跨班日志）仅记录页显示；「全部 / 仅看我」为全局开关，六个页签常驻 */
   var isRec = key === 'Record';
   $('#photoCnt').hidden = !isRec;
   $('#btnCreate').hidden = !isRec;
+  $('#btnCross').hidden = !isRec || !isAdmin(); // 跨班日志入口仅超管可见
   $('#btnSyncCheck').hidden = !isRec;
   /* 下载页签首次进入按默认范围自动加载；汇总前核验每次切回都重查（卡片可直改备注，避免陈旧数据）；
-     数据管理每次切回都重拉（字典可能被其他管理员改动）；派车对齐每次切回重渲染（本地状态，零开销） */
+     数据管理每次切回都重拉（字典可能被其他管理员改动）；派车对齐每次切回重渲染（本地状态，零开销）并拉取自动同步开关状态 */
   if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
   if (key === 'Rep') loadReport();
   if (key === 'Dict') loadDict();
-  if (key === 'PA') renderPA();
+  if (key === 'PA') { renderPA(); loadPaSyncSwitch(); }
   syncSideReport();
 }
 
@@ -4153,11 +4355,10 @@ async function loadReport() {
     var r = await Shade.api(wl('/api/v1/worklog/report?from=' + from + '&to=' + to
       + '&scope=' + state.scope));
     /* 汇总前核验：范围收窄为仅未通过记录（verify==='failed'，前端筛即可），有备注的记录不再在此列出。
-       「其余 N 条」口径：接口返回（未通过 ∪ 有备注）中核查通过（含免验证）的条数——
-       通过且无备注的记录不在接口返回内，不计入 N */
-    var all = (r.data && r.data.list) || [];
-    var okN = all.filter(function (x) { return x.verify !== 'failed'; }).length;
-    var list = all.filter(function (x) { return x.verify === 'failed'; });
+       total 为接口新口径（范围内记录全量条数），其余 = 范围内全量 − 未通过数 */
+    var total = (r.data && r.data.total) || 0;
+    var list = ((r.data && r.data.list) || []).filter(function (x) { return x.verify === 'failed'; });
+    var okN = total - list.length;
     state.rep.loaded = true;
     $('#repTotal').textContent = '合计 ' + list.length + ' 条未通过';
     if (!list.length) {
@@ -4235,7 +4436,8 @@ function initEvents() {
   bindRangeInput('#fsFrom', '#fsTo', state.fs, null);
   $('#fsPrev').addEventListener('click', function () { feeSheetPreview(this); });
   $('#fsDl').addEventListener('click', function () { feeSheetDownload(this); });
-  /* 派车对齐页签：选文件 / 移除文件 / 开始对齐 / 清单行打开对照弹层 */
+  /* 派车对齐页签：选文件 / 移除文件 / 开始对齐 / 清单行打开对照弹层 / 每日自动同步开关 */
+  $('#paSyncSw').addEventListener('click', togglePaSyncSwitch);
   $('#paPick').addEventListener('click', function () { $('#paFileInput').click(); });
   $('#paGo').addEventListener('click', paAlign);
   $('#paFileInput').addEventListener('change', function () {
@@ -4262,6 +4464,7 @@ function initEvents() {
   });
   window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); syncSideReport(); });
   $('#btnCreate').addEventListener('click', function () { openEntryForm(null); });
+  $('#btnCross').addEventListener('click', function () { openCrossForm(null); });
   $('#btnSyncCheck').addEventListener('click', function () { openSyncCheck(); });
   /* 下载页签：内联起止日期（改动合法即回写并重新查询）/ 全选 / 缩略图勾选 / 打包下载（仅看我走页头全局开关） */
   bindRangeInput('#dlFrom', '#dlTo', state.dl, loadDlPhotos);
@@ -4371,7 +4574,16 @@ function initEvents() {
       var entry = card && findEntry(+card.dataset.eid);
       if (!entry) return;
       var act = actEl.dataset.act;
-      if (act === 'edit') { openEntryForm(entry); return; }
+      /* 跨班卡改派车：仅超管（走跨班表单 openCrossForm），其余角色拦截提示（后端 40304 同口径） */
+      if (act === 'edit') {
+        if (entry.cross_team) {
+          if (!isAdmin()) { Shade.toast('跨班日志仅超级管理员可修改派车', 'info'); return; }
+          openCrossForm(entry);
+          return;
+        }
+        openEntryForm(entry);
+        return;
+      }
       if (act === 'patrol') { openPatrolModal(entry); return; }
       if (act === 'remark') { openRemarkModal(entry); return; }
       if (act === 'del') { deleteEntry(entry); return; }
@@ -4441,7 +4653,7 @@ function reloadTeamData() {
   if (state.pane === 'Dl') loadDlPhotos();
   if (state.pane === 'Rep') loadReport();
   if (state.pane === 'Dict') loadDict(); // 数据管理页签随动刷新
-  if (state.pane === 'PA') renderPA(); // 派车对齐页签随动刷新（结果已清空，回初始态）
+  if (state.pane === 'PA') { renderPA(); loadPaSyncSwitch(); } // 派车对齐页签随动刷新（结果已清空，回初始态；开关状态按新生效班组重拉）
   syncSideReport(); // 宽屏常驻核验栏随班组切换重查
 }
 
@@ -4465,6 +4677,7 @@ async function init() {
   });
   moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
   $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
+  $('#btnCross').innerHTML = Shade.icon('usergroup', 15) + '跨班日志';
   $('#btnSyncCheck').innerHTML = Shade.icon('refresh', 15) + '从商旅拉取';
   $('#slIc').innerHTML = Shade.icon('refresh', 22); // 全局锁遮罩图标
   setInterval(checkSyncLock, 15000); // 批量同步全局锁空闲探测（锁定中 1.5s 轮询，见 pollSyncLock）
@@ -4500,6 +4713,7 @@ async function init() {
     $('#tabFS').style.display = '';
     $('#tabPA').style.display = '';
   }
+  if (me.role === 'admin') $('#btnCross').hidden = false; // 跨班日志入口仅超管可见（非记录页签时由 switchPane 再隐藏）
   if (me.role !== 'admin' && !me.team_id) {
     renderNoTeam();
     Shade.reveal();

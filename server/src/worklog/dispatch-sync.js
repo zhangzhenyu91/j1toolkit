@@ -1,12 +1,14 @@
 // 派车单每日自动同步：每日固定时点经 KVM 文件传输链路取回被控机导出的「yyyy-mm-dd-派车单.xlsx」，
-// 按本班成员匹配自动建出车卡片。仅配置班组生效（WORKLOG_DISPATCH_SYNC_TEAM，目前仅检修一班，其他班组不开启）。
+// 按各开启班组的成员匹配自动建出车卡片。生效班组以 worklog_dispatch_sync_team 开关表为准
+//（班组管理员/超管在「派车对齐」页按班组开关；env WORKLOG_DISPATCH_SYNC_TEAM 仅作首次启动种子）。
 // 每日流程（北京时间，时区换算同 sgccclockin 固定 UTC+8 口径）：
 //   09:25 准备：锁定设备（devlock 维护锁，远程连接/文件传输对该设备暂停）→ 设备 /mount 把 U 盘挂载（共享）至被控机端
 //   09:30 被控机脚本导出派车单到 U 盘（scripts/export_dispatch_orders.py，被控机本机 crontab，不在本服务范围）
 //   09:40 取件：下载当日文件（设备 fileshare 下载内部先 ensure_unshared，自动把 U 盘切回 KVM 侧）
-//         → 删除 U 盘中该文件 → 解析建卡 → 解禁设备 → 结果通知（每日必发：超管 + 本班班组管理员）
+//         → 删除 U 盘中该文件 → 解析建卡 → 解禁设备 → 结果通知（每日必发：按班组分发，超管 + 对应班组管理员）
 // 建卡口径（用户指定）：A 列车牌（剔除「(蓝)/(绿)」等颜色后缀）、E 列用车人、J 列目的地；导出件仅含当日派车单无需读时间；
 //   用车人串「含有」本班启用成员姓名（子串）的记录保留；同一人同日只挂一张卡，多条记录含同一人时由匹配班组人名最多的记录胜出；
+//   用车人含多个班组人名（按全部启用班组成员字典判定，同名跨班多班都算）的记录仅通知不建卡（交由超管建跨班日志）；
 //   车牌须本班启用字典精确命中、目的地按 destSame 模糊命中，未命中不建卡仅入通知（人工补字典后建卡）
 const XLSX = require('xlsx');
 const axios = require('axios');
@@ -45,14 +47,13 @@ function nextDailyRunUtc(hh, mm) {
   return { nextUtc, now };
 }
 
-// 生效班组：仅配置班组名（sys_team 启用中），其他班组不开启
-async function resolveTeam() {
+// 生效班组：开关表 worklog_dispatch_sync_team 中仍启用的班组（在表即开启；无开启班组时任务跳过）
+async function resolveTeams() {
   const [rows] = await pool.query(
-    'SELECT id, name FROM sys_team WHERE name = ? AND status = 1 LIMIT 1',
-    [cfg().team]
+    `SELECT t.id, t.name FROM worklog_dispatch_sync_team s
+     JOIN sys_team t ON t.id = s.team_id AND t.status = 1 ORDER BY t.sort, t.id`
   );
-  if (!rows.length) throw new Error(`班组「${cfg().team}」不存在或已停用`);
-  return rows[0];
+  return rows;
 }
 
 // 目标设备：按配置 ddns 在同步账号可见设备中精确匹配；MAC 归一化校验（防设备更换后误操作他机）
@@ -195,27 +196,36 @@ function planCards(rows, teamMembers, vehicles, destinations, assignedIds) {
 
 /* ===== 库操作与通知 ===== */
 
-// 解析 + 计划 + 落库建卡 → 汇总对象（created/skippedDict/outside/dropped/total）
-async function importOrders(team, buffer, today) {
+// 解析 + 行级班组判定 + 逐班组计划落库 → { results, outside, otherTeam, dropped, total }
+// results 每项 { team, created, skippedDict, cross }：cross 为涉及该班但含多班人名的记录（仅通知不建卡）
+async function importOrdersMulti(teams, buffer, today) {
   const { rows, dropped } = parseOrders(buffer);
-  const [members] = await pool.query(
-    'SELECT id, name, sort FROM worklog_member WHERE status = 1 AND team_id = ? ORDER BY sort, id',
-    [team.id]
+  // 全部启用班组的启用成员（跨班判定口径；含未开启班组，避免给本班建出缺人的卡）
+  const [allMembers] = await pool.query(
+    `SELECT m.id, m.name, m.sort, m.team_id, t.name AS team_name
+     FROM worklog_member m JOIN sys_team t ON t.id = m.team_id AND t.status = 1
+     WHERE m.status = 1 ORDER BY m.team_id, m.sort, m.id`
   );
-  const [vehicles] = await pool.query(
-    'SELECT id, plate_no FROM worklog_vehicle WHERE status = 1 AND team_id = ?',
-    [team.id]
-  );
-  const [destinations] = await pool.query(
-    'SELECT id, name FROM worklog_destination WHERE status = 1 AND team_id = ?',
-    [team.id]
-  );
-  // 同日已挂卡成员（未出车卡无成员天然不含），同日期同人唯一与 POST /logs 口径一致
-  const entries = await loadEntries(team.id, today, today);
-  const assignedIds = new Set();
-  entries.forEach((e) => e.memberList.forEach((m) => assignedIds.add(m.member_id)));
-
-  const { plans, skippedDict, outside } = planCards(rows, members, vehicles, destinations, assignedIds);
+  // 行级 involvedTeams：用车人串子串含有的成员所属班组集合（同名跨班则多班都算）
+  const rowTeams = rows.map((row) => {
+    const set = new Set();
+    allMembers.forEach((m) => { if (m.name && row.userText.includes(m.name)) set.add(m.team_id); });
+    return set;
+  });
+  const enabledIds = new Set(teams.map((t) => t.id));
+  const crossIdx = []; // 含多个班组人名的行序：仅通知不创建
+  const byTeam = new Map(); // 开启班组 team_id → 候选行
+  let outside = 0; // 不含任何班组成员
+  let otherTeam = 0; // 仅含未开启班组成员
+  rows.forEach((row, i) => {
+    const set = rowTeams[i];
+    if (set.size > 1) { crossIdx.push(i); return; }
+    if (set.size === 0) { outside += 1; return; }
+    const tid = [...set][0];
+    if (!enabledIds.has(tid)) { otherTeam += 1; return; }
+    if (!byTeam.has(tid)) byTeam.set(tid, []);
+    byTeam.get(tid).push(row);
+  });
 
   // 系统建卡 created_by 取管理员账号（缺省回退首个超管）
   const [creator] = await pool.query(
@@ -225,37 +235,61 @@ async function importOrders(team, buffer, today) {
   if (!creator.length) throw new Error('未找到管理员账号作为建卡人');
   const createdBy = creator[0].id;
 
-  const created = [];
-  for (const p of plans) {
-    const [r] = await pool.query(
-      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-      [team.id, today, '', p.vehicle.id, p.destination ? p.destination.id : null, createdBy]
+  const results = [];
+  for (const team of teams) {
+    const teamRows = byTeam.get(team.id) || [];
+    const members = allMembers.filter((m) => m.team_id === team.id);
+    const [vehicles] = await pool.query(
+      'SELECT id, plate_no FROM worklog_vehicle WHERE status = 1 AND team_id = ?',
+      [team.id]
     );
-    for (const m of p.members) {
-      await pool.query(
-        'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
-        [r.insertId, m.id, m.sort]
+    const [destinations] = await pool.query(
+      'SELECT id, name FROM worklog_destination WHERE status = 1 AND team_id = ?',
+      [team.id]
+    );
+    // 同日已挂卡成员（未出车卡无成员天然不含），同日期同人唯一与 POST /logs 口径一致
+    const entries = await loadEntries(team.id, today, today);
+    const assignedIds = new Set();
+    entries.forEach((e) => e.memberList.forEach((m) => assignedIds.add(m.member_id)));
+
+    // planCards 的 outside 返回值在此不用（行级班组判定已在上方全局完成）
+    const { plans, skippedDict } = planCards(teamRows, members, vehicles, destinations, assignedIds);
+
+    const created = [];
+    for (const p of plans) {
+      const [r] = await pool.query(
+        'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+        [team.id, today, '', p.vehicle.id, p.destination ? p.destination.id : null, createdBy]
       );
+      for (const m of p.members) {
+        await pool.query(
+          'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
+          [r.insertId, m.id, m.sort]
+        );
+      }
+      created.push({
+        id: r.insertId,
+        plate: p.vehicle.plate_no,
+        destination: p.destination ? p.destination.name : '',
+        members: p.members.map((m) => m.name),
+      });
     }
-    created.push({
-      id: r.insertId,
-      plate: p.vehicle.plate_no,
-      destination: p.destination ? p.destination.name : '',
-      members: p.members.map((m) => m.name),
-    });
+    const cross = crossIdx.filter((i) => rowTeams[i].has(team.id)).map((i) => rows[i]);
+    results.push({ team, created, skippedDict, cross });
   }
-  return { created, skippedDict, outside, dropped, total: rows.length };
+  return { results, outside, otherTeam, dropped, total: rows.length };
 }
 
-// 同步结果通知：超管 + 本班启用班组管理员（teamId 空时仅超管，如班组解析失败场景）；通知失败仅记日志
-async function notify(title, lines, teamId) {
+// 同步结果通知：超管 + 指定班组启用班组管理员（teamIds 空时仅超管，如班组解析失败场景）；通知失败仅记日志
+async function notify(title, lines, teamIds) {
   try {
     const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
     let teamAdmins = [];
-    if (teamId) {
+    const ids = (teamIds || []).filter(Boolean);
+    if (ids.length) {
       [teamAdmins] = await pool.query(
-        "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id = ? AND status = 1",
-        [teamId]
+        "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id IN (?) AND status = 1",
+        [ids]
       );
     }
     const userIds = [...new Set([...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)])];
@@ -270,9 +304,13 @@ async function notify(title, lines, teamId) {
 
 // 09:25 准备：锁定设备 → U 盘挂载至被控机；失败立即解禁并通知（取件任务仍按自身排程执行）
 async function prepareJob() {
-  let team = null;
+  let teams = [];
   try {
-    team = await resolveTeam();
+    teams = await resolveTeams();
+    if (!teams.length) {
+      console.log('[派车单同步] 无开启班组，准备任务跳过');
+      return;
+    }
     const dev = await findDevice();
     await devlock.lock(dev.ddns, LOCK_REASON);
     console.log(`[派车单同步] 设备 ${dev.ddns} 已锁定，正在挂载 U 盘至被控机 …`);
@@ -284,21 +322,25 @@ async function prepareJob() {
     await notify('派车单同步准备失败', [
       `每日准备任务（锁定设备并挂载 U 盘至被控机）失败：${err.message}`,
       '设备已解禁；今日取件任务仍将按排程尝试执行。',
-    ], team && team.id);
+    ], teams.map((t) => t.id));
   }
 }
 
 let fetching = false; // 取件重入守卫（定时与手动触发共用）
 
-// 09:40 取件：下载 → 删除 U 盘文件 → 解析建卡 → 解禁（finally 保证）→ 每日结果通知；返回结果对象供手动触发回显
+// 09:40 取件：下载 → 删除 U 盘文件 → 解析建卡 → 解禁（finally 保证）→ 每日结果通知（按班组分发）；返回结果对象供手动触发回显
 async function fetchJob() {
   if (fetching) return { ok: false, message: '已有取件任务在执行中，请稍后再试' };
   fetching = true;
   const today = todayCn();
   const fileName = `${today}-派车单.xlsx`;
-  let team = null;
+  let teams = [];
   try {
-    team = await resolveTeam();
+    teams = await resolveTeams();
+    if (!teams.length) {
+      console.log('[派车单同步] 无开启班组，取件任务跳过');
+      return { ok: true, message: '当前没有开启派车同步的班组（在「派车对齐」页按班组开启）' };
+    }
     const dev = await findDevice();
     const buf = await downloadFile(dev, fileName);
     if (!buf) {
@@ -306,7 +348,7 @@ async function fetchJob() {
         `${today} 未在设备 U 盘中找到「${fileName}」。`,
         '可能为当日无派车单，或被控机导出脚本异常（排障见 scripts/README.md）。',
       ];
-      await notify('派车单同步：今日无文件', lines, team.id);
+      await notify('派车单同步：今日无文件', lines, teams.map((t) => t.id));
       return { ok: true, message: lines.join('\n') };
     }
     console.log(`[派车单同步] 已下载 ${fileName}（${(buf.length / 1024).toFixed(1)} KB）`);
@@ -315,29 +357,39 @@ async function fetchJob() {
     } catch (err) {
       console.error('[派车单同步] U 盘文件删除失败（文件已下载，继续建卡）：', err.message);
     }
-    const r = await importOrders(team, buf, today);
-    const lines = [
-      `${today} 派车单同步完成：解析 ${r.total} 行（剔除 ${r.dropped} 行已取消/无车牌、${r.outside} 行非本班用车人），新建 ${r.created.length} 张出车卡片。`,
-    ];
-    r.created.forEach((c) =>
-      lines.push(`· ${c.plate}${c.destination ? ` → ${c.destination}` : ''}：${c.members.join('、')}`)
-    );
-    if (r.skippedDict.length) {
-      lines.push('以下记录因字典未命中未建卡，请将车牌/目的地先入字典后人工建卡：');
-      r.skippedDict.forEach((s) =>
-        lines.push(`· ${s.plate}${s.to ? ` → ${s.to}` : ''}（用车人：${s.userText}）：${s.reason}`)
+    const r = await importOrdersMulti(teams, buf, today);
+    const messages = [];
+    for (const res of r.results) {
+      const lines = [
+        `${today} 派车单同步完成：解析 ${r.total} 行（剔除 ${r.dropped} 行已取消/无车牌、${r.outside} 行非班组用车、${r.otherTeam} 行仅属未开启班组），本班新建 ${res.created.length} 张出车卡片。`,
+      ];
+      res.created.forEach((c) =>
+        lines.push(`· ${c.plate}${c.destination ? ` → ${c.destination}` : ''}：${c.members.join('、')}`)
       );
+      if (res.skippedDict.length) {
+        lines.push('以下记录因字典未命中未建卡，请将车牌/目的地先入字典后人工建卡：');
+        res.skippedDict.forEach((s) =>
+          lines.push(`· ${s.plate}${s.to ? ` → ${s.to}` : ''}（用车人：${s.userText}）：${s.reason}`)
+        );
+      }
+      if (res.cross.length) {
+        lines.push('以下记录用车人含多个班组人名，仅通知不建卡（如需建卡请联系超级管理员建跨班日志）：');
+        res.cross.forEach((s) =>
+          lines.push(`· ${s.plate}${s.to ? ` → ${s.to}` : ''}（用车人：${s.userText}）`)
+        );
+      }
+      await notify(`派车单同步完成（${res.team.name}）`, lines, [res.team.id]);
+      messages.push(`【${res.team.name}】\n${lines.join('\n')}`);
+      console.log(`[派车单同步] ${today} ${res.team.name} 完成：新建 ${res.created.length} 张出车卡片`);
     }
-    await notify('派车单同步完成', lines, team.id);
-    console.log(`[派车单同步] ${today} 完成：新建 ${r.created.length} 张出车卡片`);
-    return { ok: true, message: lines.join('\n') };
+    return { ok: true, message: messages.join('\n\n') };
   } catch (err) {
     console.error('[派车单同步] 取件任务失败：', err.message);
     const lines = [
       `${today} 取件任务失败：${err.message}`,
       '设备已解禁。可人工在出工日志「派车对齐」导入导出件，或由字典管理员调 POST /api/v1/worklog/dispatch/sync-now 补跑。',
     ];
-    await notify('派车单同步失败', lines, team && team.id);
+    await notify('派车单同步失败', lines, teams.map((t) => t.id));
     return { ok: false, message: lines.join('\n') };
   } finally {
     fetching = false;
@@ -364,8 +416,8 @@ function scheduleDaily(timeStr, job, label) {
 
 // 由 worklog 入口在满足条件时调用（WORKLOG_ENABLED 门控挂载 + KVM_ENABLED + WORKLOG_DISPATCH_SYNC_ENABLED）
 function start() {
-  if (!cfg().team || !cfg().deviceDdns) {
-    console.error('[派车单同步] 未配置生效班组或设备 ddns（WORKLOG_DISPATCH_SYNC_TEAM / WORKLOG_DISPATCH_DEVICE_DDNS），同步停用');
+  if (!cfg().deviceDdns) {
+    console.error('[派车单同步] 未配置设备 ddns（WORKLOG_DISPATCH_DEVICE_DDNS），同步停用');
     return;
   }
   scheduleDaily(cfg().prepareTime, prepareJob, '每日准备（锁定并挂载 U 盘）');

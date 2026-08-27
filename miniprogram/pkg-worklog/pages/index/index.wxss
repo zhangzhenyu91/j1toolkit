@@ -278,6 +278,19 @@ page {
   letter-spacing: 1rpx;
 }
 
+/* 跨班日志徽章：橙色描边小签（紧跟车牌，同网页端 .tag-cross 与身份标签规范） */
+.tag-cross {
+  flex: none;
+  border: 2rpx solid #f26d21;
+  color: #f26d21;
+  border-radius: 8rpx;
+  padding: 0 12rpx;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 32rpx;
+  white-space: nowrap;
+}
+
 /* 记录验证状态角标（描边徽章） */
 .badge {
   margin-left: auto;

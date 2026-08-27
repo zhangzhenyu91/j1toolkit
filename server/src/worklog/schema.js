@@ -26,6 +26,7 @@ const DDL = [
     remark_files JSON NULL COMMENT '备注附件 [{name,url,cos_key,type,size}]（type=image/video/doc）',
     vehicle_id BIGINT UNSIGNED NULL COMMENT '车牌，关联 worklog_vehicle.id；NULL=未出车',
     destination_id BIGINT UNSIGNED NULL COMMENT '目的地，关联 worklog_destination.id',
+    cross_team TINYINT NOT NULL DEFAULT 0 COMMENT '跨班日志：1 用车人含非归属班组成员（仅超管可建/删/改派车）',
     created_by BIGINT UNSIGNED NOT NULL COMMENT '创建人，关联 sys_user.id',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -97,6 +98,11 @@ const DDL = [
     lat VARCHAR(32) NOT NULL DEFAULT '' COMMENT '纬度',
     sort INT NOT NULL DEFAULT 0 COMMENT '行序（导入顺序）',
     KEY idx_team (team_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS worklog_dispatch_sync_team (
+    team_id BIGINT UNSIGNED NOT NULL PRIMARY KEY COMMENT '开启每日派车单同步的班组，关联 sys_team.id；在表即开启',
+    created_by BIGINT UNSIGNED NULL COMMENT '操作人，关联 sys_user.id（NULL=env 种子）',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
 
@@ -225,6 +231,7 @@ async function ensureWorklogSchema(pool) {
   const ENTRY_NEW_COLUMNS = [
     ['remark', `remark TEXT NULL COMMENT '备注（可空）' AFTER patrol_content`],
     ['remark_files', `remark_files JSON NULL COMMENT '备注附件 [{name,url,cos_key,type,size}]（type=image/video/doc）' AFTER remark`],
+    ['cross_team', `cross_team TINYINT NOT NULL DEFAULT 0 COMMENT '跨班日志：1 用车人含非归属班组成员（仅超管可建/删/改派车）' AFTER destination_id`],
   ];
   for (const [col, ddl] of ENTRY_NEW_COLUMNS) {
     const [cols] = await pool.query(
@@ -271,6 +278,17 @@ async function ensureWorklogSchema(pool) {
     await pool.query(
       'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
       [adminRows[0].id, APP_WORK_LOG.key]
+    );
+  }
+
+  // 派车单每日同步开关种子：env WORKLOG_DISPATCH_SYNC_TEAM 配置的启用班组一次性写入开关表
+  // （在表即开启；之后以开关表/管理开关为准，env 改动不再生效）
+  const seedTeamName = config.worklog.dispatchSync && config.worklog.dispatchSync.team;
+  if (seedTeamName) {
+    await pool.query(
+      `INSERT IGNORE INTO worklog_dispatch_sync_team (team_id)
+       SELECT id FROM sys_team WHERE name = ? AND status = 1`,
+      [seedTeamName]
     );
   }
 }

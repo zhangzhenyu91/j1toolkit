@@ -129,7 +129,7 @@
               <t-cell
                 title="关于 Shade 壹匣"
                 left-icon="book"
-                note="v3.4.1k"
+                note="v3.5.0k"
                 arrow
                 hover
                 bordered="{{false}}"

@@ -69,7 +69,8 @@ const config = {
     // 高德开放平台控制台 lbs.amap.com 创建应用，key 类型须为「Web 服务」
     amapMapKey: str('AMAP_MAP_KEY'),
     // 派车单每日自动同步（经 KVM 文件传输链路取回被控机导出件自动建卡；需同时开启 KVM）
-    // 仅配置的班组生效（目前仅检修一班）；设备以 ddns 定位、MAC 校验防误操作他机
+    // 生效班组以 worklog_dispatch_sync_team 开关表为准（班组管理员/超管在「派车对齐」页按班组开关）；
+    // team 仅为首次启动的种子开启班组（写入开关表后不再生效）；设备以 ddns 定位、MAC 校验防误操作他机
     dispatchSync: {
       enabled: str('WORKLOG_DISPATCH_SYNC_ENABLED') === 'true',
       team: str('WORKLOG_DISPATCH_SYNC_TEAM'),

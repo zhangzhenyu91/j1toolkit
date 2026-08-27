@@ -1,5 +1,7 @@
 // 出工日志路由：全部接口需登录 + work-log 应用权限 + 生效班组（req.team，见 utils/team.js）；
-// /admin/* 字典接口超管可管任意班组（?team_id= 指定），班组管理员仅本班
+// /admin/* 字典接口超管可管任意班组（?team_id= 指定），班组管理员仅本班；
+// 跨班日志（cross_team=1，仅超管经 /logs/cross/* 建/改派车）在用车人所在各班组可见可互动（ENTRY_VISIBLE），
+// 但 汇总前核验/批量下载/批量从商旅同步/派车对齐/费用汇总/工作任务单 仅参与归属班组（那些路由仍按 e.team_id 过滤）
 // 业务规则与设计稿见《开发指南》第四、七章与 design/worklog.html
 const express = require('express');
 const archiver = require('archiver');
@@ -9,6 +11,7 @@ const XLSX = require('xlsx');
 const { Readable } = require('stream');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
+const requireAdmin = require('../middleware/requireAdmin');
 const { pool } = require('../db');
 const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
@@ -55,6 +58,19 @@ function requireDictAdmin(req, res, next) {
   return fail(res, 403, 40304, '仅管理员可执行此操作');
 }
 
+// 卡片可见性 SQL 片段（别名 e）：本班卡 + 用车人含本班成员的跨班日志（cross_team=1）；参数按顺序传两份 team.id
+// 仅用于日志查看与卡上互动（打卡/照片/备注等）；六个汇总类功能（/report、/photos 批量下载、派车对齐、
+// 工作任务单、费用汇总、商旅同步）不使用本片段——跨班日志仅参与归属班组
+const ENTRY_VISIBLE = `(e.team_id = ? OR (e.cross_team = 1 AND e.id IN (
+  SELECT em.entry_id FROM worklog_entry_member em JOIN worklog_member m ON m.id = em.member_id
+  WHERE m.team_id = ?)))`;
+
+// 解析卡片归属班组（跨班卡可被别班访问，COS 路径/商旅任务锁等归属口径一律用归属班组）
+async function ownerTeamOf(entryTeamId, reqTeam) {
+  if (entryTeamId === reqTeam.id) return reqTeam;
+  return teamUtil.getTeamById(entryTeamId);
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
@@ -93,7 +109,7 @@ async function loadEntries(where, params) {
   );
   const [entries] = await pool.query(
     `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.patrol_content,
-            e.remark, e.remark_files,
+            e.remark, e.remark_files, e.cross_team,
             e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name,
             e.created_by, e.created_at
      FROM worklog_entry e
@@ -250,14 +266,14 @@ router.get('/meta', async (req, res, next) => {
   }
 });
 
-// GET /logs?date=YYYY-MM-DD&scope=all|mine：某日卡片全量；scope=mine 仅含用车人包含自己的卡片
+// GET /logs?date=YYYY-MM-DD&scope=all|mine：某日卡片全量（含用车人含本班成员的跨班日志）；scope=mine 仅含用车人包含自己的卡片
 router.get('/logs', async (req, res, next) => {
   try {
     const { date } = req.query;
     if (!DATE_RE.test(date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     if (!req.team) return ok(res, { list: [] });
-    let where = 'e.log_date = ? AND e.team_id = ?';
-    const params = [date, req.team.id];
+    let where = `e.log_date = ? AND ${ENTRY_VISIBLE}`;
+    const params = [date, req.team.id, req.team.id];
     if (req.query.scope === 'mine') {
       const me = await myMember(req);
       if (!me) return ok(res, { list: [] });
@@ -284,8 +300,8 @@ router.get('/day-status', async (req, res, next) => {
       const me = await myMember(req);
       if (!me) return ok(res, { map: {} });
       const list = await loadEntries(
-        `DATE_FORMAT(e.log_date, '%Y-%m') = ? AND e.team_id = ? AND e.id IN (SELECT entry_id FROM worklog_entry_member WHERE member_id = ?)`,
-        [month, req.team.id, me.id]
+        `DATE_FORMAT(e.log_date, '%Y-%m') = ? AND ${ENTRY_VISIBLE} AND e.id IN (SELECT entry_id FROM worklog_entry_member WHERE member_id = ?)`,
+        [month, req.team.id, req.team.id, me.id]
       );
       const map = {};
       list.forEach((e) => {
@@ -301,7 +317,7 @@ router.get('/day-status', async (req, res, next) => {
       return ok(res, { map });
     }
 
-    const list = await loadEntries(`DATE_FORMAT(e.log_date, '%Y-%m') = ? AND e.team_id = ?`, [month, req.team.id]);
+    const list = await loadEntries(`DATE_FORMAT(e.log_date, '%Y-%m') = ? AND ${ENTRY_VISIBLE}`, [month, req.team.id, req.team.id]);
     const map = {};
     list.forEach((e) => {
       if (e.verify_passed === 'exempt') return; // 免验证不参与着色
@@ -351,13 +367,13 @@ router.post('/logs', async (req, res, next) => {
         return fail(res, 400, 40004, '存在无效或已停用的成员');
       }
       memberRows = rows;
-      // 同日期同人唯一：一个成员同日只能作为一张出车卡片的用车人
+      // 同日期同人唯一：一个成员同日只能作为一张出车卡片的用车人（全局口径：被别班归属的跨班日志占用同样拦截）
       const [dup] = await pool.query(
         `SELECT m.name FROM worklog_entry_member em
          JOIN worklog_entry e ON e.id = em.entry_id
          JOIN worklog_member m ON m.id = em.member_id
-         WHERE e.team_id = ? AND e.log_date = ? AND em.member_id IN (?)`,
-        [req.team.id, log_date, member_ids]
+         WHERE e.log_date = ? AND em.member_id IN (?)`,
+        [log_date, member_ids]
       );
       if (dup.length) {
         return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
@@ -381,21 +397,285 @@ router.post('/logs', async (req, res, next) => {
   }
 });
 
+// ===== 跨班日志（仅超级管理员）：用车人可跨班组；卡片在用车人所在各班组展示并可如常互动（打卡/照片/备注等），
+// 但 汇总前核验/批量下载/批量从商旅同步/派车对齐/费用汇总/工作任务单 仅参与归属班组；仅超管可删除、修改派车 =====
+
+// 跨班日志字典解析：归属班字典按名称精确命中（含停用则重新启用），未命中自动补建（启用，sort 取 max+1）
+async function resolveOwnerDict(table, field, teamId, name) {
+  const [rows] = await pool.query(`SELECT id, status FROM ${table} WHERE team_id = ? AND ${field} = ?`, [teamId, name]);
+  if (rows.length) {
+    if (rows[0].status !== 1) await pool.query(`UPDATE ${table} SET status = 1 WHERE id = ?`, [rows[0].id]);
+    return rows[0].id;
+  }
+  const [ms] = await pool.query(`SELECT COALESCE(MAX(sort), 0) AS maxSort FROM ${table} WHERE team_id = ?`, [teamId]);
+  const [ins] = await pool.query(`INSERT INTO ${table} (team_id, ${field}, sort) VALUES (?, ?, ?)`, [teamId, name, ms[0].maxSort + 1]);
+  return ins.insertId;
+}
+
+// 跨班日志成员解析：全部启用班组启用成员中按名取候选，优先级 归属班 > 已绑账号（user_id 非空）> id 最小；
+// 返回 { rows, missing }（rows 顺序与 names 一致；任一名字无解则 rows 为空、missing 列出名字）
+async function resolveCrossMembers(names, ownerTeamId) {
+  if (!names.length) return { rows: [], missing: [] };
+  const [cand] = await pool.query(
+    `SELECT m.id, m.name, m.sort, m.team_id, m.user_id
+     FROM worklog_member m JOIN sys_team t ON t.id = m.team_id AND t.status = 1
+     WHERE m.status = 1 AND m.name IN (?)`,
+    [names]
+  );
+  const byName = new Map();
+  cand.forEach((c) => {
+    if (!byName.has(c.name)) byName.set(c.name, []);
+    byName.get(c.name).push(c);
+  });
+  const missing = names.filter((n) => !byName.has(n));
+  if (missing.length) return { rows: [], missing };
+  const rows = names.map((n) => {
+    const list = byName.get(n);
+    list.sort((a, b) => ((b.team_id === ownerTeamId) - (a.team_id === ownerTeamId))
+      || ((b.user_id ? 1 : 0) - (a.user_id ? 1 : 0)) || (a.id - b.id));
+    return list[0];
+  });
+  return { rows, missing: [] };
+}
+
+// GET /logs/cross/meta：跨班表单数据源——全部启用班组的车牌/目的地/成员按名称去重（teams 为来源班组名数组）
+router.get('/logs/cross/meta', requireAdmin, async (req, res, next) => {
+  try {
+    const [teams] = await pool.query('SELECT id, name FROM sys_team WHERE status = 1 ORDER BY sort, id');
+    const [vehicles] = await pool.query(
+      `SELECT v.plate_no AS name, t.name AS team_name FROM worklog_vehicle v
+       JOIN sys_team t ON t.id = v.team_id AND t.status = 1 WHERE v.status = 1 ORDER BY v.plate_no, v.id`
+    );
+    const [destinations] = await pool.query(
+      `SELECT d.name, t.name AS team_name FROM worklog_destination d
+       JOIN sys_team t ON t.id = d.team_id AND t.status = 1 WHERE d.status = 1 ORDER BY d.name, d.id`
+    );
+    const [members] = await pool.query(
+      `SELECT m.name, t.name AS team_name FROM worklog_member m
+       JOIN sys_team t ON t.id = m.team_id AND t.status = 1 WHERE m.status = 1 ORDER BY m.name, m.id`
+    );
+    // 按名称去重合并来源班组（保持先见顺序）
+    const dedup = (rows) => {
+      const map = new Map();
+      rows.forEach((r) => {
+        if (!map.has(r.name)) map.set(r.name, { name: r.name, teams: [] });
+        const it = map.get(r.name);
+        if (!it.teams.includes(r.team_name)) it.teams.push(r.team_name);
+      });
+      return [...map.values()];
+    };
+    return ok(res, {
+      teams,
+      vehicles: dedup(vehicles),
+      destinations: dedup(destinations),
+      members: dedup(members),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// 跨班表单公共入参解析与校验 → { owner, plate, destName, memberNames } 或 null（已响应错误）
+function parseCrossBody(req, res) {
+  const { patrol_content = '', plate_no = '', destination = '' } = req.body || {};
+  let { member_names = [] } = req.body || {};
+  const ownerId = req.body && req.body.team_id;
+  member_names = Array.isArray(member_names)
+    ? [...new Set(member_names.map((n) => String(n || '').trim()).filter(Boolean))]
+    : [];
+  const plate = String(plate_no || '').trim();
+  const destName = String(destination || '').trim();
+  if (!plate && (destName || member_names.length)) {
+    fail(res, 400, 40001, '未出车时不可填写目的地与用车人');
+    return null;
+  }
+  return { ownerId, patrol_content, plate, destName, memberNames: member_names };
+}
+
+// POST /logs/cross：新建跨班日志（车牌/目的地按名称在归属班字典解析、缺则自动补建；成员按名解析）
+router.post('/logs/cross', requireAdmin, async (req, res, next) => {
+  try {
+    const { log_date } = req.body || {};
+    if (!DATE_RE.test(log_date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    const parsed = parseCrossBody(req, res);
+    if (!parsed) return;
+    const owner = await teamUtil.getTeamById(parsed.ownerId);
+    if (!owner || owner.status !== 1) return fail(res, 400, 40010, '归属班组无效或已停用');
+
+    let vehicleId = null;
+    let destId = null;
+    let memberRows = [];
+    if (parsed.plate) {
+      vehicleId = await resolveOwnerDict('worklog_vehicle', 'plate_no', owner.id, parsed.plate);
+      if (parsed.destName) destId = await resolveOwnerDict('worklog_destination', 'name', owner.id, parsed.destName);
+      const resolved = await resolveCrossMembers(parsed.memberNames, owner.id);
+      if (resolved.missing.length) {
+        return fail(res, 400, 40004, `成员「${resolved.missing.join('、')}」不存在或已停用`);
+      }
+      memberRows = resolved.rows;
+      // 同日期同人唯一（全局口径，同 POST /logs）
+      if (memberRows.length) {
+        const [dup] = await pool.query(
+          `SELECT m.name FROM worklog_entry_member em
+           JOIN worklog_entry e ON e.id = em.entry_id
+           JOIN worklog_member m ON m.id = em.member_id
+           WHERE e.log_date = ? AND em.member_id IN (?)`,
+          [log_date, memberRows.map((m) => m.id)]
+        );
+        if (dup.length) {
+          return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
+        }
+      }
+    }
+
+    // 跨班标志按成员班组构成派生：含非归属班成员即跨班（全属归属班则等同普通卡，班组可自管）
+    const crossTeam = memberRows.some((m) => m.team_id !== owner.id) ? 1 : 0;
+    const [r] = await pool.query(
+      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, cross_team, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [owner.id, log_date, parsed.patrol_content, vehicleId, destId, crossTeam, req.user.id]
+    );
+    for (const m of memberRows) {
+      await pool.query(
+        'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
+        [r.insertId, m.id, m.sort]
+      );
+    }
+    return ok(res, { id: r.insertId });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PUT /logs/cross/:id：修改跨班日志派车（口径同 POST；不改日期；归属班组可改；
+// 保存后按成员构成重算 cross_team——改完全属归属班则回归普通卡，班组自管）
+router.put('/logs/cross/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const entryId = Number(req.params.id);
+    const [exist] = await pool.query(
+      `SELECT id, team_id, vehicle_id, destination_id, cross_team, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date
+       FROM worklog_entry WHERE id = ?`,
+      [entryId]
+    );
+    if (!exist.length) return fail(res, 404, 40400, '日志不存在');
+    const entry = exist[0];
+    if (!entry.cross_team) return fail(res, 400, 40000, '该日志非跨班日志，请使用普通编辑');
+    const parsed = parseCrossBody(req, res);
+    if (!parsed) return;
+    const owner = await teamUtil.getTeamById(parsed.ownerId);
+    if (!owner || owner.status !== 1) return fail(res, 400, 40010, '归属班组无效或已停用');
+
+    if (!parsed.plate) {
+      // 改未出车前须无照片（同 PUT /logs/:id 口径）
+      const [photoCnt] = await pool.query('SELECT COUNT(*) AS cnt FROM worklog_photo WHERE entry_id = ?', [entryId]);
+      if (photoCnt[0].cnt) return fail(res, 400, 40005, '存在水印照片，不可改为未出车，请先删除照片');
+    }
+    let vehicleId = null;
+    let destId = null;
+    let memberRows = [];
+    if (parsed.plate) {
+      vehicleId = await resolveOwnerDict('worklog_vehicle', 'plate_no', owner.id, parsed.plate);
+      if (parsed.destName) destId = await resolveOwnerDict('worklog_destination', 'name', owner.id, parsed.destName);
+      const resolved = await resolveCrossMembers(parsed.memberNames, owner.id);
+      if (resolved.missing.length) {
+        return fail(res, 400, 40004, `成员「${resolved.missing.join('、')}」不存在或已停用`);
+      }
+      memberRows = resolved.rows;
+      // 同日期同人唯一（全局口径，本卡除外）
+      if (memberRows.length) {
+        const [dup] = await pool.query(
+          `SELECT m.name FROM worklog_entry_member em
+           JOIN worklog_entry e ON e.id = em.entry_id
+           JOIN worklog_member m ON m.id = em.member_id
+           WHERE e.log_date = ? AND e.id <> ? AND em.member_id IN (?)`,
+          [entry.log_date, entryId, memberRows.map((m) => m.id)]
+        );
+        if (dup.length) {
+          return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
+        }
+      }
+    }
+
+    // 被移出名单的成员若已有照片，拒绝（需先调整照片人名，同 PUT /logs/:id 口径）
+    const [photoRows] = await pool.query('SELECT members FROM worklog_photo WHERE entry_id = ?', [entryId]);
+    const keptNames = new Set(memberRows.map((m) => m.name));
+    for (const p of photoRows) {
+      const names = typeof p.members === 'string' ? JSON.parse(p.members) : p.members;
+      for (const n of names || []) {
+        if (!keptNames.has(n)) {
+          return fail(res, 400, 40006, `成员「${n}」已有水印照片，不可移出用车人，请先调整照片人名`);
+        }
+      }
+    }
+
+    const crossTeam = memberRows.some((m) => m.team_id !== owner.id) ? 1 : 0;
+    const [curRows] = await pool.query('SELECT member_id, checked FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
+    const checkedMap = new Map(curRows.map((r) => [r.member_id, r.checked]));
+    await pool.query(
+      'UPDATE worklog_entry SET team_id = ?, patrol_content = ?, vehicle_id = ?, destination_id = ?, cross_team = ? WHERE id = ?',
+      [owner.id, parsed.patrol_content, vehicleId, vehicleId ? destId : null, crossTeam, entryId]
+    );
+
+    // 派车目的地变更：已出结果的照片按库内识别地点重新核验地点一致性并联动状态（同 PUT /logs/:id 口径）
+    const newDestId = vehicleId ? destId : null;
+    if (Number(entry.destination_id || 0) !== Number(newDestId || 0)) {
+      const destText = newDestId ? parsed.destName : ''; // 字典按提交名精确解析，名称即提交值
+      const [photos] = await pool.query(
+        `SELECT id, date_ok, location FROM worklog_photo WHERE entry_id = ? AND verify_status IN ('passed', 'mismatch')`,
+        [entryId]
+      );
+      for (const p of photos) {
+        const destOk = !destText || String(p.location || '').includes(destText);
+        const dateOk = p.date_ok !== 0; // 日期结果不受目的地变更影响（NULL=历史数据按相符保留）
+        await pool.query('UPDATE worklog_photo SET dest_ok = ?, verify_status = ? WHERE id = ?', [
+          destOk ? 1 : 0,
+          dateOk && destOk ? 'passed' : 'mismatch',
+          p.id,
+        ]);
+      }
+    }
+
+    await pool.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
+    for (const m of memberRows) {
+      await pool.query(
+        'INSERT INTO worklog_entry_member (entry_id, member_id, checked, sort) VALUES (?, ?, ?, ?)',
+        [entryId, m.id, checkedMap.get(m.id) || 0, m.sort]
+      );
+    }
+    return ok(res, { id: entryId });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // PUT /logs/:id：修改卡片（用车人全量替换，保留仍在名单者的打卡状态）
 router.put('/logs/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
     const [exist] = await pool.query(
-      `SELECT id, destination_id, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date FROM worklog_entry WHERE id = ? AND team_id = ?`,
-      [entryId, req.team.id]
+      `SELECT e.id, e.team_id, e.vehicle_id, e.destination_id, e.cross_team, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date
+       FROM worklog_entry e WHERE e.id = ? AND ${ENTRY_VISIBLE}`,
+      [entryId, req.team.id, req.team.id]
     );
     if (!exist.length) return fail(res, 404, 40400, '日志不存在');
 
     const { patrol_content = '', vehicle_id = null, destination_id = null } = req.body || {};
     let { member_ids } = req.body || {};
 
-    if (!vehicle_id) {
+    // 跨班日志：派车三件套（车牌/目的地/用车人）与库内现值比对——有变化仅超管可经「跨班日志」编辑（40304）；
+    // 未变化则跳过字典校验与派车更新段，仅巡视内容/备注可更新（备注走下方既有分支；兼容小程序全量 PUT 口径）
+    if (exist[0].cross_team) {
+      const submittedIds = Array.isArray(member_ids) ? member_ids.map(Number).filter(Number.isInteger) : [];
+      const [curMembers] = await pool.query('SELECT member_id FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
+      const sameMembers = submittedIds.length === curMembers.length
+        && curMembers.every((r) => submittedIds.includes(r.member_id));
+      const sameVehicle = Number(exist[0].vehicle_id || 0) === Number(vehicle_id || 0);
+      const sameDest = Number(exist[0].destination_id || 0) === Number(vehicle_id ? destination_id || 0 : 0);
+      if (!sameVehicle || !sameDest || !sameMembers) {
+        return fail(res, 403, 40304, '跨班日志仅超级管理员可修改派车，请使用「跨班日志」编辑');
+      }
+      await pool.query('UPDATE worklog_entry SET patrol_content = ? WHERE id = ?', [patrol_content, entryId]);
+    } else if (!vehicle_id) {
       member_ids = [];
       if (destination_id) return fail(res, 400, 40001, '未出车时不可填写目的地');
       // 未出车时若已有照片（历史改派车为未出车），拒绝，需先删除照片
@@ -409,86 +689,89 @@ router.put('/logs/:id', async (req, res, next) => {
         return fail(res, 400, 40003, '目的地无效或已停用');
       }
     }
-    member_ids = Array.isArray(member_ids) ? member_ids.map(Number).filter(Number.isInteger) : [];
-    let memberRows = [];
-    if (member_ids.length) {
-      const [rows] = await pool.query(
-        'SELECT id, sort FROM worklog_member WHERE id IN (?) AND status = 1 AND team_id = ?',
-        [member_ids, req.team.id]
-      );
-      if (rows.length !== new Set(member_ids).size) {
-        return fail(res, 400, 40004, '存在无效或已停用的成员');
-      }
-      memberRows = rows;
-      // 同日期同人唯一：一个成员同日只能作为一张出车卡片的用车人（本卡除外）
-      const [dup] = await pool.query(
-        `SELECT m.name FROM worklog_entry_member em
-         JOIN worklog_entry e ON e.id = em.entry_id
-         JOIN worklog_member m ON m.id = em.member_id
-         WHERE e.team_id = ? AND e.log_date = ? AND e.id <> ? AND em.member_id IN (?)`,
-        [req.team.id, exist[0].log_date, entryId, member_ids]
-      );
-      if (dup.length) {
-        return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
-      }
-    }
-
-    // 被移出名单的成员若已有照片，拒绝（需先调整照片人名）
-    const [photoRows] = await pool.query('SELECT members FROM worklog_photo WHERE entry_id = ?', [entryId]);
-    const [currentRows] = await pool.query(
-      'SELECT em.member_id, m.name, em.checked FROM worklog_entry_member em JOIN worklog_member m ON m.id = em.member_id WHERE em.entry_id = ?',
-      [entryId]
-    );
-    const keptNames = new Map();
-    if (memberRows.length) {
-      const [nameRows] = await pool.query('SELECT id, name FROM worklog_member WHERE id IN (?)', [memberRows.map((m) => m.id)]);
-      nameRows.forEach((n) => keptNames.set(n.name, n.id));
-    }
-    for (const p of photoRows) {
-      const names = typeof p.members === 'string' ? JSON.parse(p.members) : p.members;
-      for (const n of names || []) {
-        if (!keptNames.has(n)) {
-          return fail(res, 400, 40006, `成员「${n}」已有水印照片，不可移出用车人，请先调整照片人名`);
+    // 以下派车校验/更新段仅普通卡执行（跨班卡派车未变，已在上方仅更新巡视内容）
+    if (!exist[0].cross_team) {
+      member_ids = Array.isArray(member_ids) ? member_ids.map(Number).filter(Number.isInteger) : [];
+      let memberRows = [];
+      if (member_ids.length) {
+        const [rows] = await pool.query(
+          'SELECT id, sort FROM worklog_member WHERE id IN (?) AND status = 1 AND team_id = ?',
+          [member_ids, req.team.id]
+        );
+        if (rows.length !== new Set(member_ids).size) {
+          return fail(res, 400, 40004, '存在无效或已停用的成员');
+        }
+        memberRows = rows;
+        // 同日期同人唯一：一个成员同日只能作为一张出车卡片的用车人（本卡除外；全局口径同 POST /logs）
+        const [dup] = await pool.query(
+          `SELECT m.name FROM worklog_entry_member em
+           JOIN worklog_entry e ON e.id = em.entry_id
+           JOIN worklog_member m ON m.id = em.member_id
+           WHERE e.log_date = ? AND e.id <> ? AND em.member_id IN (?)`,
+          [exist[0].log_date, entryId, member_ids]
+        );
+        if (dup.length) {
+          return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
         }
       }
-    }
 
-    await pool.query(
-      'UPDATE worklog_entry SET patrol_content = ?, vehicle_id = ?, destination_id = ? WHERE id = ?',
-      [patrol_content, vehicle_id, vehicle_id ? destination_id : null, entryId]
-    );
-
-    // 派车目的地变更：已出结果（passed/mismatch）的照片按库内识别地点重新核验地点一致性并联动状态
-    // （仅库内重算，不重调 Dify；pending 照片由 writeBackVerify 写库时按最新目的地比对，failed 不动）
-    const newDestId = vehicle_id ? destination_id : null;
-    if (Number(exist[0].destination_id || 0) !== Number(newDestId || 0)) {
-      let destName = '';
-      if (newDestId) {
-        const [destRows] = await pool.query('SELECT name FROM worklog_destination WHERE id = ?', [newDestId]);
-        destName = destRows.length ? destRows[0].name : '';
-      }
-      const [photos] = await pool.query(
-        `SELECT id, date_ok, location FROM worklog_photo WHERE entry_id = ? AND verify_status IN ('passed', 'mismatch')`,
+      // 被移出名单的成员若已有照片，拒绝（需先调整照片人名）
+      const [photoRows] = await pool.query('SELECT members FROM worklog_photo WHERE entry_id = ?', [entryId]);
+      const [currentRows] = await pool.query(
+        'SELECT em.member_id, m.name, em.checked FROM worklog_entry_member em JOIN worklog_member m ON m.id = em.member_id WHERE em.entry_id = ?',
         [entryId]
       );
-      for (const p of photos) {
-        const destOk = !destName || String(p.location || '').includes(destName); // 与 checkWatermark 地点口径一致
-        const dateOk = p.date_ok !== 0; // 日期结果不受目的地变更影响（NULL=历史数据按相符保留）
-        await pool.query('UPDATE worklog_photo SET dest_ok = ?, verify_status = ? WHERE id = ?', [
-          destOk ? 1 : 0,
-          dateOk && destOk ? 'passed' : 'mismatch',
-          p.id,
-        ]);
+      const keptNames = new Map();
+      if (memberRows.length) {
+        const [nameRows] = await pool.query('SELECT id, name FROM worklog_member WHERE id IN (?)', [memberRows.map((m) => m.id)]);
+        nameRows.forEach((n) => keptNames.set(n.name, n.id));
       }
-    }
+      for (const p of photoRows) {
+        const names = typeof p.members === 'string' ? JSON.parse(p.members) : p.members;
+        for (const n of names || []) {
+          if (!keptNames.has(n)) {
+            return fail(res, 400, 40006, `成员「${n}」已有水印照片，不可移出用车人，请先调整照片人名`);
+          }
+        }
+      }
 
-    const checkedMap = new Map(currentRows.map((r) => [r.member_id, r.checked]));
-    await pool.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
-    for (const m of memberRows) {
       await pool.query(
-        'INSERT INTO worklog_entry_member (entry_id, member_id, checked, sort) VALUES (?, ?, ?, ?)',
-        [entryId, m.id, checkedMap.get(m.id) || 0, m.sort]
+        'UPDATE worklog_entry SET patrol_content = ?, vehicle_id = ?, destination_id = ? WHERE id = ?',
+        [patrol_content, vehicle_id, vehicle_id ? destination_id : null, entryId]
       );
+
+      // 派车目的地变更：已出结果（passed/mismatch）的照片按库内识别地点重新核验地点一致性并联动状态
+      // （仅库内重算，不重调 Dify；pending 照片由 writeBackVerify 写库时按最新目的地比对，failed 不动）
+      const newDestId = vehicle_id ? destination_id : null;
+      if (Number(exist[0].destination_id || 0) !== Number(newDestId || 0)) {
+        let destName = '';
+        if (newDestId) {
+          const [destRows] = await pool.query('SELECT name FROM worklog_destination WHERE id = ?', [newDestId]);
+          destName = destRows.length ? destRows[0].name : '';
+        }
+        const [photos] = await pool.query(
+          `SELECT id, date_ok, location FROM worklog_photo WHERE entry_id = ? AND verify_status IN ('passed', 'mismatch')`,
+          [entryId]
+        );
+        for (const p of photos) {
+          const destOk = !destName || String(p.location || '').includes(destName); // 与 checkWatermark 地点口径一致
+          const dateOk = p.date_ok !== 0; // 日期结果不受目的地变更影响（NULL=历史数据按相符保留）
+          await pool.query('UPDATE worklog_photo SET dest_ok = ?, verify_status = ? WHERE id = ?', [
+            destOk ? 1 : 0,
+            dateOk && destOk ? 'passed' : 'mismatch',
+            p.id,
+          ]);
+        }
+      }
+
+      const checkedMap = new Map(currentRows.map((r) => [r.member_id, r.checked]));
+      await pool.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
+      for (const m of memberRows) {
+        await pool.query(
+          'INSERT INTO worklog_entry_member (entry_id, member_id, checked, sort) VALUES (?, ?, ?, ?)',
+          [entryId, m.id, checkedMap.get(m.id) || 0, m.sort]
+        );
+      }
     }
 
     // 备注与附件：仅在请求显式携带对应字段时更新（巡视内容/派车等保存不带备注字段，避免误清）
@@ -535,20 +818,23 @@ router.put('/logs/:id', async (req, res, next) => {
 });
 
 // DELETE /logs/:id：删除卡片（先删 COS 对象（水印照片 + 备注附件），再删行；
-// 卡内有进行中的照片商旅任务时拒绝——任务引用的 entry/photo 不可中途删除）
+// 卡内有进行中的照片商旅任务时拒绝——任务引用的 entry/photo 不可中途删除；跨班日志仅超级管理员可删除）
 router.delete('/logs/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
-    if (config.sgcc && config.sgcc.enabled
-      && require('../sgccclockin').activePhotoOp(req.team.id, entryId)) {
-      return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请完成后再删除');
-    }
     const [entryRows] = await pool.query(
-      'SELECT remark_files FROM worklog_entry WHERE id = ? AND team_id = ?',
-      [entryId, req.team.id]
+      `SELECT e.team_id, e.cross_team, e.remark_files FROM worklog_entry e WHERE e.id = ? AND ${ENTRY_VISIBLE}`,
+      [entryId, req.team.id, req.team.id]
     );
     if (!entryRows.length) return fail(res, 404, 40400, '日志不存在');
+    if (entryRows[0].cross_team && req.user.role !== 'admin') {
+      return fail(res, 403, 40304, '跨班日志仅超级管理员可删除');
+    }
+    if (config.sgcc && config.sgcc.enabled
+      && require('../sgccclockin').activePhotoOp(entryRows[0].team_id, entryId)) {
+      return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请完成后再删除');
+    }
     const [photos] = await pool.query('SELECT cos_key FROM worklog_photo WHERE entry_id = ?', [entryId]);
     const cosKeys = photos.map((p) => p.cos_key);
     parseRemarkFiles(entryRows[0].remark_files).forEach((f) => cosKeys.push(f.cos_key));
@@ -561,7 +847,8 @@ router.delete('/logs/:id', async (req, res, next) => {
     }
     await pool.query('DELETE FROM worklog_photo WHERE entry_id = ?', [entryId]);
     await pool.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
-    const [r] = await pool.query('DELETE FROM worklog_entry WHERE id = ? AND team_id = ?', [entryId, req.team.id]);
+    // 可见性与角色已在上文校验，主键直删（跨班卡归属别班，不能再带 team 条件）
+    const [r] = await pool.query('DELETE FROM worklog_entry WHERE id = ?', [entryId]);
     if (!r.affectedRows) return fail(res, 404, 40400, '日志不存在');
     return ok(res, null);
   } catch (err) {
@@ -575,8 +862,8 @@ router.put('/logs/:id/members/:mid/check', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const [r] = await pool.query(
       `UPDATE worklog_entry_member em JOIN worklog_entry e ON e.id = em.entry_id
-       SET em.checked = 1 - em.checked WHERE em.id = ? AND em.entry_id = ? AND e.team_id = ?`,
-      [Number(req.params.mid), Number(req.params.id), req.team.id]
+       SET em.checked = 1 - em.checked WHERE em.id = ? AND em.entry_id = ? AND ${ENTRY_VISIBLE}`,
+      [Number(req.params.mid), Number(req.params.id), req.team.id, req.team.id]
     );
     if (!r.affectedRows) return fail(res, 404, 40400, '打卡记录不存在');
     const [rows] = await pool.query('SELECT checked FROM worklog_entry_member WHERE id = ?', [Number(req.params.mid)]);
@@ -614,6 +901,7 @@ router.get('/photos', async (req, res, next) => {
 // GET /report?from=&to=&scope=all|mine：验证报告（原「验证不通过报告」）——范围为「不通过记录 ∪ 有备注的记录」
 // 不通过记录带全部原因（scope=mine 个人口径仅列个人相关原因）；备注不论通过与否均带出（remark / remark_has_files），
 // 通过/免验证记录仅备注时 reasons 为空，前端按 reasons 有无 + verify 区分角标
+// total = 范围内记录全量条数（scope 过滤后、未通过/备注过滤前），供前端算「其余 N 条记录全部通过」
 // scope=mine 个人口径：仅含「我未打卡 / 我未上传水印照片 / 我的水印照片未通过」的卡片，或我是用车人且有备注的卡片
 router.get('/report', async (req, res, next) => {
   try {
@@ -622,12 +910,12 @@ router.get('/report', async (req, res, next) => {
       return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     }
     if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
-    if (!req.team) return ok(res, { list: [] });
+    if (!req.team) return ok(res, { list: [], total: 0 });
 
     let me = null;
     if (req.query.scope === 'mine') {
       me = await myMember(req);
-      if (!me) return ok(res, { list: [] });
+      if (!me) return ok(res, { list: [], total: 0 });
     }
     const list = await loadEntries('e.log_date BETWEEN ? AND ? AND e.team_id = ?', [from, to, req.team.id]);
     const items = [];
@@ -654,7 +942,7 @@ router.get('/report', async (req, res, next) => {
       });
     });
     items.sort((a, b) => (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : a.id - b.id));
-    return ok(res, { list: items });
+    return ok(res, { list: items, total: list.length });
   } catch (err) {
     return next(err);
   }
@@ -689,11 +977,11 @@ function getFileExt(name) {
   return idx === -1 ? '' : String(name).slice(idx + 1).toLowerCase();
 }
 
-// 按 entryId + cos_key 定位备注附件（预览/下载共用；key 必须确属该卡且该卡归属当前班组，防止拿任意外地拉扯）
+// 按 entryId + cos_key 定位备注附件（预览/下载共用；key 必须确属该卡且该卡当前可见（本班或含本班成员的跨班卡），防止拿任意外地拉扯）
 async function findRemarkFile(entryId, key, teamId) {
   const [rows] = await pool.query(
-    'SELECT remark_files FROM worklog_entry WHERE id = ? AND team_id = ?',
-    [entryId, teamId]
+    `SELECT e.remark_files FROM worklog_entry e WHERE e.id = ? AND ${ENTRY_VISIBLE}`,
+    [entryId, teamId, teamId]
   );
   if (!rows.length) return { entry: false };
   const file = parseRemarkFiles(rows[0].remark_files).find((f) => f.cos_key === key);
@@ -720,8 +1008,8 @@ router.post(
       if (!team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
       const entryId = Number(req.params.id);
       const [entries] = await pool.query(
-        `SELECT id, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date FROM worklog_entry WHERE id = ? AND team_id = ?`,
-        [entryId, team.id]
+        `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date FROM worklog_entry e WHERE e.id = ? AND ${ENTRY_VISIBLE}`,
+        [entryId, team.id, team.id]
       );
       if (!entries.length) return fail(res, 404, 40400, '日志不存在');
       if (!req.file || !req.file.buffer || !req.file.buffer.length) {
@@ -735,8 +1023,9 @@ router.post(
       if (!type) {
         return fail(res, 400, 40018, '仅支持图片、视频或 Office 文档（doc/docx/xls/xlsx/ppt/pptx/pdf）');
       }
+      const owner = await ownerTeamOf(entries[0].team_id, team); // COS 路径按归属班组（跨班卡可被别班上传）
       const prefix = config.worklog.cosPrefix;
-      const key = `${prefix}remark/${team.name}/${dots(entries[0].log_date)}/${entryId}-${Date.now()}.${ext}`;
+      const key = `${prefix}remark/${owner.name}/${dots(entries[0].log_date)}/${entryId}-${Date.now()}.${ext}`;
       await cos.putBuffer(key, req.file.buffer, REMARK_MIME[ext] || 'application/octet-stream');
       return ok(res, { name, url: cos.publicUrl(key), cos_key: key, type, size: req.file.buffer.length });
     } catch (err) {
@@ -1003,14 +1292,15 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
     const [entries] = await pool.query(
-      `SELECT e.id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.vehicle_id, d.name AS destination_name
+      `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.vehicle_id, d.name AS destination_name
        FROM worklog_entry e LEFT JOIN worklog_destination d ON d.id = e.destination_id
-       WHERE e.id = ? AND e.team_id = ?`,
-      [entryId, req.team.id]
+       WHERE e.id = ? AND ${ENTRY_VISIBLE}`,
+      [entryId, req.team.id, req.team.id]
     );
     const entry = entries[0];
     if (!entry) return fail(res, 404, 40400, '日志不存在');
     if (!entry.vehicle_id) return fail(res, 400, 40001, '未出车不可上传照片');
+    const owner = await ownerTeamOf(entry.team_id, req.team); // 商旅任务锁/COS 路径按归属班组（跨班卡可被别班上传）
 
     const { image, members, wm, plain } = req.body || {};
     const isPlain = !!(plain && config.sgcc && config.sgcc.enabled);
@@ -1043,12 +1333,12 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     // 端侧凭 GET /sync/active 的 ops 与 /op/status 渲染记录卡片进度条（退出页面不影响任务完成）
     if (config.sgcc && config.sgcc.enabled) {
       const sgcc = require('../sgccclockin');
-      if (sgcc.activePhotoOp(req.team.id, entryId)) {
+      if (sgcc.activePhotoOp(owner.id, entryId)) {
         return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请稍后再传');
       }
-      const op = sgcc.newPhotoOp(req.team.id, 'upload', entryId, null);
-      const teamId = req.team.id;
-      const teamName = req.team.name;
+      const op = sgcc.newPhotoOp(owner.id, 'upload', entryId, null);
+      const teamId = owner.id;
+      const teamName = owner.name;
       const username = req.user.username;
       const logDate = entry.log_date;
       const destName = entry.destination_name || '';
@@ -1095,7 +1385,7 @@ router.post('/logs/:id/photos', async (req, res, next) => {
 
     // 未开启商旅：纯本地上传（同步落库并触发 Dify 验证，响应直返照片数据）
     const prefix = config.worklog.cosPrefix;
-    const key = `${prefix}${req.team.name}/${dots(entry.log_date)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
+    const key = `${prefix}${owner.name}/${dots(entry.log_date)}/${entryId}-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
     await cos.putBuffer(key, buf, contentType);
     const url = cos.publicUrl(key);
     const [r] = await pool.query(
@@ -1132,8 +1422,8 @@ router.post('/photos/:id/verify', async (req, res, next) => {
        FROM worklog_photo p
        JOIN worklog_entry e ON e.id = p.entry_id
        LEFT JOIN worklog_destination d ON d.id = e.destination_id
-       WHERE p.id = ? AND e.team_id = ?`,
-      [photoId, req.team.id]
+       WHERE p.id = ? AND ${ENTRY_VISIBLE}`,
+      [photoId, req.team.id, req.team.id]
     );
     const photo = rows[0];
     if (!photo) return fail(res, 404, 40400, '照片不存在');
@@ -1172,8 +1462,8 @@ router.put('/photos/:id/wm', async (req, res, next) => {
        FROM worklog_photo p
        JOIN worklog_entry e ON e.id = p.entry_id
        LEFT JOIN worklog_destination d ON d.id = e.destination_id
-       WHERE p.id = ? AND e.team_id = ?`,
-      [photoId, req.team.id]
+       WHERE p.id = ? AND ${ENTRY_VISIBLE}`,
+      [photoId, req.team.id, req.team.id]
     );
     const photo = rows[0];
     if (!photo) return fail(res, 404, 40400, '照片不存在');
@@ -1220,9 +1510,9 @@ router.put('/photos/:id/members', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
-      `SELECT p.entry_id, p.members FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-       WHERE p.id = ? AND e.team_id = ?`,
-      [photoId, req.team.id]
+      `SELECT p.entry_id, p.members, e.team_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+       WHERE p.id = ? AND ${ENTRY_VISIBLE}`,
+      [photoId, req.team.id, req.team.id]
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     const { members } = req.body || {};
@@ -1256,11 +1546,11 @@ router.put('/photos/:id/members', async (req, res, next) => {
       // 任务化异步执行：登记后立即返回 opId；剔除 + 补传两段共用同一 prog（addTotal 累加，进度连续），
       // 全部成功才变更本地（远端先行口径不变），端侧轮询 /op/status 收尾
       const sgcc = require('../sgccclockin');
-      if (sgcc.activePhotoOp(req.team.id, rows[0].entry_id)) {
+      if (sgcc.activePhotoOp(rows[0].team_id, rows[0].entry_id)) {
         return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请稍后再试');
       }
       const removed = oldNames.filter((n) => !names.includes(n));
-      const op = sgcc.newPhotoOp(req.team.id, 'members', rows[0].entry_id, photoId);
+      const op = sgcc.newPhotoOp(rows[0].team_id, 'members', rows[0].entry_id, photoId);
       sgcc.runPhotoOp(op.id, async (rec) => {
         if (removed.length) {
           const r = await sgcc.removePhotoMembersRemote(photoId, removed, op.prog);
@@ -1301,18 +1591,18 @@ router.delete('/photos/:id', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
-      `SELECT p.cos_key, p.entry_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-       WHERE p.id = ? AND e.team_id = ?`,
-      [photoId, req.team.id]
+      `SELECT p.cos_key, p.entry_id, e.team_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+       WHERE p.id = ? AND ${ENTRY_VISIBLE}`,
+      [photoId, req.team.id, req.team.id]
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     if (config.sgcc && config.sgcc.enabled) {
       const sgcc = require('../sgccclockin');
-      if (sgcc.activePhotoOp(req.team.id, rows[0].entry_id)) {
+      if (sgcc.activePhotoOp(rows[0].team_id, rows[0].entry_id)) {
         return fail(res, 409, 40909, '该卡片有商旅同步任务进行中，请稍后再试');
       }
       const cosKey = rows[0].cos_key;
-      const op = sgcc.newPhotoOp(req.team.id, 'delete', rows[0].entry_id, photoId);
+      const op = sgcc.newPhotoOp(rows[0].team_id, 'delete', rows[0].entry_id, photoId);
       sgcc.runPhotoOp(op.id, async (rec) => {
         const r = await sgcc.unlinkPhotoFromSgcc(photoId, op.prog);
         if (!r.ok) {
@@ -1347,8 +1637,8 @@ router.get('/photos/:id/download', async (req, res, next) => {
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
       `SELECT p.cos_key, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date
-       FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ? AND e.team_id = ?`,
-      [photoId, req.team.id]
+       FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id WHERE p.id = ? AND ${ENTRY_VISIBLE}`,
+      [photoId, req.team.id, req.team.id]
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     const resp = await fetch(cos.publicUrl(rows[0].cos_key), { signal: AbortSignal.timeout(60000) });
@@ -1670,6 +1960,39 @@ router.post('/dispatch/sync-now', requireDictAdmin, async (req, res, next) => {
     const result = await dispatchSync.runFetchNow();
     if (!result.ok) return fail(res, 500, 50024, result.message);
     return ok(res, result, result.message);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ===== 派车单每日自动同步开关（按班组；开关表 worklog_dispatch_sync_team 在表即开启；
+// 超管可按 ?team_id= 读写任意班组，班组管理员仅本班——两端「派车对齐」页顶部开关）=====
+
+// GET /dispatch/sync-switch：本生效班组是否开启每日派车单自动同步
+router.get('/dispatch/sync-switch', requireDictAdmin, async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const [rows] = await pool.query('SELECT team_id FROM worklog_dispatch_sync_team WHERE team_id = ?', [req.team.id]);
+    return ok(res, { enabled: rows.length > 0 });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PUT /dispatch/sync-switch {enabled}：开启/关闭本生效班组的每日派车单自动同步
+router.put('/dispatch/sync-switch', requireDictAdmin, async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const enabled = !!(req.body && req.body.enabled);
+    if (enabled) {
+      await pool.query(
+        'INSERT IGNORE INTO worklog_dispatch_sync_team (team_id, created_by) VALUES (?, ?)',
+        [req.team.id, req.user.id]
+      );
+    } else {
+      await pool.query('DELETE FROM worklog_dispatch_sync_team WHERE team_id = ?', [req.team.id]);
+    }
+    return ok(res, { enabled }, enabled ? '已开启每日派车单自动同步' : '已关闭每日派车单自动同步');
   } catch (err) {
     return next(err);
   }

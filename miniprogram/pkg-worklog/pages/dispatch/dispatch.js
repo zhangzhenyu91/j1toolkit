@@ -1,4 +1,5 @@
 // 出工日志 · 派车对齐（超管 / 班组管理员；与网页端 worklog.html「派车对齐」页签同口径）：
+// 顶部「每日自动同步派车单」开关（GET/PUT /dispatch/sync-switch，按生效班组；切换需确认，次日起按排程执行）
 // wx.chooseMessageFile 从聊天选派车单（.xls/.xlsx，每个驾驶员一份、可多份合并）→ 手工拼装 multipart
 // 一次提交 POST /worklog/dispatch/align（服务端只读对齐不写库）→ 概览 + 不一致清单 → 底部弹层逐条对照处理：
 //   matched 改卡（PUT /logs/{id} 整卡更新，patrol_content 随条目带回避免误清）；
@@ -7,6 +8,7 @@
 // 班组口径同 tasksheet 页：超管按主页切换器存下的 worklog_team_id 生效；班组管理员后端强制本班
 // multipart 手工拼装原因同安全日：wx.uploadFile 单请求仅支持单文件且丢失中文原名，本页需多文件并保留原名
 import Toast from 'tdesign-miniprogram/toast/index';
+import Dialog from 'tdesign-miniprogram/dialog/index';
 import { BASE_URL } from '../../../config';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
@@ -129,6 +131,9 @@ function mapItem(it) {
 Page({
   data: {
     gate: false,
+    // 每日自动同步派车单开关（按生效班组）
+    syncEnabled: false,
+    syncSwitchLoading: false, // 切换提交中（防连点）
     // 派车单文件（聊天选取）
     files: [], // [{name, sizeText, path}]
     uploading: false,
@@ -180,6 +185,7 @@ Page({
     this._items = []; // 对齐结果原始条目（弹层读写，含编辑后内存同步）
     this._meta = null; // 字典缓存（vehicles / destinations / members）
     this.setData({ gate: true });
+    this.loadSyncSwitch();
     this.ensureMeta().catch(() => {}); // 预拉字典，失败在弹层打开时重试
   },
 
@@ -194,6 +200,48 @@ Page({
 
   teamBody(data) {
     return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
+  },
+
+  /* ==================== 每日自动同步派车单开关（按生效班组；开启/关闭次日起按排程执行） ==================== */
+
+  // 进入页面拉取当前开关状态
+  async loadSyncSwitch() {
+    try {
+      const data = await request({ url: `/api/v1/worklog/dispatch/sync-switch${this.teamQuery()}` });
+      this.setData({ syncEnabled: !!(data && data.enabled) });
+    } catch (err) {
+      this.toast(err.message);
+    }
+  },
+
+  // 切换开关：先确认再 PUT（t-switch 受控，未 setData 前视觉不变，取消/失败即保持原状态）
+  onSyncSwitch(e) {
+    if (this.data.syncSwitchLoading) return;
+    const enabled = !!e.detail.value;
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: enabled ? '开启每日自动同步' : '关闭每日自动同步',
+      content: enabled
+        ? '开启后每日 09:40 自动取回当日派车单，按本班成员匹配建出车卡片；用车人含多个班组人名的记录仅通知不建卡。次日起按排程执行，确定开启吗？'
+        : '关闭后每日不再自动取回派车单建卡，已建卡片不受影响。次日起按排程执行，确定关闭吗？',
+      confirmBtn: enabled ? '开启' : '关闭',
+      cancelBtn: '取消',
+    }).then(async () => {
+      this.setData({ syncSwitchLoading: true });
+      try {
+        const data = await request({
+          url: '/api/v1/worklog/dispatch/sync-switch',
+          method: 'PUT',
+          data: this.teamBody({ enabled }),
+        });
+        this.setData({ syncEnabled: !!(data && data.enabled), syncSwitchLoading: false });
+        this.toast(enabled ? '已开启，次日起按排程执行' : '已关闭，次日起按排程执行');
+      } catch (err) {
+        this.setData({ syncEnabled: !enabled, syncSwitchLoading: false }); // 失败回退开关状态
+        this.toast(err.message);
+      }
+    }).catch(() => {});
   },
 
   // 字典（车牌 / 目的地 / 成员）：force 时重拉（车牌入字典后）

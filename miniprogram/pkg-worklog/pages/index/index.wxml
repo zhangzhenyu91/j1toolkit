@@ -79,6 +79,7 @@
           <t-icon name="vehicle" size="36rpx" color="{{item.hasVehicle ? '#F26D21' : '#A89F8A'}}" />
         </view>
         <view class="plate">{{item.plateText}}</view>
+        <view class="tag-cross" wx:if="{{item.crossTeam}}">跨班</view>
         <view class="badge {{item.badge.cls}}">{{item.badge.text}}</view>
       </view>
 
@@ -297,10 +298,12 @@
       </view>
 
       <view class="lc-actions">
-        <!-- 从商旅同步：仅拉取本卡用车人的当日数据（与打卡区 showClock 同门控，后端未开启商旅时不显示；同步中整卡锁定不显示） -->
-        <view class="act act-sync" wx:if="{{item.showClock && !item.syncing}}" hover-class="hover-opacity" bindtap="onSyncPull" data-date="{{day.dateStr}}" data-id="{{item.id}}">从商旅同步</view>
+        <!-- 从商旅同步：仅拉取本卡用车人的当日数据（与打卡区 showClock 同门控，后端未开启商旅时不显示；同步中整卡锁定不显示；
+             他班跨班卡 syncHidden 不渲染——商旅账号按归属班绑定，仅归属班可同步） -->
+        <view class="act act-sync" wx:if="{{item.showClock && !item.syncing && !item.syncHidden}}" hover-class="hover-opacity" bindtap="onSyncPull" data-date="{{day.dateStr}}" data-id="{{item.id}}">从商旅同步</view>
         <view class="act act-note" hover-class="hover-opacity" bindtap="onOpenRemark" data-id="{{item.id}}">备 注</view>
-        <view class="act act-del" hover-class="hover-opacity" bindtap="onDelete" data-id="{{item.id}}">删 除</view>
+        <!-- 跨班卡仅超管可删除（非超管不渲染，onDelete 内同样前置拦截） -->
+        <view class="act act-del" wx:if="{{!item.crossTeam || isAdmin}}" hover-class="hover-opacity" bindtap="onDelete" data-id="{{item.id}}">删 除</view>
       </view>
     </view>
 
@@ -329,7 +332,7 @@
   </view>
 </view>
 
-<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 工作任务单（超管 / 班组管理员）/ 费用汇总（超管 / 班组管理员）/ 派车对齐（超管 / 班组管理员）/ 批量从商旅同步 / 批量下载 / 汇总前核验 / 新建日志；
+<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 工作任务单（超管 / 班组管理员）/ 费用汇总（超管 / 班组管理员）/ 派车对齐（超管 / 班组管理员）/ 批量从商旅同步 / 批量下载 / 汇总前核验 / 跨班日志（仅超管）/ 新建日志；
      原底部固定操作区（含底色条 bottombar）已删除，内容区直通屏幕底边 -->
 <view class="fab-mask" wx:if="{{fabOpen}}" bindtap="onFabToggle"></view>
 <view class="fabs" wx:if="{{gate && !noTeam}}">
@@ -361,6 +364,10 @@
     <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenReport">
       <text class="fab-lab">汇总前核验</text>
       <view class="fab"><t-icon name="task-checked" size="40rpx" color="#22314E" /></view>
+    </view>
+    <view class="fab-item" wx:if="{{isAdmin}}" hover-class="hover-opacity" bindtap="onCreateCross">
+      <text class="fab-lab accent">跨班日志</text>
+      <view class="fab"><t-icon name="usergroup" size="40rpx" color="#F26D21" /></view>
     </view>
     <view class="fab-item" hover-class="hover-opacity" bindtap="onCreate">
       <text class="fab-lab accent">新建日志</text>
@@ -403,13 +410,51 @@
 <!-- 新建/改派车表单底部弹层（无实时保存，「保 存」提交；键盘弹起时动态抬高底部 padding） -->
 <t-popup visible="{{formVisible}}" placement="bottom" bind:visible-change="onFormVisibleChange">
   <view class="form-sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(24rpx + env(safe-area-inset-bottom))'}};">
-    <view class="sheet-title">{{formId ? '修改派车' : '新建日志'}}</view>
+    <view class="sheet-title">{{formCross ? (formId ? '修改跨班日志' : '新建跨班日志') : (formId ? '修改派车' : '新建日志')}}</view>
     <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
       <!-- 日期 chip -->
       <view class="date-chip">
         <t-icon name="calendar" size="28rpx" color="#F26D21" />
         {{formDateStr}}
       </view>
+
+      <!-- 归属班组（仅跨班日志模式；车牌/目的地按名称在归属班字典解析、缺则自动补建） -->
+      <block wx:if="{{formCross}}">
+        <view class="sec-row">
+          <view class="section-title">归属班组</view>
+          <view class="sec-note">卡片归属该班，用车人可跨班点亮</view>
+        </view>
+        <view class="form-card">
+          <view class="frow" hover-class="hover-bg-warm" bindtap="onToggleTeamDrop">
+            <text class="fk">归属班组</text>
+            <view class="fv {{crossTeamId === 0 ? 'placeholder' : ''}}">
+              {{crossTeamId === 0 ? '请选择归属班组' : crossTeamText}}
+            </view>
+            <t-icon name="{{dropType === 'team' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#C9C0AB" />
+          </view>
+          <!-- 内联展开：班组筛选面板（全部启用班组） -->
+          <view class="drop-panel" wx:if="{{dropType === 'team'}}">
+            <view class="drop-search">
+              <t-icon name="search" size="30rpx" color="#A89F8A" />
+              <input class="drop-input" value="{{dropKeyword}}" bindinput="onDropInput" placeholder="输入关键字筛选" placeholder-class="ph" />
+            </view>
+            <scroll-view scroll-y class="drop-list" wx:if="{{dropList.length}}">
+              <view
+                class="drop-item {{item.selected ? 'on' : ''}}"
+                wx:for="{{dropList}}"
+                wx:key="id"
+                hover-class="hover-bg-warm"
+                bindtap="onDropSelect"
+                data-id="{{item.id}}"
+              >
+                <text>{{item.name}}</text>
+                <t-icon wx:if="{{item.selected}}" name="check" size="28rpx" color="#F26D21" />
+              </view>
+            </scroll-view>
+            <view class="drop-empty" wx:else>无匹配项</view>
+          </view>
+        </view>
+      </block>
 
       <!-- 派车情况（车牌/目的地行内联展开筛选下拉，手风琴互斥） -->
       <view class="sec-row">
@@ -505,7 +550,7 @@
             shape="round"
             variant="outline"
             size="medium"
-          >{{item.name}}</t-check-tag>
+          >{{item.name}}<text class="ctag-note" wx:if="{{item.sub}}">{{item.sub}}</text></t-check-tag>
         </view>
       </block>
     </scroll-view>
