@@ -281,15 +281,18 @@ async function ensureWorklogSchema(pool) {
     );
   }
 
-  // 派车单每日同步开关种子：env WORKLOG_DISPATCH_SYNC_TEAM 配置的启用班组一次性写入开关表
-  // （在表即开启；之后以开关表/管理开关为准，env 改动不再生效）
+  // 派车单每日同步开关种子（仅开关表为空时执行一次）：env WORKLOG_DISPATCH_SYNC_TEAM 配置的启用班组写入开关表
+  // （在表即开启；之后以开关表/管理开关为准——UI 关闭的行不会因重启被重新种子，env 改动不再生效）
   const seedTeamName = config.worklog.dispatchSync && config.worklog.dispatchSync.team;
   if (seedTeamName) {
-    await pool.query(
-      `INSERT IGNORE INTO worklog_dispatch_sync_team (team_id)
-       SELECT id FROM sys_team WHERE name = ? AND status = 1`,
-      [seedTeamName]
-    );
+    const [switchRows] = await pool.query('SELECT COUNT(*) AS cnt FROM worklog_dispatch_sync_team');
+    if (!switchRows[0].cnt) {
+      await pool.query(
+        `INSERT IGNORE INTO worklog_dispatch_sync_team (team_id)
+         SELECT id FROM sys_team WHERE name = ? AND status = 1`,
+        [seedTeamName]
+      );
+    }
   }
 }
 
