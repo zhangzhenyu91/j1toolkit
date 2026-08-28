@@ -2,7 +2,7 @@
 // 顶象滑块只能在 H5 渲染：本页经 web-view 打开 server/public/sgcc-captcha.html（业务域名 toolkit.j1net.com），
 // 用户拖完滑块后 H5 postMessage 回传 {captchaToken, constId}（navigateBack 时同步），转交上一页 sgccbind。
 // 注意：业务域名需在微信公众平台配置（校验文件放 server/public/ 根目录）。
-const config = require('../../config.js');
+const config = require('../../../config.js');
 
 Page({
   data: {
