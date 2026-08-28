@@ -26,6 +26,7 @@
         "pages/tasksheet/tasksheet",
         "pages/feesheet/feesheet",
         "pages/sgccbind/sgccbind",
+        "pages/sgccweb/sgccweb",
         "pages/dispatch/dispatch"
       ]
     },

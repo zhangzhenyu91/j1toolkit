@@ -41,7 +41,32 @@
   color: #22314e;
 }
 
-/* 图形验证码图（点击刷新）；未获取时为文字占位 */
+/* 登录方式切换（短信/密码分段控件） */
+.sg-tabs {
+  display: flex;
+  margin-top: 12rpx;
+  padding: 6rpx;
+  border-radius: 16rpx;
+  background: #f4f1ea;
+}
+
+.sg-tab {
+  flex: 1;
+  text-align: center;
+  padding: 14rpx 0;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+  color: #6b7690;
+}
+
+.sg-tab.on {
+  background: #ffffff;
+  color: #22314e;
+  font-weight: 700;
+  box-shadow: 0 2rpx 8rpx rgba(34, 49, 78, 0.08);
+}
+
+/* 图形验证码图（点击刷新） */
 .captcha {
   flex: none;
   width: 152rpx;
@@ -51,13 +76,12 @@
   background: #22314e;
 }
 
-.captcha-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
+/* 「改用滑块验证」小字链接（图形码不可用时降级入口） */
+.sg-alt {
+  margin-top: 12rpx;
+  text-align: right;
   font-size: 22rpx;
-  letter-spacing: 2rpx;
+  color: #f26d21;
 }
 
 /* 短信验证码右侧「获取验证码 / 倒计时」 */

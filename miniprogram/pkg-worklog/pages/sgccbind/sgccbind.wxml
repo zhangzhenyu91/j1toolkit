@@ -1,4 +1,4 @@
-<!-- 绑定商旅 · 账号绑定页（未绑定：短信登录三步；已绑定：账号状态 + 解除绑定/重新登录） -->
+<!-- 绑定商旅 · 账号绑定页（未绑定：滑块验证 + 短信/密码登录；已绑定：账号状态 + 解除绑定/重新登录） -->
 <navbar back title="绑定商旅" />
 
 <view class="page-body" wx:if="{{gate && !loading}}">
@@ -11,15 +11,20 @@
       </view>
       <view>
         <text class="tip-t">绑定本人商旅账号</text>
-        <view class="tip-p">打卡、费用与照片均以本人账号提交商旅平台；请用商旅 App 注册手机号短信登录（与 App 登录互不影响）。</view>
+        <view class="tip-p">打卡、费用与照片均以本人账号提交商旅平台；请用商旅 App 注册手机号登录，短信/密码均可（与 App 登录互不影响）。</view>
       </view>
     </view>
 
-    <!-- 短信登录 -->
+    <!-- 登录商旅账号（短信/密码双方式；短信优先图形码，不可用自动降级滑块） -->
     <view class="sec-row">
-      <view class="section-title">短信登录</view>
+      <view class="section-title">登录商旅账号</view>
+      <text class="sec-note">图形码不可用时自动降级滑块验证</text>
     </view>
     <view class="card sg-card">
+      <view class="sg-tabs">
+        <view class="sg-tab {{loginType === 'sms' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onSwitchType" data-type="sms">短信登录</view>
+        <view class="sg-tab {{loginType === 'pwd' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onSwitchType" data-type="pwd">密码登录</view>
+      </view>
       <view class="field">
         <t-icon name="mobile" size="38rpx" color="#A89F8A" />
         <input
@@ -32,7 +37,7 @@
           bindinput="onMobileInput"
         />
       </view>
-      <view class="field">
+      <view class="field" wx:if="{{loginType === 'sms' && captchaImg}}">
         <t-icon name="check-rectangle" size="38rpx" color="#A89F8A" />
         <input
           class="fi"
@@ -42,16 +47,15 @@
           bindinput="onImgCodeInput"
         />
         <image
-          wx:if="{{captchaImg}}"
           class="captcha"
           src="{{captchaImg}}"
           mode="aspectFit"
           hover-class="hover-opacity"
-          bindtap="onCaptcha"
+          bindtap="onRefreshCaptcha"
         />
-        <view wx:else class="captcha captcha-empty" hover-class="hover-opacity" bindtap="onCaptcha">点击获取</view>
       </view>
-      <view class="field">
+      <view class="sg-alt" wx:if="{{loginType === 'sms' && captchaImg}}" hover-class="hover-opacity" bindtap="onUseSlider">图形码不可用？改用滑块验证</view>
+      <view class="field" wx:if="{{loginType === 'sms'}}">
         <t-icon name="lock-on" size="38rpx" color="#A89F8A" />
         <input
           class="fi"
@@ -65,6 +69,17 @@
         <view class="suffix {{smsCountdown > 0 ? 'off' : ''}}" hover-class="hover-opacity" bindtap="onSendSms">
           {{smsCountdown > 0 ? smsCountdown + 's 后重发' : '获取验证码'}}
         </view>
+      </view>
+      <view class="field" wx:else>
+        <t-icon name="lock-on" size="38rpx" color="#A89F8A" />
+        <input
+          class="fi"
+          password
+          placeholder="商旅登录密码"
+          placeholder-class="ph"
+          value="{{password}}"
+          bindinput="onPasswordInput"
+        />
       </view>
       <view class="btn-primary sg-bind-btn {{binding ? 'off' : ''}}" hover-class="hover-opacity" bindtap="onBind">
         {{binding ? '绑定中…' : '登录并绑定'}}

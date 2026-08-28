@@ -1,5 +1,7 @@
-// 绑定商旅 · 账号绑定页（出工日志扩展）：短信登录三步（图形验证码 → 发短信 → 短信换 token 绑定）
-// 两个状态：未绑定（短信登录表单 + 打卡设备信息）/ 已绑定（账号状态 + 解除绑定/重新登录）
+// 绑定商旅 · 账号绑定页（出工日志扩展）：短信/密码双方式登录绑定（短信为双通道：图形码优先、失败降级顶象滑块）
+// 两个状态：未绑定（登录表单 + 打卡设备信息）/ 已绑定（账号状态 + 解除绑定/重新登录）
+// 滑块在 sgccweb 页（web-view 打开 server/public/sgcc-captcha.html）完成，回传 captchaToken + constId；
+// 顶象 token 有效期短：发短信/绑定失败即清空，下次操作前重新拖滑块
 // 班组口径同 pkg-worklog 其他页面：超管按主页切换器存下的 worklog_team_id 生效（请求带 team_id）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
@@ -20,11 +22,15 @@ Page({
     // 打卡设备信息（未绑定态随 bind 一并提交；已绑定态为后端值，可修改）
     deviceType: '',
     systemVersion: '',
-    // 短信登录表单
+    // 登录表单（短信/密码双方式；短信为双通道：图形码优先、失败降级滑块）
+    loginType: 'sms', // sms=短信登录 / pwd=密码登录
     formMobile: '',
-    imgCode: '', // 图形验证码输入
-    captchaImg: '', // 图形验证码图（base64 dataURL）
-    smsCode: '', // 短信验证码输入
+    password: '', // 密码输入（pwd 方式）
+    imgCode: '', // 图形验证码输入（sms 图形通道）
+    captchaImg: '', // 图形验证码图（base64 dataURL；非空即显示图形码 field）
+    smsCode: '', // 短信验证码输入（sms 方式）
+    captchaToken: '', // 顶象滑块凭据（sgccweb 回传，滑块通道）
+    constId: '', // 顶象设备指纹（sgccweb 回传，滑块通道）
     smsCountdown: 0, // 短信重发倒计时（秒）
     binding: false, // 「登录并绑定」提交中
   },
@@ -136,18 +142,29 @@ Page({
     });
   },
 
-  /* ---------- 短信登录表单（未绑定态） ---------- */
+  /* ---------- 登录表单（未绑定态：短信/密码双方式；短信为图形码优先、失败降级滑块双通道） ---------- */
 
   onMobileInput(e) {
     this.setData({ formMobile: e.detail.value });
+  },
+
+  onPasswordInput(e) {
+    this.setData({ password: e.detail.value });
+  },
+
+  onSmsCodeInput(e) {
+    this.setData({ smsCode: e.detail.value });
   },
 
   onImgCodeInput(e) {
     this.setData({ imgCode: e.detail.value });
   },
 
-  onSmsCodeInput(e) {
-    this.setData({ smsCode: e.detail.value });
+  // 切换登录方式：清空已采集的滑块凭据（顶象 token 与操作绑定，换方式重新拖）
+  onSwitchType(e) {
+    const loginType = e.currentTarget.dataset.type;
+    if (loginType === this.data.loginType) return;
+    this.setData({ loginType, captchaToken: '', constId: '' });
   },
 
   checkMobile() {
@@ -159,10 +176,28 @@ Page({
     return mobile;
   },
 
-  // 获取 / 点击刷新图形验证码（返回 base64 dataURL 直接贴图）
-  async onCaptcha() {
+  // 去拖滑块（sgccweb 页）；action 记录滑块回来后的后续动作（'sms' 发短信 / 'bind' 绑定）
+  goCaptcha(action) {
     const mobile = this.checkMobile();
     if (!mobile) return;
+    this._pendingAction = action;
+    wx.navigateTo({ url: '/pkg-worklog/pages/sgccweb/sgccweb' });
+  },
+
+  // sgccweb 回传滑块结果（web-view bindmessage → 上一页回调）；进入滑块通道，弃用图形码
+  onCaptchaResult({ captchaToken, constId }) {
+    this.setData({ captchaToken: captchaToken || '', constId: constId || '', captchaImg: '', imgCode: '' });
+    this.toast('安全验证已通过');
+    const action = this._pendingAction;
+    this._pendingAction = null;
+    if (action === 'sms') this.sendSms();
+    else if (action === 'bind') this.doBind();
+  },
+
+  // 取图形验证码：成功返回 true；40035（风控窗口 99000）返回 false，调用方降级滑块
+  async fetchCaptcha() {
+    const mobile = this.checkMobile();
+    if (!mobile) return false;
     wx.showLoading({ title: '正在获取验证码…', mask: true });
     try {
       const data = await request({
@@ -171,23 +206,56 @@ Page({
         data: this.teamBody({ mobile }),
       });
       wx.hideLoading();
-      this.setData({ captchaImg: (data && data.image) || '' });
+      this.setData({ captchaImg: (data && data.image) || '', imgCode: '' });
+      return true;
     } catch (err) {
       wx.hideLoading();
-      this.toast(err.message);
+      return false;
     }
   },
 
-  // 发送短信验证码（需先过图形验证码），成功起 60s 倒计时
+  // 点图形码图刷新一张；取不到（风控窗口）则降级滑块
+  async onRefreshCaptcha() {
+    if (!(await this.fetchCaptcha())) {
+      this.setData({ captchaImg: '', imgCode: '' });
+      this.toast('图形验证码暂不可用，请完成滑块验证');
+      this.goCaptcha('sms');
+    }
+  },
+
+  // 「改用滑块验证」：弃图形码，直接去拖滑块
+  onUseSlider() {
+    if (!this.checkMobile()) return;
+    this.setData({ captchaImg: '', imgCode: '' });
+    this.goCaptcha('sms');
+  },
+
+  // 发送短信验证码：滑块凭据 → v3 直发；有图形码 → v2 发送；都没有 → 先取图形码，取不到降级滑块
   async onSendSms() {
     if (this.data.smsCountdown > 0) return;
-    const mobile = this.checkMobile();
-    if (!mobile) return;
-    const checkImgCode = (this.data.imgCode || '').trim();
-    if (!checkImgCode) {
-      this.toast('请填写图形验证码');
+    if (!this.checkMobile()) return;
+    if (this.data.captchaToken) {
+      this.sendSms();
       return;
     }
+    if (this.data.captchaImg) {
+      const checkImgCode = (this.data.imgCode || '').trim();
+      if (!checkImgCode) {
+        this.toast('请填写图形验证码');
+        return;
+      }
+      this.sendSmsV2(checkImgCode);
+      return;
+    }
+    if (!(await this.fetchCaptcha())) {
+      this.toast('图形验证码暂不可用，请完成滑块验证');
+      this.goCaptcha('sms');
+    }
+  },
+
+  // 图形码通道发送（v2）；失败自动刷新图形码，刷新也失败则降级滑块
+  async sendSmsV2(checkImgCode) {
+    const mobile = (this.data.formMobile || '').trim();
     wx.showLoading({ title: '正在发送短信…', mask: true });
     try {
       await request({
@@ -197,12 +265,38 @@ Page({
       });
       wx.hideLoading();
       this.toast('验证码已发送');
+      // 图形码一次性：发送成功即作废，重发时重新取图
+      this.setData({ captchaImg: '', imgCode: '' });
       this.startSmsCountdown();
     } catch (err) {
       wx.hideLoading();
       this.toast(err.message);
-      // 图形验证码错误/失效时自动刷新一张，便于直接重试
-      this.onCaptcha();
+      if (!(await this.fetchCaptcha())) {
+        this.setData({ captchaImg: '', imgCode: '' });
+        this.toast('图形验证码暂不可用，请完成滑块验证');
+        this.goCaptcha('sms');
+      }
+    }
+  },
+
+  // 滑块通道发送（v3）；失败清空凭据，下次重发前重新拖
+  async sendSms() {
+    const mobile = (this.data.formMobile || '').trim();
+    wx.showLoading({ title: '正在发送短信…', mask: true });
+    try {
+      await request({
+        url: '/api/v1/sgcc/login/sms',
+        method: 'POST',
+        data: this.teamBody({ mobile, captchaToken: this.data.captchaToken, constId: this.data.constId }),
+      });
+      wx.hideLoading();
+      this.toast('验证码已发送');
+      this.startSmsCountdown();
+    } catch (err) {
+      wx.hideLoading();
+      this.toast(err.message);
+      // 滑块凭据失效：清空，下次重发前重新拖
+      this.setData({ captchaToken: '', constId: '' });
     }
   },
 
@@ -227,36 +321,54 @@ Page({
     }
   },
 
-  // 登录并绑定：短信换 token，设备型号/系统版本一并提交
-  async onBind() {
+  // 登录并绑定：校验表单 → 无滑块凭据先拖滑块（回来自动续绑定）→ 短信码/密码换 token
+  onBind() {
     if (this.data.binding) return;
-    const mobile = this.checkMobile();
-    if (!mobile) return;
-    const checkCode = (this.data.smsCode || '').trim();
-    if (!checkCode) {
+    if (!this.checkMobile()) return;
+    if (this.data.loginType === 'sms' && !(this.data.smsCode || '').trim()) {
       this.toast('请填写短信验证码');
       return;
     }
+    if (this.data.loginType === 'pwd' && !(this.data.password || '').trim()) {
+      this.toast('请填写登录密码');
+      return;
+    }
+    if (!this.data.captchaToken) {
+      this.goCaptcha('bind');
+      return;
+    }
+    this.doBind();
+  },
+
+  async doBind() {
+    if (this.data.binding) return;
+    const mobile = (this.data.formMobile || '').trim();
+    const body = {
+      mobile,
+      captchaToken: this.data.captchaToken,
+      constId: this.data.constId,
+      deviceType: this.data.deviceType,
+      systemVersion: this.data.systemVersion,
+    };
+    if (this.data.loginType === 'pwd') body.password = (this.data.password || '').trim();
+    else body.checkCode = (this.data.smsCode || '').trim();
     this.setData({ binding: true });
     wx.showLoading({ title: '正在绑定…', mask: true });
     try {
       await request({
         url: '/api/v1/sgcc/login/bind',
         method: 'POST',
-        data: this.teamBody({
-          mobile,
-          checkCode,
-          deviceType: this.data.deviceType,
-          systemVersion: this.data.systemVersion,
-        }),
+        data: this.teamBody(body),
       });
       wx.hideLoading();
       this.toast('绑定成功');
-      this.setData({ formMobile: '', imgCode: '', captchaImg: '', smsCode: '' });
+      this.setData({ formMobile: '', password: '', smsCode: '', captchaToken: '', constId: '' });
       this.loadAccount();
     } catch (err) {
       wx.hideLoading();
       this.toast(err.message);
+      // 滑块凭据失效/登录失败：清空，重试前重新拖
+      this.setData({ captchaToken: '', constId: '' });
     } finally {
       this.setData({ binding: false });
     }
@@ -316,7 +428,7 @@ Page({
       try {
         await request({ url: `/api/v1/sgcc/account${this.teamQuery('?')}`, method: 'DELETE' });
         this.toast('已解除绑定');
-        this.setData({ bound: false, formMobile: '', imgCode: '', captchaImg: '', smsCode: '' });
+        this.setData({ bound: false, formMobile: '', password: '', smsCode: '', imgCode: '', captchaImg: '', captchaToken: '', constId: '' });
         this.detectDevice();
       } catch (err) {
         this.toast(err.message);
@@ -324,9 +436,9 @@ Page({
     }).catch(() => {});
   },
 
-  // 重新登录：回未绑定态表单重新走短信登录（本地绑定保留，bind 成功后覆盖 token）
+  // 重新登录：回未绑定态表单重新走登录（本地绑定保留，bind 成功后覆盖 token）
   onRelogin() {
-    this.setData({ bound: false, formMobile: '', imgCode: '', captchaImg: '', smsCode: '' });
+    this.setData({ bound: false, formMobile: '', password: '', smsCode: '', imgCode: '', captchaImg: '', captchaToken: '', constId: '' });
   },
 
   onShareAppMessage() {

@@ -1,9 +1,14 @@
 // 商旅平台协议层 —— 移植自逆向分析仓 esgcc/sgcc/tools/sgcc_client.js（全部已实测验证，勿改口径）
 // 两条通道：
-//   jsonm（H5，gwslapi）：AES-128-ECB + SM2 加密 AES 密钥；用于短信登录三步与 uniID 池
+//   jsonm（H5，gwslapi）：AES-128-ECB + SM2 加密 AES 密钥；用于短信登录与 uniID 池
 //   jsonx（App，gwslapi/gwslapizb）：RSA 分块加密（117B/128B，PKCS1）；
-//     tenant=default 用 RSA_PUB/RSA_PRIV；tenant=slapp（新通道，费用保存必须走它）用 dCu 加密 / wLA 解密
+//     tenant=default 用 RSA_PUB/RSA_PRIV；tenant=slapp（新通道，费用保存与密码登录必须走它）用 dCu 加密 / wLA 解密
 // 注意：两对 RSA 密钥各自只管一个方向（请求加密公钥 / 响应解密私钥模数并不相同）
+// 2026-08-28 登录链路升级（顶象风控）：商旅登录按风控动态出图形码或顶象滑块；
+//   图形验证码（validcodeimg）对云服务器 IP 间歇可用（风控窗口期返 99000，平峰正常），
+//   故做双通道：图形码优先（体验好、无需 web-view），99000/失败自动降级顶象滑块接力：
+//   captchaToken（滑块成功凭据）+ constId（顶象设备指纹）由前端滑块页
+//   （server/public/sgcc-captcha.html，appId 取自当日抓包）采集后随登录接口上送。
 const crypto = require('crypto');
 const https = require('https');
 const { sm2 } = require('sm-crypto');
@@ -185,24 +190,50 @@ async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType
 
 // ---------- 业务封装 ----------
 
-// 短信登录三步：图形验证码 → 发短信 → 短信换 token
+// 短信登录双通道（见文件头注释）：
+//   图形码通道（优先，风控平峰可用）：validcodeimg 取图 → sendSmsCode/v2 发短信
+//   滑块通道（降级，顶象）：滑块页采集 captchaToken + constId → sendSmsCode/v3 发短信
+// 两条通道最后都走 smstoken/v4 短信换 token（图形码通道 captchaToken 传空即可，与旧口径一致）
+
+// 取图形验证码（裸 base64；风控窗口期会 99000，路由层据此降级滑块）
 async function loginCaptcha(mobile) {
   const r = await callJsonm('user/validcodeimg', { mobile });
   const img = r.decoded && r.decoded.data;
   if (!img) throw new Error('获取图形验证码失败：' + JSON.stringify(r.decoded || r.status));
-  return img; // dataURL base64
+  return img;
 }
-async function loginSendSms(mobile, checkImgCode) {
+// 图形码通道发短信（v2）
+async function loginSendSmsV2(mobile, checkImgCode) {
   const r = await callJsonm('user/sendSmsCode/v2', { mobile, checkImgCode });
   return r.decoded;
 }
-async function loginBySms(mobile, checkCode) {
+
+// 滑块通道发短信（v3）：顶象滑块 token + constId 由前端滑块页采集
+// 注意 v3 失败时 HTTP/statusCode 仍是 200，成败要看 data.code（成功无 data 或 data.code=0）
+async function loginSendSms(mobile, { captchaToken, constId } = {}) {
+  const r = await callJsonm('user/sendSmsCode/v3', {
+    mobile, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
+  });
+  return r.decoded;
+}
+async function loginBySms(mobile, checkCode, { captchaToken, constId } = {}) {
   const r = await callJsonm('user/smstoken/v4', {
-    mobile, checkCode, source: '3', constId: '', captchaToken: '', riskFlag: 'Y',
+    mobile, checkCode, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
   });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
   if (!token) throw new Error('短信登录失败：' + JSON.stringify(r.decoded || r.status));
+  return { token };
+}
+
+// 账号密码登录（user/token/v4）：jsonm/jsonx-default 通道均 503，必须走 slapp 通道（实测 App 口径）
+async function loginByPassword(mobile, password, { captchaToken, constId } = {}) {
+  const r = await callJsonx('user/token/v4', {
+    mobile, password, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
+  }, { tenant: 'slapp' });
+  const d = r.decoded && r.decoded.data;
+  const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
+  if (!token) throw new Error('密码登录失败：' + JSON.stringify(r.decoded || r.status));
   return { token };
 }
 
@@ -270,6 +301,6 @@ async function reimbEnclosureAdd(token, { imgBase64Str, fileName, fileSize, ext 
 }
 
 module.exports = {
-  loginCaptcha, loginSendSms, loginBySms,
+  loginCaptcha, loginSendSmsV2, loginSendSms, loginBySms, loginByPassword,
   dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, reimbEnclosureAdd,
 };

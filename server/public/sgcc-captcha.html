@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<!--
+  商旅平台滑块验证页（顶象无感验证接力，2026-08-28）
+  用途：商旅登录按风控动态出图形码或顶象滑块，图形码对云服务器 IP 间歇可用（风控窗口 99000），
+        不可用时降级到本页——在我们域名下用商旅的顶象 appId 渲染同款滑块，
+        用户拖完后把 captchaToken（滑块凭据）+ constId（顶象设备指纹）回传给调用方，
+        由后端随登录接口（sendSmsCode/v3、smstoken/v4、token/v4）上送完成绑定。
+  调用方式：
+    - 小程序 web-view：/sgcc-captcha.html?from=mp（wx.miniProgram.postMessage 回传后 navigateBack）
+    - 网页端 iframe：直接嵌入，监听 window message（type: 'sgcc-captcha'）回传（预留）
+  appId 取自 2026-08-28 商旅 App 抓包（cap.dingxiang-inc.com/api/a?ak=...），若顶象轮换改此一处。
+  隐私口径：页面文案统称「商旅平台」，不出现平台所属方名称。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>安全验证 · 商旅平台</title>
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  body { background: var(--paper); margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 420px; margin: 0 auto; padding: 28px 16px; }
+  .tip { font-size: 14px; color: var(--sub); line-height: 1.7; margin: 0 2px 14px; }
+  .tip b { color: var(--navy); font-weight: 600; }
+  .cap-card { background: #fff; border-radius: 10px; padding: 18px 14px; box-shadow: 0 1px 4px rgba(34,49,78,.06); }
+  #cap { display: flex; justify-content: center; min-height: 42px; }
+  .status { margin-top: 14px; font-size: 13px; text-align: center; line-height: 1.6; }
+  .status.ok { color: var(--green); }
+  .status.err { color: var(--red); }
+  .status.muting { color: var(--sub); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="tip">绑定商旅账号需要先完成一次<b>安全验证</b>（与商旅 App 登录同款），请拖动下方滑块。</p>
+  <div class="cap-card"><div id="cap"></div></div>
+  <div class="status muting" id="status">滑块加载中…</div>
+</div>
+<script src="https://res.wx.qq.com/open/js/jweixin-1.3.2.js"></script>
+<script>
+(function () {
+  var APPID = '9df66798b2919e1a4d4e6ec2e498dcfe'; // 商旅平台顶象 appId（2026-08-28 抓包实测）
+  var statusEl = document.getElementById('status');
+  var constId = '';
+  function say(text, cls) { statusEl.textContent = text; statusEl.className = 'status ' + cls; }
+
+  // 钩 XHR：顶象校验请求（cap.dingxiang-inc.com/api/v1）体里的 c 参数即设备指纹 constId（与 token 同源）
+  var xopen = XMLHttpRequest.prototype.open, xsend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (m, u) { this.__dxUrl = u; return xopen.apply(this, arguments); };
+  XMLHttpRequest.prototype.send = function (body) {
+    try {
+      if (this.__dxUrl && this.__dxUrl.indexOf('cap.dingxiang-inc.com/api/v1') >= 0 && body) {
+        var mm = String(body).match(/(?:^|&)c=([^&]*)/);
+        if (mm) constId = decodeURIComponent(mm[1]);
+      }
+    } catch (e) { /* 忽略 */ }
+    return xsend.apply(this, arguments);
+  };
+
+  function onSuccess(captchaToken) {
+    say('验证成功，正在返回…', 'ok');
+    var payload = { captchaToken: captchaToken, constId: constId };
+    if (window.wx && wx.miniProgram) {
+      // 小程序 web-view：postMessage 在 navigateBack 时同步给小程序 bindmessage
+      wx.miniProgram.postMessage({ data: payload });
+      setTimeout(function () { wx.miniProgram.navigateBack(); }, 400);
+    } else if (window.parent !== window) {
+      // 网页端 iframe（预留）：父页监听 message
+      window.parent.postMessage({ type: 'sgcc-captcha', captchaToken: captchaToken, constId: constId }, location.origin);
+    } else {
+      say('验证成功', 'ok');
+    }
+  }
+
+  function start() {
+    if (!window._dx || !window._dx.Captcha) { say('验证组件加载失败，请检查网络后返回重试', 'err'); return; }
+    try {
+      window._dx.Captcha(document.getElementById('cap'), {
+        appId: APPID,
+        style: 'embed',
+        width: 330,
+        success: onSuccess,
+        fail: function () { say('验证未通过，请再试一次', 'err'); }
+      });
+      say('请拖动滑块完成验证', 'muting');
+    } catch (e) {
+      say('验证组件初始化失败：' + (e && e.message), 'err');
+    }
+  }
+
+  var s = document.createElement('script');
+  s.src = 'https://cdn.dingxiang-inc.com/ctu-group/captcha-ui/index.js';
+  s.onload = start;
+  s.onerror = function () { say('验证组件加载失败，请检查网络后返回重试', 'err'); };
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>

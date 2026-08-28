@@ -297,44 +297,65 @@ async function reverseGeocode(lng, lat) {
   }
 }
 
-// ---------- 绑定（短信登录三步；密码登录有顶象滑块风控，不做）----------
+// ---------- 绑定（短信双通道：图形码优先、失败降级顶象滑块接力；密码登录仅滑块通道）----------
 
-// POST /login/captcha：取图形验证码（统一补 dataURL 前缀，小程序 <image> 可直接贴）
+// POST /login/captcha：取图形验证码（validcodeimg 对服务器 IP 间歇可用；
+// 风控窗口期 99000 时统一回 40035，前端据此降级滑块验证）
 router.post('/login/captcha', async (req, res, next) => {
   try {
     const mobile = String((req.body && req.body.mobile) || '').trim();
     if (!/^1\d{10}$/.test(mobile)) return fail(res, 400, 40030, '手机号格式不正确');
-    let image = await sgcc.loginCaptcha(mobile);
-    // 商旅返回裸 base64（无 dataURL 前缀），统一补全；PNG 魔数 89504e47
-    if (image && !image.startsWith('data:')) image = `data:image/png;base64,${image}`;
-    return ok(res, { image });
+    try {
+      let image = await sgcc.loginCaptcha(mobile);
+      // 商旅返回裸 base64（无 dataURL 前缀），统一补全；PNG 魔数 89504e47
+      if (image && !image.startsWith('data:')) image = `data:image/png;base64,${image}`;
+      return ok(res, { image });
+    } catch (e) {
+      return fail(res, 400, 40035, '图形验证码暂不可用，请使用滑块验证');
+    }
   } catch (err) { return next(err); }
 });
 
-// POST /login/sms：发短信验证码
+// POST /login/sms：发短信验证码（带 checkImgCode 走图形码 v2 通道；带 captchaToken 走滑块 v3 通道）
 router.post('/login/sms', async (req, res, next) => {
   try {
-    const { mobile, checkImgCode } = req.body || {};
+    const { mobile, checkImgCode, captchaToken, constId } = req.body || {};
     if (!/^1\d{10}$/.test(String(mobile || ''))) return fail(res, 400, 40030, '手机号格式不正确');
-    const d = await sgcc.loginSendSms(String(mobile), String(checkImgCode || '').trim());
-    if (!d || Number(d.statusCode) !== 200) {
-      return fail(res, 400, 40031, (d && d.msg) || '短信发送失败，请重试');
+    if (checkImgCode) {
+      // 图形码通道（v2）：statusCode=200 即成功
+      const d = await sgcc.loginSendSmsV2(String(mobile), String(checkImgCode).trim());
+      if (!d || Number(d.statusCode) !== 200) {
+        return fail(res, 400, 40031, (d && d.msg) || '短信发送失败，请重试');
+      }
+      return ok(res, null);
+    }
+    if (!captchaToken) return fail(res, 400, 40034, '请先完成图形或滑块验证');
+    // 滑块通道（v3）：失败时 statusCode 也是 200，成败看 data.code（成功无 data 或 data.code=0）
+    const d = await sgcc.loginSendSms(String(mobile), { captchaToken: String(captchaToken), constId: String(constId || '') });
+    const bizFail = !d || Number(d.statusCode) !== 200 || (d.data && d.data.code != null && Number(d.data.code) !== 0);
+    if (bizFail) {
+      return fail(res, 400, 40031, (d && d.data && d.data.msg) || (d && d.msg) || '短信发送失败，请重试');
     }
     return ok(res, null);
   } catch (err) { return next(err); }
 });
 
-// POST /login/bind：短信换 token 完成绑定（同事写入设备口径）
+// POST /login/bind：短信码或密码换 token 完成绑定（同事写入设备口径）
 router.post('/login/bind', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
-    const { mobile, checkCode } = req.body || {};
+    const { mobile, checkCode, password, captchaToken, constId } = req.body || {};
     const deviceType = String(req.body.deviceType || '').trim().slice(0, 64);
     const systemVersion = String(req.body.systemVersion || '').trim().slice(0, 64);
     if (!/^1\d{10}$/.test(String(mobile || ''))) return fail(res, 400, 40030, '手机号格式不正确');
-    if (!checkCode) return fail(res, 400, 40032, '请填写短信验证码');
+    if (!checkCode && !password) return fail(res, 400, 40032, '请填写短信验证码或密码');
+    // 密码登录强制顶象滑块（token/v4 无图形码参数）；短信登录图形码通道 captchaToken 可空
+    if (password && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成滑块验证');
 
-    const { token } = await sgcc.loginBySms(String(mobile), String(checkCode).trim());
+    const risk = { captchaToken: String(captchaToken || ''), constId: String(constId || '') };
+    const { token } = password
+      ? await sgcc.loginByPassword(String(mobile), String(password), risk)
+      : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk);
 
     // 认领出工成员：班组内按昵称匹配（与 worklog member-sync 同口径）
     const [members] = await pool.query(
