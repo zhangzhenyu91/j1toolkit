@@ -7,7 +7,7 @@ const DDL = [
   `CREATE TABLE IF NOT EXISTS worklog_sgcc_account (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     team_id BIGINT UNSIGNED NULL COMMENT '所属班组，关联 sys_team.id',
-    user_id BIGINT UNSIGNED NOT NULL COMMENT '绑定人，关联 sys_user.id',
+    user_id BIGINT UNSIGNED NULL COMMENT '绑定人，关联 sys_user.id（NULL=管理员代绑，本人自助重绑时接管回本列）',
     member_id BIGINT UNSIGNED NULL COMMENT '关联出工成员 worklog_member.id（按班组+昵称认领）',
     mobile VARCHAR(32) NOT NULL DEFAULT '' COMMENT '商旅注册手机号（脱敏展示用原文）',
     token VARCHAR(128) NOT NULL DEFAULT '' COMMENT '商旅登录 token（短信登录换取，长效）',
@@ -121,6 +121,17 @@ async function ensureSgccSchema(pool) {
       await pool.query(`ALTER TABLE worklog_clockin ADD COLUMN ${ddl}`);
       console.log(`[初始化] 已为 worklog_clockin 补充 ${col} 列`);
     }
+  }
+
+  // 老库兼容：worklog_sgcc_account.user_id 放宽为允许 NULL（管理员代绑定行 user_id=NULL；
+  // MySQL 唯一键中 NULL 互不相同，uk_team_user 不冲突，uk_team_member 仍保证一成员一号）
+  const [uidCols] = await pool.query(
+    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_sgcc_account' AND COLUMN_NAME = 'user_id'`
+  );
+  if (uidCols.length && uidCols[0].IS_NULLABLE === 'NO') {
+    await pool.query(`ALTER TABLE worklog_sgcc_account MODIFY user_id BIGINT UNSIGNED NULL COMMENT '绑定人，关联 sys_user.id（NULL=管理员代绑，本人自助重绑时接管回本列）'`);
+    console.log('[初始化] 已将 worklog_sgcc_account.user_id 放宽为允许 NULL（支持管理员代绑定）');
   }
 
   // 一次性清理：商旅打卡归属出工日志（权限统一走 work-log），删除旧 sgcc-clockin 应用及授权

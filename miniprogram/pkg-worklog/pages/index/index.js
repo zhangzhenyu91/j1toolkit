@@ -457,6 +457,32 @@ Page({
     if (this.data.gate && !this.data.noTeam) this.loadLogs();
     this._lockCheckedAt = 0; // 切回页面强制探测一次全局锁（批量同步进行中立即出遮罩）
     if (this.data.gate && !this.data.noTeam) this.checkSgccLock();
+    if (this.data.gate && !this.data.noTeam) this.checkSgccExpired();
+  },
+
+  // 商旅账号过期提醒：有成员登录过期时弹窗（指纹=当日日期+过期成员 id 串，同日同名单不重复弹；
+  // 名单变化或跨天再弹——既覆盖「每次进入提醒」，又避免页面内子页返回骚扰）
+  async checkSgccExpired() {
+    try {
+      const data = await request({ url: `/api/v1/sgcc/expired${this.teamQuery('?')}` });
+      const list = (data && data.list) || [];
+      if (!list.length) return;
+      const now = new Date();
+      const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const key = `${day}:${list.map((x) => x.memberId || x.mobile).sort().join(',')}`;
+      if (this._expiredAlertKey === key) return;
+      this._expiredAlertKey = key;
+      const names = list.map((x) => x.memberName || x.mobile).join('、');
+      Dialog.alert({
+        context: this,
+        selector: '#t-dialog',
+        title: '商旅账号过期提醒',
+        content: `${names} 的商旅账号已过期，需重新绑定后恢复打卡与同步。`,
+        confirmBtn: '知道了',
+      });
+    } catch (err) {
+      // 探测失败静默（40404=商旅打卡未开启等）
+    }
   },
 
   onHide() {

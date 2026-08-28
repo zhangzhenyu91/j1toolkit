@@ -18,6 +18,7 @@
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；设计稿 design/worklog-dispatch-align.html）；
      页签顶部「每日自动同步派车单」开关（/dispatch/sync-switch，按生效班组，仅 admin / team_admin）；
+     「数据管理」页签另有「商旅绑定设备」区：绑定成员列表（登录态/设备口径）可改设备，区底部选成员「代绑定」——管理员代成员完成商旅登录绑定（成员过期联系不上时兜底；弹层短信（图形码优先、失败降级内嵌滑块 iframe）/ 密码双方式，落库为代绑行，成员可自助重绑接管）；
      跨班日志：超管页头「跨班日志」入口（/logs/cross/* 全局字典，openCrossForm 新建 / 编辑；跨班卡车牌行加橙色描边「跨班」徽章，
      非超管不可改派车 / 删除，他班跨班卡不渲染商旅打卡区与「从商旅同步」入口）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
@@ -3683,6 +3684,191 @@ function sgccDeviceEdit(item) {
   sysEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
 }
 
+/* 代绑定弹层（管理员代成员绑定商旅账号：短信（图形码优先、失败降级滑块）/ 密码双方式；
+   滑块以内嵌 iframe 打开 /sgcc-captcha.html，window message（type: sgcc-captcha）回传 captchaToken+constId） */
+function sgccBindFor(member) {
+  var mode = 'sms'; // sms=短信登录 / pwd=密码登录
+  var captchaToken = '', constId = '', imgUrl = '', left = 0, timer = null, sending = false;
+
+  var html = Shade.mHead('代绑定商旅账号 · ' + esc(member.name))
+    + '<div style="display:flex;gap:8px;margin-bottom:4px">'
+    +   '<button class="btn btn-sm btn-accent" id="sgbTabSms" style="flex:1">短信登录</button>'
+    +   '<button class="btn btn-sm" id="sgbTabPwd" style="flex:1">密码登录</button>'
+    + '</div>'
+    + '<label class="f-lab">商旅注册手机号</label>'
+    + '<input class="f-sel" id="sgbMobile" style="height:40px" maxlength="11" inputmode="numeric" autocomplete="off" placeholder="成员商旅账号手机号">'
+    + '<div id="sgbSms">'
+    +   '<div id="sgbImgBox" style="display:none">'
+    +     '<label class="f-lab">图形验证码（点图片刷新）</label>'
+    +     '<div style="display:flex;gap:8px;align-items:center">'
+    +       '<input class="f-sel" id="sgbImgCode" style="height:40px;flex:1" maxlength="6" autocomplete="off" placeholder="图形验证码">'
+    +       '<img id="sgbImg" style="height:40px;border-radius:6px;cursor:pointer" alt="图形验证码">'
+    +     '</div>'
+    +   '</div>'
+    +   '<label class="f-lab">短信验证码</label>'
+    +   '<div style="display:flex;gap:8px;align-items:center">'
+    +     '<input class="f-sel" id="sgbSmsCode" style="height:40px;flex:1" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="短信验证码">'
+    +     '<button class="btn btn-sm" id="sgbSend">获取验证码</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="sgbPwd" style="display:none">'
+    +   '<label class="f-lab">商旅登录密码</label>'
+    +   '<input class="f-sel" type="password" id="sgbPwdIn" style="height:40px" autocomplete="off" placeholder="成员商旅账号密码">'
+    + '</div>'
+    + '<div id="sgbCapBox" style="display:none;margin-top:6px">'
+    +   '<label class="f-lab">安全验证（拖动滑块）</label>'
+    +   '<iframe id="sgbCapFrame" style="width:100%;height:430px;border:0;border-radius:10px;background:var(--paper)"></iframe>'
+    + '</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">绑 定</button></div>';
+  var inst = Shade.modal(html, { width: 460, onClose: cleanup });
+  var $id = function (s) { return $(s, inst.box); };
+  var mobileEl = $id('#sgbMobile'), sendBtn = $id('#sgbSend');
+
+  function cleanup() { if (timer) { clearInterval(timer); timer = null; } window.removeEventListener('message', onMsg); }
+  window.addEventListener('message', onMsg);
+
+  function mobile() {
+    var v = mobileEl.value.trim();
+    if (!/^1\d{10}$/.test(v)) { Shade.toast('手机号格式不正确', 'info'); return ''; }
+    return v;
+  }
+  function setTab(m) {
+    mode = m;
+    $id('#sgbTabSms').className = 'btn btn-sm' + (m === 'sms' ? ' btn-accent' : '');
+    $id('#sgbTabPwd').className = 'btn btn-sm' + (m === 'pwd' ? ' btn-accent' : '');
+    $id('#sgbSms').style.display = m === 'sms' ? '' : 'none';
+    $id('#sgbPwd').style.display = m === 'pwd' ? '' : 'none';
+    // 换方式清空滑块凭据并收起滑块（顶象 token 与操作绑定，重拖）
+    captchaToken = ''; constId = '';
+    $id('#sgbCapBox').style.display = 'none';
+    if (m === 'pwd') showSlider(); // 密码登录强制滑块，直接出
+  }
+  // 展示滑块 iframe（每次展示重载页面，保证拿到新一局）
+  function showSlider() {
+    captchaToken = ''; constId = '';
+    $id('#sgbCapBox').style.display = '';
+    $id('#sgbCapFrame').src = '/sgcc-captcha.html?from=web&t=' + Date.now();
+  }
+  // 滑块回传：短信模式自动续发短信，密码模式仅暂存
+  function onMsg(e) {
+    var d = e && e.data;
+    if (!d || d.type !== 'sgcc-captcha' || !d.captchaToken) return;
+    captchaToken = d.captchaToken; constId = d.constId || '';
+    $id('#sgbCapBox').style.display = 'none';
+    if (mode === 'sms') doSendSms();
+    else Shade.toast('安全验证已通过', 'success');
+  }
+  function startCountdown() {
+    left = 60;
+    sendBtn.textContent = left + 's 后重发';
+    sendBtn.disabled = true;
+    timer = setInterval(function () {
+      left -= 1;
+      if (left <= 0) {
+        clearInterval(timer); timer = null;
+        sendBtn.textContent = '获取验证码';
+        sendBtn.disabled = false;
+        return;
+      }
+      sendBtn.textContent = left + 's 后重发';
+    }, 1000);
+  }
+  // 取图形码：成功贴图；40035（风控窗口）→ 降级滑块
+  async function fetchImg() {
+    var m = mobile(); if (!m) return false;
+    try {
+      var r = await Shade.api(wl('/api/v1/sgcc/login/captcha'), { method: 'POST', body: { mobile: m } });
+      imgUrl = (r.data && r.data.image) || '';
+      $id('#sgbImg').src = imgUrl;
+      $id('#sgbImgCode').value = '';
+      $id('#sgbImgBox').style.display = '';
+      return true;
+    } catch (err) {
+      imgUrl = '';
+      $id('#sgbImgBox').style.display = 'none';
+      return false;
+    }
+  }
+  // 发短信：滑块凭据 → v3；有图形码 → v2；都没有 → 先取图形码，取不到降级滑块
+  async function onSend() {
+    if (left > 0 || sending) return;
+    var m = mobile(); if (!m) return;
+    if (captchaToken) { doSendSms(); return; }
+    if (imgUrl) {
+      var code = $id('#sgbImgCode').value.trim();
+      if (!code) { Shade.toast('请填写图形验证码', 'info'); return; }
+      doSendSmsV2(code);
+      return;
+    }
+    if (!(await fetchImg())) {
+      Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
+      showSlider();
+    }
+  }
+  async function doSendSms() {
+    var m = mobile(); if (!m) return;
+    sending = true;
+    try {
+      await Shade.api(wl('/api/v1/sgcc/login/sms'), { method: 'POST', body: { mobile: m, captchaToken: captchaToken, constId: constId } });
+      Shade.toast('验证码已发送', 'success');
+      startCountdown();
+    } catch (err) {
+      Shade.toast(err.message, 'error');
+      captchaToken = ''; constId = ''; // 滑块凭据失效，重发前重拖
+    } finally { sending = false; }
+  }
+  async function doSendSmsV2(checkImgCode) {
+    var m = mobile(); if (!m) return;
+    sending = true;
+    try {
+      await Shade.api(wl('/api/v1/sgcc/login/sms'), { method: 'POST', body: { mobile: m, checkImgCode: checkImgCode } });
+      Shade.toast('验证码已发送', 'success');
+      imgUrl = ''; $id('#sgbImgBox').style.display = 'none'; // 图形码一次性，发送成功即作废
+      startCountdown();
+    } catch (err) {
+      Shade.toast(err.message, 'error');
+      if (!(await fetchImg())) { // 图形码错误自动刷新；刷新失败降级滑块
+        Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
+        showSlider();
+      }
+    } finally { sending = false; }
+  }
+  async function submit() {
+    var m = mobile(); if (!m) return;
+    var body = { memberId: member.id, mobile: m, captchaToken: captchaToken, constId: constId };
+    if (mode === 'pwd') {
+      var pwd = $id('#sgbPwdIn').value.trim();
+      if (!pwd) { Shade.toast('请填写登录密码', 'info'); return; }
+      if (!captchaToken) { Shade.toast('请先完成滑块验证', 'info'); return; }
+      body.password = pwd;
+    } else {
+      var sc = $id('#sgbSmsCode').value.trim();
+      if (!sc) { Shade.toast('请填写短信验证码', 'info'); return; }
+      body.checkCode = sc;
+    }
+    try {
+      await Shade.api(wl('/api/v1/sgcc/accounts/bind'), { method: 'POST', body: body });
+      cleanup();
+      inst.close();
+      Shade.toast('绑定成功', 'success');
+      await loadSgccAccounts();
+      renderDict();
+    } catch (err) {
+      Shade.toast(err.message, 'error');
+      captchaToken = ''; constId = ''; // 失败清空凭据，重试前重拖
+    }
+  }
+  $id('#sgbTabSms').addEventListener('click', function () { setTab('sms'); });
+  $id('#sgbTabPwd').addEventListener('click', function () { setTab('pwd'); });
+  $id('#sgbImg').addEventListener('click', async function () {
+    if (!(await fetchImg())) { Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info'); showSlider(); }
+  });
+  sendBtn.addEventListener('click', onSend);
+  $('[data-a="no"]', inst.box).addEventListener('click', function () { cleanup(); inst.close(); });
+  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+}
+
 function dictRowHtml(seg, it, idx, total) {
   var off = it.status !== 1;
   return '<div class="drow' + (off ? ' off' : '') + '" data-seg="' + seg.key + '" data-id="' + it.id +
@@ -3732,9 +3918,11 @@ function renderDict() {
       '</div>' +
     '</div>' +
   '</div>';
-  /* 商旅绑定设备（商旅打卡未开启（/sgcc 未挂载）时整区不渲染；无添加行，绑定由成员在小程序「我的 → 绑定商旅」完成） */
+  /* 商旅绑定设备（商旅打卡未开启（/sgcc 未挂载）时整区不渲染；区底部代绑定行：
+     管理员可代成员绑定商旅账号（成员过期又联系不上时兜底），成员本人仍可在小程序「我的 → 绑定商旅」自助绑定/接管） */
   if (!state.dict.sgcc.off) {
     var sg = state.dict.sgcc;
+    var sgMembers = (state.dict.lists.members || []).filter(function (x) { return x.status === 1; });
     html += '<div class="card dsec">' +
       '<div class="dsec-h"><b>商旅绑定设备</b><span class="cnt">' +
         (sg.err ? '加载失败' : (sg.list ? sg.list.length + ' 条' : '加载中…')) + '</span></div>' +
@@ -3745,6 +3933,13 @@ function renderDict() {
           : (sg.list.length
             ? sg.list.map(sgccRowHtml).join('')
             : '<div class="dempty">本班组暂无绑定成员（成员可在小程序「我的 → 绑定商旅」绑定）</div>'))) +
+      '<div class="dadd">' +
+        '<select class="f-sel" id="sgBindMember" style="flex:1;height:36px">' +
+          '<option value="">选择成员…</option>' +
+          sgMembers.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join('') +
+        '</select>' +
+        '<button class="btn btn-sm btn-accent" data-sgcc-act="bind">代绑定</button>' +
+      '</div>' +
     '</div>';
   }
   $('#dictBody').innerHTML = html;
@@ -4572,7 +4767,7 @@ function initEvents() {
       else $('#impFileInput').click();
       return;
     }
-    /* 商旅绑定设备：改设备（按 data-sgcc-id 取行数据） */
+    /* 商旅绑定设备：改设备（按 data-sgcc-id 取行数据）/ 代绑定（区底部按钮，读成员下拉） */
     var sgBtn = e.target.closest('[data-sgcc-act]');
     if (sgBtn) {
       var sgRow = sgBtn.closest('[data-sgcc-id]');
@@ -4580,6 +4775,14 @@ function initEvents() {
       var sgItem = null;
       sgList.forEach(function (x) { if (sgRow && x.id === Number(sgRow.dataset.sgccId)) sgItem = x; });
       if (sgItem && sgBtn.dataset.sgccAct === 'device') sgccDeviceEdit(sgItem);
+      if (sgBtn.dataset.sgccAct === 'bind') {
+        var mSel = $('#sgBindMember');
+        var mId = mSel ? Number(mSel.value) : 0;
+        var mItem = null;
+        (state.dict.lists.members || []).forEach(function (x) { if (x.id === mId) mItem = x; });
+        if (!mItem) { Shade.toast('请先选择要绑定的成员', 'info'); return; }
+        sgccBindFor(mItem);
+      }
       return;
     }
     var actBtn = e.target.closest('[data-dact]');

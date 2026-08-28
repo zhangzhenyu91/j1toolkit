@@ -367,7 +367,7 @@ router.post('/login/bind', async (req, res, next) => {
     await pool.query(
       `INSERT INTO worklog_sgcc_account (team_id, user_id, member_id, mobile, token, device_type, system_version, token_status, last_check_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW())
-       ON DUPLICATE KEY UPDATE mobile = VALUES(mobile), token = VALUES(token),
+       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), mobile = VALUES(mobile), token = VALUES(token),
          device_type = IF(VALUES(device_type) = '', device_type, VALUES(device_type)),
          system_version = IF(VALUES(system_version) = '', system_version, VALUES(system_version)),
          member_id = VALUES(member_id), token_status = 1, last_check_at = NOW()`,
@@ -375,46 +375,49 @@ router.post('/login/bind', async (req, res, next) => {
         deviceType || 'Xiaomi 2509FPN0BC', systemVersion || 'Android 16']
     );
 
-    // 重新登录成功：补核此前因登录态过期而核查失败的日期（近 62 天、仅当日用车人，同定时核查口径）；
-    // 异步执行不阻塞响应，日期间按 SGCC_SYNC_INTERVAL_MS 间隔防风控；补核完成的日期清掉对应 auth 失败记录
-    if (memberId) {
-      (async () => {
-        const [accRows] = await pool.query(
-          'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND user_id = ?',
-          [req.team.id, req.user.id]
-        );
-        const account = accRows[0];
-        if (!account) return;
-        if (!(await probeAuth(account))) return; // 新 token 探测不过（异常）则不补核，避免误清失败记录
-        const [fails] = await pool.query(
-          `SELECT DISTINCT DATE_FORMAT(sync_date, '%Y-%m-%d') AS d FROM worklog_sync_log
-           WHERE team_id = ? AND member_id = ? AND type = 'auth' AND result = 'fail'
-             AND sync_date >= DATE_SUB(CURDATE(), INTERVAL 62 DAY) ORDER BY d`,
-          [account.team_id, account.member_id]
-        );
-        for (const { d } of fails) {
-          const [m] = await pool.query(
-            `SELECT 1 FROM worklog_entry e JOIN worklog_entry_member em ON em.entry_id = e.id
-             WHERE e.team_id = ? AND e.log_date = ? AND em.member_id = ? LIMIT 1`,
-            [account.team_id, d, account.member_id]
-          );
-          if (!m.length) continue; // 非当日用车人不补核
-          try {
-            await syncOne(account, d, 'daily');
-            await pool.query(
-              `DELETE FROM worklog_sync_log WHERE team_id = ? AND member_id = ? AND sync_date = ? AND type = 'auth' AND result = 'fail'`,
-              [account.team_id, account.member_id, d]
-            );
-          } catch (e) {
-            console.error(`[商旅打卡] 登录后补核失败（成员 ${account.member_id} ${d}）：`, e.message);
-          }
-          await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
-        }
-      })().catch((err) => console.error('[商旅打卡] 登录后补核失败：', err.message));
-    }
+    // 重新登录成功：补核此前因登录态过期而核查失败的日期（异步不阻塞响应）
+    if (memberId) recompenseAfterBind(req.team.id, memberId);
     return ok(res, { bound: true });
   } catch (err) { return next(err); }
 });
+
+// 绑定/重新登录成功后的补核（近 62 天、仅当日用车人，同定时核查口径）：
+// 异步执行，日期间按 SGCC_SYNC_INTERVAL_MS 间隔防风控；补核完成的日期清掉对应 auth 失败记录
+function recompenseAfterBind(teamId, memberId) {
+  (async () => {
+    const [accRows] = await pool.query(
+      'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND member_id = ?',
+      [teamId, memberId]
+    );
+    const account = accRows[0];
+    if (!account) return;
+    if (!(await probeAuth(account))) return; // 新 token 探测不过（异常）则不补核，避免误清失败记录
+    const [fails] = await pool.query(
+      `SELECT DISTINCT DATE_FORMAT(sync_date, '%Y-%m-%d') AS d FROM worklog_sync_log
+       WHERE team_id = ? AND member_id = ? AND type = 'auth' AND result = 'fail'
+         AND sync_date >= DATE_SUB(CURDATE(), INTERVAL 62 DAY) ORDER BY d`,
+      [account.team_id, account.member_id]
+    );
+    for (const { d } of fails) {
+      const [m] = await pool.query(
+        `SELECT 1 FROM worklog_entry e JOIN worklog_entry_member em ON em.entry_id = e.id
+         WHERE e.team_id = ? AND e.log_date = ? AND em.member_id = ? LIMIT 1`,
+        [account.team_id, d, account.member_id]
+      );
+      if (!m.length) continue; // 非当日用车人不补核
+      try {
+        await syncOne(account, d, 'daily');
+        await pool.query(
+          `DELETE FROM worklog_sync_log WHERE team_id = ? AND member_id = ? AND sync_date = ? AND type = 'auth' AND result = 'fail'`,
+          [account.team_id, account.member_id, d]
+        );
+      } catch (e) {
+        console.error(`[商旅打卡] 登录后补核失败（成员 ${account.member_id} ${d}）：`, e.message);
+      }
+      await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
+    }
+  })().catch((err) => console.error('[商旅打卡] 登录后补核失败：', err.message));
+}
 
 // GET /account：本人绑定状态 + 今日打卡/费用摘要（「我的 → 绑定商旅」页数据源）
 router.get('/account', async (req, res, next) => {
@@ -475,6 +478,26 @@ router.delete('/account', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
+// GET /expired：本班登录已过期的绑定成员名单（全员可用；出工日志子应用进入时弹窗提醒的数据源）
+router.get('/expired', async (req, res, next) => {
+  try {
+    if (!req.team) return ok(res, { list: [] });
+    const [rows] = await pool.query(
+      `SELECT a.member_id, m.name AS member_name, a.mobile
+       FROM worklog_sgcc_account a LEFT JOIN worklog_member m ON m.id = a.member_id
+       WHERE a.team_id = ? AND a.token_status = 0 ORDER BY m.sort IS NULL, m.sort, a.id`,
+      [req.team.id]
+    );
+    return ok(res, {
+      list: rows.map((r) => ({
+        memberId: r.member_id,
+        memberName: r.member_name || '',
+        mobile: String(r.mobile || '').replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2'),
+      })),
+    });
+  } catch (err) { return next(err); }
+});
+
 // ---------- 管理员维护绑定设备（网页端数据管理「商旅绑定设备」区；超管任意班组 / 班组管理员仅本班，同 worklog 字典口径） ----------
 function requireDictAdmin(req, res, next) {
   if (req.user.role === 'admin') return next();
@@ -520,6 +543,46 @@ router.put('/accounts/:id/device', requireDictAdmin, async (req, res, next) => {
     );
     if (!r.affectedRows) return fail(res, 404, 40400, '绑定记录不存在');
     return ok(res, null);
+  } catch (err) { return next(err); }
+});
+
+// POST /accounts/bind：管理员代成员绑定商旅账号（成员过期又联系不上时兜底；网页端数据管理「商旅绑定设备」区）
+// 登录链路同本人绑定（图形码/滑块双通道 + 短信/密码）；落库 user_id=NULL 表示代绑，
+// 成员事后自助重绑时撞 uk_team_member 触发 ODKU 会把 user_id 接管回本人（见 /login/bind）
+router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const { memberId, mobile, checkCode, password, captchaToken, constId } = req.body || {};
+    if (!memberId) return fail(res, 400, 40036, '请选择要绑定的成员');
+    if (!/^1\d{10}$/.test(String(mobile || ''))) return fail(res, 400, 40030, '手机号格式不正确');
+    if (!checkCode && !password) return fail(res, 400, 40032, '请填写短信验证码或密码');
+    // 密码登录强制顶象滑块（token/v4 无图形码参数）；短信登录图形码通道 captchaToken 可空
+    if (password && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成滑块验证');
+    // 成员必须属于本班
+    const [members] = await pool.query(
+      'SELECT id FROM worklog_member WHERE id = ? AND team_id = ?',
+      [Number(memberId) || 0, req.team.id]
+    );
+    if (!members.length) return fail(res, 404, 40400, '成员不存在或不属于本班组');
+
+    const risk = { captchaToken: String(captchaToken || ''), constId: String(constId || '') };
+    const { token } = password
+      ? await sgcc.loginByPassword(String(mobile), String(password), risk)
+      : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk);
+
+    // 代绑落库：user_id=NULL（管理员代绑）；不更新 user_id/device 口径——
+    // 成员已自绑时只换 token（行仍归本人），设备信息保留原值
+    await pool.query(
+      `INSERT INTO worklog_sgcc_account (team_id, user_id, member_id, mobile, token, token_status, last_check_at)
+       VALUES (?, NULL, ?, ?, ?, 1, NOW())
+       ON DUPLICATE KEY UPDATE mobile = VALUES(mobile), token = VALUES(token),
+         member_id = VALUES(member_id), token_status = 1, last_check_at = NOW()`,
+      [req.team.id, members[0].id, String(mobile), token]
+    );
+
+    // 与本人绑定同口径：补核此前因登录态过期而核查失败的日期（异步不阻塞响应）
+    recompenseAfterBind(req.team.id, members[0].id);
+    return ok(res, { bound: true });
   } catch (err) { return next(err); }
 });
 
@@ -1576,6 +1639,18 @@ router.post('/sync/pull', async (req, res, next) => {
     const fromMs = Date.parse(`${from}T00:00:00Z`);
     const days = Math.round((Date.parse(`${to}T00:00:00Z`) - fromMs) / DAY_MS) + 1;
     if (days > 62) return fail(res, 400, 40000, '日期区段最多跨 62 天');
+    // 区段批量门禁：本班任一绑定账号登录过期即不允许发起（token_status 每晚定时核查保鲜；卡片级单卡同步不设门禁）
+    if (!entryId) {
+      const [expired] = await pool.query(
+        `SELECT COALESCE(m.name, CONCAT('手机', SUBSTRING(a.mobile, 1, 3), '****', SUBSTRING(a.mobile, 8))) AS nm
+         FROM worklog_sgcc_account a LEFT JOIN worklog_member m ON m.id = a.member_id
+         WHERE a.team_id = ? AND a.token_status = 0`,
+        [req.team.id]
+      );
+      if (expired.length) {
+        return fail(res, 409, 40910, `以下成员商旅登录已过期，请先重新绑定后再发起批量同步：${expired.map((x) => x.nm).join('、')}`);
+      }
+    }
     // 批量拉取进行中锁定出工日志子应用：同班组同时只允许一个批量任务（卡片级不在此限）
     if (!entryId && activeJob(req.team.id, 'batch')) {
       return fail(res, 409, 40909, '本班组已有批量从商旅同步进行中，请等待完成后再发起');
@@ -1757,6 +1832,21 @@ function scheduleDaily() {
           await syncTeamDay(t.team_id, today(), 'daily', undefined, () => stepSyncJob(jobId));
         } finally {
           finishSyncJob(jobId);
+        }
+        // 其余绑定账号（非当日用车人）也做一次登录态探测：token_status 每晚保鲜，
+        // 1→0 跳变由 probeAuth 内自动通知本人+超管；间隔同防风控口径
+        const [rest] = await pool.query(
+          `SELECT a.* FROM worklog_sgcc_account a
+           WHERE a.team_id = ? AND a.id NOT IN (
+             SELECT DISTINCT a2.id FROM worklog_sgcc_account a2
+             JOIN worklog_entry e ON e.team_id = a2.team_id AND e.log_date = ?
+             JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a2.member_id
+             WHERE a2.team_id = ? AND a2.member_id IS NOT NULL)`,
+          [t.team_id, today(), t.team_id]
+        );
+        for (const acc of rest) {
+          await probeAuth(acc);
+          await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
         }
         // 每日核查附加检查：开始打卡已打但结束打卡未打 → 通知本人/本班班组管理员/超管
         try {
