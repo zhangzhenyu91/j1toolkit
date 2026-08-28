@@ -3750,8 +3750,9 @@ function sgccBindFor(member) {
     $id('#sgbCapBox').style.display = '';
     $id('#sgbCapFrame').src = '/sgcc-captcha.html?from=web&t=' + Date.now();
   }
-  // 滑块回传：短信模式自动续发短信，密码模式仅暂存
+  // 滑块回传：短信模式自动续发短信，密码模式仅暂存（仅收同源 iframe 消息）
   function onMsg(e) {
+    if (e.origin !== location.origin) return;
     var d = e && e.data;
     if (!d || d.type !== 'sgcc-captcha' || !d.captchaToken) return;
     captchaToken = d.captchaToken; constId = d.constId || '';

@@ -7,7 +7,7 @@
         由后端随登录接口（sendSmsCode/v3、smstoken/v4、token/v4）上送完成绑定。
   调用方式：
     - 小程序 web-view：/sgcc-captcha.html?from=mp（wx.miniProgram.postMessage 回传后 navigateBack）
-    - 网页端 iframe：直接嵌入，监听 window message（type: 'sgcc-captcha'）回传（预留）
+    - 网页端 iframe：直接嵌入，监听 window message（type: 'sgcc-captcha'）回传（worklog.html 代绑定弹层使用）
   appId 取自 2026-08-28 商旅 App 抓包（cap.dingxiang-inc.com/api/a?ak=...），若顶象轮换改此一处。
   隐私口径：页面文案统称「商旅平台」，不出现平台所属方名称。
 -->
@@ -98,7 +98,7 @@
   CSSStyleDeclaration.prototype.setProperty = function (k, v, p) {
     return xsetProp.call(this, k, fixUrlStr(v), p);
   };
-  // ⑤ MutationObserver 兜底：组件子树内任何属性出现 dingxiang http 值即刻改写（覆盖未钩路径）
+  // ③ MutationObserver 兜底：组件子树内任何属性出现 dingxiang http 值即刻改写（覆盖未钩路径）
   new MutationObserver(function (muts) {
     muts.forEach(function (m) {
       var els = m.type === 'attributes' ? [m.target] : m.addedNodes;
@@ -117,7 +117,7 @@
       }
     });
   }).observe(document.getElementById('cap'), { childList: true, subtree: true, attributes: true });
-  // ③ XHR：open 时改写 URL；send 时顺带捕 constId（校验请求体 c 参数即设备指纹，与 token 同源）
+  // ④ XHR：open 时改写 URL；send 时顺带捕 constId（校验请求体 c 参数即设备指纹，与 token 同源）
   var xopen = XMLHttpRequest.prototype.open, xsend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (m, u) {
     u = toHttps(u);
@@ -134,7 +134,7 @@
     } catch (e) { /* 忽略 */ }
     return xsend.apply(this, arguments);
   };
-  // ④ fetch：同样改写 URL
+  // ⑤ fetch：同样改写 URL
   if (window.fetch) {
     var xfetch = window.fetch;
     window.fetch = function (u, opt) {
@@ -150,8 +150,8 @@
       wx.miniProgram.postMessage({ data: payload });
       setTimeout(function () { wx.miniProgram.navigateBack(); }, 400);
     } else if (window.parent !== window) {
-      // 网页端 iframe（预留）：父页监听 message
-      window.parent.postMessage({ type: 'sgcc-captcha', captchaToken: captchaToken, constId: constId }, location.origin);
+      // 网页端 iframe（worklog.html 代绑定弹层）：父页监听 message
+      window.parent.postMessage({ type: 'sgcc-captcha', captchaToken: payload.captchaToken, constId: payload.constId }, location.origin);
     } else {
       say('验证成功', 'ok');
     }

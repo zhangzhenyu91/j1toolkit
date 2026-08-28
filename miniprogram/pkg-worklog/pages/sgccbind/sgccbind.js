@@ -321,7 +321,7 @@ Page({
     }
   },
 
-  // 登录并绑定：校验表单 → 无滑块凭据先拖滑块（回来自动续绑定）→ 短信码/密码换 token
+  // 登录并绑定：校验表单 → 密码登录无滑块凭据先拖滑块（回来自动续绑定）→ 短信码/密码换 token
   onBind() {
     if (this.data.binding) return;
     if (!this.checkMobile()) return;
@@ -333,7 +333,8 @@ Page({
       this.toast('请填写登录密码');
       return;
     }
-    if (!this.data.captchaToken) {
+    // 仅密码登录强制滑块凭据（token/v4 无图形码参数）；短信图形码通道绑定 captchaToken 可空
+    if (this.data.loginType === 'pwd' && !this.data.captchaToken) {
       this.goCaptcha('bind');
       return;
     }

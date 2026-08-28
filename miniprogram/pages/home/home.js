@@ -210,7 +210,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v3.5.0k \n 应用权限申请联系 zzy',
+      content: '版本号：v3.5.0m \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },
