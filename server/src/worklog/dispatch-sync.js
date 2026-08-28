@@ -9,6 +9,8 @@
 // 建卡口径（用户指定）：A 列车牌（剔除「(蓝)/(绿)」等颜色后缀）、E 列用车人、J 列目的地；导出件仅含当日派车单无需读时间；
 //   用车人串「含有」本班启用成员姓名（子串）的记录保留；同一人同日只挂一张卡，多条记录含同一人时由匹配班组人名最多的记录胜出；
 //   用车人含多个班组人名（按全部启用班组成员字典判定，同名跨班多班都算）的记录仅通知不建卡（交由超管建跨班日志）；
+//   用车人当日已有手动建卡（本班或别班/跨班卡）的记录不自动建卡/拆卡，改为与本班已有卡片比对（车牌/目的地/用车人），
+//   差异附文字修改指引随通知发班组管理员与超管（全项一致仅计数）；
 //   车牌须本班启用字典精确命中、目的地按 destSame 模糊命中，未命中不建卡仅入通知（人工补字典后建卡）
 const XLSX = require('xlsx');
 const axios = require('axios');
@@ -162,7 +164,7 @@ function parseOrders(buffer) {
 
 // 建卡计划（纯函数）：
 // · 每条记录 matched = 本班启用成员中姓名被用车人串「含有」（子串）者；0 匹配计入 outside（非本班用车）
-// · 候选按 matched 人数降序（并列按表内行序）贪心：同一人同日只挂一张卡（同日已有卡片成员经 assignedIds 预置），
+// · 候选按 matched 人数降序（并列按表内行序）贪心：同一人同日只挂一张卡（assignedIds 预置占用，可用于排除已有卡成员），
 //   多条记录含同一人时由匹配人数最多的记录胜出；一条记录仅挂上尚未分配的成员
 // · 车牌须本班启用字典精确命中、目的地按 destSame 模糊命中（目的地为空不约束）；未命中不建卡、不消耗成员，记入 skippedDict
 function planCards(rows, teamMembers, vehicles, destinations, assignedIds) {
@@ -196,8 +198,9 @@ function planCards(rows, teamMembers, vehicles, destinations, assignedIds) {
 
 /* ===== 库操作与通知 ===== */
 
-// 解析 + 行级班组判定 + 逐班组计划落库 → { results, outside, otherTeam, dropped, total }
-// results 每项 { team, created, skippedDict, cross }：cross 为涉及该班但含多班人名的记录（仅通知不建卡）
+// 解析 + 行级班组判定 + 逐班组计划落库/已有卡比对 → { results, outside, otherTeam, dropped, total }
+// results 每项 { team, created, skippedDict, cross, mismatches, aligned }：
+// cross 为涉及该班但含多班人名的记录（仅通知不建卡）；mismatches 为已有手动建卡且比对不一致的记录（附修改指引），aligned 为一致计数
 async function importOrdersMulti(teams, buffer, today) {
   const { rows, dropped } = parseOrders(buffer);
   // 全部启用班组的启用成员（跨班判定口径；含未开启班组，避免给本班建出缺人的卡）
@@ -227,6 +230,13 @@ async function importOrdersMulti(teams, buffer, today) {
     byTeam.get(tid).push(row);
   });
 
+  // 当日全局已挂卡成员（含别班/跨班卡；同日期同人唯一为全局口径，防止同步为已有卡成员重复建卡）
+  const [occupiedRows] = await pool.query(
+    `SELECT em.member_id FROM worklog_entry_member em JOIN worklog_entry e ON e.id = em.entry_id WHERE e.log_date = ?`,
+    [today]
+  );
+  const occupiedGlobal = new Set(occupiedRows.map((r) => r.member_id));
+
   // 系统建卡 created_by 取管理员账号（缺省回退首个超管）
   const [creator] = await pool.query(
     "SELECT id FROM sys_user WHERE username = ? OR role = 'admin' ORDER BY (username = ?) DESC, id LIMIT 1",
@@ -247,13 +257,30 @@ async function importOrdersMulti(teams, buffer, today) {
       'SELECT id, name FROM worklog_destination WHERE status = 1 AND team_id = ?',
       [team.id]
     );
-    // 同日已挂卡成员（未出车卡无成员天然不含），同日期同人唯一与 POST /logs 口径一致
+    // 本班当日已有出车卡片（未出车卡无车牌/用车人天然不含，同 loadEntries 口径）
     const entries = await loadEntries(team.id, today, today);
-    const assignedIds = new Set();
-    entries.forEach((e) => e.memberList.forEach((m) => assignedIds.add(m.member_id)));
+    const entryByMember = new Map();
+    entries.forEach((e) => e.memberList.forEach((m) => entryByMember.set(m.member_id, e)));
 
-    // planCards 的 outside 返回值在此不用（行级班组判定已在上方全局完成）
-    const { plans, skippedDict } = planCards(teamRows, members, vehicles, destinations, assignedIds);
+    // 行分桶：用车人当日已有卡片（本班或别班/跨班）→ 比对桶（仅通知不改库）；无占用 → 自动建卡候选
+    const freshRows = [];
+    const overlaps = [];
+    for (const row of teamRows) {
+      const matched = members.filter((m) => m.name && row.userText.includes(m.name));
+      const localCards = new Map();
+      const foreign = [];
+      matched.forEach((m) => {
+        const e = entryByMember.get(m.id);
+        if (e) { localCards.set(e.id, e); return; }
+        if (occupiedGlobal.has(m.id)) foreign.push(m.name);
+      });
+      if (localCards.size || foreign.length) overlaps.push({ row, matched, cards: [...localCards.values()], foreign });
+      else freshRows.push(row);
+    }
+
+    // planCards 的 outside 返回值在此不用（行级班组判定已在上方全局完成）；
+    // assignedIds 传空集——占用成员所在行已全部进比对桶，建卡候选天然无占用（集合仅作本次运行内行间去重）
+    const { plans, skippedDict } = planCards(freshRows, members, vehicles, destinations, new Set());
 
     const created = [];
     for (const p of plans) {
@@ -274,8 +301,41 @@ async function importOrdersMulti(teams, buffer, today) {
         members: p.members.map((m) => m.name),
       });
     }
+
+    // 已有卡比对（同派车对齐口径）：车牌精确、目的地 destSame 模糊（派车单为空不约束）、用车人集合；全项一致仅计数
+    let aligned = 0;
+    const mismatches = [];
+    for (const o of overlaps) {
+      const issues = [];
+      for (const card of o.cards) {
+        // 一条派车单占用多张卡片时逐卡比对，前缀标注卡片便于定位
+        const label = o.cards.length > 1 ? `卡片「${card.plate_no}」（${card.memberList.map((m) => m.name).join('、')}）：` : '';
+        if (card.plate_no !== o.row.plate) {
+          const inDict = vehicles.some((v) => v.plate_no === o.row.plate);
+          issues.push(`${label}车牌不一致：卡片「${card.plate_no}」≠ 派车单「${o.row.plate}」→ 请在卡片「修改派车」改为 ${o.row.plate}${inDict ? '' : '（下拉无此车牌，请先在数据管理添加）'}`);
+        }
+        if (o.row.to) {
+          const cardDest = card.destination_name || '';
+          if (!cardDest) {
+            issues.push(`${label}目的地未选（派车单「${o.row.to}」）→ 请补选目的地（无匹配项请先在数据管理添加）`);
+          } else if (!destSame(cardDest, o.row.to)) {
+            issues.push(`${label}目的地不一致：卡片「${cardDest}」≠ 派车单「${o.row.to}」→ 请核对修改`);
+          }
+        }
+        const cardNames = new Set(card.memberList.map((m) => m.name));
+        const missing = o.matched.filter((m) => !cardNames.has(m.name)).map((m) => m.name);
+        const extra = card.memberList.filter((m) => !(m.name && o.row.userText.includes(m.name))).map((m) => m.name);
+        if (missing.length) issues.push(`${label}用车人缺少：${missing.join('、')} → 请在卡片点亮补入（其当日若另有卡片请先调整，同一人同日只能挂一张卡）`);
+        if (extra.length) issues.push(`${label}用车人多出：${extra.join('、')}（派车单无）→ 请确认是否取消点亮`);
+      }
+      if (o.cards.length > 1) issues.push(`用车人分散在 ${o.cards.length} 张卡片 → 请合并为一张（保留与派车单最一致者，其余删除）`);
+      if (o.foreign.length) issues.push(`用车人 ${o.foreign.join('、')} 当日已在其他班组卡片（含跨班日志）→ 本班不再为其建卡，如需调整请联系超级管理员`);
+      if (issues.length) mismatches.push({ row: o.row, issues });
+      else aligned += 1;
+    }
+
     const cross = crossIdx.filter((i) => rowTeams[i].has(team.id)).map((i) => rows[i]);
-    results.push({ team, created, skippedDict, cross });
+    results.push({ team, created, skippedDict, cross, mismatches, aligned });
   }
   return { results, outside, otherTeam, dropped, total: rows.length };
 }
@@ -360,12 +420,22 @@ async function fetchJob() {
     const r = await importOrdersMulti(teams, buf, today);
     const messages = [];
     for (const res of r.results) {
+      const overlapCount = res.mismatches.length + res.aligned;
       const lines = [
-        `${today} 派车单同步完成：解析 ${r.total} 行（剔除 ${r.dropped} 行已取消/无车牌、${r.outside} 行非班组用车、${r.otherTeam} 行仅属未开启班组），本班新建 ${res.created.length} 张出车卡片。`,
+        `${today} 派车单同步完成：解析 ${r.total} 行（剔除 ${r.dropped} 行已取消/无车牌、${r.outside} 行非班组用车、${r.otherTeam} 行仅属未开启班组），本班新建 ${res.created.length} 张出车卡片`
+        + (overlapCount ? `；用车人当日已有手动建卡的记录 ${overlapCount} 条（比对不一致 ${res.mismatches.length} 条见下文指引，一致 ${res.aligned} 条无需处理）` : '')
+        + '。',
       ];
       res.created.forEach((c) =>
         lines.push(`· ${c.plate}${c.destination ? ` → ${c.destination}` : ''}：${c.members.join('、')}`)
       );
+      if (res.mismatches.length) {
+        lines.push(`以下 ${res.mismatches.length} 条记录用车人当日已有手动建卡，未自动改动，请按指引核对修改：`);
+        res.mismatches.forEach((a) => {
+          lines.push(`· ${a.row.plate}${a.row.to ? ` → ${a.row.to}` : ''}（派车单用车人：${a.row.userText}）`);
+          a.issues.forEach((it) => lines.push(`  ${it}`));
+        });
+      }
       if (res.skippedDict.length) {
         lines.push('以下记录因字典未命中未建卡，请将车牌/目的地先入字典后人工建卡：');
         res.skippedDict.forEach((s) =>
@@ -380,7 +450,7 @@ async function fetchJob() {
       }
       await notify(`派车单同步完成（${res.team.name}）`, lines, [res.team.id]);
       messages.push(`【${res.team.name}】\n${lines.join('\n')}`);
-      console.log(`[派车单同步] ${today} ${res.team.name} 完成：新建 ${res.created.length} 张出车卡片`);
+      console.log(`[派车单同步] ${today} ${res.team.name} 完成：新建 ${res.created.length} 张出车卡片，已有卡比对不一致 ${res.mismatches.length} 条`);
     }
     return { ok: true, message: messages.join('\n\n') };
   } catch (err) {
