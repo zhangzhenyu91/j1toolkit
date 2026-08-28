@@ -37,7 +37,7 @@
           bindinput="onMobileInput"
         />
       </view>
-      <view class="field" wx:if="{{loginType === 'sms' && captchaImg}}">
+      <view class="field" wx:if="{{captchaImg}}">
         <t-icon name="check-rectangle" size="38rpx" color="#A89F8A" />
         <input
           class="fi"
@@ -54,7 +54,7 @@
           bindtap="onRefreshCaptcha"
         />
       </view>
-      <view class="sg-alt" wx:if="{{loginType === 'sms' && captchaImg}}" hover-class="hover-opacity" bindtap="onUseSlider">图形码不可用？改用滑块验证</view>
+      <view class="sg-alt" wx:if="{{captchaImg}}" hover-class="hover-opacity" bindtap="onUseSlider">图形码不可用？改用滑块验证</view>
       <view class="field" wx:if="{{loginType === 'sms'}}">
         <t-icon name="lock-on" size="38rpx" color="#A89F8A" />
         <input

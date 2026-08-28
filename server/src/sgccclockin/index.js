@@ -349,12 +349,15 @@ router.post('/login/bind', async (req, res, next) => {
     const systemVersion = String(req.body.systemVersion || '').trim().slice(0, 64);
     if (!/^1\d{10}$/.test(String(mobile || ''))) return fail(res, 400, 40030, '手机号格式不正确');
     if (!checkCode && !password) return fail(res, 400, 40032, '请填写短信验证码或密码');
-    // 密码登录强制顶象滑块（token/v4 无图形码参数）；短信登录图形码通道 captchaToken 可空
-    if (password && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成滑块验证');
+    // 密码登录双通道：带 checkImgCode 走图形码 token/v3；否则走滑块 token/v4（需 captchaToken）
+    const { checkImgCode } = req.body || {};
+    if (password && !checkImgCode && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
 
     const risk = { captchaToken: String(captchaToken || ''), constId: String(constId || '') };
     const { token } = password
-      ? await sgcc.loginByPassword(String(mobile), String(password), risk)
+      ? (checkImgCode
+        ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
+        : await sgcc.loginByPassword(String(mobile), String(password), risk))
       : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk);
 
     // 认领出工成员：班组内按昵称匹配（与 worklog member-sync 同口径）
@@ -556,8 +559,9 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
     if (!memberId) return fail(res, 400, 40036, '请选择要绑定的成员');
     if (!/^1\d{10}$/.test(String(mobile || ''))) return fail(res, 400, 40030, '手机号格式不正确');
     if (!checkCode && !password) return fail(res, 400, 40032, '请填写短信验证码或密码');
-    // 密码登录强制顶象滑块（token/v4 无图形码参数）；短信登录图形码通道 captchaToken 可空
-    if (password && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成滑块验证');
+    // 密码登录双通道：带 checkImgCode 走图形码 token/v3；否则走滑块 token/v4（需 captchaToken）
+    const { checkImgCode } = req.body || {};
+    if (password && !checkImgCode && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
     // 成员必须属于本班
     const [members] = await pool.query(
       'SELECT id FROM worklog_member WHERE id = ? AND team_id = ?',
@@ -567,7 +571,9 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
 
     const risk = { captchaToken: String(captchaToken || ''), constId: String(constId || '') };
     const { token } = password
-      ? await sgcc.loginByPassword(String(mobile), String(password), risk)
+      ? (checkImgCode
+        ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
+        : await sgcc.loginByPassword(String(mobile), String(password), risk))
       : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk);
 
     // 代绑落库：user_id=NULL（管理员代绑）；不更新 user_id/device 口径——

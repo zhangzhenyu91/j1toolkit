@@ -1,4 +1,4 @@
-// 绑定商旅 · 账号绑定页（出工日志扩展）：短信/密码双方式登录绑定（短信为双通道：图形码优先、失败降级顶象滑块）
+// 绑定商旅 · 账号绑定页（出工日志扩展）：短信/密码双方式登录绑定（均为双通道：图形码优先、失败降级顶象滑块）
 // 两个状态：未绑定（登录表单 + 打卡设备信息）/ 已绑定（账号状态 + 解除绑定/重新登录）
 // 滑块在 sgccweb 页（web-view 打开 server/public/sgcc-captcha.html）完成，回传 captchaToken + constId；
 // 顶象 token 有效期短：发短信/绑定失败即清空，下次操作前重新拖滑块
@@ -142,7 +142,7 @@ Page({
     });
   },
 
-  /* ---------- 登录表单（未绑定态：短信/密码双方式；短信为图形码优先、失败降级滑块双通道） ---------- */
+  /* ---------- 登录表单（未绑定态：短信/密码双方式；均为图形码优先、失败降级滑块双通道） ---------- */
 
   onMobileInput(e) {
     this.setData({ formMobile: e.detail.value });
@@ -223,11 +223,11 @@ Page({
     }
   },
 
-  // 「改用滑块验证」：弃图形码，直接去拖滑块
+  // 「改用滑块验证」：弃图形码，直接去拖滑块（短信模式回来续发短信，密码模式回来续绑定）
   onUseSlider() {
     if (!this.checkMobile()) return;
     this.setData({ captchaImg: '', imgCode: '' });
-    this.goCaptcha('sms');
+    this.goCaptcha(this.data.loginType === 'pwd' ? 'bind' : 'sms');
   },
 
   // 发送短信验证码：滑块凭据 → v3 直发；有图形码 → v2 发送；都没有 → 先取图形码，取不到降级滑块
@@ -321,22 +321,31 @@ Page({
     }
   },
 
-  // 登录并绑定：校验表单 → 密码登录无滑块凭据先拖滑块（回来自动续绑定）→ 短信码/密码换 token
-  onBind() {
+  // 登录并绑定：校验表单 → 密码方式无凭据先取图形码（取不到降级滑块）→ 短信码/密码换 token
+  async onBind() {
     if (this.data.binding) return;
     if (!this.checkMobile()) return;
     if (this.data.loginType === 'sms' && !(this.data.smsCode || '').trim()) {
       this.toast('请填写短信验证码');
       return;
     }
-    if (this.data.loginType === 'pwd' && !(this.data.password || '').trim()) {
-      this.toast('请填写登录密码');
-      return;
-    }
-    // 仅密码登录强制滑块凭据（token/v4 无图形码参数）；短信图形码通道绑定 captchaToken 可空
-    if (this.data.loginType === 'pwd' && !this.data.captchaToken) {
-      this.goCaptcha('bind');
-      return;
+    if (this.data.loginType === 'pwd') {
+      if (!(this.data.password || '').trim()) {
+        this.toast('请填写登录密码');
+        return;
+      }
+      // 密码双通道：有滑块凭据走 v4；有图形码走 v3；都没有先取图形码（取不到降级滑块）
+      if (!this.data.captchaToken && !this.data.captchaImg) {
+        if (!(await this.fetchCaptcha())) {
+          this.toast('图形验证码暂不可用，请完成滑块验证');
+          this.goCaptcha('bind');
+        }
+        return;
+      }
+      if (!this.data.captchaToken && !(this.data.imgCode || '').trim()) {
+        this.toast('请填写图形验证码');
+        return;
+      }
     }
     this.doBind();
   },
@@ -351,8 +360,13 @@ Page({
       deviceType: this.data.deviceType,
       systemVersion: this.data.systemVersion,
     };
-    if (this.data.loginType === 'pwd') body.password = (this.data.password || '').trim();
-    else body.checkCode = (this.data.smsCode || '').trim();
+    if (this.data.loginType === 'pwd') {
+      body.password = (this.data.password || '').trim();
+      // 无滑块凭据时走图形码通道（token/v3）
+      if (!this.data.captchaToken) body.checkImgCode = (this.data.imgCode || '').trim();
+    } else {
+      body.checkCode = (this.data.smsCode || '').trim();
+    }
     this.setData({ binding: true });
     wx.showLoading({ title: '正在绑定…', mask: true });
     try {
@@ -370,6 +384,8 @@ Page({
       this.toast(err.message);
       // 滑块凭据失效/登录失败：清空，重试前重新拖
       this.setData({ captchaToken: '', constId: '' });
+      // 密码图形码通道失败：自动刷新图形码（取不到自动降级滑块）
+      if (this.data.loginType === 'pwd' && this.data.captchaImg) this.onRefreshCaptcha();
     } finally {
       this.setData({ binding: false });
     }
