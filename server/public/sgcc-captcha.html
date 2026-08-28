@@ -79,7 +79,7 @@
       return xInsertHTML.call(this, pos, fixUrlStr(html));
     };
   }
-  ['background', 'backgroundImage'].forEach(function (prop) {
+  ['background', 'backgroundImage', 'maskImage', 'webkitMaskImage', 'cssText'].forEach(function (prop) {
     var d = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, prop);
     if (d && d.set) {
       Object.defineProperty(CSSStyleDeclaration.prototype, prop, {
@@ -92,6 +92,25 @@
   CSSStyleDeclaration.prototype.setProperty = function (k, v, p) {
     return xsetProp.call(this, k, fixUrlStr(v), p);
   };
+  // ⑤ MutationObserver 兜底：组件子树内任何属性出现 dingxiang http 值即刻改写（覆盖未钩路径）
+  new MutationObserver(function (muts) {
+    muts.forEach(function (m) {
+      var els = m.type === 'attributes' ? [m.target] : m.addedNodes;
+      for (var i = 0; i < els.length; i += 1) {
+        var el = els[i];
+        if (!el || el.nodeType !== 1 || !el.attributes) continue;
+        for (var j = 0; j < el.attributes.length; j += 1) {
+          var a = el.attributes[j];
+          if (a.value && a.value.indexOf('http://') === 0 && a.value.indexOf('dingxiang-inc.com') > 0) {
+            el.setAttribute(a.name, fixUrlStr(a.value));
+          }
+        }
+        if (el.style && el.style.cssText && el.style.cssText.indexOf('http://') >= 0) {
+          el.style.cssText = fixUrlStr(el.style.cssText);
+        }
+      }
+    });
+  }).observe(document.getElementById('cap'), { childList: true, subtree: true, attributes: true });
   // ③ XHR：open 时改写 URL；send 时顺带捕 constId（校验请求体 c 参数即设备指纹，与 token 同源）
   var xopen = XMLHttpRequest.prototype.open, xsend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (m, u) {
