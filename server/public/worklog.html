@@ -8,7 +8,8 @@
      宽屏（≥1600px）记录页签下汇总前核验常驻卡片流右侧栏（syncSideReport；切到核验页签仍可满宽查看）；
      商旅打卡（design/sgcc-clockin.html ④⑫⑬）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 并排「始/终」两枚 slot 三态，
      仅展示，打卡需真实定位在小程序完成）、
-     照片网格「商旅/同步失败」角标（非水印照片同款展示，无验证角标）、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）；
+     照片网格「商旅/同步失败」角标（非水印照片同款展示，无验证角标）、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）、
+     卡片操作区「从商旅同步」（仅本卡用车人当日数据，卡片级进度锁，同小程序口径）；
      隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
      管理员（超管 / 班组管理员）另见四个平级页签：「数据管理」= 车牌号 / 目的地 / 出工成员 三字典维护（成员支持上移 / 下移排序，
      工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
@@ -18,7 +19,7 @@
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；设计稿 design/worklog-dispatch-align.html）；
      页签顶部「每日自动同步派车单」开关（/dispatch/sync-switch，按生效班组，仅 admin / team_admin）；
      跨班日志：超管页头「跨班日志」入口（/logs/cross/* 全局字典，openCrossForm 新建 / 编辑；跨班卡车牌行加橙色描边「跨班」徽章，
-     非超管不可改派车 / 删除，他班跨班卡不渲染商旅打卡区）；
+     非超管不可改派车 / 删除，他班跨班卡不渲染商旅打卡区与「从商旅同步」入口）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
      API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
@@ -399,6 +400,12 @@
     cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background .25s, color .25s;
   }
   .act-note:hover { background: var(--paper); color: var(--navy); }
+  /* 左栏操作行「从商旅同步」入口（与备注/删除同族文字钮，安全橙；仅商旅打卡开启且非他班跨班卡渲染） */
+  .act-sync {
+    border: none; background: transparent; color: var(--orange); font-size: 12px; letter-spacing: 1px;
+    cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background .25s;
+  }
+  .act-sync:hover { background: #FDEEE2; }
   /* 水印照片网格（右栏内）：flex:1 + 行高 1fr 均分吃满右栏剩余高度，照片少时自动拉长与左侧信息栏底部齐平；
      照片多于左侧时按 .ph 最小高度（≈4/3）自然撑开卡片 */
   .ph-lab { padding: 14px 22px 8px; font-size: 12px; color: var(--ph); letter-spacing: 1px; }
@@ -1042,6 +1049,7 @@
    杆塔坐标级联预填，防抖调 /geo 刷新地点天气）→ 服务端渲染水印上传；图片经 canvas 重绘导出，EXIF 方向已归一（orientation 恒 up）
    商旅打卡扩展（/api/v1/sgcc/*）：③ 非水印照片＝原图直传（plain:true，不渲染不验证不占每人限一张，verify_status=skipped 不进轮询）；
    用车人行打卡区仅展示（每用车人一行：状态小字 + 始/终两枚 slot 三态，打卡在小程序完成）；照片「商旅/同步失败」角标，Lightbox 同步失败可重试（resync）；
+   卡片操作区「从商旅同步」：卡片级拉取（POST /sync/pull {entry_id}，仅本卡用车人当日数据，本卡进度锁轮询 /sync/progress，cardSyncPull）；
    页头「从商旅拉取」弹层：按区段手动拉取（POST /sync/pull {from,to}，以商旅平台为准覆盖本地）
    ============================================================ */
 (function () {
@@ -1366,8 +1374,12 @@ function cardHTML(e, idx, total) {
     html += '</div>';
   }
 
-  /* 左栏底部操作行：备注 / 删除日志（同小程序卡片直改）；跨班卡仅超管可删（非超管不渲染删除钮，deleteEntry 内同口径拦截） */
-  html += '<div class="log-acts"><button class="act-note" data-act="remark">备注</button>'
+  /* 左栏底部操作行：从商旅同步 / 备注 / 删除日志（同小程序卡片直改）；跨班卡仅超管可删（非超管不渲染删除钮，deleteEntry 内同口径拦截）。
+     「从商旅同步」与打卡区同门控（商旅开启且非他班跨班卡），同步中整卡锁定不渲染（同小程序 showClock && !syncing && !syncHidden 口径） */
+  html += '<div class="log-acts">'
+    + (ckRow && !olock && !dlock
+      ? '<button class="act-sync" data-act="sgsync" title="仅拉取本卡用车人的当日打卡 / 费用 / 照片，以商旅平台为准覆盖本地">从商旅同步</button>' : '')
+    + '<button class="act-note" data-act="remark">备注</button>'
     + (!e.cross_team || isAdmin() ? '<button class="act-del" data-act="del">删除</button>' : '') + '</div>';
   html += '</div><div class="log-side-r">';
 
@@ -4128,12 +4140,13 @@ function openSyncCheck() {
    后端任务化异步执行：登记后立即返回 opId（商旅多成员循环在后台串行队列完成），退出页面不影响完成；
    卡片挂进度条（样式同每日核查卡片锁 .card-lock/.cl-*）：发起者轮询 /op/status 收尾，
    旁观者经 /sync/active 的 ops 挂条（任何端任何人进入页面均可见） */
-var photoOps = {}; // entryId → { opId, kind, pct, spectator? }
+var photoOps = {}; // entryId → { opId, kind, pct, spectator? }（卡片级「从商旅同步」登记 { jobId, kind:'card' }，复用同一卡片锁渲染）
 var PHOTO_OP_TEXT = {
   upload: '上传同步商旅中',
   delete: '解除商旅关联中',
   members: '人名同步商旅中',
-  resync: '商旅重新同步中'
+  resync: '商旅重新同步中',
+  card: '从商旅同步中'
 };
 var PHOTO_OP_OK_TEXT = {
   upload: '已上传，验证中',
@@ -4184,6 +4197,59 @@ async function pollCardOp(entryId) {
       } else {
         Shade.toast(PHOTO_OP_OK_TEXT[op.kind] || '已完成', 'success');
       }
+      loadLogs({ quiet: true });
+      return;
+    } else if (fails > 20) {
+      // 连续网络失败兜底：摘锁刷新（任务仍在后端执行，结果随刷新/核查呈现）
+      delete photoOps[entryId];
+      loadLogs({ quiet: true });
+      return;
+    }
+    await new Promise(function (r) { setTimeout(r, 1500); });
+  }
+}
+
+/* ================= 卡片级「从商旅同步」（卡片操作区入口，同小程序 onSyncPull） =================
+   仅拉取本卡用车人的当日数据：POST /sync/pull {entry_id}（日期以卡片 log_date 为准，后端收敛本卡成员名单），
+   响应 data.jobId → 本卡挂进度条（kind=card，复用照片任务锁样式），发起者 1.5s 轮询 /sync/progress 收尾；
+   卡片级任务不参与子应用全局锁（batch 专属），也不进 /sync/active 的 ops——旁观者无感知（与小程序同口径） */
+function cardSyncPull(entry) {
+  if (photoOps[entry.id]) return; // 本卡任务进行中，防连点
+  Shade.api(wl('/api/v1/sgcc/sync/pull'), { method: 'POST', body: { entry_id: entry.id } })
+    .then(function (r) {
+      Shade.toast((r && r.message) || '已发起从商旅同步（仅本卡用车人）', 'success');
+      var jobId = r && r.data && r.data.jobId;
+      if (jobId) { startCardSync(entry.id, jobId); return; }
+      setTimeout(function () { loadLogs({ quiet: true }); }, 8000); // 无 jobId 兜底：8s 后静默刷新（同小程序 _pullTimer）
+    })
+    .catch(function (e) { Shade.toast(e.message, 'error'); });
+}
+
+/* 发起者入口：登记卡片锁 → 重渲染挂锁 → 轮询进度 */
+function startCardSync(entryId, jobId) {
+  photoOps[entryId] = { jobId: jobId, kind: 'card', pct: 0 };
+  renderCards(true);
+  pollCardSync(entryId);
+}
+
+/* 发起者轮询 /sync/progress：finished（任务不存在/过期按已完成回，同口径）摘锁 toast 并静默重拉；连续网络失败 20 次兜底摘锁 */
+async function pollCardSync(entryId) {
+  var op = photoOps[entryId];
+  if (!op || op.kind !== 'card') return;
+  var fails = 0;
+  while (photoOps[entryId] && photoOps[entryId].kind === 'card') {
+    var st = null;
+    try {
+      var r = await Shade.api(wl('/api/v1/sgcc/sync/progress?job_id=' + encodeURIComponent(op.jobId)));
+      st = r.data || {};
+    } catch (e) { fails += 1; }
+    if (st && !st.finished) {
+      fails = 0;
+      photoOps[entryId].pct = st.total ? Math.min(99, Math.round(st.done / st.total * 100)) : 0;
+      updateOpLocks();
+    } else if (st) {
+      delete photoOps[entryId];
+      Shade.toast('本卡已从商旅同步', 'success');
       loadLogs({ quiet: true });
       return;
     } else if (fails > 20) {
@@ -4545,7 +4611,7 @@ function initEvents() {
     if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
     importTowers(f);
   });
-  /* 卡片流点击委派：改派车 / 打卡切换 / 商旅打卡 slot（仅展示，提示去小程序打卡）/ 删除日志 /
+  /* 卡片流点击委派：改派车 / 打卡切换 / 商旅打卡 slot（仅展示，提示去小程序打卡）/ 从商旅同步（卡片级）/ 删除日志 /
      巡视内容·备注编辑 / 添加照片 / 备注附件预览·下载 / 照片大图 */
   $('#cardFlow').addEventListener('click', function (e) {
     /* 备注附件：优先于备注块编辑（不冒泡到 data-act） */
@@ -4587,6 +4653,8 @@ function initEvents() {
       if (act === 'patrol') { openPatrolModal(entry); return; }
       if (act === 'remark') { openRemarkModal(entry); return; }
       if (act === 'del') { deleteEntry(entry); return; }
+      /* 卡片级「从商旅同步」：仅拉取本卡用车人当日数据（与打卡区同门控渲染，入口可见即可点） */
+      if (act === 'sgsync') { cardSyncPull(entry); return; }
       if (act === 'check') { toggleCheck(entry, +actEl.dataset.mid, actEl); return; }
       /* 商旅打卡 slot：Web 端仅展示不发起打卡（打卡需真实定位，在小程序完成） */
       if (act === 'sgccck') { Shade.toast('请在小程序端打卡', 'info'); return; }
