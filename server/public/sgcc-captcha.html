@@ -23,7 +23,13 @@
   .tip { font-size: 14px; color: var(--sub); line-height: 1.7; margin: 0 2px 14px; }
   .tip b { color: var(--navy); font-weight: 600; }
   .cap-card { background: #fff; border-radius: 10px; padding: 18px 14px; box-shadow: 0 1px 4px rgba(34,49,78,.06); }
-  #cap { display: flex; justify-content: center; min-height: 42px; }
+  #cap { display: flex; justify-content: center; min-height: 42px; overflow: hidden; }
+  /* 顶象 v5 组件容器链被 SDK 样式锁在 192px（canvas 实为 330px，右半被裁），强制放宽到 330 */
+  #cap .dx_captcha_basic_wrapper,
+  #cap .dx_captcha_basic_main-box,
+  #cap .dx_captcha_basic_box,
+  #cap .dx_captcha_basic_bg { width: 330px !important; }
+  #cap .dx_captcha_basic_wrapper { transform-origin: top left; }
   .status { margin-top: 14px; font-size: 13px; text-align: center; line-height: 1.6; }
   .status.ok { color: var(--green); }
   .status.err { color: var(--red); }
@@ -151,6 +157,23 @@
     }
   }
 
+  // 组件宽 330，窄屏（卡片内宽不足）时整体等比缩放，并补偿占位高度
+  function fitWidget() {
+    var tries = [400, 1200, 2500];
+    tries.forEach(function (ms) {
+      setTimeout(function () {
+        var cap = document.getElementById('cap');
+        var w = cap && cap.querySelector('.dx_captcha_basic_wrapper');
+        if (!w) return;
+        var avail = cap.clientWidth;
+        if (avail >= 334 || avail <= 0) return;
+        var scale = avail / 330;
+        w.style.transform = 'scale(' + scale + ')';
+        cap.style.height = Math.round(w.offsetHeight * scale) + 'px';
+      }, ms);
+    });
+  }
+
   function start() {
     if (!window._dx || !window._dx.Captcha) { say('验证组件加载失败，请检查网络后返回重试', 'err'); return; }
     try {
@@ -158,11 +181,11 @@
         appId: APPID,
         apiServer: 'https://cap.dingxiang-inc.com', // v5 显式指定 https，避免 web-view 混合内容拦截
         style: 'embed',
-        width: 330,
         success: onSuccess,
         fail: function () { say('验证未通过，请再试一次', 'err'); }
       });
       say('请拖动滑块完成验证', 'muting');
+      fitWidget();
     } catch (e) {
       say('验证组件初始化失败：' + (e && e.message), 'err');
     }
