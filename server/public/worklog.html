@@ -3705,6 +3705,12 @@ function sgccBindFor(member) {
     +   '</div>'
     +   '<div style="text-align:right;margin-top:6px"><a href="javascript:;" id="sgbUseSlider" style="font-size:12px;color:var(--orange)">图形码不可用？改用滑块验证</a></div>'
     + '</div>'
+    + '<div id="sgbCapHint" style="display:none;margin-top:6px">'
+    +   '<div style="display:flex;align-items:center;gap:10px">'
+    +     '<span style="font-size:12px;color:var(--sub)">图形验证码暂不可用</span>'
+    +     '<button class="btn btn-sm" id="sgbShowSlider">使用滑块验证</button>'
+    +   '</div>'
+    + '</div>'
     + '<div id="sgbSms">'
     +   '<label class="f-lab">短信验证码</label>'
     +   '<div style="display:flex;gap:8px;align-items:center">'
@@ -3740,20 +3746,22 @@ function sgccBindFor(member) {
     $id('#sgbTabPwd').className = 'btn btn-sm' + (m === 'pwd' ? ' btn-accent' : '');
     $id('#sgbSms').style.display = m === 'sms' ? '' : 'none';
     $id('#sgbPwd').style.display = m === 'pwd' ? '' : 'none';
-    // 换方式清空滑块凭据并收起滑块（顶象 token 与操作绑定，重拖）
+    // 换方式清空滑块凭据并收起滑块与提示（顶象 token 与操作绑定，重拖）
     captchaToken = ''; constId = '';
     $id('#sgbCapBox').style.display = 'none';
-    // 密码方式：无凭据无图形码时自动取图（取不到自动降级滑块）
+    $id('#sgbCapHint').style.display = 'none';
+    // 密码方式：无凭据无图形码时自动取图（取不到仅提示，由用户手动点「使用滑块验证」）
     if (m === 'pwd' && !imgUrl) autoImg();
   }
-  // 密码方式进入时自动取图形码；取不到（40035 风控窗口）降级滑块
+  // 密码方式进入时自动取图形码；取不到（40035 风控窗口）只出提示，不自动弹滑块
   async function autoImg() {
     if (!mobileEl.value.trim()) return; // 手机号未填：等点绑定时再取
-    if (!(await fetchImg())) showSlider();
+    if (!(await fetchImg())) $id('#sgbCapHint').style.display = '';
   }
-  // 展示滑块 iframe（每次展示重载页面，保证拿到新一局）
+  // 展示滑块 iframe（每次展示重载页面，保证拿到新一局；仅用户点「使用滑块验证」或短信通道自动降级时触发）
   function showSlider() {
     captchaToken = ''; constId = '';
+    $id('#sgbCapHint').style.display = 'none';
     $id('#sgbCapBox').style.display = '';
     $id('#sgbCapFrame').src = '/sgcc-captcha.html?from=web&t=' + Date.now();
   }
@@ -3782,7 +3790,7 @@ function sgccBindFor(member) {
       sendBtn.textContent = left + 's 后重发';
     }, 1000);
   }
-  // 取图形码：成功贴图；40035（风控窗口）→ 降级滑块
+  // 取图形码：成功贴图并隐藏「不可用」提示；40035（风控窗口）→ 调用方决定提示或降级
   async function fetchImg() {
     var m = mobile(); if (!m) return false;
     try {
@@ -3791,6 +3799,7 @@ function sgccBindFor(member) {
       $id('#sgbImg').src = imgUrl;
       $id('#sgbImgCode').value = '';
       $id('#sgbImgBox').style.display = '';
+      $id('#sgbCapHint').style.display = 'none';
       return true;
     } catch (err) {
       imgUrl = '';
@@ -3850,12 +3859,12 @@ function sgccBindFor(member) {
       if (!pwd) { Shade.toast('请填写登录密码', 'info'); return; }
       body.password = pwd;
       if (!captchaToken) {
-        // 密码双通道：无滑块凭据走图形码（token/v3）；无图形码先取图，取不到降级滑块
+        // 密码双通道：无滑块凭据走图形码（token/v3）；无图形码先取图，取不到仅提示（不自动弹滑块）
         var ic = $id('#sgbImgCode').value.trim();
         if (imgUrl && !ic) { Shade.toast('请填写图形验证码', 'info'); return; }
         if (imgUrl && ic) body.checkImgCode = ic;
         if (!imgUrl) {
-          if (!(await fetchImg())) showSlider();
+          if (!(await fetchImg())) $id('#sgbCapHint').style.display = '';
           return;
         }
       }
@@ -3874,8 +3883,8 @@ function sgccBindFor(member) {
     } catch (err) {
       Shade.toast(err.message, 'error');
       captchaToken = ''; constId = ''; // 失败清空凭据，重试前重拖
-      // 密码图形码通道失败：自动刷新图形码（刷新失败自动降级滑块）
-      if (mode === 'pwd' && imgUrl && !(await fetchImg())) showSlider();
+      // 密码图形码通道失败：自动刷新图形码（刷新失败仅提示，不自动弹滑块）
+      if (mode === 'pwd' && imgUrl && !(await fetchImg())) $id('#sgbCapHint').style.display = '';
     }
   }
   $id('#sgbTabSms').addEventListener('click', function () { setTab('sms'); });
@@ -3884,8 +3893,13 @@ function sgccBindFor(member) {
     imgUrl = ''; $id('#sgbImgBox').style.display = 'none';
     showSlider();
   });
+  $id('#sgbShowSlider').addEventListener('click', showSlider);
   $id('#sgbImg').addEventListener('click', async function () {
-    if (!(await fetchImg())) { Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info'); showSlider(); }
+    if (!(await fetchImg())) {
+      // 短信通道自动降级滑块；密码通道仅提示，由用户手动点「使用滑块验证」
+      if (mode === 'pwd') $id('#sgbCapHint').style.display = '';
+      else { Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info'); showSlider(); }
+    }
   });
   sendBtn.addEventListener('click', onSend);
   $('[data-a="no"]', inst.box).addEventListener('click', function () { cleanup(); inst.close(); });
@@ -3956,8 +3970,8 @@ function renderDict() {
           : (sg.list.length
             ? sg.list.map(sgccRowHtml).join('')
             : '<div class="dempty">本班组暂无绑定成员（成员可在小程序「我的 → 绑定商旅」绑定）</div>'))) +
-      '<div class="dadd">' +
-        '<select class="f-sel" id="sgBindMember" style="flex:1;height:36px">' +
+      '<div style="display:flex;gap:10px;align-items:center;padding:12px 16px;border-top:1px solid var(--hair)">' +
+        '<select class="f-sel" id="sgBindMember" style="flex:1">' +
           '<option value="">选择成员…</option>' +
           sgMembers.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join('') +
         '</select>' +
