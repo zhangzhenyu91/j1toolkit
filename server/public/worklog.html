@@ -713,7 +713,7 @@
   }
   .m-scroll {
     flex: 1; min-height: 0; overflow-y: auto; border-radius: 9px; padding: 14px 18px 16px;
-    scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent;
+    scrollbar-gutter: stable both-edges; scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent;
   }
   /* 细滚动条：半透明藏青、悬停加深，与页面滚动区同口径 */
   .m-scroll::-webkit-scrollbar { width: 5px; }
@@ -3750,13 +3750,7 @@ function sgccBindFor(member) {
     captchaToken = ''; constId = '';
     $id('#sgbCapBox').style.display = 'none';
     $id('#sgbCapHint').style.display = 'none';
-    // 密码方式：无凭据无图形码时自动取图（取不到仅提示，由用户手动点「使用滑块验证」）
-    if (m === 'pwd' && !imgUrl) autoImg();
-  }
-  // 密码方式进入时自动取图形码；取不到（40035 风控窗口）只出提示，不自动弹滑块
-  async function autoImg() {
-    if (!mobileEl.value.trim()) return; // 手机号未填：等点绑定时再取
-    if (!(await fetchImg())) $id('#sgbCapHint').style.display = '';
+    // 密码方式不自动取图：点「绑定」时才取（见 submit）
   }
   // 展示滑块 iframe（每次展示重载页面，保证拿到新一局；仅用户点「使用滑块验证」或短信通道自动降级时触发）
   function showSlider() {
@@ -3980,6 +3974,11 @@ function renderDict() {
     '</div>';
   }
   $('#dictBody').innerHTML = html;
+  // 代绑定成员下拉换自绘下拉（原 select 隐藏保留为数据源；重渲染后需重建）
+  if (!state.dict.sgcc.off && $('#sgBindMember')) {
+    var sgBindDd = Shade.dropdown($('#sgBindMember'), { height: 36 });
+    sgBindDd.el.style.flex = '1';
+  }
 }
 
 /* 底部虚线行添加（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
