@@ -6,7 +6,8 @@
 //   09:30 被控机脚本导出派车单到 U 盘（scripts/export_dispatch_orders.py，被控机本机 crontab，不在本服务范围）
 //   09:40 取件：下载当日文件（设备 fileshare 下载内部先 ensure_unshared，自动把 U 盘切回 KVM 侧）
 //         → 删除 U 盘中该文件 → 解析建卡 → 解禁设备 → 结果通知（每日必发：按班组分发，超管 + 对应班组管理员）
-// 建卡口径（用户指定）：A 列车牌（剔除「(蓝)/(绿)」等颜色后缀）、E 列用车人、J 列目的地；导出件仅含当日派车单无需读时间；
+// 建卡口径（用户指定）：A 列车牌（剔除「(蓝)/(绿)」等颜色后缀）、E 列用车人、J 列目的地；
+//   行日期按 F 列预计用车时间（T 列创建时间兜底）判定，非当日行清洗剔除（导出件可能混入之前日期的派车单）；
 //   用车人串「含有」本班启用成员姓名（子串）的记录保留；同一人同日只挂一张卡，多条记录含同一人时由匹配班组人名最多的记录胜出；
 //   用车人含多个班组人名（按全部启用班组成员字典判定，同名跨班多班都算）的记录仅通知不建卡（交由超管建跨班日志）；
 //   用车人当日已有手动建卡（本班或别班/跨班卡）的记录不自动建卡/拆卡，改为与本班已有卡片比对（车牌/目的地/用车人），
@@ -125,16 +126,26 @@ async function deleteFile(dev, name) {
 
 /* ===== 解析与建卡计划（纯函数，不触库，便于本地自测） ===== */
 
-// 必需列固定列位（被控机导出脚本生成口径，用户指定 A/E/J）：A=车牌号码 C=驾驶员 E=用车人 J=目的地 M=派车单号 N=派车单状态
-const COL = { plate: 0, driver: 2, members: 4, to: 9, orderNo: 12, state: 13 };
+// 必需列固定列位（被控机导出脚本生成口径，用户指定 A/E/J）：A=车牌号码 C=驾驶员 E=用车人 F=预计用车时间 J=目的地 M=派车单号 N=派车单状态 T=创建时间
+const COL = { plate: 0, driver: 2, members: 4, planTime: 5, to: 9, orderNo: 12, state: 13, createTime: 19 };
 
 // 车牌剔除颜色后缀：导出件形如「晋JBA773(蓝)」「晋JF56855(绿)」（全/半角括号均剔除）
 function stripPlateColor(plate) {
   return String(plate || '').replace(/[（(]\s*(蓝|绿|黄|白)\s*[）)]/g, '').trim();
 }
 
-// 解析导出表 → { rows, dropped }；剔除「已取消」与剔除颜色后车牌为空的行（计数进通知）
-function parseOrders(buffer) {
+// 行日期（同被控机导出脚本 _is_today_order 口径）：F 列预计用车时间优先、T 列创建时间兜底，
+// 取首个可解析的 yyyy-mm-dd；两列均缺失/不可解析返回空串（调用方按非当日剔除）
+function rowDate(cells) {
+  for (const idx of [COL.planTime, COL.createTime]) {
+    const m = String(cells[idx] || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  }
+  return '';
+}
+
+// 解析导出表 → { rows, dropped, stale }；剔除「已取消」、日期非当日、剔除颜色后车牌为空的行（计数进通知）
+function parseOrders(buffer, today) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
   if (!rows.length) throw new Error('导出表为空');
@@ -144,10 +155,12 @@ function parseOrders(buffer) {
   }
   const out = [];
   let dropped = 0;
+  let stale = 0;
   for (let i = 1; i < rows.length; i += 1) {
     const cells = (Array.isArray(rows[i]) ? rows[i] : []).map((c) => String(c).trim());
     if (cells.every((c) => !c)) continue; // 空行
     if (cells[COL.state] === '已取消') { dropped += 1; continue; }
+    if (rowDate(cells) !== today) { stale += 1; continue; } // 清洗非当日派车单
     const plate = stripPlateColor(cells[COL.plate]);
     if (!plate) { dropped += 1; continue; }
     out.push({
@@ -159,7 +172,7 @@ function parseOrders(buffer) {
       state: cells[COL.state] || '',
     });
   }
-  return { rows: out, dropped };
+  return { rows: out, dropped, stale };
 }
 
 // 建卡计划（纯函数）：
@@ -202,7 +215,7 @@ function planCards(rows, teamMembers, vehicles, destinations, assignedIds) {
 // results 每项 { team, created, skippedDict, cross, mismatches, aligned }：
 // cross 为涉及该班但含多班人名的记录（仅通知不建卡）；mismatches 为已有手动建卡且比对不一致的记录（附修改指引），aligned 为一致计数
 async function importOrdersMulti(teams, buffer, today) {
-  const { rows, dropped } = parseOrders(buffer);
+  const { rows, dropped, stale } = parseOrders(buffer, today);
   // 全部启用班组的启用成员（跨班判定口径；含未开启班组，避免给本班建出缺人的卡）
   const [allMembers] = await pool.query(
     `SELECT m.id, m.name, m.sort, m.team_id, t.name AS team_name
@@ -337,7 +350,7 @@ async function importOrdersMulti(teams, buffer, today) {
     const cross = crossIdx.filter((i) => rowTeams[i].has(team.id)).map((i) => rows[i]);
     results.push({ team, created, skippedDict, cross, mismatches, aligned });
   }
-  return { results, outside, otherTeam, dropped, total: rows.length };
+  return { results, outside, otherTeam, dropped, stale, total: rows.length };
 }
 
 // 同步结果通知：超管 + 指定班组启用班组管理员（teamIds 空时仅超管，如班组解析失败场景）；通知失败仅记日志
@@ -422,7 +435,7 @@ async function fetchJob() {
     for (const res of r.results) {
       const overlapCount = res.mismatches.length + res.aligned;
       const lines = [
-        `${today} 派车单同步完成：解析 ${r.total} 行（剔除 ${r.dropped} 行已取消/无车牌、${r.outside} 行非班组用车、${r.otherTeam} 行仅属未开启班组），本班新建 ${res.created.length} 张出车卡片`
+        `${today} 派车单同步完成：解析 ${r.total} 行（剔除 ${r.stale} 行非当日、${r.dropped} 行已取消/无车牌、${r.outside} 行非班组用车、${r.otherTeam} 行仅属未开启班组），本班新建 ${res.created.length} 张出车卡片`
         + (overlapCount ? `；用车人当日已有手动建卡的记录 ${overlapCount} 条（比对不一致 ${res.mismatches.length} 条见下文指引，一致 ${res.aligned} 条无需处理）` : '')
         + '。',
       ];
