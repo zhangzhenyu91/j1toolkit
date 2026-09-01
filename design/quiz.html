@@ -15,7 +15,7 @@
   题库池改为小程序二级页（首页入口卡跳入，板块不再占首页）；端分工——小程序端不做上传题库（管理页仅建库/编辑/删除/解析管理）。
   V4 调整（网页端刷题）：网页端补刷题练习，刷题 / 题库管理以页签切换（参考出工日志 wl-tabs：文字 + 橙色滑动指示条，「题库管理」页签仅 admin/team_admin 可见）；
   刷题练习页签 = 左卡我的题库（个人口径进度）+ 右卡题库主页（统计行 + 顺序/随机/错题/收藏四入口，对齐小程序 bank 页）；刷题页接管整内容区
-  （顶行返回 + 答题/背题切换 + 进度，底栏收藏/对错计数/答题卡/设置 + 主按钮，支持 ← → 方向键切题，断点续刷与做题记录恢复同小程序）；
+  （顶行返回 + 答题/背题切换 + 进度，选项仅字母圈 + 文字、无卡片底左对齐，底栏收藏/对错计数/答题卡/设置 + 主按钮，支持 ← → 方向键切题，断点续刷与做题记录恢复同小程序）；
   答题卡为居中弹层（题型分区块 chips + 图例 + 底部清空做题记录）；题库管理视图维持双卡不变，仅顶部补页签。
 -->
 <html lang="zh-CN">
@@ -347,6 +347,11 @@
   .pv-top .vm-switch { flex:none; }
   .pv-col { flex:1; min-height:0; overflow-y:auto; }
   .pv-col-in { max-width:840px; margin:0 auto; padding:18px 2px 6px; }
+  /* 网页端选项：无卡片底，仅字母圈 + 文字、按内容收缩；左边界对齐题干「内容文字」首字
+     （题干卡内边距 15px + 题型 tag ≈47px + tag 右间距 7px ≈ 69px，而非 tag 左缘；小程序端 .opt 卡片态不变） */
+  .pv-col-in .opt, .pv-col-in .opt.sel, .pv-col-in .opt.right, .pv-col-in .opt.wrong {
+    width:fit-content; max-width:100%; background:none; border:none; padding:6px 15px 6px 69px;
+  }
   .pv-foot { flex:none; display:flex; align-items:center; gap:10px; padding-top:14px; border-top:1px solid var(--hair2); }
   .pv-foot .sp { margin-left:auto; display:flex; align-items:center; gap:10px; }
   .pv-hint { font-size:11px; color:var(--ph); letter-spacing:1px; }

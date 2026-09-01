@@ -1,17 +1,19 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 题库管理网页版（Web 端仅保留题库管理，刷题练习请用微信小程序端 pkg-quiz）
-     权限：仅 admin / team_admin 可用，其余角色隐藏左右双卡、整页显示提示卡；
-     左卡：新建 / 导入 Excel 小按钮 + 超管班组切换器 + 题库列表（GET /banks/manage 固定口径，
-     scope 范围 tag：all 橙「全部池」/ team 藏青班组名；题数 / 解析进度；选中浅橙高亮，行内编辑/删除小图标）；
-     右卡：题库名 + AI 解析徽章 + 统计行 + 按钮组（下载模板 fetch + blob / 导入 Excel / 重试失败解析 / 新增题目）
-     + AI 解析橙色通知条（进行中 5s 轮询 /banks/manage）+ 题目表格（解析状态三态标签）+ 分页 + 题干搜索防抖；
-     班组隔离：超管左卡加班组切换下拉（localStorage.quiz_team_id，全部 /quiz/* 请求统一带 team_id，见 qz()）；
+<!-- Shade 壹匣 · 题库刷题网页版（刷题练习 + 题库管理双页签，页签参考出工日志 wl-tabs：文字 + 橙色滑动指示条；
+     「题库管理」页签仅 admin / team_admin 可见，普通用户仅刷题练习）
+     刷题练习：左卡我的题库（个人口径，GET /banks，进度条 + 题库池弹层入口）+ 右卡题库主页（GET /banks/:id/home
+     统计行 + 顺序/随机/错题/收藏四入口，对齐小程序 bank 页）；点入口进刷题页（接管右卡）：顶行 返回 + 答题/背题切换
+     + 进度 x/total，选项仅字母圈 + 文字无卡片底、左边界对齐题干内容首字；解析态 = 正确答案/您的选择 + 本人/全员统计
+     + 错题本动态 + 试题详解卡；底栏 收藏/对错计数/答题卡/设置 + 主按钮，支持 ← → 方向键切题；
+     断点续刷（localStorage quiz_seq_{bankId}）与做题记录恢复（取题 withRecord=1）同小程序，答题卡居中弹层可清空做题记录；
+     题库管理：原双卡视图不变（左题库列表 GET /banks/manage + 右题目表格/导入/AI 解析轮询）；
+     班组隔离：超管页签旁班组切换下拉（localStorage.quiz_team_id，管理请求统一带 team_id，见 qz()）；
      API 直连主平台 /api/v1/quiz/*（Bearer token 经 Shade.api） -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>题库管理 · Shade 壹匣</title>
+<title>题库刷题 · Shade 壹匣</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/assets/theme.css">
 <style>
@@ -21,12 +23,8 @@
   body > .topbar { flex: none; }
   /* theme.css 的 .page 带 margin:0 auto，flex 容器内显式 width:100% 恢复满宽（同 worklog 口径） */
   .page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; padding: 22px 40px 30px; }
-  .qz-wrap { flex: 1; min-height: 0; width: 100%; display: flex; gap: 20px; }
+  .qz-wrap { flex: 1; min-height: 0; width: 100%; display: flex; gap: 20px; margin-top: 16px; }
   .qz-wrap[hidden] { display: none !important; } /* author display 规则优先于 UA [hidden]，显式兜底 */
-  /* 非管理角色提示卡：替代左右双卡，整卡居中 */
-  .qz-deny { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
-  .qz-deny[hidden] { display: none !important; }
-  .qz-deny .empty { width: 100%; }
 
   /* 答题对错用色对齐设计稿：克制绿 #2BA471（theme 无此 token，页内定义；解析状态「已解析」标签用） */
   .tag-green { background: #E8F5EF; color: #2BA471; }
@@ -195,6 +193,131 @@
   .a-chip:hover { border-color: var(--orange); color: var(--orange); }
   .a-chip.on { border-color: var(--orange); background: var(--orange-soft); color: var(--orange); }
 
+  /* ===== 页签：刷题练习 / 题库管理（与出工日志 wl-tabs 同族：文字 + 橙色滑动指示条） ===== */
+  .qz-tabs { position: relative; flex: none; display: flex; gap: 4px; border-bottom: 1px solid var(--hair); }
+  .qz-tabs button {
+    padding: 11px 20px; border: none; background: none; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 14px; font-weight: 600; color: var(--sub); letter-spacing: 1.5px;
+    transition: color .25s; font-family: inherit;
+  }
+  .qz-tabs button:hover { color: var(--navy); }
+  .qz-tabs button.on { color: var(--orange); font-weight: 700; }
+  .qz-tabs button svg { width: 15px; height: 15px; }
+  .qz-tab-ind {
+    position: absolute; bottom: -1px; left: 0; width: 0; height: 3px;
+    border-radius: 2px; background: var(--orange);
+    transition: left .3s cubic-bezier(.16, 1, .3, 1), width .3s cubic-bezier(.16, 1, .3, 1);
+  }
+
+  /* ===== 刷题练习 · 左卡我的题库（个人口径进度） ===== */
+  #wrapPractice .side-item .pg { margin-top: 7px; display: flex; align-items: center; gap: 8px; }
+  #wrapPractice .side-item .pg .progress { flex: 1; height: 5px; }
+  #wrapPractice .side-item .pg > span { font-size: 10px; color: var(--ph); white-space: nowrap; }
+
+  /* ===== 刷题练习 · 右卡题库主页（统计行 + 四宫格入口） ===== */
+  .bh-stats { display: flex; padding: 15px 0; border: 1px solid var(--hair); border-radius: 10px; }
+  .bh-stats .cell { flex: 1; text-align: center; position: relative; }
+  .bh-stats .cell + .cell::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 1px; background: var(--hair2); }
+  .bh-stats b { font-size: 20px; font-weight: 800; }
+  .bh-stats b em { font-style: normal; color: var(--orange); }
+  .bh-stats span { display: block; margin-top: 4px; font-size: 10.5px; color: var(--sub); letter-spacing: 1px; }
+  .bh-grid { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .bh-entry { border: 1px solid var(--hair); border-radius: 10px; padding: 13px 14px; display: flex; align-items: center; gap: 11px; cursor: pointer; transition: border-color .2s; }
+  .bh-entry:hover { border-color: var(--orange); }
+  .bh-entry .ib { width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--orange-soft); color: var(--orange); display: flex; align-items: center; justify-content: center; }
+  .bh-entry .tx { flex: 1; min-width: 0; }
+  .bh-entry .tx b { font-size: 13.5px; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+  .bh-entry .tx p { margin-top: 3px; font-size: 11px; color: var(--sub); }
+  .bh-entry > svg { flex: none; color: var(--ph); }
+
+  /* ===== 刷题页（右卡接管）：顶行 返回 + 答题/背题 + 进度 + x/total ===== */
+  #panePractice { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #panePractice[hidden] { display: none !important; } /* author display 规则优先于 UA [hidden]，显式兜底 */
+  .pv-top { flex: none; display: flex; align-items: center; gap: 14px; }
+  .pv-back { display: inline-flex; align-items: center; gap: 3px; font-size: 12.5px; font-weight: 700; color: var(--navy); cursor: pointer; }
+  .pv-back:hover { color: var(--orange); }
+  .pv-title { font-size: 13.5px; font-weight: 800; white-space: nowrap; }
+  .pv-vm { flex: none; display: inline-flex; background: #EFE9DA; border-radius: 7px; padding: 2px; }
+  .pv-vm i { font-style: normal; font-size: 11.5px; font-weight: 700; padding: 3px 12px; border-radius: 5px; color: var(--sub); cursor: pointer; }
+  .pv-vm i.on { background: var(--navy); color: #fff; }
+  .pv-pg { flex: 1; display: flex; align-items: center; gap: 12px; }
+  .pv-pg .progress { flex: 1; }
+  .pv-pg b { font-size: 12.5px; font-weight: 800; white-space: nowrap; }
+  .pv-col { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent; }
+  .pv-col::-webkit-scrollbar { width: 5px; }
+  .pv-col::-webkit-scrollbar-thumb { background: rgba(34, 49, 78, .16); border-radius: 3px; }
+  .pv-col-in { max-width: 840px; padding: 16px 2px 4px; }
+  .pv-stem { padding: 16px 15px; font-size: 15.5px; font-weight: 700; line-height: 1.8; }
+  .pv-stem .tag { margin-right: 7px; vertical-align: 2px; }
+  /* 选项：无卡片底，仅字母圈 + 文字；左边界对齐题干内容首字（题干卡内边距 15px + 题型 tag ≈47px + 间距 7px） */
+  .pv-opt { display: flex; align-items: center; gap: 11px; padding: 7px 15px 7px 69px; font-size: 14px; line-height: 1.7; cursor: pointer; border-radius: 8px; }
+  .pv-opt .ab {
+    width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1.5px solid var(--dash);
+    color: var(--sub); display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800;
+    transition: border-color .2s, background .2s, color .2s;
+  }
+  .pv-opt.sq .ab { border-radius: 7px; }
+  .pv-opt:not(.lock):hover .ab { border-color: var(--orange); color: var(--orange); }
+  .pv-opt.sel .ab { border-color: var(--orange); background: var(--orange); color: #fff; }
+  .pv-opt.right .ab { border-color: #2BA471; background: #2BA471; color: #fff; }
+  .pv-opt.wrong .ab { border-color: var(--red); background: var(--red); color: #fff; }
+  .pv-opt .tx { min-width: 0; }
+  .pv-opt.lock { cursor: default; }
+  /* 解析态（正确答案/您的选择 + 统计 + 错题本动态）与试题详解卡 */
+  .r-line { margin-top: 14px; padding: 12px 14px; background: #fff; border: 1px solid var(--hair); border-radius: 10px; }
+  .r-main { display: flex; gap: 22px; font-size: 13px; font-weight: 700; }
+  .r-main b { margin-left: 6px; }
+  .r-main b.ok { color: #2BA471; }
+  .r-main b.bad { color: var(--red); }
+  .r-sub { margin-top: 6px; font-size: 11px; color: var(--sub); }
+  .r-sub.orange { color: var(--orange); font-weight: 700; }
+  .pv-ana { margin-top: 14px; padding: 14px 15px; background: var(--orange-soft); border-radius: 10px; }
+  .pv-ana .hd { display: flex; align-items: center; gap: 8px; color: var(--orange); font-size: 13.5px; font-weight: 800; letter-spacing: 1px; }
+  .pv-ana .bd { margin-top: 9px; font-size: 12.8px; line-height: 1.8; color: #4A5670; }
+  .pv-ana .ft { margin-top: 9px; font-size: 10.5px; color: #C29B7E; letter-spacing: .5px; }
+  /* 底栏：收藏 / 对错计数 / 答题卡 / 设置 + 主按钮 */
+  .pv-foot { flex: none; display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--hair2); }
+  .pv-chipbtn {
+    display: inline-flex; align-items: center; gap: 5px; background: var(--paper); border: 1px solid var(--hair2);
+    border-radius: 16px; padding: 5px 12px; font-size: 11.5px; color: var(--sub); font-weight: 600; cursor: pointer;
+    transition: color .2s, border-color .2s; font-family: inherit;
+  }
+  .pv-chipbtn:hover { color: var(--orange); border-color: var(--orange); }
+  .pv-chipbtn.faved { color: var(--orange); border-color: var(--orange); }
+  .pv-chipbtn svg { width: 13px; height: 13px; }
+  .pv-foot .sp { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .pv-hint { font-size: 11px; color: var(--ph); letter-spacing: 1px; }
+  .qz-ok { color: #2BA471; }
+  .qz-bad { color: var(--red); }
+  /* 答题卡弹层（题型分区块 chips + 图例 + 底部清空做题记录） */
+  .pv-sheet-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 8px; }
+  .pv-chip {
+    height: 34px; border-radius: 8px; background: #EDE7D8; color: var(--sub);
+    display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 700; cursor: pointer;
+    transition: box-shadow .15s;
+  }
+  .pv-chip:hover { box-shadow: inset 0 0 0 2px var(--orange); }
+  .pv-chip.ok { background: #2BA471; color: #fff; }
+  .pv-chip.bad { background: var(--red); color: #fff; }
+  .pv-chip.cur { box-shadow: inset 0 0 0 2px var(--orange); color: var(--navy); background: #fff; }
+  .pv-legend { display: flex; gap: 16px; margin: 2px 0 4px; font-size: 11px; color: var(--sub); }
+  .pv-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; background: #EDE7D8; margin-right: 5px; }
+  .pv-legend i.g { background: #2BA471; }
+  .pv-legend i.r { background: var(--red); }
+  .pv-clear { text-align: center; font-size: 12px; font-weight: 700; color: var(--red); cursor: pointer; margin-top: 14px; }
+  .pv-clear.disabled { color: var(--ph); cursor: not-allowed; }
+  /* 刷题设置（答对自动下一题 / 选项乱序；本地 storage quiz_settings 持久化） */
+  .pv-set-row { display: flex; align-items: center; gap: 10px; padding: 12px 2px; }
+  .pv-set-row + .pv-set-row { border-top: 1px solid var(--hair); }
+  .pv-set-row .tx { flex: 1; min-width: 0; }
+  .pv-set-row .tx b { font-size: 13.5px; font-weight: 800; }
+  .pv-set-row .tx p { margin-top: 3px; font-size: 11px; color: var(--sub); }
+  .pv-sw { width: 40px; height: 22px; flex: none; border-radius: 11px; background: #E5DFCE; position: relative; cursor: pointer; transition: background .25s; }
+  .pv-sw .dot { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left .25s; box-shadow: 0 1px 3px rgba(34,49,78,.2); }
+  .pv-sw.on { background: var(--orange); }
+  .pv-sw.on .dot { left: 20px; }
+
   /* 窄屏回退：左右卡收窄 */
   @media (max-width: 900px) {
     .page { padding: 16px; }
@@ -207,7 +330,32 @@
 <!-- 顶部导航由 Shade.topbar({active:'quiz'}) 统一渲染（见 script） -->
 
 <main class="page">
-  <div class="qz-wrap fade-up" id="qzWrap">
+  <!-- 页签：刷题练习 / 题库管理（文字 + 橙色滑动指示条；题库管理仅管理角色可见，首次切入才加载管理数据） -->
+  <div class="qz-tabs fade-up" id="qzTabs">
+    <button class="on" data-p="practice">刷题练习</button>
+    <button data-p="manage" id="tabManage" hidden>题库管理</button>
+    <span class="qz-tab-ind" id="qzTabInd"></span>
+  </div>
+
+  <!-- 刷题练习：左卡我的题库 + 右卡题库主页 / 刷题页 -->
+  <div class="qz-wrap fade-up" id="wrapPractice">
+    <aside class="card qz-side">
+      <div class="side-head">
+        <b>我的题库</b>
+        <button class="mini-btn" id="btnPool" title="题库池"></button>
+      </div>
+      <div class="side-scroll" id="pvSideScroll">
+        <div id="pvBankList"></div>
+      </div>
+    </aside>
+    <section class="card qz-main">
+      <div class="pane" id="paneBankHome"></div>
+      <div id="panePractice" hidden></div>
+    </section>
+  </div>
+
+  <!-- 题库管理：左卡题库列表（新建/导入/超管班组切换）+ 右卡题目表格/AI 解析 -->
+  <div class="qz-wrap fade-up" id="wrapManage" hidden>
     <!-- 左卡：题库管理（新建 / 导入按钮；超管另见班组切换） -->
     <aside class="card qz-side">
       <div class="side-head">
@@ -237,9 +385,6 @@
       </div>
     </section>
   </div>
-
-  <!-- 非管理角色提示卡（隐藏左右双卡，内容见 init 注入） -->
-  <div class="card qz-deny fade-up" id="denyCard" hidden></div>
 </main>
 
 <!-- 题库 Excel 导入：隐藏文件选择（仅 .xlsx ≤10MB，前端先校验） -->
@@ -249,8 +394,11 @@
 <script src="/assets/common.js"></script>
 <script>
 /* ============================================================
-   题库管理网页版：Web 端仅保留题库管理（建库 / Excel 导入 / 题目增删改 / AI 解析状态），刷题练习见微信小程序端
-   仅 admin / team_admin 可用，其余角色隐藏左右双卡、整页显示提示卡
+   题库刷题网页版：刷题练习 + 题库管理双页签
+   刷题练习：我的题库（GET /banks）→ 题库主页（GET /banks/:id/home）→ 顺序/随机/错题/收藏四模式刷题
+   （大纲 lite=1 + 分批拉题；seq/rand 带 withRecord=1 恢复历史作答；断点 localStorage quiz_seq_{bankId}；
+   答题卡弹层可清空做题记录；设置 答对自动下一题/选项乱序 存 localStorage quiz_settings）
+   题库管理：原双卡（/banks/manage + 题目表格/导入/AI 解析轮询），页签首次切入才加载
    接口同源 /api/v1/quiz/*，响应信封由 Shade.api 解包（code!==0 抛错）；模板 xlsx 走 fetch + blob 下载
    ============================================================ */
 (function () {
@@ -342,6 +490,7 @@ var teamDd = Shade.dropdown($('#teamSel'), { width: '100%', height: 36 });
 
 /* 切换班组后整页重载：清空全部按班组缓存（题库 / 管理分页） */
 function reloadTeamData() {
+  mgBooted = true;
   stopPoll();
   state.banks = null; state.banksErr = '';
   state.mBankId = 0;
@@ -923,31 +1072,705 @@ function bindEvents() {
   });
 }
 
+/* ================= 刷题练习（个人口径，接口与小程序 pkg-quiz 同口径） ================= */
+var P_LIMIT = 20; // 每批拉题数（与后端/小程序一致）
+var pv = {
+  banks: null, banksErr: '',   // 我的题库列表（GET /banks）
+  bankId: 0, home: null, homeErr: '',
+  mode: 'seq',                  // seq 顺序 / rand 随机 / wrong 错题 / fav 收藏
+  viewMode: 'answer',           // answer 答题 / recite 背题
+  outline: [],                  // [{id,type,myRight?}] 题序大纲
+  cache: {},                    // 批首下标 → 题目数组
+  results: {},                  // qid → { selected, right, answer, analysis, wrong, stats }（含历史恢复）
+  myRight: {},                  // qid → 1/0 最近作答对错（底栏计数与答题卡着色数据源）
+  favs: {},                     // qid → 1/0
+  shuffle: {},                  // qid → 展示位→原选项下标（选项乱序；已答题保留以与其作答记录一致）
+  idx: 0, sel: [], inflight: null, submitting: false, favBusy: false,
+  started: false,               // 刷题页是否接管右卡
+  settings: { autoNext: false, shuffleOpt: false },
+  autoTimer: 0
+};
+
+function pvTypeText(t) { return t === 'multiple' ? '多选题' : t === 'judge' ? '判断题' : '单选题'; }
+function pvModeText(m) { return m === 'rand' ? '随机练习' : m === 'wrong' ? '错题专项练习' : m === 'fav' ? '收藏练习' : '顺序练习'; }
+/* 刷题设置（本地 storage quiz_settings 持久化，与小程序端同键同口径） */
+function pvLoadSettings() {
+  try {
+    var s = JSON.parse(localStorage.getItem('quiz_settings') || '{}');
+    pv.settings.autoNext = !!s.autoNext;
+    pv.settings.shuffleOpt = !!s.shuffleOpt;
+  } catch (e) { /* 忽略坏数据 */ }
+}
+function pvSaveSettings() { localStorage.setItem('quiz_settings', JSON.stringify(pv.settings)); }
+/* 已答/对错计数（底栏与答题卡；seq/rand 含历史恢复，统一以 myRight 为准） */
+function pvCounts() {
+  var answered = 0, right = 0;
+  Object.keys(pv.myRight).forEach(function (k) { answered += 1; if (pv.myRight[k]) right += 1; });
+  return { answered: answered, right: right, wrong: answered - right };
+}
+/* 选项乱序：生成长度 n 的随机排列（展示位 → 原选项下标；Fisher-Yates） */
+function pvShuffleIdx(n) {
+  var a = [];
+  for (var i = 0; i < n; i += 1) a.push(i);
+  for (var i = a.length - 1; i > 0; i -= 1) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+function pvClearSession() {
+  pv.outline = []; pv.cache = {}; pv.results = {}; pv.myRight = {}; pv.favs = {}; pv.shuffle = {};
+  pv.idx = 0; pv.sel = []; pv.inflight = null;
+  if (pv.autoTimer) { clearTimeout(pv.autoTimer); pv.autoTimer = 0; }
+}
+
+/* ---------- 左卡：我的题库 ---------- */
+async function pvLoadBanks(quiet) {
+  if (!quiet) { pv.banks = null; pv.banksErr = ''; pvRenderSide(); }
+  try {
+    var r = await Shade.api(API + '/banks');
+    pv.banks = (r.data && r.data.list) || [];
+    pv.banksErr = '';
+  } catch (e) {
+    if (!quiet) { pv.banks = []; pv.banksErr = e.message; }
+  }
+  pvRenderSide();
+  /* 选中态兜底：未选或已选库被移出 → 回退到第一本 */
+  var exists = pv.bankId && (pv.banks || []).some(function (b) { return b.id === pv.bankId; });
+  if (!exists) {
+    if (pv.banks && pv.banks.length) pvSelectBank(pv.banks[0].id);
+    else { pv.bankId = 0; pv.home = null; pvRenderHome(); }
+  }
+}
+function pvRenderSide() {
+  var box = $('#pvBankList');
+  if (!pv.banks) {
+    box.innerHTML = '<div class="skeleton sk-item"></div><div class="skeleton sk-item"></div><div class="skeleton sk-item"></div>';
+    return;
+  }
+  if (pv.banksErr) {
+    box.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 40) + '<p>' + esc(pv.banksErr) + '</p>'
+      + '<button class="btn btn-sm" id="pvSideRetry">重试</button></div>';
+    $('#pvSideRetry').addEventListener('click', function () { pvLoadBanks(); });
+    return;
+  }
+  if (!pv.banks.length) {
+    box.innerHTML = '<div class="empty">' + Shade.icon('book', 40)
+      + '<p>还没有题库</p>'
+      + '<p style="font-size:11px">点右上角罗盘图标，从题库池添加</p></div>';
+    return;
+  }
+  box.innerHTML = pv.banks.map(function (b) {
+    var on = b.id === pv.bankId;
+    var pct = b.questionCount ? Math.round((b.answeredCount / b.questionCount) * 100) : 0;
+    var meta = scopeTag(b) + ' ' + b.questionCount + ' 题 · ' + (b.answeredCount ? '已练 ' + b.answeredCount : '未开始');
+    var pg = b.questionCount
+      ? '<div class="pg"><div class="progress"><i style="width:' + pct + '%"></i></div><span>' + b.answeredCount + '/' + b.questionCount + '</span></div>'
+      : '';
+    return '<div class="side-item' + (on ? ' on' : '') + '" data-id="' + b.id + '">'
+      + Shade.icon('book', 17, on ? '#F26D21' : '#6B7690')
+      + '<div class="tx"><b>' + esc(b.name) + '</b><span>' + meta + '</span>' + pg + '</div></div>';
+  }).join('');
+}
+
+/* ---------- 右卡：题库主页（统计行 + 四入口） ---------- */
+async function pvLoadHome(quiet) {
+  if (!pv.bankId) { pv.home = null; pv.homeErr = ''; pvRenderHome(); return; }
+  if (!quiet) { pv.home = null; pv.homeErr = ''; pvRenderHome(); }
+  try {
+    var r = await Shade.api(API + '/banks/' + pv.bankId + '/home');
+    pv.home = r.data || null; pv.homeErr = '';
+  } catch (e) {
+    if (!quiet) { pv.home = null; pv.homeErr = e.message; }
+  }
+  pvRenderHome();
+}
+function pvRenderHome() {
+  var box = $('#paneBankHome');
+  if (!pv.bankId) {
+    box.innerHTML = '<div class="empty" style="margin:auto">' + Shade.icon('book', 44)
+      + '<p>还没有题库</p><p style="font-size:11px">点左卡右上角罗盘图标，从题库池添加题库</p></div>';
+    return;
+  }
+  if (!pv.home) {
+    box.innerHTML = pv.homeErr
+      ? '<div class="empty" style="margin:auto">' + Shade.icon('error-circle', 44) + '<p>' + esc(pv.homeErr) + '</p></div>'
+      : '<div class="skeleton" style="height:120px; border-radius:10px;"></div>'
+        + '<div class="skeleton" style="height:210px; border-radius:10px; margin-top:14px;"></div>';
+    return;
+  }
+  var h = pv.home;
+  var p = aiProgress(h);
+  var an = h.analysis || {};
+  var seqSaved = Number(localStorage.getItem('quiz_seq_' + pv.bankId)) || 0;
+  var seqText = !h.questionCount ? '暂无题目'
+    : seqSaved ? '刷到 ' + Math.min(seqSaved + 1, h.questionCount) + '/' + h.questionCount + ' · 断点续刷'
+      : '共 ' + h.questionCount + ' 题 · 未开始';
+  var anReady = (an.pending || 0) === 0 && (an.done || 0) > 0;
+  var entries = [
+    { m: 'seq', icon: 'view-list', t: '顺序练习', d: seqText },
+    { m: 'rand', icon: 'swap', t: '随机练习', d: h.questionCount ? '随机打乱 · 每次新题序' : '暂无题目' },
+    { m: 'wrong', icon: 'close-circle', t: '我的错题', cnt: h.wrongCount, cntCls: 'tag-red', d: '答错自动收录 · 连对 3 次移出' },
+    { m: 'fav', icon: 'star', t: '我的收藏', cnt: h.favCount, cntCls: 'tag-orange', d: '刷题时点星标收藏题目' }
+  ];
+  box.innerHTML = '<div class="mg-head"><div class="tx"><b>' + esc(h.name) + ' ' + scopeTag(h)
+    + (anReady ? ' <span class="badge-outline">AI 解析</span>' : '') + '</b><p>' + esc(h.description || '') + '</p></div></div>'
+    + '<div class="bh-stats">'
+    + '<div class="cell"><b>' + h.questionCount + '</b><span>题目总数</span></div>'
+    + '<div class="cell"><b><em>' + h.answeredCount + '</em></b><span>已练题数</span></div>'
+    + '<div class="cell"><b>' + (h.rightRate === null || h.rightRate === undefined ? '—' : h.rightRate + '%') + '</b><span>正确率</span></div>'
+    + '<div class="cell"><b>' + h.wrongCount + '</b><span>错题待攻克</span></div>'
+    + '</div>'
+    + '<div class="bh-grid">' + entries.map(function (e) {
+      return '<div class="bh-entry" data-m="' + e.m + '"><div class="ib">' + Shade.icon(e.icon, 20) + '</div>'
+        + '<div class="tx"><b>' + e.t + (e.cnt ? ' <span class="tag ' + e.cntCls + '">' + e.cnt + '</span>' : '') + '</b><p>' + e.d + '</p></div>'
+        + Shade.icon('chevron-right', 16) + '</div>';
+    }).join('') + '</div>'
+    + (p.pending ? '<div class="ai-notice">' + Shade.icon('lightbulb', 15)
+      + '<span class="txt">AI 解析进行中，期间可正常刷题</span>'
+      + '<div class="progress"><i style="width:' + (p.y ? Math.round(p.x / p.y * 100) : 0) + '%"></i></div><b>' + p.x + ' / ' + p.y + '</b></div>' : '');
+}
+
+/* ---------- 刷题：大纲 + 分批取题（与小程序 practice 页同口径） ---------- */
+async function pvFetchOutline() {
+  var url = API + '/practice/questions?mode=' + pv.mode + '&lite=1&bankId=' + pv.bankId;
+  if (pv.mode === 'seq' || pv.mode === 'rand') url += '&withRecord=1'; // 恢复历史作答对错
+  var r = await Shade.api(url);
+  pv.outline = (r.data && r.data.list) || [];
+  pv.myRight = {};
+  pv.outline.forEach(function (o) { if (o.myRight !== undefined) pv.myRight[o.id] = o.myRight; });
+}
+async function pvEnsureBatch(idx, silent) {
+  var start = Math.floor(idx / P_LIMIT) * P_LIMIT;
+  if (pv.cache[start]) return;
+  /* 有进行中的请求先等它落定（跳题与预拉可能撞批），再复查缓存 */
+  if (pv.inflight) {
+    await pv.inflight.catch(function () {});
+    if (pv.cache[start]) return;
+  }
+  var url = API + '/practice/questions?mode=' + pv.mode + '&offset=' + start + '&limit=' + P_LIMIT + '&bankId=' + pv.bankId;
+  if (pv.viewMode === 'recite') url += '&withAnswer=1';
+  else if (pv.mode === 'seq' || pv.mode === 'rand') url += '&withRecord=1';
+  pv.inflight = Shade.api(url);
+  try {
+    var r = await pv.inflight;
+    var raw = (r.data && r.data.list) || [];
+    var map = {};
+    raw.forEach(function (q) { map[q.id] = q; });
+    /* 按大纲区间 id 对齐重排（对不上则按响应原序兜底） */
+    var seg = pv.outline.slice(start, start + P_LIMIT).map(function (o) { return map[o.id]; }).filter(Boolean);
+    pv.cache[start] = seg.length ? seg : raw;
+    pv.cache[start].forEach(function (q) {
+      pv.favs[q.id] = q.fav ? 1 : 0;
+      /* 历史作答恢复为解析态（本 session 已答过的保留——其结果带作答统计与错题本动态） */
+      if (q.myAnswer && !pv.results[q.id]) {
+        pv.results[q.id] = {
+          selected: String(q.myAnswer).split(''),
+          right: !!q.myRight,
+          answer: q.answer || '',
+          analysis: q.analysis || '',
+          wrong: { inBook: false, rightStreak: 0, removed: false },
+          stats: null
+        };
+      }
+    });
+  } finally {
+    pv.inflight = null;
+  }
+}
+function pvGetQ(idx) {
+  var start = Math.floor(idx / P_LIMIT) * P_LIMIT;
+  return (pv.cache[start] || [])[idx - start] || null;
+}
+
+/* ---------- 刷题：进入 / 渲染 / 切题 ---------- */
+async function pvStart(mode) {
+  if (!pv.bankId) return;
+  pvClearSession();
+  pv.mode = mode;
+  try {
+    await pvFetchOutline();
+    if (!pv.outline.length) { pvShowEmpty(mode); return; }
+    /* seq 断点恢复（大纲下标；题库缩水越界则兜底到末尾题） */
+    if (mode === 'seq') {
+      var saved = Number(localStorage.getItem('quiz_seq_' + pv.bankId)) || 0;
+      pv.idx = Math.min(Math.max(saved, 0), pv.outline.length - 1);
+    }
+    await pvEnsureBatch(pv.idx, true);
+    if (!pvGetQ(pv.idx)) { Shade.toast('题目加载失败，请重试', 'error'); return; }
+    pv.started = true;
+    $('#paneBankHome').hidden = true;
+    $('#panePractice').hidden = false;
+    pvRender();
+  } catch (e) { Shade.toast(e.message, 'error'); }
+}
+function pvShowEmpty(mode) {
+  pv.started = true;
+  $('#paneBankHome').hidden = true;
+  var pane = $('#panePractice');
+  pane.hidden = false;
+  var t = mode === 'wrong' ? '暂无错题，继续保持' : mode === 'fav' ? '暂无收藏题目，刷题时点星标收藏' : '该题库暂无题目';
+  pane.innerHTML = '<div class="empty" style="margin:auto">' + Shade.icon('check-circle', 44, '#2BA471')
+    + '<p>' + t + '</p><button class="btn btn-sm" id="pvBack2">返回题库主页</button></div>';
+}
+function pvResultHtml(res, q) {
+  var order = pv.shuffle[q.id];
+  var answerText = res.answer || '';
+  if (order && answerText) {
+    answerText = answerText.split('').map(function (ol) {
+      var di = order.indexOf(LETTERS.indexOf(ol));
+      return di >= 0 ? LETTERS[di] : ol;
+    }).sort().join('');
+  }
+  var yourText = (res.selected || []).slice().sort().join('');
+  if (q.type === 'judge') {
+    var jm = { A: '正确', B: '错误' };
+    answerText = jm[answerText] || answerText;
+    yourText = jm[yourText] || yourText;
+  }
+  var banner = '';
+  var w = res.wrong || {};
+  if (res.right) {
+    if (w.removed) banner = '已移出错题本';
+    else if (w.inBook && w.rightStreak > 0) banner = '再答对 ' + Math.max(3 - w.rightStreak, 0) + ' 次移出错题本';
+  } else if (w.inBook !== false) banner = '已自动加入错题本';
+  var st = res.stats || {};
+  return '<div class="r-line"><div class="r-main"><span>正确答案<b class="ok">' + esc(answerText) + '</b></span>'
+    + (yourText ? '<span>您的选择<b class="' + (res.right ? 'ok' : 'bad') + '">' + esc(yourText) + '</b></span>' : '') + '</div>'
+    + (st.myTimes ? '<div class="r-sub">本人作答 ' + st.myTimes + ' 次 · 正确率 ' + st.myRightRate + '%</div>' : '')
+    + (st.allTimes ? '<div class="r-sub">全员作答 ' + st.allTimes + ' 次 · 正确率 ' + st.allRightRate + '%</div>' : '')
+    + (banner ? '<div class="r-sub orange">' + banner + '</div>' : '') + '</div>';
+}
+function pvAnalysisHtml(text) {
+  return '<div class="pv-ana"><div class="hd">' + Shade.icon('lightbulb', 15) + '试题详解</div>'
+    + '<div class="bd">' + (text ? esc(text) : '解析生成中，稍后可查看') + '</div>'
+    + (text ? '<div class="ft">解析内容仅供参考</div>' : '') + '</div>';
+}
+function pvRender() {
+  var pane = $('#panePractice');
+  var total = pv.outline.length;
+  var q = pvGetQ(pv.idx);
+  if (!total || !q) {
+    pane.innerHTML = '<div class="loading" style="margin:auto"><span class="spin"></span>题目加载中…</div>';
+    return;
+  }
+  var bankName = '';
+  (pv.banks || []).forEach(function (b) { if (b.id === pv.bankId) bankName = b.name; });
+  var recite = pv.viewMode === 'recite';
+  var res = pv.results[q.id];
+  var type = q.type || 'single';
+  var submitted = recite || !!res;
+  var pct = total ? Math.min(100, Math.round(((pv.idx + 1) / total) * 100)) : 0;
+  /* 选项乱序映射（展示位 i → 原选项下标）：仅答题模式、单/多选、开启设置且未答时新建；已答题保留 */
+  var order = null;
+  if (!recite && type !== 'judge') {
+    if (pv.shuffle[q.id]) order = pv.shuffle[q.id];
+    else if (pv.settings.shuffleOpt && !res) order = pv.shuffle[q.id] = pvShuffleIdx((q.options || []).length);
+  }
+  var checkSvg = Shade.icon('check', 13, '#fff');
+  var closeSvg = Shade.icon('close', 13, '#fff');
+  var optsHtml = (q.options || []).map(function (_, i) {
+    var origIdx = order ? order[i] : i;
+    var letter = LETTERS[i] || String(i + 1);
+    var origLetter = LETTERS[origIdx] || letter;
+    var text = q.options[origIdx];
+    var cls = '', inner = letter;
+    if (recite) {
+      /* 背题：直接标出正确答案，其余普通 */
+      if ((q.answer || '').indexOf(origLetter) >= 0) { cls = 'right'; inner = checkSvg; }
+    } else if (!res) {
+      if (pv.sel.indexOf(letter) >= 0) cls = 'sel';
+    } else {
+      /* 解析态：正确项统一绿勾，错选项红叉，其余普通 */
+      var inAns = (res.answer || '').indexOf(origLetter) >= 0;
+      var inSel = (res.selected || []).indexOf(letter) >= 0;
+      if (inAns) { cls = 'right'; inner = checkSvg; }
+      else if (inSel) { cls = 'wrong'; inner = closeSvg; }
+    }
+    return '<div class="pv-opt' + (type === 'multiple' ? ' sq' : '') + (cls ? ' ' + cls : '') + (submitted ? ' lock' : '')
+      + '" data-l="' + letter + '"><span class="ab">' + inner + '</span><span class="tx">' + esc(text) + '</span></div>';
+  }).join('');
+
+  var mid = '';
+  if (!recite && res) mid += pvResultHtml(res, q);
+  if (submitted) mid += pvAnalysisHtml(recite ? (q.analysis || '') : ((res && res.analysis) || ''));
+
+  var counts = pvCounts();
+  var footMain = '';
+  if (!recite && !submitted && type === 'multiple') {
+    footMain = '<button class="btn btn-sm btn-primary" id="pvSubmit"' + (pv.sel.length ? '' : ' disabled') + '>提交答案</button>';
+  } else if (submitted) {
+    footMain = '<button class="btn btn-sm btn-primary" id="pvNext">' + (pv.idx >= total - 1 ? '完成' : '下一题') + '</button>';
+  } else {
+    footMain = '<span class="pv-hint">点选即判分 · ← → 方向键切题</span>';
+  }
+
+  pane.innerHTML = '<div class="pv-top">'
+    + '<span class="pv-back" id="pvBack">' + Shade.icon('chevron-left', 15) + '题库主页</span>'
+    + '<b class="pv-title">' + esc(bankName) + ' · ' + pvModeText(pv.mode) + '</b>'
+    + '<span class="pv-vm" id="pvVm"><i data-v="answer" class="' + (recite ? '' : 'on') + '">答题</i><i data-v="recite" class="' + (recite ? 'on' : '') + '">背题</i></span>'
+    + '<div class="pv-pg"><div class="progress"><i style="width:' + pct + '%"></i></div><b>' + (pv.idx + 1) + ' / ' + total + '</b></div>'
+    + '</div>'
+    + '<div class="pv-col" id="pvCol"><div class="pv-col-in">'
+    + '<div class="card pv-stem"><span class="tag ' + (type === 'judge' ? 'tag-navy' : 'tag-orange') + '">' + pvTypeText(type) + '</span>' + esc(q.content || '') + '</div>'
+    + optsHtml + mid
+    + '</div></div>'
+    + '<div class="pv-foot">'
+    + '<button class="pv-chipbtn' + (pv.favs[q.id] ? ' faved' : '') + '" id="pvFav">' + Shade.icon('star', 13) + '收藏</button>'
+    + '<span class="pv-chipbtn">' + Shade.icon('check', 12, '#2BA471') + counts.right + Shade.icon('close', 12, '#CF4444') + counts.wrong + '</span>'
+    + '<button class="pv-chipbtn" id="pvSheet">' + Shade.icon('view-module', 13) + '答题卡 ' + counts.answered + '/' + total + '</button>'
+    + '<button class="pv-chipbtn" id="pvSet">' + Shade.icon('setting', 13) + '设置</button>'
+    + '<span class="sp">' + footMain + '</span>'
+    + '</div>';
+  var col = $('#pvCol');
+  if (col) col.scrollTop = 0;
+}
+async function pvGo(idx) {
+  if (idx < 0 || idx >= pv.outline.length) return;
+  if (pv.autoTimer) { clearTimeout(pv.autoTimer); pv.autoTimer = 0; }
+  try {
+    await pvEnsureBatch(idx, false);
+  } catch (e) { Shade.toast(e.message, 'error'); return; }
+  if (!pvGetQ(idx)) { Shade.toast('题目加载失败，请重试', 'error'); return; }
+  pv.idx = idx;
+  pv.sel = [];
+  /* seq 断点保存（大纲下标，0 起） */
+  if (pv.mode === 'seq') localStorage.setItem('quiz_seq_' + pv.bankId, String(pv.idx));
+  pvRender();
+}
+
+/* ---------- 刷题：作答 / 收藏 / 模式切换 ---------- */
+function pvOnOpt(letter) {
+  if (pv.viewMode === 'recite' || pv.submitting) return;
+  var q = pvGetQ(pv.idx);
+  if (!q || pv.results[q.id]) return;
+  if (q.type === 'multiple') {
+    /* 多选：勾选切换，底部「提交答案」判分 */
+    var i = pv.sel.indexOf(letter);
+    pv.sel = i >= 0 ? pv.sel.filter(function (l) { return l !== letter; }) : pv.sel.concat(letter);
+    pvRender();
+    return;
+  }
+  /* 单选/判断：点选即判分（短暂延时先呈现选中态再出结果） */
+  pv.sel = [letter];
+  pvRender();
+  pv.submitting = true;
+  setTimeout(function () {
+    pvSubmit().finally(function () { pv.submitting = false; });
+  }, 150);
+}
+async function pvSubmit() {
+  var q = pvGetQ(pv.idx);
+  if (!q || pv.results[q.id] || pv.viewMode === 'recite') return;
+  /* 多选答案按字母序拼接（如 AC）；乱序题把展示字母映射回原始字母再提交 */
+  var order = pv.shuffle[q.id];
+  var answer = pv.sel.map(function (l) { return order ? LETTERS[order[LETTERS.indexOf(l)]] : l; }).sort().join('');
+  if (!answer) return;
+  try {
+    var r = await Shade.api(API + '/practice/answer', { method: 'POST', body: { questionId: q.id, answer: answer } });
+    var d = r.data || {};
+    pv.results[q.id] = {
+      selected: pv.sel.slice(),
+      right: !!d.right,
+      answer: d.answer || '',
+      analysis: d.analysis || '',
+      wrong: d.wrong || {},
+      stats: d.stats || null
+    };
+    pv.myRight[q.id] = d.right ? 1 : 0; // 计数与答题卡着色数据源同步
+    pv.sel = [];
+    pvRender();
+    if (d.wrong && d.wrong.removed) Shade.toast('已移出错题本', 'success');
+    /* 答对自动下一题（设置开启；答错停留看解析；末尾题不自动） */
+    if (pv.settings.autoNext && d.right && pv.idx < pv.outline.length - 1) {
+      var qid = q.id;
+      pv.autoTimer = setTimeout(function () {
+        pv.autoTimer = 0;
+        var cur = pvGetQ(pv.idx);
+        if (cur && cur.id === qid) pvGo(pv.idx + 1); // 期间已手动切题则不自动
+      }, 500);
+    }
+  } catch (e) { Shade.toast(e.message, 'error'); }
+}
+async function pvToggleFav() {
+  if (pv.favBusy) return;
+  var q = pvGetQ(pv.idx);
+  if (!q) return;
+  pv.favBusy = true;
+  var was = pv.favs[q.id] ? 1 : 0;
+  pv.favs[q.id] = was ? 0 : 1; // 先本地后请求，失败回滚
+  pvRender();
+  try {
+    await Shade.api(API + '/favorites/' + q.id, { method: was ? 'DELETE' : 'POST' });
+    Shade.toast(was ? '已取消收藏' : '已收藏', 'success');
+  } catch (e) {
+    pv.favs[q.id] = was;
+    pvRender();
+    Shade.toast(e.message, 'error');
+  } finally { pv.favBusy = false; }
+}
+/* 答题 / 背题切换：两模式出参不同（背题带答案），批次缓存整体作废后按新模式重拉 */
+async function pvSwitchView(v) {
+  if (v === pv.viewMode) return;
+  var old = pv.viewMode;
+  var oldCache = pv.cache;
+  pv.cache = {};
+  pv.viewMode = v;
+  try {
+    await pvEnsureBatch(pv.idx, false);
+  } catch (e) {
+    pv.viewMode = old; pv.cache = oldCache;
+    Shade.toast(e.message, 'error');
+    return;
+  }
+  pv.sel = [];
+  pvRender();
+}
+
+/* ---------- 刷题：答题卡弹层 / 清空做题记录 / 设置 ---------- */
+function pvOpenSheet() {
+  var recite = pv.viewMode === 'recite';
+  var counts = pvCounts();
+  var secs = [];
+  ['single', 'multiple', 'judge'].forEach(function (t) {
+    var items = [];
+    pv.outline.forEach(function (o, i) {
+      if ((o.type || 'single') !== t) return;
+      var st = '';
+      if (!recite) {
+        var my = pv.myRight[o.id]; // 含历史恢复（seq/rand）与本 session 作答
+        if (my !== undefined) st = my ? 'ok' : 'bad';
+      }
+      items.push('<div class="pv-chip' + (st ? ' ' + st : '') + (i === pv.idx ? ' cur' : '') + '" data-i="' + i + '">' + (i + 1) + '</div>');
+    });
+    if (items.length) {
+      secs.push('<div class="f-label" style="margin:14px 0 8px;">' + pvTypeText(t) + '<span style="color:var(--ph); font-weight:600;">（' + items.length + ' 题）</span></div>'
+        + '<div class="pv-sheet-grid">' + items.join('') + '</div>');
+    }
+  });
+  var canReset = !recite && counts.answered > 0;
+  var html = Shade.mHead('答题卡（已答 ' + counts.answered + '/' + pv.outline.length + '）')
+    + '<div class="pv-legend"><span><i></i>未作答</span><span><i class="g"></i>答对</span><span><i class="r"></i>答错</span></div>'
+    + secs.join('')
+    + '<div class="pv-clear' + (canReset ? '' : ' disabled') + '" data-a="reset">清空做题记录（错题本保留）</div>';
+  var inst = Shade.modal(html, { width: 680 });
+  $$('.pv-chip', inst.box).forEach(function (c) {
+    c.addEventListener('click', function () {
+      var i = Number(c.dataset.i);
+      inst.close();
+      if (i !== pv.idx) pvGo(i);
+    });
+  });
+  $('[data-a="reset"]', inst.box).addEventListener('click', function () {
+    if (!canReset) return;
+    inst.close();
+    pvResetRecords();
+  });
+}
+async function pvResetRecords() {
+  var yes = await confirmAction({
+    title: '清空做题记录？',
+    content: '仅清空本题库的练习记录与进度，错题本保留。',
+    confirmText: '确认清空', danger: true
+  });
+  if (!yes) return;
+  try {
+    await Shade.api(API + '/practice/reset', { method: 'POST', body: { bankId: pv.bankId } });
+  } catch (e) { Shade.toast(e.message, 'error'); return; }
+  /* 清空本地断点与已答状态（rand 大纲一并换新的随机序） */
+  pv.cache = {}; pv.results = {}; pv.favs = {}; pv.shuffle = {}; pv.sel = [];
+  pv.idx = 0;
+  if (pv.mode === 'seq') localStorage.removeItem('quiz_seq_' + pv.bankId);
+  try {
+    await pvFetchOutline();
+    if (!pv.outline.length) { pvShowEmpty(pv.mode); return; }
+    await pvEnsureBatch(pv.idx, true);
+    pvRender();
+  } catch (e) { Shade.toast(e.message, 'error'); return; }
+  Shade.toast('已清空做题记录', 'success');
+}
+function pvOpenSettings() {
+  function row(key, title, desc) {
+    return '<div class="pv-set-row"><div class="tx"><b>' + title + '</b><p>' + desc + '</p></div>'
+      + '<span class="pv-sw' + (pv.settings[key] ? ' on' : '') + '" data-k="' + key + '"><i class="dot"></i></span></div>';
+  }
+  var html = Shade.mHead('刷题设置')
+    + row('autoNext', '答对自动下一题', '答错停留看解析，末尾题不自动')
+    + row('shuffleOpt', '选项乱序', '仅答题模式单选/多选未答题生效，已答题保留作答时显示');
+  var inst = Shade.modal(html, { width: 440 });
+  $$('.pv-sw', inst.box).forEach(function (sw) {
+    sw.addEventListener('click', function () {
+      var k = sw.dataset.k;
+      pv.settings[k] = !pv.settings[k];
+      sw.classList.toggle('on', pv.settings[k]);
+      pvSaveSettings();
+      /* 选项乱序关闭：清掉未答题的乱序映射（已答题保留，保证与其作答记录一致） */
+      if (k === 'shuffleOpt' && !pv.settings[k]) {
+        Object.keys(pv.shuffle).forEach(function (qid) {
+          if (!pv.results[qid]) delete pv.shuffle[qid];
+        });
+        pv.sel = [];
+      }
+      if (pv.started && pv.outline.length && !$('#panePractice').hidden) pvRender();
+    });
+  });
+}
+
+/* ---------- 刷题：返回主页 / 选题库 / 题库池 ---------- */
+function pvExit() {
+  pv.started = false;
+  if (pv.autoTimer) { clearTimeout(pv.autoTimer); pv.autoTimer = 0; }
+  $('#panePractice').hidden = true;
+  $('#paneBankHome').hidden = false;
+  pvLoadBanks(true); // 进度已变，静默刷新左卡与主页
+  pvLoadHome(true);
+}
+async function pvSelectBank(id) {
+  var needExit = pv.started;
+  pv.bankId = id;
+  if (needExit) pvExit(); /* pvExit 会以新选中库静默刷新主页 */
+  else pvLoadHome();
+  pvRenderSide();
+}
+/* 题库池弹层：可见题库（全部池 + 生效班组池），添加 / 移出我的题库 */
+async function pvOpenPool() {
+  var r;
+  try { r = await Shade.api(qz(API + '/banks/pool')); }
+  catch (e) { Shade.toast(e.message, 'error'); return; }
+  var list = (r.data && r.data.list) || [];
+  var mine = {};
+  (pv.banks || []).forEach(function (b) { mine[b.id] = 1; });
+  var body = list.length ? list.map(function (b) {
+    var added = mine[b.id] ? 1 : 0;
+    return '<div class="imp-err" style="align-items:center; padding:11px 2px;"><div style="flex:1; min-width:0;">'
+      + '<b style="font-size:13px; color:var(--navy); display:flex; align-items:center; gap:6px;">' + esc(b.name) + ' ' + scopeTag(b) + '</b>'
+      + '<p style="font-size:11px; color:var(--sub); margin-top:2px;">' + b.questionCount + ' 题' + (b.description ? ' · ' + esc(b.description) : '') + '</p></div>'
+      + '<button class="btn btn-sm ' + (added ? '' : 'btn-accent') + '" data-id="' + b.id + '" data-added="' + added + '">' + (added ? '移出' : '添加') + '</button></div>';
+  }).join('') : '<div class="empty">' + Shade.icon('book', 40) + '<p>暂无可添加的题库</p></div>';
+  var inst = Shade.modal(Shade.mHead('题库池')
+    + '<div class="imp-err-tip">从班组池 / 全部池把题库添加进「我的题库」，移出保留练习记录与错题</div>' + body, { width: 520 });
+  $$('button[data-id]', inst.box).forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var id = Number(btn.dataset.id);
+      btn.disabled = true;
+      try {
+        await Shade.api(qz(API + '/banks/' + id + '/join'), { method: btn.dataset.added === '1' ? 'DELETE' : 'POST' });
+        await pvLoadBanks(true);
+        btn.dataset.added = btn.dataset.added === '1' ? '0' : '1';
+        btn.textContent = btn.dataset.added === '1' ? '移出' : '添加';
+        btn.className = 'btn btn-sm ' + (btn.dataset.added === '1' ? '' : 'btn-accent');
+        btn.disabled = false;
+      } catch (e) {
+        btn.disabled = false;
+        Shade.toast(e.message, 'error');
+      }
+    });
+  });
+}
+
+/* ---------- 刷题练习：事件绑定 ---------- */
+function bindPracticeEvents() {
+  /* 左卡：选题库 */
+  $('#pvSideScroll').addEventListener('click', function (e) {
+    var item = e.target.closest('.side-item[data-id]');
+    if (!item) return;
+    var id = Number(item.dataset.id);
+    if (id !== pv.bankId) pvSelectBank(id);
+  });
+  $('#btnPool').addEventListener('click', pvOpenPool);
+  /* 题库主页：四入口（0 题入口给提示，对齐小程序） */
+  $('#paneBankHome').addEventListener('click', function (e) {
+    var en = e.target.closest('.bh-entry[data-m]');
+    if (!en) return;
+    var m = en.dataset.m;
+    var h = pv.home || {};
+    if (m === 'seq' || m === 'rand') {
+      if (!h.questionCount) { Shade.toast('该题库暂无题目', 'info'); return; }
+      pvStart(m);
+    } else if (m === 'wrong') {
+      if (!h.wrongCount) { Shade.toast('暂无错题，继续保持', 'info'); return; }
+      pvStart('wrong');
+    } else if (m === 'fav') {
+      if (!h.favCount) { Shade.toast('暂无收藏，刷题时点星标收藏题目', 'info'); return; }
+      pvStart('fav');
+    }
+  });
+  /* 刷题页：整 pane 每次重渲染，统一委托 */
+  $('#panePractice').addEventListener('click', function (e) {
+    if (e.target.closest('#pvBack') || e.target.closest('#pvBack2')) { pvExit(); return; }
+    var vm = e.target.closest('#pvVm i');
+    if (vm) { pvSwitchView(vm.dataset.v); return; }
+    if (e.target.closest('#pvFav')) { pvToggleFav(); return; }
+    if (e.target.closest('#pvSheet')) { pvOpenSheet(); return; }
+    if (e.target.closest('#pvSet')) { pvOpenSettings(); return; }
+    if (e.target.closest('#pvSubmit')) { pvSubmit(); return; }
+    if (e.target.closest('#pvNext')) {
+      if (pv.idx >= pv.outline.length - 1) pvExit();
+      else pvGo(pv.idx + 1);
+      return;
+    }
+    var opt = e.target.closest('.pv-opt');
+    if (opt && !opt.classList.contains('lock')) pvOnOpt(opt.dataset.l);
+  });
+  /* 键盘：← → 切题（非刷题页签 / 弹层打开 / 输入焦点时不劫持） */
+  document.addEventListener('keydown', function (e) {
+    if (!pv.started || $('#wrapPractice').hidden || $('#panePractice').hidden) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    var t = e.target && e.target.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
+    if (document.querySelector('.mask.open')) return;
+    if (e.key === 'ArrowLeft') pvGo(pv.idx - 1);
+    else pvGo(pv.idx + 1);
+  });
+}
+
+/* ================= 页签切换（刷题练习 / 题库管理） ================= */
+var mgBooted = false;
+function moveTabInd() {
+  var on = $('#qzTabs button.on');
+  var ind = $('#qzTabInd');
+  if (!on) { ind.style.width = '0'; return; }
+  ind.style.left = on.offsetLeft + 'px';
+  ind.style.width = on.offsetWidth + 'px';
+}
+function switchTab(p) {
+  $$('#qzTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === p); });
+  $('#wrapPractice').hidden = p !== 'practice';
+  $('#wrapManage').hidden = p !== 'manage';
+  moveTabInd();
+  /* 管理数据首次切入才加载（普通用户无此页签） */
+  if (p === 'manage' && !mgBooted) { mgBooted = true; boot(); }
+}
+
 /* ================= 初始化 ================= */
 (function init() {
   /* 静态图标注入 */
   $('#btnNewBank').innerHTML = Shade.icon('add', 15);
   $('#btnQuickImport').innerHTML = Shade.icon('upload', 15);
+  $('#btnPool').innerHTML = Shade.icon('compass', 15);
   $('#mgSearch').insertAdjacentHTML('afterbegin', Shade.icon('search', 15));
-  /* 非管理角色：隐藏左右双卡，整页提示「网页端仅提供题库管理」（刷题练习引导小程序端） */
-  if (!state.isManager) {
-    $('#qzWrap').hidden = true;
-    var deny = $('#denyCard');
-    deny.hidden = false;
-    deny.innerHTML = '<div class="empty">' + Shade.icon('book', 44)
-      + '<p>网页端仅提供题库管理</p>'
-      + '<p style="font-size:11px">刷题练习请使用微信小程序端</p></div>';
-    return;
-  }
+  /* 页签：题库管理仅管理角色可见；点击切换（文字 + 橙色滑动指示条） */
+  if (state.isManager) $('#tabManage').hidden = false;
+  $('#qzTabs').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-p]');
+    if (!b || b.hidden) return;
+    switchTab(b.dataset.p);
+  });
+  pvLoadSettings();
+  bindPracticeEvents();
   bindEvents();
-  /* 超管班组切换器：数据源 GET /admin/teams（仅启用班组），localStorage.quiz_team_id 持久化，切换后整页数据重载；
-     与 boot() 并行装配（沿用原有时序），接口回来后写入生效班组 */
-  Shade.setupTeamSel({
-    select: $('#teamSel'), dropdown: teamDd, storageKey: 'quiz_team_id',
-    showEl: $('#sideTeam'),
-    onChange: function (v) { state.teamId = v; reloadTeamData(); }
-  }).then(function (ts) { if (ts) state.teamId = ts.getTeamId(); });
-  boot();
+  pvLoadBanks();
+  /* 超管班组切换器：数据源 GET /admin/teams（仅启用班组），localStorage.quiz_team_id 持久化，切换后管理数据重载；
+     题库池弹层请求随生效班组（qz()），练习数据为个人口径不受影响 */
+  if (state.role === 'admin') {
+    Shade.setupTeamSel({
+      select: $('#teamSel'), dropdown: teamDd, storageKey: 'quiz_team_id',
+      showEl: $('#sideTeam'),
+      onChange: function (v) { state.teamId = v; reloadTeamData(); }
+    }).then(function (ts) { if (ts) state.teamId = ts.getTeamId(); });
+  }
+  requestAnimationFrame(moveTabInd);
+  window.addEventListener('resize', moveTabInd);
 })();
 })();
 </script>
