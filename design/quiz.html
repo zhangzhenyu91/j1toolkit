@@ -12,7 +12,11 @@
   V2 调整（双池 + 个人题库）：题库分班组池/全部池两级（超管/班组长传班组池，仅超管可传全部池），用户从题库池自行添加进「我的题库」（移出保留练习记录）；
   错题本按题库分组、组头「练这组」分库突破；网页端管理视图补「返回刷题」出口（修复进管理后无法返回的缺陷）。
   V3 调整（背题 + 答题卡 + 端分工）：新增背题模式（答案与 AI 解析常显、不判分不写记录）与答题卡弹层（按题型分区块、对绿错红、点击跳题、底部清空做题记录但保留错题本）；
-  题库池改为小程序二级页（首页入口卡跳入，板块不再占首页）；端分工定稿——小程序端不做上传题库（管理页仅建库/编辑/删除/解析管理），网页端仅保留题库管理（不做刷题）。
+  题库池改为小程序二级页（首页入口卡跳入，板块不再占首页）；端分工——小程序端不做上传题库（管理页仅建库/编辑/删除/解析管理）。
+  V4 调整（网页端刷题）：网页端补刷题练习，刷题 / 题库管理以页签切换（参考出工日志 wl-tabs：文字 + 橙色滑动指示条，「题库管理」页签仅 admin/team_admin 可见）；
+  刷题练习页签 = 左卡我的题库（个人口径进度）+ 右卡题库主页（统计行 + 顺序/随机/错题/收藏四入口，对齐小程序 bank 页）；刷题页接管整内容区
+  （顶行返回 + 答题/背题切换 + 进度，底栏收藏/对错计数/答题卡/设置 + 主按钮，支持 ← → 方向键切题，断点续刷与做题记录恢复同小程序）；
+  答题卡为居中弹层（题型分区块 chips + 图例 + 底部清空做题记录）；题库管理视图维持双卡不变，仅顶部补页签。
 -->
 <html lang="zh-CN">
 <head>
@@ -299,6 +303,73 @@
   .pager span { width:28px; height:28px; border-radius:6px; border:1px solid var(--hair); background:#fff;
                 display:flex; align-items:center; justify-content:center; font-size:11.5px; color:var(--sub); }
   .pager span.on { background:var(--orange); border-color:var(--orange); color:#fff; font-weight:700; }
+
+  /* ===== 网页端 V4：刷题练习 + 题库管理页签 ===== */
+  .web-main.col { flex-direction:column; gap:0; }
+  .qz-head { flex:none; display:flex; align-items:center; gap:10px; }
+  .qz-head .tt { display:flex; align-items:center; gap:8px; }
+  .qz-head .tt::before { content:""; width:4px; height:15px; border-radius:2px; background:var(--orange); }
+  .qz-head .tt h3 { font-size:15.5px; font-weight:800; letter-spacing:1px; }
+  .qz-head .tt span { font-size:11.5px; color:var(--ph); letter-spacing:1px; }
+  .qz-head .teamsel { margin-left:auto; height:32px; padding:0 10px; border:1px solid var(--hair); border-radius:8px;
+                      background:#fff; font-size:12px; color:var(--sub); display:flex; align-items:center; gap:6px; }
+  /* 页签：与出工日志 wl-tabs 同族（文字 + 橙色滑动指示条；「题库管理」仅 admin/team_admin 可见） */
+  .qz-tabs { position:relative; flex:none; display:flex; gap:4px; margin-top:12px; border-bottom:1px solid var(--hair); }
+  .qz-tabs span { padding:10px 18px; font-size:13.5px; font-weight:600; color:var(--sub); letter-spacing:1.5px;
+                  display:inline-flex; align-items:center; gap:7px; }
+  .qz-tabs span svg { width:14px; height:14px; }
+  .qz-tabs span.on { color:var(--orange); font-weight:700; }
+  .qz-tabs .ind { position:absolute; bottom:-1px; height:3px; border-radius:2px; background:var(--orange); }
+  .qz-body { flex:1; min-height:0; margin-top:16px; display:flex; gap:22px; }
+  /* 刷题练习 · 左卡我的题库（个人口径 + 进度条） */
+  .side-item .pg { margin-top:7px; display:flex; align-items:center; gap:8px; }
+  .side-item .pg .progress { flex:1; height:5px; }
+  .side-item .pg > span { font-size:10px; color:var(--ph); white-space:nowrap; }
+  /* 刷题练习 · 右卡题库主页（统计行 + 顺序/随机/错题/收藏四入口，对齐小程序 bank 页） */
+  .bh-stats { margin-top:16px; display:flex; padding:15px 0; border:1px solid var(--hair2); border-radius:10px; }
+  .bh-stats .cell { flex:1; text-align:center; position:relative; }
+  .bh-stats .cell + .cell::before { content:""; position:absolute; left:0; top:6px; bottom:6px; width:1px; background:var(--hair2); }
+  .bh-stats b { font-size:20px; font-weight:800; }
+  .bh-stats b em { font-style:normal; color:var(--orange); }
+  .bh-stats span { display:block; margin-top:4px; font-size:10.5px; color:var(--sub); letter-spacing:1px; }
+  .bh-grid { margin-top:16px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .bh-entry { border:1px solid var(--hair2); border-radius:10px; padding:13px 14px; display:flex; align-items:center; gap:11px; }
+  .bh-entry .tx { flex:1; min-width:0; }
+  .bh-entry .tx b { font-size:13.5px; font-weight:800; display:flex; align-items:center; gap:6px; }
+  .bh-entry .tx p { margin-top:3px; font-size:11px; color:var(--sub); }
+  .bh-entry > svg { flex:none; color:var(--ph); }
+  /* 刷题页（接管整内容区）：顶行 返回 + 答题/背题 + 进度 + x/total；题目列限宽居中 */
+  .pv { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .pv-top { flex:none; display:flex; align-items:center; gap:14px; }
+  .pv-back { display:flex; align-items:center; gap:4px; font-size:12.5px; font-weight:700; color:var(--navy); }
+  .pv-back svg { width:15px; height:15px; }
+  .pv-top .q-pg { flex:1; }
+  .pv-top .vm-switch { flex:none; }
+  .pv-col { flex:1; min-height:0; overflow-y:auto; }
+  .pv-col-in { max-width:840px; margin:0 auto; padding:18px 2px 6px; }
+  .pv-foot { flex:none; display:flex; align-items:center; gap:10px; padding-top:14px; border-top:1px solid var(--hair2); }
+  .pv-foot .sp { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .pv-hint { font-size:11px; color:var(--ph); letter-spacing:1px; }
+  /* 解析态（正确答案/您的选择 + 本人/全员统计 + 错题本动态），对齐小程序 V3 result-block */
+  .r-line { margin-top:14px; padding:12px 14px; background:#fff; border:1px solid var(--hair2); border-radius:10px; }
+  .r-main { display:flex; gap:22px; font-size:13px; font-weight:700; }
+  .r-main b { margin-left:6px; }
+  .r-main b.ok { color:var(--green); }
+  .r-main b.bad { color:var(--danger); }
+  .r-sub { margin-top:6px; font-size:11px; color:var(--sub); }
+  .r-sub.orange { color:var(--orange); font-weight:700; }
+  /* 答题卡弹层（web 居中弹层：题型分区块 + 图例 + 底部清空做题记录） */
+  .qz-mask { position:absolute; inset:0; z-index:40; background:rgba(34,49,78,.45);
+             display:flex; align-items:center; justify-content:center; }
+  .qz-modal { width:660px; max-width:92%; max-height:80%; background:var(--paper); border-radius:14px;
+              padding:18px 20px 14px; display:flex; flex-direction:column; overflow:hidden; }
+  .qz-modal .qsec-t { flex:none; }
+  .qz-modal .qgrid { grid-template-columns:repeat(10,1fr); gap:8px; }
+  .qz-modal .qchip { height:34px; font-size:12.5px; }
+  .sheet-legend { margin-top:10px; display:flex; gap:16px; font-size:11px; color:var(--sub); }
+  .sheet-legend i { display:inline-block; width:9px; height:9px; border-radius:3px; background:#EDE7D8; margin-right:5px; }
+  .sheet-legend i.g { background:var(--green); }
+  .sheet-legend i.r { background:var(--danger); }
 </style>
 </head>
 <body>
@@ -640,17 +711,17 @@
 
 </div>
 
-<!-- ==================== 网页端 ==================== -->
+<!-- ==================== 网页端（V4：刷题 + 题库管理页签） ==================== -->
 <div class="web-stage">
 
   <div class="web-unit">
-    <div class="cap" style="max-width:none; text-align:left;"><i>W1</i>网页端 · 题库管理（唯一视图 · 无刷题）
-      <small style="text-align:left;">网页端仅保留题库管理（刷题在小程序端）· 下载模板 / 导入 Excel / 重试失败解析 / 新增题目 · 表格三态：已解析 / 解析中 / 失败重试</small>
+    <div class="cap" style="max-width:none; text-align:left;"><i>W1</i>网页端 · 刷题练习页签 — 我的题库 + 题库主页
+      <small style="text-align:left;">页签参考出工日志（文字 + 橙色滑动指示条）：刷题练习 / 题库管理（仅管理角色可见后者）· 左卡我的题库（个人口径进度 + 题库池入口）· 右卡题库主页：统计行 + 顺序/随机/错题/收藏四入口（对齐小程序 bank 页）</small>
     </div>
     <div class="browser">
       <div class="browser-bar">
         <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
-        <div class="url"><svg class="ic" width="12" height="12" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>toolkit.j1net.com/quiz.html（仅题库管理）</div>
+        <div class="url"><svg class="ic" width="12" height="12" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>toolkit.j1net.com/quiz.html</div>
       </div>
       <div class="web-body">
         <div class="web-top">
@@ -658,45 +729,338 @@
           <div class="web-nav"><span>工作台</span><span class="on">题库刷题</span><span>出工日志</span><span>安全活动</span><span>Call Me</span></div>
           <div class="web-user"><i>张</i>张工 · 高级技师</div>
         </div>
-        <div class="web-main">
-          <div class="card side-card">
-            <div class="side-head"><b>题库管理</b></div>
-            <div class="side-item on">
-              <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--orange)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-              <div class="tx"><b>电力安全工作规程</b><span>206 题 · 解析完成</span></div>
+        <div class="web-main col">
+          <div class="qz-head">
+            <div class="tt"><h3>题库刷题</h3><span>刷题练习 · 错题攻克 · 题库管理</span></div>
+            <div class="teamsel">检修一班 <svg class="ic" width="12" height="12" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          </div>
+          <div class="qz-tabs">
+            <span class="on"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>刷题练习</span>
+            <span><svg class="ic" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>题库管理</span>
+            <i class="ind" style="left:0; width:118px;"></i>
+          </div>
+          <div class="qz-body">
+            <div class="card side-card">
+              <div class="side-head"><b>我的题库</b></div>
+              <div class="side-item on">
+                <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--orange)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <div class="tx"><b>电力安全工作规程</b><span><span class="tag tag-orange">全部池</span> 206 题 · 已练 128</span>
+                  <div class="pg"><div class="progress"><i style="width:62%"></i></div><span>128/206</span></div>
+                </div>
+              </div>
+              <div class="side-item">
+                <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--sub)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <div class="tx"><b>配电安规</b><span><span class="tag tag-navy">检修一班</span> 96 题 · 未开始</span></div>
+              </div>
+              <div class="side-item">
+                <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--sub)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <div class="tx"><b>输电线路检修规程</b><span><span class="tag tag-navy">检修一班</span> 158 题 · 已练 30</span>
+                  <div class="pg"><div class="progress"><i style="width:19%"></i></div><span>30/158</span></div>
+                </div>
+              </div>
+              <div class="side-item wrong">
+                <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--ph)"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                <div class="tx"><b>题库池</b><span>发现班组池 / 全部池题库</span></div>
+              </div>
             </div>
-            <div class="side-item">
-              <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--sub)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-              <div class="tx"><b>配电安规</b><span>96 题 · 解析中 84/96</span></div>
-            </div>
-            <div class="side-item">
-              <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--sub)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-              <div class="tx"><b>输电线路检修规程</b><span>158 题 · 3 题失败</span></div>
+            <div class="card main-card">
+              <div class="mg-head">
+                <div class="tx"><b>电力安全工作规程 <span class="badge-o">AI 解析</span> <span class="tag tag-orange">全部池</span></b><p>安规综合题库 · 单选 120 / 多选 46 / 判断 40</p></div>
+              </div>
+              <div class="bh-stats">
+                <div class="cell"><b>206</b><span>题目总数</span></div>
+                <div class="cell"><b><em>128</em></b><span>已练题数</span></div>
+                <div class="cell"><b>86<em>%</em></b><span>正确率</span></div>
+                <div class="cell"><b>5</b><span>错题待攻克</span></div>
+              </div>
+              <div class="bh-grid">
+                <div class="bh-entry">
+                  <div class="icon-box"><svg class="ic" width="20" height="20" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
+                  <div class="tx"><b>顺序练习</b><p>刷到 129/206 · 断点续刷</p></div>
+                  <svg class="ic" width="16" height="16" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+                <div class="bh-entry">
+                  <div class="icon-box"><svg class="ic" width="20" height="20" viewBox="0 0 24 24"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg></div>
+                  <div class="tx"><b>随机练习</b><p>随机打乱 · 每次新题序</p></div>
+                  <svg class="ic" width="16" height="16" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+                <div class="bh-entry">
+                  <div class="icon-box"><svg class="ic" width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
+                  <div class="tx"><b>我的错题 <span class="tag tag-red">5</span></b><p>答错自动收录 · 连对 3 次移出</p></div>
+                  <svg class="ic" width="16" height="16" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+                <div class="bh-entry">
+                  <div class="icon-box"><svg class="ic" width="20" height="20" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
+                  <div class="tx"><b>我的收藏 <span class="tag tag-orange">12</span></b><p>刷题时点星标收藏题目</p></div>
+                  <svg class="ic" width="16" height="16" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              </div>
+              <div class="ai-notice">
+                <svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.3 2.2h4.6c.2-.8.6-1.6 1.3-2.2A6 6 0 0 0 12 3z"/></svg>
+                「配电安规」AI 解析进行中，期间可正常刷题
+                <div class="progress"><i style="width:87%"></i></div>
+                84 / 96
+              </div>
             </div>
           </div>
-          <div class="card main-card">
-            <div class="mg-head">
-              <div class="tx"><b>电力安全工作规程 <span class="badge-o">AI 解析</span> <span class="tag tag-orange">全部池</span></b><p>206 题 · 单选 120 / 多选 46 / 判断 40 · 导入于 2026-08-02</p></div>
-              <span class="wbtn"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>下载模板</span>
-              <span class="wbtn orange"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>导入 Excel</span>
-              <span class="wbtn"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>重试失败解析</span>
-              <span class="wbtn primary"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增题目</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="web-unit">
+    <div class="cap" style="max-width:none; text-align:left;"><i>W2</i>网页端 · 刷题页（答题态 · 单选点选即判分）
+      <small style="text-align:left;">刷题接管整内容区 · 顶行：返回题库主页 + 答题/背题切换 + 进度 x/total · 底栏：收藏 / 对错计数 / 答题卡 / 设置 + 主按钮 · 支持 ← → 方向键切题 · 断点续刷与做题记录恢复同小程序</small>
+    </div>
+    <div class="browser">
+      <div class="browser-bar">
+        <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+        <div class="url"><svg class="ic" width="12" height="12" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>toolkit.j1net.com/quiz.html（刷题中 · 顺序练习）</div>
+      </div>
+      <div class="web-body">
+        <div class="web-top">
+          <div class="web-logo"><i><svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></i>Shade 壹匣</div>
+          <div class="web-nav"><span>工作台</span><span class="on">题库刷题</span><span>出工日志</span><span>安全活动</span><span>Call Me</span></div>
+          <div class="web-user"><i>张</i>张工 · 高级技师</div>
+        </div>
+        <div class="web-main col">
+          <div class="qz-head">
+            <div class="tt"><h3>题库刷题</h3><span>刷题练习 · 错题攻克 · 题库管理</span></div>
+            <div class="teamsel">检修一班 <svg class="ic" width="12" height="12" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          </div>
+          <div class="qz-tabs">
+            <span class="on"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>刷题练习</span>
+            <span><svg class="ic" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>题库管理</span>
+            <i class="ind" style="left:0; width:118px;"></i>
+          </div>
+          <div class="qz-body">
+            <div class="card main-card">
+              <div class="pv">
+                <div class="pv-top">
+                  <span class="pv-back"><svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 18"/></svg>题库主页</span>
+                  <b style="font-size:13.5px; font-weight:800;">电力安全工作规程 · 顺序练习</b>
+                  <span class="vm-switch"><i class="on">答题</i><i>背题</i></span>
+                  <div class="q-pg"><div class="progress"><i style="width:6%"></i></div><b><em>12</em> / 206</b></div>
+                </div>
+                <div class="pv-col"><div class="pv-col-in">
+                  <div class="card stem-card"><span class="tag tag-orange">单选题</span>在工作中，遇有雷雨、大风或其他任何威胁到工作人员安全的情况时，工作负责人应（ ）。</div>
+                  <div class="opt"><span class="ab">A</span>立即组织抢修，尽快恢复供电</div>
+                  <div class="opt sel"><span class="ab">B</span>立即停止工作，撤离作业现场</div>
+                  <div class="opt"><span class="ab">C</span>继续工作，注意防雷避险</div>
+                  <div class="opt"><span class="ab">D</span>报告上级领导后原地待命</div>
+                </div></div>
+                <div class="pv-foot">
+                  <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>收藏</span>
+                  <span class="chip"><svg class="ic" width="12" height="12" viewBox="0 0 24 24" style="color:var(--green)"><polyline points="20 6 9 17 4 12"/></svg>3<svg class="ic" width="12" height="12" viewBox="0 0 24 24" style="color:var(--danger); margin-left:8px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>1</span>
+                  <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>答题卡 4/206</span>
+                  <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>设置</span>
+                  <span class="sp"><span class="pv-hint">点选即判分 · ← → 方向键切题</span></span>
+                </div>
+              </div>
             </div>
-            <div class="ai-notice">
-              <svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.3 2.2h4.6c.2-.8.6-1.6 1.3-2.2A6 6 0 0 0 12 3z"/></svg>
-              「配电安规」AI 解析进行中，期间可正常刷题
-              <div class="progress"><i style="width:87%"></i></div>
-              84 / 96
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="web-unit">
+    <div class="cap" style="max-width:none; text-align:left;"><i>W3</i>网页端 · 刷题页（解析态 · 多选答错）
+      <small style="text-align:left;">解析态对齐小程序 V3：正确项绿勾 / 错选项红叉 · 结果行 正确答案 / 您的选择 + 本人/全员作答统计 + 错题本动态 · 试题详解卡 · 主按钮「下一题」</small>
+    </div>
+    <div class="browser">
+      <div class="browser-bar">
+        <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+        <div class="url"><svg class="ic" width="12" height="12" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>toolkit.j1net.com/quiz.html（刷题中 · 顺序练习）</div>
+      </div>
+      <div class="web-body">
+        <div class="web-top">
+          <div class="web-logo"><i><svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></i>Shade 壹匣</div>
+          <div class="web-nav"><span>工作台</span><span class="on">题库刷题</span><span>出工日志</span><span>安全活动</span><span>Call Me</span></div>
+          <div class="web-user"><i>张</i>张工 · 高级技师</div>
+        </div>
+        <div class="web-main col">
+          <div class="qz-head">
+            <div class="tt"><h3>题库刷题</h3><span>刷题练习 · 错题攻克 · 题库管理</span></div>
+            <div class="teamsel">检修一班 <svg class="ic" width="12" height="12" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          </div>
+          <div class="qz-tabs">
+            <span class="on"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>刷题练习</span>
+            <span><svg class="ic" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>题库管理</span>
+            <i class="ind" style="left:0; width:118px;"></i>
+          </div>
+          <div class="qz-body">
+            <div class="card main-card">
+              <div class="pv">
+                <div class="pv-top">
+                  <span class="pv-back"><svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 18"/></svg>题库主页</span>
+                  <b style="font-size:13.5px; font-weight:800;">电力安全工作规程 · 顺序练习</b>
+                  <span class="vm-switch"><i class="on">答题</i><i>背题</i></span>
+                  <div class="q-pg"><div class="progress"><i style="width:6%"></i></div><b><em>13</em> / 206</b></div>
+                </div>
+                <div class="pv-col"><div class="pv-col-in">
+                  <div class="card stem-card"><span class="tag tag-orange">多选题</span>下列哪些区域或情形应禁止动火作业？</div>
+                  <div class="opt sq right"><span class="ab"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>油船、油车停靠区域</div>
+                  <div class="opt sq wrong"><span class="ab"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>办公室内使用电暖器</div>
+                  <div class="opt sq right"><span class="ab"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>压力容器未泄压区域</div>
+                  <div class="opt sq"><span class="ab">D</span>指定动火区内按规定作业</div>
+                  <div class="r-line">
+                    <div class="r-main"><span>正确答案<b class="ok">AC</b></span><span>您的选择<b class="bad">ABC</b></span></div>
+                    <div class="r-sub">本人作答 3 次 · 正确率 67%</div>
+                    <div class="r-sub">全员作答 128 次 · 正确率 72%</div>
+                    <div class="r-sub orange">已自动加入错题本</div>
+                  </div>
+                  <div class="analysis-card">
+                    <div class="hd"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.3 2.2h4.6c.2-.8.6-1.6 1.3-2.2A6 6 0 0 0 12 3z"/></svg>试题详解</div>
+                    <div class="bd">动火作业应在指定动火区内按规定进行。油船、油车停靠区域及压力容器未泄压区域火灾爆炸风险高，必须禁止动火；办公室内使用电暖器属用电管理范畴，不属于动火作业禁止情形。</div>
+                    <div class="ft">解析内容仅供参考</div>
+                  </div>
+                </div></div>
+                <div class="pv-foot">
+                  <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>收藏</span>
+                  <span class="chip"><svg class="ic" width="12" height="12" viewBox="0 0 24 24" style="color:var(--green)"><polyline points="20 6 9 17 4 12"/></svg>3<svg class="ic" width="12" height="12" viewBox="0 0 24 24" style="color:var(--danger); margin-left:8px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>2</span>
+                  <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>答题卡 5/206</span>
+                  <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>设置</span>
+                  <span class="sp"><span class="wbtn primary">下一题</span></span>
+                </div>
+              </div>
             </div>
-            <div class="qtable">
-              <div class="tr hd"><span style="width:52px; flex:none;">题型</span><span class="c-q">题干</span><span class="c-a">答案</span><span class="c-s">解析状态</span><span class="c-o">操作</span></div>
-              <div class="tr"><span class="tag tag-orange" style="width:52px; flex:none; justify-content:center;">单选</span><span class="c-q">在工作中，遇有雷雨、大风或其他任何威胁到工作人员安全的情况时…</span><span class="c-a">B</span><span class="c-s"><span class="tag tag-green">已解析</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
-              <div class="tr"><span class="tag tag-orange" style="width:52px; flex:none; justify-content:center;">多选</span><span class="c-q">下列哪些情况应禁止动火作业？</span><span class="c-a">AC</span><span class="c-s"><span class="tag tag-green">已解析</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
-              <div class="tr"><span class="tag tag-navy" style="width:52px; flex:none; justify-content:center;">判断</span><span class="c-q">高处作业时，安全带可低挂高用。</span><span class="c-a">错</span><span class="c-s"><span class="tag tag-green">已解析</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
-              <div class="tr"><span class="tag tag-orange" style="width:52px; flex:none; justify-content:center;">单选</span><span class="c-q">绝缘操作杆的有效绝缘长度，110kV 不得小于多少米？</span><span class="c-a">C</span><span class="c-s"><span class="tag tag-orange">解析中…</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
-              <div class="tr"><span class="tag tag-navy" style="width:52px; flex:none; justify-content:center;">判断</span><span class="c-q">工作票签发人不得兼任该项工作的工作负责人。</span><span class="c-a">对</span><span class="c-s"><span class="tag tag-red">失败 · 重试</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="web-unit">
+    <div class="cap" style="max-width:none; text-align:left;"><i>W4</i>网页端 · 答题卡弹层
+      <small style="text-align:left;">居中弹层（对齐小程序底部弹层）：题型分区块 + 图例 · 未答灰 / 答对绿 / 答错红 / 当前橙框 · 点题号跳题 · 底部「清空做题记录」（错题本保留）</small>
+    </div>
+    <div class="browser">
+      <div class="browser-bar">
+        <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+        <div class="url"><svg class="ic" width="12" height="12" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>toolkit.j1net.com/quiz.html（答题卡弹层）</div>
+      </div>
+      <div class="web-body">
+        <div class="web-top">
+          <div class="web-logo"><i><svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></i>Shade 壹匣</div>
+          <div class="web-nav"><span>工作台</span><span class="on">题库刷题</span><span>出工日志</span><span>安全活动</span><span>Call Me</span></div>
+          <div class="web-user"><i>张</i>张工 · 高级技师</div>
+        </div>
+        <div class="web-main col">
+          <div class="qz-head">
+            <div class="tt"><h3>题库刷题</h3><span>刷题练习 · 错题攻克 · 题库管理</span></div>
+            <div class="teamsel">检修一班 <svg class="ic" width="12" height="12" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          </div>
+          <div class="qz-tabs">
+            <span class="on"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>刷题练习</span>
+            <span><svg class="ic" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>题库管理</span>
+            <i class="ind" style="left:0; width:118px;"></i>
+          </div>
+          <div class="qz-body">
+            <div class="card main-card">
+              <div class="pv">
+                <div class="pv-top">
+                  <span class="pv-back"><svg class="ic" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 18"/></svg>题库主页</span>
+                  <b style="font-size:13.5px; font-weight:800;">电力安全工作规程 · 顺序练习</b>
+                  <span class="vm-switch"><i class="on">答题</i><i>背题</i></span>
+                  <div class="q-pg"><div class="progress"><i style="width:6%"></i></div><b><em>12</em> / 206</b></div>
+                </div>
+                <div class="pv-col"><div class="pv-col-in">
+                  <div class="card stem-card"><span class="tag tag-orange">单选题</span>在工作中，遇有雷雨、大风或其他任何威胁到工作人员安全的情况时，工作负责人应（ ）。</div>
+                  <div class="opt"><span class="ab">A</span>立即组织抢修，尽快恢复供电</div>
+                  <div class="opt sel"><span class="ab">B</span>立即停止工作，撤离作业现场</div>
+                </div></div>
+              </div>
             </div>
-            <div class="pager"><span>‹</span><span class="on">1</span><span>2</span><span>3</span><span>…</span><span>21</span><span>›</span></div>
+          </div>
+        </div>
+        <div class="qz-mask">
+          <div class="qz-modal">
+            <div class="sheet-hd"><b>答题卡</b><span>已答 24/206</span></div>
+            <div class="sheet-legend"><span><i></i>未作答</span><span><i class="g"></i>答对</span><span><i class="r"></i>答错</span></div>
+            <div class="qsec-t">单选题<span>（120 题）</span></div>
+            <div class="qgrid">
+              <div class="qchip ok">1</div><div class="qchip ok">2</div><div class="qchip bad">3</div><div class="qchip ok">4</div><div class="qchip cur">5</div>
+              <div class="qchip">6</div><div class="qchip">7</div><div class="qchip">8</div><div class="qchip">9</div><div class="qchip">10</div>
+              <div class="qchip">11</div><div class="qchip">12</div><div class="qchip">13</div><div class="qchip">14</div><div class="qchip">15</div>
+              <div class="qchip">16</div><div class="qchip">17</div><div class="qchip">18</div><div class="qchip">19</div><div class="qchip">20</div>
+            </div>
+            <div class="qsec-t">多选题<span>（46 题）</span></div>
+            <div class="qgrid">
+              <div class="qchip">121</div><div class="qchip">122</div><div class="qchip">123</div><div class="qchip">124</div><div class="qchip">125</div>
+              <div class="qchip">126</div><div class="qchip">127</div><div class="qchip">128</div><div class="qchip">129</div><div class="qchip">130</div>
+            </div>
+            <div class="clear-link">清空做题记录（错题本保留）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="web-unit">
+    <div class="cap" style="max-width:none; text-align:left;"><i>W5</i>网页端 · 题库管理页签（仅 admin / team_admin 可见该页签）
+      <small style="text-align:left;">管理双卡维持不变，仅顶部补页签 · 下载模板 / 导入 Excel / 重试失败解析 / 新增题目 · 表格三态：已解析 / 解析中 / 失败重试</small>
+    </div>
+    <div class="browser">
+      <div class="browser-bar">
+        <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+        <div class="url"><svg class="ic" width="12" height="12" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>toolkit.j1net.com/quiz.html（题库管理）</div>
+      </div>
+      <div class="web-body">
+        <div class="web-top">
+          <div class="web-logo"><i><svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></i>Shade 壹匣</div>
+          <div class="web-nav"><span>工作台</span><span class="on">题库刷题</span><span>出工日志</span><span>安全活动</span><span>Call Me</span></div>
+          <div class="web-user"><i>张</i>张工 · 高级技师</div>
+        </div>
+        <div class="web-main col">
+          <div class="qz-head">
+            <div class="tt"><h3>题库刷题</h3><span>刷题练习 · 错题攻克 · 题库管理</span></div>
+            <div class="teamsel">检修一班 <svg class="ic" width="12" height="12" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          </div>
+          <div class="qz-tabs">
+            <span><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>刷题练习</span>
+            <span class="on"><svg class="ic" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>题库管理</span>
+            <i class="ind" style="left:122px; width:118px;"></i>
+          </div>
+          <div class="qz-body">
+            <div class="card side-card">
+              <div class="side-head"><b>题库管理</b><span class="mini"><svg class="ic" width="14" height="14" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span></div>
+              <div class="side-item on">
+                <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--orange)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <div class="tx"><b>电力安全工作规程</b><span>206 题 · 解析完成</span></div>
+              </div>
+              <div class="side-item">
+                <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--sub)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <div class="tx"><b>配电安规</b><span>96 题 · 解析中 84/96</span></div>
+              </div>
+              <div class="side-item">
+                <svg class="ic" width="17" height="17" viewBox="0 0 24 24" style="color:var(--sub)"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <div class="tx"><b>输电线路检修规程</b><span>158 题 · 3 题失败</span></div>
+              </div>
+            </div>
+            <div class="card main-card">
+              <div class="mg-head">
+                <div class="tx"><b>电力安全工作规程 <span class="badge-o">AI 解析</span> <span class="tag tag-orange">全部池</span></b><p>206 题 · 单选 120 / 多选 46 / 判断 40 · 导入于 2026-08-02</p></div>
+                <span class="wbtn"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>下载模板</span>
+                <span class="wbtn orange"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>导入 Excel</span>
+                <span class="wbtn"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>重试失败解析</span>
+                <span class="wbtn primary"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增题目</span>
+              </div>
+              <div class="ai-notice">
+                <svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.3 2.2h4.6c.2-.8.6-1.6 1.3-2.2A6 6 0 0 0 12 3z"/></svg>
+                「配电安规」AI 解析进行中，期间可正常刷题
+                <div class="progress"><i style="width:87%"></i></div>
+                84 / 96
+              </div>
+              <div class="qtable">
+                <div class="tr hd"><span style="width:52px; flex:none;">题型</span><span class="c-q">题干</span><span class="c-a">答案</span><span class="c-s">解析状态</span><span class="c-o">操作</span></div>
+                <div class="tr"><span class="tag tag-orange" style="width:52px; flex:none; justify-content:center;">单选</span><span class="c-q">在工作中，遇有雷雨、大风或其他任何威胁到工作人员安全的情况时…</span><span class="c-a">B</span><span class="c-s"><span class="tag tag-green">已解析</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
+                <div class="tr"><span class="tag tag-orange" style="width:52px; flex:none; justify-content:center;">多选</span><span class="c-q">下列哪些区域或情形应禁止动火作业？</span><span class="c-a">AC</span><span class="c-s"><span class="tag tag-green">已解析</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
+                <div class="tr"><span class="tag tag-orange" style="width:52px; flex:none; justify-content:center;">单选</span><span class="c-q">绝缘操作杆的有效绝缘长度，110kV 不得小于多少米？</span><span class="c-a">C</span><span class="c-s"><span class="tag tag-orange">解析中…</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
+                <div class="tr"><span class="tag tag-navy" style="width:52px; flex:none; justify-content:center;">判断</span><span class="c-q">工作票签发人不得兼任该项工作的工作负责人。</span><span class="c-a">对</span><span class="c-s"><span class="tag tag-red">失败 · 重试</span></span><span class="c-o"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span></div>
+              </div>
+              <div class="pager"><span>‹</span><span class="on">1</span><span>2</span><span>3</span><span>…</span><span>21</span><span>›</span></div>
+            </div>
           </div>
         </div>
       </div>
