@@ -3,11 +3,14 @@
 // 题序大纲：进入先拉 lite=1 全量大纲（seq 按 sort,id 升序 / rand 本 session 随机序 / wrong 按最近答错倒序 / fav 按最近收藏倒序），
 // 题目内容按 20/批按需拉取（offset=批首大纲下标；答题模式不带答案，背题模式 withAnswer=1 带 answer/analysis；批次带 fav 收藏标记）
 // seq 断点续刷：wx.setStorageSync(`quiz_seq_${bankId}`, 大纲下标)，进入时恢复
+// 做题记录恢复（seq/rand）：取题带 withRecord=1——lite 大纲已答题带 myRight 对错标记（答题卡着色/已答计数数据源 _myRight），
+// 批次已答题带 myAnswer/answer/analysis（重建 _results 解析态）；重练走答题卡「清空做题记录」（删服务端记录后恢复自然为空）
+// wrong/fav 专项练习不带 withRecord（错题重练需重新作答判分，恢复会挡提交）
 // 翻页：swiper 三窗格窗口化渲染（仅渲染 当前题±1），bindanimationfinish 后窗口平移到新当前题并无感复位中间格；
 // 答题卡跳题直接重建窗口（无动画）；相邻题批次静默预拉，翻页不卡
 // 双模式：答题（单选/判断点选即判分、多选底部提交；解析态=正确答案/您的选择 + 本人/全员作答统计 + 解析卡）/
 // 背题（直接标出正确答案，常显答案行 + 解析卡，不提交不写记录）
-// 底栏（考试宝式，四项等高对齐）：收藏星标切换 / 本 session 对错计数 / 已做题（点开答题卡）/ 设置 / 主按钮（多选提交、解析态下一题）
+// 底栏（考试宝式，四项等高对齐）：收藏星标切换 / 对错计数（seq/rand 含历史恢复）/ 已做题（点开答题卡）/ 设置 / 主按钮（多选提交、解析态下一题）
 // 刷题设置（本地 storage quiz_settings 持久化）：答对自动下一题（答错停留看解析，末尾题不自动）；
 // 选项乱序（仅答题模式单/多选生效，展示字母重排、提交与答案判定映射回原始字母；已答题保留作答时的显示顺序）
 // 答题卡弹层：按题型分区块题号导航（未答灰 / 答对绿 / 答错红 / 当前橙框）+ 图例行，底部可清空做题记录（错题本保留）
@@ -58,7 +61,7 @@ Page({
     showSubmit: false, // 多选未提交：底部「提交答案」
     showNext: false, // 已提交/背题：底部「下一题/完成」
     isLast: false, // 已到大纲末尾
-    // 本 session 作答计数（底栏与答题卡）
+    // 已答/对错计数（底栏与答题卡；seq/rand 含历史恢复，数据源 _myRight）
     answeredCount: 0,
     rightCount: 0,
     wrongCount: 0,
@@ -86,6 +89,7 @@ Page({
     this._outline = []; // [{id,type}]
     this._cache = {};
     this._results = {}; // qid → { selected, right, answer, analysis, wrong, stats }
+    this._myRight = {}; // qid → 1/0 最近作答对错（seq/rand 随大纲恢复历史，onSubmit 同步写入；底栏计数与答题卡着色数据源）
     this._favs = {}; // qid → 1/0
     this._idx = 0; // 当前题的大纲下标
     this._sel = [];
@@ -159,15 +163,22 @@ Page({
     }
   },
 
-  // 全量题序大纲（lite=1：仅 id + type，不分页）
+  // 全量题序大纲（lite=1：仅 id + type，不分页）；seq/rand 带 withRecord=1 恢复历史作答对错（_myRight）
   async fetchOutline() {
     let url = `${API_BASE}/practice/questions?mode=${this._mode}&lite=1`;
     if (this._bankId) url += `&bankId=${encodeURIComponent(this._bankId)}`;
+    if ((this._mode === 'seq' || this._mode === 'rand') && this._bankId) url += '&withRecord=1';
     const data = await request({ url });
     this._outline = (data && data.list) || [];
+    this._myRight = {};
+    this._outline.forEach((o) => {
+      if (o.myRight !== undefined) this._myRight[o.id] = o.myRight;
+    });
+    this.refreshCounts();
   },
 
-  // 下标所在批次内容（offset=批首下标；背题模式 withAnswer=1 带 answer/analysis）。silent=静默预拉
+  // 下标所在批次内容（offset=批首下标；背题模式 withAnswer=1 带 answer/analysis；
+  // 答题模式 seq/rand 带 withRecord=1 恢复已答题的 myAnswer/answer/analysis）。silent=静默预拉
   async ensureBatch(idx, silent) {
     const start = Math.floor(idx / LIMIT) * LIMIT;
     if (this._cache[start]) return;
@@ -180,6 +191,7 @@ Page({
     let url = `${API_BASE}/practice/questions?mode=${this._mode}&offset=${start}&limit=${LIMIT}`;
     if (this._bankId) url += `&bankId=${encodeURIComponent(this._bankId)}`;
     if (this.data.viewMode === 'recite') url += '&withAnswer=1';
+    else if (this._mode === 'seq' || this._mode === 'rand') url += '&withRecord=1';
     this._inflight = request({ url });
     try {
       const data = await this._inflight;
@@ -189,8 +201,21 @@ Page({
       raw.forEach((q) => { map[q.id] = q; });
       const seg = this._outline.slice(start, start + LIMIT).map((o) => map[o.id]).filter(Boolean);
       this._cache[start] = seg.length ? seg : raw;
-      // 收藏标记入本地表（收藏切换先改本地，失败回滚）
-      this._cache[start].forEach((q) => { this._favs[q.id] = q.fav ? 1 : 0; });
+      this._cache[start].forEach((q) => {
+        // 收藏标记入本地表（收藏切换先改本地，失败回滚）
+        this._favs[q.id] = q.fav ? 1 : 0;
+        // 历史作答恢复为解析态（本 session 已答过的保留——其结果带作答统计与错题本动态）
+        if (q.myAnswer && !this._results[q.id]) {
+          this._results[q.id] = {
+            selected: String(q.myAnswer).split(''), // 恢复题不再新建乱序映射，展示字母即原始字母
+            right: !!q.myRight,
+            answer: q.answer || '',
+            analysis: q.analysis || '',
+            wrong: { inBook: false, rightStreak: 0, removed: false }, // 恢复态不展示错题本动态横幅
+            stats: null,
+          };
+        }
+      });
     } finally {
       this._inflight = null;
       if (!silent) wx.hideLoading();
@@ -485,6 +510,7 @@ Page({
         wrong: (data && data.wrong) || {},
         stats: (data && data.stats) || null,
       };
+      this._myRight[q.id] = data && data.right ? 1 : 0; // 计数与答题卡着色数据源同步
       this._sel = [];
       this.refreshCounts();
       this.refreshCurrentItem();
@@ -508,14 +534,14 @@ Page({
     return (this._sel || []).length > 0;
   },
 
-  // 本 session 作答计数（底栏对错数与「已做题」）
+  // 已答/对错计数（底栏与答题卡；seq/rand 含历史恢复，统一以 _myRight 为准）
   refreshCounts() {
-    const rs = Object.keys(this._results).map((k) => this._results[k]);
-    const right = rs.filter((r) => r.right).length;
+    const vals = Object.keys(this._myRight).map((k) => this._myRight[k]);
+    const right = vals.filter((v) => v).length;
     this.setData({
-      answeredCount: rs.length,
+      answeredCount: vals.length,
       rightCount: right,
-      wrongCount: rs.length - right,
+      wrongCount: vals.length - right,
     });
   },
 
@@ -612,8 +638,8 @@ Page({
         if ((o.type || 'single') !== t) return;
         let st = '';
         if (!recite) {
-          const r = this._results[o.id];
-          if (r) st = r.right ? 'right' : 'wrong';
+          const my = this._myRight[o.id]; // 含历史恢复（seq/rand）与本 session 作答
+          if (my !== undefined) st = my ? 'right' : 'wrong';
         }
         items.push({ idx: i, num: i + 1, st, cur: i === this._idx });
       });
@@ -662,6 +688,7 @@ Page({
       }
       // 清空本地断点与已答状态（rand 大纲一并换新的 session 随机序）
       this._results = {};
+      this._myRight = {};
       this._cache = {};
       this._favs = {};
       this._shuffle = {};

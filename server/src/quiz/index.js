@@ -99,6 +99,22 @@ function emptyStats() {
   return { questionCount: 0, analysis: { none: 0, pending: 0, failed: 0, done: 0 } };
 }
 
+// 批量取当前用户每题最近一次作答（刷题记录恢复：qid → { right, answer }，answer 为归一后的原始字母）
+async function loadMyLatestRecords(userId, qids) {
+  if (!qids.length) return {};
+  const [rows] = await pool.query(
+    `SELECT r.question_id, r.is_right, r.user_answer
+     FROM quiz_record r
+     JOIN (SELECT question_id, MAX(id) AS mid FROM quiz_record
+           WHERE user_id = ? AND question_id IN (?) GROUP BY question_id) t
+       ON t.question_id = r.question_id AND t.mid = r.id`,
+    [userId, qids]
+  );
+  const map = {};
+  rows.forEach((r) => { map[r.question_id] = { right: r.is_right ? 1 : 0, answer: r.user_answer }; });
+  return map;
+}
+
 // 题型归一：单选/单选题/single → single，多选/多选题/multiple → multiple，判断/判断题/judge → judge
 // （trim、忽略大小写；导入与管理接口共用）
 function normalizeType(v) {
@@ -719,6 +735,8 @@ router.post('/banks/:id/analyze-retry', requireQuizAdmin, async (req, res, next)
 // mode=wrong 错题本（最近答错倒序）/ mode=fav 收藏（最近收藏倒序）——wrong/fav 的 bankId 均为可选过滤
 // lite=1：答题卡大纲模式，忽略 offset/limit 返回全量有序列表，项仅含 { id, type }（withAnswer 同时传入时忽略）
 // withAnswer=1：背题模式用，分页 list 项追加 answer 与 analysis（无解析为 null）；不传则出参不含答案/解析
+// withRecord=1：作答记录恢复用（seq/rand 刷题重进恢复）——lite 项已答则追加 myRight（1 对 0 错）；
+// 分页项已答则追加 myRight/myAnswer（本人最近作答）并放行 answer/analysis（本人已答过的题不再是秘密），未答题仍不带答案
 // 可见性：bankId 必传时经 findVisibleBank 校验；wrong/fav 模式只回可见题库（全部池 + 本班班组池）的题
 router.get('/practice/questions', async (req, res, next) => {
   try {
@@ -728,13 +746,14 @@ router.get('/practice/questions', async (req, res, next) => {
     const bankId = Number(req.query.bankId) || 0;
     const lite = req.query.lite === '1';
     const withAnswer = !lite && req.query.withAnswer === '1'; // lite 时忽略 withAnswer
+    const withRecord = req.query.withRecord === '1';
     if (mode !== 'wrong' && mode !== 'fav' && !bankId) return fail(res, 400, 40030, '请选择题库');
     if (bankId) {
       const bank = await findVisibleBank(bankId, req);
       if (!bank) return fail(res, 404, 40400, '题库不存在');
     }
-    // lite 只取 id/type；withAnswer 追加 answer/analysis；rand 原有逻辑忽略 offset，非 lite 时仍需 LIMIT
-    const cols = lite ? 'id, type' : `id, type, content, options${withAnswer ? ', answer, analysis' : ''}`;
+    // lite 只取 id/type；withAnswer/withRecord 追加 answer/analysis（withRecord 仅对本人已答题放行出参）；rand 原有逻辑忽略 offset，非 lite 时仍需 LIMIT
+    const cols = lite ? 'id, type' : `id, type, content, options${withAnswer || withRecord ? ', answer, analysis' : ''}`;
     const pageClause = lite ? '' : `LIMIT ${limit} OFFSET ${offset}`;
     let total = 0;
     let rows = [];
@@ -814,11 +833,22 @@ router.get('/practice/questions', async (req, res, next) => {
       );
       favSet = new Set(frows.map((f) => f.question_id));
     }
-    // 出参：lite 仅 id/type；默认严格不含 answer/analysis；withAnswer 才追加
+    // 本批/本大纲题目的本人最近作答（withRecord=1 记录恢复）
+    const recMap = withRecord ? await loadMyLatestRecords(req.user.id, rows.map((r) => r.id)) : {};
+    // 出参：lite 仅 id/type（withRecord 已答追加 myRight）；默认严格不含 answer/analysis；withAnswer 或 withRecord 命中已答才追加
     const list = rows.map((r) => {
-      if (lite) return { id: r.id, type: r.type };
+      const rec = recMap[r.id];
+      if (lite) {
+        const item = { id: r.id, type: r.type };
+        if (rec) item.myRight = rec.right;
+        return item;
+      }
       const item = { id: r.id, type: r.type, content: r.content, options: parseOptions(r.options), fav: favSet.has(r.id) ? 1 : 0 };
-      if (withAnswer) {
+      if (rec) {
+        item.myRight = rec.right;
+        item.myAnswer = rec.answer;
+      }
+      if (withAnswer || rec) {
         item.answer = r.answer;
         item.analysis = r.analysis || null;
       }
