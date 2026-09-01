@@ -247,7 +247,7 @@
   .pv-col { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(34, 49, 78, .2) transparent; }
   .pv-col::-webkit-scrollbar { width: 5px; }
   .pv-col::-webkit-scrollbar-thumb { background: rgba(34, 49, 78, .16); border-radius: 3px; }
-  .pv-col-in { max-width: 840px; margin: 0 auto; padding: 16px 2px 4px; }
+  .pv-col-in { max-width: 840px; padding: 16px 2px 4px; }
   /* 题干：无卡片，与选项同一平面（tag 起于 15px；选项字母圈对齐内容首字 69px 口径不变） */
   .pv-stem { padding: 2px 15px 14px; font-size: 15.5px; font-weight: 700; line-height: 1.8; }
   .pv-stem .tag { margin-right: 7px; vertical-align: 2px; }
@@ -265,15 +265,15 @@
   .pv-opt.wrong .ab { border-color: var(--red); background: var(--red); color: #fff; }
   .pv-opt .tx { min-width: 0; }
   .pv-opt.lock { cursor: default; }
-  /* 解析态（正确答案/您的选择 + 统计 + 错题本动态）与试题详解卡：两卡左右留白一致（外缘对齐题干 15px 边界） */
-  .r-line { margin: 14px 15px 0; padding: 12px 15px; background: #fff; border: 1px solid var(--hair); border-radius: 10px; }
+  /* 解析态（正确答案/您的选择 + 统计 + 错题本动态）与试题详解卡：占满整个题目卡宽度（与顶栏/底栏对齐，突破上方 840px 题列） */
+  .r-line { margin: 14px 0 0; padding: 12px 15px; background: #fff; border: 1px solid var(--hair); border-radius: 10px; }
   .r-main { display: flex; gap: 22px; font-size: 13px; font-weight: 700; }
   .r-main b { margin-left: 6px; }
   .r-main b.ok { color: #2BA471; }
   .r-main b.bad { color: var(--red); }
   .r-sub { margin-top: 6px; font-size: 11px; color: var(--sub); }
   .r-sub.orange { color: var(--orange); font-weight: 700; }
-  .pv-ana { margin: 14px 15px 0; padding: 13px 15px; background: var(--orange-soft); border-radius: 10px; }
+  .pv-ana { margin: 14px 0 0; padding: 13px 15px; background: var(--orange-soft); border-radius: 10px; }
   .pv-ana .hd { display: flex; align-items: center; gap: 8px; color: var(--orange); font-size: 13.5px; font-weight: 800; letter-spacing: 1px; }
   .pv-ana .bd { margin-top: 9px; font-size: 12.8px; line-height: 1.8; color: #4A5670; }
   .pv-ana .ft { margin-top: 9px; font-size: 10.5px; color: #C29B7E; letter-spacing: .5px; }
@@ -1446,6 +1446,7 @@ function pvRender() {
   } else {
     footMain = '<span class="pv-hint">点选即判分 · ← → 方向键切题</span>';
   }
+  var prevBtn = '<button class="btn btn-sm" id="pvPrev"' + (pv.idx <= 0 ? ' disabled' : '') + '>上一题</button>';
 
   pane.innerHTML = '<div class="pv-top">'
     + '<span class="pv-back" id="pvBack">' + Shade.icon('chevron-left', 15) + '题库主页</span>'
@@ -1455,14 +1456,14 @@ function pvRender() {
     + '</div>'
     + '<div class="pv-col" id="pvCol"><div class="pv-col-in">'
     + '<div class="pv-stem"><span class="tag ' + (type === 'judge' ? 'tag-navy' : 'tag-orange') + '">' + pvTypeText(type) + '</span>' + esc(q.content || '') + '</div>'
-    + optsHtml + mid
-    + '</div></div>'
+    + optsHtml
+    + '</div>' + mid + '</div>'
     + '<div class="pv-foot">'
     + '<button class="pv-chipbtn' + (pv.favs[q.id] ? ' faved' : '') + '" id="pvFav">' + Shade.icon('star', 13) + '收藏</button>'
     + '<span class="pv-chipbtn">' + Shade.icon('check', 12, '#2BA471') + counts.right + Shade.icon('close', 12, '#CF4444') + counts.wrong + '</span>'
     + '<button class="pv-chipbtn" id="pvSheet">' + Shade.icon('view-module', 13) + '答题卡 ' + counts.answered + '/' + total + '</button>'
     + '<button class="pv-chipbtn" id="pvSet">' + Shade.icon('setting', 13) + '设置</button>'
-    + '<span class="sp">' + footMain + '</span>'
+    + '<span class="sp">' + prevBtn + footMain + '</span>'
     + '</div>';
   var col = $('#pvCol');
   if (col) col.scrollTop = 0;
@@ -1747,6 +1748,7 @@ function bindPracticeEvents() {
     if (e.target.closest('#pvSet')) { pvOpenSettings(); return; }
     if (e.target.closest('#pvAnaEdit')) { pvOpenAnalysisEdit(); return; }
     if (e.target.closest('#pvSubmit')) { pvSubmit(); return; }
+    if (e.target.closest('#pvPrev')) { pvGo(pv.idx - 1); return; }
     if (e.target.closest('#pvNext')) {
       if (pv.idx >= pv.outline.length - 1) pvExit();
       else pvGo(pv.idx + 1);

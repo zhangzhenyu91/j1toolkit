@@ -346,7 +346,7 @@
   .pv-top .q-pg { flex:1; }
   .pv-top .vm-switch { flex:none; }
   .pv-col { flex:1; min-height:0; overflow-y:auto; }
-  .pv-col-in { max-width:840px; margin:0 auto; padding:18px 2px 6px; }
+  .pv-col-in { max-width:840px; padding:18px 2px 6px; }
   /* 题干：无卡片，与选项同一平面（tag 起于 15px，选项字母圈对齐内容首字 69px 的口径不变） */
   .pv-stem { padding:4px 15px 12px; font-size:16px; font-weight:700; line-height:1.8; }
   .pv-stem .tag { margin-right:7px; vertical-align:2px; }
@@ -359,11 +359,9 @@
   .pv-foot .sp { margin-left:auto; display:flex; align-items:center; gap:10px; }
   .pv-hint { font-size:11px; color:var(--ph); letter-spacing:1px; }
   /* 解析态（正确答案/您的选择 + 本人/全员统计 + 错题本动态），对齐小程序 V3 result-block；
-     网页端结果卡与解析卡左右留白一致（外缘对齐题干 15px 边界），解析标题行带全员修改入口 */
-  .pv-col-in .analysis-card { margin:14px 15px 0; }
+     结果卡与解析卡移出题干列、占满整个题目卡宽度（与顶栏/底栏对齐；题干列保持左对齐 840px） */
   .ana-edit { margin-left:auto; display:flex; color:#C29B7E; }
-  .pv-col-in .analysis-card .hd { display:flex; align-items:center; gap:8px; }
-  .r-line { margin:14px 15px 0; padding:12px 15px; background:#fff; border:1px solid var(--hair2); border-radius:10px; }
+  .r-line { margin:14px 0 0; padding:12px 15px; background:#fff; border:1px solid var(--hair2); border-radius:10px; }
   .r-main { display:flex; gap:22px; font-size:13px; font-weight:700; }
   .r-main b { margin-left:6px; }
   .r-main b.ok { color:var(--green); }
@@ -866,7 +864,7 @@
                   <span class="chip"><svg class="ic" width="12" height="12" viewBox="0 0 24 24" style="color:var(--green)"><polyline points="20 6 9 17 4 12"/></svg>3<svg class="ic" width="12" height="12" viewBox="0 0 24 24" style="color:var(--danger); margin-left:8px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>1</span>
                   <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>答题卡 4/206</span>
                   <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>设置</span>
-                  <span class="sp"><span class="pv-hint">点选即判分 · ← → 方向键切题</span></span>
+                  <span class="sp"><span class="wbtn">上一题</span><span class="pv-hint">点选即判分 · ← → 方向键切题</span></span>
                 </div>
               </div>
             </div>
@@ -878,7 +876,7 @@
 
   <div class="web-unit">
     <div class="cap" style="max-width:none; text-align:left;"><i>W3</i>网页端 · 刷题页（解析态 · 多选答错）
-      <small style="text-align:left;">解析态对齐小程序 V3：正确项绿勾 / 错选项红叉 · 结果行 正确答案 / 您的选择 + 本人/全员作答统计 + 错题本动态 · 试题详解卡（铅笔入口全员可改解析，对全员生效）· 结果卡与解析卡左右留白一致 · 主按钮「下一题」</small>
+      <small style="text-align:left;">解析态对齐小程序 V3：正确项绿勾 / 错选项红叉 · 结果行 正确答案 / 您的选择 + 本人/全员作答统计 + 错题本动态 · 试题详解卡（铅笔入口全员可改解析，对全员生效）· 结果卡与解析卡占满整个题目卡宽度（与顶栏/底栏对齐，题干列保持左对齐 840px）· 主按钮「下一题」</small>
     </div>
     <div class="browser">
       <div class="browser-bar">
@@ -916,7 +914,8 @@
                   <div class="opt sq wrong"><span class="ab"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>办公室内使用电暖器</div>
                   <div class="opt sq right"><span class="ab"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>压力容器未泄压区域</div>
                   <div class="opt sq"><span class="ab">D</span>指定动火区内按规定作业</div>
-                  <div class="r-line">
+                </div>
+                <div class="r-line">
                     <div class="r-main"><span>正确答案<b class="ok">AC</b></span><span>您的选择<b class="bad">ABC</b></span></div>
                     <div class="r-sub">本人作答 3 次 · 正确率 67%</div>
                     <div class="r-sub">全员作答 128 次 · 正确率 72%</div>
@@ -927,13 +926,13 @@
                     <div class="bd">动火作业应在指定动火区内按规定进行。油船、油车停靠区域及压力容器未泄压区域火灾爆炸风险高，必须禁止动火；办公室内使用电暖器属用电管理范畴，不属于动火作业禁止情形。</div>
                     <div class="ft">解析内容仅供参考 · 解析支持全员修改完善</div>
                   </div>
-                </div></div>
+                </div>
                 <div class="pv-foot">
                   <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>收藏</span>
                   <span class="chip"><svg class="ic" width="12" height="12" viewBox="0 0 24 24" style="color:var(--green)"><polyline points="20 6 9 17 4 12"/></svg>3<svg class="ic" width="12" height="12" viewBox="0 0 24 24" style="color:var(--danger); margin-left:8px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>2</span>
                   <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>答题卡 5/206</span>
                   <span class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>设置</span>
-                  <span class="sp"><span class="wbtn primary">下一题</span></span>
+                  <span class="sp"><span class="wbtn">上一题</span><span class="wbtn primary">下一题</span></span>
                 </div>
               </div>
             </div>
