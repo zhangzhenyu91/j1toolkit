@@ -347,8 +347,11 @@
   .pv-top .vm-switch { flex:none; }
   .pv-col { flex:1; min-height:0; overflow-y:auto; }
   .pv-col-in { max-width:840px; margin:0 auto; padding:18px 2px 6px; }
+  /* 题干：无卡片，与选项同一平面（tag 起于 15px，选项字母圈对齐内容首字 69px 的口径不变） */
+  .pv-stem { padding:4px 15px 12px; font-size:16px; font-weight:700; line-height:1.8; }
+  .pv-stem .tag { margin-right:7px; vertical-align:2px; }
   /* 网页端选项：无卡片底，仅字母圈 + 文字、按内容收缩；左边界对齐题干「内容文字」首字
-     （题干卡内边距 15px + 题型 tag ≈47px + tag 右间距 7px ≈ 69px，而非 tag 左缘；小程序端 .opt 卡片态不变） */
+     （题干内边距 15px + 题型 tag ≈47px + tag 右间距 7px ≈ 69px，而非 tag 左缘；小程序端 .opt 卡片态不变） */
   .pv-col-in .opt, .pv-col-in .opt.sel, .pv-col-in .opt.right, .pv-col-in .opt.wrong {
     width:fit-content; max-width:100%; background:none; border:none; padding:6px 15px 6px 69px;
   }
@@ -848,7 +851,7 @@
                   <div class="q-pg"><div class="progress"><i style="width:6%"></i></div><b><em>12</em> / 206</b></div>
                 </div>
                 <div class="pv-col"><div class="pv-col-in">
-                  <div class="card stem-card"><span class="tag tag-orange">单选题</span>在工作中，遇有雷雨、大风或其他任何威胁到工作人员安全的情况时，工作负责人应（ ）。</div>
+                  <div class="pv-stem"><span class="tag tag-orange">单选题</span>在工作中，遇有雷雨、大风或其他任何威胁到工作人员安全的情况时，工作负责人应（ ）。</div>
                   <div class="opt"><span class="ab">A</span>立即组织抢修，尽快恢复供电</div>
                   <div class="opt sel"><span class="ab">B</span>立即停止工作，撤离作业现场</div>
                   <div class="opt"><span class="ab">C</span>继续工作，注意防雷避险</div>
@@ -904,7 +907,7 @@
                   <div class="q-pg"><div class="progress"><i style="width:6%"></i></div><b><em>13</em> / 206</b></div>
                 </div>
                 <div class="pv-col"><div class="pv-col-in">
-                  <div class="card stem-card"><span class="tag tag-orange">多选题</span>下列哪些区域或情形应禁止动火作业？</div>
+                  <div class="pv-stem"><span class="tag tag-orange">多选题</span>下列哪些区域或情形应禁止动火作业？</div>
                   <div class="opt sq right"><span class="ab"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>油船、油车停靠区域</div>
                   <div class="opt sq wrong"><span class="ab"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>办公室内使用电暖器</div>
                   <div class="opt sq right"><span class="ab"><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>压力容器未泄压区域</div>
@@ -971,7 +974,7 @@
                   <div class="q-pg"><div class="progress"><i style="width:6%"></i></div><b><em>12</em> / 206</b></div>
                 </div>
                 <div class="pv-col"><div class="pv-col-in">
-                  <div class="card stem-card"><span class="tag tag-orange">单选题</span>在工作中，遇有雷雨、大风或其他任何威胁到工作人员安全的情况时，工作负责人应（ ）。</div>
+                  <div class="pv-stem"><span class="tag tag-orange">单选题</span>在工作中，遇有雷雨、大风或其他任何威胁到工作人员安全的情况时，工作负责人应（ ）。</div>
                   <div class="opt"><span class="ab">A</span>立即组织抢修，尽快恢复供电</div>
                   <div class="opt sel"><span class="ab">B</span>立即停止工作，撤离作业现场</div>
                 </div></div>

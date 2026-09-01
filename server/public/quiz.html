@@ -248,7 +248,8 @@
   .pv-col::-webkit-scrollbar { width: 5px; }
   .pv-col::-webkit-scrollbar-thumb { background: rgba(34, 49, 78, .16); border-radius: 3px; }
   .pv-col-in { max-width: 840px; padding: 16px 2px 4px; }
-  .pv-stem { padding: 16px 15px; font-size: 15.5px; font-weight: 700; line-height: 1.8; }
+  /* 题干：无卡片，与选项同一平面（tag 起于 15px；选项字母圈对齐内容首字 69px 口径不变） */
+  .pv-stem { padding: 2px 15px 14px; font-size: 15.5px; font-weight: 700; line-height: 1.8; }
   .pv-stem .tag { margin-right: 7px; vertical-align: 2px; }
   /* 选项：无卡片底，仅字母圈 + 文字；左边界对齐题干内容首字（题干卡内边距 15px + 题型 tag ≈47px + 间距 7px） */
   .pv-opt { display: flex; align-items: center; gap: 11px; padding: 7px 15px 7px 69px; font-size: 14px; line-height: 1.7; cursor: pointer; border-radius: 8px; }
@@ -1412,7 +1413,7 @@ function pvRender() {
     + '<div class="pv-pg"><div class="progress"><i style="width:' + pct + '%"></i></div><b>' + (pv.idx + 1) + ' / ' + total + '</b></div>'
     + '</div>'
     + '<div class="pv-col" id="pvCol"><div class="pv-col-in">'
-    + '<div class="card pv-stem"><span class="tag ' + (type === 'judge' ? 'tag-navy' : 'tag-orange') + '">' + pvTypeText(type) + '</span>' + esc(q.content || '') + '</div>'
+    + '<div class="pv-stem"><span class="tag ' + (type === 'judge' ? 'tag-navy' : 'tag-orange') + '">' + pvTypeText(type) + '</span>' + esc(q.content || '') + '</div>'
     + optsHtml + mid
     + '</div></div>'
     + '<div class="pv-foot">'
