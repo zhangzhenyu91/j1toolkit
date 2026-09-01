@@ -82,9 +82,13 @@
               <view class="r-sub orange" wx:if="{{item.result.bannerSub}}">{{item.result.bannerSub}}</view>
             </view>
 
-            <!-- 解析卡（解析态；背题模式常显；解析未生成时占位文案） -->
+            <!-- 解析卡（解析态；背题模式常显；解析未生成时占位文案）；铅笔入口全员可改解析 -->
             <view class="analysis-card" wx:if="{{item.submitted && item.result}}">
-              <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#F26D21" />试题详解</view>
+              <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#F26D21" />试题详解
+                <view class="ana-edit" hover-class="hover-opacity" catchtap="onAnaEditTap">
+                  <t-icon name="edit" size="30rpx" color="#C29B7E" />
+                </view>
+              </view>
               <view class="bd" wx:if="{{item.result.analysis}}">{{item.result.analysis}}</view>
               <view class="bd ph" wx:else>解析生成中，稍后可查看</view>
               <view class="ft" wx:if="{{item.result.analysis}}">解析内容仅供参考</view>
@@ -185,6 +189,19 @@
       <view class="sheet-ft">
         <view class="reset-link {{canReset ? '' : 'disabled'}}" hover-class="{{canReset ? 'hover-opacity' : ''}}"
               bindtap="onResetRecords">清空做题记录</view>
+      </view>
+    </view>
+  </t-popup>
+
+  <!-- 解析编辑弹层（全员可改：保存后对题库内全员生效，留空则由 AI 重新生成） -->
+  <t-popup visible="{{anaOpen}}" placement="bottom" bind:visible-change="onAnaVisibleChange">
+    <view class="ana-pop">
+      <view class="set-hd">修改解析</view>
+      <view class="ana-tip">解析对题库内全员可见，保存后即刻生效；留空则由 AI 重新生成</view>
+      <textarea class="ana-input" maxlength="2000" placeholder="填写本题解析" value="{{anaText}}" bindinput="onAnaInput" />
+      <view class="ana-foot">
+        <view class="btn-ghost ana-btn" hover-class="hover-opacity" bindtap="onAnaCancel">取消</view>
+        <view class="btn-navy ana-btn" hover-class="hover-opacity" bindtap="onAnaSave">保存</view>
       </view>
     </view>
   </t-popup>

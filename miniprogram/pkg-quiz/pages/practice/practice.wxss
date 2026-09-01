@@ -481,6 +481,52 @@
   transform: translateX(36rpx);
 }
 
+/* 解析卡铅笔入口（解析态/背题均可改，全员口径） */
+.analysis-card .hd .ana-edit {
+  margin-left: auto;
+  padding: 6rpx;
+  border-radius: 10rpx;
+  display: flex;
+}
+
+/* 解析编辑弹层 */
+.ana-pop {
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+.ana-tip {
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  color: #6b7690;
+  line-height: 1.6;
+}
+.ana-input {
+  margin-top: 20rpx;
+  width: 100%;
+  min-height: 300rpx;
+  box-sizing: border-box;
+  padding: 20rpx 22rpx;
+  background: #fbf9f2;
+  border: 1px solid #e3dccb;
+  border-radius: 16rpx;
+  font-size: 26rpx;
+  line-height: 1.7;
+  color: #22314e;
+}
+.ana-foot {
+  margin-top: 28rpx;
+  display: flex;
+  gap: 20rpx;
+}
+.ana-btn {
+  flex: 1;
+  height: 84rpx;
+  font-size: 28rpx;
+  letter-spacing: 4rpx;
+}
+
 .btn-navy {
   height: 84rpx;
   border-radius: 16rpx;

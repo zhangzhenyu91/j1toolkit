@@ -10,6 +10,7 @@
 // 答题卡跳题直接重建窗口（无动画）；相邻题批次静默预拉，翻页不卡
 // 双模式：答题（单选/判断点选即判分、多选底部提交；解析态=正确答案/您的选择 + 本人/全员作答统计 + 解析卡）/
 // 背题（直接标出正确答案，常显答案行 + 解析卡，不提交不写记录）
+// 解析编辑：解析卡标题行铅笔入口，全员可改（PUT /practice/analysis），保存后对题库内全员生效、留空则由 AI 重新生成
 // 底栏（考试宝式，四项等高对齐）：收藏星标切换 / 对错计数（seq/rand 含历史恢复）/ 已做题（点开答题卡）/ 设置 / 主按钮（多选提交、解析态下一题）
 // 刷题设置（本地 storage quiz_settings 持久化）：答对自动下一题（答错停留看解析，末尾题不自动）；
 // 选项乱序（仅答题模式单/多选生效，展示字母重排、提交与答案判定映射回原始字母；已答题保留作答时的显示顺序）
@@ -73,6 +74,9 @@ Page({
     setOpen: false,
     autoNext: false, // 答对自动下一题
     shuffleOpt: false, // 选项乱序
+    // 解析编辑弹层（全员可改）
+    anaOpen: false,
+    anaText: '',
   },
 
   onLoad(options) {
@@ -99,6 +103,7 @@ Page({
     this._favToggling = false; // 收藏切换进行中（防连点）
     this._shuffle = {}; // qid → 展示位→原选项下标 映射（选项乱序；本题已答则保留以与其作答记录一致）
     this._autoTimer = null; // 答对自动下一题延时器
+    this._anaSaving = false; // 解析保存进行中（防连点）
     // 刷题设置（本地持久化）
     const st = wx.getStorageSync('quiz_settings') || {};
     this.setData({ autoNext: !!st.autoNext, shuffleOpt: !!st.shuffleOpt });
@@ -606,6 +611,62 @@ Page({
     this._sel = []; // 当前题未提交的选择按新显示口径重选
     this.rebuildWindow();
     this.saveSettings();
+  },
+
+  /* ==================== 解析编辑（铅笔入口，全员可改：保存后对题库内全员生效） ==================== */
+
+  // 打开弹层并预填当前解析（背题取题目本身；答题态优先作答结果带回的解析）
+  onAnaEditTap() {
+    const q = this.getQuestion(this._idx);
+    if (!q) return;
+    const res = this._results[q.id];
+    const cur = this.data.viewMode === 'recite'
+      ? (q.analysis || '')
+      : (((res && res.analysis) || q.analysis) || '');
+    this.setData({ anaOpen: true, anaText: cur });
+  },
+
+  onAnaVisibleChange(e) {
+    if (e.detail.visible) return;
+    if (this.data.anaOpen) this.setData({ anaOpen: false });
+  },
+
+  onAnaInput(e) {
+    this.setData({ anaText: e.detail.value });
+  },
+
+  onAnaCancel() {
+    this.setData({ anaOpen: false });
+  },
+
+  async onAnaSave() {
+    if (this._anaSaving) return;
+    const q = this.getQuestion(this._idx);
+    if (!q) return;
+    const text = (this.data.anaText || '').trim();
+    this._anaSaving = true;
+    let data;
+    try {
+      data = await request({
+        url: `${API_BASE}/practice/analysis`,
+        method: 'PUT',
+        data: { questionId: q.id, analysis: text },
+      });
+    } catch (err) {
+      this.toast(err.message);
+      this._anaSaving = false;
+      return;
+    }
+    this._anaSaving = false;
+    // 同步批次缓存与作答结果，立即呈现新解析
+    const val = (data && data.analysis) || '';
+    Object.keys(this._cache).forEach((s) => {
+      (this._cache[s] || []).forEach((x) => { if (x.id === q.id) x.analysis = val || null; });
+    });
+    if (this._results[q.id]) this._results[q.id].analysis = val;
+    this.setData({ anaOpen: false });
+    this.refreshCurrentItem();
+    this.toast(val ? '解析已更新' : '已清空解析，将重新生成');
   },
 
   /* ==================== 翻题与完成 ==================== */

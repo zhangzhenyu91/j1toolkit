@@ -875,6 +875,30 @@ router.post('/practice/reset', async (req, res, next) => {
   }
 });
 
+// PUT /practice/analysis：修改题目解析（全员可改——刷题中纠错/补充解析，保存后即刻对题库内全员生效）
+// body { questionId, analysis }：解析为空 → 置 none 并入 AI 队列重新生成（与管理编辑同口径）；非空 → 存值置 done
+router.put('/practice/analysis', async (req, res, next) => {
+  try {
+    const questionId = Number(req.body && req.body.questionId);
+    if (!questionId) return fail(res, 400, 40030, '参数不完整');
+    const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ? AND status = 1', [questionId]);
+    if (!rows.length) return fail(res, 404, 40400, '题目不存在');
+    /* 题目所属题库需对用户可见（同作答口径） */
+    const bank = await findVisibleBank(rows[0].bank_id, req);
+    if (!bank) return fail(res, 404, 40400, '题目不存在');
+    const analysis = String((req.body && req.body.analysis) || '').trim().slice(0, 2000);
+    if (analysis) {
+      await pool.query("UPDATE quiz_question SET analysis = ?, analysis_status = 'done' WHERE id = ?", [analysis, questionId]);
+    } else {
+      await pool.query("UPDATE quiz_question SET analysis = NULL, analysis_status = 'none' WHERE id = ?", [questionId]);
+      analyzer.enqueue([questionId]);
+    }
+    return ok(res, { analysis: analysis || null }, analysis ? '解析已更新' : '已清空解析，将重新生成');
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // POST /practice/answer：提交作答判分（单选/判断精确等；多选集合相等即对，漏选判错）
 // 写答题记录 + 维护错题本（答错 upsert；答对连对 +1，达 3 移出）
 router.post('/practice/answer', async (req, res, next) => {

@@ -265,18 +265,26 @@
   .pv-opt.wrong .ab { border-color: var(--red); background: var(--red); color: #fff; }
   .pv-opt .tx { min-width: 0; }
   .pv-opt.lock { cursor: default; }
-  /* 解析态（正确答案/您的选择 + 统计 + 错题本动态）与试题详解卡 */
-  .r-line { margin-top: 14px; padding: 12px 14px; background: #fff; border: 1px solid var(--hair); border-radius: 10px; }
+  /* 解析态（正确答案/您的选择 + 统计 + 错题本动态）与试题详解卡：两卡左右留白一致（外缘对齐题干 15px 边界） */
+  .r-line { margin: 14px 15px 0; padding: 12px 15px; background: #fff; border: 1px solid var(--hair); border-radius: 10px; }
   .r-main { display: flex; gap: 22px; font-size: 13px; font-weight: 700; }
   .r-main b { margin-left: 6px; }
   .r-main b.ok { color: #2BA471; }
   .r-main b.bad { color: var(--red); }
   .r-sub { margin-top: 6px; font-size: 11px; color: var(--sub); }
   .r-sub.orange { color: var(--orange); font-weight: 700; }
-  .pv-ana { margin-top: 14px; padding: 14px 15px; background: var(--orange-soft); border-radius: 10px; }
+  .pv-ana { margin: 14px 15px 0; padding: 13px 15px; background: var(--orange-soft); border-radius: 10px; }
   .pv-ana .hd { display: flex; align-items: center; gap: 8px; color: var(--orange); font-size: 13.5px; font-weight: 800; letter-spacing: 1px; }
   .pv-ana .bd { margin-top: 9px; font-size: 12.8px; line-height: 1.8; color: #4A5670; }
   .pv-ana .ft { margin-top: 9px; font-size: 10.5px; color: #C29B7E; letter-spacing: .5px; }
+  /* 解析编辑入口（全员可改：刷题中纠错/补充，保存后对全员生效） */
+  .pv-ana-edit {
+    margin-left: auto; border: none; background: none; padding: 3px; border-radius: 6px;
+    color: #C29B7E; cursor: pointer; display: flex; transition: color .2s, background .2s;
+  }
+  .pv-ana-edit:hover { color: var(--orange); background: #fff; }
+  .pv-ana-edit svg { width: 14px; height: 14px; }
+  .pv-ana-text { width: 100%; min-height: 150px; resize: vertical; line-height: 1.7; }
   /* 底栏：收藏 / 对错计数 / 答题卡 / 设置 + 主按钮 */
   .pv-foot { flex: none; display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--hair2); }
   .pv-chipbtn {
@@ -1343,9 +1351,42 @@ function pvResultHtml(res, q) {
     + (banner ? '<div class="r-sub orange">' + banner + '</div>' : '') + '</div>';
 }
 function pvAnalysisHtml(text) {
-  return '<div class="pv-ana"><div class="hd">' + Shade.icon('lightbulb', 15) + '试题详解</div>'
+  return '<div class="pv-ana"><div class="hd">' + Shade.icon('lightbulb', 15) + '试题详解'
+    + '<button class="pv-ana-edit" id="pvAnaEdit" title="修改解析（对全员生效）">' + Shade.icon('edit', 14) + '</button></div>'
     + '<div class="bd">' + (text ? esc(text) : '解析生成中，稍后可查看') + '</div>'
     + (text ? '<div class="ft">解析内容仅供参考</div>' : '') + '</div>';
+}
+/* 修改解析（全员可改）：保存后同步本地缓存并即刻呈现 */
+function pvOpenAnalysisEdit() {
+  var q = pvGetQ(pv.idx);
+  if (!q) return;
+  var res = pv.results[q.id];
+  var cur = pv.viewMode === 'recite' ? (q.analysis || '') : (((res && res.analysis) || q.analysis) || '');
+  var html = Shade.mHead('修改解析')
+    + '<div class="imp-err-tip">解析对题库内全员可见，保存后即刻生效；留空则由 AI 重新生成</div>'
+    + '<textarea class="input pv-ana-text" id="pvAnaText" maxlength="2000" placeholder="填写本题解析">' + esc(cur) + '</textarea>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-primary" data-a="yes">保存</button></div>';
+  var inst = Shade.modal(html, { width: 560 });
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    var text = $('#pvAnaText', inst.box).value.trim();
+    this.disabled = true;
+    try {
+      var r = await Shade.api(API + '/practice/analysis', { method: 'PUT', body: { questionId: q.id, analysis: text } });
+      var val = (r.data && r.data.analysis) || '';
+      Object.keys(pv.cache).forEach(function (s) {
+        (pv.cache[s] || []).forEach(function (x) { if (x.id === q.id) x.analysis = val || null; });
+      });
+      if (pv.results[q.id]) pv.results[q.id].analysis = val;
+      Shade.toast(val ? '解析已更新' : '已清空解析，将重新生成', 'success');
+      inst.close();
+      pvRender();
+    } catch (e) {
+      Shade.toast(e.message, 'error');
+      this.disabled = false;
+    }
+  });
 }
 function pvRender() {
   var pane = $('#panePractice');
@@ -1704,6 +1745,7 @@ function bindPracticeEvents() {
     if (e.target.closest('#pvFav')) { pvToggleFav(); return; }
     if (e.target.closest('#pvSheet')) { pvOpenSheet(); return; }
     if (e.target.closest('#pvSet')) { pvOpenSettings(); return; }
+    if (e.target.closest('#pvAnaEdit')) { pvOpenAnalysisEdit(); return; }
     if (e.target.closest('#pvSubmit')) { pvSubmit(); return; }
     if (e.target.closest('#pvNext')) {
       if (pv.idx >= pv.outline.length - 1) pvExit();
