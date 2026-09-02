@@ -277,7 +277,7 @@
   letter-spacing: 1rpx;
 }
 
-.result-block .r-main b {
+.result-block .r-main .v {
   font-weight: 800;
   letter-spacing: 2rpx;
 }

@@ -74,8 +74,8 @@
             <!-- 结果区（考试宝式：正确答案/您的选择 + 本人/全员作答统计 + 错题本动态） -->
             <view class="result-block" wx:if="{{item.submitted && item.result}}">
               <view class="r-main">
-                <text>正确答案 <b class="ok">{{item.result.answerText}}</b></text>
-                <text wx:if="{{item.result.yourText}}">您的选择 <b class="{{item.result.right ? 'ok' : 'bad'}}">{{item.result.yourText}}</b></text>
+                <text>正确答案 <text class="ok v">{{item.result.answerText}}</text></text>
+                <text wx:if="{{item.result.yourText}}">您的选择 <text class="v {{item.result.right ? 'ok' : 'bad'}}">{{item.result.yourText}}</text></text>
               </view>
               <view class="r-sub" wx:if="{{item.result.myStatsText}}">{{item.result.myStatsText}}</view>
               <view class="r-sub" wx:if="{{item.result.allStatsText}}">{{item.result.allStatsText}}</view>
