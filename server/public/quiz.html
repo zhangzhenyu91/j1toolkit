@@ -1134,6 +1134,15 @@ function pvClearSession() {
 }
 
 /* ---------- 左卡：我的题库 ---------- */
+/* 作答/清空后防抖静默刷新左卡进度（个人口径列表轻量；连答合并，600ms 内只发一次） */
+var pvSideTimer = 0;
+function pvRefreshSideSoon() {
+  if (pvSideTimer) clearTimeout(pvSideTimer);
+  pvSideTimer = setTimeout(function () {
+    pvSideTimer = 0;
+    pvLoadBanks(true);
+  }, 600);
+}
 async function pvLoadBanks(quiet) {
   if (!quiet) { pv.banks = null; pv.banksErr = ''; pvRenderSide(); }
   try {
@@ -1523,6 +1532,7 @@ async function pvSubmit() {
     pv.myRight[q.id] = d.right ? 1 : 0; // 计数与答题卡着色数据源同步
     pv.sel = [];
     pvRender();
+    pvRefreshSideSoon(); // 左卡我的题库进度同步（已练 +1）
     if (d.wrong && d.wrong.removed) Shade.toast('已移出错题本', 'success');
     /* 答对自动下一题（设置开启；答错停留看解析；末尾题不自动） */
     if (pv.settings.autoNext && d.right && pv.idx < pv.outline.length - 1) {
@@ -1626,10 +1636,11 @@ async function pvResetRecords() {
   if (pv.mode === 'seq') localStorage.removeItem('quiz_seq_' + pv.bankId);
   try {
     await pvFetchOutline();
-    if (!pv.outline.length) { pvShowEmpty(pv.mode); return; }
+    if (!pv.outline.length) { pvShowEmpty(pv.mode); pvLoadBanks(true); return; }
     await pvEnsureBatch(pv.idx, true);
     pvRender();
   } catch (e) { Shade.toast(e.message, 'error'); return; }
+  pvLoadBanks(true); // 清空后左卡进度归零同步
   Shade.toast('已清空做题记录', 'success');
 }
 function pvOpenSettings() {
