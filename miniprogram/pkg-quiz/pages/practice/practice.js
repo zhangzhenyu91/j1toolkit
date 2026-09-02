@@ -2,7 +2,7 @@
 // 入参 { bankId, mode=seq|rand|wrong|fav, title }；wrong/fav 模式 bankId 可空（页面入口均已带 bankId）
 // 题序大纲：进入先拉 lite=1 全量大纲（seq 按 sort,id 升序 / rand 本 session 随机序 / wrong 按最近答错倒序 / fav 按最近收藏倒序），
 // 题目内容按 20/批按需拉取（offset=批首大纲下标；答题模式不带答案，背题模式 withAnswer=1 带 answer/analysis；批次带 fav 收藏标记）
-// seq 断点续刷：wx.setStorageSync(`quiz_seq_${bankId}`, 大纲下标)，进入时恢复
+// seq 断点续刷：服务端 quiz_user_bank.seq_idx（跨端续刷），大纲响应带 seqIdx 恢复；位置变化防抖上报 POST /practice/progress
 // 做题记录恢复（seq/rand）：取题带 withRecord=1——lite 大纲已答题带 myRight 对错标记（答题卡着色/已答计数数据源 _myRight），
 // 批次已答题带 myAnswer/answer/analysis（重建 _results 解析态）；重练走答题卡「清空做题记录」（删服务端记录后恢复自然为空）
 // wrong/fav 专项练习不带 withRecord（错题重练需重新作答判分，恢复会挡提交）
@@ -104,6 +104,9 @@ Page({
     this._shuffle = {}; // qid → 展示位→原选项下标 映射（选项乱序；本题已答则保留以与其作答记录一致）
     this._autoTimer = null; // 答对自动下一题延时器
     this._anaSaving = false; // 解析保存进行中（防连点）
+    this._serverSeq = null; // 服务端 seq 断点（大纲响应 seqIdx，跨端续刷；null=未开始）
+    this._seqTimer = null; // 断点上报防抖器
+    this._seqSent = null; // 最近一次已上报的位置（避免重复上报）
     // 刷题设置（本地持久化）
     const st = wx.getStorageSync('quiz_settings') || {};
     this.setData({ autoNext: !!st.autoNext, shuffleOpt: !!st.shuffleOpt });
@@ -150,10 +153,11 @@ Page({
         });
         return;
       }
-      // seq 断点恢复（大纲下标；题库缩水越界则兜底到末尾题）
+      // seq 断点恢复（服务端 seqIdx，跨端续刷；题库缩水越界则兜底到末尾题）
       if (this._mode === 'seq' && this._bankId) {
-        const saved = Number(wx.getStorageSync(`quiz_seq_${this._bankId}`)) || 0;
-        this._idx = Math.min(Math.max(saved, 0), this._outline.length - 1);
+        const saved = this._serverSeq;
+        this._idx = Math.min(Math.max(saved === null ? 0 : saved, 0), this._outline.length - 1);
+        this._seqSent = this._idx; // 首帧位置即服务端值，无需立即上报
       }
       await this.ensureBatch(this._idx, true);
       if (!this.getQuestion(this._idx)) {
@@ -168,13 +172,15 @@ Page({
     }
   },
 
-  // 全量题序大纲（lite=1：仅 id + type，不分页）；seq/rand 带 withRecord=1 恢复历史作答对错（_myRight）
+  // 全量题序大纲（lite=1：仅 id + type，不分页）；seq/rand 带 withRecord=1 恢复历史作答对错（_myRight）；
+  // seq 响应附带服务端断点 seqIdx（跨端续刷）
   async fetchOutline() {
     let url = `${API_BASE}/practice/questions?mode=${this._mode}&lite=1`;
     if (this._bankId) url += `&bankId=${encodeURIComponent(this._bankId)}`;
     if ((this._mode === 'seq' || this._mode === 'rand') && this._bankId) url += '&withRecord=1';
     const data = await request({ url });
     this._outline = (data && data.list) || [];
+    this._serverSeq = data && typeof data.seqIdx === 'number' ? data.seqIdx : null;
     this._myRight = {};
     this._outline.forEach((o) => {
       if (o.myRight !== undefined) this._myRight[o.id] = o.myRight;
@@ -371,10 +377,8 @@ Page({
       isLast: this._idx >= total - 1,
     });
     this.refreshBar();
-    // seq 断点保存（大纲下标，0 起）
-    if (this._mode === 'seq' && this._bankId) {
-      wx.setStorageSync(`quiz_seq_${this._bankId}`, this._idx);
-    }
+    // seq 断点上报（服务端存储，跨端续刷；防抖）
+    this.syncSeq();
     // 相邻题所在批次静默预拉（跟手翻页不卡）
     [this._idx - 1, this._idx + 1].forEach((i) => {
       if (i < 0 || i >= total) return;
@@ -669,6 +673,38 @@ Page({
     this.toast(val ? '解析已更新' : '已清空解析，将重新生成');
   },
 
+  /* ==================== seq 断点上报（跨端续刷） ==================== */
+
+  // 位置变化防抖 500ms 上报 POST /practice/progress（与已上报值相同则跳过）
+  syncSeq() {
+    if (this._mode !== 'seq' || !this._bankId) return;
+    if (this._seqTimer) clearTimeout(this._seqTimer);
+    this._seqTimer = setTimeout(() => {
+      this._seqTimer = null;
+      if (this._seqSent === this._idx) return;
+      this._seqSent = this._idx;
+      request({
+        url: `${API_BASE}/practice/progress`,
+        method: 'POST',
+        data: { bankId: this._bankId, idx: this._idx },
+      }).catch(() => {});
+    }, 500);
+  },
+
+  // 退出页面前补发未上报的断点（防抖窗口内退出兜底，fire-and-forget）
+  onUnload() {
+    if (!this._seqTimer) return;
+    clearTimeout(this._seqTimer);
+    this._seqTimer = null;
+    if (this._mode !== 'seq' || !this._bankId || this._seqSent === this._idx) return;
+    this._seqSent = this._idx;
+    request({
+      url: `${API_BASE}/practice/progress`,
+      method: 'POST',
+      data: { bankId: this._bankId, idx: this._idx },
+    }).catch(() => {});
+  },
+
   /* ==================== 翻题与完成 ==================== */
 
   // 解析态/背题主按钮：末尾题=完成返回，否则下一题（等价于左滑一题）
@@ -747,7 +783,7 @@ Page({
         this.toast(err.message);
         return;
       }
-      // 清空本地断点与已答状态（rand 大纲一并换新的 session 随机序）
+      // 清空本地已答状态（rand 大纲一并换新的 session 随机序；服务端断点已由 reset 重置为 NULL）
       this._results = {};
       this._myRight = {};
       this._cache = {};
@@ -759,7 +795,11 @@ Page({
       }
       this._sel = [];
       this._idx = 0;
-      if (this._mode === 'seq') wx.removeStorageSync(`quiz_seq_${this._bankId}`);
+      this._seqSent = 0; // 服务端断点已被重置为 NULL（未开始），0 位不再重复上报
+      if (this._seqTimer) {
+        clearTimeout(this._seqTimer);
+        this._seqTimer = null;
+      }
       this.setData({ sheetOpen: false });
       try {
         await this.fetchOutline();

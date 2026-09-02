@@ -298,6 +298,8 @@ router.get('/banks/:id/home', async (req, res, next) => {
     // 错题/收藏均为个人口径，按本题库过滤（跟着题库走）
     const [wr] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_wrong WHERE user_id = ? AND bank_id = ?', [req.user.id, bank.id]);
     const [fv] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_favorite WHERE user_id = ? AND bank_id = ?', [req.user.id, bank.id]);
+    // 顺序练习断点（跨端续刷；null=未开始）
+    const [pr] = await pool.query('SELECT seq_idx FROM quiz_user_bank WHERE user_id = ? AND bank_id = ?', [req.user.id, bank.id]);
     return ok(res, {
       id: bank.id,
       name: b.name,
@@ -310,6 +312,7 @@ router.get('/banks/:id/home', async (req, res, next) => {
       rightRate: uTotal ? Math.round((Number(us[0].rights) / uTotal) * 100) : null,
       wrongCount: Number(wr[0].cnt) || 0,
       favCount: Number(fv[0].cnt) || 0,
+      seqIdx: pr.length && pr[0].seq_idx !== null ? Number(pr[0].seq_idx) : null,
     });
   } catch (err) {
     return next(err);
@@ -854,14 +857,42 @@ router.get('/practice/questions', async (req, res, next) => {
       }
       return item;
     });
-    return ok(res, { total, list });
+    // seq 断点（跨端续刷）：lite 大纲响应附带服务端断点（quiz_user_bank.seq_idx，null=未开始）
+    let seqIdx = null;
+    if (lite && mode === 'seq' && bankId) {
+      const [pr] = await pool.query(
+        'SELECT seq_idx FROM quiz_user_bank WHERE user_id = ? AND bank_id = ?',
+        [req.user.id, bankId]
+      );
+      if (pr.length && pr[0].seq_idx !== null) seqIdx = Number(pr[0].seq_idx);
+    }
+    return ok(res, { total, list, seqIdx });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /practice/progress：顺序练习断点上报（跨端续刷；body { bankId, idx }，idx 为大纲下标 0 起）
+// 订阅行 upsert（未加入题库也可直答，行缺失时自愈补行）
+router.post('/practice/progress', async (req, res, next) => {
+  try {
+    const bankId = Number(req.body && req.body.bankId) || 0;
+    const idx = Math.max(0, Number(req.body && req.body.idx) || 0);
+    if (!bankId) return fail(res, 400, 40030, '请选择题库');
+    const bank = await findVisibleBank(bankId, req);
+    if (!bank) return fail(res, 404, 40400, '题库不存在');
+    await pool.query(
+      'INSERT INTO quiz_user_bank (user_id, bank_id, seq_idx) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE seq_idx = VALUES(seq_idx)',
+      [req.user.id, bankId, idx]
+    );
+    return ok(res, null);
   } catch (err) {
     return next(err);
   }
 });
 
 // POST /practice/reset：清空当前用户在某题库的做题记录（body { bankId } 必传，findVisibleBank 校验）
-// 只删 quiz_record 练习记录，错题本 quiz_wrong 保留
+// 只删 quiz_record 练习记录，错题本 quiz_wrong 保留；断点 seq_idx 一并重置（NULL=未开始）
 router.post('/practice/reset', async (req, res, next) => {
   try {
     const bankId = Number(req.body && req.body.bankId) || 0;
@@ -869,6 +900,7 @@ router.post('/practice/reset', async (req, res, next) => {
     const bank = await findVisibleBank(bankId, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在');
     const [r] = await pool.query('DELETE FROM quiz_record WHERE user_id = ? AND bank_id = ?', [req.user.id, bankId]);
+    await pool.query('UPDATE quiz_user_bank SET seq_idx = NULL WHERE user_id = ? AND bank_id = ?', [req.user.id, bankId]);
     return ok(res, { cleared: Number(r.affectedRows) || 0 }, '已清空做题记录');
   } catch (err) {
     return next(err);

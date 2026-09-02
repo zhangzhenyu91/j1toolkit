@@ -1,6 +1,6 @@
 // 题库刷题 · 题库主页（参考考试宝科目页：练习入口与错题/收藏都跟着题库走，不再全局混排）
 // 信息卡（题数/已练/正确率 + 进度条 + 解析状态，GET /banks/:id/home）+ 宫格四入口：
-// 顺序练习（进度读本地断点 quiz_seq_{bankId}）/ 随机练习 → practice 页；
+// 顺序练习（进度读服务端断点 home.seqIdx，跨端续刷）/ 随机练习 → practice 页；
 // 我的错题 → 错题本页（按本题库过滤）；我的收藏 → practice mode=fav 刷题；
 // 底部「移出题库」= DELETE /banks/:id/join（保留练习记录与错题），返回列表页 onShow 自动刷新
 import Toast from 'tdesign-miniprogram/toast/index';
@@ -103,6 +103,7 @@ Page({
       pct: total ? Math.round((answered / total) * 100) : 0,
       wrongCount: h.wrongCount || 0,
       favCount: h.favCount || 0,
+      seqIdx: h.seqIdx === null || h.seqIdx === undefined ? null : Number(h.seqIdx), // 顺序练习断点（服务端，跨端续刷）
       analyzing: anPending > 0,
       analyzingText: `解析中 ${anDone}/${anTotal || total}`,
       // 解析就绪徽章：无排队且有已生成解析
@@ -110,15 +111,15 @@ Page({
     };
   },
 
-  // 顺序练习进度文案（本地断点 quiz_seq_{bankId} 为大纲下标 0 起；无断点=未开始）
+  // 顺序练习进度文案（服务端断点 seqIdx 为大纲下标 0 起，跨端续刷；null=未开始）
   refreshSeqText() {
     const total = this.data.bank ? this.data.bank.questionCount : 0;
     if (!total) {
       this.setData({ seqText: '暂无题目' });
       return;
     }
-    const saved = Number(wx.getStorageSync(`quiz_seq_${this._bankId}`)) || 0;
-    if (!saved) {
+    const saved = this.data.bank.seqIdx;
+    if (saved === null || saved === undefined) {
       this.setData({ seqText: `共 ${total} 题 · 未开始` });
       return;
     }

@@ -5,7 +5,7 @@
      统计行 + 顺序/随机/错题/收藏四入口，对齐小程序 bank 页）；点入口进刷题页（接管右卡）：顶行 返回 + 答题/背题切换
      + 进度 x/total，选项仅字母圈 + 文字无卡片底、左边界对齐题干内容首字；解析态 = 正确答案/您的选择 + 本人/全员统计
      + 错题本动态 + 试题详解卡；底栏 收藏/对错计数/答题卡/设置 + 主按钮，支持 ← → 方向键切题；
-     断点续刷（localStorage quiz_seq_{bankId}）与做题记录恢复（取题 withRecord=1）同小程序，答题卡居中弹层可清空做题记录；
+     断点续刷（服务端 quiz_user_bank.seq_idx，跨端续刷）与做题记录恢复（取题 withRecord=1）同小程序，答题卡居中弹层可清空做题记录；
      题库管理：原双卡视图不变（左题库列表 GET /banks/manage + 右题目表格/导入/AI 解析轮询）；
      班组隔离：超管页签旁班组切换下拉（localStorage.quiz_team_id，管理请求统一带 team_id，见 qz()）；
      API 直连主平台 /api/v1/quiz/*（Bearer token 经 Shade.api） -->
@@ -405,7 +405,8 @@
 /* ============================================================
    题库刷题网页版：刷题练习 + 题库管理双页签
    刷题练习：我的题库（GET /banks）→ 题库主页（GET /banks/:id/home）→ 顺序/随机/错题/收藏四模式刷题
-   （大纲 lite=1 + 分批拉题；seq/rand 带 withRecord=1 恢复历史作答；断点 localStorage quiz_seq_{bankId}；
+   （大纲 lite=1 + 分批拉题；seq/rand 带 withRecord=1 恢复历史作答；断点存服务端 quiz_user_bank.seq_idx（跨端续刷），
+   位置变化防抖上报 POST /practice/progress，大纲响应带 seqIdx 恢复；
    答题卡弹层可清空做题记录；设置 答对自动下一题/选项乱序 存 localStorage quiz_settings）
    题库管理：原双卡（/banks/manage + 题目表格/导入/AI 解析轮询），页签首次切入才加载
    接口同源 /api/v1/quiz/*，响应信封由 Shade.api 解包（code!==0 抛错）；模板 xlsx 走 fetch + blob 下载
@@ -1096,6 +1097,7 @@ var pv = {
   shuffle: {},                  // qid → 展示位→原选项下标（选项乱序；已答题保留以与其作答记录一致）
   idx: 0, sel: [], inflight: null, submitting: false, favBusy: false,
   started: false,               // 刷题页是否接管右卡
+  seqSaved: null,               // 服务端 seq 断点（大纲响应 seqIdx；null=未开始）
   settings: { autoNext: false, shuffleOpt: false },
   autoTimer: 0
 };
@@ -1220,10 +1222,10 @@ function pvRenderHome() {
   var h = pv.home;
   var p = aiProgress(h);
   var an = h.analysis || {};
-  var seqSaved = Number(localStorage.getItem('quiz_seq_' + pv.bankId)) || 0;
+  var seqSaved = h.seqIdx === null || h.seqIdx === undefined ? null : Number(h.seqIdx); // 服务端断点（跨端续刷）
   var seqText = !h.questionCount ? '暂无题目'
-    : seqSaved ? '刷到 ' + Math.min(seqSaved + 1, h.questionCount) + '/' + h.questionCount + ' · 断点续刷'
-      : '共 ' + h.questionCount + ' 题 · 未开始';
+    : seqSaved === null ? '共 ' + h.questionCount + ' 题 · 未开始'
+      : '刷到 ' + Math.min(seqSaved + 1, h.questionCount) + '/' + h.questionCount + ' · 断点续刷';
   var anReady = (an.pending || 0) === 0 && (an.done || 0) > 0;
   var entries = [
     { m: 'seq', icon: 'view-list', t: '顺序练习', d: seqText },
@@ -1250,11 +1252,25 @@ function pvRenderHome() {
 }
 
 /* ---------- 刷题：大纲 + 分批取题（与小程序 practice 页同口径） ---------- */
+/* seq 断点上报（服务端 quiz_user_bank.seq_idx，跨端续刷）：位置变化防抖 500ms，同值跳过 */
+var pvSeqTimer = 0;
+var pvSeqSent = null; // 最近一次已上报的位置
+function pvSyncSeq() {
+  if (pv.mode !== 'seq' || !pv.bankId) return;
+  if (pvSeqTimer) clearTimeout(pvSeqTimer);
+  pvSeqTimer = setTimeout(function () {
+    pvSeqTimer = 0;
+    if (pvSeqSent === pv.idx) return;
+    pvSeqSent = pv.idx;
+    Shade.api(API + '/practice/progress', { method: 'POST', body: { bankId: pv.bankId, idx: pv.idx } }).catch(function () {});
+  }, 500);
+}
 async function pvFetchOutline() {
   var url = API + '/practice/questions?mode=' + pv.mode + '&lite=1&bankId=' + pv.bankId;
   if (pv.mode === 'seq' || pv.mode === 'rand') url += '&withRecord=1'; // 恢复历史作答对错
   var r = await Shade.api(url);
   pv.outline = (r.data && r.data.list) || [];
+  pv.seqSaved = r.data && typeof r.data.seqIdx === 'number' ? r.data.seqIdx : null; // 服务端 seq 断点（跨端续刷）
   pv.myRight = {};
   pv.outline.forEach(function (o) { if (o.myRight !== undefined) pv.myRight[o.id] = o.myRight; });
 }
@@ -1309,10 +1325,10 @@ async function pvStart(mode) {
   try {
     await pvFetchOutline();
     if (!pv.outline.length) { pvShowEmpty(mode); return; }
-    /* seq 断点恢复（大纲下标；题库缩水越界则兜底到末尾题） */
+    /* seq 断点恢复（服务端 seqIdx，跨端续刷；题库缩水越界则兜底到末尾题） */
     if (mode === 'seq') {
-      var saved = Number(localStorage.getItem('quiz_seq_' + pv.bankId)) || 0;
-      pv.idx = Math.min(Math.max(saved, 0), pv.outline.length - 1);
+      pv.idx = Math.min(Math.max(pv.seqSaved === null ? 0 : pv.seqSaved, 0), pv.outline.length - 1);
+      pvSeqSent = pv.idx; // 首帧位置即服务端值，无需立即上报
     }
     await pvEnsureBatch(pv.idx, true);
     if (!pvGetQ(pv.idx)) { Shade.toast('题目加载失败，请重试', 'error'); return; }
@@ -1486,8 +1502,7 @@ async function pvGo(idx) {
   if (!pvGetQ(idx)) { Shade.toast('题目加载失败，请重试', 'error'); return; }
   pv.idx = idx;
   pv.sel = [];
-  /* seq 断点保存（大纲下标，0 起） */
-  if (pv.mode === 'seq') localStorage.setItem('quiz_seq_' + pv.bankId, String(pv.idx));
+  pvSyncSeq(); /* seq 断点上报（服务端存储，跨端续刷；防抖） */
   pvRender();
 }
 
@@ -1630,10 +1645,10 @@ async function pvResetRecords() {
   try {
     await Shade.api(API + '/practice/reset', { method: 'POST', body: { bankId: pv.bankId } });
   } catch (e) { Shade.toast(e.message, 'error'); return; }
-  /* 清空本地断点与已答状态（rand 大纲一并换新的随机序） */
+  /* 清空本地已答状态（rand 大纲一并换新的随机序；服务端断点已由 reset 重置为 NULL） */
   pv.cache = {}; pv.results = {}; pv.favs = {}; pv.shuffle = {}; pv.sel = [];
   pv.idx = 0;
-  if (pv.mode === 'seq') localStorage.removeItem('quiz_seq_' + pv.bankId);
+  pvSeqSent = 0; // 0 位不再重复上报
   try {
     await pvFetchOutline();
     if (!pv.outline.length) { pvShowEmpty(pv.mode); pvLoadBanks(true); return; }
@@ -1777,6 +1792,15 @@ function bindPracticeEvents() {
     if (document.querySelector('.mask.open')) return;
     if (e.key === 'ArrowLeft') pvGo(pv.idx - 1);
     else pvGo(pv.idx + 1);
+  });
+  /* 页面隐藏/离开时补发未上报的断点（防抖窗口内退出兜底，fire-and-forget） */
+  window.addEventListener('pagehide', function () {
+    if (!pvSeqTimer) return;
+    clearTimeout(pvSeqTimer);
+    pvSeqTimer = 0;
+    if (pv.mode !== 'seq' || !pv.bankId || pvSeqSent === pv.idx) return;
+    pvSeqSent = pv.idx;
+    Shade.api(API + '/practice/progress', { method: 'POST', body: { bankId: pv.bankId, idx: pv.idx } }).catch(function () {});
   });
 }
 

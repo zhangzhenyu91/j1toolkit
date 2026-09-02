@@ -64,6 +64,7 @@ const DDL = [
     user_id BIGINT UNSIGNED NOT NULL COMMENT '订阅用户，关联 sys_user.id',
     bank_id BIGINT UNSIGNED NOT NULL COMMENT '题库，关联 quiz_bank.id',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    seq_idx INT NULL COMMENT '顺序练习断点（大纲下标 0 起，跨端续刷）',
     UNIQUE KEY uk_user_bank (user_id, bank_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人题库订阅'`,
   `CREATE TABLE IF NOT EXISTS quiz_favorite (
@@ -105,6 +106,19 @@ async function ensureQuizSchema(pool) {
        COMMENT '所属班组，关联 sys_team.id；scope=all 时为 NULL'`
     );
     console.log('[初始化] 已将 quiz_bank.team_id 放宽为可空');
+  }
+
+  // 老库兼容：quiz_user_bank 补 seq_idx 列（顺序练习断点存服务端，跨端续刷）
+  const [seqIdxCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quiz_user_bank' AND COLUMN_NAME = 'seq_idx'`
+  );
+  if (!seqIdxCols.length) {
+    await pool.query(
+      `ALTER TABLE quiz_user_bank ADD COLUMN seq_idx INT NULL
+       COMMENT '顺序练习断点（大纲下标 0 起，跨端续刷）' AFTER created_at`
+    );
+    console.log('[初始化] 已为 quiz_user_bank 补充 seq_idx 列');
   }
 
   // 启动自愈：进程重启会把「生成中」的回写弄丢，复位为 none 防止永远卡 pending（可经 analyze-retry 重新入队）
