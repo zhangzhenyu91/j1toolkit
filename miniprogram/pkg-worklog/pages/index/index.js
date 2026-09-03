@@ -737,7 +737,7 @@ Page({
         clockRaw,
         clockRows: showClock ? this.buildClockRows(members, clockRaw, ckReadonly) : [],
         showClock,
-        // 他班跨班卡：不渲染「从商旅同步」（商旅账号按归属班绑定，仅归属班可同步）
+        // 他班跨班卡：不渲染「从商旅同步」（仅归属班可发起同步，后端按 entry.team_id 校验）
         syncHidden: !!e.cross_team && Number(e.team_id) !== ((this._teamId || this._myTeamId) || 0),
         sgccOn: members.some((m) => m.sgccBound !== undefined), // 商旅是否开启（后端带商旅字段即开启；上传等待文案据此区分）
         ckReadonly,

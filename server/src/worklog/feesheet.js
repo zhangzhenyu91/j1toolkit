@@ -84,11 +84,15 @@ async function loadData(teamId, from, to) {
   });
 
   // 费用：每人每日一条（worklog_fee，商旅同步）；键 = member_id|fee_date
-  const [fees] = await pool.query(
-    `SELECT member_id, DATE_FORMAT(fee_date, '%Y-%m-%d') AS fee_date, food_fee, transit_fee
-     FROM worklog_fee WHERE team_id = ? AND fee_date BETWEEN ? AND ?`,
-    [teamId, from, to]
-  );
+  // member 口径（去 team 过滤）：成员行调班直接迁移（member_id 稳定），调班日费用行 team_id 为写入时快照，按成员取才不漏
+  const personIds = persons.map((p) => p.id);
+  const [fees] = personIds.length
+    ? await pool.query(
+        `SELECT member_id, DATE_FORMAT(fee_date, '%Y-%m-%d') AS fee_date, food_fee, transit_fee
+         FROM worklog_fee WHERE member_id IN (?) AND fee_date BETWEEN ? AND ?`,
+        [personIds, from, to]
+      )
+    : [[]];
   const feeMap = {};
   fees.forEach((f) => {
     feeMap[`${f.member_id}|${f.fee_date}`] = Number(f.food_fee) + Number(f.transit_fee);

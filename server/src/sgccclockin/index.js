@@ -42,22 +42,30 @@ function dots(dateStr) {
 
 // ---------- 账号工具 ----------
 
-// 本人绑定行（绑定 = 本人短信登录自己的商旅账号）
+// 本人绑定行（绑定 = 本人短信登录自己的商旅账号；token 跟人走，user_id 全局唯一，调班无需重绑）
 async function myAccount(req) {
   const [rows] = await pool.query(
-    'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND user_id = ?',
-    [req.team.id, req.user.id]
+    'SELECT * FROM worklog_sgcc_account WHERE user_id = ?',
+    [req.user.id]
   );
   return rows[0] || null;
 }
 
-// 出工成员对应的绑定行（打卡/照片以成员为口径，代打卡也用被打卡人的账号与机型）
-async function accountByMember(teamId, memberId) {
+// 出工成员对应的绑定行（人级解析：先按 member_id 直连，落空经 member.user_id 兜底——
+// 调班重名回退路径的旧成员行也能解析到本人账号；代打卡用被打卡人的账号与机型）
+async function accountByMember(memberId) {
   const [rows] = await pool.query(
-    'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND member_id = ?',
-    [teamId, memberId]
+    'SELECT * FROM worklog_sgcc_account WHERE member_id = ?',
+    [memberId]
   );
-  return rows[0] || null;
+  if (rows.length) return rows[0];
+  const [fallback] = await pool.query(
+    `SELECT a.* FROM worklog_sgcc_account a
+     JOIN worklog_member m ON m.id = ?
+     WHERE m.user_id IS NOT NULL AND a.user_id = m.user_id`,
+    [memberId]
+  );
+  return fallback[0] || null;
 }
 
 // 协议调用设备口径：一律用被打卡人绑定的机型/系统版本
@@ -107,9 +115,25 @@ async function notifyTokenExpired(account) {
   });
 }
 
-// 打卡/费用操作前置：取成员绑定行 + 校验登录态（失效实时探测一次兜底）
-async function requireMemberAccount(req, res, memberId) {
-  const account = await accountByMember(req.team.id, memberId);
+// 打卡/费用操作前置：成员有效性校验（本班成员，或当日/指定日期本班卡片上的他班成员——跨班卡、人已调班的旧卡均可代打卡；
+// 账号人级解析全局化后防跨班操作与本班无关的他班成员）+ 取绑定行 + 校验登录态（失效实时探测一次兜底）
+async function requireMemberAccount(req, res, memberId, date = '') {
+  if (!req.team) {
+    fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    return null;
+  }
+  const [mrows] = await pool.query(
+    `SELECT m.id FROM worklog_member m
+     WHERE m.id = ? AND (m.team_id = ? OR EXISTS (
+       SELECT 1 FROM worklog_entry e JOIN worklog_entry_member em ON em.entry_id = e.id
+       WHERE e.team_id = ? AND em.member_id = m.id AND e.log_date = ?))`,
+    [memberId, req.team.id, req.team.id, date]
+  );
+  if (!mrows.length) {
+    fail(res, 404, 40400, '成员不存在或不属于本班组');
+    return null;
+  }
+  const account = await accountByMember(memberId);
   if (!account) {
     fail(res, 400, 40020, '该成员未绑定商旅账号，请其本人在「我的 → 绑定商旅」绑定');
     return null;
@@ -148,7 +172,9 @@ function fmtCnDateTime(v) {
 // 打卡成功后用 dayNew 全量刷新该日打卡流水（工时一并回写）。
 // seq 分配规则：按 detailId 匹配本地已有记录保留原 seq（防止排序重排导致开始/结束互换）；
 // 新记录（本地无该 detailId）按时间排序分配到空余 seq 位。
-async function refreshClockins(account, date) {
+// 本地行键 memberId/teamId = 卡片上下文（缺省账号自身口径）：打卡/费用行以 member_id 为人级稳定键，
+// team_id 仅写入时所属班快照——调班后人级读取不受 team_id 影响，代打卡落在卡片成员名下
+async function refreshClockins(account, date, memberId = account.member_id, teamId = account.team_id) {
   const d = await sgcc.dayNew(account.token, date, devOpt(account));
   const body = d && Number(d.statusCode) === 200 && d.data && d.data.body;
   if (!body) return null;
@@ -158,7 +184,7 @@ async function refreshClockins(account, date) {
   // 查本地已有记录，建立 detailId → seq 映射
   const [existing] = await pool.query(
     'SELECT seq, detail_id FROM worklog_clockin WHERE member_id = ? AND clock_date = ?',
-    [account.member_id, date]
+    [memberId, date]
   );
   const seqByDetailId = {};
   for (const row of existing) {
@@ -189,7 +215,7 @@ async function refreshClockins(account, date) {
        ON DUPLICATE KEY UPDATE detail_id = VALUES(detail_id), clock_time = VALUES(clock_time),
          position = VALUES(position), longitude = VALUES(longitude), latitude = VALUES(latitude),
          work_hours = VALUES(work_hours)`,
-      [account.team_id, account.member_id, date, it._seq,
+      [teamId, memberId, date, it._seq,
         it._detailId, it._t,
         String(it.position || ''), String(it.longitude ?? ''), String(it.latitude ?? ''),
         String(body.workHours ?? '')]
@@ -367,55 +393,72 @@ router.post('/login/bind', async (req, res, next) => {
     );
     const memberId = members.length ? members[0].id : null;
 
-    await pool.query(
-      `INSERT INTO worklog_sgcc_account (team_id, user_id, member_id, mobile, token, device_type, system_version, token_status, last_check_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW())
-       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), mobile = VALUES(mobile), token = VALUES(token),
-         device_type = IF(VALUES(device_type) = '', device_type, VALUES(device_type)),
-         system_version = IF(VALUES(system_version) = '', system_version, VALUES(system_version)),
-         member_id = VALUES(member_id), token_status = 1, last_check_at = NOW()`,
-      [req.team.id, req.user.id, memberId, String(mobile), token,
-        deviceType || 'Xiaomi 2509FPN0BC', systemVersion || 'Android 16']
-    );
+    // 落库归并（人级唯一 uk_user/uk_member，token 跟人走）：
+    // 本人已有绑定行（含调班前旧班行）→ 更新为当前班组/成员口径；无本人行但该成员有代绑行 → 接管回本人；
+    // 两者并存且不同行（代绑残留）→ 删代绑行后更新本人行；设备口径沿用原 ODKU 语义（缺省值覆盖）
+    const [byUser] = await pool.query('SELECT id FROM worklog_sgcc_account WHERE user_id = ?', [req.user.id]);
+    const [byMember] = memberId
+      ? await pool.query('SELECT id FROM worklog_sgcc_account WHERE member_id = ?', [memberId])
+      : [[]];
+    const devType = deviceType || 'Xiaomi 2509FPN0BC';
+    const sysVer = systemVersion || 'Android 16';
+    if (byUser.length && byMember.length && byUser[0].id !== byMember[0].id) {
+      await pool.query('DELETE FROM worklog_sgcc_account WHERE id = ?', [byMember[0].id]);
+    }
+    if (byUser.length) {
+      await pool.query(
+        `UPDATE worklog_sgcc_account SET team_id = ?, member_id = ?, mobile = ?, token = ?,
+           device_type = ?, system_version = ?, token_status = 1, last_check_at = NOW() WHERE id = ?`,
+        [req.team.id, memberId, String(mobile), token, devType, sysVer, byUser[0].id]
+      );
+    } else if (byMember.length) {
+      await pool.query(
+        `UPDATE worklog_sgcc_account SET user_id = ?, team_id = ?, mobile = ?, token = ?,
+           device_type = ?, system_version = ?, token_status = 1, last_check_at = NOW() WHERE id = ?`,
+        [req.user.id, req.team.id, String(mobile), token, devType, sysVer, byMember[0].id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO worklog_sgcc_account (team_id, user_id, member_id, mobile, token, device_type, system_version, token_status, last_check_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW())`,
+        [req.team.id, req.user.id, memberId, String(mobile), token, devType, sysVer]
+      );
+    }
 
     // 重新登录成功：补核此前因登录态过期而核查失败的日期（异步不阻塞响应）
-    if (memberId) recompenseAfterBind(req.team.id, memberId);
+    if (memberId) recompenseAfterBind(memberId);
     return ok(res, { bound: true });
   } catch (err) { return next(err); }
 });
 
-// 绑定/重新登录成功后的补核（近 62 天、仅当日用车人，同定时核查口径）：
+// 绑定/重新登录成功后的补核（近 62 天、仅当日用车人，同定时核查口径；member 口径——调班后旧班失败记录也能补核）：
 // 异步执行，日期间按 SGCC_SYNC_INTERVAL_MS 间隔防风控；补核完成的日期清掉对应 auth 失败记录
-function recompenseAfterBind(teamId, memberId) {
+function recompenseAfterBind(memberId) {
   (async () => {
-    const [accRows] = await pool.query(
-      'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND member_id = ?',
-      [teamId, memberId]
-    );
-    const account = accRows[0];
+    const account = await accountByMember(memberId);
     if (!account) return;
     if (!(await probeAuth(account))) return; // 新 token 探测不过（异常）则不补核，避免误清失败记录
     const [fails] = await pool.query(
       `SELECT DISTINCT DATE_FORMAT(sync_date, '%Y-%m-%d') AS d FROM worklog_sync_log
-       WHERE team_id = ? AND member_id = ? AND type = 'auth' AND result = 'fail'
+       WHERE member_id = ? AND type = 'auth' AND result = 'fail'
          AND sync_date >= DATE_SUB(CURDATE(), INTERVAL 62 DAY) ORDER BY d`,
-      [account.team_id, account.member_id]
+      [memberId]
     );
     for (const { d } of fails) {
       const [m] = await pool.query(
-        `SELECT 1 FROM worklog_entry e JOIN worklog_entry_member em ON em.entry_id = e.id
-         WHERE e.team_id = ? AND e.log_date = ? AND em.member_id = ? LIMIT 1`,
-        [account.team_id, d, account.member_id]
+        `SELECT e.team_id FROM worklog_entry e JOIN worklog_entry_member em ON em.entry_id = e.id
+         WHERE e.log_date = ? AND em.member_id = ? ORDER BY e.id LIMIT 1`,
+        [d, memberId]
       );
       if (!m.length) continue; // 非当日用车人不补核
       try {
-        await syncOne(account, d, 'daily');
+        await syncOne(account, d, 'daily', { teamId: m[0].team_id, memberId });
         await pool.query(
-          `DELETE FROM worklog_sync_log WHERE team_id = ? AND member_id = ? AND sync_date = ? AND type = 'auth' AND result = 'fail'`,
-          [account.team_id, account.member_id, d]
+          `DELETE FROM worklog_sync_log WHERE member_id = ? AND sync_date = ? AND type = 'auth' AND result = 'fail'`,
+          [memberId, d]
         );
       } catch (e) {
-        console.error(`[商旅打卡] 登录后补核失败（成员 ${account.member_id} ${d}）：`, e.message);
+        console.error(`[商旅打卡] 登录后补核失败（成员 ${memberId} ${d}）：`, e.message);
       }
       await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
     }
@@ -551,7 +594,7 @@ router.put('/accounts/:id/device', requireDictAdmin, async (req, res, next) => {
 
 // POST /accounts/bind：管理员代成员绑定商旅账号（成员过期又联系不上时兜底；网页端数据管理「商旅绑定设备」区）
 // 登录链路同本人绑定（图形码/滑块双通道 + 短信/密码）；落库 user_id=NULL 表示代绑，
-// 成员事后自助重绑时撞 uk_team_member 触发 ODKU 会把 user_id 接管回本人（见 /login/bind）
+// 成员事后自助重绑时撞 uk_member 由 /login/bind 归并把 user_id 接管回本人（见 /login/bind）
 router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -581,42 +624,58 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
     await pool.query(
       `INSERT INTO worklog_sgcc_account (team_id, user_id, member_id, mobile, token, token_status, last_check_at)
        VALUES (?, NULL, ?, ?, ?, 1, NOW())
-       ON DUPLICATE KEY UPDATE mobile = VALUES(mobile), token = VALUES(token),
+       ON DUPLICATE KEY UPDATE team_id = VALUES(team_id), mobile = VALUES(mobile), token = VALUES(token),
          member_id = VALUES(member_id), token_status = 1, last_check_at = NOW()`,
       [req.team.id, members[0].id, String(mobile), token]
     );
 
     // 与本人绑定同口径：补核此前因登录态过期而核查失败的日期（异步不阻塞响应）
-    recompenseAfterBind(req.team.id, members[0].id);
+    recompenseAfterBind(members[0].id);
     return ok(res, { bound: true });
   } catch (err) { return next(err); }
 });
 
 // ---------- 打卡区数据与打卡操作 ----------
 
-// GET /day?date=YYYY-MM-DD：本班组当日全部成员的 绑定/登录态 + 两次打卡 + 费用（按 member_id 索引）
-// 小程序卡片打卡区据此渲染（本地优先，只查本地表）
+// GET /day?date=YYYY-MM-DD：本班组当日相关成员的 绑定/登录态 + 两次打卡 + 费用（按 member_id 索引）
+// 相关成员集 = 本班成员 ∪ 当日本班卡片用车人（人已调班但名字在卡上时，人级解析仍可见绑定/可取数代打卡）；
+// 打卡/费用按 member_id 人级取数（去 team 过滤，调班日共享行两班均可见）。小程序卡片打卡区据此渲染（本地优先，只查本地表）
 router.get('/day', async (req, res, next) => {
   try {
     const date = String(req.query.date || '');
     if (!DATE_RE.test(date)) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     if (!req.team) return ok(res, { members: {} });
+    const [mrows] = await pool.query(
+      `SELECT id FROM worklog_member WHERE team_id = ?
+       UNION
+       SELECT em.member_id AS id FROM worklog_entry e
+       JOIN worklog_entry_member em ON em.entry_id = e.id
+       WHERE e.team_id = ? AND e.log_date = ?`,
+      [req.team.id, req.team.id, date]
+    );
+    const memberIds = mrows.map((r) => r.id);
+    if (!memberIds.length) return ok(res, { members: {} });
+    // 人级解析绑定行（直连优先，user_id 兜底；一名成员理论多行时去重取首条）
     const [accounts] = await pool.query(
-      'SELECT member_id, token_status FROM worklog_sgcc_account WHERE team_id = ? AND member_id IS NOT NULL',
-      [req.team.id]
+      `SELECT m.id AS card_member_id, a.token_status
+       FROM worklog_member m
+       JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+       WHERE m.id IN (?)
+       ORDER BY (a.member_id = m.id) DESC`,
+      [memberIds]
     );
     const [clockins] = await pool.query(
       `SELECT member_id, seq, detail_id, DATE_FORMAT(clock_time, '%Y-%m-%d %H:%i:%s') AS clock_time, position, work_hours
-       FROM worklog_clockin WHERE team_id = ? AND clock_date = ?`,
-      [req.team.id, date]
+       FROM worklog_clockin WHERE member_id IN (?) AND clock_date = ?`,
+      [memberIds, date]
     );
     const [fees] = await pool.query(
-      'SELECT member_id, food_fee, transit_fee, cost_center_code, cost_center_name FROM worklog_fee WHERE team_id = ? AND fee_date = ?',
-      [req.team.id, date]
+      'SELECT member_id, food_fee, transit_fee, cost_center_code, cost_center_name FROM worklog_fee WHERE member_id IN (?) AND fee_date = ?',
+      [memberIds, date]
     );
     const members = {};
     accounts.forEach((a) => {
-      members[a.member_id] = { bound: true, tokenStatus: a.token_status };
+      if (!members[a.card_member_id]) members[a.card_member_id] = { bound: true, tokenStatus: a.token_status };
     });
     clockins.forEach((c) => {
       const m = (members[c.member_id] = members[c.member_id] || {});
@@ -676,7 +735,7 @@ router.post('/clockin', async (req, res, next) => {
       if (!geo.cityName) geo.cityName = filled.cityName;
     }
 
-    const account = await requireMemberAccount(req, res, memberId);
+    const account = await requireMemberAccount(req, res, memberId, date);
     if (!account) return;
 
     const opt = devOpt(account);
@@ -715,9 +774,9 @@ router.post('/clockin', async (req, res, next) => {
       }
     }
 
-    // 双写：从商旅全量刷新该日打卡流水（含工时）；
+    // 双写：从商旅全量刷新该日打卡流水（含工时；本地行落在卡片上下文 member/本班，代打卡含已调班成员）；
     // 随后补写城市信息（dayNew 明细不带城市编码，落库供后续打卡带入全套定位信息）
-    await refreshClockins(account, date);
+    await refreshClockins(account, date, memberId, req.team.id);
     await pool.query(
       'UPDATE worklog_clockin SET city_code = ?, city_name = ? WHERE member_id = ? AND clock_date = ? AND seq = ?',
       [geo.cityCode, geo.cityName, memberId, date, seqNum]
@@ -770,8 +829,9 @@ function normalizeCostAllocComp(comp, v) {
 }
 
 // 模板「成本分配」（id=4）兜底：商旅默认带出则归一后沿用并回报当前值；空值时用本成员最近一次本地成本中心回填。
+// memberId = 卡片上下文成员（缺省账号自身成员；调班重名回退路径的旧成员行也能取到其成本中心历史）
 // 返回 { code, name }（当前生效值，供本地摘要回写）或 null（无来源可填）
-async function ensureCostCenter(tpl, account) {
+async function ensureCostCenter(tpl, account, memberId = account.member_id) {
   const comp = (tpl.dtComponentList || []).find((c) => c.id === 4);
   if (!comp) return null;
   let v = {};
@@ -784,7 +844,7 @@ async function ensureCostCenter(tpl, account) {
   const [rows] = await pool.query(
     `SELECT cost_center_code, cost_center_name FROM worklog_fee
      WHERE member_id = ? AND cost_center_code <> '' ORDER BY fee_date DESC LIMIT 1`,
-    [account.member_id]
+    [memberId]
   );
   if (!rows.length) return null;
   normalizeCostAllocComp(comp, {
@@ -813,7 +873,7 @@ router.get('/fee', async (req, res, next) => {
     const memberId = Number(req.query.member_id);
     const date = String(req.query.date || '');
     if (!memberId || !DATE_RE.test(date)) return fail(res, 400, 40000, '参数不完整或日期格式错误');
-    const account = await requireMemberAccount(req, res, memberId);
+    const account = await requireMemberAccount(req, res, memberId, date);
     if (!account) return;
 
     const [fees] = await pool.query(
@@ -855,7 +915,7 @@ router.post('/fee', async (req, res, next) => {
     const memberId = Number(req.body && req.body.member_id);
     const date = String((req.body && req.body.date) || '');
     if (!memberId || !DATE_RE.test(date)) return fail(res, 400, 40000, '参数不完整或日期格式错误');
-    const account = await requireMemberAccount(req, res, memberId);
+    const account = await requireMemberAccount(req, res, memberId, date);
     if (!account) return;
 
     const d = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account));
@@ -863,7 +923,7 @@ router.post('/fee', async (req, res, next) => {
     if (!body || !body.clockTemplate) return fail(res, 400, 40038, '获取商旅费用模板失败，请重试');
 
     // 成本分配（id=4）兜底：模板未带出时用本成员最近成本中心回填（勿用 overrides 同串覆盖，value/data 不对称）
-    const cc = await ensureCostCenter(body.clockTemplate, account);
+    const cc = await ensureCostCenter(body.clockTemplate, account, memberId);
 
     // 补助明细（id=10）：伙食/交通；其余组件经 overrides 原样透传
     const foodFee = Number(req.body.foodFee) || 0;
@@ -920,7 +980,7 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileNam
     if (!mrows.length) { if (prog) prog.step(); continue; }
     const memberId = mrows[0].id;
     if (links[memberId]) { if (prog) prog.step(); continue; } // 该成员名下已同步过
-    const account = await accountByMember(teamId, memberId);
+    const account = await accountByMember(memberId); // 人级解析：人已调班仍可用其账号同步
     if (!account) {
       await pool.query(
         `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
@@ -950,7 +1010,7 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileNam
       const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, logDate), devOpt(account));
       const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
       if (!tpl) throw new Error('获取费用模板失败');
-      await ensureCostCenter(tpl, account);
+      await ensureCostCenter(tpl, account, memberId);
       const comp = (tpl.dtComponentList || []).find((c) => c.id === 5);
       let imgs = [];
       if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
@@ -1012,12 +1072,13 @@ async function syncPhotoToSgcc(photoId, targetNames = null, prog = null) {
 }
 
 // 从某成员当日商旅费用照片组件移除指定图片（同步；成本分配兜底同费用保存口径）
+// memberId = 卡片上下文成员（费用模板城市参数/成本中心兜底按其人级本地数据取）
 // 返回 { ok: true }（含商旅侧本就没有该图）或 { ok: false, error }
-async function removeFeeImageRemote(account, date, imgId) {
-  const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(account.member_id, date), devOpt(account));
+async function removeFeeImageRemote(account, date, imgId, memberId = account.member_id) {
+  const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account));
   const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
   if (!tpl) return { ok: false, error: '获取费用模板失败' };
-  await ensureCostCenter(tpl, account);
+  await ensureCostCenter(tpl, account, memberId);
   const comp = (tpl.dtComponentList || []).find((c) => c.id === 5);
   let imgs = [];
   if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
@@ -1052,13 +1113,13 @@ async function removePhotoMembersRemote(photoId, removedNames, prog = null) {
     const memberId = mrows[0].id;
     const imgId = links[memberId];
     if (!imgId) { if (prog) prog.step(); continue; } // 该成员名下本就没同步成功过，无需远端删除
-    const account = await accountByMember(teamId, memberId);
+    const account = await accountByMember(memberId); // 人级解析：人已调班仍可用其账号操作
     let err = '';
     if (!account || account.token_status !== 1) {
       err = account && account.token_status === 0 ? '商旅登录已过期' : '未绑定商旅账号';
     } else {
       try {
-        const r = await removeFeeImageRemote(account, logDate, imgId);
+        const r = await removeFeeImageRemote(account, logDate, imgId, memberId);
         if (!r.ok) err = r.error || '商旅侧删除失败';
       } catch (e) {
         err = e && e.message ? e.message : String(e);
@@ -1098,7 +1159,7 @@ async function unlinkPhotoFromSgcc(photoId, prog = null) {
   for (const memberIdStr of Object.keys(links)) {
     const imgId = links[memberIdStr];
     const memberId = Number(memberIdStr);
-    const account = await accountByMember(teamId, memberId);
+    const account = await accountByMember(memberId); // 人级解析：人已调班仍可用其账号操作
     const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [memberId]);
     const name = mrows.length ? mrows[0].name : String(memberId);
     let err = '';
@@ -1106,7 +1167,7 @@ async function unlinkPhotoFromSgcc(photoId, prog = null) {
       err = account && account.token_status === 0 ? '商旅登录已过期' : '未绑定商旅账号';
     } else {
       try {
-        const r = await removeFeeImageRemote(account, logDate, imgId);
+        const r = await removeFeeImageRemote(account, logDate, imgId, memberId);
         if (!r.ok) err = r.error || '商旅侧删除失败';
       } catch (e) {
         err = e && e.message ? e.message : String(e);
@@ -1190,12 +1251,16 @@ async function writeBackPullVerify(photoId, vr) {
 
 // 费用照片双向对账（以商旅为准）：数据源为 getFeeInfoNew 模板 id=5「上传图片」组件的 value
 // （JSON 数组，元素含 id/url（App 手工上传可能为 imageUrl，两键兼容），结构见 esgcc/sgcc/tools/fee_probe3.js 联调口径）；比对键 = 商旅图片 id
+// ctx = 卡片上下文 { teamId, memberId }（缺省账号自身口径）：本地照片集/挂卡/成员名/COS 路径均按 ctx 取——
+// 核查按卡片走，人已调班时旧班卡片的照片对账仍落在旧班上下文；远端调用仍用 account.token/机型
 // 规则：商旅有本地无 → 下载存 COS 入库（members=[成员名]、source=1、is_watermark=1、
 //       sgcc_img_id={memberId:图片id}、verify_status='pending'，异步 Dify 验证回写沿用 writeBackPullVerify）；
 //       相同照片（MD5 一致）合并：人名/链接并入已有照片，一图多人标注；
 //       本地 source=1（商旅拉下的镜像）有而商旅无 → 整照删除（COS 对象 + worklog_photo 行）；
 //       本地 source=0（壹匣上传）本成员链接有而商旅无 → 摘除本成员链接与人名（摘空后整照删除）
-async function syncFeePhotos(account, date, remoteImgs, log) {
+async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
+  const ctxTeamId = ctx ? ctx.teamId : account.team_id;
+  const ctxMemberId = ctx ? ctx.memberId : account.member_id;
   // 商旅侧集合：商旅图片 id → 图片地址
   // id 键兼容：壹匣保存写入 {id,url}，App 手工上传为 {fileInfoId,url}（另兼容 imageUrl）；
   // 有数据但识别不出图片 id（键名再漂移）→ 跳过对账保护本地，防止误判「商旅无照片」删错
@@ -1210,24 +1275,24 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
     remote.set(String(rawId), url);
   }
   if (remoteImgs.length && !remote.size) {
-    console.error(`[商旅打卡] 费用照片对账跳过（成员 ${account.member_id} ${date}）：远端 ${remoteImgs.length} 张但无可识别图片 id，样例 ${JSON.stringify(remoteImgs[0]).slice(0, 300)}`);
+    console.error(`[商旅打卡] 费用照片对账跳过（成员 ${ctxMemberId} ${date}）：远端 ${remoteImgs.length} 张但无可识别图片 id，样例 ${JSON.stringify(remoteImgs[0]).slice(0, 300)}`);
     await log('photo', 'fail', `费用照片：远端 ${remoteImgs.length} 张但无可识别图片 id（键名异常），已跳过对账（详见服务端日志）`);
     return;
   }
 
-  // 本成员名（摘除/入库标注用）
-  const [mnrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
+  // 本成员名（摘除/入库标注用；取卡片上下文成员）
+  const [mnrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [ctxMemberId]);
   const memberName = mnrows.length ? mnrows[0].name : '';
 
-  // 本地侧：本班组当日照片中与本成员相关的行（sgcc_img_id JSON map 含本成员 key，值即该成员商旅图片 id）；
+  // 本地侧：卡片上下文班组当日照片中与本成员相关的行（sgcc_img_id JSON map 含本成员 key，值即该成员商旅图片 id）；
   // source=1 行参与删除对账，source=0（壹匣上传）行只比对不删除
   const [photos] = await pool.query(
     `SELECT p.id, p.cos_key, p.source, p.sgcc_img_id
      FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
      WHERE e.team_id = ? AND e.log_date = ?`,
-    [account.team_id, date]
+    [ctxTeamId, date]
   );
-  const memberKey = String(account.member_id);
+  const memberKey = String(ctxMemberId);
   const known = new Set(); // 本地已知的本成员商旅图片 id
   const localPulled = []; // source=1 且含本成员商旅图片 id 的本地照片
   const localUploaded = []; // source=0（壹匣上传）且已推送过商旅（含本成员图片 id）的本地照片
@@ -1261,17 +1326,17 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
        LEFT JOIN worklog_destination d ON d.id = e.destination_id
        WHERE e.team_id = ? AND em.member_id = ? AND e.log_date = ?
        ORDER BY e.id LIMIT 1`,
-      [account.team_id, account.member_id, date]
+      [ctxTeamId, ctxMemberId, date]
     );
     if (!erows.length) {
       await log('photo', 'fail', `费用照片：商旅侧 ${toPull.length} 张本地无，但成员当日无出工记录，已跳过入库`);
     } else if (!memberName) {
-      await log('photo', 'fail', `费用照片：成员 ${account.member_id} 不存在，已跳过入库`);
+      await log('photo', 'fail', `费用照片：成员 ${ctxMemberId} 不存在，已跳过入库`);
     } else {
       const entry = erows[0];
       // COS key 规则同 worklog 照片：{prefix}{班组名}/{YYYY.MM.DD}/{entryId}-{ts}-{图片id}.jpg（带图片 id 防同毫秒撞键）
-      const [trows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [account.team_id]);
-      const teamName = trows.length ? trows[0].name : String(account.team_id);
+      const [trows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [ctxTeamId]);
+      const teamName = trows.length ? trows[0].name : String(ctxTeamId);
       const prefix = config.worklog.cosPrefix;
       for (const [imgId, imgUrl] of toPull) {
         try {
@@ -1280,12 +1345,12 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
           if (!resp.ok) throw new Error(`照片下载失败（HTTP ${resp.status}）`);
           const buf = Buffer.from(await resp.arrayBuffer());
           const imgMd5 = crypto.createHash('md5').update(buf).digest('hex');
-          // 相同照片内容合并（一图多人标注）：本班组当日已有同 MD5 照片 → 人名/链接并入，不再新建
+          // 相同照片内容合并（一图多人标注）：卡片上下文班组当日已有同 MD5 照片 → 人名/链接并入，不再新建
           const [dup] = await pool.query(
             `SELECT p.id, p.members, p.sgcc_img_id FROM worklog_photo p
              JOIN worklog_entry e ON e.id = p.entry_id
              WHERE e.team_id = ? AND e.log_date = ? AND p.md5 = ? LIMIT 1`,
-            [account.team_id, date, imgMd5]
+            [ctxTeamId, date, imgMd5]
           );
           if (dup.length) {
             const d = dup[0];
@@ -1373,11 +1438,15 @@ async function syncFeePhotos(account, date, remoteImgs, log) {
 }
 
 // 单日单人对账：登录态 → 打卡 → 费用 → 费用照片（一律以商旅为准覆盖本地；照片双向对账：拉新入库并触发验证，商旅侧已删的同步照片本地同步删除）
-async function syncOne(account, date, scope) {
+// ctx = 卡片上下文 { teamId, memberId }（缺省账号自身口径）：核查按卡片走，sync_log 归属、费用/照片本地上下文均按 ctx；
+// 打卡流水为 member 级唯一物理行（team_id 仅写入时快照），删除/刷新对账本就按 member 口径
+async function syncOne(account, date, scope, ctx = null) {
+  const ctxTeamId = ctx ? ctx.teamId : account.team_id;
+  const ctxMemberId = ctx ? ctx.memberId : account.member_id;
   const log = (type, result, detail) => pool.query(
     `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [account.team_id, account.member_id, date, scope, type, result, String(detail).slice(0, 500)]
+    [ctxTeamId, ctxMemberId, date, scope, type, result, String(detail).slice(0, 500)]
   );
 
   // 登录态
@@ -1390,9 +1459,9 @@ async function syncOne(account, date, scope) {
   // 打卡对账：先全量刷新，再删除本地 detailId 不在商旅返回集合内的行（商旅 0 条则全删，一律以商旅为准）
   const [before] = await pool.query(
     'SELECT COUNT(*) AS cnt FROM worklog_clockin WHERE member_id = ? AND clock_date = ?',
-    [account.member_id, date]
+    [ctxMemberId, date]
   );
-  const body = await refreshClockins(account, date);
+  const body = await refreshClockins(account, date, ctxMemberId, ctxTeamId);
   if (body) {
     const remoteIds = new Set(
       (Array.isArray(body.clockInDetailList) ? body.clockInDetailList : [])
@@ -1400,12 +1469,12 @@ async function syncOne(account, date, scope) {
         .filter(Boolean)
     );
     if (remoteIds.size === 0) {
-      await pool.query('DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ?', [account.member_id, date]);
+      await pool.query('DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ?', [ctxMemberId, date]);
     } else {
       // 删除本地有但商旅已无的记录（按 detailId 匹配，避免按 seq 位置误删）
       const [localRows] = await pool.query(
         'SELECT id, detail_id FROM worklog_clockin WHERE member_id = ? AND clock_date = ?',
-        [account.member_id, date]
+        [ctxMemberId, date]
       );
       for (const row of localRows) {
         if (!remoteIds.has(String(row.detail_id))) {
@@ -1418,7 +1487,7 @@ async function syncOne(account, date, scope) {
   }
 
   // 费用对账：以商旅为准回写本地摘要（含成本分配；城市参数补全取模板，缺省模板可能不带默认成本中心）
-  const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(account.member_id, date), devOpt(account));
+  const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(ctxMemberId, date), devOpt(account));
   const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
   if (tpl) {
     let food = 0; let transit = 0;
@@ -1429,7 +1498,7 @@ async function syncOne(account, date, scope) {
     const cc = extractCostCenter(tpl);
     const [old] = await pool.query(
       'SELECT food_fee, transit_fee, cost_center_code FROM worklog_fee WHERE member_id = ? AND fee_date = ?',
-      [account.member_id, date]
+      [ctxMemberId, date]
     );
     const changed = !old.length || Number(old[0].food_fee) !== food || Number(old[0].transit_fee) !== transit
       || String(old[0].cost_center_code || '') !== cc.code;
@@ -1438,7 +1507,7 @@ async function syncOne(account, date, scope) {
        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
        ON DUPLICATE KEY UPDATE food_fee = VALUES(food_fee), transit_fee = VALUES(transit_fee),
          cost_center_code = VALUES(cost_center_code), cost_center_name = VALUES(cost_center_name), synced_at = NOW()`,
-      [account.team_id, account.member_id, date, food, transit, cc.code, cc.name]
+      [ctxTeamId, ctxMemberId, date, food, transit, cc.code, cc.name]
     );
     await log('fee', changed ? 'diff' : 'ok',
       `费用：伙食 ${food} / 交通 ${transit} / 成本中心 ${cc.code || '无'}${changed ? '，已按商旅覆盖' : '，一致'}`);
@@ -1460,41 +1529,50 @@ async function syncOne(account, date, scope) {
       }
     }
     if (imgs) {
-      console.log(`[商旅打卡] 费用照片对账（成员 ${account.member_id} ${date}）：远端 ${imgs.length} 张${imgs[0] ? `，样例键 ${Object.keys(imgs[0]).join('/')}` : ''}`);
-      await syncFeePhotos(account, date, imgs, log);
+      console.log(`[商旅打卡] 费用照片对账（成员 ${ctxMemberId} ${date}）：远端 ${imgs.length} 张${imgs[0] ? `，样例键 ${Object.keys(imgs[0]).join('/')}` : ''}`);
+      await syncFeePhotos(account, date, imgs, log, { teamId: ctxTeamId, memberId: ctxMemberId });
     } else {
-      console.error(`[商旅打卡] 费用照片对账跳过（成员 ${account.member_id} ${date}）：comp5 ${comp5 ? `value 原文 ${String(comp5.value).slice(0, 300)}` : '缺失'}`);
+      console.error(`[商旅打卡] 费用照片对账跳过（成员 ${ctxMemberId} ${date}）：comp5 ${comp5 ? `value 原文 ${String(comp5.value).slice(0, 300)}` : '缺失'}`);
       await log('photo', 'fail', `费用照片：上传图片组件形态异常，已跳过对账（详见服务端日志）`);
     }
   }
 }
 
-// 整班单日核查（仅当日用车人：非用车人数据界面不展示，跳过可省一轮商旅 API，
-// 也避免照片对账记「成员当日无出工记录」噪音日志）
-// onlyMemberIds 传入时仅同步这些成员（卡片级「从商旅同步」：仅本卡用车人）；缺省为当日用车人中的全部绑定成员
+// 整班单日核查（卡片驱动：当日卡上有人即同步——人已调班也经人级解析找到其账号，不论账号现属哪个班；
+// 非卡上成员跳过可省一轮商旅 API，也避免照片对账记「成员当日无出工记录」噪音日志）
+// onlyMemberIds 传入时仅同步这些成员（卡片级「从商旅同步」：仅本卡用车人）；缺省为当日卡上成员中的全部绑定成员
 // onStep：每处理完一名成员回调一次（手动拉取与每日定时核查的进度登记用）
 async function syncTeamDay(teamId, date, scope, onlyMemberIds, onStep) {
-  let accounts;
+  // 人级解析：直连优先（ORDER BY + JS 按卡上成员去重取首条），user_id 兜底覆盖调班重名回退路径的旧成员行
+  let rows;
   if (Array.isArray(onlyMemberIds)) {
     if (!onlyMemberIds.length) return;
-    [accounts] = await pool.query(
-      'SELECT * FROM worklog_sgcc_account WHERE team_id = ? AND member_id IN (?)',
-      [teamId, onlyMemberIds]
+    [rows] = await pool.query(
+      `SELECT a.*, m.id AS card_member_id FROM worklog_member m
+       JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+       WHERE m.id IN (?)
+       ORDER BY (a.member_id = m.id) DESC`,
+      [onlyMemberIds]
     );
   } else {
-    [accounts] = await pool.query(
-      `SELECT DISTINCT a.* FROM worklog_sgcc_account a
-       JOIN worklog_entry e ON e.team_id = a.team_id AND e.log_date = ?
-       JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a.member_id
-       WHERE a.team_id = ? AND a.member_id IS NOT NULL`,
-      [date, teamId]
+    [rows] = await pool.query(
+      `SELECT a.*, m.id AS card_member_id FROM worklog_entry e
+       JOIN worklog_entry_member em ON em.entry_id = e.id
+       JOIN worklog_member m ON m.id = em.member_id
+       JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+       WHERE e.team_id = ? AND e.log_date = ?
+       ORDER BY (a.member_id = m.id) DESC`,
+      [teamId, date]
     );
   }
-  for (const account of accounts) {
+  const seen = new Set(); // 人级解析理论可命中多行（直连+兜底），按卡上成员去重
+  for (const account of rows) {
+    if (seen.has(account.card_member_id)) continue;
+    seen.add(account.card_member_id);
     try {
-      await syncOne(account, date, scope);
+      await syncOne(account, date, scope, { teamId, memberId: account.card_member_id });
     } catch (err) {
-      console.error(`[商旅打卡] 核查失败（成员 ${account.member_id} ${date}）：`, err.message);
+      console.error(`[商旅打卡] 核查失败（成员 ${account.card_member_id} ${date}）：`, err.message);
     }
     if (typeof onStep === 'function') onStep(); // 成败均计一步（失败明细见核查记录）
     // 成员间间隔，防商旅侧风控（SGCC_SYNC_INTERVAL_MS，默认 1500ms）
@@ -1645,13 +1723,16 @@ router.post('/sync/pull', async (req, res, next) => {
     const fromMs = Date.parse(`${from}T00:00:00Z`);
     const days = Math.round((Date.parse(`${to}T00:00:00Z`) - fromMs) / DAY_MS) + 1;
     if (days > 62) return fail(res, 400, 40000, '日期区段最多跨 62 天');
-    // 区段批量门禁：本班任一绑定账号登录过期即不允许发起（token_status 每晚定时核查保鲜；卡片级单卡同步不设门禁）
+    // 区段批量门禁：区段内卡上成员的人级绑定账号任一登录过期即不允许发起（token_status 每晚定时核查保鲜；卡片级单卡同步不设门禁）
     if (!entryId) {
       const [expired] = await pool.query(
-        `SELECT COALESCE(m.name, CONCAT('手机', SUBSTRING(a.mobile, 1, 3), '****', SUBSTRING(a.mobile, 8))) AS nm
-         FROM worklog_sgcc_account a LEFT JOIN worklog_member m ON m.id = a.member_id
-         WHERE a.team_id = ? AND a.token_status = 0`,
-        [req.team.id]
+        `SELECT DISTINCT m.name AS nm
+         FROM worklog_entry e
+         JOIN worklog_entry_member em ON em.entry_id = e.id
+         JOIN worklog_member m ON m.id = em.member_id
+         JOIN worklog_sgcc_account a ON (a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)) AND a.token_status = 0
+         WHERE e.team_id = ? AND e.log_date BETWEEN ? AND ?`,
+        [req.team.id, from, to]
       );
       if (expired.length) {
         return fail(res, 409, 40910, `以下成员商旅登录已过期，请先重新绑定后再发起批量同步：${expired.map((x) => x.nm).join('、')}`);
@@ -1661,23 +1742,26 @@ router.post('/sync/pull', async (req, res, next) => {
     if (!entryId && activeJob(req.team.id, 'batch')) {
       return fail(res, 409, 40909, '本班组已有批量从商旅同步进行中，请等待完成后再发起');
     }
-    // 进度登记：总单元 = 区段内「日 × 绑定成员」数（卡片级 = 本卡绑定用车人数；选人口径与 syncTeamDay 一致），
+    // 进度登记：总单元 = 区段内「日 × 卡上绑定成员」数（卡片级 = 本卡绑定用车人数；卡片驱动人级口径与 syncTeamDay 一致），
     // 端侧凭 jobId 轮询 GET /sync/progress 渲染进度条
     let total = 0;
     if (entryId) {
       const [c] = await pool.query(
-        'SELECT COUNT(*) AS cnt FROM worklog_sgcc_account WHERE team_id = ? AND member_id IN (?)',
-        [req.team.id, onlyMemberIds]
+        `SELECT COUNT(DISTINCT m.id) AS cnt FROM worklog_member m
+         JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+         WHERE m.id IN (?)`,
+        [onlyMemberIds]
       );
       total = c[0].cnt;
     } else {
       const [c] = await pool.query(
-        `SELECT COUNT(DISTINCT a.member_id, e.log_date) AS cnt
-         FROM worklog_sgcc_account a
-         JOIN worklog_entry e ON e.team_id = a.team_id AND e.log_date BETWEEN ? AND ?
-         JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a.member_id
-         WHERE a.team_id = ? AND a.member_id IS NOT NULL`,
-        [from, to, req.team.id]
+        `SELECT COUNT(DISTINCT m.id, e.log_date) AS cnt
+         FROM worklog_entry e
+         JOIN worklog_entry_member em ON em.entry_id = e.id
+         JOIN worklog_member m ON m.id = em.member_id
+         JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+         WHERE e.team_id = ? AND e.log_date BETWEEN ? AND ?`,
+        [req.team.id, from, to]
       );
       total = c[0].cnt;
     }
@@ -1786,15 +1870,16 @@ function nextDailyRunUtc(hh, mm) {
   return { nextUtc, now };
 }
 // 每日核查附加检查：当日已开始打卡但结束打卡未打的成员 → 按人投放通知本人 + 本班班组管理员 + 超管（见 16.3）
+// 账号联表人级解析（member_id 直连或经 member.user_id 兜底）：调班后旧班打卡行的本人仍能收到通知
 async function notifyMissingEndClockin(teamId, date) {
   const [rows] = await pool.query(
-    `SELECT c.member_id, m.name, a.user_id,
+    `SELECT c.member_id, m.name, MAX(a.user_id) AS user_id,
             DATE_FORMAT(MAX(CASE WHEN c.seq = 1 THEN c.clock_time END), '%H:%i') AS start_hm
      FROM worklog_clockin c
      JOIN worklog_member m ON m.id = c.member_id
-     LEFT JOIN worklog_sgcc_account a ON a.team_id = c.team_id AND a.member_id = c.member_id
+     LEFT JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
      WHERE c.team_id = ? AND c.clock_date = ?
-     GROUP BY c.member_id, m.name, a.user_id
+     GROUP BY c.member_id, m.name
      HAVING MAX(CASE WHEN c.seq = 1 THEN 1 ELSE 0 END) = 1
         AND MAX(CASE WHEN c.seq = 2 THEN 1 ELSE 0 END) = 0`,
     [teamId, date]
@@ -1817,21 +1902,87 @@ async function notifyMissingEndClockin(teamId, date) {
   }
 }
 
+// 每日核查结果日报：每班一封，按人投放 超管 + 本班班组管理员（每日都发，含全部正常）。
+// 仅统计当次核查新产生的记录（afterId 分界，排除当日早些时候手动拉取的流水）；
+// 汇总 一致/有差异已回写/失败 项数，失败项逐条列出（超 10 条截断，完整见「批量从商旅同步」面板核查记录）
+async function notifyDailySyncResult(teamId, date, afterId) {
+  const [trows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [teamId]);
+  const teamName = trows.length ? trows[0].name : String(teamId);
+  const [rows] = await pool.query(
+    `SELECT l.type, l.result, l.detail, l.member_id, m.name AS member_name
+     FROM worklog_sync_log l LEFT JOIN worklog_member m ON m.id = l.member_id
+     WHERE l.team_id = ? AND l.sync_date = ? AND l.id > ? ORDER BY l.id`,
+    [teamId, date, afterId]
+  );
+  const TYPE_NAME = { clockin: '打卡', fee: '费用', photo: '照片', auth: '登录态' };
+  const cnt = { ok: 0, diff: 0, fail: 0 };
+  const memberIds = new Set();
+  const fails = [];
+  for (const r of rows) {
+    cnt[r.result] = (cnt[r.result] || 0) + 1;
+    if (r.member_id) memberIds.add(r.member_id);
+    if (r.result === 'fail') fails.push(r);
+  }
+  const lines = [];
+  if (!rows.length) {
+    lines.push('今日无卡上绑定成员，未执行数据核查（仅做登录态保鲜探测）。');
+  } else {
+    lines.push(`今日核查 ${memberIds.size} 名成员：一致 ${cnt.ok || 0} 项 / 有差异已回写 ${cnt.diff || 0} 项 / 失败 ${cnt.fail || 0} 项。`);
+    if (fails.length) {
+      lines.push('', '失败明细：');
+      fails.slice(0, 10).forEach((r) => {
+        lines.push(`- ${r.member_name || `成员${r.member_id || '?'}`}｜${TYPE_NAME[r.type] || r.type}：${r.detail}`);
+      });
+      if (fails.length > 10) lines.push(`- …等共 ${fails.length} 条，详见「批量从商旅同步」面板核查记录`);
+    }
+  }
+  const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
+  const [teamAdmins] = await pool.query(
+    "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id = ? AND status = 1", [teamId]
+  );
+  const userIds = [...new Set([...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)])];
+  if (!userIds.length) return;
+  await require('../notice').push({
+    userIds,
+    targets: [],
+    title: `商旅每日核查完成（${teamName}）`,
+    content: lines.join('\n'),
+  });
+}
+
 function scheduleDaily() {
   const [hh, mm] = String(config.sgcc.syncTime || '23:00').split(':').map((s) => parseInt(s, 10));
   const { nextUtc, now } = nextDailyRunUtc(hh || 23, mm || 0);
   const timer = setTimeout(async () => {
     try {
-      const [teams] = await pool.query('SELECT DISTINCT team_id FROM worklog_sgcc_account WHERE team_id IS NOT NULL');
+      // 卡片驱动：有绑定账号的班 ∪ 当日卡上有绑定成员的班（token 跟人走后，卡在哪个班就同步哪个班）
+      const [teams] = await pool.query(
+        `SELECT DISTINCT team_id FROM (
+           SELECT team_id FROM worklog_sgcc_account WHERE team_id IS NOT NULL
+           UNION
+           SELECT e.team_id FROM worklog_entry e
+           JOIN worklog_entry_member em ON em.entry_id = e.id
+           JOIN worklog_member m ON m.id = em.member_id
+           JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+           WHERE e.log_date = ? AND e.team_id IS NOT NULL
+         ) t`,
+        [today()]
+      );
       for (const t of teams) {
-        // 进度登记（kind=daily，仅当日）：端侧据此给当日记录卡片挂进度条并置不可操作
+        // 日报分界：仅统计当次核查新产生的记录（排除当日早些时候手动拉取的流水）
+        const [beforeRows] = await pool.query(
+          'SELECT COALESCE(MAX(id), 0) AS maxId FROM worklog_sync_log WHERE team_id = ?',
+          [t.team_id]
+        );
+        // 进度登记（kind=daily，仅当日）：端侧据此给当日记录卡片挂进度条并置不可操作（卡片驱动口径同 syncTeamDay）
         const [c] = await pool.query(
-          `SELECT COUNT(DISTINCT a.member_id) AS cnt
-           FROM worklog_sgcc_account a
-           JOIN worklog_entry e ON e.team_id = a.team_id AND e.log_date = ?
-           JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a.member_id
-           WHERE a.team_id = ? AND a.member_id IS NOT NULL`,
-          [today(), t.team_id]
+          `SELECT COUNT(DISTINCT m.id) AS cnt
+           FROM worklog_entry e
+           JOIN worklog_entry_member em ON em.entry_id = e.id
+           JOIN worklog_member m ON m.id = em.member_id
+           JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+           WHERE e.team_id = ? AND e.log_date = ?`,
+          [t.team_id, today()]
         );
         const jobId = newSyncJob(t.team_id, c[0].cnt, 'daily', today());
         try {
@@ -1839,16 +1990,18 @@ function scheduleDaily() {
         } finally {
           finishSyncJob(jobId);
         }
-        // 其余绑定账号（非当日用车人）也做一次登录态探测：token_status 每晚保鲜，
+        // 其余绑定账号（当日卡上成员以外）也做一次登录态探测：token_status 每晚保鲜，
         // 1→0 跳变由 probeAuth 内自动通知本人+超管；间隔同防风控口径
         const [rest] = await pool.query(
           `SELECT a.* FROM worklog_sgcc_account a
            WHERE a.team_id = ? AND a.id NOT IN (
-             SELECT DISTINCT a2.id FROM worklog_sgcc_account a2
-             JOIN worklog_entry e ON e.team_id = a2.team_id AND e.log_date = ?
-             JOIN worklog_entry_member em ON em.entry_id = e.id AND em.member_id = a2.member_id
-             WHERE a2.team_id = ? AND a2.member_id IS NOT NULL)`,
-          [t.team_id, today(), t.team_id]
+             SELECT DISTINCT a2.id
+             FROM worklog_entry e
+             JOIN worklog_entry_member em ON em.entry_id = e.id
+             JOIN worklog_member m ON m.id = em.member_id
+             JOIN worklog_sgcc_account a2 ON a2.member_id = m.id OR (m.user_id IS NOT NULL AND a2.user_id = m.user_id)
+             WHERE e.team_id = ? AND e.log_date = ?)`,
+          [t.team_id, t.team_id, today()]
         );
         for (const acc of rest) {
           await probeAuth(acc);
@@ -1859,6 +2012,12 @@ function scheduleDaily() {
           await notifyMissingEndClockin(t.team_id, today());
         } catch (err) {
           console.error('[商旅打卡] 结束打卡缺失检查失败：', err.message);
+        }
+        // 每日核查结果日报（每班一封，含全部正常）→ 超管 + 本班班组管理员（见 16.3）
+        try {
+          await notifyDailySyncResult(t.team_id, today(), beforeRows[0].maxId);
+        } catch (err) {
+          console.error('[商旅打卡] 每日核查日报通知失败：', err.message);
         }
       }
       console.log('[商旅打卡] 每日定时核查完成');

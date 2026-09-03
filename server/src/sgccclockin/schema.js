@@ -3,12 +3,12 @@
 // 应用权限归属出工日志（sys_app 统一走 work-log，不再单设 sgcc-clockin 应用）
 
 const DDL = [
-  // 商旅账号绑定：一人一号（user_id 本人绑定；member_id 关联出工成员）
+  // 商旅账号绑定：一人一号（token 跟人走：user_id / member_id 全局唯一，调班随成员同步迁移，无需重绑）
   `CREATE TABLE IF NOT EXISTS worklog_sgcc_account (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    team_id BIGINT UNSIGNED NULL COMMENT '所属班组，关联 sys_team.id',
+    team_id BIGINT UNSIGNED NULL COMMENT '绑定人当前所在班组，关联 sys_team.id（调班随成员同步迁移）',
     user_id BIGINT UNSIGNED NULL COMMENT '绑定人，关联 sys_user.id（NULL=管理员代绑，本人自助重绑时接管回本列）',
-    member_id BIGINT UNSIGNED NULL COMMENT '关联出工成员 worklog_member.id（按班组+昵称认领）',
+    member_id BIGINT UNSIGNED NULL COMMENT '关联出工成员 worklog_member.id（按班组+昵称认领；调班随成员迁移）',
     mobile VARCHAR(32) NOT NULL DEFAULT '' COMMENT '商旅注册手机号（脱敏展示用原文）',
     token VARCHAR(128) NOT NULL DEFAULT '' COMMENT '商旅登录 token（短信登录换取，长效）',
     device_type VARCHAR(64) NOT NULL DEFAULT '' COMMENT '打卡设备型号「厂商 型号」（打卡记录展示，本人可改）',
@@ -18,8 +18,8 @@ const DDL = [
     backfill_done TINYINT NOT NULL DEFAULT 0 COMMENT '（已废弃）原 8 月回填标记，列保留兼容老库，代码已不再读写',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_team_user (team_id, user_id),
-    UNIQUE KEY uk_team_member (team_id, member_id)
+    UNIQUE KEY uk_user (user_id),
+    UNIQUE KEY uk_member (member_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   // 打卡流水：每人每日两条（开始/结束），与商旅逐条对账
   `CREATE TABLE IF NOT EXISTS worklog_clockin (
@@ -124,7 +124,7 @@ async function ensureSgccSchema(pool) {
   }
 
   // 老库兼容：worklog_sgcc_account.user_id 放宽为允许 NULL（管理员代绑定行 user_id=NULL；
-  // MySQL 唯一键中 NULL 互不相同，uk_team_user 不冲突，uk_team_member 仍保证一成员一号）
+  // MySQL 唯一键中 NULL 互不相同，uk_user 不冲突，uk_member 仍保证一成员一号）
   const [uidCols] = await pool.query(
     `SELECT IS_NULLABLE FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_sgcc_account' AND COLUMN_NAME = 'user_id'`
@@ -132,6 +132,41 @@ async function ensureSgccSchema(pool) {
   if (uidCols.length && uidCols[0].IS_NULLABLE === 'NO') {
     await pool.query(`ALTER TABLE worklog_sgcc_account MODIFY user_id BIGINT UNSIGNED NULL COMMENT '绑定人，关联 sys_user.id（NULL=管理员代绑，本人自助重绑时接管回本列）'`);
     console.log('[初始化] 已将 worklog_sgcc_account.user_id 放宽为允许 NULL（支持管理员代绑定）');
+  }
+
+  // 老库兼容：绑定唯一键由 (team_id, user_id)/(team_id, member_id) 升级为全局 uk_user/uk_member（token 跟人走）。
+  // 历史调班可能已产生同人跨班双行：先去重（保留与本人当前班组一致的行，都不符保留最新 id 行），再换键；
+  // 换键完成后旧键不存在，天然幂等
+  const [ukRows] = await pool.query(
+    `SELECT INDEX_NAME FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_sgcc_account' AND INDEX_NAME = 'uk_team_user'`
+  );
+  if (ukRows.length) {
+    const [accs] = await pool.query(
+      `SELECT a.id, a.user_id, a.member_id, a.team_id, u.team_id AS user_team_id
+       FROM worklog_sgcc_account a LEFT JOIN sys_user u ON u.id = a.user_id`
+    );
+    const groups = {};
+    accs.forEach((a) => {
+      if (a.user_id != null) (groups[`u${a.user_id}`] = groups[`u${a.user_id}`] || []).push(a);
+      if (a.member_id != null) (groups[`m${a.member_id}`] = groups[`m${a.member_id}`] || []).push(a);
+    });
+    const dupIds = new Set();
+    for (const list of Object.values(groups)) {
+      const alive = list.filter((a) => !dupIds.has(a.id));
+      if (alive.length < 2) continue;
+      const keeper = alive.find((a) => a.user_id != null && a.user_team_id != null && a.team_id === a.user_team_id)
+        || alive.slice().sort((x, y) => Number(y.id) - Number(x.id))[0];
+      alive.forEach((a) => { if (a.id !== keeper.id) dupIds.add(a.id); });
+    }
+    if (dupIds.size) {
+      await pool.query('DELETE FROM worklog_sgcc_account WHERE id IN (?)', [[...dupIds]]);
+      console.log(`[初始化] 已去重跨班重复商旅绑定 ${dupIds.size} 行（保留与本人当前班组一致/最新行）`);
+    }
+    await pool.query(`ALTER TABLE worklog_sgcc_account
+      DROP INDEX uk_team_user, DROP INDEX uk_team_member,
+      ADD UNIQUE KEY uk_user (user_id), ADD UNIQUE KEY uk_member (member_id)`);
+    console.log('[初始化] 已将 worklog_sgcc_account 唯一键升级为 uk_user/uk_member（token 跟人走）');
   }
 
   // 一次性清理：商旅打卡归属出工日志（权限统一走 work-log），删除旧 sgcc-clockin 应用及授权

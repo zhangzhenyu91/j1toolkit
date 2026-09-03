@@ -162,24 +162,30 @@ async function loadEntries(where, params) {
   });
 
   // 商旅打卡开启时：装配 绑定/登录态（成员级）、当日两次打卡（clockinMap）与 当日费用（feeMap），供新 7 条规则与前端打卡区
+  // 人级口径：绑定解析按卡上成员 member_id 直连 + user_id 兜底（token 跟人走，调班人在旧班卡上仍为已绑定可代打卡）；
+  // 打卡/费用行以 member_id 为稳定键（team_id 仅写入时快照），读取去 team 过滤（调班日双班共享同一物理行）
   let sgccByMember = {};
   const clockinByDate = {}; // clockinByDate[log_date][member_id][seq]
   const feeByDate = {}; // feeByDate[log_date][member_id] = { foodFee, transitFee }（规则 f 判定用）
   if (config.sgcc && config.sgcc.enabled) {
-    const teamIds = [...new Set(entries.map((e) => e.team_id).filter(Boolean))];
-    if (teamIds.length) {
+    const memberIds = [...new Set(members.map((m) => m.member_id))];
+    if (memberIds.length) {
       const [accounts] = await pool.query(
-        'SELECT member_id, token_status FROM worklog_sgcc_account WHERE team_id IN (?) AND member_id IS NOT NULL',
-        [teamIds]
+        `SELECT m.id AS card_member_id, a.token_status
+         FROM worklog_member m
+         JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+         WHERE m.id IN (?)
+         ORDER BY (a.member_id = m.id) DESC`,
+        [memberIds]
       );
-      accounts.forEach((a) => { sgccByMember[a.member_id] = a; });
+      accounts.forEach((a) => { if (!sgccByMember[a.card_member_id]) sgccByMember[a.card_member_id] = a; });
       const dates = [...new Set(entries.map((e) => e.log_date))];
       const [clockins] = await pool.query(
         `SELECT member_id, DATE_FORMAT(clock_date, '%Y-%m-%d') AS clock_date, seq, detail_id,
                 DATE_FORMAT(clock_time, '%Y-%m-%d %H:%i:%s') AS clock_time, position, longitude, latitude,
                 city_code, city_name, work_hours
-         FROM worklog_clockin WHERE team_id IN (?) AND clock_date IN (?)`,
-        [teamIds, dates]
+         FROM worklog_clockin WHERE member_id IN (?) AND clock_date IN (?)`,
+        [memberIds, dates]
       );
       clockins.forEach((c) => {
         const d = (clockinByDate[c.clock_date] = clockinByDate[c.clock_date] || {});
@@ -190,11 +196,11 @@ async function loadEntries(where, params) {
           lng: c.longitude, lat: c.latitude, cityCode: c.city_code, cityName: c.city_name,
         };
       });
-      // 当日费用（规则 f 用）：与 clockins 同口径按 team_id + 日期集合批量查
+      // 当日费用（规则 f 用）：与 clockins 同口径按成员集合 + 日期集合批量查
       const [fees] = await pool.query(
         `SELECT member_id, DATE_FORMAT(fee_date, '%Y-%m-%d') AS fee_date, food_fee, transit_fee
-         FROM worklog_fee WHERE team_id IN (?) AND fee_date IN (?)`,
-        [teamIds, dates]
+         FROM worklog_fee WHERE member_id IN (?) AND fee_date IN (?)`,
+        [memberIds, dates]
       );
       fees.forEach((f) => {
         const d = (feeByDate[f.fee_date] = feeByDate[f.fee_date] || {});
