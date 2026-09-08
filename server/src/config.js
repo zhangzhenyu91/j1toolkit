@@ -68,6 +68,8 @@ const config = {
     // 高德地图（「选照片并添加水印」预填当前地点/天气、商旅打卡定位解析用；未配置时对应字段留空手填）
     // 高德开放平台控制台 lbs.amap.com 创建应用，key 类型须为「Web 服务」
     amapMapKey: str('AMAP_MAP_KEY'),
+    // 接口 base URL（默认官方地址；因费用问题走中转站时改为中转地址，接口路径 /v3/... 不变）
+    amapBaseUrl: str('AMAP_BASE_URL', 'https://restapi.amap.com').replace(/\/+$/, ''),
     // 派车单每日自动同步（经 KVM 文件传输链路取回被控机导出件自动建卡；需同时开启 KVM）
     // 生效班组以 worklog_dispatch_sync_team 开关表为准（班组管理员/超管在「派车对齐」页按班组开关）；
     // team 仅为首次启动的种子开启班组（写入开关表后不再生效）；设备以 ddns 定位、MAC 校验防误操作他机

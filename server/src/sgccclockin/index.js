@@ -240,7 +240,7 @@ router.get('/geo', async (req, res, next) => {
       const params = { address: address.slice(0, 120), key: config.worklog.amapMapKey };
       const region = String(req.query.region || '').trim();
       if (region) params.city = region.slice(0, 32);
-      const resp = await axios.get('https://restapi.amap.com/v3/geocode/geo', { params, timeout: 8000 });
+      const resp = await axios.get(`${config.worklog.amapBaseUrl}/v3/geocode/geo`, { params, timeout: 8000 });
       const d = resp.data || {};
       const g = d.status === '1' && d.geocodes && d.geocodes[0];
       const loc = g && typeof g.location === 'string' ? g.location.split(',') : []; // 高德 location：「经度,纬度」
@@ -262,7 +262,7 @@ router.get('/geo', async (req, res, next) => {
       return fail(res, 400, 40040, '经纬度参数无效');
     }
     if (!config.worklog.amapMapKey) return ok(res, empty);
-    const resp = await axios.get('https://restapi.amap.com/v3/geocode/regeo', {
+    const resp = await axios.get(`${config.worklog.amapBaseUrl}/v3/geocode/regeo`, {
       params: { location: `${lng.toFixed(6)},${lat.toFixed(6)}`, key: config.worklog.amapMapKey }, // 高德：经度在前
       timeout: 8000,
     });
@@ -305,7 +305,7 @@ function composePosition(ac) {
 async function reverseGeocode(lng, lat) {
   if (!config.worklog.amapMapKey) return { position: '', cityCode: '', cityName: '' };
   try {
-    const resp = await axios.get('https://restapi.amap.com/v3/geocode/regeo', {
+    const resp = await axios.get(`${config.worklog.amapBaseUrl}/v3/geocode/regeo`, {
       params: { location: `${Number(lng).toFixed(6)},${Number(lat).toFixed(6)}`, key: config.worklog.amapMapKey }, // 高德：经度在前
       timeout: 8000,
     });

@@ -3,6 +3,7 @@
 // regeo location 参数为「经度,纬度」顺序（高德文档约定，小数点后不超 6 位）；坐标系 gcj02，与 wx.getLocation 一致；
 // 天气接口按 adcode 查询，需先逆编码取 adcode（两步串行，逆编码失败则天气一并留空）。
 // 鉴权：query 参数 key（高德开放平台「Web 服务」类型 key）。
+// base URL 走 env AMAP_BASE_URL（默认 https://restapi.amap.com），费用原因可切换中转站。
 const axios = require('axios');
 const config = require('../config');
 
@@ -25,10 +26,11 @@ async function fetchLocationWeather(lng, lat) {
   if (!configured()) return empty;
   const coord = `${Number(lng).toFixed(6)},${Number(lat).toFixed(6)}`; // 高德：经度在前
   const key = config.worklog.amapMapKey;
+  const base = config.worklog.amapBaseUrl;
   try {
     // 逆地理编码：地点拼「区县·地标」（如 尧都区·临汾电力高级技工学校）——区县取 district（空回退 city）；
     // 地标 = 距离最近的 POI（pois 需 extensions=all；距离超 POI_MAX_DIST 米不用），回退 乡镇/街道 township → 道路 streetNumber.street
-    const geoResp = await axios.get('https://restapi.amap.com/v3/geocode/regeo', {
+    const geoResp = await axios.get(`${base}/v3/geocode/regeo`, {
       params: { location: coord, extensions: 'all', key },
       timeout: 8000,
     });
@@ -59,7 +61,7 @@ async function fetchLocationWeather(lng, lat) {
     const adcode = gstr(ac.adcode);
     if (adcode) {
       try {
-        const wxResp = await axios.get('https://restapi.amap.com/v3/weather/weatherInfo', {
+        const wxResp = await axios.get(`${base}/v3/weather/weatherInfo`, {
           params: { city: adcode, extensions: 'base', key },
           timeout: 8000,
         });
