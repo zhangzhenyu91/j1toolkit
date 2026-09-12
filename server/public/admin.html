@@ -280,11 +280,11 @@
         <table class="tbl">
           <thead>
             <tr>
-              <th>账号</th><th>昵称</th><th>班组</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th>
+              <th>账号</th><th>昵称</th><th>wxid</th><th>班组</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th>
             </tr>
           </thead>
           <tbody id="userTbody">
-            <tr><td colspan="7"><div class="loading"><span class="spin"></span>加载中</div></td></tr>
+            <tr><td colspan="8"><div class="loading"><span class="spin"></span>加载中</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -331,11 +331,11 @@
         <table class="tbl">
           <thead>
             <tr>
-              <th>班组名称</th><th>成员数</th><th>状态</th><th>操作</th>
+              <th>班组名称</th><th>微信群 wxid</th><th>成员数</th><th>状态</th><th>操作</th>
             </tr>
           </thead>
           <tbody id="teamTbody">
-            <tr><td colspan="4"><div class="loading"><span class="spin"></span>加载中</div></td></tr>
+            <tr><td colspan="5"><div class="loading"><span class="spin"></span>加载中</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -366,7 +366,15 @@
           <label class="push-ck"><input type="checkbox" value="user">普通成员</label>
         </div>
       </div>
-      <div class="f-note">通知按角色推送，成员在工作台「消息通知」与小程序首页的通知卡可见，未读数以橙色徽章提示。内容支持 Markdown 排版，图片经「插入图片」上传后自动引用。</div>
+      <div class="f-row">
+        <label>微信推送 <i>选填，发班组群</i></label>
+        <div class="push-targets" id="pushWxTeams"><span class="mut">加载中…</span></div>
+      </div>
+      <div class="f-row">
+        <label>微信成员 <i>选填，发个人</i></label>
+        <select class="input" id="pushWxUsers" multiple size="6"></select>
+      </div>
+      <div class="f-note">通知按角色推送，成员在工作台「消息通知」与小程序首页的通知卡可见，未读数以橙色徽章提示。内容支持 Markdown 排版，图片经「插入图片」上传后自动引用。<br>勾选「微信推送 / 微信成员」后，将同时经微信发送到所选班组群与成员（纯文本「标题 + 内容」，Markdown 不生效）；wxid 在员工管理 / 班组管理中维护，未设 wxid 的对象不可选。</div>
       <div class="push-ft">
         <button class="btn btn-accent" id="btnPushSubmit">推送</button>
       </div>
@@ -394,6 +402,10 @@
       <div class="f-row">
         <label>昵称 <i>选填</i></label>
         <input class="input" id="addNickname" placeholder="选填" autocomplete="off">
+      </div>
+      <div class="f-row">
+        <label>wxid <i>选填</i></label>
+        <input class="input" id="addWxid" placeholder="微信 wxid，消息微信推送用，可空" autocomplete="off" maxlength="128">
       </div>
       <div class="f-row">
         <label>班组 <i>选填</i></label>
@@ -428,6 +440,10 @@
       <div class="f-row">
         <label>昵称</label>
         <input class="input" id="editNickname" placeholder="选填" autocomplete="off">
+      </div>
+      <div class="f-row">
+        <label>wxid <i>选填</i></label>
+        <input class="input" id="editWxid" placeholder="微信 wxid，消息微信推送用，可空" autocomplete="off" maxlength="128">
       </div>
       <div class="f-row">
         <label>班组</label>
@@ -475,6 +491,10 @@
       <div class="f-row">
         <label>班组名称</label>
         <input class="input" id="teamName" placeholder="如：运维二班" autocomplete="off" maxlength="64">
+      </div>
+      <div class="f-row">
+        <label>微信群 wxid <i>选填</i></label>
+        <input class="input" id="teamWxid" placeholder="班组微信群 wxid，消息推送用，可空" autocomplete="off" maxlength="128">
       </div>
       <div class="f-row" id="teamStatusRow" style="display:none">
         <label>启用状态</label>
@@ -599,6 +619,7 @@
       tab.classList.add('on');
       $('#pane-' + tab.dataset.pane).classList.add('on');
       moveTabInd(tab);
+      if (tab.dataset.pane === 'push') loadWxPickers(); // 进入推送页签刷新微信选择器（wxid 可能在员工/班组管理刚改过）
     });
   });
   window.addEventListener('resize', function () {
@@ -628,7 +649,7 @@
       teams = [];
       renderTeamFilter();
       $('#teamCnt').textContent = '加载失败';
-      $('#teamTbody').innerHTML = '<tr><td colspan="4"><div class="empty">' +
+      $('#teamTbody').innerHTML = '<tr><td colspan="5"><div class="empty">' +
         Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '班组列表加载失败') + '</p></div></td></tr>';
     }
   }
@@ -688,7 +709,7 @@
   function renderTeams() {
     if (!teams.length) {
       $('#teamCnt').textContent = '共 0 个班组';
-      $('#teamTbody').innerHTML = '<tr><td colspan="4"><div class="empty">' +
+      $('#teamTbody').innerHTML = '<tr><td colspan="5"><div class="empty">' +
         Shade.icon('usergroup', 44) + '<p>暂无班组，点击右上角「新增班组」创建</p></div></td></tr>';
       return;
     }
@@ -700,6 +721,7 @@
       return '<tr>' +
         '<td class="uname">' + Shade.esc(t.name) +
           (t.id === defId ? '<span class="def-pill">默认班组</span>' : '') + '</td>' +
+        '<td>' + (t.wxid ? Shade.esc(t.wxid) : '<span class="mut">—</span>') + '</td>' +
         '<td>' + (t.user_count || 0) + ' 人</td>' +
         '<td>' + (t.status === 1
           ? '<span class="tag tag-orange">启用</span>'
@@ -722,6 +744,7 @@
     editingTeam = t || null;
     $('#teamTitle').textContent = t ? '编辑班组' : '新增班组';
     $('#teamName').value = t ? t.name : '';
+    $('#teamWxid').value = t ? (t.wxid || '') : '';
     // 启用状态开关仅编辑态展示（新增默认启用）
     $('#teamStatusRow').style.display = t ? '' : 'none';
     $('#teamStatus').classList.toggle('on', !t || t.status === 1);
@@ -748,12 +771,13 @@
           body: {
             name: name,
             status: $('#teamStatus').classList.contains('on') ? 1 : 0,
+            wxid: $('#teamWxid').value.trim(),
           },
         });
       } else {
         await Shade.api('/api/v1/admin/teams', {
           method: 'POST',
-          body: { name: name },
+          body: { name: name, wxid: $('#teamWxid').value.trim() },
         });
       }
       Shade.toast('已保存', 'success');
@@ -808,7 +832,7 @@
     } catch (e) {
       users = [];
       $('#userCnt').textContent = '加载失败';
-      $('#userTbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
+      $('#userTbody').innerHTML = '<tr><td colspan="8"><div class="empty">' +
         Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '员工列表加载失败') + '</p></div></td></tr>';
     }
   }
@@ -827,6 +851,7 @@
     return '<tr>' +
       '<td class="uname">' + Shade.esc(u.username) + '</td>' +
       '<td>' + (name ? Shade.esc(name) : '<span class="mut">—</span>') + '</td>' +
+      '<td>' + (u.wxid ? Shade.esc(u.wxid) : '<span class="mut">—</span>') + '</td>' +
       '<td>' + (u.team ? Shade.esc(u.team) : '<span class="mut">未分配</span>') + '</td>' +
       '<td>' + roleBadge(u.role) + '</td>' +
       '<td>' + (disabling
@@ -846,7 +871,7 @@
   function renderUsers() {
     $('#userCnt').textContent = '共 ' + users.length + ' 名员工';
     if (!users.length) {
-      $('#userTbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
+      $('#userTbody').innerHTML = '<tr><td colspan="8"><div class="empty">' +
         Shade.icon('usergroup', 44) + '<p>暂无员工，点击右上角「新建员工」创建</p></div></td></tr>';
       return;
     }
@@ -856,7 +881,7 @@
       return;
     }
     $('#userTbody').innerHTML = groupByTeam(users).map(function (g) {
-      return '<tr class="grp-row"><td colspan="7">' + (g[0] ? Shade.esc(g[0]) : '未分组') +
+      return '<tr class="grp-row"><td colspan="8">' + (g[0] ? Shade.esc(g[0]) : '未分组') +
         '<span class="grp-cnt">' + g[1].length + ' 人</span></td></tr>' +
         g[1].map(userRowHtml).join('');
     }).join('');
@@ -879,6 +904,7 @@
   $('#btnAdd').addEventListener('click', function () {
     $('#addUsername').value = '';
     $('#addNickname').value = '';
+    $('#addWxid').value = '';
     fillTeamSelect($('#addTeam'), ddAddTeam, 0);
     $('#addRole').value = 'user';
     ddAddRole.sync();
@@ -907,7 +933,7 @@
     try {
       await Shade.api('/api/v1/admin/users', {
         method: 'POST',
-        body: { username: username, nickname: nickname, team_id: teamId, role: role, password: password },
+        body: { username: username, nickname: nickname, wxid: $('#addWxid').value.trim(), team_id: teamId, role: role, password: password },
       });
       Shade.toast('已创建', 'success');
       closeMask('addMask');
@@ -921,11 +947,12 @@
     }
   });
 
-  // ---------- 编辑员工（昵称 / 班组 / 角色） ----------
+  // ---------- 编辑员工（昵称 / wxid / 班组 / 角色） ----------
   function openEdit(u) {
     editing = u;
     $('#editTip').textContent = '账号：' + u.username;
     $('#editNickname').value = u.nickname || '';
+    $('#editWxid').value = u.wxid || '';
     fillTeamSelect($('#editTeam'), ddEditTeam, u.team_id);
     $('#editRole').value = u.role === 'admin' ? 'admin' : (u.role === 'team_admin' ? 'team_admin' : 'user');
     // 编辑自己时角色置灰（不能降级自己的账号，后端同口径拒绝）
@@ -952,6 +979,7 @@
         method: 'PUT',
         body: {
           nickname: $('#editNickname').value.trim(),
+          wxid: $('#editWxid').value.trim(),
           team_id: teamId, // null = 未分配
           role: role,
         },
@@ -1176,11 +1204,35 @@
   // ============================================================
   // 消息推送
   // ============================================================
+  // 微信推送选择器：班组群复用已加载的 teams；成员全量拉取（与员工管理的班组筛选无关）。
+  // 未设 wxid 的班组/成员不可选并标注；wxid 在员工管理 / 班组管理中维护
+  async function loadWxPickers() {
+    $('#pushWxTeams').innerHTML = teams.length ? teams.map(function (t) {
+      var no = !t.wxid;
+      return '<label class="push-ck">' +
+        '<input type="checkbox" value="' + t.id + '"' + (no ? ' disabled' : '') + '>' +
+        Shade.esc(t.name) + (no ? '<span class="mut">（未设 wxid）</span>' : '') + '</label>';
+    }).join('') : '<span class="mut">暂无班组</span>';
+    try {
+      var r = await Shade.api('/api/v1/admin/users');
+      var list = r.data.list || [];
+      $('#pushWxUsers').innerHTML = groupByTeam(list).map(function (g) {
+        return '<optgroup label="' + (g[0] ? Shade.esc(g[0]) : '未分组') + '">' + g[1].map(function (u) {
+          var no = !u.wxid;
+          return '<option value="' + u.id + '"' + (no ? ' disabled' : '') + '>' +
+            Shade.esc(u.nickname || u.username) + (no ? '（未设 wxid）' : '') + '</option>';
+        }).join('') + '</optgroup>';
+      }).join('');
+    } catch (e) {
+      $('#pushWxUsers').innerHTML = '<option disabled>成员列表加载失败</option>';
+    }
+  }
+
   $('#btnPushSubmit').addEventListener('click', async function () {
     var title = $('#pushTitle').value.trim();
     var content = $('#pushContent').value.trim();
     var targets = Array.prototype.map.call(
-      document.querySelectorAll('#pane-push .push-ck input:checked'),
+      document.querySelectorAll('#pane-push .push-targets:not(#pushWxTeams) .push-ck input:checked'),
       function (ck) { return ck.value; }
     );
     if (!title || !content) {
@@ -1191,18 +1243,30 @@
       Shade.toast('请至少选择一个推送对象', 'info');
       return;
     }
+    var wxTeamIds = Array.prototype.map.call(
+      document.querySelectorAll('#pushWxTeams input:checked'),
+      function (ck) { return Number(ck.value); }
+    );
+    var wxUserIds = Array.prototype.map.call(
+      $('#pushWxUsers').selectedOptions,
+      function (op) { return Number(op.value); }
+    );
     var btn = $('#btnPushSubmit');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
-      await Shade.api('/api/v1/notice/push', {
+      var r = await Shade.api('/api/v1/notice/push', {
         method: 'POST',
-        body: { title: title, content: content, targets: targets },
+        body: {
+          title: title, content: content, targets: targets,
+          wx_team_ids: wxTeamIds, wx_user_ids: wxUserIds,
+        },
       });
-      Shade.toast('推送成功', 'success');
+      Shade.toast((r && r.message) || '推送成功', 'success');
       $('#pushTitle').value = '';
       $('#pushContent').value = '';
       document.querySelectorAll('#pane-push .push-ck input').forEach(function (ck) { ck.checked = false; });
+      $('#pushWxUsers').selectedIndex = -1;
       // 预览态一并复位
       pushPreviewOn = false;
       $('#pushPreview').hidden = true;

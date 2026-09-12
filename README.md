@@ -24,7 +24,7 @@
 - **水印添加**（移动端，小程序分包 `pkg-wmadd`）：选片/拍摄 → 4:3 裁剪 → 编辑水印（含防伪码、杆塔坐标选择）→ 服务端渲染水印仅回图（不传 COS、不入库、不触发 Dify 验证），自动存相册并全屏展示；后端 `server/src/wmadd/`（无 env 开关、无业务表），要求 `wm-add` 应用权限
 - **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断，仅网页端上传），顺序/随机/错题三模式刷题 + 背题模式（答案解析常显）+ 答题卡跳题与清空做题记录（保留错题本），错题本按题库分组专项练习（连对 3 次自动移出），题库分班组池/全部池、用户自行添加进个人题库，Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；网页端 quiz.html 为刷题练习 + 题库管理双页签（管理页签仅 admin/本班 team_admin）；后端 `server/src/quiz/`（`QUIZ_ENABLED` 开关），要求 `quiz` 应用权限
 - **商旅打卡**（出工日志扩展）：商旅账号短信绑定 / 两次打卡 / 费用 / 照片双端同步 / 每日定时核查，权限并入 `work-log`（不单设应用）；后端 `server/src/sgccclockin/`（`SGCC_CLOCKIN_ENABLED` 开关，需先开启出工日志）
-- **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:25 锁定目标 KVM 设备并把 U 盘挂载至被控机，09:40 经文件传输链路取回被控机导出的当日派车单 xlsx（`scripts/export_dispatch_orders.py`）自动建出车卡片、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（`WORKLOG_DISPATCH_SYNC_ENABLED` 开关，需先开启出工日志与 KVM，详见 开发指南.md 7.7）
+- **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:10 锁定目标 KVM 设备并把 U 盘挂载至被控机（被控机 09:15 起执行导出脚本），09:20 经文件传输链路取回被控机导出的当日派车单 xlsx（`scripts/export_dispatch_orders.py`）自动建出车卡片、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（`WORKLOG_DISPATCH_SYNC_ENABLED` 开关，需先开启出工日志与 KVM，详见 开发指南.md 7.7）
 
 应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。
 
@@ -104,6 +104,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `WEKNORA_API_URL` / `WEKNORA_API_KEY` / `WEKNORA_AGENT_ID` | WeKnora 知识库（Call Me；详见开发指南 Call Me 一节） |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_BUCKET` / `COS_REGION` | 腾讯云 COS（出工日志照片） |
 | `DIFY_API_URL` | Dify 地址（只填域名如 `http://10.2.24.13:8082`，`/v1` 由代码拼接；**所有 Dify 工作流共用此地址**，各工作流独立 API_KEY） |
+| `DIFY_WXPUSH_API_KEY` | 通知微信外发工作流的 Dify API Key（把通知文本发到个人/班组群 wxid；wxid 由超管在网页端管理页维护，未配置则微信推送停用、站内通知照常，见开发指南第十六节） |
 | `DIFY_WORKLOG_API_KEY` | 出工日志照片验证工作流的 Dify API Key |
 | `WORKLOG_ENABLED` | 出工日志后端开关：`true` 开启（建表/种子/挂载路由），`false` 关闭 |
 | `COS_WORKLOG_PREFIX` | 出工日志照片在 COS 的独立文件夹前缀（如 `worklog/`） |
@@ -125,12 +126,13 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SGCC_DCU_PUB` / `SGCC_WLA_PRIV` | 商旅 jsonx slapp 通道（费用保存必走）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_VERSION` | 商旅 App 版本号（请求头 version，默认 `3.3.5`；App 升级后优先只改此项验证是否仍通） |
 | `SGCC_SYNC_TIME` | 商旅打卡每日自动核查时间（HH:mm，默认 `23:00`） |
+| `SGCC_ENDCLOCK_REMIND_TIME` | 结束打卡未打傍晚提醒时间（HH:mm，默认 `18:00`；对当日已打开始卡未打结束卡的成员仅发微信提醒：本人 + 班组群，不写站内通知） |
 | `SGCC_SYNC_INTERVAL_MS` | 商旅打卡批量拉取成员间隔（毫秒，防风控，默认 `1500`） |
 | `WORKLOG_DISPATCH_SYNC_ENABLED` | 派车单每日自动同步开关：`true` 开启（每日定时取回被控机导出派车单自动建卡），`false` 关闭；需先开启出工日志与 KVM |
 | `WORKLOG_DISPATCH_SYNC_TEAM` | 同步生效班组名（仅该班组启用，目前仅检修一班） |
 | `WORKLOG_DISPATCH_DEVICE_DDNS` / `WORKLOG_DISPATCH_DEVICE_MAC` | 目标 KVM 设备定位（ddns）与 MAC 校验（防误操作他机） |
 | `WORKLOG_DISPATCH_KVM_USER` | 同步任务代登平台账号（须平台可见该设备组；留空回退 `ADMIN_USERNAME`） |
-| `WORKLOG_DISPATCH_PREPARE_TIME` / `WORKLOG_DISPATCH_FETCH_TIME` | 每日准备时间（锁定设备并挂载 U 盘至被控机，默认 `09:25`）与取件时间（下载建卡解禁，默认 `09:40`），北京时间 |
+| `WORKLOG_DISPATCH_PREPARE_TIME` / `WORKLOG_DISPATCH_FETCH_TIME` | 每日准备时间（锁定设备并挂载 U 盘至被控机，默认 `09:10`）与取件时间（下载建卡解禁，默认 `09:20`），北京时间 |
 
 ## 小程序开发（微信开发者工具）
 

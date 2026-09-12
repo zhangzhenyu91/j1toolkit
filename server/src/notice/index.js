@@ -1,5 +1,6 @@
 // 通知推送路由：全部接口需登录；可见性 = 角色命中 targets（角色数组子集）或 本人命中 user_ids（按人投放的用户 id 数组）
 // POST /push 为超管推送入口；模块另导出 push() 供其他后端模块系统自动触发（createdBy 缺省 NULL=系统）
+// push() 可选 wxUserIds / wxTeamIds：写入站内通知后经 Dify 工作流追加微信外发（见 ./wxpush.js）
 const express = require('express');
 const multer = require('multer');
 const auth = require('../middleware/auth');
@@ -7,6 +8,7 @@ const requireAdmin = require('../middleware/requireAdmin');
 const { pool } = require('../db');
 const { ok, fail } = require('../utils/resp');
 const cos = require('../worklog/cos'); // 与 sgccclockin 同口径跨模块复用 COS 封装
+const wxpush = require('./wxpush');
 
 const router = express.Router();
 router.use(auth);
@@ -16,7 +18,8 @@ const ROLES = ['admin', 'team_admin', 'user'];
 
 // 系统自动触发接口：写入一条通知并返回新通知 id；createdBy 缺省 NULL 表示系统。
 // targets 为角色数组（可空），userIds 为按人投放的用户 id 数组（可空）；两者至少其一非空才有接收人
-async function push({ targets = [], userIds = null, title, content, createdBy = null }) {
+// wxUserIds / wxTeamIds 可选：同时向这些用户（个人 wxid）与班组（群 wxid）追加微信推送；失败仅记日志
+async function push({ targets = [], userIds = null, title, content, createdBy = null, wxUserIds = null, wxTeamIds = null }) {
   const roles = Array.isArray(targets) ? [...new Set(targets)] : [];
   const ids = Array.isArray(userIds)
     ? [...new Set(userIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0))]
@@ -25,6 +28,18 @@ async function push({ targets = [], userIds = null, title, content, createdBy = 
     'INSERT INTO sys_notice (title, content, targets, user_ids, created_by) VALUES (?, ?, ?, ?, ?)',
     [title, content, JSON.stringify(roles), ids.length ? JSON.stringify(ids) : null, createdBy]
   );
+  if ((Array.isArray(wxUserIds) && wxUserIds.length) || (Array.isArray(wxTeamIds) && wxTeamIds.length)) {
+    try {
+      await wxpush.sendTo({
+        userIds: wxUserIds || [],
+        teamIds: wxTeamIds || [],
+        text: `${title}\n${content}`,
+        user: `notice-${r.insertId}`,
+      });
+    } catch (err) {
+      console.error('[通知] 微信推送失败（站内通知已写入）：', err.message);
+    }
+  }
   return r.insertId;
 }
 
@@ -110,6 +125,7 @@ router.post('/read-all', async (req, res, next) => {
 });
 
 // POST /api/v1/notice/push 超管推送通知（targets 为 ROLES 非空子集；content 支持 Markdown 原文，图片用 ![描述](url) 引用）
+// 可选 wx_team_ids / wx_user_ids：同时向所选班组（群 wxid）与成员（个人 wxid）追加微信推送（纯文本，Markdown 不生效）
 router.post('/push', requireAdmin, async (req, res, next) => {
   try {
     const title = String((req.body && req.body.title) || '').trim();
@@ -120,8 +136,26 @@ router.post('/push', requireAdmin, async (req, res, next) => {
     const valid = Array.isArray(targets) && targets.length > 0
       && targets.every((t) => typeof t === 'string' && ROLES.includes(t));
     if (!valid) return fail(res, 400, 40031, '推送对象不合法');
+    const parseIds = (v) => (Array.isArray(v)
+      ? [...new Set(v.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0))]
+      : []);
+    const wxTeamIds = parseIds(req.body && req.body.wx_team_ids);
+    const wxUserIds = parseIds(req.body && req.body.wx_user_ids);
     const id = await push({ targets: [...new Set(targets)], title, content, createdBy: req.user.id });
-    return ok(res, { id }, '推送成功');
+    let message = '推送成功';
+    if (wxTeamIds.length || wxUserIds.length) {
+      // 手动推送需把微信侧结果回显给超管，故此处直接调 wxpush 而非走 push() 的静默参数
+      const wx = await wxpush.sendTo({
+        userIds: wxUserIds,
+        teamIds: wxTeamIds,
+        text: `${title}\n${content}`,
+        user: `notice-${id}`,
+      });
+      message += wx.ok
+        ? `，微信已发送 ${wx.sent} 个对象`
+        : `，微信未发送（${wx.reason || wx.error || '未知原因'}）`;
+    }
+    return ok(res, { id }, message);
   } catch (err) {
     return next(err);
   }

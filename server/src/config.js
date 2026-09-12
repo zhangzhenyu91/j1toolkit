@@ -55,6 +55,8 @@ const config = {
   },
   dify: {
     apiUrl: str('DIFY_API_URL'),
+    // 微信消息推送工作流 key（通知微信外发；留空则微信推送整体停用，站内通知照常）
+    wxpushKey: str('DIFY_WXPUSH_API_KEY'),
   },
   // basemetas 文件预览服务（安全日记录在线预览用；留空=未启用，网页端不显示预览）
   basemetas: {
@@ -80,8 +82,8 @@ const config = {
       deviceMac: str('WORKLOG_DISPATCH_DEVICE_MAC'),
       // 同步任务代登平台所用账号（须在 GLKVM 平台可见该设备组；留空回退 ADMIN_USERNAME）
       kvmUser: str('WORKLOG_DISPATCH_KVM_USER'),
-      prepareTime: str('WORKLOG_DISPATCH_PREPARE_TIME', '09:25'), // 锁定设备并挂载 U 盘至被控机
-      fetchTime: str('WORKLOG_DISPATCH_FETCH_TIME', '09:40'), // 取件建卡并解禁
+      prepareTime: str('WORKLOG_DISPATCH_PREPARE_TIME', '09:10'), // 锁定设备并挂载 U 盘至被控机
+      fetchTime: str('WORKLOG_DISPATCH_FETCH_TIME', '09:20'), // 取件建卡并解禁
     },
   },
   // 安全日活动记录（自 SafeDayLogs 独立服务合并的子模块，文件存储，不建库表）
@@ -119,6 +121,8 @@ const config = {
     version: str('SGCC_VERSION', '3.3.5'),
     // 每日自动核查时间（HH:mm，默认 23:00）
     syncTime: str('SGCC_SYNC_TIME', '23:00'),
+    // 结束打卡未打傍晚提醒时间（HH:mm，默认 18:00；仅发微信 本人+班组群，不写站内通知）
+    endClockRemindTime: str('SGCC_ENDCLOCK_REMIND_TIME', '18:00'),
     // 批量拉取成员间隔（毫秒，防商旅侧风控；定时核查与手动 /sync/pull 共用）
     syncIntervalMs: parseInt(str('SGCC_SYNC_INTERVAL_MS', '1500'), 10) || 1500,
   },

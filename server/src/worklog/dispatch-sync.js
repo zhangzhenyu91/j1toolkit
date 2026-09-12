@@ -2,9 +2,9 @@
 // 按各开启班组的成员匹配自动建出车卡片。生效班组以 worklog_dispatch_sync_team 开关表为准
 //（班组管理员/超管在「派车对齐」页按班组开关；env WORKLOG_DISPATCH_SYNC_TEAM 仅作首次启动种子）。
 // 每日流程（北京时间，时区换算同 sgccclockin 固定 UTC+8 口径）：
-//   09:25 准备：锁定设备（devlock 维护锁，远程连接/文件传输对该设备暂停）→ 设备 /mount 把 U 盘挂载（共享）至被控机端
-//   09:30 被控机脚本导出派车单到 U 盘（scripts/export_dispatch_orders.py，被控机本机 crontab，不在本服务范围）
-//   09:40 取件：下载当日文件（设备 fileshare 下载内部先 ensure_unshared，自动把 U 盘切回 KVM 侧）
+//   09:10 准备：锁定设备（devlock 维护锁，远程连接/文件传输对该设备暂停）→ 设备 /mount 把 U 盘挂载（共享）至被控机端
+//   09:15 被控机脚本导出派车单到 U 盘（scripts/export_dispatch_orders.py，被控机本机 crontab，不在本服务范围）
+//   09:20 取件：下载当日文件（设备 fileshare 下载内部先 ensure_unshared，自动把 U 盘切回 KVM 侧）
 //         → 删除 U 盘中该文件 → 解析建卡 → 解禁设备 → 结果通知（每日必发：按班组分发，超管 + 对应班组管理员）
 // 建卡口径（用户指定）：A 列车牌（剔除「(蓝)/(绿)」等颜色后缀）、E 列用车人、J 列目的地；
 //   行日期按 F 列预计用车时间（T 列创建时间兜底）判定，非当日行清洗剔除（导出件可能混入之前日期的派车单）；
@@ -354,6 +354,7 @@ async function importOrdersMulti(teams, buffer, today) {
 }
 
 // 同步结果通知：超管 + 指定班组启用班组管理员（teamIds 空时仅超管，如班组解析失败场景）；通知失败仅记日志
+// 微信推送：发到 teamIds 对应班组群
 async function notify(title, lines, teamIds) {
   try {
     const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
@@ -367,7 +368,13 @@ async function notify(title, lines, teamIds) {
     }
     const userIds = [...new Set([...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)])];
     if (!userIds.length) return;
-    await require('../notice').push({ userIds, targets: [], title, content: lines.join('\n') }); // 与 sgccclockin 同型惰性加载
+    await require('../notice').push({ // 与 sgccclockin 同型惰性加载
+      userIds,
+      targets: [],
+      title,
+      content: lines.join('\n'),
+      wxTeamIds: ids,
+    });
   } catch (err) {
     console.error('[派车单同步] 通知发送失败：', err.message);
   }
@@ -375,7 +382,7 @@ async function notify(title, lines, teamIds) {
 
 /* ===== 每日任务 ===== */
 
-// 09:25 准备：锁定设备 → U 盘挂载至被控机；失败立即解禁并通知（取件任务仍按自身排程执行）
+// 09:10 准备：锁定设备 → U 盘挂载至被控机；失败立即解禁并通知（取件任务仍按自身排程执行）
 async function prepareJob() {
   let teams = [];
   try {
@@ -393,15 +400,15 @@ async function prepareJob() {
     console.error('[派车单同步] 准备任务失败：', err.message);
     await devlock.unlock(cfg().deviceDdns);
     await notify('派车单同步准备失败', [
-      `每日准备任务（锁定设备并挂载 U 盘至被控机）失败：${err.message}`,
-      '设备已解禁；今日取件任务仍将按排程尝试执行。',
+      `锁定设备 / 挂载 U 盘失败：${err.message}`,
+      '设备已解禁，取件任务仍按排程执行。',
     ], teams.map((t) => t.id));
   }
 }
 
 let fetching = false; // 取件重入守卫（定时与手动触发共用）
 
-// 09:40 取件：下载 → 删除 U 盘文件 → 解析建卡 → 解禁（finally 保证）→ 每日结果通知（按班组分发）；返回结果对象供手动触发回显
+// 09:20 取件：下载 → 删除 U 盘文件 → 解析建卡 → 解禁（finally 保证）→ 每日结果通知（按班组分发）；返回结果对象供手动触发回显
 async function fetchJob() {
   if (fetching) return { ok: false, message: '已有取件任务在执行中，请稍后再试' };
   fetching = true;
@@ -418,8 +425,8 @@ async function fetchJob() {
     const buf = await downloadFile(dev, fileName);
     if (!buf) {
       const lines = [
-        `${today} 未在设备 U 盘中找到「${fileName}」。`,
-        '可能为当日无派车单，或被控机导出脚本异常（排障见 scripts/README.md）。',
+        `未在设备 U 盘找到「${fileName}」。`,
+        '可能当日无派车单，或导出脚本异常（排障见 scripts/README.md）。',
       ];
       await notify('派车单同步：今日无文件', lines, teams.map((t) => t.id));
       return { ok: true, message: lines.join('\n') };
@@ -435,28 +442,29 @@ async function fetchJob() {
     for (const res of r.results) {
       const overlapCount = res.mismatches.length + res.aligned;
       const lines = [
-        `${today} 派车单同步完成：解析 ${r.total} 行（剔除 ${r.stale} 行非当日、${r.dropped} 行已取消/无车牌、${r.outside} 行非班组用车、${r.otherTeam} 行仅属未开启班组），本班新建 ${res.created.length} 张出车卡片`
-        + (overlapCount ? `；用车人当日已有手动建卡的记录 ${overlapCount} 条（比对不一致 ${res.mismatches.length} 条见下文指引，一致 ${res.aligned} 条无需处理）` : '')
+        `${today} 解析 ${r.total} 行，新建 ${res.created.length} 张出车卡片`
+        + `（剔除：非当日 ${r.stale} / 已取消或无车牌 ${r.dropped} / 非班组用车 ${r.outside} / 仅属未开启班组 ${r.otherTeam}）`
+        + (overlapCount ? `；${overlapCount} 条用车人当日已有手动卡（不一致 ${res.mismatches.length} 条见下文）` : '')
         + '。',
       ];
       res.created.forEach((c) =>
         lines.push(`· ${c.plate}${c.destination ? ` → ${c.destination}` : ''}：${c.members.join('、')}`)
       );
       if (res.mismatches.length) {
-        lines.push(`以下 ${res.mismatches.length} 条记录用车人当日已有手动建卡，未自动改动，请按指引核对修改：`);
+        lines.push(`以下 ${res.mismatches.length} 条已有手动卡未改动，请核对：`);
         res.mismatches.forEach((a) => {
           lines.push(`· ${a.row.plate}${a.row.to ? ` → ${a.row.to}` : ''}（派车单用车人：${a.row.userText}）`);
           a.issues.forEach((it) => lines.push(`  ${it}`));
         });
       }
       if (res.skippedDict.length) {
-        lines.push('以下记录因字典未命中未建卡，请将车牌/目的地先入字典后人工建卡：');
+        lines.push(`以下 ${res.skippedDict.length} 条字典未命中未建卡，请先将车牌/目的地入字典再人工建卡：`);
         res.skippedDict.forEach((s) =>
           lines.push(`· ${s.plate}${s.to ? ` → ${s.to}` : ''}（用车人：${s.userText}）：${s.reason}`)
         );
       }
       if (res.cross.length) {
-        lines.push('以下记录用车人含多个班组人名，仅通知不建卡（如需建卡请联系超级管理员建跨班日志）：');
+        lines.push(`以下 ${res.cross.length} 条含跨班用车人，仅通知不建卡（需建卡请联系超管建跨班日志）：`);
         res.cross.forEach((s) =>
           lines.push(`· ${s.plate}${s.to ? ` → ${s.to}` : ''}（用车人：${s.userText}）`)
         );
@@ -469,8 +477,8 @@ async function fetchJob() {
   } catch (err) {
     console.error('[派车单同步] 取件任务失败：', err.message);
     const lines = [
-      `${today} 取件任务失败：${err.message}`,
-      '设备已解禁。可人工在出工日志「派车对齐」导入导出件，或由字典管理员调 POST /api/v1/worklog/dispatch/sync-now 补跑。',
+      `取件失败：${err.message}`,
+      '设备已解禁，可在出工日志「派车对齐」人工导入导出件或手动补跑。',
     ];
     await notify('派车单同步失败', lines, teams.map((t) => t.id));
     return { ok: false, message: lines.join('\n') };

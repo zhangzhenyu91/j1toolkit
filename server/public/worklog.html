@@ -978,7 +978,7 @@
         <!-- 每日自动同步派车单开关（按生效班组；状态随页签展示与班组切换拉取，见 loadPaSyncSwitch） -->
         <div class="rep-bar pa-sync">
           <span class="rep-mine" id="paSyncSw"><span class="sw"></span><span class="tt">每日自动同步派车单</span></span>
-          <span class="hint">开启后每日 09:40 自动取回当日派车单，按本班成员匹配建出车卡片；用车人含多个班组人名的记录仅通知不建卡</span>
+          <span class="hint">开启后每日 09:20 自动取回当日派车单，按本班成员匹配建出车卡片；用车人含多个班组人名的记录仅通知不建卡</span>
         </div>
         <div class="rep-bar">
           <button class="btn btn-sm" id="paPick">选择派车单文件…</button>
@@ -3253,7 +3253,7 @@ async function togglePaSyncSwitch() {
   var yes = await confirmAction({
     title: target ? '开启每日自动同步' : '关闭每日自动同步',
     content: target
-      ? '开启后每日 09:40 自动取回当日派车单，按本班成员匹配建出车卡片，确定开启吗？'
+      ? '开启后每日 09:20 自动取回当日派车单，按本班成员匹配建出车卡片，确定开启吗？'
       : '关闭后不再每日自动取回当日派车单建卡，确定关闭吗？',
     confirmText: target ? '开启' : '关闭'
   });

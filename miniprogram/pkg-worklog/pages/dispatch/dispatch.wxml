@@ -7,7 +7,7 @@
   <view class="card sync-card">
     <view class="r-l">
       <view class="r-t">每日自动同步派车单</view>
-      <view class="r-s">开启后每日 09:40 自动取回当日派车单，按本班成员匹配建出车卡片；用车人含多个班组人名的记录仅通知不建卡。开启 / 关闭均次日起按排程执行。</view>
+      <view class="r-s">开启后每日 09:20 自动取回当日派车单，按本班成员匹配建出车卡片；用车人含多个班组人名的记录仅通知不建卡。开启 / 关闭均次日起按排程执行。</view>
     </view>
     <t-switch value="{{syncEnabled}}" disabled="{{syncSwitchLoading}}" bind:change="onSyncSwitch" />
   </view>

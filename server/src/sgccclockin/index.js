@@ -94,15 +94,23 @@ async function probeAuth(account) {
 }
 
 // 登录过期通知：按人投放给本人（绑定账号）与全部超管（fire-and-forget，异常由调用方 catch）
+// 微信推送：本人个人 wxid + 所属班组群（user_id 缺省时经成员绑定账号兜底解析本人）
 async function notifyTokenExpired(account) {
   let name = '';
+  let wxUserId = account.user_id || null;
   if (account.member_id) {
-    const [m] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [account.member_id]);
+    const [m] = await pool.query('SELECT name, user_id FROM worklog_member WHERE id = ?', [account.member_id]);
     name = m.length ? m[0].name : '';
+    if (!wxUserId) wxUserId = m.length ? m[0].user_id : null;
   }
   if (!name && account.user_id) {
     const [u] = await pool.query('SELECT nickname FROM sys_user WHERE id = ?', [account.user_id]);
     name = u.length ? u[0].nickname : '';
+  }
+  let wxTeamId = null;
+  if (wxUserId) {
+    const [ut] = await pool.query('SELECT team_id FROM sys_user WHERE id = ?', [wxUserId]);
+    wxTeamId = ut.length ? ut[0].team_id : null;
   }
   const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
   const userIds = [...new Set([account.user_id, ...admins.map((a) => a.id)].filter(Boolean))];
@@ -111,7 +119,9 @@ async function notifyTokenExpired(account) {
     userIds,
     targets: [],
     title: '商旅登录已过期',
-    content: `成员「${name || '未知'}」的商旅登录已过期，打卡、费用与照片同步已暂停。请本人尽快在「我的 → 商旅打卡」重新登录。`,
+    content: `成员「${name || '未知'}」商旅登录已过期，打卡/费用/照片同步已暂停，请尽快在「我的 → 商旅打卡」重新登录。`,
+    wxUserIds: wxUserId ? [wxUserId] : [],
+    wxTeamIds: wxTeamId ? [wxTeamId] : [],
   });
 }
 
@@ -1893,18 +1903,21 @@ async function notifyMissingEndClockin(teamId, date) {
   for (const r of rows) {
     const userIds = [...new Set([r.user_id, ...managerIds].filter(Boolean))];
     if (!userIds.length) continue;
+    // 微信推送：本人个人 wxid + 打卡班组群
     await require('../notice').push({
       userIds,
       targets: [],
       title: '结束打卡未打',
-      content: `成员「${r.name}」今日${r.start_hm ? `已于 ${r.start_hm} 开始打卡` : '已开始打卡'}，截至每日核查仍未打结束打卡，请提醒本人尽快补打（仅当日可打卡）。`,
+      content: `成员「${r.name}」今日${r.start_hm ? `${r.start_hm} 已打开始卡` : '已打开始卡'}，尚未打结束卡，请提醒本人尽快补打（仅当日可打卡）。`,
+      wxUserIds: r.user_id ? [r.user_id] : [],
+      wxTeamIds: [teamId],
     });
   }
 }
 
 // 每日核查结果日报：每班一封，按人投放 超管 + 本班班组管理员（每日都发，含全部正常）。
 // 仅统计当次核查新产生的记录（afterId 分界，排除当日早些时候手动拉取的流水）；
-// 汇总 一致/有差异已回写/失败 项数，失败项逐条列出（超 10 条截断，完整见「批量从商旅同步」面板核查记录）
+// 汇总 一致/有差异已回写/失败 项数，失败项逐条全量列出
 async function notifyDailySyncResult(teamId, date, afterId) {
   const [trows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [teamId]);
   const teamName = trows.length ? trows[0].name : String(teamId);
@@ -1925,15 +1938,14 @@ async function notifyDailySyncResult(teamId, date, afterId) {
   }
   const lines = [];
   if (!rows.length) {
-    lines.push('今日无卡上绑定成员，未执行数据核查（仅做登录态保鲜探测）。');
+    lines.push('今日无卡上绑定成员，未执行数据核查（仅做登录态探测）。');
   } else {
-    lines.push(`今日核查 ${memberIds.size} 名成员：一致 ${cnt.ok || 0} 项 / 有差异已回写 ${cnt.diff || 0} 项 / 失败 ${cnt.fail || 0} 项。`);
+    lines.push(`今日核查 ${memberIds.size} 名成员：一致 ${cnt.ok || 0} / 回写 ${cnt.diff || 0} / 失败 ${cnt.fail || 0}`);
     if (fails.length) {
       lines.push('', '失败明细：');
-      fails.slice(0, 10).forEach((r) => {
+      fails.forEach((r) => {
         lines.push(`- ${r.member_name || `成员${r.member_id || '?'}`}｜${TYPE_NAME[r.type] || r.type}：${r.detail}`);
       });
-      if (fails.length > 10) lines.push(`- …等共 ${fails.length} 条，详见「批量从商旅同步」面板核查记录`);
     }
   }
   const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
@@ -1942,11 +1954,13 @@ async function notifyDailySyncResult(teamId, date, afterId) {
   );
   const userIds = [...new Set([...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)])];
   if (!userIds.length) return;
+  // 微信推送：该班组群
   await require('../notice').push({
     userIds,
     targets: [],
     title: `商旅每日核查完成（${teamName}）`,
     content: lines.join('\n'),
+    wxTeamIds: [teamId],
   });
 }
 
@@ -2031,6 +2045,55 @@ function scheduleDaily() {
   console.log(`[商旅打卡] 每日核查已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
 }
 scheduleDaily();
+
+// 结束打卡傍晚提醒：每日 SGCC_ENDCLOCK_REMIND_TIME（默认 18:00）对「当日已开始打卡但结束卡未打」的成员
+// 提前提醒（23:00 每日核查前给本人留补打时间）；仅发微信（本人个人 wxid + 打卡班组群 wxid），不写站内通知
+async function remindMissingEndClockin() {
+  // 口径同 notifyMissingEndClockin（账号联表人级解析），但跨全部班组一次查出
+  const [rows] = await pool.query(
+    `SELECT c.team_id, c.member_id, m.name, MAX(a.user_id) AS user_id,
+            DATE_FORMAT(MAX(CASE WHEN c.seq = 1 THEN c.clock_time END), '%H:%i') AS start_hm
+     FROM worklog_clockin c
+     JOIN worklog_member m ON m.id = c.member_id
+     LEFT JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+     WHERE c.clock_date = ?
+     GROUP BY c.team_id, c.member_id, m.name
+     HAVING MAX(CASE WHEN c.seq = 1 THEN 1 ELSE 0 END) = 1
+        AND MAX(CASE WHEN c.seq = 2 THEN 1 ELSE 0 END) = 0`,
+    [today()]
+  );
+  if (!rows.length) {
+    console.log('[商旅打卡] 结束打卡傍晚提醒：今日无未打结束卡成员');
+    return;
+  }
+  const wxpush = require('../notice/wxpush'); // 惰性加载（同 notice 口径）
+  for (const r of rows) {
+    const res = await wxpush.sendTo({
+      userIds: r.user_id ? [r.user_id] : [],
+      teamIds: [r.team_id],
+      text: `结束打卡提醒\n成员「${r.name}」今日${r.start_hm ? `${r.start_hm} 已打开始卡` : '已打开始卡'}，尚未打结束卡，请尽快补打（仅当日可打卡）。`,
+      user: `clockin-remind-${r.member_id}`,
+    });
+    if (!res.ok) console.warn(`[商旅打卡] 结束打卡提醒未发送（成员「${r.name}」）：${res.reason || res.error}`);
+  }
+  console.log(`[商旅打卡] 结束打卡傍晚提醒完成：${rows.length} 名成员未打结束卡`);
+}
+
+function scheduleEndClockRemind() {
+  const [hh, mm] = String(config.sgcc.endClockRemindTime || '18:00').split(':').map((s) => parseInt(s, 10));
+  const { nextUtc, now } = nextDailyRunUtc(hh || 18, mm || 0);
+  const timer = setTimeout(async () => {
+    try {
+      await remindMissingEndClockin();
+    } catch (err) {
+      console.error('[商旅打卡] 结束打卡傍晚提醒失败：', err.message);
+    }
+    scheduleEndClockRemind(); // 排次日
+  }, nextUtc - now);
+  timer.unref();
+  console.log(`[商旅打卡] 结束打卡傍晚提醒已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
+}
+scheduleEndClockRemind();
 
 module.exports = router;
 // 供 worklog 照片上传（远端先行）/改人名补传/删除钩子调用（config.sgcc.enabled 守卫在调用方）

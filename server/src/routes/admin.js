@@ -47,7 +47,7 @@ router.get('/users', async (req, res, next) => {
     }
     const where = wheres.length ? `WHERE ${wheres.join(' AND ')}` : '';
     const [rows] = await pool.query(
-      `SELECT u.id, u.username, u.nickname, u.team_id, t.name AS team, u.role, u.status, u.created_at
+      `SELECT u.id, u.username, u.nickname, u.wxid, u.team_id, t.name AS team, u.role, u.status, u.created_at
        FROM sys_user u LEFT JOIN sys_team t ON t.id = u.team_id ${where} ORDER BY u.id LIMIT 500`,
       params
     );
@@ -61,6 +61,7 @@ router.get('/users', async (req, res, next) => {
 router.post('/users', async (req, res, next) => {
   try {
     const { username, password, nickname } = req.body || {};
+    const wxid = String((req.body && req.body.wxid) || '').trim();
     const teamId = req.body && req.body.team_id !== undefined && req.body.team_id !== null
       ? Number(req.body.team_id) : null;
     const role = (req.body && req.body.role) || 'user';
@@ -71,14 +72,15 @@ router.post('/users', async (req, res, next) => {
     if (!ROLES.includes(role)) return fail(res, 400, 40013, '非法角色');
     if (role === 'team_admin' && !teamId) return fail(res, 400, 40016, '班组管理员必须有所属班组');
     if (teamId && !(await validTeam(teamId))) return fail(res, 400, 40015, '班组不存在或已停用');
+    if (wxid.length > 128) return fail(res, 400, 40018, 'wxid 不能超过 128 字');
 
     const [dup] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [username]);
     if (dup.length) return fail(res, 409, 40901, '账号已存在');
 
     const hash = await bcrypt.hash(password, 10);
     const [r] = await pool.query(
-      'INSERT INTO sys_user (username, password_hash, nickname, team_id, role) VALUES (?, ?, ?, ?, ?)',
-      [username, hash, nickname || '', teamId, role]
+      'INSERT INTO sys_user (username, password_hash, nickname, wxid, team_id, role) VALUES (?, ?, ?, ?, ?, ?)',
+      [username, hash, nickname || '', wxid, teamId, role]
     );
     syncWorklogMember(r.insertId);
     return ok(res, { id: r.insertId }, '已创建');
@@ -87,11 +89,13 @@ router.post('/users', async (req, res, next) => {
   }
 });
 
-// PUT /api/v1/admin/users/:id 修改员工（昵称/班组/状态/角色/重置密码）
+// PUT /api/v1/admin/users/:id 修改员工（昵称/wxid/班组/状态/角色/重置密码）
 router.put('/users/:id', async (req, res, next) => {
   try {
     const targetId = Number(req.params.id);
     const { nickname, status, password } = req.body || {};
+    const hasWxid = Object.prototype.hasOwnProperty.call(req.body || {}, 'wxid');
+    const wxid = hasWxid ? String(req.body.wxid || '').trim() : '';
     const hasTeam = Object.prototype.hasOwnProperty.call(req.body || {}, 'team_id');
     const teamId = hasTeam && req.body.team_id !== null && req.body.team_id !== ''
       ? Number(req.body.team_id) : null;
@@ -105,6 +109,10 @@ router.put('/users/:id', async (req, res, next) => {
     const fields = [];
     const params = [];
     if (nickname !== undefined) { fields.push('nickname = ?'); params.push(nickname); }
+    if (hasWxid) {
+      if (wxid.length > 128) return fail(res, 400, 40018, 'wxid 不能超过 128 字');
+      fields.push('wxid = ?'); params.push(wxid);
+    }
     if (hasTeam) {
       if (teamId && !(await validTeam(teamId))) return fail(res, 400, 40015, '班组不存在或已停用');
       fields.push('team_id = ?'); params.push(teamId);
@@ -147,7 +155,7 @@ router.put('/users/:id', async (req, res, next) => {
 router.get('/teams', async (req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT t.id, t.name, t.kvm_group_name, t.sort, t.status, t.created_at,
+      `SELECT t.id, t.name, t.wxid, t.kvm_group_name, t.sort, t.status, t.created_at,
               (SELECT COUNT(*) FROM sys_user u WHERE u.team_id = t.id) AS user_count
        FROM sys_team t ORDER BY t.sort, t.id`
     );
@@ -157,16 +165,18 @@ router.get('/teams', async (req, res, next) => {
   }
 });
 
-// POST /api/v1/admin/teams 新增班组
+// POST /api/v1/admin/teams 新增班组（wxid 可空：班组微信群 wxid，消息推送用）
 router.post('/teams', async (req, res, next) => {
   try {
     const name = String((req.body && req.body.name) || '').trim().slice(0, 64);
     if (!name) return fail(res, 400, 40017, '请输入班组名称');
+    const wxid = String((req.body && req.body.wxid) || '').trim();
+    if (wxid.length > 128) return fail(res, 400, 40018, 'wxid 不能超过 128 字');
     const [maxRows] = await pool.query('SELECT COALESCE(MAX(sort), 0) AS maxSort FROM sys_team');
     try {
       const [r] = await pool.query(
-        'INSERT INTO sys_team (name, sort) VALUES (?, ?)',
-        [name, maxRows[0].maxSort + 1]
+        'INSERT INTO sys_team (name, wxid, sort) VALUES (?, ?, ?)',
+        [name, wxid, maxRows[0].maxSort + 1]
       );
       return ok(res, { id: r.insertId }, '已创建');
     } catch (err) {
@@ -178,14 +188,14 @@ router.post('/teams', async (req, res, next) => {
   }
 });
 
-// PUT /api/v1/admin/teams/:id 修改班组（改名/排序/停启用）；改名级联安全日记录与 docs 子目录
+// PUT /api/v1/admin/teams/:id 修改班组（改名/微信群 wxid/排序/停启用）；改名级联安全日记录与 docs 子目录
 router.put('/teams/:id', async (req, res, next) => {
   try {
     const targetId = Number(req.params.id);
     const [exist] = await pool.query('SELECT id, name FROM sys_team WHERE id = ?', [targetId]);
     if (!exist.length) return fail(res, 404, 40402, '班组不存在');
     const oldName = exist[0].name;
-    const { name, sort, status } = req.body || {};
+    const { name, sort, status, wxid } = req.body || {};
 
     const fields = [];
     const params = [];
@@ -196,6 +206,12 @@ router.put('/teams/:id', async (req, res, next) => {
     }
     if (sort !== undefined) { fields.push('sort = ?'); params.push(Number(sort) || 0); }
     if (status !== undefined) { fields.push('status = ?'); params.push(status ? 1 : 0); }
+    // wxid 排在最后：上方 ER_DUP_ENTRY 报错文案假定 params[0] 为 name
+    if (wxid !== undefined) {
+      const trimmedWxid = String(wxid || '').trim();
+      if (trimmedWxid.length > 128) return fail(res, 400, 40018, 'wxid 不能超过 128 字');
+      fields.push('wxid = ?'); params.push(trimmedWxid);
+    }
     if (!fields.length) return fail(res, 400, 40014, '没有需要修改的内容');
 
     try {

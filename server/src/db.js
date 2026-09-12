@@ -19,6 +19,7 @@ const DDL = [
   `CREATE TABLE IF NOT EXISTS sys_team (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(64) NOT NULL UNIQUE COMMENT '班组名称',
+    wxid VARCHAR(128) NOT NULL DEFAULT '' COMMENT '微信群 wxid（超管维护，班组群推送用；空=未设置）',
     kvm_group_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT 'GLKVM 平台设备组名，空=与班组同名',
     sort INT NOT NULL DEFAULT 0 COMMENT '排序，小的在前（首个启用班组即默认班组）',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '1 启用 0 停用',
@@ -32,6 +33,7 @@ const DDL = [
     avatar VARCHAR(512) NOT NULL DEFAULT '' COMMENT '头像地址',
     openid VARCHAR(64) NULL UNIQUE COMMENT '微信 openid',
     unionid VARCHAR(64) NULL COMMENT '微信 unionid',
+    wxid VARCHAR(128) NOT NULL DEFAULT '' COMMENT '微信 wxid（超管维护，消息微信推送用；空=未设置）',
     team VARCHAR(64) NOT NULL DEFAULT '' COMMENT '所属班组（已废弃，由 team_id 取代，仅迁移期保留）',
     team_id BIGINT UNSIGNED NULL COMMENT '所属班组，关联 sys_team.id；NULL=未分配',
     role VARCHAR(16) NOT NULL DEFAULT 'user' COMMENT '角色：admin 超级管理员 / team_admin 班组管理员 / user 普通用户',
@@ -174,6 +176,30 @@ async function ensureSchema() {
        COMMENT '所属班组，关联 sys_team.id；NULL=未分配' AFTER team`
     );
     console.log('[初始化] 已为 sys_user 补充 team_id 列');
+  }
+
+  // 老库兼容：sys_user / sys_team 补 wxid 列（消息微信推送：用户=个人 wxid，班组=微信群 wxid，超管维护）
+  const [userWxidCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'wxid'`
+  );
+  if (!userWxidCols.length) {
+    await pool.query(
+      `ALTER TABLE sys_user ADD COLUMN wxid VARCHAR(128) NOT NULL DEFAULT ''
+       COMMENT '微信 wxid（超管维护，消息微信推送用；空=未设置）' AFTER unionid`
+    );
+    console.log('[初始化] 已为 sys_user 补充 wxid 列');
+  }
+  const [teamWxidCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_team' AND COLUMN_NAME = 'wxid'`
+  );
+  if (!teamWxidCols.length) {
+    await pool.query(
+      `ALTER TABLE sys_team ADD COLUMN wxid VARCHAR(128) NOT NULL DEFAULT ''
+       COMMENT '微信群 wxid（超管维护，班组群推送用；空=未设置）' AFTER name`
+    );
+    console.log('[初始化] 已为 sys_team 补充 wxid 列');
   }
 
   // 班组种子（仅空表时写入）：检修一班 = 默认班组（首个启用班组，sort 最小）
