@@ -126,8 +126,8 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SGCC_DCU_PUB` / `SGCC_WLA_PRIV` | 商旅 jsonx slapp 通道（费用保存必走）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_VERSION` | 商旅 App 版本号（请求头 version，默认 `3.3.5`；App 升级后优先只改此项验证是否仍通） |
 | `SGCC_SYNC_TIME` | 商旅打卡每日自动核查时间（HH:mm，默认 `23:00`） |
-| `SGCC_STARTCLOCK_REMIND_TIME` | 开始打卡未打午间提醒时间（HH:mm，默认 `11:00`；对当日卡上已绑定但未首次打卡的成员仅发微信提醒：本人 + 班组群，不写站内通知） |
-| `SGCC_ENDCLOCK_REMIND_TIME` | 结束打卡未打傍晚提醒时间（HH:mm，默认 `18:00`；对当日已打开始卡未打结束卡的成员仅发微信提醒：本人 + 班组群，不写站内通知） |
+| `SGCC_STARTCLOCK_REMIND_TIME` | 开始打卡未打午间提醒时间（HH:mm，默认 `11:00`；提醒前先对当日卡上成员做打卡同步再判定，同步失败转人工核查通知；仅发微信提醒：本人 + 班组群，不写站内通知） |
+| `SGCC_ENDCLOCK_REMIND_TIME` | 结束打卡未打傍晚提醒时间（HH:mm，默认 `18:00`；提醒前先对当日卡上成员做打卡同步再判定，同步失败转人工核查通知；仅发微信提醒：本人 + 班组群，不写站内通知） |
 | `SGCC_SYNC_INTERVAL_MS` | 商旅打卡批量拉取成员间隔（毫秒，防风控，默认 `1500`） |
 | `WORKLOG_DISPATCH_SYNC_ENABLED` | 派车单每日自动同步开关：`true` 开启（每日定时取回被控机导出派车单自动建卡），`false` 关闭；需先开启出工日志与 KVM |
 | `WORKLOG_DISPATCH_SYNC_TEAM` | 同步生效班组名（仅该班组启用，目前仅检修一班） |

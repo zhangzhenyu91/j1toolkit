@@ -1450,20 +1450,14 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
 // 单日单人对账：登录态 → 打卡 → 费用 → 费用照片（一律以商旅为准覆盖本地；照片双向对账：拉新入库并触发验证，商旅侧已删的同步照片本地同步删除）
 // ctx = 卡片上下文 { teamId, memberId }（缺省账号自身口径）：核查按卡片走，sync_log 归属、费用/照片本地上下文均按 ctx；
 // 打卡流水为 member 级唯一物理行（team_id 仅写入时快照），删除/刷新对账本就按 member 口径
-async function syncOne(account, date, scope, ctx = null) {
-  const ctxTeamId = ctx ? ctx.teamId : account.team_id;
-  const ctxMemberId = ctx ? ctx.memberId : account.member_id;
-  const log = (type, result, detail) => pool.query(
-    `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [ctxTeamId, ctxMemberId, date, scope, type, result, String(detail).slice(0, 500)]
-  );
-
+// 登录态 + 打卡对账（syncOne 前段；11:00/18:00 打卡提醒前的轻量同步也复用本段）。
+// 返回 false 表示登录失效已中止（后续费用/照片对账不再进行）
+async function syncClockinPart(account, date, log, ctxTeamId, ctxMemberId) {
   // 登录态
   const valid = await probeAuth(account);
   if (!valid) {
     await log('auth', 'fail', '登录已失效，已标记置灰');
-    return;
+    return false;
   }
 
   // 打卡对账：先全量刷新，再删除本地 detailId 不在商旅返回集合内的行（商旅 0 条则全删，一律以商旅为准）
@@ -1495,6 +1489,19 @@ async function syncOne(account, date, scope, ctx = null) {
     await log('clockin', before[0].cnt === Math.min(remoteIds.size, 2) ? 'ok' : 'diff',
       `打卡：商旅 ${remoteIds.size} 条覆盖本地（本地原 ${before[0].cnt} 条）`);
   }
+  return true;
+}
+
+async function syncOne(account, date, scope, ctx = null) {
+  const ctxTeamId = ctx ? ctx.teamId : account.team_id;
+  const ctxMemberId = ctx ? ctx.memberId : account.member_id;
+  const log = (type, result, detail) => pool.query(
+    `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [ctxTeamId, ctxMemberId, date, scope, type, result, String(detail).slice(0, 500)]
+  );
+
+  if (!await syncClockinPart(account, date, log, ctxTeamId, ctxMemberId)) return;
 
   // 费用对账：以商旅为准回写本地摘要（含成本分配；城市参数补全取模板，缺省模板可能不带默认成本中心）
   const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(ctxMemberId, date), devOpt(account));
@@ -1588,6 +1595,93 @@ async function syncTeamDay(teamId, date, scope, onlyMemberIds, onStep) {
     // 成员间间隔，防商旅侧风控（SGCC_SYNC_INTERVAL_MS，默认 1500ms）
     await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
   }
+}
+// 提醒前轻量同步（11:00 开始卡 / 18:00 结束卡提醒共用前置）：对当日卡上绑定成员跨班组逐人做
+// 登录态探测 + 打卡对账（scope='remind'），确保提醒判定基于商旅最新数据（成员可能直接在商旅 App 打卡，
+// 本地要等 23:00 核查才刷新）。不同步费用/照片（非提醒口径，省整班全量核查开销），不登记进度任务（不锁卡片）。
+// 返回失败成员名单 [{member_id, team_id, name, reason}]（登录失效/同步异常均属无法确认打卡状态），
+// 由调用方剔除出自动核查并通知人工核查
+async function syncCardClockinsForRemind(date) {
+  const [rows] = await pool.query(
+    `SELECT a.*, m.id AS card_member_id, m.name AS member_name, e.team_id AS card_team_id
+     FROM worklog_entry e
+     JOIN worklog_entry_member em ON em.entry_id = e.id
+     JOIN worklog_member m ON m.id = em.member_id
+     JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+     WHERE e.log_date = ? AND e.team_id IS NOT NULL
+     ORDER BY (a.member_id = m.id) DESC`,
+    [date]
+  );
+  const seen = new Set(); // 人级解析可命中多行（直连+兜底），按卡上成员去重（跨班卡成员只同步一次）
+  const failed = [];
+  for (const account of rows) {
+    if (seen.has(account.card_member_id)) continue;
+    seen.add(account.card_member_id);
+    const log = (type, result, detail) => pool.query(
+      `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
+       VALUES (?, ?, ?, 'remind', ?, ?, ?)`,
+      [account.card_team_id, account.card_member_id, date, type, result, String(detail).slice(0, 500)]
+    );
+    try {
+      const synced = await syncClockinPart(account, date, log, account.card_team_id, account.card_member_id);
+      if (!synced) failed.push({ member_id: account.card_member_id, team_id: account.card_team_id, name: account.member_name, reason: '商旅登录已失效，无法确认打卡状态' });
+    } catch (err) {
+      console.error(`[商旅打卡] 提醒前同步失败（成员 ${account.card_member_id} ${date}）：`, err.message);
+      failed.push({ member_id: account.card_member_id, team_id: account.card_team_id, name: account.member_name, reason: `同步异常：${String(err.message).slice(0, 120)}` });
+    }
+    // 成员间间隔，防商旅侧风控（SGCC_SYNC_INTERVAL_MS，默认 1500ms）
+    await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
+  }
+  console.log(`[商旅打卡] 提醒前同步完成：${seen.size} 名卡上绑定成员，失败 ${failed.length} 名（${date}）`);
+  return failed;
+}
+
+// 提醒前同步失败 → 通知人工核查：微信（个人 wxid）与站内双侧同发 超管 + 涉及班组管理员
+//（不发成员本人/班组群——状态未知避免误催；同步成功后的正常提醒才发未打卡人本人 + 所属班组群）
+async function notifyRemindManualCheck(failed) {
+  const teamIds = [...new Set(failed.map((f) => f.team_id).filter(Boolean))];
+  const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
+  let teamAdmins = [];
+  if (teamIds.length) {
+    [teamAdmins] = await pool.query(
+      "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id IN (?) AND status = 1", [teamIds]
+    );
+  }
+  const userIds = [...new Set([...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)])];
+  if (!userIds.length) return;
+  const lines = failed.map((f) => (f.name ? `· ${f.name}：${f.reason}` : `· ${f.reason}`));
+  await require('../notice').push({ // 与 dispatch-sync 同型惰性加载
+    userIds,
+    targets: [],
+    title: '打卡核查需人工确认',
+    content: `以下 ${failed.length} 名成员提醒前商旅同步失败（打卡状态未知），本次已跳过其自动打卡核查，请人工确认其打卡状态（可先在出工日志「从商旅拉取」手动同步）：\n${lines.join('\n')}`,
+    wxUserIds: userIds,
+    wxTeamIds: [],
+  });
+}
+
+// 提醒前置统一入口：轻量同步 → 失败成员通知人工核查并剔除（返回剔除名单）；同步整体失败通知人工核查并返回 null（本轮不自动核查）
+async function beforeClockinRemind(date, label) {
+  let failed;
+  try {
+    failed = await syncCardClockinsForRemind(date);
+  } catch (err) {
+    console.error(`[商旅打卡] ${label}提醒前同步失败：`, err.message);
+    try {
+      await notifyRemindManualCheck([{ member_id: 0, team_id: null, name: '', reason: `${label}提醒前同步异常：${String(err.message).slice(0, 200)}` }]);
+    } catch (e2) {
+      console.error(`[商旅打卡] ${label}人工核查通知发送失败：`, e2.message);
+    }
+    return null;
+  }
+  if (failed.length) {
+    try {
+      await notifyRemindManualCheck(failed);
+    } catch (err) {
+      console.error(`[商旅打卡] ${label}人工核查通知发送失败：`, err.message);
+    }
+  }
+  return failed.map((f) => f.member_id);
 }
 
 // ---------- 照片单操作任务（上传/删除/改人名/resync；进程内存登记，TTL 30 分钟，重启清零仅作进度展示） ----------
@@ -2047,20 +2141,23 @@ function scheduleDaily() {
 scheduleDaily();
 
 // 结束打卡傍晚提醒：每日 SGCC_ENDCLOCK_REMIND_TIME（默认 18:00）对「当日已开始打卡但结束卡未打」的成员
-// 提前提醒（23:00 每日核查前给本人留补打时间）；仅发微信（本人个人 wxid + 打卡班组群 wxid），不写站内通知
-async function remindMissingEndClockin() {
+// 提前提醒（23:00 每日核查前给本人留补打时间）；仅发微信（本人个人 wxid + 打卡班组群 wxid），不写站内通知。
+// 提醒前由排程经 beforeClockinRemind 先跑轻量同步（登录态+打卡对账），按商旅最新数据判定；
+// excludeIds = 同步失败成员（状态未知，已转人工核查通知），本函数对其不自动提醒
+async function remindMissingEndClockin(excludeIds = []) {
   // 口径同 notifyMissingEndClockin（账号联表人级解析），但跨全部班组一次查出
+  const exSql = excludeIds.length ? ' AND c.member_id NOT IN (?)' : '';
   const [rows] = await pool.query(
     `SELECT c.team_id, c.member_id, m.name, MAX(a.user_id) AS user_id,
             DATE_FORMAT(MAX(CASE WHEN c.seq = 1 THEN c.clock_time END), '%H:%i') AS start_hm
      FROM worklog_clockin c
      JOIN worklog_member m ON m.id = c.member_id
      LEFT JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
-     WHERE c.clock_date = ?
+     WHERE c.clock_date = ?${exSql}
      GROUP BY c.team_id, c.member_id, m.name
      HAVING MAX(CASE WHEN c.seq = 1 THEN 1 ELSE 0 END) = 1
         AND MAX(CASE WHEN c.seq = 2 THEN 1 ELSE 0 END) = 0`,
-    [today()]
+    excludeIds.length ? [today(), excludeIds] : [today()]
   );
   if (!rows.length) {
     console.log('[商旅打卡] 结束打卡傍晚提醒：今日无未打结束卡成员');
@@ -2083,8 +2180,11 @@ function scheduleEndClockRemind() {
   const [hh, mm] = String(config.sgcc.endClockRemindTime || '18:00').split(':').map((s) => parseInt(s, 10));
   const { nextUtc, now } = nextDailyRunUtc(hh || 18, mm || 0);
   const timer = setTimeout(async () => {
+    // 先对当日卡上绑定成员做打卡轻量同步（成员可能直接在商旅 App 打卡），再按最新数据核查；
+    // 同步失败成员不自动核查（状态未知），转「打卡核查需人工确认」通知；整体失败则本轮不核查
     try {
-      await remindMissingEndClockin();
+      const exclude = await beforeClockinRemind(today(), '结束打卡');
+      if (exclude) await remindMissingEndClockin(exclude);
     } catch (err) {
       console.error('[商旅打卡] 结束打卡傍晚提醒失败：', err.message);
     }
@@ -2096,9 +2196,12 @@ function scheduleEndClockRemind() {
 scheduleEndClockRemind();
 
 // 开始打卡午间提醒：每日 SGCC_STARTCLOCK_REMIND_TIME（默认 11:00）对「当日卡上已绑定商旅但未打开始卡（首次打卡）」的成员
-// 提前提醒（给本人留补打时间）；口径同核验规则 a（未绑定不参与），仅发微信（本人个人 wxid + 卡片班组群 wxid），不写站内通知
-async function remindMissingStartClockin() {
+// 提前提醒（给本人留补打时间）；口径同核验规则 a（未绑定不参与），仅发微信（本人个人 wxid + 卡片班组群 wxid），不写站内通知。
+// 提醒前由排程经 beforeClockinRemind 先跑轻量同步（登录态+打卡对账），按商旅最新数据判定；
+// excludeIds = 同步失败成员（状态未知，已转人工核查通知），本函数对其不自动提醒
+async function remindMissingStartClockin(excludeIds = []) {
   // 卡片驱动：当日卡上成员 ∩ 已绑定账号（账号联表人级解析，调班/跨班卡均可命中）；无当日 seq=1 打卡行即未首次打卡
+  const exSql = excludeIds.length ? ' AND m.id NOT IN (?)' : '';
   const [rows] = await pool.query(
     `SELECT m.id AS member_id, m.name, MAX(a.user_id) AS user_id,
             GROUP_CONCAT(DISTINCT e.team_id) AS team_ids
@@ -2107,9 +2210,9 @@ async function remindMissingStartClockin() {
      JOIN worklog_member m ON m.id = em.member_id
      JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
      LEFT JOIN worklog_clockin c ON c.member_id = m.id AND c.clock_date = ? AND c.seq = 1
-     WHERE e.log_date = ? AND e.team_id IS NOT NULL AND c.id IS NULL
+     WHERE e.log_date = ? AND e.team_id IS NOT NULL AND c.id IS NULL${exSql}
      GROUP BY m.id, m.name`,
-    [today(), today()]
+    excludeIds.length ? [today(), today(), excludeIds] : [today(), today()]
   );
   if (!rows.length) {
     console.log('[商旅打卡] 开始打卡午间提醒：今日卡上成员均已首次打卡');
@@ -2133,8 +2236,11 @@ function scheduleStartClockRemind() {
   const [hh, mm] = String(config.sgcc.startClockRemindTime || '11:00').split(':').map((s) => parseInt(s, 10));
   const { nextUtc, now } = nextDailyRunUtc(hh || 11, mm || 0);
   const timer = setTimeout(async () => {
+    // 先对当日卡上绑定成员做打卡轻量同步（成员可能直接在商旅 App 打卡），再按最新数据核查；
+    // 同步失败成员不自动核查（状态未知），转「打卡核查需人工确认」通知；整体失败则本轮不核查
     try {
-      await remindMissingStartClockin();
+      const exclude = await beforeClockinRemind(today(), '开始打卡');
+      if (exclude) await remindMissingStartClockin(exclude);
     } catch (err) {
       console.error('[商旅打卡] 开始打卡午间提醒失败：', err.message);
     }
