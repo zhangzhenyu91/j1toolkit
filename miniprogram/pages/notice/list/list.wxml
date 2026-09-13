@@ -22,7 +22,7 @@
         <view class="n-dot {{item.read ? '' : 'n-dot-on'}}"></view>
         <view class="n-title {{item.read ? '' : 'n-title-unread'}}">{{item.title}}</view>
         <view class="n-time">{{item.timeText}}</view>
-        <view class="n-del" wx:if="{{isAdmin}}" data-id="{{item.id}}" catchtap="onDelete">删除</view>
+        <view class="n-del" data-id="{{item.id}}" catchtap="onDelete">删除</view>
       </view>
       <!-- 折叠：原文两行摘要；展开：Markdown 渲染（mp-html 支持图片点击预览） -->
       <view class="n-content" wx:if="{{!item.expanded}}">{{item.content}}</view>

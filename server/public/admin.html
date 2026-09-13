@@ -366,15 +366,7 @@
           <label class="push-ck"><input type="checkbox" value="user">普通成员</label>
         </div>
       </div>
-      <div class="f-row">
-        <label>微信推送 <i>选填，发班组群</i></label>
-        <div class="push-targets" id="pushWxTeams"><span class="mut">加载中…</span></div>
-      </div>
-      <div class="f-row">
-        <label>微信成员 <i>选填，发个人</i></label>
-        <select class="input" id="pushWxUsers" multiple size="6"></select>
-      </div>
-      <div class="f-note">通知按角色推送，成员在工作台「消息通知」与小程序首页的通知卡可见，未读数以橙色徽章提示。内容支持 Markdown 排版，图片经「插入图片」上传后自动引用。<br>勾选「微信推送 / 微信成员」后，将同时经微信发送到所选班组群与成员（纯文本「标题 + 内容」，Markdown 不生效）；wxid 在员工管理 / 班组管理中维护，未设 wxid 的对象不可选。</div>
+      <div class="f-note">通知按角色推送，成员在工作台「消息通知」与小程序首页的通知卡可见，未读数以橙色徽章提示。内容支持 Markdown 排版，图片经「插入图片」上传后自动引用。</div>
       <div class="push-ft">
         <button class="btn btn-accent" id="btnPushSubmit">推送</button>
       </div>
@@ -619,7 +611,6 @@
       tab.classList.add('on');
       $('#pane-' + tab.dataset.pane).classList.add('on');
       moveTabInd(tab);
-      if (tab.dataset.pane === 'push') loadWxPickers(); // 进入推送页签刷新微信选择器（wxid 可能在员工/班组管理刚改过）
     });
   });
   window.addEventListener('resize', function () {
@@ -1204,35 +1195,11 @@
   // ============================================================
   // 消息推送
   // ============================================================
-  // 微信推送选择器：班组群复用已加载的 teams；成员全量拉取（与员工管理的班组筛选无关）。
-  // 未设 wxid 的班组/成员不可选并标注；wxid 在员工管理 / 班组管理中维护
-  async function loadWxPickers() {
-    $('#pushWxTeams').innerHTML = teams.length ? teams.map(function (t) {
-      var no = !t.wxid;
-      return '<label class="push-ck">' +
-        '<input type="checkbox" value="' + t.id + '"' + (no ? ' disabled' : '') + '>' +
-        Shade.esc(t.name) + (no ? '<span class="mut">（未设 wxid）</span>' : '') + '</label>';
-    }).join('') : '<span class="mut">暂无班组</span>';
-    try {
-      var r = await Shade.api('/api/v1/admin/users');
-      var list = r.data.list || [];
-      $('#pushWxUsers').innerHTML = groupByTeam(list).map(function (g) {
-        return '<optgroup label="' + (g[0] ? Shade.esc(g[0]) : '未分组') + '">' + g[1].map(function (u) {
-          var no = !u.wxid;
-          return '<option value="' + u.id + '"' + (no ? ' disabled' : '') + '>' +
-            Shade.esc(u.nickname || u.username) + (no ? '（未设 wxid）' : '') + '</option>';
-        }).join('') + '</optgroup>';
-      }).join('');
-    } catch (e) {
-      $('#pushWxUsers').innerHTML = '<option disabled>成员列表加载失败</option>';
-    }
-  }
-
   $('#btnPushSubmit').addEventListener('click', async function () {
     var title = $('#pushTitle').value.trim();
     var content = $('#pushContent').value.trim();
     var targets = Array.prototype.map.call(
-      document.querySelectorAll('#pane-push .push-targets:not(#pushWxTeams) .push-ck input:checked'),
+      document.querySelectorAll('#pane-push .push-targets .push-ck input:checked'),
       function (ck) { return ck.value; }
     );
     if (!title || !content) {
@@ -1243,30 +1210,18 @@
       Shade.toast('请至少选择一个推送对象', 'info');
       return;
     }
-    var wxTeamIds = Array.prototype.map.call(
-      document.querySelectorAll('#pushWxTeams input:checked'),
-      function (ck) { return Number(ck.value); }
-    );
-    var wxUserIds = Array.prototype.map.call(
-      $('#pushWxUsers').selectedOptions,
-      function (op) { return Number(op.value); }
-    );
     var btn = $('#btnPushSubmit');
     if (btn.disabled) return;
     btn.disabled = true;
     try {
       var r = await Shade.api('/api/v1/notice/push', {
         method: 'POST',
-        body: {
-          title: title, content: content, targets: targets,
-          wx_team_ids: wxTeamIds, wx_user_ids: wxUserIds,
-        },
+        body: { title: title, content: content, targets: targets },
       });
       Shade.toast((r && r.message) || '推送成功', 'success');
       $('#pushTitle').value = '';
       $('#pushContent').value = '';
       document.querySelectorAll('#pane-push .push-ck input').forEach(function (ck) { ck.checked = false; });
-      $('#pushWxUsers').selectedIndex = -1;
       // 预览态一并复位
       pushPreviewOn = false;
       $('#pushPreview').hidden = true;

@@ -85,7 +85,7 @@
   padding-left: 24rpx;
 }
 
-/* 超管删除入口（标题行右侧红色小字） */
+/* 删除入口（标题行右侧红色小字；全员可见，超管全局删除） */
 .n-del {
   margin-left: 16rpx;
   flex: none;

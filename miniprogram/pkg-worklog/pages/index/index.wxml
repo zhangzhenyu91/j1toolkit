@@ -332,7 +332,7 @@
   </view>
 </view>
 
-<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 工作任务单（超管 / 班组管理员）/ 费用汇总（超管 / 班组管理员）/ 派车对齐（超管 / 班组管理员）/ 批量从商旅同步 / 批量下载 / 汇总前核验 / 跨班日志（仅超管）/ 新建日志；
+<!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 工作任务单（超管 / 班组管理员）/ 费用汇总（超管 / 班组管理员）/ 派车对齐（超管 / 班组管理员）/ 批量从商旅同步（超管 / 班组管理员）/ 批量下载 / 汇总前核验 / 跨班日志（仅超管）/ 新建日志；
      原底部固定操作区（含底色条 bottombar）已删除，内容区直通屏幕底边 -->
 <view class="fab-mask" wx:if="{{fabOpen}}" bindtap="onFabToggle"></view>
 <view class="fabs" wx:if="{{gate && !noTeam}}">
@@ -353,7 +353,7 @@
       <text class="fab-lab">派车对齐</text>
       <view class="fab"><t-icon name="file-copy" size="40rpx" color="#22314E" /></view>
     </view>
-    <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenBatchSync">
+    <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onOpenBatchSync">
       <text class="fab-lab">批量从商旅同步</text>
       <view class="fab"><t-icon name="refresh" size="40rpx" color="#22314E" /></view>
     </view>

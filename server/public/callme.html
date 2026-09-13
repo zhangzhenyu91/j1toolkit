@@ -1488,8 +1488,8 @@
     document.getElementById('topName').textContent = name;
     document.getElementById('footAvatar').textContent = ch;
     document.getElementById('footName').textContent = name;
-    // 角色口径与 index.html 用户卡一致：admin→管理员，其余→普通用户（不拼 team）
-    document.getElementById('footRole').textContent = u.role === 'admin' ? '管理员' : '普通用户';
+    // 角色口径与 index.html 用户卡一致：admin→管理员 / team_admin→班组管理员 / 其余→普通用户（不拼 team）
+    document.getElementById('footRole').textContent = u.role === 'admin' ? '管理员' : (u.role === 'team_admin' ? '班组管理员' : '普通用户');
   }
   var cachedUser = Shade.user();
   if (cachedUser) renderUser(cachedUser);

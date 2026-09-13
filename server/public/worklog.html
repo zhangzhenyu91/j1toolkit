@@ -869,8 +869,8 @@
         <button class="on" data-v="all">全部</button>
         <button data-v="mine">仅看我</button>
       </div>
-      <!-- 商旅打卡：手动从商旅拉取（弹层按区段发起拉取；仅记录页签显示，同新建钮） -->
-      <button class="btn" id="btnSyncCheck"></button>
+      <!-- 商旅打卡：手动从商旅拉取（弹层按区段发起拉取；仅记录页签显示，同新建钮；仅超管 / 班组管理员可见，init 显隐同管理页签口径） -->
+      <button class="btn" id="btnSyncCheck" hidden></button>
       <button class="btn" id="btnCreate"></button>
       <!-- 跨班日志：仅超级管理员可见（init 显隐，同管理页签口径），新建 / 编辑均走 openCrossForm -->
       <button class="btn" id="btnCross" hidden></button>
@@ -1051,7 +1051,7 @@
    商旅打卡扩展（/api/v1/sgcc/*）：③ 非水印照片＝原图直传（plain:true，不渲染不验证不占每人限一张，verify_status=skipped 不进轮询）；
    用车人行打卡区仅展示（每用车人一行：状态小字 + 始/终两枚 slot 三态，打卡在小程序完成）；照片「商旅/同步失败」角标，Lightbox 同步失败可重试（resync）；
    卡片操作区「从商旅同步」：卡片级拉取（POST /sync/pull {entry_id}，仅本卡用车人当日数据，本卡进度锁轮询 /sync/progress，cardSyncPull）；
-   页头「从商旅拉取」弹层：按区段手动拉取（POST /sync/pull {from,to}，以商旅平台为准覆盖本地）
+   页头「从商旅拉取」弹层：按区段手动拉取（POST /sync/pull {from,to}，以商旅平台为准覆盖本地；仅超管 / 班组管理员可见可发起）
    ============================================================ */
 (function () {
 'use strict';
@@ -1120,6 +1120,8 @@ function wl(path) { return Shade.withTeam(path, state.teamId); }
 
 /* 角色判定：仅超级管理员可新建 / 改派车 / 删除跨班日志（与 init 管理页签显隐同口径） */
 function isAdmin() { return (Shade.user() || {}).role === 'admin'; }
+/* 超管 / 班组管理员（数据管理页签、从商旅拉取等管理类入口的可见性口径） */
+function canManage() { var r = (Shade.user() || {}).role; return r === 'admin' || r === 'team_admin'; }
 /* 当前生效班组 id：超管取切换器选中的班组，其余角色固定本班（state.teamId 恒 0，取账号班组） */
 function effTeamId() {
   var me = Shade.user() || {};
@@ -4306,7 +4308,7 @@ function switchPane(key) {
   $('#photoCnt').hidden = !isRec;
   $('#btnCreate').hidden = !isRec;
   $('#btnCross').hidden = !isRec || !isAdmin(); // 跨班日志入口仅超管可见
-  $('#btnSyncCheck').hidden = !isRec;
+  $('#btnSyncCheck').hidden = !isRec || !canManage(); // 从商旅拉取仅超管 / 班组管理员可见（init 同口径）
   /* 下载页签首次进入按默认范围自动加载；汇总前核验每次切回都重查（卡片可直改备注，避免陈旧数据）；
      数据管理每次切回都重拉（字典可能被其他管理员改动）；派车对齐每次切回重渲染（本地状态，零开销）并拉取自动同步开关状态 */
   if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
@@ -5019,6 +5021,7 @@ async function init() {
     $('#tabTS').style.display = '';
     $('#tabFS').style.display = '';
     $('#tabPA').style.display = '';
+    $('#btnSyncCheck').hidden = false; // 「从商旅拉取」同口径（区段批量拉取仅管理员可发起，服务端 40304 同拦）
   }
   if (me.role === 'admin') $('#btnCross').hidden = false; // 跨班日志入口仅超管可见（非记录页签时由 switchPane 再隐藏）
   if (me.role !== 'admin' && !me.team_id) {

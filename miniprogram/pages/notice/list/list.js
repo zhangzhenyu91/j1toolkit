@@ -1,5 +1,5 @@
 // 消息通知列表：按当前用户角色过滤的通知流；点击行展开/收起全文，展开未读时自动标记已读
-// 内容为 Markdown（含图片）：折叠态显示原文摘要，展开时按需渲染经 mp-html 展示；超管可删除任意通知
+// 内容为 Markdown（含图片）：折叠态显示原文摘要，展开时按需渲染经 mp-html 展示；删除全员可用（超管全局删除，其余角色仅从本人列表移除）
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { formatTime } from '../../../utils/util';
@@ -11,7 +11,7 @@ Page({
     items: [], // 通知列表（含 timeText / expanded / html 展示字段）
     unread: 0,
     loading: true,
-    isAdmin: false, // 超管显示删除入口
+    isAdmin: false, // 超管删除为全局删除（确认文案区分）；删除入口全员可见
     mdTagStyle: MD_TAG_STYLE,
     mdContainerStyle: MD_CONTAINER_STYLE,
   },
@@ -69,14 +69,17 @@ Page({
     }
   },
 
-  // 删除通知（仅超管可见入口；catchtap 不触发展开/收起；二次确认后删除，同步未读数）
+  // 删除通知（全员可见入口；catchtap 不触发展开/收起；二次确认后删除，同步未读数；
+  // 超管全局删除所有成员不可见，其余角色仅从本人列表移除——确认文案按角色区分）
   onDelete(e) {
     const id = e.currentTarget.dataset.id;
     const item = this.data.items.find((n) => n.id === id);
     if (!item) return;
     wx.showModal({
       title: '删除通知',
-      content: `确定删除通知「${item.title}」吗？删除后所有成员均不可见，且不可恢复。`,
+      content: this.data.isAdmin
+        ? `确定删除通知「${item.title}」吗？删除后所有成员均不可见，且不可恢复。`
+        : `确定删除通知「${item.title}」吗？删除后仅从您的通知列表移除，不影响其他成员。`,
       confirmText: '删除',
       confirmColor: '#CF4444',
       success: async (res) => {

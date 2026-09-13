@@ -205,7 +205,7 @@
   </div>
 </div>
 
-<!-- 删除通知二次确认弹层（仅超管可见入口） -->
+<!-- 删除通知二次确认弹层（全员可用：超管全局删除，其余角色仅从本人列表移除） -->
 <div class="mask" id="noticeDelMask">
   <div class="modal">
     <div class="modal-hd"><span>删除通知</span><button class="x" id="noticeDelClose" title="关闭"></button></div>
@@ -312,8 +312,9 @@
     document.getElementById('dateText').textContent =
       now.getFullYear() + ' 年 ' + (now.getMonth() + 1) + ' 月 ' + now.getDate() + ' 日 · 星期' + week;
 
-    // 角色徽章：admin→管理员，其他→普通用户（描边徽章样式不变）
-    var roleHtml = '<span class="badge-outline">' + (u.role === 'admin' ? '管理员' : '普通用户') + '</span>';
+    // 角色徽章：admin→管理员 / team_admin→班组管理员 / 其他→普通用户（描边徽章样式不变）
+    var roleText = u.role === 'admin' ? '管理员' : (u.role === 'team_admin' ? '班组管理员' : '普通用户');
+    var roleHtml = '<span class="badge-outline">' + roleText + '</span>';
     if (u.username) roleHtml += '<span class="uname">账号：' + Shade.esc(u.username) + '</span>';
     document.getElementById('roleRow').innerHTML = roleHtml;
 
@@ -425,7 +426,7 @@
         (n.read ? '' : '<span class="nt-dot"></span>') +
         '<span class="nm-title">' + Shade.esc(n.title) + '</span>' +
         '<span class="nt-time">' + Shade.fmtDate(n.createdAt, true) + '</span>' +
-        (isAdmin() ? '<span class="nm-del" data-id="' + n.id + '" title="删除该通知">删除</span>' : '') +
+        '<span class="nm-del" data-id="' + n.id + '" title="删除该通知">删除</span>' +
       '</div>' +
       '<div class="nm-content">' + noticeContentHtml(n) + '</div>' +
     '</div>';
@@ -466,7 +467,7 @@
     }
   }
 
-  // 弹层条目点击：展开 / 收起全文；未读条目上报已读后本地置已读、更新徽章；超管点「删除」走确认弹层
+  // 弹层条目点击：展开 / 收起全文；未读条目上报已读后本地置已读、更新徽章；点「删除」走确认弹层
   document.getElementById('noticeList').addEventListener('click', async function (e) {
     var del = e.target.closest('.nm-del');
     if (del) {
@@ -485,14 +486,15 @@
     } catch (err) { /* 已读上报失败静默，保留未读态 */ }
   });
 
-  // ---------- 删除通知（仅超管；二次确认，删除后同步列表 / 工作台卡 / 未读数） ----------
+  // ---------- 删除通知（全员可用：超管全局删除，其余角色仅从本人列表移除；二次确认，删除后同步列表 / 工作台卡 / 未读数） ----------
   var noticeDelId = 0;
   function askDeleteNotice(id) {
     var n = noticeItems.find(function (x) { return x.id === id; });
     if (!n) return;
     noticeDelId = id;
-    document.getElementById('noticeDelTip').textContent =
-      '确定删除通知「' + n.title + '」吗？删除后所有成员均不可见，且不可恢复。';
+    document.getElementById('noticeDelTip').textContent = isAdmin()
+      ? '确定删除通知「' + n.title + '」吗？删除后所有成员均不可见，且不可恢复。'
+      : '确定删除通知「' + n.title + '」吗？删除后仅从您的通知列表移除，不影响其他成员。';
     document.getElementById('noticeDelMask').classList.add('show');
   }
   document.getElementById('noticeDelOk').addEventListener('click', async function () {

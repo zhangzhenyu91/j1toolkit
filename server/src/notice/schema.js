@@ -18,6 +18,14 @@ const DDL = [
     UNIQUE KEY uk_notice_user (notice_id, user_id),
     KEY idx_user (user_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS sys_notice_del (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    notice_id BIGINT UNSIGNED NOT NULL COMMENT '通知，关联 sys_notice.id',
+    user_id BIGINT UNSIGNED NOT NULL COMMENT '删除用户，关联 sys_user.id',
+    del_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_notice_user (notice_id, user_id),
+    KEY idx_user (user_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
 
 async function ensureNoticeSchema(pool) {

@@ -1794,7 +1794,8 @@ function finishSyncJob(id) {
 }
 
 // POST /sync/pull：手动从商旅拉取 {date: 'YYYY-MM-DD'} 或 {from, to}（区段最多跨 62 天）或 {entry_id}（卡片级：仅该卡用车人），team_id?
-// 所有 work-log 权限用户可用：触发本班组指定日期（区段）内当日用车人中的绑定成员从商旅拉取（一律以商旅为准覆盖本地）；
+// 区段批量拉取（date/from/to）仅超管 / 本班班组管理员可发起；卡片级（entry_id）所有 work-log 权限用户可用：
+// 触发本班组指定日期（区段）内当日用车人中的绑定成员从商旅拉取（一律以商旅为准覆盖本地）；
 // entry_id 传入时仅同步该卡片的用车人（日期以卡片 log_date 为准，from/to 忽略）；
 // team_id 仅超管生效（沿用 resolveReqTeam 口径：班组管理员/普通用户传了也被收敛到本班）；
 // 区段逐日串行异步执行，结果见 GET /sync/logs
@@ -1816,6 +1817,12 @@ router.post('/sync/pull', async (req, res, next) => {
       const [mrows] = await pool.query('SELECT member_id FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
       onlyMemberIds = mrows.map((r) => r.member_id);
       if (!onlyMemberIds.length) return fail(res, 400, 40042, '该卡片暂无用车人，无需同步');
+    }
+
+    // 区段批量拉取仅超管 / 本班班组管理员（口径同 requireDictAdmin；卡片级不受限）
+    if (!entryId && req.user.role !== 'admin'
+      && !(req.user.role === 'team_admin' && req.user.team_id === req.team.id)) {
+      return fail(res, 403, 40304, '仅管理员可执行此操作');
     }
 
     const from = entryDate || String((req.body && (req.body.from || req.body.date)) || today());
