@@ -28,8 +28,10 @@
     showBrand: true,          // 右下角品牌块（logo 图 + 防伪码）开关
     brandImage: null,         // 品牌 logo 图片（HTMLImage 或小程序 canvas.createImage() 对象）
     fontFamily: '"HYQiHei", "Microsoft YaHei", sans-serif',
-    codeFontFamily: '"PTMono", "HYQiHei", "Microsoft YaHei", sans-serif', // 防伪码码值字体（等宽）
-    codePrefixFontFamily: '"SourceHanSansSC", "HYQiHei", "Microsoft YaHei", sans-serif', // 「防伪」前缀字体
+    codeFontFamily: '"PTMono", "HYQiHei", "Microsoft YaHei", sans-serif', // 防伪码码值字体（PT Mono Bold，等宽）
+    codePrefixFontFamily: '"NotoSansSC", "HYQiHei", "Microsoft YaHei", sans-serif', // 「防伪」前缀字体（Noto Sans SC Bold）
+    codeShadowImage: null,      // 码值底衬软影条（官方 9-patch 素材 DA.9.png，去 1px 标记边后拉伸）
+    codeShadowLabelImage: null, // 「防伪」二字专用软影短条（code-shadow.png 裁中段首尾相接，见 SHADOW9 注释）
     fontWeight: ''            // 字重；汉仪旗黑 65J 本身即中黑，留空避免合成加粗
   };
 
@@ -77,13 +79,25 @@
     logoXiangL: 0.01,  // 「相」字左缘在 logo 图内的位置（相对图宽，按 alpha 通道实测 5/502）
     codeBeyondXiang: 0.001, // 「防」左缘超出「相」左缘的量（刚刚超过即可）
     codeFont: 0.0145,  // 防伪行基准字号：仅用于量宽，实际字号按「相」字对齐目标等比缩放
-    codeFontScale: 1.1, // 码值字号相对前缀的放大倍数（思源黑 CJK 可见高 0.96em、PTMono 大写 0.71em，1.1× 使码值略小于「防伪」二字）
+    codeFontScale: 1.1, // 码值字号相对前缀的放大倍数（Noto Sans SC CJK 可见高 ≈1.00em、PT Mono Bold 大写 0.70em，1.1× 使码值略小于「防伪」二字）
     codeXScale: 1,    // 码值横向压缩
     codeRight: 0.016,
     codeBaseline: 0.008, // 防伪码行基线（alphabetic）到底边的距离；行视觉中心≈0.0157
     codeColor: 'rgba(255,255,255,1)',
-    codeShadowAlpha: 0.3 // 防伪/码值软影峰值不透明度（官方样图间隙实测 ≈0.27-0.35，取其下限偏轻）
+    codeTextShadowAlpha: 0.3, // 「防伪」与码值文字本体阴影不透明度（官方 setShadowLayer 同模式：纯黑、零偏移）
+    codeTextShadowBlur: 3     // 文字本体阴影模糊半径（px，基准短边 1200，随 B 缩放）
   };
+
+  /* 防伪行底衬软影条：官方 APK 素材 DA.9.png（Android NinePatch，155x26）。
+   * 内容区 = 去 1px 标记边后的 153x24；右/下标记边给出内容留白：
+   * 文字（可见字形盒）落于 padding box（列 7..142、行 6..17，即 135x12），
+   * 软影条按 sx=行宽/135、sy=行高/12 各向拉伸后，文字左/上/右/下分别外扩 7/6/10/6 像素单位。
+   * 黑色、平台 alpha≈66/255，上下余弦渐隐、两端短距渐隐。
+   * 「防伪」二字字形小，按上述留白语义外扩量过大——专用短条 code-shadow-label.png
+   * （内容区裁掉中间 73 列平台、左 40 列与右 40 列首尾相接而成，两端渐隐保留），
+   * 绘制时字形盒仅外放 labelPad 倍字高小边距，边界仅微超出字边界。 */
+  var SHADOW9 = { padL: 7, padT: 6, padR: 10, padB: 6, boxW: 135, boxH: 12, contentW: 153, contentH: 24,
+    labelPad: 0.15 };
 
   // 防伪码字符集：去掉 0/O、1/I 等易混淆字符
   var CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -269,13 +283,14 @@
     if (o.showBrand) {
       ctx.save();
 
-      // 防伪码：「防伪 」前缀与码值分字体绘制（前缀 SourceHanSansSC / 码值 PTMono）。
+      // 防伪码：「防伪 」前缀与码值分字体绘制（前缀 NotoSansSC / 码值 PTMono）。
       // 横向：行右缘固定 codeRight 不动；先按基准字号量行宽，再等比缩小（纵横比不变）
       // 至「防」左缘刚好超过上方 logo 中「相」字左缘（logoXiangL / codeBeyondXiang）。
-      // 中线对齐：两段可见字形的垂直中心在同一水平线（非底线对齐——思源黑 CJK 比 PTMono 大写高，
+      // 中线对齐：两段可见字形的垂直中心在同一水平线（非底线对齐——Noto Sans SC CJK 比 PT Mono 大写高，
       // 底线对齐会让「防伪」中心偏高）；按 actualBoundingBox* 实测两段中心残差校正前缀基线，
       // 度量缺失时退回共用 alphabetic 基线（两字体中心本已近乎重合），任意分辨率恒平。
-      // 阴影：不用文字投影，按官方样图在「防伪」与码值各自的可见字形边界上垫圆角矩形软影（边缘渐隐）。
+      // 阴影分两层（均按官方模式）：底层 = 软影条贴图垫在文字下（「防伪」与码值各自独立一条）；
+      // 文字本体 = setShadowLayer 同模式纯黑零偏移投影（模糊半径随分辨率缩放）。
       ctx.fillStyle = M.codeColor;
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = 'left';
@@ -293,16 +308,16 @@
       // 浮点字号（不取整）：取整会让缩放后的行宽偏离目标 1-2px，左缘对不上「相」字
       ctx.font = codePrefixFont(codeFs);
       var preM = ctx.measureText('防');
-      // 字形度量不可用的环境按实测常量兜底（思源黑 CJK：上 0.86em / 下 0.10em）
-      var preAsc = typeof preM.actualBoundingBoxAscent === 'number' ? preM.actualBoundingBoxAscent : codeFs * 0.86;
-      var preDesc = typeof preM.actualBoundingBoxDescent === 'number' ? preM.actualBoundingBoxDescent : codeFs * 0.1;
+      // 字形度量不可用的环境按实测常量兜底（Noto Sans SC CJK：上 0.88em / 下 0.12em）
+      var preAsc = typeof preM.actualBoundingBoxAscent === 'number' ? preM.actualBoundingBoxAscent : codeFs * 0.88;
+      var preDesc = typeof preM.actualBoundingBoxDescent === 'number' ? preM.actualBoundingBoxDescent : codeFs * 0.12;
       ctx.font = codeFont(codeFs * M.codeFontScale);
       var codeM = ctx.measureText(o.antiCode);
       var codeW = codeM.width * M.codeXScale;
-      // PTMono 大写：上 0.71em；下探恒 0——码值字符集只有大写+数字，无下伸笔画，
+      // PT Mono Bold 大写：上 0.70em；下探恒 0——码值字符集只有大写+数字，无下伸笔画，
       // 且 @napi-rs/canvas 的 actualBoundingBoxDescent 返回字体级下探（非字形实测），
       // 采信会让码值中心算偏高、「防伪」与码值中线不齐
-      var codeAsc = typeof codeM.actualBoundingBoxAscent === 'number' ? codeM.actualBoundingBoxAscent : codeFs * M.codeFontScale * 0.71;
+      var codeAsc = typeof codeM.actualBoundingBoxAscent === 'number' ? codeM.actualBoundingBoxAscent : codeFs * M.codeFontScale * 0.70;
       var codeDesc = 0;
       ctx.font = codePrefixFont(codeFs);
       var prefixW = ctx.measureText(codePrefix).width;
@@ -310,44 +325,34 @@
       // 前缀基线偏移 = 码值中心偏移 - 前缀中心偏移（各中心 = 基线 + (下探-上探)/2）
       var prefixBaselineY = baselineY + ((codeDesc - codeAsc) - (preDesc - preAsc)) / 2;
 
-      // 两个圆角矩形软影：按官方样图，渐隐大部分收在各自可见字形边界之内——
-      // 「防伪」的渐隐外限几乎不超出二字边界；码值的渐隐外限左右收在码值边界之内、
-      // 上下仅微超出。offX/offY 为渐隐外限相对字形边界的超出量（负值=收进边界内），
-      // 全浓度核心 = 外限再内缩一圈渐隐带宽。实现为外→内逐层加强的圆角矩形叠印：
-      // 按余弦目标剖面反解每层 alpha（源覆盖合成 1-Π(1-a)），外扩 grow 时圆角同步 +grow
-      // 保持等距平行边；纯路径填充，不依赖 ctx 投影/滤镜，三端一致。
-      // （save/restore 隔离 fillStyle，避免污染后续文字绘制的颜色）
-      function softRectShadow(x, y, w, h, offX, offY) {
-        ctx.save();
-        var blur = h * 0.3;        // 渐隐带宽（外限到全浓度核心的距离）
-        var r0 = h * 0.15;         // 核心圆角半径
-        var cx = x - offX + blur;  // 全浓度核心矩形 = 渐隐外限各边内缩 blur
-        var cy = y - offY + blur;
-        var cw = w + offX * 2 - blur * 2;
-        var ch = h + offY * 2 - blur * 2;
-        var N = 16;          // 分层数（足够密，视觉上即连续渐变）
-        var remain = 1;      // 已绘各层的累计剩余透明度 Π(1-a)
-        for (var i = N; i >= 0; i--) {
-          var t = i / N;
-          var target = M.codeShadowAlpha * (1 + Math.cos(Math.PI * t)) / 2; // t=0 核心峰值，t=1 外缘为 0
-          var a = 1 - (1 - target) / remain;
-          if (a > 0) {
-            var grow = blur * t;
-            roundedPath(ctx, cx - grow, cy - grow, cw + grow * 2, ch + grow * 2, r0 + grow, [true, true, true, true]);
-            ctx.fillStyle = 'rgba(0,0,0,' + a.toFixed(4) + ')';
-            ctx.fill();
-          }
-          remain = 1 - target;
-        }
-        ctx.restore();
+      // 底衬软影条：「防伪」与码值各自独立垫一条，互不相连。
+      // 码值用整条 DA.9.png 内容区（153x24，去 1px 标记边），按 9-patch 内容留白语义
+      // 拉伸——可见字形盒映射到 padding box（135x12），文字左/上/右/下外扩 7/6/10/6
+      // 个缩放单位，渐隐与圆头均由素材自带，无需自绘。
+      function codeShadow9(x, top, w, h) {
+        var ssx = w / SHADOW9.boxW;
+        var ssy = h / SHADOW9.boxH;
+        ctx.drawImage(o.codeShadowImage, 1, 1, SHADOW9.contentW, SHADOW9.contentH,
+          x - SHADOW9.padL * ssx, top - SHADOW9.padT * ssy,
+          SHADOW9.contentW * ssx, SHADOW9.contentH * ssy);
       }
-      var preGlyphW = 2 * codeFs; // 前缀两个字形宽（不含尾部空格）
-      var preH = preAsc + preDesc;
-      var codeH = codeAsc + codeDesc;
-      // 渐隐外限：「防伪」几乎不越出二字边界；码值左右收进边界 ≈0.08 倍字高、上下微超出 ≈0.1 倍字高
-      softRectShadow(prefixX, prefixBaselineY - preAsc, preGlyphW, preH, -0.02 * preH, 0.05 * preH);
-      softRectShadow(rightX - codeW, baselineY - codeAsc, codeW, codeH, -0.08 * codeH, 0.1 * codeH);
+      if (o.codeShadowImage) {
+        codeShadow9(rightX - codeW, baselineY - codeAsc, codeW, codeAsc + codeDesc);
+      }
+      // 「防伪」二字用裁短拼接的专用短条，字形盒仅外放一圈小边距（边界仅微超出字边界）
+      if (o.codeShadowLabelImage) {
+        var preGlyphW = ctx.measureText('防伪').width; // 前缀二字宽（不含尾部空格；此处 ctx.font 为前缀字体）
+        var preH = preAsc + preDesc;
+        var prePad = SHADOW9.labelPad * preH;
+        ctx.drawImage(o.codeShadowLabelImage,
+          prefixX - prePad, prefixBaselineY - preAsc - prePad, preGlyphW + prePad * 2, preH + prePad * 2);
+      }
 
+      // 文字本体阴影（官方 setShadowLayer 同模式）：纯黑、偏移 (0,0)、模糊半径随分辨率缩放
+      ctx.shadowColor = 'rgba(0,0,0,' + M.codeTextShadowAlpha + ')';
+      ctx.shadowBlur = M.codeTextShadowBlur * B / 1200;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
       ctx.fillText(codePrefix, prefixX, prefixBaselineY);
       // 码值：字号放大 + 横向压缩（行宽不超限）
       ctx.save();
@@ -358,7 +363,7 @@
       ctx.restore();
 
       // 品牌 logo 图（抠自官方样图，含「今日水印/相机/真实可验」）
-      // 阴影沿用原参数（颜色/模糊/偏移全量重设，不继承上方防伪码的新阴影）
+      // 阴影沿用原参数（颜色/模糊/偏移全量重设，不继承上方防伪行文字的阴影）
       if (o.brandImage) {
         var lw = M.logoW * B;
         var lh = lw * (o.brandImage.height / o.brandImage.width);

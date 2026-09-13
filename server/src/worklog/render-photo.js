@@ -11,8 +11,8 @@ let fontsReady = false;
 function ensureFonts() {
   if (fontsReady) return;
   GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'HYQiHeiX2-65J.ttf'), 'HYQiHei');
-  GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'PTMono-1.ttc'), 'PTMono'); // 防伪码码值（等宽）
-  GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'SourceHanSansSC-Bold-2.otf'), 'SourceHanSansSC'); // 「防伪」前缀
+  GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'PTMono-Bold.ttf'), 'PTMono'); // 防伪码码值（等宽）
+  GlobalFonts.registerFromPath(path.join(ASSETS, 'fonts', 'NotoSansSCBold.otf'), 'NotoSansSC'); // 「防伪」前缀
   fontsReady = true;
 }
 
@@ -21,6 +21,20 @@ async function ensureBrand() {
   if (brandImage) return brandImage;
   brandImage = await loadImage(path.join(ASSETS, 'brand-logo.png'));
   return brandImage;
+}
+
+let codeShadowImage = null;
+async function ensureCodeShadow() {
+  if (codeShadowImage) return codeShadowImage;
+  codeShadowImage = await loadImage(path.join(ASSETS, 'code-shadow.png'));
+  return codeShadowImage;
+}
+
+let codeShadowLabelImage = null;
+async function ensureCodeShadowLabel() {
+  if (codeShadowLabelImage) return codeShadowLabelImage;
+  codeShadowLabelImage = await loadImage(path.join(ASSETS, 'code-shadow-label.png'));
+  return codeShadowLabelImage;
 }
 
 /**
@@ -33,6 +47,8 @@ async function renderWatermarkedPhoto(photoBuf, wm, orientation) {
   ensureFonts();
   const photo = await loadImage(photoBuf);
   const brand = await ensureBrand();
+  const codeShadow = await ensureCodeShadow();
+  const codeShadowLabel = await ensureCodeShadowLabel();
 
   // EXIF 方向矫正：left/right 类需交换宽高并旋转画布，使水印按正常视角绘制
   const o = String(orientation || 'up').toLowerCase();
@@ -65,6 +81,8 @@ async function renderWatermarkedPhoto(photoBuf, wm, orientation) {
     latitude: wm.latitude || '',
     antiCode: wm.antiCode || '',
     brandImage: brand,
+    codeShadowImage: codeShadow,
+    codeShadowLabelImage: codeShadowLabel,
   });
 
   // 原图分辨率导出；quality 刻度为 0-100（0.9 会被压成渣，95 接近无损观感）
