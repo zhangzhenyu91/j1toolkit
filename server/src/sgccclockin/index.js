@@ -2095,6 +2095,56 @@ function scheduleEndClockRemind() {
 }
 scheduleEndClockRemind();
 
+// 开始打卡午间提醒：每日 SGCC_STARTCLOCK_REMIND_TIME（默认 11:00）对「当日卡上已绑定商旅但未打开始卡（首次打卡）」的成员
+// 提前提醒（给本人留补打时间）；口径同核验规则 a（未绑定不参与），仅发微信（本人个人 wxid + 卡片班组群 wxid），不写站内通知
+async function remindMissingStartClockin() {
+  // 卡片驱动：当日卡上成员 ∩ 已绑定账号（账号联表人级解析，调班/跨班卡均可命中）；无当日 seq=1 打卡行即未首次打卡
+  const [rows] = await pool.query(
+    `SELECT m.id AS member_id, m.name, MAX(a.user_id) AS user_id,
+            GROUP_CONCAT(DISTINCT e.team_id) AS team_ids
+     FROM worklog_entry e
+     JOIN worklog_entry_member em ON em.entry_id = e.id
+     JOIN worklog_member m ON m.id = em.member_id
+     JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
+     LEFT JOIN worklog_clockin c ON c.member_id = m.id AND c.clock_date = ? AND c.seq = 1
+     WHERE e.log_date = ? AND e.team_id IS NOT NULL AND c.id IS NULL
+     GROUP BY m.id, m.name`,
+    [today(), today()]
+  );
+  if (!rows.length) {
+    console.log('[商旅打卡] 开始打卡午间提醒：今日卡上成员均已首次打卡');
+    return;
+  }
+  const wxpush = require('../notice/wxpush'); // 惰性加载（同 notice 口径）
+  for (const r of rows) {
+    const teamIds = String(r.team_ids || '').split(',').map(Number).filter(Boolean);
+    const res = await wxpush.sendTo({
+      userIds: r.user_id ? [r.user_id] : [],
+      teamIds,
+      text: `开始打卡提醒\n成员「${r.name}」今日有出工卡片，尚未打开始卡（首次打卡），请尽快打卡（仅当日可打卡）。`,
+      user: `clockin-remind-${r.member_id}`,
+    });
+    if (!res.ok) console.warn(`[商旅打卡] 开始打卡提醒未发送（成员「${r.name}」）：${res.reason || res.error}`);
+  }
+  console.log(`[商旅打卡] 开始打卡午间提醒完成：${rows.length} 名成员未首次打卡`);
+}
+
+function scheduleStartClockRemind() {
+  const [hh, mm] = String(config.sgcc.startClockRemindTime || '11:00').split(':').map((s) => parseInt(s, 10));
+  const { nextUtc, now } = nextDailyRunUtc(hh || 11, mm || 0);
+  const timer = setTimeout(async () => {
+    try {
+      await remindMissingStartClockin();
+    } catch (err) {
+      console.error('[商旅打卡] 开始打卡午间提醒失败：', err.message);
+    }
+    scheduleStartClockRemind(); // 排次日
+  }, nextUtc - now);
+  timer.unref();
+  console.log(`[商旅打卡] 开始打卡午间提醒已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
+}
+scheduleStartClockRemind();
+
 module.exports = router;
 // 供 worklog 照片上传（远端先行）/改人名补传/删除钩子调用（config.sgcc.enabled 守卫在调用方）
 module.exports.syncPhotoToSgcc = syncPhotoToSgcc;

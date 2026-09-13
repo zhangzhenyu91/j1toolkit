@@ -121,6 +121,8 @@ const config = {
     version: str('SGCC_VERSION', '3.3.5'),
     // 每日自动核查时间（HH:mm，默认 23:00）
     syncTime: str('SGCC_SYNC_TIME', '23:00'),
+    // 开始打卡未打午间提醒时间（HH:mm，默认 11:00；对当日卡上已绑定但未首次打卡的成员，仅发微信 本人+班组群，不写站内通知）
+    startClockRemindTime: str('SGCC_STARTCLOCK_REMIND_TIME', '11:00'),
     // 结束打卡未打傍晚提醒时间（HH:mm，默认 18:00；仅发微信 本人+班组群，不写站内通知）
     endClockRemindTime: str('SGCC_ENDCLOCK_REMIND_TIME', '18:00'),
     // 批量拉取成员间隔（毫秒，防商旅侧风控；定时核查与手动 /sync/pull 共用）
