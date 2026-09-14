@@ -43,12 +43,24 @@ function dots(dateStr) {
 // ---------- 账号工具 ----------
 
 // 本人绑定行（绑定 = 本人短信登录自己的商旅账号；token 跟人走，user_id 全局唯一，调班无需重绑）
+// user_id 直连落空时按成员人级兜底：同步成员 user_id 直连优先，同班同名未认领成员次之
+// （认领口径同 member-sync /login/bind）——命中管理员代绑（user_id=NULL）行即视为已绑定，
+// 否则「我的 → 绑定商旅」页看不到代绑行会误导成员重复绑定
 async function myAccount(req) {
   const [rows] = await pool.query(
     'SELECT * FROM worklog_sgcc_account WHERE user_id = ?',
     [req.user.id]
   );
-  return rows[0] || null;
+  if (rows.length) return rows[0];
+  if (!req.team) return null;
+  const [fallback] = await pool.query(
+    `SELECT a.* FROM worklog_sgcc_account a
+     JOIN worklog_member m ON m.id = a.member_id
+     WHERE m.team_id = ? AND (m.user_id = ? OR (m.user_id IS NULL AND m.name = ?))
+     ORDER BY (m.user_id = ?) DESC, a.id LIMIT 1`,
+    [req.team.id, req.user.id, req.user.nickname, req.user.id]
+  );
+  return fallback[0] || null;
 }
 
 // 出工成员对应的绑定行（人级解析：先按 member_id 直连，落空经 member.user_id 兜底——
