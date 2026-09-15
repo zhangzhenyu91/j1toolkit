@@ -127,6 +127,10 @@ const config = {
     endClockRemindTime: str('SGCC_ENDCLOCK_REMIND_TIME', '18:00'),
     // 批量拉取成员间隔（毫秒，防商旅侧风控；定时核查与手动 /sync/pull 共用）
     syncIntervalMs: parseInt(str('SGCC_SYNC_INTERVAL_MS', '1500'), 10) || 1500,
+    // 商旅 API 出口 SOCKS5 代理（如 socks5h://user:pass@127.0.0.1:18070；空=直连）。
+    // 用途：云服务器 IP 属地被商旅风控（图形码 99000 窗口），经家中宽带出口对齐打卡人实际属地；
+    // 仅作用于 protocol.js 的 API 调用（小 JSON），照片类大流量下载不走代理
+    proxyUrl: str('SGCC_PROXY_URL'),
   },
 };
 

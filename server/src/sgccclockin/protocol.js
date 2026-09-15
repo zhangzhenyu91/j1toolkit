@@ -91,10 +91,31 @@ function rsaDecryptLong(privPem, b64) {
 }
 
 // ---------- 底层 HTTP ----------
+// 出口代理（env SGCC_PROXY_URL）：配置后全部商旅 API 调用经 SOCKS5 出口（账密写在 URL 里），
+// 让商旅侧看到的 IP 属地对齐打卡人实际所在地（云服务器机房 IP 易触发风控 99000 窗口）。
+// agent 全局缓存复用；代理不可用/地址无效即报错，不静默降级直连——同一次登录多步调用的
+// IP 属地若直连/代理混用会更不一致，风控口径反而更差。照片类大流量下载不经此通道（见 index.js fetch）。
+const { SocksProxyAgent } = require('socks-proxy-agent');
+let PROXY_AGENT = null;
+function httpsAgent() {
+  const url = config.sgcc && config.sgcc.proxyUrl;
+  if (!url) return undefined;
+  if (!PROXY_AGENT) {
+    try {
+      PROXY_AGENT = new SocksProxyAgent(url);
+      console.log('[商旅打卡] API 出口代理已启用：' + url.replace(/\/\/[^@]*@/, '//***@'));
+    } catch (e) {
+      throw new Error('SGCC_PROXY_URL 代理地址无效：' + e.message);
+    }
+  }
+  return PROXY_AGENT;
+}
+
 function post(host, path, headers, body) {
   return new Promise((resolve, reject) => {
     const req = https.request({
       hostname: host, path: '/api/' + path.replace(/^\//, ''), method: 'POST',
+      agent: httpsAgent(),
       headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
     }, (res) => {
       const chunks = [];
