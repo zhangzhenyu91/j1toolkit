@@ -142,10 +142,15 @@
     };
   }
 
+  // 回传通道以 from 参数为准（mp=小程序 web-view / web=网页 iframe，调用方均显式传参）。
+  // 不能凭 window.wx && wx.miniProgram 判断：jweixin 在普通浏览器同样定义 wx.miniProgram，
+  // 网页 iframe 会误入小程序通道，postMessage 静默丢失、凭据永远到不了父页（2026-09-15 实测踩坑）。
+  var from = (location.search.match(/[?&]from=([\w-]+)/) || [])[1] || '';
+
   function onSuccess(captchaToken) {
     say('验证成功，正在返回…', 'ok');
     var payload = { captchaToken: captchaToken, constId: constId };
-    if (window.wx && wx.miniProgram) {
+    if (from === 'mp' && window.wx && wx.miniProgram) {
       // 小程序 web-view：postMessage 在 navigateBack 时同步给小程序 bindmessage
       wx.miniProgram.postMessage({ data: payload });
       setTimeout(function () { wx.miniProgram.navigateBack(); }, 400);
