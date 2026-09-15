@@ -178,6 +178,7 @@
   .dpill { flex: none; border-radius: 4px; padding: 1px 7px; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; }
   .dpill-sync { background: #EAF5EF; color: var(--green); }
   .dpill-hand { background: var(--paper); color: var(--ph); }
+  .dpill-out { background: #FDEEE2; color: var(--orange); }
   .doff-tip { flex: none; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
   .drow .dops { margin-left: auto; flex: none; display: flex; gap: 2px; }
   /* 商旅绑定设备行：手机号 · 设备型号 / 系统版本（次级灰字，截断防挤压操作区） */
@@ -3905,8 +3906,12 @@ function sgccBindFor(member) {
 function dictRowHtml(seg, it, idx, total) {
   var off = it.status !== 1;
   return '<div class="drow' + (off ? ' off' : '') + '" data-seg="' + seg.key + '" data-id="' + it.id +
-    '" data-name="' + esc(it.name) + '" data-status="' + it.status + '">' +
+    '" data-name="' + esc(it.name) + '" data-status="' + it.status + '"' +
+    (seg.key === 'destinations' ? ' data-outcity="' + (it.out_of_city === 1 ? 1 : 0) + '"' : '') + '>' +
     '<span class="dn">' + esc(it.name) + '</span>' +
+    (seg.key === 'destinations' && it.out_of_city === 1 // 目的地市外标：费用验证按市外标准（伙食100/交通0）
+      ? '<span class="dpill dpill-out">市外</span>'
+      : '') +
     (seg.key === 'members' // 成员来源标（屏六）：user_id 非空=账号同步（绿），空=手动添加（灰）
       ? '<span class="dpill ' + (it.user_id ? 'dpill-sync">账号同步' : 'dpill-hand">手动添加') + '</span>'
       : '') +
@@ -3915,6 +3920,8 @@ function dictRowHtml(seg, it, idx, total) {
       // 成员排序（仅成员字典）：点亮按钮顺序；工作任务单「工作负责人」取排序最前的用车人
       (seg.key === 'members' && idx > 0 ? '<button class="linkbtn" data-dact="up">上移</button>' : '') +
       (seg.key === 'members' && idx < total - 1 ? '<button class="linkbtn" data-dact="down">下移</button>' : '') +
+      // 市外标记切换（仅目的地字典；默认市内）
+      (seg.key === 'destinations' ? '<button class="linkbtn" data-dact="outcity">' + (it.out_of_city === 1 ? '标为市内' : '标为市外') + '</button>' : '') +
       '<button class="linkbtn" data-dact="edit">改名</button>' +
       '<button class="linkbtn" data-dact="toggle">' + (off ? '启用' : '停用') + '</button>' +
       '<button class="linkbtn dgr" data-dact="del">删除</button>' +
@@ -4044,6 +4051,21 @@ async function dictToggle(seg, item) {
       body: { status: item.status === 1 ? 0 : 1 }
     });
     Shade.toast(item.status === 1 ? '已停用' : '已启用', 'success');
+    await loadDictSeg(seg);
+    renderDict();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* 市外标记切换（仅目的地字典）：市外目的地费用按市外标准验证（伙食100/交通0），默认市内 */
+async function dictOutCity(seg, item) {
+  try {
+    await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), {
+      method: 'PUT',
+      body: { out_of_city: item.out_of_city === 1 ? 0 : 1 }
+    });
+    Shade.toast(item.out_of_city === 1 ? '已标为市内' : '已标为市外', 'success');
     await loadDictSeg(seg);
     renderDict();
   } catch (e) {
@@ -4828,10 +4850,11 @@ function initEvents() {
     var row = actBtn.closest('.drow');
     if (!row) return;
     var seg = dictSeg(row.dataset.seg);
-    var item = { id: Number(row.dataset.id), name: row.dataset.name, status: Number(row.dataset.status) };
+    var item = { id: Number(row.dataset.id), name: row.dataset.name, status: Number(row.dataset.status), out_of_city: Number(row.dataset.outcity || 0) };
     if (!seg) return;
     if (actBtn.dataset.dact === 'edit') dictRename(seg, item);
     else if (actBtn.dataset.dact === 'toggle') dictToggle(seg, item);
+    else if (actBtn.dataset.dact === 'outcity') dictOutCity(seg, item);
     else if (actBtn.dataset.dact === 'up') dictMove(item, 'up');
     else if (actBtn.dataset.dact === 'down') dictMove(item, 'down');
     else if (actBtn.dataset.dact === 'del') dictDelete(seg, item);

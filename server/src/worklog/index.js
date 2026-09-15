@@ -22,7 +22,7 @@ const geo = require('./geo');
 const towers = require('./towers');
 const Watermark = require('./watermark');
 const { renderWatermarkedPhoto } = require('./render-photo');
-const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark } = require('./verify');
+const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark, resolveFeeStd } = require('./verify');
 const tasksheet = require('./tasksheet');
 const feesheet = require('./feesheet');
 const dispatch = require('./dispatch');
@@ -110,7 +110,7 @@ async function loadEntries(where, params) {
   const [entries] = await pool.query(
     `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.patrol_content,
             e.remark, e.remark_files, e.cross_team,
-            e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name,
+            e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name, d.out_of_city AS destination_out_of_city,
             e.created_by, e.created_at
      FROM worklog_entry e
      LEFT JOIN worklog_vehicle v ON v.id = e.vehicle_id
@@ -167,6 +167,7 @@ async function loadEntries(where, params) {
   let sgccByMember = {};
   const clockinByDate = {}; // clockinByDate[log_date][member_id][seq]
   const feeByDate = {}; // feeByDate[log_date][member_id] = { foodFee, transitFee }（规则 f 判定用）
+  let feeStdRows = []; // worklog_fee_std 全量（规则 f 按目的地市外标记 + 记录日期解析适用标准）
   if (config.sgcc && config.sgcc.enabled) {
     const memberIds = [...new Set(members.map((m) => m.member_id))];
     if (memberIds.length) {
@@ -206,6 +207,11 @@ async function loadEntries(where, params) {
         const d = (feeByDate[f.fee_date] = feeByDate[f.fee_date] || {});
         d[f.member_id] = { foodFee: Number(f.food_fee), transitFee: Number(f.transit_fee) };
       });
+      // 费用验证标准（规则 f 用）：全量通常仅数行，按 市外标记 + 记录日期 逐卡解析（resolveFeeStd）
+      const [stdRows] = await pool.query(
+        `SELECT scope, food_fee, transit_fee, DATE_FORMAT(effective_from, '%Y-%m-%d') AS eff FROM worklog_fee_std`
+      );
+      feeStdRows = stdRows;
     }
   }
 
@@ -224,6 +230,8 @@ async function loadEntries(where, params) {
       photos: photoMap[e.id] || [],
       clockinMap: (clockinByDate[e.log_date] || {}),
       feeMap: (feeByDate[e.log_date] || {}),
+      // 规则 f 适用标准（市外标记目的地按市外标准，按记录日期取生效版本；商旅未开启时为兜底 60/0 但不参与判定）
+      feeStd: resolveFeeStd(feeStdRows, !!e.destination_out_of_city, e.log_date),
     };
     entry.verify_passed = computeVerifyPassed(entry);
     entry.verify_reasons = computeFailReasons(entry);
@@ -2010,7 +2018,7 @@ function dictRoutes(path, table, field, label, countRefs) {
   router.get(`/admin/${path}`, requireDictAdmin, async (req, res, next) => {
     try {
       if (!req.team) return ok(res, { list: [] });
-      const extra = table === 'worklog_member' ? ', user_id' : '';
+      const extra = table === 'worklog_member' ? ', user_id' : (table === 'worklog_destination' ? ', out_of_city' : '');
       const [rows] = await pool.query(
         `SELECT id, ${field} AS name, sort, status${extra} FROM ${table} WHERE team_id = ? ORDER BY sort, id`,
         [req.team.id]
@@ -2067,6 +2075,10 @@ function dictRoutes(path, table, field, label, countRefs) {
       }
       if (status !== undefined) {
         await pool.query(`UPDATE ${table} SET status = ? WHERE id = ?`, [Number(status) ? 1 : 0, id]);
+      }
+      // 市外标记（仅目的地字典）：1 出差至市外，费用验证规则 f 按市外标准（伙食100/交通0）判定
+      if (table === 'worklog_destination' && req.body && req.body.out_of_city !== undefined) {
+        await pool.query(`UPDATE ${table} SET out_of_city = ? WHERE id = ?`, [Number(req.body.out_of_city) ? 1 : 0, id]);
       }
       return ok(res, null);
     } catch (err) {
