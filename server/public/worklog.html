@@ -6,8 +6,9 @@
      版心满宽贴边；右侧列表位为「记录 / 批量下载 / 汇总前核验」三页签（原批量下载、验证报告弹层已页签化；
      商旅打卡扩展后验证报告更名「汇总前核验」，范围收窄为仅未通过记录，底部绿色条提示其余全部通过；页头加「从商旅拉取」入口），
      宽屏（≥1600px）记录页签下汇总前核验常驻卡片流右侧栏（syncSideReport；切到核验页签仍可满宽查看）；
-     商旅打卡（design/sgcc-clockin.html ④⑫⑬）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 并排「始/终」两枚 slot 三态，
-     仅展示，打卡需真实定位在小程序完成）、
+     商旅打卡（design/sgcc-clockin.html ④⑫⑬）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 费用入口 + 并排「始/终」两枚 slot 三态；
+     点 slot 弹打卡确认层（仅当日；浏览器定位 WGS84→GCJ02 / 手输地址正向解析 / 杆塔带入，已打卡进「更新打卡地点」，同记录他人同 seq 定位自动带入）、
+     点「费用」弹费用信息层（伙食补助/交通费可改，成本分配只读，保存即提交商旅；首次开始打卡成功自动弹出，均同小程序口径）、
      照片网格「商旅/同步失败」角标（非水印照片同款展示，无验证角标）、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）、
      卡片操作区「从商旅同步」（仅本卡用车人当日数据，卡片级进度锁，同小程序口径）；
      隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
@@ -798,8 +799,8 @@
   }
 
   /* ===== 商旅打卡（出工日志扩展，design/sgcc-clockin.html ④⑫⑬） ===== */
-  /* 用车人打卡区（与小程序 ck-person 一致）：每用车人一行 = 头行（姓名 + 状态小字）+ 并排「始/终」两枚 slot；
-     Web 端仅展示不发起打卡——打卡需真实定位，在小程序完成，点击仅 toast 提示（沿用 sgccck 委派） */
+  /* 用车人打卡区（与小程序 ck-person 一致）：每用车人一行 = 头行（姓名 + 状态小字 + 费用入口）+ 并排「始/终」两枚 slot；
+     Web 端同小程序可操作——点 slot 弹打卡确认层（浏览器定位 / 手输地址 / 杆塔带入），点「费用」弹费用信息层 */
   .lrow-ck { align-items: flex-start; }
   .lrow-ck .li, .lrow-ck .lk { margin-top: 7px; }
   .lrow-ck .lv { flex: 1; min-width: 0; font-size: 13px; font-weight: 400; }
@@ -823,6 +824,34 @@
   .ck-slot.done .ck-t2 { color: #5C8A76; }
   .ck-slot.todo { border: 1px dashed var(--orange); color: var(--orange); }
   .ck-slot.lock { border: 1px solid #EFE9DA; background: #FAF7F0; color: #B4AA90; }
+  /* 费用入口（头行最右端描边胶囊小按钮，同小程序 ck-fee） */
+  .ck-fee {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 3px; flex: none;
+    border: 1px solid var(--orange); border-radius: 999px; padding: 1px 8px;
+    font-size: 10.5px; font-weight: 700; color: var(--orange); cursor: pointer; user-select: none;
+  }
+  .ck-fee svg { width: 11px; height: 11px; }
+  .ck-fee:hover { background: var(--iconbg, #FDEEE2); }
+  /* 打卡确认弹层（设计稿⑤ Web 演绎）：位置卡 = 地址行（可手输）+ 经纬度/来源副行 + 重新定位 / 选择杆塔带入坐标 */
+  .ckm-loc { margin: 10px 0 2px; border: 1px solid #E3DCCB; border-radius: 10px; padding: 10px 12px; background: #FDFCF9; }
+  .ckm-loc-line { display: flex; align-items: center; gap: 8px; }
+  .ckm-loc-line > svg { width: 15px; height: 15px; flex: none; color: var(--orange); }
+  .ckm-loc-input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-size: 13px; font-family: inherit; color: var(--navy); }
+  .ckm-loc-input::placeholder { color: var(--ph); }
+  .ckm-loc-sub { margin-top: 6px; font-size: 10.5px; color: var(--ph); }
+  .ckm-loc-acts { display: flex; gap: 16px; margin-top: 8px; }
+  .ckm-mini {
+    display: inline-flex; align-items: center; gap: 4px; padding: 0; border: none; background: none;
+    font-size: 11.5px; font-weight: 700; color: var(--orange); cursor: pointer;
+  }
+  .ckm-mini svg { width: 12px; height: 12px; }
+  /* 费用信息弹层（设计稿⑥ Web 演绎）：成本分配只读展示 + 伙食补助/交通费可编辑 */
+  .fee-load { padding: 30px 0; text-align: center; font-size: 12px; color: var(--ph); letter-spacing: 1px; }
+  .fee-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--hair); }
+  .fee-row:last-child { border-bottom: none; }
+  .fee-k { font-size: 13px; font-weight: 700; color: var(--navy); }
+  .fee-v { font-size: 13px; color: var(--sub); text-align: right; word-break: break-all; }
+  .fee-input { width: 150px; text-align: right; }
   /* 照片右上商旅同步签（蓝=已同步 / 红=同步失败）；与右上「日期/地点不符」chips 同存时 chips 下移避让 */
   .ph-sync {
     position: absolute; top: 6px; right: 6px; border-radius: 4px; padding: 1px 6px;
@@ -1050,7 +1079,7 @@
    ② 选择照片并添加水印＝选片 → 4:3/3:4 判定（按需 canvas 裁剪）→ 水印字段编辑（历史带入 / 浏览器定位 WGS84→GCJ02 /
    杆塔坐标级联预填，防抖调 /geo 刷新地点天气）→ 服务端渲染水印上传；图片经 canvas 重绘导出，EXIF 方向已归一（orientation 恒 up）
    商旅打卡扩展（/api/v1/sgcc/*）：③ 非水印照片＝原图直传（plain:true，不渲染不验证不占每人限一张，verify_status=skipped 不进轮询）；
-   用车人行打卡区仅展示（每用车人一行：状态小字 + 始/终两枚 slot 三态，打卡在小程序完成）；照片「商旅/同步失败」角标，Lightbox 同步失败可重试（resync）；
+   用车人行打卡区可操作（每用车人一行：状态小字 + 费用入口 + 始/终两枚 slot 三态；点 slot 弹打卡确认层、点「费用」弹费用信息层，均同小程序口径）；照片「商旅/同步失败」角标，Lightbox 同步失败可重试（resync）；
    卡片操作区「从商旅同步」：卡片级拉取（POST /sync/pull {entry_id}，仅本卡用车人当日数据，本卡进度锁轮询 /sync/progress，cardSyncPull）；
    页头「从商旅拉取」弹层：按区段手动拉取（POST /sync/pull {from,to}，以商旅平台为准覆盖本地；仅超管 / 班组管理员可见可发起）
    ============================================================ */
@@ -1094,6 +1123,8 @@ var SVG_DOC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 var SVG_CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h2.6l1.7-2.6h7.4l1.7 2.6H20a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 20.5H4A1.5 1.5 0 0 1 2.5 19v-9A1.5 1.5 0 0 1 4 8.5z"/><circle cx="12" cy="13.8" r="3.6"/></svg>';
 /* 快捷输入（与小程序一致：巡视内容与水印施工内容共用） */
 var QUICK_INPUTS = ['110kV', '220kV', 'Ⅰ', 'Ⅱ', '线巡视'];
+/* 商旅打卡备注默认值（同小程序 CLOCK_REMARKS_DEFAULT） */
+var CLOCK_REMARKS_DEFAULT = '110kV及220kV输电线路巡视';
 
 /* ================= 全局状态 ================= */
 var state = {
@@ -1235,7 +1266,7 @@ function verifyTag(e) {
   return '<span class="tag tag-navy">免验证</span>';
 }
 
-/* ===== 商旅打卡区（与小程序 ck-person 一致，设计稿④；Web 端仅展示，打卡需真实定位在小程序完成，点击仅提示） ===== */
+/* ===== 商旅打卡区（与小程序 ck-person 一致，设计稿④；Web 端可发起打卡 / 更新地点 / 改费用，口径同小程序） ===== */
 /* 打卡地点短文案：去「中国」前缀与省/地级段，保留 市/区/县 + 街道/路段（同小程序 shortPosition） */
 function shortPosition(p) {
   var s = String(p || '').replace(/^中国/, '').replace(/^[^省]{1,12}省/, '');
@@ -1249,38 +1280,45 @@ function fmtWorkHours(w) {
   if (!s) return '';
   return /^\d+(\.\d+)?$/.test(s) ? s + 'h' : s;
 }
-/* 单枚打卡 slot 三态：done=绿底勾 +「始/终 HH:mm」+ 地点小字（悬停 title 显完整地址）/ todo=橙虚线「未打卡」/ lock=灰底锁「未绑定」 */
+/* 单枚打卡 slot 三态：done=绿底勾 +「始/终 HH:mm」+ 地点小字（悬停 title 显完整地址）/ todo=橙虚线「未打卡」/ lock=灰底锁「未绑定」；
+   数据属性供点击委派取上下文：mid/name/seq + done（已打卡进「更新打卡地点」）/ bound=0（未绑定引导） */
 function clockSlotHTML(m, ck, seq) {
   var lab = seq === 1 ? '始' : '终';
+  var base = ' data-act="sgccck" data-mid="' + m.member_id + '" data-name="' + esc(m.name) + '" data-seq="' + seq + '"';
   if (m.sgccBound === false) {
-    return '<span class="ck-slot lock" data-act="sgccck"><span class="ck-t1">'
+    return '<span class="ck-slot lock"' + base + ' data-bound="0"><span class="ck-t1">'
       + Shade.icon('lock-on', 10) + lab + ' 未绑定</span></span>';
   }
   var c = ck[m.member_id] && ck[m.member_id][seq];
   var hm = c ? fmtClockHm(c.time) : '';
   if (c && hm) {
-    return '<span class="ck-slot done" data-act="sgccck"' + (c.position ? ' title="' + esc(c.position) + '"' : '') + '>'
+    return '<span class="ck-slot done"' + base + ' data-done="1"' + (c.position ? ' title="' + esc(c.position) + '"' : '') + '>'
       + '<span class="ck-t1">' + Shade.icon('check', 10) + lab + ' ' + hm + '</span>'
       + '<span class="ck-t2">' + esc(shortPosition(c.position) || '地点未知') + '</span></span>';
   }
-  return '<span class="ck-slot todo" data-act="sgccck"><span class="ck-t1">'
+  return '<span class="ck-slot todo"' + base + '><span class="ck-t1">'
     + Shade.icon('time', 10) + lab + ' 未打卡</span></span>';
 }
 /* 每用车人一行：头行（姓名 + 状态小字：已两次打卡绿勾「工时 xh」，无工时文本则「已完成两次打卡」；
-   仅开始「还差结束打卡」；未绑定红锁「未绑定商旅」）+ 并排「始/终」两枚 slot */
+   仅开始「还差结束打卡」；未绑定红锁「未绑定商旅」；已绑定者行末「费用」入口，同小程序）+ 并排「始/终」两枚 slot */
 function clockPersonHTML(m, ck) {
   var c = ck[m.member_id] || {};
   var s1 = c[1], s2 = c[2];
   var stat = '';
+  var feeBtn = '';
   if (m.sgccBound === false) {
     stat = '<span class="ck-stat red">' + Shade.icon('lock-on', 10) + '未绑定商旅</span>';
-  } else if (s1 && s2) {
-    var wh = fmtWorkHours(s2.workHours || s1.workHours);
-    stat = '<span class="ck-stat ok">' + Shade.icon('check', 10) + esc(wh ? '工时 ' + wh : '已完成两次打卡') + '</span>';
-  } else if (s1) {
-    stat = '<span class="ck-stat">还差结束打卡</span>';
+  } else {
+    if (s1 && s2) {
+      var wh = fmtWorkHours(s2.workHours || s1.workHours);
+      stat = '<span class="ck-stat ok">' + Shade.icon('check', 10) + esc(wh ? '工时 ' + wh : '已完成两次打卡') + '</span>';
+    } else if (s1) {
+      stat = '<span class="ck-stat">还差结束打卡</span>';
+    }
+    feeBtn = '<span class="ck-fee" data-act="sgccfee" data-mid="' + m.member_id + '" data-name="' + esc(m.name) + '" title="修改当日费用信息（伙食补助 / 交通费）">'
+      + Shade.icon('money', 11) + '费用</span>';
   }
-  return '<div class="ck-person"><div class="ck-head"><span class="ck-name">' + esc(m.name) + '</span>' + stat + '</div>'
+  return '<div class="ck-person"><div class="ck-head"><span class="ck-name">' + esc(m.name) + '</span>' + stat + feeBtn + '</div>'
     + '<div class="ck-slots">' + clockSlotHTML(m, ck, 1) + clockSlotHTML(m, ck, 2) + '</div></div>';
 }
 
@@ -1326,7 +1364,7 @@ function cardHTML(e, idx, total) {
 
   /* 信息行：派车车辆 / 用车人 / 目的地（出工时间行已按反馈移除，created_at 字段数据保留） */
   var members = (e.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
-  /* 商旅打卡开启时（成员带 sgccBound 字段）：用车人行整段换为打卡区——每用车人一行（状态小字 + 始/终两枚 slot，仅展示）；
+  /* 商旅打卡开启时（成员带 sgccBound 字段）：用车人行整段换为打卡区——每用车人一行（状态小字 + 费用入口 + 始/终两枚 slot，可点操作）；
      未开启时保留原 .mchip 打卡胶囊 + 「已打卡 x/n 人」副标（降级兼容） */
   var sgccOn = members.some(function (m) { return m.sgccBound !== undefined; });
   /* 他班跨班卡（cross_team 且归属非当前生效班组）：商旅打卡区（「从商旅同步」同族入口）不渲染，回退普通用车人展示 */
@@ -4568,6 +4606,271 @@ async function pollSpectatorOps() {
   opPolling = false;
 }
 
+/* ================= 商旅打卡 · 打卡确认弹层（设计稿⑤ Web 演绎；逻辑同小程序 openClockSheet/onCkConfirm） ================= */
+
+/* 点打卡 slot：仅当日可打卡（后端 40041 同口径）；未绑定引导；已打卡进「更新打卡地点」，未打卡进「开始/结束打卡」（同小程序 onClockTap） */
+function onClockTap(entry, el) {
+  if (state.date !== todayStr()) { Shade.toast('仅当日日期可打卡', 'info'); return; }
+  if (el.dataset.bound === '0') {
+    Shade.toast('该用车人未绑定商旅，请引导其本人绑定；管理员也可在「数据管理 → 商旅绑定设备」代绑定', 'info');
+    return;
+  }
+  openClockModal(entry, Number(el.dataset.mid), el.dataset.name, Number(el.dataset.seq) === 2 ? 2 : 1, el.dataset.done === '1' ? 'update' : 'mark');
+}
+
+/* 打开打卡确认弹层：位置优先级 = 同记录他人同 seq 打卡整套带入（地址串+坐标+城市编码/城市名，保持地址与坐标城市对应）
+   → 浏览器定位（WGS84→GCJ02）+ /sgcc/geo 逆编码；开始/结束不互相带入；更新打卡视为该次未打（不带入本人既有地点）。
+   地址串支持手动输入（手输后 geo 回填不覆盖；提交时经 /sgcc/geo 正向解析出坐标与城市信息，采用规范地址串） */
+function openClockModal(entry, memberId, name, seq, action) {
+  /* 同记录已打卡人（按用车人顺序找第一个同 seq 有位置的他人）：带入其地址串并标注 */
+  var first = null;
+  (entry.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); }).forEach(function (m) {
+    if (first || m.member_id === memberId) return; // 仅带入他人的打卡地点
+    var c = (entry.clockinMap || {})[m.member_id];
+    if (c && c[seq] && c[seq].position) first = Object.assign({ name: m.name }, c[seq]);
+  });
+  var title = action === 'update' ? ('更新打卡地点 · ' + name) : ((seq === 1 ? '开始' : '结束') + '打卡 · ' + name);
+  var note = '提交时使用 ' + name + ' 绑定的机型；打卡即提交商旅并双写本地';
+  if (first) note = '本记录 ' + first.name + ' 已于 ' + fmtClockHm(first.time) + ' 打卡，地点已自动带入；提交时使用 ' + name + ' 绑定的机型';
+  if (action === 'update') note = '仅修改打卡地点；' + note;
+  var html = Shade.mHead(title)
+    + '<div class="f-hint" style="margin:0 0 2px">' + esc(note) + '</div>'
+    + '<div class="ckm-loc"><div class="ckm-loc-line">' + Shade.icon('location', 15)
+    + '<input class="ckm-loc-input" id="ckPos" maxlength="255" placeholder="可手动输入地点，或重新定位 / 选择杆塔"></div>'
+    + '<div class="ckm-loc-sub" id="ckLocSub" hidden></div>'
+    + '<div class="ckm-loc-acts">'
+    + '<button type="button" class="ckm-mini" id="ckReloc">' + Shade.icon('refresh', 12) + '重新定位</button>'
+    + '<button type="button" class="ckm-mini" id="ckTower">' + Shade.icon('location', 12) + '选择杆塔带入坐标</button>'
+    + '</div></div>'
+    + '<label class="f-lab" style="margin-top:12px">打卡备注（提交商旅）<span style="margin-left:6px;font-weight:400;color:var(--ph)">与记录卡片备注无关</span></label>'
+    + '<textarea class="f-ta" id="ckRemarks" maxlength="255" placeholder="' + CLOCK_REMARKS_DEFAULT + '"></textarea>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes">确认打卡</button></div>';
+  var inst = Shade.modal(html, { width: 520 });
+  var elPos = $('#ckPos', inst.box), elSub = $('#ckLocSub', inst.box);
+  var elRemarks = $('#ckRemarks', inst.box), yesBtn = $('[data-a="yes"]', inst.box);
+  elPos.value = (first && first.position) || '';
+  elRemarks.value = CLOCK_REMARKS_DEFAULT;
+  /* 弹层定位状态：cur 为当前坐标+城市信息（带入他人打卡时同步带入全套）；locating 定位中；manualPos 手输标记（geo 回填不覆盖） */
+  var cur = {
+    lng: (first && first.lng) || '', lat: (first && first.lat) || '',
+    cityCode: (first && first.cityCode) || '', cityName: (first && first.cityName) || ''
+  };
+  var locating = !(first && first.lng && first.lat);
+  var locTag = first ? '同记录已打卡人定位' : '';
+  var manualPos = false;
+  var saving = false;
+  /* 位置卡副行：经纬度 + 来源标注 / 失败提示 */
+  function setLocSub() {
+    var sub = '';
+    if (cur.lng && cur.lat) sub = cur.lng + ', ' + cur.lat + (locTag ? ' · ' + locTag : '');
+    else if (!locating) sub = '定位失败，可点「重新定位」或「选择杆塔带入坐标」';
+    elSub.textContent = sub;
+    elSub.hidden = !sub;
+    elPos.placeholder = locating ? '定位中…' : '可手动输入地点，或重新定位 / 选择杆塔';
+  }
+  /* 高德逆编码（/sgcc/geo）：经纬度 → 完整地址串 + 城市编码；keepPosition=true（带入他人地址串）时只补城市编码/城市名，
+     不覆盖带入的位置文案；空串=未配置（提交时由服务端兜底，失败 message 直弹） */
+  function ckGeo(lng, lat, tag, keepPosition) {
+    Shade.api(wl('/api/v1/sgcc/geo?lng=' + lng + '&lat=' + lat)).then(function (r) {
+      if (inst.closed) return;
+      if (cur.lng !== lng || cur.lat !== lat) return; // 坐标已变（重新定位/选杆塔），旧响应丢弃
+      var d = r.data || {};
+      locTag = tag;
+      cur.cityCode = d.cityCode || '';
+      cur.cityName = d.cityName || '';
+      if (!keepPosition && !manualPos) elPos.value = d.position || '';
+      setLocSub();
+    }).catch(function () { /* 逆编码失败：提交时由服务端兜底 */ });
+  }
+  /* 浏览器定位（WGS84→GCJ02，同水印弹层口径）：成功拿经纬度；随后必调 /sgcc/geo 逆编码——needGeo=true 时填充完整地址串，
+     带入他人地址串（needGeo=false）时只补城市编码/城市名、不覆盖带入的位置文案（否则上游报「打卡城市为空」） */
+  function ckLocate(needGeo) {
+    if (!navigator.geolocation) { locating = false; setLocSub(); return; }
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      if (inst.closed) return;
+      var g = wgs2gcj(pos.coords.longitude, pos.coords.latitude);
+      cur.lng = g[0].toFixed(6);
+      cur.lat = g[1].toFixed(6);
+      locating = false;
+      setLocSub();
+      ckGeo(cur.lng, cur.lat, needGeo ? '当前定位' : locTag, !needGeo);
+    }, function () {
+      if (inst.closed) return;
+      locating = false;
+      setLocSub();
+    }, { timeout: 10000 });
+  }
+  setLocSub();
+  if (first && first.lng && first.lat) {
+    // 带入全套定位：不取本机定位；带入缺城市信息（历史同步数据）时按带入坐标逆编码补齐（不覆盖地址串）
+    if (!first.cityCode || !first.cityName) ckGeo(first.lng, first.lat, locTag, true);
+  } else {
+    ckLocate(!elPos.value); // 带入地址缺坐标时浏览器定位补坐标，逆编码仅补城市、不覆盖位置文案
+  }
+  /* 「重新定位」：重走定位 + 逆编码（覆盖带入/手输地址） */
+  $('#ckReloc', inst.box).addEventListener('click', function () {
+    manualPos = false;
+    locTag = '当前定位';
+    locating = true;
+    elPos.value = '';
+    cur.lng = '';
+    cur.lat = '';
+    setLocSub();
+    ckLocate(true);
+  });
+  /* 「选择杆塔带入坐标」：杆塔原坐标直接带入（不波动），再调 /sgcc/geo 逆编码出地址串（同小程序） */
+  $('#ckTower', inst.box).addEventListener('click', function () {
+    openTowerModal(function (t) {
+      if (inst.closed) return;
+      manualPos = false;
+      locTag = '杆塔坐标';
+      cur.lng = Number(t.lng).toFixed(6);
+      cur.lat = Number(t.lat).toFixed(6);
+      locating = false;
+      setLocSub();
+      ckGeo(cur.lng, cur.lat, '杆塔坐标', false);
+    });
+  });
+  /* 手动输入地点：置手动标记（geo 回填不覆盖手输文案；城市编码仍按本机坐标逆编码补齐） */
+  elPos.addEventListener('input', function () {
+    manualPos = true;
+    locTag = '手动输入';
+    setLocSub();
+  });
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  /* 确认打卡：POST /sgcc/clockin（mark：seq=1|2；update：更新地点）。失败 message 直弹；
+     40037 已打过 → 关层刷新（数据以服务端为准）。成功后首次「开始打卡」（含代他人打卡）自动弹该成员费用层 */
+  yesBtn.addEventListener('click', async function () {
+    if (saving) return;
+    saving = true;
+    yesBtn.disabled = true;
+    yesBtn.textContent = '正在打卡…';
+    var restore = function () { saving = false; yesBtn.disabled = false; yesBtn.textContent = '确认打卡'; };
+    var position = elPos.value, lng = cur.lng, lat = cur.lat, cityCode = cur.cityCode, cityName = cur.cityName;
+    // 手输地址：先正向解析出坐标与城市信息（position 采用解析后的规范地址串；region 带本机城市缩小范围）
+    if (manualPos && position.trim()) {
+      try {
+        var g = await Shade.api(wl('/api/v1/sgcc/geo?address=' + encodeURIComponent(position.trim()) + (cityName ? '&region=' + encodeURIComponent(cityName) : '')));
+        var gd = g.data || {};
+        if (!gd.longitude || !gd.latitude) {
+          restore();
+          Shade.toast('无法识别该地址，请检查输入或改用定位/杆塔', 'info');
+          return;
+        }
+        position = gd.position || position.trim();
+        lng = gd.longitude;
+        lat = gd.latitude;
+        cityCode = gd.cityCode || '';
+        cityName = gd.cityName || '';
+      } catch (e) {
+        restore();
+        Shade.toast(e.message || '地址解析失败，请重试', 'error');
+        return;
+      }
+    }
+    if (!lng || !lat) {
+      restore();
+      Shade.toast('请先完成定位（重新定位或选择杆塔带入坐标）', 'info');
+      return;
+    }
+    try {
+      await Shade.api(wl('/api/v1/sgcc/clockin'), {
+        method: 'POST',
+        body: {
+          entry_id: entry.id, member_id: memberId, seq: seq, action: action,
+          position: position, longitude: lng, latitude: lat,
+          cityCode: cityCode, cityName: cityName,
+          remarks: elRemarks.value.trim() || CLOCK_REMARKS_DEFAULT
+        }
+      });
+      inst.close();
+      Shade.toast('打卡成功', 'success');
+      loadLogs({ quiet: true });
+      // 首次「开始打卡」成功（40037 已拦截重复，成功即首次）→ 自动打开该成员费用弹层（代他人打卡 = 代填费用）
+      if (action === 'mark' && seq === 1) openFeeModal(memberId, name, state.date);
+    } catch (e) {
+      restore();
+      Shade.toast(e.message, 'error');
+      if (e.code === 40037) { inst.close(); loadLogs({ quiet: true }); }
+    }
+  });
+}
+
+/* ================= 商旅打卡 · 费用信息弹层（设计稿⑥ Web 演绎；逻辑同小程序 openFee/onFeeSave） =================
+   本地费用摘要优先，无值时从商旅模板 id=10 组件解析 {foodFee, arrive}；仅伙食补助/交通费可编辑，成本分配只读展示 */
+function openFeeModal(memberId, name, date) {
+  var html = Shade.mHead('当日费用 · ' + name + ' · ' + fmtDateCN(date))
+    + '<div class="f-hint" style="margin:0 0 2px">保存即提交商旅</div>'
+    + '<div class="fee-load" id="feeLoad">费用信息加载中…</div>'
+    + '<div id="feeBody" hidden></div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">稍后再填</button>'
+    + '<button class="btn btn-sm btn-accent" data-a="yes" disabled>保存费用信息</button></div>';
+  var inst = Shade.modal(html, { width: 460 });
+  var elBody = $('#feeBody', inst.box), yesBtn = $('[data-a="yes"]', inst.box);
+  var saving = false;
+  var num = function (v) { var n = Number(v); return Number.isFinite(n) ? String(n) : ''; };
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  Shade.api(wl('/api/v1/sgcc/fee?member_id=' + memberId + '&date=' + date)).then(function (r) {
+    if (inst.closed) return;
+    var d = r.data || {};
+    var local = d.local || null;
+    // 补助明细组件（id=10）：value 为 JSON 字符串 {foodFee, arrive}
+    var tplFood = '', tplArrive = '';
+    var comps = (d.clockTemplate && d.clockTemplate.dtComponentList) || [];
+    for (var i = 0; i < comps.length; i++) {
+      if (comps[i].id === 10 && comps[i].value) {
+        try { var v = JSON.parse(comps[i].value); tplFood = v.foodFee; tplArrive = v.arrive; } catch (e) { /* 模板值异常按无值处理 */ }
+        break;
+      }
+    }
+    var alloc = d.costAlloc || null; // 成本分配展示（成本中心/编码，只读）
+    var rows = '';
+    if (alloc) {
+      rows += '<div class="fee-row"><span class="fee-k">成本分配</span><span class="fee-v">' + esc(alloc.label || '成本中心') + '</span></div>';
+      if (alloc.costCenterName) rows += '<div class="fee-row"><span class="fee-k">成本中心</span><span class="fee-v">' + esc(alloc.costCenterName) + '</span></div>';
+      if (alloc.costCenterCode) rows += '<div class="fee-row"><span class="fee-k">成本中心编码</span><span class="fee-v">' + esc(alloc.costCenterCode) + '</span></div>';
+    }
+    rows += '<div class="fee-row"><span class="fee-k">伙食补助</span><input class="f-sel fee-input" id="feeFood" inputmode="decimal" placeholder="0"></div>'
+      + '<div class="fee-row"><span class="fee-k">交通费</span><input class="f-sel fee-input" id="feeTransit" inputmode="decimal" placeholder="0"></div>';
+    elBody.innerHTML = rows;
+    $('#feeFood', elBody).value = local ? num(local.food_fee) : (num(tplFood) || '0');
+    $('#feeTransit', elBody).value = local ? num(local.transit_fee) : (num(tplArrive) || '0');
+    $('#feeLoad', inst.box).hidden = true;
+    elBody.hidden = false;
+    yesBtn.disabled = false; // 数据到位才允许保存（避免加载失败误写 0/0）
+  }).catch(function (e) {
+    if (inst.closed) return;
+    $('#feeLoad', inst.box).textContent = '加载失败，请关闭后重试';
+    Shade.toast(e.message, 'error');
+  });
+  /* 保存费用信息：POST /sgcc/fee（远端先行 + 同步等待，按钮转等待态；成功后静默刷新——费用达标影响卡片验证角标，规则 f 口径） */
+  yesBtn.addEventListener('click', async function () {
+    if (saving) return;
+    saving = true;
+    yesBtn.disabled = true;
+    yesBtn.textContent = '正在保存…';
+    try {
+      await Shade.api(wl('/api/v1/sgcc/fee'), {
+        method: 'POST',
+        body: {
+          member_id: memberId, date: date,
+          foodFee: Number($('#feeFood', elBody).value) || 0,
+          transitFee: Number($('#feeTransit', elBody).value) || 0
+        }
+      });
+      inst.close();
+      Shade.toast('保存成功', 'success');
+      loadLogs({ quiet: true });
+    } catch (e) {
+      saving = false;
+      yesBtn.disabled = false;
+      yesBtn.textContent = '保存费用信息';
+      Shade.toast(e.message, 'error');
+    }
+  });
+}
+
 /* ================= 批量从商旅同步 · 子应用全局锁 =================
    本班组有批量拉取进行中时（任何人发起），出工日志全页进度遮罩，完成后解锁并刷新；
    进入页面与每 15s 空闲探测 GET /sgcc/sync/active，锁定中 1.5s 轮询（连续网络失败 20 次兜底解锁） */
@@ -4875,7 +5178,7 @@ function initEvents() {
     if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
     importTowers(f);
   });
-  /* 卡片流点击委派：改派车 / 打卡切换 / 商旅打卡 slot（仅展示，提示去小程序打卡）/ 从商旅同步（卡片级）/ 删除日志 /
+  /* 卡片流点击委派：改派车 / 打卡切换 / 商旅打卡 slot（打卡确认弹层）/ 打卡区费用入口（费用信息弹层）/ 从商旅同步（卡片级）/ 删除日志 /
      巡视内容·备注编辑 / 添加照片 / 备注附件预览·下载 / 照片大图 */
   $('#cardFlow').addEventListener('click', function (e) {
     /* 备注附件：优先于备注块编辑（不冒泡到 data-act） */
@@ -4920,8 +5223,10 @@ function initEvents() {
       /* 卡片级「从商旅同步」：仅拉取本卡用车人当日数据（与打卡区同门控渲染，入口可见即可点） */
       if (act === 'sgsync') { cardSyncPull(entry); return; }
       if (act === 'check') { toggleCheck(entry, +actEl.dataset.mid, actEl); return; }
-      /* 商旅打卡 slot：Web 端仅展示不发起打卡（打卡需真实定位，在小程序完成） */
-      if (act === 'sgccck') { Shade.toast('请在小程序端打卡', 'info'); return; }
+      /* 商旅打卡 slot：弹打卡确认层（仅当日；浏览器定位 / 手输地址 / 杆塔带入，口径同小程序） */
+      if (act === 'sgccck') { onClockTap(entry, actEl); return; }
+      /* 打卡区「费用」入口：费用信息弹层（伙食补助/交通费可改，保存即提交商旅） */
+      if (act === 'sgccfee') { openFeeModal(+actEl.dataset.mid, actEl.dataset.name, entry.log_date); return; }
       if (act === 'addphoto') { openAddSheet(entry); return; }
       return;
     }
