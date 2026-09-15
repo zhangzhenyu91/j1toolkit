@@ -95,12 +95,18 @@ function rsaDecryptLong(privPem, b64) {
 // 让商旅侧看到的 IP 属地对齐打卡人实际所在地（云服务器机房 IP 易触发风控 99000 窗口）。
 // agent 全局缓存复用；代理不可用/地址无效即报错，不静默降级直连——同一次登录多步调用的
 // IP 属地若直连/代理混用会更不一致，风控口径反而更差。照片类大流量下载不经此通道（见 index.js fetch）。
-const { SocksProxyAgent } = require('socks-proxy-agent');
+// socks-proxy-agent 惰性加载：未配置代理时整个包不被 require（该包缺失也不影响直连部署）
 let PROXY_AGENT = null;
 function httpsAgent() {
   const url = config.sgcc && config.sgcc.proxyUrl;
   if (!url) return undefined;
   if (!PROXY_AGENT) {
+    let SocksProxyAgent;
+    try {
+      SocksProxyAgent = require('socks-proxy-agent').SocksProxyAgent;
+    } catch (e) {
+      throw new Error('已配置 SGCC_PROXY_URL 但缺少 socks-proxy-agent 依赖，请在服务端执行 npm install');
+    }
     try {
       PROXY_AGENT = new SocksProxyAgent(url);
       console.log('[商旅打卡] API 出口代理已启用：' + url.replace(/\/\/[^@]*@/, '//***@'));
