@@ -104,7 +104,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `WEKNORA_API_URL` / `WEKNORA_API_KEY` / `WEKNORA_AGENT_ID` | WeKnora 知识库（Call Me；详见开发指南 Call Me 一节） |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_BUCKET` / `COS_REGION` | 腾讯云 COS（出工日志照片） |
 | `DIFY_API_URL` | Dify 地址（只填域名如 `http://10.2.24.13:8082`，`/v1` 由代码拼接；**所有 Dify 工作流共用此地址**，各工作流独立 API_KEY） |
-| `DIFY_WXPUSH_API_KEY` | 通知微信外发工作流的 Dify API Key（仅系统自动触发的通知使用，手动推送不发微信：把通知文本发到个人/班组群 wxid；wxid 由超管在网页端管理页维护，未配置则微信推送停用、站内通知照常，见开发指南第十六节） |
+| `DIFY_WXPUSH_API_KEY` | 通知微信外发工作流的 Dify API Key（仅系统自动触发的通知使用，手动推送不发微信：把通知文本发到个人/班组群 wxid，群消息支持@成员；wxid 由超管在网页端管理页维护，未配置则微信推送停用、站内通知照常，见开发指南第十六节） |
 | `DIFY_WORKLOG_API_KEY` | 出工日志照片验证工作流的 Dify API Key |
 | `WORKLOG_ENABLED` | 出工日志后端开关：`true` 开启（建表/种子/挂载路由），`false` 关闭 |
 | `COS_WORKLOG_PREFIX` | 出工日志照片在 COS 的独立文件夹前缀（如 `worklog/`） |

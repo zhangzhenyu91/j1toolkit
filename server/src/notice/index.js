@@ -1,6 +1,6 @@
 // 通知推送路由：全部接口需登录；可见性 = 角色命中 targets（角色数组子集）或 本人命中 user_ids（按人投放的用户 id 数组）
 // POST /push 为超管推送入口；模块另导出 push() 供其他后端模块系统自动触发（createdBy 缺省 NULL=系统）
-// push() 可选 wxUserIds / wxTeamIds：写入站内通知后经 Dify 工作流追加微信外发（见 ./wxpush.js）
+// push() 可选 wxUserIds / wxTeamIds / wxAtUserIds：写入站内通知后经 Dify 工作流追加微信外发（见 ./wxpush.js；wxAtUserIds 为群消息 @ 对象）
 // 删除：超管 DELETE /:id 为全局删除；其余角色同接口按人删除（sys_notice_del，仅本人不可见）
 const express = require('express');
 const multer = require('multer');
@@ -20,7 +20,8 @@ const ROLES = ['admin', 'team_admin', 'user'];
 // 系统自动触发接口：写入一条通知并返回新通知 id；createdBy 缺省 NULL 表示系统。
 // targets 为角色数组（可空），userIds 为按人投放的用户 id 数组（可空）；两者至少其一非空才有接收人
 // wxUserIds / wxTeamIds 可选：同时向这些用户（个人 wxid）与班组（群 wxid）追加微信推送；失败仅记日志
-async function push({ targets = [], userIds = null, title, content, createdBy = null, wxUserIds = null, wxTeamIds = null }) {
+// wxAtUserIds 可选：微信群发时 @ 这些用户（仅群消息生效，正文前自动拼「@昵称 」并传 at 输入）
+async function push({ targets = [], userIds = null, title, content, createdBy = null, wxUserIds = null, wxTeamIds = null, wxAtUserIds = null }) {
   const roles = Array.isArray(targets) ? [...new Set(targets)] : [];
   const ids = Array.isArray(userIds)
     ? [...new Set(userIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0))]
@@ -35,6 +36,7 @@ async function push({ targets = [], userIds = null, title, content, createdBy = 
         userIds: wxUserIds || [],
         teamIds: wxTeamIds || [],
         text: `${title}\n${content}`,
+        atUserIds: wxAtUserIds || [],
         user: `notice-${r.insertId}`,
       });
     } catch (err) {

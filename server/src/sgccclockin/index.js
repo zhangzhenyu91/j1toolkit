@@ -106,7 +106,7 @@ async function probeAuth(account) {
 }
 
 // 登录过期通知：按人投放给本人（绑定账号）与全部超管（fire-and-forget，异常由调用方 catch）
-// 微信推送：本人个人 wxid + 所属班组群（user_id 缺省时经成员绑定账号兜底解析本人）
+// 微信推送：本人个人 wxid + 所属班组群（群内@本人；user_id 缺省时经成员绑定账号兜底解析本人）
 async function notifyTokenExpired(account) {
   let name = '';
   let wxUserId = account.user_id || null;
@@ -134,6 +134,7 @@ async function notifyTokenExpired(account) {
     content: `成员「${name || '未知'}」商旅登录已过期，打卡/费用/照片同步已暂停，请尽快在「我的 → 商旅打卡」重新登录。`,
     wxUserIds: wxUserId ? [wxUserId] : [],
     wxTeamIds: wxTeamId ? [wxTeamId] : [],
+    wxAtUserIds: wxUserId ? [wxUserId] : [], // 班组群内@本人
   });
 }
 
@@ -1994,7 +1995,7 @@ function nextDailyRunUtc(hh, mm) {
 }
 // 每日核查附加检查：当日已开始打卡但结束打卡未打的成员 → 按人投放通知本人 + 本班班组管理员 + 超管（见 16.3）
 // 账号联表人级解析（member_id 直连或经 member.user_id 兜底）：调班后旧班打卡行的本人仍能收到通知
-// 微信侧：本人个人 wxid 按人随站内通知发送；打卡班组群在循环后合并为一条（多人缺卡时群消息不逐人刷屏）
+// 微信侧：本人个人 wxid 按人随站内通知发送；打卡班组群在循环后合并为一条（多人缺卡时群消息不逐人刷屏，群内@缺卡成员）
 async function notifyMissingEndClockin(teamId, date) {
   const [rows] = await pool.query(
     `SELECT c.member_id, m.name, MAX(a.user_id) AS user_id,
@@ -2026,12 +2027,13 @@ async function notifyMissingEndClockin(teamId, date) {
       wxUserIds: r.user_id ? [r.user_id] : [],
     });
   }
-  // 打卡班组群：合并为一条，逐行列出全部未打结束卡成员
+  // 打卡班组群：合并为一条，逐行列出全部未打结束卡成员并@本人
   const lines = rows.map((r) => `· ${r.name}${r.start_hm ? `（${r.start_hm} 已打开始卡）` : ''}`);
   const res = await require('../notice/wxpush').sendTo({
     userIds: [],
     teamIds: [teamId],
     text: `结束打卡未打\n今日以下 ${rows.length} 名成员已打开始卡、尚未打结束卡，请提醒本人尽快补打（仅当日可打卡）：\n${lines.join('\n')}`,
+    atUserIds: rows.map((r) => r.user_id).filter(Boolean),
     user: `clockin-missing-team-${teamId}`,
   });
   if (!res.ok) console.warn(`[商旅打卡] 结束打卡未打群通知未发送（班组 ${teamId}）：${res.reason || res.error}`);
@@ -2169,7 +2171,7 @@ function scheduleDaily() {
 scheduleDaily();
 
 // 结束打卡傍晚提醒：每日 SGCC_ENDCLOCK_REMIND_TIME（默认 18:00）对「当日已开始打卡但结束卡未打」的成员
-// 提前提醒（23:00 每日核查前给本人留补打时间）；仅发微信（本人个人 wxid 按人 + 打卡班组群每班合并一条），不写站内通知。
+// 提前提醒（23:00 每日核查前给本人留补打时间）；仅发微信（本人个人 wxid 按人 + 打卡班组群每班合并一条，群内@缺卡成员），不写站内通知。
 // 提醒前由排程经 beforeClockinRemind 先跑轻量同步（登录态+打卡对账），按商旅最新数据判定；
 // excludeIds = 同步失败成员（状态未知，已转人工核查通知），本函数对其不自动提醒
 async function remindMissingEndClockin(excludeIds = []) {
@@ -2209,12 +2211,13 @@ async function remindMissingEndClockin(excludeIds = []) {
       teamMap.get(r.team_id).push(r);
     }
   }
-  for (const [teamId, list] of teamMap) { // 打卡班组群：每班合并一条，逐行列出未打结束卡成员
+  for (const [teamId, list] of teamMap) { // 打卡班组群：每班合并一条，逐行列出未打结束卡成员并@本人
     const lines = list.map((r) => `· ${r.name}${r.start_hm ? `（${r.start_hm} 已打开始卡）` : ''}`);
     const res = await wxpush.sendTo({
       userIds: [],
       teamIds: [teamId],
       text: `结束打卡提醒\n今日以下 ${list.length} 名成员已打开始卡、尚未打结束卡，请提醒本人尽快补打（仅当日可打卡）：\n${lines.join('\n')}`,
+      atUserIds: list.map((r) => r.user_id).filter(Boolean),
       user: `clockin-remind-team-${teamId}`,
     });
     if (!res.ok) console.warn(`[商旅打卡] 结束打卡提醒群消息未发送（班组 ${teamId}）：${res.reason || res.error}`);
@@ -2242,7 +2245,7 @@ function scheduleEndClockRemind() {
 scheduleEndClockRemind();
 
 // 开始打卡午间提醒：每日 SGCC_STARTCLOCK_REMIND_TIME（默认 11:00）对「当日卡上已绑定商旅但未打开始卡（首次打卡）」的成员
-// 提前提醒（给本人留补打时间）；口径同核验规则 a（未绑定不参与），仅发微信（本人个人 wxid 按人 + 卡片班组群每班合并一条），不写站内通知。
+// 提前提醒（给本人留补打时间）；口径同核验规则 a（未绑定不参与），仅发微信（本人个人 wxid 按人 + 卡片班组群每班合并一条，群内@未打卡成员），不写站内通知。
 // 提醒前由排程经 beforeClockinRemind 先跑轻量同步（登录态+打卡对账），按商旅最新数据判定；
 // excludeIds = 同步失败成员（状态未知，已转人工核查通知），本函数对其不自动提醒
 async function remindMissingStartClockin(excludeIds = []) {
@@ -2265,7 +2268,7 @@ async function remindMissingStartClockin(excludeIds = []) {
     return;
   }
   const wxpush = require('../notice/wxpush'); // 惰性加载（同 notice 口径）
-  const teamMap = new Map(); // team_id → 成员姓名名单：班组群提醒按班合并一条（跨班卡成员计入每个涉及班组）
+  const teamMap = new Map(); // team_id → 成员名单：班组群提醒按班合并一条（跨班卡成员计入每个涉及班组）
   for (const r of rows) {
     // 本人个人微信按人发送（内容针对本人）
     if (r.user_id) {
@@ -2280,14 +2283,15 @@ async function remindMissingStartClockin(excludeIds = []) {
     const teamIds = String(r.team_ids || '').split(',').map(Number).filter(Boolean);
     for (const tid of teamIds) {
       if (!teamMap.has(tid)) teamMap.set(tid, []);
-      teamMap.get(tid).push(r.name);
+      teamMap.get(tid).push({ name: r.name, user_id: r.user_id });
     }
   }
-  for (const [teamId, names] of teamMap) { // 卡片班组群：每班合并一条，逐行列出未首次打卡成员
+  for (const [teamId, list] of teamMap) { // 卡片班组群：每班合并一条，逐行列出未首次打卡成员并@本人
     const res = await wxpush.sendTo({
       userIds: [],
       teamIds: [teamId],
-      text: `开始打卡提醒\n今日以下 ${names.length} 名成员有出工卡片、尚未打开始卡（首次打卡），请提醒本人尽快打卡（仅当日可打卡）：\n${names.map((n) => `· ${n}`).join('\n')}`,
+      text: `开始打卡提醒\n今日以下 ${list.length} 名成员有出工卡片、尚未打开始卡（首次打卡），请提醒本人尽快打卡（仅当日可打卡）：\n${list.map((m) => `· ${m.name}`).join('\n')}`,
+      atUserIds: list.map((m) => m.user_id).filter(Boolean),
       user: `clockin-remind-team-${teamId}`,
     });
     if (!res.ok) console.warn(`[商旅打卡] 开始打卡提醒群消息未发送（班组 ${teamId}）：${res.reason || res.error}`);
