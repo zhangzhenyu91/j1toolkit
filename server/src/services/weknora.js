@@ -93,7 +93,7 @@ async function agentChatStream(username, sessionId, { query, images }) {
   return client.post(`/agent-chat/${sessionId}`, payload, {
     headers: extHeaders(username),
     responseType: 'stream',
-    timeout: 120000,
+    timeout: 0, // 流式不限总时长（axios 0 = 不超时）；卡死兜底在路由层上游静默看门狗（见指南第六章）
   });
 }
 

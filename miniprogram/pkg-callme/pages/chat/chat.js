@@ -492,6 +492,8 @@ Page({
     const token = wx.getStorageSync('token');
     const parser = createSseParser((evt) => this.onSseEvent(evt, answerIndex));
     const decoder = createUtf8Decoder();
+    let silenceTimer = null; // 静默看门狗计时器（实现见 requestTask 创建后）
+    let watchdogFired = false;
 
     const requestTask = wx.request({
       url: `${BASE_URL}/api/v1/callme/chat`,
@@ -503,8 +505,9 @@ Page({
       data: payload,
       enableChunked: true, // 关键：启用分块传输（见指南 5.1）
       responseType: 'text',
-      timeout: 120000,
+      timeout: 3600000, // 总时长兜底 1h（enableChunked 下部分平台本参数不触发）；卡死检测靠静默看门狗
       success: (res) => {
+        clearTimeout(silenceTimer);
         // 冲刷解码器与解析器残余（错误响应非 SSE 格式，会被解析器自然忽略）
         parser.push(decoder.end());
         parser.end();
@@ -532,12 +535,24 @@ Page({
         this.finalizeAnswer(answerIndex);
       },
       fail: () => {
-        this.finalizeAnswer(answerIndex, '网络异常，请稍后重试');
+        clearTimeout(silenceTimer);
+        this.finalizeAnswer(answerIndex, watchdogFired ? '响应超时，请稍后重试' : '网络异常，请稍后重试');
       },
     });
 
+    // 静默看门狗：不限总时长；服务端 15s 心跳即活动证据，120s 无任何分块判定连接死亡
+    const armWatchdog = () => {
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        watchdogFired = true;
+        if (requestTask) requestTask.abort();
+      }, 120000);
+    };
+    armWatchdog();
+
     if (requestTask && requestTask.onChunkReceived) {
       requestTask.onChunkReceived((res) => {
+        armWatchdog();
         parser.push(decoder.push(res.data));
         this.scheduleScroll();
       });

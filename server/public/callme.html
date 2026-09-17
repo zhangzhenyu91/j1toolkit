@@ -1232,7 +1232,13 @@
     var parser = createSseParser(function (evt) { onSseEvent(evt, aiMsg); });
     var ctrl = new AbortController();
     var timedOut = false;
-    var timer = setTimeout(function () { timedOut = true; ctrl.abort(); }, 120000);
+    // 静默看门狗：不限总时长；服务端 15s 心跳即活动证据，120s 无任何字节判定连接死亡
+    var timer;
+    function armWatchdog() {
+      clearTimeout(timer);
+      timer = setTimeout(function () { timedOut = true; ctrl.abort(); }, 120000);
+    }
+    armWatchdog();
 
     Shade.apiRaw('/api/v1/callme/chat', {
       method: 'POST',
@@ -1252,6 +1258,7 @@
       for (;;) {
         var r = await reader.read();
         if (r.done) break;
+        armWatchdog();
         parser.push(decoder.decode(r.value, { stream: true }));
         scrollBottom(false);
       }

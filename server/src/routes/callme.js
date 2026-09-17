@@ -164,17 +164,30 @@ router.post('/chat', async (req, res) => {
   const heartbeat = setInterval(() => {
     if (!res.writableEnded) res.write(': ping\n\n');
   }, 15000);
+  let silenceTimer = null;
   const finish = () => {
     clearInterval(heartbeat);
+    clearTimeout(silenceTimer);
     if (!res.writableEnded) res.end();
   };
 
   let upstream = null;
+  // 上游静默看门狗：正常生成 token 持续流出，300s 无任何字节判定 WeKnora 卡死；
+  // 不设总时长上限，长生成不被掐断
+  const armSilence = () => {
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
+      send({ type: 'error', content: 'AI 服务响应超时' });
+      finish();
+      if (upstream) upstream.destroy();
+    }, 300000);
+  };
   // 客户端断连检测必须挂在 res 上：req 的 close 在请求体收完时即触发（那时 upstream 尚未
   // 建立，判断恒为空操作），只有 res 的 close 才是真正的断连信号。断连后清理心跳并销毁
   // 上游流，避免 WeKnora 继续空转生成。
   res.on('close', () => {
     clearInterval(heartbeat);
+    clearTimeout(silenceTimer);
     if (upstream) upstream.destroy();
   });
   // 断连后的迟滞写入会触发 EPIPE/ERR_STREAM_DESTROYED，吞掉防止未处理异常
@@ -183,6 +196,7 @@ router.post('/chat', async (req, res) => {
   try {
     const wres = await weknora.agentChatStream(req.user.username, sessionId, { query, images });
     upstream = wres.data;
+    armSilence();
 
     // 是否已向端侧流出过回答内容（用于判定 tool_call 前的 answer 是过渡语）
     let answerForwarded = false;
@@ -276,7 +290,10 @@ router.post('/chat', async (req, res) => {
       }
     });
 
-    upstream.on('data', (chunk) => parser.push(chunk.toString('utf8')));
+    upstream.on('data', (chunk) => {
+      armSilence();
+      parser.push(chunk.toString('utf8'));
+    });
     upstream.on('end', () => {
       parser.end();
       send({ type: 'done' });
