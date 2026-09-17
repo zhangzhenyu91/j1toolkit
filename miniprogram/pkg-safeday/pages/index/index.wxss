@@ -722,6 +722,39 @@
   min-width: 0;
 }
 
+/* 参会人员模式切换（名单点亮 / 自定义输入）：分段胶囊，选中橙底 */
+.mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mswitch {
+  display: flex;
+  padding: 4rpx;
+  border: 2rpx solid #e3dccb;
+  border-radius: 999rpx;
+  background: #f4f1ea;
+}
+
+.ms-opt {
+  padding: 6rpx 22rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #6b7690;
+}
+
+.ms-opt.on {
+  background: #f26d21;
+  color: #ffffff;
+}
+
+/* 自定义模式主持人输入框：与成员下拉（.pick-val margin-top:14rpx）对齐 */
+.host-input {
+  margin-top: 14rpx;
+}
+
 .pick-val {
   margin-top: 14rpx;
   height: 80rpx;

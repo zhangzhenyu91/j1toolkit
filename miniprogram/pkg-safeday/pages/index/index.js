@@ -1,5 +1,6 @@
 // 安全日活动记录 · 小程序端（app_key safe-day；与网页端 safeday.html 逻辑一致：
-// 上传活动文件 → 弹层确认学习内容与参会信息（主持人/记录人/上级参加人员/参加缺席互斥点亮/缺席原因）→ 提交生成 → 进度卡跟踪 → 记录列表 5s 轮询至终态）
+// 上传活动文件（多文件由后端转换合并为单个 PDF）→ 弹层确认学习内容与参会信息
+// （主持人/记录人/上级参加人员/参加缺席互斥点亮或自定义输入/缺席原因）→ 提交生成 → 进度卡跟踪 → 记录列表 5s 轮询至终态）
 // 文档由后端套模板生成（Dify 仅回传三段文字），见 server/src/safeday/render.js
 // 上传：wx.chooseMessageFile 从聊天选取；下载：wx.downloadFile 取回后 wx.openDocument 打开
 // 接口信封 {ok,error,...}（非主平台 {code,message,data}），故不用 utils/request，本地封装 sdFetch
@@ -23,6 +24,9 @@ const extOf = (name) => {
   return i < 0 ? '' : name.slice(i + 1).toLowerCase();
 };
 const baseOf = (name) => (name || '').replace(/\.[^.]+$/, '');
+// 自定义人员输入规范化：空格/顿号/逗号/分号分隔统一为空格分隔（后端模板按空格分隔口径渲染）
+const normNames = (str) =>
+  (str || '').split(/[\s、，,；;]+/).filter((s) => s).join(' ');
 const toDots = (iso) => (iso || '').replace(/-/g, '.'); // YYYY-MM-DD → YYYY.MM.DD（服务端要求的日期格式）
 const todayISO = () => {
   const d = new Date();
@@ -132,6 +136,12 @@ Page({
     superior: '', // 上级参加人员（默认记忆值/任晓辉）
     attendFlags: [], // 参加标记（与 members 平行；false=缺席，两组 chips 互斥镜像）
     absentReason: '',
+    // 参会人员自定义模式：member=名单点亮（主持人/参加/缺席取自成员名单）；
+    // custom=自行输入（主持人、参加、缺席均为手工填写，适用于名单外人员或缺成员字典场景）
+    attendMode: 'member',
+    hostCustom: '', // 自定义模式主持人
+    customAttendees: '', // 自定义模式参加人员（空格/顿号/逗号分隔均可，提交时规范化为空格）
+    customAbsentees: '', // 自定义模式缺席人员
   },
 
   onLoad() {
@@ -440,7 +450,7 @@ Page({
     }
   },
 
-  /* ==================== 文件选择（从聊天选取）与校验（类型/大小/数量/多文件纯 PDF/去重） ==================== */
+  /* ==================== 文件选择（从聊天选取）与校验（类型/大小/数量/去重；多文件由后端转换合并） ==================== */
 
   onPickFiles() {
     wx.chooseMessageFile({
@@ -465,11 +475,6 @@ Page({
     const merged = this.data.files.concat(incoming);
     if (merged.length > MAX_FILES) {
       this.toast(`最多上传 ${MAX_FILES} 个文件`);
-      return;
-    }
-    // 多文件时须全部为 PDF，否则整批阻止（与服务端规则一致）
-    if (merged.length >= 2 && merged.some((f) => extOf(f.name) !== 'pdf')) {
-      this.toast('多文件合并仅支持 PDF，请先转换为 PDF 或逐个生成');
       return;
     }
     this.setData({ files: merged });
@@ -499,8 +504,18 @@ Page({
       this.toast('请先切换到具体班组再生成');
       return;
     }
-    const names = this.data.files.map((f) => baseOf(f.name)).join('、');
-    this.setData({ genOpen: true, nameDraft: `《${names}》`, keyboardHeight: 0 });
+    // 学习内容默认值：每个源文件各自带书名号（《文件1》、《文件2》），不再整体括一对
+    const names = this.data.files.map((f) => `《${baseOf(f.name)}》`).join('、');
+    this.setData({
+      genOpen: true,
+      nameDraft: names,
+      keyboardHeight: 0,
+      // 每次打开回到名单点亮模式，自定义输入清空（名单数据异步拉取后覆盖）
+      attendMode: 'member',
+      hostCustom: '',
+      customAttendees: '',
+      customAbsentees: '',
+    });
     // 打开弹层后异步拉表单元数据并填充（成员/默认值按当前生效班组）
     this.loadFormMeta()
       .then((meta) => {
@@ -549,6 +564,32 @@ Page({
     this.setData({ [`attendFlags[${i}]`]: !this.data.attendFlags[i] });
   },
 
+  // 参会人员模式切换（名单点亮 / 自定义输入）；切到自定义时按当前名单选择预填，切回不清空手工输入
+  onAttendModeTap(e) {
+    const mode = e.currentTarget.dataset.mode;
+    if (!mode || mode === this.data.attendMode) return;
+    const patch = { attendMode: mode };
+    if (mode === 'custom') {
+      const { members, hostIdx, attendFlags } = this.data;
+      patch.hostCustom = members[hostIdx] || '';
+      patch.customAttendees = members.filter((_, i) => attendFlags[i]).join(' ');
+      patch.customAbsentees = members.filter((_, i) => !attendFlags[i]).join(' ');
+    }
+    this.setData(patch);
+  },
+
+  onHostCustomInput(e) {
+    this.setData({ hostCustom: e.detail.value });
+  },
+
+  onCustomAttendeesInput(e) {
+    this.setData({ customAttendees: e.detail.value });
+  },
+
+  onCustomAbsenteesInput(e) {
+    this.setData({ customAbsentees: e.detail.value });
+  },
+
   onNameInput(e) {
     this.setData({ nameDraft: e.detail.value });
   },
@@ -587,27 +628,32 @@ Page({
       this.toast('请先选择文件');
       return;
     }
-    // 提交前再校验一次多文件 PDF 规则
-    if (files.length >= 2 && files.some((f) => extOf(f.name) !== 'pdf')) {
-      this.toast('多文件合并仅支持 PDF，请先转换为 PDF 或逐个生成');
-      return;
-    }
     // 超管在「全部班组」视图下不可生成（生成须归属具体班组）
     if (this._role === 'admin' && this._teamSel === 'all') {
       this.toast('请先切换到具体班组再生成');
       return;
     }
     const date = toDots(this.data.dateStr || todayISO());
-    // 生成表单字段（后端存进记录，回调渲染 docx 时使用）
+    // 生成表单字段（后端存进记录，回调渲染 docx 时使用）；
+    // 自定义模式下主持人/参加/缺席取手工输入（分隔符规范化为空格），记录人仍取成员名单
     const { members } = this.data;
+    const custom = this.data.attendMode === 'custom';
     const form = {
-      host: members[this.data.hostIdx] || '',
+      host: custom ? (this.data.hostCustom || '').trim() : members[this.data.hostIdx] || '',
       recorder: members[this.data.recorderIdx] || '',
       superior: (this.data.superior || '').trim(),
-      attendees: members.filter((_, i) => this.data.attendFlags[i]).join(' '),
-      absentees: members.filter((_, i) => !this.data.attendFlags[i]).join(' '),
+      attendees: custom
+        ? normNames(this.data.customAttendees)
+        : members.filter((_, i) => this.data.attendFlags[i]).join(' '),
+      absentees: custom
+        ? normNames(this.data.customAbsentees)
+        : members.filter((_, i) => !this.data.attendFlags[i]).join(' '),
       absentReason: (this.data.absentReason || '').trim(),
     };
+    if (custom && !form.attendees) {
+      this.toast('请填写本班组参加人员');
+      return;
+    }
     this.setData({ submitting: true });
     this.uploadGenerate(name, date, files, form)
       .then((data) => {

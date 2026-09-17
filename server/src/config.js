@@ -94,6 +94,8 @@ const config = {
     difyKey: str('DIFY_SAFEDAY_API_KEY'),
     // Dify 回调 token：留空则回调不做 token 校验（与原 CALLBACK_TOKEN 行为一致）
     callbackToken: str('SAFEDAY_CALLBACK_TOKEN'),
+    // 多文件含非 PDF 时经 LibreOffice headless 转 PDF 再合并；默认取 PATH 中 soffice，可用 env 覆盖路径
+    sofficePath: str('SAFEDAY_SOFFICE_PATH', 'soffice'),
   },
   // KVM 远程管理（GLKVM Cloud 平台对接：员工账号代登取设备列表 + 平台深链跳转，见 开发指南.md 第十二节）
   kvm: {

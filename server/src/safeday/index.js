@@ -13,6 +13,7 @@ const teamUtil = require('../utils/team');
 const config = require('../config');
 const store = require('./store');
 const { mergePdfs } = require('./merge');
+const { convertToPdf } = require('./convert');
 const dify = require('./dify');
 const render = require('./render');
 const { pool } = require('../db');
@@ -233,26 +234,36 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
       }
     }
 
-    // 多文件（≥2）时所有文件必须是 .pdf（纯 npm 合并方案）
-    if (files.length >= 2 && files.some((f) => getExt(f.originalname) !== 'pdf')) {
-      return res.status(400).json({
-        ok: false,
-        error: '多文件合并仅支持 PDF 格式，请上传 PDF 文件或改为单文件上传',
-      });
-    }
-
     // 生效班组：超管可用表单 team_id 指定；其余角色固定本班（未分配拒绝生成）
     const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id);
     if (!team) {
       return res.status(400).json({ ok: false, error: '未分配班组，请联系管理员分配后再生成' });
     }
 
-    // 合并或取单文件 buffer
+    // 合并或取单文件 buffer：多文件时统一合并为一个 PDF 再上送 Dify（工作流仅单 document 入参）；
+    // 非 PDF 先经 LibreOffice 转 PDF（convert.js），PDF 原样参与合并，顺序与上传一致
     let fileBuffer;
     let fileName;
     if (files.length >= 2) {
+      const pdfBuffers = [];
+      for (const f of files) {
+        const ext = getExt(f.originalname);
+        if (ext === 'pdf') {
+          pdfBuffers.push(f.buffer);
+        } else {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            pdfBuffers.push(await convertToPdf(f.buffer, ext));
+          } catch (e) {
+            return res.status(400).json({
+              ok: false,
+              error: `「${f.originalname}」${e && e.message ? e.message : e}`,
+            });
+          }
+        }
+      }
       try {
-        fileBuffer = await mergePdfs(files.map((f) => f.buffer));
+        fileBuffer = await mergePdfs(pdfBuffers);
       } catch (e) {
         return res.status(400).json({
           ok: false,

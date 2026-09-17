@@ -36,7 +36,7 @@
       </view>
       <view class="up-t">从聊天选取文件<text class="accent">上传</text></view>
       <view class="up-p">支持 pdf / doc / docx / ppt / pptx / xls / xlsx</view>
-      <view class="up-p">单文件 ≤ 50MB，最多 10 个；多文件需全部为 PDF（自动合并）</view>
+      <view class="up-p">单文件 ≤ 50MB，最多 10 个；多文件自动合并（非 PDF 由服务端转换）</view>
     </view>
 
     <!-- 已选文件条 -->
@@ -180,15 +180,45 @@
         placeholder="请输入记录名称"
         placeholder-class="ph"
       />
+      <!-- 参会人员模式：名单点亮 / 自定义输入（自定义适用于名单外人员，主持人同可自行填写） -->
+      <view class="f-lab mode-row">
+        <text>参会人员</text>
+        <view class="mswitch">
+          <view
+            class="ms-opt {{attendMode === 'member' ? 'on' : ''}}"
+            data-mode="member"
+            hover-class="hover-opacity"
+            bindtap="onAttendModeTap"
+          >名单选择</view>
+          <view
+            class="ms-opt {{attendMode === 'custom' ? 'on' : ''}}"
+            data-mode="custom"
+            hover-class="hover-opacity"
+            bindtap="onAttendModeTap"
+          >自定义</view>
+        </view>
+      </view>
       <view class="f-2col">
         <view>
           <view class="f-lab">主持人</view>
-          <picker range="{{members}}" value="{{hostIdx}}" bindchange="onHostChange">
+          <picker wx:if="{{attendMode === 'member'}}" range="{{members}}" value="{{hostIdx}}" bindchange="onHostChange">
             <view class="pick-val">
               <text>{{members[hostIdx] || '—'}}</text>
               <t-icon name="chevron-down" size="26rpx" color="#A89F8A" />
             </view>
           </picker>
+          <input
+            wx:else
+            class="name-input host-input"
+            value="{{hostCustom}}"
+            bindinput="onHostCustomInput"
+            adjust-position="{{false}}"
+            bindkeyboardheightchange="onKeyboardHeight"
+            hold-keyboard
+            maxlength="64"
+            placeholder="请输入主持人"
+            placeholder-class="ph"
+          />
         </view>
         <view>
           <view class="f-lab">记录人</view>
@@ -212,28 +242,56 @@
         placeholder="任晓辉"
         placeholder-class="ph"
       />
-      <view class="f-lab">本班组参加人员<text class="f-lab-sub">默认全员参加，点击名字改为缺席</text></view>
-      <view class="mchips">
-        <view
-          wx:for="{{members}}"
-          wx:key="name"
-          class="mchip {{attendFlags[index] ? 'on' : ''}}"
-          data-idx="{{index}}"
-          hover-class="hover-opacity"
-          bindtap="onToggleAttend"
-        >{{item}}</view>
-      </view>
-      <view class="f-lab">缺席人员<text class="f-lab-sub">与参加人员互斥，点击名字改为参加</text></view>
-      <view class="mchips absent">
-        <view
-          wx:for="{{members}}"
-          wx:key="name"
-          class="mchip {{attendFlags[index] ? '' : 'on'}}"
-          data-idx="{{index}}"
-          hover-class="hover-opacity"
-          bindtap="onToggleAttend"
-        >{{item}}</view>
-      </view>
+      <block wx:if="{{attendMode === 'member'}}">
+        <view class="f-lab">本班组参加人员<text class="f-lab-sub">默认全员参加，点击名字改为缺席</text></view>
+        <view class="mchips">
+          <view
+            wx:for="{{members}}"
+            wx:key="name"
+            class="mchip {{attendFlags[index] ? 'on' : ''}}"
+            data-idx="{{index}}"
+            hover-class="hover-opacity"
+            bindtap="onToggleAttend"
+          >{{item}}</view>
+        </view>
+        <view class="f-lab">缺席人员<text class="f-lab-sub">与参加人员互斥，点击名字改为参加</text></view>
+        <view class="mchips absent">
+          <view
+            wx:for="{{members}}"
+            wx:key="name"
+            class="mchip {{attendFlags[index] ? '' : 'on'}}"
+            data-idx="{{index}}"
+            hover-class="hover-opacity"
+            bindtap="onToggleAttend"
+          >{{item}}</view>
+        </view>
+      </block>
+      <block wx:else>
+        <view class="f-lab">本班组参加人员<text class="f-lab-sub">多人以空格或顿号分隔</text></view>
+        <input
+          class="name-input"
+          value="{{customAttendees}}"
+          bindinput="onCustomAttendeesInput"
+          adjust-position="{{false}}"
+          bindkeyboardheightchange="onKeyboardHeight"
+          hold-keyboard
+          maxlength="512"
+          placeholder="如：张三 李四"
+          placeholder-class="ph"
+        />
+        <view class="f-lab">缺席人员<text class="f-lab-sub">多人以空格或顿号分隔，无则留空</text></view>
+        <input
+          class="name-input"
+          value="{{customAbsentees}}"
+          bindinput="onCustomAbsenteesInput"
+          adjust-position="{{false}}"
+          bindkeyboardheightchange="onKeyboardHeight"
+          hold-keyboard
+          maxlength="512"
+          placeholder="无"
+          placeholder-class="ph"
+        />
+      </block>
       <view class="f-lab">缺席人员原因</view>
       <input
         class="name-input"

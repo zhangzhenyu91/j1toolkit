@@ -186,6 +186,14 @@
   .mchip.on { border-color: var(--orange); background: var(--orange); color: #fff; }
   .mchips.absent .mchip.on { border-color: var(--red); background: var(--red); }
   .mchips:empty::after { content: "成员加载中…"; font-size: 12px; color: var(--ph); }
+  /* 参会人员模式切换（名单点亮 / 自定义输入）：分段胶囊，选中橙底 */
+  .dlg-form .mode-row { display: flex; align-items: center; justify-content: space-between; }
+  .mswitch { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 99px; background: #F4F1EA; }
+  .ms-opt {
+    padding: 3px 14px; border-radius: 99px; font-size: 11.5px; font-weight: 600;
+    color: var(--sub); cursor: pointer; transition: all .15s; user-select: none;
+  }
+  .ms-opt.on { background: var(--orange); color: #fff; }
 
   @media (max-width: 960px) {
     .sd-body { flex-direction: column; }
@@ -217,7 +225,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15.5V7.5M8.8 10.7L12 7.5l3.2 3.2"/><path d="M6.8 15.9a4 4 0 0 1-1-7.9A5.5 5.5 0 0 1 16.5 6.4 4.6 4.6 0 0 1 17.2 15.9"/></svg>
         </div>
         <b>点击选择文件，或拖拽到此处<i>上传</i></b>
-        <p>支持 pdf / doc / docx / ppt / pptx / xls / xlsx<br>单文件 ≤ 50MB，最多 10 个；多文件需全部为 PDF（自动合并）</p>
+        <p>支持 pdf / doc / docx / ppt / pptx / xls / xlsx<br>单文件 ≤ 50MB，最多 10 个；多文件自动合并（非 PDF 由服务端转换）</p>
       </div>
       <input type="file" id="fileInput" hidden multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx">
 
@@ -255,7 +263,7 @@
   </div>
 </main>
 
-<!-- 生成表单弹层（学习内容 + 参会信息，确认后开始生成；参加/缺席互斥点亮，上级参加人员与记录人按班组记忆为下次默认） -->
+<!-- 生成表单弹层（学习内容 + 参会信息，确认后开始生成；参加/缺席互斥点亮或切自定义手工输入（含主持人），上级参加人员与记录人按班组记忆为下次默认） -->
 <div class="mask" id="genMask">
   <div class="dialog dlg-form" role="dialog" aria-modal="true" aria-labelledby="genTitle">
     <h3 id="genTitle">生成活动记录</h3>
@@ -263,10 +271,18 @@
     <label class="f-lab" for="nameInput">学习内容（记录名称）</label>
     <!-- 多行编辑框：拉高至可容纳 5 行文本（rows=5 + 页内 min-height 覆盖全局 textarea.input 的 96px） -->
     <textarea class="input name-area" id="nameInput" rows="5"></textarea>
+    <!-- 参会人员模式：名单点亮 / 自定义输入（自定义适用于名单外人员，主持人同可自行填写） -->
+    <label class="f-lab mode-row">参会人员
+      <span class="mswitch">
+        <span class="ms-opt on" id="modeMember">名单选择</span>
+        <span class="ms-opt" id="modeCustom">自定义</span>
+      </span>
+    </label>
     <div class="f-2col">
       <div>
-        <label class="f-lab" for="hostSel">主持人</label>
+        <label class="f-lab">主持人</label>
         <select class="input" id="hostSel"></select>
+        <input type="text" class="input" id="hostInput" autocomplete="off" maxlength="64" placeholder="请输入主持人" style="display:none">
       </div>
       <div>
         <label class="f-lab" for="recorderSel">记录人</label>
@@ -275,10 +291,18 @@
     </div>
     <label class="f-lab" for="superiorInput">上级参加人员</label>
     <input type="text" class="input" id="superiorInput" autocomplete="off">
-    <label class="f-lab">本班组参加人员 <small>默认全员参加，点击名字改为缺席</small></label>
-    <div class="mchips" id="attendChips"></div>
-    <label class="f-lab">缺席人员 <small>与参加人员互斥，点击名字改为参加</small></label>
-    <div class="mchips absent" id="absentChips"></div>
+    <div id="memberArea">
+      <label class="f-lab">本班组参加人员 <small>默认全员参加，点击名字改为缺席</small></label>
+      <div class="mchips" id="attendChips"></div>
+      <label class="f-lab">缺席人员 <small>与参加人员互斥，点击名字改为参加</small></label>
+      <div class="mchips absent" id="absentChips"></div>
+    </div>
+    <div id="customArea" style="display:none">
+      <label class="f-lab" for="attendInput">本班组参加人员 <small>多人以空格或顿号分隔</small></label>
+      <input type="text" class="input" id="attendInput" autocomplete="off" maxlength="512" placeholder="如：张三 李四">
+      <label class="f-lab" for="absentInput">缺席人员 <small>多人以空格或顿号分隔，无则留空</small></label>
+      <input type="text" class="input" id="absentInput" autocomplete="off" maxlength="512" placeholder="无">
+    </div>
     <label class="f-lab" for="absentReasonInput">缺席人员原因</label>
     <input type="text" class="input" id="absentReasonInput" placeholder="无" autocomplete="off">
     <div class="d-actions">
@@ -340,10 +364,17 @@
   var genMask = document.getElementById('genMask');
   var nameInput = document.getElementById('nameInput');
   var hostSel = document.getElementById('hostSel');
+  var hostInput = document.getElementById('hostInput');
   var recorderSel = document.getElementById('recorderSel');
   var superiorInput = document.getElementById('superiorInput');
   var attendChips = document.getElementById('attendChips');
   var absentChips = document.getElementById('absentChips');
+  var memberArea = document.getElementById('memberArea');
+  var customArea = document.getElementById('customArea');
+  var attendInput = document.getElementById('attendInput');
+  var absentInput = document.getElementById('absentInput');
+  var modeMember = document.getElementById('modeMember');
+  var modeCustom = document.getElementById('modeCustom');
   var absentReasonInput = document.getElementById('absentReasonInput');
   var genCancel = document.getElementById('genCancel');
   var genConfirm = document.getElementById('genConfirm');
@@ -366,7 +397,10 @@
     if (n >= 1024) return Math.round(n / 1024) + ' KB';
     return n + ' B';
   }
-  function isPdf(f) { return extOf(f.name) === 'pdf'; }
+  /* 自定义人员输入规范化：空格/顿号/逗号/分号分隔统一为空格分隔（后端模板按空格分隔口径渲染） */
+  function normNames(str) {
+    return (str || '').split(/[\s、，,；;]+/).filter(function (s) { return s; }).join(' ');
+  }
 
   /* ===== safeday 接口封装（信封 {ok,error} 由 parseOk 处理；token 注入与 401 清登录态走 Shade.apiRaw，返回原始 Response） ===== */
   function sdFetch(path, opts) {
@@ -625,7 +659,7 @@
     }
   }
 
-  /* ===== 文件选择与校验（类型 / 大小 / 数量 / 多文件纯 PDF / 去重） ===== */
+  /* ===== 文件选择与校验（类型 / 大小 / 数量 / 去重；多文件由后端转换合并） ===== */
   function addFiles(fileList) {
     var badType = 0;
     var badSize = 0;
@@ -640,11 +674,6 @@
     var merged = files.concat(incoming);
     if (merged.length > MAX_FILES) {
       Shade.toast('最多上传 ' + MAX_FILES + ' 个文件', 'error');
-      return;
-    }
-    /* 多文件时须全部为 PDF，否则整批阻止（与服务端规则一致） */
-    if (merged.length >= 2 && merged.some(function (f) { return !isPdf(f); })) {
-      Shade.toast('多文件合并仅支持 PDF，请先转换为 PDF 或逐个生成', 'error');
       return;
     }
     files = merged;
@@ -746,6 +775,33 @@
   attendChips.addEventListener('click', onChipTap);
   absentChips.addEventListener('click', onChipTap);
 
+  /* 参会人员模式切换（名单点亮 / 自定义输入）；
+     切到自定义时按当前名单选择预填主持人/参加/缺席，切回不清空手工输入 */
+  var attendMode = 'member';
+  function setAttendMode(mode) {
+    attendMode = mode;
+    var isMember = mode === 'member';
+    modeMember.classList.toggle('on', isMember);
+    modeCustom.classList.toggle('on', !isMember);
+    hostSel.style.display = isMember ? '' : 'none';
+    hostInput.style.display = isMember ? 'none' : '';
+    memberArea.style.display = isMember ? '' : 'none';
+    customArea.style.display = isMember ? 'none' : '';
+    if (isMember) {
+      attendInput.value = '';
+      absentInput.value = '';
+      hostInput.value = '';
+      return;
+    }
+    /* 预填：主持人取当前选中项；参加/缺席按点亮集合镜像 */
+    var members = (formMeta && formMeta.members) || [];
+    hostInput.value = hostSel.value || '';
+    attendInput.value = members.filter(function (m) { return attendSet.has(m); }).join(' ');
+    absentInput.value = members.filter(function (m) { return !attendSet.has(m); }).join(' ');
+  }
+  modeMember.addEventListener('click', function () { setAttendMode('member'); });
+  modeCustom.addEventListener('click', function () { setAttendMode('custom'); });
+
   /* 下拉填充：成员名单为选项，wanted 不在名单时回落首项 */
   function fillMemberSel(sel, members, wanted) {
     sel.innerHTML = members.map(function (m) {
@@ -755,8 +811,9 @@
   }
 
   function openGenMask() {
-    var names = files.map(function (f) { return baseOf(f.name); }).join('、');
-    nameInput.value = '《' + names + '》';
+    /* 学习内容默认值：每个源文件各自带书名号（《文件1》、《文件2》），不再整体括一对 */
+    nameInput.value = files.map(function (f) { return '《' + baseOf(f.name) + '》'; }).join('、');
+    setAttendMode('member'); // 每次打开回到名单点亮模式，自定义输入清空
     genMask.classList.add('open');
     document.body.style.overflow = 'hidden';
     /* 先开层再异步填表单：成员未到时 chips 区显示加载占位 */
@@ -812,24 +869,34 @@
       Shade.toast('请先选择文件', 'error');
       return;
     }
-    /* 提交前再校验一次多文件 PDF 规则 */
-    if (files.length >= 2 && files.some(function (f) { return !isPdf(f); })) {
-      Shade.toast('多文件合并仅支持 PDF，请先转换为 PDF 或逐个生成', 'error');
+    var dateDots = toDots(dateInput.value || todayISO());
+
+    /* 生成表单字段（后端存进记录，回调渲染 docx 时使用；上级参加人员/记录人另按班组记忆为下次默认）；
+       自定义模式下主持人/参加/缺席取手工输入（分隔符规范化为空格），记录人仍取成员名单 */
+    var members = (formMeta && formMeta.members) || [];
+    var custom = attendMode === 'custom';
+    var hostVal = custom ? hostInput.value.trim() : (hostSel.value || '');
+    var attendeesVal = custom
+      ? normNames(attendInput.value)
+      : members.filter(function (m) { return attendSet.has(m); }).join(' ');
+    var absenteesVal = custom
+      ? normNames(absentInput.value)
+      : members.filter(function (m) { return !attendSet.has(m); }).join(' ');
+    if (custom && !attendeesVal) {
+      Shade.toast('请填写本班组参加人员', 'error');
+      attendInput.focus();
       return;
     }
-    var dateDots = toDots(dateInput.value || todayISO());
 
     var fd = new FormData();
     fd.append('name', name);
     fd.append('date', dateDots);
     if (teamId) { fd.append('team_id', teamId); } // 超管指定目标班组（仅超管生效）
-    /* 生成表单字段（后端存进记录，回调渲染 docx 时使用；上级参加人员/记录人另按班组记忆为下次默认） */
-    var members = (formMeta && formMeta.members) || [];
-    fd.append('host', hostSel.value || '');
+    fd.append('host', hostVal);
     fd.append('recorder', recorderSel.value || '');
     fd.append('superior', superiorInput.value.trim());
-    fd.append('attendees', members.filter(function (m) { return attendSet.has(m); }).join(' '));
-    fd.append('absentees', members.filter(function (m) { return !attendSet.has(m); }).join(' '));
+    fd.append('attendees', attendeesVal);
+    fd.append('absentees', absenteesVal);
     fd.append('absentReason', absentReasonInput.value.trim());
     files.forEach(function (f) { fd.append('files', f, f.name); });
 
