@@ -88,12 +88,17 @@ function devOpt(account) {
 // 登录态探测：dayNew 调通即有效；失效则标记 token_status=0（照片选人层据此置灰）。
 // 由有效探测为失效时自动通知本人与超管（见 16.3）：仅 1→0 跳变通知一次，
 // token_status 已是 0 的后续探测不重复通知；通知发送失败不影响业务流（fire-and-forget）
+// 注意区分网络/代理异常：请求未到达商旅（代理不可达、超时等）不代表 token 失效——
+// 一次断网抖动若据此标 0 会全员误标过期并群发误报；此时不改 token_status，按原状态返回
 async function probeAuth(account) {
   let valid = false;
   try {
     const d = await sgcc.dayNew(account.token, today(), devOpt(account));
     valid = !!(d && Number(d.statusCode) === 200);
-  } catch (e) { valid = false; }
+  } catch (e) {
+    console.warn(`[商旅打卡] 登录态探测网络异常（成员 ${account.member_id}），token_status 保持原值：${e.message}`);
+    return Number(account.token_status) === 1;
+  }
   await pool.query(
     'UPDATE worklog_sgcc_account SET token_status = ?, last_check_at = NOW() WHERE id = ?',
     [valid ? 1 : 0, account.id]
