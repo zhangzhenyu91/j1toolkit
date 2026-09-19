@@ -42,6 +42,7 @@ Page({
     try {
       const data = await request({ url: '/api/v1/admin/teams' });
       this.setData({ teams: (data.list || []).filter((t) => t.status === 1) });
+      this.buildGroups(); // 分组依赖 teams+users 两个请求，后到的一方负责重建（此处 users 可能已就绪）
     } catch (err) {
       this.toast(err.message);
     }

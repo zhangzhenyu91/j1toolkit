@@ -1215,7 +1215,7 @@ router.post(
           continue;
         }
         data.push([
-          req.team.id,
+          team.id,
           voltage.slice(0, 32), line.slice(0, 64), towerNo.slice(0, 64),
           lng.slice(0, 32), lat.slice(0, 32),
         ]);
@@ -1471,7 +1471,7 @@ router.put('/photos/:id/wm', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
-      `SELECT p.id, p.verify_status, p.is_watermark,
+      `SELECT p.id, p.verify_status${config.sgcc && config.sgcc.enabled ? ', p.is_watermark' : ''},
               DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, d.name AS destination_name
        FROM worklog_photo p
        JOIN worklog_entry e ON e.id = p.entry_id

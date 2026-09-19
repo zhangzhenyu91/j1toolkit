@@ -211,7 +211,7 @@ function planCards(rows, teamMembers, vehicles, destinations, assignedIds) {
 
 /* ===== 库操作与通知 ===== */
 
-// 解析 + 行级班组判定 + 逐班组计划落库/已有卡比对 → { results, outside, otherTeam, dropped, total }
+// 解析 + 行级班组判定 + 逐班组计划落库/已有卡比对 → { results, outside, otherTeam, dropped, stale, total }
 // results 每项 { team, created, skippedDict, cross, mismatches, aligned }：
 // cross 为涉及该班但含多班人名的记录（仅通知不建卡）；mismatches 为已有手动建卡且比对不一致的记录（附修改指引），aligned 为一致计数
 async function importOrdersMulti(teams, buffer, today) {

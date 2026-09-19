@@ -2276,19 +2276,19 @@ async function retryVerify(pid) {
 /* ---------- 水印信息手动修正（Dify 小概率识别出错时用；验证状态角标 / 大图「手动修正」进入；
    保存走 PUT /photos/:id/wm，服务端按记录日期与派车目的地重新核验） ---------- */
 function openWmEditModal(entry, photo) {
-  function row(lab, id, val, ph) {
+  function row(lab, id, ph) {
     return '<label class="f-lab">' + lab + '</label>'
       + '<input class="f-sel" id="' + id + '" style="height:40px" maxlength="255" autocomplete="off" placeholder="' + (ph || '') + '">';
   }
   var html = Shade.mHead('水印信息修正')
     + '<div class="f-hint" style="margin:0 0 4px">Dify 小概率识别出错时手动修正；保存后重新判定本卡验证（日期须为记录当天 ' + esc(entry.log_date || '') + '，地点须包含派车目的地）。</div>'
-    + row('施工内容', 'wmContent', '', '如 110kVXX线巡视')
-    + row('拍摄时间（YYYY.MM.DD HH:mm）', 'wmTime', '', '如 2026.08.19 10:02')
-    + row('天气', 'wmWeather', '', '如 晴 28℃')
-    + row('地点（须包含派车目的地）', 'wmLocation', '', '如 山西省吕梁市孝义市…')
+    + row('施工内容', 'wmContent', '如 110kVXX线巡视')
+    + row('拍摄时间（YYYY.MM.DD HH:mm）', 'wmTime', '如 2026.08.19 10:02')
+    + row('天气', 'wmWeather', '如 晴 28℃')
+    + row('地点（须包含派车目的地）', 'wmLocation', '如 山西省吕梁市孝义市…')
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
-    + '<div>' + row('经度', 'wmLng', '', '选填') + '</div>'
-    + '<div>' + row('纬度', 'wmLat', '', '选填') + '</div>'
+    + '<div>' + row('经度', 'wmLng', '选填') + '</div>'
+    + '<div>' + row('纬度', 'wmLat', '选填') + '</div>'
     + '</div>'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保存并重验</button></div>';
@@ -4176,8 +4176,7 @@ function showVerifyFailures(e, from, onForce) {
     inst.close();
     state.rep.month = (from || state.date).slice(0, 7); // 核验页签定位到范围起始月
     syncRepMonthText();
-    switchPane('Rep');
-    loadReport();
+    switchPane('Rep'); // switchPane 切到核验页签时已重查（loadReport），无需重复调用
   });
   $('[data-a="force"]', inst.box).addEventListener('click', function () {
     inst.close();

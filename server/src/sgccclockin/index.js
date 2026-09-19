@@ -2095,7 +2095,7 @@ async function notifyDailySyncResult(teamId, date, afterId) {
 
 function scheduleDaily() {
   const [hh, mm] = String(config.sgcc.syncTime || '23:00').split(':').map((s) => parseInt(s, 10));
-  const { nextUtc, now } = nextDailyRunUtc(hh || 23, mm || 0);
+  const { nextUtc, now } = nextDailyRunUtc(Number.isNaN(hh) ? 23 : hh, mm || 0); // hh 可能为 0（午夜），不能用 || 判缺省
   const timer = setTimeout(async () => {
     try {
       // 卡片驱动：有绑定账号的班 ∪ 当日卡上有绑定成员的班（token 跟人走后，卡在哪个班就同步哪个班）
@@ -2232,7 +2232,7 @@ async function remindMissingEndClockin(excludeIds = []) {
 
 function scheduleEndClockRemind() {
   const [hh, mm] = String(config.sgcc.endClockRemindTime || '18:00').split(':').map((s) => parseInt(s, 10));
-  const { nextUtc, now } = nextDailyRunUtc(hh || 18, mm || 0);
+  const { nextUtc, now } = nextDailyRunUtc(Number.isNaN(hh) ? 18 : hh, mm || 0); // hh 可能为 0（午夜），不能用 || 判缺省
   const timer = setTimeout(async () => {
     // 先对当日卡上绑定成员做打卡轻量同步（成员可能直接在商旅 App 打卡），再按最新数据核查；
     // 同步失败成员不自动核查（状态未知），转「打卡核查需人工确认」通知；整体失败则本轮不核查
@@ -2306,7 +2306,7 @@ async function remindMissingStartClockin(excludeIds = []) {
 
 function scheduleStartClockRemind() {
   const [hh, mm] = String(config.sgcc.startClockRemindTime || '11:00').split(':').map((s) => parseInt(s, 10));
-  const { nextUtc, now } = nextDailyRunUtc(hh || 11, mm || 0);
+  const { nextUtc, now } = nextDailyRunUtc(Number.isNaN(hh) ? 11 : hh, mm || 0); // hh 可能为 0（午夜），不能用 || 判缺省
   const timer = setTimeout(async () => {
     // 先对当日卡上绑定成员做打卡轻量同步（成员可能直接在商旅 App 打卡），再按最新数据核查；
     // 同步失败成员不自动核查（状态未知），转「打卡核查需人工确认」通知；整体失败则本轮不核查

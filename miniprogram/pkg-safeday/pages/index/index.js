@@ -601,6 +601,7 @@ Page({
 
   onGenCancel() {
     if (this.data.submitting) return;
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ genOpen: false, keyboardHeight: 0 });
   },
 
@@ -611,7 +612,10 @@ Page({
       this.setData({ genOpen: true });
       return;
     }
-    if (this.data.genOpen) this.setData({ genOpen: false, keyboardHeight: 0 });
+    if (this.data.genOpen) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
+      this.setData({ genOpen: false, keyboardHeight: 0 });
+    }
   },
 
   /* ==================== 提交生成 ==================== */
@@ -654,6 +658,7 @@ Page({
       this.toast('请填写本班组参加人员');
       return;
     }
+    wx.hideKeyboard(); // 真正提交前收起 hold-keyboard 残留键盘（校验失败分支不收）
     this.setData({ submitting: true });
     this.uploadGenerate(name, date, files, form)
       .then((data) => {

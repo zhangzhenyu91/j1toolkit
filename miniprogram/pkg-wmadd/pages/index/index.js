@@ -332,11 +332,15 @@ Page({
   },
 
   onWmCancel() {
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ wmVisible: false });
   },
 
   onWmVisibleChange(e) {
-    if (!e.detail.visible) this.setData({ wmVisible: false });
+    if (!e.detail.visible) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
+      this.setData({ wmVisible: false });
+    }
   },
 
   // 经纬度补方向后缀：只填数字时自动补 °E/°N（已带符号则原样）
@@ -441,6 +445,7 @@ Page({
 
   // 选中上级后清空下级并自动展开下一级选项
   onPickLevel(e) {
+    wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
     const v = e.currentTarget.dataset.v;
     if (v === this.data.towerLevel) {
       this.setData({ towerOpen: '' });
@@ -482,6 +487,7 @@ Page({
   },
 
   onPickLine(e) {
+    wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
     const v = e.currentTarget.dataset.v;
     if (v === this.data.towerLine) {
       this.setData({ towerOpen: '' });
@@ -516,6 +522,7 @@ Page({
   },
 
   onPickTower(e) {
+    wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
     const t = this.data.towerTowers[e.currentTarget.dataset.i];
     if (!t) return;
     this.setData({ towerTower: t, towerTowerKw: t.no, towerOpen: '' });
@@ -531,6 +538,7 @@ Page({
   onTowerConfirm() {
     const t = this.data.towerTower;
     if (!t) return;
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     const jittered = this.jitterCoord(t.lng, t.lat, 50);
     this.setData({
       towerVisible: false,
@@ -579,11 +587,15 @@ Page({
   },
 
   onTowerCancel() {
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ towerVisible: false });
   },
 
   onTowerVisibleChange(e) {
-    if (!e.detail.visible) this.setData({ towerVisible: false });
+    if (!e.detail.visible) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
+      this.setData({ towerVisible: false });
+    }
   },
 
   // ---------- 生成水印 → 存相册 → 全屏展示 ----------
@@ -591,6 +603,7 @@ Page({
   // 确认：取 EXIF 方向 → 原图 base64 → 连同字段上送服务端渲染（仅回图，不上传存档）
   onWmConfirm() {
     if (this.data.wmUploading) return;
+    wx.hideKeyboard(); // 确认前收起 hold-keyboard 残留键盘
     this.setData({ wmUploading: true });
     wx.getImageInfo({
       src: this.data.wmPhotoPath,

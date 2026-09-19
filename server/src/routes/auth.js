@@ -86,6 +86,7 @@ router.post('/login', async (req, res, next) => {
           user.id,
         ]);
         wxBound = true;
+        user.openid = wxData.openid; // 内存同步绑定结果：下方 publicUser 的 wx_bound 即时为真
         console.log(`[绑定] 当前微信号已绑定到账号 ${user.username}(id=${user.id})`);
       } catch (err) {
         // 绑定失败不影响本次登录，仅记录并告知前端

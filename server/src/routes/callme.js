@@ -51,7 +51,7 @@ router.get('/sessions', async (req, res, next) => {
 // 支持 limit / before_time 分页参数，has_more 提示是否还有更早消息
 router.get('/sessions/:id', async (req, res, next) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
     const beforeTime = req.query.before_time || undefined;
     const [detail, messagesRaw] = await Promise.all([
       weknora.getSession(req.user.username, req.params.id),

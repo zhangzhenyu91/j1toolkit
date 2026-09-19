@@ -184,6 +184,7 @@ Page({
 
   onBankCancel() {
     if (this.data.bankSaving) return;
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ bankOpen: false, keyboardHeight: 0 });
   },
 
@@ -194,7 +195,10 @@ Page({
       this.setData({ bankOpen: true });
       return;
     }
-    if (this.data.bankOpen) this.setData({ bankOpen: false, keyboardHeight: 0 });
+    if (this.data.bankOpen) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
+      this.setData({ bankOpen: false, keyboardHeight: 0 });
+    }
   },
 
   async onBankSave() {
@@ -209,6 +213,7 @@ Page({
     // scope 仅超管可传（'all' 仅超管可建/改；team_admin 固定班组池，不传 scope）
     const payload = { name, description };
     if (this._role === 'admin') payload.scope = this.data.bankScope;
+    wx.hideKeyboard(); // 真正提交前收起 hold-keyboard 残留键盘（名称校验失败分支不收）
     this.setData({ bankSaving: true });
     try {
       await request({

@@ -160,7 +160,7 @@ Page({
     teamName: '', // 切换器 chip 展示名
     teamOptions: [], // 超管下拉选项 [{id, name, on}]
     teamDropOpen: false,
-    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理·工作任务单（均超管与班组管理员）/ 批量下载 / 验证报告 / 新建日志）
+    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理 / 工作任务单 / 费用汇总 / 派车对齐 / 批量从商旅同步（均超管与班组管理员）/ 批量下载 / 汇总前核验 / 跨班日志（仅超管）/ 新建日志）
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
@@ -185,7 +185,7 @@ Page({
     memberNote: '', // 层内说明（随方式变化）
     memberOffTip: '', // 商旅登录过期提醒条（有过期候选人时显示）
     memberSaving: false, // 人名修改提交中（防连点；改人名需同步等待商旅结果，耗时较长）
-    // 添加照片二选一弹层（自绘，替代 t-action-sheet）
+    // 添加照片方式三选弹层（自绘，替代 t-action-sheet）
     addSheetVisible: false,
     wmSourceType: 'album', // 加水印流程的照片来源（camera=拍摄 / album=相册，由人名层按钮决定）
     // ---------- 「选择照片并添加水印」字段编辑弹层 ----------
@@ -1169,17 +1169,22 @@ Page({
   },
 
   onCkCancel() {
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ ckVisible: false, keyboardHeight: 0 });
   },
 
   onCkVisibleChange(e) {
-    if (!e.detail.visible && this.data.ckVisible) this.setData({ ckVisible: false, keyboardHeight: 0 });
+    if (!e.detail.visible && this.data.ckVisible) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
+      this.setData({ ckVisible: false, keyboardHeight: 0 });
+    }
   },
 
   // 确认打卡：POST /sgcc/clockin（mark：seq=1|2；update：更新地点）。失败 message 直弹；
   // 40037 已打过 → 关层刷新（数据以服务端为准）。成功后首次「开始打卡」（含代他人打卡）自动弹该成员费用层
   async onCkConfirm() {
     if (this.data.ckSaving) return;
+    wx.hideKeyboard(); // 确认打卡前收起 hold-keyboard 残留键盘
     const { ckEntryId, ckMemberId, ckMemberName, ckSeq, ckAction, ckRemarks } = this.data;
     let { ckPosition, ckLng, ckLat, ckCityCode, ckCityName } = this.data;
     this.setData({ ckSaving: true });
@@ -2021,11 +2026,13 @@ Page({
   },
 
   onPatrolCancel() {
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ patrolVisible: false, keyboardHeight: 0 });
   },
 
   onPatrolVisibleChange(e) {
     if (!e.detail.visible && this.data.patrolVisible) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
       this.setData({ patrolVisible: false, keyboardHeight: 0 });
     }
   },
@@ -2033,6 +2040,7 @@ Page({
   // 保存巡视内容：PUT 全量字段（车牌/目的地/用车人取保存时卡片最新值，仅替换巡视内容），失败留弹层可重试
   async onPatrolSave() {
     if (this.data.patrolSaving) return;
+    wx.hideKeyboard(); // 保存前收起 hold-keyboard 残留键盘
     const entry = this.data.list.find((x) => x.id === this.data.patrolEntryId);
     if (!entry) {
       this.toast('日志不存在或已被删除');
@@ -2096,11 +2104,13 @@ Page({
   },
 
   onRmkCancel() {
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ rmkVisible: false, keyboardHeight: 0 });
   },
 
   onRmkVisibleChange(e) {
     if (!e.detail.visible && this.data.rmkVisible) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
       this.setData({ rmkVisible: false, keyboardHeight: 0 });
     }
   },
@@ -2187,6 +2197,7 @@ Page({
   // 保存：新附件逐个 wx.uploadFile 传 COS → PUT 全量字段（派车/目的地/用车人取卡片最新值）+ 备注
   async onRmkSave() {
     if (this.data.rmkSaving) return;
+    wx.hideKeyboard(); // 保存前收起 hold-keyboard 残留键盘
     const entry = this.data.list.find((x) => x.id === this.data.rmkEntryId);
     if (!entry) {
       this.toast('日志不存在或已被删除');
@@ -2307,7 +2318,7 @@ Page({
     return used;
   },
 
-  // 添加照片：先弹二选一（①选择水印照片上传 ②拍摄/选择照片并添加水印），再进人名点亮层
+  // 添加照片：先弹三选（①选择水印照片上传 ②拍摄/选择照片并添加水印 ③非水印照片直传），再进人名点亮层
   onAddPhoto(e) {
     const { entryId } = e.currentTarget.dataset;
     const entry = this.data.list.find((x) => x.id === entryId);
@@ -2483,11 +2494,12 @@ Page({
 
   // ---------- 「选择照片并添加水印」：选片 →（按需 4:3 裁剪）→ 编辑字段 → 服务端加水印上传 ----------
 
-  // 按来源取图（拍摄/相册）后判定是否进 4:3 裁剪层（不限 sizeType：原图/压缩图均可，由用户选）
+  // 按来源取图（拍摄/相册）后判定是否进 4:3 裁剪层（sizeType 锁定原图，不允许压缩上传）
   choosePhotoForWm(names) {
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
+      sizeType: ['original'],
       sourceType: [this.data.wmSourceType === 'camera' ? 'camera' : 'album'],
       success: (res) => {
         const path = res.tempFiles[0].tempFilePath;
@@ -2792,11 +2804,15 @@ Page({
   },
 
   onWmCancel() {
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ wmVisible: false });
   },
 
   onWmVisibleChange(e) {
-    if (!e.detail.visible) this.setData({ wmVisible: false });
+    if (!e.detail.visible) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
+      this.setData({ wmVisible: false });
+    }
   },
 
   // ---------- 选择杆塔坐标（有/无历史预填场景均可进入） ----------
@@ -2878,6 +2894,7 @@ Page({
 
   // 选中上级后清空下级并自动展开下一级选项
   onPickLevel(e) {
+    wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
     const v = e.currentTarget.dataset.v;
     if (v === this.data.towerLevel) {
       this.setData({ towerOpen: '' });
@@ -2919,6 +2936,7 @@ Page({
   },
 
   onPickLine(e) {
+    wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
     const v = e.currentTarget.dataset.v;
     if (v === this.data.towerLine) {
       this.setData({ towerOpen: '' });
@@ -2953,6 +2971,7 @@ Page({
   },
 
   onPickTower(e) {
+    wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
     const t = this.data.towerTowers[e.currentTarget.dataset.i];
     if (!t) return;
     this.setData({ towerTower: t, towerTowerKw: t.no, towerOpen: '' });
@@ -2969,6 +2988,7 @@ Page({
   onTowerConfirm() {
     const t = this.data.towerTower;
     if (!t) return;
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     if (this._towerFor === 'ck') {
       this._towerFor = 'wm';
       const lng = t.lng.toFixed(6);
@@ -3027,11 +3047,15 @@ Page({
   },
 
   onTowerCancel() {
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ towerVisible: false });
   },
 
   onTowerVisibleChange(e) {
-    if (!e.detail.visible) this.setData({ towerVisible: false });
+    if (!e.detail.visible) {
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
+      this.setData({ towerVisible: false });
+    }
   },
 
   // 经纬度补方向后缀：只填数字时自动补 °E/°N（已带符号则原样）
@@ -3044,6 +3068,7 @@ Page({
   // 确认：取 EXIF 方向 → 原图 base64 → 连同字段上传（服务端加水印）
   onWmConfirm() {
     if (this.data.wmUploading) return;
+    wx.hideKeyboard(); // 确认前收起 hold-keyboard 残留键盘
     this.setData({ wmUploading: true });
     wx.getImageInfo({
       src: this.data.wmPhotoPath,
@@ -3080,10 +3105,12 @@ Page({
   },
 
   // 相册选片 → base64 → 上传（沿用 Call Me 聊天图片先例）；plain=true 为非水印直传
+  // sizeType 锁定原图：水印/非水印照片均不允许压缩上传
   chooseAndUpload(names, plain) {
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
+      sizeType: ['original'],
       sourceType: ['album'],
       success: (res) => {
         const path = res.tempFiles[0].tempFilePath;

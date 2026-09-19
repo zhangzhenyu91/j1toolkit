@@ -218,7 +218,7 @@
   /* ===== 刷题练习 · 右卡题库主页（统计行 + 四宫格入口） ===== */
   .bh-stats { display: flex; padding: 15px 0; border: 1px solid var(--hair); border-radius: 10px; }
   .bh-stats .cell { flex: 1; text-align: center; position: relative; }
-  .bh-stats .cell + .cell::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 1px; background: var(--hair2); }
+  .bh-stats .cell + .cell::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 1px; background: var(--hair); }
   .bh-stats b { font-size: 20px; font-weight: 800; }
   .bh-stats b em { font-style: normal; color: var(--orange); }
   .bh-stats span { display: block; margin-top: 4px; font-size: 10.5px; color: var(--sub); letter-spacing: 1px; }
@@ -286,9 +286,9 @@
   .pv-ana-edit svg { width: 14px; height: 14px; }
   .pv-ana-text { width: 100%; min-height: 150px; resize: vertical; line-height: 1.7; }
   /* 底栏：收藏 / 对错计数 / 答题卡 / 设置 + 主按钮 */
-  .pv-foot { flex: none; display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--hair2); }
+  .pv-foot { flex: none; display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--hair); }
   .pv-chipbtn {
-    display: inline-flex; align-items: center; gap: 5px; background: var(--paper); border: 1px solid var(--hair2);
+    display: inline-flex; align-items: center; gap: 5px; background: var(--paper); border: 1px solid var(--hair);
     border-radius: 16px; padding: 5px 12px; font-size: 11.5px; color: var(--sub); font-weight: 600; cursor: pointer;
     transition: color .2s, border-color .2s; font-family: inherit;
   }
