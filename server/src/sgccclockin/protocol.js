@@ -11,6 +11,7 @@
 //   （server/public/sgcc-captcha.html，appId 取自当日抓包）采集后随登录接口上送。
 const crypto = require('crypto');
 const https = require('https');
+const net = require('net');
 const { sm2 } = require('sm-crypto');
 const config = require('../config');
 
@@ -132,6 +133,37 @@ function post(host, path, headers, body) {
     req.setTimeout(20000, () => req.destroy(new Error('timeout')));
     req.write(body);
     req.end();
+  });
+}
+
+// 出口代理健康探测：仅对代理端口做 TCP 建连（不向商旅主机发送任何请求，避免给商旅侧添噪音流量/风控压力）。
+// 能建连即判代理服务存活；连接被拒/超时/地址无效判异常——覆盖代理进程宕机（ECONNREFUSED）这类主故障；
+// 不验证代理→商旅的完整链路（代理活着但上游/认证异常时仍由业务调用报错体现）。
+// 未配置代理时探测无意义，直接判正常（skipped）。永不 reject：{ ok, error?, skipped? }
+function probeProxy() {
+  return new Promise((resolve) => {
+    const raw = config.sgcc && config.sgcc.proxyUrl;
+    if (!raw) return resolve({ ok: true, skipped: true });
+    let u;
+    try {
+      u = new URL(raw);
+    } catch (e) {
+      return resolve({ ok: false, error: `代理地址无效：${e.message}` });
+    }
+    const host = u.hostname.replace(/^\[|\]$/g, ''); // IPv6 字面量去方括号
+    const port = Number(u.port) || 1080; // SOCKS 默认端口
+    const sock = net.connect({ host, port, timeout: 5000 }, () => {
+      sock.end();
+      resolve({ ok: true });
+    });
+    sock.on('error', (e) => {
+      sock.destroy();
+      resolve({ ok: false, error: e.message });
+    });
+    sock.on('timeout', () => {
+      sock.destroy();
+      resolve({ ok: false, error: 'timeout' });
+    });
   });
 }
 
@@ -342,5 +374,5 @@ async function reimbEnclosureAdd(token, { imgBase64Str, fileName, fileSize, ext 
 
 module.exports = {
   loginCaptcha, loginSendSmsV2, loginSendSms, loginBySms, loginByPasswordV3, loginByPassword,
-  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, reimbEnclosureAdd,
+  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, reimbEnclosureAdd, probeProxy,
 };

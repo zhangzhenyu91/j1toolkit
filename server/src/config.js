@@ -133,6 +133,9 @@ const config = {
     // 用途：云服务器 IP 属地被商旅风控（图形码 99000 窗口），经家中宽带出口对齐打卡人实际属地；
     // 仅作用于 protocol.js 的 API 调用（小 JSON），照片类大流量下载不走代理
     proxyUrl: str('SGCC_PROXY_URL'),
+    // 出口代理健康探测间隔（毫秒，默认 300000=5 分钟；仅配置 SGCC_PROXY_URL 时启用）：
+    // 定时经代理轻量探测商旅主机，正常↔异常 跳变时通知超管（站内+微信）
+    proxyProbeIntervalMs: parseInt(str('SGCC_PROXY_PROBE_INTERVAL_MS', '300000'), 10) || 300000,
   },
 };
 

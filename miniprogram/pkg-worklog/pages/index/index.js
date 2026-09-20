@@ -1399,7 +1399,7 @@ Page({
   // ---------- 商旅打卡 · 从商旅同步（卡片操作区入口，替代原悬浮钮「同步核查」） ----------
 
   // 轮询同步任务进度（1.5s 间隔；任务不存在 / 过期按完成收尾；连续网络失败超 20 次放弃轮询，数据随下次刷新呈现）。
-  // onTick(pct) 逐次回调，正常完成时先补 100 再 resolve
+  // onTick(pct) 逐次回调，正常完成时先补 100 再 resolve；resolve 值 = 任务终态（含 failed/failMsg 供收尾区分成败，放弃轮询为 null）
   pollSyncJob(jobId, onTick) {
     return new Promise((resolve) => {
       let fails = 0;
@@ -1415,7 +1415,7 @@ Page({
             return;
           }
           delete this._jobTimers[jobId];
-          resolve(); // 放弃轮询按完成收尾（不补 100，保留当前进度字样直至遮罩关闭）
+          resolve(null); // 放弃轮询按完成收尾（不补 100，保留当前进度字样直至遮罩关闭）
           return;
         }
         fails = 0;
@@ -1426,7 +1426,7 @@ Page({
         }
         delete this._jobTimers[jobId];
         onTick(100);
-        resolve();
+        resolve(p);
       };
       tick();
     });
@@ -1436,14 +1436,18 @@ Page({
   async startCardSync(entryId, jobId, date) {
     this._syncJobs[entryId] = { jobId, pct: 0 };
     this.patchCardSync(entryId, 0, true);
-    await this.pollSyncJob(jobId, (pct) => {
+    const fin = await this.pollSyncJob(jobId, (pct) => {
       if (this._syncJobs[entryId]) this._syncJobs[entryId].pct = pct;
       this.patchCardSync(entryId, pct, true);
     });
     delete this._syncJobs[entryId];
     this.patchCardSync(entryId, 0, false); // 清标志（缓存内旧对象一并复位，完成态由 loadLogs 重拉呈现）
     if (date) delete this._dayLists[this.dayKey(date)]; // 该日缓存已过时（切日窗格重建时强制重拉）
-    this.toast('本卡已从商旅同步');
+    // 任务终态区分 全部成功 / 部分失败 / 整体失败（failed ≥ total；failMsg 为服务端友好口径；fin=null 为放弃轮询按原口径）
+    const failed = fin && Number(fin.failed) > 0 ? Number(fin.failed) : 0;
+    if (failed && failed >= Number(fin.total || 0)) this.toast(`本卡同步失败：${fin.failMsg || '请稍后重试'}`);
+    else if (failed) this.toast(`本卡已同步，${failed} 人失败（详见核查记录）`);
+    else this.toast('本卡已从商旅同步');
     this.loadLogs();
   },
 
@@ -3735,10 +3739,14 @@ Page({
         this._lockTimer = setTimeout(tick, 1500);
         return;
       }
-      // 完成（或连续失败兜底）：解锁并刷新
+      // 完成（或连续失败兜底）：解锁并刷新；batchDone = 近 2 分钟内完成的任务终态（区分 全部成功 / 部分失败 / 整体失败）
       this._lockTimer = null;
       this.setData({ sgSyncVisible: false, sgSyncPct: 100 });
-      this.toast('从商旅同步完成');
+      const bd = p && p.batchDone;
+      const failed = bd && Number(bd.failed) > 0 ? Number(bd.failed) : 0;
+      if (failed && failed >= Number(bd.total || 0)) this.toast(`从商旅同步失败：${bd.failMsg || '请稍后重试'}`);
+      else if (failed) this.toast(`从商旅同步完成，${failed} 人失败（详见核查记录）`);
+      else this.toast('从商旅同步完成');
       this.loadLogs();
       if (this.data.rpVisible) this.loadReport();
       if (this.data.bsVisible) this.loadBsLogs();

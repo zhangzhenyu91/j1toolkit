@@ -131,6 +131,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SGCC_ENDCLOCK_REMIND_TIME` | 结束打卡未打傍晚提醒时间（HH:mm，默认 `18:00`；提醒前先对当日卡上成员做打卡同步再判定，同步失败转人工核查通知；仅发微信提醒：本人 + 班组群，不写站内通知） |
 | `SGCC_SYNC_INTERVAL_MS` | 商旅打卡批量拉取成员间隔（毫秒，防风控，默认 `1500`） |
 | `SGCC_PROXY_URL` | 商旅 API 出口 SOCKS5 代理（留空=直连）：`socks5h://用户名:密码@主机:端口`（socks5h=远端 DNS，推荐）。机房 IP 易触发风控 99000 窗口时，经目标属地宽带出口对齐打卡人位置；仅作用于商旅 API 小 JSON 调用，照片下载不走代理；代理不可用即报错，不静默降级直连（见 开发指南.md 15.1） |
+| `SGCC_PROXY_PROBE_INTERVAL_MS` | 出口代理健康探测间隔（毫秒，默认 `300000`=5 分钟；仅配置 `SGCC_PROXY_URL` 时启用）：定时对代理端口做 TCP 建连探测（不向商旅主机发请求），正常↔异常 跳变时通知超管（站内+微信） |
 | `WORKLOG_DISPATCH_SYNC_ENABLED` | 派车单每日自动同步开关：`true` 开启（每日定时取回被控机导出派车单自动建卡），`false` 关闭；需先开启出工日志与 KVM |
 | `WORKLOG_DISPATCH_SYNC_TEAM` | 同步生效班组名（仅该班组启用，目前仅检修一班） |
 | `WORKLOG_DISPATCH_DEVICE_DDNS` / `WORKLOG_DISPATCH_DEVICE_MAC` | 目标 KVM 设备定位（ddns）与 MAC 校验（防误操作他机） |

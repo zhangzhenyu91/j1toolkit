@@ -4541,7 +4541,11 @@ async function pollCardSync(entryId) {
       updateOpLocks();
     } else if (st) {
       delete photoOps[entryId];
-      Shade.toast('本卡已从商旅同步', 'success');
+      // 任务终态区分 全部成功 / 部分失败 / 整体失败（failed ≥ total；failMsg 为服务端友好口径）
+      var failed = Number(st.failed) > 0 ? Number(st.failed) : 0;
+      if (failed && failed >= Number(st.total || 0)) Shade.toast('本卡同步失败：' + (st.failMsg || '请稍后重试'), 'error');
+      else if (failed) Shade.toast('本卡已同步，' + failed + ' 人失败（详见核查记录）', 'error');
+      else Shade.toast('本卡已从商旅同步', 'success');
       loadLogs({ quiet: true });
       return;
     } else if (fails > 20) {
@@ -4917,7 +4921,12 @@ async function pollSyncLock() {
   }
   slLocking = false;
   $('#syncLock').hidden = true;
-  Shade.toast('从商旅同步完成', 'success');
+  // batchDone = 近 2 分钟内完成的任务终态（区分 全部成功 / 部分失败 / 整体失败；p=null 为连续失败兜底按原口径）
+  var bd = p && p.batchDone;
+  var failed = bd && Number(bd.failed) > 0 ? Number(bd.failed) : 0;
+  if (failed && failed >= Number(bd.total || 0)) Shade.toast('从商旅同步失败：' + (bd.failMsg || '请稍后重试'), 'error');
+  else if (failed) Shade.toast('从商旅同步完成，' + failed + ' 人失败（详见核查记录）', 'error');
+  else Shade.toast('从商旅同步完成', 'success');
   loadLogs({ quiet: true });
   if (state.pane === 'Rep') loadReport();
 }

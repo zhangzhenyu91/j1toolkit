@@ -1519,18 +1519,30 @@ async function syncOne(account, date, scope, ctx = null) {
     [ctxTeamId, ctxMemberId, date, scope, type, result, String(detail).slice(0, 500)]
   );
 
-  if (!await syncClockinPart(account, date, log, ctxTeamId, ctxMemberId)) return;
+  // 分段对账：任一段异常记对应类型 fail 行后原样上抛（核查记录据此留失败明细；登录失效属正常中止，
+  // syncClockinPart 内已记 auth 行并返回 false，不进异常路径）
+  const runStage = async (type, label, fn) => {
+    try {
+      return await fn();
+    } catch (err) {
+      await log(type, 'fail', `${label}异常：${String(err.message).slice(0, 200)}`).catch(() => {});
+      throw err;
+    }
+  };
+
+  if (!await runStage('clockin', '打卡对账', () => syncClockinPart(account, date, log, ctxTeamId, ctxMemberId))) return;
 
   // 费用对账：以商旅为准回写本地摘要（含成本分配；城市参数补全取模板，缺省模板可能不带默认成本中心）
-  const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(ctxMemberId, date), devOpt(account));
-  const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
-  if (tpl) {
+  const tpl = await runStage('fee', '费用对账', async () => {
+    const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(ctxMemberId, date), devOpt(account));
+    const t = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
+    if (!t) return null;
     let food = 0; let transit = 0;
-    const comp10 = (tpl.dtComponentList || []).find((c) => c.id === 10);
+    const comp10 = (t.dtComponentList || []).find((c) => c.id === 10);
     if (comp10 && comp10.value) {
       try { const v = JSON.parse(comp10.value); food = Number(v.foodFee) || 0; transit = Number(v.arrive) || 0; } catch (e) { /* 忽略 */ }
     }
-    const cc = extractCostCenter(tpl);
+    const cc = extractCostCenter(t);
     const [old] = await pool.query(
       'SELECT food_fee, transit_fee, cost_center_code FROM worklog_fee WHERE member_id = ? AND fee_date = ?',
       [ctxMemberId, date]
@@ -1546,7 +1558,8 @@ async function syncOne(account, date, scope, ctx = null) {
     );
     await log('fee', changed ? 'diff' : 'ok',
       `费用：伙食 ${food} / 交通 ${transit} / 成本中心 ${cc.code || '无'}${changed ? '，已按商旅覆盖' : '，一致'}`);
-  }
+    return t;
+  });
 
   // 费用照片双向对账（以商旅为准）：数据源为费用模板 id=5「上传图片」组件 value（复用费用对账已取的 tpl）
   // 形状守卫：value 不是 JSON 数组（或组件缺失）时跳过对账并留诊断，防止误判「商旅无照片」把本地同步照片删光
@@ -1565,7 +1578,7 @@ async function syncOne(account, date, scope, ctx = null) {
     }
     if (imgs) {
       console.log(`[商旅打卡] 费用照片对账（成员 ${ctxMemberId} ${date}）：远端 ${imgs.length} 张${imgs[0] ? `，样例键 ${Object.keys(imgs[0]).join('/')}` : ''}`);
-      await syncFeePhotos(account, date, imgs, log, { teamId: ctxTeamId, memberId: ctxMemberId });
+      await runStage('photo', '费用照片对账', () => syncFeePhotos(account, date, imgs, log, { teamId: ctxTeamId, memberId: ctxMemberId }));
     } else {
       console.error(`[商旅打卡] 费用照片对账跳过（成员 ${ctxMemberId} ${date}）：comp5 ${comp5 ? `value 原文 ${String(comp5.value).slice(0, 300)}` : '缺失'}`);
       await log('photo', 'fail', `费用照片：上传图片组件形态异常，已跳过对账（详见服务端日志）`);
@@ -1576,7 +1589,7 @@ async function syncOne(account, date, scope, ctx = null) {
 // 整班单日核查（卡片驱动：当日卡上有人即同步——人已调班也经人级解析找到其账号，不论账号现属哪个班；
 // 非卡上成员跳过可省一轮商旅 API，也避免照片对账记「成员当日无出工记录」噪音日志）
 // onlyMemberIds 传入时仅同步这些成员（卡片级「从商旅同步」：仅本卡用车人）；缺省为当日卡上成员中的全部绑定成员
-// onStep：每处理完一名成员回调一次（手动拉取与每日定时核查的进度登记用）
+// onStep：每处理完一名成员回调一次（手动拉取与每日定时核查的进度登记用）；失败步回调带 errMsg，供任务终态累计 failed/failMsg
 async function syncTeamDay(teamId, date, scope, onlyMemberIds, onStep) {
   // 人级解析：直连优先（ORDER BY + JS 按卡上成员去重取首条），user_id 兜底覆盖调班重名回退路径的旧成员行
   let rows;
@@ -1606,10 +1619,12 @@ async function syncTeamDay(teamId, date, scope, onlyMemberIds, onStep) {
     seen.add(account.card_member_id);
     try {
       await syncOne(account, date, scope, { teamId, memberId: account.card_member_id });
+      if (typeof onStep === 'function') onStep();
     } catch (err) {
+      // 成败均计一步：失败步带原因供任务终态汇总（失败明细见核查记录，由 syncOne 分段落 fail 行）
       console.error(`[商旅打卡] 核查失败（成员 ${account.card_member_id} ${date}）：`, err.message);
+      if (typeof onStep === 'function') onStep(err.message);
     }
-    if (typeof onStep === 'function') onStep(); // 成败均计一步（失败明细见核查记录）
     // 成员间间隔，防商旅侧风控（SGCC_SYNC_INTERVAL_MS，默认 1500ms）
     await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
   }
@@ -1774,7 +1789,7 @@ router.get('/op/status', async (req, res, next) => {
 // ---------- 手动拉取 / 每日核查进度（进程内存登记；重启即清零仅作进度展示） ----------
 // kind：batch=区段批量拉取（进行中锁定出工日志子应用，端侧轮询 /sync/active 出全页进度条）；
 //       card=卡片级同步（仅本卡进度条）；daily=每日定时核查（当日记录卡片挂进度条且不可操作）
-const syncJobs = new Map(); // jobId → { teamId, kind, date, total, done, finished, at }
+const syncJobs = new Map(); // jobId → { teamId, kind, date, total, done, failed, failMsg, finished, at }
 const SYNC_JOB_TTL = 30 * 60 * 1000; // 任务保留 30 分钟供端侧收尾查询，新建任务时顺手清理过期任务
 
 function newSyncJob(teamId, total, kind, date) {
@@ -1782,7 +1797,7 @@ function newSyncJob(teamId, total, kind, date) {
     if (Date.now() - j.at > SYNC_JOB_TTL) syncJobs.delete(k);
   }
   const id = `${teamId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  syncJobs.set(id, { teamId, kind: kind || 'batch', date: date || '', total, done: 0, finished: total <= 0, at: Date.now() }); // 无可同步成员 = 即刻完成
+  syncJobs.set(id, { teamId, kind: kind || 'batch', date: date || '', total, done: 0, failed: 0, failMsg: '', finished: total <= 0, at: Date.now() }); // 无可同步成员 = 即刻完成
   return id;
 }
 
@@ -1795,10 +1810,44 @@ function activeJob(teamId, kind) {
   return hit;
 }
 
-function stepSyncJob(id) {
+// 近 withinMs 内完成的同类任务（端侧收尾据此区分 全部成功 / 部分失败 / 整体失败；仅完成后短时间窗口内回报）
+function recentFinishedJob(teamId, kind, withinMs) {
+  let hit = null;
+  const now = Date.now();
+  for (const j of syncJobs.values()) {
+    if (j.teamId === teamId && j.kind === kind && j.finished && now - j.at <= withinMs && (!hit || j.at > hit.at)) hit = j;
+  }
+  return hit;
+}
+
+// 失败提示友好口径：网络/代理类报文归一（原始报文落核查记录 detail，端侧 toast 用本口径）
+function syncFailText(msg) {
+  const m = String(msg || '');
+  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|socket hang up|timed?\s*out/i.test(m)) {
+    return '网络/代理异常，无法连接商旅平台';
+  }
+  return m.slice(0, 60);
+}
+
+// errMsg 传入表示该成员步失败：累计失败数并留存首条失败提示（友好口径，原始报文见核查记录）
+function stepSyncJob(id, errMsg) {
   const j = syncJobs.get(id);
   if (j) {
     j.done += 1;
+    if (errMsg) {
+      j.failed += 1;
+      if (!j.failMsg) j.failMsg = syncFailText(errMsg);
+    }
+    j.at = Date.now();
+  }
+}
+
+// 循环级异常中止（成员步未跑完，如任务内库查询失败）：按未跑步数计失败，端侧收尾提示失败而非「同步完成」
+function abortSyncJob(id, errMsg) {
+  const j = syncJobs.get(id);
+  if (j) {
+    j.failed = Math.max(j.failed, j.total - j.done, 1);
+    if (!j.failMsg) j.failMsg = syncFailText(errMsg);
     j.at = Date.now();
   }
 }
@@ -1898,10 +1947,13 @@ router.post('/sync/pull', async (req, res, next) => {
     (async () => {
       for (let i = 0; i < days; i += 1) {
         const d = new Date(fromMs + i * DAY_MS).toISOString().slice(0, 10);
-        await syncTeamDay(req.team.id, d, 'daily', onlyMemberIds || undefined, () => stepSyncJob(jobId));
+        await syncTeamDay(req.team.id, d, 'daily', onlyMemberIds || undefined, (errMsg) => stepSyncJob(jobId, errMsg));
       }
     })()
-      .catch((err) => console.error('[商旅打卡] 手动拉取失败：', err.message))
+      .catch((err) => {
+        console.error('[商旅打卡] 手动拉取失败：', err.message);
+        abortSyncJob(jobId, err.message);
+      })
       .finally(() => finishSyncJob(jobId));
     // 响应文案口径：M月D日（不补零）
     const md = (s) => `${Number(s.slice(5, 7))}月${Number(s.slice(8, 10))}日`;
@@ -1912,24 +1964,27 @@ router.post('/sync/pull', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-// GET /sync/progress?job_id=xxx：手动拉取进度轮询（仅本班组任务可查；任务不存在 / 已过期按已完成回，端侧据此收尾）
+// GET /sync/progress?job_id=xxx：手动拉取进度轮询（仅本班组任务可查；任务不存在 / 已过期按已完成回，端侧据此收尾）。
+// failed/failMsg：已失败成员步数与首条失败提示（友好口径），端侧收尾据 failed 区分 全部成功 / 部分失败 / 整体失败
 router.get('/sync/progress', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const j = syncJobs.get(String(req.query.job_id || ''));
     if (!j || j.teamId !== req.team.id) return ok(res, { total: 0, done: 0, finished: true });
-    return ok(res, { total: j.total, done: j.done, finished: j.finished });
+    return ok(res, { total: j.total, done: j.done, finished: j.finished, failed: j.failed || 0, failMsg: j.failMsg || '' });
   } catch (err) { return next(err); }
 });
 
 // GET /sync/active：本班组同步进行态。batch = 区段批量拉取（出工日志子应用全局锁：任何端任何人进入时据此出进度遮罩，完成后解锁）；
 // daily = 每日定时核查（仅当日本班：当日记录卡片挂进度条且不可操作，完成后解锁）；
-// ops = 本班组进行中的照片单操作任务（上传/删除/改人名/resync：对应记录卡片挂进度条且整卡锁定，旁观者据此挂条）
+// ops = 本班组进行中的照片单操作任务（上传/删除/改人名/resync：对应记录卡片挂进度条且整卡锁定，旁观者据此挂条）；
+// batchDone = 近 2 分钟内完成的批量任务终态（total/done/failed/failMsg），锁内轮询收尾据此区分 全部成功 / 部分失败 / 整体失败
 router.get('/sync/active', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const b = activeJob(req.team.id, 'batch');
     const d = activeJob(req.team.id, 'daily');
+    const rb = recentFinishedJob(req.team.id, 'batch', 2 * 60 * 1000);
     const dailyToday = d && d.date === today() ? d : null; // 仅当日核查参与卡片锁定
     const ops = [];
     for (const [opId, v] of photoOps) {
@@ -1941,6 +1996,8 @@ router.get('/sync/active', async (req, res, next) => {
       running: !!b,
       total: b ? b.total : 0,
       done: b ? b.done : 0,
+      failed: b ? b.failed : 0,
+      batchDone: rb ? { total: rb.total, done: rb.done, failed: rb.failed, failMsg: rb.failMsg } : null,
       daily: dailyToday ? { running: true, total: dailyToday.total, done: dailyToday.done } : { running: false },
       ops,
     });
@@ -2044,7 +2101,7 @@ async function notifyMissingEndClockin(teamId, date) {
   if (!res.ok) console.warn(`[商旅打卡] 结束打卡未打群通知未发送（班组 ${teamId}）：${res.reason || res.error}`);
 }
 
-// 每日核查结果日报：每班一封，按人投放 超管 + 本班班组管理员（每日都发，含全部正常）。
+// 每日核查结果日报：每班一封，仅发超管（运维向日报，班组管理员不抄送；每日都发，含全部正常）。
 // 仅统计当次核查新产生的记录（afterId 分界，排除当日早些时候手动拉取的流水）；
 // 汇总 一致/有差异已回写/失败 项数，失败项逐条全量列出
 async function notifyDailySyncResult(teamId, date, afterId) {
@@ -2077,19 +2134,17 @@ async function notifyDailySyncResult(teamId, date, afterId) {
       });
     }
   }
+  // 仅发超管：站内按人投放 + 微信超管个人 wxid（不发班组群）
   const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
-  const [teamAdmins] = await pool.query(
-    "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id = ? AND status = 1", [teamId]
-  );
-  const userIds = [...new Set([...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)])];
+  const userIds = admins.map((a) => a.id);
   if (!userIds.length) return;
-  // 微信推送：该班组群
   await require('../notice').push({
     userIds,
     targets: [],
     title: `商旅每日核查完成（${teamName}）`,
     content: lines.join('\n'),
-    wxTeamIds: [teamId],
+    wxUserIds: userIds,
+    wxTeamIds: [],
   });
 }
 
@@ -2129,7 +2184,7 @@ function scheduleDaily() {
         );
         const jobId = newSyncJob(t.team_id, c[0].cnt, 'daily', today());
         try {
-          await syncTeamDay(t.team_id, today(), 'daily', undefined, () => stepSyncJob(jobId));
+          await syncTeamDay(t.team_id, today(), 'daily', undefined, (errMsg) => stepSyncJob(jobId, errMsg));
         } finally {
           finishSyncJob(jobId);
         }
@@ -2174,6 +2229,55 @@ function scheduleDaily() {
   console.log(`[商旅打卡] 每日核查已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
 }
 scheduleDaily();
+
+// ---------- 出口代理健康探测（配置 SGCC_PROXY_URL 时启用）----------
+// 定时探测代理端口可达性（protocol.probeProxy，TCP 建连，不向商旅主机发请求），仅在 正常↔异常 跳变时通知超管（异常一次、恢复一次，不刷屏）。
+// 代理中断期间打卡/费用/照片同步将全员失败（成员步落 fail 行、任务按整体失败收尾），
+// 及时通知可争取在 23:00 每日核查前修复；探测间隔 SGCC_PROXY_PROBE_INTERVAL_MS（默认 5 分钟）。
+let proxyDown = false; // 当前探测状态（false=正常/尚未探测过）
+async function probeProxyTick() {
+  let r;
+  try {
+    r = await sgcc.probeProxy();
+  } catch (err) {
+    r = { ok: false, error: err.message };
+  }
+  if (!r.ok && !proxyDown) {
+    proxyDown = true;
+    console.error(`[商旅打卡] 出口代理探测异常：${r.error}`);
+    notifyProxyState(r.error).catch((err) => console.error('[商旅打卡] 代理异常通知发送失败：', err.message));
+  } else if (r.ok && proxyDown) {
+    proxyDown = false;
+    console.log('[商旅打卡] 出口代理探测恢复正常');
+    notifyProxyState('', true).catch((err) => console.error('[商旅打卡] 代理恢复通知发送失败：', err.message));
+  }
+}
+
+// 代理状态通知：按人投放全部超管（站内 + 微信个人 wxid 双侧，同核查类系统通知口径；代理地址脱敏）
+async function notifyProxyState(error, recovered = false) {
+  const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
+  const userIds = admins.map((a) => a.id);
+  if (!userIds.length) return;
+  const masked = String(config.sgcc.proxyUrl || '').replace(/\/\/[^@]*@/, '//***@');
+  await require('../notice').push({
+    userIds,
+    targets: [],
+    title: recovered ? '商旅出口代理已恢复' : '商旅出口代理异常',
+    content: recovered
+      ? `商旅 API 出口代理（${masked}）探测已恢复正常，打卡/费用/照片同步可正常进行。`
+      : `商旅 API 出口代理（${masked}）探测失败：${String(error).slice(0, 200)}。代理中断期间打卡/费用/照片同步将全员失败，请尽快检查代理服务与出口网络（SGCC_PROXY_URL）。`,
+    wxUserIds: userIds,
+    wxTeamIds: [],
+  });
+}
+
+// 仅配置代理时启动探测（直连部署无代理可探）：启动即探一次，后按间隔轮询
+if (config.sgcc.proxyUrl) {
+  const proxyProbeTimer = setInterval(probeProxyTick, config.sgcc.proxyProbeIntervalMs);
+  proxyProbeTimer.unref(); // 不阻塞进程退出（与每日核查排程同口径）
+  probeProxyTick();
+  console.log(`[商旅打卡] 出口代理健康探测已启用：间隔 ${Math.round(config.sgcc.proxyProbeIntervalMs / 1000)}s`);
+}
 
 // 结束打卡傍晚提醒：每日 SGCC_ENDCLOCK_REMIND_TIME（默认 18:00）对「当日已开始打卡但结束卡未打」的成员
 // 提前提醒（23:00 每日核查前给本人留补打时间）；仅发微信（本人个人 wxid 按人 + 打卡班组群每班合并一条，群内@缺卡成员），不写站内通知。
