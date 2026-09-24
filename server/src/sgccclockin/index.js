@@ -87,7 +87,8 @@ function devOpt(account) {
 
 // 登录态探测：dayNew 调通即有效；失效则标记 token_status=0（照片选人层据此置灰）。
 // 由有效探测为失效时自动通知本人与超管（见 16.3）：仅 1→0 跳变通知一次，
-// token_status 已是 0 的后续探测不重复通知；通知发送失败不影响业务流（fire-and-forget）
+// token_status 已是 0 的后续探测不重复通知；通知发送失败不影响业务流（fire-and-forget）；
+// 1→0 跳变同时落两行日志：平台应答原文（判定失效的依据，定位「新 token 被平台拒」关键证据）+ 标记过期记录
 // 注意区分网络/代理异常：请求未到达商旅（代理不可达、超时等）不代表 token 失效——
 // 一次断网抖动若据此标 0 会全员误标过期并群发误报；此时不改 token_status，按原状态返回
 async function probeAuth(account) {
@@ -95,6 +96,10 @@ async function probeAuth(account) {
   try {
     const d = await sgcc.dayNew(account.token, today(), devOpt(account));
     valid = !!(d && Number(d.statusCode) === 200);
+    // 1→0 跳变时落平台应答原文（「新 token 被平台拒」类问题的关键证据；已是 0 的重复探测不打，避免刷屏）
+    if (!valid && Number(account.token_status) === 1) {
+      console.warn(`[商旅打卡] 登录态探测判失效（成员 ${account.member_id}），平台应答：${JSON.stringify(d || null).slice(0, 300)}`);
+    }
   } catch (e) {
     console.warn(`[商旅打卡] 登录态探测网络异常（成员 ${account.member_id}），token_status 保持原值：${e.message}`);
     return Number(account.token_status) === 1;
@@ -105,6 +110,7 @@ async function probeAuth(account) {
   );
   if (!valid && Number(account.token_status) === 1) {
     account.token_status = 0; // 同步内存态，防同一 account 对象被连续探测时重复通知
+    console.warn(`[商旅打卡] 成员 ${account.member_id} 登录态标记过期（token_status 1→0），推送本人与超管`);
     notifyTokenExpired(account).catch((err) => console.error('[商旅打卡] 登录过期通知发送失败：', err.message));
   }
   return valid;
@@ -408,11 +414,18 @@ router.post('/login/bind', async (req, res, next) => {
     if (password && !checkImgCode && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
 
     const risk = { captchaToken: String(captchaToken || ''), constId: String(constId || '') };
-    const { token } = password
-      ? (checkImgCode
-        ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
-        : await sgcc.loginByPassword(String(mobile), String(password), risk))
-      : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk);
+    let token;
+    try {
+      ({ token } = password
+        ? (checkImgCode
+          ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
+          : await sgcc.loginByPassword(String(mobile), String(password), risk))
+        : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk));
+    } catch (e) {
+      // 平台业务失败（如 99001 风控笼统拒绝）：映射友好业务码，前端 toast 平台原文，不落全局 500
+      if (e.status === 400) return fail(res, 400, 40037, e.message);
+      throw e;
+    }
 
     // 认领出工成员：班组内按昵称匹配（与 worklog member-sync 同口径）
     const [members] = await pool.query(
@@ -641,11 +654,18 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
     if (!members.length) return fail(res, 404, 40400, '成员不存在或不属于本班组');
 
     const risk = { captchaToken: String(captchaToken || ''), constId: String(constId || '') };
-    const { token } = password
-      ? (checkImgCode
-        ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
-        : await sgcc.loginByPassword(String(mobile), String(password), risk))
-      : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk);
+    let token;
+    try {
+      ({ token } = password
+        ? (checkImgCode
+          ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
+          : await sgcc.loginByPassword(String(mobile), String(password), risk))
+        : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk));
+    } catch (e) {
+      // 平台业务失败（如 99001 风控笼统拒绝）：映射友好业务码，前端 toast 平台原文，不落全局 500
+      if (e.status === 400) return fail(res, 400, 40037, e.message);
+      throw e;
+    }
 
     // 代绑落库：user_id=NULL（管理员代绑）；不更新 user_id/device 口径——
     // 成员已自绑时只换 token（行仍归本人），设备信息保留原值

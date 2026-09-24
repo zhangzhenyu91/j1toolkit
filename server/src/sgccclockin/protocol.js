@@ -249,6 +249,17 @@ async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType
 
 // ---------- 业务封装 ----------
 
+// 平台业务失败（HTTP 通但平台拒发 token，如 99001「服务丢了」风控笼统拒绝）：抛带 status=400 的友好错误，
+// 由路由层统一映射为业务码 40037（前端 toast 平台原文，不再落全局 500 与 [服务错误] 噪音）；
+// 平台原文截断携带，hint 为可选用户指引（密码通道提示可改短信）；sgccStatus 记录平台业务码备查
+function loginBizError(prefix, decoded, hint) {
+  const msg = String((decoded && (decoded.msg || decoded.message)) || '').slice(0, 50);
+  const err = new Error(msg ? `${prefix}：${msg}${hint ? `（${hint}）` : ''}` : `${prefix}，请稍后重试${hint ? `（${hint}）` : ''}`);
+  err.status = 400;
+  err.sgccStatus = decoded && decoded.statusCode;
+  return err;
+}
+
 // 短信登录双通道（见文件头注释）：
 //   图形码通道（优先，风控平峰可用）：validcodeimg 取图 → sendSmsCode/v2 发短信
 //   滑块通道（降级，顶象）：滑块页采集 captchaToken + constId → sendSmsCode/v3 发短信
@@ -281,7 +292,7 @@ async function loginBySms(mobile, checkCode, { captchaToken, constId } = {}) {
   });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
-  if (!token) throw new Error('短信登录失败：' + JSON.stringify(r.decoded || r.status));
+  if (!token) throw loginBizError('短信登录失败', r.decoded);
   return { token };
 }
 
@@ -294,7 +305,7 @@ async function loginByPasswordV3(mobile, password, checkImgCode) {
   }, { tenant: 'slapp' });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
-  if (!token) throw new Error('密码登录失败：' + JSON.stringify(r.decoded || r.status));
+  if (!token) throw loginBizError('密码登录失败', r.decoded, '可改用短信验证码登录');
   return { token };
 }
 
@@ -305,7 +316,7 @@ async function loginByPassword(mobile, password, { captchaToken, constId } = {})
   }, { tenant: 'slapp' });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
-  if (!token) throw new Error('密码登录失败：' + JSON.stringify(r.decoded || r.status));
+  if (!token) throw loginBizError('密码登录失败', r.decoded, '可改用短信验证码登录');
   return { token };
 }
 
