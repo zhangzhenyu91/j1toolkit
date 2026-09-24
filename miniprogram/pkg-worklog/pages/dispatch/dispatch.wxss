@@ -445,6 +445,19 @@
   background: #fffbf6;
 }
 
+/* 派车单号单行输入（与 .pick-val 同款白底描边圆角） */
+.ono-in {
+  height: 72rpx;
+  padding: 0 20rpx;
+  background: #ffffff;
+  border: 2rpx solid #e3dccb;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+  color: #22314e;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+
 .note {
   margin-top: 8rpx;
   font-size: 20rpx;

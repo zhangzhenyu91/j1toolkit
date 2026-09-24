@@ -1,0 +1,39 @@
+<!-- 出工日志 · 派车汇总（超管 / 班组管理员）：选日期范围 → 生成派车单号清单 Excel（派车单号 + 用车日期两列）并打开 -->
+<navbar back title="派车汇总" />
+
+<view class="page-body" wx:if="{{isAdmin}}">
+  <view class="card">
+    <view class="r-l">
+      <view class="r-t">汇总范围</view>
+      <view class="r-s">范围内已填派车单号的出车卡片一单一行：派车单号 + 用车日期，顺序与工作任务单一致（单次最多 31 天）</view>
+    </view>
+    <view class="range">
+      <text class="range-text">{{from}} ~ {{to}}</text>
+      <view class="range-open" hover-class="hover-opacity" bindtap="onOpenRange">改日期</view>
+    </view>
+    <view class="gen {{!from || !to || generating ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenerate">
+      {{generating ? '正在生成…' : '生成并打开'}}
+    </view>
+  </view>
+
+  <view class="hint">
+    字段口径：列＝派车单号、用车日期（＝卡片日志日期）；数据来自卡片「派车单号」字段——每日同步自动带入，也可点卡片车牌「修改派车」手工补填；仅已填单号的出车卡片出数（同步前日期的历史卡片无此字段）。
+  </view>
+</view>
+
+<!-- 改日期：range 日历（同主页批量下载面板口径；confirm 取 e.detail.value 两个时间戳；min/max 不设置则默认今天起选不了历史日期） -->
+<t-calendar
+  visible="{{calVisible}}"
+  value="{{calValue}}"
+  type="range"
+  allow-same-day
+  switch-mode="month"
+  min-date="{{minDate}}"
+  max-date="{{maxDate}}"
+  title="选择日期范围"
+  confirm-btn="确定选择"
+  bind:confirm="onCalConfirm"
+  bind:close="onCalClose"
+/>
+
+<t-toast id="t-toast" />

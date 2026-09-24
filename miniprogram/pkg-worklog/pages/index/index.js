@@ -237,6 +237,7 @@ Page({
     vehicleText: '',
     destId: 0, // 0 未选择
     destText: '',
+    orderNo: '', // 派车单号（可空；未出车禁用，保存时服务端强制置空）
     isNoVehicle: true,
     formSaving: false, // 保存按钮防连点
     // 面板内联筛选下拉（手风琴互斥：'' 全关 / 'vehicle' / 'dest'）
@@ -756,6 +757,7 @@ Page({
         vehicleId: e.vehicle_id || 0,
         destId: e.destination_id || 0,
         destText: e.destination_name || '', // cross 编辑模式按名称回填
+        orderNo: e.dispatch_order_no || '', // 派车单号回填
         memberIds: (e.members || []).map((m) => m.member_id),
       };
     });
@@ -1725,6 +1727,7 @@ Page({
         isNoVehicle: !(entry && entry.hasVehicle),
         destId: entry && entry.hasVehicle && entry.destText ? 1 : 0, // cross 目的地同按名称
         destText: entry && entry.hasVehicle ? entry.destText : '',
+        orderNo: entry ? entry.orderNo || '' : '',
         members: meta.members.map((m) => ({
           id: m.name, // cross 成员按名称点亮（t-check-tag wx:key 沿用 id 字段）
           name: m.name,
@@ -1745,6 +1748,7 @@ Page({
         vehicleText: '未出车',
         destId: 0,
         destText: '',
+        orderNo: '',
         isNoVehicle: true,
         members: (this._members || []).map((m) => ({ ...m, checked: false, disabled: usedMids.has(m.id) })),
         memberUsedTip: usedMids.size > 0,
@@ -1762,6 +1766,7 @@ Page({
       vehicleId: entry.vehicleId > 0 ? entry.vehicleId : -1,
       isNoVehicle: !(entry.vehicleId > 0),
       destId: entry.destId || 0,
+      orderNo: entry.orderNo || '',
       members: (this._members || []).map((m) => ({ ...m, checked: entry.memberIds.includes(m.id), disabled: usedMids.has(m.id) })),
       memberUsedTip: usedMids.size > 0,
     });
@@ -1905,22 +1910,28 @@ Page({
     this.setData({ [`members[${index}].checked`]: e.detail.checked });
   },
 
+  // 派车单号输入（表单内单行文本，data-field 直写 data）
+  onFormInput(e) {
+    this.setData({ [e.currentTarget.dataset.field]: e.detail.value });
+  },
+
   // ---------- 保存（无实时保存：仅「保 存」按钮提交，遮罩关闭 = 放弃修改） ----------
 
   buildPayload() {
-    const { formDateStr, patrol, vehicleId, destId, members } = this.data;
+    const { formDateStr, patrol, vehicleId, destId, orderNo, members } = this.data;
     return {
       log_date: formDateStr,
       patrol_content: patrol,
       vehicle_id: vehicleId > 0 ? vehicleId : null,
       destination_id: vehicleId > 0 && destId > 0 ? destId : null,
+      dispatch_order_no: vehicleId > 0 ? (orderNo || '').trim() : '', // 派车单号（未出车传空，服务端强制置空）
       member_ids: vehicleId > 0 ? members.filter((m) => m.checked).map((m) => m.id) : [],
     };
   },
 
   // cross 模式提交体：车牌/目的地/成员均按名称（body 的 team_id 为归属班组；未出车不带目的地与人名）
   buildCrossPayload() {
-    const { formDateStr, patrol, crossTeamId, vehicleText, destText, members, isNoVehicle } = this.data;
+    const { formDateStr, patrol, crossTeamId, vehicleText, destText, orderNo, members, isNoVehicle } = this.data;
     return {
       log_date: formDateStr,
       team_id: crossTeamId,
@@ -1928,6 +1939,7 @@ Page({
       destination: isNoVehicle ? '' : (destText || ''),
       member_names: isNoVehicle ? [] : members.filter((m) => m.checked).map((m) => m.name),
       patrol_content: patrol,
+      dispatch_order_no: isNoVehicle ? '' : (orderNo || '').trim(),
     };
   },
 
@@ -3277,6 +3289,12 @@ Page({
   onFeeSheet() {
     this.setData({ fabOpen: false });
     wx.navigateTo({ url: '/pkg-worklog/pages/feesheet/feesheet' });
+  },
+
+  // 派车汇总（超管 / 班组管理员；与费用汇总平级入口，生成派车单号清单 xlsx）
+  onDispatchSheet() {
+    this.setData({ fabOpen: false });
+    wx.navigateTo({ url: '/pkg-worklog/pages/dispatchsheet/dispatchsheet' });
   },
 
   // 派车对齐（超管 / 班组管理员；与数据管理平级入口，派车单从聊天文件选取）

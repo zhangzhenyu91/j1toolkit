@@ -25,6 +25,7 @@
         "pages/manage/manage",
         "pages/tasksheet/tasksheet",
         "pages/feesheet/feesheet",
+        "pages/dispatchsheet/dispatchsheet",
         "pages/sgccbind/sgccbind",
         "pages/sgccweb/sgccweb",
         "pages/dispatch/dispatch"

@@ -62,7 +62,6 @@
 - `WorkLogs/` —— 旧独立服务的历史数据归档（`constant/` 出工日志班组模板、`docs/` 安全日生成产物、`records.json` 安全日记录数据）；代码已删除并整合进主服务，本目录仅存数据
 - `esgcc/` —— 待开发应用的想法与示例素材（如线路巡视台账）；`esgcc/sgcc/` 为商旅打卡逆向分析仓（交接文档/API 报告/抓包/tools 均入仓——仓库已转私有；`base.apk` 107MB 超 GitHub 单文件上限不入仓，本地留存）
 - `design/` —— UI 设计稿：小程序定稿 `style-5.html`；`design/web/` 网页端定稿方案A「安全橙传承」（落选比选稿已清理）
-- `scripts/` —— 内网被控机运维脚本（随仓保存，不在服务器运行；派车单导出脚本见 `scripts/README.md`，密钥只走环境变量不入仓）
 - `manual/` —— 面向最终用户的使用指南（如 `出工日志使用指南.md`）；配套截图存 `manual/images/<应用>/`，截图不入仓时为占位引用
 - 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）

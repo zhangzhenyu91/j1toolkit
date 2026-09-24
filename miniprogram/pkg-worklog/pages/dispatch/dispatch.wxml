@@ -159,6 +159,21 @@
               <view class="note {{destNoteRed ? 'red' : ''}}" wx:if="{{destNote}}">{{destNote}}</view>
             </view>
           </view>
+          <!-- 派车单号（可改；不一致按表格预填 / 快速建卡按表格带入） -->
+          <view class="cmp-r top">
+            <text class="k">派车单号</text>
+            <view class="c">
+              <input
+                class="ono-in"
+                value="{{orderNoText}}"
+                bindinput="onOrderNoInput"
+                placeholder="请输入派车单号（可空）"
+                placeholder-class="ph"
+                maxlength="64"
+              />
+              <view class="note" wx:if="{{orderNoNote}}">{{orderNoNote}}</view>
+            </view>
+          </view>
           <view class="cmp-r top">
             <text class="k">巡视内容</text>
             <view class="c patrol-ro" wx:if="{{dlgKind === 'matched'}}">

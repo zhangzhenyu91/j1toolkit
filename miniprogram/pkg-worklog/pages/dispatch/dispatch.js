@@ -88,6 +88,7 @@ function mapItem(it) {
   if (it.kind === 'matched') {
     if (it.diffs.plate) badges.push({ t: '车牌不一致', cls: 'plate' });
     if (it.diffs.dest) badges.push({ t: '目的地不一致', cls: 'dest' });
+    if (it.diffs.orderNo) badges.push({ t: '派车单号不一致', cls: 'dest' });
     if (it.diffs.missing.length || it.diffs.extra.length) badges.push({ t: '用车人差异', cls: 'mem' });
     segs.push({ t: it.sheet.members.join(' '), cls: 'b' }, { t: '｜', cls: 'vs' });
     const parts = [];
@@ -96,6 +97,9 @@ function mapItem(it) {
     }
     if (it.diffs.dest) {
       parts.push([{ t: '目的地 表格 ', cls: '' }, { t: it.sheet.to || '—', cls: 'hl' }, { t: ' → ', cls: 'vs' }, { t: `系统 ${it.entry.destination || '未选'}`, cls: '' }]);
+    }
+    if (it.diffs.orderNo) {
+      parts.push([{ t: '单号 表格 ', cls: '' }, { t: it.sheet.orderNo, cls: 'hl' }, { t: ' → ', cls: 'vs' }, { t: `系统 ${it.entry.order_no || '未填'}`, cls: '' }]);
     }
     if (it.diffs.extra.length) parts.push([{ t: '卡片多 ', cls: '' }, { t: it.diffs.extra.join(' '), cls: 'hl-r' }]);
     if (it.diffs.missing.length) parts.push([{ t: '卡片少 ', cls: '' }, { t: it.diffs.missing.join(' '), cls: 'hl-r' }]);
@@ -139,7 +143,7 @@ Page({
     uploading: false,
     // 对齐结果
     hasResult: false,
-    sums: [], // 概览六宫格 [{n, t, cls}]
+    sums: [], // 概览七宫格 [{n, t, cls}]
     hints: [], // skipped / outside 提示
     items: [], // 不一致清单行（mapItem 后结构）
     // ---------- 对照弹层 ----------
@@ -166,6 +170,8 @@ Page({
     destWarn: false,
     destNote: '',
     destNoteRed: false,
+    orderNoText: '', // 派车单号输入（matched 预填卡片值、不一致按表格预填；sheetOnly 按表格预填）
+    orderNoNote: '',
     patrolText: '', // matched 巡视内容只读展示
     dlgSaving: false,
     isFirst: true,
@@ -363,7 +369,7 @@ Page({
     this.setData({ uploading: false });
   },
 
-  // 概览六宫格 + 提示 + 清单行（同网页端 renderPA）
+  // 概览七宫格 + 提示 + 清单行（同网页端 renderPA）
   applyResult(s) {
     this.setData({
       hasResult: true,
@@ -371,6 +377,7 @@ Page({
         { n: s.consistent || 0, t: '完全一致', cls: 'ok' },
         { n: s.plate || 0, t: '车牌不一致', cls: 'warn' },
         { n: s.destination || 0, t: '目的地不一致', cls: 'warn' },
+        { n: s.orderNo || 0, t: '单号不一致', cls: 'warn' },
         { n: s.members || 0, t: '用车人差异', cls: 'bad' },
         { n: s.sheetOnly || 0, t: '表格有·系统无', cls: 'mut' },
         { n: s.entryOnly || 0, t: '系统有·表格无', cls: 'mut' },
@@ -405,7 +412,7 @@ Page({
     const d = it.kind === 'matched' ? it.diffs : null;
     const s = it.sheet;
     return [
-      { k: '派车单号', v: s.orderNo || '—', cls: '' },
+      { k: '派车单号', v: s.orderNo || '—', cls: d && d.orderNo ? 'diff' : '' },
       { k: '用车日期', v: s.date, cls: '' },
       { k: '车牌号码', v: s.plate, cls: d && d.plate ? 'diff' : '' },
       { k: '驾驶员', v: s.driver || '—', cls: '' },
@@ -477,6 +484,8 @@ Page({
         destWarn: false,
         destNote: destHit ? '已按表格模糊匹配预填，可改选' : (s.to ? `表格目的地「${s.to}」与本班字典无匹配项，请手工选择或暂不选` : ''),
         destNoteRed: !destHit && !!s.to,
+        orderNoText: s.orderNo || '', // 快速建卡按表格带入派车单号
+        orderNoNote: s.orderNo ? '已按表格带入，可改' : '',
         patrolText: '',
       });
       return;
@@ -524,6 +533,9 @@ Page({
         ? (destHit ? `与表格不一致，已按表格预填为 ${destHit.name}，确认后保存` : `表格目的地「${s.to || '—'}」与本班字典无匹配项，请手工选择`)
         : '',
       destNoteRed: d.dest && !destHit,
+      // 派车单号：不一致按表格预填（同车牌口径）；一致保留卡片值
+      orderNoText: d.orderNo ? s.orderNo : (it.entry.order_no || ''),
+      orderNoNote: d.orderNo ? '与表格不一致，已按表格预填，确认后保存' : '',
       patrolText: it.entry.patrol_content || '（空）',
     });
   },
@@ -543,6 +555,10 @@ Page({
 
   onDestChange(e) {
     this.setData({ destIdx: Number(e.detail.value) });
+  },
+
+  onOrderNoInput(e) {
+    this.setData({ orderNoText: e.detail.value });
   },
 
   onChipTap(e) {
@@ -592,6 +608,7 @@ Page({
       patrol_content: it.entry.patrol_content,
       vehicle_id: this._dlgIds.plateIds[this.data.plateIdx] || null,
       destination_id: this._dlgIds.destIds[this.data.destIdx] || null,
+      dispatch_order_no: (this.data.orderNoText || '').trim(),
       member_ids: this.data.chips.filter((c) => c.on).map((c) => c.id),
     };
     this.setData({ dlgSaving: true });
@@ -605,6 +622,7 @@ Page({
       if (hitV) it.entry.plate = hitV.plate_no;
       it.entry.destination_id = body.destination_id;
       it.entry.destination = hitD ? hitD.name : it.entry.destination;
+      it.entry.order_no = body.dispatch_order_no;
       it.entry.members = this.data.chips.filter((c) => c.on).map((c) => ({ member_id: c.id, name: c.name }));
       this.afterHandled(i, '已保存', advance);
     } catch (err) {
@@ -629,6 +647,7 @@ Page({
       patrol_content: '',
       vehicle_id: vehicleId,
       destination_id: this._dlgIds.destIds[this.data.destIdx] || null,
+      dispatch_order_no: (this.data.orderNoText || '').trim(), // 快速建卡带入派车单号（按表格预填可改）
       member_ids: this.data.chips.filter((c) => c.on).map((c) => c.id),
     };
     this.setData({ dlgSaving: true });

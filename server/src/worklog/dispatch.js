@@ -1,5 +1,5 @@
 // 派车单对齐：解析派车系统导出表（.xls/.xlsx，每个驾驶员一份、可多份合并），按「日期＋用车人」与当天出车卡片配对，
-// 比对车牌号码、用车人集合与目的地，产出差异清单（本模块只读对齐不自动改；更正走既有 PUT /logs/{id}，表格有系统无的补建走 POST /logs，车牌入字典走 POST /admin/vehicles）
+// 比对车牌号码、用车人集合、目的地与派车单号，产出差异清单（本模块只读对齐不自动改；更正走既有 PUT /logs/{id}，表格有系统无的补建走 POST /logs，车牌入字典走 POST /admin/vehicles）
 // 对齐口径（设计稿 design/worklog-dispatch-align.html 已审批）：
 //   · 仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略）
 //   · 导入行再按班组字典过滤：用车人中无本班成员（启用中）的行整行剔除（他班派车混入不进清单），全剔空报 400
@@ -7,7 +7,8 @@
 //   · 同日内按用车人重合度贪心配对（重合最多者成对；有 1 个对上即匹配，0 重合不配）
 //   · 目的地模糊比对：表格目的地常省略「市/县」等行政区字样（如卡片「孝义市」表格写「吕梁市孝义」），
 //     两侧去除「中国/省/市/县/区」后互相包含即视为一致（destSame）；表格目的地为空不约束
-//   · 差异类型：车牌不一致 / 用车人多出·缺少 / 目的地不一致（matched）；表格有系统无（sheetOnly）；系统有表格无（entryOnly，仅出车卡片）
+//   · 派车单号比对：卡片 dispatch_order_no vs 表格派车单号精确比对；表格单号为空不约束（同目的地口径）
+//   · 差异类型：车牌不一致 / 用车人多出·缺少 / 目的地不一致 / 派车单号不一致（matched）；表格有系统无（sheetOnly）；系统有表格无（entryOnly，仅出车卡片）
 const XLSX = require('xlsx');
 const { pool } = require('../db');
 
@@ -95,7 +96,7 @@ function destSame(cardDest, sheetTo) {
 async function loadEntries(teamId, minDate, maxDate) {
   const [entries] = await pool.query(
     `SELECT e.id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.patrol_content,
-            e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name
+            e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name, e.dispatch_order_no
      FROM worklog_entry e
      LEFT JOIN worklog_vehicle v ON v.id = e.vehicle_id
      LEFT JOIN worklog_destination d ON d.id = e.destination_id
@@ -190,6 +191,7 @@ async function align(team, files) {
   let plateCnt = 0;
   let memberCnt = 0;
   let destCnt = 0;
+  let orderNoCnt = 0;
   for (const date of Object.keys(byDate)) {
     const { rows, entries: ents } = byDate[date];
     const { matched, sheetOnly, entryOnly } = pairOneDay(rows, ents);
@@ -199,13 +201,16 @@ async function align(team, files) {
       const extra = entryNames.filter((n) => !row.members.includes(n)); // 卡片有、表格无
       const plateDiff = row.plate !== (entry.plate_no || '');
       const destDiff = !destSame(entry.destination_name, row.to);
-      if (!plateDiff && !missing.length && !extra.length && !destDiff) {
+      // 派车单号比对：表格单号为空不约束（同目的地口径）；更正走对照弹层直接改（PUT /logs/{id} 带 dispatch_order_no）
+      const orderNoDiff = row.orderNo ? row.orderNo !== (entry.dispatch_order_no || '') : false;
+      if (!plateDiff && !missing.length && !extra.length && !destDiff && !orderNoDiff) {
         consistent += 1;
         continue;
       }
       if (plateDiff) plateCnt += 1;
       if (missing.length || extra.length) memberCnt += 1;
       if (destDiff) destCnt += 1;
+      if (orderNoDiff) orderNoCnt += 1;
       items.push({
         kind: 'matched',
         date,
@@ -216,10 +221,11 @@ async function align(team, files) {
           plate: entry.plate_no || '',
           destination_id: entry.destination_id,
           destination: entry.destination_name || '',
+          order_no: entry.dispatch_order_no || '',
           patrol_content: entry.patrol_content || '', // PUT 整卡更新需带回，避免误清巡视内容
           members: entry.memberList,
         },
-        diffs: { plate: plateDiff, missing, extra, dest: destDiff },
+        diffs: { plate: plateDiff, missing, extra, dest: destDiff, orderNo: orderNoDiff },
       });
     }
     sheetOnly.forEach((row) => items.push({ kind: 'sheetOnly', date, sheet: row, entry: null }));
@@ -249,6 +255,7 @@ async function align(team, files) {
       plate: plateCnt,
       members: memberCnt,
       destination: destCnt,
+      orderNo: orderNoCnt, // 派车单号不一致（表格单号为空不约束）
       sheetOnly: items.filter((i) => i.kind === 'sheetOnly').length,
       entryOnly: items.filter((i) => i.kind === 'entryOnly').length,
     },

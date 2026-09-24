@@ -26,6 +26,7 @@ const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark
 const tasksheet = require('./tasksheet');
 const feesheet = require('./feesheet');
 const dispatch = require('./dispatch');
+const dispatchsheet = require('./dispatchsheet');
 const dispatchSync = require('./dispatch-sync');
 
 const router = express.Router();
@@ -111,7 +112,7 @@ async function loadEntries(where, params) {
     `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.patrol_content,
             e.remark, e.remark_files, e.cross_team,
             e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name, d.out_of_city AS destination_out_of_city,
-            e.created_by, e.created_at
+            e.dispatch_order_no, e.created_by, e.created_at
      FROM worklog_entry e
      LEFT JOIN worklog_vehicle v ON v.id = e.vehicle_id
      LEFT JOIN worklog_destination d ON d.id = e.destination_id
@@ -354,6 +355,8 @@ router.post('/logs', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const { log_date, patrol_content = '', vehicle_id = null, destination_id = null } = req.body || {};
     let { member_ids = [] } = req.body || {};
+    // 派车单号（可空，≤64 字；未出车强制置空）
+    const orderNo = String((req.body || {}).dispatch_order_no || '').trim().slice(0, 64) || null;
     if (!DATE_RE.test(log_date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     member_ids = Array.isArray(member_ids) ? member_ids.map(Number).filter(Number.isInteger) : [];
 
@@ -395,8 +398,8 @@ router.post('/logs', async (req, res, next) => {
     }
 
     const [r] = await pool.query(
-      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-      [req.team.id, log_date, patrol_content, vehicle_id, destination_id, req.user.id]
+      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [req.team.id, log_date, patrol_content, vehicle_id, destination_id, vehicle_id ? orderNo : null, req.user.id]
     );
     const entryId = r.insertId;
     for (const m of memberRows) {
@@ -489,7 +492,7 @@ router.get('/logs/cross/meta', requireAdmin, async (req, res, next) => {
   }
 });
 
-// 跨班表单公共入参解析与校验 → { owner, plate, destName, memberNames } 或 null（已响应错误）
+// 跨班表单公共入参解析与校验 → { owner, plate, destName, memberNames, orderNo } 或 null（已响应错误）
 function parseCrossBody(req, res) {
   const { patrol_content = '', plate_no = '', destination = '' } = req.body || {};
   let { member_names = [] } = req.body || {};
@@ -503,7 +506,9 @@ function parseCrossBody(req, res) {
     fail(res, 400, 40001, '未出车时不可填写目的地与用车人');
     return null;
   }
-  return { ownerId, patrol_content, plate, destName, memberNames: member_names };
+  // 派车单号（可空，≤64 字；未出车强制置空）
+  const orderNo = plate ? String((req.body || {}).dispatch_order_no || '').trim().slice(0, 64) : '';
+  return { ownerId, patrol_content, plate, destName, memberNames: member_names, orderNo };
 }
 
 // POST /logs/cross：新建跨班日志（车牌/目的地按名称在归属班字典解析、缺则自动补建；成员按名解析）
@@ -545,8 +550,8 @@ router.post('/logs/cross', requireAdmin, async (req, res, next) => {
     // 跨班标志按成员班组构成派生：含非归属班成员即跨班（全属归属班则等同普通卡，班组可自管）
     const crossTeam = memberRows.some((m) => m.team_id !== owner.id) ? 1 : 0;
     const [r] = await pool.query(
-      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, cross_team, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [owner.id, log_date, parsed.patrol_content, vehicleId, destId, crossTeam, req.user.id]
+      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, cross_team, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [owner.id, log_date, parsed.patrol_content, vehicleId, destId, crossTeam, parsed.orderNo || null, req.user.id]
     );
     for (const m of memberRows) {
       await pool.query(
@@ -566,7 +571,7 @@ router.put('/logs/cross/:id', requireAdmin, async (req, res, next) => {
   try {
     const entryId = Number(req.params.id);
     const [exist] = await pool.query(
-      `SELECT id, team_id, vehicle_id, destination_id, cross_team, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date
+      `SELECT id, team_id, vehicle_id, destination_id, cross_team, dispatch_order_no, DATE_FORMAT(log_date, '%Y-%m-%d') AS log_date
        FROM worklog_entry WHERE id = ?`,
       [entryId]
     );
@@ -624,9 +629,12 @@ router.put('/logs/cross/:id', requireAdmin, async (req, res, next) => {
     const crossTeam = memberRows.some((m) => m.team_id !== owner.id) ? 1 : 0;
     const [curRows] = await pool.query('SELECT member_id, checked FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
     const checkedMap = new Map(curRows.map((r) => [r.member_id, r.checked]));
+    // 派车单号：表单提交以提交值为准；未提交该键则保留库内现值（兼容不带此字段的整卡 PUT 路径）；未出车强制置空
+    const hasOrderNo = Object.prototype.hasOwnProperty.call(req.body || {}, 'dispatch_order_no');
+    const orderNo = vehicleId ? (hasOrderNo ? parsed.orderNo || null : entry.dispatch_order_no) : null;
     await pool.query(
-      'UPDATE worklog_entry SET team_id = ?, patrol_content = ?, vehicle_id = ?, destination_id = ?, cross_team = ? WHERE id = ?',
-      [owner.id, parsed.patrol_content, vehicleId, vehicleId ? destId : null, crossTeam, entryId]
+      'UPDATE worklog_entry SET team_id = ?, patrol_content = ?, vehicle_id = ?, destination_id = ?, cross_team = ?, dispatch_order_no = ? WHERE id = ?',
+      [owner.id, parsed.patrol_content, vehicleId, vehicleId ? destId : null, crossTeam, orderNo, entryId]
     );
 
     // 派车目的地变更：已出结果的照片按库内识别地点重新核验地点一致性并联动状态（同 PUT /logs/:id 口径）
@@ -667,7 +675,7 @@ router.put('/logs/:id', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const entryId = Number(req.params.id);
     const [exist] = await pool.query(
-      `SELECT e.id, e.team_id, e.vehicle_id, e.destination_id, e.cross_team, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date
+      `SELECT e.id, e.team_id, e.vehicle_id, e.destination_id, e.cross_team, e.dispatch_order_no, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date
        FROM worklog_entry e WHERE e.id = ? AND ${ENTRY_VISIBLE}`,
       [entryId, req.team.id, req.team.id]
     );
@@ -675,6 +683,12 @@ router.put('/logs/:id', async (req, res, next) => {
 
     const { patrol_content = '', vehicle_id = null, destination_id = null } = req.body || {};
     let { member_ids } = req.body || {};
+    // 派车单号：提交该键则以提交值为准（空串置空）；未提交保留库内现值（兼容不带此字段的整卡 PUT 路径）；未出车强制置空
+    const hasOrderNo = Object.prototype.hasOwnProperty.call(req.body || {}, 'dispatch_order_no');
+    let orderNo = hasOrderNo
+      ? String(req.body.dispatch_order_no || '').trim().slice(0, 64) || null
+      : exist[0].dispatch_order_no;
+    if (!vehicle_id) orderNo = null;
 
     // 跨班日志：派车三件套（车牌/目的地/用车人）与库内现值比对——有变化仅超管可经「跨班日志」编辑（40304）；
     // 未变化则跳过字典校验与派车更新段，仅巡视内容/备注可更新（备注走下方既有分支；兼容小程序全量 PUT 口径）
@@ -688,7 +702,7 @@ router.put('/logs/:id', async (req, res, next) => {
       if (!sameVehicle || !sameDest || !sameMembers) {
         return fail(res, 403, 40304, '跨班日志仅超级管理员可修改派车，请使用「跨班日志」编辑');
       }
-      await pool.query('UPDATE worklog_entry SET patrol_content = ? WHERE id = ?', [patrol_content, entryId]);
+      await pool.query('UPDATE worklog_entry SET patrol_content = ?, dispatch_order_no = ? WHERE id = ?', [patrol_content, orderNo, entryId]);
     } else if (!vehicle_id) {
       member_ids = [];
       if (destination_id) return fail(res, 400, 40001, '未出车时不可填写目的地');
@@ -750,8 +764,8 @@ router.put('/logs/:id', async (req, res, next) => {
       }
 
       await pool.query(
-        'UPDATE worklog_entry SET patrol_content = ?, vehicle_id = ?, destination_id = ? WHERE id = ?',
-        [patrol_content, vehicle_id, vehicle_id ? destination_id : null, entryId]
+        'UPDATE worklog_entry SET patrol_content = ?, vehicle_id = ?, destination_id = ?, dispatch_order_no = ? WHERE id = ?',
+        [patrol_content, vehicle_id, vehicle_id ? destination_id : null, orderNo, entryId]
       );
 
       // 派车目的地变更：已出结果（passed/mismatch）的照片按库内识别地点重新核验地点一致性并联动状态
@@ -1789,6 +1803,11 @@ function feeFileName(from, to) {
   return from === to ? `费用汇总-${from}.docx` : `费用汇总-${from}至${to}.docx`;
 }
 
+// 派车汇总文件名：口径同任务单（单日带单日期，跨天带范围）
+function dispatchSheetFileName(from, to) {
+  return from === to ? `派车汇总-${from}.xlsx` : `派车汇总-${from}至${to}.xlsx`;
+}
+
 // 生成前核验（工作任务单 / 费用汇总共用）：范围内存在未通过验证的记录时拦截，
 // 随 data.failures 下发未通过清单（日期/车牌/用车人/未通过项明细），前端弹层展示「请处理后再操作」
 async function sheetVerifyFailures(teamId, from, to) {
@@ -1911,6 +1930,28 @@ router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
     const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
       `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;
     return ok(res, { url });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ===== 派车汇总（管理员）：范围内已填派车单号的出车卡片导出极简 xlsx（派车单号 + 用车日期两列，
+// 顺序与工作任务单/费用汇总同口径 = ORDER BY log_date, created_at, id；数据来自卡片 dispatch_order_no，见 7.8） =====
+
+// GET /dispatch-sheet?from=&to=（或 date= 单日）：二进制 xlsx 响应（消费方式同 /task-sheet；不接生成前核验——单号清单与照片核验无关）
+router.get('/dispatch-sheet', requireDictAdmin, async (req, res, next) => {
+  try {
+    const range = sheetRange(req);
+    if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
+    if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const result = await dispatchsheet.build(req.team.id, range.from, range.to);
+    if (!result) return fail(res, 404, 40402, '该日期范围没有派车单记录，无可生成的汇总');
+    const fileName = dispatchSheetFileName(range.from, range.to);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="dispatch-sheet-${range.from}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    return res.send(result.buffer);
   } catch (err) {
     return next(err);
   }

@@ -16,8 +16,10 @@
      工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
      「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 tasksheet 页口径）；
      「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 feesheet 页口径）；
+     「派车汇总」= 按日期范围导出派车单号清单 xlsx（派车单号 + 用车日期两列，顺序与工作任务单一致 = 日期+卡片创建序；
+     数据来自卡片 dispatch_order_no 字段——每日同步带入、改派车可改，仅已填单号的出车卡片出数；同小程序 dispatchsheet 页口径）；
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
-     「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；设计稿 design/worklog-dispatch-align.html）；
+     「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人 / 目的地 / 派车单号（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；设计稿 design/worklog-dispatch-align.html）；
      页签顶部「每日自动同步派车单」开关（/dispatch/sync-switch，按生效班组，仅 admin / team_admin）；
      「数据管理」页签另有「商旅绑定设备」区：绑定成员列表（登录态/设备口径）可改设备，区底部选成员「代绑定」——管理员代成员完成商旅登录绑定（成员过期联系不上时兜底；弹层短信/密码双方式，均为图形码优先、失败降级内嵌滑块 iframe，落库为代绑行，成员可自助重绑接管）；
      跨班日志：超管页头「跨班日志」入口（/logs/cross/* 全局字典，openCrossForm 新建 / 编辑；跨班卡车牌行加橙色描边「跨班」徽章，
@@ -736,7 +738,7 @@
 
   /* ===== 汇总前核验（原验证报告；整月切换，范围已收窄为仅未通过记录） ===== */
   .rep-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  /* 日期范围内联输入（批量下载 / 工作任务单 / 费用汇总 三页签同款：起止两个日期输入 + 分隔符，无弹层；
+  /* 日期范围内联输入（批量下载 / 工作任务单 / 费用汇总 / 派车汇总 四页签同款：起止两个日期输入 + 分隔符，无弹层；
      点击输入框任意位置即展开系统日期选择，JS 绑 showPicker） */
   .rg-date { width: 148px; cursor: pointer; }
   .rep-month { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: var(--navy); min-width: 84px; text-align: center; }
@@ -909,7 +911,7 @@
   <!-- 未分配班组空态（非超管且无班组时整页只显示它，屏十口径） -->
   <div class="card" id="noTeam" hidden></div>
 
-  <!-- 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条），六页共用同一列表位 -->
+  <!-- 页签：与顶栏导航、管理页页签同族（文字 + 橙色滑动指示条），八页共用同一列表位 -->
   <div class="wl-tabs fade-up" id="wlTabs">
     <button class="on" data-p="Record">记录</button>
     <button data-p="Dl">批量下载</button>
@@ -917,6 +919,7 @@
     <button data-p="Dict" id="tabDict" style="display:none">数据管理</button>
     <button data-p="TS" id="tabTS" style="display:none">工作任务单</button>
     <button data-p="FS" id="tabFS" style="display:none">费用汇总</button>
+    <button data-p="DS" id="tabDS" style="display:none">派车汇总</button>
     <button data-p="PA" id="tabPA" style="display:none">派车对齐</button>
     <span class="wl-tab-ind" id="wlTabInd"></span>
   </div>
@@ -1041,6 +1044,28 @@
             <button class="btn btn-accent" id="fsDl">下载 Word</button>
           </span>
         </div>
+      <!-- 派车汇总：按日期范围导出派车单号清单 xlsx（仅超管 / 班组管理员可见页签；与费用汇总平级；仅下载不预览——basemetas 对 xlsx 渲染未验证） -->
+      <div class="pane" id="paneDS">
+        <div class="rep-bar">
+          <input type="date" class="f-sel rg-date" id="dsFrom">
+          <span class="rep-sep">-</span>
+          <input type="date" class="f-sel rg-date" id="dsTo">
+          <span class="dl-meta">范围内已填派车单号的出车卡片一单一行：派车单号 + 用车日期，顺序与工作任务单一致（单次最多 31 天）</span>
+        </div>
+        <div class="pane-scroll">
+          <div class="card dsec">
+            <div class="dsec-h"><b>字段口径</b></div>
+            <div class="f-hint" style="padding:0 16px 14px;line-height:2">
+              列＝派车单号、用车日期（＝卡片日志日期）；数据来自卡片「派车单号」字段——每日同步自动带入，<br>
+              也可点卡片车牌「修改派车」手工补填；仅已填单号的出车卡片出数（同步前日期的历史卡片无此字段）。
+            </div>
+          </div>
+        </div>
+        <div class="pane-foot">
+          <span class="sp">
+            <button class="btn btn-accent" id="dsDl">下载 Excel</button>
+          </span>
+        </div>
       </div>
     </section>
   </div>
@@ -1069,8 +1094,9 @@
 <script src="/assets/common.js"></script>
 <script>
 /* ============================================================
-   出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理·工作任务单·费用汇总·派车对齐七页签（原下载、报告弹层已页签化；
-   数据管理 / 工作任务单 / 费用汇总 / 派车对齐仅超管 / 班组管理员可见：三字典维护（成员可排序）+ 杆塔坐标导入；任务单按日期范围合并生成 docx，费用汇总按日期范围生成「人 × 日」费用矩阵 docx；
+   出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理·工作任务单·费用汇总·派车汇总·派车对齐八页签（原下载、报告弹层已页签化；
+   数据管理 / 工作任务单 / 费用汇总 / 派车汇总 / 派车对齐仅超管 / 班组管理员可见：三字典维护（成员可排序）+ 杆塔坐标导入；任务单按日期范围合并生成 docx，费用汇总按日期范围生成「人 × 日」费用矩阵 docx；
+   派车汇总按日期范围导出派车单号清单 xlsx（派车单号 + 用车日期两列，顺序与工作任务单一致；数据来自卡片 dispatch_order_no 字段，仅已填单号的出车卡片出数）；
    派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（小程序端同功能见 pkg-worklog/pages/dispatch），接口 /worklog/admin/* 按生效班组隔离；
    页签顶部「每日自动同步派车单」开关（GET/PUT /dispatch/sync-switch，按生效班组）；超管另有「跨班日志」新建 / 编辑（/logs/cross/* 全局字典，openCrossForm）
    编辑口径与小程序一致：改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 / 照片人名·重新验证·删除 / 备注（文字+附件）/ 新建·删除日志
@@ -1144,6 +1170,7 @@ var state = {
   dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
   ts: { from: '', to: '' },    // 工作任务单页签：生成范围（默认当日单日，页签内联起止输入选择）
   fs: { from: '', to: '' },    // 费用汇总页签：汇总范围（同工作任务单口径）
+  ds: { from: '', to: '' },    // 派车汇总页签：导出范围（同工作任务单口径）
   pa: { files: [], result: null, done: {}, idx: 0, uploading: false } // 派车对齐页签（done：已处理条目，键=清单索引）
 };
 
@@ -1929,13 +1956,14 @@ function chipSelCids(box) {
   return $$('.chip.on[data-cid]', box).map(function (b) { return b.dataset.cid; });
 }
 
-/* PUT 全量替换口径（同小程序）：未出车时目的地/用车人强制置空 */
-function payloadOf(entry, patrol, vehicleId, destId, memberIds) {
+/* PUT 全量替换口径（同小程序）：未出车时目的地/用车人/派车单号强制置空 */
+function payloadOf(entry, patrol, vehicleId, destId, memberIds, orderNo) {
   return {
     log_date: entry ? entry.log_date : state.date,
     patrol_content: patrol || '',
     vehicle_id: vehicleId > 0 ? vehicleId : null,
     destination_id: vehicleId > 0 && destId > 0 ? destId : null,
+    dispatch_order_no: vehicleId > 0 ? String(orderNo || '').trim() : '',
     member_ids: vehicleId > 0 ? memberIds : []
   };
 }
@@ -1966,6 +1994,7 @@ async function openEntryForm(entry) {
     + '<label class="f-lab">派车车辆</label>' + comboHTML('efVehicle')
     + '<div id="efDrive">'
     + '<label class="f-lab">目的地</label>' + comboHTML('efDest')
+    + '<label class="f-lab">派车单号（可空）</label><input class="f-sel" type="text" id="efOrderNo" maxlength="64" placeholder="请输入派车单号（可空）" autocomplete="off">'
     + '<label class="f-lab">用车人（点亮即为用车人' + (usedMids.length ? '；灰色 = 当日已在其他卡片' : '') + '）</label>' + chipsHTML(meta.members, memberIds, usedMids)
     + '</div>'
     + '<div class="f-hint" id="efHint" style="display:none">未出车为站内作业，不参与验证，不可选目的地与用车人</div>'
@@ -2000,6 +2029,7 @@ async function openEntryForm(entry) {
   var hitD = destItems.filter(function (it) { return it.id === destId; })[0] || destItems[0];
   destC.setValue(hitD);
   selDestId = hitD.id;
+  $('#efOrderNo', inst.box).value = entry ? (entry.dispatch_order_no || '') : ''; // 派车单号回填
   syncVehicle();
   bindChips(inst.box);
   $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
@@ -2011,7 +2041,7 @@ async function openEntryForm(entry) {
       return;
     }
     var vid = selVehicleId;
-    var payload = payloadOf(entry, entry ? entry.patrol_content : '', vid, selDestId || 0, chipSelIds(inst.box));
+    var payload = payloadOf(entry, entry ? entry.patrol_content : '', vid, selDestId || 0, chipSelIds(inst.box), $('#efOrderNo', inst.box).value);
     /* 改派车保存前确认内网派车单已同步修改（同小程序）；新建直接保存 */
     if (entry) {
       var yes = await confirmAction({ title: '保存派车修改', content: '请确保内网派车单同步修改！', confirmText: '我确认已修改' });
@@ -2064,6 +2094,7 @@ async function openCrossForm(entry) {
     + '<label class="f-lab">派车车辆</label>' + comboHTML('cfVehicle')
     + '<div id="cfDrive">'
     + '<label class="f-lab">目的地</label>' + comboHTML('cfDest')
+    + '<label class="f-lab">派车单号（可空）</label><input class="f-sel" type="text" id="cfOrderNo" maxlength="64" placeholder="请输入派车单号（可空）" autocomplete="off">'
     + '<label class="f-lab">用车人（点亮即为用车人' + (usedNames.length ? '；灰色 = 当日已在其他卡片' : '') + '）</label>' + crossChipsHTML(meta.members, memberNames, usedNames)
     + '</div>'
     + '<div class="f-hint" id="cfHint" style="display:none">未出车为站内作业，不参与验证，不可选目的地与用车人</div>'
@@ -2107,6 +2138,7 @@ async function openCrossForm(entry) {
   var hitD = destItems.filter(function (it) { return it.id === destName; })[0] || destItems[0];
   destC.setValue(hitD);
   selDest = hitD.id;
+  $('#cfOrderNo', inst.box).value = entry ? (entry.dispatch_order_no || '') : ''; // 派车单号回填
   syncVehicle();
   bindChips(inst.box);
   $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
@@ -2118,13 +2150,14 @@ async function openCrossForm(entry) {
       Shade.toast('请从下拉列表选择目的地', 'info');
       return;
     }
-    /* body.team_id 为归属班组（生效班组 team_id 由 wl() 走 query）；车牌空串 = 未出车，未出车时目的地 / 用车人强制置空 */
+    /* body.team_id 为归属班组（生效班组 team_id 由 wl() 走 query）；车牌空串 = 未出车，未出车时目的地 / 用车人 / 派车单号强制置空 */
     var body = {
       team_id: selTeamId,
       plate_no: selPlate || '',
       destination: selPlate ? (selDest || '') : '',
       member_names: selPlate ? chipSelCids(inst.box) : [],
-      patrol_content: entry ? (entry.patrol_content || '') : '' // 编辑带原值（本表单不改巡视内容）
+      patrol_content: entry ? (entry.patrol_content || '') : '', // 编辑带原值（本表单不改巡视内容）
+      dispatch_order_no: selPlate ? ($('#cfOrderNo', inst.box).value || '').trim() : ''
     };
     if (!entry) body.log_date = state.date;
     /* 改派车保存前确认内网派车单已同步修改（同 openEntryForm）；新建直接保存 */
@@ -3213,6 +3246,7 @@ function paRowHtml(it, i) {
   if (it.kind === 'matched') {
     if (it.diffs.plate) badges += '<span class="pa-badge plate">车牌不一致</span>';
     if (it.diffs.dest) badges += '<span class="pa-badge dest">目的地不一致</span>';
+    if (it.diffs.orderNo) badges += '<span class="pa-badge dest">派车单号不一致</span>';
     if (it.diffs.missing.length || it.diffs.extra.length) badges += '<span class="pa-badge mem">用车人差异</span>';
     var parts = [];
     if (it.diffs.plate) {
@@ -3220,6 +3254,9 @@ function paRowHtml(it, i) {
     }
     if (it.diffs.dest) {
       parts.push('目的地 表格 <span class="hl">' + esc(it.sheet.to || '—') + '</span><span class="vs">→</span>系统 ' + esc(it.entry.destination || '未选'));
+    }
+    if (it.diffs.orderNo) {
+      parts.push('单号 表格 <span class="hl">' + esc(it.sheet.orderNo) + '</span><span class="vs">→</span>系统 ' + esc(it.entry.order_no || '未填'));
     }
     if (it.diffs.extra.length) parts.push('卡片多 <span class="hl-r">' + esc(it.diffs.extra.join(' ')) + '</span>');
     if (it.diffs.missing.length) parts.push('卡片少 <span class="hl-r">' + esc(it.diffs.missing.join(' ')) + '</span>');
@@ -3238,12 +3275,12 @@ function paRowHtml(it, i) {
   '</div>';
 }
 
-/* 页签主体渲染：常驻口径说明卡 +（有结果时）概览六宫格 + 不一致清单 */
+/* 页签主体渲染：常驻口径说明卡 +（有结果时）概览八宫格 + 不一致清单 */
 function renderPA() {
   var ruleHtml = '<div class="card dsec"><div class="dsec-h"><b>对齐口径</b></div>' +
     '<div class="f-hint" style="padding:0 16px 14px;line-height:2">' +
     '仅「派车单类型＝用车申请调度」的行参与（维保调度等忽略），且用车人中无本班成员的行整行剔除（他班派车不参与）；按「日期＋用车人」匹配当日卡片，同日内取用车人重合最多者成对；' +
-    '配对后比对车牌号码、目的地与用车人集合；目的地为模糊比对（表格常省略「市/县」等字样，如「吕梁市孝义」视同「孝义市」），表格目的地为空不比对。车牌不一致以表格为准更正；用车人多 / 少在对照弹层内点亮调整；' +
+    '配对后比对车牌号码、目的地、用车人集合与派车单号；目的地为模糊比对（表格常省略「市/县」等字样，如「吕梁市孝义」视同「孝义市」），表格目的地 / 派车单号为空不比对。车牌不一致以表格为准更正；用车人多 / 少在对照弹层内点亮调整；' +
     '「表格有系统无」在对照弹层按表格预填快速建卡（确认后才写库，非自动建）；「系统有表格无」仅提示确认，不自动删卡。更正后可重新导入再对齐（幂等）。</div></div>';
   var r = state.pa.result;
   if (!r) {
@@ -3259,6 +3296,7 @@ function renderPA() {
       '<div class="pa-sum ok"><div class="n">' + s.consistent + '</div><div class="t">完全一致</div></div>' +
       '<div class="pa-sum warn"><div class="n">' + s.plate + '</div><div class="t">车牌不一致</div></div>' +
       '<div class="pa-sum warn"><div class="n">' + (s.destination || 0) + '</div><div class="t">目的地不一致</div></div>' +
+      '<div class="pa-sum warn"><div class="n">' + (s.orderNo || 0) + '</div><div class="t">单号不一致</div></div>' +
       '<div class="pa-sum bad"><div class="n">' + s.members + '</div><div class="t">用车人差异</div></div>' +
       '<div class="pa-sum mut"><div class="n">' + s.sheetOnly + '</div><div class="t">表格有·系统无</div></div>' +
       '<div class="pa-sum mut"><div class="n">' + s.entryOnly + '</div><div class="t">系统有·表格无</div></div>' +
@@ -3343,7 +3381,7 @@ function paSheetRows(s, diffs) {
       (sub ? '<span class="sub">' + sub + '</span>' : '') + '</span></div>';
   }
   var html = '';
-  html += row('派车单号', esc(s.orderNo || '—'));
+  html += row('派车单号', esc(s.orderNo || '—'), diffs && diffs.orderNo ? 'diff' : '');
   html += row('用车日期', esc(s.date));
   html += row('车牌号码', esc(s.plate), diffs && diffs.plate ? 'diff' : '');
   html += row('驾驶员', esc(s.driver || '—'));
@@ -3457,6 +3495,8 @@ async function openAlign(i) {
       '<div class="pa-f-row"><span class="k">车牌号</span><div class="c"><select class="f-sel" id="paPlate">' + sPlateOpts + '</select>' + sPlateNote + '</div></div>' +
       '<div class="pa-f-row"><span class="k">用车人</span><div class="c">' + sChips + sMemNote + '</div></div>' +
       '<div class="pa-f-row"><span class="k">目的地</span><div class="c"><select class="f-sel" id="paDest">' + sDestOpts + '</select>' + sDestNote + '</div></div>' +
+      '<div class="pa-f-row"><span class="k">派车单号</span><div class="c"><input class="f-sel" type="text" id="paOrderNo" maxlength="64" value="' + esc(it.sheet.orderNo || '') + '" placeholder="请输入派车单号（可空）" autocomplete="off">' +
+        (it.sheet.orderNo ? '<div class="pa-note">已按表格带入，可改</div>' : '') + '</div></div>' +
       '<div class="pa-f-row"><span class="k">巡视内容</span><div class="c" style="font-size:12px;color:#6B7690;line-height:1.8;padding-top:6px">建卡后为空，可到「记录」页签补填；打卡、水印照片与正常卡片相同</div></div>' +
       '</div></div>';
     var instS = Shade.modal(head + '<div class="pa-cmp">' + leftColS + rightColS + '</div>' + paDlgFoot(i, total, 'create'), { width: 1020 });
@@ -3514,12 +3554,16 @@ async function openAlign(i) {
   } else if (d.dest) {
     destNote = '<div class="pa-note red">表格目的地「' + esc(it.sheet.to || '—') + '」与本班字典无匹配项，请手工选择</div>';
   }
+  /* 派车单号：不一致按表格预填（同车牌口径）；一致保留卡片值 */
+  var orderNoVal = d.orderNo ? it.sheet.orderNo : (it.entry.order_no || '');
+  var orderNoNote = d.orderNo ? '<div class="pa-note">与表格不一致，已按表格预填，确认后保存</div>' : '';
 
   var rightCol = '<div class="pa-col"><div class="pa-col-h">记录卡片 <small>可修改，保存即写回当日卡片</small><span class="src">卡片 #' + it.entry.id + '</span></div>' +
     '<div class="pa-rows">' +
     '<div class="pa-f-row"><span class="k">车牌号</span><div class="c"><select class="f-sel' + (d.plate ? ' warn' : '') + '" id="paPlate">' + plateOpts + '</select>' + plateNote + '</div></div>' +
     '<div class="pa-f-row"><span class="k">用车人</span><div class="c">' + chipsHtml + memNote + '</div></div>' +
     '<div class="pa-f-row"><span class="k">目的地</span><div class="c"><select class="f-sel' + (d.dest ? ' warn' : '') + '" id="paDest">' + destOpts + '</select>' + destNote + '</div></div>' +
+    '<div class="pa-f-row"><span class="k">派车单号</span><div class="c"><input class="f-sel' + (d.orderNo ? ' warn' : '') + '" type="text" id="paOrderNo" maxlength="64" value="' + esc(orderNoVal) + '" placeholder="请输入派车单号（可空）" autocomplete="off">' + orderNoNote + '</div></div>' +
     '<div class="pa-f-row"><span class="k">巡视内容</span><div class="c" style="font-size:12px;color:#6B7690;line-height:1.8;padding-top:6px">' +
       (esc(it.entry.patrol_content || '（空）') ) + '<span class="sub" style="display:block;font-size:11px;color:var(--ph)">不在对齐范围，只读展示</span></div></div>' +
     '</div></div>';
@@ -3573,6 +3617,7 @@ async function paSave(it, i, total, inst, advance, btn) {
     patrol_content: it.entry.patrol_content,
     vehicle_id: Number(plateSel.value) || null,
     destination_id: destSel ? Number(destSel.value) || null : null,
+    dispatch_order_no: ($('#paOrderNo', inst.box) ? $('#paOrderNo', inst.box).value : '').trim(),
     member_ids: $$('.chip.on[data-mid]', inst.box).map(function (c) { return Number(c.dataset.mid); })
   };
   btn.disabled = true;
@@ -3587,6 +3632,7 @@ async function paSave(it, i, total, inst, advance, btn) {
     it.entry.plate = hitV ? hitV.plate_no : it.entry.plate;
     it.entry.destination_id = body.destination_id;
     it.entry.destination = hitD ? hitD.name : it.entry.destination;
+    it.entry.order_no = body.dispatch_order_no;
     state.pa.done[i] = true;
     renderPA();
     loadLogs({ quiet: true }); // 卡片流静默刷新（若被更正日期在视图中）
@@ -3617,6 +3663,7 @@ async function paCreate(it, i, total, inst, advance, btn) {
     patrol_content: '',
     vehicle_id: vehicleId,
     destination_id: destSel ? Number(destSel.value) || null : null,
+    dispatch_order_no: ($('#paOrderNo', inst.box) ? $('#paOrderNo', inst.box).value : '').trim(), // 快速建卡带入派车单号（按表格预填可改）
     member_ids: $$('.chip.on[data-mid]', inst.box).map(function (c) { return Number(c.dataset.mid); })
   };
   btn.disabled = true;
@@ -4185,7 +4232,7 @@ function showVerifyFailures(e, from, onForce) {
   return true;
 }
 
-/* 日期范围内联输入绑定（批量下载 / 工作任务单 / 费用汇总 三页签同款：起止两个日期输入 + 分隔符，无弹层无确定钮）；
+/* 日期范围内联输入绑定（批量下载 / 工作任务单 / 费用汇总 / 派车汇总 四页签同款：起止两个日期输入 + 分隔符，无弹层无确定钮）；
    点击输入框任意位置即展开系统日期选择（showPicker，不支持的浏览器保留原生点击行为）；
    change 时校验：缺值或 from > to 回退为状态值（f > t 时 toast 提示），合法则回写 st（{from,to} 状态对象）并触发 onChange */
 function bindRangeInput(fromSel, toSel, st, onChange) {
@@ -4318,6 +4365,37 @@ async function feeSheetDownload(btn, force) {
   btn.disabled = false;
 }
 
+/* 派车汇总：范围读取（同 fsRange 口径） */
+function dsRange() {
+  var from = state.ds.from;
+  var to = state.ds.to;
+  if (!from || !to) { Shade.toast('请选择日期范围', 'info'); return null; }
+  return { from: from, to: to };
+}
+/* 范围文件名口径同后端 dispatchSheetFileName */
+function dsFileName(from, to) {
+  return from === to ? '派车汇总-' + from + '.xlsx' : '派车汇总-' + from + '至' + to + '.xlsx';
+}
+
+/* 派车汇总：下载 = xlsx 二进制，apiRaw + saveBlob 落地（同费用汇总口径；无 40901 生成前核验——单号清单与照片核验无关） */
+async function dispatchSheetDownload(btn) {
+  var range = dsRange();
+  if (!range) return;
+  btn.disabled = true;
+  try {
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/dispatch-sheet?from=' + range.from + '&to=' + range.to));
+    if (!res.ok) {
+      var ej = null;
+      try { ej = await res.json(); } catch (e) { }
+      throw new Error((ej && ej.message) || ('生成失败（' + res.status + '）'));
+    }
+    await Shade.saveBlob(res, dsFileName(range.from, range.to));
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
 /* 杆塔导入：FormData 上传（字段 file；team_id 经 wl() 走 query，后端同口径解析）→ toast 后端 message → 刷新条数 */
 async function importTowers(f) {
   var fd = new FormData();
@@ -4362,7 +4440,7 @@ function switchPane(key) {
   $$('#wlTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === key); });
   moveWlTabInd($('#wlTabs button.on'));
   $$('.wl-list .pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane' + key); });
-  /* 记录页专属控件（新建 / 计数 / 从商旅拉取 / 跨班日志）仅记录页显示；「全部 / 仅看我」为全局开关，六个页签常驻 */
+  /* 记录页专属控件（新建 / 计数 / 从商旅拉取 / 跨班日志）仅记录页显示；「全部 / 仅看我」为全局开关，八个页签常驻 */
   var isRec = key === 'Record';
   $('#photoCnt').hidden = !isRec;
   $('#btnCreate').hidden = !isRec;
@@ -5068,6 +5146,9 @@ function initEvents() {
   bindRangeInput('#fsFrom', '#fsTo', state.fs, null);
   $('#fsPrev').addEventListener('click', function () { feeSheetPreview(this); });
   $('#fsDl').addEventListener('click', function () { feeSheetDownload(this); });
+  /* 派车汇总页签：内联起止日期 / 下载（xlsx，仅下载不预览） */
+  bindRangeInput('#dsFrom', '#dsTo', state.ds, null);
+  $('#dsDl').addEventListener('click', function () { dispatchSheetDownload(this); });
   /* 派车对齐页签：选文件 / 移除文件 / 开始对齐 / 清单行打开对照弹层 / 每日自动同步开关 */
   $('#paSyncSw').addEventListener('click', togglePaSyncSwitch);
   $('#paPick').addEventListener('click', function () { $('#paFileInput').click(); });
@@ -5318,7 +5399,7 @@ function renderNoTeam() {
 async function init() {
   /* 静态图标注入 */
   $$('#wlTabs button').forEach(function (b) {
-    b.insertAdjacentHTML('afterbegin', Shade.icon({ Record: 'task', Dl: 'download', Rep: 'file-safety', Dict: 'tools', TS: 'file', FS: 'book', PA: 'copy' }[b.dataset.p], 14));
+    b.insertAdjacentHTML('afterbegin', Shade.icon({ Record: 'task', Dl: 'download', Rep: 'file-safety', Dict: 'tools', TS: 'file', FS: 'book', DS: 'view-list', PA: 'copy' }[b.dataset.p], 14));
   });
   moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
   $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
@@ -5331,12 +5412,15 @@ async function init() {
   $('#tsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
   $('#fsPrev').innerHTML = Shade.icon('file', 15) + '预览';
   $('#fsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
-  /* 批量下载 / 工作任务单 / 费用汇总 范围默认均仅当日单日（页签内联起止输入再调区间） */
+  $('#dsDl').innerHTML = Shade.icon('download', 15) + '下载 Excel';
+  /* 批量下载 / 工作任务单 / 费用汇总 / 派车汇总 范围默认均仅当日单日（页签内联起止输入再调区间） */
   state.ts.from = state.ts.to = state.date;
   state.fs.from = state.fs.to = state.date;
+  state.ds.from = state.ds.to = state.date;
   state.dl.from = state.dl.to = state.date;
   $('#tsFrom').value = $('#tsTo').value = state.date;
   $('#fsFrom').value = $('#fsTo').value = state.date;
+  $('#dsFrom').value = $('#dsTo').value = state.date;
   $('#dlFrom').value = $('#dlTo').value = state.date;
   $('#calPrev').innerHTML = SVG_CHEV_L;
   $('#calNext').innerHTML = SVG_CHEV_R;
@@ -5351,11 +5435,12 @@ async function init() {
 
   /* 班组隔离门控：非超管未分配班组 → 整页空态（屏十口径）；超管先选定切换班组再出数 */
   var me = Shade.user() || {};
-  /* 数据管理 / 工作任务单 / 费用汇总 / 派车对齐页签仅超管 / 班组管理员可见 */
+  /* 数据管理 / 工作任务单 / 费用汇总 / 派车汇总 / 派车对齐页签仅超管 / 班组管理员可见 */
   if (me.role === 'admin' || me.role === 'team_admin') {
     $('#tabDict').style.display = '';
     $('#tabTS').style.display = '';
     $('#tabFS').style.display = '';
+    $('#tabDS').style.display = '';
     $('#tabPA').style.display = '';
     $('#btnSyncCheck').hidden = false; // 「从商旅拉取」同口径（区段批量拉取仅管理员可发起，服务端 40304 同拦）
   }

@@ -3,9 +3,10 @@
 //（班组管理员/超管在「派车对齐」页按班组开关；env WORKLOG_DISPATCH_SYNC_TEAM 仅作首次启动种子）。
 // 每日流程（北京时间，时区换算同 sgccclockin 固定 UTC+8 口径）：
 //   09:10 准备：锁定设备（devlock 维护锁，远程连接/文件传输对该设备暂停）→ 设备 /mount 把 U 盘挂载（共享）至被控机端
-//   09:15 被控机脚本导出派车单到 U 盘（scripts/export_dispatch_orders.py，被控机本机 crontab，不在本服务范围）
+//   09:15 被控机桌面客户端（内网工具箱，独立项目，不在本仓）导出派车单到 U 盘
 //   09:20 取件：下载当日文件（设备 fileshare 下载内部先 ensure_unshared，自动把 U 盘切回 KVM 侧）
-//         → 删除 U 盘中该文件 → 解析建卡 → 解禁设备 → 结果通知（每日必发：按班组分发，超管 + 对应班组管理员）
+//         → 删除 U 盘中该文件 → 解析建卡（派车单号随卡写入 worklog_entry.dispatch_order_no，供「派车汇总」导出）
+//         → 解禁设备 → 结果通知（每日必发：按班组分发，超管 + 对应班组管理员）
 // 建卡口径（用户指定）：A 列车牌（剔除「(蓝)/(绿)」等颜色后缀）、E 列用车人、J 列目的地；
 //   行日期按 F 列预计用车时间（T 列创建时间兜底）判定，非当日行清洗剔除（导出件可能混入之前日期的派车单）；
 //   用车人串「含有」本班启用成员姓名（子串）的记录保留；同一人同日只挂一张卡，多条记录含同一人时由匹配班组人名最多的记录胜出；
@@ -168,7 +169,7 @@ function parseOrders(buffer, today) {
       driver: cells[COL.driver] || '',
       userText: cells[COL.members] || '', // 用车人原始串（空格分隔，偶有连写）
       to: cells[COL.to] || '',
-      orderNo: cells[COL.orderNo] || '',
+      orderNo: cells[COL.orderNo] || '', // 派车单号（随卡写入 dispatch_order_no，派车汇总导出用）
       state: cells[COL.state] || '',
     });
   }
@@ -210,6 +211,13 @@ function planCards(rows, teamMembers, vehicles, destinations, assignedIds) {
 }
 
 /* ===== 库操作与通知 ===== */
+
+// 派车单号写入卡片（「派车汇总」导出字段）：仅写派车单号这一信息字段，不动车牌/目的地/用车人比对三件套；
+// 空单号不写（汇总无据）；同日补跑/重跑为同值覆盖，幂等
+async function saveOrderNo(entryId, row) {
+  if (!row.orderNo) return;
+  await pool.query('UPDATE worklog_entry SET dispatch_order_no = ? WHERE id = ?', [row.orderNo, entryId]);
+}
 
 // 解析 + 行级班组判定 + 逐班组计划落库/已有卡比对 → { results, outside, otherTeam, dropped, stale, total }
 // results 每项 { team, created, skippedDict, cross, mismatches, aligned }：
@@ -298,8 +306,8 @@ async function importOrdersMulti(teams, buffer, today) {
     const created = [];
     for (const p of plans) {
       const [r] = await pool.query(
-        'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-        [team.id, today, '', p.vehicle.id, p.destination ? p.destination.id : null, createdBy]
+        'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [team.id, today, '', p.vehicle.id, p.destination ? p.destination.id : null, p.row.orderNo || null, createdBy]
       );
       for (const m of p.members) {
         await pool.query(
@@ -319,6 +327,8 @@ async function importOrdersMulti(teams, buffer, today) {
     let aligned = 0;
     const mismatches = [];
     for (const o of overlaps) {
+      // 派车单号回填已有卡片（多张卡时不确定归属不写；仅他班占用无本班卡的行不写）
+      if (o.cards.length === 1) await saveOrderNo(o.cards[0].id, o.row);
       const issues = [];
       for (const card of o.cards) {
         // 一条派车单占用多张卡片时逐卡比对，前缀标注卡片便于定位
@@ -426,7 +436,7 @@ async function fetchJob() {
     if (!buf) {
       const lines = [
         `未在设备 U 盘找到「${fileName}」。`,
-        '可能当日无派车单，或导出脚本异常（排障见 scripts/README.md）。',
+        '可能当日无派车单，或被控机导出客户端（内网工具箱）异常。',
       ];
       await notify('派车单同步：今日无文件', lines, teams.map((t) => t.id));
       return { ok: true, message: lines.join('\n') };

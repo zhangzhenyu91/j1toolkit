@@ -26,6 +26,7 @@ const DDL = [
     remark_files JSON NULL COMMENT '备注附件 [{name,url,cos_key,type,size}]（type=image/video/doc）',
     vehicle_id BIGINT UNSIGNED NULL COMMENT '车牌，关联 worklog_vehicle.id；NULL=未出车',
     destination_id BIGINT UNSIGNED NULL COMMENT '目的地，关联 worklog_destination.id',
+    dispatch_order_no VARCHAR(64) NULL COMMENT '派车单号（每日同步带入，改派车可改；「派车汇总」导出字段）',
     cross_team TINYINT NOT NULL DEFAULT 0 COMMENT '跨班日志：1 用车人含非归属班组成员（仅超管可建/删/改派车）',
     created_by BIGINT UNSIGNED NOT NULL COMMENT '创建人，关联 sys_user.id',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -154,6 +155,18 @@ async function ensureWorklogSchema(pool) {
   );
   if (!entryIdx.length) {
     await pool.query('ALTER TABLE worklog_entry ADD KEY idx_team (team_id)');
+  }
+
+  // 老库兼容：worklog_entry 补 dispatch_order_no 列（派车单号，「派车汇总」导出字段）
+  const [orderNoCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_entry' AND COLUMN_NAME = 'dispatch_order_no'`
+  );
+  if (!orderNoCols.length) {
+    await pool.query(
+      `ALTER TABLE worklog_entry ADD COLUMN dispatch_order_no VARCHAR(64) NULL COMMENT '派车单号（每日同步带入，改派车可改；「派车汇总」导出字段）' AFTER destination_id`
+    );
+    console.log('[初始化] 已为 worklog_entry 补充 dispatch_order_no 列');
   }
 
   // 老库兼容：worklog_member 补 user_id 列（账号同步成员标记；NULL=手动添加）
