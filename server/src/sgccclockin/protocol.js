@@ -92,10 +92,11 @@ function rsaDecryptLong(privPem, b64) {
 }
 
 // ---------- 底层 HTTP ----------
-// 出口代理（env SGCC_PROXY_URL）：配置后全部商旅 API 调用经 SOCKS5 出口（账密写在 URL 里），
-// 让商旅侧看到的 IP 属地对齐打卡人实际所在地（云服务器机房 IP 易触发风控 99000 窗口）。
-// agent 全局缓存复用；代理不可用/地址无效即报错，不静默降级直连——同一次登录多步调用的
-// IP 属地若直连/代理混用会更不一致，风控口径反而更差。照片类大流量下载不经此通道（见 index.js fetch）。
+// 出口代理（env SGCC_PROXY_URL）：配置后全部商旅通信经 SOCKS5 出口（账密写在 URL 里）——
+// 本模块 API 调用 + 商旅费用照片下载（index.js axios，agent 经 httpsAgent() 导出复用），
+// 让商旅侧看到的 IP 属地对齐打卡人实际所在地且同一账号各链路 IP 一致（云服务器机房 IP 易触发风控 99000/99001）。
+// agent 全局缓存复用；代理不可用/地址无效即报错，不静默降级直连——同一账号多链路
+// IP 属地若直连/代理混用会更不一致，风控口径反而更差。仅自家 COS 回源等非商旅流量不经此通道。
 // socks-proxy-agent 惰性加载：未配置代理时整个包不被 require（该包缺失也不影响直连部署）
 let PROXY_AGENT = null;
 function httpsAgent() {
@@ -218,6 +219,32 @@ async function callJsonm(path, plainObj) {
 // tenant='default'：default 通道（RSA_PUB 加密 / RSA_PRIV 解密，主机 gwslapi）
 // tenant='slapp'：  slapp 通道（dCu 加密 / wLA 解密，主机 gwslapizb；saveFeeInfoNew 必须走它）
 
+// uniID 池（App 同口径，2026-09-24 HAR 实证）：App 的登录与业务请求全部携带 /api/ads 服务端签发的 uniID
+//（50 个/池、30min 有效、每请求消耗一个），仅启动早期个别调用用自签 sub=slapp——自签 uniID 上登录/主 API
+// 会被风控以 99001 笼统拒绝。jsonx 两通道各用各池：default 复用 jsonm 的 gwslapi 池，slapp 经 slapp ads 拉取
+let JWT_POOL_X = [];
+let JWT_POOL_X_AT = 0; // 上次拉池时间（ms）：池未耗尽也会过期，超 25min 强制重拉
+async function initSessionX() {
+  const r = await callJsonx('ads', { adClientId: 'android', adSecret: '2u9tdiPtM7dUzekPqMc6Yyo85WUhpial' }, { tenant: 'slapp', noPool: true });
+  const list = r.decoded && r.decoded.data && r.decoded.data.list;
+  if (r.status === 200 && Array.isArray(list) && list.length) {
+    JWT_POOL_X = list.slice();
+    JWT_POOL_X_AT = Date.now();
+    return true;
+  }
+  throw new Error('商旅 ads 初始化失败（slapp 通道）：HTTP ' + r.status + ' ' + JSON.stringify(r.decoded || r.raw || '').slice(0, 200));
+}
+
+// 取池化 uniID（slapp/default 分池；noPool 的 ads 拉池请求不走这里——该请求本就不带 uniID 头）
+async function takeUniID(slapp) {
+  if (slapp) {
+    if (!JWT_POOL_X.length || Date.now() - JWT_POOL_X_AT > 25 * 60 * 1000) await initSessionX();
+    return JWT_POOL_X.shift();
+  }
+  if (!JWT_POOL.length) await initSession();
+  return JWT_POOL.shift();
+}
+
 // 设备 uuid（请求头 uuid，真实 App 为设备唯一 UUID）：按手机号确定性派生——同一账号登录与后续业务调用一致
 //（平台若校验登录/调用设备一致性不打架），不同账号互异；未带手机号的调用（极少）落固定 'default' 派生值
 function deviceUuid(mobile) {
@@ -225,19 +252,19 @@ function deviceUuid(mobile) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`.toUpperCase();
 }
 
-async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '' } = {}) {
+async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '', noPool = false } = {}) {
   const isSlapp = tenant === 'slapp';
   const pubPem = toPem(need(isSlapp ? 'SGCC_DCU_PUB' : 'SGCC_RSA_PUB', isSlapp ? config.sgcc.dcuPub : config.sgcc.rsaPub), 'PUBLIC KEY');
   const privPem = toPem(need(isSlapp ? 'SGCC_WLA_PRIV' : 'SGCC_RSA_PRIV', isSlapp ? config.sgcc.wlaPriv : config.sgcc.rsaPriv), 'PRIVATE KEY');
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const body = rsaEncryptLong(pubPem, JSON.stringify({ ...(plainObj || {}), _r: r }));
-  const uniID = makeJwt('app');
+  const uniID = noPool ? '' : await takeUniID(isSlapp);
   // 头集逐项对齐真实 App 3.3.6 抓包（2026-09-24 HAR 比对）：版本指纹缺失/过旧会被风控以 99001 笼统拒绝
   const headers = {
     'Content-Type': 'application/jsonx', 'Accept': '*/*',
     'User-Agent': `guo wang shang lu yun/${VERSION} (${deviceType}; ${systemVersion}; Scale/2.00)`,
     'source': '1',
-    'tenant': tenant, 'uniID': uniID,
+    'tenant': tenant,
     'platform': isSlapp ? '1' : 'android',
     'systemVersion': systemVersion, 'deviceType': deviceType,
     'appType': '0', 'grayversion': config.sgcc.grayVersion || '2.4.7.1',
@@ -245,6 +272,7 @@ async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType
     'uuid': deviceUuid(mobile),
     'encFlag': '2', 'version': VERSION,
   };
+  if (uniID) headers.uniID = uniID;
   if (isSlapp) headers.secretKeyType = '2';
   if (token) headers.token = token;
   // App 版 sign：keyList「token,uniID,tenant;」+ md5(值串联 + r)
@@ -303,6 +331,25 @@ async function loginBySms(mobile, checkCode, { captchaToken, constId } = {}) {
   const r = await callJsonm('user/smstoken/v4', {
     mobile, checkCode, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
   });
+  const d = r.decoded && r.decoded.data;
+  const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
+  if (!token) throw loginBizError('短信登录失败', r.decoded);
+  return { token };
+}
+
+// 滑块通道发短信（slapp/jsonx，App 同口径；原 jsonm H5 通道 loginSendSms 保留备用）
+async function loginSendSmsSlapp(mobile, { captchaToken, constId } = {}) {
+  const r = await callJsonx('user/sendSmsCode/v3', {
+    mobile, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
+  }, { tenant: 'slapp', mobile });
+  return r.decoded;
+}
+// 短信换 token（slapp/jsonx，App 同口径，图形/滑块两通道统一走它）：原 jsonm H5 通道签发的 token
+// 在主 API（dayNew 等）上被风控 99001（2026-09-24 两例实测），App 全程 slapp 通道签发则正常
+async function loginBySmsSlapp(mobile, checkCode, { captchaToken, constId } = {}) {
+  const r = await callJsonx('user/smstoken/v4', {
+    mobile, checkCode, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
+  }, { tenant: 'slapp', mobile });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
   if (!token) throw loginBizError('短信登录失败', r.decoded);
@@ -397,6 +444,7 @@ async function reimbEnclosureAdd(token, { imgBase64Str, fileName, fileSize, ext 
 }
 
 module.exports = {
-  loginCaptcha, loginSendSmsV2, loginSendSms, loginBySms, loginByPasswordV3, loginByPassword,
-  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, reimbEnclosureAdd, probeProxy,
+  loginCaptcha, loginSendSmsV2, loginSendSms, loginBySms, loginSendSmsSlapp, loginBySmsSlapp,
+  loginByPasswordV3, loginByPassword,
+  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, reimbEnclosureAdd, probeProxy, httpsAgent,
 };

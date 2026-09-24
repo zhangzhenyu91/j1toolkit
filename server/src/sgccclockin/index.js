@@ -394,8 +394,8 @@ router.post('/login/sms', async (req, res, next) => {
       return ok(res, null);
     }
     if (!captchaToken) return fail(res, 400, 40034, '请先完成图形或滑块验证');
-    // 滑块通道（v3）：失败时 statusCode 也是 200，成败看 data.code（成功无 data 或 data.code=0）
-    const d = await sgcc.loginSendSms(String(mobile), { captchaToken: String(captchaToken), constId: String(constId || '') });
+    // 滑块通道（v3，slapp/jsonx App 同口径）：失败时 statusCode 也是 200，成败看 data.code（成功无 data 或 data.code=0）
+    const d = await sgcc.loginSendSmsSlapp(String(mobile), { captchaToken: String(captchaToken), constId: String(constId || '') });
     const bizFail = !d || Number(d.statusCode) !== 200 || (d.data && d.data.code != null && Number(d.data.code) !== 0);
     if (bizFail) {
       return fail(res, 400, 40031, (d && d.data && d.data.msg) || (d && d.msg) || '短信发送失败，请重试');
@@ -424,7 +424,7 @@ router.post('/login/bind', async (req, res, next) => {
         ? (checkImgCode
           ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
           : await sgcc.loginByPassword(String(mobile), String(password), risk))
-        : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk));
+        : await sgcc.loginBySmsSlapp(String(mobile), String(checkCode).trim(), risk));
     } catch (e) {
       // 平台业务失败（如 99001 风控笼统拒绝）：映射友好业务码，前端 toast 平台原文，不落全局 500
       if (e.status === 400) return fail(res, 400, 40037, e.message);
@@ -664,7 +664,7 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
         ? (checkImgCode
           ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
           : await sgcc.loginByPassword(String(mobile), String(password), risk))
-        : await sgcc.loginBySms(String(mobile), String(checkCode).trim(), risk));
+        : await sgcc.loginBySmsSlapp(String(mobile), String(checkCode).trim(), risk));
     } catch (e) {
       // 平台业务失败（如 99001 风控笼统拒绝）：映射友好业务码，前端 toast 平台原文，不落全局 500
       if (e.status === 400) return fail(res, 400, 40037, e.message);
@@ -1393,9 +1393,15 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
       for (const [imgId, imgUrl] of toPull) {
         try {
           if (!/^https?:\/\//.test(imgUrl)) throw new Error('商旅侧未返回有效图片地址');
-          const resp = await fetch(imgUrl, { signal: AbortSignal.timeout(60000) });
-          if (!resp.ok) throw new Error(`照片下载失败（HTTP ${resp.status}）`);
-          const buf = Buffer.from(await resp.arrayBuffer());
+          // 与 API 同出口代理（2026-09-24 起全部商旅通信统一走代理：同一账号在商旅侧 IP 一致，防风控扣分）；
+          // undici fetch 不认 http.Agent 故走 axios；未配置代理时 httpsAgent() 返回 undefined 即直连
+          const resp = await axios.get(imgUrl, {
+            responseType: 'arraybuffer', timeout: 60000,
+            httpsAgent: sgcc.httpsAgent(),
+            validateStatus: () => true,
+          });
+          if (resp.status < 200 || resp.status >= 300) throw new Error(`照片下载失败（HTTP ${resp.status}）`);
+          const buf = Buffer.from(resp.data);
           const imgMd5 = crypto.createHash('md5').update(buf).digest('hex');
           // 相同照片内容合并（一图多人标注）：卡片上下文班组当日已有同 MD5 照片 → 人名/链接并入，不再新建
           const [dup] = await pool.query(
