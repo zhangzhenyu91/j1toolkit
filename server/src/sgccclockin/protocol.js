@@ -337,10 +337,11 @@ async function loginBySms(mobile, checkCode, { captchaToken, constId } = {}) {
   return { token };
 }
 
-// 滑块通道发短信（slapp/jsonx，App 同口径；原 jsonm H5 通道 loginSendSms 保留备用）
+// 滑块通道发短信（slapp/jsonx，App 同口径；原 jsonm H5 通道 loginSendSms 保留备用）；
+// riskReviewFlag（3.3.6 新增必填布尔，LoginApiManager.getTextMessageCheckCode3 实证）：滑块完成后固定 true
 async function loginSendSmsSlapp(mobile, { captchaToken, constId } = {}) {
   const r = await callJsonx('user/sendSmsCode/v3', {
-    mobile, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
+    mobile, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y', riskReviewFlag: true,
   }, { tenant: 'slapp', mobile });
   return r.decoded;
 }
@@ -357,11 +358,11 @@ async function loginBySmsSlapp(mobile, checkCode, { captchaToken, constId } = {}
 }
 
 // 账号密码登录（双通道，与短信同理按风控动态出图形码/滑块）：
-//   图形码通道 token/v3（checkImgCode）；滑块通道 user/token/v4（顶象 captchaToken + constId）
-// 注意 token/v3 无前缀（user/token/v3 为 404）；jsonm/jsonx-default 均 503，按 token/v4 同口径走 slapp（通道待云端实测）
+//   图形码通道 token/v3（checkImgCode）；滑块通道 user/token/v4（顶象 captchaToken + constId + riskReviewFlag=true）
+// 注意 token/v3 无前缀（user/token/v3 为 404）、体无 source 字段（3.3.6 LoginApiManager.login 实证）；jsonm/jsonx-default 均 503，按 token/v4 同口径走 slapp（通道待云端实测）
 async function loginByPasswordV3(mobile, password, checkImgCode) {
   const r = await callJsonx('token/v3', {
-    mobile, password, checkImgCode, source: '3', constId: '', captchaToken: '', riskFlag: 'Y',
+    mobile, password, checkImgCode, constId: '', captchaToken: '', riskFlag: 'Y',
   }, { tenant: 'slapp', mobile });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
@@ -369,10 +370,11 @@ async function loginByPasswordV3(mobile, password, checkImgCode) {
   return { token };
 }
 
-// 滑块通道密码登录（user/token/v4）：jsonm/jsonx-default 通道均 503，必须走 slapp 通道（实测 App 口径）
+// 滑块通道密码登录（user/token/v4）：jsonm/jsonx-default 通道均 503，必须走 slapp 通道（实测 App 口径）；
+// riskReviewFlag（3.3.6 新增必填布尔，LoginApiManager.login4 实证）：滑块完成真实风控审核后固定 true（同 App 滑块回调路径）
 async function loginByPassword(mobile, password, { captchaToken, constId } = {}) {
   const r = await callJsonx('user/token/v4', {
-    mobile, password, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
+    mobile, password, source: '3', constId: constId || '', riskReviewFlag: true, captchaToken: captchaToken || '', riskFlag: 'Y',
   }, { tenant: 'slapp', mobile });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
