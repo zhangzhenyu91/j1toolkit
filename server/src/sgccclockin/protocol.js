@@ -17,7 +17,7 @@ const config = require('../config');
 
 const HOST_H5 = 'gwslapi.esgcc.com.cn';   // jsonm 与 jsonx(default)
 const HOST_ZB = 'gwslapizb.esgcc.com.cn'; // jsonx(slapp)
-const VERSION = config.sgcc.version || '3.3.5';
+const VERSION = config.sgcc.version || '3.3.6';
 
 // ---------- 基础工具 ----------
 function b64url(b) { return Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
@@ -217,19 +217,32 @@ async function callJsonm(path, plainObj) {
 // ---------- jsonx 调用（打卡/费用业务）----------
 // tenant='default'：default 通道（RSA_PUB 加密 / RSA_PRIV 解密，主机 gwslapi）
 // tenant='slapp'：  slapp 通道（dCu 加密 / wLA 解密，主机 gwslapizb；saveFeeInfoNew 必须走它）
-async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13' } = {}) {
+
+// 设备 uuid（请求头 uuid，真实 App 为设备唯一 UUID）：按手机号确定性派生——同一账号登录与后续业务调用一致
+//（平台若校验登录/调用设备一致性不打架），不同账号互异；未带手机号的调用（极少）落固定 'default' 派生值
+function deviceUuid(mobile) {
+  const hex = crypto.createHash('md5').update(`sgcc-device:${mobile || 'default'}:${config.sgcc.jwtSecret || ''}`, 'utf8').digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`.toUpperCase();
+}
+
+async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '' } = {}) {
   const isSlapp = tenant === 'slapp';
   const pubPem = toPem(need(isSlapp ? 'SGCC_DCU_PUB' : 'SGCC_RSA_PUB', isSlapp ? config.sgcc.dcuPub : config.sgcc.rsaPub), 'PUBLIC KEY');
   const privPem = toPem(need(isSlapp ? 'SGCC_WLA_PRIV' : 'SGCC_RSA_PRIV', isSlapp ? config.sgcc.wlaPriv : config.sgcc.rsaPriv), 'PRIVATE KEY');
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const body = rsaEncryptLong(pubPem, JSON.stringify({ ...(plainObj || {}), _r: r }));
   const uniID = makeJwt('app');
+  // 头集逐项对齐真实 App 3.3.6 抓包（2026-09-24 HAR 比对）：版本指纹缺失/过旧会被风控以 99001 笼统拒绝
   const headers = {
-    'Content-Type': 'application/jsonx;charset=utf-8', 'accept': 'application/jsonx',
-    'user-agent': 'http/3.9.4', 'source': '1',
+    'Content-Type': 'application/jsonx', 'Accept': '*/*',
+    'User-Agent': `guo wang shang lu yun/${VERSION} (${deviceType}; ${systemVersion}; Scale/2.00)`,
+    'source': '1',
     'tenant': tenant, 'uniID': uniID,
     'platform': isSlapp ? '1' : 'android',
     'systemVersion': systemVersion, 'deviceType': deviceType,
+    'appType': '0', 'grayversion': config.sgcc.grayVersion || '2.4.7.1',
+    'version-code': config.sgcc.versionCode || '202609101630',
+    'uuid': deviceUuid(mobile),
     'encFlag': '2', 'version': VERSION,
   };
   if (isSlapp) headers.secretKeyType = '2';
@@ -302,7 +315,7 @@ async function loginBySms(mobile, checkCode, { captchaToken, constId } = {}) {
 async function loginByPasswordV3(mobile, password, checkImgCode) {
   const r = await callJsonx('token/v3', {
     mobile, password, checkImgCode, source: '3', constId: '', captchaToken: '', riskFlag: 'Y',
-  }, { tenant: 'slapp' });
+  }, { tenant: 'slapp', mobile });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
   if (!token) throw loginBizError('密码登录失败', r.decoded, '可改用短信验证码登录');
@@ -313,7 +326,7 @@ async function loginByPasswordV3(mobile, password, checkImgCode) {
 async function loginByPassword(mobile, password, { captchaToken, constId } = {}) {
   const r = await callJsonx('user/token/v4', {
     mobile, password, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
-  }, { tenant: 'slapp' });
+  }, { tenant: 'slapp', mobile });
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
   if (!token) throw loginBizError('密码登录失败', r.decoded, '可改用短信验证码登录');

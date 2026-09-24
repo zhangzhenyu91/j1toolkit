@@ -125,7 +125,9 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SGCC_JWT_SECRET` / `SGCC_SM2_SERVER_PUB` / `SGCC_SM2_CLIENT_PRIV` | 商旅平台协议密钥（取自商旅 App 逆向分析，联系维护者获取；密钥即 App 内固定值，各环境通用） |
 | `SGCC_RSA_PUB` / `SGCC_RSA_PRIV` | 商旅 jsonx default 通道（打卡/详情/模板）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_DCU_PUB` / `SGCC_WLA_PRIV` | 商旅 jsonx slapp 通道（费用保存必走）：请求加密公钥 / 响应解密私钥 |
-| `SGCC_VERSION` | 商旅 App 版本号（请求头 version，默认 `3.3.5`；App 升级后优先只改此项验证是否仍通） |
+| `SGCC_VERSION` | 商旅 App 版本号（请求头 version，默认 `3.3.6`；App 升级后优先只改此项验证是否仍通） |
+| `SGCC_VERSION_CODE` | 商旅 App 构建号（请求头 version-code，默认 `202609101630`；随 SGCC_VERSION 一并更新） |
+| `SGCC_GRAY_VERSION` | 风控 SDK 版本（请求头 grayversion，默认 `2.4.7.1`） |
 | `SGCC_SYNC_TIME` | 商旅打卡每日自动核查时间（HH:mm，默认 `23:00`） |
 | `SGCC_STARTCLOCK_REMIND_TIME` | 开始打卡未打午间提醒时间（HH:mm，默认 `11:00`；提醒前先对当日卡上成员做打卡同步再判定，同步失败转人工核查通知；仅发微信提醒：本人 + 班组群，不写站内通知） |
 | `SGCC_ENDCLOCK_REMIND_TIME` | 结束打卡未打傍晚提醒时间（HH:mm，默认 `18:00`；提醒前先对当日卡上成员做打卡同步再判定，同步失败转人工核查通知；仅发微信提醒：本人 + 班组群，不写站内通知） |

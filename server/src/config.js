@@ -120,7 +120,11 @@ const config = {
     dcuPub: str('SGCC_DCU_PUB'),             // jsonx slapp 通道请求加密公钥（res/dCu.pem 内容）
     wlaPriv: str('SGCC_WLA_PRIV'),           // jsonx slapp 通道响应解密私钥（res/wLA.pem 内容）
     // 商旅 App 版本号（请求头 version；App 升级后优先只改此项验证是否仍通）
-    version: str('SGCC_VERSION', '3.3.5'),
+    version: str('SGCC_VERSION', '3.3.6'),
+    // 商旅 App 构建号（请求头 version-code，3.3.6 实测值 202609101630；App 升级随 SGCC_VERSION 一并更新）
+    versionCode: str('SGCC_VERSION_CODE', '202609101630'),
+    // 风控 SDK 版本（请求头 grayversion，3.3.6 实测值 2.4.7.1）
+    grayVersion: str('SGCC_GRAY_VERSION', '2.4.7.1'),
     // 每日自动核查时间（HH:mm，默认 23:00）
     syncTime: str('SGCC_SYNC_TIME', '23:00'),
     // 开始打卡未打午间提醒时间（HH:mm，默认 11:00；对当日卡上已绑定但未首次打卡的成员，仅发微信 本人+班组群，不写站内通知）

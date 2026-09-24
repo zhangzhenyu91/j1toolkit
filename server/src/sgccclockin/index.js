@@ -80,9 +80,13 @@ async function accountByMember(memberId) {
   return fallback[0] || null;
 }
 
-// 协议调用设备口径：一律用被打卡人绑定的机型/系统版本
+// 协议调用设备口径：一律用被打卡人绑定的机型/系统版本；mobile 供 protocol 派生稳定设备 uuid（登录/调用一致）
 function devOpt(account) {
-  return { deviceType: account.device_type || 'Pixel 7', systemVersion: account.system_version || 'Android 13' };
+  return {
+    deviceType: account.device_type || 'Pixel 7',
+    systemVersion: account.system_version || 'Android 13',
+    mobile: account.mobile || '',
+  };
 }
 
 // 登录态探测：dayNew 调通即有效；失效则标记 token_status=0（照片选人层据此置灰）。
