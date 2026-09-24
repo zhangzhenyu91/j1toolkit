@@ -170,6 +170,8 @@ function probeProxy() {
 
 // ---------- jsonm 调用（短信登录/ads 池）----------
 let JWT_POOL = []; // /api/ads 换取的一次性 uniID 池
+let JWT_POOL_AT = 0; // 上次拉池时间（ms）：池内 JWT 30min 过期（HAR 实测 exp=签发+1800s）——
+// 只看耗尽不看时间会把隔夜陈旧 uniID 带上请求被风控 99001（2026-09-25 早「登录后立马过期」实证），超 25min 强制重拉
 async function initSession() {
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const key = genAESKey();
@@ -189,14 +191,20 @@ async function initSession() {
   const decoded = JSON.parse(aesDecrypt(j.data, dkey));
   if (resp.status === 200 && decoded.data && decoded.data.list) {
     JWT_POOL = decoded.data.list.slice();
+    JWT_POOL_AT = Date.now();
     return true;
   }
   throw new Error('商旅 ads 初始化失败：HTTP ' + resp.status);
 }
 
+// 池有效判定：非空且未超 25min（jsonm 调用与 jsonx default 通道共用）
+function poolFresh() {
+  return JWT_POOL.length > 0 && Date.now() - JWT_POOL_AT <= 25 * 60 * 1000;
+}
+
 // jsonm 业务调用（登录三步用；uniID 从池取）
 async function callJsonm(path, plainObj) {
-  if (!JWT_POOL.length) await initSession();
+  if (!poolFresh()) await initSession();
   const uniID = JWT_POOL.shift();
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const key = genAESKey();
@@ -241,7 +249,7 @@ async function takeUniID(slapp) {
     if (!JWT_POOL_X.length || Date.now() - JWT_POOL_X_AT > 25 * 60 * 1000) await initSessionX();
     return JWT_POOL_X.shift();
   }
-  if (!JWT_POOL.length) await initSession();
+  if (!poolFresh()) await initSession();
   return JWT_POOL.shift();
 }
 
