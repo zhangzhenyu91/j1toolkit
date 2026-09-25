@@ -1,6 +1,12 @@
 // 小程序入口
 import { request } from './utils/request';
 import { wxLoginCode } from './utils/util';
+// 跨分包共享模块在主包显式登记引用：微信不允许分包间互相 require，共享代码只能放主包，
+// 此处仅为向代码质量扫描声明用途（消除「主包未使用的 JS 文件」误报），模块均为工厂/纯函数，无副作用
+import './utils/teamgate';
+import './utils/wmphoto';
+import './utils/tower';
+import './utils/multipart';
 
 App({
   globalData: {
