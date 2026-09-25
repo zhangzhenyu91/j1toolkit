@@ -1016,13 +1016,12 @@ router.post('/fee', async (req, res, next) => {
 // 多成员商旅循环的可选进度回调 prog（{ addTotal(n), step() }）：由 newPhotoOp 的任务记录供给，
 // 每个成员处理完（含跳过）step 一次；失败中止不 step。addTotal 累加设计：改人名「剔除 + 补传」两段共用同一任务拼接连续进度。
 
-// 把照片原文上传并关联进每个指定人名的当日商旅费用照片（reimbEnclosure/add → getFeeInfoNew → saveFeeInfoNew 关联上传图片组件）。
+// 把照片原文上传并关联进每个指定人名的当日商旅费用照片（fastdfs/upload/image/sample/v2 → getFeeInfoNew → saveFeeInfoNew 关联上传图片组件）。
 // 远端先行核心，两处共用：worklog 照片上传（本地落库前调用，buf 在内存）与 syncPhotoToSgcc（改人名补传 / resync，COS 回源 buf）。
 // links 传已有链接（按成员去重，已链接者跳过，重试天然只补缺口）；未绑定成员跳过不计失败（记核查日志，与验证规则 a「未绑定者不参与」同口径）；
 // 登录过期视为硬失败（远端先行口径：商旅失败即整个操作失败，跳过会造成本地与商旅必然不一致）。任一绑定成员失败即中止。
 // 返回 { ok:true, links } / { ok:false, links, failedName, error }（links 含本次新成功成员，供调用方落库）
-async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileName, links = {}, photoId = null, prog = null }) {
-  const imgBase64Str = buf.toString('base64');
+async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, links = {}, photoId = null, prog = null }) {
   const photoLabel = photoId ? `照片 ${photoId}` : '照片';
   if (prog) prog.addTotal(names.length);
   for (const name of names) {
@@ -1051,12 +1050,9 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileNam
       return { ok: false, links, failedName: name, error: '商旅登录已过期，请重新登录商旅账号' };
     }
     try {
-      const up = await sgcc.reimbEnclosureAdd(account.token, {
-        imgBase64Str, fileName, fileSize: buf.length, ext: '.jpg',
-      }, devOpt(account));
-      const imgId = up && up.data && (up.data.id || (up.data.body && up.data.body.id));
-      const imgUrl = up && up.data && (up.data.imageUrl || (up.data.body && up.data.body.imageUrl));
-      if (!imgId) throw new Error('商旅图片上传未返回 id');
+      const up = await sgcc.uploadImageV2(account.token, { buf }, devOpt(account));
+      const imgId = up.fileInfoId;
+      const imgUrl = up.httpUrl;
 
       // 关联进当日费用：上传图片组件（id=5）追加该图，整树重存；成本分配兜底同费用保存口径
       const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, logDate), devOpt(account));
@@ -1067,7 +1063,7 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, fileNam
       let imgs = [];
       if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
       if (!Array.isArray(imgs)) imgs = [];
-      // 元素形状与商旅 App 手工上传一致：{fileInfoId, url}（imgId 即 reimbEnclosureAdd 返回的 fileInfoId）
+      // 元素形状与商旅 App 手工上传一致：{fileInfoId, url}（imgId 即 uploadImageV2 返回的 fileInfoId）
       imgs.push({ fileInfoId: imgId, url: imgUrl || '' });
       const sv = await sgcc.saveFeeInfoNew(account.token, logDate, tpl, { 5: JSON.stringify(imgs) }, devOpt(account));
       if (!sv || Number(sv.statusCode) !== 200) throw new Error('费用照片关联保存失败');
@@ -1112,7 +1108,7 @@ async function syncPhotoToSgcc(photoId, targetNames = null, prog = null) {
 
   const r = await uploadPhotoToMembersRemote({
     teamId: photo.team_id, logDate: photo.log_date, names, buf,
-    fileName: `photo-${photoId}.jpg`, links, photoId, prog,
+    links, photoId, prog,
   });
   // 无论成败都落库最新链接与状态（部分成功的链接保留，重试只补缺口）
   await pool.query(

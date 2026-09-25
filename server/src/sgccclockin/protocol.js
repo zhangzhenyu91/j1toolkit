@@ -447,14 +447,47 @@ async function saveFeeInfoNew(token, date, clockTemplate, overrides = {}, opt = 
   return r.decoded;
 }
 
-// 费用凭证照片上传（返 {id, imageUrl}；再经 saveFeeInfoNew 上传图片组件关联入当日费用）
-async function reimbEnclosureAdd(token, { imgBase64Str, fileName, fileSize, ext = '.png' }, opt = {}) {
-  const r = await callJsonx('clockin/reimbEnclosure/add', { imgBase64Str, ext, fileName, fileSize }, { token, ...opt });
-  return r.decoded;
+// 费用凭证照片上传（App 3.3.6 新口径，2026-09-25 HAR 实证；原 clockin/reimbEnclosure/add 已被平台弃用不再返回 id）：
+// multipart 直传 gwslapizb——单字段 file、明文 JSON 响应（不经 RSA 解密）、无 sign 头、uniID 走 slapp 池；
+// 返 { fileInfoId, httpUrl }（再经 saveFeeInfoNew 上传图片组件关联入当日费用）
+async function uploadImageV2(token, { buf }, opt = {}) {
+  const { deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '' } = opt;
+  const boundary = 'Boundary+' + crypto.randomBytes(8).toString('hex').toUpperCase();
+  // 文件名对齐 App 口径：本机时区 yyyyMMddHHmmssSSS.jpg（按东八区生成）
+  const ts = new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace(/[-:T.Z]/g, '').slice(0, 17);
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${ts}.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`),
+    buf,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  // 头集逐项对齐 App 3.3.6 上传抓包（与 callJsonx slapp 口径同源，仅 Content-Type 为 multipart 且无 sign 头）
+  const headers = {
+    'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Accept': '*/*',
+    'User-Agent': `guo wang shang lu yun/${VERSION} (${deviceType}; ${systemVersion}; Scale/2.00)`,
+    'source': '1',
+    'tenant': 'slapp',
+    'platform': '1',
+    'systemVersion': systemVersion, 'deviceType': deviceType,
+    'appType': '0', 'grayversion': config.sgcc.grayVersion || '2.4.7.1',
+    'version-code': config.sgcc.versionCode || '202609101630',
+    'uuid': deviceUuid(mobile),
+    'encFlag': '2', 'secretKeyType': '2', 'version': VERSION,
+  };
+  const uniID = await takeUniID(true);
+  if (uniID) headers.uniID = uniID;
+  if (token) headers.token = token;
+  const resp = await post(HOST_ZB, 'fastdfs/upload/image/sample/v2', headers, body);
+  let j = null;
+  try { j = JSON.parse(resp.raw); } catch (e) { /* 异常响应 */ }
+  const result = j && j.data && j.data.result;
+  if (resp.status === 200 && j && Number(j.statusCode) === 200 && result && result.success && result.fileInfoId) {
+    return { fileInfoId: String(result.fileInfoId), httpUrl: result.httpUrl || '' };
+  }
+  throw new Error('商旅图片上传失败：' + String((j && (j.msg || (j.data && j.data.msg))) || resp.raw || `HTTP ${resp.status}`).slice(0, 120));
 }
 
 module.exports = {
   loginCaptcha, loginSendSmsV2, loginSendSms, loginBySms, loginSendSmsSlapp, loginBySmsSlapp,
   loginByPasswordV3, loginByPassword,
-  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, reimbEnclosureAdd, probeProxy, httpsAgent,
+  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, uploadImageV2, probeProxy, httpsAgent,
 };

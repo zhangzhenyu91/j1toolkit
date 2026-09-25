@@ -1376,7 +1376,6 @@ router.post('/logs/:id/photos', async (req, res, next) => {
           logDate,
           names,
           buf,
-          fileName: `photo-${entryId}-${Date.now()}.jpg`,
           prog: op.prog,
         });
         if (!rs.ok) {
