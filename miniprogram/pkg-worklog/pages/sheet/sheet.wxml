@@ -1,11 +1,11 @@
-<!-- 出工日志 · 费用汇总（超管 / 班组管理员）：选日期范围 → 生成「人 × 日」费用矩阵 Word 并打开 -->
-<navbar back title="费用汇总" />
+<!-- 出工日志 · 汇总单生成（超管 / 班组管理员）：?type=task|fee|dispatch 三合一，选日期范围 → 生成文档并打开 -->
+<navbar back title="{{cfg.title}}" />
 
 <view class="page-body" wx:if="{{isAdmin}}">
   <view class="card">
     <view class="r-l">
-      <view class="r-t">汇总范围</view>
-      <view class="r-s">范围内出车卡片一卡一行、用车人一人一列，末尾合计（单次最多 31 天）</view>
+      <view class="r-t">{{cfg.rangeTitle}}</view>
+      <view class="r-s">{{cfg.rangeSub}}</view>
     </view>
     <view class="range">
       <text class="range-text">{{from}} ~ {{to}}</text>
@@ -17,7 +17,7 @@
   </view>
 
   <view class="hint">
-    字段口径：列＝范围内当过用车人的成员（按「常用数据管理 → 人员」点亮顺序排列，未出现者不列）；行＝每张出车卡片一行（日期升序）；单元格＝（当日伙食补助＋交通费）×1＝计算值，非用车人列留空；末尾合计行为各列之和。费用数据来自商旅同步，有未通过核验的记录需先在「汇总前核验」处理后再生成。
+    {{cfg.hint}}
   </view>
 </view>
 

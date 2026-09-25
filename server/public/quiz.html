@@ -479,20 +479,7 @@ function answerText(type, answer) {
 }
 
 /* ================= 通用弹层（Shade.modal 动态弹层：可叠层，Esc / 点遮罩关闭） ================= */
-/* 通用确认弹层（叠层）：返回 Promise<boolean>，遮罩/Esc/取消均视为否 */
-function confirmAction(opts) {
-  return new Promise(function (resolve) {
-    var done = false;
-    function finish(v) { if (!done) { done = true; resolve(v); } }
-    var html = Shade.mHead(opts.title)
-      + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
-      + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-      + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
-    var inst = Shade.modal(html, { width: 420, onClose: function () { finish(false); } });
-    $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
-    $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
-  });
-}
+/* 通用确认弹层统一走 Shade.confirm（common.js 下沉，与 worklog / callme 同一份） */
 
 /* ================= 超管班组切换器 ================= */
 /* 自绘下拉（原 select 隐藏保留为数据源），#sideTeam 侧栏块初始隐藏，超管加载班组列表后显示（装配见 init 内 Shade.setupTeamSel） */
@@ -833,7 +820,7 @@ function openBankModal(bank) {
 }
 async function deleteBank(bank) {
   if (!bank) return;
-  var yes = await confirmAction({
+  var yes = await Shade.confirm({
     title: '删除题库',
     content: '将同时清空该题库所有题目与全员答题记录，确定删除「' + bank.name + '」吗？',
     confirmText: '删除', danger: true
@@ -994,7 +981,7 @@ function openQuestionModal(q) {
   });
 }
 async function deleteQuestion(id) {
-  var yes = await confirmAction({
+  var yes = await Shade.confirm({
     title: '删除题目', content: '删除后不可恢复，确定删除该题目吗？', confirmText: '删除', danger: true
   });
   if (!yes) return;
@@ -1285,6 +1272,9 @@ async function pvEnsureBatch(idx, silent) {
   var url = API + '/practice/questions?mode=' + pv.mode + '&offset=' + start + '&limit=' + P_LIMIT + '&bankId=' + pv.bankId;
   if (pv.viewMode === 'recite') url += '&withAnswer=1';
   else if (pv.mode === 'seq' || pv.mode === 'rand') url += '&withRecord=1';
+  /* rand 模式服务端每请求重排（ORDER BY RAND()），offset 分页跨批会串题漏题：改按本批大纲题目 id 定点取题
+     （ids 逗号拼接，服务端 WHERE id IN (?)），响应仍经下方「按大纲区间 id 对齐重排」落位 */
+  if (pv.mode === 'rand') url += '&ids=' + pv.outline.slice(start, start + P_LIMIT).map(function (o) { return o.id; }).join(',');
   pv.inflight = Shade.api(url);
   try {
     var r = await pv.inflight;
@@ -1636,7 +1626,7 @@ function pvOpenSheet() {
   });
 }
 async function pvResetRecords() {
-  var yes = await confirmAction({
+  var yes = await Shade.confirm({
     title: '清空做题记录？',
     content: '仅清空本题库的练习记录与进度，错题本保留。',
     confirmText: '确认清空', danger: true
@@ -1806,18 +1796,13 @@ function bindPracticeEvents() {
 
 /* ================= 页签切换（刷题练习 / 题库管理） ================= */
 var mgBooted = false;
-function moveTabInd() {
-  var on = $('#qzTabs button.on');
-  var ind = $('#qzTabInd');
-  if (!on) { ind.style.width = '0'; return; }
-  ind.style.left = on.offsetLeft + 'px';
-  ind.style.width = on.offsetWidth + 'px';
-}
+/* 页签指示条跟随（Shade.moveTabInd 下沉在 common.js；无激活页签时收起指示条） */
+function moveQzTabInd() { Shade.moveTabInd($('#qzTabs button.on'), $('#qzTabInd')); }
 function switchTab(p) {
   $$('#qzTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === p); });
   $('#wrapPractice').hidden = p !== 'practice';
   $('#wrapManage').hidden = p !== 'manage';
-  moveTabInd();
+  moveQzTabInd();
   /* 管理数据首次切入才加载（普通用户无此页签） */
   if (p === 'manage' && !mgBooted) { mgBooted = true; boot(); }
 }
@@ -1849,8 +1834,8 @@ function switchTab(p) {
       onChange: function (v) { state.teamId = v; reloadTeamData(); }
     }).then(function (ts) { if (ts) state.teamId = ts.getTeamId(); });
   }
-  requestAnimationFrame(moveTabInd);
-  window.addEventListener('resize', moveTabInd);
+  requestAnimationFrame(moveQzTabInd);
+  window.addEventListener('resize', moveQzTabInd);
 })();
 })();
 </script>

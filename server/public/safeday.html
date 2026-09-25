@@ -821,7 +821,7 @@
       var members = formMeta.members;
       fillMemberSel(hostSel, members, members[0]); // 主持人默认班组成员顺序1
       fillMemberSel(recorderSel, members, formMeta.defaults.recorder || members[0]); // 记录人默认上次选择
-      superiorInput.value = formMeta.defaults.superior || '任晓辉';
+      superiorInput.value = formMeta.defaults.superior || ''; // 上级参加人员默认经 form-meta 下发（后端 SAFEDAY_DEFAULT_SUPERIOR，缺省空串）
       absentReasonInput.value = '';
       attendSet = new Set(members); // 默认全员参加
       renderMemberChips();
@@ -996,14 +996,10 @@
     refreshRecords(true);
   }
 
-  /* 未分配班组空态（屏十口径）：隐藏上传与记录区，仅显示提示卡 */
+  /* 未分配班组空态（屏十口径）：隐藏上传与记录区，提示卡走 Shade.renderNoTeam */
   function renderNoTeam() {
     document.querySelector('.sd-body').style.display = 'none';
-    var box = document.getElementById('noTeam');
-    box.hidden = false;
-    box.innerHTML = '<div class="empty">' + Shade.icon('usergroup', 44) +
-      '<p><b>未分配班组</b></p>' +
-      '<p style="font-size:12px">你的账号尚未加入任何班组，暂无可查看的数据。<br>请联系超级管理员分配班组后再使用。</p></div>';
+    Shade.renderNoTeam(document.getElementById('noTeam'));
   }
 
   /* ===== 静态图标与初始化 ===== */

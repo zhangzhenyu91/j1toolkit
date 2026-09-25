@@ -100,4 +100,5 @@ async function sendTo({ userIds = [], teamIds = [], text, atUserIds = [], user =
   return { ok: false, sent, error: errors.join('；') };
 }
 
-module.exports = { isConfigured, resolveWxids, resolveMentions, sendTo };
+// 仅导出 sendTo（isConfigured/resolveWxids/resolveMentions 全仓无外部引用，改内部函数）
+module.exports = { sendTo };

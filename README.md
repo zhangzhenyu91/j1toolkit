@@ -113,6 +113,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `AMAP_BASE_URL` | 高德接口 base URL（可选，默认 `https://restapi.amap.com`；因费用问题走中转站时改为中转地址，接口路径 `/v3/...` 不变） |
 | `SAFEDAY_ENABLED` | 安全日活动记录后端开关：`true` 开启（初始化数据目录并挂载 `/api/v1/safeday`），`false` 关闭 |
 | `SAFEDAY_DATA_DIR` | 安全日记录 records.json 与生成产物（docs/）存放目录（默认 `./data/safeday`，相对路径按 server/ 解析） |
+| `SAFEDAY_DEFAULT_SUPERIOR` | 安全日活动记录默认上级参加人员（可选；留空则由用户手填） |
 | `DIFY_SAFEDAY_API_KEY` | 安全日记录生成工作流的 Dify API Key（与出工日志工作流共用 `DIFY_API_URL`） |
 | `SAFEDAY_CALLBACK_TOKEN` | Dify 回调 token（可选；配置后回调接口须带 `?token=` 校验，留空则不校验） |
 | `SAFEDAY_SOFFICE_PATH` | LibreOffice soffice 路径（可选，默认 `soffice`；安全日多文件含非 PDF 时后端转 PDF 合并依赖它，Docker 镜像须安装 LibreOffice，如 `apt-get install -y libreoffice`） |

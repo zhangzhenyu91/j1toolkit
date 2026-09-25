@@ -14,10 +14,10 @@
      隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
      管理员（超管 / 班组管理员）另见四个平级页签：「数据管理」= 车牌号 / 目的地 / 出工成员 三字典维护（成员支持上移 / 下移排序，
      工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
-     「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 tasksheet 页口径）；
-     「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 feesheet 页口径）；
+     「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 sheet 页（task 型）口径）；
+     「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 sheet 页（fee 型）口径）；
      「派车汇总」= 按日期范围导出派车单号清单 xlsx（派车单号 + 用车日期两列，顺序与工作任务单一致 = 日期+卡片创建序；
-     数据来自卡片 dispatch_order_no 字段——每日同步带入、改派车可改，仅已填单号的出车卡片出数；同小程序 dispatchsheet 页口径）；
+     数据来自卡片 dispatch_order_no 字段——每日同步带入、改派车可改，仅已填单号的出车卡片出数；同小程序 sheet 页（dispatch 型）口径）；
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人 / 目的地 / 派车单号（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；设计稿 design/worklog-dispatch-align.html）；
      页签顶部「每日自动同步派车单」开关（/dispatch/sync-switch，按生效班组，仅 admin / team_admin）；
@@ -1137,13 +1137,10 @@ function todayStr() { return fmtDate(new Date()); }
 /* 「2026 年 8 月」 */
 function fmtMonthCN(m) { var a = m.split('-'); return a[0] + ' 年 ' + (+a[1]) + ' 月'; }
 
-/* 页面特有的内联 SVG（icons.js 未收录的：车辆 / 左右箭头 / 警告） */
+/* 页面特有的内联 SVG（icons.js 未收录的：车辆 / 下拉箭头 / 播放 / 文档 / 相机；左右箭头用 icons.js chevron-left/right，警告用 error-circle） */
 var SVG_CAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5l1.6-5A2 2 0 0 1 8 9h8a2 2 0 0 1 1.9 1.5l1.6 5"/><rect x="3.5" y="15.5" width="17" height="4" rx="1.5"/><circle cx="7.5" cy="19.5" r="1.4"/><circle cx="16.5" cy="19.5" r="1.4"/></svg>';
-var SVG_CHEV_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>';
-var SVG_CHEV_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>';
 /* 可筛选下拉（杆塔坐标级联）输入框右侧下拉箭头 */
 var SVG_CHEV_D = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 9.5 12 16l6.5-6.5"/></svg>';
-var SVG_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.2"/></svg>';
 /* 备注附件用：播放 / 文档 */
 var SVG_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" fill="rgba(0,0,0,.38)"/><path d="M10 8.5l6 3.5-6 3.5z"/></svg>';
 var SVG_DOC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>';
@@ -1376,7 +1373,7 @@ function cardHTML(e, idx, total) {
   /* 未通过原因逐行 */
   if (e.verify_passed === 'failed' && e.verify_reasons && e.verify_reasons.length) {
     html += '<div class="fail-list">' + e.verify_reasons.map(function (r) {
-      return '<div class="fail-row">' + SVG_WARN + '<span>' + esc(r) + '</span></div>';
+      return '<div class="fail-row">' + Shade.icon('error-circle', 13) + '<span>' + esc(r) + '</span></div>';
     }).join('') + '</div>';
   }
 
@@ -1643,7 +1640,7 @@ function renderLB() {
       + '<div class="acode">' + Shade.icon('shield', 20)
       + '<small>防伪码已随水印嵌印在照片画面中，放大照片即可核对 14 位防伪码</small></div>';
   var html = '<button class="lb-x">' + Shade.icon('close', 17) + '</button>'
-    + (many ? '<button class="lb-arrow l">' + SVG_CHEV_L + '</button><button class="lb-arrow r">' + SVG_CHEV_R + '</button>' : '')
+    + (many ? '<button class="lb-arrow l">' + Shade.icon('chevron-left', 18) + '</button><button class="lb-arrow r">' + Shade.icon('chevron-right', 18) + '</button>' : '')
     + '<div class="lb-main">'
     + '<div class="lb-stage"><img class="lb-img" alt="' + (plain ? '非水印照片大图' : '水印照片大图') + '"><div class="lb-count">' + (lbInst.idx + 1) + ' / ' + lbInst.items.length + '</div></div>'
     + '<aside class="lb-side">' + side
@@ -1724,7 +1721,7 @@ function renderMediaLb() {
   var many = mlbInst.items.length > 1;
   var html = '<button class="lb-x">' + Shade.icon('close', 17) + '</button>'
     + '<button class="lb-dl" title="下载附件">' + Shade.icon('download', 16) + '</button>'
-    + (many ? '<button class="lb-arrow l">' + SVG_CHEV_L + '</button><button class="lb-arrow r">' + SVG_CHEV_R + '</button>' : '')
+    + (many ? '<button class="lb-arrow l">' + Shade.icon('chevron-left', 18) + '</button><button class="lb-arrow r">' + Shade.icon('chevron-right', 18) + '</button>' : '')
     + '<div class="lb-main"><div class="lb-stage">'
     + (it.type === 'video'
       ? '<video class="lb-img" src="' + esc(it.url) + '" controls autoplay playsinline></video>'
@@ -1898,20 +1895,7 @@ function openRemarkModal(entry) {
 }
 
 /* ================= 卡片直改（口径与小程序一致） ================= */
-/* 通用确认弹层（叠层）：返回 Promise<boolean>，遮罩/Esc/取消均视为否 */
-function confirmAction(opts) {
-  return new Promise(function (resolve) {
-    var done = false;
-    function finish(v) { if (!done) { done = true; resolve(v); } }
-    var html = Shade.mHead(opts.title)
-      + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
-      + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-      + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
-    var inst = Shade.modal(html, { width: 420, onClose: function () { finish(false); } });
-    $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
-    $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
-  });
-}
+/* 通用确认弹层统一走 Shade.confirm（common.js 下沉，与 quiz / callme 同一份） */
 
 /* 编辑表单字典（车牌/目的地/成员），首次编辑时拉取并缓存 */
 async function ensureMeta() {
@@ -2046,7 +2030,7 @@ async function openEntryForm(entry) {
     var payload = payloadOf(entry, entry ? entry.patrol_content : '', vid, selDestId || 0, chipSelIds(inst.box), $('#efOrderNo', inst.box).value);
     /* 改派车保存前确认内网派车单已同步修改（同小程序）；新建直接保存 */
     if (entry) {
-      var yes = await confirmAction({ title: '保存派车修改', content: '请确保内网派车单同步修改！', confirmText: '我确认已修改' });
+      var yes = await Shade.confirm({ title: '保存派车修改', content: '请确保内网派车单同步修改！', confirmText: '我确认已修改' });
       if (!yes) return;
     }
     saving = true;
@@ -2164,7 +2148,7 @@ async function openCrossForm(entry) {
     if (!entry) body.log_date = state.date;
     /* 改派车保存前确认内网派车单已同步修改（同 openEntryForm）；新建直接保存 */
     if (entry) {
-      var yes = await confirmAction({ title: '保存派车修改', content: '请确保内网派车单同步修改！', confirmText: '我确认已修改' });
+      var yes = await Shade.confirm({ title: '保存派车修改', content: '请确保内网派车单同步修改！', confirmText: '我确认已修改' });
       if (!yes) return;
     }
     saving = true;
@@ -2386,7 +2370,7 @@ async function resyncSgccPhoto(pid) {
   }
 }
 async function deletePhoto(pid, photo) {
-  var yes = await confirmAction({ title: '删除照片', content: '删除后不可恢复，确定删除该水印照片吗？', confirmText: '删除', danger: true });
+  var yes = await Shade.confirm({ title: '删除照片', content: '删除后不可恢复，确定删除该水印照片吗？', confirmText: '删除', danger: true });
   if (!yes) return;
   /* 商旅开启时（照片带 sgcc_synced 字段）任务化异步执行：解除商旅关联在后台完成，本卡挂进度条 */
   var sgccOn = !!(photo && photo.sgcc_synced !== undefined && photo.sgcc_synced !== null);
@@ -3103,7 +3087,7 @@ function openTowerModal(onPick) {
 async function deleteEntry(entry) {
   /* 跨班卡仅超管可删（卡片已对非超管隐藏删除钮，此处兜底拦截；后端 40304 同口径） */
   if (entry.cross_team && !isAdmin()) { Shade.toast('跨班日志仅超级管理员可删除', 'info'); return; }
-  var yes = await confirmAction({ title: '删除日志', content: '删除后不可恢复，卡片内照片一并删除，确定删除吗？', confirmText: '删除', danger: true });
+  var yes = await Shade.confirm({ title: '删除日志', content: '删除后不可恢复，卡片内照片一并删除，确定删除吗？', confirmText: '删除', danger: true });
   if (!yes) return;
   try {
     await Shade.api(wl('/api/v1/worklog/logs/' + entry.id), { method: 'DELETE' });
@@ -3331,7 +3315,7 @@ async function loadPaSyncSwitch() {
 async function togglePaSyncSwitch() {
   var sw = $('#paSyncSw');
   var target = !sw.classList.contains('on');
-  var yes = await confirmAction({
+  var yes = await Shade.confirm({
     title: target ? '开启每日自动同步' : '关闭每日自动同步',
     content: target
       ? '开启后每日 09:20 自动取回当日派车单，按本班成员匹配建出车卡片，确定开启吗？'
@@ -4016,6 +4000,8 @@ function dictRowHtml(seg, it, idx, total) {
   '</div>';
 }
 
+/* 代绑定成员自绘下拉实例（renderDict 每次重建 #dictBody 前需 destroy 旧实例，防 .dd-pop 孤儿残留 body） */
+var sgBindDd = null;
 function renderDict() {
   var html = DICT_SEGS.map(function (seg) {
     var list = state.dict.lists[seg.key] || [];
@@ -4070,9 +4056,10 @@ function renderDict() {
     '</div>';
   }
   $('#dictBody').innerHTML = html;
-  // 代绑定成员下拉换自绘下拉（原 select 隐藏保留为数据源；重渲染后需重建）
+  // 代绑定成员下拉换自绘下拉（原 select 隐藏保留为数据源；重渲染后需重建，旧实例先 destroy 防弹层孤儿残留 body）
+  if (sgBindDd) { sgBindDd.destroy(); sgBindDd = null; }
   if (!state.dict.sgcc.off && $('#sgBindMember')) {
-    var sgBindDd = Shade.dropdown($('#sgBindMember'), { height: 36 });
+    sgBindDd = Shade.dropdown($('#sgBindMember'), { height: 36 });
     sgBindDd.el.style.flex = '1';
   }
 }
@@ -4176,7 +4163,7 @@ async function dictMove(item, dir) {
 
 /* 删除（二次确认；被日志引用时后端 409 拒绝，toast 后端文案提示改停用） */
 async function dictDelete(seg, item) {
-  var yes = await confirmAction({
+  var yes = await Shade.confirm({
     title: '删除' + seg.label,
     content: '删除后不可恢复，确定删除「' + item.name + '」吗？',
     confirmText: '删除',
@@ -4421,26 +4408,12 @@ async function importTowers(f) {
 }
 
 /* ================= 页签切换（记录 / 批量下载 / 汇总前核验 共用同一列表位） ================= */
-/* 页签指示条跟随（instant=true 首帧/窗口缩放直接落位，不滑残影） */
-function moveWlTabInd(tab, instant) {
-  if (!tab) return;
-  var ind = $('#wlTabInd');
-  if (instant) {
-    ind.style.transition = 'none';
-    ind.style.left = tab.offsetLeft + 'px';
-    ind.style.width = tab.offsetWidth + 'px';
-    void ind.offsetHeight; // 强制回流后恢复过渡
-    ind.style.transition = '';
-    return;
-  }
-  ind.style.left = tab.offsetLeft + 'px';
-  ind.style.width = tab.offsetWidth + 'px';
-}
+/* 页签指示条跟随统一走 Shade.moveTabInd（common.js 下沉，instant=true 首帧/窗口缩放直接落位，不滑残影） */
 function switchPane(key) {
   if (state.pane === key) return;
   state.pane = key;
   $$('#wlTabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.p === key); });
-  moveWlTabInd($('#wlTabs button.on'));
+  Shade.moveTabInd($('#wlTabs button.on'), $('#wlTabInd'));
   $$('.wl-list .pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane' + key); });
   /* 记录页专属控件（新建 / 计数 / 从商旅拉取 / 跨班日志）仅记录页显示；「全部 / 仅看我」为全局开关，八个页签常驻 */
   var isRec = key === 'Record';
@@ -5177,7 +5150,7 @@ function initEvents() {
     var row = e.target.closest('.pa-row');
     if (row) openAlign(Number(row.dataset.idx));
   });
-  window.addEventListener('resize', function () { moveWlTabInd($('#wlTabs button.on'), true); syncSideReport(); });
+  window.addEventListener('resize', function () { Shade.moveTabInd($('#wlTabs button.on'), $('#wlTabInd'), true); syncSideReport(); });
   $('#btnCreate').addEventListener('click', function () { openEntryForm(null); });
   $('#btnCross').addEventListener('click', function () { openCrossForm(null); });
   $('#btnSyncCheck').addEventListener('click', function () { openSyncCheck(); });
@@ -5355,6 +5328,7 @@ function initEvents() {
     return false;
   };
   document.addEventListener('keydown', function (e) {
+    if (document.querySelector('.mask.open')) return; // 大图层上叠了 Shade.modal（手动修正 / 修改人名等）时方向键归弹层，不切换底层照片
     if (lbInst && e.key === 'ArrowLeft') shiftLB(-1);
     else if (lbInst && e.key === 'ArrowRight') shiftLB(1);
     else if (mlbInst && e.key === 'ArrowLeft') shiftMediaLb(-1);
@@ -5385,16 +5359,12 @@ function reloadTeamData() {
   syncSideReport(); // 宽屏常驻核验栏随班组切换重查
 }
 
-/* 未分配班组空态（屏十口径）：隐藏页头操作区 / 页签 / 双栏主体，仅显示提示卡 */
+/* 未分配班组空态（屏十口径）：隐藏页头操作区 / 页签 / 双栏主体，提示卡走 Shade.renderNoTeam */
 function renderNoTeam() {
   $('.wl-head .acts').style.display = 'none';
   $('#wlTabs').style.display = 'none';
   $('.wl-body').style.display = 'none';
-  var box = $('#noTeam');
-  box.hidden = false;
-  box.innerHTML = '<div class="empty">' + Shade.icon('usergroup', 44) +
-    '<p><b>未分配班组</b></p>' +
-    '<p style="font-size:12px">你的账号尚未加入任何班组，暂无可查看的数据。<br>请联系超级管理员分配班组后再使用。</p></div>';
+  Shade.renderNoTeam($('#noTeam'));
 }
 
 /* ================= 启动 ================= */
@@ -5403,7 +5373,7 @@ async function init() {
   $$('#wlTabs button').forEach(function (b) {
     b.insertAdjacentHTML('afterbegin', Shade.icon({ Record: 'task', Dl: 'download', Rep: 'file-safety', Dict: 'tools', TS: 'file', FS: 'book', DS: 'view-list', PA: 'copy' }[b.dataset.p], 14));
   });
-  moveWlTabInd($('#wlTabs button.on'), true); // 页签指示条首帧落位
+  Shade.moveTabInd($('#wlTabs button.on'), $('#wlTabInd'), true); // 页签指示条首帧落位
   $('#btnCreate').innerHTML = Shade.icon('add', 15) + '新建日志';
   $('#btnCross').innerHTML = Shade.icon('usergroup', 15) + '跨班日志';
   $('#btnSyncCheck').innerHTML = Shade.icon('refresh', 15) + '从商旅拉取';
@@ -5424,13 +5394,13 @@ async function init() {
   $('#fsFrom').value = $('#fsTo').value = state.date;
   $('#dsFrom').value = $('#dsTo').value = state.date;
   $('#dlFrom').value = $('#dlTo').value = state.date;
-  $('#calPrev').innerHTML = SVG_CHEV_L;
-  $('#calNext').innerHTML = SVG_CHEV_R;
+  $('#calPrev').innerHTML = Shade.icon('chevron-left', 13);
+  $('#calNext').innerHTML = Shade.icon('chevron-right', 13);
 
   /* 核验页签默认当月（下载 / 任务单 / 费用汇总默认范围已在上方置为当日） */
   state.rep.month = todayStr().slice(0, 7);
   syncRepMonthText();
-  $('#repPrev').innerHTML = SVG_CHEV_L; $('#repNext').innerHTML = SVG_CHEV_R;
+  $('#repPrev').innerHTML = Shade.icon('chevron-left', 13); $('#repNext').innerHTML = Shade.icon('chevron-right', 13);
 
   /* 顶栏用户：接口失败回退本地缓存 */
   Shade.refreshUser();

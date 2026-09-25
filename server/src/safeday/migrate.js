@@ -61,6 +61,12 @@ async function renameTeamFolder(oldName, newName) {
       for (const f of fs.readdirSync(oldDir)) {
         moveFile(path.join(oldDir, f), path.join(newDir, f));
       }
+      // 移完后删除空旧目录（个别文件因目标已存在被跳过时会残留，此时保留目录不报错）
+      try {
+        fs.rmdirSync(oldDir);
+      } catch (err) {
+        console.error(`[安全日] 旧目录删除失败（保留）${oldDir}：`, err.message);
+      }
     }
   }
   if (count) console.log(`[安全日] 班组「${oldName}」改名「${newName}」：已级联 ${count} 条记录与 docs 子目录`);

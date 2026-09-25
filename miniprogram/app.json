@@ -23,9 +23,7 @@
       "pages": [
         "pages/index/index",
         "pages/manage/manage",
-        "pages/tasksheet/tasksheet",
-        "pages/feesheet/feesheet",
-        "pages/dispatchsheet/dispatchsheet",
+        "pages/sheet/sheet",
         "pages/sgccbind/sgccbind",
         "pages/sgccweb/sgccweb",
         "pages/dispatch/dispatch"

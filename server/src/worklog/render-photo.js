@@ -37,6 +37,23 @@ async function ensureCodeShadowLabel() {
   return codeShadowLabelImage;
 }
 
+// 水印字段清洗（出工日志与水印添加同口径）：字符串、去首尾空格、按库列宽截断（work_content 500 / shot_time 32 / weather 64 / location 250）
+function sanitizeWm(wm) {
+  const cut = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+  const fields = {
+    content: cut(wm.content, 500),
+    time: cut(wm.time, 32),
+    weather: cut(wm.weather, 64),
+    location: cut(wm.location, 250),
+    longitude: cut(wm.longitude, 32),
+    latitude: cut(wm.latitude, 32),
+  };
+  // 防伪码：14 位字符集内才采信前端值，否则服务端重新生成（不由用户输入）
+  const code = cut(wm.antiCode, 14);
+  fields.antiCode = /^[A-HJ-NP-Z2-9]{14}$/.test(code) ? code : Watermark.randomCode(14);
+  return fields;
+}
+
 /**
  * 给原图加水印，返回 JPEG Buffer。
  * @param {Buffer} photoBuf 原图（jpeg/png）
@@ -89,4 +106,4 @@ async function renderWatermarkedPhoto(photoBuf, wm, orientation) {
   return canvas.toBuffer('image/jpeg', 95);
 }
 
-module.exports = { renderWatermarkedPhoto };
+module.exports = { renderWatermarkedPhoto, sanitizeWm };

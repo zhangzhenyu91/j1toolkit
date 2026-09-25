@@ -583,38 +583,25 @@
     }
     $('#mainWrap').style.display = '';
     $('#mainWrap').classList.add('page-entry');
-    moveTabInd(document.querySelector('.tab.on'), true);
+    Shade.moveTabInd(document.querySelector('.tab.on'), $('#tabInd'), true);
     loadTeams();
     loadUsers();
     loadPermUsers();
     loadApps();
   }
 
-  // ===== 页签切换（滑动指示条；instant=true 首帧直接落位，避免从左侧滑入的残影） =====
-  function moveTabInd(tab, instant) {
-    var ind = $('#tabInd');
-    if (instant) {
-      ind.style.transition = 'none';
-      ind.style.left = tab.offsetLeft + 'px';
-      ind.style.width = tab.offsetWidth + 'px';
-      void ind.offsetHeight; // 强制回流后恢复过渡
-      ind.style.transition = '';
-      return;
-    }
-    ind.style.left = tab.offsetLeft + 'px';
-    ind.style.width = tab.offsetWidth + 'px';
-  }
+  // ===== 页签切换（滑动指示条走 Shade.moveTabInd，common.js 下沉；instant=true 首帧直接落位，避免从左侧滑入的残影） =====
   document.querySelectorAll('.tab').forEach(function (tab) {
     tab.addEventListener('click', function () {
       document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('on'); });
       document.querySelectorAll('.pane').forEach(function (p) { p.classList.remove('on'); });
       tab.classList.add('on');
       $('#pane-' + tab.dataset.pane).classList.add('on');
-      moveTabInd(tab);
+      Shade.moveTabInd(tab, $('#tabInd'));
     });
   });
   window.addEventListener('resize', function () {
-    moveTabInd(document.querySelector('.tab.on'));
+    Shade.moveTabInd(document.querySelector('.tab.on'), $('#tabInd'));
   });
 
   // ===== 弹层开关（静态遮罩：.mask + .show，HTML 内联表单与启动期自绘下拉绑定，不迁移 Shade.modal 动态弹层） =====

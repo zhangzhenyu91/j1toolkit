@@ -8,7 +8,12 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import { createTeamGate } from '../../../utils/teamgate';
+import { pad, fmtSize, extOf } from '../../../utils/util';
 import config from '../../../config';
+
+// 班组切换器 + 生效班组门控（storage filetransfer_team_id，全部请求带 team_id）
+const teamGate = createTeamGate({ storageKey: 'filetransfer_team_id' });
 
 // 平台设备状态 → 展示（与网页端 kvm.html 同口径）
 const STATUS_MAP = {
@@ -17,7 +22,7 @@ const STATUS_MAP = {
   offline: { key: 'offline', text: '离线' },
 };
 
-// 单文件大小上限（经壹匣内存中转，与弹层说明一致）
+// 单文件大小上限 200MB（经壹匣内存中转，有意从严：后端上限 2GB；与弹层说明一致）
 const MAX_FILE_SIZE = 200 * 1024 * 1024;
 
 const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
@@ -25,10 +30,6 @@ const VIDEO_EXTS = ['mp4', 'mov', 'm4v', 'avi', 'mkv'];
 // wx.openDocument 可识别的文档类型（传 fileType 提高打开成功率）
 const DOC_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf'];
 
-const extOf = (name) => {
-  const i = (name || '').lastIndexOf('.');
-  return i < 0 ? '' : name.slice(i + 1).toLowerCase();
-};
 const kindOf = (name) => {
   const ext = extOf(name);
   if (IMG_EXTS.includes(ext)) return 'image';
@@ -36,13 +37,7 @@ const kindOf = (name) => {
   return 'file';
 };
 const iconOf = (name) => ({ image: 'file-image', video: 'video', file: 'file' }[kindOf(name)]);
-const fmtSize = (n) => {
-  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
-  return `${n} B`;
-};
 
-const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
 // unix 秒 → 'YYYY-MM-DD HH:mm'（同网页端 Shade.fmtDate(d, true)）
 const fmtLast = (sec) => {
   const d = new Date(sec * 1000);
@@ -51,6 +46,7 @@ const fmtLast = (sec) => {
 };
 
 Page({
+  behaviors: [teamGate],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
     list: [],
@@ -59,12 +55,8 @@ Page({
     // 班组设备回退提示（屏九）：本班组无设备时回退展示默认班组设备
     fallback: false,
     fallbackTeam: '',
-    // 班组切换器（同 pkg-worklog 口径）：超管可点 chip 下拉切换；其余角色为静态班组名标签
-    isAdmin: false,
-    noTeam: false, // 非超管且未分配班组：整页空态（屏十），不发业务请求
-    teamName: '',
-    teamOptions: [], // [{id, name, on}]
-    teamDropOpen: false,
+    // 班组切换器数据（isAdmin/noTeam/teamName/teamOptions/teamDropOpen）由 teamgate behavior 提供；
+    // 非超管未分配班组 → noTeam 整页空态（屏十），不发业务请求
 
     // 上传弹层
     upOpen: false,
@@ -104,82 +96,16 @@ Page({
   passGate() {
     if (this.data.gate) return;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
-    this._role = user.role || 'user';
-    this._teamId = 0; // 生效班组 id（仅超管经切换器指定；0=不带参数，后端落自己/默认班组）
-    // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
-    if (this._role !== 'admin' && !user.team) {
-      this.setData({ gate: true, noTeam: true, loading: false });
-      return;
-    }
-    this.setData({ gate: true, isAdmin: this._role === 'admin', teamName: user.team || '' });
-    if (this._role === 'admin') {
-      this.initTeams(user); // 超管先定生效班组，再加载设备
-      return;
-    }
-    this.loadDevices('init');
-    this.startTimer();
-  },
-
-  // ---------- 班组切换器（仅超管可切换，其余角色静态展示本班名） ----------
-
-  // 超管：拉启用班组（/admin/teams 取 status=1）→ 生效班组（storage 优先 → 自己班组 → 第一个）→ 设备列表
-  async initTeams(user) {
-    let teams = [];
-    try {
-      const data = await request({ url: '/api/v1/admin/teams' });
-      teams = ((data && data.list) || []).filter((t) => t.status === 1);
-    } catch (err) {
-      this.toast(err.message);
-    }
-    this._teams = teams;
-    const saved = Number(wx.getStorageSync('filetransfer_team_id')) || 0;
-    const cur = teams.find((t) => t.id === saved)
-      || teams.find((t) => t.id === Number(user.team_id))
-      || teams[0] || null;
-    this.applyTeam(cur ? cur.id : 0, false);
-    this.loadDevices('init');
-    this.startTimer();
-  },
-
-  // 生效班组 query 片段（lead 为前导连接符；仅超管 _teamId>0 时携带，其余角色后端强制本班无需传）
-  teamQuery(lead) {
-    return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
-  },
-
-  // 生效班组 body 注入（POST JSON 用，口径同 teamQuery）
-  teamBody(data) {
-    return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
-  },
-
-  // 记录当前生效班组并刷新切换器展示；switching=true 表示用户主动切换，重拉设备列表
-  applyTeam(id, switching) {
-    this._teamId = id;
-    if (id) wx.setStorageSync('filetransfer_team_id', id);
-    const cur = ((this._teams || []).find((t) => t.id === id)) || null;
-    this.setData({
-      teamName: cur ? cur.name : this.data.teamName,
-      teamDropOpen: false,
-      teamOptions: (this._teams || []).map((t) => ({ id: t.id, name: t.name, on: t.id === id })),
+    // 门控与生效班组确定由 teamgate behavior 完成（非超管未分配班组 → noTeam 空态，不再加载）
+    this.passTeamGate(user, () => {
+      this.loadDevices('init');
+      this.startTimer();
     });
-    if (switching) this.loadDevices('manual');
   },
 
-  onTeamChipTap() {
-    if (!this.data.isAdmin || !(this._teams || []).length) return;
-    this.setData({ teamDropOpen: !this.data.teamDropOpen });
-  },
-
-  onTeamDropClose() {
-    if (this.data.teamDropOpen) this.setData({ teamDropOpen: false });
-  },
-
-  onTeamPick(e) {
-    const id = Number(e.currentTarget.dataset.id);
-    if (!id || id === this._teamId) {
-      this.setData({ teamDropOpen: false });
-      return;
-    }
-    this.applyTeam(id, true);
+  // 超管主动切换班组后重拉设备列表（teamgate behavior 回调）
+  onTeamSwitched() {
+    this.loadDevices('manual');
   },
 
   onShow() {
@@ -364,14 +290,15 @@ Page({
   },
 
   // 单文件推送（wx.uploadFile 一次一个文件；
-  // uploadFile 会把临时路径 basename 当 multipart 文件名，真实文件名走表单字段 filename）
+  // uploadFile 会把临时路径 basename 当 multipart 文件名，真实文件名走表单字段 filename；
+  // formData 值官方要求字符串，team_id 须 String 化）
   pushFile(deviceId, file) {
     return new Promise((resolve, reject) => {
       wx.uploadFile({
         url: `${config.BASE_URL}/api/v1/kvm/devices/${deviceId}/push`,
         filePath: file.path,
         name: 'files',
-        formData: this._teamId ? { filename: file.name, team_id: this._teamId } : { filename: file.name },
+        formData: this._teamId ? { filename: file.name, team_id: String(this._teamId) } : { filename: file.name },
         header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
         timeout: 120000,
         success(res) {

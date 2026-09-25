@@ -17,6 +17,9 @@ const { convertToPdf } = require('./convert');
 const dify = require('./dify');
 const render = require('./render');
 const { pool } = require('../db');
+const tokenQuery = require('../utils/tokenQuery');
+const { buildPreviewUrl } = require('../utils/preview');
+const { getFileExt, fixLatin1Name } = require('../utils/file');
 
 const DATA_DIR = config.safeday.dataDir;
 const DOCS_DIR = path.join(DATA_DIR, 'docs');
@@ -35,11 +38,6 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024, files: 10 },
 });
-
-function getExt(fileName) {
-  const idx = fileName.lastIndexOf('.');
-  return idx === -1 ? '' : fileName.slice(idx + 1).toLowerCase();
-}
 
 // 记录产物路径：优先 docs/{班组}/ 子目录，旧记录回退 docs/ 根目录（迁移后一般不存在）
 function recordFilePath(record) {
@@ -153,25 +151,20 @@ router.post('/callback', async (req, res) => {
 });
 
 // 文件预览服务器回源拉取下载地址时无法附带请求头：
-// 无 Authorization 头且 query 带 token 时，映射为 Authorization: Bearer 再走统一鉴权
+// 无 Authorization 头且 query 带 token 时映射为 Authorization 再走统一鉴权（见 utils/tokenQuery.js）
 // （仅作用于本模块；/callback 挂在上方，不受影响）
-router.use((req, res, next) => {
-  if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
-    req.headers.authorization = `Bearer ${req.query.token}`;
-  }
-  next();
-});
+router.use(tokenQuery);
 
 // 其余接口一律需登录 + safe-day 应用权限
 router.use(auth, requireApp('safe-day'));
 
 // GET /form-meta：生成表单数据源（班组成员名单 + 按班组记忆的默认值）
 // 成员口径：WORKLOG_ENABLED=true 时取出工成员字典（status=1，按 sort 即「点亮按钮顺序」，顺序1=默认主持人）；
-// 否则回退班组账号昵称（sys_user）。默认值：superior 初始「任晓辉」、recorder 初始空（前端回落顺序1），生成成功后按班组记忆
+// 否则回退班组账号昵称（sys_user）。默认值：superior 初始取 SAFEDAY_DEFAULT_SUPERIOR（缺省空）、recorder 初始空（前端回落顺序1），生成成功后按班组记忆
 router.get('/form-meta', async (req, res) => {
   try {
     const team = await teamUtil.resolveTeam(req.user, req.query.team_id);
-    if (!team) return res.json({ ok: true, members: [], defaults: { superior: '任晓辉', recorder: '' } });
+    if (!team) return res.json({ ok: true, members: [], defaults: { superior: config.safeday.defaultSuperior || '', recorder: '' } });
     let members = [];
     if (config.worklog && config.worklog.enabled) {
       const [rows] = await pool.query(
@@ -190,7 +183,7 @@ router.get('/form-meta', async (req, res) => {
     return res.json({
       ok: true,
       members,
-      defaults: { superior: saved.superior || '任晓辉', recorder: saved.recorder || '' },
+      defaults: { superior: saved.superior || config.safeday.defaultSuperior || '', recorder: saved.recorder || '' },
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: `表单数据加载失败：${e && e.message ? e.message : e}` });
@@ -208,7 +201,7 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
     const files = req.files || [];
     // multer 1.x 默认按 latin1 解析文件名，中文名需转回 UTF-8
     for (const f of files) {
-      f.originalname = Buffer.from(f.originalname, 'latin1').toString('utf8');
+      f.originalname = fixLatin1Name(f.originalname);
     }
     const name = String(req.body.name || '').trim();
     const date = String(req.body.date || '').trim();
@@ -225,7 +218,7 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
 
     // 扩展名白名单校验
     for (const f of files) {
-      const ext = getExt(f.originalname);
+      const ext = getFileExt(f.originalname);
       if (!ALLOWED_EXT.includes(ext)) {
         return res.status(400).json({
           ok: false,
@@ -247,7 +240,7 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
     if (files.length >= 2) {
       const pdfBuffers = [];
       for (const f of files) {
-        const ext = getExt(f.originalname);
+        const ext = getFileExt(f.originalname);
         if (ext === 'pdf') {
           pdfBuffers.push(f.buffer);
         } else {
@@ -278,7 +271,7 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
 
     // 先建记录（同一班组同一 date 只保留最新一条；sources 记录上传源文件名，供列表副行展示；
     // form 存生成表单字段，回调渲染 docx 时使用）
-    const record = store.create({
+    const { record, replaced } = store.create({
       name,
       date,
       fileName: `${date}.docx`,
@@ -296,6 +289,20 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
       },
     });
 
+    // 被覆盖旧记录的产物在新生成失败时已成孤儿（无记录引用、不再被任何入口清理）：失败时连带删除；
+    // 成功时无需处理——同路径（docs/{班组}/{date}.docx）已被回调新渲染覆盖（提前删会误伤唯一产物）
+    const cleanupReplaced = () => {
+      for (const old of replaced) {
+        if (!old.fileName) continue;
+        const fp = recordFilePath(old);
+        try {
+          if (fs.existsSync(fp)) fs.unlinkSync(fp);
+        } catch (e) {
+          console.error(`[安全日] 清理被覆盖记录旧产物失败 ${fp}：`, e && e.message ? e.message : e);
+        }
+      }
+    };
+
     // 按班组记忆表单默认值（上级参加人员 / 记录人，供下次生成预填；空值不覆盖）
     store.saveFormDefaults(team.name, { superior: req.body.superior, recorder: req.body.recorder });
 
@@ -310,11 +317,13 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
         className: team.name,
         onFailed: (error) => {
           store.update(record.id, { status: 'failed', error });
+          cleanupReplaced();
         },
       });
     } catch (e) {
       const error = e && e.message ? e.message : String(e);
       store.update(record.id, { status: 'failed', error });
+      cleanupReplaced();
       return res.status(500).json({ ok: false, error });
     }
 
@@ -377,17 +386,15 @@ router.get('/records/:id/preview', async (req, res) => {
   if (!(await canAccess(req, record))) {
     return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
   }
-  const base = config.basemetas.url;
-  if (!base) {
+  const url = buildPreviewUrl(
+    req,
+    `/api/v1/safeday/records/${encodeURIComponent(record.id)}/download`,
+    record.fileName,
+    record.name || record.fileName
+  );
+  if (!url) {
     return res.json({ ok: false, error: '未配置文件预览服务' });
   }
-  // 反代后 req.protocol 恒为 http（未开 trust proxy）：优先取 X-Forwarded-Proto 头回退
-  const proto = req.headers['x-forwarded-proto'] || req.protocol;
-  const downloadUrl = `${proto}://${req.get('host')}/api/v1/safeday/records/` +
-    `${encodeURIComponent(record.id)}/download?token=${encodeURIComponent(req.token)}`;
-  const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
-    `&fileName=${encodeURIComponent(record.fileName)}` +
-    `&displayName=${encodeURIComponent(record.name || record.fileName)}`;
   return res.json({ ok: true, url });
 });
 

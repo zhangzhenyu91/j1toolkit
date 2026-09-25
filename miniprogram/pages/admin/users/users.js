@@ -1,7 +1,9 @@
 // 员工管理（仅超管）：班组筛选 tab + 分组列表 / 新建 / 编辑（班组下拉 + 角色三选）/ 启停用 / 重置密码
+// 班组加载/筛选 tab/分组列表与 perms 页共用（pages/admin/common/user-groups Behavior）
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import userGroups from '../common/user-groups';
 
 const ROLE_OPTIONS = [
   { value: 'admin', label: '超级管理员' },
@@ -12,11 +14,8 @@ const ROLE_TEXT = { admin: '超级管理员', team_admin: '班组管理员', use
 const EMPTY_FORM = { id: null, username: '', nickname: '', password: '', team_id: null, role: 'user', status: 1 };
 
 Page({
+  behaviors: [userGroups],
   data: {
-    teams: [], // 启用班组（筛选 tab 与班组下拉共用数据源）
-    users: [],
-    groups: [], // 分组展示结构 [{ name, users }]
-    teamTab: '', // 当前筛选：''=全部 0=未分组 其余=班组 id
     keyword: '',
     loading: true,
     showEdit: false,
@@ -31,77 +30,30 @@ Page({
   onShow() {
     this.setData({ selfId: (wx.getStorageSync('userInfo') || {}).id || null });
     this.loadTeams();
-    this.load();
+    this.loadUsers();
   },
 
   toast(message) {
     Toast({ context: this, selector: '#t-toast', message });
   },
 
-  async loadTeams() {
-    try {
-      const data = await request({ url: '/api/v1/admin/teams' });
-      this.setData({ teams: (data.list || []).filter((t) => t.status === 1) });
-      this.buildGroups(); // 分组依赖 teams+users 两个请求，后到的一方负责重建（此处 users 可能已就绪）
-    } catch (err) {
-      this.toast(err.message);
-    }
+  // 用户列表查询追加关键词（与班组筛选叠加）
+  buildUsersQuery(query) {
+    const kw = this.data.keyword.trim();
+    if (kw) query.push(`keyword=${encodeURIComponent(kw)}`);
+    return query;
   },
 
-  async load() {
-    this.setData({ loading: true });
-    try {
-      const { teamTab, keyword } = this.data;
-      const query = [];
-      if (teamTab !== '') query.push(`team_id=${teamTab}`);
-      if (keyword.trim()) query.push(`keyword=${encodeURIComponent(keyword.trim())}`);
-      const url = `/api/v1/admin/users${query.length ? `?${query.join('&')}` : ''}`;
-      const data = await request({ url });
-      const users = (data.list || []).map((u) => ({
-        ...u,
-        char: (u.nickname || u.username || '?').slice(0, 1),
-        roleText: ROLE_TEXT[u.role] || '普通用户',
-      }));
-      this.setData({ users });
-      this.buildGroups();
-    } catch (err) {
-      this.toast(err.message);
-    } finally {
-      this.setData({ loading: false });
-    }
-  },
-
-  // 「全部」tab 按班组分组（未分组排最后）；指定 tab 仅一组
-  buildGroups() {
-    const { teamTab, teams, users } = this.data;
-    let groups;
-    if (teamTab === '') {
-      groups = teams
-        .map((t) => ({ name: t.name, users: users.filter((u) => u.team_id === t.id) }))
-        .filter((g) => g.users.length > 0);
-      const unassigned = users.filter((u) => !u.team_id);
-      if (unassigned.length > 0) groups.push({ name: '未分组', users: unassigned });
-    } else {
-      const name = teamTab === 0 ? '未分组' : ((teams.find((t) => t.id === teamTab) || {}).name || '');
-      groups = [{ name, users }];
-    }
-    this.setData({ groups });
-  },
-
-  // ---------- 筛选 ----------
-  onTeamTab(e) {
-    const raw = e.currentTarget.dataset.id;
-    const teamTab = raw === '' ? '' : Number(raw);
-    if (teamTab === this.data.teamTab) return;
-    this.setData({ teamTab });
-    this.load();
+  // 用户项补充角色文案
+  mapUserItem(u) {
+    return { ...u, roleText: ROLE_TEXT[u.role] || '普通用户' };
   },
 
   // 关键词搜索（防抖 300ms，与班组筛选叠加）
   onKeyword(e) {
     this.setData({ keyword: e.detail.value });
     clearTimeout(this._kwTimer);
-    this._kwTimer = setTimeout(() => this.load(), 300);
+    this._kwTimer = setTimeout(() => this.loadUsers(), 300);
   },
 
   // ---------- 新建 / 编辑弹层 ----------
@@ -201,7 +153,7 @@ Page({
       }
       this.toast('已保存');
       this.setData({ showEdit: false });
-      this.load();
+      this.loadUsers();
     } catch (err) {
       this.toast(err.message);
     } finally {

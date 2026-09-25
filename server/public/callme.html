@@ -314,14 +314,16 @@
   .cm-send.off { opacity: .4; cursor: not-allowed; transform: none !important; box-shadow: none; }
   .cm-hint { margin: 9px 0 0; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
 
-  /* ===== 通用弹窗（新建/重命名输入 + 删除确认；结构由 Shade.modal 生成：.mask > .modal > .m-scroll，JS 侧补 card 类） ===== */
+  /* ===== 通用弹窗（新建/重命名输入用 promptModal（.modal-t/.modal-b/.modal-f）；删除确认走 Shade.confirm，
+     .m-head/.m-foot 结构与 quiz / worklog 同口径；白底卡片样式直接落在 .modal 上） ===== */
   .mask {
     position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
     background: rgba(27, 39, 64, .42); opacity: 0; pointer-events: none; transition: opacity .25s;
   }
   .mask.open { opacity: 1; pointer-events: auto; }
   .mask .modal {
-    width: 400px; max-width: 92vw; padding: 22px 24px 18px;
+    width: 400px; max-width: 92vw; padding: 22px 24px 18px; background: #fff;
+    border-radius: var(--radius); box-shadow: var(--shadow-card);
     transform: translateY(14px) scale(.97); transition: transform .3s cubic-bezier(.16, 1, .3, 1);
   }
   .mask.open .modal { transform: none; }
@@ -329,6 +331,17 @@
   .modal-b { margin: 14px 0 20px; font-size: 13px; color: var(--sub); line-height: 1.8; }
   .modal-b .input { height: 42px; }
   .modal-f { display: flex; justify-content: flex-end; gap: 10px; }
+  /* Shade.confirm 确认弹层结构（与 quiz / worklog 同口径） */
+  .m-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .m-title { font-size: 15.5px; font-weight: 800; letter-spacing: 1px; }
+  .m-x {
+    margin-left: auto; width: 30px; height: 30px; border: none; border-radius: 8px; background: var(--paper);
+    color: var(--sub); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .25s, color .25s;
+  }
+  .m-x:hover { background: var(--orange-soft); color: var(--orange); }
+  .m-x svg { width: 14px; height: 14px; }
+  .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
   /* 细滚动条 */
   .cm-list::-webkit-scrollbar, .cm-body::-webkit-scrollbar, .think-body::-webkit-scrollbar { width: 6px; }
@@ -533,44 +546,38 @@
 
   /* ============================================================
      通用弹窗：promptModal（输入）/ confirmModal（确认）
-     基于 Shade.modal 动态弹层（可叠层，Esc / 点遮罩关闭均视为取消；外观沿用 .modal-t/.modal-b/.modal-f）
+     promptModal 基于 Shade.modal 动态弹层（可叠层，Esc / 点遮罩关闭均视为取消；外观沿用 .modal-t/.modal-b/.modal-f）；
+     confirmModal 薄封装 Shade.confirm（common.js 下沉，与 quiz / worklog 同一份），保留原调用签名
      ============================================================ */
-  function openModal(opts) {
+  function promptModal(title, input, okText) {
     return new Promise(function (resolve) {
       var done = false;
-      /* 取消口径：输入弹窗 resolve(null)，确认弹窗 resolve(false) */
+      /* 取消口径：输入弹窗 resolve(null)（Esc / 点遮罩 / 取消按钮） */
       function finish(v) { if (!done) { done = true; resolve(v); } }
-      var html = '<div class="modal-t">' + Shade.esc(opts.title || '') + '</div>'
-        + '<div class="modal-b">' + (opts.input ? '' : Shade.esc(opts.content || '')) + '</div>'
+      var html = '<div class="modal-t">' + Shade.esc(title || '') + '</div>'
+        + '<div class="modal-b"></div>'
         + '<div class="modal-f">'
         + '<button class="btn btn-sm" data-a="no">取消</button>'
-        + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + Shade.esc(opts.okText || '确定') + '</button>'
+        + '<button class="btn btn-sm btn-accent" data-a="yes">' + Shade.esc(okText || '确定') + '</button>'
         + '</div>';
-      var inst = Shade.modal(html, { onClose: function () { finish(opts.input ? null : false); } });
-      inst.box.classList.add('card'); // 沿用原静态弹窗的白底卡片外观
+      var inst = Shade.modal(html, { onClose: function () { finish(null); } });
       var okBtn = inst.box.querySelector('[data-a="yes"]');
-      var input = null;
-      if (opts.input) {
-        input = document.createElement('input');
-        input.className = 'input';
-        input.placeholder = opts.input.placeholder || '';
-        input.value = opts.input.value || '';
-        input.maxLength = 50;
-        inst.box.querySelector('.modal-b').appendChild(input);
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); okBtn.click(); }
-        });
-        setTimeout(function () { input.focus(); input.select(); }, 60);
-      }
-      okBtn.addEventListener('click', function () { finish(input ? input.value : true); inst.close(); });
+      var inputEl = document.createElement('input');
+      inputEl.className = 'input';
+      inputEl.placeholder = (input && input.placeholder) || '';
+      inputEl.value = (input && input.value) || '';
+      inputEl.maxLength = 50;
+      inst.box.querySelector('.modal-b').appendChild(inputEl);
+      inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); okBtn.click(); }
+      });
+      setTimeout(function () { inputEl.focus(); inputEl.select(); }, 60);
+      okBtn.addEventListener('click', function () { finish(inputEl.value); inst.close(); });
       inst.box.querySelector('[data-a="no"]').addEventListener('click', inst.close);
     });
   }
-  function promptModal(title, input, okText) {
-    return openModal({ title: title, input: input, okText: okText });
-  }
   function confirmModal(title, content, okText) {
-    return openModal({ title: title, content: content, okText: okText, danger: true });
+    return Shade.confirm({ title: title, content: content, confirmText: okText, danger: true });
   }
 
   /* ============================================================
@@ -1495,8 +1502,8 @@
     document.getElementById('topName').textContent = name;
     document.getElementById('footAvatar').textContent = ch;
     document.getElementById('footName').textContent = name;
-    // 角色口径与 index.html 用户卡一致：admin→管理员 / team_admin→班组管理员 / 其余→普通用户（不拼 team）
-    document.getElementById('footRole').textContent = u.role === 'admin' ? '管理员' : (u.role === 'team_admin' ? '班组管理员' : '普通用户');
+    // 角色文案统一走 Shade.roleText（与 index.html 用户卡同口径，不拼 team）
+    document.getElementById('footRole').textContent = Shade.roleText(u.role);
   }
   var cachedUser = Shade.user();
   if (cachedUser) renderUser(cachedUser);

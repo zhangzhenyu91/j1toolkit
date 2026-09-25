@@ -60,6 +60,7 @@ Page({
         url: '/api/v1/auth/login',
         method: 'POST',
         data: { username: username.trim(), password, wx_code: wxCode },
+        authRedirect: false, // 401（密码错误等）由本页 toast 提示，不触发 reLaunch 销毁登录页
       });
       if (data.wx_bound) {
         wx.showToast({ title: '登录成功，已绑定微信号', icon: 'success', duration: 1200 });
@@ -90,6 +91,7 @@ Page({
             url: '/api/v1/auth/wx-login',
             method: 'POST',
             data: { code: res.code },
+            authRedirect: false, // 401/40313 由本页自行处理（未绑定引导弹窗），不触发 reLaunch
           });
           this.afterLogin(data);
         } catch (err) {

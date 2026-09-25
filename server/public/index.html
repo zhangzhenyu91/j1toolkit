@@ -227,14 +227,7 @@
   // 统一顶部导航（工作台为当前页；管理入口按缓存角色显隐，接口资料回来后再校正）
   Shade.topbar({ active: 'index' });
 
-  // 应用落地页映射（网页版路由，与小程序分包无关；key 与 sys_app 种子一致）
-  var APP_ROUTES = {
-    'call-me': '/callme.html',
-    'quiz': '/quiz.html',
-    'work-log': '/worklog.html',
-    'safe-day': '/safeday.html',
-    'kvm': '/kvm.html',
-  };
+  // 应用落地页映射统一取自 Shade.APP_NAV（common.js 单一来源，与顶栏导航同源；网页版路由，与小程序分包无关）
 
   // 应用描述与特性标签（接口无此字段，按设计稿 方案A② 的文案本地维护；新应用未登记时不渲染该行）
   var APP_META = {
@@ -312,9 +305,8 @@
     document.getElementById('dateText').textContent =
       now.getFullYear() + ' 年 ' + (now.getMonth() + 1) + ' 月 ' + now.getDate() + ' 日 · 星期' + week;
 
-    // 角色徽章：admin→管理员 / team_admin→班组管理员 / 其他→普通用户（描边徽章样式不变）
-    var roleText = u.role === 'admin' ? '管理员' : (u.role === 'team_admin' ? '班组管理员' : '普通用户');
-    var roleHtml = '<span class="badge-outline">' + roleText + '</span>';
+    // 角色徽章文案统一走 Shade.roleText（描边徽章样式不变）
+    var roleHtml = '<span class="badge-outline">' + Shade.roleText(u.role) + '</span>';
     if (u.username) roleHtml += '<span class="uname">账号：' + Shade.esc(u.username) + '</span>';
     document.getElementById('roleRow').innerHTML = roleHtml;
 
@@ -330,7 +322,8 @@
     var grid = document.getElementById('appGrid');
     var html = '';
     list.forEach(function (item) {
-      var href = APP_ROUTES[item.app_key] || '';
+      var nav = Shade.APP_NAV[item.app_key];
+      var href = nav ? nav.href : '';
       var meta = APP_META[item.app_key];
       var tags = meta
         ? meta.tags.map(function (t) { return '<span class="tag ' + t[1] + '">' + t[0] + '</span>'; }).join('')

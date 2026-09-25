@@ -42,14 +42,24 @@ function parseFile(buffer, fileName) {
     const wb = XLSX.read(buffer, { type: 'buffer' });
     rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
   } catch (e) {
-    throw new Error(`「${fileName}」解析失败，请使用派车系统原始导出表`);
+    const err = new Error(`「${fileName}」解析失败，请使用派车系统原始导出表`);
+    err.status = 400; // 路由仅把 400 转友好文案，其余按 500
+    throw err;
   }
-  if (!rows.length) throw new Error(`「${fileName}」为空表`);
+  if (!rows.length) {
+    const err = new Error(`「${fileName}」为空表`);
+    err.status = 400;
+    throw err;
+  }
 
   const header = (rows[0] || []).map((c) => String(c).trim());
   const aux = {};
   for (const name of AUX) aux[name] = header.indexOf(name);
-  if (aux['派车单类型'] < 0) throw new Error(`「${fileName}」缺少必需列「派车单类型」，请使用派车系统原始导出表`);
+  if (aux['派车单类型'] < 0) {
+    const err = new Error(`「${fileName}」缺少必需列「派车单类型」，请使用派车系统原始导出表`);
+    err.status = 400;
+    throw err;
+  }
 
   const out = [];
   let skipped = 0;

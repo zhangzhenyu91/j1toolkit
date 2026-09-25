@@ -1,9 +1,12 @@
 // 通知推送 Markdown 渲染配置：markdown-it 实例 + mp-html 排版样式（方案五色板）
-// MD_TAG_STYLE/MD_CONTAINER_STYLE 为全端唯一来源，pkg-callme 对话页同用（chat.js 仅覆盖容器字号）；breaks:true 兼容历史多行纯文本通知的换行
+// MD_TAG_STYLE/MD_CONTAINER_STYLE 为全端唯一来源，pkg-callme 对话页同用（chat.js 仅覆盖容器字号，
+// 并以 breaks:false 复用渲染）；breaks:true 兼容历史多行纯文本通知的换行
 const MarkdownIt = require('markdown-it');
 
 // html:false —— 不透传原始 HTML 标签，防止通知内容中的标签被原样注入
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+const mdBreaks = new MarkdownIt({ html: false, linkify: true, breaks: true });
+// breaks:false（markdown-it 默认换行规则）：Call Me 对话页口径
+const mdPlain = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
 const MD_TAG_STYLE = {
   h1: 'font-size:17px;font-weight:600;margin:10px 0 6px;color:#22314E',
@@ -27,14 +30,24 @@ const MD_TAG_STYLE = {
 };
 const MD_CONTAINER_STYLE = 'font-size:14px;line-height:1.7;color:#22314E;word-break:break-word;';
 
+// options.breaks：默认 true（兼容历史多行纯文本通知）；false 走 markdown-it 默认换行规则
+function pickMd(options) {
+  return options && options.breaks === false ? mdPlain : mdBreaks;
+}
+
+// 渲染 Markdown（失败时抛出，供需自定义回退策略的调用方使用，如 Call Me 对话页回退纯文本展示）
+function renderMarkdownRaw(text, options) {
+  return pickMd(options).render(String(text || ''));
+}
+
 // 渲染 Markdown 为 HTML（供 mp-html content 属性），失败回退转义纯文本
-function renderMarkdown(text) {
+function renderMarkdown(text, options) {
   const src = String(text || '');
   try {
-    return md.render(src);
+    return pickMd(options).render(src);
   } catch (err) {
     return src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
   }
 }
 
-module.exports = { renderMarkdown, MD_TAG_STYLE, MD_CONTAINER_STYLE };
+module.exports = { renderMarkdown, renderMarkdownRaw, MD_TAG_STYLE, MD_CONTAINER_STYLE };

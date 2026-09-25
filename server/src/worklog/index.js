@@ -15,13 +15,15 @@ const requireAdmin = require('../middleware/requireAdmin');
 const { pool } = require('../db');
 const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
+const tokenQuery = require('../utils/tokenQuery');
+const { buildPreviewUrl } = require('../utils/preview');
+const { getFileExt, fixLatin1Name } = require('../utils/file');
 const config = require('../config');
 const cos = require('./cos');
 const dify = require('./dify');
 const geo = require('./geo');
 const towers = require('./towers');
-const Watermark = require('./watermark');
-const { renderWatermarkedPhoto } = require('./render-photo');
+const { renderWatermarkedPhoto, sanitizeWm } = require('./render-photo');
 const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark, resolveFeeStd } = require('./verify');
 const tasksheet = require('./tasksheet');
 const feesheet = require('./feesheet');
@@ -32,13 +34,8 @@ const dispatchSync = require('./dispatch-sync');
 const router = express.Router();
 
 // 文件预览服务器回源拉取下载地址时无法附带请求头：
-// 无 Authorization 头且 query 带 token 时，映射为 Authorization: Bearer 再走统一鉴权（同安全日记录口径）
-router.use((req, res, next) => {
-  if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
-    req.headers.authorization = `Bearer ${req.query.token}`;
-  }
-  next();
-});
+// 无 Authorization 头且 query 带 token 时映射为 Authorization 再走统一鉴权（同安全日记录口径，见 utils/tokenQuery.js）
+router.use(tokenQuery);
 
 router.use(auth, requireApp('work-log'));
 
@@ -353,8 +350,10 @@ router.get('/day-status', async (req, res, next) => {
 router.post('/logs', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
-    const { log_date, patrol_content = '', vehicle_id = null, destination_id = null } = req.body || {};
+    const { log_date, vehicle_id = null, destination_id = null } = req.body || {};
     let { member_ids = [] } = req.body || {};
+    // 巡视内容（TEXT 列，按既有 remark 口径截断防 ER_DATA_TOO_LONG）
+    const patrol_content = String((req.body || {}).patrol_content || '').trim().slice(0, 500);
     // 派车单号（可空，≤64 字；未出车强制置空）
     const orderNo = String((req.body || {}).dispatch_order_no || '').trim().slice(0, 64) || null;
     if (!DATE_RE.test(log_date || '')) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
@@ -397,16 +396,28 @@ router.post('/logs', async (req, res, next) => {
       }
     }
 
-    const [r] = await pool.query(
-      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [req.team.id, log_date, patrol_content, vehicle_id, destination_id, vehicle_id ? orderNo : null, req.user.id]
-    );
-    const entryId = r.insertId;
-    for (const m of memberRows) {
-      await pool.query(
-        'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
-        [entryId, m.id, m.sort]
+    // 卡片主行 + 成员行多语句写入：事务包裹（同 towers/import 口径），避免半截卡片
+    const conn = await pool.getConnection();
+    let entryId;
+    try {
+      await conn.beginTransaction();
+      const [r] = await conn.query(
+        'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [req.team.id, log_date, patrol_content, vehicle_id, destination_id, vehicle_id ? orderNo : null, req.user.id]
       );
+      entryId = r.insertId;
+      for (const m of memberRows) {
+        await conn.query(
+          'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
+          [entryId, m.id, m.sort]
+        );
+      }
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback().catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
     }
     return ok(res, { id: entryId });
   } catch (err) {
@@ -494,14 +505,15 @@ router.get('/logs/cross/meta', requireAdmin, async (req, res, next) => {
 
 // 跨班表单公共入参解析与校验 → { owner, plate, destName, memberNames, orderNo } 或 null（已响应错误）
 function parseCrossBody(req, res) {
-  const { patrol_content = '', plate_no = '', destination = '' } = req.body || {};
   let { member_names = [] } = req.body || {};
   const ownerId = req.body && req.body.team_id;
   member_names = Array.isArray(member_names)
     ? [...new Set(member_names.map((n) => String(n || '').trim()).filter(Boolean))]
     : [];
-  const plate = String(plate_no || '').trim();
-  const destName = String(destination || '').trim();
+  // 按列宽截断防 ER_DATA_TOO_LONG：patrol_content TEXT（同 remark 口径 500）、plate_no VARCHAR(32)、目的地 name VARCHAR(64)
+  const patrol_content = String((req.body || {}).patrol_content || '').trim().slice(0, 500);
+  const plate = String((req.body || {}).plate_no || '').trim().slice(0, 32);
+  const destName = String((req.body || {}).destination || '').trim().slice(0, 64);
   if (!plate && (destName || member_names.length)) {
     fail(res, 400, 40001, '未出车时不可填写目的地与用车人');
     return null;
@@ -632,36 +644,47 @@ router.put('/logs/cross/:id', requireAdmin, async (req, res, next) => {
     // 派车单号：表单提交以提交值为准；未提交该键则保留库内现值（兼容不带此字段的整卡 PUT 路径）；未出车强制置空
     const hasOrderNo = Object.prototype.hasOwnProperty.call(req.body || {}, 'dispatch_order_no');
     const orderNo = vehicleId ? (hasOrderNo ? parsed.orderNo || null : entry.dispatch_order_no) : null;
-    await pool.query(
-      'UPDATE worklog_entry SET team_id = ?, patrol_content = ?, vehicle_id = ?, destination_id = ?, cross_team = ?, dispatch_order_no = ? WHERE id = ?',
-      [owner.id, parsed.patrol_content, vehicleId, vehicleId ? destId : null, crossTeam, orderNo, entryId]
-    );
-
-    // 派车目的地变更：已出结果的照片按库内识别地点重新核验地点一致性并联动状态（同 PUT /logs/:id 口径）
-    const newDestId = vehicleId ? destId : null;
-    if (Number(entry.destination_id || 0) !== Number(newDestId || 0)) {
-      const destText = newDestId ? parsed.destName : ''; // 字典按提交名精确解析，名称即提交值
-      const [photos] = await pool.query(
-        `SELECT id, date_ok, location FROM worklog_photo WHERE entry_id = ? AND verify_status IN ('passed', 'mismatch')`,
-        [entryId]
+    // 卡片主行更新 + 照片地点联动 + 成员行重写：多语句写入事务包裹（同 towers/import 口径）
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(
+        'UPDATE worklog_entry SET team_id = ?, patrol_content = ?, vehicle_id = ?, destination_id = ?, cross_team = ?, dispatch_order_no = ? WHERE id = ?',
+        [owner.id, parsed.patrol_content, vehicleId, vehicleId ? destId : null, crossTeam, orderNo, entryId]
       );
-      for (const p of photos) {
-        const destOk = !destText || String(p.location || '').includes(destText);
-        const dateOk = p.date_ok !== 0; // 日期结果不受目的地变更影响（NULL=历史数据按相符保留）
-        await pool.query('UPDATE worklog_photo SET dest_ok = ?, verify_status = ? WHERE id = ?', [
-          destOk ? 1 : 0,
-          dateOk && destOk ? 'passed' : 'mismatch',
-          p.id,
-        ]);
+
+      // 派车目的地变更：已出结果的照片按库内识别地点重新核验地点一致性并联动状态（同 PUT /logs/:id 口径）
+      const newDestId = vehicleId ? destId : null;
+      if (Number(entry.destination_id || 0) !== Number(newDestId || 0)) {
+        const destText = newDestId ? parsed.destName : ''; // 字典按提交名精确解析，名称即提交值
+        const [photos] = await conn.query(
+          `SELECT id, date_ok, location FROM worklog_photo WHERE entry_id = ? AND verify_status IN ('passed', 'mismatch')`,
+          [entryId]
+        );
+        for (const p of photos) {
+          const destOk = !destText || String(p.location || '').includes(destText);
+          const dateOk = p.date_ok !== 0; // 日期结果不受目的地变更影响（NULL=历史数据按相符保留）
+          await conn.query('UPDATE worklog_photo SET dest_ok = ?, verify_status = ? WHERE id = ?', [
+            destOk ? 1 : 0,
+            dateOk && destOk ? 'passed' : 'mismatch',
+            p.id,
+          ]);
+        }
       }
-    }
 
-    await pool.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
-    for (const m of memberRows) {
-      await pool.query(
-        'INSERT INTO worklog_entry_member (entry_id, member_id, checked, sort) VALUES (?, ?, ?, ?)',
-        [entryId, m.id, checkedMap.get(m.id) || 0, m.sort]
-      );
+      await conn.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
+      for (const m of memberRows) {
+        await conn.query(
+          'INSERT INTO worklog_entry_member (entry_id, member_id, checked, sort) VALUES (?, ?, ?, ?)',
+          [entryId, m.id, checkedMap.get(m.id) || 0, m.sort]
+        );
+      }
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback().catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
     }
     return ok(res, { id: entryId });
   } catch (err) {
@@ -681,8 +704,10 @@ router.put('/logs/:id', async (req, res, next) => {
     );
     if (!exist.length) return fail(res, 404, 40400, '日志不存在');
 
-    const { patrol_content = '', vehicle_id = null, destination_id = null } = req.body || {};
+    const { vehicle_id = null, destination_id = null } = req.body || {};
     let { member_ids } = req.body || {};
+    // 巡视内容（TEXT 列，按既有 remark 口径截断防 ER_DATA_TOO_LONG）
+    const patrol_content = String((req.body || {}).patrol_content || '').trim().slice(0, 500);
     // 派车单号：提交该键则以提交值为准（空串置空）；未提交保留库内现值（兼容不带此字段的整卡 PUT 路径）；未出车强制置空
     const hasOrderNo = Object.prototype.hasOwnProperty.call(req.body || {}, 'dispatch_order_no');
     let orderNo = hasOrderNo
@@ -763,42 +788,53 @@ router.put('/logs/:id', async (req, res, next) => {
         }
       }
 
-      await pool.query(
-        'UPDATE worklog_entry SET patrol_content = ?, vehicle_id = ?, destination_id = ?, dispatch_order_no = ? WHERE id = ?',
-        [patrol_content, vehicle_id, vehicle_id ? destination_id : null, orderNo, entryId]
-      );
-
-      // 派车目的地变更：已出结果（passed/mismatch）的照片按库内识别地点重新核验地点一致性并联动状态
-      // （仅库内重算，不重调 Dify；pending 照片由 writeBackVerify 写库时按最新目的地比对，failed 不动）
-      const newDestId = vehicle_id ? destination_id : null;
-      if (Number(exist[0].destination_id || 0) !== Number(newDestId || 0)) {
-        let destName = '';
-        if (newDestId) {
-          const [destRows] = await pool.query('SELECT name FROM worklog_destination WHERE id = ?', [newDestId]);
-          destName = destRows.length ? destRows[0].name : '';
-        }
-        const [photos] = await pool.query(
-          `SELECT id, date_ok, location FROM worklog_photo WHERE entry_id = ? AND verify_status IN ('passed', 'mismatch')`,
-          [entryId]
+      // 卡片主行更新 + 照片地点联动 + 成员行重写：多语句写入事务包裹（同 towers/import 口径）
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        await conn.query(
+          'UPDATE worklog_entry SET patrol_content = ?, vehicle_id = ?, destination_id = ?, dispatch_order_no = ? WHERE id = ?',
+          [patrol_content, vehicle_id, vehicle_id ? destination_id : null, orderNo, entryId]
         );
-        for (const p of photos) {
-          const destOk = !destName || String(p.location || '').includes(destName); // 与 checkWatermark 地点口径一致
-          const dateOk = p.date_ok !== 0; // 日期结果不受目的地变更影响（NULL=历史数据按相符保留）
-          await pool.query('UPDATE worklog_photo SET dest_ok = ?, verify_status = ? WHERE id = ?', [
-            destOk ? 1 : 0,
-            dateOk && destOk ? 'passed' : 'mismatch',
-            p.id,
-          ]);
-        }
-      }
 
-      const checkedMap = new Map(currentRows.map((r) => [r.member_id, r.checked]));
-      await pool.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
-      for (const m of memberRows) {
-        await pool.query(
-          'INSERT INTO worklog_entry_member (entry_id, member_id, checked, sort) VALUES (?, ?, ?, ?)',
-          [entryId, m.id, checkedMap.get(m.id) || 0, m.sort]
-        );
+        // 派车目的地变更：已出结果（passed/mismatch）的照片按库内识别地点重新核验地点一致性并联动状态
+        // （仅库内重算，不重调 Dify；pending 照片由 writeBackVerify 写库时按最新目的地比对，failed 不动）
+        const newDestId = vehicle_id ? destination_id : null;
+        if (Number(exist[0].destination_id || 0) !== Number(newDestId || 0)) {
+          let destName = '';
+          if (newDestId) {
+            const [destRows] = await conn.query('SELECT name FROM worklog_destination WHERE id = ?', [newDestId]);
+            destName = destRows.length ? destRows[0].name : '';
+          }
+          const [photos] = await conn.query(
+            `SELECT id, date_ok, location FROM worklog_photo WHERE entry_id = ? AND verify_status IN ('passed', 'mismatch')`,
+            [entryId]
+          );
+          for (const p of photos) {
+            const destOk = !destName || String(p.location || '').includes(destName); // 与 checkWatermark 地点口径一致
+            const dateOk = p.date_ok !== 0; // 日期结果不受目的地变更影响（NULL=历史数据按相符保留）
+            await conn.query('UPDATE worklog_photo SET dest_ok = ?, verify_status = ? WHERE id = ?', [
+              destOk ? 1 : 0,
+              dateOk && destOk ? 'passed' : 'mismatch',
+              p.id,
+            ]);
+          }
+        }
+
+        const checkedMap = new Map(currentRows.map((r) => [r.member_id, r.checked]));
+        await conn.query('DELETE FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
+        for (const m of memberRows) {
+          await conn.query(
+            'INSERT INTO worklog_entry_member (entry_id, member_id, checked, sort) VALUES (?, ?, ?, ?)',
+            [entryId, m.id, checkedMap.get(m.id) || 0, m.sort]
+          );
+        }
+        await conn.commit();
+      } catch (e) {
+        await conn.rollback().catch(() => {});
+        throw e;
+      } finally {
+        conn.release();
       }
     }
 
@@ -941,11 +977,16 @@ router.get('/report', async (req, res, next) => {
     if (!req.team) return ok(res, { list: [], total: 0 });
 
     let me = null;
+    let where = 'e.log_date BETWEEN ? AND ? AND e.team_id = ?';
+    const params = [from, to, req.team.id];
     if (req.query.scope === 'mine') {
       me = await myMember(req);
       if (!me) return ok(res, { list: [], total: 0 });
+      // total 口径 = scope 过滤后全量条数：个人视图先按成员子查询收敛（同 /day-status scope=mine）
+      where += ' AND e.id IN (SELECT entry_id FROM worklog_entry_member WHERE member_id = ?)';
+      params.push(me.id);
     }
-    const list = await loadEntries('e.log_date BETWEEN ? AND ? AND e.team_id = ?', [from, to, req.team.id]);
+    const list = await loadEntries(where, params);
     const items = [];
     list.forEach((e) => {
       const hasRemark = !!(e.remark || e.remark_files.length);
@@ -1000,11 +1041,6 @@ const REMARK_MIME = {
   pdf: 'application/pdf',
 };
 
-function getFileExt(name) {
-  const idx = String(name || '').lastIndexOf('.');
-  return idx === -1 ? '' : String(name).slice(idx + 1).toLowerCase();
-}
-
 // 按 entryId + cos_key 定位备注附件（预览/下载共用；key 必须确属该卡且该卡当前可见（本班或含本班成员的跨班卡），防止拿任意外地拉扯）
 async function findRemarkFile(entryId, key, teamId) {
   const [rows] = await pool.query(
@@ -1036,15 +1072,19 @@ router.post(
       if (!team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
       const entryId = Number(req.params.id);
       const [entries] = await pool.query(
-        `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date FROM worklog_entry e WHERE e.id = ? AND ${ENTRY_VISIBLE}`,
+        `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.remark_files FROM worklog_entry e WHERE e.id = ? AND ${ENTRY_VISIBLE}`,
         [entryId, team.id, team.id]
       );
       if (!entries.length) return fail(res, 404, 40400, '日志不存在');
+      // 单卡附件总数上限 9（同 PUT /logs/:id 存 remark_files 口径）：按库内现有数校验，防重复上传突破
+      if (parseRemarkFiles(entries[0].remark_files).length >= 9) {
+        return fail(res, 400, 40020, '备注附件最多 9 个');
+      }
       if (!req.file || !req.file.buffer || !req.file.buffer.length) {
         return fail(res, 400, 40018, '请选择要上传的附件');
       }
       // 文件名：表单 name 优先（小程序 chooseMedia 临时文件名无意义）；回退原始名并修正 latin1 乱码
-      const fallback = Buffer.from(req.file.originalname || '', 'latin1').toString('utf8').trim();
+      const fallback = fixLatin1Name(req.file.originalname).trim();
       const name = (String((req.body && req.body.name) || '').trim() || fallback || '附件').slice(0, 128);
       const ext = getFileExt(name);
       const type = Object.keys(REMARK_EXTS).find((t) => REMARK_EXTS[t].includes(ext));
@@ -1204,7 +1244,7 @@ router.post(
       if (!req.file || !req.file.buffer || !req.file.buffer.length) {
         return fail(res, 400, 40022, '请选择要上传的 Excel 文件');
       }
-      const fname = Buffer.from(req.file.originalname || '', 'latin1').toString('utf8');
+      const fname = fixLatin1Name(req.file.originalname);
       if (!/\.xlsx$/i.test(fname)) return fail(res, 400, 40022, '仅支持 .xlsx 文件，请使用模板填写');
 
       let rows;
@@ -1261,23 +1301,6 @@ router.post(
     }
   }
 );
-
-// 水印字段清洗：字符串、去首尾空格、按库列宽截断（work_content 500 / shot_time 32 / weather 64 / location 250）
-function sanitizeWm(wm) {
-  const cut = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
-  const fields = {
-    content: cut(wm.content, 500),
-    time: cut(wm.time, 32),
-    weather: cut(wm.weather, 64),
-    location: cut(wm.location, 250),
-    longitude: cut(wm.longitude, 32),
-    latitude: cut(wm.latitude, 32),
-  };
-  // 防伪码：14 位字符集内才采信前端值，否则服务端重新生成（不由用户输入）
-  const code = cut(wm.antiCode, 14);
-  fields.antiCode = /^[A-HJ-NP-Z2-9]{14}$/.test(code) ? code : Watermark.randomCode(14);
-  return fields;
-}
 
 // Dify 识别结果统一回写：写库时重新查询卡片当前的记录日期与派车目的地（而非发起验证时的快照），
 // 规避「验证途中改派车目的地」的口径过期竞态；日期/地点核验由 checkWatermark 在后端完成（Dify 仅返回识别信息）
@@ -1537,7 +1560,8 @@ router.put('/photos/:id/members', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
-      `SELECT p.entry_id, p.members, e.team_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+      `SELECT p.entry_id, p.members, e.team_id${config.sgcc && config.sgcc.enabled ? ', p.is_watermark' : ''}
+       FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
        WHERE p.id = ? AND ${ENTRY_VISIBLE}`,
       [photoId, req.team.id, req.team.id]
     );
@@ -1545,7 +1569,8 @@ router.put('/photos/:id/members', async (req, res, next) => {
     const { members } = req.body || {};
     const names = Array.isArray(members) ? members.filter((n) => typeof n === 'string' && n.trim()) : [];
     if (!names.length) return fail(res, 400, 40009, '请选择照片所属人名');
-    const memberErr = await checkPhotoMembers(rows[0].entry_id, names, photoId);
+    // 非水印照片不占「每人限一张」名额（同上传口径），第 4 参 skipUsed 跳过占用判定
+    const memberErr = await checkPhotoMembers(rows[0].entry_id, names, photoId, rows[0].is_watermark === 0);
     if (memberErr) return fail(res, 400, memberErr.code, memberErr.message);
 
     const oldNames = typeof rows[0].members === 'string' ? JSON.parse(rows[0].members) : (rows[0].members || []);
@@ -1708,10 +1733,12 @@ router.post('/zip', async (req, res, next) => {
       return fail(res, 400, 40017, `一次最多打包 ${ZIP_MAX_PHOTOS} 张照片`);
     }
     const list = [];
+    // SSRF 防护：仅允许打包本仓 COS 地址（照片 url 均出自 cos.publicUrl），防服务端被当任意地址回源代理
+    const cosUrlPrefix = cos.publicUrl('');
     for (const p of photos) {
       const url = String((p && p.url) || '');
-      if (!/^https?:\/\//i.test(url)) {
-        return fail(res, 400, 40017, '照片地址不合法（仅支持 http/https）');
+      if (!url.startsWith(cosUrlPrefix)) {
+        return fail(res, 400, 40017, '照片地址不合法（仅支持本仓 COS 地址）');
       }
       list.push({ url, name: sanitizeFileName(p && p.name) });
     }
@@ -1863,20 +1890,18 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
-    const base = config.basemetas.url;
-    if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
+    const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
+    const fileName = sheetFileName(range.from, range.to);
+    const url = buildPreviewUrl(
+      req,
+      `/api/v1/worklog/task-sheet?from=${range.from}&to=${range.to}${teamQ}${isForce(req) ? '&force=1' : ''}`,
+      fileName
+    );
+    if (!url) return fail(res, 400, 40011, '未配置文件预览服务');
     // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应
     if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
       return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的卡片');
     }
-    // 反代后 req.protocol 恒为 http（未开 trust proxy）：优先取 X-Forwarded-Proto 头回退
-    const proto = req.headers['x-forwarded-proto'] || req.protocol;
-    const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
-    const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/task-sheet?from=${range.from}&to=${range.to}${teamQ}` +
-      `&token=${encodeURIComponent(req.token)}${isForce(req) ? '&force=1' : ''}`;
-    const fileName = sheetFileName(range.from, range.to);
-    const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
-      `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;
     return ok(res, { url });
   } catch (err) {
     return next(err);
@@ -1914,20 +1939,18 @@ router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
-    const base = config.basemetas.url;
-    if (!base) return fail(res, 400, 40011, '未配置文件预览服务');
+    const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
+    const fileName = feeFileName(range.from, range.to);
+    const url = buildPreviewUrl(
+      req,
+      `/api/v1/worklog/fee-sheet?from=${range.from}&to=${range.to}${teamQ}${isForce(req) ? '&force=1' : ''}`,
+      fileName
+    );
+    if (!url) return fail(res, 400, 40011, '未配置文件预览服务');
     // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应（判定口径同任务单 hasRows）
     if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
       return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的汇总');
     }
-    // 反代后 req.protocol 恒为 http（未开 trust proxy）：优先取 X-Forwarded-Proto 头回退
-    const proto = req.headers['x-forwarded-proto'] || req.protocol;
-    const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
-    const downloadUrl = `${proto}://${req.get('host')}/api/v1/worklog/fee-sheet?from=${range.from}&to=${range.to}${teamQ}` +
-      `&token=${encodeURIComponent(req.token)}${isForce(req) ? '&force=1' : ''}`;
-    const fileName = feeFileName(range.from, range.to);
-    const url = `${base}/preview/view?url=${encodeURIComponent(downloadUrl)}` +
-      `&fileName=${encodeURIComponent(fileName)}&displayName=${encodeURIComponent(fileName)}`;
     return ok(res, { url });
   } catch (err) {
     return next(err);
@@ -1984,7 +2007,7 @@ router.post(
       }
       const files = (req.files || []).map((f) => ({
         // multer 对中文文件名为 latin1，转回 utf8（同 towers/import 口径）
-        name: Buffer.from(f.originalname || '', 'latin1').toString('utf8'),
+        name: fixLatin1Name(f.originalname),
         buffer: f.buffer,
       }));
       if (!files.length) return fail(res, 400, 40023, '请选择派车单文件');
@@ -2055,6 +2078,8 @@ router.put('/dispatch/sync-switch', requireDictAdmin, async (req, res, next) => 
 // ===== 管理接口（车牌号 / 目的地 / 人员 三类字典同构维护，按生效班组隔离）=====
 // 权限：超管可管任意班组（?team_id= 指定），班组管理员仅本班（requireDictAdmin）
 function dictRoutes(path, table, field, label, countRefs) {
+  // 名称列宽：plate_no VARCHAR(32)，目的地/成员 name VARCHAR(64)（入库前截断防 ER_DATA_TOO_LONG）
+  const nameLen = field === 'plate_no' ? 32 : 64;
   router.get(`/admin/${path}`, requireDictAdmin, async (req, res, next) => {
     try {
       if (!req.team) return ok(res, { list: [] });
@@ -2072,7 +2097,7 @@ function dictRoutes(path, table, field, label, countRefs) {
   router.post(`/admin/${path}`, requireDictAdmin, async (req, res, next) => {
     try {
       if (!req.team) return fail(res, 400, 40010, '无可用班组');
-      const name = String((req.body && req.body.name) || '').trim();
+      const name = String((req.body && req.body.name) || '').trim().slice(0, nameLen);
       if (!name) return fail(res, 400, 40012, `请输入${label}名称`);
       const [maxRows] = await pool.query(
         `SELECT COALESCE(MAX(sort), 0) AS maxSort FROM ${table} WHERE team_id = ?`,
@@ -2101,7 +2126,7 @@ function dictRoutes(path, table, field, label, countRefs) {
       if (!exist.length) return fail(res, 404, 40400, `${label}不存在`);
       const { name, sort, status } = req.body || {};
       if (name !== undefined) {
-        const trimmed = String(name).trim();
+        const trimmed = String(name).trim().slice(0, nameLen);
         if (!trimmed) return fail(res, 400, 40012, `请输入${label}名称`);
         try {
           await pool.query(`UPDATE ${table} SET ${field} = ? WHERE id = ?`, [trimmed, id]);

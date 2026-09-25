@@ -4,10 +4,11 @@
 
    Shade.api(path, opts)      → Promise<{code,data,message}>
      fetch 封装：baseUrl ''（同域）；自动带 Authorization: Bearer <shade_token>；
-     opts.body 为普通对象时自动 JSON 序列化；HTTP 401 清本地登录态并跳 /login.html；
+     opts.body 为普通对象时自动 JSON 序列化；HTTP 401 清本地登录态并跳 /login.html
+     （/api/v1/auth/login 的 401 除外——账号密码错误原样返回，由上层以后端 message 抛出）；
      业务码 code!==0 时抛 Error(message)。
    Shade.apiRaw(path, opts)   → Promise<Response>：api() 的底层（token 注入 + fetch + 网络异常抛错
-     + 401 清登录态跳登录页），返回原始 Response（不解析 JSON、不校验业务码），
+     + 401 清登录态跳登录页，auth/login 除外），返回原始 Response（不解析 JSON、不校验业务码），
      供二进制下载 / SSE 流式 / 需自处理响应信封的场景；AbortController 中止原样抛 AbortError
    Shade.saveBlob(res, fallbackName) → 二进制 Response 落地为下载文件：文件名先解析
      Content-Disposition（RFC5987 filename* 优先），缺省 fallbackName；临时 a 标签触发，延时回收 ObjectURL
@@ -31,12 +32,22 @@
    Shade.toast(msg, type)     → 顶部轻提示，type: 'info' | 'success' | 'error'
    Shade.dropdown(select, opts) → 把原生 <select> 换为自绘下拉（按钮触发器 + 弹出列表，样式 theme.css .dd）；
      原 select 隐藏保留为数据源：选中回写 value 并派发 change 事件；脚本改选项/value/disabled 后调返回实例的 sync()；
-     opts: { width, minWidth, height }；返回 { el, sync, close }
+     opts: { width, minWidth, height }；返回 { el, sync, close, destroy }——destroy 在 close 之上把弹出列表
+     从 document.body 移除，容器 innerHTML 重建场景先 destroy 旧实例防孤儿弹层残留
    Shade.modal(html, opts)    → 通用弹层（可叠层，Esc / 点遮罩关闭；.mask/.modal/.m-scroll/.m-head/.m-x
      等样式由各页 CSS 提供）：opts: { width(px 数字), onClose }；返回 { mask, box, closed, close() }。
      Esc 关顶层监听在此统一注册一份；页面可给 Shade.escGuard 赋值优先拦截函数（返回 true 表示已消费
      本次 Esc，不再关弹层）——如 worklog 大图层需先于弹层响应 Esc
    Shade.mHead(title)         → 弹层标题行 HTML（标题 + 右上角 .m-x 关闭钮，Shade.modal 内自动绑定关闭）
+   Shade.confirm(opts)        → 通用确认弹层（叠层）：opts: { title, content, confirmText, danger }；
+     返回 Promise<boolean>，遮罩 / Esc / 取消均视为否（.m-head/.m-foot 等样式由各页 CSS 提供）
+   Shade.moveTabInd(tab, ind, instant) → 页签滑动指示条跟随：tab 为当前激活页签元素（null 时收起
+     指示条），ind 为指示条元素；instant=true 首帧/窗口缩放直接落位，避免从左侧滑入的残影
+   Shade.renderNoTeam(el)     → 「未分配班组」整页空态提示卡：填充 el（占位容器，初始 hidden）并显示；
+     页面其余区块的隐藏由页面自行处理
+   Shade.roleText(role)       → 角色文案：admin→管理员 / team_admin→班组管理员 / 其他→普通用户
+   Shade.APP_NAV              → 应用 → 网页版落地页映射（app_key 与 sys_app 种子一致）：顶栏导航与工作台
+     宫格落地页共用的单一来源；无网页版的应用不收录
    Shade.setupTeamSel(opts)   → Promise<{getTeamId}|undefined>：超管班组切换器统一装配
      （role!=='admin' 直接返回 undefined）。opts: { select, dropdown, storageKey, allowAll, showEl, onChange }——
      GET /admin/teams 过滤 status===1 渲染 options（allowAll 时前置「全部班组」value=all 且默认 'all'），
@@ -62,7 +73,8 @@
     localStorage.removeItem(APPS_KEY);
   }
 
-  // 原始请求：token 注入 + fetch + 网络异常抛错 + 401 清登录态跳登录页；返回原始 Response 由调用方自处理
+  // 原始请求：token 注入 + fetch + 网络异常抛错 + 401 清登录态跳登录页（/api/v1/auth/login 的 401 除外，原样返回）；
+  // 返回原始 Response 由调用方自处理
   async function apiRaw(path, opts) {
     opts = opts || {};
     const headers = Object.assign({}, opts.headers);
@@ -83,9 +95,13 @@
       throw new Error('网络异常，无法连接服务器');
     }
     if (res.status === 401) {
-      clearAuth();
-      if (!/\/login\.html$/.test(location.pathname)) location.href = '/login.html';
-      throw new Error('登录已过期，请重新登录');
+      /* 登录接口自身的 401 即「账号或密码错误」：不清登录态、不跳登录页，
+         原样返回 Response 由 api() 解析信封、以后端 message 抛出 */
+      if (!/\/api\/v1\/auth\/login(\?|$)/.test(path)) {
+        clearAuth();
+        if (!/\/login\.html$/.test(location.pathname)) location.href = '/login.html';
+        throw new Error('登录已过期，请重新登录');
+      }
     }
     return res;
   }
@@ -128,6 +144,11 @@
   // 本地缓存的用户对象
   function user() {
     try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; }
+  }
+
+  // 角色文案：admin→管理员 / team_admin→班组管理员 / 其他→普通用户
+  function roleText(role) {
+    return role === 'admin' ? '管理员' : (role === 'team_admin' ? '班组管理员' : '普通用户');
   }
 
   // DOM 选择助手（$$ 返回数组）
@@ -181,7 +202,7 @@
   // 统一顶部导航：左侧 Logo + 常驻导航（工作台 + 按权限下发的应用，顺序同工作台宫格——同取 /api/v1/app/list，
   // 无权限的应用不下发即不显示；本地缓存 shade_apps 先行渲染避免闪烁，接口回来后校正）；
   // 右侧「管理」（仅 admin 可见）+ 用户区 + 退出
-  var APP_NAV = { // 应用 → 网页版落地页（key 与 sys_app 种子一致；无网页版的应用不进顶栏）
+  var APP_NAV = { // 应用 → 网页版落地页（app_key 与 sys_app 种子一致；顶栏导航与工作台宫格落地页共用此单一来源，无网页版的应用不收录）
     'call-me': { key: 'callme', href: '/callme.html' },
     'quiz': { key: 'quiz', href: '/quiz.html' },
     'work-log': { key: 'worklog', href: '/worklog.html' },
@@ -334,6 +355,22 @@
     if (top) top.close();
   });
 
+  /* 通用确认弹层（叠层）：opts: { title, content, confirmText, danger }；返回 Promise<boolean>，
+     遮罩 / Esc / 取消均视为否；.m-head/.m-foot 样式由各页 CSS 提供 */
+  function confirm(opts) {
+    return new Promise(function (resolve) {
+      var done = false;
+      function finish(v) { if (!done) { done = true; resolve(v); } }
+      var html = mHead(opts.title)
+        + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
+        + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+        + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
+      var inst = modal(html, { width: 420, onClose: function () { finish(false); } });
+      $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+      $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
+    });
+  }
+
   // 滚动 reveal：.rv 进入视口时加 .in（可重复调用，自动跳过已观察元素）
   let rvObserver = null;
   function reveal() {
@@ -358,6 +395,30 @@
     });
   }
 
+  /* 页签滑动指示条跟随：tab 为当前激活页签元素（null 时收起指示条），ind 为指示条元素；
+     instant=true 首帧/窗口缩放直接落位，避免从左侧滑入的残影 */
+  function moveTabInd(tab, ind, instant) {
+    if (!tab) { ind.style.width = '0'; return; }
+    if (instant) {
+      ind.style.transition = 'none';
+      ind.style.left = tab.offsetLeft + 'px';
+      ind.style.width = tab.offsetWidth + 'px';
+      void ind.offsetHeight; // 强制回流后恢复过渡
+      ind.style.transition = '';
+      return;
+    }
+    ind.style.left = tab.offsetLeft + 'px';
+    ind.style.width = tab.offsetWidth + 'px';
+  }
+
+  /* 「未分配班组」整页空态提示卡：填充 el（占位容器，初始 hidden）并显示；页面其余区块的隐藏由页面自行处理 */
+  function renderNoTeam(el) {
+    el.hidden = false;
+    el.innerHTML = '<div class="empty">' + window.Shade.icon('usergroup', 44) +
+      '<p><b>未分配班组</b></p>' +
+      '<p style="font-size:12px">你的账号尚未加入任何班组，暂无可查看的数据。<br>请联系超级管理员分配班组后再使用。</p></div>';
+  }
+
   // HTML 转义
   function esc(html) {
     return String(html == null ? '' : html).replace(/[&<>"']/g, function (ch) {
@@ -368,6 +429,8 @@
   // 轻量自绘下拉：把原生 <select> 替换为按钮触发器 + 弹出列表（暖纸主题，样式见 theme.css .dd）；
   // 原 select 隐藏保留为数据源——选中回写 select.value 并派发 change 事件，既有监听与取值逻辑不变；
   // 脚本改动选项 / value / disabled 后需调返回实例的 sync() 重绘（打开弹层时也会自动 sync）。
+  // 弹出列表常驻 document.body：容器 innerHTML 重建场景需先调返回实例的 destroy()（close 之上移除弹层节点），
+  // 否则触发器已随容器销毁而弹层成孤儿残留。
   // opts: { width, minWidth, height }（工具行传 width:'auto'；表单场景默认宽 100% 高 40px）
   function dropdown(select, opts) {
     opts = opts || {};
@@ -428,6 +491,11 @@
       document.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', close);
     }
+    /* 销毁实例：close 之上把弹出列表从 body 移除（容器重建前先调，防 .dd-pop 孤儿残留） */
+    function destroy() {
+      close();
+      pop.remove();
+    }
     btn.addEventListener('click', function () {
       if (btn.disabled) return;
       if (wrap.classList.contains('open')) { close(); return; }
@@ -451,7 +519,7 @@
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     sync();
-    return { el: wrap, sync: sync, close: close };
+    return { el: wrap, sync: sync, close: close, destroy: destroy };
   }
 
   /* 超管班组切换器统一装配：role!=='admin' 直接返回 undefined；GET /admin/teams 过滤启用班组渲染 options
@@ -508,6 +576,7 @@
     apiRaw: apiRaw,
     saveBlob: saveBlob,
     user: user,
+    roleText: roleText,
     setAuth: setAuth,
     requireAuth: requireAuth,
     topbar: topbar,
@@ -519,8 +588,12 @@
     dropdown: dropdown,
     modal: modal,
     mHead: mHead,
+    confirm: confirm,
+    moveTabInd: moveTabInd,
+    renderNoTeam: renderNoTeam,
     setupTeamSel: setupTeamSel,
     withTeam: withTeam,
+    APP_NAV: APP_NAV,
     $: $,
     $$: $$,
   });

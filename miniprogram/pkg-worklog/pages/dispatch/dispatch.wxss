@@ -1,7 +1,7 @@
 /* 出工日志 · 派车对齐页（token 同 app.wxss 方案五；底部弹层 .sheet / .sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
 @import '../../style/common.wxss';
 
-/* ---------- 卡片（同 tasksheet 页族：白卡圆角 + 藏青主按钮） ---------- */
+/* ---------- 卡片（同 sheet 页族：白卡圆角 + 藏青主按钮） ---------- */
 .card {
   background: #ffffff;
   border-radius: 20rpx;

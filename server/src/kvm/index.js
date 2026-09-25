@@ -82,6 +82,7 @@ async function assertTeamDevice(req, { id, ddns }) {
   if (!dev) {
     const err = new Error('设备不存在，或不属于当前班组');
     err.status = 404;
+    err.expose = true; // 可读业务文案，路由层透传（同 glkvm.js bizErr 口径）
     throw err;
   }
   return dev;
@@ -113,8 +114,11 @@ router.get('/devices', requireAnyApp(KVM_OR_FT), async (req, res) => {
       fallback_team: ctx.fallbackTeam,
     });
   } catch (err) {
-    // glkvm.js 抛出的均为组装好的对用户可读文案
-    return fail(res, 502, 50201, err && err.message ? err.message : 'GLKVM 平台访问失败');
+    // 仅透传带 expose 标记的可读业务文案（glkvm.js bizErr / 班组设备断言）；
+    // 其余异常（如数据库错误，message 含表名/语句）归一通用文案并记日志
+    if (err && err.expose) return fail(res, err.status || 502, 50201, err.message);
+    console.error('[KVM] 设备列表查询失败：', err);
+    return fail(res, 502, 50201, 'GLKVM 平台访问失败');
   }
 });
 
@@ -140,7 +144,10 @@ router.post('/jump', requireApp('kvm'), async (req, res) => {
       `&to=${encodeURIComponent(build(ddns))}`;
     return ok(res, { url });
   } catch (err) {
-    return fail(res, err.status || 502, 50201, err && err.message ? err.message : 'GLKVM 平台访问失败');
+    // 错误透传口径同 /devices：仅 expose 业务文案，其余归一并记日志
+    if (err && err.expose) return fail(res, err.status || 502, 50201, err.message);
+    console.error('[KVM] 签发跳转地址失败：', err);
+    return fail(res, 502, 50201, 'GLKVM 平台访问失败');
   }
 });
 
@@ -231,6 +238,11 @@ router.get('/devices/:id/download', requireAnyApp(KVM_OR_FT), async (req, res) =
     res.setHeader('Content-Disposition',
       r.headers['content-disposition'] || `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
     if (r.headers['content-length']) res.setHeader('Content-Length', r.headers['content-length']);
+    // pipe 不转发源流 error：上游断流未监听会 uncaughtException，此处销毁响应并记日志
+    r.data.on('error', (serr) => {
+      console.error(`[KVM] 文件下载上游断流（设备 ${req.params.id} 文件 ${name}）：`, serr.message);
+      res.destroy(serr);
+    });
     return r.data.pipe(res);
   } catch (err) {
     return relayFail(res, err);

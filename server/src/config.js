@@ -91,6 +91,8 @@ const config = {
     enabled: str('SAFEDAY_ENABLED') === 'true',
     // 记录 records.json 与生成产物（docs/）存放目录；已在 config 归一化为绝对路径（相对路径按服务启动目录解析）
     dataDir: path.resolve(str('SAFEDAY_DATA_DIR', './data/safeday')),
+    // 安全日活动记录默认上级参加人员（留空则由用户手填）
+    defaultSuperior: str('SAFEDAY_DEFAULT_SUPERIOR'),
     difyKey: str('DIFY_SAFEDAY_API_KEY'),
     // Dify 回调 token：留空则回调不做 token 校验（与原 CALLBACK_TOKEN 行为一致）
     callbackToken: str('SAFEDAY_CALLBACK_TOKEN'),
@@ -138,7 +140,7 @@ const config = {
     // 作用于全部商旅通信——protocol.js 的 API 调用与商旅费用照片下载（仅自家 COS 回源等非商旅流量不走代理）
     proxyUrl: str('SGCC_PROXY_URL'),
     // 出口代理健康探测间隔（毫秒，默认 300000=5 分钟；仅配置 SGCC_PROXY_URL 时启用）：
-    // 定时经代理轻量探测商旅主机，正常↔异常 跳变时通知超管（站内+微信）
+    // 定时对代理端口做 TCP 建连探测（仅探代理存活，不向商旅主机发请求），正常↔异常 跳变时通知超管（站内+微信）
     proxyProbeIntervalMs: parseInt(str('SGCC_PROXY_PROBE_INTERVAL_MS', '300000'), 10) || 300000,
   },
 };
@@ -156,6 +158,13 @@ function validateConfig() {
   if (missing.length) {
     console.error(`[配置错误] 缺少环境变量：${missing.join('、')}，请参照 .env.example 配置`);
     process.exit(1);
+  }
+  // 初始管理员密码沿用缺省值时醒目告警（仅提示，不改默认行为；生产环境务必在 .env 配置 ADMIN_PASSWORD）
+  if (!process.env.ADMIN_PASSWORD) {
+    console.warn('************************************************************');
+    console.warn('[安全警告] 未配置 ADMIN_PASSWORD，初始管理员使用默认密码「Admin@123」，');
+    console.warn('[安全警告] 存在被猜测/撞库风险，请尽快在 .env 中设置强密码！');
+    console.warn('************************************************************');
   }
 }
 

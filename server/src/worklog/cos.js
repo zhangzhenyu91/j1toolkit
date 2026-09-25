@@ -7,9 +7,7 @@ let client = null;
 function ensureConfigured() {
   const { secretId, secretKey, bucket, region } = config.cos;
   if (!secretId || !secretKey || !bucket || !region) {
-    const err = new Error('腾讯云 COS 未配置（COS_SECRET_ID / COS_SECRET_KEY / COS_BUCKET / COS_REGION）');
-    err.expose = true;
-    throw err;
+    throw new Error('腾讯云 COS 未配置（COS_SECRET_ID / COS_SECRET_KEY / COS_BUCKET / COS_REGION）');
   }
 }
 

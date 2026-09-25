@@ -9,8 +9,10 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { BASE_URL } from '../../../config';
-import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import { createTeamGate } from '../../../utils/teamgate';
+import { pad, fmtSize, extOf } from '../../../utils/util';
+import { utf8Buffer, concatBuffers } from '../../../utils/multipart';
 
 const API_BASE = '/api/v1/safeday';
 const POLL_INTERVAL = 5000; // 与网页端一致：存在生成中记录时按 5s 轮询 records
@@ -18,11 +20,10 @@ const MAX_FILES = 10; // 与服务端 multer 限制一致
 const MAX_SIZE = 50 * 1024 * 1024; // 单文件 50MB，与服务端一致
 const ALLOWED = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
 
-const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-const extOf = (name) => {
-  const i = (name || '').lastIndexOf('.');
-  return i < 0 ? '' : name.slice(i + 1).toLowerCase();
-};
+// 班组切换器 + 生效班组门控（storage safeday_team_id；withAll：超管可切「全部班组」，
+// records 带 team_id=all|班组 id，「全部班组」混排视图在记录行显示班组徽章）
+const teamGate = createTeamGate({ storageKey: 'safeday_team_id', withAll: true });
+
 const baseOf = (name) => (name || '').replace(/\.[^.]+$/, '');
 // 自定义人员输入规范化：空格/顿号/逗号/分号分隔统一为空格分隔（后端模板按空格分隔口径渲染）
 const normNames = (str) =>
@@ -32,61 +33,12 @@ const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
-const fmtSize = (n) => {
-  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
-  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
-  return `${n} B`;
-};
 // ISO 时间 → 'YYYY-MM-DD HH:mm'（同网页端 Shade.fmtDate(d, true)）
 const fmtCreated = (iso) => {
   const d = iso ? new Date(iso) : null;
   if (!d || Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
-
-// ---------- 手工拼装 multipart/form-data ----------
-// wx.uploadFile 单请求仅支持单文件，且 multipart 文件名只能是临时路径 basename
-// （中文原名会丢失，sources 展示与扩展名校验都依赖原名），安全日 generate 需一次提交
-// 多文件并保留原名，故按网页端 FormData 的字节格式自行拼装（UTF-8 编码文件名，
-// 服务端 multer 按 latin1 接收后转回 UTF-8，与浏览器行为一致）
-
-// 字符串 → UTF-8 字节 ArrayBuffer（含 surrogate pair 处理）
-function utf8Buffer(str) {
-  const bytes = [];
-  for (let i = 0; i < str.length; i += 1) {
-    let code = str.charCodeAt(i);
-    if (code < 0x80) {
-      bytes.push(code);
-    } else if (code < 0x800) {
-      bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
-    } else if (code >= 0xd800 && code <= 0xdbff) {
-      const lo = str.charCodeAt(i + 1);
-      i += 1;
-      code = 0x10000 + (((code & 0x3ff) << 10) | (lo & 0x3ff));
-      bytes.push(
-        0xf0 | (code >> 18),
-        0x80 | ((code >> 12) & 0x3f),
-        0x80 | ((code >> 6) & 0x3f),
-        0x80 | (code & 0x3f)
-      );
-    } else {
-      bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
-    }
-  }
-  return new Uint8Array(bytes).buffer;
-}
-
-function concatBuffers(buffers) {
-  let total = 0;
-  buffers.forEach((b) => { total += b.byteLength; });
-  const out = new Uint8Array(total);
-  let offset = 0;
-  buffers.forEach((b) => {
-    out.set(new Uint8Array(b), offset);
-    offset += b.byteLength;
-  });
-  return out.buffer;
-}
 
 // ---------- 生成进度卡（阶段与文案同网页端） ----------
 const STEP_TEXTS = [
@@ -104,15 +56,11 @@ const stepStates = (phase) => {
 const phasePct = (phase) => ({ parse: 45, dify: 75, done: 100 }[phase] || 75);
 
 Page({
+  behaviors: [teamGate],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
-    // 班组切换器（屏八）：超管可切「全部班组」+ 各班组；其余角色为静态班组名标签
-    isAdmin: false,
-    noTeam: false, // 非超管且未分配班组：整页空态（屏十），不发业务请求
-    teamName: '',
-    teamOptions: [], // [{id('all' 或班组 id), name, on}]
-    teamDropOpen: false,
-    showTeamPill: false, // 仅「全部班组」混排视图在记录行显示班组徽章
+    // 班组切换器数据（isAdmin/noTeam/teamName/teamOptions/teamDropOpen/showTeamPill）由 teamgate behavior 提供；
+    // 非超管未分配班组 → noTeam 整页空态（屏十），不发业务请求
     files: [], // 已选待上传文件 [{name, size, sizeText, path}]
     dateStr: '', // 活动日期 YYYY-MM-DD（picker 值；提交时转 YYYY.MM.DD）
     // 生成进度卡
@@ -166,85 +114,17 @@ Page({
   passGate() {
     if (this.data.gate) return;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
-    this._role = user.role || 'user';
-    this._teamSel = 'all'; // 超管切换器选中值：'all' 或班组 id（仅超管生效）
-    // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
-    if (this._role !== 'admin' && !user.team) {
-      this.setData({ gate: true, noTeam: true, loading: false, cntText: '' });
-      return;
+    // 门控与生效班组确定由 teamgate behavior 完成（非超管未分配班组 → noTeam 空态，不再加载）
+    if (!this.passTeamGate(user, () => this.refreshRecords(true))) {
+      this.setData({ cntText: '' });
     }
-    this.setData({ gate: true, isAdmin: this._role === 'admin', teamName: user.team || '' });
-    if (this._role === 'admin') {
-      this.initTeams(user); // 超管先定选中班组，再拉记录
-      return;
-    }
-    this.refreshRecords(true);
   },
 
-  // ---------- 班组切换器（屏八；仅超管可切换，其余角色静态展示本班名） ----------
-
-  // 超管：拉启用班组（/admin/teams 取 status=1，主平台信封故走 utils/request）→
-  // 选中项（storage 优先 → 自己班组 → 第一项「全部班组」）→ 记录列表
-  async initTeams(user) {
-    let teams = [];
-    try {
-      const data = await request({ url: '/api/v1/admin/teams' });
-      teams = ((data && data.list) || []).filter((t) => t.status === 1);
-    } catch (err) {
-      this.toast(err.message);
-    }
-    this._teams = teams;
-    const saved = String(wx.getStorageSync('safeday_team_id') || '');
-    let sel = 'all';
-    if (saved === 'all' || (saved && teams.some((t) => t.id === Number(saved)))) {
-      sel = saved === 'all' ? 'all' : Number(saved);
-    } else if (teams.some((t) => t.id === Number(user.team_id))) {
-      sel = Number(user.team_id);
-    }
-    this.applyTeam(sel, false);
-    this.refreshRecords(true);
-  },
-
-  // 记录当前选中班组并刷新切换器展示；switching=true 表示用户主动切换，重拉记录列表
-  applyTeam(sel, switching) {
-    this._teamSel = sel;
-    wx.setStorageSync('safeday_team_id', String(sel));
-    const all = sel === 'all';
-    const cur = all ? null : (this._teams || []).find((t) => t.id === sel);
-    this.setData({
-      teamName: all ? '全部班组' : (cur ? cur.name : this.data.teamName),
-      teamDropOpen: false,
-      showTeamPill: all, // 仅「全部班组」混排视图显示班组徽章
-      teamOptions: [{ id: 'all', name: '全部班组', on: all }].concat(
-        (this._teams || []).map((t) => ({ id: t.id, name: t.name, on: !all && t.id === sel }))
-      ),
-    });
-    if (switching) this.refreshRecords(false);
-  },
-
-  onTeamChipTap() {
-    if (!this.data.isAdmin || !(this._teams || []).length) return;
-    this.setData({ teamDropOpen: !this.data.teamDropOpen });
-  },
-
-  onTeamDropClose() {
-    if (this.data.teamDropOpen) this.setData({ teamDropOpen: false });
-  },
-
-  onTeamPick(e) {
-    const { id } = e.currentTarget.dataset;
-    const sel = id === 'all' ? 'all' : Number(id);
-    if (sel === this._teamSel) {
-      this.setData({ teamDropOpen: false });
-      return;
-    }
-    this._formMeta = null; // 生成表单元数据按班组缓存，切班组后重拉
-    this.applyTeam(sel, true);
-  },
-
-  // records 的生效班组参数（仅超管携带：'all'=全部班组）
-  teamQuery() {
-    return this._role === 'admin' ? `?team_id=${this._teamSel || 'all'}` : '';
+  // 超管主动切换班组后重拉记录列表（teamgate behavior 回调）；
+  // 生成表单元数据按班组缓存，切班组后重拉
+  onTeamSwitched() {
+    this._formMeta = null;
+    this.refreshRecords(false);
   },
 
   onShow() {
@@ -679,7 +559,7 @@ Page({
       .finally(() => this.setData({ submitting: false }));
   },
 
-  // multipart 上传（字段名 files + name/date + 生成表单字段；字节格式与网页端 FormData 一致，见文件头注释）
+  // multipart 上传（字段名 files + name/date + 生成表单字段；字节格式与网页端 FormData 一致，拼装说明见 utils/multipart.js）
   uploadGenerate(name, date, files, form) {
     const boundary = `----ShadeSafeday${Date.now()}`;
     const fsm = wx.getFileSystemManager();

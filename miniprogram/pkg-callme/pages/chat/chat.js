@@ -8,22 +8,16 @@ import { request } from '../../../utils/request';
 import { createUtf8Decoder, createSseParser } from '../../utils/sse';
 import { shareAppMessage } from '../../../utils/share';
 
-const MarkdownIt = require('markdown-it');
-
-// html:false —— 不透传原始 HTML 标签，防止回复内容中的标签被原样注入
-const md = new MarkdownIt({ html: false, linkify: true });
-
-// Markdown 排版样式：tag 样式统一用 utils/markdown.js 那一份（方案五色板，mp-html 按标签名生效）；
+// Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（方案五色板，mp-html 按标签名生效）；
 // 容器样式本地覆盖——聊天气泡字号略大（14.5px），其余与共享口径一致
-const { MD_TAG_STYLE } = require('../../../utils/markdown');
-const { parseDate } = require('../../../utils/util');
+const { renderMarkdownRaw, MD_TAG_STYLE } = require('../../../utils/markdown');
+const { parseDate, pad } = require('../../../utils/util');
 const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#22314E;word-break:break-word;';
 
 // 消息时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm
 function timeTextOf(input) {
   const d = input ? parseDate(input) : new Date();
   if (!d) return '';
-  const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
   const sameDay = d.toDateString() === new Date().toDateString();
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
@@ -53,7 +47,11 @@ Page({
     const { id, title } = options || {};
     if (!id) {
       this.toast('缺少会话 ID');
-      setTimeout(() => wx.navigateBack({ delta: 1 }), 800);
+      setTimeout(() => wx.navigateBack({
+        delta: 1,
+        // 页面栈仅 1 页（分享卡片首屏进入）时 navigateBack 静默失败，兜底回会话列表
+        fail: () => wx.reLaunch({ url: '/pkg-callme/pages/sessions/sessions' }),
+      }), 800);
       return;
     }
     this._keySeq = 0; // 消息本地唯一 key（wx:key 用，删除后不复用）
@@ -108,11 +106,11 @@ Page({
   },
 
   // ---------- Markdown 渲染 ----------
-  // 渲染失败返回空串，前端回退为纯文本展示
+  // 复用公共渲染实例（breaks:false 对话页口径）；渲染失败返回空串，前端回退为纯文本展示
   renderMd(text) {
     if (!text) return '';
     try {
-      return md.render(text);
+      return renderMarkdownRaw(text, { breaks: false });
     } catch (e) {
       return '';
     }

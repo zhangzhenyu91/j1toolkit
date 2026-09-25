@@ -70,7 +70,7 @@ router.post('/users', async (req, res, next) => {
     }
     if (!password || password.length < 6) return fail(res, 400, 40011, '密码至少 6 位');
     if (!ROLES.includes(role)) return fail(res, 400, 40013, '非法角色');
-    if (role === 'team_admin' && !teamId) return fail(res, 400, 40016, '班组管理员必须有所属班组');
+    if (role === 'team_admin' && !teamId) return fail(res, 400, 40026, '班组管理员必须有所属班组');
     if (teamId && !(await validTeam(teamId))) return fail(res, 400, 40015, '班组不存在或已停用');
     if (wxid.length > 128) return fail(res, 400, 40018, 'wxid 不能超过 128 字');
 
@@ -102,7 +102,8 @@ router.put('/users/:id', async (req, res, next) => {
     const role = req.body && req.body.role;
 
     // 自我保护：不能禁用或降级（改为非超管）自己的账号
-    if (targetId === req.user.id && (status === 0 || status === '0' || (role !== undefined && role !== 'admin'))) {
+    // 禁用判定与下方落库口径（status ? 1 : 0）一致：status 传了且为假值即视为禁用
+    if (targetId === req.user.id && ((status !== undefined && !status) || (role !== undefined && role !== 'admin'))) {
       return fail(res, 400, 40012, '不能禁用或降级自己的账号');
     }
 
@@ -129,7 +130,7 @@ router.put('/users/:id', async (req, res, next) => {
       const finalRole = role !== undefined ? role : cur[0].role;
       const finalTeam = hasTeam ? teamId : cur[0].team_id;
       if (finalRole === 'team_admin' && !finalTeam) {
-        return fail(res, 400, 40016, '班组管理员必须有所属班组');
+        return fail(res, 400, 40026, '班组管理员必须有所属班组');
       }
     }
     if (password !== undefined) {
@@ -193,7 +194,7 @@ router.put('/teams/:id', async (req, res, next) => {
   try {
     const targetId = Number(req.params.id);
     const [exist] = await pool.query('SELECT id, name FROM sys_team WHERE id = ?', [targetId]);
-    if (!exist.length) return fail(res, 404, 40402, '班组不存在');
+    if (!exist.length) return fail(res, 404, 40405, '班组不存在');
     const oldName = exist[0].name;
     const { name, sort, status, wxid } = req.body || {};
 
@@ -241,7 +242,7 @@ router.delete('/teams/:id', async (req, res, next) => {
   try {
     const targetId = Number(req.params.id);
     const [exist] = await pool.query('SELECT id, name FROM sys_team WHERE id = ?', [targetId]);
-    if (!exist.length) return fail(res, 404, 40402, '班组不存在');
+    if (!exist.length) return fail(res, 404, 40405, '班组不存在');
     const teamName = exist[0].name;
 
     const [userCnt] = await pool.query('SELECT COUNT(*) AS cnt FROM sys_user WHERE team_id = ?', [targetId]);
@@ -251,6 +252,19 @@ router.delete('/teams/:id', async (req, res, next) => {
       for (const table of tables) {
         const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [targetId]);
         if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有出工日志数据，请改为停用');
+      }
+      // 派车单同步开关表（team_id 为主键）只是开关配置行、非业务数据：随班组删除级联清除
+      await pool.query('DELETE FROM worklog_dispatch_sync_team WHERE team_id = ?', [targetId]);
+    }
+    if (config.quiz.enabled) {
+      const [rows] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_bank WHERE team_id = ?', [targetId]);
+      if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有题库数据，请改为停用');
+    }
+    if (config.sgcc.enabled) {
+      const tables = ['worklog_sgcc_account', 'worklog_clockin', 'worklog_fee', 'worklog_sync_log'];
+      for (const table of tables) {
+        const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [targetId]);
+        if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有商旅打卡数据，请改为停用');
       }
     }
     if (config.safeday.enabled) {
@@ -281,9 +295,10 @@ router.get('/apps', async (req, res, next) => {
 // GET /api/v1/admin/users/:id/apps 某员工的已授权应用
 router.get('/users/:id/apps', async (req, res, next) => {
   try {
-    const [rows] = await pool.query('SELECT app_id FROM sys_user_app WHERE user_id = ?', [
-      Number(req.params.id),
-    ]);
+    const targetId = Number(req.params.id);
+    const [u] = await pool.query('SELECT id FROM sys_user WHERE id = ?', [targetId]);
+    if (!u.length) return fail(res, 404, 40401, '用户不存在');
+    const [rows] = await pool.query('SELECT app_id FROM sys_user_app WHERE user_id = ?', [targetId]);
     return ok(res, { app_ids: rows.map((r) => r.app_id) });
   } catch (err) {
     return next(err);
@@ -295,7 +310,7 @@ router.put('/users/:id/apps', async (req, res, next) => {
   try {
     const targetId = Number(req.params.id);
     let ids = Array.isArray(req.body && req.body.app_ids) ? req.body.app_ids : null;
-    if (!ids) return fail(res, 400, 40015, 'app_ids 需为数组');
+    if (!ids) return fail(res, 400, 40025, 'app_ids 需为数组');
     ids = [...new Set(ids.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
 
     const [u] = await pool.query('SELECT id FROM sys_user WHERE id = ?', [targetId]);

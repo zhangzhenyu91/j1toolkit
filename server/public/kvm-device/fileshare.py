@@ -200,10 +200,14 @@ async def download(request):
         if not os.path.isfile(path):
             return web.json_response({'ok': False, 'error': '文件不存在：%s' % name}, status=404)
         log.info('download %s (%d bytes)', name, os.path.getsize(path))
-        # RFC 5987 编码中文文件名；下载期间持锁，防止推送切换共享把分区卸载
-        return web.FileResponse(path, headers={
+        # RFC 5987 编码中文文件名；aiohttp 在 handler return 后才流式发送 FileResponse 主体，
+        # 故须在锁内 prepare + write_eof 完成发送——下载期间持锁，防止推送切换共享把分区卸载
+        resp = web.FileResponse(path, headers={
             'Content-Disposition': "attachment; filename*=UTF-8''%s" % quote(name),
         })
+        await resp.prepare(request)
+        await resp.write_eof()
+        return resp
 
 
 def main():

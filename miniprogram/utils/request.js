@@ -23,7 +23,9 @@ function request({ url, method = 'GET', data, header = {}, timeout = 30000, auth
           if (authRedirect) {
             wx.reLaunch({ url: '/pages/login/login' });
           }
-          reject(new Error(body.message || '登录已过期，请重新登录'));
+          const err = new Error(body.message || '登录已过期，请重新登录');
+          err.statusCode = 401; // 与非 2xx 分支口径一致（app.js 启动自检据此判定 token 失效走静默续期）
+          reject(err);
           return;
         }
         if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {

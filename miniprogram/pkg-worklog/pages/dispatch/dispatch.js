@@ -5,67 +5,19 @@
 //   matched 改卡（PUT /logs/{id} 整卡更新，patrol_content 随条目带回避免误清）；
 //   sheetOnly 按表格预填快速建卡（POST /logs，确认才写库，非自动建）；entryOnly 仅提示确认，不自动删卡；
 //   表格车牌不在本班字典时可就地「添加进字典」（POST /admin/vehicles）
-// 班组口径同 tasksheet 页：超管按主页切换器存下的 worklog_team_id 生效；班组管理员后端强制本班
+// 班组口径同 sheet 页：超管按主页切换器存下的 worklog_team_id 生效；班组管理员后端强制本班
 // multipart 手工拼装原因同安全日：wx.uploadFile 单请求仅支持单文件且丢失中文原名，本页需多文件并保留原名
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { BASE_URL } from '../../../config';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import { fmtSize, extOf } from '../../../utils/util';
+import { utf8Buffer, concatBuffers } from '../../../utils/multipart';
 
 const MAX_FILES = 20; // 与服务端 multer files 上限一致
 const MAX_SIZE = 10 * 1024 * 1024; // 单文件 10MB，与服务端一致
 const ALLOWED = ['xls', 'xlsx'];
-
-const extOf = (name) => {
-  const i = (name || '').lastIndexOf('.');
-  return i < 0 ? '' : name.slice(i + 1).toLowerCase();
-};
-const fmtSize = (n) => {
-  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
-  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
-  return `${n} B`;
-};
-
-// ---------- 手工拼装 multipart/form-data（与安全日 generate 同法；字节格式与网页端 FormData 一致） ----------
-
-// 字符串 → UTF-8 字节 ArrayBuffer（含 surrogate pair 处理）
-function utf8Buffer(str) {
-  const bytes = [];
-  for (let i = 0; i < str.length; i += 1) {
-    let code = str.charCodeAt(i);
-    if (code < 0x80) {
-      bytes.push(code);
-    } else if (code < 0x800) {
-      bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
-    } else if (code >= 0xd800 && code <= 0xdbff) {
-      const lo = str.charCodeAt(i + 1);
-      i += 1;
-      code = 0x10000 + (((code & 0x3ff) << 10) | (lo & 0x3ff));
-      bytes.push(
-        0xf0 | (code >> 18),
-        0x80 | ((code >> 12) & 0x3f),
-        0x80 | ((code >> 6) & 0x3f),
-        0x80 | (code & 0x3f)
-      );
-    } else {
-      bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
-    }
-  }
-  return new Uint8Array(bytes).buffer;
-}
-
-function concatBuffers(buffers) {
-  let total = 0;
-  buffers.forEach((b) => { total += b.byteLength; });
-  const out = new Uint8Array(total);
-  let offset = 0;
-  buffers.forEach((b) => {
-    out.set(new Uint8Array(b), offset);
-    offset += b.byteLength;
-  });
-  return out.buffer;
-}
 
 // 目的地模糊一致（与 server/src/worklog/dispatch.js destSame 同口径）：
 // 表格常省略「市/县」等字样（如卡片「孝义市」表格写「吕梁市孝义」），去「中国/省/市/县/区」后互相包含即一致
@@ -179,7 +131,7 @@ Page({
   },
 
   async onLoad() {
-    // 超管 / 班组管理员可访问（等启动自检完成再取角色；同 tasksheet 页口径）
+    // 超管 / 班组管理员可访问（等启动自检完成再取角色；同 sheet 页口径）
     await getApp().globalData.ready;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
     if (user.role !== 'admin' && user.role !== 'team_admin') {

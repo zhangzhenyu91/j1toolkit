@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
+const { escapeXml } = require('../utils/file');
 
 const TEMPLATE_PATH = path.join(__dirname, '../../assets/safeday/activity-record-template.docx');
 
@@ -20,11 +21,6 @@ const PARA_PR = '<w:pPr><w:spacing w:line="240" w:lineRule="auto"/>' +
   '<w:ind w:firstLine="420" w:firstLineChars="200"/><w:jc w:val="left"/></w:pPr>';
 // 字符属性沿用模板占位符 run 口径（默认宋体系字体，hint=eastAsia 保证中文走中文字体）
 const RUN_PR = '<w:rPr><w:rFonts w:hint="eastAsia"/><w:lang w:val="en-US" w:eastAsia="zh-CN"/></w:rPr>';
-
-function escapeXml(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-}
 
 // 多行文本 → 多个 w:p（每段首行缩进两字符；段间空行保留为空段落）；空值也给一个带缩进的空段落保持版式
 function toIndentedParagraphs(text) {

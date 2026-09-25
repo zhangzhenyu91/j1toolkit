@@ -201,6 +201,12 @@ Page({
     if (!silent) wx.showLoading({ title: '加载中…', mask: true });
     let url = `${API_BASE}/practice/questions?mode=${this._mode}&offset=${start}&limit=${LIMIT}`;
     if (this._bankId) url += `&bankId=${encodeURIComponent(this._bankId)}`;
+    // rand 模式服务端每次请求重新随机，带上本批大纲题目 id 锁定取题范围（IN 后 RAND 排序），
+    // 端侧仍按大纲区间对齐重排，避免跨批重复/漏题
+    if (this._mode === 'rand') {
+      const ids = this._outline.slice(start, start + LIMIT).map((o) => o.id);
+      if (ids.length) url += `&ids=${ids.join(',')}`;
+    }
     if (this.data.viewMode === 'recite') url += '&withAnswer=1';
     else if (this._mode === 'seq' || this._mode === 'rand') url += '&withRecord=1';
     this._inflight = request({ url });
@@ -693,6 +699,11 @@ Page({
 
   // 退出页面前补发未上报的断点（防抖窗口内退出兜底，fire-and-forget）
   onUnload() {
+    // 答对自动下一题延时器：页面销毁后不再触发
+    if (this._autoTimer) {
+      clearTimeout(this._autoTimer);
+      this._autoTimer = null;
+    }
     if (!this._seqTimer) return;
     clearTimeout(this._seqTimer);
     this._seqTimer = null;

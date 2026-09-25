@@ -15,6 +15,19 @@ function pad(n) {
   return n < 10 ? `0${n}` : `${n}`;
 }
 
+// 文件大小展示：B / KB / MB（各分包曾各自重复定义，统一收编于此）
+function fmtSize(n) {
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+// 取文件名扩展名（小写，无扩展名返回空串）
+function extOf(name) {
+  const i = (name || '').lastIndexOf('.');
+  return i < 0 ? '' : name.slice(i + 1).toLowerCase();
+}
+
 // iOS 兼容的日期解析：Date / 时间戳直传；字符串含 'T'（ISO 格式）直接 new Date；
 // 后端 DATE_FORMAT 输出的 'yyyy-MM-dd HH:mm:ss'（空格分隔）在 iOS 下 new Date 得 Invalid Date，
 // 先把 '-' 换成 '/'（iOS 仅认 'yyyy/MM/dd HH:mm:ss'）；解析失败返回 null
@@ -49,4 +62,4 @@ function wxLoginCode() {
   });
 }
 
-module.exports = { greeting, formatTime, parseDate, wxLoginCode };
+module.exports = { greeting, formatTime, parseDate, wxLoginCode, pad, fmtSize, extOf };

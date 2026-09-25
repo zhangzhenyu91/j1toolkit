@@ -1,11 +1,53 @@
-// 出工日志 · 工作任务单（超管 / 班组管理员）：按日期范围把出车卡片合并生成为单个 docx 并打开（一卡一页供打印，单次最多 31 天）
-// 班组口径同 manage 页：超管按主页切换器存下的 worklog_team_id 生效；班组管理员后端强制本班
+// 出工日志 · 汇总单生成（超管 / 班组管理员）：?type=task|fee|dispatch 三合一（原 tasksheet/feesheet/dispatchsheet 三页）
+//   task     工作任务单：范围内出车卡片一卡一页合并为单个 docx（带 40901 生成前核验拦截）
+//   fee      费用汇总：「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计；同带 40901 拦截）
+//   dispatch 派车汇总：派车单号清单 xlsx（派车单号 + 用车日期两列，顺序与工作任务单一致 = 日期+卡片创建序；
+//            无 40901 生成前核验——单号清单与照片核验无关）
+// 均按日期范围生成并打开（单次最多 31 天）；班组口径同 manage 页：超管按主页切换器存下的 worklog_team_id 生效；班组管理员后端强制本班
 import Toast from 'tdesign-miniprogram/toast/index';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 
+// type → 接口路径 / 下载文件名前缀 / 标题与说明文案 / 是否拦截 40901（文件名口径同后端各自生成函数：单日带单日期，跨天带范围）
+const SHEETS = {
+  task: {
+    title: '工作任务单',
+    api: '/api/v1/worklog/task-sheet',
+    fileName: '工作任务单',
+    fileType: 'docx',
+    verify40901: true,
+    rangeTitle: '生成范围',
+    rangeSub: '范围内全部出车卡片，一卡一页合并为一个 Word（单次最多 31 天）',
+    hint: '字段口径：线路杆塔号＝本卡水印照片的施工内容；工作负责人＝排序最前的用车人（排序在「常用数据管理 → 人员」维护）；工作地点＝派车目的地；工作班成员＝用车人（空格间隔）；派车情况＝车牌号。未出车卡片不生成。',
+    notFound: '该日期范围没有出车记录',
+  },
+  fee: {
+    title: '费用汇总',
+    api: '/api/v1/worklog/fee-sheet',
+    fileName: '费用汇总',
+    fileType: 'docx',
+    verify40901: true,
+    rangeTitle: '汇总范围',
+    rangeSub: '范围内出车卡片一卡一行、用车人一人一列，末尾合计（单次最多 31 天）',
+    hint: '字段口径：列＝范围内当过用车人的成员（按「常用数据管理 → 人员」点亮顺序排列，未出现者不列）；行＝每张出车卡片一行（日期升序）；单元格＝（当日伙食补助＋交通费）×1＝计算值，非用车人列留空；末尾合计行为各列之和。费用数据来自商旅同步，有未通过核验的记录需先在「汇总前核验」处理后再生成。',
+    notFound: '该日期范围没有出车记录',
+  },
+  dispatch: {
+    title: '派车汇总',
+    api: '/api/v1/worklog/dispatch-sheet',
+    fileName: '派车汇总',
+    fileType: 'xlsx',
+    verify40901: false,
+    rangeTitle: '汇总范围',
+    rangeSub: '范围内已填派车单号的出车卡片一单一行：派车单号 + 用车日期，顺序与工作任务单一致（单次最多 31 天）',
+    hint: '字段口径：列＝派车单号、用车日期（＝卡片日志日期）；数据来自卡片「派车单号」字段——每日同步自动带入，也可点卡片车牌「修改派车」手工补填；仅已填单号的出车卡片出数（同步前日期的历史卡片无此字段）。',
+    notFound: '该日期范围没有派车单记录',
+  },
+};
+
 Page({
   data: {
+    cfg: SHEETS.task, // 当前类型配置（onLoad 按 ?type 覆盖；wxml 标题/说明均取其字段）
     isAdmin: false,
     from: '', // 生成范围起（默认今天）
     to: '', // 生成范围止（默认今天）
@@ -16,7 +58,10 @@ Page({
     maxDate: 0,
   },
 
-  async onLoad() {
+  async onLoad(query) {
+    const cfg = SHEETS[(query && query.type) || ''] || SHEETS.task;
+    this._cfg = cfg;
+    this.setData({ cfg });
     // 超管 / 班组管理员可访问（等启动自检完成再取角色；同 manage 页口径）
     await getApp().globalData.ready;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
@@ -68,7 +113,7 @@ Page({
     this.setData({ calVisible: false });
   },
 
-  // 生成前核验拦截（40901）：小弹窗二选一——「去核验」返回主页并打开汇总前核验面板；「仍要生成」管理员强制执行（force=1 重试）
+  // 生成前核验拦截（40901，仅 verify40901 的类型）：小弹窗二选一——「去核验」返回主页并打开汇总前核验面板；「仍要生成」管理员强制执行（force=1 重试）
   showVerifyFailures(res) {
     let ej = null;
     try {
@@ -97,7 +142,7 @@ Page({
     return true;
   },
 
-  // 生成并打开：二进制 docx，wx.downloadFile 后 wx.openDocument 打开（同 manage 页模板下载链路）；force=强制执行跳过生成前核验
+  // 生成并打开：二进制文档，wx.downloadFile 后 wx.openDocument 打开（同 manage 页模板下载链路）；force=强制执行跳过生成前核验
   onGenerate(force) {
     const { from, to } = this.data;
     if (!from || !to || this.data.generating) return;
@@ -105,25 +150,26 @@ Page({
       this.toast('开始日期不能晚于结束日期');
       return;
     }
+    const cfg = this._cfg;
     this.setData({ generating: true });
     wx.showLoading({ title: '正在生成…', mask: true });
-    // 文件名口径同后端 sheetFileName：单日带单日期，跨天带范围
-    const fileName = from === to ? `工作任务单-${from}.docx` : `工作任务单-${from}至${to}.docx`;
+    // 文件名口径同后端各类型生成函数：单日带单日期，跨天带范围
+    const fileName = from === to ? `${cfg.fileName}-${from}.${cfg.fileType}` : `${cfg.fileName}-${from}至${to}.${cfg.fileType}`;
     wx.downloadFile({
       // bindtap 直绑时 force 为事件对象，仅确认按钮传来 true 才算强制执行
-      url: `${BASE_URL}/api/v1/worklog/task-sheet?from=${from}&to=${to}${this._teamId ? `&team_id=${this._teamId}` : ''}${force === true ? '&force=1' : ''}`,
+      url: `${BASE_URL}${cfg.api}?from=${from}&to=${to}${this._teamId ? `&team_id=${this._teamId}` : ''}${force === true ? '&force=1' : ''}`,
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
       // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
       filePath: `${wx.env.USER_DATA_PATH}/${fileName}`,
       success: (r) => {
         if (r.statusCode !== 200) {
-          if (this.showVerifyFailures(r)) return;
-          this.toast(r.statusCode === 404 ? '该日期范围没有出车记录' : '生成失败，请稍后重试');
+          if (cfg.verify40901 && this.showVerifyFailures(r)) return;
+          this.toast(r.statusCode === 404 ? cfg.notFound : '生成失败，请稍后重试');
           return;
         }
         wx.openDocument({
           filePath: r.filePath,
-          fileType: 'docx',
+          fileType: cfg.fileType,
           showMenu: true, // 右上角菜单可另存/转发
           fail: () => this.toast('该类型暂不支持打开'),
         });
@@ -137,6 +183,6 @@ Page({
   },
 
   onShareAppMessage() {
-    return shareAppMessage(this, { app: 'work-log', title: '工作任务单' });
+    return shareAppMessage(this, { app: 'work-log', title: this._cfg.title });
   },
 });

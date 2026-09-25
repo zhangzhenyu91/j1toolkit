@@ -30,7 +30,10 @@ function readAll() {
 
 function writeAll(records) {
   ensureFile();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(records, null, 2), 'utf8');
+  // 原子写：先写临时文件再 rename，避免进程崩溃截断 records.json 致 readAll 静默回退 []
+  const tmp = `${DATA_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(records, null, 2), 'utf8');
+  fs.renameSync(tmp, DATA_FILE);
 }
 
 // 按 createdAt 倒序；teamName 传入时只列该班组
@@ -40,9 +43,16 @@ function list(teamName) {
   return all.filter((r) => (r.team || '') === teamName);
 }
 
-// 同一（班组 + date）只保留最新一条：插入前删除同班组同 date 旧记录
+// 同一（班组 + date）只保留最新一条：插入前删除同班组同 date 旧记录；
+// 返回 { record, replaced }——replaced 为被覆盖的旧记录，供调用方在新生成失败时清理其孤儿产物
+// （成功时同路径旧文件已被回调新渲染覆盖，无需处理；故不可在成功前提前删）
 function create(record) {
-  const records = readAll().filter((r) => !(r.date === record.date && (r.team || '') === (record.team || '')));
+  const replaced = [];
+  const records = readAll().filter((r) => {
+    const drop = r.date === record.date && (r.team || '') === (record.team || '');
+    if (drop) replaced.push(r);
+    return !drop;
+  });
   const full = {
     id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     status: 'processing',
@@ -51,7 +61,7 @@ function create(record) {
   };
   records.push(full);
   writeAll(records);
-  return full;
+  return { record: full, replaced };
 }
 
 function update(id, patch) {

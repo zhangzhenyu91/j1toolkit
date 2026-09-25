@@ -26,7 +26,8 @@ app.use(express.json({ limit: '12mb' })); // 聊天图片以 base64 上送，放
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
-    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - start}ms`);
+    // originalUrl 可能携带 ?token= 敏感参数（如 Dify 回调），访问日志中脱敏
+    console.log(`${req.method} ${req.originalUrl.replace(/([?&]token=)[^&]+/, '$1***')} ${res.statusCode} ${Date.now() - start}ms`);
   });
   next();
 });
@@ -69,11 +70,11 @@ if (config.sgcc.enabled) {
 
 // 404 与统一错误处理
 app.use((req, res) => fail(res, 404, 40404, '接口不存在'));
-// eslint-disable-next-line no-unused-vars
+// Express 统一错误处理器：靠 4 参签名识别（项目无 eslint，无需禁告注释）
 app.use((err, req, res, next) => {
   // body-parser 的解析错误带有 err.type，映射为准确的状态码（默认会吞成 500）
   if (err.type === 'entity.too.large') {
-    return fail(res, 413, 41301, '请求体过大，图片请控制在 8MB 以内');
+    return fail(res, 413, 41301, '上传内容超出大小限制，请压缩或分批后重试');
   }
   if (err.type === 'entity.parse.failed') {
     return fail(res, 400, 40001, '请求体不是合法 JSON');

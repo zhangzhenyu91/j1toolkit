@@ -57,6 +57,7 @@ Page({
     this.setData({ gate: true });
     this.loadProfile();
     this.loadApps();
+    this.loadSgccStatus();
     this.loadNotices();
   },
 
@@ -117,11 +118,11 @@ Page({
   // 消息通知卡：未读数 + 最新 2 条；接口失败静默，不阻断首页
   async loadNotices() {
     try {
-      const data = await request({ url: '/api/v1/notice/list?limit=3' });
+      const data = await request({ url: '/api/v1/notice/list?limit=2' });
       const items = (data && data.items) || [];
       this.setData({
         noticeUnread: (data && data.unread) || 0,
-        notices: items.slice(0, 2).map((n) => ({ ...n, timeText: formatTime(n.createdAt) })),
+        notices: items.map((n) => ({ ...n, timeText: formatTime(n.createdAt) })),
       });
     } catch (err) {
       // 静默失败：保留现状
@@ -249,6 +250,7 @@ Page({
       }
       wx.removeStorageSync('token');
       wx.removeStorageSync('userInfo');
+      wx.removeStorageSync('canSilentWx'); // 清除"可静默微信登录"标记，避免下次冷启动被静默重新登录
       getApp().globalData.userInfo = null;
       wx.reLaunch({ url: '/pages/login/login' });
     }).catch(() => {});

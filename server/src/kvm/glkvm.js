@@ -12,11 +12,15 @@ const sessions = new Map();
 // 登录单例（按员工）：同一员工并发请求共享同一个登录 Promise，避免重复登录打爆平台
 const loggingIn = new Map();
 
+// 业务错误统一构造：对用户可读文案（expose 标记，路由层仅透传带此标记的错误；
+// 其余异常一律归一通用文案并记日志，防泄露数据库表名/语句等内部细节）
+function bizErr(message, extra) {
+  return Object.assign(new Error(message), { expose: true }, extra);
+}
+
 function ensureConfigured() {
   if (!config.kvm.url || !config.kvm.password) {
-    const err = new Error('GLKVM Cloud 未配置（GLKVM_URL / GLKVM_PASSWORD）');
-    err.expose = true;
-    throw err;
+    throw bizErr('GLKVM Cloud 未配置（GLKVM_URL / GLKVM_PASSWORD）');
   }
 }
 
@@ -31,10 +35,10 @@ async function login(username) {
     });
     body = res.data || {};
   } catch (err) {
-    throw new Error(`GLKVM 平台连接失败：${err.message}`);
+    throw bizErr(`GLKVM 平台连接失败：${err.message}`);
   }
   if (!body.ok || !body.data || !body.data.token) {
-    throw new Error('KVM 平台登录失败：请确认你的账号已接入平台、未开启 2FA，且密码与统一密码一致');
+    throw bizErr('KVM 平台登录失败：请确认你的账号已接入平台、未开启 2FA，且密码与统一密码一致');
   }
   // 平台会话默认 24h，提前 1h 主动过期重登
   sessions.set(username, { token: body.data.token, expiresAt: Date.now() + 23 * 3600 * 1000 });
@@ -62,7 +66,7 @@ async function callGlkvm(path, params, username) {
       });
       body = res.data || {};
     } catch (err) {
-      throw new Error(`GLKVM 平台连接失败：${err.message}`);
+      throw bizErr(`GLKVM 平台连接失败：${err.message}`);
     }
     if (body.ok) return body.data;
     if (body.code === 'AUTH_REQUIRED' || body.code === 'AUTH_EXPIRED') {
@@ -70,9 +74,9 @@ async function callGlkvm(path, params, username) {
       token = await getToken(username);
       continue;
     }
-    throw new Error(`GLKVM 平台返回错误：${body.message || body.code || '未知错误'}`);
+    throw bizErr(`GLKVM 平台返回错误：${body.message || body.code || '未知错误'}`);
   }
-  throw new Error('GLKVM 平台登录态刷新失败');
+  throw bizErr('GLKVM 平台登录态刷新失败');
 }
 
 // 设备列表（不传 pageSize 平台即返回全部，见 glkvm ListDevices；status 仅接受 online/offline/disabled）
@@ -90,8 +94,8 @@ async function listDevices(query, username) {
 async function getDeviceDdns(deviceId, username) {
   const items = await listDevices({}, username);
   const dev = items.find((d) => Number(d.id) === Number(deviceId));
-  if (!dev) throw Object.assign(new Error('设备不存在，或当前平台账号对其不可见'), { status: 404 });
-  if (!dev.ddns) throw Object.assign(new Error('该设备缺少 ddns 标识'), { status: 400 });
+  if (!dev) throw bizErr('设备不存在，或当前平台账号对其不可见', { status: 404 });
+  if (!dev.ddns) throw bizErr('该设备缺少 ddns 标识', { status: 400 });
   return dev.ddns;
 }
 
@@ -113,7 +117,7 @@ async function getProxySession(deviceId, username) {
         }
       );
     } catch (err) {
-      throw new Error(`GLKVM 平台连接失败：${err.message}`);
+      throw bizErr(`GLKVM 平台连接失败：${err.message}`);
     }
     if (res.status === 401 || res.status === 403) {
       sessions.delete(username);
@@ -125,9 +129,9 @@ async function getProxySession(deviceId, username) {
     if (res.status === 302 && m) {
       return { origin: m[1], cookie: `rtty-http-sid=${m[2]}` };
     }
-    throw new Error(`平台未签发代理会话（HTTP ${res.status}），设备可能离线`);
+    throw bizErr(`平台未签发代理会话（HTTP ${res.status}），设备可能离线`);
   }
-  throw new Error('GLKVM 平台登录态刷新失败');
+  throw bizErr('GLKVM 平台登录态刷新失败');
 }
 
 module.exports = { listDevices, getSessionToken: getToken, getProxySession };

@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const PizZip = require('pizzip');
 const { pool } = require('../db');
+const { escapeXml } = require('../utils/file');
 
 const TEMPLATE_PATH = path.join(__dirname, '../../assets/worklog/fee-summary-template.docx');
 
@@ -36,17 +37,11 @@ function personColWidths(n) {
   return widths;
 }
 
-function escXml(s) {
-  return String(s).replace(/[&<>"']/g, (ch) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
-  }[ch]));
-}
-
 // 克隆样板单元格并重写列宽与文本；text 传 null 保留样板原文（斜线表头格 / 合计格），传 '' 置空
 function fillCell(tpl, width, text) {
   let tc = tpl.replace(/(<w:tcW w:w=")\d+(")/, `$1${width}$2`);
   if (text !== null) {
-    tc = tc.replace(/<w:t(?:\s[^>]*)?>[\s\S]*?<\/w:t>/, text ? `<w:t>${escXml(text)}</w:t>` : '<w:t></w:t>');
+    tc = tc.replace(/<w:t(?:\s[^>]*)?>[\s\S]*?<\/w:t>/, text ? `<w:t>${escapeXml(text)}</w:t>` : '<w:t></w:t>');
   }
   return tc;
 }

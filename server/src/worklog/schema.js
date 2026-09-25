@@ -49,7 +49,7 @@ const DDL = [
     cos_key VARCHAR(255) NOT NULL COMMENT 'COS 对象键',
     url VARCHAR(512) NOT NULL COMMENT '照片访问地址',
     members JSON NOT NULL COMMENT '所属人名数组',
-    verify_status VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT 'pending/passed/mismatch/failed（旧值 date_mismatch/dest_mismatch 仅历史数据）',
+    verify_status VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT 'pending/passed/mismatch/failed/skipped（skipped=非水印照片免验证；旧值 date_mismatch/dest_mismatch 仅历史数据）',
     work_content VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Dify 返回施工内容（title）',
     shot_time VARCHAR(32) NOT NULL DEFAULT '' COMMENT '水印拍摄时间（time）',
     weather VARCHAR(64) NOT NULL DEFAULT '' COMMENT '天气（weather）',

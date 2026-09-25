@@ -1,9 +1,8 @@
 // 安全日活动记录：Dify 工作流封装（自 SafeDayLogs 独立服务移植）
-// 地址用各工作流共用的 DIFY_API_URL（/v1 由代码拼接），本模块用独立的 DIFY_SAFEDAY_API_KEY
+// 地址用各工作流共用的 DIFY_API_URL（/v1 由 utils/dify 拼接，配置已带 /v1 也不重复），本模块用独立的 DIFY_SAFEDAY_API_KEY
 const config = require('../config');
-const { apiBaseUrl } = require('../utils/dify');
+const { apiBaseUrl, workflowRunUrl, uploadUrl } = require('../utils/dify');
 
-const BASE_URL = () => apiBaseUrl(config.dify.apiUrl);
 const API_KEY = () => config.safeday.difyKey || '';
 const USER = () => 'safeday-web';
 
@@ -59,6 +58,12 @@ async function consumeStream(response, onFailed) {
   if (!done && buffer) {
     handleLine(buffer);
   }
+  // workflow_finished 后主动取消底层流，释放连接（releaseLock 不含取消，流未读完会挂着）
+  try {
+    await reader.cancel();
+  } catch (e) {
+    /* ignore */
+  }
   try {
     reader.releaseLock();
   } catch (e) {
@@ -74,8 +79,7 @@ async function consumeStream(response, onFailed) {
  * 工作流末尾由 HTTP 节点把三段文字 + date + class 回传 /callback，后端据此渲染 docx 落盘（不再由工作流写文件）
  */
 async function uploadAndRun({ fileBuffer, fileName, date, className, onFailed }) {
-  const base = BASE_URL();
-  if (!base || !API_KEY()) {
+  if (!apiBaseUrl(config.dify.apiUrl) || !API_KEY()) {
     throw new Error('未配置 DIFY_API_URL 或 DIFY_SAFEDAY_API_KEY');
   }
 
@@ -84,7 +88,7 @@ async function uploadAndRun({ fileBuffer, fileName, date, className, onFailed })
   form.append('file', new Blob([fileBuffer]), fileName);
   form.append('user', USER());
 
-  const uploadResp = await fetch(`${base}/v1/files/upload`, {
+  const uploadResp = await fetch(uploadUrl(config.dify.apiUrl), {
     method: 'POST',
     headers: { Authorization: `Bearer ${API_KEY()}` },
     body: form,
@@ -100,7 +104,7 @@ async function uploadAndRun({ fileBuffer, fileName, date, className, onFailed })
   }
 
   // 2. 触发工作流（streaming）
-  const runResp = await fetch(`${base}/v1/workflows/run`, {
+  const runResp = await fetch(workflowRunUrl(config.dify.apiUrl), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${API_KEY()}`,

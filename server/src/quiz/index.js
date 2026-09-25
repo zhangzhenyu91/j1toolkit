@@ -734,7 +734,8 @@ router.post('/banks/:id/analyze-retry', requireQuizAdmin, async (req, res, next)
 });
 
 // GET /practice/questions：刷题取题（默认严禁带答案与解析；非 lite 出参含 fav 收藏标记）
-// mode=seq 顺序（按 sort,id 分页）；mode=rand 随机（ORDER BY RAND()，忽略 offset）；
+// mode=seq 顺序（按 sort,id 分页）；mode=rand 随机（ORDER BY RAND()，忽略 offset；
+//   可选 ids=逗号分隔题目 id ——端侧已抽题集合的跨端续刷/重取，仅收缩范围，可见性与 status 条件不变）；
 // mode=wrong 错题本（最近答错倒序）/ mode=fav 收藏（最近收藏倒序）——wrong/fav 的 bankId 均为可选过滤
 // lite=1：答题卡大纲模式，忽略 offset/limit 返回全量有序列表，项仅含 { id, type }（withAnswer 同时传入时忽略）
 // withAnswer=1：背题模式用，分页 list 项追加 answer 与 analysis（无解析为 null）；不传则出参不含答案/解析
@@ -772,15 +773,22 @@ router.get('/practice/questions', async (req, res, next) => {
         [bankId]
       );
     } else if (mode === 'rand') {
+      // ids 可选（逗号分隔题目 id）：端侧按已抽取的题 id 集合重取；WHERE id IN (?) 数组展开同下方收藏标记写法
+      const ids = String(req.query.ids || '')
+        .split(',')
+        .map((v) => Number(v))
+        .filter((v) => Number.isInteger(v) && v > 0);
+      const idSql = ids.length ? ' AND id IN (?)' : '';
+      const idParams = ids.length ? [bankId, ids] : [bankId];
       const [cnt] = await pool.query(
-        'SELECT COUNT(*) AS total FROM quiz_question WHERE bank_id = ? AND status = 1',
-        [bankId]
+        `SELECT COUNT(*) AS total FROM quiz_question WHERE bank_id = ? AND status = 1${idSql}`,
+        idParams
       );
       total = Number(cnt[0].total);
       [rows] = await pool.query(
-        `SELECT ${cols} FROM quiz_question WHERE bank_id = ? AND status = 1
+        `SELECT ${cols} FROM quiz_question WHERE bank_id = ? AND status = 1${idSql}
          ORDER BY RAND() ${lite ? '' : `LIMIT ${limit}`}`,
-        [bankId]
+        idParams
       );
     } else if (mode === 'fav') {
       // 收藏：联表取题，仅可见题库（同 wrong 口径），按最近收藏倒序分页
@@ -1005,19 +1013,21 @@ router.post('/practice/answer', async (req, res, next) => {
   }
 });
 
-// GET /wrongs：当前用户错题本（按人跨池，最近答错倒序，含来源题库；bankId 可选过滤，错题跟着题库走）
+// GET /wrongs：当前用户错题本（按人跨池，最近答错倒序，含来源题库；bankId 可选过滤，错题跟着题库走）；
+// 仅回可见题库（全部池 + 本班班组池；teamId=0 时班组池部分自然为空），口径同 GET /practice/questions?mode=wrong
 router.get('/wrongs', async (req, res, next) => {
   try {
     const bankId = Number(req.query.bankId) || 0;
+    const teamId = req.team ? req.team.id : 0;
     const where = bankId ? 'AND w.bank_id = ?' : '';
-    const params = bankId ? [req.user.id, bankId] : [req.user.id];
+    const params = bankId ? [req.user.id, teamId, bankId] : [req.user.id, teamId];
     const [rows] = await pool.query(
       `SELECT w.question_id, w.bank_id, b.name AS bank_name, q.type, q.content, q.options,
          w.wrong_count, w.right_streak, DATE_FORMAT(w.last_wrong_at, '%Y-%m-%d %H:%i:%s') AS last_wrong_at
        FROM quiz_wrong w
        JOIN quiz_question q ON q.id = w.question_id
        JOIN quiz_bank b ON b.id = w.bank_id
-       WHERE w.user_id = ? ${where}
+       WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}
        ORDER BY w.last_wrong_at DESC, w.id DESC`,
       params
     );

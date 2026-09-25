@@ -11,6 +11,36 @@ const { blacklistToken } = require('../redis');
 
 const router = express.Router();
 
+// ===== 登录口令接口限流（纯内存，防爆破）：同一 IP 在窗口期内失败达上限即拒绝，成功登录清零 =====
+const LOGIN_FAIL_WINDOW_MS = 10 * 60 * 1000; // 限流统计窗口：10 分钟
+const LOGIN_FAIL_MAX = 20; // 窗口期内允许的最大失败次数
+const loginFailMap = new Map(); // ip -> { count: 失败次数, start: 窗口起点时间戳 }
+
+// 是否已触发限流（只查询，不计数）
+function isLoginLimited(ip) {
+  const rec = loginFailMap.get(ip);
+  return !!rec && Date.now() - rec.start < LOGIN_FAIL_WINDOW_MS && rec.count >= LOGIN_FAIL_MAX;
+}
+
+// 记录一次登录失败（窗口过期则重新起算）
+function recordLoginFail(ip) {
+  const now = Date.now();
+  const rec = loginFailMap.get(ip);
+  if (!rec || now - rec.start >= LOGIN_FAIL_WINDOW_MS) {
+    loginFailMap.set(ip, { count: 1, start: now });
+  } else {
+    rec.count += 1;
+  }
+}
+
+// 定期清理过期限流记录，避免 Map 无限增长（unref 不阻碍进程退出）
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, rec] of loginFailMap) {
+    if (now - rec.start >= LOGIN_FAIL_WINDOW_MS) loginFailMap.delete(ip);
+  }
+}, LOGIN_FAIL_WINDOW_MS).unref();
+
 // 签发 JWT，并计算有效期秒数（供前端展示/续期判断）
 function sign(user) {
   const token = jwt.sign({ uid: user.id, username: user.username }, config.jwt.secret, {
@@ -58,15 +88,23 @@ async function code2openid(code) {
 // 可选携带 wx_code：账号尚未绑定微信时，自动将当前微信号绑定到本账号
 router.post('/login', async (req, res, next) => {
   try {
+    const ip = req.ip || '';
+    if (isLoginLimited(ip)) return fail(res, 429, 42901, '尝试过于频繁，请稍后再试');
     const { username, password, wx_code: wxCode } = req.body || {};
     if (!username || !password) return fail(res, 400, 40001, '请输入账号和密码');
 
     const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [username]);
     const user = rows[0];
-    if (!user || !user.password_hash) return fail(res, 401, 40111, '账号或密码错误');
+    if (!user || !user.password_hash) {
+      recordLoginFail(ip);
+      return fail(res, 401, 40111, '账号或密码错误');
+    }
 
     const matched = await bcrypt.compare(password, user.password_hash);
-    if (!matched) return fail(res, 401, 40111, '账号或密码错误');
+    if (!matched) {
+      recordLoginFail(ip);
+      return fail(res, 401, 40111, '账号或密码错误');
+    }
 
     // 首次账号密码登录时自动绑定当前微信号（仅当账号未绑定 openid）
     let wxBound = false;
@@ -75,16 +113,27 @@ router.post('/login', async (req, res, next) => {
       try {
         const wxData = await code2openid(wxCode);
         // openid 若已绑定在其他账号（历史上微信登录产生的独立账号）则转移到本账号：
-        // 密码验证 + 微信验证双重通过，转移不产生越权
-        await pool.query('UPDATE sys_user SET openid = NULL, unionid = NULL WHERE openid = ? AND id <> ?', [
-          wxData.openid,
-          user.id,
-        ]);
-        await pool.query('UPDATE sys_user SET openid = ?, unionid = COALESCE(unionid, ?) WHERE id = ?', [
-          wxData.openid,
-          wxData.unionid || null,
-          user.id,
-        ]);
+        // 密码验证 + 微信验证双重通过，转移不产生越权；
+        // 两条 UPDATE 包在同一事务：避免「先清他号、后绑本号」中途失败导致该 openid 无人持有
+        const conn = await pool.getConnection();
+        try {
+          await conn.beginTransaction();
+          await conn.query('UPDATE sys_user SET openid = NULL, unionid = NULL WHERE openid = ? AND id <> ?', [
+            wxData.openid,
+            user.id,
+          ]);
+          await conn.query('UPDATE sys_user SET openid = ?, unionid = COALESCE(unionid, ?) WHERE id = ?', [
+            wxData.openid,
+            wxData.unionid || null,
+            user.id,
+          ]);
+          await conn.commit();
+        } catch (err) {
+          await conn.rollback().catch(() => {});
+          throw err;
+        } finally {
+          conn.release();
+        }
         wxBound = true;
         user.openid = wxData.openid; // 内存同步绑定结果：下方 publicUser 的 wx_bound 即时为真
         console.log(`[绑定] 当前微信号已绑定到账号 ${user.username}(id=${user.id})`);
@@ -95,6 +144,7 @@ router.post('/login', async (req, res, next) => {
       }
     }
 
+    loginFailMap.delete(ip); // 登录成功：清零该 IP 的失败计数
     return ok(res, {
       ...sign(user),
       user: publicUser(user),
@@ -110,15 +160,23 @@ router.post('/login', async (req, res, next) => {
 // 一次完成「账号密码 + 指定应用权限」校验；不签发本平台 JWT，会话由调用方自行管理
 router.post('/app-login', async (req, res, next) => {
   try {
+    const ip = req.ip || '';
+    if (isLoginLimited(ip)) return fail(res, 429, 42901, '尝试过于频繁，请稍后再试');
     const { username, password, app_key: appKey } = req.body || {};
     if (!username || !password || !appKey) return fail(res, 400, 40001, '请输入账号和密码');
 
     const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [username]);
     const user = rows[0];
-    if (!user || !user.password_hash) return fail(res, 401, 40111, '账号或密码错误');
+    if (!user || !user.password_hash) {
+      recordLoginFail(ip);
+      return fail(res, 401, 40111, '账号或密码错误');
+    }
 
     const matched = await bcrypt.compare(password, user.password_hash);
-    if (!matched) return fail(res, 401, 40111, '账号或密码错误');
+    if (!matched) {
+      recordLoginFail(ip);
+      return fail(res, 401, 40111, '账号或密码错误');
+    }
 
     // 应用权限校验（与 requireApp 中间件同一口径）
     const [permRows] = await pool.query(
@@ -129,6 +187,7 @@ router.post('/app-login', async (req, res, next) => {
     );
     if (!permRows.length) return fail(res, 403, 40301, '暂无该应用的使用权限');
 
+    loginFailMap.delete(ip); // 校验成功：清零该 IP 的失败计数
     return ok(res, { user: publicUser(user) });
   } catch (err) {
     return next(err);
@@ -139,6 +198,8 @@ router.post('/app-login', async (req, res, next) => {
 // 仅允许已绑定账号的微信号登录；未绑定时返回 40313，提示先账号密码登录一次（登录过程自动完成绑定）
 router.post('/wx-login', async (req, res, next) => {
   try {
+    const ip = req.ip || '';
+    if (isLoginLimited(ip)) return fail(res, 429, 42901, '尝试过于频繁，请稍后再试');
     const { code } = req.body || {};
     if (!code) return fail(res, 400, 40002, '缺少微信 code');
     if (!config.wx.appid || !config.wx.secret) {
@@ -157,10 +218,15 @@ router.post('/wx-login', async (req, res, next) => {
     const user = rows[0];
     if (!user) {
       // 微信号未绑定任何账号：不再自动创建独立账号，引导用户先用账号密码登录完成绑定
+      recordLoginFail(ip);
       return fail(res, 403, 40313, '该微信号尚未绑定账号，请先使用账号密码登录一次后再使用微信登录');
     }
-    if (user.status !== 1) return fail(res, 403, 40302, '账号已被禁用，请联系管理员');
+    if (user.status !== 1) {
+      recordLoginFail(ip);
+      return fail(res, 403, 40302, '账号已被禁用，请联系管理员');
+    }
 
+    loginFailMap.delete(ip); // 登录成功：清零该 IP 的失败计数
     return ok(res, { ...sign(user), user: publicUser(user) });
   } catch (err) {
     return next(err);

@@ -14,6 +14,20 @@ const ensureConfigured = createEnsureConfigured({
 
 // 识别单张照片水印信息，返回 { ok: true, workContent, time, weather, location, lng, lat }；
 // 任何异常一律归 { ok: false }（不抛出），日期/地点核验由调用方据识别结果在后端完成
+
+// 视觉模型偶发把 ℃ 输出为 LaTeX（如 晴 $17^{\circ} \mathrm{C}$ 东南风1级），归一恢复为 17℃
+// 分「$ 包裹」与裸形式两组匹配，均不吃表达式之外的空白（防止 18^{\circ}C 两侧空格丢失）
+function normalizeWeather(s) {
+  return String(s)
+    .replace(/\$\s*(-?\d+(?:\.\d+)?)\s*\\mathrm\s*\{\s*\^\{?\\circ\}?\s*C\s*\}\s*\$/g, '$1℃')
+    .replace(/\$\s*(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*\{?\s*\\(?:mathrm|text)\s*\{\s*C\s*\}\s*\}?\s*\$/g, '$1℃')
+    .replace(/\$\s*(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*C\s*\$/g, '$1℃')
+    .replace(/(-?\d+(?:\.\d+)?)\s*\\mathrm\s*\{\s*\^\{?\\circ\}?\s*C\s*\}/g, '$1℃')
+    .replace(/(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*\{?\s*\\(?:mathrm|text)\s*\{\s*C\s*\}\s*\}?/g, '$1℃')
+    .replace(/(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*C\b/g, '$1℃')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 async function verifyPhoto({ username, date, destination, url }) {
   try {
     ensureConfigured();
@@ -42,7 +56,7 @@ async function verifyPhoto({ username, date, destination, url }) {
       ok: true,
       workContent: outputs.title == null ? '' : String(outputs.title),
       time: outputs.time == null ? '' : String(outputs.time),
-      weather: outputs.weather == null ? '' : String(outputs.weather),
+      weather: outputs.weather == null ? '' : normalizeWeather(outputs.weather),
       location: outputs.location == null ? '' : String(outputs.location),
       lng: outputs.lng == null ? '' : String(outputs.lng),
       lat: outputs.lat == null ? '' : String(outputs.lat),

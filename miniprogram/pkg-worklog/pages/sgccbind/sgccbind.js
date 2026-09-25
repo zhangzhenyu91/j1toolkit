@@ -377,7 +377,7 @@ Page({
       });
       wx.hideLoading();
       this.toast('绑定成功');
-      this.setData({ formMobile: '', password: '', smsCode: '', captchaToken: '', constId: '' });
+      this.setData({ formMobile: '', password: '', smsCode: '', imgCode: '', captchaImg: '', captchaToken: '', constId: '' });
       this.loadAccount();
     } catch (err) {
       wx.hideLoading();

@@ -30,9 +30,11 @@ router.use(async (req, res, next) => {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// 北京日历日 YYYY-MM-DD：容器本地时区不固定（云端 Docker 通常为 UTC），按固定 UTC+8 换算
+// （口径同 worklog/dispatch-sync.js todayCn()；按本地时区取日时，北京时间 0-8 点会落在前一天）
+const CN_OFFSET_MS = 8 * 60 * 60 * 1000; // 北京时间固定偏移（UTC+8）
 function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return new Date(Date.now() + CN_OFFSET_MS).toISOString().slice(0, 10);
 }
 
 // 日期串转点分格式（YYYY-MM-DD → YYYY.MM.DD，COS key 与 checkWatermark 的 logDate 口径，同 worklog）
@@ -140,7 +142,8 @@ async function notifyTokenExpired(account) {
     wxTeamId = ut.length ? ut[0].team_id : null;
   }
   const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
-  const userIds = [...new Set([account.user_id, ...admins.map((a) => a.id)].filter(Boolean))];
+  // 站内本人收件人同微信侧口径：account.user_id 缺省（管理员代绑行）时经成员绑定账号兜底解析
+  const userIds = [...new Set([wxUserId, ...admins.map((a) => a.id)].filter(Boolean))];
   if (!userIds.length) return;
   await require('../notice').push({
     userIds,
@@ -1328,9 +1331,10 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
     return;
   }
 
-  // 本成员名（摘除/入库标注用；取卡片上下文成员）
-  const [mnrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [ctxMemberId]);
+  // 本成员名（摘除/入库标注用；取卡片上下文成员；user_id 供下方 Dify username 代绑兜底）
+  const [mnrows] = await pool.query('SELECT name, user_id FROM worklog_member WHERE id = ?', [ctxMemberId]);
   const memberName = mnrows.length ? mnrows[0].name : '';
+  const memberUserId = mnrows.length ? mnrows[0].user_id : null;
 
   // 本地侧：卡片上下文班组当日照片中与本成员相关的行（sgcc_img_id JSON map 含本成员 key，值即该成员商旅图片 id）；
   // source=1 行参与删除对账，source=0（壹匣上传）行只比对不删除
@@ -1363,8 +1367,9 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
   let pulled = 0;
   let merged = 0;
   if (toPull.length) {
-    // 绑定人 username（Dify user 入参；成员名 memberName 已在函数头部取好）
-    const [urows] = await pool.query('SELECT username FROM sys_user WHERE id = ?', [account.user_id]);
+    // 绑定人 username（Dify user 入参；成员名 memberName 已在函数头部取好）；
+    // 管理员代绑行 account.user_id 为 NULL，按成员 user_id 兜底（与本模块人级解析口径一致）
+    const [urows] = await pool.query('SELECT username FROM sys_user WHERE id = ?', [account.user_id || memberUserId]);
     const username = urows.length ? urows[0].username : '';
     // 该成员当日所在首个出工记录（照片须挂在记录下；找不到则记核查日志跳过）
     const [erows] = await pool.query(
@@ -1771,9 +1776,12 @@ function newPhotoOp(teamId, kind, entryId, photoId) {
   };
 }
 
-// 本卡进行中（status=running）的照片任务：entryId 互斥——一卡同时只允许一个照片任务（路由据此 40909 拦截）
+// 本卡进行中（status=running）的照片任务：entryId 互斥——一卡同时只允许一个照片任务（路由据此 40909 拦截）；
+// 命中前剔除超龄任务（卡在 running 的任务超 TTL 后不再拦截本卡操作，清理口径同 newPhotoOp）
 function activePhotoOp(teamId, entryId) {
-  for (const v of photoOps.values()) {
+  const now = Date.now();
+  for (const [k, v] of photoOps) {
+    if (now - v.at > PHOTO_OP_TTL) { photoOps.delete(k); continue; }
     if (v.teamId === teamId && v.entryId === entryId && v.status === 'running') return v;
   }
   return null;
@@ -2071,7 +2079,6 @@ router.delete('/sync/logs', requireDictAdmin, async (req, res, next) => {
 // 时区口径：容器本地时区不固定（云端 Docker 通常为 UTC），若按本地时间排程，
 // SGCC_SYNC_TIME=23:00 会被排到北京时间次日 07:00；中国无夏令时，统一按 UTC+8 固定偏移换算：
 // 「当前 UTC 时间戳 + 8h」取北京年月日，再以 Date.UTC(北京年月日, 配置时分) − 8h 得触发的 UTC 时间戳
-const CN_OFFSET_MS = 8 * 60 * 60 * 1000; // 北京时间固定偏移（UTC+8）
 function nextDailyRunUtc(hh, mm) {
   const now = Date.now();
   const cn = new Date(now + CN_OFFSET_MS); // 其 UTC 年月日即北京日历日

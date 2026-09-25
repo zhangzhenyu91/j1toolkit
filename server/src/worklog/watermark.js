@@ -7,7 +7,7 @@
  *     ctx    : CanvasRenderingContext2D（小程序 canvas type="2d" 的 ctx 同样适用）
  *     width  : 画布宽（px）
  *     height : 画布高（px）
- *     options: 见 Watermark.defaults，所有字段均可选
+ *     options: 见下方 defaults 对象，所有字段均可选
  *
  * 所有尺寸均为图片宽度 W 的比例（实测自 1200px 宽参考图），任意分辨率自适应。
  * 颜色与透明度实测方式：黑底参考图 C = F·α，与原照片（墙面底色已知）联立求解。
@@ -381,10 +381,7 @@
 
   var Watermark = {
     draw: draw,
-    defaults: defaults,
-    metrics: M,
-    randomCode: randomCode,
-    formatTime: formatTime
+    randomCode: randomCode
   };
 
   module.exports = Watermark;

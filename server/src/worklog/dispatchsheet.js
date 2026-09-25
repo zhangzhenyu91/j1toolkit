@@ -33,4 +33,4 @@ async function build(teamId, from, to) {
   return { buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) };
 }
 
-module.exports = { build, loadRows };
+module.exports = { build };

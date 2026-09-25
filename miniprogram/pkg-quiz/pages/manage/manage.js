@@ -8,11 +8,16 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import { createTeamGate } from '../../../utils/teamgate';
 
 const API_BASE = '/api/v1/quiz';
 const POLL_INTERVAL = 5000; // 有解析中题库时按 5s 轮询（同 safeday 口径）
 
+// 生效班组门控（仅复用 teamQuery/teamBody：按主页切换器存下的 quiz_team_id 生效，无切换器 UI）
+const teamGate = createTeamGate({ storageKey: 'quiz_team_id' });
+
 Page({
+  behaviors: [teamGate],
   data: {
     isManager: false, // 门控：仅 admin / team_admin 可见页面内容
     isAdmin: false, // 超管：弹层显示「上传至」选择（可建/改全部池）
@@ -61,16 +66,6 @@ Page({
 
   onUnload() {
     this.stopPolling();
-  },
-
-  // 生效班组 query 片段（lead 为前导连接符；无选中班组则不携带）
-  teamQuery(lead) {
-    return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
-  },
-
-  // 生效班组 body 注入（POST/PUT JSON 用，口径同 teamQuery）
-  teamBody(data) {
-    return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
   },
 
   toast(message) {

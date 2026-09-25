@@ -1,72 +1,19 @@
-/* 班组筛选 tab（横向滚动 chips，选中态藏青底白字） */
+/* 班组筛选 tab（.ttabs/.ttab 选中态等已上移 app.wxss 共用；此处仅留本页下外边距） */
 .ttabs-scroll {
   white-space: nowrap;
   margin-bottom: 20rpx;
 }
 
-.ttabs {
-  display: flex;
-  gap: 16rpx;
-}
-
-.ttab {
-  flex: none;
-  padding: 10rpx 26rpx;
-  border-radius: 999rpx;
-  font-size: 24rpx;
-  font-weight: 500;
-  color: #6B7690;
-  background: #FFFFFF;
-  border: 1rpx solid #E3DCCB;
-}
-
-.ttab.on {
-  background: #22314E;
-  border-color: #22314E;
-  color: #FFFFFF;
-}
-
-/* 分组标题（橙条 + 班组名 + 人数） */
-.grp-title {
-  display: flex;
-  align-items: center;
-  font-size: 26rpx;
-  font-weight: 700;
-  color: #22314E;
-  margin: 16rpx 0 14rpx;
-}
-
-.grp-title::before {
-  content: '';
-  width: 8rpx;
-  height: 24rpx;
-  background: #F26D21;
-  border-radius: 4rpx;
-  margin-right: 12rpx;
-}
-
-.grp-cnt {
-  margin-left: 12rpx;
-  font-size: 20rpx;
-  font-weight: 400;
-  color: #A89F8A;
-}
+/* 分组标题（.grp-title/.grp-cnt 已上移 app.wxss 共用） */
 
 .list-card {
   overflow: hidden;
   margin-bottom: 8rpx;
 }
 
-/* ---------- 员工行 ---------- */
+/* ---------- 员工行（.u-item 布局与分隔线已上移 app.wxss 共用，此处仅留本页 padding） ---------- */
 .u-item {
-  display: flex;
-  align-items: center;
   padding: 20rpx 28rpx;
-  transition: background-color 0.15s ease;
-}
-
-.u-item + .u-item {
-  border-top: 1rpx solid #F0EBDD;
 }
 
 .u-item-on {

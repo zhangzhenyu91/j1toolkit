@@ -7,10 +7,15 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import { createTeamGate } from '../../../utils/teamgate';
 
 const API_BASE = '/api/v1/quiz';
 
+// 生效班组门控（仅复用 teamQuery：按题库列表页切换器存下的 quiz_team_id 生效，无切换器 UI）
+const teamGate = createTeamGate({ storageKey: 'quiz_team_id' });
+
 Page({
+  behaviors: [teamGate],
   data: {
     gate: false, // 门控（参照 index 页 gate 模式）
     noTeam: false, // 非超管且未分配班组：整页空态，不发业务请求
@@ -55,11 +60,6 @@ Page({
       return;
     }
     this.loadPool(false).finally(() => wx.stopPullDownRefresh());
-  },
-
-  // 生效班组 query 片段（lead 为前导连接符；仅超管 _teamId>0 时携带，其余角色后端强制本班无需传）
-  teamQuery(lead) {
-    return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
   },
 
   toast(message) {

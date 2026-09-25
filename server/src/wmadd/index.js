@@ -6,10 +6,10 @@ const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
+const config = require('../config');
 const geo = require('../worklog/geo');
 const towers = require('../worklog/towers');
-const { renderWatermarkedPhoto } = require('../worklog/render-photo');
-const Watermark = require('../worklog/watermark');
+const { renderWatermarkedPhoto, sanitizeWm } = require('../worklog/render-photo');
 
 const router = express.Router();
 router.use(auth, requireApp('wm-add'));
@@ -31,9 +31,11 @@ router.get('/geo', async (req, res, next) => {
 });
 
 // GET /towers：当前用户班组杆塔坐标全量（行 = [电压等级, 线路名称, 杆塔号, 经度, 纬度]），数据读写见 worklog/towers.js
-// 未分配班组返回空数组（前端三级级联显示为空列表）
+// 未分配班组返回空数组（前端三级级联显示为空列表）；
+// worklog_tower 表仅 WORKLOG_ENABLED=true 时建，出工日志未启用时同样降级返回空数组
 router.get('/towers', async (req, res, next) => {
   try {
+    if (!config.worklog || !config.worklog.enabled) return ok(res, []);
     const team = await teamUtil.resolveReqTeam(req);
     if (!team) return ok(res, []);
     return ok(res, await towers.getTowers(team.id));
@@ -42,25 +44,8 @@ router.get('/towers', async (req, res, next) => {
   }
 });
 
-// 水印字段清洗（与出工日志 sanitizeWm 同口径）：字符串、去首尾空格、按渲染列宽截断
-function sanitizeWm(wm) {
-  const cut = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
-  const fields = {
-    content: cut(wm.content, 500),
-    time: cut(wm.time, 32),
-    weather: cut(wm.weather, 64),
-    location: cut(wm.location, 250),
-    longitude: cut(wm.longitude, 32),
-    latitude: cut(wm.latitude, 32),
-  };
-  // 防伪码：14 位字符集内才采信前端值，否则服务端重新生成（不由用户输入）
-  const code = cut(wm.antiCode, 14);
-  fields.antiCode = /^[A-HJ-NP-Z2-9]{14}$/.test(code) ? code : Watermark.randomCode(14);
-  return fields;
-}
-
 // POST /render：原图 base64 + wm 字段（含 EXIF orientation）→ 渲染水印 → base64 JPEG 回图。
-// 只回图：不传 COS、不入库、不触发 Dify 验证
+// 只回图：不传 COS、不入库、不触发 Dify 验证（wm 字段清洗用出工日志同款 sanitizeWm，见 worklog/render-photo.js）
 router.post('/render', async (req, res, next) => {
   try {
     const { image, wm } = req.body || {};

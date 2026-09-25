@@ -6,7 +6,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
-import { parseDate } from '../../../utils/util';
+import { parseDate, pad } from '../../../utils/util';
 import { shareAppMessage } from '../../../utils/share';
 
 const API_BASE = '/api/v1/quiz';
@@ -24,7 +24,6 @@ const relTime = (iso) => {
   if (days <= 0) return '今天';
   if (days === 1) return '昨天';
   if (days <= 30) return `${days} 天前`;
-  const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 

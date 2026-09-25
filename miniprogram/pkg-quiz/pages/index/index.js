@@ -8,18 +8,20 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import { createTeamGate } from '../../../utils/teamgate';
 
 const API_BASE = '/api/v1/quiz';
 
+// 班组切换器 + 生效班组门控（storage quiz_team_id，banks 请求带 team_id；
+// 生效班组名额外存 quiz_team_name，manage 页「上传至」选项展示用）
+const teamGate = createTeamGate({ storageKey: 'quiz_team_id', teamNameKey: 'quiz_team_name' });
+
 Page({
+  behaviors: [teamGate],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
-    // 班组切换器：超管可点 chip 下拉切换；其余角色为静态班组名标签
-    isAdmin: false,
-    noTeam: false, // 非超管且未分配班组：整页空态，不发业务请求
-    teamName: '',
-    teamOptions: [], // [{id, name, on}]
-    teamDropOpen: false,
+    // 班组切换器数据（isAdmin/noTeam/teamName/teamOptions/teamDropOpen）由 teamgate behavior 提供；
+    // 非超管未分配班组 → noTeam 整页空态，不发业务请求
     // 统计卡
     overview: null, // {totalAnswered, rightRate|null, wrongCount}
     // 题库列表
@@ -48,82 +50,14 @@ Page({
   passGate() {
     if (this.data.gate) return;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
-    this._role = user.role || 'user';
-    this._teamId = 0; // 生效班组 id（仅超管经切换器指定；0=不带参数，后端落自己/默认班组）
-    // 非超管且未分配班组：整页空态，不再发任何业务请求
-    if (this._role !== 'admin' && !user.team) {
-      this.setData({ gate: true, noTeam: true, loading: false });
-      return;
-    }
-    this.setData({
-      gate: true,
-      isAdmin: this._role === 'admin',
-      isManager: this._role === 'admin' || this._role === 'team_admin',
-      teamName: user.team || '',
-    });
-    if (this._role === 'admin') {
-      this.initTeams(user); // 超管先定生效班组，再拉数据
-      return;
-    }
-    this.loadAll(true);
+    // 门控与生效班组确定由 teamgate behavior 完成（非超管未分配班组 → noTeam 空态，不再加载）
+    if (!this.passTeamGate(user, () => this.loadAll(true))) return;
+    this.setData({ isManager: this._role === 'admin' || this._role === 'team_admin' });
   },
 
-  // ---------- 班组切换器（仅超管可切换，其余角色静态展示本班名） ----------
-
-  // 超管：拉启用班组（/admin/teams 取 status=1）→ 生效班组（storage 优先 → 自己班组 → 第一个）→ 题库数据
-  async initTeams(user) {
-    let teams = [];
-    try {
-      const data = await request({ url: '/api/v1/admin/teams' });
-      teams = ((data && data.list) || []).filter((t) => t.status === 1);
-    } catch (err) {
-      this.toast(err.message);
-    }
-    this._teams = teams;
-    const saved = Number(wx.getStorageSync('quiz_team_id')) || 0;
-    const cur = teams.find((t) => t.id === saved)
-      || teams.find((t) => t.id === Number(user.team_id))
-      || teams[0] || null;
-    this.applyTeam(cur ? cur.id : 0, false);
-    this.loadAll(true);
-  },
-
-  // 生效班组 query 片段（lead 为前导连接符；仅超管 _teamId>0 时携带，其余角色后端强制本班无需传）
-  teamQuery(lead) {
-    return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
-  },
-
-  // 记录当前生效班组并刷新切换器展示；switching=true 表示用户主动切换，重拉题库数据
-  applyTeam(id, switching) {
-    this._teamId = id;
-    if (id) wx.setStorageSync('quiz_team_id', id);
-    const cur = ((this._teams || []).find((t) => t.id === id)) || null;
-    // 生效班组名一并存下（manage 页「上传至」选项展示用）
-    if (cur) wx.setStorageSync('quiz_team_name', cur.name);
-    this.setData({
-      teamName: cur ? cur.name : this.data.teamName,
-      teamDropOpen: false,
-      teamOptions: (this._teams || []).map((t) => ({ id: t.id, name: t.name, on: t.id === id })),
-    });
-    if (switching) this.loadAll(false);
-  },
-
-  onTeamChipTap() {
-    if (!this.data.isAdmin || !(this._teams || []).length) return;
-    this.setData({ teamDropOpen: !this.data.teamDropOpen });
-  },
-
-  onTeamDropClose() {
-    if (this.data.teamDropOpen) this.setData({ teamDropOpen: false });
-  },
-
-  onTeamPick(e) {
-    const id = Number(e.currentTarget.dataset.id);
-    if (!id || id === this._teamId) {
-      this.setData({ teamDropOpen: false });
-      return;
-    }
-    this.applyTeam(id, true);
+  // 超管主动切换班组后重拉题库数据（teamgate behavior 回调）
+  onTeamSwitched() {
+    this.loadAll(false);
   },
 
   onShow() {
