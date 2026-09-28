@@ -1,12 +1,12 @@
 /* 题库刷题 · 题库池（二级页；样式自题库列表页题库池板块迁入；设计 token 见 AGENTS.md 第四节） */
 
-/* ---------- 通用：浅橙底图标盒 / 标签 ---------- */
+/* ---------- 通用：浅蓝底图标盒 / 标签 ---------- */
 .icon-box {
   width: 84rpx;
   height: 84rpx;
   flex: none;
-  border-radius: 20rpx;
-  background: #fdeee2;
+  border-radius: 0;
+  background: #edf2fe;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -16,7 +16,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 8rpx;
+  border-radius: 0;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -24,13 +24,13 @@
 }
 
 .tag-navy {
-  background: #edf0f6;
-  color: #22314e;
+  background: #edf2fe;
+  color: #111111;
 }
 
 .tag-orange {
-  background: #fdeee2;
-  color: #f26d21;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 /* ---------- 题库池列表项（范围 tag + 添加/已加入） ---------- */
@@ -63,17 +63,17 @@
 .pool-item .meta {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
   display: flex;
   gap: 20rpx;
 }
 
-/* 「添加」橙描边小按钮 */
+/* 「添加」蓝描边小按钮 */
 .btn-join {
   height: 56rpx;
-  border-radius: 999rpx;
-  border: 2rpx solid #f26d21;
-  color: #f26d21;
+  border-radius: 0;
+  border: 4rpx solid #1d4ed8;
+  color: #1d4ed8;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -90,19 +90,19 @@
   flex: none;
   padding: 10rpx 4rpx 10rpx 16rpx;
   font-size: 24rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   font-weight: 600;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #d9cfba;
-  border-radius: 20rpx;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  border-radius: 0;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 2rpx;
 }
 

@@ -41,7 +41,7 @@
           wx:if="{{item.id === selectedUserId}}"
           name="check"
           size="40rpx"
-          color="#F26D21"
+          color="#1D4ED8"
         />
       </view>
     </view>
@@ -62,7 +62,7 @@
       >
         <view class="cbx {{checkedMap[item.id] ? 'cbx-on' : ''}}">{{checkedMap[item.id] ? '✓' : ''}}</view>
         <view class="a-ico">
-          <t-icon name="{{item.icon || 'app'}}" size="44rpx" color="#F26D21" />
+          <t-icon name="{{item.icon || 'app'}}" size="44rpx" color="#1D4ED8" />
         </view>
         <view class="a-main">
           <view class="a-name">{{item.name}}</view>

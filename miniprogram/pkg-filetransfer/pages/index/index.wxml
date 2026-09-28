@@ -34,7 +34,7 @@
     <text class="fb-p">本班组暂未接入设备，当前展示「{{fallbackTeam}}」的设备；本班组设备组接入后自动切换、此提示消失。</text>
   </view>
 
-  <!-- 设备卡片（卡顶警示斜纹条为全局 hazard-top） -->
+  <!-- 设备卡片 -->
   <block wx:if="{{list.length}}">
     <view class="card hazard-top dev" wx:for="{{list}}" wx:key="id">
       <view class="dv-in">
@@ -66,11 +66,11 @@
         <view class="dv-ops">
           <view class="dv-btn up {{(item.statusKey !== 'online' || item.maintaining) ? 'off' : ''}}" hover-class="hover-opacity"
                 data-item="{{item}}" bindtap="onOpenUpload">
-            <t-icon name="upload" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#F26D21' : '#D9CFBA'}}" />上传文件
+            <t-icon name="upload" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#1D4ED8' : 'rgba(17,17,17,.35)'}}" />上传文件
           </view>
           <view class="dv-btn dl {{(item.statusKey !== 'online' || item.maintaining) ? 'off' : ''}}" hover-class="hover-opacity"
                 data-item="{{item}}" bindtap="onOpenDownload">
-            <t-icon name="download" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#22314E' : '#D9CFBA'}}" />下载文件
+            <t-icon name="download" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#111111' : 'rgba(17,17,17,.35)'}}" />下载文件
           </view>
         </view>
       </view>
@@ -106,19 +106,19 @@
     <view class="sh-head">
       <view class="sh-title">上传文件<text class="sh-sub">{{upDevice.name}}</text></view>
       <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseUpload">
-        <t-icon name="close" size="36rpx" color="#6B7690" />
+        <t-icon name="close" size="36rpx" color="#5C5748" />
       </view>
     </view>
 
     <!-- 两种添加方式 -->
     <view class="pick-row">
       <view class="pick" hover-class="hover-opacity" bindtap="onPickMedia">
-        <t-icon name="file-image" size="48rpx" color="#F26D21" />
+        <t-icon name="file-image" size="48rpx" color="#1D4ED8" />
         <view class="pick-name">从手机选择</view>
         <view class="pick-note">图片 / 视频</view>
       </view>
       <view class="pick" hover-class="hover-opacity" bindtap="onPickChat">
-        <t-icon name="chat" size="48rpx" color="#F26D21" />
+        <t-icon name="chat" size="48rpx" color="#1D4ED8" />
         <view class="pick-name">从聊天选取</view>
         <view class="pick-note">任意类型文件</view>
       </view>
@@ -131,11 +131,11 @@
     </view>
     <scroll-view scroll-y class="fl-list">
       <view class="frow" wx:for="{{upFiles}}" wx:key="path">
-        <t-icon name="{{item.icon}}" size="34rpx" color="#F26D21" />
+        <t-icon name="{{item.icon}}" size="34rpx" color="#1D4ED8" />
         <view class="fn">{{item.name}}</view>
         <view class="fs">{{item.sizeText}}</view>
         <view class="fx" hover-class="hover-opacity" data-index="{{index}}" catchtap="onRemoveUpFile">
-          <t-icon name="close" size="30rpx" color="#A89F8A" />
+          <t-icon name="close" size="30rpx" color="rgba(17,17,17,.4)" />
         </view>
       </view>
       <view wx:if="{{!upFiles.length}}" class="fl-empty">尚未添加文件，点上方入口添加</view>
@@ -157,7 +157,7 @@
     <view class="sh-head">
       <view class="sh-title">下载文件<text class="sh-sub">{{dlDevice.name}} · 虚拟 U 盘</text></view>
       <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseDownload">
-        <t-icon name="close" size="36rpx" color="#6B7690" />
+        <t-icon name="close" size="36rpx" color="#5C5748" />
       </view>
     </view>
 
@@ -167,7 +167,7 @@
     <!-- 已挂载到目标计算机（共享中）：读取盘内文件会先断开共享，由用户确认触发 -->
     <block wx:elif="{{dlState === 'shared'}}">
       <view class="dl-state">
-        <t-icon name="usb" size="64rpx" color="#F26D21" />
+        <t-icon name="usb" size="64rpx" color="#1D4ED8" />
         <view class="dl-state-t">U 盘已挂载到目标计算机</view>
         <view class="dl-state-n">可在该机向 U 盘放入文件；读取盘内文件需先断开共享（挂载回 KVM）</view>
       </view>
@@ -185,16 +185,16 @@
         <view wx:if="{{!dlFiles.length}}" class="fl-empty">盘内暂无文件</view>
         <view class="frow" wx:for="{{dlFiles}}" wx:key="name" data-file="{{item}}"
               hover-class="hover-opacity" bindtap="onDlFileTap">
-          <t-icon name="{{item.icon}}" size="34rpx" color="#F26D21" />
+          <t-icon name="{{item.icon}}" size="34rpx" color="#1D4ED8" />
           <view class="fn">{{item.name}}</view>
           <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
           <view wx:else class="fs">{{item.sizeText}}</view>
           <!-- 删除小标（catchtap 拦截，不触发下载） -->
           <view class="fdel" hover-class="hover-opacity" data-name="{{item.name}}" data-index="{{index}}"
                 catchtap="onDeleteFile">
-            <t-icon name="delete" size="32rpx" color="#CF4444" />
+            <t-icon name="delete" size="32rpx" color="#D22730" />
           </view>
-          <t-icon name="chevron-right" size="30rpx" color="#A89F8A" />
+          <t-icon name="chevron-right" size="30rpx" color="rgba(17,17,17,.4)" />
         </view>
       </scroll-view>
 

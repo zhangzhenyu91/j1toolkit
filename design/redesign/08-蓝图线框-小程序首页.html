@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案 08 · 蓝图线框 Blueprint Wireframe（小程序首页比选稿）
+  主色板：蓝图纸 #10316B ｜ 白描线 #FFFFFF ｜ 浅蓝标注 #7FB3FF ｜ 印章红 #E02334（仅印章 / 未读计数描边两处点缀）
+  配色说明：整张首页视为一张施工蓝图——深蓝图纸底 + 双密度方格纹理，所有界面元素白描线框化（无填充），
+            浅蓝只用于工程标注与激活态，印章红全局仅两处，克制点题。白字对图纸底对比度 ≈11:1，浅蓝 ≈5.3:1。
+  设计要点：
+  1. 方格纸纹理：12px 细格 + 60px 主格双层 repeating-linear-gradient，无图片资源即可还原蓝图纸；
+  2. 全部线框化：卡片 / 宫格 / 徽章 / 占位格一律 1.6px 白描边，角部加十字规线，板块间以虚线分隔；
+  3. 工程标注语言：虚线引线 + 编号（USER-01 / NTF-02 / GRID 4×2 / 格角 A-01…A-08）+ 机外 375×812 尺寸链 + 屏下刻度尺；
+  4. 签名动效 draw-in：边框用 SVG pathLength 归一化做 stroke-dashoffset 描绘，宫格图标逐格自绘成形，
+     红色「检修一班」印章旋转压盖收尾，构成一次编排式入场；氛围动效为蓝图扫描光带 + 机外规线呼吸；
+  5. 线框字导航：「Shade 壹匣」以 -webkit-text-stroke 描边空心呈现，呼应线框主题。
+  落地注意事项：
+  - 小程序原生不支持 SVG stroke-dashoffset 动画，可用 clip-path 蒙层 / 分段渐显近似 draw-in；
+  - -webkit-text-stroke 在小程序不可用，落地时导航标题改为实心白字；
+  - 方格纹理与虚线均可用 WXSS 渐变 / border 实现，零资源成本；印章建议导出为静态 PNG 雪碧。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>08 · 蓝图线框 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bp:#10316B; --wh:#FFFFFF; --lb:#7FB3FF; --rd:#E02334;
+    --w65:rgba(255,255,255,.65); --w45:rgba(255,255,255,.45);
+    --mono:ui-monospace,"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  body {
+    background:#081A3C;
+    background-image:
+      linear-gradient(rgba(127,179,255,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(127,179,255,.05) 1px, transparent 1px),
+      linear-gradient(rgba(127,179,255,.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(127,179,255,.10) 1px, transparent 1px);
+    background-size:14px 14px, 14px 14px, 70px 70px, 70px 70px;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:var(--wh);
+    padding:56px 24px 90px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 关键帧 ===== */
+  @keyframes kDraw  { from { stroke-dashoffset:var(--len,100); } }
+  @keyframes kFade  { from { opacity:0; } }
+  @keyframes kWipe  { from { clip-path:inset(0 100% 0 0); } to { clip-path:inset(0 0 0 0); } }
+  @keyframes kTrack { from { opacity:0; letter-spacing:12px; } }
+  @keyframes kStamp {
+    0%   { opacity:0; transform:rotate(8deg) scale(1.7); }
+    55%  { opacity:1; transform:rotate(-15deg) scale(.94); }
+    78%  { transform:rotate(-10deg) scale(1.05); }
+    100% { opacity:.92; transform:rotate(-12deg) scale(1); }
+  }
+  @keyframes kScan  { from { transform:translateY(-160px); } to { transform:translateY(980px); } }
+  @keyframes kPulse { from { opacity:.35; } to { opacity:.95; } }
+
+  .dr { stroke-dasharray:var(--len,100); stroke-dashoffset:0;
+        animation:kDraw var(--t,.9s) cubic-bezier(.55,0,.15,1) var(--d,0s) backwards; }
+  .fi { animation:kFade .7s ease var(--d,0s) backwards; }
+  .wp { animation:kWipe .8s cubic-bezier(.6,0,.2,1) var(--d,0s) backwards; }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:66px; }
+  .page-head h1 { font-size:26px; font-weight:800; letter-spacing:3px; color:#fff; }
+  .page-head h1 em { font-style:normal; color:var(--lb); }
+  .page-head h1 small { margin-left:12px; font-size:11px; font-weight:600;
+                        letter-spacing:5px; color:var(--w45); font-family:var(--mono); }
+  .page-head p { margin-top:14px; font-size:13px; color:var(--w65); letter-spacing:1.5px; }
+  .swatches { margin-top:24px; display:flex; justify-content:center; flex-wrap:wrap; gap:10px; }
+  .sw { display:flex; align-items:center; gap:8px; border:1px solid rgba(127,179,255,.35);
+        padding:6px 14px; font-size:11px; letter-spacing:1px; color:var(--w65); font-family:var(--mono); }
+  .sw i { width:11px; height:11px; border-radius:50%; }
+
+  /* ===== 展厅舞台 ===== */
+  .stage { display:flex; justify-content:center; }
+  .sheet { position:relative; display:flex; flex-direction:column; align-items:center; }
+  .cap { margin-top:28px; font-size:12px; letter-spacing:2.5px; color:var(--w65); font-family:var(--mono); }
+  .cap b { color:#fff; font-weight:700; }
+  .cap i { font-style:normal; color:var(--lb); margin:0 8px; }
+
+  /* 机外尺寸链与规线 */
+  .dim-h { position:absolute; top:-42px; left:12px; right:12px; height:14px;
+           border-left:1px solid rgba(127,179,255,.6); border-right:1px solid rgba(127,179,255,.6); }
+  .dim-h::before { content:""; position:absolute; top:6px; left:0; right:0;
+                   border-top:1px dashed rgba(127,179,255,.6); }
+  .dim-h span { position:absolute; top:-2px; left:50%; transform:translateX(-50%);
+                background:#081A3C; padding:0 9px; font:600 10px var(--mono);
+                letter-spacing:2px; color:var(--lb); }
+  .dim-v { position:absolute; left:-46px; top:12px; bottom:12px; width:14px;
+           border-top:1px solid rgba(127,179,255,.6); border-bottom:1px solid rgba(127,179,255,.6); }
+  .dim-v::before { content:""; position:absolute; left:6px; top:0; bottom:0;
+                   border-left:1px dashed rgba(127,179,255,.6); }
+  .dim-v span { position:absolute; top:50%; left:-1px; transform:translateY(-50%) rotate(-90deg);
+                background:#081A3C; padding:2px 9px; font:600 10px var(--mono);
+                letter-spacing:2px; color:var(--lb); }
+  .crop { position:absolute; width:16px; height:16px; border:0 solid var(--lb);
+          animation:kPulse 3.4s ease-in-out var(--d,0s) infinite alternate; }
+  .c-tl { top:-18px; left:-18px; border-top-width:1.5px; border-left-width:1.5px; }
+  .c-tr { top:-18px; right:-18px; border-top-width:1.5px; border-right-width:1.5px; }
+  .c-bl { bottom:-18px; left:-18px; border-bottom-width:1.5px; border-left-width:1.5px; }
+  .c-br { bottom:-18px; right:-18px; border-bottom-width:1.5px; border-right-width:1.5px; }
+
+  /* ===== 手机框 ===== */
+  .phone { padding:12px; border-radius:62px;
+           background:linear-gradient(150deg,#2A3E66 0%,#0E1B38 60%,#081228 100%);
+           box-shadow:0 34px 70px rgba(2,8,24,.55), 0 0 0 1px rgba(127,179,255,.18); }
+  .screen { position:relative; width:375px; height:812px; border-radius:50px; overflow:hidden;
+            display:flex; flex-direction:column;
+            background-color:var(--bp);
+            background-image:
+              linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px),
+              linear-gradient(rgba(255,255,255,.12) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(255,255,255,.12) 1px, transparent 1px);
+            background-size:12px 12px, 12px 12px, 60px 60px, 60px 60px; }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:120px; height:32px; border-radius:18px; background:#060F24; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(255,255,255,.85); z-index:40; }
+  .scan { position:absolute; left:0; right:0; top:0; height:130px; z-index:25; pointer-events:none;
+          background:linear-gradient(180deg, transparent, rgba(127,179,255,.09) 42%,
+                                     rgba(127,179,255,.22) 50%, rgba(127,179,255,.09) 58%, transparent);
+          animation:kScan 8s linear 2.8s infinite; }
+
+  .sb { height:54px; flex:none; padding:20px 30px 0; display:flex;
+        justify-content:space-between; align-items:center;
+        font-size:14px; font-weight:700; color:#fff; position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+
+  /* ===== 导航栏（线框字） ===== */
+  .navbar { height:52px; flex:none; display:grid; grid-template-columns:1fr auto 1fr;
+            align-items:center; padding:0 18px;
+            border-bottom:1px dashed rgba(255,255,255,.28); }
+  .nav-title { font-size:18px; font-weight:800; letter-spacing:2px;
+               color:transparent; -webkit-text-stroke:1.1px #fff;
+               animation:kTrack .9s cubic-bezier(.3,.7,.2,1) .1s backwards; }
+  @supports not (-webkit-text-stroke:1px red) { .nav-title { color:#fff; } }
+  .nav-side { font:600 10px var(--mono); letter-spacing:2px; color:var(--w45); }
+  .nav-side.r { text-align:right; }
+
+  .content { flex:1; display:flex; flex-direction:column; padding:0 16px; overflow:hidden; }
+
+  /* ===== 线框卡片通用 ===== */
+  .wf { position:relative; }
+  .bd { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; }
+  .bd rect { fill:none; stroke:rgba(255,255,255,.92); stroke-width:1.6; }
+  .wf-in { position:relative; z-index:1; }
+  .tk { position:absolute; width:10px; height:10px; z-index:2; }
+  .tk::before { content:""; position:absolute; left:50%; top:0; width:1px; height:100%;
+                background:rgba(127,179,255,.9); }
+  .tk::after { content:""; position:absolute; top:50%; left:0; height:1px; width:100%;
+               background:rgba(127,179,255,.9); }
+  .tk.tl { top:-5px; left:-5px; } .tk.tr { top:-5px; right:-5px; }
+  .tk.bl { bottom:-5px; left:-5px; } .tk.br { bottom:-5px; right:-5px; }
+
+  /* 虚线标注引线 */
+  .anno { position:absolute; top:-24px; display:flex; align-items:flex-start; gap:7px; z-index:3; }
+  .anno .no { font:600 9.5px var(--mono); letter-spacing:1.5px; color:var(--lb); padding-top:1px; }
+  .anno .ln { margin-top:6px; width:30px; height:17px; }
+  .anno.a-l { left:0; }
+  .anno.a-l .ln { border-top:1px dashed var(--lb); border-left:1px dashed var(--lb); }
+  .anno.a-r { right:0; }
+  .anno.a-r .ln { border-top:1px dashed var(--lb); border-right:1px dashed var(--lb); }
+
+  /* 印章 */
+  .seal { position:absolute; top:-20px; right:-4px; width:62px; height:62px; z-index:4;
+          opacity:.92; transform:rotate(-12deg); transform-origin:center;
+          animation:kStamp .55s cubic-bezier(.3,1.4,.5,1) 1.25s backwards; }
+  .seal svg { width:100%; height:100%; display:block; }
+
+  /* ===== 问候卡 ===== */
+  .ucard { margin-top:34px; }
+  .u-body { display:flex; justify-content:space-between; align-items:flex-end;
+            padding:20px 18px 18px; }
+  .hello { font-size:18px; font-weight:800; letter-spacing:1px; }
+  .sub { margin-top:8px; font-size:11px; color:var(--w65); letter-spacing:.5px; }
+  .sub b { font-family:var(--mono); font-weight:600; }
+  .u-r { text-align:right; padding-bottom:2px; }
+  .date { font-size:12px; color:var(--lb); letter-spacing:1px; font-family:var(--mono); }
+  .badge { display:inline-block; margin-top:9px; border:1.2px solid var(--lb); color:var(--lb);
+           padding:1px 8px; font-size:10px; letter-spacing:2px; font-weight:600; }
+
+  /* ===== 消息通知卡 ===== */
+  .ncard { margin-top:30px; }
+  .n-body { padding:15px 16px 8px; }
+  .n-head { display:flex; align-items:center; gap:9px; }
+  .n-head svg { width:18px; height:18px; color:#fff; }
+  .n-head b { font-size:13px; letter-spacing:1.5px; }
+  .unread { margin-left:auto; display:flex; align-items:center; gap:7px;
+            font-size:11px; letter-spacing:.5px; color:#fff; }
+  .unread i { font-style:normal; min-width:18px; height:18px; padding:0 4px;
+              border:1.2px solid var(--rd); color:#fff;
+              font:700 10.5px var(--mono); display:flex; align-items:center; justify-content:center; }
+  .n-div { margin:12px 0 3px; border-top:1px dashed rgba(255,255,255,.3); }
+  .n-row { display:flex; align-items:center; gap:8px; padding:9px 0; }
+  .n-row + .n-row { border-top:1px dashed rgba(255,255,255,.16); }
+  .n-row .sq { width:5px; height:5px; flex:none; border:1px solid var(--lb); }
+  .n-row .nt { font-size:12.5px; letter-spacing:.5px; }
+  .n-row .ntm { margin-left:auto; font-size:10px; color:var(--w65);
+                font-family:var(--mono); letter-spacing:.5px; }
+
+  /* ===== 板块标题 ===== */
+  .sec { display:flex; align-items:center; gap:9px; margin:26px 2px 13px; }
+  .sec-x { width:8px; height:8px; flex:none; border:1.4px solid var(--lb); }
+  .sec h3 { font-size:14px; font-weight:800; letter-spacing:3px; }
+  .sec-rule { flex:1; border-top:1px dashed rgba(127,179,255,.4); }
+  .sec-tag { font:600 9.5px var(--mono); letter-spacing:1.5px; color:var(--lb); }
+
+  /* ===== 应用宫格 ===== */
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); }
+  .g { position:relative; display:flex; flex-direction:column; align-items:center;
+       padding:15px 4px 13px; }
+  .g .bd rect { --t:.7s; }
+  .gno { position:absolute; top:4px; left:6px; font-style:normal; z-index:2;
+         font:600 8px var(--mono); letter-spacing:1px; color:var(--lb); opacity:.85; }
+  .gi { width:24px; height:24px; margin-top:4px; color:#fff; position:relative; z-index:1; }
+  .gi svg { width:100%; height:100%; display:block; }
+  .gl { margin-top:9px; font-size:10.5px; color:#fff; position:relative; z-index:1; }
+  .g.soon .gi { color:rgba(255,255,255,.45); }
+  .g.soon .gl { color:rgba(255,255,255,.5); }
+
+  /* ===== 刻度尺 ===== */
+  .ruler { margin:16px 2px 0; height:26px; position:relative;
+           border-top:1px solid rgba(255,255,255,.55);
+           background-image:
+             repeating-linear-gradient(90deg, rgba(255,255,255,.5) 0 1px, transparent 1px 34.3px),
+             repeating-linear-gradient(90deg, rgba(255,255,255,.28) 0 1px, transparent 1px 6.86px);
+           background-size:100% 10px, 100% 5px; background-repeat:no-repeat; }
+  .ruler span { position:absolute; top:13px; font:600 8px var(--mono);
+                letter-spacing:1px; color:var(--lb); }
+  .ruler .rl0 { left:0; } .ruler .rl1 { right:0; }
+  .ruler .rlc { left:50%; transform:translateX(-50%); }
+
+  .note { margin-top:auto; padding:0 0 20px; display:flex; align-items:center;
+          justify-content:center; gap:10px;
+          font-size:10.5px; letter-spacing:2px; color:var(--w65); }
+  .note i { width:26px; border-top:1px dashed rgba(127,179,255,.5); }
+
+  /* ===== TabBar ===== */
+  .tabbar { position:relative; flex:none; height:78px; display:flex; padding:10px 0 22px; }
+  .tabbar::before { content:""; position:absolute; top:0; left:0; right:0; height:1.5px;
+                    background:rgba(255,255,255,.85);
+                    animation:kWipe .9s cubic-bezier(.6,0,.2,1) 1.95s backwards; }
+  .tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;
+         font-size:10px; letter-spacing:2px; color:var(--w45); }
+  .tab svg { width:22px; height:22px; }
+  .tab .tk-on { width:5px; height:5px; margin-top:1px; background:transparent; }
+  .tab.on { color:var(--lb); font-weight:700; }
+  .tab.on .tk-on { background:var(--lb); }
+
+  /* ===== 降级与自适应 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+  @media (max-width:640px) { .dim-h, .dim-v { display:none; } }
+  @media (max-width:520px) { .stage { zoom:.88; } }
+  @media (max-width:440px) { .stage { zoom:.78; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>方案 08 · <em>蓝图线框</em><small>BLUEPRINT WIREFRAME</small></h1>
+  <p>像审一张图纸一样审视首页 —— 每根线可量、每个模块有编号、每次进场由线条亲自绘成。</p>
+  <div class="swatches">
+    <span class="sw"><i style="background:#10316B;box-shadow:0 0 0 1px rgba(127,179,255,.5)"></i>蓝图纸 #10316B</span>
+    <span class="sw"><i style="background:#FFFFFF"></i>白描线 #FFFFFF</span>
+    <span class="sw"><i style="background:#7FB3FF"></i>浅蓝标注 #7FB3FF</span>
+    <span class="sw"><i style="background:#E02334"></i>印章红 #E02334</span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="sheet">
+
+    <div class="dim-h fi" style="--d:.35s"><span>375</span></div>
+    <div class="dim-v fi" style="--d:.35s"><span>812</span></div>
+    <i class="crop c-tl" style="--d:.4s"></i>
+    <i class="crop c-tr" style="--d:.7s"></i>
+    <i class="crop c-bl" style="--d:1s"></i>
+    <i class="crop c-br" style="--d:1.3s"></i>
+
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <i class="scan"></i>
+
+        <!-- 状态栏 -->
+        <div class="sb fi" style="--d:.05s">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <!-- 导航栏 -->
+        <header class="navbar">
+          <span class="nav-side fi" style="--d:.2s">HOME</span>
+          <h1 class="nav-title">Shade 壹匣</h1>
+          <span class="nav-side r fi" style="--d:.2s">01/01</span>
+        </header>
+
+        <div class="content">
+
+          <!-- 问候卡 · USER-01 -->
+          <section class="wf ucard">
+            <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" style="--d:.25s;--t:1s" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+            <i class="tk tl fi" style="--d:.95s"></i><i class="tk tr fi" style="--d:.95s"></i>
+            <i class="tk bl fi" style="--d:.95s"></i><i class="tk br fi" style="--d:.95s"></i>
+            <div class="anno a-l fi" style="--d:1.1s"><span class="ln"></span><span class="no">USER-01</span></div>
+
+            <div class="seal" aria-hidden="true">
+              <svg viewBox="0 0 80 80">
+                <defs><path id="sealArc" d="M40 40 m -23.5 0 a 23.5 23.5 0 1 1 47 0 a 23.5 23.5 0 1 1 -47 0"/></defs>
+                <circle cx="40" cy="40" r="36.5" fill="none" stroke="#E02334" stroke-width="2.6"/>
+                <circle cx="40" cy="40" r="31.5" fill="none" stroke="#E02334" stroke-width=".9" stroke-dasharray="2.5 3"/>
+                <g transform="rotate(-112 40 40)">
+                  <text font-size="9" font-weight="700" letter-spacing="1.6" fill="#E02334"><textPath href="#sealArc">检修一班 · SHADE YIXIA ·</textPath></text>
+                </g>
+                <path d="M40 31l2.5 5.2 5.7.8-4.1 4 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4.1-4 5.7-.8z" fill="#E02334"/>
+              </svg>
+            </div>
+
+            <div class="wf-in u-body">
+              <div>
+                <div class="hello wp" style="--d:.55s">下午好，张伟</div>
+                <div class="sub fi" style="--d:.8s">账号 <b>zhangwei</b></div>
+              </div>
+              <div class="u-r">
+                <div class="date fi" style="--d:.75s">9月25日 星期五</div>
+                <div class="badge fi" style="--d:.9s">高级技师</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 消息通知卡 · NTF-02 -->
+          <section class="wf ncard">
+            <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" style="--d:.8s;--t:1s" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+            <i class="tk tl fi" style="--d:1.5s"></i><i class="tk tr fi" style="--d:1.5s"></i>
+            <i class="tk bl fi" style="--d:1.5s"></i><i class="tk br fi" style="--d:1.5s"></i>
+            <div class="anno a-r fi" style="--d:1.55s"><span class="no">NTF-02</span><span class="ln"></span></div>
+
+            <div class="wf-in n-body">
+              <div class="n-head fi" style="--d:1.05s">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+                <b>消息通知</b>
+                <span class="unread"><i>2</i>条未读</span>
+              </div>
+              <div class="n-div wp" style="--d:1.15s"></div>
+              <div class="n-row wp" style="--d:1.2s">
+                <i class="sq"></i><span class="nt">国庆保电工作安排</span><span class="ntm">09-24 18:02</span>
+              </div>
+              <div class="n-row wp" style="--d:1.32s">
+                <i class="sq"></i><span class="nt">9月安全日活动记录已生成</span><span class="ntm">09-23 10:15</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- 板块标题 -->
+          <div class="sec fi" style="--d:1.35s">
+            <span class="sec-x"></span><h3>应用中心</h3>
+            <span class="sec-rule"></span><span class="sec-tag">GRID 4×2</span>
+          </div>
+
+          <!-- 应用宫格 8 格 -->
+          <div class="grid">
+            <div class="g" style="--d:1.42s">
+              <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+              <i class="gno fi">A-01</i>
+              <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="--len:1;--t:.6s"><path class="dr" pathLength="1" d="M4.5 7a2.5 2.5 0 0 1 2.5-2.5h10a2.5 2.5 0 0 1 2.5 2.5v6.5a2.5 2.5 0 0 1-2.5 2.5h-4.6L8.5 19.4v-3.4H7A2.5 2.5 0 0 1 4.5 13.5z"/><path class="dr" pathLength="1" d="M8.3 9.2h7.4M8.3 12h4.6"/></svg></span>
+              <span class="gl fi">Call Me</span>
+            </div>
+            <div class="g" style="--d:1.49s">
+              <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+              <i class="gno fi">A-02</i>
+              <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="--len:1;--t:.6s"><path class="dr" pathLength="1" d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect class="dr" pathLength="1" x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path class="dr" pathLength="1" d="M9 10.8h6M9 14h6M9.2 17.4l1.4 1.4 2.6-2.6"/></svg></span>
+              <span class="gl fi">出工日志</span>
+            </div>
+            <div class="g" style="--d:1.56s">
+              <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+              <i class="gno fi">A-03</i>
+              <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="--len:1;--t:.6s"><path class="dr" pathLength="1" d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path class="dr" pathLength="1" d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></span>
+              <span class="gl fi">安全日活动记录</span>
+            </div>
+            <div class="g" style="--d:1.63s">
+              <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+              <i class="gno fi">A-04</i>
+              <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="--len:1;--t:.6s"><rect class="dr" pathLength="1" x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path class="dr" pathLength="1" d="M9.5 20h5M12 16v4"/></svg></span>
+              <span class="gl fi">远程连接计算机</span>
+            </div>
+            <div class="g" style="--d:1.7s">
+              <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+              <i class="gno fi">A-05</i>
+              <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="--len:1;--t:.6s"><path class="dr" pathLength="1" d="M4 8.2h12.5M13.2 4.6l3.7 3.6-3.7 3.6"/><path class="dr" pathLength="1" d="M20 15.8H7.5M10.8 12.2l-3.7 3.6 3.7 3.6"/></svg></span>
+              <span class="gl fi">文件传输</span>
+            </div>
+            <div class="g" style="--d:1.77s">
+              <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+              <i class="gno fi">A-06</i>
+              <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="--len:1;--t:.6s"><rect class="dr" pathLength="1" x="3.5" y="4.8" width="17" height="14.4" rx="2"/><circle class="dr" pathLength="1" cx="8.8" cy="9.7" r="1.5"/><path class="dr" pathLength="1" d="M4.6 16.8l4.2-4.2 2.8 2.8"/><path class="dr" pathLength="1" d="M16.4 11.9c1.1 1.4 1.8 2.4 1.8 3.3a1.8 1.8 0 1 1-3.6 0c0-.9.7-1.9 1.8-3.3z"/></svg></span>
+              <span class="gl fi">水印添加</span>
+            </div>
+            <div class="g" style="--d:1.84s">
+              <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="dr" x="1" y="1" width="98" height="98" pathLength="100" vector-effect="non-scaling-stroke"/></svg>
+              <i class="gno fi">A-07</i>
+              <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="--len:1;--t:.6s"><circle class="dr" pathLength="1" cx="12" cy="12" r="8.4"/><path class="dr" pathLength="1" d="M9.6 9.4a2.4 2.4 0 1 1 3.4 2.9c-.8.4-1 .9-1 1.7"/><circle class="fi" cx="12" cy="16.9" r="1.05" fill="currentColor" stroke="none"/></svg></span>
+              <span class="gl fi">题库刷题</span>
+            </div>
+            <div class="g soon" style="--d:1.91s">
+              <svg class="bd" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="fi" x="1" y="1" width="98" height="98" vector-effect="non-scaling-stroke" style="stroke:rgba(255,255,255,.38);stroke-dasharray:4 3"/></svg>
+              <i class="gno fi">A-08</i>
+              <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle class="fi" cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle class="fi" cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle class="fi" cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></span>
+              <span class="gl fi">敬请期待</span>
+            </div>
+          </div>
+
+          <!-- 刻度尺 -->
+          <div class="ruler fi" style="--d:2s" aria-hidden="true">
+            <span class="rl0">0</span><span class="rlc">171.5</span><span class="rl1">343</span>
+          </div>
+
+          <p class="note fi" style="--d:2.1s"><i></i>更多班组应用持续接入中<i></i></p>
+        </div>
+
+        <!-- TabBar -->
+        <nav class="tabbar">
+          <div class="tab on fi" style="--d:2.05s">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.2L12 3.8l7.5 6.4"/><path d="M6.6 8.9V20h10.8V8.9"/><path d="M10.4 20v-5h3.2v5"/></svg>
+            首页
+            <i class="tk-on"></i>
+          </div>
+          <div class="tab fi" style="--d:2.15s">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.6a6.4 6.4 0 0 1 12.8 0"/></svg>
+            我的
+            <i class="tk-on"></i>
+          </div>
+        </nav>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+
+    <div class="cap"><b>小程序 · 首页</b><i>／</i>SHEET HOME-01<i>／</i>375 × 812</div>
+  </div>
+</main>
+
+</body>
+</html>

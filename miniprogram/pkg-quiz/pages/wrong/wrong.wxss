@@ -2,7 +2,7 @@
 
 /* ---------- 汇总卡（屏 04 .wrong-sum：N 道错题 + 专项练习主按钮） ---------- */
 .wrong-sum {
-  padding: 44rpx 32rpx 32rpx; /* 顶部留出警示斜纹条高度 */
+  padding: 44rpx 32rpx 32rpx;
   text-align: center;
 }
 
@@ -13,20 +13,20 @@
 
 .wrong-sum b em {
   font-style: normal;
-  color: #cf4444;
+  color: #d22730;
 }
 
 .wrong-sum p {
   margin: 10rpx 0 26rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
   letter-spacing: 2rpx;
 }
 
 .btn-orange {
   height: 84rpx;
-  border-radius: 16rpx;
-  background: #f26d21;
+  border-radius: 0;
+  background: #1d4ed8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -35,7 +35,7 @@
   font-size: 28rpx;
   font-weight: 700;
   letter-spacing: 3rpx;
-  box-shadow: 0 12rpx 28rpx rgba(242, 109, 33, 0.3);
+  box-shadow: 6rpx 6rpx 0 #111111;
 }
 
 /* ---------- 错题分组（组头：题库名 + 题数 + 练这组；组内 .wrong-item 不变） ---------- */
@@ -57,17 +57,17 @@
 .g-hd .g-cnt {
   flex: none;
   font-size: 22rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
-/* 「练这组」橙色文字按钮 */
+/* 「练这组」蓝色文字按钮 */
 .g-hd .g-go {
   margin-left: auto;
   flex: none;
   padding: 6rpx 4rpx 6rpx 16rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 .wrong-item {
@@ -97,13 +97,13 @@
   align-items: center;
   gap: 16rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .wrong-item .ft .rm {
   margin-left: auto;
   flex: none;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -115,7 +115,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 8rpx;
+  border-radius: 0;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -128,18 +128,18 @@
 }
 
 .tag-orange {
-  background: #fdeee2;
-  color: #f26d21;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 .tag-navy {
-  background: #edf0f6;
-  color: #22314e;
+  background: #edf2fe;
+  color: #111111;
 }
 
 .tag-red {
   background: #fae9e9;
-  color: #cf4444;
+  color: #d22730;
 }
 
 /* ---------- 规则说明（屏 04 .rule-note） ---------- */
@@ -147,7 +147,7 @@
   margin-top: 26rpx;
   padding: 0 8rpx;
   font-size: 21rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 1rpx;
   display: flex;
   align-items: center;
@@ -157,12 +157,12 @@
 /* ---------- 加载中 / 空态 ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #d9cfba;
-  border-radius: 20rpx;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  border-radius: 0;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 2rpx;
 }
 
@@ -183,6 +183,6 @@
 
 .wrong-empty .we-p {
   font-size: 23rpx;
-  color: #6b7690;
+  color: #5c5748;
   letter-spacing: 1rpx;
 }

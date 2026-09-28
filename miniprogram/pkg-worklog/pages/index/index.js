@@ -753,7 +753,7 @@ Page({
         return {
           cls: 'done',
           icon: 'check',
-          iconColor: '#2BA471',
+          iconColor: '#1E9E50',
           title: `${seq === 1 ? '开始' : '结束'} ${fmtClockHm(s.time)}`,
           sub: shortPosition(s.position) || '地点未知',
           done: true,
@@ -766,7 +766,7 @@ Page({
       if (!bound) {
         return { cls: 'lock', icon: 'lock-on', iconColor: '#B4AA90', title, sub: '引导本人至「我的」页绑定', done: false, upd: false };
       }
-      return { cls: 'todo', icon: 'time', iconColor: '#F26D21', title, sub: seqClocked(seq) ? '点击打卡 · 带入同记录定位' : '点击打卡', done: false, upd: false };
+      return { cls: 'todo', icon: 'time', iconColor: '#1D4ED8', title, sub: seqClocked(seq) ? '点击打卡 · 带入同记录定位' : '点击打卡', done: false, upd: false };
     };
     return members.map((m) => {
       const bound = m.sgccBound !== false;
@@ -782,13 +782,13 @@ Page({
         statText = '未绑定商旅';
         statCls = 'red';
         statIcon = 'lock-on';
-        statIconColor = '#CF4444';
+        statIconColor = '#D22730';
       } else if (s1 && s2) {
         const wh = fmtWorkHours((s2 && s2.workHours) || (s1 && s1.workHours));
         statText = wh ? `工时 ${wh}` : '已完成两次打卡';
         statCls = 'ok';
         statIcon = 'check';
-        statIconColor = '#1E7E54';
+        statIconColor = '#1E9E50';
       } else if (s1 && !s2) {
         statText = '还差结束打卡';
       }

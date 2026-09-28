@@ -30,12 +30,12 @@
       <view class="fchip" wx:for="{{files}}" wx:key="name">
         <text class="fchip-name">{{item.name}}</text>
         <view class="fchip-x" hover-class="hover-opacity" catchtap="onRemoveFile" data-index="{{index}}">
-          <t-icon name="close" size="24rpx" color="#F26D21" />
+          <t-icon name="close" size="24rpx" color="#1D4ED8" />
         </view>
       </view>
     </view>
     <view class="pick {{uploading ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onPickFiles">
-      <t-icon name="file-copy" size="32rpx" color="#F26D21" />
+      <t-icon name="file-copy" size="32rpx" color="#1D4ED8" />
       <text>从聊天文件选择</text>
     </view>
     <view class="go {{!files.length || uploading ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onAlign">
@@ -76,7 +76,7 @@
     <view class="sheet-title">派车对齐 · 逐条处理</view>
     <view class="sheet-note">{{dlgProg}}</view>
     <scroll-view scroll-y class="dlg-scroll" enhanced show-scrollbar="{{false}}">
-      <!-- 派车单表格数据（只读；matched 差异字段橙 / 红点高亮） -->
+      <!-- 派车单表格数据（只读；matched 差异字段蓝 / 红点高亮） -->
       <view class="cmp-col" wx:if="{{dlgKind !== 'entryOnly'}}">
         <view class="cmp-h">
           <text>派车单表格数据</text>
@@ -121,7 +121,7 @@
               <picker range="{{plateRange}}" value="{{plateIdx}}" bindchange="onPlateChange">
                 <view class="pick-val {{plateWarn ? 'warn' : ''}}">
                   <text>{{plateRange[plateIdx]}}</text>
-                  <t-icon name="chevron-down" size="26rpx" color="#A89F8A" />
+                  <t-icon name="chevron-down" size="26rpx" color="rgba(17,17,17,.4)" />
                 </view>
               </picker>
               <view class="note {{plateNoteRed ? 'red' : ''}}" wx:if="{{plateNote}}">
@@ -153,7 +153,7 @@
               <picker range="{{destRange}}" value="{{destIdx}}" bindchange="onDestChange">
                 <view class="pick-val {{destWarn ? 'warn' : ''}}">
                   <text>{{destRange[destIdx]}}</text>
-                  <t-icon name="chevron-down" size="26rpx" color="#A89F8A" />
+                  <t-icon name="chevron-down" size="26rpx" color="rgba(17,17,17,.4)" />
                 </view>
               </picker>
               <view class="note {{destNoteRed ? 'red' : ''}}" wx:if="{{destNote}}">{{destNote}}</view>

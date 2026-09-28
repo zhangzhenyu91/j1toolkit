@@ -7,20 +7,23 @@
     easing-function="easeOutCubic"
     disable-touch="{{true}}"
   >
-    <!-- 首页面板（方案五：警示斜纹用户卡 + 宫格入口） -->
+    <!-- 首页面板（包豪斯几何：直角硬影用户卡 + 宫格入口） -->
     <swiper-item>
       <view class="panel">
         <navbar title="Shade 壹匣" />
         <scroll-view scroll-y class="panel-scroll">
           <view class="page-body">
-            <!-- 用户卡片 -->
-            <view class="u-card card hazard-top">
+            <!-- 用户卡片（包豪斯：直角墨边 + 蓝硬影 + 红圆/蓝半圆几何装饰） -->
+            <view class="u-card card">
+              <view class="u-geo-red"></view>
+              <view class="u-geo-blue"></view>
               <view class="u-body">
                 <view class="avatar">{{avatarChar}}</view>
                 <view class="u-info">
                   <view class="u-name">{{greeting}}，{{userInfo.nickname || '同事'}}</view>
                   <view class="u-sub">
                     <text class="u-account">{{userInfo.username}}</text>
+                    <text class="badge-outline">{{userInfo.role === 'admin' ? '管理员' : '班组成员'}}</text>
                   </view>
                 </view>
                 <view class="u-side">
@@ -30,15 +33,15 @@
               </view>
             </view>
 
-            <!-- 消息通知（未读角标 + 最新 2 条，整卡点击进入列表） -->
-            <view class="card notice-card" hover-class="hover-bg-warm" bindtap="goNotices">
+            <!-- 消息通知（未读角标 + 最新 2 条，整卡点击进入列表；红硬影变体） -->
+            <view class="card shadow-red notice-card" hover-class="hover-bg-warm" bindtap="goNotices">
               <view class="n-head">
                 <view class="n-ico">
-                  <t-icon name="notification" size="36rpx" color="#F26D21" />
+                  <t-icon name="notification" size="30rpx" color="#FFFFFF" t-class="n-bell-swing" />
                 </view>
                 <view class="n-title">消息通知</view>
                 <view class="n-badge" wx:if="{{noticeUnread > 0}}">{{noticeUnread}} 条未读</view>
-                <t-icon name="chevron-right" size="36rpx" color="#C4BBA6" />
+                <t-icon name="chevron-right" size="36rpx" color="#1D4ED8" />
               </view>
               <block wx:if="{{notices.length > 0}}">
                 <view class="n-row" wx:for="{{notices}}" wx:key="id">
@@ -51,7 +54,7 @@
 
             <!-- 应用中心 -->
             <view class="section-title app-sec">应用中心</view>
-            <view class="card grid-card">
+            <view class="card shadow-yellow grid-card">
               <view class="grid">
                 <view
                   class="g-item"
@@ -63,15 +66,15 @@
                   bindtap="onAppTap"
                 >
                   <view class="g-ico">
-                    <t-icon name="{{item.icon || 'app'}}" size="48rpx" color="#F26D21" />
+                    <t-icon name="{{item.icon || 'app'}}" size="44rpx" color="#1D4ED8" />
                   </view>
                   <text class="g-name">{{item.name}}</text>
                 </view>
 
-                <!-- 预留应用入口（占位） -->
-                <view class="g-item" hover-class="hover-scale" bindtap="onSoon">
+                <!-- 预留应用入口（占位：虚线墨边格） -->
+                <view class="g-item g-item-soon" hover-class="hover-scale" bindtap="onSoon">
                   <view class="g-ico g-soon">
-                    <t-icon name="add" size="44rpx" color="#C9BEA6" />
+                    <t-icon name="add" size="44rpx" color="rgba(17,17,17,.4)" />
                   </view>
                   <text class="g-name g-name-soon">敬请期待</text>
                 </view>
@@ -88,7 +91,7 @@
       </view>
     </swiper-item>
 
-    <!-- 我的面板（方案五：警示斜纹大卡 + 功能列表 + 退出登录） -->
+    <!-- 我的面板（包豪斯几何：大卡 + 功能列表 + 退出登录） -->
     <swiper-item>
       <view class="panel me-panel">
         <navbar title="我的" />

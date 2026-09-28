@@ -17,11 +17,11 @@
   .bar .input { height: 38px; width: 210px; font-size: 13px; }
   .bar .ops-r { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 
-  /* 班组设备回退提示横幅（黄底黄字圆角条，屏十四口径） */
+  /* 班组设备回退提示横幅（浅黄底墨字方角条，屏十四口径；#FCEFC8 浅黄同 worklog 备注块） */
   .fb-banner {
     display: flex; align-items: center; gap: 8px; margin: 0 0 18px;
-    padding: 10px 14px; border-radius: 10px;
-    background: #FDF3CF; color: #EAB308;
+    padding: 10px 14px; border-radius: 0; border: 1.5px solid var(--yellow);
+    background: #FCEFC8; color: var(--navy);
     font-size: 12.5px; font-weight: 600; letter-spacing: .5px; line-height: 1.7;
   }
   .fb-banner .ic { flex: none; font-size: 14px; }
@@ -30,7 +30,7 @@
   /* 手动刷新期间按钮图标转圈（不重排卡片、不出骨架，避免闪现） */
   .btn.refreshing svg { animation: rot 1s linear infinite; }
 
-  /* ===== 设备卡片宫格（同工作台应用宫格口径）；卡顶警示斜纹条（hazard-top，theme.css） ===== */
+  /* ===== 设备卡片宫格（同工作台应用宫格口径）；卡顶色带已取消（hazard-top 空壳 div 不再渲染） ===== */
   .dev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
   .dev { display: flex; flex-direction: column; overflow: hidden; }
   .dv-in { flex: 1; display: flex; flex-direction: column; padding: 16px 22px 20px; }
@@ -40,7 +40,7 @@
   /* 状态点 + 文案 */
   .st { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .st i { width: 8px; height: 8px; border-radius: 50%; }
-  .st-online { color: var(--green); } .st-online i { background: var(--green); box-shadow: 0 0 0 3px rgba(63,166,106,.15); }
+  .st-online { color: var(--green); } .st-online i { background: var(--green); box-shadow: 0 0 0 3px rgba(30, 158, 80, .15); }
   .st-offline { color: var(--ph); } .st-offline i { background: var(--dash); }
   .st-disabled { color: var(--red); } .st-disabled i { background: var(--red); }
 
@@ -61,8 +61,8 @@
   .act.off { color: var(--dash); cursor: not-allowed; }
   .dv-ops .hint { margin-left: auto; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
 
-  /* 宫格内空态/错误态占满整行；骨架卡片 */
-  .dev-grid .empty { grid-column: 1 / -1; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow-card); }
+  /* 宫格内空态/错误态占满整行（白卡 + 2px 墨边 + 硬影，同工作台宫格空态口径）；骨架卡片 */
+  .dev-grid .empty { grid-column: 1 / -1; background: #fff; border: 2px solid var(--navy); border-radius: var(--radius); box-shadow: var(--shadow-card); }
   .dev-sk { height: 224px; }
 
   @media (max-width: 640px) {

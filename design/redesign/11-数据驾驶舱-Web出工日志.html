@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案 11「数据驾驶舱」深色数据可视化风（Data Cockpit）
+  主色板：
+    底 #0D1420 ｜ 面板 #141F31 / #0F1726 ｜ 主蓝 #38BDF8 ｜ 成功绿 #34D399 ｜ 警示橙红 #F59E0B
+    派生：备注黄 #FBBF24（有备注/备忘点缀）｜ 网格线 rgba(148,163,184,.12) ｜ 主文 #E8EEF6 ｜ 次文 #93A7C2 ｜ 微文 #7186A3
+  设计要点：
+    1. 深色驾驶舱底 + 44px 坐标网格（网格线压至 5%~12% 透明度）+ 顶部一束主蓝辉光， KPI 环形仪表与大数字构成第一视觉落点；
+    2. 状态语义三色严控：验证通过=成功绿、验证中=主蓝、验证失败/未通过/待核实=警示橙红；全部状态点带「呼吸灯」脉搏光环；
+    3. 签名动效：环形仪表指针扫动（进度弧与指针点同速扫至 50%）、全部统计数字滚动到位（内联脚本）、状态点持续脉搏；
+    4. 编排式入场而非模板化 fade：顶栏横向擦除 → 标题遮罩升起 → 操作区逐项弹出 → 统计瓦片去模糊浮现 → 月历逐行落下 → 日志卡定场、照片墙错峰放大；
+    5. 月历色点图例：绿=已验证、黄=有备注、橙红=待核实；25 日主蓝高亮描边为「今天/选中」态。
+  落地注意事项：
+    - 环形仪表为 SVG stroke-dashoffset + 指针点 rotate 的纯 CSS 动画，可直接沉淀为通用组件；数字滚动为内联脚本，禁用 JS 时呈现终值；
+    - prefers-reduced-motion 下降级：所有关键帧只写 from 态，关闭动画即得终态画面，脚本同步跳过滚动；
+    - 危险操作（删除）复用警示橙红，全页不引入第五种强调色；正文文字对底/面板对比度均 ≥4.5:1；
+    - 小程序端迁移：剥离浏览器框与页首标注区，面板、token、动效时序原样保留。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>11 · 数据驾驶舱 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#0D1420; --panel:#141F31; --panel2:#0F1726;
+    --line:rgba(148,163,184,.16); --grid:rgba(148,163,184,.12);
+    --blue:#38BDF8; --blue2:#0EA5E9; --green:#34D399; --amber:#F59E0B; --yellow:#FBBF24;
+    --text:#E8EEF6; --sub:#93A7C2; --dim:#7186A3;
+    --mono:ui-monospace,"SFMono-Regular","Cascadia Mono",Consolas,"Liberation Mono",monospace;
+  }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+    color:var(--text);
+    background:
+      radial-gradient(1000px 460px at 50% -8%, rgba(56,189,248,.09), transparent 62%),
+      #0A0F19;
+    padding:56px 24px 110px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:30px; }
+  .page-head .kicker { font-family:var(--mono); font-size:11px; letter-spacing:5px; color:var(--blue); }
+  .page-head h1 { margin-top:12px; font-size:28px; font-weight:800; letter-spacing:3px; }
+  .page-head h1 em { font-style:normal; color:var(--blue); text-shadow:0 0 18px rgba(56,189,248,.5); }
+  .page-head h1 small { margin-left:12px; font-size:13px; font-weight:600; color:var(--sub); letter-spacing:4px; }
+  .page-head p { margin-top:14px; font-size:13px; color:var(--sub); letter-spacing:1.5px; }
+  .palette { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin:0 auto 56px; }
+  .chip { display:flex; align-items:center; gap:8px; padding:6px 14px 6px 9px; border-radius:999px;
+          border:1px solid var(--line); background:rgba(20,31,49,.75);
+          font-family:var(--mono); font-size:11px; color:var(--sub); letter-spacing:.5px; }
+  .chip i { width:12px; height:12px; border-radius:50%; box-shadow:0 0 8px currentColor; }
+
+  /* ===== 舞台 / 浏览器框 ===== */
+  .stage { display:flex; flex-direction:column; align-items:center; gap:24px; }
+  .cap { font-family:var(--mono); font-size:12px; letter-spacing:2.5px; color:var(--sub);
+         display:flex; align-items:center; gap:10px; }
+  .cap b { color:var(--blue); font-weight:700; }
+  .cap::before, .cap::after { content:""; width:34px; height:1px; background:var(--line); }
+
+  .browser { width:min(1180px,96vw); border:1px solid var(--line); border-radius:18px; overflow:hidden;
+             background:var(--bg);
+             box-shadow:0 0 0 1px rgba(10,15,25,.9), 0 0 70px rgba(56,189,248,.10), 0 34px 90px rgba(0,0,0,.55); }
+  .browser-bar { height:48px; display:flex; align-items:center; gap:8px; padding:0 16px;
+                 background:linear-gradient(180deg,#18253A,#101A2B); border-bottom:1px solid var(--line); }
+  .bdot { width:11px; height:11px; border-radius:50%; }
+  .bdot.r { background:#F87171; box-shadow:0 0 8px rgba(248,113,113,.5); }
+  .bdot.y { background:var(--yellow); box-shadow:0 0 8px rgba(251,191,36,.5); }
+  .bdot.g { background:var(--green); box-shadow:0 0 8px rgba(52,211,153,.5); }
+  .url { flex:1; max-width:460px; margin:0 auto; height:28px; padding:0 16px; border-radius:999px;
+         display:flex; align-items:center; justify-content:center; gap:8px;
+         border:1px solid var(--line); background:rgba(13,20,32,.85);
+         font-family:var(--mono); font-size:11.5px; color:var(--sub); letter-spacing:1px; }
+  .url svg { width:11px; height:11px; color:var(--green); }
+  .url b { color:var(--text); font-weight:600; }
+
+  /* ===== 视口（驾驶舱网格） ===== */
+  .viewport { position:relative; overflow:hidden;
+              background:
+                radial-gradient(920px 340px at 50% -10%, rgba(56,189,248,.10), transparent 60%),
+                radial-gradient(640px 420px at 100% 108%, rgba(14,165,233,.06), transparent 58%),
+                var(--bg); }
+  .viewport::before { content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+              background-image:
+                linear-gradient(rgba(148,163,184,.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(148,163,184,.05) 1px, transparent 1px),
+                linear-gradient(var(--grid) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+              background-size:44px 44px, 44px 44px, 220px 220px, 220px 220px;
+              -webkit-mask-image:radial-gradient(120% 90% at 50% 0%, #000 40%, transparent 100%);
+                      mask-image:radial-gradient(120% 90% at 50% 0%, #000 40%, transparent 100%); }
+
+  /* ===== 编排式入场（关键帧只写 from 态，降级即终态） ===== */
+  @keyframes a-wipe { from { clip-path:inset(0 100% 0 0); opacity:.35; } }
+  @keyframes a-mask { from { transform:translateY(112%); } }
+  @keyframes a-rise { from { opacity:0; transform:translateY(14px); } }
+  @keyframes a-pop  { from { opacity:0; transform:scale(.9); } }
+  @keyframes a-tile { from { opacity:0; transform:translateY(18px) scale(.965); filter:blur(6px); } }
+  @keyframes a-cel  { from { opacity:0; transform:translateY(7px) scale(.88); } }
+  @keyframes a-card { from { opacity:0; transform:translateY(24px) scale(.985); filter:blur(4px); } }
+  @keyframes a-ph   { from { opacity:0; transform:scale(.86); } }
+  @keyframes a-bar  { from { transform:scaleY(0); } }
+  @keyframes gfill  { from { stroke-dashoffset:326.7; } }
+  @keyframes gpin   { from { transform:rotate(0deg); } }
+  @keyframes breathe { 0% { transform:scale(.45); opacity:.95; } 70% { transform:scale(1.6); opacity:0; } 100% { transform:scale(1.6); opacity:0; } }
+  @keyframes shimmer { 0% { background-position:-140% 0; } 100% { background-position:240% 0; } }
+
+  .a-wipe { animation:a-wipe .9s cubic-bezier(.3,.7,.2,1) .05s both; }
+
+  /* ===== 页内顶栏 ===== */
+  .topbar { position:relative; z-index:10; height:58px; display:flex; align-items:center; gap:16px;
+            padding:0 26px; border-bottom:1px solid var(--line);
+            background:linear-gradient(180deg, rgba(24,37,58,.88), rgba(16,26,43,.72)); }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo i { width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+            background:linear-gradient(135deg,var(--blue2),var(--blue)); color:#052033;
+            box-shadow:0 0 18px rgba(56,189,248,.4); }
+  .logo i svg { width:17px; height:17px; }
+  .logo b { font-size:14px; letter-spacing:2px; }
+  .logo b span { color:var(--blue); }
+  .t-nav { display:flex; gap:6px; margin-left:22px; }
+  .t-item { position:relative; padding:8px 15px; border-radius:9px; font-size:12.5px; letter-spacing:2px;
+            color:var(--sub); cursor:pointer; transition:all .18s; }
+  .t-item:hover { color:var(--text); background:rgba(56,189,248,.07); }
+  .t-item.on { color:var(--blue); background:rgba(56,189,248,.1); font-weight:700;
+               box-shadow:inset 0 0 0 1px rgba(56,189,248,.35); }
+  .t-right { margin-left:auto; display:flex; align-items:center; gap:16px; }
+  .live { display:flex; align-items:center; gap:8px; padding:5px 12px; border-radius:999px;
+          border:1px solid rgba(52,211,153,.35); background:rgba(52,211,153,.07);
+          font-family:var(--mono); font-size:10px; letter-spacing:1.5px; color:var(--green); }
+  .u-chip { display:flex; align-items:center; gap:9px; cursor:pointer; }
+  .u-chip .av { width:29px; height:29px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+                background:linear-gradient(135deg,#1D3350,#16263C); border:1px solid rgba(56,189,248,.4);
+                font-size:12px; font-weight:700; color:var(--blue); }
+  .u-chip span { font-size:12.5px; letter-spacing:1px; }
+
+  /* 呼吸灯状态点 */
+  .dot-b { position:relative; width:8px; height:8px; flex:none; border-radius:50%; background:currentColor;
+           box-shadow:0 0 8px currentColor; }
+  .dot-b::after { content:""; position:absolute; inset:-4px; border-radius:50%;
+                  border:1.5px solid currentColor; animation:breathe 2.1s ease-out infinite; }
+
+  /* ===== 页头 / 操作区 / 页签 ===== */
+  .wrap { position:relative; z-index:5; padding:26px 28px 0; }
+  .p-head { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+  .p-head .k { font-family:var(--mono); font-size:10.5px; letter-spacing:3px; color:var(--blue);
+               animation:a-rise .6s .12s both; }
+  .p-head h2 { margin-top:9px; font-size:28px; font-weight:800; letter-spacing:5px; }
+  .p-head h2 .mk { display:inline-block; overflow:hidden; vertical-align:bottom; }
+  .p-head h2 .mk i { display:inline-block; font-style:normal;
+                     animation:a-mask .75s cubic-bezier(.2,.85,.25,1) .22s both; }
+  .p-head .sub-t { margin-top:9px; font-size:12.5px; letter-spacing:1px; color:var(--sub);
+                   animation:a-rise .6s .34s both; }
+  .today { text-align:right; padding:10px 16px; border-radius:12px; border:1px solid var(--line);
+           background:rgba(20,31,49,.7); animation:a-pop .6s .3s both; }
+  .today b { display:block; font-family:var(--mono); font-size:17px; font-weight:700; letter-spacing:1.5px; }
+  .today span { font-size:10.5px; letter-spacing:2px; color:var(--dim); }
+  .today span em { font-style:normal; color:var(--blue); }
+
+  .ops { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:20px; }
+  .ops > * { animation:a-pop .55s cubic-bezier(.2,.9,.3,1.15) both; }
+  .ops > *:nth-child(1) { animation-delay:.40s; } .ops > *:nth-child(2) { animation-delay:.46s; }
+  .ops > *:nth-child(3) { animation-delay:.52s; } .ops > *:nth-child(4) { animation-delay:.58s; }
+  .ops > *:nth-child(5) { animation-delay:.64s; } .ops > *:nth-child(6) { animation-delay:.70s; }
+  .sel { display:flex; align-items:center; gap:9px; height:37px; padding:0 14px; cursor:pointer;
+         border:1px solid var(--line); border-radius:10px; background:rgba(20,31,49,.85);
+         font-size:12.5px; letter-spacing:1px; transition:border-color .18s; }
+  .sel:hover { border-color:rgba(56,189,248,.6); }
+  .sel svg { width:13px; height:13px; color:var(--blue); }
+  .stat-chip { display:flex; align-items:center; gap:8px; height:37px; padding:0 15px; border-radius:10px;
+               border:1px solid rgba(56,189,248,.3); background:rgba(56,189,248,.07);
+               font-size:12px; letter-spacing:1px; color:var(--sub); }
+  .stat-chip svg { width:14px; height:14px; color:var(--blue); }
+  .stat-chip b { font-family:var(--mono); font-size:14px; font-weight:700; color:var(--blue); }
+  .seg { display:flex; height:37px; padding:3px; border-radius:10px;
+         border:1px solid var(--line); background:rgba(15,23,38,.85); }
+  .seg span { display:flex; align-items:center; padding:0 16px; border-radius:8px; cursor:pointer;
+              font-size:12px; letter-spacing:2px; color:var(--sub); transition:all .18s; }
+  .seg span.on { color:#052033; background:var(--blue); font-weight:700;
+                 box-shadow:0 0 16px rgba(56,189,248,.45); }
+  .ops .grow { flex:1; }
+  .btn { display:flex; align-items:center; gap:8px; height:37px; padding:0 17px; cursor:pointer;
+         font-size:12.5px; letter-spacing:2px; border-radius:10px; border:1px solid var(--line);
+         background:rgba(20,31,49,.85); color:var(--text); transition:all .18s; }
+  .btn svg { width:15px; height:15px; }
+  .btn:hover { border-color:rgba(56,189,248,.65); color:var(--blue); box-shadow:0 0 16px rgba(56,189,248,.22); }
+  .btn.primary { background:linear-gradient(135deg,var(--blue2),var(--blue)); border-color:transparent;
+                 color:#052033; font-weight:800; box-shadow:0 6px 22px rgba(56,189,248,.35); }
+  .btn.primary:hover { color:#052033; box-shadow:0 6px 30px rgba(56,189,248,.6); transform:translateY(-1px); }
+
+  .tabs { display:flex; margin-top:22px; border-bottom:1px solid var(--line); }
+  .tab-i { position:relative; padding:11px 16px 12px; cursor:pointer; white-space:nowrap;
+           font-size:12.5px; letter-spacing:1.5px; color:var(--sub); transition:color .18s;
+           animation:a-rise .5s both; }
+  .tab-i:nth-child(1){animation-delay:.50s} .tab-i:nth-child(2){animation-delay:.55s}
+  .tab-i:nth-child(3){animation-delay:.60s} .tab-i:nth-child(4){animation-delay:.65s}
+  .tab-i:nth-child(5){animation-delay:.70s} .tab-i:nth-child(6){animation-delay:.75s}
+  .tab-i:nth-child(7){animation-delay:.80s} .tab-i:nth-child(8){animation-delay:.85s}
+  .tab-i:hover { color:var(--text); }
+  .tab-i.on { color:var(--blue); font-weight:700; }
+  .tab-i.on::before { content:""; position:absolute; top:9px; left:6px; width:4px; height:4px;
+                      border-radius:50%; background:var(--blue); box-shadow:0 0 8px var(--blue); }
+  .tab-i.on::after { content:""; position:absolute; left:14px; right:14px; bottom:-1px; height:2px;
+                     border-radius:2px; background:var(--blue); box-shadow:0 0 12px rgba(56,189,248,.9); }
+
+  /* ===== 顶部统计条（KPI 瓦片） ===== */
+  .kpis { display:grid; grid-template-columns:1.15fr 1.3fr 1fr 1fr; gap:14px; margin-top:20px; }
+  .tile { position:relative; overflow:hidden; display:flex; align-items:center; gap:16px;
+          padding:16px 18px; border-radius:14px; border:1px solid var(--line);
+          background:linear-gradient(180deg,#141F31,#101928);
+          box-shadow:0 14px 34px rgba(3,7,14,.4);
+          animation:a-tile .7s cubic-bezier(.2,.85,.25,1) both; }
+  .tile:nth-child(1){animation-delay:.62s} .tile:nth-child(2){animation-delay:.70s}
+  .tile:nth-child(3){animation-delay:.78s} .tile:nth-child(4){animation-delay:.86s}
+  .tile::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+                  background:var(--blue); box-shadow:0 0 12px rgba(56,189,248,.7); }
+  .tile.warn::before { background:var(--amber); box-shadow:0 0 12px rgba(245,158,11,.7); }
+  .tile:hover { border-color:rgba(56,189,248,.4); }
+  .tile .lab { font-size:11px; letter-spacing:2px; color:var(--sub); }
+  .tile .big { margin-top:6px; font-size:34px; font-weight:800; line-height:1;
+               font-variant-numeric:tabular-nums; letter-spacing:.5px; }
+  .tile .big i { font-style:normal; font-size:15px; font-weight:700; color:var(--sub); margin-left:3px; }
+  .tile .big em { font-style:normal; color:var(--blue); }
+  .tile.warn .big { color:var(--amber); }
+  .tile .sub2 { margin-top:8px; font-size:10.5px; letter-spacing:1px; color:var(--dim); }
+  .tile .sub2 em { font-style:normal; color:var(--amber); }
+
+  /* 环形仪表 */
+  .gauge { position:relative; width:92px; height:92px; flex:none; }
+  .gauge svg { width:100%; height:100%; transform:rotate(-90deg); }
+  .gauge .track { fill:none; stroke:rgba(148,163,184,.18); stroke-width:9; }
+  .gauge .ticks { fill:none; stroke:rgba(148,163,184,.3); stroke-width:1.5; stroke-dasharray:1 5.1; }
+  .gauge .val { fill:none; stroke:url(#gg); stroke-width:9; stroke-linecap:round;
+                stroke-dasharray:326.7; stroke-dashoffset:163.35;
+                filter:drop-shadow(0 0 6px rgba(56,189,248,.55));
+                animation:gfill 1.6s cubic-bezier(.25,.8,.25,1) 1.1s both; }
+  .gauge .pin { position:absolute; inset:0; transform-origin:50% 50%;
+                transform:rotate(180deg); animation:gpin 1.6s cubic-bezier(.25,.8,.25,1) 1.1s both; }
+  .gauge .pin i { position:absolute; left:50%; top:2px; width:9px; height:9px; margin-left:-4.5px;
+                  border-radius:50%; background:#fff; border:2.5px solid var(--blue);
+                  box-shadow:0 0 10px rgba(56,189,248,.9); }
+  .gauge .ctr { position:absolute; inset:0; display:flex; flex-direction:column;
+                align-items:center; justify-content:center; }
+  .gauge .ctr b { font-family:var(--mono); font-size:19px; font-weight:700; color:var(--text); }
+  .gauge .ctr b i { font-style:normal; font-size:10px; color:var(--sub); }
+  .gauge .ctr span { font-family:var(--mono); font-size:8px; letter-spacing:2px; color:var(--dim); }
+
+  /* 迷你柱状 */
+  .bars { margin-left:auto; display:flex; align-items:flex-end; gap:5px; height:52px; }
+  .bars span { width:9px; border-radius:3px 3px 1px 1px; transform-origin:bottom;
+               background:linear-gradient(180deg,var(--blue),rgba(56,189,248,.15));
+               animation:a-bar .8s cubic-bezier(.2,.85,.25,1) both; }
+  .bars span:nth-child(1){height:38%;animation-delay:1.05s} .bars span:nth-child(2){height:56%;animation-delay:1.11s}
+  .bars span:nth-child(3){height:44%;animation-delay:1.17s} .bars span:nth-child(4){height:72%;animation-delay:1.23s}
+  .bars span:nth-child(5){height:60%;animation-delay:1.29s} .bars span:nth-child(6){height:84%;animation-delay:1.35s}
+  .bars span.on { height:100%; background:linear-gradient(180deg,var(--green),rgba(52,211,153,.2));
+                  box-shadow:0 0 10px rgba(52,211,153,.35); animation-delay:1.41s; }
+
+  /* ===== 主体两栏 ===== */
+  .main { position:relative; z-index:5; display:grid; grid-template-columns:348px 1fr;
+          gap:20px; padding:22px 28px 30px; }
+
+  .panel { border-radius:14px; border:1px solid var(--line);
+           background:linear-gradient(180deg,#141F31,#101928);
+           box-shadow:0 16px 40px rgba(3,7,14,.42); }
+
+  /* --- 月历卡 --- */
+  .cal { padding:19px 18px 16px; animation:a-card .75s cubic-bezier(.2,.85,.25,1) .92s both; }
+  .cal-head { display:flex; align-items:center; justify-content:space-between; }
+  .cal-head .ym { font-size:18px; font-weight:800; letter-spacing:1px; }
+  .cal-head .ym span { color:var(--blue); }
+  .cal-nav { display:flex; gap:6px; }
+  .cal-nav b { width:26px; height:26px; border-radius:8px; border:1px solid var(--line);
+               display:flex; align-items:center; justify-content:center; cursor:pointer;
+               color:var(--sub); font-weight:400; transition:all .18s; }
+  .cal-nav b:hover { color:var(--blue); border-color:rgba(56,189,248,.6); }
+  .cal-nav b svg { width:12px; height:12px; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-top:14px; }
+  .cal-grid .wk { text-align:center; font-size:10.5px; color:var(--dim); padding:3px 0 6px; letter-spacing:1px; }
+  .d { position:relative; height:40px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+       gap:3px; font-family:var(--mono); font-size:12.5px; color:var(--text);
+       border:1px solid transparent; border-radius:9px; cursor:pointer; transition:all .16s;
+       animation:a-cel .45s ease both; }
+  .cal-grid .d:nth-child(-n+14) { animation-delay:1.02s; }
+  .cal-grid .d:nth-child(n+15):nth-child(-n+21) { animation-delay:1.09s; }
+  .cal-grid .d:nth-child(n+22):nth-child(-n+28) { animation-delay:1.16s; }
+  .cal-grid .d:nth-child(n+29):nth-child(-n+35) { animation-delay:1.23s; }
+  .cal-grid .d:nth-child(n+36):nth-child(-n+42) { animation-delay:1.30s; }
+  .cal-grid .d:nth-child(n+43) { animation-delay:1.37s; }
+  .d:hover { border-color:var(--line); background:rgba(56,189,248,.06); }
+  .d.out { color:rgba(113,134,163,.38); cursor:default; }
+  .d.out:hover { border-color:transparent; background:none; }
+  .d .dot { width:5px; height:5px; border-radius:50%; }
+  .dot.g { background:var(--green); box-shadow:0 0 7px var(--green); }
+  .dot.y { background:var(--yellow); box-shadow:0 0 7px var(--yellow); }
+  .dot.r { background:var(--amber); box-shadow:0 0 7px var(--amber); }
+  .d.sel { border-color:rgba(56,189,248,.8); background:rgba(56,189,248,.13); color:var(--blue);
+           font-weight:700; box-shadow:0 0 18px rgba(56,189,248,.25), inset 0 0 10px rgba(56,189,248,.08); }
+  .d.sel::after { content:"今天"; position:absolute; top:-8px; right:-5px; padding:1px 5px;
+                  border-radius:5px; font-size:8.5px; font-weight:700; letter-spacing:1px;
+                  font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+                  color:#052033; background:var(--blue); box-shadow:0 0 10px rgba(56,189,248,.7); }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:15px; padding-top:13px;
+            border-top:1px dashed rgba(148,163,184,.22); font-size:11px; letter-spacing:1px; color:var(--sub); }
+  .legend span { display:flex; align-items:center; gap:6px; }
+  .cal-stats { display:grid; grid-template-columns:repeat(3,1fr); margin-top:14px;
+               border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .cal-stats div { padding:10px 4px 9px; text-align:center; background:rgba(15,23,38,.5); }
+  .cal-stats div + div { border-left:1px solid var(--line); }
+  .cal-stats b { display:block; font-family:var(--mono); font-size:17px; font-weight:700; color:var(--blue); }
+  .cal-stats div:nth-child(2) b { color:var(--green); }
+  .cal-stats div:nth-child(3) b { color:var(--amber); }
+  .cal-stats span { font-size:10px; letter-spacing:1.5px; color:var(--dim); }
+
+  /* --- 日志卡通用 --- */
+  .log + .log { margin-top:20px; }
+  .log1 { animation:a-card .8s cubic-bezier(.2,.85,.25,1) 1.32s both; }
+  .log2 { animation:a-card .8s cubic-bezier(.2,.85,.25,1) 1.66s both; }
+  .log-head { display:flex; align-items:center; gap:11px; flex-wrap:wrap;
+              padding:13px 17px; border-bottom:1px solid var(--line); background:rgba(56,189,248,.035); }
+  .plate { font-family:var(--mono); font-size:14px; font-weight:800; letter-spacing:2px;
+           color:#052033; padding:4px 12px; border-radius:7px;
+           background:linear-gradient(135deg,var(--blue2),var(--blue));
+           box-shadow:0 0 16px rgba(56,189,248,.35); }
+  .tag { font-size:10.5px; letter-spacing:1.5px; padding:3px 9px; border-radius:999px; border:1px solid; }
+  .tag.amber { color:var(--amber); border-color:rgba(245,158,11,.5); background:rgba(245,158,11,.08); }
+  .tag.blue { color:var(--blue); border-color:rgba(56,189,248,.45); background:rgba(56,189,248,.08); }
+  .tag.grey { color:var(--sub); border-color:rgba(148,163,184,.35); background:rgba(148,163,184,.07); }
+  .log-date { font-family:var(--mono); font-size:11.5px; letter-spacing:1px; color:var(--sub); }
+  .vt { margin-left:auto; display:inline-flex; align-items:center; gap:8px; padding:5px 12px;
+        border-radius:999px; border:1px solid; font-size:11.5px; font-weight:700; letter-spacing:1.5px; }
+  .vt small { font-family:var(--mono); font-weight:400; font-size:9px; letter-spacing:1.5px; opacity:.75; }
+  .vt.pass { color:var(--green); border-color:rgba(52,211,153,.45); background:rgba(52,211,153,.08); }
+  .vt.bad { color:var(--amber); border-color:rgba(245,158,11,.5); background:rgba(245,158,11,.08); }
+
+  /* --- 卡① 双栏 --- */
+  .log-body { display:grid; grid-template-columns:38% 1fr; }
+  .info { padding:16px 17px 14px; border-right:1px solid var(--line); }
+  .fld { margin-bottom:13px; }
+  .fld > label { display:flex; align-items:center; gap:7px; font-size:10px; font-weight:700;
+                 letter-spacing:2.5px; color:var(--dim); }
+  .fld > label svg { width:12.5px; height:12.5px; color:var(--blue); }
+  .fld .v { margin-top:7px; font-size:13.5px; font-weight:600; letter-spacing:.5px; line-height:1.6; }
+  .punch { margin-top:7px; border:1px solid var(--line); border-radius:10px; overflow:hidden;
+           background:rgba(15,23,38,.5); }
+  .p-row { display:flex; align-items:center; gap:8px; padding:8px 11px; font-size:12px; }
+  .p-row + .p-row { border-top:1px solid rgba(148,163,184,.1); }
+  .p-row .nm { width:34px; font-weight:700; letter-spacing:1px; }
+  .p-row .tm { font-family:var(--mono); font-size:11.5px; color:var(--sub); letter-spacing:.5px; }
+  .p-row .st { margin-left:auto; display:inline-flex; align-items:center; gap:5px; padding:2px 8px;
+               border-radius:999px; font-size:10px; font-weight:700; letter-spacing:1px; border:1px solid; }
+  .p-row .st svg { width:11px; height:11px; }
+  .st.ok { color:var(--green); border-color:rgba(52,211,153,.4); background:rgba(52,211,153,.07); }
+  .st.warn { color:var(--amber); border-color:rgba(245,158,11,.45); background:rgba(245,158,11,.07); }
+  .memo { margin-top:7px; padding:9px 12px; border-left:3px solid var(--yellow); border-radius:0 9px 9px 0;
+          background:rgba(251,191,36,.06); font-size:12.5px; line-height:1.7; }
+  .log-ops { display:flex; gap:9px; margin-top:15px; }
+  .op { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; cursor:pointer;
+        border:1px solid var(--line); border-radius:9px; background:rgba(15,23,38,.6);
+        font-size:11px; letter-spacing:1.5px; color:var(--sub); transition:all .16s; }
+  .op svg { width:12.5px; height:12.5px; }
+  .op:hover { color:var(--blue); border-color:rgba(56,189,248,.6); box-shadow:0 0 12px rgba(56,189,248,.2); }
+  .op.danger:hover { color:var(--amber); border-color:rgba(245,158,11,.6); box-shadow:0 0 12px rgba(245,158,11,.2); }
+
+  /* --- 照片墙 --- */
+  .photos { padding:16px 17px 17px; }
+  .ph-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
+  .ph-head b { font-size:12px; letter-spacing:2px; }
+  .ph-head b span { color:var(--blue); }
+  .ph-head small { font-family:var(--mono); font-size:9.5px; letter-spacing:1.5px; color:var(--dim); }
+  .ph-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .ph { position:relative; aspect-ratio:4/3; overflow:hidden; border-radius:10px;
+        border:1px solid rgba(148,163,184,.25); animation:a-ph .55s cubic-bezier(.2,.85,.3,1.1) both; }
+  .ph-grid .ph:nth-child(1){animation-delay:1.56s} .ph-grid .ph:nth-child(2){animation-delay:1.63s}
+  .ph-grid .ph:nth-child(3){animation-delay:1.70s} .ph-grid .ph:nth-child(4){animation-delay:1.77s}
+  .ph-grid .ph:nth-child(5){animation-delay:1.84s} .ph-grid .ph:nth-child(6){animation-delay:1.91s}
+  .ph::after { content:""; position:absolute; inset:0; pointer-events:none;
+               background:
+                 repeating-linear-gradient(45deg, rgba(255,255,255,.028) 0 1px, transparent 1px 4px),
+                 repeating-linear-gradient(0deg, rgba(4,8,14,.14) 0 1px, transparent 1px 3px),
+                 radial-gradient(120% 95% at 50% 18%, transparent 52%, rgba(4,8,14,.52) 100%); }
+  .ph-a { background:
+          repeating-linear-gradient(100deg, rgba(9,15,25,.55) 0 5px, transparent 5px 24px),
+          linear-gradient(168deg,#4A7196 0%,#2C4F70 40%,#16283C 68%,#0D1826 100%); }
+  .ph-b { background:
+          radial-gradient(130px 90px at 62% 28%, rgba(186,220,245,.4), transparent 70%),
+          linear-gradient(180deg,#33506E 0%,#16283E 55%,#0D1826 100%); }
+  .ph-c { background:
+          repeating-linear-gradient(0deg, rgba(52,211,153,.1) 0 3px, transparent 3px 20px),
+          linear-gradient(165deg,#1F4A44 0%,#14303A 50%,#0D1826 100%); }
+  .ph-d { background:
+          repeating-linear-gradient(-55deg, rgba(52,211,153,.09) 0 4px, transparent 4px 17px),
+          linear-gradient(170deg,#274D36 0%,#16303A 55%,#0F1B27 100%); }
+  .ph-e { background:
+          radial-gradient(110px 80px at 50% 88%, rgba(245,158,11,.28), transparent 72%),
+          linear-gradient(180deg,#4A3B2A 0%,#233246 45%,#0D1826 100%); }
+  .ph-f { background:
+          repeating-linear-gradient(90deg, rgba(56,189,248,.1) 0 3px, transparent 3px 22px),
+          linear-gradient(160deg,#2C4A6B 0%,#16304C 52%,#0B1420 100%); }
+  .ph .no { position:absolute; left:7px; bottom:6px; z-index:2; font-family:var(--mono);
+            font-size:9px; letter-spacing:1px; color:rgba(232,238,246,.9); text-shadow:0 1px 3px rgba(3,7,13,.9); }
+  .sync { position:absolute; top:6px; left:6px; z-index:2; display:inline-flex; align-items:center; gap:4px;
+          padding:2px 7px; border-radius:999px; font-size:8.5px; font-weight:700; letter-spacing:1px;
+          color:var(--blue); background:rgba(6,15,26,.85); border:1px solid rgba(56,189,248,.5); }
+  .sync svg { width:9px; height:9px; }
+  .bdg { position:absolute; right:6px; bottom:6px; z-index:2; display:inline-flex; align-items:center; gap:5px;
+         padding:2.5px 8px; border-radius:999px; font-size:9.5px; font-weight:700; letter-spacing:1px;
+         background:rgba(6,15,26,.88); border:1px solid; }
+  .bdg svg { width:10px; height:10px; }
+  .bdg.pass { color:var(--green); border-color:rgba(52,211,153,.55); }
+  .bdg.ing { color:var(--blue); border-color:rgba(56,189,248,.55); overflow:hidden; }
+  .bdg.ing::before { content:""; position:absolute; inset:0; pointer-events:none;
+         background:linear-gradient(100deg, transparent 20%, rgba(56,189,248,.25) 50%, transparent 80%);
+         background-size:60% 100%; background-repeat:no-repeat; animation:shimmer 1.8s linear infinite; }
+  .bdg.bad { color:var(--amber); border-color:rgba(245,158,11,.6); }
+  .bdg .dot-b { width:6px; height:6px; }
+  .bdg .dot-b::after { inset:-3px; border-width:1px; }
+  .ph.fail-ph { border-color:rgba(245,158,11,.55); }
+  .ph.fail-ph::before { content:""; position:absolute; inset:0; z-index:1;
+        background:repeating-linear-gradient(-45deg, rgba(245,158,11,.1) 0 8px, transparent 8px 16px); }
+
+  /* --- 卡② --- */
+  .reject { display:flex; align-items:center; gap:12px; margin:14px 17px 0; padding:11px 14px;
+            border:1px solid rgba(245,158,11,.4); border-left:3px solid var(--amber); border-radius:10px;
+            background:rgba(245,158,11,.07); }
+  .reject svg { width:17px; height:17px; flex:none; color:var(--amber); }
+  .reject b { font-size:12.5px; letter-spacing:1px; color:var(--amber); }
+  .reject p { margin-top:3px; font-size:11px; letter-spacing:.5px; color:var(--sub); }
+  .log2-body { display:grid; grid-template-columns:1fr auto; gap:16px; align-items:end;
+               padding:14px 17px 16px; }
+  .ph-row { display:grid; grid-template-columns:repeat(3,124px); gap:10px; }
+  .ph-row .ph { animation-delay:1.9s; }
+  .ph-row .ph:nth-child(2) { animation-delay:1.97s; }
+  .ph-row .ph:nth-child(3) { animation-delay:2.04s; }
+  .log2-note { margin-top:10px; font-family:var(--mono); font-size:10px; letter-spacing:1.5px; color:var(--dim); }
+  .log2-note em { font-style:normal; color:var(--amber); }
+
+  /* --- 页脚 --- */
+  .foot { position:relative; z-index:5; display:flex; justify-content:space-between; gap:14px;
+          padding:13px 28px 17px; border-top:1px solid var(--line);
+          font-family:var(--mono); font-size:10px; letter-spacing:1.5px; color:var(--dim);
+          animation:a-rise .6s 2s both; }
+  .foot em { font-style:normal; color:var(--blue); }
+
+  /* ===== 降级 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+  @media (max-width: 1280px) { .stage { zoom:.92; } }
+  @media (max-width: 1080px) { .stage { zoom:.8; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="kicker">PROPOSAL 11 // DATA COCKPIT</div>
+  <h1>方案 11 · <em>数据驾驶舱</em><small>环形仪表 × 大数字</small></h1>
+  <p>把出工台账开进驾驶舱 —— 仪表扫针定状态，大数字读出勤，呼吸灯标记每一条记录的生命体征。</p>
+</header>
+<div class="palette">
+  <span class="chip"><i style="background:#0D1420;color:#0D1420;border:1px solid #2A3B52"></i>底 #0D1420</span>
+  <span class="chip"><i style="background:#38BDF8;color:#38BDF8"></i>主蓝 #38BDF8</span>
+  <span class="chip"><i style="background:#34D399;color:#34D399"></i>成功绿 #34D399</span>
+  <span class="chip"><i style="background:#F59E0B;color:#F59E0B"></i>警示橙红 #F59E0B</span>
+  <span class="chip"><i style="background:#FBBF24;color:#FBBF24"></i>备注黄 #FBBF24</span>
+  <span class="chip"><i style="background:rgba(148,163,184,.35);color:#94A3B8;box-shadow:none"></i>网格线 rgba(148,163,184,.12)</span>
+</div>
+
+<main class="stage">
+  <div class="browser">
+    <div class="browser-bar">
+      <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+      <span class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+        <b>toolkit.j1net.com</b>/worklog
+      </span>
+    </div>
+
+    <div class="viewport">
+
+      <!-- 顶栏 -->
+      <div class="topbar a-wipe">
+        <div class="logo">
+          <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></i>
+          <b>SHADE <span>壹匣</span></b>
+        </div>
+        <nav class="t-nav">
+          <span class="t-item">工作台</span>
+          <span class="t-item on">出工日志</span>
+          <span class="t-item">通知中心</span>
+        </nav>
+        <div class="t-right">
+          <span class="live"><i class="dot-b"></i>数据实时同步</span>
+          <div class="u-chip"><span class="av">张</span><span>张三</span></div>
+        </div>
+      </div>
+
+      <div class="wrap">
+        <!-- 页头 -->
+        <div class="p-head">
+          <div>
+            <div class="k">MODULE / WORKLOG · 检修一班</div>
+            <h2><span class="mk"><i>出工日志</i></span></h2>
+            <p class="sub-t">月历色点看验证状态，点击日期查看当日记录</p>
+          </div>
+          <div class="today">
+            <b>2026.09.25</b>
+            <span><em>今天</em> · 星期五</span>
+          </div>
+        </div>
+
+        <!-- 操作区 -->
+        <div class="ops">
+          <div class="sel">检修一班
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+          </div>
+          <div class="stat-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V10M9.3 19.5V4.5M14.6 19.5v-6M20 19.5V7.5"/></svg>
+            共 <b data-roll="2" data-delay="620">2</b> 条日志 · <b data-roll="9" data-delay="700">9</b> 张照片
+          </div>
+          <div class="seg"><span class="on">全部</span><span>仅看我</span></div>
+          <div class="grow"></div>
+          <button type="button" class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M7.5 10L12 14.5 16.5 10"/><path d="M4.5 17.5v1.6a1.9 1.9 0 0 0 1.9 1.9h11.2a1.9 1.9 0 0 0 1.9-1.9v-1.6"/></svg>
+            从商旅拉取
+          </button>
+          <button type="button" class="btn primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+            新建日志
+          </button>
+        </div>
+
+        <!-- 页签行 -->
+        <div class="tabs">
+          <span class="tab-i on">记录</span>
+          <span class="tab-i">批量下载</span>
+          <span class="tab-i">汇总前核验</span>
+          <span class="tab-i">数据管理</span>
+          <span class="tab-i">工作任务单</span>
+          <span class="tab-i">费用汇总</span>
+          <span class="tab-i">派车汇总</span>
+          <span class="tab-i">派车对齐</span>
+        </div>
+
+        <!-- 顶部统计条 -->
+        <div class="kpis">
+          <div class="tile">
+            <div class="gauge">
+              <svg viewBox="0 0 120 120">
+                <defs>
+                  <linearGradient id="gg" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#38BDF8"/>
+                    <stop offset="100%" stop-color="#34D399"/>
+                  </linearGradient>
+                </defs>
+                <circle class="ticks" cx="60" cy="60" r="44"/>
+                <circle class="track" cx="60" cy="60" r="52"/>
+                <circle class="val" cx="60" cy="60" r="52"/>
+              </svg>
+              <div class="pin"><i></i></div>
+              <div class="ctr"><b><span data-roll="50" data-delay="1150">50</span><i>%</i></b><span>PASS</span></div>
+            </div>
+            <div>
+              <div class="lab">今日验证通过率</div>
+              <div class="sub2" style="margin-top:10px">已验证 <em style="color:var(--green);font-style:normal">1</em> 条 · 待核实 <em>1</em> 条</div>
+            </div>
+          </div>
+          <div class="tile">
+            <div>
+              <div class="lab">今日出勤</div>
+              <div class="big"><span data-roll="6.5" data-dec="1" data-delay="820">6.5</span><i>h</i></div>
+              <div class="sub2">2 人打卡 · <em>1 人缺终卡</em></div>
+            </div>
+            <div class="bars"><span></span><span></span><span></span><span></span><span></span><span></span><span class="on"></span></div>
+          </div>
+          <div class="tile">
+            <div>
+              <div class="lab">本月出工</div>
+              <div class="big"><em><span data-roll="3" data-delay="900">3</span></em><i>天</i></div>
+              <div class="sub2">09.12 · 09.18 · 09.25</div>
+            </div>
+          </div>
+          <div class="tile warn">
+            <div>
+              <div class="lab">待核实事项</div>
+              <div class="big"><span data-roll="1" data-delay="980">1</span><i>项</i></div>
+              <div class="sub2">第 2 条 · 照片地点不符</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 主体两栏 -->
+      <div class="main">
+
+        <!-- 左：月历卡 -->
+        <section class="panel cal">
+          <div class="cal-head">
+            <div class="ym">2026 <span>年</span> 9 <span>月</span></div>
+            <div class="cal-nav">
+              <b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6l-6 6 6 6"/></svg></b>
+              <b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6l6 6-6 6"/></svg></b>
+            </div>
+          </div>
+          <div class="cal-grid">
+            <span class="wk">一</span><span class="wk">二</span><span class="wk">三</span><span class="wk">四</span><span class="wk">五</span><span class="wk">六</span><span class="wk">日</span>
+
+            <span class="d out">31</span><span class="d">1</span><span class="d">2</span><span class="d">3</span><span class="d">4</span><span class="d">5</span><span class="d">6</span>
+
+            <span class="d">7</span><span class="d">8</span><span class="d">9</span><span class="d">10</span><span class="d">11</span>
+            <span class="d">12<i class="dot g"></i></span><span class="d">13</span>
+
+            <span class="d">14</span><span class="d">15</span><span class="d">16</span><span class="d">17</span>
+            <span class="d">18<i class="dot y"></i></span><span class="d">19</span><span class="d">20</span>
+
+            <span class="d">21</span><span class="d">22</span><span class="d">23</span><span class="d">24</span>
+            <span class="d sel">25<i class="dot r"></i></span><span class="d">26</span><span class="d">27</span>
+
+            <span class="d">28</span><span class="d">29</span><span class="d">30</span>
+            <span class="d out">1</span><span class="d out">2</span><span class="d out">3</span><span class="d out">4</span>
+          </div>
+          <div class="legend">
+            <span><i class="dot g"></i>已验证</span>
+            <span><i class="dot y"></i>有备注</span>
+            <span><i class="dot r"></i>待核实</span>
+          </div>
+          <div class="cal-stats">
+            <div><b>3</b><span>出工天数</span></div>
+            <div><b>9</b><span>照片归档</span></div>
+            <div><b>1</b><span>待核实</span></div>
+          </div>
+        </section>
+
+        <!-- 右：日志卡片流 -->
+        <section>
+          <!-- 日志卡 ① -->
+          <article class="panel log log1">
+            <div class="log-head">
+              <span class="plate">鄂A·D12345</span>
+              <span class="tag amber">跨班</span>
+              <span class="log-date">2026.09.25 · 第 1 / 2 条</span>
+              <span class="vt pass"><i class="dot-b"></i>验证通过 <small>VERIFIED</small></span>
+            </div>
+            <div class="log-body">
+              <div class="info">
+                <div class="fld">
+                  <label><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19c3-1 5-4 5-8V5l3-2 3 2v6c0 4 2 7 5 8"/><path d="M9 13.5h6"/></svg>巡视内容</label>
+                  <div class="v">110kV 锦城线 #12–#28 塔巡视</div>
+                </div>
+                <div class="fld">
+                  <label><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.8 19.2a5.2 5.2 0 0 1 10.4 0"/><circle cx="16.8" cy="9.5" r="2.4"/><path d="M16 14.6a4.4 4.4 0 0 1 5.2 4.3"/></svg>用车人打卡</label>
+                  <div class="punch">
+                    <div class="p-row">
+                      <span class="nm">王强</span>
+                      <span class="tm">07:58 / 17:32</span>
+                      <span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>双卡齐</span>
+                    </div>
+                    <div class="p-row">
+                      <span class="nm">李军</span>
+                      <span class="tm">08:02 / --:--</span>
+                      <span class="st warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L2.8 19.5h18.4z"/><path d="M12 10v4.2"/><circle cx="12" cy="17" r=".4" fill="currentColor"/></svg>缺终卡</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="fld">
+                  <label><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.4-6.5-10.2a6.5 6.5 0 0 1 13 0C18.5 15.6 12 21 12 21z"/><circle cx="12" cy="10.6" r="2.2"/></svg>目的地</label>
+                  <div class="v">张河变电站</div>
+                </div>
+                <div class="fld">
+                  <label><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2a2 2 0 0 1 2.9 2.9L8.5 18.3 4.6 19.3l1-3.9z"/></svg>备注</label>
+                  <div class="memo">#18 塔绝缘子更换完成，明日复验。</div>
+                </div>
+                <div class="log-ops">
+                  <span class="op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 3.5V7h-3.5"/></svg>从商旅同步</span>
+                  <span class="op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2a2 2 0 0 1 2.9 2.9L8.5 18.3 4.6 19.3l1-3.9z"/></svg>备注</span>
+                  <span class="op danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6V4.4A1.4 1.4 0 0 1 10.9 3h2.2a1.4 1.4 0 0 1 1.4 1.4V6"/><path d="M6.5 6.5l.8 12.1a1.8 1.8 0 0 0 1.8 1.7h5.8a1.8 1.8 0 0 0 1.8-1.7l.8-12.1"/><path d="M10 10.5v6M14 10.5v6"/></svg>删除</span>
+                </div>
+              </div>
+              <div class="photos">
+                <div class="ph-head">
+                  <b>现场照片 <span>6</span> 张</b>
+                  <small>已同步商旅 3 / 6</small>
+                </div>
+                <div class="ph-grid">
+                  <div class="ph ph-a">
+                    <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>已同步商旅</span>
+                    <span class="no">P01 · #12 塔基</span>
+                    <span class="bdg pass"><i class="dot-b"></i>核验通过</span>
+                  </div>
+                  <div class="ph ph-b">
+                    <span class="no">P02 · #15 绝缘子</span>
+                    <span class="bdg pass"><i class="dot-b"></i>核验通过</span>
+                  </div>
+                  <div class="ph ph-c">
+                    <span class="no">P03 · #18 更换后</span>
+                    <span class="bdg ing"><i class="dot-b"></i>验证中</span>
+                  </div>
+                  <div class="ph ph-d">
+                    <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>已同步商旅</span>
+                    <span class="no">P04 · 通道树障</span>
+                    <span class="bdg pass"><i class="dot-b"></i>核验通过</span>
+                  </div>
+                  <div class="ph ph-e fail-ph">
+                    <span class="no">P05 · #22 金具</span>
+                    <span class="bdg bad"><i class="dot-b"></i>验证失败</span>
+                  </div>
+                  <div class="ph ph-f">
+                    <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>已同步商旅</span>
+                    <span class="no">P06 · #28 终端塔</span>
+                    <span class="bdg pass"><i class="dot-b"></i>核验通过</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- 日志卡 ② -->
+          <article class="panel log log2">
+            <div class="log-head">
+              <span class="tag blue">站内作业</span>
+              <span class="tag grey">未出车</span>
+              <span class="log-date">2026.09.25 · 第 2 / 2 条</span>
+              <span class="vt bad"><i class="dot-b"></i>未通过 <small>REJECTED</small></span>
+            </div>
+            <div class="reject">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L2.8 19.5h18.4z"/><path d="M12 10v4.2"/><circle cx="12" cy="17" r=".4" fill="currentColor"/></svg>
+              <div>
+                <b>未通过原因：照片地点与目的地不符</b>
+                <p>重新上传现场照片后，系统将自动重新核验。</p>
+              </div>
+            </div>
+            <div class="log2-body">
+              <div>
+                <div class="ph-row">
+                  <div class="ph ph-e fail-ph">
+                    <span class="no">Q01 · 开关机构</span>
+                    <span class="bdg bad"><i class="dot-b"></i>验证失败</span>
+                  </div>
+                  <div class="ph ph-b fail-ph">
+                    <span class="no">Q02 · 端子箱</span>
+                    <span class="bdg bad"><i class="dot-b"></i>验证失败</span>
+                  </div>
+                  <div class="ph ph-d fail-ph">
+                    <span class="no">Q03 · 主变本体</span>
+                    <span class="bdg bad"><i class="dot-b"></i>验证失败</span>
+                  </div>
+                </div>
+                <div class="log2-note">GEO-CHECK ▸ 照片定位与目的地偏差 <em>4.2 KM</em> · 阈值 0.5 KM</div>
+              </div>
+              <div class="log-ops">
+                <span class="op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16.5v-11"/><path d="M7.5 9L12 4.5 16.5 9"/><path d="M4.5 17.5v1.6a1.9 1.9 0 0 0 1.9 1.9h11.2a1.9 1.9 0 0 0 1.9-1.9v-1.6"/></svg>重新上传</span>
+                <span class="op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2a2 2 0 0 1 2.9 2.9L8.5 18.3 4.6 19.3l1-3.9z"/></svg>备注</span>
+                <span class="op danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6V4.4A1.4 1.4 0 0 1 10.9 3h2.2a1.4 1.4 0 0 1 1.4 1.4V6"/><path d="M6.5 6.5l.8 12.1a1.8 1.8 0 0 0 1.8 1.7h5.8a1.8 1.8 0 0 0 1.8-1.7l.8-12.1"/><path d="M10 10.5v6M14 10.5v6"/></svg>删除</span>
+              </div>
+            </div>
+          </article>
+        </section>
+      </div>
+
+      <!-- 页脚 -->
+      <div class="foot">
+        <span>SHADE <em>壹匣</em> · WORKLOG MODULE · 检修一班</span>
+        <span>数据同步 <em>2026-09-25 18:04:22</em> · PASS RATE 50%</span>
+      </div>
+
+    </div>
+  </div>
+  <div class="cap"><b>11</b>Web · 出工日志 / 记录页签 —— 仪表扫针 · 数字滚动 · 状态呼吸</div>
+</main>
+
+<script>
+(function () {
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) return; /* 降级：HTML 中已是终值 */
+  var els = document.querySelectorAll('[data-roll]');
+  for (var i = 0; i < els.length; i++) {
+    (function (el) {
+      var target = parseFloat(el.getAttribute('data-roll')) || 0;
+      var dec = parseInt(el.getAttribute('data-dec') || '0', 10);
+      var delay = parseInt(el.getAttribute('data-delay') || '0', 10);
+      var dur = 1300, t0 = null;
+      function frame(ts) {
+        if (!t0) t0 = ts;
+        var p = Math.min((ts - t0) / dur, 1);
+        var e = 1 - Math.pow(1 - p, 4);
+        el.textContent = (target * e).toFixed(dec);
+        if (p < 1) requestAnimationFrame(frame);
+        else el.textContent = target.toFixed(dec);
+      }
+      el.textContent = (0).toFixed(dec);
+      setTimeout(function () { requestAnimationFrame(frame); }, delay);
+    })(els[i]);
+  }
+})();
+</script>
+
+</body>
+</html>

@@ -1,5 +1,5 @@
 <!-- 题库刷题 · 题库主页（参考考试宝科目页：练习入口与错题/收藏都跟着题库走）
-     信息卡（卡顶警示斜纹条为全局 hazard-top；题数/已练/正确率 + 进度条 + 解析状态）；
+     信息卡（题数/已练/正确率 + 进度条 + 解析状态）；
      宫格四入口：顺序练习（服务端断点进度，跨端续刷）/ 随机练习 / 我的错题（本题库口径，进错题本页）/ 我的收藏（进刷题）；
      底部「移出题库」红色文字按钮（记录与错题保留，可从题库池重新添加） -->
 <navbar back title="{{navTitle}}" />
@@ -24,27 +24,27 @@
       <span>{{bank.pct}}%</span>
     </view>
     <view class="an-tip" wx:if="{{bank.analyzing}}">
-      <t-icon name="time" size="24rpx" color="#A89F8A" />{{bank.analyzingText}}
+      <t-icon name="time" size="24rpx" color="rgba(17,17,17,.4)" />{{bank.analyzingText}}
     </view>
   </view>
 
   <!-- 练习入口宫格（错题/收藏数为本题库个人口径） -->
   <view class="grid">
     <view class="g-item" style="animation-delay: 0ms;" hover-class="hover-bg-warm" bindtap="onSeqTap">
-      <view class="icon-box"><t-icon name="view-list" size="40rpx" color="#F26D21" /></view>
+      <view class="icon-box"><t-icon name="view-list" size="40rpx" color="#1D4ED8" /></view>
       <b>顺序练习</b>
       <p>{{seqText}}</p>
     </view>
     <view class="g-item" style="animation-delay: 40ms;" hover-class="hover-bg-warm" bindtap="onRandTap">
-      <view class="icon-box"><t-icon name="swap" size="40rpx" color="#F26D21" /></view>
+      <view class="icon-box"><t-icon name="swap" size="40rpx" color="#1D4ED8" /></view>
       <b>随机练习</b>
     </view>
     <view class="g-item" style="animation-delay: 80ms;" hover-class="hover-bg-warm" bindtap="onWrongTap">
-      <view class="icon-box red"><t-icon name="close-circle" size="40rpx" color="#CF4444" /></view>
+      <view class="icon-box red"><t-icon name="close-circle" size="40rpx" color="#D22730" /></view>
       <b>我的错题<span class="cnt red" wx:if="{{bank.wrongCount}}">{{bank.wrongCount}}</span></b>
     </view>
     <view class="g-item" style="animation-delay: 120ms;" hover-class="hover-bg-warm" bindtap="onFavTap">
-      <view class="icon-box"><t-icon name="star" size="40rpx" color="#F26D21" /></view>
+      <view class="icon-box"><t-icon name="star" size="40rpx" color="#1D4ED8" /></view>
       <b>我的收藏<span class="cnt" wx:if="{{bank.favCount}}">{{bank.favCount}}</span></b>
     </view>
   </view>
@@ -52,7 +52,7 @@
   <!-- 移出题库 -->
   <view class="leave-wrap">
     <view class="leave" hover-class="hover-opacity" bindtap="onLeave">
-      <t-icon name="delete" size="28rpx" color="#CF4444" />移出题库
+      <t-icon name="delete" size="28rpx" color="#D22730" />移出题库
     </view>
   </view>
 </view>

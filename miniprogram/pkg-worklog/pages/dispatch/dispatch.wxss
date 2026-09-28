@@ -1,12 +1,13 @@
-/* 出工日志 · 派车对齐页（token 同 app.wxss 方案五；底部弹层 .sheet / .sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
+/* 出工日志 · 派车对齐页（token 同 app.wxss 包豪斯几何；底部弹层 .sheet / .sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
 @import '../../style/common.wxss';
 
-/* ---------- 卡片（同 sheet 页族：白卡圆角 + 藏青主按钮） ---------- */
+/* ---------- 卡片（同 sheet 页族：白卡直角 + 墨边 + 浅色硬影 + 墨黑主按钮） ---------- */
 .card {
   background: #ffffff;
-  border-radius: 20rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   padding: 28rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.12);
 }
 
 .card + .card,
@@ -29,8 +30,8 @@
 
 /* ---------- 对齐口径说明卡（虚线描边浅纸底，同网页端 .pa-rule） ---------- */
 .rule {
-  border: 2rpx dashed #d9cfba;
-  background: #fbf9f3;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  background: #f8f6f1;
   box-shadow: none;
 }
 
@@ -38,13 +39,13 @@
   font-size: 26rpx;
   font-weight: 800;
   letter-spacing: 2rpx;
-  color: #22314e;
+  color: #111111;
 }
 
 .rule-p {
   margin-top: 10rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.9;
 }
 
@@ -56,16 +57,16 @@
 .r-t {
   font-size: 27rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
 }
 
 .r-s {
   font-size: 20rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   margin-top: 6rpx;
 }
 
-/* 已选文件 chips（橙浅底 + 移除叉） */
+/* 已选文件 chips（直角蓝签 + 移除叉） */
 .fchips {
   margin-top: 20rpx;
   display: flex;
@@ -79,9 +80,10 @@
   gap: 8rpx;
   max-width: 100%;
   padding: 8rpx 16rpx;
-  border-radius: 14rpx;
-  background: #fdeee2;
-  color: #f26d21;
+  border: 2rpx solid #1d4ed8;
+  border-radius: 0;
+  background: #edf2fe;
+  color: #1d4ed8;
   font-size: 22rpx;
   font-weight: 700;
 }
@@ -104,10 +106,10 @@
 .pick {
   margin-top: 22rpx;
   height: 96rpx;
-  border-radius: 16rpx;
-  background: #f0ebdd;
-  border: 3rpx dashed #d9cfba;
-  color: #a89f8a;
+  border-radius: 0;
+  background: #efebe0;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  color: rgba(17,17,17,.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -121,12 +123,12 @@
   opacity: 0.45;
 }
 
-/* 「开始对齐」藏青主按钮 */
+/* 「开始对齐」墨黑主按钮（直角 + 墨挤出硬影） */
 .go {
   margin-top: 22rpx;
   height: 88rpx;
-  border-radius: 16rpx;
-  background: #22314e;
+  border-radius: 0;
+  background: #111111;
   color: #ffffff;
   font-size: 27rpx;
   font-weight: 700;
@@ -134,6 +136,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
 }
 
 .go.disabled {
@@ -151,38 +154,38 @@
   width: calc((100% - 32rpx) / 3);
   box-sizing: border-box;
   background: #ffffff;
-  border: 2rpx solid #e8e0cd;
-  border-radius: 16rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   padding: 18rpx 20rpx;
 }
 
 .sum .n {
   font-size: 36rpx;
   font-weight: 800;
-  color: #22314e;
+  color: #111111;
 }
 
 .sum .t {
   margin-top: 4rpx;
   font-size: 20rpx;
-  color: #6b7690;
+  color: #5c5748;
   letter-spacing: 1rpx;
 }
 
 .sum.ok .n {
-  color: #2ba471;
+  color: #1e9e50;
 }
 
 .sum.warn .n {
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 .sum.bad .n {
-  color: #cf4444;
+  color: #d22730;
 }
 
 .sum.mut .n {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .hint {
@@ -190,7 +193,7 @@
   padding: 0 8rpx;
   font-size: 22rpx;
   line-height: 1.8;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 /* ---------- 不一致清单行 ---------- */
@@ -199,8 +202,8 @@
   align-items: center;
   gap: 16rpx;
   background: #ffffff;
-  border: 2rpx solid #e8e0cd;
-  border-radius: 16rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   padding: 20rpx 24rpx;
 }
 
@@ -227,22 +230,22 @@
 .row-date {
   font-size: 26rpx;
   font-weight: 800;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 1rpx;
 }
 
-/* 差异徽章（配色同网页端 .pa-badge） */
+/* 差异徽章（直角小签；配色同网页端 .pa-badge） */
 .pa-badge {
   font-size: 20rpx;
   font-weight: 700;
   padding: 2rpx 14rpx;
-  border-radius: 999rpx;
+  border-radius: 0;
   letter-spacing: 1rpx;
 }
 
 .pa-badge.plate {
-  background: #fdeee2;
-  color: #f26d21;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 .pa-badge.dest {
@@ -252,12 +255,12 @@
 
 .pa-badge.mem {
   background: #fdecec;
-  color: #cf4444;
+  color: #d22730;
 }
 
 .pa-badge.none-sys {
   background: #efebe0;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .pa-badge.none-sheet {
@@ -268,7 +271,7 @@
 .row-sum {
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.5;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -277,40 +280,40 @@
 }
 
 .seg.b {
-  color: #22314e;
+  color: #111111;
   font-weight: 700;
 }
 
 .seg.hl {
-  color: #f26d21;
+  color: #1d4ed8;
   font-weight: 800;
 }
 
 .seg.hl-r {
-  color: #cf4444;
+  color: #d22730;
   font-weight: 800;
 }
 
 .seg.vs {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .row-act {
   flex: none;
   font-size: 22rpx;
   font-weight: 700;
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 .row-act.yes {
-  color: #2ba471;
+  color: #1e9e50;
 }
 
 .allok {
   padding: 48rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 /* ---------- 对照弹层 ---------- */
@@ -319,10 +322,10 @@
   margin-top: 24rpx;
 }
 
-/* 对照列（弹层内上下排：表格只读 / 卡片可改；标题左侧 4px 橙竖条同板块标题规范） */
+/* 对照列（弹层内上下排：表格只读 / 卡片可改；标题左侧 8rpx 蓝方块同板块标题规范） */
 .cmp-col {
-  border: 2rpx solid #e8e0cd;
-  border-radius: 16rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -339,29 +342,29 @@
   font-size: 24rpx;
   font-weight: 800;
   letter-spacing: 2rpx;
-  color: #22314e;
-  border-bottom: 2rpx solid #e8e0cd;
-  background: #fbf9f3;
+  color: #111111;
+  border-bottom: 2rpx solid #e7e1d2;
+  background: #f8f6f1;
 }
 
 .cmp-h::before {
   content: '';
   width: 8rpx;
   height: 24rpx;
-  border-radius: 4rpx;
-  background: #f26d21;
+  border-radius: 0;
+  background: #1d4ed8;
 }
 
 .cmp-h .sub {
   font-size: 20rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   font-weight: 400;
 }
 
 .cmp-h .src {
   margin-left: auto;
   font-size: 20rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   font-weight: 400;
   max-width: 40%;
   overflow: hidden;
@@ -377,7 +380,7 @@
   display: flex;
   gap: 18rpx;
   padding: 14rpx 0;
-  border-bottom: 2rpx dashed #e8e0cd;
+  border-bottom: 2rpx dashed #e7e1d2;
   font-size: 24rpx;
   align-items: center;
 }
@@ -393,7 +396,7 @@
 .cmp-r .k {
   flex: none;
   width: 120rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 2rpx;
   padding-top: 4rpx;
 }
@@ -402,19 +405,19 @@
   flex: 1;
   min-width: 0;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
   word-break: break-all;
   line-height: 1.6;
 }
 
-/* 差异高亮：橙 = 可改差异（车牌 / 目的地），红 = 用车人差异 */
+/* 差异高亮：蓝 = 可改差异（车牌 / 目的地），红 = 用车人差异 */
 .cmp-r .v.diff {
-  color: #f26d21;
+  color: #1d4ed8;
   font-weight: 800;
 }
 
 .cmp-r .v.diff-bad {
-  color: #cf4444;
+  color: #d22730;
   font-weight: 800;
 }
 
@@ -423,7 +426,7 @@
   min-width: 0;
 }
 
-/* 下拉选择行（白底描边圆角，同输入框 token） */
+/* 下拉选择行（白底墨边直角，同输入框 token） */
 .pick-val {
   display: flex;
   align-items: center;
@@ -432,28 +435,28 @@
   height: 72rpx;
   padding: 0 20rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 12rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   font-size: 26rpx;
-  color: #22314e;
+  color: #111111;
   font-weight: 600;
   box-sizing: border-box;
 }
 
 .pick-val.warn {
-  border-color: #f26d21;
+  border-color: #1d4ed8;
   background: #fffbf6;
 }
 
-/* 派车单号单行输入（与 .pick-val 同款白底描边圆角） */
+/* 派车单号单行输入（与 .pick-val 同款白底墨边直角） */
 .ono-in {
   height: 72rpx;
   padding: 0 20rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 12rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   font-size: 26rpx;
-  color: #22314e;
+  color: #111111;
   font-weight: 600;
   box-sizing: border-box;
 }
@@ -461,26 +464,26 @@
 .note {
   margin-top: 8rpx;
   font-size: 20rpx;
-  color: #f26d21;
+  color: #1d4ed8;
   font-weight: 600;
   line-height: 1.7;
 }
 
 .note.red {
-  color: #cf4444;
+  color: #d22730;
 }
 
 .linkbtn {
   margin-left: 10rpx;
   padding: 2rpx 14rpx;
-  border: 2rpx solid #f26d21;
-  border-radius: 8rpx;
-  color: #f26d21;
+  border: 2rpx solid #1d4ed8;
+  border-radius: 0;
+  color: #1d4ed8;
   font-size: 20rpx;
   font-weight: 700;
 }
 
-/* 用车人点亮 chips：点亮=橙实底；extra 红点=卡片多出；add 绿虚框=表格有卡片缺（点亮后绿实底） */
+/* 用车人点亮 chips：直角 + 墨边；点亮=蓝底白字 + 墨硬影；extra 红点=卡片多出；add 绿虚框=表格有卡片缺（点亮后绿实底） */
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -491,10 +494,10 @@
   min-width: 120rpx;
   height: 60rpx;
   padding: 0 20rpx;
-  border-radius: 30rpx;
-  border: 2rpx solid #e3dccb;
+  border-radius: 0;
+  border: 3rpx solid #111111;
   background: #ffffff;
-  color: #6b7690;
+  color: #111111;
   font-size: 24rpx;
   font-weight: 600;
   display: flex;
@@ -504,9 +507,10 @@
 }
 
 .chip.on {
-  background: #f26d21;
-  border-color: #f26d21;
+  background: #1d4ed8;
+  border-color: #111111;
   color: #ffffff;
+  box-shadow: 4rpx 4rpx 0 #111111;
 }
 
 .chip.extra {
@@ -521,23 +525,24 @@
   width: 14rpx;
   height: 14rpx;
   border-radius: 50%;
-  background: #cf4444;
+  background: #d22730;
 }
 
 .chip.extra.on {
-  border-color: #cf4444;
+  border-color: #d22730;
   background: #fdecec;
-  color: #cf4444;
+  color: #d22730;
+  box-shadow: 4rpx 4rpx 0 #d22730;
 }
 
 .chip.add {
   border-style: dashed;
-  border-color: #2ba471;
-  color: #2ba471;
+  border-color: #1e9e50;
+  color: #1e9e50;
 }
 
 .chip.add.on {
-  background: #2ba471;
+  background: #1e9e50;
   border-style: solid;
   color: #ffffff;
 }
@@ -545,7 +550,7 @@
 /* 巡视内容只读展示 */
 .patrol-ro {
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.8;
   padding-top: 6rpx;
 }
@@ -553,12 +558,12 @@
 .patrol-ro .sub {
   display: block;
   font-size: 20rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .dlg-tip {
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 2;
   padding: 0 8rpx;
 }
@@ -578,25 +583,26 @@
 .btn-mini {
   height: 56rpx;
   padding: 0 24rpx;
-  border-radius: 12rpx;
-  border: 2rpx solid #e3dccb;
+  border-radius: 0;
+  border: 3rpx solid #111111;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 24rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
+  box-sizing: border-box;
 }
 
 .btn-mini.disabled {
   color: #c6ba9c;
-  border-color: #ede6d4;
+  border-color: #e7e1d2;
 }
 
 .skip {
   font-size: 24rpx;
-  color: #6b7690;
+  color: #5c5748;
   font-weight: 700;
   padding: 8rpx 12rpx;
 }

@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<!--
+  重构方案三（比选稿 03）：新野兽派 Neo-Brutalism
+  主色板：纸底 #FFFCF5 ｜ 墨黑 #111111 ｜ 撞橙 #FF4D00 ｜ 撞蓝 #3B82F6 ｜ 明黄 #FFE500
+  配色说明：完全脱离原「安全橙/藏青」体系——米白纸面 + 高饱和撞色块（橙/蓝/黄轮换）+ 统一墨黑描边，
+            所有正文一律墨黑 #111111（对橙底 5.7:1、蓝底 5.1:1、黄底 17.6:1、纸底 17.9:1，均 ≥4.5:1）。
+  设计要点：
+  1. 3px 粗黑描边 + 6px 硬阴影（box-shadow 无模糊），所有卡片/按钮/胶囊统一「色块贴纸」语言；
+  2. 超粗标题（800~900 字重、紧排行高）+ 微旋转贴纸徽章（-4deg 明黄「班组管理员」），制造手工拼贴张力；
+  3. 应用卡橙/蓝/黄/白撞色轮换，「敬请期待」改 3px 虚线墨黑描边置灰，语义与色块体系自洽；
+  4. 签名动效：回弹弹入（cubic-bezier 过冲曲线，各板块有序时延的编排式入场）+ hover 位移吃阴影
+     （卡片向阴影方向移动 4px、阴影同步收敛为 2px，按下时完全吃掉阴影）；
+  5. 氛围动效：贴纸徽章轻微摇摆 + 未读胶囊圆点呼吸，克制点缀不喧宾夺主；
+  落地注意事项：
+  - 对 TDesign / 浏览器默认样式需全局覆写圆角与阴影（--td-radius-*: 按稿；阴影全部改实色偏移）；
+  - 硬阴影在低端机滚动重绘成本低（无 blur），性能友好；
+  - 撞色块仅用于卡片底与贴纸，正文永远墨黑，保证可读性与对比度合规；
+  - 已内置 prefers-reduced-motion 降级：关闭全部动画与过渡，hover 仅保留阴影收敛（瞬时）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>03 · 新野兽派 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#FFFCF5; --ink:#111111;
+    --org:#FF4D00; --blue:#3B82F6; --yel:#FFE500;
+    --bd:3px solid var(--ink);
+    --sh:6px 6px 0 var(--ink);
+    --sh-sm:4px 4px 0 var(--ink);
+    --pop:cubic-bezier(.2,1.45,.36,1);
+  }
+  body {
+    background:var(--paper);
+    font-family:"Arial Black","Helvetica Neue",Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    padding:56px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(rgba(17,17,17,.055) 1.2px, transparent 1.3px);
+    background-size:26px 26px;
+  }
+
+  /* ===== 页面顶部标注区 ===== */
+  .page-head { text-align:center; margin-bottom:40px; }
+  .page-head h1 { font-size:34px; font-weight:900; letter-spacing:1px; }
+  .page-head h1 em { font-style:normal; background:var(--yel); border:var(--bd); padding:0 10px;
+                     box-shadow:var(--sh-sm); display:inline-block; transform:rotate(-2deg); }
+  .page-head p { margin:18px auto 0; max-width:640px; font-size:14px; font-weight:700;
+                 line-height:1.9; letter-spacing:.5px; }
+  .palette { margin-top:22px; display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
+  .chip { display:inline-flex; align-items:center; gap:8px; background:#fff; border:var(--bd);
+          box-shadow:var(--sh-sm); padding:7px 14px; font-size:12px; font-weight:800; letter-spacing:1px; }
+  .chip i { width:14px; height:14px; border:2px solid var(--ink); border-radius:50%; }
+
+  /* ===== 展厅舞台 ===== */
+  .stage { display:flex; flex-direction:column; align-items:center; gap:26px; margin-top:8px; }
+  .cap { font-size:14px; font-weight:900; letter-spacing:2px; display:flex; align-items:center; gap:10px; }
+  .cap::before { content:""; width:14px; height:14px; background:var(--org); border:var(--bd); transform:rotate(-6deg); }
+
+  /* ===== 浏览器窗口框 ===== */
+  .browser { width:min(1180px,96vw); background:var(--paper); border:var(--bd); box-shadow:10px 10px 0 var(--ink); }
+  .browser-bar { height:52px; border-bottom:var(--bd); background:#fff; display:flex; align-items:center;
+                 gap:9px; padding:0 18px; }
+  .bdot { width:14px; height:14px; border:var(--bd); border-radius:50%; }
+  .bdot.r { background:var(--org); } .bdot.y { background:var(--yel); } .bdot.b { background:var(--blue); }
+  .url { flex:1; max-width:460px; margin:0 auto; height:32px; background:var(--paper);
+         border:var(--bd); border-radius:999px; display:flex; align-items:center; justify-content:center;
+         gap:7px; font-size:12px; font-weight:700; letter-spacing:.5px; }
+  .url svg { width:13px; height:13px; }
+
+  /* ===== 编排式入场：回弹弹入 ===== */
+  @keyframes popIn {
+    0%   { opacity:0; transform:translateY(34px) scale(.92); }
+    100% { opacity:1; transform:translateY(0) scale(1); }
+  }
+  .ai { opacity:0; animation:popIn .65s var(--pop) forwards; }
+  .d1 { animation-delay:.05s; } .d2 { animation-delay:.16s; } .d3 { animation-delay:.28s; }
+  .d4 { animation-delay:.40s; } .d5 { animation-delay:.52s; } .d6 { animation-delay:.64s; }
+  .app-card { animation-delay:calc(.5s + var(--i) * .09s); }
+  .ext-card { animation-delay:calc(.95s + var(--i) * .09s); }
+  /* 弹入时保留卡片自身的微旋转 */
+  .app-card:nth-child(odd)  { --rot:-1.2deg; }
+  .app-card:nth-child(even) { --rot:1.1deg; }
+  .app-card.ai { animation-name:popInRot; }
+  @keyframes popInRot {
+    0%   { opacity:0; transform:translateY(34px) scale(.92) rotate(calc(var(--rot) * 4)); }
+    100% { opacity:1; transform:translateY(0) scale(1) rotate(var(--rot)); }
+  }
+
+  /* ===== 顶栏 ===== */
+  .topnav { height:70px; border-bottom:var(--bd); background:#fff; display:flex; align-items:center;
+            padding:0 26px; gap:16px; }
+  .logo { display:flex; align-items:center; gap:12px; }
+  .logo i { width:40px; height:40px; background:var(--org); border:var(--bd); box-shadow:var(--sh-sm);
+            display:flex; align-items:center; justify-content:center; transform:rotate(-4deg); }
+  .logo i svg { width:22px; height:22px; color:#fff; }
+  .logo b { font-size:19px; font-weight:900; letter-spacing:1px; }
+  .nav-menu { display:flex; gap:10px; margin-left:30px; }
+  .nav-item { font-size:14px; font-weight:800; letter-spacing:2px; padding:8px 18px; cursor:pointer;
+              border:3px solid transparent; transition:transform .12s var(--pop); }
+  .nav-item:hover { transform:translateY(-2px); }
+  .nav-item.on { background:var(--yel); border:var(--bd); box-shadow:var(--sh-sm); }
+  .nav-right { margin-left:auto; display:flex; align-items:center; gap:12px; }
+  .nav-bell { position:relative; width:40px; height:40px; background:#fff; border:var(--bd);
+              box-shadow:var(--sh-sm); display:flex; align-items:center; justify-content:center;
+              cursor:pointer; transition:transform .12s var(--pop), box-shadow .12s; }
+  .nav-bell:hover { transform:translate(2px,2px); box-shadow:2px 2px 0 var(--ink); }
+  .nav-bell svg { width:19px; height:19px; }
+  .nav-bell .nd { position:absolute; top:-7px; right:-7px; width:16px; height:16px; background:var(--org);
+                  border:2.5px solid var(--ink); border-radius:50%; color:#fff; font-size:9px;
+                  font-weight:900; display:flex; align-items:center; justify-content:center; }
+  .nav-user { display:flex; align-items:center; gap:10px; cursor:pointer; padding:5px 12px 5px 5px;
+              background:#fff; border:var(--bd); box-shadow:var(--sh-sm);
+              transition:transform .12s var(--pop), box-shadow .12s; }
+  .nav-user:hover { transform:translate(2px,2px); box-shadow:2px 2px 0 var(--ink); }
+  .avatar { width:32px; height:32px; background:var(--blue); border:2.5px solid var(--ink); color:#fff;
+            display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:900; }
+  .nav-user .nm { font-size:14px; font-weight:900; letter-spacing:1px; }
+
+  /* ===== 用户大卡 ===== */
+  .hero { position:relative; margin:30px 30px 0; background:#fff; border:var(--bd); box-shadow:var(--sh);
+          padding:34px 36px; display:flex; align-items:center; gap:28px; overflow:hidden; }
+  .hero::after { /* 撞色装饰：右上蓝色半圆 */
+    content:""; position:absolute; top:-64px; right:-46px; width:170px; height:170px;
+    background:var(--blue); border:var(--bd); border-radius:50%; }
+  .hero::before { /* 左下黄色小方块 */
+    content:""; position:absolute; bottom:-22px; left:38%; width:64px; height:64px;
+    background:var(--yel); border:var(--bd); transform:rotate(12deg); }
+  .hero-main { position:relative; z-index:2; }
+  .hero-date { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:800;
+               letter-spacing:1px; background:var(--paper); border:var(--bd); padding:5px 12px; }
+  .hero-date svg { width:15px; height:15px; }
+  .hero h2 { margin-top:16px; font-size:44px; font-weight:900; letter-spacing:1px; line-height:1.15; }
+  .hero h2 em { font-style:normal; background:var(--org); color:#fff; padding:0 10px;
+                border:var(--bd); box-shadow:var(--sh-sm); display:inline-block; transform:rotate(1.5deg); }
+  .hero-meta { margin-top:18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .sticker { background:var(--yel); border:var(--bd); box-shadow:var(--sh-sm); padding:6px 14px;
+             font-size:13px; font-weight:900; letter-spacing:2px; transform:rotate(-4deg);
+             animation:wiggle 4.5s ease-in-out infinite; }
+  @keyframes wiggle { 0%,88%,100% { transform:rotate(-4deg); } 92% { transform:rotate(-1deg); } 96% { transform:rotate(-6deg); } }
+  .hero-acct { font-size:13px; font-weight:800; letter-spacing:1px; }
+  .hero-side { position:relative; z-index:2; margin-left:auto; text-align:right;
+               font-size:12px; font-weight:700; line-height:2.1; letter-spacing:2px; }
+  .hero-side b { display:block; font-size:13px; font-weight:900; }
+
+  /* ===== 板块标题 ===== */
+  .sec { display:flex; align-items:center; gap:12px; margin:38px 30px 18px; }
+  .sec h3 { font-size:21px; font-weight:900; letter-spacing:3px; }
+  .sec .mark { width:16px; height:16px; border:var(--bd); }
+  .sec.m-org .mark { background:var(--org); } .sec.m-blue .mark { background:var(--blue); }
+  .sec.m-yel .mark { background:var(--yel); }
+  .pill-unread { margin-left:6px; display:inline-flex; align-items:center; gap:7px; background:var(--org);
+                 color:#fff; border:var(--bd); box-shadow:var(--sh-sm); padding:4px 13px;
+                 font-size:12px; font-weight:900; letter-spacing:1px; }
+  .pill-unread i { width:8px; height:8px; background:#fff; border-radius:50%;
+                   animation:blink 1.6s ease-in-out infinite; }
+  @keyframes blink { 0%,100% { opacity:1; transform:scale(1);} 50% { opacity:.35; transform:scale(.7);} }
+  .sec .more { margin-left:auto; font-size:12px; font-weight:900; letter-spacing:2px;
+               border-bottom:3px solid var(--org); cursor:pointer; padding-bottom:2px; }
+
+  /* ===== 消息通知 ===== */
+  .notice { margin:0 30px; background:#fff; border:var(--bd); box-shadow:var(--sh); }
+  .n-row { display:flex; align-items:center; gap:16px; padding:17px 22px; cursor:pointer;
+           transition:transform .12s var(--pop), background .12s; }
+  .n-row + .n-row { border-top:var(--bd); }
+  .n-row:hover { background:var(--paper); transform:translateX(6px); }
+  .n-ic { width:42px; height:42px; flex:none; border:var(--bd); display:flex; align-items:center;
+          justify-content:center; }
+  .n-ic svg { width:21px; height:21px; }
+  .n-row:nth-child(1) .n-ic { background:var(--org); color:#fff; }
+  .n-row:nth-child(2) .n-ic { background:var(--blue); color:#fff; }
+  .n-row:nth-child(3) .n-ic { background:var(--yel); color:var(--ink); }
+  .n-t { font-size:15px; font-weight:900; letter-spacing:.5px; }
+  .n-s { margin-top:4px; font-size:12px; font-weight:700; letter-spacing:.5px; }
+  .n-dot { width:10px; height:10px; flex:none; background:var(--org); border:2px solid var(--ink);
+           border-radius:50%; }
+  .n-date { margin-left:auto; flex:none; font-size:12px; font-weight:900; letter-spacing:1px;
+            background:var(--paper); border:2.5px solid var(--ink); padding:4px 10px; }
+
+  /* ===== 应用中心 ===== */
+  .apps { margin:0 30px 6px; display:grid; grid-template-columns:repeat(3,1fr); gap:22px; }
+  .app-card { position:relative; border:var(--bd); box-shadow:var(--sh); padding:22px 22px 18px;
+              cursor:pointer; transform:rotate(var(--rot,0deg));
+              transition:transform .14s var(--pop), box-shadow .14s; }
+  .app-card:hover { transform:translate(4px,4px) rotate(0deg); box-shadow:2px 2px 0 var(--ink); }
+  .app-card:active { transform:translate(6px,6px) rotate(0deg); box-shadow:0 0 0 var(--ink); }
+  .app-card.c-org  { background:var(--org); }
+  .app-card.c-blue { background:var(--blue); }
+  .app-card.c-yel  { background:var(--yel); }
+  .app-card.c-wht  { background:#fff; }
+  .app-top { display:flex; align-items:flex-start; justify-content:space-between; }
+  .app-ic { width:52px; height:52px; background:#fff; border:var(--bd); box-shadow:var(--sh-sm);
+            display:flex; align-items:center; justify-content:center; color:var(--ink); }
+  .app-ic svg { width:26px; height:26px; }
+  .app-tag { font-size:11px; font-weight:900; letter-spacing:1px; background:#fff; border:2.5px solid var(--ink);
+             padding:4px 10px; }
+  .app-card h4 { margin-top:18px; font-size:19px; font-weight:900; letter-spacing:1px; }
+  .app-card > p { margin-top:8px; font-size:12.5px; font-weight:700; line-height:1.8;
+                  min-height:44px; letter-spacing:.5px; }
+  .app-go { margin-top:14px; padding-top:13px; border-top:3px solid var(--ink);
+            display:flex; align-items:center; gap:7px; font-size:13px; font-weight:900; letter-spacing:2px; }
+  .app-go svg { width:16px; height:16px; transition:transform .15s var(--pop); }
+  .app-card:hover .app-go svg { transform:translateX(5px); }
+  /* 敬请期待虚线卡 */
+  .app-card.soon { background:transparent; border:3px dashed var(--ink); box-shadow:none;
+                   display:flex; flex-direction:column; align-items:center; justify-content:center;
+                   gap:12px; cursor:default; min-height:212px; }
+  .app-card.soon:hover { transform:rotate(0deg); box-shadow:none; }
+  .app-card.soon .app-ic { background:var(--paper); box-shadow:none; }
+  .app-card.soon h4 { margin-top:0; font-size:15px; }
+  .app-card.soon p { min-height:0; margin-top:0; font-size:11.5px; }
+
+  /* ===== 外部应用 ===== */
+  .exts { margin:0 30px 6px; display:grid; grid-template-columns:repeat(3,1fr); gap:22px; }
+  .ext-card { background:#fff; border:var(--bd); box-shadow:var(--sh); padding:18px 20px;
+              display:flex; align-items:center; gap:14px; cursor:pointer;
+              transition:transform .14s var(--pop), box-shadow .14s; }
+  .ext-card:hover { transform:translate(4px,4px); box-shadow:2px 2px 0 var(--ink); }
+  .ext-card:active { transform:translate(6px,6px); box-shadow:0 0 0 var(--ink); }
+  .ext-ic { width:44px; height:44px; flex:none; border:var(--bd); display:flex; align-items:center;
+            justify-content:center; }
+  .ext-ic svg { width:22px; height:22px; }
+  .ext-card:nth-child(1) .ext-ic { background:var(--yel); }
+  .ext-card:nth-child(2) .ext-ic { background:var(--org); color:#fff; }
+  .ext-card:nth-child(3) .ext-ic { background:var(--blue); color:#fff; }
+  .ext-card b { display:block; font-size:15px; font-weight:900; letter-spacing:.5px; }
+  .ext-card span { display:block; margin-top:4px; font-size:12px; font-weight:700; letter-spacing:.5px; }
+  .ext-arrow { margin-left:auto; flex:none; width:34px; height:34px; border:2.5px solid var(--ink);
+               background:var(--paper); display:flex; align-items:center; justify-content:center;
+               transition:transform .15s var(--pop); }
+  .ext-arrow svg { width:16px; height:16px; }
+  .ext-card:hover .ext-arrow { transform:rotate(-45deg); background:var(--yel); }
+
+  /* ===== 安全提示条 ===== */
+  .safe { margin:38px 30px 34px; border:var(--bd); box-shadow:var(--sh); background:var(--yel);
+          display:flex; align-items:stretch; overflow:hidden; }
+  .safe-stripe { flex:none; width:46px;
+                 background:repeating-linear-gradient(-45deg,var(--ink) 0 10px,var(--yel) 10px 20px);
+                 border-right:var(--bd); }
+  .safe-body { display:flex; align-items:center; gap:16px; padding:18px 22px; }
+  .safe-ic { width:44px; height:44px; flex:none; background:#fff; border:var(--bd); box-shadow:var(--sh-sm);
+             display:flex; align-items:center; justify-content:center; }
+  .safe-ic svg { width:22px; height:22px; }
+  .safe-body b { display:block; font-size:15px; font-weight:900; letter-spacing:2px; }
+  .safe-body p { margin-top:5px; font-size:13px; font-weight:700; line-height:1.8; letter-spacing:.5px; }
+
+  /* ===== 降级：尊重减少动效偏好 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+    .ai { opacity:1; }
+  }
+
+  @media (max-width: 900px) {
+    .apps, .exts { grid-template-columns:1fr; }
+    .hero { flex-direction:column; align-items:flex-start; }
+    .hero-side { margin-left:0; text-align:left; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>方案 03 · <em>新野兽派</em> Neo-Brutalism</h1>
+  <p>米白纸面、3px 粗黑描边与无模糊硬阴影，橙蓝黄撞色块像贴纸一样拍在版面上——大胆、直接、好玩，把工具平台做成班组愿意天天打开的样子。</p>
+  <div class="palette">
+    <span class="chip"><i style="background:#FFFCF5"></i>纸底 #FFFCF5</span>
+    <span class="chip"><i style="background:#111111"></i>墨黑 #111111</span>
+    <span class="chip"><i style="background:#FF4D00"></i>撞橙 #FF4D00</span>
+    <span class="chip"><i style="background:#3B82F6"></i>撞蓝 #3B82F6</span>
+    <span class="chip"><i style="background:#FFE500"></i>明黄 #FFE500</span>
+    <span class="chip"><i style="background:#fff;border-style:dashed"></i>3px 描边 · 硬阴影</span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="browser">
+    <!-- 浏览器栏 -->
+    <div class="browser-bar">
+      <span class="bdot r"></span><span class="bdot y"></span><span class="bdot b"></span>
+      <span class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+        toolkit.j1net.com
+      </span>
+      <span style="width:62px"></span>
+    </div>
+
+    <!-- 顶栏 -->
+    <div class="topnav ai d1">
+      <div class="logo">
+        <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></i>
+        <b>Shade 壹匣</b>
+      </div>
+      <nav class="nav-menu">
+        <span class="nav-item on">工作台</span>
+        <span class="nav-item">管理</span>
+      </nav>
+      <div class="nav-right">
+        <span class="nav-bell">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+          <i class="nd">2</i>
+        </span>
+        <div class="nav-user">
+          <span class="avatar">张</span>
+          <span class="nm">张伟</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 用户大卡 -->
+    <section class="hero ai d2">
+      <div class="hero-main">
+        <span class="hero-date">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+          2026 年 9 月 25 日 · 星期五
+        </span>
+        <h2>下午好，<em>张伟</em></h2>
+        <div class="hero-meta">
+          <span class="sticker">班组管理员</span>
+          <span class="hero-acct">账号：zhangwei</span>
+        </div>
+      </div>
+      <div class="hero-side">
+        <b>班组数字化工具平台</b>
+        Shade 壹匣 网页版<br>TOOLKIT.J1NET.COM
+      </div>
+    </section>
+
+    <!-- 消息通知 -->
+    <div class="sec m-org ai d3">
+      <span class="mark"></span>
+      <h3>消息通知</h3>
+      <span class="pill-unread"><i></i>2 条未读</span>
+      <span class="more">全部消息 →</span>
+    </div>
+    <section class="notice ai d3">
+      <div class="n-row">
+        <span class="n-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></span>
+        <div>
+          <div class="n-t">国庆保电工作安排</div>
+          <div class="n-s">保电值班表与特巡计划已发布，请相关人员及时查收确认</div>
+        </div>
+        <span class="n-dot"></span>
+        <span class="n-date">09-24</span>
+      </div>
+      <div class="n-row">
+        <span class="n-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6M9 14h6"/></svg></span>
+        <div>
+          <div class="n-t">9月安全日活动记录已生成</div>
+          <div class="n-s">活动签到、学习内容与照片已归集，文档可下载归档</div>
+        </div>
+        <span class="n-dot"></span>
+        <span class="n-date">09-23</span>
+      </div>
+      <div class="n-row">
+        <span class="n-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18M7 15.5h4"/></svg></span>
+        <div>
+          <div class="n-t">差旅费报销提醒</div>
+          <div class="n-s">9 月差旅票据请于月底前提交，逾期将顺延至下月处理</div>
+        </div>
+        <span class="n-date">09-21</span>
+      </div>
+    </section>
+
+    <!-- 应用中心 -->
+    <div class="sec m-blue ai d4">
+      <span class="mark"></span>
+      <h3>应用中心</h3>
+      <span class="more">5 个可用</span>
+    </div>
+    <section class="apps">
+      <div class="app-card c-org ai" style="--i:0">
+        <div class="app-top">
+          <span class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7c-1.7-1.3-4-1.6-6.7-1.4v12.8c2.7-.2 5 .1 6.7 1.4 1.7-1.3 4-1.6 6.7-1.4V5.6C16 5.4 13.7 5.7 12 7z"/><path d="M12 7v12.8"/><path d="M19.2 2.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" fill="currentColor" stroke="none"/></svg></span>
+          <span class="app-tag">AI 问答 · WeKnora</span>
+        </div>
+        <h4>Call Me</h4>
+        <p>AI 知识库随问随答，规程制度、检修方案开口即得，回答附引用出处。</p>
+        <div class="app-go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></div>
+      </div>
+
+      <div class="app-card c-blue ai" style="--i:1">
+        <div class="app-top">
+          <span class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6M9 14h6"/><path d="M9.2 17.5l1.4 1.4 2.6-2.6"/></svg></span>
+          <span class="app-tag">记录存证 · 防伪核验</span>
+        </div>
+        <h4>出工日志</h4>
+        <p>出工记录留痕存证，防伪码扫码可核验，班组台账随时导出。</p>
+        <div class="app-go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></div>
+      </div>
+
+      <div class="app-card c-yel ai" style="--i:2">
+        <div class="app-top">
+          <span class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></span>
+          <span class="app-tag">文件生成 · Dify</span>
+        </div>
+        <h4>安全日活动记录</h4>
+        <p>安全日活动全流程归集，签到、学习、照片自动汇编成册一键生成。</p>
+        <div class="app-go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></div>
+      </div>
+
+      <div class="app-card c-wht ai" style="--i:3">
+        <div class="app-top">
+          <span class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9.5 20h5M12 16v4"/><path d="M7 9.5l2.5 2.5L7 14.5M12 14.5h4"/></svg></span>
+          <span class="app-tag">远程终端 · 桌面控制</span>
+        </div>
+        <h4>远程连接计算机</h4>
+        <p>站内计算机在线状态实时可见，一键拉起远程终端与桌面控制。</p>
+        <div class="app-go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></div>
+      </div>
+
+      <div class="app-card c-org ai" style="--i:4">
+        <div class="app-top">
+          <span class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M9.6 9.4a2.4 2.4 0 1 1 3.4 2.9c-.8.4-1 .9-1 1.7"/><circle cx="12" cy="16.9" r="1" fill="currentColor" stroke="none"/></svg></span>
+          <span class="app-tag">刷题练习 · AI 解析</span>
+        </div>
+        <h4>题库刷题</h4>
+        <p>安规题库随手刷，错题自动归集，AI 逐题讲透考点与易错点。</p>
+        <div class="app-go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></div>
+      </div>
+
+      <div class="app-card soon ai" style="--i:5">
+        <span class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></span>
+        <h4>敬请期待</h4>
+        <p>更多班组应用持续接入中</p>
+      </div>
+    </section>
+
+    <!-- 外部应用 -->
+    <div class="sec m-yel ai d5">
+      <span class="mark"></span>
+      <h3>外部应用</h3>
+      <span class="more">新窗口打开 ↗</span>
+    </div>
+    <section class="exts">
+      <div class="ext-card ai" style="--i:0">
+        <span class="ext-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18.5a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18.2 11a4 4 0 0 1-.7 7.5z"/><path d="M12 12.5v6M9.5 16l2.5 2.5L14.5 16"/></svg></span>
+        <div>
+          <b>网盘</b>
+          <span>cloud.j1net.com</span>
+        </div>
+        <span class="ext-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+      </div>
+      <div class="ext-card ai" style="--i:1">
+        <span class="ext-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L3.5 19h17z"/><path d="M12 10v4"/><circle cx="12" cy="16.6" r="1" fill="currentColor" stroke="none"/></svg></span>
+        <div>
+          <b>机械作业距离预警</b>
+          <span>ula-admin.j1net.com</span>
+        </div>
+        <span class="ext-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+      </div>
+      <div class="ext-card ai" style="--i:2">
+        <span class="ext-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9.5" width="14" height="9.5" rx="3"/><path d="M12 9.5V6"/><circle cx="12" cy="4.6" r="1.3"/><circle cx="9.3" cy="13.8" r="1" fill="currentColor" stroke="none"/><circle cx="14.7" cy="13.8" r="1" fill="currentColor" stroke="none"/><path d="M10 16.6h4"/></svg></span>
+        <div>
+          <b>Dify</b>
+          <span>ai.j1net.com</span>
+        </div>
+        <span class="ext-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+      </div>
+    </section>
+
+    <!-- 安全提示条 -->
+    <section class="safe ai d6">
+      <span class="safe-stripe"></span>
+      <div class="safe-body">
+        <span class="safe-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5a7.5 7.5 0 0 1 15 0"/><path d="M3 16.5h18v2.5H3z"/><path d="M12 6.5V5"/></svg></span>
+        <div>
+          <b>安全提示</b>
+          <p>安全生产，预防为主。上工前请确认劳保用品佩戴齐全，作业按规程执行。</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="cap">03 · 新野兽派 — Web 首页 · 工作台</div>
+</main>
+
+</body>
+</html>

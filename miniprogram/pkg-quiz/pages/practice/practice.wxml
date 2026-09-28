@@ -45,7 +45,7 @@
                 data-letter="{{o.letter}}"
               >
                 <t-icon name="{{o.letter === 'A' ? 'check-circle' : 'close-circle'}}" size="52rpx"
-                        color="{{o.cls === 'sel' ? '#F26D21' : o.cls === 'right' ? '#2BA471' : o.cls === 'wrong' ? '#CF4444' : '#A89F8A'}}" />
+                        color="{{o.cls === 'sel' ? '#1D4ED8' : o.cls === 'right' ? '#1E9E50' : o.cls === 'wrong' ? '#D22730' : 'rgba(17,17,17,.4)'}}" />
                 {{o.text}}
               </view>
             </view>
@@ -84,7 +84,7 @@
 
             <!-- 解析卡（解析态；背题模式常显；解析未生成时占位文案）；铅笔入口全员可改解析 -->
             <view class="analysis-card" wx:if="{{item.submitted && item.result}}">
-              <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#F26D21" />试题详解
+              <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#1D4ED8" />试题详解
                 <view class="ana-edit" hover-class="hover-opacity" catchtap="onAnaEditTap">
                   <t-icon name="edit" size="30rpx" color="#C29B7E" />
                 </view>
@@ -107,7 +107,7 @@
 
   <!-- 空态（无题目 / 无错题 / 无收藏） -->
   <view class="q-empty" wx:if="{{emptyText}}">
-    <t-icon name="check-circle" size="96rpx" color="#2BA471" wx:if="{{mode === 'wrong'}}" />
+    <t-icon name="check-circle" size="96rpx" color="#1E9E50" wx:if="{{mode === 'wrong'}}" />
     <view class="q-empty-t">{{emptyText}}</view>
     <view class="btn-ghost q-empty-btn" hover-class="hover-opacity" bindtap="onFinish">返回题库</view>
   </view>
@@ -115,18 +115,18 @@
   <!-- 底栏（考试宝式单行图标位，无小字）：收藏 / 对错计数 / 已做题（点开答题卡）/ 设置 / 主按钮 -->
   <view class="practice-bar" wx:if="{{win.length && !emptyText}}">
     <view class="b-item {{curFav ? 'faved' : ''}}" hover-class="hover-opacity" bindtap="onFavTap">
-      <t-icon name="{{curFav ? 'star-filled' : 'star'}}" size="40rpx" color="{{curFav ? '#F26D21' : '#6B7690'}}" />
+      <t-icon name="{{curFav ? 'star-filled' : 'star'}}" size="40rpx" color="{{curFav ? '#1D4ED8' : '#5C5748'}}" />
     </view>
     <view class="b-item counts">
-      <view class="cnt ok"><t-icon name="check" size="32rpx" color="#2BA471" /><text>{{rightCount}}</text></view>
-      <view class="cnt bad"><t-icon name="close" size="32rpx" color="#CF4444" /><text>{{wrongCount}}</text></view>
+      <view class="cnt ok"><t-icon name="check" size="32rpx" color="#1E9E50" /><text>{{rightCount}}</text></view>
+      <view class="cnt bad"><t-icon name="close" size="32rpx" color="#D22730" /><text>{{wrongCount}}</text></view>
     </view>
     <view class="b-item sheet" hover-class="hover-opacity" bindtap="onSheetOpen">
-      <t-icon name="view-module" size="34rpx" color="#22314E" />
+      <t-icon name="view-module" size="34rpx" color="#111111" />
       <text>{{answeredCount}}/{{total}}</text>
     </view>
     <view class="b-item" hover-class="hover-opacity" bindtap="onSetTap">
-      <t-icon name="setting" size="36rpx" color="#22314E" />
+      <t-icon name="setting" size="36rpx" color="#111111" />
     </view>
     <view class="btn-navy bar-main {{canSubmit ? '' : 'disabled'}}" wx:if="{{showSubmit}}"
           hover-class="hover-opacity" bindtap="onSubmit">提交答案</view>
@@ -162,7 +162,7 @@
     </view>
   </t-popup>
 
-  <!-- 答题卡弹层（按题型分区块 + 图例；背题模式仅导航，chips 全灰 + 当前橙框） -->
+  <!-- 答题卡弹层（按题型分区块 + 图例；背题模式仅导航，chips 全灰 + 当前蓝框） -->
   <t-popup visible="{{sheetOpen}}" placement="bottom" bind:visible-change="onSheetVisibleChange">
     <view class="sheet-pop">
       <view class="sheet-hd">答题卡（已答 {{answeredCount}}/{{total}}）</view>

@@ -18,8 +18,8 @@ Page({
   },
 
   onShow() {
-    // 登录页为藏青横幅，状态栏文字用白色（其他页面由 navbar 组件重置为黑色）
-    wx.setNavigationBarColor({ frontColor: '#ffffff', backgroundColor: '#22314E' });
+    // 登录页为墨黑横幅，状态栏文字用白色（其他页面由 navbar 组件重置为黑色）
+    wx.setNavigationBarColor({ frontColor: '#ffffff', backgroundColor: '#111111' });
     // 已登录则直接进入首页（涵盖直接打开登录页的场景）
     if (wx.getStorageSync('token')) {
       wx.reLaunch({ url: '/pages/home/home' });

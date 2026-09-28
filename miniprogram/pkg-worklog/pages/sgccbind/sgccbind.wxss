@@ -1,4 +1,4 @@
-/* 绑定商旅 · 账号绑定页（转写自设计稿 design/sgcc-clockin.html ②③屏，token 同 app.wxss 方案五） */
+/* 绑定商旅 · 账号绑定页（转写自设计稿 design/sgcc-clockin.html ②③屏，token 同 app.wxss 包豪斯几何） */
 @import '../../style/common.wxss';
 
 /* 首个提示卡贴导航下沿（common .tip 自带 margin-top，此处收紧） */
@@ -6,10 +6,9 @@
   margin-top: 8rpx;
 }
 
-/* 内容卡（白卡 + 轻投影，对齐设计稿 .card） */
+/* 内容卡（白卡直角；全局 .card 已带墨边 + 蓝硬影，不再叠柔影） */
 .sg-card {
   padding: 12rpx 28rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
 }
 
 /* ---------- 短信登录表单（设计稿 .field：左图标 + 右缀件） ---------- */
@@ -18,8 +17,8 @@
   display: flex;
   align-items: center;
   margin-top: 20rpx;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   background: #ffffff;
   height: 100rpx;
   padding: 0 24rpx 0 88rpx;
@@ -38,32 +37,32 @@
   min-width: 0;
   height: 100%;
   font-size: 28rpx;
-  color: #22314e;
+  color: #111111;
 }
 
-/* 登录方式切换（短信/密码分段控件） */
+/* 登录方式切换（短信/密码分段控件：墨边直角条，激活=墨底白字，同主页 .scopebar 口径） */
 .sg-tabs {
   display: flex;
   margin-top: 12rpx;
   padding: 6rpx;
-  border-radius: 16rpx;
-  background: #f4f1ea;
+  border: 3rpx solid #111111;
+  border-radius: 0;
+  background: #ffffff;
 }
 
 .sg-tab {
   flex: 1;
   text-align: center;
   padding: 14rpx 0;
-  border-radius: 12rpx;
+  border-radius: 0;
   font-size: 26rpx;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .sg-tab.on {
-  background: #ffffff;
-  color: #22314e;
+  background: #111111;
+  color: #ffffff;
   font-weight: 700;
-  box-shadow: 0 2rpx 8rpx rgba(34, 49, 78, 0.08);
 }
 
 /* 图形验证码图（点击刷新） */
@@ -72,8 +71,8 @@
   width: 152rpx;
   height: 68rpx;
   margin-left: 16rpx;
-  border-radius: 12rpx;
-  background: #22314e;
+  border-radius: 0;
+  background: #111111;
 }
 
 /* 「改用滑块验证」小字链接（图形码不可用时降级入口） */
@@ -81,7 +80,7 @@
   margin-top: 12rpx;
   text-align: right;
   font-size: 22rpx;
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 /* 短信验证码右侧「获取验证码 / 倒计时」 */
@@ -90,11 +89,11 @@
   margin-left: 16rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 .suffix.off {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   font-weight: 400;
 }
 
@@ -115,14 +114,14 @@
 }
 
 .kv + .kv {
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #e7e1d2;
 }
 
 .kv .k {
   flex: none;
   width: 160rpx;
   font-size: 24rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .kv .v {
@@ -130,16 +129,16 @@
   min-width: 0;
   font-size: 26rpx;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
   word-break: break-all;
 }
 
 .kv .v.ok {
-  color: #2ba471;
+  color: #1e9e50;
 }
 
 .kv .v.bad {
-  color: #cf4444;
+  color: #d22730;
 }
 
 .kv .v-sub {
@@ -147,7 +146,7 @@
   margin-top: 6rpx;
   font-size: 22rpx;
   font-weight: 400;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.6;
 }
 
@@ -159,11 +158,11 @@
 
 /* 「已绑定」绿徽章（全局 .badge-outline 的色变体） */
 .badge-outline.green {
-  border-color: #2ba471;
-  color: #2ba471;
+  border-color: #1e9e50;
+  color: #1e9e50;
 }
 
-/* ---------- 已绑定态头部斜纹卡 ---------- */
+/* ---------- 已绑定态头部卡 ---------- */
 .sg-head-card {
   margin-top: 8rpx;
 }
@@ -171,15 +170,15 @@
 .sg-head {
   display: flex;
   align-items: center;
-  padding: 48rpx 28rpx 28rpx; /* 顶部预留警示斜纹高度 */
+  padding: 48rpx 28rpx 28rpx;
 }
 
 .sg-avatar {
   width: 104rpx;
   height: 104rpx;
   flex: none;
-  border-radius: 24rpx;
-  background: #22314e;
+  border-radius: 0;
+  background: #111111;
   color: #ffffff;
   font-size: 42rpx;
   font-weight: 600;
@@ -196,7 +195,7 @@
 .sg-name {
   font-size: 32rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
 }
 
 .sg-badges {
@@ -208,7 +207,7 @@
 
 .sg-team {
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 /* 底部操作区（.sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
@@ -217,6 +216,6 @@
 }
 
 .btn-ghost.danger {
-  color: #cf4444;
-  border-color: #eccfcf;
+  color: #d22730;
+  border-color: #d22730;
 }

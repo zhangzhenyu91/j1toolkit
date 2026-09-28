@@ -1,5 +1,6 @@
 .nav-wrap {
   width: 100%;
+  border-bottom: 6rpx solid #111111; /* 设计稿导航栏 3px 墨底线（默认全页面生效） */
 }
 
 .nav-row {
@@ -22,10 +23,50 @@
   position: absolute;
   left: 160rpx;
   right: 160rpx; /* 右侧避开微信胶囊按钮区域 */
-  text-align: center;
-  font-size: 34rpx;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  font-size: 36rpx;
+  font-weight: 800;
+  letter-spacing: 3rpx;
+}
+
+.nav-title-text {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* 签名装饰：标题左侧红圆点（滚入） */
+.nav-dot {
+  width: 24rpx;
+  height: 24rpx;
+  flex: none;
+  border-radius: 50%;
+  background: #D22730;
+  animation: k-nav-dot 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 0.16s backwards;
+}
+
+/* 签名装饰：标题右侧蓝半圆（滑入） */
+.nav-semi {
+  width: 30rpx;
+  height: 15rpx;
+  flex: none;
+  border-radius: 15rpx 15rpx 0 0;
+  background: #1D4ED8;
+  animation: k-nav-semi 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 0.32s backwards;
+}
+
+@keyframes k-nav-dot {
+  from { opacity: 0; transform: translateX(-56rpx) rotate(-180deg); }
+  55% { opacity: 1; }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes k-nav-semi {
+  from { opacity: 0; transform: translate(56rpx, 12rpx) rotate(120deg); }
+  55% { opacity: 1; }
+  to { opacity: 1; transform: none; }
 }

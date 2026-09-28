@@ -1,15 +1,35 @@
-/* ---------- 分段（激活态藏青底白字，对齐设计稿 .seg） ---------- */
+/* ---------- 分段（激活态墨黑底白字，对齐设计稿 .seg） ---------- */
+/* tdesign 组件包豪斯化（本页未引用分包 common.wxss，变量块自留）：弹层/对话框/toast 一律直角 */
+page {
+  --td-popup-border-radius: 0;
+  --td-dialog-border-radius: 0;
+  --td-toast-radius: 0;
+  --td-tag-round-border-radius: 0;
+  --td-tag-square-border-radius: 0;
+}
+
+/* 按压反馈：包豪斯硬影元素下沉吃影（覆盖全局 .hover-opacity 的纯变暗） */
+.hover-opacity {
+  opacity: 0.8 !important;
+  transform: translate(3rpx, 3rpx) !important;
+}
+
 .seg-wrap {
   /* CSS 变量穿透组件（apply-shared），覆盖 t-segmented 主题 */
   --td-segmented-bg-color: #ffffff;
-  --td-segmented-item-active-bg: #22314e;
+  --td-segmented-item-active-bg: #111111;
   --td-segmented-item-active-color: #ffffff;
-  --td-segmented-item-color: #6b7690;
+  --td-segmented-item-color: #5c5748;
 }
 
 .seg-wrap .t-segmented {
-  border-radius: 20rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+  border: 4rpx solid #111111;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.seg-wrap .t-segmented__thumb {
+  border-radius: 0;
 }
 
 /* ---------- 添加栏 ---------- */
@@ -23,8 +43,8 @@
   flex: 1;
   height: 84rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   display: flex;
   align-items: center;
   padding: 0 28rpx;
@@ -34,19 +54,20 @@
 .inp-input {
   flex: 1;
   font-size: 26rpx;
-  color: #22314e;
+  color: #111111;
 }
 
 .ph {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .btn-add {
   width: 172rpx;
   height: 84rpx;
   flex: none;
-  border-radius: 16rpx;
-  background: #f26d21;
+  border-radius: 0;
+  border: 4rpx solid #111111;
+  background: #1d4ed8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -55,7 +76,7 @@
   font-size: 26rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
-  box-shadow: 0 16rpx 32rpx rgba(242, 109, 33, 0.3);
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
 }
 
 /* ---------- 字典列表 ---------- */
@@ -71,15 +92,15 @@
 }
 
 .mrow + .mrow {
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #e7e1d2;
 }
 
 .mrow .mi {
   width: 60rpx;
   height: 60rpx;
   flex: none;
-  border-radius: 16rpx;
-  background: #fdeee2;
+  border-radius: 0;
+  background: #edf2fe;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -92,15 +113,15 @@
 }
 
 .mrow.off .mt {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   font-weight: 400;
 }
 
 .moff-tip {
   font-size: 20rpx;
-  color: #a89f8a;
-  border: 2rpx solid #d9cfba;
-  border-radius: 8rpx;
+  color: rgba(17,17,17,.4);
+  border: 2rpx solid rgba(17,17,17,.35);
+  border-radius: 0;
   padding: 0 10rpx;
   line-height: 30rpx;
 }
@@ -114,35 +135,35 @@
 }
 
 .mrow .ops .edit {
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 .mrow .ops .off {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .mempty {
   padding: 48rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
-/* ---------- 人员来源标（屏六 .sync-pill/.hand-pill） ---------- */
+/* ---------- 人员来源标（屏六 .sync-pill/.hand-pill，直角小签） ---------- */
 .sync-pill {
   font-size: 19rpx;
-  color: #3fa66a;
+  color: #1e9e50;
   background: #eaf6ee;
-  border-radius: 8rpx;
+  border-radius: 0;
   padding: 2rpx 12rpx;
   font-weight: 700;
 }
 
 .hand-pill {
   font-size: 19rpx;
-  color: #6b7690;
-  background: #edf0f6;
-  border-radius: 8rpx;
+  color: #5c5748;
+  background: #edf2fe;
+  border-radius: 0;
   padding: 2rpx 12rpx;
   font-weight: 700;
 }
@@ -154,12 +175,13 @@
 
 .tower-bar {
   background: #ffffff;
-  border-radius: 20rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   padding: 22rpx 26rpx;
   display: flex;
   align-items: center;
   gap: 18rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.12);
 }
 
 .tower-bar .tb-n {
@@ -169,26 +191,27 @@
 
 .tower-bar .tb-s {
   font-size: 20rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   margin-top: 4rpx;
 }
 
 .tb-btn {
   font-size: 22rpx;
   font-weight: 700;
-  border-radius: 14rpx;
+  border-radius: 0;
   padding: 12rpx 20rpx;
 }
 
 .tb-btn.tpl {
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  color: #22314e;
+  border: 3rpx solid #111111;
+  color: #111111;
 }
 
 .tb-btn.imp {
-  background: #fdeee2;
-  color: #f26d21;
+  background: #edf2fe;
+  border: 3rpx solid #1d4ed8;
+  color: #1d4ed8;
 }
 
 .tower-bar .tb-btns {
@@ -198,10 +221,14 @@
   flex: none;
 }
 
-/* ---------- 导入弹层（屏七：底部弹层 + 三步） ---------- */
+/* ---------- 导入弹层（屏七：底部弹层 + 三步） ----------
+   包豪斯化同分包 .sheet 族：直角 + 顶部 6rpx 墨线 + 向上硬影 */
 .sheet {
+  position: relative;
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
+  border-radius: 0;
+  border-top: 6rpx solid #111111;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.15);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 
@@ -210,7 +237,17 @@
   font-size: 32rpx;
   font-weight: 800;
   letter-spacing: 4rpx;
-  color: #22314e;
+  color: #111111;
+}
+
+/* 标题前置红方块（inline-block 保持整体居中） */
+.sheet-title::before {
+  content: '';
+  display: inline-block;
+  width: 14rpx;
+  height: 14rpx;
+  background: #d22730;
+  margin-right: 12rpx;
 }
 
 .imp-steps {
@@ -228,7 +265,7 @@
   height: 40rpx;
   flex: none;
   border-radius: 50%;
-  background: #22314e;
+  background: #111111;
   color: #ffffff;
   font-size: 22rpx;
   font-weight: 800;
@@ -250,7 +287,7 @@
 
 .imp-step .st-d {
   font-size: 21rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   margin-top: 4rpx;
   line-height: 1.6;
 }
@@ -262,16 +299,17 @@
   gap: 12rpx;
   font-size: 23rpx;
   font-weight: 700;
-  color: #f26d21;
-  background: #fdeee2;
-  border-radius: 14rpx;
+  color: #1d4ed8;
+  background: #edf2fe;
+  border: 2rpx solid #1d4ed8;
+  border-radius: 0;
   padding: 12rpx 22rpx;
 }
 
 .pick-file {
   margin-top: 14rpx;
-  border: 3rpx dashed #d9cfba;
-  border-radius: 18rpx;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  border-radius: 0;
   padding: 22rpx;
   text-align: center;
 }
@@ -284,29 +322,29 @@
 
 .pick-file .pfn .pfx {
   margin-left: 12rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   font-weight: 400;
 }
 
 .pick-file .pfd {
   font-size: 20rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   margin-top: 6rpx;
 }
 
 .imp-sum {
   margin-top: 14rpx;
   background: #fbf9f2;
-  border: 2rpx solid #e8e0cd;
-  border-radius: 18rpx;
+  border: 2rpx solid #e7e1d2;
+  border-radius: 0;
   padding: 18rpx 24rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.8;
 }
 
 .imp-sum b {
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 .sheet-actions {
@@ -318,24 +356,25 @@
 .btn-ghost {
   flex: 1;
   height: 88rpx;
-  border-radius: 16rpx;
-  border: 2rpx solid #e3dccb;
+  border-radius: 0;
+  border: 4rpx solid #111111;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #6b7690;
+  color: #5c5748;
   letter-spacing: 6rpx;
   box-sizing: border-box;
+  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.9);
 }
 
 .btn-dark {
   flex: 2;
   height: 88rpx;
-  border-radius: 16rpx;
-  background: #22314e;
+  border-radius: 0;
+  background: #111111;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -344,6 +383,7 @@
   font-size: 28rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
 }
 
 .btn-ghost.disabled,

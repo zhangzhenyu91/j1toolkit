@@ -1,5 +1,5 @@
 <!-- 题库刷题 · 题库列表（设计稿 design/quiz.html 屏 01）
-     统计卡沿用警示斜纹特征元素；题库卡含进度与解析状态，点击进题库主页（pages/bank/bank，
+     统计卡展示练习概览；题库卡含进度与解析状态，点击进题库主页（pages/bank/bank，
      练习入口与本题库错题/收藏/移出题库都在主页内，跟着题库走，参考考试宝科目页）；
      题库池为入口卡（二级页 pages/pool/pool）；底部主按钮与「管理」入口仅管理角色可见 -->
 <navbar back title="题库刷题" />
@@ -27,7 +27,7 @@
   </view>
   <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
 
-  <!-- 统计卡（卡顶警示斜纹条为全局 hazard-top） -->
+  <!-- 统计卡 -->
   <view class="card hazard-top stat-card">
     <view class="cell"><b>{{overview ? overview.totalAnswered : '—'}}</b><span>累计练习</span></view>
     <view class="cell"><b><em>{{overview && overview.rightRate !== null ? overview.rightRate + '%' : '—'}}</em></b><span>正确率</span></view>
@@ -38,7 +38,7 @@
   <view class="sec-row">
     <view class="section-title">我的题库</view>
     <view class="more" wx:if="{{isManager}}" hover-class="hover-opacity" bindtap="onManageTap">
-      管理 <t-icon name="chevron-right" size="26rpx" color="#A89F8A" />
+      管理 <t-icon name="chevron-right" size="26rpx" color="rgba(17,17,17,.4)" />
     </view>
   </view>
 
@@ -46,7 +46,7 @@
     <view class="card bank-item" wx:for="{{banks}}" wx:key="id"
           style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;"
           hover-class="hover-bg-warm" bindtap="onBankTap" data-id="{{item.id}}" data-name="{{item.name}}">
-      <view class="icon-box"><t-icon name="book" size="40rpx" color="#F26D21" /></view>
+      <view class="icon-box"><t-icon name="book" size="40rpx" color="#1D4ED8" /></view>
       <view class="tx">
         <b>
           {{item.name}}
@@ -70,11 +70,11 @@
 
   <!-- 题库池入口卡（二级页：挑选管理员上传的题库） -->
   <view class="card pool-entry" hover-class="hover-bg-warm" bindtap="onPoolTap">
-    <view class="icon-box"><t-icon name="app" size="40rpx" color="#F26D21" /></view>
+    <view class="icon-box"><t-icon name="app" size="40rpx" color="#1D4ED8" /></view>
     <view class="tx">
       <b>题库池</b>
     </view>
-    <t-icon name="chevron-right" size="36rpx" color="#A89F8A" />
+    <t-icon name="chevron-right" size="36rpx" color="rgba(17,17,17,.4)" />
   </view>
 </view>
 

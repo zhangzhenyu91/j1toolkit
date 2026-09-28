@@ -13,16 +13,17 @@
   align-items: center;
   gap: 12rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 999rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   padding: 12rpx 28rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
+  box-shadow: 6rpx 6rpx 0 #111111;
 }
 
 .ts-cur .arr {
-  color: #f26d21;
+  color: #1d4ed8;
   font-size: 18rpx;
 }
 
@@ -44,8 +45,9 @@
   left: 0;
   z-index: 21;
   background: #ffffff;
-  border-radius: 24rpx;
-  box-shadow: 0 24rpx 64rpx rgba(34, 49, 78, 0.18);
+  border: 4rpx solid #111111;
+  border-radius: 0;
+  box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.9);
   padding: 12rpx;
   min-width: 300rpx;
   animation: ts-drop-in 0.2s ease-out;
@@ -56,14 +58,14 @@
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 24rpx;
-  border-radius: 16rpx;
+  border-radius: 0;
   font-size: 25rpx;
   font-weight: 600;
 }
 
 .ts-opt.on {
-  background: #fdeee2;
-  color: #f26d21;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 .ts-opt .ck {
@@ -99,10 +101,10 @@
   font-size: 20rpx;
   line-height: 1.5;
   font-weight: 600;
-  border-radius: 10rpx;
+  border-radius: 0;
   padding: 4rpx 16rpx;
-  background: #edf0f6;
-  color: #22314e;
+  background: #edf2fe;
+  color: #111111;
   flex: none;
 }
 
@@ -119,8 +121,8 @@
 .team-empty .te-ic {
   width: 128rpx;
   height: 128rpx;
-  border-radius: 36rpx;
-  background: #fdeee2;
+  border-radius: 0;
+  background: #edf2fe;
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -135,7 +137,7 @@
 
 .team-empty .te-p {
   font-size: 23rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.8;
   text-align: center;
 }
@@ -143,13 +145,13 @@
 /* ---------- 上传活动文件卡 ---------- */
 .up-card {
   margin-top: 20rpx;
-  padding: 40rpx 32rpx 32rpx; /* 顶部留出警示斜纹条高度 */
+  padding: 40rpx 32rpx 32rpx;
 }
 
 /* 选取入口（虚线区，同网页端 upzone） */
 .upzone {
-  border: 3rpx dashed #d9cfba;
-  border-radius: 20rpx;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  border-radius: 0;
   padding: 36rpx 24rpx;
   display: flex;
   flex-direction: column;
@@ -159,8 +161,8 @@
 .up-ic {
   width: 96rpx;
   height: 96rpx;
-  border-radius: 32rpx;
-  background: #fdeee2;
+  border-radius: 0;
+  background: #edf2fe;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -173,13 +175,13 @@
 }
 
 .up-t .accent {
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 .up-p {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   line-height: 1.8;
   text-align: center;
 }
@@ -190,8 +192,8 @@
   align-items: center;
   gap: 16rpx;
   background: #fbf9f2;
-  border: 2rpx solid #e8e0cd;
-  border-radius: 18rpx;
+  border: 2rpx solid #e7e1d2;
+  border-radius: 0;
   padding: 16rpx 20rpx;
   margin-top: 16rpx;
 }
@@ -209,7 +211,7 @@
 .ftag .fs {
   flex: none;
   font-size: 21rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .ftag .fx {
@@ -230,7 +232,7 @@
   font-size: 24rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .date-val {
@@ -239,8 +241,8 @@
   height: 72rpx;
   padding: 0 20rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -249,12 +251,12 @@
   font-weight: 600;
 }
 
-/* 生成按钮（主按钮藏青底，同 filetransfer btn-primary） */
+/* 生成按钮（主按钮墨黑底，同 filetransfer btn-primary） */
 .btn-primary {
   margin-top: 28rpx;
   height: 88rpx;
-  border-radius: 18rpx;
-  background: #22314e;
+  border-radius: 0;
+  background: #111111;
   color: #ffffff;
   font-size: 30rpx;
   font-weight: 700;
@@ -278,7 +280,7 @@
   display: flex;
   align-items: center;
   gap: 20rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   font-size: 25rpx;
   letter-spacing: 1rpx;
 }
@@ -293,8 +295,8 @@
   width: 68rpx;
   height: 68rpx;
   flex: none;
-  border-radius: 18rpx;
-  background: #fdeee2;
+  border-radius: 0;
+  background: #edf2fe;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -314,7 +316,7 @@
 .prog .fs {
   margin-top: 4rpx;
   font-size: 21rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 /* 步骤条（同网页端 steps/step，圆点间竖线连接） */
@@ -340,7 +342,7 @@
   top: 44rpx;
   bottom: 0;
   width: 4rpx;
-  background: #e8e0cd;
+  background: #e7e1d2;
 }
 
 .step:last-child::before {
@@ -361,30 +363,30 @@
 }
 
 .step.done .sd-ic {
-  background: #f26d21;
+  background: #1d4ed8;
 }
 
 .step.done::before {
-  background: #f26d21;
+  background: #1d4ed8;
 }
 
 .step.doing .sd-ic {
-  border: 4rpx solid #f26d21;
+  border: 4rpx solid #1d4ed8;
 }
 
 .step.todo .sd-ic {
-  border: 4rpx solid #d9cfba;
+  border: 4rpx solid rgba(17,17,17,.35);
 }
 
 .step.fail .sd-ic {
-  background: #cf4444;
+  background: #d22730;
 }
 
 .dot-ing {
   width: 14rpx;
   height: 14rpx;
   border-radius: 50%;
-  background: #f26d21;
+  background: #1d4ed8;
   animation: breath 1.2s ease-in-out infinite;
 }
 
@@ -394,17 +396,17 @@
 }
 
 .step.todo .st {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .step.fail .st {
-  color: #cf4444;
+  color: #d22730;
 }
 
 .step .ss {
   margin-top: 4rpx;
   font-size: 21rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   line-height: 1.6;
 }
 
@@ -412,16 +414,16 @@
 .pbar {
   height: 12rpx;
   margin-top: 28rpx;
-  border-radius: 6rpx;
-  background: #e8e0cd;
+  border-radius: 0;
+  background: #e7e1d2;
   overflow: hidden;
 }
 
 .pbar-in {
   position: relative;
   height: 100%;
-  border-radius: 6rpx;
-  background: linear-gradient(90deg, #f26d21, #f59a5e);
+  border-radius: 0;
+  background: linear-gradient(90deg, #1d4ed8, #f59a5e);
   overflow: hidden;
   transition: width 0.9s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -439,7 +441,7 @@
 }
 
 .pbar.fail .pbar-in {
-  background: linear-gradient(90deg, #cf4444, #e28080);
+  background: linear-gradient(90deg, #d22730, #e28080);
 }
 
 .pbar.fail .pbar-in::after {
@@ -451,16 +453,16 @@
   display: flex;
   justify-content: space-between;
   font-size: 21rpx;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .pnum .pct {
   font-weight: 700;
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 .pnum.fail .pct {
-  color: #cf4444;
+  color: #d22730;
 }
 
 /* ---------- 记录列表 ---------- */
@@ -473,7 +475,7 @@
 .cnt {
   margin-left: auto;
   font-size: 22rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 1rpx;
 }
 
@@ -503,7 +505,7 @@
   align-items: center;
   gap: 8rpx;
   padding: 4rpx 16rpx;
-  border-radius: 10rpx;
+  border-radius: 0;
   font-size: 20rpx;
   line-height: 1.5; /* 与班组徽章 .team-pill 同度量，两 pill 等高对齐 */
   font-weight: 600;
@@ -511,25 +513,25 @@
 }
 
 .tag-done {
-  background: #fdeee2;
-  color: #f26d21;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 .tag-processing {
-  background: #edf0f6;
-  color: #22314e;
+  background: #edf2fe;
+  color: #111111;
 }
 
 .tag-failed {
   background: #fbe9e9;
-  color: #cf4444;
+  color: #d22730;
 }
 
 .pulse-dot {
   width: 12rpx;
   height: 12rpx;
   border-radius: 50%;
-  background: #22314e;
+  background: #111111;
   animation: breath 1.2s ease-in-out infinite;
 }
 
@@ -540,20 +542,20 @@
   align-items: center;
   gap: 8rpx;
   font-size: 21rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   word-break: break-all;
 }
 
 .rmeta {
   margin-top: 10rpx;
   font-size: 21rpx;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .rerr {
   margin-top: 10rpx;
   font-size: 21rpx;
-  color: #cf4444;
+  color: #d22730;
   line-height: 1.6;
   word-break: break-all;
 }
@@ -562,7 +564,7 @@
 .ops {
   margin-top: 20rpx;
   padding-top: 20rpx;
-  border-top: 2rpx solid #e8e0cd;
+  border-top: 2rpx solid #e7e1d2;
   display: flex;
   gap: 20rpx;
 }
@@ -570,8 +572,8 @@
 .opb {
   flex: 1;
   height: 68rpx;
-  border-radius: 16rpx;
-  border: 2rpx solid #e3dccb;
+  border-radius: 0;
+  border: 4rpx solid #111111;
   background: #ffffff;
   display: flex;
   align-items: center;
@@ -579,40 +581,43 @@
   gap: 10rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
 }
 
 .opb.off {
   border: none;
-  background: #f4f1ea;
-  color: #d9cfba;
+  background: #f8f6f1;
+  color: rgba(17,17,17,.35);
 }
 
 .opb .opb-ing {
   font-size: 24rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .opb.del text {
-  color: #6b7690;
+  color: #5c5748;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #d9cfba;
-  border-radius: 20rpx;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  border-radius: 0;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 2rpx;
 }
 
 /* ---------- 记录名称确认弹层（底部弹层，同出工日志弹层族） ---------- */
 .sheet {
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
+  border: 4rpx solid #111111;
+  border-bottom: none;
+  border-radius: 0;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
   padding: 36rpx 32rpx 40rpx;
 }
 
@@ -625,7 +630,7 @@
 .sheet-sub {
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.7;
 }
 
@@ -634,10 +639,10 @@
   height: 80rpx;
   padding: 0 24rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   font-size: 27rpx;
-  color: #22314e;
+  color: #111111;
 }
 
 /* 学习内容多行编辑框（textarea）：拉高至可容纳 5 行文本（27rpx × 1.6 行高 × 5 行 ≈ 216rpx + 上下 padding） */
@@ -649,7 +654,7 @@
 }
 
 .ph {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .sheet-ops {
@@ -661,10 +666,10 @@
 .btn-ghost {
   flex: 1;
   height: 84rpx;
-  border-radius: 18rpx;
-  border: 2rpx solid #e3dccb;
+  border-radius: 0;
+  border: 4rpx solid #111111;
   background: #ffffff;
-  color: #22314e;
+  color: #111111;
   font-size: 28rpx;
   font-weight: 700;
   display: flex;
@@ -675,8 +680,8 @@
 .btn-accent {
   flex: 2;
   height: 84rpx;
-  border-radius: 18rpx;
-  background: #f26d21;
+  border-radius: 0;
+  background: #1d4ed8;
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 700;
@@ -700,7 +705,7 @@
   margin-top: 26rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 1rpx;
 }
 
@@ -708,7 +713,7 @@
   margin-left: 10rpx;
   font-size: 20rpx;
   font-weight: 400;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 0;
 }
 
@@ -722,7 +727,7 @@
   min-width: 0;
 }
 
-/* 参会人员模式切换（名单点亮 / 自定义输入）：分段胶囊，选中橙底 */
+/* 参会人员模式切换（名单点亮 / 自定义输入）：分段胶囊，选中蓝底 */
 .mode-row {
   display: flex;
   align-items: center;
@@ -732,21 +737,21 @@
 .mswitch {
   display: flex;
   padding: 4rpx;
-  border: 2rpx solid #e3dccb;
-  border-radius: 999rpx;
-  background: #f4f1ea;
+  border: 4rpx solid #111111;
+  border-radius: 0;
+  background: #f8f6f1;
 }
 
 .ms-opt {
   padding: 6rpx 22rpx;
-  border-radius: 999rpx;
+  border-radius: 0;
   font-size: 22rpx;
   font-weight: 600;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .ms-opt.on {
-  background: #f26d21;
+  background: #1d4ed8;
   color: #ffffff;
 }
 
@@ -759,10 +764,10 @@
   margin-top: 14rpx;
   height: 80rpx;
   padding: 0 24rpx;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   font-size: 27rpx;
-  color: #22314e;
+  color: #111111;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -777,23 +782,23 @@
 
 .mchip {
   padding: 8rpx 24rpx;
-  border-radius: 999rpx;
-  border: 2rpx solid #d9cfba;
+  border-radius: 0;
+  border: 4rpx solid #111111;
   background: #ffffff;
   font-size: 24rpx;
-  color: #6b7690;
+  color: #5c5748;
   font-weight: 600;
 }
 
 .mchip.on {
-  border-color: #f26d21;
-  background: #f26d21;
+  border-color: #1d4ed8;
+  background: #1d4ed8;
   color: #ffffff;
 }
 
 .mchips.absent .mchip.on {
-  border-color: #cf4444;
-  background: #cf4444;
+  border-color: #d22730;
+  background: #d22730;
 }
 
 /* ---------- 动画 ---------- */

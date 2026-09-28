@@ -81,7 +81,7 @@ Page({
         ? `确定删除通知「${item.title}」吗？删除后所有成员均不可见，且不可恢复。`
         : `确定删除通知「${item.title}」吗？删除后仅从您的通知列表移除，不影响其他成员。`,
       confirmText: '删除',
-      confirmColor: '#CF4444',
+      confirmColor: '#D22730',
       success: async (res) => {
         if (!res.confirm) return;
         try {

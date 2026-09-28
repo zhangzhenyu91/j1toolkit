@@ -39,7 +39,7 @@
     <view class="sh-head">
       <view class="sh-title">{{form.id ? '编辑班组' : '新增班组'}}<text class="sh-sub" wx:if="{{form.id}}">{{form.name}}</text></view>
       <view class="sh-close" hover-class="hover-opacity" bindtap="closeEdit">
-        <t-icon name="close" size="36rpx" color="#6B7690" />
+        <t-icon name="close" size="36rpx" color="#5C5748" />
       </view>
     </view>
 

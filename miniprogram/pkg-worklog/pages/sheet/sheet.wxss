@@ -1,9 +1,25 @@
-/* ---------- 生成卡片（同 manage 页 tower-bar 族：白卡圆角 + 藏青主按钮） ---------- */
+/* tdesign 组件包豪斯化（本页未引用分包 common.wxss，变量块自留）：日历/对话框/toast 一律直角 */
+page {
+  --td-calendar-radius: 0;
+  --td-calendar-selected-border-radius: 0;
+  --td-dialog-border-radius: 0;
+  --td-toast-radius: 0;
+  --td-tag-square-border-radius: 0;
+}
+
+/* 按压反馈：包豪斯硬影元素下沉吃影（覆盖全局 .hover-opacity 的纯变暗） */
+.hover-opacity {
+  opacity: 0.8 !important;
+  transform: translate(3rpx, 3rpx) !important;
+}
+
+/* ---------- 生成卡片（同 manage 页 tower-bar 族：白卡直角 + 墨边浅色硬影 + 墨黑主按钮） ---------- */
 .card {
   background: #ffffff;
-  border-radius: 20rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   padding: 28rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.12);
 }
 
 .row {
@@ -20,12 +36,12 @@
 .r-t {
   font-size: 27rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
 }
 
 .r-s {
   font-size: 20rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   margin-top: 6rpx;
 }
 
@@ -40,32 +56,35 @@
 .range-text {
   font-size: 26rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 1rpx;
 }
 
-/* 「改日期」明显按钮：实心安全橙药丸（批量下载面板同款口径） */
+/* 「改日期」明显按钮：实心蓝直角块 + 墨边硬影（批量下载面板同款口径） */
 .range-open {
   flex: none;
   font-size: 24rpx;
   font-weight: 700;
   color: #ffffff;
-  background: #f26d21;
-  border-radius: 14rpx;
+  background: #1d4ed8;
+  border: 3rpx solid #111111;
+  border-radius: 0;
+  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.9);
   padding: 14rpx 32rpx;
 }
 
 .gen {
   margin-top: 28rpx;
   height: 88rpx;
-  border-radius: 16rpx;
-  background: #22314e;
+  border-radius: 0;
+  background: #111111;
   color: #ffffff;
   font-size: 27rpx;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
 }
 
 .gen.disabled {
@@ -77,5 +96,5 @@
   padding: 0 8rpx;
   font-size: 22rpx;
   line-height: 1.8;
-  color: #6b7690;
+  color: #5c5748;
 }

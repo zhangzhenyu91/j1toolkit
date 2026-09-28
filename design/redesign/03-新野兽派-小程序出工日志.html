@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<!--
+  风格名称：新野兽派 Neo-Brutalism（比选稿 03 · 小程序出工日志单屏）
+  主色板：纸底 #FFFCF5 ｜ 墨黑 #111111 ｜ 信号橙 #FF4D00 ｜ 冲撞蓝 #3B82F6 ｜ 荧光黄 #FFE500
+  配色说明：完全脱离「安全橙/藏青」体系——暖纸底 + 墨黑描边为骨架，橙 / 蓝 / 黄三原色以撞色贴纸
+            形式对撞，模仿安全帽贴纸、车间警示胶带与手写字条的现场质感。
+  设计要点：
+  1. 全部容器 3px 墨黑粗描边 + 5px 5px 0 #111 硬阴影（小件 3px 3px），拒绝柔和投影，
+     卡片像一张张拍在桌面上的便签；卡片 hover 反向上浮（阴影加大），按压整体下沉 3~5px 阴影归零；
+  2. 撞色贴纸体系：验证通过 = 荧光黄贴纸 + 墨黑勾（盖章式弹入），未通过 = 信号橙底白字斜贴，
+     跨班 = 蓝框白底斜贴，「今天」= 黄色便签微翘并缓慢摇摆；
+  3. 签名动效 = 编排式回弹弹入：导航 → 班组/日历条 → 日期条 → 分段胶囊 → 卡片① → 卡片② → FAB
+     依次落位，「验证通过」角标最后以盖章动效砸下（scale 2.1 → 0.92 → 1，旋转收敛 -4°）；
+  4. 按压位移为全局交互语言：返回键、班组 chip、日历键、操作按钮、FAB 全部 :active 下沉；
+  5. 车牌做蓝牌白字大字化图形处理，时间 / 数字用等宽字体（Courier New），
+     照片缩略图纯 CSS 渐变模拟现场（塔影 / 绝缘子暖调 / 安全帽黄日）+ 扫描线纹理；
+  6. 正文一律 #111 / #4A4A4A（对纸底对比度 ≥4.5:1），橙底白字仅用于「未通过」「删除」等
+     贴纸级 / 按钮级大字元素，荧光黄上只压墨黑文字。
+  落地注意事项：
+  - 小程序端硬阴影直接用 box-shadow，无模糊半径性能开销为 0；按压位移 :active 纯 CSS 即可，无需 JS；
+  - 贴纸常驻旋转与入场动画共用 transform：入场动画统一 fill-mode:backwards，结束后回归文档态，
+    常驻角度（如 rotate(-4deg)）写进基础样式与末帧，避免动画结束跳变；
+  - 交互按钮的 hover / active 态需覆写 TDesign 默认圆角与阴影 token（--td-radius-* / shadow 清零）；
+  - 荧光黄 #FFE500 上禁用白字，信号橙 #FF4D00 白字仅限贴纸 / 大号粗体标签，正文禁止；
+  - 已内置 prefers-reduced-motion 降级：关闭全部动画与过渡，贴纸保持静态角度。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>03 · 新野兽派 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#FFFCF5; --ink:#111111; --orange:#FF4D00; --blue:#3B82F6; --yellow:#FFE500;
+    --ink2:#4A4A4A; --orange-d:#B23700;
+    --blue-t:#EAF1FE; --yellow-t:#FFF6C2; --orange-t:#FFE9E0;
+    --bd:3px solid var(--ink);
+    --sh:5px 5px 0 var(--ink);
+    --sh-s:3px 3px 0 var(--ink);
+    --mono:"Courier New",ui-monospace,SFMono-Regular,monospace;
+  }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    background-image:radial-gradient(rgba(17,17,17,.10) 1.2px, transparent 1.3px);
+    background-size:22px 22px;
+    padding:56px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:56px; }
+  .page-head h1 { font-size:30px; font-weight:900; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal; display:inline-block; background:var(--yellow);
+                     border:var(--bd); box-shadow:4px 4px 0 var(--ink);
+                     padding:0 12px; transform:rotate(-1.5deg); }
+  .page-head h1 small { margin-left:14px; font-size:12px; font-weight:800; letter-spacing:4px; color:var(--ink2); }
+  .page-head p { margin-top:16px; font-size:13px; color:var(--ink2); letter-spacing:1px; }
+  .swatches { margin-top:20px; display:flex; justify-content:center; flex-wrap:wrap; gap:10px; }
+  .sw { display:inline-flex; align-items:center; gap:7px; background:#fff; border:var(--bd);
+        box-shadow:var(--sh-s); padding:5px 12px 5px 7px;
+        font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.5px; }
+  .sw i { width:14px; height:14px; border:2px solid var(--ink); }
+
+  /* ===== 展厅舞台 ===== */
+  .stage { position:relative; display:flex; justify-content:center; }
+  .deco { position:absolute; z-index:0; }
+  .deco-c { width:132px; height:132px; border-radius:50%; background:var(--yellow);
+            border:var(--bd); box-shadow:var(--sh); top:64px; left:calc(50% - 336px); }
+  .deco-s { width:112px; height:112px; border:6px solid var(--blue); transform:rotate(12deg);
+            bottom:130px; right:calc(50% - 336px); }
+  .deco-x { width:46px; height:46px; top:120px; right:calc(50% - 300px); }
+  .unit { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:24px; }
+  .cap { font-size:13px; font-weight:800; letter-spacing:2px; display:flex; align-items:center; gap:9px; }
+  .cap::before { content:""; width:12px; height:12px; background:var(--orange); border:2.5px solid var(--ink); }
+
+  /* ===== 机框 ===== */
+  .phone { padding:12px; background:#151515; border:var(--bd); border-radius:62px;
+           box-shadow:14px 14px 0 var(--ink); }
+  .screen { position:relative; width:375px; height:812px; background:var(--bg);
+            border-radius:48px; overflow:hidden; display:flex; flex-direction:column; }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:118px; height:32px; border-radius:18px; background:#151515; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(17,17,17,.85); z-index:40; }
+  .sb { height:54px; flex:none; padding:20px 30px 0; display:flex; justify-content:space-between;
+        align-items:center; font-size:14px; font-weight:800; color:var(--ink); position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+
+  /* ===== 导航栏 ===== */
+  .navbar { flex:none; display:flex; align-items:center; gap:12px; padding:8px 16px 6px; }
+  .nav-btn { width:34px; height:34px; flex:none; background:#fff; border:var(--bd); box-shadow:var(--sh-s);
+             display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .nav-btn svg { width:17px; height:17px; }
+  .navbar h2 { flex:1; text-align:center; font-size:17px; font-weight:900; letter-spacing:4px; }
+  .navbar h2 i { display:block; width:26px; height:3px; background:var(--orange); margin:3px auto 0; }
+
+  /* ===== 工具条：班组 chip + 今天贴纸 + 日历 ===== */
+  .bar { flex:none; padding:0 16px; }
+  .bar-a { display:flex; align-items:center; justify-content:space-between; }
+  .chip { display:inline-flex; align-items:center; gap:7px; background:#fff; border:var(--bd);
+          box-shadow:var(--sh-s); padding:6px 12px; font-size:13px; font-weight:900;
+          letter-spacing:1px; cursor:pointer; }
+  .chip svg { width:13px; height:13px; }
+  .bar-a .right { display:flex; align-items:center; gap:10px; }
+  .today { background:var(--yellow); border:var(--bd); box-shadow:2.5px 2.5px 0 var(--ink);
+           font-size:10px; font-weight:900; letter-spacing:2px; padding:3px 9px;
+           transform:rotate(-6deg); animation:wiggle 3.2s ease-in-out 1.6s infinite; }
+  .icon-btn { width:34px; height:34px; background:#fff; border:var(--bd); box-shadow:var(--sh-s);
+              display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .icon-btn svg { width:17px; height:17px; }
+
+  /* ===== 日期条 ===== */
+  .datebar { margin-top:12px; display:flex; align-items:stretch; background:#fff;
+             border:var(--bd); box-shadow:4px 4px 0 var(--ink); }
+  .datebar .chev { width:40px; flex:none; display:flex; align-items:center; justify-content:center;
+                   cursor:pointer; transition:background .12s; }
+  .datebar .chev:first-child { border-right:var(--bd); }
+  .datebar .chev:last-child { border-left:var(--bd); }
+  .datebar .chev:hover { background:var(--yellow); }
+  .datebar .chev svg { width:16px; height:16px; }
+  .datebar .dt { flex:1; text-align:center; padding:9px 0; font-size:15px; font-weight:900; letter-spacing:2px; }
+
+  /* ===== 分段胶囊 ===== */
+  .seg { flex:none; margin:12px 16px 0; display:flex; background:#fff; border:var(--bd);
+         border-radius:999px; box-shadow:4px 4px 0 var(--ink); padding:4px; }
+  .seg span { flex:1; text-align:center; font-size:12.5px; font-weight:900; letter-spacing:2px;
+              padding:6px 0; border-radius:999px; cursor:pointer; transition:background .15s,color .15s; }
+  .seg span.on { background:var(--ink); color:#fff; }
+  .seg span:not(.on):hover { background:var(--yellow); }
+
+  /* ===== 日志卡片 ===== */
+  .content { flex:1; padding:2px 16px 0; overflow:hidden; position:relative; }
+  .card { position:relative; margin-top:16px; background:#fff; border:var(--bd); box-shadow:var(--sh);
+          padding:14px 14px 12px; transition:transform .15s ease, box-shadow .15s ease; }
+  .card:hover { transform:translate(-2px,-2px); box-shadow:7px 7px 0 var(--ink); }
+
+  .c-head { display:flex; align-items:center; gap:10px; }
+  .plate { background:var(--blue); color:#fff; border:var(--bd); box-shadow:var(--sh-s);
+           font-family:var(--mono); font-size:17px; font-weight:900; letter-spacing:2px; padding:4px 12px; }
+  .sticker-cross { background:#fff; color:var(--ink); border:3px solid var(--blue);
+                   box-shadow:3px 3px 0 var(--blue); font-size:11px; font-weight:900;
+                   letter-spacing:2px; padding:3px 9px; transform:rotate(-4deg); }
+  .stamp-ok { position:absolute; top:-13px; right:12px; z-index:5;
+              display:inline-flex; align-items:center; gap:5px;
+              background:var(--yellow); border:var(--bd); box-shadow:var(--sh-s);
+              padding:4px 10px; font-size:12px; font-weight:900; letter-spacing:2px;
+              transform:rotate(-4deg);
+              animation:stamp .55s cubic-bezier(.2,1.4,.4,1) 1.05s backwards; }
+  .stamp-ok svg { width:14px; height:14px; }
+
+  /* 通用内容块：粗边框 + 墨黑小标签 */
+  .blk { position:relative; margin-top:18px; border:var(--bd); padding:12px 12px 10px; }
+  .blk .tag { position:absolute; top:-11px; left:10px; background:var(--ink); color:#fff;
+              font-size:10px; font-weight:800; letter-spacing:2px; padding:2px 8px; }
+
+  .blk-patrol { background:var(--blue-t); }
+  .blk-patrol p { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:900; letter-spacing:.5px; }
+  .blk-patrol p svg { width:18px; height:18px; flex:none; color:var(--blue); }
+
+  /* 商旅打卡 */
+  .ck-row { display:flex; align-items:center; gap:7px; padding:8px 0 7px; }
+  .ck-row + .ck-row { border-top:2px solid var(--ink); }
+  .ppl { width:24px; height:24px; flex:none; background:var(--ink); color:#fff;
+         display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:900; }
+  .nm { font-size:13px; font-weight:900; }
+  .hrs { background:var(--yellow); border:2px solid var(--ink); font-size:10px; font-weight:900;
+         padding:1px 6px; letter-spacing:.5px; }
+  .hrs b { font-family:var(--mono); }
+  .push { margin-left:auto; }
+  .ck-item { display:inline-flex; align-items:center; gap:4px; }
+  .ck-item i { font-style:normal; font-size:10px; font-weight:700; color:var(--ink2); }
+  .ck-item b { font-family:var(--mono); font-size:13px; font-weight:900; }
+  .ck-item svg { width:13px; height:13px; color:var(--blue); }
+  .miss { display:inline-flex; align-items:center; gap:5px; border:2px dashed var(--orange-d);
+          color:var(--orange-d); font-size:10.5px; font-weight:900; letter-spacing:1px; padding:3px 8px; }
+  .miss svg { width:12px; height:12px; }
+
+  /* 照片区 */
+  .thumbs { display:flex; gap:9px; margin:7px 3px 13px; }
+  .th { position:relative; flex:1; height:66px; border:var(--bd); box-shadow:var(--sh-s); }
+  .th::after { content:""; position:absolute; inset:0; z-index:1;
+               background:repeating-linear-gradient(0deg, rgba(17,17,17,.05) 0 1px, transparent 1px 3px); }
+  .th1 { background:
+           linear-gradient(105deg, transparent 44%, rgba(17,17,17,.5) 44% 48%, transparent 48%),
+           linear-gradient(75deg, transparent 58%, rgba(17,17,17,.45) 58% 62%, transparent 62%),
+           linear-gradient(180deg,#8FBDF2 0%,#C9E0FA 57%,#7C8B54 57.5%,#5F6E3E 100%); }
+  .th2 { background:
+           radial-gradient(circle at 32% 28%, #FFD9A0 0 18%, transparent 45%),
+           repeating-linear-gradient(90deg, rgba(17,17,17,.14) 0 4px, transparent 4px 9px),
+           linear-gradient(160deg,#E8915A,#B45A2A 68%,#7A3A18); }
+  .th3 { background:
+           radial-gradient(circle at 68% 26%, #FFE500 0 15%, transparent 16%),
+           repeating-linear-gradient(-45deg, rgba(255,255,255,.20) 0 6px, transparent 6px 12px),
+           linear-gradient(180deg,#5B9BF5,#2B5FA8); }
+  .th-ok { position:absolute; top:-8px; left:-5px; z-index:2; background:var(--yellow);
+           border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink);
+           font-size:9px; font-weight:900; letter-spacing:1px; padding:1px 5px; transform:rotate(-5deg); }
+  .th-sync { position:absolute; bottom:-8px; right:-4px; z-index:2; background:var(--blue); color:#fff;
+             border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink);
+             font-size:9px; font-weight:900; letter-spacing:1px; padding:1px 5px; transform:rotate(2deg); }
+
+  /* 照片信息列 */
+  .info { border-top:var(--bd); display:grid; grid-template-columns:1fr 1fr 1fr; margin:0 -12px -10px; }
+  .icell { padding:7px 10px 7px; }
+  .icell.span3 { grid-column:1 / -1; border-bottom:2px solid var(--ink); }
+  .icell:nth-child(3), .icell:nth-child(4) { border-left:2px solid var(--ink); }
+  .icell label { display:block; font-size:9px; font-weight:700; letter-spacing:1.5px; color:var(--ink2); }
+  .icell b { display:block; margin-top:3px; font-size:12.5px; font-weight:900; }
+  .icell .mono { font-family:var(--mono); }
+
+  .blk-note { background:var(--yellow-t); }
+  .blk-note p { font-size:13.5px; font-weight:700; line-height:1.6; }
+
+  /* 操作行 */
+  .actions { display:flex; gap:10px; margin-top:14px; }
+  .act { flex:1; height:36px; border:var(--bd); box-shadow:var(--sh-s); cursor:pointer;
+         display:inline-flex; align-items:center; justify-content:center; gap:6px;
+         font-family:inherit; font-size:12.5px; font-weight:900; letter-spacing:2px;
+         background:#fff; color:var(--ink); }
+  .act svg { width:14px; height:14px; }
+  .act-sync { background:var(--ink); color:#fff; }
+  .act-del { background:var(--orange); color:#fff; }
+
+  /* 卡片② */
+  .card2 { margin-top:14px; }
+  .tag-dark { background:var(--ink); color:#fff; font-size:12px; font-weight:900;
+              letter-spacing:1.5px; padding:5px 11px; }
+  .sticker-fail { background:var(--orange); color:#fff; border:var(--bd); box-shadow:var(--sh-s);
+                  font-size:12px; font-weight:900; letter-spacing:2px; padding:4px 10px;
+                  transform:rotate(3deg); }
+  .reason { margin-top:12px; display:flex; align-items:center; gap:8px;
+            border:var(--bd); background:var(--orange-t); padding:9px 11px;
+            font-size:12.5px; font-weight:700; }
+  .reason svg { width:15px; height:15px; flex:none; color:var(--orange); }
+  .reason b { color:var(--orange-d); font-weight:900; margin-right:6px; letter-spacing:1px; }
+
+  /* ===== FAB ===== */
+  .fab { position:absolute; right:18px; bottom:30px; z-index:25;
+         width:56px; height:56px; border-radius:50%; background:var(--orange);
+         border:var(--bd); box-shadow:var(--sh); cursor:pointer;
+         display:flex; align-items:center; justify-content:center;
+         transition:transform .12s ease, box-shadow .12s ease;
+         animation:pop-in .6s cubic-bezier(.3,1.5,.4,1) .72s backwards; }
+  .fab svg { width:26px; height:26px; color:var(--ink); }
+  .fab:hover { transform:rotate(90deg); }
+  .fab:active { transform:translate(5px,5px); box-shadow:0 0 0 var(--ink); }
+
+  /* ===== 签名动效：回弹弹入 + 按压位移 ===== */
+  @keyframes pop-in {
+    0%   { opacity:0; transform:translateY(24px) scale(.94); }
+    55%  { opacity:1; transform:translateY(-7px) scale(1.02); }
+    78%  { transform:translateY(3px) scale(.995); }
+    100% { opacity:1; transform:translateY(0) scale(1); }
+  }
+  @keyframes stamp {
+    0%   { opacity:0; transform:rotate(-24deg) scale(2.1); }
+    60%  { opacity:1; transform:rotate(-2deg) scale(.92); }
+    100% { opacity:1; transform:rotate(-4deg) scale(1); }
+  }
+  @keyframes wiggle {
+    0%, 100% { transform:rotate(-6deg); }
+    50%      { transform:rotate(-1.5deg); }
+  }
+  .anim { animation:pop-in .55s cubic-bezier(.3,1.2,.4,1) backwards; animation-delay:var(--d,0s); }
+  .press { transition:transform .1s ease, box-shadow .1s ease; }
+  .press:active { transform:translate(3px,3px); box-shadow:0 0 0 var(--ink); }
+
+  /* ===== 降级：减少动态 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+
+  /* ---------- 窄屏自适应 ---------- */
+  @media (max-width: 900px) { .stage { zoom:.85; } }
+  @media (max-width: 640px) { .stage { zoom:.62; } .deco { display:none; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>03 · <em>新野兽派</em><small>NEO-BRUTALISM</small></h1>
+  <p>粗黑描边 + 硬阴影 + 撞色贴纸，把班组台账「啪」地拍在桌面上 —— 出工、打卡、核验状态，一屏吼出来。</p>
+  <div class="swatches">
+    <span class="sw"><i style="background:#FFFCF5"></i>纸底 #FFFCF5</span>
+    <span class="sw"><i style="background:#111111"></i>墨黑 #111111</span>
+    <span class="sw"><i style="background:#FF4D00"></i>信号橙 #FF4D00</span>
+    <span class="sw"><i style="background:#3B82F6"></i>冲撞蓝 #3B82F6</span>
+    <span class="sw"><i style="background:#FFE500"></i>荧光黄 #FFE500</span>
+  </div>
+</header>
+
+<main class="stage">
+  <i class="deco deco-c"></i>
+  <i class="deco deco-s"></i>
+  <svg class="deco deco-x" viewBox="0 0 46 46" fill="none" stroke="#FF4D00" stroke-width="7" stroke-linecap="round"><path d="M8 8l30 30M38 8L8 38"/></svg>
+
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <!-- 状态栏 -->
+        <div class="sb">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <!-- 导航栏 -->
+        <div class="navbar anim" style="--d:.02s">
+          <span class="nav-btn press">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>
+          </span>
+          <h2>出工日志<i></i></h2>
+          <span class="nav-btn press">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="6" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>
+          </span>
+        </div>
+
+        <!-- 工具条 -->
+        <div class="bar">
+          <div class="bar-a anim" style="--d:.1s">
+            <span class="chip press">
+              检修一班
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+            </span>
+            <div class="right">
+              <span class="today">今天</span>
+              <span class="icon-btn press">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M4 10.5h16M8.5 3v4M15.5 3v4"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="datebar anim" style="--d:.18s">
+            <span class="chev">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>
+            </span>
+            <span class="dt">9月25日 周五</span>
+            <span class="chev">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- 分段胶囊 -->
+        <div class="seg anim" style="--d:.26s">
+          <span class="on">全部</span>
+          <span>仅看我</span>
+        </div>
+
+        <div class="content">
+
+          <!-- ================= 日志卡片① ================= -->
+          <section class="card anim" style="--d:.36s">
+            <div class="stamp-ok">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 7"/></svg>
+              验证通过
+            </div>
+
+            <div class="c-head">
+              <span class="plate">鄂A·D12345</span>
+              <span class="sticker-cross">跨班</span>
+            </div>
+
+            <div class="blk blk-patrol">
+              <span class="tag">巡视内容</span>
+              <p>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 21L12 4l3.5 17"/><path d="M7.5 8.5h9M8.8 12.5h6.4M10 16.5h4"/><path d="M5.5 21h13"/></svg>
+                110kV 锦城线 #12–#28 塔巡视
+              </p>
+            </div>
+
+            <div class="blk">
+              <span class="tag">商旅打卡</span>
+              <div class="ck-row">
+                <span class="ppl">王</span>
+                <span class="nm">王强</span>
+                <span class="hrs">工时 <b>6.5h</b></span>
+                <span class="ck-item push"><i>始</i><b>07:58</b>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 7"/></svg>
+                </span>
+                <span class="ck-item"><i>终</i><b>17:32</b>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 7"/></svg>
+                </span>
+              </div>
+              <div class="ck-row">
+                <span class="ppl">李</span>
+                <span class="nm">李军</span>
+                <span class="ck-item push"><i>始</i><b>08:02</b>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 7"/></svg>
+                </span>
+                <span class="miss">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 4.6L2.8 17.5a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4"/><circle cx="12" cy="16.8" r=".9" fill="currentColor" stroke="none"/></svg>
+                  还差结束打卡
+                </span>
+              </div>
+            </div>
+
+            <div class="blk">
+              <span class="tag">现场照片 · 3</span>
+              <div class="thumbs">
+                <div class="th th1">
+                  <span class="th-ok">核验通过</span>
+                  <span class="th-sync">已同步商旅</span>
+                </div>
+                <div class="th th2"></div>
+                <div class="th th3"></div>
+              </div>
+              <div class="info">
+                <div class="icell span3"><label>施工内容</label><b>#18 塔更换绝缘子</b></div>
+                <div class="icell"><label>拍摄</label><b class="mono">10:24</b></div>
+                <div class="icell"><label>天气</label><b>晴 26℃</b></div>
+                <div class="icell"><label>地点</label><b>武汉市江夏区</b></div>
+              </div>
+            </div>
+
+            <div class="blk blk-note">
+              <span class="tag">备注</span>
+              <p>#18 塔绝缘子更换完成，明日复验。</p>
+            </div>
+
+            <div class="actions">
+              <button type="button" class="act act-sync press">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                从商旅同步
+              </button>
+              <button type="button" class="act press">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z"/></svg>
+                备 注
+              </button>
+              <button type="button" class="act act-del press">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13.5h9l1-13.5"/><path d="M10 11v6M14 11v6"/></svg>
+                删 除
+              </button>
+            </div>
+          </section>
+
+          <!-- ================= 日志卡片②（只露上半） ================= -->
+          <section class="card card2 anim" style="--d:.55s">
+            <div class="c-head">
+              <span class="tag-dark">未出车 · 站内作业</span>
+              <span class="sticker-fail">未通过</span>
+            </div>
+            <div class="reason">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 4.6L2.8 17.5a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4"/><circle cx="12" cy="16.8" r=".9" fill="currentColor" stroke="none"/></svg>
+              <span><b>原因</b>照片地点与目的地不符</span>
+            </div>
+          </section>
+
+        </div>
+
+        <!-- FAB -->
+        <span class="fab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </span>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap">小程序 · 出工日志（375×812 单屏）</div>
+  </div>
+
+</main>
+
+</body>
+</html>

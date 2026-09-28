@@ -1,78 +1,90 @@
 /* ============================================================
-   全局样式 —— 方案五「安全橙 · 浅色工业风」× TDesign 定制主题
-   设计 token 见 AGENTS.md 第四节
+   全局样式 —— 方案十二「包豪斯几何 Bauhaus Geometric」× TDesign 定制主题
+   设计稿基准：design/redesign/12-包豪斯几何-小程序首页.html
+              design/redesign/12-包豪斯几何-小程序出工日志.html
+   核心色板：纸底 #F8F6F1 ｜ 红 #D22730 ｜ 蓝 #1D4ED8 ｜ 黄 #F2B705 ｜ 墨 #111111
    ============================================================ */
 
 page {
-  /* TDesign 主题变量覆盖（注入方案五色板） */
-  --td-brand-color: #F26D21;
-  --td-brand-color-active: #D85A12;
-  --td-brand-color-light: #FDEEE2;
-  --td-brand-color-focus: #FDEEE2;
-  --td-error-color: #CF4444;
-  --td-tab-bar-active-color: #F26D21;
+  /* TDesign 主题变量覆盖（注入包豪斯色板） */
+  --td-brand-color: #1D4ED8;
+  --td-brand-color-active: #1740B8;
+  --td-brand-color-light: #EDF2FE;
+  --td-brand-color-focus: #EDF2FE;
+  --td-error-color: #D22730;
+  --td-success-color: #1E9E50;
+  --td-warning-color: #F2B705;
+  --td-tab-bar-active-color: #D22730;
   --td-tab-bar-bg-color: #FFFFFF;
-  --td-tab-bar-border-color: #E8E0CD;
+  --td-tab-bar-border-color: #111111;
+  /* 方角统一：按钮 / 弹层 / 对话框 / 轻提示直角（t-button 等默认 12~24rpx 圆角清零） */
+  --td-button-border-radius: 0;
+  --td-dialog-border-radius: 0;
+  --td-popup-border-radius: 0;
+  --td-toast-radius: 0;
 
-  background: #F4F1EA; /* 暖纸底 */
-  color: #22314E; /* 藏青主文字 */
+  /* 包豪斯主题变量（供各页面引用；-b 后缀避免与 --td 变量冲突） */
+  --yellow: #F2B705;
+  --red-b: #D22730;
+  --blue-b: #1D4ED8;
+  --ink: #111111;
+  --paper-b: #F8F6F1;
+  --hard: 6rpx 6rpx 0 #1D4ED8; /* 签名硬阴影（蓝）；红/黄轮转见 .card.shadow-* 变体 */
+
+  background: #F8F6F1; /* 暖纸底 */
+  color: #111111; /* 墨黑主文字 */
   font-size: 28rpx;
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
 }
 
 /* ---------- 通用元素 ---------- */
 
-/* 白色卡片（圆角 10px） */
+/* 白色卡片（直角 + 墨线描边 + 蓝色硬阴影，首页稿签名特征；稿中 2px 边按 1px=2rpx 换算为 4rpx） */
 .card {
   background: #FFFFFF;
-  border-radius: 20rpx;
+  border: 4rpx solid #111111;
+  box-shadow: 6rpx 6rpx 0 #1D4ED8;
 }
 
-/* 卡片顶部橙青警示斜纹条（特征元素，配合 padding-top 使用） */
+/* 硬阴影红/黄轮转变体（蓝为 .card 默认） */
+.card.shadow-red {
+  box-shadow: 6rpx 6rpx 0 #D22730;
+}
+
+.card.shadow-yellow {
+  box-shadow: 6rpx 6rpx 0 #F2B705;
+}
+
+/* 卡片定位壳（原顶部红黄蓝三色带已取消，仅保留定位/裁切供浮层对齐） */
 .hazard-top {
   position: relative;
   overflow: hidden;
 }
-.hazard-top::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 16rpx;
-  background: repeating-linear-gradient(
-    45deg,
-    #F26D21 0,
-    #F26D21 20rpx,
-    #22314E 20rpx,
-    #22314E 40rpx
-  );
-}
 
-/* 板块标题（左侧 4px 橙色竖条） */
+/* 板块标题（前置红方块） */
 .section-title {
   display: flex;
   align-items: center;
   font-size: 30rpx;
   font-weight: 600;
-  color: #22314E;
+  color: #111111;
 }
 .section-title::before {
   content: '';
-  width: 8rpx;
-  height: 26rpx;
-  background: #F26D21;
-  border-radius: 4rpx;
+  width: 16rpx;
+  height: 16rpx;
+  background: #D22730;
   margin-right: 12rpx;
 }
 
-/* 描边徽章（身份标签） */
+/* 描边徽章（身份标签）：黄底 + 墨边 + 墨字（直角） */
 .badge-outline {
   display: inline-block;
   padding: 2rpx 14rpx;
-  border: 1rpx solid #F26D21;
-  color: #F26D21;
-  border-radius: 8rpx;
+  border: 2rpx solid #111111;
+  background: #F2B705;
+  color: #111111;
+  border-radius: 0;
   font-size: 20rpx;
   line-height: 1.6;
 }
@@ -91,14 +103,14 @@ page {
 }
 
 .hover-bg-warm {
-  background-color: #F7F3EA !important;
+  background-color: #EDF2FE !important;
 }
 
 .hover-opacity {
   opacity: 0.6 !important;
 }
 
-/* 入场动画 */
+/* 入场动画（缓动统一 cubic-bezier(.22,1,.36,1)，在各页面 animation 声明处使用） */
 @keyframes fadeUp {
   from {
     opacity: 0;
@@ -119,9 +131,22 @@ page {
   }
 }
 
+/* 降级：系统开启减弱动态效果时关闭一切动画与过渡（WXSS 不支持 * 选择器，枚举常用组件） */
+@media (prefers-reduced-motion: reduce) {
+  page, view, text, image, button, input, textarea, scroll-view, swiper, swiper-item, navigator,
+  page::before, page::after, view::before, view::after, text::before, text::after,
+  image::before, image::after, button::before, button::after, input::before, input::after,
+  textarea::before, textarea::after, scroll-view::before, scroll-view::after,
+  swiper::before, swiper::after, swiper-item::before, swiper-item::after,
+  navigator::before, navigator::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 /* ---------- 后台管理共用（admin users / perms / teams 页；原各页逐行重复，上移共用） ---------- */
 
-/* 班组筛选 tab（横向滚动 chips，选中态藏青底白字；.ttabs-scroll 下外边距各页自留） */
+/* 班组筛选 tab（横向滚动 chips，选中态墨底白字；.ttabs-scroll 下外边距各页自留） */
 .ttabs {
   display: flex;
   gap: 16rpx;
@@ -130,27 +155,27 @@ page {
 .ttab {
   flex: none;
   padding: 10rpx 26rpx;
-  border-radius: 999rpx;
+  border-radius: 0; /* 胶囊改直角 */
   font-size: 24rpx;
   font-weight: 500;
   color: #6B7690;
   background: #FFFFFF;
-  border: 1rpx solid #E3DCCB;
+  border: 1rpx solid #E7E1D2;
 }
 
 .ttab.on {
-  background: #22314E;
-  border-color: #22314E;
+  background: #111111;
+  border-color: #111111;
   color: #FFFFFF;
 }
 
-/* 分组标题（橙条 + 班组名 + 人数） */
+/* 分组标题（蓝条 + 班组名 + 人数） */
 .grp-title {
   display: flex;
   align-items: center;
   font-size: 26rpx;
   font-weight: 700;
-  color: #22314E;
+  color: #111111;
   margin: 16rpx 0 14rpx;
 }
 
@@ -158,8 +183,8 @@ page {
   content: '';
   width: 8rpx;
   height: 24rpx;
-  background: #F26D21;
-  border-radius: 4rpx;
+  background: #1D4ED8;
+  border-radius: 0;
   margin-right: 12rpx;
 }
 
@@ -178,7 +203,7 @@ page {
 }
 
 .u-item + .u-item {
-  border-top: 1rpx solid #F0EBDD;
+  border-top: 1rpx solid #E7E1D2;
 }
 
 /* 弹层头部与表单字段（users / teams 弹层共用；.sheet/.f-item/.sh-foot/.btn-primary 与其他分包
@@ -215,8 +240,8 @@ page {
 }
 
 .f-field {
-  background: #F4F1EA;
-  border-radius: 12rpx;
+  background: #F8F6F1;
+  border-radius: 0;
   padding: 0 16rpx;
 }
 

@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<!--
+  风格名称：07 · Bento 宫格（Web 端首页比选稿）
+  主色板：底 #F2F4F8 ｜ 蓝格 #DCE9FF ｜ 桃格 #FFE8D6 ｜ 绿格 #DFF5E3 ｜ 紫格 #F3E8FF ｜ 黄格 #FFF3C9 ｜ 墨 #1F2937 ｜ 次级文字 #475569
+  设计要点：
+  1. 整页便当盒拼版：6 列网格 + 20px 圆角 + 微阴影，用户格 4 列宽、通知格 2 列通高、出工日志 2 倍大格、安全提示通栏长条，大小错落形成节奏；
+  2. 五色彩格语义分配——蓝=用户身份、黄=通知、绿=出工日志、紫=Call Me、桃=安全日，外部应用一律白格 + 外链箭头 + 域名胶囊，与内部应用明确区分；
+  3. 签名动效：格子按阅读顺序交错弹入（--d 时延 + 回弹曲线 cubic-bezier(.3,1.45,.45,1)），hover 抬升 translateY(-4px) scale(1.02) 并加深投影；
+  4. 氛围动效两处：用户格装饰圆环缓慢浮动、通知格未读圆点脉冲扩散；均已做 prefers-reduced-motion 降级（关闭全部动画与过渡）；
+  5. 文字对比度保障：正文一律墨色 #1F2937，次级文字 #475569（对各 pastel 格底对比度均 ≥6:1），"敬请期待"以虚线描边置灰，入口预留语义清晰。
+  落地注意事项：
+  - 格底色与 hover 抬升建议抽成 theme.css 变量（--tile-blue 等），Web 端整页 grid 实现，IE 不考虑；
+  - 弹入动效用 animation-fill-mode: backwards，动画结束后交还 transform 控制权，避免与 hover 抬升冲突；
+  - 出工日志格内"现场照片"为 CSS 渐变 + 多层 repeating 渐变噪点模拟，落地时替换为真实缩略图（object-fit: cover 同尺寸即可）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>07 · Bento宫格 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#F2F4F8;
+    --blue:#DCE9FF; --peach:#FFE8D6; --green:#DFF5E3; --lilac:#F3E8FF; --butter:#FFF3C9;
+    --ink:#1F2937; --ink2:#475569; --ink3:#64748B;
+    --shadow:0 1px 2px rgba(31,41,55,.05), 0 10px 28px rgba(31,41,55,.07);
+    --shadow-hover:0 2px 4px rgba(31,41,55,.06), 0 18px 42px rgba(31,41,55,.13);
+    --spring:cubic-bezier(.3,1.45,.45,1);
+  }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(700px 420px at 12% 8%, rgba(220,233,255,.55), transparent 70%),
+      radial-gradient(640px 400px at 88% 16%, rgba(243,232,255,.5), transparent 70%),
+      radial-gradient(760px 460px at 50% 96%, rgba(255,232,214,.45), transparent 70%),
+      #E7EBF3;
+    padding:56px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页面顶部标注区 ===== */
+  .page-head { text-align:center; margin-bottom:46px; }
+  .page-head h1 { font-size:27px; font-weight:800; letter-spacing:2px; }
+  .page-head h1 em { font-style:normal; color:#3B6FD4; }
+  .page-head h1 small { margin-left:12px; font-size:12px; font-weight:700; color:var(--ink3); letter-spacing:3px; }
+  .page-head p { margin:14px auto 0; max-width:640px; font-size:13px; line-height:1.9; color:var(--ink2); letter-spacing:.5px; }
+  .palette { margin-top:20px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+  .palette .chip {
+    display:inline-flex; align-items:center; gap:8px; padding:6px 14px 6px 8px;
+    background:rgba(255,255,255,.8); border:1px solid #DDE4EE; border-radius:999px;
+    font-size:11px; font-weight:600; letter-spacing:.5px; color:var(--ink2);
+  }
+  .palette .chip i { width:14px; height:14px; border-radius:50%; border:1px solid rgba(31,41,55,.12); }
+
+  /* ===== 舞台 ===== */
+  .stage { display:flex; flex-direction:column; align-items:center; gap:22px; }
+  .cap { font-size:13px; font-weight:700; letter-spacing:2px; color:var(--ink); }
+  .cap i { font-style:normal; color:#3B6FD4; margin-right:8px; }
+  .cap span { font-weight:500; color:var(--ink3); letter-spacing:1px; }
+
+  /* ===== 浏览器窗口框 ===== */
+  .browser {
+    width:min(1180px,96vw); background:#fff; border-radius:18px; overflow:hidden;
+    box-shadow:0 30px 70px rgba(31,41,55,.18), 0 6px 18px rgba(31,41,55,.1);
+    animation:browser-in .6s ease both;
+  }
+  .browser-bar { height:46px; background:#F8FAFD; border-bottom:1px solid #E7ECF4;
+                 display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .bd { width:12px; height:12px; border-radius:50%; flex:none; }
+  .bd.r { background:#FF5F57; } .bd.y { background:#FEBC2E; } .bd.g { background:#28C840; }
+  .url { flex:1; max-width:400px; margin:0 auto; height:28px; border-radius:999px;
+         background:#EDF1F7; display:flex; align-items:center; justify-content:center; gap:7px;
+         font-size:12px; font-weight:600; color:var(--ink2); letter-spacing:.5px; }
+  .url svg { width:11px; height:11px; color:var(--ink3); }
+  .bar-side { width:52px; flex:none; }
+
+  /* ===== 视口 ===== */
+  .viewport { background:var(--bg); padding:18px 22px 26px; }
+
+  /* ===== 顶栏 ===== */
+  .topbar {
+    display:flex; align-items:center; gap:26px;
+    background:#fff; border-radius:20px; box-shadow:var(--shadow);
+    padding:12px 20px; margin-bottom:20px;
+    animation:bar-in .55s ease backwards;
+  }
+  .logo { display:flex; align-items:center; gap:11px; }
+  .logo i { width:36px; height:36px; border-radius:11px; background:var(--ink);
+            display:flex; align-items:center; justify-content:center; flex:none; }
+  .logo i svg { width:19px; height:19px; color:#fff; }
+  .logo b { font-size:15.5px; font-weight:800; letter-spacing:1px; }
+  .logo small { display:block; font-size:10px; font-weight:600; letter-spacing:2px; color:var(--ink3); }
+  .nav { display:flex; gap:6px; }
+  .nav a { font-size:13.5px; font-weight:600; color:var(--ink2); padding:8px 18px;
+           border-radius:999px; cursor:pointer; letter-spacing:1px;
+           transition:background .2s,color .2s; }
+  .nav a:hover { background:#F1F5FA; color:var(--ink); }
+  .nav a.on { background:var(--ink); color:#fff; font-weight:700; }
+  .u-right { margin-left:auto; display:flex; align-items:center; gap:12px; cursor:pointer; }
+  .u-right .av { width:38px; height:38px; border-radius:50%; background:var(--blue); color:#2B4C8C;
+                 display:flex; align-items:center; justify-content:center;
+                 font-size:15px; font-weight:800; border:2px solid #fff;
+                 box-shadow:0 0 0 1.5px #C7D8F5; }
+  .u-right .nm { font-size:14px; font-weight:700; letter-spacing:.5px; }
+  .u-right svg { width:15px; height:15px; color:var(--ink3); }
+
+  /* ===== Bento 拼版 ===== */
+  .bento { display:grid; grid-template-columns:repeat(6,1fr);
+           grid-auto-rows:minmax(150px,auto); gap:18px; }
+  .tile {
+    position:relative; border-radius:20px; padding:22px 24px;
+    box-shadow:var(--shadow); display:flex; flex-direction:column; overflow:hidden;
+    animation:pop-in .7s var(--spring) backwards; animation-delay:var(--d,0s);
+    transition:transform .3s var(--spring), box-shadow .3s ease;
+    cursor:pointer;
+  }
+  .tile:hover { transform:translateY(-4px) scale(1.02); box-shadow:var(--shadow-hover); z-index:2; }
+  .c-blue  { background:var(--blue); }
+  .c-peach { background:var(--peach); }
+  .c-green { background:var(--green); }
+  .c-lilac { background:var(--lilac); }
+  .c-butter{ background:var(--butter); }
+
+  .t-user   { grid-column:span 4; }
+  .t-notice { grid-column:span 2; grid-row:span 2; cursor:default; }
+  .t-worklog{ grid-column:span 2; }
+  .t-safety { grid-column:span 6; cursor:default; }
+
+  /* ----- 用户格 ----- */
+  .t-user { flex-direction:row; align-items:center; gap:26px; }
+  .u-main { flex:1; min-width:0; }
+  .u-top { display:flex; align-items:center; gap:12px; }
+  .u-avatar { width:52px; height:52px; border-radius:16px; background:var(--ink); color:#fff;
+              display:flex; align-items:center; justify-content:center;
+              font-size:21px; font-weight:800; flex:none; }
+  .u-badge { display:inline-flex; align-items:center; gap:5px; background:#fff; color:#2B4C8C;
+             font-size:11px; font-weight:700; letter-spacing:1px; padding:5px 12px; border-radius:999px; }
+  .u-badge i { width:6px; height:6px; border-radius:50%; background:#3B6FD4; }
+  .u-hello { margin-top:14px; font-size:27px; font-weight:800; letter-spacing:1px; }
+  .u-date { margin-top:8px; font-size:13px; font-weight:600; color:var(--ink2); letter-spacing:1px; }
+  .u-acct { margin-top:4px; font-size:12px; color:var(--ink2); letter-spacing:.5px; }
+  .u-foot { margin-top:16px; padding-top:12px; border-top:1px solid rgba(43,76,140,.18);
+            font-size:11px; color:#3D5280; letter-spacing:1px; }
+  .u-datebox {
+    flex:none; width:132px; border-radius:16px; background:rgba(255,255,255,.65);
+    display:flex; flex-direction:column; align-items:center; padding:18px 0 16px;
+  }
+  .u-datebox b { font-size:46px; font-weight:800; line-height:1; letter-spacing:-1px; }
+  .u-datebox span { margin-top:8px; font-size:11px; font-weight:700; color:var(--ink2); letter-spacing:2px; }
+  .u-datebox em { margin-top:3px; font-style:normal; font-size:10px; color:#3D5280; letter-spacing:1px; }
+  .u-ring { position:absolute; border-radius:50%; border:1.5px solid rgba(255,255,255,.55); pointer-events:none; }
+  .u-ring.r1 { width:180px; height:180px; right:-56px; top:-64px; animation:float-y 6s ease-in-out infinite alternate; }
+  .u-ring.r2 { width:110px; height:110px; right:130px; bottom:-58px; animation:float-y 7.5s ease-in-out infinite alternate-reverse; }
+
+  /* ----- 通知格 ----- */
+  .n-head { display:flex; align-items:center; justify-content:space-between; }
+  .n-title { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:800; letter-spacing:1px; }
+  .n-title svg { width:17px; height:17px; }
+  .n-unread { background:var(--ink); color:var(--butter); font-size:10.5px; font-weight:700;
+              letter-spacing:1px; padding:4px 11px; border-radius:999px; }
+  .n-list { margin-top:16px; display:flex; flex-direction:column; }
+  .n-item { display:flex; align-items:flex-start; gap:10px; padding:11px 0; }
+  .n-item + .n-item { border-top:1px solid rgba(31,41,55,.1); }
+  .n-dot { margin-top:7px; width:7px; height:7px; flex:none; border-radius:50%; background:var(--ink); }
+  .n-dot.pulse { animation:pulse-dot 2.2s ease-out infinite; }
+  .n-item.read .n-dot { background:transparent; box-shadow:inset 0 0 0 1.5px rgba(31,41,55,.35); }
+  .n-item b { display:block; font-size:13px; font-weight:700; line-height:1.5; }
+  .n-item.read b { color:var(--ink2); font-weight:600; }
+  .n-item span { display:block; margin-top:2px; font-size:11px; color:#6B5E2E; letter-spacing:.5px; }
+  .n-more { margin-top:auto; padding-top:14px; font-size:12px; font-weight:700; color:var(--ink);
+            letter-spacing:1px; display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .n-more svg { width:13px; height:13px; transition:transform .25s; }
+  .t-notice:hover .n-more svg { transform:translateX(4px); }
+
+  /* ----- 应用格 ----- */
+  .a-icon { width:44px; height:44px; border-radius:13px; background:rgba(255,255,255,.75);
+            display:flex; align-items:center; justify-content:center; flex:none; }
+  .a-icon svg { width:22px; height:22px; color:var(--ink); }
+  .tile h4 { margin-top:13px; font-size:15.5px; font-weight:800; letter-spacing:.5px; }
+  .a-desc { margin-top:6px; font-size:12px; line-height:1.7; color:var(--ink2); }
+  .a-foot { margin-top:auto; padding-top:14px; display:flex; align-items:center; gap:10px; }
+  .a-tag { font-size:10.5px; font-weight:700; letter-spacing:.5px; color:var(--ink2);
+           background:rgba(255,255,255,.6); padding:4px 10px; border-radius:999px; }
+  .a-go { margin-left:auto; display:flex; align-items:center; gap:5px;
+          font-size:12px; font-weight:800; color:var(--ink); letter-spacing:.5px; white-space:nowrap; }
+  .a-go svg { width:13px; height:13px; transition:transform .25s; }
+  .tile:hover .a-go svg { transform:translateX(4px); }
+
+  /* 出工日志 2 倍大格 */
+  .w-thumbs { display:flex; gap:10px; margin-top:14px; }
+  .thumb { position:relative; flex:1; height:64px; border-radius:11px; overflow:hidden; flex:none; }
+  .thumb::after { content:""; position:absolute; inset:0;
+                  background:repeating-linear-gradient(45deg,rgba(255,255,255,.07) 0 2px,transparent 2px 5px),
+                             repeating-linear-gradient(-45deg,rgba(31,41,55,.05) 0 1px,transparent 1px 4px); }
+  .thumb.p1 { background:linear-gradient(140deg,#7FA8E8 0%,#4A6FA8 55%,#33517E 100%); }
+  .thumb.p2 { background:linear-gradient(140deg,#8FCB9B 0%,#4E8F63 55%,#33604A 100%); }
+  .thumb.p3 { background:linear-gradient(140deg,#E8B57F 0%,#A87A4A 55%,#7E5C33 100%); }
+  .thumb i { position:absolute; left:6px; bottom:5px; z-index:1; font-style:normal;
+             font-size:9px; font-weight:700; color:#fff; letter-spacing:.5px;
+             background:rgba(31,41,55,.45); padding:2px 7px; border-radius:999px; }
+
+  /* 敬请期待 */
+  .t-soon { background:transparent; border:1.5px dashed #C3CCDC; box-shadow:none;
+            align-items:center; justify-content:center; text-align:center; cursor:default; }
+  .t-soon:hover { transform:none; box-shadow:none; }
+  .t-soon .a-icon { background:transparent; border:1.5px dashed #C3CCDC; margin:0 auto; }
+  .t-soon .a-icon svg { color:#9AA6B8; }
+  .t-soon h4 { font-size:13.5px; color:#7C8798; }
+  .t-soon p { margin-top:5px; font-size:11px; color:#9AA6B8; letter-spacing:.5px; }
+
+  /* ----- 外部应用格 ----- */
+  .t-ext { background:#fff; border:1px solid #E4E9F2; }
+  .x-arrow { position:absolute; top:16px; right:16px; width:26px; height:26px; border-radius:8px;
+             background:#F1F5FA; display:flex; align-items:center; justify-content:center; }
+  .x-arrow svg { width:13px; height:13px; color:var(--ink2); }
+  .t-ext .a-icon { background:#F1F5FA; }
+  .t-ext h4 { font-size:14.5px; }
+  .x-domain { margin-top:auto; padding-top:12px; display:inline-flex; align-self:flex-start;
+              font-size:11px; font-weight:700; letter-spacing:.3px; color:var(--ink2);
+              background:#F1F5FA; padding:4px 11px; border-radius:999px; }
+
+  /* ----- 安全提示长条格 ----- */
+  .t-safety { background:var(--ink); flex-direction:row; align-items:center; gap:18px; padding:20px 26px; }
+  .s-icon { width:44px; height:44px; flex:none; border-radius:13px; background:var(--butter);
+            display:flex; align-items:center; justify-content:center; }
+  .s-icon svg { width:22px; height:22px; color:var(--ink); }
+  .t-safety p { flex:1; font-size:13.5px; line-height:1.8; color:#E8EEF7; letter-spacing:.5px; }
+  .t-safety p b { color:#fff; font-weight:800; margin-right:2px; }
+  .s-tag { flex:none; font-size:10.5px; font-weight:700; letter-spacing:2px; color:#A9B8CC;
+           border:1px solid rgba(232,238,247,.28); padding:6px 13px; border-radius:999px; }
+
+  /* ===== 动效 ===== */
+  @keyframes pop-in {
+    0% { opacity:0; transform:translateY(26px) scale(.92); }
+    100% { opacity:1; transform:translateY(0) scale(1); }
+  }
+  @keyframes bar-in {
+    0% { opacity:0; transform:translateY(-14px); }
+    100% { opacity:1; transform:translateY(0); }
+  }
+  @keyframes browser-in {
+    0% { opacity:0; transform:translateY(18px); }
+    100% { opacity:1; transform:translateY(0); }
+  }
+  @keyframes float-y {
+    from { transform:translateY(-6px); }
+    to { transform:translateY(7px); }
+  }
+  @keyframes pulse-dot {
+    0% { box-shadow:0 0 0 0 rgba(31,41,55,.38); }
+    70% { box-shadow:0 0 0 7px rgba(31,41,55,0); }
+    100% { box-shadow:0 0 0 0 rgba(31,41,55,0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+
+  /* ---------- 窄屏自适应 ---------- */
+  @media (max-width: 900px) {
+    .t-user, .t-notice, .t-worklog { grid-column:span 6; grid-row:auto; }
+    .t-safety { flex-direction:column; align-items:flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>07 · <em>Bento 宫格</em><small>BENTO GRID / WEB HOME</small></h1>
+  <p>便当格大小拼版：五色 pastel 格 + 20px 圆角 + 微阴影，格子交错弹入、悬停抬升 1.02 —— 把班组工作台装进一只轻盈有序的便当盒。</p>
+  <div class="palette">
+    <span class="chip"><i style="background:#F2F4F8"></i>#F2F4F8 底</span>
+    <span class="chip"><i style="background:#DCE9FF"></i>#DCE9FF 蓝</span>
+    <span class="chip"><i style="background:#FFE8D6"></i>#FFE8D6 桃</span>
+    <span class="chip"><i style="background:#DFF5E3"></i>#DFF5E3 绿</span>
+    <span class="chip"><i style="background:#F3E8FF"></i>#F3E8FF 紫</span>
+    <span class="chip"><i style="background:#FFF3C9"></i>#FFF3C9 黄</span>
+    <span class="chip"><i style="background:#1F2937"></i>#1F2937 墨</span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="browser">
+    <div class="browser-bar">
+      <span class="bd r"></span><span class="bd y"></span><span class="bd g"></span>
+      <span class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+        toolkit.j1net.com
+      </span>
+      <span class="bar-side"></span>
+    </div>
+
+    <div class="viewport">
+
+      <!-- 顶栏 -->
+      <nav class="topbar">
+        <div class="logo">
+          <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></i>
+          <div><b>Shade 壹匣</b><small>班组数字化工具平台</small></div>
+        </div>
+        <div class="nav">
+          <a class="on">工作台</a>
+          <a>管理</a>
+        </div>
+        <div class="u-right">
+          <span class="av">张</span>
+          <span class="nm">张伟</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+        </div>
+      </nav>
+
+      <!-- Bento 拼版 -->
+      <div class="bento">
+
+        <!-- 用户格（蓝 · 大格） -->
+        <div class="tile c-blue t-user" style="--d:.1s">
+          <span class="u-ring r1"></span>
+          <span class="u-ring r2"></span>
+          <div class="u-main">
+            <div class="u-top">
+              <div class="u-avatar">张</div>
+              <span class="u-badge"><i></i>班组管理员</span>
+            </div>
+            <h2 class="u-hello">下午好，张伟</h2>
+            <p class="u-date">2026 年 9 月 25 日 · 星期五</p>
+            <p class="u-acct">账号：zhangwei</p>
+            <p class="u-foot">班组数字化工具平台 · Shade 壹匣 网页版</p>
+          </div>
+          <div class="u-datebox">
+            <b>25</b>
+            <span>九月</span>
+            <em>SEP · 星期五</em>
+          </div>
+        </div>
+
+        <!-- 通知格（黄 · 通高） -->
+        <div class="tile c-butter t-notice" style="--d:.22s">
+          <div class="n-head">
+            <span class="n-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+              通知中心
+            </span>
+            <span class="n-unread">2 条未读</span>
+          </div>
+          <div class="n-list">
+            <div class="n-item">
+              <i class="n-dot pulse"></i>
+              <div><b>国庆保电工作安排</b><span>09-24</span></div>
+            </div>
+            <div class="n-item">
+              <i class="n-dot pulse"></i>
+              <div><b>9月安全日活动记录已生成</b><span>09-23</span></div>
+            </div>
+            <div class="n-item read">
+              <i class="n-dot"></i>
+              <div><b>差旅费报销提醒</b><span>09-21</span></div>
+            </div>
+          </div>
+          <span class="n-more">查看全部通知
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+          </span>
+        </div>
+
+        <!-- 出工日志（绿 · 2 倍大格） -->
+        <div class="tile c-green t-worklog" style="--d:.34s">
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6"/><path d="M9 14h6"/><path d="M9.2 17.5l1.4 1.4 2.6-2.6"/></svg>
+          </div>
+          <h4>出工日志</h4>
+          <p class="a-desc">出工记录在线填报存证，现场照片水印归档，防伪二维码随时扫码核验。</p>
+          <div class="w-thumbs">
+            <div class="thumb p1"><i>已核验</i></div>
+            <div class="thumb p2"><i>已核验</i></div>
+            <div class="thumb p3"><i>已核验</i></div>
+          </div>
+          <div class="a-foot">
+            <span class="a-tag">记录存证 · 防伪核验</span>
+            <span class="a-go">进入应用
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- Call Me（紫） -->
+        <div class="tile c-lilac" style="--d:.43s">
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.7 4.3 4.3 1.7-4.3 1.7L12 15.5l-1.7-4.3-4.3-1.7 4.3-1.7z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg>
+          </div>
+          <h4>Call Me</h4>
+          <p class="a-desc">班组知识库随问随答，规程制度、检修方案一问即得。</p>
+          <div class="a-foot">
+            <span class="a-tag">AI 问答 · WeKnora</span>
+            <span class="a-go">进入应用
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- 安全日活动记录（桃） -->
+        <div class="tile c-peach" style="--d:.52s">
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg>
+          </div>
+          <h4>安全日活动记录</h4>
+          <p class="a-desc">活动记录一键生成规范文档，签到照片自动归档留痕。</p>
+          <div class="a-foot">
+            <span class="a-tag">文件生成 · Dify</span>
+            <span class="a-go">进入应用
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- 远程连接计算机（蓝） -->
+        <div class="tile c-blue" style="--d:.61s">
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M7 9l2.5 2.5L7 14"/><path d="M12 14h4"/><path d="M9.5 20h5M12 16v4"/></svg>
+          </div>
+          <h4>远程连接计算机</h4>
+          <p class="a-desc">办公室电脑远程唤醒，终端与桌面随时掌控。</p>
+          <div class="a-foot">
+            <span class="a-tag">远程终端 · 桌面控制</span>
+            <span class="a-go">进入应用
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- 题库刷题（黄） -->
+        <div class="tile c-butter" style="--d:.7s">
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7c-1.7-1.3-4-1.6-6.7-1.4v12.8c2.7-.2 5 .1 6.7 1.4 1.7-1.3 4-1.6 6.7-1.4V5.6C16 5.4 13.7 5.7 12 7z"/><path d="M12 7v12.8"/></svg>
+          </div>
+          <h4>题库刷题</h4>
+          <p class="a-desc">安规题库碎片时间刷题，错题 AI 举一反三讲解。</p>
+          <div class="a-foot">
+            <span class="a-tag">刷题练习 · AI 解析</span>
+            <span class="a-go">进入应用
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- 敬请期待（虚线） -->
+        <div class="tile t-soon" style="--d:.79s">
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+          </div>
+          <h4>敬请期待</h4>
+          <p>更多班组应用持续接入中</p>
+        </div>
+
+        <!-- 外部应用 · 网盘 -->
+        <div class="tile t-ext" style="--d:.88s">
+          <span class="x-arrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
+          </span>
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18.5a4.3 4.3 0 0 1-.6-8.55 5.6 5.6 0 0 1 10.9-1.4 4.6 4.6 0 0 1-.3 9.95z"/></svg>
+          </div>
+          <h4>网盘</h4>
+          <span class="x-domain">cloud.j1net.com</span>
+        </div>
+
+        <!-- 外部应用 · 机械作业距离预警 -->
+        <div class="tile t-ext" style="--d:.97s">
+          <span class="x-arrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
+          </span>
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2L21 19H3z"/><path d="M12 10v3.6"/><circle cx="12" cy="16.4" r=".9" fill="currentColor" stroke="none"/></svg>
+          </div>
+          <h4>机械作业距离预警</h4>
+          <span class="x-domain">ula-admin.j1net.com</span>
+        </div>
+
+        <!-- 外部应用 · Dify -->
+        <div class="tile t-ext" style="--d:1.06s">
+          <span class="x-arrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
+          </span>
+          <div class="a-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9.5" width="14" height="9.5" rx="3"/><path d="M12 9.5V6"/><circle cx="12" cy="4.6" r="1.3"/><circle cx="9.3" cy="13.8" r="1" fill="currentColor" stroke="none"/><circle cx="14.7" cy="13.8" r="1" fill="currentColor" stroke="none"/><path d="M10 16.6h4"/></svg>
+          </div>
+          <h4>Dify</h4>
+          <span class="x-domain">ai.j1net.com</span>
+        </div>
+
+        <!-- 安全提示长条格（墨） -->
+        <div class="tile t-safety" style="--d:1.15s">
+          <div class="s-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg>
+          </div>
+          <p><b>安全生产，预防为主。</b>上工前请确认劳保用品佩戴齐全，作业按规程执行。</p>
+          <span class="s-tag">每日安全提示</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="cap"><i>07</i>Web 端首页 · <span>格子交错弹入 / hover 抬升 1.02 / 20px 圆角微阴影</span></div>
+</main>
+
+</body>
+</html>

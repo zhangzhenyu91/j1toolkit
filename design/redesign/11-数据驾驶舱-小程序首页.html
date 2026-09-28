@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案十一「数据驾驶舱」Data Cockpit · 深色仪表风
+  主色板：深空底 #0D1420 ｜ 主蓝 #38BDF8 ｜ 成功绿 #34D399 ｜ 警示琥珀 #F59E0B ｜ 网格线 rgba(148,163,184,.12)
+  设计要点：
+  1. 深空底 + 细网格线铺底，卡片为略亮一档的仪表板面板（顶部 2px 蓝绿渐变能量条），整体像一块班组运行监控屏；
+  2. 问候卡内嵌 240° 环形仪表（蓝绿渐变弧 + 白色指针 + 底部数字窗），读数 96% 即本周出勤率，仪表是指挥舱的第一视觉锚点；
+  3. 状态语义全部点状化：导航栏「在线」、宫格「AI 在线 / 2 台在线」用呼吸脉搏绿点，未读消息与警示用琥珀点/胶囊，蓝绿琥珀三色分工明确；
+  4. 应用宫格每格带一条迷你趋势线（描边生长动画）或状态点，发丝分隔线 rgba(148,163,184,.12) 切出仪表阵列感，末格虚线占位；
+  5. 签名动效三件套：仪表指针扫动（过冲回弹）+ 数字滚动递增（CSS @property 计数器，出勤 96 与未读 2 同步滚动）+ 状态点脉搏呼吸；
+  6. 入场为编排式时序：导航下沉 → 问候卡升起 → 通知卡右滑入（铃铛单次摆动）→ 宫格逐格弹出 → TabBar 上抬，各元素动效形态各异。
+  落地注意事项：
+  - 数字滚动依赖 CSS @property（Chrome/Edge/Safari 16.4+/Firefox 128+），不支持时静态显示终值，无功能损失；小程序落地改用 wxs/定时器驱动；
+  - 呼吸脉搏为 box-shadow 扩散环，小程序可用 animation 缩放同名类实现；网格铺底用单层 background-image 平铺实现，避免多图层叠加耗性能；
+  - 深色模式下正文文字全部 ≥#8FA3BE（对底 #0D1420 对比度 ≥4.5:1），琥珀 #F59E0B 仅用于小面积警示，不作大段正文色；
+  - prefers-reduced-motion 已降级：关闭全部动画，所有元素基态即为终态（指针 110.4°、弧线 dashoffset 终值、计数器终值），无需额外补偿。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>11 · 数据驾驶舱 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  @property --gp { syntax:'<integer>'; inherits:false; initial-value:96; }
+  @property --un { syntax:'<integer>'; inherits:false; initial-value:2; }
+
+  body {
+    background:
+      radial-gradient(60% 42% at 12% 0%, rgba(56,189,248,.10), transparent 62%),
+      radial-gradient(52% 40% at 92% 96%, rgba(52,211,153,.07), transparent 60%),
+      linear-gradient(rgba(148,163,184,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,.045) 1px, transparent 1px),
+      #05080F;
+    background-size:auto, auto, 30px 30px, 30px 30px, auto;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:#E8EEF6;
+    padding:56px 24px 90px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:54px; }
+  .page-head h1 { font-size:27px; font-weight:800; letter-spacing:2px; color:#F1F5F9; }
+  .page-head h1 em { font-style:normal; color:#38BDF8; text-shadow:0 0 22px rgba(56,189,248,.45); }
+  .page-head h1 small { margin-left:10px; font-size:12px; font-weight:600; color:#64748B; letter-spacing:4px; }
+  .page-head p { margin-top:13px; font-size:13px; color:#8FA3BE; letter-spacing:1px; }
+  .tokens { margin-top:20px; display:flex; flex-wrap:wrap; justify-content:center; gap:9px; }
+  .tk { display:flex; align-items:center; gap:7px; padding:6px 13px; border-radius:999px;
+        border:1px solid rgba(148,163,184,.22); background:rgba(13,20,32,.55);
+        font-size:11px; color:#8FA3BE; letter-spacing:1px; }
+  .tk i { width:11px; height:11px; border-radius:50%; flex:none; }
+
+  /* ===== 机框舞台 ===== */
+  .stage { display:flex; justify-content:center; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:22px;
+          animation:stageIn .6s ease both; }
+  .cap { font-size:13px; font-weight:700; letter-spacing:2px; color:#8FA3BE; display:flex; align-items:center; gap:8px; }
+  .cap i { font-style:normal; color:#38BDF8; }
+
+  .phone {
+    padding:12px;
+    background:linear-gradient(150deg,#2b3648 0%,#121a28 55%,#0a0f18 100%);
+    border-radius:62px;
+    box-shadow:0 40px 90px rgba(2,6,14,.85), 0 0 110px rgba(56,189,248,.10), inset 0 1px 0 rgba(148,163,184,.18);
+  }
+  .screen {
+    position:relative; width:375px; height:812px; border-radius:50px; overflow:hidden;
+    display:flex; flex-direction:column;
+    background:
+      radial-gradient(120% 55% at 50% -8%, rgba(56,189,248,.10), transparent 60%),
+      radial-gradient(110% 45% at 50% 112%, rgba(52,211,153,.05), transparent 58%),
+      linear-gradient(rgba(148,163,184,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,.05) 1px, transparent 1px),
+      #0D1420;
+    background-size:auto, auto, 26px 26px, 26px 26px, auto;
+  }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:120px; height:32px; border-radius:18px; background:#04070C; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(226,232,240,.85); z-index:40; }
+
+  /* 状态栏 */
+  .sb { height:54px; flex:none; padding:20px 30px 0; display:flex; justify-content:space-between;
+        align-items:center; font-size:14px; font-weight:700; letter-spacing:.5px; color:#E8EEF6;
+        position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+
+  /* ===== 导航栏 ===== */
+  .navbar { flex:none; display:flex; align-items:center; justify-content:space-between;
+            padding:6px 18px 12px; border-bottom:1px solid rgba(148,163,184,.12);
+            animation:navIn .5s .05s cubic-bezier(.22,.9,.3,1) both; }
+  .brand { display:flex; align-items:center; gap:9px; }
+  .mark { width:26px; height:26px; border-radius:8px;
+          background:linear-gradient(135deg,#38BDF8,#2563EB);
+          display:flex; align-items:center; justify-content:center;
+          box-shadow:0 4px 12px rgba(56,189,248,.35); }
+  .mark svg { width:15px; height:15px; color:#fff; }
+  .brand b { font-size:16px; font-weight:800; letter-spacing:1px; color:#F1F5F9; }
+  .online { display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px;
+            background:rgba(52,211,153,.10); border:1px solid rgba(52,211,153,.32); }
+  .online i { width:6px; height:6px; border-radius:50%; background:#34D399;
+              animation:pulseG 2s 1.4s ease-out infinite; }
+  .online span { font-size:10.5px; font-weight:700; letter-spacing:1.5px; color:#34D399; }
+
+  .content { flex:1; padding:12px 16px 8px; overflow:hidden; display:flex; flex-direction:column; }
+
+  /* ===== 问候卡（含环形仪表） ===== */
+  .greet { position:relative; flex:none; border-radius:14px; overflow:hidden;
+           background:linear-gradient(160deg,#152138 0%,#101A2C 100%);
+           border:1px solid rgba(148,163,184,.14);
+           box-shadow:0 10px 26px rgba(2,6,14,.4), inset 0 1px 0 rgba(226,232,240,.05);
+           animation:rise .55s .18s cubic-bezier(.22,.9,.3,1) both; }
+  .greet::before { content:""; display:block; height:2px;
+                   background:linear-gradient(90deg,#38BDF8 0%,#34D399 60%,transparent 100%); }
+  .gc-top { display:flex; align-items:flex-start; justify-content:space-between; padding:15px 16px 12px; }
+  .hello { font-size:18px; font-weight:800; letter-spacing:.5px; color:#F1F5F9; }
+  .acc { margin-top:6px; font-size:11px; letter-spacing:1px; color:#8FA3BE; }
+  .datebox { text-align:right; }
+  .datebox .d1 { font-size:13px; font-weight:700; letter-spacing:.5px; color:#C7D2E3;
+                 font-variant-numeric:tabular-nums; }
+  .badge { display:inline-block; margin-top:7px; padding:1px 8px; border-radius:5px;
+           border:1px solid rgba(56,189,248,.55); background:rgba(56,189,248,.10);
+           font-size:10px; font-weight:700; letter-spacing:1.5px; color:#38BDF8; line-height:17px; }
+  .gc-hr { height:1px; margin:0 16px; background:rgba(148,163,184,.10); }
+  .gc-btm { display:flex; align-items:center; justify-content:space-between;
+            padding:10px 18px 12px 20px; }
+  .att-label { font-size:11px; letter-spacing:2px; color:#8FA3BE; }
+  .chip { display:inline-flex; align-items:center; gap:4px; margin-top:10px; padding:3px 9px;
+          border-radius:999px; background:rgba(52,211,153,.10); border:1px solid rgba(52,211,153,.30);
+          font-size:10.5px; font-weight:700; letter-spacing:.5px; color:#34D399;
+          font-variant-numeric:tabular-nums; }
+  .att-note { margin-top:10px; font-size:10px; letter-spacing:1px; color:#64748B; }
+
+  .gauge { position:relative; width:92px; flex:none; }
+  .gauge svg { display:block; width:92px; height:92px; }
+  .g-arc { stroke-dasharray:134.04; stroke-dashoffset:5.36;
+           animation:arcDraw 1.1s .85s cubic-bezier(.3,.7,.3,1) both; }
+  .g-needle { transform:rotate(110.4deg); transform-origin:44px 44px;
+              animation:needleSweep 1.5s .95s cubic-bezier(.34,1.2,.4,1) both; }
+  .g-num { position:absolute; left:0; right:0; top:63%; text-align:center; }
+  .g-num .n { --gp:96; counter-reset:gp var(--gp);
+              font-size:19px; font-weight:800; color:#F1F5F9; line-height:1;
+              font-variant-numeric:tabular-nums;
+              animation:cnt96 1.3s .95s ease-out both; }
+  .g-num .n::after { content:counter(gp); }
+  .g-num i { font-style:normal; font-size:10px; font-weight:700; color:#8FA3BE; margin-left:1px; }
+  .g-cap { margin-top:-4px; text-align:center; font-size:9.5px; letter-spacing:2px; color:#64748B; }
+
+  /* ===== 消息通知卡 ===== */
+  .notice { flex:none; margin-top:12px; border-radius:14px;
+            background:linear-gradient(160deg,#141F33 0%,#0F1928 100%);
+            border:1px solid rgba(148,163,184,.14);
+            box-shadow:0 10px 26px rgba(2,6,14,.35), inset 0 1px 0 rgba(226,232,240,.04);
+            animation:slideL .55s .5s cubic-bezier(.22,.9,.3,1) both; }
+  .nc-head { display:flex; align-items:center; gap:9px; padding:12px 16px 9px; }
+  .nc-head .bell { position:relative; width:30px; height:30px; flex:none; border-radius:9px;
+                   background:rgba(245,158,11,.10); border:1px solid rgba(245,158,11,.28);
+                   color:#F59E0B; display:flex; align-items:center; justify-content:center; }
+  .nc-head .bell svg { width:16px; height:16px; transform-origin:50% 2px;
+                       animation:bellSwing 1.1s 1.15s ease both; }
+  .nc-head .bell::after { content:""; position:absolute; top:-2px; right:-2px; width:7px; height:7px;
+                          border-radius:50%; background:#F59E0B; border:2px solid #101A2C;
+                          animation:pulseA 2s 1.6s ease-out infinite; }
+  .nc-head h4 { font-size:13px; font-weight:800; letter-spacing:1.5px; color:#E8EEF6; }
+  .unread { margin-left:auto; display:flex; align-items:baseline; gap:3px; padding:3px 10px;
+            border-radius:999px; background:rgba(245,158,11,.10); border:1px solid rgba(245,158,11,.32);
+            color:#F59E0B; font-size:10.5px; font-weight:700; letter-spacing:.5px; }
+  .unread .u { --un:2; counter-reset:un var(--un); font-size:12px;
+               font-variant-numeric:tabular-nums; animation:cnt2 .8s 1.15s ease-out both; }
+  .unread .u::after { content:counter(un); }
+  .msg { display:flex; align-items:center; gap:10px; padding:8px 16px; }
+  .msg + .msg { border-top:1px solid rgba(148,163,184,.08); }
+  .mdot { width:7px; height:7px; flex:none; border-radius:50%; }
+  .mdot.warn { background:#F59E0B; animation:pulseA 2s 1.9s ease-out infinite; }
+  .mdot.info { background:#38BDF8; }
+  .msg b { font-size:12.5px; font-weight:600; letter-spacing:.3px; color:#E2E8F0; }
+  .msg span { margin-left:auto; flex:none; font-size:10.5px; color:#7C8AA5;
+              font-variant-numeric:tabular-nums; letter-spacing:.5px; }
+  .msg:last-child { padding-bottom:11px; }
+
+  /* ===== 板块标题 ===== */
+  .sec { flex:none; display:flex; align-items:center; gap:8px; margin:14px 4px 10px;
+         animation:fadeIn .5s .68s ease both; }
+  .sec::before { content:""; width:4px; height:14px; border-radius:2px;
+                 background:linear-gradient(180deg,#38BDF8,#34D399);
+                 box-shadow:0 0 8px rgba(56,189,248,.5); }
+  .sec h3 { font-size:14px; font-weight:800; letter-spacing:2px; color:#E8EEF6; }
+  .sec span { margin-left:auto; font-size:10px; letter-spacing:1.5px; color:#64748B; }
+
+  /* ===== 应用宫格 ===== */
+  .grid-card { flex:none; border-radius:14px; overflow:hidden;
+               background:linear-gradient(160deg,#131D30 0%,#0E1725 100%);
+               border:1px solid rgba(148,163,184,.14);
+               box-shadow:0 10px 26px rgba(2,6,14,.35); }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); }
+  .g { display:flex; flex-direction:column; align-items:center; gap:6px;
+       padding:12px 2px 10px; cursor:pointer; transition:background .2s;
+       border-right:1px solid rgba(148,163,184,.08); border-bottom:1px solid rgba(148,163,184,.08);
+       animation:pop .5s cubic-bezier(.3,1.4,.4,1) both; }
+  .g:nth-child(4n) { border-right:none; }
+  .g:nth-child(n+5) { border-bottom:none; }
+  .g:nth-child(1) { animation-delay:.72s; } .g:nth-child(2) { animation-delay:.78s; }
+  .g:nth-child(3) { animation-delay:.84s; } .g:nth-child(4) { animation-delay:.90s; }
+  .g:nth-child(5) { animation-delay:.96s; } .g:nth-child(6) { animation-delay:1.02s; }
+  .g:nth-child(7) { animation-delay:1.08s; } .g:nth-child(8) { animation-delay:1.14s; }
+  .g:hover { background:rgba(56,189,248,.06); }
+  .g .gi { width:38px; height:38px; border-radius:11px; color:#38BDF8;
+           background:linear-gradient(160deg,rgba(56,189,248,.16),rgba(56,189,248,.05));
+           border:1px solid rgba(56,189,248,.24);
+           display:flex; align-items:center; justify-content:center; }
+  .g .gi svg { width:20px; height:20px; }
+  .g > span { font-size:10px; letter-spacing:.3px; color:#C7D2E3; white-space:nowrap; }
+  .g .spark { width:46px; height:15px; }
+  .g .spark path { stroke-dasharray:1; stroke-dashoffset:0; animation:draw .9s ease-out both; }
+  .g .spark circle { animation:fadeIn .3s ease both; }
+  .g:nth-child(2) .spark path { animation-delay:1.35s; } .g:nth-child(2) .spark circle { animation-delay:2.1s; }
+  .g:nth-child(3) .spark path { animation-delay:1.45s; } .g:nth-child(3) .spark circle { animation-delay:2.2s; }
+  .g:nth-child(5) .spark path { animation-delay:1.55s; } .g:nth-child(5) .spark circle { animation-delay:2.3s; }
+  .g:nth-child(7) .spark path { animation-delay:1.65s; } .g:nth-child(7) .spark circle { animation-delay:2.4s; }
+  .sd { display:flex; align-items:center; gap:5px; height:15px; }
+  .sd i { width:6px; height:6px; border-radius:50%; }
+  .sd.on i { background:#34D399; animation:pulseG 2s 1.8s ease-out infinite; }
+  .sd.rd i { background:#38BDF8; }
+  .sd span { font-size:9px; letter-spacing:.5px; color:#7C8AA5; }
+  .g.soon { cursor:default; }
+  .g.soon:hover { background:transparent; }
+  .g.soon .gi { background:transparent; border:1.5px dashed rgba(148,163,184,.35); color:#54637E; }
+  .g.soon > span { color:#54637E; }
+
+  .tip { flex:none; margin-top:11px; text-align:center; font-size:10px; letter-spacing:2px;
+         color:#54637E; animation:fadeIn .6s 1.4s ease both; }
+
+  /* ===== TabBar ===== */
+  .tabbar { flex:none; height:78px; padding:9px 0 20px; display:flex;
+            background:rgba(10,16,26,.92); border-top:1px solid rgba(148,163,184,.12);
+            animation:barUp .5s .3s cubic-bezier(.22,.9,.3,1) both; }
+  .tab { flex:1; position:relative; display:flex; flex-direction:column; align-items:center;
+         gap:4px; font-size:10px; letter-spacing:1.5px; color:#64748B; }
+  .tab svg { width:23px; height:23px; }
+  .tab.on { color:#38BDF8; font-weight:700; }
+  .tab.on svg { filter:drop-shadow(0 0 6px rgba(56,189,248,.55)); }
+  .tab.on::before { content:""; position:absolute; top:-9px; left:50%; transform:translateX(-50%);
+                    width:22px; height:3px; border-radius:0 0 3px 3px;
+                    background:linear-gradient(90deg,#38BDF8,#34D399);
+                    box-shadow:0 2px 8px rgba(56,189,248,.6); }
+
+  /* ===== 动效 ===== */
+  @keyframes stageIn { from { opacity:0; transform:scale(.965); } }
+  @keyframes navIn   { from { opacity:0; transform:translateY(-14px); } }
+  @keyframes rise    { from { opacity:0; transform:translateY(20px); } }
+  @keyframes slideL  { from { opacity:0; transform:translateX(26px); } }
+  @keyframes pop     { from { opacity:0; transform:scale(.55); } }
+  @keyframes barUp   { from { transform:translateY(100%); } }
+  @keyframes fadeIn  { from { opacity:0; } }
+  @keyframes arcDraw { from { stroke-dashoffset:134.04; } }
+  @keyframes needleSweep {
+    0%   { transform:rotate(-120deg); }
+    55%  { transform:rotate(118deg); }
+    75%  { transform:rotate(104deg); }
+    100% { transform:rotate(110.4deg); }
+  }
+  @keyframes cnt96 { from { --gp:0; } }
+  @keyframes cnt2  { from { --un:0; } }
+  @keyframes draw  { from { stroke-dashoffset:1; } }
+  @keyframes bellSwing {
+    0%   { transform:rotate(0deg); }
+    20%  { transform:rotate(13deg); }
+    45%  { transform:rotate(-10deg); }
+    70%  { transform:rotate(5deg); }
+    100% { transform:rotate(0deg); }
+  }
+  @keyframes pulseG {
+    0%   { box-shadow:0 0 0 0 rgba(52,211,153,.5); }
+    70%  { box-shadow:0 0 0 7px rgba(52,211,153,0); }
+    100% { box-shadow:0 0 0 0 rgba(52,211,153,0); }
+  }
+  @keyframes pulseA {
+    0%   { box-shadow:0 0 0 0 rgba(245,158,11,.5); }
+    70%  { box-shadow:0 0 0 7px rgba(245,158,11,0); }
+    100% { box-shadow:0 0 0 0 rgba(245,158,11,0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+  @media (max-width: 560px) { .stage { zoom:.86; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>方案十一 · <em>数据驾驶舱</em><small>DATA COCKPIT</small></h1>
+  <p>把班组运行装进一块深色仪表盘 —— 仪表扫针、趋势线与呼吸灯，让状态一眼可读。</p>
+  <div class="tokens">
+    <span class="tk"><i style="background:#0D1420;border:1px solid rgba(148,163,184,.4)"></i>深空底 #0D1420</span>
+    <span class="tk"><i style="background:#38BDF8"></i>主蓝 #38BDF8</span>
+    <span class="tk"><i style="background:#34D399"></i>成功绿 #34D399</span>
+    <span class="tk"><i style="background:#F59E0B"></i>警示琥珀 #F59E0B</span>
+    <span class="tk"><i style="background:rgba(148,163,184,.35)"></i>网格线 rgba(148,163,184,.12)</span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <!-- 状态栏 -->
+        <div class="sb">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <!-- 导航栏 -->
+        <div class="navbar">
+          <div class="brand">
+            <span class="mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 4.2v9.6L12 21l-7.5-4.2V7.2z"/><path d="M12 12l7.5-4.2M12 12v9M12 12L4.5 7.8"/></svg>
+            </span>
+            <b>Shade 壹匣</b>
+          </div>
+          <div class="online"><i></i><span>在线</span></div>
+        </div>
+
+        <div class="content">
+
+          <!-- 问候卡 · 内嵌环形仪表 -->
+          <div class="greet">
+            <div class="gc-top">
+              <div>
+                <div class="hello">下午好，张伟</div>
+                <div class="acc">账号 zhangwei</div>
+              </div>
+              <div class="datebox">
+                <div class="d1">9月25日 星期五</div>
+                <span class="badge">高级技师</span>
+              </div>
+            </div>
+            <div class="gc-hr"></div>
+            <div class="gc-btm">
+              <div>
+                <div class="att-label">本周出勤率</div>
+                <span class="chip">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15l6-6 4 4 6-7"/><path d="M14 6h6v6"/></svg>
+                  较上周 +2%
+                </span>
+                <div class="att-note">已出勤 4 / 5 天</div>
+              </div>
+              <div class="gauge">
+                <svg viewBox="0 0 88 88">
+                  <defs>
+                    <linearGradient id="ggrad" x1="0" y1="1" x2="1" y2="0">
+                      <stop offset="0" stop-color="#38BDF8"/><stop offset="1" stop-color="#34D399"/>
+                    </linearGradient>
+                  </defs>
+                  <g stroke="rgba(148,163,184,.32)" stroke-width="1.4" stroke-linecap="round">
+                    <line x1="22.4" y1="56.5" x2="19.3" y2="58.3"/>
+                    <line x1="22.4" y1="31.5" x2="19.3" y2="29.8"/>
+                    <line x1="44"   y1="19"   x2="44"   y2="15.5"/>
+                    <line x1="65.7" y1="31.5" x2="68.7" y2="29.8"/>
+                    <line x1="65.7" y1="56.5" x2="68.7" y2="58.3"/>
+                  </g>
+                  <circle cx="44" cy="44" r="32" fill="none" stroke="rgba(148,163,184,.16)"
+                          stroke-width="7" stroke-linecap="round" stroke-dasharray="134.04 67.02"
+                          transform="rotate(150 44 44)"/>
+                  <circle class="g-arc" cx="44" cy="44" r="32" fill="none" stroke="url(#ggrad)"
+                          stroke-width="7" stroke-linecap="round" transform="rotate(150 44 44)"/>
+                  <g class="g-needle">
+                    <line x1="44" y1="44" x2="44" y2="20.5" stroke="#F1F5F9" stroke-width="2.4" stroke-linecap="round"/>
+                    <circle cx="44" cy="44" r="4.2" fill="#38BDF8"/>
+                    <circle cx="44" cy="44" r="1.7" fill="#0D1420"/>
+                  </g>
+                </svg>
+                <div class="g-num"><span class="n"></span><i>%</i></div>
+                <div class="g-cap">本周出勤</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 消息通知卡 -->
+          <div class="notice">
+            <div class="nc-head">
+              <span class="bell">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+              </span>
+              <h4>消息通知</h4>
+              <span class="unread"><b class="u"></b>条未读</span>
+            </div>
+            <div class="msg">
+              <span class="mdot warn"></span>
+              <b>国庆保电工作安排</b>
+              <span>09-24 18:02</span>
+            </div>
+            <div class="msg">
+              <span class="mdot info"></span>
+              <b>9月安全日活动记录已生成</b>
+              <span>09-23 10:15</span>
+            </div>
+          </div>
+
+          <!-- 应用中心 -->
+          <div class="sec"><h3>应用中心</h3><span>8 格 · 7 项可用</span></div>
+
+          <div class="grid-card">
+            <div class="grid">
+              <div class="g">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7c-1.7-1.3-4-1.6-6.7-1.4v12.8c2.7-.2 5 .1 6.7 1.4 1.7-1.3 4-1.6 6.7-1.4V5.6C16 5.4 13.7 5.7 12 7z"/><path d="M12 7v12.8"/><path d="M19.2 2.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" fill="currentColor" stroke="none"/></svg></div>
+                <span>Call Me</span>
+                <span class="sd on"><i></i><span>AI 在线</span></span>
+              </div>
+              <div class="g">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6"/><path d="M9 14h6"/><path d="M9.2 17.5l1.4 1.4 2.6-2.6"/></svg></div>
+                <span>出工日志</span>
+                <svg class="spark" viewBox="0 0 46 15" fill="none"><path d="M2 12 L10 9 L18 11 L26 6 L34 8 L44 3" pathLength="1" stroke="#34D399" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="44" cy="3" r="1.8" fill="#34D399"/></svg>
+              </div>
+              <div class="g">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></div>
+                <span>安全日活动记录</span>
+                <svg class="spark" viewBox="0 0 46 15" fill="none"><path d="M2 11 L10 12 L18 8 L26 9 L34 5 L44 6" pathLength="1" stroke="#38BDF8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="44" cy="6" r="1.8" fill="#38BDF8"/></svg>
+              </div>
+              <div class="g">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9.5 20h5M12 16v4"/></svg></div>
+                <span>远程连接计算机</span>
+                <span class="sd on"><i></i><span>2 台在线</span></span>
+              </div>
+              <div class="g">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3.5L10.6 13.9"/><path d="M21 3.5l-6.8 17-3.6-7.2-3.6.6.6-3.6z"/></svg></div>
+                <span>文件传输</span>
+                <svg class="spark" viewBox="0 0 46 15" fill="none"><path d="M2 13 L10 10 L18 12 L26 7 L34 9 L44 4" pathLength="1" stroke="#38BDF8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="44" cy="4" r="1.8" fill="#38BDF8"/></svg>
+              </div>
+              <div class="g">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="9.6" r="1.5"/><path d="M5.5 17l4.3-4.3 3 3 3.4-3.4 2.3 2.3"/></svg></div>
+                <span>水印添加</span>
+                <span class="sd rd"><i></i><span>已就绪</span></span>
+              </div>
+              <div class="g">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M9.6 9.4a2.4 2.4 0 1 1 3.4 2.9c-.8.4-1 .9-1 1.7"/><circle cx="12" cy="16.9" r="1" fill="currentColor" stroke="none"/></svg></div>
+                <span>题库刷题</span>
+                <svg class="spark" viewBox="0 0 46 15" fill="none"><path d="M2 12 L10 13 L18 9 L26 10 L34 6 L44 5" pathLength="1" stroke="#34D399" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="44" cy="5" r="1.8" fill="#34D399"/></svg>
+              </div>
+              <div class="g soon">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+                <span>敬请期待</span>
+                <svg class="spark" viewBox="0 0 46 15" fill="none"><path d="M4 7.5h38" stroke="rgba(148,163,184,.3)" stroke-width="1.4" stroke-dasharray="3 4" stroke-linecap="round"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="tip">更多班组应用持续接入中</div>
+        </div>
+
+        <!-- TabBar -->
+        <div class="tabbar">
+          <div class="tab on">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.2L12 3.8l7.5 6.4"/><path d="M6.6 8.9V20h10.8V8.9"/><path d="M10.4 20v-5h3.2v5"/></svg>
+            首页
+          </div>
+          <div class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.6a6.4 6.4 0 0 1 12.8 0"/></svg>
+            我的
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>①</i>小程序 · 首页（仪表扫针 · 数字滚动 · 状态脉搏）</div>
+  </div>
+</main>
+
+</body>
+</html>

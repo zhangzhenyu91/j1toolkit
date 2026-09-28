@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<!--
+  ══════════════════════════════════════════════════════════════
+  方案 13 · 水墨科技（东方水墨 × 科技）— 小程序出工日志页
+  ══════════════════════════════════════════════════════════════
+  主色板：
+    宣纸底  #F6F3EC  页面与卡片基底色，带纤维纹理
+    墨      #1C1C1A  主文字、机身、墨色晕染
+    青蓝    #0E7490  科技电光线、验证通过态、FAB、链接性元素
+    印章红  #B03A2E  印章（「检修」方章）、未通过态、删除等危险操作
+    辅色：淡墨 #6E6A5E（次级文字）/ 灰墨 #A39D8C（占位弱化）
+         发丝线 #E2DCCB / 淡青底 #E4F0F3 / 淡红底 #F7E9E6
+
+  设计要点：
+  1. 宣纸基底：暖白纸底叠加多层径向/重复渐变模拟纸纤维与淡墨飞白，卡片
+     边缘用伪元素 blur 做出「淡墨晕染」的呼吸感描边，取代工业感硬阴影；
+  2. 印章体系：导航标题旁钤「检修」朱文小方章（印章红底白字、微旋转、
+     边缘做残缺晕染）；验证角标走青蓝（通过）与印章红（未通过）双色印语；
+  3. 青蓝电光线：商旅打卡两行之间以一笔竖直青线贯穿（时间轴意象），
+     配合节点圆点，水墨的「一笔」与科技的「数据线」合流；
+  4. 竖排题字：屏幕右缘一行竖排小字「日志 · 锦城线巡视」，如卷轴题跋；
+  5. 编排式入场：印章落定 → 导航浮出 → 日期条滑入 → 卡片水墨晕开
+     （blur+scale 由虚入实）→ 青线自上而下一笔描绘 → 验证角标签收；
+     氛围动效为 FAB 墨环呼吸与卡片晕染边的缓慢洇开；
+  6. 照片缩略图纯 CSS 渐变模拟（远山/铁塔/瓷瓶意象），宣纸墨边相框。
+
+  落地注意事项：
+  - 小程序端卡片晕染边可用单层 box-shadow:0 4px 24px rgba(28,28,26,.10)
+    近似，blur 伪元素性能敏感页面可降级；
+  - 印章红仅用于状态印章与删除，不可蔓延为品牌主色；青蓝承担全部
+    「可点/通过/同步」语义；
+  - 纸纹理用 repeating-linear-gradient 低透明度叠层即可，勿引入位图；
+  - 动效需遵守 prefers-reduced-motion，降级为直接呈现。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>13 · 水墨科技 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#F6F3EC; --ink:#1C1C1A; --cyan:#0E7490; --seal:#B03A2E;
+    --ink2:#6E6A5E; --ink3:#A39D8C; --hair:#E2DCCB;
+    --cyanbg:#E4F0F3; --sealbg:#F7E9E6;
+  }
+  body {
+    min-height:100vh;
+    background:
+      radial-gradient(1200px 700px at 12% 8%, rgba(14,116,144,.07), transparent 55%),
+      radial-gradient(900px 620px at 88% 90%, rgba(176,58,46,.05), transparent 55%),
+      radial-gradient(700px 500px at 70% 12%, rgba(28,28,26,.05), transparent 60%),
+      #EDEAE0;
+    font-family:"Songti SC","STSong","Noto Serif SC","SimSun",-apple-system,"PingFang SC","Microsoft YaHei",serif;
+    color:var(--ink);
+    padding:64px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ============ 页首标注区 ============ */
+  .page-head { text-align:center; margin-bottom:56px; }
+  .page-head .kicker { font-size:11px; letter-spacing:6px; color:var(--cyan); margin-bottom:14px; }
+  .page-head h1 { font-size:30px; font-weight:900; letter-spacing:6px; }
+  .page-head h1 em { font-style:normal; color:var(--seal); position:relative; }
+  .page-head h1 em::after {
+    content:""; position:absolute; left:6%; right:6%; bottom:2px; height:2px;
+    background:linear-gradient(90deg,transparent,var(--cyan) 30%,var(--cyan) 70%,transparent);
+  }
+  .page-head .idea { margin-top:14px; font-size:13px; letter-spacing:3px; color:var(--ink2); }
+  .palette { margin-top:22px; display:flex; justify-content:center; flex-wrap:wrap; gap:10px 18px; }
+  .swatch { display:flex; align-items:center; gap:7px; font-size:11px; letter-spacing:1px;
+            color:var(--ink2); background:rgba(255,255,255,.55); border:1px solid var(--hair);
+            border-radius:999px; padding:5px 12px 5px 7px; }
+  .swatch i { width:13px; height:13px; border-radius:50%; border:1px solid rgba(28,28,26,.18); }
+
+  /* ============ 舞台 ============ */
+  .stage { display:flex; justify-content:center; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:24px; }
+  .cap { font-size:13px; font-weight:700; letter-spacing:4px; color:var(--ink); display:flex; align-items:center; gap:10px; }
+  .cap i { font-style:normal; width:22px; height:22px; border-radius:5px; background:var(--seal); color:#fff;
+           font-size:11px; display:flex; align-items:center; justify-content:center; transform:rotate(-4deg);
+           box-shadow:0 2px 6px rgba(176,58,46,.35); }
+
+  .phone {
+    padding:12px;
+    background:linear-gradient(160deg,#2b2b28 0%,#141412 55%,#0d0d0c 100%);
+    border-radius:62px;
+    box-shadow:0 40px 80px rgba(28,28,26,.30), 0 10px 24px rgba(28,28,26,.18),
+               0 0 0 1px rgba(28,28,26,.35);
+  }
+  .screen {
+    position:relative; width:375px; height:812px; border-radius:50px; overflow:hidden;
+    display:flex; flex-direction:column;
+    background:
+      radial-gradient(340px 200px at 8% 4%, rgba(28,28,26,.045), transparent 70%),
+      radial-gradient(300px 260px at 96% 30%, rgba(14,116,144,.05), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(28,28,26,.014) 0 1px, transparent 1px 3px),
+      repeating-linear-gradient(90deg, rgba(28,28,26,.012) 0 1px, transparent 1px 4px),
+      var(--paper);
+  }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:120px; height:32px; border-radius:18px; background:#0d0d0c; z-index:40; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(28,28,26,.85); z-index:40; }
+
+  .sb { height:54px; flex:none; padding:20px 30px 0; display:flex; justify-content:space-between;
+        align-items:center; font-size:14px; font-weight:700; color:var(--ink); position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+
+  /* ============ 导航栏 ============ */
+  .navbar { height:50px; flex:none; position:relative; display:flex; align-items:center;
+            justify-content:center; }
+  .navbar .back { position:absolute; left:14px; top:50%; transform:translateY(-50%);
+                  width:30px; height:30px; border-radius:50%; border:1px solid var(--hair);
+                  background:rgba(255,255,255,.6); display:flex; align-items:center; justify-content:center; }
+  .navbar .back svg { width:16px; height:16px; color:var(--ink); }
+  .navbar .ttl { display:flex; align-items:center; gap:8px; font-size:17px; font-weight:900; letter-spacing:3px; }
+  .seal-mini {
+    width:20px; height:20px; border-radius:4px; background:var(--seal); color:#fff;
+    font-size:9px; font-weight:700; line-height:1.05; letter-spacing:0;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    transform:rotate(-5deg); padding:1px;
+    box-shadow:0 1px 3px rgba(176,58,46,.4);
+    -webkit-mask-image:radial-gradient(circle at 30% 30%, #000 62%, rgba(0,0,0,.82) 100%);
+            mask-image:radial-gradient(circle at 30% 30%, #000 62%, rgba(0,0,0,.82) 100%);
+  }
+
+  /* ============ 顶部工具区 ============ */
+  .toolbar { flex:none; padding:6px 16px 0; }
+  .team-chip {
+    display:inline-flex; align-items:center; gap:6px; padding:6px 12px;
+    border:1px solid var(--ink); border-radius:999px; background:rgba(255,255,255,.55);
+    font-size:12px; font-weight:700; letter-spacing:2px;
+  }
+  .team-chip svg { width:12px; height:12px; color:var(--cyan); }
+
+  .datebar { margin-top:12px; display:flex; align-items:center; gap:10px; }
+  .datebar .arrow {
+    width:26px; height:26px; flex:none; border-radius:50%; border:1px solid var(--hair);
+    background:rgba(255,255,255,.6); display:flex; align-items:center; justify-content:center;
+  }
+  .datebar .arrow svg { width:13px; height:13px; color:var(--ink); }
+  .datebar .dtxt { flex:1; text-align:center; }
+  .datebar .dtxt b { font-size:16px; font-weight:900; letter-spacing:2px; }
+  .datebar .dtxt span { margin-left:8px; font-size:12px; color:var(--ink2); letter-spacing:2px; }
+  .today {
+    flex:none; font-size:11px; letter-spacing:2px; color:var(--cyan); font-weight:700;
+    border:1px solid var(--cyan); border-radius:999px; padding:4px 10px; background:var(--cyanbg);
+  }
+  .cal-ic { flex:none; width:30px; height:30px; border-radius:8px; border:1px solid var(--hair);
+            background:rgba(255,255,255,.6); display:flex; align-items:center; justify-content:center; }
+  .cal-ic svg { width:16px; height:16px; color:var(--ink); }
+
+  .seg { margin-top:14px; display:flex; border:1px solid var(--ink); border-radius:10px;
+         overflow:hidden; background:rgba(255,255,255,.4); }
+  .seg div { flex:1; text-align:center; padding:8px 0; font-size:12.5px; letter-spacing:3px;
+             color:var(--ink2); font-weight:700; }
+  .seg .on { background:var(--ink); color:var(--paper); position:relative; }
+  .seg .on::after { content:""; position:absolute; left:50%; bottom:4px; transform:translateX(-50%);
+                    width:18px; height:2px; background:var(--cyan); }
+
+  /* ============ 内容区 ============ */
+  .content { flex:1; padding:14px 16px 0; overflow:hidden; position:relative; }
+
+  /* 竖排题字 */
+  .side-note {
+    position:absolute; right:5px; top:210px; writing-mode:vertical-rl;
+    font-size:10px; letter-spacing:4px; color:var(--ink3); z-index:5;
+  }
+
+  /* 卡片 · 淡墨晕染边框 */
+  .card {
+    position:relative; border-radius:14px; background:#FCFAF4;
+    border:1px solid rgba(28,28,26,.10);
+  }
+  .card::before {
+    content:""; position:absolute; inset:-6px; border-radius:18px; z-index:-1;
+    background:
+      radial-gradient(60% 40% at 20% 0%, rgba(28,28,26,.16), transparent 70%),
+      radial-gradient(50% 40% at 90% 100%, rgba(14,116,144,.14), transparent 70%),
+      radial-gradient(40% 30% at 0% 90%, rgba(28,28,26,.10), transparent 70%);
+    filter:blur(9px);
+    animation:inkBleed 7s ease-in-out infinite alternate;
+  }
+  @keyframes inkBleed {
+    from { opacity:.75; transform:scale(.995); }
+    to   { opacity:1;   transform:scale(1.008); }
+  }
+
+  .card .pad { padding:14px 14px 0; }
+
+  /* 卡片头：车牌 + 验证角标 */
+  .c-head { display:flex; align-items:center; gap:8px; }
+  .plate {
+    display:inline-flex; align-items:center; gap:6px; font-size:15px; font-weight:900; letter-spacing:1px;
+    padding:4px 10px; border:1.5px solid var(--ink); border-radius:7px; background:#fff;
+  }
+  .plate svg { width:15px; height:15px; color:var(--ink); }
+  .tag-kb { font-size:10px; letter-spacing:2px; color:var(--ink2); border:1px solid var(--ink3);
+            border-radius:4px; padding:2px 6px; }
+  .verdict { margin-left:auto; display:inline-flex; align-items:center; gap:5px;
+             font-size:11px; font-weight:700; letter-spacing:1.5px; padding:4px 10px 4px 8px;
+             border-radius:6px; }
+  .verdict.ok { color:var(--cyan); background:var(--cyanbg); border:1px solid rgba(14,116,144,.4);
+                transform:rotate(1.5deg); }
+  .verdict.bad { color:var(--seal); background:var(--sealbg); border:1px solid rgba(176,58,46,.45);
+                 transform:rotate(1.5deg); }
+  .verdict svg { width:13px; height:13px; }
+
+  /* 巡视内容块 */
+  .patrol { margin-top:12px; border-left:3px solid var(--ink); padding:2px 0 2px 10px; }
+  .patrol .lab { font-size:10px; letter-spacing:3px; color:var(--ink3); }
+  .patrol .val { margin-top:4px; font-size:14px; font-weight:800; letter-spacing:1px; line-height:1.5; }
+
+  /* 商旅打卡 */
+  .punch { margin-top:14px; border-top:1px solid var(--hair); padding:12px 0 2px; position:relative; }
+  .punch .plab { position:absolute; top:-8px; left:0; background:#FCFAF4; padding-right:8px;
+                 font-size:10px; letter-spacing:3px; color:var(--ink3); }
+  .pline {
+    position:absolute; left:4px; top:24px; bottom:18px; width:2px;
+    background:linear-gradient(180deg,var(--cyan),rgba(14,116,144,.35));
+    border-radius:1px; transform-origin:top;
+  }
+  .prow { position:relative; padding:0 0 12px 18px; }
+  .prow:last-child { padding-bottom:6px; }
+  .prow::before {
+    content:""; position:absolute; left:0; top:5px; width:8px; height:8px; border-radius:50%;
+    background:var(--paper); border:2px solid var(--cyan);
+  }
+  .prow .pname { display:inline-flex; align-items:baseline; gap:8px; font-size:13.5px; font-weight:800; letter-spacing:1px; }
+  .prow .hours { font-size:10.5px; color:var(--cyan); font-weight:700; letter-spacing:.5px; }
+  .prow .times { margin-top:6px; display:flex; flex-wrap:wrap; gap:6px 14px; font-size:11.5px; color:var(--ink2); }
+  .prow .times .t { display:inline-flex; align-items:center; gap:4px; }
+  .prow .times .t svg { width:12px; height:12px; color:var(--cyan); }
+  .prow .times .t b { color:var(--ink); font-weight:800; font-variant-numeric:tabular-nums; }
+  .prow .times .t.miss {
+    border:1px dashed var(--ink3); border-radius:999px; padding:2px 9px; color:var(--ink2);
+  }
+  .prow .times .t.miss b { color:var(--seal); font-weight:700; }
+
+  /* 照片区 */
+  .photos { margin-top:8px; display:flex; gap:10px; flex-wrap:wrap; }
+  .ph { width:76px; flex:none; }
+  .ph .frame {
+    width:76px; height:76px; border-radius:10px; padding:5px;
+    background:#FDFBF5; border:1px solid rgba(28,28,26,.22);
+    box-shadow:2px 2px 0 rgba(28,28,26,.12);
+  }
+  .ph .img { width:100%; height:100%; border-radius:6px; position:relative; overflow:hidden; }
+  .ph .img::after {
+    content:""; position:absolute; inset:0;
+    background:repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 2px, transparent 2px 5px);
+  }
+  .img.i1 { background:
+      radial-gradient(60px 40px at 70% 20%, rgba(246,243,236,.5), transparent 70%),
+      linear-gradient(160deg,#8FA8B5 0%, #5E7C8A 42%, #3E5A66 70%, #2B434E 100%); }
+  .img.i2 { background:
+      radial-gradient(50px 34px at 30% 22%, rgba(246,243,236,.45), transparent 70%),
+      linear-gradient(200deg,#A8B39B 0%, #78866C 45%, #55624B 78%, #3E4A38 100%); }
+  .img.i3 { background:
+      radial-gradient(44px 30px at 62% 30%, rgba(246,243,236,.5), transparent 70%),
+      linear-gradient(150deg,#C9C2B0 0%, #9C937C 48%, #6E6650 100%); }
+  .ph .img svg { position:absolute; inset:0; margin:auto; width:34px; height:34px;
+                 color:rgba(246,243,236,.9); }
+  .ph .ftags { margin-top:6px; display:flex; flex-direction:column; gap:4px; }
+  .ftag { font-size:9px; letter-spacing:1px; border-radius:4px; padding:1.5px 5px; text-align:center; }
+  .ftag.ok { color:var(--cyan); border:1px solid rgba(14,116,144,.5); background:var(--cyanbg); }
+  .ftag.sy { color:var(--ink2); border:1px solid var(--ink3); background:rgba(255,255,255,.6); }
+
+  .pinfo { flex:1 1 100%; min-width:0; display:flex; flex-direction:column; gap:7px; padding-top:2px; }
+  .pinfo .li { display:flex; align-items:baseline; gap:8px; font-size:11.5px; }
+  .pinfo .k { flex:none; width:52px; font-size:10px; letter-spacing:2px; color:var(--ink3); }
+  .pinfo .v { color:var(--ink); font-weight:700; letter-spacing:.5px; line-height:1.45; }
+  .pinfo .v small { font-weight:400; color:var(--ink2); }
+
+  /* 备注 */
+  .memo { margin:12px 14px 0; padding:9px 12px; border-radius:9px;
+          background:linear-gradient(120deg, rgba(14,116,144,.06), rgba(28,28,26,.035));
+          border:1px dashed rgba(28,28,26,.22);
+          font-size:11.5px; line-height:1.7; color:var(--ink2); letter-spacing:.5px; }
+  .memo b { color:var(--ink); }
+
+  /* 操作行 */
+  .ops { margin-top:12px; border-top:1px solid var(--hair); display:flex; }
+  .ops div { flex:1; padding:11px 0; text-align:center; font-size:12px; font-weight:700;
+             letter-spacing:3px; color:var(--ink); display:flex; align-items:center; justify-content:center; gap:6px; }
+  .ops div + div { border-left:1px solid var(--hair); }
+  .ops svg { width:14px; height:14px; }
+  .ops .sync { color:var(--cyan); }
+  .ops .del { color:var(--seal); }
+
+  /* 卡片②（只露上半） */
+  .card2 { margin-top:16px; }
+  .card2 .nocar { display:inline-flex; align-items:center; gap:6px; font-size:14px; font-weight:900; letter-spacing:2px; }
+  .card2 .nocar svg { width:16px; height:16px; color:var(--ink2); }
+  .card2 .reason { margin-top:10px; display:flex; align-items:center; gap:7px;
+                   font-size:11.5px; color:var(--seal); letter-spacing:.5px; font-weight:700; }
+  .card2 .reason svg { width:13px; height:13px; flex:none; }
+
+  /* FAB */
+  .fab {
+    position:absolute; right:18px; bottom:30px; z-index:30;
+    width:54px; height:54px; border-radius:50%;
+    background:radial-gradient(circle at 32% 28%, #1B8FAB, var(--cyan) 62%);
+    border:2px solid var(--ink);
+    box-shadow:0 10px 22px rgba(14,116,144,.4), inset 0 1px 0 rgba(255,255,255,.3);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .fab svg { width:24px; height:24px; color:#fff; }
+  .fab::after {
+    content:""; position:absolute; inset:-7px; border-radius:50%;
+    border:1.5px solid rgba(14,116,144,.5);
+    animation:fabHalo 2.6s ease-out infinite;
+  }
+  @keyframes fabHalo {
+    0% { transform:scale(.86); opacity:.9; }
+    70% { transform:scale(1.14); opacity:0; }
+    100% { transform:scale(1.14); opacity:0; }
+  }
+
+  /* ============ 编排式入场 ============ */
+  @keyframes sealStamp {
+    0% { opacity:0; transform:rotate(-14deg) scale(1.9); }
+    60% { opacity:1; transform:rotate(-3deg) scale(.94); }
+    100% { opacity:1; transform:rotate(-5deg) scale(1); }
+  }
+  @keyframes inkIn {
+    from { opacity:0; filter:blur(10px); transform:scale(1.035) translateY(10px); }
+    to   { opacity:1; filter:blur(0);    transform:scale(1) translateY(0); }
+  }
+  @keyframes riseIn {
+    from { opacity:0; transform:translateY(14px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+  @keyframes drawLine {
+    from { transform:scaleY(0); } to { transform:scaleY(1); }
+  }
+  @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+
+  .a-seal   { animation:sealStamp .7s cubic-bezier(.2,1.4,.4,1) .25s backwards; }
+  .a-nav    { animation:riseIn .55s ease .1s backwards; }
+  .a-chip   { animation:riseIn .5s ease .38s backwards; }
+  .a-date   { animation:riseIn .5s ease .52s backwards; }
+  .a-seg    { animation:riseIn .5s ease .64s backwards; }
+  .a-card1  { animation:inkIn .95s cubic-bezier(.25,.8,.3,1) .8s backwards; }
+  .a-line   { animation:drawLine .8s cubic-bezier(.4,0,.2,1) 1.7s backwards; }
+  .a-verdict{ animation:sealStamp .6s cubic-bezier(.2,1.4,.4,1) 2.35s backwards; }
+  .a-card2  { animation:inkIn .9s cubic-bezier(.25,.8,.3,1) 1.25s backwards; }
+  .a-fab    { animation:sealStamp .65s cubic-bezier(.2,1.4,.4,1) 2.6s backwards; }
+  .a-note   { animation:fadeIn 1.2s ease 2.9s backwards; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation:none !important;
+      transition:none !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= 页首标注区 ================= -->
+<header class="page-head">
+  <div class="kicker">SHADE YIXIA · REDESIGN 13</div>
+  <h1>方案十三 · <em>水墨科技</em></h1>
+  <p class="idea">宣纸为底、墨分五色，一笔青蓝电光穿引数据 —— 东方卷轴里的班组日志。</p>
+  <div class="palette">
+    <span class="swatch"><i style="background:#F6F3EC"></i>宣纸 #F6F3EC</span>
+    <span class="swatch"><i style="background:#1C1C1A"></i>墨 #1C1C1A</span>
+    <span class="swatch"><i style="background:#0E7490"></i>青蓝 #0E7490</span>
+    <span class="swatch"><i style="background:#B03A2E"></i>印章红 #B03A2E</span>
+    <span class="swatch"><i style="background:#6E6A5E"></i>淡墨 #6E6A5E</span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <!-- 状态栏 -->
+        <div class="sb">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <!-- 导航栏 -->
+        <div class="navbar a-nav">
+          <span class="back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>
+          </span>
+          <div class="ttl">出工日志<span class="seal-mini a-seal">检修</span></div>
+        </div>
+
+        <!-- 班组 chip + 日期条 + 分段 -->
+        <div class="toolbar">
+          <div class="a-chip">
+            <span class="team-chip">
+              检修一班
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5l5.5 5.5 5.5-5.5"/></svg>
+            </span>
+          </div>
+
+          <div class="datebar a-date">
+            <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg></span>
+            <div class="dtxt"><b>9月25日</b><span>周五</span></div>
+            <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6l6 6-6 6"/></svg></span>
+            <span class="today">今天</span>
+            <span class="cal-ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>
+            </span>
+          </div>
+
+          <div class="seg a-seg">
+            <div class="on">全部</div>
+            <div>仅看我</div>
+          </div>
+        </div>
+
+        <!-- 日志列表 -->
+        <div class="content">
+          <div class="side-note a-note">日志 · 锦城线巡视</div>
+
+          <!-- ========== 卡片① ========== -->
+          <section class="card a-card1">
+            <div class="pad">
+              <div class="c-head">
+                <span class="plate">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 11l1.4-3.6A2 2 0 0 1 8.8 6h6.4a2 2 0 0 1 1.9 1.4L18.5 11"/><rect x="4" y="11" width="16" height="5.5" rx="1.6"/><circle cx="8" cy="16.5" r="1.6"/><circle cx="16" cy="16.5" r="1.6"/></svg>
+                  鄂A·D12345
+                </span>
+                <span class="tag-kb">跨班</span>
+                <span class="verdict ok a-verdict">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                  验证通过
+                </span>
+              </div>
+
+              <div class="patrol">
+                <div class="lab">巡视内容</div>
+                <div class="val">110kV 锦城线 #12–#28 塔巡视</div>
+              </div>
+
+              <!-- 商旅打卡 -->
+              <div class="punch">
+                <span class="plab">商旅打卡</span>
+                <div class="pline a-line"></div>
+
+                <div class="prow">
+                  <span class="pname">王强<span class="hours">工时 6.5h</span></span>
+                  <div class="times">
+                    <span class="t">始 <b>07:58</b>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                    </span>
+                    <span class="t">终 <b>17:32</b>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                    </span>
+                  </div>
+                </div>
+
+                <div class="prow">
+                  <span class="pname">李军</span>
+                  <div class="times">
+                    <span class="t">始 <b>08:02</b>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                    </span>
+                    <span class="t miss">终 <b>还差结束打卡</b></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 照片区 -->
+              <div class="photos">
+                <div class="ph">
+                  <div class="frame"><div class="img i1">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21V8l3-4 3 4v13"/><path d="M9 10h6M9 14h6M7 21h10"/></svg>
+                  </div></div>
+                  <div class="ftags">
+                    <span class="ftag ok">核验通过</span>
+                    <span class="ftag sy">已同步商旅</span>
+                  </div>
+                </div>
+                <div class="ph">
+                  <div class="frame"><div class="img i2">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l5-9 4 5 3-4 4 8z"/><circle cx="17.5" cy="6.5" r="2"/></svg>
+                  </div></div>
+                </div>
+                <div class="ph">
+                  <div class="frame"><div class="img i3">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.4"/><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"/></svg>
+                  </div></div>
+                </div>
+
+                <div class="pinfo">
+                  <div class="li"><span class="k">施工内容</span><span class="v">#18 塔更换绝缘子</span></div>
+                  <div class="li"><span class="k">拍 摄</span><span class="v">10:24</span></div>
+                  <div class="li"><span class="k">天 气</span><span class="v">晴 <small>26℃</small></span></div>
+                  <div class="li"><span class="k">地 点</span><span class="v"><small>武汉市江夏区</small></span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="memo"><b>备注</b>　#18 塔绝缘子更换完成，明日复验。</div>
+
+            <div class="ops">
+              <div class="sync">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5A8 8 0 0 0 6.3 6.8L4.5 8.5"/><path d="M4.5 4.5v4h4"/><path d="M4 12.5a8 8 0 0 0 13.7 4.7l1.8-1.7"/><path d="M19.5 19.5v-4h-4"/></svg>
+                从商旅同步
+              </div>
+              <div>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 4.5l3 3L8 19l-4 1 1-4z"/><path d="M14 7l3 3"/></svg>
+                备 注
+              </div>
+              <div class="del">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2"/><path d="M6.5 7l.8 12a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-12"/></svg>
+                删 除
+              </div>
+            </div>
+          </section>
+
+          <!-- ========== 卡片②（只露上半） ========== -->
+          <section class="card card2 a-card2">
+            <div class="pad" style="padding-bottom:14px;">
+              <div class="c-head">
+                <span class="nocar">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M6 6l12 12"/></svg>
+                  未出车 · 站内作业
+                </span>
+                <span class="verdict bad">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+                  未通过
+                </span>
+              </div>
+              <div class="reason">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.6V13"/><circle cx="12" cy="16.4" r="1.05" fill="currentColor" stroke="none"/></svg>
+                原因：照片地点与目的地不符
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- FAB -->
+        <div class="fab a-fab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>13</i>小程序 · 出工日志（水墨科技：印章落定，青线贯穿）</div>
+  </div>
+</main>
+
+</body>
+</html>

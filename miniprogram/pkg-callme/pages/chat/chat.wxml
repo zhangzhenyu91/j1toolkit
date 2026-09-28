@@ -1,4 +1,4 @@
-<!-- Call Me · 对话页（SSE 流式，方案五气泡） -->
+<!-- Call Me · 对话页（SSE 流式，包豪斯几何气泡） -->
 <view class="page">
   <navbar back title="{{title}}" />
 
@@ -27,7 +27,7 @@
         id="m-{{item.key}}"
         class="msg-row {{item.role === 'user' ? 'msg-right' : 'msg-left'}}"
       >
-        <!-- 用户消息：右侧安全橙气泡 -->
+        <!-- 用户消息：右侧蓝气泡 -->
         <view wx:if="{{item.role === 'user'}}" class="bubble user-bubble">
           <image
             wx:if="{{item.image}}"
@@ -52,7 +52,7 @@
               <t-icon
                 name="chevron-down"
                 size="32rpx"
-                color="#A89F8A"
+                color="rgba(17,17,17,.4)"
                 class="think-arrow {{item.streaming || item.thinkingExpanded ? 'think-arrow-open' : ''}}"
               />
             </view>
@@ -73,7 +73,7 @@
                       <t-icon
                         name="{{step.icon}}"
                         size="28rpx"
-                        color="{{step.status === 'running' ? '#F26D21' : (step.status === 'error' ? '#CF4444' : '#A89F8A')}}"
+                        color="{{step.status === 'running' ? '#1D4ED8' : (step.status === 'error' ? '#D22730' : 'rgba(17,17,17,.4)')}}"
                       />
                     </view>
                     <view wx:if="{{index < item.steps.length - 1}}" class="step-line"></view>
@@ -123,11 +123,11 @@
               <t-icon
                 name="{{item.copied ? 'check' : 'copy'}}"
                 size="28rpx"
-                color="{{item.copied ? '#F26D21' : '#A89F8A'}}"
+                color="{{item.copied ? '#1D4ED8' : 'rgba(17,17,17,.4)'}}"
               />
             </view>
             <view class="action-btn" hover-class="hover-opacity" data-index="{{index}}" bindtap="onDelete">
-              <t-icon name="delete" size="28rpx" color="#A89F8A" />
+              <t-icon name="delete" size="28rpx" color="rgba(17,17,17,.4)" />
             </view>
             <text class="msg-time" wx:if="{{item.timeText}}">{{item.timeText}}</text>
           </view>
@@ -148,7 +148,7 @@
     </view>
     <view class="input-row">
       <view class="tool-btn" hover-class="hover-opacity" bindtap="chooseImage">
-        <t-icon name="image-add" size="48rpx" color="#A89F8A" />
+        <t-icon name="image-add" size="48rpx" color="rgba(17,17,17,.4)" />
       </view>
       <textarea
         class="chat-input"

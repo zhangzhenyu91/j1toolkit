@@ -61,7 +61,7 @@
     <view class="sh-head">
       <view class="sh-title">{{form.id ? '编辑员工' : '新建员工'}}<text class="sh-sub" wx:if="{{form.id}}">{{form.username}}</text></view>
       <view class="sh-close" hover-class="hover-opacity" bindtap="closeEdit">
-        <t-icon name="close" size="36rpx" color="#6B7690" />
+        <t-icon name="close" size="36rpx" color="#5C5748" />
       </view>
     </view>
 
@@ -90,12 +90,12 @@
         <view class="f-label">所属班组</view>
         <view class="f-in" hover-class="hover-opacity" bindtap="toggleTeam">
           <text class="{{form.team_id ? '' : 'f-in-ph'}}">{{teamName}}</text>
-          <t-icon name="chevron-down" size="28rpx" color="#A89F8A" />
+          <t-icon name="chevron-down" size="28rpx" color="rgba(17,17,17,.4)" />
         </view>
         <view class="team-opts" wx:if="{{teamOpen}}">
           <view class="opt {{form.team_id === null ? 'opt-on' : ''}}" hover-class="hover-bg-warm" data-id="" bindtap="onTeamPick">
             未分配
-            <t-icon wx:if="{{form.team_id === null}}" name="check" size="30rpx" color="#F26D21" />
+            <t-icon wx:if="{{form.team_id === null}}" name="check" size="30rpx" color="#1D4ED8" />
           </view>
           <view
             class="opt {{form.team_id === item.id ? 'opt-on' : ''}}"
@@ -106,7 +106,7 @@
             bindtap="onTeamPick"
           >
             {{item.name}}
-            <t-icon wx:if="{{form.team_id === item.id}}" name="check" size="30rpx" color="#F26D21" />
+            <t-icon wx:if="{{form.team_id === item.id}}" name="check" size="30rpx" color="#1D4ED8" />
           </view>
         </view>
       </view>

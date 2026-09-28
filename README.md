@@ -28,13 +28,13 @@
 
 应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。
 
-**文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；小程序 UI 定稿见 `design/style-5.html`，网页端 UI 定稿见 `design/web/`（方案A「安全橙传承」）。
+**文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；UI 定稿为方案十二「包豪斯几何」，基准稿见 `design/redesign/12-包豪斯几何-*.html`（小程序/Web 首页与出工日志共 4 份）。
 
 ## 技术栈
 
 | 层 | 选型 |
 |----|------|
-| 前端 | 微信小程序原生 + tdesign-miniprogram（方案五「安全橙」定制主题）；网页端原生 HTML/JS（同源 token，方案A「安全橙传承」） |
+| 前端 | 微信小程序原生 + tdesign-miniprogram（方案十二「包豪斯几何」定制主题）；网页端原生 HTML/JS（同源 token） |
 | 后端 | Node.js + Express（云服务器 Docker，`npm run start` 启动；单端口同时托管网页端与 `/api/v1`） |
 | 存储 | MySQL（业务数据）/ Redis（JWT 黑名单、会话）/ 腾讯云 COS（文件/照片） |
 | 鉴权 | JWT + Redis，客户端 `Authorization: Bearer <token>` 携带（网页端 token 存 localStorage） |
@@ -59,7 +59,7 @@ server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   src/quiz/      题库刷题后端子模块（schema 建表种子/dify 解析/analyzer 队列/路由）
   src/wmadd/     水印添加后端子模块（渲染回图/geo/杆塔路由）
   src/sgccclockin/ 商旅打卡后端子模块（出工日志扩展：protocol 协议层/schema 建表种子/路由）
-design/        UI 设计稿（小程序定稿 style-5.html；design/web/ 网页端定稿方案A「安全橙传承」）
+design/        UI 设计稿（定稿方案十二「包豪斯几何」：design/redesign/ 下 12-包豪斯几何-*.html 4 份基准稿 + 52 份比选稿展厅；旧定稿 style-5.html、design/web/ 方案A 仅存档）
 WorkLogs/      旧独立服务的历史数据归档（出工日志班组模板 + 安全日记录数据与生成产物）；代码已整合进主服务，本目录仅存数据
 ```
 

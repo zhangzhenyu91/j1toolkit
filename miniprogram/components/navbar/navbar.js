@@ -4,8 +4,8 @@ Component({
   properties: {
     title: { type: String, value: '' }, // 标题
     back: { type: Boolean, value: false }, // 是否显示返回箭头
-    bg: { type: String, value: '#F4F1EA' }, // 背景色
-    color: { type: String, value: '#22314E' }, // 标题/箭头颜色
+    bg: { type: String, value: '#F8F6F1' }, // 背景色
+    color: { type: String, value: '#111111' }, // 标题/箭头颜色
     frontColor: { type: String, value: '#000000' }, // 状态栏文字颜色（仅支持 #000000/#ffffff）
   },
 

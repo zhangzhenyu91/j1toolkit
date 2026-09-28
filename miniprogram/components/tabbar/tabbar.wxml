@@ -1,11 +1,13 @@
-<!-- 底部标签栏：首页 / 我的（方案五：白底 + #E8E0CD 发丝线 + 激活安全橙） -->
+<!-- 底部标签栏：首页 / 我的（包豪斯：白底 + 顶部墨线 + 激活红字黄圆点） -->
 <view class="tabbar">
   <view class="tab {{active === 'home' ? 'on' : ''}}" hover-class="hover-scale" bindtap="go" data-key="home">
-    <t-icon name="home" size="48rpx" color="{{active === 'home' ? '#F26D21' : '#A89F8A'}}" />
+    <t-icon name="home" size="44rpx" color="{{active === 'home' ? '#D22730' : 'rgba(17,17,17,.4)'}}" />
     <text class="tab-text">首页</text>
+    <view class="t-dot"></view>
   </view>
   <view class="tab {{active === 'me' ? 'on' : ''}}" hover-class="hover-scale" bindtap="go" data-key="me">
-    <t-icon name="user" size="48rpx" color="{{active === 'me' ? '#F26D21' : '#A89F8A'}}" />
+    <t-icon name="user" size="44rpx" color="{{active === 'me' ? '#D22730' : 'rgba(17,17,17,.4)'}}" />
     <text class="tab-text">我的</text>
+    <view class="t-dot"></view>
   </view>
 </view>

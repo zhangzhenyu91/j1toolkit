@@ -5,15 +5,15 @@
 .new-bank {
   margin-top: 24rpx;
   height: 88rpx;
-  border: 3rpx dashed #d9cfba;
-  border-radius: 20rpx;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10rpx;
   font-size: 27rpx;
   font-weight: 700;
-  color: #f26d21;
+  color: #1d4ed8;
   letter-spacing: 2rpx;
 }
 
@@ -28,7 +28,7 @@
 .cnt {
   margin-left: auto;
   font-size: 22rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 1rpx;
 }
 
@@ -70,7 +70,7 @@
 .mg-item .sub {
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #6b7690;
+  color: #5c5748;
   display: flex;
   align-items: center;
   gap: 20rpx;
@@ -83,25 +83,25 @@
   align-items: center;
   gap: 14rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .an-line .progress {
   flex: 1;
   height: 12rpx;
-  border-radius: 6rpx;
+  border-radius: 0;
   background: #efe9da;
   overflow: hidden;
 }
 
 .an-line .progress-in {
   height: 100%;
-  border-radius: 6rpx;
-  background: #f26d21;
+  border-radius: 0;
+  background: #1d4ed8;
 }
 
 .an-line .retry {
-  color: #f26d21;
+  color: #1d4ed8;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -113,7 +113,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 8rpx;
+  border-radius: 0;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -122,17 +122,17 @@
 
 .tag-green {
   background: #e8f5ef;
-  color: #2ba471;
+  color: #1e9e50;
 }
 
 .tag-orange {
-  background: #fdeee2;
-  color: #f26d21;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 .tag-navy {
-  background: #edf0f6;
-  color: #22314e;
+  background: #edf2fe;
+  color: #111111;
 }
 
 /* 题库卡头部范围 tag 不压缩 */
@@ -144,7 +144,7 @@
 .scope-label {
   margin-top: 24rpx;
   font-size: 23rpx;
-  color: #6b7690;
+  color: #5c5748;
   letter-spacing: 2rpx;
 }
 
@@ -157,44 +157,47 @@
 .scope-opt {
   flex: 1;
   min-width: 0;
-  border: 2rpx solid #e3dccb;
-  border-radius: 14rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   padding: 18rpx 12rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #6b7690;
+  color: #5c5748;
   text-align: center;
   line-height: 1.5;
   box-sizing: border-box;
 }
 
 .scope-opt.on {
-  border-color: #f26d21;
-  background: #fdeee2;
-  color: #f26d21;
+  border-color: #1d4ed8;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 .tag-red {
   background: #fae9e9;
-  color: #cf4444;
+  color: #d22730;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #d9cfba;
-  border-radius: 20rpx;
+  border: 3rpx dashed rgba(17,17,17,.35);
+  border-radius: 0;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 2rpx;
 }
 
 /* ---------- 新建/编辑题库弹层（底部弹层，同 safeday 名称弹层族） ---------- */
 .sheet {
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
+  border: 4rpx solid #111111;
+  border-bottom: none;
+  border-radius: 0;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
   padding: 36rpx 32rpx 40rpx;
 }
 
@@ -207,7 +210,7 @@
 .sheet-sub {
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.7;
 }
 
@@ -216,14 +219,14 @@
   height: 80rpx;
   padding: 0 24rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   font-size: 27rpx;
-  color: #22314e;
+  color: #111111;
 }
 
 .ph {
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
 }
 
 .sheet-ops {
@@ -235,10 +238,10 @@
 .btn-ghost {
   flex: 1;
   height: 84rpx;
-  border-radius: 18rpx;
-  border: 2rpx solid #e3dccb;
+  border-radius: 0;
+  border: 4rpx solid #111111;
   background: #ffffff;
-  color: #22314e;
+  color: #111111;
   font-size: 28rpx;
   font-weight: 700;
   display: flex;
@@ -249,8 +252,8 @@
 .btn-accent {
   flex: 2;
   height: 84rpx;
-  border-radius: 18rpx;
-  background: #f26d21;
+  border-radius: 0;
+  background: #1d4ed8;
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 700;
@@ -270,6 +273,6 @@
   margin-top: 40rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 2rpx;
 }

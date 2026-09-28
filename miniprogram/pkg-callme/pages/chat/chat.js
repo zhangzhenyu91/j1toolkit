@@ -8,11 +8,11 @@ import { request } from '../../../utils/request';
 import { createUtf8Decoder, createSseParser } from '../../utils/sse';
 import { shareAppMessage } from '../../../utils/share';
 
-// Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（方案五色板，mp-html 按标签名生效）；
+// Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（包豪斯几何色板，mp-html 按标签名生效）；
 // 容器样式本地覆盖——聊天气泡字号略大（14.5px），其余与共享口径一致
 const { renderMarkdownRaw, MD_TAG_STYLE } = require('../../../utils/markdown');
 const { parseDate, pad } = require('../../../utils/util');
-const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#22314E;word-break:break-word;';
+const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#111111;word-break:break-word;';
 
 // 消息时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm
 function timeTextOf(input) {
@@ -232,7 +232,7 @@ Page({
       title: '删除问答',
       content: '确定删除这条问答吗？对应的问题和回答将一并删除，且不可恢复。',
       confirmText: '删除',
-      confirmColor: '#CF4444',
+      confirmColor: '#D22730',
       success: async (res) => {
         if (!res.confirm) return;
         try {

@@ -6,7 +6,7 @@
   z-index: 100;
   display: flex;
   background: #FFFFFF;
-  border-top: 1rpx solid #E8E0CD;
+  border-top: 6rpx solid #111111; /* 3px 墨线 */
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -17,15 +17,30 @@
   align-items: center;
   justify-content: center;
   padding: 12rpx 0 8rpx;
-  color: #A89F8A;
+  color: rgba(17, 17, 17, 0.4);
+  letter-spacing: 2rpx;
   transition: transform 0.15s ease, opacity 0.15s ease;
 }
 
 .tab.on {
-  color: #F26D21;
+  color: #D22730;
+  font-weight: 800;
 }
 
 .tab-text {
   margin-top: 4rpx;
   font-size: 20rpx;
+}
+
+/* 激活项下方黄圆点 */
+.t-dot {
+  width: 10rpx;
+  height: 10rpx;
+  margin-top: 6rpx;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.tab.on .t-dot {
+  background: #F2B705;
 }

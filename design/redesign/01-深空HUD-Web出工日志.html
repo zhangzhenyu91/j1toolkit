@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案 01「深空 HUD」科幻驾驶舱风（Deep-Space HUD）
+  主色板：
+    深空底 #060B14 ｜ 面板 #0D1B2E ｜ 主青（冷光）#22D3EE ｜ 主文 #F8FAFC ｜ 次文 #8BA3C0 ｜ 警示琥珀 #FBBF24
+    状态辅助：已验证绿 #34D399 ｜ 待核实/未通过红 #F87171 ｜ 冷光描边 rgba(34,211,238,.18)
+  设计要点：
+    1. 全页深空底 + 细扫描线纹理（3px 周期发丝线）+ 顶部一束青色径向辉光，营造驾驶舱取景器氛围；
+    2. 面板一律 1px 冷光描边 + 四角角括号线框（::before 八段渐变拼出 L 形角标），拒绝圆角卡片与投影堆叠；
+    3. 全部数字走等宽字体（ui-monospace/Consolas + tabular-nums）：车牌、打卡时刻、统计数、日期序号，仪表感统一；
+    4. 签名动效三段编排：开机自检日志逐行打出 → 各层 power-on 闪烁点亮（错峰时延）→ 一道扫描光自上而下扫过全屏；
+    5. 数字滚动：统计数、照片数在点亮后从 0 滚动到位；「验证中」角标呼吸脉冲、选中日期辉光脉动作为氛围动效；
+    6. 状态语义三色严控：绿=已验证/核验通过，琥珀=有备注/验证中/缺终卡，红=待核实/未通过/验证失败，绝不滥用主青。
+  落地注意事项：
+    - 角括号用多重 background 渐变实现，零图片零 DOM 负担，可直接沉淀为 theme.css 工具类；
+    - 扫描线纹理注意压暗至 3% 透明度以内，避免干扰正文；正文对比度均 ≥4.5:1；
+    - 动效全部经 prefers-reduced-motion 降级：关闭动画/过渡、跳过自检直接呈现终态；
+    - 小程序端迁移时，浏览器框与页头标注区剥离即可，面板/token/动效时序原样保留。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>01 · 深空HUD — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#060B14; --panel:#0D1B2E; --panel2:#0A1626;
+    --cyan:#22D3EE; --cyan-dim:rgba(34,211,238,.16); --line:rgba(34,211,238,.22);
+    --text:#F8FAFC; --sub:#8BA3C0; --dim:#5E7590;
+    --amber:#FBBF24; --green:#34D399; --red:#F87171;
+    --mono:ui-monospace,"SFMono-Regular","Cascadia Mono",Consolas,"Liberation Mono",monospace;
+  }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+    color:var(--text);
+    background:
+      radial-gradient(1100px 480px at 50% -6%, rgba(34,211,238,.10), transparent 62%),
+      radial-gradient(900px 600px at 88% 108%, rgba(34,211,238,.05), transparent 60%),
+      #03070D;
+    padding:56px 24px 110px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:30px; }
+  .page-head .kicker { font-family:var(--mono); font-size:11px; letter-spacing:5px; color:var(--cyan); }
+  .page-head h1 { margin-top:12px; font-size:28px; font-weight:800; letter-spacing:3px; }
+  .page-head h1 em { font-style:normal; color:var(--cyan); text-shadow:0 0 18px rgba(34,211,238,.55); }
+  .page-head h1 small { margin-left:12px; font-size:13px; font-weight:600; color:var(--sub); letter-spacing:4px; }
+  .page-head p { margin-top:14px; font-size:13px; color:var(--sub); letter-spacing:1.5px; }
+  .palette { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin:0 auto 56px; }
+  .chip { display:flex; align-items:center; gap:8px; padding:6px 14px 6px 8px;
+          border:1px solid var(--line); background:rgba(13,27,46,.72);
+          font-family:var(--mono); font-size:11px; color:var(--sub); letter-spacing:.5px; }
+  .chip i { width:12px; height:12px; border-radius:50%; box-shadow:0 0 8px currentColor; }
+
+  /* ===== 舞台 / 浏览器框 ===== */
+  .stage { display:flex; flex-direction:column; align-items:center; gap:24px; }
+  .cap { font-family:var(--mono); font-size:12px; letter-spacing:2.5px; color:var(--sub);
+         display:flex; align-items:center; gap:10px; }
+  .cap b { color:var(--cyan); font-weight:700; }
+  .cap::before, .cap::after { content:""; width:34px; height:1px; background:var(--line); }
+
+  .browser { width:min(1180px,96vw); border:1px solid var(--line); background:var(--bg);
+             box-shadow:0 0 0 1px rgba(3,7,13,.9), 0 0 60px rgba(34,211,238,.09), 0 30px 80px rgba(0,0,0,.55); }
+  .browser-bar { height:46px; display:flex; align-items:center; gap:8px; padding:0 16px;
+                 background:linear-gradient(180deg,#0E1D31,#0A1626); border-bottom:1px solid var(--line); }
+  .bdot { width:11px; height:11px; border-radius:50%; border:1px solid rgba(139,163,192,.4); }
+  .bdot.r { background:rgba(248,113,113,.85); border-color:transparent; box-shadow:0 0 8px rgba(248,113,113,.5); }
+  .bdot.y { background:rgba(251,191,36,.85); border-color:transparent; box-shadow:0 0 8px rgba(251,191,36,.5); }
+  .bdot.g { background:rgba(52,211,153,.85); border-color:transparent; box-shadow:0 0 8px rgba(52,211,153,.5); }
+  .url { flex:1; max-width:460px; margin:0 auto; height:28px; padding:0 16px;
+         display:flex; align-items:center; justify-content:center; gap:8px;
+         border:1px solid var(--line); border-radius:14px; background:rgba(6,11,20,.8);
+         font-family:var(--mono); font-size:11.5px; color:var(--sub); letter-spacing:1px; }
+  .url svg { width:11px; height:11px; color:var(--cyan); }
+  .url b { color:var(--text); font-weight:600; }
+
+  /* ===== 视口（深空 + 扫描线） ===== */
+  .viewport { position:relative; overflow:hidden; min-height:760px;
+              background:
+                radial-gradient(1000px 420px at 72% -8%, rgba(34,211,238,.11), transparent 60%),
+                radial-gradient(700px 500px at -6% 110%, rgba(34,211,238,.05), transparent 55%),
+                var(--bg); }
+  .viewport::before { content:""; position:absolute; inset:0; z-index:6; pointer-events:none;
+              background:repeating-linear-gradient(0deg, rgba(148,197,255,.026) 0 1px, transparent 1px 3px); }
+  .viewport::after { content:""; position:absolute; inset:0; z-index:5; pointer-events:none;
+              background-image:radial-gradient(rgba(34,211,238,.14) 1px, transparent 1.4px);
+              background-size:56px 56px; opacity:.35;
+              -webkit-mask-image:radial-gradient(80% 70% at 50% 30%, #000 30%, transparent 100%);
+                      mask-image:radial-gradient(80% 70% at 50% 30%, #000 30%, transparent 100%); }
+
+  /* ===== 角括号线框工具 ===== */
+  .hud { position:relative; }
+  .hud::before { content:""; position:absolute; inset:-1px; z-index:3; pointer-events:none; opacity:.85;
+    background:
+      linear-gradient(var(--cyan),var(--cyan)) left top/15px 1.5px,
+      linear-gradient(var(--cyan),var(--cyan)) left top/1.5px 15px,
+      linear-gradient(var(--cyan),var(--cyan)) right top/15px 1.5px,
+      linear-gradient(var(--cyan),var(--cyan)) right top/1.5px 15px,
+      linear-gradient(var(--cyan),var(--cyan)) left bottom/15px 1.5px,
+      linear-gradient(var(--cyan),var(--cyan)) left bottom/1.5px 15px,
+      linear-gradient(var(--cyan),var(--cyan)) right bottom/15px 1.5px,
+      linear-gradient(var(--cyan),var(--cyan)) right bottom/1.5px 15px;
+    background-repeat:no-repeat; }
+
+  .panel { position:relative; background:linear-gradient(180deg, rgba(16,32,54,.92), rgba(11,23,40,.94));
+           border:1px solid var(--line);
+           box-shadow:inset 0 0 30px rgba(34,211,238,.04), 0 0 24px rgba(3,7,13,.5); }
+
+  /* ===== 开机自检层 ===== */
+  .boot { position:absolute; inset:0; z-index:60; display:flex; align-items:center; justify-content:center;
+          background:radial-gradient(700px 380px at 50% 42%, rgba(34,211,238,.06), transparent 70%), var(--bg); }
+  .boot.done { opacity:0; pointer-events:none; transition:opacity .55s ease .1s; }
+  .boot-box { width:min(520px,86%); }
+  .boot-head { display:flex; align-items:baseline; justify-content:space-between;
+               font-family:var(--mono); font-size:12px; letter-spacing:2px; color:var(--text);
+               border-bottom:1px solid var(--line); padding-bottom:10px; }
+  .boot-head span { color:var(--dim); font-size:10.5px; }
+  .boot-lines { min-height:172px; padding:14px 2px 0;
+                font-family:var(--mono); font-size:12px; line-height:2.05; color:var(--sub); letter-spacing:.5px; }
+  .boot-lines .ok { color:var(--green); }
+  .boot-lines .go { color:var(--cyan); }
+  .boot-lines .cur::after { content:"▌"; color:var(--cyan); animation:blink 1s steps(1) infinite; }
+  .boot-bar { height:3px; margin-top:16px; background:rgba(34,211,238,.12); }
+  .boot-bar i { display:block; height:100%; width:0; background:var(--cyan);
+                box-shadow:0 0 12px rgba(34,211,238,.8); transition:width .22s ease; }
+  .boot-pct { margin-top:8px; text-align:right; font-family:var(--mono); font-size:11px;
+              letter-spacing:2px; color:var(--cyan); }
+
+  /* ===== 逐层点亮 ===== */
+  .pw { opacity:0; }
+  body.ready .pw { animation:poweron .72s cubic-bezier(.2,.9,.25,1) both; animation-delay:var(--d,0s); }
+  @keyframes poweron {
+    0%   { opacity:0; filter:brightness(2.6) saturate(.4); transform:translateY(4px); }
+    28%  { opacity:1; filter:brightness(1.7); }
+    46%  { opacity:.32; }
+    64%  { opacity:1; filter:brightness(1.25); }
+    100% { opacity:1; filter:none; transform:none; }
+  }
+
+  /* ===== 扫描光扫过 ===== */
+  .sweep { position:absolute; left:0; right:0; top:-16%; height:130px; z-index:40; opacity:0; pointer-events:none;
+           background:linear-gradient(180deg, transparent, rgba(34,211,238,.12) 38%,
+             rgba(34,211,238,.5) 50%, rgba(34,211,238,.12) 62%, transparent); }
+  body.ready .sweep { animation:sweep 1.7s cubic-bezier(.4,.1,.3,1) 1s both; }
+  @keyframes sweep { 0%{top:-16%;opacity:0} 8%{opacity:1} 88%{opacity:1} 100%{top:104%;opacity:0} }
+
+  @keyframes blink { 50% { opacity:0; } }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  @keyframes glowsel { 0%,100%{box-shadow:0 0 0 1px var(--cyan), 0 0 14px rgba(34,211,238,.45);}
+                       50%{box-shadow:0 0 0 1px var(--cyan), 0 0 26px rgba(34,211,238,.85);} }
+
+  /* ===== 页内顶栏 ===== */
+  .topbar { position:relative; z-index:10; height:56px; display:flex; align-items:center; gap:14px;
+            padding:0 26px; border-bottom:1px solid var(--line);
+            background:linear-gradient(180deg, rgba(14,29,49,.85), rgba(10,22,38,.6)); }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo i { width:30px; height:30px; display:flex; align-items:center; justify-content:center;
+            border:1px solid var(--cyan); color:var(--cyan); box-shadow:0 0 14px rgba(34,211,238,.35), inset 0 0 8px rgba(34,211,238,.2); }
+  .logo i svg { width:17px; height:17px; }
+  .logo b { font-family:var(--mono); font-size:13.5px; letter-spacing:2.5px; }
+  .logo b span { color:var(--cyan); }
+  .t-nav { display:flex; gap:4px; margin-left:26px; }
+  .t-item { position:relative; padding:7px 14px; font-size:12.5px; letter-spacing:2px;
+            color:var(--sub); cursor:pointer; transition:color .15s; }
+  .t-item:hover { color:var(--text); }
+  .t-item.on { color:var(--cyan); }
+  .t-item.on::after { content:""; position:absolute; left:14px; right:14px; bottom:-15px;
+                      height:2px; background:var(--cyan); box-shadow:0 0 10px rgba(34,211,238,.9); }
+  .t-right { margin-left:auto; display:flex; align-items:center; gap:16px; }
+  .sys { display:flex; align-items:center; gap:7px; font-family:var(--mono);
+         font-size:10.5px; letter-spacing:1.5px; color:var(--dim); }
+  .sys i { width:6px; height:6px; border-radius:50%; background:var(--green);
+           box-shadow:0 0 8px var(--green); animation:pulse 2.4s ease-in-out infinite; }
+  .u-chip { display:flex; align-items:center; gap:9px; }
+  .u-chip .av { width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+                border:1px solid var(--line); background:rgba(34,211,238,.08);
+                font-size:12px; font-weight:700; color:var(--cyan); }
+  .u-chip span { font-size:12.5px; letter-spacing:1px; color:var(--text); }
+
+  /* ===== 页头 / 操作区 / 页签 ===== */
+  .wrap { position:relative; z-index:10; padding:26px 26px 0; }
+  .p-head { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+  .p-head .k { font-family:var(--mono); font-size:10.5px; letter-spacing:3px; color:var(--cyan); }
+  .p-head h2 { margin-top:8px; font-size:27px; font-weight:800; letter-spacing:4px; display:flex; align-items:center; gap:14px; }
+  .p-head h2::before { content:""; width:5px; height:22px; background:var(--cyan); box-shadow:0 0 12px rgba(34,211,238,.8); }
+  .p-head .sub-t { margin-top:9px; font-size:12.5px; letter-spacing:1px; color:var(--sub); }
+  .p-head .clock { text-align:right; font-family:var(--mono); color:var(--sub); }
+  .p-head .clock b { display:block; font-size:19px; letter-spacing:2px; color:var(--text); font-weight:600; }
+  .p-head .clock span { font-size:10.5px; letter-spacing:2px; }
+  .p-head .clock em { font-style:normal; color:var(--cyan); }
+
+  .ops { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:20px; }
+  .sel { display:flex; align-items:center; gap:9px; height:36px; padding:0 13px;
+         border:1px solid var(--line); background:rgba(13,27,46,.85); cursor:pointer;
+         font-size:12.5px; letter-spacing:1px; color:var(--text); transition:border-color .15s; }
+  .sel:hover { border-color:var(--cyan); }
+  .sel svg { width:13px; height:13px; color:var(--cyan); }
+  .stat-chip { display:flex; align-items:center; gap:8px; height:36px; padding:0 14px;
+               border:1px solid var(--line); border-left:2px solid var(--cyan);
+               background:rgba(34,211,238,.06); font-size:12px; letter-spacing:1px; color:var(--sub); }
+  .stat-chip b { font-family:var(--mono); font-size:14px; font-weight:700; color:var(--cyan); }
+  .seg { display:flex; height:36px; border:1px solid var(--line); background:rgba(10,22,38,.8); }
+  .seg span { display:flex; align-items:center; padding:0 16px; font-size:12px; letter-spacing:2px;
+              color:var(--sub); cursor:pointer; transition:all .15s; }
+  .seg span.on { color:#04121C; background:var(--cyan); font-weight:700;
+                 box-shadow:0 0 16px rgba(34,211,238,.5); }
+  .ops .grow { flex:1; }
+  .btn { display:flex; align-items:center; gap:8px; height:36px; padding:0 17px; cursor:pointer;
+         font-size:12.5px; letter-spacing:2px; border:1px solid var(--line);
+         background:rgba(13,27,46,.85); color:var(--text); transition:all .15s; }
+  .btn svg { width:15px; height:15px; }
+  .btn:hover { border-color:var(--cyan); color:var(--cyan); box-shadow:0 0 14px rgba(34,211,238,.25); }
+  .btn.primary { background:var(--cyan); border-color:var(--cyan); color:#04121C; font-weight:700;
+                 box-shadow:0 0 22px rgba(34,211,238,.45); }
+  .btn.primary:hover { color:#04121C; box-shadow:0 0 32px rgba(34,211,238,.75); }
+
+  .tabs { display:flex; gap:0; margin-top:22px; border-bottom:1px solid var(--line); overflow:hidden; }
+  .tab-i { position:relative; padding:11px 15px 12px; cursor:pointer; white-space:nowrap;
+           font-size:12.5px; letter-spacing:1.5px; color:var(--sub); transition:color .15s; }
+  .tab-i i { font-style:normal; font-family:var(--mono); font-size:9.5px; color:var(--dim);
+             margin-right:6px; letter-spacing:0; }
+  .tab-i:hover { color:var(--text); }
+  .tab-i.on { color:var(--cyan); font-weight:700; }
+  .tab-i.on i { color:var(--cyan); }
+  .tab-i.on::after { content:""; position:absolute; left:12px; right:12px; bottom:-1px; height:2px;
+                     background:var(--cyan); box-shadow:0 0 12px rgba(34,211,238,.9); }
+
+  /* ===== 主体两栏 ===== */
+  .main { display:grid; grid-template-columns:344px 1fr; gap:20px; padding:22px 26px 30px; }
+
+  /* --- 月历卡 --- */
+  .cal { padding:18px 18px 16px; }
+  .cal-head { display:flex; align-items:baseline; justify-content:space-between; }
+  .cal-head .ym { font-family:var(--mono); font-size:22px; font-weight:700; letter-spacing:1px; }
+  .cal-head .ym span { color:var(--cyan); }
+  .cal-head .cn { font-size:12px; letter-spacing:3px; color:var(--sub); }
+  .cal-nav { display:flex; gap:6px; margin-top:12px; }
+  .cal-nav span { flex:1; text-align:center; padding:5px 0; border:1px solid var(--line);
+                  font-family:var(--mono); font-size:10px; letter-spacing:1px; color:var(--dim); cursor:pointer; transition:all .15s; }
+  .cal-nav span:hover { color:var(--cyan); border-color:var(--cyan); }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-top:14px; }
+  .cal-grid .wk { text-align:center; font-family:var(--mono); font-size:10px; letter-spacing:1px;
+                  color:var(--dim); padding:4px 0 7px; }
+  .d { position:relative; height:38px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+       gap:3px; font-family:var(--mono); font-size:12.5px; color:var(--text);
+       border:1px solid transparent; cursor:pointer; transition:all .15s; }
+  .d:hover { border-color:var(--line); background:rgba(34,211,238,.05); }
+  .d.out { color:rgba(94,117,144,.4); cursor:default; }
+  .d.out:hover { border-color:transparent; background:none; }
+  .d .dot { width:5px; height:5px; border-radius:50%; }
+  .dot.g { background:var(--green); box-shadow:0 0 7px var(--green); }
+  .dot.y { background:var(--amber); box-shadow:0 0 7px var(--amber); }
+  .dot.r { background:var(--red); box-shadow:0 0 7px var(--red); }
+  .d.sel { border-color:var(--cyan); background:rgba(34,211,238,.1); color:var(--cyan); font-weight:700;
+           animation:glowsel 2.8s ease-in-out infinite; }
+  .d.sel::after { content:"TODAY"; position:absolute; top:-7px; right:-3px; padding:0 4px;
+                  font-family:var(--mono); font-size:7.5px; letter-spacing:1px; color:#04121C;
+                  background:var(--cyan); box-shadow:0 0 10px rgba(34,211,238,.7); }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:16px; padding-top:13px;
+            border-top:1px dashed rgba(34,211,238,.18); font-size:11px; letter-spacing:1px; color:var(--sub); }
+  .legend span { display:flex; align-items:center; gap:6px; }
+  .cal-stats { display:grid; grid-template-columns:repeat(3,1fr); margin-top:14px; border:1px solid var(--line); }
+  .cal-stats div { padding:10px 4px 9px; text-align:center; }
+  .cal-stats div + div { border-left:1px solid var(--line); }
+  .cal-stats b { display:block; font-family:var(--mono); font-size:17px; font-weight:700; color:var(--cyan); }
+  .cal-stats div:nth-child(3) b { color:var(--amber); }
+  .cal-stats span { font-size:10px; letter-spacing:1.5px; color:var(--dim); }
+
+  /* --- 日志卡通用 --- */
+  .log + .log { margin-top:20px; }
+  .log-head { display:flex; align-items:center; gap:11px; flex-wrap:wrap;
+              padding:13px 16px; border-bottom:1px solid var(--line); background:rgba(34,211,238,.03); }
+  .plate { font-family:var(--mono); font-size:15px; font-weight:700; letter-spacing:2px; color:var(--cyan);
+           padding:3px 11px; border:1px solid rgba(34,211,238,.55); background:rgba(34,211,238,.07);
+           text-shadow:0 0 10px rgba(34,211,238,.5); }
+  .tag { font-size:10.5px; letter-spacing:1.5px; padding:2.5px 8px; border:1px solid; }
+  .tag.amber { color:var(--amber); border-color:rgba(251,191,36,.55); background:rgba(251,191,36,.07); }
+  .tag.cyan { color:var(--cyan); border-color:rgba(34,211,238,.5); background:rgba(34,211,238,.06); }
+  .tag.grey { color:var(--sub); border-color:rgba(139,163,192,.4); background:rgba(139,163,192,.06); }
+  .log-date { font-family:var(--mono); font-size:11.5px; letter-spacing:1px; color:var(--sub); }
+  .verdict { margin-left:auto; display:flex; align-items:center; gap:7px;
+             font-size:11.5px; font-weight:700; letter-spacing:2px; }
+  .verdict svg { width:14px; height:14px; }
+  .verdict.pass { color:var(--green); }
+  .verdict.fail { color:var(--red); }
+  .verdict small { font-family:var(--mono); font-weight:400; font-size:9px; letter-spacing:1.5px; opacity:.7; }
+
+  /* --- 卡① 双栏 --- */
+  .log-body { display:grid; grid-template-columns:38% 1fr; }
+  .info { padding:15px 16px 13px; border-right:1px solid var(--line); }
+  .fld { margin-bottom:13px; }
+  .fld > label { display:flex; align-items:center; gap:7px; font-family:var(--mono);
+                 font-size:9.5px; letter-spacing:2.5px; color:var(--dim); }
+  .fld > label::before { content:""; width:5px; height:5px; background:var(--cyan); opacity:.7; }
+  .fld .v { margin-top:6px; font-size:13.5px; font-weight:600; letter-spacing:.5px; line-height:1.6; }
+  .punch { margin-top:6px; border:1px solid var(--line); }
+  .p-row { display:flex; align-items:center; gap:8px; padding:7px 10px; font-size:12px; }
+  .p-row + .p-row { border-top:1px solid rgba(34,211,238,.1); }
+  .p-row .nm { width:34px; font-weight:700; letter-spacing:1px; }
+  .p-row .tm { font-family:var(--mono); font-size:11.5px; color:var(--sub); letter-spacing:.5px; }
+  .p-row .st { margin-left:auto; display:flex; align-items:center; gap:5px;
+               font-family:var(--mono); font-size:10px; letter-spacing:1px; }
+  .p-row .st svg { width:12px; height:12px; }
+  .st.ok { color:var(--green); } .st.warn { color:var(--amber); }
+  .memo { margin-top:6px; padding:9px 11px; border-left:2px solid var(--amber);
+          background:rgba(251,191,36,.06); font-size:12.5px; line-height:1.7; color:var(--text); }
+  .log-ops { display:flex; gap:9px; margin-top:15px; }
+  .op { display:flex; align-items:center; gap:6px; padding:6px 11px; cursor:pointer;
+        border:1px solid var(--line); background:rgba(10,22,38,.6);
+        font-size:11px; letter-spacing:1.5px; color:var(--sub); transition:all .15s; }
+  .op svg { width:12.5px; height:12.5px; }
+  .op:hover { color:var(--cyan); border-color:var(--cyan); }
+  .op.danger:hover { color:var(--red); border-color:var(--red); box-shadow:0 0 12px rgba(248,113,113,.25); }
+
+  /* --- 照片墙 --- */
+  .photos { padding:15px 16px 16px; }
+  .ph-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
+  .ph-head b { font-family:var(--mono); font-size:11px; letter-spacing:2.5px; color:var(--text); }
+  .ph-head b span { color:var(--cyan); }
+  .ph-head small { font-family:var(--mono); font-size:9.5px; letter-spacing:1.5px; color:var(--dim); }
+  .ph-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .ph { position:relative; aspect-ratio:4/3; overflow:hidden; border:1px solid rgba(34,211,238,.2); }
+  .ph::after { content:""; position:absolute; inset:0; pointer-events:none;
+               background:
+                 repeating-linear-gradient(45deg, rgba(255,255,255,.024) 0 2px, transparent 2px 5px),
+                 repeating-linear-gradient(0deg, rgba(3,7,13,.22) 0 1px, transparent 1px 3px); }
+  .ph-a { background:linear-gradient(165deg,#2B5C86 0%,#173654 42%,#0D1B2E 43.5%,#12283F 70%,#0A1626 100%); }
+  .ph-b { background:linear-gradient(200deg,#1E4A6B 0%,#0F2B44 55%,#0D1B2E 100%),
+          repeating-linear-gradient(90deg, rgba(34,211,238,.12) 0 3px, transparent 3px 22px); }
+  .ph-c { background:linear-gradient(180deg,#35688F 0%,#1B3D5C 48%,#091423 49%,#102539 100%); }
+  .ph-d { background:linear-gradient(150deg,#24425E 0%,#132A42 60%,#0B1828 100%),
+          repeating-linear-gradient(-55deg, rgba(52,211,153,.08) 0 4px, transparent 4px 18px); }
+  .ph-e { background:linear-gradient(180deg,#4A3B2A 0%,#233246 38%,#0D1B2E 100%); }
+  .ph-f { background:linear-gradient(160deg,#2E5B7E 0%,#16324E 50%,#0A1626 100%),
+          repeating-linear-gradient(0deg, rgba(34,211,238,.07) 0 2px, transparent 2px 14px); }
+  .ph .no { position:absolute; left:7px; bottom:6px; z-index:2; font-family:var(--mono);
+            font-size:9px; letter-spacing:1px; color:rgba(248,250,252,.85); text-shadow:0 1px 3px rgba(3,7,13,.9); }
+  .sync { position:absolute; top:6px; left:6px; z-index:2; display:flex; align-items:center; gap:4px;
+          padding:1.5px 6px; font-family:var(--mono); font-size:8.5px; letter-spacing:1px;
+          color:var(--cyan); background:rgba(4,18,28,.82); border:1px solid rgba(34,211,238,.45); }
+  .sync svg { width:9px; height:9px; }
+  .vd { position:absolute; right:0; bottom:0; z-index:2; display:flex; align-items:center; gap:4px;
+        padding:2px 7px; font-size:9.5px; font-weight:700; letter-spacing:1px;
+        background:rgba(4,18,28,.85); border-top:1px solid; border-left:1px solid; }
+  .vd svg { width:10px; height:10px; }
+  .vd.pass { color:var(--green); border-color:rgba(52,211,153,.5); }
+  .vd.ing { color:var(--amber); border-color:rgba(251,191,36,.5); animation:pulse 1.6s ease-in-out infinite; }
+  .vd.fail { color:var(--red); border-color:rgba(248,113,113,.55); }
+  .ph.fail-ph { border-color:rgba(248,113,113,.45); }
+  .ph.fail-ph::before { content:""; position:absolute; inset:0; z-index:1;
+        background:repeating-linear-gradient(-45deg, rgba(248,113,113,.09) 0 8px, transparent 8px 16px); }
+
+  /* --- 卡② --- */
+  .reject { display:flex; align-items:center; gap:12px; margin:14px 16px 0; padding:10px 13px;
+            border:1px solid rgba(248,113,113,.4); border-left:3px solid var(--red);
+            background:rgba(248,113,113,.06); }
+  .reject svg { width:17px; height:17px; flex:none; color:var(--red); }
+  .reject b { font-size:12.5px; letter-spacing:1px; color:var(--red); }
+  .reject p { margin-top:3px; font-size:11px; letter-spacing:.5px; color:var(--sub); }
+  .log2-body { display:grid; grid-template-columns:1fr auto; gap:16px; align-items:end;
+               padding:14px 16px 15px; }
+  .ph-row { display:grid; grid-template-columns:repeat(3,120px); gap:10px; }
+  .log2-note { font-family:var(--mono); font-size:10px; letter-spacing:1.5px; color:var(--dim); margin-top:9px; }
+  .log2-note em { font-style:normal; color:var(--red); }
+
+  /* --- 页脚 --- */
+  .foot { position:relative; z-index:10; display:flex; justify-content:space-between; gap:14px;
+          padding:12px 26px 16px; border-top:1px solid var(--line);
+          font-family:var(--mono); font-size:10px; letter-spacing:1.5px; color:var(--dim); }
+  .foot em { font-style:normal; color:var(--cyan); }
+
+  /* ===== 降级 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+    .pw { opacity:1 !important; }
+    .boot { display:none !important; }
+    .sweep { display:none !important; }
+  }
+  @media (max-width: 1280px) { .stage { zoom:.92; } }
+  @media (max-width: 1080px) { .stage { zoom:.8; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="kicker">PROPOSAL 01 // DEEP-SPACE HUD</div>
+  <h1>方案 01 · <em>深空 HUD</em><small>科幻驾驶舱</small></h1>
+  <p>把班组台账装进驾驶舱 —— 角括号线框锁定视野，冷青辉光标记状态，等宽数字如仪表读数般精确。</p>
+</header>
+<div class="palette">
+  <span class="chip"><i style="background:#060B14;color:#060B14;border:1px solid #2A3B52"></i>深空底 #060B14</span>
+  <span class="chip"><i style="background:#0D1B2E;color:#0D1B2E"></i>面板 #0D1B2E</span>
+  <span class="chip"><i style="background:#22D3EE;color:#22D3EE"></i>主青 #22D3EE</span>
+  <span class="chip"><i style="background:#F8FAFC;color:#F8FAFC"></i>主文 #F8FAFC</span>
+  <span class="chip"><i style="background:#8BA3C0;color:#8BA3C0"></i>次文 #8BA3C0</span>
+  <span class="chip"><i style="background:#FBBF24;color:#FBBF24"></i>警示琥珀 #FBBF24</span>
+</div>
+
+<main class="stage">
+  <div class="browser">
+    <div class="browser-bar">
+      <span class="bdot r"></span><span class="bdot y"></span><span class="bdot g"></span>
+      <span class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+        <b>toolkit.j1net.com</b>/worklog
+      </span>
+    </div>
+
+    <div class="viewport">
+
+      <!-- 开机自检层 -->
+      <div class="boot" id="boot">
+        <div class="boot-box">
+          <div class="boot-head">SHADE · WORKLOG <span>SELF-TEST // v2.4.1</span></div>
+          <div class="boot-lines" id="bootLines"></div>
+          <div class="boot-bar"><i id="bootBar"></i></div>
+          <div class="boot-pct" id="bootPct">000%</div>
+        </div>
+      </div>
+
+      <!-- 扫描光 -->
+      <div class="sweep"></div>
+
+      <!-- 顶栏 -->
+      <div class="topbar pw" style="--d:.05s">
+        <div class="logo">
+          <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></i>
+          <b>SHADE <span>壹匣</span></b>
+        </div>
+        <nav class="t-nav">
+          <span class="t-item">工作台</span>
+          <span class="t-item on">出工日志</span>
+          <span class="t-item">通知中心</span>
+        </nav>
+        <div class="t-right">
+          <span class="sys"><i></i>SYS ONLINE</span>
+          <div class="u-chip"><span class="av">张</span><span>张三</span></div>
+        </div>
+      </div>
+
+      <div class="wrap">
+        <!-- 页头 -->
+        <div class="p-head pw" style="--d:.18s">
+          <div>
+            <div class="k">MODULE / WORKLOG · 检修一班</div>
+            <h2>出工日志</h2>
+            <p class="sub-t">月历色点看验证状态，点击日期查看当日记录</p>
+          </div>
+          <div class="clock">
+            <b>2026.09.25</b>
+            <span><em>FRIDAY</em> · UTC+8 18:04</span>
+          </div>
+        </div>
+
+        <!-- 操作区 -->
+        <div class="ops pw" style="--d:.3s">
+          <div class="sel">检修一班
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+          </div>
+          <div class="stat-chip">共 <b data-n="2">0</b> 条日志 · <b data-n="9">0</b> 张照片</div>
+          <div class="seg"><span class="on">全部</span><span>仅看我</span></div>
+          <div class="grow"></div>
+          <button type="button" class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M7.5 10L12 14.5 16.5 10"/><path d="M4.5 17.5v1.6a1.9 1.9 0 0 0 1.9 1.9h11.2a1.9 1.9 0 0 0 1.9-1.9v-1.6"/></svg>
+            从商旅拉取
+          </button>
+          <button type="button" class="btn primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+            新建日志
+          </button>
+        </div>
+
+        <!-- 页签行 -->
+        <div class="tabs pw" style="--d:.42s">
+          <span class="tab-i on"><i>T01</i>记录</span>
+          <span class="tab-i"><i>T02</i>批量下载</span>
+          <span class="tab-i"><i>T03</i>汇总前核验</span>
+          <span class="tab-i"><i>T04</i>数据管理</span>
+          <span class="tab-i"><i>T05</i>工作任务单</span>
+          <span class="tab-i"><i>T06</i>费用汇总</span>
+          <span class="tab-i"><i>T07</i>派车汇总</span>
+          <span class="tab-i"><i>T08</i>派车对齐</span>
+        </div>
+      </div>
+
+      <!-- 主体两栏 -->
+      <div class="main">
+
+        <!-- 左：月历卡 -->
+        <section class="panel hud cal pw" style="--d:.56s">
+          <div class="cal-head">
+            <div class="ym">2026<span>.</span>09</div>
+            <div class="cn">九月</div>
+          </div>
+          <div class="cal-nav"><span>‹ 上月</span><span>本月</span><span>下月 ›</span></div>
+          <div class="cal-grid">
+            <span class="wk">一</span><span class="wk">二</span><span class="wk">三</span><span class="wk">四</span><span class="wk">五</span><span class="wk">六</span><span class="wk">日</span>
+
+            <span class="d out">31</span><span class="d">1</span><span class="d">2</span><span class="d">3</span><span class="d">4</span><span class="d">5</span><span class="d">6</span>
+
+            <span class="d">7</span><span class="d">8</span><span class="d">9</span><span class="d">10</span><span class="d">11</span>
+            <span class="d">12<i class="dot g"></i></span><span class="d">13</span>
+
+            <span class="d">14</span><span class="d">15</span><span class="d">16</span><span class="d">17</span>
+            <span class="d">18<i class="dot y"></i></span><span class="d">19</span><span class="d">20</span>
+
+            <span class="d">21</span><span class="d">22</span><span class="d">23</span><span class="d">24</span>
+            <span class="d sel">25<i class="dot r"></i></span><span class="d">26</span><span class="d">27</span>
+
+            <span class="d">28</span><span class="d">29</span><span class="d">30</span>
+            <span class="d out">1</span><span class="d out">2</span><span class="d out">3</span><span class="d out">4</span>
+          </div>
+          <div class="legend">
+            <span><i class="dot g"></i>已验证</span>
+            <span><i class="dot y"></i>有备注</span>
+            <span><i class="dot r"></i>待核实</span>
+          </div>
+          <div class="cal-stats">
+            <div><b data-n="3">0</b><span>出工天数</span></div>
+            <div><b data-n="9">0</b><span>照片归档</span></div>
+            <div><b data-n="1">0</b><span>待核实</span></div>
+          </div>
+        </section>
+
+        <!-- 右：日志卡片流 -->
+        <section>
+          <!-- 日志卡 ① -->
+          <article class="panel hud log pw" style="--d:.72s">
+            <div class="log-head">
+              <span class="plate">鄂A·D12345</span>
+              <span class="tag amber">跨班</span>
+              <span class="log-date">2026.09.25 · 第 1 / 2 条</span>
+              <span class="verdict pass">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg>
+                验证通过 <small>VERIFIED</small>
+              </span>
+            </div>
+            <div class="log-body">
+              <div class="info">
+                <div class="fld">
+                  <label>巡视内容 / TASK</label>
+                  <div class="v">110kV 锦城线 #12–#28 塔巡视</div>
+                </div>
+                <div class="fld">
+                  <label>用车人打卡 / PUNCH</label>
+                  <div class="punch">
+                    <div class="p-row">
+                      <span class="nm">王强</span>
+                      <span class="tm">07:58 / 17:32</span>
+                      <span class="st ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>双卡齐</span>
+                    </div>
+                    <div class="p-row">
+                      <span class="nm">李军</span>
+                      <span class="tm">08:02 / --:--</span>
+                      <span class="st warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L2.8 19.5h18.4z"/><path d="M12 10v4.2"/><circle cx="12" cy="17" r=".4" fill="currentColor"/></svg>缺终卡</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="fld">
+                  <label>目的地 / DEST</label>
+                  <div class="v">张河变电站</div>
+                </div>
+                <div class="fld">
+                  <label>备注 / MEMO</label>
+                  <div class="memo">#18 塔绝缘子更换完成，明日复验。</div>
+                </div>
+                <div class="log-ops">
+                  <span class="op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 3.5V7h-3.5"/></svg>从商旅同步</span>
+                  <span class="op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2a2 2 0 0 1 2.9 2.9L8.5 18.3 4.6 19.3l1-3.9z"/></svg>备注</span>
+                  <span class="op danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6V4.4A1.4 1.4 0 0 1 10.9 3h2.2a1.4 1.4 0 0 1 1.4 1.4V6"/><path d="M6.5 6.5l.8 12.1a1.8 1.8 0 0 0 1.8 1.7h5.8a1.8 1.8 0 0 0 1.8-1.7l.8-12.1"/><path d="M10 10.5v6M14 10.5v6"/></svg>删除</span>
+                </div>
+              </div>
+              <div class="photos">
+                <div class="ph-head">
+                  <b>现场照片 <span>6</span> 张</b>
+                  <small>PHOTO GRID // 3×2</small>
+                </div>
+                <div class="ph-grid">
+                  <div class="ph ph-a">
+                    <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>已同步商旅</span>
+                    <span class="no">P01 · #12 塔基</span>
+                    <span class="vd pass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span>
+                  </div>
+                  <div class="ph ph-b">
+                    <span class="no">P02 · #15 绝缘子</span>
+                    <span class="vd pass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span>
+                  </div>
+                  <div class="ph ph-c">
+                    <span class="no">P03 · #18 更换后</span>
+                    <span class="vd ing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3.2 2"/></svg>验证中</span>
+                  </div>
+                  <div class="ph ph-d">
+                    <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>已同步商旅</span>
+                    <span class="no">P04 · 通道树障</span>
+                    <span class="vd pass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span>
+                  </div>
+                  <div class="ph ph-e fail-ph">
+                    <span class="no">P05 · #22 金具</span>
+                    <span class="vd fail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>验证失败</span>
+                  </div>
+                  <div class="ph ph-f">
+                    <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>已同步商旅</span>
+                    <span class="no">P06 · #28 终端塔</span>
+                    <span class="vd pass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>核验通过</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- 日志卡 ② -->
+          <article class="panel hud log pw" style="--d:.92s">
+            <div class="log-head">
+              <span class="tag cyan">站内作业</span>
+              <span class="tag grey">未出车</span>
+              <span class="log-date">2026.09.25 · 第 2 / 2 条</span>
+              <span class="verdict fail">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+                未通过 <small>REJECTED</small>
+              </span>
+            </div>
+            <div class="reject">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L2.8 19.5h18.4z"/><path d="M12 10v4.2"/><circle cx="12" cy="17" r=".4" fill="currentColor"/></svg>
+              <div>
+                <b>驳回原因：照片地点与目的地不符</b>
+                <p>重新上传现场照片后，系统将自动重新核验。</p>
+              </div>
+            </div>
+            <div class="log2-body">
+              <div>
+                <div class="ph-row">
+                  <div class="ph ph-e fail-ph">
+                    <span class="no">Q01 · 开关机构</span>
+                    <span class="vd fail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>验证失败</span>
+                  </div>
+                  <div class="ph ph-b fail-ph">
+                    <span class="no">Q02 · 端子箱</span>
+                    <span class="vd fail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>验证失败</span>
+                  </div>
+                  <div class="ph ph-d fail-ph">
+                    <span class="no">Q03 · 主变本体</span>
+                    <span class="vd fail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>验证失败</span>
+                  </div>
+                </div>
+                <div class="log2-note">GEO-CHECK ▸ 照片定位与目的地偏差 <em>4.2 KM</em> · 阈值 0.5 KM</div>
+              </div>
+              <div class="log-ops">
+                <span class="op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16.5v-11"/><path d="M7.5 9L12 4.5 16.5 9"/><path d="M4.5 17.5v1.6a1.9 1.9 0 0 0 1.9 1.9h11.2a1.9 1.9 0 0 0 1.9-1.9v-1.6"/></svg>重新上传</span>
+                <span class="op"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16.8 4.2a2 2 0 0 1 2.9 2.9L8.5 18.3 4.6 19.3l1-3.9z"/></svg>备注</span>
+                <span class="op danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6V4.4A1.4 1.4 0 0 1 10.9 3h2.2a1.4 1.4 0 0 1 1.4 1.4V6"/><path d="M6.5 6.5l.8 12.1a1.8 1.8 0 0 0 1.8 1.7h5.8a1.8 1.8 0 0 0 1.8-1.7l.8-12.1"/><path d="M10 10.5v6M14 10.5v6"/></svg>删除</span>
+              </div>
+            </div>
+          </article>
+        </section>
+      </div>
+
+      <!-- 页脚 -->
+      <div class="foot pw" style="--d:1.05s">
+        <span>SHADE <em>壹匣</em> · WORKLOG MODULE · BUILD 20260925</span>
+        <span>LAST SYNC <em>2026-09-25 18:04:22</em> · 检修一班</span>
+      </div>
+
+    </div>
+  </div>
+  <div class="cap"><b>①</b>Web · 出工日志 / 记录页签 —— 开机自检 → 逐层点亮 → 扫描定位</div>
+</main>
+
+<noscript><style>.boot{display:none}.pw{opacity:1}.sweep{display:none}</style></noscript>
+<script>
+(function () {
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var boot = document.getElementById('boot');
+  var linesBox = document.getElementById('bootLines');
+  var bar = document.getElementById('bootBar');
+  var pct = document.getElementById('bootPct');
+
+  function setCounts(instant) {
+    var els = document.querySelectorAll('[data-n]');
+    for (var i = 0; i < els.length; i++) {
+      (function (el) {
+        var target = parseInt(el.getAttribute('data-n'), 10) || 0;
+        if (instant) { el.textContent = target; return; }
+        var start = null, dur = 850;
+        function tick(ts) {
+          if (!start) start = ts;
+          var p = Math.min((ts - start) / dur, 1);
+          el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
+          if (p < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      })(els[i]);
+    }
+  }
+
+  if (reduced) {
+    if (boot) boot.style.display = 'none';
+    document.body.classList.add('ready');
+    setCounts(true);
+    return;
+  }
+
+  var lines = [
+    ['载入内核 KERNEL', 'OK', 'ok'],
+    ['身份校验 TOKEN', 'OK', 'ok'],
+    ['商旅接口握手 SGCC-LINK', 'OK', 'ok'],
+    ['照片核验引擎 VISION', 'OK', 'ok'],
+    ['月历索引 2026.09', 'OK', 'ok'],
+    ['渲染界面 RENDER', 'GO', 'go']
+  ];
+  var i = 0;
+  function next() {
+    if (i > 0) {
+      var prev = linesBox.children[i - 1];
+      if (prev) prev.classList.remove('cur');
+    }
+    if (i >= lines.length) {
+      setTimeout(function () {
+        boot.classList.add('done');
+        document.body.classList.add('ready');
+        setCounts(false);
+        setTimeout(function () { boot.style.display = 'none'; }, 800);
+      }, 320);
+      return;
+    }
+    var t = lines[i];
+    var div = document.createElement('div');
+    div.className = 'cur';
+    div.innerHTML = '&gt; ' + t[0] + ' ' +
+      new Array(Math.max(2, 22 - t[0].length)).join('.') +
+      ' <span class="' + t[2] + '">' + t[1] + '</span>';
+    linesBox.appendChild(div);
+    i++;
+    var p = Math.round(i / lines.length * 100);
+    bar.style.width = p + '%';
+    pct.textContent = (p < 100 ? '0' : '') + (p < 10 ? '0' : '') + p + '%';
+    setTimeout(next, 150 + Math.random() * 130);
+  }
+  setTimeout(next, 350);
+})();
+</script>
+
+</body>
+</html>

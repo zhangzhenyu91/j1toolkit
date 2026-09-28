@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #F4F1EA;
+  background: #F8F6F1;
 }
 
 /* ---------- 消息区 ---------- */
@@ -31,7 +31,7 @@
 
 .bubble {
   max-width: 78%;
-  border-radius: 20rpx;
+  border-radius: 0;
   padding: 20rpx 24rpx;
   font-size: 28rpx;
   line-height: 1.6;
@@ -39,9 +39,9 @@
 }
 
 .user-bubble {
-  background: #F26D21;
+  background: #1D4ED8;
   color: #FFFFFF;
-  border-bottom-right-radius: 6rpx;
+  border-bottom-right-radius: 0;
   display: flex;
   flex-direction: column;
   gap: 12rpx;
@@ -57,7 +57,7 @@
 /* 回答不用气泡（对齐官方前端）：纯文本流式内容，仅用户问题保留气泡 */
 .reply-bubble {
   background: transparent;
-  color: #22314E;
+  color: #111111;
   border-radius: 0;
   max-width: 100%;
   padding: 0;
@@ -66,13 +66,13 @@
 
 .reply-error {
   background: transparent;
-  color: #CF4444;
+  color: #D22730;
 }
 
 .thinking {
   margin-bottom: 8rpx;
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
   line-height: 1.5;
 }
 
@@ -94,18 +94,18 @@
   align-items: center;
   gap: 10rpx;
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 .think-dot {
   width: 12rpx;
   height: 12rpx;
   border-radius: 50%;
-  background: #D9CFBA;
+  background: rgba(17,17,17,.35);
 }
 
 .think-dot-on {
-  background: #F26D21;
+  background: #1D4ED8;
   animation: blink 1s infinite;
 }
 
@@ -177,31 +177,31 @@
 
 .step-title {
   font-size: 24rpx;
-  color: #22314E;
+  color: #111111;
   font-weight: 500;
   line-height: 1.5;
   word-break: break-word;
 }
 
 .step-title-run {
-  color: #F26D21;
+  color: #1D4ED8;
   animation: stepBreath 1.6s ease-in-out infinite;
 }
 
 .step-title-err {
-  color: #CF4444;
+  color: #D22730;
 }
 
 .step-summary {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
   line-height: 1.5;
 }
 
 .step-text {
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -218,7 +218,7 @@
 }
 
 .cursor {
-  color: #F26D21;
+  color: #1D4ED8;
   animation: blink 1s infinite;
 }
 
@@ -229,7 +229,7 @@
 
 .msg-img {
   width: 320rpx;
-  border-radius: 12rpx;
+  border-radius: 0;
 }
 
 /* ---------- 回答操作条（复制/时间） ---------- */
@@ -249,28 +249,28 @@
 
 .msg-time {
   font-size: 24rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 /* ---------- 引用来源 ---------- */
 .ref-box {
   margin-top: 8rpx;
   padding: 12rpx 20rpx;
-  background: #F7F3EA;
+  background: #EDF2FE;
   border: 1rpx solid #EDE5D2;
-  border-radius: 14rpx;
+  border-radius: 0;
 }
 
 .ref-title {
   font-size: 20rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
   letter-spacing: 2rpx;
   margin-bottom: 6rpx;
 }
 
 .ref-item {
   font-size: 22rpx;
-  color: #6B7690;
+  color: #5C5748;
   line-height: 1.7;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -283,10 +283,10 @@
   margin: 0 auto 20rpx;
   padding: 8rpx 28rpx;
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
   background: #FFFFFF;
-  border: 1rpx solid #E3DCCB;
-  border-radius: 28rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   width: fit-content;
 }
 
@@ -297,7 +297,7 @@
 /* ---------- 输入栏 ---------- */
 .input-bar {
   background: #FFFFFF;
-  border-top: 1rpx solid #E8E0CD;
+  border-top: 1rpx solid #E7E1D2;
   padding: 16rpx 20rpx calc(16rpx + env(safe-area-inset-bottom));
 }
 
@@ -311,7 +311,7 @@
 .img-chip image {
   width: 96rpx;
   height: 96rpx;
-  border-radius: 12rpx;
+  border-radius: 0;
 }
 
 .chip-close {
@@ -320,8 +320,8 @@
   right: -12rpx;
   width: 32rpx;
   height: 32rpx;
-  border-radius: 50%;
-  background: #22314E;
+  border-radius: 0;
+  background: #111111;
   color: #FFFFFF;
   font-size: 20rpx;
   display: flex;
@@ -343,24 +343,24 @@
 
 .chat-input {
   flex: 1;
-  background: #F4F1EA;
-  border-radius: 16rpx;
+  background: #F8F6F1;
+  border-radius: 0;
   padding: 16rpx 20rpx;
   font-size: 28rpx;
   line-height: 1.5;
   max-height: 180rpx;
-  color: #22314E;
+  color: #111111;
 }
 
 .input-ph {
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 .send-btn {
   width: 72rpx;
   height: 72rpx;
-  border-radius: 50%;
-  background: #F26D21;
+  border-radius: 0;
+  background: #1D4ED8;
   display: flex;
   align-items: center;
   justify-content: center;

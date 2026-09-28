@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 网页版登录页（方案A「安全橙传承」①：左品牌区 + 右账号密码表单） -->
+<!-- Shade 壹匣 · 网页版登录页（方案十二「包豪斯几何」换肤：左墨底品牌区（红圆 × 蓝半圆 × 红三角几何装饰）
+     + 右账号密码表单，入场 riseIn/geoIn 时延链 fill-mode:both；几何装饰全部纯 CSS 无图片依赖） -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -12,7 +13,7 @@
      备案链接改放右侧表单块底部；左品牌区 + 右表单） ===== */
   .login-page { flex: 1; display: flex; flex-direction: column; }
   .login-box { flex: 1; width: 100%; display: flex; background: #fff; }
-  /* 左侧品牌区：藏青底 + 网格光晕 + 底部警示斜纹，黄金分割占 61.8% */
+  /* 左侧品牌区：墨底 + 网格线，黄金分割占 61.8%（底部三色带已取消，.hazard-top 空壳 div 不再渲染） */
   .login-brand {
     width: 61.8%; flex: none; position: relative;
     display: flex; flex-direction: column;
@@ -21,12 +22,21 @@
   .login-brand::before {
     content: ""; position: absolute; inset: 0;
     background-image:
-      radial-gradient(420px 300px at 110% 0%, rgba(242, 109, 33, .22), transparent 60%),
       linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
       linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
-    background-size: auto, 38px 38px, 38px 38px;
+    background-size: 38px 38px;
   }
-  .brand-top { position: relative; display: flex; align-items: center; gap: 12px; padding: 32px 38px 0; }
+  /* 品牌区几何构成（红圆 × 蓝半圆 × 红三角，纯装饰不响应指针；geoIn 斜向飞入落位后静止） */
+  .geo-stage { position: absolute; inset: 0; pointer-events: none; }
+  .geo { position: absolute; animation: geoIn 1.1s var(--ease) both; }
+  .geo > i { display: block; width: 100%; height: 100%; }
+  .lg-cir-r { width: 148px; height: 148px; right: 9%; top: 12%; animation-delay: .55s; }
+  .lg-cir-r > i { border-radius: 50%; background: var(--red); }
+  .lg-semi-b { width: 118px; height: 59px; left: 8%; bottom: 15%; animation-delay: .7s; }
+  .lg-semi-b > i { background: var(--orange); border-radius: 0 0 118px 118px; }
+  .lg-tri-r { width: 64px; height: 64px; right: 23%; bottom: 26%; animation-delay: .85s; }
+  .lg-tri-r > i { background: var(--red); clip-path: polygon(50% 0, 100% 100%, 0 100%); transform: rotate(14deg); }
+  .brand-top { position: relative; display: flex; align-items: center; gap: 12px; padding: 32px 38px 0; animation: riseIn .6s var(--ease) .05s both; }
   .brand-top .logo-mark { width: 46px; height: 46px; }
   .brand-name { font-size: 18px; font-weight: 800; letter-spacing: 2px; }
   .brand-name small { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 500; color: rgba(255, 255, 255, .55); letter-spacing: 3px; }
@@ -40,33 +50,44 @@
   .brand-mid::before, .brand-mid::after { content: ""; display: block; }
   .brand-mid::before { flex: 382 0 0; }
   .brand-mid::after { flex: 618 0 0; }
-  .brand-mid h2 { font-size: 29px; line-height: 1.5; font-weight: 800; letter-spacing: 1px; }
-  .brand-mid h2 em { font-style: normal; color: var(--orange); }
-  .brand-mid > p { margin-top: 14px; font-size: 13px; line-height: 1.9; color: rgba(255, 255, 255, .6); letter-spacing: .5px; }
+  .brand-mid h2 { font-size: 29px; line-height: 1.5; font-weight: 800; letter-spacing: 1px; animation: riseIn .7s var(--ease) .18s both; }
+  .brand-mid h2 em { font-style: normal; color: var(--yellow); }
+  .brand-mid > p { margin-top: 14px; font-size: 13px; line-height: 1.9; color: rgba(255, 255, 255, .6); letter-spacing: .5px; animation: riseIn .7s var(--ease) .32s both; }
   .brand-feats { margin-top: 32px; display: inline-flex; flex-direction: column; gap: 15px; text-align: left; }
-  .feat { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255, 255, 255, .85); letter-spacing: 1px; }
+  .feat { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255, 255, 255, .85); letter-spacing: 1px; animation: riseIn .6s var(--ease) both; }
+  .brand-feats .feat:nth-child(1) { animation-delay: .44s; }
+  .brand-feats .feat:nth-child(2) { animation-delay: .54s; }
+  .brand-feats .feat:nth-child(3) { animation-delay: .64s; }
+  /* 特性图标：墨底配黄（黄为墨底上的标准点亮色，同 theme 安全提示条 .safety .si 口径） */
   .feat i {
-    width: 32px; height: 32px; flex: none; border-radius: 9px;
-    background: rgba(242, 109, 33, .16); border: 1px solid rgba(242, 109, 33, .45); color: #F59A5E;
+    width: 32px; height: 32px; flex: none; border-radius: 0;
+    background: rgba(242, 183, 5, .13); border: 1px solid rgba(242, 183, 5, .42); color: var(--yellow);
     display: flex; align-items: center; justify-content: center;
   }
   .feat i svg { width: 17px; height: 17px; }
-  .login-brand .hazard-top { position: relative; }
-  /* 右侧表单：黄金分割窄侧（38.2%），纵列布局——.form-core 弹性居中表单主体，备案页脚垫底 */
-  .login-form { flex: 1; display: flex; flex-direction: column; padding: 48px 66px; background: #fff; }
+  /* 右侧表单：黄金分割窄侧（38.2%），纵列布局——.form-core 弹性居中表单主体，备案页脚垫底；
+     角部几何：右上 ¼ 蓝圆 + 左下红三角（克制点缀，不压表单） */
+  .login-form { flex: 1; position: relative; display: flex; flex-direction: column; padding: 48px 66px; background: #fff; overflow: hidden; }
+  .login-form .geo { pointer-events: none; }
+  .lf-qb { top: 0; right: 0; width: 46px; height: 46px; animation-delay: .9s; }
+  .lf-qb > i { background: var(--orange); border-radius: 0 0 0 46px; }
+  .lf-tri { left: 42px; bottom: 118px; width: 30px; height: 30px; animation-delay: 1.05s; }
+  .lf-tri > i { background: var(--red); clip-path: polygon(50% 0, 100% 100%, 0 100%); transform: rotate(-16deg); }
   .form-core { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; }
   .form-core > * { width: 100%; max-width: 400px; margin-left: auto; margin-right: auto; }
-  .login-form h2 { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+  .login-form h2 { font-size: 22px; font-weight: 800; letter-spacing: 1px; animation: riseIn .6s var(--ease) .2s both; }
   /* margin 简写必须带 auto：.login-form .sub 优先级高于 .form-core>*，
      写成 8px 0 26px 会把左右 auto 冲掉，导致该块脱离 400px 版心歪向左侧 */
-  .login-form .sub { margin: 8px auto 26px; font-size: 12.5px; color: var(--sub); letter-spacing: .5px; }
+  .login-form .sub { margin: 8px auto 26px; font-size: 12.5px; color: var(--sub); letter-spacing: .5px; animation: riseIn .6s var(--ease) .3s both; }
+  #fUser { animation: riseIn .6s var(--ease) .4s both; }
+  #fPass { animation: riseIn .6s var(--ease) .48s both; }
   /* margin 需带 auto：等优先级下后置规则会覆盖 .form-core>* 的居中，导致此行错位 */
-  .form-row { display: flex; align-items: center; justify-content: space-between; margin: 2px auto 18px; font-size: 12.5px; color: var(--sub); }
+  .form-row { display: flex; align-items: center; justify-content: space-between; margin: 2px auto 18px; font-size: 12.5px; color: var(--sub); animation: riseIn .6s var(--ease) .56s both; }
   .form-row .ck-l { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
   .form-row a { color: var(--sub); transition: color .25s; }
   .form-row a:hover { color: var(--orange); }
   .ck {
-    width: 16px; height: 16px; flex: none; border-radius: 4px;
+    width: 16px; height: 16px; flex: none; border-radius: 0;
     border: 1px solid var(--line); background: #fff; color: #fff;
     display: inline-flex; align-items: center; justify-content: center;
     transition: background .2s, border-color .2s;
@@ -74,27 +95,44 @@
   .ck.on { background: var(--orange); border-color: var(--orange); }
   .ck svg { width: 10px; height: 10px; opacity: 0; transition: opacity .2s; }
   .ck.on svg { opacity: 1; }
-  .agree { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; color: var(--sub); }
+  .agree { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; color: var(--sub); animation: riseIn .6s var(--ease) .72s both; }
   .agree a { color: var(--orange); font-weight: 600; cursor: pointer; }
-  .login-foot { margin-top: 30px; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
+  .login-foot { margin-top: 30px; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: 1px; animation: riseIn .6s var(--ease) .8s both; }
+  #btnLogin { animation: riseIn .6s var(--ease) .64s both; }
+  .login-form .beian-foot { animation: riseIn .6s var(--ease) .86s both; }
 
-  /* 移动端上下堆叠：品牌区在上，表单在下 */
+  /* ===== 入场动效（riseIn 上浮落位 / geoIn 斜向飞入回正落位，fill-mode:both 落位静止） ===== */
+  @keyframes riseIn { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes geoIn {
+    0% { transform: rotate(-150deg) translate(110px, -70px); opacity: 0; }
+    45% { opacity: 1; }
+    68% { transform: rotate(10deg) translate(-8px, 5px); }
+    100% { transform: none; opacity: 1; }
+  }
+
+  /* 移动端上下堆叠：品牌区在上，表单在下（几何装饰让位内容，收窄隐藏） */
   @media (max-width: 860px) {
     .login-box { flex-direction: column; }
     .login-brand { width: 100%; }
     .brand-mid h2 { font-size: 24px; }
     .login-form { padding: 36px 28px; }
+    .geo-stage, .login-form .geo { display: none; }
   }
 </style>
 </head>
 <body data-beian="off">
 <div class="login-page">
-  <div class="login-box fade-up">
-    <!-- 左侧品牌区 -->
+  <div class="login-box">
+    <!-- 左侧品牌区（几何舞台纯装饰，不响应指针） -->
     <div class="login-brand">
       <div class="brand-top">
         <span class="logo-mark" id="logoMark"></span>
         <div class="brand-name">Shade 壹匣<small>班组数字化工具平台</small></div>
+      </div>
+      <div class="geo-stage" aria-hidden="true">
+        <span class="geo lg-cir-r"><i></i></span>
+        <span class="geo lg-semi-b"><i></i></span>
+        <span class="geo lg-tri-r"><i></i></span>
       </div>
       <div class="brand-mid">
         <h2>班组应用，<br>一匣尽纳，<br><em>安全每一班。</em></h2>
@@ -109,6 +147,8 @@
     </div>
     <!-- 右侧登录表单：.form-core 垂直居中主体，备案页脚垫底（本页 data-beian="off"，不注入全局页脚） -->
     <form class="login-form" id="loginForm" novalidate>
+      <span class="geo lf-qb" aria-hidden="true"><i></i></span>
+      <span class="geo lf-tri" aria-hidden="true"><i></i></span>
       <div class="form-core">
         <h2>欢迎回来</h2>
         <div class="sub">请使用班组账号登录 Shade 壹匣工作台</div>

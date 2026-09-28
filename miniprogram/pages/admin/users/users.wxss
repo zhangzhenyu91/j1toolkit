@@ -7,7 +7,7 @@
 /* 关键词搜索框 */
 .search-field {
   background: #FFFFFF;
-  border-radius: 12rpx;
+  border-radius: 0;
   padding: 0 20rpx;
   margin-bottom: 20rpx;
 }
@@ -31,8 +31,8 @@
 .u-avatar {
   width: 80rpx;
   height: 80rpx;
-  border-radius: 16rpx;
-  background: #22314E;
+  border-radius: 0;
+  background: #111111;
   color: #FFFFFF;
   font-size: 36rpx;
   font-weight: 600;
@@ -55,7 +55,7 @@
 .u-name {
   font-size: 28rpx;
   font-weight: 500;
-  color: #22314E;
+  color: #111111;
   display: flex;
   align-items: center;
   gap: 12rpx;
@@ -64,13 +64,13 @@
 .u-sub {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
-/* 角色徽章（超管=藏青底 / 班组管理员=橙描边 / 普通用户=灰底） */
+/* 角色徽章（超管=墨底 / 班组管理员=蓝描边 / 普通用户=灰底） */
 .role {
   flex: none;
-  border-radius: 8rpx;
+  border-radius: 0;
   padding: 2rpx 14rpx;
   font-size: 20rpx;
   font-weight: 600;
@@ -78,18 +78,18 @@
 }
 
 .role-admin {
-  background: #22314E;
+  background: #111111;
   color: #FFFFFF;
 }
 
 .role-team_admin {
-  border: 1rpx solid #F26D21;
-  color: #F26D21;
+  border: 1rpx solid #1D4ED8;
+  color: #1D4ED8;
 }
 
 .role-user {
-  background: #EDF0F6;
-  color: #6B7690;
+  background: #EDF2FE;
+  color: #5C5748;
 }
 
 .hint {
@@ -107,13 +107,14 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #F4F1EA;
+  background: #F8F6F1;
 }
 
-/* ---------- 新建 / 编辑员工弹层（.sh-head/.sh-title/.sh-sub/.sh-close/.f-label/.f-field/.sh-note/.btn-disabled 已上移 app.wxss 共用） ---------- */
+/* ---------- 新建 / 编辑员工弹层（直角 + 顶部墨线；.sh-head/.sh-title/.sh-sub/.sh-close/.f-label/.f-field/.sh-note/.btn-disabled 已上移 app.wxss 共用） ---------- */
 .sheet {
   background: #FFFFFF;
-  border-radius: 32rpx 32rpx 0 0;
+  border-radius: 0;
+  border-top: 4rpx solid #111111;
   padding: 28rpx 32rpx 48rpx;
   max-height: 78vh;
   display: flex;
@@ -134,22 +135,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #F4F1EA;
-  border-radius: 12rpx;
+  background: #F8F6F1;
+  border-radius: 0;
   padding: 20rpx 16rpx;
   font-size: 26rpx;
-  color: #22314E;
+  color: #111111;
 }
 
 .f-in-ph {
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 .team-opts {
   margin-top: 10rpx;
   background: #FFFFFF;
-  border: 1rpx solid #E3DCCB;
-  border-radius: 12rpx;
+  border: 1rpx solid #E7E1D2;
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -159,15 +160,15 @@
   justify-content: space-between;
   padding: 18rpx 20rpx;
   font-size: 26rpx;
-  color: #22314E;
+  color: #111111;
 }
 
 .opt + .opt {
-  border-top: 1rpx solid #F0EBDD;
+  border-top: 1rpx solid #E7E1D2;
 }
 
 .opt-on {
-  color: #F26D21;
+  color: #1D4ED8;
   font-weight: 600;
 }
 
@@ -185,18 +186,18 @@
   flex: 1;
   text-align: center;
   padding: 16rpx 0;
-  border-radius: 12rpx;
-  border: 1rpx solid #E3DCCB;
+  border-radius: 0;
+  border: 1rpx solid #E7E1D2;
   background: #FFFFFF;
   font-size: 23rpx;
   font-weight: 600;
-  color: #6B7690;
+  color: #5C5748;
 }
 
 .sg-on {
-  border-color: #F26D21;
-  color: #F26D21;
-  background: #FDEEE2;
+  border-color: #1D4ED8;
+  color: #1D4ED8;
+  background: #EDF2FE;
 }
 
 .f-row {
@@ -208,7 +209,7 @@
 .fr-lab {
   font-size: 26rpx;
   font-weight: 600;
-  color: #22314E;
+  color: #111111;
 }
 
 .sh-foot {
@@ -220,19 +221,19 @@
 
 .sum {
   font-size: 22rpx;
-  color: #6B7690;
+  color: #5C5748;
 }
 
 .pwd-link {
   font-size: 24rpx;
-  color: #6B7690;
+  color: #5C5748;
 }
 
 .btn-primary {
   flex: 1;
   height: 88rpx;
-  border-radius: 18rpx;
-  background: #22314E;
+  border-radius: 0;
+  background: #111111;
   color: #FFFFFF;
   font-size: 30rpx;
   font-weight: 700;

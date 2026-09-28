@@ -5,7 +5,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f4f1ea;
+  background: #f8f6f1;
 }
 
 /* ---------- 跟手翻页 swiper（一题一页；每格内独立纵向滚动） ---------- */
@@ -27,7 +27,7 @@
   padding: 96rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 2rpx;
 }
 
@@ -46,34 +46,34 @@
   display: flex;
   padding: 4rpx;
   background: #efe9da;
-  border-radius: 999rpx;
+  border-radius: 0;
 }
 
 .vm-opt {
   padding: 6rpx 20rpx;
-  border-radius: 999rpx;
+  border-radius: 0;
   font-size: 22rpx;
   font-weight: 700;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .vm-opt.on {
-  background: #22314e;
+  background: #111111;
   color: #ffffff;
 }
 
 .progress {
   flex: 1;
   height: 12rpx;
-  border-radius: 6rpx;
+  border-radius: 0;
   background: #efe9da;
   overflow: hidden;
 }
 
 .progress-in {
   height: 100%;
-  border-radius: 6rpx;
-  background: #f26d21;
+  border-radius: 0;
+  background: #1d4ed8;
   transition: width 0.3s ease;
 }
 
@@ -85,7 +85,7 @@
 
 .pg-line b em {
   font-style: normal;
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 /* ---------- 题干卡 ---------- */
@@ -100,7 +100,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 8rpx;
+  border-radius: 0;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -110,22 +110,22 @@
 }
 
 .tag-orange {
-  background: #fdeee2;
-  color: #f26d21;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 .tag-navy {
-  background: #edf0f6;
-  color: #22314e;
+  background: #edf2fe;
+  color: #111111;
 }
 
-/* ---------- 选项卡（白卡描边，选中浅橙底；解析态字母块变对勾/红叉，文字同着色；180ms 过渡） ---------- */
+/* ---------- 选项卡（白卡描边，选中浅蓝底；解析态字母块变对勾/红叉，文字同着色；180ms 过渡） ---------- */
 .opt {
   margin-top: 20rpx;
   padding: 24rpx 26rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   display: flex;
   align-items: center;
   gap: 20rpx;
@@ -134,10 +134,10 @@
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
-/* 点按未提交选项的轻微反馈（hover-class）：轻微内缩 + 浅橙底 */
+/* 点按未提交选项的轻微反馈（hover-class）：轻微内缩 + 浅蓝底 */
 .opt-hover {
   transform: scale(0.99);
-  background-color: #fdeee2 !important;
+  background-color: #edf2fe !important;
 }
 
 .opt .ab {
@@ -145,8 +145,8 @@
   height: 52rpx;
   flex: none;
   border-radius: 50%;
-  border: 3rpx solid #d9cfba;
-  color: #6b7690;
+  border: 3rpx solid rgba(17,17,17,.35);
+  color: #5c5748;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -158,7 +158,7 @@
 
 /* 多选：方形字母块 */
 .opt.sq .ab {
-  border-radius: 14rpx;
+  border-radius: 0;
 }
 
 .opt .opt-tx {
@@ -167,45 +167,45 @@
 }
 
 .opt.sel {
-  border-color: #f26d21;
-  background: #fdeee2;
+  border-color: #1d4ed8;
+  background: #edf2fe;
 }
 
 .opt.sel .ab {
-  border-color: #f26d21;
-  background: #f26d21;
+  border-color: #1d4ed8;
+  background: #1d4ed8;
   color: #ffffff;
 }
 
 /* 解析态（考试宝式）：正确项绿底绿勾 / 错选项红底红叉，文字同步着色 */
 .opt.right {
-  border-color: #2ba471;
+  border-color: #1e9e50;
   background: #e8f5ef;
 }
 
 .opt.right .ab {
-  border-color: #2ba471;
-  background: #2ba471;
+  border-color: #1e9e50;
+  background: #1e9e50;
   color: #ffffff;
 }
 
 .opt.right .opt-tx {
-  color: #2ba471;
+  color: #1e9e50;
 }
 
 .opt.wrong {
-  border-color: #cf4444;
+  border-color: #d22730;
   background: #fae9e9;
 }
 
 .opt.wrong .ab {
-  border-color: #cf4444;
-  background: #cf4444;
+  border-color: #d22730;
+  background: #d22730;
   color: #ffffff;
 }
 
 .opt.wrong .opt-tx {
-  color: #cf4444;
+  color: #d22730;
 }
 
 /* ---------- 判断题大选项卡（「正确 / 错误」双大卡） ---------- */
@@ -218,8 +218,8 @@
 .judge-btn {
   flex: 1;
   height: 176rpx;
-  border-radius: 20rpx;
-  border: 2rpx solid #e3dccb;
+  border-radius: 0;
+  border: 4rpx solid #111111;
   background: #ffffff;
   display: flex;
   flex-direction: column;
@@ -232,21 +232,21 @@
 }
 
 .judge-btn.sel {
-  border-color: #f26d21;
-  background: #fdeee2;
-  color: #f26d21;
+  border-color: #1d4ed8;
+  background: #edf2fe;
+  color: #1d4ed8;
 }
 
 .judge-btn.right {
-  border-color: #2ba471;
+  border-color: #1e9e50;
   background: #e8f5ef;
-  color: #2ba471;
+  color: #1e9e50;
 }
 
 .judge-btn.wrong {
-  border-color: #cf4444;
+  border-color: #d22730;
   background: #fae9e9;
-  color: #cf4444;
+  color: #d22730;
 }
 
 /* ---------- 多选提示 ---------- */
@@ -254,7 +254,7 @@
   margin-top: 18rpx;
   padding: 0 6rpx;
   font-size: 21rpx;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 1rpx;
 }
 
@@ -263,7 +263,7 @@
   margin-top: 22rpx;
   padding: 24rpx 28rpx;
   background: #ffffff;
-  border-radius: 16rpx;
+  border-radius: 0;
   animation: fadeIn 0.2s ease both;
 }
 
@@ -283,31 +283,31 @@
 }
 
 .result-block .ok {
-  color: #2ba471;
+  color: #1e9e50;
 }
 
 .result-block .bad {
-  color: #cf4444;
+  color: #d22730;
 }
 
 .result-block .r-sub {
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
   letter-spacing: 1rpx;
 }
 
 .result-block .r-sub.orange {
-  color: #f26d21;
+  color: #1d4ed8;
   font-weight: 600;
 }
 
-/* ---------- 解析卡（浅橙底 + 灯泡图标；fadeUp 入场） ---------- */
+/* ---------- 解析卡（浅蓝底 + 灯泡图标；fadeUp 入场） ---------- */
 .analysis-card {
   margin-top: 22rpx;
   padding: 26rpx 28rpx;
-  background: #fdeee2;
-  border-radius: 20rpx;
+  background: #edf2fe;
+  border-radius: 0;
   animation: fadeUp 0.22s 0.07s ease both;
 }
 
@@ -315,7 +315,7 @@
   display: flex;
   align-items: center;
   gap: 14rpx;
-  color: #f26d21;
+  color: #1d4ed8;
   font-size: 27rpx;
   font-weight: 800;
   letter-spacing: 2rpx;
@@ -347,7 +347,7 @@
   gap: 8rpx;
   padding: 12rpx 20rpx calc(16rpx + env(safe-area-inset-bottom));
   background: #ffffff;
-  border-top: 2rpx solid #e8e0cd;
+  border-top: 2rpx solid #e7e1d2;
 }
 
 /* 底栏图标位（考试宝式单行：无小字，统一 76rpx 高居中，天然对齐） */
@@ -359,11 +359,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .b-item.faved {
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 /* 本 session 对错计数（绿勾 / 红叉 + 数字） */
@@ -383,11 +383,11 @@
 }
 
 .b-item.counts .ok text {
-  color: #2ba471;
+  color: #1e9e50;
 }
 
 .b-item.counts .bad text {
-  color: #cf4444;
+  color: #d22730;
 }
 
 /* 已做题（答题卡入口：图标 + x/total 同行） */
@@ -395,7 +395,7 @@
   gap: 8rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
 }
 
 .bar-main {
@@ -413,7 +413,7 @@
   justify-content: center;
   font-size: 22rpx;
   line-height: 1.5;
-  color: #a89f8a;
+  color: rgba(17,17,17,.4);
   letter-spacing: 1rpx;
 }
 
@@ -421,7 +421,10 @@
 .set-pop {
   box-sizing: border-box;
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
+  border: 4rpx solid #111111;
+  border-bottom: none;
+  border-radius: 0;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
   padding: 36rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 
@@ -439,7 +442,7 @@
 }
 
 .set-row + .set-row {
-  border-top: 2rpx solid #f0ebdd;
+  border-top: 2rpx solid #efebe0;
 }
 
 .set-tx {
@@ -452,13 +455,13 @@
   font-weight: 700;
 }
 
-/* 开关（橙色轨道 + 白色圆点，180ms 过渡） */
+/* 开关（蓝色轨道 + 白色方块，180ms 过渡） */
 .set-sw {
   flex: none;
   width: 88rpx;
   height: 52rpx;
-  border-radius: 999rpx;
-  background: #e3dccb;
+  border-radius: 0;
+  background: #e7e1d2;
   padding: 4rpx;
   box-sizing: border-box;
   transition: background-color 0.18s ease;
@@ -467,14 +470,14 @@
 .set-sw .dot {
   width: 44rpx;
   height: 44rpx;
-  border-radius: 50%;
+  border-radius: 0;
   background: #ffffff;
-  box-shadow: 0 4rpx 10rpx rgba(34, 49, 78, 0.18);
+  box-shadow: 2rpx 2rpx 0 rgba(17, 17, 17, 0.4);
   transition: transform 0.18s ease;
 }
 
 .set-sw.on {
-  background: #f26d21;
+  background: #1d4ed8;
 }
 
 .set-sw.on .dot {
@@ -485,7 +488,7 @@
 .analysis-card .hd .ana-edit {
   margin-left: auto;
   padding: 6rpx;
-  border-radius: 10rpx;
+  border-radius: 0;
   display: flex;
 }
 
@@ -493,13 +496,16 @@
 .ana-pop {
   box-sizing: border-box;
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
+  border: 4rpx solid #111111;
+  border-bottom: none;
+  border-radius: 0;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
   padding: 36rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 .ana-tip {
   margin-top: 14rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
   line-height: 1.6;
 }
 .ana-input {
@@ -509,11 +515,11 @@
   box-sizing: border-box;
   padding: 20rpx 22rpx;
   background: #fbf9f2;
-  border: 1px solid #e3dccb;
-  border-radius: 16rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   font-size: 26rpx;
   line-height: 1.7;
-  color: #22314e;
+  color: #111111;
 }
 .ana-foot {
   margin-top: 28rpx;
@@ -529,8 +535,8 @@
 
 .btn-navy {
   height: 84rpx;
-  border-radius: 16rpx;
-  background: #22314e;
+  border-radius: 0;
+  background: #111111;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -538,7 +544,7 @@
   font-size: 29rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
-  box-shadow: 0 16rpx 36rpx rgba(34, 49, 78, 0.26);
+  box-shadow: 6rpx 6rpx 0 #1d4ed8;
 }
 
 .btn-navy.disabled {
@@ -547,10 +553,10 @@
 
 .btn-ghost {
   height: 88rpx;
-  border-radius: 16rpx;
-  border: 2rpx solid #e3dccb;
+  border-radius: 0;
+  border: 4rpx solid #111111;
   background: #ffffff;
-  color: #22314e;
+  color: #111111;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -574,7 +580,7 @@
 .q-empty-t {
   font-size: 28rpx;
   font-weight: 700;
-  color: #6b7690;
+  color: #5c5748;
   letter-spacing: 2rpx;
 }
 
@@ -587,7 +593,10 @@
   height: 70vh;
   box-sizing: border-box;
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
+  border: 4rpx solid #111111;
+  border-bottom: none;
+  border-radius: 0;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
   padding: 36rpx 32rpx 0;
   display: flex;
   flex-direction: column;
@@ -608,7 +617,7 @@
   align-items: center;
   gap: 32rpx;
   font-size: 22rpx;
-  color: #6b7690;
+  color: #5c5748;
 }
 
 .sheet-legend .dot {
@@ -616,20 +625,20 @@
   width: 20rpx;
   height: 20rpx;
   border-radius: 50%;
-  background: #f4f1ea;
-  border: 2rpx solid #e3dccb;
+  background: #f8f6f1;
+  border: 2rpx solid #e7e1d2;
   margin-right: 8rpx;
   vertical-align: -4rpx;
 }
 
 .sheet-legend .dot.green {
-  background: #2ba471;
-  border-color: #2ba471;
+  background: #1e9e50;
+  border-color: #1e9e50;
 }
 
 .sheet-legend .dot.red {
-  background: #cf4444;
-  border-color: #cf4444;
+  background: #d22730;
+  border-color: #d22730;
 }
 
 .sheet-scroll {
@@ -656,11 +665,11 @@
   margin-bottom: 16rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #6b7690;
+  color: #5c5748;
   letter-spacing: 1rpx;
 }
 
-/* 题号 chips：每行居中排布（中心对称）；未答灰底 / 答对绿底白字 / 答错红底白字 / 当前橙描边 */
+/* 题号 chips：每行居中排布（中心对称）；未答灰底 / 答对绿底白字 / 答错红底白字 / 当前蓝描边 */
 .chip-grid {
   display: flex;
   flex-wrap: wrap;
@@ -671,11 +680,11 @@
 .chip {
   width: 80rpx;
   height: 80rpx;
-  border-radius: 18rpx;
+  border-radius: 0;
   border: 2rpx solid transparent;
   box-sizing: border-box;
-  background: #f4f1ea;
-  color: #6b7690;
+  background: #f8f6f1;
+  color: #5c5748;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -684,17 +693,17 @@
 }
 
 .chip.cur {
-  border-color: #f26d21;
-  color: #f26d21;
+  border-color: #1d4ed8;
+  color: #1d4ed8;
 }
 
 .chip.right {
-  background: #2ba471;
+  background: #1e9e50;
   color: #ffffff;
 }
 
 .chip.wrong {
-  background: #cf4444;
+  background: #d22730;
   color: #ffffff;
 }
 
@@ -710,10 +719,10 @@
   padding: 8rpx 24rpx;
   font-size: 26rpx;
   font-weight: 700;
-  color: #cf4444;
+  color: #d22730;
   letter-spacing: 2rpx;
 }
 
 .reset-link.disabled {
-  color: #d9cfba;
+  color: rgba(17,17,17,.35);
 }

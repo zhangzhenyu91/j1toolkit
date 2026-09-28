@@ -34,36 +34,50 @@ page {
 .day-scroll {
   height: 100%;
   box-sizing: border-box;
-  padding: 0 28rpx; /* 卡片静止时左右留白与页面对齐；滑动时邻卡间隙 = 左右内边距之和（56rpx） */
+  /* 左右留白不下放在 scroll-view 上：真机 scroll-view 的水平 padding 可能被忽略（同 padding-bottom 旧坑），
+     一律移入内层 .day-pane，确保卡片右侧 14rpx 黄硬影有 ≥28rpx 落影空间、不被屏边裁切 */
 }
 
 .day-pane {
   box-sizing: border-box;
-  padding-bottom: 220rpx; /* 悬浮主钮避让（原 page-body 底部留白移入滚区） */
+  padding: 0 28rpx 220rpx; /* 卡片静止时左右留白与页面对齐（滑动时邻卡间隙 = 左右内边距之和 56rpx）；底部为悬浮主钮避让 */
 }
 
-/* ---------- 班组切换器（屏五：超管可点 chip 下拉切换；其余角色静态班组名标签） ---------- */
+/* ---------- 班组切换器（包豪斯直角签：墨边 + 墨色硬影，前置蓝色小方块；超管可点下拉，其余角色静态标签） ---------- */
 .tswitch {
   position: relative;
   z-index: 20;
   margin-bottom: 20rpx;
+  animation: wl-a-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.02s both;
 }
 
 .ts-cur {
   display: inline-flex;
   align-items: center;
-  gap: 12rpx;
+  gap: 14rpx;
+  height: 64rpx;
+  box-sizing: border-box;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 999rpx;
-  padding: 12rpx 28rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
+  padding: 0 24rpx 0 22rpx;
   font-size: 25rpx;
-  font-weight: 700;
-  color: #22314e;
+  font-weight: 800;
+  color: #111111;
+  box-shadow: 6rpx 6rpx 0 #111111;
+}
+
+/* 前置蓝色小方块（氛围动效 ①：慢速常转） */
+.ts-sq {
+  width: 16rpx;
+  height: 16rpx;
+  flex: none;
+  background: #1d4ed8;
+  animation: wl-rot360 14s linear infinite;
 }
 
 .ts-cur .arr {
-  color: #f26d21;
+  color: #111111;
   font-size: 18rpx;
 }
 
@@ -85,8 +99,9 @@ page {
   left: 0;
   z-index: 21;
   background: #ffffff;
-  border-radius: 24rpx;
-  box-shadow: 0 24rpx 64rpx rgba(34, 49, 78, 0.18);
+  border: 4rpx solid #111111;
+  border-radius: 0;
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
   padding: 12rpx;
   min-width: 300rpx;
   animation: ts-drop-in 0.2s ease-out;
@@ -97,14 +112,27 @@ page {
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 24rpx;
-  border-radius: 16rpx;
+  border-radius: 0;
   font-size: 25rpx;
   font-weight: 600;
 }
 
+/* 选中标记前置方块槽位（未选中留空占位，各行文字对齐） */
+.ts-opt::before {
+  content: '';
+  flex: none;
+  width: 14rpx;
+  height: 14rpx;
+}
+
+/* 选中项：白底蓝字 + 前置蓝方块（不用浅蓝高亮） */
 .ts-opt.on {
-  background: #fdeee2;
-  color: #f26d21;
+  color: #1d4ed8;
+  font-weight: 800;
+}
+
+.ts-opt.on::before {
+  background: #1d4ed8;
 }
 
 .ts-opt .ck {
@@ -145,8 +173,8 @@ page {
 .team-empty .te-ic {
   width: 128rpx;
   height: 128rpx;
-  border-radius: 36rpx;
-  background: #fdeee2;
+  border-radius: 0;
+  background: #edf2fe;
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -166,23 +194,22 @@ page {
   text-align: center;
 }
 
-/* ---------- 日期条 ---------- */
+/* ---------- 日期条（去卡片化：元素直落纸底；‹ › 直角墨边钮；「今天」黄底墨字小签） ---------- */
 .datebar {
   display: flex;
   align-items: center;
-  gap: 12rpx;
-  background: #ffffff;
-  border-radius: 20rpx;
-  padding: 22rpx 24rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+  gap: 16rpx;
+  animation: wl-a-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
 }
 
 .datebar .arrow {
   width: 56rpx;
   height: 56rpx;
   flex: none;
-  border-radius: 16rpx;
-  background: #f4f1ea;
+  box-sizing: border-box;
+  border-radius: 0;
+  background: #ffffff;
+  border: 4rpx solid #111111;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -190,25 +217,48 @@ page {
 
 .datebar .dtxt {
   flex: 1;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 30rpx;
   font-weight: 800;
   letter-spacing: 2rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 日期前置红方块（氛围动效 ②：慢速常转） */
+.datebar .dtxt::before {
+  content: '';
+  display: inline-block;
+  width: 14rpx;
+  height: 14rpx;
+  background: #d22730;
+  margin-right: 12rpx;
+  animation: wl-rot360 10s linear infinite;
 }
 
 .datebar .dtxt .today {
+  display: inline-flex;
+  align-items: center;
   margin-left: 12rpx;
-  font-size: 22rpx;
-  font-weight: 600;
-  color: #6b7690;
+  padding: 2rpx 14rpx;
+  background: #f2b705;
+  color: #111111;
+  border: 3rpx solid #111111;
+  border-radius: 0;
+  font-size: 20rpx;
+  font-weight: 800;
+  letter-spacing: 2rpx;
 }
 
 .datebar .cal {
   width: 64rpx;
   height: 64rpx;
   flex: none;
-  border-radius: 16rpx;
-  background: #fdeee2;
+  box-sizing: border-box;
+  border-radius: 0;
+  background: #ffffff;
+  border: 4rpx solid #111111;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -218,7 +268,7 @@ page {
 .empty-box {
   margin-top: 24rpx;
   border: 3rpx dashed #d9cfba;
-  border-radius: 20rpx;
+  border-radius: 0;
   padding: 64rpx 0;
   text-align: center;
   font-size: 26rpx;
@@ -226,29 +276,54 @@ page {
   letter-spacing: 2rpx;
 }
 
-/* ---------- 日志卡片 ---------- */
+/* ---------- 日志卡片（包豪斯主卡：5rpx 墨边 + 28rpx 圆角；每日首卡=主卡黄硬影，其余次卡=墨色浅影；
+   落影空间由内层 .day-pane 左右 28rpx 内边距保证（28 ≥ 14 影 + 14 余量），真机不被屏边裁切；
+   入场编排：a-rise 上移+微旋转归位，fill-mode both，按卡片次序时延链） ---------- */
 .logcard {
   margin-top: 24rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+  border: 5rpx solid #111111;
+  border-radius: 28rpx;
+  box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.14); /* 次卡：墨色浅影 */
+  animation: wl-a-rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
 }
 
-/* 报告跳转定位：目标卡片短暂高亮（橙色描边呼吸，1.6s 后由 JS 移除 flash 类） */
-.logcard.flash {
+/* 每日首卡（index=0 带 mt-0）= 主卡：黄色硬影 */
+.logcard.mt-0 {
+  box-shadow: 14rpx 14rpx 0 #f2b705;
+}
+
+.day-pane .logcard:nth-of-type(2) { animation-delay: 0.26s; }
+.day-pane .logcard:nth-of-type(3) { animation-delay: 0.34s; }
+.day-pane .logcard:nth-of-type(n + 4) { animation-delay: 0.42s; }
+
+/* 报告跳转定位：目标卡片短暂高亮（黄色描边呼吸环，1.6s 后由 JS 移除 flash 类；
+   落在 ::after 上，避免与卡片入场 animation 互相重播） */
+.logcard.flash::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  border: 6rpx solid #f2b705;
+  border-radius: 28rpx;
+  pointer-events: none;
   animation: wl-flash 0.8s ease-in-out 2;
 }
 
 @keyframes wl-flash {
   0%,
   100% {
-    box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
+    opacity: 0;
   }
   50% {
-    box-shadow: 0 0 0 6rpx rgba(242, 109, 33, 0.45);
+    opacity: 1;
   }
 }
 
 .lc-body {
-  padding: 38rpx 32rpx 20rpx; /* 顶部留白给警示斜纹条 */
+  padding: 38rpx 32rpx 20rpx;
 }
 
 .lc-head {
@@ -261,69 +336,92 @@ page {
   width: 64rpx;
   height: 64rpx;
   flex: none;
-  border-radius: 18rpx;
-  background: #fdeee2;
+  border-radius: 0;
+  background: #edf2fe;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .lc-head .ci.ci-gray {
-  background: #f4f1ea;
+  background: #f8f6f1;
 }
 
+/* 车牌：24px 级墨黑大字锚点（48rpx/800），数字等宽对齐 */
 .lc-head .plate {
-  font-size: 32rpx;
+  font-size: 48rpx;
   font-weight: 800;
-  letter-spacing: 1rpx;
+  letter-spacing: 2rpx;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-/* 跨班日志徽章：橙色描边小签（紧跟车牌，同网页端 .tag-cross 与身份标签规范） */
+/* 跨班日志徽章：黄色半圆签（124rpx×62rpx 半穹顶，4rpx 墨边无底边，底沿与车牌字底对齐） */
 .tag-cross {
   flex: none;
-  border: 2rpx solid #f26d21;
-  color: #f26d21;
-  border-radius: 8rpx;
-  padding: 0 12rpx;
-  font-size: 20rpx;
-  font-weight: 700;
-  line-height: 32rpx;
+  align-self: flex-end;
+  width: 124rpx;
+  height: 62rpx;
+  margin-bottom: 8rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 4rpx;
+  background: #f2b705;
+  border: 4rpx solid #111111;
+  border-bottom: none;
+  border-radius: 62rpx 62rpx 0 0;
+  font-size: 22rpx;
+  font-weight: 800;
+  letter-spacing: 2rpx;
+  color: #111111;
   white-space: nowrap;
 }
 
-/* 记录验证状态角标（描边徽章） */
+/* 记录验证状态角标（包豪斯语义签：验证通过=绿底白字前置白勾 / 未通过=红底白字 / 免验证=灰；
+   入场随卡片后旋入归位） */
 .badge {
   margin-left: auto;
-  border: 2rpx solid #f26d21;
-  color: #f26d21;
-  border-radius: 8rpx;
-  padding: 0 12rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
+  padding: 4rpx 18rpx;
   font-size: 20rpx;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 32rpx;
   white-space: nowrap;
+  animation: wl-a-spin 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.55s both;
 }
 
 .badge.green {
-  border-color: #2ba471;
-  color: #2ba471;
+  background: #1e9e50;
+  color: #ffffff;
+  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.85);
+}
+
+.badge.green::before {
+  content: '✓';
+  margin-right: 6rpx;
 }
 
 .badge.red {
-  border-color: #cf4444;
-  color: #cf4444;
+  background: #d22730;
+  color: #ffffff;
+  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.85);
 }
 
 .badge.gray {
-  border-color: #d9cfba;
-  color: #a89f8a;
+  background: #f0ebdd;
+  border-color: #c9c0ab;
+  color: #6b7690;
 }
 
-/* 未通过明细：红底块逐行列出全部不满足项（与右上角角标同源，后端 verify_reasons） */
+/* 未通过明细：浅红底 + 红左边条，逐行列出全部不满足项（与右上角角标同源，后端 verify_reasons） */
 .lc-fail {
   margin-top: 16rpx;
-  background: #fbe9e9;
-  border-radius: 12rpx;
+  background: #fbe7e8;
+  border-left: 8rpx solid #d22730;
+  border-radius: 0;
   padding: 12rpx 20rpx;
 }
 
@@ -333,7 +431,7 @@ page {
   gap: 10rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #cf4444;
+  color: #d22730;
   line-height: 1.7;
 }
 
@@ -345,15 +443,15 @@ page {
   height: 8rpx;
   margin-top: 16rpx;
   border-radius: 50%;
-  background: #cf4444;
+  background: #d22730;
 }
 
-/* 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分） */
+/* 巡视内容：车牌号下方主内容块（浅蓝底 + 蓝边，直角块，与其他信息区分） */
 .lc-patrol {
   margin-top: 20rpx;
-  background: #faf8f1;
-  border-left: 8rpx solid #f26d21;
-  border-radius: 16rpx;
+  background: #edf2fe;
+  border: 4rpx solid #1d4ed8;
+  border-radius: 0;
   padding: 18rpx 24rpx 20rpx;
 }
 
@@ -365,7 +463,7 @@ page {
 .lc-patrol-label {
   font-size: 26rpx;
   font-weight: 700;
-  color: #a89f8a;
+  color: #1d4ed8;
   letter-spacing: 6rpx;
 }
 
@@ -377,14 +475,14 @@ page {
   margin-top: 8rpx;
   font-size: 30rpx;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
   line-height: 1.6;
 }
 
 /* 卡片内水印照片区（覆盖共享 .photo-item 的内边距与分隔线） */
 .lc-photos {
   margin-top: 16rpx;
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #e7e1d2;
 }
 
 .lc-photos .photo-item {
@@ -392,7 +490,7 @@ page {
 }
 
 .lc-photos .photo-item + .photo-item {
-  border-top: 2rpx dashed #ede6d4;
+  border-top: 2rpx dashed #e7e1d2;
 }
 
 /* 无照片时添加栏是区块首个子元素，与顶部分隔线拉开距离；
@@ -401,56 +499,49 @@ page {
   margin-top: 20rpx;
 }
 
-/* 卡片底部操作 */
+/* 卡片底部操作行（全宽底条：顶墨线贯通卡边，项间发丝分隔；文字链——同步=蓝 / 备注=墨 / 删除=红） */
 .lc-actions {
   display: flex;
-  gap: 20rpx;
-  margin-top: 22rpx;
-  padding-top: 20rpx;
-  border-top: 2rpx solid #f1ebdc;
+  margin: 22rpx -32rpx -20rpx;
+  border-top: 4rpx solid #111111;
 }
 
 .lc-actions .act {
   flex: 1;
-  height: 72rpx;
-  border-radius: 16rpx;
+  padding: 20rpx 0 22rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 26rpx;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 4rpx;
+  color: #111111;
 }
 
-/* 从商旅同步入口（与备注/删除同族幽灵钮，安全橙描边） */
+.lc-actions .act + .act {
+  border-left: 2rpx solid #e7e1d0;
+}
+
+/* 从商旅同步入口（文字链，包豪斯蓝） */
 .act-sync {
-  background: #ffffff;
-  color: #f26d21;
-  border: 2rpx solid #f5c9a3;
-  box-sizing: border-box;
+  color: #1d4ed8;
 }
 
 .act-del {
-  background: #ffffff;
-  color: #cf4444;
-  border: 2rpx solid #efc9c9;
-  box-sizing: border-box;
+  color: #d22730;
 }
 
-/* 备注入口按钮（与删除同族幽灵钮，藏青描边） */
+/* 备注入口（文字链，墨） */
 .act-note {
-  background: #ffffff;
-  color: #22314e;
-  border: 2rpx solid #c7cfdd;
-  box-sizing: border-box;
+  color: #111111;
 }
 
-/* ---------- 备注块（「添加水印照片」虚线框下方；黄条浅底与巡视内容橙条同族，无备注不渲染） ---------- */
+/* ---------- 备注块（「添加水印照片」虚线框下方；浅黄底 + 黄左边条，无备注不渲染） ---------- */
 .lc-rmk {
   margin-top: 20rpx;
-  background: #fdf6e3;
-  border-left: 8rpx solid #eab308;
-  border-radius: 16rpx;
+  background: #fcefc8;
+  border-left: 12rpx solid #f2b705;
+  border-radius: 0;
   padding: 16rpx 24rpx 20rpx;
 }
 
@@ -459,7 +550,7 @@ page {
   align-items: center;
   font-size: 22rpx;
   font-weight: 700;
-  color: #eab308;
+  color: #111111;
   letter-spacing: 6rpx;
 }
 
@@ -467,12 +558,12 @@ page {
   margin-left: auto;
 }
 
-/* 备注文字：与照片右侧施工内容同字号（26rpx），明黄（与验证报告备注同色，加重字重保证浅底可读） */
+/* 备注文字：与照片右侧施工内容同字号（26rpx），深墨黄底保证可读 */
 .lc-rmk-text {
   margin-top: 6rpx;
   font-size: 26rpx;
   font-weight: 700;
-  color: #eab308;
+  color: #33301f;
   line-height: 1.6;
 }
 
@@ -487,10 +578,10 @@ page {
 .rf-thumb {
   width: 92rpx;
   height: 92rpx;
-  border-radius: 16rpx;
+  border-radius: 0;
   overflow: hidden;
-  border: 2rpx solid #efe3bc;
-  background: #22314e;
+  border: 3rpx solid #111111;
+  background: #111111;
 }
 
 .rf-img {
@@ -507,7 +598,7 @@ page {
   justify-content: center;
 }
 
-/* 附件：Office 文档仅可点击文件名（下划线 + 安全橙） */
+/* 附件：Office 文档仅可点击文件名（下划线 + 包豪斯蓝） */
 .rmk-docs {
   margin-top: 14rpx;
   display: flex;
@@ -524,7 +615,7 @@ page {
 }
 
 .rf-doc .fn {
-  color: #f26d21;
+  color: #1d4ed8;
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 4rpx;
@@ -543,7 +634,7 @@ page {
   font-size: 32rpx;
   font-weight: 800;
   letter-spacing: 4rpx;
-  color: #22314e;
+  color: #111111;
 }
 
 .cal-legend {
@@ -561,45 +652,45 @@ page {
   display: inline-block;
   width: 18rpx;
   height: 18rpx;
-  border-radius: 6rpx;
+  border-radius: 0;
   margin-right: 8rpx;
   vertical-align: -3rpx;
 }
 
 .cal-legend .lg-g {
-  background: #e3f2ec;
-  border: 2rpx solid #bfe3d6;
+  background: #e3f5eb;
+  border: 2rpx solid #1e9e50;
 }
 
 .cal-legend .lg-b {
-  background: #fbe9e9;
-  border: 2rpx solid #efc9c9;
+  background: #fbe7e8;
+  border: 2rpx solid #d22730;
 }
 
 .cal-legend .lg-y {
-  background: #fdf3cf;
-  border: 2rpx solid #f0dfa8;
+  background: #fcefc8;
+  border: 2rpx solid #f2b705;
 }
 
 /* ---------- t-calendar 按日着色 ----------
    format 注入的 className 落在 .t-calendar__dates-item 上；
    组件 styleIsolation 为 apply-shared，页面样式可生效。
-   优先级需高于组件自身的 --selected 选中态，着色后选中以橙色描边区分。 */
+   优先级需高于组件自身的 --selected 选中态，着色后选中以墨色描边区分。 */
 .t-calendar__dates-item.wl-cal-passed {
-  background: #e3f2ec;
-  color: #2ba471;
+  background: #e3f5eb;
+  color: #1e9e50;
   font-weight: 700;
 }
 
 .t-calendar__dates-item.wl-cal-failed {
-  background: #fbe9e9;
-  color: #cf4444;
+  background: #fbe7e8;
+  color: #d22730;
   font-weight: 700;
 }
 
 /* 黄 = 验证通过但有备注（深黄文字保证浅黄底上可读） */
 .t-calendar__dates-item.wl-cal-remark {
-  background: #fdf3cf;
+  background: #fcefc8;
   color: #8a6d00;
   font-weight: 700;
 }
@@ -607,18 +698,18 @@ page {
 .t-calendar__dates-item--selected.wl-cal-passed,
 .t-calendar__dates-item--selected.wl-cal-failed,
 .t-calendar__dates-item--selected.wl-cal-remark {
-  outline: 4rpx solid #f26d21;
+  outline: 4rpx solid #111111;
   outline-offset: -4rpx;
 }
 
-/* 「今天」醒目标记：加粗 + 橙色小圆点（与着色类可叠加） */
+/* 「今天」醒目标记：加粗 + 红色小圆点（与着色类可叠加） */
 .t-calendar__dates-item.wl-cal-today {
   position: relative;
   font-weight: 800;
 }
 
 .t-calendar__dates-item.wl-cal-today:not(.wl-cal-passed):not(.wl-cal-failed):not(.wl-cal-remark) {
-  color: #f26d21;
+  color: #d22730;
 }
 
 .t-calendar__dates-item.wl-cal-today::after {
@@ -630,10 +721,10 @@ page {
   width: 8rpx;
   height: 8rpx;
   border-radius: 4rpx;
-  background: #f26d21;
+  background: #d22730;
 }
 
-/* 选中日同为「今天」且无验证底色时：橙底上文字与圆点改白（避免橙橙相消看不见数字）；
+/* 选中日同为「今天」且无验证底色时：选中底上文字与圆点改白（避免与选中底色相消看不见数字）；
    有验证底色（passed/failed/remark）时保持绿/红/黄状态色，否则浅底上白字不可见 */
 .t-calendar .t-calendar__dates-item.t-calendar__dates-item--selected.wl-cal-today:not(.wl-cal-passed):not(.wl-cal-failed):not(.wl-cal-remark) {
   color: #ffffff;
@@ -680,28 +771,42 @@ page {
    视图开关 / 可点行提示 / 底部双按钮 / 表单弹层 / 批量下载面板
    ============================================================ */
 
-/* ---------- 视图开关（全部 / 仅看我）：胶囊按钮，激活=橙底橙边 ---------- */
+/* ---------- 视图开关（全部 / 仅看我）：连体分段直角条，墨边白底；激活=墨底白字 + 前置黄小方块 ---------- */
 .scopebar {
   display: flex;
-  gap: 16rpx;
+  align-self: flex-start;
   margin-top: 16rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
+  overflow: hidden;
+  background: #ffffff;
+  animation: wl-a-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both;
 }
 
 .scope-pill {
-  padding: 10rpx 32rpx;
-  border-radius: 32rpx;
-  background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  color: #6b7690;
+  height: 60rpx;
+  box-sizing: border-box;
+  padding: 0 30rpx;
+  display: flex;
+  align-items: center;
+  color: #4f4a3e;
   font-size: 24rpx;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 2rpx;
 }
 
 .scope-pill.on {
-  background: #f26d21;
-  border-color: #f26d21;
+  background: #111111;
   color: #ffffff;
+  font-weight: 800;
+}
+
+.scope-pill.on::before {
+  content: '';
+  width: 12rpx;
+  height: 12rpx;
+  background: #f2b705;
+  margin-right: 12rpx;
 }
 
 /* ---------- 右下悬浮按钮（speed dial：主钮＋/× 点按展开，遮罩淡出关闭；原底部固定区已删除） ---------- */
@@ -709,7 +814,7 @@ page {
   position: fixed;
   inset: 0;
   z-index: 110;
-  background: rgba(27, 39, 64, 0.3);
+  background: rgba(17, 17, 17, 0.3);
   animation: fabFade 0.25s ease both;
 }
 
@@ -739,37 +844,44 @@ page {
 .fab-lab {
   font-size: 22rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 2rpx;
   background: #ffffff;
-  border-radius: 12rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   padding: 8rpx 18rpx;
-  box-shadow: 0 8rpx 20rpx rgba(34, 49, 78, 0.14);
 }
 
-.fab-lab.accent { color: #f26d21; }
+.fab-lab.accent { color: #1d4ed8; }
 
+/* 展开菜单项：白圆 + 墨边 + 墨色小硬影 */
 .fab {
   width: 92rpx;
   height: 92rpx;
   flex: none;
+  box-sizing: border-box;
   border-radius: 50%;
   background: #ffffff;
+  border: 4rpx solid #111111;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 12rpx 28rpx rgba(34, 49, 78, 0.2);
+  box-shadow: 4rpx 4rpx 0 #111111;
 }
 
+/* 主钮：包豪斯红圆 + 墨边 + 黄硬影（全稿唯一保留的柔影为红色投影）；入场弹性旋入 */
 .fab-main {
   width: 108rpx;
   height: 108rpx;
   border-radius: 50%;
-  background: #f26d21;
+  box-sizing: border-box;
+  background: #d22730;
+  border: 5rpx solid #111111;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 16rpx 36rpx rgba(242, 109, 33, 0.4);
+  box-shadow: 8rpx 8rpx 0 #f2b705, 0 24rpx 48rpx rgba(210, 39, 48, 0.3);
+  animation: wl-a-fab 0.7s cubic-bezier(0.34, 1.4, 0.64, 1) 0.5s both;
 }
 
 @keyframes fabUp {
@@ -782,10 +894,13 @@ page {
   to { opacity: 1; }
 }
 
-/* ---------- 新建/编辑表单底部弹层 ---------- */
+/* ---------- 新建/编辑表单底部弹层（包豪斯化同 .sheet 族：直角 + 顶部 6rpx 墨线 + 向上硬影） ---------- */
 .form-sheet {
+  position: relative;
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
+  border-radius: 0;
+  border-top: 6rpx solid #111111;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.15);
   padding: 32rpx 32rpx calc(24rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
@@ -804,10 +919,14 @@ page {
   padding-top: 20rpx;
 }
 
-/* ---------- 批量下载面板（高度对齐 range 日历展开 ≈1152rpx：标题116+月份切换88+星期92+月份区712+底部按钮144，圆角顶） ---------- */
+/* ---------- 批量下载面板（高度对齐 range 日历展开 ≈1152rpx：标题116+月份切换88+星期92+月份区712+底部按钮144；
+   包豪斯化同 .sheet 族：直角 + 顶部墨线 + 向上硬影） ---------- */
 .dl-sheet {
-  background: #f4f1ea;
-  border-radius: 32rpx 32rpx 0 0;
+  position: relative;
+  background: #f8f6f1;
+  border-radius: 0;
+  border-top: 6rpx solid #111111;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.15);
   height: 1152rpx;
   display: flex;
   flex-direction: column;
@@ -825,7 +944,18 @@ page {
   font-size: 32rpx;
   font-weight: 800;
   letter-spacing: 4rpx;
-  color: #22314e;
+  color: #111111;
+}
+
+/* 弹层标题前置红方块（同 .sheet-title::before） */
+.dl-title::before,
+.crop-title::before {
+  content: '';
+  display: inline-block;
+  width: 14rpx;
+  height: 14rpx;
+  background: #d22730;
+  margin-right: 12rpx;
 }
 
 .dl-close {
@@ -855,13 +985,15 @@ page {
   letter-spacing: 1rpx;
 }
 
-/* 「改日期」明显按钮：实心安全橙药丸（任务单 / 费用汇总页同款口径） */
+/* 「改日期」明显按钮：实心包豪斯蓝直角块 + 墨边硬影（任务单 / 费用汇总页同款口径） */
 .dl-change {
   font-size: 24rpx;
   color: #ffffff;
-  background: #f26d21;
+  background: #1d4ed8;
   font-weight: 700;
-  border-radius: 14rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
+  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.9);
   padding: 10rpx 28rpx;
 }
 
@@ -879,12 +1011,12 @@ page {
   letter-spacing: 2rpx;
 }
 
-/* 一个月份一个卡片 */
+/* 一个月份一个卡片（直角 + 墨边，纸底面板内以描边定义边界，不用柔影） */
 .dl-month-card {
   background: #ffffff;
-  border-radius: 20rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   padding: 24rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.06);
 }
 
 .dl-month-card + .dl-month-card {
@@ -894,7 +1026,7 @@ page {
 .dl-month-title {
   font-size: 28rpx;
   font-weight: 800;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 2rpx;
   margin-bottom: 20rpx;
 }
@@ -914,7 +1046,7 @@ page {
 .dl-thumb {
   width: 100%;
   height: 200rpx;
-  border-radius: 12rpx;
+  border-radius: 0;
   background: #e9e2d2;
   display: block;
 }
@@ -926,7 +1058,7 @@ page {
   color: #6b7690;
 }
 
-/* 选择圈：未选=灰圈，选中=橙底白勾 */
+/* 选择圈：未选=灰圈，选中=蓝底白勾 */
 .dl-ring {
   position: absolute;
   top: 8rpx;
@@ -944,8 +1076,8 @@ page {
 }
 
 .dl-ring.on {
-  background: #f26d21;
-  border-color: #f26d21;
+  background: #1d4ed8;
+  border-color: #1d4ed8;
 }
 
 /* 底部栏里的静态选择圈（覆盖网格内的绝对定位） */
@@ -955,7 +1087,7 @@ page {
 }
 
 .dl-ring-static.on {
-  background: #f26d21;
+  background: #1d4ed8;
 }
 
 /* ---------- 下载面板底部固定栏 ---------- */
@@ -966,7 +1098,7 @@ page {
   justify-content: space-between;
   padding-top: 20rpx;
   margin-top: 12rpx;
-  border-top: 2rpx solid #e8e0cd;
+  border-top: 4rpx solid #111111;
 }
 
 .dl-all {
@@ -975,7 +1107,7 @@ page {
   gap: 12rpx;
   font-size: 26rpx;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
 }
 
 .dl-count {
@@ -988,8 +1120,8 @@ page {
 .dl-btn {
   min-width: 240rpx;
   height: 80rpx;
-  border-radius: 16rpx;
-  background: #22314e;
+  border-radius: 0;
+  background: #111111;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -997,6 +1129,7 @@ page {
   font-size: 28rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
 }
 
 .dl-btn.disabled {
@@ -1023,9 +1156,9 @@ page {
   flex: none;
   width: 144rpx;
   height: 144rpx;
-  border-radius: 12rpx;
-  border: 2rpx solid #e3dccb;
-  background: #f4f1ea;
+  border-radius: 0;
+  border: 3rpx solid #111111;
+  background: #f8f6f1;
 }
 
 .wm-head-r {
@@ -1085,14 +1218,14 @@ page {
   padding: 4rpx 16rpx;
   font-size: 22rpx;
   line-height: 1.6;
-  color: #F26D21;
-  background: #FDEEE2;
-  border: 1rpx solid #F26D21;
-  border-radius: 8rpx;
+  color: #1d4ed8;
+  background: #edf2fe;
+  border: 2rpx solid #1d4ed8;
+  border-radius: 0;
 }
 
 .wm-row-col + .frow {
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #e7e1d2;
 }
 
 .wm-textarea {
@@ -1107,11 +1240,11 @@ page {
 .wm-input {
   flex: 1;
   font-size: 28rpx;
-  color: #22314e;
+  color: #111111;
   font-weight: 600;
 }
 
-/* 防伪码：等宽观感 + 橙色换一换 */
+/* 防伪码：等宽观感 + 蓝色换一换 */
 .wm-code {
   letter-spacing: 2rpx;
 }
@@ -1123,18 +1256,18 @@ page {
   gap: 6rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #f26d21;
+  color: #1d4ed8;
 }
 
 /* ---------- 经纬度区：无历史场景右侧跨两行「选择杆塔坐标」按钮 ---------- */
 .geo-zone {
   display: flex;
   align-items: stretch;
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #e7e1d2;
 }
 
 .geo-zone + .frow {
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #e7e1d2;
 }
 
 .geo-rows {
@@ -1150,9 +1283,9 @@ page {
   flex: none;
   width: 184rpx;
   margin: 16rpx 32rpx 16rpx 20rpx;
-  border: 2rpx solid #f26d21;
-  border-radius: 16rpx;
-  background: #fdeee2;
+  border: 3rpx solid #1d4ed8;
+  border-radius: 0;
+  background: #edf2fe;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1165,7 +1298,7 @@ page {
   width: 96rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #f26d21;
+  color: #1d4ed8;
   letter-spacing: 2rpx;
   line-height: 1.4;
   text-align: center;
@@ -1179,7 +1312,7 @@ page {
   max-width: 152rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1188,7 +1321,7 @@ page {
 .tower-btn .tb-re {
   font-size: 20rpx;
   font-weight: 600;
-  color: #f26d21;
+  color: #1d4ed8;
   text-decoration: underline;
   text-underline-offset: 4rpx;
   letter-spacing: 4rpx;
@@ -1199,9 +1332,9 @@ page {
   flex: none;
   font-size: 20rpx;
   font-weight: 700;
-  color: #f26d21;
-  background: #fdeee2;
-  border-radius: 8rpx;
+  color: #1d4ed8;
+  background: #edf2fe;
+  border-radius: 0;
   padding: 2rpx 12rpx;
   letter-spacing: 2rpx;
 }
@@ -1238,8 +1371,8 @@ page {
   flex: 1;
   min-width: 0;
   height: 80rpx;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   background: #ffffff;
   padding: 0 24rpx;
   display: flex;
@@ -1248,7 +1381,8 @@ page {
   gap: 16rpx;
   font-size: 28rpx;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
+  box-sizing: border-box;
   transition: border-color 0.2s ease-out, background-color 0.2s ease-out;
 }
 
@@ -1263,7 +1397,7 @@ page {
   min-width: 0;
   font-size: 28rpx;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
 }
 
 .sel-box.disabled .sel-input {
@@ -1271,18 +1405,18 @@ page {
 }
 
 .sel-box.open {
-  border-color: #f26d21;
+  border-color: #1d4ed8;
 }
 
 .sel-box.disabled {
-  background: #f4f1ea;
+  background: #f8f6f1;
 }
 
 /* 选项列表：内嵌展开于对应行下方，超高滚动；展开/收起带 max-height + 透明度动效（wx:if 无过渡，改 class 开关） */
 .opt-list {
   margin: 0 0 0 148rpx;
-  border: 2rpx solid transparent;
-  border-radius: 16rpx;
+  border: 3rpx solid transparent;
+  border-radius: 0;
   background: #ffffff;
   max-height: 0;
   opacity: 0;
@@ -1291,7 +1425,7 @@ page {
 
 .opt-list.show {
   margin: 4rpx 0 8rpx 148rpx;
-  border-color: #e3dccb;
+  border-color: #111111;
   max-height: 336rpx;
   opacity: 1;
 }
@@ -1314,26 +1448,38 @@ page {
   height: 76rpx;
   padding: 0 24rpx;
   font-size: 28rpx;
-  color: #22314e;
+  color: #111111;
   transition: background-color 0.15s ease-out, color 0.15s ease-out;
 }
 
-.opt + .opt {
-  border-top: 2rpx dashed #ede6d4;
+/* 选中标记前置方块槽位（未选中留空占位，各行文字对齐） */
+.opt::before {
+  content: '';
+  flex: none;
+  width: 14rpx;
+  height: 14rpx;
 }
 
+.opt + .opt {
+  border-top: 2rpx dashed #e7e1d2;
+}
+
+/* 选中项：白底蓝字 + 前置蓝方块（不用浅蓝高亮） */
 .opt.on {
-  color: #f26d21;
+  color: #1d4ed8;
   font-weight: 700;
-  background: #fdeee2;
+}
+
+.opt.on::before {
+  background: #1d4ed8;
 }
 
 /* 三级选齐后的坐标预览卡（淡入上移） */
 .coord-card {
   margin: 16rpx 0 8rpx;
-  background: #fdeee2;
-  border-left: 8rpx solid #f26d21;
-  border-radius: 12rpx;
+  background: #edf2fe;
+  border-left: 8rpx solid #1d4ed8;
+  border-radius: 0;
   padding: 18rpx 24rpx;
   animation: coord-in 0.25s ease-out;
 }
@@ -1352,7 +1498,7 @@ page {
 .cc-title {
   font-size: 24rpx;
   font-weight: 700;
-  color: #f26d21;
+  color: #1d4ed8;
   letter-spacing: 2rpx;
 }
 
@@ -1360,7 +1506,7 @@ page {
   margin-top: 8rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
 }
 
 .btn-dark.disabled {
@@ -1374,8 +1520,8 @@ page {
 }
 
 .addsheet-opt {
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   padding: 28rpx 32rpx;
 }
 
@@ -1386,7 +1532,7 @@ page {
 .ao-title {
   font-size: 30rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
 }
 
 .ao-note {
@@ -1407,10 +1553,11 @@ page {
 
 /* ---------- 汇总前核验面板（原「验证报告」条目样式已随面板整体替换移除；新样式见文件末尾「商旅打卡」分区） ---------- */
 
-/* ---------- 4:3 裁剪层（深色底衬照片；取景框尺寸由 JS 按横 4:3 / 纵 3:4 计算） ---------- */
+/* ---------- 4:3 裁剪层（深色底衬照片；直角；取景框尺寸由 JS 按横 4:3 / 纵 3:4 计算） ---------- */
 .crop-sheet {
+  position: relative;
   background: #15181d;
-  border-radius: 32rpx 32rpx 0 0;
+  border-radius: 0;
   padding: 32rpx 24rpx calc(32rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
@@ -1448,12 +1595,12 @@ page {
   display: block;
 }
 
-/* 四角取景框：橙色 L 形描边（不遮挡拖动，仅装饰） */
+/* 四角取景框：蓝色 L 形描边（不遮挡拖动，仅装饰） */
 .crop-corner {
   position: absolute;
   width: 36rpx;
   height: 36rpx;
-  border: 6rpx solid #f26d21;
+  border: 6rpx solid #1d4ed8;
   pointer-events: none;
 }
 
@@ -1516,10 +1663,10 @@ page {
 .re-thumb {
   width: 108rpx;
   height: 108rpx;
-  border-radius: 16rpx;
+  border-radius: 0;
   overflow: hidden;
-  border: 2rpx solid #e3dccb;
-  background: #22314e;
+  border: 3rpx solid #111111;
+  background: #111111;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1538,7 +1685,7 @@ page {
   width: 36rpx;
   height: 36rpx;
   border-radius: 50%;
-  background: #22314e;
+  background: #111111;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1548,7 +1695,7 @@ page {
 .re-add {
   width: 108rpx;
   height: 108rpx;
-  border-radius: 16rpx;
+  border-radius: 0;
   border: 3rpx dashed #d9cfba;
   color: #a89f8a;
   display: flex;
@@ -1572,12 +1719,12 @@ page {
   gap: 12rpx;
   height: 60rpx;
   padding: 0 20rpx;
-  border: 2rpx solid #e3dccb;
-  border-radius: 12rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   background: #faf8f1;
   font-size: 24rpx;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
 }
 
 .re-doc .nm {
@@ -1603,7 +1750,7 @@ page {
 }
 
 /* ============================================================
-   商旅打卡（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨⑩；token 同方案五；⑪ 同步核查面板已下线，改为卡片操作区「从商旅同步」）
+   商旅打卡（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨⑩；token 同方案十二·包豪斯几何；⑪ 同步核查面板已下线，改为卡片操作区「从商旅同步」）
    ============================================================ */
 
 /* ---------- ④ 卡片「商旅打卡」区：每个用车人一行（姓名 + 状态小字 + 开始/结束两枚 chip 三态） ---------- */
@@ -1611,11 +1758,11 @@ page {
   margin-top: 16rpx;
 }
 
-/* 区块小标题（沿用 .lc-patrol-label 灰字加宽字距口径） */
+/* 区块小标题（墨二次色加宽字距） */
 .lc-clock-title {
   font-size: 26rpx;
   font-weight: 700;
-  color: #a89f8a;
+  color: #4f4a3e;
   letter-spacing: 6rpx;
 }
 
@@ -1624,7 +1771,7 @@ page {
 }
 
 .ck-person + .ck-person {
-  border-top: 2rpx dashed #f1ebdc;
+  border-top: 2rpx dashed #e7e1d2;
 }
 
 .ck-person-head {
@@ -1637,10 +1784,10 @@ page {
 .ck-name {
   font-size: 26rpx;
   font-weight: 800;
-  color: #22314e;
+  color: #111111;
 }
 
-/* 行右「费用」入口：描边胶囊小按钮（橙框橙字 + 图标，最小高度 48rpx；费用弹层；仅已绑定者显示；margin-left:auto 固定最右端） */
+/* 行右「费用」入口：描边直角小按钮（蓝框蓝字 + 图标，最小高度 48rpx；费用弹层；仅已绑定者显示；margin-left:auto 固定最右端） */
 .ck-fee {
   margin-left: auto;
   display: flex;
@@ -1650,13 +1797,13 @@ page {
   padding: 0 18rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #f26d21;
-  border: 2rpx solid #f26d21;
-  border-radius: 999rpx;
+  color: #1d4ed8;
+  border: 2rpx solid #1d4ed8;
+  border-radius: 0;
   box-sizing: border-box;
 }
 
-/* 状态小字：工时（绿勾）/ 还差结束打卡（灰）/ 未绑定商旅（红锁）（紧随姓名，与费用胶囊垂直居中） */
+/* 状态小字：工时（黄底墨边小签）/ 还差结束打卡（灰）/ 未绑定商旅（红锁）（紧随姓名，与费用按钮垂直居中） */
 .ck-stat {
   display: flex;
   align-items: center;
@@ -1665,12 +1812,23 @@ page {
   color: #a89f8a;
 }
 
+/* 工时小签：黄底墨字墨边（图标由 JS 给色且无法覆盖，隐藏只留文字） */
 .ck-stat.ok {
-  color: #1e7e54;
+  color: #111111;
+  background: #f2b705;
+  border: 3rpx solid #111111;
+  border-radius: 0;
+  padding: 2rpx 12rpx;
+  font-weight: 800;
+  letter-spacing: 1rpx;
+}
+
+.ck-stat.ok .t-icon {
+  display: none;
 }
 
 .ck-stat.red {
-  color: #cf4444;
+  color: #d22730;
 }
 
 .ck-row2 {
@@ -1678,11 +1836,11 @@ page {
   gap: 14rpx;
 }
 
-/* chip 三态：todo=未打卡（橙虚线）/ done=已打卡（绿底勾）/ lock=未绑定（灰锁禁用） */
+/* chip 三态：todo=缺卡（虚线墨边 + 浅黄底，前置墨方块）/ done=已打卡（白底墨边，前置蓝圆白勾）/ lock=未绑定（灰锁禁用） */
 .ck-slot {
   flex: 1;
   min-width: 0;
-  border-radius: 14rpx;
+  border-radius: 0;
   padding: 12rpx 14rpx;
   position: relative;
   box-sizing: border-box;
@@ -1710,29 +1868,67 @@ page {
   white-space: nowrap;
 }
 
+/* 缺卡态：虚线墨边 + 浅黄底；JS 给色的图标隐藏，以前置墨方块示意「待打卡」 */
 .ck-slot.todo {
-  border: 2rpx dashed #f26d21;
-  color: #f26d21;
+  border: 3rpx dashed #111111;
+  background: #fdf6dc;
+  color: #111111;
+}
+
+.ck-slot.todo .ck-t1 .t-icon {
+  display: none;
+}
+
+.ck-slot.todo .ck-t1::before {
+  content: '';
+  flex: none;
+  width: 14rpx;
+  height: 14rpx;
+  background: #111111;
 }
 
 .ck-slot.todo .ck-t2 {
-  color: #c99a6c;
+  color: #4f4a3e;
 }
 
+/* 已打卡：白底墨边；JS 给色的图标隐藏，改以前置绿圆白勾（.ck-done-dot，wxml 装饰 view） */
 .ck-slot.done {
-  border: 2rpx solid #ddf0e7;
-  background: #f2fbf7;
-  color: #1e7e54;
+  border: 3rpx solid #111111;
+  background: #ffffff;
+  color: #111111;
+}
+
+.ck-slot.done .ck-t1 .t-icon {
+  display: none;
+}
+
+.ck-done-dot {
+  width: 26rpx;
+  height: 26rpx;
+  flex: none;
+  border-radius: 50%;
+  background: #1e9e50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ck-done-dot::before {
+  content: '✓';
+  color: #ffffff;
+  font-size: 18rpx;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .ck-slot.done .ck-t2 {
-  color: #5c8a76;
+  color: #4f4a3e;
 }
 
 .ck-slot.lock {
-  border: 2rpx solid #efe9da;
-  background: #faf7f0;
-  color: #b4aa90;
+  border: 3rpx solid #ddd5c2;
+  background: #f8f6f1;
+  color: #a89f8a;
 }
 
 .ck-slot.lock .ck-t2 {
@@ -1747,7 +1943,7 @@ page {
   top: 8rpx;
   font-size: 18rpx;
   font-weight: 700;
-  color: #2ba471;
+  color: #1d4ed8;
   display: flex;
   align-items: center;
   gap: 2rpx;
@@ -1755,15 +1951,17 @@ page {
 
 /* ---------- ⑨ 照片区：商旅同步标（水印/非水印同款式渲染，非水印仅无验证信息） ---------- */
 
-/* 「已同步商旅」蓝标 */
+/* 「已同步商旅」黄标（黄底墨字墨边，与验证角标签同族直角小签） */
 .sync-tag {
   display: inline-flex;
   align-items: center;
   height: 38rpx;
   padding: 0 14rpx;
-  border-radius: 8rpx;
-  background: #e7f0fd;
-  color: #1d5dbf;
+  border-radius: 0;
+  border: 3rpx solid #111111;
+  box-sizing: border-box;
+  background: #f2b705;
+  color: #111111;
   font-size: 20rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
@@ -1775,9 +1973,9 @@ page {
   align-items: center;
   height: 38rpx;
   padding: 0 16rpx;
-  border-radius: 8rpx;
-  border: 2rpx solid #cf4444;
-  color: #cf4444;
+  border-radius: 0;
+  border: 3rpx solid #d22730;
+  color: #d22730;
   font-size: 20rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
@@ -1785,25 +1983,25 @@ page {
 
 /* ---------- ⑧ 人名点亮层：商旅登录过期红框虚线（t-class 落在 check-tag 根上） ---------- */
 .tags .t-tag--disabled.ctag-expired {
-  background: #fdecec;
-  border: 2rpx dashed #cf4444;
-  color: #cf4444;
+  background: #fbe7e8;
+  border: 2rpx dashed #d22730;
+  color: #d22730;
 }
 
 /* 过期提醒条（复用 .tip 结构，红色变体） */
 .tip.warn {
-  background: #fdecec;
+  background: #fbe7e8;
 }
 
 .tip.warn .tip-t {
-  color: #cf4444;
+  color: #d22730;
 }
 
 /* ---------- ⑤ 打卡确认弹层 ---------- */
 .ck-loc {
   margin-top: 24rpx;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   padding: 20rpx 24rpx;
 }
 
@@ -1839,7 +2037,7 @@ page {
   font-size: 26rpx;
   font-weight: 600;
   line-height: 1.6;
-  color: #22314e;
+  color: #111111;
 }
 
 /* 副行：经纬度 + 来源标注（同记录已打卡人定位 / 当前定位 / 杆塔带入）或失败提示 */
@@ -1859,9 +2057,9 @@ page {
 .ck-mini {
   font-size: 20rpx;
   font-weight: 700;
-  color: #f26d21;
-  border: 2rpx solid #f26d21;
-  border-radius: 10rpx;
+  color: #1d4ed8;
+  border: 2rpx solid #1d4ed8;
+  border-radius: 0;
   padding: 8rpx 16rpx;
   display: inline-flex;
   align-items: center;
@@ -1889,12 +2087,14 @@ page {
   min-height: 64rpx;
 }
 
-/* 打卡确认主按钮（安全橙，同 btn-dark 尺寸） */
+/* 打卡确认主按钮（包豪斯蓝直角块 + 墨边硬影，同 btn-dark 尺寸） */
 .btn-orange {
   flex: 2;
   height: 88rpx;
-  border-radius: 16rpx;
-  background: #f26d21;
+  border-radius: 0;
+  border: 4rpx solid #111111;
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
+  background: #1d4ed8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -1919,7 +2119,7 @@ page {
 }
 
 .fee-row + .fee-row {
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #e7e1d2;
 }
 
 .fee-k {
@@ -1927,18 +2127,18 @@ page {
   width: 140rpx;
   font-size: 26rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
 }
 
 .fee-input {
   flex: 1;
   min-width: 0;
   height: 72rpx;
-  border: 2rpx solid #e3dccb;
-  border-radius: 12rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   padding: 0 20rpx;
   font-size: 28rpx;
-  color: #22314e;
+  color: #111111;
   font-weight: 600;
   box-sizing: border-box;
 }
@@ -1949,13 +2149,13 @@ page {
   min-width: 0;
   font-size: 28rpx;
   font-weight: 600;
-  color: #22314e;
+  color: #111111;
   text-align: right;
 }
 
 /* ---------- ⑩ 汇总前核验面板 ---------- */
 
-/* 月份切换条：左右翻月圆钮 + 居中月份文案（不看未来月，到当月置灰） */
+/* 月份切换条：左右翻月直角墨边钮（同日期条箭头口径）+ 居中月份文案（不看未来月，到当月置灰） */
 .rp-mbar {
   display: flex;
   align-items: center;
@@ -1967,11 +2167,13 @@ page {
 .rp-mbtn {
   width: 56rpx;
   height: 56rpx;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: #f4f1ea;
+  border-radius: 0;
+  border: 4rpx solid #111111;
+  background: #ffffff;
 }
 
 .rp-mbtn.disabled {
@@ -1983,7 +2185,7 @@ page {
   text-align: center;
   font-size: 30rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 2rpx;
 }
 
@@ -1996,7 +2198,7 @@ page {
 .issue-card {
   border: 2rpx solid #f1d2d2;
   background: #fffbfb;
-  border-radius: 16rpx;
+  border-radius: 0;
   padding: 20rpx 24rpx;
 }
 
@@ -2013,7 +2215,7 @@ page {
 .issue-plate {
   font-size: 28rpx;
   font-weight: 800;
-  color: #22314e;
+  color: #111111;
 }
 
 /* 徽章紧跟车牌（覆盖 .badge 的 margin-left:auto），箭头靠右 */
@@ -2040,7 +2242,7 @@ page {
   height: 32rpx;
   flex: none;
   border-radius: 50%;
-  background: #fdecec;
+  background: #fbe7e8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2050,7 +2252,7 @@ page {
 .issue-txt {
   flex: 1;
   min-width: 0;
-  color: #22314e;
+  color: #111111;
   font-weight: 600;
 }
 
@@ -2059,7 +2261,7 @@ page {
   margin-top: 20rpx;
   background: #f2fbf7;
   border: 2rpx solid #ddf0e7;
-  border-radius: 16rpx;
+  border-radius: 0;
   display: flex;
   align-items: center;
   gap: 18rpx;
@@ -2070,7 +2272,7 @@ page {
   width: 64rpx;
   height: 64rpx;
   flex: none;
-  border-radius: 16rpx;
+  border-radius: 0;
   background: #ffffff;
   display: flex;
   align-items: center;
@@ -2080,7 +2282,7 @@ page {
 .rp-ok-t {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1e7e54;
+  color: #1E9E50;
 }
 
 .rp-ok-p {
@@ -2091,7 +2293,7 @@ page {
 
 /* ---------- 批量从商旅同步面板（悬浮钮独立面板） ---------- */
 
-/* 区段行 + 实心橙「改日期」钮（同任务单页 range 族） */
+/* 区段行 + 实心包豪斯蓝「改日期」钮（同任务单页 range 族） */
 .bs-range {
   margin-top: 24rpx;
   display: flex;
@@ -2103,7 +2305,7 @@ page {
 .bs-range-text {
   font-size: 26rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 1rpx;
 }
 
@@ -2112,8 +2314,10 @@ page {
   font-size: 24rpx;
   font-weight: 700;
   color: #ffffff;
-  background: #f26d21;
-  border-radius: 14rpx;
+  background: #1d4ed8;
+  border: 3rpx solid #111111;
+  border-radius: 0;
+  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.9);
   padding: 14rpx 32rpx;
 }
 
@@ -2136,16 +2340,16 @@ page {
 .bs-log-t {
   font-size: 26rpx;
   font-weight: 800;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 2rpx;
-  border-left: 8rpx solid #f26d21;
+  border-left: 8rpx solid #1d4ed8;
   padding-left: 14rpx;
 }
 
 .bs-log-clear {
   font-size: 22rpx;
   font-weight: 700;
-  color: #cf4444;
+  color: #d22730;
   padding: 6rpx 12rpx;
 }
 
@@ -2161,18 +2365,18 @@ page {
   gap: 10rpx;
   background: #f2fbf7;
   border: 2rpx solid #ddf0e7;
-  border-radius: 14rpx;
+  border-radius: 0;
   padding: 18rpx 22rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #1e7e54;
+  color: #1E9E50;
 }
 
 .bs-fail {
   margin-top: 14rpx;
   border: 2rpx solid #f1d2d2;
   background: #fffbfb;
-  border-radius: 14rpx;
+  border-radius: 0;
   padding: 16rpx 22rpx;
 }
 
@@ -2182,7 +2386,7 @@ page {
   gap: 14rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
 }
 
 .bs-fail-h .d {
@@ -2198,9 +2402,9 @@ page {
   flex: none;
   font-size: 20rpx;
   font-weight: 700;
-  color: #cf4444;
-  background: #fdecec;
-  border-radius: 8rpx;
+  color: #d22730;
+  background: #fbe7e8;
+  border-radius: 0;
   padding: 2rpx 12rpx;
 }
 
@@ -2223,7 +2427,7 @@ page {
   margin-top: 22rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #22314e;
+  color: #111111;
   letter-spacing: 1rpx;
 }
 
@@ -2232,10 +2436,10 @@ page {
   height: 80rpx;
   padding: 0 24rpx;
   background: #ffffff;
-  border: 2rpx solid #e3dccb;
-  border-radius: 16rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
   font-size: 27rpx;
-  color: #22314e;
+  color: #111111;
 }
 
 .we-2col {
@@ -2256,30 +2460,30 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 20rpx;
+  border-radius: 28rpx;
 }
 
 .cs-box {
   width: 62%;
   background: #ffffff;
-  border: 2rpx solid #e8e0cd;
-  border-radius: 20rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   padding: 28rpx 32rpx;
-  box-shadow: 0 16rpx 40rpx rgba(34, 49, 78, 0.12);
+  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
 }
 
 .cs-bar {
   flex: 1;
   height: 10rpx;
-  border-radius: 6rpx;
+  border-radius: 0;
   background: #f0ebdd;
   overflow: hidden;
 }
 
 .cs-fill {
   height: 100%;
-  border-radius: 6rpx;
-  background: #f26d21;
+  border-radius: 0;
+  background: #1d4ed8;
   transition: width 0.4s ease;
 }
 
@@ -2289,7 +2493,7 @@ page {
   text-align: center;
   font-size: 20rpx;
   font-weight: 700;
-  color: #f26d21;
+  color: #1d4ed8;
   letter-spacing: 1rpx;
 }
 
@@ -2298,7 +2502,7 @@ page {
   position: fixed;
   inset: 0;
   z-index: 16000;
-  background: rgba(34, 49, 78, 0.45);
+  background: rgba(17, 17, 17, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2307,19 +2511,20 @@ page {
 .sync-card {
   width: 560rpx;
   background: #ffffff;
-  border-radius: 24rpx;
+  border: 4rpx solid #111111;
+  border-radius: 0;
   padding: 48rpx 48rpx 40rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
-  box-shadow: 0 32rpx 80rpx rgba(34, 49, 78, 0.25);
+  box-shadow: 8rpx 8rpx 0 #f2b705;
 }
 
 .sync-ic {
   width: 88rpx;
   height: 88rpx;
-  border-radius: 24rpx;
-  background: #fdeee2;
+  border-radius: 0;
+  background: #edf2fe;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2330,22 +2535,22 @@ page {
   font-size: 30rpx;
   font-weight: 800;
   letter-spacing: 4rpx;
-  color: #22314e;
+  color: #111111;
 }
 
 .sync-bar {
   margin-top: 28rpx;
   width: 100%;
   height: 14rpx;
-  border-radius: 8rpx;
+  border-radius: 0;
   background: #f0ebdd;
   overflow: hidden;
 }
 
 .sync-fill {
   height: 100%;
-  border-radius: 8rpx;
-  background: #f26d21;
+  border-radius: 0;
+  background: #1d4ed8;
   transition: width 0.4s ease;
 }
 
@@ -2354,4 +2559,61 @@ page {
   font-size: 22rpx;
   color: #6b7690;
   letter-spacing: 1rpx;
+}
+
+/* ============================================================
+   入场编排关键帧（包豪斯：旋转 + 平移归位，fill-mode both，时延链；
+   引用处：.tswitch/.datebar/.scopebar/.logcard=a-rise，.badge=a-spin，.fab-main=a-fab；
+   氛围动效仅 2 处：.ts-sq 与 .datebar .dtxt::before 的 wl-rot360 慢转。
+   prefers-reduced-motion 降级由 app.wxss 全局枚举统一关闭）
+   ============================================================ */
+@keyframes wl-a-rise {
+  from {
+    opacity: 0;
+    transform: translateY(26rpx) rotate(2.5deg) scale(0.97);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0) scale(1);
+  }
+}
+
+@keyframes wl-a-spin {
+  from {
+    opacity: 0;
+    transform: rotate(-160deg) scale(0.3);
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: rotate(0) scale(1);
+  }
+}
+
+@keyframes wl-a-fab {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) rotate(-200deg);
+  }
+  55% {
+    opacity: 1;
+  }
+  78% {
+    transform: scale(1.1) rotate(8deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes wl-rot360 {
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -1,6 +1,6 @@
-<!-- 登录页：藏青品牌横幅 + 账号密码 / 微信登录（方案五） -->
+<!-- 登录页：墨黑品牌横幅 + 账号密码 / 微信登录（包豪斯几何） -->
 <view class="page">
-  <!-- 藏青横幅 -->
+  <!-- 墨黑横幅 -->
   <view class="banner" style="padding-top: {{statusBarHeight}}px;">
     <image class="logo" src="/assets/toolbox.png" mode="aspectFit" />
     <view class="app-name">Shade 壹匣</view>
@@ -34,7 +34,7 @@
       block
       size="large"
       loading="{{loading}}"
-      custom-style="background: #22314E; color: #FFFFFF; border: none; border-radius: 16rpx; font-weight: 600; letter-spacing: 8rpx;"
+      custom-style="background: #111111; color: #FFFFFF; border: none; border-radius: 0; font-weight: 600; letter-spacing: 8rpx;"
       bind:tap="onAccountLogin"
     >登 录</t-button>
 
@@ -48,7 +48,7 @@
       block
       size="large"
       variant="outline"
-      custom-style="background: #FFFFFF; border: 1rpx solid #DDD5C2; color: #22314E; border-radius: 16rpx;"
+      custom-style="background: #FFFFFF; border: 1rpx solid #E7E1D2; color: #111111; border-radius: 0;"
       bind:tap="onWxLogin"
     >
       <view class="wx-inner">

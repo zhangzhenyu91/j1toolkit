@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案 04 · 瑞士国际主义（Swiss International Style）
+  主色板：
+    纸底 #FAFAF8 ｜ 墨黑 #111111 ｜ 唯一强调色 瑞士红 #E30613
+    发丝线 #111111（1px，18% 透明度）｜ 次级文字 #5A5A56
+    状态语义色（仅限月历色点/验证角标，不承担界面装饰）：已验证绿 #0F7B3C ｜ 有备注黄 #D9A400 ｜ 待核实红 #E30613
+  设计要点：
+    1. 严格 12 栏网格：主体区 grid-template-columns:repeat(12,1fr)，左月历占 5 栏、右卡片流占 7 栏，卡片内部左栏 38% 信息栏与右侧 3 列照片网格全部对齐同一套栏线；
+    2. 超大紧凑标题：「出工日志」64px / 800 / 字距 -2px，与 11px 大写微标签（字距 3px）形成瑞士式层级张力；
+    3. 发丝网格线：模块之间一律 1px 墨黑 18% 透明度发丝线分隔，零阴影、零圆角、零渐变装饰，纸面感来自留白与线；
+    4. 唯一强调红 #E30613：仅用于主按钮、激活页签下划线、状态标记与关键记号，全页再无第二种强调色；
+    5. 签名动效：一次自上而下遮罩揭开（clip-path inset 由 0 0 100% 0 收拢为 0），页头 → 操作区 → 页签 → 月历 → 卡片流按 90ms 级联时延依次揭开，整段只播放一次；
+    6. 验证状态不依赖颜色单通道：通过=黑方块+对勾图标+文字，失败=红方块+叉图标+红字，验证中=空心方块+扫描线动效；位置编码固定于卡片右上角状态位与照片左上角角标位；
+    7. 氛围动效两处：月历 25 日红点呼吸脉冲一次定位「今日待核实」；「验证中」照片角标内扫描线循环扫过，暗示系统正在核验。
+  落地注意事项：
+    1. 与现有 theme.css 衔接时需全局覆写圆角与阴影（--radius:0；卡片去 shadow），并以 CSS 变量 --swiss-red 注入品牌强调；
+    2. 月历色点的绿/黄为状态语义色，属功能色而非装饰色，接入设计规范时建议在 token 表中单列 status-ok / status-note / status-pending；
+    3. 发丝线建议使用 rgba(17,17,17,.18) 而非固定灰，深浅底上都能保持同一墨色家族；
+    4. 遮罩揭开动效在 prefers-reduced-motion 下整体降级为直接呈现，不播放任何位移与裁切动画。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>04 · 瑞士国际主义 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#FAFAF8;
+    --ink:#111111;
+    --red:#E30613;
+    --grey:#5A5A56;
+    --faint:#8B8B85;
+    --hair:rgba(17,17,17,.18);
+    --hair-strong:rgba(17,17,17,.85);
+    --ok:#0F7B3C;
+    --note:#D9A400;
+  }
+  html { background:var(--paper); }
+  body {
+    font-family:"Helvetica Neue",Helvetica,Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    background:
+      linear-gradient(var(--hair) 0 0) left top/1px 100% no-repeat,
+      linear-gradient(var(--hair) 0 0) right top/1px 100% no-repeat,
+      var(--paper);
+    padding:64px 24px 120px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .u-lab { font-size:11px; font-weight:700; letter-spacing:3px; text-transform:uppercase; }
+
+  /* ===== 签名动效：自上而下遮罩揭开（一次编排式入场） ===== */
+  @keyframes unveil {
+    from { clip-path:inset(0 0 100% 0); }
+    to   { clip-path:inset(0 0 0% 0); }
+  }
+  @keyframes unveil-fade {
+    from { clip-path:inset(0 0 100% 0); opacity:.001; }
+    to   { clip-path:inset(0 0 0% 0); opacity:1; }
+  }
+  .rv { clip-path:inset(0 0 0 0); animation:unveil .9s cubic-bezier(.77,0,.18,1) both; animation-delay:var(--d,0s); }
+  .rv-f { animation:unveil-fade .9s cubic-bezier(.77,0,.18,1) both; animation-delay:var(--d,0s); }
+
+  /* ===== 氛围动效 1：今日待核实红点脉冲 ===== */
+  @keyframes pulse {
+    0%,100% { box-shadow:0 0 0 0 rgba(227,6,19,.45); }
+    60%     { box-shadow:0 0 0 7px rgba(227,6,19,0); }
+  }
+  /* ===== 氛围动效 2：验证中扫描线 ===== */
+  @keyframes scan {
+    0%   { transform:translateY(-140%); }
+    100% { transform:translateY(340%); }
+  }
+
+  /* ===== 页面顶部标注区 ===== */
+  .page-head { max-width:1180px; margin:0 auto 56px; text-align:center; }
+  .page-head .kicker { color:var(--red); }
+  .page-head h1 { margin-top:14px; font-size:30px; font-weight:800; letter-spacing:1px; }
+  .page-head h1 em { font-style:normal; color:var(--red); }
+  .page-head > p { margin-top:12px; font-size:13px; color:var(--grey); letter-spacing:2px; }
+  .palette { margin-top:26px; display:flex; justify-content:center; flex-wrap:wrap; gap:10px 22px; }
+  .palette .chip { display:flex; align-items:center; gap:8px; font-size:11px; letter-spacing:1px; color:var(--ink); }
+  .palette .chip i { width:13px; height:13px; border-radius:50%; border:1px solid var(--hair); }
+  .palette .chip b { font-weight:600; color:var(--grey); }
+
+  /* ===== 浏览器窗口框 ===== */
+  .browser { max-width:1180px; margin:0 auto; background:#fff; border:1px solid var(--hair-strong); }
+  .browser-bar { height:46px; border-bottom:1px solid var(--hair-strong); display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .bdot { width:11px; height:11px; border-radius:50%; border:1px solid var(--ink); }
+  .bdot.r { background:var(--red); border-color:var(--red); }
+  .url { flex:1; max-width:460px; margin:0 auto; height:28px; border:1px solid var(--hair); border-radius:14px;
+         display:flex; align-items:center; justify-content:center; gap:7px;
+         font-size:11.5px; color:var(--grey); letter-spacing:1px; }
+  .url svg { width:11px; height:11px; }
+  .url b { color:var(--ink); font-weight:600; }
+
+  .canvas { padding:0 40px 48px; }
+
+  /* ===== 页头：超大标题 ===== */
+  .hero { display:grid; grid-template-columns:repeat(12,1fr); gap:0 24px;
+          padding:44px 0 30px; border-bottom:1px solid var(--hair-strong); }
+  .hero .l { grid-column:1 / span 8; }
+  .hero .l .u-lab { color:var(--red); }
+  .hero h2 { margin-top:14px; font-size:64px; line-height:1.02; font-weight:800; letter-spacing:-2px; }
+  .hero .sub { margin-top:16px; font-size:13.5px; color:var(--grey); letter-spacing:1.5px; display:flex; align-items:center; gap:10px; }
+  .hero .sub::before { content:""; width:26px; height:1px; background:var(--ink); }
+  .hero .r { grid-column:9 / span 4; display:flex; align-items:flex-end; justify-content:flex-end; }
+  .hero .date { text-align:right; }
+  .hero .date b { display:block; font-size:20px; font-weight:800; letter-spacing:1px; font-variant-numeric:tabular-nums; }
+  .hero .date span { display:block; margin-top:6px; font-size:11px; color:var(--grey); letter-spacing:2.5px; }
+
+  /* ===== 操作区 ===== */
+  .ops { display:flex; align-items:center; gap:14px; padding:18px 0; border-bottom:1px solid var(--hair); flex-wrap:wrap; }
+  .sel { display:inline-flex; align-items:center; gap:10px; height:38px; padding:0 14px;
+         border:1px solid var(--hair-strong); font-size:13px; font-weight:600; letter-spacing:1px; cursor:pointer; }
+  .sel svg { width:13px; height:13px; }
+  .stat { font-size:12.5px; color:var(--grey); letter-spacing:1px; font-variant-numeric:tabular-nums; }
+  .stat b { color:var(--ink); font-weight:800; }
+  .seg { display:inline-flex; border:1px solid var(--hair-strong); margin-left:auto; }
+  .seg span { padding:0 16px; height:36px; display:inline-flex; align-items:center;
+              font-size:12.5px; font-weight:600; letter-spacing:1.5px; color:var(--grey); cursor:pointer; }
+  .seg span.on { background:var(--ink); color:#fff; }
+  .btn { display:inline-flex; align-items:center; gap:8px; height:38px; padding:0 18px;
+         border:1px solid var(--hair-strong); background:#fff; color:var(--ink);
+         font-size:13px; font-weight:700; letter-spacing:2px; cursor:pointer; transition:background .15s,color .15s; }
+  .btn svg { width:15px; height:15px; }
+  .btn:hover { background:var(--ink); color:#fff; }
+  .btn.red { background:var(--red); border-color:var(--red); color:#fff; }
+  .btn.red:hover { background:var(--ink); border-color:var(--ink); }
+
+  /* ===== 页签 ===== */
+  .tabs { display:flex; border-bottom:1px solid var(--hair-strong); overflow:hidden; }
+  .tab { position:relative; padding:16px 20px 15px; font-size:13px; font-weight:600;
+         letter-spacing:1.5px; color:var(--grey); cursor:pointer; white-space:nowrap; transition:color .15s; }
+  .tab:hover { color:var(--ink); }
+  .tab.on { color:var(--ink); font-weight:800; }
+  .tab.on::after { content:""; position:absolute; left:20px; right:20px; bottom:-1px; height:3px; background:var(--red); }
+
+  /* ===== 主体 12 栏 ===== */
+  .main { display:grid; grid-template-columns:repeat(12,1fr); gap:32px 24px; padding-top:32px; }
+  .col-cal { grid-column:1 / span 5; }
+  .col-feed { grid-column:6 / span 7; display:flex; flex-direction:column; gap:32px; }
+
+  .blk-head { display:flex; align-items:baseline; justify-content:space-between; padding-bottom:10px; }
+  .blk-head h3 { font-size:13px; font-weight:800; letter-spacing:3px; display:flex; align-items:center; gap:9px; }
+  .blk-head h3::before { content:""; width:9px; height:9px; background:var(--red); }
+  .blk-head span { font-size:11px; color:var(--faint); letter-spacing:2px; }
+
+  /* ===== 月历卡 ===== */
+  .cal { border:1px solid var(--hair-strong); }
+  .cal-top { display:flex; align-items:center; justify-content:space-between; padding:16px 18px;
+             border-bottom:1px solid var(--hair); }
+  .cal-top b { font-size:16px; font-weight:800; letter-spacing:2px; font-variant-numeric:tabular-nums; }
+  .cal-nav { display:flex; gap:6px; }
+  .cal-nav i { width:26px; height:26px; border:1px solid var(--hair); display:flex; align-items:center;
+               justify-content:center; cursor:pointer; transition:all .15s; }
+  .cal-nav i:hover { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .cal-nav svg { width:12px; height:12px; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); }
+  .cal-grid .wk { padding:10px 0; text-align:center; font-size:10.5px; font-weight:700;
+                  letter-spacing:2px; color:var(--faint); border-bottom:1px solid var(--hair); }
+  .day { position:relative; height:52px; display:flex; flex-direction:column; align-items:center;
+         justify-content:center; gap:5px; font-size:13px; font-weight:600; cursor:pointer;
+         border-bottom:1px solid var(--hair); font-variant-numeric:tabular-nums; transition:background .12s; }
+  .day:nth-child(7n) { border-right:none; }
+  .day:not(:nth-child(7n)) { border-right:1px solid var(--hair); }
+  .day.blank { cursor:default; background:repeating-linear-gradient(-45deg,#fff 0 7px,#F4F3EF 7px 8px); }
+  .day:not(.blank):hover { background:#F1F0EB; }
+  .day .dot { width:6px; height:6px; border-radius:50%; }
+  .day .dot.ok { background:var(--ok); }
+  .day .dot.note { background:var(--note); }
+  .day .dot.pending { background:var(--red); }
+  .day.sel { background:var(--ink); color:#fff; }
+  .day.sel:hover { background:var(--ink); }
+  .day.sel .dot.pending { animation:pulse 2.4s ease-out infinite; }
+  .cal-legend { display:flex; gap:18px; padding:14px 18px; }
+  .cal-legend span { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--grey); letter-spacing:1px; }
+  .cal-legend i { width:8px; height:8px; border-radius:50%; }
+  .cal-legend .i-ok { background:var(--ok); }
+  .cal-legend .i-note { background:var(--note); }
+  .cal-legend .i-pending { background:var(--red); }
+
+  /* ===== 日志卡 ===== */
+  .log { border:1px solid var(--hair-strong); }
+  .log-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px;
+              padding:22px 24px 18px; border-bottom:1px solid var(--hair-strong); }
+  .plate { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .plate h4 { font-size:34px; font-weight:800; letter-spacing:.5px; font-variant-numeric:tabular-nums; }
+  .plate .tag { border:1.5px solid var(--ink); padding:2px 9px; font-size:11px; font-weight:800; letter-spacing:2px; }
+  .log-meta { text-align:right; flex:none; }
+  .log-meta .d { font-size:12px; color:var(--grey); letter-spacing:1.5px; font-variant-numeric:tabular-nums; }
+  /* 状态位：颜色 + 图形 + 位置三重编码 */
+  .vstatus { margin-top:8px; display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:800; letter-spacing:2px; }
+  .vstatus i { width:12px; height:12px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .vstatus i svg { width:9px; height:9px; }
+  .vstatus.ok { color:var(--ink); }
+  .vstatus.ok i { background:var(--ink); color:#fff; }
+  .vstatus.fail { color:var(--red); }
+  .vstatus.fail i { background:var(--red); color:#fff; }
+  .vstatus.ing { color:var(--ink); }
+  .vstatus.ing i { border:1.5px solid var(--ink); background:#fff; }
+
+  .log-body { display:grid; grid-template-columns:38% 62%; }
+  .log-info { border-right:1px solid var(--hair); display:flex; flex-direction:column; }
+  .info-row { padding:13px 24px; border-bottom:1px solid var(--hair); }
+  .info-row .k { font-size:10.5px; font-weight:700; letter-spacing:2.5px; color:var(--faint); }
+  .info-row .v { margin-top:6px; font-size:13.5px; font-weight:600; line-height:1.6; letter-spacing:.5px; }
+  .punch { margin-top:6px; }
+  .punch .p { display:flex; align-items:center; gap:10px; font-size:12.5px; padding:5px 0; font-variant-numeric:tabular-nums; }
+  .punch .p .nm { width:34px; font-weight:700; }
+  .punch .p .tm { color:var(--grey); letter-spacing:1px; }
+  .punch .p .arr { color:var(--faint); }
+  .punch .p .miss { color:var(--red); font-weight:700; letter-spacing:1px; }
+  .log-ops { margin-top:auto; display:flex; padding:0 24px; }
+  .log-ops a { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; white-space:nowrap;
+               padding:13px 0; font-size:11.5px; font-weight:700; letter-spacing:1px; color:var(--ink); cursor:pointer; transition:color .15s; }
+  .log-ops a svg { width:14px; height:14px; }
+  .log-ops a + a { border-left:1px solid var(--hair); }
+  .log-ops a:hover { color:var(--red); }
+  .log-ops a.danger { color:var(--red); }
+  .log-ops a.danger:hover { background:var(--red); color:#fff; }
+
+  .log-photos { padding:18px 20px; }
+  .photos-head { display:flex; align-items:baseline; justify-content:space-between; padding-bottom:12px; }
+  .photos-head b { font-size:11px; font-weight:800; letter-spacing:3px; }
+  .photos-head span { font-size:11px; color:var(--faint); letter-spacing:1.5px; font-variant-numeric:tabular-nums; }
+  .photo-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .ph { position:relative; aspect-ratio:4/3; overflow:hidden; border:1px solid var(--hair); }
+  .ph .tex { position:absolute; inset:0; }
+  .ph .noise { position:absolute; inset:0; opacity:.5; mix-blend-mode:overlay;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.06) 0 1px, transparent 1px 3px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.05) 0 1px, transparent 1px 4px); }
+  .ph .vbadge { position:absolute; top:0; left:0; display:flex; align-items:center; gap:5px;
+                padding:4px 8px; font-size:10px; font-weight:800; letter-spacing:1.5px; }
+  .ph .vbadge i { width:7px; height:7px; flex:none; }
+  .ph .vbadge.ok { background:var(--ink); color:#fff; }
+  .ph .vbadge.ok i { background:#fff; }
+  .ph .vbadge.fail { background:var(--red); color:#fff; }
+  .ph .vbadge.fail i { background:#fff; }
+  .ph .vbadge.ing { background:#fff; color:var(--ink); border-bottom:1px solid var(--hair); border-right:1px solid var(--hair); }
+  .ph .vbadge.ing i { border:1.5px solid var(--ink); }
+  .ph .scan { position:absolute; left:0; right:0; top:0; height:34%;
+              background:linear-gradient(180deg, transparent, rgba(227,6,19,.14) 55%, rgba(227,6,19,.4) 78%, transparent);
+              animation:scan 2.6s linear infinite; }
+  .ph .sync { position:absolute; right:0; bottom:0; display:flex; align-items:center; gap:5px;
+              background:rgba(17,17,17,.88); color:#fff; padding:3px 7px;
+              font-size:9.5px; font-weight:700; letter-spacing:1.5px; }
+  .ph .sync svg { width:10px; height:10px; }
+  .ph .idx { position:absolute; left:8px; bottom:6px; font-size:10px; font-weight:800;
+             color:rgba(255,255,255,.92); letter-spacing:1px; text-shadow:0 1px 2px rgba(0,0,0,.4); font-variant-numeric:tabular-nums; }
+  .ph .vbadge ~ .idx { display:none; }
+
+  /* 日志卡② */
+  .log2 .log-head { align-items:center; }
+  .log2 h4 { font-size:24px; font-weight:800; letter-spacing:1px; }
+  .reason { display:flex; align-items:center; gap:14px; padding:16px 24px; }
+  .reason .rk { flex:none; display:flex; align-items:center; gap:8px; font-size:11px;
+                font-weight:800; letter-spacing:2.5px; color:var(--red); }
+  .reason .rk::before { content:""; width:9px; height:9px; background:var(--red); }
+  .reason .rv2 { font-size:13px; font-weight:600; letter-spacing:1px; }
+  .reason .act { margin-left:auto; display:flex; align-items:center; gap:6px; font-size:12px;
+                 font-weight:700; letter-spacing:1.5px; color:var(--ink); cursor:pointer; }
+  .reason .act svg { width:13px; height:13px; }
+  .reason .act:hover { color:var(--red); }
+
+  .foot-note { max-width:1180px; margin:56px auto 0; display:flex; justify-content:space-between;
+               border-top:1px solid var(--hair-strong); padding-top:16px;
+               font-size:11px; letter-spacing:2.5px; color:var(--faint); }
+
+  /* ===== 降级：减少动态 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+    .rv, .rv-f { clip-path:none; opacity:1; }
+    .ph .scan { display:none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== 页面顶部标注区 ==================== -->
+<header class="page-head rv" style="--d:0s">
+  <div class="kicker u-lab">Proposal 04 / Web · Worklog</div>
+  <h1>方案 04 · <em>瑞士国际主义</em></h1>
+  <p>网格即秩序，墨色即语言 —— 唯一信号红点出每一次待办。</p>
+  <div class="palette">
+    <span class="chip"><i style="background:#FAFAF8"></i>纸底 <b>#FAFAF8</b></span>
+    <span class="chip"><i style="background:#111111"></i>墨黑 <b>#111111</b></span>
+    <span class="chip"><i style="background:#E30613"></i>瑞士红 <b>#E30613</b></span>
+    <span class="chip"><i style="background:#0F7B3C"></i>已验证 <b>#0F7B3C</b></span>
+    <span class="chip"><i style="background:#D9A400"></i>有备注 <b>#D9A400</b></span>
+    <span class="chip"><i style="background:#fff;border-color:rgba(17,17,17,.5)"></i>发丝线 <b>1px · INK 18%</b></span>
+  </div>
+</header>
+
+<!-- ==================== 浏览器窗口框 ==================== -->
+<div class="browser rv" style="--d:.15s">
+  <div class="browser-bar">
+    <span class="bdot r"></span><span class="bdot"></span><span class="bdot"></span>
+    <span class="url">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+      <b>toolkit.j1net.com</b>/worklog
+    </span>
+    <span style="width:60px"></span>
+  </div>
+
+  <div class="canvas">
+
+    <!-- 页头 -->
+    <section class="hero rv" style="--d:.3s">
+      <div class="l">
+        <span class="u-lab">Worklog / 出工日志 · 检修一班</span>
+        <h2>出工日志</h2>
+        <p class="sub">月历色点看验证状态，点击日期查看当日记录</p>
+      </div>
+      <div class="r">
+        <div class="date">
+          <b>2026.09.25</b>
+          <span>星期五 · FRI</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 操作区 -->
+    <section class="ops rv" style="--d:.42s">
+      <span class="sel">检修一班
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+      </span>
+      <span class="stat">共 <b>2</b> 条日志 · <b>9</b> 张照片</span>
+      <span class="seg"><span class="on">全部</span><span>仅看我</span></span>
+      <button type="button" class="btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M7.5 9L12 3.5 16.5 9"/><path d="M4.5 16.5v2.2a1.8 1.8 0 0 0 1.8 1.8h11.4a1.8 1.8 0 0 0 1.8-1.8v-2.2"/></svg>
+        从商旅拉取
+      </button>
+      <button type="button" class="btn red">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        新建日志
+      </button>
+    </section>
+
+    <!-- 页签 -->
+    <nav class="tabs rv" style="--d:.54s">
+      <span class="tab on">记录</span>
+      <span class="tab">批量下载</span>
+      <span class="tab">汇总前核验</span>
+      <span class="tab">数据管理</span>
+      <span class="tab">工作任务单</span>
+      <span class="tab">费用汇总</span>
+      <span class="tab">派车汇总</span>
+      <span class="tab">派车对齐</span>
+    </nav>
+
+    <!-- 主体两栏 -->
+    <main class="main">
+
+      <!-- 左：月历卡（占 5 栏） -->
+      <section class="col-cal rv" style="--d:.68s">
+        <div class="blk-head"><h3>月历</h3><span>CAL / 2026-09</span></div>
+        <div class="cal">
+          <div class="cal-top">
+            <b>2026 年 9 月</b>
+            <span class="cal-nav">
+              <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5.5L8.5 12l6.5 6.5"/></svg></i>
+              <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i>
+            </span>
+          </div>
+          <div class="cal-grid">
+            <span class="wk">一</span><span class="wk">二</span><span class="wk">三</span><span class="wk">四</span><span class="wk">五</span><span class="wk">六</span><span class="wk">日</span>
+            <span class="day blank"></span>
+            <span class="day">1</span><span class="day">2</span><span class="day">3</span><span class="day">4</span><span class="day">5</span><span class="day">6</span>
+            <span class="day">7</span><span class="day">8</span><span class="day">9</span><span class="day">10</span><span class="day">11</span>
+            <span class="day">12<i class="dot ok"></i></span>
+            <span class="day">13</span>
+            <span class="day">14</span><span class="day">15</span><span class="day">16</span><span class="day">17</span>
+            <span class="day">18<i class="dot note"></i></span>
+            <span class="day">19</span><span class="day">20</span>
+            <span class="day">21</span><span class="day">22</span><span class="day">23</span><span class="day">24</span>
+            <span class="day sel">25<i class="dot pending"></i></span>
+            <span class="day">26</span><span class="day">27</span>
+            <span class="day">28</span><span class="day">29</span><span class="day">30</span>
+            <span class="day blank"></span><span class="day blank"></span><span class="day blank"></span><span class="day blank"></span>
+          </div>
+          <div class="cal-legend">
+            <span><i class="i-ok"></i>已验证</span>
+            <span><i class="i-note"></i>有备注</span>
+            <span><i class="i-pending"></i>待核实</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右：卡片流（占 7 栏） -->
+      <section class="col-feed">
+
+        <!-- 日志卡 ① -->
+        <article class="log rv" style="--d:.82s">
+          <div class="log-head">
+            <div class="plate">
+              <h4>鄂A·D12345</h4>
+              <span class="tag">跨班</span>
+            </div>
+            <div class="log-meta">
+              <div class="d">2026.09.25 · 第 1 / 2 条</div>
+              <span class="vstatus ok">
+                <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></i>
+                验证通过
+              </span>
+            </div>
+          </div>
+          <div class="log-body">
+            <div class="log-info">
+              <div class="info-row">
+                <div class="k">巡视内容</div>
+                <div class="v">110kV 锦城线 #12–#28 塔巡视</div>
+              </div>
+              <div class="info-row">
+                <div class="k">用车人打卡</div>
+                <div class="punch">
+                  <div class="p"><span class="nm">王强</span><span class="tm">07:58</span><span class="arr">→</span><span class="tm">17:32</span></div>
+                  <div class="p"><span class="nm">李军</span><span class="tm">08:02</span><span class="arr">→</span><span class="miss">缺终卡</span></div>
+                </div>
+              </div>
+              <div class="info-row">
+                <div class="k">目的地</div>
+                <div class="v">张河变电站</div>
+              </div>
+              <div class="info-row">
+                <div class="k">备注</div>
+                <div class="v">#18 塔绝缘子更换完成，明日复验。</div>
+              </div>
+              <div class="log-ops">
+                <a>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5A8 8 0 1 0 18.6 16"/><path d="M20 5.5v6h-6"/></svg>
+                  从商旅同步
+                </a>
+                <a>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5l1-3.6L16.8 4.6a2 2 0 0 1 2.8 2.8L8.3 18.7z"/><path d="M14.5 6.8l2.8 2.8"/></svg>
+                  备注
+                </a>
+                <a class="danger">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7"/><path d="M6.5 6.5l.8 12.2a1.8 1.8 0 0 0 1.8 1.7h5.8a1.8 1.8 0 0 0 1.8-1.7l.8-12.2"/><path d="M10 10.5v6M14 10.5v6"/></svg>
+                  删除
+                </a>
+              </div>
+            </div>
+            <div class="log-photos">
+              <div class="photos-head"><b>现场照片</b><span>PHOTOS / 6 张 · 3 列网格</span></div>
+              <div class="photo-grid">
+                <div class="ph">
+                  <span class="tex" style="background:linear-gradient(160deg,#9db4c8 0%,#c8d4dc 42%,#7d8f6d 43%,#5d7050 100%)"></span>
+                  <span class="noise"></span>
+                  <span class="vbadge ok"><i></i>核验通过</span>
+                  <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5A8 8 0 1 0 18.6 16"/><path d="M20 5.5v6h-6"/></svg>已同步商旅</span>
+                </div>
+                <div class="ph">
+                  <span class="tex" style="background:linear-gradient(150deg,#c9b18a 0%,#e0d3b8 45%,#8a7a5c 46%,#6b5f47 100%)"></span>
+                  <span class="noise"></span>
+                  <span class="idx">02</span>
+                </div>
+                <div class="ph">
+                  <span class="tex" style="background:linear-gradient(170deg,#8fa3b8 0%,#b6c4d1 40%,#4f5a66 41%,#39434d 100%)"></span>
+                  <span class="noise"></span>
+                  <span class="vbadge ing"><i></i>验证中</span>
+                  <span class="scan"></span>
+                  <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5A8 8 0 1 0 18.6 16"/><path d="M20 5.5v6h-6"/></svg>已同步商旅</span>
+                </div>
+                <div class="ph">
+                  <span class="tex" style="background:linear-gradient(155deg,#a8b89a 0%,#ccd6c0 44%,#6e8060 45%,#4c5a42 100%)"></span>
+                  <span class="noise"></span>
+                  <span class="idx">04</span>
+                  <span class="sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5A8 8 0 1 0 18.6 16"/><path d="M20 5.5v6h-6"/></svg>已同步商旅</span>
+                </div>
+                <div class="ph">
+                  <span class="tex" style="background:linear-gradient(165deg,#d9a08a 0%,#e8c9b4 42%,#9a7a68 43%,#74584a 100%)"></span>
+                  <span class="noise"></span>
+                  <span class="vbadge fail"><i></i>验证失败</span>
+                </div>
+                <div class="ph">
+                  <span class="tex" style="background:linear-gradient(150deg,#9aa8b4 0%,#c2ccd4 46%,#6a7680 47%,#4e5860 100%)"></span>
+                  <span class="noise"></span>
+                  <span class="idx">06</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 日志卡 ② -->
+        <article class="log log2 rv-f" style="--d:.96s">
+          <div class="log-head">
+            <div class="plate">
+              <h4>站内作业 · 未出车</h4>
+            </div>
+            <div class="log-meta">
+              <div class="d">2026.09.25 · 第 2 / 2 条</div>
+              <span class="vstatus fail">
+                <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></i>
+                未通过
+              </span>
+            </div>
+          </div>
+          <div class="reason">
+            <span class="rk">未通过原因</span>
+            <span class="rv2">照片地点与目的地不符</span>
+            <span class="act">查看照片
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+            </span>
+          </div>
+        </article>
+
+      </section>
+    </main>
+
+  </div>
+</div>
+
+<footer class="foot-note rv" style="--d:1.1s">
+  <span>SHADE 壹匣 · 方案 04 瑞士国际主义</span>
+  <span>GRID 12COL / HAIRLINE 1PX / SIGNAL RED ONLY</span>
+</footer>
+
+</body>
+</html>

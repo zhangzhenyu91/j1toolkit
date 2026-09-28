@@ -6,7 +6,7 @@
   margin-left: auto;
   font-size: 22rpx;
   font-weight: 400;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 /* 班组行 */
@@ -15,7 +15,7 @@
   align-items: center;
   gap: 20rpx;
   background: #FFFFFF;
-  border-radius: 20rpx;
+  border-radius: 0;
   padding: 26rpx 28rpx;
   margin-bottom: 18rpx;
   transition: background-color 0.15s ease;
@@ -31,15 +31,15 @@
   align-items: center;
   font-size: 29rpx;
   font-weight: 700;
-  color: #22314E;
+  color: #111111;
 }
 
 .def-pill {
   margin-left: 12rpx;
   padding: 2rpx 12rpx;
-  border-radius: 8rpx;
-  background: #FDEEE2;
-  color: #F26D21;
+  border-radius: 0;
+  background: #EDF2FE;
+  color: #1D4ED8;
   font-size: 20rpx;
   font-weight: 600;
 }
@@ -47,9 +47,9 @@
 .stop-pill {
   margin-left: 12rpx;
   padding: 2rpx 12rpx;
-  border-radius: 8rpx;
-  background: #EDF0F6;
-  color: #6B7690;
+  border-radius: 0;
+  background: #EDF2FE;
+  color: #5C5748;
   font-size: 20rpx;
   font-weight: 600;
 }
@@ -57,13 +57,13 @@
 .tm {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 .go {
   flex: none;
   font-size: 24rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 .tip-line {
@@ -82,13 +82,14 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #F4F1EA;
+  background: #F8F6F1;
 }
 
-/* ---------- 新增 / 编辑弹层（.sh-head/.sh-title/.sh-sub/.sh-close/.f-label/.f-field/.sh-note/.btn-disabled 已上移 app.wxss 共用） ---------- */
+/* ---------- 新增 / 编辑弹层（直角 + 顶部墨线；.sh-head/.sh-title/.sh-sub/.sh-close/.f-label/.f-field/.sh-note/.btn-disabled 已上移 app.wxss 共用） ---------- */
 .sheet {
   background: #FFFFFF;
-  border-radius: 32rpx 32rpx 0 0;
+  border-radius: 0;
+  border-top: 4rpx solid #111111;
   padding: 28rpx 32rpx 48rpx;
   max-height: 78vh;
   display: flex;
@@ -112,7 +113,7 @@
 .fr-lab {
   font-size: 26rpx;
   font-weight: 600;
-  color: #22314E;
+  color: #111111;
 }
 
 .sh-foot {
@@ -124,19 +125,19 @@
 
 .sum {
   font-size: 22rpx;
-  color: #6B7690;
+  color: #5C5748;
 }
 
 .del-link {
   font-size: 24rpx;
-  color: #CF4444;
+  color: #D22730;
 }
 
 .btn-primary {
   flex: 1;
   height: 88rpx;
-  border-radius: 18rpx;
-  background: #22314E;
+  border-radius: 0;
+  background: #111111;
   color: #FFFFFF;
   font-size: 30rpx;
   font-weight: 700;

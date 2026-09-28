@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<!--
+  重构方案五：赛博霓虹夜市 Cyberpunk Neon Night Market
+  主色板：暗夜底 #0A0A12 ｜ 品红霓虹 #FF2E88 ｜ 青霓虹 #00E5FF ｜ 辅助紫 #7C3AED
+         深卡面 #12121E / #16162A ｜ 主文字 #F4F4FA ｜ 次级文字 #8E8EB0 ｜ 描边 #26263E
+  设计要点：
+  1. 暗夜雨巷底景：#0A0A12 深空底 + 品红/青/紫三团远景光晕，细雨丝以倾斜 repeating-linear-gradient 缓慢下落，
+     底部加一层雨后路面反光（模糊渐变带），营造「夜市霓虹映雨」的空间感；
+  2. 多层霓虹辉光：关键发光体一律 text-shadow / box-shadow 三层叠加（近距实光 + 中距光晕 + 远距氛围），
+     青与品红互为对色，交替承担宫格图标的发光职能；
+  3. 青→品红渐变描边卡：问候卡以 1px 渐变描边包裹深卡面，内嵌柔光，是整屏的视觉锚点；
+  4. 签名动效「灯管逐段点亮」：导航品牌字与「高级技师」徽章先暗后闪（两次 flicker）再稳定，
+     稳定后转入 4s 缓慢呼吸；宫格图标按序点亮，如同夜市摊位依次开灯；
+  5. 落地注意：辉光在小程序端以 text-shadow/box-shadow 实现，雨丝背景建议改为 canvas 或静态纹理图降级；
+     深色界面下正文一律 #F4F4FA / #8E8EB0，对底对比度 ≥7:1，无需担心可读性。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05 · 赛博霓虹 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#0A0A12;
+    --magenta:#FF2E88;
+    --cyan:#00E5FF;
+    --purple:#7C3AED;
+    --card:#12121E;
+    --card2:#16162A;
+    --ink:#F4F4FA;
+    --sub:#8E8EB0;
+    --line:#26263E;
+  }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(900px 520px at 12% -6%, rgba(124,58,237,.20), transparent 60%),
+      radial-gradient(820px 500px at 92% 8%, rgba(255,46,136,.14), transparent 62%),
+      radial-gradient(760px 560px at 50% 108%, rgba(0,229,255,.10), transparent 60%),
+      #06060C;
+    min-height:100vh;
+    padding:60px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:56px; }
+  .page-head h1 { font-size:28px; font-weight:800; letter-spacing:3px; }
+  .page-head h1 em {
+    font-style:normal;
+    background:linear-gradient(100deg,var(--cyan) 10%,var(--magenta) 88%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:none;
+    filter:drop-shadow(0 0 14px rgba(255,46,136,.45));
+  }
+  .page-head h1 small { margin-left:12px; font-size:13px; font-weight:600; color:var(--sub); letter-spacing:5px; }
+  .page-head .slogan { margin-top:14px; font-size:13px; color:var(--sub); letter-spacing:2px; }
+  .palette { margin-top:22px; display:flex; justify-content:center; flex-wrap:wrap; gap:10px; }
+  .pill {
+    display:flex; align-items:center; gap:8px;
+    padding:7px 15px; border-radius:99px;
+    background:rgba(18,18,30,.72); border:1px solid var(--line);
+    font-size:11.5px; letter-spacing:1px; color:var(--sub);
+  }
+  .pill i { width:11px; height:11px; border-radius:50%; flex:none; }
+  .pill .d-bg { background:var(--bg); border:1px solid #34344e; }
+  .pill .d-m  { background:var(--magenta); box-shadow:0 0 8px rgba(255,46,136,.9), 0 0 18px rgba(255,46,136,.4); }
+  .pill .d-c  { background:var(--cyan); box-shadow:0 0 8px rgba(0,229,255,.9), 0 0 18px rgba(0,229,255,.4); }
+  .pill .d-p  { background:var(--purple); box-shadow:0 0 8px rgba(124,58,237,.9), 0 0 18px rgba(124,58,237,.4); }
+  .pill b { color:var(--ink); font-weight:600; }
+
+  /* ===== 舞台 ===== */
+  .stage { display:flex; justify-content:center; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:22px; }
+  .cap { font-size:13px; font-weight:700; letter-spacing:3px; color:var(--sub); display:flex; align-items:center; gap:9px; }
+  .cap::before { content:""; width:7px; height:7px; border-radius:50%;
+                 background:var(--cyan); box-shadow:0 0 8px var(--cyan), 0 0 16px rgba(0,229,255,.5); }
+
+  /* ===== 手机框：暗夜机身 + 霓虹晕影 ===== */
+  .phone {
+    padding:12px;
+    background:linear-gradient(155deg,#23232f 0%,#0d0d16 55%,#08080f 100%);
+    border-radius:62px;
+    box-shadow:
+      0 0 0 1px rgba(124,58,237,.22),
+      0 30px 80px rgba(0,0,0,.7),
+      0 0 64px rgba(255,46,136,.10),
+      0 0 110px rgba(0,229,255,.07);
+  }
+  .screen {
+    position:relative;
+    width:375px; height:812px;
+    border-radius:50px;
+    overflow:hidden;
+    display:flex; flex-direction:column;
+    background:var(--bg);
+  }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:120px; height:32px; border-radius:18px; background:#08080f; z-index:40; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(244,244,250,.85); z-index:50;
+              box-shadow:0 0 10px rgba(244,244,250,.4); }
+
+  /* 屏幕底景：三团光晕 + 雨丝 + 路面反光 */
+  .sky { position:absolute; inset:0; z-index:0; pointer-events:none; }
+  .sky::before {
+    content:""; position:absolute; inset:0;
+    background:
+      radial-gradient(300px 200px at 85% 6%, rgba(255,46,136,.16), transparent 65%),
+      radial-gradient(280px 220px at 8% 22%, rgba(0,229,255,.11), transparent 65%),
+      radial-gradient(340px 260px at 55% 96%, rgba(124,58,237,.15), transparent 68%);
+  }
+  .sky::after {
+    content:""; position:absolute; left:0; right:0; bottom:0; height:150px;
+    background:
+      radial-gradient(240px 46px at 30% 100%, rgba(255,46,136,.13), transparent 72%),
+      radial-gradient(240px 46px at 76% 100%, rgba(0,229,255,.11), transparent 72%);
+    filter:blur(2px);
+  }
+  .rain {
+    position:absolute; inset:-120px 0 0 0; z-index:0; pointer-events:none; opacity:.5;
+    background:
+      repeating-linear-gradient(101deg, transparent 0 34px, rgba(0,229,255,.055) 34px 35px, transparent 35px 92px),
+      repeating-linear-gradient(97deg, transparent 0 58px, rgba(244,244,250,.045) 58px 59px, transparent 59px 130px),
+      repeating-linear-gradient(104deg, transparent 0 84px, rgba(255,46,136,.045) 84px 85px, transparent 85px 170px);
+    animation:rain-fall 1.15s linear infinite;
+  }
+  @keyframes rain-fall { from { transform:translateY(0); } to { transform:translateY(120px); } }
+
+  /* 状态栏 */
+  .sb { height:54px; flex:none; padding:20px 30px 0;
+        display:flex; justify-content:space-between; align-items:center;
+        font-size:14px; font-weight:700; letter-spacing:.5px; color:#EDEDF6;
+        position:relative; z-index:30; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+
+  /* ===== 导航栏：霓虹品牌字 ===== */
+  .navbar {
+    height:54px; flex:none; position:relative; z-index:20;
+    display:flex; align-items:center; justify-content:center; gap:9px;
+  }
+  .navbar .n-mark {
+    width:23px; height:23px; border-radius:7px;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--cyan);
+    border:1px solid rgba(0,229,255,.55);
+    box-shadow:0 0 10px rgba(0,229,255,.45), inset 0 0 8px rgba(0,229,255,.18);
+    animation:breathe-c 4s ease-in-out 2.4s infinite;
+  }
+  .navbar .n-mark svg { width:14px; height:14px; }
+  .navbar .n-title {
+    font-size:17px; font-weight:800; letter-spacing:2px; color:#FAFAFF;
+    text-shadow:
+      0 0 2px rgba(255,46,136,.9),
+      0 0 12px rgba(255,46,136,.75),
+      0 0 30px rgba(255,46,136,.45),
+      0 0 60px rgba(255,46,136,.25);
+    animation:flicker-in 1.15s linear .35s both, breathe-m 4s ease-in-out 2.4s infinite;
+  }
+  .navbar .n-sub { font-size:9px; letter-spacing:3px; color:var(--sub); margin-top:6px;
+                   animation:soft-in .8s ease 1.5s both; }
+
+  /* 灯管点亮：两次闪烁后稳定 */
+  @keyframes flicker-in {
+    0%   { opacity:0; }
+    8%   { opacity:1; }
+    16%  { opacity:.15; }
+    26%  { opacity:1; }
+    36%  { opacity:.3; }
+    48%  { opacity:1; }
+    100% { opacity:1; }
+  }
+  @keyframes soft-in { from { opacity:0; } to { opacity:1; } }
+  /* 辉光缓慢呼吸 */
+  @keyframes breathe-m {
+    0%,100% { text-shadow:0 0 2px rgba(255,46,136,.9),0 0 12px rgba(255,46,136,.75),0 0 30px rgba(255,46,136,.45),0 0 60px rgba(255,46,136,.25); }
+    50%     { text-shadow:0 0 2px rgba(255,46,136,.95),0 0 16px rgba(255,46,136,.9),0 0 42px rgba(255,46,136,.6),0 0 80px rgba(255,46,136,.35); }
+  }
+  @keyframes breathe-c {
+    0%,100% { box-shadow:0 0 10px rgba(0,229,255,.45), inset 0 0 8px rgba(0,229,255,.18); }
+    50%     { box-shadow:0 0 16px rgba(0,229,255,.7), inset 0 0 12px rgba(0,229,255,.3); }
+  }
+
+  /* ===== 内容区 ===== */
+  .content { flex:1; position:relative; z-index:10; padding:6px 16px 12px; overflow:hidden; }
+
+  /* 青→品红渐变描边卡 */
+  .gborder {
+    border-radius:16px; padding:1px;
+    background:linear-gradient(120deg, rgba(0,229,255,.85) 0%, rgba(124,58,237,.7) 46%, rgba(255,46,136,.85) 100%);
+    box-shadow:0 0 26px rgba(124,58,237,.22), 0 10px 30px rgba(0,0,0,.5);
+    animation:card-left .7s cubic-bezier(.22,.9,.3,1) .55s both;
+  }
+  @keyframes card-left {
+    from { opacity:0; transform:translateX(-26px); clip-path:inset(0 100% 0 0); }
+    to   { opacity:1; transform:translateX(0); clip-path:inset(0 0 0 0); }
+  }
+  .hello-card {
+    border-radius:15px; background:linear-gradient(160deg,#151527 0%,#101020 100%);
+    display:flex; align-items:center; gap:13px; padding:17px 16px;
+    position:relative; overflow:hidden;
+  }
+  .hello-card::after {
+    content:""; position:absolute; top:-40px; right:-30px; width:150px; height:150px;
+    background:radial-gradient(circle, rgba(255,46,136,.16), transparent 65%);
+    pointer-events:none;
+  }
+  .avatar {
+    width:52px; height:52px; flex:none; border-radius:14px;
+    background:linear-gradient(140deg, rgba(0,229,255,.16), rgba(124,58,237,.2));
+    border:1px solid rgba(0,229,255,.5);
+    color:var(--cyan); font-size:20px; font-weight:800;
+    display:flex; align-items:center; justify-content:center;
+    text-shadow:0 0 10px rgba(0,229,255,.8);
+    box-shadow:0 0 14px rgba(0,229,255,.28), inset 0 0 12px rgba(0,229,255,.1);
+  }
+  .hello-main { flex:1; min-width:0; }
+  .hello { font-size:18px; font-weight:800; letter-spacing:1px; }
+  .hello em { font-style:normal; color:var(--cyan); text-shadow:0 0 10px rgba(0,229,255,.65); }
+  .acct { margin-top:6px; font-size:11px; color:var(--sub); letter-spacing:1px; }
+  .hello-side { text-align:right; flex:none; }
+  .date { font-size:11px; color:var(--sub); letter-spacing:1px; }
+  .date b { display:block; font-size:12px; color:var(--ink); font-weight:700; margin-bottom:3px; }
+  .badge-m {
+    display:inline-block; margin-top:8px; padding:2px 9px; border-radius:99px;
+    border:1px solid var(--magenta); color:#FF7AB4;
+    font-size:10px; font-weight:700; letter-spacing:1.5px;
+    text-shadow:0 0 8px rgba(255,46,136,.85);
+    box-shadow:0 0 12px rgba(255,46,136,.35), inset 0 0 8px rgba(255,46,136,.14);
+    animation:flicker-in 1s linear 1.15s both, badge-breathe 4s ease-in-out 2.8s infinite;
+  }
+  @keyframes badge-breathe {
+    0%,100% { box-shadow:0 0 12px rgba(255,46,136,.35), inset 0 0 8px rgba(255,46,136,.14); }
+    50%     { box-shadow:0 0 20px rgba(255,46,136,.55), inset 0 0 12px rgba(255,46,136,.24); }
+  }
+
+  /* 消息通知卡 */
+  .notice {
+    margin-top:14px; border-radius:16px;
+    background:rgba(18,18,32,.82);
+    border:1px solid var(--line);
+    box-shadow:0 10px 28px rgba(0,0,0,.45);
+    padding:14px 15px 6px;
+    backdrop-filter:blur(2px);
+    animation:card-rise .7s cubic-bezier(.22,.9,.3,1) .8s both;
+  }
+  @keyframes card-rise {
+    from { opacity:0; transform:translateY(22px) scale(.985); }
+    to   { opacity:1; transform:translateY(0) scale(1); }
+  }
+  .notice-head { display:flex; align-items:center; gap:9px; }
+  .bell {
+    width:32px; height:32px; flex:none; border-radius:10px;
+    background:rgba(255,46,136,.12); color:var(--magenta);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 0 12px rgba(255,46,136,.3), inset 0 0 8px rgba(255,46,136,.1);
+  }
+  .bell svg { width:17px; height:17px; }
+  .notice-title { font-size:13px; font-weight:700; letter-spacing:1px; }
+  .pill-unread {
+    margin-left:auto; padding:3px 11px; border-radius:99px;
+    background:rgba(0,229,255,.1); border:1px solid rgba(0,229,255,.6);
+    color:var(--cyan); font-size:10.5px; font-weight:700; letter-spacing:1px;
+    text-shadow:0 0 8px rgba(0,229,255,.8);
+    box-shadow:0 0 12px rgba(0,229,255,.3), inset 0 0 8px rgba(0,229,255,.1);
+    animation:pill-breathe 3.6s ease-in-out 2.2s infinite;
+  }
+  @keyframes pill-breathe {
+    0%,100% { box-shadow:0 0 12px rgba(0,229,255,.3), inset 0 0 8px rgba(0,229,255,.1); }
+    50%     { box-shadow:0 0 18px rgba(0,229,255,.5), inset 0 0 12px rgba(0,229,255,.18); }
+  }
+  .msg { display:flex; align-items:center; gap:10px; padding:11px 2px; }
+  .msg + .msg { border-top:1px solid rgba(38,38,62,.9); }
+  .msg .dot { width:5px; height:5px; flex:none; border-radius:50%; background:var(--cyan);
+              box-shadow:0 0 6px var(--cyan), 0 0 12px rgba(0,229,255,.5); }
+  .msg:nth-of-type(3) .dot { background:var(--magenta); box-shadow:0 0 6px var(--magenta), 0 0 12px rgba(255,46,136,.5); }
+  .msg .mt { flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#ECECF6; letter-spacing:.5px;
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .msg .md { flex:none; font-size:10.5px; color:var(--sub); letter-spacing:.5px; font-variant-numeric:tabular-nums; }
+
+  /* 板块标题 */
+  .sec { display:flex; align-items:center; gap:9px; margin:20px 4px 12px;
+         animation:soft-in .8s ease 1.05s both; }
+  .sec::before { content:""; width:4px; height:15px; border-radius:2px;
+                 background:linear-gradient(180deg,var(--cyan),var(--magenta));
+                 box-shadow:0 0 8px rgba(0,229,255,.6), 0 0 14px rgba(255,46,136,.35); }
+  .sec h3 { font-size:15px; font-weight:800; letter-spacing:2px; }
+  .sec span { margin-left:auto; font-size:10px; color:var(--sub); letter-spacing:2px; }
+
+  /* 宫格 */
+  .grid-card {
+    border-radius:16px; background:rgba(18,18,32,.82);
+    border:1px solid var(--line);
+    box-shadow:0 10px 28px rgba(0,0,0,.45);
+    padding:20px 6px 6px;
+  }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); }
+  .g { display:flex; flex-direction:column; align-items:center; gap:9px; margin-bottom:15px;
+       animation:cell-on .55s ease both; }
+  .g:nth-child(1) { animation-delay:1.10s; } .g:nth-child(2) { animation-delay:1.18s; }
+  .g:nth-child(3) { animation-delay:1.26s; } .g:nth-child(4) { animation-delay:1.34s; }
+  .g:nth-child(5) { animation-delay:1.42s; } .g:nth-child(6) { animation-delay:1.50s; }
+  .g:nth-child(7) { animation-delay:1.58s; } .g:nth-child(8) { animation-delay:1.66s; }
+  @keyframes cell-on {
+    0%   { opacity:0; transform:translateY(12px) scale(.92); }
+    55%  { opacity:.4; }
+    70%  { opacity:.15; }
+    100% { opacity:1; transform:translateY(0) scale(1); }
+  }
+  .gi { width:50px; height:50px; border-radius:14px;
+        display:flex; align-items:center; justify-content:center; }
+  .gi svg { width:23px; height:23px; }
+  .g.c .gi {
+    background:rgba(0,229,255,.09); color:var(--cyan);
+    border:1px solid rgba(0,229,255,.38);
+    box-shadow:0 0 14px rgba(0,229,255,.22), inset 0 0 10px rgba(0,229,255,.08);
+    text-shadow:0 0 8px rgba(0,229,255,.8);
+  }
+  .g.m .gi {
+    background:rgba(255,46,136,.09); color:var(--magenta);
+    border:1px solid rgba(255,46,136,.38);
+    box-shadow:0 0 14px rgba(255,46,136,.22), inset 0 0 10px rgba(255,46,136,.08);
+  }
+  .g span { font-size:10.5px; color:#C9C9DE; letter-spacing:.5px; }
+  .g.soon .gi {
+    background:transparent; border:1.5px dashed #3A3A55; color:#55556F;
+    box-shadow:none; text-shadow:none;
+  }
+  .g.soon span { color:#55556F; }
+
+  .more { margin-top:2px; text-align:center; font-size:10.5px; letter-spacing:2.5px; color:#4C4C66;
+          animation:soft-in .9s ease 1.9s both; }
+
+  /* ===== TabBar ===== */
+  .tabbar {
+    flex:none; height:80px; position:relative; z-index:20;
+    background:rgba(10,10,18,.92);
+    border-top:1px solid rgba(38,38,62,.9);
+    display:flex; padding:10px 0 22px;
+    box-shadow:0 -6px 24px rgba(0,0,0,.4);
+    animation:soft-in .8s ease 1.3s both;
+  }
+  .tab { position:relative; flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;
+         font-size:10px; color:#6A6A88; letter-spacing:2px; }
+  .tab svg { width:22px; height:22px; }
+  .tab.on { color:var(--cyan); font-weight:700;
+            text-shadow:0 0 8px rgba(0,229,255,.7); }
+  .tab.on::after {
+    content:""; position:absolute; top:-11px; width:34px; height:3px; border-radius:2px;
+    background:linear-gradient(90deg, transparent, var(--cyan) 30%, var(--cyan) 70%, transparent);
+    box-shadow:0 0 10px var(--cyan), 0 0 22px rgba(0,229,255,.6);
+    animation:tab-sweep .7s cubic-bezier(.22,.9,.3,1) 1.5s both, breathe-line 4s ease-in-out 3s infinite;
+  }
+  @keyframes tab-sweep {
+    from { transform:scaleX(0); opacity:0; }
+    to   { transform:scaleX(1); opacity:1; }
+  }
+  @keyframes breathe-line {
+    0%,100% { box-shadow:0 0 10px var(--cyan), 0 0 22px rgba(0,229,255,.6); }
+    50%     { box-shadow:0 0 14px var(--cyan), 0 0 30px rgba(0,229,255,.85); }
+  }
+
+  /* ===== 动效降级 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>方案五 · <em>赛博霓虹</em><small>Cyberpunk Neon</small></h1>
+  <p class="slogan">雨夜霓虹，灯管逐段点亮 —— 深色底上青与品红对撞，工具平台也有夜市烟火气。</p>
+  <div class="palette">
+    <span class="pill"><i class="d-bg"></i>底 <b>#0A0A12</b></span>
+    <span class="pill"><i class="d-m"></i>品红 <b>#FF2E88</b></span>
+    <span class="pill"><i class="d-c"></i>青 <b>#00E5FF</b></span>
+    <span class="pill"><i class="d-p"></i>辅紫 <b>#7C3AED</b></span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <!-- 底景：光晕 + 雨丝 + 反光 -->
+        <div class="sky"></div>
+        <div class="rain"></div>
+
+        <!-- 状态栏 -->
+        <div class="sb">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <!-- 导航栏：霓虹品牌字 -->
+        <div class="navbar">
+          <span class="n-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5L5 13.2h5.2L11 21.5l8-10.7h-5.2z"/></svg>
+          </span>
+          <span>
+            <span class="n-title">Shade 壹匣</span>
+            <span class="n-sub" style="display:block;text-align:center;">班组数字化工具平台</span>
+          </span>
+        </div>
+
+        <div class="content">
+
+          <!-- 问候卡：青→品红渐变描边 -->
+          <div class="gborder">
+            <div class="hello-card">
+              <div class="avatar">张</div>
+              <div class="hello-main">
+                <div class="hello">下午好，<em>张伟</em></div>
+                <div class="acct">账号 zhangwei</div>
+              </div>
+              <div class="hello-side">
+                <div class="date"><b>9月25日</b>星期五</div>
+                <span class="badge-m">高级技师</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 消息通知卡 -->
+          <div class="notice">
+            <div class="notice-head">
+              <span class="bell">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+              </span>
+              <span class="notice-title">消息通知</span>
+              <span class="pill-unread">2 条未读</span>
+            </div>
+            <div class="msg">
+              <span class="dot"></span>
+              <span class="mt">国庆保电工作安排</span>
+              <span class="md">09-24 18:02</span>
+            </div>
+            <div class="msg">
+              <span class="dot"></span>
+              <span class="mt">9月安全日活动记录已生成</span>
+              <span class="md">09-23 10:15</span>
+            </div>
+          </div>
+
+          <!-- 应用中心 -->
+          <div class="sec"><h3>应用中心</h3><span>APPS / 08</span></div>
+
+          <div class="grid-card">
+            <div class="grid">
+              <div class="g c">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.8a8.5 8.5 0 0 1-12.5 7.5L3.5 20.5l1.2-4.4a8.5 8.5 0 1 1 15.8-4.3z"/><path d="M8.8 10.2h6.4M8.8 13.6h4"/></svg></div>
+                <span>Call Me</span>
+              </div>
+              <div class="g m">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6"/><path d="M9 14h6"/><path d="M9.2 17.5l1.4 1.4 2.6-2.6"/></svg></div>
+                <span>出工日志</span>
+              </div>
+              <div class="g c">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></div>
+                <span>安全日活动记录</span>
+              </div>
+              <div class="g m">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9.5 20h5M12 16v4"/><path d="M8 9.5l2.4 2.3L8 14.1M12.6 14.1h3.4"/></svg></div>
+                <span>远程连接计算机</span>
+              </div>
+              <div class="g c">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3.5L10.6 13.9"/><path d="M21 3.5l-6.8 17-3.6-7.2-3.6.6.6-3.6z"/></svg></div>
+                <span>文件传输</span>
+              </div>
+              <div class="g m">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="17" height="14.5" rx="2.5"/><circle cx="9" cy="9.4" r="1.7"/><path d="M4.5 16.5l4.2-4.2 3 3 3.4-3.4 4.4 4.4"/><path d="M16.4 7.4c.9 1 1.5 1.8 1.5 2.5a1.5 1.5 0 0 1-3 0c0-.7.6-1.5 1.5-2.5z"/></svg></div>
+                <span>水印添加</span>
+              </div>
+              <div class="g c">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M9.6 9.4a2.4 2.4 0 1 1 3.4 2.9c-.8.4-1 .9-1 1.7"/><circle cx="12" cy="16.9" r="1" fill="currentColor" stroke="none"/></svg></div>
+                <span>题库刷题</span>
+              </div>
+              <div class="g soon">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+                <span>敬请期待</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="more">更多班组应用持续接入中</div>
+
+        </div>
+
+        <!-- TabBar -->
+        <div class="tabbar">
+          <div class="tab on">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.2L12 3.8l7.5 6.4"/><path d="M6.6 8.9V20h10.8V8.9"/><path d="M10.4 20v-5h3.2v5"/></svg>
+            首页
+          </div>
+          <div class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.6a6.4 6.4 0 0 1 12.8 0"/></svg>
+            我的
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap">小程序 · 首页（霓虹灯管点亮 + 雨巷氛围）</div>
+  </div>
+</main>
+
+</body>
+</html>

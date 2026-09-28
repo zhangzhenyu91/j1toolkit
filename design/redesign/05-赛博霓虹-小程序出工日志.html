@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案五「赛博霓虹夜市」Cyber Neon Night
+  主色板：暗夜底 #0A0A12 ｜ 深空面板 #12121E ｜ 霓虹品红 #FF2E88（失败/危险/强调）｜ 霓虹青 #00E5FF（通过/激活/主强调）｜ 辅助紫 #7C3AED ｜ 霓虹字亮白 #EAF6FF ｜ 次级文字 #8A93B8 ｜ 品红正文 #FF5CA3（小字提亮的合规变体）
+  设计要点：
+  1. 暗夜质感：#0A0A12 纯深夜底 + 面板 #12121E，屏幕内叠一层 1px 冷网格线与顶部青紫径向辉光，营造「霓虹夜市」灯箱悬浮感；
+  2. 多层霓虹辉光：关键元素 text-shadow/box-shadow 三层叠加（近芯亮白 → 本色光晕 → 大范围色雾），车牌、角标、FAB 均为辉光载体；
+  3. 渐变描边：卡片采用「padding:1px + 线性渐变背景 + 内层实色面板」实现青→品红渐变描边，比纯色描边更具霓虹灯管质感；
+  4. 语义双霓虹：验证通过/已同步/打卡完成一律青色辉光；未通过/缺失/删除一律品红辉光，状态识别不依赖文字；
+  5. 签名动效：入场为编排式「霓虹逐段点亮」——状态栏→导航→日期条→卡片自上而下以霓虹闪烁节奏依次通电，卡片内一条扫描光线纵贯全卡；点亮后「验证通过」角标与 FAB 进入辉光呼吸循环；
+  落地注意事项：
+  1. 小程序端无 box-shadow 性能问题时可用 WXSS 同款辉光，低端机建议收敛为单层阴影；渐变描边在小程序用双层 view 嵌套实现；
+  2. 品红 #FF2E88 直接作小字号正文对比度约 4.3:1，正文/操作文字须用提亮变体 #FF5CA3（≥4.5:1），#FF2E88 保留给大字、描边与辉光；
+  3. 状态栏与刘海区域为深色沉浸，顶部安全区背景与页面底色一致，无需额外适配；
+  4. 呼吸动效周期 ≥2.4s、幅度克制，遵循 prefers-reduced-motion 全局降级（关闭动画与过渡，元素保持最终点亮态）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05 · 赛博霓虹 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#0A0A12; --panel:#12121E; --panel2:#171729;
+    --cyan:#00E5FF; --magenta:#FF2E88; --magenta-tx:#FF5CA3; --purple:#7C3AED;
+    --ink:#EAF6FF; --sub:#8A93B8; --hair:rgba(122,132,178,.28);
+  }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(640px 420px at 12% 8%, rgba(124,58,237,.16), transparent 70%),
+      radial-gradient(720px 480px at 88% 14%, rgba(255,46,136,.10), transparent 70%),
+      radial-gradient(800px 560px at 50% 96%, rgba(0,229,255,.08), transparent 70%),
+      #05050B;
+    min-height:100vh;
+    padding:56px 24px 100px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页面顶部标注区 ===== */
+  .page-head { text-align:center; margin-bottom:56px; }
+  .page-head h1 { font-size:28px; font-weight:800; letter-spacing:3px; }
+  .page-head h1 em {
+    font-style:normal; color:var(--cyan);
+    text-shadow:0 0 6px rgba(0,229,255,.9), 0 0 22px rgba(0,229,255,.55), 0 0 48px rgba(0,229,255,.35);
+  }
+  .page-head h1 small { margin-left:12px; font-size:13px; font-weight:600; letter-spacing:5px; color:var(--sub); }
+  .page-head p { margin-top:14px; font-size:13px; letter-spacing:2px; color:var(--sub); }
+  .palette { margin-top:22px; display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
+  .chip {
+    display:flex; align-items:center; gap:8px;
+    padding:6px 14px 6px 9px; border-radius:99px;
+    background:rgba(18,18,30,.85); border:1px solid var(--hair);
+    font-size:11px; letter-spacing:1px; color:#B9C2E0;
+  }
+  .chip i { width:12px; height:12px; border-radius:50%; flex:none; }
+
+  /* ===== 机框舞台 ===== */
+  .stage { display:flex; justify-content:center; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:22px; }
+  .cap { font-size:14px; font-weight:700; letter-spacing:2px; color:#C6CFEA; }
+  .cap i {
+    font-style:normal; margin-right:7px; color:var(--magenta);
+    text-shadow:0 0 10px rgba(255,46,136,.8);
+  }
+
+  .phone {
+    padding:12px; border-radius:62px;
+    background:linear-gradient(150deg,#26263c 0%,#0d0d18 55%,#08080f 100%);
+    box-shadow:
+      0 0 0 1px rgba(124,58,237,.35),
+      0 0 34px rgba(124,58,237,.28),
+      0 0 90px rgba(0,229,255,.12),
+      0 40px 80px rgba(0,0,0,.6);
+  }
+  .screen {
+    position:relative; width:375px; height:812px; border-radius:50px; overflow:hidden;
+    display:flex; flex-direction:column;
+    background:
+      radial-gradient(340px 200px at 85% -4%, rgba(124,58,237,.22), transparent 70%),
+      radial-gradient(300px 220px at -10% 30%, rgba(0,229,255,.07), transparent 70%),
+      var(--bg);
+  }
+  /* 暗夜网格线纹理 */
+  .screen::before {
+    content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+    background:
+      repeating-linear-gradient(0deg, rgba(122,132,178,.05) 0 1px, transparent 1px 34px),
+      repeating-linear-gradient(90deg, rgba(122,132,178,.05) 0 1px, transparent 1px 34px);
+  }
+  .notch {
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    width:118px; height:31px; border-radius:17px; background:#05050B; z-index:30;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
+  }
+  .home-ind {
+    position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+    width:134px; height:5px; border-radius:3px; z-index:40;
+    background:rgba(234,246,255,.75); box-shadow:0 0 8px rgba(0,229,255,.5);
+  }
+
+  /* 状态栏 */
+  .sb {
+    height:54px; flex:none; padding:20px 30px 0; position:relative; z-index:20;
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:14px; font-weight:700; letter-spacing:.5px; color:var(--ink);
+  }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+
+  /* ===== 导航栏 ===== */
+  .navbar {
+    height:52px; flex:none; position:relative; z-index:20;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .navbar h2 {
+    font-size:17px; font-weight:800; letter-spacing:3px; color:var(--ink);
+    text-shadow:0 0 12px rgba(0,229,255,.35);
+  }
+  .back {
+    position:absolute; left:16px; top:50%; transform:translateY(-50%);
+    width:32px; height:32px; border-radius:10px;
+    background:rgba(18,18,30,.9); border:1px solid var(--hair);
+    display:flex; align-items:center; justify-content:center; color:var(--cyan);
+  }
+  .back svg { width:17px; height:17px; }
+
+  .content { flex:1; position:relative; z-index:10; padding:6px 16px 0; overflow:hidden; }
+
+  /* 班组 chip + 日期条 */
+  .topbar { display:flex; align-items:center; gap:10px; }
+  .team-chip {
+    display:flex; align-items:center; gap:6px; flex:none;
+    height:30px; padding:0 12px; border-radius:9px;
+    background:rgba(124,58,237,.16); border:1px solid rgba(124,58,237,.55);
+    font-size:12px; font-weight:700; letter-spacing:1px; color:#CDBBFF;
+    box-shadow:0 0 12px rgba(124,58,237,.35), inset 0 0 8px rgba(124,58,237,.15);
+  }
+  .team-chip svg { width:12px; height:12px; }
+  .datebar {
+    flex:1; height:30px; display:flex; align-items:center; justify-content:center; gap:10px;
+    border-radius:9px; background:var(--panel); border:1px solid var(--hair);
+    font-size:12.5px; font-weight:700; letter-spacing:1px;
+  }
+  .datebar .arr { color:var(--sub); font-size:14px; line-height:1; }
+  .datebar .today {
+    font-size:10px; font-weight:800; color:var(--cyan); letter-spacing:1px;
+    border:1px solid rgba(0,229,255,.5); border-radius:4px; padding:0 5px; line-height:15px;
+    text-shadow:0 0 8px rgba(0,229,255,.7);
+  }
+  .datebar .cal { display:flex; align-items:center; color:var(--sub); }
+  .datebar .cal svg { width:14px; height:14px; }
+
+  /* 分段胶囊 */
+  .seg {
+    margin-top:12px; height:34px; border-radius:99px; padding:3px;
+    background:#0D0D18; border:1px solid var(--hair);
+    display:flex;
+  }
+  .seg .it {
+    flex:1; border-radius:99px; display:flex; align-items:center; justify-content:center;
+    font-size:12.5px; font-weight:700; letter-spacing:2px; color:var(--sub);
+  }
+  .seg .it.on {
+    color:#062A30;
+    background:linear-gradient(100deg,#7DF3FF 0%, var(--cyan) 60%, #2BB7F0 100%);
+    box-shadow:0 0 12px rgba(0,229,255,.75), 0 0 30px rgba(0,229,255,.35);
+    text-shadow:none;
+  }
+
+  /* ===== 日志卡片（渐变描边） ===== */
+  .card {
+    position:relative; margin-top:14px; border-radius:16px; padding:1px;
+    background:linear-gradient(135deg, rgba(0,229,255,.85) 0%, rgba(124,58,237,.5) 42%, rgba(255,46,136,.65) 100%);
+    box-shadow:0 0 22px rgba(0,229,255,.12), 0 14px 34px rgba(0,0,0,.5);
+  }
+  .card.fail {
+    background:linear-gradient(135deg, rgba(255,46,136,.9) 0%, rgba(124,58,237,.55) 55%, rgba(255,46,136,.3) 100%);
+    box-shadow:0 0 22px rgba(255,46,136,.18), 0 14px 34px rgba(0,0,0,.5);
+  }
+  .card-in {
+    border-radius:15px; background:linear-gradient(165deg, var(--panel2) 0%, var(--panel) 45%);
+    padding:15px 15px 13px; position:relative; overflow:hidden;
+  }
+  /* 扫描光线（签名动效组成部分） */
+  .scanline {
+    position:absolute; left:0; right:0; top:-12%; height:56px; z-index:6; pointer-events:none;
+    background:linear-gradient(180deg, transparent 0%, rgba(0,229,255,.16) 45%, rgba(0,229,255,.4) 52%, rgba(0,229,255,.16) 60%, transparent 100%);
+    opacity:0;
+    animation:scan 1.15s cubic-bezier(.4,0,.2,1) 1.15s forwards;
+  }
+  @keyframes scan {
+    0% { top:-12%; opacity:0; }
+    12% { opacity:1; }
+    82% { opacity:1; }
+    100% { top:106%; opacity:0; }
+  }
+
+  /* 卡头：车牌 + 跨班 + 验证角标 */
+  .c-head { display:flex; align-items:center; gap:9px; padding-right:86px; }
+  .plate {
+    font-size:19px; font-weight:800; letter-spacing:2px; color:var(--ink);
+    text-shadow:
+      0 0 2px rgba(234,246,255,.9),
+      0 0 10px rgba(0,229,255,.85),
+      0 0 26px rgba(0,229,255,.5),
+      0 0 52px rgba(0,229,255,.3);
+  }
+  .tag-xb {
+    font-size:10px; font-weight:800; letter-spacing:2px; color:#CDBBFF;
+    border:1px solid rgba(124,58,237,.75); border-radius:5px; padding:1px 7px;
+    background:rgba(124,58,237,.14);
+    box-shadow:0 0 10px rgba(124,58,237,.4), inset 0 0 6px rgba(124,58,237,.2);
+  }
+  .verdict {
+    position:absolute; top:0; right:0; z-index:5;
+    display:flex; align-items:center; gap:4px;
+    font-size:10.5px; font-weight:800; letter-spacing:1.5px;
+    padding:5px 10px; border-radius:0 15px 0 12px;
+  }
+  .verdict.ok {
+    color:#04333A;
+    background:linear-gradient(120deg,#8FF6FF, var(--cyan));
+    box-shadow:0 0 14px rgba(0,229,255,.8), 0 0 34px rgba(0,229,255,.4);
+  }
+  .verdict.no {
+    color:#3D0620;
+    background:linear-gradient(120deg,#FF7DB8, var(--magenta));
+    box-shadow:0 0 14px rgba(255,46,136,.8), 0 0 34px rgba(255,46,136,.45);
+  }
+  .verdict svg { width:11px; height:11px; }
+  .verdict.glow-breathe { animation:verdictBreathe 2.8s ease-in-out 2.4s infinite; }
+  @keyframes verdictBreathe {
+    0%,100% { filter:brightness(1); }
+    50% { filter:brightness(1.28); }
+  }
+
+  /* 巡视内容块 */
+  .route {
+    margin-top:11px; border-radius:10px; padding:10px 12px;
+    background:rgba(10,10,18,.72); border:1px solid var(--hair);
+    display:flex; align-items:center; gap:10px;
+  }
+  .route .ri {
+    width:30px; height:30px; flex:none; border-radius:9px;
+    background:rgba(0,229,255,.1); border:1px solid rgba(0,229,255,.4);
+    display:flex; align-items:center; justify-content:center; color:var(--cyan);
+    box-shadow:0 0 10px rgba(0,229,255,.25);
+  }
+  .route .ri svg { width:16px; height:16px; }
+  .route b { font-size:13.5px; font-weight:800; letter-spacing:.5px; }
+  .route p { margin-top:3px; font-size:10.5px; color:var(--sub); letter-spacing:1px; }
+
+  /* 商旅打卡 */
+  .sec-t {
+    margin:11px 2px 7px; display:flex; align-items:center; gap:7px;
+    font-size:11px; font-weight:800; letter-spacing:2.5px; color:#AEB8DC;
+  }
+  .sec-t::before {
+    content:""; width:3px; height:11px; border-radius:2px; background:var(--cyan);
+    box-shadow:0 0 8px rgba(0,229,255,.8);
+  }
+  .sec-t .sync {
+    margin-left:auto; font-size:10px; font-weight:700; letter-spacing:1px;
+    color:var(--cyan); display:flex; align-items:center; gap:4px;
+    text-shadow:0 0 8px rgba(0,229,255,.6);
+  }
+  .sec-t .sync svg { width:11px; height:11px; }
+  .punch {
+    border-radius:10px; background:rgba(10,10,18,.72); border:1px solid var(--hair);
+  }
+  .pr { display:flex; align-items:center; gap:9px; padding:9px 12px; }
+  .pr + .pr { border-top:1px dashed rgba(122,132,178,.22); }
+  .pr .avatar {
+    width:26px; height:26px; flex:none; border-radius:8px;
+    background:linear-gradient(135deg, rgba(124,58,237,.85), rgba(255,46,136,.7));
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:800; color:#fff;
+    box-shadow:0 0 8px rgba(124,58,237,.5);
+  }
+  .pr .nm { font-size:13px; font-weight:800; letter-spacing:1px; }
+  .pr .hrs {
+    font-size:10px; font-weight:700; color:#CDBBFF; letter-spacing:.5px;
+    border:1px solid rgba(124,58,237,.55); border-radius:4px; padding:0 5px; line-height:15px;
+  }
+  .pr .times { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:12px; font-weight:700; }
+  .pr .times .tp { color:#9FEFFF; font-variant-numeric:tabular-nums; text-shadow:0 0 8px rgba(0,229,255,.45); }
+  .pr .times .tp i {
+    font-style:normal; display:inline-block; margin-left:2px; color:var(--cyan);
+    text-shadow:0 0 6px rgba(0,229,255,.9);
+  }
+  .pr .times .miss {
+    font-size:11px; font-weight:700; letter-spacing:.5px; color:var(--magenta-tx);
+    border:1px dashed rgba(255,46,136,.75); border-radius:5px; padding:1px 7px;
+    background:rgba(255,46,136,.08);
+    text-shadow:0 0 8px rgba(255,46,136,.6);
+    box-shadow:inset 0 0 8px rgba(255,46,136,.12);
+  }
+
+  /* 照片区：1 大 + 2 小叠放 + 右侧信息列 */
+  .photos { margin-top:4px; display:flex; gap:9px; }
+  .ph {
+    position:relative; flex:none; border-radius:11px; padding:1px;
+    background:linear-gradient(140deg, rgba(0,229,255,.75), rgba(124,58,237,.5));
+    box-shadow:0 0 12px rgba(0,229,255,.2);
+  }
+  .ph.main { width:106px; height:106px; }
+  .ph-col { display:flex; flex-direction:column; gap:9px; flex:none; }
+  .ph-col .ph { width:48px; height:48px; border-radius:9px; }
+  .ph-col .ph .in { border-radius:8px; }
+  .ph .in {
+    width:100%; height:100%; border-radius:10px; overflow:hidden; position:relative;
+  }
+  .ph1 .in {
+    background:
+      radial-gradient(30px 18px at 62% 30%, rgba(255,214,140,.55), transparent 70%),
+      linear-gradient(180deg, rgba(18,24,48,.2) 40%, rgba(6,8,18,.85) 100%),
+      repeating-linear-gradient(115deg, rgba(0,229,255,.10) 0 3px, transparent 3px 9px),
+      linear-gradient(135deg,#232A4E 0%, #101A38 55%, #0B1026 100%);
+  }
+  .ph2 .in {
+    background:
+      radial-gradient(24px 14px at 40% 62%, rgba(255,46,136,.35), transparent 70%),
+      linear-gradient(180deg, rgba(20,16,44,.15) 35%, rgba(8,6,20,.8) 100%),
+      repeating-linear-gradient(65deg, rgba(124,58,237,.16) 0 4px, transparent 4px 11px),
+      linear-gradient(160deg,#2B1E4E 0%, #141033 60%, #0B0A20 100%);
+  }
+  .ph3 .in {
+    background:
+      radial-gradient(20px 12px at 66% 68%, rgba(0,229,255,.35), transparent 70%),
+      linear-gradient(180deg, rgba(12,20,40,.15) 35%, rgba(4,8,18,.82) 100%),
+      repeating-linear-gradient(95deg, rgba(0,229,255,.08) 0 2px, transparent 2px 8px),
+      linear-gradient(140deg,#12314A 0%, #0C1C33 60%, #081020 100%);
+  }
+  .ph .badges {
+    position:absolute; left:4px; right:4px; bottom:4px; z-index:3;
+    display:flex; flex-direction:column; gap:3px; align-items:flex-start;
+  }
+  .ph .bd {
+    font-size:8.5px; font-weight:800; letter-spacing:.5px; line-height:1;
+    padding:2.5px 5px; border-radius:4px;
+  }
+  .ph .bd.ok { color:#04333A; background:linear-gradient(120deg,#8FF6FF,var(--cyan)); box-shadow:0 0 8px rgba(0,229,255,.7); }
+  .ph .bd.sy { color:#2A1B52; background:linear-gradient(120deg,#D9C6FF,#A78BFA); box-shadow:0 0 8px rgba(124,58,237,.7); }
+  /* 照片信息列 */
+  .ph-info {
+    flex:1; min-width:0; border-radius:11px; padding:8px 11px;
+    background:rgba(10,10,18,.72); border:1px solid var(--hair);
+    display:flex; flex-direction:column; justify-content:space-between; gap:4px;
+  }
+  .pi { display:flex; align-items:baseline; gap:6px; font-size:11px; line-height:1.45; }
+  .pi .k { flex:none; width:42px; color:var(--sub); letter-spacing:1px; font-size:10px; }
+  .pi .v { color:#DDE7FA; font-weight:600; }
+  .pi .v.hl { color:#9FEFFF; text-shadow:0 0 8px rgba(0,229,255,.4); }
+
+  /* 备注 */
+  .remark {
+    margin-top:11px; border-radius:10px; padding:9px 12px;
+    background:rgba(124,58,237,.08); border:1px dashed rgba(124,58,237,.45);
+    display:flex; gap:8px; align-items:flex-start;
+  }
+  .remark .mk {
+    flex:none; font-size:10px; font-weight:800; letter-spacing:1px; color:#CDBBFF;
+    border:1px solid rgba(124,58,237,.6); border-radius:4px; padding:1px 5px; line-height:15px;
+    margin-top:1px;
+  }
+  .remark p { font-size:12px; line-height:1.6; color:#C7D2EF; letter-spacing:.5px; }
+
+  /* 操作行 */
+  .acts {
+    margin-top:12px; padding-top:11px;
+    border-top:1px solid var(--hair);
+    display:flex; align-items:center;
+  }
+  .act {
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    font-size:12.5px; font-weight:700; letter-spacing:1.5px; color:#AEB8DC;
+  }
+  .act svg { width:14px; height:14px; }
+  .act.a1 { flex:1.25; color:#9FEFFF; text-shadow:0 0 8px rgba(0,229,255,.45); }
+  .act.a2 { flex:1; }
+  .act.a3 { flex:1; color:var(--magenta-tx); text-shadow:0 0 8px rgba(255,46,136,.5); }
+  .act + .act { border-left:1px solid rgba(122,132,178,.22); }
+
+  /* 卡片②（未通过，露上半） */
+  .card2-head { display:flex; align-items:center; gap:9px; padding-right:74px; }
+  .nocar { font-size:15px; font-weight:800; letter-spacing:1.5px; color:var(--ink);
+           text-shadow:0 0 10px rgba(255,46,136,.45); }
+  .fail-reason {
+    margin-top:10px; border-radius:9px; padding:8px 11px;
+    background:rgba(255,46,136,.09); border:1px solid rgba(255,46,136,.5);
+    display:flex; align-items:center; gap:8px;
+    box-shadow:inset 0 0 12px rgba(255,46,136,.1);
+  }
+  .fail-reason svg { width:14px; height:14px; flex:none; color:var(--magenta); }
+  .fail-reason span { font-size:12px; font-weight:700; letter-spacing:.5px; color:#FF9CC6; }
+  .fade-tail {
+    position:absolute; left:0; right:0; bottom:0; height:88px; z-index:15; pointer-events:none;
+    background:linear-gradient(180deg, rgba(10,10,18,0) 0%, rgba(10,10,18,.72) 62%, var(--bg) 100%);
+  }
+
+  /* FAB */
+  .fab {
+    position:absolute; right:18px; bottom:30px; z-index:45;
+    width:54px; height:54px; border-radius:50%;
+    background:linear-gradient(135deg, var(--cyan) 0%, #4F8DFB 48%, var(--magenta) 100%);
+    display:flex; align-items:center; justify-content:center; color:#0A0A12;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,.18) inset,
+      0 0 16px rgba(0,229,255,.65),
+      0 0 40px rgba(255,46,136,.4),
+      0 10px 24px rgba(0,0,0,.5);
+  }
+  .fab svg { width:24px; height:24px; }
+  .fab.breathe { animation:fabBreathe 2.6s ease-in-out 2.6s infinite; }
+  @keyframes fabBreathe {
+    0%,100% { box-shadow:0 0 0 1px rgba(255,255,255,.18) inset, 0 0 16px rgba(0,229,255,.65), 0 0 40px rgba(255,46,136,.4), 0 10px 24px rgba(0,0,0,.5); }
+    50%     { box-shadow:0 0 0 1px rgba(255,255,255,.24) inset, 0 0 26px rgba(0,229,255,.95), 0 0 64px rgba(255,46,136,.6), 0 10px 24px rgba(0,0,0,.5); }
+  }
+
+  /* ===== 编排式入场：霓虹逐段点亮 ===== */
+  @keyframes neonOn {
+    0%   { opacity:0; }
+    6%   { opacity:1; }
+    13%  { opacity:.28; }
+    21%  { opacity:1; }
+    30%  { opacity:.45; }
+    40%  { opacity:1; }
+    100% { opacity:1; }
+  }
+  @keyframes riseOn {
+    0%   { opacity:0; transform:translateY(14px); }
+    12%  { opacity:1; transform:translateY(0); }
+    22%  { opacity:.35; }
+    34%  { opacity:1; }
+    100% { opacity:1; transform:translateY(0); }
+  }
+  @keyframes fabOn {
+    0%   { opacity:0; transform:scale(.4); }
+    55%  { opacity:1; transform:scale(1.12); }
+    75%  { transform:scale(.94); }
+    100% { opacity:1; transform:scale(1); }
+  }
+  .d-sb    { animation:neonOn .7s linear .05s both; }
+  .d-nav   { animation:neonOn .7s linear .22s both; }
+  .d-top   { animation:riseOn .75s ease .42s both; }
+  .d-seg   { animation:riseOn .75s ease .58s both; }
+  .d-card1 { animation:riseOn .85s cubic-bezier(.3,.9,.3,1) .78s both; }
+  .d-block1{ animation:neonOn .6s linear 1.28s both; }
+  .d-block2{ animation:neonOn .6s linear 1.48s both; }
+  .d-block3{ animation:neonOn .6s linear 1.68s both; }
+  .d-block4{ animation:neonOn .6s linear 1.88s both; }
+  .d-card2 { animation:riseOn .8s ease 2.1s both; }
+  .d-fab   { animation:fabOn .6s cubic-bezier(.3,1.4,.4,1) 2.35s both; }
+
+  /* ===== 动效降级 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+
+  /* ---------- 窄屏自适应 ---------- */
+  @media (max-width: 560px) { .stage { zoom:.86; } body { padding-left:8px; padding-right:8px; } }
+  @media (max-width: 460px) { .stage { zoom:.74; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>方案 05 · <em>赛博霓虹</em><small>CYBER NEON NIGHT</small></h1>
+  <p>深夜班组的灯箱看板：暗夜为底，品红与青两色霓虹承担全部状态语义，日志卡片如灯管逐段点亮。</p>
+  <div class="palette">
+    <span class="chip"><i style="background:#0A0A12;box-shadow:0 0 0 1px #3A3F5C"></i>#0A0A12</span>
+    <span class="chip"><i style="background:#FF2E88;box-shadow:0 0 8px rgba(255,46,136,.9)"></i>#FF2E88</span>
+    <span class="chip"><i style="background:#00E5FF;box-shadow:0 0 8px rgba(0,229,255,.9)"></i>#00E5FF</span>
+    <span class="chip"><i style="background:#7C3AED;box-shadow:0 0 8px rgba(124,58,237,.9)"></i>#7C3AED</span>
+    <span class="chip"><i style="background:#EAF6FF"></i>#EAF6FF</span>
+    <span class="chip"><i style="background:#8A93B8"></i>#8A93B8</span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <!-- 状态栏 -->
+        <div class="sb d-sb">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <!-- 导航栏 -->
+        <div class="navbar d-nav">
+          <span class="back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>
+          </span>
+          <h2>出工日志</h2>
+        </div>
+
+        <div class="content">
+          <!-- 班组 + 日期条 -->
+          <div class="topbar d-top">
+            <span class="team-chip">
+              检修一班
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5l5.5 5.5 5.5-5.5"/></svg>
+            </span>
+            <div class="datebar">
+              <span class="arr">‹</span>
+              <span>9月25日 周五</span>
+              <span class="arr">›</span>
+              <span class="today">今天</span>
+              <span class="cal">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5.5" width="16" height="15" rx="2.5"/><path d="M4 10h16M8.5 3.5v3.5M15.5 3.5v3.5"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <!-- 分段胶囊 -->
+          <div class="seg d-seg">
+            <span class="it on">全 部</span>
+            <span class="it">仅看我</span>
+          </div>
+
+          <!-- ===== 日志卡片 ① ===== -->
+          <section class="card d-card1">
+            <div class="card-in">
+              <div class="scanline"></div>
+
+              <div class="verdict ok glow-breathe">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                验证通过
+              </div>
+
+              <div class="c-head">
+                <span class="plate">鄂A·D12345</span>
+                <span class="tag-xb">跨班</span>
+              </div>
+
+              <!-- 巡视内容 -->
+              <div class="route d-block1">
+                <span class="ri">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5L4.5 20.5M16 3.5l3.5 17M8.8 8h6.4M9.6 13h4.8M10.4 18h3.2M5.8 20.5h12.4"/></svg>
+                </span>
+                <div>
+                  <b>110kV 锦城线 #12–#28 塔巡视</b>
+                  <p>线路巡视 · 2 人出工 · 全天作业</p>
+                </div>
+              </div>
+
+              <!-- 商旅打卡 -->
+              <div class="sec-t d-block2">
+                商旅打卡
+                <span class="sync">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 3.5v4h-4"/></svg>
+                  已同步
+                </span>
+              </div>
+              <div class="punch d-block2">
+                <div class="pr">
+                  <span class="avatar">王</span>
+                  <span class="nm">王强</span>
+                  <span class="hrs">工时 6.5h</span>
+                  <span class="times">
+                    <span class="tp">07:58<i>✓</i></span>
+                    <span class="tp">17:32<i>✓</i></span>
+                  </span>
+                </div>
+                <div class="pr">
+                  <span class="avatar">李</span>
+                  <span class="nm">李军</span>
+                  <span class="times">
+                    <span class="tp">08:02<i>✓</i></span>
+                    <span class="miss">还差结束打卡</span>
+                  </span>
+                </div>
+              </div>
+
+              <!-- 照片区 -->
+              <div class="sec-t d-block3">现场照片 · 3</div>
+              <div class="photos d-block3">
+                <div class="ph main ph1">
+                  <div class="in"></div>
+                  <div class="badges">
+                    <span class="bd ok">核验通过</span>
+                    <span class="bd sy">已同步商旅</span>
+                  </div>
+                </div>
+                <div class="ph-col">
+                  <div class="ph ph2"><div class="in"></div></div>
+                  <div class="ph ph3"><div class="in"></div></div>
+                </div>
+                <div class="ph-info">
+                  <div class="pi"><span class="k">施工</span><span class="v hl">#18 塔更换绝缘子</span></div>
+                  <div class="pi"><span class="k">拍摄</span><span class="v">10:24</span></div>
+                  <div class="pi"><span class="k">天气</span><span class="v">晴 26℃</span></div>
+                  <div class="pi"><span class="k">地点</span><span class="v">武汉市江夏区</span></div>
+                </div>
+              </div>
+
+              <!-- 备注 -->
+              <div class="remark d-block4">
+                <span class="mk">备注</span>
+                <p>#18 塔绝缘子更换完成，明日复验。</p>
+              </div>
+
+              <!-- 操作行 -->
+              <div class="acts d-block4">
+                <span class="act a1">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 3.5v4h-4"/></svg>
+                  从商旅同步
+                </span>
+                <span class="act a2">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5l3.8-.9L19.6 7.3a2 2 0 0 0-2.8-2.8L5.5 15.8z"/><path d="M14.8 6.5l2.8 2.8"/></svg>
+                  备 注
+                </span>
+                <span class="act a3">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.5 6V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3V6.5M7 6.5l.8 12a2 2 0 0 0 2 1.9h4.4a2 2 0 0 0 2-1.9l.8-12"/><path d="M10.2 10.5v5.5M13.8 10.5v5.5"/></svg>
+                  删 除
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <!-- ===== 日志卡片 ②（未通过 · 露上半） ===== -->
+          <section class="card fail d-card2">
+            <div class="card-in">
+              <div class="verdict no">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+                未通过
+              </div>
+              <div class="card2-head">
+                <span class="nocar">未出车 · 站内作业</span>
+              </div>
+              <div class="fail-reason">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5L2.8 19.5h18.4z"/><path d="M12 9.5v4.2"/><circle cx="12" cy="16.6" r=".95" fill="currentColor" stroke="none"/></svg>
+                <span>照片地点与目的地不符</span>
+              </div>
+              <div class="sec-t">站内作业 · 二次核实</div>
+            </div>
+          </section>
+
+          <div class="fade-tail"></div>
+        </div>
+
+        <!-- FAB -->
+        <div class="fab breathe d-fab" id="fab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.5v13M5.5 12h13"/></svg>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>05</i>小程序 · 出工日志（霓虹逐段点亮 → 辉光呼吸）</div>
+  </div>
+</main>
+
+</body>
+</html>

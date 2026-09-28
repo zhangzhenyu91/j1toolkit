@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<!--
+  风格名称：04 · 瑞士国际主义 Swiss International Style —— Web 端首页（工作台）
+  主色板：纸底 #FAFAF8 ｜ 墨黑 #111111 ｜ 唯一强调红（信号红）#E30613 ｜ 发丝线 #E3E1D9 ｜ 网格辅助线 #ECEAE2 ｜ 次级文字 #5F5F58 ｜ 展厅底 #EDEBE4
+  设计要点：
+  1. 严格 12 栏网格：#ECEAE2 可见竖向辅助线整版铺底，导航、用户区、卡片阵列全部按栏对齐，间距取 8 的倍数；
+  2. 超大紧凑无衬线标题：「下午好，张伟」88px / 字距 -2px 跨 8 栏，右 4 栏仅置小号说明文字，构成非对称留白张力；
+  3. 唯一强调色纪律：信号红 #E30613 只出现在激活下划线、未读数、方块徽章、「进入应用 →」与走马灯分隔符，其余一律墨黑纸面；
+  4. 发丝线体系：板块顶 2px 墨线定结构、卡片 1px 墨线框定模块、列表行间 1px #E3E1D9，零阴影、零渐变、零圆角；
+  5. 签名动效：首屏大标题一次自上而下遮罩揭开（clip-path inset 单向擦除，只演一次），网格辅助线最后淡入收尾；
+     编排式入场按时序推进：浏览器栏 → 顶栏 → 标题揭幕 → 消息逐行横扫 → 应用卡上下交错揭面 → 外部应用右入 → 安全条；
+     氛围动效：慢速旋转米字符 + 安全提示走马灯（reduced-motion 下全部关闭）。
+  落地注意事项：
+  - 需全局覆写组件库圆角与阴影（radius:0、去 shadow），卡片悬停反白仅靠色面翻转实现；
+  - 正文与次级文字分别用 #111111 / #5F5F58，对纸底对比度约 15.7:1 / 6:1，满足 ≥4.5:1；信号红对纸底约 4.6:1，仅用于粗重元素与大字；
+  - 网格辅助线以 ::before 层铺底（pointer-events:none），实际开发可做成可开关的调试层。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>04 · 瑞士国际主义 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#FAFAF8; --ink:#111111; --red:#E30613;
+    --hair:#E3E1D9; --guide:#ECEAE2; --grey:#5F5F58; --faint:#8A877C;
+  }
+  body {
+    background:#EDEBE4;
+    font-family:"Helvetica Neue",Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    padding:64px 24px 110px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ================= 标注区 ================= */
+  .page-head { text-align:center; margin-bottom:56px; }
+  .page-head .ph-no { font-size:11px; font-weight:700; letter-spacing:4px; color:var(--grey); }
+  .page-head h1 { margin-top:14px; font-size:30px; font-weight:800; letter-spacing:1px; }
+  .page-head h1 em { font-style:normal; color:var(--red); }
+  .page-head > p { margin-top:14px; font-size:13px; letter-spacing:1px; color:var(--grey); }
+  .palette { margin-top:22px; display:flex; justify-content:center; flex-wrap:wrap; gap:8px; }
+  .palette span {
+    display:inline-flex; align-items:center; gap:7px;
+    border:1px solid var(--ink); background:var(--paper);
+    padding:5px 12px 5px 8px; font-size:11px; letter-spacing:1px; color:var(--ink);
+  }
+  .palette i { width:11px; height:11px; border-radius:50%; flex:none; }
+
+  /* ================= 浏览器窗口框 ================= */
+  .unit { display:flex; flex-direction:column; align-items:center; gap:22px; }
+  .cap { font-size:13px; font-weight:700; letter-spacing:2px; color:var(--ink);
+         display:flex; align-items:center; gap:9px; }
+  .cap::before { content:""; width:9px; height:9px; background:var(--red); }
+
+  .browser {
+    width:min(1240px,96vw);
+    background:var(--paper);
+    border:1.5px solid var(--ink);
+    box-shadow:12px 12px 0 #DCD9CE;
+    animation:b-in .5s cubic-bezier(.2,.7,.2,1) both;
+  }
+  .browser-bar {
+    height:46px; border-bottom:1.5px solid var(--ink);
+    display:flex; align-items:center; gap:8px; padding:0 18px;
+    animation:fade .4s .08s both;
+  }
+  .bdot { width:11px; height:11px; border-radius:50%; flex:none; }
+  .bdot.r { background:var(--red); }
+  .bdot.k { background:var(--ink); }
+  .bdot.h { background:var(--paper); border:1.5px solid var(--ink); }
+  .url {
+    flex:1; max-width:430px; margin:0 auto; height:27px;
+    border:1px solid var(--ink);
+    display:flex; align-items:center; justify-content:center; gap:7px;
+    font-size:11.5px; letter-spacing:1.5px; color:var(--grey);
+  }
+  .url svg { width:11px; height:11px; }
+
+  /* ================= 版心与 12 栏辅助线 ================= */
+  .sheet { position:relative; max-width:1180px; margin:0 auto; padding:0 40px; }
+  .gridlines {
+    position:absolute; top:0; bottom:0; left:40px; right:40px;
+    display:grid; grid-template-columns:repeat(12,1fr); column-gap:24px;
+    pointer-events:none; z-index:0;
+    animation:fade 1s 2.35s both;
+  }
+  .gridlines i { border-left:1px solid var(--guide); }
+  .gridlines i:last-child { border-right:1px solid var(--guide); }
+  .row12 { position:relative; z-index:1; display:grid; grid-template-columns:repeat(12,1fr); column-gap:24px; }
+
+  /* ================= 顶栏 ================= */
+  .topnav { position:relative; z-index:1; height:64px; border-bottom:1.5px solid var(--ink);
+            display:flex; align-items:center; gap:14px; animation:fade .45s .18s both; }
+  .nav-logo { display:flex; align-items:center; gap:11px; }
+  .nav-logo i { width:32px; height:32px; background:var(--red); flex:none;
+                display:flex; align-items:center; justify-content:center; }
+  .nav-logo i svg { width:18px; height:18px; color:#fff; }
+  .nav-logo b { font-size:15px; font-weight:800; letter-spacing:2px; }
+  .nav-logo small { font-size:10px; letter-spacing:2px; color:var(--grey); margin-left:2px; }
+  .nav-menu { display:flex; gap:4px; margin-left:40px; height:100%; }
+  .nav-item { position:relative; display:flex; align-items:center;
+              font-size:13px; font-weight:600; letter-spacing:2px; color:var(--grey);
+              padding:0 18px; cursor:pointer; transition:color .18s; }
+  .nav-item:hover { color:var(--ink); }
+  .nav-item.on { color:var(--ink); font-weight:800; }
+  .nav-item.on::after {
+    content:""; position:absolute; left:18px; right:18px; bottom:-1.5px; height:4px;
+    background:var(--red); transform-origin:left center;
+    animation:line-x .5s .85s cubic-bezier(.2,.7,.2,1) both;
+  }
+  .nav-right { margin-left:auto; display:flex; align-items:center; gap:18px; }
+  .nav-bell { position:relative; width:34px; height:34px; border:1px solid var(--ink);
+              display:flex; align-items:center; justify-content:center; color:var(--ink);
+              cursor:pointer; transition:background .18s,color .18s; }
+  .nav-bell:hover { background:var(--ink); color:var(--paper); }
+  .nav-bell svg { width:16px; height:16px; }
+  .nav-bell .nd { position:absolute; top:-4px; right:-4px; width:8px; height:8px; background:var(--red); }
+  .nav-user { display:flex; align-items:center; gap:10px; cursor:pointer; }
+  .mini-avatar { width:32px; height:32px; background:var(--ink); color:#fff;
+                 display:flex; align-items:center; justify-content:center;
+                 font-size:13px; font-weight:800; }
+  .nav-user .nm { font-size:13px; font-weight:800; letter-spacing:1px; }
+
+  /* ================= 用户区（超大标题） ================= */
+  .hero { border-bottom:1px solid var(--ink); padding:44px 0 40px; }
+  .hero .l { grid-column:1 / 9; }
+  .hero .r { grid-column:9 / 13; display:flex; flex-direction:column;
+             align-items:flex-end; justify-content:flex-end; text-align:right;
+             animation:fade .6s 1.05s both; }
+  .kicker { display:flex; align-items:center; gap:10px; font-size:11px; font-weight:800;
+            letter-spacing:3.5px; color:var(--grey); animation:fade .5s .3s both; }
+  .kicker::before { content:""; width:9px; height:9px; background:var(--red); }
+  .hero h2 {
+    margin-top:18px;
+    font-size:88px; line-height:1.04; font-weight:800; letter-spacing:-2px;
+    animation:wipe-down 1s .38s cubic-bezier(.77,0,.18,1) both;
+  }
+  .hero-meta { margin-top:24px; display:flex; align-items:center; flex-wrap:wrap; gap:14px;
+               animation:fade .55s .98s both; }
+  .hero-meta .date { font-size:13px; font-weight:600; letter-spacing:1.5px; color:var(--ink); }
+  .hero-meta .sep { width:1px; height:14px; background:var(--hair); }
+  .badge-red { display:inline-flex; align-items:center; gap:7px;
+               background:var(--red); color:#fff; padding:4px 10px;
+               font-size:11px; font-weight:800; letter-spacing:2px; }
+  .badge-red::before { content:""; width:6px; height:6px; background:#fff; }
+  .hero-meta .acct { font-size:12.5px; letter-spacing:1px; color:var(--grey); }
+  .hero .r .aster { width:30px; height:30px; color:var(--red); margin-bottom:16px; }
+  .hero .r .aster svg { width:100%; height:100%; animation:spin 14s linear infinite; display:block; }
+  .hero .r p { font-size:12px; line-height:2; letter-spacing:1.5px; color:var(--grey); }
+  .hero .r .micro { margin-top:8px; font-size:10px; font-weight:700;
+                    letter-spacing:3px; color:var(--faint); }
+
+  /* ================= 板块标题 ================= */
+  .sec { position:relative; z-index:1; display:flex; align-items:baseline;
+         justify-content:space-between; gap:16px;
+         border-top:2px solid var(--ink); margin-top:44px; padding-top:15px;
+         animation:fade .5s both; }
+  .sec .ttl { display:flex; align-items:baseline; gap:14px; }
+  .sec .no { font-size:12px; font-weight:800; letter-spacing:2px; color:var(--red); }
+  .sec h3 { font-size:20px; font-weight:800; letter-spacing:2px; }
+  .sec .side { font-size:12px; letter-spacing:1.5px; color:var(--grey);
+               display:flex; align-items:center; gap:8px; }
+  .sec .side .unread { color:var(--red); font-weight:800; display:flex; align-items:center; gap:7px; }
+  .sec .side .unread::before { content:""; width:7px; height:7px; background:var(--red); }
+  .sec .side a { color:var(--grey); text-decoration:none; cursor:pointer; transition:color .18s; }
+  .sec .side a:hover { color:var(--ink); }
+
+  /* ================= 消息通知 ================= */
+  .msgs { position:relative; z-index:1; margin-top:6px; }
+  .msg {
+    display:grid; grid-template-columns:64px 1fr 110px 30px; align-items:center; gap:0 16px;
+    padding:17px 4px; border-bottom:1px solid var(--hair); cursor:pointer;
+    transition:background .18s;
+    animation:wipe-right .7s cubic-bezier(.77,0,.18,1) both;
+  }
+  .msg:nth-child(1) { animation-delay:1.08s; }
+  .msg:nth-child(2) { animation-delay:1.20s; }
+  .msg:nth-child(3) { animation-delay:1.32s; }
+  .msg:hover { background:#F2F1EB; }
+  .msg .idx { display:flex; align-items:center; gap:9px; font-size:11px; font-weight:800;
+              letter-spacing:1.5px; color:var(--faint); }
+  .msg .idx .u { width:7px; height:7px; background:var(--red); flex:none; }
+  .msg.read .idx .u { background:transparent; border:1px solid #C9C6BA; }
+  .msg .t { font-size:14.5px; font-weight:700; letter-spacing:.5px; color:var(--ink); }
+  .msg.read .t { font-weight:600; color:#3A3A34; }
+  .msg .d { font-size:12px; letter-spacing:1.5px; color:var(--grey); text-align:right;
+            font-variant-numeric:tabular-nums; }
+  .msg .ar { color:var(--grey); transition:transform .2s,color .18s; display:flex; }
+  .msg .ar svg { width:15px; height:15px; }
+  .msg:hover .ar { transform:translateX(4px); color:var(--red); }
+
+  /* ================= 应用中心 ================= */
+  .apps { position:relative; z-index:1; margin-top:22px;
+          display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
+  .app {
+    border:1px solid var(--ink); background:var(--paper);
+    padding:22px 22px 18px; min-height:216px;
+    display:flex; flex-direction:column; cursor:pointer;
+    transition:background .18s,color .18s;
+    animation:wipe-down .7s cubic-bezier(.77,0,.18,1) both;
+  }
+  .apps .app:nth-child(1) { animation-delay:1.44s; }
+  .apps .app:nth-child(2) { animation-delay:1.56s; }
+  .apps .app:nth-child(3) { animation-delay:1.68s; }
+  .apps .app:nth-child(4),
+  .apps .app:nth-child(5),
+  .apps .app:nth-child(6) { animation-name:wipe-up; }
+  .apps .app:nth-child(4) { animation-delay:1.56s; }
+  .apps .app:nth-child(5) { animation-delay:1.68s; }
+  .apps .app:nth-child(6) { animation-delay:1.80s; }
+  .app .top { display:flex; align-items:flex-start; justify-content:space-between; }
+  .app .no { font-size:10.5px; font-weight:800; letter-spacing:2px; color:var(--faint);
+             transition:color .18s; }
+  .app-ic { width:34px; height:34px; color:var(--ink); transition:color .18s; }
+  .app-ic svg { width:100%; height:100%; }
+  .app h4 { margin-top:16px; font-size:17px; font-weight:800; letter-spacing:1px; }
+  .app .tag { margin-top:6px; font-size:10.5px; font-weight:800; letter-spacing:2px;
+              color:var(--red); transition:color .18s; }
+  .app > p { margin-top:10px; font-size:12.5px; line-height:1.9; color:var(--grey);
+             transition:color .18s; }
+  .app .go { margin-top:auto; padding-top:16px; display:flex; align-items:center; gap:7px;
+             font-size:12px; font-weight:800; letter-spacing:2px; color:var(--ink);
+             transition:color .18s; }
+  .app .go svg { width:15px; height:15px; color:var(--red); transition:transform .2s; }
+  .app:hover { background:var(--ink); color:var(--paper); }
+  .app:hover .no { color:#9A9A9A; }
+  .app:hover .app-ic { color:var(--red); }
+  .app:hover > p { color:#C9C9C9; }
+  .app:hover .go { color:var(--paper); }
+  .app:hover .go svg { transform:translateX(5px); }
+  .app.soon {
+    border:1.5px dashed #B9B6AA; background:transparent; cursor:default;
+    align-items:center; justify-content:center; text-align:center; gap:0;
+  }
+  .app.soon:hover { background:transparent; color:inherit; }
+  .app.soon .app-ic { color:#B9B6AA; width:28px; height:28px; }
+  .app.soon h4 { margin-top:14px; font-size:14px; color:#8A877C; }
+  .app.soon > p { margin-top:6px; font-size:11px; color:#A5A295; letter-spacing:1px; }
+
+  /* ================= 外部应用 ================= */
+  .ext { position:relative; z-index:1; margin-top:22px;
+         display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
+  .ext-card {
+    border-top:1px solid var(--ink); padding:18px 2px 4px;
+    display:flex; align-items:flex-start; gap:14px; cursor:pointer;
+    animation:enter-x .65s cubic-bezier(.2,.7,.2,1) both;
+    transition:background .18s;
+  }
+  .ext-card:nth-child(1) { animation-delay:1.92s; }
+  .ext-card:nth-child(2) { animation-delay:2.04s; }
+  .ext-card:nth-child(3) { animation-delay:2.16s; }
+  .ext-card:hover { background:#F2F1EB; }
+  .ext-ic { width:30px; height:30px; flex:none; color:var(--ink); }
+  .ext-ic svg { width:100%; height:100%; }
+  .ext-card h4 { font-size:14.5px; font-weight:800; letter-spacing:1px; }
+  .ext-card .u { margin-top:5px; font-size:11.5px; letter-spacing:1px; color:var(--grey);
+                 font-variant-numeric:tabular-nums; }
+  .ext-card .out { margin-left:auto; width:16px; height:16px; color:var(--grey); flex:none;
+                   transition:transform .2s,color .18s; }
+  .ext-card .out svg { width:100%; height:100%; }
+  .ext-card:hover .out { transform:translate(3px,-3px); color:var(--red); }
+
+  /* ================= 安全提示条（走马灯） ================= */
+  .tick {
+    position:relative; z-index:1; margin-top:48px;
+    border-top:2px solid var(--ink); border-bottom:2px solid var(--ink);
+    display:flex; align-items:stretch; overflow:hidden;
+    animation:fade .6s 2.2s both;
+  }
+  .tick .lab { flex:none; display:flex; align-items:center; gap:9px;
+               background:var(--ink); color:var(--paper); padding:12px 18px;
+               font-size:11px; font-weight:800; letter-spacing:3px; }
+  .tick .lab svg { width:15px; height:15px; color:var(--red); }
+  .tick .lane { flex:1; overflow:hidden; display:flex; align-items:center; }
+  .tick .in { display:flex; white-space:nowrap; width:max-content;
+              animation:marq 30s linear infinite; }
+  .tick .seg { display:flex; align-items:center; gap:26px; padding-right:26px;
+               font-size:13px; font-weight:600; letter-spacing:2px; color:var(--ink); }
+  .tick .seg::after { content:""; width:8px; height:8px; background:var(--red); }
+
+  /* ================= 页脚 ================= */
+  .foot { position:relative; z-index:1; margin-top:44px; padding:16px 0 30px;
+          border-top:1px solid var(--hair);
+          display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+          font-size:10.5px; letter-spacing:2.5px; color:var(--faint);
+          animation:fade .6s 2.3s both; }
+  .foot b { color:var(--grey); font-weight:800; }
+
+  /* ================= 动效关键帧 ================= */
+  @keyframes fade { from { opacity:0; } to { opacity:1; } }
+  @keyframes b-in { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+  @keyframes wipe-down { from { clip-path:inset(0 0 100% 0); } to { clip-path:inset(0 0 0 0); } }
+  @keyframes wipe-up { from { clip-path:inset(100% 0 0 0); } to { clip-path:inset(0 0 0 0); } }
+  @keyframes wipe-right { from { clip-path:inset(0 100% 0 0); } to { clip-path:inset(0 0 0 0); } }
+  @keyframes enter-x { from { opacity:0; transform:translateX(22px); } to { opacity:1; transform:none; } }
+  @keyframes line-x { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @keyframes marq { to { transform:translateX(-50%); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+
+  /* ---------- 窄屏自适应 ---------- */
+  @media (max-width: 1100px) { .unit { zoom:.88; } }
+  @media (max-width: 980px)  { .unit { zoom:.78; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="ph-no">PROPOSAL 04 / WEB HOME</div>
+  <h1>04 · <em>瑞士国际主义</em></h1>
+  <p>网格即秩序：12 栏可见辅助线、墨黑纸面、唯一信号红 —— 克制到只剩结构与信息。</p>
+  <div class="palette">
+    <span><i style="background:#FAFAF8;border:1px solid #111111"></i>#FAFAF8 纸底</span>
+    <span><i style="background:#111111"></i>#111111 墨黑</span>
+    <span><i style="background:#E30613"></i>#E30613 信号红（唯一强调色）</span>
+    <span><i style="background:#E3E1D9"></i>#E3E1D9 发丝线</span>
+    <span><i style="background:#5F5F58"></i>#5F5F58 次级文字</span>
+  </div>
+</header>
+
+<main class="unit">
+  <div class="browser">
+
+    <!-- 浏览器栏 -->
+    <div class="browser-bar">
+      <span class="bdot r"></span><span class="bdot k"></span><span class="bdot h"></span>
+      <span class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+        toolkit.j1net.com
+      </span>
+      <span style="width:51px"></span>
+    </div>
+
+    <div class="sheet">
+      <!-- 12 栏可见辅助线 -->
+      <div class="gridlines" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+
+      <!-- 顶栏 -->
+      <div class="topnav">
+        <div class="nav-logo">
+          <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></i>
+          <b>Shade 壹匣</b><small>TOOLKIT</small>
+        </div>
+        <nav class="nav-menu">
+          <span class="nav-item on">工作台</span>
+          <span class="nav-item">管理</span>
+        </nav>
+        <div class="nav-right">
+          <span class="nav-bell">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+            <i class="nd"></i>
+          </span>
+          <div class="nav-user">
+            <span class="mini-avatar">张</span>
+            <span class="nm">张伟</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 用户区 -->
+      <div class="hero row12">
+        <div class="l">
+          <div class="kicker">WORKBENCH / 工作台 · GRID 12COL</div>
+          <h2>下午好，张伟</h2>
+          <div class="hero-meta">
+            <span class="date">2026 年 9 月 25 日 · 星期五</span>
+            <span class="sep"></span>
+            <span class="badge-red">班组管理员</span>
+            <span class="sep"></span>
+            <span class="acct">账号：zhangwei</span>
+          </div>
+        </div>
+        <div class="r">
+          <span class="aster"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 2.5v19M3.8 6.7l16.4 10.6M3.8 17.3L20.2 6.7"/></svg></span>
+          <p>班组数字化工具平台 · Shade 壹匣 网页版</p>
+          <div class="micro">TOOLKIT.J1NET.COM — EST. 检修一班</div>
+        </div>
+      </div>
+
+      <!-- 01 消息通知 -->
+      <div class="sec" style="animation-delay:1s">
+        <div class="ttl"><span class="no">01</span><h3>消息通知</h3></div>
+        <div class="side"><span class="unread">2 条未读</span><a>全部通知 →</a></div>
+      </div>
+      <div class="msgs">
+        <div class="msg">
+          <span class="idx"><i class="u"></i>M/01</span>
+          <span class="t">国庆保电工作安排</span>
+          <span class="d">09-24</span>
+          <span class="ar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+        </div>
+        <div class="msg">
+          <span class="idx"><i class="u"></i>M/02</span>
+          <span class="t">9月安全日活动记录已生成</span>
+          <span class="d">09-23</span>
+          <span class="ar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+        </div>
+        <div class="msg read">
+          <span class="idx"><i class="u"></i>M/03</span>
+          <span class="t">差旅费报销提醒</span>
+          <span class="d">09-21</span>
+          <span class="ar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+        </div>
+      </div>
+
+      <!-- 02 应用中心 -->
+      <div class="sec" style="animation-delay:1.38s">
+        <div class="ttl"><span class="no">02</span><h3>应用中心</h3></div>
+        <div class="side">INDEX / 5 个可用应用</div>
+      </div>
+      <div class="apps">
+        <div class="app">
+          <div class="top">
+            <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7c-1.7-1.3-4-1.6-6.7-1.4v12.8c2.7-.2 5 .1 6.7 1.4 1.7-1.3 4-1.6 6.7-1.4V5.6C16 5.4 13.7 5.7 12 7z"/><path d="M12 7v12.8"/><path d="M19.2 2.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" fill="currentColor" stroke="none"/></svg></div>
+            <span class="no">APP/01</span>
+          </div>
+          <h4>Call Me</h4>
+          <div class="tag">AI 问答 · WEKNORA</div>
+          <p>AI 知识库问答，规程制度、检修方案随问随答，引用可溯源。</p>
+          <span class="go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+        </div>
+        <div class="app">
+          <div class="top">
+            <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6"/><path d="M9 14h6"/><path d="M9.2 17.5l1.4 1.4 2.6-2.6"/></svg></div>
+            <span class="no">APP/02</span>
+          </div>
+          <h4>出工日志</h4>
+          <div class="tag">记录存证 · 防伪核验</div>
+          <p>现场出工拍照留痕、水印归档，日志汇总可溯可验。</p>
+          <span class="go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+        </div>
+        <div class="app">
+          <div class="top">
+            <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></div>
+            <span class="no">APP/03</span>
+          </div>
+          <h4>安全日活动记录</h4>
+          <div class="tag">文件生成 · DIFY</div>
+          <p>安全日活动全流程记录，签到、照片与文档自动归集生成。</p>
+          <span class="go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+        </div>
+        <div class="app">
+          <div class="top">
+            <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9.5 20h5M12 16v4"/></svg></div>
+            <span class="no">APP/04</span>
+          </div>
+          <h4>远程连接计算机</h4>
+          <div class="tag">远程终端 · 桌面控制</div>
+          <p>现场设备在线状态实时查看，一键唤起远程终端与桌面。</p>
+          <span class="go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+        </div>
+        <div class="app">
+          <div class="top">
+            <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M9.6 9.4a2.4 2.4 0 1 1 3.4 2.9c-.8.4-1 .9-1 1.7"/><circle cx="12" cy="16.9" r="1" fill="currentColor" stroke="none"/></svg></div>
+            <span class="no">APP/05</span>
+          </div>
+          <h4>题库刷题</h4>
+          <div class="tag">刷题练习 · AI 解析</div>
+          <p>安规题库随身刷，错题收藏、AI 逐题解析讲透考点。</p>
+          <span class="go">进入应用 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg></span>
+        </div>
+        <div class="app soon">
+          <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+          <h4>敬请期待</h4>
+          <p>更多班组应用持续接入中</p>
+        </div>
+      </div>
+
+      <!-- 03 外部应用 -->
+      <div class="sec" style="animation-delay:1.84s">
+        <div class="ttl"><span class="no">03</span><h3>外部应用</h3></div>
+        <div class="side">LINKS / 跳转第三方系统</div>
+      </div>
+      <div class="ext">
+        <div class="ext-card">
+          <div class="ext-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 18.5h10.7a3.8 3.8 0 0 0 .9-7.5 5.6 5.6 0 0 0-11-1.6 4.4 4.4 0 0 0-.6 9.1z"/></svg></div>
+          <div>
+            <h4>网盘</h4>
+            <div class="u">cloud.j1net.com</div>
+          </div>
+          <span class="out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg></span>
+        </div>
+        <div class="ext-card">
+          <div class="ext-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5L21 19.5H3z"/><path d="M12 10v4"/><circle cx="12" cy="16.7" r="1" fill="currentColor" stroke="none"/></svg></div>
+          <div>
+            <h4>机械作业距离预警</h4>
+            <div class="u">ula-admin.j1net.com</div>
+          </div>
+          <span class="out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg></span>
+        </div>
+        <div class="ext-card">
+          <div class="ext-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9.5" width="14" height="9.5" rx="3"/><path d="M12 9.5V6"/><circle cx="12" cy="4.6" r="1.3"/><circle cx="9.3" cy="13.8" r="1" fill="currentColor" stroke="none"/><circle cx="14.7" cy="13.8" r="1" fill="currentColor" stroke="none"/><path d="M10 16.6h4"/></svg></div>
+          <div>
+            <h4>Dify</h4>
+            <div class="u">ai.j1net.com</div>
+          </div>
+          <span class="out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg></span>
+        </div>
+      </div>
+
+      <!-- 安全提示条 -->
+      <div class="tick">
+        <span class="lab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg>
+          安全提示
+        </span>
+        <div class="lane">
+          <div class="in">
+            <span class="seg">安全生产，预防为主。上工前请确认劳保用品佩戴齐全，作业按规程执行。</span>
+            <span class="seg">安全生产，预防为主。上工前请确认劳保用品佩戴齐全，作业按规程执行。</span>
+            <span class="seg">安全生产，预防为主。上工前请确认劳保用品佩戴齐全，作业按规程执行。</span>
+            <span class="seg">安全生产，预防为主。上工前请确认劳保用品佩戴齐全，作业按规程执行。</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 页脚 -->
+      <div class="foot">
+        <span><b>SHADE 壹匣</b> — TOOLKIT.J1NET.COM</span>
+        <span>检修一班 · 班组数字化工具平台</span>
+        <span>GRID 12COL / BASE 8PX / V1.0.0</span>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="cap">Web · 首页（工作台）—— 12 栏可见网格 · 大标题自上而下遮罩揭开 · 悬停反白</div>
+</main>
+
+</body>
+</html>

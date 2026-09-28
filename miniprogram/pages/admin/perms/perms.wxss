@@ -17,14 +17,14 @@
 }
 
 .u-item-on {
-  background: #FDF6EF;
+  background: #EDF2FE;
 }
 
 .u-avatar {
   width: 72rpx;
   height: 72rpx;
-  border-radius: 14rpx;
-  background: #22314E;
+  border-radius: 0;
+  background: #111111;
   color: #FFFFFF;
   font-size: 32rpx;
   font-weight: 600;
@@ -43,13 +43,13 @@
 .u-name {
   font-size: 28rpx;
   font-weight: 500;
-  color: #22314E;
+  color: #111111;
 }
 
 .u-sub {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 /* ---------- 应用行 ---------- */
@@ -65,14 +65,14 @@
 }
 
 .a-item + .a-item {
-  border-top: 1rpx solid #F0EBDD;
+  border-top: 1rpx solid #E7E1D2;
 }
 
 .cbx {
   width: 36rpx;
   height: 36rpx;
-  border-radius: 8rpx;
-  border: 2rpx solid #D9CFBA;
+  border-radius: 0;
+  border: 2rpx solid rgba(17,17,17,.35);
   color: #FFFFFF;
   font-size: 24rpx;
   line-height: 36rpx;
@@ -83,15 +83,15 @@
 }
 
 .cbx-on {
-  background: #F26D21;
-  border-color: #F26D21;
+  background: #1D4ED8;
+  border-color: #1D4ED8;
 }
 
 .a-ico {
   width: 72rpx;
   height: 72rpx;
-  border-radius: 14rpx;
-  background: #FDEEE2;
+  border-radius: 0;
+  background: #EDF2FE;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -106,14 +106,14 @@
 
 .a-name {
   font-size: 28rpx;
-  color: #22314E;
+  color: #111111;
   font-weight: 500;
 }
 
 .a-key {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #A89F8A;
+  color: rgba(17,17,17,.4);
 }
 
 .save-bar {

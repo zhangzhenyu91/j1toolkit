@@ -13,7 +13,7 @@
     <t-swipe-cell wx:for="{{sessions}}" wx:key="id" id="swipe-{{item.id}}">
       <view class="s-item" hover-class="hover-bg-warm" bindtap="onOpen" data-id="{{item.id}}" data-title="{{item.title}}">
         <view class="s-icon">
-          <t-icon name="chat" size="40rpx" color="#F26D21" />
+          <t-icon name="chat" size="40rpx" color="#1D4ED8" />
         </view>
         <view class="s-main">
           <view class="s-title">{{item.title || '未命名对话'}}</view>

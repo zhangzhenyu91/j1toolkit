@@ -1,13 +1,13 @@
 <!-- 题库刷题 · 题库池（二级页；原题库列表页题库池板块迁入）
-     可见题库：全部池 + 本班组池；范围 tag（全部池橙 / 班组池藏青 teamName）；
-     右侧「添加」橙描边按钮 /「已加入」灰字（点击确认移出，记录与错题保留） -->
+     可见题库：全部池 + 本班组池；范围 tag（全部池蓝 / 班组池墨 teamName）；
+     右侧「添加」蓝描边按钮 /「已加入」灰字（点击确认移出，记录与错题保留） -->
 <navbar back title="题库池" />
 
 <view class="page-body" wx:if="{{!noTeam}}">
   <block wx:if="{{pool.length}}">
     <view class="card pool-item" wx:for="{{pool}}" wx:key="id"
           style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;">
-      <view class="icon-box"><t-icon name="book" size="40rpx" color="#F26D21" /></view>
+      <view class="icon-box"><t-icon name="book" size="40rpx" color="#1D4ED8" /></view>
       <view class="tx">
         <b>
           {{item.name}}

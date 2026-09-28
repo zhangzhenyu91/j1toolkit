@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<!--
+  风格名称：方案十三「水墨科技」—— 东方水墨 × 科技（小程序首页 · 单屏高保真比选稿）
+  主色板：
+    宣纸底 #F6F3EC（屏内页面底色，多层渐变近似纸纹）
+    墨     #1C1C1A（主文字 / 书法题字 / 墨晕染块）
+    青蓝   #0E7490（一笔电光线 / 宫格图标 / 徽章 / Tab 激活态）
+    印章红 #B03A2E（小方章 / 未读圆点，小面积点睛）
+    次级墨 #55534B（次级文字，对比度约 6.8:1）｜ 发丝线 #E2DCCB ｜ 卡面 #FCFAF4
+    展厅墨夜 #191B1C（手机框外展厅底色）
+  设计要点：
+    1. 宣纸为底：屏内背景以 radial-gradient 淡墨渍 + repeating-linear-gradient 纸纹纯 CSS 近似，零外部图片；
+    2. 卡片无硬边：问候卡 / 消息卡 / 宫格卡以 radial-gradient 墨晕收边 + 有机圆角（四角半径两两错开），墨色由浓到淡自然晕开；
+    3. 一笔青蓝电光线贯穿画面：SVG path（pathLength=100 归一化）自导航下缘横扫、沿右缘垂落、收于 TabBar 上方留白，
+       stroke-dashoffset 描绘入场，尖端光点以 offset-path 同步随行、末端淡出（不支持时自动隐藏）；
+    4. 编排式入场：导航题字→印章盖落→问候卡→消息卡→宫格逐格→落款小字，全部以「水墨晕开」（blur+scale 渐显）分时延展开；
+       印章以 scale 回弹模拟盖印顿感并保留 -4° 微倾；消息两行之间另起一笔青线单独描绘，与大线呼应；
+    5. 中式题跋：导航「Shade 壹匣」用系统楷体栈 + 印章红小方章（「壹」白文）；问候卡右侧竖排小字「账号 zhangwei」、
+       姓名后缀迷你「伟」字章，取字画落款意；
+    6. 宫格格底为 4 种有机 border-radius 淡墨晕染块轮换，青蓝线性图标统一 stroke-width 1.7；末格虚线晕染占位；
+    7. 氛围动效：问候卡内墨 / 青两团晕染 7s 与 9s 错相缓慢呼吸，克制不夺主；
+    8. 降级：@media (prefers-reduced-motion: reduce) 关闭全部动画与过渡，元素基态即最终态，内容完整可见。
+  落地注意事项：
+    1. 书法题字使用系统楷体栈（Kaiti SC / STKaiti / KaiTi），无外链字体，缺字设备回退 serif；
+    2. 宣纸纹理与墨晕均为纯 CSS 复合背景，小程序端可直接落在 page / view 的 background；
+    3. 电光线小程序落地可降级为静态 SVG 或图片，亦可用 canvas 重绘；offset-path 光点仅为增强体验；
+    4. 青蓝 #0E7490 对宣纸底对比度约 4.9:1，可承担激活态与粗体小字；正文一律墨 #1C1C1A；
+    5. TDesign 映射：--td-brand-color → #0E7490，--td-bg-color-page → #F6F3EC；印章红仅作品牌装饰，不入组件语义色。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>13 · 水墨科技 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#F6F3EC; --ink:#1C1C1A; --cyan:#0E7490; --seal:#B03A2E;
+    --ink2:#55534B; --hair:#E2DCCB; --card:#FCFAF4; --night:#191B1C;
+    --kai:"Kaiti SC","STKaiti","KaiTi","TW-Kai","DFKai-SB","Noto Serif SC",serif;
+  }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(900px 520px at 86% -6%, rgba(14,116,144,.12), rgba(14,116,144,0) 62%),
+      radial-gradient(760px 620px at 6% 96%, rgba(246,243,236,.05), rgba(246,243,236,0) 60%),
+      radial-gradient(1200px 800px at 50% 46%, rgba(246,243,236,.02), rgba(246,243,236,0) 70%),
+      var(--night);
+    padding:56px 24px 90px;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* 展厅背景巨字水印 */
+  body::before {
+    content:"匣"; position:fixed; right:-3%; top:2%; z-index:0;
+    font-family:var(--kai); font-weight:700; line-height:1;
+    font-size:clamp(340px,44vw,660px);
+    color:rgba(243,239,229,.032); pointer-events:none;
+  }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { position:relative; z-index:2; text-align:center; margin-bottom:46px; }
+  .page-head h1 { font-family:var(--kai); font-size:27px; font-weight:700; letter-spacing:3px; color:#F3EFE5; }
+  .page-head h1 em { font-style:normal; color:#4FB3CF; }
+  .page-head h1 small { margin-left:12px; font-size:13px; font-weight:400; letter-spacing:5px; color:rgba(243,239,229,.45); }
+  .page-head p { margin-top:13px; font-size:13px; letter-spacing:1.5px; color:rgba(243,239,229,.55); }
+  .palette { margin-top:22px; display:flex; justify-content:center; flex-wrap:wrap; gap:10px; }
+  .pill { display:flex; align-items:center; gap:8px; padding:6px 14px; border-radius:999px;
+          border:1px solid rgba(243,239,229,.16); background:rgba(243,239,229,.04);
+          font-size:11px; letter-spacing:1.5px; color:rgba(243,239,229,.75); }
+  .pill i { width:11px; height:11px; border-radius:50%; box-shadow:inset 0 0 0 1px rgba(0,0,0,.18); }
+
+  /* ===== 机框舞台 ===== */
+  .stage { position:relative; z-index:2; display:flex; justify-content:center; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:24px; }
+  .cap { font-size:13px; font-weight:600; letter-spacing:2px; color:rgba(243,239,229,.6);
+         display:flex; align-items:center; gap:9px; }
+  .cap i { font-style:normal; font-size:10px; letter-spacing:2px; color:#4FB3CF;
+           border:1px solid rgba(79,179,207,.4); border-radius:3px; padding:1px 7px; }
+
+  .phone {
+    padding:12px; border-radius:62px;
+    background:linear-gradient(150deg,#3b3e3d 0%,#161818 58%,#0f1110 100%);
+    box-shadow:0 36px 74px rgba(0,0,0,.5), 0 10px 26px rgba(14,116,144,.12),
+               0 0 0 1px rgba(243,239,229,.07);
+  }
+  .screen {
+    position:relative; width:375px; height:812px; border-radius:50px; overflow:hidden;
+    display:flex; flex-direction:column;
+    background:
+      radial-gradient(240px 180px at 12% 6%, rgba(28,28,26,.045), rgba(28,28,26,0) 70%),
+      radial-gradient(300px 220px at 96% 34%, rgba(14,116,144,.035), rgba(14,116,144,0) 70%),
+      radial-gradient(260px 200px at 8% 92%, rgba(28,28,26,.04), rgba(28,28,26,0) 70%),
+      repeating-linear-gradient(0deg, rgba(28,28,26,.014) 0 1px, rgba(28,28,26,0) 1px 4px),
+      repeating-linear-gradient(90deg, rgba(28,28,26,.011) 0 1px, rgba(28,28,26,0) 1px 4px),
+      var(--paper);
+  }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:120px; height:32px; border-radius:18px; background:#101211; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(28,28,26,.85); z-index:40; }
+
+  /* 状态栏 */
+  .sb { height:54px; flex:none; padding:20px 30px 0; display:flex; justify-content:space-between;
+        align-items:center; font-size:14px; font-weight:700; letter-spacing:.5px;
+        color:var(--ink); position:relative; z-index:20; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+
+  /* ===== 贯穿电光线 + 尖端光点 ===== */
+  .wire { position:absolute; inset:0; z-index:1; pointer-events:none; }
+  .wire-core, .wire-glow { fill:none; stroke-linecap:round; stroke-dasharray:100;
+                           animation:draw 2.2s .85s cubic-bezier(.4,.05,.3,1) both; }
+  .wire-core { stroke:var(--cyan); stroke-width:1.7; opacity:.55; }
+  .wire-glow { stroke:var(--cyan); stroke-width:6; opacity:.1; }
+  @keyframes draw { from { stroke-dashoffset:100; } to { stroke-dashoffset:0; } }
+  .spark { position:absolute; z-index:6; top:0; left:0; width:9px; height:9px;
+           margin:-4.5px 0 0 -4.5px; border-radius:50%; display:none; opacity:0;
+           background:#E8F6FA;
+           box-shadow:0 0 10px 3px rgba(14,116,144,.6), 0 0 3px 1px rgba(14,116,144,.9); }
+  @supports (offset-path: path("M0 0")) {
+    .spark { display:block;
+      offset-path:path("M-16 112 C 110 102 250 120 364 108 C 377 107 361 148 361 224 L 361 596 C 361 664 378 692 322 704 C 214 726 80 704 -16 720");
+      animation:sparkGo 2.2s .85s cubic-bezier(.4,.05,.3,1) both; }
+  }
+  @keyframes sparkGo {
+    0% { offset-distance:0%; opacity:0; }
+    7% { opacity:1; }
+    86% { opacity:1; }
+    100% { offset-distance:100%; opacity:0; }
+  }
+
+  /* ===== 水墨晕开式入场 ===== */
+  .bloom { animation:inkBloom .9s cubic-bezier(.22,.8,.3,1) both; }
+  @keyframes inkBloom {
+    0% { opacity:0; filter:blur(12px); transform:scale(1.045); }
+    55% { opacity:1; }
+    100% { opacity:1; filter:blur(0); transform:scale(1); }
+  }
+
+  /* ===== 导航栏：书法题字 + 小方章 ===== */
+  .navbar { position:relative; z-index:2; height:56px; flex:none;
+            display:flex; align-items:center; justify-content:center; gap:9px; }
+  .navbar .t { font-family:var(--kai); font-size:20px; font-weight:700;
+               letter-spacing:2px; color:var(--ink); }
+  .seal {
+    --rot:-4deg;
+    width:21px; height:21px; flex:none; border-radius:3px;
+    background:linear-gradient(145deg,#C24838,var(--seal) 55%,#932F24);
+    color:#FBF3E8; font-family:var(--kai); font-size:12px; line-height:1;
+    display:inline-flex; align-items:center; justify-content:center;
+    box-shadow:inset 0 0 0 1px rgba(255,244,230,.35), 0 3px 8px rgba(176,58,46,.35);
+    transform:rotate(var(--rot));
+    animation:sealStamp .55s .55s cubic-bezier(.2,1.4,.4,1) both;
+  }
+  .seal.mini { --rot:5deg; width:17px; height:17px; font-size:10px; border-radius:2.5px;
+               margin-left:9px; margin-top:-9px; animation-delay:.72s; }
+  @keyframes sealStamp {
+    0% { opacity:0; transform:scale(1.8) rotate(calc(var(--rot) - 10deg)); }
+    55% { opacity:1; transform:scale(.92) rotate(var(--rot)); }
+    100% { opacity:1; transform:scale(1) rotate(var(--rot)); }
+  }
+
+  .content { position:relative; z-index:2; flex:1; overflow:hidden; padding-top:2px; }
+
+  /* ===== 问候卡（墨晕染边 + 竖排题跋） ===== */
+  .hi-card {
+    position:relative; margin:10px 16px 0; padding:20px 18px;
+    display:flex; align-items:center; overflow:hidden;
+    border-radius:16px 20px 15px 22px / 20px 16px 22px 15px;
+    background:
+      radial-gradient(150px 110px at 6% -10%, rgba(28,28,26,.08), rgba(28,28,26,0) 68%),
+      radial-gradient(170px 120px at 104% 112%, rgba(28,28,26,.07), rgba(28,28,26,0) 70%),
+      radial-gradient(130px 100px at 96% 4%, rgba(14,116,144,.07), rgba(14,116,144,0) 70%),
+      var(--card);
+    box-shadow:0 12px 26px rgba(28,28,26,.08);
+  }
+  .blob { position:absolute; border-radius:50%; pointer-events:none; }
+  .b-ink { width:120px; height:120px; right:-34px; top:-42px;
+           background:radial-gradient(circle, rgba(28,28,26,.1), rgba(28,28,26,0) 68%);
+           animation:breathe 7s ease-in-out infinite alternate; }
+  .b-cyan { width:150px; height:150px; left:-48px; bottom:-60px;
+            background:radial-gradient(circle, rgba(14,116,144,.1), rgba(14,116,144,0) 66%);
+            animation:breathe 9s ease-in-out infinite alternate-reverse; }
+  @keyframes breathe { from { transform:scale(1); opacity:.75; } to { transform:scale(1.14); opacity:1; } }
+
+  .hi-main { position:relative; flex:1; }
+  .hello { display:flex; align-items:flex-start;
+           font-family:var(--kai); font-size:23px; font-weight:700;
+           letter-spacing:1px; color:var(--ink); }
+  .hi-date { margin-top:9px; font-size:12px; letter-spacing:2px; color:var(--ink2); }
+  .hi-role { margin-top:11px; }
+  .badge { display:inline-block; padding:0 8px; border:1px solid var(--cyan); border-radius:3px;
+           background:rgba(14,116,144,.05); color:var(--cyan);
+           font-size:10px; font-weight:700; letter-spacing:2px; line-height:17px; }
+  .v-col { position:relative; margin-left:16px; padding-left:13px; align-self:stretch;
+           display:flex; align-items:center;
+           border-left:1px solid rgba(28,28,26,.14);
+           writing-mode:vertical-rl; font-size:11px; letter-spacing:3px; color:var(--ink2); }
+
+  /* ===== 消息通知卡 ===== */
+  .msg-card {
+    margin:12px 16px 0; padding:14px 16px 12px;
+    border-radius:14px 18px 14px 18px / 18px 14px 18px 14px;
+    background:
+      radial-gradient(140px 90px at 100% 0%, rgba(28,28,26,.05), rgba(28,28,26,0) 70%),
+      radial-gradient(120px 80px at 0% 100%, rgba(14,116,144,.04), rgba(14,116,144,0) 70%),
+      var(--card);
+    box-shadow:0 10px 22px rgba(28,28,26,.06);
+  }
+  .msg-head { display:flex; align-items:center; gap:9px; }
+  .msg-ic { position:relative; width:22px; height:22px; flex:none; color:var(--cyan); display:flex; }
+  .msg-ic svg { width:22px; height:22px; }
+  .unread { position:absolute; top:-1px; right:-2px; width:7px; height:7px; border-radius:50%;
+            background:var(--seal); box-shadow:0 0 0 1.5px var(--card); }
+  .msg-head b { font-size:13px; letter-spacing:1px; color:var(--ink); }
+  .msg-rows { margin-top:9px; }
+  .msg-row { display:flex; align-items:center; gap:8px; padding:3px 0; }
+  .msg-row .dot { width:5px; height:5px; flex:none; background:var(--cyan);
+                  transform:rotate(45deg); opacity:.85; }
+  .msg-row p { font-size:13px; font-weight:600; letter-spacing:.3px; color:var(--ink); }
+  .msg-row em { font-style:normal; font-weight:400; font-size:11px; letter-spacing:.5px;
+                color:var(--ink2); margin-left:7px; }
+  .row-line { display:block; width:100%; height:8px; margin:1px 0; }
+  .row-line path { stroke:var(--cyan); stroke-width:1.7; fill:none; stroke-linecap:round;
+                   opacity:.7; stroke-dasharray:100;
+                   animation:draw .9s 1.65s ease-out both; }
+
+  /* ===== 应用中心 ===== */
+  .sec { display:flex; align-items:center; gap:8px; margin:18px 20px 10px; }
+  .sec::before { content:""; width:4px; height:15px; flex:none;
+                 border-radius:3px 4px 3px 4px; background:var(--ink); }
+  .sec h3 { font-family:var(--kai); font-size:16px; font-weight:700;
+            letter-spacing:3px; color:var(--ink); }
+  .sec i { flex:1; height:1px;
+           background:linear-gradient(90deg, rgba(28,28,26,.18), rgba(28,28,26,0)); }
+
+  .grid-card {
+    margin:0 16px; padding:18px 8px 4px;
+    border-radius:18px 14px 20px 14px / 14px 18px 14px 20px;
+    background:
+      radial-gradient(160px 110px at 0% 100%, rgba(28,28,26,.05), rgba(28,28,26,0) 70%),
+      radial-gradient(150px 100px at 100% 0%, rgba(14,116,144,.04), rgba(14,116,144,0) 70%),
+      var(--card);
+    box-shadow:0 10px 22px rgba(28,28,26,.06);
+  }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); }
+  .g { display:flex; flex-direction:column; align-items:center; gap:8px;
+       padding:8px 2px 14px; animation:inkBloom .8s cubic-bezier(.22,.8,.3,1) both; }
+  .gi { width:50px; height:50px; display:flex; align-items:center; justify-content:center;
+        color:var(--cyan);
+        background:radial-gradient(circle at 34% 30%, rgba(28,28,26,.1), rgba(28,28,26,.045) 52%, rgba(28,28,26,0) 76%);
+        border-radius:46% 54% 52% 48% / 48% 46% 54% 52%; }
+  .g:nth-child(2) .gi, .g:nth-child(7) .gi {
+    border-radius:54% 46% 48% 52% / 46% 52% 48% 54%;
+    background:radial-gradient(circle at 62% 34%, rgba(28,28,26,.09), rgba(28,28,26,.04) 54%, rgba(28,28,26,0) 76%); }
+  .g:nth-child(3) .gi, .g:nth-child(6) .gi {
+    border-radius:52% 48% 55% 45% / 45% 55% 46% 54%;
+    background:radial-gradient(circle at 40% 64%, rgba(28,28,26,.09), rgba(28,28,26,.04) 54%, rgba(28,28,26,0) 76%); }
+  .g:nth-child(4) .gi, .g:nth-child(5) .gi {
+    border-radius:48% 52% 45% 55% / 55% 45% 52% 48%;
+    background:radial-gradient(circle at 60% 62%, rgba(28,28,26,.1), rgba(28,28,26,.045) 52%, rgba(28,28,26,0) 76%); }
+  .gi svg { width:24px; height:24px; }
+  .g span { font-size:11px; letter-spacing:.2px; color:var(--ink); }
+  .g span.long { font-size:10px; letter-spacing:0; }
+  .g.soon .gi { background:none; border:1.5px dashed #B9B09A; color:#A39B83; }
+  .g.soon span { color:#6E6A5C; }
+
+  .note { margin:14px 0 4px; display:flex; align-items:center; justify-content:center;
+          gap:10px; font-size:11px; letter-spacing:1px; color:var(--ink2); }
+  .note::before, .note::after { content:""; width:26px; height:1px; background:rgba(28,28,26,.2); }
+
+  /* ===== TabBar ===== */
+  .tabbar { position:relative; z-index:2; flex:none; height:78px;
+            background:rgba(252,250,244,.94); border-top:1px solid var(--hair);
+            display:flex; padding:10px 0 22px;
+            animation:tabIn .8s 1.85s cubic-bezier(.22,.8,.3,1) both; }
+  .tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;
+         font-size:10px; letter-spacing:2px; color:#6E6A5C; }
+  .tab svg { width:23px; height:23px; }
+  .tab.on { color:var(--cyan); font-weight:700; }
+  .tab .ind { width:16px; height:3px; border-radius:2px; margin-top:1px; background:transparent; }
+  .tab.on .ind { background:var(--cyan); }
+  @keyframes tabIn { from { opacity:0; transform:translateY(10px); } }
+
+  /* ===== 动效降级 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+
+  /* ---------- 窄屏自适应 ---------- */
+  @media (max-width: 640px) { .stage { zoom:.86; } body { padding:40px 8px 70px; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>方案十三 · <em>水墨科技</em><small>东方水墨 × 科技</small></h1>
+  <p>宣纸为底、墨色为骨、青蓝电光一笔贯穿 —— 东方水墨与数字科技的合奏。</p>
+  <div class="palette">
+    <span class="pill"><i style="background:#F6F3EC"></i>宣纸 #F6F3EC</span>
+    <span class="pill"><i style="background:#1C1C1A"></i>墨 #1C1C1A</span>
+    <span class="pill"><i style="background:#0E7490"></i>青蓝 #0E7490</span>
+    <span class="pill"><i style="background:#B03A2E"></i>印章红 #B03A2E</span>
+    <span class="pill"><i style="background:#191B1C;border:1px solid rgba(243,239,229,.3)"></i>墨夜展厅 #191B1C</span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <!-- 状态栏 -->
+        <div class="sb">
+          <span>9:41</span>
+          <div class="ic-set">
+            <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <!-- 一笔青蓝电光线：导航下缘横扫 → 右缘垂落 → 收于 TabBar 上方 -->
+        <svg class="wire" viewBox="0 0 375 812" aria-hidden="true">
+          <path class="wire-glow" pathLength="100" d="M-16 112 C 110 102 250 120 364 108 C 377 107 361 148 361 224 L 361 596 C 361 664 378 692 322 704 C 214 726 80 704 -16 720"/>
+          <path class="wire-core" pathLength="100" d="M-16 112 C 110 102 250 120 364 108 C 377 107 361 148 361 224 L 361 596 C 361 664 378 692 322 704 C 214 726 80 704 -16 720"/>
+        </svg>
+        <span class="spark" aria-hidden="true"></span>
+
+        <!-- 导航栏：书法题字 + 印章 -->
+        <div class="navbar">
+          <div class="t bloom" style="animation-delay:.15s">Shade 壹匣</div>
+          <span class="seal">壹</span>
+        </div>
+
+        <div class="content">
+
+          <!-- 问候卡 -->
+          <section class="hi-card bloom" style="animation-delay:.42s">
+            <span class="blob b-ink"></span>
+            <span class="blob b-cyan"></span>
+            <div class="hi-main">
+              <div class="hello">下午好，张伟<span class="seal mini">伟</span></div>
+              <div class="hi-date">9月25日 星期五</div>
+              <div class="hi-role"><span class="badge">高级技师</span></div>
+            </div>
+            <div class="v-col">账号 zhangwei</div>
+          </section>
+
+          <!-- 消息通知卡 -->
+          <section class="msg-card bloom" style="animation-delay:.62s">
+            <div class="msg-head">
+              <span class="msg-ic">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+                <i class="unread"></i>
+              </span>
+              <b>2 条未读</b>
+            </div>
+            <div class="msg-rows">
+              <div class="msg-row">
+                <span class="dot"></span>
+                <p>国庆保电工作安排<em>· 09-24 18:02</em></p>
+              </div>
+              <svg class="row-line" viewBox="0 0 300 8" preserveAspectRatio="none" aria-hidden="true">
+                <path pathLength="100" d="M2 5.5 C 90 2 210 7.5 298 4"/>
+              </svg>
+              <div class="msg-row">
+                <span class="dot"></span>
+                <p>9月安全日活动记录已生成<em>· 09-23 10:15</em></p>
+              </div>
+            </div>
+          </section>
+
+          <!-- 应用中心 -->
+          <div class="sec bloom" style="animation-delay:.8s"><h3>应用中心</h3><i></i></div>
+
+          <section class="grid-card bloom" style="animation-delay:.88s">
+            <div class="grid">
+              <div class="g" style="animation-delay:1s">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7c-1.7-1.3-4-1.6-6.7-1.4v12.8c2.7-.2 5 .1 6.7 1.4 1.7-1.3 4-1.6 6.7-1.4V5.6C16 5.4 13.7 5.7 12 7z"/><path d="M12 7v12.8"/><path d="M19.2 2.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" fill="currentColor" stroke="none"/></svg></div>
+                <span>Call Me</span>
+              </div>
+              <div class="g" style="animation-delay:1.07s">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6"/><path d="M9 14h6"/><path d="M9.2 17.5l1.4 1.4 2.6-2.6"/></svg></div>
+                <span>出工日志</span>
+              </div>
+              <div class="g" style="animation-delay:1.14s">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></div>
+                <span class="long">安全日活动记录</span>
+              </div>
+              <div class="g" style="animation-delay:1.21s">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9.5 20h5M12 16v4"/></svg></div>
+                <span class="long">远程连接计算机</span>
+              </div>
+              <div class="g" style="animation-delay:1.28s">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3.5L10.6 13.9"/><path d="M21 3.5l-6.8 17-3.6-7.2-3.6.6.6-3.6z"/></svg></div>
+                <span>文件传输</span>
+              </div>
+              <div class="g" style="animation-delay:1.35s">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5s5.5 5.8 5.5 9.7a5.5 5.5 0 0 1-11 0C6.5 9.3 12 3.5 12 3.5z"/><path d="M12 10.8v4M10 12.8h4"/></svg></div>
+                <span>水印添加</span>
+              </div>
+              <div class="g" style="animation-delay:1.42s">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M9.6 9.4a2.4 2.4 0 1 1 3.4 2.9c-.8.4-1 .9-1 1.7"/><circle cx="12" cy="16.9" r="1" fill="currentColor" stroke="none"/></svg></div>
+                <span>题库刷题</span>
+              </div>
+              <div class="g soon" style="animation-delay:1.49s">
+                <div class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+                <span>敬请期待</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="note bloom" style="animation-delay:1.68s">更多班组应用持续接入中</div>
+
+        </div>
+
+        <!-- TabBar -->
+        <nav class="tabbar">
+          <div class="tab on">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.2L12 3.8l7.5 6.4"/><path d="M6.6 8.9V20h10.8V8.9"/><path d="M10.4 20v-5h3.2v5"/></svg>
+            首页
+            <span class="ind"></span>
+          </div>
+          <div class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.6a6.4 6.4 0 0 1 12.8 0"/></svg>
+            我的
+            <span class="ind"></span>
+          </div>
+        </nav>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i>NO.13</i>小程序 · 首页（375 × 812 单屏）</div>
+  </div>
+</main>
+
+</body>
+</html>
