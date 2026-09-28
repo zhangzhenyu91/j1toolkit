@@ -297,7 +297,7 @@
       wrap.className = 'toast-wrap';
       document.body.appendChild(wrap);
     }
-    const iconName = type === 'success' ? 'check-circle' : (type === 'error' ? 'error-circle' : 'info-circle');
+    const iconName = type === 'success' ? 'check-circle' : (type === 'error' ? 'warn' : 'info-circle');
     const el = document.createElement('div');
     el.className = 'toast toast-' + type;
     el.innerHTML = window.Shade.icon(iconName, 16) + '<span></span>';

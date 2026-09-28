@@ -81,7 +81,7 @@
         <view class="sd-ic">
           <t-icon wx:if="{{item.state === 'done'}}" name="check" size="20rpx" color="#FFFFFF" />
           <view wx:elif="{{item.state === 'doing'}}" class="dot-ing"></view>
-          <t-icon wx:elif="{{item.state === 'fail'}}" name="close" size="18rpx" color="#FFFFFF" />
+          <t-icon wx:elif="{{item.state === 'fail'}}" name="error-triangle" size="20rpx" color="#FFFFFF" />
         </view>
         <view class="step-r">
           <view class="st">{{item.t}}</view>
@@ -126,7 +126,7 @@
         <text>{{item.sub}}</text>
       </view>
       <view class="rmeta">活动日期 {{item.date}} · 提交 {{item.createdText}}</view>
-      <view wx:if="{{item.failed && item.error}}" class="rerr">{{item.error}}</view>
+      <view wx:if="{{item.failed && item.error}}" class="rerr"><t-icon class="rerr-x" name="error-triangle" size="22rpx" color="#D22730" />{{item.error}}</view>
       <!-- 操作行：打开（未生成置灰）+ 删除 -->
       <view class="ops">
         <view class="opb {{item.done ? '' : 'off'}}" catchtap="onOpenRecord" data-id="{{item.id}}">

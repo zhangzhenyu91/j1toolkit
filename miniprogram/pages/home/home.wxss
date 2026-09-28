@@ -499,6 +499,20 @@
   color: #D22730;
 }
 
+/* 过期警示前置红三角感叹号（包豪斯语义 三角=失败/警示） */
+.me-panel .sgcc-note-expired::before {
+  content: '';
+  display: inline-block;
+  width: 20rpx;
+  height: 20rpx;
+  margin-right: 6rpx;
+  vertical-align: -3rpx;
+  background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjRDIyNzMwJyBzdHJva2Utd2lkdGg9JzEuNycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBzdHJva2UtbGluZWpvaW49J3JvdW5kJz48cGF0aCBkPSdNMTAuMyA0LjFMMi40IDE3LjZhMiAyIDAgMCAwIDEuNyAzaDE1LjhhMiAyIDAgMCAwIDEuNy0zTDEzLjcgNC4xYTIgMiAwIDAgMC0zLjQgMHonLz48cGF0aCBkPSdNMTIgOS4ydjQnLz48Y2lyY2xlIGN4PScxMicgY3k9JzE2LjgnIHI9JzEnIGZpbGw9JyNEMjI3MzAnIHN0cm9rZT0nbm9uZScvPjwvc3ZnPg==");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
 .me-panel .admin-sec {
   margin-bottom: 20rpx;
 }

@@ -570,7 +570,7 @@
     } catch (e) {
       document.getElementById('noticeBadge').textContent = '查看全部';
       document.getElementById('noticeTop').innerHTML = '<div class="empty">' +
-        Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '通知加载失败') + '</p></div>';
+        Shade.icon('warn', 44) + '<p>' + Shade.esc(e.message || '通知加载失败') + '</p></div>';
     }
   }
 
@@ -608,7 +608,7 @@
         ? noticeItems.map(noticeModalRowHtml).join('')
         : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
     } catch (e) {
-      list.innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+      list.innerHTML = '<div class="empty">' + Shade.icon('warn', 44) +
         '<p>' + Shade.esc(e.message || '通知加载失败') + '</p></div>';
     }
   }
@@ -738,7 +738,7 @@
     } catch (e) {
       document.getElementById('appCount').textContent = '加载失败';
       document.getElementById('appGrid').innerHTML =
-        '<div class="empty">' + Shade.icon('error-circle', 44) +
+        '<div class="empty">' + Shade.icon('warn', 44) +
         '<p>' + Shade.esc(e.message || '应用列表加载失败') + '</p></div>';
     }
     loadNotices(); // 通知卡独立拉取，失败静默不阻断

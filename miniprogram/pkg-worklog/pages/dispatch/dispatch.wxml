@@ -143,8 +143,8 @@
                   data-index="{{index}}"
                 >{{c.name}}</view>
               </view>
-              <view class="note red" wx:if="{{memNote}}">{{memNote}}</view>
-              <view class="note red" wx:if="{{memUnknown}}">{{memUnknown}}</view>
+              <view class="note red" wx:if="{{memNote}}"><t-icon class="note-red-x" name="error-triangle" size="20rpx" color="#D22730" />{{memNote}}</view>
+              <view class="note red" wx:if="{{memUnknown}}"><t-icon class="note-red-x" name="error-triangle" size="20rpx" color="#D22730" />{{memUnknown}}</view>
             </view>
           </view>
           <view class="cmp-r top">

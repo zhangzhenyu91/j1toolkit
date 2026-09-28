@@ -628,7 +628,7 @@
       renderTeamFilter();
       $('#teamCnt').textContent = '加载失败';
       $('#teamTbody').innerHTML = '<tr><td colspan="5"><div class="empty">' +
-        Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '班组列表加载失败') + '</p></div></td></tr>';
+        Shade.icon('warn', 44) + '<p>' + Shade.esc(e.message || '班组列表加载失败') + '</p></div></td></tr>';
     }
   }
 
@@ -811,7 +811,7 @@
       users = [];
       $('#userCnt').textContent = '加载失败';
       $('#userTbody').innerHTML = '<tr><td colspan="8"><div class="empty">' +
-        Shade.icon('error-circle', 44) + '<p>' + Shade.esc(e.message || '员工列表加载失败') + '</p></div></td></tr>';
+        Shade.icon('warn', 44) + '<p>' + Shade.esc(e.message || '员工列表加载失败') + '</p></div></td></tr>';
     }
   }
 
@@ -1049,7 +1049,7 @@
       apps = r.data.list || [];
     } catch (e) {
       apps = [];
-      $('#permAppList').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+      $('#permAppList').innerHTML = '<div class="empty">' + Shade.icon('warn', 44) +
         '<p>' + Shade.esc(e.message || '应用列表加载失败') + '</p></div>';
     }
   }
@@ -1122,7 +1122,7 @@
       (r.data.app_ids || []).forEach(function (appId) { checkedMap[appId] = true; });
       renderPermApps();
     } catch (e) {
-      $('#permAppList').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+      $('#permAppList').innerHTML = '<div class="empty">' + Shade.icon('warn', 44) +
         '<p>' + Shade.esc(e.message || '授权信息加载失败') + '</p></div>';
     }
   }

@@ -207,7 +207,7 @@
 
   function renderError(e) {
     document.getElementById('devCnt').textContent = '加载失败';
-    document.getElementById('devGrid').innerHTML = '<div class="empty">' + Shade.icon('error-circle', 44) +
+    document.getElementById('devGrid').innerHTML = '<div class="empty">' + Shade.icon('warn', 44) +
       '<p>' + Shade.esc(e.message || '设备列表加载失败') + '</p>' +
       '<button class="btn btn-sm" id="btnRetry">重新加载</button></div>';
     document.getElementById('btnRetry').addEventListener('click', function () { loadDevices('init'); });

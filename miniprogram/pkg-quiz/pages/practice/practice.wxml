@@ -119,7 +119,7 @@
     </view>
     <view class="b-item counts">
       <view class="cnt ok"><t-icon name="check" size="32rpx" color="#1E9E50" /><text>{{rightCount}}</text></view>
-      <view class="cnt bad"><t-icon name="close" size="32rpx" color="#D22730" /><text>{{wrongCount}}</text></view>
+      <view class="cnt bad"><t-icon name="error-triangle" size="32rpx" color="#D22730" /><text>{{wrongCount}}</text></view>
     </view>
     <view class="b-item sheet" hover-class="hover-opacity" bindtap="onSheetOpen">
       <t-icon name="view-module" size="34rpx" color="#111111" />

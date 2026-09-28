@@ -83,6 +83,7 @@
                       wx:if="{{step.kind === 'tool'}}"
                       class="step-title {{step.status === 'running' ? 'step-title-run' : ''}} {{step.status === 'error' ? 'step-title-err' : ''}}"
                     >
+                      <t-icon wx:if="{{step.status === 'error'}}" class="step-err-x" name="error-triangle" size="22rpx" color="#D22730" />
                       {{step.title}}
                     </view>
                     <view wx:if="{{step.summary}}" class="step-summary">{{step.summary}}</view>

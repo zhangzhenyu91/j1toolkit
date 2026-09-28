@@ -192,6 +192,12 @@
   color: #D22730;
 }
 
+/* 失败步骤前置红三角感叹号（t-icon 由 wxml 提供） */
+.step-err-x {
+  margin-right: 6rpx;
+  vertical-align: -2rpx;
+}
+
 .step-summary {
   margin-top: 4rpx;
   font-size: 22rpx;

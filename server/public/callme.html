@@ -688,7 +688,7 @@
         else createSession('新对话');
       }
     } catch (e) {
-      listEl.innerHTML = '<div class="list-err">' + Shade.icon('error-circle', 22) +
+      listEl.innerHTML = '<div class="list-err">' + Shade.icon('warn', 22) +
         '<p>' + Shade.esc(e.message) + '</p>' +
         '<button class="btn btn-sm" id="btnRetrySessions">重试</button></div>';
       document.getElementById('btnRetrySessions').addEventListener('click', function () {

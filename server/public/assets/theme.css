@@ -306,9 +306,10 @@ textarea.input { height: auto; min-height: 96px; padding: 10px 14px; resize: ver
 }
 .toast svg { width: 16px; height: 16px; flex: none; }
 .toast-success svg { color: var(--orange); }
+.toast-info svg { color: var(--sub); }
+/* 错误 toast：⚠ 红三角感叹号（icons.js warn），与全端错误提示口径一致 */
 .toast-error { border-color: var(--red); }
 .toast-error svg { color: var(--red); }
-.toast-info svg { color: var(--sub); }
 .toast.out { animation: toastOut .3s ease forwards; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(-10px); } }

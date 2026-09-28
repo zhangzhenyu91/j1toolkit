@@ -422,10 +422,11 @@ page {
   color: #6b7690;
 }
 
-/* 未通过明细：浅红底 + 红左边条，逐行列出全部不满足项（与右上角角标同源，后端 verify_reasons） */
+/* 未通过明细：浅红底 + 红左边条 + 2rpx 红细边包围，逐行列出全部不满足项（与右上角角标同源，后端 verify_reasons） */
 .lc-fail {
   margin-top: 16rpx;
   background: #fbe7e8;
+  border: 2rpx solid #d22730;
   border-left: 8rpx solid #d22730;
   border-radius: 0;
   padding: 12rpx 20rpx;
@@ -441,15 +442,10 @@ page {
   line-height: 1.7;
 }
 
-/* 红点：按首行文字中线对齐（行高 24*1.7=40.8rpx，(40.8-8)/2≈16rpx），避免 baseline 对齐导致偏低 */
-.lc-fail-line::before {
-  content: '';
+/* 红三角感叹号：包豪斯语义 三角=失败/警示（图标由 wxml 的 t-icon error-triangle 提供，按首行文字中线对齐：(40.8-22)/2≈10rpx） */
+.lc-fail-x {
   flex: none;
-  width: 8rpx;
-  height: 8rpx;
-  margin-top: 16rpx;
-  border-radius: 50%;
-  background: #d22730;
+  margin-top: 10rpx;
 }
 
 /* 巡视内容：车牌号下方主内容块（浅蓝底 + 蓝边，直角块，与其他信息区分） */
@@ -2440,6 +2436,12 @@ page {
   font-size: 24rpx;
   font-weight: 700;
   color: #111111;
+}
+
+/* 失败行前置红三角感叹号（图标由 wxml 的 t-icon error-triangle 提供，与 .lc-fail-x 同款口径） */
+.bs-fail-x {
+  flex: none;
+  margin-top: 2rpx;
 }
 
 .bs-fail-h .d {

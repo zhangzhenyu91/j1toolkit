@@ -473,6 +473,12 @@
   color: #d22730;
 }
 
+/* 警示说明前置红三角感叹号（图标由 wxml 的 t-icon error-triangle 提供） */
+.note-red-x {
+  margin-right: 6rpx;
+  vertical-align: -3rpx;
+}
+
 .linkbtn {
   margin-left: 10rpx;
   padding: 2rpx 14rpx;

@@ -86,7 +86,7 @@
 
       <!-- 未通过明细：角标为「未通过」时逐行列出全部不满足项（后端 verify_reasons，与角标同源） -->
       <view class="lc-fail" wx:if="{{item.failReasons.length}}">
-        <view class="lc-fail-line" wx:for="{{item.failReasons}}" wx:key="*this">{{item}}</view>
+        <view class="lc-fail-line" wx:for="{{item.failReasons}}" wx:key="*this"><t-icon class="lc-fail-x" name="error-triangle" size="22rpx" color="#D22730" />{{item}}</view>
       </view>
 
       <!-- 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分；点击弹出巡视内容修改层） -->
@@ -749,7 +749,7 @@
     <scroll-view scroll-y class="rp-scroll" enhanced show-scrollbar="{{false}}">
       <view class="dl-empty" wx:if="{{rpLoading}}">加载中…</view>
       <block wx:if="{{!rpLoading}}">
-        <!-- 问题记录卡：日期 · 车牌 + 未过项数徽章 + verify_reasons 逐条红叉 -->
+        <!-- 问题记录卡：日期 · 车牌 + 未过项数徽章 + verify_reasons 逐条红三角警示 -->
         <view class="issue-card" wx:for="{{rpIssues}}" wx:key="id" hover-class="hover-opacity" bindtap="onRpIssueTap" data-id="{{item.id}}" data-date="{{item.logDate}}">
           <view class="issue-head">
             <view class="issue-plate">{{item.dateText}} · {{item.plateText}}</view>
@@ -757,7 +757,7 @@
             <t-icon name="chevron-right" size="28rpx" color="#C9C0AB" />
           </view>
           <view class="issue-line" wx:for="{{item.reasons}}" wx:for-item="reason" wx:key="*this">
-            <view class="issue-x"><t-icon name="close" size="20rpx" color="#D22730" /></view>
+            <view class="issue-x"><t-icon name="error-triangle" size="22rpx" color="#D22730" /></view>
             <view class="issue-txt">{{reason}}</view>
           </view>
         </view>
@@ -808,6 +808,7 @@
         </view>
         <view class="bs-fail" wx:for="{{bsFails}}" wx:key="id">
           <view class="bs-fail-h">
+            <t-icon class="bs-fail-x" name="error-triangle" size="24rpx" color="#D22730" />
             <text class="d">{{item.dateText}}</text>
             <text class="m">{{item.memberName || '未匹配成员'}}</text>
             <text class="t">{{item.typeText}}</text>
@@ -896,7 +897,7 @@
     <!-- 商旅状态提醒条（有未绑定/登录过期候选人时显示） -->
     <view class="tip warn" wx:if="{{memberOffTip}}">
       <view class="ti">
-        <t-icon name="error-circle" size="36rpx" color="#D22730" />
+        <t-icon name="error-triangle" size="36rpx" color="#D22730" />
       </view>
       <view>
         <text class="tip-t">部分成员不可更改</text>
