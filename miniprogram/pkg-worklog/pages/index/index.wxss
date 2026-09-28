@@ -35,7 +35,7 @@ page {
   height: 100%;
   box-sizing: border-box;
   /* 左右留白不下放在 scroll-view 上：真机 scroll-view 的水平 padding 可能被忽略（同 padding-bottom 旧坑），
-     一律移入内层 .day-pane，确保卡片右侧 14rpx 黄硬影有 ≥28rpx 落影空间、不被屏边裁切 */
+     一律移入内层 .day-pane，确保卡片右侧 12rpx 黄硬影有 ≥28rpx 落影空间、不被屏边裁切 */
 }
 
 .day-pane {
@@ -104,6 +104,7 @@ page {
   box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
   padding: 12rpx;
   min-width: 300rpx;
+  max-width: 600rpx; /* 上限兜底：超长班组名由 .ts-opt 内文案省略，浮层不撑出屏外 */
   animation: ts-drop-in 0.2s ease-out;
 }
 
@@ -115,6 +116,16 @@ page {
   border-radius: 0;
   font-size: 25rpx;
   font-weight: 600;
+}
+
+/* 主文案左对齐 + 超长省略（.ck 勾选由 margin-left:auto 右置） */
+.ts-opt > text:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 /* 选中标记前置方块槽位（未选中留空占位，各行文字对齐） */
@@ -276,20 +287,15 @@ page {
   letter-spacing: 2rpx;
 }
 
-/* ---------- 日志卡片（包豪斯主卡：5rpx 墨边 + 28rpx 圆角；每日首卡=主卡黄硬影，其余次卡=墨色浅影；
-   落影空间由内层 .day-pane 左右 28rpx 内边距保证（28 ≥ 14 影 + 14 余量），真机不被屏边裁切；
+/* ---------- 日志卡片（包豪斯主卡：5rpx 墨边 + 28rpx 圆角；全部日志卡统一 12rpx 黄色硬影，不分首卡次卡；
+   落影空间由内层 .day-pane 左右 28rpx 内边距保证（28 ≥ 12 影 + 16 余量），真机不被屏边裁切；
    入场编排：a-rise 上移+微旋转归位，fill-mode both，按卡片次序时延链） ---------- */
 .logcard {
   margin-top: 24rpx;
   border: 5rpx solid #111111;
   border-radius: 28rpx;
-  box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.14); /* 次卡：墨色浅影 */
+  box-shadow: 12rpx 12rpx 0 #f2b705;
   animation: wl-a-rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
-}
-
-/* 每日首卡（index=0 带 mt-0）= 主卡：黄色硬影 */
-.logcard.mt-0 {
-  box-shadow: 14rpx 14rpx 0 #f2b705;
 }
 
 .day-pane .logcard:nth-of-type(2) { animation-delay: 0.26s; }
@@ -631,10 +637,21 @@ page {
 }
 
 .cal-title {
+  text-align: center; /* 与 .sheet-title 同口径：标题（含前置红方块）整体居中于图例行宽 */
   font-size: 32rpx;
   font-weight: 800;
   letter-spacing: 4rpx;
   color: #111111;
+}
+
+/* 标题前置红方块（同 .sheet-title::before） */
+.cal-title::before {
+  content: '';
+  display: inline-block;
+  width: 14rpx;
+  height: 14rpx;
+  background: #d22730;
+  margin-right: 12rpx;
 }
 
 .cal-legend {
@@ -648,90 +665,116 @@ page {
   letter-spacing: 2rpx;
 }
 
+/* 图例 = 实心色点（与格内状态点同形同色，不再用空心方块），同 Web 端月历图例口径 */
 .cal-legend .lg {
   display: inline-block;
-  width: 18rpx;
-  height: 18rpx;
-  border-radius: 0;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
   margin-right: 8rpx;
-  vertical-align: -3rpx;
+  vertical-align: -1rpx;
 }
 
 .cal-legend .lg-g {
-  background: #e3f5eb;
-  border: 2rpx solid #1e9e50;
+  background: #1e9e50;
 }
 
 .cal-legend .lg-b {
-  background: #fbe7e8;
-  border: 2rpx solid #d22730;
+  background: #d22730;
 }
 
 .cal-legend .lg-y {
-  background: #fcefc8;
-  border: 2rpx solid #f2b705;
+  background: #f2b705;
 }
 
-/* ---------- t-calendar 按日着色 ----------
+/* ---------- t-calendar 包豪斯化 ----------
+   弹层容器：直角（--td-calendar-radius:0 见 common.wxss）+ 4rpx 墨边 + 上向硬影，与 .sheet 族弹层一致 */
+.t-calendar--popup {
+  border: 4rpx solid #111111;
+  border-bottom: none;
+  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.15);
+}
+
+/* 翻月箭头：直角墨边小钮（组件默认仅灰色图标） */
+.t-calendar .t-calendar-header__icon {
+  width: 56rpx;
+  height: 56rpx;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0 6rpx;
+  border: 3rpx solid #111111;
+  border-radius: 0;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  color: #111111;
+}
+
+.t-calendar .t-calendar-header__icon--disabled {
+  border-color: #d9cfba;
+  color: #d9cfba;
+}
+
+/* 按日验证状态：日期格一律白底，状态以格内下方 10rpx 色点表达
+   （绿=全部通过 / 黄=有备注 / 红=有未通过），与 Web 端月历图例同口径；
    format 注入的 className 落在 .t-calendar__dates-item 上；
    组件 styleIsolation 为 apply-shared，页面样式可生效。
-   优先级需高于组件自身的 --selected 选中态，着色后选中以墨色描边区分。 */
-.t-calendar__dates-item.wl-cal-passed {
-  background: #e3f5eb;
-  color: #1e9e50;
-  font-weight: 700;
+   色点用 ::before（::after 留给今日红圆） */
+.t-calendar__dates-item.wl-cal-passed::before,
+.t-calendar__dates-item.wl-cal-failed::before,
+.t-calendar__dates-item.wl-cal-remark::before {
+  content: '';
+  position: absolute;
+  bottom: 16rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
 }
 
-.t-calendar__dates-item.wl-cal-failed {
-  background: #fbe7e8;
-  color: #d22730;
-  font-weight: 700;
+.t-calendar__dates-item.wl-cal-passed::before {
+  background: #1e9e50;
 }
 
-/* 黄 = 验证通过但有备注（深黄文字保证浅黄底上可读） */
-.t-calendar__dates-item.wl-cal-remark {
-  background: #fcefc8;
-  color: #8a6d00;
-  font-weight: 700;
+.t-calendar__dates-item.wl-cal-failed::before {
+  background: #d22730;
 }
 
-.t-calendar__dates-item--selected.wl-cal-passed,
-.t-calendar__dates-item--selected.wl-cal-failed,
-.t-calendar__dates-item--selected.wl-cal-remark {
+/* 黄点 = 验证通过但有备注 */
+.t-calendar__dates-item.wl-cal-remark::before {
+  background: #f2b705;
+}
+
+/* 选中日：白底 + 4rpx 墨边（内描边不占格距）+ 墨色硬影（覆盖组件默认品牌蓝底） */
+.t-calendar .t-calendar__dates-item.t-calendar__dates-item--selected {
+  background: #ffffff;
+  color: #111111;
   outline: 4rpx solid #111111;
   outline-offset: -4rpx;
+  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.9);
 }
 
-/* 「今天」醒目标记：加粗 + 红色小圆点（与着色类可叠加） */
+/* 「今天」：红圆底白字（::after 画红圆垫于数字之下；与状态色点可叠加，色点在圆外下方） */
 .t-calendar__dates-item.wl-cal-today {
   position: relative;
   font-weight: 800;
-}
-
-.t-calendar__dates-item.wl-cal-today:not(.wl-cal-passed):not(.wl-cal-failed):not(.wl-cal-remark) {
-  color: #d22730;
+  color: #ffffff;
 }
 
 .t-calendar__dates-item.wl-cal-today::after {
   content: '';
   position: absolute;
-  bottom: 8rpx;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: 8rpx;
-  height: 8rpx;
-  border-radius: 4rpx;
+  transform: translate(-50%, -50%);
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
   background: #d22730;
-}
-
-/* 选中日同为「今天」且无验证底色时：选中底上文字与圆点改白（避免与选中底色相消看不见数字）；
-   有验证底色（passed/failed/remark）时保持绿/红/黄状态色，否则浅底上白字不可见 */
-.t-calendar .t-calendar__dates-item.t-calendar__dates-item--selected.wl-cal-today:not(.wl-cal-passed):not(.wl-cal-failed):not(.wl-cal-remark) {
-  color: #ffffff;
-}
-
-.t-calendar .t-calendar__dates-item--selected.wl-cal-today:not(.wl-cal-passed):not(.wl-cal-failed):not(.wl-cal-remark)::after {
-  background: #ffffff;
+  z-index: -1;
 }
 
 /* ---------- 日历左右滑动切换月份动画 ----------
@@ -1443,13 +1486,23 @@ page {
 .opt {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start; /* 曾用 space-between：未选中行仅 ::before 占位 + 文案两项，文案被顶到右缘裁断 */
   gap: 16rpx;
   height: 76rpx;
   padding: 0 24rpx;
   font-size: 28rpx;
   color: #111111;
   transition: background-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+/* 主文案左对齐 + 占满中槽，超长省略不溢出右缘；选中勾（t-icon）随后自然右置 */
+.opt > text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 /* 选中标记前置方块槽位（未选中留空占位，各行文字对齐） */

@@ -496,13 +496,23 @@
 .opt {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start; /* 与出工日志主页同款下拉口径一致：左对齐，不用 space-between */
   gap: 16rpx;
   height: 76rpx;
   padding: 0 24rpx;
   font-size: 28rpx;
   color: #111111;
   transition: background-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+/* 主文案左对齐 + 占满中槽，超长省略不溢出右缘；选中勾（t-icon）随后自然右置 */
+.opt > text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 .opt + .opt {

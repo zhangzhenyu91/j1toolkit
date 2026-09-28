@@ -548,6 +548,16 @@ page {
   gap: 16rpx;
 }
 
+/* 主文案左对齐 + 占满中槽，超长省略兜底（「无派车」徽章 flex:none 不受压，勾选图标 margin-left:auto 右置） */
+.drop-item > text:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
 /* 选中标记前置方块槽位（未选中留空占位，各行文字对齐） */
 .drop-item::before {
   content: '';

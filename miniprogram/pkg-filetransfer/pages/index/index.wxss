@@ -54,6 +54,7 @@
   box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.9);
   padding: 12rpx;
   min-width: 300rpx;
+  max-width: 600rpx; /* 上限兜底：超长班组名由 .ts-opt 内文案省略，浮层不撑出屏外 */
   animation: ts-drop-in 0.2s ease-out;
 }
 
@@ -65,6 +66,16 @@
   border-radius: 0;
   font-size: 25rpx;
   font-weight: 600;
+}
+
+/* 主文案左对齐 + 超长省略（.ck 勾选由 margin-left:auto 右置） */
+.ts-opt > text:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 .ts-opt.on {

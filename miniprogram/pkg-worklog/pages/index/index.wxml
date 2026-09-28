@@ -407,7 +407,7 @@
       <text><text class="lg lg-g"></text>全部通过</text>
       <text><text class="lg lg-y"></text>有备注</text>
       <text><text class="lg lg-b"></text>有未通过</text>
-      <text>无底色＝无记录 / 仅免验证</text>
+      <text>无圆点＝无记录 / 仅免验证</text>
     </view>
   </view>
 </t-calendar>

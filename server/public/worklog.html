@@ -180,6 +180,8 @@
   .pane > .rep-bar { flex: none; margin-bottom: 12px; }
   .pane-scroll {
     flex: 1; min-height: 0; overflow-y: auto;
+    /* 右内边距给行卡/字典卡的右偏硬影让位：滚动容器在自身 padding box 处裁掉视觉溢出，无让位时右影被裁（同 #cardFlow 口径） */
+    padding-right: 10px;
     scrollbar-width: thin; scrollbar-color: rgba(17, 17, 17, .2) transparent;
   }
   .pane-foot { flex: none; display: flex; align-items: center; gap: 12px; padding-top: 14px; }
@@ -191,9 +193,12 @@
     .wl-list.rep-side #paneRecord { flex: 1; min-width: 0; }
     .wl-list.rep-side #paneRep { display: flex; flex-direction: column; width: 480px; flex: none; animation: none; }
   }
-  /* 日志卡片列表容器：页面唯一滚动区；scrollbar-gutter 常驻槽位，滚动条出现/消失不引起横向抖动 */
+  /* 日志卡片列表容器：页面唯一滚动区；scrollbar-gutter 常驻槽位，滚动条出现/消失不引起横向抖动；
+     右内边距 10px 给卡片 6px 右偏硬影（--hard）让位——overflow-y:auto 使 overflow-x 计算为 auto，
+     滚动容器在自身 padding box 处裁掉视觉溢出，不留位时卡片右影整段被裁（贴缘观感） */
   #cardFlow {
     flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; transition: opacity .18s ease;
+    padding-right: 10px;
     scrollbar-width: thin; scrollbar-color: rgba(17, 17, 17, .2) transparent;
   }
   /* 切日/切范围加载中：保留旧内容微透明过渡（不再骨架闪屏），期间禁点 */
