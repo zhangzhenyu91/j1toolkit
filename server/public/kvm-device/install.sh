@@ -5,7 +5,7 @@
 # 作用：
 #   1) 关闭设备 Web UI 登录认证（远程控制直达控制界面，不再二次登录）
 #   2) 安装文件分享 API（push 上传 / list 列表 / download 下载 / status 状态）
-#   3) 注入壹匣主题 CSS（j1-theme.css，覆盖 Web UI 为安全橙风格）
+#   3) 注入壹匣主题 CSS（j1-theme.css，覆盖 Web UI 为包豪斯几何风格）
 #   4) 嵌入 Call Me 浮窗（LangBot，bot.j1net.com，无需令牌）
 #
 # 用法（SSH 登录设备后执行一行）：
@@ -61,7 +61,7 @@ fetch manifest.yaml           /usr/share/kvmd/extras/fileshare/manifest.yaml
 chmod +x /etc/init.d/S99fileshare
 /usr/bin/python3 -m py_compile /etc/kvmd/user/fileshare/fileshare.py || fail "fileshare.py 语法校验失败"
 
-# 2b) 注入壹匣主题（覆盖 Web UI 为安全橙风格）
+# 2b) 注入壹匣主题（覆盖 Web UI 为包豪斯几何风格）
 # 原理见 j1-theme.css 头部注释：CSS 变量 !important 覆盖，不改 JS
 info "    注入壹匣主题 CSS"
 mkdir -p /etc/kvmd/user/theme
@@ -84,12 +84,16 @@ fi
 
 # 2b-2) 补丁前端主题常量：antd token 与品牌图标的蓝紫色是构建时内联进 JS/CSS 的，
 # CSS 变量覆盖不到，需直接替换构建产物中的色值（键名带 hash，固件升级后重跑即可）
-info "    补丁前端主题色常量（蓝紫 → 安全橙）"
+# 末段旧壹匣色对（F26D21 起）用于把曾按方案五「安全橙」补丁过的设备平滑迁移到方案十二
+info "    补丁前端主题色常量（原厂蓝紫 / 旧壹匣橙 → 包豪斯色板）"
 ASSETS=/usr/share/kvmd/glweb/assets
-COLOR_PAIRS="5271EC:F26D21 A8B8F5:F98A4B 26367A:D95E15 CBD4F9:F8C9A6 DCE2FC:FDEEE2 \
-4660C9:F26D21 384CA0:F98A4B 909FDE:F8C9A6 1C2650:22314E 859BF5:F98A4B \
-E04C7E:CF4444 FFF0F2:FBEDEA 00C8B5:3FA66A E6FFF8:EAF5EF \
-F3F3F4:F4F1EA EEEEF0:F8F5EC E0E1E5:E3DCCB C44671:CF4444 37262C:3A2426"
+COLOR_PAIRS="5271EC:1D4ED8 A8B8F5:3B6BE8 26367A:1740B8 CBD4F9:B9C7F5 DCE2FC:EDF2FE \
+4660C9:1D4ED8 384CA0:3B6BE8 909FDE:B9C7F5 1C2650:111111 859BF5:3B6BE8 \
+E04C7E:D22730 FFF0F2:FBE7E8 00C8B5:1E9E50 E6FFF8:EAF5EF \
+F3F3F4:F8F6F1 EEEEF0:F3F1EA E0E1E5:E7E3D8 C44671:D22730 37262C:3A2426 \
+F26D21:1D4ED8 F98A4B:3B6BE8 D95E15:1740B8 F8C9A6:B9C7F5 FDEEE2:EDF2FE \
+22314E:111111 CF4444:D22730 FBEDEA:FBE7E8 3FA66A:1E9E50 \
+F4F1EA:F8F6F1 F8F5EC:F3F1EA E3DCCB:E7E3D8"
 SED_RULES=""
 ALT=""
 for pair in $COLOR_PAIRS; do
@@ -149,7 +153,7 @@ info "    fileshare 直连（:8901）：$STATUS"
 VIA443=$(curl -sk https://127.0.0.1/api/fileshare/status)
 printf '%s\n' "$VIA443" | grep -q '"ok": true' || fail "自检：/api/fileshare 响应异常：$VIA443"
 info "    经 nginx（443 /api/fileshare/）：正常"
-THEME=$(curl -sk https://127.0.0.1/j1-theme.css | grep -c 'F26D21')
+THEME=$(curl -sk https://127.0.0.1/j1-theme.css | grep -c '1D4ED8')
 [ "$THEME" -gt 0 ] && info "    壹匣主题 CSS（443 /j1-theme.css）：正常" || fail "自检：/j1-theme.css 未取到主题内容"
 curl -sk https://127.0.0.1/ | grep -qF 'j1-theme.css' \
     && info "    首页主题引用：已注入" || info "    警告：首页未见主题引用（如刚升级固件请重跑本脚本）"
