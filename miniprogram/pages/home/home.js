@@ -182,6 +182,12 @@ Page({
     this.setData({ tab: e.detail.key });
   },
 
+  // 手指滑动 swiper 切换面板后同步底部导航高亮（点击 tab 触发的切换 current 已一致，无需处理）
+  onSwiperChange(e) {
+    const tab = e.detail.current === 1 ? 'me' : 'home';
+    if (tab !== this.data.tab) this.setData({ tab });
+  },
+
   // 进入应用（分包页面）；无小程序页面的应用（path 为空）
   // 统一提示前往 PC 端 Shade 壹匣，确认即复制网址
   onAppTap(e) {
@@ -254,7 +260,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v3.6.4k \n 应用权限申请联系 zzy',
+      content: '版本号：v3.6.5k \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },

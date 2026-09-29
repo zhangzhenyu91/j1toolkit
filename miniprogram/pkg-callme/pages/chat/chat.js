@@ -8,7 +8,7 @@ import { request } from '../../../utils/request';
 import { createUtf8Decoder, createSseParser } from '../../utils/sse';
 import { shareAppMessage } from '../../../utils/share';
 
-// Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（包豪斯几何色板，mp-html 按标签名生效）；
+// Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（「政企蓝白」色板，mp-html 按标签名生效）；
 // 容器样式本地覆盖——聊天气泡字号略大（14.5px），其余与共享口径一致
 const { renderMarkdownRaw, MD_TAG_STYLE } = require('../../../utils/markdown');
 const { parseDate, pad } = require('../../../utils/util');

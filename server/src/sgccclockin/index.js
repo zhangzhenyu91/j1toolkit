@@ -12,8 +12,9 @@ const teamUtil = require('../utils/team');
 const config = require('../config');
 const sgcc = require('./protocol');
 const cos = require('../worklog/cos');
-const dify = require('../worklog/dify');
-const { checkWatermark } = require('../worklog/verify');
+const { verifyAndWriteBack } = require('../worklog/photoverify');
+// 北京日历日 / 点分日期 / 每日排程（UTC+8 固定偏移）统一走 utils/cndate；today = todayCn 别名，调用点不动
+const { dots, todayCn: today, nextDailyRunUtc } = require('../utils/cndate');
 
 const router = express.Router();
 router.use(auth, requireApp('work-log'));
@@ -29,18 +30,6 @@ router.use(async (req, res, next) => {
 });
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-// 北京日历日 YYYY-MM-DD：容器本地时区不固定（云端 Docker 通常为 UTC），按固定 UTC+8 换算
-// （口径同 worklog/dispatch-sync.js todayCn()；按本地时区取日时，北京时间 0-8 点会落在前一天）
-const CN_OFFSET_MS = 8 * 60 * 60 * 1000; // 北京时间固定偏移（UTC+8）
-function today() {
-  return new Date(Date.now() + CN_OFFSET_MS).toISOString().slice(0, 10);
-}
-
-// 日期串转点分格式（YYYY-MM-DD → YYYY.MM.DD，COS key 与 checkWatermark 的 logDate 口径，同 worklog）
-function dots(dateStr) {
-  return dateStr.replace(/-/g, '.');
-}
 
 // ---------- 账号工具 ----------
 
@@ -1269,43 +1258,15 @@ router.post('/photos/:id/resync', async (req, res, next) => {
 
 // ---------- 核查（每晚定时 + 手动拉取，一律以商旅为准覆盖本地）----------
 
-// Dify 识别结果回写（worklog 的 writeBackVerify 未导出，在此内联等价实现）：
-// 写库时重查记录日期与派车目的地，日期/地点核验由 checkWatermark 完成（logDate 用 dots 点分格式）
-async function writeBackPullVerify(photoId, vr) {
-  const [rows] = await pool.query(
-    `SELECT DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, d.name AS destination_name
-     FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-     LEFT JOIN worklog_destination d ON d.id = e.destination_id
-     WHERE p.id = ?`,
-    [photoId]
-  );
-  if (!rows.length) return; // 照片已删除
-  if (!vr.ok) {
-    await pool.query(
-      `UPDATE worklog_photo SET verify_status = 'failed', work_content = '', shot_time = '', weather = '', location = '', lng = '', lat = '', date_ok = NULL, dest_ok = NULL WHERE id = ?`,
-      [photoId]
-    );
-    return;
-  }
-  const chk = checkWatermark({
-    time: vr.time,
-    location: vr.location,
-    logDate: dots(rows[0].log_date),
-    destination: rows[0].destination_name,
-  });
-  await pool.query(
-    `UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?, location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
-    [chk.status, vr.workContent, vr.time, vr.weather, vr.location, vr.lng, vr.lat,
-      chk.dateOk ? 1 : 0, chk.destOk ? 1 : 0, photoId]
-  );
-}
+// Dify 识别结果回写统一走 worklog/photoverify.js 的 verifyAndWriteBack
+// （含空内容自动重试、写库时重查记录日期/目的地核验、重试耗尽的班组人工审核通知）
 
 // 费用照片双向对账（以商旅为准）：数据源为 getFeeInfoNew 模板 id=5「上传图片」组件的 value
 // （JSON 数组，元素含 id/url（App 手工上传可能为 imageUrl，两键兼容），结构见 private/esgcc/sgcc/tools/fee_probe3.js 联调口径）；比对键 = 商旅图片 id
 // ctx = 卡片上下文 { teamId, memberId }（缺省账号自身口径）：本地照片集/挂卡/成员名/COS 路径均按 ctx 取——
 // 核查按卡片走，人已调班时旧班卡片的照片对账仍落在旧班上下文；远端调用仍用 account.token/机型
 // 规则：商旅有本地无 → 下载存 COS 入库（members=[成员名]、source=1、is_watermark=1、
-//       sgcc_img_id={memberId:图片id}、verify_status='pending'，异步 Dify 验证回写沿用 writeBackPullVerify）；
+//       sgcc_img_id={memberId:图片id}、verify_status='pending'，异步 Dify 验证回写走 verifyAndWriteBack）；
 //       相同照片（MD5 一致）合并：人名/链接并入已有照片，一图多人标注；
 //       本地 source=1（商旅拉下的镜像）有而商旅无 → 整照删除（COS 对象 + worklog_photo 行）；
 //       本地 source=0（壹匣上传）本成员链接有而商旅无 → 摘除本成员链接与人名（摘空后整照删除）
@@ -1434,11 +1395,8 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
              VALUES (?, ?, ?, ?, 1, 1, ?, 1, 'pending', ?)`,
             [entry.id, key, localUrl, JSON.stringify([memberName]), JSON.stringify({ [memberKey]: imgId }), imgMd5]
           );
-          // 异步 Dify 验证并回写（不阻塞对账；写法同 worklog 上传照片）
-          dify
-            .verifyPhoto({ username, date: dots(date), destination: entry.destination_name || '', url: localUrl })
-            .then((vr) => writeBackPullVerify(r.insertId, vr))
-            .catch((err) => console.error('[商旅打卡] 补拉照片验证回写失败：', err.message));
+          // 异步 Dify 验证并回写（不阻塞对账；含空内容重试与失败班组通知，同 worklog 上传照片）
+          verifyAndWriteBack(r.insertId, { username, date: dots(date), destination: entry.destination_name || '', url: localUrl });
           pulled += 1;
         } catch (err) {
           // 单张失败记核查日志继续，不抛出
@@ -2076,18 +2034,7 @@ router.delete('/sync/logs', requireDictAdmin, async (req, res, next) => {
 });
 
 // ---------- 每日定时核查（SGCC_SYNC_TIME，默认 23:00，按北京时间排程）----------
-// 时区口径：容器本地时区不固定（云端 Docker 通常为 UTC），若按本地时间排程，
-// SGCC_SYNC_TIME=23:00 会被排到北京时间次日 07:00；中国无夏令时，统一按 UTC+8 固定偏移换算：
-// 「当前 UTC 时间戳 + 8h」取北京年月日，再以 Date.UTC(北京年月日, 配置时分) − 8h 得触发的 UTC 时间戳
-function nextDailyRunUtc(hh, mm) {
-  const now = Date.now();
-  const cn = new Date(now + CN_OFFSET_MS); // 其 UTC 年月日即北京日历日
-  let nextUtc = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate(), hh, mm, 0) - CN_OFFSET_MS;
-  if (nextUtc <= now) { // 今日北京时点已过 → 顺延次日（Date.UTC 自动处理跨月进位）
-    nextUtc = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate() + 1, hh, mm, 0) - CN_OFFSET_MS;
-  }
-  return { nextUtc, now };
-}
+// 时区换算口径（UTC+8 固定偏移）与下次触发计算统一在 utils/cndate.js 的 nextDailyRunUtc
 // 每日核查附加检查：当日已开始打卡但结束打卡未打的成员 → 按人投放通知本人 + 本班班组管理员 + 超管（见 16.3）
 // 账号联表人级解析（member_id 直连或经 member.user_id 兜底）：调班后旧班打卡行的本人仍能收到通知
 // 微信侧：本人个人 wxid 按人随站内通知发送；打卡班组群在循环后合并为一条（多人缺卡时群消息不逐人刷屏，群内@缺卡成员）

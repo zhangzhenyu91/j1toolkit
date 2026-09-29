@@ -53,7 +53,7 @@ miniprogram/   微信小程序（主包：登录/首页/我的/管理页）
 server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   public/        网页端（login.html / index.html 工作台 / callme / worklog / safeday / kvm / quiz / admin + assets 公共资源 + kvm-device 设备安装包）
   src/routes/    本体路由（auth/user/app/admin/callme）
-  src/worklog/   出工日志后端子模块（schema/cos/dify/verify/路由）
+  src/worklog/   出工日志后端子模块（schema/cos/dify/verify 验证规则/photoverify 验证流水线/dispatch-sync 派车单同步/路由）
   src/safeday/   安全日活动记录后端子模块（dify/merge/store/路由）
   src/kvm/       远程连接计算机/文件传输 后端子模块（GLKVM 平台 API 客户端/路由/文件转发点）
   src/quiz/      题库刷题后端子模块（schema 建表种子/dify 解析/analyzer 队列/路由）
@@ -86,7 +86,7 @@ proxy_read_timeout 300s;  # 推荐：长生成不被掐断（服务端另有 15s
 client_max_body_size 20m; # 图片上传（base64）需要
 ```
 
-**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` 六张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 7 张业务表并写入应用与 7 名成员种子；`QUIZ_ENABLED=true` 时再建题库刷题 quiz_* 表并写入应用种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
+**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 7 张业务表并写入应用与 7 名成员种子；`QUIZ_ENABLED=true` 时再建题库刷题 quiz_* 表并写入应用种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
 
 ## 环境变量清单
 

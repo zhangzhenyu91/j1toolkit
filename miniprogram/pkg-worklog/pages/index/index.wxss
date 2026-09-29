@@ -405,7 +405,7 @@ page {
   line-height: 1.7;
 }
 
-/* 红三角感叹号：包豪斯语义 三角=失败/警示（图标由 wxml 的 t-icon error-triangle 提供，按首行文字中线对齐：(40.8-22)/2≈10rpx） */
+/* 红三角感叹号：失败/警示语义（图标由 wxml 的 t-icon error-triangle 提供，按首行文字中线对齐：(40.8-22)/2≈10rpx） */
 .lc-fail-x {
   flex: none;
   margin-top: 10rpx;
@@ -561,7 +561,7 @@ page {
   justify-content: center;
 }
 
-/* 附件：Office 文档仅可点击文件名（下划线 + 包豪斯蓝） */
+/* 附件：Office 文档仅可点击文件名（下划线 + 品牌蓝） */
 .rmk-docs {
   margin-top: 14rpx;
   display: flex;
@@ -1722,7 +1722,7 @@ page {
 }
 
 /* ============================================================
-   商旅打卡（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨⑩；token 同方案十二·包豪斯几何；⑪ 同步核查面板已下线，改为卡片操作区「从商旅同步」）
+   商旅打卡（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨⑩；token 同「政企蓝白」；⑪ 同步核查面板已下线，改为卡片操作区「从商旅同步」）
    ============================================================ */
 
 /* ---------- ④ 卡片「商旅打卡」区：每个用车人一行（姓名 + 状态小字 + 开始/结束两枚 chip 三态） ---------- */
@@ -2260,7 +2260,7 @@ page {
 
 /* ---------- 批量从商旅同步面板（悬浮钮独立面板） ---------- */
 
-/* 区段行 + 实心包豪斯蓝「改日期」钮（同任务单页 range 族） */
+/* 区段行 + 实心品牌蓝「改日期」钮（同任务单页 range 族） */
 .bs-range {
   margin-top: 24rpx;
   display: flex;
@@ -2535,7 +2535,7 @@ page {
 }
 
 /* ============================================================
-   入场编排关键帧（包豪斯：旋转 + 平移归位，fill-mode both，时延链；
+   入场编排关键帧（旋转 + 平移归位，fill-mode both，时延链；
    引用处：.tswitch/.datebar/.scopebar/.logcard=a-rise，.badge=a-spin，.fab-main=a-fab；
    氛围动效仅 2 处：.ts-sq 与 .datebar .dtxt::before 的 wl-rot360 慢转。
    prefers-reduced-motion 降级由 app.wxss 全局枚举统一关闭）

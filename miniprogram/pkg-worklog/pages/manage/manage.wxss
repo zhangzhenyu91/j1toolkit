@@ -221,13 +221,12 @@ page {
 }
 
 /* ---------- 导入弹层（屏七：底部弹层 + 三步） ----------
-   包豪斯化同分包 .sheet 族：直角 + 顶部 6rpx 墨线 + 向上硬影 */
+   .sheet 族同分包 common.wxss「政企蓝白」口径：顶部 24rpx 圆角 + 软影，无几何记号 */
 .sheet {
   position: relative;
   background: #ffffff;
-  border-radius: 12rpx;
-  border-top: 2rpx solid #E5E6EB;
-  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.15);
+  border-radius: 24rpx 24rpx 0 0;
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 
@@ -235,18 +234,8 @@ page {
   text-align: center;
   font-size: 32rpx;
   font-weight: 700;
-  letter-spacing: 4rpx;
+  letter-spacing: 1rpx;
   color: #1D2129;
-}
-
-/* 标题前置红方块（inline-block 保持整体居中） */
-.sheet-title::before {
-  content: '';
-  display: inline-block;
-  width: 14rpx;
-  height: 14rpx;
-  background: #F53F3F;
-  margin-right: 12rpx;
 }
 
 .imp-steps {
@@ -264,8 +253,8 @@ page {
   height: 40rpx;
   flex: none;
   border-radius: 50%;
-  background: #1D2129;
-  color: #ffffff;
+  background: #E8F0FF;
+  color: #0E3DA8;
   font-size: 22rpx;
   font-weight: 700;
   display: flex;

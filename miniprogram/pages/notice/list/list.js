@@ -10,6 +10,7 @@ Page({
   data: {
     items: [], // 通知列表（含 timeText / expanded / html 展示字段）
     unread: 0,
+    hasRead: false, // 是否有已读通知（控制「删除已读」入口显隐）
     loading: true,
     isAdmin: false, // 超管删除为全局删除（确认文案区分）；删除入口全员可见
     mdTagStyle: MD_TAG_STYLE,
@@ -35,7 +36,11 @@ Page({
         timeText: formatTime(n.createdAt),
         expanded: false,
       }));
-      this.setData({ items, unread: (data && data.unread) || 0 });
+      this.setData({
+        items,
+        unread: (data && data.unread) || 0,
+        hasRead: items.some((n) => n.read),
+      });
     } catch (err) {
       this.toast(err.message);
     } finally {
@@ -57,6 +62,7 @@ Page({
     this.setData({
       [`items[${idx}].read`]: 1,
       unread: Math.max(0, this.data.unread - 1),
+      hasRead: true,
     });
     try {
       await request({ url: `/api/v1/notice/${id}/read`, method: 'POST' });
@@ -86,9 +92,11 @@ Page({
         if (!res.confirm) return;
         try {
           await request({ url: `/api/v1/notice/${id}`, method: 'DELETE' });
+          const items = this.data.items.filter((n) => n.id !== id);
           this.setData({
-            items: this.data.items.filter((n) => n.id !== id),
+            items,
             unread: item.read ? this.data.unread : Math.max(0, this.data.unread - 1),
+            hasRead: items.some((n) => n.read),
           });
           this.toast('已删除');
         } catch (err) {
@@ -106,11 +114,36 @@ Page({
       this.setData({
         items: this.data.items.map((n) => ({ ...n, read: 1 })),
         unread: 0,
+        hasRead: this.data.items.length > 0,
       });
       this.toast('已全部标记为已读');
     } catch (err) {
       this.toast(err.message);
     }
+  },
+
+  // 一键删除已读（仅有已读时显示入口；按人删除——仅从本人列表移除，不影响其他成员，超管亦然）
+  onDelRead() {
+    if (!this.data.hasRead) return;
+    wx.showModal({
+      title: '删除已读',
+      content: '确定删除全部已读通知吗？删除后仅从您的通知列表移除，不影响其他成员。',
+      confirmText: '删除',
+      confirmColor: '#F53F3F',
+      success: async (res) => {
+        if (!res.confirm) return;
+        try {
+          const data = await request({ url: '/api/v1/notice/del-read', method: 'POST' });
+          this.setData({
+            items: this.data.items.filter((n) => !n.read),
+            hasRead: false,
+          });
+          this.toast(`已删除 ${(data && data.deleted) || 0} 条已读通知`);
+        } catch (err) {
+          this.toast(err.message);
+        }
+      },
+    });
   },
 
   onShareAppMessage() {

@@ -168,7 +168,10 @@
   }
   .modal-hd .x:hover { color: var(--navy); background: var(--fill); }
   .modal-hd .x svg { width: 15px; height: 15px; }
-  /* 「全部已读」隐藏时关闭按钮由自身 margin-left:auto 右对齐 */
+  /* 「全部已读」隐藏时关闭按钮由自身 margin-left:auto 右对齐；「删除已读」紧随标题（红色小字钮，不占右对齐位） */
+  #noticeDelRead { margin-left: 12px; color: var(--red); }
+  #noticeDelRead:hover { border-color: var(--red); color: var(--red); background: #FFECE8; }
+  #noticeDelRead[hidden] { display: none; }
   #noticeReadAll { margin-left: auto; }
   #noticeReadAll[hidden] { display: none; }
   #noticeReadAll[hidden] + .x { margin-left: auto; }
@@ -287,7 +290,7 @@
 <!-- 通知列表弹层 -->
 <div class="mask" id="noticeMask">
   <div class="modal">
-    <div class="modal-hd">消息通知<button class="btn btn-sm" id="noticeReadAll" hidden>全部已读</button><button class="x" id="noticeClose" title="关闭"></button></div>
+    <div class="modal-hd">消息通知<button class="btn btn-sm" id="noticeDelRead" hidden>删除已读</button><button class="btn btn-sm" id="noticeReadAll" hidden>全部已读</button><button class="x" id="noticeClose" title="关闭"></button></div>
     <div class="nm-list" id="noticeList"></div>
   </div>
 </div>
@@ -485,6 +488,11 @@
     document.getElementById('noticeReadAll').hidden = noticeUnread <= 0;
   }
 
+  // 「删除已读」按钮显隐：弹层列表内有已读通知时可见
+  function renderDelReadBtn() {
+    document.getElementById('noticeDelRead').hidden = !noticeItems.some(function (n) { return n.read; });
+  }
+
   // 工作台通知卡：最新 3 条（未读标题前加橙色圆点、加粗）
   function noticeCardRowHtml(n) {
     return '<div class="nt-item' + (n.read ? '' : ' unread') + '">' +
@@ -545,6 +553,7 @@
       noticeItems = (r.data && r.data.items) || [];
       noticeUnread = (r.data && r.data.unread) || 0;
       renderNoticeBadge();
+      renderDelReadBtn();
       list.innerHTML = noticeItems.length
         ? noticeItems.map(noticeModalRowHtml).join('')
         : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
@@ -557,7 +566,7 @@
   // 本地置已读：未读数递减、刷新徽章 / 工作台卡 / 弹层行（调用前需确认该条原为未读）
   function markNoticeReadLocal(id) {
     var n = noticeItems.find(function (x) { return x.id === id; });
-    if (n) n.read = 1;
+    if (n) { n.read = 1; renderDelReadBtn(); }
     var t = noticeTop.find(function (x) { return x.id === id; });
     if (t && !t.read) { t.read = 1; renderNoticeCard(); }
     noticeUnread = Math.max(0, noticeUnread - 1);
@@ -590,6 +599,7 @@
   });
 
   // ---------- 删除通知（全员可用：超管全局删除，其余角色仅从本人列表移除；二次确认，删除后同步列表 / 工作台卡 / 未读数） ----------
+  // noticeDelId 为待删通知 id；哨兵 -1 = 一键删除已读（复用同一确认弹层；按人删除，超管也不做全局删除）
   var noticeDelId = 0;
   function askDeleteNotice(id) {
     var n = noticeItems.find(function (x) { return x.id === id; });
@@ -600,18 +610,40 @@
       : '确定删除通知「' + n.title + '」吗？删除后仅从您的通知列表移除，不影响其他成员。';
     document.getElementById('noticeDelMask').classList.add('show');
   }
+  // 一键删除已读（弹层头部「删除已读」按钮，有已读时显示）
+  document.getElementById('noticeDelRead').addEventListener('click', function () {
+    noticeDelId = -1;
+    document.getElementById('noticeDelTip').textContent =
+      '确定删除全部已读通知吗？删除后仅从您的通知列表移除，不影响其他成员。';
+    document.getElementById('noticeDelMask').classList.add('show');
+  });
   document.getElementById('noticeDelOk').addEventListener('click', async function () {
     if (!noticeDelId) return;
     var btn = this;
     if (btn.disabled) return;
     btn.disabled = true;
     try {
+      if (noticeDelId === -1) {
+        // 一键删除已读：后端按人删除本人全部已读，前端同步剔除已读行
+        var r = await Shade.api('/api/v1/notice/del-read', { method: 'POST' });
+        noticeItems = noticeItems.filter(function (x) { return !x.read; });
+        noticeTop = noticeTop.filter(function (x) { return !x.read; });
+        renderDelReadBtn();
+        renderNoticeCard();
+        document.getElementById('noticeList').innerHTML = noticeItems.length
+          ? noticeItems.map(noticeModalRowHtml).join('')
+          : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
+        document.getElementById('noticeDelMask').classList.remove('show');
+        Shade.toast('已删除 ' + ((r.data && r.data.deleted) || 0) + ' 条已读通知', 'success');
+        return;
+      }
       await Shade.api('/api/v1/notice/' + noticeDelId, { method: 'DELETE' });
       var wasUnread = noticeItems.some(function (x) { return x.id === noticeDelId && !x.read; });
       noticeItems = noticeItems.filter(function (x) { return x.id !== noticeDelId; });
       noticeTop = noticeTop.filter(function (x) { return x.id !== noticeDelId; });
       if (wasUnread) noticeUnread = Math.max(0, noticeUnread - 1);
       renderNoticeBadge();
+      renderDelReadBtn();
       renderNoticeCard();
       document.getElementById('noticeList').innerHTML = noticeItems.length
         ? noticeItems.map(noticeModalRowHtml).join('')
@@ -644,6 +676,7 @@
       noticeItems.forEach(function (n) { n.read = 1; });
       noticeTop.forEach(function (n) { n.read = 1; });
       renderNoticeBadge();
+      renderDelReadBtn();
       renderNoticeCard();
       document.querySelectorAll('#noticeList .nm-item.unread').forEach(function (row) {
         row.classList.remove('unread');

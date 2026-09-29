@@ -20,11 +20,12 @@ const { buildPreviewUrl } = require('../utils/preview');
 const { getFileExt, fixLatin1Name } = require('../utils/file');
 const config = require('../config');
 const cos = require('./cos');
-const dify = require('./dify');
 const geo = require('./geo');
 const towers = require('./towers');
 const { renderWatermarkedPhoto, sanitizeWm } = require('./render-photo');
 const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark, resolveFeeStd } = require('./verify');
+const { verifyAndWriteBack } = require('./photoverify');
+const { dots } = require('../utils/cndate');
 const tasksheet = require('./tasksheet');
 const feesheet = require('./feesheet');
 const dispatch = require('./dispatch');
@@ -71,11 +72,6 @@ async function ownerTeamOf(entryTeamId, reqTeam) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
-
-// 日期串工具：log_date 以 DATE_FORMAT 取出为 'YYYY-MM-DD' 字符串，避免时区换算
-function dots(dateStr) {
-  return dateStr.replace(/-/g, '.');
-}
 
 // 备注附件 JSON 解析（mysql2 对 JSON 列可能返回字符串或已解析对象，与 photo.members 同口径防御）
 function parseRemarkFiles(raw) {
@@ -822,7 +818,7 @@ router.put('/logs/:id', async (req, res, next) => {
         );
 
         // 派车目的地变更：已出结果（passed/mismatch）的照片按库内识别地点重新核验地点一致性并联动状态
-        // （仅库内重算，不重调 Dify；pending 照片由 writeBackVerify 写库时按最新目的地比对，failed 不动）
+        // （仅库内重算，不重调 Dify；pending 照片由 verifyAndWriteBack 写库时按最新目的地比对，failed 不动）
         const newDestId = vehicle_id ? destination_id : null;
         if (Number(exist[0].destination_id || 0) !== Number(newDestId || 0)) {
           let destName = '';
@@ -1326,36 +1322,8 @@ router.post(
   }
 );
 
-// Dify 识别结果统一回写：写库时重新查询卡片当前的记录日期与派车目的地（而非发起验证时的快照），
-// 规避「验证途中改派车目的地」的口径过期竞态；日期/地点核验由 checkWatermark 在后端完成（Dify 仅返回识别信息）
-async function writeBackVerify(photoId, vr) {
-  const [rows] = await pool.query(
-    `SELECT DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, d.name AS destination_name
-     FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-     LEFT JOIN worklog_destination d ON d.id = e.destination_id
-     WHERE p.id = ?`,
-    [photoId]
-  );
-  if (!rows.length) return; // 照片已删除
-  if (!vr.ok) {
-    await pool.query(
-      `UPDATE worklog_photo SET verify_status = 'failed', work_content = '', shot_time = '', weather = '', location = '', lng = '', lat = '', date_ok = NULL, dest_ok = NULL WHERE id = ?`,
-      [photoId]
-    );
-    return;
-  }
-  const chk = checkWatermark({
-    time: vr.time,
-    location: vr.location,
-    logDate: dots(rows[0].log_date),
-    destination: rows[0].destination_name,
-  });
-  await pool.query(
-    `UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?, location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
-    [chk.status, vr.workContent, vr.time, vr.weather, vr.location, vr.lng, vr.lat,
-      chk.dateOk ? 1 : 0, chk.destOk ? 1 : 0, photoId]
-  );
-}
+// Dify 识别结果统一回写（含空内容自动重试与失败班组通知）已迁至 ./photoverify.js，
+// 上传/重新验证/商旅补拉三处调用点共用 verifyAndWriteBack(photoId, { username, date, destination, url })
 
 // POST /logs/:id/photos：上传照片（base64 → COS）。body.wm 可选：「选照片并添加水印」时携带
 // { content/time/weather/location/longitude/latitude/antiCode/orientation }，服务端先渲染水印再传 COS、异步触发 Dify 验证；
@@ -1448,10 +1416,9 @@ router.post('/logs/:id/photos', async (req, res, next) => {
           // 非水印照片：免验证标记（不参与卡片验证规则）
           await pool.query(`UPDATE worklog_photo SET is_watermark = 0, verify_status = 'skipped' WHERE id = ?`, [photoId]);
         } else {
-          // 异步执行 Dify 识别并回写（含后端日期/地点核验），不阻塞任务（前端轮询 verify_status）
-          dify.verifyPhoto({ username, date: dots(logDate), destination: destName, url })
-            .then((vr) => writeBackVerify(photoId, vr))
-            .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
+          // 异步执行 Dify 识别（施工内容为空自动重试，至多 3 次）并回写（含后端日期/地点核验），
+          // 不阻塞任务（前端轮询 verify_status，重试期间保持「验证中」）
+          verifyAndWriteBack(photoId, { username, date: dots(logDate), destination: destName, url });
         }
       });
       return ok(res, { opId: op.id }, '已发起上传，商旅同步中');
@@ -1468,16 +1435,14 @@ router.post('/logs/:id/photos', async (req, res, next) => {
       [entryId, key, url, JSON.stringify(names)]
     );
     const photoId = r.insertId;
-    // 异步执行 Dify 识别并回写（含后端日期/地点核验），不阻塞响应（前端轮询 verify_status）
-    dify
-      .verifyPhoto({
-        username: req.user.username,
-        date: dots(entry.log_date),
-        destination: entry.destination_name || '',
-        url,
-      })
-      .then((vr) => writeBackVerify(photoId, vr))
-      .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
+    // 异步执行 Dify 识别（施工内容为空自动重试，至多 3 次）并回写（含后端日期/地点核验），
+    // 不阻塞响应（前端轮询 verify_status，重试期间保持「验证中」）
+    verifyAndWriteBack(photoId, {
+      username: req.user.username,
+      date: dots(entry.log_date),
+      destination: entry.destination_name || '',
+      url,
+    });
 
     return ok(res, { id: photoId, url, verify_status: 'pending' });
   } catch (err) {
@@ -1508,16 +1473,13 @@ router.post('/photos/:id/verify', async (req, res, next) => {
       `UPDATE worklog_photo SET verify_status = 'pending', work_content = '', shot_time = '', weather = '', location = '', lng = '', lat = '', date_ok = NULL, dest_ok = NULL WHERE id = ?`,
       [photoId]
     );
-    // 异步重调 Dify 并回写（不阻塞响应，前端轮询 verify_status）
-    dify
-      .verifyPhoto({
-        username: req.user.username,
-        date: dots(photo.log_date),
-        destination: photo.destination_name || '',
-        url: photo.url,
-      })
-      .then((vr) => writeBackVerify(photoId, vr))
-      .catch((err) => console.error('[出工日志] 验证结果回写失败：', err.message));
+    // 异步重调 Dify（施工内容为空自动重试，至多 3 次）并回写（不阻塞响应，前端轮询 verify_status）
+    verifyAndWriteBack(photoId, {
+      username: req.user.username,
+      date: dots(photo.log_date),
+      destination: photo.destination_name || '',
+      url: photo.url,
+    });
     return ok(res, { verify_status: 'pending' });
   } catch (err) {
     return next(err);

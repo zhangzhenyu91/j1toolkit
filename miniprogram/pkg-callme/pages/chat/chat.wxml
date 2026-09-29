@@ -1,4 +1,4 @@
-<!-- Call Me · 对话页（SSE 流式，包豪斯几何气泡） -->
+<!-- Call Me · 对话页（SSE 流式，「政企蓝白」气泡） -->
 <view class="page">
   <navbar back title="{{title}}" />
 

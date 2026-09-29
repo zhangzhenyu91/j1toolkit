@@ -571,7 +571,7 @@
   word-break: break-all;
 }
 
-/* 生成失败原因前置红三角感叹号（t-icon 由 wxml 提供，包豪斯语义 三角=失败/警示） */
+/* 生成失败原因前置红三角感叹号（t-icon 由 wxml 提供，三角=失败/警示语义） */
 .rerr-x {
   margin-right: 6rpx;
   vertical-align: -3rpx;

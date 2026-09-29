@@ -5,9 +5,9 @@
     current="{{tab === 'me' ? 1 : 0}}"
     duration="250"
     easing-function="easeOutCubic"
-    disable-touch="{{true}}"
+    bindchange="onSwiperChange"
   >
-    <!-- 首页面板（包豪斯几何：直角硬影用户卡 + 宫格入口） -->
+    <!-- 首页面板（「政企蓝白」：深蓝页首 + 数据概览浮层卡 + 宫格入口） -->
     <swiper-item>
       <view class="panel">
         <navbar title="Shade 壹匣" bg="#0A3592" color="#FFFFFF" frontColor="#ffffff" />
@@ -85,7 +85,7 @@
       </view>
     </swiper-item>
 
-    <!-- 我的面板（包豪斯几何：大卡 + 功能列表 + 退出登录） -->
+    <!-- 我的面板（「政企蓝白」：用户大卡 + 功能列表 + 退出登录） -->
     <swiper-item>
       <view class="panel me-panel">
         <navbar title="我的" />
@@ -126,7 +126,7 @@
               <t-cell
                 title="关于 Shade 壹匣"
                 left-icon="book"
-                note="v3.6.4k"
+                note="v3.6.5k"
                 arrow
                 hover
                 bordered="{{false}}"

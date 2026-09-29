@@ -1,6 +1,6 @@
-<!-- 登录页：墨黑品牌横幅 + 账号密码 / 微信登录（包豪斯几何） -->
+<!-- 登录页：深蓝品牌横幅 + 账号密码 / 微信登录（「政企蓝白」） -->
 <view class="page">
-  <!-- 墨黑横幅 -->
+  <!-- 深蓝横幅 -->
   <view class="banner" style="padding-top: {{statusBarHeight}}px;">
     <image class="logo" src="/assets/toolbox.png" mode="aspectFit" />
     <view class="app-name">Shade 壹匣</view>
@@ -57,7 +57,7 @@
       </view>
     </t-button>
 
-    <view class="version">v3.6.4k</view>
+    <view class="version">v3.6.5k</view>
   </view>
 
   <t-toast id="t-toast" />

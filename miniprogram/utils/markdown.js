@@ -1,4 +1,4 @@
-// 通知推送 Markdown 渲染配置：markdown-it 实例 + mp-html 排版样式（包豪斯几何色板）
+// 通知推送 Markdown 渲染配置：markdown-it 实例 + mp-html 排版样式（「政企蓝白」色板）
 // MD_TAG_STYLE/MD_CONTAINER_STYLE 为全端唯一来源，pkg-callme 对话页同用（chat.js 仅覆盖容器字号，
 // 并以 breaks:false 复用渲染）；breaks:true 兼容历史多行纯文本通知的换行
 const MarkdownIt = require('markdown-it');

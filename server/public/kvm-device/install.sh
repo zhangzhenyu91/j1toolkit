@@ -5,7 +5,7 @@
 # 作用：
 #   1) 关闭设备 Web UI 登录认证（远程控制直达控制界面，不再二次登录）
 #   2) 安装文件分享 API（push 上传 / list 列表 / download 下载 / status 状态）
-#   3) 注入壹匣主题 CSS（j1-theme.css，覆盖 Web UI 为包豪斯几何风格）
+#   3) 注入壹匣主题 CSS（j1-theme.css，覆盖 Web UI 为「政企蓝白」风格）
 #   4) 嵌入 Call Me 浮窗（LangBot，bot.j1net.com，无需令牌）
 #
 # 用法（SSH 登录设备后执行一行）：
@@ -61,7 +61,7 @@ fetch manifest.yaml           /usr/share/kvmd/extras/fileshare/manifest.yaml
 chmod +x /etc/init.d/S99fileshare
 /usr/bin/python3 -m py_compile /etc/kvmd/user/fileshare/fileshare.py || fail "fileshare.py 语法校验失败"
 
-# 2b) 注入壹匣主题（覆盖 Web UI 为包豪斯几何风格）
+# 2b) 注入壹匣主题（覆盖 Web UI 为「政企蓝白」风格）
 # 原理见 j1-theme.css 头部注释：CSS 变量 !important 覆盖，不改 JS
 info "    注入壹匣主题 CSS"
 mkdir -p /etc/kvmd/user/theme

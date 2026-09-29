@@ -131,6 +131,24 @@ router.post('/read-all', async (req, res, next) => {
   }
 });
 
+// POST /api/v1/notice/del-read 一键删除已读：把本人已读且可见的通知全部按人删除（写 sys_notice_del，仅本人不可见；
+// 超管同样仅按人删除——不做全局删除，避免清空其他成员未读通知）
+router.post('/del-read', async (req, res, next) => {
+  try {
+    const [r] = await pool.query(
+      `INSERT IGNORE INTO sys_notice_del (notice_id, user_id)
+       SELECT n.id, ? FROM sys_notice n
+       JOIN sys_notice_read rd ON rd.notice_id = n.id AND rd.user_id = ?
+       WHERE (JSON_CONTAINS(n.targets, JSON_QUOTE(?)) OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON)))
+         AND NOT EXISTS (SELECT 1 FROM sys_notice_del d WHERE d.notice_id = n.id AND d.user_id = ?)`,
+      [req.user.id, req.user.id, req.user.role, String(req.user.id), req.user.id]
+    );
+    return ok(res, { deleted: r.affectedRows }, `已删除 ${r.affectedRows} 条已读通知`);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // POST /api/v1/notice/push 超管推送通知（targets 为 ROLES 非空子集；content 支持 Markdown 原文，图片用 ![描述](url) 引用）
 // 微信外发仅系统自动触发的通知使用（后端模块经 push() 传 wxUserIds/wxTeamIds），手动推送不发微信
 router.post('/push', requireAdmin, async (req, res, next) => {

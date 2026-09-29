@@ -1,11 +1,11 @@
 // 出工日志：记录验证状态（verify_passed）与未通过明细（verify_reasons）计算，logs / day-status / report 共用；
 // 个人口径 myReportReasons 供 /report 与 /day-status 的 scope=mine 共用
 // 规则（见《开发指南》7.1）：① 未出车不验证（exempt）；② 目的地已选且有用车人（巡视内容按需求可空，不计入）；
-// ③ 至少一张水印照片且全部已通过；④ 用车人名单与全部照片人名并集一致；⑤ 多张照片施工内容一致；⑥ 全部用车人已打卡
+// ③ 至少一张水印照片且全部已通过；④ 用车人名单与全部照片人名并集一致；⑤ 照片施工内容一致且均非空（单张为空也不通过）；⑥ 全部用车人已打卡
 //
 // 商旅打卡开启（SGCC_CLOCKIN_ENABLED=true）后切换为新 7 条（design/sgcc-clockin.html 汇总前核验口径）：
 // a. 已绑定商旅的用车人均完成两次打卡（开始+结束，未绑定不参与）；b. 用车人均已上传水印照片；
-// c. 同记录不同水印照片施工内容一致；d. 水印照片地点均包含派车目的地；e. 水印照片拍摄时间均为记录当天；
+// c. 水印照片施工内容一致且均非空（单张为空也不通过）；d. 水印照片地点均包含派车目的地；e. 水印照片拍摄时间均为记录当天；
 // f. 用车人当日费用信息均已填写且达当日适用标准（市内 伙食60/交通0；目的地标记市外 伙食100/交通0，
 //    按记录日期取生效标准，entry.feeStd 由 loadEntries 装配；规则 a 不约束未绑定者，但费用未绑定者同样要补录，故全员约束）
 // g. 已绑定商旅的用车人两次打卡地点至少一次包含派车目的地（两次打卡齐才判，缺打卡仅报规则 a；与规则 d 同为朴素包含口径）
@@ -16,6 +16,11 @@ function sgccOn() { return !!(config.sgcc && config.sgcc.enabled); }
 function wmPhotos(entry) {
   const photos = entry.photos || [];
   return sgccOn() ? photos.filter((p) => p.is_watermark !== 0) : photos;
+}
+
+// 施工内容取值：空串/纯空白一律视为空（规则⑤/c 判空与一致性比对均按去空白后文本）
+function contentOf(p) {
+  return String(p.work_content || '').trim();
 }
 
 // 规则 g：单次成员两次打卡地点判定——至少一次 position 包含派车目的地（目的地为空不约束；两次不齐返回 true 交由规则 a 报）
@@ -101,8 +106,9 @@ function computeVerifyPassed(entry) {
     // d/e. 至少一张水印照片且全部核验通过（passed 已含日期/地点相符）
     if (!photos.length) return 'failed';
     if (!photos.every((p) => p.verify_status === 'passed')) return 'failed';
-    // c. 多张水印照片施工内容一致
-    const contents = new Set(photos.map((p) => p.work_content));
+    // c. 水印照片施工内容一致且均非空（单张为空也不通过）
+    const contents = new Set(photos.map(contentOf));
+    if (contents.has('')) return 'failed';
     if (contents.size > 1) return 'failed';
     return 'passed';
   }
@@ -119,7 +125,8 @@ function computeVerifyPassed(entry) {
     if (!photoNames.has(n)) return 'failed';
   }
 
-  const contents = new Set(entry.photos.map((p) => p.work_content));
+  const contents = new Set(entry.photos.map(contentOf));
+  if (contents.has('')) return 'failed'; // 施工内容为空（含单张）
   if (contents.size > 1) return 'failed';
   return 'passed';
 }
@@ -181,9 +188,12 @@ function computeFailReasons(entry) {
       const names = (p.members || []).join('、') || '未署名';
       photoIssues(p).forEach((t) => reasons.push(`${names}的水印照片${t}`));
     });
-    // c. 施工内容一致性（同状态函数的顺序语义：全部通过后才纳入判定）
+    // c. 施工内容一致性与非空（同状态函数的顺序语义：全部通过后才纳入判定）
     if (photos.every((p) => p.verify_status === 'passed')) {
-      const contents = new Set(photos.map((p) => p.work_content));
+      photos.forEach((p) => {
+        if (!contentOf(p)) reasons.push(`${(p.members || []).join('、') || '未署名'}的水印照片施工内容为空`);
+      });
+      const contents = new Set(photos.map(contentOf));
       if (contents.size > 1) reasons.push('多张水印照片施工内容不一致');
     }
     return reasons;
@@ -207,9 +217,12 @@ function computeFailReasons(entry) {
   // 兜底：正常流程照片人名 ⊆ 用车人，仅成员改名等历史数据才可能出现
   const extra = [...photoNames].filter((n) => !memberNames.has(n));
   if (extra.length) reasons.push(`照片人名「${extra.join('、')}」不在用车人名单中`);
-  // 施工内容一致性同状态函数的顺序语义：仅在照片全部通过后才纳入判定
+  // 施工内容一致性/非空同状态函数的顺序语义：仅在照片全部通过后才纳入判定
   if (entry.photos.every((p) => p.verify_status === 'passed')) {
-    const contents = new Set(entry.photos.map((p) => p.work_content));
+    entry.photos.forEach((p) => {
+      if (!contentOf(p)) reasons.push(`${(p.members || []).join('、') || '未署名'}的水印照片施工内容为空`);
+    });
+    const contents = new Set(entry.photos.map(contentOf));
     if (contents.size > 1) reasons.push('多张水印照片施工内容不一致');
   }
   return reasons;

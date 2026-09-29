@@ -6,9 +6,9 @@
  * 形式注入。此处以同名变量 + !important 覆盖（自定义属性支持
  * !important，可压住 JS 注入的内联主题规则），不改任何 JS。
  *
- * 色板与 j1toolkit 定稿 token 同源（AGENTS.md 第四节 · 方案十二「包豪斯几何」）：
- *   纸底 #F5F7FA / 墨 #1D2129 / 品牌蓝 #0E3DA8（主交互）/
- *   红 #F53F3F（激活点缀 + 危险）/ 黄 #FF7D00（信号）/ 成功绿 #00B42A
+ * 色板与 j1toolkit 定稿 token 同源（AGENTS.md 第四节 ·「政企蓝白」）：
+ *   页面底 #F5F7FA / 正文 #1D2129 / 品牌蓝 #0E3DA8（主交互）/
+ *   红 #F53F3F（危险/未读计数）/ 警告橙 #FF7D00（待核验信号）/ 成功绿 #00B42A
  * ========================================================== */
 
 /* ---------- 浅色主题（theme-base） ---------- */
@@ -25,7 +25,7 @@ html[data-theme="theme-base"] {
     --disabled: #B9CBEF !important;
     --primary-bg: #E8F0FF !important;
 
-    /* 错误红：与壹匣危险操作色一致（包豪斯红） */
+    /* 错误红：与壹匣危险操作色一致（危险红 #F53F3F） */
     --gl-color-error-primary: #F53F3F !important;
     --gl-color-error-background: #FFECE8 !important;
     --gl-color-error-hover: #E46067 !important;

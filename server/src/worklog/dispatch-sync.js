@@ -21,9 +21,9 @@ const { pool } = require('../db');
 const glkvm = require('../kvm/glkvm');
 const devlock = require('../kvm/devlock');
 const { destSame, loadEntries } = require('./dispatch');
+const { todayCn, nextDailyRunUtc } = require('../utils/cndate');
 
 const LOCK_REASON = '每日派车单同步（预计 09:45 恢复）';
-const CN_OFFSET_MS = 8 * 60 * 60 * 1000; // 北京时间固定偏移（UTC+8）
 const RETRY_GAP_MS = 60 * 1000; // 设备调用失败重试间隔（两跳转发偶发抖动，共试 3 次）
 
 function cfg() {
@@ -33,22 +33,6 @@ function cfg() {
 // 同步任务代登平台所用账号（留空回退管理员账号；须在 GLKVM 平台可见该设备组）
 function kvmUser() {
   return cfg().kvmUser || config.admin.username;
-}
-
-// 北京日历日 YYYY-MM-DD（排程与文件名口径一致）
-function todayCn() {
-  return new Date(Date.now() + CN_OFFSET_MS).toISOString().slice(0, 10);
-}
-
-// 与 sgccclockin 同型：按北京时间 hh:mm 算下次触发 UTC 时间戳，今日已过顺延次日
-function nextDailyRunUtc(hh, mm) {
-  const now = Date.now();
-  const cn = new Date(now + CN_OFFSET_MS); // 其 UTC 年月日即北京日历日
-  let nextUtc = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate(), hh, mm, 0) - CN_OFFSET_MS;
-  if (nextUtc <= now) {
-    nextUtc = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate() + 1, hh, mm, 0) - CN_OFFSET_MS;
-  }
-  return { nextUtc, now };
 }
 
 // 生效班组：开关表 worklog_dispatch_sync_team 中仍启用的班组（在表即开启；无开启班组时任务跳过）

@@ -2,9 +2,10 @@
 <navbar back title="消息通知" />
 
 <view class="page-body">
-  <!-- 全部已读（有未读时显示，列表上方右对齐，避开右上角胶囊区） -->
-  <view class="top-bar" wx:if="{{unread > 0}}">
-    <view class="read-all" hover-class="hover-opacity" bindtap="onReadAll">全部已读</view>
+  <!-- 顶部操作条（删除已读常驻于有已读时；全部已读仅有未读时显示，右对齐避开右上角胶囊区） -->
+  <view class="top-bar" wx:if="{{unread > 0 || hasRead}}">
+    <view class="del-read" hover-class="hover-opacity" bindtap="onDelRead" wx:if="{{hasRead}}">删除已读</view>
+    <view class="read-all" hover-class="hover-opacity" bindtap="onReadAll" wx:if="{{unread > 0}}">全部已读</view>
   </view>
 
   <t-empty wx:if="{{!loading && items.length === 0}}" description="暂无通知" />

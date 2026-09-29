@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 出工日志网页版（方案十二「包豪斯几何」：月历验证状态色点 + 当日日志卡片；设计稿 design/redesign/12-包豪斯几何-Web出工日志.html）
+<!-- Shade 壹匣 · 出工日志网页版（「政企蓝白」：月历验证状态色点 + 当日日志卡片；基准稿 design/Web-出工日志.html）
      功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 /
      照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志 /
      水印照片上传（选择水印照片直传 / 选片裁剪加水印后上传，服务端渲染，链路同小程序））；
      版心满宽贴边；右侧列表位为「记录 / 批量下载 / 汇总前核验」三页签（原批量下载、验证报告弹层已页签化；
      商旅打卡扩展后验证报告更名「汇总前核验」，范围收窄为仅未通过记录，底部绿色条提示其余全部通过；页头加「从商旅拉取」入口），
      宽屏（≥1600px）记录页签下汇总前核验常驻卡片流右侧栏（syncSideReport；切到核验页签仍可满宽查看）；
-     商旅打卡（design/sgcc-clockin.html ④⑫⑬）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 费用入口 + 并排「始/终」两枚 slot 三态；
+     商旅打卡（design/sgcc-clockin.html ④⑫⑬）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 费用入口 + 并排「开始/结束」两枚 slot 三态；
      点 slot 弹打卡确认层（仅当日；浏览器定位 WGS84→GCJ02 / 手输地址正向解析 / 杆塔带入，已打卡进「更新打卡地点」，同记录他人同 seq 定位自动带入）、
      点「费用」弹费用信息层（伙食补助/交通费可改，成本分配只读，保存即提交商旅；首次开始打卡成功自动弹出，均同小程序口径）、
      照片网格「商旅/同步失败」角标（非水印照片同款展示，无验证角标）、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）、
@@ -876,36 +876,52 @@
   }
 
   /* ===== 商旅打卡（出工日志扩展，design/sgcc-clockin.html ④⑫⑬） ===== */
-  /* 用车人打卡区（与小程序 ck-person 一致）：每用车人一行 = 头行（姓名 + 状态小字 + 费用入口）+ 并排「始/终」两枚 slot；
+  /* 用车人打卡区（与小程序 ck-person 一致）：每用车人一行 = 头行（姓名 + 状态小字 + 费用入口）+ 并排「开始/结束」两枚 slot；
      Web 端同小程序可操作——点 slot 弹打卡确认层（浏览器定位 / 手输地址 / 杆塔带入），点「费用」弹费用信息层 */
   .lrow-ck { align-items: flex-start; }
   .lrow-ck .li, .lrow-ck .lk { margin-top: 7px; }
   .lrow-ck .lv { flex: 1; min-width: 0; font-size: 13px; font-weight: 400; }
-  .ck-person + .ck-person { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--hair); }
+  .ck-person + .ck-person { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
   .ck-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .ck-name { font-size: 13px; font-weight: 700; color: var(--navy); }
-  /* 状态小字：已两次打卡绿勾「工时 xh」（无工时文本则「已完成两次打卡」）/ 仅开始灰字「还差结束打卡」/ 未绑定红锁「未绑定商旅」 */
+  /* 状态小字：已两次打卡浅蓝底蓝字小签「工时 xh」（无图标，无工时文本则「已完成两次打卡」）/ 仅开始灰字「还差结束打卡」/ 未绑定红锁「未绑定商旅」 */
   .ck-stat { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--ph); }
   .ck-stat svg { width: 10px; height: 10px; }
-  .ck-stat.ok { color: var(--green); }
+  .ck-stat.ok { color: var(--orange); background: var(--orange-soft); border-radius: 4px; padding: 1px 6px; font-weight: 600; }
+  .ck-stat.ok svg { display: none; }
   .ck-stat.red { color: var(--red); }
   .ck-slots { display: flex; gap: 8px; }
-  /* slot 三态：done=白底绿边勾+时间+地点小字 / todo=浅橙底橙字「未打卡」/ lock=灰底灰字锁（单行文案垂直居中，与 done 两行等高） */
-  .ck-slot { flex: 1; min-width: 0; border-radius: 8px; padding: 6px 9px; cursor: pointer; user-select: none; }
-  .ck-slot.todo, .ck-slot.lock { display: flex; align-items: center; }
-  .ck-t1 { display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; }
+  /* slot 三态（与小程序 ck-slot 一致）：done=白底墨边 + 前置绿圆白勾 + 黑粗「开始/结束 HH:mm」+ 灰地点小字（当日右上角「更新」小标）；
+     todo=橙虚线浅橙底 + 前置橙圆点 + 橙字「点击打卡」副行 / lock=灰底灰边锁（「仅当日可打卡」/「引导绑定」副行） */
+  .ck-slot { position: relative; flex: 1; min-width: 0; border-radius: 6px; padding: 6px 9px; cursor: pointer; user-select: none; }
+  .ck-t1 { display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; color: var(--navy); }
   .ck-t1 svg { width: 10px; height: 10px; flex: none; }
   /* display:block：span 为行内元素时 overflow/ellipsis 不生效，地点长文案会超出 slot（小程序端为 view 天然块级） */
   .ck-t2 { display: block; margin-top: 2px; font-size: 10px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ck-slot.done { border: 1.5px solid var(--green); background: #fff; color: var(--green); }
+  /* 已打卡：白底 1px 墨边；前置绿圆白勾（CSS 绘制，同小程序 ck-done-dot，JS 图标隐藏） */
+  .ck-slot.done { border: 1px solid var(--line); background: #fff; }
+  .ck-slot.done .ck-t1 { padding-right: 30px; } /* 避开右上角「更新」小标 */
+  .ck-slot.done .ck-t1 svg { display: none; }
+  .ck-done-dot { width: 13px; height: 13px; flex: none; border-radius: 50%; background: var(--green); display: inline-flex; align-items: center; justify-content: center; }
+  .ck-done-dot::before { content: '✓'; color: #fff; font-size: 9px; font-weight: 700; line-height: 1; }
   .ck-slot.done .ck-t2 { color: var(--sub); }
-  .ck-slot.todo { border: 1.5px dashed var(--yellow); background: #FFF7E8; color: #D25F00; }
-  .ck-slot.lock { border: 1.5px solid var(--dash); background: var(--fill); color: var(--ph); }
+  /* 右上角「更新」小标（整枚 slot 点击即进更新弹层，此为视觉标记；仅当日渲染） */
+  .ck-upd { position: absolute; right: 6px; top: 6px; font-size: 9.5px; font-weight: 700; color: var(--orange); display: inline-flex; align-items: center; gap: 1px; }
+  .ck-upd svg { width: 9px; height: 9px; }
+  /* 缺卡态：橙虚线 + 浅橙底；前置橙圆点示意「待打卡」（time 图标隐藏），副行橙字 */
+  .ck-slot.todo { border: 1.5px dashed var(--yellow); background: #FFF7E8; }
+  .ck-slot.todo .ck-t1 svg { display: none; }
+  .ck-slot.todo .ck-t1::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--yellow); }
+  .ck-slot.todo .ck-t2 { color: #D25F00; }
+  /* 未绑定/非当日：灰底灰边，标题灰、副行弱化（引导文案较长允许折行） */
+  .ck-slot.lock { border: 1.5px solid var(--line); background: var(--fill); }
+  .ck-slot.lock .ck-t1 { color: var(--ph); }
+  .ck-slot.lock .ck-t2 { color: var(--dash); white-space: normal; }
   /* 费用入口（头行最右端描边小签，同小程序 ck-fee） */
   .ck-fee {
     margin-left: auto; display: inline-flex; align-items: center; gap: 3px; flex: none;
-    border: 1px solid var(--orange); border-radius: 4px; padding: 1px 8px;
-    font-size: 10.5px; font-weight: 600; color: var(--orange); cursor: pointer; user-select: none;
+    border: 1px solid var(--orange); border-radius: 6px; padding: 2px 10px;
+    font-size: 10.5px; font-weight: 700; color: var(--orange); cursor: pointer; user-select: none;
     transition: background .2s;
   }
   .ck-fee svg { width: 11px; height: 11px; }
@@ -999,7 +1015,7 @@
   <!-- 未分配班组空态（非超管且无班组时整页只显示它，屏十口径） -->
   <div class="card" id="noTeam" hidden></div>
 
-  <!-- 页签：包豪斯直角墨边签块（激活墨底白字 + 前置红方块 + 硬影；滑动指示条按稿弃用，节点保留），八页共用同一列表位 -->
+  <!-- 页签：文本签块（激活品牌蓝字 + 栏底蓝色下划线；滑动指示条按稿弃用，节点保留），八页共用同一列表位 -->
   <div class="wl-tabs" id="wlTabs">
     <button class="on" data-p="Record">记录</button>
     <button data-p="Dl">批量下载</button>
@@ -1195,7 +1211,7 @@
    ② 选择照片并添加水印＝选片 → 4:3/3:4 判定（按需 canvas 裁剪）→ 水印字段编辑（历史带入 / 浏览器定位 WGS84→GCJ02 /
    杆塔坐标级联预填，防抖调 /geo 刷新地点天气）→ 服务端渲染水印上传；图片经 canvas 重绘导出，EXIF 方向已归一（orientation 恒 up）
    商旅打卡扩展（/api/v1/sgcc/*）：③ 非水印照片＝原图直传（plain:true，不渲染不验证不占每人限一张，verify_status=skipped 不进轮询）；
-   用车人行打卡区可操作（每用车人一行：状态小字 + 费用入口 + 始/终两枚 slot 三态；点 slot 弹打卡确认层、点「费用」弹费用信息层，均同小程序口径）；照片「商旅/同步失败」角标，Lightbox 同步失败可重试（resync）；
+   用车人行打卡区可操作（每用车人一行：状态小字 + 费用入口 + 开始/结束两枚 slot 三态；点 slot 弹打卡确认层、点「费用」弹费用信息层，均同小程序口径）；照片「商旅/同步失败」角标，Lightbox 同步失败可重试（resync）；
    卡片操作区「从商旅同步」：卡片级拉取（POST /sync/pull {entry_id}，仅本卡用车人当日数据，本卡进度锁轮询 /sync/progress，cardSyncPull）；
    页头「从商旅拉取」弹层：按区段手动拉取（POST /sync/pull {from,to}，以商旅平台为准覆盖本地；仅超管 / 班组管理员可见可发起）
    ============================================================ */
@@ -1394,28 +1410,38 @@ function fmtWorkHours(w) {
   if (!s) return '';
   return /^\d+(\.\d+)?$/.test(s) ? s + 'h' : s;
 }
-/* 单枚打卡 slot 三态：done=绿底勾 +「始/终 HH:mm」+ 地点小字（悬停 title 显完整地址）/ todo=橙虚线「未打卡」/ lock=灰底锁「未绑定」；
+/* 单枚打卡 slot 三态（与小程序 buildClockRows 同口径）：done=白底墨边 + 绿圆白勾 +「开始/结束 HH:mm」+ 地点小字
+   （悬停 title 显完整地址；当日右上角「更新」小标）/ todo=橙虚线「开始/结束打卡」+「点击打卡」副行
+   （同记录他人同 seq 已打卡时提示带入定位）/ lock=灰底锁（非当日「仅当日可打卡」；未绑定「引导本人至「我的」页绑定」）；
    数据属性供点击委派取上下文：mid/name/seq + done（已打卡进「更新打卡地点」）/ bound=0（未绑定引导） */
-function clockSlotHTML(m, ck, seq) {
-  var lab = seq === 1 ? '始' : '终';
+function clockSlotHTML(m, ck, seq, isToday) {
+  var lab = seq === 1 ? '开始' : '结束';
   var base = ' data-act="sgccck" data-mid="' + m.member_id + '" data-name="' + esc(m.name) + '" data-seq="' + seq + '"';
-  if (m.sgccBound === false) {
-    return '<span class="ck-slot lock"' + base + ' data-bound="0"><span class="ck-t1">'
-      + Shade.icon('lock-on', 10) + lab + ' 未绑定</span></span>';
-  }
   var c = ck[m.member_id] && ck[m.member_id][seq];
   var hm = c ? fmtClockHm(c.time) : '';
   if (c && hm) {
     return '<span class="ck-slot done"' + base + ' data-done="1"' + (c.position ? ' title="' + esc(c.position) + '"' : '') + '>'
-      + '<span class="ck-t1">' + Shade.icon('check', 10) + lab + ' ' + hm + '</span>'
-      + '<span class="ck-t2">' + esc(shortPosition(c.position) || '地点未知') + '</span></span>';
+      + '<span class="ck-t1"><span class="ck-done-dot"></span>' + lab + ' ' + hm + '</span>'
+      + '<span class="ck-t2">' + esc(shortPosition(c.position) || '地点未知') + '</span>'
+      + (isToday ? '<span class="ck-upd">' + Shade.icon('refresh', 9) + '更新</span>' : '')
+      + '</span>';
   }
-  return '<span class="ck-slot todo"' + base + '><span class="ck-t1">'
-    + Shade.icon('time', 10) + lab + ' 未打卡</span></span>';
+  if (!isToday) {
+    return '<span class="ck-slot lock"' + base + '><span class="ck-t1">' + Shade.icon('lock-on', 10) + lab + '打卡</span>'
+      + '<span class="ck-t2">仅当日可打卡</span></span>';
+  }
+  if (m.sgccBound === false) {
+    return '<span class="ck-slot lock"' + base + ' data-bound="0"><span class="ck-t1">' + Shade.icon('lock-on', 10) + lab + '打卡</span>'
+      + '<span class="ck-t2">引导本人至「我的」页绑定</span></span>';
+  }
+  // 同 seq 已有他人打卡（与打卡确认弹层带入规则一致：开始/结束不互相带入）
+  var bringIn = Object.keys(ck).some(function (k) { return ck[k] && ck[k][seq] && ck[k][seq].position; });
+  return '<span class="ck-slot todo"' + base + '><span class="ck-t1">' + Shade.icon('time', 10) + lab + '打卡</span>'
+    + '<span class="ck-t2">' + (bringIn ? '点击打卡 · 带入同记录定位' : '点击打卡') + '</span></span>';
 }
-/* 每用车人一行：头行（姓名 + 状态小字：已两次打卡绿勾「工时 xh」，无工时文本则「已完成两次打卡」；
-   仅开始「还差结束打卡」；未绑定红锁「未绑定商旅」；已绑定者行末「费用」入口，同小程序）+ 并排「始/终」两枚 slot */
-function clockPersonHTML(m, ck) {
+/* 每用车人一行：头行（姓名 + 状态小字：已两次打卡浅蓝小签「工时 xh」，无工时文本则「已完成两次打卡」；
+   仅开始「还差结束打卡」；未绑定红锁「未绑定商旅」；已绑定者行末「费用」入口，同小程序）+ 并排「开始/结束」两枚 slot */
+function clockPersonHTML(m, ck, isToday) {
   var c = ck[m.member_id] || {};
   var s1 = c[1], s2 = c[2];
   var stat = '';
@@ -1433,7 +1459,7 @@ function clockPersonHTML(m, ck) {
       + Shade.icon('money', 11) + '费用</span>';
   }
   return '<div class="ck-person"><div class="ck-head"><span class="ck-name">' + esc(m.name) + '</span>' + stat + feeBtn + '</div>'
-    + '<div class="ck-slots">' + clockSlotHTML(m, ck, 1) + clockSlotHTML(m, ck, 2) + '</div></div>';
+    + '<div class="ck-slots">' + clockSlotHTML(m, ck, 1, isToday) + clockSlotHTML(m, ck, 2, isToday) + '</div></div>';
 }
 
 function cardHTML(e, idx, total) {
@@ -1479,7 +1505,7 @@ function cardHTML(e, idx, total) {
 
   /* 信息行：派车车辆 / 用车人 / 目的地（出工时间行已按反馈移除，created_at 字段数据保留） */
   var members = (e.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
-  /* 商旅打卡开启时（成员带 sgccBound 字段）：用车人行整段换为打卡区——每用车人一行（状态小字 + 费用入口 + 始/终两枚 slot，可点操作）；
+  /* 商旅打卡开启时（成员带 sgccBound 字段）：用车人行整段换为打卡区——每用车人一行（状态小字 + 费用入口 + 开始/结束两枚 slot，可点操作）；
      未开启时保留原 .mchip 打卡胶囊 + 「已打卡 x/n 人」副标（降级兼容） */
   var sgccOn = members.some(function (m) { return m.sgccBound !== undefined; });
   /* 他班跨班卡（cross_team 且归属非当前生效班组）：商旅打卡区（「从商旅同步」同族入口）不渲染，回退普通用车人展示 */
@@ -1488,7 +1514,7 @@ function cardHTML(e, idx, total) {
   var ck = e.clockinMap || {};
   var memberHtml = members.length
     ? (ckRow
-      ? members.map(function (m) { return clockPersonHTML(m, ck); }).join('')
+      ? members.map(function (m) { return clockPersonHTML(m, ck, e.log_date === todayStr()); }).join('')
       : members.map(function (m) {
         return '<span class="mchip' + (m.checked ? ' on' : '') + '" data-act="check" data-mid="' + m.id + '" title="点击切换打卡">'
           + '<span class="m-dot"></span>' + esc(m.name) + '</span>';

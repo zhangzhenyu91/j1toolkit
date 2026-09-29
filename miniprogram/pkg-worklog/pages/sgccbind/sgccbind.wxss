@@ -1,4 +1,4 @@
-/* 绑定商旅 · 账号绑定页（转写自设计稿 design/sgcc-clockin.html ②③屏，token 同 app.wxss 包豪斯几何） */
+/* 绑定商旅 · 账号绑定页（转写自设计稿 design/sgcc-clockin.html ②③屏，token 同 app.wxss「政企蓝白」） */
 @import '../../style/common.wxss';
 
 /* 首个提示卡贴导航下沿（common .tip 自带 margin-top，此处收紧） */

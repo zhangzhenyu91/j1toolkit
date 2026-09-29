@@ -4,9 +4,10 @@ Component({
   properties: {
     title: { type: String, value: '' }, // 标题
     back: { type: Boolean, value: false }, // 是否显示返回箭头
-    bg: { type: String, value: '#F5F7FA' }, // 背景色
-    color: { type: String, value: '#1D2129' }, // 标题/箭头颜色
-    frontColor: { type: String, value: '#000000' }, // 状态栏文字颜色（仅支持 #000000/#ffffff）
+    // 默认与首页页首一致：深蓝底 + 白字（「政企蓝白」页首色带口径），各页可传 bg/color 覆盖
+    bg: { type: String, value: '#0A3592' }, // 背景色
+    color: { type: String, value: '#FFFFFF' }, // 标题/箭头颜色
+    frontColor: { type: String, value: '#ffffff' }, // 状态栏文字颜色（仅支持 #000000/#ffffff）
   },
 
   data: {

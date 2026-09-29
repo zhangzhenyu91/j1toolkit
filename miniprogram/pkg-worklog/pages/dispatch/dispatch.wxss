@@ -1,4 +1,4 @@
-/* 出工日志 · 派车对齐页（token 同 app.wxss 包豪斯几何；底部弹层 .sheet / .sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
+/* 出工日志 · 派车对齐页（token 同 app.wxss「政企蓝白」；底部弹层 .sheet / .sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
 @import '../../style/common.wxss';
 
 /* ---------- 卡片（同 sheet 页族：白卡直角 + 墨边 + 浅色硬影 + 墨黑主按钮） ---------- */

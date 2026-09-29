@@ -1,7 +1,8 @@
-/* 顶部操作条（全部已读入口，右对齐） */
+/* 顶部操作条（删除已读 / 全部已读入口，右对齐） */
 .top-bar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   margin-bottom: 16rpx;
 }
 
@@ -10,6 +11,15 @@
   font-size: 24rpx;
   font-weight: 500;
   color: #0E3DA8;
+}
+
+/* 删除已读（红色小字，与单条删除同色） */
+.del-read {
+  padding: 8rpx 4rpx;
+  margin-right: 24rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #F53F3F;
 }
 
 .list-card {
