@@ -1300,6 +1300,15 @@ function findEntry(eid) {
 /* 加载当日日志；quiet=true 时保留现有内容（轮询静默刷新）。
    仅首次进页用骨架占位；之后切日/切范围保留旧内容加 .switching 微透明过渡、禁点，
    数据到位直接落位（不重播入场动画），避免骨架/卡片闪烁 */
+/* 核验签名（各卡验证状态 + 备注有无）：编辑操作与轮询中异步验证落定都会改变签名，
+   用于联动强刷月历着色与汇总前核验（页签 / 宽屏常驻栏），避免编辑后仍按旧值显示 */
+var lastVerifySig = null;
+function verifySig(list) {
+  return (list || []).map(function (e) {
+    return e.id + ':' + e.verify_passed + ':' + (String(e.remark || '').trim() ? 1 : 0) + ':' + ((e.remark_files || []).length);
+  }).join('|');
+}
+
 async function loadLogs(opts) {
   opts = opts || {};
   clearPending();
@@ -1316,7 +1325,11 @@ async function loadLogs(opts) {
     flow.setAttribute('data-boot', '1');
     flow.classList.remove('switching');
     if (!opts.quiet) flow.scrollTop = 0;
-    if (!opts.poll) loadCalMonth(true); // 非轮询刷新时强刷月历着色
+    var sig = verifySig(state.entries);
+    var sigChanged = sig !== lastVerifySig;
+    lastVerifySig = sig;
+    if (!opts.poll || sigChanged) loadCalMonth(true); // 非轮询恒强刷月历；轮询中签名变化（异步验证落定）同样强刷
+    if (sigChanged && state.rep.loaded) loadReport(); // 汇总前核验（页签 / 宽屏常驻栏）随核验结果重查
     schedulePending();
   } catch (e) {
     Shade.toast(e.message, 'error');
@@ -5219,6 +5232,7 @@ function initEvents() {
       b.classList.add('on');
       state.scope = b.dataset.v;
       state.calCache = {};
+      lastVerifySig = null; // 口径变化：签名重置，下次 loadLogs 恒强刷月历
       loadLogs();
       if (state.dl.list !== null) renderDlPhotos();
       if (state.rep.loaded) loadReport();
@@ -5459,6 +5473,7 @@ teamDd.el.style.display = 'none';
 /* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表 / 派车对齐结果 / 商旅绑定设备） */
 function reloadTeamData() {
   state.calCache = {};
+  lastVerifySig = null; // 签名按班组口径重置（日历缓存已清，下次 loadLogs 恒强刷）
   state.meta = null;
   state.towerRows = null;
   state.dl.list = null;

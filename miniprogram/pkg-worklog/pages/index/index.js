@@ -667,6 +667,15 @@ Page({
       const list = this.mapLogList(data);
       this._dayLists[this.dayKey(this.data.dateStr)] = list;
       this.setCurPane(list);
+      // 核验签名（各卡验证状态 + 备注有无）变化时强刷当月日历色点——覆盖编辑操作与轮询中异步验证落定两条路径
+      // （签名单色点口径：verify_passed 与备注；逐条原因变化不触发，卡片本身已随列表重渲染）
+      const sig = ((data && data.list) || [])
+        .map((e) => `${e.id}:${e.verify_passed}:${String(e.remark || '').trim() ? 1 : 0}:${(e.remark_files || []).length}`)
+        .join('|');
+      if (this._verifySig !== undefined && sig !== this._verifySig) {
+        this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
+      }
+      this._verifySig = sig;
       this.schedulePoll(list);
       if (this.data.rpVisible) this.loadReport(); // 汇总前核验面板开着时随列表重查（按月口径）
       this.checkSgccLock(); // 批量从商旅同步全局锁探测（10s 节流）
