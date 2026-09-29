@@ -6,7 +6,7 @@
 <view class="page-body" wx:if="{{isManager}}">
   <!-- 新建题库（虚线占位按钮，弹层输入名称 + 描述） -->
   <view class="new-bank" hover-class="hover-opacity" bindtap="onOpenCreate">
-    <t-icon name="add" size="32rpx" color="#1D4ED8" />新建题库
+    <t-icon name="add" size="32rpx" color="#0E3DA8" />新建题库
   </view>
 
   <!-- 题库管理列表 -->
@@ -25,11 +25,11 @@
           <text class="op" hover-class="hover-opacity" catchtap="onOpenEdit"
                 data-id="{{item.id}}" data-name="{{item.name}}" data-description="{{item.description}}"
                 data-scope="{{item.scope}}">
-            <t-icon name="edit" size="32rpx" color="rgba(17,17,17,.4)" />
+            <t-icon name="edit" size="32rpx" color="rgba(29,33,41,.4)" />
           </text>
           <text class="op" hover-class="hover-opacity" catchtap="onDeleteBank"
                 data-id="{{item.id}}" data-name="{{item.name}}">
-            <t-icon name="delete" size="32rpx" color="rgba(17,17,17,.4)" />
+            <t-icon name="delete" size="32rpx" color="rgba(29,33,41,.4)" />
           </text>
         </span>
       </view>
@@ -40,7 +40,7 @@
       </view>
       <!-- 解析中：蓝色进度条 -->
       <view class="an-line" wx:if="{{item.analyzing}}">
-        <t-icon name="lightbulb" size="26rpx" color="#1D4ED8" />
+        <t-icon name="lightbulb" size="26rpx" color="#0E3DA8" />
         <text>解析中</text>
         <view class="progress"><view class="progress-in" style="width: {{item.anPct}}%;"></view></view>
         <text>{{item.anDone}} / {{item.anTotal}}</text>
@@ -49,7 +49,7 @@
       <view class="an-line" wx:if="{{item.anRetryable}}">
         <span class="retry" hover-class="hover-opacity" catchtap="onRetryAnalyze"
               data-id="{{item.id}}" data-name="{{item.name}}">
-          <t-icon name="refresh" size="26rpx" color="#1D4ED8" />{{item.anFailed > 0 ? '重试失败解析' : '继续解析'}}
+          <t-icon name="refresh" size="26rpx" color="#0E3DA8" />{{item.anFailed > 0 ? '重试失败解析' : '继续解析'}}
         </span>
       </view>
     </view>

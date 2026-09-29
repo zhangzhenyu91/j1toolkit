@@ -1,24 +1,23 @@
 /* ============================================================
    出工日志分包共享样式（主页 index 与商旅绑定页 sgccbind 共用；
    新建/编辑表单为主页底部弹层，样式同源于此）
-   转写自设计稿 design/worklog.html，token 同 app.wxss（方案十二·包豪斯几何）
+   「政企蓝白」，token 同 app.wxss
    ============================================================ */
 
-/* ---------- tdesign 组件包豪斯化（CSS 变量穿透 apply-shared：弹层/日历/对话框/toast/tag 一律直角） ---------- */
+/* ---------- tdesign 组件圆角与 token（CSS 变量穿透 apply-shared） ---------- */
 page {
-  --td-popup-border-radius: 0; /* 半屏层直角（容器圆角由 .sheet 族掌管） */
-  --td-calendar-radius: 0;
-  --td-calendar-selected-border-radius: 0; /* 选中日直角块 */
-  --td-dialog-border-radius: 0;
-  --td-toast-radius: 0;
-  --td-tag-round-border-radius: 0; /* tag/check-tag 胶囊直角化（人员点亮 chip 见 .tags 覆盖） */
-  --td-tag-square-border-radius: 0; /* 方形 tag 默认 8rpx 圆角一并清零 */
+  --td-popup-border-radius: 24rpx;
+  --td-calendar-radius: 24rpx;
+  --td-calendar-selected-border-radius: 12rpx;
+  --td-dialog-border-radius: 24rpx;
+  --td-toast-radius: 8rpx;
+  --td-tag-round-border-radius: 12rpx;
+  --td-tag-square-border-radius: 12rpx;
 }
 
-/* 按压反馈：包豪斯硬影元素下沉吃影（覆盖全局 .hover-opacity 的纯变暗，translate 配合硬影读作按压） */
+/* 按压反馈：轻度变暗 + 微缩（政企蓝白不做下沉吃影） */
 .hover-opacity {
-  opacity: 0.8 !important;
-  transform: translate(3rpx, 3rpx) !important;
+  opacity: 0.75 !important;
 }
 
 /* ---------- 板块标题行（标题本体用全局 .section-title） ---------- */
@@ -31,23 +30,22 @@ page {
 .sec-note {
   margin-left: auto;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 /* 底部固定操作区（.bottombar 纸底色条）已随主页悬浮按钮化删除；表单弹层主按钮沿用 .btn-primary */
 .btn-primary {
   height: 96rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 16rpx;
+  background: #0E3DA8;
   color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 16rpx;
   font-size: 30rpx;
-  font-weight: 700;
-  letter-spacing: 8rpx;
-  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9); /* 墨底挤出硬影，按压下沉见 .hover-opacity */
+  font-weight: 600;
+  letter-spacing: 2rpx;
 }
 
 /* ---------- 日期 chip（编辑页展示当前日志日期） ---------- */
@@ -56,9 +54,9 @@ page {
   align-items: center;
   gap: 12rpx;
   margin: 4rpx 8rpx 0;
-  background: #edf2fe;
-  color: #1d4ed8;
-  border-radius: 0;
+  background: #E8F0FF;
+  color: #0E3DA8;
+  border-radius: 12rpx;
   padding: 8rpx 20rpx;
   font-size: 24rpx;
   font-weight: 700;
@@ -68,7 +66,7 @@ page {
 /* ---------- 提示条（「未出车」联动说明） ---------- */
 .tip {
   margin-top: 28rpx;
-  background: #edf2fe;
+  background: #E8F0FF;
   border-radius: 0;
   display: flex;
   align-items: center;
@@ -91,13 +89,13 @@ page {
   display: block;
   font-size: 24rpx;
   font-weight: 700;
-  color: #111111;
+  color: #1D2129;
 }
 
 .tip .tip-p {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
   line-height: 1.6;
 }
 
@@ -109,12 +107,12 @@ page {
   padding: 4rpx 4rpx 0;
 }
 
-/* check-tag 外观包豪斯化：直角 + 4rpx 墨边；未点亮=白底墨字，点亮=蓝底白字 + 墨色硬影（非浅蓝胶囊） */
+/* check-tag 外观：1 发丝边圆角；未点亮=白底深灰字，点亮=蓝底白字 */
 .tags .t-tag {
   min-width: 144rpx;
   height: 68rpx;
-  border-radius: 0;
-  border-width: 4rpx;
+  border-radius: 12rpx;
+  border-width: 2rpx;
   justify-content: center;
   font-size: 26rpx;
   font-weight: 600;
@@ -123,23 +121,23 @@ page {
 
 .tags .t-tag--outline.t-tag--default {
   background: #ffffff;
-  border-color: #111111;
-  color: #111111;
+  border-color: #E5E6EB;
+  color: #1D2129;
 }
 
-/* 点亮态：蓝底白字 + 墨边 + 墨硬影（特异性压过组件 .t-tag--outline.t-tag--primary） */
+/* 点亮态：蓝底白字（特异性压过组件 .t-tag--outline.t-tag--primary） */
 .tags .t-tag--outline.t-tag--primary,
 .tags .t-tag--checked {
-  background: #1d4ed8;
-  border-color: #111111;
+  background: #0E3DA8;
+  border-color: #0E3DA8;
   color: #ffffff;
-  box-shadow: 4rpx 4rpx 0 #111111;
+  box-shadow: none;
 }
 
 .tags .t-tag--disabled {
-  background: #f8f6f1;
-  border-color: #c9c0ab;
-  color: #c6ba9c;
+  background: #F7F8FA;
+  border-color: #E5E6EB;
+  color: #C9CDD4;
   box-shadow: none;
 }
 
@@ -158,18 +156,18 @@ page {
 }
 
 .photo-item + .photo-item {
-  border-top: 2rpx solid #e7e1d2;
+  border-top: 2rpx solid #E5E6EB;
 }
 
-/* 缩略图：对角圆角几何裁切（左上/右下微角、右上/左下圆角；设计稿 3px 16px 3px 16px，1px=2rpx） */
+/* 缩略图：12rpx 统一圆角 */
 .ph-img {
   width: 168rpx;
   height: 340rpx;
   flex: none;
-  border-radius: 6rpx 32rpx 6rpx 32rpx;
-  border: 4rpx solid #111111;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
   box-sizing: border-box;
-  background: #e9e2d2;
+  background: #F7F8FA;
 }
 
 .ph-right {
@@ -209,7 +207,7 @@ page {
   gap: 10rpx;
   font-size: 26rpx;
   font-weight: 600;
-  color: #111111;
+  color: #1D2129;
   line-height: 1.5;
 }
 
@@ -226,7 +224,7 @@ page {
 }
 
 .ph-wc.empty {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   font-weight: 400;
 }
 
@@ -234,7 +232,7 @@ page {
 .ph-meta {
   margin-top: 12rpx;
   padding-top: 10rpx;
-  border-top: 2rpx dashed #e7e1d2;
+  border-top: 2rpx dashed #E5E6EB;
 }
 
 .meta-line {
@@ -243,7 +241,7 @@ page {
   gap: 12rpx;
   padding: 3rpx 0;
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
   line-height: 1.4;
 }
 
@@ -251,7 +249,7 @@ page {
   flex: none;
   width: 96rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .meta-line .meta-val {
@@ -260,19 +258,18 @@ page {
   word-break: break-all;
 }
 
-/* 验证角标签：包豪斯直角小签（墨线描边；通过=绿底白字 / 失败=红底白字 / 识别中=浅蓝底蓝字） */
+/* 验证角标签：状态小胶囊（浅底 + 同色深字；通过绿 / 失败红 / 识别中蓝） */
 .vtag {
   display: inline-flex;
   align-items: center;
   gap: 8rpx;
   height: 38rpx;
   padding: 0 14rpx;
-  border-radius: 0;
-  border: 3rpx solid #111111;
+  border-radius: 8rpx;
   box-sizing: border-box;
   font-size: 20rpx;
-  font-weight: 700;
-  letter-spacing: 2rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
 }
 
 /* 验证失败后的「重新验证」小按钮 */
@@ -281,27 +278,27 @@ page {
   align-items: center;
   height: 38rpx;
   padding: 0 16rpx;
-  border-radius: 0;
-  border: 3rpx solid #1d4ed8;
-  color: #1d4ed8;
+  border-radius: 8rpx;
+  border: 2rpx solid #0E3DA8;
+  color: #0E3DA8;
   font-size: 20rpx;
-  font-weight: 700;
-  letter-spacing: 2rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
 }
 
 .vtag.ing {
-  background: #edf2fe;
-  color: #1d4ed8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .vtag.ok {
-  background: #1e9e50;
-  color: #ffffff;
+  background: #E8FFEA;
+  color: #0B8A37;
 }
 
 .vtag.bad {
-  background: #d22730;
-  color: #ffffff;
+  background: #FFECE8;
+  color: #F53F3F;
 }
 
 /* 照片右上角删除小图标 */
@@ -321,55 +318,43 @@ page {
 .add-photo {
   margin: 4rpx 0 0;
   height: 104rpx;
-  border-radius: 0;
-  background: #efebe0;
-  border: 3rpx dashed rgba(17,17,17,.35);
-  color: rgba(17,17,17,.4);
+  border-radius: 12rpx;
+  background: #F7F8FA;
+  border: 3rpx dashed #C9CDD4;
+  color: #86909C;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 16rpx;
   font-size: 24rpx;
   font-weight: 600;
-  letter-spacing: 4rpx;
+  letter-spacing: 1rpx;
 }
 
 /* ---------- 底部弹层（筛选下拉 / 人名点亮共用） ----------
-   包豪斯化：直角 + 顶部 6rpx 墨线 + 向上硬影；
-   标题前置红方块（.sheet-title::before） */
+   顶部 24rpx 圆角 + 轻阴影 */
 .sheet {
   position: relative;
   background: #ffffff;
-  border-radius: 0;
-  border-top: 6rpx solid #111111;
-  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.15);
+  border-radius: 24rpx 24rpx 0 0;
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 
 .sheet-title {
   text-align: center;
   font-size: 32rpx;
-  font-weight: 800;
-  letter-spacing: 4rpx;
-  color: #111111;
-}
-
-/* 标题前置红方块（inline-block 保持整体居中） */
-.sheet-title::before {
-  content: '';
-  display: inline-block;
-  width: 14rpx;
-  height: 14rpx;
-  background: #d22730;
-  margin-right: 12rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+  color: #1D2129;
 }
 
 .sheet-note {
   text-align: center;
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
-  letter-spacing: 2rpx;
+  color: #86909C;
+  letter-spacing: 1rpx;
 }
 
 .sheet .tags {
@@ -386,34 +371,32 @@ page {
 .btn-ghost {
   flex: 1;
   height: 88rpx;
-  border-radius: 0;
-  border: 4rpx solid #111111;
+  border-radius: 16rpx;
+  border: 2rpx solid #E5E6EB;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
-  font-weight: 700;
-  color: #5c5748;
-  letter-spacing: 6rpx;
+  font-weight: 600;
+  color: #4E5969;
+  letter-spacing: 2rpx;
   box-sizing: border-box;
-  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.9);
 }
 
 .btn-dark {
   flex: 2;
   height: 88rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 16rpx;
+  background: #0E3DA8;
   color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 14rpx;
   font-size: 28rpx;
-  font-weight: 700;
-  letter-spacing: 4rpx;
-  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
+  font-weight: 600;
+  letter-spacing: 2rpx;
 }
 
 /* ============================================================
@@ -423,8 +406,8 @@ page {
 /* ---------- 巡视内容输入框 ---------- */
 .textarea-wrap {
   background: #ffffff;
-  border: 3rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 20rpx 28rpx;
 }
 
@@ -432,20 +415,20 @@ page {
   width: 100%;
   min-height: 132rpx;
   font-size: 28rpx;
-  color: #111111;
+  color: #1D2129;
   line-height: 1.7;
   box-sizing: border-box;
 }
 
 .ph {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 /* ---------- 派车情况表单卡（直角 + 墨边，弹层白底上以描边定义边界，不用柔影） ---------- */
 .form-card {
   background: #ffffff;
-  border-radius: 0;
-  border: 4rpx solid #111111;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
   overflow: hidden;
 }
 
@@ -457,7 +440,7 @@ page {
 }
 
 .frow + .frow {
-  border-top: 2rpx solid #e7e1d2;
+  border-top: 2rpx solid #E5E6EB;
 }
 
 .frow .fk {
@@ -470,7 +453,7 @@ page {
 .frow .fv {
   flex: 1;
   font-size: 28rpx;
-  color: #111111;
+  color: #1D2129;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -478,17 +461,17 @@ page {
 }
 
 .frow .fv.placeholder {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   font-weight: 400;
 }
 
 .frow.disabled {
-  background: #faf8f1;
+  background: #F7F8FA;
 }
 
 .frow.disabled .fk,
 .frow.disabled .fv {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .frow.disabled .fv {
@@ -498,9 +481,9 @@ page {
 /* 「无派车」灰徽章 */
 .badge-mini {
   flex: none;
-  border: 2rpx solid rgba(17,17,17,.35);
-  color: rgba(17,17,17,.4);
-  border-radius: 0;
+  border: 2rpx solid rgba(29,33,41,.35);
+  color: rgba(29,33,41,.4);
+  border-radius: 12rpx;
   padding: 0 12rpx;
   font-size: 20rpx;
   font-weight: 700;
@@ -509,8 +492,8 @@ page {
 
 /* ---------- 内联筛选下拉（手风琴展开于表单行下方，结构参照设计稿屏④ .drop-panel） ---------- */
 .drop-panel {
-  border-top: 2rpx solid #e7e1d2;
-  background: #faf8f1;
+  border-top: 2rpx solid #E5E6EB;
+  background: #F7F8FA;
   padding: 16rpx 24rpx 20rpx;
 }
 
@@ -519,23 +502,23 @@ page {
   align-items: center;
   gap: 16rpx;
   background: #ffffff;
-  border: 3rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 16rpx 24rpx;
 }
 
 .drop-input {
   flex: 1;
   font-size: 26rpx;
-  color: #111111;
+  color: #1D2129;
 }
 
 .drop-list {
   margin-top: 16rpx;
   max-height: 480rpx;
   background: #ffffff;
-  border: 3rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -567,7 +550,7 @@ page {
 }
 
 .drop-item + .drop-item {
-  border-top: 2rpx solid #e7e1d2;
+  border-top: 2rpx solid #E5E6EB;
 }
 
 .drop-item .t-icon {
@@ -576,16 +559,16 @@ page {
 
 /* 选中项：白底蓝字 + 前置蓝方块（不用浅蓝高亮） */
 .drop-item.on {
-  color: #1d4ed8;
+  color: #0E3DA8;
   font-weight: 700;
 }
 
 .drop-item.on::before {
-  background: #1d4ed8;
+  background: #0E3DA8;
 }
 
 .drop-item.none {
-  color: #5c5748;
+  color: #4E5969;
 }
 
 .drop-item.none .badge-mini {
@@ -597,5 +580,5 @@ page {
   padding: 40rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }

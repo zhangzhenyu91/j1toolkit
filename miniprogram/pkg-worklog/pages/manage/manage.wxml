@@ -34,7 +34,7 @@
   <view class="card mlist">
     <view class="mrow {{item.status === 1 ? '' : 'off'}}" wx:for="{{list}}" wx:key="id">
       <view class="mi">
-        <t-icon name="{{icon}}" size="32rpx" color="#1D4ED8" />
+        <t-icon name="{{icon}}" size="32rpx" color="#0E3DA8" />
       </view>
       <text class="mt">{{item.name}}</text>
       <!-- 人员来源标（屏六）：user_id 非空=账号同步（绿），空=手动添加（灰） -->
@@ -76,7 +76,7 @@
           <view class="st-t">下载模板</view>
           <view class="st-d">列固定为：电压等级 / 线路名称 / 杆塔号 / 经度 / 纬度</view>
           <view class="dl-line" hover-class="hover-opacity" bindtap="onTplDownload">
-            <t-icon name="download" size="26rpx" color="#1D4ED8" />
+            <t-icon name="download" size="26rpx" color="#0E3DA8" />
             杆塔坐标导入模板.xlsx
           </view>
         </view>

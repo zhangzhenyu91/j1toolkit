@@ -32,7 +32,7 @@
     <!-- 选取入口（聊天文件） -->
     <view class="upzone" hover-class="hover-opacity" bindtap="onPickFiles">
       <view class="up-ic">
-        <t-icon name="upload" size="48rpx" color="#1D4ED8" />
+        <t-icon name="upload" size="48rpx" color="#0E3DA8" />
       </view>
       <view class="up-t">从聊天选取文件<text class="accent">上传</text></view>
       <view class="up-p">支持 pdf / doc / docx / ppt / pptx / xls / xlsx</view>
@@ -42,11 +42,11 @@
     <!-- 已选文件条 -->
     <block wx:if="{{files.length}}">
       <view class="ftag" wx:for="{{files}}" wx:key="path">
-        <t-icon name="file" size="30rpx" color="#1D4ED8" />
+        <t-icon name="file" size="30rpx" color="#0E3DA8" />
         <view class="fn">{{item.name}}</view>
         <view class="fs">{{item.sizeText}}</view>
         <view class="fx" hover-class="hover-opacity" catchtap="onRemoveFile" data-index="{{index}}">
-          <t-icon name="close" size="30rpx" color="rgba(17,17,17,.4)" />
+          <t-icon name="close" size="30rpx" color="rgba(29,33,41,.4)" />
         </view>
       </view>
     </block>
@@ -57,7 +57,7 @@
       <picker mode="date" value="{{dateStr}}" bindchange="onDateChange">
         <view class="date-val" hover-class="hover-opacity">
           <text>{{dateStr}}</text>
-          <t-icon name="calendar" size="30rpx" color="rgba(17,17,17,.4)" />
+          <t-icon name="calendar" size="30rpx" color="rgba(29,33,41,.4)" />
         </view>
       </picker>
     </view>
@@ -69,7 +69,7 @@
   <view wx:if="{{track}}" class="card prog">
     <view class="fh">
       <view class="file-ic">
-        <t-icon name="file" size="34rpx" color="#1D4ED8" />
+        <t-icon name="file" size="34rpx" color="#0E3DA8" />
       </view>
       <view class="fh-r">
         <view class="fn">{{track.name}}</view>
@@ -99,7 +99,7 @@
   </view>
   <!-- 生成进度卡（空闲态） -->
   <view wx:else class="card prog idle">
-    <t-icon name="time" size="44rpx" color="rgba(17,17,17,.35)" />
+    <t-icon name="time" size="44rpx" color="rgba(29,33,41,.35)" />
     <text>提交生成后，这里将实时展示生成进度</text>
   </view>
 
@@ -122,11 +122,11 @@
         </view>
       </view>
       <view class="rf">
-        <t-icon name="file" size="22rpx" color="rgba(17,17,17,.4)" />
+        <t-icon name="file" size="22rpx" color="rgba(29,33,41,.4)" />
         <text>{{item.sub}}</text>
       </view>
       <view class="rmeta">活动日期 {{item.date}} · 提交 {{item.createdText}}</view>
-      <view wx:if="{{item.failed && item.error}}" class="rerr"><t-icon class="rerr-x" name="error-triangle" size="22rpx" color="#D22730" />{{item.error}}</view>
+      <view wx:if="{{item.failed && item.error}}" class="rerr"><t-icon class="rerr-x" name="error-triangle" size="22rpx" color="#F53F3F" />{{item.error}}</view>
       <!-- 操作行：打开（未生成置灰）+ 删除 -->
       <view class="ops">
         <view class="opb {{item.done ? '' : 'off'}}" catchtap="onOpenRecord" data-id="{{item.id}}">
@@ -134,13 +134,13 @@
             <text class="opb-ing">打开中…</text>
           </block>
           <block wx:else>
-            <t-icon name="download" size="30rpx" color="{{item.done ? '#1D4ED8' : 'rgba(17,17,17,.35)'}}" />
+            <t-icon name="download" size="30rpx" color="{{item.done ? '#0E3DA8' : 'rgba(29,33,41,.35)'}}" />
             <text>打开</text>
           </block>
         </view>
         <view class="opb del" hover-class="hover-opacity" catchtap="onDeleteRecord"
               data-id="{{item.id}}" data-name="{{item.name}}">
-          <t-icon name="delete" size="30rpx" color="#5C5748" />
+          <t-icon name="delete" size="30rpx" color="#4E5969" />
           <text>删除</text>
         </view>
       </view>
@@ -204,7 +204,7 @@
           <picker wx:if="{{attendMode === 'member'}}" range="{{members}}" value="{{hostIdx}}" bindchange="onHostChange">
             <view class="pick-val">
               <text>{{members[hostIdx] || '—'}}</text>
-              <t-icon name="chevron-down" size="26rpx" color="rgba(17,17,17,.4)" />
+              <t-icon name="chevron-down" size="26rpx" color="rgba(29,33,41,.4)" />
             </view>
           </picker>
           <input
@@ -225,7 +225,7 @@
           <picker range="{{members}}" value="{{recorderIdx}}" bindchange="onRecorderChange">
             <view class="pick-val">
               <text>{{members[recorderIdx] || '—'}}</text>
-              <t-icon name="chevron-down" size="26rpx" color="rgba(17,17,17,.4)" />
+              <t-icon name="chevron-down" size="26rpx" color="rgba(29,33,41,.4)" />
             </view>
           </picker>
         </view>

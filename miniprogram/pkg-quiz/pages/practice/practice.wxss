@@ -5,7 +5,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f8f6f1;
+  background: #F5F7FA;
 }
 
 /* ---------- 跟手翻页 swiper（一题一页；每格内独立纵向滚动） ---------- */
@@ -27,7 +27,7 @@
   padding: 96rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 
@@ -45,47 +45,47 @@
   flex: none;
   display: flex;
   padding: 4rpx;
-  background: #efe9da;
-  border-radius: 0;
+  background: #F7F8FA;
+  border-radius: 12rpx;
 }
 
 .vm-opt {
   padding: 6rpx 20rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #5c5748;
+  color: #4E5969;
 }
 
 .vm-opt.on {
-  background: #111111;
+  background: #0E3DA8;
   color: #ffffff;
 }
 
 .progress {
   flex: 1;
   height: 12rpx;
-  border-radius: 0;
-  background: #efe9da;
+  border-radius: 12rpx;
+  background: #F7F8FA;
   overflow: hidden;
 }
 
 .progress-in {
   height: 100%;
-  border-radius: 0;
-  background: #1d4ed8;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   transition: width 0.3s ease;
 }
 
 .pg-line b {
   font-size: 24rpx;
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .pg-line b em {
   font-style: normal;
-  color: #1d4ed8;
+  color: #0E3DA8;
 }
 
 /* ---------- 题干卡 ---------- */
@@ -100,7 +100,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -110,13 +110,13 @@
 }
 
 .tag-orange {
-  background: #edf2fe;
-  color: #1d4ed8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .tag-navy {
-  background: #edf2fe;
-  color: #111111;
+  background: #E8F0FF;
+  color: #1D2129;
 }
 
 /* ---------- 选项卡（白卡描边，选中浅蓝底；解析态字母块变对勾/红叉，文字同着色；180ms 过渡） ---------- */
@@ -124,8 +124,8 @@
   margin-top: 20rpx;
   padding: 24rpx 26rpx;
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   display: flex;
   align-items: center;
   gap: 20rpx;
@@ -137,7 +137,7 @@
 /* 点按未提交选项的轻微反馈（hover-class）：轻微内缩 + 浅蓝底 */
 .opt-hover {
   transform: scale(0.99);
-  background-color: #edf2fe !important;
+  background-color: #E8F0FF !important;
 }
 
 .opt .ab {
@@ -145,20 +145,20 @@
   height: 52rpx;
   flex: none;
   border-radius: 50%;
-  border: 3rpx solid rgba(17,17,17,.35);
-  color: #5c5748;
+  border: 3rpx solid rgba(29,33,41,.35);
+  color: #4E5969;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 25rpx;
-  font-weight: 800;
+  font-weight: 700;
   box-sizing: border-box;
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 /* 多选：方形字母块 */
 .opt.sq .ab {
-  border-radius: 0;
+  border-radius: 12rpx;
 }
 
 .opt .opt-tx {
@@ -167,45 +167,45 @@
 }
 
 .opt.sel {
-  border-color: #1d4ed8;
-  background: #edf2fe;
+  border-color: #0E3DA8;
+  background: #E8F0FF;
 }
 
 .opt.sel .ab {
-  border-color: #1d4ed8;
-  background: #1d4ed8;
+  border-color: #0E3DA8;
+  background: #0E3DA8;
   color: #ffffff;
 }
 
 /* 解析态（考试宝式）：正确项绿底绿勾 / 错选项红底红叉，文字同步着色 */
 .opt.right {
-  border-color: #1e9e50;
-  background: #e8f5ef;
+  border-color: #00B42A;
+  background: #E8FFEA;
 }
 
 .opt.right .ab {
-  border-color: #1e9e50;
-  background: #1e9e50;
+  border-color: #00B42A;
+  background: #00B42A;
   color: #ffffff;
 }
 
 .opt.right .opt-tx {
-  color: #1e9e50;
+  color: #00B42A;
 }
 
 .opt.wrong {
-  border-color: #d22730;
-  background: #fae9e9;
+  border-color: #F53F3F;
+  background: #FFECE8;
 }
 
 .opt.wrong .ab {
-  border-color: #d22730;
-  background: #d22730;
+  border-color: #F53F3F;
+  background: #F53F3F;
   color: #ffffff;
 }
 
 .opt.wrong .opt-tx {
-  color: #d22730;
+  color: #F53F3F;
 }
 
 /* ---------- 判断题大选项卡（「正确 / 错误」双大卡） ---------- */
@@ -218,8 +218,8 @@
 .judge-btn {
   flex: 1;
   height: 176rpx;
-  border-radius: 0;
-  border: 4rpx solid #111111;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
   background: #ffffff;
   display: flex;
   flex-direction: column;
@@ -227,26 +227,26 @@
   justify-content: center;
   gap: 14rpx;
   font-size: 31rpx;
-  font-weight: 800;
+  font-weight: 700;
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
 .judge-btn.sel {
-  border-color: #1d4ed8;
-  background: #edf2fe;
-  color: #1d4ed8;
+  border-color: #0E3DA8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .judge-btn.right {
-  border-color: #1e9e50;
-  background: #e8f5ef;
-  color: #1e9e50;
+  border-color: #00B42A;
+  background: #E8FFEA;
+  color: #00B42A;
 }
 
 .judge-btn.wrong {
-  border-color: #d22730;
-  background: #fae9e9;
-  color: #d22730;
+  border-color: #F53F3F;
+  background: #FFECE8;
+  color: #F53F3F;
 }
 
 /* ---------- 多选提示 ---------- */
@@ -254,7 +254,7 @@
   margin-top: 18rpx;
   padding: 0 6rpx;
   font-size: 21rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 1rpx;
 }
 
@@ -263,7 +263,7 @@
   margin-top: 22rpx;
   padding: 24rpx 28rpx;
   background: #ffffff;
-  border-radius: 0;
+  border-radius: 12rpx;
   animation: fadeIn 0.2s ease both;
 }
 
@@ -278,27 +278,27 @@
 }
 
 .result-block .r-main .v {
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 2rpx;
 }
 
 .result-block .ok {
-  color: #1e9e50;
+  color: #00B42A;
 }
 
 .result-block .bad {
-  color: #d22730;
+  color: #F53F3F;
 }
 
 .result-block .r-sub {
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
   letter-spacing: 1rpx;
 }
 
 .result-block .r-sub.orange {
-  color: #1d4ed8;
+  color: #0E3DA8;
   font-weight: 600;
 }
 
@@ -306,8 +306,8 @@
 .analysis-card {
   margin-top: 22rpx;
   padding: 26rpx 28rpx;
-  background: #edf2fe;
-  border-radius: 0;
+  background: #E8F0FF;
+  border-radius: 12rpx;
   animation: fadeUp 0.22s 0.07s ease both;
 }
 
@@ -315,9 +315,9 @@
   display: flex;
   align-items: center;
   gap: 14rpx;
-  color: #1d4ed8;
+  color: #0E3DA8;
   font-size: 27rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 2rpx;
 }
 
@@ -329,13 +329,13 @@
 }
 
 .analysis-card .bd.ph {
-  color: #c29b7e;
+  color: #86909C;
 }
 
 .analysis-card .ft {
   margin-top: 16rpx;
   font-size: 20rpx;
-  color: #c29b7e;
+  color: #86909C;
   letter-spacing: 1rpx;
 }
 
@@ -347,7 +347,7 @@
   gap: 8rpx;
   padding: 12rpx 20rpx calc(16rpx + env(safe-area-inset-bottom));
   background: #ffffff;
-  border-top: 2rpx solid #e7e1d2;
+  border-top: 2rpx solid #E5E6EB;
 }
 
 /* 底栏图标位（考试宝式单行：无小字，统一 76rpx 高居中，天然对齐） */
@@ -359,11 +359,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #5c5748;
+  color: #4E5969;
 }
 
 .b-item.faved {
-  color: #1d4ed8;
+  color: #0E3DA8;
 }
 
 /* 本 session 对错计数（绿勾 / 红叉 + 数字） */
@@ -379,15 +379,15 @@
 
 .b-item.counts .cnt text {
   font-size: 26rpx;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .b-item.counts .ok text {
-  color: #1e9e50;
+  color: #00B42A;
 }
 
 .b-item.counts .bad text {
-  color: #d22730;
+  color: #F53F3F;
 }
 
 /* 已做题（答题卡入口：图标 + x/total 同行） */
@@ -395,7 +395,7 @@
   gap: 8rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #111111;
+  color: #1D2129;
 }
 
 .bar-main {
@@ -413,7 +413,7 @@
   justify-content: center;
   font-size: 22rpx;
   line-height: 1.5;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 1rpx;
 }
 
@@ -421,16 +421,16 @@
 .set-pop {
   box-sizing: border-box;
   background: #ffffff;
-  border: 4rpx solid #111111;
+  border: 2rpx solid #E5E6EB;
   border-bottom: none;
-  border-radius: 0;
-  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
+  border-radius: 12rpx;
+  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
   padding: 36rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 
 .set-hd {
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 1rpx;
 }
 
@@ -442,7 +442,7 @@
 }
 
 .set-row + .set-row {
-  border-top: 2rpx solid #efebe0;
+  border-top: 2rpx solid #F7F8FA;
 }
 
 .set-tx {
@@ -460,8 +460,8 @@
   flex: none;
   width: 88rpx;
   height: 52rpx;
-  border-radius: 0;
-  background: #e7e1d2;
+  border-radius: 12rpx;
+  background: #E5E6EB;
   padding: 4rpx;
   box-sizing: border-box;
   transition: background-color 0.18s ease;
@@ -470,14 +470,14 @@
 .set-sw .dot {
   width: 44rpx;
   height: 44rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   background: #ffffff;
-  box-shadow: 2rpx 2rpx 0 rgba(17, 17, 17, 0.4);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   transition: transform 0.18s ease;
 }
 
 .set-sw.on {
-  background: #1d4ed8;
+  background: #0E3DA8;
 }
 
 .set-sw.on .dot {
@@ -488,7 +488,7 @@
 .analysis-card .hd .ana-edit {
   margin-left: auto;
   padding: 6rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   display: flex;
 }
 
@@ -496,16 +496,16 @@
 .ana-pop {
   box-sizing: border-box;
   background: #ffffff;
-  border: 4rpx solid #111111;
+  border: 2rpx solid #E5E6EB;
   border-bottom: none;
-  border-radius: 0;
-  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
+  border-radius: 12rpx;
+  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
   padding: 36rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 .ana-tip {
   margin-top: 14rpx;
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
   line-height: 1.6;
 }
 .ana-input {
@@ -514,12 +514,12 @@
   min-height: 300rpx;
   box-sizing: border-box;
   padding: 20rpx 22rpx;
-  background: #fbf9f2;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  background: #F7F8FA;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   font-size: 26rpx;
   line-height: 1.7;
-  color: #111111;
+  color: #1D2129;
 }
 .ana-foot {
   margin-top: 28rpx;
@@ -535,8 +535,8 @@
 
 .btn-navy {
   height: 84rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -544,7 +544,7 @@
   font-size: 29rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
-  box-shadow: 6rpx 6rpx 0 #1d4ed8;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .btn-navy.disabled {
@@ -553,10 +553,10 @@
 
 .btn-ghost {
   height: 88rpx;
-  border-radius: 0;
-  border: 4rpx solid #111111;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
   background: #ffffff;
-  color: #111111;
+  color: #1D2129;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -580,7 +580,7 @@
 .q-empty-t {
   font-size: 28rpx;
   font-weight: 700;
-  color: #5c5748;
+  color: #4E5969;
   letter-spacing: 2rpx;
 }
 
@@ -593,10 +593,10 @@
   height: 70vh;
   box-sizing: border-box;
   background: #ffffff;
-  border: 4rpx solid #111111;
+  border: 2rpx solid #E5E6EB;
   border-bottom: none;
-  border-radius: 0;
-  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
+  border-radius: 12rpx;
+  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
   padding: 36rpx 32rpx 0;
   display: flex;
   flex-direction: column;
@@ -605,7 +605,7 @@
 .sheet-hd {
   flex: none;
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 1rpx;
 }
 
@@ -617,7 +617,7 @@
   align-items: center;
   gap: 32rpx;
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
 }
 
 .sheet-legend .dot {
@@ -625,20 +625,20 @@
   width: 20rpx;
   height: 20rpx;
   border-radius: 50%;
-  background: #f8f6f1;
-  border: 2rpx solid #e7e1d2;
+  background: #F5F7FA;
+  border: 2rpx solid #E5E6EB;
   margin-right: 8rpx;
   vertical-align: -4rpx;
 }
 
 .sheet-legend .dot.green {
-  background: #1e9e50;
-  border-color: #1e9e50;
+  background: #00B42A;
+  border-color: #00B42A;
 }
 
 .sheet-legend .dot.red {
-  background: #d22730;
-  border-color: #d22730;
+  background: #F53F3F;
+  border-color: #F53F3F;
 }
 
 .sheet-scroll {
@@ -665,7 +665,7 @@
   margin-bottom: 16rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #5c5748;
+  color: #4E5969;
   letter-spacing: 1rpx;
 }
 
@@ -680,11 +680,11 @@
 .chip {
   width: 80rpx;
   height: 80rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   border: 2rpx solid transparent;
   box-sizing: border-box;
-  background: #f8f6f1;
-  color: #5c5748;
+  background: #F5F7FA;
+  color: #4E5969;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -693,17 +693,17 @@
 }
 
 .chip.cur {
-  border-color: #1d4ed8;
-  color: #1d4ed8;
+  border-color: #0E3DA8;
+  color: #0E3DA8;
 }
 
 .chip.right {
-  background: #1e9e50;
+  background: #00B42A;
   color: #ffffff;
 }
 
 .chip.wrong {
-  background: #d22730;
+  background: #F53F3F;
   color: #ffffff;
 }
 
@@ -719,10 +719,10 @@
   padding: 8rpx 24rpx;
   font-size: 26rpx;
   font-weight: 700;
-  color: #d22730;
+  color: #F53F3F;
   letter-spacing: 2rpx;
 }
 
 .reset-link.disabled {
-  color: rgba(17,17,17,.35);
+  color: rgba(29,33,41,.35);
 }

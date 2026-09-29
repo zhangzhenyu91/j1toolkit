@@ -7,7 +7,7 @@
     <!-- 顶部提示卡 -->
     <view class="tip sg-tip-first">
       <view class="ti">
-        <t-icon name="info-circle" size="36rpx" color="#1D4ED8" />
+        <t-icon name="info-circle" size="36rpx" color="#0E3DA8" />
       </view>
       <view>
         <text class="tip-t">绑定本人商旅账号</text>
@@ -26,7 +26,7 @@
         <view class="sg-tab {{loginType === 'pwd' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onSwitchType" data-type="pwd">密码登录</view>
       </view>
       <view class="field">
-        <t-icon name="mobile" size="38rpx" color="rgba(17,17,17,.4)" />
+        <t-icon name="mobile" size="38rpx" color="rgba(29,33,41,.4)" />
         <input
           class="fi"
           type="number"
@@ -38,7 +38,7 @@
         />
       </view>
       <view class="field" wx:if="{{captchaImg}}">
-        <t-icon name="check-rectangle" size="38rpx" color="rgba(17,17,17,.4)" />
+        <t-icon name="check-rectangle" size="38rpx" color="rgba(29,33,41,.4)" />
         <input
           class="fi"
           placeholder="图形验证码"
@@ -56,7 +56,7 @@
       </view>
       <view class="sg-alt" wx:if="{{captchaImg}}" hover-class="hover-opacity" bindtap="onUseSlider">图形码不可用？改用滑块验证</view>
       <view class="field" wx:if="{{loginType === 'sms'}}">
-        <t-icon name="lock-on" size="38rpx" color="rgba(17,17,17,.4)" />
+        <t-icon name="lock-on" size="38rpx" color="rgba(29,33,41,.4)" />
         <input
           class="fi"
           type="number"
@@ -71,7 +71,7 @@
         </view>
       </view>
       <view class="field" wx:else>
-        <t-icon name="lock-on" size="38rpx" color="rgba(17,17,17,.4)" />
+        <t-icon name="lock-on" size="38rpx" color="rgba(29,33,41,.4)" />
         <input
           class="fi"
           password

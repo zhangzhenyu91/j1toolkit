@@ -30,7 +30,7 @@
         <span class="tag tag-red">错 {{w.wrongCount}} 次</span>
         <span>{{w.relTime}}</span>
         <span class="rm" hover-class="hover-opacity" catchtap="onRemove" data-id="{{w.questionId}}">
-          <t-icon name="delete" size="26rpx" color="rgba(17,17,17,.4)" />移除
+          <t-icon name="delete" size="26rpx" color="rgba(29,33,41,.4)" />移除
         </span>
       </view>
     </view>
@@ -38,7 +38,7 @@
 
   <!-- 规则说明 -->
   <view class="rule-note">
-    <t-icon name="info-circle" size="26rpx" color="rgba(17,17,17,.4)" />
+    <t-icon name="info-circle" size="26rpx" color="rgba(29,33,41,.4)" />
     规则：刷题答错自动收录；同一题连续答对 3 次自动移出，也可手动移除。
   </view>
 </view>
@@ -47,7 +47,7 @@
 <view class="page-body" wx:else>
   <view class="empty-box" wx:if="{{loading}}">错题加载中…</view>
   <view class="wrong-empty" wx:else>
-    <t-icon name="check-circle" size="110rpx" color="#1E9E50" />
+    <t-icon name="check-circle" size="110rpx" color="#00B42A" />
     <view class="we-t">暂无错题，继续保持</view>
     <view class="we-p">刷题答错的题目会自动收录到这里</view>
   </view>

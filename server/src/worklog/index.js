@@ -346,6 +346,30 @@ router.get('/day-status', async (req, res, next) => {
   }
 });
 
+// GET /stats?month=YYYY-MM：首页数据概览——班组当月卡片「通过/全部」+ 我个人当月缺水印照片条数（需补）
+// 通过口径 = verify_passed === 'passed'（免验证不计入通过）；需补口径 = 含我的卡片中 myReportReasons 带「我未上传水印照片」的条数
+router.get('/stats', async (req, res, next) => {
+  try {
+    const { month } = req.query;
+    if (!MONTH_RE.test(month || '')) return fail(res, 400, 40000, '月份格式应为 YYYY-MM');
+    if (!req.team) return ok(res, { total: 0, passed: 0, needPhotos: 0 });
+    const list = await loadEntries(`DATE_FORMAT(e.log_date, '%Y-%m') = ? AND ${ENTRY_VISIBLE}`, [month, req.team.id, req.team.id]);
+    const total = list.length;
+    const passed = list.filter((e) => e.verify_passed === 'passed').length;
+    let needPhotos = 0;
+    const me = await myMember(req);
+    if (me) {
+      list.forEach((e) => {
+        if (!e.members.some((m) => m.member_id === me.id)) return; // 仅用车人含我的卡片（同 scope=mine 口径）
+        if (myReportReasons(e, me).includes('我未上传水印照片')) needPhotos += 1;
+      });
+    }
+    return ok(res, { total, passed, needPhotos });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // POST /logs：新建卡片（一卡片一派车；vehicle_id 空=未出车）；归入当前生效班组
 router.post('/logs', async (req, res, next) => {
   try {

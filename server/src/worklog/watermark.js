@@ -70,7 +70,7 @@
     bodyTopPad: 0.0092,   // 卡身首行上到分界线的距离（推算：cardH 分解）
     glyphH: 0.03,         // 字形高（用于卡片高度计算，随 labelFont 0.033 同步缩小）
     bodyBottomPad: 0.01,  // 末行下到卡片底的距离
-    textColor: '#111111',
+    textColor: '#1D2129',
     // 右下品牌块（logo 按官方样图实测；防伪行右缘固定 codeRight 不动，
     // 整体等比缩小至「防」左缘刚好超过上方 logo 中「相」字左缘）
     logoW: 0.14,       // logo 图宽

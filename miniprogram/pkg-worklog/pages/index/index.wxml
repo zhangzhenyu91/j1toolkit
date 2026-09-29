@@ -31,14 +31,14 @@
   <!-- 日期条：±1 天 + 日历入口 -->
   <view class="datebar">
     <view class="arrow" hover-class="hover-scale" bindtap="onPrevDay">
-      <t-icon name="chevron-left" size="32rpx" color="#111111" />
+      <t-icon name="chevron-left" size="32rpx" color="#1D2129" />
     </view>
     <view class="dtxt">{{dateText}} {{weekText}}<text class="today" wx:if="{{isToday}}">今天</text></view>
     <view class="arrow" hover-class="hover-scale" bindtap="onNextDay">
-      <t-icon name="chevron-right" size="32rpx" color="#111111" />
+      <t-icon name="chevron-right" size="32rpx" color="#1D2129" />
     </view>
     <view class="cal" hover-class="hover-scale" bindtap="onOpenCalendar">
-      <t-icon name="calendar" size="36rpx" color="#1D4ED8" />
+      <t-icon name="calendar" size="36rpx" color="#0E3DA8" />
     </view>
   </view>
 
@@ -77,7 +77,7 @@
       <!-- 车牌头部可点击：打开改派车面板并回填该卡（派车情况/用车人，保存前弹内网派车单同步警告） -->
       <view class="lc-head" hover-class="hover-bg-warm" bindtap="onOpenForm" data-id="{{item.id}}">
         <view class="ci {{item.hasVehicle ? '' : 'ci-gray'}}">
-          <t-icon name="vehicle" size="36rpx" color="{{item.hasVehicle ? '#1D4ED8' : '#A89F8A'}}" />
+          <t-icon name="vehicle" size="36rpx" color="{{item.hasVehicle ? '#0E3DA8' : '#86909C'}}" />
         </view>
         <view class="plate">{{item.plateText}}</view>
         <view class="tag-cross" wx:if="{{item.crossTeam}}">跨班</view>
@@ -86,14 +86,14 @@
 
       <!-- 未通过明细：角标为「未通过」时逐行列出全部不满足项（后端 verify_reasons，与角标同源） -->
       <view class="lc-fail" wx:if="{{item.failReasons.length}}">
-        <view class="lc-fail-line" wx:for="{{item.failReasons}}" wx:key="*this"><t-icon class="lc-fail-x" name="error-triangle" size="22rpx" color="#D22730" />{{item}}</view>
+        <view class="lc-fail-line" wx:for="{{item.failReasons}}" wx:key="*this"><t-icon class="lc-fail-x" name="error-triangle" size="22rpx" color="#F53F3F" />{{item}}</view>
       </view>
 
       <!-- 巡视内容：车牌号下方主内容块（橙条浅底，与其他信息区分；点击弹出巡视内容修改层） -->
       <view class="lc-patrol" hover-class="hover-bg-warm" bindtap="onOpenPatrol" data-id="{{item.id}}">
         <view class="lc-patrol-head">
           <view class="lc-patrol-label">巡视内容</view>
-          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
+          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#E5E6EB" />
         </view>
         <view class="lc-patrol-text">{{item.patrolText}}</view>
       </view>
@@ -109,7 +109,7 @@
             </view>
             <!-- 费用入口（描边胶囊小按钮，固定最右端；费用弹层仅伙食/交通可改；首次开始打卡成功也会自动弹出） -->
             <view class="ck-fee" wx:if="{{c.bound}}" hover-class="hover-opacity" catchtap="onOpenFee" data-member-id="{{c.memberId}}" data-name="{{c.name}}">
-              <t-icon name="money" size="24rpx" color="#1D4ED8" />费用
+              <t-icon name="money" size="24rpx" color="#0E3DA8" />费用
             </view>
           </view>
           <view class="ck-row2">
@@ -127,7 +127,7 @@
             >
               <view class="ck-t1"><view class="ck-done-dot" wx:if="{{c.seq1.done}}"></view><t-icon name="{{c.seq1.icon}}" size="24rpx" color="{{c.seq1.iconColor}}" />{{c.seq1.title}}</view>
               <view class="ck-t2">{{c.seq1.sub}}</view>
-              <view class="ck-upd" wx:if="{{c.seq1.upd}}"><t-icon name="refresh" size="20rpx" color="#1D4ED8" />更新</view>
+              <view class="ck-upd" wx:if="{{c.seq1.upd}}"><t-icon name="refresh" size="20rpx" color="#0E3DA8" />更新</view>
             </view>
             <view
               class="ck-slot {{c.seq2.cls}}"
@@ -143,7 +143,7 @@
             >
               <view class="ck-t1"><view class="ck-done-dot" wx:if="{{c.seq2.done}}"></view><t-icon name="{{c.seq2.icon}}" size="24rpx" color="{{c.seq2.iconColor}}" />{{c.seq2.title}}</view>
               <view class="ck-t2">{{c.seq2.sub}}</view>
-              <view class="ck-upd" wx:if="{{c.seq2.upd}}"><t-icon name="refresh" size="20rpx" color="#1D4ED8" />更新</view>
+              <view class="ck-upd" wx:if="{{c.seq2.upd}}"><t-icon name="refresh" size="20rpx" color="#0E3DA8" />更新</view>
             </view>
           </view>
         </view>
@@ -224,7 +224,7 @@
                   class="wc-copy"
                   name="copy"
                   size="26rpx"
-                  color="#A89F8A"
+                  color="#86909C"
                   catchtap="onCopyWc"
                   data-text="{{p.workContent}}"
                 />
@@ -241,7 +241,7 @@
           </view>
           <!-- 删除照片（商旅已同步的会联动解除费用照片关联） -->
           <view class="ph-del" hover-class="hover-scale" catchtap="onDeletePhoto" data-pid="{{p.id}}">
-            <t-icon name="delete" size="32rpx" color="#D22730" />
+            <t-icon name="delete" size="32rpx" color="#F53F3F" />
           </view>
         </view>
         <!-- 添加照片（方式三选：水印直传 / 加水印 / 非水印；仅派车卡；无用车人时点击提示） -->
@@ -252,7 +252,7 @@
           bindtap="onAddPhoto"
           data-entry-id="{{item.id}}"
         >
-          <t-icon name="add" size="40rpx" color="#A89F8A" />
+          <t-icon name="add" size="40rpx" color="#86909C" />
           添加照片（水印 / 非水印）
         </view>
       </view>
@@ -261,7 +261,7 @@
       <view class="lc-rmk" wx:if="{{item.hasRemark}}" hover-class="hover-bg-warm" bindtap="onOpenRemark" data-id="{{item.id}}">
         <view class="lc-rmk-label">
           备 注
-          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#C9C0AB" />
+          <t-icon class="row-edit" name="edit-1" size="24rpx" color="#E5E6EB" />
         </view>
         <view class="lc-rmk-text" wx:if="{{item.remark}}">{{item.remark}}</view>
         <!-- 图片 / 视频附件：缩略图（视频无封面用深色底 + 播放标），点击 wx.previewMedia 全屏 -->
@@ -292,7 +292,7 @@
             data-name="{{f.name}}"
             data-url="{{f.url}}"
           >
-            <t-icon name="file" size="26rpx" color="#A89F8A" />
+            <t-icon name="file" size="26rpx" color="#86909C" />
             <text class="fn">{{f.name}}</text>
           </view>
         </view>
@@ -340,43 +340,43 @@
   <block wx:if="{{fabOpen}}">
     <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onManage">
       <text class="fab-lab">数据管理</text>
-      <view class="fab"><t-icon name="setting" size="40rpx" color="#111111" /></view>
+      <view class="fab"><t-icon name="setting" size="40rpx" color="#1D2129" /></view>
     </view>
     <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onTaskSheet">
       <text class="fab-lab">工作任务单</text>
-      <view class="fab"><t-icon name="file" size="40rpx" color="#111111" /></view>
+      <view class="fab"><t-icon name="file" size="40rpx" color="#1D2129" /></view>
     </view>
     <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onFeeSheet">
       <text class="fab-lab">费用汇总</text>
-      <view class="fab"><t-icon name="money" size="40rpx" color="#111111" /></view>
+      <view class="fab"><t-icon name="money" size="40rpx" color="#1D2129" /></view>
     </view>
     <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onDispatchSheet">
       <text class="fab-lab">派车汇总</text>
-      <view class="fab"><t-icon name="file-excel" size="40rpx" color="#111111" /></view>
+      <view class="fab"><t-icon name="file-excel" size="40rpx" color="#1D2129" /></view>
     </view>
     <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onDispatch">
       <text class="fab-lab">派车对齐</text>
-      <view class="fab"><t-icon name="file-copy" size="40rpx" color="#111111" /></view>
+      <view class="fab"><t-icon name="file-copy" size="40rpx" color="#1D2129" /></view>
     </view>
     <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onOpenBatchSync">
       <text class="fab-lab">批量从商旅同步</text>
-      <view class="fab"><t-icon name="refresh" size="40rpx" color="#111111" /></view>
+      <view class="fab"><t-icon name="refresh" size="40rpx" color="#1D2129" /></view>
     </view>
     <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenDownload">
       <text class="fab-lab">批量下载</text>
-      <view class="fab"><t-icon name="download" size="40rpx" color="#111111" /></view>
+      <view class="fab"><t-icon name="download" size="40rpx" color="#1D2129" /></view>
     </view>
     <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenReport">
       <text class="fab-lab">汇总前核验</text>
-      <view class="fab"><t-icon name="task-checked" size="40rpx" color="#111111" /></view>
+      <view class="fab"><t-icon name="task-checked" size="40rpx" color="#1D2129" /></view>
     </view>
     <view class="fab-item" wx:if="{{isAdmin}}" hover-class="hover-opacity" bindtap="onCreateCross">
       <text class="fab-lab accent">跨班日志</text>
-      <view class="fab"><t-icon name="usergroup" size="40rpx" color="#1D4ED8" /></view>
+      <view class="fab"><t-icon name="usergroup" size="40rpx" color="#0E3DA8" /></view>
     </view>
     <view class="fab-item" hover-class="hover-opacity" bindtap="onCreate">
       <text class="fab-lab accent">新建日志</text>
-      <view class="fab"><t-icon name="add" size="44rpx" color="#1D4ED8" /></view>
+      <view class="fab"><t-icon name="add" size="44rpx" color="#0E3DA8" /></view>
     </view>
   </block>
   <view class="fab-main" hover-class="hover-opacity" bindtap="onFabToggle">
@@ -419,7 +419,7 @@
     <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
       <!-- 日期 chip -->
       <view class="date-chip">
-        <t-icon name="calendar" size="28rpx" color="#1D4ED8" />
+        <t-icon name="calendar" size="28rpx" color="#0E3DA8" />
         {{formDateStr}}
       </view>
 
@@ -435,12 +435,12 @@
             <view class="fv {{crossTeamId === 0 ? 'placeholder' : ''}}">
               {{crossTeamId === 0 ? '请选择归属班组' : crossTeamText}}
             </view>
-            <t-icon name="{{dropType === 'team' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#C9C0AB" />
+            <t-icon name="{{dropType === 'team' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#E5E6EB" />
           </view>
           <!-- 内联展开：班组筛选面板（全部启用班组） -->
           <view class="drop-panel" wx:if="{{dropType === 'team'}}">
             <view class="drop-search">
-              <t-icon name="search" size="30rpx" color="#A89F8A" />
+              <t-icon name="search" size="30rpx" color="#86909C" />
               <input class="drop-input" value="{{dropKeyword}}" bindinput="onDropInput" placeholder="输入关键字筛选" placeholder-class="ph" />
             </view>
             <scroll-view scroll-y class="drop-list" wx:if="{{dropList.length}}">
@@ -453,7 +453,7 @@
                 data-id="{{item.id}}"
               >
                 <text>{{item.name}}</text>
-                <t-icon wx:if="{{item.selected}}" name="check" size="28rpx" color="#1D4ED8" />
+                <t-icon wx:if="{{item.selected}}" name="check" size="28rpx" color="#0E3DA8" />
               </view>
             </scroll-view>
             <view class="drop-empty" wx:else>无匹配项</view>
@@ -472,12 +472,12 @@
             {{vehicleId === 0 ? '请选择车牌号' : vehicleText}}
             <text class="badge-mini" wx:if="{{isNoVehicle}}">无派车</text>
           </view>
-          <t-icon name="{{dropType === 'vehicle' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#C9C0AB" />
+          <t-icon name="{{dropType === 'vehicle' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#E5E6EB" />
         </view>
         <!-- 内联展开：车牌筛选面板（末位固定「未出车」带灰徽章） -->
         <view class="drop-panel" wx:if="{{dropType === 'vehicle'}}">
           <view class="drop-search">
-            <t-icon name="search" size="30rpx" color="#A89F8A" />
+            <t-icon name="search" size="30rpx" color="#86909C" />
             <input class="drop-input" value="{{dropKeyword}}" bindinput="onDropInput" placeholder="输入关键字筛选" placeholder-class="ph" />
           </view>
           <scroll-view scroll-y class="drop-list" wx:if="{{dropList.length}}">
@@ -491,7 +491,7 @@
             >
               <text>{{item.name}}</text>
               <text class="badge-mini" wx:if="{{item.none}}">无派车</text>
-              <t-icon wx:if="{{item.selected && !item.none}}" name="check" size="28rpx" color="#1D4ED8" />
+              <t-icon wx:if="{{item.selected && !item.none}}" name="check" size="28rpx" color="#0E3DA8" />
             </view>
           </scroll-view>
           <view class="drop-empty" wx:else>无匹配项</view>
@@ -501,12 +501,12 @@
           <view class="fv {{destId === 0 || isNoVehicle ? 'placeholder' : ''}}">
             {{isNoVehicle ? '未出车不可选' : destId === 0 ? '请选择目的地' : destText}}
           </view>
-          <t-icon wx:if="{{!isNoVehicle}}" name="{{dropType === 'dest' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#C9C0AB" />
+          <t-icon wx:if="{{!isNoVehicle}}" name="{{dropType === 'dest' ? 'chevron-up' : 'chevron-down'}}" size="32rpx" color="#E5E6EB" />
         </view>
         <!-- 内联展开：目的地筛选面板 -->
         <view class="drop-panel" wx:if="{{dropType === 'dest'}}">
           <view class="drop-search">
-            <t-icon name="search" size="30rpx" color="#A89F8A" />
+            <t-icon name="search" size="30rpx" color="#86909C" />
             <input class="drop-input" value="{{dropKeyword}}" bindinput="onDropInput" placeholder="输入关键字筛选" placeholder-class="ph" />
           </view>
           <scroll-view scroll-y class="drop-list" wx:if="{{dropList.length}}">
@@ -519,7 +519,7 @@
               data-id="{{item.id}}"
             >
               <text>{{item.name}}</text>
-              <t-icon wx:if="{{item.selected}}" name="check" size="28rpx" color="#1D4ED8" />
+              <t-icon wx:if="{{item.selected}}" name="check" size="28rpx" color="#0E3DA8" />
             </view>
           </scroll-view>
           <view class="drop-empty" wx:else>无匹配项</view>
@@ -543,7 +543,7 @@
       <!-- 未出车联动提示条 -->
       <view class="tip" wx:if="{{isNoVehicle}}">
         <view class="ti">
-          <t-icon name="info-circle" size="36rpx" color="#1D4ED8" />
+          <t-icon name="info-circle" size="36rpx" color="#0E3DA8" />
         </view>
         <view>
           <text class="tip-t">已选择「未出车」</text>
@@ -660,21 +660,21 @@
         </view>
       </view>
       <view class="re-add" wx:if="{{rmkFiles.length < 9}}" hover-class="hover-opacity" bindtap="onRmkAddMedia">
-        <t-icon name="add" size="36rpx" color="#A89F8A" />
+        <t-icon name="add" size="36rpx" color="#86909C" />
         <text>图片/视频</text>
       </view>
       <view class="re-add" wx:if="{{rmkFiles.length < 9}}" hover-class="hover-opacity" bindtap="onRmkAddDoc">
-        <t-icon name="file-attachment" size="36rpx" color="#A89F8A" />
+        <t-icon name="file-attachment" size="36rpx" color="#86909C" />
         <text>Office 文档</text>
       </view>
     </view>
     <!-- Office 文档附件（文件条，行尾 × 移除） -->
     <view class="re-docs" wx:if="{{rmkDocs.length}}">
       <view class="re-doc" wx:for="{{rmkDocs}}" wx:for-item="f" wx:key="key">
-        <t-icon name="file" size="26rpx" color="#A89F8A" />
+        <t-icon name="file" size="26rpx" color="#86909C" />
         <text class="nm">{{f.name}}</text>
         <view class="x" hover-class="hover-opacity" catchtap="onRmkFileDel" data-key="{{f.key}}">
-          <t-icon name="close" size="26rpx" color="#A89F8A" />
+          <t-icon name="close" size="26rpx" color="#86909C" />
         </view>
       </view>
     </view>
@@ -695,7 +695,7 @@
     <view class="dl-head">
       <view class="dl-title">批量下载水印照片</view>
       <view class="dl-close" hover-class="hover-opacity" bindtap="onCloseDownload">
-        <t-icon name="close" size="36rpx" color="#6B7690" />
+        <t-icon name="close" size="36rpx" color="#4E5969" />
       </view>
     </view>
     <!-- 日期范围行（仅看我随主页视图开关；改日期：先关本面板再开 range 日历，规避叠层 z-index 冲突） -->
@@ -741,9 +741,9 @@
   <view class="sheet">
     <view class="sheet-title">汇总前核验</view>
     <view class="rp-mbar">
-      <view class="rp-mbtn" hover-class="hover-opacity" bindtap="onRpMonthShift" data-d="-1"><t-icon name="chevron-left" size="32rpx" color="#111111" /></view>
+      <view class="rp-mbtn" hover-class="hover-opacity" bindtap="onRpMonthShift" data-d="-1"><t-icon name="chevron-left" size="32rpx" color="#1D2129" /></view>
       <view class="rp-mtext">{{rpMonthText}}</view>
-      <view class="rp-mbtn {{rpMonthAtCur ? 'disabled' : ''}}" hover-class="{{rpMonthAtCur ? '' : 'hover-opacity'}}" bindtap="onRpMonthShift" data-d="1"><t-icon name="chevron-right" size="32rpx" color="{{rpMonthAtCur ? '#C9C0AB' : '#111111'}}" /></view>
+      <view class="rp-mbtn {{rpMonthAtCur ? 'disabled' : ''}}" hover-class="{{rpMonthAtCur ? '' : 'hover-opacity'}}" bindtap="onRpMonthShift" data-d="1"><t-icon name="chevron-right" size="32rpx" color="{{rpMonthAtCur ? '#E5E6EB' : '#1D2129'}}" /></view>
     </view>
     <view class="sheet-note">仅列出有问题的记录；规则：a 两次打卡齐 · b 水印照片齐 · c 施工内容一致 · d 地点含目的地 · e 拍摄为当天。未出车免验证</view>
     <scroll-view scroll-y class="rp-scroll" enhanced show-scrollbar="{{false}}">
@@ -754,16 +754,16 @@
           <view class="issue-head">
             <view class="issue-plate">{{item.dateText}} · {{item.plateText}}</view>
             <view class="badge red">{{item.reasons.length}} 项未过</view>
-            <t-icon name="chevron-right" size="28rpx" color="#C9C0AB" />
+            <t-icon name="chevron-right" size="28rpx" color="#E5E6EB" />
           </view>
           <view class="issue-line" wx:for="{{item.reasons}}" wx:for-item="reason" wx:key="*this">
-            <view class="issue-x"><t-icon name="error-triangle" size="22rpx" color="#D22730" /></view>
+            <view class="issue-x"><t-icon name="error-triangle" size="22rpx" color="#F53F3F" /></view>
             <view class="issue-txt">{{reason}}</view>
           </view>
         </view>
         <!-- 绿色通过态：有问题时「其余 N 条全部通过」，无问题时「当月无未通过记录」 -->
         <view class="rp-ok">
-          <view class="rp-ok-ic"><t-icon name="check" size="36rpx" color="#1E9E50" /></view>
+          <view class="rp-ok-ic"><t-icon name="check" size="36rpx" color="#00B42A" /></view>
           <view>
             <view class="rp-ok-t">{{rpOkText}}</view>
             <view class="rp-ok-p" wx:if="{{rpIssues.length}}">处理完上述问题后即可汇总</view>
@@ -803,12 +803,12 @@
       <view class="dl-empty" wx:if="{{bsLoading}}">加载中…</view>
       <block wx:if="{{!bsLoading}}">
         <view class="bs-ok" wx:if="{{bsOkCount > 0}}">
-          <t-icon name="check" size="30rpx" color="#1E9E50" />
+          <t-icon name="check" size="30rpx" color="#00B42A" />
           <text>成功同步 {{bsOkCount}} 条记录</text>
         </view>
         <view class="bs-fail" wx:for="{{bsFails}}" wx:key="id">
           <view class="bs-fail-h">
-            <t-icon class="bs-fail-x" name="error-triangle" size="24rpx" color="#D22730" />
+            <t-icon class="bs-fail-x" name="error-triangle" size="24rpx" color="#F53F3F" />
             <text class="d">{{item.dateText}}</text>
             <text class="m">{{item.memberName || '未匹配成员'}}</text>
             <text class="t">{{item.typeText}}</text>
@@ -897,7 +897,7 @@
     <!-- 商旅状态提醒条（有未绑定/登录过期候选人时显示） -->
     <view class="tip warn" wx:if="{{memberOffTip}}">
       <view class="ti">
-        <t-icon name="error-triangle" size="36rpx" color="#D22730" />
+        <t-icon name="error-triangle" size="36rpx" color="#F53F3F" />
       </view>
       <view>
         <text class="tip-t">部分成员不可更改</text>
@@ -1018,11 +1018,11 @@
             bindtap="onOpenTower"
           >
             <block wx:if="{{!wmTowerPicked}}">
-              <t-icon name="location" size="36rpx" color="#1D4ED8" />
+              <t-icon name="location" size="36rpx" color="#0E3DA8" />
               <text class="tb-text">选择杆塔坐标</text>
             </block>
             <block wx:else>
-              <t-icon name="check" size="32rpx" color="#1D4ED8" />
+              <t-icon name="check" size="32rpx" color="#0E3DA8" />
               <text class="tb-no">{{wmTowerPicked.no}}</text>
               <text class="tb-re">重选</text>
             </block>
@@ -1033,7 +1033,7 @@
           <text class="fk">防伪码</text>
           <view class="fv wm-code">{{wmCode}}</view>
           <view class="wm-refresh" hover-class="hover-opacity" bindtap="onWmCodeRefresh">
-            <t-icon name="refresh" size="30rpx" color="#1D4ED8" />
+            <t-icon name="refresh" size="30rpx" color="#0E3DA8" />
             <text>换一换</text>
           </view>
         </view>
@@ -1057,7 +1057,7 @@
     <!-- 位置卡：地址串可手动输入（手输后 geo 回填不覆盖）+ 经纬度/来源副行 + 重新定位 / 选择杆塔带入坐标 -->
     <view class="ck-loc">
       <view class="ck-loc-line">
-        <t-icon name="location" size="32rpx" color="#1D4ED8" />
+        <t-icon name="location" size="32rpx" color="#0E3DA8" />
         <input
           class="ck-loc-input"
           value="{{ckPosition}}"
@@ -1073,10 +1073,10 @@
       <view class="ck-loc-sub" wx:if="{{ckLocSub}}">{{ckLocSub}}</view>
       <view class="ck-loc-acts">
         <view class="ck-mini" hover-class="hover-opacity" bindtap="onCkRelocate">
-          <t-icon name="refresh" size="24rpx" color="#1D4ED8" />重新定位
+          <t-icon name="refresh" size="24rpx" color="#0E3DA8" />重新定位
         </view>
         <view class="ck-mini" hover-class="hover-opacity" bindtap="onCkOpenTower">
-          <t-icon name="location" size="24rpx" color="#1D4ED8" />选择杆塔带入坐标
+          <t-icon name="location" size="24rpx" color="#0E3DA8" />选择杆塔带入坐标
         </view>
       </view>
     </view>
@@ -1175,7 +1175,7 @@
           <text class="sel-fk">电压等级</text>
           <view class="sel-box {{towerOpen === 'level' ? 'open' : ''}}" hover-class="hover-opacity" data-key="level" bindtap="onTowerToggle">
             <text class="{{towerLevel ? '' : 'ph'}}">{{towerLevel || '请选择电压等级'}}</text>
-            <view class="chev {{towerOpen === 'level' ? 'up' : ''}}"><t-icon name="chevron-down" size="28rpx" color="#A89F8A" /></view>
+            <view class="chev {{towerOpen === 'level' ? 'up' : ''}}"><t-icon name="chevron-down" size="28rpx" color="#86909C" /></view>
           </view>
         </view>
         <scroll-view scroll-y class="opt-list {{towerOpen === 'level' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
@@ -1188,7 +1188,7 @@
             bindtap="onPickLevel"
           >
             <text>{{item}}</text>
-            <t-icon wx:if="{{towerLevel === item}}" name="check" size="28rpx" color="#1D4ED8" />
+            <t-icon wx:if="{{towerLevel === item}}" name="check" size="28rpx" color="#0E3DA8" />
           </view>
         </scroll-view>
         <!-- 线路名称（未选电压等级时禁用；支持输入关键字筛选后再下拉选择） -->
@@ -1209,7 +1209,7 @@
               placeholder-class="ph"
               maxlength="32"
             />
-            <view class="chev {{towerOpen === 'line' ? 'up' : ''}}" data-key="line" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLevel ? '#A89F8A' : '#D9CFBA'}}" /></view>
+            <view class="chev {{towerOpen === 'line' ? 'up' : ''}}" data-key="line" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLevel ? '#86909C' : '#E5E6EB'}}" /></view>
           </view>
         </view>
         <scroll-view scroll-y class="opt-list {{towerOpen === 'line' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
@@ -1222,7 +1222,7 @@
             bindtap="onPickLine"
           >
             <text>{{item}}</text>
-            <t-icon wx:if="{{towerLine === item}}" name="check" size="28rpx" color="#1D4ED8" />
+            <t-icon wx:if="{{towerLine === item}}" name="check" size="28rpx" color="#0E3DA8" />
           </view>
         </scroll-view>
         <!-- 杆塔号（未选线路名称时禁用；支持输入关键字筛选后再下拉选择） -->
@@ -1243,7 +1243,7 @@
               placeholder-class="ph"
               maxlength="32"
             />
-            <view class="chev {{towerOpen === 'tower' ? 'up' : ''}}" data-key="tower" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLine ? '#A89F8A' : '#D9CFBA'}}" /></view>
+            <view class="chev {{towerOpen === 'tower' ? 'up' : ''}}" data-key="tower" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLine ? '#86909C' : '#E5E6EB'}}" /></view>
           </view>
         </view>
         <scroll-view scroll-y class="opt-list {{towerOpen === 'tower' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
@@ -1256,7 +1256,7 @@
             bindtap="onPickTower"
           >
             <text>{{item.no}}</text>
-            <t-icon wx:if="{{towerTower && towerTower.no === item.no}}" name="check" size="28rpx" color="#1D4ED8" />
+            <t-icon wx:if="{{towerTower && towerTower.no === item.no}}" name="check" size="28rpx" color="#0E3DA8" />
           </view>
         </scroll-view>
         <!-- 三级选齐后坐标预览 -->
@@ -1342,7 +1342,7 @@
 <!-- 批量从商旅同步：全页进度遮罩（本班组批量拉取进行中时任何人进入出工日志均被覆盖，完成后解锁；z-index 压过全部弹层） -->
 <view class="sync-mask" wx:if="{{sgSyncVisible}}">
   <view class="sync-card">
-    <view class="sync-ic"><t-icon name="refresh" size="44rpx" color="#1D4ED8" /></view>
+    <view class="sync-ic"><t-icon name="refresh" size="44rpx" color="#0E3DA8" /></view>
     <view class="sync-t">正在从商旅同步</view>
     <view class="sync-bar"><view class="sync-fill" style="width: {{sgSyncPct}}%"></view></view>
     <view class="sync-p">{{sgSyncPct}}% · 同步完成前出工日志暂不可操作</view>

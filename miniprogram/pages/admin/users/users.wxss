@@ -7,7 +7,7 @@
 /* 关键词搜索框 */
 .search-field {
   background: #FFFFFF;
-  border-radius: 0;
+  border-radius: 12rpx;
   padding: 0 20rpx;
   margin-bottom: 20rpx;
 }
@@ -31,8 +31,8 @@
 .u-avatar {
   width: 80rpx;
   height: 80rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   color: #FFFFFF;
   font-size: 36rpx;
   font-weight: 600;
@@ -43,7 +43,7 @@
 }
 
 .u-avatar-off {
-  background: #C4BBA6;
+  background: #E5E6EB;
 }
 
 .u-main {
@@ -55,7 +55,7 @@
 .u-name {
   font-size: 28rpx;
   font-weight: 500;
-  color: #111111;
+  color: #1D2129;
   display: flex;
   align-items: center;
   gap: 12rpx;
@@ -64,13 +64,13 @@
 .u-sub {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 /* 角色徽章（超管=墨底 / 班组管理员=蓝描边 / 普通用户=灰底） */
 .role {
   flex: none;
-  border-radius: 0;
+  border-radius: 12rpx;
   padding: 2rpx 14rpx;
   font-size: 20rpx;
   font-weight: 600;
@@ -78,24 +78,24 @@
 }
 
 .role-admin {
-  background: #111111;
+  background: #0E3DA8;
   color: #FFFFFF;
 }
 
 .role-team_admin {
-  border: 1rpx solid #1D4ED8;
-  color: #1D4ED8;
+  border: 1rpx solid #0E3DA8;
+  color: #0E3DA8;
 }
 
 .role-user {
-  background: #EDF2FE;
-  color: #5C5748;
+  background: #E8F0FF;
+  color: #4E5969;
 }
 
 .hint {
   margin-top: 24rpx;
   text-align: center;
-  color: #C4BBA6;
+  color: #E5E6EB;
   font-size: 22rpx;
 }
 
@@ -107,14 +107,14 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #F8F6F1;
+  background: #F5F7FA;
 }
 
 /* ---------- 新建 / 编辑员工弹层（直角 + 顶部墨线；.sh-head/.sh-title/.sh-sub/.sh-close/.f-label/.f-field/.sh-note/.btn-disabled 已上移 app.wxss 共用） ---------- */
 .sheet {
   background: #FFFFFF;
-  border-radius: 0;
-  border-top: 4rpx solid #111111;
+  border-radius: 12rpx;
+  border-top: 2rpx solid #E5E6EB;
   padding: 28rpx 32rpx 48rpx;
   max-height: 78vh;
   display: flex;
@@ -135,22 +135,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #F8F6F1;
-  border-radius: 0;
+  background: #F5F7FA;
+  border-radius: 12rpx;
   padding: 20rpx 16rpx;
   font-size: 26rpx;
-  color: #111111;
+  color: #1D2129;
 }
 
 .f-in-ph {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .team-opts {
   margin-top: 10rpx;
   background: #FFFFFF;
-  border: 1rpx solid #E7E1D2;
-  border-radius: 0;
+  border: 1rpx solid #E5E6EB;
+  border-radius: 12rpx;
   overflow: hidden;
 }
 
@@ -160,15 +160,15 @@
   justify-content: space-between;
   padding: 18rpx 20rpx;
   font-size: 26rpx;
-  color: #111111;
+  color: #1D2129;
 }
 
 .opt + .opt {
-  border-top: 1rpx solid #E7E1D2;
+  border-top: 1rpx solid #E5E6EB;
 }
 
 .opt-on {
-  color: #1D4ED8;
+  color: #0E3DA8;
   font-weight: 600;
 }
 
@@ -186,18 +186,18 @@
   flex: 1;
   text-align: center;
   padding: 16rpx 0;
-  border-radius: 0;
-  border: 1rpx solid #E7E1D2;
+  border-radius: 12rpx;
+  border: 1rpx solid #E5E6EB;
   background: #FFFFFF;
   font-size: 23rpx;
   font-weight: 600;
-  color: #5C5748;
+  color: #4E5969;
 }
 
 .sg-on {
-  border-color: #1D4ED8;
-  color: #1D4ED8;
-  background: #EDF2FE;
+  border-color: #0E3DA8;
+  color: #0E3DA8;
+  background: #E8F0FF;
 }
 
 .f-row {
@@ -209,7 +209,7 @@
 .fr-lab {
   font-size: 26rpx;
   font-weight: 600;
-  color: #111111;
+  color: #1D2129;
 }
 
 .sh-foot {
@@ -221,19 +221,19 @@
 
 .sum {
   font-size: 22rpx;
-  color: #5C5748;
+  color: #4E5969;
 }
 
 .pwd-link {
   font-size: 24rpx;
-  color: #5C5748;
+  color: #4E5969;
 }
 
 .btn-primary {
   flex: 1;
   height: 88rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   color: #FFFFFF;
   font-size: 30rpx;
   font-weight: 700;

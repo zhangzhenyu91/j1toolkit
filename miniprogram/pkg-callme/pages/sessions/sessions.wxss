@@ -1,6 +1,6 @@
 .tip-bar {
   margin-bottom: 24rpx;
-  color: #5C5748;
+  color: #4E5969;
   font-size: 24rpx;
   text-align: center;
 }
@@ -16,8 +16,8 @@
 .s-icon {
   width: 72rpx;
   height: 72rpx;
-  border-radius: 0;
-  background: #EDF2FE;
+  border-radius: 12rpx;
+  background: #E8F0FF;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -32,7 +32,7 @@
 
 .s-title {
   font-size: 28rpx;
-  color: #111111;
+  color: #1D2129;
   font-weight: 500;
   overflow: hidden;
   white-space: nowrap;
@@ -42,7 +42,7 @@
 .s-time {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .list-card {
@@ -65,11 +65,11 @@
 }
 
 .s-rename {
-  background: #111111;
+  background: #0E3DA8;
 }
 
 .s-delete {
-  background: #D22730;
+  background: #F53F3F;
 }
 
 /* 新建对话按钮（固定底部） */
@@ -80,5 +80,5 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #F8F6F1;
+  background: #F5F7FA;
 }

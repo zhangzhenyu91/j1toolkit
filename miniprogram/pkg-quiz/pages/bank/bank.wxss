@@ -7,7 +7,7 @@
 
 .bank-card .nm {
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 12rpx;
@@ -17,7 +17,7 @@
 .bank-card .desc {
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #5c5748;
+  color: #4E5969;
   line-height: 1.7;
 }
 
@@ -25,7 +25,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -33,13 +33,13 @@
 }
 
 .tag-orange {
-  background: #edf2fe;
-  color: #1d4ed8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .tag-navy {
-  background: #edf2fe;
-  color: #111111;
+  background: #E8F0FF;
+  color: #1D2129;
 }
 
 /* 三格统计（正确率蓝色；格间发丝分隔线） */
@@ -61,26 +61,26 @@
   top: 12rpx;
   bottom: 12rpx;
   width: 2rpx;
-  background: #e7e1d2;
+  background: #E5E6EB;
 }
 
 .stat-row b {
   display: block;
   font-size: 38rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 1rpx;
 }
 
 .stat-row b em {
   font-style: normal;
-  color: #1d4ed8;
+  color: #0E3DA8;
 }
 
 .stat-row span {
   display: block;
   margin-top: 6rpx;
   font-size: 21rpx;
-  color: #5c5748;
+  color: #4E5969;
   letter-spacing: 2rpx;
 }
 
@@ -94,21 +94,21 @@
 .pg .progress {
   flex: 1;
   height: 12rpx;
-  border-radius: 0;
-  background: #efe9da;
+  border-radius: 12rpx;
+  background: #F7F8FA;
   overflow: hidden;
 }
 
 .progress-in {
   height: 100%;
-  border-radius: 0;
-  background: #1d4ed8;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   transition: width 0.3s ease;
 }
 
 .pg > span {
   font-size: 20rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   white-space: nowrap;
 }
 
@@ -118,7 +118,7 @@
   align-items: center;
   gap: 8rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 /* ---------- 练习入口宫格（2×2 白卡） ---------- */
@@ -133,9 +133,9 @@
   width: calc(50% - 10rpx);
   box-sizing: border-box;
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
-  box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.14); /* 次卡：墨色浅硬影 */
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06); /* 次卡：墨色浅硬影 */
   padding: 28rpx;
   display: flex;
   flex-direction: column;
@@ -148,20 +148,20 @@
 .icon-box {
   width: 84rpx;
   height: 84rpx;
-  border-radius: 0;
-  background: #edf2fe;
+  border-radius: 12rpx;
+  background: #E8F0FF;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .icon-box.red {
-  background: #fae9e9;
+  background: #FFECE8;
 }
 
 .g-item b {
   font-size: 28rpx;
-  font-weight: 800;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 10rpx;
@@ -169,7 +169,7 @@
 
 .g-item p {
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
 }
 
 /* 错题/收藏计数小圆标（跟着题库走） */
@@ -178,9 +178,9 @@
   height: 36rpx;
   box-sizing: border-box;
   padding: 0 10rpx;
-  border-radius: 0;
-  background: #edf2fe;
-  color: #1d4ed8;
+  border-radius: 12rpx;
+  background: #E8F0FF;
+  color: #0E3DA8;
   font-size: 20rpx;
   font-weight: 700;
   display: inline-flex;
@@ -189,8 +189,8 @@
 }
 
 .cnt.red {
-  background: #fae9e9;
-  color: #d22730;
+  background: #FFECE8;
+  color: #F53F3F;
 }
 
 /* ---------- 移出题库（危险操作红色文字按钮，居中） ---------- */
@@ -207,18 +207,18 @@
   padding: 14rpx 32rpx;
   font-size: 26rpx;
   font-weight: 600;
-  color: #d22730;
+  color: #F53F3F;
   letter-spacing: 2rpx;
 }
 
 /* ---------- 空态/加载（同 index 页 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(17,17,17,.35);
-  border-radius: 0;
+  border: 3rpx dashed rgba(29,33,41,.35);
+  border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }

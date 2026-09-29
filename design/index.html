@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  政企蓝白 Enterprise Blue —— 设计稿展厅总览
+  新基准 4 份：小程序首页 / 小程序出工日志 / Web 首页 / Web 出工日志
+  配套文档：设计规范.md
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>政企蓝白 · 设计稿展厅 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#0E3DA8; --navy:#0A3592; --blue-bg:#E8F0FF;
+    --green:#00B42A; --orange:#FF7D00; --red:#F53F3F;
+    --bg:#F5F7FA; --card:#FFFFFF;
+    --text:#1D2129; --t2:#4E5969; --t3:#86909C; --line:#E5E6EB;
+    --shadow:0 2px 8px rgba(0,0,0,.04);
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  body {
+    background:var(--bg);
+    font-family:"Helvetica Neue",Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text); padding:64px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .head { text-align:center; max-width:720px; margin:0 auto 48px; }
+  .head .kicker { font-size:11px; font-weight:700; letter-spacing:4px; color:var(--t3); }
+  .head h1 { margin-top:12px; font-size:34px; font-weight:700; letter-spacing:1px; }
+  .head h1 em { font-style:normal; color:var(--blue); }
+  .head p { margin-top:14px; font-size:13.5px; line-height:1.9; color:var(--t2); }
+  .palette { margin-top:22px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+  .palette .sw { display:inline-flex; align-items:center; gap:8px; padding:6px 13px 6px 8px;
+                 background:#fff; border:1px solid var(--line); border-radius:999px;
+                 font-size:11px; font-weight:600; color:var(--t2); }
+  .palette .sw i { width:13px; height:13px; border-radius:4px; }
+
+  .grid { max-width:1080px; margin:0 auto; display:grid;
+          grid-template-columns:repeat(2,1fr); gap:20px; }
+  .card { background:var(--card); border-radius:12px; box-shadow:var(--shadow);
+          padding:24px 24px 0; cursor:pointer; display:flex; flex-direction:column;
+          text-decoration:none; color:inherit;
+          transition:transform .15s var(--ease), box-shadow .15s var(--ease); }
+  .card:hover { transform:translateY(-2px); box-shadow:0 8px 20px rgba(0,0,0,.08); }
+  .card .no { font-size:11px; font-weight:700; letter-spacing:2px; color:var(--t3);
+              font-variant-numeric:tabular-nums; }
+  .card h2 { margin-top:8px; font-size:19px; font-weight:700; }
+  .card p { margin-top:8px; font-size:12.5px; line-height:1.8; color:var(--t2);
+            min-height:44px; }
+  .card .ft { margin-top:14px; border-top:1px solid var(--line); padding:12px 0 14px;
+              display:flex; align-items:center; font-size:12.5px; font-weight:600;
+              color:var(--blue); }
+  .card .ft svg { margin-left:auto; width:15px; height:15px; transition:transform .15s; }
+  .card:hover .ft svg { transform:translateX(3px); }
+  .tagrow { margin-top:10px; display:flex; gap:6px; flex-wrap:wrap; }
+  .mini { font-size:10.5px; font-weight:600; color:var(--blue); background:var(--blue-bg);
+          border-radius:4px; padding:2px 7px; }
+
+  .doc { max-width:1080px; margin:20px auto 0; background:var(--navy); color:#fff;
+         border-radius:12px; padding:20px 24px; display:flex; align-items:center; gap:14px;
+         text-decoration:none; }
+  .doc b { font-size:14.5px; }
+  .doc span { font-size:12px; color:rgba(255,255,255,.72); }
+  .doc svg { margin-left:auto; width:16px; height:16px; }
+
+  .foot { margin-top:40px; text-align:center; font-size:11px; letter-spacing:2px;
+          color:var(--t3); }
+
+  @media (max-width: 760px) { .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<header class="head">
+  <div class="kicker">SHADE YIXIA · UI BASELINE 2026</div>
+  <h1>政企蓝白 · <em>设计稿展厅</em></h1>
+  <p>专业、克制、高效的班组现场作业工具风格：深蓝页首、白色轻卡片、三级文字层级、
+     全端统一的状态色。以下 4 份为新基准稿，取代原「包豪斯几何」全部旧稿。</p>
+  <div class="palette">
+    <span class="sw"><i style="background:#0E3DA8"></i>品牌蓝 #0E3DA8</span>
+    <span class="sw"><i style="background:#0A3592"></i>深蓝 #0A3592</span>
+    <span class="sw"><i style="background:#E8F0FF"></i>浅蓝底 #E8F0FF</span>
+    <span class="sw"><i style="background:#00B42A"></i>成功 #00B42A</span>
+    <span class="sw"><i style="background:#FF7D00"></i>警告 #FF7D00</span>
+    <span class="sw"><i style="background:#F53F3F"></i>危险 #F53F3F</span>
+    <span class="sw"><i style="background:#F5F7FA"></i>页面底 #F5F7FA</span>
+  </div>
+</header>
+
+<div class="grid">
+  <a class="card" href="./小程序-首页.html">
+    <span class="no">01 · MINIPROGRAM</span>
+    <h2>小程序首页</h2>
+    <p>深蓝页首（标题 + 问候）→ 数据概览浮层卡（今日出工 / 待核验 / 未读通知 / 本月日志）→ 应用宫格 → 消息通知。</p>
+    <div class="tagrow"><span class="mini">深蓝页首</span><span class="mini">数据浮层</span><span class="mini">宫格入口</span></div>
+    <div class="ft">查看设计稿
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+    </div>
+  </a>
+  <a class="card" href="./小程序-出工日志.html">
+    <span class="no">02 · MINIPROGRAM</span>
+    <h2>小程序出工日志</h2>
+    <p>白导航 + 班组/分段工具行 + 日期条；日志卡含车牌锚点、状态标签、商旅打卡块、照片签、备注橙条与底栏操作。</p>
+    <div class="tagrow"><span class="mini">状态标签</span><span class="mini">商旅打卡</span><span class="mini">FAB</span></div>
+    <div class="ft">查看设计稿
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+    </div>
+  </a>
+  <a class="card" href="./Web-首页.html">
+    <span class="no">03 · WEB</span>
+    <h2>Web 首页（工作台）</h2>
+    <p>白顶栏 + 欢迎卡左文右数（与小程序同口径指标）+ 消息列表 + 应用卡矩阵 + 外部应用 + 浅蓝安全提示条。</p>
+    <div class="tagrow"><span class="mini">版心 1180</span><span class="mini">应用卡</span><span class="mini">同口径指标</span></div>
+    <div class="ft">查看设计稿
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+    </div>
+  </a>
+  <a class="card" href="./Web-出工日志.html">
+    <span class="no">04 · WEB</span>
+    <h2>Web 出工日志</h2>
+    <p>页头 → 工具条 → 页签 → 左月历右卡片流；月历色点图例与照片状态签同小程序端完全一致。</p>
+    <div class="tagrow"><span class="mini">月历色点</span><span class="mini">卡片流</span><span class="mini">页签</span></div>
+    <div class="ft">查看设计稿
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+    </div>
+  </a>
+</div>
+
+<a class="doc" href="./设计规范.md">
+  <div>
+    <b>设计规范.md</b><br>
+    <span>色彩 token / 字体层级 / 圆角阴影间距 / 组件规范 / 动效 / 落地映射 / 禁止项</span>
+  </div>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></svg>
+</a>
+
+<div class="foot">SHADE 壹匣 · 政企蓝白 ENTERPRISE BLUE · 2026</div>
+
+</body>
+</html>

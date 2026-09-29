@@ -34,7 +34,7 @@
       block
       size="large"
       loading="{{loading}}"
-      custom-style="background: #111111; color: #FFFFFF; border: none; border-radius: 0; font-weight: 600; letter-spacing: 8rpx;"
+      custom-style="background: #1D2129; color: #FFFFFF; border: none; border-radius: 0; font-weight: 600; letter-spacing: 8rpx;"
       bind:tap="onAccountLogin"
     >登 录</t-button>
 
@@ -48,7 +48,7 @@
       block
       size="large"
       variant="outline"
-      custom-style="background: #FFFFFF; border: 1rpx solid #E7E1D2; color: #111111; border-radius: 0;"
+      custom-style="background: #FFFFFF; border: 1rpx solid #E5E6EB; color: #1D2129; border-radius: 0;"
       bind:tap="onWxLogin"
     >
       <view class="wx-inner">

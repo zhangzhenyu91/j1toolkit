@@ -13,17 +13,17 @@
   align-items: center;
   gap: 12rpx;
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 12rpx 28rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #111111;
-  box-shadow: 6rpx 6rpx 0 #111111;
+  color: #1D2129;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .ts-cur .arr {
-  color: #1d4ed8;
+  color: #0E3DA8;
   font-size: 18rpx;
 }
 
@@ -45,9 +45,9 @@
   left: 0;
   z-index: 21;
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
-  box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.9);
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   padding: 12rpx;
   min-width: 300rpx;
   max-width: 600rpx; /* 上限兜底：超长班组名由 .ts-opt 内文案省略，浮层不撑出屏外 */
@@ -59,7 +59,7 @@
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 24rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   font-size: 25rpx;
   font-weight: 600;
 }
@@ -75,8 +75,8 @@
 }
 
 .ts-opt.on {
-  background: #edf2fe;
-  color: #1d4ed8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .ts-opt .ck {
@@ -117,8 +117,8 @@
 .team-empty .te-ic {
   width: 128rpx;
   height: 128rpx;
-  border-radius: 0;
-  background: #edf2fe;
+  border-radius: 12rpx;
+  background: #E8F0FF;
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -127,13 +127,13 @@
 
 .team-empty .te-t {
   font-size: 30rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 2rpx;
 }
 
 .team-empty .te-p {
   font-size: 23rpx;
-  color: #5c5748;
+  color: #4E5969;
   line-height: 1.8;
   text-align: center;
 }
@@ -157,26 +157,26 @@
   top: 16rpx;
   bottom: 16rpx;
   width: 2rpx;
-  background: #e7e1d2;
+  background: #E5E6EB;
 }
 
 .stat-card b {
   display: block;
   font-size: 40rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 1rpx;
 }
 
 .stat-card b em {
   font-style: normal;
-  color: #1d4ed8;
+  color: #0E3DA8;
 }
 
 .stat-card span {
   display: block;
   margin-top: 8rpx;
   font-size: 21rpx;
-  color: #5c5748;
+  color: #4E5969;
   letter-spacing: 2rpx;
 }
 
@@ -185,8 +185,8 @@
   width: 84rpx;
   height: 84rpx;
   flex: none;
-  border-radius: 0;
-  background: #edf2fe;
+  border-radius: 12rpx;
+  background: #E8F0FF;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -194,22 +194,22 @@
 
 .progress {
   height: 12rpx;
-  border-radius: 0;
-  background: #efe9da;
+  border-radius: 12rpx;
+  background: #F7F8FA;
   overflow: hidden;
 }
 
 .progress-in {
   height: 100%;
-  border-radius: 0;
-  background: #1d4ed8;
+  border-radius: 12rpx;
+  background: #0E3DA8;
 }
 
 .tag {
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -217,8 +217,8 @@
 }
 
 .tag-navy {
-  background: #edf2fe;
-  color: #111111;
+  background: #E8F0FF;
+  color: #1D2129;
 }
 
 /* ---------- 「我的题库」板块行（右侧管理入口） ---------- */
@@ -235,7 +235,7 @@
   align-items: center;
   gap: 4rpx;
   font-size: 23rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 /* ---------- 题库卡（屏 01 .bank-item） ---------- */
@@ -259,7 +259,7 @@
 
 .bank-item .tx b {
   font-size: 28rpx;
-  font-weight: 800;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 12rpx;
@@ -268,7 +268,7 @@
 .bank-item .meta {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
   display: flex;
   gap: 20rpx;
 }
@@ -286,7 +286,7 @@
 
 .bank-item .pg span {
   font-size: 20rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   white-space: nowrap;
 }
 
@@ -306,18 +306,18 @@
 
 .pool-entry .tx b {
   font-size: 28rpx;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(17,17,17,.35);
-  border-radius: 0;
+  border: 3rpx dashed rgba(29,33,41,.35);
+  border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 
@@ -333,13 +333,13 @@
   bottom: 0;
   z-index: 15;
   padding: 20rpx 28rpx calc(28rpx + env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(244, 241, 234, 0), #f8f6f1 30%);
+  background: linear-gradient(180deg, rgba(244, 241, 234, 0), #F5F7FA 30%);
 }
 
 .btn-navy {
   height: 92rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -348,5 +348,5 @@
   font-size: 29rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
-  box-shadow: 6rpx 6rpx 0 #1d4ed8;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }

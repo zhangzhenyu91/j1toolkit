@@ -7,111 +7,111 @@
  * !important，可压住 JS 注入的内联主题规则），不改任何 JS。
  *
  * 色板与 j1toolkit 定稿 token 同源（AGENTS.md 第四节 · 方案十二「包豪斯几何」）：
- *   纸底 #F8F6F1 / 墨 #111111 / 品牌蓝 #1D4ED8（主交互）/
- *   红 #D22730（激活点缀 + 危险）/ 黄 #F2B705（信号）/ 成功绿 #1E9E50
+ *   纸底 #F5F7FA / 墨 #1D2129 / 品牌蓝 #0E3DA8（主交互）/
+ *   红 #F53F3F（激活点缀 + 危险）/ 黄 #FF7D00（信号）/ 成功绿 #00B42A
  * ========================================================== */
 
 /* ---------- 浅色主题（theme-base） ---------- */
 html[data-theme="theme-base"] {
-    /* 品牌主色：包豪斯品牌蓝 */
-    --gl-color-brand-primary: #1D4ED8 !important;
-    --gl-color-brand-hover: #3B6BE8 !important;
-    --gl-color-brand-active: #1740B8 !important;
-    --gl-color-brand-disabled: #B9C7F5 !important;
-    --gl-color-brand-background: #EDF2FE !important;
-    --primary: #1D4ED8 !important;
-    --primary-hover: #3B6BE8 !important;
-    --primary-active: #1740B8 !important;
-    --disabled: #B9C7F5 !important;
-    --primary-bg: #EDF2FE !important;
+    /* 品牌主色：政企蓝白品牌蓝 */
+    --gl-color-brand-primary: #0E3DA8 !important;
+    --gl-color-brand-hover: #3D5FC0 !important;
+    --gl-color-brand-active: #0A3592 !important;
+    --gl-color-brand-disabled: #B9CBEF !important;
+    --gl-color-brand-background: #E8F0FF !important;
+    --primary: #0E3DA8 !important;
+    --primary-hover: #3D5FC0 !important;
+    --primary-active: #0A3592 !important;
+    --disabled: #B9CBEF !important;
+    --primary-bg: #E8F0FF !important;
 
     /* 错误红：与壹匣危险操作色一致（包豪斯红） */
-    --gl-color-error-primary: #D22730 !important;
-    --gl-color-error-background: #FBE7E8 !important;
+    --gl-color-error-primary: #F53F3F !important;
+    --gl-color-error-background: #FFECE8 !important;
     --gl-color-error-hover: #E46067 !important;
     --gl-color-error-active: #A81E26 !important;
     --gl-color-error-disabled: #EDB6BA !important;
-    --error: #D22730 !important;
-    --error-bg: #FBE7E8 !important;
+    --error: #F53F3F !important;
+    --error-bg: #FFECE8 !important;
     --error-hover: #E46067 !important;
     --error-active: #A81E26 !important;
     --error-disabled: #EDB6BA !important;
 
     /* 警示 / 成功：对齐壹匣 token */
-    --gl-color-warning-primary: #F2B705 !important;
-    --gl-color-warning-background: #FCEFC8 !important;
-    --warning: #F2B705 !important;
-    --warning-bg: #FCEFC8 !important;
-    --gl-color-success-primary: #1E9E50 !important;
-    --gl-color-success-background: #EAF5EF !important;
-    --success: #1E9E50 !important;
-    --success-bg: #EAF5EF !important;
+    --gl-color-warning-primary: #FF7D00 !important;
+    --gl-color-warning-background: #FFF7E8 !important;
+    --warning: #FF7D00 !important;
+    --warning-bg: #FFF7E8 !important;
+    --gl-color-success-primary: #00B42A !important;
+    --gl-color-success-background: #E8FFEA !important;
+    --success: #00B42A !important;
+    --success-bg: #E8FFEA !important;
 
     /* 文字：墨主文字 / 暖灰次级 / 弱化占位 */
-    --gl-color-text-level1: #111111 !important;
-    --gl-color-text-level2: #5C5748 !important;
-    --gl-color-text-level3: rgba(17, 17, 17, .4) !important;
-    --gl-color-text-disabled: rgba(17, 17, 17, .3) !important;
-    --text1: #111111 !important;
-    --text2: #5C5748 !important;
-    --text3: rgba(17, 17, 17, .4) !important;
-    --text-disabled: rgba(17, 17, 17, .3) !important;
+    --gl-color-text-level1: #1D2129 !important;
+    --gl-color-text-level2: #4E5969 !important;
+    --gl-color-text-level3: rgba(29, 33, 41, .4) !important;
+    --gl-color-text-disabled: rgba(29, 33, 41, .3) !important;
+    --text1: #1D2129 !important;
+    --text2: #4E5969 !important;
+    --text3: rgba(29, 33, 41, .4) !important;
+    --text-disabled: rgba(29, 33, 41, .3) !important;
 
     /* 背景：纸底 + 白卡 */
-    --gl-color-bg-page: #F8F6F1 !important;
+    --gl-color-bg-page: #F5F7FA !important;
     --gl-color-bg-sidebar: #FFFFFF !important;
     --gl-color-bg-surface1: #FFFFFF !important;
-    --gl-color-bg-surface2: #F3F1EA !important;
-    --gl-color-bg-container1: #F8F6F1 !important;
-    --gl-color-bg-container2: #E7E3D8 !important;
-    --bg-page: #F8F6F1 !important;
+    --gl-color-bg-surface2: #F7F8FA !important;
+    --gl-color-bg-container1: #F5F7FA !important;
+    --gl-color-bg-container2: #E5E6EB !important;
+    --bg-page: #F5F7FA !important;
     --bg-sidebar: #FFFFFF !important;
     --surface1: #FFFFFF !important;
-    --surface2: #F3F1EA !important;
-    --container1: #F8F6F1 !important;
-    --container2: #E7E3D8 !important;
+    --surface2: #F7F8FA !important;
+    --container1: #F5F7FA !important;
+    --container2: #E5E6EB !important;
 
     /* 描边 / 分隔线：墨色发丝线 */
-    --gl-color-line-border1: rgba(17, 17, 17, .14) !important;
-    --gl-color-line-border2: rgba(17, 17, 17, .08) !important;
-    --gl-color-line-divider1: rgba(17, 17, 17, .08) !important;
-    --gl-color-line-divider2: rgba(17, 17, 17, .14) !important;
-    --gl-color-light-line-border3: rgba(17, 17, 17, .14) !important;
-    --border1: rgba(17, 17, 17, .14) !important;
-    --border2: rgba(17, 17, 17, .08) !important;
-    --divider1: rgba(17, 17, 17, .08) !important;
-    --divider2: rgba(17, 17, 17, .14) !important;
+    --gl-color-line-border1: rgba(29, 33, 41, .14) !important;
+    --gl-color-line-border2: rgba(29, 33, 41, .08) !important;
+    --gl-color-line-divider1: rgba(29, 33, 41, .08) !important;
+    --gl-color-line-divider2: rgba(29, 33, 41, .14) !important;
+    --gl-color-light-line-border3: rgba(29, 33, 41, .14) !important;
+    --border1: rgba(29, 33, 41, .14) !important;
+    --border2: rgba(29, 33, 41, .08) !important;
+    --divider1: rgba(29, 33, 41, .08) !important;
+    --divider2: rgba(29, 33, 41, .14) !important;
 
     /* 悬浮 / 选中：品牌蓝半透明 */
-    --gl-color-bg-item-hover: rgba(29, 78, 216, .08) !important;
-    --gl-color-bg-item-active: rgba(29, 78, 216, .16) !important;
-    --gl-color-bg-icon-button-hover: rgba(29, 78, 216, .10) !important;
-    --gl-color-bg-icon-button-active: rgba(29, 78, 216, .18) !important;
-    --item-hover: rgba(29, 78, 216, .08) !important;
-    --item-active: rgba(29, 78, 216, .16) !important;
-    --icon-button-hover: rgba(29, 78, 216, .10) !important;
-    --icon-button-active: rgba(29, 78, 216, .18) !important;
+    --gl-color-bg-item-hover: rgba(14, 61, 168, .08) !important;
+    --gl-color-bg-item-active: rgba(14, 61, 168, .16) !important;
+    --gl-color-bg-icon-button-hover: rgba(14, 61, 168, .10) !important;
+    --gl-color-bg-icon-button-active: rgba(14, 61, 168, .18) !important;
+    --item-hover: rgba(14, 61, 168, .08) !important;
+    --item-active: rgba(14, 61, 168, .16) !important;
+    --icon-button-hover: rgba(14, 61, 168, .10) !important;
+    --icon-button-active: rgba(14, 61, 168, .18) !important;
 }
 
 /* ---------- 深色主题（theme-dark）：保留深色底，仅换品牌色 ---------- */
 html[data-theme="theme-dark"] {
     --gl-color-brand-primary: #4D7CF0 !important;
     --gl-color-brand-hover: #6B92F4 !important;
-    --gl-color-brand-active: #3B6BE8 !important;
+    --gl-color-brand-active: #3D5FC0 !important;
     --gl-color-brand-disabled: #33427A !important;
     --gl-color-brand-background: #16233F !important;
     --primary: #4D7CF0 !important;
     --primary-hover: #6B92F4 !important;
-    --primary-active: #3B6BE8 !important;
+    --primary-active: #3D5FC0 !important;
     --disabled: #33427A !important;
     --primary-bg: #16233F !important;
 
-    --gl-color-error-primary: #D22730 !important;
+    --gl-color-error-primary: #F53F3F !important;
     --gl-color-error-background: #3A2426 !important;
-    --error: #D22730 !important;
+    --error: #F53F3F !important;
     --error-bg: #3A2426 !important;
-    --gl-color-success-primary: #1E9E50 !important;
+    --gl-color-success-primary: #00B42A !important;
     --gl-color-success-background: #1E2E26 !important;
-    --success: #1E9E50 !important;
+    --success: #00B42A !important;
     --success-bg: #1E2E26 !important;
 }

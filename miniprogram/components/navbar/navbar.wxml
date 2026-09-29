@@ -1,7 +1,7 @@
 <!-- 自定义导航栏（navigationStyle: custom 下使用）
      注意：右上角为微信胶囊按钮区域，禁止在此放置任何可点击内容，故不提供右侧插槽
-     包豪斯签名装饰：标题左侧红圆点 + 右侧蓝半圆（几何形滚入/滑入后静止） -->
-<view class="nav-wrap" style="background: {{bg}}; padding-top: {{statusBarHeight}}px;">
+     「政企蓝白」：白/浅底页带 1rpx 发丝底线；深色页首（frontColor=#ffffff）取消底线 -->
+<view class="nav-wrap {{isDark ? 'nav-dark' : ''}}" style="background: {{bg}}; padding-top: {{statusBarHeight}}px;">
   <view class="nav-row">
     <view class="nav-left" bindtap="onBack">
       <!-- 栈底页（分享进入）显示首页图标，否则按 back 属性显示返回箭头 -->
@@ -9,9 +9,7 @@
       <t-icon wx:elif="{{back}}" name="chevron-left" size="44rpx" color="{{color}}" />
     </view>
     <view class="nav-title" style="color: {{color}};">
-      <view class="nav-dot"></view>
       <text class="nav-title-text">{{title}}</text>
-      <view class="nav-semi"></view>
     </view>
   </view>
 </view>

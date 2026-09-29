@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  新基准 · 政企蓝白 Enterprise Blue —— 小程序首页设计稿（定稿候选）
+  ----------------------------------------------------------------------------
+  主色板：
+    品牌蓝  #0E3DA8（主按钮 / 链接 / 激活态 / 关键数据）
+    深蓝    #0A3592（顶部导航与页头色带，仅用于页首区域）
+    浅蓝底  #E8F0FF（图标底 / 徽章底 / 激活填充）
+    成功绿  #00B42A（验证通过 / 已完成）
+    警告橙  #FF7D00（待处理 / 有备注 / 缺卡提醒）
+    危险红  #F53F3F（未通过 / 删除 / 未读计数）
+    页面底  #F5F7FA ｜ 卡片 #FFFFFF
+    正文    #1D2129 ｜ 次要 #4E5969 ｜ 辅助 #86909C ｜ 边框 #E5E6EB
+  设计要点：
+    1. 深蓝页首 + 白色数据卡负边距浮层：页首承担品牌与问候，数据概览卡
+       半压蓝区下缘，是全套界面唯一的「层叠」手法，其余一律平面卡片；
+    2. 轻卡片、克制阴影：白卡圆角 12px，投影仅 0 2px 8px rgba(0,0,0,.04)，
+       无描边、无渐变、无浮雕；
+    3. 信息层级优先：问候（主）→ 数据（次）→ 入口与消息（操作），
+       字号 20/14/12 三级，颜色 #1D2129 / #4E5969 / #86909C 三级；
+    4. 图标统一 46px 浅蓝底圆角方块 + 1.7px 蓝色线性图标，全端一套画法；
+    5. 动效克制：仅一次编排式上浮入场（时延链），无循环氛围动效，
+       prefers-reduced-motion 下全部关闭。
+  落地注意事项：
+    - 小程序端以 view + wxss 实现，深蓝页首对应自定义 navbar 区域下沉配色；
+    - 状态栏文字在深蓝区用白色（navigationBarTextStyle:white 或自定义栏）；
+    - 数据卡负边距用 margin-top:-36px 即可，无需绝对定位；
+    - 单文件静态稿，零外部资源引用，可离线直接预览。
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>政企蓝白 · 小程序首页 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#0E3DA8; --navy:#0A3592; --blue-bg:#E8F0FF;
+    --green:#00B42A; --orange:#FF7D00; --red:#F53F3F;
+    --bg:#F5F7FA; --card:#FFFFFF;
+    --text:#1D2129; --t2:#4E5969; --t3:#86909C; --line:#E5E6EB;
+    --shadow:0 2px 8px rgba(0,0,0,.04);
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  body {
+    background:#F5F7FA;
+    font-family:"Helvetica Neue",Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text);
+    padding:56px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页首标注区（展厅用，不属于界面） ===== */
+  .page-head { text-align:center; margin-bottom:44px; }
+  .page-head .kicker { font-size:11px; font-weight:700; letter-spacing:4px; color:var(--t3); }
+  .page-head h1 { margin-top:10px; font-size:30px; font-weight:700; letter-spacing:1px; }
+  .page-head h1 em { font-style:normal; color:var(--blue); }
+  .page-head > p { margin-top:12px; font-size:13px; color:var(--t2); letter-spacing:.5px; }
+  .palette { margin-top:20px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+  .palette .sw {
+    display:flex; align-items:center; gap:8px; padding:6px 13px 6px 8px;
+    background:#fff; border:1px solid var(--line); border-radius:999px;
+    font-size:11px; font-weight:600; color:var(--t2);
+  }
+  .palette .sw i { width:13px; height:13px; border-radius:4px; }
+
+  /* ===== 机框 ===== */
+  .stage { display:flex; justify-content:center; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:20px; }
+  .cap { font-size:13px; font-weight:600; letter-spacing:2px; color:var(--t2);
+         display:flex; align-items:center; gap:8px; }
+  .cap i { width:8px; height:8px; border-radius:2px; background:var(--blue); }
+
+  .phone {
+    padding:12px; background:#1B1D21; border-radius:56px;
+    box-shadow:0 30px 64px rgba(29,33,41,.22), 0 8px 20px rgba(29,33,41,.12);
+  }
+  .screen {
+    position:relative; width:375px; height:812px;
+    background:var(--bg); border-radius:44px; overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:118px; height:30px; border-radius:16px; background:#1B1D21; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(29,33,41,.85); z-index:40; }
+
+  /* ===== 深蓝页首 ===== */
+  .navy {
+    flex:none; background:var(--navy); color:#fff;
+    padding:0 16px 64px;   /* 底部预留数据卡浮层空间 */
+  }
+  .sb { height:52px; padding:18px 14px 0; display:flex; justify-content:space-between;
+        align-items:center; font-size:14px; font-weight:600; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+  .nv { height:48px; display:flex; align-items:center; justify-content:space-between; }
+  .nv h1 { font-size:18px; font-weight:600; letter-spacing:1px; }
+  .nv .bell { position:relative; width:34px; height:34px; border-radius:8px;
+              background:rgba(255,255,255,.12);
+              display:flex; align-items:center; justify-content:center; color:#fff; }
+  .nv .bell svg { width:17px; height:17px; }
+  .nv .bell .nd { position:absolute; top:7px; right:8px; width:7px; height:7px;
+                  border-radius:50%; background:var(--red); border:1.5px solid var(--navy); }
+  .greet { margin-top:6px; }
+  .greet h2 { font-size:20px; font-weight:600; letter-spacing:.5px; }
+  .greet p { margin-top:6px; font-size:12px; color:rgba(255,255,255,.72); letter-spacing:.5px; }
+
+  /* ===== 内容区 ===== */
+  /* 注意：不可加 overflow:hidden，否则负边距浮层数据卡顶部会被裁掉 */
+  .body { flex:1; padding:0 12px; display:flex; flex-direction:column; gap:12px; }
+
+  /* 数据概览卡（浮层） */
+  .stats {
+    margin-top:-36px; background:var(--card); border-radius:12px; box-shadow:var(--shadow);
+    display:grid; grid-template-columns:repeat(4,1fr); padding:16px 0;
+  }
+  .stat { text-align:center; }
+  .stat + .stat { border-left:1px solid var(--line); }
+  .stat b { display:block; font-size:22px; font-weight:700; line-height:1.2;
+            font-variant-numeric:tabular-nums; }
+  .stat.warn b { color:var(--orange); }
+  .stat.blue b { color:var(--blue); }
+  .stat span { display:block; margin-top:4px; font-size:11px; color:var(--t3); }
+
+  /* 板块标题 */
+  .sec { display:flex; align-items:baseline; justify-content:space-between; padding:2px 2px 0; }
+  .sec h3 { font-size:15px; font-weight:600; }
+  .sec > span { font-size:11px; color:var(--t3); }
+
+  /* 应用宫格 */
+  .apps { background:var(--card); border-radius:12px; box-shadow:var(--shadow);
+          padding:16px 4px 10px; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); row-gap:16px; }
+  .g { display:flex; flex-direction:column; align-items:center; gap:7px; cursor:pointer; }
+  /* 宫格图标无底块（对齐参考稿：深蓝线性图标直接落于白卡） */
+  .gi { width:46px; height:46px;
+        display:flex; align-items:center; justify-content:center; color:var(--blue);
+        transition:transform .15s var(--ease); }
+  .gi svg { width:27px; height:27px; }
+  .g:active .gi { transform:scale(.94); }
+  .g span { font-size:11px; color:var(--text); letter-spacing:.2px; text-align:center;
+            line-height:1.3; }
+  .g.soon .gi { color:#C9CDD4; }
+  .g.soon span { color:var(--t3); }
+
+  /* 消息通知卡 */
+  .notif { background:var(--card); border-radius:12px; box-shadow:var(--shadow); }
+  .notif header { display:flex; align-items:center; gap:8px; padding:13px 14px 11px; }
+  .notif header .bic { width:26px; height:26px; border-radius:8px; background:var(--blue-bg);
+                       color:var(--blue); display:flex; align-items:center; justify-content:center; }
+  .notif header .bic svg { width:14px; height:14px; }
+  .notif header b { font-size:14px; font-weight:600; }
+  .notif header .unread { margin-left:auto; display:flex; align-items:center; gap:5px;
+                          font-size:11px; color:var(--red); font-weight:600; }
+  .notif header .unread i { width:6px; height:6px; border-radius:50%; background:var(--red); }
+  .n-row { display:flex; align-items:center; gap:8px; margin:0 14px; padding:11px 0;
+           border-top:1px solid var(--line); font-size:13px; }
+  .n-row .ud { width:6px; height:6px; flex:none; border-radius:50%; background:var(--red); }
+  .n-row .ud.read { background:transparent; border:1.5px solid #C9CDD4; }
+  .n-row p { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .n-row span { flex:none; font-size:11px; color:var(--t3); font-variant-numeric:tabular-nums; }
+  .n-foot { display:block; text-align:center; padding:10px 0 12px; border-top:1px solid var(--line);
+            font-size:12px; color:var(--blue); }
+
+  .foot-note { margin-top:auto; padding:4px 0 8px; text-align:center;
+               font-size:10px; color:var(--t3); letter-spacing:1px; }
+
+  /* ===== TabBar ===== */
+  .tabbar { flex:none; height:64px; background:#fff; border-top:1px solid var(--line);
+            display:flex; padding:8px 0 14px; }
+  .tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+         font-size:10px; color:var(--t3); letter-spacing:1px; cursor:pointer; }
+  .tab svg { width:22px; height:22px; }
+  .tab.on { color:var(--blue); font-weight:600; }
+
+  /* ===== 编排式入场（一次，落位静止） ===== */
+  @keyframes rise { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
+  .a { animation:rise .55s var(--ease) both; animation-delay:var(--d,0s); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+  @media (max-width: 520px) { .stage { zoom:.88; } body { padding:36px 8px 64px; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="kicker">SHADE YIXIA · NEW BASELINE</div>
+  <h1>政企蓝白 · <em>小程序首页</em></h1>
+  <p>深蓝页首 + 数据浮层 + 轻卡片宫格 —— 信息层级优先，适合现场高频使用的工具风格。</p>
+  <div class="palette">
+    <span class="sw"><i style="background:#0E3DA8"></i>品牌蓝 #0E3DA8</span>
+    <span class="sw"><i style="background:#0A3592"></i>深蓝 #0A3592</span>
+    <span class="sw"><i style="background:#E8F0FF"></i>浅蓝底 #E8F0FF</span>
+    <span class="sw"><i style="background:#00B42A"></i>成功 #00B42A</span>
+    <span class="sw"><i style="background:#FF7D00"></i>警告 #FF7D00</span>
+    <span class="sw"><i style="background:#F53F3F"></i>危险 #F53F3F</span>
+    <span class="sw"><i style="background:#F5F7FA"></i>页面底 #F5F7FA</span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+
+        <!-- 深蓝页首 -->
+        <div class="navy">
+          <div class="sb">
+            <span>9:41</span>
+            <div class="ic-set">
+              <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+              <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+              <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+          <div class="nv">
+            <h1>Shade 壹匣</h1>
+            <span class="bell">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+              <i class="nd"></i>
+            </span>
+          </div>
+          <div class="greet a" style="--d:.08s">
+            <h2>下午好，张伟</h2>
+            <p>检修一班 · 9 月 29 日 星期二 · 高级技师</p>
+          </div>
+        </div>
+
+        <!-- 内容区 -->
+        <div class="body">
+
+          <!-- 数据概览（浮层卡）：上月通过 / 上月需补 / 本月通过 / 本月需补 -->
+          <section class="stats a" style="--d:.16s">
+            <div class="stat"><b>24/26</b><span>上月通过</span></div>
+            <div class="stat warn"><b>1</b><span>上月需补</span></div>
+            <div class="stat"><b>18/22</b><span>本月通过</span></div>
+            <div class="stat warn"><b>2</b><span>本月需补</span></div>
+          </section>
+
+          <!-- 应用中心 -->
+          <div class="sec a" style="--d:.24s">
+            <h3>应用中心</h3>
+            <span>7 个应用</span>
+          </div>
+          <section class="apps a" style="--d:.3s">
+            <div class="grid">
+              <div class="g">
+                <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.4 7.6L3.5 20.5l1.5-4.3A8.5 8.5 0 1 1 20.5 11.5z"/><path d="M8.5 10.5h7M8.5 13.5h4.5"/></svg></span>
+                <span>Call Me</span>
+              </div>
+              <div class="g">
+                <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 4.5h1.3a2 2 0 0 1 2 2v12.3a2 2 0 0 1-2 2H7.2a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h1.3"/><rect x="8.7" y="2.8" width="6.6" height="3.4" rx="1.2"/><path d="M9 10.8h6M9 14h4"/><path d="M9.2 17.3l1.4 1.4 2.6-2.6"/></svg></span>
+                <span>出工日志</span>
+              </div>
+              <div class="g">
+                <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z"/><path d="M9 11.7l2.2 2.2 3.8-3.9"/></svg></span>
+                <span>安全日活动</span>
+              </div>
+              <div class="g">
+                <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="11.5" rx="2"/><path d="M9.5 20h5M12 16v4"/><path d="M7 9l2.5 2L7 13M11.5 13H14"/></svg></span>
+                <span>远程连接</span>
+              </div>
+              <div class="g">
+                <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3.5L10.6 13.9"/><path d="M21 3.5l-6.8 17-3.6-7.2-3.6.6.6-3.6z"/></svg></span>
+                <span>文件传输</span>
+              </div>
+              <div class="g">
+                <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6c2.6 3 5.4 6.4 5.4 9.4a5.4 5.4 0 1 1-10.8 0C6.6 10 9.4 6.6 12 3.6z"/><path d="M9.6 13.2a2.4 2.4 0 0 0 1.8 2.6"/></svg></span>
+                <span>水印添加</span>
+              </div>
+              <div class="g">
+                <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7c-1.7-1.3-4-1.6-6.7-1.4v12.8c2.7-.2 5 .1 6.7 1.4 1.7-1.3 4-1.6 6.7-1.4V5.6C16 5.4 13.7 5.7 12 7z"/><path d="M12 7v12.8"/></svg></span>
+                <span>题库刷题</span>
+              </div>
+              <div class="g soon">
+                <span class="gi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.3" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.7" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg></span>
+                <span>敬请期待</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- 消息通知 -->
+          <section class="notif a" style="--d:.38s">
+            <header>
+              <span class="bic">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+              </span>
+              <b>消息通知</b>
+              <span class="unread"><i></i>2 条未读</span>
+            </header>
+            <div class="n-row">
+              <i class="ud"></i>
+              <p>国庆保电工作安排</p>
+              <span>09-24 18:02</span>
+            </div>
+            <div class="n-row">
+              <i class="ud"></i>
+              <p>9 月安全日活动记录已生成</p>
+              <span>09-23 10:15</span>
+            </div>
+            <div class="n-row">
+              <i class="ud read"></i>
+              <p>差旅费报销提醒</p>
+              <span>09-21 09:40</span>
+            </div>
+            <span class="n-foot">查看全部</span>
+          </section>
+
+          <p class="foot-note">更多班组应用持续接入中</p>
+        </div>
+
+        <!-- TabBar -->
+        <nav class="tabbar a" style="--d:.46s">
+          <div class="tab on">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.2L12 3.8l7.5 6.4"/><path d="M6.6 8.9V20h10.8V8.9"/><path d="M10.4 20v-5h3.2v5"/></svg>
+            <span>首页</span>
+          </div>
+          <div class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.6 19.6a6.4 6.4 0 0 1 12.8 0"/></svg>
+            <span>我的</span>
+          </div>
+        </nav>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i></i>小程序 · 首页　375 × 812</div>
+  </div>
+</main>
+
+</body>
+</html>

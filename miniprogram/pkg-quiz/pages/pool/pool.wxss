@@ -5,8 +5,8 @@
   width: 84rpx;
   height: 84rpx;
   flex: none;
-  border-radius: 0;
-  background: #edf2fe;
+  border-radius: 12rpx;
+  background: #E8F0FF;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -16,7 +16,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -24,13 +24,13 @@
 }
 
 .tag-navy {
-  background: #edf2fe;
-  color: #111111;
+  background: #E8F0FF;
+  color: #1D2129;
 }
 
 .tag-orange {
-  background: #edf2fe;
-  color: #1d4ed8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 /* ---------- 题库池列表项（范围 tag + 添加/已加入） ---------- */
@@ -54,7 +54,7 @@
 
 .pool-item .tx b {
   font-size: 28rpx;
-  font-weight: 800;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 12rpx;
@@ -63,7 +63,7 @@
 .pool-item .meta {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
   display: flex;
   gap: 20rpx;
 }
@@ -71,9 +71,9 @@
 /* 「添加」蓝描边小按钮 */
 .btn-join {
   height: 56rpx;
-  border-radius: 0;
-  border: 4rpx solid #1d4ed8;
-  color: #1d4ed8;
+  border-radius: 12rpx;
+  border: 4rpx solid #0E3DA8;
+  color: #0E3DA8;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -90,19 +90,19 @@
   flex: none;
   padding: 10rpx 4rpx 10rpx 16rpx;
   font-size: 24rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   font-weight: 600;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(17,17,17,.35);
-  border-radius: 0;
+  border: 3rpx dashed rgba(29,33,41,.35);
+  border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 

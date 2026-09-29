@@ -17,17 +17,17 @@
   align-items: center;
   gap: 12rpx;
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 12rpx 28rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #111111;
-  box-shadow: 6rpx 6rpx 0 #111111;
+  color: #1D2129;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .ts-cur .arr {
-  color: #1d4ed8;
+  color: #0E3DA8;
   font-size: 18rpx;
 }
 
@@ -49,9 +49,9 @@
   left: 0;
   z-index: 21;
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
-  box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.9);
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   padding: 12rpx;
   min-width: 300rpx;
   max-width: 600rpx; /* 上限兜底：超长班组名由 .ts-opt 内文案省略，浮层不撑出屏外 */
@@ -63,7 +63,7 @@
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 24rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   font-size: 25rpx;
   font-weight: 600;
 }
@@ -79,8 +79,8 @@
 }
 
 .ts-opt.on {
-  background: #edf2fe;
-  color: #1d4ed8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .ts-opt .ck {
@@ -113,14 +113,14 @@
   display: flex;
   gap: 16rpx;
   align-items: flex-start;
-  background: #fdf3cf;
-  border-radius: 0;
+  background: #FFF7E8;
+  border-radius: 12rpx;
   padding: 18rpx 24rpx;
   margin-bottom: 24rpx;
 }
 
 .fbanner .ic {
-  color: #f2b705;
+  color: #FF7D00;
   font-size: 26rpx;
   line-height: 1.5;
   flex: none;
@@ -129,7 +129,7 @@
 .fbanner .fb-p {
   flex: 1;
   font-size: 22rpx;
-  color: #f2b705;
+  color: #FF7D00;
   line-height: 1.6;
   font-weight: 600;
 }
@@ -147,8 +147,8 @@
 .team-empty .te-ic {
   width: 128rpx;
   height: 128rpx;
-  border-radius: 0;
-  background: #edf2fe;
+  border-radius: 12rpx;
+  background: #E8F0FF;
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -157,13 +157,13 @@
 
 .team-empty .te-t {
   font-size: 30rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 2rpx;
 }
 
 .team-empty .te-p {
   font-size: 23rpx;
-  color: #5c5748;
+  color: #4E5969;
   line-height: 1.8;
   text-align: center;
 }
@@ -172,7 +172,7 @@
 .cnt {
   margin: 10rpx 0 20rpx 20rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 1rpx;
 }
 
@@ -206,34 +206,34 @@
 }
 
 .st-online {
-  color: #1e9e50;
+  color: #00B42A;
 }
 .st-online .dot {
-  background: #1e9e50;
-  box-shadow: 0 0 0 6rpx rgba(30, 158, 80, 0.15);
+  background: #00B42A;
+  box-shadow: 0 0 0 6rpx rgba(0, 180, 42, 0.15);
 }
 
 .st-offline {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 .st-offline .dot {
-  background: rgba(17,17,17,.35);
+  background: rgba(29,33,41,.35);
 }
 
 .st-disabled {
-  color: #d22730;
+  color: #F53F3F;
 }
 .st-disabled .dot {
-  background: #d22730;
+  background: #F53F3F;
 }
 
 /* 设备组标签（同网页端 tag-navy） */
 .dv-tag {
   margin-left: auto;
   padding: 2rpx 14rpx;
-  border-radius: 0;
-  background: #edf2fe;
-  color: #111111;
+  border-radius: 12rpx;
+  background: #E8F0FF;
+  color: #1D2129;
   font-size: 20rpx;
 }
 
@@ -241,16 +241,16 @@
 .dv-tag-maint {
   margin-left: 12rpx;
   padding: 2rpx 14rpx;
-  border-radius: 0;
-  background: #edf2fe;
-  color: #1d4ed8;
+  border-radius: 12rpx;
+  background: #E8F0FF;
+  color: #0E3DA8;
   font-size: 20rpx;
 }
 
 .dv-name {
   margin-top: 20rpx;
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 1rpx;
   word-break: break-all;
 }
@@ -258,7 +258,7 @@
 .dv-ddns {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   word-break: break-all;
 }
 
@@ -285,7 +285,7 @@
 .dv-info .lab {
   flex: none;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 
@@ -293,7 +293,7 @@
   margin-left: 24rpx;
   font-size: 25rpx;
   font-weight: 600;
-  color: #111111;
+  color: #1D2129;
   text-align: right;
   word-break: break-all;
 }
@@ -302,7 +302,7 @@
 .dv-ops {
   margin-top: 26rpx;
   padding-top: 24rpx;
-  border-top: 2rpx solid #e7e1d2;
+  border-top: 2rpx solid #E5E6EB;
   display: flex;
   gap: 20rpx;
 }
@@ -310,7 +310,7 @@
 .dv-btn {
   flex: 1;
   height: 72rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -321,29 +321,29 @@
 }
 
 .dv-btn.up {
-  background: #edf2fe;
-  color: #1d4ed8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .dv-btn.dl {
   background: #ffffff;
-  border: 4rpx solid #111111;
-  color: #111111;
+  border: 2rpx solid #E5E6EB;
+  color: #1D2129;
 }
 
 .dv-btn.off {
-  background: #f8f6f1;
+  background: #F5F7FA;
   border: none;
-  color: rgba(17,17,17,.35);
+  color: rgba(29,33,41,.35);
 }
 
 /* ---------- 底部弹层（t-popup 内容容器，同出工日志批量下载面板） ---------- */
 .sheet {
   background: #ffffff;
-  border: 4rpx solid #111111;
+  border: 2rpx solid #E5E6EB;
   border-bottom: none;
-  border-radius: 0;
-  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
+  border-radius: 12rpx;
+  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
   padding: 28rpx 32rpx 48rpx;
   max-height: 78vh;
   display: flex;
@@ -358,7 +358,7 @@
 
 .sh-title {
   font-size: 30rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 1rpx;
 }
 
@@ -366,7 +366,7 @@
   margin-left: 14rpx;
   font-size: 21rpx;
   font-weight: 400;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .sh-close {
@@ -383,8 +383,8 @@
 
 .pick {
   flex: 1;
-  border: 3rpx dashed rgba(17,17,17,.35);
-  border-radius: 0;
+  border: 3rpx dashed rgba(29,33,41,.35);
+  border-radius: 12rpx;
   padding: 24rpx 12rpx;
   display: flex;
   flex-direction: column;
@@ -399,7 +399,7 @@
 
 .pick-note {
   font-size: 20rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 /* 文件列表 */
@@ -416,7 +416,7 @@
   margin-left: auto;
   font-size: 21rpx;
   font-weight: 400;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .fl-list {
@@ -427,9 +427,9 @@
   display: flex;
   align-items: center;
   gap: 16rpx;
-  background: #fbf9f2;
-  border: 2rpx solid #e7e1d2;
-  border-radius: 0;
+  background: #F7F8FA;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 16rpx 20rpx;
   margin-bottom: 14rpx;
 }
@@ -447,14 +447,14 @@
 .frow .fs {
   flex: none;
   font-size: 21rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .frow .doing {
   flex: none;
   font-size: 21rpx;
   font-weight: 700;
-  color: #1d4ed8;
+  color: #0E3DA8;
 }
 
 /* 行内删除小标（下载弹层文件行，红色 delete 图标） */
@@ -472,7 +472,7 @@
   padding: 48rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 
@@ -489,13 +489,13 @@
 .dl-state-t {
   font-size: 28rpx;
   font-weight: 700;
-  color: #111111;
+  color: #1D2129;
   letter-spacing: 1rpx;
 }
 
 .dl-state-n {
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   line-height: 1.8;
 }
 
@@ -503,7 +503,7 @@
 .sh-note {
   margin-top: 8rpx;
   font-size: 20rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   line-height: 1.8;
 }
 
@@ -513,8 +513,8 @@
 
 .btn-primary {
   height: 88rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   color: #ffffff;
   font-size: 30rpx;
   font-weight: 700;
@@ -531,12 +531,12 @@
 /* ---------- 空态/加载/错误虚线占位（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(17,17,17,.35);
-  border-radius: 0;
+  border: 3rpx dashed rgba(29,33,41,.35);
+  border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 
@@ -544,8 +544,8 @@
   display: inline-block;
   margin-top: 24rpx;
   padding: 10rpx 40rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: #1D2129;
   color: #ffffff;
   font-size: 24rpx;
 }

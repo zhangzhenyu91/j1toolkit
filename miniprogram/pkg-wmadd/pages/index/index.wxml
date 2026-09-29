@@ -18,14 +18,14 @@
   <!-- 选片方式 -->
   <view class="pick-btns">
     <view class="pick-opt" hover-class="hover-bg-warm" data-src="camera" bindtap="onPickPhoto">
-      <view class="pi"><t-icon name="camera" size="44rpx" color="#1D4ED8" /></view>
+      <view class="pi"><t-icon name="camera" size="44rpx" color="#0E3DA8" /></view>
       <view class="pr">
         <view class="pt">拍 摄</view>
         <view class="pn">调相机取原图，必裁 4:3 / 3:4</view>
       </view>
     </view>
     <view class="pick-opt" hover-class="hover-bg-warm" data-src="album" bindtap="onPickPhoto">
-      <view class="pi"><t-icon name="image" size="44rpx" color="#1D4ED8" /></view>
+      <view class="pi"><t-icon name="image" size="44rpx" color="#0E3DA8" /></view>
       <view class="pr">
         <view class="pt">从相册选择</view>
         <view class="pn">已是 4:3 / 3:4 免裁剪直进编辑</view>
@@ -101,11 +101,11 @@
             bindtap="onOpenTower"
           >
             <block wx:if="{{!wmTowerPicked}}">
-              <t-icon name="location" size="36rpx" color="#1D4ED8" />
+              <t-icon name="location" size="36rpx" color="#0E3DA8" />
               <text class="tb-text">选择杆塔坐标</text>
             </block>
             <block wx:else>
-              <t-icon name="check" size="32rpx" color="#1D4ED8" />
+              <t-icon name="check" size="32rpx" color="#0E3DA8" />
               <text class="tb-no">{{wmTowerPicked.no}}</text>
               <text class="tb-re">重选</text>
             </block>
@@ -116,7 +116,7 @@
           <text class="fk">防伪码</text>
           <view class="fv wm-code">{{wmCode}}</view>
           <view class="wm-refresh" hover-class="hover-opacity" bindtap="onWmCodeRefresh">
-            <t-icon name="refresh" size="30rpx" color="#1D4ED8" />
+            <t-icon name="refresh" size="30rpx" color="#0E3DA8" />
             <text>换一换</text>
           </view>
         </view>
@@ -155,7 +155,7 @@
           <text class="sel-fk">电压等级</text>
           <view class="sel-box {{towerOpen === 'level' ? 'open' : ''}}" hover-class="hover-opacity" data-key="level" bindtap="onTowerToggle">
             <text class="{{towerLevel ? '' : 'ph'}}">{{towerLevel || '请选择电压等级'}}</text>
-            <view class="chev {{towerOpen === 'level' ? 'up' : ''}}"><t-icon name="chevron-down" size="28rpx" color="rgba(17,17,17,.4)" /></view>
+            <view class="chev {{towerOpen === 'level' ? 'up' : ''}}"><t-icon name="chevron-down" size="28rpx" color="rgba(29,33,41,.4)" /></view>
           </view>
         </view>
         <scroll-view scroll-y class="opt-list {{towerOpen === 'level' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
@@ -168,7 +168,7 @@
             bindtap="onPickLevel"
           >
             <text>{{item}}</text>
-            <t-icon wx:if="{{towerLevel === item}}" name="check" size="28rpx" color="#1D4ED8" />
+            <t-icon wx:if="{{towerLevel === item}}" name="check" size="28rpx" color="#0E3DA8" />
           </view>
         </scroll-view>
         <!-- 线路名称（未选电压等级时禁用；支持输入关键字筛选后再下拉选择） -->
@@ -189,7 +189,7 @@
               placeholder-class="ph"
               maxlength="32"
             />
-            <view class="chev {{towerOpen === 'line' ? 'up' : ''}}" data-key="line" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLevel ? 'rgba(17,17,17,.4)' : 'rgba(17,17,17,.35)'}}" /></view>
+            <view class="chev {{towerOpen === 'line' ? 'up' : ''}}" data-key="line" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLevel ? 'rgba(29,33,41,.4)' : 'rgba(29,33,41,.35)'}}" /></view>
           </view>
         </view>
         <scroll-view scroll-y class="opt-list {{towerOpen === 'line' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
@@ -202,7 +202,7 @@
             bindtap="onPickLine"
           >
             <text>{{item}}</text>
-            <t-icon wx:if="{{towerLine === item}}" name="check" size="28rpx" color="#1D4ED8" />
+            <t-icon wx:if="{{towerLine === item}}" name="check" size="28rpx" color="#0E3DA8" />
           </view>
         </scroll-view>
         <!-- 杆塔号（未选线路名称时禁用；支持输入关键字筛选后再下拉选择） -->
@@ -223,7 +223,7 @@
               placeholder-class="ph"
               maxlength="32"
             />
-            <view class="chev {{towerOpen === 'tower' ? 'up' : ''}}" data-key="tower" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLine ? 'rgba(17,17,17,.4)' : 'rgba(17,17,17,.35)'}}" /></view>
+            <view class="chev {{towerOpen === 'tower' ? 'up' : ''}}" data-key="tower" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLine ? 'rgba(29,33,41,.4)' : 'rgba(29,33,41,.35)'}}" /></view>
           </view>
         </view>
         <scroll-view scroll-y class="opt-list {{towerOpen === 'tower' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
@@ -236,7 +236,7 @@
             bindtap="onPickTower"
           >
             <text>{{item.no}}</text>
-            <t-icon wx:if="{{towerTower && towerTower.no === item.no}}" name="check" size="28rpx" color="#1D4ED8" />
+            <t-icon wx:if="{{towerTower && towerTower.no === item.no}}" name="check" size="28rpx" color="#0E3DA8" />
           </view>
         </scroll-view>
         <!-- 三级选齐后坐标预览 -->

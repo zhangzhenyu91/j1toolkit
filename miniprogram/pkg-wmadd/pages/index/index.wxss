@@ -11,17 +11,17 @@
   align-items: center;
   gap: 12rpx;
   font-size: 28rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 4rpx;
-  color: #111111;
+  color: #1D2129;
 }
 
 .flow-title::before {
   content: '';
   width: 8rpx;
   height: 28rpx;
-  border-radius: 0;
-  background: #1d4ed8;
+  border-radius: 12rpx;
+  background: #0E3DA8;
 }
 
 .flow-steps {
@@ -36,25 +36,25 @@
   align-items: center;
   gap: 16rpx;
   font-size: 24rpx;
-  color: #5c5748;
+  color: #4E5969;
 }
 
 .fstep .no {
   flex: none;
   width: 36rpx;
   height: 36rpx;
-  border-radius: 0;
-  background: #edf2fe;
-  color: #1d4ed8;
+  border-radius: 12rpx;
+  background: #E8F0FF;
+  color: #0E3DA8;
   font-size: 22rpx;
-  font-weight: 800;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .fstep .b {
-  color: #111111;
+  color: #1D2129;
   font-weight: 700;
 }
 
@@ -68,21 +68,21 @@
 
 .pick-opt {
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 32rpx;
   display: flex;
   align-items: center;
   gap: 28rpx;
-  box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.14); /* 次卡：墨色浅硬影 */
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06); /* 次卡：墨色浅硬影 */
 }
 
 .pick-opt .pi {
   flex: none;
   width: 96rpx;
   height: 96rpx;
-  border-radius: 0;
-  background: #edf2fe;
+  border-radius: 12rpx;
+  background: #E8F0FF;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -90,41 +90,41 @@
 
 .pick-opt .pt {
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 4rpx;
-  color: #111111;
+  color: #1D2129;
 }
 
 .pick-opt .pn {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 1rpx;
 }
 
 /* ---------- 底部弹层通用（同出工日志 common.wxss） ---------- */
 .sheet {
   background: #ffffff;
-  border: 4rpx solid #111111;
+  border: 2rpx solid #E5E6EB;
   border-bottom: none;
-  border-radius: 0;
-  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
+  border-radius: 12rpx;
+  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 
 .sheet-title {
   text-align: center;
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 4rpx;
-  color: #111111;
+  color: #1D2129;
 }
 
 .sheet-note {
   text-align: center;
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 
@@ -137,15 +137,15 @@
 .btn-ghost {
   flex: 1;
   height: 88rpx;
-  border-radius: 0;
-  border: 4rpx solid #111111;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #5c5748;
+  color: #4E5969;
   letter-spacing: 6rpx;
   box-sizing: border-box;
 }
@@ -153,8 +153,8 @@
 .btn-dark {
   flex: 2;
   height: 88rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -166,16 +166,16 @@
 }
 
 .btn-dark.disabled {
-  background: #c9c0ab;
+  background: #E5E6EB;
 }
 
 /* ---------- 表单卡 / 行 ---------- */
 .form-card {
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   overflow: hidden;
-  box-shadow: 8rpx 8rpx 0 rgba(17, 17, 17, 0.14); /* 次卡：墨色浅硬影 */
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06); /* 次卡：墨色浅硬影 */
 }
 
 .frow {
@@ -186,7 +186,7 @@
 }
 
 .frow + .frow {
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #F7F8FA;
 }
 
 .frow .fk {
@@ -199,7 +199,7 @@
 .frow .fv {
   flex: 1;
   font-size: 28rpx;
-  color: #111111;
+  color: #1D2129;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -208,8 +208,8 @@
 
 .textarea-wrap {
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 20rpx 28rpx;
 }
 
@@ -217,13 +217,13 @@
   width: 100%;
   min-height: 132rpx;
   font-size: 28rpx;
-  color: #111111;
+  color: #1D2129;
   line-height: 1.7;
   box-sizing: border-box;
 }
 
 .ph {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 /* ---------- 水印字段编辑弹层 ---------- */
@@ -271,14 +271,14 @@
   padding: 4rpx 16rpx;
   font-size: 22rpx;
   line-height: 1.6;
-  color: #1D4ED8;
-  background: #EDF2FE;
-  border: 4rpx solid #1D4ED8;
-  border-radius: 0;
+  color: #0E3DA8;
+  background: #E8F0FF;
+  border: 4rpx solid #0E3DA8;
+  border-radius: 12rpx;
 }
 
 .wm-row-col + .frow {
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #F7F8FA;
 }
 
 .wm-textarea {
@@ -293,7 +293,7 @@
 .wm-input {
   flex: 1;
   font-size: 28rpx;
-  color: #111111;
+  color: #1D2129;
   font-weight: 600;
 }
 
@@ -309,18 +309,18 @@
   gap: 6rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #1d4ed8;
+  color: #0E3DA8;
 }
 
 /* ---------- 经纬度区：右侧跨两行「选择杆塔坐标」按钮 ---------- */
 .geo-zone {
   display: flex;
   align-items: stretch;
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #F7F8FA;
 }
 
 .geo-zone + .frow {
-  border-top: 2rpx solid #f1ebdc;
+  border-top: 2rpx solid #F7F8FA;
 }
 
 .geo-rows {
@@ -336,9 +336,9 @@
   flex: none;
   width: 184rpx;
   margin: 16rpx 32rpx 16rpx 20rpx;
-  border: 4rpx solid #1d4ed8;
-  border-radius: 0;
-  background: #edf2fe;
+  border: 4rpx solid #0E3DA8;
+  border-radius: 12rpx;
+  background: #E8F0FF;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -351,7 +351,7 @@
   width: 96rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #1d4ed8;
+  color: #0E3DA8;
   letter-spacing: 2rpx;
   line-height: 1.4;
   text-align: center;
@@ -365,7 +365,7 @@
   max-width: 152rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #111111;
+  color: #1D2129;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -374,7 +374,7 @@
 .tower-btn .tb-re {
   font-size: 20rpx;
   font-weight: 600;
-  color: #1d4ed8;
+  color: #0E3DA8;
   text-decoration: underline;
   text-underline-offset: 4rpx;
   letter-spacing: 4rpx;
@@ -385,9 +385,9 @@
   flex: none;
   font-size: 20rpx;
   font-weight: 700;
-  color: #1d4ed8;
-  background: #edf2fe;
-  border-radius: 0;
+  color: #0E3DA8;
+  background: #E8F0FF;
+  border-radius: 12rpx;
   padding: 2rpx 12rpx;
   letter-spacing: 2rpx;
 }
@@ -402,7 +402,7 @@
   padding: 60rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 
@@ -424,8 +424,8 @@
   flex: 1;
   min-width: 0;
   height: 80rpx;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   background: #ffffff;
   padding: 0 24rpx;
   display: flex;
@@ -434,13 +434,13 @@
   gap: 16rpx;
   font-size: 28rpx;
   font-weight: 600;
-  color: #111111;
-  box-shadow: 6rpx 6rpx 0 #111111;
+  color: #1D2129;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   transition: border-color 0.2s ease-out, background-color 0.2s ease-out;
 }
 
 .sel-box .ph {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   font-weight: 400;
 }
 
@@ -450,26 +450,26 @@
   min-width: 0;
   font-size: 28rpx;
   font-weight: 600;
-  color: #111111;
+  color: #1D2129;
 }
 
 .sel-box.disabled .sel-input {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .sel-box.open {
-  border-color: #1d4ed8;
+  border-color: #0E3DA8;
 }
 
 .sel-box.disabled {
-  background: #f8f6f1;
+  background: #F5F7FA;
 }
 
 /* 选项列表：内嵌展开于对应行下方，超高滚动；展开/收起带 max-height + 透明度动效（wx:if 无过渡，改 class 开关） */
 .opt-list {
   margin: 0 0 0 148rpx;
   border: 4rpx solid transparent;
-  border-radius: 0;
+  border-radius: 12rpx;
   background: #ffffff;
   max-height: 0;
   opacity: 0;
@@ -478,7 +478,7 @@
 
 .opt-list.show {
   margin: 4rpx 0 8rpx 148rpx;
-  border-color: #111111;
+  border-color: #1D2129;
   max-height: 336rpx;
   opacity: 1;
 }
@@ -501,7 +501,7 @@
   height: 76rpx;
   padding: 0 24rpx;
   font-size: 28rpx;
-  color: #111111;
+  color: #1D2129;
   transition: background-color 0.15s ease-out, color 0.15s ease-out;
 }
 
@@ -520,17 +520,17 @@
 }
 
 .opt.on {
-  color: #1d4ed8;
+  color: #0E3DA8;
   font-weight: 700;
-  background: #edf2fe;
+  background: #E8F0FF;
 }
 
 /* 三级选齐后的坐标预览卡（淡入上移） */
 .coord-card {
   margin: 16rpx 0 8rpx;
-  background: #edf2fe;
-  border-left: 8rpx solid #1d4ed8;
-  border-radius: 0;
+  background: #E8F0FF;
+  border-left: 8rpx solid #0E3DA8;
+  border-radius: 12rpx;
   padding: 18rpx 24rpx;
   animation: coord-in 0.25s ease-out;
 }
@@ -549,7 +549,7 @@
 .cc-title {
   font-size: 24rpx;
   font-weight: 700;
-  color: #1d4ed8;
+  color: #0E3DA8;
   letter-spacing: 2rpx;
 }
 
@@ -557,16 +557,16 @@
   margin-top: 8rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #111111;
+  color: #1D2129;
 }
 
 /* ---------- 4:3 裁剪层（黑底；同出工日志） ---------- */
 .crop-sheet {
   background: #15181d;
-  border: 4rpx solid #111111;
+  border: 2rpx solid #E5E6EB;
   border-bottom: none;
-  border-radius: 0;
-  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
+  border-radius: 12rpx;
+  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
   padding: 32rpx 24rpx calc(32rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
@@ -576,7 +576,7 @@
 .crop-title {
   text-align: center;
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 4rpx;
   color: #ffffff;
 }
@@ -609,7 +609,7 @@
   position: absolute;
   width: 36rpx;
   height: 36rpx;
-  border: 6rpx solid #1d4ed8;
+  border: 6rpx solid #0E3DA8;
   pointer-events: none;
 }
 

@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #F8F6F1;
+  background: #F5F7FA;
 }
 
 /* ---------- 消息区 ---------- */
@@ -31,7 +31,7 @@
 
 .bubble {
   max-width: 78%;
-  border-radius: 0;
+  border-radius: 12rpx;
   padding: 20rpx 24rpx;
   font-size: 28rpx;
   line-height: 1.6;
@@ -39,7 +39,7 @@
 }
 
 .user-bubble {
-  background: #1D4ED8;
+  background: #0E3DA8;
   color: #FFFFFF;
   border-bottom-right-radius: 0;
   display: flex;
@@ -57,8 +57,8 @@
 /* 回答不用气泡（对齐官方前端）：纯文本流式内容，仅用户问题保留气泡 */
 .reply-bubble {
   background: transparent;
-  color: #111111;
-  border-radius: 0;
+  color: #1D2129;
+  border-radius: 12rpx;
   max-width: 100%;
   padding: 0;
   white-space: pre-wrap;
@@ -66,13 +66,13 @@
 
 .reply-error {
   background: transparent;
-  color: #D22730;
+  color: #F53F3F;
 }
 
 .thinking {
   margin-bottom: 8rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   line-height: 1.5;
 }
 
@@ -94,18 +94,18 @@
   align-items: center;
   gap: 10rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .think-dot {
   width: 12rpx;
   height: 12rpx;
   border-radius: 50%;
-  background: rgba(17,17,17,.35);
+  background: rgba(29,33,41,.35);
 }
 
 .think-dot-on {
-  background: #1D4ED8;
+  background: #0E3DA8;
   animation: blink 1s infinite;
 }
 
@@ -177,19 +177,19 @@
 
 .step-title {
   font-size: 24rpx;
-  color: #111111;
+  color: #1D2129;
   font-weight: 500;
   line-height: 1.5;
   word-break: break-word;
 }
 
 .step-title-run {
-  color: #1D4ED8;
+  color: #0E3DA8;
   animation: stepBreath 1.6s ease-in-out infinite;
 }
 
 .step-title-err {
-  color: #D22730;
+  color: #F53F3F;
 }
 
 /* 失败步骤前置红三角感叹号（t-icon 由 wxml 提供） */
@@ -201,13 +201,13 @@
 .step-summary {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   line-height: 1.5;
 }
 
 .step-text {
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -224,7 +224,7 @@
 }
 
 .cursor {
-  color: #1D4ED8;
+  color: #0E3DA8;
   animation: blink 1s infinite;
 }
 
@@ -235,7 +235,7 @@
 
 .msg-img {
   width: 320rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
 }
 
 /* ---------- 回答操作条（复制/时间） ---------- */
@@ -255,28 +255,28 @@
 
 .msg-time {
   font-size: 24rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 /* ---------- 引用来源 ---------- */
 .ref-box {
   margin-top: 8rpx;
   padding: 12rpx 20rpx;
-  background: #EDF2FE;
+  background: #E8F0FF;
   border: 1rpx solid #EDE5D2;
-  border-radius: 0;
+  border-radius: 12rpx;
 }
 
 .ref-title {
   font-size: 20rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
   margin-bottom: 6rpx;
 }
 
 .ref-item {
   font-size: 22rpx;
-  color: #5C5748;
+  color: #4E5969;
   line-height: 1.7;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -289,10 +289,10 @@
   margin: 0 auto 20rpx;
   padding: 8rpx 28rpx;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   background: #FFFFFF;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   width: fit-content;
 }
 
@@ -303,7 +303,7 @@
 /* ---------- 输入栏 ---------- */
 .input-bar {
   background: #FFFFFF;
-  border-top: 1rpx solid #E7E1D2;
+  border-top: 1rpx solid #E5E6EB;
   padding: 16rpx 20rpx calc(16rpx + env(safe-area-inset-bottom));
 }
 
@@ -317,7 +317,7 @@
 .img-chip image {
   width: 96rpx;
   height: 96rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
 }
 
 .chip-close {
@@ -326,8 +326,8 @@
   right: -12rpx;
   width: 32rpx;
   height: 32rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: rgba(29, 33, 41, 0.72);
   color: #FFFFFF;
   font-size: 20rpx;
   display: flex;
@@ -349,24 +349,24 @@
 
 .chat-input {
   flex: 1;
-  background: #F8F6F1;
-  border-radius: 0;
+  background: #F5F7FA;
+  border-radius: 12rpx;
   padding: 16rpx 20rpx;
   font-size: 28rpx;
   line-height: 1.5;
   max-height: 180rpx;
-  color: #111111;
+  color: #1D2129;
 }
 
 .input-ph {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .send-btn {
   width: 72rpx;
   height: 72rpx;
-  border-radius: 0;
-  background: #1D4ED8;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   display: flex;
   align-items: center;
   justify-content: center;

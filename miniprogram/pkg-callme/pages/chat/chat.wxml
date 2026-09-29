@@ -52,7 +52,7 @@
               <t-icon
                 name="chevron-down"
                 size="32rpx"
-                color="rgba(17,17,17,.4)"
+                color="rgba(29,33,41,.4)"
                 class="think-arrow {{item.streaming || item.thinkingExpanded ? 'think-arrow-open' : ''}}"
               />
             </view>
@@ -73,7 +73,7 @@
                       <t-icon
                         name="{{step.icon}}"
                         size="28rpx"
-                        color="{{step.status === 'running' ? '#1D4ED8' : (step.status === 'error' ? '#D22730' : 'rgba(17,17,17,.4)')}}"
+                        color="{{step.status === 'running' ? '#0E3DA8' : (step.status === 'error' ? '#F53F3F' : 'rgba(29,33,41,.4)')}}"
                       />
                     </view>
                     <view wx:if="{{index < item.steps.length - 1}}" class="step-line"></view>
@@ -83,7 +83,7 @@
                       wx:if="{{step.kind === 'tool'}}"
                       class="step-title {{step.status === 'running' ? 'step-title-run' : ''}} {{step.status === 'error' ? 'step-title-err' : ''}}"
                     >
-                      <t-icon wx:if="{{step.status === 'error'}}" class="step-err-x" name="error-triangle" size="22rpx" color="#D22730" />
+                      <t-icon wx:if="{{step.status === 'error'}}" class="step-err-x" name="error-triangle" size="22rpx" color="#F53F3F" />
                       {{step.title}}
                     </view>
                     <view wx:if="{{step.summary}}" class="step-summary">{{step.summary}}</view>
@@ -124,11 +124,11 @@
               <t-icon
                 name="{{item.copied ? 'check' : 'copy'}}"
                 size="28rpx"
-                color="{{item.copied ? '#1D4ED8' : 'rgba(17,17,17,.4)'}}"
+                color="{{item.copied ? '#0E3DA8' : 'rgba(29,33,41,.4)'}}"
               />
             </view>
             <view class="action-btn" hover-class="hover-opacity" data-index="{{index}}" bindtap="onDelete">
-              <t-icon name="delete" size="28rpx" color="rgba(17,17,17,.4)" />
+              <t-icon name="delete" size="28rpx" color="rgba(29,33,41,.4)" />
             </view>
             <text class="msg-time" wx:if="{{item.timeText}}">{{item.timeText}}</text>
           </view>
@@ -149,7 +149,7 @@
     </view>
     <view class="input-row">
       <view class="tool-btn" hover-class="hover-opacity" bindtap="chooseImage">
-        <t-icon name="image-add" size="48rpx" color="rgba(17,17,17,.4)" />
+        <t-icon name="image-add" size="48rpx" color="rgba(29,33,41,.4)" />
       </view>
       <textarea
         class="chat-input"

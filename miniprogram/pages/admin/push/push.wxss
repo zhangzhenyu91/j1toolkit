@@ -23,27 +23,27 @@
 .md-tool {
   font-size: 24rpx;
   font-weight: 500;
-  color: #1D4ED8;
+  color: #0E3DA8;
   padding: 6rpx 4rpx;
 }
 
 /* Markdown 预览区（排版由 mdTagStyle / mdContainerStyle 控制） */
 .md-preview {
-  background: #F8F6F1;
-  border-radius: 0;
+  background: #F5F7FA;
+  border-radius: 12rpx;
   padding: 16rpx 20rpx;
   min-height: 120rpx;
 }
 
 .md-preview-empty {
   font-size: 24rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .hint {
   margin-top: 24rpx;
   text-align: center;
-  color: #C4BBA6;
+  color: #E5E6EB;
   font-size: 22rpx;
 }
 
@@ -55,5 +55,5 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #F8F6F1;
+  background: #F5F7FA;
 }

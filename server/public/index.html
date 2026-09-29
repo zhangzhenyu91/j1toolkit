@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 网页版门户工作台（方案十二「包豪斯几何」：几何构成用户大卡 + 应用中心 + 硬影语言） -->
+<!-- Shade 壹匣 · 网页版门户工作台（「政企蓝白」：欢迎卡左文右数 + 应用中心 + 消息通知） -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -9,228 +9,164 @@
 <link rel="stylesheet" href="/assets/theme.css">
 <style>
   /* ============================================================
-     本页样式 · 包豪斯几何（基准 design/redesign/12-包豪斯几何-Web首页.html）
-     几何装饰全部纯 CSS（伪元素 / border-radius / clip-path），无图片依赖；
-     入场编排 fill-mode:both 落位静止，可 hover 下沉的卡片改用 backwards
-     （forwards 填充会锁定 transform、吞掉 hover 下沉，backwards 视觉一致且落位后交还控制权）
+     本页样式 · 政企蓝白（基准 design/Web-首页.html）
+     欢迎卡左文右数（与小程序首页数据卡同口径）；应用卡浅蓝图标块；
+     入场为一次编排式上浮（fill-mode:both 落位静止，可 hover 的卡片用 backwards）
      ============================================================ */
 
-  /* ===== 用户大卡：左文右形的几何构成 ===== */
-  .user-card { overflow: hidden; animation: riseIn .7s var(--ease) .05s both; }
-  .uc-body { display: grid; grid-template-columns: 1fr 320px; min-height: 262px; }
-  .uc-main { position: relative; z-index: 2; padding: 36px 40px 32px; }
-  .kicker {
-    display: inline-flex; align-items: center; gap: 9px;
-    font-size: 11px; font-weight: 800; letter-spacing: 3.5px; color: var(--sub);
-    animation: riseIn .6s var(--ease) .2s both;
-  }
-  .kicker::before { content: ""; width: 9px; height: 9px; background: var(--red); }
-  .uc-hello-row { margin-top: 20px; display: flex; align-items: center; gap: 18px; }
+  /* ===== 欢迎卡：左侧问候 / 右侧当日数据 ===== */
+  .user-card { animation: riseIn .55s var(--ease) .05s both; }
+  .uc-body { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 40px; padding: 32px 36px; }
+  .uc-date { font-size: 12.5px; color: var(--ph); letter-spacing: .5px; }
+  .uc-hello-row { margin-top: 10px; display: flex; align-items: center; gap: 16px; }
   .uc-avatar {
-    width: 62px; height: 62px; flex: none; border-radius: 0;
-    background: var(--navy); color: #fff; border: 2px solid var(--navy);
-    box-shadow: inset 0 0 0 3px var(--yellow);
+    width: 56px; height: 56px; flex: none; border-radius: 50%;
+    background: var(--orange); color: #fff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 25px; font-weight: 800;
-    animation: riseIn .7s var(--ease) .25s both;
+    font-size: 23px; font-weight: 600;
   }
-  .uc-hello { font-size: 50px; line-height: 1.12; font-weight: 800; letter-spacing: -1px; overflow: hidden; }
-  .uc-hello span { display: block; animation: riseIn .75s var(--ease) .32s both; }
+  .uc-hello { font-size: 30px; line-height: 1.2; font-weight: 700; letter-spacing: .5px; }
   .uc-meta {
-    margin-top: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
-    animation: riseIn .7s var(--ease) .46s both;
+    margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    font-size: 12.5px; color: var(--sub);
   }
-  .uc-date { font-size: 13px; font-weight: 600; color: var(--sub); letter-spacing: 1px; }
-  .uc-role { display: inline-flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--sub); }
+  .uc-role { display: inline-flex; align-items: center; gap: 12px; }
   .uc-role .uname { letter-spacing: .5px; }
 
-  /* 右侧几何舞台（黄正圆 × 蓝下半圆 × 红三角 × 墨点 × 刻度环 × 红斜条；纯装饰不响应指针） */
-  .uc-geo { position: relative; border-left: 1.5px solid var(--line); }
-  .geo-stage { position: absolute; inset: 0; pointer-events: none; }
-  .geo { position: absolute; animation: geoIn 1.1s var(--ease) both; }
-  .g-circle-y { width: 172px; height: 172px; right: 58px; top: 34px; animation-delay: .5s; }
-  .g-circle-y > i { display: block; width: 100%; height: 100%; border-radius: 50%; background: var(--yellow); }
-  .g-semi-b { width: 138px; height: 138px; right: 128px; top: 108px; animation-delay: .65s; }
-  .g-semi-b > i { display: block; width: 138px; height: 69px; background: var(--orange); border-radius: 0 0 138px 138px; }
-  .g-tri-r { width: 78px; height: 78px; right: 18px; top: 14px; animation-delay: .8s; }
-  .g-tri-r > i { display: block; width: 100%; height: 100%; background: var(--red); clip-path: polygon(50% 0, 100% 100%, 0 100%); transform: rotate(14deg); }
-  .g-dot-ink { width: 24px; height: 24px; right: 198px; top: 62px; animation-delay: .95s; }
-  .g-dot-ink > i { display: block; width: 100%; height: 100%; border-radius: 50%; background: var(--navy); }
-  /* 墨环刻度：46s 慢转（全页仅两处的氛围动效之一） */
-  .g-ring {
-    position: absolute; width: 236px; height: 236px; right: 26px; top: -34px;
-    border-radius: 50%; border: 2px dashed rgba(17, 17, 17, .28);
-    animation: spinSlow 46s linear infinite;
-  }
-  .hero-slash {
-    position: absolute; left: -34px; bottom: 40px; width: 160px; height: 5px;
-    background: var(--red); transform: rotate(-24deg); transform-origin: left center;
-    animation: slashIn .8s var(--ease) .9s both;
-  }
-  .uc-side {
-    position: absolute; right: 20px; bottom: 16px; z-index: 2; text-align: right;
-    font-size: 11px; line-height: 1.9; letter-spacing: 2px; color: var(--sub);
-    animation: riseIn .7s var(--ease) .85s both;
-  }
+  /* 右侧数据列（指标口径与小程序首页一致；无出工日志权限时对应项显示 —） */
+  .uc-stats { display: grid; grid-template-columns: repeat(4, auto); }
+  .hstat { padding: 0 24px; text-align: center; }
+  .hstat + .hstat { border-left: 1px solid var(--line); }
+  .hstat b { display: block; font-size: 26px; font-weight: 700; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .hstat.warn b { color: var(--yellow); }
+  .hstat.blue b { color: var(--orange); }
+  .hstat span { display: block; margin-top: 4px; font-size: 11.5px; color: var(--ph); }
 
-  /* ===== 板块标题入场（红方块 + 标题为 theme.css 既有语言） ===== */
-  .section-title { animation: riseIn .6s var(--ease) both; }
-  .sec-msg { animation-delay: .34s; }
-  .sec-app { animation-delay: .5s; }
-  .sec-ext { animation-delay: .64s; }
+  /* ===== 板块标题入场 ===== */
+  .section-title { animation: riseIn .5s var(--ease) both; }
+  .sec-msg { animation-delay: .16s; }
+  .sec-app { animation-delay: .28s; }
+  .sec-ext { animation-delay: .4s; }
 
-  /* ===== 消息通知卡（直角红方未读点 + 发丝线分隔） ===== */
-  .notice-card { overflow: hidden; animation: riseIn .7s var(--ease) .42s backwards; }
+  /* ===== 消息通知卡（圆点未读 + 发丝线分隔） ===== */
+  .notice-card { overflow: hidden; animation: riseIn .55s var(--ease) .2s backwards; }
   .nt-badge {
-    display: inline-flex; align-items: center; gap: 7px;
-    background: var(--red); color: #fff; border-radius: 0; padding: 4px 12px;
-    font-size: 11px; font-weight: 800; letter-spacing: 1px;
-    box-shadow: var(--hard-s);
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--red); font-size: 12px; font-weight: 600; letter-spacing: .5px;
   }
-  .nt-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+  .nt-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
   #noticeBadge { cursor: pointer; }
   .nt-item {
     display: flex; align-items: center; gap: 10px; padding: 14px 20px;
     border-bottom: 1px solid var(--line);
     transition: background .18s var(--ease);
-    animation: rowIn .55s var(--ease) both;
+    animation: rowIn .5s var(--ease) both;
   }
   .nt-item:nth-child(1) { animation-delay: .05s; }
   .nt-item:nth-child(2) { animation-delay: .12s; }
   .nt-item:nth-child(3) { animation-delay: .19s; }
   .nt-item:last-child { border-bottom: none; }
-  .nt-item:hover { background: var(--paper); }
-  .nt-dot { width: 8px; height: 8px; flex: none; background: var(--red); }
+  .nt-item:hover { background: var(--fill); }
+  .nt-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--red); }
   .nt-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
-  .nt-item.unread .nt-title { font-weight: 800; }
-  .nt-time { flex: none; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--sub); font-variant-numeric: tabular-nums; }
+  .nt-item.unread .nt-title { font-weight: 600; }
+  .nt-time { flex: none; font-size: 12px; letter-spacing: .5px; color: var(--ph); font-variant-numeric: tabular-nums; }
 
-  /* ===== 应用中心宫格（几何圆形图标 + 右上 ¼ 圆角标，蓝/黄交替） ===== */
-  .apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+  /* ===== 应用中心宫格（浅蓝图标块 + 名称 + 说明 + 进入链接） ===== */
+  .apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
   .app-card {
-    display: block; padding: 24px; color: inherit; overflow: hidden;
-    animation: cardIn .65s var(--ease) backwards;
+    display: block; padding: 22px 22px 0; color: inherit;
+    animation: riseIn .55s var(--ease) backwards;
   }
   .app-card:link, .app-card:visited { color: inherit; }
   .apps .app-card:nth-child(1) { animation-delay: 0s; }
-  .apps .app-card:nth-child(2) { animation-delay: .07s; }
-  .apps .app-card:nth-child(3) { animation-delay: .14s; }
-  .apps .app-card:nth-child(4) { animation-delay: .21s; }
-  .apps .app-card:nth-child(5) { animation-delay: .28s; }
-  .apps .app-card:nth-child(6) { animation-delay: .35s; }
-  .apps .app-card:nth-child(n+7) { animation-delay: .42s; }
+  .apps .app-card:nth-child(2) { animation-delay: .06s; }
+  .apps .app-card:nth-child(3) { animation-delay: .12s; }
+  .apps .app-card:nth-child(4) { animation-delay: .18s; }
+  .apps .app-card:nth-child(5) { animation-delay: .24s; }
+  .apps .app-card:nth-child(6) { animation-delay: .3s; }
+  .apps .app-card:nth-child(n+7) { animation-delay: .36s; }
   /* 外部应用同步渲染，入场时延接在板块标题之后 */
-  #extGrid .app-card:nth-child(1) { animation-delay: .7s; }
-  #extGrid .app-card:nth-child(2) { animation-delay: .78s; }
-  #extGrid .app-card:nth-child(3) { animation-delay: .86s; }
-  #extGrid .app-card:nth-child(n+4) { animation-delay: .94s; }
-  /* 右上 ¼ 圆几何（对应设计稿 .ca-qb / .ca-qy，奇蓝偶黄交替） */
-  .app-card:not(.app-soon)::before {
-    content: ""; position: absolute; top: 0; right: 0; width: 42px; height: 42px;
-    background: var(--orange); border-radius: 0 0 0 42px; pointer-events: none;
-  }
-  .apps .app-card:nth-child(even):not(.app-soon)::before { background: var(--yellow); }
-  /* hover 下沉吃影 + 微倾（theme .card-hover 的 translate(2px,2px) 之上叠加 rotate） */
-  .app-card.card-hover:hover { transform: translate(2px, 2px) rotate(-.4deg); box-shadow: var(--hard-s); }
-  /* 图标几何圆形：红/蓝/黄三色循环，黄底配墨图标（Shade.icon 的 stroke 属性由 CSS 覆写） */
+  #extGrid .app-card:nth-child(1) { animation-delay: .46s; }
+  #extGrid .app-card:nth-child(2) { animation-delay: .52s; }
+  #extGrid .app-card:nth-child(3) { animation-delay: .58s; }
+  #extGrid .app-card:nth-child(n+4) { animation-delay: .64s; }
+  /* 图标：浅蓝底 44px 圆角方块 + 蓝 glyph（Shade.icon 的 stroke 属性由 CSS 覆写） */
   .app-ic {
-    position: relative; width: 54px; height: 54px; border-radius: 50%;
-    background: var(--red);
+    width: 44px; height: 44px; border-radius: 10px;
+    background: var(--orange-soft);
     display: flex; align-items: center; justify-content: center;
-    transition: transform .3s var(--ease);
   }
-  .app-ic svg { width: 25px; height: 25px; stroke: #fff; color: #fff; }
-  .app-card:hover .app-ic { transform: rotate(-8deg) scale(1.06); }
-  .apps .app-card:nth-child(3n+2) .app-ic { background: var(--orange); }
-  .apps .app-card:nth-child(3n) .app-ic { background: var(--yellow); }
-  .apps .app-card:nth-child(3n) .app-ic svg { stroke: var(--navy); color: var(--navy); }
-  .app-card h4 { margin-top: 16px; font-size: 17px; font-weight: 800; letter-spacing: 1px; }
-  .app-card > p { margin-top: 9px; font-size: 12.5px; color: var(--sub); line-height: 1.85; min-height: 46px; }
-  .app-meta { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1.5px solid var(--line); }
-  /* 分类标签：小号宽字距（实色块样式走 theme .tag 体系） */
-  .app-meta .tag { letter-spacing: 1.5px; }
-  .app-go { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 800; letter-spacing: 1px; color: var(--navy); }
-  .app-go svg { width: 15px; height: 15px; color: var(--red); transition: transform .18s var(--ease); }
-  .app-card:hover .app-go svg { transform: translateX(4px); }
+  .app-ic svg { width: 22px; height: 22px; stroke: var(--orange); color: var(--orange); }
+  .app-card h4 { margin-top: 14px; font-size: 15.5px; font-weight: 600; letter-spacing: .5px; }
+  .app-card > p { margin-top: 7px; font-size: 12.5px; color: var(--sub); line-height: 1.75; min-height: 44px; }
+  .app-meta { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 12px 0 14px; border-top: 1px solid var(--line); }
+  /* 分类标签（浅底小胶囊样式走 theme .tag 体系） */
+  .app-meta .tag { letter-spacing: 1px; }
+  .app-go { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; letter-spacing: .5px; color: var(--orange); }
+  .app-go svg { width: 15px; height: 15px; transition: transform .18s var(--ease); }
+  .app-card:hover .app-go svg { transform: translateX(3px); }
   /* 「敬请期待」虚线占位 */
   .app-soon {
-    background: transparent; border: 2px dashed var(--dash); box-shadow: none;
-    min-height: 190px; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 9px; cursor: default;
+    background: transparent; border: 1.5px dashed var(--dash); box-shadow: none;
+    min-height: 176px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px; cursor: default;
   }
-  /* 与 nth-child 三色循环同优先级、源码居后取胜：占位卡图标保持虚线墨灰，不吃三色 */
-  .apps .app-card.app-soon .app-ic { width: 48px; height: 48px; background: transparent; border: 2px dashed var(--dash); }
-  .apps .app-card.app-soon .app-ic svg { width: 22px; height: 22px; stroke: var(--dash); color: var(--dash); }
-  .apps .app-card.app-soon:hover .app-ic { transform: none; }
-  .app-soon h4 { margin-top: 2px; font-size: 14px; color: var(--ph); }
-  .app-soon p { font-size: 11.5px; color: var(--ph); }
+  .apps .app-card.app-soon .app-ic { background: var(--fill); }
+  .apps .app-card.app-soon .app-ic svg { stroke: var(--dash); color: var(--dash); }
+  .app-soon h4 { margin-top: 2px; font-size: 14px; font-weight: 600; color: var(--ph); }
+  .app-soon p { font-size: 11.5px; color: var(--ph); min-height: 0; }
   /* 宫格内空态占满整行 */
-  .apps .empty { grid-column: 1 / -1; background: #fff; border: 2px solid var(--navy); border-radius: var(--radius); box-shadow: var(--hard); }
+  .apps .empty { grid-column: 1 / -1; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow-card); }
   /* 骨架卡片 */
-  .app-sk { height: 190px; }
+  .app-sk { height: 176px; }
 
-  /* ===== 外部应用（墨边纸底圆形图标 + 黄三角角标，对应设计稿 .ext / .ca-try） ===== */
-  #extGrid .app-card:not(.app-soon)::before {
-    width: 34px; height: 34px; background: var(--yellow); border-radius: 0;
-    clip-path: polygon(100% 0, 100% 100%, 0 0);
-  }
-  #extGrid .app-ic { background: var(--paper); border: 2px solid var(--navy); }
-  #extGrid .app-ic svg { stroke: var(--red); color: var(--red); }
-  #extGrid .app-card:nth-child(3n+2) .app-ic svg { stroke: var(--orange); color: var(--orange); }
-  #extGrid .app-card:nth-child(3n) .app-ic svg { stroke: var(--navy); color: var(--navy); }
+  /* ===== 外部应用（同款卡片，标签区分外部链接） ===== */
 
-  /* ===== 安全提示条（黄底 + 两端墨斜纹，22s 缓移——全页仅两处的氛围动效之二） ===== */
+  /* ===== 安全提示条（浅蓝信息条 + 蓝色图标块） ===== */
   .safety {
-    position: relative; overflow: hidden; margin-top: 26px;
-    display: flex; align-items: center; gap: 16px;
-    background: var(--yellow); padding: 16px 24px;
-    animation: riseIn .7s var(--ease) .78s both;
+    margin-top: 26px;
+    display: flex; align-items: center; gap: 14px;
+    background: var(--orange-soft); padding: 16px 22px;
+    box-shadow: none;
+    animation: riseIn .55s var(--ease) .52s both;
   }
-  .safety::before, .safety::after {
-    content: ""; position: absolute; top: 0; bottom: 0; width: 56px;
-    background: repeating-linear-gradient(-45deg, var(--navy) 0 7px, transparent 7px 16px);
-    background-size: 200% 100%; opacity: .92;
-    animation: stripeMove 22s linear infinite;
-  }
-  .safety::before { left: 0; }
-  .safety::after { right: 0; }
   .safety .si {
-    position: relative; z-index: 2; width: 40px; height: 40px; flex: none; margin-left: 42px;
-    border-radius: 50%; background: var(--navy); color: var(--yellow);
+    width: 36px; height: 36px; flex: none;
+    border-radius: 10px; background: var(--orange); color: #fff;
     display: flex; align-items: center; justify-content: center;
   }
-  .safety .si svg { width: 20px; height: 20px; }
+  .safety .si svg { width: 18px; height: 18px; }
   .safety .safety-tx {
-    position: relative; z-index: 2; margin-right: 42px;
-    font-size: 13.5px; font-weight: 600; letter-spacing: 1px; line-height: 1.8; color: var(--navy);
+    font-size: 13px; letter-spacing: .5px; line-height: 1.75; color: var(--navy);
   }
-  .safety b { font-weight: 800; }
+  .safety b { font-weight: 600; }
 
-  /* ===== 弹层（直角 + 2px 墨边 + 硬影；按钮走 theme .btn 体系） ===== */
+  /* ===== 弹层（12px 圆角 + 1px 发丝边 + 轻阴影；按钮走 theme .btn 体系） ===== */
   .mask {
     position: fixed; inset: 0; z-index: 200;
-    background: rgba(17, 17, 17, .45);
+    background: rgba(29, 33, 41, .45);
     display: none; align-items: center; justify-content: center; padding: 20px;
   }
   .mask.show { display: flex; }
   .modal {
-    width: 100%; max-width: 560px; background: #fff; border: 2px solid var(--navy);
-    border-radius: 0; overflow: hidden;
-    box-shadow: 8px 8px 0 rgba(17, 17, 17, .9);
+    width: 100%; max-width: 560px; background: #fff; border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden;
+    box-shadow: var(--shadow-hover);
     animation: fadeUp .3s var(--ease) both;
   }
   .modal-hd {
     display: flex; align-items: center; gap: 10px; padding: 15px 20px;
-    border-bottom: 2px solid var(--navy);
-    font-size: 15px; font-weight: 800; letter-spacing: 2px;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px; font-weight: 600; letter-spacing: 1px;
   }
   .modal-hd .x {
     margin-left: auto; width: 30px; height: 30px; flex: none;
-    border: 2px solid transparent; border-radius: 0; background: none; cursor: pointer;
+    border: none; border-radius: 6px; background: none; cursor: pointer;
     color: var(--sub); display: flex; align-items: center; justify-content: center;
-    transition: color .15s, background .15s, border-color .15s;
+    transition: color .15s, background .15s;
   }
-  .modal-hd .x:hover { color: var(--navy); background: var(--yellow); border-color: var(--navy); }
+  .modal-hd .x:hover { color: var(--navy); background: var(--fill); }
   .modal-hd .x svg { width: 15px; height: 15px; }
   /* 「全部已读」隐藏时关闭按钮由自身 margin-left:auto 右对齐 */
   #noticeReadAll { margin-left: auto; }
@@ -239,72 +175,60 @@
   .nm-list { max-height: 62vh; overflow-y: auto; }
   .nm-item { padding: 15px 20px; border-bottom: 1px solid var(--line); cursor: pointer; transition: background .18s var(--ease); }
   .nm-item:last-child { border-bottom: none; }
-  .nm-item:hover { background: var(--paper); }
+  .nm-item:hover { background: var(--fill); }
   .nm-head { display: flex; align-items: center; gap: 10px; }
   .nm-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
-  .nm-item.unread .nm-title { font-weight: 800; }
+  .nm-item.unread .nm-title { font-weight: 600; }
   /* 内容默认两行折叠，点击条目展开全文（Markdown 渲染，含图片） */
   .nm-content {
     margin-top: 7px; font-size: 12.5px; color: var(--sub); line-height: 1.8;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
   .nm-item.open .nm-content { display: block; }
-  /* Markdown 排版（对齐 callme.html 结构，色板换为包豪斯几何） */
+  /* Markdown 排版（对齐 callme.html 结构） */
   .nm-content h1, .nm-content h2, .nm-content h3, .nm-content h4 { font-size: 14px; font-weight: 700; color: var(--navy); margin: 8px 0 4px; }
   .nm-content p { margin: 4px 0; }
   .nm-content ul, .nm-content ol { margin: 4px 0 4px 1.2em; padding: 0; }
   .nm-content li { margin: 2px 0; }
-  .nm-content code { font-family: Menlo, Consolas, monospace; font-size: .92em; color: var(--orange); background: var(--paper); padding: 1px 5px; }
-  .nm-content pre { background: var(--paper); border: 1.5px solid var(--line); border-radius: 0; padding: 10px; margin: 8px 0; overflow-x: auto; }
-  .nm-content blockquote { border-left: 3px solid var(--orange); margin: 6px 0; padding: 2px 10px; color: var(--sub); background: var(--paper); }
+  .nm-content code { font-family: Menlo, Consolas, monospace; font-size: .92em; color: var(--orange); background: var(--fill); padding: 1px 5px; border-radius: 4px; }
+  .nm-content pre { background: var(--fill); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; margin: 8px 0; overflow-x: auto; }
+  .nm-content blockquote { border-left: 3px solid var(--orange); margin: 6px 0; padding: 2px 10px; color: var(--sub); background: var(--fill); }
   .nm-content a { color: var(--orange); }
   .nm-content hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
   .nm-content table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; }
   .nm-content th, .nm-content td { border: 1px solid var(--line); padding: 5px 9px; }
-  .nm-content th { background: var(--paper); color: var(--navy); }
-  .nm-content .md-img { display: block; max-width: 100%; border-radius: 0; margin: 6px 0; }
+  .nm-content th { background: var(--fill); color: var(--navy); }
+  .nm-content .md-img { display: block; max-width: 100%; border-radius: var(--radius-sm); margin: 6px 0; }
   .nm-content .md-code { margin: 8px 0; }
   .nm-content .md-code-h { display: none; } /* 通知弹层不提供复制按钮 */
   /* 超管删除入口（标题行右侧红色小字钮） */
   .nm-del {
-    flex: none; font-size: 12px; font-weight: 700; color: var(--red); cursor: pointer;
-    padding: 3px 8px; border: 1.5px solid transparent;
-    transition: border-color .15s, background .15s;
+    flex: none; font-size: 12px; font-weight: 600; color: var(--red); cursor: pointer;
+    padding: 3px 8px; border-radius: 4px;
+    transition: background .15s;
   }
-  .nm-del:hover { border-color: var(--red); background: rgba(210, 39, 48, .08); }
+  .nm-del:hover { background: #FFECE8; }
   /* 删除确认弹层（复用 .mask/.modal；对齐 admin.html 删除班组确认） */
   .modal-bd { padding: 18px 22px 6px; }
   .modal-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px 18px; }
   .modal-bd .tip { font-size: 13px; color: var(--sub); line-height: 1.7; }
 
   /* ===== 动效定义 ===== */
-  @keyframes riseIn { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
-  @keyframes rowIn { from { transform: translateX(-26px); opacity: 0; } to { transform: none; opacity: 1; } }
-  @keyframes cardIn { from { transform: translateY(32px) rotate(-2deg); opacity: 0; } to { transform: none; opacity: 1; } }
-  @keyframes geoIn {
-    0% { transform: rotate(-150deg) translate(110px, -70px); opacity: 0; }
-    45% { opacity: 1; }
-    68% { transform: rotate(10deg) translate(-8px, 5px); }
-    100% { transform: none; opacity: 1; }
-  }
-  @keyframes slashIn { from { transform: rotate(-24deg) scaleX(0); opacity: 0; } to { transform: rotate(-24deg) scaleX(1); opacity: 1; } }
-  @keyframes spinSlow { to { transform: rotate(360deg); } }
-  @keyframes stripeMove { to { background-position: 90px 0; } }
+  @keyframes riseIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes rowIn { from { transform: translateX(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
 
   /* ===== 响应式 ===== */
   @media (max-width: 1080px) {
-    .uc-body { grid-template-columns: 1fr 260px; }
-    .uc-hello { font-size: 40px; }
+    .uc-body { grid-template-columns: 1fr; gap: 22px; }
+    .hstat { padding: 0 18px; }
   }
   @media (max-width: 640px) {
-    .uc-body { grid-template-columns: 1fr; min-height: 0; }
-    .uc-main { padding: 28px 22px 26px; }
-    .uc-geo { display: none; }
-    .uc-hello { font-size: 32px; letter-spacing: -.5px; }
-    .uc-avatar { width: 50px; height: 50px; font-size: 20px; }
+    .uc-body { padding: 26px 20px; }
+    .uc-hello { font-size: 24px; }
+    .uc-avatar { width: 46px; height: 46px; font-size: 19px; }
+    .uc-stats { grid-template-columns: repeat(2, 1fr); row-gap: 16px; }
+    .hstat + .hstat { border-left: none; }
     .topbar-nav { display: none; }
-    .safety .si { margin-left: 30px; }
-    .safety .safety-tx { margin-right: 30px; }
   }
 </style>
 </head>
@@ -312,31 +236,25 @@
 <!-- 顶部导航由 Shade.topbar({active:'index'}) 统一渲染（见 script） -->
 
 <main class="page">
-  <!-- 用户大卡（左侧问候 / 右侧几何构成舞台；卡顶三色带已取消，.hazard-top 空壳 div 不再渲染） -->
+  <!-- 欢迎卡（左侧问候与身份 / 右侧当日数据，指标口径与小程序首页一致；.hazard-top 空壳 div 不再渲染） -->
   <section class="card user-card">
     <div class="hazard-top"></div>
     <div class="uc-body">
       <div class="uc-main">
-        <span class="kicker">WORKBENCH · 工作台</span>
+        <div class="uc-date" id="dateText"></div>
         <div class="uc-hello-row">
           <div class="uc-avatar" id="ucAvatar">·</div>
           <h2 class="uc-hello"><span id="helloText">你好</span></h2>
         </div>
         <div class="uc-meta">
-          <span class="uc-date" id="dateText"></span>
           <span class="uc-role" id="roleRow"></span>
         </div>
       </div>
-      <div class="uc-geo">
-        <div class="geo-stage" aria-hidden="true">
-          <span class="g-ring"></span>
-          <span class="geo g-circle-y"><i></i></span>
-          <span class="geo g-semi-b"><i></i></span>
-          <span class="geo g-tri-r"><i></i></span>
-          <span class="geo g-dot-ink"><i></i></span>
-          <span class="hero-slash"></span>
-        </div>
-        <div class="uc-side" id="sideInfo"></div>
+      <div class="uc-stats">
+        <div class="hstat"><b id="statPrevPass">—</b><span>上月通过</span></div>
+        <div class="hstat warn"><b id="statPrevNeed">—</b><span>上月需补</span></div>
+        <div class="hstat"><b id="statCurPass">—</b><span>本月通过</span></div>
+        <div class="hstat warn"><b id="statCurNeed">—</b><span>本月需补</span></div>
       </div>
     </div>
   </section>
@@ -439,7 +357,7 @@
   function renderExtApps() {
     document.getElementById('extGrid').innerHTML = EXT_APPS.map(function (it) {
       return '<a class="card card-hover app-card" href="' + it.url + '" target="_blank" rel="noopener">' +
-        '<div class="app-ic">' + Shade.icon(it.icon, 26, '#1D4ED8') + '</div>' +
+        '<div class="app-ic">' + Shade.icon(it.icon, 26, '#0E3DA8') + '</div>' +
         '<h4>' + Shade.esc(it.name) + '</h4>' +
         '<p>' + Shade.esc(it.desc) + '</p>' +
         '<div class="app-meta"><span class="tag tag-navy">外部链接</span>' +
@@ -481,9 +399,6 @@
 
     // 管理入口仅 admin 可见
     if (u.role === 'admin') document.getElementById('navAdmin').hidden = false;
-
-    document.getElementById('sideInfo').innerHTML =
-      '班组数字化工具平台<br> Shade 壹匣 · 网页版';
   }
 
   // 渲染应用宫格
@@ -499,7 +414,7 @@
         : '';
       html += '<a class="card card-hover app-card" href="' + (href || 'javascript:void 0') + '"' +
         (href ? '' : ' data-soon="1"') + '>' +
-        '<div class="app-ic">' + Shade.icon(item.icon || 'app', 26, '#1D4ED8') + '</div>' +
+        '<div class="app-ic">' + Shade.icon(item.icon || 'app', 26, '#0E3DA8') + '</div>' +
         '<h4>' + Shade.esc(item.name) + '</h4>' +
         (meta ? '<p>' + Shade.esc(meta.desc) + '</p>' : '') +
         '<div class="app-meta">' + tags +
@@ -529,6 +444,32 @@
         Shade.toast('该应用暂未开通网页版，请使用小程序访问', 'info');
       });
     });
+  }
+
+  // ===== 欢迎卡数据列 =====
+  var hasWorklog = false; // 是否拥有出工日志权限（无权限时出工类指标保持 —）
+
+  // 出工日志指标（/stats 口径）：上月通过 / 上月需补 / 本月通过 / 本月需补；
+  // 通过 = 班组当月验证通过卡片数/全部卡片数；需补 = 我当月「未上传水印照片」的卡片条数；失败静默保留 —
+  async function loadWorklogStats() {
+    if (!hasWorklog) return;
+    var now = new Date();
+    var pad = function (n) { return String(n).padStart(2, '0'); };
+    var prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    var prevMonth = prev.getFullYear() + '-' + pad(prev.getMonth() + 1);
+    var curMonth = now.getFullYear() + '-' + pad(now.getMonth() + 1);
+    try {
+      var r = await Shade.api('/api/v1/worklog/stats?month=' + prevMonth);
+      var a = r.data || {};
+      document.getElementById('statPrevPass').textContent = (a.passed || 0) + '/' + (a.total || 0);
+      document.getElementById('statPrevNeed').textContent = a.needPhotos || 0;
+    } catch (e) { /* 静默失败：保留 — */ }
+    try {
+      var r2 = await Shade.api('/api/v1/worklog/stats?month=' + curMonth);
+      var b = r2.data || {};
+      document.getElementById('statCurPass').textContent = (b.passed || 0) + '/' + (b.total || 0);
+      document.getElementById('statCurNeed').textContent = b.needPhotos || 0;
+    } catch (e) { /* 静默失败：保留 — */ }
   }
 
   // ===== 消息通知 =====
@@ -733,8 +674,11 @@
     await Shade.refreshUser(function (u) { if (u) renderProfile(u); });
     try {
       var r2 = await Shade.api('/api/v1/app/list');
+      var fullList = r2.data.list || [];
+      hasWorklog = fullList.some(function (item) { return item.app_key === 'work-log'; });
       // 网页端宫格按 terminal 过滤：只展示 双端/PC端 应用（移动端应用仅小程序可见）
-      renderApps((r2.data.list || []).filter(function (item) { return item.terminal !== 'mobile'; }));
+      renderApps(fullList.filter(function (item) { return item.terminal !== 'mobile'; }));
+      loadWorklogStats(); // 出工日志指标独立拉取，失败静默
     } catch (e) {
       document.getElementById('appCount').textContent = '加载失败';
       document.getElementById('appGrid').innerHTML =

@@ -1,6 +1,6 @@
 /* ============================================================
-   首页 · 方案十二「包豪斯几何」—— 用户卡 / 通知卡 / 应用宫格 / 我的
-   设计稿基准：design/redesign/12-包豪斯几何-小程序首页.html（1px=2rpx）
+   首页 ·「政企蓝白 Enterprise Blue」—— 深蓝页首 / 数据浮层 / 宫格 / 通知 / 我的
+   设计稿基准：design/小程序-首页.html（1px=2rpx）
    ============================================================ */
 
 /* ---------- 主面板滑动容器（首页 / 我的 左右切换） ---------- */
@@ -19,259 +19,164 @@
   min-height: 0;
 }
 
-/* ---------- 编排式入场关键帧（几何形旋转+平移后静止；WXSS 不支持 var() 参与
-   transform，每类动势单独写死；时延链 0.38s 起递增，宫格奇偶交替方向） ---------- */
-@keyframes k-in-u { /* 用户卡：下方向上，微回正 */
-  from { opacity: 0; transform: translateY(60rpx) rotate(-2.5deg); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
+/* ---------- 深蓝页首延伸区（与 navbar 同色 #0A3592；底部留白承接数据卡浮层） ---------- */
+.hero {
+  background: #0A3592;
+  padding: 12rpx 40rpx 96rpx;
+  animation: fadeIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@keyframes k-in-geor { /* 红圆：左下缩放进位 */
-  from { opacity: 0; transform: translate(-28rpx, 28rpx) scale(0.2); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes k-in-geob { /* 蓝半圆：上方垂落 */
-  from { opacity: 0; transform: translateY(-48rpx); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes k-in-right { /* 通知卡：右侧滑入 */
-  from { opacity: 0; transform: translateX(92rpx) rotate(1.5deg); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes k-in-row { /* 通知行：右侧小幅滑入 */
-  from { opacity: 0; transform: translateX(36rpx); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes k-in-left { /* 板块标题：左侧滑入 */
-  from { opacity: 0; transform: translateX(-44rpx); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes k-in-grid { /* 宫格卡：下方向上 */
-  from { opacity: 0; transform: translateY(48rpx) rotate(0.8deg); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes k-in-cell-odd { /* 宫格奇数格：左下旋入 */
-  from { opacity: 0; transform: translate(-32rpx, 32rpx) rotate(-160deg) scale(0.4); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes k-in-cell-even { /* 宫格偶数格：右上旋入 */
-  from { opacity: 0; transform: translate(32rpx, -32rpx) rotate(150deg) scale(0.4); }
-  55% { opacity: 1; }
-  to { opacity: 1; transform: none; }
-}
-
-/* 氛围动效 1/2：通知铃铛慢摆（transform-origin 顶部，如钟摆） */
-@keyframes k-bell {
-  0%, 68%, 100% { transform: rotate(0deg); }
-  74% { transform: rotate(13deg); }
-  80% { transform: rotate(-10deg); }
-  86% { transform: rotate(6deg); }
-  92% { transform: rotate(-2deg); }
-}
-
-/* ---------- 用户卡片（直角白卡 + 蓝硬影 + 几何装饰：红圆 / 蓝半圆） ---------- */
-.u-card {
-  position: relative;
-  overflow: hidden; /* 裁剪卡内几何装饰（不裁剪外侧硬阴影） */
-  margin-bottom: 32rpx;
-  animation: k-in-u 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 0.38s backwards;
-}
-
-/* 红圆：左下角切入半圆 */
-.u-geo-red {
-  position: absolute;
-  left: -56rpx;
-  bottom: -56rpx;
-  width: 112rpx;
-  height: 112rpx;
-  border-radius: 50%;
-  background: #D22730;
-  animation: k-in-geor 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 0.6s backwards;
-}
-
-/* 蓝半圆：顶部垂落（圆顶朝下） */
-.u-geo-blue {
-  position: absolute;
-  top: 0;
-  right: 120rpx;
-  width: 72rpx;
-  height: 36rpx;
-  border-radius: 0 0 36rpx 36rpx;
-  background: #1D4ED8;
-  animation: k-in-geob 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 0.68s backwards;
-}
-
-.u-body {
-  position: relative;
-  display: flex;
-  align-items: center;
-  padding: 44rpx 28rpx 36rpx;
-}
-
-/* 头像方块直角 + 墨底 */
-.avatar {
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 0;
-  background: #111111;
-  color: #FFFFFF;
-  font-size: 44rpx;
+.hero-name {
+  font-size: 40rpx;
   font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-}
-
-.u-info {
-  margin-left: 20rpx;
-  min-width: 0;
-}
-
-/* 问候语 800 字重 */
-.u-name {
-  font-size: 32rpx;
-  font-weight: 800;
   letter-spacing: 1rpx;
-  color: #111111;
+  color: #FFFFFF;
 }
 
-.u-sub {
+.hero-sub {
   margin-top: 12rpx;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.72);
+  letter-spacing: 0.5rpx;
+}
+
+/* 首页内容区：顶部不留 padding，数据卡以负边距半压深蓝页首 */
+.home-body {
+  padding-top: 0;
+}
+
+/* ---------- 数据概览浮层卡（注意：承载容器不可加 overflow:hidden，会裁掉浮层顶部；
+   position+z-index 保证浮层压在深蓝页首之上，真机不被页首盖住） ---------- */
+.stats-card {
+  position: relative;
+  z-index: 1;
+  margin-top: -56rpx;
+  margin-bottom: 32rpx;
   display: flex;
+  padding: 30rpx 0;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s backwards;
+}
+
+.stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12rpx;
 }
 
-.u-account {
+.stat + .stat {
+  border-left: 1rpx solid #E5E6EB;
+}
+
+.stat-num {
+  font-size: 42rpx;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #1D2129;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-num-warn {
+  color: #FF7D00;
+}
+
+.stat-num-blue {
+  color: #0E3DA8;
+}
+
+.stat-label {
+  margin-top: 8rpx;
   font-size: 22rpx;
-  color: #5C5748;
+  color: #86909C;
 }
 
-.u-side {
-  margin-left: auto;
-  text-align: right;
-  flex: none;
-}
-
-.u-date {
-  font-size: 26rpx;
-  font-weight: 800;
-  letter-spacing: 1rpx;
-  color: #111111;
-}
-
-.u-week {
-  margin-top: 6rpx;
-  font-size: 22rpx;
-  color: #5C5748;
-}
-
-/* ---------- 消息通知卡（红色硬影变体见 wxml shadow-red） ---------- */
+/* ---------- 消息通知卡 ---------- */
 .notice-card {
   margin-bottom: 32rpx;
-  padding: 24rpx 28rpx 12rpx;
+  padding: 26rpx 28rpx 10rpx;
   transition: background-color 0.15s ease;
-  animation: k-in-right 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 0.56s backwards;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.16s backwards;
 }
 
 .n-head {
   display: flex;
   align-items: center;
-  padding-bottom: 20rpx;
+  padding-bottom: 18rpx;
 }
 
-/* 铃铛底：蓝色三角（clip-path，基础库 ≥2.9 支持）；白图标垂于下半部 */
+/* 铃铛图标块：浅蓝底圆角方块 */
 .n-ico {
-  width: 64rpx;
-  height: 60rpx;
-  background: #1D4ED8;
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 16rpx;
+  background: #E8F0FF;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  padding-bottom: 6rpx;
   flex: none;
-}
-
-/* 铃铛慢摆（氛围动效，t-icon 外部样式类） */
-.n-bell-swing {
-  transform-origin: 50% 0;
-  animation: k-bell 4.8s ease-in-out 2.4s infinite;
 }
 
 .n-title {
   margin-left: 16rpx;
   font-size: 28rpx;
-  font-weight: 800;
-  letter-spacing: 2rpx;
-  color: #111111;
+  font-weight: 600;
+  color: #1D2129;
 }
 
-/* 未读标记：红底白字直角块 + 墨色硬影（0 未读时不渲染） */
+/* 未读计数：红点 + 红字（0 未读时不渲染） */
 .n-badge {
   margin-left: auto;
-  margin-right: 8rpx;
-  padding: 2rpx 16rpx;
-  border-radius: 0;
-  background: #D22730;
-  color: #FFFFFF;
-  font-size: 20rpx;
-  font-weight: 800;
-  letter-spacing: 1rpx;
-  line-height: 1.8;
-  box-shadow: 4rpx 4rpx 0 #111111;
+  margin-right: 6rpx;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  color: #F53F3F;
+  font-size: 22rpx;
+  font-weight: 600;
 }
 
-/* 通知行：行间发丝线 + 前置墨色小方块 */
+.n-badge-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #F53F3F;
+}
+
+/* 通知行：未读红点 / 已读空心点 + 行间发丝线 */
 .n-row {
   display: flex;
   align-items: center;
-  padding: 18rpx 0;
-  border-top: 1rpx solid #E7E1D2;
-  animation: k-in-row 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 0.84s backwards;
+  padding: 20rpx 0;
+  border-top: 1rpx solid #E5E6EB;
 }
 
-.n-row::before {
-  content: '';
+.n-dot {
   width: 12rpx;
   height: 12rpx;
   flex: none;
   margin-right: 14rpx;
-  background: #111111;
+  border-radius: 50%;
+  background: #F53F3F;
 }
 
-.n-row:nth-of-type(3) {
-  animation-delay: 0.93s;
+.n-dot-read {
+  background: transparent;
+  border: 2rpx solid #C9CDD4;
+  box-sizing: border-box;
 }
 
 .n-row-title {
   flex: 1;
   min-width: 0;
-  font-size: 24rpx;
-  color: #5C5748;
+  font-size: 25rpx;
+  color: #4E5969;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .n-row-unread {
-  color: #111111;
+  color: #1D2129;
   font-weight: 600;
 }
 
@@ -279,140 +184,77 @@
   margin-left: 16rpx;
   flex: none;
   font-size: 22rpx;
-  color: #6E6856;
+  color: #86909C;
+  font-variant-numeric: tabular-nums;
 }
 
 .n-empty {
   padding: 18rpx 0 12rpx;
-  border-top: 1rpx solid #E7E1D2;
+  border-top: 1rpx solid #E5E6EB;
   font-size: 24rpx;
-  color: #6E6856;
-  animation: fadeIn 0.72s ease 0.84s both;
+  color: #86909C;
 }
 
-/* ---------- 应用宫格（黄色硬影变体见 wxml shadow-yellow） ---------- */
+/* ---------- 应用宫格（无底块深蓝图标直落白卡） ---------- */
 .app-sec {
   margin-bottom: 20rpx;
-  animation: k-in-left 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 0.94s backwards;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.22s backwards;
 }
 
 .grid-card {
-  padding: 28rpx 24rpx 24rpx;
-  animation: k-in-grid 0.72s cubic-bezier(0.22, 0.9, 0.28, 1.02) 1.02s backwards;
+  padding: 32rpx 12rpx 24rpx;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.28s backwards;
 }
 
 .grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 20rpx; /* 格间距：容纳 6rpx 右下硬影后仍留 14rpx 净距 */
+  row-gap: 32rpx;
 }
 
-/* 直角格：4rpx 墨边 + 硬影（红→蓝→黄按格轮转）；奇偶格入场方向交替 */
 .g-item {
-  width: calc((100% - 60rpx) / 4); /* 4 列减去 3 个 20rpx 格间距 */
+  width: 25%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20rpx 8rpx 16rpx;
-  background: #FFFFFF;
-  border: 4rpx solid #111111;
   transition: transform 0.15s ease, opacity 0.15s ease;
-  animation-duration: 0.72s;
-  animation-timing-function: cubic-bezier(0.22, 0.9, 0.28, 1.02);
-  animation-fill-mode: backwards;
 }
 
-.g-item:nth-child(3n+1) { box-shadow: 6rpx 6rpx 0 #D22730; }
-.g-item:nth-child(3n+2) { box-shadow: 6rpx 6rpx 0 #1D4ED8; }
-.g-item:nth-child(3n) { box-shadow: 6rpx 6rpx 0 #F2B705; }
-
-.g-item:nth-child(odd) { animation-name: k-in-cell-odd; }
-.g-item:nth-child(even) { animation-name: k-in-cell-even; }
-
-/* 宫格入场时延链：1.12s 起按 0.07s 递增（覆盖 12 格） */
-.g-item:nth-child(1) { animation-delay: 1.12s; }
-.g-item:nth-child(2) { animation-delay: 1.19s; }
-.g-item:nth-child(3) { animation-delay: 1.26s; }
-.g-item:nth-child(4) { animation-delay: 1.33s; }
-.g-item:nth-child(5) { animation-delay: 1.4s; }
-.g-item:nth-child(6) { animation-delay: 1.47s; }
-.g-item:nth-child(7) { animation-delay: 1.54s; }
-.g-item:nth-child(8) { animation-delay: 1.61s; }
-.g-item:nth-child(9) { animation-delay: 1.68s; }
-.g-item:nth-child(10) { animation-delay: 1.75s; }
-.g-item:nth-child(11) { animation-delay: 1.82s; }
-.g-item:nth-child(12) { animation-delay: 1.89s; }
-
-/* 占位格（敬请期待）：虚线墨边、无硬影 */
-.g-item-soon {
-  border-style: dashed;
-  box-shadow: none;
-}
-
-/* 图标浅底：直角 + 浅蓝（图标色 #1D4ED8 在 wxml 内联） */
 .g-ico {
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 0;
-  background: #EDF2FE;
+  width: 92rpx;
+  height: 92rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.g-soon {
-  background: transparent;
-  border: 4rpx dashed #111111;
 }
 
 .g-name {
   margin-top: 12rpx;
   font-size: 22rpx;
-  font-weight: 600;
-  color: #111111;
+  color: #1D2129;
+  text-align: center;
+  line-height: 1.4;
 }
 
 .g-name-soon {
-  color: #6E6856;
-  font-weight: 400;
+  color: #86909C;
 }
 
 .empty {
   padding: 24rpx 28rpx 32rpx;
   text-align: center;
-  color: #6E6856;
+  color: #86909C;
   font-size: 24rpx;
 }
 
-/* 底部提示：前置红圆点 + 后置蓝三角 */
+/* 底部提示（纯文字，无几何记号） */
 .tip {
   margin-top: 24rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14rpx;
-  color: #5C5748;
-  font-size: 22rpx;
-  letter-spacing: 2rpx;
-  animation: fadeIn 0.72s ease 1.7s both;
-}
-
-.tip::before {
-  content: '';
-  width: 12rpx;
-  height: 12rpx;
-  border-radius: 50%;
-  background: #D22730;
-}
-
-.tip::after {
-  content: '';
-  width: 0;
-  height: 0;
-  border-left: 9rpx solid transparent;
-  border-right: 9rpx solid transparent;
-  border-bottom: 16rpx solid #1D4ED8;
+  text-align: center;
+  color: #86909C;
+  font-size: 20rpx;
+  letter-spacing: 1rpx;
 }
 
 /* ---------- 启动门控加载页 ---------- */
@@ -421,7 +263,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #F8F6F1;
+  background: #F5F7FA;
 }
 
 .gate-logo {
@@ -450,16 +292,16 @@
 .me-panel .me-body {
   display: flex;
   align-items: center;
-  padding: 52rpx 32rpx 32rpx;
+  padding: 44rpx 32rpx 36rpx;
 }
 
 .me-panel .avatar {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 0;
-  background: #111111;
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 50%;
+  background: #0E3DA8;
   color: #FFFFFF;
-  font-size: 52rpx;
+  font-size: 48rpx;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -474,14 +316,14 @@
 
 .me-panel .me-name {
   font-size: 36rpx;
-  font-weight: 800;
-  color: #111111;
+  font-weight: 700;
+  color: #1D2129;
 }
 
 .me-panel .me-sub {
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #5C5748;
+  color: #4E5969;
 }
 
 /* 功能列表 */
@@ -490,16 +332,16 @@
   margin-bottom: 32rpx;
 }
 
-/* 「绑定商旅」行右侧状态文案（t-cell note 外部样式类）；已过期为包豪斯红 */
+/* 「绑定商旅」行右侧状态文案（t-cell note 外部样式类）；已过期为危险红 */
 .me-panel .sgcc-note {
-  color: #6E6856;
+  color: #86909C;
 }
 
 .me-panel .sgcc-note-expired {
-  color: #D22730;
+  color: #F53F3F;
 }
 
-/* 过期警示前置红三角感叹号（包豪斯语义 三角=失败/警示） */
+/* 过期警示前置红色三角感叹号图标 */
 .me-panel .sgcc-note-expired::before {
   content: '';
   display: inline-block;
@@ -507,7 +349,7 @@
   height: 20rpx;
   margin-right: 6rpx;
   vertical-align: -3rpx;
-  background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjRDIyNzMwJyBzdHJva2Utd2lkdGg9JzEuNycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBzdHJva2UtbGluZWpvaW49J3JvdW5kJz48cGF0aCBkPSdNMTAuMyA0LjFMMi40IDE3LjZhMiAyIDAgMCAwIDEuNyAzaDE1LjhhMiAyIDAgMCAwIDEuNy0zTDEzLjcgNC4xYTIgMiAwIDAgMC0zLjQgMHonLz48cGF0aCBkPSdNMTIgOS4ydjQnLz48Y2lyY2xlIGN4PScxMicgY3k9JzE2LjgnIHI9JzEnIGZpbGw9JyNEMjI3MzAnIHN0cm9rZT0nbm9uZScvPjwvc3ZnPg==");
+  background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjRjUzRjNGJyBzdHJva2Utd2lkdGg9JzEuNycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBzdHJva2UtbGluZWpvaW49J3JvdW5kJz48cGF0aCBkPSdNMTAuMyA0LjFMMi40IDE3LjZhMiAyIDAgMCAwIDEuNyAzaDE1LjhhMiAyIDAgMCAwIDEuNy0zTDEzLjcgNC4xYTIgMiAwIDAgMC0zLjQgMHonLz48cGF0aCBkPSdNMTIgOS4ydjQnLz48Y2lyY2xlIGN4PScxMicgY3k9JzE2LjgnIHI9JzEnIGZpbGw9JyNGNTNGM0YnIHN0cm9rZT0nbm9uZScvPjwvc3ZnPg==");
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
@@ -523,7 +365,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #D22730;
+  color: #F53F3F;
   font-size: 30rpx;
   font-weight: 600;
   transition: background-color 0.15s ease;

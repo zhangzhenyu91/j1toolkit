@@ -5,15 +5,15 @@
 .new-bank {
   margin-top: 24rpx;
   height: 88rpx;
-  border: 3rpx dashed rgba(17,17,17,.35);
-  border-radius: 0;
+  border: 3rpx dashed rgba(29,33,41,.35);
+  border-radius: 12rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10rpx;
   font-size: 27rpx;
   font-weight: 700;
-  color: #1d4ed8;
+  color: #0E3DA8;
   letter-spacing: 2rpx;
 }
 
@@ -28,7 +28,7 @@
 .cnt {
   margin-left: auto;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 1rpx;
 }
 
@@ -48,7 +48,7 @@
 
 .mg-item .hd b {
   font-size: 28rpx;
-  font-weight: 800;
+  font-weight: 700;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -70,7 +70,7 @@
 .mg-item .sub {
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #5c5748;
+  color: #4E5969;
   display: flex;
   align-items: center;
   gap: 20rpx;
@@ -83,25 +83,25 @@
   align-items: center;
   gap: 14rpx;
   font-size: 22rpx;
-  color: #5c5748;
+  color: #4E5969;
 }
 
 .an-line .progress {
   flex: 1;
   height: 12rpx;
-  border-radius: 0;
-  background: #efe9da;
+  border-radius: 12rpx;
+  background: #F7F8FA;
   overflow: hidden;
 }
 
 .an-line .progress-in {
   height: 100%;
-  border-radius: 0;
-  background: #1d4ed8;
+  border-radius: 12rpx;
+  background: #0E3DA8;
 }
 
 .an-line .retry {
-  color: #1d4ed8;
+  color: #0E3DA8;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -113,7 +113,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2rpx 14rpx;
-  border-radius: 0;
+  border-radius: 12rpx;
   font-size: 20rpx;
   line-height: 1.6;
   font-weight: 700;
@@ -121,18 +121,18 @@
 }
 
 .tag-green {
-  background: #e8f5ef;
-  color: #1e9e50;
+  background: #E8FFEA;
+  color: #00B42A;
 }
 
 .tag-orange {
-  background: #edf2fe;
-  color: #1d4ed8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .tag-navy {
-  background: #edf2fe;
-  color: #111111;
+  background: #E8F0FF;
+  color: #1D2129;
 }
 
 /* 题库卡头部范围 tag 不压缩 */
@@ -144,7 +144,7 @@
 .scope-label {
   margin-top: 24rpx;
   font-size: 23rpx;
-  color: #5c5748;
+  color: #4E5969;
   letter-spacing: 2rpx;
 }
 
@@ -157,60 +157,60 @@
 .scope-opt {
   flex: 1;
   min-width: 0;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 18rpx 12rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #5c5748;
+  color: #4E5969;
   text-align: center;
   line-height: 1.5;
   box-sizing: border-box;
 }
 
 .scope-opt.on {
-  border-color: #1d4ed8;
-  background: #edf2fe;
-  color: #1d4ed8;
+  border-color: #0E3DA8;
+  background: #E8F0FF;
+  color: #0E3DA8;
 }
 
 .tag-red {
-  background: #fae9e9;
-  color: #d22730;
+  background: #FFECE8;
+  color: #F53F3F;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(17,17,17,.35);
-  border-radius: 0;
+  border: 3rpx dashed rgba(29,33,41,.35);
+  border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }
 
 /* ---------- 新建/编辑题库弹层（底部弹层，同 safeday 名称弹层族） ---------- */
 .sheet {
   background: #ffffff;
-  border: 4rpx solid #111111;
+  border: 2rpx solid #E5E6EB;
   border-bottom: none;
-  border-radius: 0;
-  box-shadow: 0 -8rpx 0 rgba(17, 17, 17, 0.9);
+  border-radius: 12rpx;
+  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
   padding: 36rpx 32rpx 40rpx;
 }
 
 .sheet-title {
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 1rpx;
 }
 
 .sheet-sub {
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #5c5748;
+  color: #4E5969;
   line-height: 1.7;
 }
 
@@ -219,14 +219,14 @@
   height: 80rpx;
   padding: 0 24rpx;
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   font-size: 27rpx;
-  color: #111111;
+  color: #1D2129;
 }
 
 .ph {
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
 }
 
 .sheet-ops {
@@ -238,10 +238,10 @@
 .btn-ghost {
   flex: 1;
   height: 84rpx;
-  border-radius: 0;
-  border: 4rpx solid #111111;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
   background: #ffffff;
-  color: #111111;
+  color: #1D2129;
   font-size: 28rpx;
   font-weight: 700;
   display: flex;
@@ -252,8 +252,8 @@
 .btn-accent {
   flex: 2;
   height: 84rpx;
-  border-radius: 0;
-  background: #1d4ed8;
+  border-radius: 12rpx;
+  background: #0E3DA8;
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 700;
@@ -273,6 +273,6 @@
   margin-top: 40rpx;
   text-align: center;
   font-size: 22rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   letter-spacing: 2rpx;
 }

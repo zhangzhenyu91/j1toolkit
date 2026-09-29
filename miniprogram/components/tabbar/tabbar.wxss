@@ -1,3 +1,4 @@
+/* 底部 TabBar ·「政企蓝白」：白底 + 顶部发丝线，激活项品牌蓝 */
 .tabbar {
   position: fixed;
   left: 0;
@@ -6,7 +7,7 @@
   z-index: 100;
   display: flex;
   background: #FFFFFF;
-  border-top: 6rpx solid #111111; /* 3px 墨线 */
+  border-top: 1rpx solid #E5E6EB;
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -17,14 +18,14 @@
   align-items: center;
   justify-content: center;
   padding: 12rpx 0 8rpx;
-  color: rgba(17, 17, 17, 0.4);
+  color: #86909C;
   letter-spacing: 2rpx;
   transition: transform 0.15s ease, opacity 0.15s ease;
 }
 
 .tab.on {
-  color: #D22730;
-  font-weight: 800;
+  color: #0E3DA8;
+  font-weight: 600;
 }
 
 .tab-text {
@@ -32,15 +33,15 @@
   font-size: 20rpx;
 }
 
-/* 激活项下方黄圆点 */
+/* 激活项下方蓝圆点 */
 .t-dot {
-  width: 10rpx;
-  height: 10rpx;
+  width: 8rpx;
+  height: 8rpx;
   margin-top: 6rpx;
   border-radius: 50%;
   background: transparent;
 }
 
 .tab.on .t-dot {
-  background: #F2B705;
+  background: #0E3DA8;
 }

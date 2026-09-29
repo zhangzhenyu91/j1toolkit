@@ -1,25 +1,24 @@
-/* tdesign 组件包豪斯化（本页未引用分包 common.wxss，变量块自留）：日历/对话框/toast 一律直角 */
+/* tdesign 组件变量（本页未引用分包 common.wxss，变量块自留） */
 page {
-  --td-calendar-radius: 0;
-  --td-calendar-selected-border-radius: 0;
-  --td-dialog-border-radius: 0;
-  --td-toast-radius: 0;
-  --td-tag-square-border-radius: 0;
+  --td-calendar-radius: 24rpx;
+  --td-calendar-selected-border-radius: 12rpx;
+  --td-dialog-border-radius: 24rpx;
+  --td-toast-radius: 8rpx;
+  --td-tag-square-border-radius: 12rpx;
 }
 
-/* 按压反馈：包豪斯硬影元素下沉吃影（覆盖全局 .hover-opacity 的纯变暗） */
+/* 按压反馈：轻度变暗 */
 .hover-opacity {
-  opacity: 0.8 !important;
-  transform: translate(3rpx, 3rpx) !important;
+  opacity: 0.75 !important;
 }
 
 /* ---------- 生成卡片（同 manage 页 tower-bar 族：白卡直角 + 墨边浅色硬影 + 墨黑主按钮） ---------- */
 .card {
   background: #ffffff;
-  border: 4rpx solid #111111;
-  border-radius: 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
   padding: 28rpx;
-  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.12);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .row {
@@ -36,12 +35,12 @@ page {
 .r-t {
   font-size: 27rpx;
   font-weight: 700;
-  color: #111111;
+  color: #1D2129;
 }
 
 .r-s {
   font-size: 20rpx;
-  color: rgba(17,17,17,.4);
+  color: rgba(29,33,41,.4);
   margin-top: 6rpx;
 }
 
@@ -56,7 +55,7 @@ page {
 .range-text {
   font-size: 26rpx;
   font-weight: 700;
-  color: #111111;
+  color: #1D2129;
   letter-spacing: 1rpx;
 }
 
@@ -66,25 +65,25 @@ page {
   font-size: 24rpx;
   font-weight: 700;
   color: #ffffff;
-  background: #1d4ed8;
-  border: 3rpx solid #111111;
-  border-radius: 0;
-  box-shadow: 4rpx 4rpx 0 rgba(17, 17, 17, 0.9);
+  background: #0E3DA8;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   padding: 14rpx 32rpx;
 }
 
 .gen {
   margin-top: 28rpx;
   height: 88rpx;
-  border-radius: 0;
-  background: #111111;
+  border-radius: 12rpx;
+  background: #1D2129;
   color: #ffffff;
   font-size: 27rpx;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 6rpx 6rpx 0 rgba(17, 17, 17, 0.9);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .gen.disabled {
@@ -96,5 +95,5 @@ page {
   padding: 0 8rpx;
   font-size: 22rpx;
   line-height: 1.8;
-  color: #5c5748;
+  color: #4E5969;
 }

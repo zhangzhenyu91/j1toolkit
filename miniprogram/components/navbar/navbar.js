@@ -4,8 +4,8 @@ Component({
   properties: {
     title: { type: String, value: '' }, // 标题
     back: { type: Boolean, value: false }, // 是否显示返回箭头
-    bg: { type: String, value: '#F8F6F1' }, // 背景色
-    color: { type: String, value: '#111111' }, // 标题/箭头颜色
+    bg: { type: String, value: '#F5F7FA' }, // 背景色
+    color: { type: String, value: '#1D2129' }, // 标题/箭头颜色
     frontColor: { type: String, value: '#000000' }, // 状态栏文字颜色（仅支持 #000000/#ffffff）
   },
 
@@ -13,6 +13,7 @@ Component({
     statusBarHeight: 20,
     isRoot: false, // 当前页是页面栈栈底（分享卡片进入等场景）：返回箭头无效，改显首页图标
     isHome: false, // 当前页是首页：不显示首页图标
+    isDark: false, // 深色页首（frontColor=#ffffff）：取消发丝底线
   },
 
   lifetimes: {
@@ -24,6 +25,7 @@ Component({
         statusBarHeight: (app && app.globalData.statusBarHeight) || 20,
         isRoot: pages.length <= 1,
         isHome: route === 'pages/home/home',
+        isDark: this.data.frontColor === '#ffffff',
       });
       // 同步系统状态栏文字颜色（进入每个页面时重置，避免被登录页的白色设置残留）
       wx.setNavigationBarColor({

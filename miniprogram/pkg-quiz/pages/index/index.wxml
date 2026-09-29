@@ -38,7 +38,7 @@
   <view class="sec-row">
     <view class="section-title">我的题库</view>
     <view class="more" wx:if="{{isManager}}" hover-class="hover-opacity" bindtap="onManageTap">
-      管理 <t-icon name="chevron-right" size="26rpx" color="rgba(17,17,17,.4)" />
+      管理 <t-icon name="chevron-right" size="26rpx" color="rgba(29,33,41,.4)" />
     </view>
   </view>
 
@@ -46,7 +46,7 @@
     <view class="card bank-item" wx:for="{{banks}}" wx:key="id"
           style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;"
           hover-class="hover-bg-warm" bindtap="onBankTap" data-id="{{item.id}}" data-name="{{item.name}}">
-      <view class="icon-box"><t-icon name="book" size="40rpx" color="#1D4ED8" /></view>
+      <view class="icon-box"><t-icon name="book" size="40rpx" color="#0E3DA8" /></view>
       <view class="tx">
         <b>
           {{item.name}}
@@ -70,11 +70,11 @@
 
   <!-- 题库池入口卡（二级页：挑选管理员上传的题库） -->
   <view class="card pool-entry" hover-class="hover-bg-warm" bindtap="onPoolTap">
-    <view class="icon-box"><t-icon name="app" size="40rpx" color="#1D4ED8" /></view>
+    <view class="icon-box"><t-icon name="app" size="40rpx" color="#0E3DA8" /></view>
     <view class="tx">
       <b>题库池</b>
     </view>
-    <t-icon name="chevron-right" size="36rpx" color="rgba(17,17,17,.4)" />
+    <t-icon name="chevron-right" size="36rpx" color="rgba(29,33,41,.4)" />
   </view>
 </view>
 

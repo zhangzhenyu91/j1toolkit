@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 # 生成小程序分享图：统一背景 + 居中白色卡片 + 应用图标 / 工具箱图标
+# 「政企蓝白」口径：背景程序合成（页面底 #F5F7FA + 顶部品牌蓝 #0E3DA8 色条），不再依赖 AI 背景图
 # 用法：python design/make_share_images.py
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-BG_PATH = ROOT / 'design' / 'share-bg-preview.png'
 FONT_PATH = ROOT / 'design' / 'font' / 't.ttf'
 TOOLBOX_PATH = ROOT / 'miniprogram' / 'assets' / 'toolbox.png'
 OUT_DIR = ROOT / 'miniprogram' / 'images' / 'share'
 
-ORANGE = '#F26D21'  # 品牌主色
+BLUE = '#0E3DA8'       # 品牌主色（政企蓝白）
+PAGE_BG = '#F5F7FA'    # 页面底
 CARD_RADIUS = 48
 CARD_SIZE = 460
 ICON_SIZE = 300
@@ -26,18 +27,17 @@ APPS = {
     'quiz': 0xE0CB,           # book
 }
 
-WATERMARK_CROP = 64  # 裁掉底部 AI 生成水印
 SHARE_RATIO = 5 / 4  # 微信分享缩略图按 5:4 显示，源头直接用 5:4 避免被裁偏
 FINAL_WIDTH = 800    # 出图宽度（高按 5:4 = 640）：体验评分要求包内图片音频资源合计不超过 200K，需为后续应用分享图留余量；超限时改走 CDN 用 URL 引入
 
 
 def load_background() -> Image.Image:
-    bg = Image.open(BG_PATH).convert('RGB')
-    bg = bg.crop((0, 0, bg.width, bg.height - WATERMARK_CROP))
-    # 居中裁成 5:4（微信分享图推荐比例）
-    target_w = round(bg.height * SHARE_RATIO)
-    x0 = (bg.width - target_w) // 2
-    return bg.crop((x0, 0, x0 + target_w, bg.height))
+    """程序合成背景：页面底 + 顶部品牌蓝色条（5:4 源尺寸即 800×640）"""
+    w, h = FINAL_WIDTH, round(FINAL_WIDTH / SHARE_RATIO)
+    bg = Image.new('RGB', (w, h), PAGE_BG)
+    d = ImageDraw.Draw(bg)
+    d.rectangle((0, 0, w, round(h * 0.1)), fill=BLUE)  # 顶部品牌色条
+    return bg
 
 
 def make_card(size: int, radius: int) -> Image.Image:
@@ -95,7 +95,7 @@ def main():
 
     # 应用分享图（TDesign 图标字形，与小程序内图标完全一致）
     for key, cp in APPS.items():
-        glyph = render_glyph(cp, ICON_SIZE * 2, ORANGE)
+        glyph = render_glyph(cp, ICON_SIZE * 2, BLUE)
         img = compose(bg, glyph)
         path = OUT_DIR / f'share-{key}.jpg'
         img.save(path, 'JPEG', quality=55, optimize=True)

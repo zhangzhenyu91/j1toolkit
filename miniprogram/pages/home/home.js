@@ -23,6 +23,11 @@ Page({
     loading: true,
     notices: [], // 消息通知卡：最新 2 条（含 timeText 展示字段）
     noticeUnread: 0, // 未读通知数（0 时不显示角标）
+    // 数据概览卡：上月通过/需补、本月通过/需补（出工日志 /stats 口径；null=未加载或无权限，显示 —）
+    statPrevPass: null,
+    statPrevNeed: null,
+    statCurPass: null,
+    statCurNeed: null,
     hasWorklog: false, // 是否拥有出工日志权限（按 /app/list 是否含 work-log 判定；控制「绑定商旅」行显隐）
     // 「我的」面板「绑定商旅」行：三态文案（未绑定/已绑定/登录已过期）
     sgccNote: '未绑定',
@@ -108,10 +113,48 @@ Page({
         appNames: list.map((item) => item.name),
         hasWorklog: list.some((item) => item.app_key === 'work-log'), // 「绑定商旅」行显隐（商旅打卡归属出工日志）
       });
+      this.loadWorklogStats();
     } catch (err) {
       this.toast(err.message);
     } finally {
       this.setData({ loading: false });
+    }
+  },
+
+  // 数据概览卡：上月通过 / 上月需补 / 本月通过 / 本月需补（出工日志 /stats 口径，沿用 worklog_team_id 班组上下文）；
+  // 通过 = 班组当月 verify_passed=passed 卡片数/全部卡片数；需补 = 我当月「未上传水印照片」的卡片条数；
+  // 无出工日志权限、未分配班组或接口失败时静默降级，对应项显示 —
+  async loadWorklogStats() {
+    if (!this.data.hasWorklog) {
+      this.setData({ statPrevPass: null, statPrevNeed: null, statCurPass: null, statCurNeed: null });
+      return;
+    }
+    const teamId = Number(wx.getStorageSync('worklog_team_id')) || 0; // 班组口径同 pkg-worklog
+    const suffix = teamId ? `&team_id=${teamId}` : '';
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const curMonth = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonth = `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}`;
+    try {
+      const a = await request({ url: `/api/v1/worklog/stats?month=${prevMonth}${suffix}` });
+      const d = (a && a.data) || a || {};
+      this.setData({
+        statPrevPass: `${d.passed || 0}/${d.total || 0}`,
+        statPrevNeed: d.needPhotos || 0,
+      });
+    } catch (err) {
+      // 静默失败：保留 —
+    }
+    try {
+      const b = await request({ url: `/api/v1/worklog/stats?month=${curMonth}${suffix}` });
+      const d = (b && b.data) || b || {};
+      this.setData({
+        statCurPass: `${d.passed || 0}/${d.total || 0}`,
+        statCurNeed: d.needPhotos || 0,
+      });
+    } catch (err) {
+      // 静默失败：保留 —
     }
   },
 

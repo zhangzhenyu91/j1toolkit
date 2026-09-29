@@ -24,27 +24,27 @@
       <span>{{bank.pct}}%</span>
     </view>
     <view class="an-tip" wx:if="{{bank.analyzing}}">
-      <t-icon name="time" size="24rpx" color="rgba(17,17,17,.4)" />{{bank.analyzingText}}
+      <t-icon name="time" size="24rpx" color="rgba(29,33,41,.4)" />{{bank.analyzingText}}
     </view>
   </view>
 
   <!-- 练习入口宫格（错题/收藏数为本题库个人口径） -->
   <view class="grid">
     <view class="g-item" style="animation-delay: 0ms;" hover-class="hover-bg-warm" bindtap="onSeqTap">
-      <view class="icon-box"><t-icon name="view-list" size="40rpx" color="#1D4ED8" /></view>
+      <view class="icon-box"><t-icon name="view-list" size="40rpx" color="#0E3DA8" /></view>
       <b>顺序练习</b>
       <p>{{seqText}}</p>
     </view>
     <view class="g-item" style="animation-delay: 40ms;" hover-class="hover-bg-warm" bindtap="onRandTap">
-      <view class="icon-box"><t-icon name="swap" size="40rpx" color="#1D4ED8" /></view>
+      <view class="icon-box"><t-icon name="swap" size="40rpx" color="#0E3DA8" /></view>
       <b>随机练习</b>
     </view>
     <view class="g-item" style="animation-delay: 80ms;" hover-class="hover-bg-warm" bindtap="onWrongTap">
-      <view class="icon-box red"><t-icon name="close-circle" size="40rpx" color="#D22730" /></view>
+      <view class="icon-box red"><t-icon name="close-circle" size="40rpx" color="#F53F3F" /></view>
       <b>我的错题<span class="cnt red" wx:if="{{bank.wrongCount}}">{{bank.wrongCount}}</span></b>
     </view>
     <view class="g-item" style="animation-delay: 120ms;" hover-class="hover-bg-warm" bindtap="onFavTap">
-      <view class="icon-box"><t-icon name="star" size="40rpx" color="#1D4ED8" /></view>
+      <view class="icon-box"><t-icon name="star" size="40rpx" color="#0E3DA8" /></view>
       <b>我的收藏<span class="cnt" wx:if="{{bank.favCount}}">{{bank.favCount}}</span></b>
     </view>
   </view>
@@ -52,7 +52,7 @@
   <!-- 移出题库 -->
   <view class="leave-wrap">
     <view class="leave" hover-class="hover-opacity" bindtap="onLeave">
-      <t-icon name="delete" size="28rpx" color="#D22730" />移出题库
+      <t-icon name="delete" size="28rpx" color="#F53F3F" />移出题库
     </view>
   </view>
 </view>
