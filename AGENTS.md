@@ -70,7 +70,7 @@
 - `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / safeday.html / kvm.html / quiz.html / admin.html / sgcc-captcha.html 商旅顶象滑块接力页（小程序 web-view 承载，回传 captchaToken+constId 供绑定登录），公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`、`assets/md.js`（精简 Markdown 渲染器，通知中心与 Call Me 共用）；`kvm-device/` 为 KVM 设备一键接入安装包）
 - `private/` —— 私有配套仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private) 的 submodule 挂载点（`git submodule update --init` 拉取）：`private/uvmp-toolkit/` 内网工具箱客户端（Electron+Vue 壳 + Python 核心，装在内网被控机；UI 与本体同套「政企蓝白」token）、`private/esgcc/` 待开发应用素材与商旅打卡逆向分析仓 `sgcc/`（交接文档/API 报告/抓包/tools；`base.apk` 107MB 不入仓本地留存）、`private/WorkLogs/` 旧独立服务历史数据归档（代码已整合进主服务，仅存数据）
 - `design/` —— UI 设计稿：现行定稿「政企蓝白」（4 份基准稿 `小程序-首页.html` / `小程序-出工日志.html` / `Web-首页.html` / `Web-出工日志.html` + `设计规范.md` + `index.html` 展厅总览）；另存分享图生成工具链（`make_share_images.py` / `font/t.ttf` / `share-bg-preview.png`）；旧定稿已全部移除
-- `manual/` —— 面向最终用户的使用指南（如 `出工日志使用指南.md`）；配套截图存 `manual/images/<应用>/`，截图不入仓时为占位引用
+- `manual/` —— 面向最终用户的使用指南（当前不在仓内；历史版截图含真实班组信息，已随公开化清理归档至私有仓 `_archive/manual/`——日后重建指南时截图须脱敏）
 - 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
 
