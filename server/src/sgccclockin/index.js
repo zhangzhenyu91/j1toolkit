@@ -1301,7 +1301,7 @@ async function writeBackPullVerify(photoId, vr) {
 }
 
 // 费用照片双向对账（以商旅为准）：数据源为 getFeeInfoNew 模板 id=5「上传图片」组件的 value
-// （JSON 数组，元素含 id/url（App 手工上传可能为 imageUrl，两键兼容），结构见 esgcc/sgcc/tools/fee_probe3.js 联调口径）；比对键 = 商旅图片 id
+// （JSON 数组，元素含 id/url（App 手工上传可能为 imageUrl，两键兼容），结构见 private/esgcc/sgcc/tools/fee_probe3.js 联调口径）；比对键 = 商旅图片 id
 // ctx = 卡片上下文 { teamId, memberId }（缺省账号自身口径）：本地照片集/挂卡/成员名/COS 路径均按 ctx 取——
 // 核查按卡片走，人已调班时旧班卡片的照片对账仍落在旧班上下文；远端调用仍用 account.token/机型
 // 规则：商旅有本地无 → 下载存 COS 入库（members=[成员名]、source=1、is_watermark=1、

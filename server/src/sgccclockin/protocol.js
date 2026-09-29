@@ -1,4 +1,4 @@
-// 商旅平台协议层 —— 移植自逆向分析仓 esgcc/sgcc/tools/sgcc_client.js（全部已实测验证，勿改口径）
+// 商旅平台协议层 —— 移植自逆向分析仓 private/esgcc/sgcc/tools/sgcc_client.js（私有仓，全部已实测验证，勿改口径）
 // 两条通道：
 //   jsonm（H5，gwslapi）：AES-128-ECB + SM2 加密 AES 密钥；用于短信登录与 uniID 池
 //   jsonx（App，gwslapi/gwslapizb）：RSA 分块加密（117B/128B，PKCS1）；
@@ -418,7 +418,7 @@ async function getFeeInfoNew(token, { clockInDate, cityName = '', cityCode = '',
 }
 
 // DtComponentListBean 78 字段表（Moshi 语义：原始类型恒输出，装箱/String/List 仅非空）
-// 取自 classes4.dex ApplyDetailBean$DataBean$DtComponentListBean（逆向分析仓 esgcc/sgcc）
+// 取自 classes4.dex ApplyDetailBean$DataBean$DtComponentListBean（逆向分析仓 private/esgcc/sgcc）
 const COMP_FIELDS = require('./comp_fields.json');
 function toMoshi(comp) {
   const out = {};

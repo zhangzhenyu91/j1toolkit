@@ -17,6 +17,6 @@ project.private.config.json
 .kimi-code/*
 !.kimi-code/mcp.json
 
-# 商旅打卡逆向分析仓（esgcc/sgcc/）：仓库已转私有，tools/（含协议密钥）入仓供后续开发；
+# 商旅打卡逆向分析仓（esgcc/sgcc/）已迁往私有仓 j1toolkit-private（submodule 挂载于 private/）；
 # base.apk 107MB 超 GitHub 单文件 100MB 上限，不入仓（本地留存）
-esgcc/sgcc/base.apk
+private/esgcc/sgcc/base.apk
