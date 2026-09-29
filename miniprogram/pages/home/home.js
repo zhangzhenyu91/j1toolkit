@@ -24,10 +24,15 @@ Page({
     notices: [], // 消息通知卡：最新 2 条（含 timeText 展示字段）
     noticeUnread: 0, // 未读通知数（0 时不显示角标）
     // 数据概览卡：上月通过/需补、本月通过/需补（出工日志 /stats 口径；null=未加载或无权限，显示 —）
+    // 数字分级着色（Cls 字段）：通过=未通过数 0 绿 / ≤3 橙 / >3 红；需补=0 绿 / ≤3 橙 / >3 红
     statPrevPass: null,
     statPrevNeed: null,
     statCurPass: null,
     statCurNeed: null,
+    statPrevPassCls: '',
+    statPrevNeedCls: '',
+    statCurPassCls: '',
+    statCurNeedCls: '',
     hasWorklog: false, // 是否拥有出工日志权限（按 /app/list 是否含 work-log 判定；控制「绑定商旅」行显隐）
     // 「我的」面板「绑定商旅」行：三态文案（未绑定/已绑定/登录已过期）
     sgccNote: '未绑定',
@@ -124,6 +129,17 @@ Page({
   // 数据概览卡：上月通过 / 上月需补 / 本月通过 / 本月需补（出工日志 /stats 口径，沿用 worklog_team_id 班组上下文）；
   // 通过 = 班组当月 verify_passed=passed 卡片数/全部卡片数；需补 = 我当月「未上传水印照片」的卡片条数；
   // 无出工日志权限、未分配班组或接口失败时静默降级，对应项显示 —
+  // 分级着色：通过项按未通过数（total-passed）0 绿 / ≤3 橙 / >3 红；需补项 0 绿 / ≤3 橙 / >3 红
+  statPassCls(passed, total) {
+    const bad = Math.max(0, (Number(total) || 0) - (Number(passed) || 0));
+    return bad === 0 ? 'stat-num-good' : bad <= 3 ? 'stat-num-warn' : 'stat-num-bad';
+  },
+
+  statNeedCls(n) {
+    const c = Number(n) || 0;
+    return c === 0 ? 'stat-num-good' : c <= 3 ? 'stat-num-warn' : 'stat-num-bad';
+  },
+
   async loadWorklogStats() {
     if (!this.data.hasWorklog) {
       this.setData({ statPrevPass: null, statPrevNeed: null, statCurPass: null, statCurNeed: null });
@@ -141,7 +157,9 @@ Page({
       const d = (a && a.data) || a || {};
       this.setData({
         statPrevPass: `${d.passed || 0}/${d.total || 0}`,
+        statPrevPassCls: this.statPassCls(d.passed, d.total),
         statPrevNeed: d.needPhotos || 0,
+        statPrevNeedCls: this.statNeedCls(d.needPhotos),
       });
     } catch (err) {
       // 静默失败：保留 —
@@ -151,7 +169,9 @@ Page({
       const d = (b && b.data) || b || {};
       this.setData({
         statCurPass: `${d.passed || 0}/${d.total || 0}`,
+        statCurPassCls: this.statPassCls(d.passed, d.total),
         statCurNeed: d.needPhotos || 0,
+        statCurNeedCls: this.statNeedCls(d.needPhotos),
       });
     } catch (err) {
       // 静默失败：保留 —
@@ -260,7 +280,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v3.6.5k \n 应用权限申请联系 zzy',
+      content: '版本号：v3.6.6k \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },

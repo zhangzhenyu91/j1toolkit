@@ -18,12 +18,12 @@
             <view class="hero-sub">{{userInfo.username}} · {{today}} {{weekday}} · {{userInfo.role === 'admin' ? '管理员' : '班组成员'}}</view>
           </view>
           <view class="page-body home-body">
-            <!-- 数据概览浮层卡（半压深蓝页首；无出工日志权限时对应项显示 —） -->
+            <!-- 数据概览浮层卡（半压深蓝页首；无出工日志权限时对应项显示 —；数字分级着色：绿/橙/红） -->
             <view class="card stats-card">
-              <view class="stat"><text class="stat-num">{{statPrevPass === null ? '—' : statPrevPass}}</text><text class="stat-label">上月通过</text></view>
-              <view class="stat"><text class="stat-num stat-num-warn">{{statPrevNeed === null ? '—' : statPrevNeed}}</text><text class="stat-label">上月需补</text></view>
-              <view class="stat"><text class="stat-num">{{statCurPass === null ? '—' : statCurPass}}</text><text class="stat-label">本月通过</text></view>
-              <view class="stat"><text class="stat-num stat-num-warn">{{statCurNeed === null ? '—' : statCurNeed}}</text><text class="stat-label">本月需补</text></view>
+              <view class="stat"><text class="stat-num {{statPrevPassCls}}">{{statPrevPass === null ? '—' : statPrevPass}}</text><text class="stat-label">上月通过</text></view>
+              <view class="stat"><text class="stat-num {{statPrevNeedCls}}">{{statPrevNeed === null ? '—' : statPrevNeed}}</text><text class="stat-label">上月需补</text></view>
+              <view class="stat"><text class="stat-num {{statCurPassCls}}">{{statCurPass === null ? '—' : statCurPass}}</text><text class="stat-label">本月通过</text></view>
+              <view class="stat"><text class="stat-num {{statCurNeedCls}}">{{statCurNeed === null ? '—' : statCurNeed}}</text><text class="stat-label">本月需补</text></view>
             </view>
 
             <!-- 消息通知（浅蓝图标块 + 未读红点计数，整卡点击进入列表） -->
@@ -126,7 +126,7 @@
               <t-cell
                 title="关于 Shade 壹匣"
                 left-icon="book"
-                note="v3.6.5k"
+                note="v3.6.6k"
                 arrow
                 hover
                 bordered="{{false}}"

@@ -76,8 +76,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 分级着色：全部达标绿 / ≤3 橙 / >3 红（默认值即正文深色，未加载时 — 不着色） */
+.stat-num-good {
+  color: #00B42A;
+}
+
 .stat-num-warn {
   color: #FF7D00;
+}
+
+.stat-num-bad {
+  color: #F53F3F;
 }
 
 .stat-num-blue {

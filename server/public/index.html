@@ -38,7 +38,10 @@
   .hstat { padding: 0 24px; text-align: center; }
   .hstat + .hstat { border-left: 1px solid var(--line); }
   .hstat b { display: block; font-size: 20px; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
+  /* 数字分级着色（与小程序首页同口径）：全部达标绿 / ≤3 橙 / >3 红；未加载 — 不着色 */
+  .hstat.good b { color: var(--green); }
   .hstat.warn b { color: var(--yellow); }
+  .hstat.bad b { color: var(--red); }
   .hstat.blue b { color: var(--orange); }
   .hstat span { display: block; margin-top: 4px; font-size: 11.5px; color: var(--ph); }
 
@@ -254,10 +257,10 @@
         </div>
       </div>
       <div class="uc-stats">
-        <div class="hstat"><b id="statPrevPass">—</b><span>上月通过</span></div>
-        <div class="hstat warn"><b id="statPrevNeed">—</b><span>上月需补</span></div>
-        <div class="hstat"><b id="statCurPass">—</b><span>本月通过</span></div>
-        <div class="hstat warn"><b id="statCurNeed">—</b><span>本月需补</span></div>
+        <div class="hstat" id="statPrevPassBox"><b id="statPrevPass">—</b><span>上月通过</span></div>
+        <div class="hstat" id="statPrevNeedBox"><b id="statPrevNeed">—</b><span>上月需补</span></div>
+        <div class="hstat" id="statCurPassBox"><b id="statCurPass">—</b><span>本月通过</span></div>
+        <div class="hstat" id="statCurNeedBox"><b id="statCurNeed">—</b><span>本月需补</span></div>
       </div>
     </div>
   </section>
@@ -454,6 +457,19 @@
 
   // 出工日志指标（/stats 口径）：上月通过 / 上月需补 / 本月通过 / 本月需补；
   // 通过 = 班组当月验证通过卡片数/全部卡片数；需补 = 我当月「未上传水印照片」的卡片条数；失败静默保留 —
+  // 分级着色（与小程序首页同口径）：通过项按未通过数（total-passed）0 绿 / ≤3 橙 / >3 红；需补项 0 绿 / ≤3 橙 / >3 红
+  function statPassCls(passed, total) {
+    var bad = Math.max(0, (Number(total) || 0) - (Number(passed) || 0));
+    return bad === 0 ? 'good' : bad <= 3 ? 'warn' : 'bad';
+  }
+  function statNeedCls(n) {
+    var c = Number(n) || 0;
+    return c === 0 ? 'good' : c <= 3 ? 'warn' : 'bad';
+  }
+  function setStat(boxId, numId, text, cls) {
+    document.getElementById(numId).textContent = text;
+    document.getElementById(boxId).className = 'hstat ' + cls;
+  }
   async function loadWorklogStats() {
     if (!hasWorklog) return;
     var now = new Date();
@@ -464,14 +480,14 @@
     try {
       var r = await Shade.api('/api/v1/worklog/stats?month=' + prevMonth);
       var a = r.data || {};
-      document.getElementById('statPrevPass').textContent = (a.passed || 0) + '/' + (a.total || 0);
-      document.getElementById('statPrevNeed').textContent = a.needPhotos || 0;
+      setStat('statPrevPassBox', 'statPrevPass', (a.passed || 0) + '/' + (a.total || 0), statPassCls(a.passed, a.total));
+      setStat('statPrevNeedBox', 'statPrevNeed', a.needPhotos || 0, statNeedCls(a.needPhotos));
     } catch (e) { /* 静默失败：保留 — */ }
     try {
       var r2 = await Shade.api('/api/v1/worklog/stats?month=' + curMonth);
       var b = r2.data || {};
-      document.getElementById('statCurPass').textContent = (b.passed || 0) + '/' + (b.total || 0);
-      document.getElementById('statCurNeed').textContent = b.needPhotos || 0;
+      setStat('statCurPassBox', 'statCurPass', (b.passed || 0) + '/' + (b.total || 0), statPassCls(b.passed, b.total));
+      setStat('statCurNeedBox', 'statCurNeed', b.needPhotos || 0, statNeedCls(b.needPhotos));
     } catch (e) { /* 静默失败：保留 — */ }
   }
 
