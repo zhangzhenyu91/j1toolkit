@@ -101,14 +101,14 @@ svg { display: block; }
 /* 激活项：蓝字 + 底部 2px 蓝条 */
 .topbar-item.on { color: var(--orange); font-weight: 600; }
 .topbar-item.on::after {
-  content: ""; position: absolute; left: 15px; right: 15px; bottom: -10px;
+  content: ""; position: absolute; left: 15px; right: 15px; bottom: 0;
   height: 2px; background: var(--orange); border-radius: 2px;
 }
 /* 「管理」导航项（统一 topbar 渲染，带内联图标；hidden 时彻底隐藏） */
 #navAdmin { display: inline-flex; align-items: center; gap: 6px; }
 #navAdmin[hidden] { display: none; }
 #navAdmin svg { width: 14px; height: 14px; }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; align-self: stretch; }
 .topbar-user {
   display: flex; align-items: center; gap: 9px;
   padding-left: 16px; border-left: 1px solid var(--line);
