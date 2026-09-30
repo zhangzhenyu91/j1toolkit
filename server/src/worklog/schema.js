@@ -77,6 +77,7 @@ const DDL = [
     sort INT NOT NULL DEFAULT 0 COMMENT '下拉排序',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '1 启用 0 停用',
     out_of_city TINYINT NOT NULL DEFAULT 0 COMMENT '市外标记：1 出差至市外（费用按市外标准验证），0 市内（默认）',
+    stationed TINYINT NOT NULL DEFAULT 0 COMMENT '驻地标记：1 驻地（费用按驻地标准 伙食40/交通0 验证），0 非驻地（默认）；与市外互斥',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_team_dest (team_id, name)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -110,7 +111,7 @@ const DDL = [
   // 调整标准 = 直接改表/插入新生效行（同口径多行时取 记录日期当日已生效 的最新一行）
   `CREATE TABLE IF NOT EXISTS worklog_fee_std (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    scope TINYINT NOT NULL COMMENT '适用口径：0 市内 1 市外（目的地 out_of_city 标记）',
+    scope TINYINT NOT NULL COMMENT '适用口径：0 市内 1 市外（目的地 out_of_city 标记） 2 驻地（目的地 stationed 标记）',
     food_fee DECIMAL(8,2) NOT NULL COMMENT '伙食补助标准',
     transit_fee DECIMAL(8,2) NOT NULL COMMENT '交通费标准',
     effective_from DATE NOT NULL COMMENT '生效起始日（含当日）',
@@ -283,16 +284,33 @@ async function ensureWorklogSchema(pool) {
     console.log('[初始化] 已为 worklog_destination 补充 out_of_city 列');
   }
 
-  // 费用标准种子（仅空表时）：市内/市外旧口径均 60/0（自 2000-01-01 起，历史记录保持旧口径），
+  // 老库兼容：worklog_destination 补充驻地标记列（驻地费用口径 伙食40/交通0）
+  const [staCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_destination' AND COLUMN_NAME = 'stationed'`
+  );
+  if (!staCols.length) {
+    await pool.query(
+      `ALTER TABLE worklog_destination ADD COLUMN stationed TINYINT NOT NULL DEFAULT 0
+       COMMENT '驻地标记：1 驻地（费用按驻地标准 伙食40/交通0 验证），0 非驻地（默认）；与市外互斥' AFTER out_of_city`
+    );
+    console.log('[初始化] 已为 worklog_destination 补充 stationed 列');
+  }
+
+  // 费用标准种子（仅空表时）：市内/市外/驻地旧口径均自 2000-01-01 起（市内 60/0、驻地 40/0，历史记录保持旧口径），
   // 市外新规 100/0 自 2026-08-14 起生效；之后以表数据为准（重启不重种，调整直接改表）
   const [stdCnt] = await pool.query('SELECT COUNT(*) AS cnt FROM worklog_fee_std');
   if (!stdCnt[0].cnt) {
     await pool.query(
       `INSERT INTO worklog_fee_std (scope, food_fee, transit_fee, effective_from) VALUES
-       (0, 60, 0, '2000-01-01'), (1, 60, 0, '2000-01-01'), (1, 100, 0, '2026-08-14')`
+       (0, 60, 0, '2000-01-01'), (1, 60, 0, '2000-01-01'), (1, 100, 0, '2026-08-14'), (2, 40, 0, '2000-01-01')`
     );
-    console.log('[初始化] 已写入费用验证标准种子（市内 60/0；市外 100/0 自 2026-08-14 起）');
+    console.log('[初始化] 已写入费用验证标准种子（市内 60/0；市外 100/0 自 2026-08-14 起；驻地 40/0）');
   }
+  // 驻地口径行对老库无条件补种（uk_scope_eff 幂等；用户改过/加过同生效日行则不覆盖）
+  await pool.query(
+    `INSERT IGNORE INTO worklog_fee_std (scope, food_fee, transit_fee, effective_from) VALUES (2, 40, 0, '2000-01-01')`
+  );
 
   // 写入/更新应用记录（同 Call Me 种子模式；terminal 随种子刷新）
   await pool.query(

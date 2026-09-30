@@ -7,6 +7,7 @@
 // a. 已绑定商旅的用车人均完成两次打卡（开始+结束，未绑定不参与）；b. 用车人均已上传水印照片；
 // c. 水印照片施工内容一致且均非空（单张为空也不通过）；d. 水印照片地点均包含派车目的地；e. 水印照片拍摄时间均为记录当天；
 // f. 用车人当日费用信息均已填写且达当日适用标准（市内 伙食60/交通0；目的地标记市外 伙食100/交通0，
+//    目的地标记驻地 伙食40/交通0，市外/驻地互斥；
 //    按记录日期取生效标准，entry.feeStd 由 loadEntries 装配；规则 a 不约束未绑定者，但费用未绑定者同样要补录，故全员约束）
 // g. 已绑定商旅的用车人两次打卡地点至少一次包含派车目的地（两次打卡齐才判，缺打卡仅报规则 a；与规则 d 同为朴素包含口径）
 // （d/e 即照片级核验 date_ok/dest_ok；非水印照片 is_watermark=0 不参与；旧 checked 打卡开关不再计入）
@@ -35,31 +36,32 @@ function feeOk(f, std) {
   return !!f && Number(f.foodFee) === s.foodFee && Number(f.transitFee) === s.transitFee;
 }
 
-// 费用标准解析（loadEntries 装配 entry.feeStd 用）：按口径（市外/市内）取 记录日期当日已生效 的最新一行；
-// 无配置行兜底 60/0。rows 为 worklog_fee_std 全量（eff 已 DATE_FORMAT 为 'YYYY-MM-DD'，字典序即可比）
-function resolveFeeStd(rows, outCity, logDate) {
-  const scope = outCity ? 1 : 0;
+// 费用标准解析（loadEntries 装配 entry.feeStd 用）：按口径（scope 0 市内 / 1 市外 / 2 驻地）取 记录日期当日已生效 的最新一行；
+// 无配置行兜底：驻地 40/0、其余 60/0。rows 为 worklog_fee_std 全量（eff 已 DATE_FORMAT 为 'YYYY-MM-DD'，字典序即可比）
+function resolveFeeStd(rows, scope, logDate) {
   let hit = null;
   (rows || []).forEach((r) => {
     if (Number(r.scope) !== scope) return;
     if (r.eff && r.eff <= logDate && (!hit || r.eff > hit.eff)) hit = r;
   });
+  const fallback = scope === 2 ? 40 : 60;
   return {
-    foodFee: hit ? Number(hit.food_fee) : 60,
+    foodFee: hit ? Number(hit.food_fee) : fallback,
     transitFee: hit ? Number(hit.transit_fee) : 0,
-    out: !!outCity,
+    scope,
   };
 }
 
 // 记录当日适用标准：entry.feeStd 缺失（商旅未开启/老数据）按 市内 60/0 兜底
 function feeStdOf(entry) {
   const s = entry && entry.feeStd;
-  return s && typeof s.foodFee === 'number' ? s : { foodFee: 60, transitFee: 0, out: false };
+  return s && typeof s.foodFee === 'number' ? s : { foodFee: 60, transitFee: 0, scope: 0 };
 }
 
-// 标准文案：市外口径追加「（市外）」
+// 标准文案：市外/驻地口径追加「（市外）」「（驻地）」
 function feeStdText(std) {
-  return `伙食${std.foodFee}/交通${std.transitFee}` + (std.out ? '（市外）' : '');
+  const suffix = std.scope === 1 ? '（市外）' : (std.scope === 2 ? '（驻地）' : '');
+  return `伙食${std.foodFee}/交通${std.transitFee}` + suffix;
 }
 
 // 单张照片水印信息核验（Dify 只返回识别结果，日期/地点比对在后端，见《开发指南》7.2）：

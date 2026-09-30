@@ -108,7 +108,7 @@
               <t-icon wx:if="{{c.statIcon}}" name="{{c.statIcon}}" size="22rpx" color="{{c.statIconColor}}" />{{c.statText}}
             </view>
             <!-- 费用入口（描边胶囊小按钮，固定最右端；费用弹层仅伙食/交通可改；首次开始打卡成功也会自动弹出） -->
-            <view class="ck-fee" wx:if="{{c.bound}}" hover-class="hover-opacity" catchtap="onOpenFee" data-member-id="{{c.memberId}}" data-name="{{c.name}}">
+            <view class="ck-fee" wx:if="{{c.bound}}" hover-class="hover-opacity" catchtap="onOpenFee" data-entry-id="{{item.id}}" data-member-id="{{c.memberId}}" data-name="{{c.name}}">
               <t-icon name="money" size="24rpx" color="#0E3DA8" />费用
             </view>
           </view>
@@ -1130,6 +1130,11 @@
             <text class="fee-v">{{feeAlloc.costCenterCode}}</text>
           </view>
         </block>
+        <!-- 当日适用标准（随卡片 feeStd 装配，含市外/驻地口径）：一键填入伙食/交通 -->
+        <view class="fee-std" wx:if="{{feeStdText}}">
+          <text class="fee-std-text">{{feeStdText}}</text>
+          <text class="fee-std-fill" hover-class="hover-opacity" bindtap="onFeeFillStd">按标准填入</text>
+        </view>
         <view class="fee-row">
           <text class="fee-k">伙食补助</text>
           <!-- 受控焦点：hold-keyboard 下点页面不收键盘，关层时置 false 同步收起（iOS 数字键盘无完成键，否则关层后键盘滞留） -->

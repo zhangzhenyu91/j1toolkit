@@ -104,7 +104,7 @@ async function loadEntries(where, params) {
   const [entries] = await pool.query(
     `SELECT e.id, e.team_id, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, e.patrol_content,
             e.remark, e.remark_files, e.cross_team,
-            e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name, d.out_of_city AS destination_out_of_city,
+            e.vehicle_id, v.plate_no, e.destination_id, d.name AS destination_name, d.out_of_city AS destination_out_of_city, d.stationed AS destination_stationed,
             e.dispatch_order_no, e.created_by, e.created_at
      FROM worklog_entry e
      LEFT JOIN worklog_vehicle v ON v.id = e.vehicle_id
@@ -224,8 +224,8 @@ async function loadEntries(where, params) {
       photos: photoMap[e.id] || [],
       clockinMap: (clockinByDate[e.log_date] || {}),
       feeMap: (feeByDate[e.log_date] || {}),
-      // 规则 f 适用标准（市外标记目的地按市外标准，按记录日期取生效版本；商旅未开启时为兜底 60/0 但不参与判定）
-      feeStd: resolveFeeStd(feeStdRows, !!e.destination_out_of_city, e.log_date),
+      // 规则 f 适用标准（市外/驻地标记目的地按对应口径，按记录日期取生效版本；商旅未开启时为兜底 60/0 但不参与判定）
+      feeStd: resolveFeeStd(feeStdRows, e.destination_stationed ? 2 : (e.destination_out_of_city ? 1 : 0), e.log_date),
     };
     entry.verify_passed = computeVerifyPassed(entry);
     entry.verify_reasons = computeFailReasons(entry);
@@ -2069,7 +2069,7 @@ function dictRoutes(path, table, field, label, countRefs) {
   router.get(`/admin/${path}`, requireDictAdmin, async (req, res, next) => {
     try {
       if (!req.team) return ok(res, { list: [] });
-      const extra = table === 'worklog_member' ? ', user_id' : (table === 'worklog_destination' ? ', out_of_city' : '');
+      const extra = table === 'worklog_member' ? ', user_id' : (table === 'worklog_destination' ? ', out_of_city, stationed' : '');
       const [rows] = await pool.query(
         `SELECT id, ${field} AS name, sort, status${extra} FROM ${table} WHERE team_id = ? ORDER BY sort, id`,
         [req.team.id]
@@ -2127,9 +2127,20 @@ function dictRoutes(path, table, field, label, countRefs) {
       if (status !== undefined) {
         await pool.query(`UPDATE ${table} SET status = ? WHERE id = ?`, [Number(status) ? 1 : 0, id]);
       }
-      // 市外标记（仅目的地字典）：1 出差至市外，费用验证规则 f 按市外标准（伙食100/交通0）判定
-      if (table === 'worklog_destination' && req.body && req.body.out_of_city !== undefined) {
-        await pool.query(`UPDATE ${table} SET out_of_city = ? WHERE id = ?`, [Number(req.body.out_of_city) ? 1 : 0, id]);
+      // 市外/驻地标记（仅目的地字典，互斥——同为规则 f 费用口径：市外 伙食100/交通0、驻地 伙食40/交通0、默认市内 60/0）：
+      // 标一个即清另一个；同一请求两标记同置 1 拒绝
+      if (table === 'worklog_destination' && req.body
+        && (req.body.out_of_city !== undefined || req.body.stationed !== undefined)) {
+        const ooc = req.body.out_of_city === undefined ? null : (Number(req.body.out_of_city) ? 1 : 0);
+        const sta = req.body.stationed === undefined ? null : (Number(req.body.stationed) ? 1 : 0);
+        if (ooc === 1 && sta === 1) return fail(res, 400, 40012, '市外与驻地只能标记其一');
+        const sets = [];
+        const vals = [];
+        if (ooc !== null) { sets.push('out_of_city = ?'); vals.push(ooc); }
+        if (sta !== null) { sets.push('stationed = ?'); vals.push(sta); }
+        if (ooc === 1) sets.push('stationed = 0');
+        if (sta === 1) sets.push('out_of_city = 0');
+        await pool.query(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?`, [...vals, id]);
       }
       return ok(res, null);
     } catch (err) {

@@ -222,6 +222,8 @@
   .dpill-sync { background: #EAF5EF; color: var(--green); }
   .dpill-hand { background: var(--paper); color: var(--ph); }
   .dpill-out { background: #FFF7E8; color: var(--navy); }
+  /* 目的地费用口径标（市外=橙底 / 驻地=浅蓝底，互斥） */
+  .dpill-sta { background: var(--orange-soft); color: var(--orange); }
   .doff-tip { flex: none; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
   .drow .dops { margin-left: auto; flex: none; display: flex; gap: 2px; }
   /* 商旅绑定设备行：手机号 · 设备型号 / 系统版本（次级灰字，截断防挤压操作区） */
@@ -941,6 +943,11 @@
   .ckm-mini svg { width: 12px; height: 12px; }
   /* 费用信息弹层：成本分配只读展示 + 伙食补助/交通费可编辑 */
   .fee-load { padding: 30px 0; text-align: center; font-size: 12px; color: var(--ph); letter-spacing: 1px; }
+  /* 当日适用标准行（浅蓝信息条底 + 右侧「按标准填入」品牌蓝链接钮） */
+  .fee-std { display: flex; align-items: center; gap: 10px; background: var(--orange-soft); border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 11.5px; color: var(--sub); }
+  .fee-std span { flex: 1; min-width: 0; }
+  .fee-std button { flex: none; border: none; background: none; padding: 2px 4px; font-size: 11.5px; font-weight: 700; color: var(--orange); cursor: pointer; }
+  .fee-std button:hover { text-decoration: underline; }
   .fee-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--hair); }
   .fee-row:last-child { border-bottom: none; }
   .fee-k { font-size: 13px; font-weight: 700; color: var(--navy); }
@@ -4106,11 +4113,11 @@ function dictRowHtml(seg, it, idx, total) {
   var off = it.status !== 1;
   return '<div class="drow' + (off ? ' off' : '') + '" data-seg="' + seg.key + '" data-id="' + it.id +
     '" data-name="' + esc(it.name) + '" data-status="' + it.status + '"' +
-    (seg.key === 'destinations' ? ' data-outcity="' + (it.out_of_city === 1 ? 1 : 0) + '"' : '') + '>' +
+    (seg.key === 'destinations' ? ' data-outcity="' + (it.out_of_city === 1 ? 1 : 0) + '" data-stationed="' + (it.stationed === 1 ? 1 : 0) + '"' : '') + '>' +
     '<span class="dn">' + esc(it.name) + '</span>' +
-    (seg.key === 'destinations' && it.out_of_city === 1 // 目的地市外标：费用验证按市外标准（伙食100/交通0）
-      ? '<span class="dpill dpill-out">市外</span>'
-      : '') +
+    // 目的地费用口径标（互斥）：市外=伙食100/交通0；驻地=伙食40/交通0；默认市内 60/0
+    (seg.key === 'destinations' && it.out_of_city === 1 ? '<span class="dpill dpill-out">市外</span>' : '') +
+    (seg.key === 'destinations' && it.stationed === 1 ? '<span class="dpill dpill-sta">驻地</span>' : '') +
     (seg.key === 'members' // 成员来源标（屏六）：user_id 非空=账号同步（绿），空=手动添加（灰）
       ? '<span class="dpill ' + (it.user_id ? 'dpill-sync">账号同步' : 'dpill-hand">手动添加') + '</span>'
       : '') +
@@ -4119,8 +4126,9 @@ function dictRowHtml(seg, it, idx, total) {
       // 成员排序（仅成员字典）：点亮按钮顺序；工作任务单「工作负责人」取排序最前的用车人
       (seg.key === 'members' && idx > 0 ? '<button class="linkbtn" data-dact="up">上移</button>' : '') +
       (seg.key === 'members' && idx < total - 1 ? '<button class="linkbtn" data-dact="down">下移</button>' : '') +
-      // 市外标记切换（仅目的地字典；默认市内）
+      // 市外/驻地标记切换（仅目的地字典，互斥；默认市内；标一个后端自动清另一个）
       (seg.key === 'destinations' ? '<button class="linkbtn" data-dact="outcity">' + (it.out_of_city === 1 ? '标为市内' : '标为市外') + '</button>' : '') +
+      (seg.key === 'destinations' ? '<button class="linkbtn" data-dact="stationed">' + (it.stationed === 1 ? '取消驻地' : '标为驻地') + '</button>' : '') +
       '<button class="linkbtn" data-dact="edit">改名</button>' +
       '<button class="linkbtn" data-dact="toggle">' + (off ? '启用' : '停用') + '</button>' +
       '<button class="linkbtn dgr" data-dact="del">删除</button>' +
@@ -4268,6 +4276,21 @@ async function dictOutCity(seg, item) {
       body: { out_of_city: item.out_of_city === 1 ? 0 : 1 }
     });
     Shade.toast(item.out_of_city === 1 ? '已标为市内' : '已标为市外', 'success');
+    await loadDictSeg(seg);
+    renderDict();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* 驻地标记切换（仅目的地字典，与市外互斥）：驻地目的地费用按驻地标准验证（伙食40/交通0） */
+async function dictStationed(seg, item) {
+  try {
+    await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), {
+      method: 'PUT',
+      body: { stationed: item.stationed === 1 ? 0 : 1 }
+    });
+    Shade.toast(item.stationed === 1 ? '已取消驻地标记' : '已标为驻地', 'success');
     await loadDictSeg(seg);
     renderDict();
   } catch (e) {
@@ -4972,7 +4995,7 @@ function openClockModal(entry, memberId, name, seq, action) {
       Shade.toast('打卡成功', 'success');
       loadLogs({ quiet: true });
       // 首次「开始打卡」成功（40037 已拦截重复，成功即首次）→ 自动打开该成员费用弹层（代他人打卡 = 代填费用）
-      if (action === 'mark' && seq === 1) openFeeModal(memberId, name, state.date);
+      if (action === 'mark' && seq === 1) openFeeModal(memberId, name, state.date, entry.feeStd);
     } catch (e) {
       restore();
       Shade.toast(e.message, 'error');
@@ -4982,8 +5005,12 @@ function openClockModal(entry, memberId, name, seq, action) {
 }
 
 /* ================= 商旅打卡 · 费用信息弹层（设计稿⑥ Web 演绎；逻辑同小程序 openFee/onFeeSave） =================
-   本地费用摘要优先，无值时从商旅模板 id=10 组件解析 {foodFee, arrive}；仅伙食补助/交通费可编辑，成本分配只读展示 */
-function openFeeModal(memberId, name, date) {
+   本地费用摘要优先，无值时从商旅模板 id=10 组件解析 {foodFee, arrive}；仅伙食补助/交通费可编辑，成本分配只读展示；
+   feeStd（卡片当日适用标准，含市外/驻地口径）非空时提供「按标准填入」一键预填 */
+function openFeeModal(memberId, name, date, feeStd) {
+  var std = feeStd && typeof feeStd.foodFee === 'number' ? feeStd : null;
+  var stdText = std ? '当日适用标准：伙食' + std.foodFee + '/交通' + std.transitFee
+    + '（' + (std.scope === 1 ? '市外' : (std.scope === 2 ? '驻地' : '市内')) + '）' : '';
   var html = Shade.mHead('当日费用 · ' + name + ' · ' + fmtDateCN(date))
     + '<div class="f-hint" style="margin:0 0 2px">保存即提交商旅</div>'
     + '<div class="fee-load" id="feeLoad">费用信息加载中…</div>'
@@ -5017,7 +5044,17 @@ function openFeeModal(memberId, name, date) {
     }
     rows += '<div class="fee-row"><span class="fee-k">伙食补助</span><input class="f-sel fee-input" id="feeFood" inputmode="decimal" placeholder="0"></div>'
       + '<div class="fee-row"><span class="fee-k">交通费</span><input class="f-sel fee-input" id="feeTransit" inputmode="decimal" placeholder="0"></div>';
+    // 当日适用标准行（标准随卡片装配）：一键填入伙食/交通
+    if (std) {
+      rows = '<div class="fee-std"><span>' + esc(stdText) + '</span><button type="button" id="feeFillStd">按标准填入</button></div>' + rows;
+    }
     elBody.innerHTML = rows;
+    if (std) {
+      $('#feeFillStd', elBody).addEventListener('click', function () {
+        $('#feeFood', elBody).value = String(std.foodFee);
+        $('#feeTransit', elBody).value = String(std.transitFee);
+      });
+    }
     $('#feeFood', elBody).value = local ? num(local.food_fee) : (num(tplFood) || '0');
     $('#feeTransit', elBody).value = local ? num(local.transit_fee) : (num(tplArrive) || '0');
     $('#feeLoad', inst.box).hidden = true;
@@ -5346,11 +5383,12 @@ function initEvents() {
     var row = actBtn.closest('.drow');
     if (!row) return;
     var seg = dictSeg(row.dataset.seg);
-    var item = { id: Number(row.dataset.id), name: row.dataset.name, status: Number(row.dataset.status), out_of_city: Number(row.dataset.outcity || 0) };
+    var item = { id: Number(row.dataset.id), name: row.dataset.name, status: Number(row.dataset.status), out_of_city: Number(row.dataset.outcity || 0), stationed: Number(row.dataset.stationed || 0) };
     if (!seg) return;
     if (actBtn.dataset.dact === 'edit') dictRename(seg, item);
     else if (actBtn.dataset.dact === 'toggle') dictToggle(seg, item);
     else if (actBtn.dataset.dact === 'outcity') dictOutCity(seg, item);
+    else if (actBtn.dataset.dact === 'stationed') dictStationed(seg, item);
     else if (actBtn.dataset.dact === 'up') dictMove(item, 'up');
     else if (actBtn.dataset.dact === 'down') dictMove(item, 'down');
     else if (actBtn.dataset.dact === 'del') dictDelete(seg, item);
@@ -5418,8 +5456,8 @@ function initEvents() {
       if (act === 'check') { toggleCheck(entry, +actEl.dataset.mid, actEl); return; }
       /* 商旅打卡 slot：弹打卡确认层（仅当日；浏览器定位 / 手输地址 / 杆塔带入，口径同小程序） */
       if (act === 'sgccck') { onClockTap(entry, actEl); return; }
-      /* 打卡区「费用」入口：费用信息弹层（伙食补助/交通费可改，保存即提交商旅） */
-      if (act === 'sgccfee') { openFeeModal(+actEl.dataset.mid, actEl.dataset.name, entry.log_date); return; }
+      /* 打卡区「费用」入口：费用信息弹层（伙食补助/交通费可改，保存即提交商旅；feeStd 供「按标准填入」） */
+      if (act === 'sgccfee') { openFeeModal(+actEl.dataset.mid, actEl.dataset.name, entry.log_date, entry.feeStd); return; }
       if (act === 'addphoto') { openAddSheet(entry); return; }
       return;
     }

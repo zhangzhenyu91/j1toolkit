@@ -303,6 +303,9 @@ Page({
     feeFoodFocus: false, // 伙食补助输入框焦点（受控：hold-keyboard 下关层需同步收键盘）
     feeTransitFocus: false, // 交通费输入框焦点（同上）
     feeSaving: false,
+    feeStdFood: '', // 当日适用标准伙食（空=无标准数据，不显示「按标准填入」行）
+    feeStdTransit: '', // 当日适用标准交通费
+    feeStdText: '', // 标准文案（如「当日适用标准：伙食40/交通0（驻地）」）
   },
 
   onLoad() {
@@ -726,6 +729,7 @@ Page({
         clockRaw,
         clockRows: showClock ? this.buildClockRows(members, clockRaw, ckReadonly) : [],
         showClock,
+        feeStd: e.feeStd || null, // 当日费用适用标准（商旅开启时后端装配 {foodFee,transitFee,scope}，费用弹层「按标准填入」用）
         // 他班跨班卡：不渲染「从商旅同步」（仅归属班可发起同步，后端按 entry.team_id 校验）
         syncHidden: !!e.cross_team && Number(e.team_id) !== ((this._teamId || this._myTeamId) || 0),
         sgccOn: members.some((m) => m.sgccBound !== undefined), // 商旅是否开启（后端带商旅字段即开启；上传等待文案据此区分）
@@ -1190,7 +1194,7 @@ Page({
       this.loadLogs();
       // 首次「开始打卡」成功（40037 已拦截重复，成功即首次）→ 自动打开该成员费用弹层（代他人打卡 = 代填费用）
       if (ckAction === 'mark' && ckSeq === 1) {
-        this.openFee(ckMemberId, ckMemberName);
+        this.openFee(ckMemberId, ckMemberName, ckEntryId);
       }
     } catch (err) {
       wx.hideLoading();
@@ -1207,12 +1211,15 @@ Page({
 
   // 打卡区人名行末「费用」入口
   onOpenFee(e) {
-    const { memberId, name } = e.currentTarget.dataset;
-    this.openFee(Number(memberId), name);
+    const { memberId, name, entryId } = e.currentTarget.dataset;
+    this.openFee(Number(memberId), name, Number(entryId) || 0);
   },
 
   // 打开并加载：本地费用摘要优先，无值时从商旅模板 id=10 组件解析 {foodFee, arrive}（弹层仅伙食补助/交通费两项可编辑）
-  async openFee(memberId, name) {
+  // entryId 定位卡片取当日适用费用标准（feeStd），供「按标准填入」一键预填
+  async openFee(memberId, name, entryId) {
+    const entry = (this.data.list || []).find((x) => x.id === entryId) || null;
+    const std = entry && entry.feeStd && typeof entry.feeStd.foodFee === 'number' ? entry.feeStd : null;
     this.setData({
       feeVisible: true,
       feeMemberId: memberId,
@@ -1224,6 +1231,11 @@ Page({
       feeTransitFocus: false,
       feeSaving: false,
       keyboardHeight: 0,
+      feeStdFood: std ? String(std.foodFee) : '',
+      feeStdTransit: std ? String(std.transitFee) : '',
+      feeStdText: std
+        ? `当日适用标准：伙食${std.foodFee}/交通${std.transitFee}（${std.scope === 1 ? '市外' : (std.scope === 2 ? '驻地' : '市内')}）`
+        : '',
     });
     wx.showLoading({ title: '费用信息加载中…', mask: true }); // 单步操作：转圈等待动画
     try {
@@ -1267,6 +1279,12 @@ Page({
   onFeeInput(e) {
     const { field } = e.currentTarget.dataset;
     this.setData({ [field]: e.detail.value });
+  },
+
+  // 按当日适用标准一键填入伙食/交通（标准随卡片 feeStd 装配，含市外/驻地口径）
+  onFeeFillStd() {
+    if (!this.data.feeStdText) return;
+    this.setData({ feeFood: this.data.feeStdFood, feeTransit: this.data.feeStdTransit });
   },
 
   // 输入框焦点受控同步（data-field=feeFood/feeTransit → 焦点键 feeFoodFocus/feeTransitFocus）：
