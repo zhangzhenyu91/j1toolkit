@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 网页版登录页（「政企蓝白」：左深蓝品牌区 + 右账号密码表单，入场 riseIn 上浮落位） -->
+<!-- Shade 壹匣 · 网页版登录页（「政企蓝白」：左实景品牌区（班组作业实景 + 深蓝渐变遮罩）+ 右账号密码表单，入场 riseIn 上浮落位） -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -12,21 +12,33 @@
      备案链接改放右侧表单块底部；左品牌区 + 右表单） ===== */
   .login-page { flex: 1; display: flex; flex-direction: column; }
   .login-box { flex: 1; width: 100%; display: flex; background: #fff; }
-  /* 左侧品牌区：深蓝底 + 极淡网格线，黄金分割占 61.8%（底部色带已取消，.hazard-top 空壳 div 不再渲染） */
+  /* 左侧品牌区：班组作业实景（login-bg.jpg）+ 深蓝渐变遮罩，黄金分割占 61.8%（底部色带已取消，.hazard-top 空壳 div 不再渲染） */
   .login-brand {
     width: 61.8%; flex: none; position: relative;
     display: flex; flex-direction: column;
-    background: #0A3592; color: #fff; overflow: hidden;
+    background: #0A3592 url('/login-bg.jpg') 46% 50% / cover no-repeat; color: #fff; overflow: hidden;
   }
+  /* 深蓝渐变遮罩：上深下深、中部略透，透出作业场景主体同时保证白字可读 */
   .login-brand::before {
     content: ""; position: absolute; inset: 0;
+    background: linear-gradient(168deg,
+      rgba(6, 26, 80, .88) 0%,
+      rgba(10, 53, 146, .66) 42%,
+      rgba(10, 53, 146, .58) 62%,
+      rgba(4, 18, 56, .90) 100%);
+  }
+  /* 极淡网格线保留（遮罩之上、内容之下），延续现行质感 */
+  .login-brand::after {
+    content: ""; position: absolute; inset: 0;
     background-image:
-      linear-gradient(rgba(255, 255, 255, .05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, .05) 1px, transparent 1px);
+      linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
     background-size: 38px 38px;
   }
+  .login-brand > * { position: relative; z-index: 1; }
   .brand-top { position: relative; display: flex; align-items: center; gap: 12px; padding: 32px 38px 0; animation: riseIn .6s var(--ease) .05s both; }
-  .brand-top .logo-mark { width: 46px; height: 46px; background: rgba(255, 255, 255, .12); border-radius: 10px; }
+  /* Logo 白底圆角块：toolkit.svg 主体深蓝，需白底承载（padding 内缩使 img 约 34px） */
+  .brand-top .logo-mark { width: 46px; height: 46px; background: #fff; border-radius: 10px; padding: 6px; box-shadow: 0 2px 8px rgba(4, 18, 56, .18); }
   .brand-name { font-size: 18px; font-weight: 600; letter-spacing: 2px; }
   .brand-name small { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 400; color: rgba(255, 255, 255, .6); letter-spacing: 3px; }
   /* 品牌区内容按黄金分割置于左区上半部：::before/::after 弹性间隔 382:618，
@@ -39,18 +51,18 @@
   .brand-mid::before, .brand-mid::after { content: ""; display: block; }
   .brand-mid::before { flex: 382 0 0; }
   .brand-mid::after { flex: 618 0 0; }
-  .brand-mid h2 { font-size: 29px; line-height: 1.5; font-weight: 600; letter-spacing: 1px; animation: riseIn .6s var(--ease) .18s both; }
+  .brand-mid h2 { font-size: 29px; line-height: 1.5; font-weight: 600; letter-spacing: 1px; text-shadow: 0 1px 12px rgba(4, 18, 56, .35); animation: riseIn .6s var(--ease) .18s both; }
   .brand-mid h2 em { font-style: normal; font-weight: 700; }
-  .brand-mid > p { margin-top: 14px; font-size: 13px; line-height: 1.9; color: rgba(255, 255, 255, .65); letter-spacing: .5px; animation: riseIn .6s var(--ease) .3s both; }
+  .brand-mid > p { margin-top: 14px; font-size: 13px; line-height: 1.9; color: rgba(255, 255, 255, .72); letter-spacing: .5px; text-shadow: 0 1px 8px rgba(4, 18, 56, .3); animation: riseIn .6s var(--ease) .3s both; }
   .brand-feats { margin-top: 32px; display: inline-flex; flex-direction: column; gap: 15px; text-align: left; }
-  .feat { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255, 255, 255, .88); letter-spacing: 1px; animation: riseIn .55s var(--ease) both; }
+  .feat { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255, 255, 255, .92); letter-spacing: 1px; text-shadow: 0 1px 8px rgba(4, 18, 56, .3); animation: riseIn .55s var(--ease) both; }
   .brand-feats .feat:nth-child(1) { animation-delay: .4s; }
   .brand-feats .feat:nth-child(2) { animation-delay: .48s; }
   .brand-feats .feat:nth-child(3) { animation-delay: .56s; }
-  /* 特性图标：深蓝底上的半透明白块 */
+  /* 特性图标：实景遮罩上的半透明白块 */
   .feat i {
     width: 32px; height: 32px; flex: none; border-radius: 8px;
-    background: rgba(255, 255, 255, .12); color: #fff;
+    background: rgba(255, 255, 255, .16); color: #fff;
     display: flex; align-items: center; justify-content: center;
   }
   .feat i svg { width: 17px; height: 17px; }
@@ -151,11 +163,11 @@
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
 <script>
-  // 已登录则直接进入工作台
-  if (localStorage.getItem('shade_token')) location.replace('/index.html');
+  // 已登录且 token 未过期则直接进入工作台（过期 token 不再放行，留在登录页重新登录）
+  if (localStorage.getItem('shade_token') && !Shade.isTokenExpired()) location.replace('/index.html');
 
-  // 品牌 Logo 用工具箱.svg，其余注入线性图标
-  document.getElementById('logoMark').innerHTML = '<img src="/favicon.svg" alt="Shade 壹匣">';
+  // 品牌 Logo 用 toolkit.svg（原色透明版，白底圆角块承载），其余注入线性图标
+  document.getElementById('logoMark').innerHTML = '<img src="/toolkit.svg" alt="Shade 壹匣">';
   document.getElementById('featUser').innerHTML = Shade.icon('user', 17);
   document.getElementById('featApp').innerHTML = Shade.icon('app', 17);
   document.getElementById('featShield').innerHTML = Shade.icon('shield', 17);
@@ -204,7 +216,7 @@
     try {
       var r = await Shade.api('/api/v1/auth/login', {
         method: 'POST',
-        body: { username: username, password: password },
+        body: { username: username, password: password, client: 'web' }, // client:'web' → 服务端签发短时效 token（JWT_WEB_EXPIRES）
       });
       Shade.setAuth(r.data.token, r.data.user);
       if ($remember.checked) localStorage.setItem('shade_remember', username);

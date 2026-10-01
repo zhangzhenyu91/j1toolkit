@@ -14,7 +14,9 @@
      Content-Disposition（RFC5987 filename* 优先），缺省 fallbackName；临时 a 标签触发，延时回收 ObjectURL
    Shade.user()               → 本地缓存的用户对象（localStorage.shade_user），未登录为 null
    Shade.setAuth(token, user) → 写入登录态（shade_token / shade_user）
-   Shade.requireAuth()        → 无 token 直接跳 /login.html；有 token 返回 true
+   Shade.requireAuth()        → 无 token 或 token 已过期直接清登录态跳 /login.html；有效返回 true
+   Shade.isTokenExpired()     → 本地 JWT exp 判期（网页端 token 为 JWT_WEB_EXPIRES 短时效，默认 12h；
+     本运行时每分钟巡检一次，到期自动清登录态回登录页，覆盖闲置挂机场景）
    Shade.$(s, c) / Shade.$$(s, c) → querySelector / querySelectorAll 数组（c 缺省 document）
    Shade.withTeam(path, teamId) → 班组隔离 query 助手：teamId 非空时为 path 追加 team_id
      （query 优先于 body，后端 resolveReqTeam 同口径）
@@ -72,6 +74,35 @@
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(APPS_KEY);
   }
+
+  // 解析 JWT 载荷（base64url），失败返回 null
+  function tokenPayload(token) {
+    try {
+      var part = String(token || '').split('.')[1];
+      if (!part) return null;
+      var b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      return JSON.parse(atob(b64));
+    } catch (e) { return null; }
+  }
+
+  // token 是否已过期（无 token 或解析不出 exp 一律视为已过期）
+  // 网页端 token 由服务端按 JWT_WEB_EXPIRES 签短时效（默认 12h），到期即需重新登录
+  function isTokenExpired() {
+    var p = tokenPayload(localStorage.getItem(TOKEN_KEY));
+    return !p || !p.exp || p.exp * 1000 <= Date.now();
+  }
+
+  // 登录态到期自动清除：每分钟巡检一次，过期即清本地登录态并回登录页（登录页自身不巡检）
+  // 兜底 apiRaw 的 401 被动跳转——覆盖「开着页面无任何请求」的闲置场景（如 KVM 页长时间挂机）
+  setInterval(function () {
+    if (/\/login\.html$/.test(location.pathname)) return;
+    if (!localStorage.getItem(TOKEN_KEY)) return;
+    if (isTokenExpired()) {
+      clearAuth();
+      location.href = '/login.html';
+    }
+  }, 60000);
 
   // 原始请求：token 注入 + fetch + 网络异常抛错 + 401 清登录态跳登录页（/api/v1/auth/login 的 401 除外，原样返回）；
   // 返回原始 Response 由调用方自处理
@@ -190,9 +221,10 @@
     location.href = '/login.html';
   }
 
-  // 登录门控：无 token 直接跳登录页
+  // 登录门控：无 token 或 token 已过期（网页端短时效）直接清登录态跳登录页
   function requireAuth() {
-    if (!localStorage.getItem(TOKEN_KEY)) {
+    if (!localStorage.getItem(TOKEN_KEY) || isTokenExpired()) {
+      clearAuth();
       location.replace('/login.html');
       return false;
     }
@@ -579,6 +611,7 @@
     roleText: roleText,
     setAuth: setAuth,
     requireAuth: requireAuth,
+    isTokenExpired: isTokenExpired,
     topbar: topbar,
     refreshUser: refreshUser,
     toast: toast,

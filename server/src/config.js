@@ -20,6 +20,9 @@ const config = {
   jwt: {
     secret: str('JWT_SECRET'),
     expiresIn: str('JWT_EXPIRES', '7d'),
+    // 网页端登录态有效期（单独缩短：网页端可远程控制公司电脑（KVM），需定期强制重新登录；
+    // 仅 login.html 以 client:'web' 登录时生效，小程序走 wx-login 静默续期不受影响）
+    webExpiresIn: str('JWT_WEB_EXPIRES', '12h'),
   },
   admin: {
     username: str('ADMIN_USERNAME', 'admin'),

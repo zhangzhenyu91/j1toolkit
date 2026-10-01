@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  政企蓝白 Enterprise Blue —— Web 登录页设计稿（实景背景版 · 待审批）
+  ----------------------------------------------------------------------------
+  变更要点（相对现行 login.html）：
+    1. 左侧品牌区由「纯深蓝 + 网格线」改为「实景照片（login-bg.jpg）+ 深蓝遮罩」，
+       照片主体为蓝色工装班组作业场景，与品牌蓝 #0E3DA8 / 深蓝 #0A3592 天然同色系；
+    2. 遮罩采用深蓝双向渐变（上深下深、中部略透），保证白色文案可读性，
+       同时隐约透出实景——遮罩强度可在页首切换对比（标准 / 轻透）；
+    3. 品牌 Logo 更换为 toolkit.svg：因 Logo 主体为深蓝 #042977 + 青 #13C1CE，
+       置于白底圆角块内承载，在深蓝色带上保持辨识度；
+    4. 布局、黄金分割比例（左 61.8% / 右 38.2%）、右侧表单、入场动效全部沿用现行定稿，
+       本稿仅替换品牌区视觉，不动结构与 token。
+  落地注意事项：
+    - 对应 server/public/login.html 的 .login-brand 样式替换；
+    - login-bg.jpg 已由原图（5118×3412 / 11.8MB）压缩至 1920×1280 / 约 255KB，
+      正式落地时放入 server/public/ 并按需再压缩；
+    - 单文件静态稿，仅引用本目录 login-bg.jpg 与 ../toolkit.svg，可离线直接预览。
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>政企蓝白 · Web 登录页（实景背景版）— Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#0E3DA8; --navy:#0A3592; --blue-bg:#E8F0FF;
+    --green:#00B42A; --orange:#FF7D00; --red:#F53F3F;
+    --bg:#F5F7FA; --card:#FFFFFF; --fill:#F7F8FA;
+    --text:#1D2129; --t2:#4E5969; --t3:#86909C; --line:#E5E6EB; --ph:#C9CDD4;
+    --shadow:0 2px 8px rgba(0,0,0,.04);
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  body {
+    background:#F5F7FA;
+    font-family:"Helvetica Neue",Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text); padding:56px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:40px; }
+  .page-head .kicker { font-size:11px; font-weight:700; letter-spacing:4px; color:var(--t3); }
+  .page-head h1 { margin-top:10px; font-size:32px; font-weight:700; letter-spacing:1px; }
+  .page-head h1 em { font-style:normal; color:var(--blue); }
+  .page-head > p { margin-top:12px; font-size:13px; color:var(--t2); }
+
+  /* 遮罩强度切换（仅设计稿演示用） */
+  .overlay-switch { margin-top:22px; display:inline-flex; padding:3px; gap:2px;
+                    background:#fff; border:1px solid var(--line); border-radius:8px; }
+  .overlay-switch button {
+    border:0; background:transparent; padding:7px 18px; border-radius:6px;
+    font-size:12.5px; font-weight:600; color:var(--t2); cursor:pointer;
+    font-family:inherit; letter-spacing:1px; transition:background .2s,color .2s;
+  }
+  .overlay-switch button.on { background:var(--blue-bg); color:var(--blue); }
+
+  /* ===== 浏览器窗口框 ===== */
+  .browser {
+    width:min(1240px,96vw); margin:0 auto; background:var(--bg);
+    border:1px solid var(--line); border-radius:12px; overflow:hidden;
+    box-shadow:0 24px 56px rgba(29,33,41,.12), 0 6px 16px rgba(29,33,41,.06);
+    animation:rise .6s var(--ease) both;
+  }
+  .browser-bar { height:44px; background:#fff; border-bottom:1px solid var(--line);
+                 display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .bd { width:11px; height:11px; border-radius:50%; background:#C9CDD4; }
+  .url { flex:1; max-width:420px; margin:0 auto; height:26px; border-radius:6px;
+         background:var(--fill); display:flex; align-items:center; justify-content:center;
+         gap:6px; font-size:12px; color:var(--t3); }
+  .url svg { width:11px; height:11px; }
+
+  /* ==========================================================================
+     登录页本体（与 server/public/login.html 结构一致，仅品牌区视觉替换）
+     ========================================================================== */
+  .login-box { display:flex; min-height:660px; background:#fff; }
+
+  /* ---------- 左侧品牌区：实景照片 + 深蓝渐变遮罩 ---------- */
+  .login-brand {
+    width:61.8%; flex:none; position:relative; overflow:hidden;
+    display:flex; flex-direction:column; color:#fff;
+    background:#0A3592 url(login-bg.jpg) 46% 50% / cover no-repeat;
+  }
+  /* 遮罩：上深下深、中部略透，透出作业场景主体；.lite 为轻透档 */
+  .login-brand::before {
+    content:""; position:absolute; inset:0;
+    background:linear-gradient(168deg,
+      rgba(6,26,80,.88) 0%,
+      rgba(10,53,146,.66) 42%,
+      rgba(10,53,146,.58) 62%,
+      rgba(4,18,56,.90) 100%);
+  }
+  .login-brand.lite::before {
+    background:linear-gradient(168deg,
+      rgba(6,26,80,.72) 0%,
+      rgba(10,53,146,.42) 42%,
+      rgba(10,53,146,.36) 62%,
+      rgba(4,18,56,.78) 100%);
+  }
+  /* 极淡网格线保留（遮罩之上、内容之下），延续现行质感 */
+  .login-brand::after {
+    content:""; position:absolute; inset:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size:38px 38px;
+  }
+  .login-brand > * { position:relative; z-index:1; }
+
+  .brand-top { display:flex; align-items:center; gap:12px; padding:32px 38px 0;
+               animation:riseIn .6s var(--ease) .05s both; }
+  /* Logo 白底圆角块：toolkit.svg 主体深蓝，需白底承载 */
+  .logo-mark { width:46px; height:46px; flex:none; background:#fff; border-radius:10px;
+               display:flex; align-items:center; justify-content:center;
+               box-shadow:0 2px 8px rgba(4,18,56,.18); }
+  .logo-mark img { width:34px; height:34px; display:block; }
+  .brand-name { font-size:18px; font-weight:600; letter-spacing:2px; }
+  .brand-name small { display:block; margin-top:3px; font-size:10.5px; font-weight:400;
+                      color:rgba(255,255,255,.65); letter-spacing:3px; }
+
+  /* 内容按黄金分割置于左区上半部（::before/::after 弹性间隔 382:618） */
+  .brand-mid { flex:1; padding:36px 38px; display:flex; flex-direction:column;
+               align-items:center; text-align:center; }
+  .brand-mid::before, .brand-mid::after { content:""; display:block; }
+  .brand-mid::before { flex:382 0 0; }
+  .brand-mid::after { flex:618 0 0; }
+  .brand-mid h2 { font-size:29px; line-height:1.5; font-weight:600; letter-spacing:1px;
+                  text-shadow:0 1px 12px rgba(4,18,56,.35);
+                  animation:riseIn .6s var(--ease) .18s both; }
+  .brand-mid h2 em { font-style:normal; font-weight:700; }
+  .brand-mid > p { margin-top:14px; font-size:13px; line-height:1.9;
+                   color:rgba(255,255,255,.72); letter-spacing:.5px;
+                   text-shadow:0 1px 8px rgba(4,18,56,.3);
+                   animation:riseIn .6s var(--ease) .3s both; }
+  .brand-feats { margin-top:32px; display:inline-flex; flex-direction:column; gap:15px; text-align:left; }
+  .feat { display:flex; align-items:center; gap:12px; font-size:13px;
+          color:rgba(255,255,255,.92); letter-spacing:1px;
+          text-shadow:0 1px 8px rgba(4,18,56,.3);
+          animation:riseIn .55s var(--ease) both; }
+  .brand-feats .feat:nth-child(1) { animation-delay:.4s; }
+  .brand-feats .feat:nth-child(2) { animation-delay:.48s; }
+  .brand-feats .feat:nth-child(3) { animation-delay:.56s; }
+  .feat i { width:32px; height:32px; flex:none; border-radius:8px;
+            background:rgba(255,255,255,.16); backdrop-filter:blur(2px);
+            display:flex; align-items:center; justify-content:center; }
+  .feat i svg { width:17px; height:17px; }
+
+  /* ---------- 右侧表单（沿用现行定稿，视觉不变） ---------- */
+  .login-form { flex:1; display:flex; flex-direction:column; padding:48px 66px; background:#fff; }
+  .form-core { flex:1; display:flex; flex-direction:column; justify-content:center; }
+  .form-core > * { width:100%; max-width:400px; margin-left:auto; margin-right:auto; }
+  .login-form h2 { font-size:22px; font-weight:700; letter-spacing:1px;
+                   animation:riseIn .55s var(--ease) .12s both; }
+  .login-form .sub { margin:8px auto 26px; font-size:12.5px; color:var(--t2); letter-spacing:.5px;
+                     animation:riseIn .55s var(--ease) .2s both; }
+  .field { display:flex; align-items:center; gap:10px; height:44px; padding:0 14px;
+           background:#fff; border:1px solid var(--line); border-radius:8px;
+           transition:border-color .2s, box-shadow .2s; }
+  .field + .field { margin-top:16px; }
+  .field:focus-within { border-color:var(--blue); box-shadow:0 0 0 3px rgba(14,61,168,.08); }
+  .field svg { width:18px; height:18px; flex:none; color:var(--t3); }
+  .field input { flex:1; border:0; outline:0; font-size:14px; color:var(--text);
+                 font-family:inherit; background:transparent; }
+  .field input::placeholder { color:var(--ph); }
+  #fUser { animation:riseIn .55s var(--ease) .28s both; }
+  #fPass { animation:riseIn .55s var(--ease) .34s both; }
+  .form-row { display:flex; align-items:center; justify-content:space-between;
+              margin:18px auto; font-size:12.5px; color:var(--t2);
+              animation:riseIn .55s var(--ease) .4s both; }
+  .form-row .ck-l { display:flex; align-items:center; gap:7px; }
+  .ck { width:16px; height:16px; border-radius:4px; border:1px solid var(--ph);
+        display:inline-flex; align-items:center; justify-content:center; }
+  .form-row a { color:var(--t2); text-decoration:none; }
+  .btn-primary {
+    height:46px; border:0; border-radius:8px; background:var(--blue); color:#fff;
+    font-size:15px; font-weight:600; letter-spacing:6px; cursor:pointer; font-family:inherit;
+    animation:riseIn .55s var(--ease) .46s both; transition:background .2s;
+  }
+  .btn-primary:hover { background:var(--navy); }
+  .agree { margin-top:22px; display:flex; align-items:center; justify-content:center; gap:6px;
+           font-size:11.5px; color:var(--t2); animation:riseIn .55s var(--ease) .52s both; }
+  .agree a { color:var(--blue); font-weight:600; text-decoration:none; }
+  .login-foot { margin-top:30px; text-align:center; font-size:11px; color:var(--ph);
+                letter-spacing:1px; animation:riseIn .55s var(--ease) .58s both; }
+  .beian-foot { padding-bottom:4px; text-align:center; font-size:11px;
+                animation:riseIn .55s var(--ease) .64s both; }
+  .beian-foot a { color:var(--ph); text-decoration:none; margin:0 10px; }
+
+  /* ===== 入场动效 ===== */
+  @keyframes rise { from { transform:translateY(14px); opacity:0; } to { transform:none; opacity:1; } }
+  @keyframes riseIn { from { transform:translateY(14px); opacity:0; } to { transform:none; opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }
+
+  @media (max-width:860px) {
+    .login-box { flex-direction:column; }
+    .login-brand { width:100%; min-height:420px; }
+    .login-form { padding:36px 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="kicker">ENTERPRISE BLUE · WEB</div>
+  <h1>登录页 <em>实景背景版</em></h1>
+  <p>左侧品牌区：班组作业实景 + 深蓝渐变遮罩；Logo 更换为 toolkit.svg（白底圆角块承载）。右侧表单沿用现行定稿。</p>
+  <div class="overlay-switch" id="ovlSwitch">
+    <button class="on" data-v="">标准遮罩（推荐）</button>
+    <button data-v="lite">轻透遮罩</button>
+  </div>
+</div>
+
+<div class="browser">
+  <div class="browser-bar">
+    <span class="bd"></span><span class="bd"></span><span class="bd"></span>
+    <div class="url">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      toolkit.j1net.com/login.html
+    </div>
+  </div>
+
+  <div class="login-box">
+    <!-- 左侧品牌区：实景照片 + 深蓝遮罩 -->
+    <div class="login-brand" id="brand">
+      <div class="brand-top">
+        <span class="logo-mark"><img src="../toolkit.svg" alt="Shade 壹匣"></span>
+        <div class="brand-name">Shade 壹匣<small>班组数字化工具平台</small></div>
+      </div>
+      <div class="brand-mid">
+        <h2>班组应用，<br>一匣尽纳，<br><em>安全每一班。</em></h2>
+        <p>统一登录 · 应用聚合 · 权限管控，班组的一站式数字化工作台。</p>
+        <div class="brand-feats">
+          <div class="feat"><i><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg></i>统一身份认证，班组账号一键登录</div>
+          <div class="feat"><i><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg></i>应用中心聚合，业务应用按权限自动下发</div>
+          <div class="feat"><i><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></i>数据安全可溯，操作留痕符合班组管理规范</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧登录表单（沿用现行定稿） -->
+    <form class="login-form" onsubmit="return false">
+      <div class="form-core">
+        <h2>欢迎回来</h2>
+        <div class="sub">请使用班组账号登录 Shade 壹匣工作台</div>
+        <div class="field" id="fUser">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>
+          <input type="text" placeholder="请输入账号">
+        </div>
+        <div class="field" id="fPass">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+          <input type="password" placeholder="请输入密码">
+        </div>
+        <div class="form-row">
+          <span class="ck-l"><span class="ck"></span>记住账号</span>
+          <a href="javascript:void 0">忘记密码？</a>
+        </div>
+        <button class="btn-primary" type="submit">登 录</button>
+        <div class="agree">登录即代表已阅读并同意<a href="javascript:void 0">《用户协议》</a>和<a href="javascript:void 0">《隐私政策》</a></div>
+        <div class="login-foot">© 2026 Shade 壹匣</div>
+      </div>
+      <footer class="beian-foot">
+        <a href="javascript:void 0">晋ICP备2025063709号-2</a>
+        <a href="javascript:void 0">晋公网安备14118202000050号</a>
+      </footer>
+    </form>
+  </div>
+</div>
+
+<script>
+  // 仅设计稿演示：切换遮罩强度对比（支持 #lite 直接预览轻透档）
+  if (location.hash === '#lite') {
+    document.getElementById('brand').className = 'login-brand lite';
+    var bs = document.querySelectorAll('#ovlSwitch button');
+    bs[0].classList.remove('on'); bs[1].classList.add('on');
+  }
+  document.getElementById('ovlSwitch').addEventListener('click', function (e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    this.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', b === btn); });
+    document.getElementById('brand').className = 'login-brand' + (btn.dataset.v ? ' ' + btn.dataset.v : '');
+  });
+</script>
+</body>
+</html>

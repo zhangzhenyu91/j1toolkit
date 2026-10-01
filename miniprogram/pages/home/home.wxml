@@ -187,7 +187,7 @@
 
 <!-- 启动加载页（自动登录校验中） -->
 <view wx:else class="gate-loading">
-  <image class="gate-logo" src="/assets/toolbox.png" mode="aspectFit" />
+  <image class="gate-logo" src="/assets/logo.png" mode="aspectFit" />
 </view>
 
 <t-dialog id="t-dialog" />

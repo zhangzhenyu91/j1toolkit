@@ -97,6 +97,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `PORT` | 服务端口（默认 3000；网页端与 API 同端口，反代 `toolkit.j1net.com → 127.0.0.1:PORT`） |
 | `JWT_SECRET` | JWT 签名密钥 |
 | `JWT_EXPIRES` | JWT 有效期（如 `7d`） |
+| `JWT_WEB_EXPIRES` | 网页端登录态有效期（如 `12h`，默认 12 小时；网页端可远程控制公司电脑（KVM），到期强制重新登录，仅网页端登录生效，小程序不受影响） |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_NICKNAME` | 初始管理员（仅首次启动、账号不存在时创建；指定账号始终为 admin） |
 | `WX_APPID` / `WX_SECRET` | 微信小程序 AppID / AppSecret（code 换 openid 用） |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | MySQL 连接 |

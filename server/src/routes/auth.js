@@ -42,9 +42,10 @@ setInterval(() => {
 }, LOGIN_FAIL_WINDOW_MS).unref();
 
 // 签发 JWT，并计算有效期秒数（供前端展示/续期判断）
-function sign(user) {
+// expiresIn 可覆盖默认时效：网页端登录（client='web'）用 JWT_WEB_EXPIRES 短时效
+function sign(user, expiresIn) {
   const token = jwt.sign({ uid: user.id, username: user.username }, config.jwt.secret, {
-    expiresIn: config.jwt.expiresIn,
+    expiresIn: expiresIn || config.jwt.expiresIn,
   });
   const decoded = jwt.decode(token);
   return { token, expires_in: decoded.exp - decoded.iat };
@@ -90,7 +91,7 @@ router.post('/login', async (req, res, next) => {
   try {
     const ip = req.ip || '';
     if (isLoginLimited(ip)) return fail(res, 429, 42901, '尝试过于频繁，请稍后再试');
-    const { username, password, wx_code: wxCode } = req.body || {};
+    const { username, password, wx_code: wxCode, client } = req.body || {};
     if (!username || !password) return fail(res, 400, 40001, '请输入账号和密码');
 
     const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [username]);
@@ -145,8 +146,9 @@ router.post('/login', async (req, res, next) => {
     }
 
     loginFailMap.delete(ip); // 登录成功：清零该 IP 的失败计数
+    // 网页端（client='web'）签发短时效 token：到期服务端即拒绝，前端同步清除登录态
     return ok(res, {
-      ...sign(user),
+      ...sign(user, client === 'web' ? config.jwt.webExpiresIn : undefined),
       user: publicUser(user),
       wx_bound: wxBound,
       ...(bindMessage ? { bind_message: bindMessage } : {}),
