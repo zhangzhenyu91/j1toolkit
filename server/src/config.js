@@ -113,6 +113,11 @@ const config = {
     enabled: str('QUIZ_ENABLED') === 'true',
     difyKey: str('DIFY_QUIZ_API_KEY'),
   },
+  // 内网客户端发布（GitHub 发版后 CI 推送安装包到本站，client.html 提供下载；令牌即 CI 发布凭据，
+  // 留空则发布接口不可用、latest/download 照常）
+  clientrel: {
+    publishToken: str('CLIENT_PUBLISH_TOKEN'),
+  },
   // 商旅打卡（出工日志扩展）：env SGCC_CLOCKIN_ENABLED=true 时才挂载
   // 协议密钥取自商旅 App 逆向分析仓 private/esgcc/sgcc/tools/sgcc_client.js（私有仓），只走 env、不入仓
   sgcc: {

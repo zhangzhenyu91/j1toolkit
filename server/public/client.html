@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 内网客户端下载页（公开页，可直接发链接给班组成员；
+     版本与安装包由 GitHub 发版后 CI 自动推送，数据源 /api/v1/client/latest） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shade 壹匣 - 内网</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ===== 内网客户端下载页 · 政企蓝白（白卡 12px 圆角轻影，一次编排式上浮入场） ===== */
+  .page { flex: 1; width: 100%; max-width: 880px; margin: 0 auto; padding: 40px 20px 60px; }
+
+  /* 页首：Logo + 名称 + 简介 */
+  .hero { display: flex; align-items: center; gap: 14px; animation: riseIn .55s var(--ease) .05s both; }
+  .hero .logo-mark { width: 46px; height: 46px; flex: none; background: #fff; border-radius: 10px; padding: 6px; box-shadow: var(--shadow-card); }
+  .hero h1 { font-size: 21px; font-weight: 700; letter-spacing: 1px; color: var(--navy); }
+  .hero .sub { margin-top: 3px; font-size: 12.5px; color: var(--ph); letter-spacing: .5px; }
+
+  /* 版本卡：版本徽标 + 发布时间 + 更新说明 */
+  .ver-card { margin-top: 22px; padding: 22px 26px; animation: riseIn .55s var(--ease) .14s both; }
+  .ver-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .ver-no { font-size: 20px; font-weight: 700; color: var(--orange); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .ver-time { font-size: 12px; color: var(--ph); letter-spacing: .5px; }
+  .ver-notes { margin-top: 10px; font-size: 13px; color: var(--sub); line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
+
+  /* 平台分组下载卡 */
+  .plat-title { margin: 26px 2px 12px; font-size: 15px; font-weight: 600; color: var(--navy); letter-spacing: .5px; animation: riseIn .5s var(--ease) .22s both; }
+  .dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+  .dl-card { display: flex; align-items: center; gap: 13px; padding: 16px 18px; color: inherit; animation: riseIn .55s var(--ease) .3s backwards; }
+  .dl-card:hover { box-shadow: var(--shadow-hover); }
+  .dl-ic { width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--orange-soft); color: var(--orange); display: flex; align-items: center; justify-content: center; }
+  .dl-ic svg { width: 20px; height: 20px; }
+  .dl-tx { flex: 1; min-width: 0; }
+  .dl-name { display: block; font-size: 13.5px; font-weight: 600; color: var(--navy); letter-spacing: .3px; }
+  .dl-meta { display: block; margin-top: 3px; font-size: 11.5px; color: var(--ph); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dl-go { flex: none; color: var(--orange); display: flex; align-items: center; }
+  .dl-go svg { width: 18px; height: 18px; }
+
+  /* 安装说明 */
+  .help-card { margin-top: 26px; padding: 20px 26px; animation: riseIn .55s var(--ease) .4s both; }
+  .help-card h3 { font-size: 14px; font-weight: 600; color: var(--navy); letter-spacing: .5px; }
+  .help-card ul { margin: 10px 0 0; padding-left: 1.2em; font-size: 12.5px; color: var(--sub); line-height: 2; }
+  .help-card code { font-family: Menlo, Consolas, monospace; font-size: .92em; color: var(--orange); background: var(--fill); padding: 1px 5px; border-radius: 4px; }
+
+  /* 空态 / 加载态 */
+  .empty-box { margin-top: 22px; padding: 40px 26px; text-align: center; font-size: 13px; color: var(--ph); letter-spacing: .5px; animation: riseIn .55s var(--ease) .14s both; }
+
+  @keyframes riseIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="hero">
+    <span class="logo-mark"><img src="/toolkit.svg" alt="Shade 壹匣" style="width:100%;height:100%"></span>
+    <div>
+      <h1>Shade 壹匣 - 内网</h1>
+      <div class="sub">内网工具箱桌面端（每日派车单同步 / 派车单·轨迹导出 / 题库搜题），GitHub 发版后自动同步至此</div>
+    </div>
+  </div>
+  <div id="content"><div class="card empty-box">加载中…</div></div>
+
+  <section class="card help-card">
+    <h3>安装说明</h3>
+    <ul>
+      <li><b>Windows 10+</b>：下载「安装包（exe）」双击安装（免管理员）；绿色包（zip）解压即用。</li>
+      <li><b>银河麒麟 V10 SP1</b>：下载对应架构（amd64 / arm64）的 deb，执行 <code>sudo apt install ./uvmp-toolkit_*.deb</code>。</li>
+      <li>安装后打开客户端，在「设置」页填写 SSO 凭据，再到「每日派车单同步」页启用定时。</li>
+      <li>标题栏可查看当前版本号；与本页版本不一致时重新下载安装即可（配置保留）。</li>
+    </ul>
+  </section>
+</main>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  // 资产文件名 → 平台分组与展示名（产物命名见私有仓 uvmp-toolkit/desktop/electron-builder.yml）
+  function classify(file) {
+    if (/Setup-[\d.]+\.exe$/i.test(file)) return { plat: 'Windows', name: 'Windows 安装包', hint: '推荐 · 双击安装', order: 1 };
+    if (/win-portable\.zip$/i.test(file)) return { plat: 'Windows', name: 'Windows 绿色包', hint: '解压即用', order: 2 };
+    if (/_amd64\.deb$/i.test(file)) return { plat: 'kylin', name: '麒麟 deb（amd64）', hint: '银河麒麟 V10 SP1 x86 机型', order: 3 };
+    if (/_arm64\.deb$/i.test(file)) return { plat: 'kylin', name: '麒麟 deb（arm64）', hint: '银河麒麟 V10 SP1 ARM 机型', order: 4 };
+    if (/-amd64\.tar\.gz$/i.test(file)) return { plat: 'kylin', name: '麒麟绿色包（amd64）', hint: '解压即用', order: 5 };
+    if (/-arm64\.tar\.gz$/i.test(file)) return { plat: 'kylin', name: '麒麟绿色包（arm64）', hint: '解压即用', order: 6 };
+    return { plat: 'other', name: file, hint: '', order: 9 };
+  }
+  function fmtSize(bytes) {
+    var mb = bytes / 1024 / 1024;
+    return (mb >= 100 ? Math.round(mb) : mb.toFixed(1)) + ' MB';
+  }
+  function fmtTime(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  fetch('/api/v1/client/latest')
+    .then(function (r) { return r.json(); })
+    .then(function (resp) {
+      var box = document.getElementById('content');
+      var d = resp && resp.data;
+      if (!d || !d.available) {
+        box.innerHTML = '<div class="card empty-box">暂未发布客户端版本，请稍后再来。</div>';
+        return;
+      }
+      var assets = (d.assets || []).slice().sort(function (a, b) {
+        return classify(a.file).order - classify(b.file).order;
+      });
+      var groups = [['Windows', 'Windows 10 及以上'], ['kylin', '银河麒麟 V10 SP1（Linux）']];
+      var html = '<section class="card ver-card">'
+        + '<div class="ver-row"><span class="ver-no">v' + Shade.esc(d.version) + '</span>'
+        + '<span class="ver-time">发布于 ' + fmtTime(d.publishedAt) + '</span></div>'
+        + (d.notes ? '<div class="ver-notes">' + Shade.esc(d.notes) + '</div>' : '')
+        + '</section>';
+      groups.forEach(function (g) {
+        var list = assets.filter(function (a) { return classify(a.file).plat === g[0]; });
+        if (!list.length) return;
+        html += '<div class="plat-title">' + g[1] + '</div><div class="dl-grid">'
+          + list.map(function (a) {
+              var c = classify(a.file);
+              return '<a class="card dl-card" href="/api/v1/client/download/' + encodeURIComponent(a.file) + '">'
+                + '<span class="dl-ic">' + Shade.icon('monitor', 20) + '</span>'
+                + '<span class="dl-tx"><span class="dl-name">' + Shade.esc(c.name) + '</span>'
+                + '<span class="dl-meta">' + fmtSize(a.size) + (c.hint ? ' · ' + Shade.esc(c.hint) : '') + '</span></span>'
+                + '<span class="dl-go">' + Shade.icon('download', 18) + '</span>'
+                + '</a>';
+            }).join('')
+          + '</div>';
+      });
+      box.innerHTML = html;
+    })
+    .catch(function () {
+      document.getElementById('content').innerHTML =
+        '<div class="card empty-box">加载失败，请刷新重试。</div>';
+    });
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 // 出工日志：水印照片验证流水线（上传/重验/商旅补拉共用）
-// Dify 识别（施工内容为空自动重试，最多重试 3 次——重试期间照片保持 pending，双端显示「验证中」）→
+// Dify 识别（调用失败或施工内容为空均自动重试，最多重试 3 次——重试期间照片保持 pending，双端显示「验证中」）→
 // 结果回写（写库时重查卡片当前的记录日期与派车目的地做日期/地点核验，规避验证途中改目的地的口径过期竞态）→
 // 重试耗尽仍无施工内容 → 置「验证失败」并通知班组人工审核（站内通知班管 + 班组微信群消息 @班管）
 const { pool } = require('../db');
@@ -7,7 +7,7 @@ const dify = require('./dify');
 const { checkWatermark } = require('./verify');
 const { dots } = require('../utils/cndate');
 
-// 施工内容为空时的最大重试次数（不含首次调用；视觉模型偶发漏识别 title，直接重试即可恢复）
+// 调用失败或施工内容为空时的最大重试次数（不含首次调用；视觉模型偶发漏识别 title、调用偶发超时，直接重试即可恢复）
 const MAX_RETRY = 3;
 
 // 识别结果有效 = 调用成功且施工内容非空（空内容触发重试）
@@ -15,14 +15,14 @@ function usable(vr) {
   return vr && vr.ok && !!String(vr.workContent || '').trim();
 }
 
-// Dify 识别（含空内容重试）：返回最终一次结果 vr；vr.ok 且 workContent 为空 = 重试耗尽
+// Dify 识别（含失败/空内容重试）：返回最终一次结果 vr；vr.ok 且 workContent 为空 = 重试耗尽
 async function recognize(params) {
   let vr = null;
   for (let attempt = 0; attempt <= MAX_RETRY; attempt += 1) {
     vr = await dify.verifyPhoto(params);
-    if (usable(vr) || !vr.ok) return vr;
+    if (usable(vr)) return vr;
     if (attempt < MAX_RETRY) {
-      console.warn(`[出工日志] Dify 识别施工内容为空，第 ${attempt + 1} 次重试（${params.url}）`);
+      console.warn(`[出工日志] Dify ${vr.ok ? '识别施工内容为空' : '调用失败'}，第 ${attempt + 1} 次重试（${params.url}）`);
     }
   }
   return vr;
