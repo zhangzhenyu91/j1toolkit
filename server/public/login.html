@@ -59,9 +59,9 @@
   .brand-feats .feat:nth-child(1) { animation-delay: .4s; }
   .brand-feats .feat:nth-child(2) { animation-delay: .48s; }
   .brand-feats .feat:nth-child(3) { animation-delay: .56s; }
-  /* 品牌区底部小程序宣传图（白底图以圆角卡形式落在深蓝遮罩上） */
-  .brand-promo { padding: 0 38px 30px; animation: riseIn .6s var(--ease) .62s both; }
-  .brand-promo img { display: block; width: 100%; max-width: 440px; margin: 0 auto; border-radius: 12px; box-shadow: 0 4px 16px rgba(4, 18, 56, .28); }
+  /* 右侧表单底部小程序宣传图（白区：浅灰图底配发丝边框收成卡） */
+  .form-promo { margin: 26px auto 0; animation: riseIn .55s var(--ease) .6s both; }
+  .form-promo img { display: block; width: 100%; max-width: 340px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--line); }
   /* 特性图标：实景遮罩上的半透明白块 */
   .feat i {
     width: 32px; height: 32px; flex: none; border-radius: 8px;
@@ -107,7 +107,6 @@
     .login-box { flex-direction: column; }
     .login-brand { width: 100%; }
     .brand-mid h2 { font-size: 24px; }
-    .brand-promo { padding: 0 28px 24px; }
     .login-form { padding: 36px 28px; }
   }
 </style>
@@ -130,7 +129,6 @@
           <div class="feat"><i id="featShield"></i>数据安全可溯，操作留痕符合班组管理规范</div>
         </div>
       </div>
-      <div class="brand-promo"><img src="/mp-promo.jpg" alt="微信搜一搜「Shade 壹匣」小程序"></div>
       <div class="hazard-top"></div>
     </div>
     <!-- 右侧登录表单：.form-core 垂直居中主体，备案页脚垫底（本页 data-beian="off"，不注入全局页脚） -->
@@ -157,6 +155,7 @@
           <div>© 2026 Shade 壹匣</div>
         </div>
       </div>
+      <div class="form-promo"><img src="/mp-promo.jpg" alt="微信搜一搜「Shade 壹匣」小程序"></div>
       <footer class="beian-foot">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>
         <a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener"><img src="/public-security.png" alt="公安备案">晋公网安备14118202000050号</a>
