@@ -1,21 +1,20 @@
 # -*- coding: utf-8 -*-
-# 生成小程序分享图：统一背景 + 居中白色卡片 + 应用图标 / 工具箱图标
-# 「政企蓝白」口径：背景程序合成（页面底 #F5F7FA + 顶部品牌蓝 #0E3DA8 色条），不再依赖 AI 背景图
+# 生成小程序分享图：纯色品牌蓝底 + 中央白色应用图标 / 工具箱白色 logo
+# 「政企蓝白」口径：背景整幅品牌蓝 #0E3DA8，图标统一白色居中，无卡片无色条
 # 用法：python design/make_share_images.py
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / 'design' / 'font' / 't.ttf'
-TOOLBOX_PATH = ROOT / 'miniprogram' / 'assets' / 'toolbox.png'
+LOGO_ON_DARK_PATH = ROOT / 'miniprogram' / 'assets' / 'logo-on-dark.png'
 OUT_DIR = ROOT / 'miniprogram' / 'images' / 'share'
 
 BLUE = '#0E3DA8'       # 品牌主色（政企蓝白）
-PAGE_BG = '#F5F7FA'    # 页面底
-CARD_RADIUS = 48
-CARD_SIZE = 460
-ICON_SIZE = 300
+WHITE = '#FFFFFF'
+ICON_SIZE = 360        # 应用图标盒（无卡片，约占图宽 45%）
+LOGO_SIZE = 380        # 通用图白色 logo 尺寸
 
 # 应用图标：TDesign 图标名 -> 码点（与 sys_app.icon / t-icon 一致）
 APPS = {
@@ -32,31 +31,9 @@ FINAL_WIDTH = 800    # 出图宽度（高按 5:4 = 640）：体验评分要求�
 
 
 def load_background() -> Image.Image:
-    """程序合成背景：页面底 + 顶部品牌蓝色条（5:4 源尺寸即 800×640）"""
+    """纯色品牌蓝底（5:4 源尺寸即 800×640）"""
     w, h = FINAL_WIDTH, round(FINAL_WIDTH / SHARE_RATIO)
-    bg = Image.new('RGB', (w, h), PAGE_BG)
-    d = ImageDraw.Draw(bg)
-    d.rectangle((0, 0, w, round(h * 0.1)), fill=BLUE)  # 顶部品牌色条
-    return bg
-
-
-def make_card(size: int, radius: int) -> Image.Image:
-    """白色圆角卡片（带柔和投影），返回 RGBA"""
-    pad = 40
-    canvas = Image.new('RGBA', (size + pad * 2, size + pad * 2), (0, 0, 0, 0))
-    # 投影
-    shadow = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(shadow)
-    d.rounded_rectangle(
-        (pad, pad + 6, pad + size, pad + size + 6), radius=radius,
-        fill=(34, 49, 78, 38),
-    )
-    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
-    canvas.alpha_composite(shadow)
-    # 卡体
-    d = ImageDraw.Draw(canvas)
-    d.rounded_rectangle((pad, pad, pad + size, pad + size), radius=radius, fill=(255, 255, 255, 255))
-    return canvas
+    return Image.new('RGB', (w, h), BLUE)
 
 
 def render_glyph(codepoint: int, px: int, color: str) -> Image.Image:
@@ -71,14 +48,10 @@ def render_glyph(codepoint: int, px: int, color: str) -> Image.Image:
     return img
 
 
-def compose(bg: Image.Image, icon: Image.Image) -> Image.Image:
+def compose(bg: Image.Image, icon: Image.Image, box: int) -> Image.Image:
     out = bg.copy().convert('RGBA')
-    card = make_card(CARD_SIZE, CARD_RADIUS)
-    cx = (out.width - card.width) // 2
-    cy = (out.height - card.height) // 2
-    out.alpha_composite(card, (cx, cy))
-    # 图标统一缩放到 ICON_SIZE 盒内（小图放大、大图缩小）并居中于卡片
-    scale = min(ICON_SIZE / icon.width, ICON_SIZE / icon.height)
+    # 图标统一缩放到 box 盒内（小图放大、大图缩小）并居中于画布
+    scale = min(box / icon.width, box / icon.height)
     size = (round(icon.width * scale), round(icon.height * scale))
     icon = icon.resize(size, Image.LANCZOS)
     ix = (out.width - icon.width) // 2
@@ -93,17 +66,17 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     bg = load_background()
 
-    # 应用分享图（TDesign 图标字形，与小程序内图标完全一致）
+    # 应用分享图（白色 TDesign 图标字形，与小程序内图标一致）
     for key, cp in APPS.items():
-        glyph = render_glyph(cp, ICON_SIZE * 2, BLUE)
-        img = compose(bg, glyph)
+        glyph = render_glyph(cp, ICON_SIZE * 2, WHITE)
+        img = compose(bg, glyph, ICON_SIZE)
         path = OUT_DIR / f'share-{key}.jpg'
         img.save(path, 'JPEG', quality=55, optimize=True)
         print(f'{path.name}: {img.size}, {path.stat().st_size // 1024}KB')
 
-    # 通用分享图（工具箱图标，复用 assets/toolbox.png）
-    toolbox = Image.open(TOOLBOX_PATH).convert('RGBA')
-    img = compose(bg, toolbox)
+    # 通用分享图（深色底专用白色 logo，复用 assets/logo-on-dark.png）
+    logo = Image.open(LOGO_ON_DARK_PATH).convert('RGBA')
+    img = compose(bg, logo, LOGO_SIZE)
     path = OUT_DIR / 'share-toolbox.jpg'
     img.save(path, 'JPEG', quality=55, optimize=True)
     print(f'{path.name}: {img.size}, {path.stat().st_size // 1024}KB')
