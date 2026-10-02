@@ -1,6 +1,6 @@
 // 出工日志：记录验证状态（verify_passed）与未通过明细（verify_reasons）计算，logs / day-status / report 共用；
 // 个人口径 myReportReasons 供 /report 与 /day-status 的 scope=mine 共用
-// 规则（见《开发指南》7.1）：① 未出车不验证（exempt）；② 目的地已选且有用车人（巡视内容按需求可空，不计入）；
+// 规则（见《开发指南》7.1）：① 未出车不验证（exempt）；② 目的地已选、派车单号已填且有用车人（巡视内容按需求可空，不计入）；
 // ③ 至少一张水印照片且全部已通过；④ 用车人名单与全部照片人名并集一致；⑤ 照片施工内容一致且均非空（单张为空也不通过）；⑥ 全部用车人已打卡
 //
 // 商旅打卡开启（SGCC_CLOCKIN_ENABLED=true）后切换为新 7 条（design/sgcc-clockin.html 汇总前核验口径）：
@@ -10,7 +10,8 @@
 //    目的地标记驻地 伙食40/交通0，市外/驻地互斥；
 //    按记录日期取生效标准，entry.feeStd 由 loadEntries 装配；规则 a 不约束未绑定者，但费用未绑定者同样要补录，故全员约束）
 // g. 已绑定商旅的用车人两次打卡地点至少一次包含派车目的地（两次打卡齐才判，缺打卡仅报规则 a；与规则 d 同为朴素包含口径）
-// （d/e 即照片级核验 date_ok/dest_ok；非水印照片 is_watermark=0 不参与；旧 checked 打卡开关不再计入）
+// （d/e 即照片级核验 date_ok/dest_ok；非水印照片 is_watermark=0 不参与；旧 checked 打卡开关不再计入；
+//  卡片级前提 目的地已选/派车单号已填/有用车人 两种模式共用，不随切换变化）
 const config = require('../config');
 function sgccOn() { return !!(config.sgcc && config.sgcc.enabled); }
 // 参与验证的照片集：商旅打卡开启后剔除非水印照片
@@ -78,6 +79,7 @@ function checkWatermark({ time, location, logDate, destination }) {
 function computeVerifyPassed(entry) {
   if (!entry.vehicle_id) return 'exempt';
   if (!entry.destination_id) return 'failed';
+  if (!String(entry.dispatch_order_no || '').trim()) return 'failed';
   if (!entry.members.length) return 'failed';
 
   if (sgccOn()) {
@@ -154,6 +156,7 @@ function computeFailReasons(entry) {
   if (!entry.vehicle_id) return []; // 免验证
   const reasons = [];
   if (!entry.destination_id) reasons.push('未选择目的地');
+  if (!String(entry.dispatch_order_no || '').trim()) reasons.push('未填写派车单号');
   if (!entry.members.length) reasons.push('未选择用车人');
 
   if (sgccOn()) {
