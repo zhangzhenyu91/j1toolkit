@@ -21,10 +21,14 @@ main:
         - ".cnb.yml"
       stages:
         - name: buildx build and push
-          # 版本号取最近 git tag（剥离 release-v / v 前缀）；无 tag 时回退 commit 短号
+          # 版本号取远端最高版本 tag（剥离 release-v / v 前缀）：CNB 快克隆不带本地 tags，
+          # 故走 git ls-remote 直读远端（公开仓匿名可读）；取不到时回退 commit 短号
           script: |
             IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}
-            VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed -E 's/^(release-)?v//')
+            VERSION=$(git ls-remote --tags origin 2>/dev/null \
+              | awk '{print $2}' | grep -E '^refs/tags/(release-)?v[0-9]' | grep -v '\^{}$' \
+              | sed -E 's#^refs/tags/##; s/^(release-)?v//' \
+              | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
             [ -z "$VERSION" ] && VERSION=${CNB_COMMIT_SHORT}
             echo "构建版本: ${VERSION}"
             docker buildx build --platform linux/amd64,linux/arm64 \
