@@ -1,7 +1,7 @@
 // KVM 远程管理子模块：设备列表实时代理自 GLKVM Cloud 平台（员工账号代登），
 // 终端/远程控制经 /jump 签发带 sid 的跳转地址（平台 jump.html 种 Cookie），实现仅能通过壹匣登录；
 // 文件分享转发点（files/push/download）经平台 /web/ 链路直达设备 fileshare 服务（见 开发指南.md 第十二节）
-// 挂载：KVM_ENABLED=true 时由入口挂载（/api/v1/kvm）；GLKVM_* 配置见 .env.example
+// 挂载：KVM_ENABLED=true 时由入口挂载（/api/v1/kvm）；GLKVM_* 配置见 docker/.env.example
 const express = require('express');
 const axios = require('axios');
 const FormData = require('form-data');

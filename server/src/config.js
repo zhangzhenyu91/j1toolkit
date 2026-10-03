@@ -1,4 +1,4 @@
-// 全局配置：所有环境相关值一律从环境变量读取（见 .env.example），不硬编码
+// 全局配置：所有环境相关值一律从环境变量读取（示例见 docker/.env.example），不硬编码
 const path = require('path');
 require('dotenv').config();
 
@@ -164,7 +164,7 @@ const REQUIRED = [
 function validateConfig() {
   const missing = REQUIRED.filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) {
-    console.error(`[配置错误] 缺少环境变量：${missing.join('、')}，请参照 .env.example 配置`);
+    console.error(`[配置错误] 缺少环境变量：${missing.join('、')}，请参照 docker/.env.example 配置`);
     process.exit(1);
   }
   // 初始管理员密码沿用缺省值时醒目告警（仅提示，不改默认行为；生产环境务必在 .env 配置 ADMIN_PASSWORD）

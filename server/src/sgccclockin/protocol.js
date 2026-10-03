@@ -27,7 +27,7 @@ function toPem(b64, label) {
 }
 // 配置缺失时给出明确错误（模块启用但密钥未配置）
 function need(name, v) {
-  if (!v) throw new Error(`缺少环境变量 ${name}（商旅打卡协议密钥，见 .env.example）`);
+  if (!v) throw new Error(`缺少环境变量 ${name}（商旅打卡协议密钥，见 docker/.env.example）`);
   return v;
 }
 

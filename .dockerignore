@@ -6,7 +6,7 @@ miniprogram/
 design/
 esgcc/
 manual/
-deploy/
+docker/
 .kimi-code/
 
 # 本地依赖/数据/真实密钥绝不进镜像（依赖在镜像内 npm ci 重装；data 运行时挂卷；配置走环境变量）
