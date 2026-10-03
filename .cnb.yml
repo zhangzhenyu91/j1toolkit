@@ -1,6 +1,6 @@
 # Shade 壹匣 · CNB 云原生构建：服务端 Docker 镜像（后端 API + 网页端同端口托管）
 # 推送即构建多架构镜像（linux/amd64 + linux/arm64）并推 CNB 制品库（镜像路径 = 仓库路径）：
-#   main 分支 push → :<commit 前 8 位>（快照）
+#   main 分支 push → :<版本号>（取最近 git tag 剥离 release-v / v 前缀；无 tag 回退 commit 短号）
 #   任意 tag push  → :<版本号>（tag 名剥离 release-v / v 前缀，与 ACR :X.Y.Z 同口径；不发 latest）
 # 拉取：docker.cnb.cool/j1net/j1toolkit/j1toolkit:<tag>
 # 注：阿里云 ACR 的 release-v* tag 自动构建链路保留不变，与本流水线双轨并行。
@@ -13,12 +13,22 @@ main:
       git:
         # 公开仓流水线拉不到私有子模块 private/；服务端镜像构建上下文本就不含 private/（见 .dockerignore）
         submodules: false
+      # 仅服务端相关变更才构建（文档/子模块指针等提交不触发）
+      ifModify:
+        - "server/**"
+        - "Dockerfile"
+        - ".dockerignore"
+        - ".cnb.yml"
       stages:
         - name: buildx build and push
+          # 版本号取最近 git tag（剥离 release-v / v 前缀）；无 tag 时回退 commit 短号
           script: |
             IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}
+            VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed -E 's/^(release-)?v//')
+            [ -z "$VERSION" ] && VERSION=${CNB_COMMIT_SHORT}
+            echo "构建版本: ${VERSION}"
             docker buildx build --platform linux/amd64,linux/arm64 \
-              -t ${IMAGE}:${CNB_COMMIT_SHORT} --push .
+              -t ${IMAGE}:${VERSION} --push .
 
 $:
   tag_push:
