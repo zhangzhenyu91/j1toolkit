@@ -71,15 +71,21 @@ private/       私有配套仓 j1toolkit-private（git submodule，需有权限�
 git tag release-v1.0.0 && git push origin release-v1.0.0   # ACR 自动构建镜像 :1.0.0
 ```
 
-服务器（1Panel → 容器）创建容器运行：
+服务器侧运行两种方式任选：
 
-- 镜像：`registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit:1.0.0`
-- 端口映射：宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）
-- 环境变量：按 `.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 `WORKLOG_ENABLED=true` + COS + Dify 配置；安全日活动记录需 `SAFEDAY_ENABLED=true` + `DIFY_SAFEDAY_API_KEY`；题库刷题需 `QUIZ_ENABLED=true` + `DIFY_QUIZ_API_KEY`）
-- 数据卷：宿主目录（如 `/opt/j1toolkit/data`）→ `/app/server/data`（安全日记录、内网客户端安装包等持久化数据；首次迁移需把旧部署 `server/data/` 拷入）
-- 重启策略：always
+**方式一（推荐）：docker compose**——仓库 `deploy/` 目录为自包含部署包（`docker-compose.yml` + `.env.example`），拷到服务器后：
 
-镜像已内置 LibreOffice（安全日非 PDF 附件转 PDF 合并用）与中文字体；验证：`docker exec <容器> curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常（Dockerfile 已配 HEALTHCHECK，1Panel 容器列表亦可直看健康状态）。升级 = 打新 tag → 等构建完成 → 1Panel 改镜像版本重建容器。
+```bash
+cd deploy
+cp .env.example .env   # 按实际填写：IMAGE（镜像完整地址含版本标签）、JWT_SECRET、MYSQL_* 等
+docker compose up -d   # 端口映射/数据卷（./data → /app/server/data）/重启策略均已配置
+```
+
+升级：改 `.env` 的 `IMAGE` 版本号 → `docker compose pull && docker compose up -d`。MySQL/Redis 在容器外时 `.env` 中 `MYSQL_HOST`/`REDIS_HOST` 不能填 `127.0.0.1`（容器内回环是容器自己），填宿主内网 IP 或 docker 网桥网关。
+
+**方式二：1Panel 图形化建容器**——镜像 `registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit:<版本>`；端口映射宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）；环境变量按 `.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 `WORKLOG_ENABLED=true` + COS + Dify 配置；安全日活动记录需 `SAFEDAY_ENABLED=true` + `DIFY_SAFEDAY_API_KEY`；题库刷题需 `QUIZ_ENABLED=true` + `DIFY_QUIZ_API_KEY`）；数据卷宿主目录 → `/app/server/data`；重启策略 always。
+
+镜像已内置 LibreOffice（安全日非 PDF 附件转 PDF 合并用）与中文字体；验证：`curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常（Dockerfile 已配 HEALTHCHECK，容器列表可直看健康状态）。**首次迁移需把旧部署 `server/data/`（安全日记录、client-releases 安装包）拷入数据卷目录。**
 
 **本机开发（不用镜像）**：`cd server` → 首次 `npm install` 并备好 `.env` → `npm run dev`（`node --watch` 改代码自动重启），浏览器访问 `http://127.0.0.1:3000/login.html` 测页面；前提为本机可连 `.env` 所指的 MySQL/Redis。
 

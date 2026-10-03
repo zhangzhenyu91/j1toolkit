@@ -23,7 +23,7 @@
    - 服务监听 `0.0.0.0`，端口从 env 读取（`PORT`，默认 `3000`）；单端口同时托管网页端（`server/public/`）与 `/api/v1`，用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，无路径前缀配置（旧 `PROXY_PREFIX` 已废弃删除）；
    - 系统级依赖（如 LibreOffice，安全日非 PDF 附件转 PDF 用）必须装进仓根 `Dockerfile` 并在文档注明；可写数据只写 `server/data/`（容器内 `/app/server/data`，挂卷持久化），不入仓不进镜像；
    - 避免需要编译原生模块的依赖，确有必要时在文档中注明。
-3. **配置与密钥**：所有环境相关配置一律从 env 读取，不硬编码、不入仓；只维护 `.env.example`，绝不创建真实 `.env` 或写入任何真实密钥。
+3. **配置与密钥**：所有环境相关配置一律从 env 读取，不硬编码、不入仓；只维护 `.env.example`（`server/.env.example` 与 `deploy/.env.example` 两份同步维护），绝不创建真实 `.env` 或写入任何真实密钥。
 4. **不擅自做 git 操作**：`git commit` / `push` / `reset` 等需用户明确指示。
 
 ## 三、技术栈（已定）
@@ -73,6 +73,7 @@
 - `design/` —— UI 设计稿：现行定稿「政企蓝白」（4 份基准稿 `小程序-首页.html` / `小程序-出工日志.html` / `Web-首页.html` / `Web-出工日志.html` + `设计规范.md` + `index.html` 展厅总览）；另存分享图生成工具链（`make_share_images.py` / `font/t.ttf` / `share-bg-preview.png`）；旧定稿已全部移除
 - `manual/` —— 面向最终用户的使用指南（当前不在仓内；历史版截图含真实班组信息，已随公开化清理归档至私有仓 `_archive/manual/`——日后重建指南时截图须脱敏）
 - 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）+ 镜像构建文件（Dockerfile / .dockerignore，阿里云 ACR 自动构建用，仅打包 `server/`）
+- `deploy/` —— docker compose 部署包（`docker-compose.yml` + `.env.example`；自包含，拷到服务器 `cp .env.example .env` 填写后 `docker compose up -d`；其 `.env.example` 与 `server/.env.example` 为同步副本，修改时两处同步）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
 
 新应用接入 = 小程序分包页面 + 后端 `sys_app` 表配置（详见 `开发指南.md` 第五章；网页端页面接入见 `开发指南.md` 第十一节）。

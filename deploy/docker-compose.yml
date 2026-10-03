@@ -1,0 +1,17 @@
+# Shade 壹匣后端（API + 网页端同端口）—— docker compose 部署
+# 用法：cp .env.example .env → 按实际填写（IMAGE 必填）→ docker compose up -d
+# 镜像由阿里云 ACR 自动构建（推 tag release-vX.Y.Z → 镜像 :X.Y.Z，规则见 README「后端部署」）；
+# 升级：改 .env 的 IMAGE 版本号 → docker compose pull && docker compose up -d
+services:
+  j1toolkit:
+    image: ${IMAGE:?请在 .env 中配置 IMAGE（镜像完整地址，含版本标签）}
+    container_name: j1toolkit
+    restart: always
+    ports:
+      # 容器内外同端口（.env 的 PORT 经 env_file 传入容器作为监听端口）
+      - "${PORT:-3000}:${PORT:-3000}"
+    env_file:
+      - .env
+    volumes:
+      # 可写数据（安全日记录、内网客户端安装包等）持久化到本目录 data/
+      - ./data:/app/server/data
