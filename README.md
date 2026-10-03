@@ -37,7 +37,7 @@
 | 层 | 选型 |
 |----|------|
 | 前端 | 微信小程序原生 + tdesign-miniprogram（「政企蓝白」定制主题）；网页端原生 HTML/JS（同源 token） |
-| 后端 | Node.js + Express（云服务器以 Docker 容器运行：阿里云 ACR 按仓根 `Dockerfile` 自动构建镜像；单端口同时托管网页端与 `/api/v1`） |
+| 后端 | Node.js + Express（云服务器以 Docker 容器运行：阿里云 ACR 按仓根 `Dockerfile` 自动构建镜像，另有 CNB 云原生构建双轨见仓根 `.cnb.yml`；单端口同时托管网页端与 `/api/v1`） |
 | 存储 | MySQL（业务数据）/ Redis（JWT 黑名单、会话）/ 腾讯云 COS（文件/照片） |
 | 鉴权 | JWT + Redis，客户端 `Authorization: Bearer <token>` 携带（网页端 token 存 localStorage） |
 | 外部服务 | WeKnora 知识库（Call Me）、Dify 工作流（出工日志照片验证、安全日活动记录生成、题库 AI 解析）、GLKVM Cloud（远程连接计算机/文件传输）、高德地图 Web 服务（出工日志/水印添加/商旅打卡地点天气）、商旅平台中继（商旅打卡） |

@@ -1,0 +1,38 @@
+# Shade 壹匣 · CNB 云原生构建：服务端 Docker 镜像（后端 API + 网页端同端口托管）
+# 推送即构建并推 CNB 制品库（镜像路径 = 仓库路径）：
+#   main 分支 push → :latest + :<commit 前 8 位>
+#   任意 tag push  → :<tag 名> + :latest
+# 拉取：docker.cnb.cool/j1net/j1toolkit/j1toolkit:<tag>
+# 注：阿里云 ACR 的 release-v* tag 自动构建链路保留不变，与本流水线双轨并行。
+
+main:
+  push:
+    - name: 服务端镜像
+      services:
+        - docker
+      git:
+        # 公开仓流水线拉不到私有子模块 private/；服务端镜像构建上下文本就不含 private/（见 .dockerignore）
+        submodules: false
+      stages:
+        - name: build and push
+          script: |
+            IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}
+            docker build -t ${IMAGE}:latest -t ${IMAGE}:${CNB_COMMIT_SHORT} .
+            docker push ${IMAGE}:latest
+            docker push ${IMAGE}:${CNB_COMMIT_SHORT}
+
+$:
+  tag_push:
+    - name: 服务端镜像（tag）
+      services:
+        - docker
+      git:
+        submodules: false
+      stages:
+        - name: build and push
+          # tag 事件时 CNB_BRANCH 即 tag 名
+          script: |
+            IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}
+            docker build -t ${IMAGE}:${CNB_BRANCH} -t ${IMAGE}:latest .
+            docker push ${IMAGE}:${CNB_BRANCH}
+            docker push ${IMAGE}:latest

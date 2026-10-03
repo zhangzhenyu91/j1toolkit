@@ -17,7 +17,7 @@
 ## 二、协作与部署规则（最高优先级）
 
 1. **只写文件，不做部署**：职责是在本地工作目录编写/修改文件。不执行部署、不上传服务器、不主动连接任何云端资源（MySQL / Redis / COS / WeKnora / Dify 只在代码中按 env 读取对接，不实际访问）。
-2. **交付即可运行（Docker 镜像化部署）**：后端以阿里云 ACR「代码变更自动构建」产出镜像（构建上下文为仓根、仓根 `Dockerfile` + `.dockerignore`，推 tag `release-vX.Y.Z` 触发构建镜像 `:X.Y.Z`），云服务器以容器运行（数据卷挂 `/app/server/data`，配置全走环境变量）。因此必须保证：
+2. **交付即可运行（Docker 镜像化部署）**：后端以阿里云 ACR「代码变更自动构建」产出镜像（构建上下文为仓根、仓根 `Dockerfile` + `.dockerignore`，推 tag `release-vX.Y.Z` 触发构建镜像 `:X.Y.Z`），云服务器以容器运行（数据卷挂 `/app/server/data`，配置全走环境变量）。另有 CNB 云原生构建双轨：仓根 `.cnb.yml` 于 main push / tag push 自动构建同名镜像推 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`）；私有仓 `.cnb.yml` 构建内网客户端 linux-amd64 产物镜像（Windows 安装包与发版推送 Web 下载页仍走 GitHub Actions）。因此必须保证：
    - `package.json` 包含 `"start"` 脚本（`node src/index.js`，与镜像 CMD 同口径）与 `"dev"` 脚本（`node --watch src/index.js`，本机开发热重启）；
    - 全部依赖写入 `package.json` 的 `dependencies` 并维护 `package-lock.json`（镜像内 `npm ci --omit=dev` 严格按 lockfile 安装），不得依赖全局安装或本地未声明的包；
    - 服务监听 `0.0.0.0`，端口从 env 读取（`PORT`，默认 `3000`）；单端口同时托管网页端（`server/public/`）与 `/api/v1`，用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，无路径前缀配置（旧 `PROXY_PREFIX` 已废弃删除）；
