@@ -17,7 +17,7 @@
 ## 二、协作与部署规则（最高优先级）
 
 1. **只写文件，不做部署**：职责是在本地工作目录编写/修改文件。不执行部署、不上传服务器、不主动连接任何云端资源（MySQL / Redis / COS / WeKnora / Dify 只在代码中按 env 读取对接，不实际访问）。
-2. **交付即可运行（Docker 镜像化部署）**：后端以阿里云 ACR「代码变更自动构建」产出镜像（构建上下文为仓根、仓根 `Dockerfile` + `.dockerignore`，推 tag `release-vX.Y.Z` 触发构建镜像 `:X.Y.Z`），云服务器以容器运行（数据卷挂 `/app/server/data`，配置全走环境变量）。另有 CNB 云原生构建双轨：仓根 `.cnb.yml` 于 main push / tag push 自动构建同名镜像推 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`）；私有仓 `.cnb.yml` 构建内网客户端 linux-amd64 产物镜像（Windows 安装包与发版推送 Web 下载页仍走 GitHub Actions）。因此必须保证：
+2. **交付即可运行（Docker 镜像化部署）**：后端以阿里云 ACR「代码变更自动构建」产出镜像（构建上下文为仓根、仓根 `Dockerfile` + `.dockerignore`，推 tag `release-vX.Y.Z` 触发构建镜像 `:X.Y.Z`），云服务器以容器运行（数据卷挂 `/app/server/data`，配置全走环境变量）。另有 CNB 云原生构建双轨：仓根 `.cnb.yml` 于 main push / tag push 自动构建多架构镜像（linux/amd64+arm64，tag 随版本号不发 latest）推 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`）；私有仓 `.cnb.yml` 构建内网客户端全平台产物镜像（linux amd64/arm64 + windows amd64 wine 跨构建，tag 发版时推送 Web 下载页，与 GitHub Actions 双链并集合并）。因此必须保证：
    - `package.json` 包含 `"start"` 脚本（`node src/index.js`，与镜像 CMD 同口径）与 `"dev"` 脚本（`node --watch src/index.js`，本机开发热重启）；
    - 全部依赖写入 `package.json` 的 `dependencies` 并维护 `package-lock.json`（镜像内 `npm ci --omit=dev` 严格按 lockfile 安装），不得依赖全局安装或本地未声明的包；
    - 服务监听 `0.0.0.0`，端口从 env 读取（`PORT`，默认 `3000`）；单端口同时托管网页端（`server/public/`）与 `/api/v1`，用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，无路径前缀配置（旧 `PROXY_PREFIX` 已废弃删除）；
@@ -68,7 +68,7 @@
 
 - `miniprogram/` —— 微信小程序（原生 + tdesign-miniprogram）
 - `server/` —— 后端 Node.js 单端口整合服务（API + 托管网页端）
-- `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / safeday.html / kvm.html / quiz.html / admin.html / client.html 内网客户端下载页（公开页，GitHub 发版后 CI 自动推送安装包，见 `开发指南.md` 第十一节）/ sgcc-captcha.html 商旅顶象滑块接力页（小程序 web-view 承载，回传 captchaToken+constId 供绑定登录），公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`、`assets/md.js`（精简 Markdown 渲染器，通知中心与 Call Me 共用）；`kvm-device/` 为 KVM 设备一键接入安装包）
+- `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / safeday.html / kvm.html / quiz.html / admin.html / client.html 内网客户端下载页（公开页，GitHub/CNB 发版后 CI 自动推送安装包，见 `开发指南.md` 第十一节）/ sgcc-captcha.html 商旅顶象滑块接力页（小程序 web-view 承载，回传 captchaToken+constId 供绑定登录），公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`、`assets/md.js`（精简 Markdown 渲染器，通知中心与 Call Me 共用）；`kvm-device/` 为 KVM 设备一键接入安装包）
 - `private/` —— 私有配套仓 [j1toolkit-private](https://cnb.cool/j1net/j1toolkit/j1toolkit-private) 的 submodule 挂载点（`git submodule update --init` 拉取）：`private/uvmp-toolkit/` 内网工具箱客户端（Electron+Vue 壳 + Python 核心，装在内网被控机；UI 与本体同套「政企蓝白」token）、`private/esgcc/` 待开发应用素材与商旅打卡逆向分析仓 `sgcc/`（交接文档/API 报告/抓包/tools；`base.apk` 107MB 不入仓本地留存）、`private/WorkLogs/` 旧独立服务历史数据归档（代码已整合进主服务，仅存数据）
 - `design/` —— UI 设计稿：现行定稿「政企蓝白」（4 份基准稿 `小程序-首页.html` / `小程序-出工日志.html` / `Web-首页.html` / `Web-出工日志.html` + `设计规范.md` + `index.html` 展厅总览）；另存分享图生成工具链（`make_share_images.py` / `font/t.ttf` / `share-bg-preview.png`）；旧定稿已全部移除
 - `manual/` —— 面向最终用户的使用指南（当前不在仓内；历史版截图含真实班组信息，已随公开化清理归档至私有仓 `_archive/manual/`——日后重建指南时截图须脱敏）
