@@ -1,7 +1,8 @@
-// 内网客户端发布（uvmp-toolkit 安装包托管）：GitHub 打 tag 发版后，CI publish-web job 把 Release 资产推送到本站，
+// 内网客户端发布（uvmp-toolkit 安装包托管）：GitHub / CNB 打 tag 发版后，CI 把安装包推送到本站，
 // 网页端 client.html（内网客户端页）据此展示最新版本并提供下载。
 // 链路：POST /publish（逐资产 multipart 上传，先入 incoming/<version>/ 暂存）
-//       → POST /publish/complete（整版转正：替换同名版本目录、写 manifest.json、清理历史版本）
+//       → POST /publish/complete（并入正式版本目录：多 CI 链并传同版本取并集、同名覆盖，notes 缺省保留；
+//         写 manifest.json、清理历史版本）
 // 鉴权：两个发布接口走 CLIENT_PUBLISH_TOKEN（Bearer，timing-safe 比对；未配置则发布不可用、查询/下载照常）；
 //       /latest 与 /download 公开（安装包不涉敏感数据，便于直接把页面链接发给班组成员）
 const fs = require('fs');
@@ -73,7 +74,9 @@ router.post('/publish', requirePublishToken, (req, res) => {
   });
 });
 
-// 定版：incoming/<version>/ 整体转正为正式版本目录，重写 manifest，清理历史版本（磁盘只留最新一版）
+// 定版：incoming/<version>/ 并入正式版本目录（GitHub / CNB 双 CI 链并传同版本时取并集、同名覆盖；
+// notes 缺省时保留同版本旧值，避免后定版链抹掉先定版链写入的 Release 说明），
+// 重写 manifest，清理历史版本（磁盘只留最新一版）
 router.post('/publish/complete', requirePublishToken, (req, res) => {
   const version = String((req.body || {}).version || '');
   if (!validVersion(version)) return fail(res, 400, 40002, '版本号格式非法（须为 x.y.z）');
@@ -81,8 +84,11 @@ router.post('/publish/complete', requirePublishToken, (req, res) => {
   if (!fs.existsSync(incoming)) return fail(res, 400, 40004, `暂存区没有版本 ${version} 的资产（请先 /publish 上传）`);
   const target = path.join(BASE_DIR, version);
   try {
-    fs.rmSync(target, { recursive: true, force: true });
-    fs.renameSync(incoming, target);
+    fs.mkdirSync(target, { recursive: true });
+    for (const f of fs.readdirSync(incoming)) {
+      fs.renameSync(path.join(incoming, f), path.join(target, f));
+    }
+    fs.rmSync(incoming, { recursive: true, force: true });
     const assets = fs.readdirSync(target)
       .filter((f) => ASSET_EXT_RE.test(f))
       .map((f) => ({ file: f, size: fs.statSync(path.join(target, f)).size }))
@@ -91,10 +97,13 @@ router.post('/publish/complete', requirePublishToken, (req, res) => {
       fs.rmSync(target, { recursive: true, force: true });
       return fail(res, 400, 40005, '暂存区内没有可发布的安装包（exe/zip/deb/tar.gz）');
     }
+    const prev = readManifest();
     const manifest = {
       version,
       publishedAt: new Date().toISOString(),
-      notes: String((req.body || {}).notes || '').slice(0, 4000),
+      notes: (req.body || {}).notes !== undefined
+        ? String(req.body.notes).slice(0, 4000)
+        : String(prev && prev.version === version ? prev.notes || '' : ''),
       assets,
     };
     fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2), 'utf8');
