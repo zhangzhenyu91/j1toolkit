@@ -4,13 +4,12 @@
 // 仅新班已有同名成员撞 uk_team_member 时回退「旧行停用让位 + 认领/新建」），商旅账号绑定随人迁移（token 跟人走）；
 // 启动时 syncAllUserMembers 全量对齐一次（只补缺失，不改既有行的启停与姓名，避免覆盖管理端的停用决定）
 const { pool } = require('../db');
-const config = require('../config');
 
 // 商旅账号跟随调班：绑定行迁到本人当前班组与当前成员行（token 跟人走，调班无需重绑）。
 // 正常迁移 member_id 不变（仅 team_id 跟进）；重名回退路径传 oldMemberId，member_id 一并改指新行。
 // ER_DUP_ENTRY（新成员行已被管理员代绑占 uk_member）：先删本人指向旧成员/他班的行，占坑代绑行归并本人
 async function syncSgccAccountForUser(user, memberId, oldMemberId = null) {
-  if (!config.sgcc || !config.sgcc.enabled || !memberId) return;
+  if (!memberId) return;
   const oldId = oldMemberId || memberId;
   try {
     await pool.query(
@@ -32,7 +31,6 @@ async function syncSgccAccountForUser(user, memberId, oldMemberId = null) {
 
 // 事件驱动同步：单个账号变更后对齐其出工成员记录（幂等）
 async function syncMemberForUser(userId) {
-  if (!config.worklog.enabled) return;
   const [users] = await pool.query('SELECT id, nickname, team_id, status FROM sys_user WHERE id = ?', [userId]);
   const user = users[0];
   if (!user) return;
@@ -118,7 +116,6 @@ async function syncMemberForUser(userId) {
 
 // 启动全量对齐：仅补缺（插入 / 认领），不改既有成员行的启停与姓名
 async function syncAllUserMembers() {
-  if (!config.worklog.enabled) return;
   const [users] = await pool.query(
     `SELECT id, nickname, team_id FROM sys_user WHERE status = 1 AND team_id IS NOT NULL AND nickname <> ''`
   );

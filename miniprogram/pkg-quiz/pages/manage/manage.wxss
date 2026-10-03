@@ -1,4 +1,4 @@
-/* 题库刷题 · 题库管理（设计稿 design/quiz.html 屏 05；设计 token 见 AGENTS.md 第四节，
+/* 题库刷题 · 题库管理（功能口径见《开发指南》第十四节；设计 token 见 AGENTS.md 第四节，
    弹层同 safeday 名称弹层族；Excel 批量导入已移至网页端，导入卡样式一并移除） */
 
 /* ---------- 新建题库（虚线占位按钮） ---------- */
@@ -17,7 +17,7 @@
   letter-spacing: 2rpx;
 }
 
-/* ---------- 题库管理列表（屏 05 .mg-item） ---------- */
+/* ---------- 题库管理列表 ---------- */
 .sec-row {
   margin-top: 32rpx;
   margin-bottom: 20rpx;

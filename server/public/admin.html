@@ -52,7 +52,7 @@
   }
   .pm-grp::before { content: ""; width: 3px; height: 10px; border-radius: 8px; background: var(--orange); }
 
-  /* ===== 角色徽章：超管墨底白字 / 班组管理员黄底墨字徽章（badge-outline）/ 普通用户墨签（tag-navy） ===== */
+  /* ===== 角色徽章：超管品牌蓝底白字 / 班组管理员浅蓝底蓝字徽章（badge-outline）/ 普通用户浅灰签（tag-navy） ===== */
   .role-admin { background: var(--orange); color: #fff; }
   .act[disabled] { opacity: .45; cursor: not-allowed; }
   .act[disabled]:hover { color: var(--sub); background: none; }
@@ -170,7 +170,7 @@
   .app-item.off-app { opacity: .45; }
   .app-item .ai-state { margin-left: auto; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
 
-  /* ===== 弹层（直角 + 2px 墨边 + 硬影） ===== */
+  /* ===== 弹层（8px 圆角 + 发丝边 + 轻阴影） ===== */
   .mask {
     position: fixed; inset: 0; z-index: 200;
     background: rgba(29, 33, 41, .45);
@@ -815,7 +815,7 @@
     }
   }
 
-  // 角色徽章：超管墨底白字 / 班组管理员黄底徽章 / 普通用户墨签
+  // 角色徽章：超管品牌蓝底白字 / 班组管理员浅蓝底蓝字徽章 / 普通用户浅灰签
   function roleBadge(role) {
     if (role === 'admin') return '<span class="tag role-admin">超级管理员</span>';
     if (role === 'team_admin') return '<span class="badge-outline">班组管理员</span>';

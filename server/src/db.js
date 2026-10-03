@@ -306,28 +306,20 @@ async function ensureSchema() {
     [adminId, APP_CLIENT.key]
   );
 
-  // 出工日志：WORKLOG_ENABLED=true 时建表并写入应用/成员种子
-  if (config.worklog.enabled) {
-    await require('./worklog/schema').ensureWorklogSchema(pool);
-    console.log('[初始化] 出工日志已开启（WORKLOG_ENABLED=true），表结构与应用/成员种子就绪');
-  }
+  // 出工日志：建表并写入应用/成员种子
+  await require('./worklog/schema').ensureWorklogSchema(pool);
+  console.log('[初始化] 出工日志表结构与应用/成员种子就绪');
 
-  // 安全日活动记录：SAFEDAY_ENABLED=true 时做班组迁移（records.json 回填班组、docs 旧文件迁入班组子目录）
-  if (config.safeday.enabled) {
-    await require('./safeday/migrate').migrateSafedayTeams();
-  }
+  // 安全日活动记录：班组迁移（records.json 回填班组、docs 旧文件迁入班组子目录）
+  await require('./safeday/migrate').migrateSafedayTeams();
 
-  // 题库刷题：QUIZ_ENABLED=true 时建表并写入应用种子
-  if (config.quiz.enabled) {
-    await require('./quiz/schema').ensureQuizSchema(pool);
-    console.log('[初始化] 题库刷题已开启（QUIZ_ENABLED=true），表结构与应用种子就绪');
-  }
+  // 题库刷题：建表并写入应用种子
+  await require('./quiz/schema').ensureQuizSchema(pool);
+  console.log('[初始化] 题库刷题表结构与应用种子就绪');
 
-  // 商旅打卡（出工日志扩展）：SGCC_CLOCKIN_ENABLED=true 时建表并清理旧 sgcc-clockin 应用（依赖出工日志已开启）
-  if (config.sgcc.enabled) {
-    await require('./sgccclockin/schema').ensureSgccSchema(pool);
-    console.log('[初始化] 商旅打卡已开启（SGCC_CLOCKIN_ENABLED=true），表结构就绪，旧 sgcc-clockin 应用已清理');
-  }
+  // 商旅打卡（出工日志扩展）：建表并清理旧 sgcc-clockin 应用
+  await require('./sgccclockin/schema').ensureSgccSchema(pool);
+  console.log('[初始化] 商旅打卡表结构就绪，旧 sgcc-clockin 应用已清理');
 
   // 通知推送：本体基础能力，无条件建表
   await require('./notice/schema').ensureNoticeSchema(pool);

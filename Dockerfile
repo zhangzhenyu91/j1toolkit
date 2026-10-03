@@ -29,7 +29,7 @@ COPY server/package.json ./
 COPY server/src ./src
 COPY server/public ./public
 COPY server/assets ./assets
-# 可写数据目录（安全日记录、内网客户端安装包等，见 src 各 data/ 写入点）：运行时必须挂卷持久化，
+# 可写数据目录（安全日记录等，见 src 各 data/ 写入点）：运行时必须挂卷持久化，
 # 如 -v /opt/j1toolkit/data:/app/server/data
 RUN mkdir -p /app/server/data
 VOLUME ["/app/server/data"]

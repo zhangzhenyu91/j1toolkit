@@ -1,6 +1,6 @@
-/* 题库刷题 · 错题本（设计稿 design/quiz.html 屏 04；设计 token 见 AGENTS.md 第四节） */
+/* 题库刷题 · 错题本（功能口径见《开发指南》第十四节；设计 token 见 AGENTS.md 第四节） */
 
-/* ---------- 汇总卡（屏 04 .wrong-sum：N 道错题 + 专项练习主按钮） ---------- */
+/* ---------- 汇总卡（N 道错题 + 专项练习主按钮） ---------- */
 .wrong-sum {
   padding: 44rpx 32rpx 32rpx;
   text-align: center;
@@ -142,7 +142,7 @@
   color: #F53F3F;
 }
 
-/* ---------- 规则说明（屏 04 .rule-note） ---------- */
+/* ---------- 规则说明 ---------- */
 .rule-note {
   margin-top: 26rpx;
   padding: 0 8rpx;

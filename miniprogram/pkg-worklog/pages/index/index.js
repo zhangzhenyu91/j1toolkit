@@ -4,7 +4,7 @@
 // 字典按名称选择，归属班组可选）；跨班卡车牌行加「跨班」徽章，非超管不可改派车 / 删除，他班跨班卡不显示「从商旅同步」；
 // 巡视内容点卡片主块单独弹层修改（带快捷输入）；备注（文字+附件传 COS）点「备 注」按钮或备注块弹层编辑；
 // 底部另有批量下载水印照片面板与「汇总前核验」面板（按月列未通过记录，默认当月、可翻月）
-// 商旅打卡扩展（设计稿 design/sgcc-clockin.html ④⑤⑥⑦⑧⑨）：卡片「商旅打卡」区每人开始/结束两枚 chip
+// 商旅打卡扩展（见《开发指南》第十五节）：卡片「商旅打卡」区每人开始/结束两枚 chip
 // （未打卡橙虚线 / 已打卡绿勾 / 未绑定灰锁三态）；打卡确认弹层（定位/同记录同 seq 带入/杆塔带入 + 商旅备注）、
 // 费用弹层（首次开始打卡自动弹，仅伙食补助/交通费可编辑）、添加照片三选（非水印直传免验证）、人名点亮层商旅登录态置灰、
 // 照片区非水印展示（同款式渲染，仅无验证信息）与商旅同步标（失败重试）、卡片操作区「从商旅同步」（按日手动拉取，不一致以商旅为准覆盖）
@@ -84,7 +84,7 @@ function calFormat(day) {
 }
 
 // 照片验证状态 → 展示（逐项判定：date_ok/dest_ok 任一 0 即该项不符；历史数据回退旧状态值，见《开发指南》7.2）
-// 记录验证状态角标（后端实时计算；商旅打卡开启后切换为新 5 条 a~e，见开发指南 7.1 与第十五节）
+// 记录验证状态角标（后端实时计算；规则为 7 条 a~g（含 f 费用达标、g 打卡地点含目的地），见开发指南 7.1 与第十五节）
 const VERIFY_BADGE = {
   passed: { cls: 'green', text: '验证通过' },
   failed: { cls: 'red', text: '未通过' },
@@ -163,7 +163,7 @@ Page({
     teamName: '', // 切换器 chip 展示名
     teamOptions: [], // 超管下拉选项 [{id, name, on}]
     teamDropOpen: false,
-    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理 / 工作任务单 / 费用汇总 / 派车对齐 / 批量从商旅同步（均超管与班组管理员）/ 批量下载 / 汇总前核验 / 跨班日志（仅超管）/ 新建日志）
+    fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理 / 工作任务单 / 费用汇总 / 派车汇总 / 派车对齐 / 批量从商旅同步（均超管与班组管理员）/ 批量下载 / 汇总前核验 / 跨班日志（仅超管）/ 新建日志）
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
@@ -462,7 +462,7 @@ Page({
         confirmBtn: '知道了',
       });
     } catch (err) {
-      // 探测失败静默（40404=商旅打卡未开启等）
+      // 探测失败静默（商旅恒挂载，失败多为网络异常，不打断进入）
     }
   },
 
@@ -697,7 +697,7 @@ Page({
       const remarkFiles = (e.remark_files || []).map((f) => ({ ...f }));
       const clockRaw = e.clockinMap || {}; // {memberId: {1:{detailId,time,position,workHours}, 2:{...}}}
       const members = e.members || [];
-      // 商旅打卡区渲染前提：派车卡且后端已带商旅字段（sgcc 未开启时整区不渲染，旧角标逻辑不受影响）
+      // 商旅打卡区渲染前提：派车卡且有用车人（商旅恒挂载，sgccBound 恒随成员下发；无用车人的未出车卡不渲染）
       const showClock = !!e.vehicle_id && members.some((m) => m.sgccBound !== undefined);
       // 打卡仅当日开放（含更新，当日口径与后端 40041 一致）；非当日打卡 chip 置锁、副文案提示；费用修改不受限
       const ckReadonly = e.log_date !== fmtDate(new Date());
@@ -732,7 +732,6 @@ Page({
         feeStd: e.feeStd || null, // 当日费用适用标准（商旅开启时后端装配 {foodFee,transitFee,scope}，费用弹层「按标准填入」用）
         // 他班跨班卡：不渲染「从商旅同步」（仅归属班可发起同步，后端按 entry.team_id 校验）
         syncHidden: !!e.cross_team && Number(e.team_id) !== ((this._teamId || this._myTeamId) || 0),
-        sgccOn: members.some((m) => m.sgccBound !== undefined), // 商旅是否开启（后端带商旅字段即开启；上传等待文案据此区分）
         ckReadonly,
         photos,
         photoUrls: photos.map((p) => p.url),
@@ -774,10 +773,10 @@ Page({
         };
       }
       if (readonly) {
-        return { cls: 'lock', icon: 'lock-on', iconColor: '#B4AA90', title, sub: '仅当日可打卡', done: false, upd: false };
+        return { cls: 'lock', icon: 'lock-on', iconColor: '#C9CDD4', title, sub: '仅当日可打卡', done: false, upd: false };
       }
       if (!bound) {
-        return { cls: 'lock', icon: 'lock-on', iconColor: '#B4AA90', title, sub: '引导本人至「我的」页绑定', done: false, upd: false };
+        return { cls: 'lock', icon: 'lock-on', iconColor: '#C9CDD4', title, sub: '引导本人至「我的」页绑定', done: false, upd: false };
       }
       return { cls: 'todo', icon: 'time', iconColor: '#0E3DA8', title, sub: seqClocked(seq) ? '点击打卡 · 带入同记录定位' : '点击打卡', done: false, upd: false };
     };
@@ -960,7 +959,7 @@ Page({
     wx.setClipboardData({ data: text });
   },
 
-  // ---------- 商旅打卡 · 打卡确认弹层（设计稿⑤：开始/结束/更新共用） ----------
+  // ---------- 商旅打卡 · 打卡确认弹层（开始/结束/更新共用） ----------
 
   // 点打卡 chip：未绑定 toast 引导；已打卡进「更新打卡地点」，未打卡进「开始/结束打卡」
   onClockTap(e) {
@@ -1207,7 +1206,7 @@ Page({
     }
   },
 
-  // ---------- 商旅打卡 · 费用信息弹层（设计稿⑥：首次开始打卡自动弹 + 打卡区「费用」入口） ----------
+  // ---------- 商旅打卡 · 费用信息弹层（首次开始打卡自动弹 + 打卡区「费用」入口） ----------
 
   // 打卡区人名行末「费用」入口
   onOpenFee(e) {
@@ -1343,7 +1342,7 @@ Page({
     }
   },
 
-  // ---------- 商旅打卡 · 照片同步失败重试（设计稿⑨） ----------
+  // ---------- 商旅打卡 · 照片同步失败重试 ----------
 
   // 重试同步：任务化异步执行（后端登记后立即返回 opId，商旅重传在后台完成），
   // 本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾
@@ -2230,7 +2229,7 @@ Page({
         filePath: f.tempFilePath,
         name: 'file',
         header: token ? { Authorization: `Bearer ${token}` } : {},
-        formData: this._teamId ? { name: f.name, team_id: this._teamId } : { name: f.name },
+        formData: this._teamId ? { name: f.name, team_id: String(this._teamId) } : { name: f.name },
         success: (res) => {
           let body = {};
           try {
@@ -2419,36 +2418,18 @@ Page({
     if (this.data.memberMode === 'edit') {
       if (this.data.memberSaving) return; // 防连点
       this.setData({ memberSaving: true });
-      // 商旅开启时任务化异步执行（剔除/补传在后台完成），本卡挂进度条；未开启为纯本地操作，维持文字等待
-      const entry = (this.data.list || []).find((x) => x.id === this.data.memberEntryId);
-      const sgccOn = !!(entry && entry.sgccOn);
-      const doSave = () => request({
-        url: `/api/v1/worklog/photos/${this.data.memberPhotoId}/members`,
-        method: 'PUT',
-        data: this.teamBody({ members: names }),
-        timeout: 120000,
-      });
-      if (sgccOn) {
-        try {
-          const data = await doSave();
-          this.setData({ memberVisible: false, memberSaving: false });
-          this.toast('已发起，后台同步商旅中');
-          this.startCardOp(this.data.memberEntryId, data.opId, 'members');
-        } catch (err) {
-          this.setData({ memberSaving: false });
-          this.toast(err.message);
-        }
-        return;
-      }
-      wx.showLoading({ title: '正在保存…', mask: true });
+      // 任务化异步执行（剔除/补传在后台完成，服务端恒返回 opId）：本卡挂进度条，结果由 pollCardOp 收尾
       try {
-        await doSave();
-        wx.hideLoading();
+        const data = await request({
+          url: `/api/v1/worklog/photos/${this.data.memberPhotoId}/members`,
+          method: 'PUT',
+          data: this.teamBody({ members: names }),
+          timeout: 120000,
+        });
         this.setData({ memberVisible: false, memberSaving: false });
-        this.toast('人名已修改');
-        this.loadLogs();
+        this.toast('已发起，后台同步商旅中');
+        this.startCardOp(this.data.memberEntryId, data.opId, 'members');
       } catch (err) {
-        wx.hideLoading();
         this.setData({ memberSaving: false });
         this.toast(err.message);
       }
@@ -2501,7 +2482,7 @@ Page({
     return `${datePart} ${hm}`;
   },
 
-  // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤500m，拍摄时间随机化为 10:00-12:00，避免完全一致）；
+  // 字段预填：有历史水印照片 → 带入其字段（经纬度随机偏移 ≤400m，拍摄时间随机化为 10:00-12:00，避免完全一致）；
   // 无历史 → 施工内容留空、经纬度/地点/天气按当前定位取值（高德地图）；
   //          拍摄时间当日取当前时间，非当日仅能确定日期 → 取记录日期 10:00-12:00 内随机时间
   // （两种预填场景均显示「选择杆塔坐标」入口，已选杆塔后定位回填不再覆盖）
@@ -2631,45 +2612,21 @@ Page({
   },
 
   // 上传：wm 存在时走「加水印上传」（服务端渲染水印）；plain=true 为「非水印照片」原图直传（免验证、不占每人限一张）；
-  // 否则为原「水印照片上传」。商旅开启时三类照片均由后端远端先行：先同步进所属人名的当日商旅费用照片，成功才落本地（失败则整个上传报错）
+  // 否则为原「水印照片上传」。三类照片均由后端商旅远端先行：先同步进所属人名的当日商旅费用照片，成功才落本地（失败则整个上传报错）
   async uploadPhoto(image, members, wm, plain) {
-    // 商旅开启时任务化异步执行：登记后立即返回 opId（商旅远端先行 + COS 落库在后台串行队列完成），
-    // 本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾；未开启为纯本地上传，维持文字等待
-    const entry = (this.data.list || []).find((x) => x.id === this.data.memberEntryId);
-    const sgccOn = !!(entry && entry.sgccOn);
-    const doUpload = () => request({
-      url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
-      method: 'POST',
-      data: this.teamBody(wm ? { image, members, wm } : plain ? { image, members, plain: true } : { image, members }),
-      timeout: 120000,
-    });
-    if (sgccOn) {
-      try {
-        const data = await doUpload();
-        this.setData({ wmVisible: false, wmUploading: false });
-        this.toast('已发起，后台同步商旅中');
-        this.startCardOp(this.data.memberEntryId, data.opId, 'upload', { wm: !!wm, plain: !!plain });
-      } catch (err) {
-        this.setData({ wmUploading: false });
-        wx.showModal({ title: '上传失败', content: err.message || '上传失败，请重试', showCancel: false, confirmText: '知道了' });
-      }
-      return;
-    }
-    wx.showLoading({ title: wm ? '正在加水印上传…' : '正在上传…', mask: true });
+    // 任务化异步执行：登记后立即返回 opId（服务端恒任务化；商旅远端先行 + COS 落库在后台串行队列完成），
+    // 本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾（含水印照片保存相册）
     try {
-      const data = await doUpload();
-      // 加水印流程：服务端完成加水印后，把加了水印的照片自动存入用户相册（失败不阻塞上传）
-      let albumTip = '';
-      if (wm && data && data.url) {
-        wx.showLoading({ title: '正在保存到相册…', mask: true });
-        albumTip = await this.saveWmPhotoToAlbum(data.url);
-      }
-      wx.hideLoading();
+      const data = await request({
+        url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
+        method: 'POST',
+        data: this.teamBody(wm ? { image, members, wm } : plain ? { image, members, plain: true } : { image, members }),
+        timeout: 120000,
+      });
       this.setData({ wmVisible: false, wmUploading: false });
-      this.toast(albumTip || (plain ? '已上传（非水印存档，不参与验证）' : '已上传，验证中'));
-      this.loadLogs(); // 刷新后自动进入 pending 轮询（非水印 verify_status=skipped 不触发）
+      this.toast('已发起，后台同步商旅中');
+      this.startCardOp(this.data.memberEntryId, data.opId, 'upload', { wm: !!wm, plain: !!plain });
     } catch (err) {
-      wx.hideLoading();
       this.setData({ wmUploading: false });
       wx.showModal({ title: '上传失败', content: err.message || '上传失败，请重试', showCancel: false, confirmText: '知道了' });
     }
@@ -2700,32 +2657,17 @@ Page({
       cancelBtn: '取消',
     })
       .then(async () => {
-        // 商旅开启时任务化异步执行（解除商旅关联在后台完成），本卡挂进度条；未开启为纯本地删除，维持文字等待
+        // 任务化异步执行（解除商旅关联在后台完成，服务端恒返回 opId）：本卡挂进度条，结果由 pollCardOp 收尾
         const entry = (this.data.list || []).find((x) => (x.photos || []).some((p) => String(p.id) === String(pid)));
-        const sgccOn = !!(entry && entry.sgccOn);
-        const doDelete = () => request({
-          url: `/api/v1/worklog/photos/${pid}${this.teamQuery('?')}`,
-          method: 'DELETE',
-          timeout: 120000,
-        });
-        if (sgccOn) {
-          try {
-            const data = await doDelete();
-            this.toast('已发起删除，后台解除商旅关联中');
-            this.startCardOp(entry.id, data.opId, 'delete');
-          } catch (err) {
-            this.toast(err.message);
-          }
-          return;
-        }
-        wx.showLoading({ title: '正在删除…', mask: true });
         try {
-          await doDelete();
-          wx.hideLoading();
-          this.toast('已删除');
-          this.loadLogs();
+          const data = await request({
+            url: `/api/v1/worklog/photos/${pid}${this.teamQuery('?')}`,
+            method: 'DELETE',
+            timeout: 120000,
+          });
+          this.toast('已发起删除，后台解除商旅关联中');
+          this.startCardOp(entry.id, data.opId, 'delete');
         } catch (err) {
-          wx.hideLoading();
           this.toast(err.message);
         }
       })
@@ -2973,7 +2915,7 @@ Page({
     this.toast(`已保存 ${saved} 张到相册`);
   },
 
-  // ---------- 汇总前核验（设计稿⑩：替代原「验证报告」；按月列未通过记录，默认当月可翻月，数据取 /worklog/report） ----------
+  // ---------- 汇总前核验（替代原「验证报告」；按月列未通过记录，默认当月可翻月，数据取 /worklog/report） ----------
   // 底部仅「确认」关面板；批量从商旅同步已迁移至悬浮钮独立面板（见下方「批量从商旅同步」分区）
 
   // 月份 → 面板字段（rpMonthText 展示文案 / rpMonthAtCur 控制「下一月」置灰，不看未来月）
@@ -3192,7 +3134,7 @@ Page({
         this.syncSpectatorOps(p.ops);
         this.pollSpectatorOps();
       }
-    } catch (err) { /* 商旅未开启 / 网络异常：不锁定 */ }
+    } catch (err) { /* 网络异常：不锁定（商旅恒挂载） */ }
   },
 
   // 全局锁遮罩：1.5s 轮询 /sync/active 直至完成；完成后解锁并刷新列表 / 核验面板 / 同步日志

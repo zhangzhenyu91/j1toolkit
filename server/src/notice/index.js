@@ -169,7 +169,8 @@ router.post('/push', requireAdmin, async (req, res, next) => {
 });
 
 // POST /api/v1/notice/upload-image 超管上传通知配图（multipart 字段 file，仅 image/* ≤5MB），
-// 存 COS notice/ 前缀，返回 { url } 供 Markdown 以 ![描述](url) 引用；COS 未配置时报错（ensureConfigured expose）
+// 存 COS notice/ 前缀，返回 { url } 供 Markdown 以 ![描述](url) 引用；
+// COS 未配置时 ensureConfigured 抛普通 Error，经 next(err) 落全局 500（非 expose 可读提示）
 const IMG_MIME_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
 // 类型不在 fileFilter 拦截（拒绝时 req.file 为空会误报「请选择图片」），统一在处理器按 mimetype 校验报错
 const noticeImageUpload = multer({

@@ -3,7 +3,7 @@
    用法：Shade.icon(name, size, color) → SVG 字符串，可 innerHTML 注入
      name  与 tdesign-miniprogram 同名（sys_app.icon 直接可用）
      size  边长像素，默认 24；color 描边色，默认 currentColor
-   风格：fill none / stroke-width 1.7 / 圆角端点，与 style-5 一致
+   风格：fill none / stroke-width 1.7 / 圆角端点
    ============================================================ */
 (function () {
   // 图标名 → SVG 内部元素（viewBox 统一 0 0 24 24）

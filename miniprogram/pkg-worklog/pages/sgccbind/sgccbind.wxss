@@ -1,4 +1,4 @@
-/* 绑定商旅 · 账号绑定页（转写自设计稿 design/sgcc-clockin.html ②③屏，token 同 app.wxss「政企蓝白」） */
+/* 绑定商旅 · 账号绑定页（见《开发指南》第十五节，token 同 app.wxss「政企蓝白」） */
 @import '../../style/common.wxss';
 
 /* 首个提示卡贴导航下沿（common .tip 自带 margin-top，此处收紧） */
@@ -11,7 +11,7 @@
   padding: 12rpx 28rpx;
 }
 
-/* ---------- 短信登录表单（设计稿 .field：左图标 + 右缀件） ---------- */
+/* ---------- 短信登录表单（左图标 + 右缀件） ---------- */
 .field {
   position: relative;
   display: flex;
@@ -106,7 +106,7 @@
   opacity: 0.6;
 }
 
-/* ---------- 键值行（设计稿 .kv：左标签 + 值 + 右端「可修改」徽章） ---------- */
+/* ---------- 键值行（左标签 + 值 + 右端「可修改」徽章） ---------- */
 .kv {
   display: flex;
   align-items: center;

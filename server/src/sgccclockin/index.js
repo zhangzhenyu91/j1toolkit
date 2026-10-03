@@ -1,6 +1,6 @@
 // 商旅打卡路由：出工日志的扩展能力（后端中继商旅平台 + 双写本地表），归属出工日志
 // 全部接口需登录 + work-log 应用权限 + 生效班组（req.team）
-// 协议细节全部在 protocol.js（移植自已实测的逆向客户端，勿改口径）；设计见 design/sgcc-clockin.html
+// 协议细节全部在 protocol.js（移植自已实测的逆向客户端，勿改口径）；设计见《开发指南》第十五章
 const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
@@ -2191,7 +2191,7 @@ function scheduleDaily() {
         } catch (err) {
           console.error('[商旅打卡] 结束打卡缺失检查失败：', err.message);
         }
-        // 每日核查结果日报（每班一封，含全部正常）→ 超管 + 本班班组管理员（见 16.3）
+        // 每日核查结果日报（每班一封，含全部正常，仅发超管；见 16.3）
         try {
           await notifyDailySyncResult(t.team_id, today(), beforeRows[0].maxId);
         } catch (err) {
@@ -2408,7 +2408,7 @@ function scheduleStartClockRemind() {
 scheduleStartClockRemind();
 
 module.exports = router;
-// 供 worklog 照片上传（远端先行）/改人名补传/删除钩子调用（config.sgcc.enabled 守卫在调用方）
+// 供 worklog 照片上传（远端先行）/改人名补传/删除钩子调用
 module.exports.syncPhotoToSgcc = syncPhotoToSgcc;
 module.exports.uploadPhotoToMembersRemote = uploadPhotoToMembersRemote;
 module.exports.unlinkPhotoFromSgcc = unlinkPhotoFromSgcc;

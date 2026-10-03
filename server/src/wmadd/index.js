@@ -1,12 +1,11 @@
 // 水印添加（移动端独立子应用，app_key wm-add）：复制出工日志「拍摄/选择照片并添加水印」能力，
-// 与出工日志解耦——仅渲染水印并 base64 回图，不传 COS、不入库、不触发 Dify 验证（设计稿 design/wm-add.html）。
+// 与出工日志解耦——仅渲染水印并 base64 回图，不传 COS、不入库、不触发 Dify 验证（交互口径见《开发指南》第十三节）。
 // 地理/杆塔/渲染均复用出工日志模块；本应用无业务表。
 const express = require('express');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
-const config = require('../config');
 const geo = require('../worklog/geo');
 const towers = require('../worklog/towers');
 const { renderWatermarkedPhoto, sanitizeWm } = require('../worklog/render-photo');
@@ -31,13 +30,11 @@ router.get('/geo', async (req, res, next) => {
 });
 
 // GET /towers：当前用户班组杆塔坐标全量（行 = [电压等级, 线路名称, 杆塔号, 经度, 纬度]），数据读写见 worklog/towers.js
-// 未分配班组返回空数组（前端三级级联显示为空列表）；
-// worklog_tower 表仅 WORKLOG_ENABLED=true 时建，出工日志未启用时同样降级返回空数组
+// 未分配班组返回 { rows: [] }（与有班组同形状，前端三级级联按空数据提示）
 router.get('/towers', async (req, res, next) => {
   try {
-    if (!config.worklog || !config.worklog.enabled) return ok(res, []);
     const team = await teamUtil.resolveReqTeam(req);
-    if (!team) return ok(res, []);
+    if (!team) return ok(res, { rows: [] });
     return ok(res, await towers.getTowers(team.id));
   } catch (err) {
     return next(err);

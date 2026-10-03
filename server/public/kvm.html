@@ -17,7 +17,7 @@
   .bar .input { height: 38px; width: 210px; font-size: 13px; }
   .bar .ops-r { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 
-  /* 班组设备回退提示横幅（浅黄底墨字方角条，屏十四口径；#FFF7E8 浅黄同 worklog 备注块） */
+  /* 班组设备回退提示横幅（浅黄底 + 黄色描边圆角信息条，屏十四口径；#FFF7E8 浅黄同 worklog 备注块） */
   .fb-banner {
     display: flex; align-items: center; gap: 8px; margin: 0 0 18px;
     padding: 10px 14px; border-radius: 8px; border: 1.5px solid var(--yellow);
@@ -30,7 +30,7 @@
   /* 手动刷新期间按钮图标转圈（不重排卡片、不出骨架，避免闪现） */
   .btn.refreshing svg { animation: rot 1s linear infinite; }
 
-  /* ===== 设备卡片宫格（同工作台应用宫格口径）；卡顶色带已取消（hazard-top 空壳 div 不再渲染） ===== */
+  /* ===== 设备卡片宫格（同工作台应用宫格口径）；卡顶色带已取消（.hazard-top 类名保留、空壳 div 仍渲染，不再有任何样式） ===== */
   .dev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
   .dev { display: flex; flex-direction: column; overflow: hidden; }
   .dv-in { flex: 1; display: flex; flex-direction: column; padding: 16px 22px 20px; }

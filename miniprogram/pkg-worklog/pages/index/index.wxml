@@ -98,7 +98,7 @@
         <view class="lc-patrol-text">{{item.patrolText}}</view>
       </view>
 
-      <!-- 商旅打卡（设计稿④：每个用车人一行 = 姓名 + 状态小字 + 开始/结束两枚 chip 三态；无车卡/后端未带商旅字段不渲染） -->
+      <!-- 商旅打卡（每个用车人一行 = 姓名 + 状态小字 + 开始/结束两枚 chip 三态；无车卡/无用车人不渲染） -->
       <view class="lc-clock" wx:if="{{item.showClock}}">
         <view class="lc-clock-title">商旅打卡</view>
         <view class="ck-person" wx:for="{{item.clockRows}}" wx:for-item="c" wx:key="memberId">
@@ -299,7 +299,7 @@
       </view>
 
       <view class="lc-actions">
-        <!-- 从商旅同步：仅拉取本卡用车人的当日数据（与打卡区 showClock 同门控，后端未开启商旅时不显示；同步中整卡锁定不显示；
+        <!-- 从商旅同步：仅拉取本卡用车人的当日数据（与打卡区 showClock 同门控，无用车人的未出车卡不显示；同步中整卡锁定不显示；
              他班跨班卡 syncHidden 不渲染——商旅账号按归属班绑定，仅归属班可同步） -->
         <view class="act act-sync" wx:if="{{item.showClock && !item.syncing && !item.syncHidden}}" hover-class="hover-opacity" bindtap="onSyncPull" data-date="{{day.dateStr}}" data-id="{{item.id}}">从商旅同步</view>
         <view class="act act-note" hover-class="hover-opacity" bindtap="onOpenRemark" data-id="{{item.id}}">备 注</view>
@@ -735,7 +735,7 @@
   </view>
 </t-popup>
 
-<!-- 汇总前核验面板（设计稿⑩，替代原「验证报告」；按月列未通过记录卡片，默认当月、可翻月不看未来，
+<!-- 汇总前核验面板（替代原「验证报告」；按月列未通过记录卡片，默认当月、可翻月不看未来，
      数据取 /worklog/report；点卡跳到该日定位；「确认」关面板；批量从商旅同步已迁移至悬浮钮独立面板） -->
 <t-popup visible="{{rpVisible}}" placement="bottom" bind:visible-change="onRpVisibleChange">
   <view class="sheet">
@@ -745,7 +745,7 @@
       <view class="rp-mtext">{{rpMonthText}}</view>
       <view class="rp-mbtn {{rpMonthAtCur ? 'disabled' : ''}}" hover-class="{{rpMonthAtCur ? '' : 'hover-opacity'}}" bindtap="onRpMonthShift" data-d="1"><t-icon name="chevron-right" size="32rpx" color="{{rpMonthAtCur ? '#E5E6EB' : '#1D2129'}}" /></view>
     </view>
-    <view class="sheet-note">仅列出有问题的记录；规则：a 两次打卡齐 · b 水印照片齐 · c 施工内容一致 · d 地点含目的地 · e 拍摄为当天。未出车免验证</view>
+    <view class="sheet-note">仅列出有问题的记录；规则：a 两次打卡齐 · b 水印照片齐 · c 施工内容一致 · d 照片地点含目的地 · e 拍摄为当天 · f 费用达标 · g 打卡地点含目的地。未出车免验证</view>
     <scroll-view scroll-y class="rp-scroll" enhanced show-scrollbar="{{false}}">
       <view class="dl-empty" wx:if="{{rpLoading}}">加载中…</view>
       <block wx:if="{{!rpLoading}}">
@@ -1049,7 +1049,7 @@
   </view>
 </t-popup>
 
-<!-- 商旅打卡 · 打卡确认弹层（设计稿⑤：开始/结束/更新共用；位置卡 = 同记录带入 / 当前定位 / 杆塔带入 + 商旅备注） -->
+<!-- 商旅打卡 · 打卡确认弹层（开始/结束/更新共用；位置卡 = 同记录带入 / 当前定位 / 杆塔带入 + 商旅备注） -->
 <t-popup visible="{{ckVisible}}" placement="bottom" bind:visible-change="onCkVisibleChange">
   <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
     <view class="sheet-title">{{ckTitle}}</view>
@@ -1108,7 +1108,7 @@
   </view>
 </t-popup>
 
-<!-- 商旅打卡 · 费用信息弹层（设计稿⑥：首次开始打卡成功自动弹 + 打卡区「费用」入口；伙食补助/交通费可编辑，成本分配只读展示） -->
+<!-- 商旅打卡 · 费用信息弹层（首次开始打卡成功自动弹 + 打卡区「费用」入口；伙食补助/交通费可编辑，成本分配只读展示） -->
 <t-popup visible="{{feeVisible}}" placement="bottom" bind:visible-change="onFeeVisibleChange">
   <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
     <view class="sheet-title">当日费用 · {{feeMemberName}} · {{dateText}}</view>

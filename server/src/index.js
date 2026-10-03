@@ -13,12 +13,13 @@ const { ok, fail } = require('./utils/resp');
 
 const app = express();
 app.disable('x-powered-by');
+// 同机反代回环（nginx → 127.0.0.1:PORT）可信：信任回环来源的 X-Forwarded-For 取真实客户端 IP，
+// 更外层伪造的 XFF 不生效；req.ip 语义随之落到真实来源（登录限流按 IP 统计依赖此口径），直连部署不受影响
+app.set('trust proxy', 'loopback');
 
 // 出工日志上传原图（加水印用）体积更大：worklog 路由单独放宽 JSON 上限到 20mb。
 // 需挂在全局 12mb 解析器之前；body 已被解析过后续解析器会自动跳过
-if (config.worklog.enabled) {
-  app.use('/api/v1/worklog', express.json({ limit: '20mb' }));
-}
+app.use('/api/v1/worklog', express.json({ limit: '20mb' }));
 // 水印添加同口径：原图 base64 上送渲染，单独放宽 JSON 上限
 app.use('/api/v1/wmadd', express.json({ limit: '20mb' }));
 app.use(express.json({ limit: '12mb' })); // 聊天图片以 base64 上送，放宽体积限制
@@ -55,28 +56,18 @@ app.use('/api/v1/callme', require('./routes/callme'));
 app.use('/api/v1/admin', require('./routes/admin'));
 // 通知推送：本体基础能力，无条件挂载（建表见 db.js）
 app.use('/api/v1/notice', require('./notice'));
-// 出工日志：env WORKLOG_ENABLED=true 时才挂载（建表/种子见 db.js）
-if (config.worklog.enabled) {
-  app.use('/api/v1/worklog', require('./worklog'));
-}
-// 水印添加：移动端独立子应用（仅渲染回图，无业务表、无 env 开关，依赖出工日志渲染/地理模块）
+// 出工日志：派车/巡视/打卡记录（建表/种子见 db.js）
+app.use('/api/v1/worklog', require('./worklog'));
+// 水印添加：移动端独立子应用（仅渲染回图，无业务表，依赖出工日志渲染/地理模块）
 app.use('/api/v1/wmadd', require('./wmadd'));
-// 安全日活动记录：env SAFEDAY_ENABLED=true 时才挂载（文件存储，上传走 multer 不经 JSON 解析器）
-if (config.safeday.enabled) {
-  app.use('/api/v1/safeday', require('./safeday'));
-}
-// KVM 远程管理：env KVM_ENABLED=true 时才挂载（设备列表代理自 GLKVM 平台）
-if (config.kvm.enabled) {
-  app.use('/api/v1/kvm', require('./kvm'));
-}
-// 题库刷题：env QUIZ_ENABLED=true 时才挂载（建表/种子见 db.js）
-if (config.quiz.enabled) {
-  app.use('/api/v1/quiz', require('./quiz'));
-}
-// 商旅打卡（出工日志扩展）：env SGCC_CLOCKIN_ENABLED=true 时才挂载（建表见 db.js）
-if (config.sgcc.enabled) {
-  app.use('/api/v1/sgcc', require('./sgccclockin'));
-}
+// 安全日活动记录：文件存储，上传走 multer 不经 JSON 解析器
+app.use('/api/v1/safeday', require('./safeday'));
+// KVM 远程管理：设备列表代理自 GLKVM 平台
+app.use('/api/v1/kvm', require('./kvm'));
+// 题库刷题（建表/种子见 db.js）
+app.use('/api/v1/quiz', require('./quiz'));
+// 商旅打卡（出工日志扩展，建表见 db.js）
+app.use('/api/v1/sgcc', require('./sgccclockin'));
 
 // 404 与统一错误处理
 app.use((req, res) => fail(res, 404, 40404, '接口不存在'));

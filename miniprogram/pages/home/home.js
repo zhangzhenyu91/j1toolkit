@@ -238,7 +238,7 @@ Page({
   /* ---------- 「我的」面板 ---------- */
 
   // 商旅打卡绑定状态刷新（三态：未绑定 / 已绑定 / 登录已过期）；
-  // 无出工日志权限或后端未开启时接口 403/404，静默降级为「未绑定」不报错
+  // 商旅恒挂载，无出工日志权限 / 未分配班组时接口 403，静默降级为「未绑定」不报错
   async loadSgccStatus() {
     try {
       const teamId = Number(wx.getStorageSync('worklog_team_id')) || 0; // 班组口径同 pkg-worklog

@@ -499,7 +499,7 @@ function scheduleDaily(timeStr, job, label) {
   console.log(`[派车单同步] ${label}已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
 }
 
-// 由 worklog 入口在满足条件时调用（WORKLOG_ENABLED 门控挂载 + KVM_ENABLED + WORKLOG_DISPATCH_SYNC_ENABLED）
+// 由 worklog 入口调用（排程无条件启动；生效班组以 worklog_dispatch_sync_team 开关表为准，未配置设备 ddns 时停用）
 function start() {
   if (!cfg().deviceDdns) {
     console.error('[派车单同步] 未配置设备 ddns（WORKLOG_DISPATCH_DEVICE_DDNS），同步停用');

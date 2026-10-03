@@ -6,16 +6,14 @@ const { ok, fail } = require('../utils/resp');
 const auth = require('../middleware/auth');
 const requireAdmin = require('../middleware/requireAdmin');
 const teamUtil = require('../utils/team');
-const config = require('../config');
 
 const router = express.Router();
 router.use(auth, requireAdmin);
 
 const ROLES = ['admin', 'team_admin', 'user'];
 
-// 员工变更后同步出工成员字典（worklog 未开启时内部自动跳过）
+// 员工变更后同步出工成员字典
 function syncWorklogMember(userId) {
-  if (!config.worklog.enabled) return;
   require('../worklog/member-sync')
     .syncMemberForUser(userId)
     .catch((err) => console.error(`[出工日志] 成员同步失败（用户 ${userId}）：`, err.message));
@@ -224,7 +222,7 @@ router.put('/teams/:id', async (req, res, next) => {
 
     // 改名级联：安全日记录 team 字段 + docs 子目录更名（worklog / 员工按 team_id 关联无感）
     const newName = name !== undefined ? String(name).trim() : oldName;
-    if (newName !== oldName && config.safeday.enabled) {
+    if (newName !== oldName) {
       try {
         await require('../safeday/migrate').renameTeamFolder(oldName, newName);
       } catch (err) {
@@ -247,31 +245,23 @@ router.delete('/teams/:id', async (req, res, next) => {
 
     const [userCnt] = await pool.query('SELECT COUNT(*) AS cnt FROM sys_user WHERE team_id = ?', [targetId]);
     if (userCnt[0].cnt) return fail(res, 409, 40903, `该班组下仍有 ${userCnt[0].cnt} 名员工，请改为停用`);
-    if (config.worklog.enabled) {
-      const tables = ['worklog_entry', 'worklog_vehicle', 'worklog_destination', 'worklog_member', 'worklog_tower'];
-      for (const table of tables) {
-        const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [targetId]);
-        if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有出工日志数据，请改为停用');
-      }
-      // 派车单同步开关表（team_id 为主键）只是开关配置行、非业务数据：随班组删除级联清除
-      await pool.query('DELETE FROM worklog_dispatch_sync_team WHERE team_id = ?', [targetId]);
+    const tables = ['worklog_entry', 'worklog_vehicle', 'worklog_destination', 'worklog_member', 'worklog_tower'];
+    for (const table of tables) {
+      const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [targetId]);
+      if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有出工日志数据，请改为停用');
     }
-    if (config.quiz.enabled) {
-      const [rows] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_bank WHERE team_id = ?', [targetId]);
-      if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有题库数据，请改为停用');
+    // 派车单同步开关表（team_id 为主键）只是开关配置行、非业务数据：随班组删除级联清除
+    await pool.query('DELETE FROM worklog_dispatch_sync_team WHERE team_id = ?', [targetId]);
+    const [quizRows] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_bank WHERE team_id = ?', [targetId]);
+    if (quizRows[0].cnt) return fail(res, 409, 40903, '该班组已有题库数据，请改为停用');
+    const sgccTables = ['worklog_sgcc_account', 'worklog_clockin', 'worklog_fee', 'worklog_sync_log'];
+    for (const table of sgccTables) {
+      const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [targetId]);
+      if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有商旅打卡数据，请改为停用');
     }
-    if (config.sgcc.enabled) {
-      const tables = ['worklog_sgcc_account', 'worklog_clockin', 'worklog_fee', 'worklog_sync_log'];
-      for (const table of tables) {
-        const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [targetId]);
-        if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有商旅打卡数据，请改为停用');
-      }
-    }
-    if (config.safeday.enabled) {
-      const store = require('../safeday/store');
-      if (store.list().some((r) => r.team === teamName)) {
-        return fail(res, 409, 40903, '该班组已有安全日活动记录，请改为停用');
-      }
+    const store = require('../safeday/store');
+    if (store.list().some((r) => r.team === teamName)) {
+      return fail(res, 409, 40903, '该班组已有安全日活动记录，请改为停用');
     }
     await pool.query('DELETE FROM sys_team WHERE id = ?', [targetId]);
     return ok(res, null, '已删除');

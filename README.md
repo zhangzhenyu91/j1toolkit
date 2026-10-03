@@ -19,14 +19,15 @@
 已接入应用：
 
 - **Call Me**（`pkg-callme` + 网页端 `callme.html`）：基于 WeKnora 的 AI 知识库问答（SSE 流式对话）
-- **出工日志**（`pkg-worklog` + 网页端 `worklog.html`）：派车/巡视/打卡记录，水印照片经 Dify 工作流验证（`WORKLOG_ENABLED` 开关）；网页端重构自旧 `WorkLogs/` 独立服务，同源直连 `/api/v1/worklog`
-- **安全日活动记录**（分包 `pkg-safeday` + 网页端 `safeday.html`）：上传活动文档经 Dify 工作流生成记录文件；后端已合并进主服务（`server/src/safeday/`，`SAFEDAY_ENABLED` 开关），两端均要求 `safe-day` 应用权限；小程序端上传从聊天选取文件，记录经 `wx.openDocument` 打开
-- **远程连接计算机**（PC 端，网页端 `kvm.html`）：对接 GLKVM Cloud 平台（员工同名账号代登取设备列表，卡片展示实时状态），终端/远程控制经带态跳转进平台页（仅能通过壹匣登录平台）；后端子模块 `server/src/kvm/`（`KVM_ENABLED` 开关），要求 `kvm` 应用权限
+- **出工日志**（`pkg-worklog` + 网页端 `worklog.html`）：派车/巡视/打卡记录，水印照片经 Dify 工作流验证；网页端重构自旧 `WorkLogs/` 独立服务，同源直连 `/api/v1/worklog`
+- **安全日活动记录**（分包 `pkg-safeday` + 网页端 `safeday.html`）：上传活动文档经 Dify 工作流生成记录文件；后端已合并进主服务（`server/src/safeday/`），两端均要求 `safe-day` 应用权限；小程序端上传从聊天选取文件，记录经 `wx.openDocument` 打开
+- **远程连接计算机**（PC 端，网页端 `kvm.html`）：对接 GLKVM Cloud 平台（员工同名账号代登取设备列表，卡片展示实时状态），终端/远程控制经带态跳转进平台页（仅能通过壹匣登录平台）；后端子模块 `server/src/kvm/`，要求 `kvm` 应用权限
 - **文件传输**（移动端，小程序分包 `pkg-filetransfer`）：向 KVM 设备虚拟 U 盘推送/取回文件（设备列表同上；上传弹层逐文件推送后统一挂载，下载点按即存相册或打开）；经壹匣转发点 `/api/v1/kvm/devices/{id}/push|mount|files|download`，要求 `file-transfer` 应用权限
-- **水印添加**（移动端，小程序分包 `pkg-wmadd`）：选片/拍摄 → 4:3 裁剪 → 编辑水印（含防伪码、杆塔坐标选择）→ 服务端渲染水印仅回图（不传 COS、不入库、不触发 Dify 验证），自动存相册并全屏展示；后端 `server/src/wmadd/`（无 env 开关、无业务表），要求 `wm-add` 应用权限
-- **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断，仅网页端上传），顺序/随机/错题三模式刷题 + 背题模式（答案解析常显）+ 答题卡跳题与清空做题记录（保留错题本），错题本按题库分组专项练习（连对 3 次自动移出），题库分班组池/全部池、用户自行添加进个人题库，Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；网页端 quiz.html 为刷题练习 + 题库管理双页签（管理页签仅 admin/本班 team_admin）；后端 `server/src/quiz/`（`QUIZ_ENABLED` 开关），要求 `quiz` 应用权限
-- **商旅打卡**（出工日志扩展）：商旅账号短信绑定 / 两次打卡 / 费用 / 照片双端同步 / 每日定时核查，权限并入 `work-log`（不单设应用）；后端 `server/src/sgccclockin/`（`SGCC_CLOCKIN_ENABLED` 开关，需先开启出工日志）
-- **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:10 锁定目标 KVM 设备并把 U 盘挂载至被控机（被控机 09:15 起由桌面客户端「内网工具箱」导出，独立项目不在本仓），09:20 经文件传输链路取回当日派车单 xlsx 自动建出车卡片（派车单号随卡写入 `dispatch_order_no`，供「派车汇总」导出）、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（`WORKLOG_DISPATCH_SYNC_ENABLED` 开关，需先开启出工日志与 KVM，详见 开发指南.md 7.7）
+- **水印添加**（移动端，小程序分包 `pkg-wmadd`）：选片/拍摄 → 4:3 裁剪 → 编辑水印（含防伪码、杆塔坐标选择）→ 服务端渲染水印仅回图（不传 COS、不入库、不触发 Dify 验证），自动存相册并全屏展示；后端 `server/src/wmadd/`（无业务表），要求 `wm-add` 应用权限
+- **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断，仅网页端上传），顺序/随机/错题三模式刷题 + 背题模式（答案解析常显）+ 答题卡跳题与清空做题记录（保留错题本），错题本按题库分组专项练习（连对 3 次自动移出），题库分班组池/全部池、用户自行添加进个人题库，Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；网页端 quiz.html 为刷题练习 + 题库管理双页签（管理页签仅 admin/本班 team_admin）；后端 `server/src/quiz/`，要求 `quiz` 应用权限
+- **商旅打卡**（出工日志扩展）：商旅账号短信绑定 / 两次打卡 / 费用 / 照片双端同步 / 每日定时核查，权限并入 `work-log`（不单设应用）；后端 `server/src/sgccclockin/`
+- **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:10 锁定目标 KVM 设备并把 U 盘挂载至被控机（被控机 09:15 起由桌面客户端「内网工具箱」导出，独立项目不在本仓），09:20 经文件传输链路取回当日派车单 xlsx 自动建出车卡片（派车单号随卡写入 `dispatch_order_no`，供「派车汇总」导出）、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（详见 开发指南.md 7.7）
+- **内网客户端**（内部应用：仅网页端 `client.html`）：内网工具箱安装包取件页，直贴 CNB 制品库链接与取件命令（安装包不托管本站；发版由私有仓 GitHub Actions publish-cnb 回传产物镜像至 CNB 制品库）；要求 `client` 应用权限
 
 应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。
 
@@ -53,7 +54,7 @@ miniprogram/   微信小程序（主包：登录/首页/我的/管理页）
   pkg-wmadd/     水印添加分包（选片/裁剪/编辑水印/杆塔选择单页）
   pkg-quiz/      题库刷题分包（index/bank/practice/wrong/manage/pool 六页）
 server/        后端 Node.js 单端口整合服务（API + 托管网页端）
-  public/        网页端（login.html / index.html 工作台 / callme / worklog / safeday / kvm / quiz / admin + assets 公共资源 + kvm-device 设备安装包）
+  public/        网页端（login.html / index.html 工作台 / callme / worklog / safeday / kvm / quiz / admin / client 内网客户端取件 / sgcc-captcha 商旅滑块接力 + assets 公共资源 + kvm-device 设备安装包）
   src/routes/    本体路由（auth/user/app/admin/callme）
   src/worklog/   出工日志后端子模块（schema/cos/dify/verify 验证规则/photoverify 验证流水线/dispatch-sync 派车单同步/路由）
   src/safeday/   安全日活动记录后端子模块（dify/merge/store/路由）
@@ -85,13 +86,13 @@ docker compose up -d   # 端口映射/数据卷（./data → /app/server/data）
 
 升级：改 `.env` 的 `IMAGE` 版本号 → `docker compose pull && docker compose up -d`。MySQL/Redis 在容器外时 `.env` 中 `MYSQL_HOST`/`REDIS_HOST` 不能填 `127.0.0.1`（容器内回环是容器自己），填宿主内网 IP 或 docker 网桥网关。
 
-**方式二：1Panel 图形化建容器**——镜像 `registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit:<版本>`；端口映射宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）；环境变量按 `docker/.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 `WORKLOG_ENABLED=true` + COS + Dify 配置；安全日活动记录需 `SAFEDAY_ENABLED=true` + `DIFY_SAFEDAY_API_KEY`；题库刷题需 `QUIZ_ENABLED=true` + `DIFY_QUIZ_API_KEY`）；数据卷宿主目录 → `/app/server/data`；重启策略 always。
+**方式二：1Panel 图形化建容器**——镜像 `registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit:<版本>`；端口映射宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）；环境变量按 `docker/.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 COS + Dify 配置；安全日活动记录需 `DIFY_SAFEDAY_API_KEY`；题库刷题需 `DIFY_QUIZ_API_KEY`）；数据卷宿主目录 → `/app/server/data`；重启策略 always。
 
-镜像已内置 LibreOffice（安全日非 PDF 附件转 PDF 合并用）与中文字体；验证：`curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常（Dockerfile 已配 HEALTHCHECK，容器列表可直看健康状态）。**首次迁移需把旧部署 `server/data/`（安全日记录、client-releases 安装包）拷入数据卷目录。**
+镜像已内置 LibreOffice（安全日非 PDF 附件转 PDF 合并用）与中文字体；验证：`curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常（Dockerfile 已配 HEALTHCHECK，容器列表可直看健康状态）。**首次迁移需把旧部署 `server/data/`（安全日记录）拷入数据卷目录。**
 
 **本机开发（不用镜像）**：`cd server` → 首次 `npm install` 并 `cp ../docker/.env.example .env` 按实际填写 → `npm run dev`（`node --watch` 改代码自动重启），浏览器访问 `http://127.0.0.1:3000/login.html` 测页面；前提为本机可连 `.env` 所指的 MySQL/Redis。
 
-**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html`，管理员另有 `admin.html`（员工与权限管理）。
+**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html`，管理员另有 `admin.html`（员工与权限管理）；另有 `client.html` 内网客户端取件页（内部应用，安装包从 CNB 制品库取件、不托管本站）。
 
 **反向代理（1Panel/Nginx）**：用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，**一个端口同时服务网页与 API，无任何路径前缀配置**（旧 `PROXY_PREFIX` 机制已删除）；**SSE 流式对话必须**在反代配置补充：
 
@@ -101,7 +102,7 @@ proxy_read_timeout 300s;  # 推荐：长生成不被掐断（服务端另有 15s
 client_max_body_size 20m; # 图片上传（base64）需要
 ```
 
-**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；`WORKLOG_ENABLED=true` 时再建出工日志 7 张业务表并写入应用与 7 名成员种子；`QUIZ_ENABLED=true` 时再建题库刷题 quiz_* 表并写入应用种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
+**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加、内网客户端应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；同时建出工日志 7 张业务表并写入应用与 7 名成员种子、建题库刷题 quiz_* 表并写入应用种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
 
 ## 环境变量清单
 
@@ -122,23 +123,18 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `DIFY_API_URL` | Dify 地址（只填域名如 `http://10.2.24.13:8082`，`/v1` 由代码拼接；**所有 Dify 工作流共用此地址**，各工作流独立 API_KEY） |
 | `DIFY_WXPUSH_API_KEY` | 通知微信外发工作流的 Dify API Key（仅系统自动触发的通知使用，手动推送不发微信：把通知文本发到个人/班组群 wxid，群消息支持@成员；wxid 由超管在网页端管理页维护，未配置则微信推送停用、站内通知照常，见开发指南第十六节） |
 | `DIFY_WORKLOG_API_KEY` | 出工日志照片验证工作流的 Dify API Key |
-| `WORKLOG_ENABLED` | 出工日志后端开关：`true` 开启（建表/种子/挂载路由），`false` 关闭 |
 | `COS_WORKLOG_PREFIX` | 出工日志照片在 COS 的独立文件夹前缀（如 `worklog/`） |
 | `COS_WORKLOG_BASE_URL` | 照片访问域名（可选；留空按 `https://{bucket}.cos.{region}.myqcloud.com` 拼接） |
 | `AMAP_MAP_KEY` | 高德地图 Web 服务（出工日志「选择照片并添加水印」预填当前地点/天气、商旅打卡定位解析；key 类型须为「Web 服务」，未配置则对应字段手填，见开发指南 7.3/15.5） |
 | `AMAP_BASE_URL` | 高德接口 base URL（可选，默认 `https://restapi.amap.com`；因费用问题走中转站时改为中转地址，接口路径 `/v3/...` 不变） |
-| `SAFEDAY_ENABLED` | 安全日活动记录后端开关：`true` 开启（初始化数据目录并挂载 `/api/v1/safeday`），`false` 关闭 |
 | `SAFEDAY_DATA_DIR` | 安全日记录 records.json 与生成产物（docs/）存放目录（默认 `./data/safeday`，相对路径按 server/ 解析） |
 | `SAFEDAY_DEFAULT_SUPERIOR` | 安全日活动记录默认上级参加人员（可选；留空则由用户手填） |
 | `DIFY_SAFEDAY_API_KEY` | 安全日记录生成工作流的 Dify API Key（与出工日志工作流共用 `DIFY_API_URL`） |
 | `SAFEDAY_CALLBACK_TOKEN` | Dify 回调 token（可选；配置后回调接口须带 `?token=` 校验，留空则不校验） |
 | `SAFEDAY_SOFFICE_PATH` | LibreOffice soffice 路径（可选，默认 `soffice`；安全日多文件含非 PDF 时后端转 PDF 合并依赖它，仓根 Dockerfile 构建的镜像已内置 LibreOffice） |
 | `BASEMETAS_URL` | basemetas 文件预览服务地址（可选，如 `https://cloud.j1net.com/view`；配置后安全日记录可点击预览） |
-| `KVM_ENABLED` | 远程连接计算机后端开关：`true` 开启（挂载 `/api/v1/kvm`），`false` 关闭 |
 | `GLKVM_URL` / `GLKVM_PASSWORD` | GLKVM Cloud 平台地址与员工平台账号统一密码（以员工同名账号代登平台取设备列表；详见 开发指南.md 第十二节） |
-| `QUIZ_ENABLED` | 题库刷题后端开关：`true` 开启（建 quiz_* 表并挂载 `/api/v1/quiz`），`false` 关闭 |
 | `DIFY_QUIZ_API_KEY` | 题库「题目解析」工作流的 Dify API Key（与出工日志/安全日工作流共用 `DIFY_API_URL`；inputs 固定 type/stem/options/answer 四变量，输出 analysis；未配置则解析留空，其余功能不受影响，见开发指南第十四节） |
-| `SGCC_CLOCKIN_ENABLED` | 商旅打卡（出工日志扩展）后端开关：`true` 开启（建表/种子并挂载 `/api/v1/sgcc`），`false` 关闭；需先开启出工日志 |
 | `SGCC_JWT_SECRET` / `SGCC_SM2_SERVER_PUB` / `SGCC_SM2_CLIENT_PRIV` | 商旅平台协议密钥（取自商旅 App 逆向分析，联系维护者获取；密钥即 App 内固定值，各环境通用） |
 | `SGCC_RSA_PUB` / `SGCC_RSA_PRIV` | 商旅 jsonx default 通道（打卡/详情/模板）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_DCU_PUB` / `SGCC_WLA_PRIV` | 商旅 jsonx slapp 通道（费用保存必走）：请求加密公钥 / 响应解密私钥 |
@@ -152,7 +148,6 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SGCC_SYNC_INTERVAL_MS` | 商旅打卡批量拉取成员间隔（毫秒，防风控，默认 `1500`） |
 | `SGCC_PROXY_URL` | 商旅 API 出口 SOCKS5 代理（留空=直连）：`socks5h://用户名:密码@主机:端口`（socks5h=远端 DNS，推荐）。机房 IP 易触发风控 99000 窗口时，经目标属地宽带出口对齐打卡人位置；仅作用于商旅 API 小 JSON 调用，照片下载不走代理；代理不可用即报错，不静默降级直连（见 开发指南.md 15.1） |
 | `SGCC_PROXY_PROBE_INTERVAL_MS` | 出口代理健康探测间隔（毫秒，默认 `300000`=5 分钟；仅配置 `SGCC_PROXY_URL` 时启用）：定时对代理端口做 TCP 建连探测（不向商旅主机发请求），正常↔异常 跳变时通知超管（站内+微信） |
-| `WORKLOG_DISPATCH_SYNC_ENABLED` | 派车单每日自动同步开关：`true` 开启（每日定时取回被控机导出派车单自动建卡），`false` 关闭；需先开启出工日志与 KVM |
 | `WORKLOG_DISPATCH_SYNC_TEAM` | 同步生效班组名（仅该班组启用，目前仅检修一班） |
 | `WORKLOG_DISPATCH_DEVICE_DDNS` / `WORKLOG_DISPATCH_DEVICE_MAC` | 目标 KVM 设备定位（ddns）与 MAC 校验（防误操作他机） |
 | `WORKLOG_DISPATCH_KVM_USER` | 同步任务代登平台账号（须平台可见该设备组；留空回退 `ADMIN_USERNAME`） |

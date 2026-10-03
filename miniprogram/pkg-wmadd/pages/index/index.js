@@ -1,4 +1,4 @@
-// 水印添加 · 移动端独立子应用（app_key wm-add，设计稿 design/wm-add.html）
+// 水印添加 · 移动端独立子应用（app_key wm-add，功能口径见《开发指南》第十三节）
 // 流程：拍摄/相册选片 →（按需 4:3/3:4 裁剪）→ 编辑水印信息（无历史口径：定位带出 + 选择杆塔坐标）
 //       → POST /api/v1/wmadd/render 服务端渲染仅回图（不传 COS、不入库、不验证）
 //       → 自动存相册（wx.saveImageToPhotosAlbum）→ 微信全屏展示（wx.previewImage）

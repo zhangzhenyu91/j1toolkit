@@ -24,7 +24,7 @@ const { getFileExt, fixLatin1Name } = require('../utils/file');
 const DATA_DIR = config.safeday.dataDir;
 const DOCS_DIR = path.join(DATA_DIR, 'docs');
 
-// 初始化：确保记录与产物目录存在（本模块仅在 SAFEDAY_ENABLED=true 时被加载）
+// 初始化：确保记录与产物目录存在
 for (const dir of [DATA_DIR, DOCS_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
 }
@@ -159,26 +159,17 @@ router.use(tokenQuery);
 router.use(auth, requireApp('safe-day'));
 
 // GET /form-meta：生成表单数据源（班组成员名单 + 按班组记忆的默认值）
-// 成员口径：WORKLOG_ENABLED=true 时取出工成员字典（status=1，按 sort 即「点亮按钮顺序」，顺序1=默认主持人）；
-// 否则回退班组账号昵称（sys_user）。默认值：superior 初始取 SAFEDAY_DEFAULT_SUPERIOR（缺省空）、recorder 初始空（前端回落顺序1），生成成功后按班组记忆
+// 成员口径：取出工成员字典（status=1，按 sort 即「点亮按钮顺序」，顺序1=默认主持人）；
+// 默认值：superior 初始取 SAFEDAY_DEFAULT_SUPERIOR（缺省空）、recorder 初始空（前端回落顺序1），生成成功后按班组记忆
 router.get('/form-meta', async (req, res) => {
   try {
     const team = await teamUtil.resolveTeam(req.user, req.query.team_id);
     if (!team) return res.json({ ok: true, members: [], defaults: { superior: config.safeday.defaultSuperior || '', recorder: '' } });
-    let members = [];
-    if (config.worklog && config.worklog.enabled) {
-      const [rows] = await pool.query(
-        'SELECT name FROM worklog_member WHERE team_id = ? AND status = 1 ORDER BY sort, id',
-        [team.id]
-      );
-      members = rows.map((r) => r.name);
-    } else {
-      const [rows] = await pool.query(
-        "SELECT nickname FROM sys_user WHERE team_id = ? AND status = 1 AND nickname <> '' ORDER BY id",
-        [team.id]
-      );
-      members = rows.map((r) => r.nickname);
-    }
+    const [rows] = await pool.query(
+      'SELECT name FROM worklog_member WHERE team_id = ? AND status = 1 ORDER BY sort, id',
+      [team.id]
+    );
+    const members = rows.map((r) => r.name);
     const saved = store.getFormDefaults(team.name);
     return res.json({
       ok: true,
@@ -199,7 +190,7 @@ function cutForm(v, n) {
 router.post('/generate', upload.array('files', 10), async (req, res) => {
   try {
     const files = req.files || [];
-    // multer 1.x 默认按 latin1 解析文件名，中文名需转回 UTF-8
+    // multer 默认按 latin1 解析文件名（1.x/2.x 同），中文名需转回 UTF-8
     for (const f of files) {
       f.originalname = fixLatin1Name(f.originalname);
     }

@@ -6,7 +6,7 @@
      版心满宽贴边；右侧列表位为「记录 / 批量下载 / 汇总前核验」三页签（原批量下载、验证报告弹层已页签化；
      商旅打卡扩展后验证报告更名「汇总前核验」，范围收窄为仅未通过记录，底部绿色条提示其余全部通过；页头加「从商旅拉取」入口），
      宽屏（≥1600px）记录页签下汇总前核验常驻卡片流右侧栏（syncSideReport；切到核验页签仍可满宽查看）；
-     商旅打卡（design/sgcc-clockin.html ④⑫⑬）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 费用入口 + 并排「开始/结束」两枚 slot 三态；
+     商旅打卡（见《开发指南》第十五章）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 费用入口 + 并排「开始/结束」两枚 slot 三态；
      点 slot 弹打卡确认层（仅当日；浏览器定位 WGS84→GCJ02 / 手输地址正向解析 / 杆塔带入，已打卡进「更新打卡地点」，同记录他人同 seq 定位自动带入）、
      点「费用」弹费用信息层（伙食补助/交通费可改，成本分配只读，保存即提交商旅；首次开始打卡成功自动弹出，均同小程序口径）、
      照片网格「商旅/同步失败」角标（非水印照片同款展示，无验证角标）、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）、
@@ -19,7 +19,7 @@
      「派车汇总」= 按日期范围导出派车单号清单 xlsx（派车单号 + 用车日期两列，顺序与工作任务单一致 = 日期+卡片创建序；
      数据来自卡片 dispatch_order_no 字段——每日同步带入、改派车可改，仅已填单号的出车卡片出数；同小程序 sheet 页（dispatch 型）口径）；
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
-     「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人 / 目的地 / 派车单号（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；设计稿 design/worklog-dispatch-align.html）；
+     「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人 / 目的地 / 派车单号（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；口径见《开发指南》7.6）；
      页签顶部「每日自动同步派车单」开关（/dispatch/sync-switch，按生效班组，仅 admin / team_admin）；
      「数据管理」页签另有「商旅绑定设备」区：绑定成员列表（登录态/设备口径）可改设备，区底部选成员「代绑定」——管理员代成员完成商旅登录绑定（成员过期联系不上时兜底；弹层短信/密码双方式，均为图形码优先、失败降级内嵌滑块 iframe，落库为代绑行，成员可自助重绑接管）；
      跨班日志：超管页头「跨班日志」入口（/logs/cross/* 全局字典，openCrossForm 新建 / 编辑；跨班卡车牌行加橙色描边「跨班」徽章，
@@ -324,7 +324,7 @@
   .pa-foot .skip { font-size: 12.5px; color: var(--sub); font-weight: 700; cursor: pointer; padding: 0 6px; }
   .pa-foot .sp { margin-left: auto; display: flex; gap: 10px; }
 
-  /* ----- 日志卡片（12px 圆角轻阴影；卡顶色带已取消，.hazard-top 空壳 div 不再渲染） ----- */
+  /* ----- 日志卡片（12px 圆角轻阴影；卡顶色带已取消，.hazard-top 类名保留、空壳 div 仍渲染，不再有任何样式） ----- */
   .log-card { overflow: hidden; margin-bottom: 18px; position: relative; border-radius: 12px; }
   /* 每日定时核查同步中 / 照片单操作任务进行中：当日出车卡整卡锁定（遮罩阻断操作，居中进度块） */
   .card-lock {
@@ -379,7 +379,7 @@
   .lrow .lk { width: 56px; flex: none; font-size: 12px; font-weight: 600; color: var(--sub); letter-spacing: 1px; }
   .lrow .lv { font-size: 13.5px; font-weight: 600; }
   .lrow .lv small { display: block; margin-top: 2px; font-size: 11px; color: var(--ph); font-weight: 400; }
-  /* 用车人打卡胶囊（点击切换打卡，同小程序 chips 直改；商旅打卡开启时整行换为下方 .ck-* 打卡区） */
+  /* 用车人打卡胶囊（点击切换打卡，同小程序 chips 直改；本班卡整行换为下方 .ck-* 打卡区，他班跨班卡保留此降级展示） */
   .mchip {
     display: inline-flex; align-items: center; gap: 5px; margin: 2px 6px 2px 0; padding: 2px 10px;
     border: 1px solid var(--dash); border-radius: 999px; font-size: 12px; font-weight: 400; color: var(--sub);
@@ -397,7 +397,7 @@
     cursor: pointer; padding: 2px 0; border-radius: 4px;
   }
   .act-sync:hover, .act-note:hover, .act-del:hover { text-decoration: underline; text-underline-offset: 3px; }
-  /* 左栏操作行「从商旅同步」入口（品牌蓝；仅商旅打卡开启且非他班跨班卡渲染） */
+  /* 左栏操作行「从商旅同步」入口（品牌蓝；他班跨班卡不渲染） */
   .act-sync { color: var(--orange); }
   /* 左栏操作行「备注」入口（深灰文字链） */
   .act-note { color: var(--navy); }
@@ -877,7 +877,7 @@
     .topbar-nav { display: none; }
   }
 
-  /* ===== 商旅打卡（出工日志扩展，design/sgcc-clockin.html ④⑫⑬） ===== */
+  /* ===== 商旅打卡（出工日志扩展，见《开发指南》第十五章） ===== */
   /* 用车人打卡区（与小程序 ck-person 一致）：每用车人一行 = 头行（姓名 + 状态小字 + 费用入口）+ 并排「开始/结束」两枚 slot；
      Web 端同小程序可操作——点 slot 弹打卡确认层（浏览器定位 / 手输地址 / 杆塔带入），点「费用」弹费用信息层 */
   .lrow-ck { align-items: flex-start; }
@@ -1266,7 +1266,7 @@ var CLOCK_REMARKS_DEFAULT = '110kV及220kV输电线路巡视';
 var state = {
   date: todayStr(),          // 当前选中日期 YYYY-MM-DD
   scope: 'all',              // all | mine
-  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 汇总前核验 | Dict 数据管理 | TS 工作任务单 | FS 费用汇总 | PA 派车对齐
+  pane: 'Record',            // 当前页签：Record 记录 | Dl 批量下载 | Rep 汇总前核验 | Dict 数据管理 | TS 工作任务单 | FS 费用汇总 | DS 派车汇总 | PA 派车对齐
   teamId: 0,                 // 超管当前切换的班组 id（0=未指定，由后端落默认班组；非超管恒 0）
   entries: [],               // 当日日志卡片
   calY: 0, calM: 0,          // 月历当前显示月份（calM 为 0 起）
@@ -1276,7 +1276,7 @@ var state = {
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
   crossMeta: null,           // 跨班日志表单全局字典（teams/vehicles/destinations/members，GET /logs/cross/meta 缓存，仅超管；全局数据不随班组切换清空）
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
-  dict: { lists: {}, towerCount: null, sgcc: { list: null, err: '', off: false } }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）+ 商旅绑定设备（list null=未拉取；off=商旅打卡未开启，整区不渲染）
+  dict: { lists: {}, towerCount: null, sgcc: { list: null, err: '' } }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）+ 商旅绑定设备（list null=未拉取）
   dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
   ts: { from: '', to: '' },    // 工作任务单页签：生成范围（默认当日单日，页签内联起止输入选择）
   fs: { from: '', to: '' },    // 费用汇总页签：汇总范围（同工作任务单口径）
@@ -1387,12 +1387,12 @@ function verifyText(p) {
 }
 
 function photoHTML(p) {
-  /* 非水印照片（is_watermark===0，仅商旅打卡开启后存在）：与普通照片同款展示——
+  /* 非水印照片（is_watermark===0，商旅打卡扩展新增）：与普通照片同款展示——
      无验证角标、不显示不符 chips（免验证仅存档同步商旅），仅保留「商旅」同步角标 */
   var plain = p.is_watermark === 0;
   var st = plain ? null : photoStatus(p);
   var mis = plain ? [] : photoMismatch(p);
-  /* 商旅同步角标（仅商旅打卡开启时接口返回 sgcc_synced）：1 已同步蓝签 / 2 同步失败红签 */
+  /* 商旅同步角标（接口返回 sgcc_synced 字段）：1 已同步蓝签 / 2 同步失败红签 */
   var syncCls = p.sgcc_synced === 1 ? '商旅' : (p.sgcc_synced === 2 ? 'fail' : '');
   var html = '<figure class="ph' + (syncCls ? ' has-sync' : '') + '" data-pid="' + p.id + '">'
     + '<img src="' + esc(p.url) + '" loading="lazy" alt="' + (plain ? '非水印照片' : '水印照片') + '">'
@@ -1525,8 +1525,8 @@ function cardHTML(e, idx, total) {
 
   /* 信息行：派车车辆 / 用车人 / 目的地（出工时间行已按反馈移除，created_at 字段数据保留） */
   var members = (e.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
-  /* 商旅打卡开启时（成员带 sgccBound 字段）：用车人行整段换为打卡区——每用车人一行（状态小字 + 费用入口 + 开始/结束两枚 slot，可点操作）；
-     未开启时保留原 .mchip 打卡胶囊 + 「已打卡 x/n 人」副标（降级兼容） */
+  /* 商旅打卡恒启用（成员带 sgccBound 字段）：用车人行整段换为打卡区——每用车人一行（状态小字 + 费用入口 + 开始/结束两枚 slot，可点操作）；
+     他班跨班卡不渲染打卡区，保留原 .mchip 打卡胶囊 + 「已打卡 x/n 人」副标（降级兼容） */
   var sgccOn = members.some(function (m) { return m.sgccBound !== undefined; });
   /* 他班跨班卡（cross_team 且归属非当前生效班组）：商旅打卡区（「从商旅同步」同族入口）不渲染，回退普通用车人展示 */
   var crossOther = e.cross_team && e.team_id && e.team_id !== effTeamId();
@@ -1578,7 +1578,7 @@ function cardHTML(e, idx, total) {
   }
 
   /* 左栏底部操作行：从商旅同步 / 备注 / 删除日志（同小程序卡片直改）；跨班卡仅超管可删（非超管不渲染删除钮，deleteEntry 内同口径拦截）。
-     「从商旅同步」与打卡区同门控（商旅开启且非他班跨班卡），同步中整卡锁定不渲染（同小程序 showClock && !syncing && !syncHidden 口径） */
+     「从商旅同步」与打卡区同门控（非他班跨班卡），同步中整卡锁定不渲染（同小程序 showClock && !syncing && !syncHidden 口径） */
   html += '<div class="log-acts">'
     + (ckRow && !olock && !dlock
       ? '<button class="act-sync" data-act="sgsync" title="仅拉取本卡用车人的当日打卡 / 费用 / 照片，以商旅平台为准覆盖本地">从商旅同步</button>' : '')
@@ -1744,7 +1744,7 @@ function shiftLB(delta) {
 function lbRow(k, v, cls) {
   return '<div class="lb-row"><div class="k">' + esc(k) + '</div><div class="v' + (cls ? ' ' + cls : '') + '">' + (v ? v : '—') + '</div></div>';
 }
-/* 商旅同步行（仅商旅打卡开启、接口返回 sgcc_synced 字段时显示）：已同步 / 未同步 / 同步失败·重试 */
+/* 商旅同步行（接口返回 sgcc_synced 字段时显示）：已同步 / 未同步 / 同步失败·重试 */
 function lbSyncRow(p) {
   if (p.sgcc_synced === undefined || p.sgcc_synced === null) return '';
   if (p.sgcc_synced === 1) return lbRow('商旅同步', '<span class="sg-ok">已同步</span>');
@@ -2387,7 +2387,7 @@ function openPhotoMembersModal(entry, photo) {
     var names = $$('.chip.on[data-name]', inst.box).map(function (b) { return b.dataset.name; });
     if (!names.length) { Shade.toast('请选择照片所属人名', 'info'); return; }
     saving = true;
-    /* 商旅开启时（成员带 sgccBound 字段）任务化异步执行：改人名的商旅侧增删（远端先行）在后台完成，本卡挂进度条 */
+    /* 商旅打卡恒启用（成员带 sgccBound 字段）任务化异步执行：改人名的商旅侧增删（远端先行）在后台完成，本卡挂进度条 */
     var sgccOn = members.some(function (m) { return m.sgccBound !== undefined; });
     var doSave = function () {
       return Shade.api(wl('/api/v1/worklog/photos/' + photo.id + '/members'), { method: 'PUT', body: { members: names } });
@@ -2507,7 +2507,7 @@ async function resyncSgccPhoto(pid) {
 async function deletePhoto(pid, photo) {
   var yes = await Shade.confirm({ title: '删除照片', content: '删除后不可恢复，确定删除该水印照片吗？', confirmText: '删除', danger: true });
   if (!yes) return;
-  /* 商旅开启时（照片带 sgcc_synced 字段）任务化异步执行：解除商旅关联在后台完成，本卡挂进度条 */
+  /* 商旅打卡恒启用（照片带 sgcc_synced 字段）任务化异步执行：解除商旅关联在后台完成，本卡挂进度条 */
   var sgccOn = !!(photo && photo.sgcc_synced !== undefined && photo.sgcc_synced !== null);
   var doDelete = function () {
     return Shade.api(wl('/api/v1/worklog/photos/' + pid), { method: 'DELETE' });
@@ -2628,8 +2628,8 @@ function pickImage(accept, cb) {
 /* 统一上传：POST /logs/{id}/photos（wm 存在时服务端先渲染水印；plain=true 为非水印直传）；
    成功后静默重拉——水印照片进 pending 轮询；非水印响应 verify_status=skipped，天然不进轮询（schedulePending 只盯 pending） */
 async function uploadPhoto(entry, image, names, wm, btn, plain) {
-  /* 商旅开启时（成员带 sgccBound 字段）任务化异步执行：登记后立即返回 opId（商旅远端先行 + COS 落库后台完成），
-     本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾；未开启维持原按钮文案/轻量进度层 */
+  /* 商旅打卡恒启用（成员带 sgccBound 字段）任务化异步执行：登记后立即返回 opId（商旅远端先行 + COS 落库后台完成），
+     本卡挂进度条（退出页面不影响完成），结果由 pollCardOp 收尾；他班跨班卡（成员无 sgccBound 字段）维持原按钮文案/轻量进度层 */
   var sgccOn = (entry.members || []).some(function (m) { return m.sgccBound !== undefined; });
   if (btn) {
     btn.disabled = true;
@@ -2696,7 +2696,7 @@ function openAddSheet(entry) {
 
 /* ---------- 人名点亮层（候选 = 本卡用车人；确认后按方式选片） ----------
    置灰规则：水印两种方式沿用「每人限一张，已上传者不可选」；非水印不占名额、不按已上传置灰。
-   商旅打卡开启时（成员带 sgccBound 字段）：登录过期（sgccTokenStatus===0，红字「登录过期」红框）、
+   商旅打卡恒启用（成员带 sgccBound 字段）：登录过期（sgccTokenStatus===0，红字「登录过期」红框）、
    未绑定（灰字「未绑定」）均置灰不可选——三类照片都会同步进被选中人的当日商旅费用照片 */
 function openPhotoPickModal(entry, action) {
   var isPlain = action === 'plain';
@@ -3348,7 +3348,7 @@ function dictSeg(key) {
 /* ================= 派车对齐页签（仅超管 / 班组管理员；小程序端同功能见 pkg-worklog/pages/dispatch） =================
    流程：多文件上传 POST /dispatch/align（服务端只读对齐不写库）→ 不一致清单 → 对照弹层逐条处理；
    更正复用既有接口：改卡 PUT /logs/{id}（整卡更新，patrol_content 随条目带回避免误清）、补建卡 POST /logs、车牌入字典 POST /admin/vehicles；
-   口径：仅「用车申请调度」行参与，且剔除用车人中无本班成员的行；日期＋用车人配对；表格有系统无在弹层按表格预填快速建卡（手动确认才写库，非自动建），系统有表格无仅提示确认（设计稿 design/worklog-dispatch-align.html） */
+   口径：仅「用车申请调度」行参与，且剔除用车人中无本班成员的行；日期＋用车人配对；表格有系统无在弹层按表格预填快速建卡（手动确认才写库，非自动建），系统有表格无仅提示确认（口径见《开发指南》7.6） */
 
 /* 文件选择 chips + 开始对齐按钮可用态 */
 function renderPaFiles() {
@@ -3831,14 +3831,13 @@ async function loadTowerCount() {
   }
 }
 
-/* 商旅绑定设备（直接调接口探测：/sgcc 未挂载（40404）= 商旅打卡未开启，整区不渲染；其余错误区内容错展示；
-   管理员可改设备型号 / 系统版本） */
+/* 商旅绑定设备（商旅打卡恒启用、/api/v1/sgcc 恒挂载：加载失败区内容错展示；管理员可改设备型号 / 系统版本） */
 async function loadSgccAccounts() {
   try {
     var r = await Shade.api(wl('/api/v1/sgcc/accounts'));
-    state.dict.sgcc = { list: (r.data && r.data.list) || [], err: '', off: false };
+    state.dict.sgcc = { list: (r.data && r.data.list) || [], err: '' };
   } catch (e) {
-    state.dict.sgcc = { list: [], err: e.message || '加载失败', off: e.code === 40404 };
+    state.dict.sgcc = { list: [], err: e.message || '加载失败' };
   }
 }
 
@@ -4167,34 +4166,32 @@ function renderDict() {
       '</div>' +
     '</div>' +
   '</div>';
-  /* 商旅绑定设备（商旅打卡未开启（/sgcc 未挂载）时整区不渲染；区底部代绑定行：
+  /* 商旅绑定设备（商旅打卡恒启用，整区恒渲染；区底部代绑定行：
      管理员可代成员绑定商旅账号（成员过期又联系不上时兜底），成员本人仍可在小程序「我的 → 绑定商旅」自助绑定/接管） */
-  if (!state.dict.sgcc.off) {
-    var sg = state.dict.sgcc;
-    var sgMembers = (state.dict.lists.members || []).filter(function (x) { return x.status === 1; });
-    html += '<div class="card dsec">' +
-      '<div class="dsec-h"><b>商旅绑定设备</b><span class="cnt">' +
-        (sg.err ? '加载失败' : (sg.list ? sg.list.length + ' 条' : '加载中…')) + '</span></div>' +
-      (sg.err
-        ? '<div class="dempty">' + esc(sg.err) + '</div>'
-        : (!sg.list
-          ? '<div class="dempty">加载中…</div>'
-          : (sg.list.length
-            ? sg.list.map(sgccRowHtml).join('')
-            : '<div class="dempty">本班组暂无绑定成员（成员可在小程序「我的 → 绑定商旅」绑定）</div>'))) +
-      '<div style="display:flex;gap:10px;align-items:center;padding:12px 16px;border-top:1px solid var(--hair)">' +
-        '<select class="f-sel" id="sgBindMember" style="flex:1">' +
-          '<option value="">选择成员…</option>' +
-          sgMembers.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join('') +
-        '</select>' +
-        '<button class="btn btn-sm btn-accent" data-sgcc-act="bind">代绑定</button>' +
-      '</div>' +
-    '</div>';
-  }
+  var sg = state.dict.sgcc;
+  var sgMembers = (state.dict.lists.members || []).filter(function (x) { return x.status === 1; });
+  html += '<div class="card dsec">' +
+    '<div class="dsec-h"><b>商旅绑定设备</b><span class="cnt">' +
+      (sg.err ? '加载失败' : (sg.list ? sg.list.length + ' 条' : '加载中…')) + '</span></div>' +
+    (sg.err
+      ? '<div class="dempty">' + esc(sg.err) + '</div>'
+      : (!sg.list
+        ? '<div class="dempty">加载中…</div>'
+        : (sg.list.length
+          ? sg.list.map(sgccRowHtml).join('')
+          : '<div class="dempty">本班组暂无绑定成员（成员可在小程序「我的 → 绑定商旅」绑定）</div>'))) +
+    '<div style="display:flex;gap:10px;align-items:center;padding:12px 16px;border-top:1px solid var(--hair)">' +
+      '<select class="f-sel" id="sgBindMember" style="flex:1">' +
+        '<option value="">选择成员…</option>' +
+        sgMembers.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<button class="btn btn-sm btn-accent" data-sgcc-act="bind">代绑定</button>' +
+    '</div>' +
+  '</div>';
   $('#dictBody').innerHTML = html;
   // 代绑定成员下拉换自绘下拉（原 select 隐藏保留为数据源；重渲染后需重建，旧实例先 destroy 防弹层孤儿残留 body）
   if (sgBindDd) { sgBindDd.destroy(); sgBindDd = null; }
-  if (!state.dict.sgcc.off && $('#sgBindMember')) {
+  if ($('#sgBindMember')) {
     sgBindDd = Shade.dropdown($('#sgBindMember'), { height: 36 });
     sgBindDd.el.style.flex = '1';
   }
@@ -4613,15 +4610,13 @@ function openSyncCheck() {
     var to = $('#sgPullTo', inst.box).value;
     if (!from || !to) { Shade.toast('请选择拉取区段', 'info'); return; }
     if (from > to) { Shade.toast('开始日期不能晚于结束日期', 'info'); return; }
-    /* team_id 仅超管且所选班组与当前生效班组不同时才带（相同由 wl() 查询串统一携带，其余角色服务端收敛本班） */
+    /* team_id 走 query 携带（后端 resolveReqTeam 为 query 优先，放 body 会被 wl() 拼的查询串覆盖而无效）：
+       与当前生效班组相同即 wl() 默认口径，弹层改选其他班组时直接用所选值拼 query；其余角色无班组选择，服务端收敛本班 */
     var body = { from: from, to: to };
-    if (teamEl) {
-      var tid = Number(teamEl.value) || 0;
-      if (tid && tid !== state.teamId) body.team_id = tid;
-    }
+    var tid = teamEl ? (Number(teamEl.value) || 0) : 0;
     saving = true;
     try {
-      var r = await Shade.api(wl('/api/v1/sgcc/sync/pull'), { method: 'POST', body: body });
+      var r = await Shade.api(Shade.withTeam('/api/v1/sgcc/sync/pull', tid || state.teamId), { method: 'POST', body: body });
       Shade.toast((r && r.message) || '拉取完成', 'success');
       enterSyncLock(); // 发起后本机同入全局锁遮罩（完成后自动解锁刷新）
     } catch (e) {
@@ -5112,7 +5107,7 @@ async function checkSyncLock() {
     if (d.daily && d.daily.running) enterDailyLock();
     // 照片单操作任务（他人/他端发起或本端重新进入）：旁观者挂条并起轮询
     if ((d.ops || []).length) { syncSpectatorOps(d.ops); pollSpectatorOps(); }
-  } catch (e) { /* 商旅未开启 / 网络异常：不锁定 */ }
+  } catch (e) { /* 网络异常：不锁定 */ }
 }
 function enterSyncLock() {
   if (slLocking) return;
@@ -5517,7 +5512,7 @@ function reloadTeamData() {
   state.dl.list = null;
   state.rep.loaded = false;
   state.pa = { files: [], result: null, done: {}, idx: 0, uploading: false };
-  state.dict.sgcc = { list: null, err: '', off: false }; // 商旅绑定设备区随班组重拉（loadDict 内探测 /sgcc 挂载态）
+  state.dict.sgcc = { list: null, err: '' }; // 商旅绑定设备区随班组重拉
   loadCalMonth(true);
   loadLogs();
   if (state.pane === 'Dl') loadDlPhotos();

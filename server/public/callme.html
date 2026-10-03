@@ -13,7 +13,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/assets/theme.css">
 <style>
-  /* ===== 整页布局：body 锁定 100vh 无全局滚动；topbar 之下为 .page 容器（呼吸边距露出暖纸底），
+  /* ===== 整页布局：body 锁定 100vh 无全局滚动；topbar 之下为 .page 容器（呼吸边距露出页面浅灰底），
          主体两张悬浮白卡（左会话列表 / 右对话区），卡高 = 视口 - topbar - 边距 - 备案页脚，卡内各自滚动 ===== */
   html, body { height: 100%; }
   body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -98,7 +98,7 @@
   .cm-side-foot .nm { font-size: 12.5px; font-weight: 700; }
   .cm-side-foot .rl { font-size: 10.5px; color: var(--ph); margin-top: 1px; }
 
-  /* ===== 右侧对话区：无卡片，消息直接落在暖纸画布上（对齐官方前端）；
+  /* ===== 右侧对话区：无卡片，消息直接落在页面浅灰画布上（对齐官方前端）；
          聊天列限宽 960px 居中于右区（auto 外边距吸收剩余宽度），两侧留白防超宽难读 ===== */
   .cm-main {
     flex: 1; min-width: 0; max-width: 960px; margin: 0 auto;
@@ -382,7 +382,7 @@
 <body>
 <!-- 顶部导航由 Shade.topbar({active:'callme'}) 统一渲染（见 script） -->
 
-<!-- .page 容器：呼吸边距露出暖纸底，内部两张悬浮卡片（左会话列表 / 右对话区） -->
+<!-- .page 容器：呼吸边距露出页面浅灰底，内部两张悬浮卡片（左会话列表 / 右对话区） -->
 <div class="page cm-page">
 <div class="cm">
   <!-- 左侧：会话列表 -->

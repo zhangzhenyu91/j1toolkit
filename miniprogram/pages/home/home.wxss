@@ -89,10 +89,6 @@
   color: #F53F3F;
 }
 
-.stat-num-blue {
-  color: #0E3DA8;
-}
-
 .stat-label {
   margin-top: 8rpx;
   font-size: 22rpx;

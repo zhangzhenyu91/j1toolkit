@@ -1,4 +1,4 @@
-// 出工日志：表结构初始化与应用/成员种子（仅 WORKLOG_ENABLED=true 时由 db.js 调用）
+// 出工日志：表结构初始化与应用/成员种子（启动时由 db.js 调用）
 // 表结构对应《开发指南》3.5；一条日志卡片 = 一次派车，未出车即 vehicle_id 为 NULL
 const fs = require('fs');
 const path = require('path');

@@ -66,7 +66,6 @@ const config = {
     url: str('BASEMETAS_URL').replace(/\/+$/, ''),
   },
   worklog: {
-    enabled: str('WORKLOG_ENABLED') === 'true',
     cosPrefix: withTrailingSlash(str('COS_WORKLOG_PREFIX', 'worklog/')),
     cosBaseUrl: str('COS_WORKLOG_BASE_URL'),
     difyKey: str('DIFY_WORKLOG_API_KEY'),
@@ -75,11 +74,10 @@ const config = {
     amapMapKey: str('AMAP_MAP_KEY'),
     // 接口 base URL（默认官方地址；因费用问题走中转站时改为中转地址，接口路径 /v3/... 不变）
     amapBaseUrl: str('AMAP_BASE_URL', 'https://restapi.amap.com').replace(/\/+$/, ''),
-    // 派车单每日自动同步（经 KVM 文件传输链路取回被控机导出件自动建卡；需同时开启 KVM）
+    // 派车单每日自动同步（经 KVM 文件传输链路取回被控机导出件自动建卡）
     // 生效班组以 worklog_dispatch_sync_team 开关表为准（班组管理员/超管在「派车对齐」页按班组开关）；
     // team 仅为首次启动的种子开启班组（写入开关表后不再生效）；设备以 ddns 定位、MAC 校验防误操作他机
     dispatchSync: {
-      enabled: str('WORKLOG_DISPATCH_SYNC_ENABLED') === 'true',
       team: str('WORKLOG_DISPATCH_SYNC_TEAM'),
       deviceDdns: str('WORKLOG_DISPATCH_DEVICE_DDNS'),
       deviceMac: str('WORKLOG_DISPATCH_DEVICE_MAC'),
@@ -91,7 +89,6 @@ const config = {
   },
   // 安全日活动记录（自 SafeDayLogs 独立服务合并的子模块，文件存储，不建库表）
   safeday: {
-    enabled: str('SAFEDAY_ENABLED') === 'true',
     // 记录 records.json 与生成产物（docs/）存放目录；已在 config 归一化为绝对路径（相对路径按服务启动目录解析）
     dataDir: path.resolve(str('SAFEDAY_DATA_DIR', './data/safeday')),
     // 安全日活动记录默认上级参加人员（留空则由用户手填）
@@ -104,19 +101,16 @@ const config = {
   },
   // KVM 远程管理（GLKVM Cloud 平台对接：员工账号代登取设备列表 + 平台深链跳转，见 开发指南.md 第十二节）
   kvm: {
-    enabled: str('KVM_ENABLED') === 'true',
     url: str('GLKVM_URL').replace(/\/+$/, ''),
     password: str('GLKVM_PASSWORD'),
   },
   // 题库刷题（AI 解析走 Dify「题目解析」工作流；未配置 DIFY_QUIZ_API_KEY 时解析停用，刷题照常）
   quiz: {
-    enabled: str('QUIZ_ENABLED') === 'true',
     difyKey: str('DIFY_QUIZ_API_KEY'),
   },
-  // 商旅打卡（出工日志扩展）：env SGCC_CLOCKIN_ENABLED=true 时才挂载
+  // 商旅打卡（出工日志扩展）
   // 协议密钥取自商旅 App 逆向分析仓 private/esgcc/sgcc/tools/sgcc_client.js（私有仓），只走 env、不入仓
   sgcc: {
-    enabled: str('SGCC_CLOCKIN_ENABLED') === 'true',
     jwtSecret: str('SGCC_JWT_SECRET'),       // H5/App 自签 JWT 密钥
     sm2ServerPub: str('SGCC_SM2_SERVER_PUB'), // jsonm 通道 SM2 服务器公钥
     sm2ClientPriv: str('SGCC_SM2_CLIENT_PRIV'), // jsonm 通道 SM2 客户端私钥

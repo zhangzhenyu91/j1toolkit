@@ -110,7 +110,7 @@ Page({
     this.setData({ deviceType, systemVersion });
   },
 
-  // 拉取绑定状态与账号信息；无出工日志权限 / 后端未开启（403/404）时静默降级为未绑定态
+  // 拉取绑定状态与账号信息；商旅恒挂载，无出工日志权限 / 未分配班组（403）时静默降级为未绑定态
   async loadAccount() {
     this.setData({ loading: true });
     try {

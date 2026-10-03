@@ -1,5 +1,5 @@
 /* 文件传输 · 设备列表 + 上传/下载弹层（卡片结构与网页端 kvm.html 同口径；弹层与出工日志批量下载同族；
-   设计 token 见 AGENTS.md 第四节，设计稿 design/kvm-filetransfer.html） */
+   设计 token 见 AGENTS.md 第四节，功能口径见《开发指南》第十二节） */
 
 .page-body {
   padding-bottom: 60rpx;

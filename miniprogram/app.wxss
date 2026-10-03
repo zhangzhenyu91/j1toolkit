@@ -7,8 +7,6 @@
             页面底 #F5F7FA ｜ 正文 #1D2129
    形态语言：白卡 12px 圆角（24rpx）+ 极轻阴影，无描边无渐变；
             按钮/输入 8px（16rpx），标签 4px（8rpx）小胶囊。
-   变量名沿用旧主题（--yellow/--red-b/--blue-b/--ink/--paper-b/--hard），
-   仅换值，各页面 var() 引用不变。
    ============================================================ */
 
 page {
@@ -29,15 +27,6 @@ page {
   --td-popup-border-radius: 24rpx;
   --td-toast-radius: 8rpx;
 
-  /* 主题变量（供各页面引用；-b 后缀避免与 --td 变量冲突）
-     语义迁移：--yellow 现为警告橙（信号/备注语义），--ink 现为正文深色 */
-  --yellow: #FF7D00;
-  --red-b: #F53F3F;
-  --blue-b: #0E3DA8;
-  --ink: #1D2129;
-  --paper-b: #F5F7FA;
-  --hard: 0 4rpx 16rpx rgba(0, 0, 0, .05); /* 卡片轻阴影（签名硬影已取消） */
-
   background: #F5F7FA;
   color: #1D2129;
   font-size: 28rpx;
@@ -50,12 +39,6 @@ page {
 .card {
   background: #FFFFFF;
   border-radius: 24rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, .05);
-}
-
-/* 旧彩色硬影变体类名保留（不再轮转彩色，统一轻阴影），既有引用无需改动 */
-.card.shadow-red,
-.card.shadow-yellow {
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, .05);
 }
 

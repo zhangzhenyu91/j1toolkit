@@ -1,4 +1,4 @@
-/* 题库刷题 · 题库列表（设计稿 design/quiz.html 屏 01；设计 token 见 AGENTS.md 第四节，
+/* 题库刷题 · 题库列表（功能口径见《开发指南》第十四节；设计 token 见 AGENTS.md 第四节，
    班组切换器/空态等写法同 pkg-filetransfer、pkg-safeday） */
 
 /* ---------- 班组切换器（超管可点 chip 下拉切换；其余角色静态班组名标签） ---------- */
@@ -138,7 +138,7 @@
   text-align: center;
 }
 
-/* ---------- 统计卡（屏 01 .stat-card：三格等分，正确率蓝色） ---------- */
+/* ---------- 统计卡（三格等分，正确率蓝色） ---------- */
 .stat-card {
   padding: 44rpx 24rpx 28rpx;
   display: flex;
@@ -238,7 +238,7 @@
   color: rgba(29,33,41,.4);
 }
 
-/* ---------- 题库卡（屏 01 .bank-item） ---------- */
+/* ---------- 题库卡 ---------- */
 .bank-item {
   padding: 26rpx 28rpx;
   display: flex;
@@ -321,7 +321,7 @@
   letter-spacing: 2rpx;
 }
 
-/* ---------- 底部主按钮（仅管理角色；屏 01 .bottom-bar + .btn-navy） ---------- */
+/* ---------- 底部主按钮（仅管理角色） ---------- */
 .page-body.has-bar {
   padding-bottom: 220rpx; /* 给底部固定主按钮留位 */
 }

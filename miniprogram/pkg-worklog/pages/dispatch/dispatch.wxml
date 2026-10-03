@@ -43,7 +43,7 @@
     </view>
   </view>
 
-  <!-- 对齐结果：概览六宫格 + 不一致清单 -->
+  <!-- 对齐结果：概览七宫格 + 不一致清单 -->
   <block wx:if="{{hasResult}}">
     <view class="sums">
       <view class="sum {{item.cls}}" wx:for="{{sums}}" wx:key="t">

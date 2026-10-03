@@ -269,7 +269,7 @@ Page({
       filePath: f.path,
       name: 'file',
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
-      formData: this._teamId ? { team_id: this._teamId } : {},
+      formData: this._teamId ? { team_id: String(this._teamId) } : {},
       success: (res) => {
         let body = {};
         try {

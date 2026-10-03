@@ -19,7 +19,7 @@
           <view class="s-title">{{item.title || '未命名对话'}}</view>
           <view class="s-time">{{item.timeText}}</view>
         </view>
-        <t-icon name="chevron-right" size="36rpx" color="#C9BEA6" />
+        <t-icon name="chevron-right" size="36rpx" color="#C9CDD4" />
       </view>
       <view slot="right" class="swipe-actions">
         <view

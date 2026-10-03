@@ -1,4 +1,4 @@
-// 题库刷题：表结构初始化与应用种子（仅 QUIZ_ENABLED=true 时由 db.js 调用）
+// 题库刷题：表结构初始化与应用种子（启动时由 db.js 调用）
 const config = require('../config');
 
 const APP_QUIZ = {

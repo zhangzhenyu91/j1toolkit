@@ -32,7 +32,7 @@ async function consumeStream(response, onFailed) {
           `Dify 工作流${status === 'stopped' ? '被停止' : '执行失败'}`;
         onFailed(String(errMsg));
       }
-      // "succeeded" 不做完成标记，完成判定由文件检测负责
+      // "succeeded" 不做完成标记：置 done 由 /callback 渲染落盘时置位，文件存在性终判仅是旧链路兼容
       return true; // 结束读取
     }
     return false;

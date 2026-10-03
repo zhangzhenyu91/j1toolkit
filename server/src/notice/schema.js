@@ -1,4 +1,4 @@
-// 通知推送：表结构初始化（本体基础能力，无 env 开关，由 db.js 无条件调用）
+// 通知推送：表结构初始化（本体基础能力，由 db.js 无条件调用）
 const DDL = [
   `CREATE TABLE IF NOT EXISTS sys_notice (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

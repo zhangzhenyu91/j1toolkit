@@ -1,4 +1,4 @@
-// 商旅打卡：表结构初始化（仅 SGCC_CLOCKIN_ENABLED=true 时由 db.js 调用）
+// 商旅打卡：表结构初始化（启动时由 db.js 调用）
 // 本模块是出工日志的扩展能力：打卡/费用/照片同步均以 worklog_member 为口径双写本地表，
 // 应用权限归属出工日志（sys_app 统一走 work-log，不再单设 sgcc-clockin 应用）
 
@@ -65,7 +65,7 @@ const DDL = [
     team_id BIGINT UNSIGNED NULL COMMENT '所属班组，关联 sys_team.id',
     member_id BIGINT UNSIGNED NULL COMMENT '关联 worklog_member.id（整班核查为 NULL）',
     sync_date DATE NOT NULL COMMENT '核查的数据日期',
-    scope VARCHAR(16) NOT NULL DEFAULT 'daily' COMMENT 'daily 当日核查（历史值 backfill 为已删除的绑定回填）',
+    scope VARCHAR(16) NOT NULL DEFAULT 'daily' COMMENT 'daily 当日核查 / remind 提醒前轻量同步（登录态探测+打卡对账，见 15.5；历史值 backfill 为已删除的绑定回填）',
     type VARCHAR(16) NOT NULL COMMENT 'clockin 打卡 / photo 照片 / fee 费用 / auth 登录态',
     result VARCHAR(8) NOT NULL COMMENT 'ok 一致 / diff 有差异已回写 / fail 失败',
     detail VARCHAR(512) NOT NULL DEFAULT '' COMMENT '明细（如 商旅侧新发现照片 1 张）',

@@ -13,5 +13,5 @@ services:
     env_file:
       - .env
     volumes:
-      # 可写数据（安全日记录、内网客户端安装包等）持久化到本目录 data/
+      # 可写数据（安全日记录等）持久化到本目录 data/
       - ./data:/app/server/data

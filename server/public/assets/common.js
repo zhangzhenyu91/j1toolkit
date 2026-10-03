@@ -22,7 +22,7 @@
      （query 优先于 body，后端 resolveReqTeam 同口径）
    Shade.icon(name, size, color) → inline SVG 字符串（见 assets/icons.js）
    Shade.topbar(opts)         → 统一渲染顶部导航（插入 body 开头；需 icons.js 先加载）
-     opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin'（当前页，渲染为无链接激活态）
+     opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin' | 'client'（当前页，渲染为无链接激活态）
      结构：左侧 Logo（点击回 /index.html）+ 常驻导航（工作台 + /api/v1/app/list 按权限下发的应用，
            顺序同工作台宫格、无权限不显示，缓存 shade_apps 先渲染后校正，当前页高亮）；
            右侧「管理」链接（仅 role==='admin' 可见）
@@ -459,7 +459,7 @@
     });
   }
 
-  // 轻量自绘下拉：把原生 <select> 替换为按钮触发器 + 弹出列表（暖纸主题，样式见 theme.css .dd）；
+  // 轻量自绘下拉：把原生 <select> 替换为按钮触发器 + 弹出列表（「政企蓝白」主题，样式见 theme.css .dd）；
   // 原 select 隐藏保留为数据源——选中回写 select.value 并派发 change 事件，既有监听与取值逻辑不变；
   // 脚本改动选项 / value / disabled 后需调返回实例的 sync() 重绘（打开弹层时也会自动 sync）。
   // 弹出列表常驻 document.body：容器 innerHTML 重建场景需先调返回实例的 destroy()（close 之上移除弹层节点），
