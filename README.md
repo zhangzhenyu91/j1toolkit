@@ -12,7 +12,7 @@
 ![腾讯云COS](https://img.shields.io/badge/腾讯云_COS-文件存储-006DFF)
 ![JWT](https://img.shields.io/badge/鉴权-JWT-000000?logo=jsonwebtokens&logoColor=white)
 
-> 仓库托管：主仓 [CNB](https://cnb.cool/j1net/j1toolkit/j1toolkit)，[GitHub](https://github.com/zhangzhenyu91/j1toolkit) 为备份镜像（推送时双仓自动同步）。
+> 仓库托管：主仓 [GitHub](https://github.com/zhangzhenyu91/j1toolkit)，[CNB](https://cnb.cool/j1net/j1toolkit/j1toolkit) 为备份镜像（推送时双仓自动同步）。
 
 班组数字化工具平台：微信小程序 + 网页端，本体提供统一登录（账号密码 + 微信）与应用权限控制，各应用以分包/网页形式持续接入。
 
@@ -30,7 +30,7 @@
 
 应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。
 
-**文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；UI 定稿为「政企蓝白 Enterprise Blue」，基准稿见 `design/` 下 4 份（小程序/Web 首页与出工日志）+ `设计规范.md`。不宜公开的内容（内网客户端、逆向分析仓、历史数据）在私有仓 [j1toolkit-private](https://cnb.cool/j1net/j1toolkit/j1toolkit-private)，经 submodule 挂载于 `private/`。
+**文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；UI 定稿为「政企蓝白 Enterprise Blue」，基准稿见 `design/` 下 4 份（小程序/Web 首页与出工日志）+ `设计规范.md`。不宜公开的内容（内网客户端、逆向分析仓、历史数据）在私有仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private)，经 submodule 挂载于 `private/`。
 
 ## 技术栈
 

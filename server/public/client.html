@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 内网客户端下载页（公开页，可直接发链接给班组成员；
-     版本与安装包由 GitHub 发版后 CI 自动推送，数据源 /api/v1/client/latest） -->
+<!-- Shade 壹匣 · 内网客户端页（内部应用：要求登录 + client 应用权限，工作台宫格/顶栏进入）
+     安装包不再托管本站：GitHub 发版构建后由 publish-cnb 回传 CNB 制品库（Docker 产物镜像，
+     tag = 版本号），本页只贴链接与取件命令；页面不被动接收更新，版本以 CNB 制品库为准 -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shade 壹匣 - 内网</title>
+<title>内网客户端 - Shade 壹匣</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/assets/theme.css">
 <style>
-  /* ===== 内网客户端下载页 · 政企蓝白（白卡 12px 圆角轻影，一次编排式上浮入场） ===== */
+  /* ===== 内网客户端页 · 政企蓝白（白卡 12px 圆角轻影，一次编排式上浮入场） ===== */
   .page { flex: 1; width: 100%; max-width: 880px; margin: 0 auto; padding: 40px 20px 60px; }
 
   /* 页首：Logo + 名称 + 简介 */
@@ -18,15 +19,8 @@
   .hero h1 { font-size: 21px; font-weight: 700; letter-spacing: 1px; color: var(--navy); }
   .hero .sub { margin-top: 3px; font-size: 12.5px; color: var(--ph); letter-spacing: .5px; }
 
-  /* 版本卡：版本徽标 + 发布时间 + 更新说明 */
-  .ver-card { margin-top: 22px; padding: 22px 26px; animation: riseIn .55s var(--ease) .14s both; }
-  .ver-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-  .ver-no { font-size: 20px; font-weight: 700; color: var(--orange); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
-  .ver-time { font-size: 12px; color: var(--ph); letter-spacing: .5px; }
-  .ver-notes { margin-top: 10px; font-size: 13px; color: var(--sub); line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
-
-  /* 平台分组下载卡 */
-  .plat-title { margin: 26px 2px 12px; font-size: 15px; font-weight: 600; color: var(--navy); letter-spacing: .5px; animation: riseIn .5s var(--ease) .22s both; }
+  /* 下载入口卡 */
+  .dl-title { margin: 26px 2px 12px; font-size: 15px; font-weight: 600; color: var(--navy); letter-spacing: .5px; animation: riseIn .5s var(--ease) .22s both; }
   .dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
   .dl-card { display: flex; align-items: center; gap: 13px; padding: 16px 18px; color: inherit; animation: riseIn .55s var(--ease) .3s backwards; }
   .dl-card:hover { box-shadow: var(--shadow-hover); }
@@ -34,18 +28,16 @@
   .dl-ic svg { width: 20px; height: 20px; }
   .dl-tx { flex: 1; min-width: 0; }
   .dl-name { display: block; font-size: 13.5px; font-weight: 600; color: var(--navy); letter-spacing: .3px; }
-  .dl-meta { display: block; margin-top: 3px; font-size: 11.5px; color: var(--ph); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dl-meta { display: block; margin-top: 3px; font-size: 11.5px; color: var(--ph); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dl-go { flex: none; color: var(--orange); display: flex; align-items: center; }
   .dl-go svg { width: 18px; height: 18px; }
 
-  /* 安装说明 */
+  /* 说明卡：取件命令 + 安装说明（浅底左色条信息块一族，直角） */
   .help-card { margin-top: 26px; padding: 20px 26px; animation: riseIn .55s var(--ease) .4s both; }
   .help-card h3 { font-size: 14px; font-weight: 600; color: var(--navy); letter-spacing: .5px; }
   .help-card ul { margin: 10px 0 0; padding-left: 1.2em; font-size: 12.5px; color: var(--sub); line-height: 2; }
-  .help-card code { font-family: Menlo, Consolas, monospace; font-size: .92em; color: var(--orange); background: var(--fill); padding: 1px 5px; border-radius: 4px; }
-
-  /* 空态 / 加载态 */
-  .empty-box { margin-top: 22px; padding: 40px 26px; text-align: center; font-size: 13px; color: var(--ph); letter-spacing: .5px; animation: riseIn .55s var(--ease) .14s both; }
+  .help-card code, .cmdline { font-family: Menlo, Consolas, monospace; font-size: .92em; color: var(--orange); background: var(--fill); padding: 1px 5px; border-radius: 4px; }
+  .cmd-block { margin-top: 10px; padding: 12px 14px; background: var(--fill); font-family: Menlo, Consolas, monospace; font-size: 12px; line-height: 1.9; color: var(--sub); overflow-x: auto; white-space: pre; }
 
   @keyframes riseIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
@@ -57,10 +49,22 @@
     <span class="logo-mark"><img src="/toolkit.svg" alt="Shade 壹匣" style="width:100%;height:100%"></span>
     <div>
       <h1>Shade 壹匣 - 内网</h1>
-      <div class="sub">内网工具箱桌面端（每日派车单同步 / 派车单·轨迹导出 / 题库搜题），GitHub 发版后自动同步至此</div>
+      <div class="sub">内网工具箱桌面端（每日派车单同步 / 派车单·轨迹导出 / 题库搜题），安装包托管于 CNB 制品库</div>
     </div>
   </div>
-  <div id="content"><div class="card empty-box">加载中…</div></div>
+  <div id="content"><div class="card empty-box" style="margin-top:22px;padding:40px 26px;text-align:center;font-size:13px;color:var(--ph)">加载中…</div></div>
+
+  <section class="card help-card">
+    <h3>取件方式（Docker 产物镜像）</h3>
+    <ul>
+      <li>产物镜像地址：<code>docker.cnb.cool/j1net/j1toolkit/j1toolkit-private:&lt;版本号&gt;</code>（如 <code>:2.5.9</code>，最新版本号见 CNB 制品页）。</li>
+      <li>镜像内 <code>/artifacts/</code> 含 6 个安装包：Windows 安装包（Setup exe）/ 绿色包（zip）、麒麟 amd64 / arm64 的 deb 与 tar.gz。</li>
+      <li>取件命令（需先 <code>docker login docker.cnb.cool</code>）：</li>
+    </ul>
+    <div class="cmd-block">docker create --name tmp docker.cnb.cool/j1net/j1toolkit/j1toolkit-private:&lt;版本号&gt;
+docker cp tmp:/artifacts/ ./uvmp-installers
+docker rm tmp</div>
+  </section>
 
   <section class="card help-card">
     <h3>安装说明</h3>
@@ -68,7 +72,7 @@
       <li><b>Windows 10+</b>：下载「安装包（exe）」双击安装（免管理员）；绿色包（zip）解压即用。</li>
       <li><b>银河麒麟 V10 SP1</b>：下载对应架构（amd64 / arm64）的 deb，执行 <code>sudo apt install ./uvmp-toolkit_*.deb</code>。</li>
       <li>安装后打开客户端，在「设置」页填写 SSO 凭据，再到「每日派车单同步」页启用定时。</li>
-      <li>标题栏可查看当前版本号；与本页版本不一致时重新下载安装即可（配置保留）。</li>
+      <li>访问 CNB 制品库需登录有私有仓权限的 CNB 账号；无账号时也可从 GitHub 私有仓 Release 下载（同样需要账号权限）。</li>
     </ul>
   </section>
 </main>
@@ -76,65 +80,40 @@
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
 <script>
-  // 资产文件名 → 平台分组与展示名（产物命名见私有仓 uvmp-toolkit/desktop/electron-builder.yml）
-  function classify(file) {
-    if (/Setup-[\d.]+\.exe$/i.test(file)) return { plat: 'Windows', name: 'Windows 安装包', hint: '推荐 · 双击安装', order: 1 };
-    if (/win-portable\.zip$/i.test(file)) return { plat: 'Windows', name: 'Windows 绿色包', hint: '解压即用', order: 2 };
-    if (/_amd64\.deb$/i.test(file)) return { plat: 'kylin', name: '麒麟 deb（amd64）', hint: '银河麒麟 V10 SP1 x86 机型', order: 3 };
-    if (/_arm64\.deb$/i.test(file)) return { plat: 'kylin', name: '麒麟 deb（arm64）', hint: '银河麒麟 V10 SP1 ARM 机型', order: 4 };
-    if (/-(amd64|x64)\.tar\.gz$/i.test(file)) return { plat: 'kylin', name: '麒麟绿色包（amd64）', hint: '解压即用', order: 5 };
-    if (/-arm64\.tar\.gz$/i.test(file)) return { plat: 'kylin', name: '麒麟绿色包（arm64）', hint: '解压即用', order: 6 };
-    return { plat: 'other', name: file, hint: '', order: 9 };
-  }
-  function fmtSize(bytes) {
-    var mb = bytes / 1024 / 1024;
-    return (mb >= 100 ? Math.round(mb) : mb.toFixed(1)) + ' MB';
-  }
-  function fmtTime(iso) {
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    var p = function (n) { return String(n).padStart(2, '0'); };
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  Shade.requireAuth();
+  Shade.topbar({ active: 'client' });
+  Shade.reveal();
+
+  var LINKS = [
+    { name: 'CNB 制品库（Docker 产物镜像）', hint: '最新版本号与下载 · 推荐', href: 'https://cnb.cool/j1net/j1toolkit/j1toolkit-private/-/packages', icon: 'download' },
+    { name: 'GitHub Release（备用）', hint: '同一份安装包的浏览器直链下载', href: 'https://github.com/zhangzhenyu91/j1toolkit-private/releases', icon: 'monitor' },
+  ];
+
+  function renderGranted() {
+    var html = '<div class="dl-title">安装包下载</div><div class="dl-grid">'
+      + LINKS.map(function (l) {
+          return '<a class="card dl-card" href="' + l.href + '" target="_blank" rel="noopener">'
+            + '<span class="dl-ic">' + Shade.icon(l.icon, 20) + '</span>'
+            + '<span class="dl-tx"><span class="dl-name">' + Shade.esc(l.name) + '</span>'
+            + '<span class="dl-meta">' + Shade.esc(l.hint) + '</span></span>'
+            + '<span class="dl-go">' + Shade.icon('download', 18) + '</span>'
+            + '</a>';
+        }).join('')
+      + '</div>';
+    document.getElementById('content').innerHTML = html;
   }
 
-  fetch('/api/v1/client/latest')
-    .then(function (r) { return r.json(); })
-    .then(function (resp) {
-      var box = document.getElementById('content');
-      var d = resp && resp.data;
-      if (!d || !d.available) {
-        box.innerHTML = '<div class="card empty-box">暂未发布客户端版本，请稍后再来。</div>';
-        return;
-      }
-      var assets = (d.assets || []).slice().sort(function (a, b) {
-        return classify(a.file).order - classify(b.file).order;
-      });
-      var groups = [['Windows', 'Windows 10 及以上'], ['kylin', '银河麒麟 V10 SP1（Linux）']];
-      var html = '<section class="card ver-card">'
-        + '<div class="ver-row"><span class="ver-no">v' + Shade.esc(d.version) + '</span>'
-        + '<span class="ver-time">发布于 ' + fmtTime(d.publishedAt) + '</span></div>'
-        + (d.notes ? '<div class="ver-notes">' + Shade.esc(d.notes) + '</div>' : '')
-        + '</section>';
-      groups.forEach(function (g) {
-        var list = assets.filter(function (a) { return classify(a.file).plat === g[0]; });
-        if (!list.length) return;
-        html += '<div class="plat-title">' + g[1] + '</div><div class="dl-grid">'
-          + list.map(function (a) {
-              var c = classify(a.file);
-              return '<a class="card dl-card" href="/api/v1/client/download/' + encodeURIComponent(a.file) + '">'
-                + '<span class="dl-ic">' + Shade.icon('monitor', 20) + '</span>'
-                + '<span class="dl-tx"><span class="dl-name">' + Shade.esc(c.name) + '</span>'
-                + '<span class="dl-meta">' + fmtSize(a.size) + (c.hint ? ' · ' + Shade.esc(c.hint) : '') + '</span></span>'
-                + '<span class="dl-go">' + Shade.icon('download', 18) + '</span>'
-                + '</a>';
-            }).join('')
-          + '</div>';
-      });
-      box.innerHTML = html;
+  // 内部应用门控：登录态之上再校验 client 应用权限（无权限直开链接时拦截）
+  Shade.api('/api/v1/app/list')
+    .then(function (r) {
+      var granted = ((r && r.data && r.data.list) || []).some(function (a) { return a.app_key === 'client'; });
+      if (granted) return renderGranted();
+      document.getElementById('content').innerHTML =
+        '<div class="card" style="margin-top:22px;padding:40px 26px;text-align:center;font-size:13px;color:var(--ph)">暂无「内网客户端」应用权限，请联系管理员开通。</div>';
     })
     .catch(function () {
       document.getElementById('content').innerHTML =
-        '<div class="card empty-box">加载失败，请刷新重试。</div>';
+        '<div class="card" style="margin-top:22px;padding:40px 26px;text-align:center;font-size:13px;color:var(--ph)">加载失败，请刷新重试。</div>';
     });
 </script>
 </body>

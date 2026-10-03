@@ -77,8 +77,6 @@ if (config.quiz.enabled) {
 if (config.sgcc.enabled) {
   app.use('/api/v1/sgcc', require('./sgccclockin'));
 }
-// 内网客户端发布：无条件挂载（发布接口校验 CLIENT_PUBLISH_TOKEN，latest/download 公开）
-app.use('/api/v1/client', require('./clientrel'));
 
 // 404 与统一错误处理
 app.use((req, res) => fail(res, 404, 40404, '接口不存在'));

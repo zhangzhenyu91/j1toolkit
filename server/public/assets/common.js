@@ -240,6 +240,7 @@
     'work-log': { key: 'worklog', href: '/worklog.html' },
     'safe-day': { key: 'safeday', href: '/safeday.html' },
     'kvm': { key: 'kvm', href: '/kvm.html' },
+    'client': { key: 'client', href: '/client.html' },
   };
   function cachedApps() {
     try { return JSON.parse(localStorage.getItem(APPS_KEY) || 'null'); } catch (e) { return null; }

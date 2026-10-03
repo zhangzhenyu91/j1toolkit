@@ -112,6 +112,16 @@ const APP_WM_ADD = {
   terminal: 'mobile',
 };
 
+// 「内网客户端」：仅网页端内部应用（client.html 直贴 CNB 制品库链接取安装包；安装包不再托管本站）
+const APP_CLIENT = {
+  key: 'client',
+  name: '内网客户端',
+  icon: 'download',
+  path: '',
+  sort: 7,
+  terminal: 'pc',
+};
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -229,7 +239,7 @@ async function ensureSchema() {
   }
 
   // 写入/更新应用记录（terminal 随种子刷新）
-  for (const app of [APP_CALL_ME, APP_SAFE_DAY, APP_KVM, APP_FILE_TRANSFER, APP_WM_ADD]) {
+  for (const app of [APP_CALL_ME, APP_SAFE_DAY, APP_KVM, APP_FILE_TRANSFER, APP_WM_ADD, APP_CLIENT]) {
     await pool.query(
       `INSERT INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES (?, ?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path),
@@ -288,6 +298,12 @@ async function ensureSchema() {
   await pool.query(
     'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
     [adminId, APP_WM_ADD.key]
+  );
+
+  // 管理员默认授予 内网客户端 权限
+  await pool.query(
+    'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
+    [adminId, APP_CLIENT.key]
   );
 
   // 出工日志：WORKLOG_ENABLED=true 时建表并写入应用/成员种子
