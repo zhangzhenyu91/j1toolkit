@@ -6,7 +6,7 @@ function getFileExt(name) {
   return idx === -1 ? '' : String(name).slice(idx + 1).toLowerCase();
 }
 
-// multer 1.x 默认按 latin1 解析文件名，中文名需转回 UTF-8
+// multer 默认按 latin1 解析文件名（1.x/2.x 同），中文名需转回 UTF-8
 function fixLatin1Name(name) {
   return Buffer.from(String(name || ''), 'latin1').toString('utf8');
 }
