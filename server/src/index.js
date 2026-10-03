@@ -1,5 +1,5 @@
 // Shade 壹匣后端入口（班组数字化工具平台：后端 API + 网页端同端口托管）
-// 部署：上传至云服务器 Node.js Docker 环境，以 npm run start 启动（见 server/.env.example）
+// 部署：阿里云 ACR 按仓根 Dockerfile 自动构建镜像，云服务器以容器运行（数据卷挂 /app/server/data，配置全走环境变量，见 README「后端部署」）
 // 反代约定：toolkit.j1net.com → 127.0.0.1:PORT 单端口，网页与 API 同端口
 const path = require('path');
 const express = require('express');

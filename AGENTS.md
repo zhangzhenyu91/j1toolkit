@@ -17,10 +17,11 @@
 ## 二、协作与部署规则（最高优先级）
 
 1. **只写文件，不做部署**：职责是在本地工作目录编写/修改文件。不执行部署、不上传服务器、不主动连接任何云端资源（MySQL / Redis / COS / WeKnora / Dify 只在代码中按 env 读取对接，不实际访问）。
-2. **交付即可运行**：后端代码由用户上传至云服务器 Node.js Docker 环境，以 `npm run start` 启动。因此必须保证：
-   - `package.json` 包含 `"start"` 脚本（如 `node src/index.js`）；
-   - 全部依赖写入 `package.json` 的 `dependencies` 并维护 `package-lock.json`，不得依赖全局安装或本地未声明的包；
+2. **交付即可运行（Docker 镜像化部署）**：后端以阿里云 ACR「代码变更自动构建」产出镜像（构建上下文为仓根、仓根 `Dockerfile` + `.dockerignore`，推 tag `release-vX.Y.Z` 触发构建镜像 `:X.Y.Z`），云服务器以容器运行（数据卷挂 `/app/server/data`，配置全走环境变量）。因此必须保证：
+   - `package.json` 包含 `"start"` 脚本（`node src/index.js`，与镜像 CMD 同口径）与 `"dev"` 脚本（`node --watch src/index.js`，本机开发热重启）；
+   - 全部依赖写入 `package.json` 的 `dependencies` 并维护 `package-lock.json`（镜像内 `npm ci --omit=dev` 严格按 lockfile 安装），不得依赖全局安装或本地未声明的包；
    - 服务监听 `0.0.0.0`，端口从 env 读取（`PORT`，默认 `3000`）；单端口同时托管网页端（`server/public/`）与 `/api/v1`，用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，无路径前缀配置（旧 `PROXY_PREFIX` 已废弃删除）；
+   - 系统级依赖（如 LibreOffice，安全日非 PDF 附件转 PDF 用）必须装进仓根 `Dockerfile` 并在文档注明；可写数据只写 `server/data/`（容器内 `/app/server/data`，挂卷持久化），不入仓不进镜像；
    - 避免需要编译原生模块的依赖，确有必要时在文档中注明。
 3. **配置与密钥**：所有环境相关配置一律从 env 读取，不硬编码、不入仓；只维护 `.env.example`，绝不创建真实 `.env` 或写入任何真实密钥。
 4. **不擅自做 git 操作**：`git commit` / `push` / `reset` 等需用户明确指示。
@@ -30,7 +31,7 @@
 | 层 | 选型 |
 |----|------|
 | 前端 | 微信小程序原生 + tdesign-miniprogram 组件库；网页端原生 HTML/JS（`server/public/`，同一套 token） |
-| 后端 | Node.js（云服务器 Docker 运行，`npm run start` 启动） |
+| 后端 | Node.js（云服务器 Docker 容器运行：阿里云 ACR 按仓根 `Dockerfile` 自动构建镜像；本机开发 `npm run dev`） |
 | 存储 | MySQL（业务数据）/ Redis（会话、缓存）/ 腾讯云 COS（文件） |
 | 鉴权 | JWT + Redis（详见 `开发指南.md` 第二章） |
 
@@ -71,7 +72,7 @@
 - `private/` —— 私有配套仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private) 的 submodule 挂载点（`git submodule update --init` 拉取）：`private/uvmp-toolkit/` 内网工具箱客户端（Electron+Vue 壳 + Python 核心，装在内网被控机；UI 与本体同套「政企蓝白」token）、`private/esgcc/` 待开发应用素材与商旅打卡逆向分析仓 `sgcc/`（交接文档/API 报告/抓包/tools；`base.apk` 107MB 不入仓本地留存）、`private/WorkLogs/` 旧独立服务历史数据归档（代码已整合进主服务，仅存数据）
 - `design/` —— UI 设计稿：现行定稿「政企蓝白」（4 份基准稿 `小程序-首页.html` / `小程序-出工日志.html` / `Web-首页.html` / `Web-出工日志.html` + `设计规范.md` + `index.html` 展厅总览）；另存分享图生成工具链（`make_share_images.py` / `font/t.ttf` / `share-bg-preview.png`）；旧定稿已全部移除
 - `manual/` —— 面向最终用户的使用指南（当前不在仓内；历史版截图含真实班组信息，已随公开化清理归档至私有仓 `_archive/manual/`——日后重建指南时截图须脱敏）
-- 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）
+- 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）+ 镜像构建文件（Dockerfile / .dockerignore，阿里云 ACR 自动构建用，仅打包 `server/`）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
 
 新应用接入 = 小程序分包页面 + 后端 `sys_app` 表配置（详见 `开发指南.md` 第五章；网页端页面接入见 `开发指南.md` 第十一节）。

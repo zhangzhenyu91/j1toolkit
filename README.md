@@ -35,7 +35,7 @@
 | 层 | 选型 |
 |----|------|
 | 前端 | 微信小程序原生 + tdesign-miniprogram（「政企蓝白」定制主题）；网页端原生 HTML/JS（同源 token） |
-| 后端 | Node.js + Express（云服务器 Docker，`npm run start` 启动；单端口同时托管网页端与 `/api/v1`） |
+| 后端 | Node.js + Express（云服务器以 Docker 容器运行：阿里云 ACR 按仓根 `Dockerfile` 自动构建镜像；单端口同时托管网页端与 `/api/v1`） |
 | 存储 | MySQL（业务数据）/ Redis（JWT 黑名单、会话）/ 腾讯云 COS（文件/照片） |
 | 鉴权 | JWT + Redis，客户端 `Authorization: Bearer <token>` 携带（网页端 token 存 localStorage） |
 | 外部服务 | WeKnora 知识库（Call Me）、Dify 工作流（出工日志照片验证、安全日活动记录生成、题库 AI 解析）、GLKVM Cloud（远程连接计算机/文件传输）、高德地图 Web 服务（出工日志/水印添加/商旅打卡地点天气）、商旅平台中继（商旅打卡） |
@@ -63,18 +63,25 @@ design/        UI 设计稿（定稿「政企蓝白 Enterprise Blue」：小程�
 private/       私有配套仓 j1toolkit-private（git submodule，需有权限账号 `git submodule update --init`）：uvmp-toolkit 内网工具箱客户端 / esgcc 商旅逆向分析仓与巡视素材 / WorkLogs 旧服务历史数据
 ```
 
-## 后端部署（云服务器 Docker）
+## 后端部署（云服务器 Docker 容器）
 
-1. 上传 `server/` 目录至云服务器；
-2. 配置环境变量：`cp .env.example .env`，按实际填写（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 `WORKLOG_ENABLED=true` + COS + Dify 配置；安全日活动记录需 `SAFEDAY_ENABLED=true` + `DIFY_SAFEDAY_API_KEY`；题库刷题需 `QUIZ_ENABLED=true` + `DIFY_QUIZ_API_KEY`）；
-3. 安装依赖并启动：
+镜像由阿里云容器镜像服务（ACR）「代码变更自动构建」产出：仓库已绑定 GitHub，构建规则 `tags: release-v$version`（上下文 `/`、仓根 `Dockerfile`）。发版即打 tag：
 
 ```bash
-npm install   # 或 npm ci（按 package-lock.json 精确安装）
-npm run start # 监听 0.0.0.0:$PORT（默认 3000）
+git tag release-v1.0.0 && git push origin release-v1.0.0   # ACR 自动构建镜像 :1.0.0
 ```
 
-4. 验证：`curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常。
+服务器（1Panel → 容器）创建容器运行：
+
+- 镜像：`registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit:1.0.0`
+- 端口映射：宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）
+- 环境变量：按 `.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 `WORKLOG_ENABLED=true` + COS + Dify 配置；安全日活动记录需 `SAFEDAY_ENABLED=true` + `DIFY_SAFEDAY_API_KEY`；题库刷题需 `QUIZ_ENABLED=true` + `DIFY_QUIZ_API_KEY`）
+- 数据卷：宿主目录（如 `/opt/j1toolkit/data`）→ `/app/server/data`（安全日记录、内网客户端安装包等持久化数据；首次迁移需把旧部署 `server/data/` 拷入）
+- 重启策略：always
+
+镜像已内置 LibreOffice（安全日非 PDF 附件转 PDF 合并用）与中文字体；验证：`docker exec <容器> curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常（Dockerfile 已配 HEALTHCHECK，1Panel 容器列表亦可直看健康状态）。升级 = 打新 tag → 等构建完成 → 1Panel 改镜像版本重建容器。
+
+**本机开发（不用镜像）**：`cd server` → 首次 `npm install` 并备好 `.env` → `npm run dev`（`node --watch` 改代码自动重启），浏览器访问 `http://127.0.0.1:3000/login.html` 测页面；前提为本机可连 `.env` 所指的 MySQL/Redis。
 
 **网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html`，管理员另有 `admin.html`（员工与权限管理）。
 
@@ -117,7 +124,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SAFEDAY_DEFAULT_SUPERIOR` | 安全日活动记录默认上级参加人员（可选；留空则由用户手填） |
 | `DIFY_SAFEDAY_API_KEY` | 安全日记录生成工作流的 Dify API Key（与出工日志工作流共用 `DIFY_API_URL`） |
 | `SAFEDAY_CALLBACK_TOKEN` | Dify 回调 token（可选；配置后回调接口须带 `?token=` 校验，留空则不校验） |
-| `SAFEDAY_SOFFICE_PATH` | LibreOffice soffice 路径（可选，默认 `soffice`；安全日多文件含非 PDF 时后端转 PDF 合并依赖它，Docker 镜像须安装 LibreOffice，如 `apt-get install -y libreoffice`） |
+| `SAFEDAY_SOFFICE_PATH` | LibreOffice soffice 路径（可选，默认 `soffice`；安全日多文件含非 PDF 时后端转 PDF 合并依赖它，仓根 Dockerfile 构建的镜像已内置 LibreOffice） |
 | `BASEMETAS_URL` | basemetas 文件预览服务地址（可选，如 `https://cloud.j1net.com/view`；配置后安全日记录可点击预览） |
 | `KVM_ENABLED` | 远程连接计算机后端开关：`true` 开启（挂载 `/api/v1/kvm`），`false` 关闭 |
 | `GLKVM_URL` / `GLKVM_PASSWORD` | GLKVM Cloud 平台地址与员工平台账号统一密码（以员工同名账号代登平台取设备列表；详见 开发指南.md 第十二节） |
