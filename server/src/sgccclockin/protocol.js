@@ -8,7 +8,7 @@
 //   图形验证码（validcodeimg）对云服务器 IP 间歇可用（风控窗口期返 99000，平峰正常），
 //   故做双通道：图形码优先（体验好、无需 web-view），99000/失败自动降级顶象滑块接力：
 //   captchaToken（滑块成功凭据）+ constId（顶象设备指纹）由前端滑块页
-//   （server/public/sgcc-captcha.html，appId 取自当日抓包）采集后随登录接口上送。
+//   （server/public/sgcc-captcha.html，appId 走 env SGCC_DX_APPID 伺服时注入）采集后随登录接口上送。
 const crypto = require('crypto');
 const https = require('https');
 const net = require('net');
@@ -176,7 +176,7 @@ async function initSession() {
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const key = genAESKey();
   const body = JSON.stringify({
-    data: aesEncrypt(JSON.stringify({ adClientId: 'android', adSecret: '2u9tdiPtM7dUzekPqMc6Yyo85WUhpial', _r: r }), key),
+    data: aesEncrypt(JSON.stringify({ adClientId: 'android', adSecret: need('SGCC_AD_SECRET', config.sgcc.adSecret), _r: r }), key),
     sign: sm2Encrypt(key),
   });
   const uniID = makeJwt('tenant');
@@ -233,7 +233,7 @@ async function callJsonm(path, plainObj) {
 let JWT_POOL_X = [];
 let JWT_POOL_X_AT = 0; // 上次拉池时间（ms）：池未耗尽也会过期，超 25min 强制重拉
 async function initSessionX() {
-  const r = await callJsonx('ads', { adClientId: 'android', adSecret: '2u9tdiPtM7dUzekPqMc6Yyo85WUhpial' }, { tenant: 'slapp', noPool: true });
+  const r = await callJsonx('ads', { adClientId: 'android', adSecret: need('SGCC_AD_SECRET', config.sgcc.adSecret) }, { tenant: 'slapp', noPool: true });
   const list = r.decoded && r.decoded.data && r.decoded.data.list;
   if (r.status === 200 && Array.isArray(list) && list.length) {
     JWT_POOL_X = list.slice();

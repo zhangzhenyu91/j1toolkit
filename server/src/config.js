@@ -129,6 +129,8 @@ const config = {
     rsaPriv: str('SGCC_RSA_PRIV'),           // jsonx default 通道响应解密私钥
     dcuPub: str('SGCC_DCU_PUB'),             // jsonx slapp 通道请求加密公钥（res/dCu.pem 内容）
     wlaPriv: str('SGCC_WLA_PRIV'),           // jsonx slapp 通道响应解密私钥（res/wLA.pem 内容）
+    adSecret: str('SGCC_AD_SECRET'),         // /api/ads 拉池密钥（App 内嵌客户端常量）
+    dxAppId: str('SGCC_DX_APPID'),           // 顶象滑块 appId（绑定滑块页 sgcc-captcha.html 伺服时注入）
     // 商旅 App 版本号（请求头 version；App 升级后优先只改此项验证是否仍通）
     version: str('SGCC_VERSION', '3.3.6'),
     // 商旅 App 构建号（请求头 version-code，3.3.6 实测值 202609101630；App 升级随 SGCC_VERSION 一并更新）

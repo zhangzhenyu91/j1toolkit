@@ -2,6 +2,7 @@
 // 部署：阿里云 ACR 按仓根 Dockerfile 自动构建镜像，云服务器以容器运行（数据卷挂 /app/server/data，配置全走环境变量，见 README「后端部署」）
 // 反代约定：toolkit.j1net.com → 127.0.0.1:PORT 单端口，网页与 API 同端口
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const config = require('./config');
 
@@ -34,6 +35,15 @@ app.use((req, res, next) => {
 
 // 健康检查（供 Docker/负载探活）
 app.get('/healthz', (req, res) => ok(res, { status: 'up' }));
+
+// sgcc-captcha.html：顶象 appId 走 env（SGCC_DX_APPID）伺服时注入，密钥不落公开仓（页内为占位符）
+let sgccCaptchaHtml;
+app.get('/sgcc-captcha.html', (req, res) => {
+  if (!sgccCaptchaHtml) {
+    sgccCaptchaHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'sgcc-captcha.html'), 'utf8');
+  }
+  res.type('html').send(sgccCaptchaHtml.replaceAll('__SGCC_DX_APPID__', config.sgcc.dxAppId || ''));
+});
 
 // 网页端静态资源（server/public）：/ 直接出 index.html，网页与 API 同端口
 app.use(express.static(path.join(__dirname, '..', 'public')));
