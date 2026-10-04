@@ -66,7 +66,9 @@ jobs:
         run: |
           # 单 name 按 digest 推 ACR；CNB 侧由 manifest 阶段 imagetools 跨仓库复制
           # （--output 的 name 不支持逗号多值，"name=a,b" 会被 CSV 解析器拆坏——已踩坑）
-          docker buildx build --platform ${{ matrix.platform }} \
+          # --provenance=false：buildx 默认附加 SLSA 溯源证明（OCI empty config 清单），
+          # ACR 不认该 manifest class 拒收（unknown manifest class ... oci.empty.v1）——已踩坑
+          docker buildx build --platform ${{ matrix.platform }} --provenance=false \
             --output type=image,name=${ACR_IMAGE},push-by-digest=true,name-canonical=true,push=true \
             --metadata-file /tmp/meta.json .
           jq -r '."containerimage.digest"' /tmp/meta.json > "digest-${{ matrix.suffix }}.txt"
