@@ -30,7 +30,9 @@ env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
   CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-private
   GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
-  # TCR_IMAGE 放 Variable 或 Secret 均可（双源回退）
+  # Docker Hub：GitHub 构建机同在美国，推送快（服务端镜像的 GitHub 侧落点；国内正线 TCR 由 CNB 构建推送，见 .cnb.yml）
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  # TCR_IMAGE 放 Variable 或 Secret 均可（双源回退；本工作流仅用于 Release 说明文案，TCR 推送在 CNB 侧）
   TCR_IMAGE: ${{ vars.TCR_IMAGE || secrets.TCR_IMAGE }}
 
 jobs:
@@ -66,32 +68,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: 登录镜像仓库（TCR + CNB）
+      - name: 登录 Docker Hub
         env:
-          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
-          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
-          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          # 空值直接报错退出——docker login "" 会污染默认 docker.io 凭证导致后续构建诡异性失败
-          [ -n "$TCR_IMAGE" ] && [ -n "$TCR_USERNAME" ] && [ -n "$TCR_PASSWORD" ] \
-            || { echo "::error::TCR_IMAGE / TCR_USERNAME / TCR_PASSWORD 未配置完整"; exit 1; }
-          # 凭证粘贴带入的空格/换行会破坏镜像引用解析，统一剔除（本 job 后续步骤生效）
-          echo "TCR_IMAGE=$(printf '%s' "$TCR_IMAGE" | tr -d '[:space:]')" >> "$GITHUB_ENV"
-          echo "TCR_USERNAME=$(printf '%s' "$TCR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
-          echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
-          echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
-      - name: 原生构建并按 digest 推 TCR（${{ matrix.platform }}）
+          [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ] \
+            || { echo "::error::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN 未配置"; exit 1; }
+          echo "DOCKERHUB_USERNAME=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "${DOCKERHUB_TOKEN}" | docker login docker.io -u "${DOCKERHUB_USERNAME}" --password-stdin
+      - name: 原生构建并按 digest 推 Docker Hub（${{ matrix.platform }}）
         run: |
-          # 单 output 推 TCR；CNB 由 manifest 阶段 imagetools 跨仓复制。
-          # 曾试双 --output 同推 TCR+CNB：amd64 job 在 CNB 上传侧卡死 4h+（跨境链路）——已踩坑，勿回退
+          # 推 Docker Hub（GitHub 构建机同在美国，快）；国内正线 TCR/CNB 由 CNB 侧构建推送（见 .cnb.yml）
           # --provenance=false：buildx 默认附加 SLSA 溯源证明（OCI empty config 清单），
           # 部分仓库不认该 manifest class 拒收（unknown manifest class ... oci.empty.v1）——已踩坑
           # registry 层缓存：LibreOffice 等不变层只在首次上传，后续发版只传变化层
-          # （跨境推国内仓是发版耗时大头，北京时间晚高峰尤甚）；缓存推送失败不阻塞构建（ignore-error）
+          DH_IMAGE="docker.io/${DOCKERHUB_USERNAME}/j1toolkit"
           docker buildx build --platform ${{ matrix.platform }} --provenance=false \
-            --output type=image,name=${TCR_IMAGE},push-by-digest=true,name-canonical=true,push=true \
-            --cache-from type=registry,ref=${TCR_IMAGE}:buildcache \
-            --cache-to type=registry,ref=${TCR_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true \
+            --output type=image,name=${DH_IMAGE},push-by-digest=true,name-canonical=true,push=true \
+            --cache-from type=registry,ref=${DH_IMAGE}:buildcache \
+            --cache-to type=registry,ref=${DH_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true \
             --metadata-file /tmp/meta.json .
           jq -r '."containerimage.digest"' /tmp/meta.json > "digest-${{ matrix.suffix }}.txt"
       - name: 传递 digest
@@ -289,28 +284,22 @@ jobs:
           pattern: digest-*
           merge-multiple: true
           path: digests
-      - name: 登录镜像仓库（TCR + CNB）
+      - name: 登录 Docker Hub
         env:
-          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
-          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
-          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          echo "TCR_IMAGE=$(printf '%s' "$TCR_IMAGE" | tr -d '[:space:]')" >> "$GITHUB_ENV"
-          echo "TCR_USERNAME=$(printf '%s' "$TCR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
-          echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
-          echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
-      - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}，各自仓内合并不跨仓拷 blob）
+          echo "DOCKERHUB_USERNAME=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "${DOCKERHUB_TOKEN}" | docker login docker.io -u "${DOCKERHUB_USERNAME}" --password-stdin
+      - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}，仓内合并不拷 blob）
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          DH_IMAGE="docker.io/${DOCKERHUB_USERNAME}/j1toolkit"
           D_AMD64=$(cat digests/digest-amd64.txt)
           D_ARM64=$(cat digests/digest-arm64.txt)
-          docker buildx imagetools create -t "${TCR_IMAGE}:${VERSION}" \
-            "${TCR_IMAGE}@${D_AMD64}" "${TCR_IMAGE}@${D_ARM64}"
-          # imagetools create 支持跨仓库复制：从 TCR 源清单拷到 CNB（blob 经构建机中转，跨境较慢但稳——
-          # 比构建期双 output 直推 CNB 可靠，后者实测 amd64 上传卡死）
-          docker buildx imagetools create -t "${CNB_IMAGE}:${VERSION}" \
-            "${TCR_IMAGE}@${D_AMD64}" "${TCR_IMAGE}@${D_ARM64}"
+          docker buildx imagetools create -t "${DH_IMAGE}:${VERSION}" \
+            "${DH_IMAGE}@${D_AMD64}" "${DH_IMAGE}@${D_ARM64}"
+          # 国内正线 TCR/CNB 由 CNB 侧构建推送（见 .cnb.yml），此处不跨境复制
 
   publish-images:
     needs: [prepare, client-windows, client-linux-amd64, client-linux-arm64]
@@ -380,7 +369,8 @@ jobs:
         run: |
           gh release edit "${GITHUB_REF_NAME}" --notes "$(cat <<EOF
           服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
-          腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}
+          腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}
+          Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}
           CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
 
           内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方 Assets；
@@ -410,7 +400,7 @@ jobs:
         run: |
           set -e
           API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；*.part-* 为分卷（Gitee 单附件限 100MB），下载全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
+          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；*.part-* 为分卷（Gitee 单附件限 100MB），下载全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
           # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
           curl -s -o /tmp/rel.json "${API}/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}"
           OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)

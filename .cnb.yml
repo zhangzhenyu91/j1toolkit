@@ -1,26 +1,54 @@
-# Shade 壹匣 · CNB：仅自动创建 CNB Release（挂源码包）。
+# Shade 壹匣 · CNB：tag 发版构建服务端多架构镜像（国内构建机，推 CNB 制品库 + 腾讯云 TCR 国内互传快）
+# + 自动创建 CNB Release（git:release，挂源码包）。
 #
-# 2026-10 起构建全部收口 GitHub Actions（仓根 .github/workflows/release.yml：amd64/arm64 原生
-# 双架构构建，镜像推 ACR + CNB 制品库 docker.cnb.cool/j1net/j1toolkit/j1toolkit，Release 同步
-# GitHub / Gitee 公开仓），本文件不再构建镜像，仅保留 tag → CNB Release 的自动创建。
-# tag 由 release.yml 回推到本仓（cnb.cool/j1net/j1toolkit）后触发；两条 tag 线都接。
+# 分工（2026-10 起）：GitHub Actions 全量构建（服务端 + 客户端）推 Docker Hub（美国同岸快）；
+# 本文件在 CNB 侧重建服务端镜像推国内仓（GitHub 直推国内仓跨境慢/不稳——已踩坑）；
+# 客户端（含 Windows）只在 GitHub 构建（CNB 无 Windows 节点）。
+# tag 由 GitHub Actions release.yml 回推到本仓后触发；两条 tag 线都接。
+#
+# 需在本仓「设置 → 环境变量/密钥」配置：TCR_USERNAME（腾讯云账号 UIN）、TCR_PASSWORD（TCR 个人版
+# 访问凭证密码）、TCR_IMAGE（镜像全路径 ccr.ccs.tencentyun.com/<命名空间>/j1toolkit）。
 
 v*:
   tag_push:
-    - name: 创建 Release
+    - name: 服务端镜像（版本）+ Release
+      services:
+        - docker
+      git:
+        submodules: false
       stages:
         - name: 创建 Release
           type: git:release
           options:
             name: ${CNB_BRANCH}
             description: ${CNB_TAG_MESSAGE}
+        - name: buildx build and push（CNB + TCR）
+          script: |
+            VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
+            echo "构建版本: ${VERSION}"
+            echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION} \
+              -t ${TCR_IMAGE}:${VERSION} --push .
 
 release-v*:
   tag_push:
-    - name: 创建 Release
+    - name: 服务端镜像（版本）+ Release
+      services:
+        - docker
+      git:
+        submodules: false
       stages:
         - name: 创建 Release
           type: git:release
           options:
             name: ${CNB_BRANCH}
             description: ${CNB_TAG_MESSAGE}
+        - name: buildx build and push（CNB + TCR）
+          script: |
+            VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
+            echo "构建版本: ${VERSION}"
+            echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION} \
+              -t ${TCR_IMAGE}:${VERSION} --push .

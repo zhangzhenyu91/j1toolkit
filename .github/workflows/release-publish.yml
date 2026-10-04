@@ -12,6 +12,7 @@ env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
   CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-private
   GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   TCR_IMAGE: ${{ vars.TCR_IMAGE || secrets.TCR_IMAGE }}
 
 jobs:
@@ -91,7 +92,8 @@ jobs:
         run: |
           gh release edit "${GITHUB_REF_NAME}" --notes "$(cat <<EOF
           服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
-          腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}
+          腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}
+          Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}
           CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
 
           内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方 Assets；
@@ -121,7 +123,7 @@ jobs:
         run: |
           set -e
           API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；*.part-* 为分卷（Gitee 单附件限 100MB），下载全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
+          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；*.part-* 为分卷（Gitee 单附件限 100MB），下载全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
           # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
           curl -s -o /tmp/rel.json "${API}/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}"
           OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)

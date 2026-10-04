@@ -69,7 +69,7 @@ private/       私有配套仓 j1toolkit-private（git submodule，需有权限�
 
 ## 后端部署（云服务器 Docker 容器）
 
-镜像由 GitHub Actions 发版产线（仓根 `.github/workflows/release.yml`）产出：amd64/arm64 原生双架构构建，推腾讯云 TCR 并复制到 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`），同步建 GitHub / Gitee 公开仓 / CNB 三侧 Release（Gitee Release 正文即镜像拉取命令）。发版即打 tag：
+镜像双产线：GitHub Actions 发版产线（仓根 `.github/workflows/release.yml`）构建 amd64/arm64 原生双架构推 **Docker Hub**（海外/快）；CNB（仓根 `.cnb.yml`，tag 由 Actions 回推触发）在国内重建同版镜像推 **腾讯云 TCR（国内正线）+ CNB 制品库**；并同步建 GitHub / Gitee 公开仓 / CNB 三侧 Release（Release 正文含三处拉取命令）。发版即打 tag：
 
 ```bash
 git tag release-v1.0.0 && git push origin release-v1.0.0   # Actions 构建多架构镜像 :1.0.0 并建三侧 Release
