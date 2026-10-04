@@ -318,7 +318,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-assets
-          gh release download "$GITHUB_REF_NAME" --dir dist-assets --clobber \
+          # 本 job 不 checkout，必须显式 -R 指定仓库（否则 gh 找 .git 失败——已踩坑）
+          gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
             --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
           ls -lh dist-assets
       - uses: docker/setup-buildx-action@v3   # container 驱动 builder，支持多架构 --push（纯 COPY 无需 QEMU）
@@ -360,7 +361,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-assets
-          gh release download "$GITHUB_REF_NAME" --dir dist-assets --clobber \
+          gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
             --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
       - name: 补全 GitHub Release 说明
         env:
