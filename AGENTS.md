@@ -17,7 +17,7 @@
 ## 二、协作与部署规则（最高优先级）
 
 1. **只写文件，不做部署**：职责是在本地工作目录编写/修改文件。不执行部署、不上传服务器、不主动连接任何云端资源（MySQL / Redis / COS / WeKnora / Dify 只在代码中按 env 读取对接，不实际访问）。
-2. **交付即可运行（Docker 镜像化部署）**：后端以阿里云 ACR「代码变更自动构建」产出镜像（构建上下文为仓根、仓根 `Dockerfile` + `.dockerignore`，推 tag `release-vX.Y.Z` 触发构建镜像 `:X.Y.Z`），云服务器以容器运行（数据卷挂 `/app/server/data`，配置全走环境变量）。另有 CNB 云原生构建双轨：仓根 `.cnb.yml` 于 main push / tag push 自动构建多架构镜像（linux/amd64+arm64，tag 随版本号不发 latest）推 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`）；私有仓客户端不在 CNB 构建（CNB 无 Windows 节点，wine 跨构建已试验放弃，待 CNB 后续支持再评估），tag 发版时由 GitHub Actions `publish-cnb` job 回传产物镜像推 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit-private`）。因此必须保证：
+2. **交付即可运行（Docker 镜像化部署）**：构建收口 GitHub Actions——仓根 `.github/workflows/release.yml` 于 `release-vX.Y.Z` / `v*` tag 触发，amd64（`ubuntu-latest`）+ arm64（`ubuntu-24.04-arm` 原生构建机）分架构原生构建仓根 `Dockerfile`（构建上下文为仓根，配 `.dockerignore`），合并多架构 manifest `:X.Y.Z` 同推阿里云 ACR 与 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`），并建 GitHub / Gitee 公开仓 / CNB 三侧 Release（Gitee Release 正文为镜像拉取命令；CNB Release 由 `.cnb.yml` 的 `git:release` 接力，`.cnb.yml` 不再构建镜像）；main 推送由 `.github/workflows/mirror.yml` 主动同步到 Gitee / CNB（Gitee「仓库镜像」功能已弃用取消）。云服务器以容器运行（数据卷挂 `/app/server/data`，配置全走环境变量）。私有仓客户端保持 GitHub Actions 构建（Gitee Go / CNB 均无 Windows 节点，wine 跨构建已试验放弃），tag 发版时 `publish-cnb` job 回传产物镜像推 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit-private`）、`publish-public` job 将 6 件安装包聚合到公开仓 Release（GitHub 与 Gitee 的 `j1net/j1toolkit`，锚点 tag `client-vX.Y.Z`；Gitee 侧单附件限 100MB 自动分卷、单仓附件总量 1GB 仅留最新一份）。因此必须保证：
    - `package.json` 包含 `"start"` 脚本（`node src/index.js`，与镜像 CMD 同口径）与 `"dev"` 脚本（`node --watch src/index.js`，本机开发热重启）；
    - 全部依赖写入 `package.json` 的 `dependencies` 并维护 `package-lock.json`（镜像内 `npm ci --omit=dev` 严格按 lockfile 安装），不得依赖全局安装或本地未声明的包；
    - 服务监听 `0.0.0.0`，端口从 env 读取（`PORT`，默认 `3000`）；单端口同时托管网页端（`server/public/`）与 `/api/v1`，用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，无路径前缀配置（旧 `PROXY_PREFIX` 已废弃删除）；
@@ -32,7 +32,7 @@
 | 层 | 选型 |
 |----|------|
 | 前端 | 微信小程序原生 + tdesign-miniprogram 组件库；网页端原生 HTML/JS（`server/public/`，同一套 token） |
-| 后端 | Node.js（云服务器 Docker 容器运行：阿里云 ACR 按仓根 `Dockerfile` 自动构建镜像；本机开发 `npm run dev`） |
+| 后端 | Node.js（云服务器 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建多架构镜像，同推 ACR 与 CNB 制品库；本机开发 `npm run dev`） |
 | 存储 | MySQL（业务数据）/ Redis（会话、缓存）/ 腾讯云 COS（文件） |
 | 鉴权 | JWT + Redis（详见 `开发指南.md` 第二章） |
 
@@ -73,7 +73,7 @@
 - `private/` —— 私有配套仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private) 的 submodule 挂载点（`git submodule update --init` 拉取）：`private/uvmp-toolkit/` 内网工具箱客户端（Electron+Vue 壳 + Python 核心，装在内网被控机；UI 与本体同套「政企蓝白」token）、`private/esgcc/` 待开发应用素材与商旅打卡逆向分析仓 `sgcc/`（交接文档/API 报告/抓包/tools；`base.apk` 107MB 不入仓本地留存）、`private/WorkLogs/` 旧独立服务历史数据归档（代码已整合进主服务，仅存数据）
 - `design/` —— UI 设计稿：现行定稿「政企蓝白」（4 份基准稿 `小程序-首页.html` / `小程序-出工日志.html` / `Web-首页.html` / `Web-出工日志.html` + `设计规范.md` + `index.html` 展厅总览）；另存分享图生成工具链（`make_share_images.py` / `font/t.ttf` / `share-bg-preview.png`）；旧定稿已全部移除
 - `manual/` —— 面向最终用户的使用指南（当前不在仓内；历史版截图含真实班组信息，已随公开化清理归档至私有仓 `_archive/manual/`——日后重建指南时截图须脱敏）
-- 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）+ 镜像构建文件（Dockerfile / .dockerignore，阿里云 ACR 自动构建用，仅打包 `server/`）
+- 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）+ 镜像构建文件（Dockerfile / .dockerignore，GitHub Actions 发版产线用，仅打包 `server/`）
 - `docker/` —— docker compose 部署包（`docker-compose.yml` + `.env.example` 全仓唯一环境变量示例；自包含，拷到服务器 `cp .env.example .env` 填写后 `docker compose up -d`；本机开发复制为 `server/.env`）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
 

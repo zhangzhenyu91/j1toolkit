@@ -1,0 +1,155 @@
+name: 发版
+
+# 发版产线（2026-10 起构建收口 GitHub Actions，取代 ACR「代码变更自动构建」与 CNB 构建双轨）：
+#   build    amd64（ubuntu-latest）+ arm64（ubuntu-24.04-arm 原生构建机，公开仓免费）分架构原生构建，
+#            按 digest 同时推 ACR + CNB 制品库
+#   manifest 合并多架构 manifest（:X.Y.Z，与原 ACR/CNB tag 口径一致）
+#   release  GitHub Release → 回推 tag 到 Gitee/CNB → Gitee 公开仓 Release（正文为镜像拉取命令）
+#            （CNB Release 由仓根 .cnb.yml 的 git:release 在 tag 到达 CNB 后接力创建）
+# 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（两条 tag 线等价、全程幂等，发版打 release-v 即可）。
+#
+# 需在仓库配置（Settings → Secrets and variables → Actions）：
+#   Secrets:   ACR_USERNAME / ACR_PASSWORD（ACR 访问凭证）、CNB_TOKEN（需含仓库 git 写 + 制品库权限）、
+#              GITEE_TOKEN（Gitee 私人令牌，projects 权限）
+#   Variables: ACR_IMAGE（镜像全路径，如 registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit）
+
+on:
+  push:
+    tags: ["release-v*", "v*"]
+  workflow_dispatch: {}   # 手动补跑：「运行分支」处选择对应 tag
+
+env:
+  CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          VERSION=$(echo "${GITHUB_REF_NAME}" | sed -E 's/^(release-)?v//')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "构建版本: ${VERSION}"
+
+  build:
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - { suffix: amd64, platform: linux/amd64, runner: ubuntu-latest }
+          - { suffix: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: 登录镜像仓库（ACR + CNB）
+        env:
+          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        run: |
+          echo "${ACR_PASSWORD}" | docker login "${ACR_IMAGE%%/*}" -u "${ACR_USERNAME}" --password-stdin
+          echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
+      - name: 原生构建并按 digest 推送（${{ matrix.platform }}）
+        env:
+          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
+        run: |
+          docker buildx build --platform ${{ matrix.platform }} \
+            --output type=image,"name=${ACR_IMAGE},${CNB_IMAGE}",push-by-digest=true,name-canonical=true,push=true \
+            --metadata-file /tmp/meta.json .
+          jq -r '."containerimage.digest"' /tmp/meta.json > "digest-${{ matrix.suffix }}.txt"
+      - name: 传递 digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.suffix }}
+          path: digest-${{ matrix.suffix }}.txt
+          retention-days: 1
+
+  manifest:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - name: 登录镜像仓库（ACR + CNB）
+        env:
+          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        run: |
+          echo "${ACR_PASSWORD}" | docker login "${ACR_IMAGE%%/*}" -u "${ACR_USERNAME}" --password-stdin
+          echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
+      - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}）
+        env:
+          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          D_AMD64=$(cat digests/digest-amd64.txt)
+          D_ARM64=$(cat digests/digest-arm64.txt)
+          docker buildx imagetools create -t "${ACR_IMAGE}:${VERSION}" \
+            "${ACR_IMAGE}@${D_AMD64}" "${ACR_IMAGE}@${D_ARM64}"
+          docker buildx imagetools create -t "${CNB_IMAGE}:${VERSION}" \
+            "${CNB_IMAGE}@${D_AMD64}" "${CNB_IMAGE}@${D_ARM64}"
+
+  release:
+    needs: [prepare, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+      - name: 回推 tag 到 Gitee / CNB（远端已存在则跳过）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        run: |
+          for REMOTE in \
+            "https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git" \
+            "https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit.git"; do
+            if git ls-remote "$REMOTE" "refs/tags/${GITHUB_REF_NAME}" | grep -q .; then
+              echo "远端已存在 ${GITHUB_REF_NAME}，跳过"
+            else
+              git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
+            fi
+          done
+      - name: 创建/更新 Gitee 公开仓 Release（正文为镜像拉取命令）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
+          阿里云 ACR：docker pull ${ACR_IMAGE}:${VERSION}
+          CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
+          部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
+          内网客户端安装包见本仓 client-v* 系列 Release。"
+          CODE=$(curl -s -o /tmp/rel.json -w '%{http_code}' \
+            "https://gitee.com/api/v5/repos/j1net/j1toolkit/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}")
+          if [ "$CODE" = "200" ]; then
+            REL_ID=$(jq -r .id /tmp/rel.json)
+            curl -s -X PATCH "https://gitee.com/api/v5/repos/j1net/j1toolkit/releases/${REL_ID}" \
+              -d "access_token=${GITEE_TOKEN}" -d "name=${VERSION}" \
+              --data-urlencode "body=${BODY}" > /dev/null
+            echo "已更新 Gitee Release: ${REL_ID}"
+          else
+            REL_ID=$(curl -s -X POST "https://gitee.com/api/v5/repos/j1net/j1toolkit/releases" \
+              -d "access_token=${GITEE_TOKEN}" -d "tag_name=${GITHUB_REF_NAME}" \
+              -d "name=${VERSION}" --data-urlencode "body=${BODY}" | jq -r .id)
+            echo "已创建 Gitee Release: ${REL_ID}"
+          fi
+          [ -n "$REL_ID" ] && [ "$REL_ID" != "null" ]

@@ -1,60 +1,26 @@
-# Shade 壹匣 · CNB 云原生构建：服务端 Docker 镜像（后端 API + 网页端同端口托管）
-# 推送即构建多架构镜像（linux/amd64 + linux/arm64）并推 CNB 制品库（镜像路径 = 仓库路径）：
-#   main 分支 push   → :<版本号>（取最近 git tag 剥离 release-v / v 前缀；无 tag 回退 commit 短号）
-#   v* 正式版 tag push → :<版本号>（tag 名剥离 release-v / v 前缀，与 ACR :X.Y.Z 同口径；不发 latest）
-#                      + 自动创建 CNB Release（git:release，挂源码包）
-# 拉取：docker.cnb.cool/j1net/j1toolkit/j1toolkit:<tag>
-# 发版分工：release-v* tag 走阿里云 ACR 产线镜像（CNB 不触发）；CNB 只接 v* 正式版 tag，
-# 避免 release-v* 在两侧重复建 Release 与重复构建镜像。
-
-main:
-  push:
-    - name: 服务端镜像
-      services:
-        - docker
-      git:
-        # 公开仓流水线拉不到私有子模块 private/；服务端镜像构建上下文本就不含 private/（见 .dockerignore）
-        submodules: false
-      # 仅服务端相关变更才构建（文档/子模块指针等提交不触发）
-      ifModify:
-        - "server/**"
-        - "Dockerfile"
-        - ".dockerignore"
-        - ".cnb.yml"
-      stages:
-        - name: buildx build and push
-          # 版本号取远端最高版本 tag（剥离 release-v / v 前缀）：CNB 快克隆不带本地 tags，
-          # 故走 git ls-remote 直读远端（公开仓匿名可读）；取不到时回退 commit 短号
-          script: |
-            IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}
-            VERSION=$(git ls-remote --tags origin 2>/dev/null \
-              | awk '{print $2}' | grep -E '^refs/tags/(release-)?v[0-9]' | grep -v '\^{}$' \
-              | sed -E 's#^refs/tags/##; s/^(release-)?v//' \
-              | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
-            [ -z "$VERSION" ] && VERSION=${CNB_COMMIT_SHORT}
-            echo "构建版本: ${VERSION}"
-            docker buildx build --platform linux/amd64,linux/arm64 \
-              -t ${IMAGE}:${VERSION} --push .
+# Shade 壹匣 · CNB：仅自动创建 CNB Release（挂源码包）。
+#
+# 2026-10 起构建全部收口 GitHub Actions（仓根 .github/workflows/release.yml：amd64/arm64 原生
+# 双架构构建，镜像推 ACR + CNB 制品库 docker.cnb.cool/j1net/j1toolkit/j1toolkit，Release 同步
+# GitHub / Gitee 公开仓），本文件不再构建镜像，仅保留 tag → CNB Release 的自动创建。
+# tag 由 release.yml 回推到本仓（cnb.cool/j1net/j1toolkit）后触发；两条 tag 线都接。
 
 v*:
   tag_push:
-    - name: 服务端镜像（版本）
-      services:
-        - docker
-      git:
-        submodules: false
+    - name: 创建 Release
       stages:
-        # 先建 Release（自动挂源码包），再构建镜像
         - name: 创建 Release
           type: git:release
           options:
             name: ${CNB_BRANCH}
             description: ${CNB_TAG_MESSAGE}
-        - name: buildx build and push
-          # tag 事件时 CNB_BRANCH 即 tag 名；剥离 release-v / v 前缀得版本号
-          script: |
-            IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}
-            VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
-            echo "构建版本: ${VERSION}"
-            docker buildx build --platform linux/amd64,linux/arm64 \
-              -t ${IMAGE}:${VERSION} --push .
+
+release-v*:
+  tag_push:
+    - name: 创建 Release
+      stages:
+        - name: 创建 Release
+          type: git:release
+          options:
+            name: ${CNB_BRANCH}
+            description: ${CNB_TAG_MESSAGE}

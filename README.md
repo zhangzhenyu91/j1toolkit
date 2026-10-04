@@ -38,7 +38,7 @@
 | 层 | 选型 |
 |----|------|
 | 前端 | 微信小程序原生 + tdesign-miniprogram（「政企蓝白」定制主题）；网页端原生 HTML/JS（同源 token） |
-| 后端 | Node.js + Express（云服务器以 Docker 容器运行：阿里云 ACR 按仓根 `Dockerfile` 自动构建镜像，另有 CNB 云原生构建双轨见仓根 `.cnb.yml`；单端口同时托管网页端与 `/api/v1`） |
+| 后端 | Node.js + Express（云服务器以 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建 amd64/arm64 多架构镜像，同推 ACR 与 CNB 制品库；单端口同时托管网页端与 `/api/v1`） |
 | 存储 | MySQL（业务数据）/ Redis（JWT 黑名单、会话）/ 腾讯云 COS（文件/照片） |
 | 鉴权 | JWT + Redis，客户端 `Authorization: Bearer <token>` 携带（网页端 token 存 localStorage） |
 | 外部服务 | WeKnora 知识库（Call Me）、Dify 工作流（出工日志照片验证、安全日活动记录生成、题库 AI 解析）、GLKVM Cloud（远程连接计算机/文件传输）、高德地图 Web 服务（出工日志/水印添加/商旅打卡地点天气）、商旅平台中继（商旅打卡） |
@@ -68,10 +68,10 @@ private/       私有配套仓 j1toolkit-private（git submodule，需有权限�
 
 ## 后端部署（云服务器 Docker 容器）
 
-镜像由阿里云容器镜像服务（ACR）「代码变更自动构建」产出：仓库已绑定 GitHub，构建规则 `tags: release-v$version`（上下文 `/`、仓根 `Dockerfile`）。发版即打 tag：
+镜像由 GitHub Actions 发版产线（仓根 `.github/workflows/release.yml`）产出：amd64/arm64 原生双架构构建，同时推阿里云 ACR 与 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`），并同步建 GitHub / Gitee 公开仓 / CNB 三侧 Release（Gitee Release 正文即镜像拉取命令）。发版即打 tag：
 
 ```bash
-git tag release-v1.0.0 && git push origin release-v1.0.0   # ACR 自动构建镜像 :1.0.0
+git tag release-v1.0.0 && git push origin release-v1.0.0   # Actions 构建多架构镜像 :1.0.0 并建三侧 Release
 ```
 
 服务器侧运行两种方式任选：
