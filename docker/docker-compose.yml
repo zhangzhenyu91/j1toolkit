@@ -1,6 +1,6 @@
 # Shade 壹匣后端（API + 网页端同端口）—— docker compose 部署
 # 用法：cp .env.example .env → 按实际填写（IMAGE 必填）→ docker compose up -d
-# 镜像由阿里云 ACR 自动构建（推 tag release-vX.Y.Z → 镜像 :X.Y.Z，规则见 README「后端部署」）；
+# 镜像由 GitHub Actions 发版产线构建推腾讯云 TCR（推 tag release-vX.Y.Z → 镜像 :X.Y.Z，规则见 README「后端部署」）；
 # 升级：改 .env 的 IMAGE 版本号 → docker compose pull && docker compose up -d
 services:
   j1toolkit:

@@ -68,7 +68,7 @@ private/       私有配套仓 j1toolkit-private（git submodule，需有权限�
 
 ## 后端部署（云服务器 Docker 容器）
 
-镜像由 GitHub Actions 发版产线（仓根 `.github/workflows/release.yml`）产出：amd64/arm64 原生双架构构建，同时推阿里云 ACR 与 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`），并同步建 GitHub / Gitee 公开仓 / CNB 三侧 Release（Gitee Release 正文即镜像拉取命令）。发版即打 tag：
+镜像由 GitHub Actions 发版产线（仓根 `.github/workflows/release.yml`）产出：amd64/arm64 原生双架构构建，推腾讯云 TCR 并复制到 CNB 制品库（`docker.cnb.cool/j1net/j1toolkit/j1toolkit`），同步建 GitHub / Gitee 公开仓 / CNB 三侧 Release（Gitee Release 正文即镜像拉取命令）。发版即打 tag：
 
 ```bash
 git tag release-v1.0.0 && git push origin release-v1.0.0   # Actions 构建多架构镜像 :1.0.0 并建三侧 Release
@@ -86,7 +86,7 @@ docker compose up -d   # 端口映射/数据卷（./data → /app/server/data）
 
 升级：改 `.env` 的 `IMAGE` 版本号 → `docker compose pull && docker compose up -d`。MySQL/Redis 在容器外时 `.env` 中 `MYSQL_HOST`/`REDIS_HOST` 不能填 `127.0.0.1`（容器内回环是容器自己），填宿主内网 IP 或 docker 网桥网关。
 
-**方式二：1Panel 图形化建容器**——镜像 `registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit:<版本>`；端口映射宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）；环境变量按 `docker/.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 COS + Dify 配置；安全日活动记录需 `DIFY_SAFEDAY_API_KEY`；题库刷题需 `DIFY_QUIZ_API_KEY`）；数据卷宿主目录 → `/app/server/data`；重启策略 always。
+**方式二：1Panel 图形化建容器**——镜像 `ccr.ccs.tencentyun.com/<命名空间>/j1toolkit:<版本>`；端口映射宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）；环境变量按 `docker/.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 COS + Dify 配置；安全日活动记录需 `DIFY_SAFEDAY_API_KEY`；题库刷题需 `DIFY_QUIZ_API_KEY`）；数据卷宿主目录 → `/app/server/data`；重启策略 always。
 
 镜像已内置 LibreOffice（安全日非 PDF 附件转 PDF 合并用）与中文字体；验证：`curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常（Dockerfile 已配 HEALTHCHECK，容器列表可直看健康状态）。**首次迁移需把旧部署 `server/data/`（安全日记录）拷入数据卷目录。**
 

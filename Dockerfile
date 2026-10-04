@@ -1,6 +1,6 @@
 # Shade 壹匣后端镜像（后端 API + 网页端同端口托管）
 # 构建：GitHub Actions 发版产线（仓根 .github/workflows/release.yml，上下文为仓根、Dockerfile 即本文件），
-#       推 tag release-vX.Y.Z 原生构建 amd64/arm64 多架构镜像 :X.Y.Z 同推 ACR + CNB 制品库；
+#       推 tag release-vX.Y.Z 原生构建 amd64/arm64 多架构镜像 :X.Y.Z 推腾讯云 TCR + 复制到 CNB 制品库；
 #       本地手动构建：docker build -t j1toolkit:dev .
 
 # ---------- 依赖阶段：严格按 lockfile 安装生产依赖 ----------
