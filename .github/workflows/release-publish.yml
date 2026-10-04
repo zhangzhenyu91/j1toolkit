@@ -1,14 +1,21 @@
 name: 补跑发布段
 
 # 发布段恢复通道：release.yml 全量流水线若在 publish-images / release-final 阶段失败
-# （产物已齐：客户端安装包在 GitHub Release、服务端镜像 digest 已在 TCR/CNB），
-# 不必重跑 1 小时构建——在本 workflow 点「Run workflow」并选择对应 tag 即可只补跑发布段。
+# （产物已齐：客户端安装包在 GitHub Release、服务端镜像 digest 已在 Docker Hub），
+# 不必重跑构建——手动 Run workflow 并填写 tag 即可只补跑发布段。
 # 内容需与 release.yml 的 publish-images / release-final 保持一致（改一边要同步另一边）。
+# 注意：用 inputs.tag 而非分支/标签下拉选择 ref——workflow 文件始终读 main 最新版，
+# 避免「tag 上固化着旧版发布逻辑」的回旋镖（已踩坑）。
 
 on:
-  workflow_dispatch: {}   # 运行时「Branch/Tag」下拉选择对应 tag（如 v1.0.1）
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 发版 tag（如 v1.0.1，须已存在且 GitHub Release 资产齐全）
+        required: true
 
 env:
+  TAG: ${{ inputs.tag }}
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
   CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-private
   GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
@@ -17,16 +24,15 @@ env:
 
 jobs:
   prepare:
-    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
       - id: v
         run: |
-          VERSION=$(echo "${GITHUB_REF_NAME}" | sed -E 's/^(release-)?v//')
+          VERSION=$(echo "${TAG}" | sed -E 's/^(release-)?v//')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "补跑版本: ${VERSION}"
+          echo "补跑版本: ${VERSION}（tag ${TAG}）"
 
   publish-images:
     needs: prepare
@@ -37,12 +43,14 @@ jobs:
       packages: write   # 推 GHCR
     steps:
       - uses: actions/checkout@v4   # Dockerfile.dist 需按 tag 取出
+        with:
+          ref: ${{ inputs.tag }}
       - name: 下载 Release 全部安装包
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-assets
-          gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
+          gh release download "${TAG}" -R ${{ github.repository }} --dir dist-assets --clobber \
             --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
           ls -lh dist-assets
       - uses: docker/setup-buildx-action@v3
@@ -66,20 +74,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
       - name: 下载 Release 全部安装包（Gitee 回传用）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-assets
-          gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
+          gh release download "${TAG}" -R ${{ github.repository }} --dir dist-assets --clobber \
             --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
       - name: 补全 GitHub Release 说明
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          gh release edit "${GITHUB_REF_NAME}" --notes "$(cat <<EOF
+          gh release edit "${TAG}" --notes "$(cat <<EOF
           服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
           腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}
           Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}
@@ -99,22 +108,22 @@ jobs:
           for REMOTE in \
             "https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git" \
             "https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"; do
-            if git ls-remote "$REMOTE" "refs/tags/${GITHUB_REF_NAME}" | grep -q .; then
-              echo "远端已存在 ${GITHUB_REF_NAME}，跳过"
+            if git ls-remote "$REMOTE" "refs/tags/${TAG}" | grep -q .; then
+              echo "远端已存在 ${TAG}，跳过"
             else
-              git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
+              git push "$REMOTE" "refs/tags/${TAG}"
             fi
           done
-      - name: Gitee 公开仓 Release（删旧重建 + 6 件附件分卷上传 + 清理历史 Release）
+      - name: Gitee 公开仓 Release（删旧重建 + 附件 20MB 分卷上传 + 清理历史 Release）
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -e
           API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；*.part-* 为分卷（Gitee 单附件限 100MB），下载全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
+          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；附件按 20MB 分卷（跨境上传稳定性，*.part-* 同属一个文件），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
           # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
-          curl -s -o /tmp/rel.json "${API}/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}"
+          curl -s -o /tmp/rel.json "${API}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}"
           OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
           if [ -n "$OLD_REL" ]; then
             curl -s -X DELETE "${API}/releases/${OLD_REL}?access_token=${GITEE_TOKEN}" -o /dev/null
@@ -123,30 +132,31 @@ jobs:
           # Gitee 建 Release 必须带 target_commitish（缺了报 target_commitish is missing——已踩坑）；
           # tag 已存在时该字段不影响锚点
           RESP=$(curl -s -X POST "${API}/releases" \
-            -d "access_token=${GITEE_TOKEN}" -d "tag_name=${GITHUB_REF_NAME}" \
+            -d "access_token=${GITEE_TOKEN}" -d "tag_name=${TAG}" \
             -d "target_commitish=main" \
             -d "name=v${VERSION}" --data-urlencode "body=${BODY}")
           REL_ID=$(echo "$RESP" | jq -r '.id // empty')
           [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
           cd dist-assets
+          # 全量 20MB 分卷 + 单卷重试：跨境链路单请求越小越稳（100MB 整传曾挂 85 分钟——已踩坑）
           for f in *; do
-            SIZE=$(stat -c%s "$f")
-            if [ "$SIZE" -gt 99614720 ]; then
-              split -b 95m "$f" "$f.part-"
-              for p in "$f".part-*; do
-                curl -s -X POST "${API}/releases/${REL_ID}/attach_files" \
-                  -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null
-                echo "已传分卷 ${p}"
+            split -b 20m "$f" "$f.part-"
+            for p in "$f".part-*; do
+              ok=0
+              for t in 1 2 3 4 5; do
+                if curl -s --http1.1 --connect-timeout 30 --max-time 300 -X POST \
+                     "${API}/releases/${REL_ID}/attach_files" \
+                     -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null; then
+                  echo "已传 ${p}"; ok=1; break
+                fi
+                echo "重试 ${p}（第 $t 次失败）"; sleep 5
               done
-            else
-              curl -s -X POST "${API}/releases/${REL_ID}/attach_files" \
-                -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null
-              echo "已传 ${f}"
-            fi
+              [ "$ok" = "1" ] || { echo "附件 ${p} 上传失败"; exit 1; }
+            done
           done
           # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release（连同附件整删历史 Release；完整历史在 GitHub）
           curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
-            | jq -r '.[] | select(.tag_name != "'"${GITHUB_REF_NAME}"'") | .id' \
+            | jq -r '.[] | select(.tag_name != "'"${TAG}"'") | .id' \
             | while read -r OLD_ID; do
                 curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
                 echo "已清理历史 Release ${OLD_ID}"
