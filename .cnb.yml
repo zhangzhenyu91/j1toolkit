@@ -8,15 +8,17 @@
 # 本文件负责国内侧分发（TCR 正线 + CNB 制品库）。客户端（含 Windows）只在 GitHub 构建（CNB 无 Windows 节点）。
 # tag 由 GitHub Actions release.yml 回推到本仓后触发；两条 tag 线都接。
 #
-# 需在本仓「设置 → 环境变量/密钥」配置：TCR_USERNAME（腾讯云账号 UIN）、TCR_PASSWORD（TCR 个人版
-# 访问凭证密码）、TCR_IMAGE（服务端镜像全路径 ccr.ccs.tencentyun.com/<命名空间>/j1toolkit，
-# 客户端产物镜像按同命名空间拼 uvmp-toolkit）。
+# 敏感配置走 CNB 密钥仓库 imports（本仓「设置」里没有环境变量面板）：
+# 新建密钥仓库 j1net/j1toolkit/keys，内含 envs.yml：
+#   TCR_USERNAME: <腾讯云账号 UIN>   TCR_PASSWORD: <TCR 个人版访问凭证密码>
+#   TCR_IMAGE: ccr.ccs.tencentyun.com/<命名空间>/j1toolkit（客户端产物镜像按同命名空间拼 uvmp-toolkit）
 
 v*:
   tag_push:
     - name: 服务端镜像（版本）+ Release
       services:
         - docker
+      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
       git:
         submodules: false
       stages:
@@ -36,6 +38,7 @@ v*:
     - name: 客户端产物镜像（Gitee 附件 → CNB + TCR）
       services:
         - docker
+      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
       git:
         submodules: false
       stages:
@@ -77,6 +80,7 @@ release-v*:
     - name: 服务端镜像（版本）+ Release
       services:
         - docker
+      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
       git:
         submodules: false
       stages:
@@ -96,6 +100,7 @@ release-v*:
     - name: 客户端产物镜像（Gitee 附件 → CNB + TCR）
       services:
         - docker
+      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
       git:
         submodules: false
       stages:
