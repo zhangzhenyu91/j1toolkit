@@ -1,0 +1,8 @@
+{
+  "id": "quiz_search",
+  "name": "题库搜题",
+  "badge": "搜题",
+  "desc": "屏幕框选区域实时 OCR 搜题：本地题库导入管理，双扫描框覆盖页面顶底，答案悬浮窗直出",
+  "order": 3,
+  "page": "page.html"
+}

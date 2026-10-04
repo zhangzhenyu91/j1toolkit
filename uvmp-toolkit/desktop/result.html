@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>result</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+    body { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    #card {
+      box-sizing: border-box; height: calc(100% - 12px); margin: 6px;
+      background: #FFFFFF; border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .10);
+      padding: 10px 14px; overflow: hidden;
+      display: flex; flex-direction: column;
+      position: relative;
+    }
+    .head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 13px; font-weight: 600; color: #1D2129;
+      padding-bottom: 6px; border-bottom: 1px solid #E5E6EB; margin-bottom: 6px;
+      cursor: move; user-select: none; -webkit-user-select: none;   /* 标题栏即拖动把手 */
+    }
+    .head .ms { font-weight: 400; font-size: 11px; color: #86909C; font-variant-numeric: tabular-nums; }
+    .sec { flex: 1; min-height: 0; overflow: hidden; padding: 2px 0; }
+    .sec + .sec { border-top: 1px dashed #E5E6EB; margin-top: 4px; padding-top: 6px; }
+    .boxline { display: flex; align-items: baseline; gap: 8px; }
+    .boxtag {
+      flex: none; font-size: 11px; color: #0E3DA8; background: #E8F0FF;
+      border-radius: 4px; padding: 1px 6px; line-height: 16px;
+    }
+    .ans { font-size: 22px; font-weight: 700; color: #F53F3F; letter-spacing: 2px; }
+    .meta { margin-left: auto; font-size: 11px; color: #86909C; font-variant-numeric: tabular-nums; }
+    .stem {
+      font-size: 12px; color: #4E5969; margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .opts { font-size: 12px; color: #4E5969; margin-top: 2px; line-height: 1.5; }
+    .opts .hit { color: #F53F3F; font-weight: 600; }
+    .opts .opt { display: block; }   /* 选项逐行排列，避免挤在一行 */
+    .none { font-size: 12px; color: #86909C; }
+    .ocrsnip { font-size: 11px; color: #C9CDD4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* 右下角缩放柄（同扫描框：只报起止，位移由主进程轮询 OS 光标得出） */
+    .grip {
+      position: absolute; right: 8px; bottom: 8px; width: 14px; height: 14px;
+      cursor: nwse-resize;
+      background: linear-gradient(135deg, transparent 50%, #C9CDD4 50%);
+      border-radius: 0 0 8px 0;
+    }
+    .grip:hover { background: linear-gradient(135deg, transparent 50%, #86909C 50%); }
+  </style>
+</head>
+<body>
+  <div id="card">
+    <div class="head"><span>题库搜题</span><span class="ms" id="ms"></span></div>
+    <div class="sec" id="secA"></div>
+    <div class="sec" id="secB"></div>
+    <span class="grip" id="grip" title="拖动调整大小"></span>
+  </div>
+  <script type="module" src="/src/resultpanel/main.js"></script>
+</body>
+</html>

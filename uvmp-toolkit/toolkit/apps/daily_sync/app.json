@@ -1,0 +1,9 @@
+{
+  "id": "daily_sync",
+  "name": "每日派车单同步",
+  "badge": "同步",
+  "desc": "每日定时导出当日派车单（全部状态）为 xlsx 写入 U 盘，供壹匣服务端取走同步",
+  "order": 1,
+  "page": "page.html",
+  "schedule": true
+}

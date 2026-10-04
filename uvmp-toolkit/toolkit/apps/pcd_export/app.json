@@ -1,0 +1,8 @@
+{
+  "id": "pcd_export",
+  "name": "派车单·轨迹导出",
+  "badge": "导出",
+  "desc": "按派车单号清单（xlsx 或粘贴文本）按序导出派车单 PDF 与行驶轨迹 PDF",
+  "order": 2,
+  "page": "page.html"
+}

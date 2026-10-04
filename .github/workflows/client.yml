@@ -1,0 +1,306 @@
+name: 构建客户端
+
+on:
+  workflow_dispatch: {}        # 手动触发
+  push:
+    tags: ["client-v*"]        # 打 client-vX.Y.Z tag 发版（同时建 Release）
+
+# 无中转构件设计（artifact 存储额度曾被 218 个历史构件挤爆，recalc 要等 6-12h——已踩坑）：
+#   release-init  仅 tag：先建空 Release，避免三个构建 job 并发抢建 422
+#   windows       核心（PyInstaller）+ 桌面端（NSIS/zip）+ 冒烟 + 传 Release，一 job 到底
+#   linux-amd64   buster 容器出核心（glibc 2.28 对齐麒麟 V10 SP1）+ deb/tar.gz + xvfb 冒烟
+#   linux-arm64   QEMU + arm64v8/buster 出核心 + deb/tar.gz（纯打包不执行 arm64 代码）
+#   publish-cnb   产物镜像推 CNB 制品库（分发载体）
+#   publish-gitee 6 件安装包回传 Gitee 公开仓同名 Release（>95MiB 自动分卷；Gitee 社区版单仓
+#                 附件总量限 1GB，仅保留最新一份客户端 Release，旧的整删，历史以 GitHub/CNB 为准）
+# 产物：Windows NSIS Setup.exe + 绿色 zip；麒麟 deb + 绿色 tar.gz（amd64/arm64）
+#
+# 2026-10 起客户端源码在公开仓（本仓）：PyInstaller/Electron 产物可解包还原，源码私密性有限，
+# 安装包本就公开发布；esgcc 逆向素材等敏感内容仍在私有仓 j1toolkit-private（submodule 挂载 private/）。
+# 发版 tag 与后端镜像发版（release-v*/v*）用 client-v* 前缀区分，互不触发。
+
+jobs:
+  release-init:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - if: startsWith(github.ref, 'refs/tags/client-v')
+        uses: softprops/action-gh-release@v2   # 建（或复用）空 Release
+      - if: "!startsWith(github.ref, 'refs/tags/client-v')"
+        run: echo "非 tag 构建：只编译冒烟，不发 Release"
+
+  windows:
+    needs: release-init
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: uvmp-toolkit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: PyInstaller 构建核心（console onedir）
+        run: |
+          pip install pyinstaller requests gmssl pypdf websocket-client
+          python -m PyInstaller --name uvmp-core --onedir --clean --noconfirm `
+            --add-data "toolkit/apps;apps" `
+            --add-data "toolkit/config.example.json;." `
+            --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
+            --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
+            --hidden-import pypdf `
+            toolkit/app.py
+      - name: 装配与冒烟（selfcheck + rpc ping）
+        shell: pwsh
+        run: |
+          Copy-Item config.ini dist\uvmp-core\config.ini
+          Copy-Item toolkit\config.example.json dist\uvmp-core\config.example.json
+          Copy-Item packaging\config.initial.json dist\uvmp-core\config.initial.json
+          Copy-Item packaging\run-daily-export.vbs dist\uvmp-core\run-daily-export.vbs
+          Copy-Item README.md dist\uvmp-core\README.md
+          Copy-Item -Recurse install dist\uvmp-core\install
+          & "dist\uvmp-core\uvmp-core.exe" selfcheck
+          if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
+          $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
+          if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 前端构建 + 打包（NSIS 安装程序 + zip）
+        run: |
+          New-Item -ItemType Directory -Force dist-core | Out-Null
+          Copy-Item -Recurse dist\uvmp-core dist-core\core
+          npm ci --prefix desktop
+          npm run build --prefix desktop
+          # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
+          Push-Location desktop
+          npx electron-builder --win
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { exit $code }
+      - name: GUI 冒烟（UVMP_CI_SMOKE：窗口加载后断言 #app 真实渲染）
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem "dist-electron\win-unpacked\*.exe" | Select-Object -First 1).FullName
+          $env:UVMP_CI_SMOKE = "1"
+          $env:ELECTRON_ENABLE_LOGGING = "1"
+          $p = Start-Process -FilePath $exe -PassThru -Wait `
+            -RedirectStandardOutput smoke-out.log -RedirectStandardError smoke-err.log
+          Write-Host "---- smoke stdout ----"; Get-Content smoke-out.log -ErrorAction SilentlyContinue
+          Write-Host "---- smoke stderr ----"; Get-Content smoke-err.log -ErrorAction SilentlyContinue | Select-Object -Last 30
+          if ($p.ExitCode -ne 0) { throw "GUI 冒烟失败 exit=$($p.ExitCode)" }
+      - if: startsWith(github.ref, 'refs/tags/client-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            uvmp-toolkit/dist-electron/*.exe
+            uvmp-toolkit/dist-electron/*.zip
+
+  linux-amd64:
+    needs: release-init
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: uvmp-toolkit
+    steps:
+      - uses: actions/checkout@v4
+      - name: 在 debian:buster 容器内构建核心（glibc 2.28 对齐麒麟 V10 SP1）
+        # 容器 -w 直接进 uvmp-toolkit/，脚本内部相对路径（packaging/build_unix.sh 等）不变
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+            debian:buster bash packaging/build_linux_container.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 前端构建 + 打包（deb + tar.gz）
+        env:
+          # onnxruntime-node 的 postinstall 在 linux/x64 会联网拉 CUDA 库，CPU 场景必须跳过
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          mkdir -p dist-core
+          cp -r dist/uvmp-core dist-core/core
+          chmod +x dist-core/core/uvmp-core   # 容器出来权限位正常，这里兜底
+          npm ci --prefix desktop
+          npm run build --prefix desktop
+          # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
+          cd desktop && npx electron-builder --linux --x64 --c.productName=uvmp-toolkit
+      - name: OCR 运行时 glibc 门禁（麒麟 V10 SP1 = glibc 2.28，超版本即失败并降级重钉）
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" debian:buster bash -c '
+            set -e
+            # 双点号通配：只取带版本号的实体 .so，避开 libonnxruntime.so.1 软链（多行结果会炸 grep）
+            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v3/linux/x64/libonnxruntime.so.*.*)
+            max=$(grep -ao "GLIBC_2\.[0-9]*" "$lib" | sort -Vu | tail -1)
+            echo "onnxruntime-node 最高依赖 $max（门禁 ≤ GLIBC_2.28）"
+            minor=${max#GLIBC_2.}
+            [ -n "$minor" ] && [ "$minor" -le 28 ]
+          '
+      - name: GUI 冒烟（xvfb + UVMP_CI_SMOKE：断言 #app 真实渲染）
+        # --no-sandbox 必须走命令行参数：SUID 沙箱检查在 JS 执行前的 C++ 引导阶段，
+        # appendSwitch 赶不上（已踩坑）
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
+          UVMP_CI_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 \
+            xvfb-run -a ./dist-electron/linux-unpacked/uvmp-toolkit --no-sandbox --disable-gpu
+      - if: startsWith(github.ref, 'refs/tags/client-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            uvmp-toolkit/dist-electron/*.deb
+            uvmp-toolkit/dist-electron/*.tar.gz
+
+  linux-arm64:
+    needs: release-init
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: uvmp-toolkit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3   # arm64 模拟（较慢，约 10-20 分钟）
+      - name: 在 arm64v8/debian:buster 容器内构建核心
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+            arm64v8/debian:buster bash packaging/build_linux_container.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 前端构建 + 打包（deb + tar.gz；纯打包不执行 arm64 代码）
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          mkdir -p dist-core
+          cp -r dist/uvmp-core dist-core/core
+          chmod +x dist-core/core/uvmp-core
+          npm ci --prefix desktop
+          npm run build --prefix desktop
+          cd desktop && npx electron-builder --linux --arm64 --c.productName=uvmp-toolkit
+      - name: OCR 运行时 glibc 门禁（arm64，文件检查非执行）
+        run: |
+          docker run --rm --platform linux/arm64 -v "$GITHUB_WORKSPACE:/src" arm64v8/debian:buster bash -c '
+            set -e
+            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v3/linux/arm64/libonnxruntime.so.*.*)
+            max=$(grep -ao "GLIBC_2\.[0-9]*" "$lib" | sort -Vu | tail -1)
+            echo "onnxruntime-node(arm64) 最高依赖 $max（门禁 ≤ GLIBC_2.28）"
+            minor=${max#GLIBC_2.}
+            [ -n "$minor" ] && [ "$minor" -le 28 ]
+          '
+      - if: startsWith(github.ref, 'refs/tags/client-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            uvmp-toolkit/dist-electron/*.deb
+            uvmp-toolkit/dist-electron/*.tar.gz
+
+  # 发版后回传 CNB：Release 安装包打进产物镜像推 CNB 制品库（tag = 版本号；分发载体非运行服务，
+  # 取件 docker create --name tmp <镜像> && docker cp tmp:/artifacts/ ./out && docker rm tmp）。
+  # 需在仓库 Secrets 配置：CNB_TOKEN（CNB 访问令牌，需 registry-package 读写权限）。
+  publish-cnb:
+    needs: [windows, linux-amd64, linux-arm64]
+    if: startsWith(github.ref, 'refs/tags/client-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载 Release 全部安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-assets
+          gh release download "$GITHUB_REF_NAME" --dir dist-assets --clobber \
+            --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
+          ls -lh dist-assets
+      - uses: docker/setup-buildx-action@v3   # container 驱动 builder，支持多架构 --push（纯 COPY 无需 QEMU）
+      - name: 产物镜像推 CNB 制品库
+        env:
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#client-v}"
+          echo "$CNB_TOKEN" | docker login docker.cnb.cool -u cnb --password-stdin
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -f uvmp-toolkit/packaging/Dockerfile.dist \
+            -t docker.cnb.cool/j1net/j1toolkit/j1toolkit-private:$version --push dist-assets/
+
+  # 回传 Gitee 公开仓同名 Release（GitHub 侧由上面三个构建 job 直传本仓 Release，无需绕行）。
+  # Gitee 社区版：单附件限 100MB（>95MiB 自动 split 分卷，正文注明合并命令）、单仓附件总量 1GB
+  # （仅留最新客户端 Release，旧的连同附件整删；历史以 GitHub/CNB 为准）。
+  # 重跑幂等：先删旧同名 Release 再重建，附件不重复堆。
+  # 需在仓库 Secrets 配置：GITEE_TOKEN（Gitee 私人令牌，projects 权限）。
+  publish-gitee:
+    needs: [windows, linux-amd64, linux-arm64]
+    if: startsWith(github.ref, 'refs/tags/client-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 下载 Release 全部安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-assets
+          gh release download "$GITHUB_REF_NAME" --dir dist-assets --clobber \
+            --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
+      - name: 回推 tag 到 Gitee（Gitee Release 要求 tag 先存在；已存在则跳过）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          REMOTE="https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git"
+          if git ls-remote "$REMOTE" "refs/tags/${GITHUB_REF_NAME}" | grep -q .; then
+            echo "Gitee 已存在 ${GITHUB_REF_NAME}，跳过"
+          else
+            git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
+          fi
+      - name: 创建/重建 Gitee Release + 分卷传附件 + 清理旧客户端 Release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -e
+          API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
+          VERSION="${GITHUB_REF_NAME#client-v}"
+          BODY="内网客户端 v${VERSION} 安装包（Windows：NSIS 安装包 + 绿色 zip；麒麟 Linux amd64/arm64：deb + 绿色 tar.gz）。*.part-* 为分卷（Gitee 单附件限 100MB），下载全部卷后合并：cat 文件名.part-* > 文件名。备选：CNB 制品库产物镜像 docker.cnb.cool/j1net/j1toolkit/j1toolkit-private:${VERSION}（docker create --name tmp <镜像> && docker cp tmp:/artifacts/ ./out && docker rm tmp）。"
+          CODE=$(curl -s -o /tmp/rel.json -w '%{http_code}' \
+            "${API}/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}")
+          if [ "$CODE" = "200" ]; then
+            curl -s -X DELETE "${API}/releases/$(jq -r .id /tmp/rel.json)?access_token=${GITEE_TOKEN}" -o /dev/null
+          fi
+          REL_ID=$(curl -s -X POST "${API}/releases" \
+            -d "access_token=${GITEE_TOKEN}" -d "tag_name=${GITHUB_REF_NAME}" \
+            -d "name=内网客户端 v${VERSION}" --data-urlencode "body=${BODY}" | jq -r .id)
+          [ -n "$REL_ID" ] && [ "$REL_ID" != "null" ] || { echo "Gitee Release 创建失败"; exit 1; }
+          cd dist-assets
+          for f in *; do
+            SIZE=$(stat -c%s "$f")
+            if [ "$SIZE" -gt 99614720 ]; then
+              split -b 95m "$f" "$f.part-"
+              for p in "$f".part-*; do
+                curl -s -X POST "${API}/releases/${REL_ID}/attach_files" \
+                  -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null
+                echo "已传分卷 ${p}"
+              done
+            else
+              curl -s -X POST "${API}/releases/${REL_ID}/attach_files" \
+                -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null
+              echo "已传 ${f}"
+            fi
+          done
+          # 附件总量 1GB 限制：清理历史客户端 Release（连同附件整删），仅留当前版本
+          curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
+            | jq -r '.[] | select(.tag_name | startswith("client-v")) | select(.tag_name != "'"${GITHUB_REF_NAME}"'") | .id' \
+            | while read -r OLD_ID; do
+                curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
+                echo "已清理旧 Release ${OLD_ID}"
+              done

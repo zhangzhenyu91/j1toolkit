@@ -1,0 +1,11 @@
+# 行尾约定：麒麟用的 shell/systemd 文件永远 LF（Windows 中转 CRLF 会炸 bash，已踩坑）
+*.sh       text eol=lf
+*.service  text eol=lf
+*.timer    text eol=lf
+*.desktop  text eol=lf
+packaging/debian/postinst text eol=lf
+packaging/debian/prerm    text eol=lf
+packaging/debian/postrm   text eol=lf
+# Windows 批处理用 CRLF
+*.bat      text eol=crlf
+# 其余文本文件交给 autocrlf

@@ -62,8 +62,9 @@ server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   src/quiz/      题库刷题后端子模块（schema 建表种子/dify 解析/analyzer 队列/路由）
   src/wmadd/     水印添加后端子模块（渲染回图/geo/杆塔路由）
   src/sgccclockin/ 商旅打卡后端子模块（出工日志扩展：protocol 协议层/schema 建表种子/路由）
+uvmp-toolkit/  内网工具箱客户端（Electron + Vue + TDesign 壳 + Python sidecar 核心，装在内网被控机；`client-v*` tag 触发 .github/workflows/client.yml 三平台构建发版）
 design/        UI 设计稿（定稿「政企蓝白 Enterprise Blue」：小程序/Web 首页与出工日志 4 份基准稿 + 设计规范.md + index.html 展厅 + 分享图工具链；旧定稿已全部移除）
-private/       私有配套仓 j1toolkit-private（git submodule，需有权限账号 `git submodule update --init`）：uvmp-toolkit 内网工具箱客户端 / esgcc 商旅逆向分析仓与巡视素材 / WorkLogs 旧服务历史数据
+private/       私有配套仓 j1toolkit-private（git submodule，需有权限账号 `git submodule update --init`）：esgcc 商旅逆向分析仓与巡视素材 / WorkLogs 旧服务历史数据 / _archive 公开仓历史归档
 ```
 
 ## 后端部署（云服务器 Docker 容器）

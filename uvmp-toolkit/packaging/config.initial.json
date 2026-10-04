@@ -1,0 +1,19 @@
+{
+  "sso": {
+    "username": "",
+    "password": ""
+  },
+  "schedule": {
+    "enabled": false,
+    "time": "09:15",
+    "driver": "os"
+  },
+  "ui": {
+    "close_to_tray": true,
+    "autostart": false
+  },
+  "usb": {
+    "label": "GLKVM",
+    "fallback_dir": ""
+  }
+}

@@ -20,3 +20,19 @@ project.private.config.json
 # 商旅打卡逆向分析仓（esgcc/sgcc/）已迁往私有仓 j1toolkit-private（submodule 挂载于 private/）；
 # base.apk 107MB 超 GitHub 单文件 100MB 上限，不入仓（本地留存）
 private/esgcc/sgcc/base.apk
+
+# 内网客户端（uvmp-toolkit/）构建产物与本地配置
+# （注意 desktop/build/ 是 electron-builder 资源目录必须入仓，只锚定 uvmp-toolkit 根的 build/dist）
+uvmp-toolkit/build/
+uvmp-toolkit/dist/
+uvmp-toolkit/dist-core/
+uvmp-toolkit/dist-electron/
+uvmp-toolkit/*.spec
+uvmp-toolkit/desktop/dist/
+uvmp-toolkit/packaging/.eb-binaries/
+uvmp-toolkit/样例/
+uvmp-toolkit/toolkit/config.json
+uvmp-toolkit/config.ini.local
+uvmp-toolkit/pylib/
+uvmp-toolkit/output/
+__pycache__/

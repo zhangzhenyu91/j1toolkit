@@ -1,0 +1,227 @@
+/* 内网工具箱主题：壹匣「政企蓝白 Enterprise Blue」token 注入 TDesign CSS 变量 + 壳/页面样式。
+   定稿依据 j1toolkit/AGENTS.md 第四节 + design/设计规范.md + server/public/assets/theme.css（网页版公共主题）。
+   核心：品牌蓝 #0E3DA8 / 深蓝 #0A3592 / 浅蓝底 #E8F0FF / 成功绿 #00B42A / 警告橙 #FF7D00 / 危险红 #F53F3F；
+   页面底 #F5F7FA / 正文 #1D2129 / 次要 #4E5969 / 辅助 #86909C / 边框 #E5E6EB；
+   形态：白卡 12px 圆角 + 极轻阴影、无描边无渐变；按钮/输入 8px、标签 4px 胶囊；警示信息块（浅底+左色条一族）直角。 */
+:root {
+  /* TDesign 变量覆盖 */
+  --td-brand-color: #0E3DA8;
+  --td-brand-color-hover: #2B54C4;
+  --td-brand-color-active: #0A3592;
+  --td-brand-color-focus: rgba(14, 61, 168, .12);
+  --td-bg-color-page: #F5F7FA;
+  --td-bg-color-container: #FFFFFF;
+  --td-text-color-primary: #1D2129;
+  --td-text-color-secondary: #4E5969;
+  --td-text-color-placeholder: #86909C;
+  --td-component-border: #E5E6EB;
+  --td-radius-small: 4px;
+  --td-radius-medium: 8px;
+  --td-radius-large: 12px;
+  --td-radius-default: 8px;
+  --td-error-color: #F53F3F;
+  --td-success-color: #00B42A;
+  --td-warning-color: #FF7D00;
+
+  /* 自有 token（政企蓝白；与网页版 theme.css 同名同值） */
+  --tk-brand: #0E3DA8;       /* 品牌蓝：唯一主强调（主按钮/链接/激活态/图标） */
+  --tk-brand-deep: #0A3592;  /* 深蓝：仅页首/强调下沉态 */
+  --tk-ink: #1D2129;         /* 正文深色：主文字 */
+  --tk-bg: #F5F7FA;          /* 页面底 */
+  --tk-fill: #F7F8FA;        /* 嵌套浅灰块（日志视图/预览块/表头） */
+  --tk-line: #E5E6EB;        /* 边框/分隔线（发丝 1px） */
+  --tk-hair: rgba(29, 33, 41, .06);
+  --tk-sub: #4E5969;         /* 次要文字 */
+  --tk-ph: #86909C;          /* 辅助/占位文字 */
+  --tk-dash: #C9CDD4;        /* 弱化占位 */
+  --tk-red: #F53F3F;         /* 危险红：未通过/删除/错误 */
+  --tk-yellow: #FF7D00;      /* 警告橙：待核验/有备注/缺卡 */
+  --tk-green: #00B42A;       /* 成功绿：通过/已完成 */
+  --tk-blue-soft: #E8F0FF;   /* 浅蓝底：图标底/徽章底/信息条底/激活底 */
+  --tk-red-soft: #FFECE8;
+  --tk-green-soft: #E8FFEA;
+  --tk-yellow-soft: #FFF7E8;
+  --tk-shadow-card: 0 2px 8px rgba(0, 0, 0, .04);
+  --tk-shadow-hover: 0 8px 20px rgba(0, 0, 0, .08);
+  --tk-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+html, body, #app { height: 100%; margin: 0; }
+body {
+  background: var(--tk-bg);   /* 纯色浅灰底，无网格无渐变 */
+  font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  color: var(--tk-ink);
+  overflow: hidden;   /* 壳布局自管滚动 */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- 应用壳：自定义标题栏 + 主区 ---- */
+.app-shell { display: flex; flex-direction: column; height: 100%; }
+.main-row { display: flex; flex: 1; min-height: 0; }
+
+/* 自定义标题栏（白底 + 底部 1px 发丝线，政企蓝白 web 顶栏式） */
+.titlebar {
+  height: 40px; flex-shrink: 0;
+  background: #fff; border-bottom: 1px solid var(--tk-line);
+  display: flex; align-items: center;
+  padding-left: 12px;
+  color: var(--tk-ink);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.tb-left { display: flex; align-items: center; gap: 9px; }
+.tb-logo { width: 22px; height: 22px; border-radius: 6px; }
+.tb-title { font-size: 13px; font-weight: 600; letter-spacing: 1.5px; }
+.tb-ver { font-size: 11px; color: var(--tk-ph); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+.tb-right { margin-left: auto; display: flex; height: 100%; -webkit-app-region: no-drag; }
+.tb-btn {
+  width: 44px; height: 100%; border: none; background: transparent;
+  color: var(--tk-sub); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.tb-btn:hover { background: var(--tk-fill); color: var(--tk-ink); }
+.tb-btn.tb-close:hover { background: var(--tk-red); color: #fff; }
+
+/* 启动 splash（核心冷启动期间整屏等待，避免空白被误认为 bug） */
+.splash {
+  height: 100%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+}
+.splash-logo { width: 88px; height: 88px; border-radius: 20px; box-shadow: var(--tk-shadow-hover); }
+.splash-name { font-size: 17px; font-weight: 700; color: var(--tk-ink); letter-spacing: 2px; }
+
+/* 左侧导航轨（白底 + 右侧 1px 发丝线；图标落浅蓝底圆角块，激活=蓝底白图标+蓝字） */
+.nav-rail {
+  width: 108px; background: #fff; border-right: 1px solid var(--tk-line);
+  display: flex; flex-direction: column; align-items: stretch;
+  padding: 14px 8px; gap: 6px; flex-shrink: 0;
+}
+.nav-rail .brand {
+  color: var(--tk-ink); font-size: 15px; font-weight: 700; text-align: center;
+  padding: 4px 2px 12px; letter-spacing: 2px; line-height: 1.4;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+}
+.nav-item {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 9px 4px; border-radius: 8px; cursor: pointer;
+  color: var(--tk-sub); font-size: 12px; user-select: none;
+  transition: color .15s var(--tk-ease), background .15s var(--tk-ease);
+}
+.nav-item:hover { color: var(--tk-ink); background: var(--tk-fill); }
+.nav-item.active { color: var(--tk-brand); font-weight: 600; }
+.nav-item.active:hover { background: var(--tk-fill); }
+.nav-item .tile {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: var(--tk-blue-soft); color: var(--tk-brand);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s var(--tk-ease), color .15s var(--tk-ease);
+}
+.nav-item.active .tile { background: var(--tk-brand); color: #fff; }
+.nav-spacer { flex: 1; }
+
+/* 页面容器 */
+.page { padding: 22px 26px; overflow-y: auto; flex: 1; min-width: 0; }
+.page > * { max-width: 1240px; margin-left: auto; margin-right: auto; }
+
+/* 卡片间距（页面组件根 div 的子元素，.page > * 规则够不到，必须兄弟选择器） */
+.t-card + .t-card { margin-top: 16px; }
+
+/* 卡片：白底 + 12px 圆角 + 极轻阴影，无描边 */
+.t-card {
+  border-radius: 12px; overflow: hidden; position: relative;
+  border: none;
+  box-shadow: var(--tk-shadow-card);
+  animation: tkFadeUp .45s var(--tk-ease) both;
+}
+/* 编排式入场（translateY(14px) 淡出、时延链 ≤0.9s、落位静止） */
+.t-card:nth-child(2) { animation-delay: .05s; }
+.t-card:nth-child(3) { animation-delay: .10s; }
+.t-card:nth-child(4) { animation-delay: .15s; }
+@keyframes tkFadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.t-card .t-card__body { padding-top: 14px; }
+
+/* 板块标题：15px/600，无几何记号 */
+.sec-title {
+  font-size: 15px; font-weight: 600; color: var(--tk-ink); letter-spacing: .5px;
+  margin-bottom: 12px; display: flex; align-items: center; gap: 9px;
+}
+.sec-title .right { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--tk-sub); }
+
+/* 日志视图（嵌套浅灰块 + 8px 圆角 + tabular-nums） */
+.logview {
+  background: var(--tk-fill); color: var(--tk-ink);
+  border: 1px solid var(--tk-line); border-radius: 8px;
+  font: 12px/1.7 Consolas, "Courier New", monospace;
+  font-variant-numeric: tabular-nums;
+  padding: 10px 12px; height: 240px; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* 单号/清单预览块（浅灰底圆角，与日志视图同族） */
+.codeview {
+  background: var(--tk-fill); color: var(--tk-ink);
+  border: 1px solid var(--tk-line); border-radius: 8px;
+  font-size: 13px; line-height: 1.8;
+  font-variant-numeric: tabular-nums;
+  padding: 10px 12px; overflow-y: auto;
+}
+
+.muted { color: var(--td-text-color-secondary); font-size: 12px; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.row .grow { flex: 1; }
+
+/* 键值对描述 */
+.kv { display: grid; grid-template-columns: 110px 1fr; row-gap: 7px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.kv .k { color: var(--td-text-color-secondary); }
+
+/* ================= TDesign 组件政企蓝白化 ================= */
+
+/* 按钮：8px 圆角、600 字重；主按钮蓝底白字每页至多一枚（页面侧自律），hover 仅色阶变化 */
+.t-button {
+  border-radius: 8px; font-weight: 600; letter-spacing: 1px;
+  transition: background .15s var(--tk-ease), color .15s, border-color .15s var(--tk-ease), filter .15s;
+}
+.t-button--theme-primary:hover { filter: brightness(.92); }
+
+/* 输入/选择：1px 发丝边 + 8px 圆角；focus 蓝边 + 浅蓝晕 */
+.t-input, .t-textarea__inner, .t-select__wrap .t-input,
+.t-input-number .t-input, .t-range-input .t-input {
+  border-radius: 8px;
+}
+.t-input.t-is-focused, .t-textarea__inner:focus,
+.t-select__wrap .t-input.t-is-focused {
+  border-color: var(--tk-brand); box-shadow: 0 0 0 3px rgba(14, 61, 168, .12);
+}
+
+/* 复选框体小圆角（单选圈/开关胶囊属圆形语义，保留） */
+.t-checkbox__input { border-radius: 4px; }
+
+/* 弹层/对话框：卡片族 12px、菜单与气泡族 8px，轻阴影 + 发丝边 */
+.t-dialog { border-radius: 12px; box-shadow: var(--tk-shadow-hover); }
+.t-popup__content, .t-message, .t-notification,
+.t-select__dropdown, .t-dropdown-menu {
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  box-shadow: var(--tk-shadow-hover);
+}
+.t-message { box-shadow: var(--tk-shadow-card); }
+
+/* 警示/提示信息块（浅底 + 左色条一族）：一律直角 */
+.t-alert { border-radius: 0; }
+
+/* 表格：发丝分隔线、表头浅灰底 */
+.t-table th { background: var(--tk-fill); font-weight: 600; }
+.t-table td, .t-table th { border-color: var(--tk-hair); }
+
+/* 徽标/标签：4px 小胶囊 */
+.t-tag { border-radius: 4px; font-weight: 600; }
+
+/* 动效降级 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001s !important;
+  }
+  .t-card { opacity: 1; transform: none; }
+}

@@ -1,0 +1,4 @@
+# 内网客户端产物镜像：仅作分发载体（非运行服务），CI 构建上下文为 dist-assets/
+# 取产物：docker create --name tmp <镜像> && docker cp tmp:/artifacts/ ./out && docker rm tmp
+FROM scratch
+COPY *.exe *.zip *.deb *.tar.gz /artifacts/

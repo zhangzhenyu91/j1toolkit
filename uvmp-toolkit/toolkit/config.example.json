@@ -1,0 +1,33 @@
+{
+  "sso": {
+    "username": "",
+    "password": ""
+  },
+  "schedule": {
+    "enabled": true,
+    "time": "09:15",
+    "driver": "os"
+  },
+  "ui": {
+    "close_to_tray": true,
+    "autostart": false
+  },
+  "usb": {
+    "label": "GLKVM",
+    "fallback_dir": ""
+  },
+  "daily_export": {
+    "temp_dir": ""
+  },
+  "order_export": {
+    "default_outdir": "",
+    "lookback_days": 62,
+    "batch_subdir": true
+  },
+  "dev": {
+    "mock": false
+  },
+  "render": {
+    "chrome": ""
+  }
+}

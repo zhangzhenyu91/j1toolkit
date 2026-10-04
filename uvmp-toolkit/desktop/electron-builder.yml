@@ -1,0 +1,61 @@
+appId: cn.j1.uvmp-toolkit
+# 安装后显示名（开始菜单/桌面快捷方式/卸载列表），全端统一「Shade 壹匣 - 内网」：
+# Windows 用此 productName；Linux 由 CI --c.productName=uvmp-toolkit 覆盖（WM_CLASS 需 ASCII），
+# 显示名走下方 linux.desktop.Name（同名）
+productName: Shade 壹匣 - 内网
+copyright: 检修一班
+directories:
+  output: ../dist-electron
+  buildResources: build
+files:
+  - dist/**
+  - electron/**
+  - package.json
+  # 题库搜题 OCR 运行时（原生模块；打包时按目标架构剪枝，见 build/prune-ort.cjs）
+  - node_modules/onnxruntime-node/**
+  - node_modules/onnxruntime-common/**
+asarUnpack:
+  # OCR 模型与推理线程脚本：onnx 原生库直读模型文件，不能走 asar
+  - electron/quizsearch/**
+  # .node 原生模块必须解包加载；onnxruntime-common 同样必须解包——
+  # 推理线程在 asar 外运行，按真实目录解析依赖，漏解包即 Cannot find module（已踩坑）
+  - node_modules/onnxruntime-node/**
+  - node_modules/onnxruntime-common/**
+afterPack: build/prune-ort.cjs
+extraResources:
+  # Python 核心（PyInstaller onedir，CI 先行构建，构件下载到 dist-core/core/）
+  - from: ../dist-core/core
+    to: core
+
+win:
+  target: [nsis, zip]
+  icon: build/icon.png
+  executableName: uvmp-toolkit   # exe 保持 ASCII（产物命名规范；显示名由 productName 承担）
+  artifactName: uvmp-toolkit-${version}-win-portable.${ext}   # nsis 目标由 nsis.artifactName 覆盖
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Shade 壹匣 - 内网
+  artifactName: uvmp-toolkit-Setup-${version}.${ext}
+  include: installer.nsh
+
+linux:
+  target: [deb, tar.gz]
+  category: Utility
+  # 不显式设 linux.icon：单文件 png 只会装出单一尺寸（已踩坑）；
+  # 留空则回退 build/icons/ 目录（make-icons.cjs 生成的 16~1024 全尺寸 hicolor 集合）
+  executableName: uvmp-toolkit
+  artifactName: uvmp-toolkit-${version}-${arch}.${ext}
+  desktop:
+    Name: Shade 壹匣 - 内网
+    Comment: 每日派车单同步 / 派车单·轨迹导出 / 题库搜题
+    # WM_CLASS 关联名（Unicode 产品名做 StartupWMClass 在 X11 下匹配失败，已踩坑）；
+    # 与 main.cjs 的 app.setDesktopName('uvmp-toolkit.desktop') 对应
+    StartupWMClass: uvmp-toolkit
+deb:
+  afterInstall: build/afterInstall.sh
+  afterRemove: build/afterRemove.sh
+  artifactName: uvmp-toolkit_${version}_${arch}.${ext}
+  depends:
+    - libatomic1    # arm64 麒麟跑 Chromium 需要（amd64 也无害）

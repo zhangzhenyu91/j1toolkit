@@ -1,0 +1,11 @@
+[Unit]
+Description=内网工具箱 - 每日派车单同步定时器（每 10 分钟 due-check，到点执行）
+
+[Timer]
+# 高频唤醒 + due-check：配置时间在 toolkit/config.json 里，GUI 可改，无需动本文件
+OnCalendar=*-*-* 06..23:00/10
+Persistent=true
+Unit=uvmp-toolkit.service
+
+[Install]
+WantedBy=timers.target

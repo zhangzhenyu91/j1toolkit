@@ -1,0 +1,27 @@
+# 密钥与本地产物不入仓
+toolkit/config.json
+config.ini.local
+pylib/
+output/
+*.log
+__pycache__/
+
+# 样例含真实个人信息；zip 为打包中转产物——均不入仓
+样例/
+*.zip
+
+# IDE
+.idea/
+
+# 构建产物（注意只锚定项目根的 build/，desktop/build/ 是 electron-builder 资源目录必须入仓）
+/build/
+/dist/
+dist-core/
+dist-electron/
+*.spec
+
+# 前端依赖
+desktop/node_modules/
+desktop/dist/
+
+packaging/.eb-binaries/
