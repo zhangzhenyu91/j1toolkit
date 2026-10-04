@@ -120,7 +120,7 @@ jobs:
         run: |
           for REMOTE in \
             "https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git" \
-            "https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit.git"; do
+            "https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"; do
             if git ls-remote "$REMOTE" "refs/tags/${GITHUB_REF_NAME}" | grep -q .; then
               echo "远端已存在 ${GITHUB_REF_NAME}，跳过"
             else
