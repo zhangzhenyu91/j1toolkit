@@ -62,10 +62,12 @@ jobs:
           echo "ACR_USERNAME=$(printf '%s' "$ACR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
           echo "${ACR_PASSWORD}" | docker login "${ACR_IMAGE%%/*}" -u "${ACR_USERNAME}" --password-stdin
           echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
-      - name: 原生构建并按 digest 推送（${{ matrix.platform }}）
+      - name: 原生构建并按 digest 推 ACR（${{ matrix.platform }}）
         run: |
+          # 单 name 按 digest 推 ACR；CNB 侧由 manifest 阶段 imagetools 跨仓库复制
+          # （--output 的 name 不支持逗号多值，"name=a,b" 会被 CSV 解析器拆坏——已踩坑）
           docker buildx build --platform ${{ matrix.platform }} \
-            --output type=image,"name=${ACR_IMAGE},${CNB_IMAGE}",push-by-digest=true,name-canonical=true,push=true \
+            --output type=image,name=${ACR_IMAGE},push-by-digest=true,name-canonical=true,push=true \
             --metadata-file /tmp/meta.json .
           jq -r '."containerimage.digest"' /tmp/meta.json > "digest-${{ matrix.suffix }}.txt"
       - name: 传递 digest
@@ -103,8 +105,9 @@ jobs:
           D_ARM64=$(cat digests/digest-arm64.txt)
           docker buildx imagetools create -t "${ACR_IMAGE}:${VERSION}" \
             "${ACR_IMAGE}@${D_AMD64}" "${ACR_IMAGE}@${D_ARM64}"
+          # imagetools create 支持跨仓库复制：从 ACR 源清单拷到 CNB（两仓库均已登录）
           docker buildx imagetools create -t "${CNB_IMAGE}:${VERSION}" \
-            "${CNB_IMAGE}@${D_AMD64}" "${CNB_IMAGE}@${D_ARM64}"
+            "${ACR_IMAGE}@${D_AMD64}" "${ACR_IMAGE}@${D_ARM64}"
 
   release:
     needs: [prepare, manifest]
