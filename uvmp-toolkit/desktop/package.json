@@ -4,7 +4,7 @@
   "version": "1.0.1",
   "private": true,
   "description": "内网工具箱桌面客户端（Electron + Vue + TDesign；Python 核心 sidecar）",
-  "homepage": "https://github.com/zhangzhenyu91/j1toolkit-private",
+  "homepage": "https://github.com/zhangzhenyu91/j1toolkit",
   "author": {
     "name": "检修一班",
     "email": "zhangzhenyu91@users.noreply.github.com"

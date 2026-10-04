@@ -1,6 +1,6 @@
 # 内网工具箱（uvmp-toolkit）
 
-> 本客户端现居私有仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private) 的 `uvmp-toolkit/` 子目录（原独立仓 uvmp-toolkit 已并入），经 submodule 挂载于壹匣公开仓 `private/uvmp-toolkit/`。
+> 本客户端现居公开仓 [j1toolkit](https://github.com/zhangzhenyu91/j1toolkit) 根目录 `uvmp-toolkit/`（2026-10 自私有仓迁回：安装包本就公开发布、产物可解包，源码私密性有限）。
 
 内网被控机（银河麒麟 V10 SP1 amd64/arm64 优先，兼容 Windows 10+）上的桌面客户端与自动化工具集，面向派车系统（UVMP）的导出类业务。
 
@@ -16,7 +16,7 @@
 
 ## 下载与安装（内网机）
 
-从私有仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private) 的 Release 下载对应架构（私有库需登录账号态下载）：
+从公开仓 [j1toolkit](https://github.com/zhangzhenyu91/j1toolkit) 的 Release 下载对应架构（免登录）：
 
 | 平台 | 安装包（推荐） | 绿色包 |
 |---|---|---|
@@ -61,4 +61,4 @@ python3 toolkit/app.py rpc                                  # stdio JSON-RPC（E
 
 ## 仓库注意
 
-**本客户端含内网系统逆向细节，所在 j1toolkit-private 必须保持 Private。** 密钥一律不入仓：SSO 凭据只存在于各机器的 `toolkit/config.json`（600 权限）或 `~/.config/uvmp-toolkit/config.json`；仓库内 `config.ini` 不含真实密码。
+**本客户端含内网系统对接细节，密钥一律不入仓：SSO 凭据只存在于各机器的 `toolkit/config.json`（600 权限）或 `~/.config/uvmp-toolkit/config.json`；仓库内 `config.ini` 不含真实密码。**

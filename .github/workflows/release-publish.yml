@@ -17,7 +17,7 @@ on:
 env:
   TAG: ${{ inputs.tag }}
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
-  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-private
+  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-uvmp
   GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   TCR_IMAGE: ${{ vars.TCR_IMAGE || secrets.TCR_IMAGE }}

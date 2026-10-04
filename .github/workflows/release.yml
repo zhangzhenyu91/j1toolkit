@@ -28,7 +28,7 @@ on:
 
 env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
-  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-private
+  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-uvmp
   GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
   # Docker Hub：GitHub 构建机同在美国，推送快（服务端镜像的 GitHub 侧落点；国内正线 TCR 由 CNB 构建推送，见 .cnb.yml）
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
