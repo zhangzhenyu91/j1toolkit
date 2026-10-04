@@ -86,8 +86,12 @@ jobs:
           # 曾试双 --output 同推 TCR+CNB：amd64 job 在 CNB 上传侧卡死 4h+（跨境链路）——已踩坑，勿回退
           # --provenance=false：buildx 默认附加 SLSA 溯源证明（OCI empty config 清单），
           # 部分仓库不认该 manifest class 拒收（unknown manifest class ... oci.empty.v1）——已踩坑
+          # registry 层缓存：LibreOffice 等不变层只在首次上传，后续发版只传变化层
+          # （跨境推国内仓是发版耗时大头，北京时间晚高峰尤甚）；缓存推送失败不阻塞构建（ignore-error）
           docker buildx build --platform ${{ matrix.platform }} --provenance=false \
             --output type=image,name=${TCR_IMAGE},push-by-digest=true,name-canonical=true,push=true \
+            --cache-from type=registry,ref=${TCR_IMAGE}:buildcache \
+            --cache-to type=registry,ref=${TCR_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true \
             --metadata-file /tmp/meta.json .
           jq -r '."containerimage.digest"' /tmp/meta.json > "digest-${{ matrix.suffix }}.txt"
       - name: 传递 digest
