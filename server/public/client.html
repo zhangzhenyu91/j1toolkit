@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 内网客户端页（内部应用：要求登录 + client 应用权限，工作台宫格/顶栏进入）
-     安装包不再托管本站：GitHub 发版构建后由 publish-cnb 回传 CNB 制品库（Docker 产物镜像，
-     tag = 版本号），本页只贴链接与取件命令；页面不被动接收更新，版本以 CNB 制品库为准 -->
+     安装包不再托管本站：公开仓打 vX.Y.Z tag 由 release.yml 统一构建发版（后端镜像 + 客户端同版本线）——
+     直链下载走 Gitee 公开仓 Release（优先）/ GitHub Release（备用），浏览器直下免登录；
+     Docker 产物镜像同推 TCR（优先，与服务器同云）/ GHCR（备用）/ CNB（第三副本）。
+     页面不被动接收更新，最新版本号由 GitHub API 拉取填入命令块（失败则显示 <版本号> 占位） -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -38,6 +40,7 @@
   .help-card ul { margin: 10px 0 0; padding-left: 1.2em; font-size: 12.5px; color: var(--sub); line-height: 2; }
   .help-card code, .cmdline { font-family: Menlo, Consolas, monospace; font-size: .92em; color: var(--orange); background: var(--fill); padding: 1px 5px; border-radius: 4px; }
   .cmd-block { margin-top: 10px; padding: 12px 14px; background: var(--fill); font-family: Menlo, Consolas, monospace; font-size: 12px; line-height: 1.9; color: var(--sub); overflow-x: auto; white-space: pre; }
+  .ver { color: var(--orange); }
 
   @keyframes riseIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
@@ -49,21 +52,24 @@
     <span class="logo-mark"><img src="/toolkit.svg" alt="Shade 壹匣" style="width:100%;height:100%"></span>
     <div>
       <h1>Shade 壹匣 - 内网</h1>
-      <div class="sub">内网工具箱桌面端（每日派车单同步 / 派车单·轨迹导出 / 题库搜题），安装包托管于 CNB 制品库</div>
+      <div class="sub">内网工具箱桌面端（每日派车单同步 / 派车单·轨迹导出 / 题库搜题），最新版本：<span class="ver">&lt;版本号&gt;</span></div>
     </div>
   </div>
   <div id="content"><div class="card empty-box" style="margin-top:22px;padding:40px 26px;text-align:center;font-size:13px;color:var(--ph)">加载中…</div></div>
 
   <section class="card help-card">
-    <h3>取件方式（Docker 产物镜像）</h3>
+    <h3>取件方式（Docker 产物镜像，tag = 版本号）</h3>
     <ul>
-      <li>产物镜像地址：<code>docker.cnb.cool/j1net/j1toolkit/j1toolkit-private:&lt;版本号&gt;</code>（如 <code>:2.5.9</code>，最新版本号见 CNB 制品页）。</li>
       <li>镜像内 <code>/artifacts/</code> 含 6 个安装包：Windows 安装包（Setup exe）/ 绿色包（zip）、麒麟 amd64 / arm64 的 deb 与 tar.gz。</li>
-      <li>取件命令（需先 <code>docker login docker.cnb.cool</code>）：</li>
+      <li>优先腾讯云 TCR（与服务器同云）：<code>ccr.ccs.tencentyun.com/j1net/uvmp-toolkit:<span class="ver">&lt;版本号&gt;</span></code></li>
     </ul>
-    <div class="cmd-block">docker create --name tmp docker.cnb.cool/j1net/j1toolkit/j1toolkit-private:&lt;版本号&gt;
+    <div class="cmd-block">docker create --name tmp ccr.ccs.tencentyun.com/j1net/uvmp-toolkit:<span class="ver">&lt;版本号&gt;</span>
 docker cp tmp:/artifacts/ ./uvmp-installers
 docker rm tmp</div>
+    <ul>
+      <li>备用 GitHub GHCR：<code>ghcr.io/zhangzhenyu91/uvmp-toolkit:<span class="ver">&lt;版本号&gt;</span></code>（命令同上，替换镜像地址即可）</li>
+      <li>镜像仓库若未设公开，需先 <code>docker login</code> 对应仓库。</li>
+    </ul>
   </section>
 
   <section class="card help-card">
@@ -72,7 +78,7 @@ docker rm tmp</div>
       <li><b>Windows 10+</b>：下载「安装包（exe）」双击安装（免管理员）；绿色包（zip）解压即用。</li>
       <li><b>银河麒麟 V10 SP1</b>：下载对应架构（amd64 / arm64）的 deb，执行 <code>sudo apt install ./uvmp-toolkit_*.deb</code>。</li>
       <li>安装后打开客户端，在「设置」页填写 SSO 凭据，再到「每日派车单同步」页启用定时。</li>
-      <li>访问 CNB 制品库需登录有私有仓权限的 CNB 账号；无账号时也可从 GitHub 私有仓 Release 下载（同样需要账号权限）。</li>
+      <li>Gitee / GitHub 均为公开仓 Release，浏览器直链下载、免登录；Gitee 侧单附件超 100MB 会分卷（<code>cat 文件名.part-* &gt; 文件名</code> 合并）。</li>
     </ul>
   </section>
 </main>
@@ -85,8 +91,8 @@ docker rm tmp</div>
   Shade.reveal();
 
   var LINKS = [
-    { name: 'CNB 制品库（Docker 产物镜像）', hint: '最新版本号与下载 · 推荐', href: 'https://cnb.cool/j1net/j1toolkit/j1toolkit-private/-/packages', icon: 'download' },
-    { name: 'GitHub Release（备用）', hint: '同一份安装包的浏览器直链下载', href: 'https://github.com/zhangzhenyu91/j1toolkit-private/releases', icon: 'monitor' },
+    { name: 'Gitee Release（推荐）', hint: '国内直连 · 浏览器直下免登录 · 与后端同版本线', href: 'https://gitee.com/j1net/j1toolkit/releases', icon: 'download' },
+    { name: 'GitHub Release（备用）', hint: '同一份安装包 · 历史版本最全', href: 'https://github.com/zhangzhenyu91/j1toolkit/releases', icon: 'monitor' },
   ];
 
   function renderGranted() {
@@ -102,6 +108,17 @@ docker rm tmp</div>
       + '</div>';
     document.getElementById('content').innerHTML = html;
   }
+
+  // 最新版本号填入命令块（公开仓 API，取最新 v* / release-v* Release；失败则保留 <版本号> 占位）
+  fetch('https://api.github.com/repos/zhangzhenyu91/j1toolkit/releases?per_page=30')
+    .then(function (r) { return r.json(); })
+    .then(function (list) {
+      var rel = (list || []).find(function (x) { return x.tag_name && /^(release-)?v\d/.test(x.tag_name); });
+      if (!rel) return;
+      var ver = rel.tag_name.replace(/^(release-)?v/, '');
+      Array.prototype.forEach.call(document.querySelectorAll('.ver'), function (el) { el.textContent = ver; });
+    })
+    .catch(function () {});
 
   // 内部应用门控：登录态之上再校验 client 应用权限（无权限直开链接时拦截）
   Shade.api('/api/v1/app/list')

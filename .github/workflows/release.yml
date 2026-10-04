@@ -1,20 +1,25 @@
 name: 发版
 
-# 发版产线（2026-10 起构建收口 GitHub Actions，取代 ACR「代码变更自动构建」与 CNB 构建双轨）：
-#   build    amd64（ubuntu-latest）+ arm64（ubuntu-24.04-arm 原生构建机，公开仓免费）分架构原生构建，
-#            按 digest 推腾讯云 TCR
-#   manifest 合并多架构 manifest（:X.Y.Z），并 imagetools 跨仓复制到 CNB 制品库
-#   release  GitHub Release → 回推 tag 到 Gitee/CNB → Gitee 公开仓 Release（正文为镜像拉取命令）
-#            （CNB Release 由仓根 .cnb.yml 的 git:release 在 tag 到达 CNB 后接力创建）
-# 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（两条 tag 线等价、全程幂等，发版打 release-v 即可）。
+# 发版产线（2026-10 起构建收口 GitHub Actions，后端镜像 + 内网客户端同一条版本线 vX.Y.Z）：
+#   prepare        版本号剥离（release-v / v 前缀）
+#   release-init   仅 tag：先建空 GitHub Release，避免三个客户端构建 job 并发抢建 422（已踩坑）
+#   build-server   服务端镜像：amd64（ubuntu-latest）+ arm64（ubuntu-24.04-arm 原生构建机，公开仓免费）
+#                  分架构原生构建，按 digest 同推 TCR + CNB（双 --output 单 name，name 不支持逗号多值——已踩坑）
+#   client-*       内网客户端三平台（Windows NSIS/zip + 冒烟；麒麟 amd64/arm64 deb/tar.gz + 冒烟），
+#                  产物随建随传 GitHub Release（无中转构件：artifact 存储额度曾被挤爆——已踩坑）
+#   manifest       合并服务端多架构 manifest :X.Y.Z（TCR/CNB 各自仓内 server 侧合并，不跨仓拷 blob）
+#   publish-images 客户端产物镜像同推 TCR（优先）/ GHCR（备用）/ CNB（第三副本）
+#   release-final  GitHub Release 补全说明 → 回推 tag 到 Gitee/CNB（CNB Release 由 .cnb.yml
+#                  git:release 接力）→ Gitee 公开仓 Release（删旧重建 + 6 件附件，>95MiB 分卷，
+#                  受单仓附件总量 1GB 限制仅保留最新一份 Release）
+# 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（等价幂等，二选一即可）；workflow_dispatch 只构建冒烟不发布。
 #
 # 需在仓库配置（Settings → Secrets and variables → Actions）：
-#   Secrets:   TCR_USERNAME（腾讯云账号 UIN，纯数字）/ TCR_PASSWORD（TCR 个人版访问凭证密码）、
-#              CNB_TOKEN（需含仓库 git 写 + 制品库权限）、
-#              GITEE_TOKEN（Gitee 私人令牌，projects 权限——注意粘贴值不要带空格/换行，否则 git 推送给出
-#              "credential url cannot be parsed"）
-#   Variables 或 Secrets: TCR_IMAGE（镜像全路径，如 ccr.ccs.tencentyun.com/<命名空间>/j1toolkit；
-#              workflow 顶部 env 做双源回退，放哪边都行）
+#   Secrets: TCR_USERNAME（腾讯云账号 UIN）/ TCR_PASSWORD（TCR 个人版访问凭证密码）、
+#            CNB_TOKEN（仓库 git 写 + 制品库权限）、GITEE_TOKEN（Gitee 私人令牌，projects 权限，
+#            粘贴勿带空格/换行——否则 git 推送报 "credential url cannot be parsed"）
+#   Variables 或 Secrets: TCR_IMAGE（服务端镜像全路径 ccr.ccs.tencentyun.com/<命名空间>/j1toolkit，
+#            客户端产物镜像按同命名空间拼 uvmp-toolkit；顶部 env 双源回退）
 
 on:
   push:
@@ -23,6 +28,8 @@ on:
 
 env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
+  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-private
+  GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
   # TCR_IMAGE 放 Variable 或 Secret 均可（双源回退）
   TCR_IMAGE: ${{ vars.TCR_IMAGE || secrets.TCR_IMAGE }}
 
@@ -38,7 +45,17 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "构建版本: ${VERSION}"
 
-  build:
+  release-init:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2   # 建（或复用）空 Release
+      - if: github.ref_type != 'tag'
+        run: echo "非 tag 构建：只编译冒烟，不发 Release"
+
+  build-server:
     needs: prepare
     strategy:
       matrix:
@@ -63,14 +80,13 @@ jobs:
           echo "TCR_USERNAME=$(printf '%s' "$TCR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
           echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
           echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
-      - name: 原生构建并按 digest 推 TCR（${{ matrix.platform }}）
+      - name: 原生构建并按 digest 同推 TCR + CNB（${{ matrix.platform }}）
         run: |
-          # 单 name 按 digest 推 TCR；CNB 侧由 manifest 阶段 imagetools 跨仓库复制
-          # （--output 的 name 不支持逗号多值，"name=a,b" 会被 CSV 解析器拆坏——已踩坑）
           # --provenance=false：buildx 默认附加 SLSA 溯源证明（OCI empty config 清单），
           # 部分仓库不认该 manifest class 拒收（unknown manifest class ... oci.empty.v1）——已踩坑
           docker buildx build --platform ${{ matrix.platform }} --provenance=false \
             --output type=image,name=${TCR_IMAGE},push-by-digest=true,name-canonical=true,push=true \
+            --output type=image,name=${CNB_IMAGE},push-by-digest=true,name-canonical=true,push=true \
             --metadata-file /tmp/meta.json .
           jq -r '."containerimage.digest"' /tmp/meta.json > "digest-${{ matrix.suffix }}.txt"
       - name: 传递 digest
@@ -80,8 +96,186 @@ jobs:
           path: digest-${{ matrix.suffix }}.txt
           retention-days: 1
 
+  client-windows:
+    needs: release-init
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: uvmp-toolkit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: PyInstaller 构建核心（console onedir）
+        run: |
+          pip install pyinstaller requests gmssl pypdf websocket-client
+          python -m PyInstaller --name uvmp-core --onedir --clean --noconfirm `
+            --add-data "toolkit/apps;apps" `
+            --add-data "toolkit/config.example.json;." `
+            --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
+            --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
+            --hidden-import pypdf `
+            toolkit/app.py
+      - name: 装配与冒烟（selfcheck + rpc ping）
+        shell: pwsh
+        run: |
+          Copy-Item config.ini dist\uvmp-core\config.ini
+          Copy-Item toolkit\config.example.json dist\uvmp-core\config.example.json
+          Copy-Item packaging\config.initial.json dist\uvmp-core\config.initial.json
+          Copy-Item packaging\run-daily-export.vbs dist\uvmp-core\run-daily-export.vbs
+          Copy-Item README.md dist\uvmp-core\README.md
+          Copy-Item -Recurse install dist\uvmp-core\install
+          & "dist\uvmp-core\uvmp-core.exe" selfcheck
+          if ($LASTEXITCODE -ne 0) { throw "selfcheck 失败" }
+          $ping = '{"id":1,"method":"ping"}' | & "dist\uvmp-core\uvmp-core.exe" rpc
+          if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 前端构建 + 打包（NSIS 安装程序 + zip）
+        run: |
+          New-Item -ItemType Directory -Force dist-core | Out-Null
+          Copy-Item -Recurse dist\uvmp-core dist-core\core
+          npm ci --prefix desktop
+          npm run build --prefix desktop
+          # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
+          Push-Location desktop
+          npx electron-builder --win
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { exit $code }
+      - name: GUI 冒烟（UVMP_CI_SMOKE：窗口加载后断言 #app 真实渲染）
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem "dist-electron\win-unpacked\*.exe" | Select-Object -First 1).FullName
+          $env:UVMP_CI_SMOKE = "1"
+          $env:ELECTRON_ENABLE_LOGGING = "1"
+          $p = Start-Process -FilePath $exe -PassThru -Wait `
+            -RedirectStandardOutput smoke-out.log -RedirectStandardError smoke-err.log
+          Write-Host "---- smoke stdout ----"; Get-Content smoke-out.log -ErrorAction SilentlyContinue
+          Write-Host "---- smoke stderr ----"; Get-Content smoke-err.log -ErrorAction SilentlyContinue | Select-Object -Last 30
+          if ($p.ExitCode -ne 0) { throw "GUI 冒烟失败 exit=$($p.ExitCode)" }
+      - if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            uvmp-toolkit/dist-electron/*.exe
+            uvmp-toolkit/dist-electron/*.zip
+
+  client-linux-amd64:
+    needs: release-init
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: uvmp-toolkit
+    steps:
+      - uses: actions/checkout@v4
+      - name: 在 debian:buster 容器内构建核心（glibc 2.28 对齐麒麟 V10 SP1）
+        # 容器 -w 直接进 uvmp-toolkit/，脚本内部相对路径（packaging/build_unix.sh 等）不变
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+            debian:buster bash packaging/build_linux_container.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 前端构建 + 打包（deb + tar.gz）
+        env:
+          # onnxruntime-node 的 postinstall 在 linux/x64 会联网拉 CUDA 库，CPU 场景必须跳过
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          mkdir -p dist-core
+          cp -r dist/uvmp-core dist-core/core
+          chmod +x dist-core/core/uvmp-core   # 容器出来权限位正常，这里兜底
+          npm ci --prefix desktop
+          npm run build --prefix desktop
+          # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
+          cd desktop && npx electron-builder --linux --x64 --c.productName=uvmp-toolkit
+      - name: OCR 运行时 glibc 门禁（麒麟 V10 SP1 = glibc 2.28，超版本即失败并降级重钉）
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" debian:buster bash -c '
+            set -e
+            # 双点号通配：只取带版本号的实体 .so，避开 libonnxruntime.so.1 软链（多行结果会炸 grep）
+            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v3/linux/x64/libonnxruntime.so.*.*)
+            max=$(grep -ao "GLIBC_2\.[0-9]*" "$lib" | sort -Vu | tail -1)
+            echo "onnxruntime-node 最高依赖 $max（门禁 ≤ GLIBC_2.28）"
+            minor=${max#GLIBC_2.}
+            [ -n "$minor" ] && [ "$minor" -le 28 ]
+          '
+      - name: GUI 冒烟（xvfb + UVMP_CI_SMOKE：断言 #app 真实渲染）
+        # --no-sandbox 必须走命令行参数：SUID 沙箱检查在 JS 执行前的 C++ 引导阶段，
+        # appendSwitch 赶不上（已踩坑）
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgtk-3-0 libgbm1 libnss3 libasound2t64 >/dev/null
+          UVMP_CI_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 \
+            xvfb-run -a ./dist-electron/linux-unpacked/uvmp-toolkit --no-sandbox --disable-gpu
+      - if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            uvmp-toolkit/dist-electron/*.deb
+            uvmp-toolkit/dist-electron/*.tar.gz
+
+  client-linux-arm64:
+    needs: release-init
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: uvmp-toolkit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3   # arm64 模拟（较慢，约 10-20 分钟）
+      - name: 在 arm64v8/debian:buster 容器内构建核心
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE:/src" -w /src/uvmp-toolkit \
+            arm64v8/debian:buster bash packaging/build_linux_container.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 前端构建 + 打包（deb + tar.gz；纯打包不执行 arm64 代码）
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          mkdir -p dist-core
+          cp -r dist/uvmp-core dist-core/core
+          chmod +x dist-core/core/uvmp-core
+          npm ci --prefix desktop
+          npm run build --prefix desktop
+          cd desktop && npx electron-builder --linux --arm64 --c.productName=uvmp-toolkit
+      - name: OCR 运行时 glibc 门禁（arm64，文件检查非执行）
+        run: |
+          docker run --rm --platform linux/arm64 -v "$GITHUB_WORKSPACE:/src" arm64v8/debian:buster bash -c '
+            set -e
+            lib=$(ls /src/uvmp-toolkit/desktop/node_modules/onnxruntime-node/bin/napi-v3/linux/arm64/libonnxruntime.so.*.*)
+            max=$(grep -ao "GLIBC_2\.[0-9]*" "$lib" | sort -Vu | tail -1)
+            echo "onnxruntime-node(arm64) 最高依赖 $max（门禁 ≤ GLIBC_2.28）"
+            minor=${max#GLIBC_2.}
+            [ -n "$minor" ] && [ "$minor" -le 28 ]
+          '
+      - if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            uvmp-toolkit/dist-electron/*.deb
+            uvmp-toolkit/dist-electron/*.tar.gz
+
   manifest:
-    needs: [prepare, build]
+    needs: [prepare, build-server]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: docker/setup-buildx-action@v3
@@ -100,7 +294,7 @@ jobs:
           echo "TCR_USERNAME=$(printf '%s' "$TCR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
           echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
           echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
-      - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}）
+      - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}，各自仓内合并不跨仓拷 blob）
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -108,12 +302,52 @@ jobs:
           D_ARM64=$(cat digests/digest-arm64.txt)
           docker buildx imagetools create -t "${TCR_IMAGE}:${VERSION}" \
             "${TCR_IMAGE}@${D_AMD64}" "${TCR_IMAGE}@${D_ARM64}"
-          # imagetools create 支持跨仓库复制：从 TCR 源清单拷到 CNB（两仓库均已登录）
           docker buildx imagetools create -t "${CNB_IMAGE}:${VERSION}" \
-            "${TCR_IMAGE}@${D_AMD64}" "${TCR_IMAGE}@${D_ARM64}"
+            "${CNB_IMAGE}@${D_AMD64}" "${CNB_IMAGE}@${D_ARM64}"
 
-  release:
-    needs: [prepare, manifest]
+  publish-images:
+    needs: [prepare, client-windows, client-linux-amd64, client-linux-arm64]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # 推 GHCR
+    steps:
+      - name: 下载 Release 全部安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-assets
+          gh release download "$GITHUB_REF_NAME" --dir dist-assets --clobber \
+            --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
+          ls -lh dist-assets
+      - uses: docker/setup-buildx-action@v3   # container 驱动 builder，支持多架构 --push（纯 COPY 无需 QEMU）
+      - name: 客户端产物镜像同推 TCR / GHCR / CNB
+        env:
+          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          echo "TCR_IMAGE=$(printf '%s' "$TCR_IMAGE" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "TCR_USERNAME=$(printf '%s' "$TCR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          [ -n "$TCR_IMAGE" ] || { echo "::error::TCR_IMAGE 未配置"; exit 1; }
+          TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"   # 复用服务端镜像的命名空间
+          echo "TCR_CLIENT_IMAGE=${TCR_CLIENT_IMAGE}" >> "$GITHUB_ENV"
+          echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
+          docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
+            -f uvmp-toolkit/packaging/Dockerfile.dist \
+            -t "${TCR_CLIENT_IMAGE}:${VERSION}" \
+            -t "${GHCR_CLIENT_IMAGE}:${VERSION}" \
+            -t "${CNB_CLIENT_IMAGE}:${VERSION}" \
+            --push dist-assets/
+
+  release-final:
+    needs: [prepare, manifest, publish-images]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -121,11 +355,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ needs.prepare.outputs.version }}
-          generate_release_notes: true
+      - name: 下载 Release 全部安装包（Gitee 回传用）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-assets
+          gh release download "$GITHUB_REF_NAME" --dir dist-assets --clobber \
+            --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
+      - name: 补全 GitHub Release 说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release edit "${GITHUB_REF_NAME}" --notes "$(cat <<EOF
+          服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
+          腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}
+          CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
+
+          内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方 Assets；
+          产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。
+
+          部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
+          EOF
+          )"
       - name: 回推 tag 到 Gitee / CNB（远端已存在则跳过）
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
@@ -140,28 +392,45 @@ jobs:
               git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
             fi
           done
-      - name: 创建/更新 Gitee 公开仓 Release（正文为镜像拉取命令）
+      - name: Gitee 公开仓 Release（删旧重建 + 6 件附件分卷上传 + 清理历史 Release）
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
-          腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}
-          CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
-          部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
-          内网客户端安装包见本仓 client-v* 系列 Release。"
-          CODE=$(curl -s -o /tmp/rel.json -w '%{http_code}' \
-            "https://gitee.com/api/v5/repos/j1net/j1toolkit/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}")
-          if [ "$CODE" = "200" ]; then
-            REL_ID=$(jq -r .id /tmp/rel.json)
-            curl -s -X PATCH "https://gitee.com/api/v5/repos/j1net/j1toolkit/releases/${REL_ID}" \
-              -d "access_token=${GITEE_TOKEN}" -d "name=${VERSION}" \
-              --data-urlencode "body=${BODY}" > /dev/null
-            echo "已更新 Gitee Release: ${REL_ID}"
-          else
-            REL_ID=$(curl -s -X POST "https://gitee.com/api/v5/repos/j1net/j1toolkit/releases" \
-              -d "access_token=${GITEE_TOKEN}" -d "tag_name=${GITHUB_REF_NAME}" \
-              -d "name=${VERSION}" --data-urlencode "body=${BODY}" | jq -r .id)
-            echo "已创建 Gitee Release: ${REL_ID}"
+          set -e
+          API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
+          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；*.part-* 为分卷（Gitee 单附件限 100MB），下载全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
+          # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
+          curl -s -o /tmp/rel.json "${API}/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}"
+          OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
+          if [ -n "$OLD_REL" ]; then
+            curl -s -X DELETE "${API}/releases/${OLD_REL}?access_token=${GITEE_TOKEN}" -o /dev/null
+            echo "已删旧 Release ${OLD_REL}"
           fi
-          [ -n "$REL_ID" ] && [ "$REL_ID" != "null" ]
+          REL_ID=$(curl -s -X POST "${API}/releases" \
+            -d "access_token=${GITEE_TOKEN}" -d "tag_name=${GITHUB_REF_NAME}" \
+            -d "name=v${VERSION}" --data-urlencode "body=${BODY}" | jq -r '.id // empty')
+          [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败"; exit 1; }
+          cd dist-assets
+          for f in *; do
+            SIZE=$(stat -c%s "$f")
+            if [ "$SIZE" -gt 99614720 ]; then
+              split -b 95m "$f" "$f.part-"
+              for p in "$f".part-*; do
+                curl -s -X POST "${API}/releases/${REL_ID}/attach_files" \
+                  -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null
+                echo "已传分卷 ${p}"
+              done
+            else
+              curl -s -X POST "${API}/releases/${REL_ID}/attach_files" \
+                -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null
+              echo "已传 ${f}"
+            fi
+          done
+          # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release（连同附件整删历史 Release；完整历史在 GitHub）
+          curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
+            | jq -r '.[] | select(.tag_name != "'"${GITHUB_REF_NAME}"'") | .id' \
+            | while read -r OLD_ID; do
+                curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
+                echo "已清理历史 Release ${OLD_ID}"
+              done
