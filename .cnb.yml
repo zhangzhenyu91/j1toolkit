@@ -48,21 +48,29 @@ v*:
             TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"
             API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
             command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
-            # 轮询等 Gitee Release 附件数稳定且 ≥6（release-final 正在上传中，最多等 45 分钟）
+            # 轮询等 Gitee Release 客户端附件齐（≥6 件 uvmp-toolkit* 安装包；assets 恒含 2 个源码包
+            # 须排除——已踩坑；复用同一份响应体取名单，避免二次请求抖动——已踩坑）
             LAST=0
             for i in $(seq 1 45); do
-              N=$(curl -s "${API}/releases/tags/${CNB_BRANCH}" | jq '[.assets[]?, .attach_files[]?] | length')
+              curl -s "${API}/releases/tags/${CNB_BRANCH}" -o /tmp/rel.json
+              N=$(jq '[.assets[]? | select(.name | startswith("uvmp-toolkit"))] | length' /tmp/rel.json 2>/dev/null || echo 0)
               [ "${N:-0}" -ge 6 ] && [ "$N" = "$LAST" ] && break
               LAST=$N; sleep 60
             done
             [ "${N:-0}" -ge 6 ] || { echo "Gitee 附件未就绪"; exit 1; }
             mkdir -p /tmp/arts && cd /tmp/arts
-            curl -s "${API}/releases/tags/${CNB_BRANCH}" \
-              | jq -r '[.assets[]?.name, .attach_files[]?.name] | .[]' > names.txt
-            while read -r f; do
-              curl -sL -o "$f" "https://gitee.com/j1net/j1toolkit/releases/download/${CNB_BRANCH}/${f}"
+            jq -r --arg tag "${CNB_BRANCH}" \
+              '.assets[]? | select(.name | startswith("uvmp-toolkit")) | (.browser_download_url // ("https://gitee.com/j1net/j1toolkit/releases/download/" + $tag + "/" + .name))' \
+              /tmp/rel.json > urls.txt
+            while read -r u; do
+              f=$(basename "$u")
+              for t in 1 2 3; do
+                curl -sfL -o "$f" "$u" && [ -s "$f" ] && break
+                sleep 10
+              done
+              [ -s "$f" ] || { echo "下载失败 $f"; exit 1; }
               echo "已下载 $f"
-            done < names.txt
+            done < urls.txt
             # 分卷合并（Gitee 单附件限 100MB，超限文件以 .part-* 上传）
             for base in $(ls *.part-aa 2>/dev/null | sed 's/\.part-aa$//'); do
               cat "$base".part-* > "$base" && rm -f "$base".part-*
@@ -110,21 +118,29 @@ release-v*:
             TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"
             API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
             command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
-            # 轮询等 Gitee Release 附件数稳定且 ≥6（release-final 正在上传中，最多等 45 分钟）
+            # 轮询等 Gitee Release 客户端附件齐（≥6 件 uvmp-toolkit* 安装包；assets 恒含 2 个源码包
+            # 须排除——已踩坑；复用同一份响应体取名单，避免二次请求抖动——已踩坑）
             LAST=0
             for i in $(seq 1 45); do
-              N=$(curl -s "${API}/releases/tags/${CNB_BRANCH}" | jq '[.assets[]?, .attach_files[]?] | length')
+              curl -s "${API}/releases/tags/${CNB_BRANCH}" -o /tmp/rel.json
+              N=$(jq '[.assets[]? | select(.name | startswith("uvmp-toolkit"))] | length' /tmp/rel.json 2>/dev/null || echo 0)
               [ "${N:-0}" -ge 6 ] && [ "$N" = "$LAST" ] && break
               LAST=$N; sleep 60
             done
             [ "${N:-0}" -ge 6 ] || { echo "Gitee 附件未就绪"; exit 1; }
             mkdir -p /tmp/arts && cd /tmp/arts
-            curl -s "${API}/releases/tags/${CNB_BRANCH}" \
-              | jq -r '[.assets[]?.name, .attach_files[]?.name] | .[]' > names.txt
-            while read -r f; do
-              curl -sL -o "$f" "https://gitee.com/j1net/j1toolkit/releases/download/${CNB_BRANCH}/${f}"
+            jq -r --arg tag "${CNB_BRANCH}" \
+              '.assets[]? | select(.name | startswith("uvmp-toolkit")) | (.browser_download_url // ("https://gitee.com/j1net/j1toolkit/releases/download/" + $tag + "/" + .name))' \
+              /tmp/rel.json > urls.txt
+            while read -r u; do
+              f=$(basename "$u")
+              for t in 1 2 3; do
+                curl -sfL -o "$f" "$u" && [ -s "$f" ] && break
+                sleep 10
+              done
+              [ -s "$f" ] || { echo "下载失败 $f"; exit 1; }
               echo "已下载 $f"
-            done < names.txt
+            done < urls.txt
             # 分卷合并（Gitee 单附件限 100MB，超限文件以 .part-* 上传）
             for base in $(ls *.part-aa 2>/dev/null | sed 's/\.part-aa$//'); do
               cat "$base".part-* > "$base" && rm -f "$base".part-*
