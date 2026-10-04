@@ -312,6 +312,7 @@ jobs:
     needs: [prepare, client-windows, client-linux-amd64, client-linux-arm64]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    timeout-minutes: 45   # 跨境推送抖动宁可快速失败（可用 release-publish.yml 补跑），不挂死数小时
     permissions:
       contents: read
       packages: write   # 推 GHCR
@@ -351,7 +352,8 @@ jobs:
             --push dist-assets/
 
   release-final:
-    needs: [prepare, manifest, publish-images]
+    # 不依赖 publish-images：产物镜像推送（跨境）抖动不应阻塞 Release 发布（已踩坑）
+    needs: [prepare, manifest, client-windows, client-linux-amd64, client-linux-arm64]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:

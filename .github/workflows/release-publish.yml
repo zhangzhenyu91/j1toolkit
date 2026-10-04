@@ -30,6 +30,7 @@ jobs:
   publish-images:
     needs: prepare
     runs-on: ubuntu-latest
+    timeout-minutes: 45   # 跨境推送抖动宁可快速失败，不挂死
     permissions:
       contents: read
       packages: write   # 推 GHCR
@@ -67,7 +68,8 @@ jobs:
             --push dist-assets/
 
   release-final:
-    needs: [prepare, publish-images]
+    # 与 publish-images 平行不互等：镜像推送抖动不阻塞 Release 发布
+    needs: [prepare]
     runs-on: ubuntu-latest
     permissions:
       contents: write
