@@ -57,6 +57,9 @@ jobs:
           # 空值直接报错退出——docker login "" 会污染默认 docker.io 凭证导致后续构建诡异性失败
           [ -n "$ACR_IMAGE" ] && [ -n "$ACR_USERNAME" ] && [ -n "$ACR_PASSWORD" ] \
             || { echo "::error::ACR_IMAGE / ACR_USERNAME / ACR_PASSWORD 未配置完整"; exit 1; }
+          # 凭证粘贴带入的空格/换行会让 buildx name 列表解析失败，统一剔除（本 job 后续步骤生效）
+          echo "ACR_IMAGE=$(printf '%s' "$ACR_IMAGE" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "ACR_USERNAME=$(printf '%s' "$ACR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
           echo "${ACR_PASSWORD}" | docker login "${ACR_IMAGE%%/*}" -u "${ACR_USERNAME}" --password-stdin
           echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
       - name: 原生构建并按 digest 推送（${{ matrix.platform }}）
@@ -88,6 +91,8 @@ jobs:
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |
+          echo "ACR_IMAGE=$(printf '%s' "$ACR_IMAGE" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "ACR_USERNAME=$(printf '%s' "$ACR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
           echo "${ACR_PASSWORD}" | docker login "${ACR_IMAGE%%/*}" -u "${ACR_USERNAME}" --password-stdin
           echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
       - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}）
