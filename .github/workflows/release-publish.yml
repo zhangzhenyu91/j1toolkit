@@ -1,0 +1,156 @@
+name: 补跑发布段
+
+# 发布段恢复通道：release.yml 全量流水线若在 publish-images / release-final 阶段失败
+# （产物已齐：客户端安装包在 GitHub Release、服务端镜像 digest 已在 TCR/CNB），
+# 不必重跑 1 小时构建——在本 workflow 点「Run workflow」并选择对应 tag 即可只补跑发布段。
+# 内容需与 release.yml 的 publish-images / release-final 保持一致（改一边要同步另一边）。
+
+on:
+  workflow_dispatch: {}   # 运行时「Branch/Tag」下拉选择对应 tag（如 v1.0.1）
+
+env:
+  CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
+  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-private
+  GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
+  TCR_IMAGE: ${{ vars.TCR_IMAGE || secrets.TCR_IMAGE }}
+
+jobs:
+  prepare:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          VERSION=$(echo "${GITHUB_REF_NAME}" | sed -E 's/^(release-)?v//')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "补跑版本: ${VERSION}"
+
+  publish-images:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # 推 GHCR
+    steps:
+      - uses: actions/checkout@v4   # Dockerfile.dist 需按 tag 取出
+      - name: 下载 Release 全部安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-assets
+          gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
+            --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
+          ls -lh dist-assets
+      - uses: docker/setup-buildx-action@v3
+      - name: 客户端产物镜像同推 TCR / GHCR / CNB
+        env:
+          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          echo "TCR_IMAGE=$(printf '%s' "$TCR_IMAGE" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "TCR_USERNAME=$(printf '%s' "$TCR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          [ -n "$TCR_IMAGE" ] || { echo "::error::TCR_IMAGE 未配置"; exit 1; }
+          TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"   # 复用服务端镜像的命名空间
+          echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
+          docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
+            -f uvmp-toolkit/packaging/Dockerfile.dist \
+            -t "${TCR_CLIENT_IMAGE}:${VERSION}" \
+            -t "${GHCR_CLIENT_IMAGE}:${VERSION}" \
+            -t "${CNB_CLIENT_IMAGE}:${VERSION}" \
+            --push dist-assets/
+
+  release-final:
+    needs: [prepare, publish-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 下载 Release 全部安装包（Gitee 回传用）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-assets
+          gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
+            --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
+      - name: 补全 GitHub Release 说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release edit "${GITHUB_REF_NAME}" --notes "$(cat <<EOF
+          服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
+          腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}
+          CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
+
+          内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方 Assets；
+          产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。
+
+          部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
+          EOF
+          )"
+      - name: 回推 tag 到 Gitee / CNB（远端已存在则跳过）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        run: |
+          for REMOTE in \
+            "https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git" \
+            "https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"; do
+            if git ls-remote "$REMOTE" "refs/tags/${GITHUB_REF_NAME}" | grep -q .; then
+              echo "远端已存在 ${GITHUB_REF_NAME}，跳过"
+            else
+              git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
+            fi
+          done
+      - name: Gitee 公开仓 Release（删旧重建 + 6 件附件分卷上传 + 清理历史 Release）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -e
+          API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
+          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR：docker pull ${TCR_IMAGE}:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；*.part-* 为分卷（Gitee 单附件限 100MB），下载全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
+          # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
+          curl -s -o /tmp/rel.json "${API}/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}"
+          OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
+          if [ -n "$OLD_REL" ]; then
+            curl -s -X DELETE "${API}/releases/${OLD_REL}?access_token=${GITEE_TOKEN}" -o /dev/null
+            echo "已删旧 Release ${OLD_REL}"
+          fi
+          REL_ID=$(curl -s -X POST "${API}/releases" \
+            -d "access_token=${GITEE_TOKEN}" -d "tag_name=${GITHUB_REF_NAME}" \
+            -d "name=v${VERSION}" --data-urlencode "body=${BODY}" | jq -r '.id // empty')
+          [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败"; exit 1; }
+          cd dist-assets
+          for f in *; do
+            SIZE=$(stat -c%s "$f")
+            if [ "$SIZE" -gt 99614720 ]; then
+              split -b 95m "$f" "$f.part-"
+              for p in "$f".part-*; do
+                curl -s -X POST "${API}/releases/${REL_ID}/attach_files" \
+                  -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null
+                echo "已传分卷 ${p}"
+              done
+            else
+              curl -s -X POST "${API}/releases/${REL_ID}/attach_files" \
+                -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null
+              echo "已传 ${f}"
+            fi
+          done
+          # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release（连同附件整删历史 Release；完整历史在 GitHub）
+          curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
+            | jq -r '.[] | select(.tag_name != "'"${GITHUB_REF_NAME}"'") | .id' \
+            | while read -r OLD_ID; do
+                curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
+                echo "已清理历史 Release ${OLD_ID}"
+              done
