@@ -43,6 +43,7 @@ v*:
         submodules: false
       stages:
         - name: 等附件齐并推送
+          timeout: 30m   # 覆盖 10 分钟无输出强杀（轮询静默被杀——已踩坑）
           script: |
             VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
             TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"
@@ -50,10 +51,12 @@ v*:
             command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
             # 轮询等 Gitee Release 客户端附件齐（≥6 件 uvmp-toolkit* 安装包；assets 恒含 2 个源码包
             # 须排除——已踩坑；复用同一份响应体取名单，避免二次请求抖动——已踩坑）
+            # 注：release-final 在 Gitee 附件传完后才推 CNB tag，正常首次轮询即就绪
             LAST=0
             for i in $(seq 1 45); do
               curl -s "${API}/releases/tags/${CNB_BRANCH}" -o /tmp/rel.json
               N=$(jq '[.assets[]? | select(.name | startswith("uvmp-toolkit"))] | length' /tmp/rel.json 2>/dev/null || echo 0)
+              echo "第 $i 次轮询：Gitee 客户端附件 ${N:-0} 件"   # 每次轮询必须出声，防 10 分钟无输出强杀
               [ "${N:-0}" -ge 6 ] && [ "$N" = "$LAST" ] && break
               LAST=$N; sleep 60
             done
@@ -113,6 +116,7 @@ release-v*:
         submodules: false
       stages:
         - name: 等附件齐并推送
+          timeout: 30m   # 覆盖 10 分钟无输出强杀（轮询静默被杀——已踩坑）
           script: |
             VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
             TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"
@@ -120,10 +124,12 @@ release-v*:
             command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
             # 轮询等 Gitee Release 客户端附件齐（≥6 件 uvmp-toolkit* 安装包；assets 恒含 2 个源码包
             # 须排除——已踩坑；复用同一份响应体取名单，避免二次请求抖动——已踩坑）
+            # 注：release-final 在 Gitee 附件传完后才推 CNB tag，正常首次轮询即就绪
             LAST=0
             for i in $(seq 1 45); do
               curl -s "${API}/releases/tags/${CNB_BRANCH}" -o /tmp/rel.json
               N=$(jq '[.assets[]? | select(.name | startswith("uvmp-toolkit"))] | length' /tmp/rel.json 2>/dev/null || echo 0)
+              echo "第 $i 次轮询：Gitee 客户端附件 ${N:-0} 件"   # 每次轮询必须出声，防 10 分钟无输出强杀
               [ "${N:-0}" -ge 6 ] && [ "$N" = "$LAST" ] && break
               LAST=$N; sleep 60
             done

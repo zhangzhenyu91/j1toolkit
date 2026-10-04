@@ -100,20 +100,16 @@ jobs:
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
           )"
-      - name: 回推 tag 到 Gitee / CNB（远端已存在则跳过）
+      - name: 回推 tag 到 Gitee（Gitee Release 前置）
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |
-          for REMOTE in \
-            "https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git" \
-            "https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"; do
-            if git ls-remote "$REMOTE" "refs/tags/${TAG}" | grep -q .; then
-              echo "远端已存在 ${TAG}，跳过"
-            else
-              git push "$REMOTE" "refs/tags/${TAG}"
-            fi
-          done
+          REMOTE="https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git"
+          if git ls-remote "$REMOTE" "refs/tags/${TAG}" | grep -q .; then
+            echo "远端已存在 ${TAG}，跳过"
+          else
+            git push "$REMOTE" "refs/tags/${TAG}"
+          fi
       - name: Gitee 公开仓 Release（删旧重建 + 附件 20MB 分卷上传 + 清理历史 Release）
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
@@ -161,3 +157,13 @@ jobs:
                 curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
                 echo "已清理历史 Release ${OLD_ID}"
               done
+      - name: 回推 tag 到 CNB（放最后：触发 CNB 流水线时 Gitee 附件已就绪，客户端产物镜像流水线零等待）
+        env:
+          CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
+        run: |
+          REMOTE="https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"
+          if git ls-remote "$REMOTE" "refs/tags/${TAG}" | grep -q .; then
+            echo "远端已存在 ${TAG}，跳过"
+          else
+            git push "$REMOTE" "refs/tags/${TAG}"
+          fi
