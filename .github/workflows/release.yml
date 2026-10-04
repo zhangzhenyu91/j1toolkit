@@ -80,13 +80,14 @@ jobs:
           echo "TCR_USERNAME=$(printf '%s' "$TCR_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
           echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
           echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
-      - name: 原生构建并按 digest 同推 TCR + CNB（${{ matrix.platform }}）
+      - name: 原生构建并按 digest 推 TCR（${{ matrix.platform }}）
         run: |
+          # 单 output 推 TCR；CNB 由 manifest 阶段 imagetools 跨仓复制。
+          # 曾试双 --output 同推 TCR+CNB：amd64 job 在 CNB 上传侧卡死 4h+（跨境链路）——已踩坑，勿回退
           # --provenance=false：buildx 默认附加 SLSA 溯源证明（OCI empty config 清单），
           # 部分仓库不认该 manifest class 拒收（unknown manifest class ... oci.empty.v1）——已踩坑
           docker buildx build --platform ${{ matrix.platform }} --provenance=false \
             --output type=image,name=${TCR_IMAGE},push-by-digest=true,name-canonical=true,push=true \
-            --output type=image,name=${CNB_IMAGE},push-by-digest=true,name-canonical=true,push=true \
             --metadata-file /tmp/meta.json .
           jq -r '."containerimage.digest"' /tmp/meta.json > "digest-${{ matrix.suffix }}.txt"
       - name: 传递 digest
@@ -302,8 +303,10 @@ jobs:
           D_ARM64=$(cat digests/digest-arm64.txt)
           docker buildx imagetools create -t "${TCR_IMAGE}:${VERSION}" \
             "${TCR_IMAGE}@${D_AMD64}" "${TCR_IMAGE}@${D_ARM64}"
+          # imagetools create 支持跨仓库复制：从 TCR 源清单拷到 CNB（blob 经构建机中转，跨境较慢但稳——
+          # 比构建期双 output 直推 CNB 可靠，后者实测 amd64 上传卡死）
           docker buildx imagetools create -t "${CNB_IMAGE}:${VERSION}" \
-            "${CNB_IMAGE}@${D_AMD64}" "${CNB_IMAGE}@${D_ARM64}"
+            "${TCR_IMAGE}@${D_AMD64}" "${TCR_IMAGE}@${D_ARM64}"
 
   publish-images:
     needs: [prepare, client-windows, client-linux-amd64, client-linux-arm64]
@@ -313,12 +316,13 @@ jobs:
       contents: read
       packages: write   # 推 GHCR
     steps:
+      - uses: actions/checkout@v4   # Dockerfile.dist 在仓内，必须 checkout（无 .git 时 gh 也会挂——已踩坑）
       - name: 下载 Release 全部安装包
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-assets
-          # 本 job 不 checkout，必须显式 -R 指定仓库（否则 gh 找 .git 失败——已踩坑）
+          # 显式 -R 指定仓库（不依赖 checkout 出的 .git，双保险）
           gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
             --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
           ls -lh dist-assets
