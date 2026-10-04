@@ -82,7 +82,7 @@ v*:
             ls -lh
             echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
             docker buildx build --platform linux/amd64,linux/arm64 \
-              -f ${CNB_WORKSPACE}/uvmp-toolkit/packaging/Dockerfile.dist \
+              -f uvmp-toolkit/packaging/Dockerfile.dist \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}-private:${VERSION} \
               -t ${TCR_CLIENT_IMAGE}:${VERSION} --push /tmp/arts
 
@@ -155,6 +155,6 @@ release-v*:
             ls -lh
             echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
             docker buildx build --platform linux/amd64,linux/arm64 \
-              -f ${CNB_WORKSPACE}/uvmp-toolkit/packaging/Dockerfile.dist \
+              -f uvmp-toolkit/packaging/Dockerfile.dist \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}-private:${VERSION} \
               -t ${TCR_CLIENT_IMAGE}:${VERSION} --push /tmp/arts
