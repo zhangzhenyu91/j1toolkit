@@ -414,10 +414,14 @@ jobs:
             curl -s -X DELETE "${API}/releases/${OLD_REL}?access_token=${GITEE_TOKEN}" -o /dev/null
             echo "已删旧 Release ${OLD_REL}"
           fi
-          REL_ID=$(curl -s -X POST "${API}/releases" \
+          # Gitee 建 Release 必须带 target_commitish（缺了报 target_commitish is missing——已踩坑）；
+          # tag 已存在时该字段不影响锚点
+          RESP=$(curl -s -X POST "${API}/releases" \
             -d "access_token=${GITEE_TOKEN}" -d "tag_name=${GITHUB_REF_NAME}" \
-            -d "name=v${VERSION}" --data-urlencode "body=${BODY}" | jq -r '.id // empty')
-          [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败"; exit 1; }
+            -d "target_commitish=main" \
+            -d "name=v${VERSION}" --data-urlencode "body=${BODY}")
+          REL_ID=$(echo "$RESP" | jq -r '.id // empty')
+          [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
           cd dist-assets
           for f in *; do
             SIZE=$(stat -c%s "$f")
