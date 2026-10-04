@@ -10,8 +10,10 @@ name: 发版
 #
 # 需在仓库配置（Settings → Secrets and variables → Actions）：
 #   Secrets:   ACR_USERNAME / ACR_PASSWORD（ACR 访问凭证）、CNB_TOKEN（需含仓库 git 写 + 制品库权限）、
-#              GITEE_TOKEN（Gitee 私人令牌，projects 权限）
-#   Variables: ACR_IMAGE（镜像全路径，如 registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit）
+#              GITEE_TOKEN（Gitee 私人令牌，projects 权限——注意粘贴值不要带空格/换行，否则 git 推送给出
+#              "credential url cannot be parsed"）
+#   Variables 或 Secrets: ACR_IMAGE（镜像全路径，如 registry.cn-beijing.aliyuncs.com/<命名空间>/j1toolkit；
+#              workflow 顶部 env 做双源回退，放哪边都行）
 
 on:
   push:
@@ -20,6 +22,8 @@ on:
 
 env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
+  # ACR_IMAGE 放 Variable 或 Secret 均可（双源回退）
+  ACR_IMAGE: ${{ vars.ACR_IMAGE || secrets.ACR_IMAGE }}
 
 jobs:
   prepare:
@@ -46,16 +50,16 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: 登录镜像仓库（ACR + CNB）
         env:
-          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |
+          # 空值直接报错退出——docker login "" 会污染默认 docker.io 凭证导致后续构建诡异性失败
+          [ -n "$ACR_IMAGE" ] && [ -n "$ACR_USERNAME" ] && [ -n "$ACR_PASSWORD" ] \
+            || { echo "::error::ACR_IMAGE / ACR_USERNAME / ACR_PASSWORD 未配置完整"; exit 1; }
           echo "${ACR_PASSWORD}" | docker login "${ACR_IMAGE%%/*}" -u "${ACR_USERNAME}" --password-stdin
           echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
       - name: 原生构建并按 digest 推送（${{ matrix.platform }}）
-        env:
-          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
         run: |
           docker buildx build --platform ${{ matrix.platform }} \
             --output type=image,"name=${ACR_IMAGE},${CNB_IMAGE}",push-by-digest=true,name-canonical=true,push=true \
@@ -80,7 +84,6 @@ jobs:
           path: digests
       - name: 登录镜像仓库（ACR + CNB）
         env:
-          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
@@ -89,7 +92,6 @@ jobs:
           echo "${CNB_TOKEN}" | docker login docker.cnb.cool -u cnb --password-stdin
       - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}）
         env:
-          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           D_AMD64=$(cat digests/digest-amd64.txt)
@@ -130,7 +132,6 @@ jobs:
       - name: 创建/更新 Gitee 公开仓 Release（正文为镜像拉取命令）
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          ACR_IMAGE: ${{ vars.ACR_IMAGE }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
