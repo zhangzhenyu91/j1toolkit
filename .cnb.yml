@@ -46,6 +46,7 @@ v*:
           timeout: 30m   # 覆盖 10 分钟无输出强杀（轮询静默被杀——已踩坑）
           script: |
             VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
+            WS=$PWD   # 工作区绝对路径：后面 cd /tmp/arts 下载，Dockerfile 需绝对路径指回工作区（已踩坑）
             TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"
             API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
             command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
@@ -82,7 +83,7 @@ v*:
             ls -lh
             echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
             docker buildx build --platform linux/amd64,linux/arm64 \
-              -f uvmp-toolkit/packaging/Dockerfile.dist \
+              -f "${WS}/uvmp-toolkit/packaging/Dockerfile.dist" \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}-private:${VERSION} \
               -t ${TCR_CLIENT_IMAGE}:${VERSION} --push /tmp/arts
 
@@ -119,6 +120,7 @@ release-v*:
           timeout: 30m   # 覆盖 10 分钟无输出强杀（轮询静默被杀——已踩坑）
           script: |
             VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
+            WS=$PWD   # 工作区绝对路径：后面 cd /tmp/arts 下载，Dockerfile 需绝对路径指回工作区（已踩坑）
             TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"
             API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
             command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
@@ -155,6 +157,6 @@ release-v*:
             ls -lh
             echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
             docker buildx build --platform linux/amd64,linux/arm64 \
-              -f uvmp-toolkit/packaging/Dockerfile.dist \
+              -f "${WS}/uvmp-toolkit/packaging/Dockerfile.dist" \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}-private:${VERSION} \
               -t ${TCR_CLIENT_IMAGE}:${VERSION} --push /tmp/arts
