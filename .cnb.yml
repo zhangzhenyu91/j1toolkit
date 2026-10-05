@@ -47,7 +47,7 @@ v*:
           script: |
             VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
             WS=$PWD   # 工作区绝对路径：后面 cd /tmp/arts 下载，Dockerfile 需绝对路径指回工作区（已踩坑）
-            TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"
+            # 客户端产物镜像与服务端同仓、tag 前缀区分（TCR:uvmp-x.y.z，与 CNB 同口径）
             API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
             command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
             # 轮询等 Gitee Release 客户端附件齐（≥6 件 uvmp-toolkit* 安装包；assets 恒含 2 个源码包
@@ -85,7 +85,7 @@ v*:
             docker buildx build --platform linux/amd64,linux/arm64 \
               -f "${WS}/uvmp-toolkit/packaging/Dockerfile.dist" \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:uvmp-${VERSION} \
-              -t ${TCR_CLIENT_IMAGE}:${VERSION} --push /tmp/arts
+              -t ${TCR_IMAGE}:uvmp-${VERSION} --push /tmp/arts
 
 release-v*:
   tag_push:
@@ -121,7 +121,7 @@ release-v*:
           script: |
             VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
             WS=$PWD   # 工作区绝对路径：后面 cd /tmp/arts 下载，Dockerfile 需绝对路径指回工作区（已踩坑）
-            TCR_CLIENT_IMAGE="${TCR_IMAGE%/*}/uvmp-toolkit"
+            # 客户端产物镜像与服务端同仓、tag 前缀区分（TCR:uvmp-x.y.z，与 CNB 同口径）
             API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
             command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
             # 轮询等 Gitee Release 客户端附件齐（≥6 件 uvmp-toolkit* 安装包；assets 恒含 2 个源码包
@@ -159,4 +159,4 @@ release-v*:
             docker buildx build --platform linux/amd64,linux/arm64 \
               -f "${WS}/uvmp-toolkit/packaging/Dockerfile.dist" \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:uvmp-${VERSION} \
-              -t ${TCR_CLIENT_IMAGE}:${VERSION} --push /tmp/arts
+              -t ${TCR_IMAGE}:uvmp-${VERSION} --push /tmp/arts

@@ -61,9 +61,9 @@
     <h3>取件方式（Docker 产物镜像，tag = 版本号）</h3>
     <ul>
       <li>镜像内 <code>/artifacts/</code> 含 6 个安装包：Windows 安装包（Setup exe）/ 绿色包（zip）、麒麟 amd64 / arm64 的 deb 与 tar.gz。</li>
-      <li>优先腾讯云 TCR（与服务器同云）：<code>ccr.ccs.tencentyun.com/j1net/uvmp-toolkit:<span class="ver">&lt;版本号&gt;</span></code></li>
+      <li>优先腾讯云 TCR（与服务器同云）：<code>ccr.ccs.tencentyun.com/j1net/j1toolkit:uvmp-<span class="ver">&lt;版本号&gt;</span></code></li>
     </ul>
-    <div class="cmd-block">docker create --name tmp ccr.ccs.tencentyun.com/j1net/uvmp-toolkit:<span class="ver">&lt;版本号&gt;</span>
+    <div class="cmd-block">docker create --name tmp ccr.ccs.tencentyun.com/j1net/j1toolkit:uvmp-<span class="ver">&lt;版本号&gt;</span>
 docker cp tmp:/artifacts/ ./uvmp-installers
 docker rm tmp</div>
     <ul>
