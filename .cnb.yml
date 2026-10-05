@@ -34,6 +34,58 @@ v*:
             docker buildx build --platform linux/amd64,linux/arm64 \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION} \
               -t ${TCR_IMAGE}:${VERSION} --push .
+    # GitHub 构建机 → Gitee 大附件上传在跨境链路上会挂死（两次实测），Gitee 上传必须在
+    # 国内构建机执行；release-final 只推 Gitee tag（小请求可靠），本流水线接力建 Release + 传附件。
+    - name: 回传 Gitee Release（GitHub 资产 → Gitee，国内上传）
+      services:
+        - docker
+      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
+      git:
+        submodules: false
+      stages:
+        - name: 下载并上传
+          timeout: 30m
+          script: |
+            VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
+            command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
+            mkdir -p /tmp/arts && cd /tmp/arts
+            for f in "uvmp-toolkit-Setup-${VERSION}.exe" "uvmp-toolkit_${VERSION}_amd64.deb" "uvmp-toolkit_${VERSION}_arm64.deb"; do
+              for t in 1 2 3; do
+                curl -sfL -o "$f" "https://github.com/zhangzhenyu91/j1toolkit/releases/download/${CNB_BRANCH}/${f}" && [ -s "$f" ] && break
+                echo "重试下载 $f（第 $t 次）"; sleep 10
+              done
+              [ -s "$f" ] || { echo "下载失败 $f"; exit 1; }
+              echo "已下载 $f（$(du -h "$f" | cut -f1)）"
+            done
+            API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
+            BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；GHCR（GitHub 构建）：docker pull ghcr.io/zhangzhenyu91/j1toolkit:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/zhangzhenyu91/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION}。内网客户端安装包（Windows exe、麒麟 amd64/arm64 deb）见下方附件；若某附件显示为 *.part-* 分卷（跨境上传保底策略），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。部署见仓根 README.md 与 docker/.env.example。"
+            curl -s -o /tmp/rel.json "${API}/releases/tags/${CNB_BRANCH}?access_token=${GITEE_TOKEN}"
+            OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
+            if [ -n "$OLD_REL" ]; then
+              curl -s -X DELETE "${API}/releases/${OLD_REL}?access_token=${GITEE_TOKEN}" -o /dev/null
+              echo "已删旧 Release ${OLD_REL}"
+            fi
+            RESP=$(curl -s -X POST "${API}/releases" \
+              -d "access_token=${GITEE_TOKEN}" -d "tag_name=${CNB_BRANCH}" \
+              -d "target_commitish=main" -d "name=v${VERSION}" --data-urlencode "body=${BODY}")
+            REL_ID=$(echo "$RESP" | jq -r '.id // empty')
+            [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
+            for f in *.exe *.deb; do
+              for t in 1 2 3; do
+                curl -s --connect-timeout 30 --max-time 600 -X POST \
+                  "${API}/releases/${REL_ID}/attach_files" \
+                  -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null && break
+                echo "重试上传 $f（第 $t 次）"; sleep 5
+              done
+              echo "已传 $f"
+            done
+            # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release
+            curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
+              | jq -r '.[] | select(.tag_name != "'"${CNB_BRANCH}"'") | .id' \
+              | while read -r OLD_ID; do
+                  curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
+                  echo "已清理历史 Release ${OLD_ID}"
+                done
 
 release-v*:
   tag_push:
@@ -57,3 +109,55 @@ release-v*:
             docker buildx build --platform linux/amd64,linux/arm64 \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION} \
               -t ${TCR_IMAGE}:${VERSION} --push .
+    # GitHub 构建机 → Gitee 大附件上传在跨境链路上会挂死（两次实测），Gitee 上传必须在
+    # 国内构建机执行；release-final 只推 Gitee tag（小请求可靠），本流水线接力建 Release + 传附件。
+    - name: 回传 Gitee Release（GitHub 资产 → Gitee，国内上传）
+      services:
+        - docker
+      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
+      git:
+        submodules: false
+      stages:
+        - name: 下载并上传
+          timeout: 30m
+          script: |
+            VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
+            command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
+            mkdir -p /tmp/arts && cd /tmp/arts
+            for f in "uvmp-toolkit-Setup-${VERSION}.exe" "uvmp-toolkit_${VERSION}_amd64.deb" "uvmp-toolkit_${VERSION}_arm64.deb"; do
+              for t in 1 2 3; do
+                curl -sfL -o "$f" "https://github.com/zhangzhenyu91/j1toolkit/releases/download/${CNB_BRANCH}/${f}" && [ -s "$f" ] && break
+                echo "重试下载 $f（第 $t 次）"; sleep 10
+              done
+              [ -s "$f" ] || { echo "下载失败 $f"; exit 1; }
+              echo "已下载 $f（$(du -h "$f" | cut -f1)）"
+            done
+            API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
+            BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；GHCR（GitHub 构建）：docker pull ghcr.io/zhangzhenyu91/j1toolkit:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/zhangzhenyu91/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION}。内网客户端安装包（Windows exe、麒麟 amd64/arm64 deb）见下方附件；若某附件显示为 *.part-* 分卷（跨境上传保底策略），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。部署见仓根 README.md 与 docker/.env.example。"
+            curl -s -o /tmp/rel.json "${API}/releases/tags/${CNB_BRANCH}?access_token=${GITEE_TOKEN}"
+            OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
+            if [ -n "$OLD_REL" ]; then
+              curl -s -X DELETE "${API}/releases/${OLD_REL}?access_token=${GITEE_TOKEN}" -o /dev/null
+              echo "已删旧 Release ${OLD_REL}"
+            fi
+            RESP=$(curl -s -X POST "${API}/releases" \
+              -d "access_token=${GITEE_TOKEN}" -d "tag_name=${CNB_BRANCH}" \
+              -d "target_commitish=main" -d "name=v${VERSION}" --data-urlencode "body=${BODY}")
+            REL_ID=$(echo "$RESP" | jq -r '.id // empty')
+            [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
+            for f in *.exe *.deb; do
+              for t in 1 2 3; do
+                curl -s --connect-timeout 30 --max-time 600 -X POST \
+                  "${API}/releases/${REL_ID}/attach_files" \
+                  -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null && break
+                echo "重试上传 $f（第 $t 次）"; sleep 5
+              done
+              echo "已传 $f"
+            done
+            # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release
+            curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
+              | jq -r '.[] | select(.tag_name != "'"${CNB_BRANCH}"'") | .id' \
+              | while read -r OLD_ID; do
+                  curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
+                  echo "已清理历史 Release ${OLD_ID}"
+                done

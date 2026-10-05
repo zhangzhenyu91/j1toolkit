@@ -1,9 +1,10 @@
 name: 补跑发布段
 
-# 发布段恢复通道：release.yml 全量流水线若在 release-final 阶段失败
-# （产物已齐：客户端安装包在 GitHub Release、服务端镜像 digest 已在 Docker Hub），
+# 发布段恢复通道：release.yml 全量流水线若在发布段失败
+# （产物已齐：客户端安装包在 GitHub Release、服务端镜像在 Docker Hub），
 # 不必重跑构建——手动 Run workflow 并填写 tag 即可只补跑发布段。
-# 内容需与 release.yml 的 release-final 保持一致（改一边要同步另一边）。
+# 内容需与 release.yml 的发布段保持一致（改一边要同步另一边）。
+# Gitee Release 附件回传在 CNB 侧（.cnb.yml「回传 Gitee Release」流水线），此处不管。
 # 注意：用 inputs.tag 而非分支/标签下拉选择 ref——workflow 文件始终读 main 最新版，
 # 避免「tag 上固化着旧版发布逻辑」的回旋镖（已踩坑）。
 
@@ -32,7 +33,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "补跑版本: ${VERSION}（tag ${TAG}）"
 
-  # 服务端镜像补拷：Docker Hub → GHCR（两仓同在美国，仓内秒级；发版主链已直推双仓时可跳过）
+  # 服务端镜像补拷：Docker Hub → GHCR（两仓同在美国，秒级；发版主链已直推双仓时也会幂等覆盖）
   mirror-server:
     needs: [prepare]
     runs-on: ubuntu-latest
@@ -62,13 +63,6 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
-      - name: 下载 Release 客户端安装包（Gitee 回传用；只取 exe + deb 三件）
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p dist-assets
-          gh release download "${TAG}" -R ${{ github.repository }} --dir dist-assets --clobber \
-            --pattern "*.exe" --pattern "*.deb"
       - name: 补全 GitHub Release 说明
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -86,7 +80,7 @@ jobs:
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
           )"
-      - name: 回推 tag 到 Gitee（Gitee Release 前置）
+      - name: 回推 tag 到 Gitee（CNB 侧「回传 Gitee Release」流水线的前置：tag 先于 Release 存在）
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -96,54 +90,7 @@ jobs:
           else
             git push "$REMOTE" "refs/tags/${TAG}"
           fi
-      - name: Gitee 公开仓 Release（删旧重建 + 附件整传/分卷 + 清理历史 Release）
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -e
-          API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；GHCR（GitHub 构建）：docker pull ghcr.io/zhangzhenyu91/j1toolkit:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe、麒麟 amd64/arm64 deb）见下方附件；若某附件显示为 *.part-* 分卷（跨境上传保底策略），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。部署见仓根 README.md 与 docker/.env.example。"
-          # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
-          curl -s -o /tmp/rel.json "${API}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}"
-          OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
-          if [ -n "$OLD_REL" ]; then
-            curl -s -X DELETE "${API}/releases/${OLD_REL}?access_token=${GITEE_TOKEN}" -o /dev/null
-            echo "已删旧 Release ${OLD_REL}"
-          fi
-          # Gitee 建 Release 必须带 target_commitish（缺了报 target_commitish is missing——已踩坑）；
-          # tag 已存在时该字段不影响锚点
-          RESP=$(curl -s -X POST "${API}/releases" \
-            -d "access_token=${GITEE_TOKEN}" -d "tag_name=${TAG}" \
-            -d "target_commitish=main" \
-            -d "name=v${VERSION}" --data-urlencode "body=${BODY}")
-          REL_ID=$(echo "$RESP" | jq -r '.id // empty')
-          [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
-          cd dist-assets
-          # 直接 20MB 分卷+单卷重试：Gitee 附件端点对跨境大文件整传会挂死（两次实测）——分卷是唯一可靠路径
-          for f in *; do
-            split -b 20m "$f" "$f.part-"
-            for p in "$f".part-*; do
-              ok=0
-              for t in 1 2 3 4 5; do
-                if curl -s --http1.1 --connect-timeout 30 --max-time 300 -X POST \
-                     "${API}/releases/${REL_ID}/attach_files" \
-                     -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null; then
-                  echo "已传 ${p}"; ok=1; break
-                fi
-                echo "重试 ${p}（第 $t 次失败）"; sleep 5
-              done
-              [ "$ok" = "1" ] || { echo "附件 ${p} 上传失败"; exit 1; }
-            done
-          done
-          # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release（连同附件整删历史 Release；完整历史在 GitHub）
-          curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
-            | jq -r '.[] | select(.tag_name != "'"${TAG}"'") | .id' \
-            | while read -r OLD_ID; do
-                curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
-                echo "已清理历史 Release ${OLD_ID}"
-              done
-      - name: 回推 tag 到 CNB（触发 CNB 侧服务端镜像重建推 TCR/CNB + git:release）
+      - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Gitee 附件回传）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |

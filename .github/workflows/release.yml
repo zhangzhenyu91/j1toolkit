@@ -4,21 +4,25 @@ name: 发版
 #   prepare        版本号剥离（release-v / v 前缀）
 #   release-init   仅 tag：先建空 GitHub Release，避免三个客户端构建 job 并发抢建 422（已踩坑）
 #   build-server   服务端镜像：amd64（ubuntu-latest）+ arm64（ubuntu-24.04-arm 原生构建机，公开仓免费）
-#                  分架构原生构建，按 digest 同推 TCR + CNB（双 --output 单 name，name 不支持逗号多值——已踩坑）
-#   client-*       内网客户端三平台（Windows NSIS/zip + 冒烟；麒麟 amd64/arm64 deb/tar.gz + 冒烟），
+#                  分架构原生构建，按 digest 双 output 同推 GHCR + Docker Hub（美国同岸快；
+#                  --output 的 name 不支持逗号多值，多仓用多个 output——已踩坑；带 GHCR 层缓存）
+#   client-*       内网客户端三平台（Windows exe + 冒烟；麒麟 amd64/arm64 deb + 冒烟），
 #                  产物随建随传 GitHub Release（无中转构件：artifact 存储额度曾被挤爆——已踩坑）
 #   manifest       合并服务端多架构 manifest :X.Y.Z（GHCR/Docker Hub 各自仓内合并，不跨仓拷 blob）
-#   release-final  GitHub Release 补全说明 → 回推 tag 到 Gitee → Gitee 公开仓 Release（删旧重建 +
-#                  附件整传优先、失败转 20MB 分卷，受单仓附件总量 1GB 限制仅保留最新一份 Release）
-#                  → 最后回推 tag 到 CNB（CNB 侧 .cnb.yml 重建服务端镜像推 TCR + CNB 制品库 + git:release）
+#   release-final  GitHub Release 补全说明 → 回推 tag 到 Gitee（小请求可靠）→ 回推 tag 到 CNB
+#                  → CNB 侧 .cnb.yml 接力：重建服务端镜像推 TCR + CNB 制品库 + git:release 建
+#                  CNB Release + 「回传 Gitee Release」流水线下载 GitHub 附件传 Gitee
+#                  （GitHub→Gitee 大附件跨境上传会挂死，Gitee 上传必须在国内构建机执行——已踩坑）
 # 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（等价幂等，二选一即可）；workflow_dispatch 只构建冒烟不发布。
 #
 # 需在仓库配置（Settings → Secrets and variables → Actions）：
-#   Secrets: TCR_USERNAME（腾讯云账号 UIN）/ TCR_PASSWORD（TCR 个人版访问凭证密码）、
-#            CNB_TOKEN（仓库 git 写 + 制品库权限）、GITEE_TOKEN（Gitee 私人令牌，projects 权限，
-#            粘贴勿带空格/换行——否则 git 推送报 "credential url cannot be parsed"）
-#   Variables 或 Secrets: TCR_IMAGE（服务端镜像全路径 ccr.ccs.tencentyun.com/<命名空间>/j1toolkit，
-#            客户端产物镜像按同命名空间拼 uvmp-toolkit；顶部 env 双源回退）
+#   Secrets: CNB_TOKEN（仓库 git 写 + 制品库权限）、GITEE_TOKEN（Gitee 私人令牌，projects 权限，
+#            粘贴勿带空格/换行——否则 git 推送报 "credential url cannot be parsed"）、
+#            DOCKERHUB_USERNAME / DOCKERHUB_TOKEN（Docker Hub 推送）
+#   Variables 或 Secrets: TCR_IMAGE（服务端镜像全路径 ccr.ccs.tencentyun.com/<命名空间>/j1toolkit；
+#            仅用于 Release 说明文案，TCR 推送在 CNB 侧）
+# 另需 CNB 密钥仓库 j1net/j1toolkit/keys 的 envs.yml：TCR_USERNAME / TCR_PASSWORD / TCR_IMAGE /
+# GITEE_TOKEN（CNB 侧推 TCR + 回传 Gitee 用）
 
 on:
   push:
@@ -317,13 +321,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: 下载 Release 客户端安装包（Gitee 回传用；只取 exe + deb 三件）
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p dist-assets
-          gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
-            --pattern "*.exe" --pattern "*.deb"
       - name: 补全 GitHub Release 说明
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -341,7 +338,7 @@ jobs:
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
           )"
-      - name: 回推 tag 到 Gitee（Gitee Release 前置）
+      - name: 回推 tag 到 Gitee（CNB 侧「回传 Gitee Release」流水线的前置：tag 先于 Release 存在）
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -351,54 +348,7 @@ jobs:
           else
             git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
           fi
-      - name: Gitee 公开仓 Release（删旧重建 + 6 件附件分卷上传 + 清理历史 Release）
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -e
-          API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；GHCR（GitHub 构建）：docker pull ghcr.io/zhangzhenyu91/j1toolkit:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe、麒麟 amd64/arm64 deb）见下方附件；若某附件显示为 *.part-* 分卷（跨境上传保底策略），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。部署见仓根 README.md 与 docker/.env.example。"
-          # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
-          curl -s -o /tmp/rel.json "${API}/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}"
-          OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
-          if [ -n "$OLD_REL" ]; then
-            curl -s -X DELETE "${API}/releases/${OLD_REL}?access_token=${GITEE_TOKEN}" -o /dev/null
-            echo "已删旧 Release ${OLD_REL}"
-          fi
-          # Gitee 建 Release 必须带 target_commitish（缺了报 target_commitish is missing——已踩坑）；
-          # tag 已存在时该字段不影响锚点
-          RESP=$(curl -s -X POST "${API}/releases" \
-            -d "access_token=${GITEE_TOKEN}" -d "tag_name=${GITHUB_REF_NAME}" \
-            -d "target_commitish=main" \
-            -d "name=v${VERSION}" --data-urlencode "body=${BODY}")
-          REL_ID=$(echo "$RESP" | jq -r '.id // empty')
-          [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
-          cd dist-assets
-          # 直接 20MB 分卷+单卷重试：Gitee 附件端点对跨境大文件整传会挂死（两次实测）——分卷是唯一可靠路径
-          for f in *; do
-            split -b 20m "$f" "$f.part-"
-            for p in "$f".part-*; do
-              ok=0
-              for t in 1 2 3 4 5; do
-                if curl -s --http1.1 --connect-timeout 30 --max-time 300 -X POST \
-                     "${API}/releases/${REL_ID}/attach_files" \
-                     -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null; then
-                  echo "已传 ${p}"; ok=1; break
-                fi
-                echo "重试 ${p}（第 $t 次失败）"; sleep 5
-              done
-              [ "$ok" = "1" ] || { echo "附件 ${p} 上传失败"; exit 1; }
-            done
-          done
-          # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release（连同附件整删历史 Release；完整历史在 GitHub）
-          curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
-            | jq -r '.[] | select(.tag_name != "'"${GITHUB_REF_NAME}"'") | .id' \
-            | while read -r OLD_ID; do
-                curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
-                echo "已清理历史 Release ${OLD_ID}"
-              done
-      - name: 回推 tag 到 CNB（触发 CNB 侧服务端镜像重建推 TCR/CNB + git:release）
+      - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Gitee Release 附件回传）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |
