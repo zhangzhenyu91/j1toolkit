@@ -7,11 +7,10 @@ name: 发版
 #                  分架构原生构建，按 digest 同推 TCR + CNB（双 --output 单 name，name 不支持逗号多值——已踩坑）
 #   client-*       内网客户端三平台（Windows NSIS/zip + 冒烟；麒麟 amd64/arm64 deb/tar.gz + 冒烟），
 #                  产物随建随传 GitHub Release（无中转构件：artifact 存储额度曾被挤爆——已踩坑）
-#   manifest       合并服务端多架构 manifest :X.Y.Z（TCR/CNB 各自仓内 server 侧合并，不跨仓拷 blob）
-#   publish-images 客户端产物镜像同推 TCR（优先）/ GHCR（备用）/ CNB（第三副本）
-#   release-final  GitHub Release 补全说明 → 回推 tag 到 Gitee/CNB（CNB Release 由 .cnb.yml
-#                  git:release 接力）→ Gitee 公开仓 Release（删旧重建 + 附件 20MB 分卷，
-#                  受单仓附件总量 1GB 限制仅保留最新一份 Release）
+#   manifest       合并服务端多架构 manifest :X.Y.Z（GHCR/Docker Hub 各自仓内合并，不跨仓拷 blob）
+#   release-final  GitHub Release 补全说明 → 回推 tag 到 Gitee → Gitee 公开仓 Release（删旧重建 +
+#                  附件整传优先、失败转 20MB 分卷，受单仓附件总量 1GB 限制仅保留最新一份 Release）
+#                  → 最后回推 tag 到 CNB（CNB 侧 .cnb.yml 重建服务端镜像推 TCR + CNB 制品库 + git:release）
 # 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（等价幂等，二选一即可）；workflow_dispatch 只构建冒烟不发布。
 #
 # 需在仓库配置（Settings → Secrets and variables → Actions）：
@@ -28,8 +27,6 @@ on:
 
 env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
-  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
-  GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
   # Docker Hub：GitHub 构建机同在美国，推送快（服务端镜像的 GitHub 侧落点；国内正线 TCR 由 CNB 构建推送，见 .cnb.yml）
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   # TCR_IMAGE 放 Variable 或 Secret 均可（双源回退；本工作流仅用于 Release 说明文案，TCR 推送在 CNB 侧）
@@ -59,6 +56,8 @@ jobs:
 
   build-server:
     needs: prepare
+    permissions:
+      packages: write   # 推 GHCR
     strategy:
       matrix:
         include:
@@ -68,25 +67,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: 登录 Docker Hub
+      - name: 登录 GHCR + Docker Hub
         env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ] \
             || { echo "::error::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN 未配置"; exit 1; }
-          echo "DOCKERHUB_USERNAME=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           echo "${DOCKERHUB_TOKEN}" | docker login docker.io -u "${DOCKERHUB_USERNAME}" --password-stdin
-      - name: 原生构建并按 digest 推 Docker Hub（${{ matrix.platform }}）
+      - name: 原生构建并按 digest 推 GHCR + Docker Hub（${{ matrix.platform }}）
         run: |
-          # 推 Docker Hub（GitHub 构建机同在美国，快）；国内正线 TCR/CNB 由 CNB 侧构建推送（见 .cnb.yml）
+          # GHCR/Docker Hub 均美国同岸，双 output 同推（国内仓只由 CNB 侧构建推送，见 .cnb.yml）
           # --provenance=false：buildx 默认附加 SLSA 溯源证明（OCI empty config 清单），
           # 部分仓库不认该 manifest class 拒收（unknown manifest class ... oci.empty.v1）——已踩坑
-          # registry 层缓存：LibreOffice 等不变层只在首次上传，后续发版只传变化层
+          # registry 层缓存（GHCR）：LibreOffice 等不变层只在首次上传，后续发版只传变化层
+          GITHUB_IMAGE="ghcr.io/zhangzhenyu91/j1toolkit"
           DH_IMAGE="docker.io/${DOCKERHUB_USERNAME}/j1toolkit"
           docker buildx build --platform ${{ matrix.platform }} --provenance=false \
+            --output type=image,name=${GITHUB_IMAGE},push-by-digest=true,name-canonical=true,push=true \
             --output type=image,name=${DH_IMAGE},push-by-digest=true,name-canonical=true,push=true \
-            --cache-from type=registry,ref=${DH_IMAGE}:buildcache \
-            --cache-to type=registry,ref=${DH_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true \
+            --cache-from type=registry,ref=${GITHUB_IMAGE}:buildcache \
+            --cache-to type=registry,ref=${GITHUB_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true \
             --metadata-file /tmp/meta.json .
           jq -r '."containerimage.digest"' /tmp/meta.json > "digest-${{ matrix.suffix }}.txt"
       - name: 传递 digest
@@ -165,7 +167,6 @@ jobs:
         with:
           files: |
             uvmp-toolkit/dist-electron/*.exe
-            uvmp-toolkit/dist-electron/*.zip
 
   client-linux-amd64:
     needs: release-init
@@ -223,7 +224,6 @@ jobs:
         with:
           files: |
             uvmp-toolkit/dist-electron/*.deb
-            uvmp-toolkit/dist-electron/*.tar.gz
 
   client-linux-arm64:
     needs: release-init
@@ -271,12 +271,13 @@ jobs:
         with:
           files: |
             uvmp-toolkit/dist-electron/*.deb
-            uvmp-toolkit/dist-electron/*.tar.gz
 
   manifest:
     needs: [prepare, build-server]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    permissions:
+      packages: write   # 推 GHCR
     steps:
       - uses: docker/setup-buildx-action@v3
       - uses: actions/download-artifact@v4
@@ -284,56 +285,29 @@ jobs:
           pattern: digest-*
           merge-multiple: true
           path: digests
-      - name: 登录 Docker Hub
+      - name: 登录 GHCR + Docker Hub
         env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          echo "DOCKERHUB_USERNAME=$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           echo "${DOCKERHUB_TOKEN}" | docker login docker.io -u "${DOCKERHUB_USERNAME}" --password-stdin
-      - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}，仓内合并不拷 blob）
+      - name: 合并多架构 manifest（:${{ needs.prepare.outputs.version }}，GHCR/Docker Hub 各自仓内合并）
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          GITHUB_IMAGE="ghcr.io/zhangzhenyu91/j1toolkit"
           DH_IMAGE="docker.io/${DOCKERHUB_USERNAME}/j1toolkit"
           D_AMD64=$(cat digests/digest-amd64.txt)
           D_ARM64=$(cat digests/digest-arm64.txt)
+          docker buildx imagetools create -t "${GITHUB_IMAGE}:${VERSION}" \
+            "${GITHUB_IMAGE}@${D_AMD64}" "${GITHUB_IMAGE}@${D_ARM64}"
           docker buildx imagetools create -t "${DH_IMAGE}:${VERSION}" \
             "${DH_IMAGE}@${D_AMD64}" "${DH_IMAGE}@${D_ARM64}"
           # 国内正线 TCR/CNB 由 CNB 侧构建推送（见 .cnb.yml），此处不跨境复制
 
-  publish-images:
-    needs: [prepare, client-windows, client-linux-amd64, client-linux-arm64]
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45   # 跨境推送抖动宁可快速失败（可用 release-publish.yml 补跑），不挂死数小时
-    permissions:
-      contents: read
-      packages: write   # 推 GHCR
-    steps:
-      - uses: actions/checkout@v4   # Dockerfile.dist 在仓内，必须 checkout（无 .git 时 gh 也会挂——已踩坑）
-      - name: 下载 Release 全部安装包
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p dist-assets
-          # 显式 -R 指定仓库（不依赖 checkout 出的 .git，双保险）
-          gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
-            --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
-          ls -lh dist-assets
-      - uses: docker/setup-buildx-action@v3   # container 驱动 builder，支持多架构 --push（纯 COPY 无需 QEMU）
-      - name: 客户端产物镜像推 GHCR（TCR/CNB 由 CNB 侧从 Gitee Release 国内补齐，见 .cnb.yml）
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
-            -f uvmp-toolkit/packaging/Dockerfile.dist \
-            -t "${GHCR_CLIENT_IMAGE}:${VERSION}" \
-            --push dist-assets/
-
   release-final:
-    # 不依赖 publish-images：产物镜像推送（跨境）抖动不应阻塞 Release 发布（已踩坑）
+    # 不再依赖 publish-images：客户端只走 Release 附件，无产物镜像
     needs: [prepare, manifest, client-windows, client-linux-amd64, client-linux-arm64]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
@@ -343,13 +317,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: 下载 Release 全部安装包（Gitee 回传用）
+      - name: 下载 Release 客户端安装包（Gitee 回传用；只取 exe + deb 三件）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-assets
           gh release download "$GITHUB_REF_NAME" -R ${{ github.repository }} --dir dist-assets --clobber \
-            --pattern "*.exe" --pattern "*.zip" --pattern "*.deb" --pattern "*.tar.gz"
+            --pattern "*.exe" --pattern "*.deb"
       - name: 补全 GitHub Release 说明
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -358,11 +332,11 @@ jobs:
           gh release edit "${GITHUB_REF_NAME}" --notes "$(cat <<EOF
           服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：
           腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}
+          GHCR（GitHub 构建）：docker pull ghcr.io/zhangzhenyu91/j1toolkit:${VERSION}
           Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}
           CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
 
-          内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方 Assets；
-          产物镜像：${TCR_IMAGE}:uvmp-${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:uvmp-${VERSION}（CNB）。
+          内网客户端安装包（Windows exe、麒麟 amd64/arm64 deb）见下方 Assets。
 
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
@@ -384,7 +358,7 @@ jobs:
         run: |
           set -e
           API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；若某附件显示为 *.part-* 分卷（跨境上传保底策略），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE}:uvmp-${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:uvmp-${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
+          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；GHCR（GitHub 构建）：docker pull ghcr.io/zhangzhenyu91/j1toolkit:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe、麒麟 amd64/arm64 deb）见下方附件；若某附件显示为 *.part-* 分卷（跨境上传保底策略），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。部署见仓根 README.md 与 docker/.env.example。"
           # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
           curl -s -o /tmp/rel.json "${API}/releases/tags/${GITHUB_REF_NAME}?access_token=${GITEE_TOKEN}"
           OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
@@ -435,7 +409,7 @@ jobs:
                 curl -s -X DELETE "${API}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
                 echo "已清理历史 Release ${OLD_ID}"
               done
-      - name: 回推 tag 到 CNB（放最后：触发 CNB 流水线时 Gitee 附件已就绪，客户端产物镜像流水线零等待）
+      - name: 回推 tag 到 CNB（触发 CNB 侧服务端镜像重建推 TCR/CNB + git:release）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |

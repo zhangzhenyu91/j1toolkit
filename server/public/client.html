@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 内网客户端页（内部应用：要求登录 + client 应用权限，工作台宫格/顶栏进入）
-     安装包不再托管本站：公开仓打 vX.Y.Z tag 由 release.yml 统一构建发版（后端镜像 + 客户端同版本线）——
-     直链下载走 Gitee 公开仓 Release（优先）/ GitHub Release（备用），浏览器直下免登录；
-     Docker 产物镜像同推 TCR（优先，与服务器同云）/ GHCR（备用）/ CNB（第三副本）。
-     页面不被动接收更新，最新版本号由 GitHub API 拉取填入命令块（失败则显示 <版本号> 占位） -->
+     安装包不再托管本站、无 docker 产物镜像：公开仓打 vX.Y.Z tag 由 release.yml 统一构建发版——
+     直链下载走 Gitee 公开仓 Release（优先）/ GitHub Release（备用），浏览器直下免登录。
+     页面不被动接收更新，最新版本号由 GitHub API 拉取填入（失败则显示 <版本号> 占位） -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -58,27 +57,12 @@
   <div id="content"><div class="card empty-box" style="margin-top:22px;padding:40px 26px;text-align:center;font-size:13px;color:var(--ph)">加载中…</div></div>
 
   <section class="card help-card">
-    <h3>取件方式（Docker 产物镜像，tag = 版本号）</h3>
-    <ul>
-      <li>镜像内 <code>/artifacts/</code> 含 6 个安装包：Windows 安装包（Setup exe）/ 绿色包（zip）、麒麟 amd64 / arm64 的 deb 与 tar.gz。</li>
-      <li>优先腾讯云 TCR（与服务器同云）：<code>ccr.ccs.tencentyun.com/j1net/j1toolkit:uvmp-<span class="ver">&lt;版本号&gt;</span></code></li>
-    </ul>
-    <div class="cmd-block">docker create --name tmp ccr.ccs.tencentyun.com/j1net/j1toolkit:uvmp-<span class="ver">&lt;版本号&gt;</span>
-docker cp tmp:/artifacts/ ./uvmp-installers
-docker rm tmp</div>
-    <ul>
-      <li>备用 GitHub GHCR：<code>ghcr.io/zhangzhenyu91/uvmp-toolkit:<span class="ver">&lt;版本号&gt;</span></code>（命令同上，替换镜像地址即可）</li>
-      <li>镜像仓库若未设公开，需先 <code>docker login</code> 对应仓库。</li>
-    </ul>
-  </section>
-
-  <section class="card help-card">
     <h3>安装说明</h3>
     <ul>
-      <li><b>Windows 10+</b>：下载「安装包（exe）」双击安装（免管理员）；绿色包（zip）解压即用。</li>
+      <li><b>Windows 10+</b>：下载「安装包（exe）」双击安装（免管理员）。</li>
       <li><b>银河麒麟 V10 SP1</b>：下载对应架构（amd64 / arm64）的 deb，执行 <code>sudo apt install ./uvmp-toolkit_*.deb</code>。</li>
       <li>安装后打开客户端，在「设置」页填写 SSO 凭据，再到「每日派车单同步」页启用定时。</li>
-      <li>Gitee / GitHub 均为公开仓 Release，浏览器直链下载、免登录；Gitee 侧单附件超 100MB 会分卷（<code>cat 文件名.part-* &gt; 文件名</code> 合并）。</li>
+      <li>Gitee / GitHub 均为公开仓 Release，浏览器直链下载、免登录；Gitee 侧附件若显示为 <code>.part-*</code> 分卷，下载同一文件全部卷后合并（<code>cat 文件名.part-* &gt; 文件名</code>）。</li>
     </ul>
   </section>
 </main>

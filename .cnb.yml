@@ -1,17 +1,16 @@
-# Shade 壹匣 · CNB：tag 发版时在国内侧构建/分发（国内网络快）：
-#   1) 服务端镜像：重建多架构镜像推 CNB 制品库 + 腾讯云 TCR（GitHub 直推国内仓跨境慢/不稳——已踩坑）
-#   2) 客户端产物镜像：轮询等 Gitee 公开仓 Release 附件齐（GitHub Actions release-final 上传），
-#      国内速度下载 6 件安装包（分卷自动合并）→ 构建产物镜像推 CNB + TCR
-#   3) 自动创建 CNB Release（git:release，挂源码包）
+# Shade 壹匣 · CNB：tag 发版时在国内侧构建服务端多架构镜像推 CNB 制品库 + 腾讯云 TCR（国内互传快），
+# 并自动创建 CNB Release（git:release，挂源码包）。
 #
 # 分工（2026-10 起）：GitHub Actions 全量构建（服务端 + 客户端）推 Docker Hub / GHCR（美国同岸快）；
-# 本文件负责国内侧分发（TCR 正线 + CNB 制品库）。客户端（含 Windows）只在 GitHub 构建（CNB 无 Windows 节点）。
-# tag 由 GitHub Actions release.yml 回推到本仓后触发；两条 tag 线都接。
+# 本文件负责国内侧服务端镜像分发（TCR 正线 + CNB 制品库）。客户端安装包分发走 Gitee/GitHub Release
+# 直链 + GHCR 产物镜像（客户端产物镜像不入 TCR/CNB 服务端仓库，保持服务端仓库只有版本 tag）。
+# 客户端（含 Windows）只在 GitHub 构建（CNB 无 Windows 节点）。
+# tag 由 GitHub Actions release-final 在 Gitee 附件就绪后回推触发；两条 tag 线都接。
 #
 # 敏感配置走 CNB 密钥仓库 imports（本仓「设置」里没有环境变量面板）：
 # 新建密钥仓库 j1net/j1toolkit/keys，内含 envs.yml：
 #   TCR_USERNAME: <腾讯云账号 UIN>   TCR_PASSWORD: <TCR 个人版访问凭证密码>
-#   TCR_IMAGE: ccr.ccs.tencentyun.com/<命名空间>/j1toolkit（客户端产物镜像按同命名空间拼 uvmp-toolkit）
+#   TCR_IMAGE: ccr.ccs.tencentyun.com/<命名空间>/j1toolkit
 
 v*:
   tag_push:
@@ -35,57 +34,6 @@ v*:
             docker buildx build --platform linux/amd64,linux/arm64 \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION} \
               -t ${TCR_IMAGE}:${VERSION} --push .
-    - name: 客户端产物镜像（Gitee 附件 → CNB + TCR）
-      services:
-        - docker
-      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
-      git:
-        submodules: false
-      stages:
-        - name: 等附件齐并推送
-          timeout: 30m   # 覆盖 10 分钟无输出强杀（轮询静默被杀——已踩坑）
-          script: |
-            VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
-            WS=$PWD   # 工作区绝对路径：后面 cd /tmp/arts 下载，Dockerfile 需绝对路径指回工作区（已踩坑）
-            # 客户端产物镜像与服务端同仓、tag 前缀区分（TCR:uvmp-x.y.z，与 CNB 同口径）
-            API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-            command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
-            # 轮询等 Gitee Release 客户端附件齐（≥6 件 uvmp-toolkit* 安装包；assets 恒含 2 个源码包
-            # 须排除——已踩坑；复用同一份响应体取名单，避免二次请求抖动——已踩坑）
-            # 注：release-final 在 Gitee 附件传完后才推 CNB tag，正常首次轮询即就绪
-            LAST=0
-            for i in $(seq 1 45); do
-              curl -s "${API}/releases/tags/${CNB_BRANCH}" -o /tmp/rel.json
-              N=$(jq '[.assets[]? | select(.name | startswith("uvmp-toolkit"))] | length' /tmp/rel.json 2>/dev/null || echo 0)
-              echo "第 $i 次轮询：Gitee 客户端附件 ${N:-0} 件"   # 每次轮询必须出声，防 10 分钟无输出强杀
-              [ "${N:-0}" -ge 6 ] && [ "$N" = "$LAST" ] && break
-              LAST=$N; sleep 60
-            done
-            [ "${N:-0}" -ge 6 ] || { echo "Gitee 附件未就绪"; exit 1; }
-            mkdir -p /tmp/arts && cd /tmp/arts
-            jq -r --arg tag "${CNB_BRANCH}" \
-              '.assets[]? | select(.name | startswith("uvmp-toolkit")) | (.browser_download_url // ("https://gitee.com/j1net/j1toolkit/releases/download/" + $tag + "/" + .name))' \
-              /tmp/rel.json > urls.txt
-            while read -r u; do
-              f=$(basename "$u")
-              for t in 1 2 3; do
-                curl -sfL -o "$f" "$u" && [ -s "$f" ] && break
-                sleep 10
-              done
-              [ -s "$f" ] || { echo "下载失败 $f"; exit 1; }
-              echo "已下载 $f"
-            done < urls.txt
-            # 分卷合并（Gitee 单附件限 100MB，超限文件以 .part-* 上传）
-            for base in $(ls *.part-aa 2>/dev/null | sed 's/\.part-aa$//'); do
-              cat "$base".part-* > "$base" && rm -f "$base".part-*
-              echo "已合并 $base"
-            done
-            ls -lh
-            echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
-            docker buildx build --platform linux/amd64,linux/arm64 \
-              -f "${WS}/uvmp-toolkit/packaging/Dockerfile.dist" \
-              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:uvmp-${VERSION} \
-              -t ${TCR_IMAGE}:uvmp-${VERSION} --push /tmp/arts
 
 release-v*:
   tag_push:
@@ -109,54 +57,3 @@ release-v*:
             docker buildx build --platform linux/amd64,linux/arm64 \
               -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${VERSION} \
               -t ${TCR_IMAGE}:${VERSION} --push .
-    - name: 客户端产物镜像（Gitee 附件 → CNB + TCR）
-      services:
-        - docker
-      imports: https://cnb.cool/j1net/j1toolkit/keys/-/blob/main/envs.yml
-      git:
-        submodules: false
-      stages:
-        - name: 等附件齐并推送
-          timeout: 30m   # 覆盖 10 分钟无输出强杀（轮询静默被杀——已踩坑）
-          script: |
-            VERSION=$(echo "${CNB_BRANCH}" | sed -E 's/^(release-)?v//')
-            WS=$PWD   # 工作区绝对路径：后面 cd /tmp/arts 下载，Dockerfile 需绝对路径指回工作区（已踩坑）
-            # 客户端产物镜像与服务端同仓、tag 前缀区分（TCR:uvmp-x.y.z，与 CNB 同口径）
-            API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-            command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq; }
-            # 轮询等 Gitee Release 客户端附件齐（≥6 件 uvmp-toolkit* 安装包；assets 恒含 2 个源码包
-            # 须排除——已踩坑；复用同一份响应体取名单，避免二次请求抖动——已踩坑）
-            # 注：release-final 在 Gitee 附件传完后才推 CNB tag，正常首次轮询即就绪
-            LAST=0
-            for i in $(seq 1 45); do
-              curl -s "${API}/releases/tags/${CNB_BRANCH}" -o /tmp/rel.json
-              N=$(jq '[.assets[]? | select(.name | startswith("uvmp-toolkit"))] | length' /tmp/rel.json 2>/dev/null || echo 0)
-              echo "第 $i 次轮询：Gitee 客户端附件 ${N:-0} 件"   # 每次轮询必须出声，防 10 分钟无输出强杀
-              [ "${N:-0}" -ge 6 ] && [ "$N" = "$LAST" ] && break
-              LAST=$N; sleep 60
-            done
-            [ "${N:-0}" -ge 6 ] || { echo "Gitee 附件未就绪"; exit 1; }
-            mkdir -p /tmp/arts && cd /tmp/arts
-            jq -r --arg tag "${CNB_BRANCH}" \
-              '.assets[]? | select(.name | startswith("uvmp-toolkit")) | (.browser_download_url // ("https://gitee.com/j1net/j1toolkit/releases/download/" + $tag + "/" + .name))' \
-              /tmp/rel.json > urls.txt
-            while read -r u; do
-              f=$(basename "$u")
-              for t in 1 2 3; do
-                curl -sfL -o "$f" "$u" && [ -s "$f" ] && break
-                sleep 10
-              done
-              [ -s "$f" ] || { echo "下载失败 $f"; exit 1; }
-              echo "已下载 $f"
-            done < urls.txt
-            # 分卷合并（Gitee 单附件限 100MB，超限文件以 .part-* 上传）
-            for base in $(ls *.part-aa 2>/dev/null | sed 's/\.part-aa$//'); do
-              cat "$base".part-* > "$base" && rm -f "$base".part-*
-              echo "已合并 $base"
-            done
-            ls -lh
-            echo "${TCR_PASSWORD}" | docker login "${TCR_IMAGE%%/*}" -u "${TCR_USERNAME}" --password-stdin
-            docker buildx build --platform linux/amd64,linux/arm64 \
-              -f "${WS}/uvmp-toolkit/packaging/Dockerfile.dist" \
-              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:uvmp-${VERSION} \
-              -t ${TCR_IMAGE}:uvmp-${VERSION} --push /tmp/arts
