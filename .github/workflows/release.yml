@@ -375,19 +375,8 @@ jobs:
           REL_ID=$(echo "$RESP" | jq -r '.id // empty')
           [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
           cd dist-assets
-          # 整传优先（页面干净），失败转 20MB 分卷+单卷重试（跨境整传曾挂死 85 分钟——已踩坑，分卷保底）
+          # 直接 20MB 分卷+单卷重试：Gitee 附件端点对跨境大文件整传会挂死（两次实测）——分卷是唯一可靠路径
           for f in *; do
-            ok=0
-            for t in 1 2 3; do
-              if curl -s --http1.1 --connect-timeout 30 --max-time 900 -X POST \
-                   "${API}/releases/${REL_ID}/attach_files" \
-                   -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null; then
-                echo "已传 ${f}"; ok=1; break
-              fi
-              echo "整传失败 ${f}（第 $t 次）"; sleep 5
-            done
-            [ "$ok" = "1" ] && continue
-            echo "${f} 转 20MB 分卷上传"
             split -b 20m "$f" "$f.part-"
             for p in "$f".part-*; do
               ok=0
@@ -395,7 +384,7 @@ jobs:
                 if curl -s --http1.1 --connect-timeout 30 --max-time 300 -X POST \
                      "${API}/releases/${REL_ID}/attach_files" \
                      -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null; then
-                  echo "已传分卷 ${p}"; ok=1; break
+                  echo "已传 ${p}"; ok=1; break
                 fi
                 echo "重试 ${p}（第 $t 次失败）"; sleep 5
               done
