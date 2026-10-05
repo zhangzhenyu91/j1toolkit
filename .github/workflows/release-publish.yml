@@ -17,7 +17,7 @@ on:
 env:
   TAG: ${{ inputs.tag }}
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
-  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit-uvmp
+  CNB_CLIENT_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
   GHCR_CLIENT_IMAGE: ghcr.io/zhangzhenyu91/uvmp-toolkit
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   TCR_IMAGE: ${{ vars.TCR_IMAGE || secrets.TCR_IMAGE }}
@@ -95,7 +95,7 @@ jobs:
           CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}
 
           内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方 Assets；
-          产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。
+          产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:uvmp-${VERSION}（CNB）。
 
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
@@ -117,7 +117,7 @@ jobs:
         run: |
           set -e
           API="https://gitee.com/api/v5/repos/j1net/j1toolkit"
-          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；附件按 20MB 分卷（跨境上传稳定性，*.part-* 同属一个文件），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
+          BODY="服务端镜像 ${VERSION}（linux/amd64 + linux/arm64）：腾讯云 TCR（国内正线，CNB 构建推送）：docker pull ${TCR_IMAGE}:${VERSION}；Docker Hub（GitHub 构建）：docker pull docker.io/${DOCKERHUB_USERNAME}/j1toolkit:${VERSION}；CNB 制品库：docker pull ${CNB_IMAGE}:${VERSION}。内网客户端安装包（Windows exe/zip、麒麟 amd64/arm64 deb/tar.gz）见下方附件；附件按 20MB 分卷（跨境上传稳定性，*.part-* 同属一个文件），下载同一文件全部卷后合并：cat 文件名.part-* > 文件名。产物镜像：${TCR_IMAGE%/*}/uvmp-toolkit:${VERSION}（TCR）/ ${GHCR_CLIENT_IMAGE}:${VERSION}（GHCR）/ ${CNB_CLIENT_IMAGE}:uvmp-${VERSION}（CNB）。部署见仓根 README.md 与 docker/.env.example。"
           # 按 .id 判断存在性（Gitee 对无 Release 的 tag 也可能回 200 空体——已踩坑），有则删旧重建保证幂等
           curl -s -o /tmp/rel.json "${API}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}"
           OLD_REL=$(jq -r '.id // empty' /tmp/rel.json)
