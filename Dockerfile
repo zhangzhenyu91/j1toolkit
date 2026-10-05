@@ -5,7 +5,11 @@
 #       本地手动构建：docker build -t j1toolkit:dev .
 
 # ---------- 依赖阶段：严格按 lockfile 安装生产依赖 ----------
-FROM node:20-bookworm-slim AS deps
+# 基础镜像不得低于 Node 22：商旅 jsonx 通道依赖 crypto.privateDecrypt 的 RSA_PKCS1_PADDING——
+# Node 20（OpenSSL 3.0.x）按 CVE-2023-46809 防护默认禁用它（报 "RSA_PKCS1_PADDING is no longer
+# supported for private decryption"，致 slapp/default 通道应答全部不可解、商旅功能整体不可用，
+# 2026-10-06 v1.0.2 镜像实证）；Node ≥22（OpenSSL ≥3.2，内置隐式拒绝缓解）安全且可用
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app/server
 # ACR 国内构建机走 npmmirror 更快；可在构建参数覆盖（--build-arg NPM_REGISTRY=...）
 ARG NPM_REGISTRY=https://registry.npmmirror.com
@@ -14,7 +18,7 @@ RUN npm config set registry "$NPM_REGISTRY" \
  && npm ci --omit=dev
 
 # ---------- 运行阶段 ----------
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 ENV NODE_ENV=production \
     TZ=Asia/Shanghai \
     PORT=3000
