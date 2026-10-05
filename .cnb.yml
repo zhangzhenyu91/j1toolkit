@@ -71,13 +71,22 @@ v*:
             REL_ID=$(echo "$RESP" | jq -r '.id // empty')
             [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
             for f in *.exe *.deb; do
-              for t in 1 2 3; do
-                curl -s --connect-timeout 30 --max-time 600 -X POST \
-                  "${API}/releases/${REL_ID}/attach_files" \
-                  -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null && break
-                echo "重试上传 $f（第 $t 次）"; sleep 5
+              # Gitee 单附件限 100MB（exe/amd64 deb 超限——已踩坑），超限先 20MB 分卷
+              if [ "$(stat -c%s "$f")" -gt 99614720 ]; then
+                split -b 20m "$f" "$f.part-"
+                LIST="$f".part-*
+              else
+                LIST="$f"
+              fi
+              for p in $LIST; do
+                for t in 1 2 3; do
+                  curl -s --connect-timeout 30 --max-time 600 -X POST \
+                    "${API}/releases/${REL_ID}/attach_files" \
+                    -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null && break
+                  echo "重试上传 $p（第 $t 次）"; sleep 5
+                done
+                echo "已传 $p"
               done
-              echo "已传 $f"
             done
             # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release
             curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
@@ -146,13 +155,22 @@ release-v*:
             REL_ID=$(echo "$RESP" | jq -r '.id // empty')
             [ -n "$REL_ID" ] || { echo "Gitee Release 创建失败，响应：$RESP"; exit 1; }
             for f in *.exe *.deb; do
-              for t in 1 2 3; do
-                curl -s --connect-timeout 30 --max-time 600 -X POST \
-                  "${API}/releases/${REL_ID}/attach_files" \
-                  -F "access_token=${GITEE_TOKEN}" -F "file=@${f}" -o /dev/null && break
-                echo "重试上传 $f（第 $t 次）"; sleep 5
+              # Gitee 单附件限 100MB（exe/amd64 deb 超限——已踩坑），超限先 20MB 分卷
+              if [ "$(stat -c%s "$f")" -gt 99614720 ]; then
+                split -b 20m "$f" "$f.part-"
+                LIST="$f".part-*
+              else
+                LIST="$f"
+              fi
+              for p in $LIST; do
+                for t in 1 2 3; do
+                  curl -s --connect-timeout 30 --max-time 600 -X POST \
+                    "${API}/releases/${REL_ID}/attach_files" \
+                    -F "access_token=${GITEE_TOKEN}" -F "file=@${p}" -o /dev/null && break
+                  echo "重试上传 $p（第 $t 次）"; sleep 5
+                done
+                echo "已传 $p"
               done
-              echo "已传 $f"
             done
             # 附件总量 1GB 限制：Gitee 公开仓仅留当前 Release
             curl -s "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
