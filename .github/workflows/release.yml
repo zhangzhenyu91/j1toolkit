@@ -10,7 +10,7 @@ name: 发版
 #   manifest       合并服务端多架构 manifest :X.Y.Z（TCR/CNB 各自仓内 server 侧合并，不跨仓拷 blob）
 #   publish-images 客户端产物镜像同推 TCR（优先）/ GHCR（备用）/ CNB（第三副本）
 #   release-final  GitHub Release 补全说明 → 回推 tag 到 Gitee/CNB（CNB Release 由 .cnb.yml
-#                  git:release 接力）→ Gitee 公开仓 Release（删旧重建 + 6 件附件，>95MiB 分卷，
+#                  git:release 接力）→ Gitee 公开仓 Release（删旧重建 + 附件 20MB 分卷，
 #                  受单仓附件总量 1GB 限制仅保留最新一份 Release）
 # 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（等价幂等，二选一即可）；workflow_dispatch 只构建冒烟不发布。
 #
