@@ -80,17 +80,7 @@ jobs:
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
           )"
-      - name: 回推 tag 到 Gitee（CNB 侧「回传 Gitee Release」流水线的前置：tag 先于 Release 存在）
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          REMOTE="https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git"
-          if git ls-remote "$REMOTE" "refs/tags/${TAG}" | grep -q .; then
-            echo "远端已存在 ${TAG}，跳过"
-          else
-            git push "$REMOTE" "refs/tags/${TAG}"
-          fi
-      - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Gitee 附件回传）
+      - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Release 附件接力）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |

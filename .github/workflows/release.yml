@@ -9,20 +9,18 @@ name: 发版
 #   client-*       内网客户端三平台（Windows exe + 冒烟；麒麟 amd64/arm64 deb + 冒烟），
 #                  产物随建随传 GitHub Release（无中转构件：artifact 存储额度曾被挤爆——已踩坑）
 #   manifest       合并服务端多架构 manifest :X.Y.Z（GHCR/Docker Hub 各自仓内合并，不跨仓拷 blob）
-#   release-final  GitHub Release 补全说明 → 回推 tag 到 Gitee（小请求可靠）→ 回推 tag 到 CNB
-#                  → CNB 侧 .cnb.yml 接力：重建服务端镜像推 TCR + CNB 制品库 + git:release 建
-#                  CNB Release + 「回传 Gitee Release」流水线下载 GitHub 附件传 Gitee
-#                  （GitHub→Gitee 大附件跨境上传会挂死，Gitee 上传必须在国内构建机执行——已踩坑）
+#   release-final  GitHub Release 补全说明 → 回推 tag 到 CNB → CNB 侧 .cnb.yml 接力：重建服务端
+#                  镜像推 TCR + CNB 制品库 + git:release 建 CNB Release + 下载 GitHub 附件传
+#                  CNB Release（GitHub→国内平台大附件跨境上传不可靠——已踩坑，国内接力执行）
 # 触发：推 release-vX.Y.Z 或 vX.Y.Z tag（等价幂等，二选一即可）；workflow_dispatch 只构建冒烟不发布。
 #
 # 需在仓库配置（Settings → Secrets and variables → Actions）：
-#   Secrets: CNB_TOKEN（仓库 git 写 + 制品库权限）、GITEE_TOKEN（Gitee 私人令牌，projects 权限，
-#            粘贴勿带空格/换行——否则 git 推送报 "credential url cannot be parsed"）、
+#   Secrets: CNB_TOKEN（仓库 git 写 + 制品库权限）、
 #            DOCKERHUB_USERNAME / DOCKERHUB_TOKEN（Docker Hub 推送）
 #   Variables 或 Secrets: TCR_IMAGE（服务端镜像全路径 ccr.ccs.tencentyun.com/<命名空间>/j1toolkit；
 #            仅用于 Release 说明文案，TCR 推送在 CNB 侧）
-# 另需 CNB 密钥仓库 j1net/j1toolkit/keys 的 envs.yml：TCR_USERNAME / TCR_PASSWORD / TCR_IMAGE /
-# GITEE_TOKEN（CNB 侧推 TCR + 回传 Gitee 用）
+# 另需 CNB 密钥仓库 j1net/j1toolkit/keys 的 envs.yml：TCR_USERNAME / TCR_PASSWORD / TCR_IMAGE
+# （CNB 侧推 TCR 用）
 
 on:
   push:
@@ -338,17 +336,7 @@ jobs:
           部署见仓根 README.md 与 docker/.env.example（数据卷挂 /app/server/data，配置全走环境变量）。
           EOF
           )"
-      - name: 回推 tag 到 Gitee（CNB 侧「回传 Gitee Release」流水线的前置：tag 先于 Release 存在）
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          REMOTE="https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git"
-          if git ls-remote "$REMOTE" "refs/tags/${GITHUB_REF_NAME}" | grep -q .; then
-            echo "远端已存在 ${GITHUB_REF_NAME}，跳过"
-          else
-            git push "$REMOTE" "refs/tags/${GITHUB_REF_NAME}"
-          fi
-      - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Gitee Release 附件回传）
+      - name: 回推 tag 到 CNB（触发 CNB 侧：服务端镜像重建推 TCR/CNB + git:release + Release 附件接力）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |

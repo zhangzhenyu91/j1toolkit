@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 内网客户端页（内部应用：要求登录 + client 应用权限，工作台宫格/顶栏进入）
      安装包不再托管本站、无 docker 产物镜像：公开仓打 vX.Y.Z tag 由 release.yml 统一构建发版——
-     直链下载走 Gitee 公开仓 Release（优先）/ GitHub Release（备用），浏览器直下免登录。
+     直链下载走 CNB 公开仓 Release（优先，国内直连）/ GitHub Release（备用），浏览器直下免登录。
      页面不被动接收更新，最新版本号由 GitHub API 拉取填入（失败则显示 <版本号> 占位） -->
 <html lang="zh-CN">
 <head>
@@ -62,7 +62,7 @@
       <li><b>Windows 10+</b>：下载「安装包（exe）」双击安装（免管理员）。</li>
       <li><b>银河麒麟 V10 SP1</b>：下载对应架构（amd64 / arm64）的 deb，执行 <code>sudo apt install ./uvmp-toolkit_*.deb</code>。</li>
       <li>安装后打开客户端，在「设置」页填写 SSO 凭据，再到「每日派车单同步」页启用定时。</li>
-      <li>Gitee / GitHub 均为公开仓 Release，浏览器直链下载、免登录；Gitee 侧附件若显示为 <code>.part-*</code> 分卷，下载同一文件全部卷后合并（<code>cat 文件名.part-* &gt; 文件名</code>）。</li>
+      <li>CNB / GitHub 均为公开仓 Release，浏览器直链下载、免登录、无分卷。</li>
     </ul>
   </section>
 </main>
@@ -75,7 +75,7 @@
   Shade.reveal();
 
   var LINKS = [
-    { name: 'Gitee Release（推荐）', hint: '国内直连 · 浏览器直下免登录 · 与后端同版本线', href: 'https://gitee.com/j1net/j1toolkit/releases', icon: 'download' },
+    { name: 'CNB Release（推荐）', hint: '国内直连 · 浏览器直下免登录 · 与后端同版本线', href: 'https://cnb.cool/j1net/j1toolkit/j1toolkit/-/releases', icon: 'download' },
     { name: 'GitHub Release（备用）', hint: '同一份安装包 · 历史版本最全', href: 'https://github.com/zhangzhenyu91/j1toolkit/releases', icon: 'monitor' },
   ];
 

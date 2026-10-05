@@ -17,18 +17,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: 推送 main + tags 到 Gitee / CNB
+      - name: 推送 main + tags 到 CNB（Gitee 已弃用）
         env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
         run: |
-          rc=0
-          for REMOTE in \
-            "https://oauth2:${GITEE_TOKEN}@gitee.com/j1net/j1toolkit.git" \
-            "https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"; do
-            git push "$REMOTE" HEAD:main || rc=1
-            # 历史 tag 兜底同步：远端已存在且指向不同提交的 tag 会被拒（如发版覆盖残留），
-            # 不作失败处理——release tag 由 release.yml 确定性推送
-            git push "$REMOTE" --tags || echo "::warning::部分历史 tag 未同步（远端已存在且指向不同提交），不影响发版"
-          done
-          exit $rc
+          REMOTE="https://cnb:${CNB_TOKEN}@cnb.cool/j1net/j1toolkit/j1toolkit.git"
+          git push "$REMOTE" HEAD:main
+          # 历史 tag 兜底同步：远端已存在且指向不同提交的 tag 会被拒（如发版覆盖残留），
+          # 不作失败处理——release tag 由 release.yml 确定性推送
+          git push "$REMOTE" --tags || echo "::warning::部分历史 tag 未同步（远端已存在且指向不同提交），不影响发版"
