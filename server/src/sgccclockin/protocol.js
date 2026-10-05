@@ -243,6 +243,19 @@ async function initSessionX() {
   throw new Error('商旅 ads 初始化失败（slapp 通道）：HTTP ' + r.status + ' ' + JSON.stringify(r.decoded || r.raw || '').slice(0, 200));
 }
 
+// 启动通道自检：jsonm 与 slapp 两通道各拉一次 uniID 池（均为正常业务调用），
+// 部署环境出口异常（如容器网络触发风控返回不可解应答）会在启动时即暴露，
+// 而不是等打卡/核查时才以「登录过期」形式误伤。永不 reject：{ ok, error? }
+async function selfCheck() {
+  try {
+    await initSession();
+    await initSessionX();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // 取池化 uniID（slapp/default 分池；noPool 的 ads 拉池请求不走这里——该请求本就不带 uniID 头）
 async function takeUniID(slapp) {
   if (slapp) {
@@ -489,5 +502,5 @@ async function uploadImageV2(token, { buf }, opt = {}) {
 module.exports = {
   loginCaptcha, loginSendSmsV2, loginSendSms, loginBySms, loginSendSmsSlapp, loginBySmsSlapp,
   loginByPasswordV3, loginByPassword,
-  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, uploadImageV2, probeProxy, httpsAgent,
+  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, uploadImageV2, probeProxy, httpsAgent, selfCheck,
 };

@@ -84,13 +84,20 @@ function devOpt(account) {
 // 由有效探测为失效时自动通知本人与超管（见 16.3）：仅 1→0 跳变通知一次，
 // token_status 已是 0 的后续探测不重复通知；通知发送失败不影响业务流（fire-and-forget）；
 // 1→0 跳变同时落两行日志：平台应答原文（判定失效的依据，定位「新 token 被平台拒」关键证据）+ 标记过期记录
-// 注意区分网络/代理异常：请求未到达商旅（代理不可达、超时等）不代表 token 失效——
-// 一次断网抖动若据此标 0 会全员误标过期并群发误报；此时不改 token_status，按原状态返回
+// 判失效只认「平台应答可解且 statusCode≠200」；两类异常应答均不代表 token 失效，保持原值：
+//   ① 网络/代理异常（请求未到达商旅：代理不可达、超时等）——一次断网抖动若据此标 0 会全员误标过期并群发误报；
+//   ② HTTP 通但应答不可解（风控乱码/通道异常，如容器出口触发风控返回非常规加密应答，2026-10-06 Docker 部署实证）——
+//      通道问题不是 token 问题，据此标 0 同样会全员误标。
 async function probeAuth(account) {
   let valid = false;
   try {
     const d = await sgcc.dayNew(account.token, today(), devOpt(account));
-    valid = !!(d && Number(d.statusCode) === 200);
+    if (!d) {
+      // 平台应答不可解：通道/风控异常，token_status 保持原值（同网络异常口径，不翻转不通知）
+      console.warn(`[商旅打卡] 登录态探测应答不可解（成员 ${account.member_id}），按通道异常处理，token_status 保持原值`);
+      return Number(account.token_status) === 1;
+    }
+    valid = Number(d.statusCode) === 200;
     // 1→0 跳变时落平台应答原文（「新 token 被平台拒」类问题的关键证据；已是 0 的重复探测不打，避免刷屏）
     if (!valid && Number(account.token_status) === 1) {
       console.warn(`[商旅打卡] 登录态探测判失效（成员 ${account.member_id}），平台应答：${JSON.stringify(d || null).slice(0, 300)}`);
@@ -2406,6 +2413,31 @@ function scheduleStartClockRemind() {
   console.log(`[商旅打卡] 开始打卡午间提醒已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
 }
 scheduleStartClockRemind();
+
+// 启动通道自检：jsonm/slapp 两通道各拉一次 uniID 池（正常业务调用，不给商旅侧添噪音）。
+// 部署环境出口异常（如容器网络触发风控返回不可解应答，2026-10-06 Docker 部署实证）会在启动时即暴露，
+// 而不是等打卡/核查时才以「登录过期」形式误伤；异常时站内通知超管（fire-and-forget）。
+(async () => {
+  if (!config.sgcc.jwtSecret) return; // 协议密钥未配置（商旅功能不可用）时不自检
+  const r = await sgcc.selfCheck();
+  if (r.ok) {
+    console.log('[商旅打卡] 启动通道自检正常（jsonm/slapp 双通道拉池成功）');
+    return;
+  }
+  console.error('[商旅打卡] 启动通道自检失败：', r.error);
+  try {
+    const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
+    if (!admins.length) return;
+    await require('../notice').push({
+      userIds: admins.map((a) => a.id),
+      targets: [],
+      title: '商旅通道自检失败',
+      content: `服务启动时商旅 jsonm/slapp 通道自检失败（${String(r.error).slice(0, 100)}），打卡/费用/照片同步与重新绑定可能不可用，请检查出口代理与部署环境网络。`,
+    });
+  } catch (err) {
+    console.error('[商旅打卡] 通道自检失败通知发送失败：', err.message);
+  }
+})().catch((e) => console.error('[商旅打卡] 启动通道自检异常：', e.message));
 
 module.exports = router;
 // 供 worklog 照片上传（远端先行）/改人名补传/删除钩子调用
