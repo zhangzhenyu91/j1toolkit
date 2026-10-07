@@ -3,7 +3,8 @@
      流程：解析 hash 取 share_id → GET /public/share/:id 取分享信息（失败按 code 显示 已停用 40310 /
        已过期 41010 / 不存在 40400 空态卡）→ 提取码表单（4 位大写字母数字）→ POST verify 通过得 2h 访问
        票据 ticket（仅内存保存）→ 文件列表（列表行：真实类型图标 + 名称 + 大小/时间；文件夹点击下钻，
-       面包屑返回；文件行「下载」按钮 + 图片/视频点击内联 Lightbox 预览）；
+       面包屑返回；文件行「下载」按钮 + 图片点击进网页内全屏查看器（←→ 循环/滚轮缩放/拖拽平移/单击切换原图）、
+       视频内联 Lightbox 预览）；
      公开请求一律原生 fetch 自解信封（Shade.apiRaw 遇 401 会跳登录页，不适用免登录场景）；
      ticket 失效（40311）自动回到提取码表单提示重验；提取码错误限次 42901 原样提示 -->
 <html lang="zh-CN">
@@ -122,6 +123,41 @@
   .m-x svg { width: 14px; height: 14px; }
   .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
   .lb-media { display: block; margin: 0 auto; max-width: 100%; max-height: 68vh; border-radius: 8px; background: var(--fill); }
+
+  /* ===== 图片全屏查看器（与 netdisk.html 同套实现；深色底为查看器惯例） ===== */
+  .vwr {
+    position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, .88);
+    display: flex; flex-direction: column;
+    animation: vwrIn .18s ease both;
+  }
+  @keyframes vwrIn { from { opacity: 0; } }
+  .vwr-top { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 18px; color: #fff; }
+  .vwr-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vwr-idx { flex: none; font-size: 12px; color: rgba(255, 255, 255, .6); font-variant-numeric: tabular-nums; }
+  .vwr-x {
+    margin-left: auto; flex: none; width: 34px; height: 34px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, .8); cursor: pointer;
+    transition: background .15s;
+  }
+  .vwr-x:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+  .vwr-x svg { width: 16px; height: 16px; }
+  .vwr-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; margin: 0 4vw 4vh; }
+  .vwr-img {
+    position: absolute; left: 50%; top: 50%; transform-origin: center; user-select: none;
+    cursor: zoom-in; transition: transform .15s var(--ease);
+  }
+  .vwr-img.free { cursor: grab; }
+  .vwr-img.free.dragging { cursor: grabbing; transition: none; }
+  .vwr-bar { flex: none; display: flex; justify-content: center; gap: 10px; padding: 4px 0 18px; }
+  .vwr-bar button {
+    height: 36px; min-width: 36px; padding: 0 12px; border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .08); color: #fff;
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer;
+    transition: background .15s;
+  }
+  .vwr-bar button:hover { background: rgba(255, 255, 255, .18); }
+  .vwr-bar button[disabled] { opacity: .4; cursor: default; }
+  .vwr-bar button svg { width: 16px; height: 16px; }
 </style>
 </head>
 <body>
@@ -347,17 +383,160 @@
       });
     });
   }
-  // 文件：图片/视频内联 Lightbox 预览，其余直接下载
+  // 文件：图片走网页内全屏查看器，视频内联 Lightbox 播放，其余直接下载
   function openFile(it) {
-    if (isImg(it.name) || isVideo(it.name)) {
-      var url = dlUrl(it._rel);
-      var body = isImg(it.name)
-        ? '<img class="lb-media" src="' + url + '" alt="' + esc(it.name) + '">'
-        : '<video class="lb-media" src="' + url + '" controls autoplay></video>';
-      Shade.modal(Shade.mHead(it.name) + '<div>' + body + '</div>', { width: 920 });
+    if (isImg(it.name)) { openViewer(it); return; }
+    if (isVideo(it.name)) {
+      Shade.modal(Shade.mHead(it.name) + '<div><video class="lb-media" src="' + dlUrl(it._rel) + '" controls autoplay></video></div>', { width: 920 });
       return;
     }
     downloadItem(it);
+  }
+
+  /* ================= 图片全屏查看器（与 netdisk.html 同套：←→ 循环 / 滚轮缩放 0.1~8× / 拖拽平移 /
+     单击 适应↔原图 / Esc 关闭；下载与取图走 ticket 直链，不依赖登录态） ================= */
+  var vwr = null, vwrOnKey = null, vwrOnResize = null;
+  function vwrUrl(it) { return dlUrl(it._rel); }
+  function openViewer(it) {
+    var imgs = T.items.filter(function (x) { return !x.is_dir && isImg(x.name); }); // 当前目录图片，按列表展示顺序
+    var idx = imgs.indexOf(it);
+    if (idx < 0) return;
+    closeViewer();
+    var el = document.createElement('div');
+    el.className = 'vwr';
+    el.innerHTML =
+      '<div class="vwr-top"><span class="vwr-name"></span><span class="vwr-idx"></span>'
+      + '<span class="vwr-x" title="关闭（Esc）">' + Shade.icon('close', 16) + '</span></div>'
+      + '<div class="vwr-stage"><img class="vwr-img" draggable="false" alt=""></div>'
+      + '<div class="vwr-bar">'
+      + '<button type="button" data-v="prev" title="上一张（←）">' + Shade.icon('chevron-left', 16) + '</button>'
+      + '<button type="button" data-v="fit">原图</button>'
+      + '<button type="button" data-v="dl" title="下载">' + Shade.icon('download', 16) + '</button>'
+      + '<button type="button" data-v="next" title="下一张（→）">' + Shade.icon('chevron-right', 16) + '</button>'
+      + '</div>';
+    document.body.appendChild(el);
+    vwr = {
+      el: el, imgs: imgs, idx: idx,
+      mode: 'fit', scale: 1, tx: 0, ty: 0,
+      img: el.querySelector('.vwr-img'),
+      stage: el.querySelector('.vwr-stage'),
+    };
+    el.querySelector('.vwr-x').addEventListener('click', closeViewer);
+    el.querySelector('.vwr-bar').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-v]');
+      if (!b || !vwr) return;
+      if (b.dataset.v === 'prev') vwrNav(-1);
+      else if (b.dataset.v === 'next') vwrNav(1);
+      else if (b.dataset.v === 'fit') vwrToggleFit();
+      else if (b.dataset.v === 'dl') downloadItem(vwr.imgs[vwr.idx]);
+    });
+    vwr.stage.addEventListener('wheel', onVwrWheel, { passive: false });
+    var img = vwr.img;
+    var drag = null;
+    img.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      drag = { x: e.clientX, y: e.clientY, moved: false };
+      img.setPointerCapture(e.pointerId);
+    });
+    img.addEventListener('pointermove', function (e) {
+      if (!drag || !vwr) return;
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      drag.moved = true;
+      if (vwr.mode !== 'free') return;
+      if (!img.classList.contains('dragging')) img.classList.add('dragging');
+      vwr.tx += dx; vwr.ty += dy;
+      drag.x = e.clientX; drag.y = e.clientY;
+      vwrPaint();
+    });
+    var up = function () {
+      if (!drag || !vwr) { drag = null; return; }
+      var wasDrag = drag.moved;
+      drag = null;
+      img.classList.remove('dragging');
+      if (!wasDrag) vwrToggleFit(); // 单击图片：适应屏幕 ↔ 原图 100%
+    };
+    img.addEventListener('pointerup', up);
+    img.addEventListener('pointercancel', up);
+    img.addEventListener('load', function () {
+      if (!vwr || vwr.img !== img) return;
+      if (img.getAttribute('src') !== vwrUrl(vwr.imgs[vwr.idx])) return;
+      if (vwr.mode === 'fit') vwrFit();
+    });
+    vwrOnKey = function (e) {
+      if (!vwr) return;
+      if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeViewer(); }
+      else if (e.key === 'ArrowLeft') { e.stopPropagation(); vwrNav(-1); }
+      else if (e.key === 'ArrowRight') { e.stopPropagation(); vwrNav(1); }
+    };
+    window.addEventListener('keydown', vwrOnKey, true);
+    vwrOnResize = function () { if (vwr && vwr.mode === 'fit') vwrFit(); };
+    window.addEventListener('resize', vwrOnResize);
+    document.body.style.overflow = 'hidden'; // 锁定背景滚动，关闭恢复
+    vwrShow();
+  }
+  function vwrShow() {
+    var it = vwr.imgs[vwr.idx];
+    vwr.el.querySelector('.vwr-name').textContent = it.name;
+    vwr.el.querySelector('.vwr-idx').textContent = (vwr.idx + 1) + ' / ' + vwr.imgs.length;
+    vwr.mode = 'fit'; vwr.tx = 0; vwr.ty = 0; vwr.scale = 1;
+    vwr.img.src = vwrUrl(it);
+    if (vwr.img.complete && vwr.img.naturalWidth) vwrFit(); else vwrPaint();
+    var single = vwr.imgs.length < 2;
+    vwr.el.querySelector('[data-v="prev"]').disabled = single;
+    vwr.el.querySelector('[data-v="next"]').disabled = single;
+  }
+  function vwrNav(d) {
+    if (!vwr || vwr.imgs.length < 2) return;
+    vwr.idx = (vwr.idx + d + vwr.imgs.length) % vwr.imgs.length;
+    vwrShow();
+  }
+  function vwrFit() {
+    if (!vwr) return;
+    var natW = vwr.img.naturalWidth, natH = vwr.img.naturalHeight;
+    if (!natW || !natH) return;
+    var r = vwr.stage.getBoundingClientRect();
+    vwr.scale = Math.min(8, Math.max(0.1, Math.min(r.width / natW, r.height / natH)));
+    vwr.tx = 0; vwr.ty = 0;
+    vwr.mode = 'fit';
+    vwrPaint();
+  }
+  function vwrToggleFit() {
+    if (!vwr) return;
+    if (vwr.mode === 'fit') { vwr.scale = 1; vwr.tx = 0; vwr.ty = 0; vwr.mode = 'free'; vwrPaint(); }
+    else vwrFit();
+  }
+  function vwrPaint() {
+    vwr.img.style.transform = 'translate(-50%, -50%) translate(' + vwr.tx + 'px, ' + vwr.ty + 'px) scale(' + vwr.scale + ')';
+    vwr.img.classList.toggle('free', vwr.mode === 'free');
+    vwr.el.querySelector('[data-v="fit"]').textContent = vwr.mode === 'fit' ? '原图' : '适应';
+  }
+  // 滚轮缩放：光标指向的内容点在缩放前后保持不动
+  function onVwrWheel(e) {
+    if (!vwr) return;
+    e.preventDefault();
+    var ns = Math.min(8, Math.max(0.1, vwr.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    if (ns === vwr.scale) return;
+    var r = vwr.stage.getBoundingClientRect();
+    var px = e.clientX - r.left - r.width / 2;
+    var py = e.clientY - r.top - r.height / 2;
+    vwr.tx = px - (px - vwr.tx) * (ns / vwr.scale);
+    vwr.ty = py - (py - vwr.ty) * (ns / vwr.scale);
+    vwr.scale = ns;
+    vwr.mode = 'free';
+    vwrPaint();
+  }
+  function closeViewer() {
+    if (!vwr) return;
+    window.removeEventListener('keydown', vwrOnKey, true);
+    window.removeEventListener('resize', vwrOnResize);
+    var el = vwr.el;
+    vwr = null;
+    document.body.style.overflow = '';
+    el.style.transition = 'opacity .15s ease';
+    el.style.opacity = '0';
+    setTimeout(function () { el.remove(); }, 160);
   }
   // 下载：fetch 校验信封（ticket 失效回引导重验），二进制交给 Shade.saveBlob 落地
   async function downloadItem(it) {

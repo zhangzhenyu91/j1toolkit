@@ -4,19 +4,25 @@
        空白处 pointerdown 拖出半透明框选矩形（getBoundingClientRect 相交即选中），单击单选 / Ctrl+点击切换 /
        Shift+点击连选 / 点空白清空 / Esc 清空（Shade.escGuard 优先于弹层拦截）；右键自绘菜单（打开/下载/分享/
        重命名/删除，fixed 挂 body，z-index 1200，document mousedown 捕获 + Esc + 滚动/缩放关闭，防出屏；
-       公共区 manageable=false 隐藏重命名与删除）；双击文件夹进入、文件预览（图片/视频内联 Lightbox、
+       公共区 manageable=false 隐藏重命名与删除）；双击文件夹进入、文件预览（图片走网页内全屏查看器 openViewer
+       ←→ 循环/滚轮缩放/拖拽平移/单击切换原图，视频内联 Lightbox、
        PDF 新标签 inline、其余直接下载）；Office 格式（doc/xls/ppt 族）双击/右键「在线预览」：preview/sign
        取短时效票据（600s）→ 免登录回源 URL → 微软官方查看器 view.officeapps.live.com 新标签打开
        （文件经票据公开回源，仅 Office 格式；本地 127.0.0.1 预览微软够不到属正常）；选中操作在顶部工具条
-       （ghost 小按钮组常驻布局、.show 类切换淡入，宽度不突变故右侧按钮不闪移；manageable=false 隐藏
-       移动与删除、纯文件夹选择隐藏下载）；底部状态栏纯统计；
+       （ghost 小按钮组 .show 类切换淡入；隐藏时零宽不占位；选中态 = 工具条模式切换：右侧 新建/上传 三键
+       同步 .gone 零宽隐藏——选中下无意义，本行只剩 分段+操作组，常规宽度不溢出无横向滚动条；
+       tb-right position:sticky right:0 钉住右缘，极窄屏横滚兜底且按钮始终可达；
+       manageable=false 隐藏移动与删除、纯文件夹选择隐藏下载）；底部状态栏纯统计；
      空间口径：默认公共区（spaces 下发为准）；公共区按班组隔离——spaces 的 public 项带 team（分段显示
        「公共区 · 班组名」）；未分配班组不下发 public（分段隐藏、仅用我的空间，不再整页拦截）；
        目标位置选择弹窗的空间分段同口径按 spaces 显隐；面包屑根保持空间名；
-     上传：多文件选择 + 网格区拖入；分片流程 init → 并发 3 片 PUT（裸字节，原生 fetch 经 Shade.apiRaw 带
+     上传：多文件选择 + 文件夹上传（仅 Web 端：工具条「上传文件夹」webkitdirectory 选择 / 网格区拖入目录，
+       FileSystemEntry 递归遍历、readEntries 循环取空；按 relPath 逐级 mkdir 建树，批内去重、已存在吞掉，
+       空文件夹不建）+ 网格区拖入文件；分片流程 init → 并发 3 片 PUT（裸字节，原生 fetch 经 Shade.apiRaw 带
        Authorization）→ 进度取会话快照 received_bytes → complete（429/409 带 retry 标记退避 1~2s 重传，
        每片最多 5 次；complete 异常用 status 轮询兜底终态）；网格内联上传格（细进度条 + 百分比 + 浅蓝
-       「上传中」标签 + × 取消）+ 右下全局上传任务面板（失败可重试，重试经 init 快照断点续传）；
+       「上传中」标签 + × 取消）+ 右下全局上传任务面板（名称带相对路径；失败可重试，重试经 init 快照断点续传）；
+       文件夹批次全部出队后汇总 toast「文件夹上传完成：N 个文件（，失败 M 个）」；
      搜索：回车按当前空间检索（结果格显示所在目录副信息），清空回到浏览；
      创建分享模态：已选摘要 + 有效期单选（7/30/永久）+ 提取码 4 位 [A-Z0-9] 可刷新，生成后展示链接
        （<origin>/share.html#/s/<id>）+ 提取码 + 一键复制；
@@ -89,21 +95,39 @@
   .nd-toolbar::-webkit-scrollbar-track { background: transparent; }
   .nd-toolbar .seg { flex: none; }
   .seg { display: inline-flex; position: relative; background: var(--line); border-radius: 8px; padding: 2px; }
-  /* 选中操作区：常驻布局 + visibility/opacity 过渡（不用 display 切换——宽度突变会让 margin-left:auto
-     在 overflow 容器里重算，右侧按钮闪移；类切换只在 无选择↔有选择 时播一次淡入，数量变化不重播）；
-     btn-sm 34px 与分段同高，工具条高度不跳 */
+  /* 选中操作区：隐藏时零宽不占位（width:0 + overflow:hidden），显示时恢复自然宽度 + opacity 淡入。
+     根因备忘：visibility:hidden 但按全量按钮占位时，「公共区 · 班组名」长分段 + 6 枚按钮 + 右侧三键
+     在 overflow-x:auto 容器里临界溢出，初始即出现横向滚动条；选中后按状态 hidden 掉部分按钮
+     内容收窄，滚动条又消失——表现为「初始有滚动条、点选后消失」。零宽隐藏后初始不再溢出；
+     显示时宽度落在分段与右侧按钮之间（margin-left:auto 吸收），右侧按钮不动 */
   .selbar {
-    flex: none; white-space: nowrap;
+    flex: none; white-space: nowrap; overflow: hidden;
     display: inline-flex; align-items: center; gap: 8px;
-    padding-left: 12px; margin-left: 2px; border-left: 1px solid var(--line);
+    width: 0; padding-left: 0; margin-left: 0; border-left: 0 solid transparent;
     visibility: hidden; opacity: 0;
     transition: opacity .18s var(--ease), visibility 0s linear .18s;
   }
-  .selbar.show { visibility: visible; opacity: 1; transition: opacity .18s var(--ease); }
+  .selbar.show {
+    width: auto; padding-left: 12px; margin-left: 2px; border-left: 1px solid var(--line);
+    visibility: visible; opacity: 1; transition: opacity .18s var(--ease);
+  }
   .selbar .btn { flex: none; }
   .selbar .btn-del { color: var(--red); }
   .selbar .btn-del:hover { border-color: var(--red); color: var(--red); filter: none; }
-  .tb-right { flex: none; margin-left: auto; display: flex; gap: 10px; }
+  /* 右侧按钮钉住可视右缘：内容装得下时 margin-left:auto 照常最右（与原来一致）；
+     真溢出时 sticky 保持在右缘不随内容左移（selbar 出现/消失均零位移），且极窄屏滚动时始终可达；
+     选中态整组 .gone 零宽隐藏（与 selbar 同一 visibility/opacity 过渡口径，不播宽度动画牵连布局）——
+     选中状态下 新建文件夹/上传文件 本就无意义，本行只剩 空间分段 + 选中操作组，常规宽度不再溢出 */
+  .tb-right {
+    flex: none; margin-left: auto; display: flex; gap: 10px;
+    position: sticky; right: 0; background: var(--paper); padding-left: 12px;
+    transition: opacity .18s var(--ease), visibility 0s linear .18s;
+  }
+  .tb-right.gone {
+    width: 0; padding-left: 0; overflow: hidden;
+    visibility: hidden; opacity: 0;
+    transition: opacity .18s var(--ease), visibility 0s linear .18s;
+  }
   .seg-pill {
     position: absolute; top: 2px; bottom: 2px; left: 0; width: 0; pointer-events: none;
     background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
@@ -294,6 +318,41 @@
   /* 媒体预览 Lightbox 内容 */
   .lb-media { display: block; margin: 0 auto; max-width: 100%; max-height: 68vh; border-radius: 8px; background: var(--fill); }
 
+  /* ===== 图片全屏查看器（网页内全屏，深色底为查看器惯例；z-index 高于右键菜单 1200 与弹层 320） ===== */
+  .vwr {
+    position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, .88);
+    display: flex; flex-direction: column;
+    animation: vwrIn .18s ease both;
+  }
+  @keyframes vwrIn { from { opacity: 0; } }
+  .vwr-top { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 18px; color: #fff; }
+  .vwr-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vwr-idx { flex: none; font-size: 12px; color: rgba(255, 255, 255, .6); font-variant-numeric: tabular-nums; }
+  .vwr-x {
+    margin-left: auto; flex: none; width: 34px; height: 34px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, .8); cursor: pointer;
+    transition: background .15s;
+  }
+  .vwr-x:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+  .vwr-x svg { width: 16px; height: 16px; }
+  .vwr-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; margin: 0 4vw 4vh; }
+  .vwr-img {
+    position: absolute; left: 50%; top: 50%; transform-origin: center; user-select: none;
+    cursor: zoom-in; transition: transform .15s var(--ease);
+  }
+  .vwr-img.free { cursor: grab; }
+  .vwr-img.free.dragging { cursor: grabbing; transition: none; } /* 拖拽时无过渡跟手 */
+  .vwr-bar { flex: none; display: flex; justify-content: center; gap: 10px; padding: 4px 0 18px; }
+  .vwr-bar button {
+    height: 36px; min-width: 36px; padding: 0 12px; border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .08); color: #fff;
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer;
+    transition: background .15s;
+  }
+  .vwr-bar button:hover { background: rgba(255, 255, 255, .18); }
+  .vwr-bar button[disabled] { opacity: .4; cursor: default; }
+  .vwr-bar button svg { width: 16px; height: 16px; }
+
   /* ===== 创建分享模态（已选摘要 + 有效期单选 + 提取码可刷新 + 说明条直角） ===== */
   .m-files { background: var(--fill); border-radius: 8px; padding: 10px 12px; max-height: 180px; overflow-y: auto; }
   .mf-rw { display: flex; align-items: center; gap: 9px; font-size: 12.5px; font-weight: 600; }
@@ -465,8 +524,9 @@
           <button type="button" class="btn btn-sm btn-del" data-sel="del">删除</button>
           <button type="button" class="btn btn-sm" data-sel="clear">取消选择</button>
         </span>
-        <div class="tb-right">
+        <div class="tb-right" id="tbRight">
           <button type="button" class="btn btn-sm" id="btnMkdir"></button>
+          <button type="button" class="btn btn-sm" id="btnUpDir"></button>
           <button type="button" class="btn btn-sm btn-primary" id="btnUpload"></button>
         </div>
       </div>
@@ -500,8 +560,9 @@
 <!-- 全局上传任务面板（有任务即浮现） -->
 <div class="upanel" id="upanel" hidden></div>
 
-<!-- 隐藏文件选择器（多文件上传入口） -->
+<!-- 隐藏文件选择器（多文件上传入口；dirInput 为文件夹上传入口，webkitdirectory 选整个目录） -->
 <input type="file" id="fileInput" multiple hidden>
+<input type="file" id="dirInput" webkitdirectory hidden>
 
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
@@ -839,16 +900,19 @@
     renderSelbar(si);
   }
   // 顶部工具条选中操作区：.show 类切换淡入淡出（只在 无选择↔有选择 时过渡一次，数量变化不重播；
-  // 移动/删除按 manageable 显隐，下载按有无文件显隐）
+  // 移动/删除按 manageable 显隐，下载按有无文件显隐）；
+  // 选中态同时把右侧 新建/上传 三键 .gone 零宽隐藏（选中下无意义），本行只剩 分段 + 选中操作组，常规宽度不溢出
   function renderSelbar(si) {
     var bar = $('#selbar');
+    var right = $('#tbRight');
     if (!si) si = selItems();
-    if (!si.length) { bar.classList.remove('show'); return; }
+    if (!si.length) { bar.classList.remove('show'); right.classList.remove('gone'); return; }
     var hasFile = si.some(function (it) { return !it.is_dir; });
     $('[data-sel="dl"]', bar).hidden = !hasFile;
     $('[data-sel="move"]', bar).hidden = !S.manageable;
     $('[data-sel="del"]', bar).hidden = !S.manageable;
     bar.classList.add('show');
+    right.classList.add('gone');
   }
   function setSel(ns) {
     sel = ns;
@@ -1016,7 +1080,8 @@
       loadList();
       return;
     }
-    if (isImg(it.name) || isVideo(it.name)) return previewMedia(it);
+    if (isImg(it.name)) return openViewer(it); // 图片走网页内全屏查看器
+    if (isVideo(it.name)) return previewMedia(it); // 视频维持 Lightbox controls 播放
     if (extOf(it.name) === 'pdf') { window.open(dlUrl(it._rel, 'inline'), '_blank'); return; }
     if (isOffice(it.name)) return previewOffice(it); // Office 走微软官方查看器
     if (isArchive(it.name)) return openArchive(it); // 压缩包双击进预览弹窗
@@ -1035,13 +1100,160 @@
       Shade.toast(e.message || '预览失败', 'error');
     }
   }
-  // 图片/视频内联 Lightbox（URL 带 ?token= 鉴权直引）
+  // 视频内联 Lightbox（URL 带 ?token= 鉴权直引；图片已改走全屏查看器 openViewer）
   function previewMedia(it) {
     var url = dlUrl(it._rel, 'inline');
-    var body = isImg(it.name)
-      ? '<img class="lb-media" src="' + url + '" alt="' + esc(it.name) + '">'
-      : '<video class="lb-media" src="' + url + '" controls autoplay></video>';
-    Shade.modal(Shade.mHead(it.name) + '<div>' + body + '</div>', { width: 920 });
+    Shade.modal(Shade.mHead(it.name) + '<div><video class="lb-media" src="' + url + '" controls autoplay></video></div>', { width: 920 });
+  }
+
+  /* ================= 图片全屏查看器（网页内全屏：←→ 循环切换 / 滚轮以光标为中心缩放 0.1~8× /
+     缩放后拖拽平移 / 单击图片 适应↔原图 100% / Esc 关闭（window 捕获 + stopPropagation，不击穿外层弹层）） ================= */
+  var vwr = null, vwrOnKey = null, vwrOnResize = null;
+  function vwrUrl(it) { return dlUrl(it._rel, 'inline'); }
+  function openViewer(it) {
+    var imgs = S.items.filter(function (x) { return !x.is_dir && isImg(x.name); }); // 当前目录图片，按网格展示顺序
+    var idx = imgs.indexOf(it);
+    if (idx < 0) return;
+    closeViewer(); // 幂等：防连点叠层
+    var el = document.createElement('div');
+    el.className = 'vwr';
+    el.innerHTML =
+      '<div class="vwr-top"><span class="vwr-name"></span><span class="vwr-idx"></span>'
+      + '<span class="vwr-x" title="关闭（Esc）">' + Shade.icon('close', 16) + '</span></div>'
+      + '<div class="vwr-stage"><img class="vwr-img" draggable="false" alt=""></div>'
+      + '<div class="vwr-bar">'
+      + '<button type="button" data-v="prev" title="上一张（←）">' + Shade.icon('chevron-left', 16) + '</button>'
+      + '<button type="button" data-v="fit">原图</button>'
+      + '<button type="button" data-v="dl" title="下载">' + Shade.icon('download', 16) + '</button>'
+      + '<button type="button" data-v="next" title="下一张（→）">' + Shade.icon('chevron-right', 16) + '</button>'
+      + '</div>';
+    document.body.appendChild(el);
+    vwr = {
+      el: el, imgs: imgs, idx: idx,
+      mode: 'fit', scale: 1, tx: 0, ty: 0,
+      img: el.querySelector('.vwr-img'),
+      stage: el.querySelector('.vwr-stage'),
+    };
+    el.querySelector('.vwr-x').addEventListener('click', closeViewer);
+    el.querySelector('.vwr-bar').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-v]');
+      if (!b || !vwr) return;
+      if (b.dataset.v === 'prev') vwrNav(-1);
+      else if (b.dataset.v === 'next') vwrNav(1);
+      else if (b.dataset.v === 'fit') vwrToggleFit();
+      else if (b.dataset.v === 'dl') downloadItems([vwr.imgs[vwr.idx]]);
+    });
+    // 滚轮缩放（passive:false 才能 preventDefault 拦截页面滚动）
+    vwr.stage.addEventListener('wheel', onVwrWheel, { passive: false });
+    var img = vwr.img;
+    var drag = null;
+    img.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault(); // 防原生拖图/文字选择
+      drag = { x: e.clientX, y: e.clientY, moved: false };
+      img.setPointerCapture(e.pointerId);
+    });
+    img.addEventListener('pointermove', function (e) {
+      if (!drag || !vwr) return;
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      drag.moved = true; // 拖过阈值即不再是单击
+      if (vwr.mode !== 'free') return; // 适应模式无可平移
+      if (!img.classList.contains('dragging')) img.classList.add('dragging');
+      vwr.tx += dx; vwr.ty += dy;
+      drag.x = e.clientX; drag.y = e.clientY;
+      vwrPaint();
+    });
+    var up = function () {
+      if (!drag || !vwr) { drag = null; return; }
+      var wasDrag = drag.moved;
+      drag = null;
+      img.classList.remove('dragging');
+      if (!wasDrag) vwrToggleFit(); // 单击图片：适应屏幕 ↔ 原图 100%
+    };
+    img.addEventListener('pointerup', up);
+    img.addEventListener('pointercancel', up);
+    img.addEventListener('load', function () {
+      // 自然尺寸就绪才计算适应缩放；src 校验防快速切换串图
+      if (!vwr || vwr.img !== img) return;
+      if (img.getAttribute('src') !== vwrUrl(vwr.imgs[vwr.idx])) return;
+      if (vwr.mode === 'fit') vwrFit();
+    });
+    vwrOnKey = function (e) {
+      if (!vwr) return;
+      if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeViewer(); }
+      else if (e.key === 'ArrowLeft') { e.stopPropagation(); vwrNav(-1); }
+      else if (e.key === 'ArrowRight') { e.stopPropagation(); vwrNav(1); }
+    };
+    window.addEventListener('keydown', vwrOnKey, true);
+    vwrOnResize = function () { if (vwr && vwr.mode === 'fit') vwrFit(); };
+    window.addEventListener('resize', vwrOnResize);
+    document.body.style.overflow = 'hidden'; // 锁定背景滚动，关闭时恢复
+    vwrShow();
+  }
+  function vwrShow() {
+    var it = vwr.imgs[vwr.idx];
+    vwr.el.querySelector('.vwr-name').textContent = it.name;
+    vwr.el.querySelector('.vwr-idx').textContent = (vwr.idx + 1) + ' / ' + vwr.imgs.length;
+    // 切换照片：缩放/平移重置为适应（尺寸就绪后 vwrFit，缓存命中走同步路径）
+    vwr.mode = 'fit'; vwr.tx = 0; vwr.ty = 0; vwr.scale = 1;
+    vwr.img.src = vwrUrl(it);
+    if (vwr.img.complete && vwr.img.naturalWidth) vwrFit(); else vwrPaint();
+    var single = vwr.imgs.length < 2;
+    vwr.el.querySelector('[data-v="prev"]').disabled = single;
+    vwr.el.querySelector('[data-v="next"]').disabled = single;
+  }
+  function vwrNav(d) {
+    if (!vwr || vwr.imgs.length < 2) return;
+    vwr.idx = (vwr.idx + d + vwr.imgs.length) % vwr.imgs.length; // 循环
+    vwrShow();
+  }
+  // 适应屏幕：stage（已留 4vw/4vh 边距）内完整容纳
+  function vwrFit() {
+    if (!vwr) return;
+    var natW = vwr.img.naturalWidth, natH = vwr.img.naturalHeight;
+    if (!natW || !natH) return;
+    var r = vwr.stage.getBoundingClientRect();
+    vwr.scale = Math.min(8, Math.max(0.1, Math.min(r.width / natW, r.height / natH)));
+    vwr.tx = 0; vwr.ty = 0;
+    vwr.mode = 'fit';
+    vwrPaint();
+  }
+  function vwrToggleFit() {
+    if (!vwr) return;
+    if (vwr.mode === 'fit') { vwr.scale = 1; vwr.tx = 0; vwr.ty = 0; vwr.mode = 'free'; vwrPaint(); }
+    else vwrFit();
+  }
+  function vwrPaint() {
+    vwr.img.style.transform = 'translate(-50%, -50%) translate(' + vwr.tx + 'px, ' + vwr.ty + 'px) scale(' + vwr.scale + ')';
+    vwr.img.classList.toggle('free', vwr.mode === 'free');
+    vwr.el.querySelector('[data-v="fit"]').textContent = vwr.mode === 'fit' ? '原图' : '适应';
+  }
+  // 滚轮缩放：光标指向的内容点在缩放前后保持不动（相对 stage 中心坐标系换算平移量）
+  function onVwrWheel(e) {
+    if (!vwr) return;
+    e.preventDefault();
+    var ns = Math.min(8, Math.max(0.1, vwr.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    if (ns === vwr.scale) return;
+    var r = vwr.stage.getBoundingClientRect();
+    var px = e.clientX - r.left - r.width / 2;
+    var py = e.clientY - r.top - r.height / 2;
+    vwr.tx = px - (px - vwr.tx) * (ns / vwr.scale);
+    vwr.ty = py - (py - vwr.ty) * (ns / vwr.scale);
+    vwr.scale = ns;
+    vwr.mode = 'free';
+    vwrPaint();
+  }
+  function closeViewer() {
+    if (!vwr) return;
+    window.removeEventListener('keydown', vwrOnKey, true);
+    window.removeEventListener('resize', vwrOnResize);
+    var el = vwr.el;
+    vwr = null;
+    document.body.style.overflow = '';
+    el.style.transition = 'opacity .15s ease';
+    el.style.opacity = '0';
+    setTimeout(function () { el.remove(); }, 160);
   }
   // 多选逐个顺序下载（文件夹不可下，已在入口过滤计数）
   async function downloadItems(items) {
@@ -1612,37 +1824,79 @@
   }
 
   /* ================= 分片上传（init → 并发 3 片 PUT → complete；429/409 退避重传） ================= */
-  var uploads = [];   // 任务列表：{id,file,name,size,space,path,state,received,doneChunks,totalChunks,chunkSize,uploadId,err}
+  var uploads = [];   // 任务列表：{id,file,name,disp,size,space,path,state,received,doneChunks,totalChunks,chunkSize,uploadId,err,batch}
   var upSeq = 0;
   var upRunning = false;
+  var batches = {};   // 文件夹上传批次：bid → {total, toasted}（收尾汇总提示一次）
+  var batchSeq = 0;
 
   function pickFiles() {
     var fi = $('#fileInput');
     fi.value = '';
     fi.click();
   }
+  // 任务入队：disp 为展示名（文件夹上传含相对路径）；dirPath 目标目录（缺省当前目录）
+  function enqueueOne(f, disp, dirPath, bid) {
+    if (S.maxMb && f.size > S.maxMb * 1024 * 1024) {
+      Shade.toast('「' + f.name + '」超过单文件上限 ' + S.maxMb + ' MB，已跳过', 'error');
+      return false;
+    }
+    uploads.push({
+      id: ++upSeq, file: f, name: f.name, disp: disp || f.name, size: f.size,
+      space: S.space, path: dirPath || S.path,
+      state: 'pending', received: 0, doneChunks: 0, totalChunks: 0,
+      chunkSize: 0, uploadId: null, err: '', batch: bid || 0,
+    });
+    return true;
+  }
   function uploadFiles(fileList) {
     if (S.search) { Shade.toast('搜索状态下请先返回目录浏览再上传', 'info'); return; }
     var files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
     var added = 0;
-    files.forEach(function (f) {
-      if (S.maxMb && f.size > S.maxMb * 1024 * 1024) {
-        Shade.toast('「' + f.name + '」超过单文件上限 ' + S.maxMb + ' MB，已跳过', 'error');
-        return;
-      }
-      uploads.push({
-        id: ++upSeq, file: f, name: f.name, size: f.size,
-        space: S.space, path: S.path,
-        state: 'pending', received: 0, doneChunks: 0, totalChunks: 0,
-        chunkSize: 0, uploadId: null, err: '',
-      });
-      added++;
-    });
+    files.forEach(function (f) { if (enqueueOne(f)) added++; });
     if (!added) return;
     renderGrid(); renderUpanel();
     pumpUploads();
   }
+  // 文件夹上传（目录选择器 / 拖入目录）：entries=[{file, relPath}]；先按 relPath 逐级建树
+  //（mkdir 批内去重、目录已存在吞掉；空文件夹无文件自然跳过不建），再入队走既有分片管线（串行逐文件）
+  async function uploadEntries(entries) {
+    if (S.search) { Shade.toast('搜索状态下请先返回目录浏览再上传', 'info'); return; }
+    if (!entries.length) return;
+    var dirSet = {};
+    entries.forEach(function (en) {
+      var d = dirPart(en.relPath);
+      while (d) { dirSet[d] = 1; d = dirPart(d); }
+    });
+    var dirs = Object.keys(dirSet).sort(function (a, b) { return a.split('/').length - b.split('/').length; });
+    if (dirs.length) {
+      Shade.toast('正在创建目录结构…', 'info');
+      var made = {}; // 批内已建路径去重缓存
+      for (var i = 0; i < dirs.length; i++) {
+        var rel = dirs[i];
+        if (made[rel]) continue;
+        made[rel] = 1;
+        var parent = dirPart(rel);
+        try {
+          await ndPost('/mkdir', { space: S.space, path: parent ? joinRel(S.path, parent) : S.path, name: basePart(rel) });
+        } catch (e) { /* 目录已存在等错误吞掉，建树不中断 */ }
+      }
+    }
+    var bid = dirs.length ? ++batchSeq : 0;
+    var added = 0;
+    entries.forEach(function (en) {
+      var dp = dirPart(en.relPath);
+      if (enqueueOne(en.file, en.relPath, dp ? joinRel(S.path, dp) : S.path, bid)) added++;
+    });
+    if (!added) return;
+    if (bid) batches[bid] = { total: added, toasted: false };
+    renderGrid(); renderUpanel();
+    pumpUploads();
+  }
+  // 路径拆半：dirPart('a/b/c.txt')='a/b'；basePart('a/b')='b'
+  function dirPart(p) { var i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); }
+  function basePart(p) { var i = p.lastIndexOf('/'); return i < 0 ? p : p.slice(i + 1); }
   // 逐文件顺序执行（同一时刻仅一个文件在传，片级并发 3）
   async function pumpUploads() {
     if (upRunning) return;
@@ -1657,6 +1911,18 @@
     }
     upRunning = false;
     renderUpanel(); renderGrid();
+    // 文件夹批次收尾：该批全部出队后汇总提示一次（个别失败不中断其余，可面板重试）
+    Object.keys(batches).forEach(function (bid) {
+      var b = batches[bid];
+      if (b.toasted) return;
+      var ts = uploads.filter(function (t) { return t.batch === Number(bid); });
+      if (ts.some(function (t) { return t.state === 'pending' || t.state === 'uploading'; })) return;
+      b.toasted = true;
+      var doneCnt = ts.filter(function (t) { return t.state === 'done'; }).length;
+      var failed = ts.filter(function (t) { return t.state === 'error'; }).length;
+      if (!doneCnt && !failed) return; // 全部取消：不打扰
+      Shade.toast('文件夹上传完成：' + doneCnt + ' 个文件' + (failed ? '，失败 ' + failed + ' 个' : ''), failed ? 'error' : 'success');
+    });
   }
   async function uploadOne(t) {
     t.state = 'uploading'; t.err = '';
@@ -1837,7 +2103,7 @@
       + '<span class="g-x" title="取消上传">' + Shade.icon('close', 11) + '</span>'
       + tag
       + '<div class="g-icon">' + fileIconHtml(t.name, false, 48) + '</div>'
-      + '<span class="g-name">' + esc(t.name) + '</span>'
+      + '<span class="g-name">' + esc(t.disp || t.name) + '</span>'
       + '<div class="g-prog"><i style="width:' + (t.state === 'error' ? 100 : pctOf(t)) + '%"></i></div>'
       + '<span class="g-sub">' + esc(upSubText(t)) + '</span>'
       + '</div>';
@@ -1884,7 +2150,7 @@
       + Shade.icon('close', 13) + '</span>';
     return '<div class="up-row' + (t.state === 'error' ? ' err' : '') + '" data-task="' + t.id + '">'
       + fileIconHtml(t.name, false, 28)
-      + '<div class="up-main"><span class="up-name" title="' + esc(t.name) + '">' + esc(t.name) + '</span>'
+      + '<div class="up-main"><span class="up-name" title="' + esc(t.disp || t.name) + '">' + esc(t.disp || t.name) + '</span>'
       + (showBar ? '<div class="uprog"><i style="width:' + pctOf(t) + '%"></i></div>' : '')
       + '<span class="up-sub">' + esc(upSubText(t)) + '</span></div>'
       + '<div class="up-ops">' + ops + '</div></div>';
@@ -1894,7 +2160,10 @@
   function bindEvents() {
     // 工具栏按钮图标注入（全页仅此一枚主按钮）
     $('#btnMkdir').innerHTML = Shade.icon('folder-add', 15) + '新建文件夹';
+    $('#btnUpDir').innerHTML = Shade.icon('folder-add', 15) + '上传文件夹';
     $('#btnUpload').innerHTML = Shade.icon('upload', 15) + '上传文件';
+    // 文件夹上传能力探测：不支持 webkitdirectory 则隐藏入口（现代 Chrome/Edge 均有）
+    if (!('webkitdirectory' in document.createElement('input'))) $('#btnUpDir').hidden = true;
     // 选中操作区图标注入
     var SEL_ICONS = { dl: 'download', share: 'link', move: 'swap', copy: 'copy', del: 'delete', clear: 'close' };
     $$('#selbar [data-sel]').forEach(function (b) {
@@ -1926,12 +2195,24 @@
       if (b) switchSpace(b.dataset.space);
     });
 
-    // 新建文件夹 / 上传文件 / 文件选择
+    // 新建文件夹 / 上传文件 / 上传文件夹 / 文件选择
     $('#btnMkdir').addEventListener('click', openMkdir);
     $('#btnUpload').addEventListener('click', pickFiles);
+    $('#btnUpDir').addEventListener('click', function () {
+      var di = $('#dirInput');
+      di.value = '';
+      di.click();
+    });
     $('#fileInput').addEventListener('change', function () {
       uploadFiles(this.files);
       this.value = '';
+    });
+    // 目录选择器：webkitRelativePath 自带相对路径（含根目录名）
+    $('#dirInput').addEventListener('change', function () {
+      var files = Array.prototype.slice.call(this.files || []);
+      this.value = '';
+      if (!files.length) return;
+      uploadEntries(files.map(function (f) { return { file: f, relPath: f.webkitRelativePath || f.name }; }));
     });
 
     // 搜索：回车检索（输入法组词中不触发）；× 清空回到浏览
@@ -2067,7 +2348,10 @@
       e.preventDefault();
       dragDepth = 0;
       gridwrap.classList.remove('dragover');
-      uploadFiles(dropFiles(e.dataTransfer));
+      collectDropFiles(e.dataTransfer).then(function (list) {
+        if (!list.length) return;
+        uploadEntries(list); // 统一走目录感知入口（扁平文件 relPath 即文件名，不触发建树）
+      });
     });
 
     // 窗口缩放：分段 pill 直接落位（不滑动）
@@ -2085,22 +2369,57 @@
       return false;
     };
   }
-    // 提取拖放文件（跳过目录项；items 不可用的浏览器回退 files）
-  function dropFiles(dt) {
-    var out = [];
+  // 收集拖放文件为 [{file, relPath}]：目录项经 FileSystemEntry 递归遍历（readEntries 循环取空为止），
+  // relPath 含文件夹前缀（如「资料/子目录/a.docx」）；不支持 entry API 的浏览器回退扁平 files
+  function collectDropFiles(dt) {
     var items = (dt && dt.items) || [];
+    var entries = [];
     for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      if (it.kind !== 'file') continue;
-      var entry = it.webkitGetAsEntry && it.webkitGetAsEntry();
-      if (entry && !entry.isFile) { Shade.toast('暂不支持拖入文件夹上传', 'info'); continue; }
-      var f = it.getAsFile();
-      if (f) out.push(f);
+      if (items[i].kind !== 'file') continue;
+      var entry = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+      if (entry) entries.push(entry);
     }
-    if (!items.length && dt && dt.files && dt.files.length) {
-      out = Array.prototype.slice.call(dt.files);
+    if (!entries.length) {
+      return Promise.resolve(Array.prototype.slice.call((dt && dt.files) || []).map(function (f) {
+        return { file: f, relPath: f.name };
+      }));
     }
-    return out;
+    var out = [];
+    var chain = Promise.resolve();
+    entries.forEach(function (entry) {
+      chain = chain.then(function () { return walkEntry(entry, '', out); });
+    });
+    return chain.then(function () { return out; });
+  }
+  // 单个 FileSystemEntry 递归收集（坏项跳过不中断整体）
+  function walkEntry(entry, prefix, out) {
+    if (entry.isFile) {
+      return new Promise(function (res, rej) { entry.file(res, rej); }).then(function (f) {
+        out.push({ file: f, relPath: prefix + f.name });
+      }).catch(function () { /* 读取失败的项跳过 */ });
+    }
+    if (entry.isDirectory) {
+      return readEntriesAll(entry.createReader()).then(function (children) {
+        var chain = Promise.resolve();
+        children.forEach(function (c) {
+          chain = chain.then(function () { return walkEntry(c, prefix + entry.name + '/', out); });
+        });
+        return chain;
+      }).catch(function () { /* 目录读取失败跳过 */ });
+    }
+    return Promise.resolve();
+  }
+  // readEntries 每次最多 100 条，循环取到空为止
+  function readEntriesAll(reader) {
+    var out = [];
+    function step() {
+      return new Promise(function (res, rej) { reader.readEntries(res, rej); }).then(function (batch) {
+        if (!batch.length) return out;
+        out = out.concat(batch);
+        return step();
+      });
+    }
+    return step();
   }
 </script>
 </body>

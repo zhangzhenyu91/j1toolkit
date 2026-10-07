@@ -129,7 +129,7 @@ function shareAuth(req, row) {
 // 越界校验：rel 须为某个分享项本身或其子路径，返回 OpenList 绝对路径；不合法返回 null
 function resolveShareAbs(row, rel) {
   let paths;
-  try { paths = JSON.parse(row.paths); } catch (err) { paths = []; }
+  paths = Array.isArray(row.paths) ? row.paths : (typeof row.paths === 'string' ? JSON.parse(row.paths) : []);
   if (!Array.isArray(paths)) return null;
   for (const p of paths) {
     if (rel === p || rel.startsWith(`${p}/`)) return joinPath(row.base_path, rel);
@@ -172,7 +172,7 @@ router.post('/public/share/:id/verify', async (req, res) => {
 // 首层内容：逐项取元信息（已被移动/删除的项跳过）
 async function shareRootItems(row) {
   let paths;
-  try { paths = JSON.parse(row.paths); } catch (err) { paths = []; }
+  paths = Array.isArray(row.paths) ? row.paths : (typeof row.paths === 'string' ? JSON.parse(row.paths) : []);
   const items = [];
   for (const p of paths) {
     try {
@@ -639,7 +639,7 @@ function shareState(row) {
 }
 
 const sharePaths = (row) => {
-  try { const p = JSON.parse(row.paths); return Array.isArray(p) ? p : []; } catch (err) { return []; }
+  const p = Array.isArray(row.paths) ? row.paths : (typeof row.paths === 'string' ? JSON.parse(row.paths) : null); return Array.isArray(p) ? p : [];
 };
 
 const mapShare = (row) => ({
