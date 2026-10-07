@@ -146,10 +146,14 @@ jobs:
           New-Item -ItemType Directory -Force dist-core | Out-Null
           Copy-Item -Recurse dist\uvmp-core dist-core\core
           npm ci --prefix desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build --prefix desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
+          # npx 钉版本 25.1.8（=desktop lockfile）：裸名会拉最新版，26.15.3 起 schema 拒绝 linux 配置段（已踩坑）；
+          # npm ci 失败必须显式退出（pwsh 原生命令失败不自动停步——v1.1.1 曾因此带病走到打包才炸）
           Push-Location desktop
-          npx electron-builder --win
+          npx electron-builder@25.1.8 --win
           $code = $LASTEXITCODE
           Pop-Location
           if ($code -ne 0) { exit $code }
@@ -201,7 +205,7 @@ jobs:
           npm ci --prefix desktop
           npm run build --prefix desktop
           # electron-builder 须在 desktop/ 内运行：afterPack 钩子路径按工作目录解析（已踩坑）
-          cd desktop && npx electron-builder --linux --x64 --c.productName=uvmp-toolkit
+          cd desktop && npx electron-builder@25.1.8 --linux --x64 --c.productName=uvmp-toolkit
       - name: OCR 运行时 glibc 门禁（麒麟 V10 SP1 = glibc 2.28，超版本即失败并降级重钉）
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/src" debian:buster bash -c '
@@ -257,7 +261,7 @@ jobs:
           chmod +x dist-core/core/uvmp-core
           npm ci --prefix desktop
           npm run build --prefix desktop
-          cd desktop && npx electron-builder --linux --arm64 --c.productName=uvmp-toolkit
+          cd desktop && npx electron-builder@25.1.8 --linux --arm64 --c.productName=uvmp-toolkit
       - name: OCR 运行时 glibc 门禁（arm64，文件检查非执行）
         run: |
           docker run --rm --platform linux/arm64 -v "$GITHUB_WORKSPACE:/src" arm64v8/debian:buster bash -c '
