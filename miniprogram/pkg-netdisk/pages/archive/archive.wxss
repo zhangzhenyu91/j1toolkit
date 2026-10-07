@@ -1,0 +1,249 @@
+/* 团队网盘 · 压缩包预览 / 包内浏览（与主页同族：面包屑 + 单卡多行文件行 + 底部弹层密码输入；
+   token 硬编码：蓝 #0E3DA8 / 深蓝 #0A3592 / 浅蓝底 #E8F0FF / 文字 #1D2129 / #4E5969 / #86909C / 边 #E5E6EB） */
+
+.page-body {
+  padding-bottom: 60rpx;
+}
+
+/* 入场：编排式上浮（keyframes fadeUp 在全局 app.wxss） */
+.a {
+  animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--d, 0s);
+}
+
+/* ---------- 面包屑（父级蓝字可点，末级当前加粗） ---------- */
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-size: 24rpx;
+  padding: 0 4rpx;
+  margin-bottom: 20rpx;
+  overflow: hidden;
+}
+
+.cr-link {
+  flex: none;
+  color: #0E3DA8;
+  font-weight: 600;
+}
+
+.cr-sep {
+  flex: none;
+  color: #86909C;
+}
+
+.cr-cur {
+  font-weight: 600;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cr-cnt {
+  margin-left: auto;
+  flex: none;
+  font-size: 22rpx;
+  color: #86909C;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 包内文件列表（单卡多行） ---------- */
+.flist {
+  overflow: hidden;
+}
+
+.fl {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 20rpx 24rpx;
+}
+
+.fl + .fl {
+  border-top: 1rpx solid #E5E6EB;
+}
+
+/* 图标块：文件夹线性图标 / 类型字母块（浅蓝底深蓝字） */
+.ficon {
+  width: 72rpx;
+  height: 72rpx;
+  flex: none;
+  border-radius: 20rpx;
+  background: #E8F0FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fletter {
+  font-size: 21rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+  color: #0A3592;
+}
+
+.fmain {
+  flex: 1;
+  min-width: 0;
+}
+
+.fname {
+  display: block;
+  font-size: 27rpx;
+  font-weight: 600;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fsub {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #86909C;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 骨架屏 ---------- */
+.sk-ic {
+  width: 72rpx;
+  height: 72rpx;
+  flex: none;
+  border-radius: 20rpx;
+  background: #F2F3F5;
+}
+
+.sk-l {
+  height: 26rpx;
+  border-radius: 8rpx;
+  background: #F2F3F5;
+}
+
+.sk-l.sm {
+  margin-top: 14rpx;
+  height: 20rpx;
+}
+
+@keyframes sk-pulse {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sk-ic,
+.sk-l {
+  animation: sk-pulse 1.1s ease-in-out infinite alternate;
+}
+
+/* ---------- 空态 / 错误重试（虚线占位） ---------- */
+.empty-box {
+  margin-top: 24rpx;
+  border: 3rpx dashed #C9CDD4;
+  border-radius: 24rpx;
+  padding: 64rpx 32rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #86909C;
+}
+
+.empty-box .retry {
+  display: inline-block;
+  margin-top: 24rpx;
+  padding: 10rpx 40rpx;
+  border-radius: 12rpx;
+  background: #1D2129;
+  color: #FFFFFF;
+  font-size: 24rpx;
+}
+
+/* ---------- 底部弹层（压缩包密码输入；顶部圆角 + 抓手） ---------- */
+.sheet {
+  background: #FFFFFF;
+  border-radius: 32rpx 32rpx 0 0;
+  padding-bottom: calc(44rpx + env(safe-area-inset-bottom));
+}
+
+.grab {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 4rpx;
+  background: #E5E6EB;
+  margin: 16rpx auto 8rpx;
+}
+
+.sheet-title {
+  padding: 24rpx 32rpx 0;
+  font-size: 31rpx;
+  font-weight: 700;
+  color: #1D2129;
+}
+
+.sheet-sub {
+  padding: 0 32rpx;
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  color: #86909C;
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.name-input {
+  margin: 28rpx 32rpx 0;
+  height: 84rpx;
+  padding: 0 24rpx;
+  background: #F7F8FA;
+  border-radius: 16rpx;
+  font-size: 27rpx;
+  color: #1D2129;
+}
+
+.ph {
+  color: #C9CDD4;
+}
+
+.sheet-ops {
+  margin: 32rpx 32rpx 0;
+  display: flex;
+  gap: 20rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 84rpx;
+  border-radius: 16rpx;
+  background: #F7F8FA;
+  color: #4E5969;
+  font-size: 28rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-accent {
+  flex: 2;
+  height: 84rpx;
+  border-radius: 16rpx;
+  background: #0E3DA8;
+  color: #FFFFFF;
+  font-size: 28rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-ghost.disabled,
+.btn-accent.disabled {
+  opacity: 0.5;
+}

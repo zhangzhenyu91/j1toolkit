@@ -61,6 +61,15 @@
         "pages/manage/manage",
         "pages/pool/pool"
       ]
+    },
+    {
+      "root": "pkg-netdisk",
+      "name": "netdisk",
+      "pages": [
+        "pages/index/index",
+        "pages/shares/shares",
+        "pages/archive/archive"
+      ]
     }
   ],
   "window": {

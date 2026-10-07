@@ -22,7 +22,7 @@
      （query 优先于 body，后端 resolveReqTeam 同口径）
    Shade.icon(name, size, color) → inline SVG 字符串（见 assets/icons.js）
    Shade.topbar(opts)         → 统一渲染顶部导航（插入 body 开头；需 icons.js 先加载）
-     opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin' | 'client'（当前页，渲染为无链接激活态）
+     opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin' | 'client' | 'netdisk'（当前页，渲染为无链接激活态）
      结构：左侧 Logo（点击回 /index.html）+ 常驻导航（工作台 + /api/v1/app/list 按权限下发的应用，
            顺序同工作台宫格、无权限不显示，缓存 shade_apps 先渲染后校正，当前页高亮）；
            右侧「管理」链接（仅 role==='admin' 可见）
@@ -240,7 +240,7 @@
     'work-log': { key: 'worklog', href: '/worklog.html' },
     'safe-day': { key: 'safeday', href: '/safeday.html' },
     'kvm': { key: 'kvm', href: '/kvm.html' },
-    'client': { key: 'client', href: '/client.html' },
+    'netdisk': { key: 'netdisk', href: '/netdisk.html' },
   };
   function cachedApps() {
     try { return JSON.parse(localStorage.getItem(APPS_KEY) || 'null'); } catch (e) { return null; }

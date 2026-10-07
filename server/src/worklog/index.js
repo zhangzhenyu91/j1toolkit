@@ -1119,7 +1119,7 @@ router.post(
   }
 );
 
-// GET /logs/:id/remark-preview?key=：拼接 basemetas 预览地址（同安全日记录口径；COS 公共读，预览服务直接回源 COS）
+// GET /logs/:id/remark-preview?key=：拼接微软 Office 查看器预览地址（仅 Office 文档；COS 公共读，查看器直接回源 COS）
 router.get('/logs/:id/remark-preview', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -1127,10 +1127,7 @@ router.get('/logs/:id/remark-preview', async (req, res, next) => {
     if (!entry) return fail(res, 404, 40400, '日志不存在');
     if (!file) return fail(res, 404, 40400, '附件不存在');
     if (file.type !== 'doc') return fail(res, 400, 40021, '仅 Office 文档支持在线预览');
-    const base = config.basemetas.url;
-    if (!base) return fail(res, 400, 40021, '未配置文件预览服务');
-    const url = `${base}/preview/view?url=${encodeURIComponent(cos.publicUrl(file.cos_key))}`
-      + `&fileName=${encodeURIComponent(file.name)}&displayName=${encodeURIComponent(file.name)}`;
+    const url = `${config.preview.viewerUrl}?src=${encodeURIComponent(cos.publicUrl(file.cos_key))}`;
     return ok(res, { url });
   } catch (err) {
     return next(err);
@@ -1800,14 +1797,15 @@ function failIfVerifyFailed(res, failures) {
   return true;
 }
 
-// 强制执行：管理员确认后带 force=1 跳过生成前核验（预览地址内嵌的下载地址需同步携带，否则 basemetas 回源仍会被拦）
+// 强制执行：管理员确认后带 force=1 跳过生成前核验（预览地址内嵌的下载地址需同步携带，否则在线预览查看器回源仍会被拦）
 function isForce(req) {
   return req.query.force === '1';
 }
 
 // GET /task-sheet?from=&to=（或 date= 单日）：二进制 docx 响应（不走 {code,data} 信封；
-// 供小程序 downloadFile / 网页 fetch+blob / basemetas 回源三种消费方式）
-router.get('/task-sheet', requireDictAdmin, async (req, res, next) => {
+// 供小程序 downloadFile / 网页 fetch+blob / 在线预览查看器回源三种消费方式；
+// 路径数组第二项带文件名后缀：查看器按 URL 路径扩展名识别格式）
+router.get(['/task-sheet', '/task-sheet/:name([^/]+\\.docx)'], requireDictAdmin, async (req, res, next) => {
   try {
     const range = sheetRange(req);
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
@@ -1826,7 +1824,7 @@ router.get('/task-sheet', requireDictAdmin, async (req, res, next) => {
   }
 });
 
-// GET /task-sheet/preview?from=&to=（或 date= 单日）：拼 basemetas 预览地址（预览服务器凭地址内 ?token= 回源拉取上方下载接口；同安全日记录口径）
+// GET /task-sheet/preview?from=&to=（或 date= 单日）：拼在线预览地址（微软 Office 查看器，凭地址内 ?token= 回源拉取上方下载接口；同安全日记录口径）
 router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
   try {
     const range = sheetRange(req);
@@ -1856,7 +1854,7 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
 // 列 = 范围内当过用车人的成员（按成员字典点亮顺序）；单元格 = {伙食补助+交通费}×1={计算值}；生成前核验同任务单
 
 // GET /fee-sheet?from=&to=（或 date= 单日）：二进制 docx 响应（消费方式同 /task-sheet）
-router.get('/fee-sheet', requireDictAdmin, async (req, res, next) => {
+router.get(['/fee-sheet', '/fee-sheet/:name([^/]+\\.docx)'], requireDictAdmin, async (req, res, next) => {
   try {
     const range = sheetRange(req);
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
@@ -1875,7 +1873,7 @@ router.get('/fee-sheet', requireDictAdmin, async (req, res, next) => {
   }
 });
 
-// GET /fee-sheet/preview?from=&to=（或 date= 单日）：拼 basemetas 预览地址（口径同 /task-sheet/preview）
+// GET /fee-sheet/preview?from=&to=（或 date= 单日）：拼在线预览地址（口径同 /task-sheet/preview）
 router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
   try {
     const range = sheetRange(req);

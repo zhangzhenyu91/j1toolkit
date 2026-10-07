@@ -48,7 +48,6 @@
   .section-title { animation: riseIn .5s var(--ease) both; }
   .sec-msg { animation-delay: .16s; }
   .sec-app { animation-delay: .28s; }
-  .sec-ext { animation-delay: .4s; }
 
   /* ===== 消息通知卡（圆点未读 + 发丝线分隔） ===== */
   .notice-card { overflow: hidden; animation: riseIn .55s var(--ease) .2s backwards; }
@@ -88,11 +87,6 @@
   .apps .app-card:nth-child(5) { animation-delay: .24s; }
   .apps .app-card:nth-child(6) { animation-delay: .3s; }
   .apps .app-card:nth-child(n+7) { animation-delay: .36s; }
-  /* 外部应用同步渲染，入场时延接在板块标题之后 */
-  #extGrid .app-card:nth-child(1) { animation-delay: .46s; }
-  #extGrid .app-card:nth-child(2) { animation-delay: .52s; }
-  #extGrid .app-card:nth-child(3) { animation-delay: .58s; }
-  #extGrid .app-card:nth-child(n+4) { animation-delay: .64s; }
   /* 图标：浅蓝底 44px 圆角方块 + 蓝 glyph（Shade.icon 的 stroke 属性由 CSS 覆写） */
   .app-ic {
     width: 44px; height: 44px; border-radius: 10px;
@@ -122,8 +116,6 @@
   .apps .empty { grid-column: 1 / -1; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow-card); }
   /* 骨架卡片 */
   .app-sk { height: 176px; }
-
-  /* ===== 外部应用（同款卡片，标签区分外部链接） ===== */
 
   /* ===== 安全提示条（浅蓝信息条 + 蓝色图标块） ===== */
   .safety {
@@ -278,10 +270,6 @@
     <div class="card app-sk skeleton"></div>
   </section>
 
-  <!-- 外部应用（纯链接跳转，全员可见，不接入权限机制；清单在 script 的 EXT_APPS 本地维护） -->
-  <div class="section-title sec-ext"><h3>外部应用</h3><span class="more">点击跳转 · 全员可用</span></div>
-  <section class="apps" id="extGrid"></section>
-
   <!-- 安全提示条 -->
   <section class="card safety">
     <span class="si" id="safetyIcon"></span>
@@ -343,32 +331,14 @@
       desc: 'Excel 导入题库即导即练，单选 / 多选 / 判断全覆盖，错题自动归集专项攻克，AI 逐题生成解析。',
       tags: [['刷题练习', 'tag-orange'], ['AI 解析', 'tag-navy']],
     },
+    'netdisk': {
+      desc: '个人空间与公共区文件存取，分片上传，外链分享。',
+      tags: [['网盘', 'tag-orange'], ['文件', 'tag-navy'], ['分享', 'tag-navy']],
+    },
   };
 
   // 静态图标注入
   document.getElementById('safetyIcon').innerHTML = Shade.icon('shield', 18);
-
-  // 外部应用（纯链接跳转，全员可见，不接入权限机制；新增/下架在此维护）
-  var EXT_APPS = [
-    { name: '网盘', url: 'https://cloud.j1net.com', icon: 'cloud',
-      desc: '班组文件云端存储与共享，资料随时随地安全存取。' },
-    { name: 'Dify', url: 'https://ai.j1net.com', icon: 'robot',
-      desc: 'AI 应用搭建平台，工作流与智能体可视化管理。' },
-  ];
-
-  // 渲染外部应用宫格（样式与应用中心一致，新窗口打开）
-  function renderExtApps() {
-    document.getElementById('extGrid').innerHTML = EXT_APPS.map(function (it) {
-      return '<a class="card card-hover app-card" href="' + it.url + '" target="_blank" rel="noopener">' +
-        '<div class="app-ic">' + Shade.icon(it.icon, 26, '#0E3DA8') + '</div>' +
-        '<h4>' + Shade.esc(it.name) + '</h4>' +
-        '<p>' + Shade.esc(it.desc) + '</p>' +
-        '<div class="app-meta"><span class="tag tag-navy">外部链接</span>' +
-        '<span class="app-go">打开应用' + Shade.icon('arrow-right', 14) + '</span></div>' +
-        '</a>';
-    }).join('');
-  }
-  renderExtApps();
 
   // 按时段问候
   function greeting() {

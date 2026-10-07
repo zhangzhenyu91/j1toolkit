@@ -133,9 +133,11 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `DIFY_SAFEDAY_API_KEY` | 安全日记录生成工作流的 Dify API Key（与出工日志工作流共用 `DIFY_API_URL`） |
 | `SAFEDAY_CALLBACK_TOKEN` | Dify 回调 token（可选；配置后回调接口须带 `?token=` 校验，留空则不校验） |
 | `SAFEDAY_SOFFICE_PATH` | LibreOffice soffice 路径（可选，默认 `soffice`；安全日多文件含非 PDF 时后端转 PDF 合并依赖它，仓根 Dockerfile 构建的镜像已内置 LibreOffice） |
-| `BASEMETAS_URL` | basemetas 文件预览服务地址（可选，如 `https://cloud.j1net.com/view`；配置后安全日记录可点击预览） |
+| `PREVIEW_VIEWER_URL` | 在线预览查看器地址（可选，默认微软官方 Office 查看器 `https://view.officeapps.live.com/op/view.aspx`；安全日记录/出工日志任务单/网盘 Office 文件在线预览共用，仅 Office 格式，回源要求本站公网可达） |
 | `GLKVM_URL` / `GLKVM_PASSWORD` | GLKVM Cloud 平台地址与员工平台账号统一密码（以员工同名账号代登平台取设备列表；详见 开发指南.md 第十二节） |
 | `DIFY_QUIZ_API_KEY` | 题库「题目解析」工作流的 Dify API Key（与出工日志/安全日工作流共用 `DIFY_API_URL`；inputs 固定 type/stem/options/answer 四变量，输出 analysis；未配置则解析留空，其余功能不受影响，见开发指南第十四节） |
+| `NETDISK_API_URL` / `NETDISK_USERNAME` / `NETDISK_PASSWORD` | 团队网盘 OpenList 中转：OpenList API 地址（compose 部署 `http://openlist:5244`，本机开发 `http://127.0.0.1:5244`）与专用服务账户（管理页创建：基本路径 /、读写权限、关离线下载）；另支持 `NETDISK_PUBLIC_ROOT`（公共区根，按班组分目录）/ `NETDISK_PERSONAL_ROOT` / `NETDISK_MAX_UPLOAD_MB`，未配置时网盘接口报「未配置」其余应用不受影响，见开发指南第十七节 |
+| `OPENLIST_IMAGE` | 团队网盘 OpenList 镜像（compose 环境变量，默认 `openlistteam/openlist:v4.2.4`，锁版本） |
 | `SGCC_JWT_SECRET` / `SGCC_SM2_SERVER_PUB` / `SGCC_SM2_CLIENT_PRIV` | 商旅平台协议密钥（取自商旅 App 逆向分析，联系维护者获取；密钥即 App 内固定值，各环境通用） |
 | `SGCC_RSA_PUB` / `SGCC_RSA_PRIV` | 商旅 jsonx default 通道（打卡/详情/模板）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_DCU_PUB` / `SGCC_WLA_PRIV` | 商旅 jsonx slapp 通道（费用保存必走）：请求加密公钥 / 响应解密私钥 |

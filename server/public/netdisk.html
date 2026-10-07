@@ -1,0 +1,2093 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 团队网盘网页版（「政企蓝白」，基准稿 design/Web-团队网盘.html；后端 OpenList 中转 /api/v1/netdisk/*）
+     资源管理器范式：大图标网格（文件夹线性图标 / 类型字母块 / 照片缩略图 inline 直引），无复选框——
+       空白处 pointerdown 拖出半透明框选矩形（getBoundingClientRect 相交即选中），单击单选 / Ctrl+点击切换 /
+       Shift+点击连选 / 点空白清空 / Esc 清空（Shade.escGuard 优先于弹层拦截）；右键自绘菜单（打开/下载/分享/
+       重命名/删除，fixed 挂 body，z-index 1200，document mousedown 捕获 + Esc + 滚动/缩放关闭，防出屏；
+       公共区 manageable=false 隐藏重命名与删除）；双击文件夹进入、文件预览（图片/视频内联 Lightbox、
+       PDF 新标签 inline、其余直接下载）；Office 格式（doc/xls/ppt 族）双击/右键「在线预览」：preview/sign
+       取短时效票据（600s）→ 免登录回源 URL → 微软官方查看器 view.officeapps.live.com 新标签打开
+       （文件经票据公开回源，仅 Office 格式；本地 127.0.0.1 预览微软够不到属正常）；选中操作在顶部工具条
+       （ghost 小按钮组常驻布局、.show 类切换淡入，宽度不突变故右侧按钮不闪移；manageable=false 隐藏
+       移动与删除、纯文件夹选择隐藏下载）；底部状态栏纯统计；
+     空间口径：默认公共区（spaces 下发为准）；公共区按班组隔离——spaces 的 public 项带 team（分段显示
+       「公共区 · 班组名」）；未分配班组不下发 public（分段隐藏、仅用我的空间，不再整页拦截）；
+       目标位置选择弹窗的空间分段同口径按 spaces 显隐；面包屑根保持空间名；
+     上传：多文件选择 + 网格区拖入；分片流程 init → 并发 3 片 PUT（裸字节，原生 fetch 经 Shade.apiRaw 带
+       Authorization）→ 进度取会话快照 received_bytes → complete（429/409 带 retry 标记退避 1~2s 重传，
+       每片最多 5 次；complete 异常用 status 轮询兜底终态）；网格内联上传格（细进度条 + 百分比 + 浅蓝
+       「上传中」标签 + × 取消）+ 右下全局上传任务面板（失败可重试，重试经 init 快照断点续传）；
+     搜索：回车按当前空间检索（结果格显示所在目录副信息），清空回到浏览；
+     创建分享模态：已选摘要 + 有效期单选（7/30/永久）+ 提取码 4 位 [A-Z0-9] 可刷新，生成后展示链接
+       （<origin>/share.html#/s/<id>）+ 提取码 + 一键复制；
+     分享管理页签：表格（内容/提取码/有效期至/创建人（班管·超管）/创建时间/状态/操作），状态胶囊 生效中绿/
+       已过期橙/已停用红；操作 复制链接/停用/重新启用/删除；班管·超管有 scope 切换「我创建的/全部」；
+     移动/复制：右键菜单唤起目标位置选择弹窗（空间分段 + 文件夹浏览，单击选中/双击进入/面包屑回跳/
+       就地新建文件夹），跨空间允许、按源目录分组提交，公共区 manageable=false 隐藏「移动」；
+     压缩包（zip/rar/7z/tar/gz/tgz/bz2/xz）：双击预览（meta 判 encrypted，加密先收压缩密码并随请求透传），
+       包内按 inner_path 逐级浏览、单文件 /archive/download 下载；右键「解压到…」复用目标选择弹窗
+       （附「以压缩包命名的新目录」勾选项，解压接口无 dst_space、锁定当前空间）；
+     布局：整页 100vh 锁定（body 内滚口径同 worklog），文件区占满视口剩余高度、网格区 overflow-y:auto 内滚、
+       状态栏沉底固定（无选择仅「共 N 项」，有选择追加 已选择/合计）；框选矩形用相对网格
+       内容坐标（scrollLeft/scrollTop 折算），滚动时矩形随内容滚、命中检测同坐标系（offsetLeft/Top）；
+     动效（政企克制，缓动 var(--ease)，降级由 theme.css 全局 prefers-reduced-motion 统一关闭）：
+       空间分段白 pill 滑动位移（moveSegPill，重建/缩放直接落位）；目录/空间/搜索切换 旧内容淡出（.g-out）
+       + 格子编排式上浮入场（cellIn，stagger 36ms/格、时延链封顶 860ms；上传完成回写走 silent 静默刷新）；
+       格子三态（悬停 浅蓝 6% 底+细内描边 / 选中框 12% 蓝底+45% 蓝内描边读作「框」/ 已选悬停底色加深，
+       background 与 box-shadow 均 150ms 过渡；描边用 inset box-shadow 无布局抖动）；
+       框选矩形 opacity 淡入淡出；右键菜单/弹层 popIn(scale .97→1)+遮罩 180ms、关闭淡出；
+       上传完成格 浅蓝「上传中」变绿「已完成」停留 1.2s 后整格淡出再刷新；
+     图标：真实文件类型 PNG（/assets/filetypes/<ext>.png），fileIconUrl 合并同类（doc→docx、xls→xlsx、
+       jpeg→jpg、tgz/bz2/xz→zip 等），<img> 捕获级 error 监听回退字母块/线性文件夹（缺图不坏）；
+       图片格 inline 直引缩略图、视频格 <video preload=metadata> 取首帧，其余走类型图标（无底块直落）；
+     权限门控：/api/v1/app/list 无 netdisk key 渲染无权限卡（同 client.html 口径） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>团队网盘 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ============================================================
+     团队网盘页内样式 ·「政企蓝白」（基准 design/Web-团队网盘.html）
+     色板全部走 theme.css 变量：品牌蓝 --orange / 浅蓝底 --orange-soft / 正文 --navy；
+     选中与框选的 rgba(14,61,168,.xx) 为 token 无法表达的透明度，按稿直写；
+     状态标签浅底（绿 #E8FFEA / 橙 #FFF7E8 一族）theme 无对应变量，与 worklog 同口径页内定义
+     ============================================================ */
+  /* ===== 整页锁定 100vh：文件区占满剩余高度、网格内滚、状态栏沉底（同 worklog 口径） ===== */
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+  #ndApp.page { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; padding-bottom: 12px; }
+  .nd-wrap { flex: 1; min-height: 0; width: 100%; max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; }
+  [hidden] { display: none !important; }
+  #viewFiles, #viewShares { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+  /* ===== 页头 / 页签 ===== */
+  .nd-head h2 { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
+  .nd-head p { margin-top: 6px; font-size: 12.5px; color: var(--ph); letter-spacing: .5px; }
+  .nd-tabs { display: flex; gap: 4px; margin-top: 16px; border-bottom: 1px solid var(--line); }
+  .nd-tabs button {
+    position: relative; padding: 9px 14px; border: none; background: transparent; cursor: pointer;
+    font-size: 13.5px; color: var(--sub); letter-spacing: .5px; transition: color .15s;
+  }
+  .nd-tabs button:hover { color: var(--navy); }
+  .nd-tabs button.on { color: var(--orange); font-weight: 600; }
+  .nd-tabs button.on::after {
+    content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px;
+    height: 2px; background: var(--orange); border-radius: 2px;
+  }
+
+  /* ===== 工具条：空间分段（灰槽 + 滑动白 pill 指示层）+ 选中操作区 + 右侧按钮 ===== */
+  /* 单行不换行：极窄屏横向滚动（细滚动条），各段 flex:none 不收缩 */
+  .nd-toolbar {
+    margin-top: 16px; display: flex; align-items: center; gap: 14px; flex-wrap: nowrap;
+    overflow-x: auto; scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
+  }
+  .nd-toolbar::-webkit-scrollbar { height: 4px; }
+  .nd-toolbar::-webkit-scrollbar-thumb { background: rgba(29, 33, 41, .16); border-radius: 8px; }
+  .nd-toolbar::-webkit-scrollbar-track { background: transparent; }
+  .nd-toolbar .seg { flex: none; }
+  .seg { display: inline-flex; position: relative; background: var(--line); border-radius: 8px; padding: 2px; }
+  /* 选中操作区：常驻布局 + visibility/opacity 过渡（不用 display 切换——宽度突变会让 margin-left:auto
+     在 overflow 容器里重算，右侧按钮闪移；类切换只在 无选择↔有选择 时播一次淡入，数量变化不重播）；
+     btn-sm 34px 与分段同高，工具条高度不跳 */
+  .selbar {
+    flex: none; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding-left: 12px; margin-left: 2px; border-left: 1px solid var(--line);
+    visibility: hidden; opacity: 0;
+    transition: opacity .18s var(--ease), visibility 0s linear .18s;
+  }
+  .selbar.show { visibility: visible; opacity: 1; transition: opacity .18s var(--ease); }
+  .selbar .btn { flex: none; }
+  .selbar .btn-del { color: var(--red); }
+  .selbar .btn-del:hover { border-color: var(--red); color: var(--red); filter: none; }
+  .tb-right { flex: none; margin-left: auto; display: flex; gap: 10px; }
+  .seg-pill {
+    position: absolute; top: 2px; bottom: 2px; left: 0; width: 0; pointer-events: none;
+    background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+    transition: transform .25s var(--ease), width .25s var(--ease);
+  }
+  .seg button {
+    position: relative; z-index: 1;
+    border: none; background: transparent; height: 30px; padding: 0 16px; border-radius: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-weight: 600; color: var(--sub); letter-spacing: 1px; cursor: pointer;
+    transition: color .15s;
+  }
+  .seg button.on { color: var(--orange); }
+
+  /* ===== 面包屑 + 搜索 ===== */
+  .pathbar { margin-top: 14px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .crumb { display: flex; align-items: center; gap: 7px; font-size: 13px; min-width: 0; flex-wrap: wrap; }
+  .crumb a { color: var(--orange); font-weight: 600; cursor: pointer; }
+  .crumb a:hover { filter: brightness(.85); }
+  .crumb em { font-style: normal; color: var(--ph); }
+  .crumb b { font-weight: 600; word-break: break-all; }
+  .searchw {
+    margin-left: auto; display: flex; align-items: center; gap: 7px; height: 34px;
+    width: 250px; padding: 0 12px; background: var(--fill); border-radius: 8px; color: var(--ph);
+  }
+  .searchw > svg { width: 14px; height: 14px; flex: none; }
+  .searchw input {
+    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+    font-size: 12.5px; color: var(--navy); font-family: inherit;
+  }
+  .searchw input::placeholder { color: var(--ph); }
+  .sw-x {
+    flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--dash); color: #fff;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .sw-x svg { width: 9px; height: 9px; }
+  .sw-x:hover { background: var(--ph); }
+
+  /* ===== 图标网格（资源管理器范式，无复选框；区内滚、橡皮筋框选期间禁文字选择） ===== */
+  .gridwrap {
+    position: relative; margin-top: 8px; user-select: none;
+    flex: 1; min-height: 0; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
+  }
+  .gridwrap::-webkit-scrollbar { width: 5px; }
+  .gridwrap::-webkit-scrollbar-thumb { background: rgba(29, 33, 41, .16); border-radius: 8px; }
+  .gridwrap::-webkit-scrollbar-thumb:hover { background: rgba(29, 33, 41, .34); }
+  .gridwrap::-webkit-scrollbar-track { background: transparent; }
+  .gridwrap.dragover { outline: 2px dashed var(--orange); outline-offset: -2px; border-radius: var(--radius); }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 4px;
+    padding: 6px 0 12px; min-height: 100%; align-content: start;
+    transition: opacity .14s ease;
+  }
+  .grid.g-out { opacity: 0; } /* 目录/空间/搜索切换：旧内容先淡出，新内容格子编排式上浮入场 */
+  .grid > .empty, .grid > .nd-state { grid-column: 1 / -1; }
+  .g-cell {
+    position: relative; border-radius: 8px; padding: 14px 8px 10px;
+    display: flex; flex-direction: column; align-items: center; cursor: default;
+    transition: background .15s var(--ease), box-shadow .15s var(--ease);
+  }
+  .g-cell.cell-in { animation: cellIn .42s var(--ease) both; }
+  @keyframes cellIn { from { opacity: 0; transform: translateY(10px); } }
+  /* 悬停（未选中）：浅蓝透明底 + 1px 内描边（box-shadow 实现，避免 border 布局抖动） */
+  .g-cell:hover { background: rgba(14, 61, 168, .06); box-shadow: inset 0 0 0 1px rgba(14, 61, 168, .18); }
+  /* 选中框：12% 蓝底 + 1px 内描边，读作「框」；框选命中同此反馈 */
+  .g-cell.sel { background: rgba(14, 61, 168, .12); box-shadow: inset 0 0 0 1px rgba(14, 61, 168, .45); }
+  /* 已选中格的悬停：底色略加深，描边保持 */
+  .g-cell.sel:hover { background: rgba(14, 61, 168, .16); box-shadow: inset 0 0 0 1px rgba(14, 61, 168, .45); }
+  .g-icon { height: 64px; display: flex; align-items: center; justify-content: center; }
+  .g-thumb { width: 96px; height: 64px; border-radius: 8px; object-fit: cover; background: var(--fill); display: block; }
+  /* 真实文件类型图标（无底块直落）；img 404 时由捕获级 error 监听隐藏自身、露出 .ft-fb 回退 */
+  .ft-ic { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  .ft-ic .ft-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .ft-ic .ft-fb { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .ft-ic .ft-fb[hidden] { display: none; }
+  .ft-fb-lb {
+    width: 100%; height: 100%; border-radius: 22%; background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; letter-spacing: .5px;
+  }
+  .ft-fb svg { color: var(--orange); }
+  .g-name {
+    margin-top: 8px; width: 100%; font-size: 12px; line-height: 1.45; text-align: center; word-break: break-all;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .g-cell.sel .g-name { font-weight: 600; }
+  .g-sub {
+    margin-top: 4px; max-width: 100%; font-size: 10.5px; color: var(--ph); font-variant-numeric: tabular-nums;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 上传中格：左上 × 取消 / 右上状态标签 / 名称下细进度条 */
+  .g-x {
+    position: absolute; top: 6px; left: 6px; z-index: 2; width: 22px; height: 22px; border-radius: 6px;
+    background: #fff; box-shadow: var(--shadow-card); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; color: var(--ph);
+  }
+  .g-x:hover { color: var(--red); }
+  .g-x svg { width: 11px; height: 11px; }
+  .g-tag { position: absolute; top: 6px; right: 6px; }
+  .g-prog { margin-top: 8px; width: 100%; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .g-prog i { display: block; height: 100%; width: 0; background: var(--orange); transition: width .25s var(--ease); }
+  .g-up { transition: opacity .25s ease; }
+  .g-up.gone { opacity: 0; } /* 上传完成：绿签停留 1.2s 后整格淡出再刷新列表 */
+  .g-up.err .g-prog i { background: var(--red); }
+  /* 拖动框选矩形（自空白处拖出，命中即选；出现/消失轻微 opacity 过渡） */
+  .rubber {
+    position: absolute; z-index: 20; pointer-events: none; border-radius: 2px;
+    border: 1px solid rgba(14, 61, 168, .55); background: rgba(14, 61, 168, .10);
+    animation: rubberIn .15s ease both; transition: opacity .12s ease;
+  }
+  .rubber.out { opacity: 0; }
+  @keyframes rubberIn { from { opacity: 0; } }
+  /* 骨架格 */
+  .sk-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px 10px; }
+  .sk-ic { width: 56px; height: 56px; }
+  .sk-ln { width: 76%; height: 12px; }
+
+  /* ===== 右键菜单（fixed 挂 body；scale .97→1 快速入场，关闭淡出） ===== */
+  .ctxmenu {
+    position: fixed; z-index: 1200; width: 190px; background: #fff; border-radius: 10px;
+    box-shadow: var(--shadow-hover); border: 1px solid var(--line); padding: 5px;
+    animation: popIn .16s var(--ease) both;
+  }
+  .ctxmenu.out { opacity: 0; transform: scale(.98); transition: opacity .12s ease, transform .12s ease; }
+  @keyframes popIn { from { opacity: 0; transform: scale(.97); } }
+  .ctx {
+    display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 10px;
+    border-radius: 6px; font-size: 12.5px; color: var(--navy); cursor: pointer;
+  }
+  .ctx:hover { background: var(--fill); }
+  .ctx svg { width: 15px; height: 15px; color: var(--sub); }
+  .ctx.dis { color: var(--dash); cursor: default; }
+  .ctx.dis svg { color: var(--dash); }
+  .ctx.dis:hover { background: transparent; }
+  .ctx.danger { color: var(--red); }
+  .ctx.danger svg { color: var(--red); }
+  .ctx-sep { height: 1px; background: var(--line); margin: 5px 8px; }
+
+  /* ===== 底部状态栏（沉底固定，纯统计，资源管理器口径） ===== */
+  .statusbar { flex: none; border-top: 1px solid var(--line); padding: 10px 2px 0; display: flex; gap: 20px; font-size: 11.5px; color: var(--ph); flex-wrap: wrap; }
+  .statusbar b { color: var(--sub); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .lk { font-size: 12.5px; font-weight: 600; color: var(--orange); cursor: pointer; }
+  .lk.gray { color: var(--sub); }
+  .lk.red { color: var(--red); }
+  .lk.dis { color: var(--dash); cursor: default; }
+  .lk:not(.dis):hover { filter: brightness(.85); }
+
+  /* ===== 通用弹层（Shade.modal 配套，与 worklog 同套口径） ===== */
+  .mask {
+    position: fixed; inset: 0; z-index: 320; padding: 24px;
+    background: rgba(29, 33, 41, .5); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .18s;
+  }
+  .mask.open { opacity: 1; }
+  /* 外壳 overflow:hidden 保四角裁切；滚动内凹到 .m-scroll（外壳 6px 内边距），滚动条不贴右缘；
+     入场 scale(.97→1)+opacity 180ms，关闭随 .open 移除反向淡出（Shade.modal 延时 300ms 销毁兜底） */
+  .modal {
+    background: #fff; border: 1px solid var(--line); border-radius: 8px; width: 560px; max-width: 94vw; max-height: 86vh;
+    overflow: hidden; padding: 6px; display: flex; flex-direction: column;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .05);
+    transform: scale(.97); opacity: 0;
+    transition: transform .18s var(--ease), opacity .18s ease;
+  }
+  .m-scroll {
+    flex: 1; min-height: 0; overflow-y: auto; border-radius: 8px; padding: 14px 18px 16px;
+    scrollbar-gutter: stable both-edges; scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
+  }
+  .m-scroll::-webkit-scrollbar { width: 5px; }
+  .m-scroll::-webkit-scrollbar-thumb { background: rgba(29, 33, 41, .16); border-radius: 8px; }
+  .m-scroll::-webkit-scrollbar-thumb:hover { background: rgba(29, 33, 41, .34); }
+  .m-scroll::-webkit-scrollbar-track { background: transparent; }
+  .mask.open .modal { transform: none; opacity: 1; }
+  .m-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .m-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m-x {
+    margin-left: auto; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    color: var(--navy); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .05); transition: background .15s, color .15s;
+  }
+  .m-x:hover { background: var(--navy); color: #fff; }
+  .m-x svg { width: 14px; height: 14px; }
+  .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  /* 媒体预览 Lightbox 内容 */
+  .lb-media { display: block; margin: 0 auto; max-width: 100%; max-height: 68vh; border-radius: 8px; background: var(--fill); }
+
+  /* ===== 创建分享模态（已选摘要 + 有效期单选 + 提取码可刷新 + 说明条直角） ===== */
+  .m-files { background: var(--fill); border-radius: 8px; padding: 10px 12px; max-height: 180px; overflow-y: auto; }
+  .mf-rw { display: flex; align-items: center; gap: 9px; font-size: 12.5px; font-weight: 600; }
+  .mf-rw + .mf-rw { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .mf-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mf-sz { margin-left: auto; flex: none; font-weight: 400; color: var(--ph); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .kv { margin-top: 14px; }
+  .kv > label { display: block; font-size: 11.5px; color: var(--ph); margin-bottom: 8px; letter-spacing: .5px; }
+  .radios { display: flex; gap: 16px; }
+  .rd { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+  .rd i { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--dash); position: relative; }
+  .rd.on { font-weight: 600; }
+  .rd.on i { border-color: var(--orange); }
+  .rd.on i::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--orange); }
+  .codebox { display: flex; align-items: center; gap: 10px; }
+  .cd {
+    width: 150px; height: 36px; border-radius: 8px; background: var(--fill);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700; letter-spacing: 5px; font-variant-numeric: tabular-nums;
+  }
+  .rf {
+    width: 36px; height: 36px; border-radius: 8px; background: var(--fill); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; color: var(--sub);
+  }
+  .rf:hover { color: var(--orange); }
+  .rf svg { width: 15px; height: 15px; }
+  .m-note { margin-top: 14px; background: var(--orange-soft); border-left: 3px solid var(--orange); padding: 8px 10px; font-size: 12px; line-height: 1.6; color: var(--sub); }
+  .rs-link {
+    padding: 9px 12px; background: var(--fill); border-radius: 8px;
+    font-size: 12.5px; color: var(--orange); word-break: break-all; font-weight: 600;
+  }
+
+  /* ===== 目标位置选择弹窗（移动/复制/解压共用：空间分段 + 文件夹浏览 + 就地新建） ===== */
+  .pk-crumb { margin-top: 12px; }
+  .pk-list {
+    margin-top: 10px; border: 1px solid var(--line); border-radius: 8px;
+    min-height: 180px; max-height: 300px; overflow-y: auto;
+  }
+  .pk-row { display: flex; align-items: center; gap: 9px; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
+  .pk-row:hover { background: var(--fill); }
+  .pk-row.on { background: var(--orange-soft); font-weight: 600; }
+  .pk-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pk-empty { padding: 36px 20px; }
+  .pk-mkdir { margin-right: auto; display: inline-flex; align-items: center; gap: 5px; }
+  .pk-mkdir svg { width: 14px; height: 14px; }
+  /* 解压选项行（自绘 checkbox 走 accent-color 主题色） */
+  .ck-row { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 12.5px; color: var(--sub); cursor: pointer; user-select: none; }
+  .ck-row input { width: 14px; height: 14px; accent-color: var(--orange); cursor: pointer; }
+
+  /* ===== 压缩包预览弹窗（内层面包屑 + 文件行列表 + 加密密码行） ===== */
+  .ar-cmt { margin: -6px 0 10px; font-size: 11.5px; color: var(--ph); word-break: break-all; }
+  .ar-crumb { margin-bottom: 10px; }
+  .ar-list { border: 1px solid var(--line); border-radius: 8px; min-height: 160px; max-height: 380px; overflow-y: auto; }
+  .ar-row { display: flex; align-items: center; gap: 11px; padding: 8px 12px; cursor: pointer; }
+  .ar-row + .ar-row { border-top: 1px solid var(--fill); }
+  .ar-row:hover { background: var(--fill); }
+  .ar-mid { flex: 1; min-width: 0; }
+  .ar-nm { display: block; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ar-sub { display: block; margin-top: 2px; font-size: 11px; color: var(--ph); font-variant-numeric: tabular-nums; }
+  .ar-pw { display: flex; gap: 10px; margin-top: 12px; }
+  .ar-pw .input { flex: 1; min-width: 0; height: 40px; }
+  .ar-pw .btn { height: 40px; flex: none; }
+  .ar-err { margin-top: 10px; font-size: 12px; color: var(--red); letter-spacing: .5px; }
+  .ar-empty { padding: 36px 20px; }
+
+  /* ===== 分享管理（表格 + 状态小胶囊） ===== */
+  .notice {
+    margin-top: 14px; display: flex; align-items: center; gap: 8px;
+    background: var(--orange-soft); border-left: 3px solid var(--orange);
+    padding: 9px 12px; font-size: 12.5px; color: var(--sub);
+  }
+  .notice svg { width: 14px; height: 14px; flex: none; color: var(--orange); }
+  .notice .seg { margin-left: auto; }
+  .tbl-card { margin-top: 14px; overflow: hidden; }
+  /* 整页锁定下分享管理表格内滚 */
+  #viewShares .tbl-card { flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 2px; }
+  .rtable { width: 100%; border-collapse: collapse; }
+  .rtable th {
+    text-align: left; font-size: 11.5px; font-weight: 600; color: var(--ph); letter-spacing: .5px;
+    padding: 11px 16px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  .rtable td { font-size: 13px; padding: 10px 16px; border-top: 1px solid var(--fill); vertical-align: middle; }
+  .rtable tbody tr:hover { background: var(--fill); }
+  .nm-cell { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .nm-wrap { min-width: 0; }
+  .nm { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+  .nm-sub { display: block; margin-top: 2px; font-size: 11px; color: var(--ph); }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .t2 { color: var(--sub); white-space: nowrap; }
+  .ops { display: flex; gap: 14px; white-space: nowrap; }
+  .code { font-weight: 700; letter-spacing: 2px; font-variant-numeric: tabular-nums; }
+  .tag i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  /* 状态小胶囊浅底一族（生效绿 / 过期橙 / 停用红；浅底 theme 无变量，与 worklog 页内同口径） */
+  .st-ok { background: #E8FFEA; color: #0B8A37; }
+  .st-warn { background: #FFF7E8; color: #D25F00; }
+  .st-bad { background: #FFECE8; color: var(--red); }
+  .st-info { background: var(--orange-soft); color: var(--orange); }
+
+  /* ===== 上传任务浮动面板（全局组件：有任务即浮现） ===== */
+  .upanel {
+    position: fixed; right: 24px; bottom: 24px; z-index: 300; width: 320px;
+    background: #fff; border-radius: var(--radius); box-shadow: 0 12px 32px rgba(29, 33, 41, .16);
+    overflow: hidden; animation: fadeUp .3s var(--ease) both;
+    max-height: 60vh; display: flex; flex-direction: column;
+  }
+  .up-head { display: flex; align-items: center; padding: 11px 14px; border-bottom: 1px solid var(--line); flex: none; }
+  .up-head b { font-size: 13px; font-weight: 700; letter-spacing: .5px; }
+  .up-head span { margin-left: auto; font-size: 11px; color: var(--ph); font-variant-numeric: tabular-nums; }
+  .up-list { overflow-y: auto; }
+  .up-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+  .up-row + .up-row { border-top: 1px solid var(--fill); }
+  .up-main { flex: 1; min-width: 0; }
+  .up-name { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .uprog { margin-top: 5px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .uprog i { display: block; height: 100%; width: 0; background: var(--orange); transition: width .25s var(--ease); }
+  .up-row.err .uprog i { background: var(--red); }
+  .up-sub { display: block; margin-top: 3px; font-size: 10.5px; color: var(--ph); font-variant-numeric: tabular-nums; }
+  .up-row.err .up-sub { color: var(--red); }
+  .up-ops { flex: none; display: flex; align-items: center; gap: 2px; }
+  .up-lk { font-size: 11.5px; font-weight: 600; color: var(--orange); cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+  .up-lk:hover { background: var(--orange-soft); }
+  .up-ic {
+    width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center;
+    color: var(--ph); cursor: pointer; border-radius: 6px;
+  }
+  .up-ic:hover { color: var(--red); background: var(--fill); }
+  .up-ic svg { width: 13px; height: 13px; }
+
+  /* 网格内错误/空态块 */
+  .nd-state { padding: 40px 26px; text-align: center; font-size: 13px; color: var(--ph); }
+  .nd-state .btn { margin-top: 14px; }
+  .nd-ehint { font-size: 11.5px; }
+</style>
+</head>
+<body>
+
+<!-- 应用权限门控（无 netdisk 权限时填充提示卡；初始为加载占位） -->
+<div class="page" id="gateBox">
+  <div class="nd-wrap"><div class="card" style="margin-top:22px;padding:40px 26px;text-align:center;font-size:13px;color:var(--ph)">加载中…</div></div>
+</div>
+
+<main class="page" id="ndApp" hidden>
+  <div class="nd-wrap">
+    <div class="nd-head fade-up">
+      <h2>团队网盘</h2>
+      <p>文件经 Shade 中转存取，支持分片上传与外链分享</p>
+    </div>
+
+    <div class="nd-tabs fade-up" style="animation-delay:.08s">
+      <button class="nd-tab on" data-view="files">全部文件</button>
+      <button class="nd-tab" data-view="shares">分享管理</button>
+    </div>
+
+    <!-- ================= 全部文件视图 ================= -->
+    <section id="viewFiles">
+      <div class="nd-toolbar fade-up" style="animation-delay:.14s">
+        <div class="seg" id="spaceSeg"></div>
+        <!-- 选中操作区：常驻布局，有选中项时加 .show 淡入（移动/删除按 manageable 显隐，下载按有无文件显隐） -->
+        <span class="selbar" id="selbar">
+          <button type="button" class="btn btn-sm" data-sel="dl">下载</button>
+          <button type="button" class="btn btn-sm" data-sel="share">分享</button>
+          <button type="button" class="btn btn-sm" data-sel="move">移动</button>
+          <button type="button" class="btn btn-sm" data-sel="copy">复制</button>
+          <button type="button" class="btn btn-sm btn-del" data-sel="del">删除</button>
+          <button type="button" class="btn btn-sm" data-sel="clear">取消选择</button>
+        </span>
+        <div class="tb-right">
+          <button type="button" class="btn btn-sm" id="btnMkdir"></button>
+          <button type="button" class="btn btn-sm btn-primary" id="btnUpload"></button>
+        </div>
+      </div>
+
+      <div class="pathbar fade-up" style="animation-delay:.2s">
+        <div class="crumb" id="crumb"></div>
+        <div class="searchw">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20.5 20.5L16 16"/></svg>
+          <input id="searchInput" placeholder="搜索当前空间文件名" maxlength="100">
+          <span class="sw-x" id="searchClear" hidden title="清空搜索">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <div class="gridwrap fade-up" id="gridwrap" style="animation-delay:.26s">
+        <div class="grid" id="grid"></div>
+      </div>
+
+      <div class="statusbar" id="statusbar"></div>
+    </section>
+
+    <!-- ================= 分享管理视图 ================= -->
+    <section id="viewShares" hidden>
+      <div class="notice" id="shareNotice" hidden></div>
+      <div class="card tbl-card" id="shareTblCard"></div>
+    </section>
+  </div>
+</main>
+
+<!-- 全局上传任务面板（有任务即浮现） -->
+<div class="upanel" id="upanel" hidden></div>
+
+<!-- 隐藏文件选择器（多文件上传入口） -->
+<input type="file" id="fileInput" multiple hidden>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  Shade.requireAuth();
+  Shade.topbar({ active: 'netdisk' });
+
+  var API = '/api/v1/netdisk';
+  var $ = Shade.$, $$ = Shade.$$;
+  var esc = Shade.esc;
+
+  /* ================= 页面状态 ================= */
+  var S = {
+    space: 'public',    // 当前空间：public 公共区（默认） / my 个人空间
+    spaces: {},         // 空间表：key → {key,name,manageable}
+    maxMb: 0,           // 单文件上限（MB）
+    path: '/',          // 浏览模式当前目录（空间内相对路径）
+    items: [],          // 当前渲染条目（浏览或搜索结果，每项带 _rel）
+    manageable: true,   // 当前空间重命名/删除权限（以 /list 下发为准）
+    search: null,       // 非空即搜索态：{kw,total}
+    view: 'files',      // files 全部文件 / shares 分享管理
+  };
+  var sel = new Set();  // 选中集合（条目相对路径）
+  var anchorIdx = -1;   // Shift 连选锚点（当前渲染序）
+  var me = Shade.user() || {};
+  var canManageRole = me.role === 'admin' || me.role === 'team_admin';
+
+  var gridwrap, gridEl, searchInput;
+
+  /* ================= 基础工具 ================= */
+  function nd(path, opts) { return Shade.api(API + path, opts).then(function (r) { return r.data; }); }
+  function ndPost(path, body) { return nd(path, { method: 'POST', body: body }); }
+  function joinRel(dir, name) { return (dir === '/' ? '' : dir) + '/' + name; }
+  function parentOf(rel) { var p = rel.split('/').filter(Boolean); p.pop(); return p.length ? '/' + p.join('/') : '/'; }
+  function fmtSize(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+    return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  // 复制到剪贴板（HTTPS 走 clipboard API，降级 execCommand）
+  function copyText(text, okMsg) {
+    function done() { Shade.toast(okMsg || '已复制', 'success'); }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) { Shade.toast('复制失败，请手动复制', 'error'); }
+      ta.remove();
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else fallback();
+  }
+
+  /* 文件类型：图片/视频内联预览，压缩包预览解压，字母块覆盖常见办公与压缩格式 */
+  var IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+  var VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
+  var ARCHIVE_EXTS = ['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz'];
+  var OFFICE_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+  var EXT_LABEL = {
+    doc: 'DOC', docx: 'DOC', xls: 'XLS', xlsx: 'XLS', csv: 'XLS',
+    ppt: 'PPT', pptx: 'PPT', pdf: 'PDF',
+    zip: 'ZIP', rar: 'ZIP', '7z': 'ZIP', tar: 'ZIP', gz: 'ZIP', tgz: 'ZIP', bz2: 'ZIP', xz: 'ZIP',
+    txt: 'TXT', md: 'TXT', log: 'TXT',
+    mp4: 'MP4', mov: 'MP4', webm: 'MP4', m4v: 'MP4', mp3: 'MP3', wav: 'MP3',
+  };
+  function extOf(name) { var m = /\.([a-z0-9]+)$/i.exec(name || ''); return m ? m[1].toLowerCase() : ''; }
+  function typeLabel(name) { var e = extOf(name); return EXT_LABEL[e] || (e ? e.slice(0, 4).toUpperCase() : 'FILE'); }
+  function isImg(name) { return IMG_EXTS.indexOf(extOf(name)) >= 0; }
+  function isVideo(name) { return VIDEO_EXTS.indexOf(extOf(name)) >= 0; }
+  function isArchive(name) { return ARCHIVE_EXTS.indexOf(extOf(name)) >= 0; }
+  function isOffice(name) { return OFFICE_EXTS.indexOf(extOf(name)) >= 0; }
+
+  /* 真实文件类型图标（/assets/filetypes/<ext>.png）：合并同类（doc→docx、jpeg→jpg、tgz/bz2/xz→zip 等），
+     无映射→unknown.png；img 404 由捕获级 error 监听隐藏自身、露出回退（文件夹线性图标 / 字母块） */
+  var FT_BASE = '/assets/filetypes/';
+  var FT_MAP = {
+    doc: 'docx', docx: 'docx', xls: 'xlsx', xlsx: 'xlsx', csv: 'csv',
+    ppt: 'pptx', pptx: 'pptx', pdf: 'pdf', txt: 'txt', md: 'md', log: 'txt',
+    zip: 'zip', rar: 'rar', '7z': '7z', tar: 'tar', gz: 'gz', tgz: 'zip', bz2: 'zip', xz: 'zip',
+    jpg: 'jpg', jpeg: 'jpg', png: 'png', gif: 'gif', bmp: 'bmp', webp: 'jpg', svg: 'png',
+    mp4: 'mp4', mov: 'mov', webm: 'mp4', m4v: 'mp4', mp3: 'mp3', wav: 'wav',
+  };
+  function fileIconUrl(name, isDir) {
+    if (isDir) return FT_BASE + 'folder.png';
+    var e = extOf(name);
+    return FT_BASE + (FT_MAP[e] || 'unknown') + '.png';
+  }
+  function fileIconHtml(name, isDir, size) {
+    var fb = isDir
+      ? Shade.icon('folder', size)
+      : '<span class="ft-fb-lb" style="font-size:' + Math.max(7, Math.round(size * 0.26)) + 'px">' + esc(typeLabel(name)) + '</span>';
+    return '<span class="ft-ic" style="width:' + size + 'px;height:' + size + 'px">'
+      + '<img class="ft-img" src="' + fileIconUrl(name, isDir) + '" width="' + size + '" height="' + size + '" draggable="false" alt="">'
+      + '<span class="ft-fb" hidden>' + fb + '</span></span>';
+  }
+  // 图标 404 回退：error 事件不冒泡，用捕获监听统一处理
+  document.addEventListener('error', function (e) {
+    var img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.classList.contains('ft-img')) return;
+    img.style.display = 'none';
+    var fb = img.nextElementSibling;
+    if (fb && fb.classList.contains('ft-fb')) fb.hidden = false;
+  }, true);
+
+  // 下载/内联 URL：页面 <img>/<video>/新标签无法带请求头，统一 ?token= 鉴权（后端 tokenQuery 映射）
+  function dlUrl(rel, disposition) {
+    return API + '/download?space=' + encodeURIComponent(S.space)
+      + '&path=' + encodeURIComponent(rel)
+      + '&disposition=' + (disposition === 'inline' ? 'inline' : 'attachment')
+      + '&token=' + encodeURIComponent(localStorage.getItem('shade_token') || '');
+  }
+  function sortItems(items) {
+    return items.slice().sort(function (a, b) {
+      if (!!a.is_dir !== !!b.is_dir) return a.is_dir ? -1 : 1;
+      return String(a.name).localeCompare(String(b.name), 'zh');
+    });
+  }
+  function selItems() { return S.items.filter(function (it) { return sel.has(it._rel); }); }
+
+  /* ================= 应用权限门控（同 client.html 口径） ================= */
+  Shade.api('/api/v1/app/list').then(function (r) {
+    var granted = ((r && r.data && r.data.list) || []).some(function (a) { return a.app_key === 'netdisk'; });
+    if (!granted) {
+      $('#gateBox').innerHTML = '<div class="nd-wrap"><div class="card" style="margin-top:22px;padding:40px 26px;text-align:center;font-size:13px;color:var(--ph)">暂无「团队网盘」应用权限，请联系管理员开通。</div></div>';
+      return;
+    }
+    $('#gateBox').hidden = true;
+    $('#ndApp').hidden = false;
+    boot();
+  }).catch(function () {
+    $('#gateBox').innerHTML = '<div class="nd-wrap"><div class="card" style="margin-top:22px;padding:40px 26px;text-align:center;font-size:13px;color:var(--ph)">加载失败，请刷新重试。</div></div>';
+  });
+
+  function boot() {
+    gridwrap = $('#gridwrap');
+    gridEl = $('#grid');
+    searchInput = $('#searchInput');
+    bindEvents();
+    loadSpaces().then(function () { return loadList(); }).catch(function (e) {
+      Shade.toast(e.message || '初始化失败', 'error');
+      setGridState('error', e.message);
+    });
+  }
+
+  /* ================= 空间与目录加载 ================= */
+  function loadSpaces() {
+    return nd('/spaces').then(function (d) {
+      S.maxMb = d.max_upload_mb || 0;
+      (d.spaces || []).forEach(function (sp) { S.spaces[sp.key] = sp; });
+      // 未分配班组时后端不下发 public：退回我的空间（默认公共区的口径仅在 public 存在时生效）
+      if (!S.spaces[S.space]) S.space = S.spaces.public ? 'public' : 'my';
+      renderSeg();
+    });
+  }
+  // 分段标签：公共区带班组名（如「公共区 · 检修一班」）
+  function spaceLabel(k) {
+    var sp = S.spaces[k] || { name: '' };
+    return k === 'public' && sp.team ? sp.name + ' · ' + sp.team : sp.name;
+  }
+  function loadList(silent) {
+    sel.clear(); anchorIdx = -1;
+    setGridState('loading', null, silent);
+    return ndPost('/list', { space: S.space, path: S.path }).then(function (d) {
+      S.manageable = !!d.manageable;
+      S.items = sortItems(d.items || []).map(function (it) { it._rel = joinRel(S.path, it.name); return it; });
+      S.search = null;
+      renderAll(!silent); // 目录/空间切换：格子编排式入场；silent=原地静默刷新（上传完成回写）
+    }).catch(function (e) { setGridState('error', e.message); });
+  }
+  function navTo(path) { S.path = path; loadList(); }
+  function switchSpace(k) {
+    if (S.space === k || !S.spaces[k]) return;
+    S.space = k; S.path = '/'; S.search = null; searchInput.value = '';
+    sel.clear(); anchorIdx = -1;
+    // 不重建分段：切 on 类 + pill 滑动位移
+    var seg = $('#spaceSeg');
+    $$('button', seg).forEach(function (b) { b.classList.toggle('on', b.dataset.space === k); });
+    moveSegPill(seg, false);
+    loadList();
+  }
+
+  /* ================= 搜索（范围跟随当前空间，需 OpenList 已建索引） ================= */
+  function doSearch(kw) {
+    kw = String(kw || '').trim();
+    if (!kw) { if (S.search) exitSearch(); return; }
+    sel.clear(); anchorIdx = -1;
+    setGridState('loading');
+    ndPost('/search', { space: S.space, keywords: kw, page: 1, per_page: 100 }).then(function (d) {
+      S.search = { kw: kw, total: d.total || 0 };
+      S.items = sortItems(d.items || []).map(function (it) {
+        var parent = it.parent || '/';
+        it._rel = joinRel(parent, it.name);
+        it._parentDisp = parent === '/' ? '根目录' : parent;
+        return it;
+      });
+      renderAll(true); // 搜索结果同用编排式入场
+    }).catch(function (e) { setGridState('error', e.message); });
+  }
+  function exitSearch() {
+    S.search = null; searchInput.value = '';
+    loadList();
+  }
+  function reloadCurrent() { if (S.search) doSearch(S.search.kw); else loadList(); }
+
+  /* ================= 渲染 ================= */
+  function renderAll(animate) {
+    renderToolbar(); renderCrumb(); renderGrid(animate); renderStatus();
+    $('#searchClear').hidden = !S.search && !searchInput.value;
+  }
+  function renderSeg() {
+    var seg = $('#spaceSeg');
+    // 按 spaces 实际下发渲染：未分配班组无 public，单空间时整段隐藏
+    var keys = ['my', 'public'].filter(function (k) { return S.spaces[k]; });
+    seg.hidden = keys.length < 2;
+    seg.innerHTML = keys.map(function (k) {
+      return '<button type="button" class="' + (S.space === k ? 'on' : '') + '" data-space="' + k + '">' + esc(spaceLabel(k)) + '</button>';
+    }).join('');
+    if (!seg.hidden) moveSegPill(seg, true); // 重建后指示层直接落位，不做滑入
+  }
+  // 分段控件滑动白 pill：instant=true 首帧/重建/缩放直接落位（同 Shade.moveTabInd 防残影思路）
+  function moveSegPill(seg, instant) {
+    if (!seg || seg.hidden) return;
+    var pill = seg.querySelector('.seg-pill');
+    if (!pill) {
+      pill = document.createElement('i');
+      pill.className = 'seg-pill';
+      seg.insertBefore(pill, seg.firstChild);
+    }
+    var on = seg.querySelector('button.on');
+    if (!on) { pill.style.width = '0'; return; }
+    if (instant) pill.style.transition = 'none';
+    pill.style.width = on.offsetWidth + 'px';
+    pill.style.transform = 'translateX(' + on.offsetLeft + 'px)';
+    if (instant) { void pill.offsetHeight; pill.style.transition = ''; }
+  }
+  function renderToolbar() {
+    // 搜索态下新建/上传无目录上下文，隐藏（浏览态恢复）
+    $('#btnMkdir').hidden = !!S.search;
+    $('#btnUpload').hidden = !!S.search;
+  }
+  function renderCrumb() {
+    var sp = S.spaces[S.space] || { name: '' };
+    var el = $('#crumb');
+    if (S.search) {
+      el.innerHTML = '<a data-nav="exit">' + esc(sp.name) + '</a><em>/</em><b>搜索“' + esc(S.search.kw) + '”</b>';
+      return;
+    }
+    var parts = S.path.split('/').filter(Boolean);
+    var html = '<a data-path="/">' + esc(sp.name) + '</a>';
+    var acc = '';
+    parts.forEach(function (p, i) {
+      acc += '/' + p;
+      html += '<em>/</em>' + (i === parts.length - 1
+        ? '<b>' + esc(p) + '</b>'
+        : '<a data-path="' + esc(acc) + '">' + esc(p) + '</a>');
+    });
+    el.innerHTML = html;
+  }
+  function setGridState(st, msg, quiet) {
+    if (st === 'loading') {
+      if (quiet) { renderToolbar(); renderStatus(); return; } // 静默刷新：不动网格（无骨架无淡出）
+      if (!S.items.length && !currentDirTasks().length) {
+        // 首载/空目录：骨架屏；已有内容的切换走淡出（g-out），数据回来后 renderGrid 归位
+        gridEl.classList.remove('g-out');
+        var cells = '';
+        for (var i = 0; i < 8; i++) {
+          cells += '<div class="sk-cell"><span class="skeleton sk-ic"></span><span class="skeleton sk-ln"></span></div>';
+        }
+        gridEl.innerHTML = cells;
+      } else {
+        gridEl.classList.add('g-out');
+      }
+      renderToolbar(); renderStatus();
+      return;
+    }
+    if (st === 'error') {
+      gridEl.classList.remove('g-out');
+      gridEl.innerHTML = '<div class="nd-state card">' + Shade.icon('error-circle', 40)
+        + '<div style="margin-top:10px">' + esc(msg || '加载失败') + '</div>'
+        + '<button type="button" class="btn btn-sm" data-retry="1">重试</button></div>';
+      renderStatus();
+      return;
+    }
+    if (st === 'empty') {
+      gridEl.classList.remove('g-out');
+      gridEl.innerHTML = '<div class="empty">' + Shade.icon('folder', 44)
+        + '<p>' + (S.search ? '未找到匹配「' + esc(S.search.kw) + '」的文件' : '此文件夹为空') + '</p>'
+        + (S.search ? '' : '<p class="nd-ehint">点击右上角「上传文件」，或直接把文件拖进来</p>')
+        + '</div>';
+      renderStatus();
+    }
+  }
+  function cellIconHtml(it) {
+    // 图片真实缩略图；视频取首帧（preload=metadata）；其余走文件类型图标
+    if (!it.is_dir && isImg(it.name)) {
+      return '<div class="g-icon"><img class="g-thumb" loading="lazy" src="' + dlUrl(it._rel, 'inline') + '" alt=""></div>';
+    }
+    if (!it.is_dir && isVideo(it.name)) {
+      return '<div class="g-icon"><video class="g-thumb" src="' + dlUrl(it._rel, 'inline') + '" preload="metadata" muted playsinline></video></div>';
+    }
+    return '<div class="g-icon">' + fileIconHtml(it.name, it.is_dir, 48) + '</div>';
+  }
+  // animate=true 时格子编排式上浮入场（stagger 每格 36ms、时延链封顶 860ms ≤0.9s）
+  function cellHtml(it, idx, animate) {
+    var sub = S.search ? '<span class="g-sub" title="' + esc(it._parentDisp) + '">' + esc(it._parentDisp) + '</span>' : '';
+    var cls = 'g-cell' + (sel.has(it._rel) ? ' sel' : '') + (animate ? ' cell-in' : '');
+    var style = animate ? ' style="animation-delay:' + Math.min(idx * 36, 860) + 'ms"' : '';
+    return '<div class="' + cls + '"' + style + ' data-idx="' + idx + '" data-rel="' + esc(it._rel) + '" title="' + esc(it.name) + '">'
+      + cellIconHtml(it)
+      + '<span class="g-name">' + esc(it.name) + '</span>' + sub
+      + '</div>';
+  }
+  function renderGrid(animate) {
+    gridEl.classList.remove('g-out');
+    if (!S.items.length && !currentDirTasks().length) { setGridState('empty'); return; }
+    gridEl.innerHTML = S.items.map(function (it, i) { return cellHtml(it, i, animate); }).join('')
+      + currentDirTasks().map(function (t, i) {
+        return uploadCellHtml(t, animate ? Math.min((S.items.length + i) * 36, 860) : -1);
+      }).join('');
+  }
+  function renderStatus() {
+    var n = S.items.length;
+    var si = selItems();
+    var html = '<span>共 <b>' + n + '</b> 项</span>';
+    if (si.length) {
+      var total = 0;
+      si.forEach(function (it) { if (!it.is_dir) total += (it.size || 0); });
+      html += '<span>已选择 <b>' + si.length + '</b> 项</span><span>合计 <b>' + fmtSize(total) + '</b></span>';
+    }
+    $('#statusbar').innerHTML = html;
+    renderSelbar(si);
+  }
+  // 顶部工具条选中操作区：.show 类切换淡入淡出（只在 无选择↔有选择 时过渡一次，数量变化不重播；
+  // 移动/删除按 manageable 显隐，下载按有无文件显隐）
+  function renderSelbar(si) {
+    var bar = $('#selbar');
+    if (!si) si = selItems();
+    if (!si.length) { bar.classList.remove('show'); return; }
+    var hasFile = si.some(function (it) { return !it.is_dir; });
+    $('[data-sel="dl"]', bar).hidden = !hasFile;
+    $('[data-sel="move"]', bar).hidden = !S.manageable;
+    $('[data-sel="del"]', bar).hidden = !S.manageable;
+    bar.classList.add('show');
+  }
+  function setSel(ns) {
+    sel = ns;
+    $$('.g-cell[data-rel]', gridEl).forEach(function (c) { c.classList.toggle('sel', sel.has(c.dataset.rel)); });
+    renderStatus();
+  }
+
+  /* ================= 框选（空白处 pointerdown 拖出矩形；相对网格内容坐标，滚动随动） ================= */
+  var rubberEl = null, rubberStart = null, rubberBase = null, rubberMoved = false, rubberLast = null;
+  function startRubber(e) {
+    rubberStart = contentPos(e.clientX, e.clientY);
+    rubberLast = { x: e.clientX, y: e.clientY };
+    rubberBase = (e.ctrlKey || e.metaKey) ? new Set(sel) : new Set();
+    rubberMoved = false;
+    var onMove = function (ev) { rubberLast = { x: ev.clientX, y: ev.clientY }; moveRubber(); };
+    var onScroll = function () { if (rubberMoved) moveRubber(); }; // 拖动中滚动：矩形随内容滚并重算命中
+    var onUp = function () {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      gridwrap.removeEventListener('scroll', onScroll);
+      endRubber();
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+    gridwrap.addEventListener('scroll', onScroll);
+  }
+  // 客户端坐标 → gridwrap 内容坐标（滚动折算；rect 每次现取，锁定布局下仅滚动可变）
+  function contentPos(cx, cy) {
+    var r = gridwrap.getBoundingClientRect();
+    return { x: cx - r.left + gridwrap.scrollLeft, y: cy - r.top + gridwrap.scrollTop };
+  }
+  function moveRubber() {
+    var cur = contentPos(rubberLast.x, rubberLast.y);
+    var dx = cur.x - rubberStart.x, dy = cur.y - rubberStart.y;
+    if (!rubberMoved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+    if (!rubberMoved) {
+      rubberMoved = true;
+      rubberEl = document.createElement('div');
+      rubberEl.className = 'rubber';
+      gridwrap.appendChild(rubberEl);
+    }
+    var x1 = Math.min(rubberStart.x, cur.x), x2 = Math.max(rubberStart.x, cur.x);
+    var y1 = Math.min(rubberStart.y, cur.y), y2 = Math.max(rubberStart.y, cur.y);
+    rubberEl.style.left = x1 + 'px';
+    rubberEl.style.top = y1 + 'px';
+    rubberEl.style.width = (x2 - x1) + 'px';
+    rubberEl.style.height = (y2 - y1) + 'px';
+    // 命中检测同用内容坐标（格子静态定位，offset 相对 position:relative 的 gridwrap）
+    var hit = new Set(rubberBase);
+    $$('.g-cell[data-rel]', gridEl).forEach(function (c) {
+      var l = c.offsetLeft, t = c.offsetTop;
+      if (l < x2 && l + c.offsetWidth > x1 && t < y2 && t + c.offsetHeight > y1) hit.add(c.dataset.rel);
+    });
+    setSel(hit);
+  }
+  function endRubber() {
+    if (rubberEl) {
+      var el = rubberEl;
+      rubberEl = null;
+      el.classList.add('out'); // 淡出后移除
+      setTimeout(function () { el.remove(); }, 130);
+    }
+    if (!rubberMoved) setSel(new Set(rubberBase)); // 纯点击空白：清空（Ctrl 保持原选择）
+    rubberStart = null; rubberBase = null; rubberMoved = false; rubberLast = null;
+  }
+
+  /* ================= 右键菜单（fixed 挂 body；外部点按/Esc/滚动/缩放关闭） ================= */
+  var ctxEl = null;
+  function onCtxDocDown(e) { if (ctxEl && !ctxEl.contains(e.target)) closeCtxMenu(); }
+  function onCtxScroll(e) { if (ctxEl && !ctxEl.contains(e.target)) closeCtxMenu(); }
+  function closeCtxMenu() {
+    if (!ctxEl) return false;
+    document.removeEventListener('mousedown', onCtxDocDown, true);
+    document.removeEventListener('scroll', onCtxScroll, true);
+    window.removeEventListener('resize', closeCtxMenu);
+    var el = ctxEl;
+    ctxEl = null;
+    el.classList.add('out'); // 淡出后移除
+    setTimeout(function () { el.remove(); }, 130);
+    return true;
+  }
+  function openCtxMenu(x, y, entries) {
+    closeCtxMenu();
+    var el = document.createElement('div');
+    el.className = 'ctxmenu';
+    el.innerHTML = entries.map(function (en, i) {
+      if (en === '-') return '<div class="ctx-sep"></div>';
+      return '<div class="ctx' + (en.danger ? ' danger' : '') + (en.disabled ? ' dis' : '') + '" data-i="' + i + '">'
+        + Shade.icon(en.icon, 15) + '<span>' + esc(en.label) + '</span></div>';
+    }).join('');
+    document.body.appendChild(el);
+    el.addEventListener('click', function (e) {
+      var row = e.target.closest('.ctx');
+      if (!row) return;
+      var en = entries[Number(row.dataset.i)];
+      if (!en || en === '-' || en.disabled) return;
+      closeCtxMenu();
+      if (en.onClick) en.onClick();
+    });
+    // 防出屏：右侧/底部空间不足时内收
+    var w = el.offsetWidth, h = el.offsetHeight;
+    if (x + w > window.innerWidth - 8) x = Math.max(8, window.innerWidth - 8 - w);
+    if (y + h > window.innerHeight - 8) y = Math.max(8, window.innerHeight - 8 - h);
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    ctxEl = el;
+    document.addEventListener('mousedown', onCtxDocDown, true);
+    document.addEventListener('scroll', onCtxScroll, true);
+    window.addEventListener('resize', closeCtxMenu);
+  }
+  function openItemMenu(x, y) {
+    var items = selItems();
+    var single = items.length === 1 ? items[0] : null;
+    var filesCnt = items.filter(function (it) { return !it.is_dir; }).length;
+    var entries = [
+      { icon: single && single.is_dir ? 'folder-open' : 'file', label: '打开', disabled: !single,
+        onClick: function () { openItem(single); } },
+    ];
+    // Office 格式（doc/xls/ppt 族）单选时提供「在线预览」（微软官方查看器）
+    if (single && !single.is_dir && isOffice(single.name)) {
+      entries.push({ icon: 'book', label: '在线预览', onClick: function () { previewOffice(single); } });
+    }
+    entries.push(
+      { icon: 'download', label: '下载（' + filesCnt + ' 项）', disabled: !filesCnt,
+        onClick: function () { downloadItems(items); } },
+      { icon: 'link', label: '分享（' + items.length + ' 项）',
+        onClick: function () { openShareModal(items); } },
+    );
+    // 移动会移除源位置：公共区 manageable=false 时隐藏；复制目的侧按上传口径全员可写
+    if (S.manageable) {
+      entries.push({ icon: 'swap', label: '移动（' + items.length + ' 项）',
+        onClick: function () { moveCopyItems('move', items); } });
+    }
+    entries.push({ icon: 'copy', label: '复制（' + items.length + ' 项）',
+      onClick: function () { moveCopyItems('copy', items); } });
+    if (single && isArchive(single.name)) {
+      entries.push({ icon: 'folder-open', label: '解压到…', onClick: function () { decompressArchive(single); } });
+    }
+    if (S.manageable) {
+      entries.push({ icon: 'edit', label: '重命名', disabled: !single, onClick: function () { openRename(single); } });
+      entries.push('-');
+      entries.push({ icon: 'delete', label: '删除（' + items.length + ' 项）', danger: true,
+        onClick: function () { removeItems(items); } });
+    }
+    openCtxMenu(x, y, entries);
+  }
+  function openBlankMenu(x, y) {
+    var entries = [];
+    if (!S.search) {
+      entries.push({ icon: 'folder-add', label: '新建文件夹', onClick: openMkdir });
+      entries.push({ icon: 'upload', label: '上传文件', onClick: pickFiles });
+      entries.push('-');
+    }
+    entries.push({ icon: 'refresh', label: '刷新', onClick: reloadCurrent });
+    openCtxMenu(x, y, entries);
+  }
+
+  /* ================= 打开 / 预览 / 下载 ================= */
+  function openItem(it) {
+    if (!it) return;
+    if (it.is_dir) {
+      S.path = it._rel; S.search = null; searchInput.value = '';
+      loadList();
+      return;
+    }
+    if (isImg(it.name) || isVideo(it.name)) return previewMedia(it);
+    if (extOf(it.name) === 'pdf') { window.open(dlUrl(it._rel, 'inline'), '_blank'); return; }
+    if (isOffice(it.name)) return previewOffice(it); // Office 走微软官方查看器
+    if (isArchive(it.name)) return openArchive(it); // 压缩包双击进预览弹窗
+    downloadItems([it]);
+  }
+  // Office 在线预览：preview/sign 取短时效票据 → 免登录回源 URL → 微软查看器新标签打开；
+  // window.open 同步调用防浏览器弹窗拦截，签名失败关掉空标签
+  async function previewOffice(it) {
+    var w = window.open('', '_blank');
+    try {
+      var r = await ndPost('/preview/sign', { space: S.space, path: it._rel });
+      var src = location.origin + API + '/preview/' + r.token + '/' + encodeURIComponent(it.name);
+      w.location.href = 'https://view.officeapps.live.com/op/view.aspx?src=' + encodeURIComponent(src);
+    } catch (e) {
+      if (w) w.close();
+      Shade.toast(e.message || '预览失败', 'error');
+    }
+  }
+  // 图片/视频内联 Lightbox（URL 带 ?token= 鉴权直引）
+  function previewMedia(it) {
+    var url = dlUrl(it._rel, 'inline');
+    var body = isImg(it.name)
+      ? '<img class="lb-media" src="' + url + '" alt="' + esc(it.name) + '">'
+      : '<video class="lb-media" src="' + url + '" controls autoplay></video>';
+    Shade.modal(Shade.mHead(it.name) + '<div>' + body + '</div>', { width: 920 });
+  }
+  // 多选逐个顺序下载（文件夹不可下，已在入口过滤计数）
+  async function downloadItems(items) {
+    var files = items.filter(function (it) { return !it.is_dir; });
+    if (!files.length) { Shade.toast('所选内容没有可下载的文件', 'info'); return; }
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      if (files.length > 1) Shade.toast('正在下载 ' + (i + 1) + '/' + files.length + '：' + f.name, 'info');
+      try {
+        var res = await Shade.apiRaw(dlUrl(f._rel, 'attachment'));
+        if (!res.ok) {
+          var j = await res.json().catch(function () { return null; });
+          throw new Error((j && j.message) || ('HTTP ' + res.status));
+        }
+        await Shade.saveBlob(res, f.name);
+      } catch (e) {
+        Shade.toast('下载失败：' + f.name + '（' + e.message + '）', 'error');
+      }
+    }
+  }
+
+  /* ================= 新建文件夹 / 重命名 / 删除 ================= */
+  // 单输入弹层：返回 Promise<string|null>（取消为 null）；type='password' 用于压缩密码
+  function promptInput(title, value, placeholder, okText, type) {
+    return new Promise(function (resolve) {
+      var done = false;
+      function finish(v) { if (!done) { done = true; resolve(v); } }
+      var html = Shade.mHead(title)
+        + '<input class="input" id="ndPromptIn" type="' + (type === 'password' ? 'password' : 'text') + '" maxlength="200" placeholder="' + esc(placeholder || '') + '">'
+        + '<div class="m-foot"><button type="button" class="btn btn-sm" data-a="no">取消</button>'
+        + '<button type="button" class="btn btn-sm btn-primary" data-a="yes">' + esc(okText || '确定') + '</button></div>';
+      var inst = Shade.modal(html, { width: 420, onClose: function () { finish(null); } });
+      var input = $('#ndPromptIn', inst.box);
+      input.value = value || '';
+      input.focus();
+      if (value) { var dot = value.lastIndexOf('.'); input.setSelectionRange(0, dot > 0 ? dot : value.length); }
+      $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+      function submit() {
+        var v = input.value.trim();
+        if (!v) { Shade.toast(type === 'password' ? '请输入压缩密码' : '请输入名称', 'error'); return; }
+        finish(v); inst.close();
+      }
+      $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+    });
+  }
+  function openMkdir() {
+    promptInput('新建文件夹', '', '请输入文件夹名称', '创建').then(function (name) {
+      if (!name) return;
+      ndPost('/mkdir', { space: S.space, path: S.path, name: name }).then(function () {
+        Shade.toast('已创建', 'success');
+        loadList();
+      }).catch(function (e) { Shade.toast(e.message, 'error'); });
+    });
+  }
+  function openRename(it) {
+    if (!it) return;
+    promptInput('重命名', it.name, '请输入新名称', '保存').then(function (name) {
+      if (!name || name === it.name) return;
+      ndPost('/rename', { space: S.space, path: it._rel, name: name }).then(function () {
+        Shade.toast('已重命名', 'success');
+        reloadCurrent();
+      }).catch(function (e) { Shade.toast(e.message, 'error'); });
+    });
+  }
+  async function removeItems(items) {
+    if (!items.length) return;
+    var yes = await Shade.confirm({
+      title: '删除确认',
+      content: '确定删除选中的 ' + items.length + ' 项吗？删除后不可恢复。',
+      confirmText: '删除', danger: true,
+    });
+    if (!yes) return;
+    try {
+      await ndPost('/remove', { space: S.space, paths: items.map(function (it) { return it._rel; }) });
+      Shade.toast('已删除', 'success');
+      sel.clear();
+      reloadCurrent();
+    } catch (e) { Shade.toast(e.message, 'error'); }
+  }
+
+  /* ================= 创建分享（模态：摘要 + 有效期 + 提取码 → 结果展示） ================= */
+  function randCode() {
+    var c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', s = '';
+    for (var i = 0; i < 4; i++) s += c[Math.floor(Math.random() * c.length)];
+    return s;
+  }
+  function shareLink(sid) { return location.origin + '/share.html#/s/' + sid; }
+  function openShareModal(items) {
+    if (!items.length) return;
+    if (items.length > 20) { Shade.toast('单次最多分享 20 项', 'error'); return; }
+    var days = 7, code = randCode();
+    var filesHtml = items.map(function (it) {
+      return '<div class="mf-rw">' + fileIconHtml(it.name, it.is_dir, 24)
+        + '<span class="mf-nm">' + esc(it.name) + '</span>'
+        + '<span class="mf-sz">' + (it.is_dir ? '文件夹' : fmtSize(it.size)) + '</span></div>';
+    }).join('');
+    var html = Shade.mHead('创建分享')
+      + '<div class="m-files">' + filesHtml + '</div>'
+      + '<div class="kv"><label>有效期</label><div class="radios" id="ndShareDays">'
+      + '<span class="rd on" data-d="7"><i></i>7 天</span>'
+      + '<span class="rd" data-d="30"><i></i>30 天</span>'
+      + '<span class="rd" data-d="0"><i></i>永久</span></div></div>'
+      + '<div class="kv"><label>提取码（自动生成，可刷新）</label><div class="codebox">'
+      + '<span class="cd" id="ndShareCode">' + code + '</span>'
+      + '<span class="rf" id="ndShareRf" title="刷新提取码">' + Shade.icon('refresh', 15) + '</span></div></div>'
+      + '<div class="m-note">外部人员凭链接 + 提取码访问；链接经 Shade 中转，对方无需登录、无需安装。</div>'
+      + '<div class="m-foot"><button type="button" class="btn btn-sm" data-a="no">取消</button>'
+      + '<button type="button" class="btn btn-sm btn-primary" data-a="yes">生成分享链接</button></div>';
+    var inst = Shade.modal(html, { width: 460 });
+    $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+    $('#ndShareDays', inst.box).addEventListener('click', function (e) {
+      var rd = e.target.closest('.rd');
+      if (!rd) return;
+      days = Number(rd.dataset.d);
+      $$('.rd', this).forEach(function (x) { x.classList.toggle('on', x === rd); });
+    });
+    $('#ndShareRf', inst.box).addEventListener('click', function () {
+      code = randCode();
+      $('#ndShareCode', inst.box).textContent = code;
+    });
+    $('[data-a="yes"]', inst.box).addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = '生成中…';
+      ndPost('/shares', {
+        space: S.space,
+        paths: items.map(function (it) { return it._rel; }),
+        password: code,
+        expire_days: days,
+      }).then(function (d) {
+        renderShareResult(inst, d.share_id, code, d.expire_at);
+      }).catch(function (e) {
+        btn.disabled = false;
+        btn.textContent = '生成分享链接';
+        Shade.toast(e.message, 'error');
+      });
+    });
+  }
+  // 生成成功：展示链接 + 提取码 + 一键复制（innerHTML 重建后 .m-x 需重新绑定）
+  function renderShareResult(inst, sid, code, expireAt) {
+    var link = shareLink(sid);
+    inst.box.querySelector('.m-scroll').innerHTML = Shade.mHead('分享已创建')
+      + '<div class="m-note" style="margin-top:0">链接与提取码请一并发送给访问人；有效期至 '
+      + (expireAt ? esc(Shade.fmtDate(expireAt, true)) : '永久') + '。</div>'
+      + '<div class="kv"><label>分享链接</label><div class="rs-link">' + esc(link) + '</div></div>'
+      + '<div class="kv"><label>提取码</label><div class="codebox"><span class="cd">' + esc(code) + '</span></div></div>'
+      + '<div class="m-foot"><button type="button" class="btn btn-sm" data-a="close">关闭</button>'
+      + '<button type="button" class="btn btn-sm btn-primary" data-a="copy">一键复制</button></div>';
+    $$('.m-x', inst.box).forEach(function (b) { b.addEventListener('click', inst.close); });
+    $('[data-a="close"]', inst.box).addEventListener('click', inst.close);
+    $('[data-a="copy"]', inst.box).addEventListener('click', function () {
+      copyText('链接：' + link + '\n提取码：' + code, '链接与提取码已复制');
+    });
+    if ($('#viewShares') && S.view === 'shares') loadShares();
+  }
+
+  /* ================= 移动 / 复制（目标位置选择弹窗，解压复用） ================= */
+  // 目标位置选择弹窗：空间分段 + 文件夹浏览（只列文件夹；单击选中目标、双击进入、面包屑回跳、就地新建）
+  // opts: {title, confirmText, busyText, fixSpace（解压锁当前空间）, exclude:Set（源 rel，防把文件夹移/复制进自身）,
+  //        withNewDir（显示「解压到以压缩包命名的新目录」勾选）, onSubmit(target)→Promise（失败弹层不关闭）}
+  // 返回 Promise<{space,dir,putIntoNewDir}|null>（取消为 null）
+  function pickTargetDir(opts) {
+    return new Promise(function (resolve) {
+      var done = false;
+      function finish(v) { if (!done) { done = true; resolve(v); } }
+      var pk = { space: opts.fixSpace || S.space, dir: '/', selName: null };
+      var html = Shade.mHead(opts.title || '选择目标位置')
+        + (opts.fixSpace ? '' : '<div class="seg" id="pkSeg"></div>')
+        + '<div class="crumb pk-crumb" id="pkCrumb"></div>'
+        + '<div class="pk-list" id="pkList"></div>'
+        + (opts.withNewDir
+          ? '<label class="ck-row"><input type="checkbox" id="pkNewDir" checked>解压到以压缩包命名的新目录</label>'
+          : '')
+        + '<div class="m-foot"><span class="lk pk-mkdir" id="pkMkdir">' + Shade.icon('folder-add', 14) + '新建文件夹</span>'
+        + '<button type="button" class="btn btn-sm" data-a="no">取消</button>'
+        + '<button type="button" class="btn btn-sm btn-primary" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
+      var inst = Shade.modal(html, { width: 520, onClose: function () { finish(null); } });
+
+      function targetDir() { return pk.selName ? joinRel(pk.dir, pk.selName) : pk.dir; }
+      function paintSeg() {
+        var seg = $('#pkSeg', inst.box);
+        if (!seg) return;
+        // 同主分段口径：按 spaces 下发渲染，单空间隐藏整段
+        var keys = ['my', 'public'].filter(function (k) { return S.spaces[k]; });
+        seg.hidden = keys.length < 2;
+        seg.innerHTML = keys.map(function (k) {
+          return '<button type="button" class="' + (pk.space === k ? 'on' : '') + '" data-space="' + k + '">' + esc(spaceLabel(k)) + '</button>';
+        }).join('');
+        if (!seg.hidden) moveSegPill(seg, true); // 重建后指示层直接落位
+      }
+      function paintCrumb() {
+        var sp = S.spaces[pk.space] || { name: '' };
+        var parts = pk.dir.split('/').filter(Boolean);
+        var html = '<a data-path="/">' + esc(sp.name) + '</a>';
+        var acc = '';
+        parts.forEach(function (p, i) {
+          acc += '/' + p;
+          html += '<em>/</em>' + (i === parts.length - 1 ? '<b>' + esc(p) + '</b>' : '<a data-path="' + esc(acc) + '">' + esc(p) + '</a>');
+        });
+        $('#pkCrumb', inst.box).innerHTML = html;
+      }
+      function paintRows() {
+        var list = $('#pkList', inst.box);
+        if (!pk.items.length) {
+          list.innerHTML = '<div class="empty pk-empty">' + Shade.icon('folder', 40) + '<p>此目录下没有文件夹</p></div>';
+          return;
+        }
+        list.innerHTML = pk.items.map(function (x) {
+          return '<div class="pk-row' + (pk.selName === x.name ? ' on' : '') + '" data-name="' + esc(x.name) + '">'
+            + fileIconHtml(x.name, true, 24) + '<span class="pk-nm">' + esc(x.name) + '</span></div>';
+        }).join('');
+      }
+      function loadDirs() {
+        var list = $('#pkList', inst.box);
+        list.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+        ndPost('/list', { space: pk.space, path: pk.dir }).then(function (d) {
+          var dirs = (d.items || []).filter(function (x) { return x.is_dir; });
+          // 同空间下隐藏源条目自身，防止把文件夹移/复制进自己
+          if (opts.exclude && pk.space === S.space) {
+            dirs = dirs.filter(function (x) { return !opts.exclude.has(joinRel(pk.dir, x.name)); });
+          }
+          dirs.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'zh'); });
+          pk.items = dirs;
+          pk.selName = null;
+          paintRows();
+        }).catch(function (e) {
+          list.innerHTML = '<div class="nd-state">' + esc(e.message || '加载失败')
+            + ' <button type="button" class="btn btn-sm" data-pk-retry="1" style="margin-left:10px">重试</button></div>';
+        });
+      }
+      function paintAll() { paintSeg(); paintCrumb(); loadDirs(); }
+
+      var seg = $('#pkSeg', inst.box);
+      if (seg) {
+        seg.addEventListener('click', function (e) {
+          var b = e.target.closest('button[data-space]');
+          if (!b || b.dataset.space === pk.space) return;
+          pk.space = b.dataset.space; pk.dir = '/';
+          $$('button', seg).forEach(function (x) { x.classList.toggle('on', x === b); });
+          moveSegPill(seg, false);
+          paintCrumb(); loadDirs();
+        });
+      }
+      $('#pkCrumb', inst.box).addEventListener('click', function (e) {
+        var a = e.target.closest('a[data-path]');
+        if (!a || a.dataset.path === pk.dir) return;
+        pk.dir = a.dataset.path;
+        paintCrumb(); loadDirs();
+      });
+      $('#pkList', inst.box).addEventListener('click', function (e) {
+        if (e.target.closest('[data-pk-retry]')) { loadDirs(); return; }
+        var row = e.target.closest('.pk-row');
+        if (!row) return;
+        // 单击选中/再点取消选中（目标回退为当前浏览目录）
+        pk.selName = pk.selName === row.dataset.name ? null : row.dataset.name;
+        paintRows();
+      });
+      $('#pkList', inst.box).addEventListener('dblclick', function (e) {
+        var row = e.target.closest('.pk-row');
+        if (!row) return;
+        pk.dir = joinRel(pk.dir, row.dataset.name);
+        pk.selName = null;
+        paintCrumb(); loadDirs();
+      });
+      $('#pkMkdir', inst.box).addEventListener('click', function () {
+        promptInput('新建文件夹', '', '在「' + (pk.dir === '/' ? '根目录' : pk.dir) + '」下新建', '创建').then(function (name) {
+          if (!name) return;
+          ndPost('/mkdir', { space: pk.space, path: pk.dir, name: name })
+            .then(function () { Shade.toast('已创建', 'success'); loadDirs(); })
+            .catch(function (e) { Shade.toast(e.message, 'error'); });
+        });
+      });
+      $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+      $('[data-a="yes"]', inst.box).addEventListener('click', function () {
+        var okBtn = this;
+        var target = {
+          space: pk.space, dir: targetDir(),
+          putIntoNewDir: opts.withNewDir ? !!$('#pkNewDir', inst.box).checked : undefined,
+        };
+        if (!opts.onSubmit) { finish(target); inst.close(); return; }
+        // 提交期间按钮 loading；失败保留弹层便于改选目标
+        okBtn.disabled = true;
+        okBtn.textContent = opts.busyText || '处理中…';
+        Promise.resolve(opts.onSubmit(target)).then(function () {
+          finish(target); inst.close();
+        }).catch(function (e) {
+          okBtn.disabled = false;
+          okBtn.textContent = opts.confirmText || '确定';
+          Shade.toast(e.message || '操作失败', 'error');
+        });
+      });
+      paintAll();
+    });
+  }
+  // 移动/复制入口：按源目录分组提交（搜索结果可能跨目录），源=目标前端先拦（同后端 40030 口径）
+  function moveCopyItems(op, items) {
+    if (!items.length) return;
+    pickTargetDir({
+      title: op === 'move' ? '移动到…' : '复制到…',
+      confirmText: op === 'move' ? '移动' : '复制',
+      busyText: op === 'move' ? '移动中…' : '复制中…',
+      exclude: new Set(items.map(function (it) { return it._rel; })),
+      onSubmit: function (target) {
+        var groups = {};
+        items.forEach(function (it) {
+          var d = parentOf(it._rel);
+          (groups[d] = groups[d] || []).push(it.name);
+        });
+        var dirs = Object.keys(groups);
+        for (var i = 0; i < dirs.length; i++) {
+          if (S.space === target.space && dirs[i] === target.dir) {
+            return Promise.reject(new Error('源位置与目标位置相同'));
+          }
+        }
+        var chain = Promise.resolve();
+        dirs.forEach(function (d) {
+          chain = chain.then(function () {
+            return ndPost('/' + op, {
+              src_space: S.space, src_dir: d,
+              dst_space: target.space, dst_dir: target.dir,
+              names: groups[d],
+            });
+          });
+        });
+        return chain.then(function () {
+          Shade.toast((op === 'move' ? '已移动 ' : '已复制 ') + items.length + ' 项', 'success');
+          sel.clear();
+          reloadCurrent();
+        });
+      },
+    });
+  }
+
+  /* ================= 压缩包预览 / 解压 ================= */
+  // 预览弹窗：meta 判 encrypted（加密先收压缩密码并随 archive 请求透传），list 按 inner_path 逐级浏览
+  function openArchive(it) {
+    var st = { pass: '', inner: '/', comment: '' };
+    var inst = Shade.modal(Shade.mHead(it.name) + '<div id="arBody"></div>', { width: 720 });
+    var body = $('#arBody', inst.box);
+
+    // 加密/读取失败：内嵌密码行（err 为上一次失败信息，如密码错误）
+    function paintPw(knownEncrypted, err) {
+      body.innerHTML = '<div class="m-note" style="margin-top:0">'
+        + (knownEncrypted ? '该压缩包已加密，请输入压缩密码后浏览。' : '压缩包读取失败或已加密，若设有压缩密码请输入后重试。')
+        + '</div>'
+        + '<div class="ar-pw"><input class="input" type="password" id="arPwIn" placeholder="压缩密码" autocomplete="off">'
+        + '<button type="button" class="btn btn-primary" id="arPwBtn">确定</button></div>'
+        + '<div class="ar-err"' + (err ? '' : ' hidden') + '>' + esc(err || '') + '</div>';
+      var input = $('#arPwIn', body);
+      input.focus();
+      function submit() {
+        var v = input.value;
+        if (!v) { $('.ar-err', body).hidden = false; $('.ar-err', body).textContent = '请输入压缩密码'; return; }
+        st.pass = v;
+        st.inner = '/';
+        loadList();
+      }
+      $('#arPwBtn', body).addEventListener('click', submit);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) submit(); });
+    }
+    function paintCrumb() {
+      var parts = st.inner.split('/').filter(Boolean);
+      var html = '<a data-inner="/">' + esc(it.name) + '</a>';
+      var acc = '';
+      parts.forEach(function (p, i) {
+        acc += '/' + p;
+        html += '<em>/</em>' + (i === parts.length - 1 ? '<b>' + esc(p) + '</b>' : '<a data-inner="' + esc(acc) + '">' + esc(p) + '</a>');
+      });
+      return '<div class="crumb ar-crumb">' + html + '</div>';
+    }
+    function loadList() {
+      body.innerHTML = paintCrumb()
+        + (st.comment ? '<div class="ar-cmt">' + esc(st.comment) + '</div>' : '')
+        + '<div class="ar-list"><div class="loading"><span class="spin"></span>加载中…</div></div>';
+      ndPost('/archive/list', {
+        space: S.space, path: it._rel, inner_path: st.inner,
+        archive_pass: st.pass || undefined,
+      }).then(function (d) {
+        st.inner = d.inner_path || st.inner;
+        paintList(d.items || []);
+      }).catch(function (e) {
+        var msg = e.message || '加载失败';
+        // 首层失败且已带密码：大概率密码错误，回密码行重输
+        if (st.pass && st.inner === '/') { paintPw(true, msg); return; }
+        $('.ar-list', body).innerHTML = '<div class="nd-state">' + esc(msg)
+          + ' <button type="button" class="btn btn-sm" data-ar-retry="1" style="margin-left:10px">重试</button></div>';
+      });
+    }
+    function paintList(items) {
+      var sorted = sortItems(items);
+      var list = $('.ar-list', body);
+      if (!sorted.length) {
+        list.innerHTML = '<div class="empty ar-empty">' + Shade.icon('folder', 40) + '<p>此目录为空</p></div>';
+        return;
+      }
+      list.innerHTML = sorted.map(function (x, i) {
+        var sub = x.is_dir ? '文件夹' : (fmtSize(x.size) + (x.modified ? ' · ' + Shade.fmtDate(x.modified) : ''));
+        return '<div class="ar-row" data-i="' + i + '" title="' + esc(x.name) + '">'
+          + fileIconHtml(x.name, x.is_dir, 30)
+          + '<div class="ar-mid"><span class="ar-nm">' + esc(x.name) + '</span>'
+          + '<span class="ar-sub">' + esc(sub) + '</span></div>'
+          + (x.is_dir ? '' : '<button type="button" class="btn btn-sm" data-ar-dl="' + i + '">下载</button>')
+          + '</div>';
+      }).join('');
+      list._items = sorted;
+    }
+    // 行交互：面包屑回跳 / 文件夹下钻 / 文件点击或「下载」按钮即下载 / 重试
+    body.addEventListener('click', function (e) {
+      var cr = e.target.closest('a[data-inner]');
+      if (cr) { st.inner = cr.dataset.inner; loadList(); return; }
+      if (e.target.closest('[data-ar-retry]')) { loadList(); return; }
+      var list = $('.ar-list', body);
+      var rows = list && list._items;
+      if (!rows) return;
+      var dl = e.target.closest('[data-ar-dl]');
+      if (dl) { e.stopPropagation(); downloadInner(rows[Number(dl.dataset.arDl)]); return; }
+      var row = e.target.closest('.ar-row');
+      if (!row) return;
+      var x = rows[Number(row.dataset.i)];
+      if (!x) return;
+      if (x.is_dir) { st.inner = x.rel; loadList(); }
+      else downloadInner(x);
+    });
+    // 包内文件下载：流式中转（apiRaw 带 Authorization；信封错误解析 message）
+    async function downloadInner(x) {
+      if (!x) return;
+      var url = API + '/archive/download?space=' + encodeURIComponent(S.space)
+        + '&path=' + encodeURIComponent(it._rel)
+        + '&inner=' + encodeURIComponent(x.rel)
+        + (st.pass ? '&archive_pass=' + encodeURIComponent(st.pass) : '');
+      try {
+        var res = await Shade.apiRaw(url);
+        var ct = res.headers.get('Content-Type') || '';
+        if (!res.ok || /json/i.test(ct)) {
+          var j = await res.json().catch(function () { return null; });
+          throw new Error((j && j.message) || ('HTTP ' + res.status));
+        }
+        await Shade.saveBlob(res, x.name);
+      } catch (e) { Shade.toast('下载失败：' + e.message, 'error'); }
+    }
+
+    // 入口：meta 判 encrypted
+    body.innerHTML = '<div class="ar-list"><div class="loading"><span class="spin"></span>读取压缩包…</div></div>';
+    ndPost('/archive/meta', { space: S.space, path: it._rel }).then(function (d) {
+      st.comment = d.comment || '';
+      if (d.encrypted) paintPw(true);
+      else loadList();
+    }).catch(function (e) {
+      paintPw(false, e.message);
+    });
+  }
+  // 解压：先 meta 判加密（加密先收密码），再复用目标选择弹窗提交（锁定当前空间）
+  async function decompressArchive(it) {
+    var pass = '';
+    try {
+      var meta = await ndPost('/archive/meta', { space: S.space, path: it._rel });
+      if (meta.encrypted) {
+        pass = await promptInput('解压「' + it.name + '」', '', '该压缩包已加密，请输入压缩密码', '确定', 'password');
+        if (pass === null) return;
+      }
+    } catch (e) { Shade.toast(e.message, 'error'); return; }
+    pickTargetDir({
+      title: '解压到…',
+      confirmText: '解压',
+      busyText: '解压中…',
+      fixSpace: S.space, // 解压接口无 dst_space，锁定当前空间
+      withNewDir: true,
+      onSubmit: function (target) {
+        return ndPost('/archive/decompress', {
+          space: S.space, path: it._rel, dst_dir: target.dir,
+          put_into_new_dir: target.putIntoNewDir !== false,
+          archive_pass: pass || undefined,
+        }).then(function () {
+          Shade.toast('已解压', 'success');
+          reloadCurrent(); // 当前目录即目的目录时可直接看到新目录
+        });
+      },
+    });
+  }
+
+  /* ================= 分享管理（页签视图；班管/超管可见全部与创建人列） ================= */
+  var shareScope = 'mine';
+  var SHARE_STATE = {
+    active: ['st-ok', '生效中'],
+    expired: ['st-warn', '已过期'],
+    disabled: ['st-bad', '已停用'],
+  };
+  function loadShares() {
+    var card = $('#shareTblCard');
+    card.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+    $('#shareNotice').hidden = !canManageRole;
+    // 分段只建一次：切 scope 走类切换 + pill 滑动，不重建（防止打断位移动效）
+    if (canManageRole && !$('#shareScopeSeg')) renderShareNotice();
+    nd('/shares?scope=' + shareScope).then(function (list) {
+      renderShares(list || []);
+    }).catch(function (e) {
+      card.innerHTML = '<div class="nd-state">' + Shade.icon('error-circle', 40)
+        + '<div style="margin-top:10px">' + esc(e.message || '加载失败') + '</div>'
+        + '<button type="button" class="btn btn-sm" data-sh-retry="1">重试</button></div>';
+    });
+  }
+  function renderShareNotice() {
+    $('#shareNotice').innerHTML = Shade.icon('info-circle', 14)
+      + '<span>班管 / 超管视角：可查看并管理班内全部分享链接；普通成员仅见「我创建的」。</span>'
+      + '<span class="seg" id="shareScopeSeg">'
+      + '<button type="button" class="' + (shareScope === 'mine' ? 'on' : '') + '" data-scope="mine">我创建的</button>'
+      + '<button type="button" class="' + (shareScope === 'all' ? 'on' : '') + '" data-scope="all">全部</button>'
+      + '</span>';
+    moveSegPill($('#shareScopeSeg'), true); // 重建后指示层直接落位
+  }
+  function renderShares(list) {
+    var card = $('#shareTblCard');
+    if (!list.length) {
+      card.innerHTML = '<div class="empty">' + Shade.icon('link', 44)
+        + '<p>暂无分享链接</p><p class="nd-ehint">在「全部文件」中选中文件后，从右键菜单或底部状态栏发起分享</p></div>';
+      return;
+    }
+    var head = canManageRole
+      ? '<th>分享内容</th><th style="width:92px">提取码</th><th style="width:120px">有效期至</th><th style="width:110px">创建人</th><th style="width:120px">创建时间</th><th style="width:92px">状态</th><th style="width:196px">操作</th>'
+      : '<th>分享内容</th><th style="width:92px">提取码</th><th style="width:120px">有效期至</th><th style="width:120px">创建时间</th><th style="width:92px">状态</th><th style="width:196px">操作</th>';
+    var rows = list.map(function (s) {
+      var n = (s.items || []).length;
+      var first = n ? s.items[0] : '';
+      var single = n === 1;
+      // 分享列表接口不带 is_dir：有扩展名按文件图标、否则按文件夹（多项合集统一文件夹图标）
+      var firstIsFile = single && /\.[a-z0-9]{1,8}$/i.test(first);
+      var icon = fileIconHtml(first, !firstIsFile, 30);
+      var nm = single ? first : (first + ' 等 ' + n + ' 项');
+      var st = SHARE_STATE[s.state] || SHARE_STATE.expired;
+      var ops = [];
+      // 停用/过期的链接对外不可访问，复制入口置灰
+      if (s.state === 'active') ops.push('<span class="lk" data-op="copy">复制链接</span>');
+      else ops.push('<span class="lk gray dis">复制链接</span>');
+      if (s.state === 'active') ops.push('<span class="lk gray" data-op="disable">停用</span>');
+      if (s.state === 'disabled') ops.push('<span class="lk" data-op="enable">重新启用</span>');
+      ops.push('<span class="lk red" data-op="del">' + (s.state === 'expired' ? '删除记录' : '删除') + '</span>');
+      return '<tr data-sid="' + esc(s.share_id) + '">'
+        + '<td><div class="nm-cell">' + icon + '<div class="nm-wrap"><span class="nm" title="' + esc(nm) + '">' + esc(nm) + '</span>'
+        + (single ? '' : '<span class="nm-sub">共 ' + n + ' 项</span>') + '</div></div></td>'
+        + '<td class="code">' + (s.password ? esc(s.password) : '—') + '</td>'
+        + '<td class="t2 num">' + (s.expire_at ? esc(Shade.fmtDate(s.expire_at)) : '永久') + '</td>'
+        + (canManageRole ? '<td class="t2">' + esc(s.creator || '') + '</td>' : '')
+        + '<td class="t2 num">' + esc(Shade.fmtDate(s.created_at)) + '</td>'
+        + '<td><span class="tag ' + st[0] + '"><i></i>' + st[1] + '</span></td>'
+        + '<td><div class="ops">' + ops.join('') + '</div></td>'
+        + '</tr>';
+    }).join('');
+    card.innerHTML = '<table class="rtable"><thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+  function shareOp(sid, op) {
+    if (op === 'copy') { copyText(shareLink(sid), '链接已复制'); return; }
+    if (op === 'del') {
+      Shade.confirm({
+        title: '删除分享', content: '删除后该分享链接将立即失效，且不可恢复。',
+        confirmText: '删除', danger: true,
+      }).then(function (yes) {
+        if (!yes) return;
+        Shade.api(API + '/shares/' + sid, { method: 'DELETE' })
+          .then(function () { Shade.toast('已删除', 'success'); loadShares(); })
+          .catch(function (e) { Shade.toast(e.message, 'error'); });
+      });
+      return;
+    }
+    ndPost('/shares/' + sid + '/' + op)
+      .then(function () { Shade.toast(op === 'disable' ? '已停用' : '已重新启用', 'success'); loadShares(); })
+      .catch(function (e) { Shade.toast(e.message, 'error'); });
+  }
+
+  /* ================= 分片上传（init → 并发 3 片 PUT → complete；429/409 退避重传） ================= */
+  var uploads = [];   // 任务列表：{id,file,name,size,space,path,state,received,doneChunks,totalChunks,chunkSize,uploadId,err}
+  var upSeq = 0;
+  var upRunning = false;
+
+  function pickFiles() {
+    var fi = $('#fileInput');
+    fi.value = '';
+    fi.click();
+  }
+  function uploadFiles(fileList) {
+    if (S.search) { Shade.toast('搜索状态下请先返回目录浏览再上传', 'info'); return; }
+    var files = Array.prototype.slice.call(fileList || []);
+    if (!files.length) return;
+    var added = 0;
+    files.forEach(function (f) {
+      if (S.maxMb && f.size > S.maxMb * 1024 * 1024) {
+        Shade.toast('「' + f.name + '」超过单文件上限 ' + S.maxMb + ' MB，已跳过', 'error');
+        return;
+      }
+      uploads.push({
+        id: ++upSeq, file: f, name: f.name, size: f.size,
+        space: S.space, path: S.path,
+        state: 'pending', received: 0, doneChunks: 0, totalChunks: 0,
+        chunkSize: 0, uploadId: null, err: '',
+      });
+      added++;
+    });
+    if (!added) return;
+    renderGrid(); renderUpanel();
+    pumpUploads();
+  }
+  // 逐文件顺序执行（同一时刻仅一个文件在传，片级并发 3）
+  async function pumpUploads() {
+    if (upRunning) return;
+    upRunning = true;
+    for (;;) {
+      var t = null;
+      for (var i = 0; i < uploads.length; i++) {
+        if (uploads[i].state === 'pending') { t = uploads[i]; break; }
+      }
+      if (!t) break;
+      await uploadOne(t);
+    }
+    upRunning = false;
+    renderUpanel(); renderGrid();
+  }
+  async function uploadOne(t) {
+    t.state = 'uploading'; t.err = '';
+    renderUpanel(); renderGrid();
+    try {
+      var init = await ndPost('/upload/init', { space: t.space, path: t.path, name: t.name, size: t.size });
+      if (t.state === 'aborted') return;
+      if (init.instant || init.state === 'completed') { finishUpload(t); return; } // 0 字节直接建成
+      t.uploadId = init.upload_id;
+      t.chunkSize = init.chunk_size;
+      t.totalChunks = init.total_chunks;
+      t.received = init.received_bytes || 0;
+      // 断点续传：快照已收到的分片直接跳过
+      var received = expandRanges(init.received || []);
+      var indices = [];
+      for (var i = 0; i < t.totalChunks; i++) if (!received.has(i)) indices.push(i);
+      t.doneChunks = t.totalChunks - indices.length;
+      var cursor = 0;
+      var workers = [];
+      for (var w = 0; w < 3; w++) {
+        workers.push((async function () {
+          // 任一片失败或任务取消后（state 变更）其余 worker 及时收兵
+          while (cursor < indices.length && t.state === 'uploading') {
+            var idx = indices[cursor++];
+            await putChunk(t, idx);
+            t.doneChunks++;
+            paintTask(t);
+          }
+        })());
+      }
+      await Promise.all(workers);
+      if (t.state === 'aborted') return;
+      // 合并落盘（可能长时间阻塞；被掐断时用 status 轮询兜底终态）
+      try {
+        var fin = await ndPost('/upload/complete', { upload_id: t.uploadId });
+        if (fin && fin.received_bytes != null) t.received = fin.received_bytes;
+      } catch (e) {
+        if (!(await pollStatus(t))) throw e;
+      }
+      finishUpload(t);
+    } catch (e) {
+      if (t.state === 'aborted') return;
+      t.state = 'error';
+      t.err = e.message || '上传失败';
+      Shade.toast('「' + t.name + '」上传失败：' + t.err, 'error');
+      renderUpanel(); renderGrid();
+    }
+  }
+  // PUT 单分片（裸字节；429/409 带 retry 标记退避 1~2s 重传，每片最多 5 次）
+  async function putChunk(t, idx) {
+    var start = idx * t.chunkSize;
+    var blob = t.file.slice(start, Math.min(start + t.chunkSize, t.size));
+    for (var attempt = 1; ; attempt++) {
+      if (t.state !== 'uploading') return; // 已取消/已失败，放弃本片
+      try {
+        var res = await Shade.apiRaw(API + '/upload/chunk', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-Upload-Id': t.uploadId,
+            'X-Chunk-Index': String(idx),
+          },
+          body: blob,
+        });
+        var j = await res.json().catch(function () { return null; });
+        if (j && j.code === 0) {
+          var snap = j.data || {};
+          t.received = snap.received_bytes != null ? snap.received_bytes : Math.min(t.received + blob.size, t.size);
+          return;
+        }
+        var retry = (j && j.data && j.data.retry) || res.status === 429 || res.status === 409;
+        var msg = (j && j.message) || ('HTTP ' + res.status);
+        if (retry && attempt < 5) { await sleep(1000 + Math.random() * 1000); continue; }
+        throw new Error(msg);
+      } catch (e) {
+        if (attempt < 5 && /网络异常/.test(e && e.message || '')) { await sleep(1000 + Math.random() * 1000); continue; }
+        throw e;
+      }
+    }
+  }
+  async function pollStatus(t) {
+    for (var i = 0; i < 3; i++) {
+      await sleep(2000);
+      try {
+        var s = await nd('/upload/status?upload_id=' + encodeURIComponent(t.uploadId));
+        if (s && s.received_bytes != null) { t.received = s.received_bytes; paintTask(t); }
+        if (s && s.state === 'completed') return true;
+      } catch (e) { /* 继续轮询 */ }
+    }
+    return false;
+  }
+  function expandRanges(ranges) {
+    var set = new Set();
+    (ranges || []).forEach(function (r) {
+      if (!Array.isArray(r)) return;
+      for (var i = r[0]; i <= r[1]; i++) set.add(i);
+    });
+    return set;
+  }
+  function finishUpload(t) {
+    t.state = 'done';
+    t.received = t.size;
+    renderUpanel();
+    Shade.toast('「' + t.name + '」上传完成', 'success');
+    var inView = S.view === 'files' && !S.search && S.space === t.space && S.path === t.path;
+    var cell = inView ? gridEl.querySelector('.g-up[data-task="' + t.id + '"]') : null;
+    if (cell) {
+      // 浅蓝「上传中」变绿「已完成」停留 1.2s → 整格淡出 → 静默刷新列表出新条目
+      paintCellDone(cell, t);
+      setTimeout(function () {
+        cell.classList.add('gone');
+        setTimeout(function () { loadList(true); }, 260);
+      }, 1200);
+    } else if (inView) {
+      loadList(true);
+    } else {
+      renderUpanel(); renderGrid();
+    }
+    setTimeout(function () { removeTask(t.id); }, 1600);
+  }
+  function paintCellDone(cell, t) {
+    var tag = cell.querySelector('.g-tag');
+    if (tag) { tag.className = 'g-tag tag st-ok'; tag.innerHTML = '<i></i>已完成'; }
+    var bar = cell.querySelector('.g-prog i');
+    if (bar) bar.style.width = '100%';
+    var sub = cell.querySelector('.g-sub');
+    if (sub) sub.textContent = '已完成 · ' + fmtSize(t.size);
+  }
+  async function cancelUpload(id) {
+    var t = uploads.find(function (x) { return x.id === id; });
+    if (!t) return;
+    if (t.state === 'uploading' || t.state === 'pending') {
+      t.state = 'aborted';
+      if (t.uploadId) { try { await ndPost('/upload/abort', { upload_id: t.uploadId }); } catch (e) { /* 忽略 */ } }
+      Shade.toast('已取消上传：' + t.name, 'info');
+    }
+    removeTask(id);
+  }
+  // 失败重试：重新 init 取会话快照，已收到的分片自动跳过（断点续传）
+  function retryUpload(id) {
+    var t = uploads.find(function (x) { return x.id === id; });
+    if (!t || t.state !== 'error') return;
+    t.state = 'pending'; t.err = '';
+    renderUpanel(); renderGrid();
+    pumpUploads();
+  }
+  function removeTask(id) {
+    var i = uploads.findIndex(function (x) { return x.id === id; });
+    if (i >= 0) uploads.splice(i, 1);
+    renderUpanel(); renderGrid();
+  }
+  function pctOf(t) { return t.size ? Math.min(100, Math.round(t.received / t.size * 100)) : 100; }
+  function upSubText(t) {
+    if (t.state === 'error') return t.err || '上传失败';
+    if (t.state === 'pending') return '等待上传 · ' + fmtSize(t.size);
+    if (t.state === 'done') return '已完成 · ' + fmtSize(t.size);
+    var s = fmtSize(t.received) + ' / ' + fmtSize(t.size) + ' · ' + pctOf(t) + '%';
+    if (t.totalChunks) s += ' · 分片 ' + Math.min(t.doneChunks, t.totalChunks) + '/' + t.totalChunks;
+    return s;
+  }
+  // 当前目录的内联上传格（浏览态且目标目录一致才显示）
+  function currentDirTasks() {
+    if (S.view !== 'files' || S.search) return [];
+    return uploads.filter(function (t) {
+      return t.space === S.space && t.path === S.path
+        && (t.state === 'pending' || t.state === 'uploading' || t.state === 'error');
+    });
+  }
+  // delayMs >= 0 时随网格一起编排式入场
+  function uploadCellHtml(t, delayMs) {
+    var tag = t.state === 'error'
+      ? '<span class="g-tag tag st-bad"><i></i>失败</span>'
+      : (t.state === 'done'
+        ? '<span class="g-tag tag st-ok"><i></i>已完成</span>'
+        : '<span class="g-tag tag st-info"><i></i>' + (t.state === 'pending' ? '排队中' : '上传中') + '</span>');
+    return '<div class="g-cell g-up' + (t.state === 'error' ? ' err' : '') + (delayMs >= 0 ? ' cell-in' : '')
+      + '"' + (delayMs >= 0 ? ' style="animation-delay:' + delayMs + 'ms"' : '') + ' data-task="' + t.id + '">'
+      + '<span class="g-x" title="取消上传">' + Shade.icon('close', 11) + '</span>'
+      + tag
+      + '<div class="g-icon">' + fileIconHtml(t.name, false, 48) + '</div>'
+      + '<span class="g-name">' + esc(t.name) + '</span>'
+      + '<div class="g-prog"><i style="width:' + (t.state === 'error' ? 100 : pctOf(t)) + '%"></i></div>'
+      + '<span class="g-sub">' + esc(upSubText(t)) + '</span>'
+      + '</div>';
+  }
+  // 进度tick只做定点刷新，避免整格重建导致缩略图闪烁
+  function paintTask(t) {
+    var cell = gridEl.querySelector('.g-up[data-task="' + t.id + '"]');
+    if (cell) {
+      var bar = cell.querySelector('.g-prog i');
+      if (bar) bar.style.width = pctOf(t) + '%';
+      var sub = cell.querySelector('.g-sub');
+      if (sub) sub.textContent = upSubText(t);
+    }
+    var row = document.querySelector('#upanel .up-row[data-task="' + t.id + '"]');
+    if (row) {
+      var rb = row.querySelector('.uprog i');
+      if (rb) rb.style.width = pctOf(t) + '%';
+      var rs = row.querySelector('.up-sub');
+      if (rs) rs.textContent = upSubText(t);
+    }
+  }
+  function renderUpanel() {
+    var panel = $('#upanel');
+    if (!uploads.length) { panel.hidden = true; panel.innerHTML = ''; return; }
+    var active = 0, pend = 0, fail = 0;
+    uploads.forEach(function (t) {
+      if (t.state === 'uploading') active++;
+      else if (t.state === 'pending') pend++;
+      else if (t.state === 'error') fail++;
+    });
+    var sum = [];
+    if (active) sum.push(active + ' 个上传中');
+    if (pend) sum.push(pend + ' 个排队');
+    if (fail) sum.push(fail + ' 个失败');
+    if (!sum.length) sum.push('已完成');
+    panel.innerHTML = '<div class="up-head"><b>上传任务</b><span>' + sum.join(' · ') + '</span></div>'
+      + '<div class="up-list">' + uploads.map(upRowHtml).join('') + '</div>';
+    panel.hidden = false;
+  }
+  function upRowHtml(t) {
+    var showBar = t.state !== 'pending';
+    var ops = (t.state === 'error' ? '<span class="up-lk" data-up="retry">重试</span>' : '')
+      + '<span class="up-ic" data-up="x" title="' + (t.state === 'uploading' || t.state === 'pending' ? '取消' : '移除') + '">'
+      + Shade.icon('close', 13) + '</span>';
+    return '<div class="up-row' + (t.state === 'error' ? ' err' : '') + '" data-task="' + t.id + '">'
+      + fileIconHtml(t.name, false, 28)
+      + '<div class="up-main"><span class="up-name" title="' + esc(t.name) + '">' + esc(t.name) + '</span>'
+      + (showBar ? '<div class="uprog"><i style="width:' + pctOf(t) + '%"></i></div>' : '')
+      + '<span class="up-sub">' + esc(upSubText(t)) + '</span></div>'
+      + '<div class="up-ops">' + ops + '</div></div>';
+  }
+
+  /* ================= 事件绑定 ================= */
+  function bindEvents() {
+    // 工具栏按钮图标注入（全页仅此一枚主按钮）
+    $('#btnMkdir').innerHTML = Shade.icon('folder-add', 15) + '新建文件夹';
+    $('#btnUpload').innerHTML = Shade.icon('upload', 15) + '上传文件';
+    // 选中操作区图标注入
+    var SEL_ICONS = { dl: 'download', share: 'link', move: 'swap', copy: 'copy', del: 'delete', clear: 'close' };
+    $$('#selbar [data-sel]').forEach(function (b) {
+      b.innerHTML = Shade.icon(SEL_ICONS[b.dataset.sel], 14) + b.textContent;
+    });
+
+    // 页签切换
+    $$('.nd-tab').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (S.view === b.dataset.view) return;
+        S.view = b.dataset.view;
+        $$('.nd-tab').forEach(function (x) { x.classList.toggle('on', x === b); });
+        $('#viewFiles').hidden = S.view !== 'files';
+        $('#viewShares').hidden = S.view !== 'shares';
+        closeCtxMenu();
+        if (S.view === 'shares') loadShares();
+        else { renderGrid(); renderStatus(); }
+      });
+    });
+
+    // 空间分段
+    $('#spaceSeg').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-space]');
+      if (b) switchSpace(b.dataset.space);
+    });
+
+    // 新建文件夹 / 上传文件 / 文件选择
+    $('#btnMkdir').addEventListener('click', openMkdir);
+    $('#btnUpload').addEventListener('click', pickFiles);
+    $('#fileInput').addEventListener('change', function () {
+      uploadFiles(this.files);
+      this.value = '';
+    });
+
+    // 搜索：回车检索（输入法组词中不触发）；× 清空回到浏览
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.isComposing) doSearch(this.value);
+    });
+    searchInput.addEventListener('input', function () {
+      $('#searchClear').hidden = !S.search && !this.value;
+    });
+    $('#searchClear').addEventListener('click', function () {
+      if (S.search) exitSearch();
+      else { searchInput.value = ''; this.hidden = true; }
+    });
+
+    // 面包屑导航
+    $('#crumb').addEventListener('click', function (e) {
+      var a = e.target.closest('a');
+      if (!a) return;
+      if (a.dataset.nav === 'exit') { exitSearch(); return; }
+      if (a.dataset.path != null) {
+        if (S.search) { S.search = null; searchInput.value = ''; }
+        navTo(a.dataset.path);
+      }
+    });
+
+    // 网格：框选（空白 pointerdown）/ 点选 / 双击打开 / 右键菜单 / 上传格取消
+    gridwrap.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      if (e.target.closest('.g-cell')) return; // 格子上的按下走 click/dblclick
+      startRubber(e);
+    });
+    gridwrap.addEventListener('click', function (e) {
+      var x = e.target.closest('.g-x');
+      if (x) {
+        var upCell = x.closest('.g-up');
+        if (upCell) cancelUpload(Number(upCell.dataset.task));
+        return;
+      }
+      if (e.target.closest('[data-retry]')) { reloadCurrent(); return; }
+      var cell = e.target.closest('.g-cell[data-rel]');
+      if (!cell) return;
+      var idx = Number(cell.dataset.idx), rel = cell.dataset.rel;
+      if (e.shiftKey && anchorIdx >= 0 && anchorIdx < S.items.length) {
+        var a = Math.min(anchorIdx, idx), b = Math.max(anchorIdx, idx);
+        var ns = (e.ctrlKey || e.metaKey) ? new Set(sel) : new Set();
+        for (var i = a; i <= b; i++) if (S.items[i]) ns.add(S.items[i]._rel);
+        setSel(ns);
+      } else if (e.ctrlKey || e.metaKey) {
+        var ns2 = new Set(sel);
+        if (ns2.has(rel)) ns2.delete(rel); else ns2.add(rel);
+        setSel(ns2);
+        anchorIdx = idx;
+      } else {
+        setSel(new Set([rel]));
+        anchorIdx = idx;
+      }
+    });
+    gridwrap.addEventListener('dblclick', function (e) {
+      var cell = e.target.closest('.g-cell[data-rel]');
+      if (!cell) return;
+      openItem(S.items[Number(cell.dataset.idx)]);
+    });
+    gridwrap.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      var cell = e.target.closest('.g-cell[data-rel]');
+      if (cell) {
+        var rel = cell.dataset.rel;
+        if (!sel.has(rel)) { setSel(new Set([rel])); anchorIdx = Number(cell.dataset.idx); }
+        openItemMenu(e.clientX, e.clientY);
+      } else if (!e.target.closest('.g-up')) {
+        openBlankMenu(e.clientX, e.clientY);
+      }
+    });
+
+    // 选中操作区（顶部工具条）：下载/分享/移动/复制/删除/取消选择
+    $('#selbar').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-sel]');
+      if (!b) return;
+      var items = selItems();
+      var act = b.dataset.sel;
+      if (act === 'clear') { setSel(new Set()); return; }
+      if (!items.length) return;
+      if (act === 'dl') downloadItems(items);
+      else if (act === 'share') openShareModal(items);
+      else if (act === 'move') moveCopyItems('move', items);
+      else if (act === 'copy') moveCopyItems('copy', items);
+      else if (act === 'del') removeItems(items);
+    });
+
+    // 分享管理：scope 切换（类切换 + pill 滑动）/ 重试 / 行操作
+    $('#shareNotice').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-scope]');
+      if (!b || b.dataset.scope === shareScope) return;
+      shareScope = b.dataset.scope;
+      var seg = $('#shareScopeSeg');
+      $$('button', seg).forEach(function (x) { x.classList.toggle('on', x === b); });
+      moveSegPill(seg, false);
+      loadShares();
+    });
+    $('#shareTblCard').addEventListener('click', function (e) {
+      if (e.target.closest('[data-sh-retry]')) { loadShares(); return; }
+      var opEl = e.target.closest('[data-op]');
+      if (!opEl || opEl.classList.contains('dis')) return;
+      var tr = opEl.closest('tr[data-sid]');
+      if (tr) shareOp(tr.dataset.sid, opEl.dataset.op);
+    });
+
+    // 上传面板：重试 / 取消（移除）
+    $('#upanel').addEventListener('click', function (e) {
+      var act = e.target.closest('[data-up]');
+      if (!act) return;
+      var row = act.closest('.up-row[data-task]');
+      if (!row) return;
+      var id = Number(row.dataset.task);
+      if (act.dataset.up === 'retry') retryUpload(id);
+      else cancelUpload(id);
+    });
+
+    // 拖入上传：整个网格区为投放面（目录项跳过）
+    var dragDepth = 0;
+    var viewFiles = $('#viewFiles');
+    viewFiles.addEventListener('dragenter', function (e) {
+      e.preventDefault();
+      dragDepth++;
+      if (!S.search) gridwrap.classList.add('dragover');
+    });
+    viewFiles.addEventListener('dragover', function (e) { e.preventDefault(); });
+    viewFiles.addEventListener('dragleave', function (e) {
+      e.preventDefault();
+      if (--dragDepth <= 0) { dragDepth = 0; gridwrap.classList.remove('dragover'); }
+    });
+    viewFiles.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dragDepth = 0;
+      gridwrap.classList.remove('dragover');
+      uploadFiles(dropFiles(e.dataTransfer));
+    });
+
+    // 窗口缩放：分段 pill 直接落位（不滑动）
+    window.addEventListener('resize', function () {
+      moveSegPill($('#spaceSeg'), true);
+      var ss = $('#shareScopeSeg');
+      if (ss) moveSegPill(ss, true);
+    });
+
+    // Esc：先关右键菜单，再清空选择；弹层打开时让位给 Shade.modal
+    Shade.escGuard = function () {
+      if (closeCtxMenu()) return true;
+      if (document.querySelector('.mask.open')) return false;
+      if (sel.size) { setSel(new Set()); return true; }
+      return false;
+    };
+  }
+    // 提取拖放文件（跳过目录项；items 不可用的浏览器回退 files）
+  function dropFiles(dt) {
+    var out = [];
+    var items = (dt && dt.items) || [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.kind !== 'file') continue;
+      var entry = it.webkitGetAsEntry && it.webkitGetAsEntry();
+      if (entry && !entry.isFile) { Shade.toast('暂不支持拖入文件夹上传', 'info'); continue; }
+      var f = it.getAsFile();
+      if (f) out.push(f);
+    }
+    if (!items.length && dt && dt.files && dt.files.length) {
+      out = Array.prototype.slice.call(dt.files);
+    }
+    return out;
+  }
+</script>
+</body>
+</html>

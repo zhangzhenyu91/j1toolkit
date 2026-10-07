@@ -1,0 +1,338 @@
+<!-- 团队网盘 · 空间浏览主页（app_key netdisk；设计稿 design/小程序-团队网盘.html 屏①②③）
+     空间分段 + ⋯ 菜单（胶囊占位落在分段行右端）+ 搜索（当前空间）+ 面包屑 + 单卡多行文件列表 + FAB 分片上传；
+     文件 ⋯ 唤起底部操作面板；分享走底部弹层（有效期分段 + 提取码自动生成） -->
+<navbar back title="团队网盘" />
+
+<view class="page-body">
+  <!-- 空间分段（有公共区时显示，公共区带班组名；无公共区隐藏只用我的空间）+ ⋯ 菜单（分享管理 / 新建文件夹） -->
+  <view class="seg-row a" style="--d:.04s">
+    <view class="seg2" wx:if="{{hasPublic}}">
+      <view
+        wx:for="{{spaces}}"
+        wx:key="key"
+        class="seg {{space === item.key ? 'on' : ''}}"
+        data-key="{{item.key}}"
+        hover-class="hover-opacity"
+        bindtap="onSpaceTap"
+      >{{item.label}}</view>
+    </view>
+    <view class="more-btn" hover-class="hover-opacity" bindtap="onMenuTap">
+      <t-icon name="more" size="40rpx" color="#4E5969" />
+    </view>
+    <view class="menu-drop" wx:if="{{menuOpen}}">
+      <view class="menu-opt" hover-class="hover-bg-warm" bindtap="onMenuShares">
+        <t-icon name="link" size="32rpx" color="#4E5969" />分享管理
+      </view>
+      <view class="menu-opt" hover-class="hover-bg-warm" bindtap="onMenuMkdir">
+        <t-icon name="folder-add" size="32rpx" color="#4E5969" />新建文件夹
+      </view>
+    </view>
+  </view>
+  <view class="menu-mask" wx:if="{{menuOpen}}" bindtap="onMenuClose"></view>
+
+  <!-- 搜索框（常置浅灰底；点击展开搜索态） -->
+  <view class="search a" style="--d:.1s" wx:if="{{!searching}}" hover-class="hover-opacity" bindtap="onSearchTap">
+    <t-icon name="search" size="30rpx" color="#86909C" />
+    <text class="s-ph">搜索{{spaceName}}文件名</text>
+  </view>
+  <view class="search a" style="--d:.1s" wx:else>
+    <t-icon name="search" size="30rpx" color="#86909C" />
+    <input
+      class="s-input"
+      value="{{kw}}"
+      focus
+      bindinput="onSearchInput"
+      bindconfirm="onSearchConfirm"
+      confirm-type="search"
+      placeholder="输入文件名关键词"
+      placeholder-class="ph"
+    />
+    <text class="s-cancel" hover-class="hover-opacity" bindtap="onSearchCancel">取消</text>
+  </view>
+
+  <!-- 浏览态：面包屑 + 文件列表 -->
+  <block wx:if="{{!searching}}">
+    <view class="crumb a" style="--d:.16s">
+      <block wx:for="{{crumbs}}" wx:key="path">
+        <text wx:if="{{!item.last}}" class="cr-link" data-path="{{item.path}}" hover-class="hover-opacity" bindtap="onCrumbTap">{{item.name}}</text>
+        <text wx:else class="cr-cur">{{item.name}}</text>
+        <text wx:if="{{!item.last}}" class="cr-sep">/</text>
+      </block>
+      <text class="cr-cnt">{{items.length}} 项</text>
+    </view>
+
+    <!-- 骨架屏（首屏加载） -->
+    <view wx:if="{{loading}}" class="card flist a" style="--d:.22s">
+      <view class="fl" wx:for="{{[1, 2, 3, 4, 5]}}" wx:key="*this">
+        <view class="sk-ic"></view>
+        <view class="fmain">
+          <view class="sk-l" style="width: 62%;"></view>
+          <view class="sk-l sm" style="width: 36%;"></view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 错误重试态 -->
+    <view wx:elif="{{error}}" class="empty-box a" style="--d:.22s">
+      <view>{{error}}</view>
+      <view class="retry" hover-class="hover-opacity" bindtap="onRetry">重新加载</view>
+    </view>
+
+    <!-- 文件列表（单卡多行：上传行置顶 + 文件夹/字母块/图片缩略图行） -->
+    <view wx:elif="{{items.length || uploads.length}}" class="card flist a" style="--d:.22s">
+      <!-- 内联上传行（细进度条 + 已传/总量 + 上传中标签 + × 取消） -->
+      <view class="fl" wx:for="{{uploads}}" wx:key="id">
+        <view class="ficon"><t-icon name="upload" size="34rpx" color="#0A3592" /></view>
+        <view class="fmain">
+          <text class="fname">{{item.name}}</text>
+          <view class="fprog"><view class="fprog-in" style="width: {{item.pct}}%;"></view></view>
+          <text class="fsub"><text class="em">{{item.sentText}} / {{item.sizeText}} · {{item.pct}}%</text> · {{item.merging ? '合并中' : '分片上传中'}}</text>
+        </view>
+        <view class="st-tag st-info">{{item.merging ? '合并中' : '上传中'}}</view>
+        <view class="fx" hover-class="hover-opacity" catchtap="onCancelUpload" data-id="{{item.id}}">
+          <t-icon name="close" size="28rpx" color="#86909C" />
+        </view>
+      </view>
+      <!-- 文件/文件夹行 -->
+      <view class="fl" wx:for="{{items}}" wx:key="name" data-item="{{item}}" hover-class="hover-bg-warm" bindtap="onRowTap">
+        <view class="ficon" wx:if="{{item.isDir}}">
+          <t-icon name="folder" size="38rpx" color="#0A3592" />
+        </view>
+        <image
+          wx:elif="{{item.isImg && !item.thumbFail}}"
+          class="fthumb"
+          src="{{item.thumb}}"
+          mode="aspectFill"
+          lazy-load
+          data-list="items"
+          data-index="{{index}}"
+          binderror="onThumbErr"
+        />
+        <view class="ficon" wx:else><text class="fletter">{{item.letter}}</text></view>
+        <view class="fmain">
+          <text class="fname">{{item.name}}</text>
+          <text class="fsub">{{item.sub}}</text>
+        </view>
+        <view class="fmore" hover-class="hover-opacity" catchtap="onRowMore" data-item="{{item}}">
+          <t-icon name="more" size="34rpx" color="#86909C" />
+        </view>
+      </view>
+    </view>
+
+    <!-- 空态 -->
+    <view wx:else class="empty-box a" style="--d:.22s">文件夹为空，点右下角上传文件</view>
+  </block>
+
+  <!-- 搜索态：结果列表 + 所在目录 -->
+  <block wx:else>
+    <view class="s-hint" wx:if="{{searchState === 'idle'}}">按文件名搜索，范围：{{spaceName}}</view>
+    <view class="s-hint" wx:elif="{{searchState === 'loading'}}">搜索中…</view>
+    <block wx:else>
+      <view class="s-hint" wx:if="{{searchItems.length}}">共 {{searchTotal}} 个结果{{searchTotal > searchItems.length ? '，仅显示前 ' + searchItems.length + ' 条' : ''}}</view>
+      <view class="card flist" wx:if="{{searchItems.length}}">
+        <view class="fl" wx:for="{{searchItems}}" wx:key="fullPath" data-item="{{item}}" hover-class="hover-bg-warm" bindtap="onSearchRowTap">
+          <view class="ficon" wx:if="{{item.isDir}}">
+            <t-icon name="folder" size="38rpx" color="#0A3592" />
+          </view>
+          <image
+            wx:elif="{{item.isImg && !item.thumbFail}}"
+            class="fthumb"
+            src="{{item.thumb}}"
+            mode="aspectFill"
+            lazy-load
+            data-list="searchItems"
+            data-index="{{index}}"
+            binderror="onThumbErr"
+          />
+          <view class="ficon" wx:else><text class="fletter">{{item.letter}}</text></view>
+          <view class="fmain">
+            <text class="fname">{{item.name}}</text>
+            <text class="fsub">{{item.sub}}</text>
+          </view>
+        </view>
+      </view>
+      <view class="empty-box" wx:else>未找到匹配「{{kw}}」的文件</view>
+    </block>
+  </block>
+</view>
+
+<!-- FAB（上传） -->
+<view class="fab" wx:if="{{!searching}}" hover-class="hover-opacity" bindtap="onPickFiles">
+  <t-icon name="cloud-upload" size="46rpx" color="#FFFFFF" />
+</view>
+
+<!-- 文件操作面板（屏②：底部弹层；公共区 manageable=false 时隐藏重命名/删除） -->
+<t-popup visible="{{sheet.open}}" placement="bottom" bind:visible-change="onSheetVisibleChange">
+  <view class="sheet" wx:if="{{sheet.item}}">
+    <view class="grab"></view>
+    <view class="ash-head">
+      <view class="ficon" wx:if="{{sheet.item.isDir}}">
+        <t-icon name="folder" size="38rpx" color="#0A3592" />
+      </view>
+      <view class="ficon" wx:else><text class="fletter">{{sheet.item.letter}}</text></view>
+      <view class="fmain">
+        <text class="fname">{{sheet.item.name}}</text>
+        <text class="fsub">{{sheet.item.sub}}</text>
+      </view>
+    </view>
+    <view class="ac" wx:if="{{!sheet.item.isDir}}" hover-class="hover-bg-warm" bindtap="onOpPreview">
+      <t-icon name="browse" size="36rpx" color="#4E5969" />预览（微信内打开）
+    </view>
+    <view class="ac" wx:if="{{!sheet.item.isDir}}" hover-class="hover-bg-warm" bindtap="onOpDownload">
+      <t-icon name="download" size="36rpx" color="#4E5969" />下载
+    </view>
+    <!-- 压缩包专属：查看包内内容 / 解压到当前目录 -->
+    <view class="ac" wx:if="{{!sheet.item.isDir && sheet.item.isArchive}}" hover-class="hover-bg-warm" bindtap="onOpArchiveView">
+      <t-icon name="folder-zip" size="36rpx" color="#4E5969" />查看压缩包
+    </view>
+    <view class="ac" wx:if="{{!sheet.item.isDir && sheet.item.isArchive}}" hover-class="hover-bg-warm" bindtap="onOpDecompress">
+      <t-icon name="folder-export" size="36rpx" color="#4E5969" />解压到当前目录
+    </view>
+    <view class="ac blue" hover-class="hover-bg-warm" bindtap="onOpShare">
+      <t-icon name="share" size="36rpx" color="#0E3DA8" />分享
+    </view>
+    <view class="ac" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpMove">
+      <t-icon name="folder-move" size="36rpx" color="#4E5969" />移动
+    </view>
+    <view class="ac" hover-class="hover-bg-warm" bindtap="onOpCopy">
+      <t-icon name="file-copy" size="36rpx" color="#4E5969" />复制
+    </view>
+    <view class="ac" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpRename">
+      <t-icon name="edit" size="36rpx" color="#4E5969" />重命名
+    </view>
+    <view class="ac danger" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpDelete">
+      <t-icon name="delete" size="36rpx" color="#F53F3F" />删除
+    </view>
+    <view class="sh-cancel" hover-class="hover-opacity" bindtap="closeSheet">取消</view>
+  </view>
+</t-popup>
+
+<!-- 名称输入弹层（新建文件夹 / 重命名共用；键盘弹起时动态抬高底部 padding，同 safeday 弹层族） -->
+<t-popup visible="{{nameSheet.open}}" placement="bottom" bind:visible-change="onNameVisibleChange">
+  <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
+    <view class="grab"></view>
+    <view class="sheet-title">{{nameSheet.mode === 'mkdir' ? '新建文件夹' : '重命名'}}</view>
+    <view class="sheet-sub">{{nameSheet.mode === 'mkdir' ? '在当前目录下新建文件夹' : '输入新的名称'}}</view>
+    <input
+      class="name-input"
+      value="{{nameSheet.value}}"
+      bindinput="onNameInput"
+      adjust-position="{{false}}"
+      bindkeyboardheightchange="onKeyboardHeight"
+      hold-keyboard
+      maxlength="200"
+      placeholder="名称"
+      placeholder-class="ph"
+    />
+    <view class="sheet-ops">
+      <view class="btn-ghost {{nameSheet.saving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onNameCancel">取消</view>
+      <view class="btn-accent {{nameSheet.saving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onNameSave">
+        {{nameSheet.saving ? '保存中…' : '确定'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 创建分享弹层（屏③：文件摘要 + 有效期分段 + 提取码自动生成可刷新 + 说明条 + 主按钮） -->
+<t-popup visible="{{shareSheet.open}}" placement="bottom" bind:visible-change="onShareVisibleChange">
+  <view class="sheet" wx:if="{{shareSheet.item}}">
+    <view class="grab"></view>
+    <view class="sh-title">
+      <text class="sh-title-t">创建分享</text>
+      <view class="sh-close" hover-class="hover-opacity" bindtap="onShareCancel">
+        <t-icon name="close" size="32rpx" color="#86909C" />
+      </view>
+    </view>
+    <view class="sh-body">
+      <view class="fl sum">
+        <view class="ficon" wx:if="{{shareSheet.item.isDir}}">
+          <t-icon name="folder" size="38rpx" color="#0A3592" />
+        </view>
+        <view class="ficon" wx:else><text class="fletter">{{shareSheet.item.letter}}</text></view>
+        <view class="fmain">
+          <text class="fname">{{shareSheet.item.name}}</text>
+          <text class="fsub">已选 1 项 · {{shareSheet.item.sizeText}}</text>
+        </view>
+      </view>
+      <view class="kv">
+        <view class="kv-lab">有效期</view>
+        <view class="mini-seg">
+          <view
+            wx:for="{{expireOpts}}"
+            wx:key="days"
+            class="seg {{shareSheet.days === item.days ? 'on' : ''}}"
+            data-days="{{item.days}}"
+            hover-class="hover-opacity"
+            bindtap="onShareDaysTap"
+          >{{item.text}}</view>
+        </view>
+      </view>
+      <view class="kv">
+        <view class="kv-lab">提取码（自动生成，可刷新）</view>
+        <view class="codebox">
+          <view class="cd">{{shareSheet.code}}</view>
+          <view class="rf" hover-class="hover-opacity" bindtap="onShareCodeRefresh">
+            <t-icon name="refresh" size="32rpx" color="#4E5969" />
+          </view>
+        </view>
+      </view>
+      <view class="sh-note">外部人员凭链接 + 提取码访问；链接经 Shade 中转，对方无需登录、无需安装。</view>
+      <view class="btn-primary {{shareSheet.saving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onShareCreate">
+        {{shareSheet.saving ? '正在创建…' : '生成分享链接'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 目标位置选择弹层（移动 / 复制：空间分段 + 面包屑 + 仅文件夹列表 + 主按钮） -->
+<t-popup visible="{{picker.open}}" placement="bottom" bind:visible-change="onPickerVisibleChange">
+  <view class="sheet" wx:if="{{picker.item}}">
+    <view class="grab"></view>
+    <view class="sheet-title">{{picker.mode === 'move' ? '移动到…' : '复制到…'}}</view>
+    <view class="sheet-sub">为「{{picker.item.name}}」选择目标位置</view>
+    <view class="pk-body">
+      <view class="seg2 pk-seg" wx:if="{{hasPublic}}">
+        <view
+          wx:for="{{spaces}}"
+          wx:key="key"
+          class="seg {{picker.space === item.key ? 'on' : ''}}"
+          data-key="{{item.key}}"
+          hover-class="hover-opacity"
+          bindtap="onPickerSpaceTap"
+        >{{item.label}}</view>
+      </view>
+      <view class="crumb pk-crumb">
+        <block wx:for="{{pickerCrumbs}}" wx:key="path">
+          <text wx:if="{{!item.last}}" class="cr-link" data-path="{{item.path}}" hover-class="hover-opacity" bindtap="onPickerCrumbTap">{{item.name}}</text>
+          <text wx:else class="cr-cur">{{item.name}}</text>
+          <text wx:if="{{!item.last}}" class="cr-sep">/</text>
+        </block>
+      </view>
+      <scroll-view scroll-y class="pk-list">
+        <view wx:if="{{picker.loading}}" class="pk-empty">目录加载中…</view>
+        <view wx:elif="{{picker.error}}" class="pk-empty">{{picker.error}}</view>
+        <view wx:elif="{{!picker.dirs.length}}" class="pk-empty">该目录下没有子文件夹</view>
+        <block wx:else>
+          <view
+            class="pk-dir"
+            wx:for="{{picker.dirs}}"
+            wx:key="name"
+            data-name="{{item.name}}"
+            hover-class="hover-bg-warm"
+            bindtap="onPickerDirTap"
+          >
+            <t-icon name="folder" size="36rpx" color="#0A3592" />
+            <text class="pk-name">{{item.name}}</text>
+            <t-icon name="chevron-right" size="30rpx" color="#C9CDD4" />
+          </view>
+        </block>
+      </scroll-view>
+      <view class="btn-primary {{(picker.saving || picker.loading || picker.error) ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onPickerConfirm">
+        {{picker.saving ? '处理中…' : (picker.mode === 'move' ? '移动到此处' : '复制到此处')}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

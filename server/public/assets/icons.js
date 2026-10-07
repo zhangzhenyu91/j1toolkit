@@ -63,6 +63,12 @@
     'swap': '<path d="M4 7.5h11.5"/><path d="M13 4l3.5 3.5L13 11"/><path d="M20 16.5H8.5"/><path d="M11 13l-3.5 3.5L11 20"/>',
     'view-list': '<path d="M9.5 6h11M9.5 12h11M9.5 18h11"/><circle cx="4.5" cy="6" r="1.1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.1" fill="currentColor" stroke="none"/>',
     'compass': '<circle cx="12" cy="12" r="8.5"/><path d="M15.6 8.4l-2.1 5.1-5.1 2.1 2.1-5.1z"/>',
+    /* 团队网盘（folder-open 与 sys_app 种子图标同名；link 为分享链条） */
+    'folder': '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+    'folder-open': '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2v1"/><path d="M3.5 7v10a2 2 0 0 0 2 2h11.5a2 2 0 0 0 1.86-1.26l2.28-5.7A1.5 1.5 0 0 0 19.75 10H7.44a2 2 0 0 0-1.86 1.26L3.5 16.8"/>',
+    'folder-add': '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/>',
+    'link': '<path d="M10 14a5 5 0 0 0 7 .5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+    'share': '<circle cx="6" cy="12" r="2.5"/><circle cx="17.5" cy="5.5" r="2.5"/><circle cx="17.5" cy="18.5" r="2.5"/><path d="M8.2 10.8l7-4M8.2 13.2l7 4"/>',
   };
 
   /**

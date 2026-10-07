@@ -66,6 +66,8 @@ app.use('/api/v1/safeday', require('./safeday'));
 app.use('/api/v1/kvm', require('./kvm'));
 // 题库刷题（建表/种子见 db.js）
 app.use('/api/v1/quiz', require('./quiz'));
+// 团队网盘（OpenList 中转，建表/种子见 netdisk/schema.js）
+app.use('/api/v1/netdisk', require('./netdisk'));
 // 商旅打卡（出工日志扩展，建表见 db.js）
 app.use('/api/v1/sgcc', require('./sgccclockin'));
 

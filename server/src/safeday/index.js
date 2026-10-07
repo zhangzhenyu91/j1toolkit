@@ -353,7 +353,7 @@ async function canAccess(req, record) {
 }
 
 // 下载产物
-router.get('/records/:id/download', async (req, res) => {
+router.get(['/records/:id/download', '/records/:id/download/:name([^/]+\\.[a-zA-Z0-9]+)'], async (req, res) => {
   const record = store.get(req.params.id);
   if (!record || record.status !== 'done') {
     return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
@@ -368,7 +368,7 @@ router.get('/records/:id/download', async (req, res) => {
   return res.download(filePath, record.fileName);
 });
 
-// 在线预览：拼接 basemetas 预览地址（预览服务器凭地址内 ?token= 回源拉取文件，见上方 token 映射中间件）
+// 在线预览：拼接在线预览地址（微软 Office 查看器，凭地址内 ?token= 回源拉取文件，见 utils/preview.js 与 token 映射中间件）
 router.get('/records/:id/preview', async (req, res) => {
   const record = store.get(req.params.id);
   if (!record || record.status !== 'done') {

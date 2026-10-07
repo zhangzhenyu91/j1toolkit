@@ -59,9 +59,26 @@
   .brand-feats .feat:nth-child(1) { animation-delay: .4s; }
   .brand-feats .feat:nth-child(2) { animation-delay: .48s; }
   .brand-feats .feat:nth-child(3) { animation-delay: .56s; }
-  /* 右侧表单底部小程序宣传图（白区：浅灰图底配发丝边框收成卡） */
-  .form-promo { margin: 26px auto 0; animation: riseIn .55s var(--ease) .6s both; }
-  .form-promo img { display: block; width: 100%; max-width: 340px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--line); }
+  /* 右侧表单底部推广区：小程序宣传图 + 内网客户端下载卡（同款白卡发丝边，纵列排布） */
+  .form-promo { margin: 26px auto 0; animation: riseIn .55s var(--ease) .6s both;
+                display: flex; flex-direction: column; gap: 12px; }
+  .form-promo > img { display: block; width: 100%; max-width: 340px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--line); }
+  .promo-client {
+    display: flex; align-items: center; gap: 12px; width: 100%; max-width: 340px; margin: 0 auto;
+    padding: 11px 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    text-decoration: none; color: inherit; transition: border-color .25s, box-shadow .25s;
+  }
+  .promo-client:hover { border-color: var(--orange); box-shadow: var(--shadow-hover); }
+  .pc-ic { width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--orange-soft);
+           display: flex; align-items: center; justify-content: center; }
+  .pc-ic img { width: 26px; height: 26px; }
+  .pc-tx { flex: 1; min-width: 0; text-align: left; }
+  .pc-tx b { display: block; font-size: 13.5px; }
+  .pc-tx small { display: block; margin-top: 2px; font-size: 11px; color: var(--ph); }
+  .pc-ver { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 600;
+            color: var(--orange); font-variant-numeric: tabular-nums; }
+  .pc-arrow { flex: none; color: var(--ph); display: flex; align-items: center; transition: color .25s; }
+  .promo-client:hover .pc-arrow { color: var(--orange); }
   /* 特性图标：实景遮罩上的半透明白块 */
   .feat i {
     width: 32px; height: 32px; flex: none; border-radius: 8px;
@@ -155,7 +172,18 @@
           <div>© 2026 Shade 壹匣</div>
         </div>
       </div>
-      <div class="form-promo"><img src="/mp-promo.jpg" alt="微信搜一搜「Shade 壹匣」小程序"></div>
+      <div class="form-promo">
+        <img src="/mp-promo.jpg" alt="微信搜一搜「Shade 壹匣」小程序">
+        <a class="promo-client" id="promoClient" href="https://cnb.cool/j1net/j1toolkit/j1toolkit/-/releases" target="_blank" rel="noopener">
+          <span class="pc-ic"><img src="/assets/cnb.png" alt="CNB"></span>
+          <span class="pc-tx">
+            <b>内网客户端</b>
+            <small>内网被控机安装包（Windows / 麒麟）</small>
+            <span class="pc-ver" id="promoVer">前往 CNB 下载</span>
+          </span>
+          <span class="pc-arrow" id="promoArrow"></span>
+        </a>
+      </div>
       <footer class="beian-foot">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>
         <a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener"><img src="/public-security.png" alt="公安备案">晋公网安备14118202000050号</a>
@@ -178,6 +206,32 @@
   document.getElementById('fUser').insertAdjacentHTML('afterbegin', Shade.icon('user', 18));
   document.getElementById('fPass').insertAdjacentHTML('afterbegin', Shade.icon('lock-on', 18));
   document.getElementById('ckRemember').innerHTML = Shade.icon('check', 10, '#fff');
+  document.getElementById('promoArrow').innerHTML = Shade.icon('arrow-right', 16);
+
+  // 内网客户端推广卡：链接指向 CNB Releases 最新 tag（GitHub API 拉最新 tag 拼接；1h 本地缓存，失败保持列表页）
+  (async function () {
+    var linkEl = document.getElementById('promoClient');
+    var verEl = document.getElementById('promoVer');
+    var CNB_BASE = 'https://cnb.cool/j1net/j1toolkit/j1toolkit/-/releases';
+    function apply(tag) {
+      if (!tag) return;
+      linkEl.href = CNB_BASE + '/tag/' + encodeURIComponent(tag);
+      verEl.textContent = '下载最新版 ' + tag;
+    }
+    try {
+      var cached = JSON.parse(localStorage.getItem('shade_latest_tag') || 'null');
+      if (cached && cached.tag && Date.now() - cached.at < 3600000) apply(cached.tag);
+    } catch (e) { /* 缓存损坏忽略 */ }
+    try {
+      var r = await fetch('https://api.github.com/repos/zhangzhenyu91/j1toolkit/releases/latest');
+      if (!r.ok) return;
+      var j = await r.json();
+      if (j && j.tag_name) {
+        apply(j.tag_name);
+        localStorage.setItem('shade_latest_tag', JSON.stringify({ tag: j.tag_name, at: Date.now() }));
+      }
+    } catch (e) { /* 拉取失败保持 releases 列表页链接 */ }
+  })();
 
   var $username = document.getElementById('username');
   var $password = document.getElementById('password');

@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  政企蓝白 Enterprise Blue —— Web 团队网盘设计稿（OpenList 后端 · 定稿）
+  ----------------------------------------------------------------------------
+  主色板与基准稿一致：品牌蓝 #0E3DA8 / 浅蓝底 #E8F0FF / 成功绿 #00B42A /
+  警告橙 #FF7D00 / 危险红 #F53F3F / 页面底 #F5F7FA。
+  设计要点：
+    1. 文件浏览采用「Windows 资源管理器」范式：大图标平铺（无卡片描边）、
+       名称双行居中；交互三态 = 悬停浅灰底 / 选中浅蓝底 / 空白处拖动
+       拖出半透明框选矩形（命中项即选中），全程无复选框；
+    2. 操作入口 = 右键菜单（打开/下载/分享/移动/复制/解压（压缩包）/重命名/删除）+
+       顶部工具条 + 双击打开文件夹或预览文件；选中后底部状态栏显示
+       「共 N 项 · 已选择 N 项 · 合计大小」；
+       移动/复制/解压目标位置走统一选择弹窗（空间分段 + 仅文件夹浏览）；
+       压缩包（zip/rar/7z 等）双击 = 包内预览弹窗（加密包收密码、逐级下钻、包内下载）；
+    3. 分片上传为网格内联格：名称下细进度条 + 已传/总量 +
+       浅蓝「上传中」标签 + × 取消，对应 multipart 会话；
+    4. 创建分享为居中模态：已选文件摘要 + 有效期单选 + 提取码可刷新，
+       主按钮仅「生成分享链接」一枚；
+    5. 分享管理为页签视图（管理数据保留表格）：状态小胶囊全端统一
+       （生效中绿 / 已过期橙 / 已停用红），班管 / 超管可见全部并可停用、删除；
+    6. 右下浮动「上传任务」面板为全局组件；提示信息块一律直角；
+       主按钮全页仅「上传文件」一枚。
+  落地注意事项：
+    - 对应 server/public/netdisk.html；token 全部引用 theme.css 变量；
+    - 框选：容器 pointerdown 记录起点，move 计算矩形与格子命中
+      （getBoundingClientRect 相交即选），Ctrl+点击多选切换、
+      Shift+点击连选，点击空白清空选择；
+    - 上传：File.slice 分片 → Shade 后端中转 multipart/init→chunk→complete，
+      并发 3 片，进度取会话 received_bytes；
+    - 单文件静态稿，零外部资源引用，可离线直接预览。
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>政企蓝白 · Web 团队网盘 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#0E3DA8; --navy:#0A3592; --blue-bg:#E8F0FF;
+    --green:#00B42A; --green-bg:#E8FFEA;
+    --orange:#FF7D00; --orange-bg:#FFF7E8;
+    --red:#F53F3F; --red-bg:#FFECE8;
+    --bg:#F5F7FA; --card:#FFFFFF; --fill:#F7F8FA;
+    --text:#1D2129; --t2:#4E5969; --t3:#86909C; --line:#E5E6EB;
+    --shadow:0 2px 8px rgba(0,0,0,.04);
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  body {
+    background:#F5F7FA;
+    font-family:"Helvetica Neue",Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text); padding:56px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:44px; }
+  .page-head .kicker { font-size:11px; font-weight:700; letter-spacing:4px; color:var(--t3); }
+  .page-head h1 { margin-top:10px; font-size:32px; font-weight:700; letter-spacing:1px; }
+  .page-head h1 em { font-style:normal; color:var(--blue); }
+  .page-head > p { margin-top:12px; font-size:13px; color:var(--t2); }
+  .palette { margin-top:20px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+  .palette .sw { display:inline-flex; align-items:center; gap:8px; padding:6px 13px 6px 8px;
+                 background:#fff; border:1px solid var(--line); border-radius:999px;
+                 font-size:11px; font-weight:600; color:var(--t2); }
+  .palette .sw i { width:13px; height:13px; border-radius:4px; }
+
+  /* ===== 浏览器窗口框 ===== */
+  .stage { display:flex; flex-direction:column; align-items:center; gap:20px; }
+  .stage .cap { margin-top:-4px; }
+  .cap { font-size:13px; font-weight:600; letter-spacing:2px; color:var(--t2);
+         display:flex; align-items:center; gap:8px; }
+  .cap i { width:8px; height:8px; border-radius:2px; background:var(--blue); }
+  .gap2 { height:36px; }
+
+  .browser {
+    position:relative; width:min(1240px,96vw); background:var(--bg);
+    border:1px solid var(--line); border-radius:12px; overflow:hidden;
+    box-shadow:0 24px 56px rgba(29,33,41,.12), 0 6px 16px rgba(29,33,41,.06);
+    animation:rise .6s var(--ease) both;
+  }
+  .browser-bar { height:44px; background:#fff; border-bottom:1px solid var(--line);
+                 display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .bd { width:11px; height:11px; border-radius:50%; background:#C9CDD4; }
+  .url { flex:1; max-width:420px; margin:0 auto; height:26px; border-radius:6px;
+         background:var(--fill); display:flex; align-items:center; justify-content:center;
+         gap:6px; font-size:12px; color:var(--t3); }
+  .url svg { width:11px; height:11px; }
+
+  /* ===== 顶栏（与首页一致） ===== */
+  .topnav { display:flex; align-items:center; gap:28px; height:60px;
+            background:#fff; border-bottom:1px solid var(--line); padding:0 32px; }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo .mk { width:32px; height:32px; border-radius:8px; background:var(--blue);
+              color:#fff; display:flex; align-items:center; justify-content:center;
+              font-size:15px; font-weight:700; }
+  .logo-word b { font-size:16px; font-weight:700; letter-spacing:.5px; }
+  .logo-word span { display:block; margin-top:1px; font-size:10px; color:var(--t3);
+                    letter-spacing:1px; }
+  .nav-menu { display:flex; gap:4px; height:100%; }
+  .nav-item { position:relative; display:flex; align-items:center; padding:0 14px;
+              font-size:14px; color:var(--t2); cursor:pointer; }
+  .nav-item:hover { color:var(--text); }
+  .nav-item.on { color:var(--blue); font-weight:600; }
+  .nav-item.on::after { content:""; position:absolute; left:14px; right:14px; bottom:0;
+                        height:2px; background:var(--blue); border-radius:2px; }
+  .nav-right { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .nav-bell { position:relative; width:34px; height:34px; border-radius:8px;
+              background:var(--fill); display:flex; align-items:center; justify-content:center;
+              color:var(--t2); cursor:pointer; }
+  .nav-bell svg { width:17px; height:17px; }
+  .nav-bell .nd { position:absolute; top:7px; right:8px; width:7px; height:7px;
+                  border-radius:50%; background:var(--red); border:1.5px solid #fff; }
+  .nav-user { display:flex; align-items:center; gap:9px; cursor:pointer; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:var(--navy); color:#fff;
+            display:flex; align-items:center; justify-content:center;
+            font-size:13px; font-weight:600; }
+  .nav-user .nm { font-size:13.5px; font-weight:600; }
+
+  .wrap { max-width:1180px; margin:0 auto; padding:0 32px; }
+
+  /* ===== 页头 / 工具条 / 页签 ===== */
+  .page-title { display:flex; align-items:baseline; gap:14px; margin-top:24px; }
+  .page-title h2 { font-size:22px; font-weight:700; }
+  .page-title p { font-size:12.5px; color:var(--t3); }
+
+  .toolbar { margin-top:16px; display:flex; align-items:center; gap:14px; }
+  .seg { display:flex; height:34px; padding:2px; background:#E5E6EB; border-radius:8px; }
+  .seg span { display:flex; align-items:center; padding:0 16px; border-radius:6px;
+              font-size:12.5px; color:var(--t2); cursor:pointer; }
+  .seg span.on { background:#fff; color:var(--blue); font-weight:600;
+                 box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .stat-txt { font-size:12.5px; color:var(--t3); }
+  .stat-txt b { color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
+  .tb-right { margin-left:auto; display:flex; gap:10px; }
+  .btn { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 16px;
+         border-radius:8px; font-size:13px; font-weight:600; cursor:pointer;
+         border:1px solid transparent; transition:filter .15s; }
+  .btn svg { width:15px; height:15px; }
+  .btn.ghost { background:#fff; border-color:var(--line); color:var(--text); }
+  .btn.ghost:hover { color:var(--blue); border-color:var(--blue); }
+  .btn.primary { background:var(--blue); color:#fff; }
+  .btn.primary:hover { filter:brightness(.92); }
+
+  /* 面包屑 + 搜索 */
+  .pathbar { margin-top:14px; display:flex; align-items:center; gap:14px; }
+  .crumb { display:flex; align-items:center; gap:7px; font-size:13px; }
+  .crumb a { color:var(--blue); font-weight:600; cursor:pointer; }
+  .crumb em { font-style:normal; color:var(--t3); }
+  .crumb b { font-weight:600; }
+  .searchw { margin-left:auto; display:flex; align-items:center; gap:7px; height:34px;
+             width:240px; padding:0 12px; background:var(--fill); border-radius:8px;
+             color:var(--t3); }
+  .searchw svg { width:14px; height:14px; flex:none; }
+  .searchw span { font-size:12.5px; }
+
+  .tabs { margin-top:16px; display:flex; gap:4px; border-bottom:1px solid var(--line); }
+  .tab { position:relative; padding:9px 14px; font-size:13.5px; color:var(--t2);
+         cursor:pointer; }
+  .tab:hover { color:var(--text); }
+  .tab.on { color:var(--blue); font-weight:600; }
+  .tab.on::after { content:""; position:absolute; left:14px; right:14px; bottom:-1px;
+                   height:2px; background:var(--blue); border-radius:2px; }
+
+  /* ===== 状态小标签（全端统一） ===== */
+  .tag { display:inline-flex; align-items:center; gap:5px; height:22px; padding:0 8px;
+         border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .tag i { width:5px; height:5px; border-radius:50%; background:currentColor; }
+  .tag.ok   { background:var(--green-bg);  color:#0B8A37; }
+  .tag.fail { background:var(--red-bg);    color:var(--red); }
+  .tag.warn { background:var(--orange-bg); color:#D25F00; }
+  .tag.info { background:var(--blue-bg);   color:var(--blue); }
+
+  /* ===== 图标网格（资源管理器范式，无复选框） ===== */
+  .gridwrap { position:relative; margin-top:8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(118px,1fr));
+          gap:4px; padding:6px 0 12px; }
+  .g-cell { position:relative; border-radius:8px; padding:14px 8px 10px;
+            display:flex; flex-direction:column; align-items:center; cursor:default; }
+  .g-cell:hover { background:var(--fill); }
+  .g-cell.sel { background:rgba(14,61,168,.12); }
+  .g-cell.sel:hover { background:rgba(14,61,168,.16); }
+  .g-icon { height:64px; display:flex; align-items:center; justify-content:center; }
+  .g-icon svg { width:46px; height:46px; color:var(--navy); }
+  .g-block { width:46px; height:46px; border-radius:10px; background:var(--blue-bg);
+             color:var(--navy); display:flex; align-items:center; justify-content:center;
+             font-size:12px; font-weight:700; letter-spacing:.5px; }
+  .g-thumb { width:96px; height:64px; border-radius:8px; }
+  .th1 { background:linear-gradient(0deg, rgba(58,86,48,.6) 0 17%, transparent 17.5%),
+          linear-gradient(160deg,#A8CBEF 0%,#5587C6 52%,#2C548C 100%); }
+  .th2 { background:linear-gradient(0deg, rgba(70,50,26,.45) 0 26%, transparent 26.5%),
+          linear-gradient(150deg,#F0D9A4 0%,#C89A55 58%,#8A6530 100%); }
+  .g-name { margin-top:8px; width:100%; font-size:12px; line-height:1.45;
+            text-align:center; word-break:break-all;
+            display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+            overflow:hidden; }
+  .g-cell.sel .g-name { font-weight:600; }
+  /* 上传中格 */
+  .g-tag { position:absolute; top:6px; right:6px; }
+  .g-x { position:absolute; top:6px; left:6px; width:22px; height:22px;
+         border-radius:6px; background:#fff; box-shadow:var(--shadow);
+         display:flex; align-items:center; justify-content:center; color:var(--t3); }
+  .g-x svg { width:11px; height:11px; }
+  .g-prog { margin-top:8px; width:100%; height:4px; border-radius:2px;
+            background:#E5E6EB; overflow:hidden; }
+  .g-prog i { display:block; height:100%; width:46%; background:var(--blue); }
+  .g-sub { margin-top:4px; font-size:10.5px; color:var(--t3);
+           font-variant-numeric:tabular-nums; }
+  /* 拖动框选矩形 */
+  .rubber { position:absolute; z-index:20; border:1px solid rgba(14,61,168,.55);
+            background:rgba(14,61,168,.10); border-radius:2px; pointer-events:none; }
+  .rubber-tip { position:absolute; z-index:21; background:var(--navy); color:#fff;
+                font-size:10.5px; padding:3px 8px; border-radius:4px; white-space:nowrap; }
+  /* 右键菜单 */
+  .ctxmenu { position:absolute; z-index:25; width:176px; background:#fff;
+             border-radius:10px; box-shadow:0 12px 32px rgba(29,33,41,.18);
+             padding:5px; }
+  .ctx { display:flex; align-items:center; gap:9px; height:34px; padding:0 10px;
+         border-radius:6px; font-size:12.5px; color:var(--text); cursor:pointer; }
+  .ctx:hover { background:var(--fill); }
+  .ctx svg { width:15px; height:15px; color:var(--t2); }
+  .ctx.danger { color:var(--red); }
+  .ctx.danger svg { color:var(--red); }
+  .ctx-sep { height:1px; background:var(--line); margin:5px 8px; }
+
+  /* 底部状态栏（资源管理器口径） */
+  .statusbar { border-top:1px solid var(--line); padding:11px 2px 26px;
+               display:flex; gap:20px; font-size:11.5px; color:var(--t3); }
+  .statusbar b { color:var(--t2); font-weight:600; font-variant-numeric:tabular-nums; }
+  .statusbar .acts { margin-left:auto; display:flex; gap:16px; }
+  .statusbar .lk { font-size:11.5px; }
+
+  /* ===== 模态：创建分享 ===== */
+  .mmask { position:absolute; inset:0; z-index:40; background:rgba(29,33,41,.45);
+           display:flex; align-items:center; justify-content:center;
+           animation:rise .4s var(--ease) .3s both; }
+  .modal { width:460px; background:#fff; border-radius:12px;
+           box-shadow:0 24px 64px rgba(29,33,41,.28); }
+  .m-head { display:flex; align-items:center; padding:16px 20px 12px; }
+  .m-head b { font-size:16px; font-weight:700; }
+  .m-x { margin-left:auto; width:28px; height:28px; border-radius:8px;
+         background:var(--fill); display:flex; align-items:center; justify-content:center;
+         color:var(--t2); cursor:pointer; }
+  .m-x svg { width:13px; height:13px; }
+  .m-body { padding:0 20px; }
+  .m-files { background:var(--fill); border-radius:8px; padding:10px 12px; }
+  .m-files .rw { display:flex; align-items:center; gap:9px; font-size:12.5px;
+                 font-weight:600; }
+  .m-files .rw + .rw { margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); }
+  .m-files .rw .ficon { width:26px; height:26px; border-radius:7px; font-size:8.5px;
+                        background:var(--blue-bg); color:var(--navy);
+                        display:flex; align-items:center; justify-content:center;
+                        font-weight:700; }
+  .m-files .rw span:last-child { margin-left:auto; font-weight:400; color:var(--t3);
+                                 font-size:11px; }
+  .kv { margin-top:14px; }
+  .kv label { display:block; font-size:11.5px; color:var(--t3); margin-bottom:8px; }
+  .radios { display:flex; gap:16px; }
+  .rd { display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer; }
+  .rd i { width:15px; height:15px; border-radius:50%; border:1.5px solid #C9CDD4;
+          position:relative; }
+  .rd.on { font-weight:600; }
+  .rd.on i { border-color:var(--blue); }
+  .rd.on i::after { content:""; position:absolute; inset:3px; border-radius:50%;
+                    background:var(--blue); }
+  .codebox { display:flex; align-items:center; gap:10px; }
+  .codebox .cd { width:150px; height:36px; border-radius:8px; background:var(--fill);
+                 display:flex; align-items:center; justify-content:center;
+                 font-size:15px; font-weight:700; letter-spacing:5px;
+                 font-variant-numeric:tabular-nums; }
+  .codebox .rf { width:36px; height:36px; border-radius:8px; background:var(--fill);
+                 display:flex; align-items:center; justify-content:center;
+                 color:var(--t2); cursor:pointer; }
+  .codebox .rf svg { width:15px; height:15px; }
+  .m-note { margin-top:14px; background:var(--blue-bg); border-left:3px solid var(--blue);
+            padding:8px 10px; font-size:12px; line-height:1.6; color:var(--t2); }
+  .m-foot { display:flex; justify-content:flex-end; gap:10px; padding:16px 20px 18px; }
+
+  /* ===== 分享管理（管理数据保留表格） ===== */
+  .notice { margin-top:14px; display:flex; align-items:center; gap:8px;
+            background:var(--blue-bg); border-left:3px solid var(--blue);
+            padding:9px 12px; font-size:12.5px; color:var(--t2); }
+  .notice svg { width:14px; height:14px; flex:none; color:var(--blue); }
+  .tbl-card { margin-top:14px; margin-bottom:120px; background:var(--card);
+              border-radius:12px; box-shadow:var(--shadow); overflow:hidden; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11.5px; font-weight:600; color:var(--t3);
+       padding:11px 16px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td { font-size:13px; padding:10px 16px; border-top:1px solid var(--fill);
+       vertical-align:middle; }
+  tbody tr:hover { background:var(--fill); }
+  .nm-cell { display:flex; align-items:center; gap:11px; min-width:0; }
+  .ficon { width:34px; height:34px; flex:none; border-radius:9px;
+           background:var(--blue-bg); color:var(--navy);
+           display:flex; align-items:center; justify-content:center;
+           font-size:10px; font-weight:700; letter-spacing:.5px; }
+  .ficon svg { width:18px; height:18px; }
+  .nm-wrap { min-width:0; }
+  .nm { display:block; font-weight:600; overflow:hidden; text-overflow:ellipsis;
+        white-space:nowrap; max-width:420px; }
+  .nm-sub { display:block; margin-top:2px; font-size:11px; color:var(--t3); }
+  .num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .t2 { color:var(--t2); white-space:nowrap; }
+  .ops { display:flex; gap:14px; white-space:nowrap; }
+  .lk { font-size:12.5px; font-weight:600; color:var(--blue); cursor:pointer; }
+  .lk.gray { color:var(--t2); }
+  .lk.red { color:var(--red); }
+  .lk:hover { filter:brightness(.85); }
+  .code { font-weight:700; letter-spacing:2px; font-variant-numeric:tabular-nums; }
+
+  /* ===== 上传任务浮动面板（全局组件） ===== */
+  .upanel { position:absolute; right:24px; bottom:24px; z-index:30; width:308px;
+            background:#fff; border-radius:12px;
+            box-shadow:0 12px 32px rgba(29,33,41,.16); overflow:hidden;
+            animation:rise .5s var(--ease) .42s both; }
+  .up-head { display:flex; align-items:center; padding:11px 14px;
+             border-bottom:1px solid var(--line); }
+  .up-head b { font-size:13px; font-weight:700; }
+  .up-head span { margin-left:auto; font-size:11px; color:var(--t3);
+                  font-variant-numeric:tabular-nums; }
+  .up-row { display:flex; align-items:center; gap:10px; padding:10px 14px; }
+  .up-row + .up-row { border-top:1px solid var(--fill); }
+  .up-row .ficon { width:28px; height:28px; border-radius:7px; font-size:8.5px; }
+  .up-main { flex:1; min-width:0; }
+  .up-name { display:block; font-size:12px; font-weight:600; overflow:hidden;
+             text-overflow:ellipsis; white-space:nowrap; }
+  .up-sub { display:block; margin-top:3px; font-size:10.5px; color:var(--t3);
+            font-variant-numeric:tabular-nums; }
+  .up-sub em { font-style:normal; color:var(--blue); font-weight:600; }
+  .up-ic { width:26px; height:26px; flex:none; display:flex; align-items:center;
+           justify-content:center; color:var(--t3); cursor:pointer; }
+  .up-ic svg { width:13px; height:13px; }
+  .uprog2 { margin-top:5px; height:4px; border-radius:2px; background:#EBEDF1; overflow:hidden; }
+  .uprog2 i { display:block; height:100%; width:46%; background:var(--blue); }
+
+  /* 页脚 */
+  .page-foot { border-top:1px solid var(--line); padding:18px 32px 22px;
+               display:flex; justify-content:space-between;
+               font-size:11px; color:var(--t3); letter-spacing:1px; }
+
+  /* ===== 入场与降级 ===== */
+  @keyframes rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="kicker">SHADE YIXIA · NEW APP</div>
+  <h1>政企蓝白 · <em>Web 团队网盘</em></h1>
+  <p>资源管理器式图标网格（拖动框选 · 右键菜单 · 无复选框）/ 创建分享模态 / 分享管理 + 全局上传任务面板。</p>
+  <div class="palette">
+    <span class="sw"><i style="background:#0E3DA8"></i>品牌蓝 #0E3DA8</span>
+    <span class="sw"><i style="background:#E8F0FF"></i>浅蓝底 #E8F0FF</span>
+    <span class="sw"><i style="background:#00B42A"></i>生效中 #00B42A</span>
+    <span class="sw"><i style="background:#FF7D00"></i>已过期 #FF7D00</span>
+    <span class="sw"><i style="background:#F53F3F"></i>已停用 #F53F3F</span>
+    <span class="sw"><i style="background:#F5F7FA"></i>页面底 #F5F7FA</span>
+  </div>
+</header>
+
+<main class="stage">
+
+  <!-- ================= 窗 ① 文件浏览：框选 + 右键菜单 ================= -->
+  <div class="browser">
+    <div class="browser-bar">
+      <span class="bd"></span><span class="bd"></span><span class="bd"></span>
+      <span class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+        toolkit.j1net.com/netdisk
+      </span>
+      <span style="width:60px"></span>
+    </div>
+
+    <div class="topnav">
+      <div class="logo">
+        <span class="mk">匣</span>
+        <div class="logo-word"><b>Shade 壹匣</b><span>班组数字化工具平台</span></div>
+      </div>
+      <nav class="nav-menu">
+        <span class="nav-item">工作台</span>
+        <span class="nav-item">出工日志</span>
+        <span class="nav-item on">团队网盘</span>
+        <span class="nav-item">通知中心</span>
+      </nav>
+      <div class="nav-right">
+        <span class="nav-bell">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+          <i class="nd"></i>
+        </span>
+        <div class="nav-user">
+          <span class="avatar">王</span>
+          <span class="nm">王强</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="page-title">
+        <h2>团队网盘</h2>
+        <p>文件经 Shade 中转存取，支持分片上传与外链分享</p>
+      </div>
+
+      <div class="toolbar">
+        <div class="seg"><span>我的空间</span><span class="on">公共区</span></div>
+        <span class="stat-txt">公共区 · <b>4</b> 个文件夹 · <b>126</b> 个文件</span>
+        <div class="tb-right">
+          <button type="button" class="btn ghost">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/></svg>
+            新建文件夹
+          </button>
+          <button type="button" class="btn primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 1 1 .6-8.96A6 6 0 0 1 19 10.5 3.75 3.75 0 0 1 18 18H7z"/><path d="M12 11.5v6M9.5 14.5L12 12l2.5 2.5"/></svg>
+            上传文件
+          </button>
+        </div>
+      </div>
+
+      <div class="pathbar">
+        <div class="crumb"><a>公共区</a><em>/</em><b>培训资料</b></div>
+        <div class="searchw">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20.5 20.5L16 16"/></svg>
+          <span>搜索公共区文件名</span>
+        </div>
+      </div>
+
+      <!-- 图标网格：默认 / 悬停 / 选中（浅蓝底）/ 上传中 -->
+      <div class="gridwrap">
+        <div class="grid">
+          <div class="g-cell" style="background:var(--fill)">
+            <div class="g-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+            </div>
+            <span class="g-name">制度文件</span>
+          </div>
+          <div class="g-cell">
+            <div class="g-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+            </div>
+            <span class="g-name">台账模板</span>
+          </div>
+          <div class="g-cell sel">
+            <div class="g-icon"><span class="g-block">PPT</span></div>
+            <span class="g-name">2026 年安全生产月培训.pptx</span>
+          </div>
+          <div class="g-cell sel">
+            <div class="g-icon"><span class="g-block">DOC</span></div>
+            <span class="g-name">秋检工作方案.docx</span>
+          </div>
+          <div class="g-cell sel">
+            <div class="g-icon"><span class="g-block">XLS</span></div>
+            <span class="g-name">安全工器具台账.xlsx</span>
+          </div>
+          <div class="g-cell sel">
+            <div class="g-thumb th1"></div>
+            <span class="g-name">#18 塔绝缘子更换.jpg</span>
+          </div>
+          <div class="g-cell">
+            <div class="g-thumb th2"></div>
+            <span class="g-name">秋检现场合影.jpg</span>
+          </div>
+          <!-- 上传中格 -->
+          <div class="g-cell">
+            <span class="g-x">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </span>
+            <span class="g-tag tag info"><i></i>上传中</span>
+            <div class="g-icon"><span class="g-block">PDF</span></div>
+            <span class="g-name">10kV 检修规程（2026）.pdf</span>
+            <div class="g-prog"><i></i></div>
+            <span class="g-sub">23.4 / 50.8 MB · 46%</span>
+          </div>
+        </div>
+
+        <!-- 拖动框选矩形（自空白处拖出，命中项即选中） -->
+        <div class="rubber" style="left:43%; top:38%; width:41%; height:52%;"></div>
+        <div class="rubber-tip" style="left:43%; top:calc(38% - 26px);">按住空白处拖动 · 框选</div>
+
+        <!-- 右键菜单（唤出于选中的 docx） -->
+        <div class="ctxmenu" style="left:31%; top:30%;">
+          <div class="ctx">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+            打开
+          </div>
+          <div class="ctx">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10.5M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 19.5h15"/></svg>
+            下载（4 项）
+          </div>
+          <div class="ctx">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7 .5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+            分享（4 项）
+          </div>
+          <div class="ctx">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4.5h13M17.5 1.5L21 4.5l-3.5 3M16 19.5H3M6.5 22.5L3 19.5l3.5-3"/></svg>
+            移动（4 项）
+          </div>
+          <div class="ctx">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            复制（4 项）
+          </div>
+          <div class="ctx">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5l.8-3.4L16 5.4a2 2 0 0 1 2.8 2.8L8.1 18.9z"/><path d="M14.5 7l2.5 2.5"/></svg>
+            重命名
+          </div>
+          <div class="ctx-sep"></div>
+          <div class="ctx danger">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.2 6.2V4.6h5.6v1.6M7 6.5l.8 13h8.4l.8-13M10.2 10.2v5.8M13.8 10.2v5.8"/></svg>
+            删除（4 项）
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部状态栏 -->
+      <div class="statusbar">
+        <span>共 <b>8</b> 项</span>
+        <span>已选择 <b>4</b> 项</span>
+        <span>合计 <b>29.7</b> MB</span>
+        <span class="acts">
+          <span class="lk">下载</span>
+          <span class="lk">分享</span>
+          <span class="lk red">删除</span>
+        </span>
+      </div>
+    </div>
+
+    <footer class="page-foot">
+      <span>SHADE 壹匣 · 团队网盘 · 检修一班</span>
+      <span>TOOLKIT.J1NET.COM · 2026</span>
+    </footer>
+  </div>
+  <div class="cap"><i></i>① 图标网格：悬停浅灰 / 选中浅蓝 / 拖动框选 / 右键菜单 + 底部状态栏　版心 1180px</div>
+
+  <div class="gap2"></div>
+
+  <!-- ================= 窗 ② 创建分享模态 ================= -->
+  <div class="browser" style="animation-delay:.12s">
+    <div class="browser-bar">
+      <span class="bd"></span><span class="bd"></span><span class="bd"></span>
+      <span class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+        toolkit.j1net.com/netdisk
+      </span>
+      <span style="width:60px"></span>
+    </div>
+
+    <div class="topnav">
+      <div class="logo">
+        <span class="mk">匣</span>
+        <div class="logo-word"><b>Shade 壹匣</b><span>班组数字化工具平台</span></div>
+      </div>
+      <nav class="nav-menu">
+        <span class="nav-item">工作台</span>
+        <span class="nav-item">出工日志</span>
+        <span class="nav-item on">团队网盘</span>
+        <span class="nav-item">通知中心</span>
+      </nav>
+      <div class="nav-right">
+        <span class="nav-bell">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+          <i class="nd"></i>
+        </span>
+        <div class="nav-user">
+          <span class="avatar">王</span>
+          <span class="nm">王强</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap" style="padding-bottom:40px">
+      <div class="page-title">
+        <h2>团队网盘</h2>
+        <p>文件经 Shade 中转存取，支持分片上传与外链分享</p>
+      </div>
+      <div class="pathbar" style="margin-top:16px">
+        <div class="crumb"><a>公共区</a><em>/</em><b>培训资料</b></div>
+      </div>
+      <div class="grid">
+        <div class="g-cell sel"><div class="g-icon"><span class="g-block">PPT</span></div><span class="g-name">2026 年安全生产月培训.pptx</span></div>
+        <div class="g-cell sel"><div class="g-icon"><span class="g-block">DOC</span></div><span class="g-name">秋检工作方案.docx</span></div>
+        <div class="g-cell"><div class="g-icon"><span class="g-block">XLS</span></div><span class="g-name">安全工器具台账.xlsx</span></div>
+        <div class="g-cell"><div class="g-thumb th1"></div><span class="g-name">#18 塔绝缘子更换.jpg</span></div>
+        <div class="g-cell"><div class="g-thumb th2"></div><span class="g-name">秋检现场合影.jpg</span></div>
+      </div>
+    </div>
+
+    <!-- 创建分享模态（由右键菜单/状态栏「分享」唤起） -->
+    <div class="mmask">
+      <div class="modal">
+        <div class="m-head">
+          <b>创建分享</b>
+          <span class="m-x">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </span>
+        </div>
+        <div class="m-body">
+          <div class="m-files">
+            <div class="rw"><span class="ficon">PPT</span>2026 年安全生产月培训.pptx<span>23.6 MB</span></div>
+            <div class="rw"><span class="ficon">DOC</span>秋检工作方案.docx<span>1.8 MB</span></div>
+          </div>
+          <div class="kv">
+            <label>有效期</label>
+            <div class="radios">
+              <span class="rd on"><i></i>7 天</span>
+              <span class="rd"><i></i>30 天</span>
+              <span class="rd"><i></i>永久</span>
+            </div>
+          </div>
+          <div class="kv">
+            <label>提取码（自动生成，可刷新）</label>
+            <div class="codebox">
+              <span class="cd">8K2F</span>
+              <span class="rf">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4h-4"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="m-note">外部人员凭链接 + 提取码访问；链接经 Shade 中转，对方无需登录、无需安装。</div>
+        </div>
+        <div class="m-foot">
+          <button type="button" class="btn ghost">取消</button>
+          <button type="button" class="btn primary">生成分享链接</button>
+        </div>
+      </div>
+    </div>
+
+    <footer class="page-foot">
+      <span>SHADE 壹匣 · 团队网盘 · 检修一班</span>
+      <span>TOOLKIT.J1NET.COM · 2026</span>
+    </footer>
+  </div>
+  <div class="cap"><i></i>② 创建分享模态（框选 2 项后由右键菜单/状态栏唤起）</div>
+
+  <div class="gap2"></div>
+
+  <!-- ================= 窗 ③ 分享管理（班管视角）+ 上传任务面板 ================= -->
+  <div class="browser" style="animation-delay:.18s">
+    <div class="browser-bar">
+      <span class="bd"></span><span class="bd"></span><span class="bd"></span>
+      <span class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.5"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>
+        toolkit.j1net.com/netdisk#shares
+      </span>
+      <span style="width:60px"></span>
+    </div>
+
+    <div class="topnav">
+      <div class="logo">
+        <span class="mk">匣</span>
+        <div class="logo-word"><b>Shade 壹匣</b><span>班组数字化工具平台</span></div>
+      </div>
+      <nav class="nav-menu">
+        <span class="nav-item">工作台</span>
+        <span class="nav-item">出工日志</span>
+        <span class="nav-item on">团队网盘</span>
+        <span class="nav-item">通知中心</span>
+      </nav>
+      <div class="nav-right">
+        <span class="nav-bell">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 16.2v-4.9a5.8 5.8 0 0 1 11.6 0v4.9l1.6 2.6H4.6z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>
+          <i class="nd"></i>
+        </span>
+        <div class="nav-user">
+          <span class="avatar">王</span>
+          <span class="nm">王强</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="page-title">
+        <h2>团队网盘</h2>
+        <p>文件经 Shade 中转存取，支持分片上传与外链分享</p>
+      </div>
+
+      <div class="tabs">
+        <span class="tab">全部文件</span>
+        <span class="tab on">分享管理</span>
+      </div>
+
+      <div class="notice">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".9" fill="currentColor" stroke="none"/></svg>
+        班管 / 超管视角：可查看并取消班内全部分享链接；普通成员仅见「我创建的」。
+      </div>
+
+      <div class="tbl-card">
+        <table>
+          <thead>
+            <tr>
+              <th>分享内容</th>
+              <th style="width:96px">提取码</th>
+              <th style="width:120px">有效期至</th>
+              <th style="width:150px">创建</th>
+              <th style="width:96px">状态</th>
+              <th style="width:190px">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="nm-cell">
+                  <span class="ficon">XLS</span>
+                  <div class="nm-wrap"><span class="nm">安全工器具台账.xlsx</span></div>
+                </div>
+              </td>
+              <td class="code">3M9Q</td>
+              <td class="t2 num">10.14 23:59</td>
+              <td class="t2">李军 · 10.07</td>
+              <td><span class="tag ok"><i></i>生效中</span></td>
+              <td><div class="ops"><span class="lk">复制链接</span><span class="lk gray">停用</span><span class="lk red">删除</span></div></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="nm-cell">
+                  <span class="ficon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+                  </span>
+                  <div class="nm-wrap"><span class="nm">班组相册 · 9 月</span><span class="nm-sub">文件夹 · 36 项</span></div>
+                </div>
+              </td>
+              <td class="code">7TQ2</td>
+              <td class="t2 num">永久</td>
+              <td class="t2">王强 · 09.30</td>
+              <td><span class="tag fail"><i></i>已停用</span></td>
+              <td><div class="ops"><span class="lk gray" style="color:#C9CDD4">复制链接</span><span class="lk">重新启用</span><span class="lk red">删除</span></div></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="nm-cell">
+                  <span class="ficon">DOC</span>
+                  <div class="nm-wrap"><span class="nm">秋检工作方案.docx</span></div>
+                </div>
+              </td>
+              <td class="code">8K2F</td>
+              <td class="t2 num">09.30 23:59</td>
+              <td class="t2">王强 · 09.23</td>
+              <td><span class="tag warn"><i></i>已过期</span></td>
+              <td><div class="ops"><span class="lk gray" style="color:#C9CDD4">复制链接</span><span class="lk red">删除记录</span></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 全局上传任务面板：有分片任务即浮现 -->
+    <div class="upanel">
+      <div class="up-head"><b>上传任务</b><span>1 个上传中 · 1 个排队</span></div>
+      <div class="up-row">
+        <span class="ficon">PDF</span>
+        <div class="up-main">
+          <span class="up-name">10kV 检修规程（2026）.pdf</span>
+          <div class="uprog2"><i></i></div>
+          <span class="up-sub"><em>23.4 / 50.8 MB · 46%</em> · 分片 12/26</span>
+        </div>
+        <span class="up-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 6v12M14.5 6v12"/></svg>
+        </span>
+        <span class="up-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </span>
+      </div>
+      <div class="up-row">
+        <span class="ficon">ZIP</span>
+        <div class="up-main">
+          <span class="up-name">秋检照片打包.zip</span>
+          <span class="up-sub">等待上传 · 128.2 MB</span>
+        </div>
+        <span class="up-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </span>
+      </div>
+    </div>
+
+    <footer class="page-foot">
+      <span>SHADE 壹匣 · 团队网盘 · 检修一班</span>
+      <span>TOOLKIT.J1NET.COM · 2026</span>
+    </footer>
+  </div>
+  <div class="cap"><i></i>③ 分享管理（班管视角）+ 全局上传任务面板</div>
+
+</main>
+
+</body>
+</html>

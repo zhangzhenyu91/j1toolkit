@@ -1,0 +1,80 @@
+<!-- 团队网盘 · 压缩包预览 / 包内浏览（app_key netdisk 二级页）
+     内层面包屑 + 文件行列表（文件夹进入 / 文件下载后打开或预览）；加密包先弹密码输入层 -->
+<navbar back title="{{name || '压缩包'}}" />
+
+<view class="page-body">
+  <!-- 包内面包屑（压缩包名 / 各级内层目录，父级可点） -->
+  <view class="crumb a" style="--d:.04s" wx:if="{{!loading && !error}}">
+    <block wx:for="{{crumbs}}" wx:key="path">
+      <text wx:if="{{!item.last}}" class="cr-link" data-path="{{item.path}}" hover-class="hover-opacity" bindtap="onCrumbTap">{{item.name}}</text>
+      <text wx:else class="cr-cur">{{item.name}}</text>
+      <text wx:if="{{!item.last}}" class="cr-sep">/</text>
+    </block>
+    <text class="cr-cnt">{{items.length}} 项</text>
+  </view>
+
+  <!-- 骨架屏（读取中） -->
+  <view wx:if="{{loading}}" class="card flist a" style="--d:.1s">
+    <view class="fl" wx:for="{{[1, 2, 3, 4, 5]}}" wx:key="*this">
+      <view class="sk-ic"></view>
+      <view class="fmain">
+        <view class="sk-l" style="width: 62%;"></view>
+        <view class="sk-l sm" style="width: 36%;"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 错误 / 已加密待输入密码（点重试重新弹密码层） -->
+  <view wx:elif="{{error}}" class="empty-box a" style="--d:.1s">
+    <view>{{error}}</view>
+    <view class="retry" hover-class="hover-opacity" bindtap="onRetry">重新加载</view>
+  </view>
+
+  <!-- 包内文件列表 -->
+  <view wx:elif="{{items.length}}" class="card flist a" style="--d:.1s">
+    <view class="fl" wx:for="{{items}}" wx:key="rel" data-item="{{item}}" hover-class="hover-bg-warm" bindtap="onRowTap">
+      <view class="ficon" wx:if="{{item.isDir}}">
+        <t-icon name="folder" size="38rpx" color="#0A3592" />
+      </view>
+      <view class="ficon" wx:else><text class="fletter">{{item.letter}}</text></view>
+      <view class="fmain">
+        <text class="fname">{{item.name}}</text>
+        <text class="fsub">{{item.sub}}</text>
+      </view>
+      <t-icon wx:if="{{item.isDir}}" name="chevron-right" size="30rpx" color="#C9CDD4" />
+    </view>
+  </view>
+
+  <!-- 空目录 -->
+  <view wx:else class="empty-box a" style="--d:.1s">该目录为空</view>
+</view>
+
+<!-- 压缩包密码输入层（tdesign Dialog 无输入能力，用底部弹层实现；键盘弹起动态抬高底部 padding） -->
+<t-popup visible="{{pwSheet.open}}" placement="bottom" bind:visible-change="onPwVisibleChange">
+  <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
+    <view class="grab"></view>
+    <view class="sheet-title">输入压缩包密码</view>
+    <view class="sheet-sub">「{{name}}」已加密，输入密码后可浏览与下载包内文件</view>
+    <input
+      class="name-input"
+      type="password"
+      value="{{pwSheet.value}}"
+      bindinput="onPwInput"
+      bindconfirm="onPwSubmit"
+      adjust-position="{{false}}"
+      bindkeyboardheightchange="onKeyboardHeight"
+      hold-keyboard
+      maxlength="100"
+      placeholder="压缩包密码"
+      placeholder-class="ph"
+    />
+    <view class="sheet-ops">
+      <view class="btn-ghost {{pwSheet.saving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onPwCancel">取消</view>
+      <view class="btn-accent {{pwSheet.saving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onPwSubmit">
+        {{pwSheet.saving ? '校验中…' : '确定'}}
+      </view>
+    </view>
+  </view>
+</t-popup>
+
+<t-toast id="t-toast" />

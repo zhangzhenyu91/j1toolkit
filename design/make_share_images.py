@@ -24,6 +24,7 @@ APPS = {
     'file-transfer': 0xE7A7,  # swap
     'wm-add': 0xE498,         # image
     'quiz': 0xE0CB,           # book
+    'netdisk': 0xE3E0,        # folder
 }
 
 SHARE_RATIO = 5 / 4  # 微信分享缩略图按 5:4 显示，源头直接用 5:4 避免被裁偏

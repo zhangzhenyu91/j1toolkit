@@ -112,16 +112,6 @@ const APP_WM_ADD = {
   terminal: 'mobile',
 };
 
-// 「内网客户端」：仅网页端内部应用（client.html 直贴 CNB 制品库链接取安装包；安装包不再托管本站）
-const APP_CLIENT = {
-  key: 'client',
-  name: '内网客户端',
-  icon: 'download',
-  path: '',
-  sort: 7,
-  terminal: 'pc',
-};
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -239,7 +229,7 @@ async function ensureSchema() {
   }
 
   // 写入/更新应用记录（terminal 随种子刷新）
-  for (const app of [APP_CALL_ME, APP_SAFE_DAY, APP_KVM, APP_FILE_TRANSFER, APP_WM_ADD, APP_CLIENT]) {
+  for (const app of [APP_CALL_ME, APP_SAFE_DAY, APP_KVM, APP_FILE_TRANSFER, APP_WM_ADD]) {
     await pool.query(
       `INSERT INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES (?, ?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path),
@@ -300,11 +290,14 @@ async function ensureSchema() {
     [adminId, APP_WM_ADD.key]
   );
 
-  // 管理员默认授予 内网客户端 权限
-  await pool.query(
-    'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',
-    [adminId, APP_CLIENT.key]
-  );
+  // 一次性清理：「内网客户端」应用下线（下载入口改至登录页推广区，见 login.html 与 开发指南.md 第十一节），
+  // 删除 sys_app 记录及授权；先删子表再删主表，删过查不到行，天然幂等
+  const [clientAppRows] = await pool.query('SELECT id FROM sys_app WHERE app_key = ?', ['client']);
+  if (clientAppRows.length) {
+    await pool.query('DELETE FROM sys_user_app WHERE app_id = ?', [clientAppRows[0].id]);
+    await pool.query('DELETE FROM sys_app WHERE id = ?', [clientAppRows[0].id]);
+    console.log('[初始化] 已清理 client 应用及授权（内网客户端下载入口改至登录页推广区）');
+  }
 
   // 出工日志：建表并写入应用/成员种子
   await require('./worklog/schema').ensureWorklogSchema(pool);
@@ -316,6 +309,10 @@ async function ensureSchema() {
   // 题库刷题：建表并写入应用种子
   await require('./quiz/schema').ensureQuizSchema(pool);
   console.log('[初始化] 题库刷题表结构与应用种子就绪');
+
+  // 团队网盘：建表并写入应用种子
+  await require('./netdisk/schema').ensureNetdiskSchema(pool);
+  console.log('[初始化] 团队网盘表结构与应用种子就绪');
 
   // 商旅打卡（出工日志扩展）：建表并清理旧 sgcc-clockin 应用
   await require('./sgccclockin/schema').ensureSgccSchema(pool);

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 团队网盘公开分享页（免登录：不挂 Shade.requireAuth；链接形态 /share.html#/s/<share_id>）
+     流程：解析 hash 取 share_id → GET /public/share/:id 取分享信息（失败按 code 显示 已停用 40310 /
+       已过期 41010 / 不存在 40400 空态卡）→ 提取码表单（4 位大写字母数字）→ POST verify 通过得 2h 访问
+       票据 ticket（仅内存保存）→ 文件列表（列表行：真实类型图标 + 名称 + 大小/时间；文件夹点击下钻，
+       面包屑返回；文件行「下载」按钮 + 图片/视频点击内联 Lightbox 预览）；
+     公开请求一律原生 fetch 自解信封（Shade.apiRaw 遇 401 会跳登录页，不适用免登录场景）；
+     ticket 失效（40311）自动回到提取码表单提示重验；提取码错误限次 42901 原样提示 -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>团队网盘分享 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ============================================================
+     公开分享页内样式 ·「政企蓝白」（与 netdisk.html 同套 token 与组件语言）
+     ============================================================ */
+  body { min-height: 100vh; }
+  [hidden] { display: none !important; }
+
+  /* 顶部品牌行（简洁无导航） */
+  .sh-brand {
+    display: flex; align-items: center; gap: 10px; height: 60px;
+    background: #fff; border-bottom: 1px solid var(--line); padding: 0 24px;
+  }
+  .sh-brand .logo-mark { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
+  .sh-brand .logo-mark img { width: 100%; height: 100%; display: block; }
+  .sh-brand b { font-size: 15px; letter-spacing: 1px; }
+  .sh-brand b i { font-style: normal; color: var(--orange); }
+  .sh-brand .sep { color: var(--dash); }
+  .sh-brand .sub { font-size: 13px; color: var(--ph); letter-spacing: 1px; }
+
+  .sh-main { flex: 1; width: 100%; max-width: 880px; margin: 0 auto; padding: 32px 20px 56px; }
+
+  /* 分享信息卡 / 提取码表单 */
+  .sh-card { padding: 28px 30px; }
+  .sh-owner { display: flex; align-items: center; gap: 13px; }
+  .sh-av {
+    width: 42px; height: 42px; flex: none; border-radius: 50%; background: var(--orange); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700;
+  }
+  .sh-owner h1 { font-size: 17px; font-weight: 700; letter-spacing: .5px; }
+  .sh-owner h1 b { color: var(--orange); }
+  .sh-meta { margin-top: 3px; font-size: 11.5px; color: var(--ph); letter-spacing: .5px; }
+  .pw-row { margin-top: 20px; display: flex; gap: 10px; }
+  .pw-in {
+    flex: 1; min-width: 0; height: 44px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 0 14px; font-size: 16px; font-weight: 700; letter-spacing: 8px; color: var(--navy);
+    text-transform: uppercase; outline: none; font-variant-numeric: tabular-nums;
+    transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+  }
+  .pw-in::placeholder { color: var(--ph); font-weight: 400; letter-spacing: 2px; font-size: 13px; }
+  .pw-in:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(14, 61, 168, .12); }
+  .pw-row .btn { height: 44px; flex: none; }
+  .pw-err { margin-top: 10px; font-size: 12px; color: var(--red); letter-spacing: .5px; min-height: 16px; }
+  .pw-tip { margin-top: 4px; font-size: 12px; color: var(--ph); line-height: 1.7; }
+
+  /* 文件列表卡 */
+  .sh-list { margin-top: 18px; overflow: hidden; }
+  .sh-crumb {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    padding: 13px 18px; border-bottom: 1px solid var(--line); font-size: 13px;
+  }
+  .sh-crumb a { color: var(--orange); font-weight: 600; cursor: pointer; }
+  .sh-crumb a:hover { filter: brightness(.85); }
+  .sh-crumb em { font-style: normal; color: var(--ph); }
+  .sh-crumb b { font-weight: 600; word-break: break-all; }
+  .sh-crumb .cnt { margin-left: auto; font-size: 11px; color: var(--ph); font-variant-numeric: tabular-nums; }
+  .f-row { display: flex; align-items: center; gap: 11px; padding: 9px 18px; cursor: pointer; }
+  .f-row + .f-row { border-top: 1px solid var(--fill); }
+  .f-row:hover { background: var(--fill); }
+  /* 真实文件类型图标（无底块直落）；img 404 时由捕获级 error 监听回退 */
+  .ft-ic { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  .ft-ic .ft-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .ft-ic .ft-fb { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .ft-ic .ft-fb[hidden] { display: none; }
+  .ft-fb-lb {
+    width: 100%; height: 100%; border-radius: 22%; background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; letter-spacing: .5px;
+  }
+  .ft-fb svg { color: var(--orange); }
+  .f-mid { flex: 1; min-width: 0; }
+  .f-nm { display: block; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .f-sub { display: block; margin-top: 2px; font-size: 11px; color: var(--ph); font-variant-numeric: tabular-nums; }
+  .f-dl { flex: none; }
+
+  /* 空态/错误卡 */
+  .sh-state { padding: 52px 26px; text-align: center; color: var(--ph); }
+  .sh-state svg { width: 44px; height: 44px; color: var(--dash); margin: 0 auto; }
+  .sh-state h2 { margin-top: 14px; font-size: 16px; font-weight: 700; color: var(--navy); letter-spacing: 1px; }
+  .sh-state p { margin-top: 8px; font-size: 12.5px; line-height: 1.8; }
+
+  /* ===== 通用弹层（Shade.modal 配套，与 netdisk 同套口径） ===== */
+  .mask {
+    position: fixed; inset: 0; z-index: 320; padding: 24px;
+    background: rgba(29, 33, 41, .5); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mask.open { opacity: 1; }
+  .modal {
+    background: #fff; border: 1px solid var(--line); border-radius: 8px; width: 560px; max-width: 94vw; max-height: 86vh;
+    overflow: hidden; padding: 6px; display: flex; flex-direction: column;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .05);
+    transform: translateY(16px) scale(.98); transition: transform .35s var(--ease);
+  }
+  .m-scroll {
+    flex: 1; min-height: 0; overflow-y: auto; border-radius: 8px; padding: 14px 18px 16px;
+    scrollbar-gutter: stable both-edges; scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
+  }
+  .mask.open .modal { transform: none; }
+  .m-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .m-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; }
+  .m-x {
+    margin-left: auto; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    color: var(--navy); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .05); transition: background .15s, color .15s;
+  }
+  .m-x:hover { background: var(--navy); color: #fff; }
+  .m-x svg { width: 14px; height: 14px; }
+  .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .lb-media { display: block; margin: 0 auto; max-width: 100%; max-height: 68vh; border-radius: 8px; background: var(--fill); }
+</style>
+</head>
+<body>
+
+<header class="sh-brand">
+  <span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣"></span>
+  <b>Shade <i>壹匣</i></b>
+  <span class="sep">·</span>
+  <span class="sub">团队网盘分享</span>
+</header>
+
+<main class="sh-main">
+  <div id="shApp"><div class="card sh-state"><span class="spin" style="margin:0 auto"></span><p>加载中…</p></div></div>
+</main>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  var API = '/api/v1/netdisk';
+  var $ = Shade.$, $$ = Shade.$$;
+  var esc = Shade.esc;
+
+  // 从 hash 解析 share_id（#/s/<id>，10~32 位小写十六进制）
+  var sid = (location.hash.match(/^#\/s\/([a-f0-9]{10,32})$/i) || [])[1] || '';
+  var T = { info: null, ticket: '', path: '/', items: [] };
+
+  /* ================= 基础工具 ================= */
+  // 公开接口：原生 fetch 自解信封（不经 Shade.apiRaw——其 401 会清登录态跳登录页）
+  function pub(path, opts) {
+    return fetch(API + path, opts).then(function (res) {
+      return res.json().catch(function () { return null; }).then(function (j) {
+        if (!j) throw new Error('服务响应异常（HTTP ' + res.status + '）');
+        return j;
+      });
+    }, function () { throw new Error('网络异常，无法连接服务器'); });
+  }
+  function pubPost(path, body) {
+    return pub(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+  }
+  function joinRel(dir, name) { return (dir === '/' ? '' : dir) + '/' + name; }
+  function fmtSize(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+    return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  }
+  var IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+  var VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
+  var EXT_LABEL = {
+    doc: 'DOC', docx: 'DOC', xls: 'XLS', xlsx: 'XLS', csv: 'XLS',
+    ppt: 'PPT', pptx: 'PPT', pdf: 'PDF',
+    zip: 'ZIP', rar: 'ZIP', '7z': 'ZIP', tar: 'ZIP', gz: 'ZIP',
+    txt: 'TXT', md: 'TXT', log: 'TXT',
+    mp4: 'MP4', mov: 'MP4', webm: 'MP4', m4v: 'MP4', mp3: 'MP3', wav: 'MP3',
+  };
+  function extOf(name) { var m = /\.([a-z0-9]+)$/i.exec(name || ''); return m ? m[1].toLowerCase() : ''; }
+  function typeLabel(name) { var e = extOf(name); return EXT_LABEL[e] || (e ? e.slice(0, 4).toUpperCase() : 'FILE'); }
+  function isImg(name) { return IMG_EXTS.indexOf(extOf(name)) >= 0; }
+  function isVideo(name) { return VIDEO_EXTS.indexOf(extOf(name)) >= 0; }
+  /* 真实文件类型图标（与 netdisk.html 同一映射 + 回退） */
+  var FT_BASE = '/assets/filetypes/';
+  var FT_MAP = {
+    doc: 'docx', docx: 'docx', xls: 'xlsx', xlsx: 'xlsx', csv: 'csv',
+    ppt: 'pptx', pptx: 'pptx', pdf: 'pdf', txt: 'txt', md: 'md', log: 'txt',
+    zip: 'zip', rar: 'rar', '7z': '7z', tar: 'tar', gz: 'gz', tgz: 'zip', bz2: 'zip', xz: 'zip',
+    jpg: 'jpg', jpeg: 'jpg', png: 'png', gif: 'gif', bmp: 'bmp', webp: 'jpg', svg: 'png',
+    mp4: 'mp4', mov: 'mov', webm: 'mp4', m4v: 'mp4', mp3: 'mp3', wav: 'wav',
+  };
+  function fileIconUrl(name, isDir) {
+    if (isDir) return FT_BASE + 'folder.png';
+    var e = extOf(name);
+    return FT_BASE + (FT_MAP[e] || 'unknown') + '.png';
+  }
+  function fileIconHtml(name, isDir, size) {
+    var fb = isDir
+      ? Shade.icon('folder', size)
+      : '<span class="ft-fb-lb" style="font-size:' + Math.max(7, Math.round(size * 0.26)) + 'px">' + esc(typeLabel(name)) + '</span>';
+    return '<span class="ft-ic" style="width:' + size + 'px;height:' + size + 'px">'
+      + '<img class="ft-img" src="' + fileIconUrl(name, isDir) + '" width="' + size + '" height="' + size + '" draggable="false" alt="">'
+      + '<span class="ft-fb" hidden>' + fb + '</span></span>';
+  }
+  // 图标 404 回退：error 事件不冒泡，用捕获监听统一处理
+  document.addEventListener('error', function (e) {
+    var img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.classList.contains('ft-img')) return;
+    img.style.display = 'none';
+    var fb = img.nextElementSibling;
+    if (fb && fb.classList.contains('ft-fb')) fb.hidden = false;
+  }, true);
+  function dlUrl(rel) {
+    return API + '/public/share/' + encodeURIComponent(sid) + '/download?path=' + encodeURIComponent(rel)
+      + '&ticket=' + encodeURIComponent(T.ticket);
+  }
+  function expireText() {
+    if (!T.info) return '';
+    return '创建于 ' + (Shade.fmtDate(T.info.created_at) || '—')
+      + ' · 有效期至 ' + (T.info.expire_at ? Shade.fmtDate(T.info.expire_at, true) : '永久');
+  }
+
+  /* ================= 状态渲染 ================= */
+  var app = $('#shApp');
+  function renderInvalid() {
+    app.innerHTML = '<div class="card sh-state">' + Shade.icon('link', 44)
+      + '<h2>链接无效</h2><p>分享链接格式不正确，请核对后重新打开。</p></div>';
+  }
+  function renderFail(code, msg) {
+    var text = msg || '分享不可用';
+    if (code === 40310) text = '该分享已被创建者停用';
+    else if (code === 41010) text = '该分享已过期';
+    else if (code === 40400) text = '分享不存在或已删除';
+    app.innerHTML = '<div class="card sh-state">' + Shade.icon('error-circle', 44)
+      + '<h2>' + esc(text) + '</h2><p>如有疑问请联系分享人重新生成链接。</p></div>';
+  }
+  // 提取码表单（ticket 失效回验时带提示）
+  function renderPwForm(notice) {
+    var info = T.info || {};
+    app.innerHTML = '<div class="card sh-card">'
+      + '<div class="sh-owner"><span class="sh-av">' + esc(String(info.creator || '友').charAt(0)) + '</span>'
+      + '<div><h1><b>' + esc(info.creator || '') + '</b> 的分享</h1>'
+      + '<div class="sh-meta">' + esc(expireText()) + '</div></div></div>'
+      + '<div class="pw-row"><input class="pw-in" id="pwIn" maxlength="4" placeholder="请输入 4 位提取码" autocomplete="off">'
+      + '<button type="button" class="btn btn-primary" id="pwBtn">提取文件</button></div>'
+      + '<div class="pw-err" id="pwErr">' + esc(notice || '') + '</div>'
+      + '<div class="pw-tip">提取码为 4 位字母或数字（不区分大小写），由分享人提供。</div>'
+      + '</div>';
+    var input = $('#pwIn');
+    input.focus();
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) doVerify(); });
+    $('#pwBtn').addEventListener('click', doVerify);
+  }
+  function pwErr(msg) { var el = $('#pwErr'); if (el) el.textContent = msg || ''; }
+  function doVerify() {
+    var input = $('#pwIn'), btn = $('#pwBtn');
+    var pw = input.value.trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(pw)) { pwErr('请输入 4 位提取码（字母或数字）'); return; }
+    btn.disabled = true;
+    btn.textContent = '验证中…';
+    pwErr('');
+    pubPost('/public/share/' + encodeURIComponent(sid) + '/verify', { password: pw }).then(function (j) {
+      if (j.code !== 0) {
+        btn.disabled = false;
+        btn.textContent = '提取文件';
+        if (j.code === 40310 || j.code === 41010 || j.code === 40400) { renderFail(j.code, j.message); return; }
+        pwErr(j.message || '提取码错误'); // 40311 提取码错误 / 42901 尝试过多 原样提示
+        return;
+      }
+      T.ticket = j.data.ticket;
+      T.path = '/';
+      T.items = markRels((j.data && j.data.items) || [], '/');
+      renderFiles();
+    }).catch(function (e) {
+      btn.disabled = false;
+      btn.textContent = '提取文件';
+      pwErr(e.message);
+    });
+  }
+  function markRels(items, base) {
+    return (items || []).map(function (it) { it._rel = it.rel || joinRel(base, it.name); return it; });
+  }
+  // 目录下钻（根用 path:'/' 返回分享项本身）
+  function openDir(rel) {
+    app.querySelector('.sh-list').style.opacity = '.5';
+    pubPost('/public/share/' + encodeURIComponent(sid) + '/list', { ticket: T.ticket, path: rel }).then(function (j) {
+      if (j.code !== 0) {
+        if (j.code === 40311) { T.ticket = ''; renderPwForm('访问票据已过期，请重新输入提取码'); return; }
+        renderFiles();
+        Shade.toast(j.message || '加载失败', 'error');
+        return;
+      }
+      T.path = j.data.path;
+      T.items = markRels((j.data && j.data.items) || [], T.path);
+      renderFiles();
+    }).catch(function (e) {
+      renderFiles();
+      Shade.toast(e.message, 'error');
+    });
+  }
+  function renderFiles() {
+    var info = T.info || {};
+    var parts = T.path.split('/').filter(Boolean);
+    var crumb = '<a data-path="/">分享内容</a>';
+    var acc = '';
+    parts.forEach(function (p, i) {
+      acc += '/' + p;
+      crumb += '<em>/</em>' + (i === parts.length - 1 ? '<b>' + esc(p) + '</b>' : '<a data-path="' + esc(acc) + '">' + esc(p) + '</a>');
+    });
+    var rows = T.items.map(function (it, i) {
+      var sub = it.is_dir ? '文件夹' : (fmtSize(it.size) + (it.modified ? ' · ' + Shade.fmtDate(it.modified) : ''));
+      return '<div class="f-row" data-idx="' + i + '" title="' + esc(it.name) + '">'
+        + fileIconHtml(it.name, it.is_dir, 30)
+        + '<div class="f-mid"><span class="f-nm">' + esc(it.name) + '</span><span class="f-sub">' + esc(sub) + '</span></div>'
+        + (it.is_dir ? '' : '<button type="button" class="btn btn-sm f-dl" data-dl="' + i + '">下载</button>')
+        + '</div>';
+    }).join('');
+    var body = T.items.length
+      ? rows
+      : '<div class="empty">' + Shade.icon('folder', 44) + '<p>此文件夹为空</p></div>';
+    app.innerHTML = '<div class="card sh-card" style="padding:18px 22px">'
+      + '<div class="sh-owner"><span class="sh-av">' + esc(String(info.creator || '友').charAt(0)) + '</span>'
+      + '<div><h1><b>' + esc(info.creator || '') + '</b> 的分享</h1>'
+      + '<div class="sh-meta">' + esc(expireText()) + '</div></div></div></div>'
+      + '<div class="card sh-list">'
+      + '<div class="sh-crumb">' + crumb + '<span class="cnt">共 ' + T.items.length + ' 项</span></div>'
+      + body + '</div>';
+    // 面包屑返回
+    $$('.sh-crumb a', app).forEach(function (a) {
+      a.addEventListener('click', function () { openDir(a.dataset.path); });
+    });
+    // 行点击：文件夹下钻 / 文件预览或下载；下载按钮独立触发
+    $$('.f-row', app).forEach(function (row) {
+      row.addEventListener('click', function (e) {
+        var dl = e.target.closest('[data-dl]');
+        var it = T.items[Number(row.dataset.idx)];
+        if (!it) return;
+        if (dl) { e.stopPropagation(); downloadItem(it); return; }
+        if (it.is_dir) { openDir(it._rel); return; }
+        openFile(it);
+      });
+    });
+  }
+  // 文件：图片/视频内联 Lightbox 预览，其余直接下载
+  function openFile(it) {
+    if (isImg(it.name) || isVideo(it.name)) {
+      var url = dlUrl(it._rel);
+      var body = isImg(it.name)
+        ? '<img class="lb-media" src="' + url + '" alt="' + esc(it.name) + '">'
+        : '<video class="lb-media" src="' + url + '" controls autoplay></video>';
+      Shade.modal(Shade.mHead(it.name) + '<div>' + body + '</div>', { width: 920 });
+      return;
+    }
+    downloadItem(it);
+  }
+  // 下载：fetch 校验信封（ticket 失效回引导重验），二进制交给 Shade.saveBlob 落地
+  async function downloadItem(it) {
+    try {
+      var res = await fetch(dlUrl(it._rel));
+      var ct = res.headers.get('Content-Type') || '';
+      if (!res.ok || /json/i.test(ct)) {
+        var j = await res.json().catch(function () { return null; });
+        if (j && j.code === 40311) { T.ticket = ''; renderPwForm('访问票据已过期，请重新输入提取码'); return; }
+        throw new Error((j && j.message) || ('HTTP ' + res.status));
+      }
+      await Shade.saveBlob(res, it.name);
+    } catch (e) {
+      Shade.toast('下载失败：' + e.message, 'error');
+    }
+  }
+
+  /* ================= 启动 ================= */
+  (function boot() {
+    if (!sid) { renderInvalid(); return; }
+    pub('/public/share/' + encodeURIComponent(sid)).then(function (j) {
+      if (j.code !== 0) { renderFail(j.code, j.message); return; }
+      T.info = j.data;
+      renderPwForm();
+    }).catch(function (e) { renderFail(0, e.message); });
+  })();
+</script>
+</body>
+</html>

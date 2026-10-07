@@ -6,3 +6,6 @@ node_modules/
 
 # 本地数据（安全日活动记录 records.json 与生成产物等，不入仓）
 data/
+
+# IDE
+.idea/

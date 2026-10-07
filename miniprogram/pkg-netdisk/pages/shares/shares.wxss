@@ -1,0 +1,153 @@
+/* 团队网盘 · 分享管理（设计稿 design/小程序-团队网盘.html 屏④；
+   token 硬编码：蓝 #0E3DA8 / 深蓝 #0A3592 / 浅蓝底 #E8F0FF / 文字 #1D2129 / #4E5969 / #86909C / 边 #E5E6EB） */
+
+.page-body {
+  padding-bottom: 60rpx;
+}
+
+/* 入场：编排式上浮（keyframes fadeUp 在全局 app.wxss） */
+.a {
+  animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--d, 0s);
+}
+
+/* ---------- 分段（我创建的 / 全部（班管）） ---------- */
+.seg2 {
+  display: flex;
+  height: 64rpx;
+  padding: 4rpx;
+  background: #E5E6EB;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.seg2 .seg {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12rpx;
+  font-size: 25rpx;
+  color: #4E5969;
+}
+
+.seg2 .seg.on {
+  background: #FFFFFF;
+  color: #0E3DA8;
+  font-weight: 600;
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.08);
+}
+
+/* ---------- 班管提示条（浅蓝底 + 左色条，直角） ---------- */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  background: #E8F0FF;
+  border-left: 6rpx solid #0E3DA8;
+  padding: 16rpx 20rpx;
+  font-size: 23rpx;
+  color: #4E5969;
+  margin-bottom: 20rpx;
+}
+
+/* ---------- 分享卡片 ---------- */
+.shcard {
+  overflow: hidden;
+  margin-bottom: 24rpx;
+}
+
+.sc-body {
+  padding: 24rpx 28rpx 0;
+}
+
+.sc-top {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+/* 图标块：文件夹线性图标 / 类型字母块（浅蓝底深蓝字） */
+.ficon {
+  width: 72rpx;
+  height: 72rpx;
+  flex: none;
+  border-radius: 20rpx;
+  background: #E8F0FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fletter {
+  font-size: 21rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+  color: #0A3592;
+}
+
+.sc-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 27rpx;
+  font-weight: 600;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sc-top .st-tag {
+  margin-left: auto;
+  flex: none;
+}
+
+.sc-sub {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: #86909C;
+  line-height: 1.7;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 卡底操作行（复制链接蓝 / 停用 / 重新启用蓝 / 删除红） */
+.sc-ops {
+  margin-top: 20rpx;
+  display: flex;
+  border-top: 1rpx solid #E5E6EB;
+}
+
+.sc-ops .op {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  padding: 18rpx 0 20rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #4E5969;
+}
+
+.sc-ops .op + .op {
+  border-left: 1rpx solid #E5E6EB;
+}
+
+.sc-ops .op.blue {
+  color: #0E3DA8;
+}
+
+.sc-ops .op.danger {
+  color: #F53F3F;
+}
+
+/* ---------- 空态（虚线占位） ---------- */
+.empty-box {
+  margin-top: 24rpx;
+  border: 3rpx dashed #C9CDD4;
+  border-radius: 24rpx;
+  padding: 64rpx 32rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #86909C;
+}

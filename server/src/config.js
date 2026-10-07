@@ -61,9 +61,9 @@ const config = {
     // 微信消息推送工作流 key（通知微信外发；留空则微信推送整体停用，站内通知照常）
     wxpushKey: str('DIFY_WXPUSH_API_KEY'),
   },
-  // basemetas 文件预览服务（安全日记录在线预览用；留空=未启用，网页端不显示预览）
-  basemetas: {
-    url: str('BASEMETAS_URL').replace(/\/+$/, ''),
+  // 在线预览查看器地址（默认微软官方 Office 查看器；可换自部署 kkFileView 等，须支持 ?src=<回源URL> 口径）
+  preview: {
+    viewerUrl: str('PREVIEW_VIEWER_URL', 'https://view.officeapps.live.com/op/view.aspx'),
   },
   worklog: {
     cosPrefix: withTrailingSlash(str('COS_WORKLOG_PREFIX', 'worklog/')),
@@ -107,6 +107,19 @@ const config = {
   // 题库刷题（AI 解析走 Dify「题目解析」工作流；未配置 DIFY_QUIZ_API_KEY 时解析停用，刷题照常）
   quiz: {
     difyKey: str('DIFY_QUIZ_API_KEY'),
+  },
+  // 团队网盘（OpenList 中转：双端自定义前端经后端访问 OpenList；OpenList 仅监听回环/compose 内网，不对公网暴露，
+  // 部署与对接细节见 开发指南.md 团队网盘章节）
+  netdisk: {
+    apiUrl: str('NETDISK_API_URL', 'http://127.0.0.1:5244').replace(/\/+$/, ''),
+    // OpenList 服务账户（专用账户，base_path=/；后端自动登录并缓存令牌续期）
+    username: str('NETDISK_USERNAME'),
+    password: str('NETDISK_PASSWORD'),
+    // 空间根目录（OpenList 内绝对路径）：公共区固定一个；个人空间 = personalRoot/<登录用户名>
+    publicRoot: str('NETDISK_PUBLIC_ROOT', '/public'),
+    personalRoot: str('NETDISK_PERSONAL_ROOT', '/personal'),
+    // 单文件上传上限（MB）
+    maxUploadMb: num('NETDISK_MAX_UPLOAD_MB', 1024),
   },
   // 商旅打卡（出工日志扩展）
   // 协议密钥取自商旅 App 逆向分析仓 private/esgcc/sgcc/tools/sgcc_client.js（私有仓），只走 env、不入仓

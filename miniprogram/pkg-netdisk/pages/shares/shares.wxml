@@ -1,0 +1,54 @@
+<!-- 团队网盘 · 分享管理（app_key netdisk 二级页；设计稿 design/小程序-团队网盘.html 屏④）
+     分段「我创建的 / 全部（班管）」+ 分享卡片（状态胶囊 + 副行 + 底部操作行，按 state 显隐） -->
+<navbar back title="分享管理" />
+
+<view class="page-body">
+  <!-- 分段（仅班管/超管可见「全部」） -->
+  <view class="seg2 a" wx:if="{{isManager}}" style="--d:.04s">
+    <view class="seg {{scope === 'mine' ? 'on' : ''}}" data-scope="mine" hover-class="hover-opacity" bindtap="onScopeTap">我创建的</view>
+    <view class="seg {{scope === 'all' ? 'on' : ''}}" data-scope="all" hover-class="hover-opacity" bindtap="onScopeTap">全部（班管）</view>
+  </view>
+
+  <!-- 班管提示条（浅蓝底 + 左色条，直角） -->
+  <view class="notice a" wx:if="{{isManager && scope === 'all'}}" style="--d:.1s">
+    <t-icon name="info-circle" size="26rpx" color="#0E3DA8" />
+    <text>班管 / 超管可查看并取消班内全部分享链接</text>
+  </view>
+
+  <!-- 分享卡片 -->
+  <block wx:if="{{list.length}}">
+    <view class="card shcard a" wx:for="{{list}}" wx:key="id" style="--d:{{0.14 + index * 0.06}}s">
+      <view class="sc-body">
+        <view class="sc-top">
+          <view class="ficon" wx:if="{{item.isDir}}">
+            <t-icon name="folder" size="38rpx" color="#0A3592" />
+          </view>
+          <view class="ficon" wx:else><text class="fletter">{{item.letter}}</text></view>
+          <view class="sc-name">{{item.title}}</view>
+          <view class="st-tag {{item.stateCls}}">{{item.stateText}}</view>
+        </view>
+        <view class="sc-sub">{{item.sub}}</view>
+      </view>
+      <view class="sc-ops">
+        <view
+          class="op {{o.cls}}"
+          wx:for="{{item.ops}}"
+          wx:for-item="o"
+          wx:key="k"
+          hover-class="hover-opacity"
+          catchtap="onOp"
+          data-op="{{o.k}}"
+          data-id="{{item.id}}"
+        >
+          <t-icon name="{{o.icon}}" size="28rpx" color="{{o.color}}" />
+          <text>{{o.t}}</text>
+        </view>
+      </view>
+    </view>
+  </block>
+  <view wx:elif="{{loading}}" class="empty-box">分享列表加载中…</view>
+  <view wx:else class="empty-box">暂无分享，可在网盘文件「⋯ → 分享」创建</view>
+</view>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

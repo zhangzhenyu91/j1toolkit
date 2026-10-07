@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  政企蓝白 Enterprise Blue —— 小程序团队网盘设计稿（OpenList 后端 · 定稿）
+  ----------------------------------------------------------------------------
+  主色板与基准稿一致：品牌蓝 #0E3DA8 / 浅蓝底 #E8F0FF / 成功绿 #00B42A /
+  警告橙 #FF7D00 / 危险红 #F53F3F / 页面底 #F5F7FA。
+  设计要点：
+    1. 单卡多行文件列表：图标块（文件夹线性图标 / 类型字母块 / 照片缩略图）
+       + 名称 + 大小·时间·修改人 + 行尾 ⋯；点行打开，⋯ 唤起底部操作面板
+       （预览/下载/分享/移动/复制/重命名/删除；压缩包另有「查看压缩包」「解压到当前目录」，
+       移动/复制目标位置走底部弹层选择器：空间分段 + 仅文件夹浏览 + 面包屑回跳）；
+    2. 分片上传为列表内联行：细进度条 + 已传/总量 + 浅蓝「上传中」标签，
+       右上角 × 取消（对应 multipart abort）；完成后绿签一闪即消失；
+    3. 空间切换用全宽分段（我的空间 / 公共区），路径面包屑父级蓝字可点；
+       搜索框常置浅灰底，按文件名检索，范围跟随当前空间；
+    4. 操作面板 / 创建分享均为底部弹层（顶部圆角 16px + 抓手），
+       分享有效期用分段三选，提取码 4 位自动生成可刷新；
+    5. 分享管理：状态小胶囊沿用全端色族 —— 生效中绿 / 已过期橙 / 已停用红；
+       班管、超管视角分段多出「全部」，可见并取消班内全部分享；
+    6. 提示信息块（浅底 + 左色条）一律直角，每屏主按钮至多一枚（FAB 或弹层内）。
+  落地注意事项：
+    - 对应小程序分包 pkg-netdisk；列表、分段、弹层均可映射 tdesign 组件实现；
+    - 上传：FileSystemManager.readFile 分片读出后经 Shade 后端中转
+      multipart/init→chunk→complete；进度取会话 received_bytes；
+    - 文档类点行 = 下载后 wx.openDocument；图片点行 = 大图预览可保存；
+    - 单文件静态稿，零外部资源引用，可离线直接预览。
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>政企蓝白 · 小程序团队网盘 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#0E3DA8; --navy:#0A3592; --blue-bg:#E8F0FF;
+    --green:#00B42A; --green-bg:#E8FFEA;
+    --orange:#FF7D00; --orange-bg:#FFF7E8;
+    --red:#F53F3F; --red-bg:#FFECE8;
+    --bg:#F5F7FA; --card:#FFFFFF; --fill:#F7F8FA;
+    --text:#1D2129; --t2:#4E5969; --t3:#86909C; --line:#E5E6EB;
+    --shadow:0 2px 8px rgba(0,0,0,.04);
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  body {
+    background:#F5F7FA;
+    font-family:"Helvetica Neue",Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text); padding:56px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:44px; }
+  .page-head .kicker { font-size:11px; font-weight:700; letter-spacing:4px; color:var(--t3); }
+  .page-head h1 { margin-top:10px; font-size:30px; font-weight:700; letter-spacing:1px; }
+  .page-head h1 em { font-style:normal; color:var(--blue); }
+  .page-head > p { margin-top:12px; font-size:13px; color:var(--t2); }
+  .palette { margin-top:20px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+  .palette .sw { display:flex; align-items:center; gap:8px; padding:6px 13px 6px 8px;
+                 background:#fff; border:1px solid var(--line); border-radius:999px;
+                 font-size:11px; font-weight:600; color:var(--t2); }
+  .palette .sw i { width:13px; height:13px; border-radius:4px; }
+
+  /* ===== 机框 ===== */
+  .stage { display:flex; justify-content:center; align-items:flex-start;
+           gap:36px; flex-wrap:wrap; }
+  .unit { display:flex; flex-direction:column; align-items:center; gap:20px; }
+  .cap { font-size:13px; font-weight:600; letter-spacing:2px; color:var(--t2);
+         display:flex; align-items:center; gap:8px; }
+  .cap i { width:8px; height:8px; border-radius:2px; background:var(--blue); }
+
+  .phone { padding:12px; background:#1B1D21; border-radius:56px;
+           box-shadow:0 30px 64px rgba(29,33,41,.22), 0 8px 20px rgba(29,33,41,.12); }
+  .screen { position:relative; width:375px; height:812px; background:var(--bg);
+            border-radius:44px; overflow:hidden; display:flex; flex-direction:column; }
+  .notch { position:absolute; top:12px; left:50%; transform:translateX(-50%);
+           width:118px; height:30px; border-radius:16px; background:#1B1D21; z-index:30; }
+  .home-ind { position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+              width:134px; height:5px; border-radius:3px; background:rgba(29,33,41,.85); z-index:46; }
+
+  /* ===== 导航栏（白底） ===== */
+  .navwrap { flex:none; background:#fff; border-bottom:1px solid var(--line); }
+  .sb { height:52px; padding:18px 30px 0; display:flex; justify-content:space-between;
+        align-items:center; font-size:14px; font-weight:600; }
+  .sb .ic-set { display:flex; align-items:center; gap:7px; }
+  .navbar { height:46px; display:flex; align-items:center; padding:0 12px; }
+  .back { width:30px; height:30px; flex:none; border-radius:8px; background:var(--fill);
+          display:flex; align-items:center; justify-content:center; color:var(--text); }
+  .back svg { width:16px; height:16px; margin-left:-2px; }
+  .navbar h1 { flex:1; text-align:center; font-size:16px; font-weight:600; letter-spacing:1px; }
+  .n-right { width:30px; flex:none; display:flex; justify-content:flex-end; color:var(--t2); }
+  .n-right svg { width:19px; height:19px; }
+
+  /* ===== 内容区 ===== */
+  .content { flex:1; overflow:hidden; padding:12px 12px 0;
+             display:flex; flex-direction:column; gap:12px; }
+
+  /* 全宽分段：空间切换 */
+  .seg2 { display:flex; height:32px; padding:2px; background:#E5E6EB; border-radius:8px; }
+  .seg2 span { flex:1; display:flex; align-items:center; justify-content:center;
+               border-radius:6px; font-size:12.5px; color:var(--t2); }
+  .seg2 span.on { background:#fff; color:var(--blue); font-weight:600;
+                  box-shadow:0 1px 3px rgba(0,0,0,.08); }
+
+  /* 搜索框 */
+  .search { display:flex; align-items:center; gap:7px; height:36px; padding:0 12px;
+            background:var(--fill); border-radius:8px; color:var(--t3); }
+  .search svg { width:15px; height:15px; flex:none; }
+  .search span { font-size:12.5px; }
+
+  /* 面包屑 */
+  .crumb { display:flex; align-items:center; gap:6px; font-size:12px; padding:0 2px; }
+  .crumb a { color:var(--blue); font-weight:600; }
+  .crumb em { font-style:normal; color:var(--t3); }
+  .crumb b { font-weight:600; }
+  .crumb .cnt { margin-left:auto; font-size:11px; color:var(--t3);
+                font-variant-numeric:tabular-nums; }
+
+  /* ===== 状态小标签（全端统一） ===== */
+  .tag { display:inline-flex; align-items:center; gap:5px; height:22px; padding:0 8px;
+         border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .tag i { width:5px; height:5px; border-radius:50%; background:currentColor; }
+  .tag.ok   { background:var(--green-bg);  color:#0B8A37; }
+  .tag.fail { background:var(--red-bg);    color:var(--red); }
+  .tag.warn { background:var(--orange-bg); color:#D25F00; }
+  .tag.info { background:var(--blue-bg);   color:var(--blue); }
+
+  /* ===== 文件列表（单卡多行） ===== */
+  .flist { background:var(--card); border-radius:12px; box-shadow:var(--shadow);
+           overflow:hidden; }
+  .fl { display:flex; align-items:center; gap:10px; padding:10px 12px; }
+  .fl + .fl { border-top:1px solid var(--line); }
+  .ficon { width:36px; height:36px; flex:none; border-radius:10px;
+           background:var(--blue-bg); color:var(--navy);
+           display:flex; align-items:center; justify-content:center;
+           font-size:10.5px; font-weight:700; letter-spacing:.5px; }
+  .ficon svg { width:19px; height:19px; }
+  .fthumb { width:36px; height:36px; flex:none; border-radius:8px; }
+  .th1 { background:linear-gradient(0deg, rgba(58,86,48,.6) 0 17%, transparent 17.5%),
+          linear-gradient(160deg,#A8CBEF 0%,#5587C6 52%,#2C548C 100%); }
+  .fmain { flex:1; min-width:0; }
+  .fname { display:block; font-size:13.5px; font-weight:600;
+           overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fsub { display:block; margin-top:3px; font-size:11px; color:var(--t3);
+          font-variant-numeric:tabular-nums; }
+  .fsub em { font-style:normal; color:var(--blue); font-weight:600; }
+  .fmore { width:30px; height:30px; flex:none; display:flex; align-items:center;
+           justify-content:center; color:var(--t3); }
+  .fmore svg { width:17px; height:17px; }
+
+  /* 上传中内联行 */
+  .fprog { margin-top:6px; height:4px; border-radius:2px; background:#EBEDF1;
+           overflow:hidden; }
+  .fprog i { display:block; height:100%; width:46%; border-radius:2px; background:var(--blue); }
+  .fx { width:30px; height:30px; flex:none; display:flex; align-items:center;
+        justify-content:center; color:var(--t3); }
+  .fx svg { width:14px; height:14px; }
+
+  /* ===== FAB ===== */
+  .fab { position:absolute; right:16px; bottom:26px; z-index:25;
+         width:52px; height:52px; border-radius:50%; background:var(--blue);
+         display:flex; align-items:center; justify-content:center; color:#fff;
+         box-shadow:0 6px 16px rgba(14,61,168,.35); }
+  .fab svg { width:22px; height:22px; }
+
+  /* ===== 遮罩与底部弹层 ===== */
+  .mask { position:absolute; inset:0; background:rgba(29,33,41,.45); z-index:30; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; z-index:35;
+           background:#fff; border-radius:16px 16px 0 0; padding-bottom:22px; }
+  .grab { width:36px; height:4px; border-radius:2px; background:#E5E6EB;
+          margin:8px auto 4px; }
+  .sh-head { display:flex; align-items:center; gap:10px; padding:10px 14px 12px;
+             border-bottom:1px solid var(--line); }
+  .sh-head .fmain .fname { font-size:14px; }
+  .ac { display:flex; align-items:center; gap:11px; padding:0 16px; height:48px;
+        font-size:14px; font-weight:500; }
+  .ac svg { width:18px; height:18px; color:var(--t2); }
+  .ac.blue { color:var(--blue); font-weight:600; }
+  .ac.blue svg { color:var(--blue); }
+  .ac.danger { color:var(--red); }
+  .ac.danger svg { color:var(--red); }
+  .ac + .ac { border-top:1px solid var(--fill); }
+  .sh-cancel { margin:12px 12px 0; height:44px; border-radius:8px; background:var(--fill);
+               display:flex; align-items:center; justify-content:center;
+               font-size:14px; font-weight:600; color:var(--t2); }
+
+  /* 创建分享弹层 */
+  .sh-title { display:flex; align-items:center; padding:12px 16px 10px; }
+  .sh-title b { font-size:15.5px; font-weight:700; }
+  .sh-title .fx { margin-left:auto; }
+  .sh-body { padding:2px 16px 0; }
+  .kv { margin-top:12px; }
+  .kv label { display:block; font-size:11px; color:var(--t3); margin-bottom:7px; }
+  .mini-seg { display:flex; height:32px; padding:2px; background:#E5E6EB; border-radius:8px; }
+  .mini-seg span { flex:1; display:flex; align-items:center; justify-content:center;
+                   border-radius:6px; font-size:12.5px; color:var(--t2); }
+  .mini-seg span.on { background:#fff; color:var(--blue); font-weight:600;
+                      box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .codebox { display:flex; align-items:center; gap:10px; }
+  .codebox .cd { flex:1; height:38px; border-radius:8px; background:var(--fill);
+                 display:flex; align-items:center; justify-content:center;
+                 font-size:16px; font-weight:700; letter-spacing:6px;
+                 font-variant-numeric:tabular-nums; }
+  .codebox .rf { width:38px; height:38px; flex:none; border-radius:8px; background:var(--fill);
+                 display:flex; align-items:center; justify-content:center; color:var(--t2); }
+  .codebox .rf svg { width:16px; height:16px; }
+  .sh-note { margin-top:12px; background:var(--blue-bg); border-left:3px solid var(--blue);
+             padding:8px 10px; font-size:11.5px; line-height:1.6; color:var(--t2); }
+  .btn-block { margin:14px 0 0; height:42px; border-radius:8px; background:var(--blue);
+               color:#fff; display:flex; align-items:center; justify-content:center;
+               font-size:14px; font-weight:600; }
+
+  /* ===== 分享管理 ===== */
+  .notice { display:flex; align-items:center; gap:7px; background:var(--blue-bg);
+            border-left:3px solid var(--blue); padding:8px 10px;
+            font-size:11.5px; color:var(--t2); }
+  .notice svg { width:13px; height:13px; flex:none; color:var(--blue); }
+  .shcard { background:var(--card); border-radius:12px; box-shadow:var(--shadow);
+            overflow:hidden; }
+  .sc-body { padding:12px 14px 0; }
+  .sc-top { display:flex; align-items:center; gap:10px; }
+  .sc-top .tag { margin-left:auto; }
+  .sc-name { font-size:13.5px; font-weight:600; overflow:hidden;
+             text-overflow:ellipsis; white-space:nowrap; }
+  .sc-sub { margin-top:8px; font-size:11px; color:var(--t3); line-height:1.7;
+            font-variant-numeric:tabular-nums; }
+  .sc-sub em { font-style:normal; color:var(--text); font-weight:600; letter-spacing:2px; }
+  .sc-ops { margin:10px -14px 0; display:flex; border-top:1px solid var(--line); }
+  .sc-ops .op { flex:1; display:flex; align-items:center; justify-content:center; gap:5px;
+                padding:9px 0 10px; font-size:12px; font-weight:600; color:var(--t2); }
+  .sc-ops .op + .op { border-left:1px solid var(--line); }
+  .sc-ops .op svg { width:14px; height:14px; }
+  .sc-ops .op.blue { color:var(--blue); }
+  .sc-ops .op.danger { color:var(--red); }
+  .sc-ops .op.dim { color:#C9CDD4; }
+
+  /* ===== 入场 ===== */
+  @keyframes rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+  .a { animation:rise .5s var(--ease) both; animation-delay:var(--d,0s); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+  @media (max-width: 1780px) { .stage { zoom:.85; } }
+  @media (max-width: 1500px) { .stage { zoom:.72; } }
+  @media (max-width: 1240px) { .stage { zoom:.6; } }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="kicker">SHADE YIXIA · NEW APP</div>
+  <h1>政企蓝白 · <em>小程序团队网盘</em></h1>
+  <p>空间分段 + 单卡文件列表 + 内联分片上传 + 底部弹层操作 —— 外链分享全程 Shade 中转。</p>
+  <div class="palette">
+    <span class="sw"><i style="background:#0E3DA8"></i>品牌蓝 #0E3DA8</span>
+    <span class="sw"><i style="background:#E8F0FF"></i>浅蓝底 #E8F0FF</span>
+    <span class="sw"><i style="background:#00B42A"></i>生效中 #00B42A</span>
+    <span class="sw"><i style="background:#FF7D00"></i>已过期 #FF7D00</span>
+    <span class="sw"><i style="background:#F53F3F"></i>已停用 #F53F3F</span>
+    <span class="sw"><i style="background:#F5F7FA"></i>页面底 #F5F7FA</span>
+  </div>
+</header>
+
+<main class="stage">
+
+  <!-- ================= 屏 ① 空间浏览 · 分片上传 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="navwrap">
+          <div class="sb">
+            <span>9:41</span>
+            <div class="ic-set">
+              <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+              <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+              <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+          <div class="navbar">
+            <span class="back">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6l-6 6 6 6"/></svg>
+            </span>
+            <h1>团队网盘</h1>
+            <span class="n-right">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="content">
+          <div class="seg2 a" style="--d:.06s"><span>我的空间</span><span class="on">公共区</span></div>
+
+          <div class="search a" style="--d:.12s">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20.5 20.5L16 16"/></svg>
+            <span>搜索公共区文件名</span>
+          </div>
+
+          <div class="crumb a" style="--d:.18s">
+            <a>公共区</a><em>/</em><b>培训资料</b>
+            <span class="cnt">6 项</span>
+          </div>
+
+          <div class="flist a" style="--d:.24s">
+            <div class="fl">
+              <span class="ficon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+              </span>
+              <div class="fmain">
+                <span class="fname">制度文件</span>
+                <span class="fsub">12 项 · 09.30 更新</span>
+              </div>
+              <span class="fmore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+            </div>
+            <div class="fl">
+              <span class="ficon">PPT</span>
+              <div class="fmain">
+                <span class="fname">2026 年安全生产月培训.pptx</span>
+                <span class="fsub">23.6 MB · 10.05 · 王强</span>
+              </div>
+              <span class="fmore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+            </div>
+            <div class="fl">
+              <span class="ficon">DOC</span>
+              <div class="fmain">
+                <span class="fname">秋检工作方案.docx</span>
+                <span class="fsub">1.8 MB · 10.02 · 李军</span>
+              </div>
+              <span class="fmore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+            </div>
+            <div class="fl">
+              <span class="fthumb th1"></span>
+              <div class="fmain">
+                <span class="fname">#18 塔绝缘子更换.jpg</span>
+                <span class="fsub">3.4 MB · 09.28 · 王强</span>
+              </div>
+              <span class="fmore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+            </div>
+            <!-- 上传中内联行：分片进度 -->
+            <div class="fl">
+              <span class="ficon">PDF</span>
+              <div class="fmain">
+                <span class="fname">10kV 检修规程（2026）.pdf</span>
+                <div class="fprog"><i></i></div>
+                <span class="fsub"><em>23.4 / 50.8 MB · 46%</em> · 分片上传中</span>
+              </div>
+              <span class="tag info"><i></i>上传中</span>
+              <span class="fx">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </span>
+            </div>
+            <div class="fl">
+              <span class="ficon">XLS</span>
+              <div class="fmain">
+                <span class="fname">安全工器具台账.xlsx</span>
+                <span class="fsub">864 KB · 09.26 · 李军</span>
+              </div>
+              <span class="fmore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+            </div>
+          </div>
+        </div>
+
+        <span class="fab a" style="--d:.34s">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 1 1 .6-8.96A6 6 0 0 1 19 10.5 3.75 3.75 0 0 1 18 18H7z"/><path d="M12 11.5v6M9.5 14.5L12 12l2.5 2.5"/></svg>
+        </span>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i></i>① 空间浏览 · 分片上传　375 × 812</div>
+  </div>
+
+  <!-- ================= 屏 ② 文件操作面板 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="navwrap">
+          <div class="sb">
+            <span>9:41</span>
+            <div class="ic-set">
+              <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+              <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+              <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+          <div class="navbar">
+            <span class="back">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6l-6 6 6 6"/></svg>
+            </span>
+            <h1>团队网盘</h1>
+            <span class="n-right">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="content">
+          <div class="seg2 a" style="--d:.06s"><span>我的空间</span><span class="on">公共区</span></div>
+          <div class="flist a" style="--d:.12s">
+            <div class="fl">
+              <span class="ficon">PPT</span>
+              <div class="fmain">
+                <span class="fname">2026 年安全生产月培训.pptx</span>
+                <span class="fsub">23.6 MB · 10.05 · 王强</span>
+              </div>
+            </div>
+            <div class="fl">
+              <span class="ficon">DOC</span>
+              <div class="fmain">
+                <span class="fname">秋检工作方案.docx</span>
+                <span class="fsub">1.8 MB · 10.02 · 李军</span>
+              </div>
+            </div>
+            <div class="fl">
+              <span class="fthumb th1"></span>
+              <div class="fmain">
+                <span class="fname">#18 塔绝缘子更换.jpg</span>
+                <span class="fsub">3.4 MB · 09.28 · 王强</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 遮罩 + 底部操作面板 -->
+        <div class="mask a" style="--d:.2s"></div>
+        <div class="sheet a" style="--d:.26s">
+          <div class="grab"></div>
+          <div class="sh-head">
+            <span class="ficon">DOC</span>
+            <div class="fmain">
+              <span class="fname">秋检工作方案.docx</span>
+              <span class="fsub">1.8 MB · 10.02 · 李军</span>
+            </div>
+          </div>
+          <div style="padding-top:6px">
+            <div class="ac">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+              预览（微信内打开）
+            </div>
+            <div class="ac">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10.5M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 19.5h15"/></svg>
+              下载
+            </div>
+            <div class="ac blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7 .5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+              分享
+            </div>
+            <div class="ac">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4.5h13M17.5 1.5L21 4.5l-3.5 3M16 19.5H3M6.5 22.5L3 19.5l3.5-3"/></svg>
+              移动
+            </div>
+            <div class="ac">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              复制
+            </div>
+            <div class="ac">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5l.8-3.4L16 5.4a2 2 0 0 1 2.8 2.8L8.1 18.9z"/><path d="M14.5 7l2.5 2.5"/></svg>
+              重命名
+            </div>
+            <div class="ac danger">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.2 6.2V4.6h5.6v1.6M7 6.5l.8 13h8.4l.8-13M10.2 10.2v5.8M13.8 10.2v5.8"/></svg>
+              删除
+            </div>
+          </div>
+          <div class="sh-cancel">取消</div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i></i>② 文件操作面板　375 × 812</div>
+  </div>
+
+  <!-- ================= 屏 ③ 创建分享 ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="navwrap">
+          <div class="sb">
+            <span>9:41</span>
+            <div class="ic-set">
+              <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+              <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+              <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+          <div class="navbar">
+            <span class="back">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6l-6 6 6 6"/></svg>
+            </span>
+            <h1>团队网盘</h1>
+            <span class="n-right">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="content">
+          <div class="seg2 a" style="--d:.06s"><span>我的空间</span><span class="on">公共区</span></div>
+          <div class="flist a" style="--d:.12s">
+            <div class="fl">
+              <span class="ficon">PPT</span>
+              <div class="fmain">
+                <span class="fname">2026 年安全生产月培训.pptx</span>
+                <span class="fsub">23.6 MB · 10.05 · 王强</span>
+              </div>
+            </div>
+            <div class="fl">
+              <span class="ficon">DOC</span>
+              <div class="fmain">
+                <span class="fname">秋检工作方案.docx</span>
+                <span class="fsub">1.8 MB · 10.02 · 李军</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 遮罩 + 创建分享弹层 -->
+        <div class="mask a" style="--d:.2s"></div>
+        <div class="sheet a" style="--d:.26s">
+          <div class="grab"></div>
+          <div class="sh-title">
+            <b>创建分享</b>
+            <span class="fx">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </span>
+          </div>
+          <div class="sh-body">
+            <div class="fl" style="padding:8px 0 2px">
+              <span class="ficon">DOC</span>
+              <div class="fmain">
+                <span class="fname">秋检工作方案.docx</span>
+                <span class="fsub">已选 1 项 · 1.8 MB</span>
+              </div>
+            </div>
+            <div class="kv">
+              <label>有效期</label>
+              <div class="mini-seg"><span class="on">7 天</span><span>30 天</span><span>永久</span></div>
+            </div>
+            <div class="kv">
+              <label>提取码（自动生成，可刷新）</label>
+              <div class="codebox">
+                <span class="cd">8K2F</span>
+                <span class="rf">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4h-4"/></svg>
+                </span>
+              </div>
+            </div>
+            <div class="sh-note">外部人员凭链接 + 提取码访问；链接经 Shade 中转，对方无需登录、无需安装。</div>
+            <div class="btn-block">生成分享链接</div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i></i>③ 创建分享　375 × 812</div>
+  </div>
+
+  <!-- ================= 屏 ④ 分享管理（班管视角） ================= -->
+  <div class="unit">
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="navwrap">
+          <div class="sb">
+            <span>9:41</span>
+            <div class="ic-set">
+              <svg width="17" height="12" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6.5" width="3" height="7.5" rx="1"/><rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="1.5" width="3" height="12.5" rx="1"/></svg>
+              <svg width="16" height="12" viewBox="0 0 16 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.3C5.2 1 10.8 1 14.5 4.3"/><path d="M4 7c2.4-2.1 5.6-2.1 8 0"/><path d="M6.4 9.6c1.2-1 2-1 3.2 0"/><circle cx="8" cy="11.6" r="1" fill="currentColor" stroke="none"/></svg>
+              <svg width="25" height="12" viewBox="0 0 27 14" fill="none"><rect x="1" y="1" width="21" height="12" rx="3.5" stroke="currentColor" stroke-width="1.4"/><rect x="3.5" y="3.5" width="13" height="7" rx="1.8" fill="currentColor"/><path d="M24.3 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+          <div class="navbar">
+            <span class="back">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6l-6 6 6 6"/></svg>
+            </span>
+            <h1>分享管理</h1>
+            <span class="n-right"></span>
+          </div>
+        </div>
+
+        <div class="content">
+          <div class="seg2 a" style="--d:.06s"><span>我创建的</span><span class="on">全部（班管）</span></div>
+
+          <div class="notice a" style="--d:.12s">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".9" fill="currentColor" stroke="none"/></svg>
+            班管 / 超管可查看并取消班内全部分享链接
+          </div>
+
+          <div class="shcard a" style="--d:.18s">
+            <div class="sc-body">
+              <div class="sc-top">
+                <span class="ficon">XLS</span>
+                <span class="sc-name">安全工器具台账.xlsx</span>
+                <span class="tag ok"><i></i>生效中</span>
+              </div>
+              <div class="sc-sub">提取码 <em>3M9Q</em> · 有效期至 10.14 · 李军 创建于 10.07</div>
+            </div>
+            <div class="sc-ops">
+              <span class="op blue">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                复制链接
+              </span>
+              <span class="op">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="8.4"/><path d="M9.5 9.5v5M14.5 9.5v5"/></svg>
+                停用
+              </span>
+              <span class="op danger">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.2 6.2V4.6h5.6v1.6M7 6.5l.8 13h8.4l.8-13M10.2 10.2v5.8M13.8 10.2v5.8"/></svg>
+                删除
+              </span>
+            </div>
+          </div>
+
+          <div class="shcard a" style="--d:.24s">
+            <div class="sc-body">
+              <div class="sc-top">
+                <span class="ficon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+                </span>
+                <span class="sc-name">班组相册 · 9 月</span>
+                <span class="tag fail"><i></i>已停用</span>
+              </div>
+              <div class="sc-sub">提取码 <em>7TQ2</em> · 永久 · 王强 创建于 09.30</div>
+            </div>
+            <div class="sc-ops">
+              <span class="op dim">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                复制链接
+              </span>
+              <span class="op blue">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                重新启用
+              </span>
+              <span class="op danger">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.2 6.2V4.6h5.6v1.6M7 6.5l.8 13h8.4l.8-13M10.2 10.2v5.8M13.8 10.2v5.8"/></svg>
+                删除
+              </span>
+            </div>
+          </div>
+
+          <div class="shcard a" style="--d:.3s">
+            <div class="sc-body">
+              <div class="sc-top">
+                <span class="ficon">DOC</span>
+                <span class="sc-name">秋检工作方案.docx</span>
+                <span class="tag warn"><i></i>已过期</span>
+              </div>
+              <div class="sc-sub">提取码 <em>8K2F</em> · 已于 09.30 过期 · 王强 创建于 09.23</div>
+            </div>
+            <div class="sc-ops">
+              <span class="op dim">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                复制链接
+              </span>
+              <span class="op danger">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M9.2 6.2V4.6h5.6v1.6M7 6.5l.8 13h8.4l.8-13M10.2 10.2v5.8M13.8 10.2v5.8"/></svg>
+                删除记录
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-ind"></div>
+      </div>
+    </div>
+    <div class="cap"><i></i>④ 分享管理（班管视角）　375 × 812</div>
+  </div>
+
+</main>
+
+</body>
+</html>
