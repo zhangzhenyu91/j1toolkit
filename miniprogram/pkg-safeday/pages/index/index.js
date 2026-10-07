@@ -9,6 +9,7 @@
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { BASE_URL } from '../../../config';
+import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf } from '../../../utils/util';
@@ -72,6 +73,9 @@ Page({
     cntText: '加载中…',
     loading: true,
     openingId: '', // 正在下载打开的记录 id
+    // 网盘联动（「存网盘」按钮）：未开通（40301）/未配置（50301）时隐藏
+    ndOk: false,
+    savingNd: '', // 正在存网盘的记录 id
     // 记录名称确认弹层
     genOpen: false,
     nameDraft: '',
@@ -115,9 +119,30 @@ Page({
     if (this.data.gate) return;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
     // 门控与生效班组确定由 teamgate behavior 完成（非超管未分配班组 → noTeam 空态，不再加载）
-    if (!this.passTeamGate(user, () => this.refreshRecords(true))) {
+    if (!this.passTeamGate(user, () => {
+      this.refreshRecords(true);
+      this.probeNetdisk();
+    })) {
       this.setData({ cntText: '' });
     }
+  },
+
+  // 网盘可用性探测（失败即隐藏「存网盘」入口；40301 未开通网盘应用 / 50301 网盘未配置）
+  probeNetdisk() {
+    request({ url: '/api/v1/netdisk/spaces', timeout: 10000 })
+      .then(() => this.setData({ ndOk: true }))
+      .catch(() => this.setData({ ndOk: false }));
+  },
+
+  // 记录产物存网盘（sdFetch：{ok:true, path}；未开通/未配置时 toast 后端原文）
+  onSaveNetdisk(e) {
+    const id = String(e.currentTarget.dataset.id || '');
+    if (!id || this.data.savingNd) return;
+    this.setData({ savingNd: id });
+    this.sdFetch(`/records/${encodeURIComponent(id)}/save-netdisk`, { method: 'POST', timeout: 120000 })
+      .then((data) => this.toast(`已保存到网盘：${(data && data.path) || ''}`))
+      .catch((err) => this.toast(err.message || '保存失败'))
+      .finally(() => this.setData({ savingNd: '' }));
   },
 
   // 超管主动切换班组后重拉记录列表（teamgate behavior 回调）；

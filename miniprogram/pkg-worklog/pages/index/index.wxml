@@ -721,6 +721,16 @@
       </view>
     </scroll-view>
 
+    <!-- PDF 行：按日期范围全量生成（与勾选无关）；照片多耗时长，生成期间共用 pdfBusy 锁 -->
+    <view class="dl-pdf">
+      <view class="dl-pdf-btn {{pdfBusy ? 'disabled' : ''}}" hover-class="{{pdfBusy ? '' : 'hover-opacity'}}" bindtap="onDlPdf">
+        <t-icon name="file-pdf" size="30rpx" color="#0E3DA8" />下载为 PDF
+      </view>
+      <view class="dl-pdf-btn {{pdfBusy ? 'disabled' : ''}}" hover-class="{{pdfBusy ? '' : 'hover-opacity'}}" bindtap="onDlPdfSave">
+        <t-icon name="folder-import" size="30rpx" color="#0E3DA8" />PDF 存网盘
+      </view>
+    </view>
+
     <!-- 底部固定栏：全选 + 已选计数 / 下载主按钮 -->
     <view class="dl-foot">
       <view class="dl-all" hover-class="hover-opacity" bindtap="onDlToggleAll">

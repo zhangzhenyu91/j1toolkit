@@ -14,6 +14,9 @@
     <view class="gen {{!from || !to || generating ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenerate">
       {{generating ? '正在生成…' : '生成并打开'}}
     </view>
+    <view class="gen nd {{savingNd || generating ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onSaveNetdisk">
+      {{savingNd ? '正在存网盘…' : '存网盘'}}
+    </view>
   </view>
 
   <view class="hint">

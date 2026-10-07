@@ -17,6 +17,7 @@ const { convertToPdf } = require('./convert');
 const dify = require('./dify');
 const render = require('./render');
 const { pool } = require('../db');
+const netdiskSave = require('../netdisk/save');
 const tokenQuery = require('../utils/tokenQuery');
 const { buildPreviewUrl } = require('../utils/preview');
 const { getFileExt, fixLatin1Name } = require('../utils/file');
@@ -366,6 +367,33 @@ router.get(['/records/:id/download', '/records/:id/download/:name([^/]+\\.[a-zA-
     return res.status(404).json({ ok: false, error: '文件不存在，可能已被清理' });
   }
   return res.download(filePath, record.fileName);
+});
+
+// 保存到网盘（我的空间/安全日记录/；须持 netdisk 应用权限）
+router.post('/records/:id/save-netdisk', async (req, res) => {
+  try {
+    const record = store.get(req.params.id);
+    if (!record || record.status !== 'done') {
+      return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
+    }
+    if (!(await canAccess(req, record))) {
+      return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
+    }
+    const filePath = recordFilePath(record);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ ok: false, error: '文件不存在，可能已被清理' });
+    }
+    const path = await netdiskSave.saveToNetdisk(req.user, {
+      dir: '安全日记录',
+      name: record.fileName,
+      body: fs.createReadStream(filePath),
+      size: fs.statSync(filePath).size,
+    });
+    return res.json({ ok: true, path });
+  } catch (e) {
+    const status = (e && e.expose && e.status) || 500;
+    return res.status(status).json({ ok: false, error: (e && e.message) || '保存失败' });
+  }
 });
 
 // 在线预览：拼接在线预览地址（微软 Office 查看器，凭地址内 ?token= 回源拉取文件，见 utils/preview.js 与 token 映射中间件）

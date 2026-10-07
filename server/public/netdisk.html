@@ -127,14 +127,18 @@
   .crumb b { font-weight: 600; word-break: break-all; }
   .searchw {
     margin-left: auto; display: flex; align-items: center; gap: 7px; height: 34px;
-    width: 250px; padding: 0 12px; background: var(--fill); border-radius: 8px; color: var(--ph);
+    width: 280px; padding: 0 12px; background: #fff; border: 1px solid var(--line);
+    border-radius: 8px; color: var(--sub);
+    transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
   }
+  .searchw:hover { border-color: var(--orange); }
+  .searchw:focus-within { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(14, 61, 168, .12); }
   .searchw > svg { width: 14px; height: 14px; flex: none; }
   .searchw input {
     flex: 1; min-width: 0; border: none; outline: none; background: transparent;
     font-size: 12.5px; color: var(--navy); font-family: inherit;
   }
-  .searchw input::placeholder { color: var(--ph); }
+  .searchw input::placeholder { color: var(--sub); }
   .sw-x {
     flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--dash); color: #fff;
     display: flex; align-items: center; justify-content: center; cursor: pointer;
@@ -373,6 +377,11 @@
   }
   .rtable td { font-size: 13px; padding: 10px 16px; border-top: 1px solid var(--fill); vertical-align: middle; }
   .rtable tbody tr:hover { background: var(--fill); }
+  /* 分享管理行编排式上浮入场（与格子同一 cellIn 口径，stagger 36ms、封顶 860ms ≤0.9s） */
+  .rtable tbody tr.row-in { animation: cellIn .42s var(--ease) both; }
+  /* 页签切换内容淡入 */
+  #viewFiles.view-in, #viewShares.view-in { animation: viewIn .3s var(--ease); }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } }
   .nm-cell { display: flex; align-items: center; gap: 11px; min-width: 0; }
   .nm-wrap { min-width: 0; }
   .nm { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
@@ -1554,7 +1563,7 @@
     var head = canManageRole
       ? '<th>分享内容</th><th style="width:92px">提取码</th><th style="width:120px">有效期至</th><th style="width:110px">创建人</th><th style="width:120px">创建时间</th><th style="width:92px">状态</th><th style="width:196px">操作</th>'
       : '<th>分享内容</th><th style="width:92px">提取码</th><th style="width:120px">有效期至</th><th style="width:120px">创建时间</th><th style="width:92px">状态</th><th style="width:196px">操作</th>';
-    var rows = list.map(function (s) {
+    var rows = list.map(function (s, idx) {
       var n = (s.items || []).length;
       var first = n ? s.items[0] : '';
       var single = n === 1;
@@ -1570,7 +1579,7 @@
       if (s.state === 'active') ops.push('<span class="lk gray" data-op="disable">停用</span>');
       if (s.state === 'disabled') ops.push('<span class="lk" data-op="enable">重新启用</span>');
       ops.push('<span class="lk red" data-op="del">' + (s.state === 'expired' ? '删除记录' : '删除') + '</span>');
-      return '<tr data-sid="' + esc(s.share_id) + '">'
+      return '<tr class="row-in" style="animation-delay:' + Math.min(idx * 36, 860) + 'ms" data-sid="' + esc(s.share_id) + '">'
         + '<td><div class="nm-cell">' + icon + '<div class="nm-wrap"><span class="nm" title="' + esc(nm) + '">' + esc(nm) + '</span>'
         + (single ? '' : '<span class="nm-sub">共 ' + n + ' 项</span>') + '</div></div></td>'
         + '<td class="code">' + (s.password ? esc(s.password) : '—') + '</td>'
@@ -1900,6 +1909,11 @@
         $$('.nd-tab').forEach(function (x) { x.classList.toggle('on', x === b); });
         $('#viewFiles').hidden = S.view !== 'files';
         $('#viewShares').hidden = S.view !== 'shares';
+        // 页签切换内容淡入（重触发：去类 → 强制回流 → 加类）
+        var view = S.view === 'shares' ? $('#viewShares') : $('#viewFiles');
+        view.classList.remove('view-in');
+        void view.offsetWidth;
+        view.classList.add('view-in');
         closeCtxMenu();
         if (S.view === 'shares') loadShares();
         else { renderGrid(); renderStatus(); }

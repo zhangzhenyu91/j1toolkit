@@ -14,6 +14,9 @@ const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
 const glkvm = require('./glkvm');
 const devlock = require('./devlock');
+const netdiskSave = require('../netdisk/save');
+const { spaceRootOf, normRel } = require('../netdisk/space');
+const netdiskOl = require('../netdisk/openlist');
 
 const router = express.Router();
 
@@ -279,6 +282,63 @@ router.post('/devices/:id/delete', requireAnyApp(KVM_OR_FT), async (req, res) =>
       { headers: { Cookie: ps.cookie }, timeout: 60000 });
     return ok(res, r.data);
   } catch (err) {
+    return relayFail(res, err);
+  }
+});
+
+// 网盘 → 设备：从团队网盘拉文件推送到设备 U 盘（须另持 netdisk 应用权限；个人/公共区均可作来源）
+router.post('/devices/:id/pull-from-netdisk', requireAnyApp(KVM_OR_FT), async (req, res) => {
+  try {
+    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
+    await netdiskSave.assertNetdiskAccess(req.user.id);
+    const root = await spaceRootOf(req.user, String((req.body && req.body.space) || ''));
+    if (!root) return fail(res, 400, 40001, '参数错误：space（或未分配班组无公共区）');
+    const rel = normRel(req.body && req.body.path);
+    if (!rel || rel === '/') return fail(res, 400, 40001, '路径不合法');
+    const name = rel.split('/').pop();
+    // 网盘侧拉流（buffer 化后经 FormData 推设备，与既有 push 口径一致）
+    const r = await netdiskOl.downloadStream(rel === '/' ? root : `${root}${rel}`);
+    const chunks = [];
+    for await (const c of r.data) chunks.push(c);
+    const buf = Buffer.concat(chunks);
+    if (!buf.length) return fail(res, 502, 50201, '网盘侧文件拉取为空');
+    const ps = await glkvm.getProxySession(req.params.id, req.user.username);
+    const fd = new FormData();
+    fd.append('files', buf, { filename: name });
+    await axios.post(`${ps.origin}/api/fileshare/push`, fd, {
+      headers: { ...fd.getHeaders(), Cookie: ps.cookie },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      timeout: 0, // 大文件经两跳转发耗时不可预估
+    });
+    return ok(res, { name, size: buf.length }, '已从网盘推送到设备');
+  } catch (err) {
+    if (err && err.expose) return fail(res, err.status || 502, err.code || 50201, err.message);
+    return relayFail(res, err);
+  }
+});
+
+// 设备 → 网盘：设备 U 盘文件保存到团队网盘（我的空间/文件传输/；须另持 netdisk 应用权限）
+router.post('/devices/:id/save-to-netdisk', requireAnyApp(KVM_OR_FT), async (req, res) => {
+  try {
+    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+    if (!dev) return; // 维护锁命中时已响应 423
+    await netdiskSave.assertNetdiskAccess(req.user.id);
+    const name = String((req.body && req.body.name) || '');
+    if (!name) return fail(res, 400, 40001, '参数错误：name');
+    const ps = await glkvm.getProxySession(req.params.id, req.user.username);
+    const r = await axios.get(
+      `${ps.origin}/api/fileshare/download/${encodeURIComponent(name)}`,
+      { headers: { Cookie: ps.cookie }, responseType: 'stream', timeout: 0 }
+    );
+    const size = Number(r.headers['content-length'] || 0) || undefined;
+    const path = await netdiskSave.saveToNetdisk(req.user, {
+      dir: '文件传输', name, body: r.data, size,
+    });
+    return ok(res, { path }, '已保存到网盘');
+  } catch (err) {
+    if (err && err.expose) return fail(res, err.status || 502, err.code || 50201, err.message);
     return relayFail(res, err);
   }
 });

@@ -74,6 +74,14 @@ Page({
     dlLoading: false, // 「获取文件列表」执行中（断开共享并拉列表）
     downloading: '', // 正在下载的文件名
     mounting: false, // 正在挂载到目标计算机
+    // 网盘联动（「从网盘选择」/「存网盘」入口；未开通 40301 / 未配置 50301 探测失败即隐藏）
+    ndOk: false,
+    ndSpaces: [{ key: 'my', name: '我的空间', label: '我的空间' }],
+    ndHasPublic: false,
+    savingNd: '', // 正在存网盘的设备文件名
+    // 网盘文件选择弹层（文件夹可进入，仅文件可选中）
+    ndPicker: { open: false, space: 'my', dir: '/', items: [], loading: false, error: '', selected: '', saving: false },
+    ndCrumbs: [],
   },
 
   onLoad() {
@@ -100,6 +108,7 @@ Page({
     this.passTeamGate(user, () => {
       this.loadDevices('init');
       this.startTimer();
+      this.probeNetdisk();
     });
   },
 
@@ -525,6 +534,148 @@ Page({
     } finally {
       this.setData({ mounting: false });
     }
+  },
+
+  /* ==================== 网盘联动（从网盘拉取到设备 / 设备文件存网盘） ==================== */
+
+  // 网盘可用性探测：成功缓存空间分段（公共区带班组名，选择弹层默认选中公共区，同网盘主页口径）；
+  // 失败（40301 未开通 / 50301 未配置 / 网络异常）即隐藏两个入口
+  probeNetdisk() {
+    request({ url: '/api/v1/netdisk/spaces', timeout: 10000 })
+      .then((data) => {
+        const raw = (data && data.spaces) || [];
+        const pub = raw.find((s) => s.key === 'public');
+        this.setData({
+          ndOk: true,
+          ndHasPublic: !!pub,
+          ndSpaces: (raw.length ? raw : [{ key: 'my', name: '我的空间' }]).map((s) => ({
+            ...s,
+            label: s.key === 'public' && s.team ? `${s.name} · ${s.team}` : s.name,
+          })),
+        });
+      })
+      .catch(() => this.setData({ ndOk: false }));
+  },
+
+  onOpenNdPicker() {
+    this.setData({
+      ndPicker: {
+        open: true,
+        space: this.data.ndHasPublic ? 'public' : 'my',
+        dir: '/',
+        items: [], loading: true, error: '', selected: '', saving: false,
+      },
+    });
+    this.loadNdList();
+  },
+
+  onNdCancel() {
+    if (this.data.ndPicker.saving) return;
+    this.setData({ 'ndPicker.open': false });
+  },
+
+  // 拉取中不允许遮罩关闭
+  onNdVisibleChange(e) {
+    if (e.detail.visible) return;
+    if (this.data.ndPicker.saving) {
+      this.setData({ 'ndPicker.open': true });
+      return;
+    }
+    if (this.data.ndPicker.open) this.setData({ 'ndPicker.open': false });
+  },
+
+  // 面包屑：空间名 / 各级目录（父级可点）
+  buildNdCrumbs() {
+    const p = this.data.ndPicker;
+    const cur = this.data.ndSpaces.find((s) => s.key === p.space);
+    const segs = p.dir.split('/').filter(Boolean);
+    const crumbs = [{ name: cur ? cur.name : p.space, path: '/', last: segs.length === 0 }];
+    segs.forEach((s, i) => {
+      crumbs.push({ name: s, path: `/${segs.slice(0, i + 1).join('/')}`, last: i === segs.length - 1 });
+    });
+    this.setData({ ndCrumbs: crumbs });
+  },
+
+  // 当前目录列表（文件夹在前；文件行点按选中）
+  async loadNdList() {
+    const p = this.data.ndPicker;
+    this.setData({ 'ndPicker.loading': true, 'ndPicker.error': '' });
+    this.buildNdCrumbs();
+    try {
+      const data = await request({ url: '/api/v1/netdisk/list', method: 'POST', data: { space: p.space, path: p.dir } });
+      const rows = ((data && data.items) || []).map((o) => ({
+        name: o.name,
+        isDir: !!o.is_dir,
+        icon: o.is_dir ? 'folder' : iconOf(o.name), // 复用本页图标口径（file/file-image/video）
+        sizeText: fmtSize(o.size || 0),
+        fullPath: p.dir === '/' ? `/${o.name}` : `${p.dir}/${o.name}`,
+      }));
+      this.setData({
+        'ndPicker.items': rows.filter((r) => r.isDir).concat(rows.filter((r) => !r.isDir)),
+        'ndPicker.loading': false,
+      });
+    } catch (err) {
+      this.setData({ 'ndPicker.loading': false, 'ndPicker.error': err.message || '目录加载失败' });
+    }
+  },
+
+  onNdSpaceTap(e) {
+    const key = e.currentTarget.dataset.key;
+    if (!key || key === this.data.ndPicker.space) return;
+    this.setData({ 'ndPicker.space': key, 'ndPicker.dir': '/', 'ndPicker.items': [], 'ndPicker.selected': '' });
+    this.loadNdList();
+  },
+
+  onNdCrumbTap(e) {
+    const path = e.currentTarget.dataset.path;
+    if (path === this.data.ndPicker.dir) return;
+    this.setData({ 'ndPicker.dir': path, 'ndPicker.items': [], 'ndPicker.selected': '' });
+    this.loadNdList();
+  },
+
+  // 文件夹进入；文件选中/取消选中
+  onNdRowTap(e) {
+    const item = e.currentTarget.dataset.item;
+    if (item.isDir) {
+      this.setData({ 'ndPicker.dir': item.fullPath, 'ndPicker.items': [], 'ndPicker.selected': '' });
+      this.loadNdList();
+      return;
+    }
+    this.setData({ 'ndPicker.selected': this.data.ndPicker.selected === item.fullPath ? '' : item.fullPath });
+  },
+
+  // 确认：网盘文件推送到当前上传目标设备（path 为空间内相对路径）
+  onNdConfirm() {
+    const p = this.data.ndPicker;
+    const dev = this.data.upDevice;
+    if (!p.selected || p.saving || !dev.id) return;
+    this.setData({ 'ndPicker.saving': true });
+    request({
+      url: `/api/v1/kvm/devices/${dev.id}/pull-from-netdisk`,
+      method: 'POST',
+      timeout: 120000,
+      data: this.teamBody({ space: p.space, path: p.selected }),
+    }).then(() => {
+      this.setData({ 'ndPicker.open': false, upOpen: false, upFiles: [] });
+      this.toast('已从网盘推送到设备');
+    }).catch((err) => this.toast(err.message))
+      .finally(() => this.setData({ 'ndPicker.saving': false }));
+  },
+
+  // 设备文件存网盘（下载弹层行内按钮；成功 toast 返回路径）
+  onSaveToNetdisk(e) {
+    const { name } = e.currentTarget.dataset;
+    const dev = this.data.dlDevice;
+    if (!name || !dev.id || this.data.savingNd) return;
+    this.setData({ savingNd: name });
+    request({
+      url: `/api/v1/kvm/devices/${dev.id}/save-to-netdisk`,
+      method: 'POST',
+      timeout: 120000,
+      data: this.teamBody({ name }),
+    }).then((data) => this.toast(`已保存到网盘：${(data && data.path) || ''}`))
+      .catch((err) => this.toast(err.message))
+      .finally(() => this.setData({ savingNd: '' }));
   },
 
   onShareAppMessage() {

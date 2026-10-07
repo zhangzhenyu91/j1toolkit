@@ -1055,6 +1055,32 @@ page {
 }
 
 /* ---------- 下载面板底部固定栏 ---------- */
+/* PDF 行（下载为 PDF / PDF 存网盘；浅蓝底蓝字次按钮） */
+.dl-pdf {
+  flex: none;
+  display: flex;
+  gap: 20rpx;
+  margin-top: 16rpx;
+}
+
+.dl-pdf-btn {
+  flex: 1;
+  height: 72rpx;
+  border-radius: 12rpx;
+  background: #E8F0FF;
+  color: #0E3DA8;
+  font-size: 26rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+
+.dl-pdf-btn.disabled {
+  opacity: 0.5;
+}
+
 .dl-foot {
   flex: none;
   display: flex;

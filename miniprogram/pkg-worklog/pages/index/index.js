@@ -247,6 +247,7 @@ Page({
     dlSelected: 0,
     dlAllChecked: false,
     dlLoading: false,
+    pdfBusy: false, // PDF 生成中（下载为 PDF / PDF 存网盘共用锁）
     // 下载面板改日期（range 日历；与下载面板互斥开合，避免叠层 z-index 冲突）
     dlCalVisible: false,
     dlCalValue: null,
@@ -2913,6 +2914,59 @@ Page({
     }
     wx.hideLoading();
     this.toast(`已保存 ${saved} 张到相册`);
+  },
+
+  // 下载为 PDF：范围内水印照片组合 PDF（每卡两张一页、同页只放同一卡片，后端排版），下载后打开
+  onDlPdf() {
+    const { dlFrom, dlTo, pdfBusy } = this.data;
+    if (pdfBusy) return;
+    this.setData({ pdfBusy: true });
+    wx.showLoading({ title: '正在生成 PDF…', mask: true }); // 照片多耗时长，全程 loading
+    wx.downloadFile({
+      url: `${BASE_URL}/api/v1/worklog/photos.pdf?from=${dlFrom}&to=${dlTo}${this.teamQuery()}`,
+      header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
+      timeout: 120000,
+      // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
+      filePath: `${wx.env.USER_DATA_PATH}/水印照片-${dlFrom}至${dlTo}.pdf`,
+      success: (r) => {
+        if (r.statusCode !== 200) {
+          this.toast(r.statusCode === 404 ? '该范围内暂无水印照片' : `生成失败（${r.statusCode}）`);
+          return;
+        }
+        wx.openDocument({
+          filePath: r.filePath,
+          fileType: 'pdf',
+          showMenu: true, // 右上角菜单可另存/转发
+          fail: () => this.toast('该类型暂不支持打开'),
+        });
+      },
+      fail: () => this.toast('网络异常，请检查网络后重试'),
+      complete: () => {
+        wx.hideLoading();
+        this.setData({ pdfBusy: false });
+      },
+    });
+  },
+
+  // PDF 存网盘：同一范围在后端生成并转存网盘（failed 为合成失败的照片数）
+  onDlPdfSave() {
+    const { dlFrom, dlTo, pdfBusy } = this.data;
+    if (pdfBusy) return;
+    this.setData({ pdfBusy: true });
+    wx.showLoading({ title: '正在生成并存网盘…', mask: true });
+    request({
+      url: '/api/v1/worklog/photos-pdf/save-netdisk',
+      method: 'POST',
+      timeout: 120000,
+      data: this.teamBody({ from: dlFrom, to: dlTo }),
+    }).then((data) => {
+      const failed = data && data.failed ? `，${data.failed} 张照片合成失败` : '';
+      this.toast(`已保存到网盘：${(data && data.path) || ''}${failed}`);
+    }).catch((err) => this.toast(err.message))
+      .finally(() => {
+        wx.hideLoading();
+        this.setData({ pdfBusy: false });
+      });
   },
 
   // ---------- 汇总前核验（替代原「验证报告」；按月列未通过记录，默认当月可翻月，数据取 /worklog/report） ----------

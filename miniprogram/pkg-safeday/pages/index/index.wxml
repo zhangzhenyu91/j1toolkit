@@ -138,6 +138,16 @@
             <text>打开</text>
           </block>
         </view>
+        <!-- 存网盘（仅已生成记录且网盘可用时显示；未开通/未配置探测失败即隐藏） -->
+        <view wx:if="{{item.done && ndOk}}" class="opb" hover-class="hover-opacity" catchtap="onSaveNetdisk" data-id="{{item.id}}">
+          <block wx:if="{{savingNd === item.id}}">
+            <text class="opb-ing">保存中…</text>
+          </block>
+          <block wx:else>
+            <t-icon name="upload" size="30rpx" color="#0E3DA8" />
+            <text>存网盘</text>
+          </block>
+        </view>
         <view class="opb del" hover-class="hover-opacity" catchtap="onDeleteRecord"
               data-id="{{item.id}}" data-name="{{item.name}}">
           <t-icon name="delete" size="30rpx" color="#4E5969" />

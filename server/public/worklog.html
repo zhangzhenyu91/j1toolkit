@@ -26,6 +26,9 @@
      非超管不可改派车 / 删除，他班跨班卡不渲染商旅打卡区与「从商旅同步」入口）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
      非超管固定本班、未分配班组整页空态（屏十口径）；
+     批量下载页签另有 组合 PDF：GET /photos.pdf 下载（apiRaw+saveBlob）、POST /photos-pdf/save-netdisk 存网盘；
+     工作任务单/费用汇总/派车汇总页签各有「存网盘」（POST /sheet/save-netdisk，核验拦截同下载口径 force=1 强执）；
+     存网盘入口依赖网盘可用性探测（GET /api/v1/netdisk/spaces，403 未开通 / 503 未配置则保持隐藏）；
      API 直连主平台 /api/v1/worklog/*（Bearer token 经 Shade.api），ZIP 打包走 POST /api/v1/worklog/zip（fetch + blob） -->
 <html lang="zh-CN">
 <head>
@@ -1071,7 +1074,11 @@
         <div class="pane-foot">
           <span class="rep-mine on" id="dlAll"><span class="sw"></span>全选</span>
           <span class="dl-meta" id="dlSelCnt"></span>
-          <span class="sp"><button class="btn btn-accent" id="dlGo" disabled></button></span>
+          <span class="sp">
+            <button class="btn" id="dlPdf"></button>
+            <button class="btn nd-save" id="dlPdfNd" hidden></button>
+            <button class="btn btn-accent" id="dlGo" disabled></button>
+          </span>
         </div>
       </div>
 
@@ -1113,6 +1120,7 @@
           <span class="sp">
             <button class="btn" id="tsPrev">预览</button>
             <button class="btn btn-accent" id="tsDl">下载 Word</button>
+            <button class="btn nd-save" id="tsNd" hidden>存网盘</button>
           </span>
         </div>
       </div>
@@ -1153,6 +1161,7 @@
           <span class="sp">
             <button class="btn" id="fsPrev">预览</button>
             <button class="btn btn-accent" id="fsDl">下载 Word</button>
+            <button class="btn nd-save" id="fsNd" hidden>存网盘</button>
           </span>
         </div>
       </div>
@@ -1177,6 +1186,7 @@
         <div class="pane-foot">
           <span class="sp">
             <button class="btn btn-accent" id="dsDl">下载 Excel</button>
+            <button class="btn nd-save" id="dsNd" hidden>存网盘</button>
           </span>
         </div>
       </div>
@@ -4533,6 +4543,72 @@ async function dispatchSheetDownload(btn) {
   btn.disabled = false;
 }
 
+/* ================= 存网盘（团队网盘应用；页载探测 /netdisk/spaces，403 未开通 / 503 未配置则入口保持隐藏） ================= */
+var ndOk = false;
+function probeNetdisk() {
+  Shade.api('/api/v1/netdisk/spaces').then(function () {
+    if (ndOk) return;
+    ndOk = true;
+    $$('.nd-save').forEach(function (b) { b.hidden = false; });
+  }).catch(function () { /* 网盘不可用：保持隐藏 */ });
+}
+
+/* 批量下载页签：GET /api/v1/worklog/photos.pdf?from&to 组合 PDF 下载（生成耗时随照片数，按钮 loading；apiRaw + saveBlob） */
+async function photosPdfDownload(btn) {
+  if (!state.dl.from || !state.dl.to) { Shade.toast('请选择起止日期', 'info'); return; }
+  btn.disabled = true;
+  var old = btn.innerHTML;
+  btn.innerHTML = Shade.icon('file', 15) + 'PDF 生成中…';
+  try {
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/photos.pdf?from=' + state.dl.from + '&to=' + state.dl.to));
+    if (!res.ok) {
+      var ej = null;
+      try { ej = await res.json(); } catch (e) { }
+      throw new Error((ej && (ej.message || ej.error)) || ('PDF 生成失败（' + res.status + '）'));
+    }
+    await Shade.saveBlob(res, '水印照片.pdf');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = old;
+}
+
+/* 批量下载页签：POST /api/v1/worklog/photos-pdf/save-netdisk {from,to} 组合 PDF 存网盘（我的空间/出工日志/） */
+async function photosPdfSaveNd(btn) {
+  if (!state.dl.from || !state.dl.to) { Shade.toast('请选择起止日期', 'info'); return; }
+  btn.disabled = true;
+  var old = btn.innerHTML;
+  btn.innerHTML = Shade.icon('cloud', 15) + '保存中…';
+  try {
+    var r = await Shade.api(wl('/api/v1/worklog/photos-pdf/save-netdisk'), {
+      method: 'POST', body: { from: state.dl.from, to: state.dl.to }
+    });
+    Shade.toast('已保存到网盘：' + ((r.data && r.data.path) || ''), 'success');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = old;
+}
+
+/* 工作任务单 / 费用汇总 / 派车汇总存网盘：POST /api/v1/worklog/sheet/save-netdisk {sheet,from,to,force?}
+   （生成前核验口径同下载/预览：40901 走 showVerifyFailures，「仍要生成」force=1 重试） */
+async function sheetSaveNd(sheet, range, btn, force) {
+  if (!range) return;
+  btn.disabled = true;
+  try {
+    var r = await Shade.api(wl('/api/v1/worklog/sheet/save-netdisk'), {
+      method: 'POST',
+      body: { sheet: sheet, from: range.from, to: range.to, force: force ? 1 : 0 }
+    });
+    Shade.toast('已保存到网盘：' + ((r.data && r.data.path) || ''), 'success');
+  } catch (e) {
+    if (!showVerifyFailures(e, range.from, function () { sheetSaveNd(sheet, range, btn, 1); })) Shade.toast(e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
 /* 杆塔导入：FormData 上传（字段 file；team_id 经 wl() 走 query，后端同口径解析）→ toast 后端 message → 刷新条数 */
 async function importTowers(f) {
   var fd = new FormData();
@@ -5285,6 +5361,12 @@ function initEvents() {
   /* 派车汇总页签：内联起止日期 / 下载（xlsx，仅下载不预览） */
   bindRangeInput('#dsFrom', '#dsTo', state.ds, null);
   $('#dsDl').addEventListener('click', function () { dispatchSheetDownload(this); });
+  /* 存网盘入口（仅网盘可用时显示；任务单/费用/派车 + 批量下载页签 PDF） */
+  $('#tsNd').addEventListener('click', function () { sheetSaveNd('task', tsRange(), this); });
+  $('#fsNd').addEventListener('click', function () { sheetSaveNd('fee', fsRange(), this); });
+  $('#dsNd').addEventListener('click', function () { sheetSaveNd('dispatch', dsRange(), this); });
+  $('#dlPdf').addEventListener('click', function () { photosPdfDownload(this); });
+  $('#dlPdfNd').addEventListener('click', function () { photosPdfSaveNd(this); });
   /* 派车对齐页签：选文件 / 移除文件 / 开始对齐 / 清单行打开对照弹层 / 每日自动同步开关 */
   $('#paSyncSw').addEventListener('click', togglePaSyncSwitch);
   $('#paPick').addEventListener('click', function () { $('#paFileInput').click(); });
@@ -5543,6 +5625,11 @@ async function init() {
   $('#slIc').innerHTML = Shade.icon('refresh', 22); // 全局锁遮罩图标
   setInterval(checkSyncLock, 15000); // 批量同步全局锁空闲探测（锁定中 1.5s 轮询，见 pollSyncLock）
   $('#dlGo').innerHTML = Shade.icon('download', 15) + '打包下载';
+  $('#dlPdf').innerHTML = Shade.icon('file', 15) + '下载为 PDF';
+  $('#dlPdfNd').innerHTML = Shade.icon('cloud', 15) + 'PDF 存网盘';
+  $('#tsNd').innerHTML = Shade.icon('cloud', 15) + '存网盘';
+  $('#fsNd').innerHTML = Shade.icon('cloud', 15) + '存网盘';
+  $('#dsNd').innerHTML = Shade.icon('cloud', 15) + '存网盘';
   $('#tsPrev').innerHTML = Shade.icon('file', 15) + '预览';
   $('#tsDl').innerHTML = Shade.icon('download', 15) + '下载 Word';
   $('#fsPrev').innerHTML = Shade.icon('file', 15) + '预览';
@@ -5567,6 +5654,8 @@ async function init() {
 
   /* 顶栏用户：接口失败回退本地缓存 */
   Shade.refreshUser();
+
+  probeNetdisk(); // 网盘可用性探测：403 未开通 / 503 未配置 → 「存网盘」入口保持隐藏
 
   /* 班组隔离门控：非超管未分配班组 → 整页空态（屏十口径）；超管先选定切换班组再出数 */
   var me = Shade.user() || {};

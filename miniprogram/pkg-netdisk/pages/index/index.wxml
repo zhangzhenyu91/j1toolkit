@@ -14,7 +14,7 @@
         data-key="{{item.key}}"
         hover-class="hover-opacity"
         bindtap="onSpaceTap"
-      >{{item.label}}</view>
+      ><text class="seg-t">{{item.label}}</text></view>
     </view>
     <view class="more-btn" hover-class="hover-opacity" bindtap="onMenuTap">
       <t-icon name="more" size="40rpx" color="#4E5969" />
@@ -93,11 +93,12 @@
           <t-icon name="close" size="28rpx" color="#86909C" />
         </view>
       </view>
-      <!-- 文件/文件夹行 -->
+      <!-- 文件/文件夹行（真实类型图标，加载失败回退线性文件夹/字母块；图片保持缩略图直引） -->
       <view class="fl" wx:for="{{items}}" wx:key="name" data-item="{{item}}" hover-class="hover-bg-warm" bindtap="onRowTap">
-        <view class="ficon" wx:if="{{item.isDir}}">
-          <t-icon name="folder" size="38rpx" color="#0A3592" />
-        </view>
+        <block wx:if="{{item.isDir}}">
+          <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-list="items" data-index="{{index}}" binderror="onIconErr" />
+          <view wx:else class="ficon"><t-icon name="folder" size="38rpx" color="#0A3592" /></view>
+        </block>
         <image
           wx:elif="{{item.isImg && !item.thumbFail}}"
           class="fthumb"
@@ -108,7 +109,10 @@
           data-index="{{index}}"
           binderror="onThumbErr"
         />
-        <view class="ficon" wx:else><text class="fletter">{{item.letter}}</text></view>
+        <block wx:else>
+          <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-list="items" data-index="{{index}}" binderror="onIconErr" />
+          <view wx:else class="ficon"><text class="fletter">{{item.letter}}</text></view>
+        </block>
         <view class="fmain">
           <text class="fname">{{item.name}}</text>
           <text class="fsub">{{item.sub}}</text>
@@ -131,9 +135,10 @@
       <view class="s-hint" wx:if="{{searchItems.length}}">共 {{searchTotal}} 个结果{{searchTotal > searchItems.length ? '，仅显示前 ' + searchItems.length + ' 条' : ''}}</view>
       <view class="card flist" wx:if="{{searchItems.length}}">
         <view class="fl" wx:for="{{searchItems}}" wx:key="fullPath" data-item="{{item}}" hover-class="hover-bg-warm" bindtap="onSearchRowTap">
-          <view class="ficon" wx:if="{{item.isDir}}">
-            <t-icon name="folder" size="38rpx" color="#0A3592" />
-          </view>
+          <block wx:if="{{item.isDir}}">
+            <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-list="searchItems" data-index="{{index}}" binderror="onIconErr" />
+            <view wx:else class="ficon"><t-icon name="folder" size="38rpx" color="#0A3592" /></view>
+          </block>
           <image
             wx:elif="{{item.isImg && !item.thumbFail}}"
             class="fthumb"
@@ -144,7 +149,10 @@
             data-index="{{index}}"
             binderror="onThumbErr"
           />
-          <view class="ficon" wx:else><text class="fletter">{{item.letter}}</text></view>
+          <block wx:else>
+            <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-list="searchItems" data-index="{{index}}" binderror="onIconErr" />
+            <view wx:else class="ficon"><text class="fletter">{{item.letter}}</text></view>
+          </block>
           <view class="fmain">
             <text class="fname">{{item.name}}</text>
             <text class="fsub">{{item.sub}}</text>
@@ -245,10 +253,11 @@
     </view>
     <view class="sh-body">
       <view class="fl sum">
-        <view class="ficon" wx:if="{{shareSheet.item.isDir}}">
+        <image wx:if="{{!shareSheet.item.iconFail}}" class="ficon-img" src="{{shareSheet.item.icon}}" data-list="shareSheet.item" binderror="onIconErr" />
+        <view wx:elif="{{shareSheet.item.isDir}}" class="ficon">
           <t-icon name="folder" size="38rpx" color="#0A3592" />
         </view>
-        <view class="ficon" wx:else><text class="fletter">{{shareSheet.item.letter}}</text></view>
+        <view wx:else class="ficon"><text class="fletter">{{shareSheet.item.letter}}</text></view>
         <view class="fmain">
           <text class="fname">{{shareSheet.item.name}}</text>
           <text class="fsub">已选 1 项 · {{shareSheet.item.sizeText}}</text>
@@ -299,7 +308,7 @@
           data-key="{{item.key}}"
           hover-class="hover-opacity"
           bindtap="onPickerSpaceTap"
-        >{{item.label}}</view>
+        ><text class="seg-t">{{item.label}}</text></view>
       </view>
       <view class="crumb pk-crumb">
         <block wx:for="{{pickerCrumbs}}" wx:key="path">
@@ -321,7 +330,8 @@
             hover-class="hover-bg-warm"
             bindtap="onPickerDirTap"
           >
-            <t-icon name="folder" size="36rpx" color="#0A3592" />
+            <image wx:if="{{!item.iconFail}}" class="ficon-img pk-icon" src="{{item.icon}}" data-list="picker.dirs" data-index="{{index}}" binderror="onIconErr" />
+            <t-icon wx:else name="folder" size="36rpx" color="#0A3592" />
             <text class="pk-name">{{item.name}}</text>
             <t-icon name="chevron-right" size="30rpx" color="#C9CDD4" />
           </view>

@@ -90,6 +90,14 @@ page {
   opacity: 0.45;
 }
 
+/* 存网盘（次按钮：浅蓝底蓝字，与主按钮同形） */
+.gen.nd {
+  margin-top: 20rpx;
+  background: #E8F0FF;
+  color: #0E3DA8;
+  box-shadow: none;
+}
+
 .hint {
   margin-top: 24rpx;
   padding: 0 8rpx;

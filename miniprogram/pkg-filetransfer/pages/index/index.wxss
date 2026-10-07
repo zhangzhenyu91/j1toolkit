@@ -549,3 +549,85 @@
   color: #ffffff;
   font-size: 24rpx;
 }
+
+/* ---------- 网盘联动（从网盘选择弹层 / 行内存网盘小标） ---------- */
+
+/* 空间分段（公共区带班组名；按钮 flex 居中，长文案由 .seg-t 内层省略） */
+.seg2 {
+  display: flex;
+  height: 64rpx;
+  padding: 4rpx;
+  background: #E5E6EB;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.seg2 .seg {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12rpx;
+  border-radius: 12rpx;
+  font-size: 25rpx;
+  color: #4E5969;
+}
+
+.seg2 .seg.on {
+  background: #ffffff;
+  color: #0E3DA8;
+  font-weight: 600;
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.08);
+}
+
+.seg-t {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 面包屑（父级蓝字可点，末级当前加粗） */
+.nd-crumb {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-size: 24rpx;
+  margin-bottom: 12rpx;
+  overflow: hidden;
+}
+
+.nd-link {
+  flex: none;
+  color: #0E3DA8;
+  font-weight: 600;
+}
+
+.nd-sep {
+  flex: none;
+  color: rgba(29,33,41,.4);
+}
+
+.nd-cur {
+  font-weight: 600;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nd-list {
+  max-height: 44vh;
+}
+
+/* 文件行选中态（浅蓝底 + 对勾；文件夹行右侧为进入箭头） */
+.nd-row.sel {
+  background: #E8F0FF;
+  border-color: #0E3DA8;
+}
+
+/* 行内存网盘小标（与 .fdel 同位） */
+.fsave {
+  flex: none;
+  padding: 6rpx;
+}

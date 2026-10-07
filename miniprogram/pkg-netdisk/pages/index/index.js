@@ -17,6 +17,7 @@ import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf, parseDate } from '../../../utils/util';
 import config from '../../../config';
+import { fileIconUrl } from '../../fileicon';
 
 const API = '/api/v1/netdisk';
 // 班组门控（storage netdisk_team_id）：仅复用其门控节奏与生效班组确定；公共区按班组隔离后
@@ -270,6 +271,9 @@ Page({
       media,
       isArchive: !isDir && ARCHIVE_EXTS.includes(ext),
       letter: isDir ? '' : (ext ? ext.slice(0, 4).toUpperCase() : 'FILE'),
+      // 真实文件类型图标（/assets/filetypes/，与 Web 同源）；iconFail 时回退字母块/线性文件夹
+      icon: fileIconUrl(o.name, isDir),
+      iconFail: false,
       thumb: isImg ? this.inlineUrl(fullPath, token) : '',
       thumbFail: false,
       sizeText: isDir ? '文件夹' : fmtSize(o.size),
@@ -290,10 +294,17 @@ Page({
     return `${config.BASE_URL}${API}/download?space=${this.data.space}&path=${encodeURIComponent(fullPath)}&disposition=attachment`;
   },
 
-  // 缩略图加载失败回退字母块
+  // 缩略图加载失败回退字母块（图片文件）/ 类型图标加载失败回退字母块或线性文件夹
   onThumbErr(e) {
     const { list, index } = e.currentTarget.dataset;
     this.setData({ [`${list}[${index}].thumbFail`]: true });
+  },
+
+  onIconErr(e) {
+    const { list, index } = e.currentTarget.dataset;
+    // list 为 setData 路径前缀（items / searchItems / picker.dirs / shareSheet.item）
+    if (index === undefined || index === '') this.setData({ [`${list}.iconFail`]: true });
+    else this.setData({ [`${list}[${index}].iconFail`]: true });
   },
 
   /* ==================== ⋯ 菜单（分享管理 / 新建文件夹） ==================== */
@@ -603,7 +614,8 @@ Page({
     this.buildPickerCrumbs();
     try {
       const data = await request({ url: `${API}/list`, method: 'POST', data: { space: p.space, path: p.dir } });
-      const dirs = ((data && data.items) || []).filter((o) => o.is_dir).map((o) => ({ name: o.name }));
+      const dirs = ((data && data.items) || []).filter((o) => o.is_dir)
+        .map((o) => ({ name: o.name, icon: fileIconUrl(o.name, true), iconFail: false }));
       this.setData({ 'picker.dirs': dirs, 'picker.loading': false });
     } catch (err) {
       this.setData({ 'picker.loading': false, 'picker.error': err.message || '目录加载失败' });

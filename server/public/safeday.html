@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 安全日活动记录（「政企蓝白」：拖传上传 + Dify 生成进度 + 记录表格）
      接口信封 {ok,error,...} 且上传为 multipart，均直接 fetch，不走 Shade.api；
+     记录行「存网盘」：POST /records/:id/save-netdisk，仅已生成行且网盘可用（页载探测 /api/v1/netdisk/spaces，
+     403 未开通 / 503 未配置不渲染入口）时显示，成功 toast 返回路径；
      班组隔离：超管标题区右加班组切换下拉（含「全部班组」team_id=all，localStorage.safeday_team_id，
      全部视图记录表带班组列，生成须先切到具体班组）；非超管固定本班、未分配班组整页空态（屏十口径） -->
 <html lang="zh-CN">
@@ -489,6 +491,10 @@
       '<td><div class="op">' +
       '<button class="opb" type="button" data-act="dl" data-id="' + Shade.esc(id) + '" title="下载记录文件"' +
       (done ? '' : ' disabled') + '>' + Shade.icon('download', 15) + '</button>' +
+      /* 存网盘：仅已生成行且网盘可用（页载探测 /netdisk/spaces）时显示 */
+      (done && ndOk
+        ? '<button class="opb" type="button" data-act="nd" data-id="' + Shade.esc(id) + '" title="存网盘">' + Shade.icon('cloud', 15) + '</button>'
+        : '') +
       '<button class="opb del" type="button" data-act="del" data-id="' + Shade.esc(id) + '" data-name="' +
       Shade.esc(rec.name) + '" title="删除记录">' + Shade.icon('delete', 15) + '</button>' +
       '</div></td></tr>';
@@ -509,19 +515,41 @@
     emptyBox.style.display = records.length ? 'none' : '';
   }
 
-  /* 行点击预览 / 下载 / 删除按钮：事件委托（按钮命中即 return，不再触发行预览） */
+  /* 行点击预览 / 下载 / 存网盘 / 删除按钮：事件委托（按钮命中即 return，不再触发行预览） */
   tbody.addEventListener('click', function (e) {
     var btn = e.target.closest ? e.target.closest('.opb') : null;
     if (btn && tbody.contains(btn)) {
       if (btn.disabled) { return; }
       var bid = btn.getAttribute('data-id');
-      if (btn.getAttribute('data-act') === 'dl') { downloadRecord(bid); }
+      var act = btn.getAttribute('data-act');
+      if (act === 'dl') { downloadRecord(bid); }
+      else if (act === 'nd') { saveRecordToNetdisk(bid, btn); }
       else { openDelMask(bid, btn.getAttribute('data-name')); }
       return;
     }
     var tr = e.target.closest ? e.target.closest('tr.row-prev') : null;
     if (tr && tbody.contains(tr)) { previewRecord(tr.getAttribute('data-id')); }
   });
+
+  /* 网盘可用性探测（页面加载一次）：403 未开通网盘应用 / 503 未配置网盘 → 「存网盘」入口不渲染 */
+  var ndOk = false;
+  function probeNetdisk() {
+    Shade.api('/api/v1/netdisk/spaces').then(function () {
+      if (ndOk) { return; }
+      ndOk = true;
+      renderTable(lastRecords, true); // 入口依赖 ndOk，探测成功后重绘一次
+    }).catch(function () { /* 网盘不可用：保持隐藏 */ });
+  }
+
+  /* 存网盘：POST /records/:id/save-netdisk（{ok,error} 信封走 parseOk），成功 toast 返回路径 */
+  function saveRecordToNetdisk(id, btn) {
+    btn.disabled = true;
+    sdFetch('/records/' + encodeURIComponent(id) + '/save-netdisk', { method: 'POST' })
+      .then(parseOk)
+      .then(function (data) { Shade.toast('已保存到网盘：' + ((data && data.path) || ''), 'success'); })
+      .catch(function (err) { Shade.toast(err.message || '保存失败', 'error'); })
+      .then(function () { btn.disabled = false; });
+  }
 
   /* 下载：接口需鉴权头，用 fetch + blob 落地 */
   function downloadRecord(id) {
@@ -1026,6 +1054,7 @@
       });
       if (ts) { teamId = ts.getTeamId(); syncTeamCol(); }
     }
+    probeNetdisk(); // 网盘可用性探测（不可用则「存网盘」入口保持不渲染）
     refreshRecords(true);
   })();
 </script>

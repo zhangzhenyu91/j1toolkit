@@ -33,10 +33,14 @@
   <!-- 包内文件列表 -->
   <view wx:elif="{{items.length}}" class="card flist a" style="--d:.1s">
     <view class="fl" wx:for="{{items}}" wx:key="rel" data-item="{{item}}" hover-class="hover-bg-warm" bindtap="onRowTap">
-      <view class="ficon" wx:if="{{item.isDir}}">
-        <t-icon name="folder" size="38rpx" color="#0A3592" />
-      </view>
-      <view class="ficon" wx:else><text class="fletter">{{item.letter}}</text></view>
+      <block wx:if="{{item.isDir}}">
+        <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-index="{{index}}" binderror="onIconErr" />
+        <view wx:else class="ficon"><t-icon name="folder" size="38rpx" color="#0A3592" /></view>
+      </block>
+      <block wx:else>
+        <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-index="{{index}}" binderror="onIconErr" />
+        <view wx:else class="ficon"><text class="fletter">{{item.letter}}</text></view>
+      </block>
       <view class="fmain">
         <text class="fname">{{item.name}}</text>
         <text class="fsub">{{item.sub}}</text>

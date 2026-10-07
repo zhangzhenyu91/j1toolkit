@@ -84,6 +84,13 @@
   color: #0A3592;
 }
 
+/* 真实文件类型 PNG 图标（无底块直落；加载失败回退 .ficon 线性文件夹/字母块） */
+.ficon-img {
+  width: 80rpx;
+  height: 80rpx;
+  flex: none;
+}
+
 .fmain {
   flex: 1;
   min-width: 0;

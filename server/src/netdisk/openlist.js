@@ -174,6 +174,19 @@ function putEmpty(absPath) {
   });
 }
 
+// 直传（Buffer 或可读流）：供「保存到网盘」共享通道使用（服务端侧已有文件内容，无需分片）
+function fsPut(absPath, body, size) {
+  return call('put', '/api/fs/put', {
+    headers: {
+      'File-Path': encodeURI(absPath),
+      'Content-Type': 'application/octet-stream',
+      ...(Number.isFinite(size) && size > 0 ? { 'Content-Length': String(size) } : {}),
+    },
+    data: body,
+    timeout: 0, // 大文件经两跳转发耗时不可预估
+  });
+}
+
 // ---- multipart 分片上传（报文以 OpenList 源码 server/handles/multipart.go 为准）----
 const mpInit = (absPath, size) => call('post', '/api/fs/multipart/init', {
   headers: { 'File-Path': encodeURI(absPath), 'X-File-Size': String(size) },
@@ -214,6 +227,7 @@ module.exports = {
   archiveDownloadStream,
   ensureDir,
   putEmpty,
+  fsPut,
   mpInit,
   mpChunk,
   mpComplete,

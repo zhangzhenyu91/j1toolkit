@@ -23,6 +23,8 @@ const cos = require('./cos');
 const geo = require('./geo');
 const towers = require('./towers');
 const { renderWatermarkedPhoto, sanitizeWm } = require('./render-photo');
+const photospdf = require('./photospdf');
+const netdiskSave = require('../netdisk/save');
 const { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark, resolveFeeStd } = require('./verify');
 const { verifyAndWriteBack } = require('./photoverify');
 const { dots } = require('../utils/cndate');
@@ -1741,6 +1743,143 @@ router.post('/zip', async (req, res, next) => {
       archive.destroy();
     }
   } catch (err) {
+    return next(err);
+  }
+});
+
+// ===== 水印照片组合 PDF（每卡两张一页，按卡片顺序；同页只放同一卡片，余一张独占一页） =====
+
+// 范围内照片按卡片分组（卡片顺序 = 日期 + 创建序，卡内照片按上传序）
+async function photoCardsOf(teamId, from, to) {
+  const [rows] = await pool.query(
+    `SELECT e.id AS entry_id, p.id, p.url
+     FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+     WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ?
+     ORDER BY e.log_date, e.id, p.id`,
+    [from, to, teamId]
+  );
+  const cards = [];
+  let cur = null;
+  for (const r of rows) {
+    if (!cur || cur.entry_id !== r.entry_id) {
+      cur = { entry_id: r.entry_id, photos: [] };
+      cards.push(cur);
+    }
+    cur.photos.push(r.url);
+  }
+  return cards;
+}
+
+// 下载照片为 Buffer（SSRF 口径同 /zip：仅本仓 COS 地址；失败记名跳过）
+async function fetchPhotoBuf(url, failed) {
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length > PHOTO_MAX_BYTES) throw new Error('照片超过 50MB');
+    return buf;
+  } catch (e) {
+    console.warn(`[出工日志] PDF 照片下载失败（${url}）：${e && e.message ? e.message : e}`);
+    if (failed) failed.push(url);
+    return null;
+  }
+}
+
+// 组合范围内照片为 PDF Buffer（cards 为空返回 null；返回 { buf, total, failed }）
+async function buildRangePhotosPdf(teamId, from, to) {
+  const cards = await photoCardsOf(teamId, from, to);
+  if (!cards.length) return null;
+  const failed = [];
+  let total = 0;
+  for (const card of cards) {
+    const bufs = [];
+    for (const url of card.photos) {
+      const buf = await fetchPhotoBuf(url, failed);
+      if (buf) { bufs.push(buf); total++; }
+    }
+    card.photos = bufs;
+  }
+  const buf = await photospdf.buildPhotosPdf(cards.filter((c) => c.photos.length));
+  return { buf, total, failed };
+}
+
+// GET /photos.pdf?from=&to=：组合 PDF 下载（消费口径同 /zip；生成耗时随照片数，前端给等待提示）
+router.get('/photos.pdf', async (req, res, next) => {
+  try {
+    const { from, to } = req.query;
+    if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '')) {
+      return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    }
+    if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
+    if (!req.team) return fail(res, 403, 40010, '无可用班组');
+    const built = await buildRangePhotosPdf(req.team.id, from, to);
+    if (!built) return fail(res, 404, 40402, '该日期范围没有水印照片');
+    const fileName = from === to ? `水印照片-${from}.pdf` : `水印照片-${from}至${to}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="photos-${from}.pdf"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    return res.send(built.buf);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /photos-pdf/save-netdisk {from,to}：组合 PDF 保存到网盘（我的空间/出工日志/）
+router.post('/photos-pdf/save-netdisk', async (req, res, next) => {
+  try {
+    const { from, to } = req.body || {};
+    if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '')) {
+      return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    }
+    if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
+    if (!req.team) return fail(res, 403, 40010, '无可用班组');
+    const built = await buildRangePhotosPdf(req.team.id, from, to);
+    if (!built) return fail(res, 404, 40402, '该日期范围没有水印照片');
+    const fileName = from === to ? `水印照片-${from}.pdf` : `水印照片-${from}至${to}.pdf`;
+    const path = await netdiskSave.saveToNetdisk(req.user, {
+      dir: '出工日志', name: fileName, body: built.buf, size: built.buf.length,
+    });
+    return ok(res, { path, failed: built.failed.length }, '已保存到网盘');
+  } catch (err) {
+    if (err && err.expose) return fail(res, err.status || 502, err.code || 50201, err.message);
+    return next(err);
+  }
+});
+
+// POST /sheet/save-netdisk {sheet:'task'|'fee'|'dispatch', from, to, force?}：任务单/费用汇总/派车汇总生成并保存到网盘
+//（生成前核验口径与各 sheet 下载/预览一致：task/fee 非 force 先核验；dispatch 不核验）
+router.post('/sheet/save-netdisk', requireDictAdmin, async (req, res, next) => {
+  try {
+    const sheet = String((req.body && req.body.sheet) || '');
+    const range = sheetRange({ query: req.body || {} });
+    if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
+    if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
+    if (!req.team) return fail(res, 403, 40010, '无可用班组');
+    const force = (req.body && req.body.force) === 1 || (req.body && req.body.force) === '1';
+    let result = null;
+    let fileName = '';
+    if (sheet === 'task') {
+      if (!force && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+      result = await tasksheet.build(req.team, range.from, range.to);
+      fileName = sheetFileName(range.from, range.to);
+    } else if (sheet === 'fee') {
+      if (!force && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+      result = await feesheet.build(req.team, range.from, range.to);
+      fileName = feeFileName(range.from, range.to);
+    } else if (sheet === 'dispatch') {
+      result = await dispatchsheet.build(req.team.id, range.from, range.to);
+      fileName = range.from === range.to ? `派车汇总-${range.from}.xlsx` : `派车汇总-${range.from}至${range.to}.xlsx`;
+    } else {
+      return fail(res, 400, 40001, "参数错误：sheet（task/fee/dispatch）");
+    }
+    if (!result) return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的内容');
+    const buf = Buffer.isBuffer(result) ? result : result.buffer;
+    const path = await netdiskSave.saveToNetdisk(req.user, {
+      dir: '出工日志', name: fileName, body: buf, size: buf.length,
+    });
+    return ok(res, { path }, '已保存到网盘');
+  } catch (err) {
+    if (err && err.expose) return fail(res, err.status || 502, err.code || 50201, err.message);
     return next(err);
   }
 });

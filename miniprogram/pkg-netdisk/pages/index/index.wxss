@@ -38,13 +38,18 @@
 .seg2 .seg,
 .mini-seg .seg {
   flex: 1;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 12rpx;
-  line-height: 56rpx;
-  text-align: center;
   border-radius: 12rpx;
   font-size: 25rpx;
   color: #4E5969;
+}
+
+/* 分段文案内层节点：承载长班组名省略（按钮本体保持 flex 水平+垂直居中） */
+.seg2 .seg-t {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -230,6 +235,13 @@
   font-weight: 700;
   letter-spacing: 1rpx;
   color: #0A3592;
+}
+
+/* 真实文件类型 PNG 图标（无底块直落；加载失败回退 .ficon 线性文件夹/字母块） */
+.ficon-img {
+  width: 80rpx;
+  height: 80rpx;
+  flex: none;
 }
 
 .fthumb {
@@ -611,6 +623,11 @@
   gap: 16rpx;
   padding: 18rpx 8rpx;
   border-top: 1rpx solid #F7F8FA;
+}
+
+.pk-icon {
+  width: 48rpx;
+  height: 48rpx;
 }
 
 .pk-name {

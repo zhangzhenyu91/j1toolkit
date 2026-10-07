@@ -110,7 +110,7 @@
       </view>
     </view>
 
-    <!-- 两种添加方式 -->
+    <!-- 两种添加方式 + 网盘入口（网盘可用时显示） -->
     <view class="pick-row">
       <view class="pick" hover-class="hover-opacity" bindtap="onPickMedia">
         <t-icon name="file-image" size="48rpx" color="#0E3DA8" />
@@ -121,6 +121,11 @@
         <t-icon name="chat" size="48rpx" color="#0E3DA8" />
         <view class="pick-name">从聊天选取</view>
         <view class="pick-note">任意类型文件</view>
+      </view>
+      <view class="pick" wx:if="{{ndOk}}" hover-class="hover-opacity" bindtap="onOpenNdPicker">
+        <t-icon name="folder-import" size="48rpx" color="#0E3DA8" />
+        <view class="pick-name">从网盘选择</view>
+        <view class="pick-note">推送到设备</view>
       </view>
     </view>
 
@@ -189,6 +194,11 @@
           <view class="fn">{{item.name}}</view>
           <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
           <view wx:else class="fs">{{item.sizeText}}</view>
+          <!-- 存网盘（网盘可用时显示；catchtap 拦截不触发下载） -->
+          <view wx:if="{{ndOk}}" class="fsave" hover-class="hover-opacity" data-name="{{item.name}}"
+                catchtap="onSaveToNetdisk">
+            <t-icon name="folder-import" size="32rpx" color="{{savingNd === item.name ? 'rgba(29,33,41,.35)' : '#0E3DA8'}}" />
+          </view>
           <!-- 删除小标（catchtap 拦截，不触发下载） -->
           <view class="fdel" hover-class="hover-opacity" data-name="{{item.name}}" data-index="{{index}}"
                 catchtap="onDeleteFile">
@@ -206,6 +216,65 @@
         </view>
       </view>
     </block>
+  </view>
+</t-popup>
+
+<!-- 网盘文件选择弹层（从网盘拉取到设备：空间分段（有公共区才显示，默认公共区）+ 面包屑 + 文件列表；文件夹进入、文件选中） -->
+<t-popup visible="{{ndPicker.open}}" placement="bottom" bind:visible-change="onNdVisibleChange">
+  <view class="sheet">
+    <view class="sh-head">
+      <view class="sh-title">从网盘选择<text class="sh-sub">{{upDevice.name}}</text></view>
+      <view class="sh-close" hover-class="hover-opacity" bindtap="onNdCancel">
+        <t-icon name="close" size="36rpx" color="#4E5969" />
+      </view>
+    </view>
+
+    <view class="seg2" wx:if="{{ndHasPublic}}">
+      <view
+        wx:for="{{ndSpaces}}"
+        wx:key="key"
+        class="seg {{ndPicker.space === item.key ? 'on' : ''}}"
+        data-key="{{item.key}}"
+        hover-class="hover-opacity"
+        bindtap="onNdSpaceTap"
+      ><text class="seg-t">{{item.label}}</text></view>
+    </view>
+
+    <view class="nd-crumb">
+      <block wx:for="{{ndCrumbs}}" wx:key="path">
+        <text wx:if="{{!item.last}}" class="nd-link" data-path="{{item.path}}" hover-class="hover-opacity" bindtap="onNdCrumbTap">{{item.name}}</text>
+        <text wx:else class="nd-cur">{{item.name}}</text>
+        <text wx:if="{{!item.last}}" class="nd-sep">/</text>
+      </block>
+    </view>
+
+    <scroll-view scroll-y class="fl-list nd-list">
+      <view wx:if="{{ndPicker.loading}}" class="fl-empty">目录加载中…</view>
+      <view wx:elif="{{ndPicker.error}}" class="fl-empty">{{ndPicker.error}}</view>
+      <view wx:elif="{{!ndPicker.items.length}}" class="fl-empty">该目录为空</view>
+      <view
+        wx:else
+        wx:for="{{ndPicker.items}}"
+        wx:key="fullPath"
+        class="frow nd-row {{ndPicker.selected === item.fullPath ? 'sel' : ''}}"
+        data-item="{{item}}"
+        hover-class="hover-opacity"
+        bindtap="onNdRowTap"
+      >
+        <t-icon name="{{item.icon}}" size="34rpx" color="#0E3DA8" />
+        <view class="fn">{{item.name}}</view>
+        <view wx:if="{{!item.isDir}}" class="fs">{{item.sizeText}}</view>
+        <t-icon wx:if="{{!item.isDir && ndPicker.selected === item.fullPath}}" name="check-circle-filled" size="32rpx" color="#0E3DA8" />
+        <t-icon wx:if="{{item.isDir}}" name="chevron-right" size="30rpx" color="rgba(29,33,41,.4)" />
+      </view>
+    </scroll-view>
+
+    <view class="sh-foot">
+      <view class="btn-primary {{(!ndPicker.selected || ndPicker.saving) ? 'disabled' : ''}}" hover-class="hover-opacity"
+            bindtap="onNdConfirm">
+        {{ndPicker.saving ? '正在拉取…' : '推送到设备'}}
+      </view>
+    </view>
   </view>
 </t-popup>
 

@@ -2,7 +2,7 @@
 // 模板：server/assets/worklog/task-sheet-template.docx（A4 横向，纯文本 {占位符}，docxtemplater 渲染，
 // 兼容占位符被 Word 拆散到多个 run 的情况）；占位符口径见《开发指南》出工日志章
 // 合并口径：各卡片同模板渲染产物 styles/fontTable/footer 完全一致、body 自包含（无图片无新增关系），
-// 故以首份为底、后续文档 body（去掉 sectPr）依次追加并插分页符即可，无需重映射关系
+// 故以首份为底、后续文档 body（去掉 sectPr）依次追加、首段加 pageBreakBefore 分页即可，无需重映射关系
 const fs = require('fs');
 const path = require('path');
 const PizZip = require('pizzip');
@@ -10,9 +10,6 @@ const Docxtemplater = require('docxtemplater');
 const { pool } = require('../db');
 
 const TEMPLATE_PATH = path.join(__dirname, '../../assets/worklog/task-sheet-template.docx');
-
-// 分页符段落：插在相邻两份卡片内容之间
-const PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
 // 渲染单条卡片为完整 docx buffer；record 各字段先转成字符串（undefined/null 一律空串，避免模板漏填报错）
 function renderOne(tplBuf, record) {
@@ -22,6 +19,21 @@ function renderOne(tplBuf, record) {
   return doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+// 分页口径：不用独立分页符段落（其段落标记会占用新页首行，把整页高的卡片内容往下挤一行，
+// 导致卡片末行溢出、两卡之间出现近乎空白的页——已踩坑）；改为给追加卡片的首段加
+// pageBreakBefore（该段从新页页首开始；已在新页页首时幂等不再断页，且不占行高）
+function withPageBreakBefore(body) {
+  const pi = body.indexOf('<w:p');
+  if (pi === -1) return body; // 首元素非段落（如直接是表格），不加断页（模板结构如此则分页由调用方自查）
+  const gt = body.indexOf('>', pi);
+  const openTag = body.slice(pi, gt + 1);
+  const rest = body.slice(gt + 1);
+  if (rest.startsWith('<w:pPr>')) {
+    return body.slice(0, pi) + openTag + '<w:pPr><w:pageBreakBefore/>' + rest.slice(7);
+  }
+  return body.slice(0, pi) + openTag + '<w:pPr><w:pageBreakBefore/></w:pPr>' + rest;
+}
+
 // 提取 document.xml 的 body 内容（去掉结尾 sectPr，页面设置以首份为准）
 function bodyContent(xml) {
   const m = xml.match(/<w:body>([\s\S]*)<\/w:body>/);
@@ -29,13 +41,13 @@ function bodyContent(xml) {
   return m[1].replace(/<w:sectPr[\s\S]*?<\/w:sectPr>\s*$/, '');
 }
 
-// 合并多份同模板 docx：首份为底，其余 body 前置分页符后依次追加到结尾 sectPr 之前
+// 合并多份同模板 docx：首份为底，其余 body 首段加 pageBreakBefore 后依次追加到结尾 sectPr 之前
 function mergeDocx(buffers) {
   const base = new PizZip(buffers[0]);
   let xml = base.file('word/document.xml').asText();
   const injection = buffers
     .slice(1)
-    .map((buf) => PAGE_BREAK + bodyContent(new PizZip(buf).file('word/document.xml').asText()))
+    .map((buf) => withPageBreakBefore(bodyContent(new PizZip(buf).file('word/document.xml').asText())))
     .join('');
   if (injection) {
     xml = xml.replace(/<w:sectPr[\s\S]*?<\/w:sectPr>/, (sect) => injection + sect);

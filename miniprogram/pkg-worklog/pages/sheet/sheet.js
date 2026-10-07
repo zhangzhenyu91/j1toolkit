@@ -6,6 +6,7 @@
 // 均按日期范围生成并打开（单次最多 31 天）；班组口径同 manage 页：超管按主页切换器存下的 worklog_team_id 生效；班组管理员后端强制本班
 import Toast from 'tdesign-miniprogram/toast/index';
 import { BASE_URL } from '../../../config';
+import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 
 // type → 接口路径 / 下载文件名前缀 / 标题与说明文案 / 是否拦截 40901（文件名口径同后端各自生成函数：单日带单日期，跨天带范围）
@@ -52,6 +53,7 @@ Page({
     from: '', // 生成范围起（默认今天）
     to: '', // 生成范围止（默认今天）
     generating: false,
+    savingNd: false, // 存网盘进行中
     calVisible: false, // range 日历展开态
     calValue: null, // 日历当前选中（[起, 止] 时间戳）
     minDate: 0, // 可选区间：去年今日 ~ 三个月后（同主页日历口径；不设置则组件默认今天起选不了历史日期）
@@ -61,6 +63,7 @@ Page({
   async onLoad(query) {
     const cfg = SHEETS[(query && query.type) || ''] || SHEETS.task;
     this._cfg = cfg;
+    this._type = (query && SHEETS[query.type]) ? query.type : 'task'; // save-netdisk 的 sheet 参数与页面 type 同名
     this.setData({ cfg });
     // 超管 / 班组管理员可访问（等启动自检完成再取角色；同 manage 页口径）
     await getApp().globalData.ready;
@@ -179,6 +182,60 @@ Page({
         wx.hideLoading();
         this.setData({ generating: false });
       },
+    });
+  },
+
+  // 存网盘：同一范围在后端生成并转存网盘（sheet 参数与页面 type 同名：task/fee/dispatch）；
+  // 40901 生成前核验拦截与下载同口径——「去核验」回主页打开汇总前核验面板，「仍要生成」force=1 重试
+  onSaveNetdisk(force) {
+    const { from, to, savingNd, generating } = this.data;
+    if (!from || !to || savingNd || generating) return;
+    if (from > to) {
+      this.toast('开始日期不能晚于结束日期');
+      return;
+    }
+    this.setData({ savingNd: true });
+    wx.showLoading({ title: '正在生成并存网盘…', mask: true });
+    request({
+      url: '/api/v1/worklog/sheet/save-netdisk',
+      method: 'POST',
+      timeout: 120000,
+      data: {
+        sheet: this._type,
+        from,
+        to,
+        ...(this._teamId ? { team_id: this._teamId } : {}),
+        // bindtap 直绑时 force 为事件对象，仅确认按钮传来 true 才算强制执行
+        ...(force === true ? { force: 1 } : {}),
+      },
+    }).then((data) => {
+      this.toast(`已保存到网盘：${(data && data.path) || ''}`);
+    }).catch((err) => {
+      if (err && err.code === 40901 && this._cfg.verify40901) {
+        wx.showModal({
+          title: '存在未通过项',
+          content: `${err.message}。可先到「汇总前核验」逐项处理，或确认后直接生成并存网盘。`,
+          confirmText: '仍要生成',
+          cancelText: '去核验',
+          success: (m) => {
+            if (m.confirm) {
+              this.onSaveNetdisk(true); // 强制执行
+              return;
+            }
+            if (m.cancel) {
+              const pages = getCurrentPages();
+              const prev = pages[pages.length - 2];
+              if (prev && prev.onOpenReport) prev.onOpenReport(); // 主页打开汇总前核验面板
+              wx.navigateBack();
+            }
+          },
+        });
+        return;
+      }
+      this.toast(err.message);
+    }).finally(() => {
+      wx.hideLoading();
+      this.setData({ savingNd: false });
     });
   },
 

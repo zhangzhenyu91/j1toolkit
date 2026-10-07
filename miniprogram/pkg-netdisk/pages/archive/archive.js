@@ -8,6 +8,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { pad, fmtSize, extOf, parseDate } from '../../../utils/util';
 import config from '../../../config';
+import { fileIconUrl } from '../../fileicon';
 
 const API = '/api/v1/netdisk';
 
@@ -199,6 +200,9 @@ Page({
       ext,
       media,
       letter: isDir ? '' : (ext ? ext.slice(0, 4).toUpperCase() : 'FILE'),
+      // 真实文件类型图标（/assets/filetypes/，与 Web 同源）；iconFail 时回退字母块/线性文件夹
+      icon: fileIconUrl(o.name, isDir),
+      iconFail: false,
       sub: isDir ? `${fmtDay(o.modified)}` : `${fmtSize(o.size)} · ${fmtDay(o.modified)}`,
       rel: o.rel || `/${o.name}`, // 包内路径（下载与下钻用）
     };
@@ -211,6 +215,11 @@ Page({
       return;
     }
     this.previewFile(item);
+  },
+
+  // 类型图标加载失败回退字母块/线性文件夹
+  onIconErr(e) {
+    this.setData({ [`items[${e.currentTarget.dataset.index}].iconFail`]: true });
   },
 
   /* ==================== 包内文件预览 / 下载 ==================== */

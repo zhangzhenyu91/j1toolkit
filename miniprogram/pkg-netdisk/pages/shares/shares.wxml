@@ -20,10 +20,11 @@
     <view class="card shcard a" wx:for="{{list}}" wx:key="id" style="--d:{{0.14 + index * 0.06}}s">
       <view class="sc-body">
         <view class="sc-top">
-          <view class="ficon" wx:if="{{item.isDir}}">
+          <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-index="{{index}}" binderror="onIconErr" />
+          <view wx:elif="{{item.isDir}}" class="ficon">
             <t-icon name="folder" size="38rpx" color="#0A3592" />
           </view>
-          <view class="ficon" wx:else><text class="fletter">{{item.letter}}</text></view>
+          <view wx:else class="ficon"><text class="fletter">{{item.letter}}</text></view>
           <view class="sc-name">{{item.title}}</view>
           <view class="st-tag {{item.stateCls}}">{{item.stateText}}</view>
         </view>

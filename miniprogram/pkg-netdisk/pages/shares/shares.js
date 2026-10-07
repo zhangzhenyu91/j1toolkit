@@ -9,6 +9,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { pad, extOf, parseDate } from '../../../utils/util';
 import config from '../../../config';
+import { fileIconUrl } from '../../fileicon';
 
 const API = '/api/v1/netdisk';
 
@@ -99,6 +100,9 @@ Page({
       title: names.length > 1 ? `${first} 等 ${names.length} 项` : first,
       isDir: !ext,
       letter: ext ? ext.slice(0, 4).toUpperCase() : 'FILE',
+      // 真实文件类型图标（文件夹同用 folder.png）；iconFail 时回退字母块/线性文件夹
+      icon: fileIconUrl(first, !ext),
+      iconFail: false,
       stateCls: st.cls,
       stateText: st.text,
       sub: `${row.password ? `提取码 ${row.password} · ` : ''}${expireText} · ${row.creator || '—'} 创建于 ${fmtDay(row.created_at)}`,
@@ -111,6 +115,11 @@ Page({
     if (!scope || scope === this.data.scope) return;
     this.setData({ scope, list: [] });
     this.loadShares(true);
+  },
+
+  // 类型图标加载失败回退字母块/线性文件夹
+  onIconErr(e) {
+    this.setData({ [`list[${e.currentTarget.dataset.index}].iconFail`]: true });
   },
 
   onOp(e) {

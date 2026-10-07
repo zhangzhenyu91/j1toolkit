@@ -23,42 +23,21 @@ router.use(tokenQuery);
 
 const canManagePublic = (user) => user.role === 'admin' || user.role === 'team_admin';
 
-// 班组名缓存（team_id → name；班组改名罕见，进程重启即刷新）
-const teamNameCache = new Map();
-async function teamNameOf(user) {
-  if (!user.team_id) return '';
-  if (teamNameCache.has(user.team_id)) return teamNameCache.get(user.team_id);
-  const [rows] = await pool.query('SELECT name FROM sys_team WHERE id = ?', [user.team_id]);
-  const name = (rows[0] && rows[0].name) || '';
-  teamNameCache.set(user.team_id, name);
-  return name;
-}
+const { teamNameOf, spaceRootOf, normRel } = require('./space');
 
 // 空间根解析：my 个人空间恒有；public 公共区按班组隔离（{publicRoot}/{班组名}），未分配班组无公共区
 // 返回值：字符串=可用根；null=已响应错误（调用方直接 return）
 async function resolveRoot(req, res, space) {
-  if (space === 'my') return `${config.netdisk.personalRoot}/${req.user.username}`;
-  if (space === 'public') {
-    const team = await teamNameOf(req.user);
-    if (!team) {
-      fail(res, 400, 40030, '未分配班组，无公共区');
-      return null;
-    }
-    return `${config.netdisk.publicRoot}/${team}`;
+  const root = await spaceRootOf(req.user, space);
+  if (root === null) {
+    fail(res, 400, 40001, '参数错误：space');
+    return null;
   }
-  fail(res, 400, 40001, '参数错误：space');
-  return null;
-}
-
-// 归一相对路径：反斜杠转正、去多余斜杠、拒绝 .. 与单点、限长；'/' 表示空间根
-function normRel(input) {
-  let p = String(input == null ? '/' : input).trim().replace(/\\/g, '/');
-  if (!p || p === '/') return '/';
-  if (!p.startsWith('/')) p = `/${p}`;
-  const parts = p.split('/').filter(Boolean);
-  if (parts.some((seg) => seg === '..' || seg === '.')) return null;
-  const joined = `/${parts.join('/')}`;
-  return joined.length > 400 ? null : joined;
+  if (root === '') {
+    fail(res, 400, 40030, '未分配班组，无公共区');
+    return null;
+  }
+  return root;
 }
 
 const joinPath = (root, rel) => (rel === '/' ? root : `${root}${rel}`);
