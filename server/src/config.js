@@ -133,11 +133,11 @@ const config = {
     wlaPriv: str('SGCC_WLA_PRIV'),           // jsonx slapp 通道响应解密私钥（res/wLA.pem 内容）
     adSecret: str('SGCC_AD_SECRET'),         // /api/ads 拉池密钥（App 内嵌客户端常量）
     dxAppId: str('SGCC_DX_APPID'),           // 顶象滑块 appId（绑定滑块页 sgcc-captcha.html 伺服时注入）
-    // 商旅 App 版本号（请求头 version；App 升级后优先只改此项验证是否仍通）
-    version: str('SGCC_VERSION', '3.3.6'),
-    // 商旅 App 构建号（请求头 version-code，3.3.6 实测值 202609101630；App 升级随 SGCC_VERSION 一并更新）
-    versionCode: str('SGCC_VERSION_CODE', '202609101630'),
-    // 风控 SDK 版本（请求头 grayversion，3.3.6 实测值 2.4.7.1）
+    // 商旅 App 版本号（请求头 version；App 升级后须同步更新此默认值与 protocol.js 兜底值、docker/.env.example，2026-10-09 起约定）
+    version: str('SGCC_VERSION', '3.3.7'),
+    // 商旅 App 构建号（请求头 version-code，3.3.7 实测值 202609232038；App 升级随 SGCC_VERSION 一并更新）
+    versionCode: str('SGCC_VERSION_CODE', '202609232038'),
+    // 风控 SDK 版本（请求头 grayversion，3.3.7 实测值 2.4.7.1）
     grayVersion: str('SGCC_GRAY_VERSION', '2.4.7.1'),
     // 每日自动核查时间（HH:mm，默认 23:00）
     syncTime: str('SGCC_SYNC_TIME', '23:00'),

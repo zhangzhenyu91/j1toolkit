@@ -7,6 +7,7 @@ GUI 里手动跑一次不会抑制 root 定时器当日的 due-check 判定。
 """
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -185,3 +186,54 @@ def recent_runs(app_id: str, n: int = 10) -> list:
 def last_run(app_id: str):
     runs = recent_runs(app_id, 1)
     return runs[0] if runs else None
+
+
+# ---------------------------------------------------------------- 运行历史删除
+
+_APP_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_JOB_ID_RE = re.compile(r"^\d{14}-\d{2}$")
+
+
+def delete_history_records(app_id: str, job_ids=None) -> dict:
+    """删除应用运行历史记录，连带对应任务日志（logs/）与任务档案（jobs/）。
+    job_ids=None 清空该应用全部记录；否则只删指定 job_id 的记录。
+    运行中任务被占用的文件跳过并计数（Windows 删不掉）。
+    返回 {"records": 删的记录数, "files": 删的文件数, "skipped": 占用跳过数}"""
+    if not _APP_ID_RE.match(app_id or ""):
+        raise ValueError("app_id 非法")
+    want = None if job_ids is None else {j for j in job_ids if _JOB_ID_RE.match(j or "")}
+    records = 0
+    doomed = set()
+    f = _sub("history") / (app_id + ".jsonl")
+    if f.exists():
+        kept = []
+        for line in f.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            jid = ""
+            try:
+                jid = str(json.loads(line).get("job_id") or "")
+            except ValueError:
+                pass
+            if want is None or jid in want:
+                records += 1
+                if _JOB_ID_RE.match(jid):
+                    doomed.add(jid)
+            else:
+                kept.append(line)
+        if kept:
+            f.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        else:
+            f.unlink()
+    files = skipped = 0
+    for jid in doomed:
+        for p in (logs_dir() / (jid + ".log"), jobs_dir() / (jid + ".json")):
+            try:
+                p.unlink()
+                files += 1
+            except FileNotFoundError:
+                pass
+            except OSError:
+                skipped += 1
+    return {"records": records, "files": files, "skipped": skipped}

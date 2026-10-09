@@ -134,6 +134,7 @@ class RpcServer:
         due, reason, _today = scheduler.due_check(cfg, driver="app")
         if not due:
             return {"started": False, "reason": reason}
+        scheduler.mark_attempt(_today)   # 与 OS 定时器同口径：拉开失败重试间隔
         try:
             r = self.m_runJob({"app_id": "daily_sync", "params": {"date": ""}})
         except RuntimeError as e:
@@ -174,6 +175,17 @@ class RpcServer:
     def m_clearLogs(self, _params):
         """一键清除全部任务日志与任务档案（占用中的文件跳过并计数）"""
         return state.clear_logs()
+
+    def m_deleteHistory(self, params):
+        """删除应用执行记录：传 job_id 删单条，不传清空该应用（连带任务日志/档案）"""
+        app_id = (params or {}).get("app_id", "")
+        job_id = (params or {}).get("job_id", "") or None
+        if job_id and not re.match(r"^\d{14}-\d{2}$", job_id):
+            raise RuntimeError("参数错误")
+        try:
+            return state.delete_history_records(app_id, [job_id] if job_id else None)
+        except ValueError as e:
+            raise RuntimeError(str(e))
 
     def m_getLogStats(self, _params):
         """日志目录统计（logs/ + jobs/）：文件数与总字节"""

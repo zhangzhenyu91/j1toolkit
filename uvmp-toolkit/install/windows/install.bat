@@ -47,13 +47,13 @@ if not exist "%CONFIG_PATH%" (
   echo [3/3] 配置文件已存在，保留
 )
 
-schtasks /create /tn "UVMP-Toolkit-DailyExport" /f /sc minute /mo 10 ^
+schtasks /create /tn "UVMP-Toolkit-DailyExport" /f /sc minute /mo 1 ^
   /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" daily-export --if-due" >nul
 if errorlevel 1 (
   echo [错误] 计划任务创建失败
   exit /b 1
 )
-echo        计划任务 UVMP-Toolkit-DailyExport 已创建（每 10 分钟检查，到配置时间自动执行）
+echo        计划任务 UVMP-Toolkit-DailyExport 已创建（每分钟检查，到配置时间自动执行）
 
 echo ============================================================
 echo 安装完成！（源码 CLI 模式，仅每日定时导出）

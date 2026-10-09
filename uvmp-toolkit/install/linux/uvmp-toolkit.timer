@@ -1,9 +1,10 @@
 [Unit]
-Description=内网工具箱 - 每日派车单同步定时器（每 10 分钟 due-check，到点执行）
+Description=内网工具箱 - 每日派车单同步定时器（每分钟 due-check，到点执行）
 
 [Timer]
 # 高频唤醒 + due-check：配置时间在 toolkit/config.json 里，GUI 可改，无需动本文件
-OnCalendar=*-*-* 06..23:00/10
+# 每分钟一拍：10 分钟粒度会把非整十分界的目标时刻量化推迟（2026-10-09 教训：09:15 被推到 09:20 与服务端取件撞车）
+OnCalendar=*-*-* 06..23:*:00
 Persistent=true
 Unit=uvmp-toolkit.service
 

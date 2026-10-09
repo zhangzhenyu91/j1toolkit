@@ -20,7 +20,7 @@
         <span class="muted">下次执行：{{ statusText.nextRun }}</span>
       </div>
       <div class="muted" style="margin-top:8px">
-        由系统定时器每 10 分钟检查一次，到点自动执行；改时间即时生效，无需管理员权限；
+        由系统定时器每分钟检查一次，到点自动执行；改时间即时生效，无需管理员权限；
         机器关机错过到点会在开机后自动补跑。
         <span v-if="driver === 'app'">当前为「客户端驻留执行」模式（客户端不运行则当天不执行），可在设置页切换。</span>
         <span v-else>当前为「系统定时器」模式（客户端不开也执行）。</span>
@@ -68,19 +68,7 @@
       </div>
     </t-card>
 
-    <t-card>
-      <div class="sec-title">最近执行记录</div>
-      <t-table :data="history" :columns="histCols" size="small" row-key="job_id"
-               :max-height="220">
-        <template #op="{ row }">
-          <t-button size="small" variant="outline" @click="showLog(row)">日志</t-button>
-        </template>
-      </t-table>
-    </t-card>
-
-    <t-dialog v-model:visible="logVisible" header="任务日志" width="80vw" :footer="false">
-      <div class="logview" style="height:60vh">{{ logText }}</div>
-    </t-dialog>
+    <HistoryCard ref="histCard" app-id="daily_sync" :format-result="fmtResult" />
   </div>
 </template>
 
@@ -88,6 +76,7 @@
 import { nextTick, onActivated, reactive, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { call, runJob } from '../api'
+import HistoryCard from '../components/HistoryCard.vue'
 
 const sch = reactive({ enabled: true, time: '09:15' })
 const statusText = reactive({ lastSuccess: '-', lastFile: '-', lastRun: '-', nextRun: '-' })
@@ -96,25 +85,7 @@ const usbEdit = reactive({ label: '', fallback_dir: '' })
 const savingUsb = ref(false)
 const dueReason = ref('')
 const driver = ref('os')
-const history = ref([])
-const histCols = [
-  { colKey: 'time', title: '时间', width: 160 },
-  { colKey: 'status', title: '状态', width: 90 },
-  { colKey: 'summary', title: '结果', ellipsis: true },
-  { colKey: 'op', title: '操作', width: 80 },
-]
-const logVisible = ref(false)
-const logText = ref('')
-
-async function showLog(row) {
-  try {
-    const r = await call('getJobLog', { job_id: row.job_id })
-    logText.value = r.text || '（日志为空）'
-    logVisible.value = true
-  } catch (e) {
-    MessagePlugin.error(String(e.message || e))
-  }
-}
+const histCard = ref(null)
 const runDate = ref('')
 const running = ref(false)
 const saving = ref(false)
@@ -170,17 +141,6 @@ async function saveUsb() {
   }
 }
 
-async function loadHistory() {
-  try {
-    const rows = await call('getHistory', { app_id: 'daily_sync' })
-    history.value = rows.map((r) => ({
-      time: r.time, status: STATUS_CN[r.status] || r.status,
-      summary: r.error || fmtResult(r.result),
-      job_id: r.job_id,
-    }))
-  } catch (e) { /* 忽略 */ }
-}
-
 async function saveSchedule() {
   if (!/^\d{1,2}:\d{2}$/.test(sch.time)) {
     MessagePlugin.warning('时间格式应为 HH:MM，如 09:15')
@@ -234,7 +194,7 @@ async function startRun() {
           text: job.error || fmtResult(job.result),
           dir: (job.result || {}).dir || '',
         }
-        loadStatus(); loadHistory()
+        loadStatus(); histCard.value && histCard.value.reload()
       },
       onError: (e) => {
         running.value = false
@@ -251,6 +211,7 @@ function cancel() {
   if (currentJob) currentJob.cancel()
 }
 
-// keep-alive：首次显示与每次切回都触发（任务组件常驻，状态不丢）
-onActivated(() => { loadStatus(); loadHistory() })
+// keep-alive：首次显示与每次切回都触发（任务组件常驻，状态不丢）；
+// 最近执行记录由 HistoryCard 自行在激活时刷新
+onActivated(loadStatus)
 </script>

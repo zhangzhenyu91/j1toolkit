@@ -63,6 +63,7 @@ def cmd_daily_export(cfg: dict, args) -> int:
         if not due:
             print("[daily-export] 跳过：%s" % reason)
             return 0
+        scheduler.mark_attempt(_today)   # 分钟级 tick 下拉开失败重试间隔
     return _run_headless("daily_sync", "每日派车单同步", {"date": args.date or ""})
 
 

@@ -2,10 +2,15 @@
 """due-check 调度判定。
 
 设计要点（见《内网工具箱开发指南.md》调度规范）：
-OS 级定时器（systemd timer / Windows 计划任务）每 10 分钟唤醒一次
+OS 级定时器（systemd timer / Windows 计划任务）每分钟唤醒一次
 `app.py daily-export --if-due`，本模块判定「已到配置时刻且今日未成功」才执行。
 好处：GUI 改时间只写 config.json，不需要 root 改 unit 文件；
 机器关机错过到点后，开机下一 tick 自动补跑。
+
+分钟级 tick 下失败任务若每分钟重跑会高频打 SSO 登录（有锁定风险），
+故加「距上次尝试 ≥10 分钟」尝试间隔闸（daily_export_attempt 戳），
+失败重试节奏与原 10 分钟轮询一致（2026-10-09 起：轮询改每分钟，
+解决 09:15 被 10 分钟量化到 09:20、与服务端取件撞车的问题）。
 """
 import re
 import time
@@ -13,7 +18,9 @@ from datetime import datetime
 
 import state
 
-STAMP_NAME = "daily_export"   # 每日派车单同步的成功戳
+STAMP_NAME = "daily_export"             # 每日派车单同步的成功戳
+ATTEMPT_STAMP = "daily_export_attempt"  # 上次尝试戳（无论成败，到点放行前记录）
+ATTEMPT_MIN_INTERVAL = 600              # 两次自动尝试的最小间隔（秒），与原 10 分钟轮询节奏一致
 
 
 def parse_hhmm(s: str):
@@ -42,15 +49,29 @@ def due_check(cfg: dict, now: datetime = None, driver: str = "os"):
     if stamp.get("date") == today:
         return False, "今日已成功执行（%s）" % stamp.get("time", ""), today
     h, mi = parse_hhmm(sch.get("time", "09:15"))
-    if (now.hour, now.minute) >= (h, mi):
-        return True, "已到设定时间 %02d:%02d" % (h, mi), today
-    return False, "未到设定时间 %02d:%02d" % (h, mi), today
+    if (now.hour, now.minute) < (h, mi):
+        return False, "未到设定时间 %02d:%02d" % (h, mi), today
+    att = state.get_stamp(ATTEMPT_STAMP) or {}
+    if att.get("date") == today:
+        try:
+            last = datetime.strptime(att.get("time", ""), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            last = None
+        if last and (now - last).total_seconds() < ATTEMPT_MIN_INTERVAL:
+            return False, "距上次尝试不足 %d 分钟（%s）" % (
+                ATTEMPT_MIN_INTERVAL // 60, att.get("time", "")), today
+    return True, "已到设定时间 %02d:%02d" % (h, mi), today
 
 
 def mark_success(today: str, extra: dict = None):
     data = {"date": today, "time": time.strftime("%Y-%m-%d %H:%M:%S")}
     data.update(extra or {})
     state.set_stamp(STAMP_NAME, data)
+
+
+def mark_attempt(today: str):
+    """到点放行后、执行前调用：拉开分钟级 tick 下的失败重试间隔。"""
+    state.set_stamp(ATTEMPT_STAMP, {"date": today, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
 
 
 def next_run_text(cfg: dict, now: datetime = None) -> str:

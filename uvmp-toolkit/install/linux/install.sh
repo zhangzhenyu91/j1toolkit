@@ -77,7 +77,7 @@ PYEOF
   chown "$APP_USER":"$APP_USER" "$CONFIG_PATH" 2>/dev/null || true
 fi
 
-# ---- 4. systemd unit（timer 每 10 分钟 due-check）----
+# ---- 4. systemd unit（timer 每分钟 due-check）----
 echo "[4/4] 安装 systemd unit ..."
 # root 定时器的状态镜像目标=安装用户状态目录（GUI/手动查看才能看到自动执行的记录）
 APP_HOME=$(getent passwd "$APP_USER" 2>/dev/null | cut -d: -f6 || echo "")

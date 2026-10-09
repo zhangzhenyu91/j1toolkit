@@ -17,7 +17,7 @@ const config = require('../config');
 
 const HOST_H5 = 'gwslapi.esgcc.com.cn';   // jsonm 与 jsonx(default)
 const HOST_ZB = 'gwslapizb.esgcc.com.cn'; // jsonx(slapp)
-const VERSION = config.sgcc.version || '3.3.6';
+const VERSION = config.sgcc.version || '3.3.7';
 
 // ---------- 基础工具 ----------
 function b64url(b) { return Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
@@ -280,7 +280,7 @@ async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const body = rsaEncryptLong(pubPem, JSON.stringify({ ...(plainObj || {}), _r: r }));
   const uniID = noPool ? '' : await takeUniID(isSlapp);
-  // 头集逐项对齐真实 App 3.3.6 抓包（2026-09-24 HAR 比对）：版本指纹缺失/过旧会被风控以 99001 笼统拒绝
+  // 头集逐项对齐真实 App 抓包（2026-09-24 HAR 比对 3.3.6，2026-10-09 复核 3.3.7 一致）：版本指纹缺失/过旧会被风控以 99001 笼统拒绝
   const headers = {
     'Content-Type': 'application/jsonx', 'Accept': '*/*',
     'User-Agent': `guo wang shang lu yun/${VERSION} (${deviceType}; ${systemVersion}; Scale/2.00)`,
@@ -289,7 +289,7 @@ async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType
     'platform': isSlapp ? '1' : 'android',
     'systemVersion': systemVersion, 'deviceType': deviceType,
     'appType': '0', 'grayversion': config.sgcc.grayVersion || '2.4.7.1',
-    'version-code': config.sgcc.versionCode || '202609101630',
+    'version-code': config.sgcc.versionCode || '202609232038',
     'uuid': deviceUuid(mobile),
     'encFlag': '2', 'version': VERSION,
   };
@@ -473,7 +473,7 @@ async function uploadImageV2(token, { buf }, opt = {}) {
     buf,
     Buffer.from(`\r\n--${boundary}--\r\n`),
   ]);
-  // 头集逐项对齐 App 3.3.6 上传抓包（与 callJsonx slapp 口径同源，仅 Content-Type 为 multipart 且无 sign 头）
+  // 头集逐项对齐 App 上传抓包（2026-10-09 按 3.3.7 HAR 复核一致；与 callJsonx slapp 口径同源，仅 Content-Type 为 multipart 且无 sign 头）
   const headers = {
     'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Accept': '*/*',
     'User-Agent': `guo wang shang lu yun/${VERSION} (${deviceType}; ${systemVersion}; Scale/2.00)`,
@@ -482,7 +482,7 @@ async function uploadImageV2(token, { buf }, opt = {}) {
     'platform': '1',
     'systemVersion': systemVersion, 'deviceType': deviceType,
     'appType': '0', 'grayversion': config.sgcc.grayVersion || '2.4.7.1',
-    'version-code': config.sgcc.versionCode || '202609101630',
+    'version-code': config.sgcc.versionCode || '202609232038',
     'uuid': deviceUuid(mobile),
     'encFlag': '2', 'secretKeyType': '2', 'version': VERSION,
   };

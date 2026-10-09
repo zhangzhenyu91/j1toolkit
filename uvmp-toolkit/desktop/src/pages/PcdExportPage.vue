@@ -61,30 +61,17 @@
       <div ref="logEl" class="logview" style="margin-top:10px">{{ logs.join('\n') }}</div>
     </t-card>
 
-    <t-card>
-      <div class="sec-title">最近执行记录</div>
-      <t-table :data="history" :columns="histCols" size="small" row-key="job_id"
-               :max-height="220">
-        <template #op="{ row }">
-          <t-button size="small" variant="outline" @click="showLog(row)">日志</t-button>
-          <t-button v-if="row.dir" size="small" variant="outline"
-                    @click="call('openPath', { path: row.dir })">打开目录</t-button>
-        </template>
-      </t-table>
-    </t-card>
-
-    <t-dialog v-model:visible="logVisible" header="任务日志" width="80vw" :footer="false">
-      <div class="logview" style="height:60vh">{{ logText }}</div>
-    </t-dialog>
+    <HistoryCard ref="histCard" app-id="pcd_export" :format-result="fmtResult" show-dir />
   </div>
 </template>
 
 <script setup>
-import { nextTick, onActivated, onMounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, reactive, ref } from 'vue'
 // PcdExportPage 有意保留 onMounted（输出目录建议只在首次进页填充，切回不覆盖用户输入）；
-// 最近执行记录走 onActivated（每次切回刷新），与派车单同步页一致
+// 最近执行记录由 HistoryCard 自行在激活时刷新
 import { MessagePlugin } from 'tdesign-vue-next'
 import { call, pickFile, pickDirectory, runJob } from '../api'
+import HistoryCard from '../components/HistoryCard.vue'
 
 const codes = ref([])
 const batchName = ref('派车单')
@@ -97,25 +84,7 @@ const logs = ref([])
 const logEl = ref(null)
 const progress = reactive({ pct: 0, text: '' })
 const runError = ref('')
-const history = ref([])
-const histCols = [
-  { colKey: 'time', title: '时间', width: 160 },
-  { colKey: 'status', title: '状态', width: 90 },
-  { colKey: 'summary', title: '结果', ellipsis: true },
-  { colKey: 'op', title: '操作', width: 160 },
-]
-const logVisible = ref(false)
-const logText = ref('')
-
-async function showLog(row) {
-  try {
-    const r = await call('getJobLog', { job_id: row.job_id })
-    logText.value = r.text || '（日志为空）'
-    logVisible.value = true
-  } catch (e) {
-    MessagePlugin.error(String(e.message || e))
-  }
-}
+const histCard = ref(null)
 
 let currentJob = null
 
@@ -157,8 +126,6 @@ function appendLog(line) {
   nextTick(() => { if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight })
 }
 
-const STATUS_CN = { success: '成功', failed: '失败', cancelled: '已取消' }
-
 function fmtResult(r) {
   if (!r) return ''
   const parts = [`共 ${r.total || 0} 单`,
@@ -166,18 +133,6 @@ function fmtResult(r) {
                  `轨迹 成功 ${r.track_ok || 0}/失败 ${r.track_fail || 0}`]
   if ((r.not_found || []).length) parts.push(`未找到 ${r.not_found.length}`)
   return parts.join('；')
-}
-
-async function loadHistory() {
-  try {
-    const rows = await call('getHistory', { app_id: 'pcd_export' })
-    history.value = rows.map((r) => ({
-      time: r.time, status: STATUS_CN[r.status] || r.status,
-      summary: r.error || fmtResult(r.result),
-      dir: (r.result || {}).dir || '',
-      job_id: r.job_id,
-    }))
-  } catch (e) { /* 忽略 */ }
 }
 
 async function startRun() {
@@ -212,7 +167,7 @@ async function startRun() {
       },
       onDone: () => {
         running.value = false
-        loadHistory()
+        histCard.value && histCard.value.reload()
         // 任务完成后清空单号/日志等旧数据（结果已落入底部最近执行记录），
         // 避免下次导入新表时界面还留着上一批的数据造成混淆
         codes.value = []
@@ -236,8 +191,6 @@ async function startRun() {
 function cancel() {
   if (currentJob) currentJob.cancel()
 }
-
-onActivated(loadHistory)
 
 onMounted(async () => {
   try {
