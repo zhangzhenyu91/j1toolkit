@@ -791,9 +791,9 @@ Page({
     this.setData({ 'ndSave.open': false });
   },
 
-  // 目录选择确认：顺序循环调 save-to-netdisk（body {name, dir} 带生效班组），结束 toast 汇总
+  // 目录选择确认：顺序循环调 save-to-netdisk（body {name, dir, space} 带生效班组），结束 toast 汇总
   async onNdSaveDirConfirm(e) {
-    const dir = (e.detail && e.detail.dir) || '';
+    const { dir = '', space = 'my' } = e.detail || {};
     const names = (this.data.ndSave.names || []).slice();
     const dev = this.data.dlDevice;
     this.setData({ 'ndSave.open': false, 'ndSave.names': [] });
@@ -811,7 +811,7 @@ Page({
           url: `/api/v1/kvm/devices/${dev.id}/save-to-netdisk`,
           method: 'POST',
           timeout: 120000,
-          data: this.teamBody({ name: names[i], dir }),
+          data: this.teamBody({ name: names[i], dir, space }),
         });
         ok += 1;
         lastPath = (data && data.path) || lastPath;

@@ -1824,7 +1824,7 @@ router.get('/photos.pdf', async (req, res, next) => {
   }
 });
 
-// POST /photos-pdf/save-netdisk {from,to,dir?}：组合 PDF 保存到网盘（dir 缺省 出工日志/，可传我的空间内多级相对路径）
+// POST /photos-pdf/save-netdisk {from,to,dir?,space?}：组合 PDF 保存到网盘（space: my 我的空间（缺省）/ public 公共区；dir 缺省 出工日志/，可传目标空间内多级相对路径）
 router.post('/photos-pdf/save-netdisk', async (req, res, next) => {
   try {
     const { from, to } = req.body || {};
@@ -1837,6 +1837,7 @@ router.post('/photos-pdf/save-netdisk', async (req, res, next) => {
     if (!built) return fail(res, 404, 40402, '该日期范围没有水印照片');
     const fileName = from === to ? `水印照片-${from}.pdf` : `水印照片-${from}至${to}.pdf`;
     const path = await netdiskSave.saveToNetdisk(req.user, {
+      space: (req.body && req.body.space) === 'public' ? 'public' : 'my',
       dir: (req.body && req.body.dir) == null ? '出工日志' : String(req.body.dir),
       name: fileName, body: built.buf, size: built.buf.length,
     });
@@ -1847,7 +1848,7 @@ router.post('/photos-pdf/save-netdisk', async (req, res, next) => {
   }
 });
 
-// POST /sheet/save-netdisk {sheet:'task'|'fee'|'dispatch', from, to, force?, dir?}：任务单/费用汇总/派车汇总生成并保存到网盘
+// POST /sheet/save-netdisk {sheet:'task'|'fee'|'dispatch', from, to, force?, dir?, space?}：任务单/费用汇总/派车汇总生成并保存到网盘（space 口径同 photos-pdf）
 //（生成前核验口径与各 sheet 下载/预览一致：task/fee 非 force 先核验；dispatch 不核验；dir 缺省 出工日志/）
 router.post('/sheet/save-netdisk', requireDictAdmin, async (req, res, next) => {
   try {
@@ -1876,6 +1877,7 @@ router.post('/sheet/save-netdisk', requireDictAdmin, async (req, res, next) => {
     if (!result) return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的内容');
     const buf = Buffer.isBuffer(result) ? result : result.buffer;
     const path = await netdiskSave.saveToNetdisk(req.user, {
+      space: (req.body && req.body.space) === 'public' ? 'public' : 'my',
       dir: (req.body && req.body.dir) == null ? '出工日志' : String(req.body.dir),
       name: fileName, body: buf, size: buf.length,
     });

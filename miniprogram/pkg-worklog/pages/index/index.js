@@ -2960,13 +2960,13 @@ Page({
   },
 
   onNdSaveDirConfirm(e) {
-    const dir = (e.detail && e.detail.dir) || '';
+    const { dir = '', space = 'my' } = e.detail || {};
     this.setData({ ndSaveVisible: false });
-    this.doDlPdfSave(dir);
+    this.doDlPdfSave(dir, space);
   },
 
-  // 同一范围在后端生成并转存网盘（dir 为自选的网盘目录；failed 为合成失败的照片数）
-  doDlPdfSave(dir) {
+  // 同一范围在后端生成并转存网盘（dir/space 为自选的网盘目录与空间；failed 为合成失败的照片数）
+  doDlPdfSave(dir, space) {
     const { dlFrom, dlTo, pdfBusy } = this.data;
     if (pdfBusy) return;
     this.setData({ pdfBusy: true });
@@ -2975,7 +2975,7 @@ Page({
       url: '/api/v1/worklog/photos-pdf/save-netdisk',
       method: 'POST',
       timeout: 120000,
-      data: this.teamBody({ from: dlFrom, to: dlTo, dir }),
+      data: this.teamBody({ from: dlFrom, to: dlTo, dir, space }),
     }).then((data) => {
       const failed = data && data.failed ? `，${data.failed} 张照片合成失败` : '';
       this.toast(`已保存到网盘：${(data && data.path) || ''}${failed}`);

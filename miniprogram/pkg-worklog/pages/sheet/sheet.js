@@ -75,7 +75,8 @@ Page({
       return;
     }
     this._teamId = Number(wx.getStorageSync('worklog_team_id')) || 0;
-    this._ndDir = ''; // 存网盘自选目录（nd-dirpicker confirm 后记录；40901 强制执行沿用已选目录）
+    this._ndDir = ''; // 存网盘自选目录（nd-dirpicker confirm 后记录；40901 强制执行沿用已选目录与空间）
+    this._ndSpace = 'my'; // 存网盘自选空间（my 我的空间 / public 公共区）
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     this.setData({
@@ -200,6 +201,7 @@ Page({
 
   onNdSaveDirConfirm(e) {
     this._ndDir = (e.detail && e.detail.dir) || '';
+    this._ndSpace = (e.detail && e.detail.space) || 'my';
     this.setData({ ndSaveVisible: false });
     this.onSaveNetdisk();
   },
@@ -224,6 +226,7 @@ Page({
         from,
         to,
         dir: this._ndDir || '',
+        space: this._ndSpace || 'my',
         ...(this._teamId ? { team_id: this._teamId } : {}),
         // bindtap 直绑时 force 为事件对象，仅确认按钮传来 true 才算强制执行
         ...(force === true ? { force: 1 } : {}),

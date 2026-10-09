@@ -542,13 +542,13 @@
     }).catch(function () { /* 网盘不可用：保持隐藏 */ });
   }
 
-  /* 存网盘：先弹目录选择（缺省定位 安全日记录/，可改选我的空间内其他目录），
-     再 POST /records/:id/save-netdisk {dir}（{ok,error} 信封走 parseOk），成功 toast 返回路径 */
+  /* 存网盘：先弹目录选择（缺省定位 安全日记录/，可选我的空间/公共区目录），
+     再 POST /records/:id/save-netdisk {dir, space}（{ok,error} 信封走 parseOk），成功 toast 返回路径 */
   function saveRecordToNetdisk(id, btn) {
-    ShadeNdPick.pickDir({ defaultPath: '安全日记录' }).then(function (dir) {
-      if (dir === null) { return; } // 取消选择
+    ShadeNdPick.pickDir({ defaultPath: '安全日记录' }).then(function (sel) {
+      if (sel === null) { return; } // 取消选择
       btn.disabled = true;
-      sdFetch('/records/' + encodeURIComponent(id) + '/save-netdisk', { method: 'POST', body: { dir: dir } })
+      sdFetch('/records/' + encodeURIComponent(id) + '/save-netdisk', { method: 'POST', body: { dir: sel.dir, space: sel.space } })
         .then(parseOk)
         .then(function (data) { Shade.toast('已保存到网盘：' + ((data && data.path) || ''), 'success'); })
         .catch(function (err) { Shade.toast(err.message || '保存失败', 'error'); })

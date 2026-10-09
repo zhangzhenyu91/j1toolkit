@@ -1,12 +1,14 @@
 // 「保存到网盘」共享通道：供出工日志/安全日记录/文件传输等模块把服务端侧文件写入网盘
-// 落点为「我的空间/<dir>/<文件名>」（个人空间，不搅公共区；目录自动创建）：
-// dir 为「我的空间」内相对路径（可多级，如 出工日志/2026-10），缺省由各调用方传固定目录
-// 权限：写网盘须持 netdisk 应用权限（无权限抛 40301）
+// 落点为「我的空间/<dir>/<文件名>」或「公共区/<dir>/<文件名>」（space 选项，缺省 my 个人空间；
+// 公共区按班组隔离 = {publicRoot}/{班组名}，未分配班组无公共区；目录自动创建）：
+// dir 为目标空间内相对路径（可多级，如 出工日志/2026-10），缺省由各调用方传固定目录
+// 权限：写网盘须持 netdisk 应用权限（无权限抛 40301）；公共区写入与上传同口径全员可用
 const config = require('../config');
 const { pool } = require('../db');
 const ol = require('./openlist');
+const { spaceRootOf } = require('./space');
 
-// 各调用方的缺省归档目录（个人空间下；仅作默认值文档，调用方也可让用户自选多级相对路径）
+// 各调用方的缺省归档目录（仅作默认值文档，调用方也可让用户自选空间与多级相对路径）
 const DIRS = new Set(['出工日志', '安全日记录', '文件传输']);
 
 async function assertNetdiskAccess(userId) {
@@ -32,7 +34,7 @@ function sanitizeName(name) {
   return n;
 }
 
-// 「我的空间」内相对目录净化：去首尾空白与斜杠后按 / 分段，每段走 sanitizeName 同款净化，
+// 目标空间内相对目录净化：去首尾空白与斜杠后按 / 分段，每段走 sanitizeName 同款净化，
 // 任一段为空 / . / .. 判非法；深度 ≤6、总长 ≤200
 // 合法返回净化后相对路径（不含首尾斜杠；根目录为空串 ''），非法返回 null
 function sanitizeRelDir(dir) {
@@ -51,15 +53,25 @@ function sanitizeRelDir(dir) {
 }
 
 /**
- * 保存到网盘（我的空间/<dir>/<name>；dir 为我的空间内相对路径，'' 表示根目录）
+ * 保存到网盘（<空间>/<dir>/<name>；dir 为目标空间内相对路径，'' 表示根目录）
  * @param {object} user  req.user
- * @param {object} opts  { dir: 目标相对路径（多级，如 出工日志/2026-10；各调用方缺省见 DIRS）,
+ * @param {object} opts  { space: 'my'（缺省，我的空间）|'public'（公共区，按班组隔离）,
+ *                         dir: 目标相对路径（多级，如 出工日志/2026-10；各调用方缺省见 DIRS）,
  *                         name: 文件名, body: Buffer|Readable, size?: 字节数 }
- * @returns {Promise<string>} 网盘内展示路径（我的空间/<dir>/<name>）
+ * @returns {Promise<string>} 网盘内展示路径（我的空间|公共区/<dir>/<name>）
  */
-async function saveToNetdisk(user, { dir, name, body, size }) {
+async function saveToNetdisk(user, { dir, name, body, size, space }) {
   ol.ensureConfigured();
   await assertNetdiskAccess(user.id);
+  const sp = space === 'public' ? 'public' : 'my';
+  const root = await spaceRootOf(user, sp);
+  if (!root) {
+    const err = new Error(sp === 'public' ? '未分配班组，无法保存到公共区' : '参数错误：space');
+    err.expose = true;
+    err.status = 400;
+    err.code = 40001;
+    throw err;
+  }
   const rel = sanitizeRelDir(dir);
   if (rel === null) {
     const err = new Error('参数错误：dir');
@@ -76,11 +88,11 @@ async function saveToNetdisk(user, { dir, name, body, size }) {
     err.code = 40001;
     throw err;
   }
-  const root = `${config.netdisk.personalRoot}/${user.username}`;
   const target = rel ? `${root}/${rel}` : root;
   await ol.ensureDir(target); // ensureDir 逐级创建，支持多级
   await ol.fsPut(`${target}/${clean}`, body, size);
-  return rel ? `我的空间/${rel}/${clean}` : `我的空间/${clean}`;
+  const label = sp === 'public' ? '公共区' : '我的空间';
+  return rel ? `${label}/${rel}/${clean}` : `${label}/${clean}`;
 }
 
 module.exports = { saveToNetdisk, assertNetdiskAccess, sanitizeRelDir, DIRS };

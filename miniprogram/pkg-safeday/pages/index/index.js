@@ -149,12 +149,12 @@ Page({
 
   // 目录选择确认：sdFetch POST /records/{id}/save-netdisk（响应 {ok:true, path}；未开通/未配置时 toast 后端原文）
   onNdSaveDirConfirm(e) {
-    const dir = (e.detail && e.detail.dir) || '';
+    const { dir = '', space = 'my' } = e.detail || {};
     const id = this.data.ndSaveId;
     this.setData({ ndSaveVisible: false, ndSaveId: '' });
     if (!id || this.data.savingNd) return;
     this.setData({ savingNd: id });
-    this.sdFetch(`/records/${encodeURIComponent(id)}/save-netdisk`, { method: 'POST', timeout: 120000, data: { dir } })
+    this.sdFetch(`/records/${encodeURIComponent(id)}/save-netdisk`, { method: 'POST', timeout: 120000, data: { dir, space } })
       .then((data) => this.toast(`已保存到网盘：${(data && data.path) || ''}`))
       .catch((err) => this.toast(err.message || '保存失败'))
       .finally(() => this.setData({ savingNd: '' }));

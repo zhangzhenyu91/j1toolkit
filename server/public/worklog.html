@@ -4575,18 +4575,18 @@ async function photosPdfDownload(btn) {
   btn.innerHTML = old;
 }
 
-/* 批量下载页签：POST /api/v1/worklog/photos-pdf/save-netdisk {from,to,dir} 组合 PDF 存网盘
-   （先弹目录选择，缺省定位 出工日志/，可改选我的空间内其他目录） */
+/* 批量下载页签：POST /api/v1/worklog/photos-pdf/save-netdisk {from,to,dir,space} 组合 PDF 存网盘
+   （先弹目录选择，缺省定位 出工日志/，可选我的空间/公共区目录） */
 async function photosPdfSaveNd(btn) {
   if (!state.dl.from || !state.dl.to) { Shade.toast('请选择起止日期', 'info'); return; }
-  var dir = await ShadeNdPick.pickDir({ defaultPath: '出工日志' });
-  if (dir === null) return; // 取消选择
+  var sel = await ShadeNdPick.pickDir({ defaultPath: '出工日志' });
+  if (sel === null) return; // 取消选择
   btn.disabled = true;
   var old = btn.innerHTML;
   btn.innerHTML = Shade.icon('cloud', 15) + '保存中…';
   try {
     var r = await Shade.api(wl('/api/v1/worklog/photos-pdf/save-netdisk'), {
-      method: 'POST', body: { from: state.dl.from, to: state.dl.to, dir: dir }
+      method: 'POST', body: { from: state.dl.from, to: state.dl.to, dir: sel.dir, space: sel.space }
     });
     Shade.toast('已保存到网盘：' + ((r.data && r.data.path) || ''), 'success');
   } catch (e) {
@@ -4596,24 +4596,24 @@ async function photosPdfSaveNd(btn) {
   btn.innerHTML = old;
 }
 
-/* 工作任务单 / 费用汇总 / 派车汇总存网盘：POST /api/v1/worklog/sheet/save-netdisk {sheet,from,to,force?,dir}
+/* 工作任务单 / 费用汇总 / 派车汇总存网盘：POST /api/v1/worklog/sheet/save-netdisk {sheet,from,to,force?,dir,space}
    （生成前核验口径同下载/预览：40901 走 showVerifyFailures，「仍要生成」force=1 重试；
-   dir 首次点击弹目录选择（缺省 出工日志/），force 重试沿用上回所选不重复弹层） */
-async function sheetSaveNd(sheet, range, btn, force, dir) {
+   首次点击弹目录选择（缺省 出工日志/，可选我的空间/公共区），force 重试沿用上回所选不重复弹层） */
+async function sheetSaveNd(sheet, range, btn, force, sel) {
   if (!range) return;
-  if (dir === undefined) {
-    dir = await ShadeNdPick.pickDir({ defaultPath: '出工日志' });
-    if (dir === null) return; // 取消选择
+  if (sel === undefined) {
+    sel = await ShadeNdPick.pickDir({ defaultPath: '出工日志' });
+    if (sel === null) return; // 取消选择
   }
   btn.disabled = true;
   try {
     var r = await Shade.api(wl('/api/v1/worklog/sheet/save-netdisk'), {
       method: 'POST',
-      body: { sheet: sheet, from: range.from, to: range.to, force: force ? 1 : 0, dir: dir }
+      body: { sheet: sheet, from: range.from, to: range.to, force: force ? 1 : 0, dir: sel.dir, space: sel.space }
     });
     Shade.toast('已保存到网盘：' + ((r.data && r.data.path) || ''), 'success');
   } catch (e) {
-    if (!showVerifyFailures(e, range.from, function () { sheetSaveNd(sheet, range, btn, 1, dir); })) Shade.toast(e.message, 'error');
+    if (!showVerifyFailures(e, range.from, function () { sheetSaveNd(sheet, range, btn, 1, sel); })) Shade.toast(e.message, 'error');
   }
   btn.disabled = false;
 }

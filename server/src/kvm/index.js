@@ -365,6 +365,7 @@ router.post('/devices/:id/save-to-netdisk', requireAnyApp(KVM_OR_FT), async (req
     );
     const size = Number(r.headers['content-length'] || 0) || undefined;
     const path = await netdiskSave.saveToNetdisk(req.user, {
+      space: (req.body && req.body.space) === 'public' ? 'public' : 'my',
       dir: (req.body && req.body.dir) == null ? '文件传输' : String(req.body.dir),
       name, body: r.data, size,
     });

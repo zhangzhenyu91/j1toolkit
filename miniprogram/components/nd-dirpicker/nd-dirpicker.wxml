@@ -1,10 +1,22 @@
-<!-- 共享组件 · 网盘目录选择器（「保存到网盘」前选「我的空间」目录；接口说明见 nd-dirpicker.js 头注释）
-     样式跟随 pkg-netdisk 目标位置选择弹层（抓手 + 面包屑 + 仅文件夹列表 + 主按钮） -->
+<!-- 共享组件 · 网盘目录选择器（「保存到网盘」前选空间与目录；接口说明见 nd-dirpicker.js 头注释）
+     样式跟随 pkg-netdisk 目标位置选择弹层（抓手 + 空间分段 + 面包屑 + 仅文件夹列表 + 主按钮） -->
 <t-popup visible="{{innerVisible}}" placement="bottom" bind:visible-change="onVisibleChange">
   <view class="ndp-sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
     <view class="grab"></view>
     <view class="ndp-title">保存到网盘</view>
-    <view class="ndp-sub">选择「我的空间」内的保存目录，可就地新建文件夹</view>
+    <view class="ndp-sub">选择保存目录，可就地新建文件夹</view>
+
+    <!-- 空间分段（公共区按班组隔离；未分配班组时仅我的空间，分段隐藏） -->
+    <view wx:if="{{spaces.length > 1}}" class="ndp-spaces">
+      <view
+        wx:for="{{spaces}}"
+        wx:key="key"
+        class="ndp-space {{space === item.key ? 'on' : ''}}"
+        data-key="{{item.key}}"
+        hover-class="hover-opacity"
+        bindtap="onSpaceTap"
+      >{{item.name}}</view>
+    </view>
 
     <!-- 面包屑（父级蓝字可点，末级当前加粗） -->
     <view class="ndp-crumb">

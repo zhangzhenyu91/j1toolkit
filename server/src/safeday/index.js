@@ -410,7 +410,7 @@ router.get(['/records/:id/download', '/records/:id/download/:name([^/]+\\.[a-zA-
   return res.download(filePath, record.fileName);
 });
 
-// 保存到网盘（dir 缺省 安全日记录/，可传我的空间内多级相对路径；须持 netdisk 应用权限）
+// 保存到网盘（space: my 我的空间（缺省）/ public 公共区；dir 缺省 安全日记录/，可传目标空间内多级相对路径；须持 netdisk 应用权限）
 router.post('/records/:id/save-netdisk', async (req, res) => {
   try {
     const record = store.get(req.params.id);
@@ -425,6 +425,7 @@ router.post('/records/:id/save-netdisk', async (req, res) => {
       return res.status(404).json({ ok: false, error: '文件不存在，可能已被清理' });
     }
     const path = await netdiskSave.saveToNetdisk(req.user, {
+      space: (req.body && req.body.space) === 'public' ? 'public' : 'my',
       dir: (req.body && req.body.dir) == null ? '安全日记录' : String(req.body.dir),
       name: record.fileName,
       body: fs.createReadStream(filePath),
