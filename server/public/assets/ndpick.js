@@ -11,7 +11,7 @@
      resolve(null)：用户取消（点遮罩 / Esc / 取消按钮 / 右上角 X）——取消不 reject
 
    交互为 netdisk.html pickTargetDir 的简化版：空间分段、面包屑回跳、
-   只列文件夹、单击选中（选中即以其为目标子目录）/双击进入、就地新建文件夹
+   只列文件夹、单击进入子目录（与小程序端 nd-dirpicker 同口径；目标目录 = 当前浏览目录）、就地新建文件夹
    （POST /api/v1/netdisk/mkdir {space, path: 当前目录, name}；公共区全员可建，与网盘主页同口径）。
    弹层外壳样式自包含（.ndp-* 注入一次）：worklog/quiz 等页的 .mask/.modal 口径各页自带，
    safeday 页无 .modal 样式，故本组件不复用 Shade.modal；按钮/输入框/空态/加载沿用 theme.css 全局 class。
@@ -55,7 +55,6 @@
     + '  min-height: 180px; max-height: 300px; overflow-y: auto; }'
     + '.ndp-row { display: flex; align-items: center; gap: 9px; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }'
     + '.ndp-row:hover { background: var(--fill); }'
-    + '.ndp-row.on { background: var(--orange-soft); font-weight: 600; }'
     + '.ndp-row svg { flex: none; color: var(--navy); }'
     + '.ndp-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }'
     + '.ndp-empty { padding: 36px 20px; }'
@@ -94,7 +93,6 @@
         space: 'my',
         spaces: [{ key: 'my', name: '我的空间' }],
         dir: def ? '/' + def : '/',
-        selName: null,
         items: [],
       };
 
@@ -136,9 +134,9 @@
       mask.querySelector('[data-a="no"]').addEventListener('click', function () { finish(null); });
 
       function joinRel(dir, name) { return (dir === '/' ? '' : dir) + '/' + name; }
-      // 目标 = 选中文件夹（单击选中）或当前浏览目录；dir 不带首尾斜杠，根目录为 ''
+      // 目标 = 当前浏览目录（单击行即进入子目录，同小程序端口径）；dir 不带首尾斜杠，根目录为 ''
       function targetRel() {
-        return (pk.selName ? joinRel(pk.dir, pk.selName) : pk.dir).replace(/^\/+/, '');
+        return pk.dir.replace(/^\/+/, '');
       }
       function spaceName() {
         var s = pk.spaces.filter(function (x) { return x.key === pk.space; })[0];
@@ -169,7 +167,7 @@
           return;
         }
         listEl.innerHTML = pk.items.map(function (x) {
-          return '<div class="ndp-row' + (pk.selName === x.name ? ' on' : '') + '" data-name="' + esc(x.name) + '">'
+          return '<div class="ndp-row" data-name="' + esc(x.name) + '">'
             + Shade.icon('folder', 20) + '<span class="ndp-nm">' + esc(x.name) + '</span></div>';
         }).join('');
       }
@@ -180,7 +178,6 @@
             var dirs = ((r.data && r.data.items) || []).filter(function (x) { return x.is_dir; });
             dirs.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'zh'); });
             pk.items = dirs;
-            pk.selName = null;
             paintRows();
           })
           .catch(function (e) {
@@ -206,7 +203,6 @@
         if (!seg || seg.dataset.key === pk.space) return;
         pk.space = seg.dataset.key;
         pk.dir = '/';
-        pk.selName = null;
         mkdirRow.hidden = true;
         paintSpaces(); paintCrumb(); loadDirs(false);
       });
@@ -220,15 +216,8 @@
         if (e.target.closest('[data-retry]')) { loadDirs(false); return; }
         var row = e.target.closest('.ndp-row');
         if (!row) return;
-        // 单击选中/再点取消选中（目标回退为当前浏览目录）
-        pk.selName = pk.selName === row.dataset.name ? null : row.dataset.name;
-        paintRows();
-      });
-      listEl.addEventListener('dblclick', function (e) {
-        var row = e.target.closest('.ndp-row');
-        if (!row) return;
+        // 单击进入子目录（同小程序端口径；目标目录 = 当前浏览目录，面包屑可回跳）
         pk.dir = joinRel(pk.dir, row.dataset.name);
-        pk.selName = null;
         paintCrumb(); loadDirs(false);
       });
 
