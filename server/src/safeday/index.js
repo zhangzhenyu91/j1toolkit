@@ -2,7 +2,9 @@
 // 响应仍为 { ok, error, ... }，非主平台 {code,message,data} 信封）
 // 鉴权：/callback 凭 SAFEDAY_CALLBACK_TOKEN 校验（不做登录）；其余接口需登录 + safe-day 应用权限
 // 班组隔离：记录带 team 字段（班组名），产物存 docs/{班组名}/ 子目录；超管可 ?team_id= 指定或 all 全部
-// 生成链路（新）：Dify 工作流只产出三段文字并经 /callback 回传 → 后端套模板渲染 docx 落盘（render.js），不再经 DOCX-MCP
+// 生成链路（新）：学习文件合并后传 COS 拿公网 URL，以 string 变量（url/date/class）调 Dify 工作流；
+// 工作流只产出三段文字并经 /callback 回传 → 后端套模板渲染 docx 落盘（render.js），不再经 DOCX-MCP；
+// COS 源文件为中转性质，记录到终态（done/failed/删除）即删
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -18,6 +20,7 @@ const dify = require('./dify');
 const render = require('./render');
 const { pool } = require('../db');
 const netdiskSave = require('../netdisk/save');
+const cos = require('../worklog/cos');
 const tokenQuery = require('../utils/tokenQuery');
 const { buildPreviewUrl } = require('../utils/preview');
 const { getFileExt, fixLatin1Name } = require('../utils/file');
@@ -31,6 +34,16 @@ for (const dir of [DATA_DIR, DOCS_DIR]) {
 }
 
 const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
+// COS 上传 ContentType 按扩展名（与 ALLOWED_EXT 同族，缺省 octet-stream）
+const MIME_BY_EXT = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
 const DATE_RE = /^\d{4}\.\d{2}\.\d{2}$/;
 
 const router = express.Router();
@@ -69,6 +82,23 @@ function judgeOnce(record) {
     error: `回调后未检测到生成文件：${record.fileName}`,
   });
   return 'failed';
+}
+
+// COS 源文件清理：生成时上传的合并学习文件是中转性质，记录到终态（done/failed/删除）即删。
+// 清字段时保留既有 error（store.update 在 patch 不带 error 字段时会清掉它）
+async function deleteSourceFromCos(record) {
+  const key = record && record.sourceCosKey;
+  if (!key) return;
+  try {
+    await cos.deleteObject(key);
+    const cur = store.get(record.id) || {};
+    store.update(record.id, {
+      sourceCosKey: '',
+      ...(cur.error !== undefined ? { error: cur.error } : {}),
+    });
+  } catch (e) {
+    console.error(`[安全日] COS 源文件删除失败 ${key}：`, e && e.message ? e.message : e);
+  }
 }
 
 // Dify 工作流结束回调：不做登录鉴权，凭 SAFEDAY_CALLBACK_TOKEN 校验
@@ -116,10 +146,12 @@ router.post('/callback', async (req, res) => {
         fs.mkdirSync(outDir, { recursive: true });
         fs.writeFileSync(path.join(outDir, path.basename(record.fileName)), buf);
         store.update(record.id, { status: 'done' });
+        await deleteSourceFromCos(record);   // 记录置 done：清理 COS 源文件
         return res.json({ ok: true, done: 1, failed: 0 });
       } catch (e) {
         const msg = e && e.message ? e.message : String(e);
         store.update(record.id, { status: 'failed', error: `文档渲染失败：${msg}` });
+        await deleteSourceFromCos(record);   // 失败同口径清理
         return res.status(500).json({ ok: false, error: `文档渲染失败：${msg}` });
       }
     }
@@ -141,6 +173,8 @@ router.post('/callback', async (req, res) => {
       } else {
         failed++;
       }
+      // eslint-disable-next-line no-await-in-loop
+      await deleteSourceFromCos(record);   // 终判（done/failed）后清理 COS 源文件
     }
     return res.json({ ok: true, done, failed });
   } catch (e) {
@@ -225,7 +259,7 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
       return res.status(400).json({ ok: false, error: '未分配班组，请联系管理员分配后再生成' });
     }
 
-    // 合并或取单文件 buffer：多文件时统一合并为一个 PDF 再上送 Dify（工作流仅单 document 入参）；
+    // 合并或取单文件 buffer：多文件时统一合并为一个 PDF 再上送（Dify 侧仅单文件地址入参）；
     // 非 PDF 先经 LibreOffice 转 PDF（convert.js），PDF 原样参与合并，顺序与上传一致
     let fileBuffer;
     let fileName;
@@ -298,24 +332,31 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
     // 按班组记忆表单默认值（上级参加人员 / 记录人，供下次生成预填；空值不覆盖）
     store.saveFormDefaults(team.name, { superior: req.body.superior, recorder: req.body.recorder });
 
-    // 上传 Dify 并触发工作流（触发后立即返回，不等工作流完成）；
-    // 工作流产出三段文字后经 /callback 回传，由后端渲染 docx 落盘（render.js）
+    // 学习文件（合并产物/单文件原样）上传 COS 拿公网 URL，作为 string 变量调 Dify 工作流
+    //（2026-10-09 起不再经 Dify files/upload + document 入参——云端解析插件会话故障实证，改由 Dify 回源 URL）；
+    // 触发后立即返回不等工作流完成；产出三段文字经 /callback 回传，由后端渲染 docx 落盘（render.js）。
+    // COS 源文件为中转性质：记录终态（回调 done/failed、工作流失败、记录被删）即删（deleteSourceFromCos）
+    const srcExt = getFileExt(fileName) || 'pdf';
+    const cosKey = `safeday/${team.name}/${date}-${Date.now()}.${srcExt}`;
     try {
       fs.mkdirSync(path.join(DOCS_DIR, team.name), { recursive: true });
-      await dify.uploadAndRun({
-        fileBuffer,
-        fileName,
+      await cos.putBuffer(cosKey, fileBuffer, MIME_BY_EXT[srcExt] || 'application/octet-stream');
+      store.update(record.id, { sourceCosKey: cosKey });
+      await dify.runWorkflow({
+        url: cos.publicUrl(cosKey),
         date,
         className: team.name,
         onFailed: (error) => {
           store.update(record.id, { status: 'failed', error });
           cleanupReplaced();
+          deleteSourceFromCos(store.get(record.id) || record);
         },
       });
     } catch (e) {
       const error = e && e.message ? e.message : String(e);
       store.update(record.id, { status: 'failed', error });
       cleanupReplaced();
+      deleteSourceFromCos(store.get(record.id) || record);
       return res.status(500).json({ ok: false, error });
     }
 
@@ -441,6 +482,7 @@ router.delete('/records/:id', async (req, res) => {
         });
       }
     }
+    await deleteSourceFromCos(record);   // 记录删除：一并清理 COS 源文件（处理中记录兜底）
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({

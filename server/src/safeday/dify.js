@@ -1,7 +1,10 @@
 // 安全日活动记录：Dify 工作流封装（自 SafeDayLogs 独立服务移植）
+// 2026-10-09 起改 URL 口径：学习文件（合并产物/单文件原样）先存 COS 拿公网地址，工作流入参为三个 string
+// （url 学习文件地址 / date / class），不再经 /files/upload 上传 document 文件
+// （实证：Dify 云端文档解析插件 files/upload 链路报 PluginRuntimeError no valid session response）
 // 地址用各工作流共用的 DIFY_API_URL（/v1 由 utils/dify 拼接，配置已带 /v1 也不重复），本模块用独立的 DIFY_SAFEDAY_API_KEY
 const config = require('../config');
-const { apiBaseUrl, workflowRunUrl, uploadUrl } = require('../utils/dify');
+const { apiBaseUrl, workflowRunUrl } = require('../utils/dify');
 
 const API_KEY = () => config.safeday.difyKey || '';
 const USER = () => 'safeday-web';
@@ -72,38 +75,16 @@ async function consumeStream(response, onFailed) {
 }
 
 /**
- * 上传文件到 Dify 并触发工作流。
+ * 触发 Dify 工作流（入参三个 string：url 学习文件 COS 公网地址 / date YYYY.MM.DD / class 班组名）。
  * 触发成功后立即返回，SSE 流在后台消费；
  * 工作流 failed/stopped 或流读取异常时调用 onFailed(error)。
- * 入参仅三个：document（学习文件）/ date（YYYY.MM.DD）/ class（班组名）；
  * 工作流末尾由 HTTP 节点把三段文字 + date + class 回传 /callback，后端据此渲染 docx 落盘（不再由工作流写文件）
  */
-async function uploadAndRun({ fileBuffer, fileName, date, className, onFailed }) {
+async function runWorkflow({ url, date, className, onFailed }) {
   if (!apiBaseUrl(config.dify.apiUrl) || !API_KEY()) {
     throw new Error('未配置 DIFY_API_URL 或 DIFY_SAFEDAY_API_KEY');
   }
 
-  // 1. 上传文件
-  const form = new FormData();
-  form.append('file', new Blob([fileBuffer]), fileName);
-  form.append('user', USER());
-
-  const uploadResp = await fetch(uploadUrl(config.dify.apiUrl), {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${API_KEY()}` },
-    body: form,
-  });
-  if (!uploadResp.ok) {
-    const text = await uploadResp.text().catch(() => '');
-    throw new Error(`Dify 文件上传失败（HTTP ${uploadResp.status}）：${text.slice(0, 200)}`);
-  }
-  const uploadJson = await uploadResp.json();
-  const upload_file_id = uploadJson.id;
-  if (!upload_file_id) {
-    throw new Error('Dify 文件上传响应缺少 id');
-  }
-
-  // 2. 触发工作流（streaming）
   const runResp = await fetch(workflowRunUrl(config.dify.apiUrl), {
     method: 'POST',
     headers: {
@@ -111,15 +92,7 @@ async function uploadAndRun({ fileBuffer, fileName, date, className, onFailed })
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      inputs: {
-        document: {
-          transfer_method: 'local_file',
-          upload_file_id,
-          type: 'document',
-        },
-        date,
-        class: className || '',
-      },
+      inputs: { url, date, class: className || '' },
       response_mode: 'streaming',
       user: USER(),
     }),
@@ -129,7 +102,7 @@ async function uploadAndRun({ fileBuffer, fileName, date, className, onFailed })
     throw new Error(`Dify 工作流触发失败（HTTP ${runResp.status}）：${text.slice(0, 200)}`);
   }
 
-  // 3. 后台消费 SSE 流，catch 所有异常
+  // 后台消费 SSE 流，catch 所有异常
   consumeStream(runResp, onFailed).catch((e) => {
     try {
       onFailed(`工作流流读取异常：${e && e.message ? e.message : e}`);
@@ -139,4 +112,4 @@ async function uploadAndRun({ fileBuffer, fileName, date, className, onFailed })
   });
 }
 
-module.exports = { uploadAndRun };
+module.exports = { runWorkflow };

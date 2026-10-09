@@ -1,7 +1,7 @@
 {
   "name": "uvmp-toolkit-desktop",
   "productName": "Shade 壹匣 - 内网",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "内网工具箱桌面客户端（Electron + Vue + TDesign；Python 核心 sidecar）",
   "homepage": "https://github.com/zhangzhenyu91/j1toolkit",
