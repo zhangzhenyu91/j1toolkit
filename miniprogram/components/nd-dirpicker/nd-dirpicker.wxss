@@ -1,0 +1,205 @@
+/* 共享组件 · 网盘目录选择器（样式跟随 pkg-netdisk 目标位置选择弹层，同「政企蓝白」token；
+   组件默认样式隔离，app.wxss 全局类不可达，按压反馈类本地重定义） */
+
+.hover-opacity {
+  opacity: 0.6 !important;
+}
+
+.hover-bg-warm {
+  background-color: #E8F0FF !important;
+}
+
+.ndp-sheet {
+  background: #FFFFFF;
+  border-radius: 32rpx 32rpx 0 0;
+  padding-bottom: calc(40rpx + env(safe-area-inset-bottom));
+}
+
+/* 抓手 */
+.grab {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 4rpx;
+  background: #E5E6EB;
+  margin: 16rpx auto 8rpx;
+}
+
+.ndp-title {
+  padding: 24rpx 32rpx 0;
+  font-size: 31rpx;
+  font-weight: 700;
+  color: #1D2129;
+}
+
+.ndp-sub {
+  padding: 0 32rpx;
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  color: #86909C;
+}
+
+/* 面包屑（父级蓝字可点，末级当前加粗） */
+.ndp-crumb {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-size: 24rpx;
+  padding: 0 32rpx;
+  margin-top: 20rpx;
+  overflow: hidden;
+}
+
+.ndp-link {
+  flex: none;
+  color: #0E3DA8;
+  font-weight: 600;
+}
+
+.ndp-sep {
+  flex: none;
+  color: #86909C;
+}
+
+.ndp-cur {
+  font-weight: 600;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 新建文件夹入口行 / 行内输入 */
+.ndp-mk {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin: 16rpx 32rpx 0;
+  padding: 16rpx 20rpx;
+  background: #F7F8FA;
+  border-radius: 16rpx;
+}
+
+.ndp-mk-t {
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #0E3DA8;
+}
+
+.ndp-mkedit {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin: 16rpx 32rpx 0;
+}
+
+.ndp-mkinput {
+  flex: 1;
+  min-width: 0;
+  height: 76rpx;
+  padding: 0 24rpx;
+  background: #F7F8FA;
+  border-radius: 16rpx;
+  font-size: 26rpx;
+  color: #1D2129;
+}
+
+.ndp-ph {
+  color: #C9CDD4;
+}
+
+.ndp-mkok,
+.ndp-mkno {
+  flex: none;
+  height: 76rpx;
+  padding: 0 28rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.ndp-mkok {
+  background: #0E3DA8;
+  color: #FFFFFF;
+}
+
+.ndp-mkno {
+  background: #F7F8FA;
+  color: #4E5969;
+}
+
+.ndp-mkok.disabled,
+.ndp-cancel.disabled,
+.ndp-confirm.disabled {
+  opacity: 0.5;
+}
+
+/* 目录列表（仅文件夹） */
+.ndp-list {
+  margin-top: 8rpx;
+  padding: 0 32rpx;
+  max-height: 44vh;
+  min-height: 200rpx;
+}
+
+.ndp-dir {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 18rpx 8rpx;
+  border-top: 1rpx solid #F7F8FA;
+}
+
+.ndp-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ndp-empty {
+  padding: 64rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: #86909C;
+}
+
+/* 底部按钮行：取消 + 主按钮 */
+.ndp-ops {
+  margin: 24rpx 32rpx 0;
+  display: flex;
+  gap: 20rpx;
+}
+
+.ndp-cancel {
+  flex: 1;
+  height: 84rpx;
+  border-radius: 16rpx;
+  background: #F7F8FA;
+  color: #4E5969;
+  font-size: 28rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ndp-confirm {
+  flex: 2;
+  height: 84rpx;
+  border-radius: 16rpx;
+  background: #0E3DA8;
+  color: #FFFFFF;
+  font-size: 28rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

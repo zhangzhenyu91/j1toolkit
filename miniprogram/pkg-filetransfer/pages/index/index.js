@@ -70,17 +70,23 @@ Page({
     dlOpen: false,
     dlDevice: {},
     dlState: 'checking',
-    dlFiles: [], // [{name, size, sizeText, icon}]
+    dlFiles: [], // [{name, size, sizeText, icon, checked}]（checked 为多选态勾选）
     dlLoading: false, // 「获取文件列表」执行中（断开共享并拉列表）
     downloading: '', // 正在下载的文件名
     mounting: false, // 正在挂载到目标计算机
+    // 下载弹层多选模式（行首圆形勾选标；点按行 = toggle 选择；底部操作条 全选/下载所选/存网盘）
+    dlMulti: false,
+    dlSel: [], // 已选文件名（与 dlFiles.checked 同步）
+    dlBusy: false, // 批量下载/批量存网盘进行中（互斥：禁止重复触发与单文件操作）
     // 网盘联动（「从网盘选择」/「存网盘」入口；未开通 40301 / 未配置 50301 探测失败即隐藏）
     ndOk: false,
     ndSpaces: [{ key: 'my', name: '我的空间', label: '我的空间' }],
     ndHasPublic: false,
     savingNd: '', // 正在存网盘的设备文件名
-    // 网盘文件选择弹层（文件夹可进入，仅文件可选中）
-    ndPicker: { open: false, space: 'my', dir: '/', items: [], loading: false, error: '', selected: '', saving: false },
+    // 存网盘目录选择（nd-dirpicker 共享组件；单文件与批量共用，names 为待存设备文件名列表）
+    ndSave: { open: false, names: [] },
+    // 网盘文件选择弹层（文件夹可进入，仅文件可勾选，多选）
+    ndPicker: { open: false, space: 'my', dir: '/', items: [], loading: false, error: '', selectedList: [], saving: false },
     ndCrumbs: [],
   },
 
@@ -382,11 +388,11 @@ Page({
   },
 
   onCloseDownload() {
-    this.setData({ dlOpen: false });
+    this.setData({ dlOpen: false, dlMulti: false, dlSel: [] });
   },
 
   onDlVisibleChange(e) {
-    if (!e.detail.visible) this.setData({ dlOpen: false });
+    if (!e.detail.visible) this.setData({ dlOpen: false, dlMulti: false, dlSel: [] });
   },
 
   // 挂载状态分流：已共享给目标计算机则先给「获取文件列表」按钮（列出会断开共享，由用户确认）；
@@ -414,6 +420,7 @@ Page({
       size: f.size,
       sizeText: fmtSize(f.size),
       icon: iconOf(f.name),
+      checked: false, // 多选态勾选
     }));
   },
 
@@ -426,17 +433,90 @@ Page({
         url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/files${this.teamQuery('?')}`,
         timeout: 60000,
       });
-      this.setData({ dlFiles: this.mapDlFiles(data && data.files), dlLoading: false, dlState: 'local' });
+      this.setData({ dlFiles: this.mapDlFiles(data && data.files), dlLoading: false, dlState: 'local', dlSel: [] });
     } catch (err) {
       this.setData({ dlLoading: false, dlOpen: false });
       this.toast(err.message || '读取盘内文件失败');
     }
   },
 
-  // 点按文件：下载 → 图片/视频存相册，其他 wx.openDocument 打开
+  /* ---------- 下载弹层多选模式（行首圆形勾选标；底部操作条 全选/下载所选/存网盘） ---------- */
+
+  // 多选开关（进入/退出均清空已选；批量处理或单文件下载中不可切换）
+  onDlMultiToggle() {
+    if (this.data.dlBusy || this.data.downloading) return;
+    const dlMulti = !this.data.dlMulti;
+    const patch = { dlMulti, dlSel: [] };
+    if (!dlMulti) patch.dlFiles = this.data.dlFiles.map((f) => ({ ...f, checked: false }));
+    this.setData(patch);
+  },
+
+  // 全选 / 取消全选
+  onDlSelAll() {
+    if (this.data.dlBusy || !this.data.dlFiles.length) return;
+    const all = this.data.dlSel.length === this.data.dlFiles.length;
+    const dlFiles = this.data.dlFiles.map((f) => ({ ...f, checked: !all }));
+    this.setData({ dlFiles, dlSel: dlFiles.filter((f) => f.checked).map((f) => f.name) });
+  },
+
+  // 批量下载：顺序逐个执行既有 wx.downloadFile → saveDownload 流程（静默），结束 toast 汇总
+  async onDlBatchDownload() {
+    if (this.data.dlBusy || this.data.downloading) return;
+    const names = this.data.dlSel.slice();
+    if (!names.length) return;
+    this.setData({ dlBusy: true });
+    let ok = 0;
+    let fail = 0;
+    for (let i = 0; i < names.length; i += 1) {
+      const file = this.data.dlFiles.find((f) => f.name === names[i]);
+      if (!file) continue; // 列表已变化（如被删除）：跳过不计成败
+      this.setData({ downloading: names[i] }); // 行内「下载中…」逐文件复用单下载展示位
+      // eslint-disable-next-line no-await-in-loop
+      const done = await this.downloadAndSave(file);
+      if (done) ok += 1;
+      else fail += 1;
+    }
+    this.setData({
+      downloading: '',
+      dlBusy: false,
+      dlSel: [],
+      dlFiles: this.data.dlFiles.map((f) => ({ ...f, checked: false })),
+    });
+    this.toast(fail ? `成功 ${ok} 失败 ${fail}` : `已下载 ${ok} 个文件`);
+  },
+
+  // 批量下载单文件（静默，resolve true/false；保存口径与 saveDownload 一致）
+  downloadAndSave(file) {
+    return new Promise((resolve) => {
+      wx.downloadFile({
+        url: `${config.BASE_URL}/api/v1/kvm/devices/${this.data.dlDevice.id}/download?name=${encodeURIComponent(file.name)}${this.teamQuery()}`,
+        header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
+        timeout: 120000,
+        filePath: `${wx.env.USER_DATA_PATH}/${file.name}`,
+        success: (res) => {
+          if (res.statusCode !== 200) {
+            resolve(false);
+            return;
+          }
+          this.saveDownload(file, res.filePath, { quiet: true }).then(resolve);
+        },
+        fail: () => resolve(false),
+      });
+    });
+  },
+
+  // 点按文件：多选态 = toggle 选择；单选态 = 下载 → 图片/视频存相册，其他 wx.openDocument 打开
   onDlFileTap(e) {
     const file = e.currentTarget.dataset.file;
-    if (this.data.downloading) return;
+    if (this.data.dlMulti) {
+      if (this.data.dlBusy) return;
+      const index = this.data.dlFiles.findIndex((f) => f.name === file.name);
+      if (index < 0) return;
+      this.setData({ [`dlFiles[${index}].checked`]: !this.data.dlFiles[index].checked });
+      this.setData({ dlSel: this.data.dlFiles.filter((f) => f.checked).map((f) => f.name) });
+      return;
+    }
+    if (this.data.downloading || this.data.dlBusy) return;
     this.setData({ downloading: file.name });
     wx.downloadFile({
       url: `${config.BASE_URL}/api/v1/kvm/devices/${this.data.dlDevice.id}/download?name=${encodeURIComponent(file.name)}${this.teamQuery()}`,
@@ -456,35 +536,55 @@ Page({
     });
   },
 
-  saveDownload(file, tempFilePath) {
+  // 下载落地：图片/视频存相册，其余 wx.openDocument 打开；返回 Promise（true=成功），
+  // opts.quiet 为批量静默模式（不逐个 toast，成败由批量调用方汇总）
+  saveDownload(file, tempFilePath, opts) {
+    const quiet = !!(opts && opts.quiet);
     const kind = kindOf(file.name);
     if (kind === 'image' || kind === 'video') {
-      const save = kind === 'image' ? wx.saveImageToPhotosAlbum : wx.saveVideoToPhotosAlbum;
-      save({
-        filePath: tempFilePath,
-        success: () => this.toast('已保存至相册'),
-        fail: (err) => {
-          if (err && /auth|deny/.test(err.errMsg || '')) {
-            this.toast('请在设置中允许保存到相册');
-          } else {
-            this.toast('保存失败');
-          }
-        },
+      return new Promise((resolve) => {
+        const save = kind === 'image' ? wx.saveImageToPhotosAlbum : wx.saveVideoToPhotosAlbum;
+        save({
+          filePath: tempFilePath,
+          success: () => {
+            if (!quiet) this.toast('已保存至相册');
+            resolve(true);
+          },
+          fail: (err) => {
+            if (!quiet) {
+              if (err && /auth|deny/.test(err.errMsg || '')) {
+                this.toast('请在设置中允许保存到相册');
+              } else {
+                this.toast('保存失败');
+              }
+            }
+            resolve(false);
+          },
+        });
       });
-      return;
     }
     const ext = extOf(file.name);
-    wx.openDocument({
-      filePath: tempFilePath,
-      showMenu: true, // 右上角菜单可另存/转发
-      ...(DOC_EXTS.includes(ext) ? { fileType: ext } : {}),
-      fail: () => this.toast('该类型暂不支持打开'),
+    return new Promise((resolve) => {
+      wx.openDocument({
+        filePath: tempFilePath,
+        showMenu: true, // 右上角菜单可另存/转发
+        ...(DOC_EXTS.includes(ext) ? { fileType: ext } : {}),
+        success: () => resolve(true),
+        fail: () => {
+          if (!quiet) this.toast('该类型暂不支持打开');
+          resolve(false);
+        },
+      });
     });
   },
 
   // 删除盘内文件（图标小按钮 + 二次确认，同 Call Me 删除对话交互）
   onDeleteFile(e) {
     const { name, index } = e.currentTarget.dataset;
+    if (this.data.dlBusy) {
+      this.toast('批量处理中，请稍候');
+      return;
+    }
     if (this.data.downloading === name) {
       this.toast('该文件正在下载，请稍候');
       return;
@@ -504,10 +604,10 @@ Page({
           data: this.teamBody({ names: [name] }),
           timeout: 60000,
         });
-        // deleted/missing 均视为已不在盘内，从列表移除
+        // deleted/missing 均视为已不在盘内，从列表移除（多选已选同步剔除）
         const dlFiles = this.data.dlFiles.slice();
         dlFiles.splice(index, 1);
-        this.setData({ dlFiles });
+        this.setData({ dlFiles, dlSel: this.data.dlSel.filter((n) => n !== name) });
         this.toast((data && (data.deleted || []).includes(name)) ? '已删除' : '文件已不存在');
       } catch (err) {
         this.toast(err.message);
@@ -518,9 +618,9 @@ Page({
   // 挂载 U 盘至目标计算机（被控机向盘内放入文件场景：挂载后弹层切到 shared 态，
   // 放好后点「获取文件列表」断开共享并读取新文件）
   async onMount() {
-    const { dlDevice, mounting, downloading } = this.data;
+    const { dlDevice, mounting, downloading, dlBusy } = this.data;
     if (mounting) return;
-    if (downloading) {
+    if (downloading || dlBusy) {
       this.toast('文件下载中，请稍候');
       return;
     }
@@ -563,7 +663,7 @@ Page({
         open: true,
         space: this.data.ndHasPublic ? 'public' : 'my',
         dir: '/',
-        items: [], loading: true, error: '', selected: '', saving: false,
+        items: [], loading: true, error: '', selectedList: [], saving: false,
       },
     });
     this.loadNdList();
@@ -596,19 +696,21 @@ Page({
     this.setData({ ndCrumbs: crumbs });
   },
 
-  // 当前目录列表（文件夹在前；文件行点按选中）
+  // 当前目录列表（文件夹在前；文件行勾选态按 selectedList 回标，跨目录选择保留）
   async loadNdList() {
     const p = this.data.ndPicker;
     this.setData({ 'ndPicker.loading': true, 'ndPicker.error': '' });
     this.buildNdCrumbs();
     try {
       const data = await request({ url: '/api/v1/netdisk/list', method: 'POST', data: { space: p.space, path: p.dir } });
+      const sel = this.data.ndPicker.selectedList;
       const rows = ((data && data.items) || []).map((o) => ({
         name: o.name,
         isDir: !!o.is_dir,
         icon: o.is_dir ? 'folder' : iconOf(o.name), // 复用本页图标口径（file/file-image/video）
         sizeText: fmtSize(o.size || 0),
         fullPath: p.dir === '/' ? `/${o.name}` : `${p.dir}/${o.name}`,
+        checked: !o.is_dir && sel.indexOf(p.dir === '/' ? `/${o.name}` : `${p.dir}/${o.name}`) >= 0,
       }));
       this.setData({
         'ndPicker.items': rows.filter((r) => r.isDir).concat(rows.filter((r) => !r.isDir)),
@@ -622,60 +724,109 @@ Page({
   onNdSpaceTap(e) {
     const key = e.currentTarget.dataset.key;
     if (!key || key === this.data.ndPicker.space) return;
-    this.setData({ 'ndPicker.space': key, 'ndPicker.dir': '/', 'ndPicker.items': [], 'ndPicker.selected': '' });
+    // 切换空间清空已选（paths 属于单一 space）
+    this.setData({ 'ndPicker.space': key, 'ndPicker.dir': '/', 'ndPicker.items': [], 'ndPicker.selectedList': [] });
     this.loadNdList();
   },
 
   onNdCrumbTap(e) {
     const path = e.currentTarget.dataset.path;
     if (path === this.data.ndPicker.dir) return;
-    this.setData({ 'ndPicker.dir': path, 'ndPicker.items': [], 'ndPicker.selected': '' });
+    this.setData({ 'ndPicker.dir': path, 'ndPicker.items': [] });
     this.loadNdList();
   },
 
-  // 文件夹进入；文件选中/取消选中
+  // 文件夹进入（同空间内跨目录选择保留）；文件勾选/取消勾选
   onNdRowTap(e) {
-    const item = e.currentTarget.dataset.item;
+    const { item, index } = e.currentTarget.dataset;
     if (item.isDir) {
-      this.setData({ 'ndPicker.dir': item.fullPath, 'ndPicker.items': [], 'ndPicker.selected': '' });
+      this.setData({ 'ndPicker.dir': item.fullPath, 'ndPicker.items': [] });
       this.loadNdList();
       return;
     }
-    this.setData({ 'ndPicker.selected': this.data.ndPicker.selected === item.fullPath ? '' : item.fullPath });
+    const sel = this.data.ndPicker.selectedList.slice();
+    const i = sel.indexOf(item.fullPath);
+    const on = i < 0;
+    if (on) sel.push(item.fullPath);
+    else sel.splice(i, 1);
+    this.setData({ 'ndPicker.selectedList': sel, [`ndPicker.items[${index}].checked`]: on });
   },
 
-  // 确认：网盘文件推送到当前上传目标设备（path 为空间内相对路径）
+  // 确认：所选网盘文件推送到当前上传目标设备（paths 为空间内相对路径数组，1-20 个；
+  // 响应 data.items 为逐项结果 {name, ok, error?}，toast 用返回 message 汇总文案）
   onNdConfirm() {
     const p = this.data.ndPicker;
     const dev = this.data.upDevice;
-    if (!p.selected || p.saving || !dev.id) return;
+    if (!p.selectedList.length || p.saving || !dev.id) return;
     this.setData({ 'ndPicker.saving': true });
     request({
       url: `/api/v1/kvm/devices/${dev.id}/pull-from-netdisk`,
       method: 'POST',
       timeout: 120000,
-      data: this.teamBody({ space: p.space, path: p.selected }),
-    }).then(() => {
+      withMessage: true,
+      data: this.teamBody({ space: p.space, paths: p.selectedList }),
+    }).then((res) => {
       this.setData({ 'ndPicker.open': false, upOpen: false, upFiles: [] });
-      this.toast('已从网盘推送到设备');
+      this.toast((res && res.message) || `已推送 ${p.selectedList.length} 个文件到设备`);
     }).catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'ndPicker.saving': false }));
   },
 
-  // 设备文件存网盘（下载弹层行内按钮；成功 toast 返回路径）
+  // 设备文件存网盘（下载弹层行内按钮，单文件）：先弹网盘目录选择（nd-dirpicker），confirm 后带 dir 转存
   onSaveToNetdisk(e) {
     const { name } = e.currentTarget.dataset;
+    if (!name || !this.data.dlDevice.id || this.data.savingNd || this.data.dlBusy) return;
+    this.setData({ ndSave: { open: true, names: [name] } });
+  },
+
+  // 批量存网盘（多选操作条）：同样先弹目录选择
+  onDlBatchSave() {
+    if (this.data.dlBusy || this.data.savingNd) return;
+    const names = this.data.dlSel.slice();
+    if (!names.length) return;
+    this.setData({ ndSave: { open: true, names } });
+  },
+
+  onNdSaveDirClose() {
+    this.setData({ 'ndSave.open': false });
+  },
+
+  // 目录选择确认：顺序循环调 save-to-netdisk（body {name, dir} 带生效班组），结束 toast 汇总
+  async onNdSaveDirConfirm(e) {
+    const dir = (e.detail && e.detail.dir) || '';
+    const names = (this.data.ndSave.names || []).slice();
     const dev = this.data.dlDevice;
-    if (!name || !dev.id || this.data.savingNd) return;
-    this.setData({ savingNd: name });
-    request({
-      url: `/api/v1/kvm/devices/${dev.id}/save-to-netdisk`,
-      method: 'POST',
-      timeout: 120000,
-      data: this.teamBody({ name }),
-    }).then((data) => this.toast(`已保存到网盘：${(data && data.path) || ''}`))
-      .catch((err) => this.toast(err.message))
-      .finally(() => this.setData({ savingNd: '' }));
+    this.setData({ 'ndSave.open': false, 'ndSave.names': [] });
+    if (!names.length || !dev.id || this.data.savingNd) return;
+    this.setData({ dlBusy: true });
+    let ok = 0;
+    let fail = 0;
+    let failMsg = '';
+    let lastPath = '';
+    for (let i = 0; i < names.length; i += 1) {
+      this.setData({ savingNd: names[i] });
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const data = await request({
+          url: `/api/v1/kvm/devices/${dev.id}/save-to-netdisk`,
+          method: 'POST',
+          timeout: 120000,
+          data: this.teamBody({ name: names[i], dir }),
+        });
+        ok += 1;
+        lastPath = (data && data.path) || lastPath;
+      } catch (err) {
+        fail += 1;
+        failMsg = err.message;
+      }
+    }
+    this.setData({ savingNd: '', dlBusy: false });
+    if (names.length === 1) {
+      // 单文件保持原回显：成功 toast 返回路径，失败 toast 后端原文
+      this.toast(ok ? `已保存到网盘：${lastPath}` : (failMsg || '保存失败'));
+    } else {
+      this.toast(fail ? `成功 ${ok} 失败 ${fail}：${failMsg}` : `已保存 ${ok} 个文件到网盘`);
+    }
   },
 
   onShareAppMessage() {

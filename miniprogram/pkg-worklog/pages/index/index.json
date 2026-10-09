@@ -2,6 +2,7 @@
   "navigationStyle": "custom",
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
+    "nd-dirpicker": "/components/nd-dirpicker/nd-dirpicker",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-tag": "tdesign-miniprogram/tag/tag",
     "t-check-tag": "tdesign-miniprogram/check-tag/check-tag",

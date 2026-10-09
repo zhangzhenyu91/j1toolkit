@@ -287,6 +287,9 @@ router.post('/devices/:id/delete', requireAnyApp(KVM_OR_FT), async (req, res) =>
 });
 
 // 网盘 → 设备：从团队网盘拉文件推送到设备 U 盘（须另持 netdisk 应用权限；个人/公共区均可作来源）
+// body 两种形态兼容：旧 {space, path} 单文件；新 {space, paths: [...]} 批量（1-20 个，超出 40001）
+// 逐文件 拉流→push，单文件失败记录 {name, ok:false, error} 继续不中断整批；
+// 响应 data.items 逐条 {name, ok, error?}：全成 200；部分失败 200 + 汇总文案；全部失败 502
 router.post('/devices/:id/pull-from-netdisk', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
     const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
@@ -294,32 +297,60 @@ router.post('/devices/:id/pull-from-netdisk', requireAnyApp(KVM_OR_FT), async (r
     await netdiskSave.assertNetdiskAccess(req.user.id);
     const root = await spaceRootOf(req.user, String((req.body && req.body.space) || ''));
     if (!root) return fail(res, 400, 40001, '参数错误：space（或未分配班组无公共区）');
-    const rel = normRel(req.body && req.body.path);
-    if (!rel || rel === '/') return fail(res, 400, 40001, '路径不合法');
-    const name = rel.split('/').pop();
-    // 网盘侧拉流（buffer 化后经 FormData 推设备，与既有 push 口径一致）
-    const r = await netdiskOl.downloadStream(rel === '/' ? root : `${root}${rel}`);
-    const chunks = [];
-    for await (const c of r.data) chunks.push(c);
-    const buf = Buffer.concat(chunks);
-    if (!buf.length) return fail(res, 502, 50201, '网盘侧文件拉取为空');
+    let paths;
+    if (Array.isArray(req.body && req.body.paths)) {
+      paths = req.body.paths;
+      if (!paths.length || paths.length > 20) return fail(res, 400, 40001, '参数错误：paths（1-20 个）');
+    } else {
+      paths = [req.body && req.body.path]; // 旧版单 path
+    }
+    // 设备会话整批复用一次（取会话失败整体走外层 catch，不计入逐条失败）
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
-    const fd = new FormData();
-    fd.append('files', buf, { filename: name });
-    await axios.post(`${ps.origin}/api/fileshare/push`, fd, {
-      headers: { ...fd.getHeaders(), Cookie: ps.cookie },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-      timeout: 0, // 大文件经两跳转发耗时不可预估
-    });
-    return ok(res, { name, size: buf.length }, '已从网盘推送到设备');
+    const items = [];
+    for (const p of paths) {
+      const rel = normRel(p);
+      const name = (rel && rel !== '/' ? rel : String(p || '')).split('/').filter(Boolean).pop() || '未命名';
+      if (!rel || rel === '/') { items.push({ name, ok: false, error: '路径不合法' }); continue; }
+      try {
+        // 网盘侧拉流（buffer 化后经 FormData 推设备，与既有 push 口径一致）
+        const r = await netdiskOl.downloadStream(`${root}${rel}`);
+        const chunks = [];
+        for await (const c of r.data) chunks.push(c);
+        const buf = Buffer.concat(chunks);
+        if (!buf.length) throw new Error('网盘侧文件拉取为空');
+        const fd = new FormData();
+        fd.append('files', buf, { filename: name });
+        await axios.post(`${ps.origin}/api/fileshare/push`, fd, {
+          headers: { ...fd.getHeaders(), Cookie: ps.cookie },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          timeout: 0, // 大文件经两跳转发耗时不可预估
+        });
+        items.push({ name, ok: true });
+      } catch (err) {
+        const upstream = err && err.response && err.response.data;
+        const reason = (upstream && upstream.error) || (err && err.message) || '推送失败';
+        items.push({ name, ok: false, error: String(reason).slice(0, 120) });
+      }
+    }
+    const okCnt = items.filter((it) => it.ok).length;
+    const bad = items.filter((it) => !it.ok);
+    if (!bad.length) {
+      return ok(res, { items }, `已从网盘推送 ${okCnt} 个文件到设备`);
+    }
+    // 失败汇总文案取首个失败（原因截断防超长）
+    const firstBad = `${bad[0].name}（${String(bad[0].error).slice(0, 60)}）`;
+    if (!okCnt) {
+      return fail(res, 502, 50201, `推送全部失败（共 ${bad.length} 个）：${firstBad}`);
+    }
+    return ok(res, { items }, `成功 ${okCnt} 个，失败 ${bad.length} 个：${firstBad}`);
   } catch (err) {
     if (err && err.expose) return fail(res, err.status || 502, err.code || 50201, err.message);
     return relayFail(res, err);
   }
 });
 
-// 设备 → 网盘：设备 U 盘文件保存到团队网盘（我的空间/文件传输/；须另持 netdisk 应用权限）
+// 设备 → 网盘：设备 U 盘文件保存到团队网盘（dir 缺省 文件传输/，可传我的空间内多级相对路径；须另持 netdisk 应用权限）
 router.post('/devices/:id/save-to-netdisk', requireAnyApp(KVM_OR_FT), async (req, res) => {
   try {
     const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
@@ -334,7 +365,8 @@ router.post('/devices/:id/save-to-netdisk', requireAnyApp(KVM_OR_FT), async (req
     );
     const size = Number(r.headers['content-length'] || 0) || undefined;
     const path = await netdiskSave.saveToNetdisk(req.user, {
-      dir: '文件传输', name, body: r.data, size,
+      dir: (req.body && req.body.dir) == null ? '文件传输' : String(req.body.dir),
+      name, body: r.data, size,
     });
     return ok(res, { path }, '已保存到网盘');
   } catch (err) {

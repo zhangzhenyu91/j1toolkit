@@ -54,6 +54,7 @@ Page({
     to: '', // 生成范围止（默认今天）
     generating: false,
     savingNd: false, // 存网盘进行中
+    ndSaveVisible: false, // 网盘目录选择器（nd-dirpicker；存网盘选目录）
     calVisible: false, // range 日历展开态
     calValue: null, // 日历当前选中（[起, 止] 时间戳）
     minDate: 0, // 可选区间：去年今日 ~ 三个月后（同主页日历口径；不设置则组件默认今天起选不了历史日期）
@@ -74,6 +75,7 @@ Page({
       return;
     }
     this._teamId = Number(wx.getStorageSync('worklog_team_id')) || 0;
+    this._ndDir = ''; // 存网盘自选目录（nd-dirpicker confirm 后记录；40901 强制执行沿用已选目录）
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     this.setData({
@@ -185,8 +187,25 @@ Page({
     });
   },
 
-  // 存网盘：同一范围在后端生成并转存网盘（sheet 参数与页面 type 同名：task/fee/dispatch）；
-  // 40901 生成前核验拦截与下载同口径——「去核验」回主页打开汇总前核验面板，「仍要生成」force=1 重试
+  // 存网盘：先弹网盘目录选择（nd-dirpicker，默认「出工日志」），confirm 后带 dir 提交
+  onSaveNetdiskOpen() {
+    const { savingNd, generating } = this.data;
+    if (savingNd || generating) return;
+    this.setData({ ndSaveVisible: true });
+  },
+
+  onNdSaveDirClose() {
+    this.setData({ ndSaveVisible: false });
+  },
+
+  onNdSaveDirConfirm(e) {
+    this._ndDir = (e.detail && e.detail.dir) || '';
+    this.setData({ ndSaveVisible: false });
+    this.onSaveNetdisk();
+  },
+
+  // 存网盘：同一范围在后端生成并转存网盘（sheet 参数与页面 type 同名：task/fee/dispatch；dir 为自选目录）；
+  // 40901 生成前核验拦截与下载同口径——「去核验」回主页打开汇总前核验面板，「仍要生成」force=1 重试（沿用已选目录）
   onSaveNetdisk(force) {
     const { from, to, savingNd, generating } = this.data;
     if (!from || !to || savingNd || generating) return;
@@ -204,6 +223,7 @@ Page({
         sheet: this._type,
         from,
         to,
+        dir: this._ndDir || '',
         ...(this._teamId ? { team_id: this._teamId } : {}),
         // bindtap 直绑时 force 为事件对象，仅确认按钮传来 true 才算强制执行
         ...(force === true ? { force: 1 } : {}),

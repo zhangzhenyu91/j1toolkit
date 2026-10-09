@@ -556,7 +556,7 @@ class OfficialTrackRenderer:
 })()
 """
 
-    def _render(self, template_name: str, params, out_png: Path):
+    def _render(self, template_name: str, params, out_png: Path, pre_shot_js: str = ""):
         r = self.browser.eval(self.OPEN_DIALOG_JS % (json.dumps(template_name),
                                                      json.dumps(params, ensure_ascii=False)),
                               timeout=60)
@@ -582,6 +582,18 @@ class OfficialTrackRenderer:
         print("  [渲染] 地图加载检测：%s（%.1fs）" % ("静默完成" if idle_ok else "兜底超时",
                                                        time.time() - t0))
         time.sleep(1.0)   # 静默后给最后一帧渲染留一瞬
+        # 「自动校准行程结束时间」：截图前注入改写 JS（build_popup_rewrite_js 生成），
+        # 命中数随日志透出；未命中不视为失败（保留官方原始时间，页面结构变化时降级安全）
+        rewrite_hits = None
+        if pre_shot_js:
+            try:
+                raw = self.browser.eval(pre_shot_js, timeout=30)
+                info = json.loads(raw) if raw and not str(raw).startswith("ERR") else {}
+                rewrite_hits = info.get("replaced", 0)
+            except Exception:  # noqa: BLE001
+                rewrite_hits = 0
+            print("  [校准] 弹窗时间改写命中 %d 处%s"
+                  % (rewrite_hits, "" if rewrite_hits else "（保留官方原始时间）"))
         rect = self.browser.eval(self.RECT_JS)
         if not rect:
             raise RuntimeError("弹窗内容区未找到")
@@ -600,14 +612,16 @@ class OfficialTrackRenderer:
             pass
         self.browser.eval(self.CLOSE_DIALOG_JS)
         time.sleep(0.5)
+        return rewrite_hits   # 未启用校准时为 None；启用时为命中处数（0 = 未命中）
 
-    def render_route_png(self, route_id: str, out_png: Path):
-        """行程详情弹窗（理想样式：行程编号/里程/时速/绑定的派车单等）"""
-        self._render(self.TEMPLATE_ROUTE, {"routeId": route_id}, out_png)
+    def render_route_png(self, route_id: str, out_png: Path, pre_shot_js: str = ""):
+        """行程详情弹窗（理想样式：行程编号/里程/时速/绑定的派车单等）。
+        pre_shot_js：截图前注入执行的改写脚本（自动校准行程结束时间用，空串不注入）"""
+        return self._render(self.TEMPLATE_ROUTE, {"routeId": route_id}, out_png, pre_shot_js)
 
-    def render_pcd_png(self, order: dict, out_png: Path):
-        """按派车单弹窗（找不到行程段时的回退）"""
-        self._render(self.TEMPLATE_PCD, {"runData": order}, out_png)
+    def render_pcd_png(self, order: dict, out_png: Path, pre_shot_js: str = ""):
+        """按派车单弹窗（找不到行程段时的回退）；pre_shot_js 口径同 render_route_png"""
+        return self._render(self.TEMPLATE_PCD, {"runData": order}, out_png, pre_shot_js)
 
     def stop(self):
         if self.browser:
@@ -630,3 +644,101 @@ PNG_WRAP_PCD_HTML = """<!DOCTYPE html>
 body { margin: 0; -webkit-print-color-adjust: exact; }
 img { display: block; width: 147mm; margin: 0 auto; }
 </style></head><body><img src="$img_uri"></body></html>"""
+
+
+# ---------------------------------------------------------------- 弹窗时间改写（自动校准行程结束时间用）
+# 已在 track_time_rewrite_trial.py 经内网实测验证（2026-10：结束时间/行驶时间精确命中改写）。
+# 匹配按「值」而非死字符串：兼容 &nbsp;、- 与 / 分隔、有无秒、文本节点拆分；
+# 时长兼容「X小时X分钟(X秒)」与小数小时（0.63 小时，按原小数位写回），±90s 容差吸收页面取整。
+# 占位符 __OLDC__/__NEWC__（[Y,M,D,h,m,s] JSON 数组）与 __OLDDUR__/__NEWDUR__（秒）由
+# build_popup_rewrite_js 注入（不用 % 格式化：JS 里有取模运算，百分号转义易错）。
+POPUP_REWRITE_JS = r"""
+(function(){
+  var root = document.getElementById('trackPictureBox');
+  if (!root) { var m = document.querySelectorAll('.cube.modal.fade'); root = m.length ? m[m.length-1] : null; }
+  if (!root) return 'ERR:无弹窗';
+  var oldC = __OLDC__, newC = __NEWC__, oldDur = __OLDDUR__, newDur = __NEWDUR__;
+  var timeRe = /(\d{4})([-\/])(\d{1,2})\2(\d{1,2})([\s\u00a0T]+)(\d{1,2}):(\d{2})(?::(\d{2}))?/g;
+  var durRe = /(\d+)\s*小时\s*(\d+)\s*分钟\s*(?:(\d+)\s*秒)?|(\d+)\s*分钟\s*(?:(\d+)\s*秒)?|(\d+(?:\.\d+)?)(\s*)小时/g;
+  function pad(v, w){ v = String(v); while (v.length < w) v = '0' + v; return v; }
+  function eqTime(y, mo, d, h, mi, s, hasSec){
+    if (y !== oldC[0] || mo !== oldC[1] || d !== oldC[2]) return false;
+    if (h !== oldC[3] || mi !== oldC[4]) return false;
+    return hasSec ? (s === oldC[5]) : true;   // 页面不显示秒时按分精度判定
+  }
+  function fmtDur(sec, withSec){
+    var h = Math.floor(sec / 3600), m, tail = '';
+    if (withSec) { m = Math.floor((sec % 3600) / 60); tail = (sec % 60) + '秒'; }
+    else { m = Math.round((sec % 3600) / 60); if (m === 60) { h += 1; m = 0; } }
+    return (h > 0 ? (h + '小时' + m + '分钟') : (m + '分钟')) + tail;
+  }
+  var total = 0, details = [], seen = [];
+  function procText(s, kind){
+    var out = s.replace(timeRe, function(m, y, sep, mo, d, gap, h, mi, ss){
+      if (seen.length < 50 && seen.indexOf(m) < 0) seen.push(m);
+      if (!eqTime(+y, +mo, +d, +h, +mi, +(ss || 0), ss !== undefined)) return m;
+      var r = pad(newC[0], y.length) + sep + pad(newC[1], mo.length) + sep
+            + pad(newC[2], d.length) + gap + pad(newC[3], h.length) + ':' + pad(newC[4], mi.length)
+            + (ss !== undefined ? ':' + pad(newC[5], ss.length) : '');
+      total++;
+      if (details.length < 20) details.push({kind: kind, before: m, after: r});
+      return r;
+    });
+    out = out.replace(durRe, function(m, h1, m1, s1, m2, s2, hd, gap){
+      if (seen.length < 50 && seen.indexOf(m) < 0) seen.push(m);
+      var sec, r;
+      if (hd !== undefined) {
+        // 小数小时形态（如「0.63 小时」）：按原小数位数与原有间隔写回，容差 = 半位精度 + 30s
+        var dec = (hd.split('.')[1] || '').length;
+        sec = Math.round(parseFloat(hd) * 3600);
+        if (Math.abs(sec - oldDur) > 0.5 * Math.pow(10, -dec) * 3600 + 30) return m;
+        r = (newDur / 3600).toFixed(dec) + gap + '小时';
+      } else {
+        sec = h1 !== undefined
+          ? (+h1) * 3600 + (+m1) * 60 + (+(s1 || 0))
+          : (+m2) * 60 + (+(s2 || 0));
+        if (Math.abs(sec - oldDur) > 90) return m;
+        r = fmtDur(newDur, (s1 !== undefined || s2 !== undefined));
+      }
+      total++;
+      if (details.length < 20) details.push({kind: kind + ':dur', before: m, after: r});
+      return r;
+    });
+    return out;
+  }
+  // 叶子元素（无子元素）：整段 textContent 处理，兼容时间被拆成多个文本节点的情况
+  root.querySelectorAll('*').forEach(function(el){
+    if (el.children.length === 0 && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+      var s = el.textContent;
+      timeRe.lastIndex = 0; durRe.lastIndex = 0;
+      if (s && (timeRe.test(s) || durRe.test(s))) {
+        timeRe.lastIndex = 0; durRe.lastIndex = 0;
+        var out = procText(s, 'text');
+        if (out !== s) el.textContent = out;
+      }
+    }
+  });
+  root.querySelectorAll('input,textarea').forEach(function(el){
+    var v = el.value || '';
+    timeRe.lastIndex = 0; durRe.lastIndex = 0;
+    if (v && (timeRe.test(v) || durRe.test(v))) {
+      timeRe.lastIndex = 0; durRe.lastIndex = 0;
+      var out = procText(v, 'input');
+      if (out !== v) el.value = out;
+    }
+  });
+  return JSON.stringify({replaced: total, details: details, seen: seen});
+})()
+"""
+
+
+def build_popup_rewrite_js(old_dt: "object", new_dt: "object",
+                           old_dur_s: int, new_dur_s: int) -> str:
+    """生成弹窗时间改写 JS。old_dt/new_dt 为 datetime；时长为秒（行程开始→结束）。"""
+    def c(dt):
+        return [dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second]
+    return (POPUP_REWRITE_JS
+            .replace("__OLDC__", json.dumps(c(old_dt)))
+            .replace("__NEWC__", json.dumps(c(new_dt)))
+            .replace("__OLDDUR__", str(int(old_dur_s)))
+            .replace("__NEWDUR__", str(int(new_dur_s))))

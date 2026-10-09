@@ -248,6 +248,7 @@ Page({
     dlAllChecked: false,
     dlLoading: false,
     pdfBusy: false, // PDF 生成中（下载为 PDF / PDF 存网盘共用锁）
+    ndSaveVisible: false, // 网盘目录选择器（nd-dirpicker；PDF 存网盘选目录）
     // 下载面板改日期（range 日历；与下载面板互斥开合，避免叠层 z-index 冲突）
     dlCalVisible: false,
     dlCalValue: null,
@@ -2948,8 +2949,24 @@ Page({
     });
   },
 
-  // PDF 存网盘：同一范围在后端生成并转存网盘（failed 为合成失败的照片数）
+  // PDF 存网盘：先弹网盘目录选择（nd-dirpicker，默认「出工日志」），confirm 后带 dir 生成并转存
   onDlPdfSave() {
+    if (this.data.pdfBusy) return;
+    this.setData({ ndSaveVisible: true });
+  },
+
+  onNdSaveDirClose() {
+    this.setData({ ndSaveVisible: false });
+  },
+
+  onNdSaveDirConfirm(e) {
+    const dir = (e.detail && e.detail.dir) || '';
+    this.setData({ ndSaveVisible: false });
+    this.doDlPdfSave(dir);
+  },
+
+  // 同一范围在后端生成并转存网盘（dir 为自选的网盘目录；failed 为合成失败的照片数）
+  doDlPdfSave(dir) {
     const { dlFrom, dlTo, pdfBusy } = this.data;
     if (pdfBusy) return;
     this.setData({ pdfBusy: true });
@@ -2958,7 +2975,7 @@ Page({
       url: '/api/v1/worklog/photos-pdf/save-netdisk',
       method: 'POST',
       timeout: 120000,
-      data: this.teamBody({ from: dlFrom, to: dlTo }),
+      data: this.teamBody({ from: dlFrom, to: dlTo, dir }),
     }).then((data) => {
       const failed = data && data.failed ? `，${data.failed} 张照片合成失败` : '';
       this.toast(`已保存到网盘：${(data && data.path) || ''}${failed}`);

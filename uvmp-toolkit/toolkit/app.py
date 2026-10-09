@@ -26,6 +26,7 @@ for _p in (str(TOOLKIT_DIR), str(PROJECT_DIR)):
 import config as _config          # noqa: E402
 import jobs as _jobs              # noqa: E402
 import scheduler                  # noqa: E402
+import state                      # noqa: E402
 
 
 def cmd_gui(cfg: dict) -> int:
@@ -72,6 +73,7 @@ def cmd_order_export(cfg: dict, args) -> int:
         "batch_name": Path(args.xlsx).stem if args.xlsx else "派车单",
         "export_pcd": args.type in ("pcd", "all"),
         "export_track": args.type in ("track", "all"),
+        "calibrate_noon": args.calibrate_noon,
     }
     if args.xlsx:
         params["xlsx_path"] = args.xlsx
@@ -125,9 +127,16 @@ def main() -> int:
     p2.add_argument("--outdir", required=True, help="输出目录")
     p2.add_argument("--type", choices=["pcd", "track", "all"], default="all")
     p2.add_argument("--no-batch-dir", action="store_true", help="不建批次子目录，直接写入输出目录")
+    p2.add_argument("--calibrate-noon", dest="calibrate_noon", action="store_true",
+                    help="自动校准行程结束时间：早于12点的行程按1小时逐次叠加至12点后，行驶时间同步增加")
     args = ap.parse_args()
 
     cfg = _config.load()
+    # 启动自洁：清理 30 天前的任务日志/档案（rpc/daily-export/order-export 各入口均经此处）
+    try:
+        state.prune_old_logs(30)
+    except Exception:  # noqa: BLE001
+        pass
     if args.cmd in (None, "gui"):
         return cmd_gui(cfg)
     if args.cmd == "selfcheck":

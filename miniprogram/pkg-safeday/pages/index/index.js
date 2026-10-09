@@ -76,6 +76,8 @@ Page({
     // 网盘联动（「存网盘」按钮）：未开通（40301）/未配置（50301）时隐藏
     ndOk: false,
     savingNd: '', // 正在存网盘的记录 id
+    ndSaveId: '', // 待存网盘的记录 id（目录选择器 confirm 后使用）
+    ndSaveVisible: false, // 网盘目录选择器（nd-dirpicker；存网盘选目录）
     // 记录名称确认弹层
     genOpen: false,
     nameDraft: '',
@@ -134,12 +136,25 @@ Page({
       .catch(() => this.setData({ ndOk: false }));
   },
 
-  // 记录产物存网盘（sdFetch：{ok:true, path}；未开通/未配置时 toast 后端原文）
+  // 记录产物存网盘：先弹网盘目录选择（nd-dirpicker，默认「安全日记录」），confirm 后带 dir 转存
   onSaveNetdisk(e) {
     const id = String(e.currentTarget.dataset.id || '');
     if (!id || this.data.savingNd) return;
+    this.setData({ ndSaveId: id, ndSaveVisible: true });
+  },
+
+  onNdSaveDirClose() {
+    this.setData({ ndSaveVisible: false, ndSaveId: '' });
+  },
+
+  // 目录选择确认：sdFetch POST /records/{id}/save-netdisk（响应 {ok:true, path}；未开通/未配置时 toast 后端原文）
+  onNdSaveDirConfirm(e) {
+    const dir = (e.detail && e.detail.dir) || '';
+    const id = this.data.ndSaveId;
+    this.setData({ ndSaveVisible: false, ndSaveId: '' });
+    if (!id || this.data.savingNd) return;
     this.setData({ savingNd: id });
-    this.sdFetch(`/records/${encodeURIComponent(id)}/save-netdisk`, { method: 'POST', timeout: 120000 })
+    this.sdFetch(`/records/${encodeURIComponent(id)}/save-netdisk`, { method: 'POST', timeout: 120000, data: { dir } })
       .then((data) => this.toast(`已保存到网盘：${(data && data.path) || ''}`))
       .catch((err) => this.toast(err.message || '保存失败'))
       .finally(() => this.setData({ savingNd: '' }));
@@ -187,13 +202,14 @@ Page({
     wx.reLaunch({ url: '/pages/login/login' });
   },
 
-  // safeday 接口封装：信封 {ok,error}，手动带 token，401 清登录态跳登录页
+  // safeday 接口封装：信封 {ok,error}，手动带 token，401 清登录态跳登录页；opts.data 为 JSON body
   sdFetch(path, opts = {}) {
     const token = wx.getStorageSync('token');
     return new Promise((resolve, reject) => {
       wx.request({
         url: `${BASE_URL}${API_BASE}${path}`,
         method: opts.method || 'GET',
+        data: opts.data,
         timeout: opts.timeout || 30000,
         header: {
           Accept: 'application/json',

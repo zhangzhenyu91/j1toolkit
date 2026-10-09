@@ -10,6 +10,7 @@
 Electron 主进程 spawn 即用；核心仍是纯标准库（PyInstaller 好打包）。
 """
 import json
+import re
 import sys
 import threading
 
@@ -159,6 +160,31 @@ class RpcServer:
         if not p or not Path(p).exists():
             raise RuntimeError("路径不存在")
         return {"ok": platform_utils.open_path(p)}
+
+    def m_getJobLog(self, params):
+        """读任务完整日志（state/logs/<job_id>.log 全文）；job_id 正则校验防路径穿越"""
+        job_id = (params or {}).get("job_id", "")
+        if not re.match(r"^\d{14}-\d{2}$", job_id):
+            raise RuntimeError("参数错误")
+        p = state.logs_dir() / (job_id + ".log")
+        if not p.exists():
+            raise RuntimeError("日志不存在或已被清除")
+        return {"text": p.read_text(encoding="utf-8", errors="replace")}
+
+    def m_clearLogs(self, _params):
+        """一键清除全部任务日志与任务档案（占用中的文件跳过并计数）"""
+        return state.clear_logs()
+
+    def m_getLogStats(self, _params):
+        """日志目录统计（logs/ + jobs/）：文件数与总字节"""
+        files = 0
+        total = 0
+        for d in (state.logs_dir(), state.jobs_dir()):
+            for f in d.iterdir():
+                if f.is_file():
+                    files += 1
+                    total += f.stat().st_size
+        return {"dir": str(state.logs_dir()), "files": files, "bytes": total}
 
     # ---------------- 主循环 ----------------
     def serve(self):

@@ -64,6 +64,8 @@ onActivated(reload)
 </script>
 
 <style scoped>
-/* 小程序宣传图：卡片内居中限宽，圆角与卡片族一致 */
-.mp-promo { display: block; width: 100%; max-width: 560px; margin: 0 auto; border-radius: 8px; }
+/* 小程序宣传图：卡片内居中限宽。原图四角是烘焙成黑色的圆角（原图 2172px 宽、半径约 90-100px），
+   显示宽 ≤560px 时折算约 26px——border-radius 需给到 28px 才能完整盖住烘焙黑角（8px 盖不住），
+   被裁掉的四角为纯白内容，无信息损失 */
+.mp-promo { display: block; width: 100%; max-width: 560px; margin: 0 auto; border-radius: 28px; }
 </style>

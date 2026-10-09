@@ -1,8 +1,9 @@
 // 统一请求封装：自动携带 JWT，401 时清理登录态并跳转登录页
 // authRedirect=false 时 401 仅拒绝 Promise（用于启动自检等需自行处理跳转的场景）
+// withMessage=true 时 resolve 改为 { data, message }（调用方需要信封 message，如批量操作汇总文案）
 const { BASE_URL } = require('../config');
 
-function request({ url, method = 'GET', data, header = {}, timeout = 30000, authRedirect = true }) {
+function request({ url, method = 'GET', data, header = {}, timeout = 30000, authRedirect = true, withMessage = false }) {
   return new Promise((resolve, reject) => {
     const token = wx.getStorageSync('token');
     wx.request({
@@ -29,7 +30,7 @@ function request({ url, method = 'GET', data, header = {}, timeout = 30000, auth
           return;
         }
         if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {
-          resolve(body.data);
+          resolve(withMessage ? { data: body.data, message: body.message || '' } : body.data);
           return;
         }
         const err = new Error(body.message || `请求失败（${res.statusCode}）`);

@@ -1364,5 +1364,8 @@
   </view>
 </view>
 
+<!-- 网盘目录选择（PDF 存网盘前选目录，共享组件） -->
+<nd-dirpicker visible="{{ndSaveVisible}}" default-path="出工日志" bind:confirm="onNdSaveDirConfirm" bind:close="onNdSaveDirClose" />
+
 <t-dialog id="t-dialog" />
 <t-toast id="t-toast" />

@@ -237,6 +237,138 @@ def write_dispatch_xlsx(data_items, output_path, log=print):
     return num_rows
 
 
+def write_table_xlsx(path, sheet_name, headers, rows, log=print):
+    """通用单工作表 xlsx 写出（不绑定 write_dispatch_xlsx 的派车单列契约，供各类统计报表用）。
+    headers 为表头字符串列表；rows 为与表头等长的值列表——None/'' 出空单元格，
+    int/float 出数值单元格，其余按文本（inlineStr）写出；表头加粗居中（s=0）、数据 s=1。
+    列宽按表头与内容的显示宽度（CJK 计 2）取 10~30 的缺省值。返回记录数。"""
+    num_cols = len(headers)
+    num_rows = len(rows)
+
+    content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>"""
+
+    rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+
+    workbook = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>
+<sheet name="%s" sheetId="1" r:id="rId1"/>
+</sheets>
+</workbook>""" % _escape_xml(sheet_name)
+
+    workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"""
+
+    styles = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="2">
+<font><name val="微软雅黑"/><family val="2"/><size val="11"/></font>
+<font b="1"><name val="微软雅黑"/><family val="2"/><size val="11"/><color rgb="FFFFFFFF"/></font>
+</fonts>
+<fills count="2">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF4472C4"/></patternFill></fill>
+</fills>
+<borders count="1">
+<border>
+<left/><right/><top/><bottom/>
+</border>
+</borders>
+<cellStyleXfs count="1">
+<xf/>
+</cellStyleXfs>
+<cellXfs count="2">
+<xf applyAlignment="1" applyFill="1" applyFont="1" borderId="0" fillId="1"
+    fontId="1" numFmtId="0" xfId="0">
+<alignment horizontal="center" vertical="center" wrapText="1"/>
+</xf>
+<xf applyAlignment="1" borderId="0" fillId="0" fontId="0" numFmtId="0" xfId="0">
+<alignment vertical="center" wrapText="1"/>
+</xf>
+</cellXfs>
+</styleSheet>"""
+
+    def disp_len(v):
+        s = "" if v is None else str(v)
+        return sum(2 if ord(ch) > 0x7F else 1 for ch in s)
+
+    widths = []
+    for c in range(num_cols):
+        w = disp_len(headers[c])
+        for row in rows:
+            if c < len(row):
+                w = max(w, disp_len(row[c]))
+        widths.append(max(10, min(30, w + 2)))
+
+    sheet_rows = []
+    header_cells = []
+    for col_idx, caption in enumerate(headers, 1):
+        ref = _excel_ref(1, col_idx)
+        header_cells.append('<c r="%s" s="0" t="inlineStr"><is><t>%s</t></is></c>'
+                            % (ref, _escape_xml(caption)))
+    sheet_rows.append('<row r="1" spans="1:%d">%s</row>' % (num_cols, "".join(header_cells)))
+
+    for row_idx, row in enumerate(rows, 2):
+        cells = []
+        for col_idx in range(1, num_cols + 1):
+            value = row[col_idx - 1] if col_idx - 1 < len(row) else None
+            ref = _excel_ref(row_idx, col_idx)
+            if value is None or value == '':
+                cells.append('<c r="%s"/>' % ref)
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                cells.append('<c r="%s" s="1"><v>%s</v></c>' % (ref, value))
+            else:
+                cells.append('<c r="%s" s="1" t="inlineStr"><is><t>%s</t></is></c>'
+                             % (ref, _escape_xml(value)))
+        sheet_rows.append('<row r="%d" spans="1:%d">%s</row>'
+                          % (row_idx, num_cols, "".join(cells)))
+
+    sheet1 = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<dimension ref="A1:%s%d"/>
+<sheetViews>
+<sheetView workbookViewId="0" tabSelected="1">
+<selection activeCell="A2" sqref="A2"/>
+</sheetView>
+</sheetViews>
+<sheetFormatPr baseColWidth="10" defaultColWidth="15" defaultRowHeight="13" x14ac:dyDescent="0.15" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"/>
+<cols>
+%s
+</cols>
+<sheetData>
+%s
+</sheetData>
+<pageMargins left="0.7" right="0.7" top="1.08" footer="0.78" header="0.78"/>
+</worksheet>""" % (_int_to_col_letter(num_cols), num_rows + 1,
+                    ''.join('<col collapsed="0" hidden="0" max="%d" min="%d" style="0" width="%d"/>'
+                            % (c, c, widths[c - 1]) for c in range(1, num_cols + 1)),
+                    "".join(sheet_rows))
+
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('[Content_Types].xml', content_types)
+        zf.writestr('_rels/.rels', rels)
+        zf.writestr('xl/workbook.xml', workbook)
+        zf.writestr('xl/_rels/workbook.xml.rels', workbook_rels)
+        zf.writestr('xl/styles.xml', styles)
+        zf.writestr('xl/worksheets/sheet1.xml', sheet1)
+
+    log("  Excel 文件已保存: %s (%d 条记录)" % (path, num_rows))
+    return num_rows
+
+
 # ---------------------------------------------------------------- 读侧
 
 def _local(tag: str) -> str:

@@ -2,6 +2,7 @@
   "navigationStyle": "custom",
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
+    "nd-dirpicker": "/components/nd-dirpicker/nd-dirpicker",
     "t-calendar": "tdesign-miniprogram/calendar/calendar",
     "t-toast": "tdesign-miniprogram/toast/toast"
   }

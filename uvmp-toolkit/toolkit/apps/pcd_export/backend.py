@@ -8,14 +8,20 @@
   <输出目录>/<批次名>_导出_YYYYMMDD_HHMMSS/
     _合并_派车单.pdf / _合并_轨迹.pdf   （全部导完后按序号顺序合并，不足 2 个不出）
     _清单.csv / _未找到.txt
-    _12点前结束行程.csv                （轨迹导出时统计：行程结束时间在当日 12 点前，车牌号/日期/行程结束时间）
+    _12点前结束行程.xlsx               （轨迹导出时统计：行程结束时间在当日 12 点前；
+                                        序号（合并轨迹PDF页码）/派车单号/车牌号/日期/行程结束时间）
     逐单/
       NNN_派车单_<runCode>_<车牌>_<用车日期>.pdf
       NNN_轨迹_<runCode>_<车牌>_<用车日期>.pdf      （仅已完结且有实际出/归车时间的单）
       NNN_轨迹点_<runCode>.csv
   NNN = 清单行序，按最大位数补零；批次目录内 manifest.json 支持重跑断点续传。
+
+可选参数 calibrate_noon（前端「自动校准行程结束时间」勾选）：12 点前结束的行程按 1 小时
+逐次叠加校准至 12 点后，轨迹弹窗截图前注入改写结束时间与行驶时间（official_track.
+build_popup_rewrite_js），_12点前结束行程.xlsx 附校准后两列；轨迹点 CSV 与查询窗口不改。
 """
 import base64
+import bisect
 import json
 import time
 from datetime import datetime
@@ -111,6 +117,8 @@ def run(job, params: dict) -> dict:
         raise RuntimeError("未解析到任何派车单号")
     export_pcd = bool(params.get("export_pcd", True))
     export_track = bool(params.get("export_track", True))
+    # 自动校准行程结束时间：车载定位系统异常（结束时间早于12点）的行程按1小时逐次叠加至12点后
+    calibrate_noon = bool(params.get("calibrate_noon", False))
     if not (export_pcd or export_track):
         raise RuntimeError("派车单 / 轨迹至少勾选一项")
 
@@ -197,7 +205,7 @@ def run(job, params: dict) -> dict:
                         chrome, electron_path, manifest, width, rows)
         if export_track and found:
             _export_track(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
-                          chrome, electron_path, manifest, width, rows)
+                          chrome, electron_path, manifest, width, rows, calibrate_noon)
     finally:
         if renderer:
             renderer.stop()
@@ -298,7 +306,7 @@ def _export_pcd(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
 # ---------------------------------------------------------------- 轨迹
 
 def _export_track(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
-                  chrome, electron_path, manifest, width, rows):
+                  chrome, electron_path, manifest, width, rows, calibrate_noon=False):
     log = job.log
     mock = bool((cfg.get("dev") or {}).get("mock"))
     todo = []
@@ -317,7 +325,7 @@ def _export_track(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
             rows[f["seq"]]["track_status"] = "跳过（未完结或缺实际时间）"
     log("轨迹：待导出 %d 条（按派车单的实际出车/归队时间取轨迹）" % len(todo))
     done = 0
-    noon_rows = []   # 行程结束时间在当日 12 点前的轨迹（出 _12点前结束行程.csv）
+    noon_rows = []   # 行程结束时间在当日 12 点前的轨迹（出 _12点前结束行程.xlsx）
 
     for f, begin, end in todo:
         job.check_cancel()
@@ -329,17 +337,31 @@ def _export_track(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
                 str(f["seq"]).zfill(width), ve.safe_name(f["code"]),
                 ve.safe_name(o.get("vehicleNumber")), ve.safe_name(begin[:10]))
             if renderer:
-                from official_track import PNG_WRAP_HTML
+                import official_track as ot
                 png = files_dir / (Path(fname).stem + ".png")
                 seg = ve.query_track_segment(client, o["vehicleId"], begin, end)
                 end_noon = ve.seg_end_before_noon(seg)
+                pre_js = ""   # 「自动校准行程结束时间」：截图前注入弹窗的改写脚本（空 = 不改写）
                 if end_noon:
-                    noon_rows.append((o.get("vehicleNumber") or "", end_noon))
+                    noon_rows.append({"seq": f["seq"], "code": f["code"],
+                                      "vehicle": o.get("vehicleNumber") or "", "end": end_noon})
+                    if calibrate_noon:
+                        cal = ve.calibrate_noon_end(seg)
+                        if cal:
+                            new_dt, old_dur, new_dur = cal
+                            pre_js = ot.build_popup_rewrite_js(
+                                datetime.strptime(end_noon[:19], "%Y-%m-%d %H:%M:%S"),
+                                new_dt, old_dur, new_dur)
+                            noon_rows[-1]["cal_end"] = new_dt.strftime("%Y-%m-%d %H:%M:%S")
+                            noon_rows[-1]["cal_dur"] = ve.fmt_dur_cn(new_dur)
+                            log("  [校准] %s 行程结束 %s → %s，行驶时间 → %s"
+                                % (label, end_noon, noon_rows[-1]["cal_end"],
+                                   noon_rows[-1]["cal_dur"]))
                 if seg and seg.get("id"):
-                    renderer.render_route_png(seg["id"], png)   # 官方行程详情弹窗
+                    renderer.render_route_png(seg["id"], png, pre_shot_js=pre_js)   # 官方行程详情弹窗
                 else:
-                    renderer.render_pcd_png(o, png)             # 回退按派车单弹窗
-                ve.html_to_pdf(PNG_WRAP_HTML.replace("$img_uri", png.as_uri()),
+                    renderer.render_pcd_png(o, png, pre_shot_js=pre_js)             # 回退按派车单弹窗
+                ve.html_to_pdf(ot.PNG_WRAP_HTML.replace("$img_uri", png.as_uri()),
                                files_dir / fname, chrome, electron=electron_path)
                 _clean_intermediate(files_dir / fname)
                 if png.exists():
@@ -374,7 +396,13 @@ def _export_track(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
                 raise Cancelled()   # 取消引发的浏览器销毁不算单据失败
             rows[f["seq"]]["track_status"] = "失败"
             log("  失败 %s: %s" % (label, e))
-    ve.write_noon_end_report(noon_rows, outdir / "_12点前结束行程.csv", log=log)
+    # 页码 = 该单在「轨迹成功序列」中的位次（_合并_轨迹.pdf 按 seq 升序、每单恰 1 页合并）；
+    # 渲染失败的单没进合并 PDF，页码留空
+    ok_seqs = sorted(r["seq"] for r in rows.values() if r["track_file"])
+    ok_seq_set = set(ok_seqs)
+    for nr in noon_rows:
+        nr["page"] = bisect.bisect_right(ok_seqs, nr["seq"]) if nr["seq"] in ok_seq_set else None
+    ve.write_noon_end_report(noon_rows, outdir / "_12点前结束行程.xlsx", log=log)
 
 
 # ---------------------------------------------------------------- 报告

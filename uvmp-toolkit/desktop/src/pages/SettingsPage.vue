@@ -95,12 +95,28 @@
         </span>
       </div>
     </t-card>
+
+    <t-card>
+      <div class="sec-title">日志管理</div>
+      <div class="kv">
+        <span class="k">日志目录</span>
+        <span>
+          {{ logStats.dir || '-' }}
+          <t-button v-if="logStats.dir" size="small" variant="text" @click="showItem(logStats.dir)">打开目录</t-button>
+        </span>
+        <span class="k">占用</span><span>{{ logStats.files }} 个文件 / {{ fmtBytes(logStats.bytes) }}</span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <t-button theme="danger" variant="outline" :loading="clearing" @click="clearLogs">一键清除</t-button>
+        <span class="muted">30 天前的任务日志在核心启动时自动清理</span>
+      </div>
+    </t-card>
   </div>
 </template>
 
 <script setup>
 import { onActivated, reactive, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { call, pickFile, runJob, showItem } from '../api'
 
 const sso = reactive({ username: '', password: '' })
@@ -114,6 +130,46 @@ const testing = ref('')
 const testLogs = ref([])
 const testResult = ref(null)
 const ui = reactive({ closeToTray: true, autostart: false, driver: 'os' })
+const logStats = reactive({ dir: '', files: 0, bytes: 0 })
+const clearing = ref(false)
+
+function fmtBytes(n) {
+  const units = ['B', 'KB', 'MB', 'GB']
+  let v = n || 0
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1 }
+  return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`
+}
+
+async function loadLogStats() {
+  try {
+    Object.assign(logStats, await call('getLogStats'))
+  } catch (e) { /* 忽略 */ }
+}
+
+function clearLogs() {
+  const dlg = DialogPlugin.confirm({
+    header: '一键清除日志',
+    body: '将删除全部任务日志与任务档案（不影响执行记录）；正在运行任务的日志会被跳过。确定继续？',
+    confirmBtn: '清除',
+    theme: 'warning',
+    onConfirm: async () => {
+      dlg.hide()
+      clearing.value = true
+      try {
+        const r = await call('clearLogs')
+        let msg = `已清除 ${r.removed} 个日志文件`
+        if (r.skipped > 0) msg += `，${r.skipped} 个正在使用被跳过`
+        MessagePlugin.success(msg)
+        loadLogStats()
+      } catch (e) {
+        MessagePlugin.error(String(e.message || e))
+      } finally {
+        clearing.value = false
+      }
+    },
+  })
+}
 
 async function load() {
   try {
@@ -228,5 +284,5 @@ async function saveDev() {
 }
 
 // keep-alive：首次显示与每次切回都触发
-onActivated(load)
+onActivated(() => { load(); loadLogStats() })
 </script>

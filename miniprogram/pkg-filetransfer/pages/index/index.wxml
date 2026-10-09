@@ -161,6 +161,8 @@
   <view class="sheet">
     <view class="sh-head">
       <view class="sh-title">下载文件<text class="sh-sub">{{dlDevice.name}} · 虚拟 U 盘</text></view>
+      <!-- 多选开关（仅文件列表态显示；进入/退出均清空已选） -->
+      <view wx:if="{{dlState === 'local'}}" class="sh-multi {{dlMulti ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onDlMultiToggle">{{dlMulti ? '完成' : '多选'}}</view>
       <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseDownload">
         <t-icon name="close" size="36rpx" color="#4E5969" />
       </view>
@@ -184,33 +186,51 @@
       </view>
     </block>
 
-    <!-- 挂载在 KVM 本机：直接展示盘内文件 -->
+    <!-- 挂载在 KVM 本机：直接展示盘内文件（多选态：行首圆形勾选标，点按行 = toggle 选择） -->
     <block wx:else>
       <scroll-view scroll-y class="fl-list">
         <view wx:if="{{!dlFiles.length}}" class="fl-empty">盘内暂无文件</view>
         <view class="frow" wx:for="{{dlFiles}}" wx:key="name" data-file="{{item}}"
               hover-class="hover-opacity" bindtap="onDlFileTap">
+          <view wx:if="{{dlMulti}}" class="ck-dot {{item.checked ? 'on' : ''}}">
+            <t-icon wx:if="{{item.checked}}" name="check" size="22rpx" color="#FFFFFF" />
+          </view>
           <t-icon name="{{item.icon}}" size="34rpx" color="#0E3DA8" />
           <view class="fn">{{item.name}}</view>
           <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
           <view wx:else class="fs">{{item.sizeText}}</view>
-          <!-- 存网盘（网盘可用时显示；catchtap 拦截不触发下载） -->
-          <view wx:if="{{ndOk}}" class="fsave" hover-class="hover-opacity" data-name="{{item.name}}"
+          <!-- 存网盘（网盘可用且非多选态时显示；多选批量存走底部操作条；catchtap 拦截不触发下载/勾选） -->
+          <view wx:if="{{ndOk && !dlMulti}}" class="fsave" hover-class="hover-opacity" data-name="{{item.name}}"
                 catchtap="onSaveToNetdisk">
             <t-icon name="folder-import" size="32rpx" color="{{savingNd === item.name ? 'rgba(29,33,41,.35)' : '#0E3DA8'}}" />
           </view>
-          <!-- 删除小标（catchtap 拦截，不触发下载） -->
+          <!-- 删除小标（catchtap 拦截，不触发下载/勾选） -->
           <view class="fdel" hover-class="hover-opacity" data-name="{{item.name}}" data-index="{{index}}"
                 catchtap="onDeleteFile">
             <t-icon name="delete" size="32rpx" color="#F53F3F" />
           </view>
-          <t-icon name="chevron-right" size="30rpx" color="rgba(29,33,41,.4)" />
+          <t-icon wx:if="{{!dlMulti}}" name="chevron-right" size="30rpx" color="rgba(29,33,41,.4)" />
         </view>
       </scroll-view>
 
       <view class="sh-note">图片 / 视频下载后保存至相册；其他类型经微信打开（可另存 / 转发）。列出与下载期间 U 盘保持断开共享；需从目标计算机向盘内放入文件时先点下方挂载，放好后点「获取文件列表」读取。</view>
-      <view class="sh-foot">
-        <view class="btn-primary {{(mounting || downloading) ? 'disabled' : ''}}" hover-class="hover-opacity"
+
+      <!-- 多选操作条：全选（toggle）/ 下载所选 / 存网盘（n=0 或批量处理中禁用） -->
+      <view wx:if="{{dlMulti}}" class="dl-mbar">
+        <view class="dl-mall {{dlBusy ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onDlSelAll">
+          {{dlFiles.length && dlSel.length === dlFiles.length ? '取消全选' : '全选'}}
+        </view>
+        <view class="dl-mbtn {{(!dlSel.length || dlBusy) ? 'disabled' : ''}}" hover-class="hover-opacity"
+              bindtap="onDlBatchDownload">
+          {{dlBusy ? '处理中…' : '下载所选（' + dlSel.length + '）'}}
+        </view>
+        <view wx:if="{{ndOk}}" class="dl-mbtn nd {{(!dlSel.length || dlBusy) ? 'disabled' : ''}}" hover-class="hover-opacity"
+              bindtap="onDlBatchSave">
+          存网盘（{{dlSel.length}}）
+        </view>
+      </view>
+      <view wx:else class="sh-foot">
+        <view class="btn-primary {{(mounting || downloading || dlBusy) ? 'disabled' : ''}}" hover-class="hover-opacity"
               bindtap="onMount">
           {{mounting ? '正在挂载…' : '挂载 U 盘至目标计算机'}}
         </view>
@@ -219,7 +239,8 @@
   </view>
 </t-popup>
 
-<!-- 网盘文件选择弹层（从网盘拉取到设备：空间分段（有公共区才显示，默认公共区）+ 面包屑 + 文件列表；文件夹进入、文件选中） -->
+<!-- 网盘文件选择弹层（从网盘拉取到设备：空间分段（有公共区才显示，默认公共区）+ 面包屑 + 文件列表；
+     文件夹进入、文件勾选（圆形勾选标，可多选跨目录，同空间内保留；切空间清空）） -->
 <t-popup visible="{{ndPicker.open}}" placement="bottom" bind:visible-change="onNdVisibleChange">
   <view class="sheet">
     <view class="sh-head">
@@ -252,31 +273,38 @@
       <view wx:if="{{ndPicker.loading}}" class="fl-empty">目录加载中…</view>
       <view wx:elif="{{ndPicker.error}}" class="fl-empty">{{ndPicker.error}}</view>
       <view wx:elif="{{!ndPicker.items.length}}" class="fl-empty">该目录为空</view>
-      <view
-        wx:else
-        wx:for="{{ndPicker.items}}"
-        wx:key="fullPath"
-        class="frow nd-row {{ndPicker.selected === item.fullPath ? 'sel' : ''}}"
-        data-item="{{item}}"
-        hover-class="hover-opacity"
-        bindtap="onNdRowTap"
-      >
-        <t-icon name="{{item.icon}}" size="34rpx" color="#0E3DA8" />
-        <view class="fn">{{item.name}}</view>
-        <view wx:if="{{!item.isDir}}" class="fs">{{item.sizeText}}</view>
-        <t-icon wx:if="{{!item.isDir && ndPicker.selected === item.fullPath}}" name="check-circle-filled" size="32rpx" color="#0E3DA8" />
-        <t-icon wx:if="{{item.isDir}}" name="chevron-right" size="30rpx" color="rgba(29,33,41,.4)" />
-      </view>
+      <block wx:else>
+        <view
+          wx:for="{{ndPicker.items}}"
+          wx:key="fullPath"
+          class="frow nd-row {{item.checked ? 'sel' : ''}}"
+          data-item="{{item}}"
+          data-index="{{index}}"
+          hover-class="hover-opacity"
+          bindtap="onNdRowTap"
+        >
+          <view wx:if="{{!item.isDir}}" class="ck-dot {{item.checked ? 'on' : ''}}">
+            <t-icon wx:if="{{item.checked}}" name="check" size="22rpx" color="#FFFFFF" />
+          </view>
+          <t-icon name="{{item.icon}}" size="34rpx" color="#0E3DA8" />
+          <view class="fn">{{item.name}}</view>
+          <view wx:if="{{!item.isDir}}" class="fs">{{item.sizeText}}</view>
+          <t-icon wx:if="{{item.isDir}}" name="chevron-right" size="30rpx" color="rgba(29,33,41,.4)" />
+        </view>
+      </block>
     </scroll-view>
 
     <view class="sh-foot">
-      <view class="btn-primary {{(!ndPicker.selected || ndPicker.saving) ? 'disabled' : ''}}" hover-class="hover-opacity"
+      <view class="btn-primary {{(!ndPicker.selectedList.length || ndPicker.saving) ? 'disabled' : ''}}" hover-class="hover-opacity"
             bindtap="onNdConfirm">
-        {{ndPicker.saving ? '正在拉取…' : '推送到设备'}}
+        {{ndPicker.saving ? '正在拉取…' : '推送到设备（' + ndPicker.selectedList.length + '）'}}
       </view>
     </view>
   </view>
 </t-popup>
+
+<!-- 存网盘目录选择（共享组件；单文件行内按钮与多选批量共用，defaultPath 文件传输） -->
+<nd-dirpicker visible="{{ndSave.open}}" default-path="文件传输" bind:confirm="onNdSaveDirConfirm" bind:close="onNdSaveDirClose" />
 
 <t-toast id="t-toast" />
 <t-dialog id="t-dialog" />

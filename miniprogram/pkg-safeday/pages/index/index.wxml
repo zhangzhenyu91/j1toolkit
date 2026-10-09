@@ -324,5 +324,8 @@
   </view>
 </t-popup>
 
+<!-- 网盘目录选择（存网盘前选目录，共享组件） -->
+<nd-dirpicker visible="{{ndSaveVisible}}" default-path="安全日记录" bind:confirm="onNdSaveDirConfirm" bind:close="onNdSaveDirClose" />
+
 <t-dialog id="t-dialog" />
 <t-toast id="t-toast" />

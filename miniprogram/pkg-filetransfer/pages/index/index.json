@@ -5,6 +5,7 @@
   "backgroundTextStyle": "dark",
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
+    "nd-dirpicker": "/components/nd-dirpicker/nd-dirpicker",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-popup": "tdesign-miniprogram/popup/popup",
     "t-dialog": "tdesign-miniprogram/dialog/dialog",

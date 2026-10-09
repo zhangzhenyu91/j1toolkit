@@ -631,3 +631,88 @@
   flex: none;
   padding: 6rpx;
 }
+
+/* 圆形勾选标（网盘选择弹层文件行 / 下载弹层多选态行首；选中填品牌蓝） */
+.ck-dot {
+  width: 36rpx;
+  height: 36rpx;
+  flex: none;
+  border-radius: 50%;
+  border: 2rpx solid #C9CDD4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ck-dot.on {
+  background: #0E3DA8;
+  border-color: #0E3DA8;
+}
+
+/* 下载弹层标题行「多选」开关（小胶囊；开启态浅蓝底蓝字） */
+.sh-multi {
+  margin-left: auto;
+  padding: 8rpx 22rpx;
+  border-radius: 999rpx;
+  background: #F7F8FA;
+  border: 2rpx solid #E5E6EB;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #4E5969;
+}
+
+.sh-multi.on {
+  background: #E8F0FF;
+  border-color: #0E3DA8;
+  color: #0E3DA8;
+}
+
+/* 多选钮占据右推位后，关闭钮改为固定间距（其余弹层 .sh-close 维持 margin-left:auto） */
+.sh-multi + .sh-close {
+  margin-left: 12rpx;
+}
+
+/* 下载弹层多选操作条：全选 / 下载所选 / 存网盘 */
+.dl-mbar {
+  margin-top: 20rpx;
+  display: flex;
+  gap: 16rpx;
+  align-items: center;
+}
+
+.dl-mall {
+  flex: none;
+  height: 88rpx;
+  padding: 0 22rpx;
+  border-radius: 12rpx;
+  background: #F7F8FA;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #4E5969;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dl-mbtn {
+  flex: 1;
+  height: 88rpx;
+  border-radius: 12rpx;
+  background: #0E3DA8;
+  color: #ffffff;
+  font-size: 27rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dl-mbtn.nd {
+  background: #E8F0FF;
+  color: #0E3DA8;
+}
+
+.dl-mall.disabled,
+.dl-mbtn.disabled {
+  opacity: 0.5;
+}

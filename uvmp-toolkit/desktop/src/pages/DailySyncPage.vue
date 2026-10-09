@@ -71,8 +71,16 @@
     <t-card>
       <div class="sec-title">最近执行记录</div>
       <t-table :data="history" :columns="histCols" size="small" row-key="job_id"
-               :max-height="220" />
+               :max-height="220">
+        <template #op="{ row }">
+          <t-button size="small" variant="outline" @click="showLog(row)">日志</t-button>
+        </template>
+      </t-table>
     </t-card>
+
+    <t-dialog v-model:visible="logVisible" header="任务日志" width="80vw" :footer="false">
+      <div class="logview" style="height:60vh">{{ logText }}</div>
+    </t-dialog>
   </div>
 </template>
 
@@ -93,7 +101,20 @@ const histCols = [
   { colKey: 'time', title: '时间', width: 160 },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'summary', title: '结果', ellipsis: true },
+  { colKey: 'op', title: '操作', width: 80 },
 ]
+const logVisible = ref(false)
+const logText = ref('')
+
+async function showLog(row) {
+  try {
+    const r = await call('getJobLog', { job_id: row.job_id })
+    logText.value = r.text || '（日志为空）'
+    logVisible.value = true
+  } catch (e) {
+    MessagePlugin.error(String(e.message || e))
+  }
+}
 const runDate = ref('')
 const running = ref(false)
 const saving = ref(false)

@@ -29,7 +29,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # 免 pip 运行：如果脚本旁存在 pylib 目录（wheel 解压出的依赖），直接加入搜索路径
@@ -975,14 +975,58 @@ def seg_end_before_noon(seg) -> str:
     return ""
 
 
+def calibrate_noon_end(seg):
+    """自动校准行程结束时间：结束时间早于当日 12:00（车载定位系统异常口径）时，
+    以 1 小时为单位逐次叠加至 12 点后（10:32→12:32），行驶时长同步增加。
+    返回 (校准后结束时间 datetime, 校准前时长秒, 校准后时长秒)；无需校准或时间不可解析返回 None。"""
+    start = clean_time((seg or {}).get("starttime"))
+    end = clean_time((seg or {}).get("endtime"))
+    try:
+        sdt = datetime.strptime(start[:19], "%Y-%m-%d %H:%M:%S")
+        edt = datetime.strptime(end[:19], "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+    if edt.hour >= 12:
+        return None
+    nedt = edt
+    while nedt.hour < 12:
+        nedt += timedelta(hours=1)
+    return nedt, int((edt - sdt).total_seconds()), int((nedt - sdt).total_seconds())
+
+
+def fmt_dur_cn(seconds: int) -> str:
+    """时长秒 → 'H小时M分钟'（不足 1 小时为 'M分钟'），清单展示用"""
+    h, m = seconds // 3600, round((seconds % 3600) / 60)
+    if m == 60:
+        h, m = h + 1, 0
+    return ("%d小时%d分钟" % (h, m)) if h else ("%d分钟" % m)
+
+
 def write_noon_end_report(rows, out_path: Path, log=print):
-    """行程结束时间在当日 12 点前的轨迹清单：车牌号,日期,行程结束时间
-    （utf-8-sig，Excel 可直接打开；无记录也出仅表头的表，便于确认已统计）"""
-    lines = ["车牌号,日期,行程结束时间"]
-    for vehicle, end in rows:
-        lines.append(",".join(str(c).replace(",", "，").replace("\n", " ")
-                              for c in (vehicle, end[:10], end)))
-    Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
+    """行程结束时间在当日 12 点前的轨迹清单（xlsx，表头加粗居中）。
+    rows 为 dict 列表：{"page": 合并轨迹PDF页码（int；None 表示该单未进合并 PDF，序号列留空）,
+    "code": 派车单号, "vehicle": 车牌号, "end": 行程结束时间串}（允许多余键，忽略）；
+    开启「自动校准行程结束时间」的行另带 {"cal_end": 校准后结束时间串, "cal_dur": 校准后行驶时长}
+    ——任一行带即追加「校准后结束时间/校准后行驶时长」两列。
+    无记录也出仅表头的表，便于确认已统计。"""
+    try:
+        import xlsx_util
+    except ImportError:
+        # 仓级 CLI 直接运行时 xlsx_util 在 toolkit/ 下（经 toolkit/app.py 运行时入口已将其加入 sys.path）
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "toolkit"))
+        import xlsx_util
+    has_cal = any(r.get("cal_end") for r in rows)
+    headers = ["序号（合并轨迹PDF页码）", "派车单号", "车牌号", "日期", "行程结束时间"]
+    if has_cal:
+        headers += ["校准后结束时间", "校准后行驶时长"]
+    table = []
+    for r in rows:
+        row = ["" if r.get("page") is None else r["page"], r.get("code", ""),
+               r.get("vehicle", ""), (r.get("end") or "")[:10], r.get("end") or ""]
+        if has_cal:
+            row += [r.get("cal_end", ""), r.get("cal_dur", "")]
+        table.append(row)
+    xlsx_util.write_table_xlsx(out_path, "12点前结束行程", headers, table, log=lambda *_: None)
     log("12 点前结束行程清单：%s（%d 条）" % (Path(out_path).name, len(rows)))
 
 
@@ -1020,23 +1064,23 @@ def export_pcd(client, cfg, orders, outdir: Path, chrome: str, manifest: Manifes
 
 def export_track(client, cfg, orders, outdir: Path, chrome: str, manifest: Manifest, renderer=None):
     todo = []
-    for o in orders:
+    for oi, o in enumerate(orders):
         begin = clean_time(o.get("realSendTime"))
         end = clean_time(o.get("realBackTime"))
         if o.get("vehicleId") and begin and end:
-            todo.append((o, begin, end))
-    todo = [(o, b, e) for (o, b, e) in todo if not manifest.has("track", o["id"])]
+            todo.append((oi, o, begin, end))
+    todo = [(oi, o, b, e) for (oi, o, b, e) in todo if not manifest.has("track", o["id"])]
     print("轨迹：待导出 %d 条（按派车单的实际出车/归队时间取轨迹）" % len(todo))
     # 内置模板已删除：轨迹只走官方页面直出，渲染器不可用即报错
     if todo and renderer is None:
         raise RuntimeError("官方页面渲染器不可用，轨迹无法导出（请在 config.ini [render] 指定公司浏览器）")
     ok = 0
-    noon_rows = []   # 行程结束时间在当日 12 点前的轨迹（出 _12点前结束行程.csv）
+    noon_rows = []   # 行程结束时间在当日 12 点前的轨迹（出 _12点前结束行程.xlsx）
     files_dir = outdir / "逐单"   # 逐单文件归子目录，批次根目录留给合并总 PDF/清单
     if todo:
         files_dir.mkdir(parents=True, exist_ok=True)
 
-    for i, (o, begin, end) in enumerate(todo, 1):
+    for i, (oi, o, begin, end) in enumerate(todo, 1):
         label = "%s %s" % (o.get("vehicleNumber"), o.get("runCode"))
         try:
             points = query_track_points(client, o["vehicleId"], begin, end)
@@ -1046,12 +1090,26 @@ def export_track(client, cfg, orders, outdir: Path, chrome: str, manifest: Manif
             png = files_dir / (Path(fname).stem + ".png")
             seg = query_track_segment(client, o["vehicleId"], begin, end)
             end_noon = seg_end_before_noon(seg)
+            pre_js = ""   # 「自动校准行程结束时间」：截图前注入弹窗的改写脚本（空 = 不改写）
             if end_noon:
-                noon_rows.append((o.get("vehicleNumber") or "", end_noon))
+                noon_rows.append({"idx": oi, "code": o.get("runCode") or "",
+                                  "vehicle": o.get("vehicleNumber") or "", "end": end_noon})
+                if cfg.get("calibrate_noon") and renderer is not None:
+                    cal = calibrate_noon_end(seg)
+                    if cal:
+                        from official_track import build_popup_rewrite_js
+                        new_dt, old_dur, new_dur = cal
+                        pre_js = build_popup_rewrite_js(
+                            datetime.strptime(end_noon[:19], "%Y-%m-%d %H:%M:%S"),
+                            new_dt, old_dur, new_dur)
+                        noon_rows[-1]["cal_end"] = new_dt.strftime("%Y-%m-%d %H:%M:%S")
+                        noon_rows[-1]["cal_dur"] = fmt_dur_cn(new_dur)
+                        print("  [校准] %s 行程结束 %s → %s，行驶时间 → %s"
+                              % (label, end_noon, noon_rows[-1]["cal_end"], noon_rows[-1]["cal_dur"]))
             if seg and seg.get("id"):
-                renderer.render_route_png(seg["id"], png)   # 官方行程详情弹窗（理想样式）
+                renderer.render_route_png(seg["id"], png, pre_shot_js=pre_js)   # 官方行程详情弹窗
             else:
-                renderer.render_pcd_png(o, png)             # 找不到行程段则按派车单弹窗
+                renderer.render_pcd_png(o, png, pre_shot_js=pre_js)             # 回退按派车单弹窗
             html_to_pdf(PNG_WRAP_HTML.replace("$img_uri", png.as_uri()),
                         files_dir / fname, chrome)
             try:
@@ -1074,7 +1132,13 @@ def export_track(client, cfg, orders, outdir: Path, chrome: str, manifest: Manif
             print("[%d/%d] 失败 %s: %s" % (i, len(todo), label, e))
         time.sleep(0.2)
     print("轨迹导出完成：成功 %d / %d" % (ok, len(todo)))
-    write_noon_end_report(noon_rows, outdir / "_12点前结束行程.csv")
+    # 页码 = 该单在「轨迹成功序列」中的位次（_合并_轨迹.pdf 按 orders 顺序、每单恰 1 页合并）；
+    # 渲染失败的单没进合并 PDF，页码留空
+    ok_idx = [i for i, o in enumerate(orders) if manifest.data.get("track", {}).get(o["id"])]
+    page_of = {v: k + 1 for k, v in enumerate(ok_idx)}
+    for nr in noon_rows:
+        nr["page"] = page_of.get(nr["idx"])
+    write_noon_end_report(noon_rows, outdir / "_12点前结束行程.xlsx")
     # 含此前已导出的全部成功轨迹，按 orders 顺序合并一个总 PDF（逐单文件保留在 逐单/）
     merge_pdfs([files_dir / manifest.data.get("track", {}).get(o["id"], "") for o in orders],
                outdir / "_合并_轨迹.pdf")
@@ -1107,6 +1171,7 @@ def main():
         "merge_pcd": cfg.get("merge_pcd", "false").lower() == "true",
         "points_table": cfg.get("points_table", "true").lower() == "true",
         "real_map": cfg.get("real_map", "true").lower() == "true",
+        "calibrate_noon": args.calibrate_noon,   # --calibrate-noon：12点前结束行程自动校准
     })
     if cfgp.has_section("map"):
         map_cfg = dict(cfgp.items("map"))

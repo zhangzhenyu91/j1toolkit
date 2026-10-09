@@ -38,6 +38,47 @@ def jobs_dir() -> Path:
     return _sub("jobs")
 
 
+# ---------------------------------------------------------------- 日志清理
+
+def _iter_log_files():
+    """logs/ 与 jobs/ 下的全部文件（任务日志 + 任务档案）"""
+    for d in (logs_dir(), jobs_dir()):
+        try:
+            for f in d.iterdir():
+                if f.is_file():
+                    yield f
+        except OSError:
+            pass
+
+
+def clear_logs() -> dict:
+    """删除 logs/ 与 jobs/ 下全部文件；运行中任务的 .log 被占用
+    （Windows 删不掉）时跳过并计数，返回 {"removed": n, "skipped": m}"""
+    removed = skipped = 0
+    for f in _iter_log_files():
+        try:
+            f.unlink()
+            removed += 1
+        except OSError:
+            skipped += 1
+    return {"removed": removed, "skipped": skipped}
+
+
+def prune_old_logs(days: int = 30) -> int:
+    """按 mtime 删除 logs/、jobs/ 中超过 days 天的文件（启动自洁用）；
+    异常静默跳过，返回删除数"""
+    cutoff = time.time() - days * 86400
+    removed = 0
+    for f in _iter_log_files():
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def read_json(path: Path, default):
     try:
         return json.loads(path.read_text(encoding="utf-8"))

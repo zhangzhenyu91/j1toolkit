@@ -14,7 +14,7 @@
     <view class="gen {{!from || !to || generating ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenerate">
       {{generating ? '正在生成…' : '生成并打开'}}
     </view>
-    <view class="gen nd {{savingNd || generating ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onSaveNetdisk">
+    <view class="gen nd {{savingNd || generating ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onSaveNetdiskOpen">
       {{savingNd ? '正在存网盘…' : '存网盘'}}
     </view>
   </view>
@@ -38,5 +38,8 @@
   bind:confirm="onCalConfirm"
   bind:close="onCalClose"
 />
+
+<!-- 网盘目录选择（存网盘前选目录，共享组件；40901 强制执行沿用已选目录不重弹） -->
+<nd-dirpicker visible="{{ndSaveVisible}}" default-path="出工日志" bind:confirm="onNdSaveDirConfirm" bind:close="onNdSaveDirClose" />
 
 <t-toast id="t-toast" />

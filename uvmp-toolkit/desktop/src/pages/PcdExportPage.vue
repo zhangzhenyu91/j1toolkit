@@ -34,10 +34,13 @@
         <t-checkbox v-model="opt.batchSubdir">建批次子目录（防覆盖）</t-checkbox>
         <t-checkbox v-model="opt.pcd">导出派车单 PDF</t-checkbox>
         <t-checkbox v-model="opt.track">导出轨迹 PDF + 轨迹点 CSV</t-checkbox>
+        <t-checkbox v-model="opt.calibrateNoon">自动校准行程结束时间</t-checkbox>
       </div>
       <div class="muted" style="margin-top:8px">
         逐单文件在「逐单/」子目录：序号_派车单_单号_车牌_日期.pdf / 序号_轨迹_单号_车牌_日期.pdf / 序号_轨迹点_单号.csv；
-        全部导出后按序号合并出根目录 _合并_派车单.pdf / _合并_轨迹.pdf；批次内附 _清单.csv、_12点前结束行程.csv 与 _未找到.txt；同批次重跑自动跳过已导出单据。
+        全部导出后按序号合并出根目录 _合并_派车单.pdf / _合并_轨迹.pdf；批次内附 _清单.csv、_12点前结束行程.xlsx 与 _未找到.txt；同批次重跑自动跳过已导出单据。
+        勾选「自动校准行程结束时间」后：行程结束时间早于 12 点的轨迹（车载定位系统异常），按 1 小时逐次叠加校准至 12 点后
+        （如 10:32→12:32），轨迹 PDF 弹窗内的结束时间与行驶时间同步改写，_12点前结束行程.xlsx 附「校准后结束时间/校准后行驶时长」两列。
       </div>
     </t-card>
 
@@ -63,11 +66,16 @@
       <t-table :data="history" :columns="histCols" size="small" row-key="job_id"
                :max-height="220">
         <template #op="{ row }">
+          <t-button size="small" variant="outline" @click="showLog(row)">日志</t-button>
           <t-button v-if="row.dir" size="small" variant="outline"
                     @click="call('openPath', { path: row.dir })">打开目录</t-button>
         </template>
       </t-table>
     </t-card>
+
+    <t-dialog v-model:visible="logVisible" header="任务日志" width="80vw" :footer="false">
+      <div class="logview" style="height:60vh">{{ logText }}</div>
+    </t-dialog>
   </div>
 </template>
 
@@ -83,7 +91,7 @@ const batchName = ref('派车单')
 const fileName = ref('')
 const codesText = ref('')
 const outdir = ref('')
-const opt = reactive({ batchSubdir: true, pcd: true, track: true })
+const opt = reactive({ batchSubdir: true, pcd: true, track: true, calibrateNoon: false })
 const running = ref(false)
 const logs = ref([])
 const logEl = ref(null)
@@ -94,8 +102,20 @@ const histCols = [
   { colKey: 'time', title: '时间', width: 160 },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'summary', title: '结果', ellipsis: true },
-  { colKey: 'op', title: '操作', width: 100 },
+  { colKey: 'op', title: '操作', width: 160 },
 ]
+const logVisible = ref(false)
+const logText = ref('')
+
+async function showLog(row) {
+  try {
+    const r = await call('getJobLog', { job_id: row.job_id })
+    logText.value = r.text || '（日志为空）'
+    logVisible.value = true
+  } catch (e) {
+    MessagePlugin.error(String(e.message || e))
+  }
+}
 
 let currentJob = null
 
@@ -183,6 +203,7 @@ async function startRun() {
       batch_subdir: opt.batchSubdir,
       export_pcd: opt.pcd,
       export_track: opt.track,
+      calibrate_noon: opt.calibrateNoon,
     }, {
       onLog: appendLog,
       onProgress: (p) => {
