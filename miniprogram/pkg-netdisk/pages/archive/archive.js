@@ -2,8 +2,8 @@
 // 进入参数：space + path（压缩包相对空间根的完整路径）+ name
 // 流程：先取 meta（不带密码）→ encrypted=true 弹密码输入层（tdesign Dialog 无输入能力，用底部弹层实现），
 //   密码经 meta 校验通过后 archive_pass 随 list/download 透传；未加密直接列根目录
-// 包内浏览：文件夹行进入（archive/list inner_path，rel 为包内路径）；文件行点按 → archive/download
-//   下载后一律 wx.openDocument 打开（无论类型，2026-10-09 起；原 previewMedia 直链预览已移除）
+// 包内浏览：文件夹行进入（archive/list inner_path，rel 为包内路径）；文件行点按 → 图片/视频 previewMedia
+//   （直链；openDocument 不支持媒体），其余类型 archive/download 下载后一律 wx.openDocument 打开（2026-10-09 起）
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { pad, fmtSize, extOf, parseDate } from '../../../utils/util';
@@ -11,6 +11,9 @@ import config from '../../../config';
 import { fileIconUrl } from '../../fileicon';
 
 const API = '/api/v1/netdisk';
+
+const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+const VIDEO_EXTS = ['mp4', 'mov', 'm4v'];
 
 // 时间 → 'MM.DD'（解析失败给占位）
 const fmtDay = (input) => {
@@ -188,10 +191,12 @@ Page({
   mapRow(o) {
     const ext = extOf(o.name);
     const isDir = !!o.is_dir;
+    const media = !isDir && (IMG_EXTS.includes(ext) || VIDEO_EXTS.includes(ext));
     return {
       name: o.name,
       isDir,
       ext,
+      media,
       letter: isDir ? '' : (ext ? ext.slice(0, 4).toUpperCase() : 'FILE'),
       // 真实文件类型图标（/assets/filetypes/，与 Web 同源）；iconFail 时回退字母块/线性文件夹
       icon: fileIconUrl(o.name, isDir),
@@ -217,16 +222,24 @@ Page({
 
   /* ==================== 包内文件预览 / 下载 ==================== */
 
-  // 包内文件下载地址（GET 流；query 带 archive_pass）
-  downloadUrl(rel) {
+  // 包内文件下载地址（GET 流；query 带 archive_pass，previewMedia 场景另带 token 鉴权）
+  downloadUrl(rel, withToken) {
     let url = `${config.BASE_URL}${API}/archive/download?space=${encodeURIComponent(this._space)}` +
       `&path=${encodeURIComponent(this._path)}&inner=${encodeURIComponent(rel)}`;
     if (this._pass) url += `&archive_pass=${encodeURIComponent(this._pass)}`;
+    if (withToken) url += `&token=${encodeURIComponent(wx.getStorageSync('token') || '')}`;
     return url;
   },
 
-  // 文件预览：无论什么类型一律下载后 wx.openDocument 打开（2026-10-09 起，不再走 previewMedia 直链预览）
+  // 文件预览：图片/视频 previewMedia（直链；openDocument 不支持媒体）；其余类型一律下载后 wx.openDocument 打开
   previewFile(item) {
+    if (item.media) {
+      wx.previewMedia({
+        sources: [{ url: this.downloadUrl(item.rel, true), type: IMG_EXTS.includes(item.ext) ? 'image' : 'video' }],
+        current: 0,
+      });
+      return;
+    }
     this.downloadFile(item);
   },
 

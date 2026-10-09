@@ -6,8 +6,8 @@
 // 上传：init → FileSystemManager.readFile 按 chunk_size 切片、2 片并发 PUT（429/409 带 retry 退避 1~2s 重传，
 //   每片最多 5 次）→ complete（长阻塞正常，timeout 120s；被中间层掐断时回落 status 轮询终态）；
 //   进度以会话快照 received_bytes 为准（本地累计作下限）；0 字节文件 init 返回 instant 直接建成
-// 预览：无论什么类型一律 wx.downloadFile（filePath 指定真名）→ wx.openDocument 打开
-//   （2026-10-09 起统一，不再走 previewMedia 直链预览；操作面板「下载」媒体仍存相册）
+// 预览：图片/视频 wx.previewMedia（inline 直链 + ?token= 鉴权，同目录媒体合集滑动；openDocument 不支持媒体）；
+//   其余类型一律 wx.downloadFile（filePath 指定真名）→ wx.openDocument 打开（2026-10-09 起统一）
 // 权限：公共区 manageable=false 时操作面板隐藏重命名/删除（上传/新建文件夹全员可用）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
@@ -399,8 +399,22 @@ Page({
     this.previewFile(item);
   },
 
-  // 文件预览：无论什么类型一律下载后 wx.openDocument 打开（2026-10-09 起，不再走 previewMedia 直链预览）
+  // 文件预览：图片/视频 previewMedia（inline 直链，同目录媒体合集滑动；openDocument 不支持媒体）；
+  // 其余类型一律下载后 wx.openDocument 打开
   previewFile(item) {
+    if (item.media) {
+      // 目录浏览时同目录媒体合集滑动预览；搜索结果仅预览单项
+      const pool = item.fromSearch ? [item] : this.data.items.filter((r) => r.media);
+      const sources = pool.map((r) => ({
+        url: this.inlineUrl(r.fullPath),
+        type: IMG_EXTS.includes(r.ext) ? 'image' : 'video',
+      }));
+      wx.previewMedia({
+        sources,
+        current: Math.max(0, pool.findIndex((r) => r.fullPath === item.fullPath)),
+      });
+      return;
+    }
     this.downloadFile(item, 'preview');
   },
 
