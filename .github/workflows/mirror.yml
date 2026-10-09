@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 必须全量：浅克隆不含远端 main 祖先，HEAD:main 无法证明快进关系被拒（已踩坑）
       - name: 推送 main 到 CNB（tag 由 release.yml 发版完成后回推，此处不同步）
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
