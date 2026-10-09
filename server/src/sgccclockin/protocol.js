@@ -496,7 +496,10 @@ async function uploadImageV2(token, { buf }, opt = {}) {
   if (resp.status === 200 && j && Number(j.statusCode) === 200 && result && result.success && result.fileInfoId) {
     return { fileInfoId: String(result.fileInfoId), httpUrl: result.httpUrl || '' };
   }
-  throw new Error('商旅图片上传失败：' + String((j && (j.msg || (j.data && j.data.msg))) || resp.raw || `HTTP ${resp.status}`).slice(0, 120));
+  // 失败信息带 HTTP 状态码与平台 statusCode（区分 99001 风控笼统拒绝与 fastdfs 服务故障——2026-10-09 排查盲区补强）
+  const why = String((j && (j.msg || (j.data && j.data.msg))) || resp.raw || `HTTP ${resp.status}`).slice(0, 120);
+  const code = j && j.statusCode != null ? ` statusCode=${j.statusCode}` : '';
+  throw new Error(`商旅图片上传失败（HTTP ${resp.status}${code}）：${why}`);
 }
 
 module.exports = {
