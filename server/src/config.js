@@ -120,6 +120,26 @@ const config = {
     personalRoot: str('NETDISK_PERSONAL_ROOT', '/personal'),
     // 单文件上传上限（MB）
     maxUploadMb: num('NETDISK_MAX_UPLOAD_MB', 1024),
+    // 网格图片缩略图（sharp 生成 384px webp 落盘缓存；目录已归一化为绝对路径，默认落进数据卷 data/thumbs）
+    thumbDir: path.resolve(str('NETDISK_THUMB_DIR', './data/thumbs')),
+    // 超过该体积（MB）的图片不生成缩略图，302 回退原图直链（防超大原图解码打爆内存）
+    thumbMaxMb: num('NETDISK_THUMB_MAX_MB', 50),
+  },
+  // ONLYOFFICE Docs 在线编辑（社区版自托管，仅服务端对接：配置签发 + 保存回调写回网盘；编辑器容器用户自装，
+  // 与 Shade 同入 j1toolkit 容器网络按容器名互通；对接细节见 开发指南.md 第十八节）
+  office: {
+    // 浏览器侧可达地址（如 https://office.j1net.com，须随反代上 HTTPS 防混合内容拦截）；留空 = 停用在线编辑
+    publicUrl: str('OO_PUBLIC_URL').replace(/\/+$/, ''),
+    // 服务端从保存回调 URL 拉文件时改写的容器内网基址（OnlyOffice 容器名，默认 http://onlyoffice）
+    internalUrl: str('OO_INTERNAL_URL', 'http://onlyoffice').replace(/\/+$/, ''),
+    // OnlyOffice 容器回源/回调 Shade 的地址；留空按 http://j1toolkit:<PORT> 推导（compose 容器名 + 内外同端口）
+    callbackBase: str('OO_CALLBACK_BASE').replace(/\/+$/, '') || `http://j1toolkit:${num('PORT', 3000)}`,
+    // OnlyOffice JWT 密钥（与其容器 JWT_SECRET 同值；编辑器 config 签名与回调校验共用）
+    jwtSecret: str('OO_JWT_SECRET'),
+    // 文件回源票据有效期（秒，OnlyOffice 仅在打开文档时回源一次，600 足够）
+    fileTicketTtl: num('OO_FILE_TICKET_TTL', 600),
+    // 保存回调票据有效期（秒；须覆盖最长编辑会话，默认 12h）
+    callbackTicketTtl: num('OO_CALLBACK_TICKET_TTL', 43200),
   },
   // 商旅打卡（出工日志扩展）
   // 协议密钥取自商旅 App 逆向分析仓 private/esgcc/sgcc/tools/sgcc_client.js（私有仓），只走 env、不入仓

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 在线编辑（ONLYOFFICE Docs 社区版承载页；网盘 Office 文件双击/右键「在线编辑」进入）
+     链路：Shade.api('/api/v1/office/config') 取签发配置（含 JWT）→ 动态加载 OO_PUBLIC_URL 的 api.js →
+       DocsAPI.DocEditor 渲染；OnlyOffice 容器回源/回调 Shade 容器内网直走（j1toolkit 网络按容器名互通）；
+       保存经回调写回网盘（customization.forcesave 即时落盘）
+     外壳：统一 Shade.topbar 顶栏 + 极简副栏（返回网盘 / 文件名 / 只读标记），编辑区铺满剩余高度；
+       副栏返回与编辑器关闭按钮（events.onRequestClose）同口径回 /netdisk.html；
+     品牌标识（编辑器 header/加载页/About 的 Shade 壹匣 素材）经容器卷挂载替换，素材与清单见 docker/onlyoffice/ -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>在线编辑 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* 在线编辑页内样式 · 政企蓝白 token 同 theme.css */
+  html, body { height: 100%; }
+  body { overflow: hidden; display: flex; flex-direction: column; }
+  [hidden] { display: none !important; }
+
+  /* 副栏：返回 + 文件名 + 只读标记（高 44px，白卡发丝线底边） */
+  .oo-sub {
+    flex: none; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    background: var(--card, #fff); border-bottom: 1px solid var(--line);
+  }
+  .oo-back {
+    display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent;
+    color: var(--sub); font-size: 13px; cursor: pointer; padding: 5px 8px; border-radius: 8px;
+    transition: background .15s, color .15s;
+  }
+  .oo-back:hover { background: var(--orange-soft); color: var(--orange); }
+  .oo-name {
+    font-size: 13.5px; font-weight: 600; color: var(--navy);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .oo-tag {
+    flex: none; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    background: var(--orange-soft); color: var(--orange);
+  }
+
+  /* 编辑区：占满剩余高度，DocEditor iframe 铺满 */
+  .oo-stage { flex: 1; min-height: 0; position: relative; background: var(--bg, #f5f7fa); }
+  #ooHolder { width: 100%; height: 100%; }
+
+  /* 加载/错误态（居中卡） */
+  .oo-state {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--ph); font-size: 13px;
+  }
+  .oo-spin {
+    width: 26px; height: 26px; margin: 0 auto 10px; border-radius: 50%;
+    border: 3px solid var(--line); border-top-color: var(--orange);
+    animation: ooSpin 1s linear infinite;
+  }
+  @keyframes ooSpin { to { transform: rotate(360deg); } }
+  .oo-err { text-align: center; max-width: 420px; line-height: 1.9; }
+  .oo-err .btn { margin-top: 10px; }
+  @media (prefers-reduced-motion: reduce) { .oo-spin { animation: none; } }
+</style>
+</head>
+<body>
+<div class="oo-sub">
+  <button type="button" class="oo-back" id="btnBack"></button>
+  <span class="oo-name" id="ooName"></span>
+  <span class="oo-tag" id="ooTag" hidden>只读</span>
+</div>
+<div class="oo-stage">
+  <div class="oo-state" id="ooState"><div><div class="oo-spin"></div>正在加载编辑器…</div></div>
+  <div id="ooHolder" hidden></div>
+</div>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  Shade.requireAuth();
+  Shade.topbar({ active: 'netdisk' }); // 在线编辑属网盘子页，顶栏激活态归网盘
+
+  (function () {
+    var $ = Shade.$;
+    var qs = new URLSearchParams(location.search);
+    var space = qs.get('space') || '';
+    var path = qs.get('path') || '/';
+    var name = path.split('/').filter(Boolean).pop() || '文档';
+
+    document.title = name + ' · 在线编辑 · Shade 壹匣';
+    $('#btnBack').innerHTML = Shade.icon('chevron-left', 14) + '返回网盘';
+    $('#ooName').textContent = name;
+
+    function back() { location.href = '/netdisk.html'; }
+    $('#btnBack').addEventListener('click', back);
+
+    function failState(msg) {
+      $('#ooState').innerHTML = '<div class="oo-err">' + Shade.icon('warn', 40)
+        + '<p>' + Shade.esc(msg) + '</p>'
+        + '<button type="button" class="btn btn-accent" id="btnRetry">重新加载</button></div>';
+      $('#btnRetry').addEventListener('click', function () { location.reload(); });
+    }
+
+    Shade.api('/api/v1/office/config', { method: 'POST', body: { space: space, path: path } })
+      .then(function (r) {
+        var d = r.data || {};
+        if (!d.public_url || !d.config) throw new Error('编辑器配置下发异常');
+        if (d.config.editorConfig && d.config.editorConfig.mode === 'view') $('#ooTag').hidden = false;
+        var s = document.createElement('script');
+        s.src = d.public_url.replace(/\/+$/, '') + '/web-apps/apps/api/documents/api.js';
+        s.onload = function () {
+          if (!window.DocsAPI || !window.DocsAPI.DocEditor) {
+            failState('编辑器组件加载异常，请刷新重试');
+            return;
+          }
+          var cfg = d.config;
+          cfg.width = '100%';
+          cfg.height = '100%';
+          cfg.events = {
+            onRequestClose: back, // 编辑器关闭按钮（customization.close）
+            onError: function (e) {
+              console.error('[OO] 编辑器错误：', e);
+              failState('编辑器错误：' + ((e && e.data && e.data.errorDescription) || '未知错误'));
+            },
+          };
+          $('#ooState').hidden = true;
+          $('#ooHolder').hidden = false;
+          new window.DocsAPI.DocEditor('ooHolder', cfg);
+        };
+        s.onerror = function () {
+          failState('编辑器资源加载失败：无法访问 ONLYOFFICE 服务（' + d.public_url + '），请检查网络与反代配置');
+        };
+        document.head.appendChild(s);
+      })
+      .catch(function (e) { failState(e.message || '加载失败，请稍后重试'); });
+  })();
+</script>
+</body>
+</html>

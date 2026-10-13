@@ -5,6 +5,9 @@
 // 分享免登录访问：/public/* 挂在 auth 门控之前；提取码校验走 nd_share 表，验证通过发 2h 访问票据（JWT）
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
+const fsp = require('fs/promises');
+const nodePath = require('path');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { pool } = require('../db');
@@ -13,6 +16,9 @@ const requireApp = require('../middleware/requireApp');
 const tokenQuery = require('../utils/tokenQuery');
 const { ok, fail } = require('../utils/resp');
 const ol = require('./openlist');
+// 缩略图组件（网格格子用）：未装 sharp 时 /thumb 接口 503，前端回退类型图标
+let sharp = null;
+try { sharp = require('sharp'); } catch (err) { /* sharp 为预编译原生依赖，缺失不致命 */ }
 
 const router = express.Router();
 
@@ -513,6 +519,67 @@ router.get('/download', async (req, res) => {
     if (rel === null || rel === '/') return fail(res, 400, 40001, '路径不合法');
     const disposition = req.query.disposition === 'inline' ? 'inline' : 'attachment';
     return await pipeDownload(res, joinPath(root, rel), baseName(rel), disposition);
+  } catch (err) { return relayFail(res, err); }
+});
+
+// ================= 图片缩略图（网格格子专用；杜绝 9MB 原图直链当缩略图的流量/内存放大） =================
+// 首访拉原图经 sharp 缩至 ≤384px webp 落盘缓存（键 = sha1(绝对路径|size|modified)，文件变缓存键自动失效重生）；
+// 生成并发闸 2 防批量解码打爆内存；超过 NETDISK_THUMB_MAX_MB 的原图 302 回退 inline 直链；失败由前端回退类型图标
+const THUMB_IMG_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']);
+let thumbRunning = 0;
+const thumbQueue = [];
+function thumbAcquire() {
+  if (thumbRunning < 2) { thumbRunning += 1; return Promise.resolve(); }
+  return new Promise((resolve) => thumbQueue.push(resolve));
+}
+function thumbRelease() {
+  const next = thumbQueue.shift();
+  if (next) next(); else thumbRunning -= 1;
+}
+function sendThumb(res, file) {
+  res.setHeader('Content-Type', 'image/webp');
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  return res.sendFile(file);
+}
+
+router.get('/thumb', async (req, res) => {
+  try {
+    ol.ensureConfigured();
+    const root = await resolveRoot(req, res, req.query.space);
+    if (!root) return;
+    const rel = normRel(req.query.path || '');
+    if (rel === null || rel === '/') return fail(res, 400, 40001, '路径不合法');
+    const ext = (baseName(rel).split('.').pop() || '').toLowerCase();
+    if (!THUMB_IMG_EXTS.has(ext)) return fail(res, 400, 40030, '该格式不支持缩略图');
+    const abs = joinPath(root, rel);
+    const meta = await ol.fsGet(abs); // 存在性前置校验，顺带取 size/modified 作缓存键
+    if (!meta || meta.is_dir) return fail(res, 400, 40001, '路径不合法');
+    const size = meta.size || 0;
+    if (size > config.netdisk.thumbMaxMb * 1024 * 1024) {
+      const tk = typeof req.query.token === 'string' ? `&token=${encodeURIComponent(req.query.token)}` : '';
+      return res.redirect(`/api/v1/netdisk/download?space=${encodeURIComponent(req.query.space)}&path=${encodeURIComponent(rel)}&disposition=inline${tk}`);
+    }
+    const key = crypto.createHash('sha1').update(`${abs}|${size}|${meta.modified || ''}`).digest('hex');
+    const file = nodePath.join(config.netdisk.thumbDir, `${key}.webp`);
+    if (fs.existsSync(file)) return sendThumb(res, file);
+    if (!sharp) return fail(res, 503, 50301, '缩略图组件不可用');
+    await thumbAcquire();
+    try {
+      if (fs.existsSync(file)) return sendThumb(res, file); // 排队期间已有请求生成
+      const r = await ol.downloadStream(abs);
+      const chunks = [];
+      for await (const c of r.data) chunks.push(c);
+      const out = await sharp(Buffer.concat(chunks))
+        .rotate() // 手机照片按 EXIF 方向转正
+        .resize(384, 384, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 78 })
+        .toBuffer();
+      await fsp.mkdir(config.netdisk.thumbDir, { recursive: true });
+      const tmp = `${file}.${process.pid}.${Date.now()}.tmp`; // 原子写：tmp + rename 防并发读到半成品
+      await fsp.writeFile(tmp, out);
+      await fsp.rename(tmp, file);
+      return sendThumb(res, file);
+    } finally { thumbRelease(); }
   } catch (err) { return relayFail(res, err); }
 });
 

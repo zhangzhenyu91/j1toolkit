@@ -77,9 +77,10 @@ git tag release-v1.0.0 && git push origin release-v1.0.0   # Actions 构建多�
 
 服务器侧运行两种方式任选：
 
-**方式一（推荐）：docker compose**——仓库 `docker/` 目录为自包含部署包（`docker-compose.yml` + `.env.example`，**全仓唯一一份环境变量示例**，开发/部署共用），拷到服务器后：
+**方式一（推荐）：docker compose**——仓库 `docker/` 目录为自包含部署包（`docker-compose.yml` + `.env.example`，**全仓唯一一份环境变量示例**，开发/部署共用；compose 仅含服务端本身，配套容器 OpenList/ONLYOFFICE 由部署者自装并加入同一 `j1toolkit` 外部网络，见 开发指南.md 第十七/十八节），拷到服务器后：
 
 ```bash
+docker network create j1toolkit  # 首次：统一容器网络（配套容器同入此网络按容器名互通）
 cd docker
 cp .env.example .env   # 按实际填写：IMAGE（镜像完整地址含版本标签）、JWT_SECRET、MYSQL_* 等
 docker compose up -d   # 端口映射/数据卷（./data → /app/server/data）/重启策略均已配置
@@ -93,7 +94,7 @@ docker compose up -d   # 端口映射/数据卷（./data → /app/server/data）
 
 **本机开发（不用镜像）**：`cd server` → 首次 `npm install` 并 `cp ../docker/.env.example .env` 按实际填写 → `npm run dev`（`node --watch` 改代码自动重启），浏览器访问 `http://127.0.0.1:3000/login.html` 测页面；前提为本机可连 `.env` 所指的 MySQL/Redis。
 
-**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html`，管理员另有 `admin.html`（员工与权限管理）；另有 `client.html` 内网客户端取件页（内部应用，安装包从 CNB 制品库取件、不托管本站）。
+**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html` / `netdisk.html`（团队网盘；Office 文件可经 `office.html` 进 ONLYOFFICE 在线编辑，需自装编辑器容器，见 开发指南.md 第十八节），管理员另有 `admin.html`（员工与权限管理）；另有 `client.html` 内网客户端取件页（内部应用，安装包从 CNB 制品库取件、不托管本站）。
 
 **反向代理（1Panel/Nginx）**：用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，**一个端口同时服务网页与 API，无任何路径前缀配置**（旧 `PROXY_PREFIX` 机制已删除）；**SSE 流式对话必须**在反代配置补充：
 
@@ -136,8 +137,8 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `PREVIEW_VIEWER_URL` | 在线预览查看器地址（可选，默认微软官方 Office 查看器 `https://view.officeapps.live.com/op/view.aspx`；安全日记录/出工日志任务单/网盘 Office 文件在线预览共用，仅 Office 格式，回源要求本站公网可达） |
 | `GLKVM_URL` / `GLKVM_PASSWORD` | GLKVM Cloud 平台地址与员工平台账号统一密码（以员工同名账号代登平台取设备列表；详见 开发指南.md 第十二节） |
 | `DIFY_QUIZ_API_KEY` | 题库「题目解析」工作流的 Dify API Key（与出工日志/安全日工作流共用 `DIFY_API_URL`；inputs 固定 type/stem/options/answer 四变量，输出 analysis；未配置则解析留空，其余功能不受影响，见开发指南第十四节） |
-| `NETDISK_API_URL` / `NETDISK_USERNAME` / `NETDISK_PASSWORD` | 团队网盘 OpenList 中转：OpenList API 地址（compose 部署 `http://openlist:5244`，本机开发 `http://127.0.0.1:5244`）与专用服务账户（管理页创建：基本路径 /、读写权限、关离线下载）；另支持 `NETDISK_PUBLIC_ROOT`（公共区根，按班组分目录）/ `NETDISK_PERSONAL_ROOT` / `NETDISK_MAX_UPLOAD_MB`，未配置时网盘接口报「未配置」其余应用不受影响，见开发指南第十七节 |
-| `OPENLIST_IMAGE` | 团队网盘 OpenList 镜像（compose 环境变量，默认 `openlistteam/openlist:v4.2.4`，锁版本） |
+| `NETDISK_API_URL` / `NETDISK_USERNAME` / `NETDISK_PASSWORD` | 团队网盘 OpenList 中转：OpenList API 地址（OpenList 容器由部署者自装并加入 `j1toolkit` 外部网络，按容器名互通填 `http://openlist:5244`；本机开发 `http://127.0.0.1:5244`）与专用服务账户（管理页创建：基本路径 /、读写权限、关离线下载）；另支持 `NETDISK_PUBLIC_ROOT`（公共区根，按班组分目录）/ `NETDISK_PERSONAL_ROOT` / `NETDISK_MAX_UPLOAD_MB` / `NETDISK_THUMB_DIR`（图片缩略图缓存目录，默认 `./data/thumbs`）/ `NETDISK_THUMB_MAX_MB`（缩略图原图体积上限，默认 50），未配置时网盘接口报「未配置」其余应用不受影响，见开发指南第十七节 |
+| `OO_PUBLIC_URL` / `OO_JWT_SECRET` | ONLYOFFICE 在线编辑（网盘 Office 协同）：编辑器容器由部署者自装（参考 `docker/onlyoffice/README.md`，锁版本、入 `j1toolkit` 网络）；`OO_PUBLIC_URL` 为浏览器侧 HTTPS 地址（留空=停用，网盘维持微软查看器预览），`OO_JWT_SECRET` 与 OnlyOffice 容器 `JWT_SECRET` 同值；另支持 `OO_INTERNAL_URL` / `OO_CALLBACK_BASE` / `OO_FILE_TICKET_TTL` / `OO_CALLBACK_TICKET_TTL`，见开发指南第十八节 |
 | `SGCC_JWT_SECRET` / `SGCC_SM2_SERVER_PUB` / `SGCC_SM2_CLIENT_PRIV` | 商旅平台协议密钥（取自商旅 App 逆向分析，联系维护者获取；密钥即 App 内固定值，各环境通用） |
 | `SGCC_RSA_PUB` / `SGCC_RSA_PRIV` | 商旅 jsonx default 通道（打卡/详情/模板）：请求加密公钥 / 响应解密私钥 |
 | `SGCC_DCU_PUB` / `SGCC_WLA_PRIV` | 商旅 jsonx slapp 通道（费用保存必走）：请求加密公钥 / 响应解密私钥 |

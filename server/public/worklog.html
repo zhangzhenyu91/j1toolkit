@@ -2088,16 +2088,19 @@ function chipSelCids(box) {
   return $$('.chip.on[data-cid]', box).map(function (b) { return b.dataset.cid; });
 }
 
-/* PUT 全量替换口径（同小程序）：未出车时目的地/用车人/派车单号强制置空 */
+/* PUT 全量替换口径（同小程序）：未出车时目的地/用车人/派车单号强制置空；
+   orderNo 未传（undefined）时不提交 dispatch_order_no 键——后端口径「未提交保留库内现值」，
+   巡视内容/备注等局部编辑不带单号字段，避免误清已填派车单号 */
 function payloadOf(entry, patrol, vehicleId, destId, memberIds, orderNo) {
-  return {
+  var body = {
     log_date: entry ? entry.log_date : state.date,
     patrol_content: patrol || '',
     vehicle_id: vehicleId > 0 ? vehicleId : null,
     destination_id: vehicleId > 0 && destId > 0 ? destId : null,
-    dispatch_order_no: vehicleId > 0 ? String(orderNo || '').trim() : '',
     member_ids: vehicleId > 0 ? memberIds : []
   };
+  if (orderNo !== undefined) body.dispatch_order_no = vehicleId > 0 ? String(orderNo || '').trim() : '';
+  return body;
 }
 
 /* 保存后静默重拉当日数据（不闪骨架、不重播动画），并联动刷新大图层 */

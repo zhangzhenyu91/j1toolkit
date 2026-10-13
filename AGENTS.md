@@ -70,12 +70,12 @@
 - `miniprogram/` —— 微信小程序（原生 + tdesign-miniprogram）
 - `uvmp-toolkit/` —— 内网工具箱客户端（Electron+Vue 壳 + Python 核心，装在内网被控机；UI 与本体同套「政企蓝白」token；2026-10 自私有仓迁回，改动前先读其《内网工具箱开发指南.md》；与后端同版本线发版，见 `release.yml`）
 - `server/` —— 后端 Node.js 单端口整合服务（API + 托管网页端）
-- `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / safeday.html / kvm.html / quiz.html / netdisk.html 团队网盘 / share.html 网盘公开分享页（免登录，`#/s/<share_id>`）/ admin.html / sgcc-captcha.html 商旅顶象滑块接力页（小程序 web-view 承载，回传 captchaToken+constId 供绑定登录），公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`、`assets/md.js`（精简 Markdown 渲染器，通知中心与 Call Me 共用）；`kvm-device/` 为 KVM 设备一键接入安装包；内网客户端下载入口在登录页推广区（CNB 公开仓 Releases 最新 tag 实时拼接，见 `开发指南.md` 第十一节））
+- `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / safeday.html / kvm.html / quiz.html / netdisk.html 团队网盘 / office.html 网盘 Office 在线编辑承载页（ONLYOFFICE 对接壳） / share.html 网盘公开分享页（免登录，`#/s/<share_id>`）/ admin.html / sgcc-captcha.html 商旅顶象滑块接力页（小程序 web-view 承载，回传 captchaToken+constId 供绑定登录），公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`、`assets/md.js`（精简 Markdown 渲染器，通知中心与 Call Me 共用）；`kvm-device/` 为 KVM 设备一键接入安装包；内网客户端下载入口在登录页推广区（CNB 公开仓 Releases 最新 tag 实时拼接，见 `开发指南.md` 第十一节））
 - `private/` —— 私有配套仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private) 的 submodule 挂载点（`git submodule update --init` 拉取）：`private/esgcc/` 待开发应用素材与商旅打卡逆向分析仓 `sgcc/`（交接文档/API 报告/抓包/tools；`base.apk` 107MB 不入仓本地留存）、`private/WorkLogs/` 旧独立服务历史数据归档（代码已整合进主服务，仅存数据）、`private/_archive/` 公开仓历史归档
 - `design/` —— UI 设计稿：现行定稿「政企蓝白」（4 份基准稿 `小程序-首页.html` / `小程序-出工日志.html` / `Web-首页.html` / `Web-出工日志.html` + `设计规范.md` + `index.html` 展厅总览；应用设计稿 `小程序-团队网盘.html` / `Web-团队网盘.html`）；另存分享图生成工具链（`make_share_images.py` / `font/t.ttf` / `share-bg-preview.png`）；旧定稿已全部移除
 - `manual/` —— 面向最终用户的使用指南（当前不在仓内；历史版截图含真实班组信息，已随公开化清理归档至私有仓 `_archive/manual/`——日后重建指南时截图须脱敏）
 - 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）+ 镜像构建文件（Dockerfile / .dockerignore，GitHub Actions 发版产线用，仅打包 `server/`）
-- `docker/` —— docker compose 部署包（`docker-compose.yml` + `.env.example` 全仓唯一环境变量示例；自包含，拷到服务器 `cp .env.example .env` 填写后 `docker compose up -d`；本机开发复制为 `server/.env`）
+- `docker/` —— docker compose 部署包（`docker-compose.yml` + `.env.example` 全仓唯一环境变量示例；compose 仅含 Shade 服务端本身，统一入 `j1toolkit` 外部网络——OpenList/ONLYOFFICE 等配套容器由部署者自装并加入同名网络按容器名互通；自包含，拷到服务器 `cp .env.example .env` 填写后 `docker compose up -d`；本机开发复制为 `server/.env`；`onlyoffice/` 子目录为 ONLYOFFICE 自装对接说明与「Shade 壹匣」品牌替换素材，见 `docker/onlyoffice/README.md`）
 - `.kimi-code/mcp.json` —— Kimi Code 项目级 MCP 配置（tdesign-mcp-server 组件知识库，随仓库分发，换机后启动会话自动生效；`.kimi-code/` 其余内容为会话数据，不入仓）
 
 新应用接入 = 小程序分包页面 + 后端 `sys_app` 表配置（详见 `开发指南.md` 第五章；网页端页面接入见 `开发指南.md` 第十一节）。
