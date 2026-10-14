@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 在线编辑（ONLYOFFICE Docs 社区版承载页；网盘 Office 文件双击/右键「在线编辑」进入）
+<!-- Shade 壹匣 · 在线编辑（ONLYOFFICE Docs 社区版承载页；网盘 Office 文件双击/右键「在线编辑」新窗口打开）
      链路：Shade.api('/api/v1/office/config') 取签发配置（含 JWT）→ 动态加载 OO_PUBLIC_URL 的 api.js →
        DocsAPI.DocEditor 渲染；OnlyOffice 容器回源/回调 Shade 容器内网直走（j1toolkit 网络按容器名互通）；
        保存经回调写回网盘（customization.forcesave 即时落盘）
      外壳：统一 Shade.topbar 顶栏 + 极简副栏（返回网盘 / 文件名 / 只读标记），编辑区铺满剩余高度；
-       副栏返回与编辑器关闭按钮（events.onRequestClose）同口径回 /netdisk.html；
+       副栏返回与编辑器关闭按钮（events.onRequestClose）同口径优先关窗（新窗口打开时关窗即回原网盘标签），
+       直接访问/关窗失败兜底跳 /netdisk.html；
      品牌标识（编辑器 header/加载页/About 的 Shade 壹匣 素材）经容器卷挂载替换，素材与清单见 docker/onlyoffice/ -->
 <html lang="zh-CN">
 <head>
@@ -87,7 +88,11 @@
     $('#btnBack').innerHTML = Shade.icon('chevron-left', 14) + '返回网盘';
     $('#ooName').textContent = name;
 
-    function back() { location.href = '/netdisk.html'; }
+    // 新窗口打开场景（网盘 window.open 而来）关窗即回原网盘标签；直接访问/关窗被拦时兜底跳网盘页
+    function back() {
+      window.close();
+      if (!window.closed) location.href = '/netdisk.html';
+    }
     $('#btnBack').addEventListener('click', back);
 
     function failState(msg) {

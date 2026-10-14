@@ -7,7 +7,9 @@ const axios = require('axios');
 const config = require('../config');
 
 const TOKEN_TTL_MS = 47 * 3600 * 1000; // OpenList JWT 默认 48h，提前 1h 重登
+const LOGIN_FAIL_COOLDOWN_MS = 60 * 1000; // 登录失败冷却：凭证错误期间每请求重试会触发/刷新 OpenList 防爆破限流
 let cached = { token: '', at: 0 };
+let lastLoginFail = { at: 0, err: null };
 
 // 未配置服务账户时抛可读错误（路由层映射 50301）
 function ensureConfigured() {
@@ -22,18 +24,26 @@ function ensureConfigured() {
 
 async function login() {
   ensureConfigured();
-  const r = await axios.post(`${config.netdisk.apiUrl}/api/auth/login`, {
-    username: config.netdisk.username,
-    password: config.netdisk.password,
-  }, { timeout: 15000 });
-  const body = r.data || {};
-  if (body.code !== 200 || !body.data || !body.data.token) {
-    const err = new Error(`OpenList 登录失败：${body.message || `HTTP ${r.status}`}`);
-    err.expose = true;
+  // 冷却窗内直接抛上次错误（保留原可读文案），不再向上游打错误凭证
+  if (lastLoginFail.err && Date.now() - lastLoginFail.at < LOGIN_FAIL_COOLDOWN_MS) throw lastLoginFail.err;
+  try {
+    const r = await axios.post(`${config.netdisk.apiUrl}/api/auth/login`, {
+      username: config.netdisk.username,
+      password: config.netdisk.password,
+    }, { timeout: 15000 });
+    const body = r.data || {};
+    if (body.code !== 200 || !body.data || !body.data.token) {
+      const err = new Error(`OpenList 登录失败：${body.message || `HTTP ${r.status}`}`);
+      err.expose = true;
+      throw err;
+    }
+    cached = { token: body.data.token, at: Date.now() };
+    lastLoginFail = { at: 0, err: null };
+    return cached.token;
+  } catch (err) {
+    lastLoginFail = { at: Date.now(), err };
     throw err;
   }
-  cached = { token: body.data.token, at: Date.now() };
-  return cached.token;
 }
 
 async function token(force = false) {

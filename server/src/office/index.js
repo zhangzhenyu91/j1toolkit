@@ -115,19 +115,30 @@ router.post('/config', auth, requireApp('netdisk'), async (req, res) => {
 
 // 保存回调（免登录：OnlyOffice 容器回调。双校验——OO JWT 载体的回调体 + 本服务回调票据绑定单文件）
 router.post('/callback/:ticket', async (req, res) => {
-  // OnlyOffice 回调整体以 JWT 签名置于 Authorization: Bearer（验签通过的 payload 即回调体）
+  // OnlyOffice 回调 JWT 两个携带位都认：Authorization: Bearer 头（默认口径）+ body.token
+  // （OO 容器 JWT_IN_BODY=true 时签名只随 body 携带，v10 实测行为，2026-10-14 定位）
   let body = null;
+  let verifyErr = null;
   const h = req.headers.authorization || '';
   if (config.office.jwtSecret && h.startsWith('Bearer ')) {
-    try { body = jwt.verify(h.slice(7), config.office.jwtSecret); } catch (err) { /* 落下方统一拒绝 */ }
+    try { body = jwt.verify(h.slice(7), config.office.jwtSecret); } catch (err) { verifyErr = err; }
+  }
+  if (!body && config.office.jwtSecret && req.body && typeof req.body.token === 'string') {
+    try { body = jwt.verify(String(req.body.token), config.office.jwtSecret); } catch (err) { verifyErr = err; }
   }
   if (!body || typeof body.status !== 'number') {
+    const hasBodyToken = !!(req.body && typeof req.body.token === 'string');
+    const why = !h && !hasBodyToken ? '无 Authorization 头且 body 无 token'
+      : h && !h.startsWith('Bearer ') ? `头格式非 Bearer：${h.slice(0, 12)}…`
+        : `验签异常：${verifyErr && verifyErr.message}`;
+    console.error(`[OO] 回调 JWT 校验失败（${why}）；查 OO 容器 JWT_ENABLED/JWT_SECRET 与 Shade 的 OO_JWT_SECRET 是否同值`);
     return res.status(401).json({ error: 1, message: '回调签名校验失败' });
   }
   let ticket = null;
   try { ticket = jwt.verify(String(req.params.ticket || ''), config.jwt.secret); } catch (err) { /* 同上 */ }
   const abs = ticket && ticket.ooc;
   if (typeof abs !== 'string' || !abs.startsWith('/')) {
+    console.error('[OO] 回调票据无效或已过期（会话超 OO_CALLBACK_TICKET_TTL，或服务重启后密钥变更）');
     return res.status(401).json({ error: 1, message: '回调票据无效或已过期' });
   }
   const st = body.status;

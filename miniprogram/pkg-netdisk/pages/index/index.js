@@ -9,6 +9,8 @@
 // 预览：图片/视频 wx.previewMedia（inline 直链 + ?token= 鉴权，同目录媒体合集滑动；openDocument 不支持媒体）；
 //   其余类型一律 wx.downloadFile（filePath 指定真名）→ wx.openDocument 打开（2026-10-09 起统一）
 // 权限：公共区 manageable=false 时操作面板隐藏重命名/删除（上传/新建文件夹全员可用）
+// 位置记忆：成功加载目录即存 {space,path}（storage nd_last_loc），下次进页恢复
+//   （空间不再下发回默认空间、失效路径首载兜底回根目录）；Web 端 netdisk.html 同键同口径
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
@@ -168,7 +170,8 @@ Page({
   /* ==================== 空间 / 目录 ==================== */
 
   // 空间配置（分段显隐与单文件上限）→ 面包屑 → 首屏列表
-  // 公共区按班组隔离：未分配班组时 spaces 只有 my（隐藏分段）；有公共区时默认选中公共区
+  // 公共区按班组隔离：未分配班组时 spaces 只有 my（隐藏分段）；默认选中公共区，
+  // 但有浏览位置记忆且上次空间仍下发时连路径恢复（失效路径由 loadList 首载兜底回根目录）
   async loadSpaces() {
     try {
       const data = await request({ url: `${API}/spaces` });
@@ -180,11 +183,14 @@ Page({
         ...s,
         label: s.key === 'public' && s.team ? `${s.name} · ${s.team}` : s.name,
       }));
+      const loc = this.restoreLoc();
+      const locOk = loc && raw.some((s) => s.key === loc.space);
       this.setData({
         spaces,
         hasPublic,
         publicTeam: (pub && pub.team) || '',
-        space: hasPublic ? 'public' : 'my',
+        space: locOk ? loc.space : (hasPublic ? 'public' : 'my'),
+        path: locOk ? loc.path : '/',
         maxUploadMb: (data && data.max_upload_mb) || 0,
       });
       this._maxBytes = this.data.maxUploadMb * 1024 * 1024;
@@ -194,6 +200,17 @@ Page({
     }
     this.buildCrumbs();
     this.loadList('init');
+  },
+
+  // 浏览位置记忆：读 storage 的上次浏览位置（{space,path}；坏数据/非法路径返回 null）
+  restoreLoc() {
+    try {
+      const loc = wx.getStorageSync('nd_last_loc');
+      if (loc && (loc.space === 'my' || loc.space === 'public')
+        && typeof loc.path === 'string' && loc.path.startsWith('/')
+        && !loc.path.includes('..') && !loc.path.includes('\\') && loc.path.length <= 500) return loc;
+    } catch (e) { /* 读取失败按无记忆 */ }
+    return null;
   },
 
   // 面包屑：空间名 / 各级路径（父级可点，末级当前加粗）
@@ -243,7 +260,15 @@ Page({
         loading: false,
         error: '',
       });
+      // 浏览位置记忆：成功加载目录即落盘（仅浏览态经本函数，搜索态不落盘）
+      try { wx.setStorageSync('nd_last_loc', { space: this.data.space, path: this.data.path }); } catch (e) { /* 写失败忽略 */ }
     } catch (err) {
+      // 恢复的上次路径已失效（目录被删等）：退回空间根目录重载一次（仅首载兜底，不循环）
+      if (mode === 'init' && !this._loaded && this.data.path !== '/') {
+        this.setData({ path: '/', items: [] });
+        this.buildCrumbs();
+        return this.loadList('init');
+      }
       // 首屏失败给错误重试态；已有内容时静默失败仅提示
       if (mode === 'init' && !this._loaded) this.setData({ loading: false, error: err.message || '列表加载失败' });
       else this.toast(err.message);

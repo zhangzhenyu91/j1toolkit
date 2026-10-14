@@ -7,7 +7,7 @@
        公共区 manageable=false 隐藏重命名与删除）；双击文件夹进入、文件预览（图片走网页内全屏查看器 openViewer
        ←→ 循环/滚轮缩放/拖拽平移/单击切换原图，视频内联 Lightbox、
        PDF 新标签 inline、其余直接下载）；Office 格式（doc/xls/ppt 族）：已配置 ONLYOFFICE（/api/v1/office/status
-       下发 enabled）时双击/右键「在线编辑」进 office.html 承载页（协同编辑，保存回调写回网盘，见 开发指南.md
+       下发 enabled）时双击/右键「在线编辑」新窗口开 office.html 承载页（协同编辑，保存回调写回网盘，见 开发指南.md
        第十八节）；未配置则维持微软查看器——preview/sign 取短时效票据（600s）→ 免登录回源 URL →
        微软官方查看器 view.officeapps.live.com 新标签打开（文件经票据公开回源，仅 Office 格式；
        本地 127.0.0.1 预览微软够不到属正常）；选中操作在顶部工具条
@@ -15,7 +15,8 @@
        同步 .gone 零宽隐藏——选中下无意义，本行只剩 分段+操作组，常规宽度不溢出无横向滚动条；
        tb-right position:sticky right:0 钉住右缘，极窄屏横滚兜底且按钮始终可达；
        manageable=false 隐藏移动与删除、纯文件夹选择隐藏下载）；底部状态栏纯统计；
-     空间口径：默认公共区（spaces 下发为准）；公共区按班组隔离——spaces 的 public 项带 team（分段显示
+     空间口径：默认公共区（spaces 下发为准）；浏览位置记忆——成功加载目录即落盘 localStorage
+       nd_last_loc（{space,path}），进页恢复，空间不可用回默认空间、路径失效回根目录；公共区按班组隔离——spaces 的 public 项带 team（分段显示
        「公共区 · 班组名」）；未分配班组不下发 public（分段隐藏、仅用我的空间，不再整页拦截）；
        目标位置选择弹窗的空间分段同口径按 spaces 显隐；面包屑根保持空间名；
      上传：多文件选择 + 文件夹上传（仅 Web 端：工具条「上传文件夹」webkitdirectory 选择 / 网格区拖入目录，
@@ -727,19 +728,38 @@
     Shade.api('/api/v1/office/status').then(function (r) {
       S.officeEnabled = !!(r && r.data && r.data.enabled);
     }).catch(function () { /* 探测失败按未启用，Office 维持微软查看器 */ });
-    loadSpaces().then(function () { return loadList(); }).catch(function (e) {
+    restoreLoc(); // 恢复上次浏览位置（空间不可用由 loadSpaces 兜底，路径失效由首载失败兜底回根目录）
+    loadSpaces().then(function () { return loadList(); }).then(function (okFlag) {
+      if (okFlag === false && S.path !== '/') { S.path = '/'; loadList(); }
+    }).catch(function (e) {
       Shade.toast(e.message || '初始化失败', 'error');
       setGridState('error', e.message);
     });
   }
 
   /* ================= 空间与目录加载 ================= */
+  // 浏览位置记忆：成功加载目录即落盘 {space,path}，下次进网盘恢复
+  var LOC_KEY = 'nd_last_loc';
+  function saveLoc() {
+    try { localStorage.setItem(LOC_KEY, JSON.stringify({ space: S.space, path: S.path })); } catch (e) { /* 私密模式等写失败忽略 */ }
+  }
+  function restoreLoc() {
+    try {
+      var loc = JSON.parse(localStorage.getItem(LOC_KEY) || 'null');
+      if (loc && (loc.space === 'my' || loc.space === 'public')
+        && typeof loc.path === 'string' && loc.path.charAt(0) === '/'
+        && loc.path.indexOf('..') < 0 && loc.path.indexOf('\\') < 0 && loc.path.length <= 500) {
+        S.space = loc.space; S.path = loc.path;
+      }
+    } catch (e) { /* 坏数据忽略 */ }
+  }
   function loadSpaces() {
     return nd('/spaces').then(function (d) {
       S.maxMb = d.max_upload_mb || 0;
       (d.spaces || []).forEach(function (sp) { S.spaces[sp.key] = sp; });
-      // 未分配班组时后端不下发 public：退回我的空间（默认公共区的口径仅在 public 存在时生效）
-      if (!S.spaces[S.space]) S.space = S.spaces.public ? 'public' : 'my';
+      // 未分配班组时后端不下发 public：退回我的空间（默认公共区的口径仅在 public 存在时生效）；
+      // 恢复的记忆空间已不可用时连同路径一起复位
+      if (!S.spaces[S.space]) { S.space = S.spaces.public ? 'public' : 'my'; S.path = '/'; }
       renderSeg();
     });
   }
@@ -755,8 +775,10 @@
       S.manageable = !!d.manageable;
       S.items = sortItems(d.items || []).map(function (it) { it._rel = joinRel(S.path, it.name); return it; });
       S.search = null;
+      saveLoc(); // 浏览位置记忆（仅浏览态经本函数，搜索态不落盘）
       renderAll(!silent); // 目录/空间切换：格子编排式入场；silent=原地静默刷新（上传完成回写）
-    }).catch(function (e) { setGridState('error', e.message); });
+      return true;
+    }).catch(function (e) { setGridState('error', e.message); return false; });
   }
   function navTo(path) { S.path = path; loadList(); }
   function switchSpace(k) {
@@ -1115,10 +1137,11 @@
     if (isArchive(it.name)) return openArchive(it); // 压缩包双击进预览弹窗
     downloadItems([it]);
   }
-  // ONLYOFFICE 在线编辑：跳承载页 office.html（space/path 经 query 传递）
+  // ONLYOFFICE 在线编辑：新窗口开承载页 office.html（space/path 经 query 传递；
+  // 同步调用自双击/右键手势不触发弹窗拦截；网盘页保持不动便于对照与返回）
   function openOfficeEdit(it) {
-    location.href = '/office.html?space=' + encodeURIComponent(S.space)
-      + '&path=' + encodeURIComponent(it._rel);
+    window.open('/office.html?space=' + encodeURIComponent(S.space)
+      + '&path=' + encodeURIComponent(it._rel), '_blank');
   }
   // Office 在线预览：preview/sign 取短时效票据 → 免登录回源 URL → 微软查看器新标签打开；
   // window.open 同步调用防浏览器弹窗拦截，签名失败关掉空标签
