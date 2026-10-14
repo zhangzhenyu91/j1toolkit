@@ -8,7 +8,7 @@
        ←→ 循环/滚轮缩放/拖拽平移/单击切换原图，视频内联 Lightbox、
        PDF 双击维持新标签 inline 直读（右键另给 OO 编辑/预览）、其余直接下载）；Office 与文档格式（OO 白名单，
        与后端 office/index.js 同口径）：已配置 ONLYOFFICE（/api/v1/office/status 下发 enabled）时全部走 OO——
-       可编辑格式双击弹「仅预览/协同编辑」选择、仅预览格式双击直进预览，均新窗口开 office.html 承载页
+       可编辑格式双击弹「仅预览/协同编辑」选择、仅预览格式双击直进预览，均当前窗口开 office.html 承载页
        （协同编辑保存回调写回网盘，见 开发指南.md 第十八节）；未配置则 doc/xls/ppt 六格式维持微软查看器——
        preview/sign 取短时效票据（600s）→ 免登录回源 URL →
        微软官方查看器 view.officeapps.live.com 新标签打开（文件经票据公开回源；
@@ -1149,12 +1149,12 @@
     if (isArchive(it.name)) return openArchive(it); // 压缩包双击进预览弹窗
     downloadItems([it]);
   }
-  // ONLYOFFICE 承载页 office.html 新窗口打开（space/path/mode 经 query 传递；
-  // 同步调用自双击/右键/弹层按钮手势不触发弹窗拦截；网盘页保持不动便于对照与返回）
+  // ONLYOFFICE 承载页 office.html 当前窗口打开（space/path/mode 经 query 传递；
+  // 返回经 OO 右上角「关闭文件」按钮回网盘页，浏览器后退兜底）
   function openOfficePage(it, mode) {
-    window.open('/office.html?space=' + encodeURIComponent(S.space)
+    location.href = '/office.html?space=' + encodeURIComponent(S.space)
       + '&path=' + encodeURIComponent(it._rel)
-      + (mode === 'view' ? '&mode=view' : ''), '_blank');
+      + (mode === 'view' ? '&mode=view' : '');
   }
   function openOfficeEdit(it) { openOfficePage(it, 'edit'); }
   function openOfficeView(it) { openOfficePage(it, 'view'); }

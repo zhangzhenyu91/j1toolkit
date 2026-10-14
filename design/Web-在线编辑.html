@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  政企蓝白 Enterprise Blue —— Web 在线编辑/预览承载页优化设计稿 v3（待审）
+  ----------------------------------------------------------------------------
+  针对现状痛点： Shade 全局顶栏(60px) + 副栏(44px) + 底部备案条挤占可视面积；
+  副栏文件名与 OO 标题重复。
+  设计要点（v3 按审阅意见：Shade 外壳全砍 + OO 工具带维持原生完整两行）：
+    1. 不设任何 Shade 外壳元素——无全局顶栏、无「返回网盘」副栏、无底部备案条
+       （office.html 不调 Shade.topbar、body 加 data-beian="off" 跳过备案页脚注入）；
+       整页 = 纯 ONLYOFFICE 编辑器，100vh 铺满；
+    2. 返回入口 = OO 右上角「关闭文件」✕（customization.close + events.onRequestClose
+       → location.href='/netdisk.html'），加浏览器后退键兜底；
+       撤回新窗口打开，回到当前窗口（location.href）；
+    3. OO 工具带维持原生完整两行（页首页签 + 全量 ribbon），不启用紧凑模式——
+       格式化工具全量可见，符合班组编辑习惯（v2 紧凑化经评审撤回）；
+    4. 默认关闭拼写检查（customization.features.spellcheck=false，用户可自行开启）；
+       界面语言 lang=zh-CN、区域 region=zh-CN（现状沿用）；
+       注：状态栏「文档语言」取自文件自身样式（该 docx 为 en-US 即显示英文），
+       OO 无「默认文档语言」集成开关，治本需在文档生成端把默认样式语言设为中文；
+    5. view 模式（仅预览）同壳：OO 自带只读置灰，Shade 侧零差异。
+  落地注意事项：
+    - 对应 server/public/office.html（外壳全砍）+ server/src/office/index.js
+      （docCfg.customization 全部在服务端签发——config 整本 JWT 签名，前端不可改）；
+    - customization 生效项：close/forcesave/unit + features.spellcheck（社区版可用项）；
+    - 单文件静态稿，零外部资源引用，可离线直接预览；右下角「设计说明」浮层列改动清单。
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>政企蓝白 · Web 在线编辑承载页优化 v3 — Shade 壹匣</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#0E3DA8; --navy:#0A3592; --blue-bg:#E8F0FF;
+    --green:#00B42A; --green-bg:#E8FFEA;
+    --orange:#FF7D00; --orange-bg:#FFF7E8;
+    --red:#F53F3F; --red-bg:#FFECE8;
+    --bg:#F5F7FA; --card:#FFFFFF; --fill:#F7F8FA;
+    --text:#1D2129; --t2:#4E5969; --t3:#86909C; --line:#E5E6EB;
+    --shadow:0 2px 8px rgba(0,0,0,.04);
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  body {
+    background:#F5F7FA;
+    font-family:"Helvetica Neue",Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text); padding:56px 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== 页首标注区 ===== */
+  .page-head { text-align:center; margin-bottom:40px; }
+  .page-head .kicker { font-size:11px; font-weight:700; letter-spacing:4px; color:var(--t3); }
+  .page-head h1 { margin-top:10px; font-size:32px; font-weight:700; letter-spacing:1px; }
+  .page-head h1 em { font-style:normal; color:var(--blue); }
+  .page-head > p { margin-top:12px; font-size:13px; color:var(--t2); }
+  .metrics { margin-top:18px; display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .metrics .m { display:inline-flex; align-items:baseline; gap:7px; background:#fff;
+                border:1px solid var(--line); border-radius:999px; padding:7px 15px;
+                font-size:12px; color:var(--t2); }
+  .metrics .m b { font-size:16px; font-weight:700; color:var(--blue); font-variant-numeric:tabular-nums; }
+  .metrics .m s { color:var(--t3); font-size:12px; font-variant-numeric:tabular-nums; text-decoration-color:var(--red); }
+  .mode-toggle { margin-top:20px; display:inline-flex; height:34px; padding:2px; background:#E5E6EB; border-radius:8px; }
+  .mode-toggle span { display:flex; align-items:center; padding:0 18px; border-radius:6px;
+                      font-size:12.5px; color:var(--t2); cursor:pointer; transition:all .18s var(--ease); }
+  .mode-toggle span.on { background:#fff; color:var(--blue); font-weight:600; box-shadow:var(--shadow); }
+
+  /* ===== 浏览器窗口框 ===== */
+  .stage { display:flex; flex-direction:column; align-items:center; }
+  .cap { font-size:13px; font-weight:600; letter-spacing:2px; color:var(--t2);
+         display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+  .cap i { width:8px; height:8px; border-radius:2px; background:var(--blue); }
+  .browser {
+    position:relative; width:min(1280px,97vw); background:var(--bg);
+    border:1px solid var(--line); border-radius:12px; overflow:hidden;
+    box-shadow:0 24px 56px rgba(29,33,41,.12), 0 6px 16px rgba(29,33,41,.06);
+    animation:rise .6s var(--ease) both;
+  }
+  .browser-bar { height:44px; background:#fff; border-bottom:1px solid var(--line);
+                 display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .bd { width:11px; height:11px; border-radius:50%; background:#C9CDD4; }
+  .url { flex:1; max-width:460px; margin:0 auto; height:26px; border-radius:6px;
+         background:var(--fill); display:flex; align-items:center; justify-content:center;
+         font-size:12px; color:var(--t3); }
+  @keyframes rise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+
+  /* ===== OO 原生页首（40px：logo + 页签 fill 式 + 右侧动作 + ✕ 关闭文件=返回网盘） ===== */
+  .oo-head {
+    height:40px; background:#fff; border-bottom:1px solid var(--line);
+    display:flex; align-items:stretch; padding:0 10px; gap:2px;
+  }
+  .oo-logo { display:flex; align-items:center; gap:7px; padding:0 10px 0 4px; }
+  .oo-logo .mk { width:24px; height:24px; border-radius:6px; background:var(--blue);
+                 color:#fff; display:flex; align-items:center; justify-content:center;
+                 font-size:11px; font-weight:700; }
+  .oo-logo b { font-size:11.5px; font-weight:700; color:var(--t2); letter-spacing:.5px; }
+  .oo-tab { display:flex; align-items:center; padding:0 12px; font-size:12px; color:var(--t2);
+            cursor:pointer; border-radius:6px 6px 0 0; }
+  .oo-tab:hover { color:var(--text); }
+  .oo-tab.on { color:var(--blue); font-weight:600; background:var(--fill);
+               box-shadow:inset 0 -2px 0 var(--blue); }
+  .oo-hacts { margin-left:auto; display:flex; align-items:center; gap:6px; }
+  .oo-avatar { width:24px; height:24px; border-radius:50%; background:var(--navy); color:#fff;
+               display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; }
+  .oo-close { width:30px; height:30px; border-radius:6px; display:flex; align-items:center;
+              justify-content:center; color:var(--t2); cursor:pointer; }
+  .oo-close:hover { background:var(--blue-bg); color:var(--blue); }
+  .oo-close svg { width:14px; height:14px; }
+
+  /* ===== OO 原生完整工具带（ribbon，≈92px，分组 + 组标签） ===== */
+  .oo-ribbon {
+    background:#fff; border-bottom:1px solid var(--line);
+    display:flex; align-items:stretch; padding:6px 12px 4px; gap:4px; overflow:hidden;
+  }
+  .oo-grp { display:flex; flex-direction:column; }
+  .oo-grp .tools { flex:1; display:flex; align-items:center; gap:2px; }
+  .oo-grp .glab { text-align:center; font-size:10px; color:var(--t3); padding-top:3px; }
+  .oo-sep { width:1px; background:var(--line); margin:6px 8px 4px; flex:none; }
+  .oo-t { min-width:26px; height:26px; padding:0 5px; border-radius:5px; display:flex;
+          align-items:center; justify-content:center; font-size:12px; color:var(--t2);
+          cursor:pointer; font-weight:600; }
+  .oo-t:hover { background:var(--fill); }
+  .oo-t.dim { color:#C9CDD4; cursor:default; }
+  .oo-t.dim:hover { background:transparent; }
+  .oo-t.fontbox { min-width:88px; border:1px solid var(--line); font-weight:400; font-size:11.5px;
+                  justify-content:space-between; padding:0 6px; gap:6px; }
+  .oo-t .tri { font-size:8px; color:var(--t3); }
+  .oo-style { border:1px solid var(--line); border-radius:4px; padding:3px 10px; font-size:12px;
+              color:var(--t2); cursor:pointer; }
+  .oo-style:hover { border-color:#B9CCF5; }
+  .oo-style.on { border-color:var(--blue); color:var(--blue); font-weight:600; }
+  .oo-style b { font-size:14px; font-weight:700; }
+
+  /* ===== 标尺 ===== */
+  .oo-ruler { height:20px; background:#fff; border-bottom:1px solid var(--line);
+              display:flex; align-items:center; padding:0 0 0 44px; gap:38px; overflow:hidden; }
+  .oo-ruler i { width:1px; height:6px; background:#C9CDD4; flex:none; }
+  .oo-ruler i:nth-child(5n) { height:10px; }
+
+  /* ===== 文档区 ===== */
+  .oo-body { display:flex; min-height:520px; }
+  .oo-side { flex:none; width:36px; background:#fff; border-right:1px solid var(--line);
+             display:flex; flex-direction:column; align-items:center; padding-top:12px; gap:14px; }
+  .oo-side i { width:16px; height:16px; border-radius:4px; background:var(--fill); border:1px solid var(--line); }
+  .oo-side i.on { background:var(--blue-bg); border-color:#B9CCF5; }
+  .oo-canvas { flex:1; background:var(--bg); padding:24px 24px 30px; overflow:hidden; }
+  .page {
+    width:min(760px,92%); margin:0 auto; background:#fff; min-height:560px;
+    box-shadow:0 1px 3px rgba(29,33,41,.08), 0 10px 30px rgba(29,33,41,.06);
+    padding:48px 58px; font-family:SimSun,"Songti SC",serif; color:#000;
+  }
+  .page h3 { text-align:center; font-size:22px; font-weight:700; margin-bottom:20px;
+             font-family:SimSun,"Songti SC",serif; }
+  .tb { width:100%; border-collapse:collapse; font-size:13.5px; }
+  .tb td { border:1px solid #000; padding:6px 10px; line-height:1.65; vertical-align:top; }
+  .tb .lb { font-weight:700; white-space:nowrap; }
+  .tb .half { width:50%; }
+  .page p.body { font-size:13.5px; line-height:1.9; text-indent:2em; margin-top:12px; text-align:justify; }
+
+  /* ===== 底部状态栏（OO 自带，26px，直接沉底，其下再无备案条） ===== */
+  .oo-status {
+    height:26px; background:#fff; border-top:1px solid var(--line);
+    display:flex; align-items:center; padding:0 12px; gap:16px;
+    font-size:11px; color:var(--t3); font-variant-numeric:tabular-nums;
+  }
+  .oo-status .sp { flex:1; }
+  .oo-status b { color:var(--t2); font-weight:600; }
+
+  /* ===== 设计说明浮层 ===== */
+  .notes-fab {
+    position:fixed; right:22px; bottom:22px; z-index:50;
+    display:inline-flex; align-items:center; gap:7px;
+    background:var(--blue); color:#fff; border:none; border-radius:999px;
+    padding:10px 18px; font-size:12.5px; font-weight:600; cursor:pointer;
+    box-shadow:0 8px 20px rgba(14,61,168,.3); font-family:inherit;
+  }
+  .notes-mask { position:fixed; inset:0; z-index:60; background:rgba(29,33,41,.32);
+                display:none; align-items:center; justify-content:center; padding:24px; }
+  .notes-mask.open { display:flex; }
+  .notes-card { width:min(620px,94vw); max-height:82vh; overflow:auto; background:#fff;
+                border-radius:12px; box-shadow:0 24px 64px rgba(0,0,0,.18); padding:26px 30px; }
+  .notes-card h3 { font-size:17px; font-weight:700; margin-bottom:4px; }
+  .notes-card .sub { font-size:12px; color:var(--t3); margin-bottom:16px; }
+  .notes-card ol { margin-left:20px; display:flex; flex-direction:column; gap:12px; }
+  .notes-card li { font-size:13px; line-height:1.9; color:var(--t2); }
+  .notes-card li b { color:var(--text); }
+  .notes-card code { background:var(--fill); border:1px solid var(--line); border-radius:4px;
+                     padding:1px 6px; font-size:11.5px; color:var(--blue); }
+  .notes-close { margin-top:20px; width:100%; height:38px; border:none; border-radius:8px;
+                 background:var(--blue); color:#fff; font-size:13.5px; font-weight:600;
+                 cursor:pointer; font-family:inherit; }
+
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="kicker">SHADE 壹匣 · ENTERPRISE BLUE</div>
+  <h1>在线编辑承载页 <em>纯 OO 满铺</em> 设计稿 v3</h1>
+  <p>Shade 外壳全砍（无顶栏/副栏/备案条）· 当前窗口打开 · OO 原生完整工具带 · 默认关拼写检查</p>
+  <div class="metrics">
+    <span class="m">顶部占用 <s>≈240px（Shade 2 行 + OO 2 行）</s> → <b>≈136px（仅 OO 原生 2 行）</b></span>
+    <span class="m">底部 <s>备案条 44px</s> → <b>0（OO 沉底）</b></span>
+  </div>
+  <div class="mode-toggle" id="modeToggle">
+    <span class="on" data-m="edit">协同编辑</span><span data-m="view">仅预览（只读）</span>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="cap"><i></i>office.html · 承载页（v3 提案：纯 ONLYOFFICE 满铺，OO 工具带维持原生）</div>
+  <div class="browser">
+    <div class="browser-bar">
+      <span class="bd"></span><span class="bd"></span><span class="bd"></span>
+      <div class="url">toolkit.j1net.com/office.html?space=public&amp;path=…/2026.08.28.docx</div>
+    </div>
+
+    <!-- OO 原生页首（页签 fill 式；右端 ✕ = OO「关闭文件」按钮，点击回网盘页） -->
+    <div class="oo-head">
+      <div class="oo-logo"><span class="mk">壹</span><b>ONLYOFFICE</b></div>
+      <div class="oo-tab" style="padding-left:8px">文件</div>
+      <div class="oo-tab on">开始</div>
+      <div class="oo-tab">插入</div>
+      <div class="oo-tab">绘图</div>
+      <div class="oo-tab">布局</div>
+      <div class="oo-tab">引用</div>
+      <div class="oo-tab">协作</div>
+      <div class="oo-tab">保护</div>
+      <div class="oo-tab">视图</div>
+      <div class="oo-hacts">
+        <div class="oo-t" title="搜索">⌕</div>
+        <div class="oo-avatar">张</div>
+        <div class="oo-close" title="关闭文件（返回网盘）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- OO 原生完整工具带（不启用紧凑模式） -->
+    <div class="oo-ribbon" id="ooTools">
+      <div class="oo-grp">
+        <div class="tools">
+          <div class="oo-t" title="保存">💾</div>
+          <div class="oo-t dim" title="撤销">↶</div>
+          <div class="oo-t dim" title="重做">↷</div>
+        </div>
+        <div class="glab">操作</div>
+      </div>
+      <div class="oo-sep"></div>
+      <div class="oo-grp">
+        <div class="tools">
+          <div class="oo-t fontbox">宋体 <span class="tri">▾</span></div>
+          <div class="oo-t fontbox" style="min-width:46px">20 <span class="tri">▾</span></div>
+          <div class="oo-t">B</div><div class="oo-t" style="font-style:italic">I</div>
+          <div class="oo-t" style="text-decoration:underline">U</div><div class="oo-t">S</div>
+          <div class="oo-t" style="color:var(--blue)">A▾</div>
+        </div>
+        <div class="glab">字体</div>
+      </div>
+      <div class="oo-sep"></div>
+      <div class="oo-grp">
+        <div class="tools">
+          <div class="oo-t">≡</div><div class="oo-t">☰</div><div class="oo-t">≣</div>
+          <div class="oo-t">⋮≡</div><div class="oo-t">⁝</div>
+        </div>
+        <div class="glab">段落</div>
+      </div>
+      <div class="oo-sep"></div>
+      <div class="oo-grp">
+        <div class="tools">
+          <div class="oo-style">正文</div>
+          <div class="oo-style on"><b>标题</b> 1</div>
+          <div class="oo-style">标题 2</div>
+          <div class="oo-style">正文格式</div>
+        </div>
+        <div class="glab">样式</div>
+      </div>
+    </div>
+
+    <!-- 标尺 -->
+    <div class="oo-ruler">
+      <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </div>
+
+    <!-- 文档区 -->
+    <div class="oo-body">
+      <div class="oo-side"><i class="on"></i><i></i><i></i><i></i></div>
+      <div class="oo-canvas">
+        <div class="page">
+          <h3>安全日活动</h3>
+          <table class="tb">
+            <tr><td colspan="2"><span class="lb">活动主题：</span>输电运检中心输电检修一班学习《智刚同志组织召开公司安全生产委员会2026年专题会议（会议纪要〔2026〕69号）》</td></tr>
+            <tr><td class="half"><span class="lb">活动时间：</span>2026.08.28</td><td class="half"><span class="lb">主持人：</span>赵登</td></tr>
+            <tr><td><span class="lb">活动班组：</span>输电检修一班</td><td><span class="lb">上级参加人员：</span>任晓辉</td></tr>
+            <tr><td colspan="2"><span class="lb">本班组参加人员：</span>赵登　郑海楠　曹万鑫　薛忠亮　高麒涵　张振宇</td></tr>
+            <tr><td colspan="2"><span class="lb">活动内容：</span>
+              <p class="body">国网会议纪要（69），2026年8月19日。智刚同志组织召开公司安全生产委员会2026年专题会议。</p>
+              <p class="body">2026年8月12日，公司董事长、党组书记张智刚同志组织召开公司安全生产委员会2026年专题会议，领导班子成员，公司有关助理、总师、副总师，驻公司纪检监察组，各部门、机构主要负责同志参加会议。会议深入学习贯彻习近平总书记关于安全生产的重要指示批示精神……</p>
+            </td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- OO 底部状态栏直接沉底（拼写检查已关：无红色波浪线；其下无备案条） -->
+    <div class="oo-status">
+      <span>第 <b>1</b> 页共 <b>6</b> 页</span>
+      <span>字数统计</span>
+      <span>所有更改已保存</span>
+      <span class="sp"></span>
+      <span id="langTag">中文（中国）</span>
+      <span>缩放 <b>100%</b></span>
+    </div>
+  </div>
+</div>
+
+<button class="notes-fab" id="notesFab" type="button">📋 设计说明</button>
+<div class="notes-mask" id="notesMask">
+  <div class="notes-card">
+    <h3>改动清单 v3（待审）</h3>
+    <div class="sub">确认后按此实施；涉及 office.html 外壳 + office/index.js 签发配置 + netdisk.html 打开方式</div>
+    <ol>
+      <li><b>Shade 外壳全砍</b>：office.html 不再调 <code>Shade.topbar</code>（全局顶栏移除）、删除「返回网盘 + 文件名」副栏（与 OO 标题重复）、<code>&lt;body data-beian="off"&gt;</code> 跳过备案页脚注入——整页纯 OO 编辑器 100vh 铺满，底部状态栏直接沉底。</li>
+      <li><b>撤回新窗口打开</b>：双击/右键/选择层均回到 <code>location.href</code> 当前窗口；返回入口 = OO 右上角「关闭文件」✕（<code>customization.close</code> + <code>onRequestClose</code> → 回网盘页），浏览器后退键天然可用。</li>
+      <li><b>OO 工具带维持原生</b>：不启用 <code>compactHeader/compactToolbar</code>——页首页签 + 完整 ribbon 两行保留，格式化工具全量可见（v2 紧凑化方案经评审撤回）。</li>
+      <li><b>拼写检查默认关闭</b>：<code>features.spellcheck:false</code>（红波浪线不再出现；用户可在「文件 → 高级设置」自行开启，开启后浏览器记忆优先）。</li>
+      <li><b>文档语言说明</b>：界面已是中文（<code>lang/region=zh-CN</code> 现状沿用）；状态栏「文档语言」取自<b>文件自身样式</b>（截图那份 docx 是 en-US 故显示英文），OO 无默认文档语言的集成开关——治本需在文档生成端把默认样式语言设为中文；拼写检查关闭后此显示无实际影响。</li>
+      <li><b>打开动效</b>：品牌「壹」标加载层单次上浮入场 + 细进度条 → 文档就绪（onDocumentReady）后交叉淡出/上浮揭示，一次编排落位即静止，<code>prefers-reduced-motion</code> 全关。</li>
+      <li><b>不变项</b>：保存回调链（forcesave 即时写回）、回源票据、双端其余页面、PDF 内联直读。</li>
+    </ol>
+    <button class="notes-close" id="notesClose" type="button">知道了</button>
+  </div>
+</div>
+
+<script>
+  // 设计稿交互：编辑/只读两态切换（仅演示工具态置灰）
+  var tools = document.getElementById('ooTools');
+  document.getElementById('modeToggle').addEventListener('click', function (e) {
+    var t = e.target.closest('span'); if (!t) return;
+    this.querySelectorAll('span').forEach(function (s) { s.classList.toggle('on', s === t); });
+    tools.style.opacity = t.dataset.m === 'view' ? '.45' : '1';
+  });
+  // 设计说明浮层
+  var mask = document.getElementById('notesMask');
+  document.getElementById('notesFab').addEventListener('click', function () { mask.classList.add('open'); });
+  document.getElementById('notesClose').addEventListener('click', function () { mask.classList.remove('open'); });
+  mask.addEventListener('click', function (e) { if (e.target === mask) mask.classList.remove('open'); });
+</script>
+</body>
+</html>

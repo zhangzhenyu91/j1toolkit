@@ -1,12 +1,15 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 在线编辑/预览（ONLYOFFICE Docs 社区版承载页；网盘文档双击/右键新窗口打开，query mode=view 为仅预览，
-       后端对仅预览格式强制 view + 只读权限）
+<!-- Shade 壹匣 · 在线编辑/预览（ONLYOFFICE Docs 社区版承载页；网盘文档双击/右键当前窗口打开，
+       query mode=view 为仅预览，后端对仅预览格式强制 view + 只读权限）
      链路：Shade.api('/api/v1/office/config') 取签发配置（含 JWT）→ 动态加载 OO_PUBLIC_URL 的 api.js →
        DocsAPI.DocEditor 渲染；OnlyOffice 容器回源/回调 Shade 容器内网直走（j1toolkit 网络按容器名互通）；
        保存经回调写回网盘（customization.forcesave 即时落盘，仅编辑模式）
-     外壳：统一 Shade.topbar 顶栏 + 极简副栏（返回网盘 / 文件名 / 只读标记），编辑区铺满剩余高度；
-       副栏返回与编辑器关闭按钮（events.onRequestClose）同口径优先关窗（新窗口打开时关窗即回原网盘标签），
-       直接访问/关窗失败兜底跳 /netdisk.html；
+     外壳（v2 定稿 design/Web-在线编辑.html）：纯 OO 满铺——无 Shade 顶栏/副栏/备案条
+       （body data-beian="off" 跳过 common.js 备案页脚注入）；返回 = OO 右上角「关闭文件」✕
+       （customization.close + events.onRequestClose → /netdisk.html），浏览器后退兜底；
+       OO 侧 customization 紧凑单行工具栏（compactHeader/compactToolbar，tabStyle line）；
+       打开动效：品牌加载层（单次上浮入场 + 细进度条）→ onDocumentReady 后交叉淡出/上浮揭示，
+       一次编排落位即静止，prefers-reduced-motion 全关
      品牌标识（编辑器 header/加载页/About 的 Shade 壹匣 素材）经容器卷挂载替换，素材与清单见 docker/onlyoffice/ -->
 <html lang="zh-CN">
 <head>
@@ -16,67 +19,74 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/assets/theme.css">
 <style>
-  /* 在线编辑页内样式 · 政企蓝白 token 同 theme.css */
+  /* 在线编辑页内样式 · 政企蓝白 token 同 theme.css；纯 OO 满铺，无 Shade 外壳 */
   html, body { height: 100%; }
-  body { overflow: hidden; display: flex; flex-direction: column; }
+  body { overflow: hidden; background: #fff; }
   [hidden] { display: none !important; }
 
-  /* 副栏：返回 + 文件名 + 只读标记（高 44px，白卡发丝线底边） */
-  .oo-sub {
-    flex: none; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px;
-    background: var(--card, #fff); border-bottom: 1px solid var(--line);
+  /* 编辑器：铺满全窗；就绪后单次上浮揭示（transform 初始 translateY(10px) 透明） */
+  #ooHolder {
+    position: absolute; inset: 0;
+    opacity: 0; transform: translateY(10px);
+    transition: opacity .45s cubic-bezier(.22,1,.36,1), transform .45s cubic-bezier(.22,1,.36,1);
   }
-  .oo-back {
-    display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent;
-    color: var(--sub); font-size: 13px; cursor: pointer; padding: 5px 8px; border-radius: 8px;
-    transition: background .15s, color .15s;
-  }
-  .oo-back:hover { background: var(--orange-soft); color: var(--orange); }
-  .oo-name {
-    font-size: 13.5px; font-weight: 600; color: var(--navy);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .oo-tag {
-    flex: none; padding: 2px 8px; border-radius: 4px; font-size: 11px;
-    background: var(--orange-soft); color: var(--orange);
-  }
+  #ooHolder.on { opacity: 1; transform: none; }
 
-  /* 编辑区：占满剩余高度，DocEditor iframe 铺满 */
-  .oo-stage { flex: 1; min-height: 0; position: relative; background: var(--bg, #f5f7fa); }
-  #ooHolder { width: 100%; height: 100%; }
-
-  /* 加载/错误态（居中卡） */
+  /* 加载/错误态：全窗遮层（白底），就绪后淡出 */
   .oo-state {
-    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    position: absolute; inset: 0; z-index: 2; background: #fff;
+    display: flex; align-items: center; justify-content: center;
     color: var(--ph); font-size: 13px;
+    transition: opacity .3s ease;
   }
-  .oo-spin {
-    width: 26px; height: 26px; margin: 0 auto 10px; border-radius: 50%;
-    border: 3px solid var(--line); border-top-color: var(--orange);
-    animation: ooSpin 1s linear infinite;
+  .oo-state.out { opacity: 0; pointer-events: none; }
+  .ld { text-align: center; animation: ldIn .5s cubic-bezier(.22,1,.36,1) both; }
+  .ld-mk {
+    width: 46px; height: 46px; margin: 0 auto 14px; border-radius: 12px;
+    background: var(--blue, #0E3DA8); color: #fff; font-size: 20px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 20px rgba(14,61,168,.22);
   }
-  @keyframes ooSpin { to { transform: rotate(360deg); } }
+  .ld-name {
+    max-width: min(420px, 80vw); margin: 0 auto; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--navy, #1D2129);
+  }
+  .ld-bar {
+    width: 168px; height: 3px; margin: 14px auto 10px; border-radius: 2px;
+    background: var(--line, #E5E6EB); overflow: hidden; position: relative;
+  }
+  .ld-bar i {
+    position: absolute; top: 0; left: -40%; width: 40%; height: 100%; border-radius: 2px;
+    background: var(--blue, #0E3DA8); animation: ldSweep 1.1s cubic-bezier(.45,0,.55,1) infinite;
+  }
+  .ld-t { font-size: 12px; color: var(--ph, #86909C); letter-spacing: 1px; }
+  @keyframes ldIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  @keyframes ldSweep { to { left: 100%; } }
   .oo-err { text-align: center; max-width: 420px; line-height: 1.9; }
   .oo-err .btn { margin-top: 10px; }
-  @media (prefers-reduced-motion: reduce) { .oo-spin { animation: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    #ooHolder { opacity: 1 !important; transform: none !important; transition: none; }
+    .ld { animation: none; }
+    .ld-bar i { animation: none; }
+    .oo-state { transition: none; }
+  }
 </style>
 </head>
-<body>
-<div class="oo-sub">
-  <button type="button" class="oo-back" id="btnBack"></button>
-  <span class="oo-name" id="ooName"></span>
-  <span class="oo-tag" id="ooTag" hidden>只读</span>
-</div>
-<div class="oo-stage">
-  <div class="oo-state" id="ooState"><div><div class="oo-spin"></div>正在加载编辑器…</div></div>
-  <div id="ooHolder" hidden></div>
+<body data-beian="off">
+<div id="ooHolder"></div>
+<div class="oo-state" id="ooState">
+  <div class="ld">
+    <div class="ld-mk">壹</div>
+    <div class="ld-name" id="ldName"></div>
+    <div class="ld-bar"><i></i></div>
+    <div class="ld-t">正在加载编辑器…</div>
+  </div>
 </div>
 
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
 <script>
   Shade.requireAuth();
-  Shade.topbar({ active: 'netdisk' }); // 在线编辑属网盘子页，顶栏激活态归网盘
 
   (function () {
     var $ = Shade.$;
@@ -87,20 +97,17 @@
     var name = path.split('/').filter(Boolean).pop() || '文档';
 
     document.title = name + (mode === 'view' ? ' · 在线预览' : ' · 在线编辑') + ' · Shade 壹匣';
-    $('#btnBack').innerHTML = Shade.icon('chevron-left', 14) + '返回网盘';
-    $('#ooName').textContent = name;
+    $('#ldName').textContent = name;
 
-    // 新窗口打开场景（网盘 window.open 而来）关窗即回原网盘标签；直接访问/关窗被拦时兜底跳网盘页
-    function back() {
-      window.close();
-      if (!window.closed) location.href = '/netdisk.html';
-    }
-    $('#btnBack').addEventListener('click', back);
+    // 当前窗口打开口径：返回 = 回网盘页（OO 右上角「关闭文件」同口径；浏览器后退亦可用）
+    function back() { location.href = '/netdisk.html'; }
 
+    var stateEl = $('#ooState');
     function failState(msg) {
-      $('#ooState').innerHTML = '<div class="oo-err">' + Shade.icon('warn', 40)
+      stateEl.className = 'oo-state';
+      stateEl.innerHTML = '<div class="oo-err">' + Shade.icon('warn', 40)
         + '<p>' + Shade.esc(msg) + '</p>'
-        + '<button type="button" class="btn btn-accent" id="btnRetry">重新加载</button></div>';
+        + '<button type="button" class="btn btn-primary" id="btnRetry">重新加载</button></div>';
       $('#btnRetry').addEventListener('click', function () { location.reload(); });
     }
 
@@ -108,7 +115,6 @@
       .then(function (r) {
         var d = r.data || {};
         if (!d.public_url || !d.config) throw new Error('编辑器配置下发异常');
-        if (d.config.editorConfig && d.config.editorConfig.mode === 'view') $('#ooTag').hidden = false;
         var s = document.createElement('script');
         s.src = d.public_url.replace(/\/+$/, '') + '/web-apps/apps/api/documents/api.js';
         s.onload = function () {
@@ -120,14 +126,18 @@
           cfg.width = '100%';
           cfg.height = '100%';
           cfg.events = {
+            // 文档渲染就绪：加载层淡出 + 编辑器上浮揭示（一次编排，落位即静止）
+            onDocumentReady: function () {
+              stateEl.classList.add('out');
+              $('#ooHolder').classList.add('on');
+              setTimeout(function () { stateEl.hidden = true; }, 320);
+            },
             onRequestClose: back, // 编辑器关闭按钮（customization.close）
             onError: function (e) {
               console.error('[OO] 编辑器错误：', e);
               failState('编辑器错误：' + ((e && e.data && e.data.errorDescription) || '未知错误'));
             },
           };
-          $('#ooState').hidden = true;
-          $('#ooHolder').hidden = false;
           new window.DocsAPI.DocEditor('ooHolder', cfg);
         };
         s.onerror = function () {

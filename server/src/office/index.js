@@ -126,6 +126,9 @@ router.post('/config', auth, requireApp('netdisk'), async (req, res) => {
           forcesave: mode === 'edit', // 保存按钮触发 status 6 回调即时写回（仅编辑模式有意义）
           close: { visible: true, text: '关闭文件' }, // 配合页面 events.onRequestClose 返回网盘
           unit: 'cm',
+          // OO 工具带维持原生完整两行（2026-10-14 评审撤回紧凑化）；
+          // 默认关拼写检查（用户界面内开启后浏览器记忆优先）
+          features: { spellcheck: false },
         },
       },
     };

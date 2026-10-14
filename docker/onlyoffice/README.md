@@ -66,7 +66,25 @@ header logo（深浅色各一）、加载页大图、关于框图。把确认过
 node docker/onlyoffice/brand/render.js
 ```
 
-## 三、法务备注
+## 三、插件安装（自托管社区版：插件市场列表有限，AI 等插件手动装）
+
+自托管社区版的「插件 → 插件管理器」市场列表不全（AI 插件不在其中，2026-10 实测），手动安装：
+
+```bash
+# 插件源码仓：github.com/ONLYOFFICE/onlyoffice.github.io，插件在 sdkjs-plugins/content/<名>/
+# 以 AI 插件为例（下载仓 zip 后取该目录，或 git clone 后拷出）：
+docker cp ./ai onlyoffice-documentserver:/var/www/onlyoffice/documentserver/sdkjs-plugins/ai
+docker exec onlyoffice-documentserver supervisorctl restart all   # 或 docker restart 容器
+```
+
+装好后编辑器「插件」标签页出现对应图标。AI 插件还需在其设置面板里配置服务商
+（OpenAI 兼容接口 + API Key；内网可指 Ollama 等自建推理，官方 FAQ：
+onlyoffice.com/blog/2025/03/faq-how-to-use-ai-in-onlyoffice）。
+
+注意：插件落在容器内目录，**重建容器即丢**——插件目录应随部署包留存（同 `docker/glkvm/jump.html` 的教训），
+或挂卷 `./onlyoffice/plugins:/var/www/onlyoffice/documentserver/sdkjs-plugins` 持久化。
+
+## 四、法务备注
 
 ONLYOFFICE Docs 社区版为 AGPL v3；官方把界面白标（`customization.logo/customer` 等配置项）列为
 Developer Edition 付费能力，社区版上替换静态资源属灰色用法——班组内部自用、不二次分发风险低；
