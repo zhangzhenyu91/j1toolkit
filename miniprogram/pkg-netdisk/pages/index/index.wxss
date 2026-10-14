@@ -429,6 +429,42 @@
   color: #1D2129;
 }
 
+/* ---------- 上传来源选择层（相册 / 聊天文件，同出工日志 addsheet 口径） ---------- */
+.picksrc {
+  margin: 24rpx 32rpx 0;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
+  padding: 26rpx 32rpx;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.ps-c {
+  flex: 1;
+}
+
+.ps-t {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1D2129;
+}
+
+.ps-n {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #86909C;
+  letter-spacing: 1rpx;
+}
+
+.picksrc-cancel {
+  margin-top: 24rpx;
+  padding: 20rpx 0;
+  text-align: center;
+  font-size: 28rpx;
+  color: #4E5969;
+}
+
 .sheet-sub {
   padding: 0 32rpx;
   margin-top: 10rpx;

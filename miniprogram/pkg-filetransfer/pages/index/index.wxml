@@ -1,5 +1,6 @@
-<!-- 文件传输 · 设备列表 + 虚拟 U 盘上传/下载（移动端应用，app_key file-transfer）
-     设备卡片与网页端 kvm.html 同口径；上传/下载弹层与出工日志批量下载同为 t-popup 底部弹层 -->
+<!-- 文件传输 · 设备列表 + 虚拟 U 盘统一管理（移动端应用，app_key file-transfer）
+     设备卡片与网页端 kvm.html 同口径；设备卡单按钮「打开 U 盘」进统一管理弹层（t-popup 底部弹层）：
+     挂载至被控机 → 「取回 U 盘」；在 KVM 侧 → 文件列表（行右下载/存网盘/删除）+「上传 / 插入 U 盘」 -->
 <navbar back title="文件传输" />
 
 <view class="page-body" wx:if="{{!noTeam}}">
@@ -62,15 +63,11 @@
             <text class="val">{{item.last}}</text>
           </view>
         </view>
-        <!-- 卡底按钮行：左上传右下载；离线/维护中置灰 -->
+        <!-- 卡底按钮行：打开 U 盘（上传/下载/挂载统一入口）；离线/维护中置灰 -->
         <view class="dv-ops">
           <view class="dv-btn up {{(item.statusKey !== 'online' || item.maintaining) ? 'off' : ''}}" hover-class="hover-opacity"
-                data-item="{{item}}" bindtap="onOpenUpload">
-            <t-icon name="upload" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#0E3DA8' : 'rgba(29,33,41,.35)'}}" />上传文件
-          </view>
-          <view class="dv-btn dl {{(item.statusKey !== 'online' || item.maintaining) ? 'off' : ''}}" hover-class="hover-opacity"
-                data-item="{{item}}" bindtap="onOpenDownload">
-            <t-icon name="download" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#1D2129' : 'rgba(29,33,41,.35)'}}" />下载文件
+                data-item="{{item}}" bindtap="onOpenUsb">
+            <t-icon name="usb" size="30rpx" color="{{(item.statusKey === 'online' && !item.maintaining) ? '#0E3DA8' : 'rgba(29,33,41,.35)'}}" />打开 U 盘
           </view>
         </view>
       </view>
@@ -146,7 +143,7 @@
       <view wx:if="{{!upFiles.length}}" class="fl-empty">尚未添加文件，点上方入口添加</view>
     </scroll-view>
 
-    <view class="sh-note">逐文件依次推送，全部成功后统一挂载到被控机；同名文件覆盖，单文件 ≤200MB。</view>
+    <view class="sh-note">逐文件依次推送到 U 盘（不自动挂载，需在列表层点「插入 U 盘」）；同名文件覆盖，单文件 ≤200MB。</view>
     <view class="sh-foot">
       <view class="btn-primary {{(!upFiles.length || uploading) ? 'disabled' : ''}}" hover-class="hover-opacity"
             bindtap="onUploadStart">
@@ -156,11 +153,11 @@
   </view>
 </t-popup>
 
-<!-- 下载文件弹层（按挂载状态分流：checking 查询中 / shared 已挂载到目标计算机 / local 展示盘内文件） -->
+<!-- U 盘弹层（打开 U 盘统一入口；按挂载状态分流：checking 查询中 / shared 已挂载到被控机 / local 展示盘内文件） -->
 <t-popup visible="{{dlOpen}}" placement="bottom" bind:visible-change="onDlVisibleChange">
   <view class="sheet">
     <view class="sh-head">
-      <view class="sh-title">下载文件<text class="sh-sub">{{dlDevice.name}} · 虚拟 U 盘</text></view>
+      <view class="sh-title">U 盘<text class="sh-sub">{{dlDevice.name}} · 虚拟 U 盘</text></view>
       <!-- 多选开关（仅文件列表态显示；进入/退出均清空已选） -->
       <view wx:if="{{dlState === 'local'}}" class="sh-multi {{dlMulti ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onDlMultiToggle">{{dlMulti ? '完成' : '多选'}}</view>
       <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseDownload">
@@ -171,22 +168,23 @@
     <!-- 查询挂载状态中 -->
     <view wx:if="{{dlState === 'checking'}}" class="fl-empty">正在查询 U 盘挂载状态…</view>
 
-    <!-- 已挂载到目标计算机（共享中）：读取盘内文件会先断开共享，由用户确认触发 -->
+    <!-- 已挂载到被控机（共享中）：取回（断开共享挂载回 KVM）后在此读取盘内文件 -->
     <block wx:elif="{{dlState === 'shared'}}">
       <view class="dl-state">
         <t-icon name="usb" size="64rpx" color="#0E3DA8" />
-        <view class="dl-state-t">U 盘已挂载到目标计算机</view>
-        <view class="dl-state-n">可在该机向 U 盘放入文件；读取盘内文件需先断开共享（挂载回 KVM）</view>
+        <view class="dl-state-t">U 盘已挂载到被控机</view>
+        <view class="dl-state-n">可在该机向 U 盘放入文件；取回后在此读取盘内文件</view>
       </view>
       <view class="sh-foot">
         <view class="btn-primary {{dlLoading ? 'disabled' : ''}}" hover-class="hover-opacity"
               bindtap="loadDlFiles">
-          {{dlLoading ? '正在获取…' : '获取文件列表'}}
+          {{dlLoading ? '正在取回…' : '取回 U 盘'}}
         </view>
       </view>
     </block>
 
-    <!-- 挂载在 KVM 本机：直接展示盘内文件（多选态：行首圆形勾选标，点按行 = toggle 选择） -->
+    <!-- 挂载在 KVM 本机：直接展示盘内文件（多选态：行首圆形勾选标，点按行 = toggle 选择；
+         单选态行不响应点按，下载走文件名右侧图标按钮） -->
     <block wx:else>
       <scroll-view scroll-y class="fl-list">
         <view wx:if="{{!dlFiles.length}}" class="fl-empty">盘内暂无文件</view>
@@ -199,21 +197,25 @@
           <view class="fn">{{item.name}}</view>
           <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
           <view wx:else class="fs">{{item.sizeText}}</view>
-          <!-- 存网盘（网盘可用且非多选态时显示；多选批量存走底部操作条；catchtap 拦截不触发下载/勾选） -->
+          <!-- 下载（文件名右侧图标按钮，与存网盘/删除同位口径；catchtap 拦截不触发勾选） -->
+          <view wx:if="{{!dlMulti}}" class="fdl" hover-class="hover-opacity" data-name="{{item.name}}"
+                catchtap="onDlDownloadTap">
+            <t-icon name="download" size="32rpx" color="{{downloading === item.name ? 'rgba(29,33,41,.35)' : '#0E3DA8'}}" />
+          </view>
+          <!-- 存网盘（网盘可用且非多选态时显示；多选批量存走底部操作条；catchtap 拦截不触发勾选） -->
           <view wx:if="{{ndOk && !dlMulti}}" class="fsave" hover-class="hover-opacity" data-name="{{item.name}}"
                 catchtap="onSaveToNetdisk">
             <t-icon name="folder-import" size="32rpx" color="{{savingNd === item.name ? 'rgba(29,33,41,.35)' : '#0E3DA8'}}" />
           </view>
-          <!-- 删除小标（catchtap 拦截，不触发下载/勾选） -->
+          <!-- 删除小标（catchtap 拦截，不触发勾选） -->
           <view class="fdel" hover-class="hover-opacity" data-name="{{item.name}}" data-index="{{index}}"
                 catchtap="onDeleteFile">
             <t-icon name="delete" size="32rpx" color="#F53F3F" />
           </view>
-          <t-icon wx:if="{{!dlMulti}}" name="chevron-right" size="30rpx" color="rgba(29,33,41,.4)" />
         </view>
       </scroll-view>
 
-      <view class="sh-note">图片 / 视频下载后保存至相册；其他类型经微信打开（可另存 / 转发）。列出与下载期间 U 盘保持断开共享；需从目标计算机向盘内放入文件时先点下方挂载，放好后点「获取文件列表」读取。</view>
+      <view class="sh-note">「上传」仅把文件放入 U 盘（不挂载）；「插入 U 盘」挂载到被控机后可在该机读写，取回后在此读取。图片 / 视频下载后保存至相册；其他类型经微信打开（可另存 / 转发）。</view>
 
       <!-- 多选操作条：全选（toggle）/ 下载所选 / 存网盘（n=0 或批量处理中禁用） -->
       <view wx:if="{{dlMulti}}" class="dl-mbar">
@@ -229,10 +231,14 @@
           存网盘（{{dlSel.length}}）
         </view>
       </view>
-      <view wx:else class="sh-foot">
-        <view class="btn-primary {{(mounting || downloading || dlBusy) ? 'disabled' : ''}}" hover-class="hover-opacity"
+      <view wx:else class="sh-foot2">
+        <view class="btn-primary {{(downloading || dlBusy) ? 'disabled' : ''}}" hover-class="hover-opacity"
+              bindtap="onOpenUpload">
+          上传
+        </view>
+        <view class="btn-outline {{(mounting || downloading || dlBusy) ? 'disabled' : ''}}" hover-class="hover-opacity"
               bindtap="onMount">
-          {{mounting ? '正在挂载…' : '挂载 U 盘至目标计算机'}}
+          {{mounting ? '正在挂载…' : '插入 U 盘'}}
         </view>
       </view>
     </block>

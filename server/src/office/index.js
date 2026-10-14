@@ -18,11 +18,28 @@ const { spaceRootOf, normRel } = require('../netdisk/space');
 
 const router = express.Router();
 
-// 仅支持 OOXML 六格式（回源直链复用网盘预览路由，与其 PREVIEW_MIME 同口径）
+// 格式白名单以 ONLYOFFICE 官方元数据仓 document-formats（onlyoffice-docs-formats.json，v10 口径，
+// 2026-10-14 核）为准：可编辑 = 原生 edit + lossy-edit（ODF/txt/md/csv 等，保存回写同格式、有损）
+// + MS 旧格式 auto-convert（doc/dot/xls/xlt/ppt/pot/pps：编辑会话自动转 OOXML，写回原路径后内容
+// 实为 OOXML，Word/WPS 按内容嗅探可开，口径同 v1.3.0 的 doc/xls/ppt）+ pdf；
+// 金山/苹果及其他 auto-convert 格式（hwp/wps/et/dps/numbers/key/pages/fod* 等）转换写回口径未实测，仅预览
 const DOC_TYPES = {
-  doc: 'word', docx: 'word',
-  xls: 'cell', xlsx: 'cell',
-  ppt: 'slide', pptx: 'slide',
+  doc: 'word', docx: 'word', docm: 'word', dot: 'word', dotx: 'word', dotm: 'word',
+  odt: 'word', ott: 'word', rtf: 'word', txt: 'word', md: 'word', html: 'word',
+  epub: 'word', fb2: 'word',
+  xls: 'cell', xlsx: 'cell', xlsm: 'cell', xlt: 'cell', xltx: 'cell', xltm: 'cell', xlsb: 'cell',
+  ods: 'cell', ots: 'cell', csv: 'cell', tsv: 'cell',
+  ppt: 'slide', pptx: 'slide', pptm: 'slide', pot: 'slide', potx: 'slide', potm: 'slide',
+  pps: 'slide', ppsx: 'slide', ppsm: 'slide', odp: 'slide', otp: 'slide',
+  pdf: 'pdf',
+};
+// 仅预览格式（不出编辑入口，view 模式强制只读；金山/苹果 auto-convert 与纯查看格式）
+const VIEW_TYPES = {
+  fodt: 'word', hml: 'word', htm: 'word', hwp: 'word', hwpx: 'word', mht: 'word', mhtml: 'word',
+  pages: 'word', stw: 'word', sxw: 'word', wps: 'word', wpt: 'word', xml: 'word',
+  et: 'cell', ett: 'cell', fods: 'cell', numbers: 'cell', sxc: 'cell',
+  dps: 'slide', dpt: 'slide', fodp: 'slide', key: 'slide', odg: 'slide', sxi: 'slide',
+  djvu: 'pdf', xps: 'pdf', oxps: 'pdf', ofd: 'pdf',
 };
 
 const baseName = (p) => p.split('/').filter(Boolean).pop() || '';
@@ -71,8 +88,10 @@ router.post('/config', auth, requireApp('netdisk'), async (req, res) => {
     if (rel === null || rel === '/') return fail(res, 400, 40001, '路径不合法');
     const name = baseName(rel);
     const ext = (name.split('.').pop() || '').toLowerCase();
-    const documentType = DOC_TYPES[ext];
-    if (!documentType) return fail(res, 400, 40030, '该格式不支持在线编辑');
+    const documentType = DOC_TYPES[ext] || VIEW_TYPES[ext];
+    if (!documentType) return fail(res, 400, 40030, '该格式不支持在线打开');
+    // 模式：view 仅预览 / edit 协同编辑；仅预览格式（VIEW_TYPES）强制 view 防构造参数越权
+    const mode = (req.body && req.body.mode) === 'view' || !DOC_TYPES[ext] ? 'view' : 'edit';
     const abs = joinPath(root, rel);
     const meta = await ol.fsGet(abs); // 存在性前置校验（目录同判非法）
     if (!meta || meta.is_dir) return fail(res, 400, 40001, '路径不合法');
@@ -92,17 +111,19 @@ router.post('/config', auth, requireApp('netdisk'), async (req, res) => {
         key,
         title: name,
         url: `${cb}/api/v1/netdisk/preview/${fileTicket}/${encodeURIComponent(name)}`,
-        permissions: { edit: true, download: true, print: true, review: true, comment: true },
+        permissions: mode === 'edit'
+          ? { edit: true, download: true, print: true, review: true, comment: true }
+          : { edit: false, download: true, print: true, review: false, comment: false },
       },
       documentType,
       editorConfig: {
         callbackUrl: `${cb}/api/v1/office/callback/${cbTicket}`,
         lang: 'zh-CN',
         region: 'zh-CN',
-        mode: 'edit',
+        mode,
         user: { id: String(req.user.id), name: req.user.nickname || req.user.username },
         customization: {
-          forcesave: true, // 保存按钮触发 status 6 回调即时写回（不等会话结束）
+          forcesave: mode === 'edit', // 保存按钮触发 status 6 回调即时写回（仅编辑模式有意义）
           close: { visible: true, text: '关闭文件' }, // 配合页面 events.onRequestClose 返回网盘
           unit: 'cm',
         },

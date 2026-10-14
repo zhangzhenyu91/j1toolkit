@@ -1,6 +1,9 @@
-// 文件传输 · 设备列表 + 虚拟 U 盘上传/下载（移动端应用，app_key file-transfer）
+// 文件传输 · 设备列表 + 虚拟 U 盘统一管理（移动端应用，app_key file-transfer）
 // 列表数据实时代理自 GLKVM Cloud 平台（/api/v1/kvm/devices，kvm 或 file-transfer 任一权限）；
-// 上传/下载经壹匣转发点（/api/v1/kvm/devices/{id}/push|files|download|delete|mount|status），平台链路直达设备
+// 设备卡单按钮「打开 U 盘」进弹层（/api/v1/kvm/devices/{id}/status|files|push|download|delete|mount）：
+//   挂载至被控机时给「取回 U 盘」（断开共享并读盘）；在 KVM 侧时直接展示文件列表
+//   （行右下载/存网盘/删除图标钮，多选批量走底部操作条）+「上传 / 插入 U 盘」双按钮——
+//   上传（相册/聊天/网盘多选）只入盘不挂载，「插入 U 盘」显式挂载到被控机
 // 班组口径（屏九）：设备按生效班组过滤，本班组无设备时回退默认班组设备并显示黄色提示横幅（fallback）；
 // 超管顶部切换器可切班组（storage filetransfer_team_id，全部请求带 team_id）；
 // 非超管未分配班组 → 整页空态（屏十）
@@ -71,7 +74,7 @@ Page({
     dlDevice: {},
     dlState: 'checking',
     dlFiles: [], // [{name, size, sizeText, icon, checked}]（checked 为多选态勾选）
-    dlLoading: false, // 「获取文件列表」执行中（断开共享并拉列表）
+    dlLoading: false, // 「取回 U 盘」执行中（断开共享并拉列表）
     downloading: '', // 正在下载的文件名
     mounting: false, // 正在挂载到目标计算机
     // 下载弹层多选模式（行首圆形勾选标；点按行 = toggle 选择；底部操作条 全选/下载所选/存网盘）
@@ -207,17 +210,10 @@ Page({
 
   /* ==================== 上传 ==================== */
 
-  onOpenUpload(e) {
-    const dev = e.currentTarget.dataset.item;
-    if (dev.maintaining) {
-      this.toast('设备维护中，暂不可用');
-      return;
-    }
-    if (dev.statusKey !== 'online') {
-      this.toast('设备离线，不可传输文件');
-      return;
-    }
-    this.setData({ upOpen: true, upDevice: dev, upFiles: [], upTotalText: '0 B' });
+  // U 盘弹层内「上传」：叠开上传弹层（目标设备 = 当前 U 盘弹层设备）
+  onOpenUpload() {
+    if (this.data.dlBusy || this.data.downloading) return;
+    this.setData({ upOpen: true, upDevice: this.data.dlDevice, upFiles: [], upTotalText: '0 B' });
   },
 
   onCloseUpload() {
@@ -330,7 +326,7 @@ Page({
     });
   },
 
-  // 开始上传：逐文件推送（设备侧全程非共享），全部成功或部分成功后统一挂载一次
+  // 开始上传：逐文件推送到 U 盘（KVM 侧；不自动挂载，挂载由列表层「插入 U 盘」显式触发）
   async onUploadStart() {
     const { upFiles, upDevice, uploading } = this.data;
     if (!upFiles.length || uploading) return;
@@ -346,32 +342,24 @@ Page({
         okCount += 1;
       } catch (err) {
         failMsg = `${upFiles[i].name}：${err.message}`;
-        break; // 失败即中止，已传部分仍挂载
-      }
-    }
-
-    if (okCount > 0) {
-      try {
-        await request({ url: `/api/v1/kvm/devices/${upDevice.id}/mount`, method: 'POST', data: this.teamBody({}), timeout: 60000 });
-      } catch (err) {
-        this.setData({ uploading: false });
-        this.toast(`挂载失败：${err.message}（文件已在盘内，可重试挂载）`);
-        return;
+        break; // 失败即中止
       }
     }
 
     this.setData({ uploading: false, upOpen: false, upFiles: [] });
+    // 已传入盘的即时反映到 U 盘文件列表（弹层仍开着且为同设备时刷新）
+    if (okCount > 0 && this.data.dlOpen && this.data.dlDevice.id === upDevice.id) this.loadDlFiles();
     if (failMsg) {
       this.toast(`已传 ${okCount}/${upFiles.length}，失败：${failMsg}`);
     } else {
-      this.toast(`已上传 ${okCount} 个文件并挂载到被控机`);
+      this.toast(`已上传 ${okCount} 个文件到 U 盘`);
     }
   },
 
-  /* ==================== 下载 ==================== */
+  /* ==================== U 盘弹层（打开/取回/下载/挂载） ==================== */
 
-  // 打开弹层不直接拉列表：先查挂载状态（设备 /status 被动查询，不切换状态）
-  onOpenDownload(e) {
+  // 打开 U 盘弹层（统一入口）：先查挂载状态（设备 /status 被动查询，不切换状态）
+  onOpenUsb(e) {
     const dev = e.currentTarget.dataset.item;
     if (dev.maintaining) {
       this.toast('设备维护中，暂不可用');
@@ -395,7 +383,7 @@ Page({
     if (!e.detail.visible) this.setData({ dlOpen: false, dlMulti: false, dlSel: [] });
   },
 
-  // 挂载状态分流：已共享给目标计算机则先给「获取文件列表」按钮（列出会断开共享，由用户确认）；
+  // 挂载状态分流：已挂载到被控机则先给「取回 U 盘」按钮（列出会断开共享，由用户确认）；
   // 挂载在 KVM 本机则直接展示盘内文件（status 响应自带 files，无需二次调用）
   async checkDlState() {
     try {
@@ -424,7 +412,7 @@ Page({
     }));
   },
 
-  // 「获取文件列表」（设备 /list：共享中先断开、挂载回 KVM，再返回列表）
+  // 「取回 U 盘」（设备 /list：共享中先断开、挂载回 KVM，再返回列表）
   async loadDlFiles() {
     if (this.data.dlLoading) return;
     this.setData({ dlLoading: true });
@@ -505,18 +493,21 @@ Page({
     });
   },
 
-  // 点按文件：多选态 = toggle 选择；单选态 = 下载 → 图片/视频存相册，其他 wx.openDocument 打开
+  // 点按文件行：仅多选态响应（toggle 选择）；单选态行不响应，下载走文件名右侧图标按钮
   onDlFileTap(e) {
+    if (!this.data.dlMulti || this.data.dlBusy) return;
     const file = e.currentTarget.dataset.file;
-    if (this.data.dlMulti) {
-      if (this.data.dlBusy) return;
-      const index = this.data.dlFiles.findIndex((f) => f.name === file.name);
-      if (index < 0) return;
-      this.setData({ [`dlFiles[${index}].checked`]: !this.data.dlFiles[index].checked });
-      this.setData({ dlSel: this.data.dlFiles.filter((f) => f.checked).map((f) => f.name) });
-      return;
-    }
-    if (this.data.downloading || this.data.dlBusy) return;
+    const index = this.data.dlFiles.findIndex((f) => f.name === file.name);
+    if (index < 0) return;
+    this.setData({ [`dlFiles[${index}].checked`]: !this.data.dlFiles[index].checked });
+    this.setData({ dlSel: this.data.dlFiles.filter((f) => f.checked).map((f) => f.name) });
+  },
+
+  // 单文件下载（文件名右侧图标按钮）：图片/视频存相册，其他 wx.openDocument 打开
+  onDlDownloadTap(e) {
+    const name = e.currentTarget.dataset.name;
+    const file = this.data.dlFiles.find((f) => f.name === name);
+    if (!file || this.data.downloading || this.data.dlBusy) return;
     this.setData({ downloading: file.name });
     wx.downloadFile({
       url: `${config.BASE_URL}/api/v1/kvm/devices/${this.data.dlDevice.id}/download?name=${encodeURIComponent(file.name)}${this.teamQuery()}`,
@@ -615,8 +606,7 @@ Page({
     }).catch(() => {});
   },
 
-  // 挂载 U 盘至目标计算机（被控机向盘内放入文件场景：挂载后弹层切到 shared 态，
-  // 放好后点「获取文件列表」断开共享并读取新文件）
+  // 插入 U 盘（挂载到被控机）：挂载后弹层切到 shared 态，放好文件后点「取回 U 盘」断开共享并读取
   async onMount() {
     const { dlDevice, mounting, downloading, dlBusy } = this.data;
     if (mounting) return;
@@ -628,7 +618,7 @@ Page({
     try {
       await request({ url: `/api/v1/kvm/devices/${dlDevice.id}/mount`, method: 'POST', data: this.teamBody({}), timeout: 60000 });
       this.setData({ dlState: 'shared' });
-      this.toast('已挂载到目标计算机，可在该机向 U 盘放入文件');
+      this.toast('已挂载到被控机，可在该机向 U 盘放入文件');
     } catch (err) {
       this.toast(`挂载失败：${err.message}`);
     } finally {
@@ -752,8 +742,8 @@ Page({
     this.setData({ 'ndPicker.selectedList': sel, [`ndPicker.items[${index}].checked`]: on });
   },
 
-  // 确认：所选网盘文件推送到当前上传目标设备（paths 为空间内相对路径数组，1-20 个；
-  // 响应 data.items 为逐项结果 {name, ok, error?}，toast 用返回 message 汇总文案）
+  // 确认：所选网盘文件推送到当前 U 盘（paths 为空间内相对路径数组，1-20 个；仅入盘不挂载，
+  // 与「上传」同口径；响应 data.items 为逐项结果 {name, ok, error?}，toast 用返回 message 汇总文案）
   onNdConfirm() {
     const p = this.data.ndPicker;
     const dev = this.data.upDevice;
@@ -767,6 +757,8 @@ Page({
       data: this.teamBody({ space: p.space, paths: p.selectedList }),
     }).then((res) => {
       this.setData({ 'ndPicker.open': false, upOpen: false, upFiles: [] });
+      // 已入盘的即时反映到 U 盘文件列表（弹层仍开着且为同设备时刷新）
+      if (this.data.dlOpen && this.data.dlDevice.id === dev.id) this.loadDlFiles();
       this.toast((res && res.message) || `已推送 ${p.selectedList.length} 个文件到设备`);
     }).catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'ndPicker.saving': false }));

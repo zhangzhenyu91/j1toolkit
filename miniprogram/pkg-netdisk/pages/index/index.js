@@ -71,6 +71,7 @@ Page({
     loading: true,
     error: '', // 首屏加载失败文案（已有内容时失败仅 toast）
     menuOpen: false, // ⋯ 菜单（分享管理 / 新建文件夹）
+    pickOpen: false, // 上传来源选择层（相册 / 聊天文件；自绘弹层不用 t-action-sheet，同出工日志口径）
     // 搜索态（范围=当前空间）
     searching: false,
     kw: '',
@@ -831,9 +832,46 @@ Page({
       .finally(() => this.setData({ 'shareSheet.saving': false }));
   },
 
-  /* ==================== 分片上传（FAB → 聊天选取 → init/chunk/complete） ==================== */
+  /* ==================== 分片上传（FAB → 来源选择（相册/聊天）→ init/chunk/complete） ==================== */
 
   onPickFiles() {
+    this.setData({ pickOpen: true });
+  },
+
+  onPickSheetClose() {
+    this.setData({ pickOpen: false });
+  },
+
+  onPickVisibleChange(e) {
+    if (!e.detail.visible) this.setData({ pickOpen: false });
+  },
+
+  // 从相册选择：图片/视频（chooseMedia 只有临时路径无原名，按相机命名习惯生成可读文件名，同文件传输口径）
+  onPickMedia() {
+    this.setData({ pickOpen: false });
+    wx.chooseMedia({
+      count: 9,
+      mediaType: ['image', 'video'],
+      success: (res) => {
+        const files = (res.tempFiles || []).map((t, i) => {
+          const ext = t.tempFilePath.split('.').pop() || (t.fileType === 'video' ? 'mp4' : 'jpg');
+          const d = new Date();
+          const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
+            + `_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+          return {
+            name: `${t.fileType === 'video' ? 'VID' : 'IMG'}_${ts}${i ? `_${i}` : ''}.${ext}`,
+            size: t.size,
+            path: t.tempFilePath,
+          };
+        });
+        this.startUploads(files);
+      },
+    });
+  },
+
+  // 从聊天选取：任意类型文件
+  onPickChat() {
+    this.setData({ pickOpen: false });
     wx.chooseMessageFile({
       count: 9,
       type: 'file',

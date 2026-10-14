@@ -169,6 +169,29 @@
   <t-icon name="cloud-upload" size="46rpx" color="#FFFFFF" />
 </view>
 
+<!-- 上传来源选择（相册 / 聊天文件；自绘弹层不用 t-action-sheet——仅分包使用会触发主包冗余 JS 审计警告，同出工日志口径） -->
+<t-popup visible="{{pickOpen}}" placement="bottom" bind:visible-change="onPickVisibleChange">
+  <view class="sheet">
+    <view class="grab"></view>
+    <view class="sheet-title">上传文件</view>
+    <view class="picksrc" hover-class="hover-bg-warm" bindtap="onPickMedia">
+      <t-icon name="file-image" size="44rpx" color="#0E3DA8" />
+      <view class="ps-c">
+        <view class="ps-t">从相册选择</view>
+        <view class="ps-n">图片 / 视频</view>
+      </view>
+    </view>
+    <view class="picksrc" hover-class="hover-bg-warm" bindtap="onPickChat">
+      <t-icon name="chat" size="44rpx" color="#0E3DA8" />
+      <view class="ps-c">
+        <view class="ps-t">从聊天选取</view>
+        <view class="ps-n">任意类型文件</view>
+      </view>
+    </view>
+    <view class="picksrc-cancel" hover-class="hover-opacity" bindtap="onPickSheetClose">取 消</view>
+  </view>
+</t-popup>
+
 <!-- 文件操作面板（屏②：底部弹层；公共区 manageable=false 时隐藏重命名/删除） -->
 <t-popup visible="{{sheet.open}}" placement="bottom" bind:visible-change="onSheetVisibleChange">
   <view class="sheet" wx:if="{{sheet.item}}">
