@@ -210,19 +210,30 @@ Page({
 
   /* ==================== 上传 ==================== */
 
-  // U 盘弹层内「上传」：叠开上传弹层（目标设备 = 当前 U 盘弹层设备）
+  // U 盘弹层内「上传」：收起 U 盘弹层再开上传弹层（两个同高底部弹层同 z 序叠压会折叠——
+  // 已踩坑，改为关一个开一个；目标设备 = 当前 U 盘弹层设备）
   onOpenUpload() {
     if (this.data.dlBusy || this.data.downloading) return;
-    this.setData({ upOpen: true, upDevice: this.data.dlDevice, upFiles: [], upTotalText: '0 B' });
+    this.setData({
+      dlOpen: false,
+      upOpen: true, upDevice: this.data.dlDevice, upFiles: [], upTotalText: '0 B',
+    });
+  },
+
+  // 上传弹层关闭（取消/完成/遮罩统一收口）：回到 U 盘弹层并刷新文件列表
+  closeUpload() {
+    this.setData({ upOpen: false, dlOpen: true, dlMulti: false, dlSel: [] });
+    this.loadDlFiles();
   },
 
   onCloseUpload() {
     if (this.data.uploading) return; // 上传中不允许关
-    this.setData({ upOpen: false });
+    this.closeUpload();
   },
 
   onUpVisibleChange(e) {
-    if (!e.detail.visible && !this.data.uploading) this.setData({ upOpen: false });
+    // 程序置关会回触发本事件：upOpen 已为 false 时不重复收口
+    if (!e.detail.visible && !this.data.uploading && this.data.upOpen) this.closeUpload();
   },
 
   // 已添加列表汇总（合计大小）
@@ -346,9 +357,8 @@ Page({
       }
     }
 
-    this.setData({ uploading: false, upOpen: false, upFiles: [] });
-    // 已传入盘的即时反映到 U 盘文件列表（弹层仍开着且为同设备时刷新）
-    if (okCount > 0 && this.data.dlOpen && this.data.dlDevice.id === upDevice.id) this.loadDlFiles();
+    this.setData({ uploading: false, upFiles: [] });
+    this.closeUpload(); // 回 U 盘弹层并刷新文件列表（含本次已传入盘的文件）
     if (failMsg) {
       this.toast(`已传 ${okCount}/${upFiles.length}，失败：${failMsg}`);
     } else {
@@ -756,9 +766,8 @@ Page({
       withMessage: true,
       data: this.teamBody({ space: p.space, paths: p.selectedList }),
     }).then((res) => {
-      this.setData({ 'ndPicker.open': false, upOpen: false, upFiles: [] });
-      // 已入盘的即时反映到 U 盘文件列表（弹层仍开着且为同设备时刷新）
-      if (this.data.dlOpen && this.data.dlDevice.id === dev.id) this.loadDlFiles();
+      this.setData({ 'ndPicker.open': false, upFiles: [] });
+      this.closeUpload(); // 回 U 盘弹层并刷新（网盘推送仅入盘不挂载）
       this.toast((res && res.message) || `已推送 ${p.selectedList.length} 个文件到设备`);
     }).catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'ndPicker.saving': false }));

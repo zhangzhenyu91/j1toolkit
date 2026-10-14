@@ -197,7 +197,7 @@
   border: 2rpx solid #E5E6EB;
   border-bottom: none;
   border-radius: 12rpx;
-  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 36rpx 32rpx 40rpx;
 }
 

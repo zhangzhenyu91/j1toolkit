@@ -108,7 +108,7 @@
   border: 2rpx solid #E5E6EB;
   border-bottom: none;
   border-radius: 12rpx;
-  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 
@@ -566,7 +566,7 @@
   border: 2rpx solid #E5E6EB;
   border-bottom: none;
   border-radius: 12rpx;
-  box-shadow: 0 -8rpx 0 rgba(29, 33, 41, 0.9);
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 24rpx calc(32rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
