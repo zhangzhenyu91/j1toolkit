@@ -4,7 +4,9 @@
      聊天列限宽 960px 居中于右区（两侧留白防超宽难读），消息直接落在画布上（问题墨色气泡 / 回答无气泡纯文本 / 步骤树折叠块含进行中动效），
      输入框为聊天列底部的悬浮卡片（默认 3 行高，随内容自增至 150px）
      协议对齐小程序端 pkg-callme：POST /api/v1/callme/chat 为 SSE 流（fetch + ReadableStream 解析，
-     事件 {type: thinking|answer|preamble|tool_start|tool_end|title|references|done|error}，心跳 ': ping' 行忽略），图片 base64 dataURL 上送 -->
+     事件 {type: thinking|answer|preamble|tool_start|tool_end|title|references|done|error}，心跳 ': ping' 行忽略），
+     图片 base64 dataURL 上送；附件（文档/音频）走 /sessions/:id/attachments 上传 + 1s 轮询解析状态；
+     模型与联网搜索能力读 /capabilities，选择记忆于 localStorage -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -274,7 +276,7 @@
 
   /* ===== 底部输入区：悬浮卡片，满宽落于右侧区域底部；chips 在卡上、提示在卡下 ===== */
   .cm-input { flex: none; padding: 0 30px 12px; }
-  .cm-chip-row { margin-bottom: 10px; }
+  .cm-chip-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
   .img-chip { position: relative; width: 56px; height: 56px; }
   .img-chip img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; border: 1px solid var(--hair); background: #fff; }
   .chip-x {
@@ -282,6 +284,28 @@
     background: var(--navy); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer;
   }
   .chip-x svg { width: 10px; height: 10px; }
+  /* 附件芯片（非图片：图标 + 文件名 + 大小/状态；失败标红，可点 × 移除重传） */
+  .att-chip {
+    position: relative; display: flex; align-items: center; gap: 8px; height: 56px; max-width: 230px;
+    padding: 0 12px; background: #fff; border: 1px solid var(--hair); border-radius: 8px;
+  }
+  .att-chip .a-ic {
+    width: 30px; height: 30px; flex: none; border-radius: 8px; background: var(--orange-soft); color: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .att-chip .a-ic svg { width: 16px; height: 16px; }
+  .att-chip .a-main { min-width: 0; }
+  .att-chip .a-name {
+    max-width: 136px; font-size: 12px; font-weight: 600; color: var(--navy);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .att-chip .a-sub {
+    margin-top: 2px; max-width: 150px; font-size: 10.5px; color: var(--ph); font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .att-chip.failed { border-color: var(--red); }
+  .att-chip.failed .a-ic { background: #FFECE8; color: var(--red); }
+  .att-chip.failed .a-sub { color: var(--red); }
   .cm-box {
     display: flex; align-items: flex-end; gap: 8px;
     background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px;
@@ -296,6 +320,14 @@
   }
   .cm-tool svg { width: 19px; height: 19px; }
   .cm-tool:hover { color: var(--orange); background: var(--orange-soft); }
+  /* 录音中：麦克风钮转红 + 钮旁红色呼吸点与秒数（tabular-nums） */
+  .cm-tool.rec { color: var(--red); background: #FFECE8; }
+  .cm-rec {
+    display: none; align-items: center; gap: 6px; flex: none; height: 34px;
+    font-size: 12px; color: var(--red); font-variant-numeric: tabular-nums;
+  }
+  .cm-rec.on { display: flex; }
+  .cm-rec .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: breath 1.2s ease-in-out infinite; }
   .cm-text {
     flex: 1; border: none; outline: none; background: transparent; resize: none;
     font-family: inherit; font-size: 13.5px; line-height: 1.7; color: var(--navy);
@@ -311,6 +343,19 @@
   .cm-send:hover { transform: translate(2px, 2px); box-shadow: 0 2px 8px rgba(0, 0, 0, .05); }
   .cm-send.off { opacity: .4; cursor: not-allowed; transform: none !important; box-shadow: none; }
   .cm-hint { margin: 9px 0 0; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
+  /* 联网搜索胶囊开关（开=品牌蓝底白字 / 关=灰）与模型下拉（复用 common.js .dd 体系，工具行紧凑化） */
+  .cm-ws {
+    flex: none; display: flex; align-items: center; gap: 5px; height: 34px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--fill); color: var(--sub);
+    font-size: 12px; letter-spacing: .5px; cursor: pointer; white-space: nowrap;
+    transition: background .2s, color .2s, border-color .2s;
+  }
+  .cm-ws svg { width: 14px; height: 14px; }
+  .cm-ws.on { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .cm-model { flex: none; }
+  .cm-model .dd-btn { font-size: 12px; font-weight: 500; color: var(--sub); padding: 0 10px; gap: 6px; }
+  .cm-model .dd-btn .dd-label { max-width: 140px; }
+  .cm-model .dd-btn .dd-tri { color: var(--ph); }
 
   /* ===== 通用弹窗（新建/重命名输入用 promptModal（.modal-t/.modal-b/.modal-f）；删除确认走 Shade.confirm，
      .m-head/.m-foot 结构与 quiz / worklog 同口径；直角 + 2px 墨边 + 硬影，白底卡片样式直接落在 .modal 上） ===== */
@@ -376,6 +421,10 @@
     .cm-head { padding: 0 14px; }
     .cm-body { padding: 8px 14px 22px; }
     .cm-input { padding: 0 14px 12px; }
+    /* 窄屏输入区收紧：联网胶囊只留图标，模型名下拉限宽 */
+    .cm-ws { padding: 0 9px; }
+    .cm-ws .ws-t { display: none; }
+    .cm-model .dd-btn .dd-label { max-width: 88px; }
   }
 </style>
 </head>
@@ -424,11 +473,17 @@
           <img id="chipImg" alt="待发送图片">
           <button class="chip-x" id="chipX" title="移除图片"></button>
         </div>
+        <!-- 附件芯片（.att-chip）由 JS 动态追加 -->
       </div>
       <div class="cm-box">
         <button class="cm-tool" id="btnAttach" title="添加图片"></button>
+        <button class="cm-tool" id="btnFile" title="添加附件"></button>
+        <button class="cm-tool" id="btnVoice" title="按住说话"></button>
+        <span class="cm-rec" id="recInd"><i class="rec-dot"></i><span id="recSec">0s</span></span>
         <textarea class="cm-text" id="cmText" rows="3" maxlength="2000"
           placeholder="向 AI 知识库提问，Enter 发送 / Shift+Enter 换行"></textarea>
+        <button class="cm-ws" id="btnWs" title="联网搜索" style="display:none"></button>
+        <select id="modelSel" style="display:none"></select>
         <button class="cm-send off" id="btnSend" title="发送"></button>
       </div>
       <div class="cm-hint">回答由 AI 基于班组知识库生成，关键操作请以现行规程为准</div>
@@ -437,8 +492,11 @@
 </div>
 </div>
 
-<!-- 图片选择（本地读取为 base64 dataURL 上送，不经 COS） -->
-<input type="file" id="fileInput" accept="image/*" style="display:none">
+<!-- 图片选择（本地读取为 base64 dataURL 上送，不经 COS；扩展名白名单校验） -->
+<input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.gif,.webp" style="display:none">
+<!-- 附件选择（文档/音频等，≤50MB，扩展名白名单与后端一致；走 /attachments 上传 + 解析状态轮询） -->
+<input type="file" id="attInput" multiple style="display:none"
+  accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.epub,.mhtml,.csv,.md,.markdown,.txt,.json,.html,.mp3,.wav,.m4a,.flac,.ogg,.aac,.bmp,.tiff,.tif">
 
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
@@ -460,6 +518,10 @@
     creating: false,
     entered: false,      // 首次加载后自动进入最近一次对话（对齐小程序 onLoad 一次性标记）
     pendingImage: null,  // base64 dataURL
+    attachments: [],     // 附件芯片 {uid, attId, sessionId, name, size, status, progress, error, icon, xhr, timer, _el, _sub}
+    caps: null,          // /capabilities 结果 {models:[{id,name,supports_vision}], web_search}
+    webSearch: false,    // 联网搜索开关（localStorage callme_web_search 记忆）
+    modelId: '',         // 所选模型（localStorage callme_model_id 记忆；为空则不传）
     hasMore: false,      // 是否还有更早的历史消息（before_time 分页）
     loadingEarlier: false,
   };
@@ -478,6 +540,13 @@
   var chipRow = document.getElementById('chipRow');
   var chipImg = document.getElementById('chipImg');
   var chipX = document.getElementById('chipX');
+  var btnFile = document.getElementById('btnFile');
+  var btnVoice = document.getElementById('btnVoice');
+  var attInput = document.getElementById('attInput');
+  var recInd = document.getElementById('recInd');
+  var recSec = document.getElementById('recSec');
+  var btnWs = document.getElementById('btnWs');
+  var modelSel = document.getElementById('modelSel');
 
   /* ============================================================
      时间文案
@@ -612,8 +681,12 @@
     cmStatus.textContent = v ? '正在生成回答…' : 'WeKnora 知识库';
     updateSendBtn();
   }
+  // 仍有附件芯片在上传中时禁止发送（解析中不阻塞，对齐官方口径）
+  function hasUploadingAtt() {
+    return state.attachments.some(function (a) { return a.status === 'uploading'; });
+  }
   function updateSendBtn() {
-    var can = !!inputEl.value.trim() && !state.sending && !!state.activeId;
+    var can = !!inputEl.value.trim() && !state.sending && !!state.activeId && !hasUploadingAtt();
     btnSend.classList.toggle('off', !can);
   }
 
@@ -700,6 +773,7 @@
   // 打开会话：切换激活态 + 加载历史消息
   function openSession(id) {
     if (state.sending) { Shade.toast('回答生成中，请稍候'); return; }
+    clearAttachments(); // 附件上传绑定会话 id，切换会话即清理待发送芯片
     var s = findSession(id);
     state.activeId = id;
     state.activeTitle = s ? (s.title || '未命名对话') : 'Call Me';
@@ -1216,8 +1290,12 @@
     var query = inputEl.value.trim();
     if (!query || state.sending) return;
     if (!state.activeId) { Shade.toast('会话尚未就绪，请稍候'); return; }
+    if (hasUploadingAtt()) { Shade.toast('附件上传中，请稍候'); return; }
 
     var image = state.pendingImage;
+    // 随本轮消息上送的附件：取已拿到服务端 id 且未失败的芯片（上传中已在上方拦截，解析中不阻塞）
+    var attIds = state.attachments.filter(function (a) { return a.attId && a.status !== 'failed'; })
+      .map(function (a) { return a.attId; });
     appendMsg({ role: 'user', content: query, image: image || '', timeText: timeTextOf() });
     var aiMsg = {
       role: 'assistant', content: '', steps: [], stepsMeta: null, thinkLabel: '',
@@ -1228,11 +1306,15 @@
     inputEl.value = '';
     autoGrow();
     clearImage();
+    clearAttachments();
     setSending(true);
     scrollBottom(true);
 
     var payload = { session_id: state.activeId, query: query };
     if (image) payload.images = [{ data: image }];
+    if (attIds.length) payload.attachment_ids = attIds;
+    if (state.caps) payload.web_search = !!state.webSearch; // 能力未知时不带该字段
+    if (state.modelId) payload.model_id = state.modelId;
 
     var parser = createSseParser(function (evt) { onSseEvent(evt, aiMsg); });
     var ctrl = new AbortController();
@@ -1323,9 +1405,12 @@
         }
       }
       if (dup >= 0) {
-        msg.steps[dup].title = evt.title || msg.steps[dup].title;
-        msg.steps[dup].name = evt.name || msg.steps[dup].name;
-        msg.steps[dup].icon = toolIcon(evt.name || msg.steps[dup].name);
+        // 仅进行中节点回写标题：完成态节点不被迟到的重复帧改回「正在调用…」文案
+        if (msg.steps[dup].status === 'running') {
+          msg.steps[dup].title = evt.title || msg.steps[dup].title;
+          msg.steps[dup].name = evt.name || msg.steps[dup].name;
+          msg.steps[dup].icon = toolIcon(evt.name || msg.steps[dup].name);
+        }
         msg.thinkLabel = msg.steps[dup].title;
       } else {
         msg.steps.push({
@@ -1343,11 +1428,20 @@
       renderSteps(msg);
       renderThink(msg);
     } else if (evt.type === 'tool_end') {
-      // 按 tool_call_id 定位节点，兜底取最后一个 running 节点
+      // 按 tool_call_id 精确匹配定位节点（同轮可并行多个同名调用、帧交错，必须精确优先，
+      // 否则 running 兜底会让后开的并行节点抢答别人完成事件）；仅无匹配时兜底取最后一个 running 节点
       var ti = -1;
-      for (var si = msg.steps.length - 1; si >= 0; si--) {
-        var st = msg.steps[si];
-        if (st.kind === 'tool' && ((evt.id && st.id === evt.id) || st.status === 'running')) { ti = si; break; }
+      if (evt.id) {
+        for (var si = msg.steps.length - 1; si >= 0; si--) {
+          var st = msg.steps[si];
+          if (st.kind === 'tool' && st.id === evt.id) { ti = si; break; }
+        }
+      }
+      if (ti < 0) {
+        for (var sj = msg.steps.length - 1; sj >= 0; sj--) {
+          var sf = msg.steps[sj];
+          if (sf.kind === 'tool' && sf.status === 'running') { ti = sj; break; }
+        }
       }
       if (ti >= 0) {
         msg.steps[ti].title = evt.title || msg.steps[ti].title;
@@ -1438,7 +1532,7 @@
   });
   btnSend.addEventListener('click', onSend);
 
-  // 选择图片（本地读为 base64 dataURL 上送，对齐小程序 chooseImage）
+  // 选择图片（本地读为 base64 dataURL 上送，对齐小程序 chooseImage；扩展名白名单校验）
   btnAttach.addEventListener('click', function () {
     if (state.sending) return;
     fileInput.click();
@@ -1446,8 +1540,8 @@
   fileInput.addEventListener('change', function () {
     var file = fileInput.files && fileInput.files[0];
     if (!file) return;
-    if (file.type.indexOf('image/') !== 0) {
-      Shade.toast('请选择图片文件', 'error');
+    if (IMG_EXTS.indexOf(extOf(file.name)) < 0) {
+      Shade.toast('仅支持 jpg / jpeg / png / gif / webp 图片', 'error');
       fileInput.value = '';
       return;
     }
@@ -1460,7 +1554,7 @@
     reader.onload = function () {
       state.pendingImage = String(reader.result || '');
       chipImg.src = state.pendingImage;
-      chipRow.style.display = '';
+      updateChipRow();
     };
     reader.onerror = function () { Shade.toast('图片读取失败', 'error'); };
     reader.readAsDataURL(file);
@@ -1468,10 +1562,339 @@
   function clearImage() {
     state.pendingImage = null;
     chipImg.src = '';
-    chipRow.style.display = 'none';
     fileInput.value = '';
+    updateChipRow();
   }
   chipX.addEventListener('click', clearImage);
+
+  /* ============================================================
+     附件（文档/音频，≤50MB，扩展名白名单与后端一致）：
+     选择/录音产物 → XHR 上传（upload.onprogress 进度显示在芯片上）
+     → 芯片转「解析中」→ 每 1s 轮询列表按 id 取单件状态，ready/failed 落定即停
+     ============================================================ */
+  var IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+  var ATT_EXTS = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'epub', 'mhtml', 'csv', 'md', 'markdown',
+    'txt', 'json', 'html', 'mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac', 'bmp', 'tiff', 'tif'];
+  var ATT_MAX = 5;                    // 最多 5 个附件
+  var ATT_SIZE = 50 * 1024 * 1024;    // 单件 ≤50MB
+  var attSeq = 0;
+
+  function extOf(name) {
+    var m = /\.([a-z0-9]+)$/i.exec(name || '');
+    return m ? m[1].toLowerCase() : '';
+  }
+  function fmtSize(n) {
+    if (!n && n !== 0) return '';
+    if (n < 1024) return n + 'B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1).replace(/\.0$/, '') + 'KB';
+    return (n / 1024 / 1024).toFixed(1).replace(/\.0$/, '') + 'MB';
+  }
+
+  // chips 行显隐：图片或附件任一存在即显示
+  function updateChipRow() {
+    chipRow.style.display = (state.pendingImage || state.attachments.length) ? '' : 'none';
+  }
+
+  // 附件入口
+  btnFile.addEventListener('click', function () {
+    if (state.sending) return;
+    if (!state.activeId) { Shade.toast('会话尚未就绪，请稍候'); return; }
+    attInput.click();
+  });
+  attInput.addEventListener('change', function () {
+    var files = Array.prototype.slice.call(attInput.files || []);
+    attInput.value = '';
+    addAttachmentFiles(files);
+  });
+
+  // 入队校验：超量 / 非白名单 / 超 50MB 均 toast 拦截（语音产物带 icon='mic'）
+  function addAttachmentFiles(files, icon) {
+    if (!files.length) return;
+    if (!state.activeId) { Shade.toast('会话尚未就绪，请稍候'); return; }
+    files.forEach(function (file) {
+      if (state.attachments.length >= ATT_MAX) { Shade.toast('最多添加 ' + ATT_MAX + ' 个附件', 'error'); return; }
+      if (ATT_EXTS.indexOf(extOf(file.name)) < 0) {
+        Shade.toast('不支持的文件格式：' + file.name, 'error'); return;
+      }
+      if (file.size > ATT_SIZE) {
+        Shade.toast('附件不能超过 50MB：' + file.name, 'error'); return;
+      }
+      var att = {
+        uid: ++attSeq, attId: '', sessionId: state.activeId, name: file.name, size: file.size,
+        status: 'uploading', progress: 0, error: '', icon: icon || 'file',
+        xhr: null, timer: null, _el: null, _sub: null,
+      };
+      state.attachments.push(att);
+      buildAttChip(att);
+      updateChipRow();
+      updateSendBtn();
+      uploadAttachment(att, file);
+    });
+  }
+
+  // 附件芯片 DOM（图标 + 文件名 + 大小/状态；右上 × 移除）
+  function buildAttChip(att) {
+    var el = document.createElement('div');
+    el.className = 'att-chip';
+    el.innerHTML = '<span class="a-ic">' + Shade.icon(att.icon, 16) + '</span>' +
+      '<div class="a-main"><div class="a-name"></div><div class="a-sub"></div></div>' +
+      '<button class="chip-x" title="移除附件">' + Shade.icon('close', 10, '#fff') + '</button>';
+    var nameEl = el.querySelector('.a-name');
+    nameEl.textContent = att.name;
+    nameEl.title = att.name;
+    el.querySelector('.chip-x').addEventListener('click', function () { removeAttachment(att); });
+    att._el = el;
+    att._sub = el.querySelector('.a-sub');
+    chipRow.appendChild(el);
+    renderAttChip(att);
+  }
+
+  // 芯片状态行：uploading 显示百分比；uploaded/processing 显示解析中；failed 标红
+  function renderAttChip(att) {
+    if (!att._sub) return;
+    var sub;
+    if (att.status === 'uploading') sub = fmtSize(att.size) + ' · 上传 ' + att.progress + '%';
+    else if (att.status === 'ready') sub = fmtSize(att.size) + ' · 已就绪';
+    else if (att.status === 'failed') sub = att.error || '解析失败';
+    else sub = fmtSize(att.size) + ' · 解析中…';
+    att._sub.textContent = sub;
+    att._el.classList.toggle('failed', att.status === 'failed');
+  }
+
+  // 移除芯片：中止上传 / 停轮询（发送成功后整批清理同走此路径）
+  function removeAttachment(att) {
+    if (att.xhr) { try { att.xhr.abort(); } catch (e) { /* 忽略 */ } att.xhr = null; }
+    stopAttPoll(att);
+    var i = state.attachments.indexOf(att);
+    if (i >= 0) state.attachments.splice(i, 1);
+    if (att._el) att._el.remove();
+    updateChipRow();
+    updateSendBtn();
+  }
+  function clearAttachments() {
+    state.attachments.slice().forEach(removeAttachment);
+  }
+
+  // 上传（XHR 拿 upload.onprogress；响应走统一信封 {code,data:{id,name,size,status}}）
+  function uploadAttachment(att, file) {
+    var fd = new FormData();
+    fd.append('file', file, file.name);
+    var xhr = new XMLHttpRequest();
+    att.xhr = xhr;
+    xhr.open('POST', '/api/v1/callme/sessions/' + encodeURIComponent(att.sessionId) + '/attachments');
+    var token = localStorage.getItem('shade_token');
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.upload.onprogress = function (e) {
+      if (!e.lengthComputable || att.status !== 'uploading') return;
+      att.progress = Math.min(99, Math.round(e.loaded / e.total * 100));
+      renderAttChip(att);
+    };
+    xhr.onload = function () {
+      att.xhr = null;
+      var json = null;
+      try { json = JSON.parse(xhr.responseText); } catch (e) { /* 非 JSON 响应走默认文案 */ }
+      if (json && json.code === 0 && json.data && json.data.id) {
+        att.attId = json.data.id;
+        att.status = json.data.status || 'uploaded';
+        att.progress = 100;
+        renderAttChip(att);
+        updateSendBtn();
+        // 落定态（ready/failed）无需轮询，其余进 1s 轮询
+        if (att.status !== 'ready' && att.status !== 'failed') startAttPoll(att);
+      } else {
+        attFail(att, (json && json.message) || '上传失败（HTTP ' + xhr.status + '）');
+      }
+    };
+    xhr.onerror = function () { att.xhr = null; attFail(att, '网络异常，上传失败'); };
+    xhr.send(fd);
+  }
+
+  function attFail(att, msg) {
+    att.status = 'failed';
+    att.error = msg;
+    stopAttPoll(att);
+    renderAttChip(att);
+    updateSendBtn();
+  }
+
+  // 解析状态轮询（1s；列表接口按 id 取单件，ready/failed 落定即停，失败静默下轮重试）
+  function startAttPoll(att) {
+    stopAttPoll(att);
+    att.timer = setInterval(async function () {
+      if (!att.attId) { stopAttPoll(att); return; }
+      try {
+        var r = await Shade.api('/api/v1/callme/sessions/' + encodeURIComponent(att.sessionId) + '/attachments');
+        var list = Array.isArray(r.data) ? r.data : [];
+        var found = null;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].id === att.attId) { found = list[i]; break; }
+        }
+        if (!found) return; // 列表暂未刷新出该件，下轮再查
+        att.status = found.status || att.status;
+        if (att.status === 'failed') att.error = found.error_message || '解析失败';
+        renderAttChip(att);
+        if (att.status === 'ready' || att.status === 'failed') stopAttPoll(att);
+      } catch (e) { /* 轮询失败静默，下轮重试 */ }
+    }, 1000);
+  }
+  function stopAttPoll(att) {
+    if (att.timer) { clearInterval(att.timer); att.timer = null; }
+  }
+
+  /* ============================================================
+     语音消息：MediaRecorder 依次探测 audio/mp4（产物 .m4a）→ audio/ogg;codecs=opus（→.ogg），
+     均不支持则隐藏入口（Chrome 场景）；按住说话 1-60s，<1s 取消，产物走同一附件上传通道
+     ============================================================ */
+  var voiceSupport = (function () {
+    if (!window.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
+    if (MediaRecorder.isTypeSupported('audio/mp4')) return { mime: 'audio/mp4', ext: 'm4a' };
+    if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) return { mime: 'audio/ogg;codecs=opus', ext: 'ogg' };
+    return null;
+  })();
+  var rec = { active: false, wanting: false, discard: false, mr: null, chunks: [], stream: null, startTs: 0, secTimer: null };
+
+  if (!voiceSupport) {
+    btnVoice.style.display = 'none';
+  } else {
+    btnVoice.addEventListener('mousedown', recStart);
+    btnVoice.addEventListener('mouseup', recStop);
+    btnVoice.addEventListener('mouseleave', recStop); // 兜底：按住移出按钮也正常收尾，防卡死
+    btnVoice.addEventListener('touchstart', recStart, { passive: false });
+    btnVoice.addEventListener('touchend', function (e) { e.preventDefault(); recStop(); }, { passive: false });
+    btnVoice.addEventListener('touchcancel', recStop);
+  }
+
+  function recStart(e) {
+    if (e && e.cancelable) e.preventDefault(); // 阻断触摸后的模拟鼠标事件与按住选中
+    if (rec.active || rec.wanting) return;
+    if (state.sending) { Shade.toast('回答生成中，请稍候'); return; }
+    if (!state.activeId) { Shade.toast('会话尚未就绪，请稍候'); return; }
+    if (state.attachments.length >= ATT_MAX) { Shade.toast('最多添加 ' + ATT_MAX + ' 个附件', 'error'); return; }
+    rec.wanting = true;
+    rec.discard = false;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      rec.stream = stream;
+      rec.wanting = false;
+      if (rec.discard) { stopRecStream(); return; } // 授权等待期间已松手
+      var mr;
+      try { mr = new MediaRecorder(stream, { mimeType: voiceSupport.mime }); }
+      catch (err) {
+        try { mr = new MediaRecorder(stream); } catch (err2) {
+          stopRecStream();
+          Shade.toast('当前浏览器不支持录音', 'error');
+          return;
+        }
+      }
+      rec.mr = mr;
+      rec.chunks = [];
+      mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) rec.chunks.push(ev.data); };
+      mr.onstop = onRecStop;
+      mr.start();
+      rec.active = true;
+      rec.startTs = Date.now();
+      btnVoice.classList.add('rec');
+      recInd.classList.add('on');
+      recSec.textContent = '0s';
+      rec.secTimer = setInterval(function () {
+        var sec = (Date.now() - rec.startTs) / 1000;
+        recSec.textContent = Math.min(60, Math.floor(sec)) + 's';
+        if (sec >= 60) recStop(); // 60s 上限自动停止
+      }, 200);
+    }).catch(function () {
+      rec.wanting = false;
+      Shade.toast('麦克风不可用，请检查浏览器授权', 'error');
+    });
+  }
+
+  function recStop() {
+    if (rec.wanting) { rec.discard = true; return; } // 授权弹窗未返回，标记弃用
+    if (!rec.active) return;
+    rec.active = false;
+    if (rec.secTimer) { clearInterval(rec.secTimer); rec.secTimer = null; }
+    recInd.classList.remove('on');
+    btnVoice.classList.remove('rec');
+    if (Date.now() - rec.startTs < 1000) {
+      rec.discard = true;
+      Shade.toast('说话时间太短');
+    }
+    try { if (rec.mr && rec.mr.state !== 'inactive') rec.mr.stop(); } catch (e) { /* 忽略 */ }
+  }
+
+  // 录音停止：弃用（太短/取消）或封装为 File 走附件上传通道
+  function onRecStop() {
+    var chunks = rec.chunks;
+    var discard = rec.discard;
+    rec.chunks = [];
+    rec.discard = false;
+    rec.mr = null;
+    stopRecStream();
+    if (discard || !chunks.length) return;
+    var blob = new Blob(chunks, { type: voiceSupport.mime });
+    if (!blob.size) return;
+    var d = new Date();
+    var name = '语音消息-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+      '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.' + voiceSupport.ext;
+    var file = new File([blob], name, { type: voiceSupport.mime });
+    addAttachmentFiles([file], 'mic');
+  }
+
+  function stopRecStream() {
+    if (rec.stream) {
+      rec.stream.getTracks().forEach(function (t) { t.stop(); });
+      rec.stream = null;
+    }
+  }
+
+  /* ============================================================
+     会话能力（GET /capabilities）：模型下拉（复用 Shade.dropdown .dd 体系）+ 联网搜索胶囊开关；
+     选择记忆于 localStorage（callme_model_id / callme_web_search），发送时随 payload 上送
+     ============================================================ */
+  state.webSearch = localStorage.getItem('callme_web_search') === '1';
+
+  async function loadCapabilities() {
+    try {
+      var r = await Shade.api('/api/v1/callme/capabilities');
+      state.caps = r.data || {};
+      setupModelSel(state.caps.models || []);
+      if (state.caps.web_search) { // web_search:false 时开关保持隐藏
+        syncWsBtn();
+        btnWs.style.display = '';
+      }
+    } catch (e) { /* 能力获取失败保持默认：开关不显示、模型走后端默认（payload 不带这两个字段） */ }
+  }
+
+  // 联网搜索胶囊：开=品牌蓝底白字 / 关=灰
+  function syncWsBtn() {
+    btnWs.classList.toggle('on', !!state.webSearch);
+  }
+  btnWs.addEventListener('click', function () {
+    state.webSearch = !state.webSearch;
+    localStorage.setItem('callme_web_search', state.webSearch ? '1' : '0');
+    syncWsBtn();
+  });
+
+  // 模型下拉：models 为空/仅 1 个时禁用态展示当前模型名；记忆值失效回退首个
+  function setupModelSel(models) {
+    if (!models.length) {
+      modelSel.innerHTML = '<option value="">默认模型</option>';
+      modelSel.disabled = true;
+    } else {
+      modelSel.innerHTML = models.map(function (m) {
+        return '<option value="' + Shade.esc(m.id) + '">' + Shade.esc(m.name || m.id) + '</option>';
+      }).join('');
+      var saved = localStorage.getItem('callme_model_id');
+      var hit = saved && models.some(function (m) { return m.id === saved; });
+      modelSel.value = hit ? saved : models[0].id;
+      state.modelId = modelSel.value;
+      if (models.length <= 1) modelSel.disabled = true;
+    }
+    var dd = Shade.dropdown(modelSel, { width: 'auto', height: 34 });
+    dd.el.classList.add('cm-model');
+  }
+  modelSel.addEventListener('change', function () {
+    state.modelId = modelSel.value;
+    localStorage.setItem('callme_model_id', modelSel.value);
+  });
 
   /* ============================================================
      侧栏静态注入与用户信息
@@ -1481,6 +1904,9 @@
   document.getElementById('welcomeIcon').innerHTML = Shade.icon('robot', 36, '#0E3DA8');
   document.getElementById('cmToggle').innerHTML = Shade.icon('chat', 16);
   btnAttach.innerHTML = Shade.icon('image', 19);
+  btnFile.innerHTML = Shade.icon('attach', 19);
+  btnVoice.innerHTML = Shade.icon('mic', 19);
+  btnWs.innerHTML = Shade.icon('globe', 14) + '<span class="ws-t">联网搜索</span>';
   btnSend.innerHTML = Shade.icon('send', 17, '#fff');
   chipX.innerHTML = Shade.icon('close', 10, '#fff');
 
@@ -1508,8 +1934,8 @@
   /* 接口最新资料刷新（失败回退本地缓存；顶栏头像/昵称由 refreshUser 统一更新，回调渲染侧栏用户条） */
   Shade.refreshUser(function (u) { if (u) renderUser(u); });
 
-  // 首次进入：加载会话列表并自动进入最近一次对话
-  loadSessions(true);
+  // 首次进入：加载会话列表并自动进入最近一次对话；会话就绪后再拉取模型/联网搜索能力
+  loadSessions(true).then(function () { loadCapabilities(); });
   autoGrow();
 </script>
 </body>

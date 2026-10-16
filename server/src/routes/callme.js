@@ -2,15 +2,31 @@
 // SSE 转发与解析细节见《开发指南》第六章；
 // 所有调用携带 X-External-User-ID（传登录账号 username 本身），会话按用户隔离
 const express = require('express');
+const multer = require('multer');
 const weknora = require('../services/weknora');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
 const { ok, fail } = require('../utils/resp');
 const { createSseParser } = require('../utils/sse');
+const { getFileExt, fixLatin1Name } = require('../utils/file');
 const agentSteps = require('../utils/agentsteps');
 
 const router = express.Router();
 router.use(auth, requireApp('call-me'));
+
+// 会话附件上传：单文件 ≤50MB，内存暂存后转发 WeKnora（同 safeday 口径）
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+});
+
+// 附件扩展名白名单（不含点、小写比较；与 WeKnora 临时文档支持的格式对齐）
+const ATTACHMENT_EXTS = new Set([
+  'pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'epub', 'mhtml',
+  'csv', 'md', 'markdown', 'txt', 'json', 'html',
+  'mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac',
+  'bmp', 'tiff', 'tif',
+]);
 
 // 统一处理 WeKnora 调用错误（避免把内部细节抛给客户端）
 function weknoraError(res, err, next) {
@@ -138,16 +154,143 @@ router.delete('/sessions/:id/messages/:msgId', async (req, res, next) => {
   }
 });
 
+// POST /api/v1/callme/sessions/:id/attachments 上传会话附件（multipart 字段 file，单文件 ≤50MB）
+// 转发 WeKnora 临时文档接口（异步解析，返回 status 供端侧轮询）
+router.post(
+  '/sessions/:id/attachments',
+  // multer 错误（超限等）转成业务响应，避免落入全局 500（与 worklog 同口径）
+  (req, res, next) => {
+    attachmentUpload.single('file')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') return fail(res, 400, 40027, '附件大小应在 50MB 以内');
+        return next(err);
+      }
+      return next();
+    });
+  },
+  async (req, res, next) => {
+    try {
+      const file = req.file;
+      if (!file) return fail(res, 400, 40029, '请选择要上传的附件');
+      // multer 默认按 latin1 解析文件名（1.x/2.x 同），中文名需转回 UTF-8
+      const filename = fixLatin1Name(file.originalname);
+      const ext = getFileExt(filename);
+      if (!ATTACHMENT_EXTS.has(ext)) {
+        return fail(res, 400, 40028, `不支持的附件格式：${ext || '无扩展名'}`);
+      }
+      const data = await weknora.uploadAttachment(req.user.username, req.params.id, {
+        buffer: file.buffer,
+        filename,
+        mimetype: file.mimetype,
+      });
+      const doc = (data && data.data) || {};
+      return ok(res, { id: doc.id, name: doc.file_name, size: doc.file_size, status: doc.status });
+    } catch (err) {
+      return weknoraError(res, err, next);
+    }
+  }
+);
+
+// GET /api/v1/callme/sessions/:id/attachments 会话附件列表
+// （字段子集映射 file_name/file_size → name/size；WeKnora 响应包裹 data）
+router.get('/sessions/:id/attachments', async (req, res, next) => {
+  try {
+    const data = await weknora.listAttachments(req.user.username, req.params.id);
+    const list = Array.isArray(data && data.data) ? data.data : [];
+    return ok(res, list.map((d) => ({
+      id: d.id,
+      name: d.file_name,
+      size: d.file_size,
+      status: d.status,
+      error_message: d.error_message,
+    })));
+  } catch (err) {
+    return weknoraError(res, err, next);
+  }
+});
+
+// GET /api/v1/callme/capabilities 端侧能力探测：可选模型列表 + 联网搜索是否可用
+// WeKnora 调用失败时降级为空能力（不报错），端侧据此隐藏对应按钮
+router.get('/capabilities', async (req, res) => {
+  const capabilities = { models: [], web_search: false };
+  try {
+    const [modelsRaw, agentRaw, providersRaw] = await Promise.all([
+      weknora.listModels(req.user.username),
+      weknora.getAgent(req.user.username),
+      weknora.listWebSearchProviders(req.user.username),
+    ]);
+    const models = Array.isArray(modelsRaw && modelsRaw.data) ? modelsRaw.data : [];
+    capabilities.models = models
+      .filter((m) => m.type === 'KnowledgeQA')
+      .map((m) => ({
+        id: m.id,
+        name: m.display_name || m.name,
+        // supports_vision 字段位置随 WeKnora 版本在 capabilities / parameters 之间变动，两处兼容
+        supports_vision: (m.capabilities && m.capabilities.supports_vision === true)
+          || (m.parameters && m.parameters.supports_vision === true),
+      }));
+    const agent = (agentRaw && agentRaw.data) || {};
+    const agentCfg = agent.config || {};
+    const agentWebSearch = agent.web_search_enabled === true || agentCfg.web_search_enabled === true;
+    const providerId = agent.web_search_provider_id || agentCfg.web_search_provider_id || '';
+    const providers = Array.isArray(providersRaw && providersRaw.data) ? providersRaw.data : [];
+    capabilities.web_search = agentWebSearch
+      && (!!providerId || providers.some((p) => p.is_default === true));
+  } catch (err) {
+    // 探测失败降级为空能力，不影响对话主流程
+  }
+  return ok(res, capabilities);
+});
+
 // POST /api/v1/callme/chat 发送消息（SSE 流式转发）
-// 入参：{ session_id, query, images? }；出参：text/event-stream
+// 入参：{ session_id, query, images?, attachment_ids?, web_search?, model_id? }；出参：text/event-stream
 // 事件格式（已归一化）：data: {"type":"thinking|answer|preamble|tool_start|tool_end|title|references|done|error", ...}
 // thinking：思考增量；preamble：工具调用前的过渡语需从回答区挪入思考区（对齐官方 UI 语义）；
 // tool_start/tool_end：步骤树工具节点（展示就绪：title/summary 由 utils/agentsteps 生成）；
 // title：自动生成的会话标题；references：引用来源列表 [{id, title}]
 router.post('/chat', async (req, res) => {
-  const { session_id: sessionId, query, images } = req.body || {};
+  const {
+    session_id: sessionId,
+    query,
+    images,
+    attachment_ids: attachmentIds,
+    web_search: webSearch,
+    model_id: modelId,
+  } = req.body || {};
   if (!sessionId || !query) {
     return fail(res, 400, 40003, '缺少 session_id 或 query');
+  }
+  // 附件引用：数组 ≤5、元素非空字符串（须先经 /sessions/:id/attachments 上传）
+  if (attachmentIds !== undefined
+    && (!Array.isArray(attachmentIds) || attachmentIds.length > 5
+      || attachmentIds.some((id) => typeof id !== 'string' || !id.trim()))) {
+    return fail(res, 400, 40043, 'attachment_ids 参数无效（最多 5 个附件）');
+  }
+  if (webSearch !== undefined && typeof webSearch !== 'boolean') {
+    return fail(res, 400, 40047, 'web_search 参数无效');
+  }
+  // 模型覆盖：非空字符串才生效，空串/缺省走会话默认模型
+  if (modelId !== undefined && modelId !== null && typeof modelId !== 'string') {
+    return fail(res, 400, 40048, 'model_id 参数无效');
+  }
+  const summaryModelId = typeof modelId === 'string' ? modelId.trim() : '';
+  // 图片：≤1 张、须 data:image/(jpeg|png|gif|webp);base64, 头、解码后 ≤8MB
+  if (images !== undefined) {
+    if (!Array.isArray(images) || images.length > 1) {
+      return fail(res, 400, 40044, '图片最多 1 张');
+    }
+    if (images.length) {
+      const item = images[0];
+      const dataUrl = (item && typeof item === 'object') ? item.data : item;
+      const match = typeof dataUrl === 'string'
+        && dataUrl.match(/^data:image\/(jpeg|png|gif|webp);base64,([A-Za-z0-9+/=\s]*)$/);
+      if (!match) {
+        return fail(res, 400, 40045, '图片格式应为 jpeg/png/gif/webp（base64 dataURL）');
+      }
+      if (Buffer.from(match[2], 'base64').length > 8 * 1024 * 1024) {
+        return fail(res, 400, 40046, '图片大小应在 8MB 以内');
+      }
+    }
   }
 
   // SSE 响应头（X-Accel-Buffering 关闭 Nginx 缓冲，见指南第七节）
@@ -194,7 +337,13 @@ router.post('/chat', async (req, res) => {
   res.on('error', () => {});
 
   try {
-    const wres = await weknora.agentChatStream(req.user.username, sessionId, { query, images });
+    const wres = await weknora.agentChatStream(req.user.username, sessionId, {
+      query,
+      images,
+      attachmentIds,
+      webSearch,
+      modelId: summaryModelId,
+    });
     upstream = wres.data;
     armSilence();
 

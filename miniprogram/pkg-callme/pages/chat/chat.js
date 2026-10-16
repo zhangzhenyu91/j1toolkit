@@ -11,8 +11,15 @@ import { shareAppMessage } from '../../../utils/share';
 // Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（「政企蓝白」色板，mp-html 按标签名生效）；
 // 容器样式本地覆盖——聊天气泡字号略大（14.5px），其余与共享口径一致
 const { renderMarkdownRaw, MD_TAG_STYLE } = require('../../../utils/markdown');
-const { parseDate, pad } = require('../../../utils/util');
+const { parseDate, pad, fmtSize, extOf } = require('../../../utils/util');
 const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#1D2129;word-break:break-word;';
+
+// 附件白名单与上限（与服务端一致；wx.chooseMessageFile extension 过滤 + 端侧复核，同 worklog 先例）
+const ATTACH_EXTS = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'epub', 'mhtml', 'csv', 'md', 'markdown', 'txt', 'json', 'html', 'mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac', 'bmp', 'tiff', 'tif'];
+const ATTACH_MAX = 5;
+const ATTACH_MAX_SIZE = 50 * 1024 * 1024;
+// 音频扩展名（附件芯片图标区分用）
+const AUDIO_EXTS = ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac'];
 
 // 消息时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm
 function timeTextOf(input) {
@@ -35,6 +42,15 @@ Page({
     hasMore: false, // 是否还有更早的历史消息（before_time 分页）
     inputValue: '',
     pendingImage: null, // { path: 本地预览路径, data: base64 dataURL }
+    // 附件芯片：{ key, id, name, sizeText, icon, status: uploading|parsing|ready|failed, progress, error? }
+    attachments: [],
+    webSearchSupported: false, // 后端支持联网搜索时才显示开关胶囊
+    webSearchOn: false,
+    models: [], // 可选模型 [{ id, name, supports_vision }]
+    modelId: '', // 空 = 服务端默认模型（发送时不传 model_id）
+    modelName: '',
+    recording: false,
+    recordSeconds: 0,
     sending: false,
     canSend: false,
     toView: '',
@@ -56,15 +72,19 @@ Page({
     }
     this._keySeq = 0; // 消息本地唯一 key（wx:key 用，删除后不复用）
     this._stepSeq = 0; // 步骤树节点唯一序号（wx:key 用）
+    this._attSeq = 0; // 附件芯片本地唯一 key（wx:key 用）
+    this._pollTimers = {}; // 附件解析轮询计时器（按芯片 key 管理）
     this._loadingEarlier = false;
     this.setData({
       sessionId: id,
       title: title ? decodeURIComponent(title) : 'Call Me',
     });
     this.loadHistory();
+    this.loadCapabilities();
   },
 
   onUnload() {
+    this._unloaded = true;
     if (this._renderTimer) {
       clearTimeout(this._renderTimer);
       this._renderTimer = null;
@@ -72,6 +92,17 @@ Page({
     if (this._scrollTimer) {
       clearTimeout(this._scrollTimer);
       this._scrollTimer = null;
+    }
+    // 附件解析轮询与录音计时一并清掉，避免页面销毁后仍在 setData
+    Object.keys(this._pollTimers || {}).forEach((k) => clearTimeout(this._pollTimers[k]));
+    this._pollTimers = {};
+    if (this._recTimer) {
+      clearInterval(this._recTimer);
+      this._recTimer = null;
+    }
+    if (this.data.recording && this._recorder) {
+      this._recDiscard = true;
+      this._recorder.stop();
     }
   },
 
@@ -391,10 +422,13 @@ Page({
   },
 
   onInput(e) {
-    this.setData({
-      inputValue: e.detail.value,
-      canSend: !!e.detail.value.trim() && !this.data.sending,
-    });
+    this.setData({ inputValue: e.detail.value }, () => this.refreshCanSend());
+  },
+
+  // 发送可用性：有内容、非发送中、无上传中的附件（解析中不阻塞）
+  refreshCanSend() {
+    const uploading = this.data.attachments.some((a) => a.status === 'uploading');
+    this.setData({ canSend: !!this.data.inputValue.trim() && !this.data.sending && !uploading });
   },
 
   // 键盘高度变化：输入栏整体上移，底边与键盘顶齐平（页面不被顶起，标题栏保留原位；
@@ -424,7 +458,9 @@ Page({
           encoding: 'base64',
           success: (r) => {
             const ext = (path.split('.').pop() || 'jpeg').toLowerCase();
-            const mime = ext === 'png' ? 'png' : 'jpeg';
+            // 按扩展名映射真实 MIME（jpg 归一 jpeg；未知扩展名回退 jpeg）
+            const MIME_MAP = { jpg: 'jpeg', jpeg: 'jpeg', png: 'png', gif: 'gif', webp: 'webp' };
+            const mime = MIME_MAP[ext] || 'jpeg';
             this.setData({
               pendingImage: { path, data: `data:image/${mime};base64,${r.data}` },
             });
@@ -443,12 +479,292 @@ Page({
     wx.previewImage({ urls: [e.currentTarget.dataset.src] });
   },
 
+  // ---------- 附件 ----------
+  // 选择附件（wx.chooseMessageFile 从聊天文件选取，白名单过滤 + 端侧复核，同 worklog 先例）
+  chooseFile() {
+    if (this.data.sending) return;
+    const left = ATTACH_MAX - this.data.attachments.length;
+    if (left <= 0) {
+      this.toast(`附件最多 ${ATTACH_MAX} 个`);
+      return;
+    }
+    wx.chooseMessageFile({
+      count: left,
+      type: 'file',
+      extension: ATTACH_EXTS,
+      success: (res) => {
+        (res.tempFiles || []).slice(0, left).forEach((t) => {
+          if (!ATTACH_EXTS.includes(extOf(t.name))) {
+            this.toast(`不支持的文件类型：${t.name}`);
+            return;
+          }
+          if (t.size > ATTACH_MAX_SIZE) {
+            this.toast('单个附件不超过 50MB');
+            return;
+          }
+          this.addAttachment({ name: t.name, size: t.size, path: t.path });
+        });
+      },
+    });
+  },
+
+  // 附件入列并启动上传 → 成功后转入解析轮询（语音消息同走此通道）
+  addAttachment({ name, size, path }) {
+    this._attSeq += 1;
+    const key = `a${this._attSeq}`;
+    const chip = {
+      key,
+      id: '',
+      name,
+      sizeText: fmtSize(size || 0),
+      icon: AUDIO_EXTS.includes(extOf(name)) ? 'music' : 'attach',
+      status: 'uploading',
+      progress: 0,
+    };
+    this.setData({ attachments: this.data.attachments.concat([chip]) }, () => this.refreshCanSend());
+    this.uploadAttachment(key, path, name)
+      .then((data) => {
+        if (this._unloaded) return;
+        const idx = this.data.attachments.findIndex((a) => a.key === key);
+        if (idx < 0) return;
+        if (!data || !data.id) {
+          this.setData({ [`attachments[${idx}].status`]: 'failed' }, () => this.refreshCanSend());
+          this.toast('上传响应异常，请重试');
+          return;
+        }
+        this.setData(
+          {
+            [`attachments[${idx}].id`]: data.id,
+            [`attachments[${idx}].status`]: 'parsing',
+            [`attachments[${idx}].progress`]: 100,
+          },
+          () => this.refreshCanSend()
+        );
+        this.pollAttachment(key, data.id);
+      })
+      .catch((err) => {
+        if (this._unloaded) return;
+        const idx = this.data.attachments.findIndex((a) => a.key === key);
+        if (idx < 0) return;
+        this.setData({ [`attachments[${idx}].status`]: 'failed' }, () => this.refreshCanSend());
+        this.toast(err.message);
+      });
+  },
+
+  // 单个附件上传（wx.uploadFile 手动带 Authorization；onProgressUpdate 更新芯片进度）
+  uploadAttachment(key, filePath, name) {
+    const token = wx.getStorageSync('token');
+    return new Promise((resolve, reject) => {
+      const task = wx.uploadFile({
+        url: `${BASE_URL}/api/v1/callme/sessions/${this.data.sessionId}/attachments`,
+        filePath,
+        name: 'file',
+        header: token ? { Authorization: `Bearer ${token}` } : {},
+        // uploadFile 以临时路径 basename 为 multipart 文件名，原始文件名走表单字段（同 worklog 先例）
+        formData: { name },
+        success: (res) => {
+          let body = {};
+          try {
+            body = JSON.parse(res.data || '{}');
+          } catch (e) {
+            // 非 JSON 响应按失败处理
+          }
+          if (res.statusCode >= 200 && res.statusCode < 300 && (body.code === 0 || body.success === true)) {
+            resolve(body.data || {});
+            return;
+          }
+          reject(new Error(body.message || `附件上传失败（${res.statusCode}）`));
+        },
+        fail: () => reject(new Error('网络异常，请检查网络后重试')),
+      });
+      task.onProgressUpdate((r) => {
+        const idx = this.data.attachments.findIndex((a) => a.key === key);
+        if (idx >= 0) this.setData({ [`attachments[${idx}].progress`]: r.progress });
+      });
+    });
+  },
+
+  // 附件解析状态轮询：上传成功后每 1s 拉列表直至 ready / failed（芯片被移除或页面卸载即终止）
+  pollAttachment(key, id) {
+    this._pollTimers[key] = setTimeout(async () => {
+      delete this._pollTimers[key];
+      if (this._unloaded) return;
+      try {
+        const list = await request({ url: `/api/v1/callme/sessions/${this.data.sessionId}/attachments` });
+        if (this._unloaded) return;
+        const found = (list || []).find((a) => a.id === id);
+        const idx = this.data.attachments.findIndex((a) => a.key === key);
+        if (idx < 0) return;
+        if (found && (found.status === 'ready' || found.status === 'failed')) {
+          this.setData({
+            [`attachments[${idx}].status`]: found.status,
+            [`attachments[${idx}].error`]: found.error_message || '',
+          });
+          return;
+        }
+      } catch (err) {
+        // 拉取失败不视为附件失败，继续轮询
+      }
+      this.pollAttachment(key, id);
+    }, 1000);
+  },
+
+  // 移除附件芯片（仅本地移除；解析失败标红的芯片也经此清理）
+  removeAttachment(e) {
+    const { key } = e.currentTarget.dataset;
+    if (this._pollTimers[key]) {
+      clearTimeout(this._pollTimers[key]);
+      delete this._pollTimers[key];
+    }
+    this.setData({ attachments: this.data.attachments.filter((a) => a.key !== key) }, () => this.refreshCanSend());
+  },
+
+  // ---------- 语音消息 ----------
+  // 按住说话：wx.getRecorderManager 录 mp3（≤60s 自动停），松开后走附件上传通道入芯片
+  ensureRecorder() {
+    if (this._recorder) return;
+    this._recorder = wx.getRecorderManager();
+    this._recorder.onStop((res) => {
+      if (this._recTimer) {
+        clearInterval(this._recTimer);
+        this._recTimer = null;
+      }
+      if (this._unloaded) {
+        this._recDiscard = false;
+        return;
+      }
+      this.setData({ recording: false, recordSeconds: 0 });
+      if (this._recDiscard) {
+        this._recDiscard = false;
+        return;
+      }
+      if (!res || !res.tempFilePath) return;
+      if (this.data.attachments.length >= ATTACH_MAX) {
+        this.toast(`附件最多 ${ATTACH_MAX} 个`);
+        return;
+      }
+      const d = new Date();
+      const name = `语音消息-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.mp3`;
+      this.addAttachment({ name, size: res.fileSize || 0, path: res.tempFilePath });
+    });
+    this._recorder.onError(() => {
+      if (this._recTimer) {
+        clearInterval(this._recTimer);
+        this._recTimer = null;
+      }
+      if (this._unloaded) return;
+      this.setData({ recording: false, recordSeconds: 0 });
+      this.toast('录音失败，请重试');
+    });
+  },
+
+  onVoiceStart() {
+    if (this.data.sending || this.data.recording) return;
+    this.ensureRecorder();
+    const start = () => {
+      this._recDiscard = false;
+      this._recStartAt = Date.now();
+      this._recorder.start({ format: 'mp3', duration: 60000 });
+      this.setData({ recording: true, recordSeconds: 0 });
+      this._recTimer = setInterval(() => {
+        this.setData({ recordSeconds: Math.min(60, Math.floor((Date.now() - this._recStartAt) / 1000)) });
+      }, 200);
+    };
+    const askAndStart = () => {
+      wx.authorize({
+        scope: 'scope.record',
+        success: start,
+        // 用户拒绝后引导去设置页开启
+        fail: () => wx.showModal({
+          title: '需要录音权限',
+          content: '语音消息需要使用麦克风，请在设置中开启录音权限。',
+          confirmText: '去开启',
+          success: (m) => {
+            if (m.confirm) wx.openSetting();
+          },
+        }),
+      });
+    };
+    wx.getSetting({
+      success: (s) => {
+        if (s.authSetting && s.authSetting['scope.record']) start();
+        else askAndStart();
+      },
+      fail: askAndStart,
+    });
+  },
+
+  onVoiceEnd() {
+    if (!this.data.recording) return;
+    // 不足 1s 取消并提示（onStop 内按 _recDiscard 丢弃）
+    if (Date.now() - this._recStartAt < 1000) {
+      this._recDiscard = true;
+      this.toast('说话时间太短');
+    }
+    this._recorder.stop();
+  },
+
+  // 触摸被系统打断（手势/来电等）兜底丢弃本次录音
+  onVoiceCancel() {
+    if (!this.data.recording) return;
+    this._recDiscard = true;
+    this._recorder.stop();
+  },
+
+  // ---------- 模型与联网搜索 ----------
+  // 能力查询：可选模型清单 + 联网搜索支持与否，本地记忆上次选择；失败不阻断对话（胶囊保持隐藏）
+  async loadCapabilities() {
+    try {
+      const data = await request({ url: '/api/v1/callme/capabilities' });
+      const models = Array.isArray(data && data.models) ? data.models : [];
+      const savedId = wx.getStorageSync('callme_model_id');
+      const saved = models.find((m) => m.id === savedId);
+      this.setData({
+        models,
+        modelId: saved ? saved.id : '',
+        modelName: saved ? saved.name : '',
+        webSearchSupported: !!(data && data.web_search),
+        webSearchOn: !!(data && data.web_search) && !!wx.getStorageSync('callme_web_search'),
+      });
+    } catch (err) {
+      // 查询失败：胶囊隐藏，发送不带扩展参数
+    }
+  },
+
+  toggleWebSearch() {
+    if (!this.data.webSearchSupported) return;
+    const on = !this.data.webSearchOn;
+    this.setData({ webSearchOn: on });
+    wx.setStorageSync('callme_web_search', on);
+  },
+
+  // 切换模型（仅 1 个可用模型时为禁用态）
+  chooseModel() {
+    const { models } = this.data;
+    if (!models || models.length <= 1) return;
+    wx.showActionSheet({
+      itemList: models.map((m) => m.name),
+      success: (res) => {
+        const m = models[res.tapIndex];
+        if (!m) return;
+        this.setData({ modelId: m.id, modelName: m.name });
+        wx.setStorageSync('callme_model_id', m.id);
+      },
+    });
+  },
+
   // ---------- 发送与 SSE 流式接收 ----------
   onSend() {
     const query = this.data.inputValue.trim();
     if (!query || this.data.sending) return;
+    // 上传中禁止发送（解析中不阻塞：uploaded/processing/ready 均随本条上送，对齐 WeKnora 官方口径）
+    if (this.data.attachments.some((a) => a.status === 'uploading')) {
+      this.toast('附件上传中，请稍候');
+      return;
+    }
 
     const { pendingImage } = this.data;
+    const sendIds = this.data.attachments.filter((a) => a.id && a.status !== 'failed').map((a) => a.id);
     const userKey = `k${(this._keySeq += 1)}`;
     const answerKey = `k${(this._keySeq += 1)}`;
     const messages = this.data.messages.concat([
@@ -479,6 +795,8 @@ Page({
       messages,
       inputValue: '',
       pendingImage: null,
+      // 随本条发送的附件出列；仅失败的芯片保留待用户移除重传
+      attachments: this.data.attachments.filter((a) => a.status === 'failed'),
       sending: true,
       canSend: false,
     });
@@ -486,6 +804,9 @@ Page({
 
     const payload = { session_id: this.data.sessionId, query };
     if (pendingImage) payload.images = [{ data: pendingImage.data }];
+    if (sendIds.length) payload.attachment_ids = sendIds;
+    if (this.data.webSearchOn) payload.web_search = true; // 未开启不传
+    if (this.data.modelId) payload.model_id = this.data.modelId; // 未选不传（服务端默认模型）
 
     const token = wx.getStorageSync('token');
     const parser = createSseParser((evt) => this.onSseEvent(evt, answerIndex));
@@ -624,15 +945,18 @@ Page({
         }
       }
       if (dup >= 0) {
-        this.setData(
-          {
-            [`${key}.steps[${dup}].title`]: evt.title || msg.steps[dup].title,
-            [`${key}.steps[${dup}].name`]: evt.name || msg.steps[dup].name,
-            [`${key}.steps[${dup}].icon`]: this.toolIcon(evt.name || msg.steps[dup].name),
-            [`${key}.thinkLabel`]: evt.title || msg.steps[dup].title,
-          },
-          () => this.scrollStepEnd(index)
-        );
+        // 仅进行中节点回写标题：完成态节点不被迟到的重复帧改回「正在调用…」文案
+        if (msg.steps[dup].status === 'running') {
+          this.setData(
+            {
+              [`${key}.steps[${dup}].title`]: evt.title || msg.steps[dup].title,
+              [`${key}.steps[${dup}].name`]: evt.name || msg.steps[dup].name,
+              [`${key}.steps[${dup}].icon`]: this.toolIcon(evt.name || msg.steps[dup].name),
+              [`${key}.thinkLabel`]: evt.title || msg.steps[dup].title,
+            },
+            () => this.scrollStepEnd(index)
+          );
+        }
       } else {
         this._stepSeq += 1;
         const node = {
@@ -655,13 +979,25 @@ Page({
         );
       }
     } else if (evt.type === 'tool_end') {
-      // 按 tool_call_id 定位节点，兜底取最后一个 running 节点
+      // 按 tool_call_id 精确匹配定位节点（同轮可并行多个同名调用、帧交错，必须精确优先，
+      // 否则 running 兜底会让后开的并行节点抢答别人的完成事件）；仅无匹配时兜底取最后一个 running 节点
       let ti = -1;
-      for (let i = msg.steps.length - 1; i >= 0; i -= 1) {
-        const s = msg.steps[i];
-        if (s.kind === 'tool' && ((evt.id && s.id === evt.id) || s.status === 'running')) {
-          ti = i;
-          break;
+      if (evt.id) {
+        for (let i = msg.steps.length - 1; i >= 0; i -= 1) {
+          const s = msg.steps[i];
+          if (s.kind === 'tool' && s.id === evt.id) {
+            ti = i;
+            break;
+          }
+        }
+      }
+      if (ti < 0) {
+        for (let j = msg.steps.length - 1; j >= 0; j -= 1) {
+          const s2 = msg.steps[j];
+          if (s2.kind === 'tool' && s2.status === 'running') {
+            ti = j;
+            break;
+          }
         }
       }
       if (ti >= 0) {
@@ -692,7 +1028,8 @@ Page({
       };
       this.setData(patch);
       this.renderNow(index);
-      this.setData({ sending: false, canSend: !!this.data.inputValue.trim() });
+      this.setData({ sending: false });
+      this.refreshCanSend();
     } else if (evt.type === 'done') {
       // 回答完毕：步骤树自动折叠，记录完成时间与思考摘要
       const patch = {
@@ -703,7 +1040,8 @@ Page({
       };
       this.setData(patch);
       this.renderNow(index);
-      this.setData({ sending: false, canSend: !!this.data.inputValue.trim() });
+      this.setData({ sending: false });
+      this.refreshCanSend();
     }
   },
 
@@ -730,7 +1068,8 @@ Page({
       this.setData(patch);
       this.renderNow(index);
     }
-    this.setData({ sending: false, canSend: !!this.data.inputValue.trim() });
+    this.setData({ sending: false });
+    this.refreshCanSend();
     // 失败轮次消息可能未落库，同步会把上一轮的 id 错配到本轮（误删风险），故仅成功时同步
     if (!errorMessage && msg && !msg.error) {
       this.syncRecentIds();

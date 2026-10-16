@@ -2,6 +2,7 @@
 // 认证方式：X-API-Key 请求头（不是 Authorization Bearer）；
 // 另需 X-External-User-ID 标识终端用户（直接用本系统登录账号），会话按用户隔离
 const axios = require('axios');
+const FormData = require('form-data');
 const config = require('../config');
 
 const client = axios.create({
@@ -77,18 +78,71 @@ async function deleteMessage(username, sessionId, messageId) {
   return res.data;
 }
 
+// 上传会话附件（POST /sessions/{id}/attachments，multipart 字段 file + 表单字段 agent_id；
+// WeKnora 异步解析，响应 {success, data}，data 为 {id, file_name, file_size, status, error_message}）
+async function uploadAttachment(username, sessionId, { buffer, filename, mimetype }) {
+  ensureConfigured();
+  const fd = new FormData();
+  fd.append('file', buffer, { filename, contentType: mimetype });
+  fd.append('agent_id', config.weknora.agentId);
+  const res = await client.post(`/sessions/${sessionId}/attachments`, fd, {
+    headers: { ...fd.getHeaders(), ...extHeaders(username) },
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
+  return res.data;
+}
+
+// 会话附件列表（GET /sessions/{id}/attachments，响应包裹 data）
+async function listAttachments(username, sessionId) {
+  ensureConfigured();
+  const res = await client.get(`/sessions/${sessionId}/attachments`, {
+    headers: extHeaders(username),
+  });
+  return res.data;
+}
+
+// 模型列表（GET /models；本实例这些租户级接口同样强制 X-External-User-ID，缺了会 401）
+async function listModels(username) {
+  ensureConfigured();
+  const res = await client.get('/models', { headers: extHeaders(username) });
+  return res.data;
+}
+
+// Agent 配置（GET /agents/{id}；web_search_enabled / web_search_provider_id 在 data.config 内）
+async function getAgent(username) {
+  ensureConfigured();
+  const res = await client.get(`/agents/${config.weknora.agentId}`, { headers: extHeaders(username) });
+  return res.data;
+}
+
+// 联网搜索提供商列表（GET /web-search-providers；is_default 标记默认提供商）
+async function listWebSearchProviders(username) {
+  ensureConfigured();
+  const res = await client.get('/web-search-providers', { headers: extHeaders(username) });
+  return res.data;
+}
+
 // Agent 对话（SSE 流式），返回 axios 流式响应，由调用方读取 res.data 流
-async function agentChatStream(username, sessionId, { query, images }) {
+// webSearch 开启本轮联网搜索；modelId 非空时覆盖本轮总结模型（summary_model_id）；
+// attachmentIds 引用本会话已上传的附件（须先经 POST /sessions/{id}/attachments 上传）
+async function agentChatStream(username, sessionId, { query, images, attachmentIds, webSearch, modelId }) {
   ensureConfigured();
   const payload = {
     query,
     agent_id: config.weknora.agentId,
     agent_enabled: true,
-    web_search_enabled: false,
+    web_search_enabled: !!webSearch,
     channel: 'api',
   };
   if (Array.isArray(images) && images.length) {
     payload.images = images; // 形如 [{ data: 'data:image/png;base64,...' }]
+  }
+  if (Array.isArray(attachmentIds) && attachmentIds.length) {
+    payload.attachment_ids = attachmentIds;
+  }
+  if (modelId) {
+    payload.summary_model_id = modelId;
   }
   return client.post(`/agent-chat/${sessionId}`, payload, {
     headers: extHeaders(username),
@@ -105,5 +159,10 @@ module.exports = {
   updateSession,
   deleteSession,
   deleteMessage,
+  uploadAttachment,
+  listAttachments,
+  listModels,
+  getAgent,
+  listWebSearchProviders,
   agentChatStream,
 };

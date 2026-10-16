@@ -700,6 +700,16 @@
       + '&disposition=' + (disposition === 'inline' ? 'inline' : 'attachment')
       + '&token=' + encodeURIComponent(localStorage.getItem('shade_token') || '');
   }
+  // 原生直链下载：临时 <a download> 触发浏览器保存，不经内存 Blob 中转（大文件即点即下）；
+  // name 仅作回退，缺省/为空时取响应 Content-Disposition 文件名
+  function triggerDownload(url, name) {
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name || '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
   // 网格缩略图 URL（仅位图格式走后端 /thumb 缓存；svg 等小图维持 inline 直链）
   var THUMB_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
   function gridImgUrl(rel, name) {
@@ -1340,24 +1350,18 @@
     el.style.opacity = '0';
     setTimeout(function () { el.remove(); }, 160);
   }
-  // 多选逐个顺序下载（文件夹不可下，已在入口过滤计数）
-  async function downloadItems(items) {
+  // 多选逐个顺序下载（文件夹不可下，已在入口过滤计数）：
+  // 原生直链下载（dlUrl 自带 ?token= 鉴权），不再整读内存 Blob，大文件即点即下；
+  // 后端出错时会存下 JSON 信封而非 toast，属接受的小概率退化
+  function downloadItems(items) {
     var files = items.filter(function (it) { return !it.is_dir; });
     if (!files.length) { Shade.toast('所选内容没有可下载的文件', 'info'); return; }
-    for (var i = 0; i < files.length; i++) {
-      var f = files[i];
-      if (files.length > 1) Shade.toast('正在下载 ' + (i + 1) + '/' + files.length + '：' + f.name, 'info');
-      try {
-        var res = await Shade.apiRaw(dlUrl(f._rel, 'attachment'));
-        if (!res.ok) {
-          var j = await res.json().catch(function () { return null; });
-          throw new Error((j && j.message) || ('HTTP ' + res.status));
-        }
-        await Shade.saveBlob(res, f.name);
-      } catch (e) {
-        Shade.toast('下载失败：' + f.name + '（' + e.message + '）', 'error');
-      }
-    }
+    files.forEach(function (f, i) {
+      setTimeout(function () {
+        if (files.length > 1) Shade.toast('正在下载 ' + (i + 1) + '/' + files.length + '：' + f.name, 'info');
+        triggerDownload(dlUrl(f._rel, 'attachment'), f.name);
+      }, i * 300);
+    });
   }
 
   /* ================= 新建文件夹 / 重命名 / 删除 ================= */
@@ -1763,22 +1767,16 @@
       if (x.is_dir) { st.inner = x.rel; loadList(); }
       else downloadInner(x);
     });
-    // 包内文件下载：流式中转（apiRaw 带 Authorization；信封错误解析 message）
-    async function downloadInner(x) {
+    // 包内文件下载：原生直链（URL 补 &token= 鉴权，拼法同 dlUrl；后端 tokenQuery 映射），不再整读内存 Blob；
+    // 后端出错（如压缩密码错误）会存下 JSON 信封而非 toast，属接受的小概率退化
+    function downloadInner(x) {
       if (!x) return;
       var url = API + '/archive/download?space=' + encodeURIComponent(S.space)
         + '&path=' + encodeURIComponent(it._rel)
         + '&inner=' + encodeURIComponent(x.rel)
-        + (st.pass ? '&archive_pass=' + encodeURIComponent(st.pass) : '');
-      try {
-        var res = await Shade.apiRaw(url);
-        var ct = res.headers.get('Content-Type') || '';
-        if (!res.ok || /json/i.test(ct)) {
-          var j = await res.json().catch(function () { return null; });
-          throw new Error((j && j.message) || ('HTTP ' + res.status));
-        }
-        await Shade.saveBlob(res, x.name);
-      } catch (e) { Shade.toast('下载失败：' + e.message, 'error'); }
+        + (st.pass ? '&archive_pass=' + encodeURIComponent(st.pass) : '')
+        + '&token=' + encodeURIComponent(localStorage.getItem('shade_token') || '');
+      triggerDownload(url, x.name);
     }
 
     // 入口：meta 判 encrypted

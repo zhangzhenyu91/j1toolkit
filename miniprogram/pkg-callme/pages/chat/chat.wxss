@@ -335,6 +335,134 @@
   justify-content: center;
 }
 
+/* ---------- 能力胶囊（联网搜索 / 当前模型） ---------- */
+.cap-row {
+  display: flex;
+  gap: 16rpx;
+  margin-bottom: 12rpx;
+}
+
+.cap-pill {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  background: #F7F8FA;
+  color: #4E5969;
+  font-size: 22rpx;
+  line-height: 1.5;
+  transition: opacity 0.15s ease;
+}
+
+.cap-pill-on {
+  background: #0E3DA8;
+  color: #FFFFFF;
+}
+
+/* 仅 1 个可用模型时的禁用态 */
+.cap-pill-off {
+  opacity: 0.6;
+}
+
+/* ---------- 附件芯片 ---------- */
+.attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  background: #F7F8FA;
+  border-radius: 8rpx;
+  padding: 12rpx 16rpx;
+}
+
+.attach-chip-err {
+  background: #FFECE8;
+}
+
+.attach-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.attach-name {
+  font-size: 24rpx;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-meta {
+  font-size: 20rpx;
+  color: #86909C;
+}
+
+.attach-chip-err .attach-meta {
+  color: #F53F3F;
+}
+
+.attach-progress {
+  margin-top: 8rpx;
+  height: 4rpx;
+  border-radius: 2rpx;
+  background: #E5E6EB;
+  overflow: hidden;
+}
+
+.attach-progress-bar {
+  height: 100%;
+  background: #0E3DA8;
+}
+
+.attach-close {
+  flex: none;
+  padding: 8rpx;
+  color: rgba(29,33,41,.4);
+  font-size: 24rpx;
+  line-height: 1;
+}
+
+/* ---------- 语音 ---------- */
+.rec-panel {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+  padding: 16rpx 20rpx;
+  background: #E8F0FF;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  color: #0E3DA8;
+}
+
+.rec-dot {
+  width: 16rpx;
+  height: 16rpx;
+  flex: none;
+  border-radius: 50%;
+  background: #F53F3F;
+  animation: recBreath 1s ease-in-out infinite;
+}
+
+.mic-btn-on {
+  background: #E8F0FF;
+  border-radius: 8rpx;
+}
+
+@keyframes recBreath {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
 .input-row {
   display: flex;
   align-items: flex-end;

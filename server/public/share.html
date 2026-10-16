@@ -256,6 +256,16 @@
     return API + '/public/share/' + encodeURIComponent(sid) + '/download?path=' + encodeURIComponent(rel)
       + '&ticket=' + encodeURIComponent(T.ticket);
   }
+  // 原生直链下载：临时 <a download> 触发浏览器保存，不经内存 Blob 中转（大文件即点即下）；
+  // name 仅作回退，缺省/为空时取响应 Content-Disposition 文件名
+  function triggerDownload(url, name) {
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name || '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
   function expireText() {
     if (!T.info) return '';
     return '创建于 ' + (Shade.fmtDate(T.info.created_at) || '—')
@@ -538,17 +548,20 @@
     el.style.opacity = '0';
     setTimeout(function () { el.remove(); }, 160);
   }
-  // 下载：fetch 校验信封（ticket 失效回引导重验），二进制交给 Shade.saveBlob 落地
+  // 下载：先 Range 预检判 JSON 信封（ticket 失效 40311 回引导重验），通过再走原生直链落地，不再整读内存 Blob。
+  // 取舍：后端 pipeDownload 不支持 Range 会回 200 全流，预检取到响应头即取消 body，开销可忽略；
+  // 预检通过到直跳之间票据恰好失效等极小概率场景会存下 JSON 文件而非回引导，属接受范围
   async function downloadItem(it) {
     try {
-      var res = await fetch(dlUrl(it._rel));
+      var res = await fetch(dlUrl(it._rel), { headers: { Range: 'bytes=0-0' } });
       var ct = res.headers.get('Content-Type') || '';
       if (!res.ok || /json/i.test(ct)) {
         var j = await res.json().catch(function () { return null; });
         if (j && j.code === 40311) { T.ticket = ''; renderPwForm('访问票据已过期，请重新输入提取码'); return; }
         throw new Error((j && j.message) || ('HTTP ' + res.status));
       }
-      await Shade.saveBlob(res, it.name);
+      if (res.body) res.body.cancel().catch(function () { });
+      triggerDownload(dlUrl(it._rel), it.name);
     } catch (e) {
       Shade.toast('下载失败：' + e.message, 'error');
     }
