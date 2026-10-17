@@ -203,12 +203,12 @@
           </view>
           <view
             wx:if="{{thinkingLevels.length}}"
-            class="cap-pill {{reasoningEffort ? 'cap-pill-on' : ''}}"
+            class="cap-pill"
             hover-class="hover-opacity"
             bindtap="chooseReasoning"
           >
-            <text>思考·{{reasoningLabel}}</text>
-            <t-icon name="chevron-down" size="20rpx" color="{{reasoningEffort ? '#FFFFFF' : '#4E5969'}}" />
+            <text>{{reasoningLabel}}</text>
+            <t-icon name="chevron-down" size="20rpx" color="#4E5969" />
           </view>
           <view
             wx:if="{{models.length}}"
@@ -216,7 +216,7 @@
             hover-class="hover-opacity"
             bindtap="chooseModel"
           >
-            <text>当前模型：{{modelName || '默认'}}</text>
+            <text class="model-name">{{modelName || '默认'}}</text>
             <t-icon wx:if="{{models.length > 1}}" name="chevron-down" size="20rpx" color="#4E5969" />
           </view>
         </view>
@@ -229,6 +229,25 @@
           </view>
         </view>
       </view>
+    </view>
+  </view>
+
+  <!-- 选项弹层（思考强度/模型选择共用）：自绘底部弹层（wx.showActionSheet 限 6 项，思考档位 7 项会静默失败） -->
+  <view wx:if="{{sheetShow}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-title">{{sheetTitle}}</view>
+      <view
+        wx:for="{{sheetOptions}}"
+        wx:key="index"
+        class="sheet-opt {{item.value === sheetValue ? 'sheet-opt-on' : ''}}"
+        data-value="{{item.value}}"
+        hover-class="hover-opacity"
+        bindtap="onSheetPick"
+      >
+        <text>{{item.label}}</text>
+        <t-icon wx:if="{{item.value === sheetValue}}" name="check" size="32rpx" color="#0E3DA8" />
+      </view>
+      <view class="sheet-cancel" hover-class="hover-opacity" bindtap="closeSheet">取消</view>
     </view>
   </view>
 

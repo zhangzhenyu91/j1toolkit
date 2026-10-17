@@ -702,7 +702,7 @@
     state.sessions.forEach(function (s) {
       html += '<div class="cm-item' + (s.id === state.activeId ? ' on' : '') + '" data-id="' + s.id + '">' +
         Shade.icon('chat', 16) +
-        '<div class="cm-item-main"><div class="tt">' + Shade.esc(s.title || '未命名对话') + '</div>' +
+        '<div class="cm-item-main"><div class="tt">' + Shade.esc(s.title || '新对话') + '</div>' +
         '<div class="tm">' + s.timeText + '</div></div>' +
         '<div class="cm-item-acts">' +
         '<span class="ia" data-act="rename" title="重命名">' + Shade.icon('edit', 12) + '</span>' +
@@ -755,7 +755,7 @@
       if (autoEnter && !state.entered) {
         state.entered = true;
         if (state.sessions.length) openSession(state.sessions[0].id);
-        else createSession('新对话');
+        else createSession('');
       }
     } catch (e) {
       listEl.innerHTML = '<div class="list-err">' + Shade.icon('warn', 22) +
@@ -775,7 +775,7 @@
     clearAttachments(); // 附件上传绑定会话 id，切换会话即清理待发送芯片
     var s = findSession(id);
     state.activeId = id;
-    state.activeTitle = s ? (s.title || '未命名对话') : 'Call Me';
+    state.activeTitle = s ? (s.title || '新对话') : 'Call Me';
     cmTitle.textContent = state.activeTitle;
     renderSessions();
     cmWelcome.style.display = 'none';
@@ -814,9 +814,9 @@
 
   async function onNewSession() {
     if (state.sending) { Shade.toast('回答生成中，请稍候'); return; }
-    var name = await promptModal('新建对话', { placeholder: '请输入对话标题（可留空）' }, '创建');
+    var name = await promptModal('新建对话', { placeholder: '请输入对话标题（留空则首轮对话后自动生成）' }, '创建');
     if (name === null) return;
-    createSession(name.trim() || '新对话');
+    createSession(name.trim());
   }
 
   async function renameSession(id) {
@@ -858,7 +858,7 @@
           openSession(state.sessions[0].id);
         } else {
           renderSessions();
-          createSession('新对话');
+          createSession('');
         }
       } else {
         renderSessions();
@@ -1836,11 +1836,11 @@
     syncEffortLabel();
   }
 
-  // 按钮位短标签「思考·档名」（下拉列表项仍为中文档名）
+  // 按钮位标签直接显示档名（下拉列表项同为中文档名）
   function syncEffortLabel() {
     if (!effortDd) return;
     var cur = effortSel.options[effortSel.selectedIndex];
-    effortDd.el.querySelector('.dd-label').textContent = '思考·' + (cur ? cur.text : '默认');
+    effortDd.el.querySelector('.dd-label').textContent = cur ? cur.text : '默认';
   }
   effortSel.addEventListener('change', function () {
     state.reasoningEffort = effortSel.value;

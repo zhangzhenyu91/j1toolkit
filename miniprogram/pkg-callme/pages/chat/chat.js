@@ -59,6 +59,12 @@ Page({
     thinkingLevels: [], // 当前模型的思考强度档位清单（空 = 不支持，隐藏思考胶囊）
     reasoningEffort: '', // 思考强度档位（空 = 默认，发送时不传 reasoning_effort）
     reasoningLabel: '默认', // 思考胶囊档位文案（思考·{档位}）
+    // 选项弹层（思考强度/模型选择共用；wx.showActionSheet 限 6 项，思考档位连默认共 7 项放不下会静默失败）
+    sheetShow: false,
+    sheetTitle: '',
+    sheetOptions: [], // [{ label, value }]
+    sheetTarget: '', // 'effort' | 'model'
+    sheetValue: '',
     sending: false,
     canSend: false,
     toView: '',
@@ -85,7 +91,7 @@ Page({
     this._loadingEarlier = false;
     this.setData({
       sessionId: id,
-      title: title ? decodeURIComponent(title) : 'Call Me',
+      title: title ? decodeURIComponent(title) : '新对话',
     });
     this.loadHistory();
     this.loadCapabilities();
@@ -669,17 +675,18 @@ Page({
   },
 
   // 思考强度选择：默认（不传）+ 当前模型支持的档位（中文映射文案）
+  // 自绘底部弹层（与模型选择共用）：wx.showActionSheet 上限 6 项，「默认 + 6 档」共 7 项会静默失败（点按无反应）
   chooseReasoning() {
     const levels = this.data.thinkingLevels;
     if (!levels.length) return;
-    wx.showActionSheet({
-      itemList: ['默认'].concat(levels.map((l) => effortLabel(l))),
-      success: (res) => {
-        const effort = res.tapIndex === 0 ? '' : levels[res.tapIndex - 1];
-        if (effort == null) return;
-        this.setData({ reasoningEffort: effort, reasoningLabel: effortLabel(effort) });
-        wx.setStorageSync('callme_reasoning_effort', effort);
-      },
+    this.setData({
+      sheetShow: true,
+      sheetTitle: '思考强度',
+      sheetTarget: 'effort',
+      sheetValue: this.data.reasoningEffort,
+      sheetOptions: [{ label: '默认（跟随模型）', value: '' }].concat(
+        levels.map((l) => ({ label: effortLabel(l), value: l }))
+      ),
     });
   },
 
@@ -687,17 +694,37 @@ Page({
   chooseModel() {
     const { models } = this.data;
     if (!models || models.length <= 1) return;
-    wx.showActionSheet({
-      itemList: models.map((m) => m.name),
-      success: (res) => {
-        const m = models[res.tapIndex];
-        if (!m) return;
+    this.setData({
+      sheetShow: true,
+      sheetTitle: '选择模型',
+      sheetTarget: 'model',
+      sheetValue: this.data.modelId,
+      sheetOptions: models.map((m) => ({ label: m.name, value: m.id })),
+    });
+  },
+
+  // 选项弹层：点选生效并关闭
+  onSheetPick(e) {
+    const { value } = e.currentTarget.dataset;
+    if (this.data.sheetTarget === 'effort') {
+      this.setData({ reasoningEffort: value, reasoningLabel: effortLabel(value) });
+      wx.setStorageSync('callme_reasoning_effort', value);
+    } else if (this.data.sheetTarget === 'model') {
+      const m = this.data.models.find((x) => x.id === value);
+      if (m) {
         this.setData({ modelId: m.id, modelName: m.name });
         wx.setStorageSync('callme_model_id', m.id);
         this.applyThinkingLevels();
-      },
-    });
+      }
+    }
+    this.setData({ sheetShow: false });
   },
+
+  closeSheet() {
+    this.setData({ sheetShow: false });
+  },
+
+  noop() {},
 
   // ---------- 发送与 SSE 流式接收 ----------
   onSend() {

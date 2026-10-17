@@ -46,7 +46,9 @@ function weknoraError(res, err, next) {
 // POST /api/v1/callme/sessions 新建会话
 router.post('/sessions', async (req, res, next) => {
   try {
-    const title = (req.body && req.body.title) || '新对话';
+    // 标题留空（默认）时 WeKnora 会在首轮对话后自动生成会话标题（session_title 事件，官方口径）；
+    // 用户显式命名过的标题则不再被自动覆盖
+    const title = (req.body && req.body.title) || '';
     const data = await weknora.createSession(req.user.username, title);
     return ok(res, data.data || data);
   } catch (err) {

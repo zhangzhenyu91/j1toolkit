@@ -37,7 +37,7 @@ Page({
       const sessions = raw
         .map((item) => ({
           id: item.id,
-          title: item.title,
+          title: item.title || '新对话', // 空标题 = 待 WeKnora 首轮后自动生成（显示兜底）
           ts: (parseDate(item.updated_at || item.created_at) || new Date(0)).getTime(),
           timeText: formatTime(item.updated_at || item.created_at),
         }))
@@ -61,12 +61,12 @@ Page({
       const latest = sessions[0];
       wx.navigateTo({
         url: `/pkg-callme/pages/chat/chat?id=${latest.id}&title=${encodeURIComponent(
-          latest.title || 'Call Me'
+          latest.title || '新对话'
         )}`,
       });
       return;
     }
-    this.createAndEnter('新对话');
+    this.createAndEnter('');
   },
 
   // 创建会话并进入（自动创建与手动新建共用）
@@ -87,7 +87,7 @@ Page({
         return;
       }
       wx.navigateTo({
-        url: `/pkg-callme/pages/chat/chat?id=${id}&title=${encodeURIComponent(title)}`,
+        url: `/pkg-callme/pages/chat/chat?id=${id}&title=${encodeURIComponent(title || '新对话')}`,
       });
     } catch (err) {
       wx.hideLoading();
@@ -102,11 +102,11 @@ Page({
     wx.showModal({
       title: '新建对话',
       editable: true,
-      placeholderText: '请输入对话标题（可留空）',
+      placeholderText: '请输入对话标题（留空则首轮对话后自动生成）',
       confirmText: '创建',
       success: (res) => {
         if (!res.confirm) return;
-        const title = (res.content && res.content.trim()) || '新对话';
+        const title = (res.content && res.content.trim()) || '';
         this.createAndEnter(title);
       },
     });
@@ -116,7 +116,7 @@ Page({
   onOpen(e) {
     const { id, title } = e.currentTarget.dataset;
     wx.navigateTo({
-      url: `/pkg-callme/pages/chat/chat?id=${id}&title=${encodeURIComponent(title || 'Call Me')}`,
+      url: `/pkg-callme/pages/chat/chat?id=${id}&title=${encodeURIComponent(title || '新对话')}`,
     });
   },
 

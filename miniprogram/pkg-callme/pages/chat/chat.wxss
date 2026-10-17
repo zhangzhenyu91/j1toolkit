@@ -358,13 +358,21 @@
   display: flex;
   align-items: center;
   gap: 6rpx;
-  padding: 8rpx 20rpx;
+  padding: 6rpx 16rpx;
   border-radius: 999rpx;
   background: #F5F7FA;
   color: #4E5969;
   font-size: 22rpx;
   line-height: 1.5;
   transition: opacity 0.15s ease;
+}
+
+/* 模型名限宽省略（长模型名防胶囊组换行拥挤） */
+.model-name {
+  max-width: 220rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .cap-pill-on {
@@ -375,6 +383,67 @@
 /* 仅 1 个可用模型时的禁用态 */
 .cap-pill-off {
   opacity: 0.6;
+}
+
+/* ---------- 选项弹层（思考强度/模型选择共用）：底部弹层 + 遮罩 ---------- */
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(29, 33, 41, 0.45);
+  display: flex;
+  align-items: flex-end;
+}
+
+.sheet {
+  width: 100%;
+  background: #ffffff;
+  border-radius: 24rpx 24rpx 0 0;
+  padding: 8rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
+  animation: sheetUp 0.25s ease both;
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(30%);
+    opacity: 0.6;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.sheet-title {
+  text-align: center;
+  font-size: 26rpx;
+  color: #86909c;
+  padding: 18rpx 0;
+}
+
+.sheet-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 26rpx 8rpx;
+  font-size: 28rpx;
+  color: #1d2129;
+  border-top: 1rpx solid #e5e6eb;
+}
+
+.sheet-opt-on {
+  color: #0e3da8;
+  font-weight: 600;
+}
+
+.sheet-cancel {
+  margin-top: 12rpx;
+  text-align: center;
+  padding: 24rpx 0;
+  background: #f5f7fa;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  color: #4e5969;
 }
 
 /* ---------- 附件芯片 ---------- */
