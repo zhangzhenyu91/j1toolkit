@@ -122,11 +122,14 @@ Page({
 
   // 重命名会话（滑块动作 + 输入新名称）
   onRename(e) {
-    const { id, index, title } = e.currentTarget.dataset;
+    const { id } = e.currentTarget.dataset;
+    // 以 id 回查当前标题（dataset 里的 title 是渲染时快照，重命名后不更新）
+    const target = this.data.sessions.find((s) => String(s.id) === String(id));
+    const oldTitle = target ? target.title : '';
     wx.showModal({
       title: '重命名对话',
       editable: true,
-      content: title || '',
+      content: oldTitle,
       placeholderText: '请输入新的对话名称',
       confirmText: '保存',
       success: async (res) => {
@@ -136,14 +139,18 @@ Page({
           this.toast('名称不能为空');
           return;
         }
-        if (newTitle === title) return;
+        if (newTitle === oldTitle) return;
         try {
           await request({
             url: `/api/v1/callme/sessions/${id}`,
             method: 'PUT',
             data: { title: newTitle },
           });
-          this.setData({ [`sessions[${index}].title`]: newTitle });
+          // 整数组替换刷新（与删除同口径）：t-swipe-cell slot 内容对单字段路径 setData 不会重渲染
+          const sessions = this.data.sessions.map((s) => (
+            String(s.id) === String(id) ? { ...s, title: newTitle } : s
+          ));
+          this.setData({ sessions });
           this.toast('已重命名');
         } catch (err) {
           this.toast(err.message);
