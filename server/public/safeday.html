@@ -582,11 +582,15 @@
       .catch(function (err) { Shade.toast(err.message || '下载失败', 'error'); });
   }
 
-  /* 预览：调 preview 接口取 basemetas 预览地址，新标签打开；未配置预览服务时提示改用下载 */
+  /* 预览：调 preview 接口取预览地址打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签）；未配置预览服务时提示改用下载 */
   function previewRecord(id) {
     sdFetch('/records/' + encodeURIComponent(id) + '/preview')
       .then(parseOk)
-      .then(function (data) { window.open(data.url, '_blank'); })
+      .then(function (data) {
+        // 站内 office.html 承载页当前窗口打开（OO 关闭文件 ✕ 经 back 返回本页，同网盘口径）；站外微软查看器新标签
+        if (data.url && data.url.charAt(0) === '/') { location.href = data.url; return; }
+        window.open(data.url, '_blank');
+      })
       .catch(function (err) {
         Shade.toast((err.message || '预览失败') + '，可改用下载按钮', 'info');
       });

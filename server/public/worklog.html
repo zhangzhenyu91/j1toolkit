@@ -14,7 +14,7 @@
      隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
      管理员（超管 / 班组管理员）另见四个平级页签：「数据管理」= 车牌号 / 目的地 / 出工成员 三字典维护（成员支持上移 / 下移排序，
      工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
-     「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 sheet 页（task 型）口径）；
+     「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 ONLYOFFICE 在线查看，OO 未配置时后端自动回退微软查看器、下载 fetch + blob，同安全日记录口径；同小程序 sheet 页（task 型）口径）；
      「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 sheet 页（fee 型）口径）；
      「派车汇总」= 按日期范围导出派车单号清单 xlsx（预览 / 下载 / 存网盘；预览走 ONLYOFFICE 在线查看，OO 未配置时后端自动回退微软查看器——
      派车单号 + 用车日期两列，顺序与工作任务单一致 = 日期+卡片创建序；
@@ -1906,12 +1906,12 @@ async function dlRemarkFile(entry, f) {
   }
 }
 
-/* Office 文档预览：调 remark-preview 取 basemetas 地址新标签打开（同安全日记录）；未配置预览服务时回退直接下载 */
+/* Office 文档预览：调 remark-preview 取预览地址打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签，同安全日记录）；未配置预览服务时回退直接下载 */
 async function openRemarkDoc(entry, f) {
   try {
     var r = await Shade.api(wl('/api/v1/worklog/logs/' + entry.id + '/remark-preview?key=' + encodeURIComponent(f.cos_key)));
     if (r.data && r.data.url) {
-      window.open(r.data.url, '_blank');
+      openPreviewUrl(r.data.url);
       return;
     }
     throw new Error('预览地址为空');
@@ -4424,7 +4424,13 @@ function tsFileName(from, to) {
   return from === to ? '工作任务单-' + from + '.docx' : '工作任务单-' + from + '至' + to + '.docx';
 }
 
-/* 工作任务单：预览 = 调 preview 接口取 basemetas 地址新标签打开（同备注 Office 文档 / 安全日记录口径）；force=强制执行跳过生成前核验 */
+/* 打开预览地址：站内（office.html 承载页）当前窗口打开（OO 关闭文件 ✕ 经 back 参数返回本页，同网盘口径）；
+   站外（微软查看器等）新标签，防离站丢失页面状态 */
+function openPreviewUrl(url) {
+  if (url.charAt(0) === '/') { location.href = url; } else { window.open(url, '_blank'); }
+}
+
+/* 工作任务单：预览 = 调 preview 接口取预览地址打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签；同备注 Office 文档 / 安全日记录口径）；force=强制执行跳过生成前核验 */
 async function taskSheetPreview(btn, force) {
   var range = tsRange();
   if (!range) return;
@@ -4432,7 +4438,7 @@ async function taskSheetPreview(btn, force) {
   try {
     var r = await Shade.api(wl('/api/v1/worklog/task-sheet/preview?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
     if (r.data && r.data.url) {
-      window.open(r.data.url, '_blank');
+      openPreviewUrl(r.data.url);
       return;
     }
     throw new Error('预览地址为空');
@@ -4477,7 +4483,7 @@ function fsFileName(from, to) {
   return from === to ? '费用汇总-' + from + '.docx' : '费用汇总-' + from + '至' + to + '.docx';
 }
 
-/* 费用汇总：预览 = 调 preview 接口取 basemetas 地址新标签打开（同工作任务单口径）；force=强制执行跳过生成前核验 */
+/* 费用汇总：预览 = 调 preview 接口取预览地址打开（站内当前窗口 / 站外新标签，同工作任务单口径）；force=强制执行跳过生成前核验 */
 async function feeSheetPreview(btn, force) {
   var range = fsRange();
   if (!range) return;
@@ -4485,7 +4491,7 @@ async function feeSheetPreview(btn, force) {
   try {
     var r = await Shade.api(wl('/api/v1/worklog/fee-sheet/preview?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
     if (r.data && r.data.url) {
-      window.open(r.data.url, '_blank');
+      openPreviewUrl(r.data.url);
       return;
     }
     throw new Error('预览地址为空');
@@ -4530,8 +4536,8 @@ function dsFileName(from, to) {
   return from === to ? '派车汇总-' + from + '.xlsx' : '派车汇总-' + from + '至' + to + '.xlsx';
 }
 
-/* 派车汇总：预览 = 调 preview 接口取在线查看地址新标签打开（同工作任务单口径；OO 启用时回 office.html 承载页地址，
-   未配置时后端自动回退微软查看器；无 40901 生成前核验——单号清单与照片核验无关） */
+/* 派车汇总：预览 = 调 preview 接口取在线查看地址打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签，同工作任务单口径；
+   OO 未配置时后端自动回退微软查看器；无 40901 生成前核验——单号清单与照片核验无关） */
 async function dispatchSheetPreview(btn) {
   var range = dsRange();
   if (!range) return;
@@ -4539,7 +4545,7 @@ async function dispatchSheetPreview(btn) {
   try {
     var r = await Shade.api(wl('/api/v1/worklog/dispatch-sheet/preview?from=' + range.from + '&to=' + range.to));
     if (r.data && r.data.url) {
-      window.open(r.data.url, '_blank');
+      openPreviewUrl(r.data.url);
       return;
     }
     throw new Error('预览地址为空');
@@ -5384,7 +5390,7 @@ function initEvents() {
   $$('#wlTabs button').forEach(function (b) {
     b.addEventListener('click', function () { switchPane(b.dataset.p); });
   });
-  /* 工作任务单页签：内联起止日期（bindRangeInput 校验回写 state.ts）/ 预览（basemetas 新标签）/ 下载（fetch + blob），函数在数据管理区同族定义 */
+  /* 工作任务单页签：内联起止日期（bindRangeInput 校验回写 state.ts）/ 预览（站内当前窗口、站外新标签）/ 下载（fetch + blob），函数在数据管理区同族定义 */
   bindRangeInput('#tsFrom', '#tsTo', state.ts, null);
   $('#tsPrev').addEventListener('click', function () { taskSheetPreview(this); });
   $('#tsDl').addEventListener('click', function () { taskSheetDownload(this); });
@@ -5392,7 +5398,7 @@ function initEvents() {
   bindRangeInput('#fsFrom', '#fsTo', state.fs, null);
   $('#fsPrev').addEventListener('click', function () { feeSheetPreview(this); });
   $('#fsDl').addEventListener('click', function () { feeSheetDownload(this); });
-  /* 派车汇总页签：内联起止日期 / 预览（在线查看新标签）/ 下载（xlsx）（同费用汇总口径，无核验拦截） */
+  /* 派车汇总页签：内联起止日期 / 预览（站内当前窗口、站外新标签）/ 下载（xlsx）（同费用汇总口径，无核验拦截） */
   bindRangeInput('#dsFrom', '#dsTo', state.ds, null);
   $('#dsPrev').addEventListener('click', function () { dispatchSheetPreview(this); });
   $('#dsDl').addEventListener('click', function () { dispatchSheetDownload(this); });

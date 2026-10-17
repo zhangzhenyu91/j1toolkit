@@ -125,8 +125,9 @@ async function listWebSearchProviders(username) {
 
 // Agent 对话（SSE 流式），返回 axios 流式响应，由调用方读取 res.data 流
 // webSearch 开启本轮联网搜索；modelId 非空时覆盖本轮总结模型（summary_model_id）；
-// attachmentIds 引用本会话已上传的附件（须先经 POST /sessions/{id}/attachments 上传）
-async function agentChatStream(username, sessionId, { query, images, attachmentIds, webSearch, modelId }) {
+// attachmentIds 引用本会话已上传的附件（须先经 POST /sessions/{id}/attachments 上传）；
+// reasoningEffort 为非空字符串时透传本轮思考强度（reasoning_effort）
+async function agentChatStream(username, sessionId, { query, images, attachmentIds, webSearch, modelId, reasoningEffort }) {
   ensureConfigured();
   const payload = {
     query,
@@ -143,6 +144,9 @@ async function agentChatStream(username, sessionId, { query, images, attachmentI
   }
   if (modelId) {
     payload.summary_model_id = modelId;
+  }
+  if (typeof reasoningEffort === 'string' && reasoningEffort.trim()) {
+    payload.reasoning_effort = reasoningEffort;
   }
   return client.post(`/agent-chat/${sessionId}`, payload, {
     headers: extHeaders(username),

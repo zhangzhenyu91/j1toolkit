@@ -21,6 +21,13 @@ const ATTACH_MAX_SIZE = 50 * 1024 * 1024;
 // 音频扩展名（附件芯片图标区分用）
 const AUDIO_EXTS = ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac'];
 
+// 思考强度档位中文映射（胶囊与选项文案用；未知档位原样显示）
+const EFFORT_LABELS = { off: '关闭', auto: '自动', minimal: '极简', low: '较低', medium: '中等', high: '较高', xhigh: '超高', max: '最高' };
+function effortLabel(effort) {
+  if (!effort) return '默认';
+  return EFFORT_LABELS[effort] || effort;
+}
+
 // 消息时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm
 function timeTextOf(input) {
   const d = input ? parseDate(input) : new Date();
@@ -46,11 +53,12 @@ Page({
     attachments: [],
     webSearchSupported: false, // 后端支持联网搜索时才显示开关胶囊
     webSearchOn: false,
-    models: [], // 可选模型 [{ id, name, supports_vision }]
+    models: [], // 可选模型 [{ id, name, supports_vision, thinking_levels? }]
     modelId: '', // 空 = 服务端默认模型（发送时不传 model_id）
     modelName: '',
-    recording: false,
-    recordSeconds: 0,
+    thinkingLevels: [], // 当前模型的思考强度档位清单（空 = 不支持，隐藏思考胶囊）
+    reasoningEffort: '', // 思考强度档位（空 = 默认，发送时不传 reasoning_effort）
+    reasoningLabel: '默认', // 思考胶囊档位文案（思考·{档位}）
     sending: false,
     canSend: false,
     toView: '',
@@ -93,17 +101,9 @@ Page({
       clearTimeout(this._scrollTimer);
       this._scrollTimer = null;
     }
-    // 附件解析轮询与录音计时一并清掉，避免页面销毁后仍在 setData
+    // 附件解析轮询计时清掉，避免页面销毁后仍在 setData
     Object.keys(this._pollTimers || {}).forEach((k) => clearTimeout(this._pollTimers[k]));
     this._pollTimers = {};
-    if (this._recTimer) {
-      clearInterval(this._recTimer);
-      this._recTimer = null;
-    }
-    if (this.data.recording && this._recorder) {
-      this._recDiscard = true;
-      this._recorder.stop();
-    }
   },
 
   toast(message) {
@@ -432,11 +432,23 @@ Page({
   },
 
   // 键盘高度变化：输入栏整体上移，底边与键盘顶齐平（页面不被顶起，标题栏保留原位；
-  // 输入栏自身的白色内边距即作为与键盘间的留白），弹起时滚动到最新消息
+  // 输入栏自身的内边距即作为与键盘间的留白），弹起时滚动到最新消息
   onKeyboardHeight(e) {
     const h = e.detail.height || 0;
     this.setData({ keyboardHeight: h > 0 ? h : 0 });
     if (h > 0) this.scrollToBottom();
+  },
+
+  // 「+」钮：添加图片 / 添加附件（分别走现有 chooseImage / chooseFile 通道）
+  onAddTap() {
+    if (this.data.sending) return;
+    wx.showActionSheet({
+      itemList: ['添加图片', '添加附件'],
+      success: (res) => {
+        if (res.tapIndex === 0) this.chooseImage();
+        else if (res.tapIndex === 1) this.chooseFile();
+      },
+    });
   },
 
   // 选择图片（base64 上送，无需 COS，见指南第六节）
@@ -508,7 +520,7 @@ Page({
     });
   },
 
-  // 附件入列并启动上传 → 成功后转入解析轮询（语音消息同走此通道）
+  // 附件入列并启动上传 → 成功后转入解析轮询
   addAttachment({ name, size, path }) {
     this._attSeq += 1;
     const key = `a${this._attSeq}`;
@@ -619,98 +631,6 @@ Page({
     this.setData({ attachments: this.data.attachments.filter((a) => a.key !== key) }, () => this.refreshCanSend());
   },
 
-  // ---------- 语音消息 ----------
-  // 按住说话：wx.getRecorderManager 录 mp3（≤60s 自动停），松开后走附件上传通道入芯片
-  ensureRecorder() {
-    if (this._recorder) return;
-    this._recorder = wx.getRecorderManager();
-    this._recorder.onStop((res) => {
-      if (this._recTimer) {
-        clearInterval(this._recTimer);
-        this._recTimer = null;
-      }
-      if (this._unloaded) {
-        this._recDiscard = false;
-        return;
-      }
-      this.setData({ recording: false, recordSeconds: 0 });
-      if (this._recDiscard) {
-        this._recDiscard = false;
-        return;
-      }
-      if (!res || !res.tempFilePath) return;
-      if (this.data.attachments.length >= ATTACH_MAX) {
-        this.toast(`附件最多 ${ATTACH_MAX} 个`);
-        return;
-      }
-      const d = new Date();
-      const name = `语音消息-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.mp3`;
-      this.addAttachment({ name, size: res.fileSize || 0, path: res.tempFilePath });
-    });
-    this._recorder.onError(() => {
-      if (this._recTimer) {
-        clearInterval(this._recTimer);
-        this._recTimer = null;
-      }
-      if (this._unloaded) return;
-      this.setData({ recording: false, recordSeconds: 0 });
-      this.toast('录音失败，请重试');
-    });
-  },
-
-  onVoiceStart() {
-    if (this.data.sending || this.data.recording) return;
-    this.ensureRecorder();
-    const start = () => {
-      this._recDiscard = false;
-      this._recStartAt = Date.now();
-      this._recorder.start({ format: 'mp3', duration: 60000 });
-      this.setData({ recording: true, recordSeconds: 0 });
-      this._recTimer = setInterval(() => {
-        this.setData({ recordSeconds: Math.min(60, Math.floor((Date.now() - this._recStartAt) / 1000)) });
-      }, 200);
-    };
-    const askAndStart = () => {
-      wx.authorize({
-        scope: 'scope.record',
-        success: start,
-        // 用户拒绝后引导去设置页开启
-        fail: () => wx.showModal({
-          title: '需要录音权限',
-          content: '语音消息需要使用麦克风，请在设置中开启录音权限。',
-          confirmText: '去开启',
-          success: (m) => {
-            if (m.confirm) wx.openSetting();
-          },
-        }),
-      });
-    };
-    wx.getSetting({
-      success: (s) => {
-        if (s.authSetting && s.authSetting['scope.record']) start();
-        else askAndStart();
-      },
-      fail: askAndStart,
-    });
-  },
-
-  onVoiceEnd() {
-    if (!this.data.recording) return;
-    // 不足 1s 取消并提示（onStop 内按 _recDiscard 丢弃）
-    if (Date.now() - this._recStartAt < 1000) {
-      this._recDiscard = true;
-      this.toast('说话时间太短');
-    }
-    this._recorder.stop();
-  },
-
-  // 触摸被系统打断（手势/来电等）兜底丢弃本次录音
-  onVoiceCancel() {
-    if (!this.data.recording) return;
-    this._recDiscard = true;
-    this._recorder.stop();
-  },
-
   // ---------- 模型与联网搜索 ----------
   // 能力查询：可选模型清单 + 联网搜索支持与否，本地记忆上次选择；失败不阻断对话（胶囊保持隐藏）
   async loadCapabilities() {
@@ -726,6 +646,7 @@ Page({
         webSearchSupported: !!(data && data.web_search),
         webSearchOn: !!(data && data.web_search) && !!wx.getStorageSync('callme_web_search'),
       });
+      this.applyThinkingLevels();
     } catch (err) {
       // 查询失败：胶囊隐藏，发送不带扩展参数
     }
@@ -736,6 +657,30 @@ Page({
     const on = !this.data.webSearchOn;
     this.setData({ webSearchOn: on });
     wx.setStorageSync('callme_web_search', on);
+  },
+
+  // 当前模型思考强度清单：刷新思考胶囊显隐，并校验本地记忆档位（切模型后不在新清单则回退默认）
+  applyThinkingLevels() {
+    const cur = this.data.models.find((m) => m.id === this.data.modelId);
+    const levels = cur && Array.isArray(cur.thinking_levels) ? cur.thinking_levels : [];
+    const saved = wx.getStorageSync('callme_reasoning_effort') || '';
+    const effort = levels.includes(saved) ? saved : '';
+    this.setData({ thinkingLevels: levels, reasoningEffort: effort, reasoningLabel: effortLabel(effort) });
+  },
+
+  // 思考强度选择：默认（不传）+ 当前模型支持的档位（中文映射文案）
+  chooseReasoning() {
+    const levels = this.data.thinkingLevels;
+    if (!levels.length) return;
+    wx.showActionSheet({
+      itemList: ['默认'].concat(levels.map((l) => effortLabel(l))),
+      success: (res) => {
+        const effort = res.tapIndex === 0 ? '' : levels[res.tapIndex - 1];
+        if (effort == null) return;
+        this.setData({ reasoningEffort: effort, reasoningLabel: effortLabel(effort) });
+        wx.setStorageSync('callme_reasoning_effort', effort);
+      },
+    });
   },
 
   // 切换模型（仅 1 个可用模型时为禁用态）
@@ -749,6 +694,7 @@ Page({
         if (!m) return;
         this.setData({ modelId: m.id, modelName: m.name });
         wx.setStorageSync('callme_model_id', m.id);
+        this.applyThinkingLevels();
       },
     });
   },
@@ -807,6 +753,7 @@ Page({
     if (sendIds.length) payload.attachment_ids = sendIds;
     if (this.data.webSearchOn) payload.web_search = true; // 未开启不传
     if (this.data.modelId) payload.model_id = this.data.modelId; // 未选不传（服务端默认模型）
+    if (this.data.reasoningEffort) payload.reasoning_effort = this.data.reasoningEffort; // 非默认档位才传
 
     const token = wx.getStorageSync('token');
     const parser = createSseParser((evt) => this.onSseEvent(evt, answerIndex));

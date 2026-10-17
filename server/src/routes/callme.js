@@ -28,6 +28,9 @@ const ATTACHMENT_EXTS = new Set([
   'bmp', 'tiff', 'tif',
 ]);
 
+// 思考强度固定档位（仅当 /chat 显式提供 reasoning_effort 时校验，缺省由模型/会话默认决定）
+const REASONING_EFFORTS = new Set(['off', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+
 // 统一处理 WeKnora 调用错误（避免把内部细节抛给客户端）
 function weknoraError(res, err, next) {
   if (err.expose) return fail(res, 503, 50302, err.message);
@@ -225,9 +228,12 @@ router.get('/capabilities', async (req, res) => {
       .map((m) => ({
         id: m.id,
         name: m.display_name || m.name,
-        // supports_vision 字段位置随 WeKnora 版本在 capabilities / parameters 之间变动，两处兼容
+        // supports_vision / thinking_levels 字段位置随 WeKnora 版本在 capabilities / parameters 之间变动，两处兼容
         supports_vision: (m.capabilities && m.capabilities.supports_vision === true)
           || (m.parameters && m.parameters.supports_vision === true),
+        thinking_levels: Array.isArray(m.capabilities && m.capabilities.thinking_levels)
+          ? m.capabilities.thinking_levels
+          : (Array.isArray(m.parameters && m.parameters.thinking_levels) ? m.parameters.thinking_levels : []),
       }));
     const agent = (agentRaw && agentRaw.data) || {};
     const agentCfg = agent.config || {};
@@ -243,7 +249,7 @@ router.get('/capabilities', async (req, res) => {
 });
 
 // POST /api/v1/callme/chat 发送消息（SSE 流式转发）
-// 入参：{ session_id, query, images?, attachment_ids?, web_search?, model_id? }；出参：text/event-stream
+// 入参：{ session_id, query, images?, attachment_ids?, web_search?, model_id?, reasoning_effort? }；出参：text/event-stream
 // 事件格式（已归一化）：data: {"type":"thinking|answer|preamble|tool_start|tool_end|title|references|done|error", ...}
 // thinking：思考增量；preamble：工具调用前的过渡语需从回答区挪入思考区（对齐官方 UI 语义）；
 // tool_start/tool_end：步骤树工具节点（展示就绪：title/summary 由 utils/agentsteps 生成）；
@@ -256,6 +262,7 @@ router.post('/chat', async (req, res) => {
     attachment_ids: attachmentIds,
     web_search: webSearch,
     model_id: modelId,
+    reasoning_effort: reasoningEffort,
   } = req.body || {};
   if (!sessionId || !query) {
     return fail(res, 400, 40003, '缺少 session_id 或 query');
@@ -274,6 +281,10 @@ router.post('/chat', async (req, res) => {
     return fail(res, 400, 40048, 'model_id 参数无效');
   }
   const summaryModelId = typeof modelId === 'string' ? modelId.trim() : '';
+  // 思考强度：显式提供时须为固定档位之一，缺省由模型/会话默认决定
+  if (reasoningEffort !== undefined && !REASONING_EFFORTS.has(reasoningEffort)) {
+    return fail(res, 400, 40049, 'reasoning_effort 参数无效');
+  }
   // 图片：≤1 张、须 data:image/(jpeg|png|gif|webp);base64, 头、解码后 ≤8MB
   if (images !== undefined) {
     if (!Array.isArray(images) || images.length > 1) {
@@ -343,6 +354,7 @@ router.post('/chat', async (req, res) => {
       attachmentIds,
       webSearch,
       modelId: summaryModelId,
+      reasoningEffort,
     });
     upstream = wres.data;
     armSilence();

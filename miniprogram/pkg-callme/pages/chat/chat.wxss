@@ -306,9 +306,15 @@
 
 /* ---------- 输入栏 ---------- */
 .input-bar {
-  background: #FFFFFF;
-  border-top: 1rpx solid #E5E6EB;
   padding: 16rpx 20rpx calc(16rpx + env(safe-area-inset-bottom));
+}
+
+/* 输入卡片：白卡收拢附件芯片/图片/输入框/工具栏（同全局 .card 卡族形态） */
+.input-card {
+  background: #FFFFFF;
+  border-radius: 24rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, .05);
+  padding: 20rpx;
 }
 
 .img-chip {
@@ -339,11 +345,13 @@
   justify-content: center;
 }
 
-/* ---------- 能力胶囊（联网搜索 / 当前模型） ---------- */
-.cap-row {
+/* ---------- 能力胶囊（联网搜索 / 思考强度 / 当前模型） ---------- */
+.cap-group {
   display: flex;
-  gap: 16rpx;
-  margin-bottom: 12rpx;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  flex: 1;
+  min-width: 0;
 }
 
 .cap-pill {
@@ -352,7 +360,7 @@
   gap: 6rpx;
   padding: 8rpx 20rpx;
   border-radius: 999rpx;
-  background: #F7F8FA;
+  background: #F5F7FA;
   color: #4E5969;
   font-size: 22rpx;
   line-height: 1.5;
@@ -435,55 +443,38 @@
   line-height: 1;
 }
 
-/* ---------- 语音 ---------- */
-.rec-panel {
+/* ---------- 底行工具栏（能力胶囊 + 添加 + 发送） ---------- */
+.input-toolbar {
   display: flex;
   align-items: center;
-  gap: 12rpx;
-  margin-bottom: 12rpx;
-  padding: 16rpx 20rpx;
-  background: #E8F0FF;
-  border-radius: 8rpx;
-  font-size: 24rpx;
-  color: #0E3DA8;
+  margin-top: 12rpx;
 }
 
-.rec-dot {
-  width: 16rpx;
-  height: 16rpx;
+.toolbar-btns {
+  margin-left: auto;
   flex: none;
-  border-radius: 50%;
-  background: #F53F3F;
-  animation: recBreath 1s ease-in-out infinite;
-}
-
-.mic-btn-on {
-  background: #E8F0FF;
-  border-radius: 8rpx;
-}
-
-@keyframes recBreath {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
-}
-
-.input-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 16rpx;
 }
 
-.tool-btn {
-  padding: 12rpx 4rpx;
+.add-btn {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: #F5F7FA;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
   transition: opacity 0.15s ease;
 }
 
 .chat-input {
-  flex: 1;
-  background: #F5F7FA;
-  border-radius: 12rpx;
-  padding: 16rpx 20rpx;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  padding: 12rpx 4rpx;
   font-size: 28rpx;
   line-height: 1.5;
   max-height: 180rpx;

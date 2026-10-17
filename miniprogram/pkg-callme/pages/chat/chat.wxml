@@ -143,68 +143,36 @@
     class="input-bar"
     style="margin-bottom: {{keyboardHeight}}px; {{keyboardHeight > 0 ? 'padding-bottom: 16rpx;' : ''}}"
   >
-    <!-- 能力胶囊行：联网搜索开关（后端不支持时隐藏）+ 当前模型（多个可切换） -->
-    <view wx:if="{{webSearchSupported || models.length}}" class="cap-row">
-      <view
-        wx:if="{{webSearchSupported}}"
-        class="cap-pill {{webSearchOn ? 'cap-pill-on' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="toggleWebSearch"
-      >
-        <t-icon name="internet" size="24rpx" color="{{webSearchOn ? '#FFFFFF' : '#4E5969'}}" />
-        <text>联网搜索</text>
-      </view>
-      <view
-        wx:if="{{models.length}}"
-        class="cap-pill {{models.length > 1 ? '' : 'cap-pill-off'}}"
-        hover-class="hover-opacity"
-        bindtap="chooseModel"
-      >
-        <text>当前模型：{{modelName || '默认'}}</text>
-        <t-icon wx:if="{{models.length > 1}}" name="chevron-down" size="20rpx" color="#4E5969" />
-      </view>
-    </view>
-
-    <!-- 附件芯片列表（图片走下方缩略图，文件与语音消息在此展示） -->
-    <view wx:if="{{attachments.length}}" class="attach-list">
-      <view
-        wx:for="{{attachments}}"
-        wx:key="key"
-        class="attach-chip {{item.status === 'failed' ? 'attach-chip-err' : ''}}"
-      >
-        <t-icon
-          name="{{item.icon}}"
-          size="36rpx"
-          color="{{item.status === 'failed' ? '#F53F3F' : '#0E3DA8'}}"
-        />
-        <view class="attach-info">
-          <text class="attach-name">{{item.name}}</text>
-          <text class="attach-meta">{{item.sizeText}} · {{item.status === 'uploading' ? '上传中 ' + item.progress + '%' : item.status === 'parsing' ? '解析中…' : item.status === 'ready' ? '已就绪' : (item.error || '解析失败')}}</text>
-          <view wx:if="{{item.status === 'uploading'}}" class="attach-progress">
-            <view class="attach-progress-bar" style="width: {{item.progress}}%;"></view>
+    <!-- 输入卡片：附件芯片 → 图片缩略图 → 输入框 → 底行工具栏 -->
+    <view class="input-card">
+      <!-- 附件芯片列表（图片走下方缩略图，文件在此展示） -->
+      <view wx:if="{{attachments.length}}" class="attach-list">
+        <view
+          wx:for="{{attachments}}"
+          wx:key="key"
+          class="attach-chip {{item.status === 'failed' ? 'attach-chip-err' : ''}}"
+        >
+          <t-icon
+            name="{{item.icon}}"
+            size="36rpx"
+            color="{{item.status === 'failed' ? '#F53F3F' : '#0E3DA8'}}"
+          />
+          <view class="attach-info">
+            <text class="attach-name">{{item.name}}</text>
+            <text class="attach-meta">{{item.sizeText}} · {{item.status === 'uploading' ? '上传中 ' + item.progress + '%' : item.status === 'parsing' ? '解析中…' : item.status === 'ready' ? '已就绪' : (item.error || '解析失败')}}</text>
+            <view wx:if="{{item.status === 'uploading'}}" class="attach-progress">
+              <view class="attach-progress-bar" style="width: {{item.progress}}%;"></view>
+            </view>
           </view>
+          <view class="attach-close" hover-class="hover-opacity" data-key="{{item.key}}" bindtap="removeAttachment">✕</view>
         </view>
-        <view class="attach-close" hover-class="hover-opacity" data-key="{{item.key}}" bindtap="removeAttachment">✕</view>
       </view>
-    </view>
 
-    <!-- 录音状态条（按住说话期间显示秒数，红点呼吸动效） -->
-    <view wx:if="{{recording}}" class="rec-panel">
-      <view class="rec-dot"></view>
-      <text>正在录音 {{recordSeconds}}s（最长 60s），松开即发送</text>
-    </view>
+      <view wx:if="{{pendingImage}}" class="img-chip">
+        <image src="{{pendingImage.path}}" mode="aspectFill" />
+        <view class="chip-close" hover-class="hover-scale" bindtap="removeImage">✕</view>
+      </view>
 
-    <view wx:if="{{pendingImage}}" class="img-chip">
-      <image src="{{pendingImage.path}}" mode="aspectFill" />
-      <view class="chip-close" hover-class="hover-scale" bindtap="removeImage">✕</view>
-    </view>
-    <view class="input-row">
-      <view class="tool-btn" hover-class="hover-opacity" bindtap="chooseImage">
-        <t-icon name="image-add" size="48rpx" color="rgba(29,33,41,.4)" />
-      </view>
-      <view class="tool-btn" hover-class="hover-opacity" bindtap="chooseFile">
-        <t-icon name="attach" size="48rpx" color="rgba(29,33,41,.4)" />
-      </view>
       <textarea
         class="chat-input"
         auto-height
@@ -219,17 +187,47 @@
         bindkeyboardheightchange="onKeyboardHeight"
         show-confirm-bar="{{false}}"
       />
-      <view
-        class="tool-btn {{recording ? 'mic-btn-on' : ''}}"
-        hover-class="hover-opacity"
-        bindtouchstart="onVoiceStart"
-        bindtouchend="onVoiceEnd"
-        bindtouchcancel="onVoiceCancel"
-      >
-        <t-icon name="microphone" size="48rpx" color="{{recording ? '#0E3DA8' : 'rgba(29,33,41,.4)'}}" />
-      </view>
-      <view class="send-btn {{canSend ? '' : 'send-disabled'}}" hover-class="hover-scale" bindtap="onSend">
-        <t-icon name="send" size="40rpx" color="#FFFFFF" />
+
+      <!-- 底行工具栏：左侧能力胶囊组（可换行防挤），右侧「+」与发送钮 -->
+      <view class="input-toolbar">
+        <!-- 能力胶囊：联网搜索开关（后端不支持时隐藏）+ 思考强度（当前模型无清单时隐藏）+ 当前模型（多个可切换） -->
+        <view class="cap-group">
+          <view
+            wx:if="{{webSearchSupported}}"
+            class="cap-pill {{webSearchOn ? 'cap-pill-on' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="toggleWebSearch"
+          >
+            <t-icon name="internet" size="24rpx" color="{{webSearchOn ? '#FFFFFF' : '#4E5969'}}" />
+            <text>联网搜索</text>
+          </view>
+          <view
+            wx:if="{{thinkingLevels.length}}"
+            class="cap-pill {{reasoningEffort ? 'cap-pill-on' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="chooseReasoning"
+          >
+            <text>思考·{{reasoningLabel}}</text>
+            <t-icon name="chevron-down" size="20rpx" color="{{reasoningEffort ? '#FFFFFF' : '#4E5969'}}" />
+          </view>
+          <view
+            wx:if="{{models.length}}"
+            class="cap-pill {{models.length > 1 ? '' : 'cap-pill-off'}}"
+            hover-class="hover-opacity"
+            bindtap="chooseModel"
+          >
+            <text>当前模型：{{modelName || '默认'}}</text>
+            <t-icon wx:if="{{models.length > 1}}" name="chevron-down" size="20rpx" color="#4E5969" />
+          </view>
+        </view>
+        <view class="toolbar-btns">
+          <view class="add-btn" hover-class="hover-opacity" bindtap="onAddTap">
+            <t-icon name="add" size="40rpx" color="#4E5969" />
+          </view>
+          <view class="send-btn {{canSend ? '' : 'send-disabled'}}" hover-class="hover-scale" bindtap="onSend">
+            <t-icon name="send" size="40rpx" color="#FFFFFF" />
+          </view>
+        </view>
       </view>
     </view>
   </view>

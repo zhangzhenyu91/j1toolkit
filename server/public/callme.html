@@ -307,12 +307,15 @@
   .att-chip.failed .a-ic { background: #FFECE8; color: var(--red); }
   .att-chip.failed .a-sub { color: var(--red); }
   .cm-box {
-    display: flex; align-items: flex-end; gap: 8px;
+    display: flex; flex-direction: column; gap: 4px;
     background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px;
     box-shadow: var(--shadow-card);
     transition: border-color .25s, box-shadow .25s;
   }
   .cm-box:focus-within { border-color: var(--orange); box-shadow: var(--hard-s); }
+  /* 工具行：左组附件图标钮；右组（margin-left:auto 顶右）联网胶囊 + 思考强度/模型下拉 + 发送钮 */
+  .cm-toolbar { display: flex; align-items: center; gap: 8px; }
+  .cm-tools-r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
   .cm-tool {
     width: 34px; height: 34px; flex: none; border: none; border-radius: 8px; background: transparent;
     color: var(--ph); cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -320,16 +323,8 @@
   }
   .cm-tool svg { width: 19px; height: 19px; }
   .cm-tool:hover { color: var(--orange); background: var(--orange-soft); }
-  /* 录音中：麦克风钮转红 + 钮旁红色呼吸点与秒数（tabular-nums） */
-  .cm-tool.rec { color: var(--red); background: #FFECE8; }
-  .cm-rec {
-    display: none; align-items: center; gap: 6px; flex: none; height: 34px;
-    font-size: 12px; color: var(--red); font-variant-numeric: tabular-nums;
-  }
-  .cm-rec.on { display: flex; }
-  .cm-rec .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: breath 1.2s ease-in-out infinite; }
   .cm-text {
-    flex: 1; border: none; outline: none; background: transparent; resize: none;
+    border: none; outline: none; background: transparent; resize: none;
     font-family: inherit; font-size: 13.5px; line-height: 1.7; color: var(--navy);
     padding: 6px 2px; max-height: 150px;
   }
@@ -343,7 +338,7 @@
   .cm-send:hover { transform: translate(2px, 2px); box-shadow: 0 2px 8px rgba(0, 0, 0, .05); }
   .cm-send.off { opacity: .4; cursor: not-allowed; transform: none !important; box-shadow: none; }
   .cm-hint { margin: 9px 0 0; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
-  /* 联网搜索胶囊开关（开=品牌蓝底白字 / 关=灰）与模型下拉（复用 common.js .dd 体系，工具行紧凑化） */
+  /* 联网搜索胶囊开关（开=品牌蓝底白字 / 关=灰）与思考强度/模型下拉（复用 common.js .dd 体系，工具行紧凑化） */
   .cm-ws {
     flex: none; display: flex; align-items: center; gap: 5px; height: 34px; padding: 0 12px;
     border: 1px solid var(--line); border-radius: 8px; background: var(--fill); color: var(--sub);
@@ -352,10 +347,10 @@
   }
   .cm-ws svg { width: 14px; height: 14px; }
   .cm-ws.on { background: var(--orange); border-color: var(--orange); color: #fff; }
-  .cm-model { flex: none; }
-  .cm-model .dd-btn { font-size: 12px; font-weight: 500; color: var(--sub); padding: 0 10px; gap: 6px; }
+  .cm-model, .cm-effort { flex: none; }
+  .cm-model .dd-btn, .cm-effort .dd-btn { font-size: 12px; font-weight: 500; color: var(--sub); padding: 0 10px; gap: 6px; }
   .cm-model .dd-btn .dd-label { max-width: 140px; }
-  .cm-model .dd-btn .dd-tri { color: var(--ph); }
+  .cm-model .dd-btn .dd-tri, .cm-effort .dd-btn .dd-tri { color: var(--ph); }
 
   /* ===== 通用弹窗（新建/重命名输入用 promptModal（.modal-t/.modal-b/.modal-f）；删除确认走 Shade.confirm，
      .m-head/.m-foot 结构与 quiz / worklog 同口径；直角 + 2px 墨边 + 硬影，白底卡片样式直接落在 .modal 上） ===== */
@@ -421,7 +416,8 @@
     .cm-head { padding: 0 14px; }
     .cm-body { padding: 8px 14px 22px; }
     .cm-input { padding: 0 14px 12px; }
-    /* 窄屏输入区收紧：联网胶囊只留图标，模型名下拉限宽 */
+    /* 窄屏输入区收紧：工具行间距收紧、联网胶囊只留图标，模型名下拉限宽 */
+    .cm-toolbar, .cm-tools-r { gap: 6px; }
     .cm-ws { padding: 0 9px; }
     .cm-ws .ws-t { display: none; }
     .cm-model .dd-btn .dd-label { max-width: 88px; }
@@ -475,16 +471,20 @@
         </div>
         <!-- 附件芯片（.att-chip）由 JS 动态追加 -->
       </div>
+      <!-- 两行结构：上行 textarea 满宽（自适应增高）；下行工具行，左组附件图标钮、右组顶右排列 -->
       <div class="cm-box">
-        <button class="cm-tool" id="btnAttach" title="添加图片"></button>
-        <button class="cm-tool" id="btnFile" title="添加附件"></button>
-        <button class="cm-tool" id="btnVoice" title="按住说话"></button>
-        <span class="cm-rec" id="recInd"><i class="rec-dot"></i><span id="recSec">0s</span></span>
         <textarea class="cm-text" id="cmText" rows="3" maxlength="2000"
           placeholder="向 AI 知识库提问，Enter 发送 / Shift+Enter 换行"></textarea>
-        <button class="cm-ws" id="btnWs" title="联网搜索" style="display:none"></button>
-        <select id="modelSel" style="display:none"></select>
-        <button class="cm-send off" id="btnSend" title="发送"></button>
+        <div class="cm-toolbar">
+          <button class="cm-tool" id="btnAttach" title="添加图片"></button>
+          <button class="cm-tool" id="btnFile" title="添加附件"></button>
+          <div class="cm-tools-r">
+            <button class="cm-ws" id="btnWs" title="联网搜索" style="display:none"></button>
+            <select id="effortSel" style="display:none"></select>
+            <select id="modelSel" style="display:none"></select>
+            <button class="cm-send off" id="btnSend" title="发送"></button>
+          </div>
+        </div>
       </div>
       <div class="cm-hint">回答由 AI 基于班组知识库生成，关键操作请以现行规程为准</div>
     </div>
@@ -519,9 +519,10 @@
     entered: false,      // 首次加载后自动进入最近一次对话（对齐小程序 onLoad 一次性标记）
     pendingImage: null,  // base64 dataURL
     attachments: [],     // 附件芯片 {uid, attId, sessionId, name, size, status, progress, error, icon, xhr, timer, _el, _sub}
-    caps: null,          // /capabilities 结果 {models:[{id,name,supports_vision}], web_search}
+    caps: null,          // /capabilities 结果 {models:[{id,name,supports_vision,thinking_levels}], web_search}
     webSearch: false,    // 联网搜索开关（localStorage callme_web_search 记忆）
     modelId: '',         // 所选模型（localStorage callme_model_id 记忆；为空则不传）
+    reasoningEffort: '', // 思考强度档位（localStorage callme_reasoning_effort 记忆；''=默认不传）
     hasMore: false,      // 是否还有更早的历史消息（before_time 分页）
     loadingEarlier: false,
   };
@@ -541,12 +542,10 @@
   var chipImg = document.getElementById('chipImg');
   var chipX = document.getElementById('chipX');
   var btnFile = document.getElementById('btnFile');
-  var btnVoice = document.getElementById('btnVoice');
   var attInput = document.getElementById('attInput');
-  var recInd = document.getElementById('recInd');
-  var recSec = document.getElementById('recSec');
   var btnWs = document.getElementById('btnWs');
   var modelSel = document.getElementById('modelSel');
+  var effortSel = document.getElementById('effortSel');
 
   /* ============================================================
      时间文案
@@ -1315,6 +1314,7 @@
     if (attIds.length) payload.attachment_ids = attIds;
     if (state.caps) payload.web_search = !!state.webSearch; // 能力未知时不带该字段
     if (state.modelId) payload.model_id = state.modelId;
+    if (state.reasoningEffort) payload.reasoning_effort = state.reasoningEffort; // 「默认」档（''）不传
 
     var parser = createSseParser(function (evt) { onSseEvent(evt, aiMsg); });
     var ctrl = new AbortController();
@@ -1569,7 +1569,7 @@
 
   /* ============================================================
      附件（文档/音频，≤50MB，扩展名白名单与后端一致）：
-     选择/录音产物 → XHR 上传（upload.onprogress 进度显示在芯片上）
+     选择产物 → XHR 上传（upload.onprogress 进度显示在芯片上）
      → 芯片转「解析中」→ 每 1s 轮询列表按 id 取单件状态，ready/failed 落定即停
      ============================================================ */
   var IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
@@ -1607,7 +1607,7 @@
     addAttachmentFiles(files);
   });
 
-  // 入队校验：超量 / 非白名单 / 超 50MB 均 toast 拦截（语音产物带 icon='mic'）
+  // 入队校验：超量 / 非白名单 / 超 50MB 均 toast 拦截
   function addAttachmentFiles(files, icon) {
     if (!files.length) return;
     if (!state.activeId) { Shade.toast('会话尚未就绪，请稍候'); return; }
@@ -1742,112 +1742,8 @@
   }
 
   /* ============================================================
-     语音消息：MediaRecorder 依次探测 audio/mp4（产物 .m4a）→ audio/ogg;codecs=opus（→.ogg），
-     均不支持则隐藏入口（Chrome 场景）；按住说话 1-60s，<1s 取消，产物走同一附件上传通道
-     ============================================================ */
-  var voiceSupport = (function () {
-    if (!window.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
-    if (MediaRecorder.isTypeSupported('audio/mp4')) return { mime: 'audio/mp4', ext: 'm4a' };
-    if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) return { mime: 'audio/ogg;codecs=opus', ext: 'ogg' };
-    return null;
-  })();
-  var rec = { active: false, wanting: false, discard: false, mr: null, chunks: [], stream: null, startTs: 0, secTimer: null };
-
-  if (!voiceSupport) {
-    btnVoice.style.display = 'none';
-  } else {
-    btnVoice.addEventListener('mousedown', recStart);
-    btnVoice.addEventListener('mouseup', recStop);
-    btnVoice.addEventListener('mouseleave', recStop); // 兜底：按住移出按钮也正常收尾，防卡死
-    btnVoice.addEventListener('touchstart', recStart, { passive: false });
-    btnVoice.addEventListener('touchend', function (e) { e.preventDefault(); recStop(); }, { passive: false });
-    btnVoice.addEventListener('touchcancel', recStop);
-  }
-
-  function recStart(e) {
-    if (e && e.cancelable) e.preventDefault(); // 阻断触摸后的模拟鼠标事件与按住选中
-    if (rec.active || rec.wanting) return;
-    if (state.sending) { Shade.toast('回答生成中，请稍候'); return; }
-    if (!state.activeId) { Shade.toast('会话尚未就绪，请稍候'); return; }
-    if (state.attachments.length >= ATT_MAX) { Shade.toast('最多添加 ' + ATT_MAX + ' 个附件', 'error'); return; }
-    rec.wanting = true;
-    rec.discard = false;
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
-      rec.stream = stream;
-      rec.wanting = false;
-      if (rec.discard) { stopRecStream(); return; } // 授权等待期间已松手
-      var mr;
-      try { mr = new MediaRecorder(stream, { mimeType: voiceSupport.mime }); }
-      catch (err) {
-        try { mr = new MediaRecorder(stream); } catch (err2) {
-          stopRecStream();
-          Shade.toast('当前浏览器不支持录音', 'error');
-          return;
-        }
-      }
-      rec.mr = mr;
-      rec.chunks = [];
-      mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) rec.chunks.push(ev.data); };
-      mr.onstop = onRecStop;
-      mr.start();
-      rec.active = true;
-      rec.startTs = Date.now();
-      btnVoice.classList.add('rec');
-      recInd.classList.add('on');
-      recSec.textContent = '0s';
-      rec.secTimer = setInterval(function () {
-        var sec = (Date.now() - rec.startTs) / 1000;
-        recSec.textContent = Math.min(60, Math.floor(sec)) + 's';
-        if (sec >= 60) recStop(); // 60s 上限自动停止
-      }, 200);
-    }).catch(function () {
-      rec.wanting = false;
-      Shade.toast('麦克风不可用，请检查浏览器授权', 'error');
-    });
-  }
-
-  function recStop() {
-    if (rec.wanting) { rec.discard = true; return; } // 授权弹窗未返回，标记弃用
-    if (!rec.active) return;
-    rec.active = false;
-    if (rec.secTimer) { clearInterval(rec.secTimer); rec.secTimer = null; }
-    recInd.classList.remove('on');
-    btnVoice.classList.remove('rec');
-    if (Date.now() - rec.startTs < 1000) {
-      rec.discard = true;
-      Shade.toast('说话时间太短');
-    }
-    try { if (rec.mr && rec.mr.state !== 'inactive') rec.mr.stop(); } catch (e) { /* 忽略 */ }
-  }
-
-  // 录音停止：弃用（太短/取消）或封装为 File 走附件上传通道
-  function onRecStop() {
-    var chunks = rec.chunks;
-    var discard = rec.discard;
-    rec.chunks = [];
-    rec.discard = false;
-    rec.mr = null;
-    stopRecStream();
-    if (discard || !chunks.length) return;
-    var blob = new Blob(chunks, { type: voiceSupport.mime });
-    if (!blob.size) return;
-    var d = new Date();
-    var name = '语音消息-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
-      '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.' + voiceSupport.ext;
-    var file = new File([blob], name, { type: voiceSupport.mime });
-    addAttachmentFiles([file], 'mic');
-  }
-
-  function stopRecStream() {
-    if (rec.stream) {
-      rec.stream.getTracks().forEach(function (t) { t.stop(); });
-      rec.stream = null;
-    }
-  }
-
-  /* ============================================================
-     会话能力（GET /capabilities）：模型下拉（复用 Shade.dropdown .dd 体系）+ 联网搜索胶囊开关；
-     选择记忆于 localStorage（callme_model_id / callme_web_search），发送时随 payload 上送
+     会话能力（GET /capabilities）：模型/思考强度下拉（复用 Shade.dropdown .dd 体系）+ 联网搜索胶囊开关；
+     选择记忆于 localStorage（callme_model_id / callme_reasoning_effort / callme_web_search），发送时随 payload 上送
      ============================================================ */
   state.webSearch = localStorage.getItem('callme_web_search') === '1';
 
@@ -1856,11 +1752,12 @@
       var r = await Shade.api('/api/v1/callme/capabilities');
       state.caps = r.data || {};
       setupModelSel(state.caps.models || []);
+      refreshEffortSel(); // 档位清单随所选模型
       if (state.caps.web_search) { // web_search:false 时开关保持隐藏
         syncWsBtn();
         btnWs.style.display = '';
       }
-    } catch (e) { /* 能力获取失败保持默认：开关不显示、模型走后端默认（payload 不带这两个字段） */ }
+    } catch (e) { /* 能力获取失败保持默认：开关不显示、模型走后端默认（payload 不带这些字段） */ }
   }
 
   // 联网搜索胶囊：开=品牌蓝底白字 / 关=灰
@@ -1894,6 +1791,61 @@
   modelSel.addEventListener('change', function () {
     state.modelId = modelSel.value;
     localStorage.setItem('callme_model_id', modelSel.value);
+    refreshEffortSel(); // 模型切换：重算档位清单，记忆档位不在新清单则回退默认
+  });
+
+  /* 思考强度下拉（与 modelSel 同法复用 Shade.dropdown）：「默认」（值 ''，发送不带 reasoning_effort）+
+     当前模型 thinking_levels 中文映射档（未知档位原样显示）；模型无档位清单时整控隐藏；
+     选择记忆于 localStorage（callme_reasoning_effort），回退默认不写回（切回原模型时可恢复记忆） */
+  var EFFORT_LABELS = { off: '关闭', auto: '自动', minimal: '极简', low: '较低', medium: '中等', high: '较高', xhigh: '超高', max: '最高' };
+  var effortDd = null;
+
+  function effortLabel(lv) { return EFFORT_LABELS[lv] || lv; }
+
+  function curModel() {
+    var models = (state.caps && state.caps.models) || [];
+    for (var i = 0; i < models.length; i++) {
+      if (models[i].id === state.modelId) return models[i];
+    }
+    return null;
+  }
+
+  function refreshEffortSel() {
+    var m = curModel();
+    var levels = (m && m.thinking_levels) || [];
+    if (!levels.length) { // 无档位清单：整控隐藏，发送回退默认
+      if (effortDd) effortDd.el.style.display = 'none';
+      state.reasoningEffort = '';
+      return;
+    }
+    effortSel.innerHTML = '<option value="">默认</option>' + levels.map(function (lv) {
+      return '<option value="' + Shade.esc(lv) + '">' + Shade.esc(effortLabel(lv)) + '</option>';
+    }).join('');
+    var saved = localStorage.getItem('callme_reasoning_effort') || '';
+    effortSel.value = (saved && levels.indexOf(saved) >= 0) ? saved : '';
+    state.reasoningEffort = effortSel.value;
+    if (!effortDd) {
+      effortDd = Shade.dropdown(effortSel, { width: 'auto', height: 34 });
+      effortDd.el.classList.add('cm-effort');
+      // 打开弹层时 dropdown 内部 sync 会把按钮文案重置为档名，点击后补写短标签
+      effortDd.el.querySelector('.dd-btn').addEventListener('click', syncEffortLabel);
+    } else {
+      effortDd.el.style.display = '';
+      effortDd.sync();
+    }
+    syncEffortLabel();
+  }
+
+  // 按钮位短标签「思考·档名」（下拉列表项仍为中文档名）
+  function syncEffortLabel() {
+    if (!effortDd) return;
+    var cur = effortSel.options[effortSel.selectedIndex];
+    effortDd.el.querySelector('.dd-label').textContent = '思考·' + (cur ? cur.text : '默认');
+  }
+  effortSel.addEventListener('change', function () {
+    state.reasoningEffort = effortSel.value;
+    localStorage.setItem('callme_reasoning_effort', effortSel.value);
+    syncEffortLabel();
   });
 
   /* ============================================================
@@ -1905,7 +1857,6 @@
   document.getElementById('cmToggle').innerHTML = Shade.icon('chat', 16);
   btnAttach.innerHTML = Shade.icon('image', 19);
   btnFile.innerHTML = Shade.icon('attach', 19);
-  btnVoice.innerHTML = Shade.icon('mic', 19);
   btnWs.innerHTML = Shade.icon('globe', 14) + '<span class="ws-t">联网搜索</span>';
   btnSend.innerHTML = Shade.icon('send', 17, '#fff');
   chipX.innerHTML = Shade.icon('close', 10, '#fff');
