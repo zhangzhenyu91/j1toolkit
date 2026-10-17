@@ -1,12 +1,15 @@
 <!DOCTYPE html>
-<!-- Shade 壹匣 · 在线编辑/预览（ONLYOFFICE Docs 社区版承载页；网盘文档双击/右键当前窗口打开，
-       query mode=view 为仅预览，后端对仅预览格式强制 view + 只读权限）
+<!-- Shade 壹匣 · 在线编辑/预览（ONLYOFFICE Docs 社区版承载页；多源承载：网盘文档双击/右键当前窗口打开
+       （query space/path/mode），其余来源按 src 形态进入（如安全日记录 src=safeday&id=..、出工日志产物
+       src=worklog-sheet&sheet=..&from=..&to=..）；query 除页面导航参数 back 外全部 decode 透传 /office/config，
+       mode=view 为仅预览，后端对仅预览格式与非网盘来源强制 view + 只读权限）
      链路：Shade.api('/api/v1/office/config') 取签发配置（含 JWT）→ 动态加载 OO_PUBLIC_URL 的 api.js →
        DocsAPI.DocEditor 渲染；OnlyOffice 容器回源/回调 Shade 容器内网直走（j1toolkit 网络按容器名互通）；
        保存经回调写回网盘（customization.forcesave 即时落盘，仅编辑模式）
      外壳（v2 定稿 design/Web-在线编辑.html）：纯 OO 满铺——无 Shade 顶栏/副栏/备案条
        （body data-beian="off" 跳过 common.js 备案页脚注入）；返回 = OO 右上角「关闭文件」✕
-       （customization.close + events.onRequestClose → /netdisk.html），浏览器后退兜底；
+       （customization.close + events.onRequestClose → query.back 指定来源页，仅放行 '/' 开头站内路径，
+       缺省回 /netdisk.html），浏览器后退兜底；
        OO 侧 customization 紧凑单行工具栏（compactHeader/compactToolbar，tabStyle line）；
        打开动效：品牌加载层（单次上浮入场 + 细进度条）→ onDocumentReady 后交叉淡出/上浮揭示，
        一次编排落位即静止，prefers-reduced-motion 全关
@@ -91,16 +94,24 @@
   (function () {
     var $ = Shade.$;
     var qs = new URLSearchParams(location.search);
-    var space = qs.get('space') || '';
-    var path = qs.get('path') || '/';
-    var mode = qs.get('mode') === 'view' ? 'view' : 'edit'; // 仅预览 / 协同编辑（后端对仅预览格式仍强制 view）
-    var name = path.split('/').filter(Boolean).pop() || '文档';
+    // 多源承载：query 除页面导航参数 back 外全部作 body 下发 /office/config（URLSearchParams 读取已 decode）——
+    // 网盘形态 space/path/mode 行为不变；新形态（src=safeday&id=.. / src=worklog-sheet&sheet=..&from=..&to=.. 等）自然透传
+    var body = {};
+    // back/name 为页面导航与展示参数，不透传后端；name 供加载层与标题显示（新来源无 path 可取）
+    qs.forEach(function (v, k) { if (k !== 'back' && k !== 'name') body[k] = v; });
+    var mode = body.mode === 'view' ? 'view' : 'edit'; // 仅预览 / 协同编辑（后端对仅预览格式与新来源仍强制 view，前端不特判）
+    body.mode = mode;
+    var name = qs.get('name') || (body.path || '').split('/').filter(Boolean).pop() || '文档';
 
     document.title = name + (mode === 'view' ? ' · 在线预览' : ' · 在线编辑') + ' · Shade 壹匣';
     $('#ldName').textContent = name;
 
-    // 当前窗口打开口径：返回 = 回网盘页（OO 右上角「关闭文件」同口径；浏览器后退亦可用）
-    function back() { location.href = '/netdisk.html'; }
+    // 当前窗口打开口径：返回 = 回来源页（query.back，仅放行 '/' 开头站内路径防 open redirect，缺省回网盘页；
+    // OO 右上角「关闭文件」同口径；浏览器后退亦可用）
+    function back() {
+      var target = qs.get('back') || '';
+      location.href = target.charAt(0) === '/' && target.charAt(1) !== '/' ? target : '/netdisk.html';
+    }
 
     var stateEl = $('#ooState');
     function failState(msg) {
@@ -111,7 +122,7 @@
       $('#btnRetry').addEventListener('click', function () { location.reload(); });
     }
 
-    Shade.api('/api/v1/office/config', { method: 'POST', body: { space: space, path: path, mode: mode } })
+    Shade.api('/api/v1/office/config', { method: 'POST', body: body })
       .then(function (r) {
         var d = r.data || {};
         if (!d.public_url || !d.config) throw new Error('编辑器配置下发异常');

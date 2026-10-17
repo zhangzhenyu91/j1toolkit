@@ -388,10 +388,21 @@ router.get('/records', async (req, res) => {
 });
 
 // 记录归属校验：超管任意班组；其余角色仅本班（按班组名比对）
-async function canAccess(req, record) {
-  if (req.user.role === 'admin') return true;
-  const team = await teamUtil.resolveTeam(req.user);
+async function canAccess(user, record) {
+  if (user.role === 'admin') return true;
+  const team = await teamUtil.resolveTeam(user);
   return !!team && (record.team || '') === team.name;
+}
+
+// 供 office 模块复用（ONLYOFFICE 签发 src='safeday' 回源）：按 id 取记录 + 归属校验 + 产物路径解析；
+// 记录不存在/无权限/产物文件未落盘时返回 null
+async function getAccessibleRecordFile(user, id) {
+  const record = store.get(id);
+  if (!record) return null;
+  if (!(await canAccess(user, record))) return null;
+  const filePath = recordFilePath(record);
+  if (!fs.existsSync(filePath)) return null;
+  return { record, filePath, fileName: record.fileName };
 }
 
 // 下载产物
@@ -400,7 +411,7 @@ router.get(['/records/:id/download', '/records/:id/download/:name([^/]+\\.[a-zA-
   if (!record || record.status !== 'done') {
     return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
   }
-  if (!(await canAccess(req, record))) {
+  if (!(await canAccess(req.user, record))) {
     return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
   }
   const filePath = recordFilePath(record);
@@ -417,7 +428,7 @@ router.post('/records/:id/save-netdisk', async (req, res) => {
     if (!record || record.status !== 'done') {
       return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
     }
-    if (!(await canAccess(req, record))) {
+    if (!(await canAccess(req.user, record))) {
       return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
     }
     const filePath = recordFilePath(record);
@@ -438,14 +449,24 @@ router.post('/records/:id/save-netdisk', async (req, res) => {
   }
 });
 
-// 在线预览：拼接在线预览地址（微软 Office 查看器，凭地址内 ?token= 回源拉取文件，见 utils/preview.js 与 token 映射中间件）
+// 在线预览：ONLYOFFICE 启用（OO_PUBLIC_URL 非空）时返回 office.html 承载页地址（src=safeday 回源本模块，
+// {code,message,data} 信封）；未启用时拼接微软 Office 查看器地址（凭地址内 ?token= 回源拉取文件，
+// 见 utils/preview.js 与 token 映射中间件）
 router.get('/records/:id/preview', async (req, res) => {
   const record = store.get(req.params.id);
   if (!record || record.status !== 'done') {
     return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
   }
-  if (!(await canAccess(req, record))) {
+  if (!(await canAccess(req.user, record))) {
     return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
+  }
+  // OO 分支保持本模块 {ok,error} 信封口径（前端 parseOk 按此解析）；name 参数供承载页标题/加载层显示
+  if (config.office.publicUrl) {
+    return res.json({
+      ok: true,
+      url: '/office.html?src=safeday&id=' + encodeURIComponent(record.id)
+        + '&name=' + encodeURIComponent(record.fileName || '') + '&back=/safeday.html',
+    });
   }
   const url = buildPreviewUrl(
     req,
@@ -463,7 +484,7 @@ router.get('/records/:id/preview', async (req, res) => {
 router.delete('/records/:id', async (req, res) => {
   try {
     const target = store.get(req.params.id);
-    if (target && !(await canAccess(req, target))) {
+    if (target && !(await canAccess(req.user, target))) {
       return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
     }
     const record = store.remove(req.params.id);
@@ -509,3 +530,5 @@ router.use((err, req, res, next) => {
 });
 
 module.exports = router;
+// 供 office 模块复用：ONLYOFFICE 签发 src='safeday' 时按 id 取记录 + 归属校验 + 产物路径
+module.exports.getAccessibleRecordFile = getAccessibleRecordFile;

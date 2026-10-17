@@ -190,12 +190,16 @@
 
 .step-title-err {
   color: #F53F3F;
+  display: flex;
+  align-items: flex-start;
 }
 
-/* 失败步骤前置红三角感叹号（t-icon 由 wxml 提供） */
+/* 失败步骤前置红三角感叹号（t-icon 为自定义组件宿主，vertical-align 对其不生效；
+   按 worklog .lc-fail-x 同款口径：flex 布局 + 首行文字中线对齐，24rpx×1.5=36rpx 行高，(36-22)/2≈7rpx） */
 .step-err-x {
+  flex: none;
   margin-right: 6rpx;
-  vertical-align: -2rpx;
+  margin-top: 7rpx;
 }
 
 .step-summary {

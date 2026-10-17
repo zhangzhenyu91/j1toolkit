@@ -1121,7 +1121,8 @@ router.post(
   }
 );
 
-// GET /logs/:id/remark-preview?key=：拼接微软 Office 查看器预览地址（仅 Office 文档；COS 公共读，查看器直接回源 COS）
+// GET /logs/:id/remark-preview?key=：拼在线预览地址（仅 Office 文档）——OO 启用（OO_PUBLIC_URL）时返回
+// /office.html?src=worklog-remark 承载页地址（由 office 签发端点按 id+key 定位附件回源）；否则微软 Office 查看器地址（COS 公共读，查看器直接回源 COS）
 router.get('/logs/:id/remark-preview', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -1129,6 +1130,9 @@ router.get('/logs/:id/remark-preview', async (req, res, next) => {
     if (!entry) return fail(res, 404, 40400, '日志不存在');
     if (!file) return fail(res, 404, 40400, '附件不存在');
     if (file.type !== 'doc') return fail(res, 400, 40021, '仅 Office 文档支持在线预览');
+    if (config.office.publicUrl) {
+      return ok(res, { url: `/office.html?src=worklog-remark&id=${encodeURIComponent(Number(req.params.id))}&key=${encodeURIComponent(file.cos_key)}&name=${encodeURIComponent(file.name || '')}&back=/worklog.html` });
+    }
     const url = `${config.preview.viewerUrl}?src=${encodeURIComponent(cos.publicUrl(file.cos_key))}`;
     return ok(res, { url });
   } catch (err) {
@@ -1967,7 +1971,9 @@ router.get(['/task-sheet', '/task-sheet/:name([^/]+\\.docx)'], requireDictAdmin,
   }
 });
 
-// GET /task-sheet/preview?from=&to=（或 date= 单日）：拼在线预览地址（微软 Office 查看器，凭地址内 ?token= 回源拉取上方下载接口；同安全日记录口径）
+// GET /task-sheet/preview?from=&to=（或 date= 单日）：拼在线预览地址——OO 启用（OO_PUBLIC_URL）时返回
+// /office.html?src=worklog-sheet 承载页地址（由 office 签发端点生成并回源上方下载接口）；否则微软 Office 查看器地址
+//（凭地址内 ?token= 回源拉取上方下载接口；同安全日记录口径）
 router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
   try {
     const range = sheetRange(req);
@@ -1975,6 +1981,18 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+    // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应
+    if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
+      return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的卡片');
+    }
+    // OO 启用：改返回 office.html 承载页地址（参数按签发时生效值编码，无 team_id/force 则不带；name 供承载页标题显示）
+    if (config.office.publicUrl) {
+      const q = [`from=${encodeURIComponent(range.from)}`, `to=${encodeURIComponent(range.to)}`];
+      if (req.query.team_id) q.push(`team_id=${encodeURIComponent(req.query.team_id)}`);
+      if (isForce(req)) q.push('force=1');
+      q.push(`name=${encodeURIComponent(sheetFileName(range.from, range.to))}`);
+      return ok(res, { url: `/office.html?src=worklog-sheet&sheet=task&${q.join('&')}&back=/worklog.html` });
+    }
     const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
     const fileName = sheetFileName(range.from, range.to);
     const url = buildPreviewUrl(
@@ -1983,10 +2001,6 @@ router.get('/task-sheet/preview', requireDictAdmin, async (req, res, next) => {
       fileName
     );
     if (!url) return fail(res, 400, 40011, '未配置文件预览服务');
-    // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应
-    if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
-      return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的卡片');
-    }
     return ok(res, { url });
   } catch (err) {
     return next(err);
@@ -2016,7 +2030,7 @@ router.get(['/fee-sheet', '/fee-sheet/:name([^/]+\\.docx)'], requireDictAdmin, a
   }
 });
 
-// GET /fee-sheet/preview?from=&to=（或 date= 单日）：拼在线预览地址（口径同 /task-sheet/preview）
+// GET /fee-sheet/preview?from=&to=（或 date= 单日）：拼在线预览地址（OO 承载页 / 微软查看器两分支口径同 /task-sheet/preview）
 router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
   try {
     const range = sheetRange(req);
@@ -2024,6 +2038,18 @@ router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     if (!isForce(req) && failIfVerifyFailed(res, await sheetVerifyFailures(req.team.id, range.from, range.to))) return;
+    // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应（判定口径同任务单 hasRows）
+    if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
+      return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的汇总');
+    }
+    // OO 启用：改返回 office.html 承载页地址（参数按签发时生效值编码，无 team_id/force 则不带；name 供承载页标题显示）
+    if (config.office.publicUrl) {
+      const q = [`from=${encodeURIComponent(range.from)}`, `to=${encodeURIComponent(range.to)}`];
+      if (req.query.team_id) q.push(`team_id=${encodeURIComponent(req.query.team_id)}`);
+      if (isForce(req)) q.push('force=1');
+      q.push(`name=${encodeURIComponent(feeFileName(range.from, range.to))}`);
+      return ok(res, { url: `/office.html?src=worklog-sheet&sheet=fee&${q.join('&')}&back=/worklog.html` });
+    }
     const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
     const fileName = feeFileName(range.from, range.to);
     const url = buildPreviewUrl(
@@ -2032,10 +2058,6 @@ router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
       fileName
     );
     if (!url) return fail(res, 400, 40011, '未配置文件预览服务');
-    // 预检：无出车记录时直接报错，避免预览服务回源拉到错误响应（判定口径同任务单 hasRows）
-    if (!(await tasksheet.hasRows(req.team.id, range.from, range.to))) {
-      return fail(res, 404, 40402, '该日期范围没有出车记录，无可生成的汇总');
-    }
     return ok(res, { url });
   } catch (err) {
     return next(err);
@@ -2045,8 +2067,9 @@ router.get('/fee-sheet/preview', requireDictAdmin, async (req, res, next) => {
 // ===== 派车汇总（管理员）：范围内已填派车单号的出车卡片导出极简 xlsx（派车单号 + 用车日期两列，
 // 顺序与工作任务单/费用汇总同口径 = ORDER BY log_date, created_at, id；数据来自卡片 dispatch_order_no，见 7.8） =====
 
-// GET /dispatch-sheet?from=&to=（或 date= 单日）：二进制 xlsx 响应（消费方式同 /task-sheet；不接生成前核验——单号清单与照片核验无关）
-router.get('/dispatch-sheet', requireDictAdmin, async (req, res, next) => {
+// GET /dispatch-sheet?from=&to=（或 date= 单日）：二进制 xlsx 响应（消费方式同 /task-sheet；不接生成前核验——单号清单与照片核验无关；
+// 路径数组第二项带文件名后缀：查看器按 URL 路径扩展名识别格式）
+router.get(['/dispatch-sheet', '/dispatch-sheet/:name([^/]+\\.xlsx)'], requireDictAdmin, async (req, res, next) => {
   try {
     const range = sheetRange(req);
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
@@ -2059,6 +2082,34 @@ router.get('/dispatch-sheet', requireDictAdmin, async (req, res, next) => {
     res.setHeader('Content-Disposition',
       `attachment; filename="dispatch-sheet-${range.from}.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
     return res.send(result.buffer);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /dispatch-sheet/preview?from=&to=（或 date= 单日）：拼在线预览地址（OO 承载页 / 微软查看器两分支口径同 /task-sheet/preview；
+// 不接生成前核验——同上方下载接口）
+router.get('/dispatch-sheet/preview', requireDictAdmin, async (req, res, next) => {
+  try {
+    const range = sheetRange(req);
+    if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
+    if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    // OO 启用：改返回 office.html 承载页地址（src=worklog-sheet&sheet=dispatch；参数按签发时生效值编码，无 team_id 则不带；name 供承载页标题显示）
+    if (config.office.publicUrl) {
+      const q = [`from=${encodeURIComponent(range.from)}`, `to=${encodeURIComponent(range.to)}`];
+      if (req.query.team_id) q.push(`team_id=${encodeURIComponent(req.query.team_id)}`);
+      q.push(`name=${encodeURIComponent(dispatchSheetFileName(range.from, range.to))}`);
+      return ok(res, { url: `/office.html?src=worklog-sheet&sheet=dispatch&${q.join('&')}&back=/worklog.html` });
+    }
+    const teamQ = req.query.team_id ? `&team_id=${encodeURIComponent(req.query.team_id)}` : '';
+    const url = buildPreviewUrl(
+      req,
+      `/api/v1/worklog/dispatch-sheet?from=${range.from}&to=${range.to}${teamQ}`,
+      dispatchSheetFileName(range.from, range.to)
+    );
+    if (!url) return fail(res, 400, 40011, '未配置文件预览服务');
+    return ok(res, { url });
   } catch (err) {
     return next(err);
   }
@@ -2314,3 +2365,7 @@ router.put('/admin/members/:id/move', requireDictAdmin, async (req, res, next) =
 dispatchSync.start();
 
 module.exports = router;
+// 供 office 模块签发 src=worklog-sheet / src=worklog-remark 配置时复用的现有函数（router 本体不变，追加命名导出）
+module.exports.sheetVerifyFailures = sheetVerifyFailures;
+module.exports.findRemarkFile = findRemarkFile;
+module.exports.sheetFileName = sheetFileName;

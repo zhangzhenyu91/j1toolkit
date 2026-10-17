@@ -16,7 +16,8 @@
      工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
      「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 basemetas、下载 fetch + blob，同安全日记录口径；同小程序 sheet 页（task 型）口径）；
      「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 sheet 页（fee 型）口径）；
-     「派车汇总」= 按日期范围导出派车单号清单 xlsx（派车单号 + 用车日期两列，顺序与工作任务单一致 = 日期+卡片创建序；
+     「派车汇总」= 按日期范围导出派车单号清单 xlsx（预览 / 下载 / 存网盘；预览走 ONLYOFFICE 在线查看，OO 未配置时后端自动回退微软查看器——
+     派车单号 + 用车日期两列，顺序与工作任务单一致 = 日期+卡片创建序；
      数据来自卡片 dispatch_order_no 字段——每日同步带入、改派车可改，仅已填单号的出车卡片出数；同小程序 sheet 页（dispatch 型）口径）；
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人 / 目的地 / 派车单号（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；口径见《开发指南》7.6）；
@@ -1166,7 +1167,7 @@
         </div>
       </div>
 
-      <!-- 派车汇总：按日期范围导出派车单号清单 xlsx（仅超管 / 班组管理员可见页签；与费用汇总平级；仅下载不预览——basemetas 对 xlsx 渲染未验证） -->
+      <!-- 派车汇总：按日期范围导出派车单号清单 xlsx（仅超管 / 班组管理员可见页签；与费用汇总平级；预览走 ONLYOFFICE 在线查看，OO 未配置时后端自动回退微软查看器） -->
       <div class="pane" id="paneDS">
         <div class="rep-bar">
           <input type="date" class="f-sel rg-date" id="dsFrom">
@@ -1185,6 +1186,7 @@
         </div>
         <div class="pane-foot">
           <span class="sp">
+            <button class="btn" id="dsPrev">预览</button>
             <button class="btn btn-accent" id="dsDl">下载 Excel</button>
             <button class="btn nd-save" id="dsNd" hidden>存网盘</button>
           </span>
@@ -4528,6 +4530,26 @@ function dsFileName(from, to) {
   return from === to ? '派车汇总-' + from + '.xlsx' : '派车汇总-' + from + '至' + to + '.xlsx';
 }
 
+/* 派车汇总：预览 = 调 preview 接口取在线查看地址新标签打开（同工作任务单口径；OO 启用时回 office.html 承载页地址，
+   未配置时后端自动回退微软查看器；无 40901 生成前核验——单号清单与照片核验无关） */
+async function dispatchSheetPreview(btn) {
+  var range = dsRange();
+  if (!range) return;
+  btn.disabled = true;
+  try {
+    var r = await Shade.api(wl('/api/v1/worklog/dispatch-sheet/preview?from=' + range.from + '&to=' + range.to));
+    if (r.data && r.data.url) {
+      window.open(r.data.url, '_blank');
+      return;
+    }
+    throw new Error('预览地址为空');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* 派车汇总：下载 = xlsx 二进制，apiRaw + saveBlob 落地（同费用汇总口径；无 40901 生成前核验——单号清单与照片核验无关） */
 async function dispatchSheetDownload(btn) {
   var range = dsRange();
@@ -5370,8 +5392,9 @@ function initEvents() {
   bindRangeInput('#fsFrom', '#fsTo', state.fs, null);
   $('#fsPrev').addEventListener('click', function () { feeSheetPreview(this); });
   $('#fsDl').addEventListener('click', function () { feeSheetDownload(this); });
-  /* 派车汇总页签：内联起止日期 / 下载（xlsx，仅下载不预览） */
+  /* 派车汇总页签：内联起止日期 / 预览（在线查看新标签）/ 下载（xlsx）（同费用汇总口径，无核验拦截） */
   bindRangeInput('#dsFrom', '#dsTo', state.ds, null);
+  $('#dsPrev').addEventListener('click', function () { dispatchSheetPreview(this); });
   $('#dsDl').addEventListener('click', function () { dispatchSheetDownload(this); });
   /* 存网盘入口（仅网盘可用时显示；任务单/费用/派车 + 批量下载页签 PDF） */
   $('#tsNd').addEventListener('click', function () { sheetSaveNd('task', tsRange(), this); });

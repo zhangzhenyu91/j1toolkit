@@ -4,9 +4,9 @@
   "private": true,
   "description": "Shade 壹匣微信小程序",
   "dependencies": {
-    "tdesign-miniprogram": "^1.15.3",
-    "markdown-it": "^14.3.0",
-    "mp-html": "^2.5.2"
+    "markdown-it": "^14.3.3",
+    "mp-html": "^2.5.2",
+    "tdesign-miniprogram": "^1.15.3"
   },
   "overrides": {
     "argparse": "1.0.10"
