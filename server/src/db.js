@@ -314,6 +314,10 @@ async function ensureSchema() {
   await require('./treehazard/schema').ensureTreehazardSchema(pool);
   console.log('[初始化] 树障隐患记录表结构与应用种子就绪');
 
+  // 班组数据：建表（team_line 运维线路；team-data 应用种子已在树障 schema 一并写入）
+  await require('./teamdata/schema').ensureTeamdataSchema(pool);
+  console.log('[初始化] 班组数据表结构就绪');
+
   // 团队网盘：建表并写入应用种子
   await require('./netdisk/schema').ensureNetdiskSchema(pool);
   console.log('[初始化] 团队网盘表结构与应用种子就绪');

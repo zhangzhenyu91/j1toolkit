@@ -181,6 +181,20 @@ router.get('/records', async (req, res, next) => {
   }
 });
 
+// GET /records/:id：单条记录（含 photos 数组），仅本班（备用：详情/单条刷新）
+router.get('/records/:id', async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
+    const recordId = Number(req.params.id);
+    const [rows] = await pool.query(`SELECT ${RECORD_COLS} FROM treehazard_record WHERE id = ? AND team_id = ?`, [recordId, req.team.id]);
+    if (!rows.length) return fail(res, 404, 40400, '记录不存在');
+    await attachPhotos(rows);
+    return ok(res, rows[0]);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // 处理入参校验与取值：handle_note 必填 trim 非空；handler_name 默认当前用户昵称；handled_at 默认当日（北京时间）
 function parseHandleBody(req, res) {
   const note = String((req.body && req.body.handle_note) ?? '').trim();

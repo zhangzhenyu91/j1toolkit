@@ -1,4 +1,4 @@
-<!-- 树障隐患记录 · 主页（看板 + 工具行 + 按线路分组的记录卡片流；全部操作一级页面化） -->
+<!-- 树障隐患记录 · 主页（看板 + 工具行 + 按线路分组的精简记录卡片流；点卡进详情页，处理弹层仅供批量） -->
 <navbar back title="树障隐患记录" />
 
 <view class="page-body" wx:if="{{gate}}">
@@ -41,35 +41,26 @@
   <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:for-index="gi" wx:key="key">
     <view class="lg-title">{{g.title}}<text class="lg-n">{{g.records.length}}</text></view>
 
-    <!-- 记录卡片：已处理整体降饱和；班管/超管长按弹删除确认（wx:for-index 显式命名 ri，防照片内层循环默认 index 遮蔽） -->
-    <view class="card thcard {{item.status === 'handled' ? 'done' : ''}}" wx:for="{{g.records}}" wx:for-index="ri" wx:key="id" data-id="{{item.id}}" bindlongpress="onCardLongPress">
-      <!-- 首行：批量勾选圆点（批量模式才渲染，已处理禁选）+ 区段 + 状态点标 -->
+    <!-- 记录卡片（精简口径同出工日志卡片：仅区段 + 状态点标 + 三项关键指标，点击进详情）：
+         已处理整体降饱和；批量模式点击 = 勾选（已处理禁选），不跳详情 -->
+    <view class="card thcard {{item.status === 'handled' ? 'done' : ''}}" wx:for="{{g.records}}" wx:for-index="ri" wx:key="id"
+      data-id="{{item.id}}" data-status="{{item.status}}" data-gi="{{gi}}" data-ri="{{ri}}"
+      hover-class="hover-opacity" bindtap="onCardTap">
+      <!-- 首行：批量勾选圆点（批量模式才渲染，已处理禁选）+ 区段 + 状态点标 + 详情箭头 -->
       <view class="th-head">
-        <view wx:if="{{batchMode}}" class="ck-ring {{selected[item.id] ? 'on' : ''}} {{item.status === 'handled' ? 'dis' : ''}}" catchtap="onToggleSelect" data-id="{{item.id}}" data-status="{{item.status}}">
+        <view wx:if="{{batchMode}}" class="ck-ring {{selected[item.id] ? 'on' : ''}} {{item.status === 'handled' ? 'dis' : ''}}">
           <t-icon wx:if="{{selected[item.id]}}" name="check" size="22rpx" color="#FFFFFF" />
         </view>
         <view class="th-section">{{item.section || '未填写区段'}}</view>
         <view class="st-tag {{item.status === 'handled' ? 'st-ok' : 'st-warn'}}">{{item.status === 'handled' ? '已处理' : '未处理'}}</view>
+        <t-icon wx:if="{{!batchMode}}" name="chevron-right" size="28rpx" color="#C9CDD4" />
       </view>
-      <view class="th-pos" wx:if="{{item.position_note}}">{{item.position_note}}</view>
 
-      <!-- 字段网格（两行小字段）：垂直距离 ≤ 阈值时红字浅红底胶囊突出 -->
+      <!-- 三项关键指标（一行三个小字段）：垂直距离 ≤ 阈值时红字浅红底胶囊突出 -->
       <view class="th-grid">
         <view class="th-f">
           <view class="th-l">树种×数量</view>
           <view class="th-v">{{item.tree_species || '—'}}{{item.tree_count ? ' ×' + item.tree_count : ''}}</view>
-        </view>
-        <view class="th-f">
-          <view class="th-l">直径</view>
-          <view class="th-v">{{item.diameter || '—'}}</view>
-        </view>
-        <view class="th-f">
-          <view class="th-l">距小号</view>
-          <view class="th-v">{{item.dist_small || '—'}}</view>
-        </view>
-        <view class="th-f">
-          <view class="th-l">距大号</view>
-          <view class="th-v">{{item.dist_big || '—'}}</view>
         </view>
         <view class="th-f">
           <view class="th-l">水平距离</view>
@@ -79,49 +70,6 @@
           <view class="th-l">垂直距离</view>
           <view class="th-v {{item.overThreshold ? 'th-v-bad' : ''}}">{{item.vertical || '—'}}</view>
         </view>
-        <view class="th-f">
-          <view class="th-l">发现人</view>
-          <view class="th-v">{{item.finder_name || '—'}}</view>
-        </view>
-        <view class="th-f">
-          <view class="th-l">发现时间</view>
-          <view class="th-v">{{item.foundAtText || '—'}}</view>
-        </view>
-      </view>
-
-      <!-- 已处理信息：处理人 / 处理情况 / 处理时间 一行灰字 -->
-      <view class="th-handled" wx:if="{{item.status === 'handled'}}">处理：{{item.handler_name || '—'}} · {{item.handle_note || '—'}} · {{item.handledAtText || '—'}}</view>
-
-      <!-- 照片三区：辅证（排查系统提供，无交互只读）/ 处理前 / 处理后（「+」格上传，点图预览，长按缩略图删图——仅上传者本人或班管/超管） -->
-      <view class="pz">
-        <view class="pz-t">辅证照片</view>
-        <view class="pz-grid" wx:if="{{item.pz.evidence.length}}">
-          <image wx:for="{{item.pz.evidence}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" data-gi="{{gi}}" data-ri="{{ri}}" data-kind="evidence" data-current="{{p.url}}" />
-        </view>
-        <view class="pz-none" wx:else>由排查系统提供</view>
-      </view>
-      <view class="pz">
-        <view class="pz-t">处理前</view>
-        <view class="pz-grid">
-          <image wx:for="{{item.pz.before}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" bindlongpress="onPhotoLongPress" data-gi="{{gi}}" data-ri="{{ri}}" data-kind="before" data-current="{{p.url}}" data-id="{{item.id}}" data-pid="{{p.id}}" data-uploaded-by="{{p.uploaded_by}}" />
-          <view class="pz-add" hover-class="hover-opacity" catchtap="onAddPhoto" data-id="{{item.id}}" data-kind="before" data-gi="{{gi}}" data-ri="{{ri}}">
-            <t-icon name="add" size="36rpx" color="#86909C" />
-          </view>
-        </view>
-      </view>
-      <view class="pz">
-        <view class="pz-t">处理后</view>
-        <view class="pz-grid">
-          <image wx:for="{{item.pz.after}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" bindlongpress="onPhotoLongPress" data-gi="{{gi}}" data-ri="{{ri}}" data-kind="after" data-current="{{p.url}}" data-id="{{item.id}}" data-pid="{{p.id}}" data-uploaded-by="{{p.uploaded_by}}" />
-          <view class="pz-add" hover-class="hover-opacity" catchtap="onAddPhoto" data-id="{{item.id}}" data-kind="after" data-gi="{{gi}}" data-ri="{{ri}}">
-            <t-icon name="add" size="36rpx" color="#86909C" />
-          </view>
-        </view>
-      </view>
-
-      <!-- 操作区：未处理 → 处理（次按钮描边样式；批量模式下隐藏，由底部固定条承接） -->
-      <view class="th-ops" wx:if="{{item.status !== 'handled' && !batchMode}}">
-        <view class="th-btn" hover-class="hover-opacity" catchtap="onOpenHandle" data-id="{{item.id}}">处 理</view>
       </view>
     </view>
   </view>
@@ -146,14 +94,14 @@
         <t-icon wx:if="{{lineFilter === ''}}" name="check" size="30rpx" color="#0E3DA8" />
       </view>
       <view class="flt-item {{lineFilter === item.line_name ? 'on' : ''}}" wx:for="{{lineOptions}}" wx:key="line_name" hover-class="hover-bg-warm" bindtap="onPickLine" data-line="{{item.line_name}}">
-        <text>{{item.voltage_level}} {{item.line_name}}（{{item.count}}）</text>
+        <text>{{item.voltageText}} {{item.line_name}}（{{item.count}}）</text>
         <t-icon wx:if="{{lineFilter === item.line_name}}" name="check" size="30rpx" color="#0E3DA8" />
       </view>
     </scroll-view>
   </view>
 </t-popup>
 
-<!-- 处理弹层（单条 / 批量共用；处理情况带「削枝」「砍伐」快捷标签） -->
+<!-- 处理弹层（批量处理用；单条处理在详情页。处理情况带「削枝」「砍伐」快捷标签） -->
 <t-popup visible="{{handleVisible}}" placement="bottom" bind:visible-change="onHandleVisibleChange">
   <view class="sheet">
     <view class="sheet-title">{{handleIds.length > 1 ? '批量处理（' + handleIds.length + ' 条）' : '处理记录'}}</view>
@@ -253,5 +201,4 @@
   </view>
 </t-popup>
 
-<t-dialog id="t-dialog" />
 <t-toast id="t-toast" />

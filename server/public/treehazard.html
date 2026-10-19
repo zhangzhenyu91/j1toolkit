@@ -2,9 +2,10 @@
 <!-- Shade 壹匣 · 树障隐患记录网页版（「政企蓝白」token；骨架同 worklog.html：100vh 锁高 + 悬浮卡片 + 页签内部滚动）
      功能：看板四格（未处理 / 本周新增 / 垂直距离≤阈值未处理 / 已处理）+ 线路筛选 + 统计表预览（/export/preview
      取 url 当前窗口打开）与下载（apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
-     记录按线路分组渲染（后端已排序），卡片含区段 / 树种×数量 / 直径与距小号·距大号·水平·垂直（超阈值红显）·发现人·发现时间，
-     照片三区（辅证只读 / 处理前 / 处理后，网格缩略图 + 大图查看器 + 上传 / 删除），未处理卡可「处理」（处理人·情况·时间弹层），
-     支持批量勾选批量处理；暂存区 / 冲突页签与阈值设置 / 同步至内网仅超管·班组管理员可见（服务端 requireDictAdmin 同拦）；
+     记录按线路分组渲染（后端已排序），精简卡片只留区段标题 / 状态点标（未处理橙·已处理绿）/ 树种×数量 / 水平·垂直距离
+     （垂直 ≤ 阈值红显胶囊），点击卡片进详情弹层（720px：全字段网格 + 已处理信息 + 照片三区（辅证只读 / 处理前 / 处理后，
+     大缩略图网格 + 大图查看器 + 上传 / 删除）+ 底部 处理（未处理）/ 删除（班管·超管）按钮，操作后随 loadRecords 同步重绘）；
+     支持批量勾选批量处理（批量模式下点卡 = 勾选）；暂存区 / 冲突页签与阈值设置 / 同步至内网仅超管·班组管理员可见（服务端 requireDictAdmin 同拦）；
      班组隔离：超管页头班组切换下拉（localStorage.treehazard_team_id，全部 /treehazard/* 请求统一带 team_id，见 th()），
      非超管固定本班、未分配班组整页空态（屏十口径）；API 直连主平台 /api/v1/treehazard/*（Bearer token 经 Shade.api） -->
 <html lang="zh-CN">
@@ -118,27 +119,35 @@
   .linkbtn.dgr { color: var(--red); }
   .linkbtn.dgr:hover { background: #FFECE8; }
 
-  /* ===== 记录页签：线路分组 + 隐患卡片 ===== */
+  /* ===== 记录页签：线路分组 + 精简隐患卡片（点卡进详情弹层） ===== */
   .lg-head { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 12px; }
   .lg-head b { font-size: 15.5px; font-weight: 700; letter-spacing: 1px; }
   .lg-head .lg-n { font-size: 12px; color: var(--ph); font-variant-numeric: tabular-nums; }
-  .rec { margin-bottom: 16px; padding: 16px 22px 14px; position: relative; }
+  .rec {
+    margin-bottom: 14px; padding: 15px 22px; position: relative; cursor: pointer;
+    transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+  }
+  .rec:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
   .rec.done { opacity: .62; } /* 已处理卡整体降饱和 */
   .rec-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .rec-sec { font-size: 19px; font-weight: 700; letter-spacing: 1px; }
-  .rec-pos { font-size: 12px; color: var(--ph); letter-spacing: .5px; }
   .rec-sub { font-size: 13px; font-weight: 600; color: var(--navy); letter-spacing: .5px; }
-  /* 状态小签：圆点 + 文字（未处理红 / 已处理绿） */
+  /* 水平 / 垂直距离小字；垂直距离 ≤ 阈值时红显胶囊（.vcap） */
+  .rec-dist { font-size: 13px; color: var(--sub); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .vcap {
+    display: inline-block; padding: 1px 8px; border-radius: 4px; background: #FFECE8;
+    color: var(--red); font-weight: 700; font-style: normal;
+  }
+  /* 状态点标：圆点 + 文字（未处理橙 / 已处理绿） */
   .rec-tag {
     margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px;
     padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; letter-spacing: .5px;
   }
   .rec-tag::before { content: ""; width: 5px; height: 5px; border-radius: 50%; }
-  .rec-tag.un { background: #FFECE8; color: var(--red); }
-  .rec-tag.un::before { background: var(--red); }
+  .rec-tag.un { background: #FFF7E8; color: #D25F00; }
+  .rec-tag.un::before { background: var(--yellow); }
   .rec-tag.ok { background: #E8FFEA; color: #0B8A37; }
   .rec-tag.ok::before { background: #0B8A37; }
-  .rec-del { flex: none; }
   /* 批量勾选框（批量模式才渲染；已处理卡为禁用态） */
   .rec-ck {
     flex: none; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--dash); background: #fff;
@@ -150,16 +159,16 @@
   .rec-ck.on { border-color: var(--orange); background: var(--orange); color: #fff; }
   .rec-ck.dis { opacity: .35; cursor: not-allowed; }
   .rec-ck.dis:hover { border-color: var(--dash); }
-  /* 网格小字段：距小号 / 距大号 / 水平 / 垂直 / 发现人 / 发现时间 */
-  .rec-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px 14px; margin-top: 12px; }
-  @media (max-width: 1100px) { .rec-grid { grid-template-columns: repeat(3, 1fr); } }
+  /* 详情弹层字段网格（区段 / 位置备注 / 树种 / 数量 / 直径 / 距小号 / 距大号 / 水平 / 垂直 / 发现人 / 发现时间） */
+  .dt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; }
+  @media (max-width: 640px) { .dt-grid { grid-template-columns: repeat(2, 1fr); } }
   .rg-cell { background: var(--fill); border-radius: 8px; padding: 7px 10px; min-width: 0; }
   .rg-k { font-size: 10.5px; color: var(--ph); letter-spacing: 1px; }
   .rg-v { margin-top: 2px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* 垂直距离超阈值：浅红底红字突出 */
   .rg-cell.danger { background: #FFECE8; }
   .rg-cell.danger .rg-v { color: var(--red); font-weight: 700; }
-  /* 已处理信息行（绿点 + 处理人/处理情况/处理时间） */
+  /* 详情弹层已处理信息行（绿点 + 处理人/处理情况/处理时间） */
   .rec-handled {
     margin-top: 12px; padding: 9px 12px; border-radius: 8px; background: #E8FFEA;
     display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
@@ -167,9 +176,8 @@
   }
   .rec-handled::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
   .rec-handled b { font-weight: 700; }
-  /* 照片三区：辅证（只读）/ 处理前 / 处理后 */
-  .ph-zones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 12px; }
-  @media (max-width: 1100px) { .ph-zones { grid-template-columns: 1fr; } }
+  /* 详情弹层照片三区：辅证（只读）/ 处理前 / 处理后竖排，大缩略图网格（参考出工日志照片网格：圆角无描边） */
+  .ph-zones { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
   .ph-zhead { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--sub); letter-spacing: 1px; }
   .ph-add {
     margin-left: auto; width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line); background: #fff;
@@ -178,18 +186,18 @@
   }
   .ph-add:hover { border-color: var(--orange); background: var(--orange-soft); }
   .ph-add svg { width: 12px; height: 12px; }
-  .ph-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; min-height: 30px; }
-  .ph { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); cursor: zoom-in; background: var(--paper); }
+  .ph-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 8px; }
+  @media (max-width: 640px) { .ph-grid { grid-template-columns: repeat(3, 1fr); } }
+  .ph { position: relative; height: 118px; border-radius: 8px; overflow: hidden; cursor: zoom-in; background: var(--fill); }
   .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .ph-x {
-    position: absolute; top: 3px; right: 3px; width: 17px; height: 17px; border-radius: 6px; border: none;
+    position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 6px; border: none;
     background: rgba(29, 33, 41, .72); color: #fff; cursor: pointer;
     display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s;
   }
   .ph:hover .ph-x { opacity: 1; }
-  .ph-x svg { width: 9px; height: 9px; }
-  .ph-none { font-size: 11.5px; color: var(--ph); letter-spacing: .5px; padding: 8px 0; }
-  .rec-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+  .ph-x svg { width: 10px; height: 10px; }
+  .ph-none { grid-column: 1 / -1; font-size: 11.5px; color: var(--ph); letter-spacing: .5px; padding: 8px 0; }
 
   /* ===== 暂存区页签：批次卡 + 批次详情（inline 编辑表格） ===== */
   .stg-card { margin-bottom: 14px; padding: 16px 22px; cursor: pointer; transition: transform .18s var(--ease), box-shadow .18s var(--ease); }
@@ -250,11 +258,12 @@
     background: #fff; border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow-hover);
     animation: k-fade .3s var(--ease) both;
   }
+  .batch-bar[hidden] { display: none !important; } /* author display:flex 优先于 UA [hidden]，显式兜底（同 .th-wrap 口径） */
   .batch-bar .bc { font-size: 13px; font-weight: 700; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
 
-  /* ===== 大图遮罩层（Lightbox：照片查看，Esc / 点击遮罩关闭，← → 切换） ===== */
+  /* ===== 大图遮罩层（Lightbox：照片查看，Esc / 点击遮罩关闭，← → 切换；z-index 高于弹层 .mask(320)，可从详情弹层上打开） ===== */
   .lb {
-    position: fixed; inset: 0; z-index: 300; padding: 36px;
+    position: fixed; inset: 0; z-index: 340; padding: 36px;
     background: rgba(29, 33, 41, .85); backdrop-filter: blur(6px);
     display: flex; align-items: center; justify-content: center; gap: 18px;
     opacity: 0; pointer-events: none; transition: opacity .3s;
@@ -431,10 +440,11 @@ var me = Shade.user() || {};
 /* 超管 / 班组管理员（暂存区·冲突·阈值·同步·删记录等管理类入口的可见性口径） */
 var isManager = me.role === 'admin' || me.role === 'team_admin';
 
-/* 记录字段定义：网格小字段 + 冲突对照列共用标签 */
-var GRID_FIELDS = [
-  ['dist_small', '距小号(m)'], ['dist_big', '距大号(m)'], ['horizontal', '水平(m)'],
-  ['vertical', '垂直(m)'], ['finder_name', '发现人'], ['found_at', '发现时间']
+/* 详情弹层字段网格定义（11 项；垂直超阈值红显，key 与后端列名一致） */
+var DETAIL_FIELDS = [
+  ['section', '区段'], ['position_note', '位置备注'], ['tree_species', '树种'], ['tree_count', '数量'],
+  ['diameter', '直径(cm)'], ['dist_small', '距小号(m)'], ['dist_big', '距大号(m)'],
+  ['horizontal', '水平(m)'], ['vertical', '垂直(m)'], ['finder_name', '发现人'], ['found_at', '发现时间']
 ];
 /* 15 业务列（发现 12 列 + 处理 3 列）：暂存区编辑与冲突对照共用（key 与后端列名一致） */
 var BIZ_FIELDS = [
@@ -467,8 +477,18 @@ function teamBody(o) { return state.teamId ? Object.assign({ team_id: state.team
 
 /* 空值展示占位 */
 function dash(v) { var s = String(v == null ? '' : v).trim(); return s || '—'; }
-/* 电压等级展示：拼 kV 后缀（空 → —） */
-function fmtKv(v) { var s = String(v == null ? '' : v).trim(); return s ? s + 'kV' : '—'; }
+/* 电压等级展示幂等：纯数字拼 kV 后缀；已含 kV 或其他文本原样（数据里 110 与 110kV 并存；空 → —） */
+function fmtKv(v) {
+  var s = String(v == null ? '' : v).trim();
+  if (!s) return '—';
+  return /^\d+(\.\d+)?$/.test(s) ? s + 'kV' : s;
+}
+/* 距离展示幂等：纯数字拼 m 后缀；已带单位或其他文本原样（空 → —） */
+function fmtM(v) {
+  var s = String(v == null ? '' : v).trim();
+  if (!s) return '—';
+  return /^\d+(\.\d+)?$/.test(s) ? s + 'm' : s;
+}
 /* 垂直距离是否超阈值（vertical_num 非空且 ≤threshold） */
 function overThreshold(r, threshold) {
   return threshold !== null && threshold !== undefined && r.vertical_num !== null && r.vertical_num !== undefined
@@ -481,6 +501,14 @@ function allRecords() {
   (state.rec.lines || []).forEach(function (g) { out = out.concat(g.records || []); });
   return out.concat(state.rec.unmatched || []);
 }
+/* 按 id 找记录（详情弹层数据源） */
+function findRecord(id) {
+  var found = null;
+  allRecords().forEach(function (r) { if (Number(r.id) === Number(id)) found = r; });
+  return found;
+}
+/* 详情弹层单例（同一时刻只开一个；随 loadRecords 静默刷新同步重绘，记录已删则自动关闭） */
+var detailInst = null;
 
 /* ================= 看板 ================= */
 async function loadDashboard() {
@@ -540,6 +568,7 @@ async function loadRecords(quiet) {
     state.rec = r.data || { threshold: null, lines: [], unmatched: [] };
     rebuildLineFilter();
     renderRecords();
+    refreshDetail(); // 详情弹层开着时同步重绘（记录已删则关弹层）
     if (quiet) body.scrollTop = st;
   } catch (e) {
     state.rec = null;
@@ -568,7 +597,7 @@ function rebuildLineFilter() {
   lineDd = Shade.dropdown(sel, { width: 'auto', minWidth: '160px', height: 34 });
 }
 
-/* 记录卡片：照片三区（辅证只读 / 处理前 / 处理后，可上传区右上角「+」） */
+/* 记录卡片：照片三区（辅证只读 / 处理前 / 处理后，可上传区右上角「+」）——仅详情弹层使用 */
 function photoZoneHtml(r, kind, label, canUpload) {
   var photos = (r.photos || []).filter(function (p) { return p.kind === kind; });
   var inner;
@@ -592,7 +621,8 @@ function photoZoneHtml(r, kind, label, canUpload) {
     + '</div>';
 }
 
-/* 记录卡片 HTML：区段（大字）+ 树种×数量 + 直径；网格小字段；已处理信息；照片三区；操作区 */
+/* 记录卡片 HTML（精简）：批量勾选框 + 区段（标题级）+ 树种×数量 + 水平/垂直距离（垂直 ≤ 阈值红显胶囊）+ 状态点标；
+   位置备注、直径等其余字段与照片三区收进详情弹层（点卡打开，见 openDetail） */
 function recCardHtml(r, threshold) {
   var done = r.status === 'handled';
   var head = [];
@@ -603,45 +633,104 @@ function recCardHtml(r, threshold) {
       + Shade.icon('check', 12) + '</span>');
   }
   head.push('<b class="rec-sec">' + esc(dash(r.section)) + '</b>');
-  if (String(r.position_note || '').trim()) head.push('<span class="rec-pos">' + esc(r.position_note) + '</span>');
-  /* 树种×数量 + 直径 */
-  var sub = [];
-  if (String(r.tree_species || '').trim()) sub.push(esc(r.tree_species) + (String(r.tree_count || '').trim() ? ' × ' + esc(r.tree_count) : ''));
-  if (String(r.diameter || '').trim()) sub.push('直径 ' + esc(r.diameter) + 'cm');
-  if (sub.length) head.push('<span class="rec-sub">' + sub.join(' · ') + '</span>');
+  /* 树种×数量 */
+  var species = String(r.tree_species || '').trim();
+  if (species) head.push('<span class="rec-sub">' + esc(species)
+    + (String(r.tree_count || '').trim() ? ' × ' + esc(r.tree_count) : '') + '</span>');
+  /* 水平 / 垂直距离（垂直 ≤ 阈值红显胶囊） */
+  head.push('<span class="rec-dist">水平 ' + esc(fmtM(r.horizontal)) + '</span>');
+  head.push('<span class="rec-dist">垂直 '
+    + (overThreshold(r, threshold) ? '<em class="vcap">' + esc(fmtM(r.vertical)) + '</em>' : esc(fmtM(r.vertical)))
+    + '</span>');
   head.push(done ? '<span class="rec-tag ok">已处理</span>' : '<span class="rec-tag un">未处理</span>');
-  if (isManager) head.push('<button class="linkbtn dgr rec-del" data-del="' + r.id + '">删除</button>');
+  return '<div class="card rec' + (done ? ' done' : '') + '" data-id="' + r.id + '" title="点击查看详情">'
+    + '<div class="rec-top">' + head.join('') + '</div>'
+    + '</div>';
+}
 
-  /* 网格小字段：垂直超阈值红底红字突出 */
-  var grid = GRID_FIELDS.map(function (f) {
+/* ================= 记录详情弹层（720px；数据取 GET /records 既有返回，无新请求） ================= */
+/* 详情内容 HTML：标题行（区段 + 状态点标）+ 全字段网格 + 已处理信息 + 照片三区 + 底部 删除（班管/超管）/ 处理（未处理）按钮；
+   事件统一走弹层 box 委托（见 bindDetailBox），refreshDetail 重绘内容后无需重绑 */
+function detailHtml(r, threshold) {
+  var done = r.status === 'handled';
+  /* 标题行：结构同 Shade.mHead（.m-x 关闭点击由弹层委托接管，兼容 refreshDetail 重绘后的新按钮） */
+  var html = '<div class="m-head"><span class="m-title">' + esc(dash(r.section)) + '</span>'
+    + (done ? '<span class="rec-tag ok">已处理</span>' : '<span class="rec-tag un">未处理</span>')
+    + '<button class="m-x">' + Shade.icon('close', 14) + '</button></div>';
+  /* 全字段网格：垂直超阈值红底红字突出 */
+  html += '<div class="dt-grid">' + DETAIL_FIELDS.map(function (f) {
     var danger = f[0] === 'vertical' && overThreshold(r, threshold);
     return '<div class="rg-cell' + (danger ? ' danger' : '') + '" title="' + esc(String(r[f[0]] == null ? '' : r[f[0]])) + '">'
       + '<div class="rg-k">' + f[1] + '</div>'
       + '<div class="rg-v">' + esc(dash(r[f[0]])) + '</div>'
       + '</div>';
-  }).join('');
-
+  }).join('') + '</div>';
   /* 已处理信息行：处理人 / 处理情况 / 处理时间 */
-  var handled = done
-    ? '<div class="rec-handled"><span>处理人 <b>' + esc(dash(r.handler_name)) + '</b></span>'
+  if (done) {
+    html += '<div class="rec-handled"><span>处理人 <b>' + esc(dash(r.handler_name)) + '</b></span>'
       + '<span>处理情况 <b>' + esc(dash(r.handle_note)) + '</b></span>'
-      + '<span>处理时间 <b>' + esc(dash(r.handled_at)) + '</b></span></div>'
-    : '';
-
+      + '<span>处理时间 <b>' + esc(dash(r.handled_at)) + '</b></span></div>';
+  }
   /* 照片三区：辅证（只读）/ 处理前 / 处理后（可上传可删） */
-  var photos = '<div class="ph-zones">'
+  html += '<div class="ph-zones">'
     + photoZoneHtml(r, 'evidence', '辅证照片', false)
     + photoZoneHtml(r, 'before', '处理前', true)
     + photoZoneHtml(r, 'after', '处理后', true)
     + '</div>';
-
-  var acts = done ? '' : '<div class="rec-acts"><button class="btn btn-sm btn-primary" data-handle="' + r.id + '">处理</button></div>';
-
-  return '<div class="card rec' + (done ? ' done' : '') + '" data-id="' + r.id + '">'
-    + '<div class="rec-top">' + head.join('') + '</div>'
-    + '<div class="rec-grid">' + grid + '</div>'
-    + handled + photos + acts
-    + '</div>';
+  /* 底部按钮：删除居左（班管/超管），处理居右（未处理时；复用处理弹层 openHandleModal） */
+  var foot = [];
+  if (isManager) foot.push('<button class="btn btn-sm btn-danger" data-ddel="' + r.id + '" style="margin-right:auto">删除</button>');
+  if (!done) foot.push('<button class="btn btn-sm btn-primary" data-dhandle="' + r.id + '">处理</button>');
+  if (foot.length) html += '<div class="m-foot">' + foot.join('') + '</div>';
+  return html;
+}
+/* 详情弹层事件委托（绑一次在 box 上，内容重绘不丢）：关闭 / 删照片 / 上传照片 / 处理 / 删记录 / 大图 */
+function bindDetailBox(inst) {
+  inst.box.addEventListener('click', function (e) {
+    if (e.target.closest('.m-x')) { inst.close(); return; }
+    var delPh = e.target.closest('[data-phdel]');
+    if (delPh) { e.stopPropagation(); deletePhoto(Number(delPh.dataset.rid), Number(delPh.dataset.phdel)); return; }
+    var up = e.target.closest('[data-up]');
+    if (up) {
+      state.upTarget = { recordId: Number(up.dataset.rid), kind: up.dataset.up };
+      $('#photoInput').click();
+      return;
+    }
+    var hBtn = e.target.closest('[data-dhandle]');
+    if (hBtn) { openHandleModal([Number(hBtn.dataset.dhandle)]); return; }
+    var dBtn = e.target.closest('[data-ddel]');
+    if (dBtn) { deleteRecord(Number(dBtn.dataset.ddel)); return; }
+    /* 缩略图 → 大图（同照片组内左右切换） */
+    var fig = e.target.closest('.ph[data-url]');
+    if (fig && e.target.tagName === 'IMG') {
+      var figs = $$('.ph[data-url]', fig.parentNode);
+      var list = figs.map(function (f) { return f.dataset.url; });
+      openLightbox(list, figs.indexOf(fig));
+    }
+  });
+}
+function openDetail(id) {
+  var r = findRecord(id);
+  if (!r) return;
+  if (detailInst) detailInst.close(); // 单例：先关旧弹层
+  var inst = Shade.modal(detailHtml(r, state.rec ? state.rec.threshold : null), {
+    width: 720,
+    onClose: function () { if (detailInst === inst) detailInst = null; }
+  });
+  inst.recId = Number(id);
+  detailInst = inst;
+  bindDetailBox(inst);
+}
+/* 记录静默刷新后同步详情弹层：重绘内容（滚动位保持）；记录已删 / 数据丢失时关弹层 */
+function refreshDetail() {
+  if (!detailInst || detailInst.closed) return;
+  var r = findRecord(detailInst.recId);
+  if (!r) { detailInst.close(); return; }
+  var sc = detailInst.box.querySelector('.m-scroll');
+  if (!sc) return;
+  var st = sc.scrollTop;
+  sc.innerHTML = detailHtml(r, state.rec ? state.rec.threshold : null);
+  sc.scrollTop = st;
 }
 
 /* 线路分组渲染（顺序后端已排好）；组标题「110kV 昌郑Ⅰ线（n）」，未匹配组排尾 */
@@ -1277,7 +1366,7 @@ function initEvents() {
   $('#recBody').addEventListener('click', function (e) {
     if (e.target.closest('#recRetry')) { loadRecords(); }
   });
-  /* 记录卡片流委派：勾选 / 处理 / 删除记录 / 上传照片 / 删除照片 / 大图 */
+  /* 记录卡片流委派：勾选框 / 点卡（批量模式点卡任意处 = 勾选；否则开详情弹层） */
   $('#recBody').addEventListener('click', function (e) {
     var ck = e.target.closest('.rec-ck[data-ck]');
     if (ck) {
@@ -1287,25 +1376,19 @@ function initEvents() {
       syncBatchBar();
       return;
     }
-    var delPh = e.target.closest('[data-phdel]');
-    if (delPh) { e.stopPropagation(); deletePhoto(Number(delPh.dataset.rid), Number(delPh.dataset.phdel)); return; }
-    var up = e.target.closest('[data-up]');
-    if (up) {
-      state.upTarget = { recordId: Number(up.dataset.rid), kind: up.dataset.up };
-      $('#photoInput').click();
+    var recCard = e.target.closest('.rec[data-id]');
+    if (!recCard) return;
+    /* 批量模式：点卡 = 勾选（rec-ck 逻辑优先；已处理卡勾选框为禁用态无 data-ck，整卡不响应） */
+    if (state.batch.on) {
+      var cardCk = recCard.querySelector('.rec-ck[data-ck]');
+      if (!cardCk) return;
+      var cid2 = Number(cardCk.dataset.ck);
+      if (state.batch.sel[cid2]) delete state.batch.sel[cid2]; else state.batch.sel[cid2] = true;
+      cardCk.classList.toggle('on');
+      syncBatchBar();
       return;
     }
-    var hBtn = e.target.closest('[data-handle]');
-    if (hBtn) { openHandleModal([Number(hBtn.dataset.handle)]); return; }
-    var dBtn = e.target.closest('[data-del]');
-    if (dBtn) { deleteRecord(Number(dBtn.dataset.del)); return; }
-    /* 缩略图 → 大图（同照片组内左右切换） */
-    var fig = e.target.closest('.ph[data-url]');
-    if (fig && e.target.tagName === 'IMG') {
-      var figs = $$('.ph[data-url]', fig.parentNode);
-      var list = figs.map(function (f) { return f.dataset.url; });
-      openLightbox(list, figs.indexOf(fig));
-    }
+    openDetail(Number(recCard.dataset.id));
   });
   /* 照片上传：隐藏 file input（accept image/*，可一次多选） */
   $('#photoInput').addEventListener('change', function () {
@@ -1314,7 +1397,8 @@ function initEvents() {
     if (!files || !files.length) return;
     uploadPhoto(files);
   });
-  /* 大图层：点遮罩关闭 / Esc 优先关大图层 / ← → 切换 */
+  /* 大图层：点遮罩关闭 / Esc 优先关大图层 / ← → 切换
+     （.lb z-index:340 恒高于弹层 .mask(320)，大图打开即视觉最顶层、遮罩阻断下方交互，方向键始终归大图层） */
   $('#lightbox').addEventListener('click', function (e) { if (e.target === this) closeLightbox(); });
   Shade.escGuard = function () {
     if ($('#lightbox').classList.contains('open')) { closeLightbox(); return true; }
@@ -1322,7 +1406,6 @@ function initEvents() {
   };
   document.addEventListener('keydown', function (e) {
     if (!$('#lightbox').classList.contains('open')) return;
-    if (document.querySelector('.mask.open')) return; // 大图层上叠弹层时方向键归弹层
     if (e.key === 'ArrowLeft') shiftLightbox(-1);
     else if (e.key === 'ArrowRight') shiftLightbox(1);
   });
@@ -1399,6 +1482,7 @@ function renderNoTeam() {
 
 /* ================= 班组切换后整页重载 ================= */
 function reloadTeamData() {
+  if (detailInst) detailInst.close(); // 详情弹层随数据域切换关闭
   state.rec = null;
   state.dash = null;
   state.lineFilter = '';

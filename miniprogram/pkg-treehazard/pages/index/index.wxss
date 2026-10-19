@@ -171,13 +171,7 @@ page {
   text-overflow: ellipsis;
 }
 
-.th-pos {
-  margin-top: 8rpx;
-  font-size: 22rpx;
-  color: #86909C;
-}
-
-/* 字段网格（一行四个小字段） */
+/* 三项关键指标（一行三个小字段） */
 .th-grid {
   display: flex;
   flex-wrap: wrap;
@@ -185,7 +179,7 @@ page {
 }
 
 .th-f {
-  width: 25%;
+  width: 33.3333%;
   min-width: 0;
   padding: 10rpx 8rpx 10rpx 0;
   box-sizing: border-box;
@@ -213,78 +207,6 @@ page {
   border-radius: 8rpx;
   color: #F53F3F;
   font-weight: 700;
-}
-
-/* 已处理信息：一行灰字 */
-.th-handled {
-  margin-top: 14rpx;
-  padding-top: 14rpx;
-  border-top: 1rpx solid #E5E6EB;
-  font-size: 22rpx;
-  color: #86909C;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* ---------- 照片三区 ---------- */
-.pz {
-  margin-top: 20rpx;
-}
-
-.pz-t {
-  font-size: 22rpx;
-  font-weight: 600;
-  color: #4E5969;
-}
-
-.pz-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-  margin-top: 12rpx;
-}
-
-.pz-img {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 8rpx;
-  background: #F7F8FA;
-}
-
-.pz-add {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 8rpx;
-  border: 2rpx dashed #C9CDD4;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 辅证区无图占位：灰字、无交互 */
-.pz-none {
-  margin-top: 12rpx;
-  font-size: 22rpx;
-  color: #C9CDD4;
-}
-
-/* ---------- 操作区（处理次按钮：描边样式） ---------- */
-.th-ops {
-  margin-top: 24rpx;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.th-btn {
-  padding: 12rpx 48rpx;
-  border: 2rpx solid #0E3DA8;
-  border-radius: 12rpx;
-  color: #0E3DA8;
-  font-size: 26rpx;
-  font-weight: 700;
-  letter-spacing: 4rpx;
 }
 
 /* ---------- 批量模式底部固定条 ---------- */

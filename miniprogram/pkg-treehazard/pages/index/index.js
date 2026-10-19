@@ -1,9 +1,8 @@
 // 树障隐患记录：看板四格 + 线路筛选/批量/导出/阈值/同步工具行 + 按线路分组的记录卡片流
-// 卡片：区段 + 状态点标 + 字段网格（垂直距离 ≤ 阈值红字突出）+ 处理信息 + 照片三区（辅证/处理前/处理后）+ 处理按钮；
-// 班管/超管另有阈值设置、内网同步与长按删除记录。
+// 卡片精简口径（同出工日志卡片风格）：区段 + 状态点标 + 树种×数量/水平距离/垂直距离（≤阈值红显胶囊）三项，
+// 点击卡片携记录进详情页（eventChannel 传递）；批量模式点击 = 勾选；班管/超管另有阈值设置与内网同步（删记录入口在详情页）。
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；其余角色后端强制本班，不传
 import Toast from 'tdesign-miniprogram/toast/index';
-import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
@@ -16,13 +15,20 @@ function fmtDot(s) {
   return s ? String(s).slice(0, 10).replace(/-/g, '.') : '';
 }
 
+// 电压等级幂等显示：纯数字（如 110）→ 拼 kV；已含 kV 后缀（110kV）→ 原样；空 → '—'
+function fmtKv(v) {
+  const s = String(v === null || v === undefined ? '' : v).trim();
+  if (!s) return '—';
+  return /^\d+(\.\d+)?$/.test(s) ? `${s}kV` : s;
+}
+
 // 今日 'YYYY-MM-DD'
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// 记录 → 展示结构：日期点分文本 / 垂直距离超阈值标记 / 照片按 kind 分区（pz）
+// 记录 → 展示结构：日期点分文本 / 垂直距离超阈值标记 / 照片按 kind 分区（pz，供详情页直接渲染）
 function mapRecord(r, threshold) {
   const photos = Array.isArray(r.photos) ? r.photos : [];
   const pz = { evidence: [], before: [], after: [] };
@@ -41,7 +47,7 @@ function mapRecord(r, threshold) {
 Page({
   data: {
     gate: false, // 门控（参照 quiz bank 页 gate 模式）
-    canManage: false, // 班管/超管（阈值设置 / 同步 / 长按删除记录可见）
+    canManage: false, // 班管/超管（阈值设置 / 内网同步入口可见）
     // 看板
     dash: { unhandled: 0, week_new: 0, over_threshold: 0, handled: 0, threshold: null },
     // 记录（threshold 供网格红字判断）
@@ -56,7 +62,7 @@ Page({
     batchMode: false,
     selected: {}, // 记录 id → true
     selectedCount: 0,
-    // 处理弹层（单条 / 批量共用）
+    // 处理弹层（批量处理用；单条处理在详情页）
     handleVisible: false,
     handleIds: [],
     handleName: '',
@@ -105,7 +111,6 @@ Page({
     await getApp().globalData.ready;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
     this._role = user.role || 'user';
-    this._userId = Number(user.id) || 0; // 当前用户 id（照片「仅上传者本人可删」判定用）
     const now = new Date();
     this.setData({
       gate: true,
@@ -120,6 +125,14 @@ Page({
 
   onUnload() {
     this.stopSyncPoll();
+  },
+
+  // 从详情页返回（_fromDetail 在跳转前置位）：详情内可能已处理/删除记录或增删照片，重拉看板与列表
+  onShow() {
+    if (!this._fromDetail) return;
+    this._fromDetail = false;
+    this.loadDashboard();
+    this.loadRecords();
   },
 
   onPullDownRefresh() {
@@ -213,7 +226,7 @@ Page({
       if (filter && l.line_name !== filter) continue;
       groups.push({
         key: `L_${l.line_name}`,
-        title: `${l.voltage_level} ${l.line_name}`,
+        title: `${fmtKv(l.voltage_level)} ${l.line_name}`,
         records: (l.records || []).map((r) => mapRecord(r, threshold)),
       });
     }
@@ -225,7 +238,7 @@ Page({
       });
     }
     const lineOptions = (this._lines || []).map((l) => ({
-      voltage_level: l.voltage_level,
+      voltageText: fmtKv(l.voltage_level),
       line_name: l.line_name,
       count: (l.records || []).length,
     }));
@@ -255,20 +268,33 @@ Page({
     this.setData({ batchMode: on, selected: {}, selectedCount: 0 });
   },
 
-  // 勾选圆点（已处理禁选）
-  onToggleSelect(e) {
-    const { id, status } = e.currentTarget.dataset;
-    if (status === 'handled') {
-      this.toast('已处理记录无需选择');
+  // 卡片点击：批量模式 = 勾选（已处理禁选，口径同 rec-ck）；否则携记录对象进详情页（eventChannel 传递）
+  onCardTap(e) {
+    const { id, status, gi, ri } = e.currentTarget.dataset;
+    if (this.data.batchMode) {
+      if (status === 'handled') {
+        this.toast('已处理记录无需选择');
+        return;
+      }
+      const selected = Object.assign({}, this.data.selected);
+      if (selected[id]) {
+        delete selected[id];
+      } else {
+        selected[id] = true;
+      }
+      this.setData({ selected, selectedCount: Object.keys(selected).length });
       return;
     }
-    const selected = Object.assign({}, this.data.selected);
-    if (selected[id]) {
-      delete selected[id];
-    } else {
-      selected[id] = true;
-    }
-    this.setData({ selected, selectedCount: Object.keys(selected).length });
+    const rec = this.data.groups[gi] && this.data.groups[gi].records[ri];
+    if (!rec || Number(rec.id) !== Number(id)) return;
+    this._fromDetail = true; // 返回时 onShow 重拉
+    wx.navigateTo({
+      url: '/pkg-treehazard/pages/detail/detail',
+      success: (res) => {
+        res.eventChannel.emit('record', rec);
+        res.eventChannel.emit('ctx', { teamId: this._teamId });
+      },
+    });
   },
 
   onOpenBatchHandle() {
@@ -280,11 +306,7 @@ Page({
     this.openHandle(ids);
   },
 
-  /* ==================== 处理（单条 / 批量） ==================== */
-
-  onOpenHandle(e) {
-    this.openHandle([Number(e.currentTarget.dataset.id)]);
-  },
+  /* ==================== 处理（批量；单条处理在详情页） ==================== */
 
   // 打开处理弹层：处理人预填当前用户昵称，处理时间默认今日
   openHandle(ids) {
@@ -380,154 +402,6 @@ Page({
     } finally {
       this.setData({ handling: false });
     }
-  },
-
-  /* ==================== 照片（辅证只读；处理前/后可上传） ==================== */
-
-  // 点击缩略图预览（urls = 该区全部照片地址）
-  onPreview(e) {
-    const { gi, ri, kind, current } = e.currentTarget.dataset;
-    const rec = this.data.groups[gi] && this.data.groups[gi].records[ri];
-    if (!rec) return;
-    const urls = (rec.pz[kind] || []).map((p) => p.url);
-    if (!urls.length) return;
-    wx.previewImage({ current, urls });
-  },
-
-  // 「+」格：wx.chooseMedia 多选原图（处理前/后照片大多不止一张）→ 逐张 base64 上传
-  onAddPhoto(e) {
-    const { id, kind, gi, ri } = e.currentTarget.dataset;
-    if (this._uploading) return;
-    wx.chooseMedia({
-      count: 9,
-      mediaType: ['image'],
-      sizeType: ['original'],
-      sourceType: ['album', 'camera'],
-      success: (res) => {
-        const files = res.tempFiles || [];
-        if (files.length) this.uploadPhotos(id, kind, gi, ri, files);
-      },
-    });
-  },
-
-  // 多选逐张上传（进度 n/m），成功后局部刷新该记录的照片区（记录已变化时整组重拉兜底）
-  async uploadPhotos(id, kind, gi, ri, files) {
-    this._uploading = true;
-    const added = [];
-    let failed = 0;
-    wx.showLoading({ title: `上传中 0/${files.length}`, mask: true });
-    for (const f of files) {
-      try {
-        const r = await new Promise((resolve, reject) => {
-          wx.getFileSystemManager().readFile({
-            filePath: f.tempFilePath,
-            encoding: 'base64',
-            success: resolve,
-            fail: () => reject(new Error('图片读取失败')),
-          });
-        });
-        const ext = (String(f.tempFilePath).split('.').pop() || 'jpeg').toLowerCase();
-        const mime = ext === 'png' ? 'png' : 'jpeg';
-        const photo = await request({
-          url: `${API_BASE}/records/${id}/photos?kind=${kind}${this._teamId ? `&team_id=${this._teamId}` : ''}`,
-          method: 'POST',
-          data: this.teamBody({ image: `data:image/${mime};base64,${r.data}` }),
-          timeout: 120000,
-        });
-        if (photo && photo.url) added.push(photo);
-      } catch (err) {
-        failed += 1;
-      }
-      wx.showLoading({ title: `上传中 ${added.length + failed}/${files.length}`, mask: true });
-    }
-    wx.hideLoading();
-    this._uploading = false;
-    if (added.length) {
-      const rec = this.data.groups[gi] && this.data.groups[gi].records[ri];
-      if (rec && rec.id === id) {
-        const pz = Object.assign({}, rec.pz);
-        pz[kind] = pz[kind].concat(added);
-        this.setData({
-          [`groups[${gi}].records[${ri}].photos`]: rec.photos.concat(added),
-          [`groups[${gi}].records[${ri}].pz`]: pz,
-        });
-      } else {
-        this.loadRecords();
-      }
-    }
-    if (!added.length && failed) this.toast('上传失败，请重试');
-    else if (failed) this.toast(`上传完成：成功 ${added.length} 张，失败 ${failed} 张`);
-    else this.toast(`已上传 ${added.length} 张`);
-  },
-
-  // 长按缩略图删除照片（仅处理前/后区绑定；辅证区只读，与网页端对齐）：
-  // 仅上传者本人（photo.uploaded_by === 当前用户 id）或班管/超管可删，不满足时长按静默无反应
-  onPhotoLongPress(e) {
-    const { id, pid, uploadedBy, gi, ri, kind } = e.currentTarget.dataset;
-    const mine = Number(uploadedBy) > 0 && Number(uploadedBy) === this._userId;
-    if (!mine && !this.data.canManage) return; // 无权限：保持安静
-    Dialog.confirm({
-      context: this,
-      selector: '#t-dialog',
-      title: '删除照片',
-      content: '删除这张照片？',
-      confirmBtn: '删除',
-      cancelBtn: '取消',
-    })
-      .then(async () => {
-        try {
-          await request({
-            url: `${API_BASE}/records/${id}/photos/${pid}${this.teamQuery('?')}`,
-            method: 'DELETE',
-            data: this.teamBody({}),
-          });
-          // 局部 setData 移除该图（记录已变化时整组重拉兜底）
-          const rec = this.data.groups[gi] && this.data.groups[gi].records[ri];
-          if (rec && Number(rec.id) === Number(id)) {
-            const pz = Object.assign({}, rec.pz);
-            pz[kind] = pz[kind].filter((p) => Number(p.id) !== Number(pid));
-            this.setData({
-              [`groups[${gi}].records[${ri}].photos`]: rec.photos.filter((p) => Number(p.id) !== Number(pid)),
-              [`groups[${gi}].records[${ri}].pz`]: pz,
-            });
-          } else {
-            this.loadRecords();
-          }
-          this.toast('已删除');
-        } catch (err) {
-          this.toast(err.message);
-        }
-      })
-      .catch(() => {});
-  },
-
-  /* ==================== 删除记录（班管/超管，长按卡片） ==================== */
-
-  onCardLongPress(e) {
-    if (!this.data.canManage || this.data.batchMode) return;
-    const { id } = e.currentTarget.dataset;
-    Dialog.confirm({
-      context: this,
-      selector: '#t-dialog',
-      title: '删除记录',
-      content: '删除后不可恢复，记录内照片一并删除，确定删除吗？',
-      confirmBtn: '删除',
-      cancelBtn: '取消',
-    })
-      .then(async () => {
-        try {
-          await request({
-            url: `${API_BASE}/records/${id}${this.teamQuery('?')}`,
-            method: 'DELETE',
-            data: this.teamBody({}),
-          });
-          this.toast('已删除');
-          this.loadAll();
-        } catch (err) {
-          this.toast(err.message);
-        }
-      })
-      .catch(() => {});
   },
 
   /* ==================== 阈值设置（班管/超管） ==================== */

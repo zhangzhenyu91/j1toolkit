@@ -239,3 +239,98 @@ page {
   font-size: 22rpx;
   color: #86909C;
 }
+
+/* ---------- 目的地费用标记胶囊（直角小签，口径同人员来源标） ---------- */
+.oc-pill {
+  font-size: 19rpx;
+  color: #D25F00;
+  background: #FFF7E8;
+  border-radius: 12rpx;
+  padding: 2rpx 12rpx;
+  font-weight: 700;
+}
+
+.st2-pill {
+  font-size: 19rpx;
+  color: #0E3DA8;
+  background: #E8F0FF;
+  border-radius: 12rpx;
+  padding: 2rpx 12rpx;
+  font-weight: 700;
+}
+
+/* ---------- 运维线路段：电压等级输入框窄栏 ---------- */
+.inp-volt {
+  flex: none;
+  width: 190rpx;
+  padding: 0 20rpx;
+}
+
+/* ---------- 底部弹层（sheet 族，口径同树障隐患 / 出工日志弹层） ---------- */
+.sheet {
+  position: relative;
+  background: #ffffff;
+  border-radius: 24rpx 24rpx 0 0;
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
+  padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.sheet-title {
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+  color: #1D2129;
+}
+
+/* 表单字段（.f-label/.f-field 用 app.wxss 全局类） */
+.f-item {
+  margin-top: 24rpx;
+}
+
+.qtags {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 16rpx;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 32rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 88rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #4E5969;
+  letter-spacing: 6rpx;
+}
+
+.btn-dark {
+  flex: 2;
+  height: 88rpx;
+  border-radius: 12rpx;
+  background: #0E3DA8;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+}
+
+.btn-ghost.disabled,
+.btn-dark.disabled {
+  opacity: 0.5;
+}

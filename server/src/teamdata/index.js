@@ -320,4 +320,216 @@ router.post(
   }
 );
 
+// ===== 运维线路（team_line，建表见 ./schema.js；树障隐患分组/导出共用此线路源）=====
+
+// GET /oplines：本班运维线路（按 sort），{ list: [{ id, voltage_level, line_name, sort, created_at, updated_at }] }
+router.get('/oplines', async (req, res, next) => {
+  try {
+    if (!req.team) return ok(res, { list: [] });
+    const [rows] = await pool.query(
+      'SELECT id, voltage_level, line_name, sort, created_at, updated_at FROM team_line WHERE team_id = ? ORDER BY sort, id',
+      [req.team.id]
+    );
+    return ok(res, { list: rows });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /oplines {voltage_level, line_name}：新增线路（sort 排尾；班内 line_name 唯一）
+router.post('/oplines', async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const voltage = String((req.body && req.body.voltage_level) || '').trim().slice(0, 16);
+    const lineName = String((req.body && req.body.line_name) || '').trim().slice(0, 64);
+    if (!voltage) return fail(res, 400, 40012, '请输入电压等级');
+    if (!lineName) return fail(res, 400, 40012, '请输入线路名称');
+    const [maxRows] = await pool.query('SELECT COALESCE(MAX(sort), 0) AS maxSort FROM team_line WHERE team_id = ?', [req.team.id]);
+    try {
+      const [r] = await pool.query(
+        'INSERT INTO team_line (team_id, voltage_level, line_name, sort) VALUES (?, ?, ?, ?)',
+        [req.team.id, voltage, lineName, maxRows[0].maxSort + 1]
+      );
+      return ok(res, { id: r.insertId });
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 40900, `「${lineName}」已存在`);
+      throw err;
+    }
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PUT /oplines/:id {voltage_level?, line_name?}：改电压等级/线路名（仅更新出现的字段）
+router.put('/oplines/:id', async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const id = Number(req.params.id);
+    const [exist] = await pool.query('SELECT id FROM team_line WHERE id = ? AND team_id = ?', [id, req.team.id]);
+    if (!exist.length) return fail(res, 404, 40400, '线路不存在');
+    const { voltage_level: voltage, line_name: lineName } = req.body || {};
+    if (voltage !== undefined) {
+      const trimmed = String(voltage).trim().slice(0, 16);
+      if (!trimmed) return fail(res, 400, 40012, '请输入电压等级');
+      await pool.query('UPDATE team_line SET voltage_level = ? WHERE id = ?', [trimmed, id]);
+    }
+    if (lineName !== undefined) {
+      const trimmed = String(lineName).trim().slice(0, 64);
+      if (!trimmed) return fail(res, 400, 40012, '请输入线路名称');
+      try {
+        await pool.query('UPDATE team_line SET line_name = ? WHERE id = ?', [trimmed, id]);
+      } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 40900, `「${trimmed}」已存在`);
+        throw err;
+      }
+    }
+    return ok(res, null);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// DELETE /oplines/:id：删除线路（无外键引用；树障记录按 line_name 文本关联，删线后其记录落 unmatched，不拦截）
+router.delete('/oplines/:id', async (req, res, next) => {
+  try {
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const id = Number(req.params.id);
+    const [r] = await pool.query('DELETE FROM team_line WHERE id = ? AND team_id = ?', [id, req.team.id]);
+    if (!r.affectedRows) return fail(res, 404, 40400, '线路不存在');
+    return ok(res, null);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PUT /oplines/:id/move {direction:'up'|'down'}：线路排序（与班内相邻线路换位；事务内整体重写 sort 为连续 1..N，
+// 兼容历史同值 sort；direction 为准，兼容旧口径 dir）——与 members move 同型
+router.put('/oplines/:id/move', async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
+    const id = Number(req.params.id);
+    const rawDir = req.body && (req.body.direction || req.body.dir);
+    const dir = rawDir === 'up' ? 'up' : 'down';
+    await conn.beginTransaction();
+    const [rows] = await conn.query('SELECT id FROM team_line WHERE team_id = ? ORDER BY sort, id', [req.team.id]);
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx < 0) {
+      await conn.rollback();
+      return fail(res, 404, 40400, '线路不存在');
+    }
+    const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= rows.length) {
+      await conn.rollback();
+      return ok(res, null); // 已在顶端 / 底端，次序不变
+    }
+    const order = rows.map((r) => r.id);
+    order.splice(swapIdx, 0, order.splice(idx, 1)[0]);
+    for (let i = 0; i < order.length; i += 1) {
+      await conn.query('UPDATE team_line SET sort = ? WHERE id = ?', [i + 1, order[i]]);
+    }
+    await conn.commit();
+    return ok(res, null);
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    return next(err);
+  } finally {
+    conn.release();
+  }
+});
+
+// GET /oplines/template：运维线路导入模板（xlsx，仅首行表头；列宽 12/20）
+router.get('/oplines/template', async (req, res, next) => {
+  try {
+    const ws = XLSX.utils.aoa_to_sheet([['电压等级', '线路名称']]);
+    ws['!cols'] = [{ wch: 12 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '运维线路');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="opline-template.xlsx"; filename*=UTF-8''${encodeURIComponent('运维线路导入模板.xlsx')}`
+    );
+    return res.send(buf);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /oplines/import：导入运维线路 Excel（.xlsx），全量替换本班组线路（事务；校验口径照 towers/import：
+// 空行/表头行跳过、缺电压或线路名计跳过；文件内 line_name 重复计跳过防撞 uk_team_line）
+router.post(
+  '/oplines/import',
+  (req, res, next) => {
+    towerUpload.single('file')(req, res, (err) => { // 与杆塔导入共用同一 multer 口径（10MB/单文件）
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') return fail(res, 400, 40022, '文件大小应在 10MB 以内');
+        return next(err);
+      }
+      return next();
+    });
+  },
+  async (req, res, next) => {
+    try {
+      // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（兼容 formData 携带 team_id）
+      const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
+      if (!team) return fail(res, 400, 40022, '无可用班组');
+      if (req.user.role === 'team_admin' && req.user.team_id !== team.id) {
+        return fail(res, 403, 40304, '仅管理员可执行此操作');
+      }
+      if (!req.file || !req.file.buffer || !req.file.buffer.length) {
+        return fail(res, 400, 40022, '请选择要上传的 Excel 文件');
+      }
+      const fname = fixLatin1Name(req.file.originalname);
+      if (!/\.xlsx$/i.test(fname)) return fail(res, 400, 40022, '仅支持 .xlsx 文件，请使用模板填写');
+
+      let rows;
+      try {
+        const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+      } catch (e) {
+        return fail(res, 400, 40022, 'Excel 解析失败，请使用模板文件填写');
+      }
+
+      // 逐行校验：空行跳过；表头行跳过；缺电压等级或线路名、班内重复线路名计为跳过
+      const data = [];
+      const seen = new Set();
+      let skipped = 0;
+      for (const r of rows) {
+        const cells = (Array.isArray(r) ? r : []).map((c) => String(c).trim());
+        if (cells.every((c) => !c)) continue;
+        if (cells[0].includes('电压') || cells[1].includes('线路')) continue;
+        const [voltage, line] = cells;
+        if (!voltage || !line || seen.has(line)) {
+          skipped++;
+          continue;
+        }
+        seen.add(line);
+        data.push([team.id, voltage.slice(0, 16), line.slice(0, 64)]);
+      }
+      if (!data.length) return fail(res, 400, 40022, '未识别到有效线路行，请按模板列填写');
+
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        await conn.query('DELETE FROM team_line WHERE team_id = ?', [team.id]);
+        for (let i = 0; i < data.length; i += 500) {
+          const chunk = data.slice(i, i + 500).map((r, j) => [...r, i + j + 1]);
+          await conn.query('INSERT INTO team_line (team_id, voltage_level, line_name, sort) VALUES ?', [chunk]);
+        }
+        await conn.commit();
+      } catch (e) {
+        await conn.rollback().catch(() => {});
+        throw e;
+      } finally {
+        conn.release();
+      }
+      return ok(res, { imported: data.length, skipped }, `已导入 ${data.length} 条线路`);
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
 module.exports = router;

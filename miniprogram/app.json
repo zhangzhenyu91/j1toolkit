@@ -75,7 +75,8 @@
       "root": "pkg-treehazard",
       "name": "treehazard",
       "pages": [
-        "pages/index/index"
+        "pages/index/index",
+        "pages/detail/detail"
       ]
     },
     {

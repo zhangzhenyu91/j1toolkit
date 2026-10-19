@@ -5,8 +5,8 @@ const ExcelJS = require('exceljs');
 // 表头（第 2 行；第 1 行为「{班组}树木统计表」合并标题）；第 17 列（Q 列）为隐藏的记录ID 锚点列
 const HEADERS = ['序号', '电压等级', '线路名称', '区段', '树种', '数量', '距小号侧距离（m）', '距大号侧距离（m）',
   '直径（cm）', '水平距离（m）', '垂直距离（m）', '发现人', '发现时间', '处理人', '处理情况', '处理时间'];
-// 列宽（模板实测）
-const COL_WIDTHS = [6.6, 10.6, 16.5, 15.5, 10.6, 10.6, 10.6, 10.6, 10.6, 10.6, 10.6, 15.5, 15.5, 10.6, 15.5, 10.6];
+// 列宽（2026-10 定稿口径）
+const COL_WIDTHS = [5, 10, 15, 15, 15, 10, 10, 10, 10, 10, 10, 15, 15, 15, 10, 15];
 const ID_COL = 17; // Q 列
 
 // 垂直距离解析值：取文本中首个数字（可带小数）；「3-4」→3、「超高2」→2；空/无数字 → null（ingest / diff 共用）
@@ -44,11 +44,11 @@ function exportFileName(teamName, lineName) {
   return `${base}树木统计表.xlsx`;
 }
 
-// 线路顺序表：按 worklog_tower 本班导入序（sort 最小值）去重得 (voltage_level, line_name) 序列（路由与同步模块共用）
+// 线路顺序表：team_line 本班运维线路（sort 序）→ (voltage_level, line_name) 序列（路由与同步模块共用；
+// 2026-10 起由 worklog_tower 聚合换源 team_line，与杆塔坐标解耦；空表 → 空序列，记录全部落 unmatched）
 async function fetchLineOrder(pool, teamId) {
   const [rows] = await pool.query(
-    `SELECT voltage_level, line_name, MIN(sort) AS s
-     FROM worklog_tower WHERE team_id = ? GROUP BY voltage_level, line_name ORDER BY s, line_name`,
+    'SELECT voltage_level, line_name FROM team_line WHERE team_id = ? ORDER BY sort, id',
     [teamId]
   );
   return rows.map((r) => ({ voltage_level: r.voltage_level, line_name: r.line_name }));
@@ -86,6 +86,14 @@ function sortRecords(records, lineOrder) {
   });
 }
 
+// 电压等级单元格幂等格式化：值已含 kV 不重复追加，纯数字才拼 kV，其余原样（读回剥后缀口径见 diff.js parseIntranetSheet）
+function fmtVoltageCell(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  if (/kv/i.test(s)) return s;
+  return /^\d+(?:\.\d+)?$/.test(s) ? `${s}kV` : s;
+}
+
 // 生成统计表 workbook（records 须已由 sortRecords 排好序；标题恒为班组名，分线路由调用方先过滤记录）
 async function buildWorkbook({ teamName, records }) {
   const wb = new ExcelJS.Workbook();
@@ -95,27 +103,30 @@ async function buildWorkbook({ teamName, records }) {
     { header: '记录ID', key: 'rid', width: 10, hidden: true }, // Q 列：行级比对锚点，隐藏
   ];
 
-  // 第 1 行：合并标题
+  // 第 1 行：合并标题（行高 45 磅，字号 20，加粗居中）
   ws.mergeCells(1, 1, 1, HEADERS.length);
+  ws.getRow(1).height = 45;
   const title = ws.getCell(1, 1);
   title.value = `${teamName}树木统计表`;
-  title.font = { bold: true, size: 14 };
+  title.font = { bold: true, size: 20 };
   title.alignment = { horizontal: 'center', vertical: 'middle' };
 
-  // 第 2 行：表头（加粗）
+  // 第 2 行：表头（行高 35 磅，字号 12 加粗）
   const headRow = ws.getRow(2);
+  headRow.height = 35;
   HEADERS.forEach((h, i) => {
     headRow.getCell(i + 1).value = h;
   });
-  headRow.font = { bold: true };
+  headRow.font = { bold: true, size: 12 };
   headRow.commit();
 
-  // 数据自第 3 行：全部单元格按文本写入（numFmt '@'），仅 Q 列记录ID 写数值
+  // 数据自第 3 行：行高 25 磅、字号 11；全部单元格按文本写入（numFmt '@'），仅 Q 列记录ID 写数值
   records.forEach((r, i) => {
     const row = ws.getRow(i + 3);
+    row.height = 25;
     const cells = [
       String(i + 1),
-      r.voltage_level ? `${r.voltage_level}kV` : '',
+      fmtVoltageCell(r.voltage_level),
       String(r.line_name ?? ''),
       String(r.section ?? ''),
       String(r.tree_species ?? ''),
@@ -137,6 +148,7 @@ async function buildWorkbook({ teamName, records }) {
       c.numFmt = '@';
     });
     row.getCell(ID_COL).value = Number(r.id) || null;
+    row.font = { size: 11 };
     row.commit();
   });
 

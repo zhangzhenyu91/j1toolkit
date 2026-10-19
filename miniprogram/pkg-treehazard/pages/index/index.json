@@ -11,7 +11,6 @@
     "t-check-tag": "tdesign-miniprogram/check-tag/check-tag",
     "t-popup": "tdesign-miniprogram/popup/popup",
     "t-calendar": "tdesign-miniprogram/calendar/calendar",
-    "t-dialog": "tdesign-miniprogram/dialog/dialog",
     "t-toast": "tdesign-miniprogram/toast/toast"
   }
 }

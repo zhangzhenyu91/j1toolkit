@@ -1,0 +1,145 @@
+<!-- 树障隐患记录 · 详情页（index 页点卡进入，eventChannel 带入记录）：
+     头部区段+状态 → 全字段网格 → 已处理三列 → 照片三区 → 底部固定条（处理 / 删除记录） -->
+<navbar back title="隐患详情" />
+
+<view class="page-body" wx:if="{{record}}">
+  <!-- 头部卡：区段 + 状态点标 + 位置说明 -->
+  <view class="card dt-head">
+    <view class="dt-top">
+      <view class="dt-section">{{record.section || '未填写区段'}}</view>
+      <view class="st-tag {{record.status === 'handled' ? 'st-ok' : 'st-warn'}}">{{record.status === 'handled' ? '已处理' : '未处理'}}</view>
+    </view>
+    <view class="dt-pos" wx:if="{{record.position_note}}">{{record.position_note}}</view>
+  </view>
+
+  <!-- 全字段网格（两列；垂直距离 ≤ 阈值红显胶囊） -->
+  <view class="card dt-card">
+    <view class="section-title">隐患信息</view>
+    <view class="dt-grid">
+      <view class="dg-f" wx:for="{{fields}}" wx:key="label">
+        <view class="dg-l">{{item.label}}</view>
+        <view class="dg-v {{item.bad ? 'dg-v-bad' : ''}}">{{item.value}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 已处理信息：处理人 / 处理情况 / 处理时间 三列 -->
+  <view class="card dt-card" wx:if="{{record.status === 'handled'}}">
+    <view class="section-title">处理信息</view>
+    <view class="dt-handled">
+      <view class="dh-f">
+        <view class="dg-l">处理人</view>
+        <view class="dg-v">{{record.handler_name || '—'}}</view>
+      </view>
+      <view class="dh-f">
+        <view class="dg-l">处理情况</view>
+        <view class="dg-v">{{record.handle_note || '—'}}</view>
+      </view>
+      <view class="dh-f">
+        <view class="dg-l">处理时间</view>
+        <view class="dg-v">{{record.handledAtText || '—'}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 照片三区：辅证（排查系统提供，无交互只读）/ 处理前 / 处理后（「+」格上传，点图预览，长按缩略图删图——仅上传者本人或班管/超管） -->
+  <view class="card dt-card">
+    <view class="section-title">照片</view>
+    <view class="pz">
+      <view class="pz-t">辅证照片</view>
+      <view class="pz-grid" wx:if="{{record.pz.evidence.length}}">
+        <image wx:for="{{record.pz.evidence}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" data-kind="evidence" data-current="{{p.url}}" />
+      </view>
+      <view class="pz-none" wx:else>由排查系统提供</view>
+    </view>
+    <view class="pz">
+      <view class="pz-t">处理前</view>
+      <view class="pz-grid">
+        <image wx:for="{{record.pz.before}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" bindlongpress="onPhotoLongPress" data-kind="before" data-current="{{p.url}}" data-pid="{{p.id}}" data-uploaded-by="{{p.uploaded_by}}" />
+        <view class="pz-add" hover-class="hover-opacity" catchtap="onAddPhoto" data-kind="before">
+          <t-icon name="add" size="36rpx" color="#86909C" />
+        </view>
+      </view>
+    </view>
+    <view class="pz">
+      <view class="pz-t">处理后</view>
+      <view class="pz-grid">
+        <image wx:for="{{record.pz.after}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" bindlongpress="onPhotoLongPress" data-kind="after" data-current="{{p.url}}" data-pid="{{p.id}}" data-uploaded-by="{{p.uploaded_by}}" />
+        <view class="pz-add" hover-class="hover-opacity" catchtap="onAddPhoto" data-kind="after">
+          <t-icon name="add" size="36rpx" color="#86909C" />
+        </view>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- 空态（分享进入等无 eventChannel 场景；延迟出现防正常跳转闪烁） -->
+<view class="page-body" wx:if="{{!record && noRecord}}">
+  <view class="empty-box">记录不存在或已删除</view>
+</view>
+
+<!-- 底部固定条：处理（未处理主按钮）+ 删除记录（班管/超管，描边红字） -->
+<view class="dt-bar" wx:if="{{record && (record.status !== 'handled' || canManage)}}">
+  <view class="btn-ghost dt-del" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onDeleteRecord">删 除</view>
+  <view class="btn-dark dt-handle" wx:if="{{record.status !== 'handled'}}" hover-class="hover-opacity" bindtap="onOpenHandle">处 理</view>
+</view>
+
+<!-- 处理弹层（形态同 index 页：处理人 / 处理情况带「削枝」「砍伐」快捷标签 / 处理时间日历） -->
+<t-popup visible="{{handleVisible}}" placement="bottom" bind:visible-change="onHandleVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">处理记录</view>
+    <view class="f-item">
+      <view class="f-label">处理人</view>
+      <view class="f-field">
+        <t-input borderless placeholder="处理人姓名" value="{{handleName}}" bind:change="onHandleName" />
+      </view>
+    </view>
+    <view class="f-item">
+      <view class="f-label">处理情况</view>
+      <view class="f-field">
+        <t-textarea placeholder="填写处理情况，如：已削枝" value="{{handleNote}}" style="background: transparent;" bind:change="onHandleNote" />
+      </view>
+      <view class="qtags">
+        <t-check-tag
+          wx:for="{{['削枝', '砍伐']}}"
+          wx:key="*this"
+          checked="{{handleNote === item}}"
+          content=""
+          data-word="{{item}}"
+          bind:change="onQuickTag"
+          shape="round"
+          variant="outline"
+          size="medium"
+        >{{item}}</t-check-tag>
+      </view>
+    </view>
+    <view class="f-item">
+      <view class="f-label">处理时间</view>
+      <view class="f-field date-field" hover-class="hover-opacity" bindtap="onOpenCal">
+        <text>{{handleDateText}}</text>
+        <t-icon name="calendar" size="30rpx" color="#0E3DA8" />
+      </view>
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost {{handling ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onCloseHandle">取 消</view>
+      <view class="btn-dark {{handling ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onConfirmHandle">{{handling ? '正在提交…' : '确认处理'}}</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 处理时间日历（单选无确认按钮，点日期即选中并自动关闭） -->
+<t-calendar
+  id="th-calendar"
+  visible="{{calVisible}}"
+  value="{{calValue}}"
+  type="single"
+  switch-mode="month"
+  min-date="{{minDate}}"
+  max-date="{{maxDate}}"
+  confirm-btn="{{null}}"
+  bind:change="onCalChange"
+  bind:close="onCalClose"
+/>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />
