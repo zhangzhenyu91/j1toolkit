@@ -73,6 +73,19 @@
   .td-body .pane { display: none; flex: 1; min-height: 0; }
   .td-body .pane.on { display: flex; flex-direction: column; animation: paneIn .34s var(--ease); }
   @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  /* ===== 列表入场：行级上浮 stagger（编排式 14px；时延链 ≤0.9s：逐行 40ms 递增、0.36s 封顶 + 0.45s 时长；
+     切分段时既有行随 .pane.on 入场，列表 innerHTML 重渲的新行同效；降级见文件末 reduce 块） ===== */
+  @keyframes k-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .td-body .pane.on .drow, .td-body .pane.on .lt tbody tr { animation: k-rise .45s var(--ease) both; }
+  .td-body .pane.on .drow:nth-child(3), .td-body .pane.on .lt tbody tr:nth-child(2) { animation-delay: .04s; }
+  .td-body .pane.on .drow:nth-child(4), .td-body .pane.on .lt tbody tr:nth-child(3) { animation-delay: .08s; }
+  .td-body .pane.on .drow:nth-child(5), .td-body .pane.on .lt tbody tr:nth-child(4) { animation-delay: .12s; }
+  .td-body .pane.on .drow:nth-child(6), .td-body .pane.on .lt tbody tr:nth-child(5) { animation-delay: .16s; }
+  .td-body .pane.on .drow:nth-child(7), .td-body .pane.on .lt tbody tr:nth-child(6) { animation-delay: .2s; }
+  .td-body .pane.on .drow:nth-child(8), .td-body .pane.on .lt tbody tr:nth-child(7) { animation-delay: .24s; }
+  .td-body .pane.on .drow:nth-child(9), .td-body .pane.on .lt tbody tr:nth-child(8) { animation-delay: .28s; }
+  .td-body .pane.on .drow:nth-child(10), .td-body .pane.on .lt tbody tr:nth-child(9) { animation-delay: .32s; }
+  .td-body .pane.on .drow:nth-child(n+11), .td-body .pane.on .lt tbody tr:nth-child(n+10) { animation-delay: .36s; }
   .pane-scroll {
     flex: 1; min-height: 0; overflow-y: auto; padding-right: 10px; scrollbar-gutter: stable;
     scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;

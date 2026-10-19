@@ -12,9 +12,9 @@
     />
   </view>
 
-  <!-- 字典段（车牌号 / 目的地 / 人员）：顶部输入即添加 + 列表维护 -->
+  <!-- 字典段（车牌号 / 目的地 / 人员）：顶部输入即添加 + 列表维护（pane-in：分段切换淡入过渡，wx:if 重建即重播） -->
   <block wx:if="{{seg !== 'lines' && seg !== 'oplines'}}">
-    <view class="addbar">
+    <view class="addbar pane-in">
       <view class="inp">
         <input
           class="inp-input"
@@ -31,9 +31,10 @@
       </view>
     </view>
 
-    <!-- 字典列表（编辑 / 停用 / 删除；删除仅限无引用记录，被引用时后端拒绝并提示改停用） -->
-    <view class="card mlist">
-      <view class="mrow {{item.status === 1 ? '' : 'off'}}" wx:for="{{list}}" wx:key="id">
+    <!-- 字典列表（编辑 / 停用 / 删除；删除仅限无引用记录，被引用时后端拒绝并提示改停用；row-in：列表项 stagger 入场） -->
+    <view class="card mlist pane-in">
+      <view class="mrow row-in {{item.status === 1 ? '' : 'off'}}" wx:for="{{list}}" wx:key="id"
+        style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s">
         <view class="mi">
           <t-icon name="{{icon}}" size="32rpx" color="#0E3DA8" />
         </view>
@@ -57,10 +58,11 @@
     </view>
   </block>
 
-  <!-- 杆塔信息段：线路清单（树障隐患记录分组依据）+ 杆塔坐标模板下载 / Excel 导入全量替换 -->
+  <!-- 杆塔信息段：线路清单（树障隐患记录分组依据）+ 杆塔坐标模板下载 / Excel 导入全量替换（pane-in / row-in 动效同字典段） -->
   <block wx:if="{{seg === 'lines'}}">
-    <view class="card mlist">
-      <view class="mrow" wx:for="{{lines}}" wx:key="line_name">
+    <view class="card mlist pane-in">
+      <view class="mrow row-in" wx:for="{{lines}}" wx:key="line_name"
+        style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s">
         <view class="mi">
           <t-icon name="forest" size="32rpx" color="#0E3DA8" />
         </view>
@@ -71,7 +73,7 @@
     </view>
 
     <!-- 杆塔坐标导入（按当前生效班组全量替换，不影响其他班组） -->
-    <view class="tower-bar">
+    <view class="tower-bar pane-in">
       <view class="tb-l">
         <view class="tb-n">杆塔坐标</view>
         <view class="tb-s">导入即全量替换，仅作用于当前班组</view>
@@ -81,12 +83,12 @@
         <view class="tb-btn imp {{importing ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onImpPick">{{importing ? '正在导入…' : '导入 Excel'}}</view>
       </view>
     </view>
-    <view class="lines-note">线路信息供树障隐患记录分组使用</view>
+    <view class="lines-note pane-in">线路信息供树障隐患记录分组使用</view>
   </block>
 
-  <!-- 运维线路段：双输入添加（电压等级 + 线路名称）+ 上移 / 下移 / 编辑 / 删除 + 模板下载 / Excel 导入全量替换 -->
+  <!-- 运维线路段：双输入添加（电压等级 + 线路名称）+ 上移 / 下移 / 编辑 / 删除 + 模板下载 / Excel 导入全量替换（pane-in / row-in 动效同字典段） -->
   <block wx:if="{{seg === 'oplines'}}">
-    <view class="addbar">
+    <view class="addbar pane-in">
       <view class="inp inp-volt">
         <input
           class="inp-input"
@@ -113,8 +115,9 @@
     </view>
 
     <!-- 运维线路列表（树障隐患记录分组即取此清单；无停用，删除不拦截） -->
-    <view class="card mlist">
-      <view class="mrow" wx:for="{{oplines}}" wx:key="id">
+    <view class="card mlist pane-in">
+      <view class="mrow row-in" wx:for="{{oplines}}" wx:key="id"
+        style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s">
         <view class="mi">
           <t-icon name="thunder" size="32rpx" color="#0E3DA8" />
         </view>
@@ -130,7 +133,7 @@
     </view>
 
     <!-- 运维线路导入（按当前生效班组全量替换，不影响其他班组） -->
-    <view class="tower-bar">
+    <view class="tower-bar pane-in">
       <view class="tb-l">
         <view class="tb-n">批量导入</view>
         <view class="tb-s">导入即全量替换，仅作用于当前班组</view>
@@ -140,7 +143,7 @@
         <view class="tb-btn imp {{importing ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onOpImpPick">{{importing ? '正在导入…' : '导入 Excel'}}</view>
       </view>
     </view>
-    <view class="lines-note">供树障隐患记录分组使用</view>
+    <view class="lines-note pane-in">供树障隐患记录分组使用</view>
   </block>
 </view>
 

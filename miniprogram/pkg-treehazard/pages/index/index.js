@@ -1,7 +1,9 @@
-// 树障隐患记录：两级视图（view 状态机）——
-//   lines  线路视图：看板四格 + 搜索框（输入即过滤）+ 线路大卡片流（未处理橙 / ≤阈值未处理「要紧」红 / 总数灰）；
-//   ledger 台账视图：返回行 + 线路标题（未处理/要紧小字）+ 现有精简记录卡片流（点卡携记录进详情页，eventChannel 传递），
-//           批量模式开关与批量处理条仅本视图可用（批量模式点击 = 勾选，已处理禁选）。
+// 树障隐患记录：两级视图（view 状态机；视图切换整块 view-pane 淡入过渡）——
+//   lines  线路视图：看板四格 + 搜索框（输入即过滤）+ 线路大卡片流（状态着色：要紧>0 红 / 未处理>0 品牌蓝 / 清零灰；
+//           排序：要紧降序 > 未处理降序 > 电压降序 > 名称升序，未匹配卡排尾；stagger 入场）；
+//   ledger 台账视图：返回行 + 线路标题（未处理/要紧小字）+ 记录卡片流（首行区段+垂距双大字、未处理卡内「处理」按钮、
+//           辅证照片网格只读预览；点卡携记录进详情页，eventChannel 传递），批量模式开关与批量处理条仅本视图可用
+//           （批量模式点击 = 勾选，已处理禁选）。
 // 右下角全局悬浮导出 FAB：范围单选（全部线路 / 当前线路，线路视图为「选择线路」）+ 按线路分表开关（split=1，仅全部可勾）。
 // 班管/超管另有阈值设置与内网同步（线路视图工具行，图标化；删记录入口在详情页）。
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；其余角色后端强制本班，不传
@@ -31,7 +33,14 @@ function todayStr() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// 记录 → 展示结构：日期点分文本 / 垂直距离超阈值标记 / 照片按 kind 分区（pz，供详情页直接渲染）
+// 记录 → 展示结构：日期点分文本 / 垂直距离展示文本与超阈值标记 / 照片按 kind 分区（pz，供详情页直接渲染）
+// 垂直距离展示文本（幂等 m 后缀：纯数字拼 m、已含单位或其他文本原样、空回退 vertical_num 再兜底 '—'）
+function fmtVertical(r, vnum) {
+  const s = String(r.vertical === null || r.vertical === undefined ? '' : r.vertical).trim();
+  if (!s) return vnum === null ? '—' : `${vnum}m`;
+  return /^\d+(\.\d+)?$/.test(s) ? `${s}m` : s;
+}
+
 function mapRecord(r, threshold) {
   const photos = Array.isArray(r.photos) ? r.photos : [];
   const pz = { evidence: [], before: [], after: [] };
@@ -42,6 +51,7 @@ function mapRecord(r, threshold) {
   return Object.assign({}, r, {
     foundAtText: fmtDot(r.found_at),
     handledAtText: fmtDot(r.handled_at),
+    verticalText: fmtVertical(r, vnum),
     overThreshold: threshold !== null && vnum !== null && vnum <= threshold,
     pz,
   });
@@ -72,7 +82,7 @@ Page({
     batchMode: false,
     selected: {}, // 记录 id → true
     selectedCount: 0,
-    // 处理弹层（批量处理用；单条处理在详情页）
+    // 处理弹层（卡内单条与批量共用）
     handleVisible: false,
     handleIds: [],
     handleName: '',
@@ -250,21 +260,30 @@ Page({
   },
 
   // 线路卡片流：全部运维线路（含 0 条记录的线路）+ 未匹配组（有记录才成卡）；搜索词命中标题（电压+名称）即保留
+  // 排序：要紧降序 > 未处理降序 > 电压等级降序（数值）> 线路名称升序；未匹配卡恒排尾
+  // 状态着色（stateClass）：要紧>0 红 / 未处理>0 品牌蓝 / 均为 0 置灰
   rebuildLines() {
     const kw = (this.data.searchKey || '').trim();
     const cards = [];
     for (const l of this._lines || []) {
       const records = l.records || [];
       const st = this.lineStats(records);
+      const vm = String(l.voltage_level === null || l.voltage_level === undefined ? '' : l.voltage_level).match(/\d+(\.\d+)?/);
       cards.push({
         key: `L_${l.line_name}`,
         lineName: l.line_name,
         title: `${fmtKv(l.voltage_level)} ${l.line_name}`,
         total: records.length,
         unhandled: st.unhandled,
-        urgent: st.urgent,
+        urgent: st.urgent, // 未设阈值时为 null（不显要紧行），排序按 0 计
+        volt: vm ? parseFloat(vm[0]) : 0,
+        stateClass: (st.urgent || 0) > 0 ? 's-bad' : st.unhandled > 0 ? 's-info' : 's-ok',
       });
     }
+    cards.sort((a, b) => (b.urgent || 0) - (a.urgent || 0)
+      || b.unhandled - a.unhandled
+      || b.volt - a.volt
+      || String(a.lineName).localeCompare(String(b.lineName), 'zh-CN'));
     if ((this._unmatched || []).length) {
       const st = this.lineStats(this._unmatched);
       cards.push({
@@ -274,6 +293,8 @@ Page({
         total: this._unmatched.length,
         unhandled: st.unhandled,
         urgent: st.urgent,
+        volt: 0,
+        stateClass: (st.urgent || 0) > 0 ? 's-bad' : st.unhandled > 0 ? 's-info' : 's-ok',
       });
     }
     this._cards = cards;
@@ -372,6 +393,23 @@ Page({
     });
   },
 
+  // 卡内「处理」按钮（未处理卡；catchtap 已防冒泡进详情）：复用处理弹层，单 id 走 /records/:id/handle
+  onCardHandle(e) {
+    const { id } = e.currentTarget.dataset;
+    if (!id) return;
+    this.openHandle([Number(id)]);
+  },
+
+  // 辅证照片预览（卡片级只读展示；catchtap 已防冒泡进详情）
+  onEvPreview(e) {
+    const { gi, ri, pi } = e.currentTarget.dataset;
+    const rec = this.data.groups[gi] && this.data.groups[gi].records[ri];
+    if (!rec) return;
+    const urls = (rec.pz.evidence || []).map((p) => p.url);
+    if (!urls.length) return;
+    wx.previewImage({ urls, current: urls[Number(pi) || 0] });
+  },
+
   onOpenBatchHandle() {
     const ids = Object.keys(this.data.selected).map(Number);
     if (!ids.length) {
@@ -381,7 +419,7 @@ Page({
     this.openHandle(ids);
   },
 
-  /* ==================== 处理（批量；单条处理在详情页） ==================== */
+  /* ==================== 处理（卡内单条 / 批量共用弹层） ==================== */
 
   // 打开处理弹层：处理人预填当前用户昵称，处理时间默认今日
   openHandle(ids) {

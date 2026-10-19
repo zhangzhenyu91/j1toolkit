@@ -334,3 +334,14 @@ page {
 .btn-dark.disabled {
   opacity: 0.5;
 }
+
+/* ---------- 动效（复用全局 fadeUp 上浮入场；全局 prefers-reduced-motion 已兜底） ---------- */
+/* 分段切换：内容块淡入过渡（wx:if 重建即重播） */
+.pane-in {
+  animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* 列表项 stagger 入场（delay 内联递增） */
+.row-in {
+  animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}

@@ -97,6 +97,8 @@ function fmtVoltageCell(v) {
 
 // 单元格样式常量：全部写入单元格居中（含隐藏 ID 列）；数据区 A2:P末行 thin 框线（标题行 A1:P1 合并不加框线）
 const CELL_CENTER = { horizontal: 'center', vertical: 'middle' };
+// 数据行（R3 起）在居中基础上自动换行（长文本如处理情况不截断）；表头/标题行不换行
+const CELL_CENTER_WRAP = { horizontal: 'center', vertical: 'middle', wrapText: true };
 const THIN_BORDER = {
   top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' },
 };
@@ -130,7 +132,7 @@ function writeSheet(wb, { name, title, records }) {
   headRow.font = { bold: true, size: 12 };
   headRow.commit();
 
-  // 数据自第 3 行：全部单元格按文本写入（numFmt '@'），仅 Q 列记录ID 写数值
+  // 数据自第 3 行：全部单元格按文本写入（numFmt '@'），居中且自动换行（长文本不截断），仅 Q 列记录ID 写数值
   records.forEach((r, i) => {
     const row = ws.getRow(i + 3);
     row.height = 25;
@@ -156,12 +158,12 @@ function writeSheet(wb, { name, title, records }) {
       const c = row.getCell(j + 1);
       c.value = v;
       c.numFmt = '@';
-      c.alignment = CELL_CENTER;
+      c.alignment = CELL_CENTER_WRAP;
       c.border = THIN_BORDER;
     });
     const idCell = row.getCell(ID_COL);
     idCell.value = Number(r.id) || null;
-    idCell.alignment = CELL_CENTER;
+    idCell.alignment = CELL_CENTER_WRAP;
     row.font = { size: 11 };
     row.commit();
   });

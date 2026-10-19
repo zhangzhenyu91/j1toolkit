@@ -2,13 +2,15 @@
 <!-- Shade 壹匣 · 树障隐患记录网页版（「政企蓝白」token；骨架同 worklog.html：100vh 锁高 + 悬浮卡片 + 页签内部滚动）
      功能：看板四格（未处理 / 本周新增 / 垂直距离≤阈值未处理 / 已处理，仅记录页签一级「线路视图」顶部展示）
      + 记录页签两级导航——一级线路视图（顶部搜索框输入即过滤线路名/电压等级 + 线路大卡片网格：标题「110kV 孝西线」
-     + 未处理 n（橙字）+ 垂直距离≤阈值「要紧」m（红字，无阈值不显）+ 总数灰字；「未匹配线路」为伪组卡，点卡进二级）
-     / 二级台账视图（← 返回线路 + 线路标题计数 + 精简记录卡片流，批量处理开关在本级工具条）；
+     + 未处理 n（品牌蓝）+ 垂直距离≤阈值「要紧」m（红字，无阈值不显；两项均 0 时计数整体置灰）+ 总数灰字；
+     排序 要紧降 > 未处理降 > 电压等级数值降 > 线路名 zh-CN 升序，「未匹配线路」伪组卡恒排尾；线路卡 stagger 上浮入场，点卡进二级）
+     / 二级台账视图（← 返回线路 + 线路标题计数 + 扁平完整记录卡片流，批量处理开关在本级工具条，视图切换 fade+slide）；
      导出走右下角全局悬浮按钮（FAB 弹层：范围 全部线路 / 当前线路（一级视图为「选择线路」下拉）+ 按线路分表 split=1 勾选，
      预览 /export/preview 取 url 当前窗口打开、下载 apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
-     台账视图记录沿用精简卡片（顺序后端已排好）：区段标题 / 状态点标（未处理橙·已处理绿）/ 树种×数量 / 水平·垂直距离
-     （垂直 ≤ 阈值红显胶囊），点击卡片进详情弹层（720px：全字段网格 + 已处理信息 + 照片三区（辅证只读 / 处理前 / 处理后，
-     大缩略图网格 + 大图查看器 + 上传 / 删除）+ 底部 处理（未处理）/ 删除（班管·超管）按钮，操作后随 loadRecords 同步重绘）；
+     台账记录卡片扁平展示（无详情弹层分级，顺序后端已排好）：标题行 区段 + 垂距双大字同级（垂距 ≤ 阈值红显）
+     + 状态点标（未处理橙·已处理绿，处理后整卡降饱和过渡），次级行 树种×数量 / 水平距离，随后全字段网格（垂直超阈值红底突出）
+     + 已处理信息 + 照片三区（辅证只读有图才显示 / 处理前 / 处理后可上传可删，缩略图进大图查看器）+ 卡内 处理（未处理）/ 删除（班管·超管）按钮，
+     操作后随 loadRecords 同步重绘；
      支持批量勾选批量处理（批量模式下点卡 = 勾选）；暂存区 / 冲突页签与阈值设置 / 同步至内网仅超管·班组管理员可见（服务端 requireDictAdmin 同拦）；
      班组隔离：超管页头班组切换下拉（localStorage.treehazard_team_id，全部 /treehazard/* 请求统一带 team_id，见 th()），
      非超管固定本班、未分配班组整页空态（屏十口径）；API 直连主平台 /api/v1/treehazard/*（Bearer token 经 Shade.api） -->
@@ -34,6 +36,9 @@
 
   /* ===== 入场关键帧（一次上浮/淡入后静止；降级见文件末） ===== */
   @keyframes k-fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes k-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } } /* 编排式上浮入场（设计规范 14px） */
+  /* 线路 ↔ 台账视图切换：内容整体 fade + slide（renderRecords 重渲染时由 JS 挂 .view-in 触发） */
+  .view-in { animation: k-rise .34s var(--ease); }
 
   /* ===== 页头：标题 + 副标；右侧操作区（班组切换） ===== */
   .th-head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap; }
@@ -90,21 +95,25 @@
   .lc {
     padding: 18px 20px 16px; cursor: pointer; display: flex; align-items: center; gap: 12px;
     transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+    animation: k-rise .5s var(--ease) both; /* 编排式上浮入场，逐卡时延链由行内 animation-delay 给出（≤0.9s） */
   }
   .lc:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
   .lc-main { flex: 1; min-width: 0; }
   .lc-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; }
   .lc-stats { margin-top: 10px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; font-size: 12px; letter-spacing: .5px; }
   .lc-stats b { margin-left: 3px; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .lc-unh, .lc-unh b { color: #D25F00; } /* 未处理：警告橙（同状态点标橙族） */
+  .lc-unh, .lc-unh b { color: var(--orange); } /* 未处理：品牌蓝（#0E3DA8，克制不刺眼） */
   .lc-key, .lc-key b { color: var(--red); } /* 要紧：未处理且垂直距离 ≤ 阈值 */
   .lc-total { color: var(--ph); }
+  .lc-clear .lc-unh, .lc-clear .lc-unh b, .lc-clear .lc-key, .lc-clear .lc-key b { color: var(--ph); } /* 未处理与要紧均为 0：计数整体置灰 */
   .lc-go { flex: none; display: flex; color: var(--ph); }
   .lc-go svg { width: 16px; height: 16px; }
 
   /* ===== 记录页签二级「台账视图」顶栏：返回 + 线路标题 + 计数小字 + 批量开关 ===== */
   .ledger-title { font-size: 15.5px; font-weight: 700; letter-spacing: 1px; }
   .ledger-sub { font-size: 12px; color: var(--ph); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .ledger-sub .ls-unh { color: var(--orange); }  /* 未处理>0：品牌蓝（与线路卡同口径，不亮眼） */
+  .ledger-sub .ls-key { color: var(--red); }     /* 要紧>0：危险红 */
   #recBody { padding-bottom: 64px; } /* 底部内容给右下角 FAB 留位 */
 
   /* ===== 导出 FAB（右下角悬浮圆形品牌蓝，点击弹层选范围/分表） ===== */
@@ -172,22 +181,23 @@
   .linkbtn.dgr { color: var(--red); }
   .linkbtn.dgr:hover { background: #FFECE8; }
 
-  /* ===== 记录页签二级「台账视图」：精简隐患卡片（点卡进详情弹层） ===== */
+  /* ===== 记录页签二级「台账视图」：扁平完整隐患卡片（全字段 + 照片三区 + 卡内操作，无详情弹层分级） ===== */
   .rec {
-    margin-bottom: 14px; padding: 15px 22px; position: relative; cursor: pointer;
-    transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+    margin-bottom: 14px; padding: 15px 22px; position: relative;
+    transition: transform .18s var(--ease), box-shadow .18s var(--ease), opacity .3s var(--ease);
   }
   .rec:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
-  .rec.done { opacity: .62; } /* 已处理卡整体降饱和 */
-  .rec-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .rec.done { opacity: .62; } /* 已处理卡整体降饱和（处理后随刷新过渡至此态） */
+  #recBody.batching .rec { cursor: pointer; } /* 批量模式点卡 = 勾选；其余时候卡片不响应整卡点击 */
+  .rec-top { display: flex; align-items: baseline; gap: 12px 16px; flex-wrap: wrap; }
   .rec-sec { font-size: 19px; font-weight: 700; letter-spacing: 1px; }
+  /* 垂直距离与区段同级双大字（浏览主看这两项）；≤ 阈值红显 */
+  .rec-vert { font-size: 19px; font-weight: 700; letter-spacing: 1px; color: var(--navy); font-variant-numeric: tabular-nums; }
+  .rec-vert.danger { color: var(--red); }
+  /* 次级字段行：树种×数量 / 水平距离 */
+  .rec-subline { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-top: 6px; }
   .rec-sub { font-size: 13px; font-weight: 600; color: var(--navy); letter-spacing: .5px; }
-  /* 水平 / 垂直距离小字；垂直距离 ≤ 阈值时红显胶囊（.vcap） */
   .rec-dist { font-size: 13px; color: var(--sub); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
-  .vcap {
-    display: inline-block; padding: 1px 8px; border-radius: 4px; background: #FFECE8;
-    color: var(--red); font-weight: 700; font-style: normal;
-  }
   /* 状态点标：圆点 + 文字（未处理橙 / 已处理绿） */
   .rec-tag {
     margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px;
@@ -209,8 +219,10 @@
   .rec-ck.on { border-color: var(--orange); background: var(--orange); color: #fff; }
   .rec-ck.dis { opacity: .35; cursor: not-allowed; }
   .rec-ck.dis:hover { border-color: var(--dash); }
-  /* 详情弹层字段网格（区段 / 位置备注 / 树种 / 数量 / 直径 / 距小号 / 距大号 / 水平 / 垂直 / 发现人 / 发现时间） */
-  .dt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; }
+  /* 卡片内操作行：删除（班管/超管）居左，处理（未处理）居右 */
+  .rec-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+  /* 卡片内全字段网格（区段 / 位置备注 / 树种 / 数量 / 直径 / 距小号 / 距大号 / 水平 / 垂直 / 发现人 / 发现时间） */
+  .dt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; margin-top: 12px; }
   @media (max-width: 640px) { .dt-grid { grid-template-columns: repeat(2, 1fr); } }
   .rg-cell { background: var(--fill); border-radius: 8px; padding: 7px 10px; min-width: 0; }
   .rg-k { font-size: 10.5px; color: var(--ph); letter-spacing: 1px; }
@@ -218,7 +230,7 @@
   /* 垂直距离超阈值：浅红底红字突出 */
   .rg-cell.danger { background: #FFECE8; }
   .rg-cell.danger .rg-v { color: var(--red); font-weight: 700; }
-  /* 详情弹层已处理信息行（绿点 + 处理人/处理情况/处理时间） */
+  /* 卡片内已处理信息行（绿点 + 处理人/处理情况/处理时间） */
   .rec-handled {
     margin-top: 12px; padding: 9px 12px; border-radius: 8px; background: #E8FFEA;
     display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
@@ -226,7 +238,7 @@
   }
   .rec-handled::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
   .rec-handled b { font-weight: 700; }
-  /* 详情弹层照片三区：辅证（只读）/ 处理前 / 处理后竖排，大缩略图网格（参考出工日志照片网格：圆角无描边） */
+  /* 卡片内照片三区：辅证（只读，有图才显示）/ 处理前 / 处理后竖排，大缩略图网格（参考出工日志照片网格：圆角无描边） */
   .ph-zones { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
   .ph-zhead { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--sub); letter-spacing: 1px; }
   .ph-add {
@@ -311,7 +323,7 @@
   .batch-bar[hidden] { display: none !important; } /* author display:flex 优先于 UA [hidden]，显式兜底（同 .th-wrap 口径） */
   .batch-bar .bc { font-size: 13px; font-weight: 700; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
 
-  /* ===== 大图遮罩层（Lightbox：照片查看，Esc / 点击遮罩关闭，← → 切换；z-index 高于弹层 .mask(320)，可从详情弹层上打开） ===== */
+  /* ===== 大图遮罩层（Lightbox：照片查看，Esc / 点击遮罩关闭，← → 切换；z-index 高于弹层 .mask(320)，从卡片照片上直接打开） ===== */
   .lb {
     position: fixed; inset: 0; z-index: 340; padding: 36px;
     background: rgba(29, 33, 41, .85); backdrop-filter: blur(6px);
@@ -504,7 +516,7 @@ var me = Shade.user() || {};
 /* 超管 / 班组管理员（暂存区·冲突·阈值·同步·删记录等管理类入口的可见性口径） */
 var isManager = me.role === 'admin' || me.role === 'team_admin';
 
-/* 详情弹层字段网格定义（11 项；垂直超阈值红显，key 与后端列名一致） */
+/* 卡片全字段网格定义（11 项；垂直超阈值红显，key 与后端列名一致） */
 var DETAIL_FIELDS = [
   ['section', '区段'], ['position_note', '位置备注'], ['tree_species', '树种'], ['tree_count', '数量'],
   ['diameter', '直径(cm)'], ['dist_small', '距小号(m)'], ['dist_big', '距大号(m)'],
@@ -567,14 +579,6 @@ function allRecords() {
   (state.rec.lines || []).forEach(function (g) { out = out.concat(g.records || []); });
   return out.concat(state.rec.unmatched || []);
 }
-/* 按 id 找记录（详情弹层数据源） */
-function findRecord(id) {
-  var found = null;
-  allRecords().forEach(function (r) { if (Number(r.id) === Number(id)) found = r; });
-  return found;
-}
-/* 详情弹层单例（同一时刻只开一个；随 loadRecords 静默刷新同步重绘，记录已删则自动关闭） */
-var detailInst = null;
 
 /* ================= 看板 ================= */
 async function loadDashboard() {
@@ -633,7 +637,6 @@ async function loadRecords(quiet) {
     var r = await Shade.api(th('/api/v1/treehazard/records'));
     state.rec = r.data || { threshold: null, lines: [], unmatched: [] };
     renderRecords();
-    refreshDetail(); // 详情弹层开着时同步重绘（记录已删则关弹层）
     if (quiet) body.scrollTop = st;
   } catch (e) {
     state.rec = null;
@@ -649,12 +652,20 @@ function syncView() {
   $('#recBarLines').hidden = state.view !== 'lines';
   $('#recBarLedger').hidden = state.view !== 'ledger';
 }
+/* 视图内容重渲染时触发 fade+slide 入场（重挂 .view-in 强制重放） */
+function playViewIn() {
+  var body = $('#recBody');
+  body.classList.remove('view-in');
+  void body.offsetWidth;
+  body.classList.add('view-in');
+}
 /* 进入二级台账视图（line 为线路名；'__unmatched__' = 未匹配线路伪组） */
 function openLedger(line) {
   state.view = 'ledger';
   state.curLine = line;
   syncView();
   renderRecords();
+  playViewIn();
   $('#recBody').scrollTop = 0;
 }
 /* 返回一级线路视图（批量模式仅台账视图可用，退出即收） */
@@ -664,9 +675,10 @@ function backToLines() {
   state.curLine = '';
   syncView();
   renderRecords();
+  playViewIn();
 }
 
-/* 记录卡片：照片三区（辅证只读 / 处理前 / 处理后，可上传区右上角「+」）——仅详情弹层使用 */
+/* 记录卡片：照片三区（辅证只读 / 处理前 / 处理后，可上传区右上角「+」）——台账视图卡片内使用 */
 function photoZoneHtml(r, kind, label, canUpload) {
   var photos = (r.photos || []).filter(function (p) { return p.kind === kind; });
   var inner;
@@ -690,8 +702,11 @@ function photoZoneHtml(r, kind, label, canUpload) {
     + '</div>';
 }
 
-/* 记录卡片 HTML（精简）：批量勾选框 + 区段（标题级）+ 树种×数量 + 水平/垂直距离（垂直 ≤ 阈值红显胶囊）+ 状态点标；
-   位置备注、直径等其余字段与照片三区收进详情弹层（点卡打开，见 openDetail） */
+/* 记录卡片 HTML（扁平完整卡，无详情弹层分级）：
+   标题行 = 区段 + 垂直距离双大字同级（垂距 ≤ 阈值红显）+ 状态点标 + 批量勾选框；
+   次级行 = 树种×数量 / 水平距离；随后全字段网格 + 已处理信息 + 照片三区（辅证只读、有图才显示；
+   处理前/后可上传可删）+ 卡内操作（处理：未处理卡；删除：班管/超管）。
+   卡内全部交互走 #recBody 事件委派（见 initEvents），重绘无需重绑 */
 function recCardHtml(r, threshold) {
   var done = r.status === 'handled';
   var head = [];
@@ -702,32 +717,16 @@ function recCardHtml(r, threshold) {
       + Shade.icon('check', 12) + '</span>');
   }
   head.push('<b class="rec-sec">' + esc(dash(r.section)) + '</b>');
-  /* 树种×数量 */
-  var species = String(r.tree_species || '').trim();
-  if (species) head.push('<span class="rec-sub">' + esc(species)
-    + (String(r.tree_count || '').trim() ? ' × ' + esc(r.tree_count) : '') + '</span>');
-  /* 水平 / 垂直距离（垂直 ≤ 阈值红显胶囊） */
-  head.push('<span class="rec-dist">水平 ' + esc(fmtM(r.horizontal)) + '</span>');
-  head.push('<span class="rec-dist">垂直 '
-    + (overThreshold(r, threshold) ? '<em class="vcap">' + esc(fmtM(r.vertical)) + '</em>' : esc(fmtM(r.vertical)))
-    + '</span>');
+  head.push('<span class="rec-vert' + (overThreshold(r, threshold) ? ' danger' : '') + '" title="垂直距离">垂距 ' + esc(fmtM(r.vertical)) + '</span>');
   head.push(done ? '<span class="rec-tag ok">已处理</span>' : '<span class="rec-tag un">未处理</span>');
-  return '<div class="card rec' + (done ? ' done' : '') + '" data-id="' + r.id + '" title="点击查看详情">'
-    + '<div class="rec-top">' + head.join('') + '</div>'
-    + '</div>';
-}
-
-/* ================= 记录详情弹层（720px；数据取 GET /records 既有返回，无新请求） ================= */
-/* 详情内容 HTML：标题行（区段 + 状态点标）+ 全字段网格 + 已处理信息 + 照片三区 + 底部 删除（班管/超管）/ 处理（未处理）按钮；
-   事件统一走弹层 box 委托（见 bindDetailBox），refreshDetail 重绘内容后无需重绑 */
-function detailHtml(r, threshold) {
-  var done = r.status === 'handled';
-  /* 标题行：结构同 Shade.mHead（.m-x 关闭点击由弹层委托接管，兼容 refreshDetail 重绘后的新按钮） */
-  var html = '<div class="m-head"><span class="m-title">' + esc(dash(r.section)) + '</span>'
-    + (done ? '<span class="rec-tag ok">已处理</span>' : '<span class="rec-tag un">未处理</span>')
-    + '<button class="m-x">' + Shade.icon('close', 14) + '</button></div>';
+  /* 次级字段行：树种×数量 / 水平距离 */
+  var sub = [];
+  var species = String(r.tree_species || '').trim();
+  if (species) sub.push('<span class="rec-sub">' + esc(species)
+    + (String(r.tree_count || '').trim() ? ' × ' + esc(r.tree_count) : '') + '</span>');
+  sub.push('<span class="rec-dist">水平 ' + esc(fmtM(r.horizontal)) + '</span>');
   /* 全字段网格：垂直超阈值红底红字突出 */
-  html += '<div class="dt-grid">' + DETAIL_FIELDS.map(function (f) {
+  var grid = '<div class="dt-grid">' + DETAIL_FIELDS.map(function (f) {
     var danger = f[0] === 'vertical' && overThreshold(r, threshold);
     return '<div class="rg-cell' + (danger ? ' danger' : '') + '" title="' + esc(String(r[f[0]] == null ? '' : r[f[0]])) + '">'
       + '<div class="rg-k">' + f[1] + '</div>'
@@ -735,71 +734,28 @@ function detailHtml(r, threshold) {
       + '</div>';
   }).join('') + '</div>';
   /* 已处理信息行：处理人 / 处理情况 / 处理时间 */
-  if (done) {
-    html += '<div class="rec-handled"><span>处理人 <b>' + esc(dash(r.handler_name)) + '</b></span>'
+  var handled = done
+    ? '<div class="rec-handled"><span>处理人 <b>' + esc(dash(r.handler_name)) + '</b></span>'
       + '<span>处理情况 <b>' + esc(dash(r.handle_note)) + '</b></span>'
-      + '<span>处理时间 <b>' + esc(dash(r.handled_at)) + '</b></span></div>';
-  }
-  /* 照片三区：辅证（只读）/ 处理前 / 处理后（可上传可删） */
-  html += '<div class="ph-zones">'
-    + photoZoneHtml(r, 'evidence', '辅证照片', false)
+      + '<span>处理时间 <b>' + esc(dash(r.handled_at)) + '</b></span></div>'
+    : '';
+  /* 照片三区：辅证只读（有图才渲染该区）/ 处理前 / 处理后（可上传可删） */
+  var hasEvidence = (r.photos || []).some(function (p) { return p.kind === 'evidence'; });
+  var photos = '<div class="ph-zones">'
+    + (hasEvidence ? photoZoneHtml(r, 'evidence', '辅证照片', false) : '')
     + photoZoneHtml(r, 'before', '处理前', true)
     + photoZoneHtml(r, 'after', '处理后', true)
     + '</div>';
-  /* 底部按钮：删除居左（班管/超管），处理居右（未处理时；复用处理弹层 openHandleModal） */
-  var foot = [];
-  if (isManager) foot.push('<button class="btn btn-sm btn-danger" data-ddel="' + r.id + '" style="margin-right:auto">删除</button>');
-  if (!done) foot.push('<button class="btn btn-sm btn-primary" data-dhandle="' + r.id + '">处理</button>');
-  if (foot.length) html += '<div class="m-foot">' + foot.join('') + '</div>';
-  return html;
-}
-/* 详情弹层事件委托（绑一次在 box 上，内容重绘不丢）：关闭 / 删照片 / 上传照片 / 处理 / 删记录 / 大图 */
-function bindDetailBox(inst) {
-  inst.box.addEventListener('click', function (e) {
-    if (e.target.closest('.m-x')) { inst.close(); return; }
-    var delPh = e.target.closest('[data-phdel]');
-    if (delPh) { e.stopPropagation(); deletePhoto(Number(delPh.dataset.rid), Number(delPh.dataset.phdel)); return; }
-    var up = e.target.closest('[data-up]');
-    if (up) {
-      state.upTarget = { recordId: Number(up.dataset.rid), kind: up.dataset.up };
-      $('#photoInput').click();
-      return;
-    }
-    var hBtn = e.target.closest('[data-dhandle]');
-    if (hBtn) { openHandleModal([Number(hBtn.dataset.dhandle)]); return; }
-    var dBtn = e.target.closest('[data-ddel]');
-    if (dBtn) { deleteRecord(Number(dBtn.dataset.ddel)); return; }
-    /* 缩略图 → 大图（同照片组内左右切换） */
-    var fig = e.target.closest('.ph[data-url]');
-    if (fig && e.target.tagName === 'IMG') {
-      var figs = $$('.ph[data-url]', fig.parentNode);
-      var list = figs.map(function (f) { return f.dataset.url; });
-      openLightbox(list, figs.indexOf(fig));
-    }
-  });
-}
-function openDetail(id) {
-  var r = findRecord(id);
-  if (!r) return;
-  if (detailInst) detailInst.close(); // 单例：先关旧弹层
-  var inst = Shade.modal(detailHtml(r, state.rec ? state.rec.threshold : null), {
-    width: 720,
-    onClose: function () { if (detailInst === inst) detailInst = null; }
-  });
-  inst.recId = Number(id);
-  detailInst = inst;
-  bindDetailBox(inst);
-}
-/* 记录静默刷新后同步详情弹层：重绘内容（滚动位保持）；记录已删 / 数据丢失时关弹层 */
-function refreshDetail() {
-  if (!detailInst || detailInst.closed) return;
-  var r = findRecord(detailInst.recId);
-  if (!r) { detailInst.close(); return; }
-  var sc = detailInst.box.querySelector('.m-scroll');
-  if (!sc) return;
-  var st = sc.scrollTop;
-  sc.innerHTML = detailHtml(r, state.rec ? state.rec.threshold : null);
-  sc.scrollTop = st;
+  /* 卡内操作：删除居左（班管/超管），处理居右（未处理时；复用处理弹层 openHandleModal） */
+  var acts = [];
+  if (isManager) acts.push('<button class="btn btn-sm btn-danger" data-ddel="' + r.id + '" style="margin-right:auto">删除</button>');
+  if (!done) acts.push('<button class="btn btn-sm btn-primary" data-dhandle="' + r.id + '">处理</button>');
+  return '<div class="card rec' + (done ? ' done' : '') + '" data-id="' + r.id + '">'
+    + '<div class="rec-top">' + head.join('') + '</div>'
+    + '<div class="rec-subline">' + sub.join('') + '</div>'
+    + grid + handled + photos
+    + (acts.length ? '<div class="rec-acts">' + acts.join('') + '</div>' : '')
+    + '</div>';
 }
 
 /* 渲染分派：按当前视图渲染一级线路大卡 / 二级线路台账 */
@@ -819,9 +775,13 @@ function lineStats(recs, threshold) {
   });
   return { unh: unh, key: key, total: recs.length };
 }
-/* 线路大卡：标题（电压等级+线路名，fmtKv 幂等）+ 未处理（橙）/ 要紧（红，无阈值不显）/ 总数（灰） */
-function lineCardHtml(title, st, threshold, lineKey) {
-  return '<div class="card lc" data-line="' + esc(lineKey) + '" title="点击进入线路台账">'
+/* 线路大卡：标题（电压等级+线路名，fmtKv 幂等）+ 未处理（品牌蓝）/ 要紧（红，无阈值不显）/ 总数（灰）；
+   未处理与要紧均为 0 时计数整体置灰（lc-clear）；idx 用于 stagger 入场时延链（≤0.9s 封顶） */
+function lineCardHtml(title, st, threshold, lineKey, idx) {
+  var clear = st.unh === 0 && st.key === 0;
+  var delay = Math.min(idx * 0.05, 0.4).toFixed(2); // 逐卡 50ms 递增，0.4s 封顶（+0.5s 时长 ≤0.9s）
+  return '<div class="card lc' + (clear ? ' lc-clear' : '') + '" data-line="' + esc(lineKey) + '" title="点击进入线路台账"'
+    + ' style="animation-delay:' + delay + 's">'
     + '<div class="lc-main"><div class="lc-title">' + esc(title) + '</div>'
     + '<div class="lc-stats">'
     + '<span class="lc-unh">未处理<b>' + st.unh + '</b></span>'
@@ -833,22 +793,41 @@ function lineCardHtml(title, st, threshold, lineKey) {
     + '<span class="lc-go">' + Shade.icon('chevron-right', 16) + '</span>'
     + '</div>';
 }
+/* 电压等级数值提取（排序用；非数字回退 0） */
+function voltageNum(v) {
+  var n = parseFloat(String(v == null ? '' : v).replace(/[^\d.]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+/* 线路卡排序：要紧数降序 > 未处理数降序 > 电压等级数值降序 > 线路名称升序（zh-CN） */
+function sortLineGroups(list, threshold) {
+  var stats = {};
+  list.forEach(function (g) { stats[g.line_name] = lineStats(g.records || [], threshold); });
+  return list.slice().sort(function (a, b) {
+    var sa = stats[a.line_name], sb = stats[b.line_name];
+    if (sb.key !== sa.key) return sb.key - sa.key;
+    if (sb.unh !== sa.unh) return sb.unh - sa.unh;
+    var dv = voltageNum(b.voltage_level) - voltageNum(a.voltage_level);
+    if (dv) return dv;
+    return String(a.line_name || '').localeCompare(String(b.line_name || ''), 'zh-CN');
+  });
+}
 function renderLineCards() {
   var body = $('#recBody');
   var threshold = state.rec.threshold;
   var raw = (state.lineSearch || '').trim();
   var kw = raw.toLowerCase();
   var html = [];
-  (state.rec.lines || []).forEach(function (g) {
+  var idx = 0;
+  sortLineGroups(state.rec.lines || [], threshold).forEach(function (g) {
     var title = fmtKv(g.voltage_level) + ' ' + g.line_name;
     /* 输入即过滤：标题（含电压等级幂等格式）与原始线路名双通道匹配 */
     if (kw && title.toLowerCase().indexOf(kw) < 0 && String(g.line_name || '').toLowerCase().indexOf(kw) < 0) return;
-    html.push(lineCardHtml(title, lineStats(g.records || [], threshold), threshold, g.line_name));
+    html.push(lineCardHtml(title, lineStats(g.records || [], threshold), threshold, g.line_name, idx++));
   });
-  /* 「未匹配线路」伪组作为一张卡参与（排尾） */
+  /* 「未匹配线路」伪组作为一张卡参与（恒排尾，不参与排序） */
   var un = state.rec.unmatched || [];
   if (un.length && (!kw || '未匹配线路'.indexOf(raw) >= 0)) {
-    html.push(lineCardHtml('未匹配线路', lineStats(un, threshold), threshold, '__unmatched__'));
+    html.push(lineCardHtml('未匹配线路', lineStats(un, threshold), threshold, '__unmatched__', idx++));
   }
   body.innerHTML = html.length ? '<div class="lc-grid">' + html.join('') + '</div>'
     : '<div class="empty">' + Shade.icon(kw ? 'search' : 'task', 44) + '<p>'
@@ -874,8 +853,8 @@ function renderLedger() {
   if (!g) { backToLines(); return; } // 数据刷新后线路已消失（如班组切换/删除），回退线路视图
   var st = lineStats(g.records, threshold);
   $('#ledgerTitle').textContent = g.title;
-  $('#ledgerSub').textContent = '未处理 ' + st.unh
-    + (threshold === null || threshold === undefined ? '' : ' · 要紧 ' + st.key)
+  $('#ledgerSub').innerHTML = '<span class="' + (st.unh > 0 ? 'ls-unh' : '') + '">未处理 ' + st.unh + '</span>'
+    + (threshold === null || threshold === undefined ? '' : ' · <span class="' + (st.key > 0 ? 'ls-key' : '') + '">要紧 ' + st.key + '</span>')
     + ' · 共 ' + st.total + ' 条';
   /* 勾选集合剔除已不可选项（已处理 / 已删除），防底部悬浮条计数残留 */
   if (state.batch.on) {
@@ -897,6 +876,7 @@ function setBatchMode(on) {
   state.batch.sel = {};
   $('#btnBatch').textContent = on ? '退出批量' : '批量处理';
   $('#batchBar').hidden = !on;
+  $('#recBody').classList.toggle('batching', on); // 批量模式点卡 = 勾选（光标提示）
   renderRecords();
 }
 /* 底部悬浮条已选计数同步（勾选变化就地更新，不重渲染卡片） */
@@ -1566,10 +1546,32 @@ function initEvents() {
   $('#recBody').addEventListener('click', function (e) {
     if (e.target.closest('#recRetry')) { loadRecords(); }
   });
-  /* 记录卡片流委派：线路大卡（进台账）/ 勾选框 / 点卡（批量模式点卡任意处 = 勾选；否则开详情弹层） */
+  /* 记录卡片流委派：线路大卡（进台账）/ 卡内交互（删照片 / 上传照片 / 处理 / 删记录 / 缩略图大图）/ 勾选框 / 批量模式点卡 = 勾选；
+     扁平化后无详情弹层，非批量模式整卡不响应点击 */
   $('#recBody').addEventListener('click', function (e) {
     var lc = e.target.closest('.lc[data-line]');
     if (lc) { openLedger(lc.dataset.line); return; }
+    /* 卡内操作优先（不触发批量勾选） */
+    var delPh = e.target.closest('[data-phdel]');
+    if (delPh) { deletePhoto(Number(delPh.dataset.rid), Number(delPh.dataset.phdel)); return; }
+    var up = e.target.closest('[data-up]');
+    if (up) {
+      state.upTarget = { recordId: Number(up.dataset.rid), kind: up.dataset.up };
+      $('#photoInput').click();
+      return;
+    }
+    var hBtn = e.target.closest('[data-dhandle]');
+    if (hBtn) { openHandleModal([Number(hBtn.dataset.dhandle)]); return; }
+    var dBtn = e.target.closest('[data-ddel]');
+    if (dBtn) { deleteRecord(Number(dBtn.dataset.ddel)); return; }
+    /* 缩略图 → 大图（同照片组内左右切换；z-index 340 恒高于弹层，遮罩阻断下方交互） */
+    var fig = e.target.closest('.ph[data-url]');
+    if (fig && e.target.tagName === 'IMG') {
+      var figs = $$('.ph[data-url]', fig.parentNode);
+      var list = figs.map(function (f) { return f.dataset.url; });
+      openLightbox(list, figs.indexOf(fig));
+      return;
+    }
     var ck = e.target.closest('.rec-ck[data-ck]');
     if (ck) {
       var cid = Number(ck.dataset.ck);
@@ -1578,19 +1580,17 @@ function initEvents() {
       syncBatchBar();
       return;
     }
-    var recCard = e.target.closest('.rec[data-id]');
-    if (!recCard) return;
-    /* 批量模式：点卡 = 勾选（rec-ck 逻辑优先；已处理卡勾选框为禁用态无 data-ck，整卡不响应） */
+    /* 批量模式：点卡任意处 = 勾选（上述卡内交互优先；已处理卡勾选框为禁用态无 data-ck，整卡不响应） */
     if (state.batch.on) {
+      var recCard = e.target.closest('.rec[data-id]');
+      if (!recCard) return;
       var cardCk = recCard.querySelector('.rec-ck[data-ck]');
       if (!cardCk) return;
       var cid2 = Number(cardCk.dataset.ck);
       if (state.batch.sel[cid2]) delete state.batch.sel[cid2]; else state.batch.sel[cid2] = true;
       cardCk.classList.toggle('on');
       syncBatchBar();
-      return;
     }
-    openDetail(Number(recCard.dataset.id));
   });
   /* 照片上传：隐藏 file input（accept image/*，可一次多选） */
   $('#photoInput').addEventListener('change', function () {
@@ -1685,7 +1685,6 @@ function renderNoTeam() {
 
 /* ================= 班组切换后整页重载 ================= */
 function reloadTeamData() {
-  if (detailInst) detailInst.close(); // 详情弹层随数据域切换关闭
   state.rec = null;
   state.dash = null;
   /* 视图状态复位：回一级线路视图并清空搜索（线路集合随班组变化） */

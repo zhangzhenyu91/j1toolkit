@@ -125,10 +125,24 @@ page {
   color: #C9CDD4;
 }
 
-/* ---------- 线路大卡片（未处理橙 / 要紧红 / 总数灰） ---------- */
+/* ---------- 线路大卡片（状态着色：要紧>0 红 / 未处理>0 品牌蓝 / 均为 0 置灰；stagger 入场，delay 内联递增） ---------- */
 .lcard {
   padding: 28rpx;
-  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s backwards;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.lcard.s-bad .lc-title {
+  color: #F53F3F;
+}
+
+.lcard.s-info .lc-title {
+  color: #0E3DA8;
+}
+
+.lcard.s-ok .lc-title,
+.lcard.s-ok .lc-st {
+  color: #86909C;
+  font-weight: 400;
 }
 
 .lcard + .lcard {
@@ -165,7 +179,7 @@ page {
 }
 
 .lc-warn {
-  color: #FF7D00;
+  color: #0E3DA8;
   font-weight: 600;
 }
 
@@ -213,7 +227,7 @@ page {
 }
 
 .lh-warn {
-  color: #FF7D00;
+  color: #0E3DA8;
 }
 
 .lh-bad {
@@ -332,14 +346,17 @@ page {
   text-overflow: ellipsis;
 }
 
-/* 垂直距离 ≤ 阈值：红字 + 浅红底胶囊突出 */
-.th-v.th-v-bad {
-  display: inline-block;
-  padding: 2rpx 12rpx;
-  background: #FFECE8;
-  border-radius: 8rpx;
-  color: #F53F3F;
+/* 首行垂直距离（与区段同级大字；≤ 阈值红显） */
+.th-vbig {
+  flex: none;
+  font-size: 32rpx;
   font-weight: 700;
+  color: #1D2129;
+  font-variant-numeric: tabular-nums;
+}
+
+.th-vbig-bad {
+  color: #F53F3F;
 }
 
 /* ---------- 批量模式底部固定条 ---------- */
@@ -564,4 +581,52 @@ page {
 .btn-ghost.disabled,
 .btn-dark.disabled {
   opacity: 0.5;
+}
+
+/* ---------- 台账卡：辅证照片网格（卡片级只读展示，口径同详情页 pz-grid） ---------- */
+.pz-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+
+.pz-img {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 8rpx;
+  background: #F7F8FA;
+}
+
+/* ---------- 台账卡：卡内「处理」次按钮（右下，仅未处理且非批量模式渲染） ---------- */
+.th-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16rpx;
+}
+
+.btn-act {
+  padding: 10rpx 36rpx;
+  border: 2rpx solid #0E3DA8;
+  border-radius: 12rpx;
+  background: #E8F0FF;
+  color: #0E3DA8;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+/* ---------- 动效（复用全局 fadeUp 上浮入场；全局 prefers-reduced-motion 已兜底） ---------- */
+/* 记录卡 stagger 入场（delay 内联递增；已处理卡降饱和不走入场，防 fadeUp 结束后 opacity 回落跳变） */
+.thcard-in {
+  animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* 线路 ↔ 台账视图切换：整块淡入过渡（wx:if 重建即重播） */
+.view-pane {
+  animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* 垂直距离上提首行后网格仅余两项 → 平铺（同特异性后定义覆盖 33.3333%） */
+.th-f {
+  width: 50%;
 }
