@@ -1,103 +1,163 @@
-<!-- 树障隐患记录 · 主页（看板 + 工具行 + 按线路分组的精简记录卡片流；点卡进详情页，处理弹层仅供批量） -->
+<!-- 树障隐患记录 · 主页（两级视图：线路卡片 → 线路台账；右下角全局悬浮导出 FAB；处理弹层仅供批量） -->
 <navbar back title="树障隐患记录" />
 
 <view class="page-body" wx:if="{{gate}}">
-  <!-- 看板四格（仿首页 stats-card）：未处理 / 本周新增 / ≤阈值未处理（红，未设阈值显「未设」）/ 已处理 -->
-  <view class="card stats-card">
-    <view class="stat"><text class="stat-num stat-num-warn">{{dash.unhandled}}</text><text class="stat-label">未处理</text></view>
-    <view class="stat"><text class="stat-num">{{dash.week_new}}</text><text class="stat-label">本周新增</text></view>
-    <view class="stat"><text class="stat-num stat-num-bad">{{dash.threshold === null ? '未设' : dash.over_threshold}}</text><text class="stat-label">≤阈值未处理</text></view>
-    <view class="stat"><text class="stat-num">{{dash.handled}}</text><text class="stat-label">已处理</text></view>
-  </view>
-
-  <!-- 工具行：线路筛选 / 批量 / 导出；班管/超管加显 阈值设置 / 内网同步 -->
-  <view class="toolbar">
-    <view class="tool" hover-class="hover-opacity" bindtap="onOpenFilter">
-      <t-icon name="filter" size="28rpx" color="#0E3DA8" />
-      <text class="tool-t">{{lineFilter || '全部线路'}}</text>
+  <!-- ==================== 线路视图 ==================== -->
+  <block wx:if="{{view === 'lines'}}">
+    <!-- 看板四格（仿首页 stats-card）：未处理 / 本周新增 / ≤阈值未处理（红，未设阈值显「未设」）/ 已处理 -->
+    <view class="card stats-card">
+      <view class="stat"><text class="stat-num stat-num-warn">{{dash.unhandled}}</text><text class="stat-label">未处理</text></view>
+      <view class="stat"><text class="stat-num">{{dash.week_new}}</text><text class="stat-label">本周新增</text></view>
+      <view class="stat"><text class="stat-num stat-num-bad">{{dash.threshold === null ? '未设' : dash.over_threshold}}</text><text class="stat-label">≤阈值未处理</text></view>
+      <view class="stat"><text class="stat-num">{{dash.handled}}</text><text class="stat-label">已处理</text></view>
     </view>
-    <view class="tool {{batchMode ? 'tool-on' : ''}}" hover-class="hover-opacity" bindtap="onToggleBatch">
-      <t-icon name="check-double" size="28rpx" color="{{batchMode ? '#FFFFFF' : '#0E3DA8'}}" />
-      <text class="tool-t">{{batchMode ? '退出批量' : '批量'}}</text>
-    </view>
-    <view class="tool" hover-class="hover-opacity" bindtap="onExport">
-      <t-icon name="download" size="28rpx" color="#0E3DA8" />
-      <text class="tool-t">导出</text>
-    </view>
-    <block wx:if="{{canManage}}">
-      <view class="tool" hover-class="hover-opacity" bindtap="onOpenThreshold">
-        <t-icon name="setting" size="28rpx" color="#0E3DA8" />
-        <text class="tool-t">阈值</text>
-      </view>
-      <view class="tool" hover-class="hover-opacity" bindtap="onOpenSync">
-        <t-icon name="refresh" size="28rpx" color="#0E3DA8" />
-        <text class="tool-t">{{syncRunning ? '同步中…' : '同步'}}</text>
-      </view>
-    </block>
-  </view>
 
-  <!-- 记录卡片流（后端已按线路顺序排好，直接渲染；筛选线路无记录时不该出现，组空态兜底） -->
-  <view class="empty-box" wx:if="{{!loading && groups.length === 0}}">暂无树障隐患记录</view>
-  <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:for-index="gi" wx:key="key">
-    <view class="lg-title">{{g.title}}<text class="lg-n">{{g.records.length}}</text></view>
-
-    <!-- 记录卡片（精简口径同出工日志卡片：仅区段 + 状态点标 + 三项关键指标，点击进详情）：
-         已处理整体降饱和；批量模式点击 = 勾选（已处理禁选），不跳详情 -->
-    <view class="card thcard {{item.status === 'handled' ? 'done' : ''}}" wx:for="{{g.records}}" wx:for-index="ri" wx:key="id"
-      data-id="{{item.id}}" data-status="{{item.status}}" data-gi="{{gi}}" data-ri="{{ri}}"
-      hover-class="hover-opacity" bindtap="onCardTap">
-      <!-- 首行：批量勾选圆点（批量模式才渲染，已处理禁选）+ 区段 + 状态点标 + 详情箭头 -->
-      <view class="th-head">
-        <view wx:if="{{batchMode}}" class="ck-ring {{selected[item.id] ? 'on' : ''}} {{item.status === 'handled' ? 'dis' : ''}}">
-          <t-icon wx:if="{{selected[item.id]}}" name="check" size="22rpx" color="#FFFFFF" />
-        </view>
-        <view class="th-section">{{item.section || '未填写区段'}}</view>
-        <view class="st-tag {{item.status === 'handled' ? 'st-ok' : 'st-warn'}}">{{item.status === 'handled' ? '已处理' : '未处理'}}</view>
-        <t-icon wx:if="{{!batchMode}}" name="chevron-right" size="28rpx" color="#C9CDD4" />
+    <!-- 工具行（班管/超管，图标化避免拥挤）：阈值设置 / 内网同步 -->
+    <view class="toolbar" wx:if="{{canManage}}">
+      <view class="tool tool-ic" hover-class="hover-opacity" bindtap="onOpenThreshold">
+        <t-icon name="setting" size="30rpx" color="#0E3DA8" />
       </view>
-
-      <!-- 三项关键指标（一行三个小字段）：垂直距离 ≤ 阈值时红字浅红底胶囊突出 -->
-      <view class="th-grid">
-        <view class="th-f">
-          <view class="th-l">树种×数量</view>
-          <view class="th-v">{{item.tree_species || '—'}}{{item.tree_count ? ' ×' + item.tree_count : ''}}</view>
-        </view>
-        <view class="th-f">
-          <view class="th-l">水平距离</view>
-          <view class="th-v">{{item.horizontal || '—'}}</view>
-        </view>
-        <view class="th-f">
-          <view class="th-l">垂直距离</view>
-          <view class="th-v {{item.overThreshold ? 'th-v-bad' : ''}}">{{item.vertical || '—'}}</view>
-        </view>
+      <view class="tool tool-ic" hover-class="hover-opacity" bindtap="onOpenSync">
+        <t-icon name="refresh" size="30rpx" color="{{syncRunning ? '#FF7D00' : '#0E3DA8'}}" />
       </view>
     </view>
-  </view>
 
-  <!-- 批量模式底部占位（防末卡被固定条遮挡） -->
-  <view class="bb-spacer" wx:if="{{batchMode}}"></view>
+    <!-- 搜索框（常置浅灰底，输入即过滤线路卡） -->
+    <view class="search">
+      <t-icon name="search" size="30rpx" color="#86909C" />
+      <input class="s-input" value="{{searchKey}}" bindinput="onSearchInput" placeholder="搜索线路名称" placeholder-class="ph" />
+      <t-icon wx:if="{{searchKey}}" name="close-circle" size="32rpx" color="#C9CDD4" bindtap="onSearchClear" />
+    </view>
+
+    <!-- 线路大卡片流：标题（电压+名称）+ 未处理橙 / 要紧红（≤阈值未处理，无阈值不显）/ 总数灰 + chevron；未匹配组同样成卡 -->
+    <view class="empty-box" wx:if="{{!loading && lineCards.length === 0}}">{{searchKey ? '未找到匹配线路' : '暂无线路'}}</view>
+    <view class="card lcard" wx:for="{{lineCards}}" wx:key="key" data-key="{{item.key}}" hover-class="hover-opacity" bindtap="onLineCardTap">
+      <view class="lc-head">
+        <view class="lc-title">{{item.title}}</view>
+        <t-icon name="chevron-right" size="32rpx" color="#C9CDD4" />
+      </view>
+      <view class="lc-stats">
+        <text class="lc-st lc-warn">未处理 {{item.unhandled}}</text>
+        <text class="lc-st lc-bad" wx:if="{{item.urgent !== null}}">要紧 {{item.urgent}}</text>
+        <text class="lc-st lc-total">共 {{item.total}} 条</text>
+      </view>
+    </view>
+  </block>
+
+  <!-- ==================== 台账视图 ==================== -->
+  <block wx:else>
+    <!-- 返回行 + 线路标题（电压+名称+未处理/要紧小字） -->
+    <view class="backrow" hover-class="hover-opacity" bindtap="onBackLines">
+      <t-icon name="chevron-left" size="32rpx" color="#0E3DA8" />
+      <text class="backrow-t">线路列表</text>
+    </view>
+    <view class="ledger-head">
+      <view class="lh-title">{{curTitle}}</view>
+      <view class="lh-sub">
+        <text class="lh-warn">未处理 {{curUnhandled}}</text>
+        <text class="lh-bad" wx:if="{{curUrgent !== null}}">要紧 {{curUrgent}}</text>
+        <text class="lh-total">共 {{curTotal}} 条</text>
+      </view>
+    </view>
+
+    <!-- 工具行：批量模式开关（仅台账视图可用） -->
+    <view class="toolbar">
+      <view class="tool {{batchMode ? 'tool-on' : ''}}" hover-class="hover-opacity" bindtap="onToggleBatch">
+        <t-icon name="check-double" size="28rpx" color="{{batchMode ? '#FFFFFF' : '#0E3DA8'}}" />
+        <text class="tool-t">{{batchMode ? '退出批量' : '批量'}}</text>
+      </view>
+    </view>
+
+    <!-- 记录卡片流（后端已按线路顺序排好，直接渲染；组空态兜底） -->
+    <view class="empty-box" wx:if="{{!loading && groups.length === 1 && groups[0].records.length === 0}}">该线路暂无树障隐患记录</view>
+    <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:for-index="gi" wx:key="key">
+      <!-- 记录卡片（精简口径同出工日志卡片：仅区段 + 状态点标 + 三项关键指标，点击进详情）：
+           已处理整体降饱和；批量模式点击 = 勾选（已处理禁选），不跳详情 -->
+      <view class="card thcard {{item.status === 'handled' ? 'done' : ''}}" wx:for="{{g.records}}" wx:for-index="ri" wx:key="id"
+        data-id="{{item.id}}" data-status="{{item.status}}" data-gi="{{gi}}" data-ri="{{ri}}"
+        hover-class="hover-opacity" bindtap="onCardTap">
+        <!-- 首行：批量勾选圆点（批量模式才渲染，已处理禁选）+ 区段 + 状态点标 + 详情箭头 -->
+        <view class="th-head">
+          <view wx:if="{{batchMode}}" class="ck-ring {{selected[item.id] ? 'on' : ''}} {{item.status === 'handled' ? 'dis' : ''}}">
+            <t-icon wx:if="{{selected[item.id]}}" name="check" size="22rpx" color="#FFFFFF" />
+          </view>
+          <view class="th-section">{{item.section || '未填写区段'}}</view>
+          <view class="st-tag {{item.status === 'handled' ? 'st-ok' : 'st-warn'}}">{{item.status === 'handled' ? '已处理' : '未处理'}}</view>
+          <t-icon wx:if="{{!batchMode}}" name="chevron-right" size="28rpx" color="#C9CDD4" />
+        </view>
+
+        <!-- 三项关键指标（一行三个小字段）：垂直距离 ≤ 阈值时红字浅红底胶囊突出 -->
+        <view class="th-grid">
+          <view class="th-f">
+            <view class="th-l">树种×数量</view>
+            <view class="th-v">{{item.tree_species || '—'}}{{item.tree_count ? ' ×' + item.tree_count : ''}}</view>
+          </view>
+          <view class="th-f">
+            <view class="th-l">水平距离</view>
+            <view class="th-v">{{item.horizontal || '—'}}</view>
+          </view>
+          <view class="th-f">
+            <view class="th-l">垂直距离</view>
+            <view class="th-v {{item.overThreshold ? 'th-v-bad' : ''}}">{{item.vertical || '—'}}</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 批量模式底部占位（防末卡被固定条遮挡） -->
+    <view class="bb-spacer" wx:if="{{batchMode}}"></view>
+  </block>
+
+  <!-- FAB 底部占位（防末卡被悬浮钮遮挡） -->
+  <view class="fab-spacer" wx:if="{{!batchMode}}"></view>
 </view>
 
-<!-- 批量模式底部固定条 -->
-<view class="batchbar" wx:if="{{gate && batchMode}}">
+<!-- 批量模式底部固定条（仅台账视图） -->
+<view class="batchbar" wx:if="{{gate && view === 'ledger' && batchMode}}">
   <view class="bb-info">已选 {{selectedCount}} 条</view>
   <view class="bb-btn {{selectedCount === 0 ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onOpenBatchHandle">批量处理</view>
 </view>
 
-<!-- 线路筛选弹层（全部 + 各线路名，含条数） -->
-<t-popup visible="{{filterVisible}}" placement="bottom" bind:visible-change="onFilterVisibleChange">
+<!-- 全局悬浮导出 FAB（批量模式时让位底部批量条） -->
+<view class="fab" wx:if="{{gate && !batchMode}}" hover-class="hover-opacity" bindtap="onOpenExport">
+  <t-icon name="download" size="44rpx" color="#FFFFFF" />
+</view>
+
+<!-- 导出弹层：范围单选（全部线路 / 当前线路；线路视图为「选择线路」带线路列表）+ 按线路分表开关（仅全部可勾） -->
+<t-popup visible="{{expVisible}}" placement="bottom" bind:visible-change="onExpVisibleChange">
   <view class="sheet">
-    <view class="sheet-title">按线路筛选</view>
-    <scroll-view scroll-y class="flt-list" enhanced show-scrollbar="{{false}}">
-      <view class="flt-item {{lineFilter === '' ? 'on' : ''}}" hover-class="hover-bg-warm" bindtap="onPickLine" data-line="">
-        <text>全部线路</text>
-        <t-icon wx:if="{{lineFilter === ''}}" name="check" size="30rpx" color="#0E3DA8" />
+    <view class="sheet-title">导出统计表</view>
+    <view class="f-item">
+      <view class="f-label">导出范围</view>
+      <view class="exp-scope">
+        <view class="flt-item {{expScope === 'all' ? 'on' : ''}}" hover-class="hover-bg-warm" bindtap="onExpScopeTap" data-scope="all">
+          <text>全部线路</text>
+          <t-icon wx:if="{{expScope === 'all'}}" name="check" size="30rpx" color="#0E3DA8" />
+        </view>
+        <view wx:if="{{view === 'lines' || !curUnmatched}}" class="flt-item {{expScope === 'line' ? 'on' : ''}}" hover-class="hover-bg-warm" bindtap="onExpScopeTap" data-scope="line">
+          <text>{{view === 'ledger' ? '当前线路（' + curTitle + '）' : '选择线路'}}</text>
+          <t-icon wx:if="{{expScope === 'line'}}" name="check" size="30rpx" color="#0E3DA8" />
+        </view>
       </view>
-      <view class="flt-item {{lineFilter === item.line_name ? 'on' : ''}}" wx:for="{{lineOptions}}" wx:key="line_name" hover-class="hover-bg-warm" bindtap="onPickLine" data-line="{{item.line_name}}">
-        <text>{{item.voltageText}} {{item.line_name}}（{{item.count}}）</text>
-        <t-icon wx:if="{{lineFilter === item.line_name}}" name="check" size="30rpx" color="#0E3DA8" />
+    </view>
+    <!-- 线路视图「选择线路」：线路列表（未匹配组不可按线路导出，不入列） -->
+    <scroll-view wx:if="{{expScope === 'line' && view === 'lines'}}" scroll-y class="flt-list" enhanced show-scrollbar="{{false}}">
+      <view class="flt-item {{expLine === item.lineName ? 'on' : ''}}" wx:for="{{expLineOptions}}" wx:key="key" hover-class="hover-bg-warm" bindtap="onExpLineTap" data-line="{{item.lineName}}">
+        <text>{{item.title}}（{{item.total}}）</text>
+        <t-icon wx:if="{{expLine === item.lineName}}" name="check" size="30rpx" color="#0E3DA8" />
       </view>
     </scroll-view>
+    <view class="f-item exp-split">
+      <view class="exp-split-l">
+        <view class="f-label">按线路分表</view>
+        <view class="exp-tip">每条线路一个工作表；仅范围为全部线路时可勾选</view>
+      </view>
+      <t-switch value="{{expSplit}}" disabled="{{expScope !== 'all'}}" bind:change="onExpSplit" />
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost {{exporting ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onCloseExport">取 消</view>
+      <view class="btn-dark {{exporting ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onConfirmExport">{{exporting ? '正在导出…' : '导 出'}}</view>
+    </view>
   </view>
 </t-popup>
 

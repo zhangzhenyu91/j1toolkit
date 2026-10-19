@@ -1,8 +1,12 @@
 <!DOCTYPE html>
 <!-- Shade 壹匣 · 树障隐患记录网页版（「政企蓝白」token；骨架同 worklog.html：100vh 锁高 + 悬浮卡片 + 页签内部滚动）
-     功能：看板四格（未处理 / 本周新增 / 垂直距离≤阈值未处理 / 已处理）+ 线路筛选 + 统计表预览（/export/preview
-     取 url 当前窗口打开）与下载（apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
-     记录按线路分组渲染（后端已排序），精简卡片只留区段标题 / 状态点标（未处理橙·已处理绿）/ 树种×数量 / 水平·垂直距离
+     功能：看板四格（未处理 / 本周新增 / 垂直距离≤阈值未处理 / 已处理，仅记录页签一级「线路视图」顶部展示）
+     + 记录页签两级导航——一级线路视图（顶部搜索框输入即过滤线路名/电压等级 + 线路大卡片网格：标题「110kV 孝西线」
+     + 未处理 n（橙字）+ 垂直距离≤阈值「要紧」m（红字，无阈值不显）+ 总数灰字；「未匹配线路」为伪组卡，点卡进二级）
+     / 二级台账视图（← 返回线路 + 线路标题计数 + 精简记录卡片流，批量处理开关在本级工具条）；
+     导出走右下角全局悬浮按钮（FAB 弹层：范围 全部线路 / 当前线路（一级视图为「选择线路」下拉）+ 按线路分表 split=1 勾选，
+     预览 /export/preview 取 url 当前窗口打开、下载 apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
+     台账视图记录沿用精简卡片（顺序后端已排好）：区段标题 / 状态点标（未处理橙·已处理绿）/ 树种×数量 / 水平·垂直距离
      （垂直 ≤ 阈值红显胶囊），点击卡片进详情弹层（720px：全字段网格 + 已处理信息 + 照片三区（辅证只读 / 处理前 / 处理后，
      大缩略图网格 + 大图查看器 + 上传 / 删除）+ 底部 处理（未处理）/ 删除（班管·超管）按钮，操作后随 loadRecords 同步重绘）；
      支持批量勾选批量处理（批量模式下点卡 = 勾选）；暂存区 / 冲突页签与阈值设置 / 同步至内网仅超管·班组管理员可见（服务端 requireDictAdmin 同拦）；
@@ -63,14 +67,63 @@
   .dash-todo > svg { width: 14px; height: 14px; color: var(--yellow); flex: none; }
   .dash-todo a { font-weight: 700; cursor: pointer; }
 
-  /* ===== 工具行：线路筛选 + 导出（预览/下载）+ 阈值设置 / 同步至内网（管理）+ 批量处理开关 ===== */
+  /* ===== 工具行：阈值设置 / 同步至内网（仅管理角色可见，非管理角色整行隐藏） ===== */
   .th-tools {
     flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px;
     animation: k-fade .55s var(--ease) .36s both;
   }
-  .th-tools .dd { width: auto; min-width: 160px; }
   .sync-hint { font-size: 11.5px; color: var(--ph); letter-spacing: .5px; }
-  .th-tools .spring { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  /* ===== 记录页签一级「线路视图」：搜索框 + 线路大卡片网格 ===== */
+  .rec-bar { flex: none; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .rec-bar .spring { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .rec-search {
+    flex: 1; min-width: 220px; max-width: 420px; height: 36px; padding: 0 12px;
+    display: flex; align-items: center; gap: 8px; background: var(--fill); border-radius: 8px;
+  }
+  .rec-search svg { flex: none; width: 15px; height: 15px; color: var(--ph); }
+  .rec-search input {
+    flex: 1; min-width: 0; border: none; background: transparent; outline: none;
+    font-size: 13px; color: var(--navy); font-family: inherit; letter-spacing: .5px;
+  }
+  .lc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; padding-bottom: 64px; }
+  .lc {
+    padding: 18px 20px 16px; cursor: pointer; display: flex; align-items: center; gap: 12px;
+    transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+  }
+  .lc:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+  .lc-main { flex: 1; min-width: 0; }
+  .lc-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; }
+  .lc-stats { margin-top: 10px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; font-size: 12px; letter-spacing: .5px; }
+  .lc-stats b { margin-left: 3px; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .lc-unh, .lc-unh b { color: #D25F00; } /* 未处理：警告橙（同状态点标橙族） */
+  .lc-key, .lc-key b { color: var(--red); } /* 要紧：未处理且垂直距离 ≤ 阈值 */
+  .lc-total { color: var(--ph); }
+  .lc-go { flex: none; display: flex; color: var(--ph); }
+  .lc-go svg { width: 16px; height: 16px; }
+
+  /* ===== 记录页签二级「台账视图」顶栏：返回 + 线路标题 + 计数小字 + 批量开关 ===== */
+  .ledger-title { font-size: 15.5px; font-weight: 700; letter-spacing: 1px; }
+  .ledger-sub { font-size: 12px; color: var(--ph); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  #recBody { padding-bottom: 64px; } /* 底部内容给右下角 FAB 留位 */
+
+  /* ===== 导出 FAB（右下角悬浮圆形品牌蓝，点击弹层选范围/分表） ===== */
+  .fab {
+    position: fixed; right: 28px; bottom: 28px; z-index: 110; width: 52px; height: 52px;
+    border: none; border-radius: 50%; background: var(--orange); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 20px rgba(14, 61, 168, .32);
+    transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+  }
+  .fab:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(14, 61, 168, .4); }
+  .fab svg { width: 22px; height: 22px; }
+  .fab[hidden] { display: none !important; } /* author display:flex 优先于 UA [hidden]，显式兜底（同 .th-wrap 口径） */
+
+  /* ===== 导出弹层：范围单选 / 分表勾选 ===== */
+  .ex-opt { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; color: var(--navy); letter-spacing: .5px; cursor: pointer; }
+  .ex-opt input { width: 15px; height: 15px; accent-color: var(--orange); cursor: pointer; flex: none; }
+  .ex-opt.dis { color: var(--ph); cursor: not-allowed; }
+  .ex-opt.dis input { cursor: not-allowed; }
 
   /* ===== 三页签：下划线式页签，激活蓝字 + 2px 蓝条（同 worklog wl-tabs 口径；角标红胶囊） ===== */
   .th-tabs {
@@ -119,10 +172,7 @@
   .linkbtn.dgr { color: var(--red); }
   .linkbtn.dgr:hover { background: #FFECE8; }
 
-  /* ===== 记录页签：线路分组 + 精简隐患卡片（点卡进详情弹层） ===== */
-  .lg-head { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 12px; }
-  .lg-head b { font-size: 15.5px; font-weight: 700; letter-spacing: 1px; }
-  .lg-head .lg-n { font-size: 12px; color: var(--ph); font-variant-numeric: tabular-nums; }
+  /* ===== 记录页签二级「台账视图」：精简隐患卡片（点卡进详情弹层） ===== */
   .rec {
     margin-bottom: 14px; padding: 15px 22px; position: relative; cursor: pointer;
     transition: transform .18s var(--ease), box-shadow .18s var(--ease);
@@ -373,17 +423,11 @@
       <div class="dash-todo" id="dashTodo" hidden></div>
     </div>
 
-    <!-- 工具行：线路筛选 / 预览 / 下载 /（管理：阈值设置·同步至内网）/ 批量处理开关 -->
-    <div class="th-tools">
-      <select id="lineSel"></select>
-      <button class="btn btn-sm" id="btnPreview">预览</button>
-      <button class="btn btn-sm" id="btnDownload">下载</button>
+    <!-- 工具行：阈值设置 / 同步至内网（仅管理角色可见，非管理角色整行隐藏；导出统一走右下角 FAB） -->
+    <div class="th-tools" hidden>
       <button class="btn btn-sm" id="btnThreshold" hidden>阈值设置</button>
       <button class="btn btn-sm" id="btnSync" hidden>同步至内网</button>
       <span class="sync-hint" id="syncHint" hidden></span>
-      <span class="spring">
-        <button class="btn btn-sm" id="btnBatch">批量处理</button>
-      </span>
     </div>
 
     <!-- 页签：记录 / 暂存区（管理）/ 冲突（管理） -->
@@ -396,7 +440,24 @@
 
     <!-- 页签主体 -->
     <div class="th-body">
-      <div class="pane on" id="paneRecords"><div class="pane-scroll" id="recBody"></div></div>
+      <div class="pane on" id="paneRecords">
+        <!-- 一级「线路视图」顶栏：搜索框（输入即过滤线路名/电压等级） -->
+        <div class="rec-bar" id="recBarLines">
+          <label class="rec-search" id="recSearchBox">
+            <input id="recSearch" maxlength="32" autocomplete="off" placeholder="搜索线路名称 / 电压等级">
+          </label>
+        </div>
+        <!-- 二级「台账视图」顶栏：返回 + 线路标题与计数 + 批量处理开关（仅本视图可用） -->
+        <div class="rec-bar" id="recBarLedger" hidden>
+          <button class="btn btn-sm" id="btnBackLines">返回线路</button>
+          <span class="ledger-title" id="ledgerTitle"></span>
+          <span class="ledger-sub" id="ledgerSub"></span>
+          <span class="spring">
+            <button class="btn btn-sm" id="btnBatch">批量处理</button>
+          </span>
+        </div>
+        <div class="pane-scroll" id="recBody"></div>
+      </div>
       <div class="pane" id="paneStaging"><div class="pane-scroll" id="stgBody"></div></div>
       <div class="pane" id="paneConflicts"><div class="pane-scroll" id="cftBody"></div></div>
     </div>
@@ -419,11 +480,14 @@
   <button class="btn btn-sm" id="batchCancel">退出</button>
 </div>
 
+<!-- 导出 FAB（右下角悬浮圆形品牌蓝；点击弹层选导出范围 / 按线路分表，再预览或下载） -->
+<button class="fab" id="fabExport" title="导出统计表"></button>
+
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
 <script>
 /* ============================================================
-   树障隐患记录网页版：看板 / 线路筛选 / 导出预览·下载 / 记录·暂存区·冲突三页签
+   树障隐患记录网页版：看板 / 记录两级导航（线路大卡 → 线路台账）/ 导出 FAB（范围 + 按线路分表）/ 记录·暂存区·冲突三页签
    （暂存区·冲突·阈值设置·同步至内网仅超管 / 班组管理员可见可用，服务端 requireDictAdmin 同拦；
    记录处理与照片上传全员可用，照片删除限上传者本人或班管/超管；接口 /api/v1/treehazard/* 按生效班组隔离）
    ============================================================ */
@@ -460,8 +524,10 @@ var state = {
   tab: 'records',            // 当前页签：records 记录 | staging 暂存区 | conflicts 冲突
   dash: null,                // 看板数据 {unhandled, week_new, over_threshold, handled, threshold, pending_conflicts, staging_batches}
   rec: null,                 // 记录响应 {threshold, lines:[{voltage_level,line_name,records}], unmatched:[...]}
-  lineFilter: '',            // 线路筛选：'' 全部线路 | 线路名 | '__unmatched__'（未匹配线路组）
-  batch: { on: false, sel: {} }, // 批量处理模式：sel 为 记录id→true
+  view: 'lines',             // 记录页签视图：lines 线路大卡（一级） | ledger 线路台账（二级）
+  curLine: '',               // 台账视图当前线路名（'__unmatched__' = 未匹配线路伪组）
+  lineSearch: '',            // 线路视图搜索串（输入即过滤线路名/电压等级）
+  batch: { on: false, sel: {} }, // 批量处理模式（仅台账视图可用）：sel 为 记录id→true
   upTarget: null,            // 照片上传目标 {recordId, kind}
   lb: { list: [], idx: 0 },  // 大图层（list 为当前照片组 url 数组）
   stg: { list: null, detail: null, err: '' }, // 暂存区：批次列表 / 批次详情 {batch, records}
@@ -566,7 +632,6 @@ async function loadRecords(quiet) {
   try {
     var r = await Shade.api(th('/api/v1/treehazard/records'));
     state.rec = r.data || { threshold: null, lines: [], unmatched: [] };
-    rebuildLineFilter();
     renderRecords();
     refreshDetail(); // 详情弹层开着时同步重绘（记录已删则关弹层）
     if (quiet) body.scrollTop = st;
@@ -577,24 +642,28 @@ async function loadRecords(quiet) {
   }
 }
 
-/* 线路筛选下拉：全部线路 + 各线路（按线路名匹配）+ 未匹配线路（存在时）；随记录数据重建 */
-var lineDd = null;
-function rebuildLineFilter() {
-  var sel = $('#lineSel');
-  var keep = state.lineFilter;
-  var opts = ['<option value="">全部线路</option>'];
-  (state.rec.lines || []).forEach(function (g) {
-    opts.push('<option value="' + esc(g.line_name) + '">' + esc(fmtKv(g.voltage_level) + ' ' + g.line_name) + '</option>');
-  });
-  if ((state.rec.unmatched || []).length) opts.push('<option value="__unmatched__">未匹配线路</option>');
-  sel.innerHTML = opts.join('');
-  /* 旧选项已不存在（如班组切换后）则回退全部线路 */
-  var exists = Array.prototype.some.call(sel.options, function (o) { return o.value === keep; });
-  state.lineFilter = exists ? keep : '';
-  sel.value = state.lineFilter;
-  /* 自绘下拉随数据源重建：先 destroy 旧实例防 .dd-pop 孤儿残留 body */
-  if (lineDd) { lineDd.destroy(); lineDd = null; }
-  lineDd = Shade.dropdown(sel, { width: 'auto', minWidth: '160px', height: 34 });
+/* 视图切换同步：看板仅一级线路视图展示；搜索栏 / 台账栏随视图显隐 */
+function syncView() {
+  var ledger = state.tab === 'records' && state.view === 'ledger';
+  $('#dash').style.display = ledger ? 'none' : '';
+  $('#recBarLines').hidden = state.view !== 'lines';
+  $('#recBarLedger').hidden = state.view !== 'ledger';
+}
+/* 进入二级台账视图（line 为线路名；'__unmatched__' = 未匹配线路伪组） */
+function openLedger(line) {
+  state.view = 'ledger';
+  state.curLine = line;
+  syncView();
+  renderRecords();
+  $('#recBody').scrollTop = 0;
+}
+/* 返回一级线路视图（批量模式仅台账视图可用，退出即收） */
+function backToLines() {
+  if (state.batch.on) setBatchMode(false);
+  state.view = 'lines';
+  state.curLine = '';
+  syncView();
+  renderRecords();
 }
 
 /* 记录卡片：照片三区（辅证只读 / 处理前 / 处理后，可上传区右上角「+」）——仅详情弹层使用 */
@@ -733,35 +802,89 @@ function refreshDetail() {
   sc.scrollTop = st;
 }
 
-/* 线路分组渲染（顺序后端已排好）；组标题「110kV 昌郑Ⅰ线（n）」，未匹配组排尾 */
-function groupHtml(title, count, records, threshold) {
-  return '<div class="lgroup">'
-    + '<div class="lg-head"><b>' + esc(title) + '</b><span class="lg-n">' + count + ' 条</span></div>'
-    + records.map(function (r) { return recCardHtml(r, threshold); }).join('')
+/* 渲染分派：按当前视图渲染一级线路大卡 / 二级线路台账 */
+function renderRecords() {
+  if (!state.rec) return;
+  if (state.view === 'ledger') renderLedger(); else renderLineCards();
+}
+
+/* ================= 一级「线路视图」：线路大卡片网格 ================= */
+/* 单线路计数：未处理数 / 其中要紧数（未处理且垂直距离 ≤ 阈值）/ 总数 */
+function lineStats(recs, threshold) {
+  var unh = 0, key = 0;
+  recs.forEach(function (r) {
+    if (r.status === 'handled') return;
+    unh++;
+    if (overThreshold(r, threshold)) key++;
+  });
+  return { unh: unh, key: key, total: recs.length };
+}
+/* 线路大卡：标题（电压等级+线路名，fmtKv 幂等）+ 未处理（橙）/ 要紧（红，无阈值不显）/ 总数（灰） */
+function lineCardHtml(title, st, threshold, lineKey) {
+  return '<div class="card lc" data-line="' + esc(lineKey) + '" title="点击进入线路台账">'
+    + '<div class="lc-main"><div class="lc-title">' + esc(title) + '</div>'
+    + '<div class="lc-stats">'
+    + '<span class="lc-unh">未处理<b>' + st.unh + '</b></span>'
+    + (threshold === null || threshold === undefined
+      ? ''
+      : '<span class="lc-key" title="未处理且垂直距离≤阈值">要紧<b>' + st.key + '</b></span>')
+    + '<span class="lc-total">共 ' + st.total + ' 条</span>'
+    + '</div></div>'
+    + '<span class="lc-go">' + Shade.icon('chevron-right', 16) + '</span>'
     + '</div>';
 }
-function renderRecords() {
+function renderLineCards() {
   var body = $('#recBody');
-  if (!state.rec) return;
   var threshold = state.rec.threshold;
-  var filter = state.lineFilter;
+  var raw = (state.lineSearch || '').trim();
+  var kw = raw.toLowerCase();
   var html = [];
   (state.rec.lines || []).forEach(function (g) {
-    if (filter && filter !== g.line_name) return; // 按线路名匹配
-    html.push(groupHtml(fmtKv(g.voltage_level) + ' ' + g.line_name, (g.records || []).length, g.records || [], threshold));
+    var title = fmtKv(g.voltage_level) + ' ' + g.line_name;
+    /* 输入即过滤：标题（含电压等级幂等格式）与原始线路名双通道匹配 */
+    if (kw && title.toLowerCase().indexOf(kw) < 0 && String(g.line_name || '').toLowerCase().indexOf(kw) < 0) return;
+    html.push(lineCardHtml(title, lineStats(g.records || [], threshold), threshold, g.line_name));
   });
-  if (!filter || filter === '__unmatched__') {
-    var un = state.rec.unmatched || [];
-    if (un.length) html.push(groupHtml('未匹配线路', un.length, un, threshold));
+  /* 「未匹配线路」伪组作为一张卡参与（排尾） */
+  var un = state.rec.unmatched || [];
+  if (un.length && (!kw || '未匹配线路'.indexOf(raw) >= 0)) {
+    html.push(lineCardHtml('未匹配线路', lineStats(un, threshold), threshold, '__unmatched__'));
   }
+  body.innerHTML = html.length ? '<div class="lc-grid">' + html.join('') + '</div>'
+    : '<div class="empty">' + Shade.icon(kw ? 'search' : 'task', 44) + '<p>'
+      + (kw ? '未找到匹配「' + esc(raw) + '」的线路' : '暂无运维线路，可先到「班组数据」维护') + '</p></div>';
+}
+
+/* ================= 二级「台账视图」：单线路记录卡片流 ================= */
+/* 当前台账线路组（线路已不存在时返回 null，由 renderLedger 回退线路视图） */
+function currentLedgerGroup() {
+  if (!state.rec) return null;
+  if (state.curLine === '__unmatched__') {
+    var un = state.rec.unmatched || [];
+    return un.length ? { title: '未匹配线路', records: un, lineName: '' } : null;
+  }
+  var g = null;
+  (state.rec.lines || []).forEach(function (x) { if (x.line_name === state.curLine) g = x; });
+  return g ? { title: fmtKv(g.voltage_level) + ' ' + g.line_name, records: g.records || [], lineName: g.line_name } : null;
+}
+function renderLedger() {
+  var body = $('#recBody');
+  var threshold = state.rec.threshold;
+  var g = currentLedgerGroup();
+  if (!g) { backToLines(); return; } // 数据刷新后线路已消失（如班组切换/删除），回退线路视图
+  var st = lineStats(g.records, threshold);
+  $('#ledgerTitle').textContent = g.title;
+  $('#ledgerSub').textContent = '未处理 ' + st.unh
+    + (threshold === null || threshold === undefined ? '' : ' · 要紧 ' + st.key)
+    + ' · 共 ' + st.total + ' 条';
   /* 勾选集合剔除已不可选项（已处理 / 已删除），防底部悬浮条计数残留 */
   if (state.batch.on) {
     var valid = {};
     allRecords().forEach(function (r) { if (r.status !== 'handled') valid[r.id] = true; });
     Object.keys(state.batch.sel).forEach(function (id) { if (!valid[id]) delete state.batch.sel[id]; });
   }
-  body.innerHTML = html.join('')
-    || '<div class="empty">' + Shade.icon('task', 44) + '<p>' + (filter ? '该线路下暂无记录' : '暂无树障隐患记录') + '</p></div>';
+  body.innerHTML = g.records.map(function (r) { return recCardHtml(r, threshold); }).join('')
+    || '<div class="empty">' + Shade.icon('task', 44) + '<p>该线路下暂无记录</p></div>';
   syncBatchBar();
 }
 
@@ -949,20 +1072,16 @@ function renderLightbox() {
   if ($('#lbNext')) $('#lbNext').addEventListener('click', function (e) { e.stopPropagation(); shiftLightbox(1); });
 }
 
-/* ================= 导出：预览（取 url 当前窗口打开）/ 下载（apiRaw + saveBlob） ================= */
-/* 当前筛选线路 query：仅真实线路名参与分线路导出（「未匹配线路」为前端伪组，不带 line 参数） */
-function lineQuery() {
-  return state.lineFilter && state.lineFilter !== '__unmatched__'
-    ? '?line=' + encodeURIComponent(state.lineFilter) : '';
-}
+/* ================= 导出：FAB 弹层（范围单选 + 按线路分表）→ 预览（取 url 当前窗口打开）/ 下载（apiRaw + saveBlob） ================= */
 /* 打开预览地址：站内（office.html 承载页）当前窗口打开；站外（微软查看器等）新标签（同 worklog 口径） */
 function openPreviewUrl(url) {
   if (url.charAt(0) === '/') { location.href = url; } else { window.open(url, '_blank'); }
 }
-async function exportPreview(btn) {
+/* query 由导出弹层拼好传入：分线路带 line=，勾选分表且范围为全部线路时带 split=1 */
+async function exportPreview(btn, query) {
   btn.disabled = true;
   try {
-    var r = await Shade.api(th('/api/v1/treehazard/export/preview' + lineQuery()));
+    var r = await Shade.api(th('/api/v1/treehazard/export/preview' + (query || '')));
     if (r.data && r.data.url) { openPreviewUrl(r.data.url); return; }
     throw new Error('预览地址为空');
   } catch (e) {
@@ -971,11 +1090,11 @@ async function exportPreview(btn) {
     btn.disabled = false;
   }
 }
-async function exportDownload(btn) {
+async function exportDownload(btn, query) {
   btn.disabled = true;
   try {
     /* 走 :name.xlsx 文件名变体路径，供查看器按扩展名识别格式；文件名以 Content-Disposition 为准 */
-    var res = await Shade.apiRaw(th('/api/v1/treehazard/export/树木统计表.xlsx' + lineQuery()));
+    var res = await Shade.apiRaw(th('/api/v1/treehazard/export/树木统计表.xlsx' + (query || '')));
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
@@ -987,6 +1106,85 @@ async function exportDownload(btn) {
   } finally {
     btn.disabled = false;
   }
+}
+
+/* 导出弹层（FAB 点击）：
+   台账视图范围两项（默认「当前线路」；未匹配线路伪组不支持单线路导出，该项禁用）；线路视图默认「全部线路」，
+   第二项为「选择线路」下拉（下拉即选中该单选）；「按线路分表」仅全部线路范围可勾（其余禁用并灰显说明） */
+function openExportModal() {
+  if (!state.rec) { Shade.toast('记录加载中，请稍候', 'info'); return; }
+  var inLedger = state.tab === 'records' && state.view === 'ledger';
+  var g = inLedger ? currentLedgerGroup() : null;
+  var canCur = !!(g && g.lineName); // 未匹配线路伪组聚合多条线路名，无法映射单一线路参数
+  var lines = state.rec.lines || [];
+  var html = Shade.mHead('导出统计表')
+    + '<label class="f-lab">导出范围</label>'
+    + (inLedger
+      ? '<label class="ex-opt' + (canCur ? '' : ' dis') + '"><input type="radio" name="exRange" value="line"'
+        + (canCur ? ' checked' : ' disabled') + '> 当前线路（' + esc(g ? g.title : '') + '）</label>'
+        + '<label class="ex-opt"><input type="radio" name="exRange" value="all"' + (canCur ? '' : ' checked') + '> 全部线路</label>'
+      : '<label class="ex-opt"><input type="radio" name="exRange" value="all" checked> 全部线路</label>'
+        + '<label class="ex-opt' + (lines.length ? '' : ' dis') + '"><input type="radio" name="exRange" value="line"'
+        + (lines.length ? '' : ' disabled') + '> 选择线路</label>'
+        + '<select class="f-sel" id="exLine" style="margin-top:2px" disabled>'
+        + lines.map(function (x) { return '<option value="' + esc(x.line_name) + '">' + esc(fmtKv(x.voltage_level) + ' ' + x.line_name) + '</option>'; }).join('')
+        + '</select>')
+    + '<label class="f-lab">分表</label>'
+    + '<label class="ex-opt" id="exSplitOpt"><input type="checkbox" id="exSplit"> 按线路分表（每条线路一个工作表，表名 = 电压等级 + 线路名称）</label>'
+    + '<div class="f-hint" id="exSplitHint">仅「全部线路」范围可分表；导出范围非全部线路时此项不可用。</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-ex="preview">' + Shade.icon('file', 15) + '预览</button>'
+    + '<button class="btn btn-sm btn-primary" data-ex="download">' + Shade.icon('download', 15) + '下载</button></div>';
+  var inst = Shade.modal(html, { width: 460 });
+  var splitCk = $('#exSplit', inst.box);
+  var splitOpt = $('#exSplitOpt', inst.box);
+  var splitHint = $('#exSplitHint', inst.box);
+  var lineSel = $('#exLine', inst.box);
+  function curRange() {
+    var v = 'all';
+    $$('input[name="exRange"]', inst.box).forEach(function (r) { if (r.checked) v = r.value; });
+    return v;
+  }
+  /* 分表勾选随范围联动：非全部线路 → 禁用 + 摘勾 + 灰显说明 */
+  function syncSplit() {
+    var off = curRange() !== 'all';
+    splitCk.disabled = off;
+    if (off) splitCk.checked = false;
+    splitOpt.classList.toggle('dis', off);
+    splitHint.style.opacity = off ? '.55' : '';
+    if (lineSel) lineSel.disabled = curRange() !== 'line';
+  }
+  $$('input[name="exRange"]', inst.box).forEach(function (r) { r.addEventListener('change', syncSplit); });
+  if (lineSel) {
+    /* 下拉选线即视为选中「选择线路」 */
+    lineSel.addEventListener('change', function () {
+      var radio = $('input[name="exRange"][value="line"]', inst.box);
+      if (radio && !radio.checked) { radio.checked = true; syncSplit(); }
+    });
+  }
+  syncSplit();
+  /* 拼导出 query：分线路 line=（未匹配伪组无 lineName，已被 canCur 拦截）；全部线路 + 勾选分表 → split=1 */
+  function buildQuery() {
+    var range = curRange();
+    var lineName = '';
+    if (range === 'line') lineName = inLedger ? (g ? g.lineName : '') : (lineSel ? lineSel.value : '');
+    if (range === 'line' && !lineName) { Shade.toast('请选择线路', 'info'); return null; }
+    var q = [];
+    if (lineName) q.push('line=' + encodeURIComponent(lineName));
+    if (range === 'all' && splitCk.checked && !splitCk.disabled) q.push('split=1');
+    return q.length ? '?' + q.join('&') : '';
+  }
+  $('[data-ex="preview"]', inst.box).addEventListener('click', function () {
+    var q = buildQuery();
+    if (q === null) return;
+    inst.close();
+    exportPreview(this, q);
+  });
+  $('[data-ex="download"]', inst.box).addEventListener('click', function () {
+    var q = buildQuery();
+    if (q === null) return;
+    inst.close();
+    exportDownload(this, q);
+  });
 }
 
 /* ================= 阈值设置（班管/超管；可空 = 清除） ================= */
@@ -1331,6 +1529,7 @@ function switchTab(p) {
   $$('.th-body .pane').forEach(function (el) {
     el.classList.toggle('on', el.id === 'pane' + p.charAt(0).toUpperCase() + p.slice(1));
   });
+  syncView(); // 看板显隐随「记录页签 + 台账视图」组合联动
   /* 暂存区 / 冲突每次切回都重拉（可能被其他管理员改动） */
   if (p === 'staging') loadStaging();
   if (p === 'conflicts') loadConflicts();
@@ -1349,14 +1548,15 @@ function initEvents() {
     var a = e.target.closest('a[data-go]');
     if (a) switchTab(a.dataset.go);
   });
-  /* 线路筛选 */
-  $('#lineSel').addEventListener('change', function () {
-    state.lineFilter = this.value;
-    renderRecords();
+  /* 线路视图搜索：输入即过滤线路名 / 电压等级 */
+  $('#recSearch').addEventListener('input', function () {
+    state.lineSearch = this.value;
+    if (state.rec) renderLineCards();
   });
-  /* 导出 / 阈值 / 同步 / 批量开关 */
-  $('#btnPreview').addEventListener('click', function () { exportPreview(this); });
-  $('#btnDownload').addEventListener('click', function () { exportDownload(this); });
+  /* 台账视图返回线路 + 导出 FAB */
+  $('#btnBackLines').addEventListener('click', backToLines);
+  $('#fabExport').addEventListener('click', openExportModal);
+  /* 阈值 / 同步 / 批量开关 */
   $('#btnThreshold').addEventListener('click', openThresholdModal);
   $('#btnSync').addEventListener('click', function () { pushSync(this); });
   $('#btnBatch').addEventListener('click', function () { setBatchMode(!state.batch.on); });
@@ -1366,8 +1566,10 @@ function initEvents() {
   $('#recBody').addEventListener('click', function (e) {
     if (e.target.closest('#recRetry')) { loadRecords(); }
   });
-  /* 记录卡片流委派：勾选框 / 点卡（批量模式点卡任意处 = 勾选；否则开详情弹层） */
+  /* 记录卡片流委派：线路大卡（进台账）/ 勾选框 / 点卡（批量模式点卡任意处 = 勾选；否则开详情弹层） */
   $('#recBody').addEventListener('click', function (e) {
+    var lc = e.target.closest('.lc[data-line]');
+    if (lc) { openLedger(lc.dataset.line); return; }
     var ck = e.target.closest('.rec-ck[data-ck]');
     if (ck) {
       var cid = Number(ck.dataset.ck);
@@ -1477,6 +1679,7 @@ function renderNoTeam() {
   $('.th-tools').style.display = 'none';
   $('#thTabs').style.display = 'none';
   $('.th-body').style.display = 'none';
+  $('#fabExport').hidden = true;
   Shade.renderNoTeam($('#noTeam'));
 }
 
@@ -1485,12 +1688,17 @@ function reloadTeamData() {
   if (detailInst) detailInst.close(); // 详情弹层随数据域切换关闭
   state.rec = null;
   state.dash = null;
-  state.lineFilter = '';
+  /* 视图状态复位：回一级线路视图并清空搜索（线路集合随班组变化） */
+  state.view = 'lines';
+  state.curLine = '';
+  state.lineSearch = '';
+  $('#recSearch').value = '';
   state.batch = { on: false, sel: {} };
   state.stg = { list: null, detail: null, err: '' };
   state.stgSel = {};
   state.cft = { list: null, err: '' };
   state.sync = null;
+  syncView();
   setBatchMode(false);
   loadDashboard();
   loadRecords();
@@ -1504,8 +1712,9 @@ function reloadTeamData() {
 /* ================= 启动 ================= */
 async function init() {
   /* 静态图标注入 */
-  $('#btnPreview').innerHTML = Shade.icon('file', 15) + '预览';
-  $('#btnDownload').innerHTML = Shade.icon('download', 15) + '下载';
+  $('#fabExport').innerHTML = Shade.icon('download', 22);
+  $('#recSearchBox').insertAdjacentHTML('afterbegin', Shade.icon('search', 15));
+  $('#btnBackLines').innerHTML = Shade.icon('chevron-left', 14) + '返回线路';
   $('#btnThreshold').innerHTML = Shade.icon('setting', 15) + '阈值设置';
   $('#btnSync').innerHTML = Shade.icon('refresh', 15) + '同步至内网';
   $('#btnBatch').innerHTML = Shade.icon('check-circle', 15) + '批量处理';
@@ -1519,10 +1728,11 @@ async function init() {
 
   me = Shade.user() || {};
   isManager = me.role === 'admin' || me.role === 'team_admin';
-  /* 管理角色入口显隐：暂存区 / 冲突页签 + 阈值设置 + 同步至内网 */
+  /* 管理角色入口显隐：暂存区 / 冲突页签 + 阈值设置 + 同步至内网（工具行整行仅管理角色可见） */
   if (isManager) {
     $('#tabStaging').hidden = false;
     $('#tabConflicts').hidden = false;
+    $('.th-tools').hidden = false;
     $('#btnThreshold').hidden = false;
     $('#btnSync').hidden = false;
   }

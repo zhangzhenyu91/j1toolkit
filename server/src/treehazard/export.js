@@ -1,5 +1,6 @@
 // 树障隐患记录：统计表导出（exceljs）与排序/命名/线路顺序工具
-// buildWorkbook 供路由导出与后续内网同步模块共用（同步模块据此产出内网表，记录ID 隐藏列是行级比对的锚点）
+// buildWorkbook 供路由导出与内网同步模块共用（同步模块据此产出内网表，记录ID 隐藏列是行级比对的锚点）；
+// split=true 按线路分 sheet（仅人工导出用；内网表始终单 sheet，diff.js parseIntranetSheet 只读首个 sheet）
 const ExcelJS = require('exceljs');
 
 // 表头（第 2 行；第 1 行为「{班组}树木统计表」合并标题）；第 17 列（Q 列）为隐藏的记录ID 锚点列
@@ -94,33 +95,42 @@ function fmtVoltageCell(v) {
   return /^\d+(?:\.\d+)?$/.test(s) ? `${s}kV` : s;
 }
 
-// 生成统计表 workbook（records 须已由 sortRecords 排好序；标题恒为班组名，分线路由调用方先过滤记录）
-async function buildWorkbook({ teamName, records }) {
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('树障');
+// 单元格样式常量：全部写入单元格居中（含隐藏 ID 列）；数据区 A2:P末行 thin 框线（标题行 A1:P1 合并不加框线）
+const CELL_CENTER = { horizontal: 'center', vertical: 'middle' };
+const THIN_BORDER = {
+  top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' },
+};
+
+// 单个 worksheet 写入完整模板：R1 合并标题（行高 45 磅/字号 20/加粗居中，不加框线）、R2 表头（35 磅/12 加粗）、
+// 数据行（25 磅/11），表头与数据区居中 + thin 框线，Q 列隐藏记录ID（行级比对锚点）
+function writeSheet(wb, { name, title, records }) {
+  const ws = wb.addWorksheet(name);
   ws.columns = [
     ...COL_WIDTHS.map((width) => ({ width })),
-    { header: '记录ID', key: 'rid', width: 10, hidden: true }, // Q 列：行级比对锚点，隐藏
+    { header: '记录ID', key: 'rid', width: 10, hidden: true }, // Q 列：隐藏
   ];
 
-  // 第 1 行：合并标题（行高 45 磅，字号 20，加粗居中）
+  // 第 1 行：合并标题
   ws.mergeCells(1, 1, 1, HEADERS.length);
   ws.getRow(1).height = 45;
-  const title = ws.getCell(1, 1);
-  title.value = `${teamName}树木统计表`;
-  title.font = { bold: true, size: 20 };
-  title.alignment = { horizontal: 'center', vertical: 'middle' };
+  const titleCell = ws.getCell(1, 1);
+  titleCell.value = title;
+  titleCell.font = { bold: true, size: 20 };
+  titleCell.alignment = CELL_CENTER;
 
-  // 第 2 行：表头（行高 35 磅，字号 12 加粗）
+  // 第 2 行：表头
   const headRow = ws.getRow(2);
   headRow.height = 35;
   HEADERS.forEach((h, i) => {
-    headRow.getCell(i + 1).value = h;
+    const c = headRow.getCell(i + 1);
+    c.value = h;
+    c.alignment = CELL_CENTER;
+    c.border = THIN_BORDER;
   });
   headRow.font = { bold: true, size: 12 };
   headRow.commit();
 
-  // 数据自第 3 行：行高 25 磅、字号 11；全部单元格按文本写入（numFmt '@'），仅 Q 列记录ID 写数值
+  // 数据自第 3 行：全部单元格按文本写入（numFmt '@'），仅 Q 列记录ID 写数值
   records.forEach((r, i) => {
     const row = ws.getRow(i + 3);
     row.height = 25;
@@ -146,12 +156,86 @@ async function buildWorkbook({ teamName, records }) {
       const c = row.getCell(j + 1);
       c.value = v;
       c.numFmt = '@';
+      c.alignment = CELL_CENTER;
+      c.border = THIN_BORDER;
     });
-    row.getCell(ID_COL).value = Number(r.id) || null;
+    const idCell = row.getCell(ID_COL);
+    idCell.value = Number(r.id) || null;
+    idCell.alignment = CELL_CENTER;
     row.font = { size: 11 };
     row.commit();
   });
+}
 
+// 分表归组：records（已 sortRecords 排序）按 line_name 保序归组，组序=首现序（线路顺序 + 未匹配排尾）；
+// lineOrder 未覆盖的记录归末尾「未匹配线路」组（unmatched 标记）
+function groupByLine(records, lineOrder) {
+  const order = lineOrder instanceof Map ? lineOrder : new Map();
+  const groups = []; // [{ lineName, voltage, records, unmatched }]
+  const byName = new Map();
+  const unmatched = { lineName: '未匹配线路', voltage: '', records: [], unmatched: true };
+  for (const r of records || []) {
+    const name = String(r.line_name ?? '');
+    if (order.has(name)) {
+      if (!byName.has(name)) {
+        const g = { lineName: name, voltage: r.voltage_level, records: [], unmatched: false };
+        byName.set(name, g);
+        groups.push(g);
+      }
+      byName.get(name).records.push(r);
+    } else {
+      unmatched.records.push(r);
+    }
+  }
+  if (unmatched.records.length) groups.push(unmatched);
+  return groups;
+}
+
+// sheet 名清洗（Excel 约束）：禁字符 [ ] : * ? / \ 换全角、≤31 字符、空名兜底「未命名线路」、重名追加序号（n）
+const SHEET_FULLWIDTH = { '[': '【', ']': '】', ':': '：', '*': '＊', '?': '？', '/': '／', '\\': '＼' };
+function sheetNameOf(base, used) {
+  let name = String(base ?? '').replace(/[[\]:*?/\\]/g, (ch) => SHEET_FULLWIDTH[ch]).trim();
+  if (!name) name = '未命名线路';
+  name = name.slice(0, 31);
+  if (!used.has(name)) {
+    used.add(name);
+    return name;
+  }
+  for (let i = 2; ; i += 1) {
+    const suffix = `（${i}）`;
+    const cand = `${name.slice(0, 31 - suffix.length)}${suffix}`;
+    if (!used.has(cand)) {
+      used.add(cand);
+      return cand;
+    }
+  }
+}
+
+// 生成统计表 workbook（records 须已由 sortRecords 排好序）：
+// split=false（默认）单 sheet「树障」，标题「{班组}树木统计表」；
+// split=true 按线路分 sheet（lineOrder 必传）：sheet 名 = fmtVoltageCell(电压)+线路名（幂等 kV，Excel 名约束清洗），
+// 每 sheet 完整模板、序号自 1 重排，标题「{电压等级}{线路名称}树木统计表」（与分线路导出文件名口径一致），
+// 未匹配线路记录归末尾「未匹配线路」sheet（标题同为「未匹配线路」）
+async function buildWorkbook({ teamName, records, split = false, lineOrder }) {
+  const wb = new ExcelJS.Workbook();
+  if (!split) {
+    writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records });
+    return wb;
+  }
+  const groups = groupByLine(records, lineOrder);
+  if (!groups.length) {
+    writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: [] }); // 无记录兜底：空表保持单 sheet
+    return wb;
+  }
+  const used = new Set();
+  for (const g of groups) {
+    const label = g.unmatched ? '未匹配线路' : `${fmtVoltageCell(g.voltage)}${g.lineName}`;
+    writeSheet(wb, {
+      name: sheetNameOf(label, used),
+      title: g.unmatched ? '未匹配线路' : `${label}树木统计表`,
+      records: g.records,
+    });
+  }
   return wb;
 }
 

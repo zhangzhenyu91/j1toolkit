@@ -172,9 +172,9 @@ router.get('/records', async (req, res, next) => {
         unmatched.push(r);
       }
     }
+    // 运维线路全部成组下发（含 0 记录线路），线路大卡需展示空线路
     const lines = lineRows
-      .filter((l) => byLine.has(l.line_name))
-      .map((l) => ({ voltage_level: l.voltage_level, line_name: l.line_name, records: byLine.get(l.line_name) }));
+      .map((l) => ({ voltage_level: l.voltage_level, line_name: l.line_name, records: byLine.get(l.line_name) || [] }));
     return ok(res, { threshold, lines, unmatched });
   } catch (err) {
     return next(err);
@@ -400,14 +400,18 @@ router.put('/settings', requireDictAdmin, async (req, res, next) => {
 
 // ===== 导出与在线预览 =====
 
-// 生成统计表 buffer（team 参数化：路由传 req.team，office 在线预览回源复用；line 可选分线路；记录经 sortRecords 排序）
-async function buildTeamExport(team, line) {
+// query/body 的 split 开关归一（'1'/'true'/1/true 为开）：按线路分 sheet 导出
+const splitOn = (v) => v === '1' || v === 'true' || v === 1 || v === true;
+
+// 生成统计表 buffer（team 参数化：路由传 req.team，office 在线预览回源复用；line 可选分线路过滤；
+// split=true 按线路分 sheet；记录经 sortRecords 排序）
+async function buildTeamExport(team, line, split) {
   let records = await loadTeamRecords(team.id);
   const lineRows = await exporter.fetchLineOrder(pool, team.id);
   const lineOrder = new Map(lineRows.map((l, i) => [l.line_name, i]));
   if (line) records = records.filter((r) => r.line_name === line);
   const sorted = exporter.sortRecords(records, lineOrder);
-  const wb = await exporter.buildWorkbook({ teamName: team.name, records: sorted });
+  const wb = await exporter.buildWorkbook({ teamName: team.name, records: sorted, split: !!split, lineOrder });
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   return { buf, fileName: exporter.exportFileName(team.name, line || undefined) };
 }
@@ -422,12 +426,14 @@ router.get('/export/preview', async (req, res, next) => {
       const q = ['src=treehazard'];
       if (line) q.push(`line=${encodeURIComponent(line)}`);
       if (req.query.team_id) q.push(`team_id=${encodeURIComponent(req.query.team_id)}`);
+      if (splitOn(req.query.split)) q.push('split=1');
       q.push('back=/treehazard.html');
       return ok(res, { url: `/office.html?${q.join('&')}` });
     }
     const dq = [];
     if (line) dq.push(`line=${encodeURIComponent(line)}`);
     if (req.query.team_id) dq.push(`team_id=${encodeURIComponent(req.query.team_id)}`);
+    if (splitOn(req.query.split)) dq.push('split=1');
     const fileName = exporter.exportFileName(req.team.name, line || undefined);
     const url = buildPreviewUrl(req, `/api/v1/treehazard/export${dq.length ? `?${dq.join('&')}` : ''}`, fileName);
     if (!url) return fail(res, 400, 40011, '未配置文件预览服务');
@@ -441,7 +447,7 @@ router.get('/export/preview', async (req, res, next) => {
 router.get(['/export', '/export/:name([^/]+\\.xlsx)'], async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    const { buf, fileName } = await buildTeamExport(req.team, String(req.query.line ?? '').trim());
+    const { buf, fileName } = await buildTeamExport(req.team, String(req.query.line ?? '').trim(), splitOn(req.query.split));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="treehazard.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
     return res.send(buf);

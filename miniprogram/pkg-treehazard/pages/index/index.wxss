@@ -55,7 +55,7 @@ page {
   color: #86909C;
 }
 
-/* ---------- 工具行（筛选 / 批量 / 导出 / 阈值 / 同步 胶囊） ---------- */
+/* ---------- 工具行（线路视图：阈值 / 同步 图标胶囊；台账视图：批量开关） ---------- */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -94,26 +94,159 @@ page {
   color: #FFFFFF;
 }
 
-/* ---------- 分组标题 ---------- */
-.lgroup {
-  margin-top: 8rpx;
+/* 图标化胶囊（班管入口，避免拥挤） */
+.tool-ic {
+  width: 64rpx;
+  padding: 0;
+  justify-content: center;
 }
 
-.lg-title {
+/* ---------- 搜索框（常置浅灰底，同网盘页口径） ---------- */
+.search {
   display: flex;
-  align-items: baseline;
-  margin: 28rpx 8rpx 16rpx;
-  font-size: 30rpx;
-  font-weight: 600;
+  align-items: center;
+  gap: 14rpx;
+  height: 72rpx;
+  padding: 0 24rpx;
+  background: #F7F8FA;
+  border-radius: 16rpx;
+  margin-top: 28rpx;
+}
+
+.s-input {
+  flex: 1;
+  min-width: 0;
+  height: 72rpx;
+  font-size: 26rpx;
   color: #1D2129;
 }
 
-.lg-n {
-  margin-left: 12rpx;
-  font-size: 22rpx;
-  font-weight: 400;
-  color: #86909C;
+.ph {
+  color: #C9CDD4;
+}
+
+/* ---------- 线路大卡片（未处理橙 / 要紧红 / 总数灰） ---------- */
+.lcard {
+  padding: 28rpx;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s backwards;
+}
+
+.lcard + .lcard {
+  margin-top: 24rpx;
+}
+
+.lc-head {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.lc-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #1D2129;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lc-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 24rpx;
+  margin-top: 14rpx;
+}
+
+.lc-st {
+  font-size: 24rpx;
   font-variant-numeric: tabular-nums;
+}
+
+.lc-warn {
+  color: #FF7D00;
+  font-weight: 600;
+}
+
+.lc-bad {
+  color: #F53F3F;
+  font-weight: 600;
+}
+
+.lc-total {
+  color: #86909C;
+}
+
+/* ---------- 台账视图：返回行 + 线路标题 ---------- */
+.backrow {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 64rpx;
+  margin-left: -8rpx;
+}
+
+.backrow-t {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #0E3DA8;
+}
+
+.ledger-head {
+  margin-top: 8rpx;
+}
+
+.lh-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #1D2129;
+}
+
+.lh-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 24rpx;
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+.lh-warn {
+  color: #FF7D00;
+}
+
+.lh-bad {
+  color: #F53F3F;
+}
+
+.lh-total {
+  color: #86909C;
+}
+
+/* ---------- FAB（导出，每页主按钮至多一枚；形态同网盘页） ---------- */
+.fab {
+  position: fixed;
+  right: 32rpx;
+  bottom: calc(52rpx + env(safe-area-inset-bottom));
+  z-index: 25;
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: 50%;
+  background: #0E3DA8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12rpx 32rpx rgba(14, 61, 168, 0.35);
+}
+
+.fab-spacer {
+  height: 160rpx;
+}
+
+/* ---------- 分组容器 ---------- */
+.lgroup {
+  margin-top: 8rpx;
 }
 
 /* ---------- 记录卡片（已处理整体降饱和） ---------- */
@@ -275,7 +408,7 @@ page {
   color: #1D2129;
 }
 
-/* 筛选项列表（限高滚动） */
+/* 筛选项列表（限高滚动；导出弹层范围/线路单选复用） */
 .flt-list {
   margin-top: 24rpx;
   max-height: 60vh;
@@ -298,6 +431,36 @@ page {
 .flt-item.on {
   color: #0E3DA8;
   font-weight: 600;
+}
+
+/* 导出弹层：范围单选组与按线路分表开关行 */
+.exp-scope {
+  margin-top: 12rpx;
+  background: #F7F8FA;
+  border-radius: 12rpx;
+}
+
+.exp-scope .flt-item + .flt-item {
+  border-top-color: #FFFFFF;
+}
+
+.exp-split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+}
+
+.exp-split-l {
+  flex: 1;
+  min-width: 0;
+}
+
+.exp-tip {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #86909C;
+  line-height: 1.6;
 }
 
 /* 表单字段（.f-label/.f-field 用 app.wxss 全局类） */

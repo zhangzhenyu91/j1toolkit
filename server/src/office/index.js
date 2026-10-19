@@ -376,10 +376,11 @@ async function signTreehazard(req, res) {
   const team = await teamUtil.resolveTeam(req.user, body.team_id);
   if (!team) return fail(res, 400, 40010, '无可用班组');
   const line = String(body.line || '').trim();
+  const split = body.split === '1' || body.split === 1 || body.split === true; // 按线路分 sheet（office.html query 全透传入 body）
   const name = thdExport.exportFileName(team.name, line || undefined);
   // document.key 带瞬时量：同一班组重复签发不复用 OO 缓存（内容随库即时变化，防 OO 按 key 缓存脏读）
-  const key = crypto.createHash('sha1').update(`treehazard|${team.id}|${line}|${Date.now()}`).digest('hex');
-  const url = rawUrl({ src: 'thd', team_id: team.id, line }, name);
+  const key = crypto.createHash('sha1').update(`treehazard|${team.id}|${line}|${split ? 1 : 0}|${Date.now()}`).digest('hex');
+  const url = rawUrl({ src: 'thd', team_id: team.id, line, split }, name);
   const docCfg = viewDocCfg({ documentType: 'cell', ext: 'xlsx', key, name, url, user: req.user });
   docCfg.token = jwt.sign(docCfg, config.office.jwtSecret);
   return ok(res, { public_url: config.office.publicUrl, config: docCfg });
@@ -465,7 +466,7 @@ async function rawWorklogRemark(ticket, res) {
 async function rawTreehazard(ticket, res) {
   const team = await teamUtil.getTeamById(ticket.team_id);
   if (!team || team.status !== 1) return res.status(404).type('text').send('班组不存在或已停用');
-  const { buf, fileName } = await treehazard.buildTeamExport(team, String(ticket.line || '').trim());
+  const { buf, fileName } = await treehazard.buildTeamExport(team, String(ticket.line || '').trim(), !!ticket.split);
   res.setHeader('Content-Type', RAW_MIME.xlsx);
   res.setHeader('Content-Length', buf.length);
   res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);

@@ -1,6 +1,9 @@
-// 树障隐患记录：看板四格 + 线路筛选/批量/导出/阈值/同步工具行 + 按线路分组的记录卡片流
-// 卡片精简口径（同出工日志卡片风格）：区段 + 状态点标 + 树种×数量/水平距离/垂直距离（≤阈值红显胶囊）三项，
-// 点击卡片携记录进详情页（eventChannel 传递）；批量模式点击 = 勾选；班管/超管另有阈值设置与内网同步（删记录入口在详情页）。
+// 树障隐患记录：两级视图（view 状态机）——
+//   lines  线路视图：看板四格 + 搜索框（输入即过滤）+ 线路大卡片流（未处理橙 / ≤阈值未处理「要紧」红 / 总数灰）；
+//   ledger 台账视图：返回行 + 线路标题（未处理/要紧小字）+ 现有精简记录卡片流（点卡携记录进详情页，eventChannel 传递），
+//           批量模式开关与批量处理条仅本视图可用（批量模式点击 = 勾选，已处理禁选）。
+// 右下角全局悬浮导出 FAB：范围单选（全部线路 / 当前线路，线路视图为「选择线路」）+ 按线路分表开关（split=1，仅全部可勾）。
+// 班管/超管另有阈值设置与内网同步（线路视图工具行，图标化；删记录入口在详情页）。
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；其余角色后端强制本班，不传
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
@@ -48,17 +51,24 @@ Page({
   data: {
     gate: false, // 门控（参照 quiz bank 页 gate 模式）
     canManage: false, // 班管/超管（阈值设置 / 内网同步入口可见）
-    // 看板
+    view: 'lines', // 视图状态机：lines=线路卡片 / ledger=线路台账
+    // 看板（仅线路视图显示）
     dash: { unhandled: 0, week_new: 0, over_threshold: 0, handled: 0, threshold: null },
-    // 记录（threshold 供网格红字判断）
+    // 记录（threshold 供线路卡「要紧」数与网格红字判断）
     threshold: null,
-    groups: [], // [{key, title, records}]（后端已排序，筛选后渲染）
-    lineOptions: [], // 筛选弹层选项（含条数，不随筛选变化）
     loading: true,
-    // 线路筛选（''=全部）
-    lineFilter: '',
-    filterVisible: false,
-    // 批量模式
+    // 线路视图：搜索与线路卡片
+    searchKey: '',
+    lineCards: [], // [{key, lineName, title, total, unhandled, urgent}]（urgent 为 null = 未设阈值，不显要紧行；key '_unmatched' 为未匹配组）
+    // 台账视图：当前线路
+    curKey: '',
+    curTitle: '',
+    curTotal: 0,
+    curUnhandled: 0,
+    curUrgent: null,
+    curUnmatched: false,
+    groups: [], // 当前线路单组 [{key, title, records}]（后端已排序，直接渲染）
+    // 批量模式（仅台账视图）
     batchMode: false,
     selected: {}, // 记录 id → true
     selectedCount: 0,
@@ -85,7 +95,12 @@ Page({
     syncRunning: false,
     syncText: '',
     syncLastText: '',
-    // 导出
+    // 导出（FAB 弹层）
+    expVisible: false,
+    expScope: 'all', // all=全部线路 / line=单条线路（台账视图默认当前线路；线路视图为「选择线路」）
+    expLine: '', // 线路视图下「选择线路」的目标线路名
+    expLineOptions: [], // 可选线路（未匹配组不可按线路导出，不入列）
+    expSplit: false, // 按线路分表（URL 拼 split=1；仅范围为全部线路时可勾）
     exporting: false,
   },
 
@@ -213,55 +228,115 @@ Page({
     }
   },
 
-  // 按当前筛选重建分组（后端已按线路顺序排好，直接渲染；当前筛选线路已不存在时回落全部）
-  rebuild() {
+  // 组内统计：未处理数与「要紧」数（status=unhandled 且 vertical_num 非空且 ≤ 阈值；阈值为 null 时 urgent 返回 null，线路卡不显要紧行）
+  lineStats(records) {
     const threshold = this.data.threshold;
-    let filter = this.data.lineFilter;
-    if (filter && !(this._lines || []).some((l) => l.line_name === filter)) {
-      filter = '';
-      this.setData({ lineFilter: '' });
+    let unhandled = 0;
+    let urgent = 0;
+    for (const r of records) {
+      if (r.status !== 'unhandled') continue;
+      unhandled += 1;
+      if (threshold !== null && r.vertical_num !== null && r.vertical_num !== undefined && Number(r.vertical_num) <= threshold) {
+        urgent += 1;
+      }
     }
-    const groups = [];
+    return { unhandled, urgent: threshold === null ? null : urgent };
+  },
+
+  // 重建两侧视图（后端已按线路顺序排好；线路卡按搜索词过滤，台账视图重建当前线路单组）
+  rebuild() {
+    this.rebuildLines();
+    if (this.data.view === 'ledger') this.rebuildLedger();
+  },
+
+  // 线路卡片流：全部运维线路（含 0 条记录的线路）+ 未匹配组（有记录才成卡）；搜索词命中标题（电压+名称）即保留
+  rebuildLines() {
+    const kw = (this.data.searchKey || '').trim();
+    const cards = [];
     for (const l of this._lines || []) {
-      if (filter && l.line_name !== filter) continue;
-      groups.push({
+      const records = l.records || [];
+      const st = this.lineStats(records);
+      cards.push({
         key: `L_${l.line_name}`,
+        lineName: l.line_name,
         title: `${fmtKv(l.voltage_level)} ${l.line_name}`,
-        records: (l.records || []).map((r) => mapRecord(r, threshold)),
+        total: records.length,
+        unhandled: st.unhandled,
+        urgent: st.urgent,
       });
     }
-    if (!filter && (this._unmatched || []).length) {
-      groups.push({
+    if ((this._unmatched || []).length) {
+      const st = this.lineStats(this._unmatched);
+      cards.push({
         key: '_unmatched',
+        lineName: '',
         title: '未匹配线路',
-        records: this._unmatched.map((r) => mapRecord(r, threshold)),
+        total: this._unmatched.length,
+        unhandled: st.unhandled,
+        urgent: st.urgent,
       });
     }
-    const lineOptions = (this._lines || []).map((l) => ({
-      voltageText: fmtKv(l.voltage_level),
-      line_name: l.line_name,
-      count: (l.records || []).length,
-    }));
-    this.setData({ groups, lineOptions });
+    this._cards = cards;
+    this.setData({
+      lineCards: kw ? cards.filter((c) => c.title.indexOf(kw) !== -1) : cards,
+      expLineOptions: cards.filter((c) => c.key !== '_unmatched'),
+    });
   },
 
-  /* ==================== 线路筛选 ==================== */
-
-  onOpenFilter() {
-    this.setData({ filterVisible: true });
+  // 台账视图：当前线路单组记录卡片 + 标题行计数刷新（线路被同步/删除后记录可能清空，组空态兜底）
+  rebuildLedger() {
+    const threshold = this.data.threshold;
+    let records;
+    if (this.data.curUnmatched) {
+      records = this._unmatched || [];
+    } else {
+      const line = (this._lines || []).find((l) => l.line_name === this._curLineName);
+      records = (line && line.records) || [];
+    }
+    const st = this.lineStats(records);
+    this.setData({
+      groups: [{ key: this.data.curKey, title: this.data.curTitle, records: records.map((r) => mapRecord(r, threshold)) }],
+      curTotal: records.length,
+      curUnhandled: st.unhandled,
+      curUrgent: st.urgent,
+    });
   },
 
-  onFilterVisibleChange(e) {
-    if (!e.detail.visible) this.setData({ filterVisible: false });
+  /* ==================== 线路视图（搜索 / 线路卡） ==================== */
+
+  onSearchInput(e) {
+    this.setData({ searchKey: e.detail.value });
+    this.rebuildLines();
   },
 
-  onPickLine(e) {
-    const line = e.currentTarget.dataset.line || '';
-    this.setData({ lineFilter: line, filterVisible: false });
-    this.rebuild();
+  onSearchClear() {
+    this.setData({ searchKey: '' });
+    this.rebuildLines();
   },
 
-  /* ==================== 批量模式 ==================== */
+  // 点线路卡 → 台账视图（未匹配组 lineName 为空，单独标记；进入时重置批量模式并回滚到顶部）
+  onLineCardTap(e) {
+    const card = (this._cards || []).find((c) => c.key === e.currentTarget.dataset.key);
+    if (!card) return;
+    this._curLineName = card.lineName;
+    this.setData({
+      view: 'ledger',
+      curKey: card.key,
+      curTitle: card.title,
+      curUnmatched: card.key === '_unmatched',
+      batchMode: false,
+      selected: {},
+      selectedCount: 0,
+    });
+    this.rebuildLedger();
+    wx.pageScrollTo({ scrollTop: 0 });
+  },
+
+  onBackLines() {
+    this.setData({ view: 'lines', batchMode: false, selected: {}, selectedCount: 0 });
+  },
+
+  /* ==================== 批量模式（仅台账视图） ==================== */
 
   onToggleBatch() {
     const on = !this.data.batchMode;
@@ -443,7 +518,7 @@ Page({
       });
       this.toast(raw ? '阈值已保存' : '阈值已清除');
       this.setData({ thVisible: false });
-      this.loadAll(); // 看板与网格红字均随阈值变化
+      this.loadAll(); // 看板、线路卡「要紧」数与网格红字均随阈值变化
     } catch (err) {
       this.toast(err.message);
     } finally {
@@ -527,16 +602,67 @@ Page({
     }
   },
 
-  /* ==================== 导出统计表 ==================== */
+  /* ==================== 导出统计表（FAB 弹层） ==================== */
 
-  // 当前筛选为全部 → 全量导出；否则按 line 参数分线路导出（文件名口径同后端 exportFileName：{班组或线路}树木统计表.xlsx）
-  onExport() {
+  // 打开导出弹层：台账视图默认「当前线路」（未匹配组不可按线路导出，回落全部）；线路视图默认「全部线路」
+  onOpenExport() {
+    const line = this.data.view === 'ledger' && !this.data.curUnmatched ? this._curLineName : '';
+    const options = this.data.expLineOptions;
+    this.setData({
+      expVisible: true,
+      expScope: line ? 'line' : 'all',
+      expLine: line || (options.length ? options[0].lineName : ''),
+      expSplit: false,
+    });
+  },
+
+  onCloseExport() {
     if (this.data.exporting) return;
-    const line = this.data.lineFilter;
+    this.setData({ expVisible: false });
+  },
+
+  onExpVisibleChange(e) {
+    if (!e.detail.visible && !this.data.exporting) this.setData({ expVisible: false });
+  },
+
+  // 范围单选：未匹配组台账无「当前线路」项可点；线路视图选「选择线路」时确保有默认线路
+  onExpScopeTap(e) {
+    const scope = e.currentTarget.dataset.scope;
+    if (scope === this.data.expScope) return;
+    if (scope === 'line' && this.data.view === 'ledger' && this.data.curUnmatched) return;
+    const patch = { expScope: scope };
+    if (scope === 'line' && !this.data.expLine && this.data.expLineOptions.length) {
+      patch.expLine = this.data.expLineOptions[0].lineName;
+    }
+    this.setData(patch);
+  },
+
+  onExpLineTap(e) {
+    this.setData({ expLine: e.currentTarget.dataset.line });
+  },
+
+  onExpSplit(e) {
+    this.setData({ expSplit: !!e.detail.value });
+  },
+
+  // 确认导出：单线路带 line 参数；勾选分表且范围为全部时拼 split=1（后端并行开发中，未上线时忽略该参数）
+  // 文件名口径同后端 exportFileName：{线路名或班组名}树木统计表.xlsx
+  onConfirmExport() {
+    if (this.data.exporting) return;
+    const scopeAll = this.data.expScope === 'all';
+    let line = '';
+    if (!scopeAll) {
+      line = this.data.view === 'ledger' && !this.data.curUnmatched ? this._curLineName : this.data.expLine;
+      if (!line) {
+        this.toast('请选择线路');
+        return;
+      }
+    }
     const fileName = `${line || this._teamName || '树木统计表'}树木统计表.xlsx`;
     const q = [`line=${encodeURIComponent(line)}`];
     if (this._teamId) q.push(`team_id=${this._teamId}`);
-    this.setData({ exporting: true });
+    if (scopeAll && this.data.expSplit) q.push('split=1');
+    this.setData({ exporting: true, expVisible: false });
     wx.showLoading({ title: '正在导出…', mask: true });
     wx.downloadFile({
       url: `${BASE_URL}${API_BASE}/export/${encodeURIComponent(fileName)}?${q.join('&')}`,
