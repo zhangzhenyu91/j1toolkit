@@ -33,25 +33,29 @@ def parse_hhmm(s: str):
     return 9, 15
 
 
-def due_check(cfg: dict, now: datetime = None, driver: str = "os"):
+def due_check(cfg: dict, now: datetime = None, driver: str = "os", stamp_name: str = None,
+              schedule: dict = None):
     """返回 (是否应执行, 原因, 今日日期串)。
     driver 门闸：schedule.driver=os（系统定时器执行）/ app（客户端驻留执行）。
-    客户端驻留模式下 OS 定时器的到点调用一律跳过（反之亦然），杜绝双跑。"""
+    客户端驻留模式下 OS 定时器的到点调用一律跳过（反之亦然），杜绝双跑。
+    stamp_name：新定时应用换自己的戳名（指南调度规范），缺省保持 daily_export 兼容。
+    schedule：可显式传入判定用的时刻表（缺省取 cfg["schedule"]，键位相同：enabled/time/driver）。"""
     now = now or datetime.now()
     today = now.strftime("%Y-%m-%d")
-    sch = cfg.get("schedule") or {}
+    stamp_name = stamp_name or STAMP_NAME
+    sch = schedule if schedule is not None else (cfg.get("schedule") or {})
     want = (sch.get("driver") or "os")
     if want != driver:
         return False, ("由客户端驻留调度" if want == "app" else "由系统定时器调度"), today
     if not sch.get("enabled", True):
-        return False, "定时导出已停用", today
-    stamp = state.get_stamp(STAMP_NAME) or {}
+        return False, "定时已停用", today
+    stamp = state.get_stamp(stamp_name) or {}
     if stamp.get("date") == today:
         return False, "今日已成功执行（%s）" % stamp.get("time", ""), today
     h, mi = parse_hhmm(sch.get("time", "09:15"))
     if (now.hour, now.minute) < (h, mi):
         return False, "未到设定时间 %02d:%02d" % (h, mi), today
-    att = state.get_stamp(ATTEMPT_STAMP) or {}
+    att = state.get_stamp(stamp_name + "_attempt") or {}
     if att.get("date") == today:
         try:
             last = datetime.strptime(att.get("time", ""), "%Y-%m-%d %H:%M:%S")
@@ -63,15 +67,16 @@ def due_check(cfg: dict, now: datetime = None, driver: str = "os"):
     return True, "已到设定时间 %02d:%02d" % (h, mi), today
 
 
-def mark_success(today: str, extra: dict = None):
+def mark_success(today: str, extra: dict = None, stamp_name: str = None):
     data = {"date": today, "time": time.strftime("%Y-%m-%d %H:%M:%S")}
     data.update(extra or {})
-    state.set_stamp(STAMP_NAME, data)
+    state.set_stamp(stamp_name or STAMP_NAME, data)
 
 
-def mark_attempt(today: str):
+def mark_attempt(today: str, stamp_name: str = None):
     """到点放行后、执行前调用：拉开分钟级 tick 下的失败重试间隔。"""
-    state.set_stamp(ATTEMPT_STAMP, {"date": today, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
+    name = (stamp_name or STAMP_NAME) + "_attempt"
+    state.set_stamp(name, {"date": today, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
 
 
 def next_run_text(cfg: dict, now: datetime = None) -> str:

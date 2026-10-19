@@ -52,15 +52,17 @@ import ShadeIcon from './components/ShadeIcon.vue'
 import iconUrl from './assets/icon.png'
 import HomePage from './pages/HomePage.vue'
 import DailySyncPage from './pages/DailySyncPage.vue'
+import TreeSyncPage from './pages/TreeSyncPage.vue'
 import PcdExportPage from './pages/PcdExportPage.vue'
 import QuizSearchPage from './pages/QuizSearchPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
 
 const PAGE_MAP = { home: HomePage, settings: SettingsPage,
-                   daily_sync: DailySyncPage, pcd_export: PcdExportPage,
+                   daily_sync: DailySyncPage, tree_sync: TreeSyncPage,
+                   pcd_export: PcdExportPage,
                    quiz_search: QuizSearchPage }
 // 导航图标：壹匣线性图标库同名（见 components/ShadeIcon.vue）；未知应用回退宫格
-const NAV_ICONS = { daily_sync: 'refresh', pcd_export: 'download', quiz_search: 'search' }
+const NAV_ICONS = { daily_sync: 'refresh', tree_sync: 'file', pcd_export: 'download', quiz_search: 'search' }
 function navIcon(id) { return NAV_ICONS[id] || 'app' }
 
 const apps = ref([])

@@ -2704,9 +2704,10 @@ Page({
       .catch(() => {});
   },
 
+  // 数据管理：改跳「班组数据」分包（原 manage 页文件保留，旧链接不崩）
   onManage() {
     this.setData({ fabOpen: false });
-    wx.navigateTo({ url: '/pkg-worklog/pages/manage/manage' });
+    wx.navigateTo({ url: '/pkg-teamdata/pages/index/index' });
   },
 
   // 工作任务单（超管 / 班组管理员；与数据管理平级入口；sheet 页 ?type=task）

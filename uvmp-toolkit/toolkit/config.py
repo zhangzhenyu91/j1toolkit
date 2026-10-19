@@ -25,6 +25,11 @@ DEFAULTS = {
            "autostart": False},                    # 开机自启（驻留调度建议开启）
     "usb": {"label": "GLKVM", "fallback_dir": ""},     # fallback_dir 为空时找不到 U 盘即失败
     "daily_export": {"temp_dir": ""},                  # 空=~/临时下载（保持旧脚本习惯）
+    "tree_sync": {                                     # 树障统计表同步（U盘指令 snapshot/replace）
+        "local_path": "",                              # 内网树障统计表 xlsx 完整路径（必配）
+        "file_name": "检修一班树木统计表.xlsx",          # 夜间兜底 snapshot 上盘用的文件名
+        "nightly_time": "22:55",                       # 夜间兜底执行时刻（服务端 22:50 挂载 U盘）
+    },
     "order_export": {
         "default_outdir": "",                          # 空=项目目录/output
         "lookback_days": 62,                           # 无日期提示时按单号兜底查询的回看天数

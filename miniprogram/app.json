@@ -70,6 +70,20 @@
         "pages/shares/shares",
         "pages/archive/archive"
       ]
+    },
+    {
+      "root": "pkg-treehazard",
+      "name": "treehazard",
+      "pages": [
+        "pages/index/index"
+      ]
+    },
+    {
+      "root": "pkg-teamdata",
+      "name": "teamdata",
+      "pages": [
+        "pages/index/index"
+      ]
     }
   ],
   "window": {

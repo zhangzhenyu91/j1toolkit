@@ -19,6 +19,11 @@
   "daily_export": {
     "temp_dir": ""
   },
+  "tree_sync": {
+    "local_path": "",
+    "file_name": "检修一班树木统计表.xlsx",
+    "nightly_time": "22:55"
+  },
   "order_export": {
     "default_outdir": "",
     "lookback_days": 62,

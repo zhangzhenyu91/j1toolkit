@@ -25,6 +25,8 @@
 - **文件传输**（移动端，小程序分包 `pkg-filetransfer`）：向 KVM 设备虚拟 U 盘推送/取回文件（设备列表同上；上传弹层逐文件推送后统一挂载，下载点按即存相册或打开）；经壹匣转发点 `/api/v1/kvm/devices/{id}/push|mount|files|download`，要求 `file-transfer` 应用权限
 - **水印添加**（移动端，小程序分包 `pkg-wmadd`）：选片/拍摄 → 4:3 裁剪 → 编辑水印（含防伪码、杆塔坐标选择）→ 服务端渲染水印仅回图（不传 COS、不入库、不触发 Dify 验证），自动存相册并全屏展示；后端 `server/src/wmadd/`（无业务表），要求 `wm-add` 应用权限
 - **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断，仅网页端上传），顺序/随机/错题三模式刷题 + 背题模式（答案解析常显）+ 答题卡跳题与清空做题记录（保留错题本），错题本按题库分组专项练习（连对 3 次自动移出），题库分班组池/全部池、用户自行添加进个人题库，Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；网页端 quiz.html 为刷题练习 + 题库管理双页签（管理页签仅 admin/本班 team_admin）；后端 `server/src/quiz/`，要求 `quiz` 应用权限
+- **树障隐患记录**（分包 `pkg-treehazard` + 网页端 `treehazard.html`）：树木隐患台账——crane-answer 群监听项目经 `POST /api/v1/treehazard/ingest`（X-Ingest-Token）直推入库（direct 直写 / staging 暂存区确认导入），双端看板、单条/批量处理、处理前后照片（COS）、exceljs 统计表导出与在线预览（垂直距离超阈值看板计数红显）；内网 U 盘双向同步（夜间 22:50 准备 / 23:00 取件 + 空闲 15 分钟 + 手动三触发，Q 列隐藏记录ID 行级比对、冲突人工裁决，被控机侧为内网工具箱 tree_sync 应用）；后端 `server/src/treehazard/`，要求 `tree-hazard` 应用权限（暂存区/冲突/阈值/删除/同步另限超管或本班 team_admin）
+- **班组数据**（分包 `pkg-teamdata` + 网页端 `teamdata.html`）：车牌号 / 目的地 / 人员 / 运维线路信息 / 商旅设备五分段班组字典统一管理（数据复用出工日志字典与杆塔表不建新表，接口形态与 worklog 管理端点 1:1；杆塔坐标 Excel 导入全量替换；出工日志双端「数据管理」入口已改跳本应用）；后端 `server/src/teamdata/`，要求 `team-data` 应用权限且全接口限超管或本班 team_admin
 - **商旅打卡**（出工日志扩展）：商旅账号短信绑定 / 两次打卡 / 费用 / 照片双端同步 / 每日定时核查，权限并入 `work-log`（不单设应用）；后端 `server/src/sgccclockin/`
 - **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:10 锁定目标 KVM 设备并把 U 盘挂载至被控机（被控机 09:15 起由桌面客户端「内网工具箱」导出，独立项目不在本仓），09:20 经文件传输链路取回当日派车单 xlsx 自动建出车卡片（派车单号随卡写入 `dispatch_order_no`，供「派车汇总」导出）、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（详见 开发指南.md 7.7）
 - **内网客户端**（内部应用：仅网页端 `client.html`）：内网工具箱安装包取件页，直贴 CNB 制品库链接与取件命令（安装包不托管本站；发版由私有仓 GitHub Actions publish-cnb 回传产物镜像至 CNB 制品库）；要求 `client` 应用权限
@@ -53,6 +55,8 @@ miniprogram/   微信小程序（主包：登录/首页/我的/管理页）
   pkg-filetransfer/  文件传输分包（KVM 设备虚拟 U 盘上传/下载）
   pkg-wmadd/     水印添加分包（选片/裁剪/编辑水印/杆塔选择单页）
   pkg-quiz/      题库刷题分包（index/bank/practice/wrong/manage/pool 六页）
+  pkg-treehazard/  树障隐患记录分包（index 单页：看板/记录卡片流/批量处理/暂存/冲突）
+  pkg-teamdata/    班组数据分包（index 单页：车牌/目的地/人员/运维线路信息/商旅设备五分段）
 server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   public/        网页端（login.html / index.html 工作台 / callme / worklog / safeday / kvm / quiz / admin / client 内网客户端取件 / sgcc-captcha 商旅滑块接力 + assets 公共资源 + kvm-device 设备安装包）
   src/routes/    本体路由（auth/user/app/admin/callme）
@@ -62,6 +66,8 @@ server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   src/quiz/      题库刷题后端子模块（schema 建表种子/dify 解析/analyzer 队列/路由）
   src/wmadd/     水印添加后端子模块（渲染回图/geo/杆塔路由）
   src/sgccclockin/ 商旅打卡后端子模块（出工日志扩展：protocol 协议层/schema 建表种子/路由）
+  src/treehazard/  树障隐患记录后端子模块（schema 建表种子/ingest crane-answer 直推/export 统计表/diff 行级比对/sync 内网 U 盘同步/路由）
+  src/teamdata/    班组数据后端子模块（车牌/目的地/成员字典与线路杆塔管理路由，复用 worklog 表不建新表）
 uvmp-toolkit/  内网工具箱客户端（Electron + Vue + TDesign 壳 + Python sidecar 核心，装在内网被控机；`client-v*` tag 触发 .github/workflows/client.yml 三平台构建发版）
 design/        UI 设计稿（定稿「政企蓝白 Enterprise Blue」：小程序/Web 首页与出工日志 4 份基准稿 + 设计规范.md + index.html 展厅 + 分享图工具链；旧定稿已全部移除）
 private/       私有配套仓 j1toolkit-private（git submodule，需有权限账号 `git submodule update --init`）：esgcc 商旅逆向分析仓与巡视素材 / WorkLogs 旧服务历史数据 / _archive 公开仓历史归档
@@ -94,7 +100,7 @@ docker compose up -d   # 端口映射/数据卷（./data → /app/server/data）
 
 **本机开发（不用镜像）**：`cd server` → 首次 `npm install` 并 `cp ../docker/.env.example .env` 按实际填写 → `npm run dev`（`node --watch` 改代码自动重启），浏览器访问 `http://127.0.0.1:3000/login.html` 测页面；前提为本机可连 `.env` 所指的 MySQL/Redis。
 
-**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html` / `netdisk.html`（团队网盘；Office 文件可经 `office.html` 进 ONLYOFFICE 在线编辑，需自装编辑器容器，见 开发指南.md 第十八节），管理员另有 `admin.html`（员工与权限管理）；另有 `client.html` 内网客户端取件页（内部应用，安装包从 CNB 制品库取件、不托管本站）。
+**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html` / `treehazard.html` / `teamdata.html` / `netdisk.html`（团队网盘；Office 文件可经 `office.html` 进 ONLYOFFICE 在线编辑，需自装编辑器容器，见 开发指南.md 第十八节），管理员另有 `admin.html`（员工与权限管理）；另有 `client.html` 内网客户端取件页（内部应用，安装包从 CNB 制品库取件、不托管本站）。
 
 **反向代理（1Panel/Nginx）**：用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，**一个端口同时服务网页与 API，无任何路径前缀配置**（旧 `PROXY_PREFIX` 机制已删除）；**SSE 流式对话必须**在反代配置补充：
 
@@ -104,7 +110,7 @@ proxy_read_timeout 300s;  # 推荐：长生成不被掐断（服务端另有 15s
 client_max_body_size 20m; # 图片上传（base64）需要
 ```
 
-**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加、内网客户端应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；同时建出工日志 7 张业务表并写入应用与 7 名成员种子、建题库刷题 quiz_* 表并写入应用种子。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
+**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加、内网客户端应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；同时建出工日志 7 张业务表并写入应用与 7 名成员种子、建题库刷题 quiz_* 表并写入应用种子、建树障隐患记录 treehazard_* 八张业务表并写入树障隐患记录与班组数据应用种子（初始管理员默认授予两应用权限）。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
 
 ## 环境变量清单
 
@@ -156,6 +162,13 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `WORKLOG_DISPATCH_DEVICE_DDNS` / `WORKLOG_DISPATCH_DEVICE_MAC` | 目标 KVM 设备定位（ddns）与 MAC 校验（防误操作他机） |
 | `WORKLOG_DISPATCH_KVM_USER` | 同步任务代登平台账号（须平台可见该设备组；留空回退 `ADMIN_USERNAME`） |
 | `WORKLOG_DISPATCH_PREPARE_TIME` / `WORKLOG_DISPATCH_FETCH_TIME` | 每日准备时间（锁定设备并挂载 U 盘至被控机，默认 `09:10`）与取件时间（下载建卡解禁，默认 `09:20`），北京时间 |
+| `TREEHAZARD_INGEST_TOKEN` | 树障隐患记录 crane-answer 直推对接密钥（crane-answer 群监听项目把树障记录 HTTP 直推到 `/api/v1/treehazard/ingest`，请求头 `X-Ingest-Token` 须与此值相等；留空则直推接口停用返回 503，见开发指南第十九节） |
+| `COS_TREEHAZARD_PREFIX` | 树障处理前/后照片在 COS 的独立文件夹前缀（默认 `treehazard/`） |
+| `TREEHAZARD_SYNC_TEAM` | 树障同步班组（U盘同步目标班组名，默认 `检修一班`） |
+| `TREEHAZARD_SYNC_DEVICE_DDNS` / `TREEHAZARD_SYNC_DEVICE_MAC` / `TREEHAZARD_SYNC_KVM_USER` | 树障同步被控机所在 KVM 设备三件套：ddns 定位 + MAC 校验 + 代登平台账号（默认回退派车单同机，ddns 留空则 U盘同步停用；KVM_USER 留空回退 `ADMIN_USERNAME`） |
+| `TREEHAZARD_SYNC_IDLE_MIN` | 树障同步空闲判定分钟数（默认 `15`；超过该时长无操作视为可同步） |
+| `TREEHAZARD_SYNC_CMD_WINDOW_MIN` | 树障同步指令窗口分钟数（默认 `5`；同步指令下发后被控机取件的有效窗口） |
+| `TREEHAZARD_SYNC_PREPARE_TIME` / `TREEHAZARD_SYNC_FETCH_TIME` | 树障同步每日准备时间（锁定设备并挂载 U 盘至被控机，默认 `22:50`）与取件时间（取回内网表比对回写并解禁，默认 `23:00`），HH:mm，北京时间 |
 
 ## 小程序开发（微信开发者工具）
 

@@ -1,0 +1,85 @@
+<!-- 班组数据（超管 / 班组管理员）：车牌号 / 目的地 / 人员 / 运维线路信息 四分段 -->
+<navbar back title="班组数据" />
+
+<view class="page-body" wx:if="{{isAdmin}}">
+  <!-- 四分段：车牌号 / 目的地 / 人员 / 运维线路信息 -->
+  <view class="seg-wrap">
+    <t-segmented
+      block
+      options="{{segOptions}}"
+      value="{{seg}}"
+      bind:change="onSegChange"
+    />
+  </view>
+
+  <!-- 字典段（车牌号 / 目的地 / 人员）：顶部输入即添加 + 列表维护 -->
+  <block wx:if="{{seg !== 'lines'}}">
+    <view class="addbar">
+      <view class="inp">
+        <input
+          class="inp-input"
+          value="{{keyword}}"
+          bindinput="onKeywordInput"
+          bindconfirm="onAdd"
+          placeholder="{{placeholder}}"
+          placeholder-class="ph"
+        />
+      </view>
+      <view class="btn-add" hover-class="hover-opacity" bindtap="onAdd">
+        <t-icon name="add" size="30rpx" color="#FFFFFF" />
+        添加
+      </view>
+    </view>
+
+    <!-- 字典列表（编辑 / 停用 / 删除；删除仅限无引用记录，被引用时后端拒绝并提示改停用） -->
+    <view class="card mlist">
+      <view class="mrow {{item.status === 1 ? '' : 'off'}}" wx:for="{{list}}" wx:key="id">
+        <view class="mi">
+          <t-icon name="{{icon}}" size="32rpx" color="#0E3DA8" />
+        </view>
+        <text class="mt">{{item.name}}</text>
+        <!-- 人员来源标：user_id 非空=账号同步（绿），空=手动添加（灰） -->
+        <text wx:if="{{seg === 'members'}}" class="{{item.user_id ? 'sync-pill' : 'hand-pill'}}">{{item.user_id ? '账号同步' : '手动添加'}}</text>
+        <text class="moff-tip" wx:if="{{item.status !== 1}}">已停用</text>
+        <view class="ops">
+          <!-- 成员排序（仅人员分段） -->
+          <text wx:if="{{seg === 'members' && index > 0}}" class="edit" hover-class="hover-opacity" bindtap="onMemberMove" data-id="{{item.id}}" data-dir="up">上移</text>
+          <text wx:if="{{seg === 'members' && index < list.length - 1}}" class="edit" hover-class="hover-opacity" bindtap="onMemberMove" data-id="{{item.id}}" data-dir="down">下移</text>
+          <text class="edit" hover-class="hover-opacity" bindtap="onEdit" data-id="{{item.id}}" data-name="{{item.name}}">编辑</text>
+          <text class="off" hover-class="hover-opacity" bindtap="onToggle" data-id="{{item.id}}" data-status="{{item.status}}">{{item.status === 1 ? '停用' : '启用'}}</text>
+          <text class="del" hover-class="hover-opacity" bindtap="onDelete" data-id="{{item.id}}" data-name="{{item.name}}">删除</text>
+        </view>
+      </view>
+      <view class="mempty" wx:if="{{!loading && list.length === 0}}">暂无数据，可在上方添加</view>
+    </view>
+  </block>
+
+  <!-- 运维线路信息段：线路清单（树障隐患记录分组依据）+ 杆塔坐标模板下载 / Excel 导入全量替换 -->
+  <block wx:if="{{seg === 'lines'}}">
+    <view class="card mlist">
+      <view class="mrow" wx:for="{{lines}}" wx:key="line_name">
+        <view class="mi">
+          <t-icon name="forest" size="32rpx" color="#0E3DA8" />
+        </view>
+        <text class="mt">{{item.voltage_level}} {{item.line_name}}</text>
+        <text class="line-tower">杆塔 {{item.tower_count}}</text>
+      </view>
+      <view class="mempty" wx:if="{{!linesLoading && lines.length === 0}}">暂无线路信息，可下载模板填写后导入</view>
+    </view>
+
+    <!-- 杆塔坐标导入（按当前生效班组全量替换，不影响其他班组） -->
+    <view class="tower-bar">
+      <view class="tb-l">
+        <view class="tb-n">杆塔坐标</view>
+        <view class="tb-s">导入即全量替换，仅作用于当前班组</view>
+      </view>
+      <view class="tb-btns">
+        <view class="tb-btn tpl" hover-class="hover-opacity" bindtap="onTplDownload">下载导入模板</view>
+        <view class="tb-btn imp {{importing ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onImpPick">{{importing ? '正在导入…' : '导入 Excel'}}</view>
+      </view>
+    </view>
+    <view class="lines-note">线路信息供树障隐患记录分组使用</view>
+  </block>
+</view>
+
+<t-toast id="t-toast" />

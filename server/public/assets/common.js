@@ -241,6 +241,8 @@
     'safe-day': { key: 'safeday', href: '/safeday.html' },
     'kvm': { key: 'kvm', href: '/kvm.html' },
     'netdisk': { key: 'netdisk', href: '/netdisk.html' },
+    'tree-hazard': { key: 'treehazard', href: '/treehazard.html' },
+    'team-data': { key: 'teamdata', href: '/teamdata.html' },
   };
   function cachedApps() {
     try { return JSON.parse(localStorage.getItem(APPS_KEY) || 'null'); } catch (e) { return null; }

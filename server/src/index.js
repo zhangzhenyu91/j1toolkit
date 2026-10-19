@@ -66,6 +66,10 @@ app.use('/api/v1/safeday', require('./safeday'));
 app.use('/api/v1/kvm', require('./kvm'));
 // 题库刷题（建表/种子见 db.js）
 app.use('/api/v1/quiz', require('./quiz'));
+// 树障隐患记录（建表/种子见 db.js；/ingest 直推接口凭 X-Ingest-Token 免登录）
+app.use('/api/v1/treehazard', require('./treehazard'));
+// 班组数据：字典/线路杆塔管理（数据复用 worklog 表，种子见 treehazard/schema.js）
+app.use('/api/v1/teamdata', require('./teamdata'));
 // 团队网盘（OpenList 中转，建表/种子见 netdisk/schema.js）
 app.use('/api/v1/netdisk', require('./netdisk'));
 // ONLYOFFICE 在线编辑（配置签发 + 保存回调；文件回源复用网盘 /preview 票据路由）

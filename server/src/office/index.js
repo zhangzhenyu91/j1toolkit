@@ -6,8 +6,9 @@
 //   网盘（可编辑协同）：回源复用网盘 /api/v1/netdisk/preview/:token 票据路由（{ndp} 载荷同口径），保存回调走本模块 /callback/:ticket；
 //   worklog-sheet：出工日志 工作任务单 / 费用汇总 / 派车汇总（按日期范围即时生成 docx/xlsx）；
 //   safeday：安全日记录产物（本地落盘 docx）；worklog-remark：出工日志备注附件（COS 公网地址转发）；
-//   后三个 view-only 来源统一强制 mode='view'、editorConfig 不配 callbackUrl / customization 不配 forcesave（只读不回写），
-//   回源走本模块 /raw/:ticket/:name?（免登录，票据即鉴权，载荷 {src:wls|sdr|wlr} 分派）
+//   treehazard：树障隐患统计表（按班组即时生成 xlsx）；
+//   后四个 view-only 来源统一强制 mode='view'、editorConfig 不配 callbackUrl / customization 不配 forcesave（只读不回写），
+//   回源走本模块 /raw/:ticket/:name?（免登录，票据即鉴权，载荷 {src:wls|sdr|wlr|thd} 分派）
 // 安全口径：回源票据短时效绑定单来源单文件；回调须同时通过 OnlyOffice JWT（OO_JWT_SECRET）与本服务回调票据双校验；
 //   回调应答为 OnlyOffice 约定格式 {error:0}（不走统一信封）
 const express = require('express');
@@ -31,6 +32,8 @@ const dispatchsheet = require('../worklog/dispatchsheet');
 const worklogCos = require('../worklog/cos');
 const safeday = require('../safeday');
 const safedayStore = require('../safeday/store');
+const treehazard = require('../treehazard');
+const thdExport = require('../treehazard/export');
 
 const router = express.Router();
 
@@ -205,6 +208,7 @@ router.post('/config', auth, async (req, res) => {
     if (src === 'worklog-sheet') return await signWorklogSheet(req, res);
     if (src === 'safeday') return await signSafeday(req, res);
     if (src === 'worklog-remark') return await signWorklogRemark(req, res);
+    if (src === 'treehazard') return await signTreehazard(req, res);
     if (src) return fail(res, 400, 40001, '参数错误：src');
     // 缺省来源 = 网盘文件：应用权限自路由级中间件挪入分支内判定（多源门禁应用各异），语义与 requireApp('netdisk') 一致
     if (!(await hasApp(req.user.id, 'netdisk'))) {
@@ -361,6 +365,26 @@ async function signWorklogRemark(req, res) {
   return ok(res, { public_url: config.office.publicUrl, config: docCfg });
 }
 
+// src='treehazard'：树障隐患统计表（body {line?, team_id?}；按班组即时生成 xlsx，view-only）
+async function signTreehazard(req, res) {
+  if (!enabled()) return fail(res, 503, 50301, '在线编辑未配置（OO_PUBLIC_URL）');
+  if (!config.office.jwtSecret) return fail(res, 503, 50301, '在线编辑未配置（OO_JWT_SECRET）');
+  if (!(await hasApp(req.user.id, 'tree-hazard'))) {
+    return fail(res, 403, 40301, '暂无该应用的使用权限，请联系管理员开通');
+  }
+  const body = req.body || {};
+  const team = await teamUtil.resolveTeam(req.user, body.team_id);
+  if (!team) return fail(res, 400, 40010, '无可用班组');
+  const line = String(body.line || '').trim();
+  const name = thdExport.exportFileName(team.name, line || undefined);
+  // document.key 带瞬时量：同一班组重复签发不复用 OO 缓存（内容随库即时变化，防 OO 按 key 缓存脏读）
+  const key = crypto.createHash('sha1').update(`treehazard|${team.id}|${line}|${Date.now()}`).digest('hex');
+  const url = rawUrl({ src: 'thd', team_id: team.id, line }, name);
+  const docCfg = viewDocCfg({ documentType: 'cell', ext: 'xlsx', key, name, url, user: req.user });
+  docCfg.token = jwt.sign(docCfg, config.office.jwtSecret);
+  return ok(res, { public_url: config.office.publicUrl, config: docCfg });
+}
+
 // ===== view-only 多源回源（免登录：OnlyOffice 容器凭票据取流；与 /callback 并列，挂位与口径参照网盘 /preview/:token/:name?） =====
 // 票据即鉴权：短时效 JWT 绑定单来源单文件（TTL = OO_FILE_TICKET_TTL）；验签失败或载荷非本路由票据一律 401 纯文本
 //（OO 不消费 {code,message,data} 信封）；URL 尾段 :name 仅供 OO 按扩展名识别格式，实际取数全按票据载荷
@@ -372,6 +396,7 @@ router.get('/raw/:ticket/:name?', async (req, res) => {
     if (src === 'wls') return await rawWorklogSheet(ticket, res);
     if (src === 'sdr') return await rawSafeday(ticket, res);
     if (src === 'wlr') return await rawWorklogRemark(ticket, res);
+    if (src === 'thd') return await rawTreehazard(ticket, res);
     return res.status(401).type('text').send('回源票据无效或已过期');
   } catch (err) {
     console.error(`[OO] 回源失败（src=${src || '无效票据'}）：`, err && err.message);
@@ -434,6 +459,17 @@ async function rawWorklogRemark(ticket, res) {
   if (len) res.setHeader('Content-Length', len);
   res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
   return Readable.fromWeb(resp.body).pipe(res);
+}
+
+// thd 回源：树障统计表按载荷即时生成（复用 treehazard 的 buildTeamExport，与 /export 下载同口径；buffer 一次性 res.end）
+async function rawTreehazard(ticket, res) {
+  const team = await teamUtil.getTeamById(ticket.team_id);
+  if (!team || team.status !== 1) return res.status(404).type('text').send('班组不存在或已停用');
+  const { buf, fileName } = await treehazard.buildTeamExport(team, String(ticket.line || '').trim());
+  res.setHeader('Content-Type', RAW_MIME.xlsx);
+  res.setHeader('Content-Length', buf.length);
+  res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+  return res.end(buf);
 }
 
 // 保存回调（免登录：OnlyOffice 容器回调。双校验——OO JWT 载体的回调体 + 本服务回调票据绑定单文件）

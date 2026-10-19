@@ -9,6 +9,8 @@ const SHARE_IMAGES = {
   'wm-add': '/images/share/share-wm-add.jpg',
   quiz: '/images/share/share-quiz.jpg',
   netdisk: '/images/share/share-netdisk.jpg',
+  'tree-hazard': '/images/share/share-tree-hazard.jpg',
+  'team-data': '/images/share/share-team-data.jpg',
 };
 
 // 在页面 onShareAppMessage 中调用：

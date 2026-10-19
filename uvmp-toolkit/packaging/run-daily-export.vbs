@@ -12,3 +12,12 @@ End Function
 cmd = "cmd /c ""set PYTHONIOENCODING=utf-8&& " & Q(basedir & "\uvmp-core.exe") _
       & " daily-export --if-due >> " & Q(basedir & "\daily-export.log") & " 2>&1"""
 ws.Run cmd, 0, True   ' 0=隐藏窗口；True=等待完成，防止分钟级周期重叠执行
+
+' 树障统计表同步（同一唤醒链路）：先按 U盘指令执行（U盘不在秒退），再做 22:55 夜间兜底判定；
+' 计划任务为每分钟触发——23:00 后的服务端指令次晨首轮 tick 补执行（与 linux timer 06..23 同时段语义）。
+cmd = "cmd /c ""set PYTHONIOENCODING=utf-8&& " & Q(basedir & "\uvmp-core.exe") _
+      & " tree-sync --tick >> " & Q(basedir & "\tree-sync.log") & " 2>&1"""
+ws.Run cmd, 0, True
+cmd = "cmd /c ""set PYTHONIOENCODING=utf-8&& " & Q(basedir & "\uvmp-core.exe") _
+      & " tree-sync --nightly --if-due >> " & Q(basedir & "\tree-sync.log") & " 2>&1"""
+ws.Run cmd, 0, True

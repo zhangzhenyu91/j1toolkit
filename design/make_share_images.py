@@ -25,6 +25,8 @@ APPS = {
     'wm-add': 0xE498,         # image
     'quiz': 0xE0CB,           # book
     'netdisk': 0xE3E0,        # folder
+    'tree-hazard': 0xE3E4,    # forest
+    'team-data': 0xE171,      # chart-bar
 }
 
 SHARE_RATIO = 5 / 4  # 微信分享缩略图按 5:4 显示，源头直接用 5:4 避免被裁偏

@@ -12,8 +12,9 @@
      照片网格「商旅/同步失败」角标（非水印照片同款展示，无验证角标）、「添加照片」方式三选（新增非水印直传）、Lightbox 商旅同步状态行（失败可重试）、
      卡片操作区「从商旅同步」（仅本卡用车人当日数据，卡片级进度锁，同小程序口径）；
      隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
-     管理员（超管 / 班组管理员）另见四个平级页签：「数据管理」= 车牌号 / 目的地 / 出工成员 三字典维护（成员支持上移 / 下移排序，
-     工作任务单「工作负责人」取排序最前的用车人）+ 杆塔坐标模板下载 / Excel 导入（同小程序 manage 页口径）；
+     管理员（超管 / 班组管理员）另见四个平级页签：「数据管理」= 已整体迁移至「班组数据」（teamdata.html；
+     本页签保留为跳转说明卡，旧锚点 #dict 自动跳转；原三字典维护 / 杆塔坐标模板下载·Excel 导入随迁移下线（代码保留未删），
+     商旅绑定设备区已迁至「班组数据 → 商旅设备」页签（本页旧实现代码同样保留未删））；
      「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 ONLYOFFICE 在线查看，OO 未配置时后端自动回退微软查看器、下载 fetch + blob，同安全日记录口径；同小程序 sheet 页（task 型）口径）；
      「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 sheet 页（fee 型）口径）；
      「派车汇总」= 按日期范围导出派车单号清单 xlsx（预览 / 下载 / 存网盘；预览走 ONLYOFFICE 在线查看，OO 未配置时后端自动回退微软查看器——
@@ -22,7 +23,7 @@
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人 / 目的地 / 派车单号（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；口径见《开发指南》7.6）；
      页签顶部「每日自动同步派车单」开关（/dispatch/sync-switch，按生效班组，仅 admin / team_admin）；
-     「数据管理」页签另有「商旅绑定设备」区：绑定成员列表（登录态/设备口径）可改设备，区底部选成员「代绑定」——管理员代成员完成商旅登录绑定（成员过期联系不上时兜底；弹层短信/密码双方式，均为图形码优先、失败降级内嵌滑块 iframe，落库为代绑行，成员可自助重绑接管）；
+     「数据管理」原另有「商旅绑定设备」区（绑定成员列表可改设备、区底部选成员「代绑定」），已迁至「班组数据 → 商旅设备」页签，本页旧实现代码保留未删；
      跨班日志：超管页头「跨班日志」入口（/logs/cross/* 全局字典，openCrossForm 新建 / 编辑；跨班卡车牌行加橙色描边「跨班」徽章，
      非超管不可改派车 / 删除，他班跨班卡不渲染商旅打卡区与「从商旅同步」入口）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
@@ -1097,8 +1098,18 @@
         <div class="pane-scroll" id="repBody"></div>
       </div>
 
-      <!-- 数据管理：车牌号 / 目的地 / 出工成员 字典 + 杆塔坐标（仅超管 / 班组管理员可见页签） -->
-      <div class="pane" id="paneDict"><div class="pane-scroll" id="dictBody"></div></div>
+      <!-- 数据管理：已迁移至「班组数据」（teamdata.html）；保留页签作跳转说明卡，旧锚点 #dict 在 init 自动跳转 -->
+      <div class="pane" id="paneDict"><div class="pane-scroll" id="dictBody">
+        <div class="card dsec">
+          <div class="dsec-h"><b>数据管理</b></div>
+          <div class="f-hint" style="padding:0 16px 6px;line-height:2">
+            数据管理已迁移至「班组数据」（车牌号 / 目的地 / 出工成员 / 运维线路信息 / 商旅设备）。
+          </div>
+          <div style="padding:0 16px 16px">
+            <a class="btn btn-sm btn-accent" href="/teamdata.html">前往「班组数据」</a>
+          </div>
+        </div>
+      </div></div>
 
       <!-- 工作任务单：按日期范围生成出车卡片合并为单个 docx，一卡一页（仅超管 / 班组管理员可见页签；与数据管理平级） -->
       <div class="pane" id="paneTS">
@@ -1112,7 +1123,7 @@
           <div class="card dsec">
             <div class="dsec-h"><b>字段口径</b></div>
             <div class="f-hint" style="padding:0 16px 14px;line-height:2">
-              线路杆塔号＝本卡水印照片的施工内容；工作负责人＝排序最前的用车人（排序在「数据管理 → 出工成员」维护）；<br>
+              线路杆塔号＝本卡水印照片的施工内容；工作负责人＝排序最前的用车人（排序在「班组数据 → 人员」维护）；<br>
               工作地点＝派车目的地；工作班成员＝用车人（空格间隔）；派车情况＝车牌号；未出车卡片不生成。
             </div>
           </div>
@@ -1153,7 +1164,7 @@
           <div class="card dsec">
             <div class="dsec-h"><b>字段口径</b></div>
             <div class="f-hint" style="padding:0 16px 14px;line-height:2">
-              列＝范围内当过用车人的成员（按「数据管理 → 出工成员」点亮顺序排列，未出现者不列）；行＝每张出车卡片一行（日期升序）；<br>
+              列＝范围内当过用车人的成员（按「班组数据 → 人员」点亮顺序排列，未出现者不列）；行＝每张出车卡片一行（日期升序）；<br>
               单元格＝（当日伙食补助＋交通费）×1＝计算值，非用车人列留空；费用数据来自商旅同步，有未通过核验的记录需先在「汇总前核验」处理后再生成。
             </div>
           </div>
@@ -1221,7 +1232,7 @@
 <script>
 /* ============================================================
    出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理·工作任务单·费用汇总·派车汇总·派车对齐八页签（原下载、报告弹层已页签化；
-   数据管理 / 工作任务单 / 费用汇总 / 派车汇总 / 派车对齐仅超管 / 班组管理员可见：三字典维护（成员可排序）+ 杆塔坐标导入；任务单按日期范围合并生成 docx，费用汇总按日期范围生成「人 × 日」费用矩阵 docx；
+   数据管理已迁移至「班组数据」teamdata.html，本页签保留为跳转说明卡，原实现代码保留未删；工作任务单 / 费用汇总 / 派车汇总 / 派车对齐仅超管 / 班组管理员可见：任务单按日期范围合并生成 docx，费用汇总按日期范围生成「人 × 日」费用矩阵 docx；
    派车汇总按日期范围导出派车单号清单 xlsx（派车单号 + 用车日期两列，顺序与工作任务单一致；数据来自卡片 dispatch_order_no 字段，仅已填单号的出车卡片出数）；
    派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（小程序端同功能见 pkg-worklog/pages/dispatch），接口 /worklog/admin/* 按生效班组隔离；
    页签顶部「每日自动同步派车单」开关（GET/PUT /dispatch/sync-switch，按生效班组）；超管另有「跨班日志」新建 / 编辑（/logs/cross/* 全局字典，openCrossForm）
@@ -1238,6 +1249,8 @@
 (function () {
 'use strict';
 Shade.requireAuth();
+/* 旧锚点 #dict：数据管理已迁移至「班组数据」，直接自动跳转（teamdata.html 自带角色门控） */
+if (location.hash === '#dict') { location.replace('/teamdata.html'); return; }
 /* 统一顶部导航（当前应用：出工日志） */
 Shade.topbar({ active: 'worklog' });
 
@@ -3612,7 +3625,7 @@ async function openAlign(i) {
     }).join('') + '</div>';
     var sUnknown = it.sheet.members.filter(function (n) { return sMemNames.indexOf(n) < 0; });
     var sMemNote = sUnknown.length
-      ? '<div class="pa-note red">表格用车人「' + esc(sUnknown.join(' ')) + '」不在本班成员字典，无法点亮（可在数据管理中添加成员）</div>'
+      ? '<div class="pa-note red">表格用车人「' + esc(sUnknown.join(' ')) + '」不在本班成员字典，无法点亮（可在「班组数据 → 人员」中添加成员）</div>'
       : '';
     var sDestHit = it.sheet.to
       ? meta.destinations.filter(function (v) { return paDestSame(v.name, it.sheet.to); })[0] || null
@@ -3674,7 +3687,7 @@ async function openAlign(i) {
     memNote = '<div class="pa-note red">红点 = 卡片多出（点击取消）；绿虚框 = 表格有而卡片缺（点击补上）</div>';
   }
   if (unknownMissing.length) {
-    memNote += '<div class="pa-note red">表格用车人「' + esc(unknownMissing.join(' ')) + '」不在本班成员字典，无法点亮（可在数据管理中添加成员）</div>';
+    memNote += '<div class="pa-note red">表格用车人「' + esc(unknownMissing.join(' ')) + '」不在本班成员字典，无法点亮（可在「班组数据 → 人员」中添加成员）</div>';
   }
   /* 表格目的地模糊匹配本班字典（paDestSame 与后端同口径）：命中则预填并提示，未命中提示手工选择 */
   var hitDest = null;
@@ -4686,10 +4699,10 @@ function switchPane(key) {
   $('#btnCross').hidden = !isRec || !isAdmin(); // 跨班日志入口仅超管可见
   $('#btnSyncCheck').hidden = !isRec || !canManage(); // 从商旅拉取仅超管 / 班组管理员可见（init 同口径）
   /* 下载页签首次进入按默认范围自动加载；汇总前核验每次切回都重查（卡片可直改备注，避免陈旧数据）；
-     数据管理每次切回都重拉（字典可能被其他管理员改动）；派车对齐每次切回重渲染（本地状态，零开销）并拉取自动同步开关状态 */
+     派车对齐每次切回重渲染（本地状态，零开销）并拉取自动同步开关状态；
+     数据管理页签已迁移至「班组数据」（teamdata.html），内容区为静态跳转卡，无需加载 */
   if (key === 'Dl' && state.dl.list === null) loadDlPhotos();
   if (key === 'Rep') loadReport();
-  if (key === 'Dict') loadDict();
   if (key === 'PA') { renderPA(); loadPaSyncSwitch(); }
   syncSideReport();
 }
@@ -4930,7 +4943,7 @@ async function pollSpectatorOps() {
 function onClockTap(entry, el) {
   if (state.date !== todayStr()) { Shade.toast('仅当日日期可打卡', 'info'); return; }
   if (el.dataset.bound === '0') {
-    Shade.toast('该用车人未绑定商旅，请引导其本人绑定；管理员也可在「数据管理 → 商旅绑定设备」代绑定', 'info');
+    Shade.toast('该用车人未绑定商旅，请引导其本人绑定；管理员也可在「班组数据 → 商旅设备」代绑定', 'info');
     return;
   }
   openClockModal(entry, Number(el.dataset.mid), el.dataset.name, Number(el.dataset.seq) === 2 ? 2 : 1, el.dataset.done === '1' ? 'update' : 'mark');
@@ -5640,7 +5653,6 @@ function reloadTeamData() {
   loadLogs();
   if (state.pane === 'Dl') loadDlPhotos();
   if (state.pane === 'Rep') loadReport();
-  if (state.pane === 'Dict') loadDict(); // 数据管理页签随动刷新
   if (state.pane === 'PA') { renderPA(); loadPaSyncSwitch(); } // 派车对齐页签随动刷新（结果已清空，回初始态；开关状态按新生效班组重拉）
   syncSideReport(); // 宽屏常驻核验栏随班组切换重查
 }

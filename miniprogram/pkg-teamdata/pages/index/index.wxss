@@ -1,0 +1,241 @@
+/* 班组数据（政企蓝白 token；样式口径同出工日志 manage 页） */
+
+/* tdesign 组件变量（本页未引用分包 common.wxss，变量块自留） */
+page {
+  --td-toast-radius: 8rpx;
+  --td-tag-round-border-radius: 12rpx;
+  --td-tag-square-border-radius: 12rpx;
+}
+
+/* 按压反馈：轻度变暗 */
+.hover-opacity {
+  opacity: 0.75 !important;
+}
+
+/* ---------- 分段（激活态白底蓝字，政企蓝白分段控件口径） ---------- */
+.seg-wrap {
+  /* CSS 变量穿透组件（apply-shared），覆盖 t-segmented 主题 */
+  --td-segmented-bg-color: #E5E6EB;
+  --td-segmented-item-active-bg: #ffffff;
+  --td-segmented-item-active-color: #0E3DA8;
+  --td-segmented-item-color: #4E5969;
+}
+
+.seg-wrap .t-segmented {
+  border: none;
+  border-radius: 16rpx;
+  box-shadow: none;
+}
+
+.seg-wrap .t-segmented__thumb {
+  border-radius: 12rpx;
+}
+
+/* ---------- 添加栏 ---------- */
+.addbar {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 28rpx;
+}
+
+.inp {
+  flex: 1;
+  height: 84rpx;
+  background: #ffffff;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  padding: 0 28rpx;
+  box-sizing: border-box;
+}
+
+.inp-input {
+  flex: 1;
+  font-size: 26rpx;
+  color: #1D2129;
+}
+
+.ph {
+  color: rgba(29, 33, 41, 0.4);
+}
+
+.btn-add {
+  width: 172rpx;
+  height: 84rpx;
+  flex: none;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
+  background: #0E3DA8;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+}
+
+/* ---------- 字典 / 线路列表 ---------- */
+.mlist {
+  margin-top: 28rpx;
+}
+
+.mrow {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 32rpx;
+}
+
+.mrow + .mrow {
+  border-top: 2rpx solid #E5E6EB;
+}
+
+.mrow .mi {
+  width: 60rpx;
+  height: 60rpx;
+  flex: none;
+  border-radius: 12rpx;
+  background: #E8F0FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mrow .mt {
+  font-size: 28rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+}
+
+.mrow.off .mt {
+  color: rgba(29, 33, 41, 0.4);
+  font-weight: 400;
+}
+
+.moff-tip {
+  font-size: 20rpx;
+  color: rgba(29, 33, 41, 0.4);
+  border: 2rpx solid rgba(29, 33, 41, 0.35);
+  border-radius: 12rpx;
+  padding: 0 10rpx;
+  line-height: 30rpx;
+}
+
+.mrow .ops {
+  margin-left: auto;
+  display: flex;
+  gap: 28rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  flex: none;
+}
+
+.mrow .ops .edit {
+  color: #0E3DA8;
+}
+
+.mrow .ops .off {
+  color: rgba(29, 33, 41, 0.4);
+}
+
+.mrow .ops .del {
+  color: #F53F3F;
+}
+
+.mempty {
+  padding: 48rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: rgba(29, 33, 41, 0.4);
+}
+
+/* ---------- 人员来源标（直角小签） ---------- */
+.sync-pill {
+  font-size: 19rpx;
+  color: #00B42A;
+  background: #eaf6ee;
+  border-radius: 12rpx;
+  padding: 2rpx 12rpx;
+  font-weight: 700;
+}
+
+.hand-pill {
+  font-size: 19rpx;
+  color: #4E5969;
+  background: #E8F0FF;
+  border-radius: 12rpx;
+  padding: 2rpx 12rpx;
+  font-weight: 700;
+}
+
+/* ---------- 运维线路信息段 ---------- */
+.line-tower {
+  margin-left: auto;
+  font-size: 22rpx;
+  color: #86909C;
+  font-variant-numeric: tabular-nums;
+}
+
+.tower-bar {
+  margin-top: 28rpx;
+  background: #ffffff;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
+  padding: 22rpx 26rpx;
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+}
+
+.tower-bar .tb-n {
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.tower-bar .tb-s {
+  font-size: 20rpx;
+  color: rgba(29, 33, 41, 0.4);
+  margin-top: 4rpx;
+}
+
+.tb-btn {
+  font-size: 22rpx;
+  font-weight: 700;
+  border-radius: 12rpx;
+  padding: 12rpx 20rpx;
+}
+
+.tb-btn.tpl {
+  background: #ffffff;
+  border: 2rpx solid #E5E6EB;
+  color: #1D2129;
+}
+
+.tb-btn.imp {
+  background: #E8F0FF;
+  border: 3rpx solid #0E3DA8;
+  color: #0E3DA8;
+}
+
+.tb-btn.disabled {
+  opacity: 0.5;
+}
+
+.tower-bar .tb-btns {
+  margin-left: auto;
+  display: flex;
+  gap: 16rpx;
+  flex: none;
+}
+
+.lines-note {
+  margin-top: 20rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #86909C;
+}

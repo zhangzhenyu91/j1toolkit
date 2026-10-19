@@ -107,8 +107,16 @@ function applyAutostart() {
 function startInAppScheduler() {
   const tick = () => {
     if (!bridge) return;
+    // 每日派车单同步到点判定（树障统计表同步的夜间兜底也挂在该调用内，核心侧同门闸）
     bridge.call('maybeRunDaily').then((r) => {
       if (r && r.started) console.log('[驻留调度] 到点执行每日导出，job=' + r.job_id);
+      if (r && r.tree_sync_nightly && r.tree_sync_nightly.started) {
+        console.log('[驻留调度] 到点执行树障统计表夜间兜底，job=' + r.tree_sync_nightly.job_id);
+      }
+    }).catch(() => {});
+    // 树障统计表同步 U盘指令轮询（U盘不在秒退；与 OS 定时器经 driver 门闸互斥）
+    bridge.call('maybeRunTreeSyncTick').then((r) => {
+      if (r && r.started) console.log('[驻留调度] 执行树障统计表指令轮询，job=' + r.job_id);
     }).catch(() => {});
   };
   setTimeout(tick, 10000);   // 启动 10s 后先查一次（补跑昨夜关机错过的）

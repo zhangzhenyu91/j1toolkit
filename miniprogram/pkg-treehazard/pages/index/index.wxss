@@ -1,0 +1,482 @@
+/* 树障隐患记录（政企蓝白 token；看板仿首页 stats-card，弹层口径同出工日志 manage 页） */
+
+/* tdesign 组件变量 */
+page {
+  --td-popup-border-radius: 24rpx;
+  --td-dialog-border-radius: 24rpx;
+  --td-toast-radius: 8rpx;
+  --td-tag-round-border-radius: 12rpx;
+  --td-tag-square-border-radius: 12rpx;
+}
+
+/* 按压反馈：轻度变暗 */
+.hover-opacity {
+  opacity: 0.75 !important;
+}
+
+/* ---------- 看板四格卡（仿首页 stats-card；本页无深蓝页首，不负边距浮层） ---------- */
+.stats-card {
+  display: flex;
+  padding: 30rpx 0;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s backwards;
+}
+
+.stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.stat + .stat {
+  border-left: 1rpx solid #E5E6EB;
+}
+
+.stat-num {
+  font-size: 32rpx;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #1D2129;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-num-warn {
+  color: #FF7D00;
+}
+
+.stat-num-bad {
+  color: #F53F3F;
+}
+
+.stat-label {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #86909C;
+}
+
+/* ---------- 工具行（筛选 / 批量 / 导出 / 阈值 / 同步 胶囊） ---------- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  margin-top: 28rpx;
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  height: 64rpx;
+  padding: 0 24rpx;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E6EB;
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
+}
+
+.tool .tool-t {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #1D2129;
+  max-width: 260rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tool-on {
+  background: #0E3DA8;
+  border-color: #0E3DA8;
+}
+
+.tool-on .tool-t {
+  color: #FFFFFF;
+}
+
+/* ---------- 分组标题 ---------- */
+.lgroup {
+  margin-top: 8rpx;
+}
+
+.lg-title {
+  display: flex;
+  align-items: baseline;
+  margin: 28rpx 8rpx 16rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1D2129;
+}
+
+.lg-n {
+  margin-left: 12rpx;
+  font-size: 22rpx;
+  font-weight: 400;
+  color: #86909C;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 记录卡片（已处理整体降饱和） ---------- */
+.thcard {
+  position: relative;
+  padding: 28rpx;
+}
+
+.thcard + .thcard {
+  margin-top: 24rpx;
+}
+
+.thcard.done {
+  opacity: 0.62;
+}
+
+/* 首行：勾选圆点（批量模式）+ 区段 + 状态点标 */
+.th-head {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.ck-ring {
+  width: 40rpx;
+  height: 40rpx;
+  flex: none;
+  border-radius: 50%;
+  border: 2rpx solid #C9CDD4;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.ck-ring.on {
+  background: #0E3DA8;
+  border-color: #0E3DA8;
+}
+
+.ck-ring.dis {
+  background: #F7F8FA;
+  border-style: dashed;
+}
+
+.th-section {
+  flex: 1;
+  min-width: 0;
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #1D2129;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.th-pos {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #86909C;
+}
+
+/* 字段网格（一行四个小字段） */
+.th-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
+}
+
+.th-f {
+  width: 25%;
+  min-width: 0;
+  padding: 10rpx 8rpx 10rpx 0;
+  box-sizing: border-box;
+}
+
+.th-l {
+  font-size: 20rpx;
+  color: #86909C;
+}
+
+.th-v {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: #1D2129;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 垂直距离 ≤ 阈值：红字 + 浅红底胶囊突出 */
+.th-v.th-v-bad {
+  display: inline-block;
+  padding: 2rpx 12rpx;
+  background: #FFECE8;
+  border-radius: 8rpx;
+  color: #F53F3F;
+  font-weight: 700;
+}
+
+/* 已处理信息：一行灰字 */
+.th-handled {
+  margin-top: 14rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid #E5E6EB;
+  font-size: 22rpx;
+  color: #86909C;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 照片三区 ---------- */
+.pz {
+  margin-top: 20rpx;
+}
+
+.pz-t {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #4E5969;
+}
+
+.pz-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+
+.pz-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 8rpx;
+  background: #F7F8FA;
+}
+
+.pz-add {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 8rpx;
+  border: 2rpx dashed #C9CDD4;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 辅证区无图占位：灰字、无交互 */
+.pz-none {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #C9CDD4;
+}
+
+/* ---------- 操作区（处理次按钮：描边样式） ---------- */
+.th-ops {
+  margin-top: 24rpx;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.th-btn {
+  padding: 12rpx 48rpx;
+  border: 2rpx solid #0E3DA8;
+  border-radius: 12rpx;
+  color: #0E3DA8;
+  font-size: 26rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+}
+
+/* ---------- 批量模式底部固定条 ---------- */
+.bb-spacer {
+  height: 140rpx;
+}
+
+.batchbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: #FFFFFF;
+  box-shadow: 0 -4rpx 16rpx rgba(0, 0, 0, 0.06);
+}
+
+.bb-info {
+  flex: 1;
+  font-size: 26rpx;
+  color: #4E5969;
+  font-variant-numeric: tabular-nums;
+}
+
+.bb-btn {
+  padding: 14rpx 48rpx;
+  border-radius: 12rpx;
+  background: #0E3DA8;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+}
+
+.bb-btn.disabled {
+  opacity: 0.5;
+}
+
+/* ---------- 空态 ---------- */
+.empty-box {
+  margin-top: 28rpx;
+  padding: 80rpx 0;
+  text-align: center;
+  font-size: 24rpx;
+  color: rgba(29, 33, 41, 0.4);
+}
+
+/* ---------- 底部弹层（sheet 族同出工日志 manage 页口径） ---------- */
+.sheet {
+  position: relative;
+  background: #ffffff;
+  border-radius: 24rpx 24rpx 0 0;
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
+  padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.sheet-title {
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+  color: #1D2129;
+}
+
+/* 筛选项列表（限高滚动） */
+.flt-list {
+  margin-top: 24rpx;
+  max-height: 60vh;
+}
+
+.flt-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 26rpx 16rpx;
+  font-size: 28rpx;
+  color: #1D2129;
+}
+
+.flt-item + .flt-item {
+  border-top: 1rpx solid #E5E6EB;
+}
+
+.flt-item.on {
+  color: #0E3DA8;
+  font-weight: 600;
+}
+
+/* 表单字段（.f-label/.f-field 用 app.wxss 全局类） */
+.f-item {
+  margin-top: 24rpx;
+}
+
+.date-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 84rpx;
+  font-size: 26rpx;
+  color: #1D2129;
+}
+
+.qtags {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 16rpx;
+}
+
+/* 阈值说明 */
+.th-tip {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: #86909C;
+  line-height: 1.6;
+}
+
+/* 同步状态 */
+.sync-box {
+  margin-top: 24rpx;
+  background: #F7F8FA;
+  border-radius: 12rpx;
+  padding: 8rpx 24rpx;
+}
+
+.sync-row {
+  display: flex;
+  gap: 24rpx;
+  padding: 18rpx 0;
+  font-size: 26rpx;
+}
+
+.sync-row + .sync-row {
+  border-top: 1rpx solid #E5E6EB;
+}
+
+.sync-l {
+  width: 140rpx;
+  flex: none;
+  color: #86909C;
+}
+
+.sync-v {
+  flex: 1;
+  min-width: 0;
+  color: #1D2129;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 32rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 88rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #E5E6EB;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #4E5969;
+  letter-spacing: 6rpx;
+  box-sizing: border-box;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+}
+
+.btn-dark {
+  flex: 2;
+  height: 88rpx;
+  border-radius: 12rpx;
+  background: #0E3DA8;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+}
+
+.btn-ghost.disabled,
+.btn-dark.disabled {
+  opacity: 0.5;
+}

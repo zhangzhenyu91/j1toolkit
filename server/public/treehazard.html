@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<!-- Shade 壹匣 · 树障隐患记录网页版（「政企蓝白」token；骨架同 worklog.html：100vh 锁高 + 悬浮卡片 + 页签内部滚动）
+     功能：看板四格（未处理 / 本周新增 / 垂直距离≤阈值未处理 / 已处理）+ 线路筛选 + 统计表预览（/export/preview
+     取 url 当前窗口打开）与下载（apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
+     记录按线路分组渲染（后端已排序），卡片含区段 / 树种×数量 / 直径与距小号·距大号·水平·垂直（超阈值红显）·发现人·发现时间，
+     照片三区（辅证只读 / 处理前 / 处理后，网格缩略图 + 大图查看器 + 上传 / 删除），未处理卡可「处理」（处理人·情况·时间弹层），
+     支持批量勾选批量处理；暂存区 / 冲突页签与阈值设置 / 同步至内网仅超管·班组管理员可见（服务端 requireDictAdmin 同拦）；
+     班组隔离：超管页头班组切换下拉（localStorage.treehazard_team_id，全部 /treehazard/* 请求统一带 team_id，见 th()），
+     非超管固定本班、未分配班组整页空态（屏十口径）；API 直连主平台 /api/v1/treehazard/*（Bearer token 经 Shade.api） -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>树障隐患记录 · Shade 壹匣</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/assets/theme.css">
+<style>
+  /* ============================================================
+     树障隐患记录页内样式 ·「政企蓝白」（色板全部走 theme.css 变量，骨架口径同 worklog）
+     ============================================================ */
+  /* ===== 整页不滚动：仅页签内容区内部滚动（body 锁定 100vh，主内容 flex 撑满剩余视口） ===== */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  body > .topbar { flex: none; }
+  /* theme.css 的 .page 带 margin:0 auto，flex 容器内显式 width:100% 恢复满宽（同 worklog 口径） */
+  .page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; padding-bottom: 24px; }
+  .th-wrap { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+  .th-wrap [hidden] { display: none !important; } /* author display 规则优先于 UA [hidden]，显式兜底 */
+
+  /* ===== 入场关键帧（一次上浮/淡入后静止；降级见文件末） ===== */
+  @keyframes k-fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  /* ===== 页头：标题 + 副标；右侧操作区（班组切换） ===== */
+  .th-head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap; }
+  .th-head .section-title { display: block; margin: 0; }
+  .th-kick { font-size: 11px; font-weight: 600; letter-spacing: 2px; color: var(--orange); animation: k-fade .5s var(--ease) .06s both; }
+  .th-head .section-title h3 {
+    margin-top: 6px; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: 1px;
+    animation: k-fade .55s var(--ease) .12s both;
+  }
+  .th-head .section-title .more {
+    display: block; margin: 8px 0 0; font-size: 13px; color: var(--sub); letter-spacing: .5px;
+    animation: k-fade .55s var(--ease) .2s both;
+  }
+  .th-head .acts { margin-left: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; animation: k-fade .55s var(--ease) .28s both; }
+
+  /* ===== 看板四格卡（白卡 + tabular-nums） ===== */
+  .th-dash { flex: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 16px; animation: k-fade .55s var(--ease) .3s both; }
+  @media (max-width: 900px) { .th-dash { grid-template-columns: repeat(2, 1fr); } }
+  .dc { padding: 16px 20px 14px; display: flex; align-items: baseline; gap: 10px; }
+  .dc-n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .dc-n.blue { color: var(--orange); }
+  .dc-n.red { color: var(--red); }
+  .dc-n.green { color: var(--green); }
+  .dc-n.mut { font-size: 14px; color: var(--ph); font-weight: 600; letter-spacing: 1px; }
+  .dc-t { font-size: 12px; color: var(--sub); letter-spacing: .5px; }
+  /* 班管/超管待办小字入口（暂存 / 冲突角标同源 dashboard 计数） */
+  .dash-todo {
+    grid-column: 1 / -1; margin-top: -4px; font-size: 12px; color: var(--sub); letter-spacing: .5px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .dash-todo > svg { width: 14px; height: 14px; color: var(--yellow); flex: none; }
+  .dash-todo a { font-weight: 700; cursor: pointer; }
+
+  /* ===== 工具行：线路筛选 + 导出（预览/下载）+ 阈值设置 / 同步至内网（管理）+ 批量处理开关 ===== */
+  .th-tools {
+    flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px;
+    animation: k-fade .55s var(--ease) .36s both;
+  }
+  .th-tools .dd { width: auto; min-width: 160px; }
+  .sync-hint { font-size: 11.5px; color: var(--ph); letter-spacing: .5px; }
+  .th-tools .spring { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  /* ===== 三页签：下划线式页签，激活蓝字 + 2px 蓝条（同 worklog wl-tabs 口径；角标红胶囊） ===== */
+  .th-tabs {
+    position: relative; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 14px;
+    border-bottom: 1px solid var(--line); animation: k-fade .55s var(--ease) .4s both;
+  }
+  .th-tabs button {
+    position: relative; padding: 9px 14px; border: none; background: transparent; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 13px; font-weight: 600; color: var(--sub); letter-spacing: .5px;
+    transition: color .15s;
+  }
+  .th-tabs button:hover { color: var(--navy); }
+  .th-tabs button.on { color: var(--orange); }
+  .th-tabs button.on::after {
+    content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px;
+    height: 2px; background: var(--orange); border-radius: 2px;
+  }
+  .th-tabs button svg { width: 15px; height: 15px; }
+  .th-tabs button[hidden] { display: none !important; }
+  .bdg {
+    min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; background: var(--red); color: #fff;
+    font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center; font-variant-numeric: tabular-nums;
+  }
+  .th-tab-ind { display: none; } /* 滑动指示条按稿弃用（激活态已由蓝字 + 蓝条表达）；节点保留供 Shade.moveTabInd 写值 */
+
+  /* ===== 主体：三页签共用列表位，内容各自内部滚动 ===== */
+  .th-body { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 14px; }
+  .th-body .pane { display: none; flex: 1; min-height: 0; }
+  .th-body .pane.on { display: flex; flex-direction: column; animation: paneIn .34s var(--ease); }
+  @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .pane-scroll {
+    flex: 1; min-height: 0; overflow-y: auto; padding-right: 10px; scrollbar-gutter: stable;
+    scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
+  }
+  .pane-scroll::-webkit-scrollbar { width: 5px; }
+  .pane-scroll::-webkit-scrollbar-thumb { background: rgba(29, 33, 41, .16); border-radius: 8px; }
+  .pane-scroll::-webkit-scrollbar-thumb:hover { background: rgba(29, 33, 41, .34); }
+  .pane-scroll::-webkit-scrollbar-track { background: transparent; }
+
+  .linkbtn {
+    border: none; background: transparent; color: var(--orange); font-size: 12px; font-weight: 700;
+    letter-spacing: 1px; cursor: pointer; padding: 4px 6px; border-radius: 8px; transition: background .2s;
+  }
+  .linkbtn:hover { background: var(--orange-soft); }
+  .linkbtn.dgr { color: var(--red); }
+  .linkbtn.dgr:hover { background: #FFECE8; }
+
+  /* ===== 记录页签：线路分组 + 隐患卡片 ===== */
+  .lg-head { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 12px; }
+  .lg-head b { font-size: 15.5px; font-weight: 700; letter-spacing: 1px; }
+  .lg-head .lg-n { font-size: 12px; color: var(--ph); font-variant-numeric: tabular-nums; }
+  .rec { margin-bottom: 16px; padding: 16px 22px 14px; position: relative; }
+  .rec.done { opacity: .62; } /* 已处理卡整体降饱和 */
+  .rec-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .rec-sec { font-size: 19px; font-weight: 700; letter-spacing: 1px; }
+  .rec-pos { font-size: 12px; color: var(--ph); letter-spacing: .5px; }
+  .rec-sub { font-size: 13px; font-weight: 600; color: var(--navy); letter-spacing: .5px; }
+  /* 状态小签：圆点 + 文字（未处理红 / 已处理绿） */
+  .rec-tag {
+    margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; letter-spacing: .5px;
+  }
+  .rec-tag::before { content: ""; width: 5px; height: 5px; border-radius: 50%; }
+  .rec-tag.un { background: #FFECE8; color: var(--red); }
+  .rec-tag.un::before { background: var(--red); }
+  .rec-tag.ok { background: #E8FFEA; color: #0B8A37; }
+  .rec-tag.ok::before { background: #0B8A37; }
+  .rec-del { flex: none; }
+  /* 批量勾选框（批量模式才渲染；已处理卡为禁用态） */
+  .rec-ck {
+    flex: none; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--dash); background: #fff;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: transparent;
+    transition: border-color .15s, background .15s;
+  }
+  .rec-ck svg { width: 12px; height: 12px; }
+  .rec-ck:hover { border-color: var(--orange); }
+  .rec-ck.on { border-color: var(--orange); background: var(--orange); color: #fff; }
+  .rec-ck.dis { opacity: .35; cursor: not-allowed; }
+  .rec-ck.dis:hover { border-color: var(--dash); }
+  /* 网格小字段：距小号 / 距大号 / 水平 / 垂直 / 发现人 / 发现时间 */
+  .rec-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px 14px; margin-top: 12px; }
+  @media (max-width: 1100px) { .rec-grid { grid-template-columns: repeat(3, 1fr); } }
+  .rg-cell { background: var(--fill); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+  .rg-k { font-size: 10.5px; color: var(--ph); letter-spacing: 1px; }
+  .rg-v { margin-top: 2px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 垂直距离超阈值：浅红底红字突出 */
+  .rg-cell.danger { background: #FFECE8; }
+  .rg-cell.danger .rg-v { color: var(--red); font-weight: 700; }
+  /* 已处理信息行（绿点 + 处理人/处理情况/处理时间） */
+  .rec-handled {
+    margin-top: 12px; padding: 9px 12px; border-radius: 8px; background: #E8FFEA;
+    display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
+    font-size: 12.5px; color: #0B8A37; letter-spacing: .5px;
+  }
+  .rec-handled::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+  .rec-handled b { font-weight: 700; }
+  /* 照片三区：辅证（只读）/ 处理前 / 处理后 */
+  .ph-zones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 12px; }
+  @media (max-width: 1100px) { .ph-zones { grid-template-columns: 1fr; } }
+  .ph-zhead { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--sub); letter-spacing: 1px; }
+  .ph-add {
+    margin-left: auto; width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line); background: #fff;
+    color: var(--orange); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: border-color .15s, background .15s;
+  }
+  .ph-add:hover { border-color: var(--orange); background: var(--orange-soft); }
+  .ph-add svg { width: 12px; height: 12px; }
+  .ph-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; min-height: 30px; }
+  .ph { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); cursor: zoom-in; background: var(--paper); }
+  .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ph-x {
+    position: absolute; top: 3px; right: 3px; width: 17px; height: 17px; border-radius: 6px; border: none;
+    background: rgba(29, 33, 41, .72); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s;
+  }
+  .ph:hover .ph-x { opacity: 1; }
+  .ph-x svg { width: 9px; height: 9px; }
+  .ph-none { font-size: 11.5px; color: var(--ph); letter-spacing: .5px; padding: 8px 0; }
+  .rec-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+
+  /* ===== 暂存区页签：批次卡 + 批次详情（inline 编辑表格） ===== */
+  .stg-card { margin-bottom: 14px; padding: 16px 22px; cursor: pointer; transition: transform .18s var(--ease), box-shadow .18s var(--ease); }
+  .stg-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+  .stg-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .stg-top b { font-size: 15.5px; font-weight: 700; letter-spacing: .5px; }
+  .stg-meta { font-size: 12px; color: var(--ph); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .stg-go { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--orange); }
+  /* 审核备注：浅底 + 左色条警示块（直角，同「政企蓝白」警示信息块族） */
+  .stg-note {
+    margin-top: 10px; padding: 9px 12px; background: #FFF7E8; border-left: 4px solid var(--yellow);
+    font-size: 12.5px; color: var(--sub); line-height: 1.7; letter-spacing: .5px;
+  }
+  .stg-note b { color: var(--navy); }
+  .stg-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .stg-bar .back { display: inline-flex; align-items: center; gap: 5px; }
+  .stg-bar .spring { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .stg-title { font-size: 14px; font-weight: 700; letter-spacing: .5px; }
+  .stg-title small { margin-left: 8px; font-size: 11.5px; color: var(--ph); font-weight: 400; font-variant-numeric: tabular-nums; }
+  /* 批次详情表格：15 业务列 inline 输入，横向滚动 */
+  .stg-table { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; scrollbar-width: thin; }
+  .stg-tb { border-collapse: collapse; min-width: 1680px; width: 100%; }
+  .stg-tb th, .stg-tb td { padding: 7px 8px; border-bottom: 1px solid var(--hair); font-size: 12px; text-align: left; white-space: nowrap; }
+  .stg-tb th { position: sticky; top: 0; background: var(--fill); font-size: 11px; font-weight: 700; color: var(--sub); letter-spacing: .5px; z-index: 1; }
+  .stg-tb tr:last-child td { border-bottom: none; }
+  .stg-in {
+    width: 92px; height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 0 8px;
+    font-size: 12px; color: var(--navy); font-family: inherit; outline: none; background: #fff;
+    transition: border-color .15s;
+  }
+  .stg-in:focus { border-color: var(--orange); }
+  .stg-in.w-line { width: 130px; }
+  .stg-in.w-note { width: 120px; }
+  .stg-in[type="date"] { width: 128px; }
+  .stg-ck { width: 16px; height: 16px; accent-color: var(--orange); cursor: pointer; }
+
+  /* ===== 冲突页签：对照卡（系统值 | 内网值，差异字段标红） ===== */
+  .cft { margin-bottom: 16px; padding: 16px 22px; }
+  .cft-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .cft-head b { font-size: 15.5px; font-weight: 700; letter-spacing: .5px; }
+  .cft-head .cft-time { margin-left: auto; font-size: 11.5px; color: var(--ph); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .cft-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+  @media (max-width: 1000px) { .cft-cmp { grid-template-columns: 1fr; } }
+  .cft-col { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .cft-col-h { padding: 9px 14px; font-size: 12.5px; font-weight: 700; letter-spacing: 1px; background: var(--fill); border-bottom: 1px solid var(--line); }
+  .cft-rows { padding: 4px 14px 10px; }
+  .cft-r { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--hair); font-size: 12.5px; }
+  .cft-r:last-child { border-bottom: none; }
+  .cft-r .k { flex: none; width: 84px; color: var(--ph); letter-spacing: 1px; }
+  .cft-r .v { flex: 1; min-width: 0; font-weight: 600; word-break: break-all; font-variant-numeric: tabular-nums; }
+  .cft-r .v.df { color: var(--red); font-weight: 700; }
+  .cft-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+  /* ===== 批量处理底部悬浮条 ===== */
+  .batch-bar {
+    position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 120;
+    display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 20px;
+    background: #fff; border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow-hover);
+    animation: k-fade .3s var(--ease) both;
+  }
+  .batch-bar .bc { font-size: 13px; font-weight: 700; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+
+  /* ===== 大图遮罩层（Lightbox：照片查看，Esc / 点击遮罩关闭，← → 切换） ===== */
+  .lb {
+    position: fixed; inset: 0; z-index: 300; padding: 36px;
+    background: rgba(29, 33, 41, .85); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center; gap: 18px;
+    opacity: 0; pointer-events: none; transition: opacity .3s;
+  }
+  .lb.open { opacity: 1; pointer-events: auto; }
+  .lb-stage { position: relative; max-width: min(78vw, 1080px); display: flex; align-items: center; justify-content: center; }
+  .lb-img { max-width: 100%; max-height: 84vh; border-radius: 8px; border: 2px solid var(--paper); box-shadow: 0 2px 8px rgba(0, 0, 0, .05); }
+  .lb-count {
+    position: absolute; bottom: -30px; left: 50%; transform: translateX(-50%);
+    color: rgba(255, 255, 255, .8); font-size: 12px; letter-spacing: 2px; font-variant-numeric: tabular-nums;
+  }
+  .lb-x, .lb-arrow {
+    position: absolute; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--navy);
+    cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--hard-s);
+    transition: transform .15s var(--ease), box-shadow .15s var(--ease);
+  }
+  .lb-x:hover, .lb-arrow:hover { transform: translate(2px, 2px); box-shadow: 0 2px 8px rgba(0, 0, 0, .05); }
+  .lb-x { top: 18px; right: 18px; width: 38px; height: 38px; }
+  .lb-x svg { width: 17px; height: 17px; }
+  .lb-arrow { top: 50%; translate: 0 -50%; width: 42px; height: 42px; }
+  .lb-arrow:hover { transform: none; }
+  .lb-arrow svg { width: 18px; height: 18px; }
+  .lb-arrow.l { left: 14px; }
+  .lb-arrow.r { right: 14px; }
+
+  /* ===== 通用弹层（处理 / 阈值设置；结构 .mask>.modal>.m-scroll，Shade.modal 注入） ===== */
+  .mask {
+    position: fixed; inset: 0; z-index: 320; padding: 24px;
+    background: rgba(29, 33, 41, .5); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .3s;
+  }
+  .mask.open { opacity: 1; }
+  .modal {
+    background: #fff; border: 1px solid var(--line); border-radius: 8px; width: 560px; max-width: 94vw; max-height: 86vh;
+    overflow: hidden; padding: 6px; display: flex; flex-direction: column;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .05);
+    transform: translateY(16px) scale(.98); transition: transform .35s var(--ease);
+  }
+  .m-scroll {
+    flex: 1; min-height: 0; overflow-y: auto; border-radius: 8px; padding: 14px 18px 16px;
+    scrollbar-gutter: stable both-edges; scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
+  }
+  .m-scroll::-webkit-scrollbar { width: 5px; }
+  .m-scroll::-webkit-scrollbar-thumb { background: rgba(29, 33, 41, .16); border-radius: 8px; }
+  .m-scroll::-webkit-scrollbar-thumb:hover { background: rgba(29, 33, 41, .34); }
+  .m-scroll::-webkit-scrollbar-track { background: transparent; }
+  .mask.open .modal { transform: none; }
+  .m-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .m-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; }
+  .m-x {
+    margin-left: auto; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    color: var(--navy); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .05); transition: background .15s, color .15s;
+  }
+  .m-x:hover { background: var(--navy); color: #fff; }
+  .m-x svg { width: 14px; height: 14px; }
+  .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+  /* ===== 弹层表单（f-lab / f-sel / f-ta / chips 快捷胶囊，口径同 worklog 编辑弹层） ===== */
+  .f-lab { display: block; font-size: 12px; color: var(--ph); letter-spacing: 1px; margin: 14px 0 7px; }
+  .f-lab:first-of-type { margin-top: 2px; }
+  .f-sel, .f-ta {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; outline: none;
+    font-size: 13px; color: var(--navy); font-family: inherit; transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+  }
+  .f-sel { height: 40px; padding: 0 10px; }
+  .f-sel:focus, .f-ta:focus { border-color: var(--orange); box-shadow: var(--hard-s); }
+  .f-ta { min-height: 96px; padding: 10px 12px; line-height: 1.7; resize: vertical; }
+  .f-hint { margin-top: 6px; font-size: 11px; color: var(--ph); letter-spacing: .5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--navy);
+    font-size: 12.5px; padding: 4px 13px; cursor: pointer; font-family: inherit;
+    transition: border-color .2s, color .2s, background .2s;
+  }
+  .chip:hover { border-color: var(--orange); color: var(--orange); }
+
+  /* ===== 动效降级 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; }
+  }
+</style>
+</head>
+<body>
+
+<main class="page">
+  <div class="th-wrap">
+    <!-- 页头：标题 + 副标；右侧班组切换（仅超管可见，Shade.setupTeamSel 装配） -->
+    <div class="th-head">
+      <div class="section-title">
+        <span class="th-kick">TREE HAZARD</span>
+        <h3>树障隐患记录</h3>
+        <span class="more">树木排查隐患的登记、处理与统计</span>
+      </div>
+      <div class="acts">
+        <select id="teamSel"></select>
+      </div>
+    </div>
+
+    <!-- 看板四格卡 + 管理待办入口 -->
+    <div class="th-dash" id="dash">
+      <div class="card dc"><span class="dc-n blue" id="dUnh">—</span><span class="dc-t">未处理</span></div>
+      <div class="card dc"><span class="dc-n" id="dWeek">—</span><span class="dc-t">本周新增</span></div>
+      <div class="card dc"><span class="dc-n red" id="dOver">—</span><span class="dc-t" id="dOverLab">垂直距离≤阈值未处理</span></div>
+      <div class="card dc"><span class="dc-n green" id="dHand">—</span><span class="dc-t">已处理</span></div>
+      <div class="dash-todo" id="dashTodo" hidden></div>
+    </div>
+
+    <!-- 工具行：线路筛选 / 预览 / 下载 /（管理：阈值设置·同步至内网）/ 批量处理开关 -->
+    <div class="th-tools">
+      <select id="lineSel"></select>
+      <button class="btn btn-sm" id="btnPreview">预览</button>
+      <button class="btn btn-sm" id="btnDownload">下载</button>
+      <button class="btn btn-sm" id="btnThreshold" hidden>阈值设置</button>
+      <button class="btn btn-sm" id="btnSync" hidden>同步至内网</button>
+      <span class="sync-hint" id="syncHint" hidden></span>
+      <span class="spring">
+        <button class="btn btn-sm" id="btnBatch">批量处理</button>
+      </span>
+    </div>
+
+    <!-- 页签：记录 / 暂存区（管理）/ 冲突（管理） -->
+    <div class="th-tabs" id="thTabs">
+      <button data-p="records" class="on">记录</button>
+      <button data-p="staging" id="tabStaging" hidden>暂存区 <span class="bdg" id="bdgStaging" hidden></span></button>
+      <button data-p="conflicts" id="tabConflicts" hidden>冲突 <span class="bdg" id="bdgConflicts" hidden></span></button>
+      <span class="th-tab-ind" id="thTabInd"></span>
+    </div>
+
+    <!-- 页签主体 -->
+    <div class="th-body">
+      <div class="pane on" id="paneRecords"><div class="pane-scroll" id="recBody"></div></div>
+      <div class="pane" id="paneStaging"><div class="pane-scroll" id="stgBody"></div></div>
+      <div class="pane" id="paneConflicts"><div class="pane-scroll" id="cftBody"></div></div>
+    </div>
+  </div>
+</main>
+
+<!-- 未分配班组整页空态（Shade.renderNoTeam 填充） -->
+<div id="noTeam" hidden></div>
+
+<!-- 照片上传：隐藏文件选择（accept image/*，选后 canvas 重绘为 jpeg dataURL 上传） -->
+<input type="file" id="photoInput" accept="image/*" multiple hidden>
+
+<!-- 照片大图遮罩层 -->
+<div class="lb" id="lightbox"></div>
+
+<!-- 批量处理底部悬浮条 -->
+<div class="batch-bar" id="batchBar" hidden>
+  <span class="bc" id="batchCnt">已选 0 条</span>
+  <button class="btn btn-sm btn-primary" id="batchGo">批量处理</button>
+  <button class="btn btn-sm" id="batchCancel">退出</button>
+</div>
+
+<script src="/assets/icons.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+/* ============================================================
+   树障隐患记录网页版：看板 / 线路筛选 / 导出预览·下载 / 记录·暂存区·冲突三页签
+   （暂存区·冲突·阈值设置·同步至内网仅超管 / 班组管理员可见可用，服务端 requireDictAdmin 同拦；
+   记录处理与照片上传全员可用，照片删除限上传者本人或班管/超管；接口 /api/v1/treehazard/* 按生效班组隔离）
+   ============================================================ */
+(function () {
+'use strict';
+Shade.requireAuth();
+/* 统一顶部导航（当前应用：树障隐患记录） */
+Shade.topbar({ active: 'treehazard' });
+
+/* ================= 工具 ================= */
+var $ = Shade.$, $$ = Shade.$$;
+var esc = Shade.esc;
+var me = Shade.user() || {};
+/* 超管 / 班组管理员（暂存区·冲突·阈值·同步·删记录等管理类入口的可见性口径） */
+var isManager = me.role === 'admin' || me.role === 'team_admin';
+
+/* 记录字段定义：网格小字段 + 冲突对照列共用标签 */
+var GRID_FIELDS = [
+  ['dist_small', '距小号(m)'], ['dist_big', '距大号(m)'], ['horizontal', '水平(m)'],
+  ['vertical', '垂直(m)'], ['finder_name', '发现人'], ['found_at', '发现时间']
+];
+/* 15 业务列（发现 12 列 + 处理 3 列）：暂存区编辑与冲突对照共用（key 与后端列名一致） */
+var BIZ_FIELDS = [
+  ['voltage_level', '电压等级'], ['line_name', '线路名称'], ['section', '区段'], ['tree_species', '树种'],
+  ['tree_count', '数量'], ['dist_small', '距小号'], ['dist_big', '距大号'], ['diameter', '直径'],
+  ['horizontal', '水平'], ['vertical', '垂直'], ['finder_name', '发现人'], ['found_at', '发现时间'],
+  ['handler_name', '处理人'], ['handle_note', '处理情况'], ['handled_at', '处理时间']
+];
+
+/* ================= 全局状态 ================= */
+var state = {
+  teamId: 0,                 // 超管当前切换的班组 id（0=未指定，由后端落默认班组；非超管恒 0）
+  tab: 'records',            // 当前页签：records 记录 | staging 暂存区 | conflicts 冲突
+  dash: null,                // 看板数据 {unhandled, week_new, over_threshold, handled, threshold, pending_conflicts, staging_batches}
+  rec: null,                 // 记录响应 {threshold, lines:[{voltage_level,line_name,records}], unmatched:[...]}
+  lineFilter: '',            // 线路筛选：'' 全部线路 | 线路名 | '__unmatched__'（未匹配线路组）
+  batch: { on: false, sel: {} }, // 批量处理模式：sel 为 记录id→true
+  upTarget: null,            // 照片上传目标 {recordId, kind}
+  lb: { list: [], idx: 0 },  // 大图层（list 为当前照片组 url 数组）
+  stg: { list: null, detail: null, err: '' }, // 暂存区：批次列表 / 批次详情 {batch, records}
+  stgSel: {},                // 批次详情逐行勾选（暂存记录 id→true）
+  cft: { list: null, err: '' },               // 冲突列表
+  sync: null                 // 同步状态 {enabled, running, last, pending}（后端未启用时仅 {enabled:false,last:null}）
+};
+
+/* 班组隔离：超管所有 /treehazard/* 请求统一带 team_id（query 优先于 body，后端 resolveReqTeam 同口径） */
+function th(path) { return Shade.withTeam(path, state.teamId); }
+/* POST/PUT 的 body 注入 team_id（manage.js teamBody 口径；query 已带时冗余无害） */
+function teamBody(o) { return state.teamId ? Object.assign({ team_id: state.teamId }, o) : o; }
+
+/* 空值展示占位 */
+function dash(v) { var s = String(v == null ? '' : v).trim(); return s || '—'; }
+/* 电压等级展示：拼 kV 后缀（空 → —） */
+function fmtKv(v) { var s = String(v == null ? '' : v).trim(); return s ? s + 'kV' : '—'; }
+/* 垂直距离是否超阈值（vertical_num 非空且 ≤threshold） */
+function overThreshold(r, threshold) {
+  return threshold !== null && threshold !== undefined && r.vertical_num !== null && r.vertical_num !== undefined
+    && Number(r.vertical_num) <= Number(threshold);
+}
+/* 全部记录拍平（lines + unmatched，保持分组顺序） */
+function allRecords() {
+  var out = [];
+  if (!state.rec) return out;
+  (state.rec.lines || []).forEach(function (g) { out = out.concat(g.records || []); });
+  return out.concat(state.rec.unmatched || []);
+}
+
+/* ================= 看板 ================= */
+async function loadDashboard() {
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/dashboard'));
+    state.dash = r.data || {};
+  } catch (e) {
+    state.dash = null;
+    Shade.toast(e.message, 'error');
+  }
+  renderDashboard();
+}
+function renderDashboard() {
+  var d = state.dash || {};
+  $('#dUnh').textContent = d.unhandled == null ? '—' : d.unhandled;
+  $('#dWeek').textContent = d.week_new == null ? '—' : d.week_new;
+  $('#dHand').textContent = d.handled == null ? '—' : d.handled;
+  var over = $('#dOver'), lab = $('#dOverLab');
+  if (d.threshold === null || d.threshold === undefined) {
+    /* 未设阈值：数字位显示「未设阈值」弱化文案 */
+    over.textContent = '未设阈值';
+    over.className = 'dc-n mut';
+    lab.textContent = '垂直距离≤阈值未处理';
+  } else {
+    over.textContent = d.over_threshold == null ? '—' : d.over_threshold;
+    over.className = 'dc-n red';
+    lab.textContent = '垂直距离≤' + d.threshold + 'm 未处理';
+  }
+  /* 页签角标（仅管理角色有对应页签） */
+  var stgN = d.staging_batches || 0, cftN = d.pending_conflicts || 0;
+  $('#bdgStaging').hidden = !stgN;
+  $('#bdgStaging').textContent = stgN;
+  $('#bdgConflicts').hidden = !cftN;
+  $('#bdgConflicts').textContent = cftN;
+  /* 管理待办小字入口：暂存 n 批 · 冲突 n 条（点击切对应页签） */
+  var todo = $('#dashTodo');
+  if (isManager && (stgN || cftN)) {
+    var parts = [];
+    if (stgN) parts.push('<a data-go="staging">暂存 ' + stgN + ' 批</a>');
+    if (cftN) parts.push('<a data-go="conflicts">冲突 ' + cftN + ' 条</a>');
+    todo.innerHTML = Shade.icon('warn', 14) + '<span>待办：</span>' + parts.join('<span>·</span>');
+    todo.hidden = false;
+  } else {
+    todo.hidden = true;
+    todo.innerHTML = '';
+  }
+}
+
+/* ================= 记录页签 ================= */
+/* 记录加载：quiet=true 时不显加载块（照片上传 / 处理后静默刷新，滚动位保持） */
+async function loadRecords(quiet) {
+  var body = $('#recBody');
+  if (!quiet) body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+  var st = body.scrollTop;
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/records'));
+    state.rec = r.data || { threshold: null, lines: [], unmatched: [] };
+    rebuildLineFilter();
+    renderRecords();
+    if (quiet) body.scrollTop = st;
+  } catch (e) {
+    state.rec = null;
+    body.innerHTML = '<div class="empty">' + Shade.icon('warn', 44) + '<p>' + esc(e.message) + '</p>'
+      + '<p><button class="btn btn-sm" id="recRetry">重试</button></p></div>';
+  }
+}
+
+/* 线路筛选下拉：全部线路 + 各线路（按线路名匹配）+ 未匹配线路（存在时）；随记录数据重建 */
+var lineDd = null;
+function rebuildLineFilter() {
+  var sel = $('#lineSel');
+  var keep = state.lineFilter;
+  var opts = ['<option value="">全部线路</option>'];
+  (state.rec.lines || []).forEach(function (g) {
+    opts.push('<option value="' + esc(g.line_name) + '">' + esc(fmtKv(g.voltage_level) + ' ' + g.line_name) + '</option>');
+  });
+  if ((state.rec.unmatched || []).length) opts.push('<option value="__unmatched__">未匹配线路</option>');
+  sel.innerHTML = opts.join('');
+  /* 旧选项已不存在（如班组切换后）则回退全部线路 */
+  var exists = Array.prototype.some.call(sel.options, function (o) { return o.value === keep; });
+  state.lineFilter = exists ? keep : '';
+  sel.value = state.lineFilter;
+  /* 自绘下拉随数据源重建：先 destroy 旧实例防 .dd-pop 孤儿残留 body */
+  if (lineDd) { lineDd.destroy(); lineDd = null; }
+  lineDd = Shade.dropdown(sel, { width: 'auto', minWidth: '160px', height: 34 });
+}
+
+/* 记录卡片：照片三区（辅证只读 / 处理前 / 处理后，可上传区右上角「+」） */
+function photoZoneHtml(r, kind, label, canUpload) {
+  var photos = (r.photos || []).filter(function (p) { return p.kind === kind; });
+  var inner;
+  if (photos.length) {
+    inner = photos.map(function (p) {
+      /* 删除权限：班管/超管 或 上传者本人 */
+      var canDel = isManager || Number(p.uploaded_by) === Number(me.id);
+      return '<figure class="ph" data-url="' + esc(p.url) + '" data-kind="' + kind + '">'
+        + '<img src="' + esc(p.url) + '" loading="lazy" alt="' + label + '">'
+        + (canDel ? '<button class="ph-x" data-phdel="' + p.id + '" data-rid="' + r.id + '" title="删除照片">' + Shade.icon('close', 9) + '</button>' : '')
+        + '</figure>';
+    }).join('');
+  } else {
+    inner = '<div class="ph-none">' + (kind === 'evidence' ? '辅证照片由排查系统提供' : '暂无照片') + '</div>';
+  }
+  return '<div class="ph-zone">'
+    + '<div class="ph-zhead"><span>' + label + '</span>'
+    + (canUpload ? '<button class="ph-add" data-up="' + kind + '" data-rid="' + r.id + '" title="上传照片">' + Shade.icon('add', 12) + '</button>' : '')
+    + '</div>'
+    + '<div class="ph-grid">' + inner + '</div>'
+    + '</div>';
+}
+
+/* 记录卡片 HTML：区段（大字）+ 树种×数量 + 直径；网格小字段；已处理信息；照片三区；操作区 */
+function recCardHtml(r, threshold) {
+  var done = r.status === 'handled';
+  var head = [];
+  /* 批量模式：未处理卡可勾选，已处理卡禁用态 */
+  if (state.batch.on) {
+    if (done) head.push('<span class="rec-ck dis" title="已处理记录不可选"></span>');
+    else head.push('<span class="rec-ck' + (state.batch.sel[r.id] ? ' on' : '') + '" data-ck="' + r.id + '">'
+      + Shade.icon('check', 12) + '</span>');
+  }
+  head.push('<b class="rec-sec">' + esc(dash(r.section)) + '</b>');
+  if (String(r.position_note || '').trim()) head.push('<span class="rec-pos">' + esc(r.position_note) + '</span>');
+  /* 树种×数量 + 直径 */
+  var sub = [];
+  if (String(r.tree_species || '').trim()) sub.push(esc(r.tree_species) + (String(r.tree_count || '').trim() ? ' × ' + esc(r.tree_count) : ''));
+  if (String(r.diameter || '').trim()) sub.push('直径 ' + esc(r.diameter) + 'cm');
+  if (sub.length) head.push('<span class="rec-sub">' + sub.join(' · ') + '</span>');
+  head.push(done ? '<span class="rec-tag ok">已处理</span>' : '<span class="rec-tag un">未处理</span>');
+  if (isManager) head.push('<button class="linkbtn dgr rec-del" data-del="' + r.id + '">删除</button>');
+
+  /* 网格小字段：垂直超阈值红底红字突出 */
+  var grid = GRID_FIELDS.map(function (f) {
+    var danger = f[0] === 'vertical' && overThreshold(r, threshold);
+    return '<div class="rg-cell' + (danger ? ' danger' : '') + '" title="' + esc(String(r[f[0]] == null ? '' : r[f[0]])) + '">'
+      + '<div class="rg-k">' + f[1] + '</div>'
+      + '<div class="rg-v">' + esc(dash(r[f[0]])) + '</div>'
+      + '</div>';
+  }).join('');
+
+  /* 已处理信息行：处理人 / 处理情况 / 处理时间 */
+  var handled = done
+    ? '<div class="rec-handled"><span>处理人 <b>' + esc(dash(r.handler_name)) + '</b></span>'
+      + '<span>处理情况 <b>' + esc(dash(r.handle_note)) + '</b></span>'
+      + '<span>处理时间 <b>' + esc(dash(r.handled_at)) + '</b></span></div>'
+    : '';
+
+  /* 照片三区：辅证（只读）/ 处理前 / 处理后（可上传可删） */
+  var photos = '<div class="ph-zones">'
+    + photoZoneHtml(r, 'evidence', '辅证照片', false)
+    + photoZoneHtml(r, 'before', '处理前', true)
+    + photoZoneHtml(r, 'after', '处理后', true)
+    + '</div>';
+
+  var acts = done ? '' : '<div class="rec-acts"><button class="btn btn-sm btn-primary" data-handle="' + r.id + '">处理</button></div>';
+
+  return '<div class="card rec' + (done ? ' done' : '') + '" data-id="' + r.id + '">'
+    + '<div class="rec-top">' + head.join('') + '</div>'
+    + '<div class="rec-grid">' + grid + '</div>'
+    + handled + photos + acts
+    + '</div>';
+}
+
+/* 线路分组渲染（顺序后端已排好）；组标题「110kV 昌郑Ⅰ线（n）」，未匹配组排尾 */
+function groupHtml(title, count, records, threshold) {
+  return '<div class="lgroup">'
+    + '<div class="lg-head"><b>' + esc(title) + '</b><span class="lg-n">' + count + ' 条</span></div>'
+    + records.map(function (r) { return recCardHtml(r, threshold); }).join('')
+    + '</div>';
+}
+function renderRecords() {
+  var body = $('#recBody');
+  if (!state.rec) return;
+  var threshold = state.rec.threshold;
+  var filter = state.lineFilter;
+  var html = [];
+  (state.rec.lines || []).forEach(function (g) {
+    if (filter && filter !== g.line_name) return; // 按线路名匹配
+    html.push(groupHtml(fmtKv(g.voltage_level) + ' ' + g.line_name, (g.records || []).length, g.records || [], threshold));
+  });
+  if (!filter || filter === '__unmatched__') {
+    var un = state.rec.unmatched || [];
+    if (un.length) html.push(groupHtml('未匹配线路', un.length, un, threshold));
+  }
+  /* 勾选集合剔除已不可选项（已处理 / 已删除），防底部悬浮条计数残留 */
+  if (state.batch.on) {
+    var valid = {};
+    allRecords().forEach(function (r) { if (r.status !== 'handled') valid[r.id] = true; });
+    Object.keys(state.batch.sel).forEach(function (id) { if (!valid[id]) delete state.batch.sel[id]; });
+  }
+  body.innerHTML = html.join('')
+    || '<div class="empty">' + Shade.icon('task', 44) + '<p>' + (filter ? '该线路下暂无记录' : '暂无树障隐患记录') + '</p></div>';
+  syncBatchBar();
+}
+
+/* ================= 批量处理模式 ================= */
+function selectedIds() {
+  return Object.keys(state.batch.sel).map(Number).filter(function (n) { return n > 0; });
+}
+function setBatchMode(on) {
+  state.batch.on = on;
+  state.batch.sel = {};
+  $('#btnBatch').textContent = on ? '退出批量' : '批量处理';
+  $('#batchBar').hidden = !on;
+  renderRecords();
+}
+/* 底部悬浮条已选计数同步（勾选变化就地更新，不重渲染卡片） */
+function syncBatchBar() {
+  var n = selectedIds().length;
+  $('#batchCnt').textContent = '已选 ' + n + ' 条';
+  $('#batchGo').disabled = !n;
+}
+
+/* ================= 处理弹层（单条 / 批量共用） ================= */
+/* ids：待处理记录 id 数组；提交走 /records/:id/handle（单条）或 /records/handle-batch（批量） */
+function openHandleModal(ids) {
+  if (!ids.length) return;
+  var u = Shade.user() || {};
+  var html = Shade.mHead(ids.length > 1 ? '批量处理（' + ids.length + ' 条）' : '处理隐患')
+    + '<label class="f-lab">处理人</label>'
+    + '<input class="f-sel" id="hdName" maxlength="32" autocomplete="off" value="' + esc(u.nickname || u.username || '') + '">'
+    + '<label class="f-lab">处理情况</label>'
+    + '<textarea class="f-ta" id="hdNote" maxlength="64" placeholder="填写处理情况，如：削枝"></textarea>'
+    + '<div class="chips" style="margin-top:8px">'
+    + '<button class="chip" data-q="削枝">削枝</button><button class="chip" data-q="砍伐">砍伐</button>'
+    + '</div>'
+    + '<label class="f-lab">处理时间</label>'
+    + '<input type="date" class="f-sel" id="hdAt" value="' + Shade.fmtDate(new Date()) + '">'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-primary" data-a="yes">确定处理</button></div>';
+  var inst = Shade.modal(html, { width: 460 });
+  /* 快捷胶囊：点击填入/替换处理情况 */
+  $$('.chip[data-q]', inst.box).forEach(function (c) {
+    c.addEventListener('click', function () { $('#hdNote', inst.box).value = c.dataset.q; });
+  });
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    var note = $('#hdNote', inst.box).value.trim();
+    if (!note) { Shade.toast('处理情况不能为空', 'info'); return; }
+    var body = teamBody({
+      handler_name: $('#hdName', inst.box).value.trim(),
+      handle_note: note,
+      handled_at: $('#hdAt', inst.box).value || Shade.fmtDate(new Date())
+    });
+    this.disabled = true;
+    try {
+      if (ids.length > 1) {
+        body.ids = ids;
+        await Shade.api(th('/api/v1/treehazard/records/handle-batch'), { method: 'POST', body: body });
+        setBatchMode(false); // 批量处理成功：退出批量模式
+      } else {
+        await Shade.api(th('/api/v1/treehazard/records/' + ids[0] + '/handle'), { method: 'POST', body: body });
+      }
+      inst.close();
+      Shade.toast('已处理', 'success');
+      loadDashboard();
+      loadRecords(true);
+    } catch (e) {
+      this.disabled = false;
+      Shade.toast(e.message, 'error');
+    }
+  });
+}
+
+/* ================= 记录操作：删除（班管/超管） ================= */
+async function deleteRecord(id) {
+  var yes = await Shade.confirm({
+    title: '删除记录',
+    content: '删除后不可恢复，该记录的照片一并删除，确定删除吗？',
+    confirmText: '删除',
+    danger: true
+  });
+  if (!yes) return;
+  try {
+    await Shade.api(th('/api/v1/treehazard/records/' + id), { method: 'DELETE' });
+    Shade.toast('已删除', 'success');
+    loadDashboard();
+    loadRecords(true);
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* ================= 照片：上传 / 删除 / 大图查看 ================= */
+/* 选片 → canvas 重绘导出 jpeg dataURL（统一格式、归一 EXIF 方向；长边压到 2560 以内，控制 15MB 上限） */
+function readPhotoDataUrl(file) {
+  return new Promise(function (resolve, reject) {
+    var fr = new FileReader();
+    fr.onerror = function () { reject(new Error('照片读取失败')); };
+    fr.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        var sc = Math.min(1, 2560 / Math.max(w, h));
+        var cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(w * sc));
+        cv.height = Math.max(1, Math.round(h * sc));
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        resolve(cv.toDataURL('image/jpeg', 0.88));
+      };
+      img.onerror = function () { reject(new Error('照片解析失败，请更换图片')); };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+/* 处理前/后照片大多不止一张：支持一次多选，逐张串行上传（进度 n/m），结束统一刷新 */
+async function uploadPhoto(files) {
+  var target = state.upTarget;
+  if (!target || !files || !files.length) return;
+  var list = Array.prototype.slice.call(files).filter(function (f) { return /^image\//i.test(f.type || ''); });
+  if (!list.length) { Shade.toast('请选择图片文件', 'info'); return; }
+  var wait = Shade.modal('<div class="loading"><span class="spin"></span>正在上传 0/' + list.length + '…</div>', { width: 280 });
+  var okCount = 0, failCount = 0;
+  for (var i = 0; i < list.length; i++) {
+    try {
+      var dataUrl = await readPhotoDataUrl(list[i]);
+      await Shade.api(th('/api/v1/treehazard/records/' + target.recordId + '/photos?kind=' + target.kind), {
+        method: 'POST',
+        body: teamBody({ image: dataUrl })
+      });
+      okCount++;
+    } catch (e) {
+      failCount++;
+    }
+    var ld = wait.box.querySelector('.loading');
+    if (ld) ld.innerHTML = '<span class="spin"></span>正在上传 ' + (okCount + failCount) + '/' + list.length + '…';
+  }
+  wait.close();
+  if (!okCount) { Shade.toast('上传失败，请重试', 'error'); return; }
+  Shade.toast(failCount ? '上传完成：成功 ' + okCount + ' 张，失败 ' + failCount + ' 张' : '已上传 ' + okCount + ' 张', failCount ? 'info' : 'success');
+  loadRecords(true);
+}
+async function deletePhoto(recordId, photoId) {
+  var yes = await Shade.confirm({ title: '删除照片', content: '确定删除这张照片吗？', confirmText: '删除', danger: true });
+  if (!yes) return;
+  try {
+    await Shade.api(th('/api/v1/treehazard/records/' + recordId + '/photos/' + photoId), { method: 'DELETE' });
+    Shade.toast('已删除', 'success');
+    loadRecords(true);
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* 大图层：list 为当前照片组 url 数组，idx 初始下标；Esc 经 Shade.escGuard 优先关大图层 */
+function openLightbox(list, idx) {
+  state.lb.list = list;
+  state.lb.idx = idx;
+  renderLightbox();
+  $('#lightbox').classList.add('open');
+}
+function closeLightbox() {
+  $('#lightbox').classList.remove('open');
+  state.lb.list = [];
+  state.lb.idx = 0;
+}
+function shiftLightbox(step) {
+  var n = state.lb.list.length;
+  if (!n) return;
+  state.lb.idx = (state.lb.idx + step + n) % n;
+  renderLightbox();
+}
+function renderLightbox() {
+  var list = state.lb.list, idx = state.lb.idx;
+  $('#lightbox').innerHTML = '<div class="lb-stage">'
+    + '<img class="lb-img" src="' + esc(list[idx]) + '" alt="照片大图">'
+    + '<div class="lb-count">' + (idx + 1) + ' / ' + list.length + '</div>'
+    + '</div>'
+    + '<button class="lb-x" id="lbX">' + Shade.icon('close', 17) + '</button>'
+    + (list.length > 1
+      ? '<button class="lb-arrow l" id="lbPrev">' + Shade.icon('chevron-left', 18) + '</button>'
+        + '<button class="lb-arrow r" id="lbNext">' + Shade.icon('chevron-right', 18) + '</button>'
+      : '');
+  $('#lbX').addEventListener('click', function (e) { e.stopPropagation(); closeLightbox(); });
+  if ($('#lbPrev')) $('#lbPrev').addEventListener('click', function (e) { e.stopPropagation(); shiftLightbox(-1); });
+  if ($('#lbNext')) $('#lbNext').addEventListener('click', function (e) { e.stopPropagation(); shiftLightbox(1); });
+}
+
+/* ================= 导出：预览（取 url 当前窗口打开）/ 下载（apiRaw + saveBlob） ================= */
+/* 当前筛选线路 query：仅真实线路名参与分线路导出（「未匹配线路」为前端伪组，不带 line 参数） */
+function lineQuery() {
+  return state.lineFilter && state.lineFilter !== '__unmatched__'
+    ? '?line=' + encodeURIComponent(state.lineFilter) : '';
+}
+/* 打开预览地址：站内（office.html 承载页）当前窗口打开；站外（微软查看器等）新标签（同 worklog 口径） */
+function openPreviewUrl(url) {
+  if (url.charAt(0) === '/') { location.href = url; } else { window.open(url, '_blank'); }
+}
+async function exportPreview(btn) {
+  btn.disabled = true;
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/export/preview' + lineQuery()));
+    if (r.data && r.data.url) { openPreviewUrl(r.data.url); return; }
+    throw new Error('预览地址为空');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+async function exportDownload(btn) {
+  btn.disabled = true;
+  try {
+    /* 走 :name.xlsx 文件名变体路径，供查看器按扩展名识别格式；文件名以 Content-Disposition 为准 */
+    var res = await Shade.apiRaw(th('/api/v1/treehazard/export/树木统计表.xlsx' + lineQuery()));
+    if (!res.ok) {
+      var ej = null;
+      try { ej = await res.json(); } catch (e) { }
+      throw new Error((ej && ej.message) || ('导出失败（' + res.status + '）'));
+    }
+    await Shade.saveBlob(res, '树木统计表.xlsx');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ================= 阈值设置（班管/超管；可空 = 清除） ================= */
+async function openThresholdModal() {
+  var cur = state.dash ? state.dash.threshold : null;
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/settings'));
+    cur = r.data ? r.data.vertical_threshold : cur;
+  } catch (e) { /* 设置读取失败沿用看板值 */ }
+  var html = Shade.mHead('阈值设置')
+    + '<label class="f-lab">垂直距离阈值（m）</label>'
+    + '<input class="f-sel" id="thVal" type="number" min="0" step="0.1" placeholder="留空表示不设阈值">'
+    + '<div class="f-hint">未处理且垂直距离 ≤ 阈值的记录计入看板「超阈值」并红显；留空保存即清除阈值。</div>'
+    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
+    + '<button class="btn btn-sm btn-primary" data-a="yes">保 存</button></div>';
+  var inst = Shade.modal(html, { width: 420 });
+  var input = $('#thVal', inst.box);
+  if (cur !== null && cur !== undefined) input.value = cur;
+  input.focus();
+  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+  $('[data-a="yes"]', inst.box).addEventListener('click', async function () {
+    var raw = input.value.trim();
+    if (raw !== '' && (!isFinite(Number(raw)) || Number(raw) < 0)) { Shade.toast('阈值应为非负数字', 'info'); return; }
+    this.disabled = true;
+    try {
+      await Shade.api(th('/api/v1/treehazard/settings'), {
+        method: 'PUT',
+        body: teamBody({ vertical_threshold: raw === '' ? null : Number(raw) })
+      });
+      inst.close();
+      Shade.toast(raw === '' ? '已清除阈值' : '已保存阈值', 'success');
+      loadDashboard();
+      loadRecords(true); // 红显口径随阈值变化
+    } catch (e) {
+      this.disabled = false;
+      Shade.toast(e.message, 'error');
+    }
+  });
+}
+
+/* ================= 同步至内网（班管/超管） ================= */
+/* 状态小字：running → 同步中…；否则 last 的 created_at + result 摘要；后端未启用时如实显示 */
+function renderSyncHint() {
+  var el = $('#syncHint');
+  if (!isManager) { el.hidden = true; return; }
+  var st = state.sync;
+  var text = '';
+  if (st) {
+    if (st.running) text = '同步中…';
+    else if (st.last) text = '最近同步 ' + Shade.fmtDate(st.last.created_at, true) + (st.last.result ? ' · ' + st.last.result : '');
+    else if (st.enabled === false) text = '同步未启用';
+    else text = '尚未同步';
+  }
+  el.textContent = text;
+  el.hidden = !text;
+}
+async function loadSyncStatus() {
+  if (!isManager) return;
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/sync/status'));
+    state.sync = r.data || null;
+  } catch (e) {
+    state.sync = null;
+  }
+  renderSyncHint();
+}
+async function pushSync(btn) {
+  btn.disabled = true;
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/sync/push-now'), { method: 'POST', body: teamBody({}) });
+    Shade.toast((r && r.message) || '已触发同步', 'success');
+    loadSyncStatus();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ================= 暂存区页签（班管/超管） ================= */
+async function loadStaging() {
+  var body = $('#stgBody');
+  state.stg.detail = null;
+  body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/staging/batches'));
+    state.stg.list = r.data || [];
+    state.stg.err = '';
+  } catch (e) {
+    state.stg.list = [];
+    state.stg.err = e.message || '加载失败';
+  }
+  renderStagingList();
+}
+/* 批次卡列表：群名 / 推送人 / 时间 / 条数 / 审核备注（浅底 + 左色条警示块） */
+function renderStagingList() {
+  var body = $('#stgBody');
+  if (state.stg.err) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('warn', 44) + '<p>' + esc(state.stg.err) + '</p>'
+      + '<p><button class="btn btn-sm" data-stg="reload">重试</button></p></div>';
+    return;
+  }
+  if (!state.stg.list.length) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('folder', 44) + '<p>暂无待导入批次</p></div>';
+    return;
+  }
+  body.innerHTML = state.stg.list.map(function (b) {
+    return '<div class="card stg-card" data-batch="' + b.id + '">'
+      + '<div class="stg-top"><b>' + esc(dash(b.group_name)) + '</b>'
+      + '<span class="stg-meta">推送人 ' + esc(dash(b.pusher_name)) + ' · ' + esc(Shade.fmtDate(b.created_at, true)) + ' · ' + (b.record_count || 0) + ' 条</span>'
+      + '<span class="stg-go">审核 ›</span></div>'
+      + (String(b.review_note || '').trim()
+        ? '<div class="stg-note"><b>审核备注：</b>' + esc(b.review_note) + '</div>'
+        : '')
+      + '</div>';
+  }).join('');
+}
+
+/* 批次详情：进入即拉取（表格 15 业务列 inline 编辑）；silent=true 时 404（批次已转空）静默回列表 */
+async function openBatch(id, silent) {
+  var body = $('#stgBody');
+  if (!silent) body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/staging/batches/' + id));
+    state.stg.detail = r.data || null;
+    state.stgSel = {};
+    renderBatchDetail();
+  } catch (e) {
+    state.stg.detail = null;
+    if (silent) { loadStaging(); return; }
+    Shade.toast(e.message, 'error');
+    renderStagingList();
+  }
+}
+/* 详情行内输入单元格（长字段加宽） */
+function stgCell(r, key) {
+  var cls = key === 'line_name' ? ' w-line' : (key === 'handle_note' ? ' w-note' : '');
+  var v = r[key] == null ? '' : String(r[key]);
+  if (key === 'found_at' || key === 'handled_at') {
+    return '<td><input type="date" class="stg-in" data-f="' + key + '" value="' + esc(v) + '"></td>';
+  }
+  return '<td><input class="stg-in' + cls + '" data-f="' + key + '" maxlength="64" value="' + esc(v) + '"></td>';
+}
+function renderBatchDetail() {
+  var body = $('#stgBody');
+  var d = state.stg.detail;
+  if (!d) { renderStagingList(); return; }
+  var b = d.batch || {};
+  var records = d.records || [];
+  var selN = Object.keys(state.stgSel).filter(function (k) { return state.stgSel[k]; }).length;
+  var html = '<div class="stg-bar">'
+    + '<button class="btn btn-sm back" data-stg="back">' + Shade.icon('chevron-left', 14) + '返回批次列表</button>'
+    + '<span class="stg-title">' + esc(dash(b.group_name)) + '<small>推送人 ' + esc(dash(b.pusher_name)) + ' · ' + esc(Shade.fmtDate(b.created_at, true)) + ' · 剩余 ' + records.length + ' 条</small></span>'
+    + '<span class="spring">'
+    + '<button class="btn btn-sm" data-stg="import-sel"' + (selN ? '' : ' disabled') + '>转入选中（' + selN + '）</button>'
+    + '<button class="btn btn-sm btn-primary" data-stg="import-all"' + (records.length ? '' : ' disabled') + '>全部转入</button>'
+    + '<button class="btn btn-sm btn-danger" data-stg="discard">废弃批次</button>'
+    + '</span></div>'
+    + (String(b.review_note || '').trim() ? '<div class="stg-note" style="margin:0 0 12px"><b>审核备注：</b>' + esc(b.review_note) + '</div>' : '');
+  if (!records.length) {
+    html += '<div class="empty">' + Shade.icon('folder', 44) + '<p>本批次记录已全部转入</p></div>';
+    body.innerHTML = html;
+    return;
+  }
+  html += '<div class="stg-table"><table class="stg-tb"><thead><tr>'
+    + '<th><input type="checkbox" class="stg-ck" data-stg="ck-all" title="全选"></th>'
+    + BIZ_FIELDS.map(function (f) { return '<th>' + f[1] + '</th>'; }).join('')
+    + '<th>操作</th></tr></thead><tbody>'
+    + records.map(function (r) {
+      return '<tr data-sid="' + r.id + '">'
+        + '<td><input type="checkbox" class="stg-ck" data-stg="ck"' + (state.stgSel[r.id] ? ' checked' : '') + '></td>'
+        + BIZ_FIELDS.map(function (f) { return stgCell(r, f[0]); }).join('')
+        + '<td><button class="linkbtn" data-stg="save">保存</button></td>'
+        + '</tr>';
+    }).join('')
+    + '</tbody></table></div>';
+  body.innerHTML = html;
+}
+/* 逐行保存：收集该行 15 列输入调 PUT（白名单字段，日期列后端归一） */
+async function saveStagingRow(tr, btn) {
+  var id = Number(tr.dataset.sid);
+  var body = {};
+  $$('.stg-in[data-f]', tr).forEach(function (inp) { body[inp.dataset.f] = inp.value; });
+  btn.disabled = true;
+  try {
+    await Shade.api(th('/api/v1/treehazard/staging/records/' + id), { method: 'PUT', body: teamBody(body) });
+    Shade.toast('已保存', 'success');
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+/* 转入：recordIds 缺省（null）= 全部转入；成功后刷新看板角标并就地刷新详情/列表 */
+async function importBatch(recordIds) {
+  var d = state.stg.detail;
+  if (!d || !d.batch) return;
+  var batchId = d.batch.id;
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/staging/batches/' + batchId + '/import'), {
+      method: 'POST',
+      body: teamBody(recordIds ? { record_ids: recordIds } : {})
+    });
+    Shade.toast('已转入 ' + ((r.data && r.data.imported) || 0) + ' 条', 'success');
+    loadDashboard();
+    loadRecords(true);
+    openBatch(batchId, true); // 批次行空后服务端自动置 imported，详情 404 时静默回列表
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+async function discardBatch() {
+  var d = state.stg.detail;
+  if (!d || !d.batch) return;
+  var yes = await Shade.confirm({
+    title: '废弃批次',
+    content: '废弃后该批次及全部暂存记录将被删除且不可恢复，确定废弃「' + (d.batch.group_name || '本批次') + '」吗？',
+    confirmText: '废弃',
+    danger: true
+  });
+  if (!yes) return;
+  try {
+    await Shade.api(th('/api/v1/treehazard/staging/batches/' + d.batch.id), { method: 'DELETE' });
+    Shade.toast('已废弃', 'success');
+    state.stg.detail = null;
+    loadDashboard();
+    loadStaging();
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* ================= 冲突页签（班管/超管） ================= */
+async function loadConflicts() {
+  var body = $('#cftBody');
+  body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/conflicts'));
+    state.cft.list = r.data || [];
+    state.cft.err = '';
+  } catch (e) {
+    state.cft.list = [];
+    state.cft.err = e.message || '加载失败';
+  }
+  renderConflicts();
+}
+/* 系统当前值：冲突行平铺字段（LEFT JOIN 当前记录；记录已删时回退服务端快照） */
+function cftServerVal(c, key) {
+  var v = c[key];
+  if ((v === null || v === undefined) && c.server_snapshot) v = c.server_snapshot[key];
+  return v;
+}
+/* 两列对照（系统值 | 内网值）：15 业务列 + 状态行，差异字段标红 */
+function cftCardHtml(c) {
+  var snap = c.intranet_snapshot || {};
+  var lineName = cftServerVal(c, 'line_name');
+  var section = cftServerVal(c, 'section');
+  /* 单元格等值判定（日期已归一 yyyy-MM-dd；数字类「3」与「3.0」视为相同，与后端 diff 口径一致） */
+  function sameVal(key, a, b) {
+    var sa = String(a == null ? '' : a).trim();
+    var sb = String(b == null ? '' : b).trim();
+    if (sa === sb) return true;
+    if (['voltage_level', 'tree_count', 'dist_small', 'dist_big', 'diameter', 'horizontal', 'vertical'].indexOf(key) >= 0 && sa && sb) {
+      var na = Number(sa), nb = Number(sb);
+      if (!isNaN(na) && !isNaN(nb)) return na === nb;
+    }
+    return false;
+  }
+  function cellVal(key, raw) {
+    if (key === 'voltage_level') return fmtKv(raw);
+    return dash(raw);
+  }
+  var rowsServer = '', rowsIntranet = '';
+  BIZ_FIELDS.forEach(function (f) {
+    var key = f[0], label = f[1];
+    var sv = cftServerVal(c, key);
+    var iv = snap[key];
+    var diff = !sameVal(key, sv, iv);
+    rowsServer += '<div class="cft-r"><span class="k">' + label + '</span><span class="v' + (diff ? ' df' : '') + '">' + esc(cellVal(key, sv)) + '</span></div>';
+    rowsIntranet += '<div class="cft-r"><span class="k">' + label + '</span><span class="v' + (diff ? ' df' : '') + '">' + esc(cellVal(key, iv)) + '</span></div>';
+  });
+  /* 状态行：内网侧按 handled_at 推导（handled_at 空 → 未处理，同后端 intranetFields 口径） */
+  var sStatus = c.record_status || (c.server_snapshot && c.server_snapshot.status) || 'unhandled';
+  var iStatus = String(snap.handled_at || '').trim() ? 'handled' : 'unhandled';
+  var stDiff = sStatus !== iStatus;
+  var stText = function (s) { return s === 'handled' ? '已处理' : '未处理'; };
+  rowsServer += '<div class="cft-r"><span class="k">状态</span><span class="v' + (stDiff ? ' df' : '') + '">' + stText(sStatus) + '</span></div>';
+  rowsIntranet += '<div class="cft-r"><span class="k">状态</span><span class="v' + (stDiff ? ' df' : '') + '">' + stText(iStatus) + '</span></div>';
+
+  return '<div class="card cft" data-cid="' + c.id + '">'
+    + '<div class="cft-head"><b>' + esc(dash(lineName)) + ' · ' + esc(dash(section)) + '</b>'
+    + '<span class="cft-time">' + esc(Shade.fmtDate(c.created_at, true)) + '</span></div>'
+    + '<div class="cft-cmp">'
+    + '<div class="cft-col"><div class="cft-col-h">系统值</div><div class="cft-rows">' + rowsServer + '</div></div>'
+    + '<div class="cft-col"><div class="cft-col-h">内网值</div><div class="cft-rows">' + rowsIntranet + '</div></div>'
+    + '</div>'
+    + '<div class="cft-acts">'
+    + '<button class="btn btn-sm" data-keep="server">以系统为准</button>'
+    + '<button class="btn btn-sm btn-primary" data-keep="intranet">以内网为准</button>'
+    + '</div></div>';
+}
+function renderConflicts() {
+  var body = $('#cftBody');
+  if (state.cft.err) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('warn', 44) + '<p>' + esc(state.cft.err) + '</p>'
+      + '<p><button class="btn btn-sm" data-cft="reload">重试</button></p></div>';
+    return;
+  }
+  if (!state.cft.list.length) {
+    body.innerHTML = '<div class="empty">' + Shade.icon('check-circle', 44) + '<p>暂无待解决冲突</p></div>';
+    return;
+  }
+  body.innerHTML = state.cft.list.map(cftCardHtml).join('');
+}
+/* 解决冲突：keep=server 保留系统值 / intranet 采用内网值；解决后就地移除该卡并刷新角标 */
+async function resolveConflict(card, keep, btn) {
+  var id = Number(card.dataset.cid);
+  btn.disabled = true;
+  try {
+    await Shade.api(th('/api/v1/treehazard/conflicts/' + id + '/resolve'), {
+      method: 'POST',
+      body: teamBody({ keep: keep })
+    });
+    state.cft.list = state.cft.list.filter(function (c) { return c.id !== id; });
+    card.remove();
+    if (!state.cft.list.length) renderConflicts();
+    Shade.toast(keep === 'intranet' ? '已按内网值更新' : '已保留系统值', 'success');
+    loadDashboard();
+    if (keep === 'intranet') loadRecords(true); // 内网值已覆盖记录，卡片流静默刷新
+  } catch (e) {
+    btn.disabled = false;
+    Shade.toast(e.message, 'error');
+  }
+}
+
+/* ================= 页签切换（记录 / 暂存区 / 冲突） ================= */
+function switchTab(p) {
+  if (state.tab === p) return;
+  state.tab = p;
+  $$('#thTabs button[data-p]').forEach(function (b) { b.classList.toggle('on', b.dataset.p === p); });
+  Shade.moveTabInd($('#thTabs button.on'), $('#thTabInd'));
+  $$('.th-body .pane').forEach(function (el) {
+    el.classList.toggle('on', el.id === 'pane' + p.charAt(0).toUpperCase() + p.slice(1));
+  });
+  /* 暂存区 / 冲突每次切回都重拉（可能被其他管理员改动） */
+  if (p === 'staging') loadStaging();
+  if (p === 'conflicts') loadConflicts();
+}
+
+/* ================= 事件绑定 ================= */
+function initEvents() {
+  /* 页签点击 */
+  $('#thTabs').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-p]');
+    if (!b || b.hidden) return;
+    switchTab(b.dataset.p);
+  });
+  /* 看板待办入口：点击切对应页签 */
+  $('#dashTodo').addEventListener('click', function (e) {
+    var a = e.target.closest('a[data-go]');
+    if (a) switchTab(a.dataset.go);
+  });
+  /* 线路筛选 */
+  $('#lineSel').addEventListener('change', function () {
+    state.lineFilter = this.value;
+    renderRecords();
+  });
+  /* 导出 / 阈值 / 同步 / 批量开关 */
+  $('#btnPreview').addEventListener('click', function () { exportPreview(this); });
+  $('#btnDownload').addEventListener('click', function () { exportDownload(this); });
+  $('#btnThreshold').addEventListener('click', openThresholdModal);
+  $('#btnSync').addEventListener('click', function () { pushSync(this); });
+  $('#btnBatch').addEventListener('click', function () { setBatchMode(!state.batch.on); });
+  $('#batchGo').addEventListener('click', function () { openHandleModal(selectedIds()); });
+  $('#batchCancel').addEventListener('click', function () { setBatchMode(false); });
+  /* 记录重试（空态/错误态内按钮，动态节点用事件委托） */
+  $('#recBody').addEventListener('click', function (e) {
+    if (e.target.closest('#recRetry')) { loadRecords(); }
+  });
+  /* 记录卡片流委派：勾选 / 处理 / 删除记录 / 上传照片 / 删除照片 / 大图 */
+  $('#recBody').addEventListener('click', function (e) {
+    var ck = e.target.closest('.rec-ck[data-ck]');
+    if (ck) {
+      var cid = Number(ck.dataset.ck);
+      if (state.batch.sel[cid]) delete state.batch.sel[cid]; else state.batch.sel[cid] = true;
+      ck.classList.toggle('on');
+      syncBatchBar();
+      return;
+    }
+    var delPh = e.target.closest('[data-phdel]');
+    if (delPh) { e.stopPropagation(); deletePhoto(Number(delPh.dataset.rid), Number(delPh.dataset.phdel)); return; }
+    var up = e.target.closest('[data-up]');
+    if (up) {
+      state.upTarget = { recordId: Number(up.dataset.rid), kind: up.dataset.up };
+      $('#photoInput').click();
+      return;
+    }
+    var hBtn = e.target.closest('[data-handle]');
+    if (hBtn) { openHandleModal([Number(hBtn.dataset.handle)]); return; }
+    var dBtn = e.target.closest('[data-del]');
+    if (dBtn) { deleteRecord(Number(dBtn.dataset.del)); return; }
+    /* 缩略图 → 大图（同照片组内左右切换） */
+    var fig = e.target.closest('.ph[data-url]');
+    if (fig && e.target.tagName === 'IMG') {
+      var figs = $$('.ph[data-url]', fig.parentNode);
+      var list = figs.map(function (f) { return f.dataset.url; });
+      openLightbox(list, figs.indexOf(fig));
+    }
+  });
+  /* 照片上传：隐藏 file input（accept image/*，可一次多选） */
+  $('#photoInput').addEventListener('change', function () {
+    var files = this.files;
+    this.value = '';
+    if (!files || !files.length) return;
+    uploadPhoto(files);
+  });
+  /* 大图层：点遮罩关闭 / Esc 优先关大图层 / ← → 切换 */
+  $('#lightbox').addEventListener('click', function (e) { if (e.target === this) closeLightbox(); });
+  Shade.escGuard = function () {
+    if ($('#lightbox').classList.contains('open')) { closeLightbox(); return true; }
+    return false;
+  };
+  document.addEventListener('keydown', function (e) {
+    if (!$('#lightbox').classList.contains('open')) return;
+    if (document.querySelector('.mask.open')) return; // 大图层上叠弹层时方向键归弹层
+    if (e.key === 'ArrowLeft') shiftLightbox(-1);
+    else if (e.key === 'ArrowRight') shiftLightbox(1);
+  });
+  /* 暂存区委派：批次卡 / 返回 / 勾选 / 保存 / 转入 / 废弃 / 重试 */
+  $('#stgBody').addEventListener('click', function (e) {
+    var act = e.target.closest('[data-stg]');
+    if (act) {
+      var a = act.dataset.stg;
+      if (a === 'reload') { loadStaging(); return; }
+      if (a === 'back') { state.stg.detail = null; renderStagingList(); return; }
+      if (a === 'save') { var tr = act.closest('tr[data-sid]'); if (tr) saveStagingRow(tr, act); return; }
+      if (a === 'import-all') {
+        importBatch(null);
+        return;
+      }
+      if (a === 'import-sel') {
+        var ids = Object.keys(state.stgSel).filter(function (k) { return state.stgSel[k]; }).map(Number);
+        if (!ids.length) { Shade.toast('请先勾选要转入的记录', 'info'); return; }
+        importBatch(ids);
+        return;
+      }
+      if (a === 'discard') { discardBatch(); return; }
+      return; // ck / ck-all 走 change 事件
+    }
+    /* 批次卡（点击非操作区）→ 进入详情 */
+    var card = e.target.closest('.stg-card[data-batch]');
+    if (card) openBatch(Number(card.dataset.batch));
+  });
+  /* 暂存区勾选（change 委托：逐行 / 全选） */
+  $('#stgBody').addEventListener('change', function (e) {
+    var ck = e.target.closest('[data-stg="ck"]');
+    if (ck) {
+      var tr = ck.closest('tr[data-sid]');
+      if (tr) state.stgSel[Number(tr.dataset.sid)] = ck.checked;
+      /* 就地刷新「转入选中」按钮计数与可用态，不重绘表格（避免打断编辑输入） */
+      var selN = Object.keys(state.stgSel).filter(function (k) { return state.stgSel[k]; }).length;
+      var btn = $('[data-stg="import-sel"]', $('#stgBody'));
+      if (btn) { btn.disabled = !selN; btn.textContent = '转入选中（' + selN + '）'; }
+      return;
+    }
+    var all = e.target.closest('[data-stg="ck-all"]');
+    if (all) {
+      $$('#stgBody [data-stg="ck"]').forEach(function (c) {
+        c.checked = all.checked;
+        var tr = c.closest('tr[data-sid]');
+        if (tr) state.stgSel[Number(tr.dataset.sid)] = all.checked;
+      });
+      var btn2 = $('[data-stg="import-sel"]', $('#stgBody'));
+      var n = all.checked ? (state.stg.detail && state.stg.detail.records ? state.stg.detail.records.length : 0) : 0;
+      if (btn2) { btn2.disabled = !n; btn2.textContent = '转入选中（' + n + '）'; }
+    }
+  });
+  /* 冲突委派：重试 / 解决 */
+  $('#cftBody').addEventListener('click', function (e) {
+    var re = e.target.closest('[data-cft="reload"]');
+    if (re) { loadConflicts(); return; }
+    var btn = e.target.closest('[data-keep]');
+    if (btn) {
+      var card = btn.closest('.cft[data-cid]');
+      if (card) resolveConflict(card, btn.dataset.keep, btn);
+    }
+  });
+}
+
+/* ================= 未分配班组空态（屏十口径） ================= */
+function renderNoTeam() {
+  $('.th-head .acts').style.display = 'none';
+  $('#dash').style.display = 'none';
+  $('.th-tools').style.display = 'none';
+  $('#thTabs').style.display = 'none';
+  $('.th-body').style.display = 'none';
+  Shade.renderNoTeam($('#noTeam'));
+}
+
+/* ================= 班组切换后整页重载 ================= */
+function reloadTeamData() {
+  state.rec = null;
+  state.dash = null;
+  state.lineFilter = '';
+  state.batch = { on: false, sel: {} };
+  state.stg = { list: null, detail: null, err: '' };
+  state.stgSel = {};
+  state.cft = { list: null, err: '' };
+  state.sync = null;
+  setBatchMode(false);
+  loadDashboard();
+  loadRecords();
+  if (isManager) {
+    loadSyncStatus();
+    if (state.tab === 'staging') loadStaging();
+    if (state.tab === 'conflicts') loadConflicts();
+  }
+}
+
+/* ================= 启动 ================= */
+async function init() {
+  /* 静态图标注入 */
+  $('#btnPreview').innerHTML = Shade.icon('file', 15) + '预览';
+  $('#btnDownload').innerHTML = Shade.icon('download', 15) + '下载';
+  $('#btnThreshold').innerHTML = Shade.icon('setting', 15) + '阈值设置';
+  $('#btnSync').innerHTML = Shade.icon('refresh', 15) + '同步至内网';
+  $('#btnBatch').innerHTML = Shade.icon('check-circle', 15) + '批量处理';
+  $$('#thTabs button[data-p]').forEach(function (b) {
+    b.insertAdjacentHTML('afterbegin', Shade.icon({ records: 'task', staging: 'folder', conflicts: 'warn' }[b.dataset.p], 14));
+  });
+  Shade.moveTabInd($('#thTabs button.on'), $('#thTabInd'), true); // 页签指示条首帧落位
+
+  /* 顶栏用户：接口失败回退本地缓存 */
+  Shade.refreshUser();
+
+  me = Shade.user() || {};
+  isManager = me.role === 'admin' || me.role === 'team_admin';
+  /* 管理角色入口显隐：暂存区 / 冲突页签 + 阈值设置 + 同步至内网 */
+  if (isManager) {
+    $('#tabStaging').hidden = false;
+    $('#tabConflicts').hidden = false;
+    $('#btnThreshold').hidden = false;
+    $('#btnSync').hidden = false;
+  }
+
+  /* 班组隔离门控：非超管未分配班组 → 整页空态（屏十口径）；超管先选定切换班组再出数 */
+  if (me.role !== 'admin' && !me.team_id) {
+    renderNoTeam();
+    return;
+  }
+  /* 班组切换下拉：全员先换自绘下拉并隐藏（原生 select 保留为数据源），超管由 setupTeamSel 显示 */
+  var teamDd = Shade.dropdown($('#teamSel'), { width: 'auto', minWidth: '132px', height: 36 });
+  teamDd.el.style.display = 'none';
+  if (me.role === 'admin') {
+    /* 超管班组切换器：数据源 GET /admin/teams（仅启用班组），localStorage.treehazard_team_id 持久化，切换后整页数据重载 */
+    var teamSel = await Shade.setupTeamSel({
+      select: $('#teamSel'), dropdown: teamDd, storageKey: 'treehazard_team_id',
+      showEl: teamDd.el,
+      onChange: function (v) { state.teamId = v; reloadTeamData(); }
+    });
+    if (teamSel) state.teamId = teamSel.getTeamId();
+  }
+
+  initEvents();
+  loadDashboard();
+  loadRecords();
+  if (isManager) loadSyncStatus();
+}
+init();
+
+})();
+</script>
+</body>
+</html>

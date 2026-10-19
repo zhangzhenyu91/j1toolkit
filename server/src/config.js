@@ -175,6 +175,28 @@ const config = {
     // 定时对代理端口做 TCP 建连探测（仅探代理存活，不向商旅主机发请求），正常↔异常 跳变时通知超管（站内+微信）
     proxyProbeIntervalMs: parseInt(str('SGCC_PROXY_PROBE_INTERVAL_MS', '300000'), 10) || 300000,
   },
+  // 树障隐患记录（crane-answer 群监听直推 + 双端看板/处理 + 内网 U 盘同步）
+  treehazard: {
+    // crane-answer 直推对接密钥（POST /ingest 请求头 X-Ingest-Token；留空则直推接口停用返回 503）
+    ingestToken: str('TREEHAZARD_INGEST_TOKEN', ''),
+    // 处理前后照片在 COS 的独立文件夹前缀
+    cosPrefix: withTrailingSlash(str('COS_TREEHAZARD_PREFIX', 'treehazard/')),
+    // ===== 内网 U 盘同步（编排见 treehazard/sync.js；留空 ddns 则停用）=====
+    // 同步班组（U盘同步目标班组名）
+    syncTeam: str('TREEHAZARD_SYNC_TEAM', '检修一班'),
+    // 被控机所在 KVM 设备：ddns 定位 + MAC 校验（默认回退派车单同机，留空则 U盘同步停用）
+    syncDeviceDdns: str('TREEHAZARD_SYNC_DEVICE_DDNS', ''),
+    syncDeviceMac: str('TREEHAZARD_SYNC_DEVICE_MAC', ''),
+    // 同步任务代登平台所用账号（须在 GLKVM 平台可见该设备组；留空回退 ADMIN_USERNAME）
+    syncKvmUser: str('TREEHAZARD_SYNC_KVM_USER', ''),
+    // 空闲判定分钟数（超过该时长无操作视为可同步）
+    syncIdleMin: num('TREEHAZARD_SYNC_IDLE_MIN', 15),
+    // 指令窗口分钟数（同步指令下发后被控机取件的有效窗口）
+    syncCmdWindowMin: num('TREEHAZARD_SYNC_CMD_WINDOW_MIN', 5),
+    // 每日准备时间（锁定设备并挂载 U 盘至被控机）与取件时间（取回内网表比对回写并解禁），HH:mm，北京时间
+    syncPrepareTime: str('TREEHAZARD_SYNC_PREPARE_TIME', '22:50'),
+    syncFetchTime: str('TREEHAZARD_SYNC_FETCH_TIME', '23:00'),
+  },
 };
 
 // 启动必需项：缺失即拒绝启动，避免带病运行

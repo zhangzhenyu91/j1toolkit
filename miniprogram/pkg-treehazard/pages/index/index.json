@@ -1,0 +1,17 @@
+{
+  "navigationStyle": "custom",
+  "enablePullDownRefresh": true,
+  "backgroundColor": "#F5F7FA",
+  "backgroundTextStyle": "dark",
+  "usingComponents": {
+    "navbar": "/components/navbar/navbar",
+    "t-icon": "tdesign-miniprogram/icon/icon",
+    "t-input": "tdesign-miniprogram/input/input",
+    "t-textarea": "tdesign-miniprogram/textarea/textarea",
+    "t-check-tag": "tdesign-miniprogram/check-tag/check-tag",
+    "t-popup": "tdesign-miniprogram/popup/popup",
+    "t-calendar": "tdesign-miniprogram/calendar/calendar",
+    "t-dialog": "tdesign-miniprogram/dialog/dialog",
+    "t-toast": "tdesign-miniprogram/toast/toast"
+  }
+}

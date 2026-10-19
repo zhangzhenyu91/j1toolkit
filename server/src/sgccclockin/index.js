@@ -2135,11 +2135,9 @@ async function notifyDailySyncResult(teamId, date, afterId) {
   });
 }
 
-function scheduleDaily() {
-  const [hh, mm] = String(config.sgcc.syncTime || '23:00').split(':').map((s) => parseInt(s, 10));
-  const { nextUtc, now } = nextDailyRunUtc(Number.isNaN(hh) ? 23 : hh, mm || 0); // hh 可能为 0（午夜），不能用 || 判缺省
-  const timer = setTimeout(async () => {
-    try {
+// 每日核查任务体：夜间任务队列按 config.sgcc.syncTime 到点调用（排程与失败兜底由 nightq 承担）
+async function dailyCheckJob() {
+  try {
       // 卡片驱动：有绑定账号的班 ∪ 当日卡上有绑定成员的班（token 跟人走后，卡在哪个班就同步哪个班）
       const [teams] = await pool.query(
         `SELECT DISTINCT team_id FROM (
@@ -2209,13 +2207,9 @@ function scheduleDaily() {
     } catch (err) {
       console.error('[商旅打卡] 每日定时核查失败：', err.message);
     }
-    scheduleDaily(); // 排次日
-  }, nextUtc - now);
-  timer.unref(); // 不阻塞进程退出（服务常驻时正常生效）
-  // 日志按北京时间打印（与排程口径一致，避免容器 UTC 时误读）
-  console.log(`[商旅打卡] 每日核查已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
 }
-scheduleDaily();
+// 每日核查挂夜间任务队列：与树障同步等夜间任务同点按登记序串行执行（排程/失败兜底由 nightq 承担）
+require('../utils/nightq').register('sgcc-daily', config.sgcc.syncTime, dailyCheckJob);
 
 // ---------- 出口代理健康探测（配置 SGCC_PROXY_URL 时启用）----------
 // 定时探测代理端口可达性（protocol.probeProxy，TCP 建连，不向商旅主机发请求），仅在 正常↔异常 跳变时通知超管（异常一次、恢复一次，不刷屏）。

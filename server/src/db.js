@@ -310,6 +310,10 @@ async function ensureSchema() {
   await require('./quiz/schema').ensureQuizSchema(pool);
   console.log('[初始化] 题库刷题表结构与应用种子就绪');
 
+  // 树障隐患记录：建表并写入应用种子（树障隐患记录 / 班组数据）
+  await require('./treehazard/schema').ensureTreehazardSchema(pool);
+  console.log('[初始化] 树障隐患记录表结构与应用种子就绪');
+
   // 团队网盘：建表并写入应用种子
   await require('./netdisk/schema').ensureNetdiskSchema(pool);
   console.log('[初始化] 团队网盘表结构与应用种子就绪');

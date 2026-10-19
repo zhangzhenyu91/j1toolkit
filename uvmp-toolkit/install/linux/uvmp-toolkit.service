@@ -10,6 +10,10 @@ Environment=UVMP_TOOLKIT_CONFIG=@CONFIG_PATH@
 Environment=UVMP_TOOLKIT_MIRROR_STATE=@MIRROR_STATE@
 Environment=PYTHONIOENCODING=utf-8
 ExecStart=@RUN_CMD@ daily-export --if-due
+# 树障统计表同步（同一唤醒链路）：先按 U盘指令执行（U盘不在秒退），再做 22:55 夜间兜底判定；
+# 与 daily-export 同受 timer 的 06..23 时段限制——23:00 后的服务端指令次晨首轮 tick 补执行。
+ExecStart=@RUN_CMD@ tree-sync --tick
+ExecStart=@RUN_CMD@ tree-sync --nightly --if-due
 
 [Install]
 WantedBy=multi-user.target

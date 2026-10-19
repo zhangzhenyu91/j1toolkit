@@ -1,0 +1,257 @@
+<!-- 树障隐患记录 · 主页（看板 + 工具行 + 按线路分组的记录卡片流；全部操作一级页面化） -->
+<navbar back title="树障隐患记录" />
+
+<view class="page-body" wx:if="{{gate}}">
+  <!-- 看板四格（仿首页 stats-card）：未处理 / 本周新增 / ≤阈值未处理（红，未设阈值显「未设」）/ 已处理 -->
+  <view class="card stats-card">
+    <view class="stat"><text class="stat-num stat-num-warn">{{dash.unhandled}}</text><text class="stat-label">未处理</text></view>
+    <view class="stat"><text class="stat-num">{{dash.week_new}}</text><text class="stat-label">本周新增</text></view>
+    <view class="stat"><text class="stat-num stat-num-bad">{{dash.threshold === null ? '未设' : dash.over_threshold}}</text><text class="stat-label">≤阈值未处理</text></view>
+    <view class="stat"><text class="stat-num">{{dash.handled}}</text><text class="stat-label">已处理</text></view>
+  </view>
+
+  <!-- 工具行：线路筛选 / 批量 / 导出；班管/超管加显 阈值设置 / 内网同步 -->
+  <view class="toolbar">
+    <view class="tool" hover-class="hover-opacity" bindtap="onOpenFilter">
+      <t-icon name="filter" size="28rpx" color="#0E3DA8" />
+      <text class="tool-t">{{lineFilter || '全部线路'}}</text>
+    </view>
+    <view class="tool {{batchMode ? 'tool-on' : ''}}" hover-class="hover-opacity" bindtap="onToggleBatch">
+      <t-icon name="check-double" size="28rpx" color="{{batchMode ? '#FFFFFF' : '#0E3DA8'}}" />
+      <text class="tool-t">{{batchMode ? '退出批量' : '批量'}}</text>
+    </view>
+    <view class="tool" hover-class="hover-opacity" bindtap="onExport">
+      <t-icon name="download" size="28rpx" color="#0E3DA8" />
+      <text class="tool-t">导出</text>
+    </view>
+    <block wx:if="{{canManage}}">
+      <view class="tool" hover-class="hover-opacity" bindtap="onOpenThreshold">
+        <t-icon name="setting" size="28rpx" color="#0E3DA8" />
+        <text class="tool-t">阈值</text>
+      </view>
+      <view class="tool" hover-class="hover-opacity" bindtap="onOpenSync">
+        <t-icon name="refresh" size="28rpx" color="#0E3DA8" />
+        <text class="tool-t">{{syncRunning ? '同步中…' : '同步'}}</text>
+      </view>
+    </block>
+  </view>
+
+  <!-- 记录卡片流（后端已按线路顺序排好，直接渲染；筛选线路无记录时不该出现，组空态兜底） -->
+  <view class="empty-box" wx:if="{{!loading && groups.length === 0}}">暂无树障隐患记录</view>
+  <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:for-index="gi" wx:key="key">
+    <view class="lg-title">{{g.title}}<text class="lg-n">{{g.records.length}}</text></view>
+
+    <!-- 记录卡片：已处理整体降饱和；班管/超管长按弹删除确认（wx:for-index 显式命名 ri，防照片内层循环默认 index 遮蔽） -->
+    <view class="card thcard {{item.status === 'handled' ? 'done' : ''}}" wx:for="{{g.records}}" wx:for-index="ri" wx:key="id" data-id="{{item.id}}" bindlongpress="onCardLongPress">
+      <!-- 首行：批量勾选圆点（批量模式才渲染，已处理禁选）+ 区段 + 状态点标 -->
+      <view class="th-head">
+        <view wx:if="{{batchMode}}" class="ck-ring {{selected[item.id] ? 'on' : ''}} {{item.status === 'handled' ? 'dis' : ''}}" catchtap="onToggleSelect" data-id="{{item.id}}" data-status="{{item.status}}">
+          <t-icon wx:if="{{selected[item.id]}}" name="check" size="22rpx" color="#FFFFFF" />
+        </view>
+        <view class="th-section">{{item.section || '未填写区段'}}</view>
+        <view class="st-tag {{item.status === 'handled' ? 'st-ok' : 'st-warn'}}">{{item.status === 'handled' ? '已处理' : '未处理'}}</view>
+      </view>
+      <view class="th-pos" wx:if="{{item.position_note}}">{{item.position_note}}</view>
+
+      <!-- 字段网格（两行小字段）：垂直距离 ≤ 阈值时红字浅红底胶囊突出 -->
+      <view class="th-grid">
+        <view class="th-f">
+          <view class="th-l">树种×数量</view>
+          <view class="th-v">{{item.tree_species || '—'}}{{item.tree_count ? ' ×' + item.tree_count : ''}}</view>
+        </view>
+        <view class="th-f">
+          <view class="th-l">直径</view>
+          <view class="th-v">{{item.diameter || '—'}}</view>
+        </view>
+        <view class="th-f">
+          <view class="th-l">距小号</view>
+          <view class="th-v">{{item.dist_small || '—'}}</view>
+        </view>
+        <view class="th-f">
+          <view class="th-l">距大号</view>
+          <view class="th-v">{{item.dist_big || '—'}}</view>
+        </view>
+        <view class="th-f">
+          <view class="th-l">水平距离</view>
+          <view class="th-v">{{item.horizontal || '—'}}</view>
+        </view>
+        <view class="th-f">
+          <view class="th-l">垂直距离</view>
+          <view class="th-v {{item.overThreshold ? 'th-v-bad' : ''}}">{{item.vertical || '—'}}</view>
+        </view>
+        <view class="th-f">
+          <view class="th-l">发现人</view>
+          <view class="th-v">{{item.finder_name || '—'}}</view>
+        </view>
+        <view class="th-f">
+          <view class="th-l">发现时间</view>
+          <view class="th-v">{{item.foundAtText || '—'}}</view>
+        </view>
+      </view>
+
+      <!-- 已处理信息：处理人 / 处理情况 / 处理时间 一行灰字 -->
+      <view class="th-handled" wx:if="{{item.status === 'handled'}}">处理：{{item.handler_name || '—'}} · {{item.handle_note || '—'}} · {{item.handledAtText || '—'}}</view>
+
+      <!-- 照片三区：辅证（排查系统提供，无交互只读）/ 处理前 / 处理后（「+」格上传，点图预览，长按缩略图删图——仅上传者本人或班管/超管） -->
+      <view class="pz">
+        <view class="pz-t">辅证照片</view>
+        <view class="pz-grid" wx:if="{{item.pz.evidence.length}}">
+          <image wx:for="{{item.pz.evidence}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" data-gi="{{gi}}" data-ri="{{ri}}" data-kind="evidence" data-current="{{p.url}}" />
+        </view>
+        <view class="pz-none" wx:else>由排查系统提供</view>
+      </view>
+      <view class="pz">
+        <view class="pz-t">处理前</view>
+        <view class="pz-grid">
+          <image wx:for="{{item.pz.before}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" bindlongpress="onPhotoLongPress" data-gi="{{gi}}" data-ri="{{ri}}" data-kind="before" data-current="{{p.url}}" data-id="{{item.id}}" data-pid="{{p.id}}" data-uploaded-by="{{p.uploaded_by}}" />
+          <view class="pz-add" hover-class="hover-opacity" catchtap="onAddPhoto" data-id="{{item.id}}" data-kind="before" data-gi="{{gi}}" data-ri="{{ri}}">
+            <t-icon name="add" size="36rpx" color="#86909C" />
+          </view>
+        </view>
+      </view>
+      <view class="pz">
+        <view class="pz-t">处理后</view>
+        <view class="pz-grid">
+          <image wx:for="{{item.pz.after}}" wx:for-item="p" wx:key="id" class="pz-img" src="{{p.url}}" mode="aspectFill" bindtap="onPreview" bindlongpress="onPhotoLongPress" data-gi="{{gi}}" data-ri="{{ri}}" data-kind="after" data-current="{{p.url}}" data-id="{{item.id}}" data-pid="{{p.id}}" data-uploaded-by="{{p.uploaded_by}}" />
+          <view class="pz-add" hover-class="hover-opacity" catchtap="onAddPhoto" data-id="{{item.id}}" data-kind="after" data-gi="{{gi}}" data-ri="{{ri}}">
+            <t-icon name="add" size="36rpx" color="#86909C" />
+          </view>
+        </view>
+      </view>
+
+      <!-- 操作区：未处理 → 处理（次按钮描边样式；批量模式下隐藏，由底部固定条承接） -->
+      <view class="th-ops" wx:if="{{item.status !== 'handled' && !batchMode}}">
+        <view class="th-btn" hover-class="hover-opacity" catchtap="onOpenHandle" data-id="{{item.id}}">处 理</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 批量模式底部占位（防末卡被固定条遮挡） -->
+  <view class="bb-spacer" wx:if="{{batchMode}}"></view>
+</view>
+
+<!-- 批量模式底部固定条 -->
+<view class="batchbar" wx:if="{{gate && batchMode}}">
+  <view class="bb-info">已选 {{selectedCount}} 条</view>
+  <view class="bb-btn {{selectedCount === 0 ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onOpenBatchHandle">批量处理</view>
+</view>
+
+<!-- 线路筛选弹层（全部 + 各线路名，含条数） -->
+<t-popup visible="{{filterVisible}}" placement="bottom" bind:visible-change="onFilterVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">按线路筛选</view>
+    <scroll-view scroll-y class="flt-list" enhanced show-scrollbar="{{false}}">
+      <view class="flt-item {{lineFilter === '' ? 'on' : ''}}" hover-class="hover-bg-warm" bindtap="onPickLine" data-line="">
+        <text>全部线路</text>
+        <t-icon wx:if="{{lineFilter === ''}}" name="check" size="30rpx" color="#0E3DA8" />
+      </view>
+      <view class="flt-item {{lineFilter === item.line_name ? 'on' : ''}}" wx:for="{{lineOptions}}" wx:key="line_name" hover-class="hover-bg-warm" bindtap="onPickLine" data-line="{{item.line_name}}">
+        <text>{{item.voltage_level}} {{item.line_name}}（{{item.count}}）</text>
+        <t-icon wx:if="{{lineFilter === item.line_name}}" name="check" size="30rpx" color="#0E3DA8" />
+      </view>
+    </scroll-view>
+  </view>
+</t-popup>
+
+<!-- 处理弹层（单条 / 批量共用；处理情况带「削枝」「砍伐」快捷标签） -->
+<t-popup visible="{{handleVisible}}" placement="bottom" bind:visible-change="onHandleVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">{{handleIds.length > 1 ? '批量处理（' + handleIds.length + ' 条）' : '处理记录'}}</view>
+    <view class="f-item">
+      <view class="f-label">处理人</view>
+      <view class="f-field">
+        <t-input borderless placeholder="处理人姓名" value="{{handleName}}" bind:change="onHandleName" />
+      </view>
+    </view>
+    <view class="f-item">
+      <view class="f-label">处理情况</view>
+      <view class="f-field">
+        <t-textarea placeholder="填写处理情况，如：已削枝" value="{{handleNote}}" style="background: transparent;" bind:change="onHandleNote" />
+      </view>
+      <view class="qtags">
+        <t-check-tag
+          wx:for="{{['削枝', '砍伐']}}"
+          wx:key="*this"
+          checked="{{handleNote === item}}"
+          content=""
+          data-word="{{item}}"
+          bind:change="onQuickTag"
+          shape="round"
+          variant="outline"
+          size="medium"
+        >{{item}}</t-check-tag>
+      </view>
+    </view>
+    <view class="f-item">
+      <view class="f-label">处理时间</view>
+      <view class="f-field date-field" hover-class="hover-opacity" bindtap="onOpenCal">
+        <text>{{handleDateText}}</text>
+        <t-icon name="calendar" size="30rpx" color="#0E3DA8" />
+      </view>
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost {{handling ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onCloseHandle">取 消</view>
+      <view class="btn-dark {{handling ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onConfirmHandle">{{handling ? '正在提交…' : '确认处理'}}</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 处理时间日历（单选无确认按钮，点日期即选中并自动关闭） -->
+<t-calendar
+  id="th-calendar"
+  visible="{{calVisible}}"
+  value="{{calValue}}"
+  type="single"
+  switch-mode="month"
+  min-date="{{minDate}}"
+  max-date="{{maxDate}}"
+  confirm-btn="{{null}}"
+  bind:change="onCalChange"
+  bind:close="onCalClose"
+/>
+
+<!-- 阈值设置弹层（班管/超管；留空保存即清除阈值） -->
+<t-popup visible="{{thVisible}}" placement="bottom" bind:visible-change="onThVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">垂直距离阈值</view>
+    <view class="th-tip">垂直距离 ≤ 阈值的未处理记录将红字突出并计入看板；留空保存即清除阈值。</view>
+    <view class="f-item">
+      <view class="f-label">阈值（米）</view>
+      <view class="f-field">
+        <t-input borderless type="digit" placeholder="如：3" value="{{thValue}}" bind:change="onThInput" />
+      </view>
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost {{thSaving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onCloseThreshold">取 消</view>
+      <view class="btn-dark {{thSaving ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onSaveThreshold">{{thSaving ? '正在保存…' : '保 存'}}</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 内网同步弹层（班管/超管；显示状态与上次结果，立即同步后轮询直至完成） -->
+<t-popup visible="{{syncVisible}}" placement="bottom" bind:visible-change="onSyncVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">内网同步</view>
+    <view class="sync-box">
+      <view class="sync-row">
+        <text class="sync-l">状态</text>
+        <text class="sync-v">{{syncText || '读取中…'}}</text>
+      </view>
+      <view class="sync-row" wx:if="{{syncLastText}}">
+        <text class="sync-l">上次同步</text>
+        <text class="sync-v">{{syncLastText}}</text>
+      </view>
+      <view class="sync-row" wx:if="{{syncStatus && syncStatus.pending}}">
+        <text class="sync-l">待同步</text>
+        <text class="sync-v">{{syncStatus.pending}} 条</text>
+      </view>
+    </view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onCloseSync">关 闭</view>
+      <view class="btn-dark {{syncRunning ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onSyncNow">{{syncRunning ? '同步中…' : '立即同步'}}</view>
+    </view>
+  </view>
+</t-popup>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />
