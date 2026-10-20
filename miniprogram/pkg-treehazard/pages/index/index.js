@@ -1,19 +1,30 @@
 // 树障隐患记录：两级视图（view 状态机；视图切换整块 view-pane 淡入过渡）——
-//   lines  线路视图：看板四格 + 搜索框（输入即过滤）+ 线路大卡片流（状态着色：要紧>0 红 / 未处理>0 品牌蓝 / 清零灰；
+//   lines  线路视图：看板四格 + 搜索框（输入即过滤）+ 线路大卡片流（状态着色：要紧>0 红字、=0 灰字 / 未处理>0 品牌蓝 / 清零灰；
 //           排序：要紧降序 > 未处理降序 > 电压降序 > 名称升序，未匹配卡排尾；stagger 入场）；
-//   ledger 台账视图：返回行 + 线路标题（未处理/要紧小字）+ 记录卡片流（首行区段+垂距双大字、未处理卡内「处理」按钮、
-//           辅证照片网格只读预览；点卡携记录进详情页，eventChannel 传递），批量模式开关与批量处理条仅本视图可用
-//           （批量模式点击 = 勾选，已处理禁选）。
+//   ledger 台账视图：返回行 + 线路标题（未处理/要紧小字）+ 记录卡片流（后端已按 未处理在前已处理在后>区段升序 排好）。
+//           记录卡默认折叠一卡两行（区段+垂距双大字左对齐 / 树种×数量·水平距离），每卡一枚折叠/展开开关（点卡同效），
+//           展开出其他信息、处理信息、照片三区（辅证只读、处理前/后可上传可删）与 处理/删除 按钮——下一级详情页已取消，
+//           全部信息卡内承载；批量模式开关与批量处理条仅本视图可用（批量模式点击 = 勾选，已处理禁选）。
 // 右下角全局悬浮导出 FAB：范围单选（全部线路 / 当前线路，线路视图为「选择线路」）+ 按线路分表开关（split=1，仅全部可勾）。
-// 班管/超管另有阈值设置与内网同步（线路视图工具行，图标化；删记录入口在详情页）。
+// 班管/超管另有阈值设置与内网同步（线路视图工具行，图标化；删记录入口在卡片展开区）。
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；其余角色后端强制本班，不传
 import Toast from 'tdesign-miniprogram/toast/index';
+import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 import { pad } from '../../../utils/util';
 
 const API_BASE = '/api/v1/treehazard';
+
+// 记录来源文案（treehazard_record.source：crane 直推 / staging 暂存区导入 / intranet 内网回写）
+const SOURCE_TEXT = { crane: '排查直推', staging: '暂存导入', intranet: '内网回写' };
+
+// 空值展示占位
+function dash(v) {
+  const s = String(v === null || v === undefined ? '' : v).trim();
+  return s || '—';
+}
 
 // 'YYYY-MM-DD' → 'YYYY.MM.DD'（展示口径）
 function fmtDot(s) {
@@ -33,7 +44,8 @@ function todayStr() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// 记录 → 展示结构：日期点分文本 / 垂直距离展示文本与超阈值标记 / 照片按 kind 分区（pz，供详情页直接渲染）
+// 记录 → 展示结构：日期点分文本 / 垂直距离展示文本与超阈值标记 / 照片按 kind 分区（pz，供卡片展开区渲染）
+// / 折叠态两行摘要之外的「其他信息」字段（moreFields，展开才渲染；原详情页字段并入卡片）
 // 垂直距离展示文本（幂等 m 后缀：纯数字拼 m、已含单位或其他文本原样、空回退 vertical_num 再兜底 '—'）
 function fmtVertical(r, vnum) {
   const s = String(r.vertical === null || r.vertical === undefined ? '' : r.vertical).trim();
@@ -54,6 +66,15 @@ function mapRecord(r, threshold) {
     verticalText: fmtVertical(r, vnum),
     overThreshold: threshold !== null && vnum !== null && vnum <= threshold,
     pz,
+    moreFields: [
+      { label: '位置说明', value: dash(r.position_note) },
+      { label: '直径(cm)', value: dash(r.diameter) },
+      { label: '距小号(m)', value: dash(r.dist_small) },
+      { label: '距大号(m)', value: dash(r.dist_big) },
+      { label: '发现人', value: dash(r.finder_name) },
+      { label: '发现时间', value: r.foundAtText || '—' },
+      { label: '来源', value: SOURCE_TEXT[r.source] || dash(r.source) },
+    ],
   });
 }
 
@@ -82,6 +103,8 @@ Page({
     batchMode: false,
     selected: {}, // 记录 id → true
     selectedCount: 0,
+    // 卡片折叠/展开（记录 id → true=展开；默认折叠一卡两行，详情页已取消）
+    expanded: {},
     // 处理弹层（卡内单条与批量共用）
     handleVisible: false,
     handleIds: [],
@@ -136,6 +159,7 @@ Page({
     await getApp().globalData.ready;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
     this._role = user.role || 'user';
+    this._userId = Number(user.id) || 0; // 当前用户 id（照片「仅上传者本人可删」判定用）
     const now = new Date();
     this.setData({
       gate: true,
@@ -150,14 +174,6 @@ Page({
 
   onUnload() {
     this.stopSyncPoll();
-  },
-
-  // 从详情页返回（_fromDetail 在跳转前置位）：详情内可能已处理/删除记录或增删照片，重拉看板与列表
-  onShow() {
-    if (!this._fromDetail) return;
-    this._fromDetail = false;
-    this.loadDashboard();
-    this.loadRecords();
   },
 
   onPullDownRefresh() {
@@ -261,7 +277,7 @@ Page({
 
   // 线路卡片流：全部运维线路（含 0 条记录的线路）+ 未匹配组（有记录才成卡）；搜索词命中标题（电压+名称）即保留
   // 排序：要紧降序 > 未处理降序 > 电压等级降序（数值）> 线路名称升序；未匹配卡恒排尾
-  // 状态着色（stateClass）：要紧>0 红 / 未处理>0 品牌蓝 / 均为 0 置灰
+  // 状态着色（stateClass）：要紧>0 红 / 未处理>0 品牌蓝 / 均为 0 置灰；「要紧」计数本身仅 >0 红字，=0 灰字
   rebuildLines() {
     const kw = (this.data.searchKey || '').trim();
     const cards = [];
@@ -364,9 +380,9 @@ Page({
     this.setData({ batchMode: on, selected: {}, selectedCount: 0 });
   },
 
-  // 卡片点击：批量模式 = 勾选（已处理禁选，口径同 rec-ck）；否则携记录对象进详情页（eventChannel 传递）
+  // 卡片点击：批量模式 = 勾选（已处理禁选，口径同 rec-ck）；否则就地折叠/展开该卡（下一级详情页已取消）
   onCardTap(e) {
-    const { id, status, gi, ri } = e.currentTarget.dataset;
+    const { id, status } = e.currentTarget.dataset;
     if (this.data.batchMode) {
       if (status === 'handled') {
         this.toast('已处理记录无需选择');
@@ -381,33 +397,163 @@ Page({
       this.setData({ selected, selectedCount: Object.keys(selected).length });
       return;
     }
-    const rec = this.data.groups[gi] && this.data.groups[gi].records[ri];
-    if (!rec || Number(rec.id) !== Number(id)) return;
-    this._fromDetail = true; // 返回时 onShow 重拉
-    wx.navigateTo({
-      url: '/pkg-treehazard/pages/detail/detail',
-      success: (res) => {
-        res.eventChannel.emit('record', rec);
-        res.eventChannel.emit('ctx', { teamId: this._teamId });
-      },
-    });
+    this.toggleFold(id);
   },
 
-  // 卡内「处理」按钮（未处理卡；catchtap 已防冒泡进详情）：复用处理弹层，单 id 走 /records/:id/handle
+  // 折叠/展开开关（每卡一枚，catchtap 防冒泡；点卡同效）：默认折叠一卡两行摘要
+  onFoldToggle(e) {
+    this.toggleFold(e.currentTarget.dataset.id);
+  },
+
+  toggleFold(id) {
+    if (id === undefined || id === null || id === '') return;
+    const expanded = Object.assign({}, this.data.expanded);
+    if (expanded[id]) {
+      delete expanded[id];
+    } else {
+      expanded[id] = true;
+    }
+    this.setData({ expanded });
+  },
+
+  // 卡内「处理」按钮（未处理卡展开区；catchtap 防冒泡）：复用处理弹层，单 id 走 /records/:id/handle
   onCardHandle(e) {
     const { id } = e.currentTarget.dataset;
     if (!id) return;
     this.openHandle([Number(id)]);
   },
 
-  // 辅证照片预览（卡片级只读展示；catchtap 已防冒泡进详情）
-  onEvPreview(e) {
-    const { gi, ri, pi } = e.currentTarget.dataset;
-    const rec = this.data.groups[gi] && this.data.groups[gi].records[ri];
+  /* ==================== 照片（卡片展开区：辅证只读预览 / 处理前后上传与长按删除） ==================== */
+
+  // 按记录 id 取当前台账记录（照片、处理等卡内操作共用）
+  findRecord(id) {
+    for (const g of this.data.groups || []) {
+      const rec = (g.records || []).find((r) => Number(r.id) === Number(id));
+      if (rec) return rec;
+    }
+    return null;
+  },
+
+  // 点击缩略图预览（urls = 该区全部照片地址）
+  onPhotoPreview(e) {
+    const { id, kind, pi } = e.currentTarget.dataset;
+    const rec = this.findRecord(id);
     if (!rec) return;
-    const urls = (rec.pz.evidence || []).map((p) => p.url);
+    const urls = ((rec.pz && rec.pz[kind]) || []).map((p) => p.url);
     if (!urls.length) return;
     wx.previewImage({ urls, current: urls[Number(pi) || 0] });
+  },
+
+  // 「+」格：wx.chooseMedia 多选原图（处理前/后照片大多不止一张）→ 逐张 base64 上传
+  onAddPhoto(e) {
+    const { id, kind } = e.currentTarget.dataset;
+    if (this._uploading || !id) return;
+    wx.chooseMedia({
+      count: 9,
+      mediaType: ['image'],
+      sizeType: ['original'],
+      sourceType: ['album', 'camera'],
+      success: (res) => {
+        const files = res.tempFiles || [];
+        if (files.length) this.uploadPhotos(Number(id), kind, files);
+      },
+    });
+  },
+
+  // 多选逐张上传（进度 n/m），完成后整表重拉（照片区随 loadAll 同步）
+  async uploadPhotos(recordId, kind, files) {
+    this._uploading = true;
+    let ok = 0;
+    let failed = 0;
+    wx.showLoading({ title: `上传中 0/${files.length}`, mask: true });
+    for (const f of files) {
+      try {
+        const r = await new Promise((resolve, reject) => {
+          wx.getFileSystemManager().readFile({
+            filePath: f.tempFilePath,
+            encoding: 'base64',
+            success: resolve,
+            fail: () => reject(new Error('图片读取失败')),
+          });
+        });
+        const ext = (String(f.tempFilePath).split('.').pop() || 'jpeg').toLowerCase();
+        const mime = ext === 'png' ? 'png' : 'jpeg';
+        await request({
+          url: `${API_BASE}/records/${recordId}/photos?kind=${kind}${this._teamId ? `&team_id=${this._teamId}` : ''}`,
+          method: 'POST',
+          data: this.teamBody({ image: `data:image/${mime};base64,${r.data}` }),
+          timeout: 120000,
+        });
+        ok += 1;
+      } catch (err) {
+        failed += 1;
+      }
+      wx.showLoading({ title: `上传中 ${ok + failed}/${files.length}`, mask: true });
+    }
+    wx.hideLoading();
+    this._uploading = false;
+    if (!ok && failed) this.toast('上传失败，请重试');
+    else if (failed) this.toast(`上传完成：成功 ${ok} 张，失败 ${failed} 张`);
+    else this.toast(`已上传 ${ok} 张`);
+    this.loadAll();
+  },
+
+  // 长按缩略图删除照片（仅处理前/后区绑定；辅证区只读，与网页端对齐）：
+  // 仅上传者本人（photo.uploaded_by === 当前用户 id）或班管/超管可删，不满足时长按静默无反应
+  onPhotoLongPress(e) {
+    const { id, pid, uploadedBy } = e.currentTarget.dataset;
+    const mine = Number(uploadedBy) > 0 && Number(uploadedBy) === this._userId;
+    if (!mine && !this.data.canManage) return; // 无权限：保持安静
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: '删除照片',
+      content: '删除这张照片？',
+      confirmBtn: '删除',
+      cancelBtn: '取消',
+    })
+      .then(async () => {
+        try {
+          await request({
+            url: `${API_BASE}/records/${id}/photos/${pid}${this.teamQuery('?')}`,
+            method: 'DELETE',
+            data: this.teamBody({}),
+          });
+          this.toast('已删除');
+          this.loadAll();
+        } catch (err) {
+          this.toast(err.message);
+        }
+      })
+      .catch(() => {});
+  },
+
+  // 删除记录（班管/超管，展开区按钮）：删记录与照片、写墓碑，成功后整表重拉
+  onDeleteRecord(e) {
+    const { id } = e.currentTarget.dataset;
+    if (!this.data.canManage || !id) return;
+    Dialog.confirm({
+      context: this,
+      selector: '#t-dialog',
+      title: '删除记录',
+      content: '删除后不可恢复，记录内照片一并删除，确定删除吗？',
+      confirmBtn: '删除',
+      cancelBtn: '取消',
+    })
+      .then(async () => {
+        try {
+          await request({
+            url: `${API_BASE}/records/${id}${this.teamQuery('?')}`,
+            method: 'DELETE',
+            data: this.teamBody({}),
+          });
+          this.toast('已删除');
+          this.loadAll();
+        } catch (err) {
+          this.toast(err.message);
+        }
+      })
+      .catch(() => {});
   },
 
   onOpenBatchHandle() {

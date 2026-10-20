@@ -55,7 +55,7 @@ async function fetchLineOrder(pool, teamId) {
   return rows.map((r) => ({ voltage_level: r.voltage_level, line_name: r.line_name }));
 }
 
-// 本班垂直距离阈值（未配置 → null；路由与同步模块共用，供三级档位「要紧」判定）
+// 本班垂直距离阈值（未配置 → null；路由与同步模块共用，供看板/卡片「要紧」红显与计数判定）
 async function fetchThreshold(pool, teamId) {
   const [rows] = await pool.query('SELECT vertical_threshold FROM treehazard_team_setting WHERE team_id = ?', [teamId]);
   return rows.length && rows[0].vertical_threshold !== null ? Number(rows[0].vertical_threshold) : null;
@@ -67,18 +67,28 @@ function numPrefix(v) {
   return m ? Number(m[1]) : Infinity;
 }
 
-// 要紧判定：未处理且 vertical_num 非空且 ≤ 班组阈值（与看板「超阈值」同口径）；threshold 为 null 时无要紧档
-function isUrgent(r, threshold) {
-  return r.status === 'unhandled' && threshold !== null && threshold !== undefined
-    && r.vertical_num !== null && r.vertical_num !== undefined && Number(r.vertical_num) <= threshold;
+// 状态档位：未处理在前 > 已处理在后（2026-10 起「要紧」不再单列档位，仅作红显/计数）
+function statusTier(r) {
+  return r.status === 'handled' ? 1 : 0;
 }
 
-// 组内比较器：三级档位（要紧 > 普通未处理 > 已处理）→ pole_from 数值升序（NULL 排尾）→ created_at
-function makeTierComparator(threshold) {
-  const tierOf = (r) => (isUrgent(r, threshold) ? 0 : r.status === 'unhandled' ? 1 : 2);
+// 区段升序：zh-CN 中文序 + 数字自然序（「2-10」排在「10-20」前），空值排尾
+function compareSection(a, b) {
+  const sa = String(a ?? '').trim();
+  const sb = String(b ?? '').trim();
+  if (!sa && !sb) return 0;
+  if (!sa) return 1;
+  if (!sb) return -1;
+  return sa.localeCompare(sb, 'zh-CN', { numeric: true });
+}
+
+// 组内比较器：状态档位（未处理在前 > 已处理在后）→ 区段升序 → pole_from 数值升序（NULL 排尾）→ created_at
+function makeIntraComparator() {
   return (a, b) => {
-    const t = tierOf(a) - tierOf(b);
+    const t = statusTier(a) - statusTier(b);
     if (t) return t;
+    const s = compareSection(a.section, b.section);
+    if (s) return s;
     const pa = a.pole_from === null || a.pole_from === undefined ? Infinity : Number(a.pole_from);
     const pb = b.pole_from === null || b.pole_from === undefined ? Infinity : Number(b.pole_from);
     if (pa !== pb) return pa - pb;
@@ -112,11 +122,12 @@ function exportGroupComparator(a, b) {
   return String(a.line_name || '').localeCompare(String(b.line_name || ''), 'zh-CN');
 }
 
-// 记录排序（纯函数；调用方先做 lineName 过滤）：分组键比较器 → 组内三级档位比较器；
-// threshold 为班组垂直距离阈值（null 时无要紧档）
-function sortRecords(records, groupComparator, threshold = null) {
-  const tierCmp = makeTierComparator(threshold);
-  return [...records].sort((a, b) => groupComparator(a, b) || tierCmp(a, b));
+// 记录排序（纯函数；调用方先做 lineName 过滤）：分组键比较器 → 组内比较器（未处理在前 > 已处理在后 > 区段升序
+// → pole_from → created_at）；statusFirst=true（单表导出）把状态档位提到最前，得
+// 未处理在前已处理在后 > 电压等级降序 > 线路名称升序 > 区段升序
+function sortRecords(records, groupComparator, statusFirst = false) {
+  const intra = makeIntraComparator();
+  return [...records].sort((a, b) => (statusFirst ? statusTier(a) - statusTier(b) : 0) || groupComparator(a, b) || intra(a, b));
 }
 
 // 电压等级单元格幂等格式化：值已含 kV 不重复追加，纯数字才拼 kV，其余原样（读回剥后缀口径见 diff.js parseIntranetSheet）
@@ -245,14 +256,15 @@ function sheetNameOf(base, used) {
   }
 }
 
-// 生成统计表 workbook（内部按出口口径排序，调用方传未排序记录与班组阈值即可）：
-// split=false（默认）单 sheet「树障」，行序 = 电压等级数值降序 → 线路名称升序（zh-CN）→ 组内三级档位，标题「{班组}树木统计表」；
+// 生成统计表 workbook（内部按出口口径排序，调用方传未排序记录即可）：
+// split=false（默认）单 sheet「树障」，行序 = 未处理在前已处理在后 > 电压等级数值降序 → 线路名称升序（zh-CN）
+// → 区段升序，标题「{班组}树木统计表」；
 // split=true 按线路分 sheet（lineOrder 必传）：sheet 划分与顺序 = team_line 运维线路导入序（groupByLine 首现序），
-// sheet 内按组内三级档位；sheet 名 = fmtVoltageCell(电压)+线路名（幂等 kV，Excel 名约束清洗），
+// sheet 内按 未处理在前已处理在后 > 区段升序；sheet 名 = fmtVoltageCell(电压)+线路名（幂等 kV，Excel 名约束清洗），
 // 每 sheet 完整模板、序号自 1 重排，标题「{电压等级}{线路名称}树木统计表」（与分线路导出文件名口径一致），
 // 未匹配线路记录归末尾「未匹配线路」sheet（标题同为「未匹配线路」）
-async function buildWorkbook({ teamName, records, split = false, lineOrder, threshold = null }) {
-  const sorted = sortRecords(records, split ? makeLineGroupComparator(lineOrder) : exportGroupComparator, threshold);
+async function buildWorkbook({ teamName, records, split = false, lineOrder }) {
+  const sorted = sortRecords(records, split ? makeLineGroupComparator(lineOrder) : exportGroupComparator, !split);
   const wb = new ExcelJS.Workbook();
   if (!split) {
     writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: sorted });

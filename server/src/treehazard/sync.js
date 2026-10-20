@@ -255,12 +255,12 @@ async function markSyncedAfterPush(db, teamId) {
   );
 }
 
-// 下发最新表：buildWorkbook 内部按单表口径排序（与人工导出 split=false 同口径：电压降序>线路名升序>三级档位）
+// 下发最新表：buildWorkbook 内部按单表口径排序（与人工导出 split=false 同口径：
+// 未处理在前已处理在后>电压降序>线路名升序>区段升序）
 // → push 表文件 + replace 指令 → 重挂回共享态（不等被控机取件确认）
 async function pushLatest(dev, team, cycle, records) {
   const fileName = exporter.exportFileName(team.name);
-  const threshold = await exporter.fetchThreshold(pool, team.id);
-  const wb = await exporter.buildWorkbook({ teamName: team.name, records, threshold });
+  const wb = await exporter.buildWorkbook({ teamName: team.name, records });
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   await pushFile(dev, fileName, buf);
   const cmd = Buffer.from(JSON.stringify(cmdPayload(cycle, 'replace', fileName)), 'utf8');

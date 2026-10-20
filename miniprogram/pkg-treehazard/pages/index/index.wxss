@@ -49,6 +49,11 @@ page {
   color: #F53F3F;
 }
 
+/* 要紧类计数为 0 / 未设阈值：不标红，弱化为辅助灰（仅 >0 才红显） */
+.stat-num-mut {
+  color: #86909C;
+}
+
 .stat-label {
   margin-top: 8rpx;
   font-size: 22rpx;
@@ -125,7 +130,7 @@ page {
   color: #C9CDD4;
 }
 
-/* ---------- 线路大卡片（标题恒正文黑；计数着色：要紧>0 红 / 未处理>0 品牌蓝 / 均为 0 置灰；stagger 入场，delay 内联递增） ---------- */
+/* ---------- 线路大卡片（标题恒正文黑；计数着色：要紧>0 红字、=0 灰字 / 未处理>0 品牌蓝 / 均为 0 置灰；stagger 入场，delay 内联递增） ---------- */
 .lcard {
   padding: 28rpx;
   animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
@@ -268,11 +273,15 @@ page {
   opacity: 0.62;
 }
 
-/* 首行：勾选圆点（批量模式）+ 区段 + 状态点标 */
+/* 首行：勾选圆点（批量模式）+ 区段 + 垂距（左对齐随区段）+ 状态点标（右推）+ 折叠/展开开关 */
 .th-head {
   display: flex;
   align-items: center;
   gap: 16rpx;
+}
+
+.th-head .st-tag {
+  margin-left: auto;
 }
 
 .ck-ring {
@@ -298,8 +307,9 @@ page {
   border-style: dashed;
 }
 
+/* 区段不撑满行宽：垂距字段随区段落在左侧（左对齐，不右对齐），过长时本字省略 */
 .th-section {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-size: 32rpx;
   font-weight: 600;
@@ -309,7 +319,7 @@ page {
   text-overflow: ellipsis;
 }
 
-/* 三项关键指标（一行三个小字段） */
+/* 卡片字段块（折叠次行 树种×数量 / 水平距离；展开区其他信息同款两列） */
 .th-grid {
   display: flex;
   flex-wrap: wrap;
@@ -337,7 +347,7 @@ page {
   text-overflow: ellipsis;
 }
 
-/* 首行垂直距离（与区段同级大字；≤ 阈值红显） */
+/* 首行垂直距离（与区段同级大字、随区段左对齐；≤ 阈值红显） */
 .th-vbig {
   flex: none;
   font-size: 32rpx;
@@ -348,6 +358,38 @@ page {
 
 .th-vbig-bad {
   color: #F53F3F;
+}
+
+/* 折叠/展开开关（首行右端，每卡一枚；点卡同效） */
+.th-fold {
+  flex: none;
+  width: 48rpx;
+  height: 48rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 展开区：其他信息 / 处理信息 / 照片三区 / 操作按钮（折叠时不渲染） */
+.th-more {
+  margin-top: 8rpx;
+}
+
+/* 处理信息行（浅绿底 + 绿字，同网页端 rec-handled 口径） */
+.th-handled {
+  margin-top: 16rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 8rpx;
+  background: #E8FFEA;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx 24rpx;
+  font-size: 22rpx;
+  color: #0B8A37;
+}
+
+.th-handled b {
+  font-weight: 700;
 }
 
 /* ---------- 批量模式底部固定条 ---------- */
@@ -574,12 +616,22 @@ page {
   opacity: 0.5;
 }
 
-/* ---------- 台账卡：辅证照片网格（卡片级只读展示，口径同详情页 pz-grid） ---------- */
+/* ---------- 台账卡展开区：照片三区（辅证只读 / 处理前后可上传可删） ---------- */
+.pz {
+  margin-top: 20rpx;
+}
+
+.pz-t {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #4E5969;
+}
+
 .pz-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 12rpx;
-  margin-top: 16rpx;
+  margin-top: 12rpx;
 }
 
 .pz-img {
@@ -589,11 +641,32 @@ page {
   background: #F7F8FA;
 }
 
-/* ---------- 台账卡：卡内「处理」次按钮（右下，仅未处理且非批量模式渲染） ---------- */
+/* 「+」格：上传入口（虚线占位） */
+.pz-add {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 8rpx;
+  border: 2rpx dashed #C9CDD4;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------- 台账卡展开区：操作行（删除居左，处理居右） ---------- */
 .th-foot {
   display: flex;
   justify-content: flex-end;
+  gap: 16rpx;
   margin-top: 16rpx;
+}
+
+/* 删除记录：描边红字（危险操作弱化为次按钮形态） */
+.btn-act.btn-del {
+  margin-right: auto;
+  color: #F53F3F;
+  border-color: #F53F3F;
+  background: #FFECE8;
 }
 
 .btn-act {

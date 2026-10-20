@@ -2,15 +2,16 @@
 <!-- Shade 壹匣 · 树障隐患记录网页版（「政企蓝白」token；骨架同 worklog.html：100vh 锁高 + 悬浮卡片 + 页签内部滚动）
      功能：看板四格（未处理 / 本周新增 / 垂直距离≤阈值未处理 / 已处理，仅记录页签一级「线路视图」顶部展示）
      + 记录页签两级导航——一级线路视图（顶部搜索框输入即过滤线路名/电压等级 + 线路大卡片网格：标题「110kV 孝西线」
-     + 未处理 n（品牌蓝）+ 垂直距离≤阈值「要紧」m（红字，无阈值不显；两项均 0 时计数整体置灰）+ 总数灰字；
+     + 未处理 n（品牌蓝）+ 垂直距离≤阈值「要紧」m（>0 红字、=0 灰字，无阈值不显；两项均 0 时计数整体置灰）+ 总数灰字；
      排序 要紧降 > 未处理降 > 电压等级数值降 > 线路名 zh-CN 升序，「未匹配线路」伪组卡恒排尾；线路卡 stagger 上浮入场，点卡进二级）
      / 二级台账视图（← 返回线路 + 线路标题计数 + 扁平完整记录卡片流，批量处理开关在本级工具条，视图切换 fade+slide）；
      导出走右下角全局悬浮按钮（FAB 弹层：范围 全部线路 / 当前线路（一级视图为「选择线路」下拉）+ 按线路分表 split=1 勾选，
      预览 /export/preview 取 url 当前窗口打开、下载 apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
-     台账记录卡片扁平展示（无详情弹层分级，顺序后端已排好）：标题行 区段 + 垂距双大字同级（垂距 ≤ 阈值红显）
-     + 状态点标（未处理橙·已处理绿，处理后整卡降饱和过渡），次级行 树种×数量 / 水平距离，随后全字段网格（垂直超阈值红底突出）
-     + 已处理信息 + 照片三区（辅证只读有图才显示 / 处理前 / 处理后可上传可删，缩略图进大图查看器）+ 卡内 处理（未处理）/ 删除（班管·超管）按钮，
-     操作后随 loadRecords 同步重绘；
+     台账记录卡片扁平展示（无详情弹层分级，顺序后端已排好：未处理在前已处理在后 > 区段升序）：默认折叠态一卡两行——
+     标题行 区段 + 垂距双大字同级、左对齐（垂距 ≤ 阈值红显）+ 状态点标（未处理橙·已处理绿，处理后整卡降饱和过渡）
+     + 卡内折叠/展开开关，次级行 树种×数量 / 水平距离；展开态另出全字段网格（垂直超阈值红底突出）
+     + 已处理信息 + 照片三区（辅证只读有图才显示 / 处理前 / 处理后可上传可删，缩略图进大图查看器）
+     + 卡内 处理（未处理）/ 删除（班管·超管）按钮，操作后随 loadRecords 同步重绘（折叠只藏其余区块，两行摘要常驻）；
      支持批量勾选批量处理（批量模式下点卡 = 勾选）；暂存区 / 冲突页签与阈值设置 / 同步至内网仅超管·班组管理员可见（服务端 requireDictAdmin 同拦）；
      班组隔离：超管页头班组切换下拉（localStorage.treehazard_team_id，全部 /treehazard/* 请求统一带 team_id，见 th()），
      非超管固定本班、未分配班组整页空态（屏十口径）；API 直连主平台 /api/v1/treehazard/*（Bearer token 经 Shade.api） -->
@@ -63,6 +64,7 @@
   .dc-n.red { color: var(--red); }
   .dc-n.green { color: var(--green); }
   .dc-n.mut { font-size: 14px; color: var(--ph); font-weight: 600; letter-spacing: 1px; }
+  .dc-n.zero { color: var(--ph); } /* 要紧类计数为 0：不标红，弱化为辅助灰（仅 >0 才红显） */
   .dc-t { font-size: 12px; color: var(--sub); letter-spacing: .5px; }
   /* 班管/超管待办小字入口（暂存 / 冲突角标同源 dashboard 计数） */
   .dash-todo {
@@ -221,6 +223,15 @@
   .rec-ck.dis:hover { border-color: var(--dash); }
   /* 卡片内操作行：删除（班管/超管）居左，处理（未处理）居右 */
   .rec-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+  /* 折叠/展开开关（标题行右端，每卡一枚）：折叠态整卡只留 区段/垂距/树种×数量/水平 两行摘要，其余整块隐藏 */
+  .rec-fold {
+    flex: none; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    color: var(--ph); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    transition: color .15s, border-color .15s;
+  }
+  .rec-fold:hover { color: var(--orange); border-color: var(--orange); }
+  .rec-fold svg { width: 13px; height: 13px; }
+  .rec.fold .rec-more { display: none; } /* 折叠：隐藏其他信息 / 照片 / 操作按钮 */
   /* 卡片内信息行：紧凑行式字段流（标签小灰字 + 值同行内联），宽屏一行、窄屏两行自适应 */
   .rf-row { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 8px; }
   .rf { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -533,6 +544,7 @@ var state = {
   curLine: '',               // 台账视图当前线路名（'__unmatched__' = 未匹配线路伪组）
   lineSearch: '',            // 线路视图搜索串（输入即过滤线路名/电压等级）
   batch: { on: false, sel: {} }, // 批量处理模式（仅台账视图可用）：sel 为 记录id→true
+  exp: {},                     // 台账卡折叠/展开状态（记录id→true=展开；默认折叠，仅两行摘要）
   upTarget: null,            // 照片上传目标 {recordId, kind}
   lb: { list: [], idx: 0 },  // 大图层（list 为当前照片组 url 数组）
   stg: { list: null, detail: null, err: '' }, // 暂存区：批次列表 / 批次详情 {batch, records}
@@ -597,7 +609,8 @@ function renderDashboard() {
     lab.textContent = '垂直距离≤阈值未处理';
   } else {
     over.textContent = d.over_threshold == null ? '—' : d.over_threshold;
-    over.className = 'dc-n red';
+    /* 要紧类计数仅 >0 才红显，=0 弱化为辅助灰 */
+    over.className = 'dc-n ' + (d.over_threshold > 0 ? 'red' : 'zero');
     lab.textContent = '垂直距离≤' + d.threshold + 'm 未处理';
   }
   /* 页签角标（仅管理角色有对应页签） */
@@ -695,14 +708,16 @@ function photoZoneHtml(r, kind, label, canUpload) {
     + '</div>';
 }
 
-/* 记录卡片 HTML（扁平完整卡，无详情弹层分级）：
-   标题行 = 区段 + 垂直距离双大字同级（垂距 ≤ 阈值红显）+ 状态点标 + 批量勾选框；
-   次级行 = 树种×数量 / 水平距离；随后紧凑信息行（位置备注/直径/距小号/距大号/发现人/发现时间，
+/* 记录卡片 HTML（扁平完整卡，无详情弹层分级；默认折叠态一卡两行）：
+   标题行 = 区段 + 垂直距离双大字同级、左对齐（垂距 ≤ 阈值红显）+ 状态点标 + 折叠/展开开关 + 批量勾选框；
+   次级行 = 树种×数量 / 水平距离——两行即折叠态全部内容（其他按钮一并隐藏）；
+   展开态（.rec-more）另出紧凑信息行（位置备注/直径/距小号/距大号/发现人/发现时间，
    空值跳过，宽屏一行窄屏两行）+ 已处理信息 + 照片三区（横向分区；辅证只读、有图才显示；
    处理前/后可上传可删）+ 卡内操作（处理：未处理卡；删除：班管/超管）。
    卡内全部交互走 #recBody 事件委派（见 initEvents），重绘无需重绑 */
 function recCardHtml(r, threshold) {
   var done = r.status === 'handled';
+  var expanded = !!state.exp[r.id];
   var head = [];
   /* 批量模式：未处理卡可勾选，已处理卡禁用态 */
   if (state.batch.on) {
@@ -713,6 +728,8 @@ function recCardHtml(r, threshold) {
   head.push('<b class="rec-sec">' + esc(dash(r.section)) + '</b>');
   head.push('<span class="rec-vert' + (overThreshold(r, threshold) ? ' danger' : '') + '" title="垂直距离">垂距 ' + esc(fmtM(r.vertical)) + '</span>');
   head.push(done ? '<span class="rec-tag ok">已处理</span>' : '<span class="rec-tag un">未处理</span>');
+  head.push('<button class="rec-fold" data-fold="' + r.id + '" title="' + (expanded ? '折叠' : '展开') + '">'
+    + Shade.icon(expanded ? 'chevron-up' : 'chevron-down', 13) + '</button>');
   /* 次级字段行：树种×数量 / 水平距离 */
   var sub = [];
   var species = String(r.tree_species || '').trim();
@@ -742,11 +759,12 @@ function recCardHtml(r, threshold) {
   var acts = [];
   if (isManager) acts.push('<button class="btn btn-sm btn-danger" data-ddel="' + r.id + '" style="margin-right:auto">删除</button>');
   if (!done) acts.push('<button class="btn btn-sm btn-primary" data-dhandle="' + r.id + '">处理</button>');
-  return '<div class="card rec' + (done ? ' done' : '') + '" data-id="' + r.id + '">'
+  return '<div class="card rec' + (done ? ' done' : '') + (expanded ? '' : ' fold') + '" data-id="' + r.id + '">'
     + '<div class="rec-top">' + head.join('') + '</div>'
     + '<div class="rec-subline">' + sub.join('') + '</div>'
-    + grid + handled + photos
+    + '<div class="rec-more">' + grid + handled + photos
     + (acts.length ? '<div class="rec-acts">' + acts.join('') + '</div>' : '')
+    + '</div>'
     + '</div>';
 }
 
@@ -767,7 +785,7 @@ function lineStats(recs, threshold) {
   });
   return { unh: unh, key: key, total: recs.length };
 }
-/* 线路大卡：标题（电压等级+线路名，fmtKv 幂等）+ 未处理（品牌蓝）/ 要紧（红，无阈值不显）/ 总数（灰）；
+/* 线路大卡：标题（电压等级+线路名，fmtKv 幂等）+ 未处理（品牌蓝）/ 要紧（>0 红字、=0 灰字，无阈值不显）/ 总数（灰）；
    未处理与要紧均为 0 时计数整体置灰（lc-clear）；idx 用于 stagger 入场时延链（≤0.9s 封顶） */
 function lineCardHtml(title, st, threshold, lineKey, idx) {
   var clear = st.unh === 0 && st.key === 0;
@@ -779,7 +797,7 @@ function lineCardHtml(title, st, threshold, lineKey, idx) {
     + '<span class="lc-unh">未处理<b>' + st.unh + '</b></span>'
     + (threshold === null || threshold === undefined
       ? ''
-      : '<span class="lc-key" title="未处理且垂直距离≤阈值">要紧<b>' + st.key + '</b></span>')
+      : '<span class="' + (st.key > 0 ? 'lc-key' : 'lc-total') + '" title="未处理且垂直距离≤阈值">要紧<b>' + st.key + '</b></span>')
     + '<span class="lc-total">共 ' + st.total + ' 条</span>'
     + '</div></div>'
     + '<span class="lc-go">' + Shade.icon('chevron-right', 16) + '</span>'
@@ -1543,6 +1561,18 @@ function initEvents() {
   $('#recBody').addEventListener('click', function (e) {
     var lc = e.target.closest('.lc[data-line]');
     if (lc) { openLedger(lc.dataset.line); return; }
+    /* 折叠/展开开关（每卡一枚）：就地切 .fold 类不重绘（照片缩略图/滚动位不动） */
+    var foldBtn = e.target.closest('[data-fold]');
+    if (foldBtn) {
+      var fid = Number(foldBtn.dataset.fold);
+      if (state.exp[fid]) delete state.exp[fid]; else state.exp[fid] = true;
+      var on = !!state.exp[fid];
+      var fCard = foldBtn.closest('.rec[data-id]');
+      if (fCard) fCard.classList.toggle('fold', !on);
+      foldBtn.title = on ? '折叠' : '展开';
+      foldBtn.innerHTML = Shade.icon(on ? 'chevron-up' : 'chevron-down', 13);
+      return;
+    }
     /* 卡内操作优先（不触发批量勾选） */
     var delPh = e.target.closest('[data-phdel]');
     if (delPh) { deletePhoto(Number(delPh.dataset.rid), Number(delPh.dataset.phdel)); return; }
@@ -1685,6 +1715,7 @@ function reloadTeamData() {
   state.lineSearch = '';
   $('#recSearch').value = '';
   state.batch = { on: false, sel: {} };
+  state.exp = {}; // 卡片折叠状态随班组切换复位
   state.stg = { list: null, detail: null, err: '' };
   state.stgSel = {};
   state.cft = { list: null, err: '' };

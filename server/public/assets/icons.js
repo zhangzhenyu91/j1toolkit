@@ -59,6 +59,8 @@
     'star': '<path d="M12 3.4l2.7 5.4 6 .9-4.3 4.2 1 6-5.4-2.8-5.4 2.8 1-6L3.3 9.7l6-.9z"/>',
     'view-module': '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
     'chevron-left': '<path d="M14.5 6.5L9 12l5.5 5.5"/>',
+    'chevron-down': '<path d="M6.5 9.5l5.5 5.5 5.5-5.5"/>',
+    'chevron-up': '<path d="M6.5 14.5l5.5-5.5 5.5 5.5"/>',
     'close-circle': '<circle cx="12" cy="12" r="8.5"/><path d="M9 9l6 6M15 9l-6 6"/>',
     'swap': '<path d="M4 7.5h11.5"/><path d="M13 4l3.5 3.5L13 11"/><path d="M20 16.5H8.5"/><path d="M11 13l-3.5 3.5L11 20"/>',
     'view-list': '<path d="M9.5 6h11M9.5 12h11M9.5 18h11"/><circle cx="4.5" cy="6" r="1.1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.1" fill="currentColor" stroke="none"/>',
