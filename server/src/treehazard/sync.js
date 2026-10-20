@@ -255,19 +255,18 @@ async function markSyncedAfterPush(db, teamId) {
   );
 }
 
-// 下发最新表：sortRecords 排序 → buildWorkbook → push 表文件 + replace 指令 → 重挂回共享态（不等被控机取件确认）
+// 下发最新表：buildWorkbook 内部按单表口径排序（与人工导出 split=false 同口径：电压降序>线路名升序>三级档位）
+// → push 表文件 + replace 指令 → 重挂回共享态（不等被控机取件确认）
 async function pushLatest(dev, team, cycle, records) {
   const fileName = exporter.exportFileName(team.name);
-  const lineRows = await exporter.fetchLineOrder(pool, team.id);
-  const lineOrder = new Map(lineRows.map((l, i) => [l.line_name, i]));
-  const sorted = exporter.sortRecords(records, lineOrder);
-  const wb = await exporter.buildWorkbook({ teamName: team.name, records: sorted });
+  const threshold = await exporter.fetchThreshold(pool, team.id);
+  const wb = await exporter.buildWorkbook({ teamName: team.name, records, threshold });
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   await pushFile(dev, fileName, buf);
   const cmd = Buffer.from(JSON.stringify(cmdPayload(cycle, 'replace', fileName)), 'utf8');
   await pushFile(dev, CMD_FILE, cmd);
   await mountToHost(dev); // 重挂回共享态：被控机在窗口内可取最新表
-  console.log(`[树障同步] 已下发最新表（${sorted.length} 行）与 replace 指令（轮次 ${cycle}）`);
+  console.log(`[树障同步] 已下发最新表（${records.length} 行）与 replace 指令（轮次 ${cycle}）`);
 }
 
 // 取件与比对回写：下载内网表 → diff（带已裁决驳回快照防反转）→ 应用 → 视差异决定收尾或下发最新表；

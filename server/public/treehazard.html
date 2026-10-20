@@ -221,15 +221,10 @@
   .rec-ck.dis:hover { border-color: var(--dash); }
   /* 卡片内操作行：删除（班管/超管）居左，处理（未处理）居右 */
   .rec-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
-  /* 卡片内全字段网格（区段 / 位置备注 / 树种 / 数量 / 直径 / 距小号 / 距大号 / 水平 / 垂直 / 发现人 / 发现时间） */
-  .dt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; margin-top: 12px; }
-  @media (max-width: 640px) { .dt-grid { grid-template-columns: repeat(2, 1fr); } }
-  .rg-cell { background: var(--fill); border-radius: 8px; padding: 7px 10px; min-width: 0; }
-  .rg-k { font-size: 10.5px; color: var(--ph); letter-spacing: 1px; }
-  .rg-v { margin-top: 2px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* 垂直距离超阈值：浅红底红字突出 */
-  .rg-cell.danger { background: #FFECE8; }
-  .rg-cell.danger .rg-v { color: var(--red); font-weight: 700; }
+  /* 卡片内信息行：紧凑行式字段流（标签小灰字 + 值同行内联），宽屏一行、窄屏两行自适应 */
+  .rf-row { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 8px; }
+  .rf { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rf i { font-style: normal; color: var(--ph); margin-right: 4px; }
   /* 卡片内已处理信息行（绿点 + 处理人/处理情况/处理时间） */
   .rec-handled {
     margin-top: 12px; padding: 9px 12px; border-radius: 8px; background: #E8FFEA;
@@ -238,8 +233,8 @@
   }
   .rec-handled::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
   .rec-handled b { font-weight: 700; }
-  /* 卡片内照片三区：辅证（只读，有图才显示）/ 处理前 / 处理后竖排，大缩略图网格（参考出工日志照片网格：圆角无描边） */
-  .ph-zones { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
+  /* 卡片内照片三区：辅证（只读，有图才显示）/ 处理前 / 处理后横向分区（窄屏自动换列），缩略图网格（参考出工日志：圆角无描边） */
+  .ph-zones { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
   .ph-zhead { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--sub); letter-spacing: 1px; }
   .ph-add {
     margin-left: auto; width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line); background: #fff;
@@ -248,9 +243,8 @@
   }
   .ph-add:hover { border-color: var(--orange); background: var(--orange-soft); }
   .ph-add svg { width: 12px; height: 12px; }
-  .ph-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 8px; }
-  @media (max-width: 640px) { .ph-grid { grid-template-columns: repeat(3, 1fr); } }
-  .ph { position: relative; height: 118px; border-radius: 8px; overflow: hidden; cursor: zoom-in; background: var(--fill); }
+  .ph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-top: 8px; }
+  .ph { position: relative; height: 88px; border-radius: 8px; overflow: hidden; cursor: zoom-in; background: var(--fill); }
   .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .ph-x {
     position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 6px; border: none;
@@ -516,11 +510,10 @@ var me = Shade.user() || {};
 /* 超管 / 班组管理员（暂存区·冲突·阈值·同步·删记录等管理类入口的可见性口径） */
 var isManager = me.role === 'admin' || me.role === 'team_admin';
 
-/* 卡片全字段网格定义（11 项；垂直超阈值红显，key 与后端列名一致） */
-var DETAIL_FIELDS = [
-  ['section', '区段'], ['position_note', '位置备注'], ['tree_species', '树种'], ['tree_count', '数量'],
-  ['diameter', '直径(cm)'], ['dist_small', '距小号(m)'], ['dist_big', '距大号(m)'],
-  ['horizontal', '水平(m)'], ['vertical', '垂直(m)'], ['finder_name', '发现人'], ['found_at', '发现时间']
+/* 卡片紧凑信息行字段（区段/垂距在标题行，树种×数量/水平在次级行，不重复占位；空值字段跳过） */
+var COMPACT_FIELDS = [
+  ['position_note', '位置备注'], ['diameter', '直径(cm)'], ['dist_small', '距小号(m)'],
+  ['dist_big', '距大号(m)'], ['finder_name', '发现人'], ['found_at', '发现时间']
 ];
 /* 15 业务列（发现 12 列 + 处理 3 列）：暂存区编辑与冲突对照共用（key 与后端列名一致） */
 var BIZ_FIELDS = [
@@ -645,12 +638,12 @@ async function loadRecords(quiet) {
   }
 }
 
-/* 视图切换同步：看板仅一级线路视图展示；搜索栏 / 台账栏随视图显隐 */
+/* 视图切换同步：看板仅「记录」页签展示（线路视图与台账视图均保留），暂存区/冲突页签不显示；搜索栏 / 台账栏随视图显隐 */
 function syncView() {
-  var ledger = state.tab === 'records' && state.view === 'ledger';
-  $('#dash').style.display = ledger ? 'none' : '';
-  $('#recBarLines').hidden = state.view !== 'lines';
-  $('#recBarLedger').hidden = state.view !== 'ledger';
+  var inRec = state.tab === 'records';
+  $('#dash').style.display = inRec ? '' : 'none';
+  $('#recBarLines').hidden = !(inRec && state.view === 'lines');
+  $('#recBarLedger').hidden = !(inRec && state.view === 'ledger');
 }
 /* 视图内容重渲染时触发 fade+slide 入场（重挂 .view-in 强制重放） */
 function playViewIn() {
@@ -704,7 +697,8 @@ function photoZoneHtml(r, kind, label, canUpload) {
 
 /* 记录卡片 HTML（扁平完整卡，无详情弹层分级）：
    标题行 = 区段 + 垂直距离双大字同级（垂距 ≤ 阈值红显）+ 状态点标 + 批量勾选框；
-   次级行 = 树种×数量 / 水平距离；随后全字段网格 + 已处理信息 + 照片三区（辅证只读、有图才显示；
+   次级行 = 树种×数量 / 水平距离；随后紧凑信息行（位置备注/直径/距小号/距大号/发现人/发现时间，
+   空值跳过，宽屏一行窄屏两行）+ 已处理信息 + 照片三区（横向分区；辅证只读、有图才显示；
    处理前/后可上传可删）+ 卡内操作（处理：未处理卡；删除：班管/超管）。
    卡内全部交互走 #recBody 事件委派（见 initEvents），重绘无需重绑 */
 function recCardHtml(r, threshold) {
@@ -725,14 +719,12 @@ function recCardHtml(r, threshold) {
   if (species) sub.push('<span class="rec-sub">' + esc(species)
     + (String(r.tree_count || '').trim() ? ' × ' + esc(r.tree_count) : '') + '</span>');
   sub.push('<span class="rec-dist">水平 ' + esc(fmtM(r.horizontal)) + '</span>');
-  /* 全字段网格：垂直超阈值红底红字突出 */
-  var grid = '<div class="dt-grid">' + DETAIL_FIELDS.map(function (f) {
-    var danger = f[0] === 'vertical' && overThreshold(r, threshold);
-    return '<div class="rg-cell' + (danger ? ' danger' : '') + '" title="' + esc(String(r[f[0]] == null ? '' : r[f[0]])) + '">'
-      + '<div class="rg-k">' + f[1] + '</div>'
-      + '<div class="rg-v">' + esc(dash(r[f[0]])) + '</div>'
-      + '</div>';
-  }).join('') + '</div>';
+  /* 紧凑信息行：标签+值同行内联，空值字段不渲染（垂直超阈值红显由标题行承担） */
+  var infoItems = COMPACT_FIELDS.map(function (f) {
+    var v = String(r[f[0]] == null ? '' : r[f[0]]).trim();
+    return v ? '<span class="rf"><i>' + f[1] + '</i>' + esc(v) + '</span>' : '';
+  }).filter(Boolean);
+  var grid = infoItems.length ? '<div class="rf-row">' + infoItems.join('') + '</div>' : '';
   /* 已处理信息行：处理人 / 处理情况 / 处理时间 */
   var handled = done
     ? '<div class="rec-handled"><span>处理人 <b>' + esc(dash(r.handler_name)) + '</b></span>'

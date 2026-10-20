@@ -125,21 +125,12 @@ page {
   color: #C9CDD4;
 }
 
-/* ---------- 线路大卡片（状态着色：要紧>0 红 / 未处理>0 品牌蓝 / 均为 0 置灰；stagger 入场，delay 内联递增） ---------- */
+/* ---------- 线路大卡片（标题恒正文黑；计数着色：要紧>0 红 / 未处理>0 品牌蓝 / 均为 0 置灰；stagger 入场，delay 内联递增） ---------- */
 .lcard {
   padding: 28rpx;
   animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
-.lcard.s-bad .lc-title {
-  color: #F53F3F;
-}
-
-.lcard.s-info .lc-title {
-  color: #0E3DA8;
-}
-
-.lcard.s-ok .lc-title,
 .lcard.s-ok .lc-st {
   color: #86909C;
   font-weight: 400;

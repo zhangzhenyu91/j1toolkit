@@ -96,9 +96,8 @@ async function attachPhotos(records) {
 }
 
 // 本班垂直距离阈值（未配置 → null）
-async function fetchThreshold(teamId) {
-  const [rows] = await pool.query('SELECT vertical_threshold FROM treehazard_team_setting WHERE team_id = ?', [teamId]);
-  return rows.length && rows[0].vertical_threshold !== null ? Number(rows[0].vertical_threshold) : null;
+function fetchThreshold(teamId) {
+  return exporter.fetchThreshold(pool, teamId);
 }
 
 // 北京时间本周一 00:00 的库内墙钟文本（库内 created_at 随容器为 UTC 墙钟，北京周界减 8h 后比较）
@@ -149,7 +148,8 @@ router.get('/dashboard', async (req, res, next) => {
 
 // ===== 记录列表与处理 =====
 
-// GET /records：本班全部记录，按 线路顺序（worklog_tower 导入序，未匹配排尾）分组返回；每条记录带 photos 数组
+// GET /records：本班全部记录，按 线路分组（team_line 运维线路导入序，未匹配排尾）返回，组内三级档位排序
+// （要紧 = 未处理且 vertical_num ≤ 阈值 > 普通未处理 > 已处理，同级 pole_from 升序 → created_at）；每条记录带 photos 数组
 router.get('/records', async (req, res, next) => {
   try {
     if (!req.team) return ok(res, { threshold: null, lines: [], unmatched: [] });
@@ -161,7 +161,7 @@ router.get('/records', async (req, res, next) => {
     ]);
     await attachPhotos(records);
     const lineOrder = new Map(lineRows.map((l, i) => [l.line_name, i]));
-    const sorted = exporter.sortRecords(records, lineOrder);
+    const sorted = exporter.sortRecords(records, exporter.makeLineGroupComparator(lineOrder), threshold);
     const byLine = new Map();
     const unmatched = [];
     for (const r of sorted) {
@@ -404,14 +404,14 @@ router.put('/settings', requireDictAdmin, async (req, res, next) => {
 const splitOn = (v) => v === '1' || v === 'true' || v === 1 || v === true;
 
 // 生成统计表 buffer（team 参数化：路由传 req.team，office 在线预览回源复用；line 可选分线路过滤；
-// split=true 按线路分 sheet；记录经 sortRecords 排序）
+// split=true 按线路分 sheet；记录由 buildWorkbook 按出口口径内部排序：单表 = 电压降序>线路名升序>三级档位，分表 = 导入序分 sheet+组内档位）
 async function buildTeamExport(team, line, split) {
   let records = await loadTeamRecords(team.id);
   const lineRows = await exporter.fetchLineOrder(pool, team.id);
+  const threshold = await fetchThreshold(team.id);
   const lineOrder = new Map(lineRows.map((l, i) => [l.line_name, i]));
   if (line) records = records.filter((r) => r.line_name === line);
-  const sorted = exporter.sortRecords(records, lineOrder);
-  const wb = await exporter.buildWorkbook({ teamName: team.name, records: sorted, split: !!split, lineOrder });
+  const wb = await exporter.buildWorkbook({ teamName: team.name, records, split: !!split, lineOrder, threshold });
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   return { buf, fileName: exporter.exportFileName(team.name, line || undefined) };
 }

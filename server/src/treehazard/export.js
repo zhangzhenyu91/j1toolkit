@@ -55,36 +55,68 @@ async function fetchLineOrder(pool, teamId) {
   return rows.map((r) => ({ voltage_level: r.voltage_level, line_name: r.line_name }));
 }
 
+// 本班垂直距离阈值（未配置 → null；路由与同步模块共用，供三级档位「要紧」判定）
+async function fetchThreshold(pool, teamId) {
+  const [rows] = await pool.query('SELECT vertical_threshold FROM treehazard_team_setting WHERE team_id = ?', [teamId]);
+  return rows.length && rows[0].vertical_threshold !== null ? Number(rows[0].vertical_threshold) : null;
+}
+
 // 数值前缀（电压等级等按数值排序用；无数字 → Infinity 排尾）
 function numPrefix(v) {
   const m = /(\d+(?:\.\d+)?)/.exec(String(v ?? ''));
   return m ? Number(m[1]) : Infinity;
 }
 
-// 记录排序（纯函数；调用方先做 lineName 过滤）：
-// 电压等级数值升序 → 线路顺序（lineOrder=Map<line_name,index>，未匹配排尾、未匹配间按 line_name 中文排序）
-// → status（unhandled 在前）→ pole_from 数值升序（NULL 排尾）→ created_at
-function sortRecords(records, lineOrder) {
-  const order = lineOrder instanceof Map ? lineOrder : new Map();
-  const lineRank = (name) => (order.has(name) ? order.get(name) : Infinity);
-  return [...records].sort((a, b) => {
-    const v = numPrefix(a.voltage_level) - numPrefix(b.voltage_level);
-    if (v) return v;
-    const la = lineRank(a.line_name);
-    const lb = lineRank(b.line_name);
-    if (la !== lb) return la - lb;
-    if (la === Infinity) {
-      const c = String(a.line_name || '').localeCompare(String(b.line_name || ''), 'zh-CN');
-      if (c) return c;
-    }
-    const sa = a.status === 'unhandled' ? 0 : 1;
-    const sb = b.status === 'unhandled' ? 0 : 1;
-    if (sa !== sb) return sa - sb;
+// 要紧判定：未处理且 vertical_num 非空且 ≤ 班组阈值（与看板「超阈值」同口径）；threshold 为 null 时无要紧档
+function isUrgent(r, threshold) {
+  return r.status === 'unhandled' && threshold !== null && threshold !== undefined
+    && r.vertical_num !== null && r.vertical_num !== undefined && Number(r.vertical_num) <= threshold;
+}
+
+// 组内比较器：三级档位（要紧 > 普通未处理 > 已处理）→ pole_from 数值升序（NULL 排尾）→ created_at
+function makeTierComparator(threshold) {
+  const tierOf = (r) => (isUrgent(r, threshold) ? 0 : r.status === 'unhandled' ? 1 : 2);
+  return (a, b) => {
+    const t = tierOf(a) - tierOf(b);
+    if (t) return t;
     const pa = a.pole_from === null || a.pole_from === undefined ? Infinity : Number(a.pole_from);
     const pb = b.pole_from === null || b.pole_from === undefined ? Infinity : Number(b.pole_from);
     if (pa !== pb) return pa - pb;
     return new Date(a.created_at) - new Date(b.created_at);
-  });
+  };
+}
+
+// 分组键比较器（记录列表 / 分表导出用）：team_line 运维线路导入序（lineOrder=Map<line_name,index>，
+// 未匹配排尾、未匹配间按线路名中文排序）
+function makeLineGroupComparator(lineOrder) {
+  const order = lineOrder instanceof Map ? lineOrder : new Map();
+  const lineRank = (name) => (order.has(name) ? order.get(name) : Infinity);
+  return (a, b) => {
+    const la = lineRank(a.line_name);
+    const lb = lineRank(b.line_name);
+    if (la !== lb) return la - lb;
+    if (la === Infinity) return String(a.line_name || '').localeCompare(String(b.line_name || ''), 'zh-CN');
+    return 0;
+  };
+}
+
+// 分组键比较器（单表导出用）：电压等级数值降序（无数字排尾）→ 线路名称升序（zh-CN）
+function exportGroupComparator(a, b) {
+  const va = numPrefix(a.voltage_level);
+  const vb = numPrefix(b.voltage_level);
+  if (va !== vb) {
+    if (va === Infinity) return 1;
+    if (vb === Infinity) return -1;
+    return vb - va;
+  }
+  return String(a.line_name || '').localeCompare(String(b.line_name || ''), 'zh-CN');
+}
+
+// 记录排序（纯函数；调用方先做 lineName 过滤）：分组键比较器 → 组内三级档位比较器；
+// threshold 为班组垂直距离阈值（null 时无要紧档）
+function sortRecords(records, groupComparator, threshold = null) {
+  const tierCmp = makeTierComparator(threshold);
+  return [...records].sort((a, b) => groupComparator(a, b) || tierCmp(a, b));
 }
 
 // 电压等级单元格幂等格式化：值已含 kV 不重复追加，纯数字才拼 kV，其余原样（读回剥后缀口径见 diff.js parseIntranetSheet）
@@ -169,7 +201,7 @@ function writeSheet(wb, { name, title, records }) {
   });
 }
 
-// 分表归组：records（已 sortRecords 排序）按 line_name 保序归组，组序=首现序（线路顺序 + 未匹配排尾）；
+// 分表归组：records（已按 lineOrder 分组键 + 组内档位排好序）按 line_name 保序归组，组序=首现序（team_line 导入序 + 未匹配排尾）；
 // lineOrder 未覆盖的记录归末尾「未匹配线路」组（unmatched 标记）
 function groupByLine(records, lineOrder) {
   const order = lineOrder instanceof Map ? lineOrder : new Map();
@@ -213,18 +245,20 @@ function sheetNameOf(base, used) {
   }
 }
 
-// 生成统计表 workbook（records 须已由 sortRecords 排好序）：
-// split=false（默认）单 sheet「树障」，标题「{班组}树木统计表」；
-// split=true 按线路分 sheet（lineOrder 必传）：sheet 名 = fmtVoltageCell(电压)+线路名（幂等 kV，Excel 名约束清洗），
+// 生成统计表 workbook（内部按出口口径排序，调用方传未排序记录与班组阈值即可）：
+// split=false（默认）单 sheet「树障」，行序 = 电压等级数值降序 → 线路名称升序（zh-CN）→ 组内三级档位，标题「{班组}树木统计表」；
+// split=true 按线路分 sheet（lineOrder 必传）：sheet 划分与顺序 = team_line 运维线路导入序（groupByLine 首现序），
+// sheet 内按组内三级档位；sheet 名 = fmtVoltageCell(电压)+线路名（幂等 kV，Excel 名约束清洗），
 // 每 sheet 完整模板、序号自 1 重排，标题「{电压等级}{线路名称}树木统计表」（与分线路导出文件名口径一致），
 // 未匹配线路记录归末尾「未匹配线路」sheet（标题同为「未匹配线路」）
-async function buildWorkbook({ teamName, records, split = false, lineOrder }) {
+async function buildWorkbook({ teamName, records, split = false, lineOrder, threshold = null }) {
+  const sorted = sortRecords(records, split ? makeLineGroupComparator(lineOrder) : exportGroupComparator, threshold);
   const wb = new ExcelJS.Workbook();
   if (!split) {
-    writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records });
+    writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: sorted });
     return wb;
   }
-  const groups = groupByLine(records, lineOrder);
+  const groups = groupByLine(sorted, lineOrder);
   if (!groups.length) {
     writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: [] }); // 无记录兜底：空表保持单 sheet
     return wb;
@@ -241,4 +275,7 @@ async function buildWorkbook({ teamName, records, split = false, lineOrder }) {
   return wb;
 }
 
-module.exports = { buildWorkbook, sortRecords, exportFileName, fetchLineOrder, parseVerticalNum, safeFileName };
+module.exports = {
+  buildWorkbook, sortRecords, makeLineGroupComparator, exportGroupComparator,
+  exportFileName, fetchLineOrder, fetchThreshold, parseVerticalNum, safeFileName,
+};
