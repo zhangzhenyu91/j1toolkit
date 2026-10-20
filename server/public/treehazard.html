@@ -9,9 +9,10 @@
      预览 /export/preview 取 url 当前窗口打开、下载 apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
      台账记录卡片扁平展示（无详情弹层分级，顺序后端已排好：未处理在前已处理在后 > 区段升序）：默认折叠态一卡两行——
      标题行 区段 + 垂距双大字同级、左对齐（垂距 ≤ 阈值红显）+ 状态点标（未处理橙·已处理绿，处理后整卡降饱和过渡）
-     + 卡内折叠/展开开关，次级行 树种×数量 / 水平距离；展开态另出全字段网格（垂直超阈值红底突出）
-     + 已处理信息 + 照片三区（辅证只读有图才显示 / 处理前 / 处理后可上传可删，缩略图进大图查看器）
-     + 卡内 处理（未处理）/ 删除（班管·超管）按钮，操作后随 loadRecords 同步重绘（折叠只藏其余区块，两行摘要常驻）；
+     + 卡内折叠/展开开关（点卡非交互区同效），次级行 树种×数量 / 水平距离；辅证照片条折叠态即展示（有图才渲染、只读，
+     点图进大图查看器）；展开态另出全字段网格（垂直超阈值红底突出）
+     + 已处理信息 + 处理前/后照片两区（可上传可删，缩略图进大图查看器）
+     + 卡内 处理（未处理）/ 删除（班管·超管）按钮，操作后随 loadRecords 同步重绘（折叠只藏展开区块，摘要与辅证条常驻）；
      支持批量勾选批量处理（批量模式下点卡 = 勾选）；暂存区 / 冲突页签与阈值设置 / 同步至内网仅超管·班组管理员可见（服务端 requireDictAdmin 同拦）；
      班组隔离：超管页头班组切换下拉（localStorage.treehazard_team_id，全部 /treehazard/* 请求统一带 team_id，见 th()），
      非超管固定本班、未分配班组整页空态（屏十口径）；API 直连主平台 /api/v1/treehazard/*（Bearer token 经 Shade.api） -->
@@ -190,7 +191,9 @@
   }
   .rec:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
   .rec.done { opacity: .62; } /* 已处理卡整体降饱和（处理后随刷新过渡至此态） */
-  #recBody.batching .rec { cursor: pointer; } /* 批量模式点卡 = 勾选；其余时候卡片不响应整卡点击 */
+  .rec { cursor: pointer; } /* 点卡（非交互区）= 折叠/展开（与卡内开关同效，批量模式 = 勾选） */
+  /* 辅证照片条：折叠态即展示（有图才渲染，只读），位于次级行与展开区之间 */
+  .rec-evi { margin-top: 10px; }
   .rec-top { display: flex; align-items: baseline; gap: 12px 16px; flex-wrap: wrap; }
   .rec-sec { font-size: 19px; font-weight: 700; letter-spacing: 1px; }
   /* 垂直距离与区段同级双大字（浏览主看这两项）；≤ 阈值红显 */
@@ -710,11 +713,10 @@ function photoZoneHtml(r, kind, label, canUpload) {
 
 /* 记录卡片 HTML（扁平完整卡，无详情弹层分级；默认折叠态一卡两行）：
    标题行 = 区段 + 垂直距离双大字同级、左对齐（垂距 ≤ 阈值红显）+ 状态点标 + 折叠/展开开关 + 批量勾选框；
-   次级行 = 树种×数量 / 水平距离——两行即折叠态全部内容（其他按钮一并隐藏）；
+   次级行 = 树种×数量 / 水平距离；辅证照片条（rec-evi，有图才渲染）折叠态即展示，点图开大图预览；
    展开态（.rec-more）另出紧凑信息行（位置备注/直径/距小号/距大号/发现人/发现时间，
-   空值跳过，宽屏一行窄屏两行）+ 已处理信息 + 照片三区（横向分区；辅证只读、有图才显示；
-   处理前/后可上传可删）+ 卡内操作（处理：未处理卡；删除：班管/超管）。
-   卡内全部交互走 #recBody 事件委派（见 initEvents），重绘无需重绑 */
+   空值跳过，宽屏一行窄屏两行）+ 已处理信息 + 照片两区（处理前/后可上传可删）+ 卡内操作（处理：未处理卡；删除：班管/超管）。
+   点卡（非交互区）折叠/展开同开关；卡内全部交互走 #recBody 事件委派（见 initEvents），重绘无需重绑 */
 function recCardHtml(r, threshold) {
   var done = r.status === 'handled';
   var expanded = !!state.exp[r.id];
@@ -748,10 +750,10 @@ function recCardHtml(r, threshold) {
       + '<span>处理情况 <b>' + esc(dash(r.handle_note)) + '</b></span>'
       + '<span>处理时间 <b>' + esc(dash(r.handled_at)) + '</b></span></div>'
     : '';
-  /* 照片三区：辅证只读（有图才渲染该区）/ 处理前 / 处理后（可上传可删） */
+  /* 辅证照片条：折叠态即展示（有图才渲染，只读），点击缩略图开大图预览；处理前/后两区留在展开区 */
   var hasEvidence = (r.photos || []).some(function (p) { return p.kind === 'evidence'; });
+  var evidence = hasEvidence ? '<div class="rec-evi">' + photoZoneHtml(r, 'evidence', '辅证照片', false) + '</div>' : '';
   var photos = '<div class="ph-zones">'
-    + (hasEvidence ? photoZoneHtml(r, 'evidence', '辅证照片', false) : '')
     + photoZoneHtml(r, 'before', '处理前', true)
     + photoZoneHtml(r, 'after', '处理后', true)
     + '</div>';
@@ -762,6 +764,7 @@ function recCardHtml(r, threshold) {
   return '<div class="card rec' + (done ? ' done' : '') + (expanded ? '' : ' fold') + '" data-id="' + r.id + '">'
     + '<div class="rec-top">' + head.join('') + '</div>'
     + '<div class="rec-subline">' + sub.join('') + '</div>'
+    + evidence
     + '<div class="rec-more">' + grid + handled + photos
     + (acts.length ? '<div class="rec-acts">' + acts.join('') + '</div>' : '')
     + '</div>'
@@ -1556,21 +1559,27 @@ function initEvents() {
   $('#recBody').addEventListener('click', function (e) {
     if (e.target.closest('#recRetry')) { loadRecords(); }
   });
-  /* 记录卡片流委派：线路大卡（进台账）/ 卡内交互（删照片 / 上传照片 / 处理 / 删记录 / 缩略图大图）/ 勾选框 / 批量模式点卡 = 勾选；
-     扁平化后无详情弹层，非批量模式整卡不响应点击 */
+  /* 折叠/展开就地切换（开关按钮与点卡共用）：就地切 .fold 类不重绘（照片缩略图/滚动位不动） */
+  function toggleCardFold(fid, card) {
+    if (state.exp[fid]) delete state.exp[fid]; else state.exp[fid] = true;
+    var on = !!state.exp[fid];
+    var target = card || $('.rec[data-id="' + fid + '"]', $('#recBody'));
+    if (target) target.classList.toggle('fold', !on);
+    var btn = target ? target.querySelector('[data-fold]') : null;
+    if (btn) {
+      btn.title = on ? '折叠' : '展开';
+      btn.innerHTML = Shade.icon(on ? 'chevron-up' : 'chevron-down', 13);
+    }
+  }
+  /* 记录卡片流委派：线路大卡（进台账）/ 卡内交互（删照片 / 上传照片 / 处理 / 删记录 / 缩略图大图）/ 勾选框 /
+     点卡（非交互区）= 折叠/展开（非批量模式；拖拽选中文字时不触发）；批量模式点卡 = 勾选 */
   $('#recBody').addEventListener('click', function (e) {
     var lc = e.target.closest('.lc[data-line]');
     if (lc) { openLedger(lc.dataset.line); return; }
-    /* 折叠/展开开关（每卡一枚）：就地切 .fold 类不重绘（照片缩略图/滚动位不动） */
+    /* 折叠/展开开关（每卡一枚） */
     var foldBtn = e.target.closest('[data-fold]');
     if (foldBtn) {
-      var fid = Number(foldBtn.dataset.fold);
-      if (state.exp[fid]) delete state.exp[fid]; else state.exp[fid] = true;
-      var on = !!state.exp[fid];
-      var fCard = foldBtn.closest('.rec[data-id]');
-      if (fCard) fCard.classList.toggle('fold', !on);
-      foldBtn.title = on ? '折叠' : '展开';
-      foldBtn.innerHTML = Shade.icon(on ? 'chevron-up' : 'chevron-down', 13);
+      toggleCardFold(Number(foldBtn.dataset.fold), foldBtn.closest('.rec[data-id]'));
       return;
     }
     /* 卡内操作优先（不触发批量勾选） */
@@ -1600,6 +1609,12 @@ function initEvents() {
       if (state.batch.sel[cid]) delete state.batch.sel[cid]; else state.batch.sel[cid] = true;
       ck.classList.toggle('on');
       syncBatchBar();
+      return;
+    }
+    /* 非批量模式：点卡（上述卡内交互与缩略图优先；拖拽选中文字时不触发）= 折叠/展开 */
+    if (!state.batch.on) {
+      var recCard0 = e.target.closest('.rec[data-id]');
+      if (recCard0 && !window.getSelection().toString()) toggleCardFold(Number(recCard0.dataset.id), recCard0);
       return;
     }
     /* 批量模式：点卡任意处 = 勾选（上述卡内交互优先；已处理卡勾选框为禁用态无 data-ck，整卡不响应） */

@@ -273,7 +273,7 @@ page {
   opacity: 0.62;
 }
 
-/* 首行：勾选圆点（批量模式）+ 区段 + 状态点标（右推）+ 折叠/展开开关 */
+/* 首行：勾选圆点（批量模式）+ 区段定宽块 + 垂距大字块（各卡竖向对齐）+ 状态点标（右推）+ 折叠/展开开关 */
 .th-head {
   display: flex;
   align-items: center;
@@ -307,9 +307,9 @@ page {
   border-style: dashed;
 }
 
-/* 区段占首行剩余宽（不撑满行宽，状态点标右推），过长时本字省略 */
+/* 区段定宽块（首行第一块：固定宽度保证后随的垂距块各卡左缘竖向对齐），过长时本字省略 */
 .th-section {
-  flex: 0 1 auto;
+  flex: 0 0 220rpx;
   min-width: 0;
   font-size: 32rpx;
   font-weight: 600;
@@ -347,13 +347,16 @@ page {
   text-overflow: ellipsis;
 }
 
-/* 次行垂距值（独立成列、各卡竖向对齐；加粗 + tabular-nums，≤ 阈值红显） */
-.th-v-vdist {
+/* 首行垂距大字块（首行第二块：紧跟定宽区段块、各卡左缘竖向对齐；突出大字，≤ 阈值红显） */
+.th-vbig {
+  flex: none;
+  font-size: 32rpx;
   font-weight: 700;
+  color: #1D2129;
   font-variant-numeric: tabular-nums;
 }
 
-.th-v-bad {
+.th-vbig-bad {
   color: #F53F3F;
 }
 
@@ -367,7 +370,7 @@ page {
   justify-content: center;
 }
 
-/* 展开区：其他信息 / 处理信息 / 照片三区 / 操作按钮（折叠时不渲染） */
+/* 展开区：其他信息 / 处理信息 / 处理前后照片区 / 操作按钮（折叠时不渲染；辅证照片条已提到折叠态常驻） */
 .th-more {
   margin-top: 8rpx;
 }
@@ -613,7 +616,7 @@ page {
   opacity: 0.5;
 }
 
-/* ---------- 台账卡展开区：照片三区（辅证只读 / 处理前后可上传可删） ---------- */
+/* ---------- 台账卡照片区：辅证条折叠态常驻（只读），处理前/后区在展开区（可上传可删） ---------- */
 .pz {
   margin-top: 20rpx;
 }

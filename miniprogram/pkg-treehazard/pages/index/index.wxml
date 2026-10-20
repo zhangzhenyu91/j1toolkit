@@ -1,5 +1,6 @@
 <!-- 树障隐患记录 · 主页（两级视图：线路大卡（状态着色 + 排序 + stagger 入场）→ 线路台账（记录卡默认折叠一卡两行：
-     区段大字左对齐 / 垂距·树种×数量·水平距离三列（垂距独立成列、各卡竖向对齐）；每卡一枚折叠/展开开关（点卡同效），展开出其他信息、照片三区与 处理/删除 按钮，
+     区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 树种×数量·水平距离；辅证照片条折叠态即展示（有图才显示、只读、点图预览）；
+     每卡一枚折叠/展开开关（点卡同效），展开出其他信息、处理前/后照片区与 处理/删除 按钮，
      下一级详情页已取消）；FAB 悬浮导出；处理弹层供卡内单条与批量） -->
 <navbar back title="树障隐患记录" />
 
@@ -79,31 +80,28 @@
     <!-- 记录卡片流（后端已按 未处理在前已处理在后>区段升序 排好，直接渲染；组空态兜底） -->
     <view class="empty-box" wx:if="{{!loading && groups.length === 1 && groups[0].records.length === 0}}">该线路暂无树障隐患记录</view>
     <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:for-index="gi" wx:key="key">
-      <!-- 记录卡片（默认折叠一卡两行：区段大字左对齐 / 垂距·树种×数量·水平距离三列（垂距独立成列、各卡竖向对齐）；每卡一枚折叠/展开开关，点卡同效）：
-           展开出其他信息、处理信息、照片三区（辅证只读、处理前/后可上传可删）与 处理/删除 按钮（下一级详情页已取消）；
+      <!-- 记录卡片（默认折叠一卡两行：区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 树种×数量·水平距离；每卡一枚折叠/展开开关，点卡同效）：
+           辅证照片条折叠态即展示（有图才显示、只读、点图预览）；展开出其他信息、处理信息、处理前/后照片区（可上传可删）与 处理/删除 按钮（下一级详情页已取消）；
            已处理整体降饱和；批量模式点击 = 勾选（已处理禁选）；stagger 入场（delay 递增封顶 10 档） -->
       <view class="card thcard {{rec.status === 'handled' ? 'done' : 'thcard-in'}}" wx:for="{{g.records}}" wx:for-item="rec" wx:for-index="ri" wx:key="id"
         style="animation-delay: {{(ri > 10 ? 10 : ri) * 0.05}}s"
         data-id="{{rec.id}}" data-status="{{rec.status}}"
         hover-class="hover-opacity" bindtap="onCardTap">
-        <!-- 首行：批量勾选圆点（批量模式才渲染，已处理禁选）+ 区段 + 状态点标 + 折叠/展开开关 -->
+        <!-- 首行（分两个块：区段定宽块 + 垂距大字块，各卡垂距左缘竖向对齐）：批量勾选圆点（批量模式才渲染，已处理禁选）+ 区段 + 垂距（≤阈值红显）+ 状态点标 + 折叠/展开开关 -->
         <view class="th-head">
           <view wx:if="{{batchMode}}" class="ck-ring {{selected[rec.id] ? 'on' : ''}} {{rec.status === 'handled' ? 'dis' : ''}}">
             <t-icon wx:if="{{selected[rec.id]}}" name="check" size="22rpx" color="#FFFFFF" />
           </view>
           <view class="th-section">{{rec.section || '未填写区段'}}</view>
+          <view class="th-vbig {{rec.overThreshold ? 'th-vbig-bad' : ''}}">垂距 {{rec.verticalText}}</view>
           <view class="st-tag {{rec.status === 'handled' ? 'st-ok' : 'st-warn'}}">{{rec.status === 'handled' ? '已处理' : '未处理'}}</view>
           <view class="th-fold" catchtap="onFoldToggle" data-id="{{rec.id}}">
             <t-icon name="{{expanded[rec.id] ? 'chevron-up' : 'chevron-down'}}" size="30rpx" color="#86909C" />
           </view>
         </view>
 
-        <!-- 次行（折叠态即首行 + 此行两行展示完）：垂距 / 树种×数量 / 水平距离（垂距独立成列、各卡竖向对齐，≤ 阈值红显） -->
+        <!-- 次行（折叠态即首行 + 此行 + 辅证条展示完）：树种×数量 / 水平距离 -->
         <view class="th-grid">
-          <view class="th-f">
-            <view class="th-l">垂距</view>
-            <view class="th-v th-v-vdist {{rec.overThreshold ? 'th-v-bad' : ''}}">{{rec.verticalText || '—'}}</view>
-          </view>
           <view class="th-f">
             <view class="th-l">树种×数量</view>
             <view class="th-v">{{rec.tree_species || '—'}}{{rec.tree_count ? ' ×' + rec.tree_count : ''}}</view>
@@ -114,7 +112,16 @@
           </view>
         </view>
 
-        <!-- 展开区：其他信息 + 处理信息 + 照片三区（含上传）+ 处理/删除 按钮 -->
+        <!-- 辅证照片条（排查系统直推，只读、有图才显示）：折叠态即展示，点图预览（catchtap 不触发卡片折叠） -->
+        <view class="pz" wx:if="{{rec.pz.evidence.length}}">
+          <view class="pz-t">辅证照片</view>
+          <view class="pz-grid">
+            <image class="pz-img" wx:for="{{rec.pz.evidence}}" wx:for-item="ph" wx:for-index="pi" wx:key="id"
+              src="{{ph.url}}" mode="aspectFill" data-id="{{rec.id}}" data-kind="evidence" data-pi="{{pi}}" catchtap="onPhotoPreview" />
+          </view>
+        </view>
+
+        <!-- 展开区：其他信息 + 处理信息 + 处理前/后照片两区（含上传）+ 处理/删除 按钮 -->
         <view class="th-more" wx:if="{{expanded[rec.id]}}">
           <view class="th-grid">
             <view class="th-f" wx:for="{{rec.moreFields}}" wx:for-item="f" wx:key="label">
@@ -130,14 +137,7 @@
             <text>处理时间 <b>{{rec.handledAtText || '—'}}</b></text>
           </view>
 
-          <!-- 照片三区：辅证（排查系统提供，只读、有图才显示）/ 处理前 / 处理后（「+」上传，点图预览，长按删图——仅上传者本人或班管/超管） -->
-          <view class="pz" wx:if="{{rec.pz.evidence.length}}">
-            <view class="pz-t">辅证照片</view>
-            <view class="pz-grid">
-              <image class="pz-img" wx:for="{{rec.pz.evidence}}" wx:for-item="ph" wx:for-index="pi" wx:key="id"
-                src="{{ph.url}}" mode="aspectFill" data-id="{{rec.id}}" data-kind="evidence" data-pi="{{pi}}" catchtap="onPhotoPreview" />
-            </view>
-          </view>
+          <!-- 照片两区：处理前 / 处理后（「+」上传，点图预览，长按删图——仅上传者本人或班管/超管）；辅证区已提到折叠态常驻（见上方） -->
           <view class="pz">
             <view class="pz-t">处理前</view>
             <view class="pz-grid">

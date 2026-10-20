@@ -579,6 +579,7 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
           );
           existingId = ex.length ? ex[0].id : null;
         }
+        let recordId;
         if (existingId) {
           await conn.query(
             `UPDATE treehazard_record SET voltage_level = ?, line_name = ?, section = ?, pole_from = ?, pole_to = ?,
@@ -587,8 +588,9 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
             [s.voltage_level, s.line_name, s.section, poleFrom, poleTo, s.tree_species, s.tree_count,
               s.dist_small, s.dist_big, s.diameter, s.horizontal, s.vertical, s.vertical_num, s.finder_name, s.found_at, existingId]
           );
+          recordId = existingId;
         } else {
-          await conn.query(
+          const [ir] = await conn.query(
             `INSERT INTO treehazard_record (team_id, voltage_level, line_name, section, pole_from, pole_to,
                tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
                finder_name, found_at, handler_name, handle_note, handled_at, status, source, crane_session_id, crane_record_id)
@@ -598,6 +600,35 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
               s.handler_name, s.handle_note, s.handled_at, s.handled_at ? 'handled' : 'unhandled',
               batch.crane_session_id, s.crane_record_id]
           );
+          recordId = ir.insertId;
+        }
+        // 辅证照片随转入归挂正式记录（COS 对象不动、仅表行归挂）；更新路径整组替换既有 evidence（直推侧为权威）
+        const [sps] = await conn.query(
+          'SELECT cos_key, url FROM treehazard_staging_photo WHERE batch_id = ? AND crane_record_id = ?',
+          [batchId, s.crane_record_id || '']
+        );
+        if (sps.length) {
+          if (existingId) {
+            const [oldPhotos] = await conn.query(
+              "SELECT id, cos_key FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'", [recordId]
+            );
+            for (const p of oldPhotos) {
+              try {
+                await cos.deleteObject(p.cos_key);
+              } catch (e) {
+                console.error('[树障] 转入清理旧辅证 COS 对象失败（继续）：', e.message);
+              }
+            }
+            await conn.query("DELETE FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'", [recordId]);
+          }
+          for (const p of sps) {
+            await conn.query(
+              "INSERT INTO treehazard_photo (record_id, kind, cos_key, url, uploaded_by) VALUES (?, 'evidence', ?, ?, NULL)",
+              [recordId, p.cos_key, p.url]
+            );
+          }
+          await conn.query('DELETE FROM treehazard_staging_photo WHERE batch_id = ? AND crane_record_id = ?',
+            [batchId, s.crane_record_id || '']);
         }
         await conn.query('DELETE FROM treehazard_staging_record WHERE id = ?', [s.id]);
         imported += 1;
@@ -618,7 +649,7 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
   }
 });
 
-// DELETE /staging/batches/:id：物理删除批次与全部记录行（随批 xlsx 一并清理，失败仅记日志）
+// DELETE /staging/batches/:id：物理删除批次与全部记录行（随批 xlsx 与暂存辅证照片一并清理，失败仅记日志）
 router.delete('/staging/batches/:id', requireDictAdmin, async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
@@ -628,6 +659,7 @@ router.delete('/staging/batches/:id', requireDictAdmin, async (req, res, next) =
       [batchId, req.team.id]
     );
     if (!batches.length) return fail(res, 404, 40400, '批次不存在');
+    await ingest.clearStagingPhotos(batchId); // 暂存辅证照片：COS 对象 + 表行
     await pool.query('DELETE FROM treehazard_staging_record WHERE batch_id = ?', [batchId]);
     await pool.query('DELETE FROM treehazard_staging_batch WHERE id = ?', [batchId]);
     if (batches[0].xlsx_path) {

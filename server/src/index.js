@@ -22,6 +22,8 @@ app.set('trust proxy', 'loopback');
 app.use('/api/v1/worklog', express.json({ limit: '20mb' }));
 // 水印添加同口径：原图 base64 上送渲染，单独放宽 JSON 上限
 app.use('/api/v1/wmadd', express.json({ limit: '20mb' }));
+// 树障直推随记录携带辅证照片 base64（evidence_photos），单独放宽 JSON 上限
+app.use('/api/v1/treehazard', express.json({ limit: '50mb' }));
 app.use(express.json({ limit: '12mb' })); // 聊天图片以 base64 上送，放宽体积限制
 
 // 简易访问日志

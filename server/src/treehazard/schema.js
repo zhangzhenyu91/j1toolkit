@@ -104,6 +104,16 @@ const DDL = [
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_batch (batch_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  // 暂存批次的辅证照片（直推随批上传 COS；转入正式表时改挂 treehazard_photo，废弃/整批替换时连带清理）
+  `CREATE TABLE IF NOT EXISTS treehazard_staging_photo (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    batch_id BIGINT UNSIGNED NOT NULL COMMENT '关联 treehazard_staging_batch.id',
+    crane_record_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT 'crane-answer 记录 id（转入时据以归挂正式记录）',
+    cos_key VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'COS 对象键（COS_TREEHAZARD_PREFIX 前缀）',
+    url VARCHAR(512) NOT NULL DEFAULT '' COMMENT '访问地址',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_batch (batch_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   // 内网同步冲突（双边都改过：服务端快照与内网快照留档，人工二选一解决）
   `CREATE TABLE IF NOT EXISTS treehazard_conflict (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
