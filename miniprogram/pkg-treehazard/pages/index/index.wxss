@@ -273,7 +273,7 @@ page {
   opacity: 0.62;
 }
 
-/* 首行：勾选圆点（批量模式）+ 区段 + 垂距（左对齐随区段）+ 状态点标（右推）+ 折叠/展开开关 */
+/* 首行：勾选圆点（批量模式）+ 区段 + 状态点标（右推）+ 折叠/展开开关 */
 .th-head {
   display: flex;
   align-items: center;
@@ -307,7 +307,7 @@ page {
   border-style: dashed;
 }
 
-/* 区段不撑满行宽：垂距字段随区段落在左侧（左对齐，不右对齐），过长时本字省略 */
+/* 区段占首行剩余宽（不撑满行宽，状态点标右推），过长时本字省略 */
 .th-section {
   flex: 0 1 auto;
   min-width: 0;
@@ -347,16 +347,13 @@ page {
   text-overflow: ellipsis;
 }
 
-/* 首行垂直距离（与区段同级大字、随区段左对齐；≤ 阈值红显） */
-.th-vbig {
-  flex: none;
-  font-size: 32rpx;
+/* 次行垂距值（独立成列、各卡竖向对齐；加粗 + tabular-nums，≤ 阈值红显） */
+.th-v-vdist {
   font-weight: 700;
-  color: #1D2129;
   font-variant-numeric: tabular-nums;
 }
 
-.th-vbig-bad {
+.th-v-bad {
   color: #F53F3F;
 }
 

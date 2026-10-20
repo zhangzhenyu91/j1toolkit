@@ -1,10 +1,9 @@
-// 出工成员字典与账号同步：班组内账号（内置系统超管账号除外——非真实员工，不入出工成员）的昵称默认启用为本班出工成员（只增不删）
+// 出工成员字典与账号同步：班组内账号的昵称默认启用为本班出工成员（只增不删；超管账号同规则——班组长常以超管账号兼任，本人即真实成员）
 // 事件触发（员工管理变更时调 syncMemberForUser）：新建 / 改昵称 / 调班组 / 停启用；
 // 调班组 = 他班同步成员行直接迁移到新班（member_id 不变，历史卡片/打卡/照片人名引用全保持，原班不留停用残留；
 // 仅新班已有同名成员撞 uk_team_member 时回退「旧行停用让位 + 认领/新建」），商旅账号绑定随人迁移（token 跟人走）；
 // 启动时 syncAllUserMembers 全量对齐一次（只补缺失，不改既有行的启停与姓名，避免覆盖管理端的停用决定）
 const { pool } = require('../db');
-const config = require('../config');
 
 // 商旅账号跟随调班：绑定行迁到本人当前班组与当前成员行（token 跟人走，调班无需重绑）。
 // 正常迁移 member_id 不变（仅 team_id 跟进）；重名回退路径传 oldMemberId，member_id 一并改指新行。
@@ -36,9 +35,8 @@ async function syncMemberForUser(userId) {
   const user = users[0];
   if (!user) return;
 
-  // 停用账号 / 未分配班组 / 昵称为空 / 内置系统超管账号（非真实员工，不入出工成员；
-  // 注意按 username 判定而非 role——超管账号本人（如班组长兼任）仍是真实成员）：同步成员全部停用（不删，保留历史引用）
-  if (user.status !== 1 || !user.team_id || !user.nickname || user.username === config.admin.username) {
+  // 停用账号 / 未分配班组 / 昵称为空：同步成员全部停用（不删，保留历史引用）
+  if (user.status !== 1 || !user.team_id || !user.nickname) {
     await pool.query('UPDATE worklog_member SET status = 0 WHERE user_id = ?', [user.id]);
     return;
   }
@@ -116,20 +114,12 @@ async function syncMemberForUser(userId) {
   await syncSgccAccountForUser(user, ins.insertId, oldMemberId);
 }
 
-// 启动全量对齐：仅补缺（插入 / 认领），不改既有成员行的启停与姓名；内置系统超管账号不入出工成员
+// 启动全量对齐：仅补缺（插入 / 认领），不改既有成员行的启停与姓名（避免覆盖管理端的停用/启用决定）
 async function syncAllUserMembers() {
-  // 存量收敛：历史同步曾把内置超管账号入出工成员（昵称「管理员」，非真实员工），只停不删保留历史引用；
-  // 按 username 定位（config.admin.username），不误伤「超管角色但真实出勤」的账号
-  const [admRows] = await pool.query(
-    'UPDATE worklog_member SET status = 0 WHERE user_id IN (SELECT id FROM sys_user WHERE username = ?)',
-    [config.admin.username]
-  );
-  if (admRows.affectedRows) console.log(`[出工日志] 已停用内置超管账号的出工成员行 ${admRows.affectedRows} 条`);
   const [users] = await pool.query(
     `SELECT id, username, nickname, team_id FROM sys_user WHERE status = 1 AND team_id IS NOT NULL AND nickname <> ''`
   );
   for (const u of users) {
-    if (u.username === config.admin.username) continue; // 内置超管账号不入出工成员
     try {
       const [rows] = await pool.query(
         'SELECT id FROM worklog_member WHERE user_id = ? AND team_id = ?',
