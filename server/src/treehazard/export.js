@@ -146,25 +146,28 @@ const THIN_BORDER = {
   top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' },
 };
 
-// 单个 worksheet 写入完整模板：R1 合并标题（行高 45 磅/字号 20/加粗居中，不加框线）、R2 表头（35 磅/12 加粗）、
-// 数据行（25 磅/11），表头与数据区居中 + thin 框线，Q 列隐藏记录ID（行级比对锚点）
-function writeSheet(wb, { name, title, records }) {
+// 单个 worksheet 写入完整模板：默认 R1 合并标题（行高 45 磅/字号 20/加粗居中，不加框线）、R2 表头（35 磅/12 加粗）、
+// 数据行（25 磅/11），表头与数据区居中 + thin 框线，Q 列隐藏记录ID（行级比对锚点）；
+// skipTitle（仅 WeKnora 知识库同步用）时去掉首行标题：R1 表头 / R2 起数据，其余导出一律保留标题
+function writeSheet(wb, { name, title, records, skipTitle = false }) {
   const ws = wb.addWorksheet(name);
   ws.columns = [
     ...COL_WIDTHS.map((width) => ({ width })),
     { header: '记录ID', key: 'rid', width: 10, hidden: true }, // Q 列：隐藏
   ];
 
-  // 第 1 行：合并标题
-  ws.mergeCells(1, 1, 1, HEADERS.length);
-  ws.getRow(1).height = 45;
-  const titleCell = ws.getCell(1, 1);
-  titleCell.value = title;
-  titleCell.font = { bold: true, size: 20 };
-  titleCell.alignment = CELL_CENTER;
+  // 第 1 行：合并标题（skipTitle 时跳过）
+  if (!skipTitle) {
+    ws.mergeCells(1, 1, 1, HEADERS.length);
+    ws.getRow(1).height = 45;
+    const titleCell = ws.getCell(1, 1);
+    titleCell.value = title;
+    titleCell.font = { bold: true, size: 20 };
+    titleCell.alignment = CELL_CENTER;
+  }
 
-  // 第 2 行：表头
-  const headRow = ws.getRow(2);
+  // 表头行（默认第 2 行，skipTitle 时第 1 行）
+  const headRow = ws.getRow(skipTitle ? 1 : 2);
   headRow.height = 35;
   HEADERS.forEach((h, i) => {
     const c = headRow.getCell(i + 1);
@@ -175,9 +178,9 @@ function writeSheet(wb, { name, title, records }) {
   headRow.font = { bold: true, size: 12 };
   headRow.commit();
 
-  // 数据自第 3 行：全部单元格按文本写入（numFmt '@'），居中且自动换行（长文本不截断），仅 Q 列记录ID 写数值
+  // 数据行（默认第 3 行起，skipTitle 时第 2 行起）：全部单元格按文本写入（numFmt '@'），居中且自动换行（长文本不截断），仅 Q 列记录ID 写数值
   records.forEach((r, i) => {
-    const row = ws.getRow(i + 3);
+    const row = ws.getRow(i + (skipTitle ? 2 : 3));
     row.height = 25;
     const cells = [
       String(i + 1),
@@ -263,16 +266,16 @@ function sheetNameOf(base, used) {
 // sheet 内按 未处理在前已处理在后 > 区段升序；sheet 名 = fmtVoltageCell(电压)+线路名（幂等 kV，Excel 名约束清洗），
 // 每 sheet 完整模板、序号自 1 重排，标题「{电压等级}{线路名称}树木统计表」（与分线路导出文件名口径一致），
 // 未匹配线路记录归末尾「未匹配线路」sheet（标题同为「未匹配线路」）
-async function buildWorkbook({ teamName, records, split = false, lineOrder }) {
+async function buildWorkbook({ teamName, records, split = false, lineOrder, skipTitle = false }) {
   const sorted = sortRecords(records, split ? makeLineGroupComparator(lineOrder) : exportGroupComparator, !split);
   const wb = new ExcelJS.Workbook();
   if (!split) {
-    writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: sorted });
+    writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: sorted, skipTitle });
     return wb;
   }
   const groups = groupByLine(sorted, lineOrder);
   if (!groups.length) {
-    writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: [] }); // 无记录兜底：空表保持单 sheet
+    writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: [], skipTitle }); // 无记录兜底：空表保持单 sheet
     return wb;
   }
   const used = new Set();
@@ -282,6 +285,7 @@ async function buildWorkbook({ teamName, records, split = false, lineOrder }) {
       name: sheetNameOf(label, used),
       title: g.unmatched ? '未匹配线路' : `${label}树木统计表`,
       records: g.records,
+      skipTitle,
     });
   }
   return wb;

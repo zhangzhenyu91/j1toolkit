@@ -55,9 +55,10 @@ function unwrap(body, label) {
 function loadState() {
   try {
     const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-    if (st && st.version === 1 && st.lines && typeof st.lines === 'object') return st;
+    if (st && st.version === 2 && st.lines && typeof st.lines === 'object') return st;
   } catch (e) { /* 缺失或损坏回退空状态 */ }
-  return { version: 1, lines: {} };
+  // version=2：知识库表去首行标题（skipTitle）口径；旧版状态（带标题旧件）作废，首轮全量重传替换
+  return { version: 2, lines: {} };
 }
 
 // 原子写状态文件（先写临时文件再 rename，防崩溃截断读到半成品）
@@ -98,7 +99,7 @@ async function buildLineBooks(team) {
   }
   const books = [];
   for (const [lineName, records] of groups) {
-    const wb = await exporter.buildWorkbook({ teamName: lineName, records });
+    const wb = await exporter.buildWorkbook({ teamName: lineName, records, skipTitle: true }); // 知识库表去首行标题（其余导出保留）
     wb.created = new Date(0); // 固定 docProps 时间戳：否则 exceljs 每次写当前时间，同数据产物字节不可比对
     wb.modified = new Date(0);
     const buffer = Buffer.from(await wb.xlsx.writeBuffer());
