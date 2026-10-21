@@ -128,6 +128,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | MySQL 连接 |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接（JWT 黑名单/会话） |
 | `WEKNORA_API_URL` / `WEKNORA_API_KEY` / `WEKNORA_AGENT_ID` | WeKnora 知识库（Call Me；详见开发指南 Call Me 一节） |
+| `WEKNORA_TREEHAZARD_KB_ID` / `WEKNORA_SYNC_USER` | 树障台账同步 WeKnora 知识库目标 ID（Markdown 快照同步至「树木台账」文件夹，缺省已内置示例值）与同步接口 `X-External-User-ID` 用户名（缺省 `admin`；见开发指南 19.7） |
 | `CALLME_INGEST_TOKEN` | Call Me 群内提问 crane-answer 直推对接密钥（crane-answer 群监听把群内提问 HTTP 直推到 `/api/v1/callme/ingest-chat`，请求头 `X-Ingest-Token` 须与此值相等、与 crane-answer 侧 `YIXIA_INGEST_TOKEN` 配同值；留空则直推接口停用返回 503，见开发指南第六章） |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_BUCKET` / `COS_REGION` | 腾讯云 COS（出工日志照片） |
 | `DIFY_API_URL` | Dify 地址（只填域名如 `http://10.2.24.13:8082`，`/v1` 由代码拼接；**所有 Dify 工作流共用此地址**，各工作流独立 API_KEY） |

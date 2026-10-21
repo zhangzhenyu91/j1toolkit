@@ -49,6 +49,10 @@ const config = {
     apiUrl: str('WEKNORA_API_URL', 'https://know.j1net.com/api/v1'),
     apiKey: str('WEKNORA_API_KEY'),
     agentId: str('WEKNORA_AGENT_ID'),
+    // 树障台账同步目标知识库 ID（Markdown 快照同步至「树木台账」文件夹，见 treehazard/weknorasync.js）
+    treehazardKbId: str('WEKNORA_TREEHAZARD_KB_ID', '9784bed2-dbab-41cf-b9eb-fbfdd891f0ef'),
+    // 知识库同步接口的 X-External-User-ID 用户名（老接口强制要求）
+    syncUser: str('WEKNORA_SYNC_USER', 'admin'),
   },
   // Call Me 群内提问内部对接（crane-answer 直推 POST /api/v1/callme/ingest-chat，见开发指南.md 第六章）
   callme: {

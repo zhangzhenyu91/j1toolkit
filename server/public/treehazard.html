@@ -448,10 +448,11 @@
       <div class="dash-todo" id="dashTodo" hidden></div>
     </div>
 
-    <!-- 工具行：阈值设置 / 同步至内网（仅管理角色可见，非管理角色整行隐藏；导出统一走右下角 FAB） -->
+    <!-- 工具行：阈值设置 / 同步至内网 / 同步知识库（仅管理角色可见，非管理角色整行隐藏；导出统一走右下角 FAB） -->
     <div class="th-tools" hidden>
       <button class="btn btn-sm" id="btnThreshold" hidden>阈值设置</button>
       <button class="btn btn-sm" id="btnSync" hidden>同步至内网</button>
+      <button class="btn btn-sm" id="btnWxSync" hidden>同步知识库</button>
       <span class="sync-hint" id="syncHint" hidden></span>
     </div>
 
@@ -1265,6 +1266,31 @@ async function pushSync(btn) {
   }
 }
 
+/* ================= 同步知识库（班管/超管；台账 Markdown 快照推 WeKnora，服务端 weknorasync.js） ================= */
+async function pushWxSync(btn) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '同步中…';
+  try {
+    var r = await Shade.api(th('/api/v1/treehazard/weknora-sync/push-now'), { method: 'POST', body: teamBody({}) });
+    var d = (r && r.data) || {};
+    if (d.errors && d.errors.length) {
+      if ((d.created || 0) + (d.updated || 0) + (d.deleted || 0) > 0) {
+        Shade.toast('已同步至知识库（失败 ' + d.errors.length + ' 项）', 'info');
+      } else {
+        Shade.toast(d.errors[0], 'error');
+      }
+    } else {
+      Shade.toast((r && r.message) || '已同步至知识库', 'success');
+    }
+  } catch (e) {
+    Shade.toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = Shade.icon('book', 15) + '同步知识库';
+  }
+}
+
 /* ================= 暂存区页签（班管/超管） ================= */
 async function loadStaging() {
   var body = $('#stgBody');
@@ -1560,6 +1586,7 @@ function initEvents() {
   /* 阈值 / 同步 / 批量开关 */
   $('#btnThreshold').addEventListener('click', openThresholdModal);
   $('#btnSync').addEventListener('click', function () { pushSync(this); });
+  $('#btnWxSync').addEventListener('click', function () { pushWxSync(this); });
   $('#btnBatch').addEventListener('click', function () { setBatchMode(!state.batch.on); });
   $('#batchGo').addEventListener('click', function () { openHandleModal(selectedIds()); });
   $('#batchCancel').addEventListener('click', function () { setBatchMode(false); });
@@ -1761,6 +1788,7 @@ async function init() {
   $('#btnBackLines').innerHTML = Shade.icon('chevron-left', 14) + '返回线路';
   $('#btnThreshold').innerHTML = Shade.icon('setting', 15) + '阈值设置';
   $('#btnSync').innerHTML = Shade.icon('refresh', 15) + '同步至内网';
+  $('#btnWxSync').innerHTML = Shade.icon('book', 15) + '同步知识库';
   $('#btnBatch').innerHTML = Shade.icon('check-circle', 15) + '批量处理';
   $$('#thTabs button[data-p]').forEach(function (b) {
     b.insertAdjacentHTML('afterbegin', Shade.icon({ records: 'task', staging: 'folder', conflicts: 'warn' }[b.dataset.p], 14));
@@ -1772,13 +1800,14 @@ async function init() {
 
   me = Shade.user() || {};
   isManager = me.role === 'admin' || me.role === 'team_admin';
-  /* 管理角色入口显隐：暂存区 / 冲突页签 + 阈值设置 + 同步至内网（工具行整行仅管理角色可见） */
+  /* 管理角色入口显隐：暂存区 / 冲突页签 + 阈值设置 + 同步至内网 + 同步知识库（工具行整行仅管理角色可见） */
   if (isManager) {
     $('#tabStaging').hidden = false;
     $('#tabConflicts').hidden = false;
     $('.th-tools').hidden = false;
     $('#btnThreshold').hidden = false;
     $('#btnSync').hidden = false;
+    $('#btnWxSync').hidden = false;
   }
 
   /* 班组隔离门控：非超管未分配班组 → 整页空态（屏十口径）；超管先选定切换班组再出数 */

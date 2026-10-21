@@ -155,6 +155,74 @@ async function agentChatStream(username, sessionId, { query, images, attachmentI
   });
 }
 
+// ===== 知识库内容管理（树障台账等 Markdown 快照同步用，编排见 treehazard/weknorasync.js）=====
+// 这组接口只需 API Key（不依赖 agentId）；本实例老接口强制 X-External-User-ID，统一取配置的 syncUser
+
+function ensureKbConfigured() {
+  if (!config.weknora.apiKey) {
+    const err = new Error('WeKnora 未配置（WEKNORA_API_KEY）');
+    err.expose = true;
+    throw err;
+  }
+}
+
+function kbHeaders() {
+  return extHeaders(config.weknora.syncUser || 'admin');
+}
+
+// 列知识条目（GET /knowledge-bases/{kbId}/knowledge；params 支持 folder_path / folder_recursive /
+// source / keyword / file_type / page / page_size 等过滤分页），透传 WeKnora 响应
+async function listKnowledge(kbId, params = {}) {
+  ensureKbConfigured();
+  const res = await client.get(`/knowledge-bases/${kbId}/knowledge`, { headers: kbHeaders(), params });
+  return res.data;
+}
+
+// 建 Markdown 知识条目（POST /knowledge-bases/{kbId}/knowledge/manual），data=Knowledge 含 id；
+// channel 为摄取渠道标记，后续孤儿清理只删自己传的
+async function createManualKnowledge(kbId, { title, content, status = 'publish', channel }) {
+  ensureKbConfigured();
+  const res = await client.post(
+    `/knowledge-bases/${kbId}/knowledge/manual`,
+    { title, content, status, channel },
+    { headers: kbHeaders() }
+  );
+  return res.data;
+}
+
+// 原地更新内容（PUT /knowledge/manual/{knowledgeId}）
+async function updateManualKnowledge(knowledgeId, { title, content, status = 'publish' }) {
+  ensureKbConfigured();
+  const res = await client.put(
+    `/knowledge/manual/${knowledgeId}`,
+    { title, content, status },
+    { headers: kbHeaders() }
+  );
+  return res.data;
+}
+
+// 归入文件夹（POST /knowledge/folder；文件夹由文档 folder_path 推导，无需预创建）
+async function moveKnowledgeToFolder(kbId, knowledgeIds, folderPath) {
+  ensureKbConfigured();
+  const res = await client.post(
+    '/knowledge/folder',
+    { kb_id: kbId, knowledge_ids: knowledgeIds, folder_path: folderPath },
+    { headers: kbHeaders() }
+  );
+  return res.data;
+}
+
+// 批量删知识（POST /knowledge/batch-delete；knowledge_ids 单次 ≤200 条）
+async function batchDeleteKnowledge(kbId, knowledgeIds) {
+  ensureKbConfigured();
+  const res = await client.post(
+    '/knowledge/batch-delete',
+    { kb_id: kbId, knowledge_ids: knowledgeIds },
+    { headers: kbHeaders() }
+  );
+  return res.data;
+}
+
 module.exports = {
   createSession,
   listSessions,
@@ -169,4 +237,9 @@ module.exports = {
   getAgent,
   listWebSearchProviders,
   agentChatStream,
+  listKnowledge,
+  createManualKnowledge,
+  updateManualKnowledge,
+  moveKnowledgeToFolder,
+  batchDeleteKnowledge,
 };

@@ -19,6 +19,7 @@ const { intranetFields, normDateStr, parseSectionPoles } = require('./diff');
 const ingest = require('./ingest');
 const remove = require('./remove'); // 删除记录共用逻辑（DELETE /records/:id 与直推 deletes 同款）
 const sync = require('./sync');
+const weknoraSync = require('./weknorasync');
 
 const router = express.Router();
 
@@ -749,6 +750,25 @@ router.get('/sync/status', async (req, res, next) => {
 
 // 内网 U 盘同步排程启动（未配置 TREEHAZARD_SYNC_DEVICE_DDNS 时停用不排程）
 sync.start();
+
+// ===== WeKnora 知识库同步（编排见 ./weknorasync.js）=====
+
+// POST /weknora-sync/push-now：手动触发一轮知识库快照同步（班管/超管；树障同步量级为数个 HTTP 调用，
+// await 同步结果返回 {ok, created, updated, deleted, errors[]} 供按钮 toast 明细）
+router.post('/weknora-sync/push-now', requireDictAdmin, async (req, res, next) => {
+  try {
+    if (!config.weknora.treehazardKbId || !config.weknora.apiKey) return fail(res, 503, 50301, '未配置知识库同步');
+    if (weknoraSync.isRunning()) return fail(res, 423, 42301, '同步进行中，请稍后再试');
+    const r = await weknoraSync.runSync();
+    return ok(res, r, r.ok ? '已同步至知识库' : '同步完成，部分失败');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// WeKnora 知识库同步排程启动（在 sync.start() 之后注册：与 treehazard-fetch 同时刻串行，取件回写完再同步；
+// 未配置知识库 ID 或 WEKNORA_API_KEY 时停用不排程）
+weknoraSync.start();
 
 module.exports = router;
 // 供 office 模块签发 src=treehazard 配置时回源复用（router 本体不变，追加命名导出）
