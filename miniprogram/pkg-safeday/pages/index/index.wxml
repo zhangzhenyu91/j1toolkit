@@ -117,7 +117,6 @@
         <!-- 班组徽章（.team-pill，仅「全部班组」混排视图展示） -->
         <text class="team-pill" wx:if="{{showTeamPill && item.team}}">{{item.team}}</text>
         <view class="tag tag-{{item.status}}">
-          <view wx:if="{{item.status === 'processing'}}" class="pulse-dot"></view>
           {{item.statusText}}
         </view>
       </view>

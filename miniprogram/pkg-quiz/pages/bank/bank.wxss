@@ -142,7 +142,7 @@
   align-items: flex-start;
   gap: 10rpx;
   /* 宫格入场 fadeUp，逐项 stagger 由行内 animation-delay 控制 */
-  animation: fadeUp 0.25s ease both;
+  animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .icon-box {

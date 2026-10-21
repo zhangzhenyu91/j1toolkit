@@ -55,10 +55,7 @@
   /* 版心满宽贴边（不再限宽居中），空态/有记录态版心一致不跳变 */
   .wl-wrap { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
 
-  /* ===== 入场关键帧（一次上浮/淡入后静止；降级见文件末） ===== */
-  @keyframes k-fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-  @keyframes k-slide-l { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: none; } }
-  @keyframes k-slide-r { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+  /* ===== 入场关键帧：k-fade 共享自 theme.css（一次上浮/淡入后静止） ===== */
 
   /* ===== 页头：标题 + 副标；右侧操作区 ===== */
   .wl-head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap; }
@@ -171,7 +168,6 @@
   /* 记录 / 批量下载 / 汇总前核验 等页签共用同一列表位：切换时上浮淡入，页签内容各自内部滚动 */
   .wl-list .pane { display: none; flex: 1; min-height: 0; }
   .wl-list .pane.on { display: flex; flex-direction: column; animation: paneIn .34s var(--ease); }
-  @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
   .pane > .rep-bar { flex: none; margin-bottom: 12px; }
   .pane-scroll {
     flex: 1; min-height: 0; overflow-y: auto;
@@ -995,7 +991,6 @@
   /* ===== 动效降级（theme.css 另有全局时长归零兜底；此处补本地入场动画与照片延迟链） ===== */
   @media (prefers-reduced-motion: reduce) {
     .wl-kick, .wl-head .section-title h3, .wl-head .section-title .more, .wl-head .acts, .wl-tabs { animation: none !important; }
-    .ph-st.ing::before { animation: none !important; }
     .photos .ph { transition-delay: 0s !important; }
     .anim-in:not(.in) .ph { opacity: 1; transform: none; }
     .combo-list { transition: none; }
@@ -1007,7 +1002,7 @@
 
 <main class="page">
   <div class="wl-wrap">
-  <!-- 页头：Hero 大标题（k-clip 揭幕 + 标题尾红圆）+ 记录页专属操作（范围切换 / 新建；超管另加班组切换下拉） -->
+  <!-- 页头：Hero 大标题（标题尾红圆）+ 记录页专属操作（范围切换 / 新建；超管另加班组切换下拉） -->
   <div class="wl-head">
     <div class="section-title"><div class="wl-kick">WORKLOG · 班组出工记录</div><h3>出工日志</h3><span class="more">月历色点看验证状态，点击日期查看当日记录</span></div>
     <div class="acts">

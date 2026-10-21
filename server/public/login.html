@@ -36,7 +36,7 @@
     background-size: 38px 38px;
   }
   .login-brand > * { position: relative; z-index: 1; }
-  .brand-top { position: relative; display: flex; align-items: center; gap: 12px; padding: 32px 38px 0; animation: riseIn .6s var(--ease) .05s both; }
+  .brand-top { position: relative; display: flex; align-items: center; gap: 12px; padding: 32px 38px 0; animation: riseIn .6s var(--ease) .03s both; }
   /* Logo 白底圆角块：toolkit.svg 主体深蓝，需白底承载（padding 内缩使 img 约 34px） */
   .brand-top .logo-mark { width: 46px; height: 46px; background: #fff; border-radius: 10px; padding: 6px; box-shadow: 0 2px 8px rgba(4, 18, 56, .18); }
   .brand-name { font-size: 18px; font-weight: 600; letter-spacing: 2px; }
@@ -51,16 +51,16 @@
   .brand-mid::before, .brand-mid::after { content: ""; display: block; }
   .brand-mid::before { flex: 382 0 0; }
   .brand-mid::after { flex: 618 0 0; }
-  .brand-mid h2 { font-size: 29px; line-height: 1.5; font-weight: 600; letter-spacing: 1px; text-shadow: 0 1px 12px rgba(4, 18, 56, .35); animation: riseIn .6s var(--ease) .18s both; }
+  .brand-mid h2 { font-size: 29px; line-height: 1.5; font-weight: 600; letter-spacing: 1px; text-shadow: 0 1px 12px rgba(4, 18, 56, .35); animation: riseIn .6s var(--ease) .1s both; }
   .brand-mid h2 em { font-style: normal; font-weight: 700; }
-  .brand-mid > p { margin-top: 14px; font-size: 13px; line-height: 1.9; color: rgba(255, 255, 255, .72); letter-spacing: .5px; text-shadow: 0 1px 8px rgba(4, 18, 56, .3); animation: riseIn .6s var(--ease) .3s both; }
+  .brand-mid > p { margin-top: 14px; font-size: 13px; line-height: 1.9; color: rgba(255, 255, 255, .72); letter-spacing: .5px; text-shadow: 0 1px 8px rgba(4, 18, 56, .3); animation: riseIn .6s var(--ease) .17s both; }
   .brand-feats { margin-top: 32px; display: inline-flex; flex-direction: column; gap: 15px; text-align: left; }
   .feat { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255, 255, 255, .92); letter-spacing: 1px; text-shadow: 0 1px 8px rgba(4, 18, 56, .3); animation: riseIn .55s var(--ease) both; }
-  .brand-feats .feat:nth-child(1) { animation-delay: .4s; }
-  .brand-feats .feat:nth-child(2) { animation-delay: .48s; }
-  .brand-feats .feat:nth-child(3) { animation-delay: .56s; }
+  .brand-feats .feat:nth-child(1) { animation-delay: .22s; }
+  .brand-feats .feat:nth-child(2) { animation-delay: .27s; }
+  .brand-feats .feat:nth-child(3) { animation-delay: .31s; }
   /* 右侧表单底部推广区：小程序宣传图 + 内网客户端下载卡（同款白卡发丝边，纵列排布） */
-  .form-promo { margin: 26px auto 0; animation: riseIn .55s var(--ease) .6s both;
+  .form-promo { margin: 26px auto 0; animation: riseIn .55s var(--ease) .33s both;
                 display: flex; flex-direction: column; gap: 12px; }
   .form-promo > img { display: block; width: 100%; max-width: 340px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--line); }
   .promo-client {
@@ -90,14 +90,14 @@
   .login-form { flex: 1; position: relative; display: flex; flex-direction: column; padding: 48px 66px; background: #fff; overflow: hidden; }
   .form-core { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; }
   .form-core > * { width: 100%; max-width: 400px; margin-left: auto; margin-right: auto; }
-  .login-form h2 { font-size: 22px; font-weight: 700; letter-spacing: 1px; animation: riseIn .55s var(--ease) .12s both; }
+  .login-form h2 { font-size: 22px; font-weight: 700; letter-spacing: 1px; animation: riseIn .55s var(--ease) .07s both; }
   /* margin 简写必须带 auto：.login-form .sub 优先级高于 .form-core>*，
      写成 8px 0 26px 会把左右 auto 冲掉，导致该块脱离 400px 版心歪向左侧 */
-  .login-form .sub { margin: 8px auto 26px; font-size: 12.5px; color: var(--sub); letter-spacing: .5px; animation: riseIn .55s var(--ease) .2s both; }
-  #fUser { animation: riseIn .55s var(--ease) .28s both; }
-  #fPass { animation: riseIn .55s var(--ease) .34s both; }
+  .login-form .sub { margin: 8px auto 26px; font-size: 12.5px; color: var(--sub); letter-spacing: .5px; animation: riseIn .55s var(--ease) .11s both; }
+  #fUser { animation: riseIn .55s var(--ease) .15s both; }
+  #fPass { animation: riseIn .55s var(--ease) .19s both; }
   /* margin 需带 auto：等优先级下后置规则会覆盖 .form-core>* 的居中，导致此行错位 */
-  .form-row { display: flex; align-items: center; justify-content: space-between; margin: 2px auto 18px; font-size: 12.5px; color: var(--sub); animation: riseIn .55s var(--ease) .4s both; }
+  .form-row { display: flex; align-items: center; justify-content: space-between; margin: 2px auto 18px; font-size: 12.5px; color: var(--sub); animation: riseIn .55s var(--ease) .22s both; }
   .form-row .ck-l { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
   .form-row a { color: var(--sub); transition: color .25s; }
   .form-row a:hover { color: var(--orange); }
@@ -110,11 +110,11 @@
   .ck.on { background: var(--orange); border-color: var(--orange); }
   .ck svg { width: 10px; height: 10px; opacity: 0; transition: opacity .2s; }
   .ck.on svg { opacity: 1; }
-  .agree { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; color: var(--sub); animation: riseIn .55s var(--ease) .52s both; }
+  .agree { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; color: var(--sub); animation: riseIn .55s var(--ease) .29s both; }
   .agree a { color: var(--orange); font-weight: 600; cursor: pointer; }
-  .login-foot { margin-top: 30px; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: 1px; animation: riseIn .55s var(--ease) .58s both; }
-  #btnLogin { animation: riseIn .55s var(--ease) .46s both; }
-  .login-form .beian-foot { animation: riseIn .55s var(--ease) .64s both; }
+  .login-foot { margin-top: 30px; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: 1px; animation: riseIn .55s var(--ease) .32s both; }
+  #btnLogin { animation: riseIn .55s var(--ease) .25s both; }
+  .login-form .beian-foot { animation: riseIn .55s var(--ease) .35s both; }
 
   /* ===== 入场动效（riseIn 上浮落位，fill-mode:both 落位静止） ===== */
   @keyframes riseIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }

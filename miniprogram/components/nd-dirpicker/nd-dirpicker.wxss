@@ -2,7 +2,7 @@
    组件默认样式隔离，app.wxss 全局类不可达，按压反馈类本地重定义） */
 
 .hover-opacity {
-  opacity: 0.6 !important;
+  opacity: 0.75 !important;
 }
 
 .hover-bg-warm {

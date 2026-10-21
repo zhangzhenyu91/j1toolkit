@@ -95,8 +95,8 @@
           <view class="th-section">{{rec.section || '未填写区段'}}</view>
           <view class="th-vbig {{rec.overThreshold ? 'th-vbig-bad' : ''}}">垂距 {{rec.verticalText}}</view>
           <view class="st-tag {{rec.status === 'handled' ? 'st-ok' : 'st-warn'}}">{{rec.status === 'handled' ? '已处理' : '未处理'}}</view>
-          <view class="th-fold" catchtap="onFoldToggle" data-id="{{rec.id}}">
-            <t-icon name="{{expanded[rec.id] ? 'chevron-up' : 'chevron-down'}}" size="30rpx" color="#86909C" />
+          <view class="th-fold {{expanded[rec.id] ? 'th-fold-open' : ''}}" catchtap="onFoldToggle" data-id="{{rec.id}}">
+            <t-icon name="chevron-down" size="30rpx" color="#86909C" />
           </view>
         </view>
 
@@ -121,8 +121,9 @@
           </view>
         </view>
 
-        <!-- 展开区：其他信息 + 处理信息 + 处理前/后照片两区（含上传）+ 处理/删除 按钮 -->
-        <view class="th-more" wx:if="{{expanded[rec.id]}}">
+        <!-- 展开区：其他信息 + 处理信息 + 处理前/后照片两区（含上传）+ 处理/删除 按钮（grid-rows 折叠动画：常驻渲染、class 开关；旧 WebView 不支持 grid-rows 动画时退化为直切） -->
+        <view class="th-more {{expanded[rec.id] ? 'th-more-open' : ''}}">
+          <view class="th-more-in">
           <view class="th-grid">
             <view class="th-f" wx:for="{{rec.moreFields}}" wx:for-item="f" wx:key="label">
               <view class="th-l">{{f.label}}</view>
@@ -165,6 +166,7 @@
           <view class="th-foot">
             <view class="btn-act btn-del" wx:if="{{canManage}}" hover-class="hover-opacity" catchtap="onDeleteRecord" data-id="{{rec.id}}">删 除</view>
             <view class="btn-act" wx:if="{{!batchMode && rec.status !== 'handled'}}" hover-class="hover-opacity" catchtap="onCardHandle" data-id="{{rec.id}}">处 理</view>
+          </view>
           </view>
         </view>
       </view>

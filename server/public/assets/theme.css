@@ -311,6 +311,11 @@ textarea.input { height: auto; min-height: 96px; padding: 10px 14px; resize: ver
 @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 .fade-up { animation: fadeUp .55s var(--ease) both; }
 
+/* 共享入场关键帧（一次上浮/淡入后静止；原 worklog / treehazard / teamdata / quiz 本地定义收敛于此） */
+@keyframes k-fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes k-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
 /* ===== 动效降级 ===== */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

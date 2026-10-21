@@ -28,17 +28,6 @@
 }
 
 /* 下拉入场：chip 下方轻微上浮 + 淡入（克制，同全局 fadeUp/fadeIn 风格）；收起直消不加动画 */
-@keyframes ts-drop-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6rpx);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 .ts-drop {
   position: absolute;
   top: 76rpx;
@@ -85,15 +74,6 @@
 }
 
 /* 点空白处收起下拉（层级低于切换器本体）；遮罩淡入 */
-@keyframes ts-mask-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 .ts-mask {
   position: fixed;
   left: 0;
@@ -421,7 +401,7 @@
   line-height: 1.6;
 }
 
-/* 进度条（流光同网页端 pbar） */
+/* 进度条（同网页端 pbar；宽度过渡按全局动效口径） */
 .pbar {
   height: 12rpx;
   margin-top: 28rpx;
@@ -436,27 +416,11 @@
   border-radius: 12rpx;
   background: linear-gradient(90deg, #0E3DA8, #f59a5e);
   overflow: hidden;
-  transition: width 0.9s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.pbar-in::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.55), transparent 75%);
-  transform: translateX(-100%);
-  animation: shimmer 1.8s ease-in-out infinite;
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .pbar.fail .pbar-in {
   background: linear-gradient(90deg, #F53F3F, #e28080);
-}
-
-.pbar.fail .pbar-in::after {
-  display: none;
 }
 
 .pnum {
@@ -536,14 +500,6 @@
 .tag-failed {
   background: #fbe9e9;
   color: #F53F3F;
-}
-
-.pulse-dot {
-  width: 12rpx;
-  height: 12rpx;
-  border-radius: 50%;
-  background: #1D2129;
-  animation: breath 1.2s ease-in-out infinite;
 }
 
 /* 副行：源文件名 */
@@ -819,6 +775,7 @@
 }
 
 /* ---------- 动画 ---------- */
+/* 进行中单点脉冲（功能性反馈，仅 .dot-ing 一处使用） */
 @keyframes breath {
   0%, 100% {
     transform: scale(0.7);
@@ -827,14 +784,5 @@
   50% {
     transform: scale(1);
     opacity: 1;
-  }
-}
-
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
   }
 }

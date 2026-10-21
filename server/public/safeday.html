@@ -17,6 +17,12 @@
   .sd-body { display: flex; gap: 20px; align-items: flex-start; }
   .sd-left { width: 340px; flex: none; display: flex; flex-direction: column; gap: 16px; }
 
+  /* ===== 入场编排：页头 + 主区一次性上浮/淡入后静止（k-fade / k-rise 共享自 theme.css；时延链 delay+时长 ≤0.9s） ===== */
+  .section-title h3 { animation: k-fade .55s var(--ease) .06s both; }
+  .section-title .more { animation: k-fade .55s var(--ease) .12s both; }
+  .sd-left { animation: k-rise .55s var(--ease) .2s both; }
+  .card.tbl { animation: k-rise .55s var(--ease) .3s both; }
+
   /* ===== 拖传上传区 ===== */
   .upzone {
     border: 1.5px dashed var(--dash); border-radius: var(--radius); background: #fff;
@@ -40,7 +46,7 @@
   .ftag {
     display: flex; align-items: center; gap: 9px;
     background: #fff; border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px;
-    animation: fadeUp .4s cubic-bezier(.16, 1, .3, 1) both;
+    animation: fadeUp .4s var(--ease) both;
   }
   .ftag > svg { width: 15px; height: 15px; flex: none; color: var(--orange); }
   .ftag .fn { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -98,7 +104,7 @@
   .pbar i {
     position: relative; display: block; height: 100%; width: 0; border-radius: 8px;
     background: linear-gradient(90deg, var(--orange), #4D7CF0); overflow: hidden;
-    transition: width .9s cubic-bezier(.16, 1, .3, 1);
+    transition: width .4s var(--ease);
   }
   .pbar i::after {
     content: ""; position: absolute; inset: 0;
@@ -125,7 +131,7 @@
   .rtable tbody tr:last-child td { border-bottom: none; }
   .rtable tbody tr { transition: background .2s; }
   .rtable tbody tr:hover { background: var(--paper); }
-  .rtable tr.row-new { animation: fadeUp .5s cubic-bezier(.16, 1, .3, 1) both; }
+  .rtable tr.row-new { animation: fadeUp .5s var(--ease) both; }
   /* 已生成行整行可点击预览：指针 + hover 浅蓝高亮 */
   .rtable tbody tr.row-prev { cursor: pointer; }
   .rtable tbody tr.row-prev:hover { background: var(--orange-soft); }
@@ -133,7 +139,7 @@
   .rtable .rf { margin-top: 3px; font-size: 11px; color: var(--ph); display: flex; align-items: center; gap: 5px; }
   .rtable .rf svg { width: 12px; height: 12px; flex: none; }
   .rtable td.mut { color: var(--sub); white-space: nowrap; }
-  .pulse-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--sub); animation: breath 1.2s ease-in-out infinite; }
+  .pulse-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--sub); } /* 静态圆点（原呼吸循环属氛围动效，已删；doing 步骤点的功能脉冲保留） */
   .op { display: flex; gap: 8px; }
   .opb {
     width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: #fff;
@@ -183,7 +189,7 @@
   .mchips { display: flex; flex-wrap: wrap; gap: 8px; }
   .mchip {
     padding: 5px 13px; border-radius: 8px; border: 1.5px solid var(--dash); background: #fff;
-    font-size: 12px; font-weight: 600; color: var(--sub); cursor: pointer; transition: all .15s; user-select: none;
+    font-size: 12px; font-weight: 600; color: var(--sub); cursor: pointer; transition: border-color .15s, background .15s, color .15s; user-select: none;
   }
   .mchip.on { border-color: var(--orange); background: var(--orange); color: #fff; }
   .mchips.absent .mchip.on { border-color: var(--red); background: var(--red); }
@@ -193,7 +199,7 @@
   .mswitch { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
   .ms-opt {
     padding: 3px 14px; border-radius: 8px; font-size: 11.5px; font-weight: 600;
-    color: var(--sub); cursor: pointer; transition: all .15s; user-select: none;
+    color: var(--sub); cursor: pointer; transition: border-color .15s, background .15s, color .15s; user-select: none;
   }
   .ms-opt.on { background: var(--orange); color: #fff; }
 
@@ -212,7 +218,7 @@
 <!-- 顶部导航由 Shade.topbar({active:'safeday'}) 统一渲染（见 script） -->
 
 <main class="page">
-  <div class="section-title rv"><h3>安全日活动记录</h3><span class="more">上传活动文件 · AI 自动生成活动记录</span>
+  <div class="section-title"><h3>安全日活动记录</h3><span class="more">上传活动文件 · AI 自动生成活动记录</span>
     <select id="teamSel" title="仅超级管理员可切换班组；其余角色固定为本班组"></select>
   </div>
 
@@ -221,7 +227,7 @@
 
   <div class="sd-body">
     <!-- 左列：上传区 + 已选文件 + 生成参数 + 生成进度 -->
-    <div class="sd-left rv">
+    <div class="sd-left">
       <div class="upzone" id="dropzone" role="button" tabindex="0" aria-label="选择或拖拽文件">
         <div class="up-ic">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15.5V7.5M8.8 10.7L12 7.5l3.2 3.2"/><path d="M6.8 15.9a4 4 0 0 1-1-7.9A5.5 5.5 0 0 1 16.5 6.4 4.6 4.6 0 0 1 17.2 15.9"/></svg>
@@ -245,7 +251,7 @@
     </div>
 
     <!-- 右侧：记录表格 -->
-    <div class="card tbl rv">
+    <div class="card tbl">
       <div class="tbl-h">
         <b>活动记录列表</b>
         <span class="cnt" id="tblCnt">加载中…</span>

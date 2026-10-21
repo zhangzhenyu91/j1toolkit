@@ -264,7 +264,7 @@
   padding: 24rpx 28rpx;
   background: #ffffff;
   border-radius: 12rpx;
-  animation: fadeIn 0.2s ease both;
+  animation: fadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .result-block .r-main {
@@ -308,7 +308,7 @@
   padding: 26rpx 28rpx;
   background: #E8F0FF;
   border-radius: 12rpx;
-  animation: fadeUp 0.22s 0.07s ease both;
+  animation: fadeUp 0.5s 0.07s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .analysis-card .hd {
@@ -646,7 +646,7 @@
   min-height: 0;
   margin-top: 24rpx;
   /* 弹层每次打开内容重挂载，chips 区块整体轻微 fadeUp 一次（不逐项） */
-  animation: fadeUp 0.25s ease both;
+  animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* 隐藏滚动条（show-scrollbar=false 之外的 WXSS 双保险） */

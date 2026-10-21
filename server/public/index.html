@@ -86,7 +86,7 @@
   .apps .app-card:nth-child(4) { animation-delay: .18s; }
   .apps .app-card:nth-child(5) { animation-delay: .24s; }
   .apps .app-card:nth-child(6) { animation-delay: .3s; }
-  .apps .app-card:nth-child(n+7) { animation-delay: .36s; }
+  .apps .app-card:nth-child(n+7) { animation-delay: .32s; }
   /* 图标：浅蓝底 44px 圆角方块 + 蓝 glyph（Shade.icon 的 stroke 属性由 CSS 覆写） */
   .app-ic {
     width: 44px; height: 44px; border-radius: 10px;
@@ -123,7 +123,7 @@
     display: flex; align-items: center; gap: 14px;
     background: var(--orange-soft); padding: 16px 22px;
     box-shadow: none;
-    animation: riseIn .55s var(--ease) .52s both;
+    animation: riseIn .55s var(--ease) .35s both;
   }
   .safety .si {
     width: 36px; height: 36px; flex: none;
@@ -140,15 +140,18 @@
   .mask {
     position: fixed; inset: 0; z-index: 200;
     background: rgba(29, 33, 41, .45);
-    display: none; align-items: center; justify-content: center; padding: 20px;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    opacity: 0; visibility: hidden;
+    transition: opacity .3s, visibility 0s linear .3s; /* 淡出完成后再隐藏，保住关闭过渡 */
   }
-  .mask.show { display: flex; }
+  .mask.show { opacity: 1; visibility: visible; transition: opacity .3s; }
   .modal {
     width: 100%; max-width: 560px; background: #fff; border: 1px solid var(--line);
     border-radius: var(--radius); overflow: hidden;
     box-shadow: var(--shadow-hover);
-    animation: fadeUp .3s var(--ease) both;
+    transform: translateY(16px) scale(.98); transition: transform .35s var(--ease);
   }
+  .mask.show .modal { transform: none; }
   .modal-hd {
     display: flex; align-items: center; gap: 10px; padding: 15px 20px;
     border-bottom: 1px solid var(--line);

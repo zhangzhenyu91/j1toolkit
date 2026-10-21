@@ -7,11 +7,6 @@ page {
   --td-tag-square-border-radius: 12rpx;
 }
 
-/* 按压反馈：轻度变暗 */
-.hover-opacity {
-  opacity: 0.75 !important;
-}
-
 /* ---------- 分段（激活态白底蓝字，政企蓝白分段控件口径） ---------- */
 .seg-wrap {
   /* CSS 变量穿透组件（apply-shared），覆盖 t-segmented 主题 */

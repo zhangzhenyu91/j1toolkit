@@ -80,8 +80,11 @@
   /* ===== 右卡：题库管理 ===== */
   .qz-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 20px 24px; }
   .qz-main [hidden] { display: none !important; }
-  .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: paneIn .34s cubic-bezier(.16, 1, .3, 1); }
-  @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: paneIn .34s var(--ease); }
+  /* 入场时延链：页签条 / 练习区 / 管理区依次落位（fadeUp .55s + delay，总落位 ≤0.9s） */
+  .qz-tabs.fade-up { animation-delay: .05s; }
+  #wrapPractice.fade-up { animation-delay: .12s; }
+  #wrapManage.fade-up { animation-delay: .2s; }
 
   .progress { height: 6px; border-radius: 8px; background: var(--hair); overflow: hidden; }
   .progress i { display: block; height: 100%; border-radius: 8px; background: var(--orange); transition: width .3s; }
@@ -210,7 +213,7 @@
   .qz-tab-ind {
     position: absolute; bottom: -1px; left: 0; width: 0; height: 3px;
     border-radius: 8px; background: var(--orange);
-    transition: left .3s cubic-bezier(.16, 1, .3, 1), width .3s cubic-bezier(.16, 1, .3, 1);
+    transition: left .3s var(--ease), width .3s var(--ease);
   }
 
   /* ===== 刷题练习 · 左卡我的题库（个人口径进度） ===== */

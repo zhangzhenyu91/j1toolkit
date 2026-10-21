@@ -31,8 +31,7 @@
   .td-wrap { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
   .td-wrap[hidden] { display: none !important; } /* author display 规则优先于 UA [hidden]，显式兜底 */
 
-  /* ===== 入场关键帧（一次上浮/淡入后静止；降级见文件末） ===== */
-  @keyframes k-fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  /* ===== 入场关键帧：k-fade / k-rise / paneIn 共享自 theme.css（一次上浮/淡入后静止） ===== */
 
   /* ===== 页头：标题 + 副标；右侧班组切换（仅超管） ===== */
   .td-head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap; }
@@ -72,10 +71,8 @@
   .td-body { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 16px; }
   .td-body .pane { display: none; flex: 1; min-height: 0; }
   .td-body .pane.on { display: flex; flex-direction: column; animation: paneIn .34s var(--ease); }
-  @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
   /* ===== 列表入场：行级上浮 stagger（编排式 14px；时延链 ≤0.9s：逐行 40ms 递增、0.36s 封顶 + 0.45s 时长；
      切分段时既有行随 .pane.on 入场，列表 innerHTML 重渲的新行同效；降级见文件末 reduce 块） ===== */
-  @keyframes k-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
   .td-body .pane.on .drow, .td-body .pane.on .lt tbody tr { animation: k-rise .45s var(--ease) both; }
   .td-body .pane.on .drow:nth-child(3), .td-body .pane.on .lt tbody tr:nth-child(2) { animation-delay: .04s; }
   .td-body .pane.on .drow:nth-child(4), .td-body .pane.on .lt tbody tr:nth-child(3) { animation-delay: .08s; }

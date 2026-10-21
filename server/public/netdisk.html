@@ -43,10 +43,10 @@
        内容坐标（scrollLeft/scrollTop 折算），滚动时矩形随内容滚、命中检测同坐标系（offsetLeft/Top）；
      动效（政企克制，缓动 var(--ease)，降级由 theme.css 全局 prefers-reduced-motion 统一关闭）：
        空间分段白 pill 滑动位移（moveSegPill，重建/缩放直接落位）；目录/空间/搜索切换 旧内容淡出（.g-out）
-       + 格子编排式上浮入场（cellIn，stagger 36ms/格、时延链封顶 860ms；上传完成回写走 silent 静默刷新）；
+       + 格子编排式上浮入场（cellIn，stagger 36ms/格、时延链封顶 400ms（delay+时长 ≤0.9s）；上传完成回写走 silent 静默刷新）；
        格子三态（悬停 浅蓝 6% 底+细内描边 / 选中框 12% 蓝底+45% 蓝内描边读作「框」/ 已选悬停底色加深，
        background 与 box-shadow 均 150ms 过渡；描边用 inset box-shadow 无布局抖动）；
-       框选矩形 opacity 淡入淡出；右键菜单/弹层 popIn(scale .97→1)+遮罩 180ms、关闭淡出；
+       框选矩形 opacity 淡入淡出；右键菜单 popIn(scale .97→1) 快速入场，弹层 遮罩 opacity .3s + 本体 translateY(16px) scale(.98) .35s、关闭淡出；
        上传完成格 浅蓝「上传中」变绿「已完成」停留 1.2s 后整格淡出再刷新；
      图标：真实文件类型 PNG（/assets/filetypes/<ext>.png），fileIconUrl 合并同类（doc→docx、xls→xlsx、
        jpeg→jpg、tgz/bz2/xz→zip 等），<img> 捕获级 error 监听回退字母块/线性文件夹（缺图不坏）；
@@ -290,17 +290,17 @@
     position: fixed; inset: 0; z-index: 320; padding: 24px;
     background: rgba(29, 33, 41, .5); backdrop-filter: blur(3px);
     display: flex; align-items: center; justify-content: center;
-    opacity: 0; transition: opacity .18s;
+    opacity: 0; transition: opacity .3s;
   }
   .mask.open { opacity: 1; }
   /* 外壳 overflow:hidden 保四角裁切；滚动内凹到 .m-scroll（外壳 6px 内边距），滚动条不贴右缘；
-     入场 scale(.97→1)+opacity 180ms，关闭随 .open 移除反向淡出（Shade.modal 延时 300ms 销毁兜底） */
+     入场 translateY(16px) scale(.98)→none 350ms，关闭随 .open 移除反向淡出（Shade.modal 延时 300ms 销毁兜底） */
   .modal {
     background: #fff; border: 1px solid var(--line); border-radius: 8px; width: 560px; max-width: 94vw; max-height: 86vh;
     overflow: hidden; padding: 6px; display: flex; flex-direction: column;
     box-shadow: 0 2px 8px rgba(0, 0, 0, .05);
-    transform: scale(.97); opacity: 0;
-    transition: transform .18s var(--ease), opacity .18s ease;
+    transform: translateY(16px) scale(.98);
+    transition: transform .35s var(--ease);
   }
   .m-scroll {
     flex: 1; min-height: 0; overflow-y: auto; border-radius: 8px; padding: 14px 18px 16px;
@@ -310,7 +310,7 @@
   .m-scroll::-webkit-scrollbar-thumb { background: rgba(29, 33, 41, .16); border-radius: 8px; }
   .m-scroll::-webkit-scrollbar-thumb:hover { background: rgba(29, 33, 41, .34); }
   .m-scroll::-webkit-scrollbar-track { background: transparent; }
-  .mask.open .modal { transform: none; opacity: 1; }
+  .mask.open .modal { transform: none; }
   .m-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
   .m-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .m-x {
@@ -442,7 +442,7 @@
   }
   .rtable td { font-size: 13px; padding: 10px 16px; border-top: 1px solid var(--fill); vertical-align: middle; }
   .rtable tbody tr:hover { background: var(--fill); }
-  /* 分享管理行编排式上浮入场（与格子同一 cellIn 口径，stagger 36ms、封顶 860ms ≤0.9s） */
+  /* 分享管理行编排式上浮入场（与格子同一 cellIn 口径，stagger 36ms、封顶 400ms ≤0.9s） */
   .rtable tbody tr.row-in { animation: cellIn .42s var(--ease) both; }
   /* 页签切换内容淡入 */
   #viewFiles.view-in, #viewShares.view-in { animation: viewIn .3s var(--ease); }
@@ -933,11 +933,11 @@
     }
     return '<div class="g-icon">' + fileIconHtml(it.name, it.is_dir, 48) + '</div>';
   }
-  // animate=true 时格子编排式上浮入场（stagger 每格 36ms、时延链封顶 860ms ≤0.9s）
+  // animate=true 时格子编排式上浮入场（stagger 每格 36ms、时延链封顶 400ms ≤0.9s）
   function cellHtml(it, idx, animate) {
     var sub = S.search ? '<span class="g-sub" title="' + esc(it._parentDisp) + '">' + esc(it._parentDisp) + '</span>' : '';
     var cls = 'g-cell' + (sel.has(it._rel) ? ' sel' : '') + (animate ? ' cell-in' : '');
-    var style = animate ? ' style="animation-delay:' + Math.min(idx * 36, 860) + 'ms"' : '';
+    var style = animate ? ' style="animation-delay:' + Math.min(idx * 36, 400) + 'ms"' : '';
     return '<div class="' + cls + '"' + style + ' data-idx="' + idx + '" data-rel="' + esc(it._rel) + '" title="' + esc(it.name) + '">'
       + cellIconHtml(it)
       + '<span class="g-name">' + esc(it.name) + '</span>' + sub
@@ -948,7 +948,7 @@
     if (!S.items.length && !currentDirTasks().length) { setGridState('empty'); return; }
     gridEl.innerHTML = S.items.map(function (it, i) { return cellHtml(it, i, animate); }).join('')
       + currentDirTasks().map(function (t, i) {
-        return uploadCellHtml(t, animate ? Math.min((S.items.length + i) * 36, 860) : -1);
+        return uploadCellHtml(t, animate ? Math.min((S.items.length + i) * 36, 400) : -1);
       }).join('');
   }
   function renderStatus() {
@@ -1874,7 +1874,7 @@
       if (s.state === 'active') ops.push('<span class="lk gray" data-op="disable">停用</span>');
       if (s.state === 'disabled') ops.push('<span class="lk" data-op="enable">重新启用</span>');
       ops.push('<span class="lk red" data-op="del">' + (s.state === 'expired' ? '删除记录' : '删除') + '</span>');
-      return '<tr class="row-in" style="animation-delay:' + Math.min(idx * 36, 860) + 'ms" data-sid="' + esc(s.share_id) + '">'
+      return '<tr class="row-in" style="animation-delay:' + Math.min(idx * 36, 400) + 'ms" data-sid="' + esc(s.share_id) + '">'
         + '<td><div class="nm-cell">' + icon + '<div class="nm-wrap"><span class="nm" title="' + esc(nm) + '">' + esc(nm) + '</span>'
         + (single ? '' : '<span class="nm-sub">共 ' + n + ' 项</span>') + '</div></div></td>'
         + '<td class="code">' + (s.password ? esc(s.password) : '—') + '</td>'

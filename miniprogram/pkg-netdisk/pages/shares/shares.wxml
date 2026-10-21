@@ -17,7 +17,7 @@
 
   <!-- 分享卡片 -->
   <block wx:if="{{list.length}}">
-    <view class="card shcard a" wx:for="{{list}}" wx:key="id" style="--d:{{0.14 + index * 0.06}}s">
+    <view class="card shcard a" wx:for="{{list}}" wx:key="id" style="--d:{{0.14 + (index > 4 ? 4 : index) * 0.06}}s">
       <view class="sc-body">
         <view class="sc-top">
           <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-index="{{index}}" binderror="onIconErr" />

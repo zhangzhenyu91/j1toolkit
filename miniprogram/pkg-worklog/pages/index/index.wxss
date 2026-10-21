@@ -81,17 +81,6 @@ page {
 }
 
 /* 下拉入场：chip 下方轻微上浮 + 淡入（克制，同全局 fadeUp/fadeIn 风格）；收起直消不加动画 */
-@keyframes ts-drop-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6rpx);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 .ts-drop {
   position: absolute;
   top: 76rpx;
@@ -140,15 +129,6 @@ page {
 }
 
 /* 点空白处收起下拉（层级低于切换器本体）；遮罩淡入 */
-@keyframes ts-mask-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 .ts-mask {
   position: fixed;
   left: 0;
@@ -2588,7 +2568,6 @@ page {
 /* ============================================================
    入场编排关键帧（旋转 + 平移归位，fill-mode both，时延链；
    引用处：.tswitch/.datebar/.scopebar/.logcard=a-rise，.badge=a-spin，.fab-main=a-fab；
-   氛围动效仅 2 处：.ts-sq 与 .datebar .dtxt::before 的 wl-rot360 慢转。
    prefers-reduced-motion 降级由 app.wxss 全局枚举统一关闭）
    ============================================================ */
 @keyframes wl-a-rise {
@@ -2633,11 +2612,5 @@ page {
   100% {
     opacity: 1;
     transform: scale(1) rotate(0);
-  }
-}
-
-@keyframes wl-rot360 {
-  to {
-    transform: rotate(360deg);
   }
 }

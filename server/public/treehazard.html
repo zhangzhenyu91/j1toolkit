@@ -36,9 +36,7 @@
   .th-wrap { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
   .th-wrap [hidden] { display: none !important; } /* author display 规则优先于 UA [hidden]，显式兜底 */
 
-  /* ===== 入场关键帧（一次上浮/淡入后静止；降级见文件末） ===== */
-  @keyframes k-fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-  @keyframes k-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } } /* 编排式上浮入场（设计规范 14px） */
+  /* ===== 入场关键帧：k-fade / k-rise 共享自 theme.css（一次上浮/淡入后静止） ===== */
   /* 线路 ↔ 台账视图切换：内容整体 fade + slide（renderRecords 重渲染时由 JS 挂 .view-in 触发） */
   .view-in { animation: k-rise .34s var(--ease); }
 
@@ -166,7 +164,6 @@
   .th-body { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 14px; }
   .th-body .pane { display: none; flex: 1; min-height: 0; }
   .th-body .pane.on { display: flex; flex-direction: column; animation: paneIn .34s var(--ease); }
-  @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
   .pane-scroll {
     flex: 1; min-height: 0; overflow-y: auto; padding-right: 10px; scrollbar-gutter: stable;
     scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
@@ -233,8 +230,15 @@
     transition: color .15s, border-color .15s;
   }
   .rec-fold:hover { color: var(--orange); border-color: var(--orange); }
-  .rec-fold svg { width: 13px; height: 13px; }
-  .rec.fold .rec-more { display: none; } /* 折叠：隐藏其他信息 / 照片 / 操作按钮 */
+  .rec-fold svg { width: 13px; height: 13px; transition: transform .2s var(--ease); }
+  .rec:not(.fold) .rec-fold svg { transform: rotate(180deg); } /* 展开态旋 180°，图标固定 chevron-down 不换名 */
+  /* 折叠：隐藏其他信息 / 照片 / 操作按钮（grid 0fr→1fr 高度过渡 + 淡入，同 worklog combo-list 口径；.rec-more-in 为折叠必需内层） */
+  .rec-more {
+    display: grid; grid-template-rows: 1fr; opacity: 1;
+    transition: grid-template-rows .28s var(--ease), opacity .22s ease, margin-top .28s var(--ease);
+  }
+  .rec.fold .rec-more { grid-template-rows: 0fr; opacity: 0; }
+  .rec-more-in { min-height: 0; overflow: hidden; }
   /* 卡片内信息行：紧凑行式字段流（标签小灰字 + 值同行内联），宽屏一行、窄屏两行自适应 */
   .rf-row { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 8px; }
   .rf { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -415,6 +419,7 @@
   /* ===== 动效降级 ===== */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; }
+    .rec-more { transition: none; }
   }
 </style>
 </head>
@@ -731,7 +736,7 @@ function recCardHtml(r, threshold) {
   head.push('<span class="rec-vert' + (overThreshold(r, threshold) ? ' danger' : '') + '" title="垂直距离">垂距 ' + esc(fmtM(r.vertical)) + '</span>');
   head.push(done ? '<span class="rec-tag ok">已处理</span>' : '<span class="rec-tag un">未处理</span>');
   head.push('<button class="rec-fold" data-fold="' + r.id + '" title="' + (expanded ? '折叠' : '展开') + '">'
-    + Shade.icon(expanded ? 'chevron-up' : 'chevron-down', 13) + '</button>');
+    + Shade.icon('chevron-down', 13) + '</button>');
   /* 次级字段行：树种×数量 / 水平距离 */
   var sub = [];
   var species = String(r.tree_species || '').trim();
@@ -765,9 +770,9 @@ function recCardHtml(r, threshold) {
     + '<div class="rec-top">' + head.join('') + '</div>'
     + '<div class="rec-subline">' + sub.join('') + '</div>'
     + evidence
-    + '<div class="rec-more">' + grid + handled + photos
+    + '<div class="rec-more"><div class="rec-more-in">' + grid + handled + photos
     + (acts.length ? '<div class="rec-acts">' + acts.join('') + '</div>' : '')
-    + '</div>'
+    + '</div></div>'
     + '</div>';
 }
 
@@ -1568,7 +1573,6 @@ function initEvents() {
     var btn = target ? target.querySelector('[data-fold]') : null;
     if (btn) {
       btn.title = on ? '折叠' : '展开';
-      btn.innerHTML = Shade.icon(on ? 'chevron-up' : 'chevron-down', 13);
     }
   }
   /* 记录卡片流委派：线路大卡（进台账）/ 卡内交互（删照片 / 上传照片 / 处理 / 删记录 / 缩略图大图）/ 勾选框 /

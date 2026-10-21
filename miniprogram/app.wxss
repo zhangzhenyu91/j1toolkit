@@ -111,7 +111,7 @@ page {
 }
 
 .hover-opacity {
-  opacity: 0.6 !important;
+  opacity: 0.75 !important;
 }
 
 /* 入场动画（缓动统一 cubic-bezier(.22,1,.36,1)，在各页面 animation 声明处使用） */
@@ -127,6 +127,27 @@ page {
 }
 
 @keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 班组切换器下拉浮层/遮罩（worklog/quiz/filetransfer/safeday 共用，原四包逐字重复上收） */
+@keyframes ts-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ts-mask-in {
   from {
     opacity: 0;
   }

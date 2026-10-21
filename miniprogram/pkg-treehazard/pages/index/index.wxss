@@ -9,11 +9,6 @@ page {
   --td-tag-square-border-radius: 12rpx;
 }
 
-/* 按压反馈：轻度变暗 */
-.hover-opacity {
-  opacity: 0.75 !important;
-}
-
 /* ---------- 看板四格卡（仿首页 stats-card；本页无深蓝页首，不负边距浮层） ---------- */
 .stats-card {
   display: flex;
@@ -360,7 +355,7 @@ page {
   color: #F53F3F;
 }
 
-/* 折叠/展开开关（首行右端，每卡一枚；点卡同效） */
+/* 折叠/展开开关（首行右端，每卡一枚；点卡同效）：图标固定 chevron-down，展开态旋转 180° */
 .th-fold {
   flex: none;
   width: 48rpx;
@@ -368,11 +363,30 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform .2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 展开区：其他信息 / 处理信息 / 处理前后照片区 / 操作按钮（折叠时不渲染；辅证照片条已提到折叠态常驻） */
+.th-fold.th-fold-open {
+  transform: rotate(180deg);
+}
+
+/* 展开区：其他信息 / 处理信息 / 处理前后照片区 / 操作按钮（grid-rows 折叠动画：常驻渲染、class 开关；旧 WebView 不支持 grid-rows 动画时退化为直切；辅证照片条已提到折叠态常驻） */
 .th-more {
   margin-top: 8rpx;
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows .28s cubic-bezier(0.22, 1, 0.36, 1), opacity .22s ease;
+}
+
+.th-more.th-more-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.th-more-in {
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 处理信息行（浅绿底 + 绿字，同网页端 rec-handled 口径） */

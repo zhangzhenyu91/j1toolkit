@@ -18,7 +18,7 @@
 .msg-row {
   display: flex;
   margin-bottom: 24rpx;
-  animation: fadeUp 0.25s ease both; /* 新消息入场 */
+  animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; /* 新消息入场 */
 }
 
 .msg-right {
@@ -153,7 +153,7 @@
   justify-content: center;
 }
 
-/* 正在执行的步骤：图标呼吸脉冲 + 标题明暗动效 */
+/* 正在执行的步骤：图标单点脉冲（功能性反馈；标题明暗呼吸按动效规范删除） */
 .step-icon-run {
   animation: stepPulse 1.2s ease-in-out infinite;
 }
@@ -185,7 +185,6 @@
 
 .step-title-run {
   color: #0E3DA8;
-  animation: stepBreath 1.6s ease-in-out infinite;
 }
 
 .step-title-err {
@@ -220,11 +219,6 @@
 @keyframes stepPulse {
   0%, 100% { opacity: 0.45; transform: scale(0.85); }
   50% { opacity: 1; transform: scale(1.12); }
-}
-
-@keyframes stepBreath {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
 }
 
 .cursor {
@@ -400,12 +394,12 @@
   background: #ffffff;
   border-radius: 24rpx 24rpx 0 0;
   padding: 8rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
-  animation: sheetUp 0.25s ease both;
+  animation: sheetUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes sheetUp {
   from {
-    transform: translateY(30%);
+    transform: translateY(16px) scale(0.98);
     opacity: 0.6;
   }
   to {
