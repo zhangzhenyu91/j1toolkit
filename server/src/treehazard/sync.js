@@ -99,10 +99,20 @@ async function downloadFile(dev, name) {
   });
 }
 
-// 删除 U 盘内文件
-async function deleteFile(dev, name) {
-  await deviceCall(dev, `删除 ${name}`, (ps) =>
-    axios.post(`${ps.origin}/api/fileshare/delete`, { names: [name] }, {
+// 列 U 盘内文件（设备 /list，{files:[{name,size}]}；共享中会先断开，重挂由调用方负责）
+async function listFiles(dev) {
+  return deviceCall(dev, '列 U 盘文件', async (ps) => {
+    const r = await axios.get(`${ps.origin}/api/fileshare/list`, {
+      headers: { Cookie: ps.cookie }, timeout: 60000,
+    });
+    return (r.data && r.data.files) || [];
+  });
+}
+
+// 删除 U 盘内文件（names 数组一次删多个）
+async function deleteFiles(dev, names) {
+  await deviceCall(dev, `删除 ${names.join('、')}`, (ps) =>
+    axios.post(`${ps.origin}/api/fileshare/delete`, { names }, {
       headers: { Cookie: ps.cookie }, timeout: 60000,
     })
   );
@@ -120,6 +130,24 @@ async function pushFile(dev, name, buf) {
       timeout: 120000,
     });
   });
+}
+
+// 取件收尾清扫（口径：同步完不保留本操作产物）：删 U 盘根目录全部树表残留
+// （任意「*树木统计表.xlsx」——现名/旧名/夜间兜底名）与指令文件残留；仅根目录不递归，
+// 不动派车单与用户经文件传输存放的文件。best-effort：失败仅记日志不阻断同步（下一轮收尾再清）。
+async function cleanupUsb(dev) {
+  try {
+    const files = await listFiles(dev);
+    const victims = files
+      .map((f) => String((f && f.name) || ''))
+      .filter((n) => n.endsWith('树木统计表.xlsx') || n === CMD_FILE);
+    if (victims.length) {
+      await deleteFiles(dev, victims);
+      console.log(`[树障同步] 已清扫 U 盘残留：${victims.join('、')}`);
+    }
+  } catch (err) {
+    console.error('[树障同步] U 盘残留清扫失败（继续收尾）：', err.message);
+  }
 }
 
 /* ===== 指令文件与轮次 ===== */
@@ -269,7 +297,8 @@ async function pushLatest(dev, team, cycle, records) {
   console.log(`[树障同步] 已下发最新表（${records.length} 行）与 replace 指令（轮次 ${cycle}）`);
 }
 
-// 取件与比对回写：下载内网表 → diff（带已裁决驳回快照防反转）→ 应用 → 视差异决定收尾或下发最新表；
+// 取件与比对回写：下载内网表 → diff（带已裁决驳回快照防反转）→ 应用 → 收尾清盘 → 视差异决定收尾或下发最新表；
+// 收尾顺序统一「先清扫、后下发」：除在途交付（新表 + replace 指令，客户端取走即删）外 U 盘零残留；
 // 返回 { updates, news, conflicts, skips, adjudicated, pushed, noFile }（计数供摘要）
 async function fetchPhase(dev, team, cycle) {
   const fileName = exporter.exportFileName(team.name);
@@ -279,8 +308,9 @@ async function fetchPhase(dev, team, cycle) {
 
   const buf = await downloadFile(dev, fileName);
   if (!buf) {
-    // 内网无表（首次同步/被控机未导出）：直接下发最新表（含空表），内网以服务端为准起步
+    // 内网无表（首次同步/被控机未导出）：清残留后直接下发最新表（含空表），内网以服务端为准起步
     console.log(`[树障同步] U 盘未找到「${fileName}」，直接下发最新表（轮次 ${cycle}）`);
+    await cleanupUsb(dev);
     await pushLatest(dev, team, cycle, serverRecords);
     await markSyncedAfterPush(pool, team.id);
     return { updates: 0, news: 0, conflicts: 0, skips: 0, adjudicated: 0, pushed: true, noFile: true };
@@ -309,16 +339,14 @@ async function fetchPhase(dev, team, cycle) {
     noFile: false,
   };
   if (!action.needPush) {
-    await mountToHost(dev); // 无差异：重挂回共享态收尾（下载内部已把 U 盘切回 KVM 侧）
-    console.log(`[树障同步] 无差异，已重挂回共享态（轮次 ${cycle}）`);
+    // 无差异：消费完的表连同残留一并清盘（best-effort）后重挂回共享态收尾
+    await cleanupUsb(dev);
+    await mountToHost(dev);
+    console.log(`[树障同步] 无差异，已清盘并重挂回共享态（轮次 ${cycle}）`);
     return counts;
   }
-  // 有差异：删旧表（best-effort）→ 下发最新表 + replace 指令
-  try {
-    await deleteFile(dev, fileName);
-  } catch (err) {
-    console.error('[树障同步] 删除 U 盘旧表失败（继续下发）：', err.message);
-  }
+  // 有差异：清盘（消费完的旧表 + 残留）→ 下发最新表 + replace 指令
+  await cleanupUsb(dev);
   const fresh = await loadServerRecords(team.id); // 回写后的最新全量
   await pushLatest(dev, team, cycle, fresh);
   await markSyncedAfterPush(pool, team.id);
