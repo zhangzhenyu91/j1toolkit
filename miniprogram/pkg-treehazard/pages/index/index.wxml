@@ -318,9 +318,9 @@
         <text class="sync-l">上次同步</text>
         <text class="sync-v">{{syncLastText}}</text>
       </view>
-      <view class="sync-row" wx:if="{{syncStatus && syncStatus.pending}}">
-        <text class="sync-l">待同步</text>
-        <text class="sync-v">{{syncStatus.pending}} 条</text>
+      <view class="sync-row" wx:if="{{syncStatus && syncStatus.enabled}}">
+        <text class="sync-l">自动同步</text>
+        <text class="sync-v">每日 24:00</text>
       </view>
     </view>
     <view class="sheet-actions">

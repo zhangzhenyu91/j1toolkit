@@ -1,6 +1,8 @@
 // 树障隐患记录：crane-answer 直推入库
 // mode=direct：按 (team_id, session_id, crane_record_id) 幂等 upsert 进正式表（已存在仅更新发现侧列，不动处理列/状态）；
 // mode=staging：进暂存区（同 (team_id, session_id) 批次整批替换），随批 xlsx 落盘 data/treehazard/inbox/ 供事后核对。
+// 可选 deletes（[{ crane_record_id, msg_id? }]）：crane-answer 实时删除推送，按 (team_id, crane_record_id) 定位
+// （不限 session_id）命中即整条删除（与 DELETE /records/:id 同款），与 records 允许同批并存。
 // 辅证照片（records[i].evidence_photos，base64 dataURL）：随直推以壹匣名义写入自家 COS（treehazard 前缀，
 // 与处理前后照片同桶同权，班管/超管可删）；direct 整组替换该记录的 evidence 照片（字段缺省=旧版直推不动既有辅证），
 // staging 入暂存照片表、转入正式表时归挂、废弃/整批替换时连带清理。照片失败仅记日志计数，不阻断记录入库。
@@ -13,6 +15,7 @@ const config = require('../config');
 const cos = require('../worklog/cos'); // 与照片上传接口同口径跨模块复用 COS 封装（key 前缀本模块自拼）
 const { parseVerticalNum, safeFileName } = require('./export');
 const { normDateStr } = require('./diff');
+const { deleteRecord } = require('./remove'); // 删除与 DELETE /records/:id 共用同款逻辑
 
 function toIntOrNull(v) {
   const n = parseInt(String(v ?? '').trim(), 10);
@@ -285,12 +288,34 @@ async function handleIngest(req, res, next) {
       }
     }
 
+    // 可选 deletes：crane-answer 实时删除推送（[{ crane_record_id, msg_id? }]），按 (team_id, crane_record_id)
+    // 定位（不限 session_id），命中则与 DELETE /records/:id 同款删除并计 deleted，未命中/缺 id 计 skipped 不报错；
+    // 与 records 允许同批并存
+    const rawDeletes = Array.isArray(body.deletes) ? body.deletes : [];
+    let deleted = 0;
+    for (const d of rawDeletes) {
+      const craneId = String((d && d.crane_record_id) ?? '').trim();
+      if (!craneId) {
+        skipped += 1;
+        continue;
+      }
+      const [hit] = await pool.query(
+        'SELECT id FROM treehazard_record WHERE team_id = ? AND crane_record_id = ?',
+        [team.id, craneId]
+      );
+      if (!hit.length) {
+        skipped += 1;
+        continue;
+      }
+      for (const row of hit) await deleteRecord(row.id, team.id); // 同 id 跨会话桶可能多行，一并删除
+      deleted += 1;
+    }
+
     if (mode === 'direct') {
       const { inserted, updated, photos, photos_failed: photosFailed } = await importDirect(team, sessionId, records);
-      require('./sync').touch(); // 直推入库即服务端变更，登记后空闲自动同步内网（惰性加载与上方 notice 同型）
       const photoLine = photos || photosFailed ? `\n辅证照片：${photos} 张${photosFailed ? `（失败 ${photosFailed} 张）` : ''}` : '';
       notify(team, '树障记录入库', `班组：${team.name}\n入库：新增 ${inserted} 条 / 更新 ${updated} 条（跳过 ${skipped} 条）${photoLine}\n推送人：${pusherName || '未知'}`);
-      return ok(res, { inserted, updated, skipped, photos, photos_failed: photosFailed });
+      return ok(res, { inserted, updated, skipped, photos, photos_failed: photosFailed, deleted });
     }
 
     const {
@@ -300,7 +325,7 @@ async function handleIngest(req, res, next) {
     const noteLine = reviewNote ? `\n备注：${reviewNote.length > 80 ? `${reviewNote.slice(0, 80)}…` : reviewNote}` : '';
     const photoLine = photos || photosFailed ? `\n辅证照片：${photos} 张${photosFailed ? `（失败 ${photosFailed} 张）` : ''}` : '';
     notify(team, '树障记录进暂存区', `班组：${team.name}\n暂存：${count} 条（跳过 ${skipped} 条），待确认导入${photoLine}\n推送人：${pusherName || '未知'}${noteLine}`);
-    return ok(res, { batch_id: batchId, count, photos, photos_failed: photosFailed });
+    return ok(res, { batch_id: batchId, count, photos, photos_failed: photosFailed, deleted });
   } catch (err) {
     return next(err);
   }

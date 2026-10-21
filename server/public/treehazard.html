@@ -558,7 +558,7 @@ var state = {
   stg: { list: null, detail: null, err: '' }, // 暂存区：批次列表 / 批次详情 {batch, records}
   stgSel: {},                // 批次详情逐行勾选（暂存记录 id→true）
   cft: { list: null, err: '' },               // 冲突列表
-  sync: null                 // 同步状态 {enabled, running, last, pending}（后端未启用时仅 {enabled:false,last:null}）
+  sync: null                 // 同步状态 {enabled, running, last, nextNight}（后端未启用时仅 {enabled:false,last:null}）
 };
 
 /* 班组隔离：超管所有 /treehazard/* 请求统一带 team_id（query 优先于 body，后端 resolveReqTeam 同口径） */
@@ -1224,7 +1224,7 @@ async function openThresholdModal() {
 }
 
 /* ================= 同步至内网（班管/超管） ================= */
-/* 状态小字：running → 同步中…；否则 last 的 created_at + result 摘要；后端未启用时如实显示 */
+/* 状态小字：running → 同步中…；否则「每日 24:00 自动同步」+ 下次自动同步时间（nextNight）+ 最近同步摘要；后端未启用时如实显示 */
 function renderSyncHint() {
   var el = $('#syncHint');
   if (!isManager) { el.hidden = true; return; }
@@ -1232,9 +1232,12 @@ function renderSyncHint() {
   var text = '';
   if (st) {
     if (st.running) text = '同步中…';
-    else if (st.last) text = '最近同步 ' + Shade.fmtDate(st.last.created_at, true) + (st.last.result ? ' · ' + st.last.result : '');
     else if (st.enabled === false) text = '同步未启用';
-    else text = '尚未同步';
+    else {
+      text = '每日 24:00 自动同步';
+      if (st.nextNight) text += ' · 下次 ' + Shade.fmtDate(st.nextNight, true);
+      if (st.last) text += ' · 最近 ' + Shade.fmtDate(st.last.created_at, true) + (st.last.result ? ' · ' + st.last.result : '');
+    }
   }
   el.textContent = text;
   el.hidden = !text;

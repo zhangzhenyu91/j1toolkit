@@ -25,7 +25,7 @@
 - **文件传输**（移动端，小程序分包 `pkg-filetransfer`）：向 KVM 设备虚拟 U 盘推送/取回文件（设备列表同上；上传弹层逐文件推送后统一挂载，下载点按即存相册或打开）；经壹匣转发点 `/api/v1/kvm/devices/{id}/push|mount|files|download`，要求 `file-transfer` 应用权限
 - **水印添加**（移动端，小程序分包 `pkg-wmadd`）：选片/拍摄 → 4:3 裁剪 → 编辑水印（含防伪码、杆塔坐标选择）→ 服务端渲染水印仅回图（不传 COS、不入库、不触发 Dify 验证），自动存相册并全屏展示；后端 `server/src/wmadd/`（无业务表），要求 `wm-add` 应用权限
 - **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断，仅网页端上传），顺序/随机/错题三模式刷题 + 背题模式（答案解析常显）+ 答题卡跳题与清空做题记录（保留错题本），错题本按题库分组专项练习（连对 3 次自动移出），题库分班组池/全部池、用户自行添加进个人题库，Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；网页端 quiz.html 为刷题练习 + 题库管理双页签（管理页签仅 admin/本班 team_admin）；后端 `server/src/quiz/`，要求 `quiz` 应用权限
-- **树障隐患记录**（分包 `pkg-treehazard` + 网页端 `treehazard.html`）：树木隐患台账——crane-answer 群监听项目经 `POST /api/v1/treehazard/ingest`（X-Ingest-Token）直推入库（direct 直写 / staging 暂存区确认导入；辅证照片随记录以壹匣名义写入自家 COS，暂存批次转入时归挂、废弃连带清理），双端看板、单条/批量处理、辅证照片（折叠卡即显、只读、点图预览）与处理前后照片（COS）、exceljs 统计表导出与在线预览（垂直距离超阈值看板计数与线路卡「要紧」红显，仅 >0 标红）；内网 U 盘双向同步（夜间 22:50 准备 / 23:00 取件 + 空闲 15 分钟 + 手动三触发，Q 列隐藏记录ID 行级比对、冲突人工裁决，被控机侧为内网工具箱 tree_sync 应用）；后端 `server/src/treehazard/`，要求 `tree-hazard` 应用权限（暂存区/冲突/阈值/删除/同步另限超管或本班 team_admin）
+- **树障隐患记录**（分包 `pkg-treehazard` + 网页端 `treehazard.html`）：树木隐患台账——crane-answer 群监听项目经 `POST /api/v1/treehazard/ingest`（X-Ingest-Token）直推入库（direct 直写 / staging 暂存区确认导入；辅证照片随记录以壹匣名义写入自家 COS，暂存批次转入时归挂、废弃连带清理），双端看板、单条/批量处理、辅证照片（折叠卡即显、只读、点图预览）与处理前后照片（COS）、exceljs 统计表导出与在线预览（垂直距离超阈值看板计数与线路卡「要紧」红显，仅 >0 标红）；内网 U 盘双向同步（每日 24:00（23:50 准备 / 00:00 取件）+ 手动两触发，Q 列隐藏记录ID 行级比对、冲突人工裁决，被控机侧为内网工具箱 tree_sync 应用）；后端 `server/src/treehazard/`，要求 `tree-hazard` 应用权限（暂存区/冲突/阈值/删除/同步另限超管或本班 team_admin）
 - **班组数据**（分包 `pkg-teamdata` + 网页端 `teamdata.html`）：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 / 商旅设备班组字典统一管理（网页端六分段，小程序端暂为五分段——「杆塔信息」仍名「运维线路信息」、无「运维线路」段；数据复用出工日志字典与杆塔表不建新表，接口形态与 worklog 管理端点 1:1；杆塔坐标 Excel 导入全量替换；出工日志双端「数据管理」入口已改跳本应用）；后端 `server/src/teamdata/`，要求 `team-data` 应用权限且全接口限超管或本班 team_admin
 - **商旅打卡**（出工日志扩展）：商旅账号短信绑定 / 两次打卡 / 费用 / 照片双端同步 / 每日定时核查，权限并入 `work-log`（不单设应用）；后端 `server/src/sgccclockin/`
 - **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:10 锁定目标 KVM 设备并把 U 盘挂载至被控机（被控机 09:15 起由桌面客户端「内网工具箱」导出，独立项目不在本仓），09:20 经文件传输链路取回当日派车单 xlsx 自动建出车卡片（派车单号随卡写入 `dispatch_order_no`，供「派车汇总」导出）、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（详见 开发指南.md 7.7）
@@ -128,6 +128,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | MySQL 连接 |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接（JWT 黑名单/会话） |
 | `WEKNORA_API_URL` / `WEKNORA_API_KEY` / `WEKNORA_AGENT_ID` | WeKnora 知识库（Call Me；详见开发指南 Call Me 一节） |
+| `CALLME_INGEST_TOKEN` | Call Me 群内提问 crane-answer 直推对接密钥（crane-answer 群监听把群内提问 HTTP 直推到 `/api/v1/callme/ingest-chat`，请求头 `X-Ingest-Token` 须与此值相等、与 crane-answer 侧 `YIXIA_INGEST_TOKEN` 配同值；留空则直推接口停用返回 503，见开发指南第六章） |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_BUCKET` / `COS_REGION` | 腾讯云 COS（出工日志照片） |
 | `DIFY_API_URL` | Dify 地址（只填域名如 `http://10.2.24.13:8082`，`/v1` 由代码拼接；**所有 Dify 工作流共用此地址**，各工作流独立 API_KEY） |
 | `DIFY_WXPUSH_API_KEY` | 通知微信外发工作流的 Dify API Key（仅系统自动触发的通知使用，手动推送不发微信：把通知文本发到个人/班组群 wxid，群消息支持@成员；wxid 由超管在网页端管理页维护，未配置则微信推送停用、站内通知照常，见开发指南第十六节） |
@@ -167,9 +168,8 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `COS_TREEHAZARD_PREFIX` | 树障处理前/后照片在 COS 的独立文件夹前缀（默认 `treehazard/`） |
 | `TREEHAZARD_SYNC_TEAM` | 树障同步班组（U盘同步目标班组名，默认 `检修一班`） |
 | `TREEHAZARD_SYNC_DEVICE_DDNS` / `TREEHAZARD_SYNC_DEVICE_MAC` / `TREEHAZARD_SYNC_KVM_USER` | 树障同步被控机所在 KVM 设备三件套：ddns 定位 + MAC 校验 + 代登平台账号（默认回退派车单同机，ddns 留空则 U盘同步停用；KVM_USER 留空回退 `ADMIN_USERNAME`） |
-| `TREEHAZARD_SYNC_IDLE_MIN` | 树障同步空闲判定分钟数（默认 `15`；超过该时长无操作视为可同步） |
 | `TREEHAZARD_SYNC_CMD_WINDOW_MIN` | 树障同步指令窗口分钟数（默认 `5`；同步指令下发后被控机取件的有效窗口） |
-| `TREEHAZARD_SYNC_PREPARE_TIME` / `TREEHAZARD_SYNC_FETCH_TIME` | 树障同步每日准备时间（锁定设备并挂载 U 盘至被控机，默认 `22:50`）与取件时间（取回内网表比对回写并解禁，默认 `23:00`），HH:mm，北京时间 |
+| `TREEHAZARD_SYNC_PREPARE_TIME` / `TREEHAZARD_SYNC_FETCH_TIME` | 树障同步每日准备时间（锁定设备并挂载 U 盘至被控机，默认 `23:50`）与取件时间（取回内网表比对回写并解禁，默认 `00:00`，即每日 24:00 同步、跨午夜取件落在次日），HH:mm，北京时间 |
 
 ## 小程序开发（微信开发者工具）
 

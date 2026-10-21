@@ -152,7 +152,7 @@ class RpcServer:
         ts = cfg.get("tree_sync") or {}
         if not (ts.get("local_path") or "").strip():
             return {"started": False, "reason": "未配置内网表路径（tree_sync.local_path）"}
-        sch = {"enabled": True, "time": ts.get("nightly_time", "22:55"),
+        sch = {"enabled": True, "time": ts.get("nightly_time", "23:55"),
                "driver": (cfg.get("schedule") or {}).get("driver", "os")}
         due, reason, _today = scheduler.due_check(
             cfg, driver="app", stamp_name="tree_sync_nightly", schedule=sch)

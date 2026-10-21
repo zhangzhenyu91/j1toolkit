@@ -1,15 +1,14 @@
 // 树障统计表内网 U 盘同步编排（设备链路仿 worklog/dispatch-sync.js，diff/导出复用本模块纯函数）
 // 同步对象：cfg().syncTeam 指定班组的全量记录 ↔ 被控机导出的「{班组名}树木统计表.xlsx」（Q 列记录ID 为行级比对锚点）
-// 每日流程（北京时间，时区换算同 sgccclockin 固定 UTC+8 口径）：
-//   22:50 准备：锁定设备（devlock 维护锁）→ push snapshot 指令（tree_sync_cmd.json，告知被控机导出内网表）
+// 每日流程（北京时间，时区换算同 sgccclockin 固定 UTC+8 口径；可跨午夜）：
+//   23:50 准备：锁定设备（devlock 维护锁）→ push snapshot 指令（tree_sync_cmd.json，告知被控机导出内网表）
 //         → 设备 /mount 把 U 盘挂载（共享）至被控机端（本地自排程，与 dispatch-sync 同型）
-//   23:00 取件（挂 nightq 夜间队列，与商旅每日核查同点串行）：下载内网表（下载内部自动把 U 盘切回 KVM 侧）
+//   00:00 取件（挂 nightq 夜间队列，与其他夜间任务同点串行）：下载内网表（下载内部自动把 U 盘切回 KVM 侧）
 //         → diff 比对回写（内网改动吸收：updates 覆盖 / news 插入 source='intranet'；双边都改 → 冲突留档待人工裁决；
 //         裁决 keep=server 的行若内网旧表未收敛——行与已裁决快照全等 → 驳回旧值不回灌防反转，判待收敛触发下发）
 //         → 无差异：重挂回共享态收尾；有差异（含内网无表）：删旧表 → push 最新表 + replace 指令（不等被控机取件确认）→ 重挂
 //         → 解禁设备（finally 保证）→ 写 sync_log + 结果通知（超管 + 本班班组管理员）
-// 另有两类触发：空闲（各写点 touch() 后静默 TREEHAZARD_SYNC_IDLE_MIN 分钟自动一轮）与手动（POST /sync/push-now）；
-// 手动/空闲为完整轮次（准备 → 等指令窗口 TREEHAZARD_SYNC_CMD_WINDOW_MIN 分钟 → 取件）
+// 另有手动触发（POST /sync/push-now）：完整轮次（准备 → 等指令窗口 TREEHAZARD_SYNC_CMD_WINDOW_MIN 分钟 → 取件）
 // 指令文件 tree_sync_cmd.json：{ version:1, cycle_id, kind:'snapshot'|'replace', file:'{班组名}树木统计表.xlsx', issued_at(+08:00) }
 const FormData = require('form-data');
 const axios = require('axios');
@@ -424,9 +423,9 @@ async function runCycle(kind) {
   }
 }
 
-let nightCtx = null; // 夜间轮次上下文 { cycle, dev, team }（22:50 准备存，23:00 取件用）
+let nightCtx = null; // 夜间轮次上下文 { cycle, dev, team }（23:50 准备存，次日 00:00 取件用）
 
-// 22:50 夜间准备：锁 + 准备并存上下文；失败立即解禁并通知（取件任务仍按自身排程执行——同 dispatch-sync 口径）
+// 23:50 夜间准备：锁 + 准备并存上下文；失败立即解禁并通知（取件任务仍按自身排程执行——同 dispatch-sync 口径）
 async function nightPrepareJob() {
   let team = null;
   try {
@@ -484,20 +483,11 @@ async function nightFetchJob() {
 
 /* ===== 触发与排程 ===== */
 
-let dirty = false; // 有服务端变更待同步
-let lastChangeAt = 0;
-
-// 写点登记（各写接口末尾调用）：静默 syncIdleMin 分钟后自动跑一轮空闲同步
-function touch() {
-  dirty = true;
-  lastChangeAt = Date.now();
-}
-
-// 本地每日自排程（同 dispatch-sync：setTimeout 自排程 + unref，北京时间口径）；仅用于 22:50 准备，
-// 23:00 取件挂 nightq 与其他夜间任务同点串行
+// 本地每日自排程（同 dispatch-sync：setTimeout 自排程 + unref，北京时间口径）；仅用于夜间准备，
+// 取件挂 nightq 按时刻分组串行
 function scheduleDaily(timeStr, job, label) {
   const [hh, mm] = String(timeStr || '').split(':').map((s) => parseInt(s, 10));
-  const { nextUtc, now } = nextDailyRunUtc(Number.isInteger(hh) ? hh : 22, Number.isInteger(mm) ? mm : 50);
+  const { nextUtc, now } = nextDailyRunUtc(Number.isInteger(hh) ? hh : 23, Number.isInteger(mm) ? mm : 50);
   const timer = setTimeout(async () => {
     try {
       await job();
@@ -518,18 +508,11 @@ function start() {
   }
   scheduleDaily(cfg().syncPrepareTime, nightPrepareJob, '每日准备（锁定并下发 snapshot 指令）');
   nightq.register('treehazard-fetch', cfg().syncFetchTime, nightFetchJob);
-  // 空闲触发扫描：每分钟看一次「有变更且静默满 syncIdleMin」→ 空闲同步
-  const timer = setInterval(() => {
-    if (!dirty || running) return;
-    if (Date.now() - lastChangeAt < cfg().syncIdleMin * 60 * 1000) return;
-    dirty = false; // 先清标记防重入；漏网变更由下一轮 touch 或夜间任务兜底
-    runCycle('idle').catch((err) => console.error('[树障同步] 空闲同步异常：', err.message));
-  }, 60 * 1000);
-  timer.unref();
-  console.log(`[树障同步] 已启用：每日 ${cfg().syncPrepareTime} 准备 / ${cfg().syncFetchTime} 取件（北京时间），空闲 ${cfg().syncIdleMin} 分钟自动同步`);
+  console.log(`[树障同步] 已启用：每日 ${cfg().syncPrepareTime} 准备 / ${cfg().syncFetchTime} 取件（北京时间），另支持手动 POST /sync/push-now 即时同步`);
 }
 
-// 同步状态：enabled（已配置设备）、running、last（本班最近一条 sync_log）、pending（空闲触发剩余分钟数）
+// 同步状态：enabled（已配置设备）、running、last（本班最近一条 sync_log）、nextNight（下次夜间取件时间，
+// 北京时间 ISO 字符串；未启用为 null）
 async function status() {
   const enabled = Boolean(cfg().syncDeviceDdns);
   let last = null;
@@ -545,9 +528,14 @@ async function status() {
       console.error('[树障同步] 状态查询失败：', err.message);
     }
   }
-  const idleMs = cfg().syncIdleMin * 60 * 1000;
-  const pending = dirty ? Math.max(0, Math.ceil((lastChangeAt + idleMs - Date.now()) / 60000)) : 0;
-  return { enabled, running, last, pending };
+  // 下次夜间取件时间（按 syncFetchTime 排程口径换算，转北京时间 ISO 字符串）
+  let nextNight = null;
+  if (enabled) {
+    const [hh, mm] = String(cfg().syncFetchTime || '').split(':').map((s) => parseInt(s, 10));
+    const { nextUtc } = nextDailyRunUtc(Number.isInteger(hh) ? hh : 0, Number.isInteger(mm) ? mm : 0);
+    nextNight = new Date(nextUtc + CN_OFFSET_MS).toISOString().replace('Z', '+08:00');
+  }
+  return { enabled, running, last, nextNight };
 }
 
 function isRunning() {
@@ -557,7 +545,6 @@ function isRunning() {
 module.exports = {
   start,
   runCycle,
-  touch,
   status,
   isRunning,
   // 纯逻辑/库操作导出供自测 stub 演练

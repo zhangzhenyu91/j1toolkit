@@ -17,6 +17,7 @@ const cos = require('../worklog/cos'); // 与 notice/sgccclockin 同口径跨模
 const exporter = require('./export');
 const { intranetFields, normDateStr, parseSectionPoles } = require('./diff');
 const ingest = require('./ingest');
+const remove = require('./remove'); // 删除记录共用逻辑（DELETE /records/:id 与直推 deletes 同款）
 const sync = require('./sync');
 
 const router = express.Router();
@@ -225,7 +226,6 @@ router.post('/records/:id/handle', async (req, res, next) => {
       "UPDATE treehazard_record SET status = 'handled', handler_name = ?, handle_note = ?, handled_at = ? WHERE id = ?",
       [parsed.handlerName, parsed.note, parsed.handledAt, recordId]
     );
-    sync.touch(); // 登记服务端变更，空闲后自动同步内网
     return ok(res, { id: recordId });
   } catch (err) {
     return next(err);
@@ -260,7 +260,6 @@ router.post('/records/handle-batch', async (req, res, next) => {
     } finally {
       conn.release();
     }
-    sync.touch(); // 登记服务端变更，空闲后自动同步内网
     return ok(res, { updated });
   } catch (err) {
     return next(err);
@@ -296,7 +295,6 @@ router.post('/records/:id/photos', async (req, res, next) => {
       'SELECT id, record_id, kind, cos_key, url, uploaded_by, created_at FROM treehazard_photo WHERE id = ?',
       [r.insertId]
     );
-    sync.touch(); // 登记服务端变更，空闲后自动同步内网
     return ok(res, created[0]);
   } catch (err) {
     return next(err);
@@ -323,7 +321,6 @@ router.delete('/records/:id/photos/:photoId', async (req, res, next) => {
       console.error('[树障] 删除 COS 对象失败（继续删表行）：', e.message);
     }
     await pool.query('DELETE FROM treehazard_photo WHERE id = ?', [photo.id]);
-    sync.touch(); // 登记服务端变更，空闲后自动同步内网
     return ok(res, { id: photo.id });
   } catch (err) {
     return next(err);
@@ -331,34 +328,14 @@ router.delete('/records/:id/photos/:photoId', async (req, res, next) => {
 });
 
 // DELETE /records/:id：班管/超管；删照片 COS 对象与表行、删记录、写 treehazard_deleted_id 墓碑
+// （删除本体见 ./remove.js，与直推 deletes 共用同款逻辑）
 router.delete('/records/:id', requireDictAdmin, async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const recordId = Number(req.params.id);
     const [rows] = await pool.query('SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?', [recordId, req.team.id]);
     if (!rows.length) return fail(res, 404, 40400, '记录不存在');
-    const [photos] = await pool.query('SELECT cos_key FROM treehazard_photo WHERE record_id = ?', [recordId]);
-    for (const p of photos) {
-      try {
-        await cos.deleteObject(p.cos_key);
-      } catch (e) {
-        console.error('[树障] 删除 COS 对象失败（继续删记录）：', e.message);
-      }
-    }
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      await conn.query('DELETE FROM treehazard_photo WHERE record_id = ?', [recordId]);
-      await conn.query('DELETE FROM treehazard_record WHERE id = ?', [recordId]);
-      await conn.query('INSERT IGNORE INTO treehazard_deleted_id (id, team_id) VALUES (?, ?)', [recordId, req.team.id]);
-      await conn.commit();
-    } catch (e) {
-      await conn.rollback().catch(() => {});
-      throw e;
-    } finally {
-      conn.release();
-    }
-    sync.touch(); // 登记服务端变更（含墓碑），空闲后自动同步内网
+    await remove.deleteRecord(recordId, req.team.id);
     return ok(res, { id: recordId });
   } catch (err) {
     return next(err);
@@ -642,7 +619,6 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
     } finally {
       conn.release();
     }
-    sync.touch(); // 登记服务端变更，空闲后自动同步内网
     return ok(res, { imported });
   } catch (err) {
     return next(err);
@@ -746,7 +722,6 @@ router.post('/conflicts/:id/resolve', requireDictAdmin, async (req, res, next) =
     } finally {
       conn.release();
     }
-    sync.touch(); // 裁决落库也是服务端变更，空闲后自动同步内网
     return ok(res, { id: conflictId });
   } catch (err) {
     return next(err);
@@ -763,7 +738,7 @@ router.post('/sync/push-now', requireDictAdmin, (req, res) => {
   return ok(res, { started: true }, '同步已开始');
 });
 
-// GET /sync/status：{ enabled, running, last, pending }（last 为本班最近一条 sync_log；pending 为空闲触发剩余分钟数）
+// GET /sync/status：{ enabled, running, last, nextNight }（last 为本班最近一条 sync_log；nextNight 为下次夜间取件时间，北京时间 ISO，未启用为 null）
 router.get('/sync/status', async (req, res, next) => {
   try {
     return ok(res, await sync.status());

@@ -76,7 +76,7 @@ def cmd_tree_sync(cfg: dict, args) -> int:
             if not (ts.get("local_path") or "").strip():
                 print("[tree-sync] 跳过：未配置内网表路径（tree_sync.local_path）")
                 return 0
-            sch = {"enabled": True, "time": ts.get("nightly_time", "22:55"),
+            sch = {"enabled": True, "time": ts.get("nightly_time", "23:55"),
                    "driver": (cfg.get("schedule") or {}).get("driver", "os")}
             due, reason, _today = scheduler.due_check(
                 cfg, stamp_name="tree_sync_nightly", schedule=sch)

@@ -22,13 +22,13 @@
         <span class="muted">上盘文件名</span>
         <t-input v-model="edit.file_name" style="width:260px" placeholder="检修一班树木统计表.xlsx" />
         <span class="muted">夜间兜底</span>
-        <t-input v-model="edit.nightly_time" style="width:110px" placeholder="22:55" />
+        <t-input v-model="edit.nightly_time" style="width:110px" placeholder="23:55" />
         <t-button theme="primary" :loading="saving" @click="save">保存</t-button>
       </div>
       <div class="muted" style="margin-top:8px">
         服务端挂载 U 盘并下发指令后，客户端每分钟轮询执行：snapshot=内网表拷贝上盘，
         replace=U盘新表覆盖内网表（原文件自动备份为 .bak）；夜间兜底时刻无指令也拷贝内网表上盘。
-        23:00 后的服务端指令次晨首轮轮询补执行。
+        00:00 后的服务端指令次晨首轮轮询补执行。
       </div>
     </t-card>
 
@@ -96,7 +96,7 @@ async function loadStatus() {
     st.usb_mount = (s.usb || {}).mount || ''
     edit.local_path = ts.local_path || ''
     edit.file_name = ts.file_name || '检修一班树木统计表.xlsx'
-    edit.nightly_time = ts.nightly_time || '22:55'
+    edit.nightly_time = ts.nightly_time || '23:55'
     cfgOk.value = !!st.local_path
     stampText.value = s.stamp && s.stamp.time ? s.stamp.time : '从未执行'
     const last = s.last_run || {}
@@ -116,7 +116,7 @@ async function save() {
     return
   }
   if (!/^\d{1,2}:\d{2}$/.test(edit.nightly_time.trim())) {
-    MessagePlugin.warning('夜间兜底时间格式应为 HH:MM，如 22:55')
+    MessagePlugin.warning('夜间兜底时间格式应为 HH:MM，如 23:55')
     return
   }
   saving.value = true

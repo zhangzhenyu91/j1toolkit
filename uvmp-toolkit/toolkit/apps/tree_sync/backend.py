@@ -15,8 +15,8 @@ snapshot 上盘的表留给服务端取回后删除（客户端不删）——�
 
 触发方式：
 - tick（每分钟定时器唤醒）：U 盘不在静默返回；有指令按指令执行
-- nightly（22:55 本地定时兜底）：有指令按 tick 逻辑走；无指令则做一次 snapshot
-  （服务端 22:50 挂载 U 盘，客户端 22:55 兜底拷贝内网表上盘，文件名用 tree_sync.file_name）
+- nightly（23:55 本地定时兜底）：有指令按 tick 逻辑走；无指令则做一次 snapshot
+  （服务端 23:50 挂载 U 盘，客户端 23:55 兜底拷贝内网表上盘，文件名用 tree_sync.file_name）
 """
 import json
 import os
@@ -195,7 +195,7 @@ def status(cfg: dict) -> dict:
         "tree_sync": {"local_path": local_path,
                       "local_exists": bool(local_path) and Path(local_path).is_file(),
                       "file_name": ts.get("file_name", DEFAULT_FILE_NAME),
-                      "nightly_time": ts.get("nightly_time", "22:55")},
+                      "nightly_time": ts.get("nightly_time", "23:55")},
         "stamp": state.get_stamp(STAMP_NIGHTLY),
         "last_run": state.last_run(APP_ID),
         "usb": {"label": usb.get("label", ""),

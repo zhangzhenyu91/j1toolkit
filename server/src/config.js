@@ -50,6 +50,11 @@ const config = {
     apiKey: str('WEKNORA_API_KEY'),
     agentId: str('WEKNORA_AGENT_ID'),
   },
+  // Call Me 群内提问内部对接（crane-answer 直推 POST /api/v1/callme/ingest-chat，见开发指南.md 第六章）
+  callme: {
+    // 直推对接密钥（请求头 X-Ingest-Token，与 crane-answer 的 YIXIA_INGEST_TOKEN 配同值；留空则直推接口停用返回 503）
+    ingestToken: str('CALLME_INGEST_TOKEN', ''),
+  },
   cos: {
     secretId: str('COS_SECRET_ID'),
     secretKey: str('COS_SECRET_KEY'),
@@ -189,13 +194,11 @@ const config = {
     syncDeviceMac: str('TREEHAZARD_SYNC_DEVICE_MAC', ''),
     // 同步任务代登平台所用账号（须在 GLKVM 平台可见该设备组；留空回退 ADMIN_USERNAME）
     syncKvmUser: str('TREEHAZARD_SYNC_KVM_USER', ''),
-    // 空闲判定分钟数（超过该时长无操作视为可同步）
-    syncIdleMin: num('TREEHAZARD_SYNC_IDLE_MIN', 15),
     // 指令窗口分钟数（同步指令下发后被控机取件的有效窗口）
     syncCmdWindowMin: num('TREEHAZARD_SYNC_CMD_WINDOW_MIN', 5),
-    // 每日准备时间（锁定设备并挂载 U 盘至被控机）与取件时间（取回内网表比对回写并解禁），HH:mm，北京时间
-    syncPrepareTime: str('TREEHAZARD_SYNC_PREPARE_TIME', '22:50'),
-    syncFetchTime: str('TREEHAZARD_SYNC_FETCH_TIME', '23:00'),
+    // 每日准备时间（锁定设备并挂载 U 盘至被控机）与取件时间（取回内网表比对回写并解禁），HH:mm，北京时间（可跨午夜）
+    syncPrepareTime: str('TREEHAZARD_SYNC_PREPARE_TIME', '23:50'),
+    syncFetchTime: str('TREEHAZARD_SYNC_FETCH_TIME', '00:00'),
   },
 };
 
