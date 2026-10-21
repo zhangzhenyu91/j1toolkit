@@ -68,7 +68,7 @@ server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   src/sgccclockin/ 商旅打卡后端子模块（出工日志扩展：protocol 协议层/schema 建表种子/路由）
   src/treehazard/  树障隐患记录后端子模块（schema 建表种子/ingest crane-answer 直推/export 统计表/diff 行级比对/sync 内网 U 盘同步/路由）
   src/teamdata/    班组数据后端子模块（车牌/目的地/成员字典与线路杆塔管理路由，复用 worklog 表不建新表）
-uvmp-toolkit/  内网工具箱客户端（Electron + Vue + TDesign 壳 + Python sidecar 核心，装在内网被控机；`client-v*` tag 触发 .github/workflows/client.yml 三平台构建发版）
+uvmp-toolkit/  内网工具箱客户端（Electron + Vue + TDesign 壳 + Python sidecar 核心，装在内网被控机；与后端同版本线，`release-v*` / `v*` tag 触发 .github/workflows/release.yml 的 client-* job 三平台构建发版）
 design/        UI 设计稿（定稿「政企蓝白 Enterprise Blue」：小程序/Web 首页与出工日志 4 份基准稿 + 设计规范.md + index.html 展厅 + 分享图工具链；旧定稿已全部移除）
 private/       私有配套仓 j1toolkit-private（git submodule，需有权限账号 `git submodule update --init`）：esgcc 商旅逆向分析仓与巡视素材 / WorkLogs 旧服务历史数据 / _archive 公开仓历史归档
 crane-answer/  微信群智能应答平台（git submodule，`git submodule update --init` 拉取）：群监听按规则调 Dify Workflow 的后端 + Web 管理端，树木排查会话捕获记录直推本仓 treehazard ingest（开发指南 19.3）
@@ -128,7 +128,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | MySQL 连接 |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接（JWT 黑名单/会话） |
 | `WEKNORA_API_URL` / `WEKNORA_API_KEY` / `WEKNORA_AGENT_ID` | WeKnora 知识库（Call Me；详见开发指南 Call Me 一节） |
-| `WEKNORA_TREEHAZARD_KB_ID` / `WEKNORA_SYNC_USER` | 树障台账同步 WeKnora 知识库目标 ID（Markdown 快照同步至「树木台账」文件夹，缺省已内置示例值）与同步接口 `X-External-User-ID` 用户名（缺省 `admin`；见开发指南 19.7） |
+| `WEKNORA_TREEHAZARD_KB_ID` / `WEKNORA_SYNC_USER` | 树障台账同步 WeKnora 知识库目标 ID（按线路 xlsx 快照同步至「树木台账」文件夹，缺省已内置示例值）与同步接口 `X-External-User-ID` 用户名（缺省 `admin`；见开发指南 19.7） |
 | `CALLME_INGEST_TOKEN` | Call Me 群内提问 crane-answer 直推对接密钥（crane-answer 群监听把群内提问 HTTP 直推到 `/api/v1/callme/ingest-chat`，请求头 `X-Ingest-Token` 须与此值相等、与 crane-answer 侧 `YIXIA_INGEST_TOKEN` 配同值；留空则直推接口停用返回 503，见开发指南第六章） |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_BUCKET` / `COS_REGION` | 腾讯云 COS（出工日志照片） |
 | `DIFY_API_URL` | Dify 地址（只填域名如 `http://10.2.24.13:8082`，`/v1` 由代码拼接；**所有 Dify 工作流共用此地址**，各工作流独立 API_KEY） |

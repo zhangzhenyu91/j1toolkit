@@ -155,7 +155,7 @@ async function agentChatStream(username, sessionId, { query, images, attachmentI
   });
 }
 
-// ===== 知识库内容管理（树障台账等 Markdown 快照同步用，编排见 treehazard/weknorasync.js）=====
+// ===== 知识库内容管理（树障台账 xlsx 快照同步用，编排见 treehazard/weknorasync.js）=====
 // 这组接口只需 API Key（不依赖 agentId）；本实例老接口强制 X-External-User-ID，统一取配置的 syncUser
 
 function ensureKbConfigured() {
@@ -178,37 +178,35 @@ async function listKnowledge(kbId, params = {}) {
   return res.data;
 }
 
-// 建 Markdown 知识条目（POST /knowledge-bases/{kbId}/knowledge/manual），data=Knowledge 含 id；
-// channel 为摄取渠道标记，后续孤儿清理只删自己传的
-async function createManualKnowledge(kbId, { title, content, status = 'publish', channel }) {
+// 上传知识库文件（POST /knowledge-bases/{kbId}/knowledge/file，multipart：file=文件 buffer、
+// fileName=带目录路径的文件名（路径即文件夹，如「树木台账/检修一班树木统计表.xlsx」，无需再调 folder 归类）、
+// title=展示标题、channel=摄取渠道标记；同名文件上传 409 无原地更新，由调用方按删旧传新处理）
+async function uploadKnowledgeFile(kbId, { buffer, fileName, title, channel }) {
   ensureKbConfigured();
-  const res = await client.post(
-    `/knowledge-bases/${kbId}/knowledge/manual`,
-    { title, content, status, channel },
-    { headers: kbHeaders() }
-  );
+  const baseName = String(fileName).split('/').pop();
+  const fd = new FormData();
+  fd.append('file', buffer, {
+    filename: title || baseName,
+    contentType: /\.xlsx$/i.test(baseName)
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'application/octet-stream',
+  });
+  fd.append('fileName', fileName);
+  if (title) fd.append('title', title);
+  if (channel) fd.append('channel', channel);
+  const res = await client.post(`/knowledge-bases/${kbId}/knowledge/file`, fd, {
+    headers: { ...fd.getHeaders(), ...kbHeaders() },
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
   return res.data;
 }
 
-// 原地更新内容（PUT /knowledge/manual/{knowledgeId}）
-async function updateManualKnowledge(knowledgeId, { title, content, status = 'publish' }) {
+// 删单条知识（DELETE /knowledge/{knowledgeId}；删除异步——「正在删除的同名文件不计为重复」，
+// 删后立即重传同名文件不会 409）
+async function deleteKnowledge(knowledgeId) {
   ensureKbConfigured();
-  const res = await client.put(
-    `/knowledge/manual/${knowledgeId}`,
-    { title, content, status },
-    { headers: kbHeaders() }
-  );
-  return res.data;
-}
-
-// 归入文件夹（POST /knowledge/folder；文件夹由文档 folder_path 推导，无需预创建）
-async function moveKnowledgeToFolder(kbId, knowledgeIds, folderPath) {
-  ensureKbConfigured();
-  const res = await client.post(
-    '/knowledge/folder',
-    { kb_id: kbId, knowledge_ids: knowledgeIds, folder_path: folderPath },
-    { headers: kbHeaders() }
-  );
+  const res = await client.delete(`/knowledge/${knowledgeId}`, { headers: kbHeaders() });
   return res.data;
 }
 
@@ -238,8 +236,7 @@ module.exports = {
   listWebSearchProviders,
   agentChatStream,
   listKnowledge,
-  createManualKnowledge,
-  updateManualKnowledge,
-  moveKnowledgeToFolder,
+  uploadKnowledgeFile,
+  deleteKnowledge,
   batchDeleteKnowledge,
 };

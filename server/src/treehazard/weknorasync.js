@@ -1,22 +1,34 @@
-// 树障台账 WeKnora 知识库同步（快照语义，全量重生成 Markdown，按线路一组一文档，见 开发指南.md 19.7）
+// 树障台账 WeKnora 知识库同步（快照语义，按线路一表 xlsx，内容哈希增量 + 删旧传新，见 开发指南.md 19.7）
 // 目的：Call Me 问答可直接引用台账。同步对象与内网同步同班组口径（cfg().syncTeam）的全部记录（含已处理行；
-// 删除即物理删不再出现），按 line_name 分组一文档（空线路名归「未分组线路」），归入知识库「树木台账」文件夹。
-// 文件夹由文档 folder_path 推导、平级可扩展（后续其他台账用各自 channel + 文件夹共存）；
-// 创建带 channel='treehazard-sync' 渠道标记，孤儿清理只删自己传的，非本渠道文档不动。
+// 删除即物理删不再出现），按 line_name 一线路一表（空名归「未分组线路」）——复用 export.js buildWorkbook
+// 单表口径出表（列序/隐藏记录ID 列与整表导出一致，组内排序沿用 sortRecords 口径，表内标题「{线路名}树木统计表」），
+// 文件名「{线路名}.xlsx」（safeFileName 净化非法字符），以 fileName=「树木台账/{线路名}.xlsx」上传——
+// 路径即文件夹，无需再调 folder 归类。
+// 增量判定=内容哈希：每组表的记录集内容（sortRecords 排序后序列化）算 sha256 与本地状态文件比对，未变跳过
+// 不请求 WeKnora；变了/新线路删旧传新（哈希不取 xlsx buffer——zip 条目时间戳随当前时间每 2 秒一变、
+// 同数据 buffer 字节不稳，实测踩坑；docProps 时间戳仍固定仅为产物可比对）。
+// 更新语义：文件上传同名 409，无原地更新；删除异步「正在删除的同名文件不计为重复」，删后即传不会 409；
+// 仍 409 取响应已有 id 删除后重试一次。上传成功把 data.id 存进状态。
+// 状态文件 server/data/treehazard/weknora-sync-state.json（只写数据卷，tmp+rename 原子写，仿 safeday/store.js）；
+// 缺失/损坏回退空状态=全量重传一轮自愈，进程重启丢状态=全量重传一轮，可接受；runSync 入口重入保护（isRunning），
+// 状态读写只在同步流程内发生。创建带 channel='treehazard-sync' 渠道标记，兜底清理只删自己传的，非本渠道文档不动。
 // 触发两源：夜间 nightq（与 treehazard-fetch 同时刻串行——本模块在 treehazard/index.js 里于 sync.start()
 // 之后注册，保证夜间取件回写完再同步知识库）/ 手动 POST /weknora-sync/push-now（班管/超管）。
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const config = require('../config');
 const { pool } = require('../db');
 const nightq = require('../utils/nightq');
-const { CN_OFFSET_MS } = require('../utils/cndate');
 const exporter = require('./export');
 const weknora = require('../services/weknora');
 
-const FOLDER_PATH = '树木台账'; // 知识库文件夹名（代码常量；文件夹无需预创建）
+const FOLDER_PATH = '树木台账'; // 知识库文件夹名（代码常量；fileName 路径前缀即文件夹，无需预创建）
 const CHANNEL = 'treehazard-sync'; // 摄取渠道标记（列表过滤 source=，孤儿清理只删本渠道）
 const UNGROUPED_LINE = '未分组线路'; // line_name 为空的记录归组名
 const PAGE_SIZE = 100; // 列知识分页大小（batch-delete 单次上限 200，清理分批另切）
 const LIST_MAX_PAGES = 10; // 列知识翻页兜底上限（防接口分页异常死循环）
+const STATE_FILE = path.join(__dirname, '..', '..', 'data', 'treehazard', 'weknora-sync-state.json');
 
 function cfg() {
   return config.weknora;
@@ -37,107 +49,67 @@ function unwrap(body, label) {
   return body.data;
 }
 
-/* ===== Markdown 渲染（纯函数，快照全量重生成） ===== */
+/* ===== 本地状态（哈希增量；tmp+rename 原子写，仿 safeday/store.js） ===== */
 
-// 北京墙钟文本（cn 的 UTC 字段即北京墙钟，同 sync.js cnParts 口径）
-function cnNowText() {
-  const cn = new Date(Date.now() + CN_OFFSET_MS);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${cn.getUTCFullYear()}-${p(cn.getUTCMonth() + 1)}-${p(cn.getUTCDate())} ${p(cn.getUTCHours())}:${p(cn.getUTCMinutes())}:${p(cn.getUTCSeconds())}`;
+// 读状态文件（缺失/损坏回退空状态——下一轮全量重传自愈）
+function loadState() {
+  try {
+    const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    if (st && st.version === 1 && st.lines && typeof st.lines === 'object') return st;
+  } catch (e) { /* 缺失或损坏回退空状态 */ }
+  return { version: 1, lines: {} };
 }
 
-// 单条记录 Markdown 小节：区段/杆号标题 + 字段列表（空值字段跳过；处理状态恒带，处理信息有则带上）
-function renderRecord(r, idx) {
-  const title = String(r.section || '').trim() || '未填区段';
-  const from = r.pole_from === null || r.pole_from === undefined ? '' : String(r.pole_from);
-  const to = r.pole_to === null || r.pole_to === undefined ? '' : String(r.pole_to);
-  let poles = '';
-  if (from && to) poles = `（杆号 ${from}-${to}）`;
-  else if (from) poles = `（杆号 ${from} 起）`;
-  else if (to) poles = `（杆号 ${to} 止）`;
-  const lines = [`## ${idx}. ${title}${poles}`, ''];
-  const put = (label, v) => {
-    const s = String(v ?? '').trim();
-    if (s) lines.push(`- ${label}：${s}`);
-  };
-  put('位置备注', r.position_note);
-  put('树种', r.tree_species);
-  put('数量', r.tree_count);
-  const ds = String(r.dist_small ?? '').trim();
-  const db = String(r.dist_big ?? '').trim();
-  if (ds || db) lines.push(`- 距小号侧（m）：${ds || '—'}，距大号侧（m）：${db || '—'}`);
-  put('直径（cm）', r.diameter);
-  const h = String(r.horizontal ?? '').trim();
-  const v = String(r.vertical ?? '').trim();
-  if (h || v) lines.push(`- 水平距离（m）：${h || '—'}，垂直距离：${v || '—'}`);
-  const finder = String(r.finder_name || '').trim();
-  const foundAt = String(r.found_at || '').trim();
-  if (finder || foundAt) lines.push(`- 发现人：${finder || '—'}，发现时间：${foundAt || '—'}`);
-  const handled = r.status === 'handled';
-  const hs = [];
-  const handler = String(r.handler_name || '').trim();
-  const handledAt = String(r.handled_at || '').trim();
-  const note = String(r.handle_note || '').trim();
-  if (handler) hs.push(`处理人：${handler}`);
-  if (handledAt) hs.push(`处理时间：${handledAt}`);
-  if (note) hs.push(`处理情况：${note}`);
-  lines.push(`- 处理状态：${handled ? '已处理' : '未处理'}${hs.length ? `（${hs.join('，')}）` : ''}`);
-  return lines;
+// 原子写状态文件（先写临时文件再 rename，防崩溃截断读到半成品）
+function saveState(state) {
+  fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+  const tmp = `${STATE_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  fs.renameSync(tmp, STATE_FILE);
 }
 
-// 线路文档 Markdown：首行摘要（标题/班组/记录数/生成时间 北京时间）+ 逐条记录小节
-function renderDoc({ lineName, teamName, voltage, records, generatedAt }) {
-  const lines = [`# ${lineName}树木台账`, '', `- 班组：${teamName}`];
-  const vol = String(voltage ?? '').trim();
-  if (vol) lines.push(`- 电压等级：${vol}`);
-  lines.push(`- 记录数：${records.length}`);
-  lines.push(`- 生成时间：${generatedAt}（北京时间）`);
-  records.forEach((r, i) => {
-    lines.push('');
-    lines.push(...renderRecord(r, i + 1));
-  });
-  return lines.join('\n');
+/* ===== xlsx 产物 ===== */
+
+// 内容哈希：对 sortRecords 排序后的记录集序列化算 sha256（排序口径与表内行序一致，DB 行序无关）；
+// 不哈希 xlsx buffer——zip 条目时间戳随当前时间每 2 秒一变，同数据 buffer 字节不稳（实测踩坑），
+// docProps 时间戳已固定仅为产物可比对。记录内容不变 ⇒ 表内容不变；导出格式升级后需删状态文件强制全量重传
+function recordsHash(records) {
+  const canonical = exporter.sortRecords(records, exporter.exportGroupComparator, true);
+  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
-// 按 line_name 归组（空名归 UNGROUPED_LINE），组序沿用排序后首现序（team_line 导入序 + 未匹配按线路名中文序）
-function groupByLineName(records) {
+// 载入同步班组全部记录，按 line_name 一线路一表 [{ lineName, fileName, buffer, hash }]（空名归 UNGROUPED_LINE；
+// buildWorkbook 内部按 sortRecords 口径排序，单表列序/隐藏记录ID 列与整表导出一致；文件名 safeFileName 净化 + .xlsx）
+async function buildLineBooks(team) {
+  const [rows] = await pool.query(
+    `SELECT id, voltage_level, line_name, section, pole_from, pole_to, position_note,
+       tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical,
+       finder_name, DATE_FORMAT(found_at, '%Y-%m-%d') AS found_at,
+       handler_name, handle_note, DATE_FORMAT(handled_at, '%Y-%m-%d') AS handled_at,
+       status, created_at
+     FROM treehazard_record WHERE team_id = ?`,
+    [team.id]
+  );
   const groups = new Map();
-  for (const r of records) {
+  for (const r of rows) {
     const name = String(r.line_name ?? '').trim() || UNGROUPED_LINE;
     if (!groups.has(name)) groups.set(name, []);
     groups.get(name).push(r);
   }
-  return [...groups.entries()].map(([title, recs]) => ({ title, records: recs }));
-}
-
-// 载入同步班组全部记录并生成线路文档清单 [{title, content}]（title=线路名；空组不生成）
-async function buildDocs() {
-  const team = await resolveTeam();
-  const [lineRows, [rows]] = await Promise.all([
-    exporter.fetchLineOrder(pool, team.id),
-    pool.query(
-      `SELECT voltage_level, line_name, section, pole_from, pole_to, position_note,
-         tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical,
-         finder_name, DATE_FORMAT(found_at, '%Y-%m-%d') AS found_at,
-         handler_name, handle_note, DATE_FORMAT(handled_at, '%Y-%m-%d') AS handled_at,
-         status, created_at
-       FROM treehazard_record WHERE team_id = ?`,
-      [team.id]
-    ),
-  ]);
-  const lineOrder = new Map(lineRows.map((l, i) => [l.line_name, i]));
-  const sorted = exporter.sortRecords(rows, exporter.makeLineGroupComparator(lineOrder));
-  const generatedAt = cnNowText();
-  return groupByLineName(sorted).map((g) => ({
-    title: g.title,
-    content: renderDoc({
-      lineName: g.title,
-      teamName: team.name,
-      voltage: g.records.map((r) => r.voltage_level).find((v) => String(v ?? '').trim()) || '',
-      records: g.records,
-      generatedAt,
-    }),
-  }));
+  const books = [];
+  for (const [lineName, records] of groups) {
+    const wb = await exporter.buildWorkbook({ teamName: lineName, records });
+    wb.created = new Date(0); // 固定 docProps 时间戳：否则 exceljs 每次写当前时间，同数据产物字节不可比对
+    wb.modified = new Date(0);
+    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+    books.push({
+      lineName,
+      fileName: `${exporter.safeFileName(lineName)}.xlsx`,
+      buffer,
+      hash: recordsHash(records),
+    });
+  }
+  return books;
 }
 
 /* ===== 同步流程 ===== */
@@ -162,97 +134,157 @@ async function listFolderKnowledge(kbId) {
 }
 
 // 批量删（≤200/次分批）；失败抛错由调用方记 errors
-async function deleteKnowledge(kbId, ids) {
+async function batchDelete(kbId, ids) {
   for (let i = 0; i < ids.length; i += 200) {
     const chunk = ids.slice(i, i + 200);
     unwrap(await weknora.batchDeleteKnowledge(kbId, chunk), '删知识');
   }
 }
 
-// 同步主流程（快照语义）：list 建 title→id 映射 → 每个线路文档原地更新或新建并归入文件夹 →
-// 本渠道存在但本次不再生成的文档（线路已无记录）批量清理；单文档失败记入 errors 不中断整批。
-// 返回 { ok, created, updated, deleted, errors[] }
+// 列表条目文件名（file_name/fileName/title 字段兼容取值；可能带 folder_path 前缀，取末段基名）
+function knowledgeBaseName(k) {
+  const raw = String((k && (k.file_name || k.fileName || k.title)) ?? '').trim();
+  return raw.slice(raw.lastIndexOf('/') + 1);
+}
+
+// 上传 409 响应里已有条目 id（data 形态未实测：单对象 / 数组 / {items|list} 列表均兼容）
+function conflictIds(data) {
+  if (!data) return [];
+  const arr = Array.isArray(data) ? data
+    : Array.isArray(data.items) ? data.items
+    : Array.isArray(data.list) ? data.list
+    : [data];
+  return arr
+    .map((k) => (k && typeof k === 'object' ? (k.id ?? k.knowledge_id) : k))
+    .filter((id) => id !== undefined && id !== null);
+}
+
+// 上传线路表（同名 409 → 取响应已有 id 删除后重试一次，再失败抛错由调用方记 errors）；
+// 返回 { conflictDeleted, knowledgeId }——conflictDeleted=409 兜底删除的旧件数，knowledgeId=上传响应 data.id（缺省 null）
+async function uploadXlsx(kbId, book) {
+  const payload = { buffer: book.buffer, fileName: `${FOLDER_PATH}/${book.fileName}`, title: book.fileName, channel: CHANNEL };
+  const doUpload = async () => {
+    const data = unwrap(await weknora.uploadKnowledgeFile(kbId, payload), '上传知识文件');
+    return (data && (data.id ?? data.knowledge_id)) || null;
+  };
+  try {
+    return { conflictDeleted: 0, knowledgeId: await doUpload() };
+  } catch (err) {
+    const body = err && err.response && err.response.data;
+    if (!body || err.response.status !== 409) throw err;
+    const ids = conflictIds(body.data);
+    if (!ids.length) throw err; // 409 但响应里拿不到已有 id，无法自愈
+    for (const id of ids) {
+      unwrap(await weknora.deleteKnowledge(id), '删同名旧知识');
+    }
+    return { conflictDeleted: ids.length, knowledgeId: await doUpload() };
+  }
+}
+
+// 同步主流程：逐线路哈希比对 → 未变跳过 / 变了删旧传新（新线路直接传）→ 已下线路删条目清状态项 →
+// 末尾兜底清理本渠道孤儿（状态丢失/旧版整表/Markdown 残留）；单步失败记入 errors 不中断整批。
+// 返回 { ok, created, updated, deleted, skipped, errors[] }
 async function syncToWeKnora() {
   const kbId = cfg().treehazardKbId;
   const errors = [];
   let created = 0;
   let updated = 0;
   let deleted = 0;
-  const docs = await buildDocs();
-  // 现有条目 title→id 映射（同名多条留首条，多余条目走孤儿清理）
-  const existing = new Map();
-  const listed = await listFolderKnowledge(kbId);
-  for (const k of listed) {
-    const id = k && k.id;
-    if (id === undefined || id === null) continue;
-    if (!existing.has(k.title)) existing.set(k.title, id);
-  }
-  const touchedIds = new Set(); // 本次创建或尝试更新的条目 id（更新失败的保留下轮再更，不清理）
-  for (const doc of docs) {
-    const id = existing.get(doc.title);
-    if (id !== undefined) {
-      touchedIds.add(id);
-      try {
-        unwrap(await weknora.updateManualKnowledge(id, { title: doc.title, content: doc.content, status: 'publish' }), '更新知识');
-        updated += 1;
-      } catch (err) {
-        errors.push(`更新「${doc.title}」失败：${err.message}`);
-      }
+  let skipped = 0;
+  const team = await resolveTeam();
+  const books = await buildLineBooks(team);
+  const state = loadState();
+  const currentLines = new Set(books.map((b) => b.lineName)); // 本次有记录的线路（已下线路判定）
+  const currentNames = new Set(books.map((b) => b.fileName)); // 本次文件名集合（兜底清理保留判定）
+  const removedIds = new Set(); // 本轮已单删的条目 id（防异步删除残留被兜底误再删）
+  for (const book of books) {
+    const st = state.lines[book.lineName];
+    if (st && st.hash === book.hash) {
+      skipped += 1; // 哈希未变：不请求 WeKnora
       continue;
     }
-    try {
-      const knowledge = unwrap(
-        await weknora.createManualKnowledge(kbId, { title: doc.title, content: doc.content, status: 'publish', channel: CHANNEL }),
-        '建知识'
-      );
-      const newId = knowledge && knowledge.id;
-      if (newId === undefined || newId === null) throw new Error('响应缺少条目 id');
-      touchedIds.add(newId);
+    // 删旧传新（新线路无旧件直接传）；删除失败 best-effort 继续走上传（409 兜底可自愈）
+    let deleteErrMsg = '';
+    if (st && st.knowledgeId) {
       try {
-        unwrap(await weknora.moveKnowledgeToFolder(kbId, [newId], FOLDER_PATH), '归入文件夹');
+        unwrap(await weknora.deleteKnowledge(st.knowledgeId), '删旧知识');
+        removedIds.add(st.knowledgeId);
+        deleted += 1;
       } catch (err) {
-        // 归类失败回滚删除新建条目，防残留文件夹外成重复（下一轮重试重建）
-        await deleteKnowledge(kbId, [newId]).catch(() => {});
-        throw new Error(`归入文件夹失败：${err.message}`);
+        deleteErrMsg = `删除旧「${book.fileName}」失败：${err.message}`;
+        console.warn('[树障知识库同步]', deleteErrMsg);
       }
-      created += 1;
-    } catch (err) {
-      errors.push(`新建「${doc.title}」失败：${err.message}`);
     }
-  }
-  // 孤儿清理：本渠道在册但本次未触达的条目（线路已无记录 / 同名冗余）
-  const orphans = [];
-  const seen = new Set();
-  for (const k of listed) {
-    const id = k && k.id;
-    if (id === undefined || id === null || touchedIds.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    orphans.push(id);
-  }
-  if (orphans.length) {
     try {
-      await deleteKnowledge(kbId, orphans);
-      deleted += orphans.length;
+      const { conflictDeleted, knowledgeId } = await uploadXlsx(kbId, book);
+      deleted += conflictDeleted;
+      state.lines[book.lineName] = {
+        hash: book.hash,
+        knowledgeId: knowledgeId || (st && st.knowledgeId) || null,
+        fileName: book.fileName,
+        syncedAt: new Date().toISOString(),
+      };
+      if (st) updated += 1;
+      else created += 1;
     } catch (err) {
-      errors.push(`清理孤儿条目失败：${err.message}`);
+      errors.push(`${deleteErrMsg ? `${deleteErrMsg}；` : ''}上传「${book.fileName}」失败：${err.message}`);
     }
   }
-  return { ok: errors.length === 0, created, updated, deleted, errors };
+  // 已下线路清理：状态里有、本次无记录的线路 → 删条目 + 清状态项（删除失败保留下轮重试）
+  for (const [lineName, st] of Object.entries(state.lines)) {
+    if (currentLines.has(lineName)) continue;
+    if (st.knowledgeId) {
+      try {
+        unwrap(await weknora.deleteKnowledge(st.knowledgeId), '删已下线知识');
+        removedIds.add(st.knowledgeId);
+        deleted += 1;
+      } catch (err) {
+        errors.push(`清理已下线路「${lineName}」失败：${err.message}`);
+        continue; // 状态项保留，下轮重试
+      }
+    }
+    delete state.lines[lineName];
+  }
+  // 兜底清理：本渠道在册但既不属本次线路文件名、也不在状态 knowledgeId 集里的条目
+  // （状态丢失/旧版整表「{班组名}树木统计表.xlsx」/更早的 Markdown 残留）→ batch-delete
+  try {
+    const listed = await listFolderKnowledge(kbId);
+    const stateIds = new Set(
+      Object.values(state.lines).map((s) => s.knowledgeId).filter((id) => id !== undefined && id !== null)
+    );
+    const orphans = [];
+    const seen = new Set();
+    for (const k of listed) {
+      const id = k && k.id;
+      if (id === undefined || id === null || seen.has(id) || removedIds.has(id)) continue;
+      seen.add(id);
+      if (currentNames.has(knowledgeBaseName(k)) || stateIds.has(id)) continue;
+      orphans.push(id);
+    }
+    if (orphans.length) {
+      await batchDelete(kbId, orphans);
+      deleted += orphans.length;
+    }
+  } catch (err) {
+    errors.push(`清理孤儿条目失败：${err.message}`);
+  }
+  saveState(state);
+  return { ok: errors.length === 0, created, updated, deleted, skipped, errors };
 }
 
 /* ===== 触发与排程 ===== */
 
 let running = false; // 手动触发重入守卫（夜间 nightq 同刻串行本身不重入）
 
-// 手动/夜间共用一轮同步：全 catch 不抛，返回 { ok, created, updated, deleted, errors[] }
+// 手动/夜间共用一轮同步：全 catch 不抛，返回 { ok, created, updated, deleted, skipped, errors[] }
 async function runSync() {
-  if (running) return { ok: false, created: 0, updated: 0, deleted: 0, errors: ['同步进行中，请稍后再试'] };
+  if (running) return { ok: false, created: 0, updated: 0, deleted: 0, skipped: 0, errors: ['同步进行中，请稍后再试'] };
   running = true;
   try {
     return await syncToWeKnora();
   } catch (err) {
     console.error('[树障知识库同步] 同步失败：', err.message);
-    return { ok: false, created: 0, updated: 0, deleted: 0, errors: [err.message] };
+    return { ok: false, created: 0, updated: 0, deleted: 0, skipped: 0, errors: [err.message] };
   } finally {
     running = false;
   }
@@ -265,7 +297,7 @@ function isRunning() {
 // 夜间任务（nightq 调用）：结果仅记日志
 async function nightJob() {
   const r = await runSync();
-  const summary = `新建 ${r.created} / 更新 ${r.updated} / 清理 ${r.deleted}${r.errors.length ? `，失败 ${r.errors.length} 项` : ''}`;
+  const summary = `新建 ${r.created} / 更新 ${r.updated} / 跳过 ${r.skipped} / 清理 ${r.deleted}${r.errors.length ? `，失败 ${r.errors.length} 项` : ''}`;
   if (r.ok) console.log(`[树障知识库同步] 夜间完成：${summary}`);
   else console.error(`[树障知识库同步] 夜间完成（有失败）：${summary}`, r.errors);
 }
@@ -278,15 +310,11 @@ function start() {
     return;
   }
   nightq.register('treehazard-weknora-sync', config.treehazard.syncFetchTime, nightJob);
-  console.log(`[树障知识库同步] 已启用：每日 ${config.treehazard.syncFetchTime}（北京时间，随内网取件同刻串行）同步至知识库「${FOLDER_PATH}」文件夹，另支持手动 POST /weknora-sync/push-now 即时同步`);
+  console.log(`[树障知识库同步] 已启用：每日 ${config.treehazard.syncFetchTime}（北京时间，随内网取件同刻串行）按线路同步至知识库「${FOLDER_PATH}」文件夹，另支持手动 POST /weknora-sync/push-now 即时同步`);
 }
 
 module.exports = {
   start,
   runSync,
   isRunning,
-  // 渲染/归组纯函数导出供自测演练
-  renderDoc,
-  renderRecord,
-  groupByLineName,
 };
