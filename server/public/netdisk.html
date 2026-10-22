@@ -23,7 +23,8 @@
        目标位置选择弹窗的空间分段同口径按 spaces 显隐；面包屑根保持空间名；
      上传：多文件选择 + 文件夹上传（仅 Web 端：工具条「上传文件夹」webkitdirectory 选择 / 网格区拖入目录，
        FileSystemEntry 递归遍历、readEntries 循环取空；按 relPath 逐级 mkdir 建树，批内去重、已存在吞掉，
-       空文件夹不建）+ 网格区拖入文件；分片流程 init → 并发 3 片 PUT（裸字节，原生 fetch 经 Shade.apiRaw 带
+       空文件夹随拖放目录项一并建出——webkitdirectory 选目录浏览器仅下发文件、空文件夹无法感知需拖放补齐）+
+       网格区拖入文件；分片流程 init → 并发 3 片 PUT（裸字节，原生 fetch 经 Shade.apiRaw 带
        Authorization）→ 进度取会话快照 received_bytes → complete（429/409 带 retry 标记退避 1~2s 重传，
        每片最多 5 次；complete 异常用 status 轮询兜底终态）；网格内联上传格（细进度条 + 百分比 + 浅蓝
        「上传中」标签 + × 取消）+ 右下全局上传任务面板（名称带相对路径；失败可重试，重试经 init 快照断点续传）；
@@ -1942,15 +1943,18 @@
     renderGrid(); renderUpanel();
     pumpUploads();
   }
-  // 文件夹上传（目录选择器 / 拖入目录）：entries=[{file, relPath}]；先按 relPath 逐级建树
-  //（mkdir 批内去重、目录已存在吞掉；空文件夹无文件自然跳过不建），再入队走既有分片管线（串行逐文件）
+  // 文件夹上传（目录选择器 / 拖入目录）：entries=[{file, relPath}] 或纯目录项 [{dir:true, relPath}]；
+  // 先按 relPath 逐级建树（mkdir 批内去重、目录已存在吞掉；空文件夹随拖放目录项一并建出——
+  // webkitdirectory 选目录浏览器仅下发文件、空文件夹无法感知，需拖放目录创建），再入队走既有分片管线（串行逐文件）
   async function uploadEntries(entries) {
     if (S.search) { Shade.toast('搜索状态下请先返回目录浏览再上传', 'info'); return; }
     if (!entries.length) return;
     var dirSet = {};
+    var fileCount = 0;
     entries.forEach(function (en) {
-      var d = dirPart(en.relPath);
+      var d = en.file ? dirPart(en.relPath) : en.relPath; // 目录项自身即目录路径（空文件夹靠它建出）
       while (d) { dirSet[d] = 1; d = dirPart(d); }
+      if (en.file) fileCount += 1;
     });
     var dirs = Object.keys(dirSet).sort(function (a, b) { return a.split('/').length - b.split('/').length; });
     if (dirs.length) {
@@ -1966,9 +1970,15 @@
         } catch (e) { /* 目录已存在等错误吞掉，建树不中断 */ }
       }
     }
+    if (!fileCount) {
+      // 纯空文件夹批次：建完目录静默刷新收尾（无文件不进分片管线）
+      if (dirs.length) { Shade.toast('已创建目录结构', 'success'); loadList(true); }
+      return;
+    }
     var bid = dirs.length ? ++batchSeq : 0;
     var added = 0;
     entries.forEach(function (en) {
+      if (!en.file) return; // 目录项已在上方建树，不入上传队列
       var dp = dirPart(en.relPath);
       if (enqueueOne(en.file, en.relPath, dp ? joinRel(S.path, dp) : S.path, bid)) added++;
     });
@@ -2290,7 +2300,8 @@
       uploadFiles(this.files);
       this.value = '';
     });
-    // 目录选择器：webkitRelativePath 自带相对路径（含根目录名）
+    // 目录选择器：webkitRelativePath 自带相对路径（含根目录名）；
+    // 浏览器 FileList 仅下发文件、空文件夹无法感知（需拖放目录创建，见 collectDropFiles）
     $('#dirInput').addEventListener('change', function () {
       var files = Array.prototype.slice.call(this.files || []);
       this.value = '';
@@ -2452,7 +2463,8 @@
       return false;
     };
   }
-  // 收集拖放文件为 [{file, relPath}]：目录项经 FileSystemEntry 递归遍历（readEntries 循环取空为止），
+  // 收集拖放项为 [{file, relPath}] + 目录项 [{dir:true, relPath}]（空文件夹借此建出）：
+  // 目录项经 FileSystemEntry 递归遍历（readEntries 循环取空为止），
   // relPath 含文件夹前缀（如「资料/子目录/a.docx」）；不支持 entry API 的浏览器回退扁平 files
   function collectDropFiles(dt) {
     var items = (dt && dt.items) || [];
@@ -2474,7 +2486,8 @@
     });
     return chain.then(function () { return out; });
   }
-  // 单个 FileSystemEntry 递归收集（坏项跳过不中断整体）
+  // 单个 FileSystemEntry 递归收集（坏项跳过不中断整体）；目录项另推 {dir:true, relPath} 记录——
+  // 空文件夹借此建出（非空目录同样记录，uploadEntries 建树时按目录集去重）
   function walkEntry(entry, prefix, out) {
     if (entry.isFile) {
       return new Promise(function (res, rej) { entry.file(res, rej); }).then(function (f) {
@@ -2482,6 +2495,7 @@
       }).catch(function () { /* 读取失败的项跳过 */ });
     }
     if (entry.isDirectory) {
+      out.push({ dir: true, relPath: prefix + entry.name });
       return readEntriesAll(entry.createReader()).then(function (children) {
         var chain = Promise.resolve();
         children.forEach(function (c) {

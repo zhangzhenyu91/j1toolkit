@@ -102,14 +102,14 @@ const APP_FILE_TRANSFER = {
   terminal: 'mobile',
 };
 
-// 「水印添加」：移动端应用（小程序 pkg-wmadd），选片/拍摄 → 4:3 裁剪 → 编辑水印 → 服务端渲染仅回图 → 存相册
+// 「水印添加」：双端应用（小程序 pkg-wmadd + 网页端 wmadd.html），选片/拍摄 → 4:3 裁剪 → 编辑水印 → 服务端渲染仅回图 → 存相册/下载
 const APP_WM_ADD = {
   key: 'wm-add',
   name: '水印添加',
   icon: 'image',
   path: '/pkg-wmadd/pages/index/index',
   sort: 6,
-  terminal: 'mobile',
+  terminal: 'both',
 };
 
 function sleep(ms) {

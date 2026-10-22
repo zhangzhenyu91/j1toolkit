@@ -238,6 +238,7 @@
     'call-me': { key: 'callme', href: '/callme.html' },
     'quiz': { key: 'quiz', href: '/quiz.html' },
     'work-log': { key: 'worklog', href: '/worklog.html' },
+    'wm-add': { key: 'wmadd', href: '/wmadd.html' },
     'safe-day': { key: 'safeday', href: '/safeday.html' },
     'kvm': { key: 'kvm', href: '/kvm.html' },
     'netdisk': { key: 'netdisk', href: '/netdisk.html' },
