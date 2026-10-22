@@ -14,6 +14,13 @@ async function teamNameOf(user) {
   return name;
 }
 
+// 班组改名后失效缓存（sys_team 改名成功后调用，公共区根即时跟随新名；数字/字符串 id 双删防键型不一致）
+function invalidateTeamName(teamId) {
+  teamNameCache.delete(teamId);
+  const id = Number(teamId);
+  if (!Number.isNaN(id)) teamNameCache.delete(id);
+}
+
 // 空间根解析（纯函数版）：返回绝对路径；未分配班组的公共区返回空串，space 非法返回 null
 async function spaceRootOf(user, space) {
   if (space === 'my') return `${config.netdisk.personalRoot}/${user.username}`;
@@ -35,4 +42,4 @@ function normRel(input) {
   return joined.length > 400 ? null : joined;
 }
 
-module.exports = { teamNameOf, spaceRootOf, normRel };
+module.exports = { teamNameOf, invalidateTeamName, spaceRootOf, normRel };

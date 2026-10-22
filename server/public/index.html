@@ -144,14 +144,14 @@
     opacity: 0; visibility: hidden;
     transition: opacity .3s, visibility 0s linear .3s; /* 淡出完成后再隐藏，保住关闭过渡 */
   }
-  .mask.show { opacity: 1; visibility: visible; transition: opacity .3s; }
+  .mask.show, .mask.open { opacity: 1; visibility: visible; transition: opacity .3s; } /* 开态兼容 Shade.modal 的 .open */
   .modal {
     width: 100%; max-width: 560px; background: #fff; border: 1px solid var(--line);
     border-radius: var(--radius); overflow: hidden;
     box-shadow: var(--shadow-hover);
     transform: translateY(16px) scale(.98); transition: transform .35s var(--ease);
   }
-  .mask.show .modal { transform: none; }
+  .mask.show .modal, .mask.open .modal { transform: none; }
   .modal-hd {
     display: flex; align-items: center; gap: 10px; padding: 15px 20px;
     border-bottom: 1px solid var(--line);

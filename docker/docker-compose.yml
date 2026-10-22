@@ -17,8 +17,8 @@ services:
     networks:
       - j1toolkit
     ports:
-      # 容器内外同端口（.env 的 PORT 经 env_file 传入容器作为监听端口）
-      - "${PORT:-80}:${PORT:-80}"
+      # 容器内外同端口（.env 的 PORT 经 env_file 传入容器作为监听端口；缺省 3000 与服务端默认一致）
+      - "${PORT:-3000}:${PORT:-3000}"
     env_file:
       - .env
     volumes:

@@ -161,7 +161,7 @@ Page({
 
   // 删除会话（滑动删除 + 二次确认）
   onDelete(e) {
-    const { id, index } = e.currentTarget.dataset;
+    const { id } = e.currentTarget.dataset;
     Dialog.confirm({
       context: this,
       selector: '#t-dialog',
@@ -172,8 +172,8 @@ Page({
     }).then(async () => {
       try {
         await request({ url: `/api/v1/callme/sessions/${id}`, method: 'DELETE' });
-        const sessions = this.data.sessions.slice();
-        sessions.splice(index, 1);
+        // 按 id 过滤移除（渲染 index 在异步请求期间可能错位）；整数组替换与重命名同口径
+        const sessions = this.data.sessions.filter((s) => String(s.id) !== String(id));
         this.setData({ sessions });
         this.toast('已删除');
       } catch (err) {

@@ -18,6 +18,7 @@ const teamUtil = require('../utils/team');
 const tokenQuery = require('../utils/tokenQuery');
 const { buildPreviewUrl } = require('../utils/preview');
 const { getFileExt, fixLatin1Name } = require('../utils/file');
+const { parseDataUrlPhoto } = require('../utils/photo');
 const config = require('../config');
 const cos = require('./cos');
 const geo = require('./geo');
@@ -252,6 +253,29 @@ async function myMember(req) {
   return members.length ? members[0] : null;
 }
 
+// 同日期同人唯一校验（建卡/改卡共用）：一个成员同日只能作为一张出车卡片的用车人
+// （全局口径：被别班归属的跨班日志占用同样拦截）；excludeEntryId 传本卡 id 排除自身（编辑场景）；
+// 有重复时按 40020 响应并返回 true（同 failIfVerifyFailed 口径）
+async function failIfDateMemberDup(res, logDate, memberIds, excludeEntryId) {
+  if (!memberIds.length) return false;
+  const params = [logDate];
+  let cond = 'e.log_date = ?';
+  if (excludeEntryId) {
+    cond += ' AND e.id <> ?';
+    params.push(excludeEntryId);
+  }
+  const [dup] = await pool.query(
+    `SELECT m.name FROM worklog_entry_member em
+     JOIN worklog_entry e ON e.id = em.entry_id
+     JOIN worklog_member m ON m.id = em.member_id
+     WHERE ${cond} AND em.member_id IN (?)`,
+    [...params, memberIds]
+  );
+  if (!dup.length) return false;
+  fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
+  return true;
+}
+
 // GET /meta：下拉/点亮数据源（前端自行补「未出车」固定项）；按生效班组出数
 router.get('/meta', async (req, res, next) => {
   try {
@@ -403,17 +427,8 @@ router.post('/logs', async (req, res, next) => {
         return fail(res, 400, 40004, '存在无效或已停用的成员');
       }
       memberRows = rows;
-      // 同日期同人唯一：一个成员同日只能作为一张出车卡片的用车人（全局口径：被别班归属的跨班日志占用同样拦截）
-      const [dup] = await pool.query(
-        `SELECT m.name FROM worklog_entry_member em
-         JOIN worklog_entry e ON e.id = em.entry_id
-         JOIN worklog_member m ON m.id = em.member_id
-         WHERE e.log_date = ? AND em.member_id IN (?)`,
-        [log_date, member_ids]
-      );
-      if (dup.length) {
-        return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
-      }
+      // 同日期同人唯一（全局口径，共用校验 failIfDateMemberDup）
+      if (await failIfDateMemberDup(res, log_date, member_ids)) return;
     }
 
     // 卡片主行 + 成员行多语句写入：事务包裹（同 towers/import 口径），避免半截卡片
@@ -564,34 +579,36 @@ router.post('/logs/cross', requireAdmin, async (req, res, next) => {
         return fail(res, 400, 40004, `成员「${resolved.missing.join('、')}」不存在或已停用`);
       }
       memberRows = resolved.rows;
-      // 同日期同人唯一（全局口径，同 POST /logs）
-      if (memberRows.length) {
-        const [dup] = await pool.query(
-          `SELECT m.name FROM worklog_entry_member em
-           JOIN worklog_entry e ON e.id = em.entry_id
-           JOIN worklog_member m ON m.id = em.member_id
-           WHERE e.log_date = ? AND em.member_id IN (?)`,
-          [log_date, memberRows.map((m) => m.id)]
-        );
-        if (dup.length) {
-          return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
-        }
-      }
+      // 同日期同人唯一（全局口径，共用校验 failIfDateMemberDup）
+      if (await failIfDateMemberDup(res, log_date, memberRows.map((m) => m.id))) return;
     }
 
     // 跨班标志按成员班组构成派生：含非归属班成员即跨班（全属归属班则等同普通卡，班组可自管）
     const crossTeam = memberRows.some((m) => m.team_id !== owner.id) ? 1 : 0;
-    const [r] = await pool.query(
-      'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, cross_team, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [owner.id, log_date, parsed.patrol_content, vehicleId, destId, crossTeam, parsed.orderNo || null, req.user.id]
-    );
-    for (const m of memberRows) {
-      await pool.query(
-        'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
-        [r.insertId, m.id, m.sort]
+    // 卡片主行 + 成员行多语句写入：事务包裹（同 POST /logs 口径），避免半截卡片
+    const conn = await pool.getConnection();
+    let entryId;
+    try {
+      await conn.beginTransaction();
+      const [r] = await conn.query(
+        'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, cross_team, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [owner.id, log_date, parsed.patrol_content, vehicleId, destId, crossTeam, parsed.orderNo || null, req.user.id]
       );
+      entryId = r.insertId;
+      for (const m of memberRows) {
+        await conn.query(
+          'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
+          [entryId, m.id, m.sort]
+        );
+      }
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback().catch(() => {});
+      throw e;
+    } finally {
+      conn.release();
     }
-    return ok(res, { id: r.insertId });
+    return ok(res, { id: entryId });
   } catch (err) {
     return next(err);
   }
@@ -631,19 +648,8 @@ router.put('/logs/cross/:id', requireAdmin, async (req, res, next) => {
         return fail(res, 400, 40004, `成员「${resolved.missing.join('、')}」不存在或已停用`);
       }
       memberRows = resolved.rows;
-      // 同日期同人唯一（全局口径，本卡除外）
-      if (memberRows.length) {
-        const [dup] = await pool.query(
-          `SELECT m.name FROM worklog_entry_member em
-           JOIN worklog_entry e ON e.id = em.entry_id
-           JOIN worklog_member m ON m.id = em.member_id
-           WHERE e.log_date = ? AND e.id <> ? AND em.member_id IN (?)`,
-          [entry.log_date, entryId, memberRows.map((m) => m.id)]
-        );
-        if (dup.length) {
-          return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
-        }
-      }
+      // 同日期同人唯一（全局口径，本卡除外，共用校验 failIfDateMemberDup）
+      if (await failIfDateMemberDup(res, entry.log_date, memberRows.map((m) => m.id), entryId)) return;
     }
 
     // 被移出名单的成员若已有照片，拒绝（需先调整照片人名，同 PUT /logs/:id 口径）
@@ -775,17 +781,8 @@ router.put('/logs/:id', async (req, res, next) => {
           return fail(res, 400, 40004, '存在无效或已停用的成员');
         }
         memberRows = rows;
-        // 同日期同人唯一：一个成员同日只能作为一张出车卡片的用车人（本卡除外；全局口径同 POST /logs）
-        const [dup] = await pool.query(
-          `SELECT m.name FROM worklog_entry_member em
-           JOIN worklog_entry e ON e.id = em.entry_id
-           JOIN worklog_member m ON m.id = em.member_id
-           WHERE e.log_date = ? AND e.id <> ? AND em.member_id IN (?)`,
-          [exist[0].log_date, entryId, member_ids]
-        );
-        if (dup.length) {
-          return fail(res, 400, 40020, `「${dup.map((d) => d.name).join('、')}」当日已是其他出车卡片的用车人，同一人同日只能挂一张卡片`);
-        }
+        // 同日期同人唯一（本卡除外；全局口径同 POST /logs，共用校验 failIfDateMemberDup）
+        if (await failIfDateMemberDup(res, exist[0].log_date, member_ids, entryId)) return;
       }
 
       // 被移出名单的成员若已有照片，拒绝（需先调整照片人名）
@@ -1351,15 +1348,16 @@ router.post('/logs/:id/photos', async (req, res, next) => {
     const memberErr = await checkPhotoMembers(entryId, names, null, isPlain);
     if (memberErr) return fail(res, 400, memberErr.code, memberErr.message);
 
-    const match = /^data:image\/(jpeg|jpg|png);base64,(.+)$/.exec(image || '');
-    if (!match) return fail(res, 400, 40010, '照片格式应为 jpeg/png（base64 dataURL）');
-    let buf = Buffer.from(match[2], 'base64');
+    // 照片解析（共用 parseDataUrlPhoto）；大小校验保留本入口 15MB 口径
+    const photo = parseDataUrlPhoto(image);
+    if (!photo) return fail(res, 400, 40010, '照片格式应为 jpeg/png（base64 dataURL）');
+    let buf = photo.buf;
     if (!buf.length || buf.length > 15 * 1024 * 1024) {
       return fail(res, 400, 40011, '照片大小应在 15MB 以内');
     }
 
     // 需要加水印时：服务端渲染（EXIF 方向矫正 + 防伪码校验），产物统一为 JPEG；非水印跳过渲染
-    let contentType = `image/${match[1] === 'png' ? 'png' : 'jpeg'}`;
+    let contentType = photo.contentType;
     if (!isPlain && wm && typeof wm === 'object') {
       try {
         buf = await renderWatermarkedPhoto(buf, sanitizeWm(wm), wm.orientation);
@@ -1777,6 +1775,9 @@ async function photoCardsOf(teamId, from, to) {
 // 下载照片为 Buffer（SSRF 口径同 /zip：仅本仓 COS 地址；失败记名跳过）
 async function fetchPhotoBuf(url, failed) {
   try {
+    // 本仓 COS 前缀防线（同 /zip）：照片 url 均出自 cos.publicUrl，非本仓地址不回源
+    const cosUrlPrefix = cos.publicUrl('');
+    if (!String(url || '').startsWith(cosUrlPrefix)) throw new Error('照片地址不合法（仅支持本仓 COS 地址）');
     const resp = await fetch(url, { signal: AbortSignal.timeout(30000) });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const buf = Buffer.from(await resp.arrayBuffer());
@@ -1815,7 +1816,7 @@ router.get('/photos.pdf', async (req, res, next) => {
       return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     }
     if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
-    if (!req.team) return fail(res, 403, 40010, '无可用班组');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
     const built = await buildRangePhotosPdf(req.team.id, from, to);
     if (!built) return fail(res, 404, 40402, '该日期范围没有水印照片');
     const fileName = from === to ? `水印照片-${from}.pdf` : `水印照片-${from}至${to}.pdf`;
@@ -1836,7 +1837,7 @@ router.post('/photos-pdf/save-netdisk', async (req, res, next) => {
       return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     }
     if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
-    if (!req.team) return fail(res, 403, 40010, '无可用班组');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
     const built = await buildRangePhotosPdf(req.team.id, from, to);
     if (!built) return fail(res, 404, 40402, '该日期范围没有水印照片');
     const fileName = from === to ? `水印照片-${from}.pdf` : `水印照片-${from}至${to}.pdf`;
@@ -1860,7 +1861,7 @@ router.post('/sheet/save-netdisk', requireDictAdmin, async (req, res, next) => {
     const range = sheetRange({ query: req.body || {} });
     if (range === 'tooLong') return fail(res, 400, 40000, '日期范围不能超过 31 天');
     if (!range) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD，且 from 不晚于 to');
-    if (!req.team) return fail(res, 403, 40010, '无可用班组');
+    if (!req.team) return fail(res, 400, 40010, '无可用班组');
     const force = (req.body && req.body.force) === 1 || (req.body && req.body.force) === '1';
     let result = null;
     let fileName = '';
@@ -1874,7 +1875,7 @@ router.post('/sheet/save-netdisk', requireDictAdmin, async (req, res, next) => {
       fileName = feeFileName(range.from, range.to);
     } else if (sheet === 'dispatch') {
       result = await dispatchsheet.build(req.team.id, range.from, range.to);
-      fileName = range.from === range.to ? `派车汇总-${range.from}.xlsx` : `派车汇总-${range.from}至${range.to}.xlsx`;
+      fileName = dispatchSheetFileName(range.from, range.to);
     } else {
       return fail(res, 400, 40001, "参数错误：sheet（task/fee/dispatch）");
     }

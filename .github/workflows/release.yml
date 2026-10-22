@@ -313,7 +313,7 @@ jobs:
           # 国内正线 TCR/CNB 由 CNB 侧构建推送（见 .cnb.yml），此处不跨境复制
 
   release-final:
-    # 不再依赖 publish-images：客户端只走 Release 附件，无产物镜像
+    # needs 收齐全部构建产物：服务端多架构 manifest + 三客户端安装包（客户端只走 Release 附件，无产物镜像）
     needs: [prepare, manifest, client-windows, client-linux-amd64, client-linux-arm64]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest

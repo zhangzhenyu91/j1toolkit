@@ -20,8 +20,8 @@ const axios = require('axios');
 const { Readable } = require('stream');
 const config = require('../config');
 const auth = require('../middleware/auth');
+const { hasAppPermission } = require('../middleware/requireApp');
 const { ok, fail } = require('../utils/resp');
-const { pool } = require('../db');
 const teamUtil = require('../utils/team');
 const ol = require('../netdisk/openlist');
 const { spaceRootOf, normRel } = require('../netdisk/space');
@@ -112,17 +112,8 @@ const RAW_MIME = {
 // 安全日记录产物目录（口径同 safeday/index.js：{SAFEDAY_DATA_DIR}/docs/）
 const SAFEDAY_DOCS_DIR = path.join(config.safeday.dataDir, 'docs');
 
-// 应用权限判定（SQL 与 middleware/requireApp.js 同口径）：/config 按 body.src 分派来源、各来源门禁应用各异
-//（netdisk / work-log / safe-day），无法走路由级中间件，故在 handler 内判定
-async function hasApp(userId, appKey) {
-  const [rows] = await pool.query(
-    `SELECT a.id FROM sys_user_app ua
-     JOIN sys_app a ON a.id = ua.app_id
-     WHERE ua.user_id = ? AND a.app_key = ? AND a.status = 1`,
-    [userId, appKey]
-  );
-  return rows.length > 0;
-}
+// 应用权限判定（口径同 middleware/requireApp.js 的 hasAppPermission）：/config 按 body.src 分派来源、
+// 各来源门禁应用各异（netdisk / work-log / safe-day / tree-hazard），无法走路由级中间件，故在 handler 内判定
 
 // sheet 范围校验（口径照抄 worklog/index.js sheetRange）；不合法时已响应错误、返回 null
 function checkSheetRange(res, from, to) {
@@ -211,7 +202,7 @@ router.post('/config', auth, async (req, res) => {
     if (src === 'treehazard') return await signTreehazard(req, res);
     if (src) return fail(res, 400, 40001, '参数错误：src');
     // 缺省来源 = 网盘文件：应用权限自路由级中间件挪入分支内判定（多源门禁应用各异），语义与 requireApp('netdisk') 一致
-    if (!(await hasApp(req.user.id, 'netdisk'))) {
+    if (!(await hasAppPermission(req.user.id, 'netdisk'))) {
       return fail(res, 403, 40301, '暂无该应用的使用权限，请联系管理员开通');
     }
     if (!enabled()) return fail(res, 503, 50301, '在线编辑未配置（OO_PUBLIC_URL）');
@@ -237,9 +228,10 @@ router.post('/config', auth, async (req, res) => {
     const cb = config.office.callbackBase;
     // 回源票据：载荷 {ndp} 与网盘 /preview/sign 同口径，直接复用其免登录回源路由
     const fileTicket = jwt.sign({ ndp: abs }, config.jwt.secret, { expiresIn: config.office.fileTicketTtl });
-    // 回调票据：绑定文件绝对路径与签发人（覆盖最长编辑会话，默认 12h）
-    const cbTicket = jwt.sign({ ooc: abs, uid: req.user.id }, config.jwt.secret,
-      { expiresIn: config.office.callbackTicketTtl });
+    // 回调票据：绑定文件绝对路径与签发人（覆盖最长编辑会话，默认 12h）；view 只读不回写，不签发也不下发
+    const cbTicket = mode === 'edit'
+      ? jwt.sign({ ooc: abs, uid: req.user.id }, config.jwt.secret, { expiresIn: config.office.callbackTicketTtl })
+      : '';
     const docCfg = {
       document: {
         fileType: ext,
@@ -252,7 +244,8 @@ router.post('/config', auth, async (req, res) => {
       },
       documentType,
       editorConfig: {
-        callbackUrl: `${cb}/api/v1/office/callback/${cbTicket}`,
+        // 仅 edit 下发 callbackUrl（view 只读会话不产生只读写回）
+        ...(mode === 'edit' ? { callbackUrl: `${cb}/api/v1/office/callback/${cbTicket}` } : {}),
         lang: 'zh-CN',
         region: 'zh-CN',
         mode,
@@ -278,7 +271,7 @@ router.post('/config', auth, async (req, res) => {
 async function signWorklogSheet(req, res) {
   if (!enabled()) return fail(res, 503, 50301, '在线编辑未配置（OO_PUBLIC_URL）');
   if (!config.office.jwtSecret) return fail(res, 503, 50301, '在线编辑未配置（OO_JWT_SECRET）');
-  if (!(await hasApp(req.user.id, 'work-log'))) {
+  if (!(await hasAppPermission(req.user.id, 'work-log'))) {
     return fail(res, 403, 40301, '暂无该应用的使用权限，请联系管理员开通');
   }
   const body = req.body || {};
@@ -322,7 +315,7 @@ async function signWorklogSheet(req, res) {
 async function signSafeday(req, res) {
   if (!enabled()) return fail(res, 503, 50301, '在线编辑未配置（OO_PUBLIC_URL）');
   if (!config.office.jwtSecret) return fail(res, 503, 50301, '在线编辑未配置（OO_JWT_SECRET）');
-  if (!(await hasApp(req.user.id, 'safe-day'))) {
+  if (!(await hasAppPermission(req.user.id, 'safe-day'))) {
     return fail(res, 403, 40301, '暂无该应用的使用权限，请联系管理员开通');
   }
   const id = String((req.body && req.body.id) || '');
@@ -344,7 +337,7 @@ async function signSafeday(req, res) {
 async function signWorklogRemark(req, res) {
   if (!enabled()) return fail(res, 503, 50301, '在线编辑未配置（OO_PUBLIC_URL）');
   if (!config.office.jwtSecret) return fail(res, 503, 50301, '在线编辑未配置（OO_JWT_SECRET）');
-  if (!(await hasApp(req.user.id, 'work-log'))) {
+  if (!(await hasAppPermission(req.user.id, 'work-log'))) {
     return fail(res, 403, 40301, '暂无该应用的使用权限，请联系管理员开通');
   }
   const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id);
@@ -369,7 +362,7 @@ async function signWorklogRemark(req, res) {
 async function signTreehazard(req, res) {
   if (!enabled()) return fail(res, 503, 50301, '在线编辑未配置（OO_PUBLIC_URL）');
   if (!config.office.jwtSecret) return fail(res, 503, 50301, '在线编辑未配置（OO_JWT_SECRET）');
-  if (!(await hasApp(req.user.id, 'tree-hazard'))) {
+  if (!(await hasAppPermission(req.user.id, 'tree-hazard'))) {
     return fail(res, 403, 40301, '暂无该应用的使用权限，请联系管理员开通');
   }
   const body = req.body || {};

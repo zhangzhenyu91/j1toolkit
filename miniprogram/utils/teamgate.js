@@ -12,6 +12,17 @@
 // 仅读取生效班组的二级页（pool/manage）不调 passTeamGate，自行从 storage 恢复 this._teamId 后用 teamQuery/teamBody
 const { request } = require('./request');
 
+// 生效班组 query / body 注入独立函数（无切换器 UI 的页面自管 this._teamId 后直接用，或页面方法委托于此）：
+// teamId>0 才携带，其余角色后端强制本班无需传；lead 为 query 前导连接符（URL 已带 '?' 时传 '&'，否则传 '?'）
+function teamQuery(teamId, lead) {
+  return teamId ? `${lead || '&'}team_id=${teamId}` : '';
+}
+
+// 生效班组 body 注入（POST/PUT JSON 用，口径同 teamQuery）
+function teamBody(data, teamId) {
+  return teamId ? Object.assign({}, data, { team_id: teamId }) : data;
+}
+
 function createTeamGate({ storageKey, withAll = false, teamNameKey = '' }) {
   return Behavior({
     data: {
@@ -109,12 +120,12 @@ function createTeamGate({ storageKey, withAll = false, teamNameKey = '' }) {
       // withAll 模式固定 '?team_id=all|id' 口径）
       teamQuery(lead) {
         if (withAll) return this._role === 'admin' ? `?team_id=${this._teamSel || 'all'}` : '';
-        return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
+        return teamQuery(this._teamId, lead);
       },
 
       // 生效班组 body 注入（POST JSON 用，口径同 teamQuery）
       teamBody(data) {
-        return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
+        return teamBody(data, this._teamId);
       },
 
       onTeamChipTap() {
@@ -139,4 +150,4 @@ function createTeamGate({ storageKey, withAll = false, teamNameKey = '' }) {
   });
 }
 
-module.exports = { createTeamGate };
+module.exports = { createTeamGate, teamQuery, teamBody };

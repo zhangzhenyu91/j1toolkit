@@ -1,7 +1,8 @@
-# Docker 构建上下文裁剪：仅 server/ 参与镜像（小程序、客户端、设计稿、私有仓 submodule 等不进上下文）
+# Docker 构建上下文裁剪：仅 server/ 参与镜像（小程序、客户端、设计稿、两个 submodule 等不进上下文）
 .git
 .gitmodules
 private/
+crane-answer/
 miniprogram/
 design/
 docker/

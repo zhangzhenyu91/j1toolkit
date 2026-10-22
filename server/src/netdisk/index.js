@@ -16,6 +16,7 @@ const requireApp = require('../middleware/requireApp');
 const tokenQuery = require('../utils/tokenQuery');
 const { ok, fail } = require('../utils/resp');
 const ol = require('./openlist');
+const { pipeDirZip } = require('./dirzip');
 // 缩略图组件（网格格子用）：未装 sharp 时 /thumb 接口 503，前端回退类型图标
 let sharp = null;
 try { sharp = require('sharp'); } catch (err) { /* sharp 为预编译原生依赖，缺失不致命 */ }
@@ -507,6 +508,28 @@ router.get('/archive/download', async (req, res) => {
     });
     return r.data.pipe(res);
   } catch (err) { return relayFail(res, err); }
+});
+
+// 文件夹整包下载：递归保留层级与空目录，archiver 流式 ZIP（前端原生直链触发，无需预读 Blob）
+router.get('/download/dir', async (req, res) => {
+  try {
+    ol.ensureConfigured();
+    const root = await resolveRoot(req, res, req.query.space);
+    if (!root) return;
+    const rel = normRel(req.query.path || '');
+    if (rel === null || rel === '/') return fail(res, 400, 40001, '路径不合法');
+    const abs = joinPath(root, rel);
+    const meta = await ol.fsGet(abs);
+    if (!meta || !meta.is_dir) return fail(res, 400, 40001, '该路径不是文件夹');
+    return await pipeDirZip(res, abs, baseName(rel), ol);
+  } catch (err) {
+    // ZIP 已开始写出后不能再改 JSON 错误信封，直接断开让浏览器中止本次下载
+    if (res.headersSent) {
+      console.error(`[网盘] 目录打包中断（${req.query.path || ''}）：${err.message}`);
+      return res.destroy(err);
+    }
+    return relayFail(res, err);
+  }
 });
 
 // 下载/预览（disposition=inline 时内联，供 <img>/<video>/iframe 直引；默认 attachment）

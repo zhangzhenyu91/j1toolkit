@@ -78,38 +78,34 @@ Page({
     }
   },
 
-  // 微信一键登录：wx.login 得 code，后端换 openid
-  onWxLogin() {
-    wx.login({
-      success: async (res) => {
-        if (!res.code) {
-          this.toast('微信登录失败：未获取到 code');
-          return;
-        }
-        try {
-          const data = await request({
-            url: '/api/v1/auth/wx-login',
-            method: 'POST',
-            data: { code: res.code },
-            authRedirect: false, // 401/40313 由本页自行处理（未绑定引导弹窗），不触发 reLaunch
-          });
-          this.afterLogin(data);
-        } catch (err) {
-          if (err.code === 40313) {
-            // 微信号未绑定账号：弹窗引导先用账号密码登录（登录时自动绑定微信号）
-            wx.showModal({
-              title: '微信号未绑定',
-              content: '该微信号尚未绑定账号，请先用账号密码登录一次，绑定成功后即可使用微信登录。',
-              showCancel: false,
-              confirmText: '知道了',
-            });
-          } else {
-            this.toast(err.message);
-          }
-        }
-      },
-      fail: () => this.toast('微信登录失败，请重试'),
-    });
+  // 微信一键登录：复用 wxLoginCode 取 code，后端换 openid
+  async onWxLogin() {
+    const code = await wxLoginCode();
+    if (!code) {
+      this.toast('微信登录失败，请重试');
+      return;
+    }
+    try {
+      const data = await request({
+        url: '/api/v1/auth/wx-login',
+        method: 'POST',
+        data: { code },
+        authRedirect: false, // 401/40313 由本页自行处理（未绑定引导弹窗），不触发 reLaunch
+      });
+      this.afterLogin(data);
+    } catch (err) {
+      if (err.code === 40313) {
+        // 微信号未绑定账号：弹窗引导先用账号密码登录（登录时自动绑定微信号）
+        wx.showModal({
+          title: '微信号未绑定',
+          content: '该微信号尚未绑定账号，请先用账号密码登录一次，绑定成功后即可使用微信登录。',
+          showCancel: false,
+          confirmText: '知道了',
+        });
+      } else {
+        this.toast(err.message);
+      }
+    }
   },
 
   // 分享统一落到首页（首页登录门控会自动处理未登录跳转）

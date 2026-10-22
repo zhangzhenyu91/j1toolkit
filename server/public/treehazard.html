@@ -6,7 +6,7 @@
      排序 要紧降 > 未处理降 > 电压等级数值降 > 线路名 zh-CN 升序，「未匹配线路」伪组卡恒排尾；线路卡 stagger 上浮入场，点卡进二级）
      / 二级台账视图（← 返回线路 + 线路标题计数 + 扁平完整记录卡片流，批量处理开关在本级工具条，视图切换 fade+slide）；
      导出走右下角全局悬浮按钮（FAB 弹层：范围 全部线路 / 当前线路（一级视图为「选择线路」下拉）+ 按线路分表 split=1 勾选，
-     预览 /export/preview 取 url 当前窗口打开、下载 apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
+     预览 /export/preview 经 Shade.openPreviewUrl 打开、下载 apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
      台账记录卡片扁平展示（无详情弹层分级，顺序后端已排好：未处理在前已处理在后 > 区段升序）：默认折叠态一卡两行——
      标题行 区段 + 垂距双大字同级、左对齐（垂距 ≤ 阈值红显）+ 状态点标（未处理橙·已处理绿，处理后整卡降饱和过渡）
      + 卡内折叠/展开开关（点卡非交互区同效），次级行 树种×数量 / 水平距离；辅证照片条折叠态即展示（有图才渲染、只读，
@@ -569,12 +569,6 @@ function teamBody(o) { return state.teamId ? Object.assign({ team_id: state.team
 
 /* 空值展示占位 */
 function dash(v) { var s = String(v == null ? '' : v).trim(); return s || '—'; }
-/* 电压等级展示幂等：纯数字拼 kV 后缀；已含 kV 或其他文本原样（数据里 110 与 110kV 并存；空 → —） */
-function fmtKv(v) {
-  var s = String(v == null ? '' : v).trim();
-  if (!s) return '—';
-  return /^\d+(\.\d+)?$/.test(s) ? s + 'kV' : s;
-}
 /* 距离展示幂等：纯数字拼 m 后缀；已带单位或其他文本原样（空 → —） */
 function fmtM(v) {
   var s = String(v == null ? '' : v).trim();
@@ -794,7 +788,7 @@ function lineStats(recs, threshold) {
   });
   return { unh: unh, key: key, total: recs.length };
 }
-/* 线路大卡：标题（电压等级+线路名，fmtKv 幂等）+ 未处理（品牌蓝）/ 要紧（>0 红字、=0 灰字，无阈值不显）/ 总数（灰）；
+/* 线路大卡：标题（电压等级+线路名，Shade.fmtKv 幂等）+ 未处理（品牌蓝）/ 要紧（>0 红字、=0 灰字，无阈值不显）/ 总数（灰）；
    未处理与要紧均为 0 时计数整体置灰（lc-clear）；idx 用于 stagger 入场时延链（≤0.9s 封顶） */
 function lineCardHtml(title, st, threshold, lineKey, idx) {
   var clear = st.unh === 0 && st.key === 0;
@@ -838,7 +832,7 @@ function renderLineCards() {
   var html = [];
   var idx = 0;
   sortLineGroups(state.rec.lines || [], threshold).forEach(function (g) {
-    var title = fmtKv(g.voltage_level) + ' ' + g.line_name;
+    var title = Shade.fmtKv(g.voltage_level) + ' ' + g.line_name;
     /* 输入即过滤：标题（含电压等级幂等格式）与原始线路名双通道匹配 */
     if (kw && title.toLowerCase().indexOf(kw) < 0 && String(g.line_name || '').toLowerCase().indexOf(kw) < 0) return;
     html.push(lineCardHtml(title, lineStats(g.records || [], threshold), threshold, g.line_name, idx++));
@@ -863,7 +857,7 @@ function currentLedgerGroup() {
   }
   var g = null;
   (state.rec.lines || []).forEach(function (x) { if (x.line_name === state.curLine) g = x; });
-  return g ? { title: fmtKv(g.voltage_level) + ' ' + g.line_name, records: g.records || [], lineName: g.line_name } : null;
+  return g ? { title: Shade.fmtKv(g.voltage_level) + ' ' + g.line_name, records: g.records || [], lineName: g.line_name } : null;
 }
 function renderLedger() {
   var body = $('#recBody');
@@ -1005,7 +999,7 @@ async function uploadPhoto(files) {
   var list = Array.prototype.slice.call(files).filter(function (f) { return /^image\//i.test(f.type || ''); });
   if (!list.length) { Shade.toast('请选择图片文件', 'info'); return; }
   var wait = Shade.modal('<div class="loading"><span class="spin"></span>正在上传 0/' + list.length + '…</div>', { width: 280 });
-  var okCount = 0, failCount = 0;
+  var okCount = 0, failCount = 0, firstErr = '';
   for (var i = 0; i < list.length; i++) {
     try {
       var dataUrl = await readPhotoDataUrl(list[i]);
@@ -1016,13 +1010,16 @@ async function uploadPhoto(files) {
       okCount++;
     } catch (e) {
       failCount++;
+      if (!firstErr) firstErr = e.message || String(e); // 保留首个失败原因（含后端错误信息）供失败提示
     }
     var ld = wait.box.querySelector('.loading');
     if (ld) ld.innerHTML = '<span class="spin"></span>正在上传 ' + (okCount + failCount) + '/' + list.length + '…';
   }
   wait.close();
-  if (!okCount) { Shade.toast('上传失败，请重试', 'error'); return; }
-  Shade.toast(failCount ? '上传完成：成功 ' + okCount + ' 张，失败 ' + failCount + ' 张' : '已上传 ' + okCount + ' 张', failCount ? 'info' : 'success');
+  if (!okCount) { Shade.toast(firstErr ? '上传失败：' + firstErr : '上传失败，请重试', 'error'); return; }
+  Shade.toast(failCount
+    ? '上传完成：成功 ' + okCount + ' 张，失败 ' + failCount + ' 张' + (firstErr ? '（' + firstErr + '）' : '')
+    : '已上传 ' + okCount + ' 张', failCount ? 'info' : 'success');
   loadRecords(true);
 }
 async function deletePhoto(recordId, photoId) {
@@ -1071,17 +1068,13 @@ function renderLightbox() {
   if ($('#lbNext')) $('#lbNext').addEventListener('click', function (e) { e.stopPropagation(); shiftLightbox(1); });
 }
 
-/* ================= 导出：FAB 弹层（范围单选 + 按线路分表）→ 预览（取 url 当前窗口打开）/ 下载（apiRaw + saveBlob） ================= */
-/* 打开预览地址：站内（office.html 承载页）当前窗口打开；站外（微软查看器等）新标签（同 worklog 口径） */
-function openPreviewUrl(url) {
-  if (url.charAt(0) === '/') { location.href = url; } else { window.open(url, '_blank'); }
-}
+/* ================= 导出：FAB 弹层（范围单选 + 按线路分表）→ 预览（Shade.openPreviewUrl 打开）/ 下载（apiRaw + saveBlob） ================= */
 /* query 由导出弹层拼好传入：分线路带 line=，勾选分表且范围为全部线路时带 split=1 */
 async function exportPreview(btn, query) {
   btn.disabled = true;
   try {
     var r = await Shade.api(th('/api/v1/treehazard/export/preview' + (query || '')));
-    if (r.data && r.data.url) { openPreviewUrl(r.data.url); return; }
+    if (r.data && r.data.url) { Shade.openPreviewUrl(r.data.url); return; }
     throw new Error('预览地址为空');
   } catch (e) {
     Shade.toast(e.message, 'error');
@@ -1126,7 +1119,7 @@ function openExportModal() {
         + '<label class="ex-opt' + (lines.length ? '' : ' dis') + '"><input type="radio" name="exRange" value="line"'
         + (lines.length ? '' : ' disabled') + '> 选择线路</label>'
         + '<select class="f-sel" id="exLine" style="margin-top:2px" disabled>'
-        + lines.map(function (x) { return '<option value="' + esc(x.line_name) + '">' + esc(fmtKv(x.voltage_level) + ' ' + x.line_name) + '</option>'; }).join('')
+        + lines.map(function (x) { return '<option value="' + esc(x.line_name) + '">' + esc(Shade.fmtKv(x.voltage_level) + ' ' + x.line_name) + '</option>'; }).join('')
         + '</select>')
     + '<label class="f-lab">分表</label>'
     + '<label class="ex-opt" id="exSplitOpt"><input type="checkbox" id="exSplit"> 按线路分表（每条线路一个工作表，表名 = 电压等级 + 线路名称）</label>'
@@ -1481,7 +1474,7 @@ function cftCardHtml(c) {
     return false;
   }
   function cellVal(key, raw) {
-    if (key === 'voltage_level') return fmtKv(raw);
+    if (key === 'voltage_level') return Shade.fmtKv(raw);
     return dash(raw);
   }
   var rowsServer = '', rowsIntranet = '';

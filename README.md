@@ -5,14 +5,14 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/zhangzhenyu91/j1toolkit)](https://github.com/zhangzhenyu91/j1toolkit/commits/main)
 ![微信小程序](https://img.shields.io/badge/微信小程序-原生-07C160?logo=wechat&logoColor=white)
 ![TDesign](https://img.shields.io/badge/TDesign-Miniprogram-0052D9)
-![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522-339933?logo=nodedotjs&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-业务存储-4479A1?logo=mysql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-会话缓存-DC382D?logo=redis&logoColor=white)
 ![腾讯云COS](https://img.shields.io/badge/腾讯云_COS-文件存储-006DFF)
 ![JWT](https://img.shields.io/badge/鉴权-JWT-000000?logo=jsonwebtokens&logoColor=white)
 
-> 仓库托管：主仓 [GitHub](https://github.com/zhangzhenyu91/j1toolkit)，[CNB](https://cnb.cool/j1net/j1toolkit/j1toolkit) 为备份镜像（推送时双仓自动同步）。
+> 仓库托管：主仓 [GitHub](https://github.com/zhangzhenyu91/j1toolkit)，[CNB](https://cnb.cool/j1net/j1toolkit/j1toolkit) 为国内镜像仓（main 推送自动同步，发版 tag 由发版产线在构建完成后回推）。
 
 班组数字化工具平台：微信小程序 + 网页端，本体提供统一登录（账号密码 + 微信）与应用权限控制，各应用以分包/网页形式持续接入。
 
@@ -29,9 +29,8 @@
 - **班组数据**（分包 `pkg-teamdata` + 网页端 `teamdata.html`）：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 / 商旅设备班组字典统一管理（网页端六分段，小程序端暂为五分段——「杆塔信息」仍名「运维线路信息」、无「运维线路」段；数据复用出工日志字典与杆塔表不建新表，接口形态与 worklog 管理端点 1:1；杆塔坐标 Excel 导入全量替换；出工日志双端「数据管理」入口已改跳本应用）；后端 `server/src/teamdata/`，要求 `team-data` 应用权限且全接口限超管或本班 team_admin
 - **商旅打卡**（出工日志扩展）：商旅账号短信绑定 / 两次打卡 / 费用 / 照片双端同步 / 每日定时核查，权限并入 `work-log`（不单设应用）；后端 `server/src/sgccclockin/`
 - **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:10 锁定目标 KVM 设备并把 U 盘挂载至被控机（被控机 09:15 起由桌面客户端「内网工具箱」导出，独立项目不在本仓），09:20 经文件传输链路取回当日派车单 xlsx 自动建出车卡片（派车单号随卡写入 `dispatch_order_no`，供「派车汇总」导出）、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（详见 开发指南.md 7.7）
-- **内网客户端**（内部应用：仅网页端 `client.html`）：内网工具箱安装包取件页，直贴 CNB 制品库链接与取件命令（安装包不托管本站；发版由私有仓 GitHub Actions publish-cnb 回传产物镜像至 CNB 制品库）；要求 `client` 应用权限
 
-应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。
+应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。内网客户端（内网工具箱安装包）不在应用列表内：下载入口在登录页推广区（直链 CNB 公开仓 Releases 最新 tag，安装包不托管本站，见 开发指南.md 第十一节）。
 
 **文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；UI 定稿为「政企蓝白 Enterprise Blue」，基准稿见 `design/` 下 4 份（小程序/Web 首页与出工日志）+ `设计规范.md`。不宜公开的内容（内网客户端、逆向分析仓、历史数据）在私有仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private)，经 submodule 挂载于 `private/`。
 
@@ -40,7 +39,7 @@
 | 层 | 选型 |
 |----|------|
 | 前端 | 微信小程序原生 + tdesign-miniprogram（「政企蓝白」定制主题）；网页端原生 HTML/JS（同源 token） |
-| 后端 | Node.js + Express（云服务器以 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建 amd64/arm64 多架构镜像，同推 ACR 与 CNB 制品库；单端口同时托管网页端与 `/api/v1`） |
+| 后端 | Node.js ≥22 + Express（云服务器以 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建 amd64/arm64 多架构镜像推 GHCR + Docker Hub，CNB 在国内重建同版镜像推腾讯云 TCR + CNB 制品库；单端口同时托管网页端与 `/api/v1`） |
 | 存储 | MySQL（业务数据）/ Redis（JWT 黑名单、会话）/ 腾讯云 COS（文件/照片） |
 | 鉴权 | JWT + Redis，客户端 `Authorization: Bearer <token>` 携带（网页端 token 存 localStorage） |
 | 外部服务 | WeKnora 知识库（Call Me）、Dify 工作流（出工日志照片验证、安全日活动记录生成、题库 AI 解析）、GLKVM Cloud（远程连接计算机/文件传输）、高德地图 Web 服务（出工日志/水印添加/商旅打卡地点天气）、商旅平台中继（商旅打卡） |
@@ -58,7 +57,7 @@ miniprogram/   微信小程序（主包：登录/首页/我的/管理页）
   pkg-treehazard/  树障隐患记录分包（index 单页：看板/记录卡片流/批量处理/暂存/冲突）
   pkg-teamdata/    班组数据分包（index 单页：车牌/目的地/人员/运维线路信息/商旅设备五分段）
 server/        后端 Node.js 单端口整合服务（API + 托管网页端）
-  public/        网页端（login.html / index.html 工作台 / callme / worklog / safeday / kvm / quiz / admin / client 内网客户端取件 / sgcc-captcha 商旅滑块接力 + assets 公共资源 + kvm-device 设备安装包）
+  public/        网页端（login.html / index.html 工作台 / callme / worklog / wmadd 水印添加 / safeday / kvm / quiz / netdisk 团队网盘 / treehazard 树障隐患 / teamdata 班组数据 / office 在线编辑承载 / share 网盘公开分享 / admin / sgcc-captcha 商旅滑块接力 + assets 公共资源 + kvm-device 设备安装包）
   src/routes/    本体路由（auth/user/app/admin/callme）
   src/worklog/   出工日志后端子模块（schema/cos/dify/verify 验证规则/photoverify 验证流水线/dispatch-sync 派车单同步/路由）
   src/safeday/   安全日活动记录后端子模块（dify/merge/store/路由）
@@ -66,7 +65,7 @@ server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   src/quiz/      题库刷题后端子模块（schema 建表种子/dify 解析/analyzer 队列/路由）
   src/wmadd/     水印添加后端子模块（渲染回图/geo/杆塔路由）
   src/sgccclockin/ 商旅打卡后端子模块（出工日志扩展：protocol 协议层/schema 建表种子/路由）
-  src/treehazard/  树障隐患记录后端子模块（schema 建表种子/ingest crane-answer 直推/export 统计表/diff 行级比对/sync 内网 U 盘同步/路由）
+  src/treehazard/ 树障隐患记录后端子模块（schema 建表种子/ingest crane-answer 直推/export 统计表/diff 行级比对/sync 内网 U 盘同步/路由）
   src/teamdata/    班组数据后端子模块（车牌/目的地/成员字典与线路杆塔管理路由，复用 worklog 表不建新表）
 uvmp-toolkit/  内网工具箱客户端（Electron + Vue + TDesign 壳 + Python sidecar 核心，装在内网被控机；与后端同版本线，`release-v*` / `v*` tag 触发 .github/workflows/release.yml 的 client-* job 三平台构建发版）
 design/        UI 设计稿（定稿「政企蓝白 Enterprise Blue」：小程序/Web 首页与出工日志 4 份基准稿 + 设计规范.md + index.html 展厅 + 分享图工具链；旧定稿已全部移除）
@@ -76,10 +75,10 @@ crane-answer/  微信群智能应答平台（git submodule，`git submodule upda
 
 ## 后端部署（云服务器 Docker 容器）
 
-镜像双产线：GitHub Actions 发版产线（仓根 `.github/workflows/release.yml`）构建 amd64/arm64 原生双架构推 **Docker Hub**（海外/快）；CNB（仓根 `.cnb.yml`，tag 由 Actions 回推触发）在国内重建同版镜像推 **腾讯云 TCR（国内正线）+ CNB 制品库**；并同步建 GitHub / Gitee 公开仓 / CNB 三侧 Release（Release 正文含三处拉取命令）。发版即打 tag：
+镜像双产线：GitHub Actions 发版产线（仓根 `.github/workflows/release.yml`）构建 amd64/arm64 原生双架构推 **Docker Hub**（海外/快）+ GHCR；CNB（仓根 `.cnb.yml`，tag 由 Actions 回推触发）在国内重建同版镜像推 **腾讯云 TCR（国内正线）+ CNB 制品库**；并同步建 GitHub / CNB 两侧 Release（Release 正文含 TCR / GHCR / Docker Hub / CNB 制品库 四处拉取命令）。发版即打 tag：
 
 ```bash
-git tag release-v1.0.0 && git push origin release-v1.0.0   # Actions 构建多架构镜像 :1.0.0 并建三侧 Release
+git tag release-v1.0.0 && git push origin release-v1.0.0   # Actions 构建多架构镜像 :1.0.0 并建两侧 Release
 ```
 
 服务器侧运行两种方式任选：
@@ -95,13 +94,13 @@ docker compose up -d   # 端口映射/数据卷（./data → /app/server/data）
 
 升级：改 `.env` 的 `IMAGE` 版本号 → `docker compose pull && docker compose up -d`。MySQL/Redis 在容器外时 `.env` 中 `MYSQL_HOST`/`REDIS_HOST` 不能填 `127.0.0.1`（容器内回环是容器自己），填宿主内网 IP 或 docker 网桥网关。
 
-**方式二：1Panel 图形化建容器**——镜像 `ccr.ccs.tencentyun.com/<命名空间>/j1toolkit:<版本>`；端口映射宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）；环境变量按 `docker/.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 COS + Dify 配置；安全日活动记录需 `DIFY_SAFEDAY_API_KEY`；题库刷题需 `DIFY_QUIZ_API_KEY`）；数据卷宿主目录 → `/app/server/data`；重启策略 always。
+**方式二：1Panel 图形化建容器**——镜像 `ccr.ccs.tencentyun.com/<命名空间>/j1toolkit:<版本>`；端口映射宿主 `3000` → 容器 `3000`（反代 `toolkit.j1net.com → 127.0.0.1:3000` 不变）；环境变量按 `docker/.env.example` 逐条配置（必填：`JWT_SECRET`、`MYSQL_*`；微信登录需 `WX_APPID`/`WX_SECRET`；Call Me 需 `WEKNORA_API_KEY`/`WEKNORA_AGENT_ID`；出工日志需 COS + Dify 配置；安全日活动记录需 `DIFY_SAFEDAY_API_KEY` 与 `SAFEDAY_CALLBACK_TOKEN`（回调 fail-closed，必配）；题库刷题需 `DIFY_QUIZ_API_KEY`）；数据卷宿主目录 → `/app/server/data`；重启策略 always。
 
 镜像已内置 LibreOffice（安全日非 PDF 附件转 PDF 合并用）与中文字体；验证：`curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常（Dockerfile 已配 HEALTHCHECK，容器列表可直看健康状态）。**首次迁移需把旧部署 `server/data/`（安全日记录）拷入数据卷目录。**
 
 **本机开发（不用镜像）**：`cd server` → 首次 `npm install` 并 `cp ../docker/.env.example .env` 按实际填写 → `npm run dev`（`node --watch` 改代码自动重启），浏览器访问 `http://127.0.0.1:3000/login.html` 测页面；前提为本机可连 `.env` 所指的 MySQL/Redis。
 
-**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html` / `treehazard.html` / `teamdata.html` / `netdisk.html`（团队网盘；Office 文件可经 `office.html` 进 ONLYOFFICE 在线编辑，需自装编辑器容器，见 开发指南.md 第十八节），管理员另有 `admin.html`（员工与权限管理）；另有 `client.html` 内网客户端取件页（内部应用，安装包从 CNB 制品库取件、不托管本站）。
+**网页端入口**：与 API 同端口同源——`https://toolkit.j1net.com/login.html` 登录页（账号密码登录，JWT 存 localStorage），`https://toolkit.j1net.com/` 即门户工作台/应用中心（index.html），各应用页 `callme.html` / `worklog.html` / `safeday.html` / `kvm.html` / `quiz.html` / `treehazard.html` / `teamdata.html` / `netdisk.html`（团队网盘；Office 文件可经 `office.html` 进 ONLYOFFICE 在线编辑，需自装编辑器容器，见 开发指南.md 第十八节），管理员另有 `admin.html`（员工与权限管理）；登录页推广区另含「内网客户端」下载卡（直链 CNB 公开仓 Releases 最新 tag，安装包不托管本站）。
 
 **反向代理（1Panel/Nginx）**：用户自设反代 `https://toolkit.j1net.com → http://127.0.0.1:{PORT}`，**一个端口同时服务网页与 API，无任何路径前缀配置**（旧 `PROXY_PREFIX` 机制已删除）；**SSE 流式对话必须**在反代配置补充：
 
@@ -111,7 +110,7 @@ proxy_read_timeout 300s;  # 推荐：长生成不被掐断（服务端另有 15s
 client_max_body_size 20m; # 图片上传（base64）需要
 ```
 
-**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加、内网客户端应用记录（含适配终端 terminal），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；同时建出工日志 7 张业务表并写入应用与 7 名成员种子、建题库刷题 quiz_* 表并写入应用种子、建树障隐患记录 treehazard_* 八张业务表并写入树障隐患记录与班组数据应用种子（初始管理员默认授予两应用权限）。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
+**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加应用记录（含适配终端 terminal；历史「内网客户端」应用记录启动时自动清理——下载入口已改至登录页推广区），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；同时建出工日志 7 张业务表并写入应用与 7 名成员种子、建题库刷题 quiz_* 表并写入应用种子、建树障隐患记录 treehazard_* 八张业务表并写入树障隐患记录与班组数据应用种子（初始管理员默认授予两应用权限）。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
 
 ## 环境变量清单
 
@@ -141,7 +140,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `SAFEDAY_DATA_DIR` | 安全日记录 records.json 与生成产物（docs/）存放目录（默认 `./data/safeday`，相对路径按 server/ 解析） |
 | `SAFEDAY_DEFAULT_SUPERIOR` | 安全日活动记录默认上级参加人员（可选；留空则由用户手填） |
 | `DIFY_SAFEDAY_API_KEY` | 安全日记录生成工作流的 Dify API Key（与出工日志工作流共用 `DIFY_API_URL`） |
-| `SAFEDAY_CALLBACK_TOKEN` | Dify 回调 token（可选；配置后回调接口须带 `?token=` 校验，留空则不校验） |
+| `SAFEDAY_CALLBACK_TOKEN` | Dify 回调 token（**必配**；回调接口凭 `?token=` 校验，fail-closed——未配置或不符一律 403，不配置则工作流生成结果无法回写，见开发指南第八节） |
 | `SAFEDAY_SOFFICE_PATH` | LibreOffice soffice 路径（可选，默认 `soffice`；安全日多文件含非 PDF 时后端转 PDF 合并依赖它，仓根 Dockerfile 构建的镜像已内置 LibreOffice） |
 | `PREVIEW_VIEWER_URL` | 在线预览查看器地址（可选，默认微软官方 Office 查看器 `https://view.officeapps.live.com/op/view.aspx`；安全日记录/出工日志任务单/网盘 Office 文件在线预览共用，仅 Office 格式，回源要求本站公网可达） |
 | `GLKVM_URL` / `GLKVM_PASSWORD` | GLKVM Cloud 平台地址与员工平台账号统一密码（以员工同名账号代登平台取设备列表；详见 开发指南.md 第十二节） |

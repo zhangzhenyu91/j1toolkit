@@ -299,7 +299,7 @@ Page({
     }
   },
 
-  /* ==================== 杆塔信息（线路清单 + 杆塔坐标模板下载 / Excel 导入全量替换本班组） ==================== */
+  /* ==================== 杆塔信息（线路清单） ==================== */
 
   async loadLines() {
     this.setData({ linesLoading: true });
@@ -314,14 +314,32 @@ Page({
     }
   },
 
+  /* ==================== 杆塔信息 / 运维线路共用（towers / oplines 参数化） ==================== */
+
+  // 模板下载 / Excel 导入段配置：接口路径段 → 本地模板文件名 / 导入确认数据名 / 导入后刷新方法
+  tplConf(path) {
+    return path === 'towers'
+      ? { fileName: '杆塔坐标导入模板.xlsx', dataLabel: '杆塔坐标数据', reload: () => this.loadLines() }
+      : { fileName: '运维线路导入模板.xlsx', dataLabel: '运维线路数据', reload: () => this.loadOplines() };
+  },
+
   // 下载导入模板：二进制 xlsx，wx.downloadFile 后 wx.openDocument 打开（同出工日志 manage 页链路）
   onTplDownload() {
+    this.downloadTpl('towers');
+  },
+
+  onOpTplDownload() {
+    this.downloadTpl('oplines');
+  },
+
+  downloadTpl(path) {
+    const conf = this.tplConf(path);
     wx.showLoading({ title: '正在下载…', mask: true });
     wx.downloadFile({
-      url: `${BASE_URL}${API_BASE}/towers/template${this.teamQuery('?')}`,
+      url: `${BASE_URL}${API_BASE}/${path}/template${this.teamQuery('?')}`,
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
       // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
-      filePath: `${wx.env.USER_DATA_PATH}/杆塔坐标导入模板.xlsx`,
+      filePath: `${wx.env.USER_DATA_PATH}/${conf.fileName}`,
       success: (r) => {
         if (r.statusCode !== 200) {
           this.toast('模板下载失败');
@@ -339,9 +357,18 @@ Page({
     });
   },
 
-  // 导入 Excel：wx.chooseMessageFile 选 .xlsx → 确认「全量替换本班组杆塔坐标数据」→ wx.uploadFile（带 Bearer 与 team_id 表单字段）
+  // 导入 Excel：wx.chooseMessageFile 选 .xlsx → 确认「全量替换本班组…数据」→ wx.uploadFile（带 Bearer 与 team_id 表单字段）
   onImpPick() {
+    this.impPick('towers');
+  },
+
+  onOpImpPick() {
+    this.impPick('oplines');
+  },
+
+  impPick(path) {
     if (this.data.importing) return;
+    const conf = this.tplConf(path);
     wx.chooseMessageFile({
       count: 1,
       type: 'file',
@@ -355,23 +382,24 @@ Page({
         }
         wx.showModal({
           title: '确认导入',
-          content: `导入后全量替换本班组杆塔坐标数据，确认导入「${f.name}」吗？`,
+          content: `导入后全量替换本班组${conf.dataLabel}，确认导入「${f.name}」吗？`,
           confirmText: '确认导入',
           success: (m) => {
-            if (m.confirm) this.doImport(f);
+            if (m.confirm) this.doImport(path, f);
           },
         });
       },
     });
   },
 
-  // 执行导入：成功 toast 后端返回的 message（含导入条数）并刷新线路清单
-  doImport(f) {
+  // 执行导入：成功 toast 后端返回的 message（含导入条数）并刷新对应清单
+  doImport(path, f) {
     if (this.data.importing) return;
+    const conf = this.tplConf(path);
     this.setData({ importing: true });
     wx.showLoading({ title: '正在导入…', mask: true });
     wx.uploadFile({
-      url: `${BASE_URL}${API_BASE}/towers/import`,
+      url: `${BASE_URL}${API_BASE}/${path}/import`,
       filePath: f.path,
       name: 'file',
       header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
@@ -385,7 +413,7 @@ Page({
         }
         if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {
           this.toast(body.message || '导入完成');
-          this.loadLines();
+          conf.reload();
           return;
         }
         this.toast(body.message || `导入失败（${res.statusCode}）`);
@@ -398,7 +426,7 @@ Page({
     });
   },
 
-  /* ==================== 运维线路（team_line：双输入添加 / 编辑 / 删除 / 上移下移 + 模板下载 / Excel 导入全量替换本班组） ==================== */
+  /* ==================== 运维线路（team_line：双输入添加 / 编辑 / 删除 / 上移下移） ==================== */
 
   // 电压等级展示幂等格式化：纯数字补 kV 后缀，已含 kV 或其他文本原样
   fmtVoltage(v) {
@@ -533,90 +561,6 @@ Page({
     } catch (err) {
       this.toast(err.message);
     }
-  },
-
-  // 下载导入模板：二进制 xlsx，wx.downloadFile 后 wx.openDocument 打开（同杆塔坐标模板链路）
-  onOpTplDownload() {
-    wx.showLoading({ title: '正在下载…', mask: true });
-    wx.downloadFile({
-      url: `${BASE_URL}${API_BASE}/oplines/template${this.teamQuery('?')}`,
-      header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
-      // 指定本地存储文件名，否则 openDocument 打开后显示的是随机临时文件名（乱码）
-      filePath: `${wx.env.USER_DATA_PATH}/运维线路导入模板.xlsx`,
-      success: (r) => {
-        if (r.statusCode !== 200) {
-          this.toast('模板下载失败');
-          return;
-        }
-        wx.openDocument({
-          filePath: r.filePath,
-          fileType: 'xlsx',
-          showMenu: true, // 右上角菜单可另存/转发
-          fail: () => this.toast('该类型暂不支持打开'),
-        });
-      },
-      fail: () => this.toast('网络异常，请检查网络后重试'),
-      complete: () => wx.hideLoading(),
-    });
-  },
-
-  // 导入 Excel：wx.chooseMessageFile 选 .xlsx → 确认「全量替换本班组运维线路数据」→ wx.uploadFile（带 Bearer 与 team_id 表单字段）
-  onOpImpPick() {
-    if (this.data.importing) return;
-    wx.chooseMessageFile({
-      count: 1,
-      type: 'file',
-      extension: ['xlsx'],
-      success: (res) => {
-        const f = (res.tempFiles || [])[0];
-        if (!f) return;
-        if (!/\.xlsx$/i.test(f.name || '')) {
-          this.toast('仅支持 .xlsx 文件，请使用模板填写');
-          return;
-        }
-        wx.showModal({
-          title: '确认导入',
-          content: `导入后全量替换本班组运维线路数据，确认导入「${f.name}」吗？`,
-          confirmText: '确认导入',
-          success: (m) => {
-            if (m.confirm) this.doOpImport(f);
-          },
-        });
-      },
-    });
-  },
-
-  // 执行导入：成功 toast 后端返回的 message（含导入条数）并刷新运维线路列表
-  doOpImport(f) {
-    if (this.data.importing) return;
-    this.setData({ importing: true });
-    wx.showLoading({ title: '正在导入…', mask: true });
-    wx.uploadFile({
-      url: `${BASE_URL}${API_BASE}/oplines/import`,
-      filePath: f.path,
-      name: 'file',
-      header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
-      formData: this._teamId ? { team_id: String(this._teamId) } : {},
-      success: (res) => {
-        let body = {};
-        try {
-          body = JSON.parse(res.data || '{}');
-        } catch (e) {
-          // 非 JSON 响应按失败处理
-        }
-        if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {
-          this.toast(body.message || '导入完成');
-          this.loadOplines();
-          return;
-        }
-        this.toast(body.message || `导入失败（${res.statusCode}）`);
-      },
-      fail: () => this.toast('网络异常，请检查网络后重试'),
-      complete: () => {
-        wx.hideLoading();
-        this.setData({ importing: false });
-      },
-    });
   },
 
   onShareAppMessage() {

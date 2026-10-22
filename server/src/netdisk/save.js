@@ -4,21 +4,13 @@
 // dir 为目标空间内相对路径（可多级，如 出工日志/2026-10），缺省由各调用方传固定目录
 // 权限：写网盘须持 netdisk 应用权限（无权限抛 40301）；公共区写入与上传同口径全员可用
 const config = require('../config');
-const { pool } = require('../db');
 const ol = require('./openlist');
 const { spaceRootOf } = require('./space');
+const { hasAppPermission } = require('../middleware/requireApp');
 
-// 各调用方的缺省归档目录（仅作默认值文档，调用方也可让用户自选空间与多级相对路径）
-const DIRS = new Set(['出工日志', '安全日记录', '文件传输']);
-
+// 权限校验：写网盘须持 netdisk 应用权限（与 middleware/requireApp.js 同口径；无权限抛 40301）
 async function assertNetdiskAccess(userId) {
-  const [rows] = await pool.query(
-    `SELECT a.id FROM sys_user_app ua
-     JOIN sys_app a ON a.id = ua.app_id
-     WHERE ua.user_id = ? AND a.app_key = 'netdisk' AND a.status = 1`,
-    [userId]
-  );
-  if (!rows.length) {
+  if (!(await hasAppPermission(userId, 'netdisk'))) {
     const err = new Error('未开通团队网盘应用，请联系管理员开通后再保存');
     err.expose = true;
     err.status = 403;
@@ -56,7 +48,7 @@ function sanitizeRelDir(dir) {
  * 保存到网盘（<空间>/<dir>/<name>；dir 为目标空间内相对路径，'' 表示根目录）
  * @param {object} user  req.user
  * @param {object} opts  { space: 'my'（缺省，我的空间）|'public'（公共区，按班组隔离）,
- *                         dir: 目标相对路径（多级，如 出工日志/2026-10；各调用方缺省见 DIRS）,
+ *                         dir: 目标相对路径（多级，如 出工日志/2026-10；缺省目录由各调用方定）,
  *                         name: 文件名, body: Buffer|Readable, size?: 字节数 }
  * @returns {Promise<string>} 网盘内展示路径（我的空间|公共区/<dir>/<name>）
  */
@@ -95,4 +87,4 @@ async function saveToNetdisk(user, { dir, name, body, size, space }) {
   return rel ? `${label}/${rel}/${clean}` : `${label}/${clean}`;
 }
 
-module.exports = { saveToNetdisk, assertNetdiskAccess, sanitizeRelDir, DIRS };
+module.exports = { saveToNetdisk, assertNetdiskAccess, sanitizeRelDir };

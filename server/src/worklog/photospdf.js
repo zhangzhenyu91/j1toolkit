@@ -50,12 +50,14 @@ async function buildPhotosPdf(cards) {
     const photos = card.photos || [];
     for (let i = 0; i < photos.length; i += 2) {
       const pair = photos.slice(i, i + 2);
-      const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
       const imgs = [];
       for (const buf of pair) {
         // 逐张嵌入：坏图跳过不留空框（下载失败的张数由调用方统计提示）
         try { imgs.push(await embedPhoto(pdfDoc, buf)); } catch (err) { /* 跳过损坏照片 */ }
       }
+      // 整对嵌入全失败时不新增空白页
+      if (!imgs.length) continue;
+      const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
       if (imgs.length === 1) {
         // 独占一页：同尺寸框在内容区内居中
         drawPhoto(page, imgs[0], MARGIN_L + (CONTENT_W - CELL_W) / 2);
@@ -65,7 +67,8 @@ async function buildPhotosPdf(cards) {
       }
     }
   }
-  return Buffer.from(await pdfDoc.save());
+  // addDefaultPage:false——全坏图对不新增空白页时，save 也不再补默认空白页
+  return Buffer.from(await pdfDoc.save({ addDefaultPage: false }));
 }
 
 module.exports = { buildPhotosPdf };

@@ -38,10 +38,18 @@ function personColWidths(n) {
 }
 
 // 克隆样板单元格并重写列宽与文本；text 传 null 保留样板原文（斜线表头格 / 合计格），传 '' 置空
+// 同单元格可能有多个文本 run（Word 重存模板会把样板文案拆散）：首个 run 写入新文案，其余 run 一律置空防残留
 function fillCell(tpl, width, text) {
   let tc = tpl.replace(/(<w:tcW w:w=")\d+(")/, `$1${width}$2`);
   if (text !== null) {
-    tc = tc.replace(/<w:t(?:\s[^>]*)?>[\s\S]*?<\/w:t>/, text ? `<w:t>${escapeXml(text)}</w:t>` : '<w:t></w:t>');
+    let first = true;
+    tc = tc.replace(/<w:t(?:\s[^>]*)?>[\s\S]*?<\/w:t>/g, () => {
+      if (first) {
+        first = false;
+        return text ? `<w:t>${escapeXml(text)}</w:t>` : '<w:t></w:t>';
+      }
+      return '<w:t></w:t>';
+    });
   }
   return tc;
 }

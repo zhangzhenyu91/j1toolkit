@@ -87,7 +87,7 @@ Page({
     members: [], // 班组成员名单（顺序=点亮按钮顺序，顺序1为默认主持人）
     hostIdx: 0, // 主持人选中下标
     recorderIdx: 0, // 记录人选中下标（默认上次选择）
-    superior: '', // 上级参加人员（默认记忆值/任晓辉）
+    superior: '', // 上级参加人员（默认记忆值）
     attendFlags: [], // 参加标记（与 members 平行；false=缺席，两组 chips 互斥镜像）
     absentReason: '',
     // 参会人员自定义模式：member=名单点亮（主持人/参加/缺席取自成员名单）；
@@ -393,14 +393,15 @@ Page({
       if (incoming.some((x) => x.name === t.name)) return;
       incoming.push({ name: t.name, size: t.size, sizeText: fmtSize(t.size), path: t.path });
     });
-    const merged = this.data.files.concat(incoming);
-    if (merged.length > MAX_FILES) {
-      this.toast(`最多上传 ${MAX_FILES} 个文件`);
-      return;
-    }
-    this.setData({ files: merged });
-    if (badType > 0) this.toast(`已忽略 ${badType} 个不支持的文件`);
-    if (badSize > 0) this.toast(`已忽略 ${badSize} 个超过 50MB 的文件`);
+    // 超出数量上限时保留仍可添加的部分，不整批丢弃；各类忽略原因合并一次提示
+    const room = Math.max(0, MAX_FILES - this.data.files.length);
+    const addable = incoming.slice(0, room);
+    const notes = [];
+    if (incoming.length > addable.length) notes.push(`最多上传 ${MAX_FILES} 个文件，已忽略超出的 ${incoming.length - addable.length} 个`);
+    if (badType > 0) notes.push(`已忽略 ${badType} 个不支持的文件`);
+    if (badSize > 0) notes.push(`已忽略 ${badSize} 个超过 50MB 的文件`);
+    this.setData({ files: this.data.files.concat(addable) });
+    if (notes.length) this.toast(notes.join('；'));
   },
 
   onRemoveFile(e) {
@@ -431,26 +432,43 @@ Page({
       genOpen: true,
       nameDraft: names,
       keyboardHeight: 0,
-      // 每次打开回到名单点亮模式，自定义输入清空（名单数据异步拉取后覆盖）
+      // 每次打开回到名单点亮模式并重置旧名单/默认值（成员数据异步拉取后填充），
+      // 避免切班组后弹层残留旧班组名单被误提交
       attendMode: 'member',
       hostCustom: '',
       customAttendees: '',
       customAbsentees: '',
+      members: [],
+      attendFlags: [],
+      hostIdx: 0,
+      recorderIdx: 0,
+      superior: '',
+      absentReason: '',
     });
+    this._metaReady = false;
+    const metaSeq = (this._metaSeq = (this._metaSeq || 0) + 1);
     // 打开弹层后异步拉表单元数据并填充（成员/默认值按当前生效班组）
     this.loadFormMeta()
       .then((meta) => {
+        // 过期响应（弹层已关或已重新打开）不回填
+        if (metaSeq !== this._metaSeq || !this.data.genOpen) return;
         const { members, defaults } = meta;
+        this._metaReady = true;
         this.setData({
           members,
           hostIdx: 0, // 主持人默认班组成员顺序1
           recorderIdx: Math.max(0, members.indexOf(defaults.recorder)), // 记录人默认上次选择
-          superior: defaults.superior || '任晓辉',
+          superior: defaults.superior || '',
           attendFlags: members.map(() => true), // 默认全员参加
           absentReason: '',
         });
       })
-      .catch((err) => this.toast(err.message || '表单数据加载失败'));
+      .catch((err) => {
+        if (metaSeq !== this._metaSeq) return;
+        // 元数据加载失败：关层不可带旧班组数据提交（重新打开弹层可重试拉取）
+        this.toast(err.message || '表单数据加载失败');
+        this.setData({ genOpen: false, keyboardHeight: 0 });
+      });
   },
 
   // 生成表单元数据：班组成员 + 记忆默认值（按当前生效班组缓存，切班组失效）
@@ -543,6 +561,11 @@ Page({
 
   onGenConfirm() {
     if (this.data.submitting) return;
+    // 表单元数据未就绪（加载中/失败已关层）不提交，避免空名单或旧班组数据入库
+    if (!this._metaReady) {
+      this.toast('表单数据加载中，请稍候');
+      return;
+    }
     const name = (this.data.nameDraft || '').trim();
     if (!name) {
       this.toast('请输入记录名称');

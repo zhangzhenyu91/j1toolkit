@@ -43,9 +43,10 @@ function parseOptions(raw) {
   return Array.isArray(arr) ? arr : [];
 }
 
-// 取题库行（含池与归属班组）；可见性/管理权由下面两个助手判断
+// 取题库行（含池与归属班组，仅启用行 status = 1，与我的题库 / 题库池列表同口径）；
+// 软停用列为预留设计（暂无置 0 写入路径），用户侧取行 / 列表 / 错题本统一按启用过滤
 async function findBank(bankId) {
-  const [rows] = await pool.query('SELECT id, team_id, scope FROM quiz_bank WHERE id = ?', [Number(bankId) || 0]);
+  const [rows] = await pool.query('SELECT id, team_id, scope FROM quiz_bank WHERE id = ? AND status = 1', [Number(bankId) || 0]);
   return rows[0] || null;
 }
 
@@ -58,9 +59,11 @@ async function findVisibleBank(bankId, req) {
   return null;
 }
 
-// 管理权：超管可管任意题库（含他班班组池与全部池）；班组管理员仅本班班组池
+// 管理权：超管可管任意题库（含他班班组池与全部池）；班组管理员仅本班班组池；
+// 管理取行不过滤 status（口径同 GET /banks/manage，停用题库仍可管理维护，避免「管理列表可见但管理操作 404」）
 async function findManageBank(bankId, req) {
-  const bank = await findBank(bankId);
+  const [rows] = await pool.query('SELECT id, team_id, scope FROM quiz_bank WHERE id = ?', [Number(bankId) || 0]);
+  const bank = rows[0] || null;
   if (!bank) return null;
   if (req.user.role === 'admin') return bank;
   if (req.user.role === 'team_admin' && bank.scope === 'team' && req.team && bank.team_id === req.team.id) return bank;
@@ -798,7 +801,7 @@ router.get('/practice/questions', async (req, res, next) => {
       const [cnt] = await pool.query(
         `SELECT COUNT(*) AS total FROM quiz_favorite f
          JOIN quiz_question q ON q.id = f.question_id AND q.status = 1
-         JOIN quiz_bank b ON b.id = f.bank_id
+         JOIN quiz_bank b ON b.id = f.bank_id AND b.status = 1
          WHERE f.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}`,
         params
       );
@@ -807,7 +810,7 @@ router.get('/practice/questions', async (req, res, next) => {
       [rows] = await pool.query(
         `SELECT ${qCols} FROM quiz_favorite f
          JOIN quiz_question q ON q.id = f.question_id AND q.status = 1
-         JOIN quiz_bank b ON b.id = f.bank_id
+         JOIN quiz_bank b ON b.id = f.bank_id AND b.status = 1
          WHERE f.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}
          ORDER BY f.id DESC ${pageClause}`,
         params
@@ -820,7 +823,7 @@ router.get('/practice/questions', async (req, res, next) => {
       const [cnt] = await pool.query(
         `SELECT COUNT(*) AS total FROM quiz_wrong w
          JOIN quiz_question q ON q.id = w.question_id AND q.status = 1
-         JOIN quiz_bank b ON b.id = w.bank_id
+         JOIN quiz_bank b ON b.id = w.bank_id AND b.status = 1
          WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}`,
         params
       );
@@ -829,7 +832,7 @@ router.get('/practice/questions', async (req, res, next) => {
       [rows] = await pool.query(
         `SELECT ${qCols} FROM quiz_wrong w
          JOIN quiz_question q ON q.id = w.question_id AND q.status = 1
-         JOIN quiz_bank b ON b.id = w.bank_id
+         JOIN quiz_bank b ON b.id = w.bank_id AND b.status = 1
          WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}
          ORDER BY w.last_wrong_at DESC, w.id DESC ${pageClause}`,
         params
@@ -1025,8 +1028,8 @@ router.get('/wrongs', async (req, res, next) => {
       `SELECT w.question_id, w.bank_id, b.name AS bank_name, q.type, q.content, q.options,
          w.wrong_count, w.right_streak, DATE_FORMAT(w.last_wrong_at, '%Y-%m-%d %H:%i:%s') AS last_wrong_at
        FROM quiz_wrong w
-       JOIN quiz_question q ON q.id = w.question_id
-       JOIN quiz_bank b ON b.id = w.bank_id
+       JOIN quiz_question q ON q.id = w.question_id AND q.status = 1
+       JOIN quiz_bank b ON b.id = w.bank_id AND b.status = 1
        WHERE w.user_id = ? AND (b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?)) ${where}
        ORDER BY w.last_wrong_at DESC, w.id DESC`,
       params

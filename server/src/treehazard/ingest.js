@@ -16,6 +16,7 @@ const cos = require('../worklog/cos'); // 与照片上传接口同口径跨模�
 const { parseVerticalNum, safeFileName } = require('./export');
 const { normDateStr } = require('./diff');
 const { deleteRecord } = require('./remove'); // 删除与 DELETE /records/:id 共用同款逻辑
+const { parseDataUrlPhoto } = require('../utils/photo'); // dataURL 解析（格式/解码统一在此，大小限值本模块自校）
 
 function toIntOrNull(v) {
   const n = parseInt(String(v ?? '').trim(), 10);
@@ -24,7 +25,6 @@ function toIntOrNull(v) {
 
 // ===== 辅证照片（evidence_photos）=====
 
-const PHOTO_DATAURL_RE = /^data:image\/(jpeg|jpg|png);base64,(.+)$/;
 const PHOTO_MAX_BYTES = 15 * 1024 * 1024;
 const PHOTO_MAX_PER_RECORD = 9;
 
@@ -34,16 +34,13 @@ function parseEvidencePhotos(raw) {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.evidence_photos)) return null;
   const list = [];
   for (const item of raw.evidence_photos.slice(0, PHOTO_MAX_PER_RECORD)) {
-    const match = PHOTO_DATAURL_RE.exec(String((item && item.image) || ''));
-    if (!match) continue;
-    const buf = Buffer.from(match[2], 'base64');
-    if (!buf.length || buf.length > PHOTO_MAX_BYTES) continue;
-    const isPng = match[1] === 'png';
+    const photo = parseDataUrlPhoto(String((item && item.image) || ''));
+    if (!photo || !photo.buf.length || photo.buf.length > PHOTO_MAX_BYTES) continue;
     list.push({
       msgId: String((item && item.msg_id) ?? '').trim().slice(0, 64),
-      buf,
-      ext: isPng ? 'png' : 'jpg',
-      contentType: isPng ? 'image/png' : 'image/jpeg',
+      buf: photo.buf,
+      ext: photo.ext,
+      contentType: photo.contentType,
     });
   }
   return list;
@@ -80,8 +77,9 @@ async function replaceEvidencePhotos(teamName, recordId, photos) {
   return { stored, failed };
 }
 
-// staging：照片随批入暂存照片表（COS 键带 staging-批次 目录），返回 { stored, failed }
-async function storeStagingPhotos(teamName, batchId, craneRecordId, photos) {
+// staging：照片随批入暂存照片表（COS 键带 staging-批次 目录），按暂存记录 insertId 归挂（staging_record_id），
+// crane_record_id 同步冗余落列供旧库回退；返回 { stored, failed }
+async function storeStagingPhotos(teamName, batchId, stagingRecordId, craneRecordId, photos) {
   let stored = 0;
   let failed = 0;
   for (let i = 0; i < photos.length; i += 1) {
@@ -90,8 +88,8 @@ async function storeStagingPhotos(teamName, batchId, craneRecordId, photos) {
     try {
       await cos.putBuffer(key, photo.buf, photo.contentType);
       await pool.query(
-        'INSERT INTO treehazard_staging_photo (batch_id, crane_record_id, cos_key, url) VALUES (?, ?, ?, ?)',
-        [batchId, craneRecordId, key, cos.publicUrl(key)]
+        'INSERT INTO treehazard_staging_photo (batch_id, staging_record_id, crane_record_id, cos_key, url) VALUES (?, ?, ?, ?, ?)',
+        [batchId, stagingRecordId, craneRecordId, key, cos.publicUrl(key)]
       );
       stored += 1;
     } catch (e) {
@@ -236,7 +234,7 @@ async function importStaging(team, sessionId, groupName, pusherName, reviewNote,
   let photos = 0;
   let photosFailed = 0;
   for (const rec of records) {
-    await pool.query(
+    const [r] = await pool.query(
       `INSERT INTO treehazard_staging_record (batch_id, crane_record_id, voltage_level, line_name, section,
         tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
         finder_name, found_at)
@@ -246,7 +244,8 @@ async function importStaging(team, sessionId, groupName, pusherName, reviewNote,
         rec.vertical_num, rec.finder_name, rec.found_at]
     );
     if (Array.isArray(rec.photos) && rec.photos.length) {
-      const pr = await storeStagingPhotos(team.name, batchId, rec.crane_record_id || '', rec.photos);
+      // 照片按本条暂存行的 insertId 归挂（同批多条空 crane_record_id 时不再互相误挂）
+      const pr = await storeStagingPhotos(team.name, batchId, r.insertId, rec.crane_record_id || '', rec.photos);
       photos += pr.stored;
       photosFailed += pr.failed;
     }

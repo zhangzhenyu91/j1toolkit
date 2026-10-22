@@ -1,6 +1,6 @@
 // 商旅平台协议层 —— 移植自逆向分析仓 private/esgcc/sgcc/tools/sgcc_client.js（私有仓，全部已实测验证，勿改口径）
 // 两条通道：
-//   jsonm（H5，gwslapi）：AES-128-ECB + SM2 加密 AES 密钥；用于短信登录与 uniID 池
+//   jsonm（H5，gwslapi）：AES-128-ECB + SM2 加密 AES 密钥；用于图形码/发短信与 uniID 池
 //   jsonx（App，gwslapi/gwslapizb）：RSA 分块加密（117B/128B，PKCS1）；
 //     tenant=default 用 RSA_PUB/RSA_PRIV；tenant=slapp（新通道，费用保存与密码登录必须走它）用 dCu 加密 / wLA 解密
 // 注意：两对 RSA 密钥各自只管一个方向（请求加密公钥 / 响应解密私钥模数并不相同）
@@ -273,16 +273,14 @@ function deviceUuid(mobile) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`.toUpperCase();
 }
 
-async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '', noPool = false } = {}) {
+// jsonx 请求头公共内核（callJsonx 业务调用与 uploadImageV2 multipart 上传同源）：
+// 头集逐项对齐真实 App 抓包（2026-09-24 HAR 比对 3.3.6，2026-10-09 按 3.3.7 HAR 复核一致）——
+// 版本指纹缺失/过旧会被风控以 99001 笼统拒绝。差异仅两处：Content-Type 由调用方传（jsonx / multipart），
+// sign 头只业务调用需要（multipart 上传无 sign 头，由调用方按需补）
+function jsonxHeaders({ tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '', contentType, token = '', uniID = '' }) {
   const isSlapp = tenant === 'slapp';
-  const pubPem = toPem(need(isSlapp ? 'SGCC_DCU_PUB' : 'SGCC_RSA_PUB', isSlapp ? config.sgcc.dcuPub : config.sgcc.rsaPub), 'PUBLIC KEY');
-  const privPem = toPem(need(isSlapp ? 'SGCC_WLA_PRIV' : 'SGCC_RSA_PRIV', isSlapp ? config.sgcc.wlaPriv : config.sgcc.rsaPriv), 'PRIVATE KEY');
-  const r = 1000000000 + crypto.randomInt(0, 8700000000);
-  const body = rsaEncryptLong(pubPem, JSON.stringify({ ...(plainObj || {}), _r: r }));
-  const uniID = noPool ? '' : await takeUniID(isSlapp);
-  // 头集逐项对齐真实 App 抓包（2026-09-24 HAR 比对 3.3.6，2026-10-09 复核 3.3.7 一致）：版本指纹缺失/过旧会被风控以 99001 笼统拒绝
   const headers = {
-    'Content-Type': 'application/jsonx', 'Accept': '*/*',
+    'Content-Type': contentType, 'Accept': '*/*',
     'User-Agent': `guo wang shang lu yun/${VERSION} (${deviceType}; ${systemVersion}; Scale/2.00)`,
     'source': '1',
     'tenant': tenant,
@@ -296,6 +294,17 @@ async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType
   if (uniID) headers.uniID = uniID;
   if (isSlapp) headers.secretKeyType = '2';
   if (token) headers.token = token;
+  return headers;
+}
+
+async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '', noPool = false } = {}) {
+  const isSlapp = tenant === 'slapp';
+  const pubPem = toPem(need(isSlapp ? 'SGCC_DCU_PUB' : 'SGCC_RSA_PUB', isSlapp ? config.sgcc.dcuPub : config.sgcc.rsaPub), 'PUBLIC KEY');
+  const privPem = toPem(need(isSlapp ? 'SGCC_WLA_PRIV' : 'SGCC_RSA_PRIV', isSlapp ? config.sgcc.wlaPriv : config.sgcc.rsaPriv), 'PRIVATE KEY');
+  const r = 1000000000 + crypto.randomInt(0, 8700000000);
+  const body = rsaEncryptLong(pubPem, JSON.stringify({ ...(plainObj || {}), _r: r }));
+  const uniID = noPool ? '' : await takeUniID(isSlapp);
+  const headers = jsonxHeaders({ tenant, deviceType, systemVersion, mobile, contentType: 'application/jsonx', token, uniID });
   // App 版 sign：keyList「token,uniID,tenant;」+ md5(值串联 + r)
   let keyList = ''; let vals = '';
   for (const [k, sep] of [['token', ','], ['uniID', ','], ['tenant', ';']]) {
@@ -340,25 +349,8 @@ async function loginSendSmsV2(mobile, checkImgCode) {
   return r.decoded;
 }
 
-// 滑块通道发短信（v3）：顶象滑块 token + constId 由前端滑块页采集
-// 注意 v3 失败时 HTTP/statusCode 仍是 200，成败要看 data.code（成功无 data 或 data.code=0）
-async function loginSendSms(mobile, { captchaToken, constId } = {}) {
-  const r = await callJsonm('user/sendSmsCode/v3', {
-    mobile, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
-  });
-  return r.decoded;
-}
-async function loginBySms(mobile, checkCode, { captchaToken, constId } = {}) {
-  const r = await callJsonm('user/smstoken/v4', {
-    mobile, checkCode, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
-  });
-  const d = r.decoded && r.decoded.data;
-  const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
-  if (!token) throw loginBizError('短信登录失败', r.decoded);
-  return { token };
-}
-
-// 滑块通道发短信（slapp/jsonx，App 同口径；原 jsonm H5 通道 loginSendSms 保留备用）；
+// 滑块通道发短信（slapp/jsonx，App 同口径）：顶象滑块 token + constId 由前端滑块页采集；
+// 注意 v3 失败时 HTTP/statusCode 仍是 200，成败要看 data.code（成功无 data 或 data.code=0）；
 // riskReviewFlag（3.3.6 新增必填布尔，LoginApiManager.getTextMessageCheckCode3 实证）：滑块完成后固定 true
 async function loginSendSmsSlapp(mobile, { captchaToken, constId } = {}) {
   const r = await callJsonx('user/sendSmsCode/v3', {
@@ -473,22 +465,12 @@ async function uploadImageV2(token, { buf }, opt = {}) {
     buf,
     Buffer.from(`\r\n--${boundary}--\r\n`),
   ]);
-  // 头集逐项对齐 App 上传抓包（2026-10-09 按 3.3.7 HAR 复核一致；与 callJsonx slapp 口径同源，仅 Content-Type 为 multipart 且无 sign 头）
-  const headers = {
-    'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Accept': '*/*',
-    'User-Agent': `guo wang shang lu yun/${VERSION} (${deviceType}; ${systemVersion}; Scale/2.00)`,
-    'source': '1',
-    'tenant': 'slapp',
-    'platform': '1',
-    'systemVersion': systemVersion, 'deviceType': deviceType,
-    'appType': '0', 'grayversion': config.sgcc.grayVersion || '2.4.7.1',
-    'version-code': config.sgcc.versionCode || '202609232038',
-    'uuid': deviceUuid(mobile),
-    'encFlag': '2', 'secretKeyType': '2', 'version': VERSION,
-  };
+  // 头集走 jsonxHeaders 公共内核（slapp 口径；multipart 无 sign 头，2026-10-09 按 3.3.7 HAR 复核一致）
   const uniID = await takeUniID(true);
-  if (uniID) headers.uniID = uniID;
-  if (token) headers.token = token;
+  const headers = jsonxHeaders({
+    tenant: 'slapp', deviceType, systemVersion, mobile,
+    contentType: `multipart/form-data; boundary=${boundary}`, token, uniID,
+  });
   const resp = await post(HOST_ZB, 'fastdfs/upload/image/sample/v2', headers, body);
   let j = null;
   try { j = JSON.parse(resp.raw); } catch (e) { /* 异常响应 */ }
@@ -503,7 +485,7 @@ async function uploadImageV2(token, { buf }, opt = {}) {
 }
 
 module.exports = {
-  loginCaptcha, loginSendSmsV2, loginSendSms, loginBySms, loginSendSmsSlapp, loginBySmsSlapp,
+  loginCaptcha, loginSendSmsV2, loginSendSmsSlapp, loginBySmsSlapp,
   loginByPasswordV3, loginByPassword,
   dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, uploadImageV2, probeProxy, httpsAgent, selfCheck,
 };

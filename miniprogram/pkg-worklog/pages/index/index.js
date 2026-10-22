@@ -13,7 +13,8 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
-import { pad } from '../../../utils/util';
+import { pad, DOC_EXTS } from '../../../utils/util';
+import { teamQuery as teamQueryOf, teamBody as teamBodyOf } from '../../../utils/teamgate';
 import { createWmPhoto, genAntiCode, fmtWmTime } from '../../../utils/wmphoto';
 import { createTowerCascade } from '../../../utils/tower';
 
@@ -386,14 +387,15 @@ Page({
     this.loadLogs();
   },
 
-  // 生效班组 query 片段（lead 为前导连接符；仅超管 _teamId>0 时携带，其余角色后端强制本班无需传）
+  // 生效班组 query 片段（lead 为前导连接符；仅超管 _teamId>0 时携带，其余角色后端强制本班无需传；
+  // 实现收编 utils/teamgate 公共工具，口径与各分包一致）
   teamQuery(lead) {
-    return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
+    return teamQueryOf(this._teamId, lead);
   },
 
   // 生效班组 body 注入（POST/PUT JSON 用，口径同 teamQuery）
   teamBody(data) {
-    return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
+    return teamBodyOf(data, this._teamId);
   },
 
   // 记录当前生效班组并刷新切换器展示；switching=true 表示用户主动切换，整页口径随之重拉
@@ -2022,6 +2024,16 @@ Page({
     }
   },
 
+  // 整卡载荷（巡视/备注保存共用）：车牌/目的地/用车人取保存时卡片最新值，extra 仅覆盖各自编辑的字段
+  entryCardPayload(entry, extra) {
+    return Object.assign({
+      patrol_content: entry.patrol,
+      vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
+      destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
+      member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
+    }, extra || {});
+  },
+
   // 保存巡视内容：PUT 全量字段（车牌/目的地/用车人取保存时卡片最新值，仅替换巡视内容），失败留弹层可重试
   async onPatrolSave() {
     if (this.data.patrolSaving) return;
@@ -2037,12 +2049,7 @@ Page({
       await request({
         url: `/api/v1/worklog/logs/${entry.id}`,
         method: 'PUT',
-        data: this.teamBody({
-          patrol_content: this.data.patrolDraft,
-          vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
-          destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
-          member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
-        }),
+        data: this.teamBody(this.entryCardPayload(entry, { patrol_content: this.data.patrolDraft })),
       });
       this.setData({ patrolVisible: false, patrolSaving: false, keyboardHeight: 0 });
       this.loadLogs();
@@ -2146,7 +2153,6 @@ Page({
       this.toast('附件最多 9 个');
       return;
     }
-    const DOC_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf'];
     wx.chooseMessageFile({
       count: left,
       type: 'file',
@@ -2204,14 +2210,10 @@ Page({
       await request({
         url: `/api/v1/worklog/logs/${entry.id}`,
         method: 'PUT',
-        data: this.teamBody({
-          patrol_content: entry.patrol,
-          vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
-          destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
-          member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
+        data: this.teamBody(this.entryCardPayload(entry, {
           remark: this.data.rmkDraft.trim(),
           remark_files: metas,
-        }),
+        })),
       });
       this.setData({ rmkVisible: false, rmkSaving: false, keyboardHeight: 0 });
       this.toast('备注已保存');
@@ -2668,7 +2670,12 @@ Page({
             timeout: 120000,
           });
           this.toast('已发起删除，后台解除商旅关联中');
-          this.startCardOp(entry.id, data.opId, 'delete');
+          // 空值兜底：确认到发起之间列表可能已刷新导致找不到卡，或响应缺 opId——跳过挂进度条（任务仍后台完成，随刷新呈现）
+          if (entry && data && data.opId) {
+            this.startCardOp(entry.id, data.opId, 'delete');
+          } else {
+            this.loadLogs();
+          }
         } catch (err) {
           this.toast(err.message);
         }

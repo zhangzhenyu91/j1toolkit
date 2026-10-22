@@ -289,18 +289,31 @@ async function importOrdersMulti(teams, buffer, today) {
 
     const created = [];
     for (const p of plans) {
-      const [r] = await pool.query(
-        'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [team.id, today, '', p.vehicle.id, p.destination ? p.destination.id : null, p.row.orderNo || null, createdBy]
-      );
-      for (const m of p.members) {
-        await pool.query(
-          'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
-          [r.insertId, m.id, m.sort]
+      // 卡片主行 + 成员行多语句写入：事务包裹（同 POST /logs 口径），避免半截卡片
+      const conn = await pool.getConnection();
+      let entryId;
+      try {
+        await conn.beginTransaction();
+        const [r] = await conn.query(
+          'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [team.id, today, '', p.vehicle.id, p.destination ? p.destination.id : null, p.row.orderNo || null, createdBy]
         );
+        entryId = r.insertId;
+        for (const m of p.members) {
+          await conn.query(
+            'INSERT INTO worklog_entry_member (entry_id, member_id, sort) VALUES (?, ?, ?)',
+            [entryId, m.id, m.sort]
+          );
+        }
+        await conn.commit();
+      } catch (e) {
+        await conn.rollback().catch(() => {});
+        throw e;
+      } finally {
+        conn.release();
       }
       created.push({
-        id: r.insertId,
+        id: entryId,
         plate: p.vehicle.plate_no,
         destination: p.destination ? p.destination.name : '',
         members: p.members.map((m) => m.name),

@@ -30,7 +30,7 @@
   /* 手动刷新期间按钮图标转圈（不重排卡片、不出骨架，避免闪现） */
   .btn.refreshing svg { animation: rot 1s linear infinite; }
 
-  /* ===== 设备卡片宫格（同工作台应用宫格口径）；卡顶色带已取消（.hazard-top 类名保留、空壳 div 仍渲染，不再有任何样式） ===== */
+  /* ===== 设备卡片宫格（同工作台应用宫格口径）；卡顶色带已取消（hazard-top 空壳 div 已删） ===== */
   .dev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
   .dev { display: flex; flex-direction: column; overflow: hidden; }
   .dv-in { flex: 1; display: flex; flex-direction: column; padding: 16px 22px 20px; }
@@ -96,7 +96,8 @@
 <script src="/assets/icons.js"></script>
 <script src="/assets/common.js"></script>
 <script>
-  Shade.requireAuth();
+(function () {
+  if (!Shade.requireAuth()) return;
   Shade.topbar({ active: 'kvm' });
   Shade.reveal();
   document.getElementById('btnRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 15));
@@ -182,7 +183,6 @@
         ? ' fade-up" style="animation-delay:' + Math.min(i * 40, 240) + 'ms'
         : '';
       return '<div class="card card-hover dev' + anim + '">' +
-        '<div class="hazard-top"></div>' +
         '<div class="dv-in">' +
           '<div class="dv-top">' + statusHtml(d.status) +
             (d.deviceGroupName ? '<span class="tag tag-navy">' + Shade.esc(d.deviceGroupName) + '</span>' : '') +
@@ -260,6 +260,7 @@
     loadDevices('init');
     state.timer = setInterval(function () { loadDevices('auto'); }, 30000);
   })();
+})();
 </script>
 </body>
 </html>

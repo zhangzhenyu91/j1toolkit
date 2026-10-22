@@ -248,7 +248,7 @@
         bindkeyboardheightchange="onKeyboardHeight"
         hold-keyboard
         maxlength="64"
-        placeholder="任晓辉"
+        placeholder="请输入上级参加人员"
         placeholder-class="ph"
       />
       <block wx:if="{{attendMode === 'member'}}">

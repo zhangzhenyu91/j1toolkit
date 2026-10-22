@@ -27,7 +27,7 @@
           bindtap="onRename"
           data-id="{{item.id}}"
         >重命名</view>
-        <view class="s-action s-delete" bindtap="onDelete" data-id="{{item.id}}" data-index="{{index}}">
+        <view class="s-action s-delete" bindtap="onDelete" data-id="{{item.id}}">
           删除
         </view>
       </view>

@@ -12,7 +12,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
-import { pad, fmtSize, extOf } from '../../../utils/util';
+import { pad, fmtSize, extOf, IMG_EXTS, DOC_EXTS } from '../../../utils/util';
 import config from '../../../config';
 
 // 班组切换器 + 生效班组门控（storage filetransfer_team_id，全部请求带 team_id）
@@ -28,10 +28,8 @@ const STATUS_MAP = {
 // 单文件大小上限 200MB（经壹匣内存中转，有意从严：后端上限 2GB；与弹层说明一致）
 const MAX_FILE_SIZE = 200 * 1024 * 1024;
 
-const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+// 视频扩展名含 avi/mkv（netdisk 页仅 mp4/mov/m4v，保持现有差异）；IMG_EXTS/DOC_EXTS 收编 utils/util.js
 const VIDEO_EXTS = ['mp4', 'mov', 'm4v', 'avi', 'mkv'];
-// wx.openDocument 可识别的文档类型（传 fileType 提高打开成功率）
-const DOC_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf'];
 
 const kindOf = (name) => {
   const ext = extOf(name);
@@ -581,7 +579,7 @@ Page({
 
   // 删除盘内文件（图标小按钮 + 二次确认，同 Call Me 删除对话交互）
   onDeleteFile(e) {
-    const { name, index } = e.currentTarget.dataset;
+    const { name } = e.currentTarget.dataset;
     if (this.data.dlBusy) {
       this.toast('批量处理中，请稍候');
       return;
@@ -605,10 +603,11 @@ Page({
           data: this.teamBody({ names: [name] }),
           timeout: 60000,
         });
-        // deleted/missing 均视为已不在盘内，从列表移除（多选已选同步剔除）
-        const dlFiles = this.data.dlFiles.slice();
-        dlFiles.splice(index, 1);
-        this.setData({ dlFiles, dlSel: this.data.dlSel.filter((n) => n !== name) });
+        // deleted/missing 均视为已不在盘内，按 name 过滤移除（渲染 index 在异步请求期间可能错位；多选已选同步剔除）
+        this.setData({
+          dlFiles: this.data.dlFiles.filter((f) => f.name !== name),
+          dlSel: this.data.dlSel.filter((n) => n !== name),
+        });
         this.toast((data && (data.deleted || []).includes(name)) ? '已删除' : '文件已不存在');
       } catch (err) {
         this.toast(err.message);

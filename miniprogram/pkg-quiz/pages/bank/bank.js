@@ -7,6 +7,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import { mapAnalysis } from '../../../utils/quiz';
 
 const API_BASE = '/api/v1/quiz';
 
@@ -83,15 +84,11 @@ Page({
     }
   },
 
-  // home 接口 → 展示结构（解析进度：analysis = { none, pending, failed, done } 计数）
+  // home 接口 → 展示结构（解析进度计数收敛 utils/quiz mapAnalysis）
   mapHome(h) {
-    const an = h.analysis || {};
-    const anDone = an.done || 0;
-    const anPending = an.pending || 0;
-    const anTotal = (an.none || 0) + anPending + (an.failed || 0) + anDone;
     const total = h.questionCount || 0;
     const answered = h.answeredCount || 0;
-    return {
+    return Object.assign({
       id: h.id,
       name: h.name || '',
       description: h.description || '',
@@ -104,11 +101,7 @@ Page({
       wrongCount: h.wrongCount || 0,
       favCount: h.favCount || 0,
       seqIdx: h.seqIdx === null || h.seqIdx === undefined ? null : Number(h.seqIdx), // 顺序练习断点（服务端，跨端续刷）
-      analyzing: anPending > 0,
-      analyzingText: `解析中 ${anDone}/${anTotal || total}`,
-      // 解析就绪徽章：无排队且有已生成解析
-      anReady: anPending === 0 && anDone > 0,
-    };
+    }, mapAnalysis(h.analysis, total));
   },
 
   // 顺序练习进度文案（服务端断点 seqIdx 为大纲下标 0 起，跨端续刷；null=未开始）

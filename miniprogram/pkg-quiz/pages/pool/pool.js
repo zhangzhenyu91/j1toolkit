@@ -8,6 +8,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
+import { mapAnalysis } from '../../../utils/quiz';
 
 const API_BASE = '/api/v1/quiz';
 
@@ -80,22 +81,17 @@ Page({
     }
   },
 
-  // 题库池项 → 展示结构（scope：all=全部池 / team=班组池；added 标记是否已加入我的题库）
+  // 题库池项 → 展示结构（scope：all=全部池 / team=班组池；added 标记是否已加入我的题库；
+  // 解析进度计数收敛 utils/quiz mapAnalysis）
   mapPool(b) {
-    const an = b.analysis || {};
-    const anDone = an.done || 0;
-    const anPending = an.pending || 0;
-    const anTotal = (an.none || 0) + anPending + (an.failed || 0) + anDone;
-    return {
+    return Object.assign({
       id: b.id,
       name: b.name || '',
       scope: b.scope === 'all' ? 'all' : 'team',
       teamName: b.teamName || '班组池',
       questionCount: b.questionCount || 0,
       added: !!b.added,
-      analyzing: anPending > 0,
-      analyzingText: `解析中 ${anDone}/${anTotal || b.questionCount || 0}`,
-    };
+    }, mapAnalysis(b.analysis, b.questionCount || 0));
   },
 
   /* ==================== 加入 / 移出我的题库 ==================== */

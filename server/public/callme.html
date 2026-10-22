@@ -513,7 +513,7 @@
     creating: false,
     entered: false,      // 首次加载后自动进入最近一次对话（对齐小程序 onLoad 一次性标记）
     pendingImage: null,  // base64 dataURL
-    attachments: [],     // 附件芯片 {uid, attId, sessionId, name, size, status, progress, error, icon, xhr, timer, _el, _sub}
+    attachments: [],     // 附件芯片 {uid, attId, sessionId, name, size, status, progress, error, icon, xhr, _el, _sub}
     caps: null,          // /capabilities 结果 {models:[{id,name,supports_vision,thinking_levels}], web_search}
     webSearch: false,    // 联网搜索开关（localStorage callme_web_search 记忆）
     modelId: '',         // 所选模型（localStorage callme_model_id 记忆；为空则不传）
@@ -623,17 +623,18 @@
         + '</div>';
       var inst = Shade.modal(html, { onClose: function () { finish(null); } });
       var okBtn = inst.box.querySelector('[data-a="yes"]');
-      var inputEl = document.createElement('input');
-      inputEl.className = 'input';
-      inputEl.placeholder = (input && input.placeholder) || '';
-      inputEl.value = (input && input.value) || '';
-      inputEl.maxLength = 50;
-      inst.box.querySelector('.modal-b').appendChild(inputEl);
-      inputEl.addEventListener('keydown', function (e) {
+      // 局部命名 field，避免与外层输入框 inputEl（#cmText）变量遮蔽
+      var field = document.createElement('input');
+      field.className = 'input';
+      field.placeholder = (input && input.placeholder) || '';
+      field.value = (input && input.value) || '';
+      field.maxLength = 50;
+      inst.box.querySelector('.modal-b').appendChild(field);
+      field.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); okBtn.click(); }
       });
-      setTimeout(function () { inputEl.focus(); inputEl.select(); }, 60);
-      okBtn.addEventListener('click', function () { finish(inputEl.value); inst.close(); });
+      setTimeout(function () { field.focus(); field.select(); }, 60);
+      okBtn.addEventListener('click', function () { finish(field.value); inst.close(); });
       inst.box.querySelector('[data-a="no"]').addEventListener('click', inst.close);
     });
   }
@@ -1227,7 +1228,8 @@
       var prevTop = cmBody.scrollTop;
       older.forEach(function (msg) { appendMsg(msg, first._el); });
       state.messages = older.concat(state.messages);
-      state.hasMore = !!r.data.has_more;
+      // 空 data 防护：响应无 data 视为无更早消息，不再抛错弹失败 toast
+      state.hasMore = !!(r.data && r.data.has_more);
       renderLoadEarlier();
       cmBody.scrollTop = prevTop + (cmBody.scrollHeight - prevHeight);
     } catch (e) {
@@ -1565,7 +1567,7 @@
   /* ============================================================
      附件（文档/音频，≤50MB，扩展名白名单与后端一致）：
      选择产物 → XHR 上传（upload.onprogress 进度显示在芯片上）
-     → 芯片转「解析中」→ 每 1s 轮询列表按 id 取单件状态，ready/failed 落定即停
+     → 芯片转「解析中」→ 每会话单轮询器 1s 拉一次列表按 id 落位多件状态，全部落定即停
      ============================================================ */
   var IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
   var ATT_EXTS = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'epub', 'mhtml', 'csv', 'md', 'markdown',
@@ -1603,7 +1605,7 @@
   });
 
   // 入队校验：超量 / 非白名单 / 超 50MB 均 toast 拦截
-  function addAttachmentFiles(files, icon) {
+  function addAttachmentFiles(files) {
     if (!files.length) return;
     if (!state.activeId) { Shade.toast('会话尚未就绪，请稍候'); return; }
     files.forEach(function (file) {
@@ -1616,8 +1618,8 @@
       }
       var att = {
         uid: ++attSeq, attId: '', sessionId: state.activeId, name: file.name, size: file.size,
-        status: 'uploading', progress: 0, error: '', icon: icon || 'file',
-        xhr: null, timer: null, _el: null, _sub: null,
+        status: 'uploading', progress: 0, error: '', icon: 'file',
+        xhr: null, _el: null, _sub: null,
       };
       state.attachments.push(att);
       buildAttChip(att);
@@ -1656,13 +1658,13 @@
     att._el.classList.toggle('failed', att.status === 'failed');
   }
 
-  // 移除芯片：中止上传 / 停轮询（发送成功后整批清理同走此路径）
+  // 移除芯片：中止上传 / 该会话无待解析件时停轮询（发送成功后整批清理、切换会话同走此路径）
   function removeAttachment(att) {
     if (att.xhr) { try { att.xhr.abort(); } catch (e) { /* 忽略 */ } att.xhr = null; }
-    stopAttPoll(att);
     var i = state.attachments.indexOf(att);
     if (i >= 0) state.attachments.splice(i, 1);
     if (att._el) att._el.remove();
+    stopAttPollIfIdle(att.sessionId);
     updateChipRow();
     updateSendBtn();
   }
@@ -1686,6 +1688,7 @@
     };
     xhr.onload = function () {
       att.xhr = null;
+      if (state.attachments.indexOf(att) < 0) return; // 上传期间芯片已被移除
       var json = null;
       try { json = JSON.parse(xhr.responseText); } catch (e) { /* 非 JSON 响应走默认文案 */ }
       if (json && json.code === 0 && json.data && json.data.id) {
@@ -1694,8 +1697,8 @@
         att.progress = 100;
         renderAttChip(att);
         updateSendBtn();
-        // 落定态（ready/failed）无需轮询，其余进 1s 轮询
-        if (att.status !== 'ready' && att.status !== 'failed') startAttPoll(att);
+        // 落定态（ready/failed）无需轮询，其余进该会话 1s 轮询
+        if (att.status !== 'ready' && att.status !== 'failed') startAttPoll(att.sessionId);
       } else {
         attFail(att, (json && json.message) || '上传失败（HTTP ' + xhr.status + '）');
       }
@@ -1707,33 +1710,48 @@
   function attFail(att, msg) {
     att.status = 'failed';
     att.error = msg;
-    stopAttPoll(att);
+    stopAttPollIfIdle(att.sessionId);
     renderAttChip(att);
     updateSendBtn();
   }
 
-  // 解析状态轮询（1s；列表接口按 id 取单件，ready/failed 落定即停，失败静默下轮重试）
-  function startAttPoll(att) {
-    stopAttPoll(att);
-    att.timer = setInterval(async function () {
-      if (!att.attId) { stopAttPoll(att); return; }
+  // 解析状态轮询：每会话单轮询器（sessionId → timer），tick 一次拉列表按 id 为多件落位状态；
+  // 芯片移除 / 切换会话后该会话无待解析件即停，避免多件并行各拉一份列表
+  var attPolls = {};
+  function pendingAtts(sessionId) {
+    return state.attachments.filter(function (a) {
+      return a.sessionId === sessionId && a.attId && a.status !== 'ready' && a.status !== 'failed';
+    });
+  }
+  function startAttPoll(sessionId) {
+    if (attPolls[sessionId]) return;
+    attPolls[sessionId] = setInterval(async function () {
+      var pending = pendingAtts(sessionId);
+      if (!pending.length) { stopAttPoll(sessionId); return; }
       try {
-        var r = await Shade.api('/api/v1/callme/sessions/' + encodeURIComponent(att.sessionId) + '/attachments');
+        var r = await Shade.api('/api/v1/callme/sessions/' + encodeURIComponent(sessionId) + '/attachments');
         var list = Array.isArray(r.data) ? r.data : [];
-        var found = null;
-        for (var i = 0; i < list.length; i++) {
-          if (list[i].id === att.attId) { found = list[i]; break; }
-        }
-        if (!found) return; // 列表暂未刷新出该件，下轮再查
-        att.status = found.status || att.status;
-        if (att.status === 'failed') att.error = found.error_message || '解析失败';
-        renderAttChip(att);
-        if (att.status === 'ready' || att.status === 'failed') stopAttPoll(att);
+        pending.forEach(function (att) {
+          if (state.attachments.indexOf(att) < 0) return; // 轮询期间已被移除
+          var found = null;
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].id === att.attId) { found = list[i]; break; }
+          }
+          if (!found) return; // 列表暂未刷新出该件，下轮再查
+          att.status = found.status || att.status;
+          if (att.status === 'failed') att.error = found.error_message || '解析失败';
+          renderAttChip(att);
+        });
       } catch (e) { /* 轮询失败静默，下轮重试 */ }
+      stopAttPollIfIdle(sessionId);
     }, 1000);
   }
-  function stopAttPoll(att) {
-    if (att.timer) { clearInterval(att.timer); att.timer = null; }
+  function stopAttPoll(sessionId) {
+    if (attPolls[sessionId]) { clearInterval(attPolls[sessionId]); delete attPolls[sessionId]; }
+  }
+  // 该会话已无待解析附件（全部就绪/失败或被移除）即停轮询
+  function stopAttPollIfIdle(sessionId) {
+    if (!pendingAtts(sessionId).length) stopAttPoll(sessionId);
   }
 
   /* ============================================================

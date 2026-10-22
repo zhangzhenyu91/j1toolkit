@@ -9,6 +9,7 @@ const { pool } = require('../db');
 const weknora = require('../services/weknora');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
+const { hasAppPermission } = requireApp;
 const { ok, fail } = require('../utils/resp');
 const { createSseParser } = require('../utils/sse');
 const { getFileExt, fixLatin1Name } = require('../utils/file');
@@ -25,8 +26,16 @@ const router = express.Router();
 // model_not_found（附 models:[{id,name}]）/ unsupported_file / file_too_large / upstream_error
 // （业务失败统一 HTTP 200 + ok:false；对接密钥未配置 503、密钥不等 401）
 
-// 图片校验：jpeg/png/gif/webp base64 dataURL（与 /chat images 同口径）
-const INGEST_IMAGE_RE = /^data:image\/(jpeg|png|gif|webp);base64,([A-Za-z0-9+/=\s]*)$/;
+// 图片 dataURL 校验（/chat 与 /ingest-chat 共用）：jpeg/png/gif/webp base64、解码后 ≤8MB；
+// 通过返回 null，否则返回 'format'|'size'，由各路由映射各自的错误码/契约文案
+const IMAGE_DATAURL_RE = /^data:image\/(jpeg|png|gif|webp);base64,([A-Za-z0-9+/=\s]*)$/;
+
+function checkImageDataUrl(dataUrl) {
+  const match = typeof dataUrl === 'string' && dataUrl.match(IMAGE_DATAURL_RE);
+  if (!match) return 'format';
+  if (Buffer.from(match[2], 'base64').length > 8 * 1024 * 1024) return 'size';
+  return null;
+}
 
 // 群内提问直推响应（契约形状，与统一响应结构 {code,message,data} 不同）
 function ingestOk(res, data) {
@@ -39,6 +48,13 @@ function ingestFail(res, code, message, extra) {
 
 // 模型识别：query 中「（请）使用/调用/换成/切换到/切换成 + 模型名」候选词（规则见《开发指南》第六章）
 const MODEL_HINT_RE = /(?:请)?(?:使用|调用|换成|切换到|切换成)\s*([A-Za-z0-9一-龥][A-Za-z0-9.\-_ 一-龥]{0,29})/u;
+
+// 抽取模型提示候选：仅含 ASCII 字母/数字的候选才进模型匹配——
+// 「如何使用万用表测量电阻」等纯中文普通提问不视为模型提示，避免误判 model_not_found
+function extractModelHint(query) {
+  const m = MODEL_HINT_RE.exec(query);
+  return m && /[A-Za-z0-9]/.test(m[1]) ? m[1] : null;
+}
 
 // 模型名规范化：小写并去掉空格/点/横线/下划线
 function normModelKey(s) {
@@ -92,14 +108,12 @@ router.post('/ingest-chat', async (req, res) => {
     return ingestFail(res, 'param_invalid', 'wxid / query / session_title 均为必填');
   }
 
-  // 图片：≤1 张（单字段天然 ≤1）、jpeg/png/gif/webp dataURL、解码后 ≤8MB
+  // 图片：≤1 张（单字段天然 ≤1）、jpeg/png/gif/webp dataURL、解码后 ≤8MB（校验与 /chat 共用）
   let images;
   if (body.image) {
-    const match = typeof body.image === 'string' && body.image.match(INGEST_IMAGE_RE);
-    if (!match) return ingestFail(res, 'unsupported_file', '图片格式应为 jpeg/png/gif/webp（base64 dataURL）');
-    if (Buffer.from(match[2], 'base64').length > 8 * 1024 * 1024) {
-      return ingestFail(res, 'file_too_large', '图片大小应在 8MB 以内');
-    }
+    const imgBad = checkImageDataUrl(body.image);
+    if (imgBad === 'format') return ingestFail(res, 'unsupported_file', '图片格式应为 jpeg/png/gif/webp（base64 dataURL）');
+    if (imgBad === 'size') return ingestFail(res, 'file_too_large', '图片大小应在 8MB 以内');
     images = [{ data: body.image }];
   }
 
@@ -139,14 +153,10 @@ router.post('/ingest-chat', async (req, res) => {
     }
     const user = users[0];
 
-    // Call Me 应用权限
-    const [apps] = await pool.query(
-      `SELECT a.id FROM sys_user_app ua
-       JOIN sys_app a ON a.id = ua.app_id
-       WHERE ua.user_id = ? AND a.app_key = 'call-me' AND a.status = 1`,
-      [user.id]
-    );
-    if (!apps.length) return ingestFail(res, 'no_permission', '该用户未开通 Call Me 权限');
+    // Call Me 应用权限（复用 hasAppPermission，与 requireApp 同一 SQL 口径）
+    if (!(await hasAppPermission(user.id, 'call-me'))) {
+      return ingestFail(res, 'no_permission', '该用户未开通 Call Me 权限');
+    }
 
     // 会话按名找或建（同名多个取 updated_at 最新；创建显式传 title 防 WeKnora 自动改名）
     const sres = await weknora.listSessions(user.username);
@@ -167,13 +177,13 @@ router.post('/ingest-chat', async (req, res) => {
     let modelId;
     let reasoningEffort;
     let modelUsed = null;
-    const hint = MODEL_HINT_RE.exec(query);
+    const hint = extractModelHint(query);
     if (hint) {
       const modelsRaw = await weknora.listModels(user.username);
       const modelsAll = Array.isArray(modelsRaw && modelsRaw.data) ? modelsRaw.data : [];
       // 仅 KnowledgeQA 模型可被指定/列出（与 capabilities 口径一致，避免列出不可调用模型）
       const models = modelsAll.filter((m) => m && m.type === 'KnowledgeQA');
-      const hit = matchModelByHint(hint[1], models);
+      const hit = matchModelByHint(hint, models);
       if (!hit) {
         return ingestFail(res, 'model_not_found', '未识别到可用模型', {
           models: models.map((mm) => ({ id: mm.id, name: mm.display_name || mm.name })),
@@ -678,7 +688,7 @@ router.post('/chat', async (req, res) => {
   if (reasoningEffort !== undefined && !REASONING_EFFORTS.has(reasoningEffort)) {
     return fail(res, 400, 40049, 'reasoning_effort 参数无效');
   }
-  // 图片：≤1 张、须 data:image/(jpeg|png|gif|webp);base64, 头、解码后 ≤8MB
+  // 图片：≤1 张、须 data:image/(jpeg|png|gif|webp);base64, 头、解码后 ≤8MB（校验与 /ingest-chat 共用）
   if (images !== undefined) {
     if (!Array.isArray(images) || images.length > 1) {
       return fail(res, 400, 40044, '图片最多 1 张');
@@ -686,12 +696,11 @@ router.post('/chat', async (req, res) => {
     if (images.length) {
       const item = images[0];
       const dataUrl = (item && typeof item === 'object') ? item.data : item;
-      const match = typeof dataUrl === 'string'
-        && dataUrl.match(/^data:image\/(jpeg|png|gif|webp);base64,([A-Za-z0-9+/=\s]*)$/);
-      if (!match) {
+      const imgBad = checkImageDataUrl(dataUrl);
+      if (imgBad === 'format') {
         return fail(res, 400, 40045, '图片格式应为 jpeg/png/gif/webp（base64 dataURL）');
       }
-      if (Buffer.from(match[2], 'base64').length > 8 * 1024 * 1024) {
+      if (imgBad === 'size') {
         return fail(res, 400, 40046, '图片大小应在 8MB 以内');
       }
     }

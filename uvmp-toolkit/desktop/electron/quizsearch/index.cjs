@@ -74,6 +74,7 @@ class QuizSearchService {
     this.lastHash = { A: 0, B: 0 };
     this.lastOcrMs = 0;
     this.lastTickError = '';
+    this._tickBusy = false;       // _tick 忙门闩：上一拍截屏未完不重入
     this.ocrEpoch = 0;            // 停止/重启时作废旧帧结果
     this.bankIndex = [];
     this.indexDirty = true;
@@ -407,29 +408,36 @@ class QuizSearchService {
   }
 
   async _tick() {
-    if (!this.scanning) return;
-    const active = ['A', 'B'].filter((id) => {
-      const win = this.boxWins[id];
-      return this.settings.boxes[id].visible && win && !win.isDestroyed();
-    });
-    if (active.length === 0) return;
-    // 每个涉及显示器每帧只抓一次
-    const shotCache = new Map();
-    for (const boxId of active) {
-      try {
-        const cap = await this._captureBox(boxId, shotCache);
-        if (!cap) {
-          this.lastTickError = '框' + boxId + ' 未取到屏幕画面（截屏为空）';
-          continue;
+    // 忙门闩：截屏（desktopCapturer.getSources）在弱机/大屏上可能超过扫描间隔，
+    // 未完的拍不重入，防并发抓帧互相拖慢甚至取到空画面
+    if (!this.scanning || this._tickBusy) return;
+    this._tickBusy = true;
+    try {
+      const active = ['A', 'B'].filter((id) => {
+        const win = this.boxWins[id];
+        return this.settings.boxes[id].visible && win && !win.isDestroyed();
+      });
+      if (active.length === 0) return;
+      // 每个涉及显示器每帧只抓一次
+      const shotCache = new Map();
+      for (const boxId of active) {
+        try {
+          const cap = await this._captureBox(boxId, shotCache);
+          if (!cap) {
+            this.lastTickError = '框' + boxId + ' 未取到屏幕画面（截屏为空）';
+            continue;
+          }
+          this.lastTickError = '';
+          const hash = frameHash(cap.bitmap);
+          if (hash === this.lastHash[boxId]) continue;   // 画面未变
+          this.lastHash[boxId] = hash;
+          this._queueOcr(boxId, cap.bitmap, cap.width, cap.height);
+        } catch (e) {
+          this.lastTickError = '框' + boxId + ' 截屏异常：' + String((e && e.message) || e);
         }
-        this.lastTickError = '';
-        const hash = frameHash(cap.bitmap);
-        if (hash === this.lastHash[boxId]) continue;   // 画面未变
-        this.lastHash[boxId] = hash;
-        this._queueOcr(boxId, cap.bitmap, cap.width, cap.height);
-      } catch (e) {
-        this.lastTickError = '框' + boxId + ' 截屏异常：' + String((e && e.message) || e);
       }
+    } finally {
+      this._tickBusy = false;
     }
   }
 

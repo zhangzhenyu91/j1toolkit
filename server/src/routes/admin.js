@@ -98,10 +98,12 @@ router.put('/users/:id', async (req, res, next) => {
     const teamId = hasTeam && req.body.team_id !== null && req.body.team_id !== ''
       ? Number(req.body.team_id) : null;
     const role = req.body && req.body.role;
+    // status 显式数值归一为 0/1：前端可能传字符串 "0"/"1"，按真值判定会把 "0" 误当启用
+    const statusNum = status === undefined ? undefined : (Number(status) ? 1 : 0);
 
     // 自我保护：不能禁用或降级（改为非超管）自己的账号
-    // 禁用判定与下方落库口径（status ? 1 : 0）一致：status 传了且为假值即视为禁用
-    if (targetId === req.user.id && ((status !== undefined && !status) || (role !== undefined && role !== 'admin'))) {
+    // 禁用判定与下方落库口径一致：status 归一后为 0 即视为禁用
+    if (targetId === req.user.id && ((statusNum !== undefined && statusNum === 0) || (role !== undefined && role !== 'admin'))) {
       return fail(res, 400, 40012, '不能禁用或降级自己的账号');
     }
 
@@ -116,7 +118,7 @@ router.put('/users/:id', async (req, res, next) => {
       if (teamId && !(await validTeam(teamId))) return fail(res, 400, 40015, '班组不存在或已停用');
       fields.push('team_id = ?'); params.push(teamId);
     }
-    if (status !== undefined) { fields.push('status = ?'); params.push(status ? 1 : 0); }
+    if (statusNum !== undefined) { fields.push('status = ?'); params.push(statusNum); }
     if (role !== undefined) {
       if (!ROLES.includes(role)) return fail(res, 400, 40013, '非法角色');
       fields.push('role = ?'); params.push(role);
@@ -141,7 +143,7 @@ router.put('/users/:id', async (req, res, next) => {
     params.push(targetId);
     const [r] = await pool.query(`UPDATE sys_user SET ${fields.join(', ')} WHERE id = ?`, params);
     if (!r.affectedRows) return fail(res, 404, 40401, '用户不存在');
-    if (nickname !== undefined || hasTeam || status !== undefined) syncWorklogMember(targetId);
+    if (nickname !== undefined || hasTeam || statusNum !== undefined) syncWorklogMember(targetId);
     return ok(res, null, '已保存');
   } catch (err) {
     return next(err);
@@ -204,7 +206,8 @@ router.put('/teams/:id', async (req, res, next) => {
       fields.push('name = ?'); params.push(trimmed);
     }
     if (sort !== undefined) { fields.push('sort = ?'); params.push(Number(sort) || 0); }
-    if (status !== undefined) { fields.push('status = ?'); params.push(status ? 1 : 0); }
+    // status 同员工口径显式数值归一为 0/1（字符串 "0" 不能被真值判定误当启用）
+    if (status !== undefined) { fields.push('status = ?'); params.push(Number(status) ? 1 : 0); }
     // wxid 排在最后：上方 ER_DUP_ENTRY 报错文案假定 params[0] 为 name
     if (wxid !== undefined) {
       const trimmedWxid = String(wxid || '').trim();
@@ -227,6 +230,12 @@ router.put('/teams/:id', async (req, res, next) => {
         await require('../safeday/migrate').renameTeamFolder(oldName, newName);
       } catch (err) {
         console.error('[安全日] 班组改名级联失败（请手工调整 docs 目录）：', err.message);
+      }
+      // 网盘班组名缓存失效（public 公共区按班组名建目录）；失败仅告警，不阻断保存
+      try {
+        require('../netdisk/space').invalidateTeamName(targetId);
+      } catch (err) {
+        console.error('[网盘] 班组名缓存失效失败：', err.message);
       }
     }
     return ok(res, null, '已保存');

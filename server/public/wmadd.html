@@ -511,6 +511,7 @@
     var code = genAntiCode();
     var geoKey = null;       // 「上次取值坐标」记录（手动改经纬度防抖刷新去重用，同小程序 _wmGeoKey）
     var towerPicked = false; // 已选杆塔坐标（定位结果不再覆盖；天气/地点行显「已更新」标）
+    var userEdited = false;  // 用户手填过经纬度（定位/geo 慢响应不得覆盖手填坐标）
     var geoTimer = 0;
     var saving = false;
     $('#wmCode', inst.box).textContent = code;
@@ -554,8 +555,8 @@
         refreshGeo(lng, lat, '已按经纬度更新地点、天气');
       }, 800);
     }
-    elLng.addEventListener('input', scheduleGeo);
-    elLat.addEventListener('input', scheduleGeo);
+    elLng.addEventListener('input', function () { userEdited = true; scheduleGeo(); });
+    elLat.addEventListener('input', function () { userEdited = true; scheduleGeo(); });
     /* 「选择杆塔坐标」按钮：未选显示入口文案，已选显示杆塔号 + 重选（同小程序） */
     var towerBtn = $('#wmTowerBtn', inst.box);
     function setTowerBtn(no) {
@@ -579,14 +580,14 @@
     /* 浏览器定位（WGS84→GCJ02）取经纬度并调 /geo 预填地点/天气；授权被拒或失败均留空手填（同小程序口径） */
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(function (pos) {
-        if (inst.closed || towerPicked) return;
+        if (inst.closed || towerPicked || userEdited) return;
         var g = wgs2gcj(pos.coords.longitude, pos.coords.latitude);
         var lng = g[0].toFixed(6), lat = g[1].toFixed(6);
         elLng.value = lng;
         elLat.value = lat;
         geoKey = parseFloat(lng) + ',' + parseFloat(lat);
         Shade.api('/api/v1/wmadd/geo?lng=' + lng + '&lat=' + lat).then(function (r) {
-          if (inst.closed || towerPicked) return;
+          if (inst.closed || towerPicked || userEdited) return;
           if (!elWeather.value) elWeather.value = (r.data && r.data.weather) || '';
           if (!elLoc.value) elLoc.value = (r.data && r.data.location) || '';
         }).catch(function () { /* 反查失败留空手填 */ });

@@ -7,6 +7,7 @@ const config = require('../config');
 const { pool } = require('../db');
 const { ok, fail } = require('../utils/resp');
 const auth = require('../middleware/auth');
+const { hasAppPermission } = require('../middleware/requireApp');
 const { blacklistToken } = require('../redis');
 
 const router = express.Router();
@@ -180,14 +181,8 @@ router.post('/app-login', async (req, res, next) => {
       return fail(res, 401, 40111, '账号或密码错误');
     }
 
-    // 应用权限校验（与 requireApp 中间件同一口径）
-    const [permRows] = await pool.query(
-      `SELECT a.id FROM sys_user_app ua
-       JOIN sys_app a ON a.id = ua.app_id
-       WHERE ua.user_id = ? AND a.app_key = ? AND a.status = 1`,
-      [user.id, appKey]
-    );
-    if (!permRows.length) return fail(res, 403, 40301, '暂无该应用的使用权限');
+    // 应用权限校验（复用 hasAppPermission，与 requireApp 中间件同一 SQL 口径）
+    if (!(await hasAppPermission(user.id, appKey))) return fail(res, 403, 40301, '暂无该应用的使用权限');
 
     loginFailMap.delete(ip); // 校验成功：清零该 IP 的失败计数
     return ok(res, { user: publicUser(user) });

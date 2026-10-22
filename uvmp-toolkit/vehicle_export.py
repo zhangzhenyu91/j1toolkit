@@ -737,19 +737,23 @@ def query_track_segment(client: UvmpClient, vehicle_id: str, begin: str, end: st
 # 官方渲染器不可用时必须报错引导配置浏览器，不得降级出仿制品。
 
 
-MAP_KEY_DEFAULT = "293168d750a936879db0b73ce94c43a7"   # 思极地图 appKey（车辆平台前端内置）
-MAP_SN_DEFAULT = "e718fc1d189b344fb8b9ecda66e37ed6"    # 思极地图 appSecret
-
-
-
-
 CHROME_CANDIDATES = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
                      "microsoft-edge", "microsoft-edge-stable", "chrome"]
 
 
 def find_chrome(cfg) -> str:
-    if cfg.get("chrome"):
-        return cfg["chrome"]
+    """探测渲染浏览器：优先委托 toolkit/platform_utils.detect_chrome（统一探测口径，
+    含麒麟专用浏览器与常见安装路径）；独立运行本脚本（toolkit/ 不可导入）时用本地候选回退。"""
+    preferred = (cfg.get("chrome") or "").strip()
+    try:
+        if str(SCRIPT_DIR / "toolkit") not in sys.path:
+            sys.path.insert(0, str(SCRIPT_DIR / "toolkit"))
+        import platform_utils
+        return platform_utils.detect_chrome(preferred)
+    except ImportError:
+        pass   # 无 toolkit/：独立运行场景，走下方本地候选回退
+    if preferred:
+        return preferred
     for name in CHROME_CANDIDATES:
         p = shutil.which(name)
         if p:
@@ -757,104 +761,12 @@ def find_chrome(cfg) -> str:
     raise RuntimeError("未找到 Chrome/Chromium 浏览器，请在 config.ini 的 [render] chrome= 指定路径")
 
 
-def _cdp_map_pdf(html_path: Path, pdf_path: Path, chrome: str, timeout: int = 40):
-    """通过 Chrome DevTools Protocol 渲染地图页：启动无头 Chrome 加载页面，
-    轮询页面的 window.__mapReady（地图 idle 事件置位），就绪后才 printToPDF。
-    彻底解决瓦片/轨迹未加载完全就打印的问题。需要 websocket-client 库。"""
-    import websocket  # websocket-client
-
-    prof = pdf_path.parent / ".chrome-tmp-cdp"
-    prof.mkdir(parents=True, exist_ok=True)
-    port_file = prof / "DevToolsActivePort"
-    try:
-        port_file.unlink()   # py3.7 无 missing_ok，用 try/except
-    except OSError:
-        pass
-    log_file = pdf_path.parent / ".chrome-tmp" / "last_chrome_stderr.log"
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [chrome, "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
-           "--remote-debugging-port=0", "--remote-allow-origins=*",
-           "--user-data-dir=" + str(prof),
-           "--ignore-certificate-errors", "--disable-web-security",
-           "--enable-unsafe-swiftshader", "--use-angle=swiftshader",
-           html_path.as_uri()]
-    with open(log_file, "wb") as logf:
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=logf)
-        try:
-            port = None
-            for _ in range(150):
-                if port_file.exists():
-                    try:
-                        port = int(port_file.read_text().splitlines()[0].strip())
-                        break
-                    except (ValueError, IndexError):
-                        pass
-                if proc.poll() is not None:
-                    raise RuntimeError("Chrome 提前退出（stderr 见 %s）" % log_file)
-                time.sleep(0.2)
-            if not port:
-                raise RuntimeError("未获取到 Chrome 调试端口")
-
-            import urllib.request
-            ws_url = None
-            for _ in range(100):
-                try:
-                    tabs = json.loads(urllib.request.urlopen(
-                        "http://127.0.0.1:%d/json/list" % port, timeout=2).read())
-                    for t in tabs:
-                        if t.get("type") == "page" and t.get("url", "").startswith("file:"):
-                            ws_url = t.get("webSocketDebuggerUrl")
-                            break
-                    if ws_url:
-                        break
-                except Exception:  # noqa: BLE001
-                    pass
-                time.sleep(0.2)
-            if not ws_url:
-                raise RuntimeError("未找到页面调试目标")
-
-            ws = websocket.create_connection(ws_url, timeout=120, suppress_origin=True)
-            try:
-                mid = [0]
-
-                def send(method, params=None):
-                    mid[0] += 1
-                    ws.send(json.dumps({"id": mid[0], "method": method, "params": params or {}}))
-                    while True:
-                        msg = json.loads(ws.recv())
-                        if msg.get("id") == mid[0]:
-                            return msg
-
-                send("Page.enable")
-                deadline = time.time() + timeout
-                while time.time() < deadline:
-                    r = send("Runtime.evaluate",
-                             {"expression": "window.__mapReady===true", "returnByValue": True})
-                    if ((r.get("result") or {}).get("result") or {}).get("value") is True:
-                        break
-                    time.sleep(0.5)
-                r = send("Page.printToPDF", {"preferCSSPageSize": True, "printBackground": True})
-                data = (r.get("result") or {}).get("data")
-                if not data:
-                    raise RuntimeError("printToPDF 无数据: %s" % str(r)[:200])
-                pdf_path.write_bytes(base64.b64decode(data))
-            finally:
-                ws.close()
-        finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except Exception:  # noqa: BLE001
-                proc.kill()
-
-
 def _electron_print_pdf(html_path: Path, pdf_path: Path, electron: str,
-                        budget_ms: int = 30000, wait_expr: str = ""):
+                        budget_ms: int = 30000):
     """经应用自带 Electron Chromium 渲染 PDF（离线零依赖通道）：
-    electron --no-sandbox --disable-gpu --print-to-pdf in.html out.pdf [budget] [wait_expr]
-    wait_expr 非空时按 _cdp_map_pdf 的语义轮询其为真（如 window.__mapReady===true）。"""
+    electron --no-sandbox --disable-gpu --print-to-pdf in.html out.pdf [budget]"""
     cmd = [electron, "--no-sandbox", "--disable-gpu", "--print-to-pdf",
-           str(html_path), str(pdf_path), str(budget_ms), wait_expr]
+           str(html_path), str(pdf_path), str(budget_ms)]
     r = subprocess.run(cmd, capture_output=True, timeout=max(60, budget_ms // 1000 + 30))
     if r.returncode != 0:
         raise RuntimeError("Electron 渲染失败(exit=%s): %s"
@@ -863,20 +775,19 @@ def _electron_print_pdf(html_path: Path, pdf_path: Path, electron: str,
         raise RuntimeError("Electron 渲染产物为空: %s" % pdf_path)
 
 
-def html_to_pdf(html_text: str, pdf_path: Path, chrome: str, map_page: bool = False,
+def html_to_pdf(html_text: str, pdf_path: Path, chrome: str,
                 budget: str = "", electron: str = ""):
+    """HTML 包版打印 PDF：自带 Electron 优先，回退系统 Chrome（--virtual-time-budget 定时打印）。"""
     pdf_path = pdf_path.resolve()  # as_uri() 要求绝对路径
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = pdf_path.with_suffix(".html")
     tmp.write_text(html_text, encoding="utf-8")
     err = ""
     if not budget:
-        budget = "30000" if map_page else "3000"
+        budget = "3000"
     if electron:
-        # 自带 Electron 通道：地图页给 __mapReady 等待表达式，普通页短等待
-        wait_expr = "window.__mapReady===true" if map_page else ""
         try:
-            _electron_print_pdf(tmp, pdf_path, electron, int(budget), wait_expr)
+            _electron_print_pdf(tmp, pdf_path, electron, int(budget))
             return
         except Exception as e:  # noqa: BLE001
             err = str(e)
@@ -885,30 +796,12 @@ def html_to_pdf(html_text: str, pdf_path: Path, chrome: str, map_page: bool = Fa
             print("  [提示] Electron 渲染失败（%s），回退系统 Chrome" % err)
     if not chrome:
         raise RuntimeError("无可用 PDF 渲染器（Electron 未注入且未找到 Chrome）: %s" % err)
-    if map_page:
-        # 首选 CDP 精确等待（地图 idle 后打印）；失败则退回 virtual-time-budget 方案
-        try:
-            _cdp_map_pdf(tmp, pdf_path, chrome, timeout=max(15, int(budget) // 1000 + 15))
-            if pdf_path.exists() and pdf_path.stat().st_size > 0:
-                return
-            err = "CDP 打印产物为空"
-        except Exception as e:  # noqa: BLE001
-            err = "CDP 失败(%s)，退回定时方案" % e
-            print("  [提示] %s" % err)
-    # 地图页需要 WebGL（SwiftShader 软渲染）、放宽 file:// 跨域限制、跳过内网 CA 证书校验
-    extra = (["--enable-unsafe-swiftshader", "--use-angle=swiftshader", "--disable-web-security",
-              "--ignore-certificate-errors",
-              "--user-data-dir=" + str(pdf_path.parent / ".chrome-tmp")] if map_page else [])
     for headless in ("--headless=new", "--headless"):
         cmd = [chrome, headless, "--no-sandbox", "--disable-dev-shm-usage",
                "--no-pdf-header-footer", "--virtual-time-budget=" + budget,
-               "--print-to-pdf=" + str(pdf_path)] + extra + [tmp.as_uri()]
+               "--print-to-pdf=" + str(pdf_path), tmp.as_uri()]
         try:
             r = subprocess.run(cmd, capture_output=True, timeout=300)
-            if map_page:
-                log = pdf_path.parent / ".chrome-tmp" / "last_chrome_stderr.log"
-                log.parent.mkdir(parents=True, exist_ok=True)
-                log.write_bytes(r.stderr or b"")
             if pdf_path.exists() and pdf_path.stat().st_size > 0:
                 return
             err = r.stderr.decode(errors="ignore")[-300:]
@@ -1030,7 +923,7 @@ def write_noon_end_report(rows, out_path: Path, log=print):
     log("12 点前结束行程清单：%s（%d 条）" % (Path(out_path).name, len(rows)))
 
 
-def export_pcd(client, cfg, orders, outdir: Path, chrome: str, manifest: Manifest, renderer=None):
+def export_pcd(client, orders, outdir: Path, manifest: Manifest, renderer=None):
     todo = [o for o in orders if not manifest.has("pcd", o["id"])]
     print("派车单：共 %d 单，已导出 %d 单，本次待导出 %d 单" % (len(orders), len(orders) - len(todo), len(todo)))
     files_dir = outdir / "逐单"   # 逐单文件归子目录，批次根目录留给合并总 PDF/清单
@@ -1156,6 +1049,8 @@ def main():
     ap.add_argument("--outdir", help="输出目录（默认取 config.ini）")
     ap.add_argument("--config", default=str(SCRIPT_DIR / "config.ini"), help="配置文件路径")
     ap.add_argument("--month", help="快捷参数：导出整月，如 2026-09")
+    ap.add_argument("--calibrate-noon", dest="calibrate_noon", action="store_true",
+                    help="自动校准行程结束时间：早于12点的行程按1小时逐次叠加至12点后，行驶时间同步增加")
     args = ap.parse_args()
 
     cfgp = configparser.ConfigParser()
@@ -1167,16 +1062,8 @@ def main():
         "run_state": cfg.get("run_state", "2"),
         "vehicle_state": cfg.get("vehicle_state", "04"),
         "keep_tag": cfg.get("keep_tag", "00,01"),
-        "ids_per_request": int(cfg.get("ids_per_request", 20)),
-        "merge_pcd": cfg.get("merge_pcd", "false").lower() == "true",
-        "points_table": cfg.get("points_table", "true").lower() == "true",
-        "real_map": cfg.get("real_map", "true").lower() == "true",
         "calibrate_noon": args.calibrate_noon,   # --calibrate-noon：12点前结束行程自动校准
     })
-    if cfgp.has_section("map"):
-        map_cfg = dict(cfgp.items("map"))
-        cfg["map_key"] = map_cfg.get("key", MAP_KEY_DEFAULT)
-        cfg["map_sn"] = map_cfg.get("sn", MAP_SN_DEFAULT)
     render_cfg = dict(cfgp.items("render")) if cfgp.has_section("render") else {}
     gateway = cfgp.get("gateway", "base", fallback=GATEWAY)
     if not gateway.endswith("/"):
@@ -1189,7 +1076,6 @@ def main():
         args.date_to = "%s-%02d" % (args.month, last)
     if not args.date_from or not args.date_to:
         ap.error("请用 --from/--to 或 --month 指定日期范围")
-    cfg["date_from"], cfg["date_to"] = args.date_from, args.date_to
 
     auth_mode = args.auth or (cfgp.get("auth", "mode", fallback="token") if cfgp.has_section("auth") else "token")
     auth_cfg = dict(cfgp.items("auth")) if cfgp.has_section("auth") else {}
@@ -1236,7 +1122,7 @@ def main():
             raise SystemExit("官方页面渲染器启动失败：%s\n请检查 config.ini [render] chrome= 是否指向公司指定浏览器" % e)
     try:
         if args.type in ("pcd", "all"):
-            export_pcd(client, cfg, orders, outdir, chrome, manifest, renderer)
+            export_pcd(client, orders, outdir, manifest, renderer)
         if args.type in ("track", "all"):
             export_track(client, cfg, orders, outdir, chrome, manifest, renderer)
     finally:

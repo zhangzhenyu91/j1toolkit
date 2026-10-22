@@ -178,13 +178,13 @@
     opacity: 0; visibility: hidden;
     transition: opacity .3s, visibility 0s linear .3s; /* 淡出完成后再隐藏，保住关闭过渡 */
   }
-  .mask.show { opacity: 1; visibility: visible; transition: opacity .3s; }
+  .mask.show, .mask.open { opacity: 1; visibility: visible; transition: opacity .3s; } /* 开态兼容 Shade.modal 的 .open */
   .modal {
     width: 100%; max-width: 420px; background: #fff; border: 1px solid var(--line); border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, .05);
     transform: translateY(16px) scale(.98); transition: transform .35s var(--ease);
   }
-  .mask.show .modal { transform: none; }
+  .mask.show .modal, .mask.open .modal { transform: none; }
   .modal-hd {
     display: flex; align-items: center; padding: 18px 22px 0;
     font-size: 15.5px; font-weight: 700; letter-spacing: 1px;
@@ -1113,6 +1113,7 @@
   async function selectPermUser(id) {
     if (id === permUserId) return;
     permUserId = id;
+    permDirty = false; // 切换用户清 dirty：上个用户保存期间的勾选不再补存，防止写错账号
     checkedMap = {};
     renderPermUsers();
     var u = permUsers.find(function (x) { return x.id === id; });
@@ -1121,10 +1122,12 @@
     $('#permAppList').innerHTML = '<div class="loading"><span class="spin"></span>加载中</div>';
     try {
       var r = await Shade.api('/api/v1/admin/users/' + id + '/apps');
+      if (id !== permUserId) return; // 响应期间已切换用户：丢弃过期授权，不覆盖新用户视图
       checkedMap = {};
       (r.data.app_ids || []).forEach(function (appId) { checkedMap[appId] = true; });
       renderPermApps();
     } catch (e) {
+      if (id !== permUserId) return;
       $('#permAppList').innerHTML = '<div class="empty">' + Shade.icon('warn', 44) +
         '<p>' + Shade.esc(e.message || '授权信息加载失败') + '</p></div>';
     }
@@ -1163,9 +1166,10 @@
   async function savePerms() {
     if (savingPerm) { permDirty = true; return; }
     savingPerm = true;
+    var uid = permUserId; // 快照本次保存的用户 id：保存期间切换用户时补存不串号
     var appIds = Object.keys(checkedMap).filter(function (k) { return checkedMap[k]; }).map(Number);
     try {
-      await Shade.api('/api/v1/admin/users/' + permUserId + '/apps', {
+      await Shade.api('/api/v1/admin/users/' + uid + '/apps', {
         method: 'PUT',
         body: { app_ids: appIds },
       });
@@ -1174,8 +1178,8 @@
       Shade.toast(e.message, 'error');
     } finally {
       savingPerm = false;
-      // 保存期间产生的勾选，补一次保存
-      if (permDirty) {
+      // 保存期间产生的勾选补一次保存；仍属原用户才补（切换用户时 dirty 已清，双保险防误写他人权限）
+      if (permDirty && uid === permUserId) {
         permDirty = false;
         savePerms();
       }

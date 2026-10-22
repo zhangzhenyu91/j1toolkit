@@ -159,7 +159,7 @@ def sso_credentials(cfg: dict):
     return username, password
 
 
-def ve_cfg(cfg: dict, date_from: str = "", date_to: str = "") -> dict:
+def ve_cfg(cfg: dict) -> dict:
     """构造 vehicle_export.py 业务函数期望的 cfg 字典（与 ve.main 的解析口径一致）"""
     ini = cfg.get("_ini") or {}
     exp = dict(ini.get("export") or {})
@@ -169,22 +169,12 @@ def ve_cfg(cfg: dict, date_from: str = "", date_to: str = "") -> dict:
         "run_state": exp.get("run_state", "2"),
         "vehicle_state": exp.get("vehicle_state", "04"),
         "keep_tag": exp.get("keep_tag", "00,01"),
-        "ids_per_request": int(exp.get("ids_per_request", 20)),
-        "merge_pcd": str(exp.get("merge_pcd", "false")).lower() == "true",
-        "points_table": str(exp.get("points_table", "true")).lower() == "true",
-        "real_map": str(exp.get("real_map", "true")).lower() == "true",
         "map_tiles_wait": exp.get("map_tiles_wait", "12000"),
         "map_idle_quiet": exp.get("map_idle_quiet", "5000"),
         "map_min_wait": exp.get("map_min_wait", "30000"),
         "pcd_render_wait": exp.get("pcd_render_wait", "6000"),
-        "map_budget": exp.get("map_budget", "60000"),
         "track_render": exp.get("track_render", "official"),
     })
-    map_cfg = ini.get("map") or {}
-    import vehicle_export as ve
-    out["map_key"] = map_cfg.get("key", ve.MAP_KEY_DEFAULT)
-    out["map_sn"] = map_cfg.get("sn", ve.MAP_SN_DEFAULT)
-    out["date_from"], out["date_to"] = date_from, date_to
     return out
 
 

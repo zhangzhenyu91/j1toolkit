@@ -92,9 +92,6 @@
     "backgroundColor": "#F5F7FA",
     "backgroundTextStyle": "dark"
   },
-  "networkTimeout": {
-    "request": 120000
-  },
   "style": "v2",
   "lazyCodeLoading": "requiredComponents",
   "permission": {

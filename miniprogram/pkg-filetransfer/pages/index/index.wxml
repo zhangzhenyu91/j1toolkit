@@ -208,7 +208,7 @@
             <t-icon name="folder-import" size="32rpx" color="{{savingNd === item.name ? 'rgba(29,33,41,.35)' : '#0E3DA8'}}" />
           </view>
           <!-- 删除小标（catchtap 拦截，不触发勾选） -->
-          <view class="fdel" hover-class="hover-opacity" data-name="{{item.name}}" data-index="{{index}}"
+          <view class="fdel" hover-class="hover-opacity" data-name="{{item.name}}"
                 catchtap="onDeleteFile">
             <t-icon name="delete" size="32rpx" color="#F53F3F" />
           </view>

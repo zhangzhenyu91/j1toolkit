@@ -32,7 +32,7 @@
 | 层 | 选型 |
 |----|------|
 | 前端 | 微信小程序原生 + tdesign-miniprogram 组件库；网页端原生 HTML/JS（`server/public/`，同一套 token） |
-| 后端 | Node.js（云服务器 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建多架构镜像，推腾讯云 TCR 并复制到 CNB 制品库；本机开发 `npm run dev`） |
+| 后端 | Node.js（云服务器 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建多架构镜像推 GHCR + Docker Hub，CNB 国内重建同版镜像推腾讯云 TCR + CNB 制品库；本机开发 `npm run dev`） |
 | 存储 | MySQL（业务数据）/ Redis（会话、缓存）/ 腾讯云 COS（文件） |
 | 鉴权 | JWT + Redis（详见 `开发指南.md` 第二章） |
 

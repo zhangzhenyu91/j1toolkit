@@ -1,6 +1,6 @@
 // 安全日活动记录路由（自 SafeDayLogs 独立服务合并而来，业务逻辑与请求/响应形状保持同构：
 // 响应仍为 { ok, error, ... }，非主平台 {code,message,data} 信封）
-// 鉴权：/callback 凭 SAFEDAY_CALLBACK_TOKEN 校验（不做登录）；其余接口需登录 + safe-day 应用权限
+// 鉴权：/callback 凭 SAFEDAY_CALLBACK_TOKEN 校验（不做登录；fail-closed——token 未配置或不符一律 403）；其余接口需登录 + safe-day 应用权限
 // 班组隔离：记录带 team 字段（班组名），产物存 docs/{班组名}/ 子目录；超管可 ?team_id= 指定或 all 全部
 // 生成链路（新）：学习文件合并后传 COS 拿公网 URL，以 string 变量（url/date/class）调 Dify 工作流；
 // 工作流只产出三段文字并经 /callback 回传 → 后端套模板渲染 docx 落盘（render.js），不再经 DOCX-MCP；
@@ -31,6 +31,11 @@ const DOCS_DIR = path.join(DATA_DIR, 'docs');
 // 初始化：确保记录与产物目录存在
 for (const dir of [DATA_DIR, DOCS_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+// 缺配启动告警：回调 fail-closed，未配置 SAFEDAY_CALLBACK_TOKEN 时 /callback 一律 403（Dify 工作流无法回传结果）
+if (!config.safeday.callbackToken) {
+  console.warn('[安全日] 未配置 SAFEDAY_CALLBACK_TOKEN：/callback 回调将一律拒绝（403），生成结果无法回写，请在环境变量中配置');
 }
 
 const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
@@ -101,14 +106,18 @@ async function deleteSourceFromCos(record) {
   }
 }
 
-// Dify 工作流结束回调：不做登录鉴权，凭 SAFEDAY_CALLBACK_TOKEN 校验
-// （token 未配置时不校验，与原 CALLBACK_TOKEN 行为一致；须挂在登录门控之前）
+// Dify 工作流结束回调：不做登录鉴权，凭 SAFEDAY_CALLBACK_TOKEN 校验（fail-closed：token 未配置或不符
+// 均 403，杜绝免鉴权回调；须挂在登录门控之前）
 // 新链路：工作流末尾 HTTP 节点回传三段文字（activity_content 活动内容 / recap_analysis 结合本次内容复盘分析 /
 // job_analysis 结合实际岗位剖析内容）+ date + class，后端套模板渲染 docx 落盘 docs/{班组}/YYYY.MM.DD.docx；
 // 未带文字内容时按旧口径仅做文件存在性终判（兼容存量工作流）
 router.post('/callback', async (req, res) => {
+  // fail-closed：token 未配置或与请求不符均 403
   const token = config.safeday.callbackToken;
-  if (token && req.query.token !== token) {
+  if (!token) {
+    return res.status(403).json({ ok: false, error: '回调 token 未配置，回调不可用' });
+  }
+  if (req.query.token !== token) {
     return res.status(403).json({ ok: false, error: '回调 token 校验失败' });
   }
   try {

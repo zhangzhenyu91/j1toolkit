@@ -5,6 +5,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
+import { teamQuery as teamQueryOf, teamBody as teamBodyOf } from '../../../utils/teamgate';
 
 // 分段配置：接口路径段 / 名称 / 行图标 / 添加占位
 const SEGMENTS = [
@@ -48,14 +49,14 @@ Page({
     this.loadTowerCount();
   },
 
-  // 生效班组 query 片段（lead 为前导连接符；无选中班组则不携带）
+  // 生效班组 query 片段（lead 为前导连接符；无选中班组则不携带；实现收编 utils/teamgate 公共工具）
   teamQuery(lead) {
-    return this._teamId ? `${lead || '&'}team_id=${this._teamId}` : '';
+    return teamQueryOf(this._teamId, lead);
   },
 
   // 生效班组 body 注入（POST/PUT JSON 用，口径同 teamQuery）
   teamBody(data) {
-    return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
+    return teamBodyOf(data, this._teamId);
   },
 
   toast(message) {

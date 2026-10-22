@@ -42,7 +42,8 @@
      本次 Esc，不再关弹层）——如 worklog 大图层需先于弹层响应 Esc
    Shade.mHead(title)         → 弹层标题行 HTML（标题 + 右上角 .m-x 关闭钮，Shade.modal 内自动绑定关闭）
    Shade.confirm(opts)        → 通用确认弹层（叠层）：opts: { title, content, confirmText, danger }；
-     返回 Promise<boolean>，遮罩 / Esc / 取消均视为否（.m-head/.m-foot 等样式由各页 CSS 提供）
+     返回 Promise<boolean>，遮罩 / Esc / 取消均视为否（.m-head/.m-foot 等样式由各页 CSS 提供）；
+     确认钮 danger 用 btn-danger，否则品牌主按钮 btn-primary
    Shade.moveTabInd(tab, ind, instant) → 页签滑动指示条跟随：tab 为当前激活页签元素（null 时收起
      指示条），ind 为指示条元素；instant=true 首帧/窗口缩放直接落位，避免从左侧滑入的残影
    Shade.renderNoTeam(el)     → 「未分配班组」整页空态提示卡：填充 el（占位容器，初始 hidden）并显示；
@@ -59,8 +60,11 @@
    Shade.reveal()             → 给页面中未处理的 .rv 元素挂 IntersectionObserver，进入视口加 .in
    Shade.esc(html)            → HTML 转义，防注入
    Shade.fmtDate(d, withTime) → 'YYYY-MM-DD' 或 'YYYY-MM-DD HH:mm'；d 可为 Date/时间戳/字符串，缺省当前时间
+   Shade.fmtKv(v)           → 电压字段展示：纯数字补 kV（如 110 → '110kV'），空值 '—'，其余（已带单位等）原样
+   Shade.openPreviewUrl(url) → 打开预览/下载地址：站内（相对路径或同域）当前窗口跳转，站外（COS 预签名等跨域）新标签打开
+   Shade.beianHtml()        → 备案两条链接 HTML（工信部 + 公安备案），自放备案的页面（如登录页）复用同一段
 
-   加载即自动执行：向 body 末尾注入备案页脚 <footer class="beian-foot">（工信部 + 公安备案两条链接，
+   加载即自动执行：向 body 末尾注入备案页脚 <footer class="beian-foot">（内容取 Shade.beianHtml()，
    样式见 theme.css；body 为 flex 纵列，页脚随之沉底；已存在 .beian-foot 时跳过不重复注入；
    body 带 data-beian="off" 属性时整页跳过注入，由页面自放备案链接，如登录页置于表单块底部）
    ============================================================ */
@@ -192,6 +196,12 @@
     return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'team_id=' + teamId;
   }
 
+  // 备案两条链接 HTML（工信部 + 公安备案）：全局页脚与自放备案的页面（如登录页 data-beian="off"）共用同一段
+  function beianHtml() {
+    return '<a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>' +
+      '<a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener"><img src="/public-security.png" alt="公安备案">晋公网安备14118202000050号</a>';
+  }
+
   // 统一备案页脚：注入为 body 末尾 flex item（样式 theme.css .beian-foot）；
   // body 带 data-beian="off" 时跳过（页面自行放置），已存在 .beian-foot 时跳过
   function beianFooter() {
@@ -199,9 +209,7 @@
     if (document.querySelector('.beian-foot')) return;
     var foot = document.createElement('footer');
     foot.className = 'beian-foot';
-    foot.innerHTML =
-      '<a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>' +
-      '<a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener"><img src="/public-security.png" alt="公安备案">晋公网安备14118202000050号</a>';
+    foot.innerHTML = beianHtml();
     document.body.appendChild(foot);
   }
   if (document.body) beianFooter();
@@ -392,7 +400,8 @@
   });
 
   /* 通用确认弹层（叠层）：opts: { title, content, confirmText, danger }；返回 Promise<boolean>，
-     遮罩 / Esc / 取消均视为否；.m-head/.m-foot 样式由各页 CSS 提供 */
+     遮罩 / Esc / 取消均视为否；确认钮 danger 用 btn-danger，否则品牌主按钮 btn-primary；
+     .m-head/.m-foot 样式由各页 CSS 提供 */
   function confirm(opts) {
     return new Promise(function (resolve) {
       var done = false;
@@ -400,7 +409,7 @@
       var html = mHead(opts.title)
         + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
         + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-        + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-accent') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
+        + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-primary') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
       var inst = modal(html, { width: 420, onClose: function () { finish(false); } });
       $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
       $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
@@ -607,6 +616,27 @@
     return s;
   }
 
+  // 电压字段展示：纯数字补 kV（如 110 → '110kV'，'35.5' → '35.5kV'），空值 '—'，其余（已带单位 / 文字等）原样
+  function fmtKv(v) {
+    if (v === null || v === undefined) return '—';
+    const s = String(v).trim();
+    if (!s) return '—';
+    return /^\d+(?:\.\d+)?$/.test(s) ? s + 'kV' : String(v);
+  }
+
+  // 打开预览 / 下载地址：站内（相对路径或同域）当前窗口跳转，站外（COS 预签名等跨域地址）新标签打开
+  function openPreviewUrl(url) {
+    if (!url) return;
+    const href = String(url);
+    try {
+      if (new URL(href, location.href).origin !== location.origin) {
+        window.open(href, '_blank', 'noopener');
+        return;
+      }
+    } catch (e) { /* URL 解析失败按站内当前窗口处理 */ }
+    location.href = href;
+  }
+
   window.Shade = Object.assign(window.Shade || {}, {
     api: api,
     apiRaw: apiRaw,
@@ -622,6 +652,9 @@
     reveal: reveal,
     esc: esc,
     fmtDate: fmtDate,
+    fmtKv: fmtKv,
+    openPreviewUrl: openPreviewUrl,
+    beianHtml: beianHtml,
     dropdown: dropdown,
     modal: modal,
     mHead: mHead,

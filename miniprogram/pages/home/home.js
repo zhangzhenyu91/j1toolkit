@@ -46,25 +46,37 @@ Page({
       today: `${now.getMonth() + 1}月${now.getDate()}日`,
       weekday: WEEKDAYS[now.getDay()],
     });
+    this.bootGate();
+  },
 
-    // 已有 token（如刚从登录页跳转来）直接放行；
-    // 否则等待启动自检（token 校验 + 静默微信登录）结果
+  // 自动登录门控：等启动自检（token 校验 + 静默续期）完成后按本地 token 判定再进首页——
+  // 避免拿过期 token 抢跑请求、与静默续期竞态。ready 的结果可能是登录前定下的（如刚从登录页跳转来），
+  // 不直接采信，以本地 token 为准，保留登录后回首页通路
+  async bootGate() {
+    const ready = getApp().globalData.ready;
+    if (ready && typeof ready.then === 'function') {
+      try {
+        await ready;
+      } catch (e) {
+        // 启动自检自身已容错，这里仅等待其完成，不据此放行/拦截
+      }
+    }
     if (wx.getStorageSync('token')) {
       this.passGate();
       return;
     }
-    getApp().globalData.ready.then((authed) => {
-      if (authed) {
-        this.passGate();
-        return;
-      }
-      wx.reLaunch({ url: '/pages/login/login' });
-    });
+    wx.reLaunch({ url: '/pages/login/login' });
   },
 
   passGate() {
     if (this.data.gate) return;
     this.setData({ gate: true });
+    // 首个 onShow 可能先于门控到达（已记 _shown）也可能后到：两种顺序都只首拉一次，之后 onShow 才刷新
+    if (this._shown) this.refresh();
+  },
+
+  // 首页数据统一拉取（用户信息 / 应用宫格 / 商旅绑定 / 消息通知）
+  refresh() {
     this.loadProfile();
     this.loadApps();
     this.loadSgccStatus();
@@ -72,12 +84,9 @@ Page({
   },
 
   onShow() {
-    if (this.data.gate) {
-      this.loadProfile();
-      this.loadApps();
-      this.loadSgccStatus();
-      this.loadNotices();
-    }
+    this._shown = true;
+    if (!this.data.gate) return; // 门控未过（含启动自检未完成）：首拉由 passGate 负责
+    this.refresh();
   },
 
   toast(message) {
@@ -280,7 +289,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v1.13.1 \n 应用权限申请联系 zzy',
+      content: '版本号：v1.14.0 \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },

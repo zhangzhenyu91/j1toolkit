@@ -4,7 +4,7 @@ name: 补跑发布段
 # （产物已齐：客户端安装包在 GitHub Release、服务端镜像在 Docker Hub），
 # 不必重跑构建——手动 Run workflow 并填写 tag 即可只补跑发布段。
 # 内容需与 release.yml 的发布段保持一致（改一边要同步另一边）。
-# Gitee Release 附件回传在 CNB 侧（.cnb.yml「回传 Gitee Release」流水线），此处不管。
+# CNB Release 附件接力在 CNB 侧（.cnb.yml「上传 Release 附件」流水线），此处不管。
 # 注意：用 inputs.tag 而非分支/标签下拉选择 ref——workflow 文件始终读 main 最新版，
 # 避免「tag 上固化着旧版发布逻辑」的回旋镖（已踩坑）。
 

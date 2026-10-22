@@ -13,6 +13,7 @@ import { BASE_URL } from '../../../config';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { fmtSize, extOf } from '../../../utils/util';
+import { teamQuery as teamQueryOf, teamBody as teamBodyOf } from '../../../utils/teamgate';
 import { utf8Buffer, concatBuffers } from '../../../utils/multipart';
 
 const MAX_FILES = 20; // 与服务端 multer files 上限一致
@@ -151,13 +152,14 @@ Page({
     Toast({ context: this, selector: '#t-toast', message });
   },
 
-  // 生效班组 query / body 注入（仅超管 _teamId>0 时携带，其余角色后端强制本班；口径同主页）
+  // 生效班组 query / body 注入（仅超管 _teamId>0 时携带，其余角色后端强制本班；实现收编 utils/teamgate 公共工具）；
+  // 本页 URL 均无其他查询参数，前导固定 '?'
   teamQuery() {
-    return this._teamId ? `?team_id=${this._teamId}` : '';
+    return teamQueryOf(this._teamId, '?');
   },
 
   teamBody(data) {
-    return this._teamId ? Object.assign({}, data, { team_id: this._teamId }) : data;
+    return teamBodyOf(data, this._teamId);
   },
 
   /* ==================== 每日自动同步派车单开关（按生效班组；开启/关闭次日起按排程执行） ==================== */

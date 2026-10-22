@@ -500,13 +500,6 @@ async function dictMove(item, dir) {
 
 /* ================= 杆塔信息段（原「运维线路信息」改名；线路表格 + 杆塔坐标模板下载 / Excel 导入，
    坐标供出工日志加水印照片、商旅打卡带入定位使用） ================= */
-/* 电压等级幂等显示：纯数字拼 kV、已含 kV 原样（导入数据两种形态并存；运维线路段同用） */
-function fmtVoltage(v) {
-  v = String(v == null ? '' : v).trim();
-  if (!v) return '—';
-  if (/kv$/i.test(v)) return v;
-  return /^\d+(\.\d+)?$/.test(v) ? v + 'kV' : v;
-}
 async function loadLines() {
   var body = $('#linesBody');
   body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
@@ -533,7 +526,7 @@ function renderLines() {
       + '<th class="lc-v">电压等级</th><th>线路名称</th><th class="lc-c">杆塔数</th>'
       + '</tr></thead><tbody>'
       + state.lines.map(function (l) {
-        return '<tr><td class="lc-v">' + esc(fmtVoltage(l.voltage_level)) + '</td>'
+        return '<tr><td class="lc-v">' + esc(Shade.fmtKv(l.voltage_level)) + '</td>'
           + '<td>' + esc(l.line_name || '—') + '</td>'
           + '<td class="lc-c lc-n">' + (l.tower_count == null ? 0 : l.tower_count) + '</td></tr>';
       }).join('')
@@ -550,11 +543,32 @@ function renderLines() {
     + '</div>';
 }
 
-/* 杆塔模板下载：xlsx 二进制，apiRaw + saveBlob 落地（口径同出工日志杆塔模板） */
-async function downloadTowerTpl(btn) {
+/* 杆塔 / 运维线路 模板下载与 Excel 导入共用参数（两段仅路径、文件名、确认文案与完成后刷新不同） */
+var EXCEL_SEGS = {
+  towers: {
+    tplPath: '/api/v1/teamdata/towers/template',
+    impPath: '/api/v1/teamdata/towers/import',
+    tplName: '杆塔坐标导入模板.xlsx',
+    confirmTitle: '导入杆塔坐标',
+    confirmContent: '导入将全量替换本班组杆塔坐标数据，确定继续吗？',
+    reload: loadLines
+  },
+  oplines: {
+    tplPath: '/api/v1/teamdata/oplines/template',
+    impPath: '/api/v1/teamdata/oplines/import',
+    tplName: '运维线路导入模板.xlsx',
+    confirmTitle: '导入运维线路',
+    confirmContent: '导入将全量替换本班组运维线路，确定继续吗？',
+    reload: loadOplines
+  }
+};
+
+/* 模板下载（两段共用）：xlsx 二进制，apiRaw + saveBlob 落地（口径同出工日志杆塔模板） */
+async function downloadExcelTpl(btn, seg) {
+  var cfg = EXCEL_SEGS[seg];
   btn.disabled = true;
   try {
-    var res = await Shade.apiRaw(td('/api/v1/teamdata/towers/template'));
+    var res = await Shade.apiRaw(td(cfg.tplPath));
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
@@ -562,18 +576,19 @@ async function downloadTowerTpl(btn) {
       err.code = ej && ej.code;
       throw err;
     }
-    await Shade.saveBlob(res, '杆塔坐标导入模板.xlsx');
+    await Shade.saveBlob(res, cfg.tplName);
   } catch (e) {
     if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
   }
   btn.disabled = false;
 }
 
-/* 杆塔导入：先确认「全量替换本班组杆塔坐标数据」→ FormData（file + team_id）POST → toast 后端 message → 刷新线路 */
-async function importTowers(f) {
+/* Excel 导入（两段共用）：先确认「全量替换」→ FormData（file + team_id）POST → toast 后端 message → 刷新本段 */
+async function importExcel(f, seg) {
+  var cfg = EXCEL_SEGS[seg];
   var yes = await Shade.confirm({
-    title: '导入杆塔坐标',
-    content: '导入将全量替换本班组杆塔坐标数据，确定继续吗？',
+    title: cfg.confirmTitle,
+    content: cfg.confirmContent,
     confirmText: '导入'
   });
   if (!yes) return;
@@ -582,7 +597,7 @@ async function importTowers(f) {
   if (state.teamId) fd.append('team_id', String(state.teamId));
   var wait = Shade.modal('<div class="loading"><span class="spin"></span>正在导入…</div>', { width: 280 });
   try {
-    var res = await Shade.apiRaw(td('/api/v1/teamdata/towers/import'), { method: 'POST', body: fd });
+    var res = await Shade.apiRaw(td(cfg.impPath), { method: 'POST', body: fd });
     var j = null;
     try { j = await res.json(); } catch (e) { }
     if (!res.ok || !j || j.code !== 0) {
@@ -593,11 +608,23 @@ async function importTowers(f) {
     wait.close();
     var skipped = j.data && j.data.skipped;
     Shade.toast((j.message || '导入完成') + (skipped ? '（跳过 ' + skipped + ' 行）' : ''), 'success');
-    await loadLines();
+    await cfg.reload();
   } catch (e) {
     wait.close();
     if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
   }
+}
+
+/* 导入文件选择（两段共用，前端先校验扩展名与大小）：选完即清空以便重复选择同名文件 */
+function bindExcelInput(inputId, seg) {
+  $(inputId).addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    this.value = '';
+    if (!f) return;
+    if (!/\.xlsx$/i.test(f.name)) { Shade.toast('仅支持 .xlsx 文件，请使用模板填写', 'info'); return; }
+    if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
+    importExcel(f, seg);
+  });
 }
 
 /* ================= 运维线路段（/oplines 线路字典：顶部双输入即添加；行内 编辑 / 删除 / 上移 / 下移；
@@ -617,11 +644,11 @@ async function loadOplines() {
   renderOplines();
 }
 
-/* 行渲染：电压等级（幂等显示 fmtVoltage）+ 线路名称 + 操作（上移/下移·编辑·删除） */
+/* 行渲染：电压等级（幂等显示 Shade.fmtKv）+ 线路名称 + 操作（上移/下移·编辑·删除） */
 function oplRowHtml(it, idx, total) {
   return '<div class="drow" data-oid="' + it.id + '" data-voltage="' + esc(it.voltage_level || '') +
     '" data-name="' + esc(it.line_name || '') + '">' +
-    '<span class="olv">' + esc(fmtVoltage(it.voltage_level)) + '</span>' +
+    '<span class="olv">' + esc(Shade.fmtKv(it.voltage_level)) + '</span>' +
     '<span class="dn">' + esc(it.line_name || '—') + '</span>' +
     '<span class="dops">' +
       (idx > 0 ? '<button class="linkbtn" data-oact="up">上移</button>' : '') +
@@ -655,7 +682,7 @@ function renderOplines() {
     + '</div>';
 }
 
-/* 添加（电压等级 + 线路名称双输入；电压等级原样入库，显示侧 fmtVoltage 幂等拼 kV） */
+/* 添加（电压等级 + 线路名称双输入；电压等级原样入库，显示侧 Shade.fmtKv 幂等拼 kV） */
 async function oplAdd(btn) {
   var voltEl = $('#oplVolt'), nameEl = $('#oplName');
   var volt = voltEl ? voltEl.value.trim() : '';
@@ -717,7 +744,7 @@ function oplEdit(item) {
 async function oplDelete(item) {
   var yes = await Shade.confirm({
     title: '删除运维线路',
-    content: '删除后不可恢复，确定删除「' + fmtVoltage(item.voltage_level) + ' ' + (item.line_name || '') + '」吗？',
+    content: '删除后不可恢复，确定删除「' + Shade.fmtKv(item.voltage_level) + ' ' + (item.line_name || '') + '」吗？',
     confirmText: '删除',
     danger: true
   });
@@ -740,56 +767,6 @@ async function oplMove(item, dir) {
     });
     await loadOplines();
   } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-}
-
-/* 运维线路模板下载：xlsx 二进制，apiRaw + saveBlob 落地（同杆塔模板口径） */
-async function downloadOplTpl(btn) {
-  btn.disabled = true;
-  try {
-    var res = await Shade.apiRaw(td('/api/v1/teamdata/oplines/template'));
-    if (!res.ok) {
-      var ej = null;
-      try { ej = await res.json(); } catch (e) { }
-      var err = new Error((ej && ej.message) || ('模板下载失败（' + res.status + '）'));
-      err.code = ej && ej.code;
-      throw err;
-    }
-    await Shade.saveBlob(res, '运维线路导入模板.xlsx');
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-  btn.disabled = false;
-}
-
-/* 运维线路导入：先确认「全量替换本班组运维线路」→ FormData（file + team_id）POST → toast 后端 message → 刷新列表 */
-async function importOplines(f) {
-  var yes = await Shade.confirm({
-    title: '导入运维线路',
-    content: '导入将全量替换本班组运维线路，确定继续吗？',
-    confirmText: '导入'
-  });
-  if (!yes) return;
-  var fd = new FormData();
-  fd.append('file', f, f.name);
-  if (state.teamId) fd.append('team_id', String(state.teamId));
-  var wait = Shade.modal('<div class="loading"><span class="spin"></span>正在导入…</div>', { width: 280 });
-  try {
-    var res = await Shade.apiRaw(td('/api/v1/teamdata/oplines/import'), { method: 'POST', body: fd });
-    var j = null;
-    try { j = await res.json(); } catch (e) { }
-    if (!res.ok || !j || j.code !== 0) {
-      var err = new Error((j && j.message) || ('导入失败（' + res.status + '）'));
-      err.code = j && j.code;
-      throw err;
-    }
-    wait.close();
-    var skipped = j.data && j.data.skipped;
-    Shade.toast((j.message || '导入完成') + (skipped ? '（跳过 ' + skipped + ' 行）' : ''), 'success');
-    await loadOplines();
-  } catch (e) {
-    wait.close();
     if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
   }
 }
@@ -1178,7 +1155,7 @@ function initEvents() {
   $('#linesBody').addEventListener('click', function (e) {
     var btn = e.target.closest('[data-lact]');
     if (!btn) return;
-    if (btn.dataset.lact === 'tpl') downloadTowerTpl(btn);
+    if (btn.dataset.lact === 'tpl') downloadExcelTpl(btn, 'towers');
     else if (btn.dataset.lact === 'imp') $('#impFileInput').click();
     else if (btn.dataset.lact === 'reload') loadLines();
   });
@@ -1206,7 +1183,7 @@ function initEvents() {
     var btn = e.target.closest('[data-oact]');
     if (!btn) return;
     var act = btn.dataset.oact;
-    if (act === 'tpl') { downloadOplTpl(btn); return; }
+    if (act === 'tpl') { downloadExcelTpl(btn, 'oplines'); return; }
     if (act === 'imp') { $('#impOplFileInput').click(); return; }
     if (act === 'reload') { loadOplines(); return; }
     var row = btn.closest('[data-oid]');
@@ -1223,24 +1200,9 @@ function initEvents() {
     var input = e.target.closest ? e.target.closest('#oplAdd .dadd-in') : null;
     if (input) oplAdd($('[data-oadd]', $('#oplAdd')));
   });
-  /* 运维线路导入文件选择（前端先校验扩展名与大小） */
-  $('#impOplFileInput').addEventListener('change', function () {
-    var f = this.files && this.files[0];
-    this.value = '';
-    if (!f) return;
-    if (!/\.xlsx$/i.test(f.name)) { Shade.toast('仅支持 .xlsx 文件，请使用模板填写', 'info'); return; }
-    if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
-    importOplines(f);
-  });
-  /* 杆塔导入文件选择（前端先校验扩展名与大小） */
-  $('#impFileInput').addEventListener('change', function () {
-    var f = this.files && this.files[0];
-    this.value = '';
-    if (!f) return;
-    if (!/\.xlsx$/i.test(f.name)) { Shade.toast('仅支持 .xlsx 文件，请使用模板填写', 'info'); return; }
-    if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
-    importTowers(f);
-  });
+  /* 杆塔 / 运维线路导入文件选择（校验共用 bindExcelInput） */
+  bindExcelInput('#impFileInput', 'towers');
+  bindExcelInput('#impOplFileInput', 'oplines');
 }
 
 /* ================= 班组切换后整页重载 ================= */

@@ -399,7 +399,9 @@ Page({
   },
 
   // 加载更早消息（before_time 分页；加载后滚动位置锚定在原首条）
+  // 流式期间直接返回：此时往列表头部插旧消息，SSE 仍按发送时的下标回写会错位到别的气泡
   async loadEarlier() {
+    if (this.data.sending) return;
     if (this._loadingEarlier || !this.data.hasMore) return;
     const first = this.data.messages[0];
     if (!first || !first.createdAt) return;

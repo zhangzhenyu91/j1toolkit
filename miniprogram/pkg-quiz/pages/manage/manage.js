@@ -9,6 +9,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
+import { mapAnalysis } from '../../../utils/quiz';
 
 const API_BASE = '/api/v1/quiz';
 const POLL_INTERVAL = 5000; // 有解析中题库时按 5s 轮询（同 safeday 口径）
@@ -104,31 +105,24 @@ Page({
     }
   },
 
-  // 题库 → 展示结构（scope 范围标签；解析状态：解析完成 / 解析中 x/y / 待解析·失败可续跑）
+  // 题库 → 展示结构（scope 范围标签；解析状态：解析完成 / 解析中 x/y / 待解析·失败可续跑；
+  // 解析计数收敛 utils/quiz mapAnalysis，anPct/anFinished/anRetryable 为管理页特有字段）
   mapBank(b) {
-    const an = b.analysis || {};
-    const anDone = an.done || 0;
-    const anPending = an.pending || 0;
-    const anFailed = an.failed || 0;
-    const anNone = an.none || 0;
-    const anTotal = anNone + anPending + anFailed + anDone;
-    return {
+    const an = mapAnalysis(b.analysis, b.questionCount || 0);
+    return Object.assign({
       id: b.id,
       name: b.name || '',
       description: b.description || '',
       scope: b.scope === 'all' ? 'all' : 'team',
       teamName: b.teamName || '',
       questionCount: b.questionCount || 0,
-      analyzing: anPending > 0,
-      anDone,
-      anFailed,
-      anTotal,
-      anPct: anTotal ? Math.round((anDone / anTotal) * 100) : 0,
+    }, an, {
+      anPct: an.anTotal ? Math.round((an.anDone / an.anTotal) * 100) : 0,
       // 解析完成：无排队无失败且有已生成解析
-      anFinished: anPending === 0 && anFailed === 0 && anDone > 0,
+      anFinished: an.anPending === 0 && an.anFailed === 0 && an.anDone > 0,
       // 可续跑：不在解析中且有失败/待解析题（服务重启后 pending 自愈回退 none，经此入口续跑）
-      anRetryable: anPending === 0 && (anFailed + anNone) > 0,
-    };
+      anRetryable: an.anPending === 0 && (an.anFailed + an.anNone) > 0,
+    });
   },
 
   /* ==================== 新建 / 编辑题库弹层 ==================== */

@@ -11,7 +11,7 @@
 # 2026-10-06 v1.0.2 镜像实证）；Node ≥22（OpenSSL ≥3.2，内置隐式拒绝缓解）安全且可用
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app/server
-# ACR 国内构建机走 npmmirror 更快；可在构建参数覆盖（--build-arg NPM_REGISTRY=...）
+# CNB 国内构建机走 npmmirror 更快；可在构建参数覆盖（--build-arg NPM_REGISTRY=...）
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 COPY server/package.json server/package-lock.json ./
 RUN npm config set registry "$NPM_REGISTRY" \

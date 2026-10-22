@@ -103,7 +103,8 @@ const config = {
     // 安全日活动记录默认上级参加人员（留空则由用户手填）
     defaultSuperior: str('SAFEDAY_DEFAULT_SUPERIOR'),
     difyKey: str('DIFY_SAFEDAY_API_KEY'),
-    // Dify 回调 token：留空则回调不做 token 校验（与原 CALLBACK_TOKEN 行为一致）
+    // Dify 回调 token（必配）：回调接口凭 ?token= 校验且 fail-closed——未配置或不符一律 403
+    // （见 safeday/index.js），不配置则生成结果无法回写；启动缺配仅告警不拒启
     callbackToken: str('SAFEDAY_CALLBACK_TOKEN'),
     // 多文件含非 PDF 时经 LibreOffice headless 转 PDF 再合并；默认取 PATH 中 soffice，可用 env 覆盖路径
     sofficePath: str('SAFEDAY_SOFFICE_PATH', 'soffice'),

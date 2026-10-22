@@ -16,7 +16,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
-import { pad, fmtSize, extOf, parseDate } from '../../../utils/util';
+import { pad, fmtSize, extOf, fmtDay, IMG_EXTS, DOC_EXTS } from '../../../utils/util';
 import config from '../../../config';
 import { fileIconUrl } from '../../fileicon';
 
@@ -25,10 +25,8 @@ const API = '/api/v1/netdisk';
 // 未分配班组不再拦截（spaces 不下发 public，隐藏分段只用我的空间），无切换器 UI
 const teamGate = createTeamGate({ storageKey: 'netdisk_team_id' });
 
-const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+// 视频扩展名为本页口径（filetransfer 另含 avi/mkv，保持现有差异）；IMG_EXTS/DOC_EXTS/fmtDay 收编 utils/util.js
 const VIDEO_EXTS = ['mp4', 'mov', 'm4v'];
-// wx.openDocument 可识别的文档类型（传 fileType 提高打开成功率，同 filetransfer 口径）
-const DOC_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf'];
 // 压缩包类型（操作面板显示「查看压缩包 / 解压到当前目录」）
 const ARCHIVE_EXTS = ['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz'];
 // 提取码字符集：去掉易混淆的 I/L/O/0/1（后端校验 ^[A-Z0-9]{4}$）
@@ -45,11 +43,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const joinPath = (base, name) => (base === '/' ? `/${name}` : `${base}/${name}`);
 // 提取码：4 位字母数字（自动生成，可刷新）
 const genCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
-// 时间 → 'MM.DD'（OpenList modified 为 ISO 串；解析失败给占位）
-const fmtDay = (input) => {
-  const d = parseDate(input);
-  return d ? `${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : '—';
-};
 
 Page({
   behaviors: [teamGate],

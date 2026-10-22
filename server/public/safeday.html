@@ -562,7 +562,7 @@
     });
   }
 
-  /* 下载：接口需鉴权头，用 fetch + blob 落地 */
+  /* 下载：接口需鉴权头，apiRaw + saveBlob 落地（文件名优先 Content-Disposition，缺省记录 fileName） */
   function downloadRecord(id) {
     var rec = null;
     lastRecords.forEach(function (r) { if (String(r.id) === String(id)) { rec = r; } });
@@ -573,29 +573,18 @@
             throw new Error((d && d.error) || ('下载失败（' + res.status + '）'));
           }, function () { throw new Error('下载失败（' + res.status + '）'); });
         }
-        return res.blob();
-      })
-      .then(function (blob) {
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = (rec && rec.fileName) || '安全日活动记录.docx';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+        return Shade.saveBlob(res, (rec && rec.fileName) || '安全日活动记录.docx');
       })
       .catch(function (err) { Shade.toast(err.message || '下载失败', 'error'); });
   }
 
-  /* 预览：调 preview 接口取预览地址打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签）；未配置预览服务时提示改用下载 */
+  /* 预览：调 preview 接口取预览地址，经 Shade.openPreviewUrl 打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签）；未配置预览服务时提示改用下载 */
   function previewRecord(id) {
     sdFetch('/records/' + encodeURIComponent(id) + '/preview')
       .then(parseOk)
       .then(function (data) {
-        // 站内 office.html 承载页当前窗口打开（OO 关闭文件 ✕ 经 back 返回本页，同网盘口径）；站外微软查看器新标签
-        if (data.url && data.url.charAt(0) === '/') { location.href = data.url; return; }
-        window.open(data.url, '_blank');
+        if (!data.url) { throw new Error('预览地址为空'); }
+        Shade.openPreviewUrl(data.url);
       })
       .catch(function (err) {
         Shade.toast((err.message || '预览失败') + '，可改用下载按钮', 'info');

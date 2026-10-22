@@ -3,11 +3,12 @@
 // 无权限隐藏分段；仍请求到 40304 时兜底回退「我创建的」并隐藏分段
 // 操作按 state 显隐：active=复制链接/停用/删除；disabled=复制链接/重新启用/删除；expired=删除记录
 // （expired 不可重新启用，后端 40030；重新启用 / 停用 / 删除由后端校验本人或班管/超管）
-// 分享链接口径：{BASE_URL}/share.html#/s/{share_id}（小程序内无法直接打开网页，仅复制）
+// 分享链接口径：{BASE_URL}/share.html#/s/{share_id}（小程序内无法直接打开网页，仅复制；
+//   有提取码时随链接一并复制，同创建成功弹层口径）
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
-import { pad, extOf, parseDate } from '../../../utils/util';
+import { extOf, fmtDay } from '../../../utils/util';
 import config from '../../../config';
 import { fileIconUrl } from '../../fileicon';
 
@@ -18,12 +19,6 @@ const STATE_MAP = {
   active: { cls: 'st-ok', text: '生效中' },
   expired: { cls: 'st-warn', text: '已过期' },
   disabled: { cls: 'st-fail', text: '已停用' },
-};
-
-// 时间 → 'MM.DD'（解析失败给占位）
-const fmtDay = (input) => {
-  const d = parseDate(input);
-  return d ? `${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : '—';
 };
 
 // 状态 → 底部操作行（复制链接蓝 / 停用 / 重新启用蓝 / 删除红）
@@ -97,6 +92,7 @@ Page({
     else expireText = `有效期至 ${fmtDay(row.expire_at)}`;
     return {
       id: row.share_id,
+      password: row.password || '', // 提取码（复制链接时附带）
       title: names.length > 1 ? `${first} 等 ${names.length} 项` : first,
       isDir: !ext,
       letter: ext ? ext.slice(0, 4).toUpperCase() : 'FILE',
@@ -127,7 +123,9 @@ Page({
     const item = this.data.list.find((r) => r.id === id);
     if (!item) return;
     if (op === 'copy') {
-      wx.setClipboardData({ data: `${config.BASE_URL}/share.html#/s/${item.id}` });
+      // 与创建成功弹层同口径：有提取码时随链接一并复制
+      const link = `${config.BASE_URL}/share.html#/s/${item.id}`;
+      wx.setClipboardData({ data: item.password ? `${link}\n提取码：${item.password}` : link });
       return;
     }
     if (op === 'disable') {

@@ -137,7 +137,6 @@ def run(job, params: dict) -> dict:
 
     # ---- 登录与渲染器 ----
     client, auth = uvmp.make_client(cfg, log)
-    vecfg = _config.ve_cfg(cfg)
     # 两条渲染通道分开（已踩坑：用户选了浏览器后连包版打印也走它，360 渲出空白 PDF）：
     #   PNG 包版打印（html_to_pdf）→ 自带 Electron 优先（不挑机器），无则用户所选/自动探测
     #   官方弹窗截图（CDP 驱动真实系统页面）→ 必须真实浏览器（用户所选优先）
@@ -201,10 +200,10 @@ def run(job, params: dict) -> dict:
 
     try:
         if export_pcd and found:
-            _export_pcd(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
-                        chrome, electron_path, manifest, width, rows)
+            _export_pcd(job, cfg, client, renderer, found, outdir, files_dir,
+                        manifest, width, rows)
         if export_track and found:
-            _export_track(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
+            _export_track(job, cfg, client, renderer, found, outdir, files_dir,
                           chrome, electron_path, manifest, width, rows, calibrate_noon)
     finally:
         if renderer:
@@ -245,8 +244,8 @@ def _pcd_fname(seq: int, width: int, d: dict) -> str:
         ve.safe_name(str(d.get("planSendTimeStr") or d.get("planSendTime") or "")[:10]))
 
 
-def _export_pcd(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
-                chrome, electron_path, manifest, width, rows):
+def _export_pcd(job, cfg, client, renderer, found, outdir, files_dir,
+                manifest, width, rows):
     log = job.log
     mock = bool((cfg.get("dev") or {}).get("mock"))
     todo = [f for f in found if not manifest.has("pcd", f["order"]["id"])]
@@ -305,7 +304,7 @@ def _export_pcd(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
 
 # ---------------------------------------------------------------- 轨迹
 
-def _export_track(job, cfg, vecfg, client, renderer, found, outdir, files_dir,
+def _export_track(job, cfg, client, renderer, found, outdir, files_dir,
                   chrome, electron_path, manifest, width, rows, calibrate_noon=False):
     log = job.log
     mock = bool((cfg.get("dev") or {}).get("mock"))

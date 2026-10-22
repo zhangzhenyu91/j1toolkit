@@ -146,9 +146,9 @@ dictRoutes('members', 'worklog_member', 'name', '成员', async (id) => {
   return rows[0].cnt;
 });
 
-// PUT /members/:id/move {direction:'up'|'down'}：成员排序（与班内相邻成员换位；事务内整体重写 sort 为连续 1..N，
-// 兼容历史同值 sort；direction 为准，兼容 worklog 旧口径 dir）
-router.put('/members/:id/move', async (req, res, next) => {
+// 上移/下移公共助手（members 与 oplines 共用）：与班内相邻行换位；事务内整体重写 sort 为连续 1..N，
+// 兼容历史同值 sort；direction 为准，兼容 worklog 旧口径 dir；已在顶端 / 底端时次序不变
+async function moveRow(req, res, next, table, label) {
   const conn = await pool.getConnection();
   try {
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
@@ -157,13 +157,13 @@ router.put('/members/:id/move', async (req, res, next) => {
     const dir = rawDir === 'up' ? 'up' : 'down';
     await conn.beginTransaction();
     const [rows] = await conn.query(
-      'SELECT id FROM worklog_member WHERE team_id = ? ORDER BY sort, id',
+      `SELECT id FROM ${table} WHERE team_id = ? ORDER BY sort, id`,
       [req.team.id]
     );
     const idx = rows.findIndex((r) => r.id === id);
     if (idx < 0) {
       await conn.rollback();
-      return fail(res, 404, 40400, '成员不存在');
+      return fail(res, 404, 40400, `${label}不存在`);
     }
     const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
     if (swapIdx < 0 || swapIdx >= rows.length) {
@@ -173,7 +173,7 @@ router.put('/members/:id/move', async (req, res, next) => {
     const order = rows.map((r) => r.id);
     order.splice(swapIdx, 0, order.splice(idx, 1)[0]);
     for (let i = 0; i < order.length; i += 1) {
-      await conn.query('UPDATE worklog_member SET sort = ? WHERE id = ?', [i + 1, order[i]]);
+      await conn.query(`UPDATE ${table} SET sort = ? WHERE id = ?`, [i + 1, order[i]]);
     }
     await conn.commit();
     return ok(res, null);
@@ -183,7 +183,10 @@ router.put('/members/:id/move', async (req, res, next) => {
   } finally {
     conn.release();
   }
-});
+}
+
+// PUT /members/:id/move {direction:'up'|'down'}：成员排序（实现见 moveRow）
+router.put('/members/:id/move', async (req, res, next) => moveRow(req, res, next, 'worklog_member', '成员'));
 
 // ===== 线路与杆塔 =====
 
@@ -274,13 +277,14 @@ router.post(
       }
 
       // 逐行校验：空行跳过；表头行跳过；缺列或经纬度非数字计为跳过
+      // 短行（列数少于模板）与 null 单元格按空串判空取值，防 cells[n] 越界 TypeError 整批 500
       const data = [];
       let skipped = 0;
       for (const r of rows) {
-        const cells = (Array.isArray(r) ? r : []).map((c) => String(c).trim());
+        const cells = (Array.isArray(r) ? r : []).map((c) => String(c == null ? '' : c).trim());
         if (cells.every((c) => !c)) continue;
-        if (cells[0].includes('电压') || cells[2].includes('杆塔')) continue;
-        const [voltage, line, towerNo, lng, lat] = cells;
+        const [voltage = '', line = '', towerNo = '', lng = '', lat = ''] = cells;
+        if (voltage.includes('电压') || towerNo.includes('杆塔')) continue;
         if (!voltage || !line || !towerNo || !lng || !lat
           || Number.isNaN(Number(lng)) || Number.isNaN(Number(lat))) {
           skipped++;
@@ -402,41 +406,8 @@ router.delete('/oplines/:id', async (req, res, next) => {
   }
 });
 
-// PUT /oplines/:id/move {direction:'up'|'down'}：线路排序（与班内相邻线路换位；事务内整体重写 sort 为连续 1..N，
-// 兼容历史同值 sort；direction 为准，兼容旧口径 dir）——与 members move 同型
-router.put('/oplines/:id/move', async (req, res, next) => {
-  const conn = await pool.getConnection();
-  try {
-    if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    const id = Number(req.params.id);
-    const rawDir = req.body && (req.body.direction || req.body.dir);
-    const dir = rawDir === 'up' ? 'up' : 'down';
-    await conn.beginTransaction();
-    const [rows] = await conn.query('SELECT id FROM team_line WHERE team_id = ? ORDER BY sort, id', [req.team.id]);
-    const idx = rows.findIndex((r) => r.id === id);
-    if (idx < 0) {
-      await conn.rollback();
-      return fail(res, 404, 40400, '线路不存在');
-    }
-    const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= rows.length) {
-      await conn.rollback();
-      return ok(res, null); // 已在顶端 / 底端，次序不变
-    }
-    const order = rows.map((r) => r.id);
-    order.splice(swapIdx, 0, order.splice(idx, 1)[0]);
-    for (let i = 0; i < order.length; i += 1) {
-      await conn.query('UPDATE team_line SET sort = ? WHERE id = ?', [i + 1, order[i]]);
-    }
-    await conn.commit();
-    return ok(res, null);
-  } catch (err) {
-    await conn.rollback().catch(() => {});
-    return next(err);
-  } finally {
-    conn.release();
-  }
-});
+// PUT /oplines/:id/move {direction:'up'|'down'}：线路排序（实现与 members move 共用 moveRow）
+router.put('/oplines/:id/move', async (req, res, next) => moveRow(req, res, next, 'team_line', '线路'));
 
 // GET /oplines/template：运维线路导入模板（xlsx，仅首行表头；列宽 12/20）
 router.get('/oplines/template', async (req, res, next) => {
@@ -493,14 +464,15 @@ router.post(
       }
 
       // 逐行校验：空行跳过；表头行跳过；缺电压等级或线路名、班内重复线路名计为跳过
+      // 短行（列数少于模板）与 null 单元格按空串判空取值，防 cells[n] 越界 TypeError 整批 500
       const data = [];
       const seen = new Set();
       let skipped = 0;
       for (const r of rows) {
-        const cells = (Array.isArray(r) ? r : []).map((c) => String(c).trim());
+        const cells = (Array.isArray(r) ? r : []).map((c) => String(c == null ? '' : c).trim());
         if (cells.every((c) => !c)) continue;
-        if (cells[0].includes('电压') || cells[1].includes('线路')) continue;
-        const [voltage, line] = cells;
+        const [voltage = '', line = ''] = cells;
+        if (voltage.includes('电压') || line.includes('线路')) continue;
         if (!voltage || !line || seen.has(line)) {
           skipped++;
           continue;

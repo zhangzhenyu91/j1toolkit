@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """后台任务模型：所有耗时操作（导出/渲染）统一走 Job。
 
-- Job 在线程中执行，前端按 1s 轮询进度与增量日志
+- Job 在线程中执行，日志/进度经 on_log / on_progress 回调实时桥接（RPC 事件推送）
 - 协作式取消：工作单元之间调用 job.check_cancel()；长阻塞操作（CDP 渲染等）由业务
   用 job.add_cancel_hook() 注册"取消即销毁阻塞源"的钩子，实现即刻中断
-- 结束后写任务档案（state/jobs/<id>.json）并追加应用历史（state/history/<app_id>.jsonl）
+- 结束后写任务档案（state/jobs/<id>.json）并追加应用历史（state/history/<app_id>.jsonl），
+  随即释放内存日志缓冲；终态 Job 在内存中只保留最近 50 个（档案/日志文件不受影响）
 新应用接入时直接用 JobManager 包裹业务函数即可获得进度/日志/取消/历史能力。
 """
 import threading
@@ -115,7 +116,14 @@ class Job:
         }
 
 
+# 终态状态集合（Job 终态后不再变化）
+TERMINAL_STATUS = ("success", "failed", "cancelled")
+
+
 class JobManager:
+    # 终态 Job 在内存中只保留最近这么多个（超出即回收对象，档案/日志文件不受影响）
+    MAX_TERMINAL_JOBS = 50
+
     def __init__(self):
         self._jobs = {}
         self._seq = 0
@@ -138,6 +146,15 @@ class JobManager:
             jobs = [j for j in jobs if j.app_id == app_id]
         return [j.to_dict() for j in jobs[:limit]]
 
+    def _prune_terminal(self):
+        """终态 Job 只保留最近 MAX_TERMINAL_JOBS 个（按 job_id 降序）；需持 _lock 调用。
+        只回收内存对象——任务档案（state/jobs/）与日志文件（state/logs/）不受影响，
+        getJobLog / getHistory 仍可查询历史任务。"""
+        done = sorted((j for j in self._jobs.values() if j.status in TERMINAL_STATUS),
+                      key=lambda j: j.id, reverse=True)
+        for j in done[self.MAX_TERMINAL_JOBS:]:
+            self._jobs.pop(j.id, None)
+
     def _finalize(self, job: Job):
         job.finished_at = time.strftime("%Y-%m-%d %H:%M:%S")
         try:
@@ -152,6 +169,9 @@ class JobManager:
             "job_id": job.id, "title": job.title, "status": job.status,
             "time": job.finished_at, "result": job.result, "error": job.error,
         })
+        with self._lock:
+            job._logs.clear()   # 释放完成日志缓冲（全文已在 logs/<id>.log，摘要已入档案）
+            self._prune_terminal()
 
     def _runner(self, job: Job, fn):
         job.status = "running"

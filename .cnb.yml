@@ -84,7 +84,12 @@ v*:
               echo "等 CNB Release 就绪（$i）"; sleep 60
             done
             [ -n "$REL_ID" ] || { echo "CNB Release 未就绪"; exit 1; }
-            for f in *.exe *.deb; do
+            # 空 glob 不展开会把 "*.exe" 字面量留给 stat/curl，报错后仍可能以 0 退出（伪成功）——
+            # nullglob 让未匹配数组为空；上传/确认关联一律 curl -f，HTTP 错误显式判失败退出
+            shopt -s nullglob
+            FILES=( *.exe *.deb )
+            [ "${#FILES[@]}" -gt 0 ] || { echo "无待上传附件（下载环节已把关，此处疑为 glob 异常）"; exit 1; }
+            for f in "${FILES[@]}"; do
               SIZE=$(stat -c%s "$f")
               # 预签名三段式：取上传地址 → PUT 文件 → 确认关联（overwrite 允许重跑覆盖）
               UP=$(curl -s -X POST -H "$AH" -H "Accept: application/vnd.cnb.api+json" -H "Content-Type: application/json" \
@@ -93,11 +98,11 @@ v*:
               UPLOAD_URL=$(echo "$UP" | jq -r '.upload_url // empty')
               VERIFY_URL=$(echo "$UP" | jq -r '.verify_url // empty')
               [ -n "$UPLOAD_URL" ] && [ -n "$VERIFY_URL" ] || { echo "取上传地址失败 $f：$UP"; exit 1; }
-              curl -s -X PUT -T "$f" "$UPLOAD_URL" -o /dev/null
-              curl -s -X POST -H "$AH" -H "Accept: application/vnd.cnb.api+json" "$VERIFY_URL" -o /dev/null
+              curl -sf -X PUT -T "$f" "$UPLOAD_URL" -o /dev/null || { echo "上传失败 $f"; exit 1; }
+              curl -sf -X POST -H "$AH" -H "Accept: application/vnd.cnb.api+json" "$VERIFY_URL" -o /dev/null || { echo "确认关联失败 $f"; exit 1; }
               echo "已传 $f"
             done
-            echo "CNB Release 附件 $(ls ./*.exe ./*.deb | wc -l) 件就绪"
+            echo "CNB Release 附件 ${#FILES[@]} 件就绪"
 
 release-v*:
   tag_push:
@@ -170,7 +175,12 @@ release-v*:
               echo "等 CNB Release 就绪（$i）"; sleep 60
             done
             [ -n "$REL_ID" ] || { echo "CNB Release 未就绪"; exit 1; }
-            for f in *.exe *.deb; do
+            # 空 glob 不展开会把 "*.exe" 字面量留给 stat/curl，报错后仍可能以 0 退出（伪成功）——
+            # nullglob 让未匹配数组为空；上传/确认关联一律 curl -f，HTTP 错误显式判失败退出
+            shopt -s nullglob
+            FILES=( *.exe *.deb )
+            [ "${#FILES[@]}" -gt 0 ] || { echo "无待上传附件（下载环节已把关，此处疑为 glob 异常）"; exit 1; }
+            for f in "${FILES[@]}"; do
               SIZE=$(stat -c%s "$f")
               # 预签名三段式：取上传地址 → PUT 文件 → 确认关联（overwrite 允许重跑覆盖）
               UP=$(curl -s -X POST -H "$AH" -H "Accept: application/vnd.cnb.api+json" -H "Content-Type: application/json" \
@@ -179,8 +189,8 @@ release-v*:
               UPLOAD_URL=$(echo "$UP" | jq -r '.upload_url // empty')
               VERIFY_URL=$(echo "$UP" | jq -r '.verify_url // empty')
               [ -n "$UPLOAD_URL" ] && [ -n "$VERIFY_URL" ] || { echo "取上传地址失败 $f：$UP"; exit 1; }
-              curl -s -X PUT -T "$f" "$UPLOAD_URL" -o /dev/null
-              curl -s -X POST -H "$AH" -H "Accept: application/vnd.cnb.api+json" "$VERIFY_URL" -o /dev/null
+              curl -sf -X PUT -T "$f" "$UPLOAD_URL" -o /dev/null || { echo "上传失败 $f"; exit 1; }
+              curl -sf -X POST -H "$AH" -H "Accept: application/vnd.cnb.api+json" "$VERIFY_URL" -o /dev/null || { echo "确认关联失败 $f"; exit 1; }
               echo "已传 $f"
             done
-            echo "CNB Release 附件 $(ls ./*.exe ./*.deb | wc -l) 件就绪"
+            echo "CNB Release 附件 ${#FILES[@]} 件就绪"

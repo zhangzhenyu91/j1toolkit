@@ -105,14 +105,18 @@ const DDL = [
     KEY idx_batch (batch_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   // 暂存批次的辅证照片（直推随批上传 COS；转入正式表时改挂 treehazard_photo，废弃/整批替换时连带清理）
+  // 归挂以 staging_record_id 为准（暂存导入按记录 insertId 归挂，同批多条空 crane_record_id 不再误挂）；
+  // crane_record_id 冗余留存，旧数据（staging_record_id 为 NULL）转入时回退按其归挂
   `CREATE TABLE IF NOT EXISTS treehazard_staging_photo (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     batch_id BIGINT UNSIGNED NOT NULL COMMENT '关联 treehazard_staging_batch.id',
-    crane_record_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT 'crane-answer 记录 id（转入时据以归挂正式记录）',
+    staging_record_id BIGINT UNSIGNED NULL COMMENT '关联 treehazard_staging_record.id（NULL=旧数据，转入时回退按 crane_record_id 归挂）',
+    crane_record_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT 'crane-answer 记录 id（冗余留存，旧数据转入归挂用）',
     cos_key VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'COS 对象键（COS_TREEHAZARD_PREFIX 前缀）',
     url VARCHAR(512) NOT NULL DEFAULT '' COMMENT '访问地址',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_batch (batch_id)
+    KEY idx_batch (batch_id),
+    KEY idx_staging_record (staging_record_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   // 内网同步冲突（双边都改过：服务端快照与内网快照留档，人工二选一解决）
   `CREATE TABLE IF NOT EXISTS treehazard_conflict (
@@ -167,6 +171,22 @@ async function ensureTreehazardSchema(pool) {
        COMMENT '审核意见（审核不通过时的修改说明，展示给暂存区修改人；仅 mode=staging 有意义）' AFTER pusher_name`
     );
     console.log('[初始化] 已为 treehazard_staging_batch 补充 review_note 列');
+  }
+
+  // 老库兼容：treehazard_staging_photo 补 staging_record_id 列（暂存照片按暂存记录归挂；
+  // 旧数据该列为 NULL，转入时回退按 crane_record_id 归挂）
+  const [stagingPhotoCols] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'treehazard_staging_photo' AND COLUMN_NAME = 'staging_record_id'`
+  );
+  if (!stagingPhotoCols.length) {
+    await pool.query(
+      `ALTER TABLE treehazard_staging_photo
+       ADD COLUMN staging_record_id BIGINT UNSIGNED NULL
+         COMMENT '关联 treehazard_staging_record.id（NULL=旧数据，转入时回退按 crane_record_id 归挂）' AFTER batch_id,
+       ADD KEY idx_staging_record (staging_record_id)`
+    );
+    console.log('[初始化] 已为 treehazard_staging_photo 补充 staging_record_id 列');
   }
 
   // 写入/更新应用记录（同题库刷题种子模式；terminal 随种子刷新）

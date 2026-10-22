@@ -7,9 +7,9 @@ const axios = require('axios');
 const FormData = require('form-data');
 const multer = require('multer');
 const config = require('../config');
-const { pool } = require('../db');
 const auth = require('../middleware/auth');
 const requireApp = require('../middleware/requireApp');
+const { hasAppPermission } = requireApp;
 const { ok, fail } = require('../utils/resp');
 const teamUtil = require('../utils/team');
 const glkvm = require('./glkvm');
@@ -30,18 +30,11 @@ const upload = multer({
 // 设备列表与文件转发 = kvm（网页端）或 file-transfer（小程序端）任一；带态跳转 = 仅 kvm
 router.use(auth);
 
-// 任一应用权限即放行（requireApp 的多 key 版，SQL 同 middleware/requireApp.js）
+// 任一应用权限即放行（复用 hasAppPermission 的数组任一命中口径，权限 SQL 统一在 middleware/requireApp.js）
 function requireAnyApp(appKeys) {
   return async (req, res, next) => {
     try {
-      const marks = appKeys.map(() => '?').join(',');
-      const [rows] = await pool.query(
-        `SELECT a.id FROM sys_user_app ua
-         JOIN sys_app a ON a.id = ua.app_id
-         WHERE ua.user_id = ? AND a.app_key IN (${marks}) AND a.status = 1 LIMIT 1`,
-        [req.user.id, ...appKeys]
-      );
-      if (!rows.length) {
+      if (!(await hasAppPermission(req.user.id, appKeys))) {
         return fail(res, 403, 40301, '暂无该应用的使用权限，请联系管理员开通');
       }
       return next();

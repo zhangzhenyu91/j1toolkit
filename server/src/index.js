@@ -1,5 +1,6 @@
 // Shade 壹匣后端入口（班组数字化工具平台：后端 API + 网页端同端口托管）
-// 部署：阿里云 ACR 按仓根 Dockerfile 自动构建镜像，云服务器以容器运行（数据卷挂 /app/server/data，配置全走环境变量，见 README「后端部署」）
+// 部署：GitHub Actions 按仓根 Dockerfile 构建多架构镜像（GHCR / Docker Hub，国内接力腾讯云 TCR），
+// 云服务器以容器运行（数据卷挂 /app/server/data，配置全走环境变量，见 README「后端部署」）
 // 反代约定：toolkit.j1net.com → 127.0.0.1:PORT 单端口，网页与 API 同端口
 const path = require('path');
 const fs = require('fs');
@@ -17,11 +18,12 @@ app.disable('x-powered-by');
 // 更外层伪造的 XFF 不生效；req.ip 语义随之落到真实来源（登录限流按 IP 统计依赖此口径），直连部署不受影响
 app.set('trust proxy', 'loopback');
 
-// 出工日志上传原图（加水印用）体积更大：worklog 路由单独放宽 JSON 上限到 20mb。
+// 出工日志上传原图（加水印用）体积更大：worklog 路由单独放宽 JSON 上限到 22mb
+// （容纳 15MB 二进制原图的 base64 展开约 20MB + JSON 包裹余量）。
 // 需挂在全局 12mb 解析器之前；body 已被解析过后续解析器会自动跳过
-app.use('/api/v1/worklog', express.json({ limit: '20mb' }));
+app.use('/api/v1/worklog', express.json({ limit: '22mb' }));
 // 水印添加同口径：原图 base64 上送渲染，单独放宽 JSON 上限
-app.use('/api/v1/wmadd', express.json({ limit: '20mb' }));
+app.use('/api/v1/wmadd', express.json({ limit: '22mb' }));
 // 树障直推随记录携带辅证照片 base64（evidence_photos），单独放宽 JSON 上限
 app.use('/api/v1/treehazard', express.json({ limit: '50mb' }));
 // Call Me 群内提问直推随请求携带图片/附件 base64（file.data_base64 ≤50MB），单独放宽 JSON 上限
@@ -62,7 +64,7 @@ app.use('/api/v1/admin', require('./routes/admin'));
 app.use('/api/v1/notice', require('./notice'));
 // 出工日志：派车/巡视/打卡记录（建表/种子见 db.js）
 app.use('/api/v1/worklog', require('./worklog'));
-// 水印添加：移动端独立子应用（仅渲染回图，无业务表，依赖出工日志渲染/地理模块）
+// 水印添加：双端子应用（小程序 pkg-wmadd + 网页端 wmadd.html；仅渲染回图，无业务表，依赖出工日志渲染/地理模块）
 app.use('/api/v1/wmadd', require('./wmadd'));
 // 安全日活动记录：文件存储，上传走 multer 不经 JSON 解析器
 app.use('/api/v1/safeday', require('./safeday'));

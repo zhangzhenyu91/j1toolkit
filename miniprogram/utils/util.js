@@ -52,6 +52,17 @@ function formatTime(input) {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// 时间 → 'MM.DD'（解析失败给占位；网盘文件列表/分享页等展示「几月几号」共用）
+function fmtDay(input) {
+  const d = parseDate(input);
+  return d ? `${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : '—';
+}
+
+// 图片 / 文档扩展名白名单（网盘预览、文件传输、出工日志备注附件共用）；
+// 视频扩展名各处口径不一（filetransfer 另有 avi/mkv 等特殊扩展），仍在各自模块维护
+const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+const DOC_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf'];
+
 // 获取当前设备微信的登录 code（失败时返回空串，调用方自行兜底）
 function wxLoginCode() {
   return new Promise((resolve) => {
@@ -62,4 +73,6 @@ function wxLoginCode() {
   });
 }
 
-module.exports = { greeting, formatTime, parseDate, wxLoginCode, pad, fmtSize, extOf };
+module.exports = {
+  greeting, formatTime, parseDate, wxLoginCode, pad, fmtSize, extOf, fmtDay, IMG_EXTS, DOC_EXTS,
+};

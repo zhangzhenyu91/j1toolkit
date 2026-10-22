@@ -9,6 +9,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
+import { mapAnalysis } from '../../../utils/quiz';
 
 const API_BASE = '/api/v1/quiz';
 
@@ -101,16 +102,11 @@ Page({
     });
   },
 
-  // 题库 → 展示结构（解析进度：analysis = { none, pending, failed, done } 计数）
+  // 题库 → 展示结构（解析进度计数收敛 utils/quiz mapAnalysis）
   mapBank(b) {
-    const an = b.analysis || {};
-    const anDone = an.done || 0;
-    const anPending = an.pending || 0;
-    const anFailed = an.failed || 0;
-    const anTotal = (an.none || 0) + anPending + anFailed + anDone;
     const total = b.questionCount || 0;
     const answered = b.answeredCount || 0;
-    return {
+    return Object.assign({
       id: b.id,
       name: b.name || '',
       description: b.description || '',
@@ -120,11 +116,7 @@ Page({
       rightRateText: b.rightRate === null || b.rightRate === undefined ? '—' : `${b.rightRate}%`,
       notStarted: answered === 0,
       pct: total ? Math.round((answered / total) * 100) : 0,
-      analyzing: anPending > 0,
-      analyzingText: `解析中 ${anDone}/${anTotal || total}`,
-      // 解析就绪徽章：无排队且有已生成解析
-      anReady: anPending === 0 && anDone > 0,
-    };
+    }, mapAnalysis(b.analysis, total));
   },
 
   /* ==================== 交互 ==================== */

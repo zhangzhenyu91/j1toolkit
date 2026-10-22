@@ -2,6 +2,7 @@
 // 全部接口需登录 + tree-hazard 应用权限 + 生效班组（req.team，见 utils/team.js）；
 // 暂存区/冲突/设置修改/删记录为 超管 或 本班 team_admin（requireDictAdmin，同出工日志字典门控口径）
 const express = require('express');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const auth = require('../middleware/auth');
@@ -12,6 +13,7 @@ const teamUtil = require('../utils/team');
 const tokenQuery = require('../utils/tokenQuery');
 const { buildPreviewUrl } = require('../utils/preview');
 const { todayCn, CN_OFFSET_MS } = require('../utils/cndate');
+const { parseDataUrlPhoto } = require('../utils/photo'); // dataURL 解析（格式/解码统一在此，15MB 限值本模块自校）
 const config = require('../config');
 const cos = require('../worklog/cos'); // 与 notice/sgccclockin 同口径跨模块复用 COS 封装（key 前缀本模块自拼）
 const exporter = require('./export');
@@ -26,11 +28,16 @@ const router = express.Router();
 // 文件预览服务器回源拉取下载地址时无法附带请求头：无 Authorization 头且 query 带 token 时映射为 Authorization（同出工日志口径）
 router.use(tokenQuery);
 
-// crane-answer 直推：不走 JWT，凭请求头 X-Ingest-Token 与配置比对（未配置 → 503；不等 → 401）
+// crane-answer 直推：不走 JWT，凭请求头 X-Ingest-Token 与配置比对（未配置 → 503；不等 → 401；
+// 先比长度再恒定时间比较，防时序侧信道）
 router.post('/ingest', (req, res, next) => {
   const token = config.treehazard.ingestToken;
   if (!token) return fail(res, 503, 50301, '未配置对接密钥');
-  if (String(req.get('X-Ingest-Token') || '') !== token) return fail(res, 401, 40104, '对接密钥错误');
+  const provided = Buffer.from(String(req.get('X-Ingest-Token') || ''), 'utf8');
+  const expected = Buffer.from(token, 'utf8');
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+    return fail(res, 401, 40104, '对接密钥错误');
+  }
   return ingest.handleIngest(req, res, next);
 });
 
@@ -269,7 +276,7 @@ router.post('/records/handle-batch', async (req, res, next) => {
 
 // ===== 照片（处理前/后；evidence 证据照预留不开放上传）=====
 
-// POST /records/:id/photos?kind=before|after：body { image: 'data:image/jpeg;base64,...' }（dataURL 解析同出工日志）
+// POST /records/:id/photos?kind=before|after：body { image: 'data:image/jpeg;base64,...' }（dataURL 解析走 utils/photo）
 router.post('/records/:id/photos', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
@@ -279,14 +286,13 @@ router.post('/records/:id/photos', async (req, res, next) => {
     const [rows] = await pool.query('SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?', [recordId, req.team.id]);
     if (!rows.length) return fail(res, 404, 40400, '记录不存在');
 
-    const match = /^data:image\/(jpeg|jpg|png);base64,(.+)$/.exec((req.body && req.body.image) || '');
-    if (!match) return fail(res, 400, 40010, '照片格式应为 jpeg/png（base64 dataURL）');
-    const buf = Buffer.from(match[2], 'base64');
-    if (!buf.length || buf.length > 15 * 1024 * 1024) return fail(res, 400, 40011, '照片大小应在 15MB 以内');
-    const contentType = `image/${match[1] === 'png' ? 'png' : 'jpeg'}`;
+    const photo = parseDataUrlPhoto((req.body && req.body.image) || '');
+    if (!photo) return fail(res, 400, 40010, '照片格式应为 jpeg/png（base64 dataURL）');
+    if (!photo.buf.length || photo.buf.length > 15 * 1024 * 1024) return fail(res, 400, 40011, '照片大小应在 15MB 以内');
 
-    const key = `${config.treehazard.cosPrefix}${exporter.safeFileName(req.team.name)}/${recordId}/${kind}-${Date.now()}.jpg`;
-    await cos.putBuffer(key, buf, contentType);
+    // COS key 后缀随实际格式（png 用 .png），供按扩展名识别格式
+    const key = `${config.treehazard.cosPrefix}${exporter.safeFileName(req.team.name)}/${recordId}/${kind}-${Date.now()}.${photo.ext}`;
+    await cos.putBuffer(key, photo.buf, photo.contentType);
     const url = cos.publicUrl(key);
     const [r] = await pool.query(
       'INSERT INTO treehazard_photo (record_id, kind, cos_key, url, uploaded_by) VALUES (?, ?, ?, ?, ?)',
@@ -547,6 +553,12 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
       const [rows] = ids
         ? await conn.query('SELECT * FROM treehazard_staging_record WHERE batch_id = ? AND id IN (?) ORDER BY id', [batchId, ids])
         : await conn.query('SELECT * FROM treehazard_staging_record WHERE batch_id = ? ORDER BY id', [batchId]);
+      // 旧数据回退安全条件：本批仅一条空 crane_record_id 暂存行时空 id 旧照片归属无歧义（转入归挂时据此回退）
+      const [[emptyIdCnt]] = await conn.query(
+        "SELECT COUNT(*) AS cnt FROM treehazard_staging_record WHERE batch_id = ? AND (crane_record_id IS NULL OR crane_record_id = '')",
+        [batchId]
+      );
+      const emptyIdSafe = emptyIdCnt.cnt === 1;
       for (const s of rows) {
         const [poleFrom, poleTo] = parseSectionPoles(s.section);
         let existingId = null;
@@ -581,9 +593,19 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
           recordId = ir.insertId;
         }
         // 辅证照片随转入归挂正式记录（COS 对象不动、仅表行归挂）；更新路径整组替换既有 evidence（直推侧为权威）
+        // 归挂口径：优先按 staging_record_id（暂存导入按记录 insertId 归挂）；旧数据（该列为 NULL）回退按
+        // crane_record_id 归挂，其中空 id 照片仅本批单空记录（emptyIdSafe）时归属无歧义才回退，避免同批空 id 误挂
+        const photoConds = ['staging_record_id = ?'];
+        const photoParams = [batchId, s.id];
+        if (s.crane_record_id) {
+          photoConds.push('(staging_record_id IS NULL AND crane_record_id = ?)');
+          photoParams.push(s.crane_record_id);
+        } else if (emptyIdSafe) {
+          photoConds.push("(staging_record_id IS NULL AND crane_record_id = '')");
+        }
         const [sps] = await conn.query(
-          'SELECT cos_key, url FROM treehazard_staging_photo WHERE batch_id = ? AND crane_record_id = ?',
-          [batchId, s.crane_record_id || '']
+          `SELECT id, cos_key, url FROM treehazard_staging_photo WHERE batch_id = ? AND (${photoConds.join(' OR ')})`,
+          photoParams
         );
         if (sps.length) {
           if (existingId) {
@@ -605,8 +627,7 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
               [recordId, p.cos_key, p.url]
             );
           }
-          await conn.query('DELETE FROM treehazard_staging_photo WHERE batch_id = ? AND crane_record_id = ?',
-            [batchId, s.crane_record_id || '']);
+          await conn.query('DELETE FROM treehazard_staging_photo WHERE id IN (?)', [sps.map((p) => p.id)]);
         }
         await conn.query('DELETE FROM treehazard_staging_record WHERE id = ?', [s.id]);
         imported += 1;

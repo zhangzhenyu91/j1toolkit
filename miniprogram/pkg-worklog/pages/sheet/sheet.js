@@ -119,22 +119,17 @@ Page({
     this.setData({ calVisible: false });
   },
 
-  // 生成前核验拦截（40901，仅 verify40901 的类型）：小弹窗二选一——「去核验」返回主页并打开汇总前核验面板；「仍要生成」管理员强制执行（force=1 重试）
-  showVerifyFailures(res) {
-    let ej = null;
-    try {
-      const path = res.filePath || res.tempFilePath;
-      if (path) ej = JSON.parse(wx.getFileSystemManager().readFileSync(path, 'utf8'));
-    } catch (e) { /* 非 JSON 响应忽略，走通用错误提示 */ }
-    if (!ej || ej.code !== 40901) return false;
+  // 40901 生成前核验拦截公共确认弹层（下载 / 存网盘两处共用）：
+  // 「去核验」返回主页并打开汇总前核验面板；「仍要生成」调 onForce（force=1 重试，沿用已选目录）强制执行
+  confirmVerify(message, onForce, andSave) {
     wx.showModal({
       title: '存在未通过项',
-      content: `${ej.message}。可先到「汇总前核验」逐项处理，或确认后直接生成。`,
+      content: `${message}。可先到「汇总前核验」逐项处理，或确认后直接生成${andSave ? '并存网盘' : ''}。`,
       confirmText: '仍要生成',
       cancelText: '去核验',
       success: (m) => {
         if (m.confirm) {
-          this.onGenerate(true); // 强制执行
+          onForce(); // 强制执行
           return;
         }
         if (m.cancel) {
@@ -145,6 +140,17 @@ Page({
         }
       },
     });
+  },
+
+  // 生成前核验拦截（40901，仅 verify40901 的类型）：解析下载响应的 JSON 错误体后走公共确认弹层
+  showVerifyFailures(res) {
+    let ej = null;
+    try {
+      const path = res.filePath || res.tempFilePath;
+      if (path) ej = JSON.parse(wx.getFileSystemManager().readFileSync(path, 'utf8'));
+    } catch (e) { /* 非 JSON 响应忽略，走通用错误提示 */ }
+    if (!ej || ej.code !== 40901) return false;
+    this.confirmVerify(ej.message, () => this.onGenerate(true), false);
     return true;
   },
 
@@ -235,24 +241,7 @@ Page({
       this.toast(`已保存到网盘：${(data && data.path) || ''}`);
     }).catch((err) => {
       if (err && err.code === 40901 && this._cfg.verify40901) {
-        wx.showModal({
-          title: '存在未通过项',
-          content: `${err.message}。可先到「汇总前核验」逐项处理，或确认后直接生成并存网盘。`,
-          confirmText: '仍要生成',
-          cancelText: '去核验',
-          success: (m) => {
-            if (m.confirm) {
-              this.onSaveNetdisk(true); // 强制执行
-              return;
-            }
-            if (m.cancel) {
-              const pages = getCurrentPages();
-              const prev = pages[pages.length - 2];
-              if (prev && prev.onOpenReport) prev.onOpenReport(); // 主页打开汇总前核验面板
-              wx.navigateBack();
-            }
-          },
-        });
+        this.confirmVerify(err.message, () => this.onSaveNetdisk(true), true);
         return;
       }
       this.toast(err.message);

@@ -362,12 +362,39 @@ async function reverseGeocode(lng, lat) {
 
 // ---------- 绑定（短信双通道：图形码优先、失败降级顶象滑块接力；密码登录仅滑块通道）----------
 
+// 登录链路频控（进程内存固定窗口，按「用户 + 目标手机号」计数，同 auth.js 登录失败限流同型）：
+// 图形码取图 / 发短信 / 绑定登录都会打到商旅登录接口，防脚本刷短信与爆破验证码；
+// 阈值宽松（正常重试留数倍余量）不影响正常使用，超限 429。进程内存实现（重启清零、多实例各自独立计数），
+// 仅作滥用兜底，不替代平台侧风控
+const loginRateMap = new Map(); // key → { count: 窗口内请求次数, start: 窗口起点时间戳 }
+const LOGIN_RATE_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_RATE_LIMITS = { captcha: 12, sms: 6, bind: 10 };
+function overLoginRate(kind, userId, mobile) {
+  const key = `${kind}:${userId}:${mobile}`;
+  const now = Date.now();
+  const rec = loginRateMap.get(key);
+  if (!rec || now - rec.start >= LOGIN_RATE_WINDOW_MS) {
+    loginRateMap.set(key, { count: 1, start: now });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > LOGIN_RATE_LIMITS[kind];
+}
+// 定期清理过期限流记录，避免 Map 无限增长（unref 不阻碍进程退出）
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, rec] of loginRateMap) {
+    if (now - rec.start >= LOGIN_RATE_WINDOW_MS) loginRateMap.delete(key);
+  }
+}, LOGIN_RATE_WINDOW_MS).unref();
+
 // POST /login/captcha：取图形验证码（validcodeimg 对服务器 IP 间歇可用；
 // 风控窗口期 99000 时统一回 40035，前端据此降级滑块验证）
 router.post('/login/captcha', async (req, res, next) => {
   try {
     const mobile = String((req.body && req.body.mobile) || '').trim();
     if (!/^1\d{10}$/.test(mobile)) return fail(res, 400, 40030, '手机号格式不正确');
+    if (overLoginRate('captcha', req.user.id, mobile)) return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
     try {
       let image = await sgcc.loginCaptcha(mobile);
       // 商旅返回裸 base64（无 dataURL 前缀），统一补全；PNG 魔数 89504e47
@@ -384,6 +411,7 @@ router.post('/login/sms', async (req, res, next) => {
   try {
     const { mobile, checkImgCode, captchaToken, constId } = req.body || {};
     if (!/^1\d{10}$/.test(String(mobile || ''))) return fail(res, 400, 40030, '手机号格式不正确');
+    if (overLoginRate('sms', req.user.id, String(mobile))) return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
     if (checkImgCode) {
       // 图形码通道（v2）：statusCode=200 即成功
       const d = await sgcc.loginSendSmsV2(String(mobile), String(checkImgCode).trim());
@@ -415,6 +443,27 @@ router.post('/login/bind', async (req, res, next) => {
     // 密码登录双通道：带 checkImgCode 走图形码 token/v3；否则走滑块 token/v4（需 captchaToken）
     const { checkImgCode } = req.body || {};
     if (password && !checkImgCode && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
+    if (overLoginRate('bind', req.user.id, String(mobile))) return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
+
+    // 认领出工成员：班组内按昵称匹配（与 worklog member-sync 同口径）
+    const [members] = await pool.query(
+      'SELECT id FROM worklog_member WHERE team_id = ? AND name = ?',
+      [req.team.id, req.user.nickname]
+    );
+    const memberId = members.length ? members[0].id : null;
+
+    // 落库归并（人级唯一 uk_user/uk_member，token 跟人走）：
+    // 本人已有绑定行（含调班前旧班行）→ 更新为当前班组/成员口径；无本人行但该成员有代绑行 → 接管回本人；
+    // 两者并存且不同行（代绑残留）→ 删代绑行后更新本人行；设备口径沿用原 ODKU 语义（缺省值覆盖）
+    const [byUser] = await pool.query('SELECT id FROM worklog_sgcc_account WHERE user_id = ?', [req.user.id]);
+    const [byMember] = memberId
+      ? await pool.query('SELECT id, user_id FROM worklog_sgcc_account WHERE member_id = ?', [memberId])
+      : [[]];
+    // 接管前归属校验：该成员绑定行已被其他账号自绑时明确拒绝，禁止静默抢走他人绑定；
+    // 仅允许接管未归属（管理员代绑 user_id=NULL）行与本人行（见上方归并注释）
+    if (byMember.length && byMember[0].user_id != null && Number(byMember[0].user_id) !== Number(req.user.id)) {
+      return fail(res, 409, 40910, '该成员已绑定其他登录账号，请联系对方解绑或请管理员处理');
+    }
 
     const risk = { captchaToken: String(captchaToken || ''), constId: String(constId || '') };
     let token;
@@ -430,20 +479,6 @@ router.post('/login/bind', async (req, res, next) => {
       throw e;
     }
 
-    // 认领出工成员：班组内按昵称匹配（与 worklog member-sync 同口径）
-    const [members] = await pool.query(
-      'SELECT id FROM worklog_member WHERE team_id = ? AND name = ?',
-      [req.team.id, req.user.nickname]
-    );
-    const memberId = members.length ? members[0].id : null;
-
-    // 落库归并（人级唯一 uk_user/uk_member，token 跟人走）：
-    // 本人已有绑定行（含调班前旧班行）→ 更新为当前班组/成员口径；无本人行但该成员有代绑行 → 接管回本人；
-    // 两者并存且不同行（代绑残留）→ 删代绑行后更新本人行；设备口径沿用原 ODKU 语义（缺省值覆盖）
-    const [byUser] = await pool.query('SELECT id FROM worklog_sgcc_account WHERE user_id = ?', [req.user.id]);
-    const [byMember] = memberId
-      ? await pool.query('SELECT id FROM worklog_sgcc_account WHERE member_id = ?', [memberId])
-      : [[]];
     const devType = deviceType || 'Xiaomi 2509FPN0BC';
     const sysVer = systemVersion || 'Android 16';
     if (byUser.length && byMember.length && byUser[0].id !== byMember[0].id) {
@@ -649,6 +684,7 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
     // 密码登录双通道：带 checkImgCode 走图形码 token/v3；否则走滑块 token/v4（需 captchaToken）
     const { checkImgCode } = req.body || {};
     if (password && !checkImgCode && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
+    if (overLoginRate('bind', req.user.id, String(mobile))) return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
     // 成员必须属于本班
     const [members] = await pool.query(
       'SELECT id FROM worklog_member WHERE id = ? AND team_id = ?',
@@ -1015,6 +1051,26 @@ router.post('/fee', async (req, res, next) => {
 // 多成员商旅循环的可选进度回调 prog（{ addTotal(n), step() }）：由 newPhotoOp 的任务记录供给，
 // 每个成员处理完（含跳过）step 一次；失败中止不 step。addTotal 累加设计：改人名「剔除 + 补传」两段共用同一任务拼接连续进度。
 
+// 费用模板 id=5「上传图片」组件 value 解析公共内核：JSON 数组元素 id/url 键兼容
+//（壹匣保存写 {id,url}，App 手工上传为 {fileInfoId,url}（另兼容 imageId/imageUrl））；
+// 无可识别图片 id 返回 null（键名再漂移时识别不出，调用方据此跳过保护本地）
+function parseFeeImageItem(it) {
+  if (!it) return null;
+  const rawId = it.id ?? it.fileInfoId ?? it.imageId;
+  if (rawId === undefined || rawId === null || String(rawId) === '') return null;
+  const url = typeof it.url === 'string' && it.url.trim()
+    ? it.url.trim()
+    : (typeof it.imageUrl === 'string' ? it.imageUrl.trim() : '');
+  return { id: String(rawId), url };
+}
+
+// 组件 value（JSON 字符串）→ 图片数组；异常/非数组回空
+function parseFeeImageList(value) {
+  let imgs = [];
+  if (value) { try { imgs = JSON.parse(value); } catch (e) { imgs = []; } }
+  return Array.isArray(imgs) ? imgs : [];
+}
+
 // 把照片原文上传并关联进每个指定人名的当日商旅费用照片（fastdfs/upload/image/sample/v2 → getFeeInfoNew → saveFeeInfoNew 关联上传图片组件）。
 // 远端先行核心，两处共用：worklog 照片上传（本地落库前调用，buf 在内存）与 syncPhotoToSgcc（改人名补传 / resync，COS 回源 buf）。
 // links 传已有链接（按成员去重，已链接者跳过，重试天然只补缺口）；未绑定成员跳过不计失败（记核查日志，与验证规则 a「未绑定者不参与」同口径）；
@@ -1059,9 +1115,7 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, links =
       if (!tpl) throw new Error('获取费用模板失败');
       await ensureCostCenter(tpl, account, memberId);
       const comp = (tpl.dtComponentList || []).find((c) => c.id === 5);
-      let imgs = [];
-      if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
-      if (!Array.isArray(imgs)) imgs = [];
+      const imgs = parseFeeImageList(comp && comp.value);
       // 元素形状与商旅 App 手工上传一致：{fileInfoId, url}（imgId 即 uploadImageV2 返回的 fileInfoId）
       imgs.push({ fileInfoId: imgId, url: imgUrl || '' });
       const sv = await sgcc.saveFeeInfoNew(account.token, logDate, tpl, { 5: JSON.stringify(imgs) }, devOpt(account));
@@ -1127,14 +1181,45 @@ async function removeFeeImageRemote(account, date, imgId, memberId = account.mem
   if (!tpl) return { ok: false, error: '获取费用模板失败' };
   await ensureCostCenter(tpl, account, memberId);
   const comp = (tpl.dtComponentList || []).find((c) => c.id === 5);
-  let imgs = [];
-  if (comp && comp.value) { try { imgs = JSON.parse(comp.value); } catch (e) { imgs = []; } }
-  if (!Array.isArray(imgs)) imgs = [];
-  const kept = imgs.filter((it) => String(it && (it.id ?? it.fileInfoId ?? it.imageId)) !== String(imgId));
+  const imgs = parseFeeImageList(comp && comp.value);
+  // id 键兼容口径同 parseFeeImageItem；识别不出图片 id 的元素一律保留（不误删）
+  const kept = imgs.filter((it) => {
+    const img = parseFeeImageItem(it);
+    return !img || img.id !== String(imgId);
+  });
   if (kept.length === imgs.length) return { ok: true }; // 商旅侧本就没有该图，视为已删除
   const sv = await sgcc.saveFeeInfoNew(account.token, date, tpl, { 5: JSON.stringify(kept) }, devOpt(account));
   if (!sv || Number(sv.statusCode) !== 200) return { ok: false, error: (sv && sv.msg) || '商旅费用保存失败' };
   return { ok: true };
+}
+
+// 照片解链公共内核（removePhotoMembersRemote / unlinkPhotoFromSgcc 共用）：单成员一次远端解链——
+// 从该成员当日商旅费用照片移除该图，成功即时断开 links[linkKey] 并落库（后续中止不回退，重试仅处理剩余链接）；
+// 失败记核查日志并返回错误串（调用方据此中止，本地链接保留防核查回拉复活）。失败日志文案由 failDetail 构造
+async function unlinkFeeImageOnce({ photoId, teamId, logDate, memberId, imgId, links, linkKey, failDetail }) {
+  const account = await accountByMember(memberId); // 人级解析：人已调班仍可用其账号操作
+  let err = '';
+  if (!account || account.token_status !== 1) {
+    err = account && account.token_status === 0 ? '商旅登录已过期' : '未绑定商旅账号';
+  } else {
+    try {
+      const r = await removeFeeImageRemote(account, logDate, imgId, memberId);
+      if (!r.ok) err = r.error || '商旅侧删除失败';
+    } catch (e) {
+      err = e && e.message ? e.message : String(e);
+    }
+  }
+  if (err) {
+    await pool.query(
+      `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
+       VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
+      [teamId, memberId, logDate, failDetail(err)]
+    );
+    return err;
+  }
+  delete links[linkKey];
+  await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [JSON.stringify(links), photoId]);
+  return null;
 }
 
 // 照片人名剔除（同步远端先行，改人名接口在更新本地人名前调用）：逐个从被剔除成员的商旅费用照片移除该图。
@@ -1160,30 +1245,12 @@ async function removePhotoMembersRemote(photoId, removedNames, prog = null) {
     const memberId = mrows[0].id;
     const imgId = links[memberId];
     if (!imgId) { if (prog) prog.step(); continue; } // 该成员名下本就没同步成功过，无需远端删除
-    const account = await accountByMember(memberId); // 人级解析：人已调班仍可用其账号操作
-    let err = '';
-    if (!account || account.token_status !== 1) {
-      err = account && account.token_status === 0 ? '商旅登录已过期' : '未绑定商旅账号';
-    } else {
-      try {
-        const r = await removeFeeImageRemote(account, logDate, imgId, memberId);
-        if (!r.ok) err = r.error || '商旅侧删除失败';
-      } catch (e) {
-        err = e && e.message ? e.message : String(e);
-      }
-    }
-    if (err) {
-      await pool.query(
-        `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
-         VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
-        [teamId, memberId, logDate,
-          `照片 ${photoId} 剔除人名「${name}」：商旅侧图片删除失败（${String(err).slice(0, 120)}），本地未变更，请重试`]
-      );
-      return { ok: false, failedName: name, error: err };
-    }
     // 成功：即时断开链接并落库（后续成员中止也不回退；重试编辑时 syncPhotoToSgcc 会为缺链接成员补传恢复）
-    delete links[memberId];
-    await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [JSON.stringify(links), photoId]);
+    const err = await unlinkFeeImageOnce({
+      photoId, teamId, logDate, memberId, imgId, links, linkKey: memberId,
+      failDetail: (e) => `照片 ${photoId} 剔除人名「${name}」：商旅侧图片删除失败（${String(e).slice(0, 120)}），本地未变更，请重试`,
+    });
+    if (err) return { ok: false, failedName: name, error: err };
     if (prog) prog.step();
   }
   return { ok: true };
@@ -1206,31 +1273,13 @@ async function unlinkPhotoFromSgcc(photoId, prog = null) {
   for (const memberIdStr of Object.keys(links)) {
     const imgId = links[memberIdStr];
     const memberId = Number(memberIdStr);
-    const account = await accountByMember(memberId); // 人级解析：人已调班仍可用其账号操作
     const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [memberId]);
     const name = mrows.length ? mrows[0].name : String(memberId);
-    let err = '';
-    if (!account || account.token_status !== 1) {
-      err = account && account.token_status === 0 ? '商旅登录已过期' : '未绑定商旅账号';
-    } else {
-      try {
-        const r = await removeFeeImageRemote(account, logDate, imgId, memberId);
-        if (!r.ok) err = r.error || '商旅侧删除失败';
-      } catch (e) {
-        err = e && e.message ? e.message : String(e);
-      }
-    }
-    if (err) {
-      await pool.query(
-        `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
-         VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
-        [teamId, memberId, logDate,
-          `照片 ${photoId} 删除：解除成员「${name}」商旅费用照片失败（${String(err).slice(0, 120)}），本地未删除，请重试`]
-      );
-      return { ok: false, failedName: name, error: err };
-    }
-    delete links[memberIdStr];
-    await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [JSON.stringify(links), photoId]);
+    const err = await unlinkFeeImageOnce({
+      photoId, teamId, logDate, memberId, imgId, links, linkKey: memberIdStr,
+      failDetail: (e) => `照片 ${photoId} 删除：解除成员「${name}」商旅费用照片失败（${String(e).slice(0, 120)}），本地未删除，请重试`,
+    });
+    if (err) return { ok: false, failedName: name, error: err };
     if (prog) prog.step();
   }
   return { ok: true };
@@ -1280,18 +1329,14 @@ router.post('/photos/:id/resync', async (req, res, next) => {
 async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
   const ctxTeamId = ctx ? ctx.teamId : account.team_id;
   const ctxMemberId = ctx ? ctx.memberId : account.member_id;
-  // 商旅侧集合：商旅图片 id → 图片地址
-  // id 键兼容：壹匣保存写入 {id,url}，App 手工上传为 {fileInfoId,url}（另兼容 imageUrl）；
+  // 商旅侧集合：商旅图片 id → 图片地址（id/url 键兼容口径同 parseFeeImageItem；
+  // 结构见 private/esgcc/sgcc/tools/fee_probe3.js 联调口径）；
   // 有数据但识别不出图片 id（键名再漂移）→ 跳过对账保护本地，防止误判「商旅无照片」删错
   const remote = new Map();
   for (const it of remoteImgs) {
-    if (!it) continue;
-    const rawId = it.id ?? it.fileInfoId ?? it.imageId;
-    if (rawId === undefined || rawId === null || String(rawId) === '') continue;
-    const url = typeof it.url === 'string' && it.url.trim()
-      ? it.url.trim()
-      : (typeof it.imageUrl === 'string' ? it.imageUrl.trim() : '');
-    remote.set(String(rawId), url);
+    const img = parseFeeImageItem(it);
+    if (!img) continue;
+    remote.set(img.id, img.url);
   }
   if (remoteImgs.length && !remote.size) {
     console.error(`[商旅打卡] 费用照片对账跳过（成员 ${ctxMemberId} ${date}）：远端 ${remoteImgs.length} 张但无可识别图片 id，样例 ${JSON.stringify(remoteImgs[0]).slice(0, 300)}`);

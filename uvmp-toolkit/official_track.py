@@ -368,7 +368,6 @@ class OfficialTrackRenderer:
         except Exception:  # noqa: BLE001
             pass
         try:
-            self.browser.call("Page.captureScreenshot", {"format": "png"})
             r = self.browser.call("Page.captureScreenshot", {"format": "png"})
             data = (r.get("result") or {}).get("data")
             if data:
@@ -635,16 +634,6 @@ PNG_WRAP_HTML = """<!DOCTYPE html>
 body { margin: 0; -webkit-print-color-adjust: exact; }
 img { display: block; width: 272mm; height: 200mm; }
 </style></head><body><img src="$img_uri"></body></html>"""
-
-# 派车单：A4 纵向，页边距与官方打印一致（上/下 10mm，左/右 31.5mm），
-# 图片宽 147mm（官方 shrink-to-fit 0.866 的等效版心）
-PNG_WRAP_PCD_HTML = """<!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="utf-8"><style>
-@page { size: A4 portrait; margin: 10mm 31.5mm 10mm 31.5mm; }
-body { margin: 0; -webkit-print-color-adjust: exact; }
-img { display: block; width: 147mm; margin: 0 auto; }
-</style></head><body><img src="$img_uri"></body></html>"""
-
 
 # ---------------------------------------------------------------- 弹窗时间改写（自动校准行程结束时间用）
 # 已在 track_time_rewrite_trial.py 经内网实测验证（2026-10：结束时间/行驶时间精确命中改写）。

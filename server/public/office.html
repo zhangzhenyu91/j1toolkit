@@ -106,11 +106,13 @@
     document.title = name + (mode === 'view' ? ' · 在线预览' : ' · 在线编辑') + ' · Shade 壹匣';
     $('#ldName').textContent = name;
 
-    // 当前窗口打开口径：返回 = 回来源页（query.back，仅放行 '/' 开头站内路径防 open redirect，缺省回网盘页；
+    // 当前窗口打开口径：返回 = 回来源页（query.back，仅放行 '/' 开头站内路径防 open redirect——
+    // 次字符 '/'（//host）与 '\'（/\host，WHATWG 对 http(s) 特殊协议视同 '/'）都拦截，缺省回网盘页；
     // OO 右上角「关闭文件」同口径；浏览器后退亦可用）
     function back() {
       var target = qs.get('back') || '';
-      location.href = target.charAt(0) === '/' && target.charAt(1) !== '/' ? target : '/netdisk.html';
+      location.href = target.charAt(0) === '/' && target.charAt(1) !== '/' && target.charAt(1) !== '\\'
+        ? target : '/netdisk.html';
     }
 
     var stateEl = $('#ooState');

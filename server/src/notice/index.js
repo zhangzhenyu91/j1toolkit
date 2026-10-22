@@ -17,6 +17,10 @@ router.use(auth);
 // 可推送角色全集（与 sys_user.role 口径一致）
 const ROLES = ['admin', 'team_admin', 'user'];
 
+// 可见性 SQL 片段（别名固定 n）：角色命中 targets 或本人命中 user_ids，占位参数为 [role, String(userId)]；
+// 列表 / 未读计数 / 标记已读 / 一键删已读 / 按人隐藏五处共用
+const NOTICE_VISIBLE = '(JSON_CONTAINS(n.targets, JSON_QUOTE(?)) OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON)))';
+
 // 系统自动触发接口：写入一条通知并返回新通知 id；createdBy 缺省 NULL 表示系统。
 // targets 为角色数组（可空），userIds 为按人投放的用户 id 数组（可空）；两者至少其一非空才有接收人
 // wxUserIds / wxTeamIds 可选：同时向这些用户（个人 wxid）与班组（群 wxid）追加微信推送；失败仅记日志
@@ -66,8 +70,7 @@ router.get('/list', async (req, res, next) => {
        LEFT JOIN sys_notice_read r ON r.notice_id = n.id AND r.user_id = ?
        LEFT JOIN sys_notice_del d ON d.notice_id = n.id AND d.user_id = ?
        LEFT JOIN sys_user u ON u.id = n.created_by
-       WHERE (JSON_CONTAINS(n.targets, JSON_QUOTE(?))
-          OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON))) AND d.id IS NULL
+       WHERE ${NOTICE_VISIBLE} AND d.id IS NULL
        ORDER BY n.created_at DESC, n.id DESC
        LIMIT ${limit}`,
       [req.user.id, req.user.id, req.user.role, String(req.user.id)]
@@ -87,8 +90,7 @@ router.get('/list', async (req, res, next) => {
        FROM sys_notice n
        LEFT JOIN sys_notice_read r ON r.notice_id = n.id AND r.user_id = ?
        LEFT JOIN sys_notice_del d ON d.notice_id = n.id AND d.user_id = ?
-       WHERE (JSON_CONTAINS(n.targets, JSON_QUOTE(?))
-          OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON))) AND r.id IS NULL AND d.id IS NULL`,
+       WHERE ${NOTICE_VISIBLE} AND r.id IS NULL AND d.id IS NULL`,
       [req.user.id, req.user.id, req.user.role, String(req.user.id)]
     );
     return ok(res, { items, unread: cntRows[0].cnt });
@@ -103,7 +105,7 @@ router.post('/:id/read', async (req, res, next) => {
     const noticeId = Number(req.params.id) || 0;
     const [rows] = await pool.query(
       `SELECT id FROM sys_notice n WHERE n.id = ?
-       AND (JSON_CONTAINS(n.targets, JSON_QUOTE(?)) OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON)))
+       AND ${NOTICE_VISIBLE}
        AND NOT EXISTS (SELECT 1 FROM sys_notice_del d WHERE d.notice_id = n.id AND d.user_id = ?)`,
       [noticeId, req.user.role, String(req.user.id), req.user.id]
     );
@@ -121,7 +123,7 @@ router.post('/read-all', async (req, res, next) => {
     await pool.query(
       `INSERT IGNORE INTO sys_notice_read (notice_id, user_id)
        SELECT n.id, ? FROM sys_notice n
-       WHERE (JSON_CONTAINS(n.targets, JSON_QUOTE(?)) OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON)))
+       WHERE ${NOTICE_VISIBLE}
          AND NOT EXISTS (SELECT 1 FROM sys_notice_del d WHERE d.notice_id = n.id AND d.user_id = ?)`,
       [req.user.id, req.user.role, String(req.user.id), req.user.id]
     );
@@ -139,7 +141,7 @@ router.post('/del-read', async (req, res, next) => {
       `INSERT IGNORE INTO sys_notice_del (notice_id, user_id)
        SELECT n.id, ? FROM sys_notice n
        JOIN sys_notice_read rd ON rd.notice_id = n.id AND rd.user_id = ?
-       WHERE (JSON_CONTAINS(n.targets, JSON_QUOTE(?)) OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON)))
+       WHERE ${NOTICE_VISIBLE}
          AND NOT EXISTS (SELECT 1 FROM sys_notice_del d WHERE d.notice_id = n.id AND d.user_id = ?)`,
       [req.user.id, req.user.id, req.user.role, String(req.user.id), req.user.id]
     );
@@ -222,7 +224,7 @@ router.delete('/:id', async (req, res, next) => {
     }
     const [rows] = await pool.query(
       `SELECT id FROM sys_notice n WHERE n.id = ?
-       AND (JSON_CONTAINS(n.targets, JSON_QUOTE(?)) OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON)))`,
+       AND ${NOTICE_VISIBLE}`,
       [noticeId, req.user.role, String(req.user.id)]
     );
     if (!rows.length) return fail(res, 404, 40403, '通知不存在');

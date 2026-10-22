@@ -13,8 +13,7 @@
      卡片操作区「从商旅同步」（仅本卡用车人当日数据，卡片级进度锁，同小程序口径）；
      隐私口径：任何可见文案不出现平台所属方名称，统称「商旅平台 / 商旅 App」；
      管理员（超管 / 班组管理员）另见四个平级页签：「数据管理」= 已整体迁移至「班组数据」（teamdata.html；
-     本页签保留为跳转说明卡，旧锚点 #dict 自动跳转；原三字典维护 / 杆塔坐标模板下载·Excel 导入随迁移下线（代码保留未删），
-     商旅绑定设备区已迁至「班组数据 → 商旅设备」页签（本页旧实现代码同样保留未删））；
+     本页签保留为跳转说明卡，旧锚点 #dict 自动跳转；原三字典维护 / 杆塔坐标模板下载·Excel 导入 / 商旅绑定设备（改设备、代绑定）随迁移下线，旧实现代码已删除）；
      「工作任务单」= 按日期范围生成出车卡片，合并为单个 docx 一卡一页（预览走 ONLYOFFICE 在线查看，OO 未配置时后端自动回退微软查看器、下载 fetch + blob，同安全日记录口径；同小程序 sheet 页（task 型）口径）；
      「费用汇总」= 按日期范围生成「人 × 日」费用矩阵 docx（一卡一行、一人一列、末尾合计，单元格＝伙食补助＋交通费 ×1；同小程序 sheet 页（fee 型）口径）；
      「派车汇总」= 按日期范围导出派车单号清单 xlsx（预览 / 下载 / 存网盘；预览走 ONLYOFFICE 在线查看，OO 未配置时后端自动回退微软查看器——
@@ -23,7 +22,7 @@
      工作任务单 / 费用汇总生成前先核验：范围内有未通过项按 40901 拦截，弹小提示框（showVerifyFailures）——「去汇总前核验」切核验页签定位范围起始月 /「仍要生成」管理员强制执行（force=1）；
      「派车对齐」= 导入派车系统导出表（多文件合并），按日期＋用车人配对出差异清单，逐条对照更正车牌 / 用车人 / 目的地 / 派车单号（小程序端为悬浮钮「派车对齐」页 pkg-worklog/pages/dispatch，派车单从聊天文件选取；口径见《开发指南》7.6）；
      页签顶部「每日自动同步派车单」开关（/dispatch/sync-switch，按生效班组，仅 admin / team_admin）；
-     「数据管理」原另有「商旅绑定设备」区（绑定成员列表可改设备、区底部选成员「代绑定」），已迁至「班组数据 → 商旅设备」页签，本页旧实现代码保留未删；
+     「数据管理」原另有「商旅绑定设备」区（绑定成员列表可改设备、区底部选成员「代绑定」），已迁至「班组数据 → 商旅设备」页签，本页旧实现代码已删除；
      跨班日志：超管页头「跨班日志」入口（/logs/cross/* 全局字典，openCrossForm 新建 / 编辑；跨班卡车牌行加橙色描边「跨班」徽章，
      非超管不可改派车 / 删除，他班跨班卡不渲染商旅打卡区与「从商旅同步」入口）；
      班组隔离：超管页头加班组切换下拉（localStorage.worklog_team_id，全部 /worklog/* 请求统一带 team_id，见 wl()）；
@@ -210,40 +209,12 @@
   .linkbtn.dgr { color: var(--red); }
   .linkbtn.dgr:hover { background: #FFECE8; }
 
-  /* ===== 数据管理页签（字典三板块 + 杆塔坐标 + 商旅绑定设备；仅 admin / team_admin 可见页签） ===== */
+  /* ===== 说明卡小节（数据管理跳转卡 / 各 sheet 页签「字段口径」卡；数据管理实现已随迁移删除，字典行样式一并清理） ===== */
   .dsec { margin-bottom: 14px; overflow: hidden; }
   .dsec-h { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; }
   .dsec-h::before { content: ""; width: 8px; height: 8px; flex: none; background: var(--red); }
   .dsec-h b { font-size: 13.5px; letter-spacing: 1px; }
-  .dsec-h .cnt { font-size: 11px; color: var(--ph); letter-spacing: 1px; }
-  .drow { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-top: 1px solid var(--hair); font-size: 13px; }
-  .drow .dn { font-weight: 600; word-break: break-all; }
-  .drow.off .dn { opacity: .45; }
-  .dpill { flex: none; border-radius: 8px; padding: 1px 7px; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; }
-  .dpill-sync { background: #EAF5EF; color: var(--green); }
-  .dpill-hand { background: var(--paper); color: var(--ph); }
-  .dpill-out { background: #FFF7E8; color: var(--navy); }
-  /* 目的地费用口径标（市外=橙底 / 驻地=浅蓝底，互斥） */
-  .dpill-sta { background: var(--orange-soft); color: var(--orange); }
-  .doff-tip { flex: none; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
-  .drow .dops { margin-left: auto; flex: none; display: flex; gap: 2px; }
-  /* 商旅绑定设备行：手机号 · 设备型号 / 系统版本（次级灰字，截断防挤压操作区） */
-  .drow .dspec { flex: 1; min-width: 0; font-size: 12px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dempty { padding: 14px 16px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--ph); letter-spacing: 1px; }
-  /* 板块底部虚线添加行（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
-  .dadd {
-    display: flex; align-items: center; gap: 10px; margin: 10px 12px 12px;
-    padding: 4px 4px 4px 12px; border: 2px dashed var(--dash); border-radius: 8px;
-  }
-  .dadd-in {
-    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
-    font-size: 13px; color: var(--navy); font-family: inherit;
-  }
-  .dadd-in::placeholder { color: var(--ph); }
-  .tower-bar { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-top: 1px solid var(--hair); }
-  .tb-n { font-size: 13.5px; font-weight: 700; letter-spacing: .5px; }
-  .tb-s { margin-top: 2px; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
-  .tb-btns { margin-left: auto; flex: none; display: flex; gap: 10px; }
 
   /* ===== 派车对齐页签（导入 + 概览 + 不一致清单；仅 admin / team_admin 可见；小程序端同功能见 pkg-worklog/pages/dispatch） ===== */
   .pa-files { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1203,9 +1174,6 @@
   </div>
 </main>
 
-<!-- 杆塔坐标导入：隐藏文件选择（仅 .xlsx ≤10MB，前端先校验） -->
-<input type="file" id="impFileInput" accept=".xlsx" hidden>
-
 <!-- 派车对齐：隐藏文件选择（.xls/.xlsx 多选，每个驾驶员一份，合并解析） -->
 <input type="file" id="paFileInput" accept=".xls,.xlsx" multiple hidden>
 
@@ -1227,7 +1195,7 @@
 <script>
 /* ============================================================
    出工日志网页版：月历 / 当日卡片 / 照片大图 / 卡片直改 / 记录·批量下载·汇总前核验·数据管理·工作任务单·费用汇总·派车汇总·派车对齐八页签（原下载、报告弹层已页签化；
-   数据管理已迁移至「班组数据」teamdata.html，本页签保留为跳转说明卡，原实现代码保留未删；工作任务单 / 费用汇总 / 派车汇总 / 派车对齐仅超管 / 班组管理员可见：任务单按日期范围合并生成 docx，费用汇总按日期范围生成「人 × 日」费用矩阵 docx；
+   数据管理已迁移至「班组数据」teamdata.html，本页签保留为跳转说明卡（旧锚点 #dict 自动跳转），原实现代码已删除；工作任务单 / 费用汇总 / 派车汇总 / 派车对齐仅超管 / 班组管理员可见：任务单按日期范围合并生成 docx，费用汇总按日期范围生成「人 × 日」费用矩阵 docx；
    派车汇总按日期范围导出派车单号清单 xlsx（派车单号 + 用车日期两列，顺序与工作任务单一致；数据来自卡片 dispatch_order_no 字段，仅已填单号的出车卡片出数）；
    派车对齐导入导出表按日期＋用车人配对出差异清单、逐条对照更正（小程序端同功能见 pkg-worklog/pages/dispatch），接口 /worklog/admin/* 按生效班组隔离；
    页签顶部「每日自动同步派车单」开关（GET/PUT /dispatch/sync-switch，按生效班组）；超管另有「跨班日志」新建 / 编辑（/logs/cross/* 全局字典，openCrossForm）
@@ -1297,7 +1265,6 @@ var state = {
   meta: null,                // 编辑表单字典（vehicles/destinations/members，GET /meta 缓存）
   crossMeta: null,           // 跨班日志表单全局字典（teams/vehicles/destinations/members，GET /logs/cross/meta 缓存，仅超管；全局数据不随班组切换清空）
   towerRows: null,           // 杆塔坐标全量缓存（GET /towers，加水印「选择杆塔坐标」用）
-  dict: { lists: {}, towerCount: null, sgcc: { list: null, err: '' } }, // 数据管理页签：三字典列表（键 seg）+ 杆塔条数（null 加载中 / -1 失败）+ 商旅绑定设备（list null=未拉取）
   dl: { from: '', to: '', list: null, saving: false }, // 下载页签（list 项带 selected）
   ts: { from: '', to: '' },    // 工作任务单页签：生成范围（默认当日单日，页签内联起止输入选择）
   fs: { from: '', to: '' },    // 费用汇总页签：汇总范围（同工作任务单口径）
@@ -1516,7 +1483,7 @@ function cardHTML(e, idx, total) {
         + '<div class="cl-t">' + (PHOTO_OP_TEXT[olock.kind] || '商旅同步中') + ' <span class="cl-p">' + olock.pct + '</span>% · 暂不可操作</div></div></div>'
       : '')
     + (dlock
-      ? '<div class="card-lock"><div class="cl-box"><div class="cl-bar"><div class="cl-fill" style="width:' + dailyPct + '%"></div></div>'
+      ? '<div class="card-lock daily"><div class="cl-box"><div class="cl-bar"><div class="cl-fill" style="width:' + dailyPct + '%"></div></div>'
         + '<div class="cl-t">夜间同步中 <span class="cl-p">' + dailyPct + '</span>% · 暂不可操作</div></div></div>'
       : '')
     + '<div class="log-h" data-act="edit" title="点击修改派车 / 用车人"><b>' + esc(noCar ? '站内作业' : e.plate_no) + '</b>'
@@ -1967,7 +1934,14 @@ function openRemarkModal(entry) {
     + '<input type="file" id="rkFileDoc" hidden multiple accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf">'
     + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
     + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = Shade.modal(html, { width: 560 });
+  var inst = Shade.modal(html, {
+    width: 560,
+    /* 关闭（取消 / 保存）统一释放新选图片的预览 objectURL，防内存泄漏 */
+    onClose: function () {
+      files.forEach(function (f) { if (f.isNew && f.url) URL.revokeObjectURL(f.url); });
+      files = [];
+    }
+  });
   var saving = false;
 
   function renderAtt() {
@@ -1989,7 +1963,11 @@ function openRemarkModal(entry) {
     }).join('');
     $$('.att-x', inst.box).forEach(function (b) {
       b.addEventListener('click', function () {
-        files = files.filter(function (f) { return f.k !== b.dataset.k; });
+        files = files.filter(function (f) {
+          if (f.k !== b.dataset.k) return true;
+          if (f.isNew && f.url) URL.revokeObjectURL(f.url); // 移除即释放预览 objectURL
+          return false;
+        });
         renderAtt();
       });
     });
@@ -2377,17 +2355,24 @@ async function toggleCheck(entry, mid, chipEl) {
   }
 }
 
-/* ---------- 照片人名修改（候选为本卡用车人；被本卡其他照片占用者置灰——每人限一张；未绑定商旅/登录过期者置灰锁定不可更改） ---------- */
+/* ---------- 照片人名修改（候选为本卡用车人；水印照片被本卡其他水印照片占用者置灰——每人限一张，非水印照片不占名额；未绑定商旅/登录过期者置灰锁定不可更改） ---------- */
 function openPhotoMembersModal(entry, photo) {
+  /* 非水印照片不占每人限一张：仅水印照片互相占位，编辑非水印照片时无占位约束 */
+  var plain = photo.is_watermark === 0;
   var used = {};
-  (entry.photos || []).forEach(function (p) {
-    if (p.id === photo.id) return;
-    (p.members || []).forEach(function (n) { used[n] = 1; });
-  });
+  if (!plain) {
+    (entry.photos || []).forEach(function (p) {
+      if (p.id === photo.id || p.is_watermark === 0) return;
+      (p.members || []).forEach(function (n) { used[n] = 1; });
+    });
+  }
   var members = (entry.members || []).slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
   var offNames = [];
+  var hint = plain
+    ? '候选为本卡用车人；非水印照片不占每人限一张；新增人名将上传其商旅费用照片，剔除人名将从其商旅费用照片中删除'
+    : '候选为本卡用车人；每人限一张，已被其他水印照片占用者不可选；新增人名将上传其商旅费用照片，剔除人名将从其商旅费用照片中删除';
   var html = Shade.mHead('修改照片人名')
-    + '<div class="f-hint" style="margin:0 0 2px">候选为本卡用车人；每人限一张，已被其他照片占用者不可选；新增人名将上传其商旅费用照片，剔除人名将从其商旅费用照片中删除</div>'
+    + '<div class="f-hint" style="margin:0 0 2px">' + hint + '</div>'
     + '<div class="chips" style="margin-top:10px">' + members.map(function (m) {
       var on = (photo.members || []).indexOf(m.name) >= 0;
       var off = !m.sgccBound || m.sgccTokenStatus === 0;
@@ -2629,10 +2614,13 @@ function wgs2gcj(lng, lat) {
   dLng = (dLng * 180.0) / ((a / sqrtMagic) * Math.cos(radLat) * Math.PI);
   return [lng + dLng, lat + dLat];
 }
-/* 已被占用人名（每人限一张，同小程序 usedPhotoNames） */
+/* 已被占用人名（水印照片每人限一张，同小程序 usedPhotoNames；非水印照片不占名额） */
 function usedPhotoNames(entry) {
   var used = {};
-  (entry.photos || []).forEach(function (p) { (p.members || []).forEach(function (n) { used[n] = 1; }); });
+  (entry.photos || []).forEach(function (p) {
+    if (p.is_watermark === 0) return;
+    (p.members || []).forEach(function (n) { used[n] = 1; });
+  });
   return used;
 }
 /* 唤起系统文件选择（单张图片） */
@@ -2968,6 +2956,7 @@ function openWmFormModal(entry, names, image) {
   var code = genAntiCode();
   var geoKey = null;      // 「上次取值坐标」记录（手动改经纬度防抖刷新去重用，同小程序 _wmGeoKey）
   var towerPicked = false; // 已选杆塔坐标（定位结果不再覆盖；天气/地点行显「已更新」标）
+  var coordEdited = false; // 用户手填经纬度（编辑守卫：定位 / geo 慢响应不得覆盖手填坐标）
   var geoTimer = 0;
   var saving = false;
   $('#wmCode', inst.box).textContent = code;
@@ -3011,8 +3000,8 @@ function openWmFormModal(entry, names, image) {
       refreshGeo(lng, lat, '已按经纬度更新地点、天气');
     }, 800);
   }
-  elLng.addEventListener('input', scheduleGeo);
-  elLat.addEventListener('input', scheduleGeo);
+  elLng.addEventListener('input', function () { coordEdited = true; scheduleGeo(); });
+  elLat.addEventListener('input', function () { coordEdited = true; scheduleGeo(); });
   /* 「选择杆塔坐标」（有/无历史场景均显示）：级联选择后 ≤50m 波动带入并刷新地点、天气（同小程序） */
   var towerBtn = $('#wmTowerBtn', inst.box);
   if (towerBtn) {
@@ -3031,14 +3020,14 @@ function openWmFormModal(entry, names, image) {
   /* 无历史预填：浏览器定位（WGS84→GCJ02）取经纬度并调 /geo 预填地点/天气；授权被拒或失败均留空手填（同小程序口径） */
   if (noHistory && navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(function (pos) {
-      if (inst.closed || towerPicked) return;
+      if (inst.closed || towerPicked || coordEdited) return;
       var g = wgs2gcj(pos.coords.longitude, pos.coords.latitude);
       var lng = g[0].toFixed(6), lat = g[1].toFixed(6);
       elLng.value = lng;
       elLat.value = lat;
       geoKey = parseFloat(lng) + ',' + parseFloat(lat);
       Shade.api(wl('/api/v1/worklog/geo?lng=' + lng + '&lat=' + lat)).then(function (r) {
-        if (inst.closed || towerPicked) return;
+        if (inst.closed || towerPicked || coordEdited) return;
         if (!elWeather.value) elWeather.value = (r.data && r.data.weather) || '';
         if (!elLoc.value) elLoc.value = (r.data && r.data.location) || '';
       }).catch(function () { /* 反查失败留空手填 */ });
@@ -3356,19 +3345,6 @@ function renderDlPhotos() {
   syncDlSelection();
 }
 
-/* ================= 数据管理页签（车牌号 / 目的地 / 出工成员 字典 + 杆塔坐标；与小程序 manage 页同口径） ================= */
-var DICT_SEGS = [
-  { key: 'vehicles', label: '车牌号', ph: '输入新车牌号', err: '' },
-  { key: 'destinations', label: '目的地', ph: '输入新目的地名称', err: '' },
-  { key: 'members', label: '出工成员', ph: '输入新成员姓名', err: '' }
-];
-function dictSeg(key) {
-  var hit = null;
-  DICT_SEGS.forEach(function (s) { if (s.key === key) hit = s; });
-  return hit;
-}
-
-/* 整页加载：三字典列表 + 杆塔条数并发拉取（杆塔全量约 1400 行，取 length 即弃，不进缓存） */
 /* ================= 派车对齐页签（仅超管 / 班组管理员；小程序端同功能见 pkg-worklog/pages/dispatch） =================
    流程：多文件上传 POST /dispatch/align（服务端只读对齐不写库）→ 不一致清单 → 对照弹层逐条处理；
    更正复用既有接口：改卡 PUT /logs/{id}（整卡更新，patrol_content 随条目带回避免误清）、补建卡 POST /logs、车牌入字典 POST /admin/vehicles；
@@ -3830,545 +3806,6 @@ async function paCreate(it, i, total, inst, advance, btn) {
   }
 }
 
-async function loadDict() {
-  $('#dictBody').innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
-  await Promise.all(DICT_SEGS.map(loadDictSeg).concat([loadTowerCount(), loadSgccAccounts()]));
-  renderDict();
-}
-async function loadDictSeg(seg) {
-  try {
-    var r = await Shade.api(wl('/api/v1/worklog/admin/' + seg.key));
-    state.dict.lists[seg.key] = (r.data && r.data.list) || [];
-    seg.err = '';
-    state.meta = null; // 字典可能已变更：让记录页编辑表单的字典缓存（/meta）下次重拉
-  } catch (e) {
-    state.dict.lists[seg.key] = [];
-    seg.err = e.message || '加载失败';
-  }
-}
-async function loadTowerCount() {
-  try {
-    var r = await Shade.api(wl('/api/v1/worklog/towers'));
-    state.dict.towerCount = r.data && r.data.rows ? r.data.rows.length : 0;
-  } catch (e) {
-    state.dict.towerCount = -1;
-  }
-}
-
-/* 商旅绑定设备（商旅打卡恒启用、/api/v1/sgcc 恒挂载：加载失败区内容错展示；管理员可改设备型号 / 系统版本） */
-async function loadSgccAccounts() {
-  try {
-    var r = await Shade.api(wl('/api/v1/sgcc/accounts'));
-    state.dict.sgcc = { list: (r.data && r.data.list) || [], err: '' };
-  } catch (e) {
-    state.dict.sgcc = { list: [], err: e.message || '加载失败' };
-  }
-}
-
-/* 绑定设备行：成员名 + 登录态标 + 手机号 · 设备型号 / 系统版本 +「改设备」 */
-function sgccRowHtml(it) {
-  return '<div class="drow" data-sgcc-id="' + it.id + '">' +
-    '<span class="dn">' + esc(it.memberName || '（未关联成员）') + '</span>' +
-    '<span class="dpill ' + (it.tokenStatus === 1 ? 'dpill-sync">登录有效' : 'dpill-hand">登录过期') + '</span>' +
-    '<span class="dspec">' + esc(it.mobile) + ' · ' + esc(it.deviceType || '—') +
-      (it.systemVersion ? ' / ' + esc(it.systemVersion) : '') + '</span>' +
-    '<span class="dops"><button class="linkbtn" data-sgcc-act="device">改设备</button></span>' +
-  '</div>';
-}
-
-/* 改设备弹层（设备型号 =「厂商 型号」格式；保存后重拉本区） */
-function sgccDeviceEdit(item) {
-  var html = Shade.mHead('改打卡设备 · ' + esc(item.memberName || item.mobile))
-    + '<label class="f-lab">设备型号（厂商 型号）</label>'
-    + '<input class="f-sel" id="sgDevType" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Xiaomi 2509FPN0BC">'
-    + '<label class="f-lab">系统版本</label>'
-    + '<input class="f-sel" id="sgDevSys" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Android 16">'
-    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = Shade.modal(html, { width: 420 });
-  var typeEl = $('#sgDevType', inst.box);
-  var sysEl = $('#sgDevSys', inst.box);
-  typeEl.value = item.deviceType || '';
-  sysEl.value = item.systemVersion || '';
-  typeEl.focus();
-  var saving = false;
-  async function submit() {
-    var deviceType = typeEl.value.trim();
-    if (!deviceType) { Shade.toast('设备型号不能为空', 'info'); return; }
-    if (saving) return;
-    saving = true;
-    try {
-      await Shade.api(wl('/api/v1/sgcc/accounts/' + item.id + '/device'), {
-        method: 'PUT',
-        body: { deviceType: deviceType, systemVersion: sysEl.value.trim() }
-      });
-      inst.close();
-      Shade.toast('已保存', 'success');
-      await loadSgccAccounts();
-      renderDict();
-    } catch (e) {
-      saving = false;
-      Shade.toast(e.message, 'error');
-    }
-  }
-  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
-  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
-  sysEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-}
-
-/* 代绑定弹层（管理员代成员绑定商旅账号：短信/密码双方式，均为图形码优先、失败降级滑块双通道；
-   滑块以内嵌 iframe 打开 /sgcc-captcha.html，window message（type: sgcc-captcha）回传 captchaToken+constId） */
-function sgccBindFor(member) {
-  var mode = 'sms'; // sms=短信登录 / pwd=密码登录
-  var captchaToken = '', constId = '', imgUrl = '', left = 0, timer = null, sending = false;
-
-  var html = Shade.mHead('代绑定商旅账号 · ' + esc(member.name))
-    + '<div style="display:flex;gap:8px;margin-bottom:4px">'
-    +   '<button class="btn btn-sm btn-accent" id="sgbTabSms" style="flex:1">短信登录</button>'
-    +   '<button class="btn btn-sm" id="sgbTabPwd" style="flex:1">密码登录</button>'
-    + '</div>'
-    + '<label class="f-lab">商旅注册手机号</label>'
-    + '<input class="f-sel" id="sgbMobile" style="height:40px" maxlength="11" inputmode="numeric" autocomplete="off" placeholder="成员商旅账号手机号">'
-    + '<div id="sgbImgBox" style="display:none">'
-    +   '<label class="f-lab">图形验证码（点图片刷新）</label>'
-    +   '<div style="display:flex;gap:8px;align-items:center">'
-    +     '<input class="f-sel" id="sgbImgCode" style="height:40px;flex:1" maxlength="6" autocomplete="off" placeholder="图形验证码">'
-    +     '<img id="sgbImg" style="height:40px;border-radius: 8px;cursor:pointer" alt="图形验证码">'
-    +   '</div>'
-    +   '<div style="text-align:right;margin-top:6px"><a href="javascript:;" id="sgbUseSlider" style="font-size:12px;color:var(--orange)">图形码不可用？改用滑块验证</a></div>'
-    + '</div>'
-    + '<div id="sgbCapHint" style="display:none;margin-top:6px">'
-    +   '<div style="display:flex;align-items:center;gap:10px">'
-    +     '<span style="font-size:12px;color:var(--sub)">图形验证码暂不可用</span>'
-    +     '<button class="btn btn-sm" id="sgbShowSlider">使用滑块验证</button>'
-    +   '</div>'
-    + '</div>'
-    + '<div id="sgbSms">'
-    +   '<label class="f-lab">短信验证码</label>'
-    +   '<div style="display:flex;gap:8px;align-items:center">'
-    +     '<input class="f-sel" id="sgbSmsCode" style="height:40px;flex:1" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="短信验证码">'
-    +     '<button class="btn btn-sm" id="sgbSend">获取验证码</button>'
-    +   '</div>'
-    + '</div>'
-    + '<div id="sgbPwd" style="display:none">'
-    +   '<label class="f-lab">商旅登录密码</label>'
-    +   '<input class="f-sel" type="password" id="sgbPwdIn" style="height:40px" autocomplete="off" placeholder="成员商旅账号密码">'
-    + '</div>'
-    + '<div id="sgbCapBox" style="display:none;margin-top:6px">'
-    +   '<label class="f-lab">安全验证（拖动滑块）</label>'
-    +   '<iframe id="sgbCapFrame" style="width:100%;height:430px;border:0;border-radius: 8px;background:var(--paper)"></iframe>'
-    + '</div>'
-    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-    + '<button class="btn btn-sm btn-accent" data-a="yes">绑 定</button></div>';
-  var inst = Shade.modal(html, { width: 460, onClose: cleanup });
-  var $id = function (s) { return $(s, inst.box); };
-  var mobileEl = $id('#sgbMobile'), sendBtn = $id('#sgbSend');
-
-  function cleanup() { if (timer) { clearInterval(timer); timer = null; } window.removeEventListener('message', onMsg); }
-  window.addEventListener('message', onMsg);
-
-  function mobile() {
-    var v = mobileEl.value.trim();
-    if (!/^1\d{10}$/.test(v)) { Shade.toast('手机号格式不正确', 'info'); return ''; }
-    return v;
-  }
-  function setTab(m) {
-    mode = m;
-    $id('#sgbTabSms').className = 'btn btn-sm' + (m === 'sms' ? ' btn-accent' : '');
-    $id('#sgbTabPwd').className = 'btn btn-sm' + (m === 'pwd' ? ' btn-accent' : '');
-    $id('#sgbSms').style.display = m === 'sms' ? '' : 'none';
-    $id('#sgbPwd').style.display = m === 'pwd' ? '' : 'none';
-    // 换方式清空滑块凭据并收起滑块与提示（顶象 token 与操作绑定，重拖）
-    captchaToken = ''; constId = '';
-    $id('#sgbCapBox').style.display = 'none';
-    $id('#sgbCapHint').style.display = 'none';
-    // 密码方式不自动取图：点「绑定」时才取（见 submit）
-  }
-  // 展示滑块 iframe（每次展示重载页面，保证拿到新一局；仅用户点「使用滑块验证」或短信通道自动降级时触发）
-  function showSlider() {
-    captchaToken = ''; constId = '';
-    $id('#sgbCapHint').style.display = 'none';
-    $id('#sgbCapBox').style.display = '';
-    $id('#sgbCapFrame').src = '/sgcc-captcha.html?from=web&t=' + Date.now();
-  }
-  // 滑块回传：短信模式自动续发短信，密码模式仅暂存（仅收同源 iframe 消息）
-  function onMsg(e) {
-    if (e.origin !== location.origin) return;
-    var d = e && e.data;
-    if (!d || d.type !== 'sgcc-captcha' || !d.captchaToken) return;
-    captchaToken = d.captchaToken; constId = d.constId || '';
-    $id('#sgbCapBox').style.display = 'none';
-    if (mode === 'sms') doSendSms();
-    else Shade.toast('安全验证已通过', 'success');
-  }
-  function startCountdown() {
-    left = 60;
-    sendBtn.textContent = left + 's 后重发';
-    sendBtn.disabled = true;
-    timer = setInterval(function () {
-      left -= 1;
-      if (left <= 0) {
-        clearInterval(timer); timer = null;
-        sendBtn.textContent = '获取验证码';
-        sendBtn.disabled = false;
-        return;
-      }
-      sendBtn.textContent = left + 's 后重发';
-    }, 1000);
-  }
-  // 取图形码：成功贴图并隐藏「不可用」提示；40035（风控窗口）→ 调用方决定提示或降级
-  async function fetchImg() {
-    var m = mobile(); if (!m) return false;
-    try {
-      var r = await Shade.api(wl('/api/v1/sgcc/login/captcha'), { method: 'POST', body: { mobile: m } });
-      imgUrl = (r.data && r.data.image) || '';
-      $id('#sgbImg').src = imgUrl;
-      $id('#sgbImgCode').value = '';
-      $id('#sgbImgBox').style.display = '';
-      $id('#sgbCapHint').style.display = 'none';
-      return true;
-    } catch (err) {
-      imgUrl = '';
-      $id('#sgbImgBox').style.display = 'none';
-      return false;
-    }
-  }
-  // 发短信：滑块凭据 → v3；有图形码 → v2；都没有 → 先取图形码，取不到降级滑块
-  async function onSend() {
-    if (left > 0 || sending) return;
-    var m = mobile(); if (!m) return;
-    if (captchaToken) { doSendSms(); return; }
-    if (imgUrl) {
-      var code = $id('#sgbImgCode').value.trim();
-      if (!code) { Shade.toast('请填写图形验证码', 'info'); return; }
-      doSendSmsV2(code);
-      return;
-    }
-    if (!(await fetchImg())) {
-      Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
-      showSlider();
-    }
-  }
-  async function doSendSms() {
-    var m = mobile(); if (!m) return;
-    sending = true;
-    try {
-      await Shade.api(wl('/api/v1/sgcc/login/sms'), { method: 'POST', body: { mobile: m, captchaToken: captchaToken, constId: constId } });
-      Shade.toast('验证码已发送', 'success');
-      startCountdown();
-    } catch (err) {
-      Shade.toast(err.message, 'error');
-      captchaToken = ''; constId = ''; // 滑块凭据失效，重发前重拖
-    } finally { sending = false; }
-  }
-  async function doSendSmsV2(checkImgCode) {
-    var m = mobile(); if (!m) return;
-    sending = true;
-    try {
-      await Shade.api(wl('/api/v1/sgcc/login/sms'), { method: 'POST', body: { mobile: m, checkImgCode: checkImgCode } });
-      Shade.toast('验证码已发送', 'success');
-      imgUrl = ''; $id('#sgbImgBox').style.display = 'none'; // 图形码一次性，发送成功即作废
-      startCountdown();
-    } catch (err) {
-      Shade.toast(err.message, 'error');
-      if (!(await fetchImg())) { // 图形码错误自动刷新；刷新失败降级滑块
-        Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
-        showSlider();
-      }
-    } finally { sending = false; }
-  }
-  async function submit() {
-    var m = mobile(); if (!m) return;
-    var body = { memberId: member.id, mobile: m, captchaToken: captchaToken, constId: constId };
-    if (mode === 'pwd') {
-      var pwd = $id('#sgbPwdIn').value.trim();
-      if (!pwd) { Shade.toast('请填写登录密码', 'info'); return; }
-      body.password = pwd;
-      if (!captchaToken) {
-        // 密码双通道：无滑块凭据走图形码（token/v3）；无图形码先取图，取不到仅提示（不自动弹滑块）
-        var ic = $id('#sgbImgCode').value.trim();
-        if (imgUrl && !ic) { Shade.toast('请填写图形验证码', 'info'); return; }
-        if (imgUrl && ic) body.checkImgCode = ic;
-        if (!imgUrl) {
-          if (!(await fetchImg())) $id('#sgbCapHint').style.display = '';
-          return;
-        }
-      }
-    } else {
-      var sc = $id('#sgbSmsCode').value.trim();
-      if (!sc) { Shade.toast('请填写短信验证码', 'info'); return; }
-      body.checkCode = sc;
-    }
-    try {
-      await Shade.api(wl('/api/v1/sgcc/accounts/bind'), { method: 'POST', body: body });
-      cleanup();
-      inst.close();
-      Shade.toast('绑定成功', 'success');
-      await loadSgccAccounts();
-      renderDict();
-    } catch (err) {
-      Shade.toast(err.message, 'error');
-      captchaToken = ''; constId = ''; // 失败清空凭据，重试前重拖
-      // 密码图形码通道失败：自动刷新图形码（刷新失败仅提示，不自动弹滑块）
-      if (mode === 'pwd' && imgUrl && !(await fetchImg())) $id('#sgbCapHint').style.display = '';
-    }
-  }
-  $id('#sgbTabSms').addEventListener('click', function () { setTab('sms'); });
-  $id('#sgbTabPwd').addEventListener('click', function () { setTab('pwd'); });
-  $id('#sgbUseSlider').addEventListener('click', function () {
-    imgUrl = ''; $id('#sgbImgBox').style.display = 'none';
-    showSlider();
-  });
-  $id('#sgbShowSlider').addEventListener('click', showSlider);
-  $id('#sgbImg').addEventListener('click', async function () {
-    if (!(await fetchImg())) {
-      // 短信通道自动降级滑块；密码通道仅提示，由用户手动点「使用滑块验证」
-      if (mode === 'pwd') $id('#sgbCapHint').style.display = '';
-      else { Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info'); showSlider(); }
-    }
-  });
-  sendBtn.addEventListener('click', onSend);
-  $('[data-a="no"]', inst.box).addEventListener('click', function () { cleanup(); inst.close(); });
-  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
-}
-
-function dictRowHtml(seg, it, idx, total) {
-  var off = it.status !== 1;
-  return '<div class="drow' + (off ? ' off' : '') + '" data-seg="' + seg.key + '" data-id="' + it.id +
-    '" data-name="' + esc(it.name) + '" data-status="' + it.status + '"' +
-    (seg.key === 'destinations' ? ' data-outcity="' + (it.out_of_city === 1 ? 1 : 0) + '" data-stationed="' + (it.stationed === 1 ? 1 : 0) + '"' : '') + '>' +
-    '<span class="dn">' + esc(it.name) + '</span>' +
-    // 目的地费用口径标（互斥）：市外=伙食100/交通0；驻地=伙食40/交通0；默认市内 60/0
-    (seg.key === 'destinations' && it.out_of_city === 1 ? '<span class="dpill dpill-out">市外</span>' : '') +
-    (seg.key === 'destinations' && it.stationed === 1 ? '<span class="dpill dpill-sta">驻地</span>' : '') +
-    (seg.key === 'members' // 成员来源标（屏六）：user_id 非空=账号同步（绿），空=手动添加（灰）
-      ? '<span class="dpill ' + (it.user_id ? 'dpill-sync">账号同步' : 'dpill-hand">手动添加') + '</span>'
-      : '') +
-    (off ? '<span class="doff-tip">已停用</span>' : '') +
-    '<span class="dops">' +
-      // 成员排序（仅成员字典）：点亮按钮顺序；工作任务单「工作负责人」取排序最前的用车人
-      (seg.key === 'members' && idx > 0 ? '<button class="linkbtn" data-dact="up">上移</button>' : '') +
-      (seg.key === 'members' && idx < total - 1 ? '<button class="linkbtn" data-dact="down">下移</button>' : '') +
-      // 市外/驻地标记切换（仅目的地字典，互斥；默认市内；标一个后端自动清另一个）
-      (seg.key === 'destinations' ? '<button class="linkbtn" data-dact="outcity">' + (it.out_of_city === 1 ? '标为市内' : '标为市外') + '</button>' : '') +
-      (seg.key === 'destinations' ? '<button class="linkbtn" data-dact="stationed">' + (it.stationed === 1 ? '取消驻地' : '标为驻地') + '</button>' : '') +
-      '<button class="linkbtn" data-dact="edit">改名</button>' +
-      '<button class="linkbtn" data-dact="toggle">' + (off ? '启用' : '停用') + '</button>' +
-      '<button class="linkbtn dgr" data-dact="del">删除</button>' +
-    '</span>' +
-  '</div>';
-}
-
-/* 代绑定成员自绘下拉实例（renderDict 每次重建 #dictBody 前需 destroy 旧实例，防 .dd-pop 孤儿残留 body） */
-var sgBindDd = null;
-function renderDict() {
-  var html = DICT_SEGS.map(function (seg) {
-    var list = state.dict.lists[seg.key] || [];
-    return '<div class="card dsec">' +
-      '<div class="dsec-h"><b>' + seg.label + '</b><span class="cnt">' +
-        (seg.err ? '加载失败' : list.length + ' 条') + '</span></div>' +
-      (seg.err
-        ? '<div class="dempty">' + esc(seg.err) + '</div>'
-        : (list.length
-          ? list.map(function (it, idx) { return dictRowHtml(seg, it, idx, list.length); }).join('')
-          : '<div class="dempty">暂无数据，可在下方添加</div>')) +
-      '<div class="dadd" data-seg="' + seg.key + '">' +
-        '<input class="dadd-in" placeholder="' + seg.ph + '" maxlength="64" autocomplete="off">' +
-        '<button class="btn btn-sm btn-accent" data-dadd="' + seg.key + '">添加</button>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-  var tc = state.dict.towerCount;
-  html += '<div class="card dsec">' +
-    '<div class="dsec-h"><b>杆塔坐标</b></div>' +
-    '<div class="tower-bar">' +
-      '<div><div class="tb-n">' + (tc === null ? '坐标加载中…' : (tc < 0 ? '条数加载失败' : tc + ' 条坐标')) + '</div>' +
-      '<div class="tb-s">仅作用于当前班组</div></div>' +
-      '<div class="tb-btns">' +
-        '<button class="btn btn-sm" data-tact="tpl">' + Shade.icon('download', 14) + '下载模板</button>' +
-        '<button class="btn btn-sm btn-accent" data-tact="imp">' + Shade.icon('upload', 14) + '导入 Excel</button>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
-  /* 商旅绑定设备（商旅打卡恒启用，整区恒渲染；区底部代绑定行：
-     管理员可代成员绑定商旅账号（成员过期又联系不上时兜底），成员本人仍可在小程序「我的 → 绑定商旅」自助绑定/接管） */
-  var sg = state.dict.sgcc;
-  var sgMembers = (state.dict.lists.members || []).filter(function (x) { return x.status === 1; });
-  html += '<div class="card dsec">' +
-    '<div class="dsec-h"><b>商旅绑定设备</b><span class="cnt">' +
-      (sg.err ? '加载失败' : (sg.list ? sg.list.length + ' 条' : '加载中…')) + '</span></div>' +
-    (sg.err
-      ? '<div class="dempty">' + esc(sg.err) + '</div>'
-      : (!sg.list
-        ? '<div class="dempty">加载中…</div>'
-        : (sg.list.length
-          ? sg.list.map(sgccRowHtml).join('')
-          : '<div class="dempty">本班组暂无绑定成员（成员可在小程序「我的 → 绑定商旅」绑定）</div>'))) +
-    '<div style="display:flex;gap:10px;align-items:center;padding:12px 16px;border-top:1px solid var(--hair)">' +
-      '<select class="f-sel" id="sgBindMember" style="flex:1">' +
-        '<option value="">选择成员…</option>' +
-        sgMembers.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join('') +
-      '</select>' +
-      '<button class="btn btn-sm btn-accent" data-sgcc-act="bind">代绑定</button>' +
-    '</div>' +
-  '</div>';
-  $('#dictBody').innerHTML = html;
-  // 代绑定成员下拉换自绘下拉（原 select 隐藏保留为数据源；重渲染后需重建，旧实例先 destroy 防弹层孤儿残留 body）
-  if (sgBindDd) { sgBindDd.destroy(); sgBindDd = null; }
-  if ($('#sgBindMember')) {
-    sgBindDd = Shade.dropdown($('#sgBindMember'), { height: 36 });
-    sgBindDd.el.style.flex = '1';
-  }
-}
-
-/* 底部虚线行添加（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
-async function dictAdd(segKey, btn) {
-  var seg = dictSeg(segKey);
-  var wrap = $('#dictBody .dadd[data-seg="' + segKey + '"]');
-  var input = wrap ? $('.dadd-in', wrap) : null;
-  var name = input ? input.value.trim() : '';
-  if (!name) { Shade.toast('请' + seg.ph, 'info'); return; }
-  if (btn) btn.disabled = true;
-  try {
-    await Shade.api(wl('/api/v1/worklog/admin/' + segKey), { method: 'POST', body: { name: name } });
-    Shade.toast('已添加', 'success');
-    await loadDictSeg(seg);
-    renderDict();
-  } catch (e) {
-    Shade.toast(e.message, 'error');
-    if (btn) btn.disabled = false;
-  }
-}
-
-/* 改名（弹小层，回车 / 保存提交；名称不变直接关闭） */
-function dictRename(seg, item) {
-  var html = Shade.mHead('编辑' + seg.label)
-    + '<input class="f-sel" id="drInput" style="height:40px" maxlength="64" autocomplete="off">'
-    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = Shade.modal(html, { width: 420 });
-  var input = $('#drInput', inst.box);
-  input.value = item.name;
-  input.focus();
-  input.select();
-  var saving = false;
-  async function submit() {
-    var name = input.value.trim();
-    if (!name) { Shade.toast('名称不能为空', 'info'); return; }
-    if (name === item.name) { inst.close(); return; }
-    if (saving) return;
-    saving = true;
-    try {
-      await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), { method: 'PUT', body: { name: name } });
-      inst.close();
-      Shade.toast('已保存', 'success');
-      await loadDictSeg(seg);
-      renderDict();
-    } catch (e) {
-      saving = false;
-      Shade.toast(e.message, 'error');
-    }
-  }
-  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
-  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
-  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-}
-
-/* 停启用切换（停用行半透明 + 「已停用」标记） */
-async function dictToggle(seg, item) {
-  try {
-    await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), {
-      method: 'PUT',
-      body: { status: item.status === 1 ? 0 : 1 }
-    });
-    Shade.toast(item.status === 1 ? '已停用' : '已启用', 'success');
-    await loadDictSeg(seg);
-    renderDict();
-  } catch (e) {
-    Shade.toast(e.message, 'error');
-  }
-}
-
-/* 市外标记切换（仅目的地字典）：市外目的地费用按市外标准验证（伙食100/交通0），默认市内 */
-async function dictOutCity(seg, item) {
-  try {
-    await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), {
-      method: 'PUT',
-      body: { out_of_city: item.out_of_city === 1 ? 0 : 1 }
-    });
-    Shade.toast(item.out_of_city === 1 ? '已标为市内' : '已标为市外', 'success');
-    await loadDictSeg(seg);
-    renderDict();
-  } catch (e) {
-    Shade.toast(e.message, 'error');
-  }
-}
-
-/* 驻地标记切换（仅目的地字典，与市外互斥）：驻地目的地费用按驻地标准验证（伙食40/交通0） */
-async function dictStationed(seg, item) {
-  try {
-    await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), {
-      method: 'PUT',
-      body: { stationed: item.stationed === 1 ? 0 : 1 }
-    });
-    Shade.toast(item.stationed === 1 ? '已取消驻地标记' : '已标为驻地', 'success');
-    await loadDictSeg(seg);
-    renderDict();
-  } catch (e) {
-    Shade.toast(e.message, 'error');
-  }
-}
-
-/* 成员排序：上移 / 下移（仅成员字典有此按钮；点亮按钮顺序，工作任务单「工作负责人」取排序最前的用车人） */
-async function dictMove(item, dir) {
-  try {
-    await Shade.api(wl('/api/v1/worklog/admin/members/' + item.id + '/move'), {
-      method: 'PUT',
-      body: { dir: dir }
-    });
-    await loadDictSeg(dictSeg('members'));
-    renderDict();
-  } catch (e) {
-    Shade.toast(e.message, 'error');
-  }
-}
-
-/* 删除（二次确认；被日志引用时后端 409 拒绝，toast 后端文案提示改停用） */
-async function dictDelete(seg, item) {
-  var yes = await Shade.confirm({
-    title: '删除' + seg.label,
-    content: '删除后不可恢复，确定删除「' + item.name + '」吗？',
-    confirmText: '删除',
-    danger: true
-  });
-  if (!yes) return;
-  try {
-    await Shade.api(wl('/api/v1/worklog/admin/' + seg.key + '/' + item.id), { method: 'DELETE' });
-    Shade.toast('已删除', 'success');
-    await loadDictSeg(seg);
-    renderDict();
-  } catch (e) {
-    Shade.toast(e.message, 'error');
-  }
-}
-
-/* 杆塔模板下载：xlsx 二进制，apiRaw + saveBlob 落地（口径同照片 / 备注附件下载） */
-async function downloadTowerTpl(btn) {
-  btn.disabled = true;
-  try {
-    var res = await Shade.apiRaw(wl('/api/v1/worklog/towers/template'));
-    if (!res.ok) {
-      var ej = null;
-      try { ej = await res.json(); } catch (e) { }
-      throw new Error((ej && ej.message) || ('模板下载失败（' + res.status + '）'));
-    }
-    await Shade.saveBlob(res, '杆塔坐标导入模板.xlsx');
-  } catch (e) {
-    Shade.toast(e.message, 'error');
-  }
-  btn.disabled = false;
-}
-
 /* 生成前核验拦截（工作任务单 / 费用汇总共用）：40901 时弹小提示框——
    「去汇总前核验」切到核验页签并定位到范围起始月；「仍要生成」为管理员强制执行（force=1 重试原动作） */
 function showVerifyFailures(e, from, onForce) {
@@ -4420,16 +3857,22 @@ function bindRangeInput(fromSel, toSel, st, onChange) {
   });
 }
 
-/* 工作任务单：读取范围入参（state.ts，内联输入绑定已保证 from ≤ to） */
-function tsRange() {
-  var from = state.ts.from;
-  var to = state.ts.to;
-  if (!from || !to) { Shade.toast('请选择日期范围', 'info'); return null; }
-  return { from: from, to: to };
+/* 三类 sheet（工作任务单 / 费用汇总 / 派车汇总）范围 / 文件名 / 预览 / 下载助手参数化：
+   键同 /sheet/save-netdisk 的 sheet 取值；verify=false 无 40901 生成前核验（派车汇总单号清单与照片核验无关） */
+var SHEET_DEFS = {
+  task:     { st: 'ts', api: 'task-sheet',     title: '工作任务单', ext: 'docx', verify: true },
+  fee:      { st: 'fs', api: 'fee-sheet',      title: '费用汇总',   ext: 'docx', verify: true },
+  dispatch: { st: 'ds', api: 'dispatch-sheet', title: '派车汇总',   ext: 'xlsx', verify: false }
+};
+/* 读取范围入参（内联输入绑定已保证 from ≤ to） */
+function sheetRange(def) {
+  var st = state[def.st];
+  if (!st.from || !st.to) { Shade.toast('请选择日期范围', 'info'); return null; }
+  return { from: st.from, to: st.to };
 }
-/* 范围文件名口径同后端 sheetFileName */
-function tsFileName(from, to) {
-  return from === to ? '工作任务单-' + from + '.docx' : '工作任务单-' + from + '至' + to + '.docx';
+/* 范围文件名口径同后端 sheetFileName / feeFileName / dispatchSheetFileName */
+function sheetFileName(def, from, to) {
+  return from === to ? def.title + '-' + from + '.' + def.ext : def.title + '-' + from + '至' + to + '.' + def.ext;
 }
 
 /* 打开预览地址：站内（office.html 承载页）当前窗口打开（OO 关闭文件 ✕ 经 back 参数返回本页，同网盘口径）；
@@ -4438,32 +3881,35 @@ function openPreviewUrl(url) {
   if (url.charAt(0) === '/') { location.href = url; } else { window.open(url, '_blank'); }
 }
 
-/* 工作任务单：预览 = 调 preview 接口取预览地址打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签；同备注 Office 文档 / 安全日记录口径）；force=强制执行跳过生成前核验 */
-async function taskSheetPreview(btn, force) {
-  var range = tsRange();
+/* 预览 = 调 preview 接口取预览地址打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签；同备注 Office 文档 / 安全日记录口径）；
+   verify 类 sheet force=强制执行跳过生成前核验（40901 走 showVerifyFailures 拦截） */
+async function sheetPreview(def, btn, force) {
+  var range = sheetRange(def);
   if (!range) return;
   btn.disabled = true;
   try {
-    var r = await Shade.api(wl('/api/v1/worklog/task-sheet/preview?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
+    var q = '?from=' + range.from + '&to=' + range.to + (def.verify && force ? '&force=1' : '');
+    var r = await Shade.api(wl('/api/v1/worklog/' + def.api + '/preview' + q));
     if (r.data && r.data.url) {
       openPreviewUrl(r.data.url);
       return;
     }
     throw new Error('预览地址为空');
   } catch (e) {
-    if (!showVerifyFailures(e, range.from, function () { taskSheetPreview(btn, true); })) Shade.toast(e.message, 'error');
+    if (!(def.verify && showVerifyFailures(e, range.from, function () { sheetPreview(def, btn, true); }))) Shade.toast(e.message, 'error');
   } finally {
     btn.disabled = false;
   }
 }
 
-/* 工作任务单：下载 = docx 二进制，apiRaw + saveBlob 落地（口径同杆塔模板下载）；force=强制执行跳过生成前核验 */
-async function taskSheetDownload(btn, force) {
-  var range = tsRange();
+/* 下载 = 二进制 apiRaw + saveBlob 落地（口径同杆塔模板下载）；verify 类 sheet force=强制执行跳过生成前核验 */
+async function sheetDownload(def, btn, force) {
+  var range = sheetRange(def);
   if (!range) return;
   btn.disabled = true;
   try {
-    var res = await Shade.apiRaw(wl('/api/v1/worklog/task-sheet?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
+    var q = '?from=' + range.from + '&to=' + range.to + (def.verify && force ? '&force=1' : '');
+    var res = await Shade.apiRaw(wl('/api/v1/worklog/' + def.api + q));
     if (!res.ok) {
       var ej = null;
       try { ej = await res.json(); } catch (e) { }
@@ -4472,113 +3918,9 @@ async function taskSheetDownload(btn, force) {
       err.data = ej && ej.data;
       throw err;
     }
-    await Shade.saveBlob(res, tsFileName(range.from, range.to));
+    await Shade.saveBlob(res, sheetFileName(def, range.from, range.to));
   } catch (e) {
-    if (!showVerifyFailures(e, range.from, function () { taskSheetDownload(btn, true); })) Shade.toast(e.message, 'error');
-  }
-  btn.disabled = false;
-}
-
-/* 费用汇总：读取范围入参（state.fs，同 tsRange 口径） */
-function fsRange() {
-  var from = state.fs.from;
-  var to = state.fs.to;
-  if (!from || !to) { Shade.toast('请选择日期范围', 'info'); return null; }
-  return { from: from, to: to };
-}
-/* 范围文件名口径同后端 feeFileName */
-function fsFileName(from, to) {
-  return from === to ? '费用汇总-' + from + '.docx' : '费用汇总-' + from + '至' + to + '.docx';
-}
-
-/* 费用汇总：预览 = 调 preview 接口取预览地址打开（站内当前窗口 / 站外新标签，同工作任务单口径）；force=强制执行跳过生成前核验 */
-async function feeSheetPreview(btn, force) {
-  var range = fsRange();
-  if (!range) return;
-  btn.disabled = true;
-  try {
-    var r = await Shade.api(wl('/api/v1/worklog/fee-sheet/preview?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
-    if (r.data && r.data.url) {
-      openPreviewUrl(r.data.url);
-      return;
-    }
-    throw new Error('预览地址为空');
-  } catch (e) {
-    if (!showVerifyFailures(e, range.from, function () { feeSheetPreview(btn, true); })) Shade.toast(e.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-/* 费用汇总：下载 = docx 二进制，apiRaw + saveBlob 落地（同工作任务单口径）；force=强制执行跳过生成前核验 */
-async function feeSheetDownload(btn, force) {
-  var range = fsRange();
-  if (!range) return;
-  btn.disabled = true;
-  try {
-    var res = await Shade.apiRaw(wl('/api/v1/worklog/fee-sheet?from=' + range.from + '&to=' + range.to + (force ? '&force=1' : '')));
-    if (!res.ok) {
-      var ej = null;
-      try { ej = await res.json(); } catch (e) { }
-      var err = new Error((ej && ej.message) || ('生成失败（' + res.status + '）'));
-      err.code = ej && ej.code; // 业务码与明细随错误抛出（40901 生成前核验拦截用）
-      err.data = ej && ej.data;
-      throw err;
-    }
-    await Shade.saveBlob(res, fsFileName(range.from, range.to));
-  } catch (e) {
-    if (!showVerifyFailures(e, range.from, function () { feeSheetDownload(btn, true); })) Shade.toast(e.message, 'error');
-  }
-  btn.disabled = false;
-}
-
-/* 派车汇总：范围读取（同 fsRange 口径） */
-function dsRange() {
-  var from = state.ds.from;
-  var to = state.ds.to;
-  if (!from || !to) { Shade.toast('请选择日期范围', 'info'); return null; }
-  return { from: from, to: to };
-}
-/* 范围文件名口径同后端 dispatchSheetFileName */
-function dsFileName(from, to) {
-  return from === to ? '派车汇总-' + from + '.xlsx' : '派车汇总-' + from + '至' + to + '.xlsx';
-}
-
-/* 派车汇总：预览 = 调 preview 接口取在线查看地址打开（站内 OO 承载页当前窗口 / 站外微软查看器新标签，同工作任务单口径；
-   OO 未配置时后端自动回退微软查看器；无 40901 生成前核验——单号清单与照片核验无关） */
-async function dispatchSheetPreview(btn) {
-  var range = dsRange();
-  if (!range) return;
-  btn.disabled = true;
-  try {
-    var r = await Shade.api(wl('/api/v1/worklog/dispatch-sheet/preview?from=' + range.from + '&to=' + range.to));
-    if (r.data && r.data.url) {
-      openPreviewUrl(r.data.url);
-      return;
-    }
-    throw new Error('预览地址为空');
-  } catch (e) {
-    Shade.toast(e.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-/* 派车汇总：下载 = xlsx 二进制，apiRaw + saveBlob 落地（同费用汇总口径；无 40901 生成前核验——单号清单与照片核验无关） */
-async function dispatchSheetDownload(btn) {
-  var range = dsRange();
-  if (!range) return;
-  btn.disabled = true;
-  try {
-    var res = await Shade.apiRaw(wl('/api/v1/worklog/dispatch-sheet?from=' + range.from + '&to=' + range.to));
-    if (!res.ok) {
-      var ej = null;
-      try { ej = await res.json(); } catch (e) { }
-      throw new Error((ej && ej.message) || ('生成失败（' + res.status + '）'));
-    }
-    await Shade.saveBlob(res, dsFileName(range.from, range.to));
-  } catch (e) {
-    Shade.toast(e.message, 'error');
+    if (!(def.verify && showVerifyFailures(e, range.from, function () { sheetDownload(def, btn, true); }))) Shade.toast(e.message, 'error');
   }
   btn.disabled = false;
 }
@@ -4655,28 +3997,6 @@ async function sheetSaveNd(sheet, range, btn, force, sel) {
     if (!showVerifyFailures(e, range.from, function () { sheetSaveNd(sheet, range, btn, 1, sel); })) Shade.toast(e.message, 'error');
   }
   btn.disabled = false;
-}
-
-/* 杆塔导入：FormData 上传（字段 file；team_id 经 wl() 走 query，后端同口径解析）→ toast 后端 message → 刷新条数 */
-async function importTowers(f) {
-  var fd = new FormData();
-  fd.append('file', f, f.name);
-  var wait = Shade.modal('<div class="loading"><span class="spin"></span>正在导入…</div>', { width: 280 });
-  try {
-    var res = await Shade.apiRaw(wl('/api/v1/worklog/towers/import'), { method: 'POST', body: fd });
-    var j = null;
-    try { j = await res.json(); } catch (e) { }
-    if (!res.ok || !j || j.code !== 0) throw new Error((j && j.message) || ('导入失败（' + res.status + '）'));
-    wait.close();
-    var skipped = j.data && j.data.skipped;
-    Shade.toast((j.message || '导入完成') + (skipped ? '（跳过 ' + skipped + ' 行）' : ''), 'success');
-    state.towerRows = null; // 加水印「选择杆塔坐标」缓存同步失效
-    await loadTowerCount();
-    renderDict();
-  } catch (e) {
-    wait.close();
-    Shade.toast(e.message, 'error');
-  }
 }
 
 /* ================= 页签切换（记录 / 批量下载 / 汇总前核验 共用同一列表位） ================= */
@@ -4985,6 +4305,7 @@ function openClockModal(entry, memberId, name, seq, action) {
   var locating = !(first && first.lng && first.lat);
   var locTag = first ? '同记录已打卡人定位' : '';
   var manualPos = false;
+  var coordPicked = false; // 坐标已由用户选定（选杆塔）：旧定位慢响应不再覆盖
   var saving = false;
   /* 位置卡副行：经纬度 + 来源标注 / 失败提示 */
   function setLocSub() {
@@ -5014,7 +4335,7 @@ function openClockModal(entry, memberId, name, seq, action) {
   function ckLocate(needGeo) {
     if (!navigator.geolocation) { locating = false; setLocSub(); return; }
     navigator.geolocation.getCurrentPosition(function (pos) {
-      if (inst.closed) return;
+      if (inst.closed || coordPicked) return; // 坐标已被用户选定：丢弃过期定位慢响应
       var g = wgs2gcj(pos.coords.longitude, pos.coords.latitude);
       cur.lng = g[0].toFixed(6);
       cur.lat = g[1].toFixed(6);
@@ -5037,6 +4358,7 @@ function openClockModal(entry, memberId, name, seq, action) {
   /* 「重新定位」：重走定位 + 逆编码（覆盖带入/手输地址） */
   $('#ckReloc', inst.box).addEventListener('click', function () {
     manualPos = false;
+    coordPicked = false;
     locTag = '当前定位';
     locating = true;
     elPos.value = '';
@@ -5050,6 +4372,7 @@ function openClockModal(entry, memberId, name, seq, action) {
     openTowerModal(function (t) {
       if (inst.closed) return;
       manualPos = false;
+      coordPicked = true;
       locTag = '杆塔坐标';
       cur.lng = Number(t.lng).toFixed(6);
       cur.lat = Number(t.lat).toFixed(6);
@@ -5276,9 +4599,10 @@ function enterDailyLock() {
   renderCards(true); // 重渲染让当日出车卡挂锁
   pollDailyLock();
 }
+/* 进度补丁只作用于每日核查锁（.card-lock.daily）：照片任务锁进度由 updateOpLocks 按卡独立维护，互不覆盖 */
 function updateDailyLocks() {
-  $$('.card-lock .cl-fill').forEach(function (el) { el.style.width = dailyPct + '%'; });
-  $$('.card-lock .cl-p').forEach(function (el) { el.textContent = dailyPct; });
+  $$('.card-lock.daily .cl-fill').forEach(function (el) { el.style.width = dailyPct + '%'; });
+  $$('.card-lock.daily .cl-p').forEach(function (el) { el.textContent = dailyPct; });
 }
 async function pollDailyLock() {
   var fails = 0;
@@ -5398,22 +4722,20 @@ function initEvents() {
   $$('#wlTabs button').forEach(function (b) {
     b.addEventListener('click', function () { switchPane(b.dataset.p); });
   });
-  /* 工作任务单页签：内联起止日期（bindRangeInput 校验回写 state.ts）/ 预览（站内当前窗口、站外新标签）/ 下载（fetch + blob），函数在数据管理区同族定义 */
+  /* 工作任务单 / 费用汇总 / 派车汇总 页签：内联起止日期（bindRangeInput 校验回写 state.*）/ 预览（站内当前窗口、站外新标签）/ 下载（fetch + blob），四件套按 SHEET_DEFS 参数化共用 */
   bindRangeInput('#tsFrom', '#tsTo', state.ts, null);
-  $('#tsPrev').addEventListener('click', function () { taskSheetPreview(this); });
-  $('#tsDl').addEventListener('click', function () { taskSheetDownload(this); });
-  /* 费用汇总页签：内联起止日期 / 预览 / 下载（同工作任务单口径） */
+  $('#tsPrev').addEventListener('click', function () { sheetPreview(SHEET_DEFS.task, this); });
+  $('#tsDl').addEventListener('click', function () { sheetDownload(SHEET_DEFS.task, this); });
   bindRangeInput('#fsFrom', '#fsTo', state.fs, null);
-  $('#fsPrev').addEventListener('click', function () { feeSheetPreview(this); });
-  $('#fsDl').addEventListener('click', function () { feeSheetDownload(this); });
-  /* 派车汇总页签：内联起止日期 / 预览（站内当前窗口、站外新标签）/ 下载（xlsx）（同费用汇总口径，无核验拦截） */
+  $('#fsPrev').addEventListener('click', function () { sheetPreview(SHEET_DEFS.fee, this); });
+  $('#fsDl').addEventListener('click', function () { sheetDownload(SHEET_DEFS.fee, this); });
   bindRangeInput('#dsFrom', '#dsTo', state.ds, null);
-  $('#dsPrev').addEventListener('click', function () { dispatchSheetPreview(this); });
-  $('#dsDl').addEventListener('click', function () { dispatchSheetDownload(this); });
+  $('#dsPrev').addEventListener('click', function () { sheetPreview(SHEET_DEFS.dispatch, this); });
+  $('#dsDl').addEventListener('click', function () { sheetDownload(SHEET_DEFS.dispatch, this); });
   /* 存网盘入口（仅网盘可用时显示；任务单/费用/派车 + 批量下载页签 PDF） */
-  $('#tsNd').addEventListener('click', function () { sheetSaveNd('task', tsRange(), this); });
-  $('#fsNd').addEventListener('click', function () { sheetSaveNd('fee', fsRange(), this); });
-  $('#dsNd').addEventListener('click', function () { sheetSaveNd('dispatch', dsRange(), this); });
+  $('#tsNd').addEventListener('click', function () { sheetSaveNd('task', sheetRange(SHEET_DEFS.task), this); });
+  $('#fsNd').addEventListener('click', function () { sheetSaveNd('fee', sheetRange(SHEET_DEFS.fee), this); });
+  $('#dsNd').addEventListener('click', function () { sheetSaveNd('dispatch', sheetRange(SHEET_DEFS.dispatch), this); });
   $('#dlPdf').addEventListener('click', function () { photosPdfDownload(this); });
   $('#dlPdfNd').addEventListener('click', function () { photosPdfSaveNd(this); });
   /* 派车对齐页签：选文件 / 移除文件 / 开始对齐 / 清单行打开对照弹层 / 每日自动同步开关 */
@@ -5475,65 +4797,6 @@ function initEvents() {
     if (!row) return;
     switchPane('Record');
     gotoDate(row.dataset.d);
-  });
-  /* 数据管理页签：行内操作（改名 / 停启用 / 删除）/ 虚线行添加（按钮 + 输入框回车）/ 杆塔模板·导入 / 商旅绑定设备（事件委托） */
-  $('#dictBody').addEventListener('click', function (e) {
-    var addBtn = e.target.closest('[data-dadd]');
-    if (addBtn) { dictAdd(addBtn.dataset.dadd, addBtn); return; }
-    var tBtn = e.target.closest('[data-tact]');
-    if (tBtn) {
-      if (tBtn.dataset.tact === 'tpl') downloadTowerTpl(tBtn);
-      else $('#impFileInput').click();
-      return;
-    }
-    /* 商旅绑定设备：改设备（按 data-sgcc-id 取行数据）/ 代绑定（区底部按钮，读成员下拉） */
-    var sgBtn = e.target.closest('[data-sgcc-act]');
-    if (sgBtn) {
-      var sgRow = sgBtn.closest('[data-sgcc-id]');
-      var sgList = (state.dict.sgcc && state.dict.sgcc.list) || [];
-      var sgItem = null;
-      sgList.forEach(function (x) { if (sgRow && x.id === Number(sgRow.dataset.sgccId)) sgItem = x; });
-      if (sgItem && sgBtn.dataset.sgccAct === 'device') sgccDeviceEdit(sgItem);
-      if (sgBtn.dataset.sgccAct === 'bind') {
-        var mSel = $('#sgBindMember');
-        var mId = mSel ? Number(mSel.value) : 0;
-        var mItem = null;
-        (state.dict.lists.members || []).forEach(function (x) { if (x.id === mId) mItem = x; });
-        if (!mItem) { Shade.toast('请先选择要绑定的成员', 'info'); return; }
-        sgccBindFor(mItem);
-      }
-      return;
-    }
-    var actBtn = e.target.closest('[data-dact]');
-    if (!actBtn) return;
-    var row = actBtn.closest('.drow');
-    if (!row) return;
-    var seg = dictSeg(row.dataset.seg);
-    var item = { id: Number(row.dataset.id), name: row.dataset.name, status: Number(row.dataset.status), out_of_city: Number(row.dataset.outcity || 0), stationed: Number(row.dataset.stationed || 0) };
-    if (!seg) return;
-    if (actBtn.dataset.dact === 'edit') dictRename(seg, item);
-    else if (actBtn.dataset.dact === 'toggle') dictToggle(seg, item);
-    else if (actBtn.dataset.dact === 'outcity') dictOutCity(seg, item);
-    else if (actBtn.dataset.dact === 'stationed') dictStationed(seg, item);
-    else if (actBtn.dataset.dact === 'up') dictMove(item, 'up');
-    else if (actBtn.dataset.dact === 'down') dictMove(item, 'down');
-    else if (actBtn.dataset.dact === 'del') dictDelete(seg, item);
-  });
-  $('#dictBody').addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter') return;
-    var input = e.target.closest ? e.target.closest('.dadd-in') : null;
-    if (!input) return;
-    var wrap = input.closest('.dadd');
-    if (wrap) dictAdd(wrap.dataset.seg, $('button[data-dadd]', wrap));
-  });
-  /* 杆塔导入文件选择（前端先校验扩展名与大小） */
-  $('#impFileInput').addEventListener('change', function () {
-    var f = this.files && this.files[0];
-    this.value = '';
-    if (!f) return;
-    if (!/\.xlsx$/i.test(f.name)) { Shade.toast('仅支持 .xlsx 文件，请使用模板填写', 'info'); return; }
-    if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
-    importTowers(f);
   });
   /* 卡片流点击委派：改派车 / 打卡切换 / 商旅打卡 slot（打卡确认弹层）/ 打卡区费用入口（费用信息弹层）/ 从商旅同步（卡片级）/ 删除日志 /
      巡视内容·备注编辑 / 添加照片 / 备注附件预览·下载 / 照片大图 */
@@ -5634,7 +4897,7 @@ function initEvents() {
 var teamDd = Shade.dropdown($('#teamSel'), { width: 'auto', minWidth: '132px', height: 36 });
 teamDd.el.style.display = 'none';
 
-/* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表 / 派车对齐结果 / 商旅绑定设备） */
+/* 切换班组后整页重载：清空全部按班组缓存（月历着色 / 编辑字典 / 杆塔坐标 / 下载与报告列表 / 派车对齐结果） */
 function reloadTeamData() {
   state.calCache = {};
   lastVerifySig = null; // 签名按班组口径重置（日历缓存已清，下次 loadLogs 恒强刷）
@@ -5643,7 +4906,6 @@ function reloadTeamData() {
   state.dl.list = null;
   state.rep.loaded = false;
   state.pa = { files: [], result: null, done: {}, idx: 0, uploading: false };
-  state.dict.sgcc = { list: null, err: '' }; // 商旅绑定设备区随班组重拉
   loadCalMonth(true);
   loadLogs();
   if (state.pane === 'Dl') loadDlPhotos();

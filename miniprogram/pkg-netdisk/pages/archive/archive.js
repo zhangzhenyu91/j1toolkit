@@ -6,20 +6,14 @@
 //   （直链；openDocument 不支持媒体），其余类型 archive/download 下载后一律 wx.openDocument 打开（2026-10-09 起）
 import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
-import { pad, fmtSize, extOf, parseDate } from '../../../utils/util';
+import { fmtSize, extOf, fmtDay, IMG_EXTS } from '../../../utils/util';
 import config from '../../../config';
 import { fileIconUrl } from '../../fileicon';
 
 const API = '/api/v1/netdisk';
 
-const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+// 视频扩展名为本页口径（filetransfer 另含 avi/mkv，保持现有差异）；IMG_EXTS/fmtDay 收编 utils/util.js
 const VIDEO_EXTS = ['mp4', 'mov', 'm4v'];
-
-// 时间 → 'MM.DD'（解析失败给占位）
-const fmtDay = (input) => {
-  const d = parseDate(input);
-  return d ? `${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : '—';
-};
 
 Page({
   data: {

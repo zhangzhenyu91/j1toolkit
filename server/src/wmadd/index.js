@@ -9,6 +9,7 @@ const teamUtil = require('../utils/team');
 const geo = require('../worklog/geo');
 const towers = require('../worklog/towers');
 const { renderWatermarkedPhoto, sanitizeWm } = require('../worklog/render-photo');
+const { parseDataUrlPhoto } = require('../utils/photo');
 
 const router = express.Router();
 router.use(auth, requireApp('wm-add'));
@@ -46,9 +47,10 @@ router.get('/towers', async (req, res, next) => {
 router.post('/render', async (req, res, next) => {
   try {
     const { image, wm } = req.body || {};
-    const match = /^data:image\/(jpeg|jpg|png);base64,(.+)$/.exec(image || '');
-    if (!match) return fail(res, 400, 40023, '照片格式应为 jpeg/png（base64 dataURL）');
-    const buf = Buffer.from(match[2], 'base64');
+    // 照片解析（共用 parseDataUrlPhoto）；大小校验保留本入口 15MB 与 40023/40024 口径
+    const photo = parseDataUrlPhoto(image);
+    if (!photo) return fail(res, 400, 40023, '照片格式应为 jpeg/png（base64 dataURL）');
+    const buf = photo.buf;
     if (!buf.length || buf.length > 15 * 1024 * 1024) {
       return fail(res, 400, 40024, '照片大小应在 15MB 以内');
     }
