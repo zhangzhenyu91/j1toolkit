@@ -15,15 +15,34 @@
           <!-- 深蓝页首延伸区（与 navbar 同色，向下承接数据卡浮层） -->
           <view class="hero">
             <view class="hero-name">{{greeting}}，{{userInfo.nickname || '同事'}}</view>
-            <view class="hero-sub">{{userInfo.username}} · {{today}} {{weekday}} · {{userInfo.role === 'admin' ? '管理员' : '班组成员'}}</view>
+            <view class="hero-sub"
+              >{{userInfo.username}} · {{today}} {{weekday}} · {{userInfo.role === 'admin' ?
+              '管理员' : '班组成员'}}</view
+            >
           </view>
           <view class="page-body home-body">
             <!-- 数据概览浮层卡（半压深蓝页首；无出工日志权限时对应项显示 —；数字分级着色：绿/橙/红） -->
             <view class="card stats-card">
-              <view class="stat"><text class="stat-num {{statPrevPassCls}}">{{statPrevPass === null ? '—' : statPrevPass}}</text><text class="stat-label">上月通过</text></view>
-              <view class="stat"><text class="stat-num {{statPrevNeedCls}}">{{statPrevNeed === null ? '—' : statPrevNeed}}</text><text class="stat-label">上月需补</text></view>
-              <view class="stat"><text class="stat-num {{statCurPassCls}}">{{statCurPass === null ? '—' : statCurPass}}</text><text class="stat-label">本月通过</text></view>
-              <view class="stat"><text class="stat-num {{statCurNeedCls}}">{{statCurNeed === null ? '—' : statCurNeed}}</text><text class="stat-label">本月需补</text></view>
+              <view class="stat"
+                ><text class="stat-num {{statPrevPassCls}}"
+                  >{{statPrevPass === null ? '—' : statPrevPass}}</text
+                ><text class="stat-label">上月通过</text></view
+              >
+              <view class="stat"
+                ><text class="stat-num {{statPrevNeedCls}}"
+                  >{{statPrevNeed === null ? '—' : statPrevNeed}}</text
+                ><text class="stat-label">上月需补</text></view
+              >
+              <view class="stat"
+                ><text class="stat-num {{statCurPassCls}}"
+                  >{{statCurPass === null ? '—' : statCurPass}}</text
+                ><text class="stat-label">本月通过</text></view
+              >
+              <view class="stat"
+                ><text class="stat-num {{statCurNeedCls}}"
+                  >{{statCurNeed === null ? '—' : statCurNeed}}</text
+                ><text class="stat-label">本月需补</text></view
+              >
             </view>
 
             <!-- 消息通知（浅蓝图标块 + 未读红点计数，整卡点击进入列表） -->
@@ -33,13 +52,17 @@
                   <t-icon name="notification" size="30rpx" color="#0E3DA8" />
                 </view>
                 <view class="n-title">消息通知</view>
-                <view class="n-badge" wx:if="{{noticeUnread > 0}}"><view class="n-badge-dot"></view>{{noticeUnread}} 条未读</view>
+                <view class="n-badge" wx:if="{{noticeUnread > 0}}"
+                  ><view class="n-badge-dot"></view>{{noticeUnread}} 条未读</view
+                >
                 <t-icon name="chevron-right" size="32rpx" color="#86909C" />
               </view>
               <block wx:if="{{notices.length > 0}}">
                 <view class="n-row" wx:for="{{notices}}" wx:key="id">
                   <view class="n-dot {{item.read ? 'n-dot-read' : ''}}"></view>
-                  <view class="n-row-title {{item.read ? '' : 'n-row-unread'}}">{{item.title}}</view>
+                  <view class="n-row-title {{item.read ? '' : 'n-row-unread'}}"
+                    >{{item.title}}</view
+                  >
                   <view class="n-row-time">{{item.timeText}}</view>
                 </view>
               </block>
@@ -126,7 +149,7 @@
               <t-cell
                 title="关于 Shade 壹匣"
                 left-icon="book"
-                note="v1.14.0"
+                note="v1.14.1"
                 arrow
                 hover
                 bordered="{{false}}"

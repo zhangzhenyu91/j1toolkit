@@ -49,13 +49,21 @@ async function findDevice() {
   const items = await glkvm.listDevices({}, kvmUser());
   const dev = items.find((d) => String(d.ddns || '') === cfg().deviceDdns);
   if (!dev) {
-    throw new Error(`未找到设备 ddns=${cfg().deviceDdns}（账号 ${kvmUser()} 平台不可见或设备已下线）`);
+    throw new Error(
+      `未找到设备 ddns=${cfg().deviceDdns}（账号 ${kvmUser()} 平台不可见或设备已下线）`
+    );
   }
-  const want = String(cfg().deviceMac || '').replace(/[^0-9a-f]/gi, '').toLowerCase();
+  const want = String(cfg().deviceMac || '')
+    .replace(/[^0-9a-f]/gi, '')
+    .toLowerCase();
   if (want) {
-    const got = String(dev.mac || '').replace(/[^0-9a-f]/gi, '').toLowerCase();
+    const got = String(dev.mac || '')
+      .replace(/[^0-9a-f]/gi, '')
+      .toLowerCase();
     if (got !== want) {
-      throw new Error(`设备 ${cfg().deviceDdns} MAC 校验不符（平台侧 ${dev.mac || '空'} ≠ 配置 ${cfg().deviceMac}），已中止防误操作`);
+      throw new Error(
+        `设备 ${cfg().deviceDdns} MAC 校验不符（平台侧 ${dev.mac || '空'} ≠ 配置 ${cfg().deviceMac}），已中止防误操作`
+      );
     }
   }
   return dev;
@@ -81,7 +89,8 @@ async function deviceCall(dev, label, fn) {
 async function mountToHost(dev) {
   await deviceCall(dev, '挂载 U 盘至被控机', (ps) =>
     axios.post(`${ps.origin}/api/fileshare/mount`, null, {
-      headers: { Cookie: ps.cookie }, timeout: 60000,
+      headers: { Cookie: ps.cookie },
+      timeout: 60000,
     })
   );
 }
@@ -103,20 +112,36 @@ async function downloadFile(dev, name) {
 // 删除 U 盘内文件
 async function deleteFile(dev, name) {
   await deviceCall(dev, `删除 ${name}`, (ps) =>
-    axios.post(`${ps.origin}/api/fileshare/delete`, { names: [name] }, {
-      headers: { Cookie: ps.cookie }, timeout: 60000,
-    })
+    axios.post(
+      `${ps.origin}/api/fileshare/delete`,
+      { names: [name] },
+      {
+        headers: { Cookie: ps.cookie },
+        timeout: 60000,
+      }
+    )
   );
 }
 
 /* ===== 解析与建卡计划（纯函数，不触库，便于本地自测） ===== */
 
 // 必需列固定列位（被控机导出脚本生成口径，用户指定 A/E/J）：A=车牌号码 C=驾驶员 E=用车人 F=预计用车时间 J=目的地 M=派车单号 N=派车单状态 T=创建时间
-const COL = { plate: 0, driver: 2, members: 4, planTime: 5, to: 9, orderNo: 12, state: 13, createTime: 19 };
+const COL = {
+  plate: 0,
+  driver: 2,
+  members: 4,
+  planTime: 5,
+  to: 9,
+  orderNo: 12,
+  state: 13,
+  createTime: 19,
+};
 
 // 车牌剔除颜色后缀：导出件形如「晋JBA773(蓝)」「晋JF56855(绿)」（全/半角括号均剔除）
 function stripPlateColor(plate) {
-  return String(plate || '').replace(/[（(]\s*(蓝|绿|黄|白)\s*[）)]/g, '').trim();
+  return String(plate || '')
+    .replace(/[（(]\s*(蓝|绿|黄|白)\s*[）)]/g, '')
+    .trim();
 }
 
 // 行日期（同被控机导出脚本 _is_today_order 口径）：F 列预计用车时间优先、T 列创建时间兜底，
@@ -132,10 +157,18 @@ function rowDate(cells) {
 // 解析导出表 → { rows, dropped, stale }；剔除「已取消」、日期非当日、剔除颜色后车牌为空的行（计数进通知）
 function parseOrders(buffer, today) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
-  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+    header: 1,
+    raw: false,
+    defval: '',
+  });
   if (!rows.length) throw new Error('导出表为空');
   const header = (rows[0] || []).map((c) => String(c).trim());
-  if (header[COL.plate] !== '车牌号码' || header[COL.members] !== '用车人' || header[COL.to] !== '目的地') {
+  if (
+    header[COL.plate] !== '车牌号码' ||
+    header[COL.members] !== '用车人' ||
+    header[COL.to] !== '目的地'
+  ) {
     throw new Error('导出表格式与预期不符（A 列应为车牌号码、E 列应为用车人、J 列应为目的地）');
   }
   const out = [];
@@ -144,10 +177,19 @@ function parseOrders(buffer, today) {
   for (let i = 1; i < rows.length; i += 1) {
     const cells = (Array.isArray(rows[i]) ? rows[i] : []).map((c) => String(c).trim());
     if (cells.every((c) => !c)) continue; // 空行
-    if (cells[COL.state] === '已取消') { dropped += 1; continue; }
-    if (rowDate(cells) !== today) { stale += 1; continue; } // 清洗非当日派车单
+    if (cells[COL.state] === '已取消') {
+      dropped += 1;
+      continue;
+    }
+    if (rowDate(cells) !== today) {
+      stale += 1;
+      continue;
+    } // 清洗非当日派车单
     const plate = stripPlateColor(cells[COL.plate]);
-    if (!plate) { dropped += 1; continue; }
+    if (!plate) {
+      dropped += 1;
+      continue;
+    }
     out.push({
       plate,
       driver: cells[COL.driver] || '',
@@ -200,7 +242,10 @@ function planCards(rows, teamMembers, vehicles, destinations, assignedIds) {
 // 空单号不写（汇总无据）；同日补跑/重跑为同值覆盖，幂等
 async function saveOrderNo(entryId, row) {
   if (!row.orderNo) return;
-  await pool.query('UPDATE worklog_entry SET dispatch_order_no = ? WHERE id = ?', [row.orderNo, entryId]);
+  await pool.query('UPDATE worklog_entry SET dispatch_order_no = ? WHERE id = ?', [
+    row.orderNo,
+    entryId,
+  ]);
 }
 
 // 解析 + 行级班组判定 + 逐班组计划落库/已有卡比对 → { results, outside, otherTeam, dropped, stale, total }
@@ -217,7 +262,9 @@ async function importOrdersMulti(teams, buffer, today) {
   // 行级 involvedTeams：用车人串子串含有的成员所属班组集合（同名跨班则多班都算）
   const rowTeams = rows.map((row) => {
     const set = new Set();
-    allMembers.forEach((m) => { if (m.name && row.userText.includes(m.name)) set.add(m.team_id); });
+    allMembers.forEach((m) => {
+      if (m.name && row.userText.includes(m.name)) set.add(m.team_id);
+    });
     return set;
   });
   const enabledIds = new Set(teams.map((t) => t.id));
@@ -227,10 +274,19 @@ async function importOrdersMulti(teams, buffer, today) {
   let otherTeam = 0; // 仅含未开启班组成员
   rows.forEach((row, i) => {
     const set = rowTeams[i];
-    if (set.size > 1) { crossIdx.push(i); return; }
-    if (set.size === 0) { outside += 1; return; }
+    if (set.size > 1) {
+      crossIdx.push(i);
+      return;
+    }
+    if (set.size === 0) {
+      outside += 1;
+      return;
+    }
     const tid = [...set][0];
-    if (!enabledIds.has(tid)) { otherTeam += 1; return; }
+    if (!enabledIds.has(tid)) {
+      otherTeam += 1;
+      return;
+    }
     if (!byTeam.has(tid)) byTeam.set(tid, []);
     byTeam.get(tid).push(row);
   });
@@ -276,10 +332,14 @@ async function importOrdersMulti(teams, buffer, today) {
       const foreign = [];
       matched.forEach((m) => {
         const e = entryByMember.get(m.id);
-        if (e) { localCards.set(e.id, e); return; }
+        if (e) {
+          localCards.set(e.id, e);
+          return;
+        }
         if (occupiedGlobal.has(m.id)) foreign.push(m.name);
       });
-      if (localCards.size || foreign.length) overlaps.push({ row, matched, cards: [...localCards.values()], foreign });
+      if (localCards.size || foreign.length)
+        overlaps.push({ row, matched, cards: [...localCards.values()], foreign });
       else freshRows.push(row);
     }
 
@@ -296,7 +356,15 @@ async function importOrdersMulti(teams, buffer, today) {
         await conn.beginTransaction();
         const [r] = await conn.query(
           'INSERT INTO worklog_entry (team_id, log_date, patrol_content, vehicle_id, destination_id, dispatch_order_no, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [team.id, today, '', p.vehicle.id, p.destination ? p.destination.id : null, p.row.orderNo || null, createdBy]
+          [
+            team.id,
+            today,
+            '',
+            p.vehicle.id,
+            p.destination ? p.destination.id : null,
+            p.row.orderNo || null,
+            createdBy,
+          ]
         );
         entryId = r.insertId;
         for (const m of p.members) {
@@ -329,27 +397,48 @@ async function importOrdersMulti(teams, buffer, today) {
       const issues = [];
       for (const card of o.cards) {
         // 一条派车单占用多张卡片时逐卡比对，前缀标注卡片便于定位
-        const label = o.cards.length > 1 ? `卡片「${card.plate_no}」（${card.memberList.map((m) => m.name).join('、')}）：` : '';
+        const label =
+          o.cards.length > 1
+            ? `卡片「${card.plate_no}」（${card.memberList.map((m) => m.name).join('、')}）：`
+            : '';
         if (card.plate_no !== o.row.plate) {
           const inDict = vehicles.some((v) => v.plate_no === o.row.plate);
-          issues.push(`${label}车牌不一致：卡片「${card.plate_no}」≠ 派车单「${o.row.plate}」→ 请在卡片「修改派车」改为 ${o.row.plate}${inDict ? '' : '（下拉无此车牌，请先在数据管理添加）'}`);
+          issues.push(
+            `${label}车牌不一致：卡片「${card.plate_no}」≠ 派车单「${o.row.plate}」→ 请在卡片「修改派车」改为 ${o.row.plate}${inDict ? '' : '（下拉无此车牌，请先在数据管理添加）'}`
+          );
         }
         if (o.row.to) {
           const cardDest = card.destination_name || '';
           if (!cardDest) {
-            issues.push(`${label}目的地未选（派车单「${o.row.to}」）→ 请补选目的地（无匹配项请先在数据管理添加）`);
+            issues.push(
+              `${label}目的地未选（派车单「${o.row.to}」）→ 请补选目的地（无匹配项请先在数据管理添加）`
+            );
           } else if (!destSame(cardDest, o.row.to)) {
-            issues.push(`${label}目的地不一致：卡片「${cardDest}」≠ 派车单「${o.row.to}」→ 请核对修改`);
+            issues.push(
+              `${label}目的地不一致：卡片「${cardDest}」≠ 派车单「${o.row.to}」→ 请核对修改`
+            );
           }
         }
         const cardNames = new Set(card.memberList.map((m) => m.name));
         const missing = o.matched.filter((m) => !cardNames.has(m.name)).map((m) => m.name);
-        const extra = card.memberList.filter((m) => !(m.name && o.row.userText.includes(m.name))).map((m) => m.name);
-        if (missing.length) issues.push(`${label}用车人缺少：${missing.join('、')} → 请在卡片点亮补入（其当日若另有卡片请先调整，同一人同日只能挂一张卡）`);
-        if (extra.length) issues.push(`${label}用车人多出：${extra.join('、')}（派车单无）→ 请确认是否取消点亮`);
+        const extra = card.memberList
+          .filter((m) => !(m.name && o.row.userText.includes(m.name)))
+          .map((m) => m.name);
+        if (missing.length)
+          issues.push(
+            `${label}用车人缺少：${missing.join('、')} → 请在卡片点亮补入（其当日若另有卡片请先调整，同一人同日只能挂一张卡）`
+          );
+        if (extra.length)
+          issues.push(`${label}用车人多出：${extra.join('、')}（派车单无）→ 请确认是否取消点亮`);
       }
-      if (o.cards.length > 1) issues.push(`用车人分散在 ${o.cards.length} 张卡片 → 请合并为一张（保留与派车单最一致者，其余删除）`);
-      if (o.foreign.length) issues.push(`用车人 ${o.foreign.join('、')} 当日已在其他班组卡片（含跨班日志）→ 本班不再为其建卡，如需调整请联系超级管理员`);
+      if (o.cards.length > 1)
+        issues.push(
+          `用车人分散在 ${o.cards.length} 张卡片 → 请合并为一张（保留与派车单最一致者，其余删除）`
+        );
+      if (o.foreign.length)
+        issues.push(
+          `用车人 ${o.foreign.join('、')} 当日已在其他班组卡片（含跨班日志）→ 本班不再为其建卡，如需调整请联系超级管理员`
+        );
       if (issues.length) mismatches.push({ row: o.row, issues });
       else aligned += 1;
     }
@@ -364,7 +453,9 @@ async function importOrdersMulti(teams, buffer, today) {
 // 微信推送：发到 teamIds 对应班组群
 async function notify(title, lines, teamIds) {
   try {
-    const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
+    const [admins] = await pool.query(
+      "SELECT id FROM sys_user WHERE role = 'admin' AND status = 1"
+    );
     let teamAdmins = [];
     const ids = (teamIds || []).filter(Boolean);
     if (ids.length) {
@@ -375,7 +466,8 @@ async function notify(title, lines, teamIds) {
     }
     const userIds = [...new Set([...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)])];
     if (!userIds.length) return;
-    await require('../notice').push({ // 与 sgccclockin 同型惰性加载
+    await require('../notice').push({
+      // 与 sgccclockin 同型惰性加载
       userIds,
       targets: [],
       title,
@@ -406,10 +498,11 @@ async function prepareJob() {
   } catch (err) {
     console.error('[派车单同步] 准备任务失败：', err.message);
     await devlock.unlock(cfg().deviceDdns);
-    await notify('派车单同步准备失败', [
-      `锁定设备 / 挂载 U 盘失败：${err.message}`,
-      '设备已解禁，取件任务仍按排程执行。',
-    ], teams.map((t) => t.id));
+    await notify(
+      '派车单同步准备失败',
+      [`锁定设备 / 挂载 U 盘失败：${err.message}`, '设备已解禁，取件任务仍按排程执行。'],
+      teams.map((t) => t.id)
+    );
   }
 }
 
@@ -435,7 +528,11 @@ async function fetchJob() {
         `未在设备 U 盘找到「${fileName}」。`,
         '可能当日无派车单，或被控机导出客户端（内网工具箱）异常。',
       ];
-      await notify('派车单同步：今日无文件', lines, teams.map((t) => t.id));
+      await notify(
+        '派车单同步：今日无文件',
+        lines,
+        teams.map((t) => t.id)
+      );
       return { ok: true, message: lines.join('\n') };
     }
     console.log(`[派车单同步] 已下载 ${fileName}（${(buf.length / 1024).toFixed(1)} KB）`);
@@ -449,36 +546,50 @@ async function fetchJob() {
     for (const res of r.results) {
       const overlapCount = res.mismatches.length + res.aligned;
       const lines = [
-        `${today} 解析 ${r.total} 行，新建 ${res.created.length} 张出车卡片`
-        + `（剔除：非当日 ${r.stale} / 已取消或无车牌 ${r.dropped} / 非班组用车 ${r.outside} / 仅属未开启班组 ${r.otherTeam}）`
-        + (overlapCount ? `；${overlapCount} 条用车人当日已有手动卡（不一致 ${res.mismatches.length} 条见下文）` : '')
-        + '。',
+        `${today} 解析 ${r.total} 行，新建 ${res.created.length} 张出车卡片` +
+          `（剔除：非当日 ${r.stale} / 已取消或无车牌 ${r.dropped} / 非班组用车 ${r.outside} / 仅属未开启班组 ${r.otherTeam}）` +
+          (overlapCount
+            ? `；${overlapCount} 条用车人当日已有手动卡（不一致 ${res.mismatches.length} 条见下文）`
+            : '') +
+          '。',
       ];
       res.created.forEach((c) =>
-        lines.push(`· ${c.plate}${c.destination ? ` → ${c.destination}` : ''}：${c.members.join('、')}`)
+        lines.push(
+          `· ${c.plate}${c.destination ? ` → ${c.destination}` : ''}：${c.members.join('、')}`
+        )
       );
       if (res.mismatches.length) {
         lines.push(`以下 ${res.mismatches.length} 条已有手动卡未改动，请核对：`);
         res.mismatches.forEach((a) => {
-          lines.push(`· ${a.row.plate}${a.row.to ? ` → ${a.row.to}` : ''}（派车单用车人：${a.row.userText}）`);
+          lines.push(
+            `· ${a.row.plate}${a.row.to ? ` → ${a.row.to}` : ''}（派车单用车人：${a.row.userText}）`
+          );
           a.issues.forEach((it) => lines.push(`  ${it}`));
         });
       }
       if (res.skippedDict.length) {
-        lines.push(`以下 ${res.skippedDict.length} 条字典未命中未建卡，请先将车牌/目的地入字典再人工建卡：`);
+        lines.push(
+          `以下 ${res.skippedDict.length} 条字典未命中未建卡，请先将车牌/目的地入字典再人工建卡：`
+        );
         res.skippedDict.forEach((s) =>
-          lines.push(`· ${s.plate}${s.to ? ` → ${s.to}` : ''}（用车人：${s.userText}）：${s.reason}`)
+          lines.push(
+            `· ${s.plate}${s.to ? ` → ${s.to}` : ''}（用车人：${s.userText}）：${s.reason}`
+          )
         );
       }
       if (res.cross.length) {
-        lines.push(`以下 ${res.cross.length} 条含跨班用车人，仅通知不建卡（需建卡请联系超管建跨班日志）：`);
+        lines.push(
+          `以下 ${res.cross.length} 条含跨班用车人，仅通知不建卡（需建卡请联系超管建跨班日志）：`
+        );
         res.cross.forEach((s) =>
           lines.push(`· ${s.plate}${s.to ? ` → ${s.to}` : ''}（用车人：${s.userText}）`)
         );
       }
       await notify(`派车单同步完成（${res.team.name}）`, lines, [res.team.id]);
       messages.push(`【${res.team.name}】\n${lines.join('\n')}`);
-      console.log(`[派车单同步] ${today} ${res.team.name} 完成：新建 ${res.created.length} 张出车卡片，已有卡比对不一致 ${res.mismatches.length} 条`);
+      console.log(
+        `[派车单同步] ${today} ${res.team.name} 完成：新建 ${res.created.length} 张出车卡片，已有卡比对不一致 ${res.mismatches.length} 条`
+      );
     }
     return { ok: true, message: messages.join('\n\n') };
   } catch (err) {
@@ -487,7 +598,11 @@ async function fetchJob() {
       `取件失败：${err.message}`,
       '设备已解禁，可在出工日志「派车对齐」人工导入导出件或手动补跑。',
     ];
-    await notify('派车单同步失败', lines, teams.map((t) => t.id));
+    await notify(
+      '派车单同步失败',
+      lines,
+      teams.map((t) => t.id)
+    );
     return { ok: false, message: lines.join('\n') };
   } finally {
     fetching = false;
@@ -498,8 +613,13 @@ async function fetchJob() {
 /* ===== 排程（与 sgccclockin 同型：setTimeout 自排程 + unref，北京时间口径） ===== */
 
 function scheduleDaily(timeStr, job, label) {
-  const [hh, mm] = String(timeStr || '').split(':').map((s) => parseInt(s, 10));
-  const { nextUtc, now } = nextDailyRunUtc(Number.isInteger(hh) ? hh : 9, Number.isInteger(mm) ? mm : 0);
+  const [hh, mm] = String(timeStr || '')
+    .split(':')
+    .map((s) => parseInt(s, 10));
+  const { nextUtc, now } = nextDailyRunUtc(
+    Number.isInteger(hh) ? hh : 9,
+    Number.isInteger(mm) ? mm : 0
+  );
   const timer = setTimeout(async () => {
     try {
       await job();
@@ -509,7 +629,9 @@ function scheduleDaily(timeStr, job, label) {
     scheduleDaily(timeStr, job, label); // 排次日
   }, nextUtc - now);
   timer.unref(); // 不阻塞进程退出
-  console.log(`[派车单同步] ${label}已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
+  console.log(
+    `[派车单同步] ${label}已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`
+  );
 }
 
 // 由 worklog 入口调用（排程无条件启动；生效班组以 worklog_dispatch_sync_team 开关表为准，未配置设备 ddns 时停用）

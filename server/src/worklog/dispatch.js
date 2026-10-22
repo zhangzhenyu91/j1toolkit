@@ -40,7 +40,11 @@ function parseFile(buffer, fileName) {
   let rows;
   try {
     const wb = XLSX.read(buffer, { type: 'buffer' });
-    rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+    rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
   } catch (e) {
     const err = new Error(`「${fileName}」解析失败，请使用派车系统原始导出表`);
     err.status = 400; // 路由仅把 400 转友好文案，其余按 500
@@ -77,7 +81,9 @@ function parseFile(buffer, fileName) {
       date,
       plate: cells[COL.plate] || '', // B 列
       driver: aux['驾驶员'] >= 0 ? cells[aux['驾驶员']] : '',
-      members: String(cells[COL.members] || '').split(/\s+/).filter(Boolean), // F 列
+      members: String(cells[COL.members] || '')
+        .split(/\s+/)
+        .filter(Boolean), // F 列
       from: '', // 出发地不参与对齐（设计稿仅展示目的地）
       to: cells[COL.to] || '', // K 列
       reason: aux['用车事由'] >= 0 ? cells[aux['用车事由']] : '',
@@ -124,7 +130,10 @@ async function loadEntries(teamId, minDate, maxDate) {
   );
   const memberMap = {};
   members.forEach((m) => {
-    (memberMap[m.entry_id] = memberMap[m.entry_id] || []).push({ member_id: m.member_id, name: m.name });
+    (memberMap[m.entry_id] = memberMap[m.entry_id] || []).push({
+      member_id: m.member_id,
+      name: m.name,
+    });
   });
   entries.forEach((e) => {
     e.memberList = memberMap[e.id] || [];
@@ -175,12 +184,17 @@ async function align(team, files) {
   }
 
   // 剔除「用车人中无本班成员（启用中字典）」的行：他班派车混入导出件时不进清单，剔除数入 summary.outside
-  const [memRows] = await pool.query('SELECT name FROM worklog_member WHERE status = 1 AND team_id = ?', [team.id]);
+  const [memRows] = await pool.query(
+    'SELECT name FROM worklog_member WHERE status = 1 AND team_id = ?',
+    [team.id]
+  );
   const teamNames = new Set(memRows.map((m) => m.name));
   const teamRows = allRows.filter((r) => r.members.some((n) => teamNames.has(n)));
   const outside = allRows.length - teamRows.length;
   if (!teamRows.length) {
-    const err = new Error(`导入行剔除后无剩余：全部 ${allRows.length} 行的用车人均不含本班成员，请确认导出件属于本班组`);
+    const err = new Error(
+      `导入行剔除后无剩余：全部 ${allRows.length} 行的用车人均不含本班成员，请确认导出件属于本班组`
+    );
     err.status = 400;
     throw err;
   }

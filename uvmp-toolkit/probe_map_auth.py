@@ -4,6 +4,7 @@
 目的：用 SSO 自动登录后的会话探测 map.sgcc.com.cn 的资源是否可自动获得。
 运行：python3 probe_map_auth.py
 把全部输出原样发给开发者。"""
+
 import configparser
 import getpass
 import sys
@@ -23,8 +24,10 @@ username = auth_cfg.get("username", "").strip() or input("SSO 用户名: ").stri
 password = auth_cfg.get("password", "").strip() or getpass.getpass("SSO 密码: ")
 
 s = requests.Session()
-s.headers["User-Agent"] = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                           "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36")
+s.headers["User-Agent"] = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+)
 
 print("== 正在 SSO 登录 ==")
 try:
@@ -64,6 +67,10 @@ for c in s.cookies:
     print("   %s @ %s" % (c.name, c.domain))
 print()
 print("判读提示：")
-print("  - 如果 styles/tiles 相关 URL 返回 200 且内容是 JSON/图片 -> SSO 会话可直接拿地图资源，可全自动")
-print("  - 如果被重定向到 sso.tyqx.sgcc.com.cn 后又跳回并返回 200 -> CAS 自动登录成功，同样可全自动")
+print(
+    "  - 如果 styles/tiles 相关 URL 返回 200 且内容是 JSON/图片 -> SSO 会话可直接拿地图资源，可全自动"
+)
+print(
+    "  - 如果被重定向到 sso.tyqx.sgcc.com.cn 后又跳回并返回 200 -> CAS 自动登录成功，同样可全自动"
+)
 print("  - 如果最终落在登录页 HTML 或 401/403 -> 地图平台是独立认证，把输出发给开发者")

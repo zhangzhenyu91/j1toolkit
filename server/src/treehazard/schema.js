@@ -200,7 +200,9 @@ async function ensureTreehazardSchema(pool) {
   }
 
   // 管理员默认授予 树障隐患记录 / 班组数据 权限
-  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [config.admin.username]);
+  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [
+    config.admin.username,
+  ]);
   if (adminRows.length) {
     for (const app of [APP_TREE_HAZARD, APP_TEAM_DATA]) {
       await pool.query(

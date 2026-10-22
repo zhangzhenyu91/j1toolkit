@@ -26,7 +26,13 @@ function opsOf(state) {
   const copy = { k: 'copy', t: '复制链接', icon: 'link', color: '#0E3DA8', cls: 'blue' };
   const disable = { k: 'disable', t: '停用', icon: 'pause-circle', color: '#4E5969', cls: '' };
   const enable = { k: 'enable', t: '重新启用', icon: 'check', color: '#0E3DA8', cls: 'blue' };
-  const remove = { k: 'remove', t: state === 'expired' ? '删除记录' : '删除', icon: 'delete', color: '#F53F3F', cls: 'danger' };
+  const remove = {
+    k: 'remove',
+    t: state === 'expired' ? '删除记录' : '删除',
+    icon: 'delete',
+    color: '#F53F3F',
+    cls: 'danger',
+  };
   if (state === 'active') return [copy, disable, remove];
   if (state === 'disabled') return [copy, enable, remove];
   return [remove]; // expired：链接已失效，仅可删除记录
@@ -136,7 +142,9 @@ Page({
         content: `停用后「${item.title}」的外链访问立即中断，可随时重新启用。`,
         confirmBtn: '停用',
         cancelBtn: '取消',
-      }).then(() => this.shareAct(item, 'disable', '已停用')).catch(() => {});
+      })
+        .then(() => this.shareAct(item, 'disable', '已停用'))
+        .catch(() => {});
       return;
     }
     if (op === 'remove') {
@@ -147,7 +155,9 @@ Page({
         content: `删除后「${item.title}」的外链永久失效，不可恢复。`,
         confirmBtn: '确认删除',
         cancelBtn: '取消',
-      }).then(() => this.shareAct(item, 'remove', '已删除')).catch(() => {});
+      })
+        .then(() => this.shareAct(item, 'remove', '已删除'))
+        .catch(() => {});
       return;
     }
     if (op === 'enable') this.shareAct(item, 'enable', '已重新启用');

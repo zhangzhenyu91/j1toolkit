@@ -151,7 +151,12 @@ Page({
 
   async loadWorklogStats() {
     if (!this.data.hasWorklog) {
-      this.setData({ statPrevPass: null, statPrevNeed: null, statCurPass: null, statCurNeed: null });
+      this.setData({
+        statPrevPass: null,
+        statPrevNeed: null,
+        statCurPass: null,
+        statCurNeed: null,
+      });
       return;
     }
     const teamId = Number(wx.getStorageSync('worklog_team_id')) || 0; // 班组口径同 pkg-worklog
@@ -229,9 +234,11 @@ Page({
         content: `请在 PC 端 Shade 壹匣 使用，网址：${config.BASE_URL}`,
         confirmBtn: '复制网址',
         cancelBtn: '知道了',
-      }).then(() => {
-        wx.setClipboardData({ data: config.BASE_URL });
-      }).catch(() => {});
+      })
+        .then(() => {
+          wx.setClipboardData({ data: config.BASE_URL });
+        })
+        .catch(() => {});
       return;
     }
     wx.navigateTo({
@@ -289,7 +296,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v1.14.0 \n 应用权限申请联系 zzy',
+      content: '版本号：v1.14.1 \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },
@@ -320,18 +327,20 @@ Page({
       content: '确定要退出当前账号吗？',
       confirmBtn: '退出',
       cancelBtn: '取消',
-    }).then(async () => {
-      try {
-        await request({ url: '/api/v1/auth/logout', method: 'POST' });
-      } catch (err) {
-        // 后端不可达也允许本地退出
-      }
-      wx.removeStorageSync('token');
-      wx.removeStorageSync('userInfo');
-      wx.removeStorageSync('canSilentWx'); // 清除"可静默微信登录"标记，避免下次冷启动被静默重新登录
-      getApp().globalData.userInfo = null;
-      wx.reLaunch({ url: '/pages/login/login' });
-    }).catch(() => {});
+    })
+      .then(async () => {
+        try {
+          await request({ url: '/api/v1/auth/logout', method: 'POST' });
+        } catch (err) {
+          // 后端不可达也允许本地退出
+        }
+        wx.removeStorageSync('token');
+        wx.removeStorageSync('userInfo');
+        wx.removeStorageSync('canSilentWx'); // 清除"可静默微信登录"标记，避免下次冷启动被静默重新登录
+        getApp().globalData.userInfo = null;
+        wx.reLaunch({ url: '/pages/login/login' });
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

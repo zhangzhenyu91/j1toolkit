@@ -6,11 +6,11 @@
 }
 
 .hover-bg-warm {
-  background-color: #E8F0FF !important;
+  background-color: #e8f0ff !important;
 }
 
 .ndp-sheet {
-  background: #FFFFFF;
+  background: #ffffff;
   border-radius: 32rpx 32rpx 0 0;
   padding-bottom: calc(40rpx + env(safe-area-inset-bottom));
 }
@@ -20,7 +20,7 @@
   width: 72rpx;
   height: 8rpx;
   border-radius: 4rpx;
-  background: #E5E6EB;
+  background: #e5e6eb;
   margin: 16rpx auto 8rpx;
 }
 
@@ -28,14 +28,14 @@
   padding: 24rpx 32rpx 0;
   font-size: 31rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .ndp-sub {
   padding: 0 32rpx;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 /* 空间分段（我的空间/公共区）：浅灰轨道 + 白色激活块 */
@@ -44,7 +44,7 @@
   gap: 8rpx;
   margin: 20rpx 32rpx 0;
   padding: 6rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   border-radius: 16rpx;
 }
 
@@ -57,12 +57,12 @@
   justify-content: center;
   font-size: 25rpx;
   font-weight: 600;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .ndp-space.on {
-  background: #FFFFFF;
-  color: #0E3DA8;
+  background: #ffffff;
+  color: #0e3da8;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.06);
 }
 
@@ -79,18 +79,18 @@
 
 .ndp-link {
   flex: none;
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 600;
 }
 
 .ndp-sep {
   flex: none;
-  color: #86909C;
+  color: #86909c;
 }
 
 .ndp-cur {
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -103,14 +103,14 @@
   gap: 14rpx;
   margin: 16rpx 32rpx 0;
   padding: 16rpx 20rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   border-radius: 16rpx;
 }
 
 .ndp-mk-t {
   font-size: 25rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .ndp-mkedit {
@@ -125,14 +125,14 @@
   min-width: 0;
   height: 76rpx;
   padding: 0 24rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   border-radius: 16rpx;
   font-size: 26rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .ndp-ph {
-  color: #C9CDD4;
+  color: #c9cdd4;
 }
 
 .ndp-mkok,
@@ -149,13 +149,13 @@
 }
 
 .ndp-mkok {
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
 }
 
 .ndp-mkno {
-  background: #F7F8FA;
-  color: #4E5969;
+  background: #f7f8fa;
+  color: #4e5969;
 }
 
 .ndp-mkok.disabled,
@@ -177,7 +177,7 @@
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 8rpx;
-  border-top: 1rpx solid #F7F8FA;
+  border-top: 1rpx solid #f7f8fa;
 }
 
 .ndp-name {
@@ -185,7 +185,7 @@
   min-width: 0;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -195,7 +195,7 @@
   padding: 64rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 /* 底部按钮行：取消 + 主按钮 */
@@ -209,8 +209,8 @@
   flex: 1;
   height: 84rpx;
   border-radius: 16rpx;
-  background: #F7F8FA;
-  color: #4E5969;
+  background: #f7f8fa;
+  color: #4e5969;
   font-size: 28rpx;
   font-weight: 600;
   display: flex;
@@ -222,8 +222,8 @@
   flex: 2;
   height: 84rpx;
   border-radius: 16rpx;
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
   font-size: 28rpx;
   font-weight: 600;
   letter-spacing: 2rpx;

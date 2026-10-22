@@ -36,7 +36,8 @@
       loading="{{loading}}"
       custom-style="background: #1D2129; color: #FFFFFF; border: none; border-radius: 0; font-weight: 600; letter-spacing: 8rpx;"
       bind:tap="onAccountLogin"
-    >登 录</t-button>
+      >登 录</t-button
+    >
 
     <view class="divider">
       <view class="line"></view>
@@ -57,7 +58,7 @@
       </view>
     </t-button>
 
-    <view class="version">v1.14.0</view>
+    <view class="version">v1.14.1</view>
   </view>
 
   <t-toast id="t-toast" />

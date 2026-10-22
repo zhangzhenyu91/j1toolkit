@@ -42,20 +42,44 @@ function mapItem(it) {
     if (it.diffs.plate) badges.push({ t: '车牌不一致', cls: 'plate' });
     if (it.diffs.dest) badges.push({ t: '目的地不一致', cls: 'dest' });
     if (it.diffs.orderNo) badges.push({ t: '派车单号不一致', cls: 'dest' });
-    if (it.diffs.missing.length || it.diffs.extra.length) badges.push({ t: '用车人差异', cls: 'mem' });
+    if (it.diffs.missing.length || it.diffs.extra.length)
+      badges.push({ t: '用车人差异', cls: 'mem' });
     segs.push({ t: it.sheet.members.join(' '), cls: 'b' }, { t: '｜', cls: 'vs' });
     const parts = [];
     if (it.diffs.plate) {
-      parts.push([{ t: '表格 ', cls: '' }, { t: it.sheet.plate, cls: 'hl' }, { t: ' → ', cls: 'vs' }, { t: `系统 ${it.entry.plate}`, cls: '' }]);
+      parts.push([
+        { t: '表格 ', cls: '' },
+        { t: it.sheet.plate, cls: 'hl' },
+        { t: ' → ', cls: 'vs' },
+        { t: `系统 ${it.entry.plate}`, cls: '' },
+      ]);
     }
     if (it.diffs.dest) {
-      parts.push([{ t: '目的地 表格 ', cls: '' }, { t: it.sheet.to || '—', cls: 'hl' }, { t: ' → ', cls: 'vs' }, { t: `系统 ${it.entry.destination || '未选'}`, cls: '' }]);
+      parts.push([
+        { t: '目的地 表格 ', cls: '' },
+        { t: it.sheet.to || '—', cls: 'hl' },
+        { t: ' → ', cls: 'vs' },
+        { t: `系统 ${it.entry.destination || '未选'}`, cls: '' },
+      ]);
     }
     if (it.diffs.orderNo) {
-      parts.push([{ t: '单号 表格 ', cls: '' }, { t: it.sheet.orderNo, cls: 'hl' }, { t: ' → ', cls: 'vs' }, { t: `系统 ${it.entry.order_no || '未填'}`, cls: '' }]);
+      parts.push([
+        { t: '单号 表格 ', cls: '' },
+        { t: it.sheet.orderNo, cls: 'hl' },
+        { t: ' → ', cls: 'vs' },
+        { t: `系统 ${it.entry.order_no || '未填'}`, cls: '' },
+      ]);
     }
-    if (it.diffs.extra.length) parts.push([{ t: '卡片多 ', cls: '' }, { t: it.diffs.extra.join(' '), cls: 'hl-r' }]);
-    if (it.diffs.missing.length) parts.push([{ t: '卡片少 ', cls: '' }, { t: it.diffs.missing.join(' '), cls: 'hl-r' }]);
+    if (it.diffs.extra.length)
+      parts.push([
+        { t: '卡片多 ', cls: '' },
+        { t: it.diffs.extra.join(' '), cls: 'hl-r' },
+      ]);
+    if (it.diffs.missing.length)
+      parts.push([
+        { t: '卡片少 ', cls: '' },
+        { t: it.diffs.missing.join(' '), cls: 'hl-r' },
+      ]);
     parts.forEach((p, pi) => {
       if (pi > 0) segs.push({ t: '，', cls: 'vs' });
       segs.push(...p);
@@ -167,7 +191,9 @@ Page({
   // 进入页面拉取当前开关状态
   async loadSyncSwitch() {
     try {
-      const data = await request({ url: `/api/v1/worklog/dispatch/sync-switch${this.teamQuery()}` });
+      const data = await request({
+        url: `/api/v1/worklog/dispatch/sync-switch${this.teamQuery()}`,
+      });
       this.setData({ syncEnabled: !!(data && data.enabled) });
     } catch (err) {
       this.toast(err.message);
@@ -187,21 +213,23 @@ Page({
         : '关闭后每日不再自动取回派车单建卡，已建卡片不受影响。次日起按排程执行，确定关闭吗？',
       confirmBtn: enabled ? '开启' : '关闭',
       cancelBtn: '取消',
-    }).then(async () => {
-      this.setData({ syncSwitchLoading: true });
-      try {
-        const data = await request({
-          url: '/api/v1/worklog/dispatch/sync-switch',
-          method: 'PUT',
-          data: this.teamBody({ enabled }),
-        });
-        this.setData({ syncEnabled: !!(data && data.enabled), syncSwitchLoading: false });
-        this.toast(enabled ? '已开启，次日起按排程执行' : '已关闭，次日起按排程执行');
-      } catch (err) {
-        this.setData({ syncEnabled: !enabled, syncSwitchLoading: false }); // 失败回退开关状态
-        this.toast(err.message);
-      }
-    }).catch(() => {});
+    })
+      .then(async () => {
+        this.setData({ syncSwitchLoading: true });
+        try {
+          const data = await request({
+            url: '/api/v1/worklog/dispatch/sync-switch',
+            method: 'PUT',
+            data: this.teamBody({ enabled }),
+          });
+          this.setData({ syncEnabled: !!(data && data.enabled), syncSwitchLoading: false });
+          this.toast(enabled ? '已开启，次日起按排程执行' : '已关闭，次日起按排程执行');
+        } catch (err) {
+          this.setData({ syncEnabled: !enabled, syncSwitchLoading: false }); // 失败回退开关状态
+          this.toast(err.message);
+        }
+      })
+      .catch(() => {});
   },
 
   // 字典（车牌 / 目的地 / 成员）：force 时重拉（车牌入字典后）
@@ -238,8 +266,14 @@ Page({
     let badSize = 0;
     const incoming = [];
     tempFiles.forEach((t) => {
-      if (!ALLOWED.includes(extOf(t.name))) { badType += 1; return; }
-      if (t.size > MAX_SIZE) { badSize += 1; return; }
+      if (!ALLOWED.includes(extOf(t.name))) {
+        badType += 1;
+        return;
+      }
+      if (t.size > MAX_SIZE) {
+        badSize += 1;
+        return;
+      }
       if (this.data.files.some((x) => x.name === t.name)) return;
       if (incoming.some((x) => x.name === t.name)) return;
       incoming.push({ name: t.name, sizeText: fmtSize(t.size), path: t.path });
@@ -264,13 +298,19 @@ Page({
     const parts = [];
     // 生效班组（仅超管携带；其余角色后端强制本班）
     if (this._teamId) {
-      parts.push(utf8Buffer(`--${boundary}\r\nContent-Disposition: form-data; name="team_id"\r\n\r\n${this._teamId}\r\n`));
+      parts.push(
+        utf8Buffer(
+          `--${boundary}\r\nContent-Disposition: form-data; name="team_id"\r\n\r\n${this._teamId}\r\n`
+        )
+      );
     }
     this.data.files.forEach((f) => {
-      parts.push(utf8Buffer(
-        `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${f.name}"\r\n` +
-        'Content-Type: application/octet-stream\r\n\r\n'
-      ));
+      parts.push(
+        utf8Buffer(
+          `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${f.name}"\r\n` +
+            'Content-Type: application/octet-stream\r\n\r\n'
+        )
+      );
       parts.push(fsm.readFileSync(f.path));
       parts.push(utf8Buffer('\r\n'));
     });
@@ -370,7 +410,11 @@ Page({
       { k: '用车日期', v: s.date, cls: '' },
       { k: '车牌号码', v: s.plate, cls: d && d.plate ? 'diff' : '' },
       { k: '驾驶员', v: s.driver || '—', cls: '' },
-      { k: '用车人', v: s.members.join(' ') || '—', cls: d && (d.missing.length || d.extra.length) ? 'diff-bad' : '' },
+      {
+        k: '用车人',
+        v: s.members.join(' ') || '—',
+        cls: d && (d.missing.length || d.extra.length) ? 'diff-bad' : '',
+      },
       { k: '目的地', v: s.to || '—', cls: d && d.dest ? 'diff' : '' },
       { k: '用车事由', v: s.reason || '—', cls: '' },
     ];
@@ -391,7 +435,8 @@ Page({
           { k: '用车人', v: it.entry.members.map((m) => m.name).join(' ') },
           { k: '目的地', v: it.entry.destination || '—' },
         ],
-        dlgTip: '派车单中没有与该卡片对应的记录。可能为派车单导出不完整或该次出车未走派车申请；确认无误即可，本功能不自动删卡。',
+        dlgTip:
+          '派车单中没有与该卡片对应的记录。可能为派车单导出不完整或该次出车未走派车申请；确认无误即可，本功能不自动删卡。',
       });
       return;
     }
@@ -419,24 +464,40 @@ Page({
       const destHit = s.to ? meta.destinations.find((v) => destSame(v.name, s.to)) || null : null;
       const unknown = s.members.filter((n) => !meta.members.some((m) => m.name === n));
       this._dlgIds = {
-        plateIds: plateHit ? meta.vehicles.map((v) => v.id) : [null].concat(meta.vehicles.map((v) => v.id)),
+        plateIds: plateHit
+          ? meta.vehicles.map((v) => v.id)
+          : [null].concat(meta.vehicles.map((v) => v.id)),
         destIds: [null].concat(meta.destinations.map((v) => v.id)),
       };
       this.setData({
         ...base,
         plateIdx: plateHit ? meta.vehicles.findIndex((v) => v.id === plateHit.id) : 0,
-        plateRange: plateHit ? meta.vehicles.map((v) => v.plate_no) : ['（请选择车牌）'].concat(meta.vehicles.map((v) => v.plate_no)),
+        plateRange: plateHit
+          ? meta.vehicles.map((v) => v.plate_no)
+          : ['（请选择车牌）'].concat(meta.vehicles.map((v) => v.plate_no)),
         plateWarn: false,
         plateNote: plateHit ? '已按表格预填，可改选' : `表格车牌 ${s.plate} 不在本班字典`,
         plateNoteRed: !plateHit,
         showAddVeh: !plateHit,
-        chips: meta.members.map((m) => ({ id: m.id, name: m.name, on: s.members.includes(m.name), extra: false, add: false })),
+        chips: meta.members.map((m) => ({
+          id: m.id,
+          name: m.name,
+          on: s.members.includes(m.name),
+          extra: false,
+          add: false,
+        })),
         memNote: '',
-        memUnknown: unknown.length ? `表格用车人「${unknown.join(' ')}」不在本班成员字典，无法点亮（可在数据管理中添加成员）` : '',
+        memUnknown: unknown.length
+          ? `表格用车人「${unknown.join(' ')}」不在本班成员字典，无法点亮（可在数据管理中添加成员）`
+          : '',
         destIdx: destHit ? meta.destinations.findIndex((v) => v.id === destHit.id) + 1 : 0,
         destRange: ['（暂不选）'].concat(meta.destinations.map((v) => v.name)),
         destWarn: false,
-        destNote: destHit ? '已按表格模糊匹配预填，可改选' : (s.to ? `表格目的地「${s.to}」与本班字典无匹配项，请手工选择或暂不选` : ''),
+        destNote: destHit
+          ? '已按表格模糊匹配预填，可改选'
+          : s.to
+            ? `表格目的地「${s.to}」与本班字典无匹配项，请手工选择或暂不选`
+            : '',
         destNoteRed: !destHit && !!s.to,
         orderNoText: s.orderNo || '', // 快速建卡按表格带入派车单号
         orderNoNote: s.orderNo ? '已按表格带入，可改' : '',
@@ -453,12 +514,15 @@ Page({
     if (d.plate && plateInDict) plateIdx = meta.vehicles.findIndex((v) => v.plate_no === s.plate);
     if (plateIdx < 0) plateIdx = 0;
     // 目的地：命中模糊匹配按表格预填；否则保留卡片当前值（无当前值给「（未选择）」占位，避免误写第一条字典）
-    const destHit = d.dest && s.to ? meta.destinations.find((v) => destSame(v.name, s.to)) || null : null;
+    const destHit =
+      d.dest && s.to ? meta.destinations.find((v) => destSame(v.name, s.to)) || null : null;
     const curDestIdx = meta.destinations.findIndex((v) => v.id === it.entry.destination_id);
     const hasDestHolder = !destHit && curDestIdx < 0;
     this._dlgIds = {
       plateIds: meta.vehicles.map((v) => v.id),
-      destIds: hasDestHolder ? [null].concat(meta.destinations.map((v) => v.id)) : meta.destinations.map((v) => v.id),
+      destIds: hasDestHolder
+        ? [null].concat(meta.destinations.map((v) => v.id))
+        : meta.destinations.map((v) => v.id),
     };
     const unknownMissing = d.missing.filter((n) => !meta.members.some((m) => m.name === n));
     this.setData({
@@ -467,7 +531,9 @@ Page({
       plateRange: meta.vehicles.map((v) => v.plate_no),
       plateWarn: d.plate,
       plateNote: d.plate
-        ? (plateInDict ? `与表格不一致，已按表格预填为 ${s.plate}，确认后保存` : `表格车牌 ${s.plate} 不在本班字典，暂无法改派`)
+        ? plateInDict
+          ? `与表格不一致，已按表格预填为 ${s.plate}，确认后保存`
+          : `表格车牌 ${s.plate} 不在本班字典，暂无法改派`
         : '',
       plateNoteRed: d.plate && !plateInDict,
       showAddVeh: d.plate && !plateInDict,
@@ -478,17 +544,30 @@ Page({
         extra: d.extra.includes(m.name), // 红点 = 卡片多出（点击取消）
         add: d.missing.includes(m.name), // 绿虚框 = 表格有而卡片缺（点击补上）
       })),
-      memNote: (d.extra.length || d.missing.length) ? '红点 = 卡片多出（点击取消）；绿虚框 = 表格有而卡片缺（点击补上）' : '',
-      memUnknown: unknownMissing.length ? `表格用车人「${unknownMissing.join(' ')}」不在本班成员字典，无法点亮（可在数据管理中添加成员）` : '',
-      destIdx: destHit ? meta.destinations.findIndex((v) => v.id === destHit.id) : (hasDestHolder ? 0 : Math.max(0, curDestIdx)),
-      destRange: hasDestHolder ? ['（未选择）'].concat(meta.destinations.map((v) => v.name)) : meta.destinations.map((v) => v.name),
+      memNote:
+        d.extra.length || d.missing.length
+          ? '红点 = 卡片多出（点击取消）；绿虚框 = 表格有而卡片缺（点击补上）'
+          : '',
+      memUnknown: unknownMissing.length
+        ? `表格用车人「${unknownMissing.join(' ')}」不在本班成员字典，无法点亮（可在数据管理中添加成员）`
+        : '',
+      destIdx: destHit
+        ? meta.destinations.findIndex((v) => v.id === destHit.id)
+        : hasDestHolder
+          ? 0
+          : Math.max(0, curDestIdx),
+      destRange: hasDestHolder
+        ? ['（未选择）'].concat(meta.destinations.map((v) => v.name))
+        : meta.destinations.map((v) => v.name),
       destWarn: d.dest,
       destNote: d.dest
-        ? (destHit ? `与表格不一致，已按表格预填为 ${destHit.name}，确认后保存` : `表格目的地「${s.to || '—'}」与本班字典无匹配项，请手工选择`)
+        ? destHit
+          ? `与表格不一致，已按表格预填为 ${destHit.name}，确认后保存`
+          : `表格目的地「${s.to || '—'}」与本班字典无匹配项，请手工选择`
         : '',
       destNoteRed: d.dest && !destHit,
       // 派车单号：不一致按表格预填（同车牌口径）；一致保留卡片值
-      orderNoText: d.orderNo ? s.orderNo : (it.entry.order_no || ''),
+      orderNoText: d.orderNo ? s.orderNo : it.entry.order_no || '',
       orderNoNote: d.orderNo ? '与表格不一致，已按表格预填，确认后保存' : '',
       patrolText: it.entry.patrol_content || '（空）',
     });
@@ -543,7 +622,11 @@ Page({
     const it = this._items[this.data.dlgIdx];
     if (!it || !it.sheet) return;
     try {
-      await request({ url: '/api/v1/worklog/admin/vehicles', method: 'POST', data: this.teamBody({ name: it.sheet.plate }) });
+      await request({
+        url: '/api/v1/worklog/admin/vehicles',
+        method: 'POST',
+        data: this.teamBody({ name: it.sheet.plate }),
+      });
       this.toast('已加入车牌字典');
       this._meta = null; // 字典已变更：重建弹层时重拉
       this.openDlg(this.data.dlgIdx);
@@ -567,7 +650,11 @@ Page({
     };
     this.setData({ dlgSaving: true });
     try {
-      await request({ url: `/api/v1/worklog/logs/${it.entry.id}`, method: 'PUT', data: this.teamBody(body) });
+      await request({
+        url: `/api/v1/worklog/logs/${it.entry.id}`,
+        method: 'PUT',
+        data: this.teamBody(body),
+      });
       // 同步内存条目（重开弹层读新值）并标记已处理
       const meta = this._meta || { vehicles: [], destinations: [], members: [] };
       const hitV = meta.vehicles.find((v) => v.id === body.vehicle_id);
@@ -577,7 +664,9 @@ Page({
       it.entry.destination_id = body.destination_id;
       it.entry.destination = hitD ? hitD.name : it.entry.destination;
       it.entry.order_no = body.dispatch_order_no;
-      it.entry.members = this.data.chips.filter((c) => c.on).map((c) => ({ member_id: c.id, name: c.name }));
+      it.entry.members = this.data.chips
+        .filter((c) => c.on)
+        .map((c) => ({ member_id: c.id, name: c.name }));
       this.afterHandled(i, '已保存', advance);
     } catch (err) {
       this.setData({ dlgSaving: false });

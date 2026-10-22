@@ -28,7 +28,10 @@ const teamGate = createTeamGate({ storageKey: 'safeday_team_id', withAll: true }
 const baseOf = (name) => (name || '').replace(/\.[^.]+$/, '');
 // 自定义人员输入规范化：空格/顿号/逗号/分号分隔统一为空格分隔（后端模板按空格分隔口径渲染）
 const normNames = (str) =>
-  (str || '').split(/[\s、，,；;]+/).filter((s) => s).join(' ');
+  (str || '')
+    .split(/[\s、，,；;]+/)
+    .filter((s) => s)
+    .join(' ');
 const toDots = (iso) => (iso || '').replace(/-/g, '.'); // YYYY-MM-DD → YYYY.MM.DD（服务端要求的日期格式）
 const todayISO = () => {
   const d = new Date();
@@ -54,7 +57,7 @@ const stepStates = (phase) => {
   if (phase === 'done') return ['done', 'done', 'done', 'done'];
   return ['done', 'done', 'fail', 'todo']; // failed
 };
-const phasePct = (phase) => ({ parse: 45, dify: 75, done: 100 }[phase] || 75);
+const phasePct = (phase) => ({ parse: 45, dify: 75, done: 100 })[phase] || 75;
 
 Page({
   behaviors: [teamGate],
@@ -121,10 +124,12 @@ Page({
     if (this.data.gate) return;
     const user = getApp().globalData.userInfo || wx.getStorageSync('userInfo') || {};
     // 门控与生效班组确定由 teamgate behavior 完成（非超管未分配班组 → noTeam 空态，不再加载）
-    if (!this.passTeamGate(user, () => {
-      this.refreshRecords(true);
-      this.probeNetdisk();
-    })) {
+    if (
+      !this.passTeamGate(user, () => {
+        this.refreshRecords(true);
+        this.probeNetdisk();
+      })
+    ) {
       this.setData({ cntText: '' });
     }
   },
@@ -154,7 +159,11 @@ Page({
     this.setData({ ndSaveVisible: false, ndSaveId: '' });
     if (!id || this.data.savingNd) return;
     this.setData({ savingNd: id });
-    this.sdFetch(`/records/${encodeURIComponent(id)}/save-netdisk`, { method: 'POST', timeout: 120000, data: { dir, space } })
+    this.sdFetch(`/records/${encodeURIComponent(id)}/save-netdisk`, {
+      method: 'POST',
+      timeout: 120000,
+      data: { dir, space },
+    })
       .then((data) => this.toast(`已保存到网盘：${(data && data.path) || ''}`))
       .catch((err) => this.toast(err.message || '保存失败'))
       .finally(() => this.setData({ savingNd: '' }));
@@ -275,7 +284,10 @@ Page({
       id: String(r.id),
       name: r.name || '',
       fileName: r.fileName || '—',
-      sub: (r.sources && r.sources.length) ? `《${r.sources.join('、')}》` : `${r.sourceCount || 1} 个源文件`,
+      sub:
+        r.sources && r.sources.length
+          ? `《${r.sources.join('、')}》`
+          : `${r.sourceCount || 1} 个源文件`,
       date: r.date || '—',
       createdText: fmtCreated(r.createdAt) || '—',
       team: r.team || '', // 班组徽章（仅「全部班组」混排视图展示）
@@ -387,8 +399,14 @@ Page({
     let badSize = 0;
     const incoming = [];
     tempFiles.forEach((t) => {
-      if (!ALLOWED.includes(extOf(t.name))) { badType += 1; return; }
-      if (t.size > MAX_SIZE) { badSize += 1; return; }
+      if (!ALLOWED.includes(extOf(t.name))) {
+        badType += 1;
+        return;
+      }
+      if (t.size > MAX_SIZE) {
+        badSize += 1;
+        return;
+      }
       if (this.data.files.some((x) => x.name === t.name)) return;
       if (incoming.some((x) => x.name === t.name)) return;
       incoming.push({ name: t.name, size: t.size, sizeText: fmtSize(t.size), path: t.path });
@@ -397,7 +415,10 @@ Page({
     const room = Math.max(0, MAX_FILES - this.data.files.length);
     const addable = incoming.slice(0, room);
     const notes = [];
-    if (incoming.length > addable.length) notes.push(`最多上传 ${MAX_FILES} 个文件，已忽略超出的 ${incoming.length - addable.length} 个`);
+    if (incoming.length > addable.length)
+      notes.push(
+        `最多上传 ${MAX_FILES} 个文件，已忽略超出的 ${incoming.length - addable.length} 个`
+      );
     if (badType > 0) notes.push(`已忽略 ${badType} 个不支持的文件`);
     if (badSize > 0) notes.push(`已忽略 ${badSize} 个超过 50MB 的文件`);
     this.setData({ files: this.data.files.concat(addable) });
@@ -473,9 +494,13 @@ Page({
 
   // 生成表单元数据：班组成员 + 记忆默认值（按当前生效班组缓存，切班组失效）
   loadFormMeta() {
-    if (this._formMeta && this._formMetaTeam === this._teamSel) return Promise.resolve(this._formMeta);
+    if (this._formMeta && this._formMetaTeam === this._teamSel)
+      return Promise.resolve(this._formMeta);
     return this.sdFetch(`/form-meta${this.teamQuery()}`).then((data) => {
-      this._formMeta = { members: (data && data.members) || [], defaults: (data && data.defaults) || {} };
+      this._formMeta = {
+        members: (data && data.members) || [],
+        defaults: (data && data.defaults) || {},
+      };
       this._formMetaTeam = this._teamSel;
       return this._formMeta;
     });
@@ -629,7 +654,11 @@ Page({
     const fsm = wx.getFileSystemManager();
     const parts = [];
     const pushField = (key, value) => {
-      parts.push(utf8Buffer(`--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`));
+      parts.push(
+        utf8Buffer(
+          `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`
+        )
+      );
     };
     pushField('name', name);
     pushField('date', date);
@@ -645,10 +674,12 @@ Page({
       pushField('team_id', String(this._teamSel));
     }
     files.forEach((f) => {
-      parts.push(utf8Buffer(
-        `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${f.name}"\r\n` +
-        'Content-Type: application/octet-stream\r\n\r\n'
-      ));
+      parts.push(
+        utf8Buffer(
+          `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${f.name}"\r\n` +
+            'Content-Type: application/octet-stream\r\n\r\n'
+        )
+      );
       parts.push(fsm.readFileSync(f.path));
       parts.push(utf8Buffer('\r\n'));
     });
@@ -728,15 +759,17 @@ Page({
       content: `记录「${name || ''}」及已生成的记录文件将一并删除，该操作不可恢复。`,
       confirmBtn: '确认删除',
       cancelBtn: '取消',
-    }).then(() => {
-      this.sdFetch(`/records/${encodeURIComponent(id)}`, { method: 'DELETE' })
-        .then((data) => {
-          // 服务端可能返回 warning（记录已删但文件删除失败）
-          this.toast(data.warning || '记录已删除');
-          this.refreshRecords(false);
-        })
-        .catch((err) => this.toast(err.message || '删除失败'));
-    }).catch(() => {});
+    })
+      .then(() => {
+        this.sdFetch(`/records/${encodeURIComponent(id)}`, { method: 'DELETE' })
+          .then((data) => {
+            // 服务端可能返回 warning（记录已删但文件删除失败）
+            this.toast(data.warning || '记录已删除');
+            this.refreshRecords(false);
+          })
+          .catch((err) => this.toast(err.message || '删除失败'));
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

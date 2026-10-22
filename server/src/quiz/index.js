@@ -46,7 +46,10 @@ function parseOptions(raw) {
 // 取题库行（含池与归属班组，仅启用行 status = 1，与我的题库 / 题库池列表同口径）；
 // 软停用列为预留设计（暂无置 0 写入路径），用户侧取行 / 列表 / 错题本统一按启用过滤
 async function findBank(bankId) {
-  const [rows] = await pool.query('SELECT id, team_id, scope FROM quiz_bank WHERE id = ? AND status = 1', [Number(bankId) || 0]);
+  const [rows] = await pool.query(
+    'SELECT id, team_id, scope FROM quiz_bank WHERE id = ? AND status = 1',
+    [Number(bankId) || 0]
+  );
   return rows[0] || null;
 }
 
@@ -62,11 +65,19 @@ async function findVisibleBank(bankId, req) {
 // 管理权：超管可管任意题库（含他班班组池与全部池）；班组管理员仅本班班组池；
 // 管理取行不过滤 status（口径同 GET /banks/manage，停用题库仍可管理维护，避免「管理列表可见但管理操作 404」）
 async function findManageBank(bankId, req) {
-  const [rows] = await pool.query('SELECT id, team_id, scope FROM quiz_bank WHERE id = ?', [Number(bankId) || 0]);
+  const [rows] = await pool.query('SELECT id, team_id, scope FROM quiz_bank WHERE id = ?', [
+    Number(bankId) || 0,
+  ]);
   const bank = rows[0] || null;
   if (!bank) return null;
   if (req.user.role === 'admin') return bank;
-  if (req.user.role === 'team_admin' && bank.scope === 'team' && req.team && bank.team_id === req.team.id) return bank;
+  if (
+    req.user.role === 'team_admin' &&
+    bank.scope === 'team' &&
+    req.team &&
+    bank.team_id === req.team.id
+  )
+    return bank;
   return null;
 }
 
@@ -114,14 +125,18 @@ async function loadMyLatestRecords(userId, qids) {
     [userId, qids]
   );
   const map = {};
-  rows.forEach((r) => { map[r.question_id] = { right: r.is_right ? 1 : 0, answer: r.user_answer }; });
+  rows.forEach((r) => {
+    map[r.question_id] = { right: r.is_right ? 1 : 0, answer: r.user_answer };
+  });
   return map;
 }
 
 // 题型归一：单选/单选题/single → single，多选/多选题/multiple → multiple，判断/判断题/judge → judge
 // （trim、忽略大小写；导入与管理接口共用）
 function normalizeType(v) {
-  const t = String(v == null ? '' : v).trim().toLowerCase();
+  const t = String(v == null ? '' : v)
+    .trim()
+    .toLowerCase();
   if (['单选', '单选题', 'single'].includes(t)) return 'single';
   if (['多选', '多选题', 'multiple'].includes(t)) return 'multiple';
   if (['判断', '判断题', 'judge'].includes(t)) return 'judge';
@@ -141,7 +156,10 @@ function normalizeAnswer(type, raw, optionCount) {
   const uniq = [...new Set(s.toUpperCase().replace(/[^A-Z]/g, ''))].sort();
   if (!uniq.length) return { error: '答案不能为空' };
   const maxLetter = LETTERS[optionCount - 1] || 'A';
-  if (uniq.some((c) => c > maxLetter)) return { error: `答案超出选项范围：识别到 ${optionCount} 个选项（A~${maxLetter}），请检查该行选项是否填写完整` };
+  if (uniq.some((c) => c > maxLetter))
+    return {
+      error: `答案超出选项范围：识别到 ${optionCount} 个选项（A~${maxLetter}），请检查该行选项是否填写完整`,
+    };
   if (type === 'single' && uniq.length !== 1) return { error: '单选题答案应为 1 个字母' };
   if (type === 'multiple' && uniq.length < 2) return { error: '多选题答案应至少 2 个字母' };
   return { answer: uniq.join('') };
@@ -149,7 +167,15 @@ function normalizeAnswer(type, raw, optionCount) {
 
 // 用户作答归一：转大写去非字母、去重、按字母序（多选集合相等即对，漏选判错）
 function normalizeUserAnswer(raw) {
-  return [...new Set(String(raw == null ? '' : raw).toUpperCase().replace(/[^A-Z]/g, ''))].sort().join('');
+  return [
+    ...new Set(
+      String(raw == null ? '' : raw)
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+    ),
+  ]
+    .sort()
+    .join('');
 }
 
 // 管理接口题目字段校验：返回 { type, content, options, answer, analysis } 或 { error }
@@ -182,7 +208,9 @@ router.get('/overview', async (req, res, next) => {
     );
     const total = Number(rec[0].total) || 0;
     const rights = Number(rec[0].rights) || 0;
-    const [wr] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_wrong WHERE user_id = ?', [req.user.id]);
+    const [wr] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_wrong WHERE user_id = ?', [
+      req.user.id,
+    ]);
     return ok(res, {
       totalAnswered: total,
       rightRate: total ? Math.round((rights / total) * 100) : null,
@@ -215,7 +243,9 @@ router.get('/banks', async (req, res, next) => {
       [req.user.id, ids]
     );
     const umap = {};
-    ustats.forEach((s) => { umap[s.bank_id] = s; });
+    ustats.forEach((s) => {
+      umap[s.bank_id] = s;
+    });
     const list = banks.map((b) => {
       const st = stats[b.id] || emptyStats();
       const us = umap[b.id];
@@ -299,10 +329,19 @@ router.get('/banks/:id/home', async (req, res, next) => {
     );
     const uTotal = us[0] ? Number(us[0].total) || 0 : 0;
     // 错题/收藏均为个人口径，按本题库过滤（跟着题库走）
-    const [wr] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_wrong WHERE user_id = ? AND bank_id = ?', [req.user.id, bank.id]);
-    const [fv] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_favorite WHERE user_id = ? AND bank_id = ?', [req.user.id, bank.id]);
+    const [wr] = await pool.query(
+      'SELECT COUNT(*) AS cnt FROM quiz_wrong WHERE user_id = ? AND bank_id = ?',
+      [req.user.id, bank.id]
+    );
+    const [fv] = await pool.query(
+      'SELECT COUNT(*) AS cnt FROM quiz_favorite WHERE user_id = ? AND bank_id = ?',
+      [req.user.id, bank.id]
+    );
     // 顺序练习断点（跨端续刷；null=未开始）
-    const [pr] = await pool.query('SELECT seq_idx FROM quiz_user_bank WHERE user_id = ? AND bank_id = ?', [req.user.id, bank.id]);
+    const [pr] = await pool.query(
+      'SELECT seq_idx FROM quiz_user_bank WHERE user_id = ? AND bank_id = ?',
+      [req.user.id, bank.id]
+    );
     return ok(res, {
       id: bank.id,
       name: b.name,
@@ -326,9 +365,10 @@ router.get('/banks/:id/home', async (req, res, next) => {
 router.get('/banks/manage', requireQuizAdmin, async (req, res, next) => {
   try {
     const teamId = req.team ? req.team.id : 0; // 超管无生效班组时只回全部池
-    const where = req.user.role === 'admin'
-      ? "(b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))"
-      : "(b.scope = 'team' AND b.team_id = ?)";
+    const where =
+      req.user.role === 'admin'
+        ? "(b.scope = 'all' OR (b.scope = 'team' AND b.team_id = ?))"
+        : "(b.scope = 'team' AND b.team_id = ?)";
     const [banks] = await pool.query(
       `SELECT b.id, b.name, b.description, b.scope, t.name AS team_name,
          DATE_FORMAT(b.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
@@ -364,7 +404,10 @@ router.post('/banks/:id/join', async (req, res, next) => {
   try {
     const bank = await findVisibleBank(req.params.id, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在或不可见');
-    await pool.query('INSERT IGNORE INTO quiz_user_bank (user_id, bank_id) VALUES (?, ?)', [req.user.id, bank.id]);
+    await pool.query('INSERT IGNORE INTO quiz_user_bank (user_id, bank_id) VALUES (?, ?)', [
+      req.user.id,
+      bank.id,
+    ]);
     return ok(res, null);
   } catch (err) {
     return next(err);
@@ -396,12 +439,19 @@ router.post('/banks', requireQuizAdmin, async (req, res, next) => {
       if (!req.team) return fail(res, 400, 40030, '无可用班组');
       teamId = req.team.id;
     }
-    const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
-    const description = String((req.body && req.body.description) || '').trim().slice(0, 255);
+    const name = String((req.body && req.body.name) || '')
+      .trim()
+      .slice(0, 100);
+    const description = String((req.body && req.body.description) || '')
+      .trim()
+      .slice(0, 255);
     if (!name) return fail(res, 400, 40030, '请输入题库名称');
     if (scope === 'all') {
       // uk_team_name 唯一键对 NULL team_id 不生效，全部池重名走应用层校验
-      const [dup] = await pool.query("SELECT id FROM quiz_bank WHERE scope = 'all' AND name = ? LIMIT 1", [name]);
+      const [dup] = await pool.query(
+        "SELECT id FROM quiz_bank WHERE scope = 'all' AND name = ? LIMIT 1",
+        [name]
+      );
       if (dup.length) return fail(res, 409, 40900, `「${name}」已存在`);
     }
     try {
@@ -424,8 +474,12 @@ router.put('/banks/:id', requireQuizAdmin, async (req, res, next) => {
   try {
     const bank = await findManageBank(req.params.id, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在');
-    const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
-    const description = String((req.body && req.body.description) || '').trim().slice(0, 255);
+    const name = String((req.body && req.body.name) || '')
+      .trim()
+      .slice(0, 100);
+    const description = String((req.body && req.body.description) || '')
+      .trim()
+      .slice(0, 255);
     if (!name) return fail(res, 400, 40030, '请输入题库名称');
     let scope = bank.scope;
     let teamId = bank.team_id;
@@ -445,11 +499,17 @@ router.put('/banks/:id', requireQuizAdmin, async (req, res, next) => {
     }
     if (scope === 'all') {
       // uk_team_name 唯一键对 NULL team_id 不生效，全部池重名走应用层校验
-      const [dup] = await pool.query("SELECT id FROM quiz_bank WHERE scope = 'all' AND name = ? AND id <> ? LIMIT 1", [name, bank.id]);
+      const [dup] = await pool.query(
+        "SELECT id FROM quiz_bank WHERE scope = 'all' AND name = ? AND id <> ? LIMIT 1",
+        [name, bank.id]
+      );
       if (dup.length) return fail(res, 409, 40900, `「${name}」已存在`);
     }
     try {
-      await pool.query('UPDATE quiz_bank SET name = ?, description = ?, scope = ?, team_id = ? WHERE id = ?', [name, description, scope, teamId, bank.id]);
+      await pool.query(
+        'UPDATE quiz_bank SET name = ?, description = ?, scope = ?, team_id = ? WHERE id = ?',
+        [name, description, scope, teamId, bank.id]
+      );
       return ok(res, null);
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 40900, `「${name}」已存在`);
@@ -492,17 +552,67 @@ router.get('/banks/template', async (req, res, next) => {
   try {
     const ws = XLSX.utils.aoa_to_sheet([
       ['题型', '题干', '选项A', '选项B', '选项C', '选项D', '选项E', '选项F', '答案', '解析'],
-      ['单选题', '示例：安全带的正确挂扣方式是（ ）。', '高挂低用', '低挂高用', '平挂平用', '随意挂扣', '', '', 'A', '安全带应高挂低用，坠落时冲击力更小。'],
-      ['多选题', '示例：下列属于个人安全防护用品的有（ ）。', '安全帽', '安全带', '绝缘手套', '普通布鞋', '', '', 'ABC', '普通布鞋不属于安全防护用品。'],
-      ['判断题', '示例：雷雨天气可以进行户外登塔作业。', '', '', '', '', '', '', 'B', '雷雨天气禁止户外登塔作业。'],
+      [
+        '单选题',
+        '示例：安全带的正确挂扣方式是（ ）。',
+        '高挂低用',
+        '低挂高用',
+        '平挂平用',
+        '随意挂扣',
+        '',
+        '',
+        'A',
+        '安全带应高挂低用，坠落时冲击力更小。',
+      ],
+      [
+        '多选题',
+        '示例：下列属于个人安全防护用品的有（ ）。',
+        '安全帽',
+        '安全带',
+        '绝缘手套',
+        '普通布鞋',
+        '',
+        '',
+        'ABC',
+        '普通布鞋不属于安全防护用品。',
+      ],
+      [
+        '判断题',
+        '示例：雷雨天气可以进行户外登塔作业。',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        'B',
+        '雷雨天气禁止户外登塔作业。',
+      ],
     ]);
-    ws['!cols'] = [{ wch: 8 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 40 }];
+    ws['!cols'] = [
+      { wch: 8 },
+      { wch: 50 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 8 },
+      { wch: 40 },
+    ];
     const tips = XLSX.utils.aoa_to_sheet([
       ['题库导入填写说明'],
       ['1. 只读取第一张 sheet，首行表头固定为：题型 | 题干 | 选项A~F | 答案 | 解析。'],
-      ['2. 题型列填写：单选题、多选题、判断题（兼容 单选/多选/判断 及 single/multiple/judge，不区分大小写）。'],
-      ['3. 单选/多选题选项A~F 至少填写 2 个，按序取非空列；判断题无需填写选项，固定为「正确/错误」。'],
-      ['4. 答案列：单选填 1 个字母（如 A）；多选填 2 个及以上字母（如 ABC，顺序不限）；判断填 对/错（或 A/B）。答案引用 E/F 时，对应 选项E/选项F 列必须已填写内容。'],
+      [
+        '2. 题型列填写：单选题、多选题、判断题（兼容 单选/多选/判断 及 single/multiple/judge，不区分大小写）。',
+      ],
+      [
+        '3. 单选/多选题选项A~F 至少填写 2 个，按序取非空列；判断题无需填写选项，固定为「正确/错误」。',
+      ],
+      [
+        '4. 答案列：单选填 1 个字母（如 A）；多选填 2 个及以上字母（如 ABC，顺序不限）；判断填 对/错（或 A/B）。答案引用 E/F 时，对应 选项E/选项F 列必须已填写内容。',
+      ],
       ['5. 解析列可留空，留空的题目入库后由 AI 自动生成解析（需配置 DIFY_QUIZ_API_KEY）。'],
       ['6. 导入为全量替换该题库题目，导入前请删除第一张 sheet 的 3 行示例，仅保留表头与正式题目。'],
     ]);
@@ -511,7 +621,10 @@ router.get('/banks/template', async (req, res, next) => {
     XLSX.utils.book_append_sheet(wb, ws, '题目');
     XLSX.utils.book_append_sheet(wb, tips, '填写说明');
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="quiz-template.xlsx"; filename*=UTF-8''${encodeURIComponent('题库导入模板.xlsx')}`
@@ -523,7 +636,10 @@ router.get('/banks/template', async (req, res, next) => {
 });
 
 // POST /banks/:id/import：导入题目 Excel（.xlsx，multipart 字段 file ≤10MB），全量替换该库题目（事务） [manage]
-const quizUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+const quizUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
 router.post(
   '/banks/:id/import',
   requireQuizAdmin,
@@ -540,20 +656,28 @@ router.post(
     try {
       // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（兼容 formData 携带 team_id），
       // 归属校验统一走 findManageBank（超管任意题库，班组管理员仅本班班组池）
-      req.team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
+      req.team = await teamUtil.resolveTeam(
+        req.user,
+        req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id
+      );
       const bank = await findManageBank(req.params.id, req);
       if (!bank) return fail(res, 404, 40400, '题库不存在');
       if (!req.file || !req.file.buffer || !req.file.buffer.length) {
         return fail(res, 400, 40030, '请选择要上传的 Excel 文件');
       }
       const fname = Buffer.from(req.file.originalname || '', 'latin1').toString('utf8');
-      if (!/\.xlsx$/i.test(fname)) return fail(res, 400, 40030, '仅支持 .xlsx 文件，请使用模板填写');
+      if (!/\.xlsx$/i.test(fname))
+        return fail(res, 400, 40030, '仅支持 .xlsx 文件，请使用模板填写');
 
       let rows;
       try {
         const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
         // 只读第一张 sheet
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+          header: 1,
+          raw: false,
+          defval: '',
+        });
       } catch (e) {
         return fail(res, 400, 40030, 'Excel 解析失败，请使用模板文件填写');
       }
@@ -583,7 +707,14 @@ router.post(
             } else {
               // 解析列非空 → 存值并置 done；为空 → none（导入完成后入 AI 队列）
               const analysis = cells[9] || '';
-              data.push([type, cells[1], JSON.stringify(options), a.answer, analysis || null, analysis ? 'done' : 'none']);
+              data.push([
+                type,
+                cells[1],
+                JSON.stringify(options),
+                a.answer,
+                analysis || null,
+                analysis ? 'done' : 'none',
+              ]);
             }
           }
         }
@@ -643,7 +774,10 @@ router.get('/banks/:id/questions', requireQuizAdmin, async (req, res, next) => {
     const q = String(req.query.q || '').trim();
     const where = q ? 'AND content LIKE ?' : '';
     const params = q ? [bank.id, `%${q}%`] : [bank.id];
-    const [cnt] = await pool.query(`SELECT COUNT(*) AS total FROM quiz_question WHERE bank_id = ? ${where}`, params);
+    const [cnt] = await pool.query(
+      `SELECT COUNT(*) AS total FROM quiz_question WHERE bank_id = ? ${where}`,
+      params
+    );
     // LIMIT/OFFSET 为上方钳制后的整数，直接拼接（mysql2 占位符不支持 LIMIT 场景的稳定行为）
     const [rows] = await pool.query(
       `SELECT id, type, content, options, answer, analysis, analysis_status,
@@ -675,10 +809,22 @@ router.post('/banks/:id/questions', requireQuizAdmin, async (req, res, next) => 
     if (!bank) return fail(res, 404, 40400, '题库不存在');
     const v = validateQuestionPayload(req.body || {});
     if (v.error) return fail(res, 400, 40030, v.error);
-    const [maxRows] = await pool.query('SELECT COALESCE(MAX(sort), 0) AS m FROM quiz_question WHERE bank_id = ?', [bank.id]);
+    const [maxRows] = await pool.query(
+      'SELECT COALESCE(MAX(sort), 0) AS m FROM quiz_question WHERE bank_id = ?',
+      [bank.id]
+    );
     const [r] = await pool.query(
       'INSERT INTO quiz_question (bank_id, type, content, options, answer, analysis, analysis_status, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [bank.id, v.type, v.content, JSON.stringify(v.options), v.answer, v.analysis || null, v.analysis ? 'done' : 'none', Number(maxRows[0].m) + 1]
+      [
+        bank.id,
+        v.type,
+        v.content,
+        JSON.stringify(v.options),
+        v.answer,
+        v.analysis || null,
+        v.analysis ? 'done' : 'none',
+        Number(maxRows[0].m) + 1,
+      ]
     );
     if (!v.analysis) analyzer.enqueue([r.insertId]);
     return ok(res, { id: r.insertId });
@@ -690,7 +836,9 @@ router.post('/banks/:id/questions', requireQuizAdmin, async (req, res, next) => 
 // PUT /questions/:id：修改题目（解析为空 → 置 none 并入 AI 队列；非空 → 存值置 done） [manage]
 router.put('/questions/:id', requireQuizAdmin, async (req, res, next) => {
   try {
-    const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ?', [Number(req.params.id) || 0]);
+    const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ?', [
+      Number(req.params.id) || 0,
+    ]);
     if (!rows.length) return fail(res, 404, 40400, '题目不存在');
     const bank = await findManageBank(rows[0].bank_id, req);
     if (!bank) return fail(res, 404, 40400, '题目不存在');
@@ -698,7 +846,15 @@ router.put('/questions/:id', requireQuizAdmin, async (req, res, next) => {
     if (v.error) return fail(res, 400, 40030, v.error);
     await pool.query(
       'UPDATE quiz_question SET type = ?, content = ?, options = ?, answer = ?, analysis = ?, analysis_status = ? WHERE id = ?',
-      [v.type, v.content, JSON.stringify(v.options), v.answer, v.analysis || null, v.analysis ? 'done' : 'none', rows[0].id]
+      [
+        v.type,
+        v.content,
+        JSON.stringify(v.options),
+        v.answer,
+        v.analysis || null,
+        v.analysis ? 'done' : 'none',
+        rows[0].id,
+      ]
     );
     if (!v.analysis) analyzer.enqueue([rows[0].id]);
     return ok(res, null);
@@ -710,7 +866,9 @@ router.put('/questions/:id', requireQuizAdmin, async (req, res, next) => {
 // DELETE /questions/:id：删除题目（连带删答题记录/错题/收藏） [manage]
 router.delete('/questions/:id', requireQuizAdmin, async (req, res, next) => {
   try {
-    const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ?', [Number(req.params.id) || 0]);
+    const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ?', [
+      Number(req.params.id) || 0,
+    ]);
     if (!rows.length) return fail(res, 404, 40400, '题目不存在');
     const bank = await findManageBank(rows[0].bank_id, req);
     if (!bank) return fail(res, 404, 40400, '题目不存在');
@@ -760,7 +918,9 @@ router.get('/practice/questions', async (req, res, next) => {
       if (!bank) return fail(res, 404, 40400, '题库不存在');
     }
     // lite 只取 id/type；withAnswer/withRecord 追加 answer/analysis（withRecord 仅对本人已答题放行出参）；rand 原有逻辑忽略 offset，非 lite 时仍需 LIMIT
-    const cols = lite ? 'id, type' : `id, type, content, options${withAnswer || withRecord ? ', answer, analysis' : ''}`;
+    const cols = lite
+      ? 'id, type'
+      : `id, type, content, options${withAnswer || withRecord ? ', answer, analysis' : ''}`;
     const pageClause = lite ? '' : `LIMIT ${limit} OFFSET ${offset}`;
     let total = 0;
     let rows = [];
@@ -848,7 +1008,12 @@ router.get('/practice/questions', async (req, res, next) => {
       favSet = new Set(frows.map((f) => f.question_id));
     }
     // 本批/本大纲题目的本人最近作答（withRecord=1 记录恢复）
-    const recMap = withRecord ? await loadMyLatestRecords(req.user.id, rows.map((r) => r.id)) : {};
+    const recMap = withRecord
+      ? await loadMyLatestRecords(
+          req.user.id,
+          rows.map((r) => r.id)
+        )
+      : {};
     // 出参：lite 仅 id/type（withRecord 已答追加 myRight）；默认严格不含 answer/analysis；withAnswer 或 withRecord 命中已答才追加
     const list = rows.map((r) => {
       const rec = recMap[r.id];
@@ -857,7 +1022,13 @@ router.get('/practice/questions', async (req, res, next) => {
         if (rec) item.myRight = rec.right;
         return item;
       }
-      const item = { id: r.id, type: r.type, content: r.content, options: parseOptions(r.options), fav: favSet.has(r.id) ? 1 : 0 };
+      const item = {
+        id: r.id,
+        type: r.type,
+        content: r.content,
+        options: parseOptions(r.options),
+        fav: favSet.has(r.id) ? 1 : 0,
+      };
       if (rec) {
         item.myRight = rec.right;
         item.myAnswer = rec.answer;
@@ -910,8 +1081,14 @@ router.post('/practice/reset', async (req, res, next) => {
     if (!bankId) return fail(res, 400, 40030, '请选择题库');
     const bank = await findVisibleBank(bankId, req);
     if (!bank) return fail(res, 404, 40400, '题库不存在');
-    const [r] = await pool.query('DELETE FROM quiz_record WHERE user_id = ? AND bank_id = ?', [req.user.id, bankId]);
-    await pool.query('UPDATE quiz_user_bank SET seq_idx = NULL WHERE user_id = ? AND bank_id = ?', [req.user.id, bankId]);
+    const [r] = await pool.query('DELETE FROM quiz_record WHERE user_id = ? AND bank_id = ?', [
+      req.user.id,
+      bankId,
+    ]);
+    await pool.query('UPDATE quiz_user_bank SET seq_idx = NULL WHERE user_id = ? AND bank_id = ?', [
+      req.user.id,
+      bankId,
+    ]);
     return ok(res, { cleared: Number(r.affectedRows) || 0 }, '已清空做题记录');
   } catch (err) {
     return next(err);
@@ -924,19 +1101,34 @@ router.put('/practice/analysis', async (req, res, next) => {
   try {
     const questionId = Number(req.body && req.body.questionId);
     if (!questionId) return fail(res, 400, 40030, '参数不完整');
-    const [rows] = await pool.query('SELECT id, bank_id FROM quiz_question WHERE id = ? AND status = 1', [questionId]);
+    const [rows] = await pool.query(
+      'SELECT id, bank_id FROM quiz_question WHERE id = ? AND status = 1',
+      [questionId]
+    );
     if (!rows.length) return fail(res, 404, 40400, '题目不存在');
     /* 题目所属题库需对用户可见（同作答口径） */
     const bank = await findVisibleBank(rows[0].bank_id, req);
     if (!bank) return fail(res, 404, 40400, '题目不存在');
-    const analysis = String((req.body && req.body.analysis) || '').trim().slice(0, 2000);
+    const analysis = String((req.body && req.body.analysis) || '')
+      .trim()
+      .slice(0, 2000);
     if (analysis) {
-      await pool.query("UPDATE quiz_question SET analysis = ?, analysis_status = 'done' WHERE id = ?", [analysis, questionId]);
+      await pool.query(
+        "UPDATE quiz_question SET analysis = ?, analysis_status = 'done' WHERE id = ?",
+        [analysis, questionId]
+      );
     } else {
-      await pool.query("UPDATE quiz_question SET analysis = NULL, analysis_status = 'none' WHERE id = ?", [questionId]);
+      await pool.query(
+        "UPDATE quiz_question SET analysis = NULL, analysis_status = 'none' WHERE id = ?",
+        [questionId]
+      );
       analyzer.enqueue([questionId]);
     }
-    return ok(res, { analysis: analysis || null }, analysis ? '解析已更新' : '已清空解析，将重新生成');
+    return ok(
+      res,
+      { analysis: analysis || null },
+      analysis ? '解析已更新' : '已清空解析，将重新生成'
+    );
   } catch (err) {
     return next(err);
   }
@@ -988,7 +1180,10 @@ router.post('/practice/answer', async (req, res, next) => {
           await pool.query('DELETE FROM quiz_wrong WHERE id = ?', [wrows[0].id]);
           wrong = { inBook: false, rightStreak: streak, removed: true };
         } else {
-          await pool.query('UPDATE quiz_wrong SET right_streak = ? WHERE id = ?', [streak, wrows[0].id]);
+          await pool.query('UPDATE quiz_wrong SET right_streak = ? WHERE id = ?', [
+            streak,
+            wrows[0].id,
+          ]);
           wrong = { inBook: true, rightStreak: streak, removed: false };
         }
       }
@@ -1010,7 +1205,13 @@ router.post('/practice/answer', async (req, res, next) => {
       allTimes,
       allRightRate: allTimes ? Math.round((Number(allSt[0].rights) / allTimes) * 100) : null,
     };
-    return ok(res, { right: !!right, answer: q.answer, analysis: q.analysis || null, wrong, stats });
+    return ok(res, {
+      right: !!right,
+      answer: q.answer,
+      analysis: q.analysis || null,
+      wrong,
+      stats,
+    });
   } catch (err) {
     return next(err);
   }

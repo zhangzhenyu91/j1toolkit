@@ -5,7 +5,7 @@
 .new-bank {
   margin-top: 24rpx;
   height: 88rpx;
-  border: 3rpx dashed rgba(29,33,41,.35);
+  border: 3rpx dashed rgba(29, 33, 41, 0.35);
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -13,7 +13,7 @@
   gap: 10rpx;
   font-size: 27rpx;
   font-weight: 700;
-  color: #0E3DA8;
+  color: #0e3da8;
   letter-spacing: 2rpx;
 }
 
@@ -28,7 +28,7 @@
 .cnt {
   margin-left: auto;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 1rpx;
 }
 
@@ -70,7 +70,7 @@
 .mg-item .sub {
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #4E5969;
+  color: #4e5969;
   display: flex;
   align-items: center;
   gap: 20rpx;
@@ -83,25 +83,25 @@
   align-items: center;
   gap: 14rpx;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .an-line .progress {
   flex: 1;
   height: 12rpx;
   border-radius: 12rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   overflow: hidden;
 }
 
 .an-line .progress-in {
   height: 100%;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .an-line .retry {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -121,18 +121,18 @@
 }
 
 .tag-green {
-  background: #E8FFEA;
-  color: #00B42A;
+  background: #e8ffea;
+  color: #00b42a;
 }
 
 .tag-orange {
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
 }
 
 .tag-navy {
-  background: #E8F0FF;
-  color: #1D2129;
+  background: #e8f0ff;
+  color: #1d2129;
 }
 
 /* 题库卡头部范围 tag 不压缩 */
@@ -144,7 +144,7 @@
 .scope-label {
   margin-top: 24rpx;
   font-size: 23rpx;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 2rpx;
 }
 
@@ -157,44 +157,44 @@
 .scope-opt {
   flex: 1;
   min-width: 0;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 18rpx 12rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #4E5969;
+  color: #4e5969;
   text-align: center;
   line-height: 1.5;
   box-sizing: border-box;
 }
 
 .scope-opt.on {
-  border-color: #0E3DA8;
-  background: #E8F0FF;
-  color: #0E3DA8;
+  border-color: #0e3da8;
+  background: #e8f0ff;
+  color: #0e3da8;
 }
 
 .tag-red {
-  background: #FFECE8;
-  color: #F53F3F;
+  background: #ffece8;
+  color: #f53f3f;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(29,33,41,.35);
+  border: 3rpx dashed rgba(29, 33, 41, 0.35);
   border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 2rpx;
 }
 
 /* ---------- 新建/编辑题库弹层（底部弹层，同 safeday 名称弹层族） ---------- */
 .sheet {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-bottom: none;
   border-radius: 12rpx;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
@@ -210,7 +210,7 @@
 .sheet-sub {
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.7;
 }
 
@@ -219,14 +219,14 @@
   height: 80rpx;
   padding: 0 24rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   font-size: 27rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .ph {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .sheet-ops {
@@ -239,9 +239,9 @@
   flex: 1;
   height: 84rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
-  color: #1D2129;
+  color: #1d2129;
   font-size: 28rpx;
   font-weight: 700;
   display: flex;
@@ -253,7 +253,7 @@
   flex: 2;
   height: 84rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 700;
@@ -273,6 +273,6 @@
   margin-top: 40rpx;
   text-align: center;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 2rpx;
 }

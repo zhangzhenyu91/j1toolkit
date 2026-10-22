@@ -7,6 +7,7 @@
 - 「当日」口径保持：页面 filter 当日 + 客户端 is_today_order 二次过滤兜底
 - U 盘发现/挂载/复制前复检保持旧行为；找不到 U 盘时可用 usb.fallback_dir 兜底
 """
+
 import os
 import shutil
 from datetime import datetime
@@ -26,13 +27,15 @@ APP_ID = "daily_sync"
 def is_today_order(item: dict, today: str) -> bool:
     """派车单是否属于当日：预计用车时间优先，创建时间兜底；字段缺失/不可解析时保留
     （移植自 export_dispatch_orders.py 的 _is_today_order，口径一致）"""
-    for field in ('planSendTime', 'dispatchTime'):
+    for field in ("planSendTime", "dispatchTime"):
         value = item.get(field)
         if not value:
             continue
         try:
             if isinstance(value, (int, float)):
-                return datetime.fromtimestamp(value / 1000).strftime("%Y-%m-%d") == today
+                return (
+                    datetime.fromtimestamp(value / 1000).strftime("%Y-%m-%d") == today
+                )
             return str(value)[:10] == today
         except (ValueError, TypeError, OSError):
             continue
@@ -52,14 +55,18 @@ def query_day_orders(client, day: str, log) -> list:
 
 def run(job, params: dict) -> dict:
     cfg = _config.load()
-    day = ((params or {}).get("date") or "").strip() or datetime.now().strftime("%Y-%m-%d")
+    day = ((params or {}).get("date") or "").strip() or datetime.now().strftime(
+        "%Y-%m-%d"
+    )
     log = job.log
     log("开始导出派车单（日期：%s）" % day)
 
     job.set_progress(0, 4, "检查U盘")
     usb_dir, source = platform_utils.usb_writable_dir(cfg, log)
     if not usb_dir:
-        raise RuntimeError("U盘不可用且未配置后备目录（可在设置页配置 usb.fallback_dir）")
+        raise RuntimeError(
+            "U盘不可用且未配置后备目录（可在设置页配置 usb.fallback_dir）"
+        )
 
     job.set_progress(1, 4, "登录派车系统")
     client, _auth = uvmp.make_client(cfg, log)
@@ -74,7 +81,7 @@ def run(job, params: dict) -> dict:
 
     job.set_progress(3, 4, "生成Excel")
     temp_dir = ((cfg.get("daily_export") or {}).get("temp_dir") or "").strip()
-    temp_dir = temp_dir or str(Path.home() / "临时下载")   # 保持旧脚本习惯
+    temp_dir = temp_dir or str(Path.home() / "临时下载")  # 保持旧脚本习惯
     Path(temp_dir).mkdir(parents=True, exist_ok=True)
     fname = "%s-派车单.xlsx" % day
     temp_path = Path(temp_dir) / fname
@@ -91,11 +98,19 @@ def run(job, params: dict) -> dict:
     shutil.copy2(str(temp_path), str(final_path))
     platform_utils.sync_fs()
     size = final_path.stat().st_size
-    log("导出完成! 文件已保存至: %s（%.1f KB，%d 条）" % (final_path, size / 1024, len(items)))
+    log(
+        "导出完成! 文件已保存至: %s（%.1f KB，%d 条）"
+        % (final_path, size / 1024, len(items))
+    )
 
     scheduler.mark_success(day, {"count": len(items), "file": str(final_path)})
-    return {"date": day, "count": len(items), "file": str(final_path),
-            "dest": "U盘" if source == "usb" else "后备目录", "dir": usb_dir}
+    return {
+        "date": day,
+        "count": len(items),
+        "file": str(final_path),
+        "dest": "U盘" if source == "usb" else "后备目录",
+        "dir": usb_dir,
+    }
 
 
 def status(cfg: dict) -> dict:
@@ -103,14 +118,19 @@ def status(cfg: dict) -> dict:
     usb = cfg.get("usb") or {}
     due, reason, _today = scheduler.due_check(cfg)
     return {
-        "schedule": {"enabled": bool(sch.get("enabled", True)),
-                     "time": sch.get("time", "09:15"),
-                     "driver": sch.get("driver", "os"),
-                     "next_run": scheduler.next_run_text(cfg)},
+        "schedule": {
+            "enabled": bool(sch.get("enabled", True)),
+            "time": sch.get("time", "09:15"),
+            "driver": sch.get("driver", "os"),
+            "next_run": scheduler.next_run_text(cfg),
+        },
         "stamp": state.get_stamp(scheduler.STAMP_NAME),
         "last_run": state.last_run(APP_ID),
-        "usb": {"label": usb.get("label", ""),
-                "fallback_dir": usb.get("fallback_dir", ""),
-                "mount": platform_utils.find_usb_mount(usb.get("label", ""), lambda m: None) or ""},
+        "usb": {
+            "label": usb.get("label", ""),
+            "fallback_dir": usb.get("fallback_dir", ""),
+            "mount": platform_utils.find_usb_mount(usb.get("label", ""), lambda m: None)
+            or "",
+        },
         "due": {"due": due, "reason": reason},
     }

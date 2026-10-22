@@ -43,22 +43,74 @@ const router = express.Router();
 // 实为 OOXML，Word/WPS 按内容嗅探可开，口径同 v1.3.0 的 doc/xls/ppt）+ pdf；
 // 金山/苹果及其他 auto-convert 格式（hwp/wps/et/dps/numbers/key/pages/fod* 等）转换写回口径未实测，仅预览
 const DOC_TYPES = {
-  doc: 'word', docx: 'word', docm: 'word', dot: 'word', dotx: 'word', dotm: 'word',
-  odt: 'word', ott: 'word', rtf: 'word', txt: 'word', md: 'word', html: 'word',
-  epub: 'word', fb2: 'word',
-  xls: 'cell', xlsx: 'cell', xlsm: 'cell', xlt: 'cell', xltx: 'cell', xltm: 'cell', xlsb: 'cell',
-  ods: 'cell', ots: 'cell', csv: 'cell', tsv: 'cell',
-  ppt: 'slide', pptx: 'slide', pptm: 'slide', pot: 'slide', potx: 'slide', potm: 'slide',
-  pps: 'slide', ppsx: 'slide', ppsm: 'slide', odp: 'slide', otp: 'slide',
+  doc: 'word',
+  docx: 'word',
+  docm: 'word',
+  dot: 'word',
+  dotx: 'word',
+  dotm: 'word',
+  odt: 'word',
+  ott: 'word',
+  rtf: 'word',
+  txt: 'word',
+  md: 'word',
+  html: 'word',
+  epub: 'word',
+  fb2: 'word',
+  xls: 'cell',
+  xlsx: 'cell',
+  xlsm: 'cell',
+  xlt: 'cell',
+  xltx: 'cell',
+  xltm: 'cell',
+  xlsb: 'cell',
+  ods: 'cell',
+  ots: 'cell',
+  csv: 'cell',
+  tsv: 'cell',
+  ppt: 'slide',
+  pptx: 'slide',
+  pptm: 'slide',
+  pot: 'slide',
+  potx: 'slide',
+  potm: 'slide',
+  pps: 'slide',
+  ppsx: 'slide',
+  ppsm: 'slide',
+  odp: 'slide',
+  otp: 'slide',
   pdf: 'pdf',
 };
 // 仅预览格式（不出编辑入口，view 模式强制只读；金山/苹果 auto-convert 与纯查看格式）
 const VIEW_TYPES = {
-  fodt: 'word', hml: 'word', htm: 'word', hwp: 'word', hwpx: 'word', mht: 'word', mhtml: 'word',
-  pages: 'word', stw: 'word', sxw: 'word', wps: 'word', wpt: 'word', xml: 'word',
-  et: 'cell', ett: 'cell', fods: 'cell', numbers: 'cell', sxc: 'cell',
-  dps: 'slide', dpt: 'slide', fodp: 'slide', key: 'slide', odg: 'slide', sxi: 'slide',
-  djvu: 'pdf', xps: 'pdf', oxps: 'pdf', ofd: 'pdf',
+  fodt: 'word',
+  hml: 'word',
+  htm: 'word',
+  hwp: 'word',
+  hwpx: 'word',
+  mht: 'word',
+  mhtml: 'word',
+  pages: 'word',
+  stw: 'word',
+  sxw: 'word',
+  wps: 'word',
+  wpt: 'word',
+  xml: 'word',
+  et: 'cell',
+  ett: 'cell',
+  fods: 'cell',
+  numbers: 'cell',
+  sxc: 'cell',
+  dps: 'slide',
+  dpt: 'slide',
+  fodp: 'slide',
+  key: 'slide',
+  odg: 'slide',
+  sxi: 'slide',
+  djvu: 'pdf',
+  xps: 'pdf',
+  oxps: 'pdf',
+  ofd: 'pdf',
 };
 
 const baseName = (p) => p.split('/').filter(Boolean).pop() || '';
@@ -222,25 +274,32 @@ router.post('/config', auth, async (req, res) => {
     const meta = await ol.fsGet(abs); // 存在性前置校验（目录同判非法）
     if (!meta || meta.is_dir) return fail(res, 400, 40001, '路径不合法');
     // document.key：sha1(绝对路径|size|modified)，内容变即滚动（OnlyOffice 按 key 归并会话与缓存）
-    const key = crypto.createHash('sha1')
+    const key = crypto
+      .createHash('sha1')
       .update(`${abs}|${meta.size || 0}|${meta.modified || ''}`)
       .digest('hex');
     const cb = config.office.callbackBase;
     // 回源票据：载荷 {ndp} 与网盘 /preview/sign 同口径，直接复用其免登录回源路由
-    const fileTicket = jwt.sign({ ndp: abs }, config.jwt.secret, { expiresIn: config.office.fileTicketTtl });
+    const fileTicket = jwt.sign({ ndp: abs }, config.jwt.secret, {
+      expiresIn: config.office.fileTicketTtl,
+    });
     // 回调票据：绑定文件绝对路径与签发人（覆盖最长编辑会话，默认 12h）；view 只读不回写，不签发也不下发
-    const cbTicket = mode === 'edit'
-      ? jwt.sign({ ooc: abs, uid: req.user.id }, config.jwt.secret, { expiresIn: config.office.callbackTicketTtl })
-      : '';
+    const cbTicket =
+      mode === 'edit'
+        ? jwt.sign({ ooc: abs, uid: req.user.id }, config.jwt.secret, {
+            expiresIn: config.office.callbackTicketTtl,
+          })
+        : '';
     const docCfg = {
       document: {
         fileType: ext,
         key,
         title: name,
         url: `${cb}/api/v1/netdisk/preview/${fileTicket}/${encodeURIComponent(name)}`,
-        permissions: mode === 'edit'
-          ? { edit: true, download: true, print: true, review: true, comment: true }
-          : { edit: false, download: true, print: true, review: false, comment: false },
+        permissions:
+          mode === 'edit'
+            ? { edit: true, download: true, print: true, review: true, comment: true }
+            : { edit: false, download: true, print: true, review: false, comment: false },
       },
       documentType,
       editorConfig: {
@@ -262,7 +321,9 @@ router.post('/config', auth, async (req, res) => {
     };
     docCfg.token = jwt.sign(docCfg, config.office.jwtSecret);
     return ok(res, { public_url: config.office.publicUrl, config: docCfg });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // ===== /config 多源签发实现（均为 view-only：docCfg 结构照抄网盘分支，差异仅 document/editorConfig） =====
@@ -281,7 +342,10 @@ async function signWorklogSheet(req, res) {
   }
   // 班组与权限复刻 worklog requireDictAdmin 语义：超管任意班组（team_id 指定）、班组管理员仅本班，其余 40304
   const team = await teamUtil.resolveTeam(req.user, body.team_id);
-  if (req.user.role !== 'admin' && !(req.user.role === 'team_admin' && team && req.user.team_id === team.id)) {
+  if (
+    req.user.role !== 'admin' &&
+    !(req.user.role === 'team_admin' && team && req.user.team_id === team.id)
+  ) {
     return fail(res, 403, 40304, '仅管理员可执行此操作');
   }
   if (!team) return fail(res, 400, 40010, '无可用班组');
@@ -294,7 +358,13 @@ async function signWorklogSheet(req, res) {
   if (sheet !== 'dispatch' && !force) {
     const failures = await worklog.sheetVerifyFailures(team.id, range.from, range.to);
     if (failures) {
-      return fail(res, 409, 40901, `所选范围内有 ${failures.length} 条记录存在未通过项，请处理后再操作`, { failures });
+      return fail(
+        res,
+        409,
+        40901,
+        `所选范围内有 ${failures.length} 条记录存在未通过项，请处理后再操作`,
+        { failures }
+      );
     }
   }
   // documentType 按 sheet 定：task/fee 为 docx 模板产物（word）、dispatch 为 xlsx（cell），均在 DOC_TYPES 内
@@ -302,10 +372,14 @@ async function signWorklogSheet(req, res) {
   const ext = sheet === 'dispatch' ? 'xlsx' : 'docx';
   const name = sheetFileNameOf(sheet, range.from, range.to);
   // document.key 带瞬时量：同一范围重复签发不复用 OO 缓存（sheet 内容随库即时变化，防 OO 按 key 缓存脏读）
-  const key = crypto.createHash('sha1')
+  const key = crypto
+    .createHash('sha1')
     .update(`${sheet}|${team.id}|${range.from}|${range.to}|${force}|${Date.now()}`)
     .digest('hex');
-  const url = rawUrl({ src: 'wls', sheet, team_id: team.id, from: range.from, to: range.to, force }, name);
+  const url = rawUrl(
+    { src: 'wls', sheet, team_id: team.id, from: range.from, to: range.to, force },
+    name
+  );
   const docCfg = viewDocCfg({ documentType, ext, key, name, url, user: req.user });
   docCfg.token = jwt.sign(docCfg, config.office.jwtSecret);
   return ok(res, { public_url: config.office.publicUrl, config: docCfg });
@@ -325,10 +399,20 @@ async function signSafeday(req, res) {
   const { record, filePath, fileName } = got;
   const st = fs.statSync(filePath);
   // document.key：sha1(记录 id|size|mtime)，产物重渲染内容变即滚动
-  const key = crypto.createHash('sha1').update(`${record.id}|${st.size}|${st.mtimeMs}`).digest('hex');
+  const key = crypto
+    .createHash('sha1')
+    .update(`${record.id}|${st.size}|${st.mtimeMs}`)
+    .digest('hex');
   const ext = (fileName.split('.').pop() || '').toLowerCase();
   const url = rawUrl({ src: 'sdr', id: String(id) }, fileName);
-  const docCfg = viewDocCfg({ documentType: 'word', ext, key, name: fileName, url, user: req.user });
+  const docCfg = viewDocCfg({
+    documentType: 'word',
+    ext,
+    key,
+    name: fileName,
+    url,
+    user: req.user,
+  });
   docCfg.token = jwt.sign(docCfg, config.office.jwtSecret);
   return ok(res, { public_url: config.office.publicUrl, config: docCfg });
 }
@@ -343,7 +427,9 @@ async function signWorklogRemark(req, res) {
   const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id);
   if (!team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
   const { entry, file } = await worklog.findRemarkFile(
-    Number((req.body || {}).id), String((req.body || {}).key || ''), team.id
+    Number((req.body || {}).id),
+    String((req.body || {}).key || ''),
+    team.id
   );
   if (!entry) return fail(res, 404, 40400, '日志不存在');
   if (!file) return fail(res, 404, 40400, '附件不存在');
@@ -372,7 +458,10 @@ async function signTreehazard(req, res) {
   const split = body.split === '1' || body.split === 1 || body.split === true; // 按线路分 sheet（office.html query 全透传入 body）
   const name = thdExport.exportFileName(team.name, line || undefined);
   // document.key 带瞬时量：同一班组重复签发不复用 OO 缓存（内容随库即时变化，防 OO 按 key 缓存脏读）
-  const key = crypto.createHash('sha1').update(`treehazard|${team.id}|${line}|${split ? 1 : 0}|${Date.now()}`).digest('hex');
+  const key = crypto
+    .createHash('sha1')
+    .update(`treehazard|${team.id}|${line}|${split ? 1 : 0}|${Date.now()}`)
+    .digest('hex');
   const url = rawUrl({ src: 'thd', team_id: team.id, line, split }, name);
   const docCfg = viewDocCfg({ documentType: 'cell', ext: 'xlsx', key, name, url, user: req.user });
   docCfg.token = jwt.sign(docCfg, config.office.jwtSecret);
@@ -384,8 +473,12 @@ async function signTreehazard(req, res) {
 //（OO 不消费 {code,message,data} 信封）；URL 尾段 :name 仅供 OO 按扩展名识别格式，实际取数全按票据载荷
 router.get('/raw/:ticket/:name?', async (req, res) => {
   let ticket = null;
-  try { ticket = jwt.verify(String(req.params.ticket || ''), config.jwt.secret); } catch (err) { /* 按无效票据处理 */ }
-  const src = (ticket && typeof ticket === 'object') ? String(ticket.src || '') : '';
+  try {
+    ticket = jwt.verify(String(req.params.ticket || ''), config.jwt.secret);
+  } catch (err) {
+    /* 按无效票据处理 */
+  }
+  const src = ticket && typeof ticket === 'object' ? String(ticket.src || '') : '';
   try {
     if (src === 'wls') return await rawWorklogSheet(ticket, res);
     if (src === 'sdr') return await rawSafeday(ticket, res);
@@ -407,7 +500,8 @@ async function rawWorklogSheet(ticket, res) {
   let result = null;
   if (ticket.sheet === 'task') result = await tasksheet.build(team, ticket.from, ticket.to);
   else if (ticket.sheet === 'fee') result = await feesheet.build(team, ticket.from, ticket.to);
-  else if (ticket.sheet === 'dispatch') result = await dispatchsheet.build(team.id, ticket.from, ticket.to);
+  else if (ticket.sheet === 'dispatch')
+    result = await dispatchsheet.build(team.id, ticket.from, ticket.to);
   else return res.status(401).type('text').send('回源票据无效或已过期');
   if (!result) return res.status(404).type('text').send('该日期范围没有出车记录，无可生成的内容');
   const buf = Buffer.isBuffer(result) ? result : result.buffer;
@@ -427,7 +521,11 @@ async function rawSafeday(ticket, res) {
   const filePath = safedayFilePath(record);
   const name = path.basename(record.fileName || '');
   let st = null;
-  try { st = fs.statSync(filePath); } catch (err) { /* 按不存在处理 */ }
+  try {
+    st = fs.statSync(filePath);
+  } catch (err) {
+    /* 按不存在处理 */
+  }
   if (!st || !st.isFile()) return res.status(404).type('text').send('文件不存在，可能已被清理');
   const ext = (name.split('.').pop() || '').toLowerCase();
   res.setHeader('Content-Type', RAW_MIME[ext] || 'application/octet-stream');
@@ -448,7 +546,10 @@ async function rawWorklogRemark(ticket, res) {
   const resp = await fetch(worklogCos.publicUrl(key), { signal: AbortSignal.timeout(60000) });
   if (!resp.ok) return res.status(502).type('text').send(`附件回源失败（HTTP ${resp.status}）`);
   const ext = (name.split('.').pop() || '').toLowerCase();
-  res.setHeader('Content-Type', RAW_MIME[ext] || resp.headers.get('content-type') || 'application/octet-stream');
+  res.setHeader(
+    'Content-Type',
+    RAW_MIME[ext] || resp.headers.get('content-type') || 'application/octet-stream'
+  );
   const len = Number(resp.headers.get('content-length') || 0);
   if (len) res.setHeader('Content-Length', len);
   res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
@@ -459,7 +560,11 @@ async function rawWorklogRemark(ticket, res) {
 async function rawTreehazard(ticket, res) {
   const team = await teamUtil.getTeamById(ticket.team_id);
   if (!team || team.status !== 1) return res.status(404).type('text').send('班组不存在或已停用');
-  const { buf, fileName } = await treehazard.buildTeamExport(team, String(ticket.line || '').trim(), !!ticket.split);
+  const { buf, fileName } = await treehazard.buildTeamExport(
+    team,
+    String(ticket.line || '').trim(),
+    !!ticket.split
+  );
   res.setHeader('Content-Type', RAW_MIME.xlsx);
   res.setHeader('Content-Length', buf.length);
   res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
@@ -474,28 +579,49 @@ router.post('/callback/:ticket', async (req, res) => {
   // payload.status 取不到恒 401（「无法保存」病根，2026-10-14 定位）
   let body = null;
   let verifyErr = null;
-  const unwrap = (d) => (d && typeof d === 'object' && d.payload && typeof d.payload === 'object' ? d.payload : d);
+  const unwrap = (d) =>
+    d && typeof d === 'object' && d.payload && typeof d.payload === 'object' ? d.payload : d;
   const h = req.headers.authorization || '';
   if (config.office.jwtSecret && h.startsWith('Bearer ')) {
-    try { body = unwrap(jwt.verify(h.slice(7), config.office.jwtSecret)); } catch (err) { verifyErr = err; }
+    try {
+      body = unwrap(jwt.verify(h.slice(7), config.office.jwtSecret));
+    } catch (err) {
+      verifyErr = err;
+    }
   }
   if (!body && config.office.jwtSecret && req.body && typeof req.body.token === 'string') {
-    try { body = unwrap(jwt.verify(String(req.body.token), config.office.jwtSecret)); } catch (err) { verifyErr = err; }
+    try {
+      body = unwrap(jwt.verify(String(req.body.token), config.office.jwtSecret));
+    } catch (err) {
+      verifyErr = err;
+    }
   }
   if (!body || typeof body.status !== 'number') {
     const hasBodyToken = !!(req.body && typeof req.body.token === 'string');
-    const why = !h && !hasBodyToken ? '无 Authorization 头且 body 无 token'
-      : h && !h.startsWith('Bearer ') ? `头格式非 Bearer：${h.slice(0, 12)}…`
-        : verifyErr ? `验签异常：${verifyErr.message}`
-          : `载荷缺数值型 status（keys=${body && typeof body === 'object' ? Object.keys(body).join(',') : typeof body}）`;
-    console.error(`[OO] 回调 JWT 校验失败（${why}）；查 OO 容器 JWT_ENABLED/JWT_SECRET 与 Shade 的 OO_JWT_SECRET 是否同值`);
+    const why =
+      !h && !hasBodyToken
+        ? '无 Authorization 头且 body 无 token'
+        : h && !h.startsWith('Bearer ')
+          ? `头格式非 Bearer：${h.slice(0, 12)}…`
+          : verifyErr
+            ? `验签异常：${verifyErr.message}`
+            : `载荷缺数值型 status（keys=${body && typeof body === 'object' ? Object.keys(body).join(',') : typeof body}）`;
+    console.error(
+      `[OO] 回调 JWT 校验失败（${why}）；查 OO 容器 JWT_ENABLED/JWT_SECRET 与 Shade 的 OO_JWT_SECRET 是否同值`
+    );
     return res.status(401).json({ error: 1, message: '回调签名校验失败' });
   }
   let ticket = null;
-  try { ticket = jwt.verify(String(req.params.ticket || ''), config.jwt.secret); } catch (err) { /* 同上 */ }
+  try {
+    ticket = jwt.verify(String(req.params.ticket || ''), config.jwt.secret);
+  } catch (err) {
+    /* 同上 */
+  }
   const abs = ticket && ticket.ooc;
   if (typeof abs !== 'string' || !abs.startsWith('/')) {
-    console.error('[OO] 回调票据无效或已过期（会话超 OO_CALLBACK_TICKET_TTL，或服务重启后密钥变更）');
+    console.error(
+      '[OO] 回调票据无效或已过期（会话超 OO_CALLBACK_TICKET_TTL，或服务重启后密钥变更）'
+    );
     return res.status(401).json({ error: 1, message: '回调票据无效或已过期' });
   }
   const st = body.status;

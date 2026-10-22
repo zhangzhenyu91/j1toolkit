@@ -95,7 +95,9 @@ router.post('/login', async (req, res, next) => {
     const { username, password, wx_code: wxCode, client } = req.body || {};
     if (!username || !password) return fail(res, 400, 40001, '请输入账号和密码');
 
-    const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [username]);
+    const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [
+      username,
+    ]);
     const user = rows[0];
     if (!user || !user.password_hash) {
       recordLoginFail(ip);
@@ -120,15 +122,14 @@ router.post('/login', async (req, res, next) => {
         const conn = await pool.getConnection();
         try {
           await conn.beginTransaction();
-          await conn.query('UPDATE sys_user SET openid = NULL, unionid = NULL WHERE openid = ? AND id <> ?', [
-            wxData.openid,
-            user.id,
-          ]);
-          await conn.query('UPDATE sys_user SET openid = ?, unionid = COALESCE(unionid, ?) WHERE id = ?', [
-            wxData.openid,
-            wxData.unionid || null,
-            user.id,
-          ]);
+          await conn.query(
+            'UPDATE sys_user SET openid = NULL, unionid = NULL WHERE openid = ? AND id <> ?',
+            [wxData.openid, user.id]
+          );
+          await conn.query(
+            'UPDATE sys_user SET openid = ?, unionid = COALESCE(unionid, ?) WHERE id = ?',
+            [wxData.openid, wxData.unionid || null, user.id]
+          );
           await conn.commit();
         } catch (err) {
           await conn.rollback().catch(() => {});
@@ -168,7 +169,9 @@ router.post('/app-login', async (req, res, next) => {
     const { username, password, app_key: appKey } = req.body || {};
     if (!username || !password || !appKey) return fail(res, 400, 40001, '请输入账号和密码');
 
-    const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [username]);
+    const [rows] = await pool.query(`${USER_SELECT} WHERE u.username = ? AND u.status = 1`, [
+      username,
+    ]);
     const user = rows[0];
     if (!user || !user.password_hash) {
       recordLoginFail(ip);
@@ -182,7 +185,8 @@ router.post('/app-login', async (req, res, next) => {
     }
 
     // 应用权限校验（复用 hasAppPermission，与 requireApp 中间件同一 SQL 口径）
-    if (!(await hasAppPermission(user.id, appKey))) return fail(res, 403, 40301, '暂无该应用的使用权限');
+    if (!(await hasAppPermission(user.id, appKey)))
+      return fail(res, 403, 40301, '暂无该应用的使用权限');
 
     loginFailMap.delete(ip); // 校验成功：清零该 IP 的失败计数
     return ok(res, { user: publicUser(user) });
@@ -216,7 +220,12 @@ router.post('/wx-login', async (req, res, next) => {
     if (!user) {
       // 微信号未绑定任何账号：不再自动创建独立账号，引导用户先用账号密码登录完成绑定
       recordLoginFail(ip);
-      return fail(res, 403, 40313, '该微信号尚未绑定账号，请先使用账号密码登录一次后再使用微信登录');
+      return fail(
+        res,
+        403,
+        40313,
+        '该微信号尚未绑定账号，请先使用账号密码登录一次后再使用微信登录'
+      );
     }
     if (user.status !== 1) {
       recordLoginFail(ip);

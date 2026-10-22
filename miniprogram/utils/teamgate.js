@@ -77,9 +77,11 @@ function createTeamGate({ storageKey, withAll = false, teamNameKey = '' }) {
           }
         } else {
           const saved = Number(wx.getStorageSync(storageKey)) || 0;
-          const cur = teams.find((t) => t.id === saved)
-            || teams.find((t) => t.id === Number(user.team_id))
-            || teams[0] || null;
+          const cur =
+            teams.find((t) => t.id === saved) ||
+            teams.find((t) => t.id === Number(user.team_id)) ||
+            teams[0] ||
+            null;
           sel = cur ? cur.id : 0;
         }
         this.applyTeam(sel, false);
@@ -94,7 +96,7 @@ function createTeamGate({ storageKey, withAll = false, teamNameKey = '' }) {
           const all = sel === 'all';
           const cur = all ? null : (this._teams || []).find((t) => t.id === sel);
           this.setData({
-            teamName: all ? '全部班组' : (cur ? cur.name : this.data.teamName),
+            teamName: all ? '全部班组' : cur ? cur.name : this.data.teamName,
             teamDropOpen: false,
             showTeamPill: all, // 仅「全部班组」混排视图显示班组徽章
             teamOptions: [{ id: 'all', name: '全部班组', on: all }].concat(
@@ -104,13 +106,17 @@ function createTeamGate({ storageKey, withAll = false, teamNameKey = '' }) {
         } else {
           this._teamId = sel;
           if (sel) wx.setStorageSync(storageKey, sel);
-          const cur = ((this._teams || []).find((t) => t.id === sel)) || null;
+          const cur = (this._teams || []).find((t) => t.id === sel) || null;
           // 生效班组名一并存下（manage 页「上传至」选项展示用）
           if (teamNameKey && cur) wx.setStorageSync(teamNameKey, cur.name);
           this.setData({
             teamName: cur ? cur.name : this.data.teamName,
             teamDropOpen: false,
-            teamOptions: (this._teams || []).map((t) => ({ id: t.id, name: t.name, on: t.id === sel })),
+            teamOptions: (this._teams || []).map((t) => ({
+              id: t.id,
+              name: t.name,
+              on: t.id === sel,
+            })),
           });
         }
         if (switching && this.onTeamSwitched) this.onTeamSwitched();

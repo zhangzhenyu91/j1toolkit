@@ -3,7 +3,11 @@
 // 小写扩展名（不含点；无扩展名返回空串）
 function getFileExt(name) {
   const idx = String(name || '').lastIndexOf('.');
-  return idx === -1 ? '' : String(name).slice(idx + 1).toLowerCase();
+  return idx === -1
+    ? ''
+    : String(name)
+        .slice(idx + 1)
+        .toLowerCase();
 }
 
 // multer 默认按 latin1 解析文件名（1.x/2.x 同），中文名需转回 UTF-8
@@ -13,8 +17,12 @@ function fixLatin1Name(name) {
 
 // XML 特殊字符转义（docx 模板拼接用）
 function escapeXml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 module.exports = { getFileExt, fixLatin1Name, escapeXml };

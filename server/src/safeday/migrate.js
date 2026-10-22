@@ -11,7 +11,9 @@ const DOCS_DIR = path.join(DATA_DIR, 'docs');
 
 // 默认班组名（首个启用班组；无可启用班组时回退任意首个）
 async function defaultTeamName() {
-  const [rows] = await pool.query('SELECT name FROM sys_team WHERE status = 1 ORDER BY sort, id LIMIT 1');
+  const [rows] = await pool.query(
+    'SELECT name FROM sys_team WHERE status = 1 ORDER BY sort, id LIMIT 1'
+  );
   if (rows.length) return rows[0].name;
   const [any] = await pool.query('SELECT name FROM sys_team ORDER BY sort, id LIMIT 1');
   return any.length ? any[0].name : '';
@@ -69,7 +71,10 @@ async function renameTeamFolder(oldName, newName) {
       }
     }
   }
-  if (count) console.log(`[安全日] 班组「${oldName}」改名「${newName}」：已级联 ${count} 条记录与 docs 子目录`);
+  if (count)
+    console.log(
+      `[安全日] 班组「${oldName}」改名「${newName}」：已级联 ${count} 条记录与 docs 子目录`
+    );
 }
 
 module.exports = { migrateSafedayTeams, renameTeamFolder };

@@ -20,10 +20,16 @@ const ensureConfigured = createEnsureConfigured({
 function normalizeWeather(s) {
   return String(s)
     .replace(/\$\s*(-?\d+(?:\.\d+)?)\s*\\mathrm\s*\{\s*\^\{?\\circ\}?\s*C\s*\}\s*\$/g, '$1℃')
-    .replace(/\$\s*(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*\{?\s*\\(?:mathrm|text)\s*\{\s*C\s*\}\s*\}?\s*\$/g, '$1℃')
+    .replace(
+      /\$\s*(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*\{?\s*\\(?:mathrm|text)\s*\{\s*C\s*\}\s*\}?\s*\$/g,
+      '$1℃'
+    )
     .replace(/\$\s*(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*C\s*\$/g, '$1℃')
     .replace(/(-?\d+(?:\.\d+)?)\s*\\mathrm\s*\{\s*\^\{?\\circ\}?\s*C\s*\}/g, '$1℃')
-    .replace(/(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*\{?\s*\\(?:mathrm|text)\s*\{\s*C\s*\}\s*\}?/g, '$1℃')
+    .replace(
+      /(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*\{?\s*\\(?:mathrm|text)\s*\{\s*C\s*\}\s*\}?/g,
+      '$1℃'
+    )
     .replace(/(-?\d+(?:\.\d+)?)\s*\^\s*\{?\s*\\circ\s*\}?\s*C\b/g, '$1℃')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -63,8 +69,14 @@ async function verifyPhoto({ username, date, destination, url }) {
     };
   } catch (err) {
     // Dify 的 4xx 响应体含具体原因（invalid_param 等），连同入参一并打出便于排查
-    const detail = err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
-    console.error('[出工日志] Dify 照片验证失败：', detail, '｜入参:', JSON.stringify({ date, destination, url }));
+    const detail =
+      err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
+    console.error(
+      '[出工日志] Dify 照片验证失败：',
+      detail,
+      '｜入参:',
+      JSON.stringify({ date, destination, url })
+    );
     return { ok: false };
   }
 }

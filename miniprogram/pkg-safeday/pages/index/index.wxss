@@ -13,17 +13,17 @@
   align-items: center;
   gap: 12rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 12rpx 28rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .ts-cur .arr {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-size: 18rpx;
 }
 
@@ -34,7 +34,7 @@
   left: 0;
   z-index: 21;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   padding: 12rpx;
@@ -64,8 +64,8 @@
 }
 
 .ts-opt.on {
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
 }
 
 .ts-opt .ck {
@@ -94,8 +94,8 @@
   font-weight: 600;
   border-radius: 12rpx;
   padding: 4rpx 16rpx;
-  background: #E8F0FF;
-  color: #1D2129;
+  background: #e8f0ff;
+  color: #1d2129;
   flex: none;
 }
 
@@ -113,7 +113,7 @@
   width: 128rpx;
   height: 128rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -128,7 +128,7 @@
 
 .team-empty .te-p {
   font-size: 23rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.8;
   text-align: center;
 }
@@ -141,7 +141,7 @@
 
 /* 选取入口（虚线区，同网页端 upzone） */
 .upzone {
-  border: 3rpx dashed rgba(29,33,41,.35);
+  border: 3rpx dashed rgba(29, 33, 41, 0.35);
   border-radius: 12rpx;
   padding: 36rpx 24rpx;
   display: flex;
@@ -153,7 +153,7 @@
   width: 96rpx;
   height: 96rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -166,13 +166,13 @@
 }
 
 .up-t .accent {
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .up-p {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   line-height: 1.8;
   text-align: center;
 }
@@ -182,8 +182,8 @@
   display: flex;
   align-items: center;
   gap: 16rpx;
-  background: #F7F8FA;
-  border: 2rpx solid #E5E6EB;
+  background: #f7f8fa;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 16rpx 20rpx;
   margin-top: 16rpx;
@@ -202,7 +202,7 @@
 .ftag .fs {
   flex: none;
   font-size: 21rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .ftag .fx {
@@ -223,7 +223,7 @@
   font-size: 24rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .date-val {
@@ -232,7 +232,7 @@
   height: 72rpx;
   padding: 0 20rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -247,7 +247,7 @@
   margin-top: 28rpx;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   font-size: 30rpx;
   font-weight: 700;
@@ -271,7 +271,7 @@
   display: flex;
   align-items: center;
   gap: 20rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   font-size: 25rpx;
   letter-spacing: 1rpx;
 }
@@ -287,7 +287,7 @@
   height: 68rpx;
   flex: none;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -307,7 +307,7 @@
 .prog .fs {
   margin-top: 4rpx;
   font-size: 21rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* 步骤条（同网页端 steps/step，圆点间竖线连接） */
@@ -333,7 +333,7 @@
   top: 44rpx;
   bottom: 0;
   width: 4rpx;
-  background: #E5E6EB;
+  background: #e5e6eb;
 }
 
 .step:last-child::before {
@@ -354,30 +354,30 @@
 }
 
 .step.done .sd-ic {
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .step.done::before {
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .step.doing .sd-ic {
-  border: 4rpx solid #0E3DA8;
+  border: 4rpx solid #0e3da8;
 }
 
 .step.todo .sd-ic {
-  border: 4rpx solid rgba(29,33,41,.35);
+  border: 4rpx solid rgba(29, 33, 41, 0.35);
 }
 
 .step.fail .sd-ic {
-  background: #F53F3F;
+  background: #f53f3f;
 }
 
 .dot-ing {
   width: 14rpx;
   height: 14rpx;
   border-radius: 50%;
-  background: #0E3DA8;
+  background: #0e3da8;
   animation: breath 1.2s ease-in-out infinite;
 }
 
@@ -387,17 +387,17 @@
 }
 
 .step.todo .st {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .step.fail .st {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 .step .ss {
   margin-top: 4rpx;
   font-size: 21rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   line-height: 1.6;
 }
 
@@ -406,7 +406,7 @@
   height: 12rpx;
   margin-top: 28rpx;
   border-radius: 12rpx;
-  background: #E5E6EB;
+  background: #e5e6eb;
   overflow: hidden;
 }
 
@@ -414,13 +414,13 @@
   position: relative;
   height: 100%;
   border-radius: 12rpx;
-  background: linear-gradient(90deg, #0E3DA8, #f59a5e);
+  background: linear-gradient(90deg, #0e3da8, #f59a5e);
   overflow: hidden;
   transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .pbar.fail .pbar-in {
-  background: linear-gradient(90deg, #F53F3F, #e28080);
+  background: linear-gradient(90deg, #f53f3f, #e28080);
 }
 
 .pnum {
@@ -428,16 +428,16 @@
   display: flex;
   justify-content: space-between;
   font-size: 21rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .pnum .pct {
   font-weight: 700;
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .pnum.fail .pct {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 /* ---------- 记录列表 ---------- */
@@ -450,7 +450,7 @@
 .cnt {
   margin-left: auto;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 1rpx;
 }
 
@@ -488,18 +488,18 @@
 }
 
 .tag-done {
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
 }
 
 .tag-processing {
-  background: #E8F0FF;
-  color: #1D2129;
+  background: #e8f0ff;
+  color: #1d2129;
 }
 
 .tag-failed {
   background: #fbe9e9;
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 /* 副行：源文件名 */
@@ -509,20 +509,20 @@
   align-items: center;
   gap: 8rpx;
   font-size: 21rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   word-break: break-all;
 }
 
 .rmeta {
   margin-top: 10rpx;
   font-size: 21rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .rerr {
   margin-top: 10rpx;
   font-size: 21rpx;
-  color: #F53F3F;
+  color: #f53f3f;
   line-height: 1.6;
   word-break: break-all;
 }
@@ -537,7 +537,7 @@
 .ops {
   margin-top: 20rpx;
   padding-top: 20rpx;
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
   display: flex;
   gap: 20rpx;
 }
@@ -546,7 +546,7 @@
   flex: 1;
   height: 68rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
   display: flex;
   align-items: center;
@@ -554,40 +554,40 @@
   gap: 10rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .opb.off {
   border: none;
-  background: #F5F7FA;
-  color: rgba(29,33,41,.35);
+  background: #f5f7fa;
+  color: rgba(29, 33, 41, 0.35);
 }
 
 .opb .opb-ing {
   font-size: 24rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .opb.del text {
-  color: #4E5969;
+  color: #4e5969;
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(29,33,41,.35);
+  border: 3rpx dashed rgba(29, 33, 41, 0.35);
   border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 2rpx;
 }
 
 /* ---------- 记录名称确认弹层（底部弹层，同出工日志弹层族） ---------- */
 .sheet {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-bottom: none;
   border-radius: 12rpx;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
@@ -603,7 +603,7 @@
 .sheet-sub {
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.7;
 }
 
@@ -612,10 +612,10 @@
   height: 80rpx;
   padding: 0 24rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   font-size: 27rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 学习内容多行编辑框（textarea）：拉高至可容纳 5 行文本（27rpx × 1.6 行高 × 5 行 ≈ 216rpx + 上下 padding） */
@@ -627,7 +627,7 @@
 }
 
 .ph {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .sheet-ops {
@@ -640,9 +640,9 @@
   flex: 1;
   height: 84rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
-  color: #1D2129;
+  color: #1d2129;
   font-size: 28rpx;
   font-weight: 700;
   display: flex;
@@ -654,7 +654,7 @@
   flex: 2;
   height: 84rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 700;
@@ -678,7 +678,7 @@
   margin-top: 26rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 1rpx;
 }
 
@@ -686,7 +686,7 @@
   margin-left: 10rpx;
   font-size: 20rpx;
   font-weight: 400;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 0;
 }
 
@@ -710,9 +710,9 @@
 .mswitch {
   display: flex;
   padding: 4rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
-  background: #F5F7FA;
+  background: #f5f7fa;
 }
 
 .ms-opt {
@@ -720,11 +720,11 @@
   border-radius: 12rpx;
   font-size: 22rpx;
   font-weight: 600;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .ms-opt.on {
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
 }
 
@@ -737,10 +737,10 @@
   margin-top: 14rpx;
   height: 80rpx;
   padding: 0 24rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   font-size: 27rpx;
-  color: #1D2129;
+  color: #1d2129;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -756,28 +756,29 @@
 .mchip {
   padding: 8rpx 24rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
   font-size: 24rpx;
-  color: #4E5969;
+  color: #4e5969;
   font-weight: 600;
 }
 
 .mchip.on {
-  border-color: #0E3DA8;
-  background: #0E3DA8;
+  border-color: #0e3da8;
+  background: #0e3da8;
   color: #ffffff;
 }
 
 .mchips.absent .mchip.on {
-  border-color: #F53F3F;
-  background: #F53F3F;
+  border-color: #f53f3f;
+  background: #f53f3f;
 }
 
 /* ---------- 动画 ---------- */
 /* 进行中单点脉冲（功能性反馈，仅 .dot-ing 一处使用） */
 @keyframes breath {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(0.7);
     opacity: 0.55;
   }

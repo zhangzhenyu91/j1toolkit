@@ -1,724 +1,1337 @@
-<!DOCTYPE html>
+<!doctype html>
 <!-- Shade 壹匣 · 网页版门户工作台（「政企蓝白」：欢迎卡左文右数 + 应用中心 + 消息通知） -->
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>工作台 · Shade 壹匣</title>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="stylesheet" href="/assets/theme.css">
-<style>
-  /* ============================================================
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>工作台 · Shade 壹匣</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/assets/theme.css" />
+    <style>
+      /* ============================================================
      本页样式 · 政企蓝白（基准 design/Web-首页.html）
      欢迎卡左文右数（与小程序首页数据卡同口径）；应用卡浅蓝图标块；
      入场为一次编排式上浮（fill-mode:both 落位静止，可 hover 的卡片用 backwards）
      ============================================================ */
 
-  /* ===== 欢迎卡：左侧问候 / 右侧当日数据 ===== */
-  .user-card { animation: riseIn .55s var(--ease) .05s both; }
-  .uc-body { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 40px; padding: 32px 36px; }
-  .uc-date { font-size: 12.5px; color: var(--ph); letter-spacing: .5px; }
-  .uc-hello-row { margin-top: 10px; display: flex; align-items: center; gap: 16px; }
-  .uc-avatar {
-    width: 56px; height: 56px; flex: none; border-radius: 50%;
-    background: var(--orange); color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 23px; font-weight: 600;
-  }
-  .uc-hello { font-size: 30px; line-height: 1.2; font-weight: 700; letter-spacing: .5px; }
-  .uc-meta {
-    margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
-    font-size: 12.5px; color: var(--sub);
-  }
-  .uc-role { display: inline-flex; align-items: center; gap: 12px; }
-  .uc-role .uname { letter-spacing: .5px; }
-
-  /* 右侧数据列（指标口径与小程序首页一致；无出工日志权限时对应项显示 —） */
-  .uc-stats { display: grid; grid-template-columns: repeat(4, auto); }
-  .hstat { padding: 0 24px; text-align: center; }
-  .hstat + .hstat { border-left: 1px solid var(--line); }
-  .hstat b { display: block; font-size: 20px; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
-  /* 数字分级着色（与小程序首页同口径）：全部达标绿 / ≤3 橙 / >3 红；未加载 — 不着色 */
-  .hstat.good b { color: var(--green); }
-  .hstat.warn b { color: var(--yellow); }
-  .hstat.bad b { color: var(--red); }
-  .hstat span { display: block; margin-top: 4px; font-size: 11.5px; color: var(--ph); }
-
-  /* ===== 板块标题入场 ===== */
-  .section-title { animation: riseIn .5s var(--ease) both; }
-  .sec-msg { animation-delay: .16s; }
-  .sec-app { animation-delay: .28s; }
-
-  /* ===== 消息通知卡（圆点未读 + 发丝线分隔） ===== */
-  .notice-card { overflow: hidden; animation: riseIn .55s var(--ease) .2s backwards; }
-  .nt-badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    color: var(--red); font-size: 12px; font-weight: 600; letter-spacing: .5px;
-  }
-  .nt-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
-  #noticeBadge { cursor: pointer; }
-  .nt-item {
-    display: flex; align-items: center; gap: 10px; padding: 14px 20px;
-    border-bottom: 1px solid var(--line);
-    transition: background .18s var(--ease);
-    animation: rowIn .5s var(--ease) both;
-  }
-  .nt-item:nth-child(1) { animation-delay: .05s; }
-  .nt-item:nth-child(2) { animation-delay: .12s; }
-  .nt-item:nth-child(3) { animation-delay: .19s; }
-  .nt-item:last-child { border-bottom: none; }
-  .nt-item:hover { background: var(--fill); }
-  .nt-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--red); }
-  .nt-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
-  .nt-item.unread .nt-title { font-weight: 600; }
-  .nt-time { flex: none; font-size: 12px; letter-spacing: .5px; color: var(--ph); font-variant-numeric: tabular-nums; }
-
-  /* ===== 应用中心宫格（浅蓝图标块 + 名称 + 说明 + 进入链接） ===== */
-  .apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-  .app-card {
-    display: block; padding: 22px 22px 0; color: inherit;
-    animation: riseIn .55s var(--ease) backwards;
-  }
-  .app-card:link, .app-card:visited { color: inherit; }
-  .apps .app-card:nth-child(1) { animation-delay: 0s; }
-  .apps .app-card:nth-child(2) { animation-delay: .06s; }
-  .apps .app-card:nth-child(3) { animation-delay: .12s; }
-  .apps .app-card:nth-child(4) { animation-delay: .18s; }
-  .apps .app-card:nth-child(5) { animation-delay: .24s; }
-  .apps .app-card:nth-child(6) { animation-delay: .3s; }
-  .apps .app-card:nth-child(n+7) { animation-delay: .32s; }
-  /* 图标：浅蓝底 44px 圆角方块 + 蓝 glyph（Shade.icon 的 stroke 属性由 CSS 覆写） */
-  .app-ic {
-    width: 44px; height: 44px; border-radius: 10px;
-    background: var(--orange-soft);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .app-ic svg { width: 22px; height: 22px; stroke: var(--orange); color: var(--orange); }
-  .app-card h4 { margin-top: 14px; font-size: 15.5px; font-weight: 600; letter-spacing: .5px; }
-  .app-card > p { margin-top: 7px; font-size: 12.5px; color: var(--sub); line-height: 1.75; min-height: 44px; }
-  .app-meta { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 12px 0 14px; border-top: 1px solid var(--line); }
-  /* 分类标签（浅底小胶囊样式走 theme .tag 体系） */
-  .app-meta .tag { letter-spacing: 1px; }
-  .app-go { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; letter-spacing: .5px; color: var(--orange); }
-  .app-go svg { width: 15px; height: 15px; transition: transform .18s var(--ease); }
-  .app-card:hover .app-go svg { transform: translateX(3px); }
-  /* 「敬请期待」虚线占位 */
-  .app-soon {
-    background: transparent; border: 1.5px dashed var(--dash); box-shadow: none;
-    min-height: 176px; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 8px; cursor: default;
-  }
-  .apps .app-card.app-soon .app-ic { background: var(--fill); }
-  .apps .app-card.app-soon .app-ic svg { stroke: var(--dash); color: var(--dash); }
-  .app-soon h4 { margin-top: 2px; font-size: 14px; font-weight: 600; color: var(--ph); }
-  .app-soon p { font-size: 11.5px; color: var(--ph); min-height: 0; }
-  /* 宫格内空态占满整行 */
-  .apps .empty { grid-column: 1 / -1; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow-card); }
-  /* 骨架卡片 */
-  .app-sk { height: 176px; }
-
-  /* ===== 安全提示条（浅蓝信息条 + 蓝色图标块） ===== */
-  .safety {
-    margin-top: 26px;
-    display: flex; align-items: center; gap: 14px;
-    background: var(--orange-soft); padding: 16px 22px;
-    box-shadow: none;
-    animation: riseIn .55s var(--ease) .35s both;
-  }
-  .safety .si {
-    width: 36px; height: 36px; flex: none;
-    border-radius: 10px; background: var(--orange); color: #fff;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .safety .si svg { width: 18px; height: 18px; }
-  .safety .safety-tx {
-    font-size: 13px; letter-spacing: .5px; line-height: 1.75; color: var(--navy);
-  }
-  .safety b { font-weight: 600; }
-
-  /* ===== 弹层（12px 圆角 + 1px 发丝边 + 轻阴影；按钮走 theme .btn 体系） ===== */
-  .mask {
-    position: fixed; inset: 0; z-index: 200;
-    background: rgba(29, 33, 41, .45);
-    display: flex; align-items: center; justify-content: center; padding: 20px;
-    opacity: 0; visibility: hidden;
-    transition: opacity .3s, visibility 0s linear .3s; /* 淡出完成后再隐藏，保住关闭过渡 */
-  }
-  .mask.show, .mask.open { opacity: 1; visibility: visible; transition: opacity .3s; } /* 开态兼容 Shade.modal 的 .open */
-  .modal {
-    width: 100%; max-width: 560px; background: #fff; border: 1px solid var(--line);
-    border-radius: var(--radius); overflow: hidden;
-    box-shadow: var(--shadow-hover);
-    transform: translateY(16px) scale(.98); transition: transform .35s var(--ease);
-  }
-  .mask.show .modal, .mask.open .modal { transform: none; }
-  .modal-hd {
-    display: flex; align-items: center; gap: 10px; padding: 15px 20px;
-    border-bottom: 1px solid var(--line);
-    font-size: 15px; font-weight: 600; letter-spacing: 1px;
-  }
-  .modal-hd .x {
-    margin-left: auto; width: 30px; height: 30px; flex: none;
-    border: none; border-radius: 6px; background: none; cursor: pointer;
-    color: var(--sub); display: flex; align-items: center; justify-content: center;
-    transition: color .15s, background .15s;
-  }
-  .modal-hd .x:hover { color: var(--navy); background: var(--fill); }
-  .modal-hd .x svg { width: 15px; height: 15px; }
-  /* 「全部已读」隐藏时关闭按钮由自身 margin-left:auto 右对齐；「删除已读」紧随标题（红色小字钮，不占右对齐位） */
-  #noticeDelRead { margin-left: 12px; color: var(--red); }
-  #noticeDelRead:hover { border-color: var(--red); color: var(--red); background: #FFECE8; }
-  #noticeDelRead[hidden] { display: none; }
-  #noticeReadAll { margin-left: auto; }
-  #noticeReadAll[hidden] { display: none; }
-  #noticeReadAll[hidden] + .x { margin-left: auto; }
-  .nm-list { max-height: 62vh; overflow-y: auto; }
-  .nm-item { padding: 15px 20px; border-bottom: 1px solid var(--line); cursor: pointer; transition: background .18s var(--ease); }
-  .nm-item:last-child { border-bottom: none; }
-  .nm-item:hover { background: var(--fill); }
-  .nm-head { display: flex; align-items: center; gap: 10px; }
-  .nm-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
-  .nm-item.unread .nm-title { font-weight: 600; }
-  /* 内容默认两行折叠，点击条目展开全文（Markdown 渲染，含图片） */
-  .nm-content {
-    margin-top: 7px; font-size: 12.5px; color: var(--sub); line-height: 1.8;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  }
-  .nm-item.open .nm-content { display: block; }
-  /* Markdown 排版（对齐 callme.html 结构） */
-  .nm-content h1, .nm-content h2, .nm-content h3, .nm-content h4 { font-size: 14px; font-weight: 700; color: var(--navy); margin: 8px 0 4px; }
-  .nm-content p { margin: 4px 0; }
-  .nm-content ul, .nm-content ol { margin: 4px 0 4px 1.2em; padding: 0; }
-  .nm-content li { margin: 2px 0; }
-  .nm-content code { font-family: Menlo, Consolas, monospace; font-size: .92em; color: var(--orange); background: var(--fill); padding: 1px 5px; border-radius: 4px; }
-  .nm-content pre { background: var(--fill); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; margin: 8px 0; overflow-x: auto; }
-  .nm-content blockquote { border-left: 3px solid var(--orange); margin: 6px 0; padding: 2px 10px; color: var(--sub); background: var(--fill); }
-  .nm-content a { color: var(--orange); }
-  .nm-content hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
-  .nm-content table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; }
-  .nm-content th, .nm-content td { border: 1px solid var(--line); padding: 5px 9px; }
-  .nm-content th { background: var(--fill); color: var(--navy); }
-  .nm-content .md-img { display: block; max-width: 100%; border-radius: var(--radius-sm); margin: 6px 0; }
-  .nm-content .md-code { margin: 8px 0; }
-  .nm-content .md-code-h { display: none; } /* 通知弹层不提供复制按钮 */
-  /* 删除入口（标题行右侧红色小字钮，全员渲染：超管全局删除，其余角色仅从本人列表移除） */
-  .nm-del {
-    flex: none; font-size: 12px; font-weight: 600; color: var(--red); cursor: pointer;
-    padding: 3px 8px; border-radius: 4px;
-    transition: background .15s;
-  }
-  .nm-del:hover { background: #FFECE8; }
-  /* 删除确认弹层（复用 .mask/.modal；对齐 admin.html 删除班组确认） */
-  .modal-bd { padding: 18px 22px 6px; }
-  .modal-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px 18px; }
-  .modal-bd .tip { font-size: 13px; color: var(--sub); line-height: 1.7; }
-
-  /* ===== 动效定义 ===== */
-  @keyframes riseIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
-  @keyframes rowIn { from { transform: translateX(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
-
-  /* ===== 响应式 ===== */
-  @media (max-width: 1080px) {
-    .uc-body { grid-template-columns: 1fr; gap: 22px; }
-    .hstat { padding: 0 18px; }
-  }
-  @media (max-width: 640px) {
-    .uc-body { padding: 26px 20px; }
-    .uc-hello { font-size: 24px; }
-    .uc-avatar { width: 46px; height: 46px; font-size: 19px; }
-    .uc-stats { grid-template-columns: repeat(2, 1fr); row-gap: 16px; }
-    .hstat + .hstat { border-left: none; }
-    .topbar-nav { display: none; }
-  }
-</style>
-</head>
-<body>
-<!-- 顶部导航由 Shade.topbar({active:'index'}) 统一渲染（见 script） -->
-
-<main class="page">
-  <!-- 欢迎卡（左侧问候与身份 / 右侧当日数据，指标口径与小程序首页一致；.hazard-top 类名保留的空壳 div，无任何样式） -->
-  <section class="card user-card">
-    <div class="hazard-top"></div>
-    <div class="uc-body">
-      <div class="uc-main">
-        <div class="uc-date" id="dateText"></div>
-        <div class="uc-hello-row">
-          <div class="uc-avatar" id="ucAvatar">·</div>
-          <h2 class="uc-hello"><span id="helloText">你好</span></h2>
-        </div>
-        <div class="uc-meta">
-          <span class="uc-role" id="roleRow"></span>
-        </div>
-      </div>
-      <div class="uc-stats">
-        <div class="hstat" id="statPrevPassBox"><b id="statPrevPass">—</b><span>上月通过</span></div>
-        <div class="hstat" id="statPrevNeedBox"><b id="statPrevNeed">—</b><span>上月需补</span></div>
-        <div class="hstat" id="statCurPassBox"><b id="statCurPass">—</b><span>本月通过</span></div>
-        <div class="hstat" id="statCurNeedBox"><b id="statCurNeed">—</b><span>本月需补</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 消息通知 -->
-  <div class="section-title sec-msg"><h3>消息通知</h3><span class="more" id="noticeBadge">加载中…</span></div>
-  <section class="card card-hover notice-card" id="noticeCard">
-    <div id="noticeTop"><div class="loading"><span class="spin"></span>加载中</div></div>
-  </section>
-
-  <!-- 应用中心 -->
-  <div class="section-title sec-app"><h3>应用中心</h3><span class="more" id="appCount">加载中…</span></div>
-  <section class="apps" id="appGrid">
-    <div class="card app-sk skeleton"></div>
-    <div class="card app-sk skeleton"></div>
-    <div class="card app-sk skeleton"></div>
-  </section>
-
-  <!-- 安全提示条 -->
-  <section class="card safety">
-    <span class="si" id="safetyIcon"></span>
-    <span class="safety-tx"><b>安全生产，预防为主。</b>上工前请确认劳保用品佩戴齐全，作业按规程执行。</span>
-  </section>
-</main>
-
-<!-- 通知列表弹层 -->
-<div class="mask" id="noticeMask">
-  <div class="modal">
-    <div class="modal-hd">消息通知<button class="btn btn-sm" id="noticeDelRead" hidden>删除已读</button><button class="btn btn-sm" id="noticeReadAll" hidden>全部已读</button><button class="x" id="noticeClose" title="关闭"></button></div>
-    <div class="nm-list" id="noticeList"></div>
-  </div>
-</div>
-
-<!-- 删除通知二次确认弹层（全员可用：超管全局删除，其余角色仅从本人列表移除） -->
-<div class="mask" id="noticeDelMask">
-  <div class="modal">
-    <div class="modal-hd"><span>删除通知</span><button class="x" id="noticeDelClose" title="关闭"></button></div>
-    <div class="modal-bd">
-      <div class="tip" id="noticeDelTip"></div>
-    </div>
-    <div class="modal-ft">
-      <button class="btn" id="noticeDelCancel">取消</button>
-      <button class="btn btn-danger" id="noticeDelOk">确认删除</button>
-    </div>
-  </div>
-</div>
-
-<script src="/assets/icons.js"></script>
-<script src="/assets/common.js"></script>
-<script src="/assets/md.js"></script>
-<script>
-  Shade.requireAuth();
-  // 统一顶部导航（工作台为当前页；管理入口按缓存角色显隐，接口资料回来后再校正）
-  Shade.topbar({ active: 'index' });
-
-  // 应用落地页映射统一取自 Shade.APP_NAV（common.js 单一来源，与顶栏导航同源；网页版路由，与小程序分包无关）
-
-  // 应用描述与特性标签（接口无此字段，按设计稿 方案A② 的文案本地维护；新应用未登记时不渲染该行）
-  var APP_META = {
-    'call-me': {
-      desc: '对接 WeKnora 企业知识库，规程、图纸与检修经验随问随答，流式输出、来源可溯。',
-      tags: [['AI 问答', 'tag-orange'], ['WeKnora', 'tag-navy']],
-    },
-    'work-log': {
-      desc: '班组出工记录、水印照片存证与防伪码核验，月历视图一目了然，日志真实可查。',
-      tags: [['记录存证', 'tag-orange'], ['防伪核验', 'tag-navy']],
-    },
-    'safe-day': {
-      desc: '上传班组活动 PDF / Office 文件，Dify 工作流自动生成活动记录，一键下载归档。',
-      tags: [['文件生成', 'tag-orange'], ['Dify', 'tag-navy']],
-    },
-    'kvm': {
-      desc: '接入 GLKVM Cloud 设备中台，现场设备在线状态实时查看，一键开启远程终端与桌面控制。',
-      tags: [['远程终端', 'tag-orange'], ['桌面控制', 'tag-navy']],
-    },
-    'wm-add': {
-      desc: '选片裁剪一键添加工作水印，地点天气与杆塔坐标随手带出，防伪码自动生成，仅回本人。',
-      tags: [['水印照片', 'tag-orange'], ['防伪码', 'tag-navy'], ['杆塔坐标', 'tag-navy']],
-    },
-    'quiz': {
-      desc: 'Excel 导入题库即导即练，单选 / 多选 / 判断全覆盖，错题自动归集专项攻克，AI 逐题生成解析。',
-      tags: [['刷题练习', 'tag-orange'], ['AI 解析', 'tag-navy']],
-    },
-    'netdisk': {
-      desc: '个人空间与公共区文件存取，分片上传，外链分享。',
-      tags: [['网盘', 'tag-orange'], ['文件', 'tag-navy'], ['分享', 'tag-navy']],
-    },
-    'tree-hazard': {
-      desc: '树障隐患按线路登记成账，处理进度与现场照片全程跟踪，统计报表一键导出。',
-      tags: [['隐患台账', 'tag-orange'], ['统计导出', 'tag-navy']],
-    },
-    'team-data': {
-      desc: '车牌、目的地、人员与运维线路集中维护，供出工日志与树障记录统一取用。',
-      tags: [['常用字典', 'tag-orange'], ['线路维护', 'tag-navy']],
-    },
-  };
-
-  // 静态图标注入
-  document.getElementById('safetyIcon').innerHTML = Shade.icon('shield', 18);
-
-  // 按时段问候
-  function greeting() {
-    var h = new Date().getHours();
-    if (h < 6) return '夜深了';
-    if (h < 9) return '早上好';
-    if (h < 12) return '上午好';
-    if (h < 14) return '中午好';
-    if (h < 18) return '下午好';
-    return '晚上好';
-  }
-
-  // 渲染用户资料（接口失败时回退本地缓存）
-  function renderProfile(u) {
-    var name = u.nickname || u.username || '班组成员';
-    var ch = name.charAt(0);
-    document.getElementById('miniAvatar').textContent = ch;
-    document.getElementById('ucAvatar').textContent = ch;
-    document.getElementById('topName').textContent = name;
-    document.getElementById('helloText').textContent = greeting() + '，' + name;
-
-    var now = new Date();
-    var week = '日一二三四五六'.charAt(now.getDay());
-    document.getElementById('dateText').textContent =
-      now.getFullYear() + ' 年 ' + (now.getMonth() + 1) + ' 月 ' + now.getDate() + ' 日 · 星期' + week;
-
-    // 角色徽章文案统一走 Shade.roleText（描边徽章样式不变）
-    var roleHtml = '<span class="badge-outline">' + Shade.roleText(u.role) + '</span>';
-    if (u.username) roleHtml += '<span class="uname">账号：' + Shade.esc(u.username) + '</span>';
-    document.getElementById('roleRow').innerHTML = roleHtml;
-
-    // 管理入口仅 admin 可见
-    if (u.role === 'admin') document.getElementById('navAdmin').hidden = false;
-  }
-
-  // 渲染应用宫格
-  function renderApps(list) {
-    var grid = document.getElementById('appGrid');
-    var html = '';
-    list.forEach(function (item) {
-      var nav = Shade.APP_NAV[item.app_key];
-      var href = nav ? nav.href : '';
-      var meta = APP_META[item.app_key];
-      var tags = meta
-        ? meta.tags.map(function (t) { return '<span class="tag ' + t[1] + '">' + t[0] + '</span>'; }).join('')
-        : '';
-      html += '<a class="card card-hover app-card" href="' + (href || 'javascript:void 0') + '"' +
-        (href ? '' : ' data-soon="1"') + '>' +
-        '<div class="app-ic">' + Shade.icon(item.icon || 'app', 26, '#0E3DA8') + '</div>' +
-        '<h4>' + Shade.esc(item.name) + '</h4>' +
-        (meta ? '<p>' + Shade.esc(meta.desc) + '</p>' : '') +
-        '<div class="app-meta">' + tags +
-        '<span class="app-go">进入应用' + Shade.icon('arrow-right', 14) + '</span></div>' +
-        '</a>';
-    });
-    // 虚线占位入口
-    html += '<div class="card app-card app-soon">' +
-      '<div class="app-ic">' + Shade.icon('ellipsis', 22) + '</div>' +
-      '<h4>敬请期待</h4><p>新应用接入中</p>' +
-      '</div>';
-    grid.innerHTML = html;
-
-    document.getElementById('appCount').textContent =
-      '按权限自动下发 · 共 ' + list.length + ' 个可用应用';
-
-    if (!list.length) {
-      grid.innerHTML = '<div class="empty">' + Shade.icon('app', 44) +
-        '<p>暂无可用应用，请联系管理员开通权限</p></div>' +
-        '<div class="card app-card app-soon"><div class="app-ic">' + Shade.icon('ellipsis', 22) +
-        '</div><h4>敬请期待</h4><p>新应用接入中</p></div>';
-    }
-
-    // 未开通网页版的应用：拦截并提示
-    grid.querySelectorAll('[data-soon]').forEach(function (el) {
-      el.addEventListener('click', function () {
-        Shade.toast('该应用暂未开通网页版，请使用小程序访问', 'info');
-      });
-    });
-  }
-
-  // ===== 欢迎卡数据列 =====
-  var hasWorklog = false; // 是否拥有出工日志权限（无权限时出工类指标保持 —）
-
-  // 出工日志指标（/stats 口径）：上月通过 / 上月需补 / 本月通过 / 本月需补；
-  // 通过 = 班组当月验证通过卡片数/全部卡片数；需补 = 我当月「未上传水印照片」的卡片条数；失败静默保留 —
-  // 分级着色（与小程序首页同口径）：通过项按未通过数（total-passed）0 绿 / ≤3 橙 / >3 红；需补项 0 绿 / ≤3 橙 / >3 红
-  function statPassCls(passed, total) {
-    var bad = Math.max(0, (Number(total) || 0) - (Number(passed) || 0));
-    return bad === 0 ? 'good' : bad <= 3 ? 'warn' : 'bad';
-  }
-  function statNeedCls(n) {
-    var c = Number(n) || 0;
-    return c === 0 ? 'good' : c <= 3 ? 'warn' : 'bad';
-  }
-  function setStat(boxId, numId, text, cls) {
-    document.getElementById(numId).textContent = text;
-    document.getElementById(boxId).className = 'hstat ' + cls;
-  }
-  async function loadWorklogStats() {
-    if (!hasWorklog) return;
-    var now = new Date();
-    var pad = function (n) { return String(n).padStart(2, '0'); };
-    var prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    var prevMonth = prev.getFullYear() + '-' + pad(prev.getMonth() + 1);
-    var curMonth = now.getFullYear() + '-' + pad(now.getMonth() + 1);
-    try {
-      var r = await Shade.api('/api/v1/worklog/stats?month=' + prevMonth);
-      var a = r.data || {};
-      setStat('statPrevPassBox', 'statPrevPass', (a.passed || 0) + '/' + (a.total || 0), statPassCls(a.passed, a.total));
-      setStat('statPrevNeedBox', 'statPrevNeed', a.needPhotos || 0, statNeedCls(a.needPhotos));
-    } catch (e) { /* 静默失败：保留 — */ }
-    try {
-      var r2 = await Shade.api('/api/v1/worklog/stats?month=' + curMonth);
-      var b = r2.data || {};
-      setStat('statCurPassBox', 'statCurPass', (b.passed || 0) + '/' + (b.total || 0), statPassCls(b.passed, b.total));
-      setStat('statCurNeedBox', 'statCurNeed', b.needPhotos || 0, statNeedCls(b.needPhotos));
-    } catch (e) { /* 静默失败：保留 — */ }
-  }
-
-  // ===== 消息通知 =====
-  var noticeTop = [];   // 工作台卡内最新 3 条
-  var noticeItems = []; // 弹层全量列表（limit=100）
-  var noticeUnread = 0; // 未读数（接口下发，随已读操作本地递减）
-
-  // 未读徽章：板块标题右侧橙色胶囊（无未读时显示「查看全部」入口提示）；同步弹层「全部已读」按钮显隐
-  function renderNoticeBadge() {
-    document.getElementById('noticeBadge').innerHTML = noticeUnread > 0
-      ? '<span class="nt-badge">' + noticeUnread + ' 条未读</span>'
-      : '查看全部';
-    document.getElementById('noticeReadAll').hidden = noticeUnread <= 0;
-  }
-
-  // 「删除已读」按钮显隐：弹层列表内有已读通知时可见
-  function renderDelReadBtn() {
-    document.getElementById('noticeDelRead').hidden = !noticeItems.some(function (n) { return n.read; });
-  }
-
-  // 工作台通知卡：最新 3 条（未读标题前加橙色圆点、加粗）
-  function noticeCardRowHtml(n) {
-    return '<div class="nt-item' + (n.read ? '' : ' unread') + '">' +
-      (n.read ? '' : '<span class="nt-dot"></span>') +
-      '<span class="nt-title">' + Shade.esc(n.title) + '</span>' +
-      '<span class="nt-time">' + Shade.fmtDate(n.createdAt, true) + '</span>' +
-      '</div>';
-  }
-  function renderNoticeCard() {
-    var box = document.getElementById('noticeTop');
-    box.innerHTML = noticeTop.length
-      ? noticeTop.map(noticeCardRowHtml).join('')
-      : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
-  }
-
-  // 拉取通知卡数据（失败静默：仅卡内提示，不阻断工作台）
-  async function loadNotices() {
-    try {
-      var r = await Shade.api('/api/v1/notice/list?limit=3');
-      noticeTop = (r.data && r.data.items) || [];
-      noticeUnread = (r.data && r.data.unread) || 0;
-      renderNoticeBadge();
-      renderNoticeCard();
-    } catch (e) {
-      document.getElementById('noticeBadge').textContent = '查看全部';
-      document.getElementById('noticeTop').innerHTML = '<div class="empty">' +
-        Shade.icon('warn', 44) + '<p>' + Shade.esc(e.message || '通知加载失败') + '</p></div>';
-    }
-  }
-
-  // 弹层列表行（未读圆点 + 加粗高亮；内容默认两行折叠，点击展开全文；Markdown 渲染，失败回退转义纯文本）
-  function noticeContentHtml(n) {
-    return renderMd(n.content) || Shade.esc(n.content).replace(/\n/g, '<br>');
-  }
-  function isAdmin() {
-    var u = Shade.user();
-    return !!u && u.role === 'admin';
-  }
-  function noticeModalRowHtml(n) {
-    return '<div class="nm-item' + (n.read ? '' : ' unread') + '" data-id="' + n.id + '">' +
-      '<div class="nm-head">' +
-        (n.read ? '' : '<span class="nt-dot"></span>') +
-        '<span class="nm-title">' + Shade.esc(n.title) + '</span>' +
-        '<span class="nt-time">' + Shade.fmtDate(n.createdAt, true) + '</span>' +
-        '<span class="nm-del" data-id="' + n.id + '" title="删除该通知">删除</span>' +
-      '</div>' +
-      '<div class="nm-content">' + noticeContentHtml(n) + '</div>' +
-    '</div>';
-  }
-
-  // 打开通知列表弹层：拉全量（limit=100）
-  async function openNoticeModal() {
-    document.getElementById('noticeMask').classList.add('show');
-    var list = document.getElementById('noticeList');
-    list.innerHTML = '<div class="loading"><span class="spin"></span>加载中</div>';
-    try {
-      var r = await Shade.api('/api/v1/notice/list?limit=100');
-      noticeItems = (r.data && r.data.items) || [];
-      noticeUnread = (r.data && r.data.unread) || 0;
-      renderNoticeBadge();
-      renderDelReadBtn();
-      list.innerHTML = noticeItems.length
-        ? noticeItems.map(noticeModalRowHtml).join('')
-        : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
-    } catch (e) {
-      list.innerHTML = '<div class="empty">' + Shade.icon('warn', 44) +
-        '<p>' + Shade.esc(e.message || '通知加载失败') + '</p></div>';
-    }
-  }
-
-  // 本地置已读：未读数递减、刷新徽章 / 工作台卡 / 弹层行（调用前需确认该条原为未读）
-  function markNoticeReadLocal(id) {
-    var n = noticeItems.find(function (x) { return x.id === id; });
-    if (n) { n.read = 1; renderDelReadBtn(); }
-    var t = noticeTop.find(function (x) { return x.id === id; });
-    if (t && !t.read) { t.read = 1; renderNoticeCard(); }
-    noticeUnread = Math.max(0, noticeUnread - 1);
-    renderNoticeBadge();
-    var row = document.querySelector('.nm-item[data-id="' + id + '"]');
-    if (row) {
-      row.classList.remove('unread');
-      var dot = row.querySelector('.nt-dot');
-      if (dot) dot.remove();
-    }
-  }
-
-  // 弹层条目点击：展开 / 收起全文；未读条目上报已读后本地置已读、更新徽章；点「删除」走确认弹层
-  document.getElementById('noticeList').addEventListener('click', async function (e) {
-    var del = e.target.closest('.nm-del');
-    if (del) {
-      askDeleteNotice(Number(del.dataset.id));
-      return;
-    }
-    var row = e.target.closest('.nm-item');
-    if (!row) return;
-    row.classList.toggle('open');
-    var id = Number(row.dataset.id);
-    var n = noticeItems.find(function (x) { return x.id === id; });
-    if (!n || n.read) return;
-    try {
-      await Shade.api('/api/v1/notice/' + id + '/read', { method: 'POST' });
-      markNoticeReadLocal(id);
-    } catch (err) { /* 已读上报失败静默，保留未读态 */ }
-  });
-
-  // ---------- 删除通知（全员可用：超管全局删除，其余角色仅从本人列表移除；二次确认，删除后同步列表 / 工作台卡 / 未读数） ----------
-  // noticeDelId 为待删通知 id；哨兵 -1 = 一键删除已读（复用同一确认弹层；按人删除，超管也不做全局删除）
-  var noticeDelId = 0;
-  function askDeleteNotice(id) {
-    var n = noticeItems.find(function (x) { return x.id === id; });
-    if (!n) return;
-    noticeDelId = id;
-    document.getElementById('noticeDelTip').textContent = isAdmin()
-      ? '确定删除通知「' + n.title + '」吗？删除后所有成员均不可见，且不可恢复。'
-      : '确定删除通知「' + n.title + '」吗？删除后仅从您的通知列表移除，不影响其他成员。';
-    document.getElementById('noticeDelMask').classList.add('show');
-  }
-  // 一键删除已读（弹层头部「删除已读」按钮，有已读时显示）
-  document.getElementById('noticeDelRead').addEventListener('click', function () {
-    noticeDelId = -1;
-    document.getElementById('noticeDelTip').textContent =
-      '确定删除全部已读通知吗？删除后仅从您的通知列表移除，不影响其他成员。';
-    document.getElementById('noticeDelMask').classList.add('show');
-  });
-  document.getElementById('noticeDelOk').addEventListener('click', async function () {
-    if (!noticeDelId) return;
-    var btn = this;
-    if (btn.disabled) return;
-    btn.disabled = true;
-    try {
-      if (noticeDelId === -1) {
-        // 一键删除已读：后端按人删除本人全部已读，前端同步剔除已读行
-        var r = await Shade.api('/api/v1/notice/del-read', { method: 'POST' });
-        noticeItems = noticeItems.filter(function (x) { return !x.read; });
-        noticeTop = noticeTop.filter(function (x) { return !x.read; });
-        renderDelReadBtn();
-        renderNoticeCard();
-        document.getElementById('noticeList').innerHTML = noticeItems.length
-          ? noticeItems.map(noticeModalRowHtml).join('')
-          : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
-        document.getElementById('noticeDelMask').classList.remove('show');
-        Shade.toast('已删除 ' + ((r.data && r.data.deleted) || 0) + ' 条已读通知', 'success');
-        return;
+      /* ===== 欢迎卡：左侧问候 / 右侧当日数据 ===== */
+      .user-card {
+        animation: riseIn 0.55s var(--ease) 0.05s both;
       }
-      await Shade.api('/api/v1/notice/' + noticeDelId, { method: 'DELETE' });
-      var wasUnread = noticeItems.some(function (x) { return x.id === noticeDelId && !x.read; });
-      noticeItems = noticeItems.filter(function (x) { return x.id !== noticeDelId; });
-      noticeTop = noticeTop.filter(function (x) { return x.id !== noticeDelId; });
-      if (wasUnread) noticeUnread = Math.max(0, noticeUnread - 1);
-      renderNoticeBadge();
-      renderDelReadBtn();
-      renderNoticeCard();
-      document.getElementById('noticeList').innerHTML = noticeItems.length
-        ? noticeItems.map(noticeModalRowHtml).join('')
-        : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
-      document.getElementById('noticeDelMask').classList.remove('show');
-      Shade.toast('已删除', 'success');
-    } catch (e) {
-      Shade.toast(e.message, 'error');
-    } finally {
-      btn.disabled = false;
-      noticeDelId = 0;
-    }
-  });
-  document.getElementById('noticeDelCancel').addEventListener('click', function () {
-    document.getElementById('noticeDelMask').classList.remove('show');
-  });
-  document.getElementById('noticeDelClose').innerHTML = Shade.icon('close', 16);
-  document.getElementById('noticeDelClose').addEventListener('click', function () {
-    document.getElementById('noticeDelMask').classList.remove('show');
-  });
+      .uc-body {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 40px;
+        padding: 32px 36px;
+      }
+      .uc-date {
+        font-size: 12.5px;
+        color: var(--ph);
+        letter-spacing: 0.5px;
+      }
+      .uc-hello-row {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .uc-avatar {
+        width: 56px;
+        height: 56px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--orange);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 23px;
+        font-weight: 600;
+      }
+      .uc-hello {
+        font-size: 30px;
+        line-height: 1.2;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+      .uc-meta {
+        margin-top: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 14px;
+        font-size: 12.5px;
+        color: var(--sub);
+      }
+      .uc-role {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .uc-role .uname {
+        letter-spacing: 0.5px;
+      }
 
-  // 全部已读（有未读时显示）
-  document.getElementById('noticeReadAll').addEventListener('click', async function () {
-    var btn = this;
-    if (btn.disabled) return;
-    btn.disabled = true;
-    try {
-      await Shade.api('/api/v1/notice/read-all', { method: 'POST' });
-      noticeUnread = 0;
-      noticeItems.forEach(function (n) { n.read = 1; });
-      noticeTop.forEach(function (n) { n.read = 1; });
-      renderNoticeBadge();
-      renderDelReadBtn();
-      renderNoticeCard();
-      document.querySelectorAll('#noticeList .nm-item.unread').forEach(function (row) {
-        row.classList.remove('unread');
-        var dot = row.querySelector('.nt-dot');
-        if (dot) dot.remove();
+      /* 右侧数据列（指标口径与小程序首页一致；无出工日志权限时对应项显示 —） */
+      .uc-stats {
+        display: grid;
+        grid-template-columns: repeat(4, auto);
+      }
+      .hstat {
+        padding: 0 24px;
+        text-align: center;
+      }
+      .hstat + .hstat {
+        border-left: 1px solid var(--line);
+      }
+      .hstat b {
+        display: block;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.3;
+        font-variant-numeric: tabular-nums;
+      }
+      /* 数字分级着色（与小程序首页同口径）：全部达标绿 / ≤3 橙 / >3 红；未加载 — 不着色 */
+      .hstat.good b {
+        color: var(--green);
+      }
+      .hstat.warn b {
+        color: var(--yellow);
+      }
+      .hstat.bad b {
+        color: var(--red);
+      }
+      .hstat span {
+        display: block;
+        margin-top: 4px;
+        font-size: 11.5px;
+        color: var(--ph);
+      }
+
+      /* ===== 板块标题入场 ===== */
+      .section-title {
+        animation: riseIn 0.5s var(--ease) both;
+      }
+      .sec-msg {
+        animation-delay: 0.16s;
+      }
+      .sec-app {
+        animation-delay: 0.28s;
+      }
+
+      /* ===== 消息通知卡（圆点未读 + 发丝线分隔） ===== */
+      .notice-card {
+        overflow: hidden;
+        animation: riseIn 0.55s var(--ease) 0.2s backwards;
+      }
+      .nt-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--red);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+      .nt-badge::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--red);
+      }
+      #noticeBadge {
+        cursor: pointer;
+      }
+      .nt-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--line);
+        transition: background 0.18s var(--ease);
+        animation: rowIn 0.5s var(--ease) both;
+      }
+      .nt-item:nth-child(1) {
+        animation-delay: 0.05s;
+      }
+      .nt-item:nth-child(2) {
+        animation-delay: 0.12s;
+      }
+      .nt-item:nth-child(3) {
+        animation-delay: 0.19s;
+      }
+      .nt-item:last-child {
+        border-bottom: none;
+      }
+      .nt-item:hover {
+        background: var(--fill);
+      }
+      .nt-dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--red);
+      }
+      .nt-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13.5px;
+      }
+      .nt-item.unread .nt-title {
+        font-weight: 600;
+      }
+      .nt-time {
+        flex: none;
+        font-size: 12px;
+        letter-spacing: 0.5px;
+        color: var(--ph);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ===== 应用中心宫格（浅蓝图标块 + 名称 + 说明 + 进入链接） ===== */
+      .apps {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 16px;
+      }
+      .app-card {
+        display: block;
+        padding: 22px 22px 0;
+        color: inherit;
+        animation: riseIn 0.55s var(--ease) backwards;
+      }
+      .app-card:link,
+      .app-card:visited {
+        color: inherit;
+      }
+      .apps .app-card:nth-child(1) {
+        animation-delay: 0s;
+      }
+      .apps .app-card:nth-child(2) {
+        animation-delay: 0.06s;
+      }
+      .apps .app-card:nth-child(3) {
+        animation-delay: 0.12s;
+      }
+      .apps .app-card:nth-child(4) {
+        animation-delay: 0.18s;
+      }
+      .apps .app-card:nth-child(5) {
+        animation-delay: 0.24s;
+      }
+      .apps .app-card:nth-child(6) {
+        animation-delay: 0.3s;
+      }
+      .apps .app-card:nth-child(n + 7) {
+        animation-delay: 0.32s;
+      }
+      /* 图标：浅蓝底 44px 圆角方块 + 蓝 glyph（Shade.icon 的 stroke 属性由 CSS 覆写） */
+      .app-ic {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        background: var(--orange-soft);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .app-ic svg {
+        width: 22px;
+        height: 22px;
+        stroke: var(--orange);
+        color: var(--orange);
+      }
+      .app-card h4 {
+        margin-top: 14px;
+        font-size: 15.5px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+      .app-card > p {
+        margin-top: 7px;
+        font-size: 12.5px;
+        color: var(--sub);
+        line-height: 1.75;
+        min-height: 44px;
+      }
+      .app-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding: 12px 0 14px;
+        border-top: 1px solid var(--line);
+      }
+      /* 分类标签（浅底小胶囊样式走 theme .tag 体系） */
+      .app-meta .tag {
+        letter-spacing: 1px;
+      }
+      .app-go {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        color: var(--orange);
+      }
+      .app-go svg {
+        width: 15px;
+        height: 15px;
+        transition: transform 0.18s var(--ease);
+      }
+      .app-card:hover .app-go svg {
+        transform: translateX(3px);
+      }
+      /* 「敬请期待」虚线占位 */
+      .app-soon {
+        background: transparent;
+        border: 1.5px dashed var(--dash);
+        box-shadow: none;
+        min-height: 176px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        cursor: default;
+      }
+      .apps .app-card.app-soon .app-ic {
+        background: var(--fill);
+      }
+      .apps .app-card.app-soon .app-ic svg {
+        stroke: var(--dash);
+        color: var(--dash);
+      }
+      .app-soon h4 {
+        margin-top: 2px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--ph);
+      }
+      .app-soon p {
+        font-size: 11.5px;
+        color: var(--ph);
+        min-height: 0;
+      }
+      /* 宫格内空态占满整行 */
+      .apps .empty {
+        grid-column: 1 / -1;
+        background: #fff;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-card);
+      }
+      /* 骨架卡片 */
+      .app-sk {
+        height: 176px;
+      }
+
+      /* ===== 安全提示条（浅蓝信息条 + 蓝色图标块） ===== */
+      .safety {
+        margin-top: 26px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        background: var(--orange-soft);
+        padding: 16px 22px;
+        box-shadow: none;
+        animation: riseIn 0.55s var(--ease) 0.35s both;
+      }
+      .safety .si {
+        width: 36px;
+        height: 36px;
+        flex: none;
+        border-radius: 10px;
+        background: var(--orange);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .safety .si svg {
+        width: 18px;
+        height: 18px;
+      }
+      .safety .safety-tx {
+        font-size: 13px;
+        letter-spacing: 0.5px;
+        line-height: 1.75;
+        color: var(--navy);
+      }
+      .safety b {
+        font-weight: 600;
+      }
+
+      /* ===== 弹层（12px 圆角 + 1px 发丝边 + 轻阴影；按钮走 theme .btn 体系） ===== */
+      .mask {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        background: rgba(29, 33, 41, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        opacity: 0;
+        visibility: hidden;
+        transition:
+          opacity 0.3s,
+          visibility 0s linear 0.3s; /* 淡出完成后再隐藏，保住关闭过渡 */
+      }
+      .mask.show,
+      .mask.open {
+        opacity: 1;
+        visibility: visible;
+        transition: opacity 0.3s;
+      } /* 开态兼容 Shade.modal 的 .open */
+      .modal {
+        width: 100%;
+        max-width: 560px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+        box-shadow: var(--shadow-hover);
+        transform: translateY(16px) scale(0.98);
+        transition: transform 0.35s var(--ease);
+      }
+      .mask.show .modal,
+      .mask.open .modal {
+        transform: none;
+      }
+      .modal-hd {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--line);
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 1px;
+      }
+      .modal-hd .x {
+        margin-left: auto;
+        width: 30px;
+        height: 30px;
+        flex: none;
+        border: none;
+        border-radius: 6px;
+        background: none;
+        cursor: pointer;
+        color: var(--sub);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition:
+          color 0.15s,
+          background 0.15s;
+      }
+      .modal-hd .x:hover {
+        color: var(--navy);
+        background: var(--fill);
+      }
+      .modal-hd .x svg {
+        width: 15px;
+        height: 15px;
+      }
+      /* 「全部已读」隐藏时关闭按钮由自身 margin-left:auto 右对齐；「删除已读」紧随标题（红色小字钮，不占右对齐位） */
+      #noticeDelRead {
+        margin-left: 12px;
+        color: var(--red);
+      }
+      #noticeDelRead:hover {
+        border-color: var(--red);
+        color: var(--red);
+        background: #ffece8;
+      }
+      #noticeDelRead[hidden] {
+        display: none;
+      }
+      #noticeReadAll {
+        margin-left: auto;
+      }
+      #noticeReadAll[hidden] {
+        display: none;
+      }
+      #noticeReadAll[hidden] + .x {
+        margin-left: auto;
+      }
+      .nm-list {
+        max-height: 62vh;
+        overflow-y: auto;
+      }
+      .nm-item {
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--line);
+        cursor: pointer;
+        transition: background 0.18s var(--ease);
+      }
+      .nm-item:last-child {
+        border-bottom: none;
+      }
+      .nm-item:hover {
+        background: var(--fill);
+      }
+      .nm-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .nm-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13.5px;
+      }
+      .nm-item.unread .nm-title {
+        font-weight: 600;
+      }
+      /* 内容默认两行折叠，点击条目展开全文（Markdown 渲染，含图片） */
+      .nm-content {
+        margin-top: 7px;
+        font-size: 12.5px;
+        color: var(--sub);
+        line-height: 1.8;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .nm-item.open .nm-content {
+        display: block;
+      }
+      /* Markdown 排版（对齐 callme.html 结构） */
+      .nm-content h1,
+      .nm-content h2,
+      .nm-content h3,
+      .nm-content h4 {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--navy);
+        margin: 8px 0 4px;
+      }
+      .nm-content p {
+        margin: 4px 0;
+      }
+      .nm-content ul,
+      .nm-content ol {
+        margin: 4px 0 4px 1.2em;
+        padding: 0;
+      }
+      .nm-content li {
+        margin: 2px 0;
+      }
+      .nm-content code {
+        font-family: Menlo, Consolas, monospace;
+        font-size: 0.92em;
+        color: var(--orange);
+        background: var(--fill);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .nm-content pre {
+        background: var(--fill);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 10px;
+        margin: 8px 0;
+        overflow-x: auto;
+      }
+      .nm-content blockquote {
+        border-left: 3px solid var(--orange);
+        margin: 6px 0;
+        padding: 2px 10px;
+        color: var(--sub);
+        background: var(--fill);
+      }
+      .nm-content a {
+        color: var(--orange);
+      }
+      .nm-content hr {
+        border: none;
+        border-top: 1px solid var(--line);
+        margin: 10px 0;
+      }
+      .nm-content table {
+        border-collapse: collapse;
+        margin: 8px 0;
+        font-size: 12.5px;
+      }
+      .nm-content th,
+      .nm-content td {
+        border: 1px solid var(--line);
+        padding: 5px 9px;
+      }
+      .nm-content th {
+        background: var(--fill);
+        color: var(--navy);
+      }
+      .nm-content .md-img {
+        display: block;
+        max-width: 100%;
+        border-radius: var(--radius-sm);
+        margin: 6px 0;
+      }
+      .nm-content .md-code {
+        margin: 8px 0;
+      }
+      .nm-content .md-code-h {
+        display: none;
+      } /* 通知弹层不提供复制按钮 */
+      /* 删除入口（标题行右侧红色小字钮，全员渲染：超管全局删除，其余角色仅从本人列表移除） */
+      .nm-del {
+        flex: none;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--red);
+        cursor: pointer;
+        padding: 3px 8px;
+        border-radius: 4px;
+        transition: background 0.15s;
+      }
+      .nm-del:hover {
+        background: #ffece8;
+      }
+      /* 删除确认弹层（复用 .mask/.modal；对齐 admin.html 删除班组确认） */
+      .modal-bd {
+        padding: 18px 22px 6px;
+      }
+      .modal-ft {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 14px 22px 18px;
+      }
+      .modal-bd .tip {
+        font-size: 13px;
+        color: var(--sub);
+        line-height: 1.7;
+      }
+
+      /* ===== 动效定义 ===== */
+      @keyframes riseIn {
+        from {
+          transform: translateY(14px);
+          opacity: 0;
+        }
+        to {
+          transform: none;
+          opacity: 1;
+        }
+      }
+      @keyframes rowIn {
+        from {
+          transform: translateX(-14px);
+          opacity: 0;
+        }
+        to {
+          transform: none;
+          opacity: 1;
+        }
+      }
+
+      /* ===== 响应式 ===== */
+      @media (max-width: 1080px) {
+        .uc-body {
+          grid-template-columns: 1fr;
+          gap: 22px;
+        }
+        .hstat {
+          padding: 0 18px;
+        }
+      }
+      @media (max-width: 640px) {
+        .uc-body {
+          padding: 26px 20px;
+        }
+        .uc-hello {
+          font-size: 24px;
+        }
+        .uc-avatar {
+          width: 46px;
+          height: 46px;
+          font-size: 19px;
+        }
+        .uc-stats {
+          grid-template-columns: repeat(2, 1fr);
+          row-gap: 16px;
+        }
+        .hstat + .hstat {
+          border-left: none;
+        }
+        .topbar-nav {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 顶部导航由 Shade.topbar({active:'index'}) 统一渲染（见 script） -->
+
+    <main class="page">
+      <!-- 欢迎卡（左侧问候与身份 / 右侧当日数据，指标口径与小程序首页一致；.hazard-top 类名保留的空壳 div，无任何样式） -->
+      <section class="card user-card">
+        <div class="hazard-top"></div>
+        <div class="uc-body">
+          <div class="uc-main">
+            <div class="uc-date" id="dateText"></div>
+            <div class="uc-hello-row">
+              <div class="uc-avatar" id="ucAvatar">·</div>
+              <h2 class="uc-hello"><span id="helloText">你好</span></h2>
+            </div>
+            <div class="uc-meta">
+              <span class="uc-role" id="roleRow"></span>
+            </div>
+          </div>
+          <div class="uc-stats">
+            <div class="hstat" id="statPrevPassBox">
+              <b id="statPrevPass">—</b><span>上月通过</span>
+            </div>
+            <div class="hstat" id="statPrevNeedBox">
+              <b id="statPrevNeed">—</b><span>上月需补</span>
+            </div>
+            <div class="hstat" id="statCurPassBox">
+              <b id="statCurPass">—</b><span>本月通过</span>
+            </div>
+            <div class="hstat" id="statCurNeedBox">
+              <b id="statCurNeed">—</b><span>本月需补</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 消息通知 -->
+      <div class="section-title sec-msg">
+        <h3>消息通知</h3>
+        <span class="more" id="noticeBadge">加载中…</span>
+      </div>
+      <section class="card card-hover notice-card" id="noticeCard">
+        <div id="noticeTop">
+          <div class="loading"><span class="spin"></span>加载中</div>
+        </div>
+      </section>
+
+      <!-- 应用中心 -->
+      <div class="section-title sec-app">
+        <h3>应用中心</h3>
+        <span class="more" id="appCount">加载中…</span>
+      </div>
+      <section class="apps" id="appGrid">
+        <div class="card app-sk skeleton"></div>
+        <div class="card app-sk skeleton"></div>
+        <div class="card app-sk skeleton"></div>
+      </section>
+
+      <!-- 安全提示条 -->
+      <section class="card safety">
+        <span class="si" id="safetyIcon"></span>
+        <span class="safety-tx"
+          ><b>安全生产，预防为主。</b>上工前请确认劳保用品佩戴齐全，作业按规程执行。</span
+        >
+      </section>
+    </main>
+
+    <!-- 通知列表弹层 -->
+    <div class="mask" id="noticeMask">
+      <div class="modal">
+        <div class="modal-hd">
+          消息通知<button class="btn btn-sm" id="noticeDelRead" hidden>删除已读</button
+          ><button class="btn btn-sm" id="noticeReadAll" hidden>全部已读</button
+          ><button class="x" id="noticeClose" title="关闭"></button>
+        </div>
+        <div class="nm-list" id="noticeList"></div>
+      </div>
+    </div>
+
+    <!-- 删除通知二次确认弹层（全员可用：超管全局删除，其余角色仅从本人列表移除） -->
+    <div class="mask" id="noticeDelMask">
+      <div class="modal">
+        <div class="modal-hd">
+          <span>删除通知</span><button class="x" id="noticeDelClose" title="关闭"></button>
+        </div>
+        <div class="modal-bd">
+          <div class="tip" id="noticeDelTip"></div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn" id="noticeDelCancel">取消</button>
+          <button class="btn btn-danger" id="noticeDelOk">确认删除</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/assets/icons.js"></script>
+    <script src="/assets/common.js"></script>
+    <script src="/assets/md.js"></script>
+    <script>
+      Shade.requireAuth();
+      // 统一顶部导航（工作台为当前页；管理入口按缓存角色显隐，接口资料回来后再校正）
+      Shade.topbar({ active: 'index' });
+
+      // 应用落地页映射统一取自 Shade.APP_NAV（common.js 单一来源，与顶栏导航同源；网页版路由，与小程序分包无关）
+
+      // 应用描述与特性标签（接口无此字段，按设计稿 方案A② 的文案本地维护；新应用未登记时不渲染该行）
+      var APP_META = {
+        'call-me': {
+          desc: '对接 WeKnora 企业知识库，规程、图纸与检修经验随问随答，流式输出、来源可溯。',
+          tags: [
+            ['AI 问答', 'tag-orange'],
+            ['WeKnora', 'tag-navy'],
+          ],
+        },
+        'work-log': {
+          desc: '班组出工记录、水印照片存证与防伪码核验，月历视图一目了然，日志真实可查。',
+          tags: [
+            ['记录存证', 'tag-orange'],
+            ['防伪核验', 'tag-navy'],
+          ],
+        },
+        'safe-day': {
+          desc: '上传班组活动 PDF / Office 文件，Dify 工作流自动生成活动记录，一键下载归档。',
+          tags: [
+            ['文件生成', 'tag-orange'],
+            ['Dify', 'tag-navy'],
+          ],
+        },
+        kvm: {
+          desc: '接入 GLKVM Cloud 设备中台，现场设备在线状态实时查看，一键开启远程终端与桌面控制。',
+          tags: [
+            ['远程终端', 'tag-orange'],
+            ['桌面控制', 'tag-navy'],
+          ],
+        },
+        'wm-add': {
+          desc: '选片裁剪一键添加工作水印，地点天气与杆塔坐标随手带出，防伪码自动生成，仅回本人。',
+          tags: [
+            ['水印照片', 'tag-orange'],
+            ['防伪码', 'tag-navy'],
+            ['杆塔坐标', 'tag-navy'],
+          ],
+        },
+        quiz: {
+          desc: 'Excel 导入题库即导即练，单选 / 多选 / 判断全覆盖，错题自动归集专项攻克，AI 逐题生成解析。',
+          tags: [
+            ['刷题练习', 'tag-orange'],
+            ['AI 解析', 'tag-navy'],
+          ],
+        },
+        netdisk: {
+          desc: '个人空间与公共区文件存取，分片上传，外链分享。',
+          tags: [
+            ['网盘', 'tag-orange'],
+            ['文件', 'tag-navy'],
+            ['分享', 'tag-navy'],
+          ],
+        },
+        'tree-hazard': {
+          desc: '树障隐患按线路登记成账，处理进度与现场照片全程跟踪，统计报表一键导出。',
+          tags: [
+            ['隐患台账', 'tag-orange'],
+            ['统计导出', 'tag-navy'],
+          ],
+        },
+        'team-data': {
+          desc: '车牌、目的地、人员与运维线路集中维护，供出工日志与树障记录统一取用。',
+          tags: [
+            ['常用字典', 'tag-orange'],
+            ['线路维护', 'tag-navy'],
+          ],
+        },
+      };
+
+      // 静态图标注入
+      document.getElementById('safetyIcon').innerHTML = Shade.icon('shield', 18);
+
+      // 按时段问候
+      function greeting() {
+        var h = new Date().getHours();
+        if (h < 6) return '夜深了';
+        if (h < 9) return '早上好';
+        if (h < 12) return '上午好';
+        if (h < 14) return '中午好';
+        if (h < 18) return '下午好';
+        return '晚上好';
+      }
+
+      // 渲染用户资料（接口失败时回退本地缓存）
+      function renderProfile(u) {
+        var name = u.nickname || u.username || '班组成员';
+        var ch = name.charAt(0);
+        document.getElementById('miniAvatar').textContent = ch;
+        document.getElementById('ucAvatar').textContent = ch;
+        document.getElementById('topName').textContent = name;
+        document.getElementById('helloText').textContent = greeting() + '，' + name;
+
+        var now = new Date();
+        var week = '日一二三四五六'.charAt(now.getDay());
+        document.getElementById('dateText').textContent =
+          now.getFullYear() +
+          ' 年 ' +
+          (now.getMonth() + 1) +
+          ' 月 ' +
+          now.getDate() +
+          ' 日 · 星期' +
+          week;
+
+        // 角色徽章文案统一走 Shade.roleText（描边徽章样式不变）
+        var roleHtml = '<span class="badge-outline">' + Shade.roleText(u.role) + '</span>';
+        if (u.username)
+          roleHtml += '<span class="uname">账号：' + Shade.esc(u.username) + '</span>';
+        document.getElementById('roleRow').innerHTML = roleHtml;
+
+        // 管理入口仅 admin 可见
+        if (u.role === 'admin') document.getElementById('navAdmin').hidden = false;
+      }
+
+      // 渲染应用宫格
+      function renderApps(list) {
+        var grid = document.getElementById('appGrid');
+        var html = '';
+        list.forEach(function (item) {
+          var nav = Shade.APP_NAV[item.app_key];
+          var href = nav ? nav.href : '';
+          var meta = APP_META[item.app_key];
+          var tags = meta
+            ? meta.tags
+                .map(function (t) {
+                  return '<span class="tag ' + t[1] + '">' + t[0] + '</span>';
+                })
+                .join('')
+            : '';
+          html +=
+            '<a class="card card-hover app-card" href="' +
+            (href || 'javascript:void 0') +
+            '"' +
+            (href ? '' : ' data-soon="1"') +
+            '>' +
+            '<div class="app-ic">' +
+            Shade.icon(item.icon || 'app', 26, '#0E3DA8') +
+            '</div>' +
+            '<h4>' +
+            Shade.esc(item.name) +
+            '</h4>' +
+            (meta ? '<p>' + Shade.esc(meta.desc) + '</p>' : '') +
+            '<div class="app-meta">' +
+            tags +
+            '<span class="app-go">进入应用' +
+            Shade.icon('arrow-right', 14) +
+            '</span></div>' +
+            '</a>';
+        });
+        // 虚线占位入口
+        html +=
+          '<div class="card app-card app-soon">' +
+          '<div class="app-ic">' +
+          Shade.icon('ellipsis', 22) +
+          '</div>' +
+          '<h4>敬请期待</h4><p>新应用接入中</p>' +
+          '</div>';
+        grid.innerHTML = html;
+
+        document.getElementById('appCount').textContent =
+          '按权限自动下发 · 共 ' + list.length + ' 个可用应用';
+
+        if (!list.length) {
+          grid.innerHTML =
+            '<div class="empty">' +
+            Shade.icon('app', 44) +
+            '<p>暂无可用应用，请联系管理员开通权限</p></div>' +
+            '<div class="card app-card app-soon"><div class="app-ic">' +
+            Shade.icon('ellipsis', 22) +
+            '</div><h4>敬请期待</h4><p>新应用接入中</p></div>';
+        }
+
+        // 未开通网页版的应用：拦截并提示
+        grid.querySelectorAll('[data-soon]').forEach(function (el) {
+          el.addEventListener('click', function () {
+            Shade.toast('该应用暂未开通网页版，请使用小程序访问', 'info');
+          });
+        });
+      }
+
+      // ===== 欢迎卡数据列 =====
+      var hasWorklog = false; // 是否拥有出工日志权限（无权限时出工类指标保持 —）
+
+      // 出工日志指标（/stats 口径）：上月通过 / 上月需补 / 本月通过 / 本月需补；
+      // 通过 = 班组当月验证通过卡片数/全部卡片数；需补 = 我当月「未上传水印照片」的卡片条数；失败静默保留 —
+      // 分级着色（与小程序首页同口径）：通过项按未通过数（total-passed）0 绿 / ≤3 橙 / >3 红；需补项 0 绿 / ≤3 橙 / >3 红
+      function statPassCls(passed, total) {
+        var bad = Math.max(0, (Number(total) || 0) - (Number(passed) || 0));
+        return bad === 0 ? 'good' : bad <= 3 ? 'warn' : 'bad';
+      }
+      function statNeedCls(n) {
+        var c = Number(n) || 0;
+        return c === 0 ? 'good' : c <= 3 ? 'warn' : 'bad';
+      }
+      function setStat(boxId, numId, text, cls) {
+        document.getElementById(numId).textContent = text;
+        document.getElementById(boxId).className = 'hstat ' + cls;
+      }
+      async function loadWorklogStats() {
+        if (!hasWorklog) return;
+        var now = new Date();
+        var pad = function (n) {
+          return String(n).padStart(2, '0');
+        };
+        var prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        var prevMonth = prev.getFullYear() + '-' + pad(prev.getMonth() + 1);
+        var curMonth = now.getFullYear() + '-' + pad(now.getMonth() + 1);
+        try {
+          var r = await Shade.api('/api/v1/worklog/stats?month=' + prevMonth);
+          var a = r.data || {};
+          setStat(
+            'statPrevPassBox',
+            'statPrevPass',
+            (a.passed || 0) + '/' + (a.total || 0),
+            statPassCls(a.passed, a.total)
+          );
+          setStat('statPrevNeedBox', 'statPrevNeed', a.needPhotos || 0, statNeedCls(a.needPhotos));
+        } catch (e) {
+          /* 静默失败：保留 — */
+        }
+        try {
+          var r2 = await Shade.api('/api/v1/worklog/stats?month=' + curMonth);
+          var b = r2.data || {};
+          setStat(
+            'statCurPassBox',
+            'statCurPass',
+            (b.passed || 0) + '/' + (b.total || 0),
+            statPassCls(b.passed, b.total)
+          );
+          setStat('statCurNeedBox', 'statCurNeed', b.needPhotos || 0, statNeedCls(b.needPhotos));
+        } catch (e) {
+          /* 静默失败：保留 — */
+        }
+      }
+
+      // ===== 消息通知 =====
+      var noticeTop = []; // 工作台卡内最新 3 条
+      var noticeItems = []; // 弹层全量列表（limit=100）
+      var noticeUnread = 0; // 未读数（接口下发，随已读操作本地递减）
+
+      // 未读徽章：板块标题右侧橙色胶囊（无未读时显示「查看全部」入口提示）；同步弹层「全部已读」按钮显隐
+      function renderNoticeBadge() {
+        document.getElementById('noticeBadge').innerHTML =
+          noticeUnread > 0
+            ? '<span class="nt-badge">' + noticeUnread + ' 条未读</span>'
+            : '查看全部';
+        document.getElementById('noticeReadAll').hidden = noticeUnread <= 0;
+      }
+
+      // 「删除已读」按钮显隐：弹层列表内有已读通知时可见
+      function renderDelReadBtn() {
+        document.getElementById('noticeDelRead').hidden = !noticeItems.some(function (n) {
+          return n.read;
+        });
+      }
+
+      // 工作台通知卡：最新 3 条（未读标题前加橙色圆点、加粗）
+      function noticeCardRowHtml(n) {
+        return (
+          '<div class="nt-item' +
+          (n.read ? '' : ' unread') +
+          '">' +
+          (n.read ? '' : '<span class="nt-dot"></span>') +
+          '<span class="nt-title">' +
+          Shade.esc(n.title) +
+          '</span>' +
+          '<span class="nt-time">' +
+          Shade.fmtDate(n.createdAt, true) +
+          '</span>' +
+          '</div>'
+        );
+      }
+      function renderNoticeCard() {
+        var box = document.getElementById('noticeTop');
+        box.innerHTML = noticeTop.length
+          ? noticeTop.map(noticeCardRowHtml).join('')
+          : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
+      }
+
+      // 拉取通知卡数据（失败静默：仅卡内提示，不阻断工作台）
+      async function loadNotices() {
+        try {
+          var r = await Shade.api('/api/v1/notice/list?limit=3');
+          noticeTop = (r.data && r.data.items) || [];
+          noticeUnread = (r.data && r.data.unread) || 0;
+          renderNoticeBadge();
+          renderNoticeCard();
+        } catch (e) {
+          document.getElementById('noticeBadge').textContent = '查看全部';
+          document.getElementById('noticeTop').innerHTML =
+            '<div class="empty">' +
+            Shade.icon('warn', 44) +
+            '<p>' +
+            Shade.esc(e.message || '通知加载失败') +
+            '</p></div>';
+        }
+      }
+
+      // 弹层列表行（未读圆点 + 加粗高亮；内容默认两行折叠，点击展开全文；Markdown 渲染，失败回退转义纯文本）
+      function noticeContentHtml(n) {
+        return renderMd(n.content) || Shade.esc(n.content).replace(/\n/g, '<br>');
+      }
+      function isAdmin() {
+        var u = Shade.user();
+        return !!u && u.role === 'admin';
+      }
+      function noticeModalRowHtml(n) {
+        return (
+          '<div class="nm-item' +
+          (n.read ? '' : ' unread') +
+          '" data-id="' +
+          n.id +
+          '">' +
+          '<div class="nm-head">' +
+          (n.read ? '' : '<span class="nt-dot"></span>') +
+          '<span class="nm-title">' +
+          Shade.esc(n.title) +
+          '</span>' +
+          '<span class="nt-time">' +
+          Shade.fmtDate(n.createdAt, true) +
+          '</span>' +
+          '<span class="nm-del" data-id="' +
+          n.id +
+          '" title="删除该通知">删除</span>' +
+          '</div>' +
+          '<div class="nm-content">' +
+          noticeContentHtml(n) +
+          '</div>' +
+          '</div>'
+        );
+      }
+
+      // 打开通知列表弹层：拉全量（limit=100）
+      async function openNoticeModal() {
+        document.getElementById('noticeMask').classList.add('show');
+        var list = document.getElementById('noticeList');
+        list.innerHTML = '<div class="loading"><span class="spin"></span>加载中</div>';
+        try {
+          var r = await Shade.api('/api/v1/notice/list?limit=100');
+          noticeItems = (r.data && r.data.items) || [];
+          noticeUnread = (r.data && r.data.unread) || 0;
+          renderNoticeBadge();
+          renderDelReadBtn();
+          list.innerHTML = noticeItems.length
+            ? noticeItems.map(noticeModalRowHtml).join('')
+            : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
+        } catch (e) {
+          list.innerHTML =
+            '<div class="empty">' +
+            Shade.icon('warn', 44) +
+            '<p>' +
+            Shade.esc(e.message || '通知加载失败') +
+            '</p></div>';
+        }
+      }
+
+      // 本地置已读：未读数递减、刷新徽章 / 工作台卡 / 弹层行（调用前需确认该条原为未读）
+      function markNoticeReadLocal(id) {
+        var n = noticeItems.find(function (x) {
+          return x.id === id;
+        });
+        if (n) {
+          n.read = 1;
+          renderDelReadBtn();
+        }
+        var t = noticeTop.find(function (x) {
+          return x.id === id;
+        });
+        if (t && !t.read) {
+          t.read = 1;
+          renderNoticeCard();
+        }
+        noticeUnread = Math.max(0, noticeUnread - 1);
+        renderNoticeBadge();
+        var row = document.querySelector('.nm-item[data-id="' + id + '"]');
+        if (row) {
+          row.classList.remove('unread');
+          var dot = row.querySelector('.nt-dot');
+          if (dot) dot.remove();
+        }
+      }
+
+      // 弹层条目点击：展开 / 收起全文；未读条目上报已读后本地置已读、更新徽章；点「删除」走确认弹层
+      document.getElementById('noticeList').addEventListener('click', async function (e) {
+        var del = e.target.closest('.nm-del');
+        if (del) {
+          askDeleteNotice(Number(del.dataset.id));
+          return;
+        }
+        var row = e.target.closest('.nm-item');
+        if (!row) return;
+        row.classList.toggle('open');
+        var id = Number(row.dataset.id);
+        var n = noticeItems.find(function (x) {
+          return x.id === id;
+        });
+        if (!n || n.read) return;
+        try {
+          await Shade.api('/api/v1/notice/' + id + '/read', { method: 'POST' });
+          markNoticeReadLocal(id);
+        } catch (err) {
+          /* 已读上报失败静默，保留未读态 */
+        }
       });
-    } catch (e) {
-      Shade.toast(e.message, 'error');
-    } finally {
-      btn.disabled = false;
-    }
-  });
 
-  // 整卡与「查看全部」入口均可打开弹层
-  document.getElementById('noticeCard').addEventListener('click', openNoticeModal);
-  document.getElementById('noticeBadge').addEventListener('click', openNoticeModal);
-  document.getElementById('noticeClose').innerHTML = Shade.icon('close', 16);
-  document.getElementById('noticeClose').addEventListener('click', function () {
-    document.getElementById('noticeMask').classList.remove('show');
-  });
-  document.getElementById('noticeMask').addEventListener('click', function (e) {
-    if (e.target === this) this.classList.remove('show');
-  });
+      // ---------- 删除通知（全员可用：超管全局删除，其余角色仅从本人列表移除；二次确认，删除后同步列表 / 工作台卡 / 未读数） ----------
+      // noticeDelId 为待删通知 id；哨兵 -1 = 一键删除已读（复用同一确认弹层；按人删除，超管也不做全局删除）
+      var noticeDelId = 0;
+      function askDeleteNotice(id) {
+        var n = noticeItems.find(function (x) {
+          return x.id === id;
+        });
+        if (!n) return;
+        noticeDelId = id;
+        document.getElementById('noticeDelTip').textContent = isAdmin()
+          ? '确定删除通知「' + n.title + '」吗？删除后所有成员均不可见，且不可恢复。'
+          : '确定删除通知「' + n.title + '」吗？删除后仅从您的通知列表移除，不影响其他成员。';
+        document.getElementById('noticeDelMask').classList.add('show');
+      }
+      // 一键删除已读（弹层头部「删除已读」按钮，有已读时显示）
+      document.getElementById('noticeDelRead').addEventListener('click', function () {
+        noticeDelId = -1;
+        document.getElementById('noticeDelTip').textContent =
+          '确定删除全部已读通知吗？删除后仅从您的通知列表移除，不影响其他成员。';
+        document.getElementById('noticeDelMask').classList.add('show');
+      });
+      document.getElementById('noticeDelOk').addEventListener('click', async function () {
+        if (!noticeDelId) return;
+        var btn = this;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try {
+          if (noticeDelId === -1) {
+            // 一键删除已读：后端按人删除本人全部已读，前端同步剔除已读行
+            var r = await Shade.api('/api/v1/notice/del-read', { method: 'POST' });
+            noticeItems = noticeItems.filter(function (x) {
+              return !x.read;
+            });
+            noticeTop = noticeTop.filter(function (x) {
+              return !x.read;
+            });
+            renderDelReadBtn();
+            renderNoticeCard();
+            document.getElementById('noticeList').innerHTML = noticeItems.length
+              ? noticeItems.map(noticeModalRowHtml).join('')
+              : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
+            document.getElementById('noticeDelMask').classList.remove('show');
+            Shade.toast('已删除 ' + ((r.data && r.data.deleted) || 0) + ' 条已读通知', 'success');
+            return;
+          }
+          await Shade.api('/api/v1/notice/' + noticeDelId, { method: 'DELETE' });
+          var wasUnread = noticeItems.some(function (x) {
+            return x.id === noticeDelId && !x.read;
+          });
+          noticeItems = noticeItems.filter(function (x) {
+            return x.id !== noticeDelId;
+          });
+          noticeTop = noticeTop.filter(function (x) {
+            return x.id !== noticeDelId;
+          });
+          if (wasUnread) noticeUnread = Math.max(0, noticeUnread - 1);
+          renderNoticeBadge();
+          renderDelReadBtn();
+          renderNoticeCard();
+          document.getElementById('noticeList').innerHTML = noticeItems.length
+            ? noticeItems.map(noticeModalRowHtml).join('')
+            : '<div class="empty">' + Shade.icon('notification', 44) + '<p>暂无通知</p></div>';
+          document.getElementById('noticeDelMask').classList.remove('show');
+          Shade.toast('已删除', 'success');
+        } catch (e) {
+          Shade.toast(e.message, 'error');
+        } finally {
+          btn.disabled = false;
+          noticeDelId = 0;
+        }
+      });
+      document.getElementById('noticeDelCancel').addEventListener('click', function () {
+        document.getElementById('noticeDelMask').classList.remove('show');
+      });
+      document.getElementById('noticeDelClose').innerHTML = Shade.icon('close', 16);
+      document.getElementById('noticeDelClose').addEventListener('click', function () {
+        document.getElementById('noticeDelMask').classList.remove('show');
+      });
 
-  // 加载数据
-  (async function () {
-    /* 用户资料刷新（接口失败回退本地缓存）：顶栏 #miniAvatar/#topName 由 refreshUser 统一更新，用户卡等页面元素进回调 */
-    await Shade.refreshUser(function (u) { if (u) renderProfile(u); });
-    try {
-      var r2 = await Shade.api('/api/v1/app/list');
-      var fullList = r2.data.list || [];
-      hasWorklog = fullList.some(function (item) { return item.app_key === 'work-log'; });
-      // 网页端宫格按 terminal 过滤：只展示 双端/PC端 应用（移动端应用仅小程序可见）
-      renderApps(fullList.filter(function (item) { return item.terminal !== 'mobile'; }));
-      loadWorklogStats(); // 出工日志指标独立拉取，失败静默
-    } catch (e) {
-      document.getElementById('appCount').textContent = '加载失败';
-      document.getElementById('appGrid').innerHTML =
-        '<div class="empty">' + Shade.icon('warn', 44) +
-        '<p>' + Shade.esc(e.message || '应用列表加载失败') + '</p></div>';
-    }
-    loadNotices(); // 通知卡独立拉取，失败静默不阻断
-    Shade.reveal();
-  })();
-</script>
-</body>
+      // 全部已读（有未读时显示）
+      document.getElementById('noticeReadAll').addEventListener('click', async function () {
+        var btn = this;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try {
+          await Shade.api('/api/v1/notice/read-all', { method: 'POST' });
+          noticeUnread = 0;
+          noticeItems.forEach(function (n) {
+            n.read = 1;
+          });
+          noticeTop.forEach(function (n) {
+            n.read = 1;
+          });
+          renderNoticeBadge();
+          renderDelReadBtn();
+          renderNoticeCard();
+          document.querySelectorAll('#noticeList .nm-item.unread').forEach(function (row) {
+            row.classList.remove('unread');
+            var dot = row.querySelector('.nt-dot');
+            if (dot) dot.remove();
+          });
+        } catch (e) {
+          Shade.toast(e.message, 'error');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      // 整卡与「查看全部」入口均可打开弹层
+      document.getElementById('noticeCard').addEventListener('click', openNoticeModal);
+      document.getElementById('noticeBadge').addEventListener('click', openNoticeModal);
+      document.getElementById('noticeClose').innerHTML = Shade.icon('close', 16);
+      document.getElementById('noticeClose').addEventListener('click', function () {
+        document.getElementById('noticeMask').classList.remove('show');
+      });
+      document.getElementById('noticeMask').addEventListener('click', function (e) {
+        if (e.target === this) this.classList.remove('show');
+      });
+
+      // 加载数据
+      (async function () {
+        /* 用户资料刷新（接口失败回退本地缓存）：顶栏 #miniAvatar/#topName 由 refreshUser 统一更新，用户卡等页面元素进回调 */
+        await Shade.refreshUser(function (u) {
+          if (u) renderProfile(u);
+        });
+        try {
+          var r2 = await Shade.api('/api/v1/app/list');
+          var fullList = r2.data.list || [];
+          hasWorklog = fullList.some(function (item) {
+            return item.app_key === 'work-log';
+          });
+          // 网页端宫格按 terminal 过滤：只展示 双端/PC端 应用（移动端应用仅小程序可见）
+          renderApps(
+            fullList.filter(function (item) {
+              return item.terminal !== 'mobile';
+            })
+          );
+          loadWorklogStats(); // 出工日志指标独立拉取，失败静默
+        } catch (e) {
+          document.getElementById('appCount').textContent = '加载失败';
+          document.getElementById('appGrid').innerHTML =
+            '<div class="empty">' +
+            Shade.icon('warn', 44) +
+            '<p>' +
+            Shade.esc(e.message || '应用列表加载失败') +
+            '</p></div>';
+        }
+        loadNotices(); // 通知卡独立拉取，失败静默不阻断
+        Shade.reveal();
+      })();
+    </script>
+  </body>
 </html>

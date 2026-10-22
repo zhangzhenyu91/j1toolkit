@@ -4,8 +4,12 @@
 <view class="page-body">
   <!-- 顶部操作条（删除已读常驻于有已读时；全部已读仅有未读时显示，右对齐避开右上角胶囊区） -->
   <view class="top-bar" wx:if="{{unread > 0 || hasRead}}">
-    <view class="del-read" hover-class="hover-opacity" bindtap="onDelRead" wx:if="{{hasRead}}">删除已读</view>
-    <view class="read-all" hover-class="hover-opacity" bindtap="onReadAll" wx:if="{{unread > 0}}">全部已读</view>
+    <view class="del-read" hover-class="hover-opacity" bindtap="onDelRead" wx:if="{{hasRead}}"
+      >删除已读</view
+    >
+    <view class="read-all" hover-class="hover-opacity" bindtap="onReadAll" wx:if="{{unread > 0}}"
+      >全部已读</view
+    >
   </view>
 
   <t-empty wx:if="{{!loading && items.length === 0}}" description="暂无通知" />
@@ -28,7 +32,11 @@
       <!-- 折叠：原文两行摘要；展开：Markdown 渲染（mp-html 支持图片点击预览） -->
       <view class="n-content" wx:if="{{!item.expanded}}">{{item.content}}</view>
       <view class="n-content-md" wx:else>
-        <mp-html content="{{item.html}}" tag-style="{{mdTagStyle}}" container-style="{{mdContainerStyle}}" />
+        <mp-html
+          content="{{item.html}}"
+          tag-style="{{mdTagStyle}}"
+          container-style="{{mdContainerStyle}}"
+        />
       </view>
     </view>
   </view>

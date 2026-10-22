@@ -18,6 +18,7 @@ snapshot 上盘的表留给服务端取回后删除（客户端不删）——�
 - nightly（23:55 本地定时兜底）：有指令按 tick 逻辑走；无指令则做一次 snapshot
   （服务端 23:50 挂载 U 盘，客户端 23:55 兜底拷贝内网表上盘，文件名用 tree_sync.file_name）
 """
+
 import json
 import os
 import shutil
@@ -29,13 +30,16 @@ import scheduler
 import state
 
 APP_ID = "tree_sync"
-CMD_NAME = "tree_sync_cmd.json"          # U 盘根目录的指令文件名（服务端契约，不可改）
-STAMP_NIGHTLY = "tree_sync_nightly"      # 夜间兜底的成功戳（不共用 daily_export，指南调度规范）
+CMD_NAME = "tree_sync_cmd.json"  # U 盘根目录的指令文件名（服务端契约，不可改）
+STAMP_NIGHTLY = (
+    "tree_sync_nightly"  # 夜间兜底的成功戳（不共用 daily_export，指南调度规范）
+)
 DEFAULT_FILE_NAME = "检修一班树木统计表.xlsx"
 ALLOWED_KINDS = ("snapshot", "replace")
 
 
 # ---------------------------------------------------------------- 工具
+
 
 def _in_root(name: str, root: Path) -> bool:
     """文件名安全校验：禁止路径穿越，只允许落在 U 盘根目录（指令 file 字段来自服务端）"""
@@ -43,8 +47,9 @@ def _in_root(name: str, root: Path) -> bool:
     if not name or name in (".", "..") or Path(name).name != name:
         return False
     try:
-        return os.path.commonpath([str(root.resolve()), str((root / name).resolve())]) \
-            == str(root.resolve())
+        return os.path.commonpath(
+            [str(root.resolve()), str((root / name).resolve())]
+        ) == str(root.resolve())
     except (OSError, ValueError):
         return False
 
@@ -68,7 +73,9 @@ def _read_cmd(usb_dir: Path, log):
 def _snapshot(local: Path, usb_dir: Path, file_name: str, log) -> dict:
     """内网表 → U 盘根（文件名 file_name）"""
     if not local.is_file():
-        raise RuntimeError("内网表不存在: %s（请到树障统计表同步页检查 local_path 配置）" % local)
+        raise RuntimeError(
+            "内网表不存在: %s（请到树障统计表同步页检查 local_path 配置）" % local
+        )
     dest = usb_dir / file_name
     shutil.copy2(str(local), str(dest))
     log("已拷贝内网表 → U盘: %s（%.1f KB）" % (dest, dest.stat().st_size / 1024))
@@ -105,6 +112,7 @@ def _finish(usb_dir: Path, log):
 
 # ---------------------------------------------------------------- 业务
 
+
 def _tick(job, cfg, params: dict) -> dict:
     """轮询一次：找 U 盘 → 有指令按 kind 执行；无指令时 nightly 兜底 snapshot"""
     log = job.log
@@ -129,7 +137,9 @@ def _tick(job, cfg, params: dict) -> dict:
             return {"skipped": "no_command"}
         # 夜间兜底：无指令也执行一次 snapshot，文件名用配置
         if not local_path:
-            raise RuntimeError("未配置内网表路径（tree_sync.local_path）：请到树障统计表同步页选择内网 xlsx 文件")
+            raise RuntimeError(
+                "未配置内网表路径（tree_sync.local_path）：请到树障统计表同步页选择内网 xlsx 文件"
+            )
         file_name = (ts.get("file_name") or "").strip() or DEFAULT_FILE_NAME
         log("夜间兜底：U盘无指令，执行 snapshot（%s）" % file_name)
         result = _snapshot(Path(local_path), usb_dir, file_name, log)
@@ -151,7 +161,9 @@ def _tick(job, cfg, params: dict) -> dict:
         return {"skipped": "bad_file", "cycle_id": cycle_id}
     if not local_path:
         # 有指令要执行但配置缺失：失败留痕，指令保留（配置补齐后下一轮 tick 自动补执行）
-        raise RuntimeError("未配置内网表路径（tree_sync.local_path）：请到树障统计表同步页选择内网 xlsx 文件")
+        raise RuntimeError(
+            "未配置内网表路径（tree_sync.local_path）：请到树障统计表同步页选择内网 xlsx 文件"
+        )
 
     job.set_progress(2, 2, "执行指令")
     local = Path(local_path)
@@ -168,6 +180,7 @@ def _tick(job, cfg, params: dict) -> dict:
 
 # ---------------------------------------------------------------- 契约入口
 
+
 def run(job, params: dict) -> dict:
     cfg = _config.load()
     params = params or {}
@@ -180,10 +193,12 @@ def run(job, params: dict) -> dict:
         # 夜间兜底成功（含 U盘不在的跳过）：写成功戳，今日不再重试；
         # 真失败（抛异常）不写戳，由尝试间隔闸控制重试节奏
         from datetime import datetime
-        scheduler.mark_success(datetime.now().strftime("%Y-%m-%d"),
-                               {"cycle_id": result.get("cycle_id", ""),
-                                "kind": result.get("kind", "")},
-                               stamp_name=STAMP_NIGHTLY)
+
+        scheduler.mark_success(
+            datetime.now().strftime("%Y-%m-%d"),
+            {"cycle_id": result.get("cycle_id", ""), "kind": result.get("kind", "")},
+            stamp_name=STAMP_NIGHTLY,
+        )
     return result
 
 
@@ -192,12 +207,17 @@ def status(cfg: dict) -> dict:
     usb = cfg.get("usb") or {}
     local_path = (ts.get("local_path") or "").strip()
     return {
-        "tree_sync": {"local_path": local_path,
-                      "local_exists": bool(local_path) and Path(local_path).is_file(),
-                      "file_name": ts.get("file_name", DEFAULT_FILE_NAME),
-                      "nightly_time": ts.get("nightly_time", "23:55")},
+        "tree_sync": {
+            "local_path": local_path,
+            "local_exists": bool(local_path) and Path(local_path).is_file(),
+            "file_name": ts.get("file_name", DEFAULT_FILE_NAME),
+            "nightly_time": ts.get("nightly_time", "23:55"),
+        },
         "stamp": state.get_stamp(STAMP_NIGHTLY),
         "last_run": state.last_run(APP_ID),
-        "usb": {"label": usb.get("label", ""),
-                "mount": platform_utils.find_usb_mount(usb.get("label", ""), lambda m: None) or ""},
+        "usb": {
+            "label": usb.get("label", ""),
+            "mount": platform_utils.find_usb_mount(usb.get("label", ""), lambda m: None)
+            or "",
+        },
     }

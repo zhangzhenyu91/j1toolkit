@@ -37,7 +37,7 @@ const kindOf = (name) => {
   if (VIDEO_EXTS.includes(ext)) return 'video';
   return 'file';
 };
-const iconOf = (name) => ({ image: 'file-image', video: 'video', file: 'file' }[kindOf(name)]);
+const iconOf = (name) => ({ image: 'file-image', video: 'video', file: 'file' })[kindOf(name)];
 
 // unix 秒 → 'YYYY-MM-DD HH:mm'（同网页端 Shade.fmtDate(d, true)）
 const fmtLast = (sec) => {
@@ -87,7 +87,16 @@ Page({
     // 存网盘目录选择（nd-dirpicker 共享组件；单文件与批量共用，names 为待存设备文件名列表）
     ndSave: { open: false, names: [] },
     // 网盘文件选择弹层（文件夹可进入，仅文件可勾选，多选）
-    ndPicker: { open: false, space: 'my', dir: '/', items: [], loading: false, error: '', selectedList: [], saving: false },
+    ndPicker: {
+      open: false,
+      space: 'my',
+      dir: '/',
+      items: [],
+      loading: false,
+      error: '',
+      selectedList: [],
+      saving: false,
+    },
     ndCrumbs: [],
   },
 
@@ -172,7 +181,7 @@ Page({
     if (mode === 'init') this.setData({ loading: true, error: '' });
     try {
       const data = await request({ url: `/api/v1/kvm/devices${this.teamQuery('?')}` });
-      const list = (((data && data.items) || [])).map((d) => {
+      const list = ((data && data.items) || []).map((d) => {
         const st = STATUS_MAP[d.status] || STATUS_MAP.offline;
         return {
           id: d.id,
@@ -183,7 +192,8 @@ Page({
           ddns: d.ddns || '',
           ip: d.ip || '—',
           mac: d.mac || '—',
-          last: d.status === 'online' ? '当前在线' : (d.connectedTime ? fmtLast(d.connectedTime) : '—'),
+          last:
+            d.status === 'online' ? '当前在线' : d.connectedTime ? fmtLast(d.connectedTime) : '—',
           maintaining: Boolean(d.maintaining), // 维护锁（每日派车单同步窗口，后端锁定期间操作返回 423）
         };
       });
@@ -214,7 +224,10 @@ Page({
     if (this.data.dlBusy || this.data.downloading) return;
     this.setData({
       dlOpen: false,
-      upOpen: true, upDevice: this.data.dlDevice, upFiles: [], upTotalText: '0 B',
+      upOpen: true,
+      upDevice: this.data.dlDevice,
+      upFiles: [],
+      upTotalText: '0 B',
     });
   },
 
@@ -257,7 +270,8 @@ Page({
         icon: iconOf(c.name),
       };
       const idx = upFiles.findIndex((f) => f.name === item.name);
-      if (idx >= 0) upFiles.splice(idx, 1, item); // 同名替换
+      if (idx >= 0)
+        upFiles.splice(idx, 1, item); // 同名替换
       else upFiles.push(item);
     }
     if (rejected) this.toast(`${rejected} 个文件超过 200MB 已剔除`);
@@ -274,7 +288,8 @@ Page({
         const cands = (res.tempFiles || []).map((t, i) => {
           const ext = t.tempFilePath.split('.').pop() || (t.fileType === 'video' ? 'mp4' : 'jpg');
           const d = new Date();
-          const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+          const ts =
+            `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
             `_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
           return {
             name: `${t.fileType === 'video' ? 'VID' : 'IMG'}_${ts}${i ? `_${i}` : ''}.${ext}`,
@@ -293,11 +308,13 @@ Page({
       count: 9,
       type: 'file',
       success: (res) => {
-        this.addUpFiles((res.tempFiles || []).map((t) => ({
-          name: t.name,
-          size: t.size,
-          path: t.path,
-        })));
+        this.addUpFiles(
+          (res.tempFiles || []).map((t) => ({
+            name: t.name,
+            size: t.size,
+            path: t.path,
+          }))
+        );
       },
     });
   },
@@ -318,12 +335,18 @@ Page({
         url: `${config.BASE_URL}/api/v1/kvm/devices/${deviceId}/push`,
         filePath: file.path,
         name: 'files',
-        formData: this._teamId ? { filename: file.name, team_id: String(this._teamId) } : { filename: file.name },
+        formData: this._teamId
+          ? { filename: file.name, team_id: String(this._teamId) }
+          : { filename: file.name },
         header: { Authorization: `Bearer ${wx.getStorageSync('token')}` },
         timeout: 120000,
         success(res) {
           let body = {};
-          try { body = JSON.parse(res.data); } catch (e) { /* 保持空对象 */ }
+          try {
+            body = JSON.parse(res.data);
+          } catch (e) {
+            /* 保持空对象 */
+          }
           if (res.statusCode >= 200 && res.statusCode < 300 && body.code === 0) {
             resolve(body.data);
           } else {
@@ -378,7 +401,11 @@ Page({
       return;
     }
     this.setData({
-      dlOpen: true, dlDevice: dev, dlFiles: [], dlLoading: false, dlState: 'checking',
+      dlOpen: true,
+      dlDevice: dev,
+      dlFiles: [],
+      dlLoading: false,
+      dlState: 'checking',
     });
     this.checkDlState();
   },
@@ -429,7 +456,12 @@ Page({
         url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/files${this.teamQuery('?')}`,
         timeout: 60000,
       });
-      this.setData({ dlFiles: this.mapDlFiles(data && data.files), dlLoading: false, dlState: 'local', dlSel: [] });
+      this.setData({
+        dlFiles: this.mapDlFiles(data && data.files),
+        dlLoading: false,
+        dlState: 'local',
+        dlSel: [],
+      });
     } catch (err) {
       this.setData({ dlLoading: false, dlOpen: false });
       this.toast(err.message || '读取盘内文件失败');
@@ -595,24 +627,26 @@ Page({
       content: `删除后不可恢复，确定删除「${name}」吗？`,
       confirmBtn: '删除',
       cancelBtn: '取消',
-    }).then(async () => {
-      try {
-        const data = await request({
-          url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/delete`,
-          method: 'POST',
-          data: this.teamBody({ names: [name] }),
-          timeout: 60000,
-        });
-        // deleted/missing 均视为已不在盘内，按 name 过滤移除（渲染 index 在异步请求期间可能错位；多选已选同步剔除）
-        this.setData({
-          dlFiles: this.data.dlFiles.filter((f) => f.name !== name),
-          dlSel: this.data.dlSel.filter((n) => n !== name),
-        });
-        this.toast((data && (data.deleted || []).includes(name)) ? '已删除' : '文件已不存在');
-      } catch (err) {
-        this.toast(err.message);
-      }
-    }).catch(() => {});
+    })
+      .then(async () => {
+        try {
+          const data = await request({
+            url: `/api/v1/kvm/devices/${this.data.dlDevice.id}/delete`,
+            method: 'POST',
+            data: this.teamBody({ names: [name] }),
+            timeout: 60000,
+          });
+          // deleted/missing 均视为已不在盘内，按 name 过滤移除（渲染 index 在异步请求期间可能错位；多选已选同步剔除）
+          this.setData({
+            dlFiles: this.data.dlFiles.filter((f) => f.name !== name),
+            dlSel: this.data.dlSel.filter((n) => n !== name),
+          });
+          this.toast(data && (data.deleted || []).includes(name) ? '已删除' : '文件已不存在');
+        } catch (err) {
+          this.toast(err.message);
+        }
+      })
+      .catch(() => {});
   },
 
   // 插入 U 盘（挂载到被控机）：挂载后弹层切到 shared 态，放好文件后点「取回 U 盘」断开共享并读取
@@ -625,7 +659,12 @@ Page({
     }
     this.setData({ mounting: true });
     try {
-      await request({ url: `/api/v1/kvm/devices/${dlDevice.id}/mount`, method: 'POST', data: this.teamBody({}), timeout: 60000 });
+      await request({
+        url: `/api/v1/kvm/devices/${dlDevice.id}/mount`,
+        method: 'POST',
+        data: this.teamBody({}),
+        timeout: 60000,
+      });
       this.setData({ dlState: 'shared' });
       this.toast('已挂载到被控机，可在该机向 U 盘放入文件');
     } catch (err) {
@@ -662,7 +701,11 @@ Page({
         open: true,
         space: this.data.ndHasPublic ? 'public' : 'my',
         dir: '/',
-        items: [], loading: true, error: '', selectedList: [], saving: false,
+        items: [],
+        loading: true,
+        error: '',
+        selectedList: [],
+        saving: false,
       },
     });
     this.loadNdList();
@@ -690,7 +733,11 @@ Page({
     const segs = p.dir.split('/').filter(Boolean);
     const crumbs = [{ name: cur ? cur.name : p.space, path: '/', last: segs.length === 0 }];
     segs.forEach((s, i) => {
-      crumbs.push({ name: s, path: `/${segs.slice(0, i + 1).join('/')}`, last: i === segs.length - 1 });
+      crumbs.push({
+        name: s,
+        path: `/${segs.slice(0, i + 1).join('/')}`,
+        last: i === segs.length - 1,
+      });
     });
     this.setData({ ndCrumbs: crumbs });
   },
@@ -701,7 +748,11 @@ Page({
     this.setData({ 'ndPicker.loading': true, 'ndPicker.error': '' });
     this.buildNdCrumbs();
     try {
-      const data = await request({ url: '/api/v1/netdisk/list', method: 'POST', data: { space: p.space, path: p.dir } });
+      const data = await request({
+        url: '/api/v1/netdisk/list',
+        method: 'POST',
+        data: { space: p.space, path: p.dir },
+      });
       const sel = this.data.ndPicker.selectedList;
       const rows = ((data && data.items) || []).map((o) => ({
         name: o.name,
@@ -724,7 +775,12 @@ Page({
     const key = e.currentTarget.dataset.key;
     if (!key || key === this.data.ndPicker.space) return;
     // 切换空间清空已选（paths 属于单一 space）
-    this.setData({ 'ndPicker.space': key, 'ndPicker.dir': '/', 'ndPicker.items': [], 'ndPicker.selectedList': [] });
+    this.setData({
+      'ndPicker.space': key,
+      'ndPicker.dir': '/',
+      'ndPicker.items': [],
+      'ndPicker.selectedList': [],
+    });
     this.loadNdList();
   },
 
@@ -764,11 +820,13 @@ Page({
       timeout: 120000,
       withMessage: true,
       data: this.teamBody({ space: p.space, paths: p.selectedList }),
-    }).then((res) => {
-      this.setData({ 'ndPicker.open': false, upFiles: [] });
-      this.closeUpload(); // 回 U 盘弹层并刷新（网盘推送仅入盘不挂载）
-      this.toast((res && res.message) || `已推送 ${p.selectedList.length} 个文件到设备`);
-    }).catch((err) => this.toast(err.message))
+    })
+      .then((res) => {
+        this.setData({ 'ndPicker.open': false, upFiles: [] });
+        this.closeUpload(); // 回 U 盘弹层并刷新（网盘推送仅入盘不挂载）
+        this.toast((res && res.message) || `已推送 ${p.selectedList.length} 个文件到设备`);
+      })
+      .catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'ndPicker.saving': false }));
   },
 
@@ -823,7 +881,7 @@ Page({
     this.setData({ savingNd: '', dlBusy: false });
     if (names.length === 1) {
       // 单文件保持原回显：成功 toast 返回路径，失败 toast 后端原文
-      this.toast(ok ? `已保存到网盘：${lastPath}` : (failMsg || '保存失败'));
+      this.toast(ok ? `已保存到网盘：${lastPath}` : failMsg || '保存失败');
     } else {
       this.toast(fail ? `成功 ${ok} 失败 ${fail}：${failMsg}` : `已保存 ${ok} 个文件到网盘`);
     }

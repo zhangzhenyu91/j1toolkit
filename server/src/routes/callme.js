@@ -47,7 +47,8 @@ function ingestFail(res, code, message, extra) {
 }
 
 // 模型识别：query 中「（请）使用/调用/换成/切换到/切换成 + 模型名」候选词（规则见《开发指南》第六章）
-const MODEL_HINT_RE = /(?:请)?(?:使用|调用|换成|切换到|切换成)\s*([A-Za-z0-9一-龥][A-Za-z0-9.\-_ 一-龥]{0,29})/u;
+const MODEL_HINT_RE =
+  /(?:请)?(?:使用|调用|换成|切换到|切换成)\s*([A-Za-z0-9一-龥][A-Za-z0-9.\-_ 一-龥]{0,29})/u;
 
 // 抽取模型提示候选：仅含 ASCII 字母/数字的候选才进模型匹配——
 // 「如何使用万用表测量电阻」等纯中文普通提问不视为模型提示，避免误判 model_not_found
@@ -58,13 +59,18 @@ function extractModelHint(query) {
 
 // 模型名规范化：小写并去掉空格/点/横线/下划线
 function normModelKey(s) {
-  return String(s || '').toLowerCase().replace(/[.\-_\s]+/g, '');
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[.\-_\s]+/g, '');
 }
 
 // 候选词与模型表匹配：按空格切 1–3 词前缀段、先长后短逐段与模型 id/name 规范化双向包含匹配；
 // 一段多命中取规范化名最长者；全段无命中返回 null（调用方回 model_not_found）
 function matchModelByHint(hint, models) {
-  const words = String(hint || '').trim().split(/\s+/).filter(Boolean);
+  const words = String(hint || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
   for (let n = Math.min(words.length, 3); n >= 1; n -= 1) {
     const seg = normModelKey(words.slice(0, n).join(' '));
     if (!seg) continue;
@@ -76,12 +82,17 @@ function matchModelByHint(hint, models) {
     // 多命中取规范化名最长者（显示名缺失时退化用 id）
     const best = hits
       .slice()
-      .sort((a, b) => normModelKey(b.display_name || b.name || b.id).length
-        - normModelKey(a.display_name || a.name || a.id).length)[0];
+      .sort(
+        (a, b) =>
+          normModelKey(b.display_name || b.name || b.id).length -
+          normModelKey(a.display_name || a.name || a.id).length
+      )[0];
     // 思考强度取该模型 thinking_levels 最后一档（最高档）；空数组不传
     const levels = Array.isArray(best.capabilities && best.capabilities.thinking_levels)
       ? best.capabilities.thinking_levels
-      : (Array.isArray(best.parameters && best.parameters.thinking_levels) ? best.parameters.thinking_levels : []);
+      : Array.isArray(best.parameters && best.parameters.thinking_levels)
+        ? best.parameters.thinking_levels
+        : [];
     return {
       id: best.id,
       name: best.display_name || best.name,
@@ -95,9 +106,14 @@ function matchModelByHint(hint, models) {
 router.post('/ingest-chat', async (req, res) => {
   // 对接密钥：未配置 503、不等 401
   const token = config.callme.ingestToken;
-  if (!token) return res.status(503).json({ ok: false, code: 'ingest_token_missing', message: '未配置对接密钥' });
+  if (!token)
+    return res
+      .status(503)
+      .json({ ok: false, code: 'ingest_token_missing', message: '未配置对接密钥' });
   if (String(req.get('X-Ingest-Token') || '') !== token) {
-    return res.status(401).json({ ok: false, code: 'ingest_token_invalid', message: '对接密钥错误' });
+    return res
+      .status(401)
+      .json({ ok: false, code: 'ingest_token_invalid', message: '对接密钥错误' });
   }
 
   const body = req.body || {};
@@ -112,7 +128,12 @@ router.post('/ingest-chat', async (req, res) => {
   let images;
   if (body.image) {
     const imgBad = checkImageDataUrl(body.image);
-    if (imgBad === 'format') return ingestFail(res, 'unsupported_file', '图片格式应为 jpeg/png/gif/webp（base64 dataURL）');
+    if (imgBad === 'format')
+      return ingestFail(
+        res,
+        'unsupported_file',
+        '图片格式应为 jpeg/png/gif/webp（base64 dataURL）'
+      );
     if (imgBad === 'size') return ingestFail(res, 'file_too_large', '图片大小应在 8MB 以内');
     images = [{ data: body.image }];
   }
@@ -124,15 +145,15 @@ router.post('/ingest-chat', async (req, res) => {
     const name = f && typeof f.name === 'string' ? f.name : '';
     const b64 = f && typeof f.data_base64 === 'string' ? f.data_base64 : '';
     // 文件名须是合法 UTF-8（往返转换一致，拦截孤立代理字符）且不含控制字符（上游 ValidateInput 会拒非法字符）
-    const nameOk = name
-      && Buffer.from(name, 'utf8').toString('utf8') === name
-      && !/[\u0000-\u001f]/.test(name);
+    const nameOk =
+      name && Buffer.from(name, 'utf8').toString('utf8') === name && !/[\u0000-\u001f]/.test(name);
     if (!nameOk || !b64 || !/^[A-Za-z0-9+/=\s]*$/.test(b64)) {
       return ingestFail(res, 'unsupported_file', '附件名称或内容无效');
     }
     const buffer = Buffer.from(b64, 'base64');
     if (!buffer.length) return ingestFail(res, 'unsupported_file', '附件内容为空');
-    if (buffer.length > 50 * 1024 * 1024) return ingestFail(res, 'file_too_large', '附件大小应在 50MB 以内');
+    if (buffer.length > 50 * 1024 * 1024)
+      return ingestFail(res, 'file_too_large', '附件大小应在 50MB 以内');
     const ext = getFileExt(name);
     if (!ATTACHMENT_EXTS.has(ext)) {
       return ingestFail(res, 'unsupported_file', `不支持的附件格式：${ext || '无扩展名'}`);
@@ -148,7 +169,9 @@ router.post('/ingest-chat', async (req, res) => {
     );
     if (!users.length) return ingestFail(res, 'user_not_found', '该 wxid 未绑定壹匣账号');
     if (users.length > 1) {
-      console.error(`[Call Me 群内提问] wxid ${wxid} 绑定了多个启用账号：${users.map((u) => u.username).join('、')}`);
+      console.error(
+        `[Call Me 群内提问] wxid ${wxid} 绑定了多个启用账号：${users.map((u) => u.username).join('、')}`
+      );
       return ingestFail(res, 'user_not_found', '该 wxid 绑定了多个壹匣账号');
     }
     const user = users[0];
@@ -225,7 +248,11 @@ router.post('/ingest-chat', async (req, res) => {
     });
   } catch (err) {
     console.error('[Call Me 群内提问] 处理失败：', err.message);
-    return ingestFail(res, 'upstream_error', err.expose ? err.message : 'AI 服务暂时不可用，请稍后再试');
+    return ingestFail(
+      res,
+      'upstream_error',
+      err.expose ? err.message : 'AI 服务暂时不可用，请稍后再试'
+    );
   }
 });
 
@@ -240,15 +267,44 @@ const attachmentUpload = multer({
 // 附件扩展名白名单（不含点、小写比较；与 WeKnora 临时文档支持的格式对齐；
 // mp4：WeKnora 侧视频解析能力待验证，随白名单放开）
 const ATTACHMENT_EXTS = new Set([
-  'pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'epub', 'mhtml',
-  'csv', 'md', 'markdown', 'txt', 'json', 'html',
-  'mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac',
-  'bmp', 'tiff', 'tif',
+  'pdf',
+  'docx',
+  'doc',
+  'pptx',
+  'ppt',
+  'xlsx',
+  'xls',
+  'epub',
+  'mhtml',
+  'csv',
+  'md',
+  'markdown',
+  'txt',
+  'json',
+  'html',
+  'mp3',
+  'wav',
+  'm4a',
+  'flac',
+  'ogg',
+  'aac',
+  'bmp',
+  'tiff',
+  'tif',
   'mp4',
 ]);
 
 // 思考强度固定档位（仅当 /chat 显式提供 reasoning_effort 时校验，缺省由模型/会话默认决定）
-const REASONING_EFFORTS = new Set(['off', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+const REASONING_EFFORTS = new Set([
+  'off',
+  'auto',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
 
 // 统一处理 WeKnora 调用错误（避免把内部细节抛给客户端）
 function weknoraError(res, err, next) {
@@ -421,13 +477,16 @@ router.get('/sessions/:id/attachments', async (req, res, next) => {
   try {
     const data = await weknora.listAttachments(req.user.username, req.params.id);
     const list = Array.isArray(data && data.data) ? data.data : [];
-    return ok(res, list.map((d) => ({
-      id: d.id,
-      name: d.file_name,
-      size: d.file_size,
-      status: d.status,
-      error_message: d.error_message,
-    })));
+    return ok(
+      res,
+      list.map((d) => ({
+        id: d.id,
+        name: d.file_name,
+        size: d.file_size,
+        status: d.status,
+        error_message: d.error_message,
+      }))
+    );
   } catch (err) {
     return weknoraError(res, err, next);
   }
@@ -450,19 +509,23 @@ router.get('/capabilities', async (req, res) => {
         id: m.id,
         name: m.display_name || m.name,
         // supports_vision / thinking_levels 字段位置随 WeKnora 版本在 capabilities / parameters 之间变动，两处兼容
-        supports_vision: (m.capabilities && m.capabilities.supports_vision === true)
-          || (m.parameters && m.parameters.supports_vision === true),
+        supports_vision:
+          (m.capabilities && m.capabilities.supports_vision === true) ||
+          (m.parameters && m.parameters.supports_vision === true),
         thinking_levels: Array.isArray(m.capabilities && m.capabilities.thinking_levels)
           ? m.capabilities.thinking_levels
-          : (Array.isArray(m.parameters && m.parameters.thinking_levels) ? m.parameters.thinking_levels : []),
+          : Array.isArray(m.parameters && m.parameters.thinking_levels)
+            ? m.parameters.thinking_levels
+            : [],
       }));
     const agent = (agentRaw && agentRaw.data) || {};
     const agentCfg = agent.config || {};
-    const agentWebSearch = agent.web_search_enabled === true || agentCfg.web_search_enabled === true;
+    const agentWebSearch =
+      agent.web_search_enabled === true || agentCfg.web_search_enabled === true;
     const providerId = agent.web_search_provider_id || agentCfg.web_search_provider_id || '';
     const providers = Array.isArray(providersRaw && providersRaw.data) ? providersRaw.data : [];
-    capabilities.web_search = agentWebSearch
-      && (!!providerId || providers.some((p) => p.is_default === true));
+    capabilities.web_search =
+      agentWebSearch && (!!providerId || providers.some((p) => p.is_default === true));
   } catch (err) {
     // 探测失败降级为空能力，不影响对话主流程
   }
@@ -474,10 +537,11 @@ router.get('/capabilities', async (req, res) => {
 // 乐观流出的过渡语 preamble 不计入最终回答），300s 无字节静默看门狗判上游卡死。
 // 返回 { answer, requestId }；失败抛错——err.emitted === true 表示 error 事件已由 onEvent 下发，
 // 调用方只收尾不要重复下发；signal（AbortSignal）中止时销毁上游并抛出已静默错误（客户端断连场景）。
-async function collectAnswer(username, sessionId, {
-  query, images, attachmentIds, webSearch, modelId, reasoningEffort,
-  onEvent = () => {}, signal,
-}) {
+async function collectAnswer(
+  username,
+  sessionId,
+  { query, images, attachmentIds, webSearch, modelId, reasoningEffort, onEvent = () => {}, signal }
+) {
   const wres = await weknora.agentChatStream(username, sessionId, {
     query,
     images,
@@ -586,7 +650,13 @@ async function collectAnswer(username, sessionId, {
           const args = hasArgs ? meta.arguments : (prev && prev.args) || {};
           const name = meta.tool_name || (prev && prev.name) || '';
           if (id) toolCalls.set(id, { name, args });
-          onEvent({ type: 'tool_start', id, name, title: agentSteps.pendingTitle(name), update: !!prev });
+          onEvent({
+            type: 'tool_start',
+            id,
+            name,
+            title: agentSteps.pendingTitle(name),
+            update: !!prev,
+          });
           break;
         }
         case 'tool_result':
@@ -671,9 +741,12 @@ router.post('/chat', async (req, res) => {
     return fail(res, 400, 40003, '缺少 session_id 或 query');
   }
   // 附件引用：数组 ≤5、元素非空字符串（须先经 /sessions/:id/attachments 上传）
-  if (attachmentIds !== undefined
-    && (!Array.isArray(attachmentIds) || attachmentIds.length > 5
-      || attachmentIds.some((id) => typeof id !== 'string' || !id.trim()))) {
+  if (
+    attachmentIds !== undefined &&
+    (!Array.isArray(attachmentIds) ||
+      attachmentIds.length > 5 ||
+      attachmentIds.some((id) => typeof id !== 'string' || !id.trim()))
+  ) {
     return fail(res, 400, 40043, 'attachment_ids 参数无效（最多 5 个附件）');
   }
   if (webSearch !== undefined && typeof webSearch !== 'boolean') {
@@ -695,7 +768,7 @@ router.post('/chat', async (req, res) => {
     }
     if (images.length) {
       const item = images[0];
-      const dataUrl = (item && typeof item === 'object') ? item.data : item;
+      const dataUrl = item && typeof item === 'object' ? item.data : item;
       const imgBad = checkImageDataUrl(dataUrl);
       if (imgBad === 'format') {
         return fail(res, 400, 40045, '图片格式应为 jpeg/png/gif/webp（base64 dataURL）');

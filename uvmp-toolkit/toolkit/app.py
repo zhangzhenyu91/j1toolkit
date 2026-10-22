@@ -12,6 +12,7 @@
   python3 app.py rpc                    # stdio JSON-RPC 服务（Electron 壳 spawn 调用）
 退出码：0 成功/未到点；1 失败；2 GUI 依赖缺失。
 """
+
 import argparse
 import json
 import sys
@@ -23,22 +24,27 @@ for _p in (str(TOOLKIT_DIR), str(PROJECT_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import config as _config          # noqa: E402
-import jobs as _jobs              # noqa: E402
-import scheduler                  # noqa: E402
-import state                      # noqa: E402
+import config as _config  # noqa: E402
+import jobs as _jobs  # noqa: E402
+import scheduler  # noqa: E402
+import state  # noqa: E402
 
 
 def cmd_gui(cfg: dict) -> int:
     """桌面客户端已迁移到 Electron 版（desktop/，安装包见 Release）；
     本入口（uvmp-core）仅保留 CLI 与 RPC 服务能力"""
-    print("GUI 已迁移到 Electron 桌面客户端（见 Release 的安装包/桌面端源码 desktop/）。")
-    print("本程序仅提供命令行与 RPC 能力：daily-export / order-export / selfcheck / rpc")
+    print(
+        "GUI 已迁移到 Electron 桌面客户端（见 Release 的安装包/桌面端源码 desktop/）。"
+    )
+    print(
+        "本程序仅提供命令行与 RPC 能力：daily-export / order-export / selfcheck / rpc"
+    )
     return 2
 
 
 def _load_backend(app_id: str):
     from apps import scan_apps
+
     for app in scan_apps():
         if app["id"] == app_id and app.get("_backend"):
             return app["_backend"]
@@ -63,7 +69,7 @@ def cmd_daily_export(cfg: dict, args) -> int:
         if not due:
             print("[daily-export] 跳过：%s" % reason)
             return 0
-        scheduler.mark_attempt(_today)   # 分钟级 tick 下拉开失败重试间隔
+        scheduler.mark_attempt(_today)  # 分钟级 tick 下拉开失败重试间隔
     return _run_headless("daily_sync", "每日派车单同步", {"date": args.date or ""})
 
 
@@ -76,10 +82,14 @@ def cmd_tree_sync(cfg: dict, args) -> int:
             if not (ts.get("local_path") or "").strip():
                 print("[tree-sync] 跳过：未配置内网表路径（tree_sync.local_path）")
                 return 0
-            sch = {"enabled": True, "time": ts.get("nightly_time", "23:55"),
-                   "driver": (cfg.get("schedule") or {}).get("driver", "os")}
+            sch = {
+                "enabled": True,
+                "time": ts.get("nightly_time", "23:55"),
+                "driver": (cfg.get("schedule") or {}).get("driver", "os"),
+            }
             due, reason, _today = scheduler.due_check(
-                cfg, stamp_name="tree_sync_nightly", schedule=sch)
+                cfg, stamp_name="tree_sync_nightly", schedule=sch
+            )
             if not due:
                 print("[tree-sync] 跳过：%s" % reason)
                 return 0
@@ -110,6 +120,7 @@ def cmd_selfcheck() -> int:
     """构建冒烟：加载全部应用后端（覆盖 import 链：platform_utils/uvmp/vehicle_export…）。
     PyInstaller 打包后跑一遍可暴露缺失的 hidden-import / DLL 收集问题。"""
     from apps import scan_apps
+
     apps = scan_apps()
     if not apps:
         print("selfcheck 失败：未发现任何应用")
@@ -123,6 +134,7 @@ def cmd_selfcheck() -> int:
             ok = False
     import vehicle_export  # noqa: F401
     import platform_utils  # noqa: F401
+
     print("selfcheck %s" % ("通过" if ok else "失败"))
     return 0 if ok else 1
 
@@ -141,22 +153,37 @@ def main() -> int:
     sub.add_parser("selfcheck", help="自检：加载全部应用后端（构建冒烟用）")
     sub.add_parser("rpc", help="stdio JSON-RPC 服务（Electron 壳调用）")
     p1 = sub.add_parser("daily-export", help="每日派车单同步")
-    p1.add_argument("--if-due", action="store_true", help="先按配置时间做 due-check 判定")
+    p1.add_argument(
+        "--if-due", action="store_true", help="先按配置时间做 due-check 判定"
+    )
     p1.add_argument("--date", default="", help="导出日期 YYYY-MM-DD（默认今天）")
     p3 = sub.add_parser("tree-sync", help="树障统计表同步（U盘指令轮询 / 夜间兜底）")
     g3 = p3.add_mutually_exclusive_group()
-    g3.add_argument("--tick", action="store_true", help="轮询一次 U盘指令（默认；每分钟定时器用）")
-    g3.add_argument("--nightly", action="store_true", help="夜间兜底：无指令也 snapshot 一次")
-    p3.add_argument("--if-due", action="store_true",
-                    help="仅配合 --nightly：先按 tree_sync.nightly_time 做 due-check 判定")
+    g3.add_argument(
+        "--tick", action="store_true", help="轮询一次 U盘指令（默认；每分钟定时器用）"
+    )
+    g3.add_argument(
+        "--nightly", action="store_true", help="夜间兜底：无指令也 snapshot 一次"
+    )
+    p3.add_argument(
+        "--if-due",
+        action="store_true",
+        help="仅配合 --nightly：先按 tree_sync.nightly_time 做 due-check 判定",
+    )
     p2 = sub.add_parser("order-export", help="按派车单号按序导出")
     p2.add_argument("--xlsx", help="派车单号清单 xlsx 路径")
     p2.add_argument("--codes", help="直接给单号（逗号/空格分隔）")
     p2.add_argument("--outdir", required=True, help="输出目录")
     p2.add_argument("--type", choices=["pcd", "track", "all"], default="all")
-    p2.add_argument("--no-batch-dir", action="store_true", help="不建批次子目录，直接写入输出目录")
-    p2.add_argument("--calibrate-noon", dest="calibrate_noon", action="store_true",
-                    help="自动校准行程结束时间：早于12点的行程按1小时逐次叠加至12点后，行驶时间同步增加")
+    p2.add_argument(
+        "--no-batch-dir", action="store_true", help="不建批次子目录，直接写入输出目录"
+    )
+    p2.add_argument(
+        "--calibrate-noon",
+        dest="calibrate_noon",
+        action="store_true",
+        help="自动校准行程结束时间：早于12点的行程按1小时逐次叠加至12点后，行驶时间同步增加",
+    )
     args = ap.parse_args()
 
     cfg = _config.load()
@@ -171,6 +198,7 @@ def main() -> int:
         return cmd_selfcheck()
     if args.cmd == "rpc":
         import rpc as _rpc
+
         _rpc.main()
         return 0
     if args.cmd == "daily-export":

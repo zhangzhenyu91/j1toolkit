@@ -6,8 +6,8 @@
   bottom: 0;
   z-index: 100;
   display: flex;
-  background: #FFFFFF;
-  border-top: 1rpx solid #E5E6EB;
+  background: #ffffff;
+  border-top: 1rpx solid #e5e6eb;
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -18,13 +18,15 @@
   align-items: center;
   justify-content: center;
   padding: 12rpx 0 8rpx;
-  color: #86909C;
+  color: #86909c;
   letter-spacing: 2rpx;
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .tab.on {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 600;
 }
 
@@ -43,5 +45,5 @@
 }
 
 .tab.on .t-dot {
-  background: #0E3DA8;
+  background: #0e3da8;
 }

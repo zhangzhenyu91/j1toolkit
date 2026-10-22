@@ -1,7 +1,7 @@
 /* 自定义导航栏 ·「政企蓝白」：浅底页 1rpx 发丝底线，深色页首取消底线 */
 .nav-wrap {
   width: 100%;
-  border-bottom: 1rpx solid #E5E6EB;
+  border-bottom: 1rpx solid #e5e6eb;
 }
 
 .nav-wrap.nav-dark {

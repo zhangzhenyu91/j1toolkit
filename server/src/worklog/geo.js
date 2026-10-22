@@ -70,13 +70,15 @@ async function fetchLocationWeather(lng, lat) {
         if (live) weather = `${live.weather} ${Math.round(Number(live.temperature))}°C`;
         else console.error('[出工日志] 高德天气返回异常：', wd.status, wd.info, '｜入参:', adcode);
       } catch (err) {
-        const d = err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
+        const d =
+          err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
         console.error('[出工日志] 高德天气获取失败：', d, '｜入参:', adcode);
       }
     }
     return { location, weather };
   } catch (err) {
-    const detail = err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
+    const detail =
+      err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
     console.error('[出工日志] 高德地点/天气获取失败：', detail, '｜入参:', coord);
     return empty;
   }

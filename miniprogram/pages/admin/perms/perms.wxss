@@ -17,15 +17,15 @@
 }
 
 .u-item-on {
-  background: #E8F0FF;
+  background: #e8f0ff;
 }
 
 .u-avatar {
   width: 72rpx;
   height: 72rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
   font-size: 32rpx;
   font-weight: 600;
   display: flex;
@@ -43,13 +43,13 @@
 .u-name {
   font-size: 28rpx;
   font-weight: 500;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .u-sub {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* ---------- 应用行 ---------- */
@@ -65,33 +65,35 @@
 }
 
 .a-item + .a-item {
-  border-top: 1rpx solid #E5E6EB;
+  border-top: 1rpx solid #e5e6eb;
 }
 
 .cbx {
   width: 36rpx;
   height: 36rpx;
   border-radius: 12rpx;
-  border: 2rpx solid rgba(29,33,41,.35);
-  color: #FFFFFF;
+  border: 2rpx solid rgba(29, 33, 41, 0.35);
+  color: #ffffff;
   font-size: 24rpx;
   line-height: 36rpx;
   text-align: center;
   margin-right: 20rpx;
   flex: none;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .cbx-on {
-  background: #0E3DA8;
-  border-color: #0E3DA8;
+  background: #0e3da8;
+  border-color: #0e3da8;
 }
 
 .a-ico {
   width: 72rpx;
   height: 72rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -106,14 +108,14 @@
 
 .a-name {
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 500;
 }
 
 .a-key {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .save-bar {
@@ -123,6 +125,6 @@
 .hint {
   margin-top: 48rpx;
   text-align: center;
-  color: #E5E6EB;
+  color: #e5e6eb;
   font-size: 24rpx;
 }

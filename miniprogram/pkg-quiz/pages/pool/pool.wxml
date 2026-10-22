@@ -5,8 +5,12 @@
 
 <view class="page-body" wx:if="{{!noTeam}}">
   <block wx:if="{{pool.length}}">
-    <view class="card pool-item" wx:for="{{pool}}" wx:key="id"
-          style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;">
+    <view
+      class="card pool-item"
+      wx:for="{{pool}}"
+      wx:key="id"
+      style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;"
+    >
       <view class="icon-box"><t-icon name="book" size="40rpx" color="#0E3DA8" /></view>
       <view class="tx">
         <b>
@@ -19,10 +23,23 @@
           <span wx:if="{{item.analyzing}}">{{item.analyzingText}}</span>
         </view>
       </view>
-      <view class="btn-join" wx:if="{{!item.added}}" hover-class="hover-opacity"
-            catchtap="onPoolJoin" data-id="{{item.id}}">添加</view>
-      <view class="joined" wx:else hover-class="hover-opacity"
-            catchtap="onPoolLeave" data-id="{{item.id}}" data-name="{{item.name}}">已加入</view>
+      <view
+        class="btn-join"
+        wx:if="{{!item.added}}"
+        hover-class="hover-opacity"
+        catchtap="onPoolJoin"
+        data-id="{{item.id}}"
+        >添加</view
+      >
+      <view
+        class="joined"
+        wx:else
+        hover-class="hover-opacity"
+        catchtap="onPoolLeave"
+        data-id="{{item.id}}"
+        data-name="{{item.name}}"
+        >已加入</view
+      >
     </view>
   </block>
   <view wx:elif="{{loading}}" class="empty-box">题库池加载中…</view>

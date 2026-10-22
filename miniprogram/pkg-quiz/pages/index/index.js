@@ -96,7 +96,7 @@ Page({
       this._loaded = true;
       this.setData({
         overview: ov || this.data.overview,
-        banks: bk ? ((bk.list || []).map((b) => this.mapBank(b))) : this.data.banks,
+        banks: bk ? (bk.list || []).map((b) => this.mapBank(b)) : this.data.banks,
         loading: false,
       });
     });
@@ -106,17 +106,20 @@ Page({
   mapBank(b) {
     const total = b.questionCount || 0;
     const answered = b.answeredCount || 0;
-    return Object.assign({
-      id: b.id,
-      name: b.name || '',
-      description: b.description || '',
-      questionCount: total,
-      answeredCount: answered,
-      rightRate: b.rightRate, // null=尚未作答
-      rightRateText: b.rightRate === null || b.rightRate === undefined ? '—' : `${b.rightRate}%`,
-      notStarted: answered === 0,
-      pct: total ? Math.round((answered / total) * 100) : 0,
-    }, mapAnalysis(b.analysis, total));
+    return Object.assign(
+      {
+        id: b.id,
+        name: b.name || '',
+        description: b.description || '',
+        questionCount: total,
+        answeredCount: answered,
+        rightRate: b.rightRate, // null=尚未作答
+        rightRateText: b.rightRate === null || b.rightRate === undefined ? '—' : `${b.rightRate}%`,
+        notStarted: answered === 0,
+        pct: total ? Math.round((answered / total) * 100) : 0,
+      },
+      mapAnalysis(b.analysis, total)
+    );
   },
 
   /* ==================== 交互 ==================== */

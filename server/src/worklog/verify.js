@@ -56,7 +56,7 @@ function feeStdOf(entry) {
 
 // 标准文案：市外/驻地口径追加「（市外）」「（驻地）」
 function feeStdText(std) {
-  const suffix = std.scope === 1 ? '（市外）' : (std.scope === 2 ? '（驻地）' : '');
+  const suffix = std.scope === 1 ? '（市外）' : std.scope === 2 ? '（驻地）' : '';
   return `伙食${std.foodFee}/交通${std.transitFee}` + suffix;
 }
 
@@ -148,13 +148,15 @@ function computeFailReasons(entry) {
   const dest = String(entry.destination_name || '').trim();
   entry.members.forEach((m) => {
     if (!m.sgccBound) return;
-    if (!clockinDestOk(ck[m.member_id] || {}, dest)) reasons.push(`${m.name}两次打卡地点均不含目的地`);
+    if (!clockinDestOk(ck[m.member_id] || {}, dest))
+      reasons.push(`${m.name}两次打卡地点均不含目的地`);
   });
   // f. 费用信息（全员约束，口径同状态函数；未绑定商旅者费用同样要补录）
   const fees = entry.feeMap || {};
   const std = feeStdOf(entry);
   entry.members.forEach((m) => {
-    if (!feeOk(fees[m.member_id], std)) reasons.push(`${m.name}费用信息未填写或不为 ${feeStdText(std)}`);
+    if (!feeOk(fees[m.member_id], std))
+      reasons.push(`${m.name}费用信息未填写或不为 ${feeStdText(std)}`);
   });
   // b. 水印照片人名覆盖用车人（非水印不计）
   const photos = wmPhotos(entry);
@@ -171,7 +173,8 @@ function computeFailReasons(entry) {
   // c. 施工内容一致性与非空（同状态函数的顺序语义：全部通过后才纳入判定）
   if (photos.every((p) => p.verify_status === 'passed')) {
     photos.forEach((p) => {
-      if (!contentOf(p)) reasons.push(`${(p.members || []).join('、') || '未署名'}的水印照片施工内容为空`);
+      if (!contentOf(p))
+        reasons.push(`${(p.members || []).join('、') || '未署名'}的水印照片施工内容为空`);
     });
     const contents = new Set(photos.map(contentOf));
     if (contents.size > 1) reasons.push('多张水印照片施工内容不一致');
@@ -190,10 +193,12 @@ function myReportReasons(entry, me) {
     if (!c[1]) reasons.push('我缺「开始打卡」');
     if (!c[2]) reasons.push('我缺「结束打卡」');
     // g. 我的两次打卡地点至少一次含目的地（两次齐才判）
-    if (!clockinDestOk(c, String(entry.destination_name || '').trim())) reasons.push('我的两次打卡地点均不含目的地');
+    if (!clockinDestOk(c, String(entry.destination_name || '').trim()))
+      reasons.push('我的两次打卡地点均不含目的地');
   }
   // f. 我的费用信息（全员约束：不论是否绑定商旅，费用均须填写且达当日适用标准）
-  if (myRow && !feeOk((entry.feeMap || {})[me.id], feeStdOf(entry))) reasons.push('我的费用信息未填写或不达标');
+  if (myRow && !feeOk((entry.feeMap || {})[me.id], feeStdOf(entry)))
+    reasons.push('我的费用信息未填写或不达标');
   if (myRow && !photos.some((p) => (p.members || []).includes(me.name))) {
     reasons.push('我未上传水印照片');
   }
@@ -204,4 +209,10 @@ function myReportReasons(entry, me) {
   return reasons;
 }
 
-module.exports = { computeVerifyPassed, computeFailReasons, myReportReasons, checkWatermark, resolveFeeStd };
+module.exports = {
+  computeVerifyPassed,
+  computeFailReasons,
+  myReportReasons,
+  checkWatermark,
+  resolveFeeStd,
+};

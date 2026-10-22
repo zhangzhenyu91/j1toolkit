@@ -15,13 +15,13 @@ const { BankStore } = require('./bank-store.cjs');
 const match = require('./match.cjs');
 
 const DEFAULT_SETTINGS = {
-  interval: 1000,      // 扫描间隔 ms（500~3000）
-  threshold: 0.6,      // 匹配命中阈值（0.3~0.9）
-  opacity: 0.9,        // 结果窗不透明度
-  result: { x: -1, y: -1, w: 380, h: 260 },   // 结果窗位置与尺寸（x/y=-1 = 默认右下角，用户拖动/缩放后落盘）
+  interval: 1000, // 扫描间隔 ms（500~3000）
+  threshold: 0.6, // 匹配命中阈值（0.3~0.9）
+  opacity: 0.9, // 结果窗不透明度
+  result: { x: -1, y: -1, w: 380, h: 260 }, // 结果窗位置与尺寸（x/y=-1 = 默认右下角，用户拖动/缩放后落盘）
   boxes: {
     A: { x: 80, y: 100, w: 720, h: 180, visible: true },
-    B: { x: 80, y: -1, w: 720, h: 180, visible: true },   // y=-1：初始化时贴屏幕底部
+    B: { x: 80, y: -1, w: 720, h: 180, visible: true }, // y=-1：初始化时贴屏幕底部
   },
 };
 
@@ -74,11 +74,11 @@ class QuizSearchService {
     this.lastHash = { A: 0, B: 0 };
     this.lastOcrMs = 0;
     this.lastTickError = '';
-    this._tickBusy = false;       // _tick 忙门闩：上一拍截屏未完不重入
-    this.ocrEpoch = 0;            // 停止/重启时作废旧帧结果
+    this._tickBusy = false; // _tick 忙门闩：上一拍截屏未完不重入
+    this.ocrEpoch = 0; // 停止/重启时作废旧帧结果
     this.bankIndex = [];
     this.indexDirty = true;
-    this.boxState = { A: null, B: null };   // 各框最新匹配（结果窗数据源）
+    this.boxState = { A: null, B: null }; // 各框最新匹配（结果窗数据源）
     this._lastPushed = '';
   }
 
@@ -86,7 +86,11 @@ class QuizSearchService {
 
   _loadSettings() {
     let saved = null;
-    try { saved = JSON.parse(fs.readFileSync(this.settingsPath, 'utf8')); } catch (_e) { /* 首次运行 */ }
+    try {
+      saved = JSON.parse(fs.readFileSync(this.settingsPath, 'utf8'));
+    } catch (_e) {
+      /* 首次运行 */
+    }
     const s = deepMerge(DEFAULT_SETTINGS, saved);
     if (s.boxes.B.y < 0) {
       const wa = screen.getPrimaryDisplay().workArea;
@@ -96,7 +100,11 @@ class QuizSearchService {
   }
 
   _saveSettings() {
-    try { fs.writeFileSync(this.settingsPath, JSON.stringify(this.settings, null, 2), 'utf8'); } catch (_e) { /* 忽略 */ }
+    try {
+      fs.writeFileSync(this.settingsPath, JSON.stringify(this.settings, null, 2), 'utf8');
+    } catch (_e) {
+      /* 忽略 */
+    }
   }
 
   // ---------------------------------------------------------------- 模型/子进程
@@ -154,27 +162,48 @@ class QuizSearchService {
       const proc = this.worker;
       this.worker = null;
       this.workerReady = false;
-      try { proc.terminate(); } catch (_e) { /* 已退出 */ }
+      try {
+        proc.terminate();
+      } catch (_e) {
+        /* 已退出 */
+      }
     }
   }
 
   _onWorkerMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
-    if (msg.type === 'ready') { this.workerReady = true; this._pushPageEvent({ type: 'engine', ready: true }); return; }
-    if (msg.type === 'error') { this.workerError = msg.message || '引擎初始化失败'; this._pushPageEvent({ type: 'engine', ready: false, error: this.workerError }); return; }
+    if (msg.type === 'ready') {
+      this.workerReady = true;
+      this._pushPageEvent({ type: 'engine', ready: true });
+      return;
+    }
+    if (msg.type === 'error') {
+      this.workerError = msg.message || '引擎初始化失败';
+      this._pushPageEvent({ type: 'engine', ready: false, error: this.workerError });
+      return;
+    }
     if (msg.type !== 'ocr-result') return;
     const epoch = (msg.id / 1000000) | 0;
-    if (epoch !== this.ocrEpoch) return;         // 已停止/重启，丢弃旧帧
-    const boxId = msg.id % 2 === 0 ? 'A' : 'B';  // id 低位奇偶承载框别（见 _queueOcr）
+    if (epoch !== this.ocrEpoch) return; // 已停止/重启，丢弃旧帧
+    const boxId = msg.id % 2 === 0 ? 'A' : 'B'; // id 低位奇偶承载框别（见 _queueOcr）
     this.inFlight[boxId] = false;
-    if (!msg.ok) { this.workerError = msg.error || 'OCR 失败'; return; }
+    if (!msg.ok) {
+      this.workerError = msg.error || 'OCR 失败';
+      return;
+    }
     this.lastOcrMs = msg.elapsedMs || 0;
     if (this.indexDirty) this._rebuildIndex();
     const hit = match.findBest(this.bankIndex, msg.text, this.settings.threshold);
     const prev = this.boxState[boxId];
-    const next = hit && hit.question
-      ? { matched: true, score: Math.round(hit.score * 100) / 100, q: hit.question, ocrText: msg.text.slice(0, 200) }
-      : { matched: false, ocrText: msg.text.slice(0, 200) };
+    const next =
+      hit && hit.question
+        ? {
+            matched: true,
+            score: Math.round(hit.score * 100) / 100,
+            q: hit.question,
+            ocrText: msg.text.slice(0, 200),
+          }
+        : { matched: false, ocrText: msg.text.slice(0, 200) };
     this.boxState[boxId] = next;
     if (JSON.stringify(prev) !== JSON.stringify(next)) this._pushResult();
   }
@@ -184,7 +213,7 @@ class QuizSearchService {
     this.inFlight[boxId] = true;
     const id = this.ocrEpoch * 1000000 + (this.ocrSeq++ % 500000) * 2 + (boxId === 'A' ? 0 : 1);
     const ab = bitmap.buffer.slice(bitmap.byteOffset, bitmap.byteOffset + bitmap.byteLength);
-    this.worker.postMessage({ type: 'ocr', id, bitmap: ab, width, height }, [ab]);   // transfer 零拷贝
+    this.worker.postMessage({ type: 'ocr', id, bitmap: ab, width, height }, [ab]); // transfer 零拷贝
   }
 
   // ---------------------------------------------------------------- 题库与匹配
@@ -210,13 +239,25 @@ class QuizSearchService {
   _createBoxWin(boxId) {
     const b = this.settings.boxes[boxId];
     const win = new BrowserWindow({
-      x: b.x, y: b.y, width: b.w, height: b.h,
-      minWidth: 160, minHeight: 60,
-      transparent: true, frame: false, alwaysOnTop: true, skipTaskbar: true,
-      resizable: false, focusable: false, hasShadow: false, minimizable: false, maximizable: false,
+      x: b.x,
+      y: b.y,
+      width: b.w,
+      height: b.h,
+      minWidth: 160,
+      minHeight: 60,
+      transparent: true,
+      frame: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      focusable: false,
+      hasShadow: false,
+      minimizable: false,
+      maximizable: false,
       webPreferences: {
         preload: path.join(this.moduleDir(), 'preload-scanbox.cjs'),
-        contextIsolation: true, nodeIntegration: false,
+        contextIsolation: true,
+        nodeIntegration: false,
       },
     });
     win.setAlwaysOnTop(true, 'screen-saver');
@@ -224,7 +265,9 @@ class QuizSearchService {
     const target = this._overlayUrl('scanbox.html', '?box=' + boxId);
     if (target.url) win.loadURL(target.url);
     else win.loadFile(target.file, { query: { box: boxId } });
-    win.on('closed', () => { this.boxWins[boxId] = null; });
+    win.on('closed', () => {
+      this.boxWins[boxId] = null;
+    });
     this.boxWins[boxId] = win;
     return win;
   }
@@ -234,7 +277,10 @@ class QuizSearchService {
       const want = this.scanning && this.settings.boxes[boxId].visible;
       const have = !!this.boxWins[boxId];
       if (want && !have) this._createBoxWin(boxId);
-      if (!want && have) { this.boxWins[boxId].close(); this.boxWins[boxId] = null; }
+      if (!want && have) {
+        this.boxWins[boxId].close();
+        this.boxWins[boxId] = null;
+      }
     }
   }
 
@@ -249,18 +295,33 @@ class QuizSearchService {
     // 位置：用户拖过的持久化坐标（越出当前工作区则回退默认右下角）
     let x = wa.x + wa.width - w - 16;
     let y = wa.y + wa.height - h - 16;
-    if (saved.x >= wa.x && saved.x <= wa.x + wa.width - 40
-        && saved.y >= wa.y && saved.y <= wa.y + wa.height - 40) {
+    if (
+      saved.x >= wa.x &&
+      saved.x <= wa.x + wa.width - 40 &&
+      saved.y >= wa.y &&
+      saved.y <= wa.y + wa.height - 40
+    ) {
       x = saved.x;
       y = saved.y;
     }
     const win = new BrowserWindow({
-      x, y, width: w, height: h,
-      transparent: true, frame: false, alwaysOnTop: true, skipTaskbar: true,
-      resizable: false, focusable: false, hasShadow: false, minimizable: false, maximizable: false,
+      x,
+      y,
+      width: w,
+      height: h,
+      transparent: true,
+      frame: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      focusable: false,
+      hasShadow: false,
+      minimizable: false,
+      maximizable: false,
       webPreferences: {
         preload: path.join(this.moduleDir(), 'preload-result.cjs'),
-        contextIsolation: true, nodeIntegration: false,
+        contextIsolation: true,
+        nodeIntegration: false,
       },
     });
     win.setAlwaysOnTop(true, 'screen-saver');
@@ -269,7 +330,9 @@ class QuizSearchService {
     const target = this._overlayUrl('result.html', '');
     if (target.url) win.loadURL(target.url);
     else win.loadFile(target.file);
-    win.on('closed', () => { this.resultWin = null; });
+    win.on('closed', () => {
+      this.resultWin = null;
+    });
     this.resultWin = win;
     return win;
   }
@@ -292,8 +355,14 @@ class QuizSearchService {
     const d = this._boxDrag;
     if (!d) return;
     const win = this.boxWins[d.boxId];
-    if (!win || win.isDestroyed()) { this._endBoxDrag(); return; }
-    if (Date.now() - d.startedAt > 5 * 60 * 1000) { this._endBoxDrag(); return; }   // 兜底防卡死
+    if (!win || win.isDestroyed()) {
+      this._endBoxDrag();
+      return;
+    }
+    if (Date.now() - d.startedAt > 5 * 60 * 1000) {
+      this._endBoxDrag();
+      return;
+    } // 兜底防卡死
     const cursor = screen.getCursorScreenPoint();
     const dx = cursor.x - d.cursor0.x;
     const dy = cursor.y - d.cursor0.y;
@@ -318,7 +387,12 @@ class QuizSearchService {
     const win = this.boxWins[d.boxId];
     if (win && !win.isDestroyed()) {
       const b = win.getBounds();
-      this.settings.boxes[d.boxId] = Object.assign(this.settings.boxes[d.boxId], { x: b.x, y: b.y, w: b.width, h: b.height });
+      this.settings.boxes[d.boxId] = Object.assign(this.settings.boxes[d.boxId], {
+        x: b.x,
+        y: b.y,
+        w: b.width,
+        h: b.height,
+      });
     }
     this._saveSettings();
   }
@@ -336,9 +410,11 @@ class QuizSearchService {
     this._forkWorker();
     this._syncBoxWindows();
     if (!this.resultWin) this._createResultWin();
-    this.timer = setInterval(() => { this._tick().catch(() => {}); }, this.settings.interval);
+    this.timer = setInterval(() => {
+      this._tick().catch(() => {});
+    }, this.settings.interval);
     const main = this.opts.getMainWindow && this.opts.getMainWindow();
-    if (main && !main.isDestroyed()) main.minimize();   // 同原软件：开搜即最小化主窗
+    if (main && !main.isDestroyed()) main.minimize(); // 同原软件：开搜即最小化主窗
     if (this.opts.onScanStateChange) this.opts.onScanStateChange(true);
     this._pushPageEvent({ type: 'scan', scanning: true });
     return this.state();
@@ -348,7 +424,10 @@ class QuizSearchService {
     if (!this.scanning) return this.state();
     this.scanning = false;
     this.ocrEpoch++;
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
     this._killWorker();
     this._syncBoxWindows();
     if (this.resultWin && !this.resultWin.isDestroyed()) this.resultWin.close();
@@ -362,7 +441,7 @@ class QuizSearchService {
   async _captureBox(boxId, shotCache) {
     const win = this.boxWins[boxId];
     if (!win || win.isDestroyed()) return null;
-    const bounds = win.getBounds();   // DIP
+    const bounds = win.getBounds(); // DIP
     const display = screen.getDisplayMatching(bounds);
     const scale = display.scaleFactor;
     let physW = Math.round(display.size.width * scale);
@@ -377,7 +456,10 @@ class QuizSearchService {
     if (shotCache && shotCache.has(display.id)) {
       // 已缓存
     } else {
-      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: physW, height: physH } });
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: physW, height: physH },
+      });
       const src = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
       if (!shotCache) shotCache = new Map();
       shotCache.set(display.id, src ? src.thumbnail : null);
@@ -429,7 +511,7 @@ class QuizSearchService {
           }
           this.lastTickError = '';
           const hash = frameHash(cap.bitmap);
-          if (hash === this.lastHash[boxId]) continue;   // 画面未变
+          if (hash === this.lastHash[boxId]) continue; // 画面未变
           this.lastHash[boxId] = hash;
           this._queueOcr(boxId, cap.bitmap, cap.width, cap.height);
         } catch (e) {
@@ -447,20 +529,21 @@ class QuizSearchService {
     const boxDbg = {};
     for (const id of ['A', 'B']) {
       const st = this.boxState[id];
-      boxDbg[id] = st
-        ? { matched: !!st.matched, snippet: (st.ocrText || '').slice(0, 60) }
-        : null;
+      boxDbg[id] = st ? { matched: !!st.matched, snippet: (st.ocrText || '').slice(0, 60) } : null;
     }
-    return Object.assign({
-      scanning: this.scanning,
-      engineReady: this.workerReady,
-      engineError: this.workerError,
-      captureError: this.lastTickError || '',
-      sessionType: process.env.XDG_SESSION_TYPE || '',   // wayland 截屏不可用（需 X11 会话）
-      ocrMs: this.lastOcrMs,
-      boxDebug: boxDbg,          // 各框最近 OCR 摘要（诊断用）
-      settings: this.settings,
-    }, this._bankState());
+    return Object.assign(
+      {
+        scanning: this.scanning,
+        engineReady: this.workerReady,
+        engineError: this.workerError,
+        captureError: this.lastTickError || '',
+        sessionType: process.env.XDG_SESSION_TYPE || '', // wayland 截屏不可用（需 X11 会话）
+        ocrMs: this.lastOcrMs,
+        boxDebug: boxDbg, // 各框最近 OCR 摘要（诊断用）
+        settings: this.settings,
+      },
+      this._bankState()
+    );
   }
 
   _pushPageEvent(payload) {
@@ -481,13 +564,26 @@ class QuizSearchService {
       const o = require('onnxruntime-node');
       ort = !!o;
       ortVersion = (o.env && o.env.versions && o.env.versions.node) || '';
-    } catch (_e) { ort = false; }
+    } catch (_e) {
+      ort = false;
+    }
     // CPU 指令集体检（linux x64）：onnxruntime 预编译内核在无 AVX2 的老 CPU 上会在推理时崩（SIGILL）
     let avx2 = null;
     if (process.platform === 'linux') {
-      try { avx2 = /(^|\s)avx2(\s|$)/m.test(fs.readFileSync('/proc/cpuinfo', 'utf8')); } catch (_e) { avx2 = null; }
+      try {
+        avx2 = /(^|\s)avx2(\s|$)/m.test(fs.readFileSync('/proc/cpuinfo', 'utf8'));
+      } catch (_e) {
+        avx2 = null;
+      }
     }
-    return { ok: missing.length === 0 && ort, modelsDir: dir, missing, ortLoaded: ort, ortVersion, avx2 };
+    return {
+      ok: missing.length === 0 && ort,
+      modelsDir: dir,
+      missing,
+      ortLoaded: ort,
+      ortVersion,
+      avx2,
+    };
   }
 
   // ---------------------------------------------------------------- IPC
@@ -500,7 +596,7 @@ class QuizSearchService {
 
     // 诊断：把扫描框当前所见画面存成 PNG（排查「截屏黑/空」「OCR 失败」「匹配未中」用）
     ipcMain.handle('quizSearch:debugCapture', async () => {
-      const boxId = this.boxWins.A ? 'A' : (this.boxWins.B ? 'B' : null);
+      const boxId = this.boxWins.A ? 'A' : this.boxWins.B ? 'B' : null;
       if (!boxId) throw new Error('扫描框未开（先开始搜题）');
       const cap = await this._captureBox(boxId, null);
       if (!cap) throw new Error('截屏失败（未取到屏幕画面）');
@@ -514,7 +610,7 @@ class QuizSearchService {
       this.settings.boxes[boxId].visible = !!visible;
       this._saveSettings();
       this._syncBoxWindows();
-      this._pushResult();   // 单/双框布局即时切换
+      this._pushResult(); // 单/双框布局即时切换
       return this.state();
     });
     ipcMain.handle('quizSearch:resetBoxes', () => {
@@ -533,16 +629,22 @@ class QuizSearchService {
       return this.state();
     });
     ipcMain.handle('quizSearch:setOptions', (_e, opts) => {
-      if (opts.interval !== undefined) this.settings.interval = Math.min(3000, Math.max(500, opts.interval | 0));
-      if (opts.threshold !== undefined) this.settings.threshold = Math.min(0.9, Math.max(0.3, Number(opts.threshold)));
+      if (opts.interval !== undefined)
+        this.settings.interval = Math.min(3000, Math.max(500, opts.interval | 0));
+      if (opts.threshold !== undefined)
+        this.settings.threshold = Math.min(0.9, Math.max(0.3, Number(opts.threshold)));
       if (opts.opacity !== undefined) {
         this.settings.opacity = Math.min(1, Math.max(0.3, Number(opts.opacity)));
-        if (this.resultWin && !this.resultWin.isDestroyed()) this.resultWin.setOpacity(this.settings.opacity);
+        if (this.resultWin && !this.resultWin.isDestroyed())
+          this.resultWin.setOpacity(this.settings.opacity);
       }
       this._saveSettings();
-      if (this.scanning) {   // 间隔变更即时生效
+      if (this.scanning) {
+        // 间隔变更即时生效
         clearInterval(this.timer);
-        this.timer = setInterval(() => { this._tick().catch(() => {}); }, this.settings.interval);
+        this.timer = setInterval(() => {
+          this._tick().catch(() => {});
+        }, this.settings.interval);
       }
       return this.state();
     });
@@ -571,7 +673,13 @@ class QuizSearchService {
       if (this.indexDirty) this._rebuildIndex();
       const hit = match.findBest(this.bankIndex, text, this.settings.threshold);
       if (!hit) return { matched: false };
-      return { matched: !!hit.question, score: hit.score, question: hit.question || null, near: hit.near || null, norm: hit.norm };
+      return {
+        matched: !!hit.question,
+        score: hit.score,
+        question: hit.question || null,
+        near: hit.near || null,
+        norm: hit.norm,
+      };
     });
 
     // 扫描框渲染进程 → 主进程：拖动/缩放/隐藏。
@@ -581,7 +689,7 @@ class QuizSearchService {
     ipcMain.on('quizsearch:boxDragStart', (_e, boxId, mode) => {
       const win = this.boxWins[boxId];
       if (!win || win.isDestroyed()) return;
-      this._endBoxDrag();   // 防御：清掉可能残留的旧拖拽
+      this._endBoxDrag(); // 防御：清掉可能残留的旧拖拽
       const b = win.getBounds();
       const cursor = screen.getCursorScreenPoint();
       this._boxDrag = {
@@ -599,7 +707,7 @@ class QuizSearchService {
       this.settings.boxes[boxId].visible = false;
       this._saveSettings();
       this._syncBoxWindows();
-      this._pushResult();   // 单/双框布局即时切换
+      this._pushResult(); // 单/双框布局即时切换
       this._pushPageEvent({ type: 'boxHidden', box: boxId });
     });
     // 结果窗拖动/缩放（用户可自由摆放与调整大小；轮询 OS 光标位移，dragEnd 时落盘，下次开搜恢复）
@@ -615,7 +723,10 @@ class QuizSearchService {
         timer: setInterval(() => {
           const d = this._resultDrag;
           if (!d || !this.resultWin || this.resultWin.isDestroyed()) return;
-          if (Date.now() - d.startedAt > 5 * 60 * 1000) { ipcMain.emit('quizsearch:resultDragEnd'); return; }
+          if (Date.now() - d.startedAt > 5 * 60 * 1000) {
+            ipcMain.emit('quizsearch:resultDragEnd');
+            return;
+          }
           const c = screen.getCursorScreenPoint();
           const dx = c.x - d.cursor0.x;
           const dy = c.y - d.cursor0.y;

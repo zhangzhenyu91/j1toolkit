@@ -33,7 +33,9 @@ async function spaceRootOf(user, space) {
 
 // 归一相对路径：反斜杠转正、去多余斜杠、拒绝 .. 与单点、限长；'/' 表示空间根
 function normRel(input) {
-  let p = String(input == null ? '/' : input).trim().replace(/\\/g, '/');
+  let p = String(input == null ? '/' : input)
+    .trim()
+    .replace(/\\/g, '/');
   if (!p || p === '/') return '/';
   if (!p.startsWith('/')) p = `/${p}`;
   const parts = p.split('/').filter(Boolean);

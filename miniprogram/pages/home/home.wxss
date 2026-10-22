@@ -21,7 +21,7 @@
 
 /* ---------- 深蓝页首延伸区（与 navbar 同色 #0A3592；底部留白承接数据卡浮层） ---------- */
 .hero {
-  background: #0A3592;
+  background: #0a3592;
   padding: 12rpx 40rpx 96rpx;
   animation: fadeIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -30,7 +30,7 @@
   font-size: 40rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
-  color: #FFFFFF;
+  color: #ffffff;
 }
 
 .hero-sub {
@@ -65,34 +65,34 @@
 }
 
 .stat + .stat {
-  border-left: 1rpx solid #E5E6EB;
+  border-left: 1rpx solid #e5e6eb;
 }
 
 .stat-num {
   font-size: 32rpx;
   font-weight: 700;
   line-height: 1.3;
-  color: #1D2129;
+  color: #1d2129;
   font-variant-numeric: tabular-nums;
 }
 
 /* 分级着色：全部达标绿 / ≤3 橙 / >3 红（默认值即正文深色，未加载时 — 不着色） */
 .stat-num-good {
-  color: #00B42A;
+  color: #00b42a;
 }
 
 .stat-num-warn {
-  color: #FF7D00;
+  color: #ff7d00;
 }
 
 .stat-num-bad {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 .stat-label {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 /* ---------- 消息通知卡 ---------- */
@@ -114,7 +114,7 @@
   width: 52rpx;
   height: 52rpx;
   border-radius: 16rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -125,7 +125,7 @@
   margin-left: 16rpx;
   font-size: 28rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 未读计数：红点 + 红字（0 未读时不渲染） */
@@ -135,7 +135,7 @@
   display: flex;
   align-items: center;
   gap: 8rpx;
-  color: #F53F3F;
+  color: #f53f3f;
   font-size: 22rpx;
   font-weight: 600;
 }
@@ -144,7 +144,7 @@
   width: 10rpx;
   height: 10rpx;
   border-radius: 50%;
-  background: #F53F3F;
+  background: #f53f3f;
 }
 
 /* 通知行：未读红点 / 已读空心点 + 行间发丝线 */
@@ -152,7 +152,7 @@
   display: flex;
   align-items: center;
   padding: 20rpx 0;
-  border-top: 1rpx solid #E5E6EB;
+  border-top: 1rpx solid #e5e6eb;
 }
 
 .n-dot {
@@ -161,12 +161,12 @@
   flex: none;
   margin-right: 14rpx;
   border-radius: 50%;
-  background: #F53F3F;
+  background: #f53f3f;
 }
 
 .n-dot-read {
   background: transparent;
-  border: 2rpx solid #C9CDD4;
+  border: 2rpx solid #c9cdd4;
   box-sizing: border-box;
 }
 
@@ -174,14 +174,14 @@
   flex: 1;
   min-width: 0;
   font-size: 25rpx;
-  color: #4E5969;
+  color: #4e5969;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .n-row-unread {
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 600;
 }
 
@@ -189,15 +189,15 @@
   margin-left: 16rpx;
   flex: none;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   font-variant-numeric: tabular-nums;
 }
 
 .n-empty {
   padding: 18rpx 0 12rpx;
-  border-top: 1rpx solid #E5E6EB;
+  border-top: 1rpx solid #e5e6eb;
   font-size: 24rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 /* ---------- 应用宫格（无底块深蓝图标直落白卡） ---------- */
@@ -223,7 +223,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .g-ico {
@@ -237,19 +239,19 @@
 .g-name {
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #1D2129;
+  color: #1d2129;
   text-align: center;
   line-height: 1.4;
 }
 
 .g-name-soon {
-  color: #86909C;
+  color: #86909c;
 }
 
 .empty {
   padding: 24rpx 28rpx 32rpx;
   text-align: center;
-  color: #86909C;
+  color: #86909c;
   font-size: 24rpx;
 }
 
@@ -257,7 +259,7 @@
 .tip {
   margin-top: 24rpx;
   text-align: center;
-  color: #86909C;
+  color: #86909c;
   font-size: 20rpx;
   letter-spacing: 1rpx;
 }
@@ -268,7 +270,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #F5F7FA;
+  background: #f5f7fa;
 }
 
 .gate-logo {
@@ -293,8 +295,8 @@
   width: 112rpx;
   height: 112rpx;
   border-radius: 50%;
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
   font-size: 48rpx;
   font-weight: 600;
   display: flex;
@@ -311,13 +313,13 @@
 .me-panel .me-name {
   font-size: 36rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .me-panel .me-sub {
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 /* 功能列表 */
@@ -328,11 +330,11 @@
 
 /* 「绑定商旅」行右侧状态文案（t-cell note 外部样式类）；已过期为危险红 */
 .me-panel .sgcc-note {
-  color: #86909C;
+  color: #86909c;
 }
 
 .me-panel .sgcc-note-expired {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 /* 过期警示前置红色三角感叹号图标 */
@@ -343,7 +345,7 @@
   height: 20rpx;
   margin-right: 6rpx;
   vertical-align: -3rpx;
-  background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjRjUzRjNGJyBzdHJva2Utd2lkdGg9JzEuNycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBzdHJva2UtbGluZWpvaW49J3JvdW5kJz48cGF0aCBkPSdNMTAuMyA0LjFMMi40IDE3LjZhMiAyIDAgMCAwIDEuNyAzaDE1LjhhMiAyIDAgMCAwIDEuNy0zTDEzLjcgNC4xYTIgMiAwIDAgMC0zLjQgMHonLz48cGF0aCBkPSdNMTIgOS4ydjQnLz48Y2lyY2xlIGN4PScxMicgY3k9JzE2LjgnIHI9JzEnIGZpbGw9JyNGNTNGM0YnIHN0cm9rZT0nbm9uZScvPjwvc3ZnPg==");
+  background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjRjUzRjNGJyBzdHJva2Utd2lkdGg9JzEuNycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBzdHJva2UtbGluZWpvaW49J3JvdW5kJz48cGF0aCBkPSdNMTAuMyA0LjFMMi40IDE3LjZhMiAyIDAgMCAwIDEuNyAzaDE1LjhhMiAyIDAgMCAwIDEuNy0zTDEzLjcgNC4xYTIgMiAwIDAgMC0zLjQgMHonLz48cGF0aCBkPSdNMTIgOS4ydjQnLz48Y2lyY2xlIGN4PScxMicgY3k9JzE2LjgnIHI9JzEnIGZpbGw9JyNGNTNGM0YnIHN0cm9rZT0nbm9uZScvPjwvc3ZnPg==');
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
@@ -359,7 +361,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #F53F3F;
+  color: #f53f3f;
   font-size: 30rpx;
   font-weight: 600;
   transition: background-color 0.15s ease;

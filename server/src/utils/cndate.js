@@ -17,9 +17,12 @@ function todayCn() {
 function nextDailyRunUtc(hh, mm) {
   const now = Date.now();
   const cn = new Date(now + CN_OFFSET_MS); // 其 UTC 年月日即北京日历日
-  let nextUtc = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate(), hh, mm, 0) - CN_OFFSET_MS;
+  let nextUtc =
+    Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate(), hh, mm, 0) - CN_OFFSET_MS;
   if (nextUtc <= now) {
-    nextUtc = Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate() + 1, hh, mm, 0) - CN_OFFSET_MS;
+    nextUtc =
+      Date.UTC(cn.getUTCFullYear(), cn.getUTCMonth(), cn.getUTCDate() + 1, hh, mm, 0) -
+      CN_OFFSET_MS;
   }
   return { nextUtc, now };
 }

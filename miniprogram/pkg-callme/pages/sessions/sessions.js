@@ -147,9 +147,9 @@ Page({
             data: { title: newTitle },
           });
           // 整数组替换刷新（与删除同口径）：t-swipe-cell slot 内容对单字段路径 setData 不会重渲染
-          const sessions = this.data.sessions.map((s) => (
+          const sessions = this.data.sessions.map((s) =>
             String(s.id) === String(id) ? { ...s, title: newTitle } : s
-          ));
+          );
           this.setData({ sessions });
           this.toast('已重命名');
         } catch (err) {
@@ -169,17 +169,19 @@ Page({
       content: '删除后不可恢复，确定删除该对话吗？',
       confirmBtn: '删除',
       cancelBtn: '取消',
-    }).then(async () => {
-      try {
-        await request({ url: `/api/v1/callme/sessions/${id}`, method: 'DELETE' });
-        // 按 id 过滤移除（渲染 index 在异步请求期间可能错位）；整数组替换与重命名同口径
-        const sessions = this.data.sessions.filter((s) => String(s.id) !== String(id));
-        this.setData({ sessions });
-        this.toast('已删除');
-      } catch (err) {
-        this.toast(err.message);
-      }
-    }).catch(() => {});
+    })
+      .then(async () => {
+        try {
+          await request({ url: `/api/v1/callme/sessions/${id}`, method: 'DELETE' });
+          // 按 id 过滤移除（渲染 index 在异步请求期间可能错位）；整数组替换与重命名同口径
+          const sessions = this.data.sessions.filter((s) => String(s.id) !== String(id));
+          this.setData({ sessions });
+          this.toast('已删除');
+        } catch (err) {
+          this.toast(err.message);
+        }
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

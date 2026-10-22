@@ -13,7 +13,7 @@
   font-size: 28rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .flow-title::before {
@@ -21,7 +21,7 @@
   width: 8rpx;
   height: 28rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .flow-steps {
@@ -36,7 +36,7 @@
   align-items: center;
   gap: 16rpx;
   font-size: 24rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .fstep .no {
@@ -44,8 +44,8 @@
   width: 36rpx;
   height: 36rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
   font-size: 22rpx;
   font-weight: 700;
   display: flex;
@@ -54,7 +54,7 @@
 }
 
 .fstep .b {
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 700;
 }
 
@@ -68,7 +68,7 @@
 
 .pick-opt {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 32rpx;
   display: flex;
@@ -82,7 +82,7 @@
   width: 96rpx;
   height: 96rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -92,20 +92,20 @@
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .pick-opt .pn {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 1rpx;
 }
 
 /* ---------- 底部弹层通用（同出工日志 common.wxss） ---------- */
 .sheet {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-bottom: none;
   border-radius: 12rpx;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
@@ -117,14 +117,14 @@
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .sheet-note {
   text-align: center;
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 2rpx;
 }
 
@@ -138,14 +138,14 @@
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 6rpx;
   box-sizing: border-box;
 }
@@ -154,7 +154,7 @@
   flex: 2;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -166,13 +166,13 @@
 }
 
 .btn-dark.disabled {
-  background: #E5E6EB;
+  background: #e5e6eb;
 }
 
 /* ---------- 表单卡 / 行 ---------- */
 .form-card {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   overflow: hidden;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06); /* 次卡：墨色浅硬影 */
@@ -186,7 +186,7 @@
 }
 
 .frow + .frow {
-  border-top: 2rpx solid #F7F8FA;
+  border-top: 2rpx solid #f7f8fa;
 }
 
 .frow .fk {
@@ -199,7 +199,7 @@
 .frow .fv {
   flex: 1;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -208,7 +208,7 @@
 
 .textarea-wrap {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 20rpx 28rpx;
 }
@@ -217,13 +217,13 @@
   width: 100%;
   min-height: 132rpx;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   line-height: 1.7;
   box-sizing: border-box;
 }
 
 .ph {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* ---------- 水印字段编辑弹层 ---------- */
@@ -271,14 +271,14 @@
   padding: 4rpx 16rpx;
   font-size: 22rpx;
   line-height: 1.6;
-  color: #0E3DA8;
-  background: #E8F0FF;
-  border: 4rpx solid #0E3DA8;
+  color: #0e3da8;
+  background: #e8f0ff;
+  border: 4rpx solid #0e3da8;
   border-radius: 12rpx;
 }
 
 .wm-row-col + .frow {
-  border-top: 2rpx solid #F7F8FA;
+  border-top: 2rpx solid #f7f8fa;
 }
 
 .wm-textarea {
@@ -293,7 +293,7 @@
 .wm-input {
   flex: 1;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 600;
 }
 
@@ -309,18 +309,18 @@
   gap: 6rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 /* ---------- 经纬度区：右侧跨两行「选择杆塔坐标」按钮 ---------- */
 .geo-zone {
   display: flex;
   align-items: stretch;
-  border-top: 2rpx solid #F7F8FA;
+  border-top: 2rpx solid #f7f8fa;
 }
 
 .geo-zone + .frow {
-  border-top: 2rpx solid #F7F8FA;
+  border-top: 2rpx solid #f7f8fa;
 }
 
 .geo-rows {
@@ -336,9 +336,9 @@
   flex: none;
   width: 184rpx;
   margin: 16rpx 32rpx 16rpx 20rpx;
-  border: 4rpx solid #0E3DA8;
+  border: 4rpx solid #0e3da8;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -351,7 +351,7 @@
   width: 96rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #0E3DA8;
+  color: #0e3da8;
   letter-spacing: 2rpx;
   line-height: 1.4;
   text-align: center;
@@ -365,7 +365,7 @@
   max-width: 152rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -374,7 +374,7 @@
 .tower-btn .tb-re {
   font-size: 20rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
   text-decoration: underline;
   text-underline-offset: 4rpx;
   letter-spacing: 4rpx;
@@ -385,8 +385,8 @@
   flex: none;
   font-size: 20rpx;
   font-weight: 700;
-  color: #0E3DA8;
-  background: #E8F0FF;
+  color: #0e3da8;
+  background: #e8f0ff;
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   letter-spacing: 2rpx;
@@ -402,7 +402,7 @@
   padding: 60rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 2rpx;
 }
 
@@ -424,7 +424,7 @@
   flex: 1;
   min-width: 0;
   height: 80rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   background: #ffffff;
   padding: 0 24rpx;
@@ -434,13 +434,15 @@
   gap: 16rpx;
   font-size: 28rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
-  transition: border-color 0.2s ease-out, background-color 0.2s ease-out;
+  transition:
+    border-color 0.2s ease-out,
+    background-color 0.2s ease-out;
 }
 
 .sel-box .ph {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   font-weight: 400;
 }
 
@@ -450,19 +452,19 @@
   min-width: 0;
   font-size: 28rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .sel-box.disabled .sel-input {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .sel-box.open {
-  border-color: #0E3DA8;
+  border-color: #0e3da8;
 }
 
 .sel-box.disabled {
-  background: #F5F7FA;
+  background: #f5f7fa;
 }
 
 /* 选项列表：内嵌展开于对应行下方，超高滚动；展开/收起带 max-height + 透明度动效（wx:if 无过渡，改 class 开关） */
@@ -473,12 +475,16 @@
   background: #ffffff;
   max-height: 0;
   opacity: 0;
-  transition: max-height 0.25s ease-out, opacity 0.2s ease-out, border-color 0.2s ease-out, margin 0.25s ease-out;
+  transition:
+    max-height 0.25s ease-out,
+    opacity 0.2s ease-out,
+    border-color 0.2s ease-out,
+    margin 0.25s ease-out;
 }
 
 .opt-list.show {
   margin: 4rpx 0 8rpx 148rpx;
-  border-color: #1D2129;
+  border-color: #1d2129;
   max-height: 336rpx;
   opacity: 1;
 }
@@ -501,8 +507,10 @@
   height: 76rpx;
   padding: 0 24rpx;
   font-size: 28rpx;
-  color: #1D2129;
-  transition: background-color 0.15s ease-out, color 0.15s ease-out;
+  color: #1d2129;
+  transition:
+    background-color 0.15s ease-out,
+    color 0.15s ease-out;
 }
 
 /* 主文案左对齐 + 占满中槽，超长省略不溢出右缘；选中勾（t-icon）随后自然右置 */
@@ -520,16 +528,16 @@
 }
 
 .opt.on {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 700;
-  background: #E8F0FF;
+  background: #e8f0ff;
 }
 
 /* 三级选齐后的坐标预览卡（淡入上移） */
 .coord-card {
   margin: 16rpx 0 8rpx;
-  background: #E8F0FF;
-  border-left: 8rpx solid #0E3DA8;
+  background: #e8f0ff;
+  border-left: 8rpx solid #0e3da8;
   border-radius: 12rpx;
   padding: 18rpx 24rpx;
   animation: coord-in 0.25s ease-out;
@@ -549,7 +557,7 @@
 .cc-title {
   font-size: 24rpx;
   font-weight: 700;
-  color: #0E3DA8;
+  color: #0e3da8;
   letter-spacing: 2rpx;
 }
 
@@ -557,13 +565,13 @@
   margin-top: 8rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* ---------- 4:3 裁剪层（黑底；同出工日志） ---------- */
 .crop-sheet {
   background: #15181d;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-bottom: none;
   border-radius: 12rpx;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
@@ -609,7 +617,7 @@
   position: absolute;
   width: 36rpx;
   height: 36rpx;
-  border: 6rpx solid #0E3DA8;
+  border: 6rpx solid #0e3da8;
   pointer-events: none;
 }
 

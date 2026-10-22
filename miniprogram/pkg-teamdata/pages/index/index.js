@@ -91,12 +91,15 @@ Page({
       const data = await request({ url: `${API_BASE}/${this.data.seg}${this.teamQuery('?')}` });
       const rows = (data && data.list) || [];
       // 目的地行补市外/驻地标记数值化（兜底后端直出为非数字）
-      const list = this.data.seg === 'destinations'
-        ? rows.map((it) => Object.assign({}, it, {
-          out_of_city: Number(it.out_of_city) || 0,
-          stationed: Number(it.stationed) || 0,
-        }))
-        : rows;
+      const list =
+        this.data.seg === 'destinations'
+          ? rows.map((it) =>
+              Object.assign({}, it, {
+                out_of_city: Number(it.out_of_city) || 0,
+                stationed: Number(it.stationed) || 0,
+              })
+            )
+          : rows;
       this.setData({ list });
     } catch (err) {
       this.toast(err.message);
@@ -249,9 +252,15 @@ Page({
     const k = e.currentTarget.dataset.k;
     const checked = e.detail.checked;
     if (k === 'ooc') {
-      this.setData({ destOutOfCity: checked ? 1 : 0, destStationed: checked ? 0 : this.data.destStationed });
+      this.setData({
+        destOutOfCity: checked ? 1 : 0,
+        destStationed: checked ? 0 : this.data.destStationed,
+      });
     } else {
-      this.setData({ destStationed: checked ? 1 : 0, destOutOfCity: checked ? 0 : this.data.destOutOfCity });
+      this.setData({
+        destStationed: checked ? 1 : 0,
+        destOutOfCity: checked ? 0 : this.data.destOutOfCity,
+      });
     }
   },
 
@@ -319,8 +328,16 @@ Page({
   // 模板下载 / Excel 导入段配置：接口路径段 → 本地模板文件名 / 导入确认数据名 / 导入后刷新方法
   tplConf(path) {
     return path === 'towers'
-      ? { fileName: '杆塔坐标导入模板.xlsx', dataLabel: '杆塔坐标数据', reload: () => this.loadLines() }
-      : { fileName: '运维线路导入模板.xlsx', dataLabel: '运维线路数据', reload: () => this.loadOplines() };
+      ? {
+          fileName: '杆塔坐标导入模板.xlsx',
+          dataLabel: '杆塔坐标数据',
+          reload: () => this.loadLines(),
+        }
+      : {
+          fileName: '运维线路导入模板.xlsx',
+          dataLabel: '运维线路数据',
+          reload: () => this.loadOplines(),
+        };
   },
 
   // 下载导入模板：二进制 xlsx，wx.downloadFile 后 wx.openDocument 打开（同出工日志 manage 页链路）
@@ -438,9 +455,11 @@ Page({
     this.setData({ opLoading: true });
     try {
       const data = await request({ url: `${API_BASE}/oplines${this.teamQuery('?')}` });
-      const rows = Array.isArray(data) ? data : ((data && data.list) || []);
+      const rows = Array.isArray(data) ? data : (data && data.list) || [];
       this.setData({
-        oplines: rows.map((it) => Object.assign({}, it, { voltageText: this.fmtVoltage(it.voltage_level) })),
+        oplines: rows.map((it) =>
+          Object.assign({}, it, { voltageText: this.fmtVoltage(it.voltage_level) })
+        ),
       });
     } catch (err) {
       this.setData({ oplines: [] });

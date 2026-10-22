@@ -13,7 +13,11 @@
 const { parentPort } = require('worker_threads');
 
 function fatal(msg) {
-  try { parentPort.postMessage({ type: 'error', message: String(msg) }); } catch (_e) { /* 通道已断 */ }
+  try {
+    parentPort.postMessage({ type: 'error', message: String(msg) });
+  } catch (_e) {
+    /* 通道已断 */
+  }
   process.exit(1);
 }
 process.on('uncaughtException', (e) => fatal('未捕获异常: ' + (e && (e.stack || e))));
@@ -48,12 +52,20 @@ parentPort.on('message', async (msg) => {
       const buf = Buffer.from(msg.bitmap);
       const res = await pipeline.run(buf, msg.width, msg.height);
       parentPort.postMessage({
-        type: 'ocr-result', id: msg.id, ok: true,
-        text: res.text, lines: res.lines, elapsedMs: res.elapsedMs,
+        type: 'ocr-result',
+        id: msg.id,
+        ok: true,
+        text: res.text,
+        lines: res.lines,
+        elapsedMs: res.elapsedMs,
       });
     } catch (err) {
-      parentPort.postMessage({ type: 'ocr-result', id: msg.id, ok: false, error: String((err && err.message) || err) });
+      parentPort.postMessage({
+        type: 'ocr-result',
+        id: msg.id,
+        ok: false,
+        error: String((err && err.message) || err),
+      });
     }
   }
 });
-

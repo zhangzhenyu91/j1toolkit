@@ -60,8 +60,10 @@ router.post('/users', async (req, res, next) => {
   try {
     const { username, password, nickname } = req.body || {};
     const wxid = String((req.body && req.body.wxid) || '').trim();
-    const teamId = req.body && req.body.team_id !== undefined && req.body.team_id !== null
-      ? Number(req.body.team_id) : null;
+    const teamId =
+      req.body && req.body.team_id !== undefined && req.body.team_id !== null
+        ? Number(req.body.team_id)
+        : null;
     const role = (req.body && req.body.role) || 'user';
     if (!username || !/^[a-zA-Z0-9_]{2,64}$/.test(username)) {
       return fail(res, 400, 40010, '账号需为 2-64 位字母、数字或下划线');
@@ -95,33 +97,47 @@ router.put('/users/:id', async (req, res, next) => {
     const hasWxid = Object.prototype.hasOwnProperty.call(req.body || {}, 'wxid');
     const wxid = hasWxid ? String(req.body.wxid || '').trim() : '';
     const hasTeam = Object.prototype.hasOwnProperty.call(req.body || {}, 'team_id');
-    const teamId = hasTeam && req.body.team_id !== null && req.body.team_id !== ''
-      ? Number(req.body.team_id) : null;
+    const teamId =
+      hasTeam && req.body.team_id !== null && req.body.team_id !== ''
+        ? Number(req.body.team_id)
+        : null;
     const role = req.body && req.body.role;
     // status 显式数值归一为 0/1：前端可能传字符串 "0"/"1"，按真值判定会把 "0" 误当启用
-    const statusNum = status === undefined ? undefined : (Number(status) ? 1 : 0);
+    const statusNum = status === undefined ? undefined : Number(status) ? 1 : 0;
 
     // 自我保护：不能禁用或降级（改为非超管）自己的账号
     // 禁用判定与下方落库口径一致：status 归一后为 0 即视为禁用
-    if (targetId === req.user.id && ((statusNum !== undefined && statusNum === 0) || (role !== undefined && role !== 'admin'))) {
+    if (
+      targetId === req.user.id &&
+      ((statusNum !== undefined && statusNum === 0) || (role !== undefined && role !== 'admin'))
+    ) {
       return fail(res, 400, 40012, '不能禁用或降级自己的账号');
     }
 
     const fields = [];
     const params = [];
-    if (nickname !== undefined) { fields.push('nickname = ?'); params.push(nickname); }
+    if (nickname !== undefined) {
+      fields.push('nickname = ?');
+      params.push(nickname);
+    }
     if (hasWxid) {
       if (wxid.length > 128) return fail(res, 400, 40018, 'wxid 不能超过 128 字');
-      fields.push('wxid = ?'); params.push(wxid);
+      fields.push('wxid = ?');
+      params.push(wxid);
     }
     if (hasTeam) {
       if (teamId && !(await validTeam(teamId))) return fail(res, 400, 40015, '班组不存在或已停用');
-      fields.push('team_id = ?'); params.push(teamId);
+      fields.push('team_id = ?');
+      params.push(teamId);
     }
-    if (statusNum !== undefined) { fields.push('status = ?'); params.push(statusNum); }
+    if (statusNum !== undefined) {
+      fields.push('status = ?');
+      params.push(statusNum);
+    }
     if (role !== undefined) {
       if (!ROLES.includes(role)) return fail(res, 400, 40013, '非法角色');
-      fields.push('role = ?'); params.push(role);
+      fields.push('role = ?');
+      params.push(role);
     }
     // 班组管理员必须有班组（以更新后的 team_id 为准）
     if (role === 'team_admin' || (role === undefined && hasTeam)) {
@@ -169,16 +185,19 @@ router.get('/teams', async (req, res, next) => {
 // POST /api/v1/admin/teams 新增班组（wxid 可空：班组微信群 wxid，消息推送用）
 router.post('/teams', async (req, res, next) => {
   try {
-    const name = String((req.body && req.body.name) || '').trim().slice(0, 64);
+    const name = String((req.body && req.body.name) || '')
+      .trim()
+      .slice(0, 64);
     if (!name) return fail(res, 400, 40017, '请输入班组名称');
     const wxid = String((req.body && req.body.wxid) || '').trim();
     if (wxid.length > 128) return fail(res, 400, 40018, 'wxid 不能超过 128 字');
     const [maxRows] = await pool.query('SELECT COALESCE(MAX(sort), 0) AS maxSort FROM sys_team');
     try {
-      const [r] = await pool.query(
-        'INSERT INTO sys_team (name, wxid, sort) VALUES (?, ?, ?)',
-        [name, wxid, maxRows[0].maxSort + 1]
-      );
+      const [r] = await pool.query('INSERT INTO sys_team (name, wxid, sort) VALUES (?, ?, ?)', [
+        name,
+        wxid,
+        maxRows[0].maxSort + 1,
+      ]);
       return ok(res, { id: r.insertId }, '已创建');
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 40902, `班组「${name}」已存在`);
@@ -203,21 +222,32 @@ router.put('/teams/:id', async (req, res, next) => {
     if (name !== undefined) {
       const trimmed = String(name).trim().slice(0, 64);
       if (!trimmed) return fail(res, 400, 40017, '请输入班组名称');
-      fields.push('name = ?'); params.push(trimmed);
+      fields.push('name = ?');
+      params.push(trimmed);
     }
-    if (sort !== undefined) { fields.push('sort = ?'); params.push(Number(sort) || 0); }
+    if (sort !== undefined) {
+      fields.push('sort = ?');
+      params.push(Number(sort) || 0);
+    }
     // status 同员工口径显式数值归一为 0/1（字符串 "0" 不能被真值判定误当启用）
-    if (status !== undefined) { fields.push('status = ?'); params.push(Number(status) ? 1 : 0); }
+    if (status !== undefined) {
+      fields.push('status = ?');
+      params.push(Number(status) ? 1 : 0);
+    }
     // wxid 排在最后：上方 ER_DUP_ENTRY 报错文案假定 params[0] 为 name
     if (wxid !== undefined) {
       const trimmedWxid = String(wxid || '').trim();
       if (trimmedWxid.length > 128) return fail(res, 400, 40018, 'wxid 不能超过 128 字');
-      fields.push('wxid = ?'); params.push(trimmedWxid);
+      fields.push('wxid = ?');
+      params.push(trimmedWxid);
     }
     if (!fields.length) return fail(res, 400, 40014, '没有需要修改的内容');
 
     try {
-      await pool.query(`UPDATE sys_team SET ${fields.join(', ')} WHERE id = ?`, [...params, targetId]);
+      await pool.query(`UPDATE sys_team SET ${fields.join(', ')} WHERE id = ?`, [
+        ...params,
+        targetId,
+      ]);
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 40902, `班组「${params[0]}」已存在`);
       throw err;
@@ -252,20 +282,40 @@ router.delete('/teams/:id', async (req, res, next) => {
     if (!exist.length) return fail(res, 404, 40405, '班组不存在');
     const teamName = exist[0].name;
 
-    const [userCnt] = await pool.query('SELECT COUNT(*) AS cnt FROM sys_user WHERE team_id = ?', [targetId]);
-    if (userCnt[0].cnt) return fail(res, 409, 40903, `该班组下仍有 ${userCnt[0].cnt} 名员工，请改为停用`);
-    const tables = ['worklog_entry', 'worklog_vehicle', 'worklog_destination', 'worklog_member', 'worklog_tower'];
+    const [userCnt] = await pool.query('SELECT COUNT(*) AS cnt FROM sys_user WHERE team_id = ?', [
+      targetId,
+    ]);
+    if (userCnt[0].cnt)
+      return fail(res, 409, 40903, `该班组下仍有 ${userCnt[0].cnt} 名员工，请改为停用`);
+    const tables = [
+      'worklog_entry',
+      'worklog_vehicle',
+      'worklog_destination',
+      'worklog_member',
+      'worklog_tower',
+    ];
     for (const table of tables) {
-      const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [targetId]);
+      const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [
+        targetId,
+      ]);
       if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有出工日志数据，请改为停用');
     }
     // 派车单同步开关表（team_id 为主键）只是开关配置行、非业务数据：随班组删除级联清除
     await pool.query('DELETE FROM worklog_dispatch_sync_team WHERE team_id = ?', [targetId]);
-    const [quizRows] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_bank WHERE team_id = ?', [targetId]);
+    const [quizRows] = await pool.query('SELECT COUNT(*) AS cnt FROM quiz_bank WHERE team_id = ?', [
+      targetId,
+    ]);
     if (quizRows[0].cnt) return fail(res, 409, 40903, '该班组已有题库数据，请改为停用');
-    const sgccTables = ['worklog_sgcc_account', 'worklog_clockin', 'worklog_fee', 'worklog_sync_log'];
+    const sgccTables = [
+      'worklog_sgcc_account',
+      'worklog_clockin',
+      'worklog_fee',
+      'worklog_sync_log',
+    ];
     for (const table of sgccTables) {
-      const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [targetId]);
+      const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table} WHERE team_id = ?`, [
+        targetId,
+      ]);
       if (rows[0].cnt) return fail(res, 409, 40903, '该班组已有商旅打卡数据，请改为停用');
     }
     const store = require('../safeday/store');
@@ -297,7 +347,9 @@ router.get('/users/:id/apps', async (req, res, next) => {
     const targetId = Number(req.params.id);
     const [u] = await pool.query('SELECT id FROM sys_user WHERE id = ?', [targetId]);
     if (!u.length) return fail(res, 404, 40401, '用户不存在');
-    const [rows] = await pool.query('SELECT app_id FROM sys_user_app WHERE user_id = ?', [targetId]);
+    const [rows] = await pool.query('SELECT app_id FROM sys_user_app WHERE user_id = ?', [
+      targetId,
+    ]);
     return ok(res, { app_ids: rows.map((r) => r.app_id) });
   } catch (err) {
     return next(err);

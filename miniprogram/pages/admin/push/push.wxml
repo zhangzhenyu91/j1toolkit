@@ -6,7 +6,13 @@
     <view class="f-item">
       <view class="f-label">通知标题</view>
       <view class="f-field">
-        <t-input borderless maxlength="128" placeholder="不超过 128 字" value="{{title}}" bind:change="onTitle" />
+        <t-input
+          borderless
+          maxlength="128"
+          placeholder="不超过 128 字"
+          value="{{title}}"
+          bind:change="onTitle"
+        />
       </view>
     </view>
 
@@ -14,13 +20,26 @@
       <view class="f-label">通知内容（支持 Markdown，可插入图片）</view>
       <view class="md-tools">
         <view class="md-tool" hover-class="hover-opacity" bindtap="onInsertImage">插入图片</view>
-        <view class="md-tool" hover-class="hover-opacity" bindtap="onTogglePreview">{{preview ? '继续编辑' : '预览'}}</view>
+        <view class="md-tool" hover-class="hover-opacity" bindtap="onTogglePreview"
+          >{{preview ? '继续编辑' : '预览'}}</view
+        >
       </view>
       <view class="f-field f-field-area" wx:if="{{!preview}}">
-        <t-textarea autosize="{{contentAutosize}}" placeholder="支持 Markdown：# 标题、**加粗**、- 列表、![图片描述](图片地址) 等" value="{{content}}" style="background: transparent;" bind:change="onContent" />
+        <t-textarea
+          autosize="{{contentAutosize}}"
+          placeholder="支持 Markdown：# 标题、**加粗**、- 列表、![图片描述](图片地址) 等"
+          value="{{content}}"
+          style="background: transparent"
+          bind:change="onContent"
+        />
       </view>
       <view class="md-preview" wx:else>
-        <mp-html wx:if="{{previewHtml}}" content="{{previewHtml}}" tag-style="{{mdTagStyle}}" container-style="{{mdContainerStyle}}" />
+        <mp-html
+          wx:if="{{previewHtml}}"
+          content="{{previewHtml}}"
+          tag-style="{{mdTagStyle}}"
+          container-style="{{mdContainerStyle}}"
+        />
         <view class="md-preview-empty" wx:else>暂无内容</view>
       </view>
     </view>
@@ -40,7 +59,9 @@
 
 <!-- 提交（固定底部主按钮，避开右上角胶囊区域） -->
 <view class="create-bar">
-  <t-button block size="large" theme="primary" loading="{{pushing}}" bind:tap="onSubmit">确认推送</t-button>
+  <t-button block size="large" theme="primary" loading="{{pushing}}" bind:tap="onSubmit"
+    >确认推送</t-button
+  >
 </view>
 
 <t-toast id="t-toast" />

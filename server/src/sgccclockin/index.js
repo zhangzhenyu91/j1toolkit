@@ -38,10 +38,9 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // （认领口径同 member-sync /login/bind）——命中管理员代绑（user_id=NULL）行即视为已绑定，
 // 否则「我的 → 绑定商旅」页看不到代绑行会误导成员重复绑定
 async function myAccount(req) {
-  const [rows] = await pool.query(
-    'SELECT * FROM worklog_sgcc_account WHERE user_id = ?',
-    [req.user.id]
-  );
+  const [rows] = await pool.query('SELECT * FROM worklog_sgcc_account WHERE user_id = ?', [
+    req.user.id,
+  ]);
   if (rows.length) return rows[0];
   if (!req.team) return null;
   const [fallback] = await pool.query(
@@ -57,10 +56,9 @@ async function myAccount(req) {
 // 出工成员对应的绑定行（人级解析：先按 member_id 直连，落空经 member.user_id 兜底——
 // 调班重名回退路径的旧成员行也能解析到本人账号；代打卡用被打卡人的账号与机型）
 async function accountByMember(memberId) {
-  const [rows] = await pool.query(
-    'SELECT * FROM worklog_sgcc_account WHERE member_id = ?',
-    [memberId]
-  );
+  const [rows] = await pool.query('SELECT * FROM worklog_sgcc_account WHERE member_id = ?', [
+    memberId,
+  ]);
   if (rows.length) return rows[0];
   const [fallback] = await pool.query(
     `SELECT a.* FROM worklog_sgcc_account a
@@ -94,16 +92,22 @@ async function probeAuth(account) {
     const d = await sgcc.dayNew(account.token, today(), devOpt(account));
     if (!d) {
       // 平台应答不可解：通道/风控异常，token_status 保持原值（同网络异常口径，不翻转不通知）
-      console.warn(`[商旅打卡] 登录态探测应答不可解（成员 ${account.member_id}），按通道异常处理，token_status 保持原值`);
+      console.warn(
+        `[商旅打卡] 登录态探测应答不可解（成员 ${account.member_id}），按通道异常处理，token_status 保持原值`
+      );
       return Number(account.token_status) === 1;
     }
     valid = Number(d.statusCode) === 200;
     // 1→0 跳变时落平台应答原文（「新 token 被平台拒」类问题的关键证据；已是 0 的重复探测不打，避免刷屏）
     if (!valid && Number(account.token_status) === 1) {
-      console.warn(`[商旅打卡] 登录态探测判失效（成员 ${account.member_id}），平台应答：${JSON.stringify(d || null).slice(0, 300)}`);
+      console.warn(
+        `[商旅打卡] 登录态探测判失效（成员 ${account.member_id}），平台应答：${JSON.stringify(d || null).slice(0, 300)}`
+      );
     }
   } catch (e) {
-    console.warn(`[商旅打卡] 登录态探测网络异常（成员 ${account.member_id}），token_status 保持原值：${e.message}`);
+    console.warn(
+      `[商旅打卡] 登录态探测网络异常（成员 ${account.member_id}），token_status 保持原值：${e.message}`
+    );
     return Number(account.token_status) === 1;
   }
   await pool.query(
@@ -112,8 +116,12 @@ async function probeAuth(account) {
   );
   if (!valid && Number(account.token_status) === 1) {
     account.token_status = 0; // 同步内存态，防同一 account 对象被连续探测时重复通知
-    console.warn(`[商旅打卡] 成员 ${account.member_id} 登录态标记过期（token_status 1→0），推送本人与超管`);
-    notifyTokenExpired(account).catch((err) => console.error('[商旅打卡] 登录过期通知发送失败：', err.message));
+    console.warn(
+      `[商旅打卡] 成员 ${account.member_id} 登录态标记过期（token_status 1→0），推送本人与超管`
+    );
+    notifyTokenExpired(account).catch((err) =>
+      console.error('[商旅打卡] 登录过期通知发送失败：', err.message)
+    );
   }
   return valid;
 }
@@ -124,7 +132,9 @@ async function notifyTokenExpired(account) {
   let name = '';
   let wxUserId = account.user_id || null;
   if (account.member_id) {
-    const [m] = await pool.query('SELECT name, user_id FROM worklog_member WHERE id = ?', [account.member_id]);
+    const [m] = await pool.query('SELECT name, user_id FROM worklog_member WHERE id = ?', [
+      account.member_id,
+    ]);
     name = m.length ? m[0].name : '';
     if (!wxUserId) wxUserId = m.length ? m[0].user_id : null;
   }
@@ -191,18 +201,30 @@ function fmtCnDateTime(v) {
   if (v === null || v === undefined || v === '') return null;
   let d = null;
   const s = String(v).trim();
-  if (/^\d{13}$/.test(s)) d = new Date(Number(s)); // 毫秒时间戳
-  else if (/^\d{10}$/.test(s)) d = new Date(Number(s) * 1000); // 秒时间戳
+  if (/^\d{13}$/.test(s))
+    d = new Date(Number(s)); // 毫秒时间戳
+  else if (/^\d{10}$/.test(s))
+    d = new Date(Number(s) * 1000); // 秒时间戳
   else {
     const t = new Date(s.includes('T') ? s : s.replace(/-/g, '/'));
     if (!Number.isNaN(t.getTime())) d = t;
   }
   if (!d) return null;
   const parts = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai', hour12: false,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  }).formatToParts(d).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
+    timeZone: 'Asia/Shanghai',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+    .formatToParts(d)
+    .reduce((o, p) => {
+      o[p.type] = p.value;
+      return o;
+    }, {});
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
@@ -211,12 +233,22 @@ function fmtCnDateTime(v) {
 // 新记录（本地无该 detailId）按时间排序分配到空余 seq 位。
 // 本地行键 memberId/teamId = 卡片上下文（缺省账号自身口径）：打卡/费用行以 member_id 为人级稳定键，
 // team_id 仅写入时所属班快照——调班后人级读取不受 team_id 影响，代打卡落在卡片成员名下
-async function refreshClockins(account, date, memberId = account.member_id, teamId = account.team_id) {
+async function refreshClockins(
+  account,
+  date,
+  memberId = account.member_id,
+  teamId = account.team_id
+) {
   const d = await sgcc.dayNew(account.token, date, devOpt(account));
   const body = d && Number(d.statusCode) === 200 && d.data && d.data.body;
   if (!body) return null;
-  const list = (Array.isArray(body.clockInDetailList) ? body.clockInDetailList.slice() : [])
-    .map((it) => ({ ...it, _t: fmtCnDateTime(it.clockInTime ?? it.createTime), _detailId: String(it.detailId ?? it.id ?? '') }));
+  const list = (Array.isArray(body.clockInDetailList) ? body.clockInDetailList.slice() : []).map(
+    (it) => ({
+      ...it,
+      _t: fmtCnDateTime(it.clockInTime ?? it.createTime),
+      _detailId: String(it.detailId ?? it.id ?? ''),
+    })
+  );
 
   // 查本地已有记录，建立 detailId → seq 映射
   const [existing] = await pool.query(
@@ -232,7 +264,8 @@ async function refreshClockins(account, date, memberId = account.member_id, team
   const known = [];
   const fresh = [];
   for (const it of list) {
-    if (it._detailId && seqByDetailId[it._detailId]) known.push({ ...it, _seq: seqByDetailId[it._detailId] });
+    if (it._detailId && seqByDetailId[it._detailId])
+      known.push({ ...it, _seq: seqByDetailId[it._detailId] });
     else fresh.push(it);
   }
   fresh.sort((a, b) => String(a._t || '').localeCompare(String(b._t || '')));
@@ -252,10 +285,18 @@ async function refreshClockins(account, date, memberId = account.member_id, team
        ON DUPLICATE KEY UPDATE detail_id = VALUES(detail_id), clock_time = VALUES(clock_time),
          position = VALUES(position), longitude = VALUES(longitude), latitude = VALUES(latitude),
          work_hours = VALUES(work_hours)`,
-      [teamId, memberId, date, it._seq,
-        it._detailId, it._t,
-        String(it.position || ''), String(it.longitude ?? ''), String(it.latitude ?? ''),
-        String(body.workHours ?? '')]
+      [
+        teamId,
+        memberId,
+        date,
+        it._seq,
+        it._detailId,
+        it._t,
+        String(it.position || ''),
+        String(it.longitude ?? ''),
+        String(it.latitude ?? ''),
+        String(body.workHours ?? ''),
+      ]
     );
   }
   return body;
@@ -277,7 +318,10 @@ router.get('/geo', async (req, res, next) => {
       const params = { address: address.slice(0, 120), key: config.worklog.amapMapKey };
       const region = String(req.query.region || '').trim();
       if (region) params.city = region.slice(0, 32);
-      const resp = await axios.get(`${config.worklog.amapBaseUrl}/v3/geocode/geo`, { params, timeout: 8000 });
+      const resp = await axios.get(`${config.worklog.amapBaseUrl}/v3/geocode/geo`, {
+        params,
+        timeout: 8000,
+      });
       const d = resp.data || {};
       const g = d.status === '1' && d.geocodes && d.geocodes[0];
       const loc = g && typeof g.location === 'string' ? g.location.split(',') : []; // 高德 location：「经度,纬度」
@@ -295,7 +339,12 @@ router.get('/geo', async (req, res, next) => {
     }
     const lng = Number(req.query.lng);
     const lat = Number(req.query.lat);
-    if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) {
+    if (
+      !Number.isFinite(lng) ||
+      !Number.isFinite(lat) ||
+      Math.abs(lng) > 180 ||
+      Math.abs(lat) > 90
+    ) {
       return fail(res, 400, 40040, '经纬度参数无效');
     }
     if (!config.worklog.amapMapKey) return ok(res, empty);
@@ -313,7 +362,9 @@ router.get('/geo', async (req, res, next) => {
       longitude: lng.toFixed(6),
       latitude: lat.toFixed(6),
     });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // 高德空值字段返回空数组（[]）而非空串，统一收敛为字符串
@@ -335,7 +386,9 @@ function composePosition(ac) {
   const street = gstr(ac.streetNumber && ac.streetNumber.street);
   const city = rawCity === province ? '' : rawCity; // 直辖市去重（防御）
   const district = rawDistrict === rawCity ? '' : rawDistrict; // 省直辖县级区划去重（防御）
-  return [nation, province, city, district, town === street ? '' : town, street].filter(Boolean).join('');
+  return [nation, province, city, district, town === street ? '' : town, street]
+    .filter(Boolean)
+    .join('');
 }
 
 // 打卡定位兜底：前端未带 position 时按经纬度服务端逆编码
@@ -343,7 +396,10 @@ async function reverseGeocode(lng, lat) {
   if (!config.worklog.amapMapKey) return { position: '', cityCode: '', cityName: '' };
   try {
     const resp = await axios.get(`${config.worklog.amapBaseUrl}/v3/geocode/regeo`, {
-      params: { location: `${Number(lng).toFixed(6)},${Number(lat).toFixed(6)}`, key: config.worklog.amapMapKey }, // 高德：经度在前
+      params: {
+        location: `${Number(lng).toFixed(6)},${Number(lat).toFixed(6)}`,
+        key: config.worklog.amapMapKey,
+      }, // 高德：经度在前
       timeout: 8000,
     });
     const d = resp.data || {};
@@ -394,7 +450,8 @@ router.post('/login/captcha', async (req, res, next) => {
   try {
     const mobile = String((req.body && req.body.mobile) || '').trim();
     if (!/^1\d{10}$/.test(mobile)) return fail(res, 400, 40030, '手机号格式不正确');
-    if (overLoginRate('captcha', req.user.id, mobile)) return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
+    if (overLoginRate('captcha', req.user.id, mobile))
+      return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
     try {
       let image = await sgcc.loginCaptcha(mobile);
       // 商旅返回裸 base64（无 dataURL 前缀），统一补全；PNG 魔数 89504e47
@@ -403,7 +460,9 @@ router.post('/login/captcha', async (req, res, next) => {
     } catch (e) {
       return fail(res, 400, 40035, '图形验证码暂不可用，请使用滑块验证');
     }
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // POST /login/sms：发短信验证码（带 checkImgCode 走图形码 v2 通道；带 captchaToken 走滑块 v3 通道）
@@ -411,7 +470,8 @@ router.post('/login/sms', async (req, res, next) => {
   try {
     const { mobile, checkImgCode, captchaToken, constId } = req.body || {};
     if (!/^1\d{10}$/.test(String(mobile || ''))) return fail(res, 400, 40030, '手机号格式不正确');
-    if (overLoginRate('sms', req.user.id, String(mobile))) return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
+    if (overLoginRate('sms', req.user.id, String(mobile)))
+      return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
     if (checkImgCode) {
       // 图形码通道（v2）：statusCode=200 即成功
       const d = await sgcc.loginSendSmsV2(String(mobile), String(checkImgCode).trim());
@@ -422,13 +482,26 @@ router.post('/login/sms', async (req, res, next) => {
     }
     if (!captchaToken) return fail(res, 400, 40034, '请先完成图形或滑块验证');
     // 滑块通道（v3，slapp/jsonx App 同口径）：失败时 statusCode 也是 200，成败看 data.code（成功无 data 或 data.code=0）
-    const d = await sgcc.loginSendSmsSlapp(String(mobile), { captchaToken: String(captchaToken), constId: String(constId || '') });
-    const bizFail = !d || Number(d.statusCode) !== 200 || (d.data && d.data.code != null && Number(d.data.code) !== 0);
+    const d = await sgcc.loginSendSmsSlapp(String(mobile), {
+      captchaToken: String(captchaToken),
+      constId: String(constId || ''),
+    });
+    const bizFail =
+      !d ||
+      Number(d.statusCode) !== 200 ||
+      (d.data && d.data.code != null && Number(d.data.code) !== 0);
     if (bizFail) {
-      return fail(res, 400, 40031, (d && d.data && d.data.msg) || (d && d.msg) || '短信发送失败，请重试');
+      return fail(
+        res,
+        400,
+        40031,
+        (d && d.data && d.data.msg) || (d && d.msg) || '短信发送失败，请重试'
+      );
     }
     return ok(res, null);
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // POST /login/bind：短信码或密码换 token 完成绑定（同事写入设备口径）
@@ -436,14 +509,20 @@ router.post('/login/bind', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const { mobile, checkCode, password, captchaToken, constId } = req.body || {};
-    const deviceType = String(req.body.deviceType || '').trim().slice(0, 64);
-    const systemVersion = String(req.body.systemVersion || '').trim().slice(0, 64);
+    const deviceType = String(req.body.deviceType || '')
+      .trim()
+      .slice(0, 64);
+    const systemVersion = String(req.body.systemVersion || '')
+      .trim()
+      .slice(0, 64);
     if (!/^1\d{10}$/.test(String(mobile || ''))) return fail(res, 400, 40030, '手机号格式不正确');
     if (!checkCode && !password) return fail(res, 400, 40032, '请填写短信验证码或密码');
     // 密码登录双通道：带 checkImgCode 走图形码 token/v3；否则走滑块 token/v4（需 captchaToken）
     const { checkImgCode } = req.body || {};
-    if (password && !checkImgCode && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
-    if (overLoginRate('bind', req.user.id, String(mobile))) return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
+    if (password && !checkImgCode && !captchaToken)
+      return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
+    if (overLoginRate('bind', req.user.id, String(mobile)))
+      return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
 
     // 认领出工成员：班组内按昵称匹配（与 worklog member-sync 同口径）
     const [members] = await pool.query(
@@ -455,13 +534,21 @@ router.post('/login/bind', async (req, res, next) => {
     // 落库归并（人级唯一 uk_user/uk_member，token 跟人走）：
     // 本人已有绑定行（含调班前旧班行）→ 更新为当前班组/成员口径；无本人行但该成员有代绑行 → 接管回本人；
     // 两者并存且不同行（代绑残留）→ 删代绑行后更新本人行；设备口径沿用原 ODKU 语义（缺省值覆盖）
-    const [byUser] = await pool.query('SELECT id FROM worklog_sgcc_account WHERE user_id = ?', [req.user.id]);
+    const [byUser] = await pool.query('SELECT id FROM worklog_sgcc_account WHERE user_id = ?', [
+      req.user.id,
+    ]);
     const [byMember] = memberId
-      ? await pool.query('SELECT id, user_id FROM worklog_sgcc_account WHERE member_id = ?', [memberId])
+      ? await pool.query('SELECT id, user_id FROM worklog_sgcc_account WHERE member_id = ?', [
+          memberId,
+        ])
       : [[]];
     // 接管前归属校验：该成员绑定行已被其他账号自绑时明确拒绝，禁止静默抢走他人绑定；
     // 仅允许接管未归属（管理员代绑 user_id=NULL）行与本人行（见上方归并注释）
-    if (byMember.length && byMember[0].user_id != null && Number(byMember[0].user_id) !== Number(req.user.id)) {
+    if (
+      byMember.length &&
+      byMember[0].user_id != null &&
+      Number(byMember[0].user_id) !== Number(req.user.id)
+    ) {
       return fail(res, 409, 40910, '该成员已绑定其他登录账号，请联系对方解绑或请管理员处理');
     }
 
@@ -469,9 +556,13 @@ router.post('/login/bind', async (req, res, next) => {
     let token;
     try {
       ({ token } = password
-        ? (checkImgCode
-          ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
-          : await sgcc.loginByPassword(String(mobile), String(password), risk))
+        ? checkImgCode
+          ? await sgcc.loginByPasswordV3(
+              String(mobile),
+              String(password),
+              String(checkImgCode).trim()
+            )
+          : await sgcc.loginByPassword(String(mobile), String(password), risk)
         : await sgcc.loginBySmsSlapp(String(mobile), String(checkCode).trim(), risk));
     } catch (e) {
       // 平台业务失败（如 99001 风控笼统拒绝）：映射友好业务码，前端 toast 平台原文，不落全局 500
@@ -507,7 +598,9 @@ router.post('/login/bind', async (req, res, next) => {
     // 重新登录成功：补核此前因登录态过期而核查失败的日期（异步不阻塞响应）
     if (memberId) recompenseAfterBind(memberId);
     return ok(res, { bound: true });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // 绑定/重新登录成功后的补核（近 62 天、仅当日用车人，同定时核查口径；member 口径——调班后旧班失败记录也能补核）：
@@ -570,7 +663,9 @@ router.get('/account', async (req, res, next) => {
       clockins,
       fee: fees[0] || null,
     });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // PUT /account/device：本人编辑打卡设备信息（「厂商 型号」格式）
@@ -578,15 +673,21 @@ router.put('/account/device', async (req, res, next) => {
   try {
     const account = await myAccount(req);
     if (!account) return fail(res, 400, 40020, '请先绑定商旅账号');
-    const deviceType = String(req.body.deviceType || '').trim().slice(0, 64);
-    const systemVersion = String(req.body.systemVersion || '').trim().slice(0, 64);
+    const deviceType = String(req.body.deviceType || '')
+      .trim()
+      .slice(0, 64);
+    const systemVersion = String(req.body.systemVersion || '')
+      .trim()
+      .slice(0, 64);
     if (!deviceType) return fail(res, 400, 40033, '设备型号不能为空');
     await pool.query(
       'UPDATE worklog_sgcc_account SET device_type = ?, system_version = ? WHERE id = ?',
       [deviceType, systemVersion, account.id]
     );
     return ok(res, null);
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // DELETE /account：解除绑定（仅删本地 token 与打卡/费用同步数据，商旅 App 侧不受影响）
@@ -600,7 +701,9 @@ router.delete('/account', async (req, res, next) => {
       await pool.query('DELETE FROM worklog_fee WHERE member_id = ?', [account.member_id]);
     }
     return ok(res, null);
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // GET /expired：本班登录已过期的绑定成员名单（全员可用；出工日志子应用进入时弹窗提醒的数据源）
@@ -620,7 +723,9 @@ router.get('/expired', async (req, res, next) => {
         mobile: String(r.mobile || '').replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2'),
       })),
     });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // ---------- 管理员维护绑定设备（网页端数据管理「商旅绑定设备」区；超管任意班组 / 班组管理员仅本班，同 worklog 字典口径） ----------
@@ -653,14 +758,20 @@ router.get('/accounts', requireDictAdmin, async (req, res, next) => {
         lastCheckAt: r.last_check_at || '',
       })),
     });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // PUT /accounts/:id/device：管理员改绑定设备口径（设备型号 = 「厂商 型号」格式；作用范围限生效班组）
 router.put('/accounts/:id/device', requireDictAdmin, async (req, res, next) => {
   try {
-    const deviceType = String(req.body.deviceType || '').trim().slice(0, 64);
-    const systemVersion = String(req.body.systemVersion || '').trim().slice(0, 64);
+    const deviceType = String(req.body.deviceType || '')
+      .trim()
+      .slice(0, 64);
+    const systemVersion = String(req.body.systemVersion || '')
+      .trim()
+      .slice(0, 64);
     if (!deviceType) return fail(res, 400, 40033, '设备型号不能为空');
     const [r] = await pool.query(
       'UPDATE worklog_sgcc_account SET device_type = ?, system_version = ? WHERE id = ? AND team_id = ?',
@@ -668,7 +779,9 @@ router.put('/accounts/:id/device', requireDictAdmin, async (req, res, next) => {
     );
     if (!r.affectedRows) return fail(res, 404, 40400, '绑定记录不存在');
     return ok(res, null);
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // POST /accounts/bind：管理员代成员绑定商旅账号（成员过期又联系不上时兜底；网页端数据管理「商旅绑定设备」区）
@@ -683,8 +796,10 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
     if (!checkCode && !password) return fail(res, 400, 40032, '请填写短信验证码或密码');
     // 密码登录双通道：带 checkImgCode 走图形码 token/v3；否则走滑块 token/v4（需 captchaToken）
     const { checkImgCode } = req.body || {};
-    if (password && !checkImgCode && !captchaToken) return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
-    if (overLoginRate('bind', req.user.id, String(mobile))) return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
+    if (password && !checkImgCode && !captchaToken)
+      return fail(res, 400, 40034, '密码登录请先完成图形或滑块验证');
+    if (overLoginRate('bind', req.user.id, String(mobile)))
+      return fail(res, 429, 42901, '操作过于频繁，请稍后再试');
     // 成员必须属于本班
     const [members] = await pool.query(
       'SELECT id FROM worklog_member WHERE id = ? AND team_id = ?',
@@ -696,9 +811,13 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
     let token;
     try {
       ({ token } = password
-        ? (checkImgCode
-          ? await sgcc.loginByPasswordV3(String(mobile), String(password), String(checkImgCode).trim())
-          : await sgcc.loginByPassword(String(mobile), String(password), risk))
+        ? checkImgCode
+          ? await sgcc.loginByPasswordV3(
+              String(mobile),
+              String(password),
+              String(checkImgCode).trim()
+            )
+          : await sgcc.loginByPassword(String(mobile), String(password), risk)
         : await sgcc.loginBySmsSlapp(String(mobile), String(checkCode).trim(), risk));
     } catch (e) {
       // 平台业务失败（如 99001 风控笼统拒绝）：映射友好业务码，前端 toast 平台原文，不落全局 500
@@ -719,7 +838,9 @@ router.post('/accounts/bind', requireDictAdmin, async (req, res, next) => {
     // 与本人绑定同口径：补核此前因登录态过期而核查失败的日期（异步不阻塞响应）
     recompenseAfterBind(members[0].id);
     return ok(res, { bound: true });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // ---------- 打卡区数据与打卡操作 ----------
@@ -762,7 +883,8 @@ router.get('/day', async (req, res, next) => {
     );
     const members = {};
     accounts.forEach((a) => {
-      if (!members[a.card_member_id]) members[a.card_member_id] = { bound: true, tokenStatus: a.token_status };
+      if (!members[a.card_member_id])
+        members[a.card_member_id] = { bound: true, tokenStatus: a.token_status };
     });
     clockins.forEach((c) => {
       const m = (members[c.member_id] = members[c.member_id] || {});
@@ -772,12 +894,16 @@ router.get('/day', async (req, res, next) => {
     fees.forEach((f) => {
       const m = (members[f.member_id] = members[f.member_id] || {});
       m.fee = {
-        foodFee: Number(f.food_fee), transitFee: Number(f.transit_fee),
-        costCenterCode: f.cost_center_code, costCenterName: f.cost_center_name,
+        foodFee: Number(f.food_fee),
+        transitFee: Number(f.transit_fee),
+        costCenterCode: f.cost_center_code,
+        costCenterName: f.cost_center_name,
       };
     });
     return ok(res, { members });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // POST /clockin：打卡（开始/结束/更新）
@@ -787,10 +913,14 @@ router.post('/clockin', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const { entry_id: entryId, member_id: memberId, seq, action } = req.body || {};
-    const position = String(req.body.position || '').trim().slice(0, 255);
+    const position = String(req.body.position || '')
+      .trim()
+      .slice(0, 255);
     const longitude = String(req.body.longitude ?? '').trim();
     const latitude = String(req.body.latitude ?? '').trim();
-    const remarks = String(req.body.remarks || '110kV及220kV输电线路巡视').trim().slice(0, 255);
+    const remarks = String(req.body.remarks || '110kV及220kV输电线路巡视')
+      .trim()
+      .slice(0, 255);
     if (!entryId || !memberId) return fail(res, 400, 40000, '参数不完整');
     if (!longitude || !latitude) return fail(res, 400, 40034, '缺少打卡位置信息');
 
@@ -810,7 +940,11 @@ router.post('/clockin', async (req, res, next) => {
     if (date !== today()) return fail(res, 400, 40041, '仅当日日期可打卡');
 
     // 定位兜底：未带地址时按经纬度服务端逆编码（完整地址串 + 城市编码）
-    let geo = { position, cityCode: String(req.body.cityCode || ''), cityName: String(req.body.cityName || '') };
+    let geo = {
+      position,
+      cityCode: String(req.body.cityCode || ''),
+      cityName: String(req.body.cityName || ''),
+    };
     if (!geo.position) {
       geo = await reverseGeocode(longitude, latitude);
       if (!geo.position) return fail(res, 400, 40034, '定位逆编码失败，请重新定位或选择杆塔');
@@ -835,13 +969,22 @@ router.post('/clockin', async (req, res, next) => {
       );
       const detailId = rows.length ? rows[0].detail_id : '';
       if (!detailId) return fail(res, 400, 40035, '未找到该次打卡记录，无法更新');
-      const d = await sgcc.updateMark(account.token, {
-        detailId, cityCode: geo.cityCode, cityName: geo.cityName,
-        position: geo.position, longitude, latitude,
-      }, opt);
+      const d = await sgcc.updateMark(
+        account.token,
+        {
+          detailId,
+          cityCode: geo.cityCode,
+          cityName: geo.cityName,
+          position: geo.position,
+          longitude,
+          latitude,
+        },
+        opt
+      );
       if (!d || Number(d.statusCode) !== 200) {
         // 失败时探测登录态：已过期则置灰（token_status=0）并提示重新登录，区别于一般失败
-        if (!(await probeAuth(account))) return fail(res, 400, 40021, '该成员商旅登录已过期，请其本人重新登录');
+        if (!(await probeAuth(account)))
+          return fail(res, 400, 40021, '该成员商旅登录已过期，请其本人重新登录');
         return fail(res, 400, 40036, (d && d.msg) || '商旅更新打卡失败，请重试');
       }
     } else {
@@ -850,13 +993,24 @@ router.post('/clockin', async (req, res, next) => {
         [memberId, date, seqNum]
       );
       if (exists.length) return fail(res, 400, 40037, seqNum === 1 ? '已开始打卡' : '已结束打卡');
-      const d = await sgcc.markNew(account.token, {
-        clockInDate: date, cityCode: geo.cityCode, cityName: geo.cityName,
-        position: geo.position, longitude, latitude, remarks,
-      }, seqNum === 2, opt);
+      const d = await sgcc.markNew(
+        account.token,
+        {
+          clockInDate: date,
+          cityCode: geo.cityCode,
+          cityName: geo.cityName,
+          position: geo.position,
+          longitude,
+          latitude,
+          remarks,
+        },
+        seqNum === 2,
+        opt
+      );
       if (!d || Number(d.statusCode) !== 200) {
         // 失败时探测登录态：已过期则置灰（token_status=0）并提示重新登录，区别于一般失败
-        if (!(await probeAuth(account))) return fail(res, 400, 40021, '该成员商旅登录已过期，请其本人重新登录');
+        if (!(await probeAuth(account)))
+          return fail(res, 400, 40021, '该成员商旅登录已过期，请其本人重新登录');
         return fail(res, 400, 40036, (d && d.msg) || '商旅打卡失败，请重试');
       }
     }
@@ -869,7 +1023,9 @@ router.post('/clockin', async (req, res, next) => {
       [geo.cityCode, geo.cityName, memberId, date, seqNum]
     );
     return ok(res, null, '打卡成功');
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // ---------- 费用 ----------
@@ -882,14 +1038,25 @@ async function feeTplParams(memberId, date) {
     [memberId, date]
   );
   const r = rows[0] || {};
-  return { clockInDate: date, cityName: r.city_name || '', cityCode: r.city_code || '', position: r.position || '' };
+  return {
+    clockInDate: date,
+    cityName: r.city_name || '',
+    cityCode: r.city_code || '',
+    position: r.position || '',
+  };
 }
 
 // 模板「成本分配」（id=4）兜底：商旅默认带出则沿用并回报当前值；空值时用本成员最近一次本地成本中心回填。
 // 注意 value 与 data 两字段不对称（value.value='1' 选项码 / data.value='成本中心' 选项文案），勿用同一串覆盖；
 // 返回 { code, name }（当前生效值，供本地摘要回写）或 null（无来源可填）
 // 成本分配选项码 ↔ 文案（组件 id=4 的五个选项；商旅自动带出时可能只给名称/编码、选中码缺失或误为文案，须归一否则保存不生效）
-const COST_ALLOC_OPTS = { 1: '成本中心', 2: 'WBS', 3: '内部订单号', 4: '成本中心&WBS', 5: '成本中心&内部订单号' };
+const COST_ALLOC_OPTS = {
+  1: '成本中心',
+  2: 'WBS',
+  3: '内部订单号',
+  4: '成本中心&WBS',
+  5: '成本中心&内部订单号',
+};
 
 // 归一 comp4 的 value/data：选项码空 → 默认「成本中心」(1)；误写为选项文案 → 映射回选项码；
 // value.value=选项码 / data.value=选项文案（两字段不对称，勿同串覆盖）
@@ -903,13 +1070,17 @@ function normalizeCostAllocComp(comp, v) {
   const codeName = String(v.costCenterName || '');
   const codeCode = String(v.costCenterCode || '');
   comp.value = JSON.stringify({
-    costCenterName: codeName, value: code,
-    projectType: String(v.projectType || ''), projectTypeName: String(v.projectTypeName || ''),
+    costCenterName: codeName,
+    value: code,
+    projectType: String(v.projectType || ''),
+    projectTypeName: String(v.projectTypeName || ''),
     costCenterCode: codeCode,
   });
   comp.data = JSON.stringify({
-    costCenterName: codeName, value: COST_ALLOC_OPTS[code] || '成本中心',
-    projectType: String(v.projectType || ''), projectTypeName: String(v.projectTypeName || ''),
+    costCenterName: codeName,
+    value: COST_ALLOC_OPTS[code] || '成本中心',
+    projectType: String(v.projectType || ''),
+    projectTypeName: String(v.projectTypeName || ''),
     costCenterCode: codeCode,
   });
   return code;
@@ -922,7 +1093,11 @@ async function ensureCostCenter(tpl, account, memberId = account.member_id) {
   const comp = (tpl.dtComponentList || []).find((c) => c.id === 4);
   if (!comp) return null;
   let v = {};
-  try { v = comp.value ? JSON.parse(comp.value) : {}; } catch (e) { v = {}; }
+  try {
+    v = comp.value ? JSON.parse(comp.value) : {};
+  } catch (e) {
+    v = {};
+  }
   if (v && v.costCenterCode) {
     // 编码已带出：选项码缺失/误写时归一（商旅自动带出常只给名称+编码不给选中码，原样透传保存不生效）
     normalizeCostAllocComp(comp, v);
@@ -968,7 +1143,11 @@ router.get('/fee', async (req, res, next) => {
       [memberId, date]
     );
     // 商旅实时模板（成本分配选项/上传图片组件现状都在模板里；城市参数补全，缺省模板可能不带默认成本中心）
-    const d = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account));
+    const d = await sgcc.getFeeInfoNew(
+      account.token,
+      await feeTplParams(memberId, date),
+      devOpt(account)
+    );
     const body = d && Number(d.statusCode) === 200 && d.data && d.data.body;
     if (!body || !body.clockTemplate) return fail(res, 400, 40038, '获取商旅费用模板失败，请重试');
     // 成本分配（id=4）解析供弹层展示：选项文案按 optionsJsonObject 的 value 码反查；模板无值时回退本地摘要
@@ -981,18 +1160,26 @@ router.get('/fee', async (req, res, next) => {
           const opts = Array.isArray(comp4.optionsJsonObject) ? comp4.optionsJsonObject : [];
           const hit = opts.find((o) => String(o.value) === String(v.value));
           costAlloc = {
-            label: hit ? String(hit.label || '') : (COST_ALLOC_OPTS[String(v.value)] || ''),
+            label: hit ? String(hit.label || '') : COST_ALLOC_OPTS[String(v.value)] || '',
             costCenterName: String(v.costCenterName || ''),
             costCenterCode: String(v.costCenterCode || ''),
           };
         }
-      } catch (e) { /* 模板值异常按无值处理 */ }
+      } catch (e) {
+        /* 模板值异常按无值处理 */
+      }
     }
     if (!costAlloc && fees[0] && fees[0].cost_center_code) {
-      costAlloc = { label: '成本中心', costCenterName: fees[0].cost_center_name || '', costCenterCode: fees[0].cost_center_code };
+      costAlloc = {
+        label: '成本中心',
+        costCenterName: fees[0].cost_center_name || '',
+        costCenterCode: fees[0].cost_center_code,
+      };
     }
     return ok(res, { local: fees[0] || null, clockTemplate: body.clockTemplate, costAlloc });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // POST /fee：保存费用 {member_id, date, foodFee, transitFee, overrides?}
@@ -1005,7 +1192,11 @@ router.post('/fee', async (req, res, next) => {
     const account = await requireMemberAccount(req, res, memberId, date);
     if (!account) return;
 
-    const d = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account));
+    const d = await sgcc.getFeeInfoNew(
+      account.token,
+      await feeTplParams(memberId, date),
+      devOpt(account)
+    );
     const body = d && Number(d.statusCode) === 200 && d.data && d.data.body;
     if (!body || !body.clockTemplate) return fail(res, 400, 40038, '获取商旅费用模板失败，请重试');
 
@@ -1018,17 +1209,26 @@ router.post('/fee', async (req, res, next) => {
     const overrides = { ...(req.body.overrides || {}) };
     overrides[10] = JSON.stringify({ foodFee: String(foodFee), arrive: String(transitFee) });
 
-    const d2 = await sgcc.saveFeeInfoNew(account.token, date, body.clockTemplate, overrides, devOpt(account));
+    const d2 = await sgcc.saveFeeInfoNew(
+      account.token,
+      date,
+      body.clockTemplate,
+      overrides,
+      devOpt(account)
+    );
     if (!d2 || Number(d2.statusCode) !== 200) {
       return fail(res, 400, 40039, (d2 && d2.msg) || '商旅费用保存失败，请重试');
     }
 
     // 保存后复核（排查用日志，不影响响应）：重新取模板确认成本分配是否已落商旅
-    sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account))
+    sgcc
+      .getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account))
       .then((d3) => {
         const t3 = d3 && d3.data && d3.data.body && d3.data.body.clockTemplate;
         const cc3 = t3 ? extractCostCenter(t3) : null;
-        console.log(`[商旅打卡] 费用保存复核（成员 ${memberId} ${date}）：成本分配 = ${cc3 && cc3.code ? `${cc3.code} ${cc3.name}` : '空'}`);
+        console.log(
+          `[商旅打卡] 费用保存复核（成员 ${memberId} ${date}）：成本分配 = ${cc3 && cc3.code ? `${cc3.code} ${cc3.name}` : '空'}`
+        );
       })
       .catch(() => {});
 
@@ -1043,7 +1243,9 @@ router.post('/fee', async (req, res, next) => {
       [req.team.id, memberId, date, foodFee, transitFee, cc ? cc.code : '', cc ? cc.name : '']
     );
     return ok(res, null, '保存成功');
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // ---------- 照片同步（worklog 上传远端先行调用 + 改人名补传 + 手动重试）----------
@@ -1058,16 +1260,25 @@ function parseFeeImageItem(it) {
   if (!it) return null;
   const rawId = it.id ?? it.fileInfoId ?? it.imageId;
   if (rawId === undefined || rawId === null || String(rawId) === '') return null;
-  const url = typeof it.url === 'string' && it.url.trim()
-    ? it.url.trim()
-    : (typeof it.imageUrl === 'string' ? it.imageUrl.trim() : '');
+  const url =
+    typeof it.url === 'string' && it.url.trim()
+      ? it.url.trim()
+      : typeof it.imageUrl === 'string'
+        ? it.imageUrl.trim()
+        : '';
   return { id: String(rawId), url };
 }
 
 // 组件 value（JSON 字符串）→ 图片数组；异常/非数组回空
 function parseFeeImageList(value) {
   let imgs = [];
-  if (value) { try { imgs = JSON.parse(value); } catch (e) { imgs = []; } }
+  if (value) {
+    try {
+      imgs = JSON.parse(value);
+    } catch (e) {
+      imgs = [];
+    }
+  }
   return Array.isArray(imgs) ? imgs : [];
 }
 
@@ -1076,16 +1287,31 @@ function parseFeeImageList(value) {
 // links 传已有链接（按成员去重，已链接者跳过，重试天然只补缺口）；未绑定成员跳过不计失败（记核查日志，与验证规则 a「未绑定者不参与」同口径）；
 // 登录过期视为硬失败（远端先行口径：商旅失败即整个操作失败，跳过会造成本地与商旅必然不一致）。任一绑定成员失败即中止。
 // 返回 { ok:true, links } / { ok:false, links, failedName, error }（links 含本次新成功成员，供调用方落库）
-async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, links = {}, photoId = null, prog = null }) {
+async function uploadPhotoToMembersRemote({
+  teamId,
+  logDate,
+  names,
+  buf,
+  links = {},
+  photoId = null,
+  prog = null,
+}) {
   const photoLabel = photoId ? `照片 ${photoId}` : '照片';
   if (prog) prog.addTotal(names.length);
   for (const name of names) {
     const [mrows] = await pool.query(
-      'SELECT id FROM worklog_member WHERE team_id = ? AND name = ?', [teamId, name]
+      'SELECT id FROM worklog_member WHERE team_id = ? AND name = ?',
+      [teamId, name]
     );
-    if (!mrows.length) { if (prog) prog.step(); continue; }
+    if (!mrows.length) {
+      if (prog) prog.step();
+      continue;
+    }
     const memberId = mrows[0].id;
-    if (links[memberId]) { if (prog) prog.step(); continue; } // 该成员名下已同步过
+    if (links[memberId]) {
+      if (prog) prog.step();
+      continue;
+    } // 该成员名下已同步过
     const account = await accountByMember(memberId); // 人级解析：人已调班仍可用其账号同步
     if (!account) {
       await pool.query(
@@ -1110,7 +1336,11 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, links =
       const imgUrl = up.httpUrl;
 
       // 关联进当日费用：上传图片组件（id=5）追加该图，整树重存；成本分配兜底同费用保存口径
-      const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, logDate), devOpt(account));
+      const fi = await sgcc.getFeeInfoNew(
+        account.token,
+        await feeTplParams(memberId, logDate),
+        devOpt(account)
+      );
       const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
       if (!tpl) throw new Error('获取费用模板失败');
       await ensureCostCenter(tpl, account, memberId);
@@ -1118,7 +1348,13 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, links =
       const imgs = parseFeeImageList(comp && comp.value);
       // 元素形状与商旅 App 手工上传一致：{fileInfoId, url}（imgId 即 uploadImageV2 返回的 fileInfoId）
       imgs.push({ fileInfoId: imgId, url: imgUrl || '' });
-      const sv = await sgcc.saveFeeInfoNew(account.token, logDate, tpl, { 5: JSON.stringify(imgs) }, devOpt(account));
+      const sv = await sgcc.saveFeeInfoNew(
+        account.token,
+        logDate,
+        tpl,
+        { 5: JSON.stringify(imgs) },
+        devOpt(account)
+      );
       if (!sv || Number(sv.statusCode) !== 200) throw new Error('费用照片关联保存失败');
 
       links[memberId] = imgId;
@@ -1127,7 +1363,12 @@ async function uploadPhotoToMembersRemote({ teamId, logDate, names, buf, links =
       await pool.query(
         `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
          VALUES (?, ?, ?, 'daily', 'photo', 'fail', ?)`,
-        [teamId, memberId, logDate, `${photoLabel} 同步失败：成员「${name}」${String(err.message).slice(0, 200)}`]
+        [
+          teamId,
+          memberId,
+          logDate,
+          `${photoLabel} 同步失败：成员「${name}」${String(err.message).slice(0, 200)}`,
+        ]
       );
       return { ok: false, links, failedName: name, error: String(err.message).slice(0, 200) };
     }
@@ -1149,9 +1390,12 @@ async function syncPhotoToSgcc(photoId, targetNames = null, prog = null) {
   );
   const photo = rows[0];
   if (!photo) return { ok: false, error: '照片不存在' };
-  const names = Array.isArray(targetNames) && targetNames.length
-    ? targetNames
-    : (typeof photo.members === 'string' ? JSON.parse(photo.members) : (photo.members || []));
+  const names =
+    Array.isArray(targetNames) && targetNames.length
+      ? targetNames
+      : typeof photo.members === 'string'
+        ? JSON.parse(photo.members)
+        : photo.members || [];
   const links = photo.sgcc_img_id ? JSON.parse(photo.sgcc_img_id) : {};
 
   // 图片原文（COS 回源）
@@ -1160,14 +1404,20 @@ async function syncPhotoToSgcc(photoId, targetNames = null, prog = null) {
   const buf = Buffer.from(await resp.arrayBuffer());
 
   const r = await uploadPhotoToMembersRemote({
-    teamId: photo.team_id, logDate: photo.log_date, names, buf,
-    links, photoId, prog,
+    teamId: photo.team_id,
+    logDate: photo.log_date,
+    names,
+    buf,
+    links,
+    photoId,
+    prog,
   });
   // 无论成败都落库最新链接与状态（部分成功的链接保留，重试只补缺口）
-  await pool.query(
-    'UPDATE worklog_photo SET sgcc_img_id = ?, sgcc_synced = ? WHERE id = ?',
-    [JSON.stringify(r.links), r.ok ? 1 : 2, photoId]
-  );
+  await pool.query('UPDATE worklog_photo SET sgcc_img_id = ?, sgcc_synced = ? WHERE id = ?', [
+    JSON.stringify(r.links),
+    r.ok ? 1 : 2,
+    photoId,
+  ]);
   if (!r.ok) return { ok: false, failedName: r.failedName, error: r.error };
   return { ok: true };
 }
@@ -1176,7 +1426,11 @@ async function syncPhotoToSgcc(photoId, targetNames = null, prog = null) {
 // memberId = 卡片上下文成员（费用模板城市参数/成本中心兜底按其人级本地数据取）
 // 返回 { ok: true }（含商旅侧本就没有该图）或 { ok: false, error }
 async function removeFeeImageRemote(account, date, imgId, memberId = account.member_id) {
-  const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(memberId, date), devOpt(account));
+  const fi = await sgcc.getFeeInfoNew(
+    account.token,
+    await feeTplParams(memberId, date),
+    devOpt(account)
+  );
   const tpl = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
   if (!tpl) return { ok: false, error: '获取费用模板失败' };
   await ensureCostCenter(tpl, account, memberId);
@@ -1188,15 +1442,31 @@ async function removeFeeImageRemote(account, date, imgId, memberId = account.mem
     return !img || img.id !== String(imgId);
   });
   if (kept.length === imgs.length) return { ok: true }; // 商旅侧本就没有该图，视为已删除
-  const sv = await sgcc.saveFeeInfoNew(account.token, date, tpl, { 5: JSON.stringify(kept) }, devOpt(account));
-  if (!sv || Number(sv.statusCode) !== 200) return { ok: false, error: (sv && sv.msg) || '商旅费用保存失败' };
+  const sv = await sgcc.saveFeeInfoNew(
+    account.token,
+    date,
+    tpl,
+    { 5: JSON.stringify(kept) },
+    devOpt(account)
+  );
+  if (!sv || Number(sv.statusCode) !== 200)
+    return { ok: false, error: (sv && sv.msg) || '商旅费用保存失败' };
   return { ok: true };
 }
 
 // 照片解链公共内核（removePhotoMembersRemote / unlinkPhotoFromSgcc 共用）：单成员一次远端解链——
 // 从该成员当日商旅费用照片移除该图，成功即时断开 links[linkKey] 并落库（后续中止不回退，重试仅处理剩余链接）；
 // 失败记核查日志并返回错误串（调用方据此中止，本地链接保留防核查回拉复活）。失败日志文案由 failDetail 构造
-async function unlinkFeeImageOnce({ photoId, teamId, logDate, memberId, imgId, links, linkKey, failDetail }) {
+async function unlinkFeeImageOnce({
+  photoId,
+  teamId,
+  logDate,
+  memberId,
+  imgId,
+  links,
+  linkKey,
+  failDetail,
+}) {
   const account = await accountByMember(memberId); // 人级解析：人已调班仍可用其账号操作
   let err = '';
   if (!account || account.token_status !== 1) {
@@ -1218,7 +1488,10 @@ async function unlinkFeeImageOnce({ photoId, teamId, logDate, memberId, imgId, l
     return err;
   }
   delete links[linkKey];
-  await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [JSON.stringify(links), photoId]);
+  await pool.query('UPDATE worklog_photo SET sgcc_img_id = ? WHERE id = ?', [
+    JSON.stringify(links),
+    photoId,
+  ]);
   return null;
 }
 
@@ -1236,19 +1509,39 @@ async function removePhotoMembersRemote(photoId, removedNames, prog = null) {
   if (!rows.length || !rows[0].sgcc_img_id) return { ok: true };
   if (prog) prog.addTotal(names.length);
   let links = {};
-  try { links = JSON.parse(rows[0].sgcc_img_id); } catch (e) { links = {}; }
+  try {
+    links = JSON.parse(rows[0].sgcc_img_id);
+  } catch (e) {
+    links = {};
+  }
   const logDate = rows[0].log_date;
   const teamId = rows[0].team_id;
   for (const name of names) {
-    const [mrows] = await pool.query('SELECT id FROM worklog_member WHERE team_id = ? AND name = ?', [teamId, name]);
-    if (!mrows.length) { if (prog) prog.step(); continue; }
+    const [mrows] = await pool.query(
+      'SELECT id FROM worklog_member WHERE team_id = ? AND name = ?',
+      [teamId, name]
+    );
+    if (!mrows.length) {
+      if (prog) prog.step();
+      continue;
+    }
     const memberId = mrows[0].id;
     const imgId = links[memberId];
-    if (!imgId) { if (prog) prog.step(); continue; } // 该成员名下本就没同步成功过，无需远端删除
+    if (!imgId) {
+      if (prog) prog.step();
+      continue;
+    } // 该成员名下本就没同步成功过，无需远端删除
     // 成功：即时断开链接并落库（后续成员中止也不回退；重试编辑时 syncPhotoToSgcc 会为缺链接成员补传恢复）
     const err = await unlinkFeeImageOnce({
-      photoId, teamId, logDate, memberId, imgId, links, linkKey: memberId,
-      failDetail: (e) => `照片 ${photoId} 剔除人名「${name}」：商旅侧图片删除失败（${String(e).slice(0, 120)}），本地未变更，请重试`,
+      photoId,
+      teamId,
+      logDate,
+      memberId,
+      imgId,
+      links,
+      linkKey: memberId,
+      failDetail: (e) =>
+        `照片 ${photoId} 剔除人名「${name}」：商旅侧图片删除失败（${String(e).slice(0, 120)}），本地未变更，请重试`,
     });
     if (err) return { ok: false, failedName: name, error: err };
     if (prog) prog.step();
@@ -1266,7 +1559,11 @@ async function unlinkPhotoFromSgcc(photoId, prog = null) {
   );
   if (!rows.length || !rows[0].sgcc_img_id) return { ok: true };
   let links = {};
-  try { links = JSON.parse(rows[0].sgcc_img_id); } catch (e) { links = {}; }
+  try {
+    links = JSON.parse(rows[0].sgcc_img_id);
+  } catch (e) {
+    links = {};
+  }
   if (prog) prog.addTotal(Object.keys(links).length);
   const logDate = rows[0].log_date;
   const teamId = rows[0].team_id;
@@ -1276,15 +1573,21 @@ async function unlinkPhotoFromSgcc(photoId, prog = null) {
     const [mrows] = await pool.query('SELECT name FROM worklog_member WHERE id = ?', [memberId]);
     const name = mrows.length ? mrows[0].name : String(memberId);
     const err = await unlinkFeeImageOnce({
-      photoId, teamId, logDate, memberId, imgId, links, linkKey: memberIdStr,
-      failDetail: (e) => `照片 ${photoId} 删除：解除成员「${name}」商旅费用照片失败（${String(e).slice(0, 120)}），本地未删除，请重试`,
+      photoId,
+      teamId,
+      logDate,
+      memberId,
+      imgId,
+      links,
+      linkKey: memberIdStr,
+      failDetail: (e) =>
+        `照片 ${photoId} 删除：解除成员「${name}」商旅费用照片失败（${String(e).slice(0, 120)}），本地未删除，请重试`,
     });
     if (err) return { ok: false, failedName: name, error: err };
     if (prog) prog.step();
   }
   return { ok: true };
 }
-
 
 // POST /photos/:id/resync：同步失败的照片手动重试（任务化异步执行：登记后立即返回 opId，商旅重传在后台串行队列执行，
 // 端侧凭 opId 轮询 GET /op/status 收尾；失败状态含成员与原因，sgcc_synced 随结果落库）
@@ -1309,7 +1612,9 @@ router.post('/photos/:id/resync', async (req, res, next) => {
       }
     });
     return ok(res, { opId: op.id }, '已发起重新同步');
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // ---------- 核查（每晚定时 + 手动拉取，一律以商旅为准覆盖本地）----------
@@ -1339,13 +1644,21 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
     remote.set(img.id, img.url);
   }
   if (remoteImgs.length && !remote.size) {
-    console.error(`[商旅打卡] 费用照片对账跳过（成员 ${ctxMemberId} ${date}）：远端 ${remoteImgs.length} 张但无可识别图片 id，样例 ${JSON.stringify(remoteImgs[0]).slice(0, 300)}`);
-    await log('photo', 'fail', `费用照片：远端 ${remoteImgs.length} 张但无可识别图片 id（键名异常），已跳过对账（详见服务端日志）`);
+    console.error(
+      `[商旅打卡] 费用照片对账跳过（成员 ${ctxMemberId} ${date}）：远端 ${remoteImgs.length} 张但无可识别图片 id，样例 ${JSON.stringify(remoteImgs[0]).slice(0, 300)}`
+    );
+    await log(
+      'photo',
+      'fail',
+      `费用照片：远端 ${remoteImgs.length} 张但无可识别图片 id（键名异常），已跳过对账（详见服务端日志）`
+    );
     return;
   }
 
   // 本成员名（摘除/入库标注用；取卡片上下文成员；user_id 供下方 Dify username 代绑兜底）
-  const [mnrows] = await pool.query('SELECT name, user_id FROM worklog_member WHERE id = ?', [ctxMemberId]);
+  const [mnrows] = await pool.query('SELECT name, user_id FROM worklog_member WHERE id = ?', [
+    ctxMemberId,
+  ]);
   const memberName = mnrows.length ? mnrows[0].name : '';
   const memberUserId = mnrows.length ? mnrows[0].user_id : null;
 
@@ -1364,7 +1677,11 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
   for (const p of photos) {
     let map = {};
     if (p.sgcc_img_id) {
-      try { map = typeof p.sgcc_img_id === 'string' ? JSON.parse(p.sgcc_img_id) : p.sgcc_img_id; } catch (e) { map = {}; }
+      try {
+        map = typeof p.sgcc_img_id === 'string' ? JSON.parse(p.sgcc_img_id) : p.sgcc_img_id;
+      } catch (e) {
+        map = {};
+      }
     }
     if (!map || typeof map !== 'object') map = {};
     const imgId = map[memberKey] ? String(map[memberKey]) : '';
@@ -1382,7 +1699,9 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
   if (toPull.length) {
     // 绑定人 username（Dify user 入参；成员名 memberName 已在函数头部取好）；
     // 管理员代绑行 account.user_id 为 NULL，按成员 user_id 兜底（与本模块人级解析口径一致）
-    const [urows] = await pool.query('SELECT username FROM sys_user WHERE id = ?', [account.user_id || memberUserId]);
+    const [urows] = await pool.query('SELECT username FROM sys_user WHERE id = ?', [
+      account.user_id || memberUserId,
+    ]);
     const username = urows.length ? urows[0].username : '';
     // 该成员当日所在首个出工记录（照片须挂在记录下；找不到则记核查日志跳过）
     const [erows] = await pool.query(
@@ -1395,7 +1714,11 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
       [ctxTeamId, ctxMemberId, date]
     );
     if (!erows.length) {
-      await log('photo', 'fail', `费用照片：商旅侧 ${toPull.length} 张本地无，但成员当日无出工记录，已跳过入库`);
+      await log(
+        'photo',
+        'fail',
+        `费用照片：商旅侧 ${toPull.length} 张本地无，但成员当日无出工记录，已跳过入库`
+      );
     } else if (!memberName) {
       await log('photo', 'fail', `费用照片：成员 ${ctxMemberId} 不存在，已跳过入库`);
     } else {
@@ -1410,11 +1733,13 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
           // 与 API 同出口代理（2026-09-24 起全部商旅通信统一走代理：同一账号在商旅侧 IP 一致，防风控扣分）；
           // undici fetch 不认 http.Agent 故走 axios；未配置代理时 httpsAgent() 返回 undefined 即直连
           const resp = await axios.get(imgUrl, {
-            responseType: 'arraybuffer', timeout: 60000,
+            responseType: 'arraybuffer',
+            timeout: 60000,
             httpsAgent: sgcc.httpsAgent(),
             validateStatus: () => true,
           });
-          if (resp.status < 200 || resp.status >= 300) throw new Error(`照片下载失败（HTTP ${resp.status}）`);
+          if (resp.status < 200 || resp.status >= 300)
+            throw new Error(`照片下载失败（HTTP ${resp.status}）`);
           const buf = Buffer.from(resp.data);
           const imgMd5 = crypto.createHash('md5').update(buf).digest('hex');
           // 相同照片内容合并（一图多人标注）：卡片上下文班组当日已有同 MD5 照片 → 人名/链接并入，不再新建
@@ -1426,15 +1751,24 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
           );
           if (dup.length) {
             const d = dup[0];
-            const oldNames = typeof d.members === 'string' ? JSON.parse(d.members) : (d.members || []);
+            const oldNames =
+              typeof d.members === 'string' ? JSON.parse(d.members) : d.members || [];
             let oldLinks = {};
-            if (d.sgcc_img_id) { try { oldLinks = typeof d.sgcc_img_id === 'string' ? JSON.parse(d.sgcc_img_id) : d.sgcc_img_id; } catch (e) { oldLinks = {}; } }
+            if (d.sgcc_img_id) {
+              try {
+                oldLinks =
+                  typeof d.sgcc_img_id === 'string' ? JSON.parse(d.sgcc_img_id) : d.sgcc_img_id;
+              } catch (e) {
+                oldLinks = {};
+              }
+            }
             const newNames = oldNames.includes(memberName) ? oldNames : [...oldNames, memberName];
             oldLinks[memberKey] = imgId;
-            await pool.query(
-              'UPDATE worklog_photo SET members = ?, sgcc_img_id = ? WHERE id = ?',
-              [JSON.stringify(newNames), JSON.stringify(oldLinks), d.id]
-            );
+            await pool.query('UPDATE worklog_photo SET members = ?, sgcc_img_id = ? WHERE id = ?', [
+              JSON.stringify(newNames),
+              JSON.stringify(oldLinks),
+              d.id,
+            ]);
             merged += 1;
             continue;
           }
@@ -1445,15 +1779,34 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
           const [r] = await pool.query(
             `INSERT INTO worklog_photo (entry_id, cos_key, url, members, is_watermark, source, sgcc_img_id, sgcc_synced, verify_status, md5)
              VALUES (?, ?, ?, ?, 1, 1, ?, 1, 'pending', ?)`,
-            [entry.id, key, localUrl, JSON.stringify([memberName]), JSON.stringify({ [memberKey]: imgId }), imgMd5]
+            [
+              entry.id,
+              key,
+              localUrl,
+              JSON.stringify([memberName]),
+              JSON.stringify({ [memberKey]: imgId }),
+              imgMd5,
+            ]
           );
           // 异步 Dify 验证并回写（不阻塞对账；含空内容重试与失败班组通知，同 worklog 上传照片）
-          verifyAndWriteBack(r.insertId, { username, date: dots(date), destination: entry.destination_name || '', url: localUrl });
+          verifyAndWriteBack(r.insertId, {
+            username,
+            date: dots(date),
+            destination: entry.destination_name || '',
+            url: localUrl,
+          });
           pulled += 1;
         } catch (err) {
           // 单张失败记核查日志继续，不抛出
-          console.error(`[商旅打卡] 费用照片入库失败（成员 ${memberName} ${date} 图片 ${imgId}）：`, err.message);
-          await log('photo', 'fail', `费用照片：商旅图片 ${imgId} 入库失败：${String(err.message).slice(0, 200)}`);
+          console.error(
+            `[商旅打卡] 费用照片入库失败（成员 ${memberName} ${date} 图片 ${imgId}）：`,
+            err.message
+          );
+          await log(
+            'photo',
+            'fail',
+            `费用照片：商旅图片 ${imgId} 入库失败：${String(err.message).slice(0, 200)}`
+          );
         }
       }
     }
@@ -1470,18 +1823,33 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
       deleted += 1;
     } catch (err) {
       console.error(`[商旅打卡] 费用照片删除失败（照片 ${p.id}）：`, err.message);
-      await log('photo', 'fail', `费用照片：本地照片 ${p.id}（商旅图片 ${p.imgId}）删除失败：${String(err.message).slice(0, 200)}`);
+      await log(
+        'photo',
+        'fail',
+        `费用照片：本地照片 ${p.id}（商旅图片 ${p.imgId}）删除失败：${String(err.message).slice(0, 200)}`
+      );
     }
   }
   for (const p of localUploaded.filter((x) => !remote.has(x.imgId))) {
     try {
       // 逐行读当前值（members/links 可能被并发改动），仅摘除本成员的链接与人名
-      const [cur] = await pool.query('SELECT members, sgcc_img_id, cos_key FROM worklog_photo WHERE id = ?', [p.id]);
+      const [cur] = await pool.query(
+        'SELECT members, sgcc_img_id, cos_key FROM worklog_photo WHERE id = ?',
+        [p.id]
+      );
       if (!cur.length) continue;
-      let names = typeof cur[0].members === 'string' ? JSON.parse(cur[0].members) : (cur[0].members || []);
+      let names =
+        typeof cur[0].members === 'string' ? JSON.parse(cur[0].members) : cur[0].members || [];
       let links = {};
       if (cur[0].sgcc_img_id) {
-        try { links = typeof cur[0].sgcc_img_id === 'string' ? JSON.parse(cur[0].sgcc_img_id) : cur[0].sgcc_img_id; } catch (e) { links = {}; }
+        try {
+          links =
+            typeof cur[0].sgcc_img_id === 'string'
+              ? JSON.parse(cur[0].sgcc_img_id)
+              : cur[0].sgcc_img_id;
+        } catch (e) {
+          links = {};
+        }
       }
       delete links[memberKey];
       names = names.filter((n) => n !== memberName);
@@ -1490,20 +1858,31 @@ async function syncFeePhotos(account, date, remoteImgs, log, ctx = null) {
         await pool.query('DELETE FROM worklog_photo WHERE id = ?', [p.id]);
         deleted += 1;
       } else {
-        await pool.query(
-          'UPDATE worklog_photo SET members = ?, sgcc_img_id = ? WHERE id = ?',
-          [JSON.stringify(names), JSON.stringify(links), p.id]
-        );
+        await pool.query('UPDATE worklog_photo SET members = ?, sgcc_img_id = ? WHERE id = ?', [
+          JSON.stringify(names),
+          JSON.stringify(links),
+          p.id,
+        ]);
         unlinked += 1;
       }
     } catch (err) {
-      console.error(`[商旅打卡] 费用照片摘除失败（照片 ${p.id} 成员 ${memberName}）：`, err.message);
-      await log('photo', 'fail', `费用照片：本地照片 ${p.id}（商旅图片 ${p.imgId}）摘除失败：${String(err.message).slice(0, 200)}`);
+      console.error(
+        `[商旅打卡] 费用照片摘除失败（照片 ${p.id} 成员 ${memberName}）：`,
+        err.message
+      );
+      await log(
+        'photo',
+        'fail',
+        `费用照片：本地照片 ${p.id}（商旅图片 ${p.imgId}）摘除失败：${String(err.message).slice(0, 200)}`
+      );
     }
   }
 
-  await log('photo', pulled || deleted || merged || unlinked ? 'diff' : 'ok',
-    `费用照片：拉下 ${pulled} 张 / 合并 ${merged} 张 / 删除 ${deleted} 张 / 摘除 ${unlinked} 人`);
+  await log(
+    'photo',
+    pulled || deleted || merged || unlinked ? 'diff' : 'ok',
+    `费用照片：拉下 ${pulled} 张 / 合并 ${merged} 张 / 删除 ${deleted} 张 / 摘除 ${unlinked} 人`
+  );
 }
 
 // 单日单人对账：登录态 → 打卡 → 费用 → 费用照片（一律以商旅为准覆盖本地；照片双向对账：拉新入库并触发验证，商旅侧已删的同步照片本地同步删除）
@@ -1532,7 +1911,10 @@ async function syncClockinPart(account, date, log, ctxTeamId, ctxMemberId) {
         .filter(Boolean)
     );
     if (remoteIds.size === 0) {
-      await pool.query('DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ?', [ctxMemberId, date]);
+      await pool.query('DELETE FROM worklog_clockin WHERE member_id = ? AND clock_date = ?', [
+        ctxMemberId,
+        date,
+      ]);
     } else {
       // 删除本地有但商旅已无的记录（按 detailId 匹配，避免按 seq 位置误删）
       const [localRows] = await pool.query(
@@ -1545,8 +1927,11 @@ async function syncClockinPart(account, date, log, ctxTeamId, ctxMemberId) {
         }
       }
     }
-    await log('clockin', before[0].cnt === Math.min(remoteIds.size, 2) ? 'ok' : 'diff',
-      `打卡：商旅 ${remoteIds.size} 条覆盖本地（本地原 ${before[0].cnt} 条）`);
+    await log(
+      'clockin',
+      before[0].cnt === Math.min(remoteIds.size, 2) ? 'ok' : 'diff',
+      `打卡：商旅 ${remoteIds.size} 条覆盖本地（本地原 ${before[0].cnt} 条）`
+    );
   }
   return true;
 }
@@ -1554,11 +1939,12 @@ async function syncClockinPart(account, date, log, ctxTeamId, ctxMemberId) {
 async function syncOne(account, date, scope, ctx = null) {
   const ctxTeamId = ctx ? ctx.teamId : account.team_id;
   const ctxMemberId = ctx ? ctx.memberId : account.member_id;
-  const log = (type, result, detail) => pool.query(
-    `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
+  const log = (type, result, detail) =>
+    pool.query(
+      `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [ctxTeamId, ctxMemberId, date, scope, type, result, String(detail).slice(0, 500)]
-  );
+      [ctxTeamId, ctxMemberId, date, scope, type, result, String(detail).slice(0, 500)]
+    );
 
   // 分段对账：任一段异常记对应类型 fail 行后原样上抛（核查记录据此留失败明细；登录失效属正常中止，
   // syncClockinPart 内已记 auth 行并返回 false，不进异常路径）
@@ -1571,25 +1957,44 @@ async function syncOne(account, date, scope, ctx = null) {
     }
   };
 
-  if (!await runStage('clockin', '打卡对账', () => syncClockinPart(account, date, log, ctxTeamId, ctxMemberId))) return;
+  if (
+    !(await runStage('clockin', '打卡对账', () =>
+      syncClockinPart(account, date, log, ctxTeamId, ctxMemberId)
+    ))
+  )
+    return;
 
   // 费用对账：以商旅为准回写本地摘要（含成本分配；城市参数补全取模板，缺省模板可能不带默认成本中心）
   const tpl = await runStage('fee', '费用对账', async () => {
-    const fi = await sgcc.getFeeInfoNew(account.token, await feeTplParams(ctxMemberId, date), devOpt(account));
+    const fi = await sgcc.getFeeInfoNew(
+      account.token,
+      await feeTplParams(ctxMemberId, date),
+      devOpt(account)
+    );
     const t = fi && fi.data && fi.data.body && fi.data.body.clockTemplate;
     if (!t) return null;
-    let food = 0; let transit = 0;
+    let food = 0;
+    let transit = 0;
     const comp10 = (t.dtComponentList || []).find((c) => c.id === 10);
     if (comp10 && comp10.value) {
-      try { const v = JSON.parse(comp10.value); food = Number(v.foodFee) || 0; transit = Number(v.arrive) || 0; } catch (e) { /* 忽略 */ }
+      try {
+        const v = JSON.parse(comp10.value);
+        food = Number(v.foodFee) || 0;
+        transit = Number(v.arrive) || 0;
+      } catch (e) {
+        /* 忽略 */
+      }
     }
     const cc = extractCostCenter(t);
     const [old] = await pool.query(
       'SELECT food_fee, transit_fee, cost_center_code FROM worklog_fee WHERE member_id = ? AND fee_date = ?',
       [ctxMemberId, date]
     );
-    const changed = !old.length || Number(old[0].food_fee) !== food || Number(old[0].transit_fee) !== transit
-      || String(old[0].cost_center_code || '') !== cc.code;
+    const changed =
+      !old.length ||
+      Number(old[0].food_fee) !== food ||
+      Number(old[0].transit_fee) !== transit ||
+      String(old[0].cost_center_code || '') !== cc.code;
     await pool.query(
       `INSERT INTO worklog_fee (team_id, member_id, fee_date, food_fee, transit_fee, cost_center_code, cost_center_name, synced_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
@@ -1597,8 +2002,11 @@ async function syncOne(account, date, scope, ctx = null) {
          cost_center_code = VALUES(cost_center_code), cost_center_name = VALUES(cost_center_name), synced_at = NOW()`,
       [ctxTeamId, ctxMemberId, date, food, transit, cc.code, cc.name]
     );
-    await log('fee', changed ? 'diff' : 'ok',
-      `费用：伙食 ${food} / 交通 ${transit} / 成本中心 ${cc.code || '无'}${changed ? '，已按商旅覆盖' : '，一致'}`);
+    await log(
+      'fee',
+      changed ? 'diff' : 'ok',
+      `费用：伙食 ${food} / 交通 ${transit} / 成本中心 ${cc.code || '无'}${changed ? '，已按商旅覆盖' : '，一致'}`
+    );
     return t;
   });
 
@@ -1614,14 +2022,22 @@ async function syncOne(account, date, scope, ctx = null) {
         try {
           const v = JSON.parse(comp5.value);
           if (Array.isArray(v)) imgs = v;
-        } catch (e) { /* 落下方诊断 */ }
+        } catch (e) {
+          /* 落下方诊断 */
+        }
       }
     }
     if (imgs) {
-      console.log(`[商旅打卡] 费用照片对账（成员 ${ctxMemberId} ${date}）：远端 ${imgs.length} 张${imgs[0] ? `，样例键 ${Object.keys(imgs[0]).join('/')}` : ''}`);
-      await runStage('photo', '费用照片对账', () => syncFeePhotos(account, date, imgs, log, { teamId: ctxTeamId, memberId: ctxMemberId }));
+      console.log(
+        `[商旅打卡] 费用照片对账（成员 ${ctxMemberId} ${date}）：远端 ${imgs.length} 张${imgs[0] ? `，样例键 ${Object.keys(imgs[0]).join('/')}` : ''}`
+      );
+      await runStage('photo', '费用照片对账', () =>
+        syncFeePhotos(account, date, imgs, log, { teamId: ctxTeamId, memberId: ctxMemberId })
+      );
     } else {
-      console.error(`[商旅打卡] 费用照片对账跳过（成员 ${ctxMemberId} ${date}）：comp5 ${comp5 ? `value 原文 ${String(comp5.value).slice(0, 300)}` : '缺失'}`);
+      console.error(
+        `[商旅打卡] 费用照片对账跳过（成员 ${ctxMemberId} ${date}）：comp5 ${comp5 ? `value 原文 ${String(comp5.value).slice(0, 300)}` : '缺失'}`
+      );
       await log('photo', 'fail', `费用照片：上传图片组件形态异常，已跳过对账（详见服务端日志）`);
     }
   }
@@ -1691,22 +2107,52 @@ async function syncCardClockinsForRemind(date) {
   for (const account of rows) {
     if (seen.has(account.card_member_id)) continue;
     seen.add(account.card_member_id);
-    const log = (type, result, detail) => pool.query(
-      `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
+    const log = (type, result, detail) =>
+      pool.query(
+        `INSERT INTO worklog_sync_log (team_id, member_id, sync_date, scope, type, result, detail)
        VALUES (?, ?, ?, 'remind', ?, ?, ?)`,
-      [account.card_team_id, account.card_member_id, date, type, result, String(detail).slice(0, 500)]
-    );
+        [
+          account.card_team_id,
+          account.card_member_id,
+          date,
+          type,
+          result,
+          String(detail).slice(0, 500),
+        ]
+      );
     try {
-      const synced = await syncClockinPart(account, date, log, account.card_team_id, account.card_member_id);
-      if (!synced) failed.push({ member_id: account.card_member_id, team_id: account.card_team_id, name: account.member_name, reason: '商旅登录已失效，无法确认打卡状态' });
+      const synced = await syncClockinPart(
+        account,
+        date,
+        log,
+        account.card_team_id,
+        account.card_member_id
+      );
+      if (!synced)
+        failed.push({
+          member_id: account.card_member_id,
+          team_id: account.card_team_id,
+          name: account.member_name,
+          reason: '商旅登录已失效，无法确认打卡状态',
+        });
     } catch (err) {
-      console.error(`[商旅打卡] 提醒前同步失败（成员 ${account.card_member_id} ${date}）：`, err.message);
-      failed.push({ member_id: account.card_member_id, team_id: account.card_team_id, name: account.member_name, reason: `同步异常：${String(err.message).slice(0, 120)}` });
+      console.error(
+        `[商旅打卡] 提醒前同步失败（成员 ${account.card_member_id} ${date}）：`,
+        err.message
+      );
+      failed.push({
+        member_id: account.card_member_id,
+        team_id: account.card_team_id,
+        name: account.member_name,
+        reason: `同步异常：${String(err.message).slice(0, 120)}`,
+      });
     }
     // 成员间间隔，防商旅侧风控（SGCC_SYNC_INTERVAL_MS，默认 1500ms）
     await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
   }
-  console.log(`[商旅打卡] 提醒前同步完成：${seen.size} 名卡上绑定成员，失败 ${failed.length} 名（${date}）`);
+  console.log(
+    `[商旅打卡] 提醒前同步完成：${seen.size} 名卡上绑定成员，失败 ${failed.length} 名（${date}）`
+  );
   return failed;
 }
 
@@ -1718,13 +2164,15 @@ async function notifyRemindManualCheck(failed) {
   let teamAdmins = [];
   if (teamIds.length) {
     [teamAdmins] = await pool.query(
-      "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id IN (?) AND status = 1", [teamIds]
+      "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id IN (?) AND status = 1",
+      [teamIds]
     );
   }
   const userIds = [...new Set([...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)])];
   if (!userIds.length) return;
   const lines = failed.map((f) => (f.name ? `· ${f.name}：${f.reason}` : `· ${f.reason}`));
-  await require('../notice').push({ // 与 dispatch-sync 同型惰性加载
+  await require('../notice').push({
+    // 与 dispatch-sync 同型惰性加载
     userIds,
     targets: [],
     title: '打卡核查需人工确认',
@@ -1742,7 +2190,14 @@ async function beforeClockinRemind(date, label) {
   } catch (err) {
     console.error(`[商旅打卡] ${label}提醒前同步失败：`, err.message);
     try {
-      await notifyRemindManualCheck([{ member_id: 0, team_id: null, name: '', reason: `${label}提醒前同步异常：${String(err.message).slice(0, 200)}` }]);
+      await notifyRemindManualCheck([
+        {
+          member_id: 0,
+          team_id: null,
+          name: '',
+          reason: `${label}提醒前同步异常：${String(err.message).slice(0, 200)}`,
+        },
+      ]);
     } catch (e2) {
       console.error(`[商旅打卡] ${label}人工核查通知发送失败：`, e2.message);
     }
@@ -1769,19 +2224,36 @@ let photoOpQueue = Promise.resolve();
 // 登记任务：prog（{ addTotal, step }）直接写任务记录，供四个多成员商旅循环函数透传（其体内 prog 调用形状不变）
 function newPhotoOp(teamId, kind, entryId, photoId) {
   const now = Date.now();
-  for (const [k, v] of photoOps) { if (now - v.at > PHOTO_OP_TTL) photoOps.delete(k); } // 新建时顺手清理过期任务
+  for (const [k, v] of photoOps) {
+    if (now - v.at > PHOTO_OP_TTL) photoOps.delete(k);
+  } // 新建时顺手清理过期任务
   const id = `op-${teamId}-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const rec = {
-    teamId, kind, entryId, photoId: photoId || null,
-    total: 0, done: 0, status: 'running', error: '', failedName: '', photoUrl: '', at: now,
+    teamId,
+    kind,
+    entryId,
+    photoId: photoId || null,
+    total: 0,
+    done: 0,
+    status: 'running',
+    error: '',
+    failedName: '',
+    photoUrl: '',
+    at: now,
   };
   photoOps.set(id, rec);
   return {
     id,
     rec,
     prog: {
-      addTotal(n) { rec.total += n; rec.at = Date.now(); },
-      step() { rec.done += 1; rec.at = Date.now(); },
+      addTotal(n) {
+        rec.total += n;
+        rec.at = Date.now();
+      },
+      step() {
+        rec.done += 1;
+        rec.at = Date.now();
+      },
     },
   };
 }
@@ -1791,7 +2263,10 @@ function newPhotoOp(teamId, kind, entryId, photoId) {
 function activePhotoOp(teamId, entryId) {
   const now = Date.now();
   for (const [k, v] of photoOps) {
-    if (now - v.at > PHOTO_OP_TTL) { photoOps.delete(k); continue; }
+    if (now - v.at > PHOTO_OP_TTL) {
+      photoOps.delete(k);
+      continue;
+    }
     if (v.teamId === teamId && v.entryId === entryId && v.status === 'running') return v;
   }
   return null;
@@ -1809,7 +2284,10 @@ function runPhotoOp(id, fn) {
         rec.status = 'fail';
         rec.error = String(err && err.message ? err.message : err).slice(0, 200);
       }
-      console.error(`[商旅打卡] 照片任务 ${id}（${rec ? rec.kind : '?'}）失败：`, err && err.message ? err.message : err);
+      console.error(
+        `[商旅打卡] 照片任务 ${id}（${rec ? rec.kind : '?'}）失败：`,
+        err && err.message ? err.message : err
+      );
     }
     if (rec) rec.at = Date.now();
   });
@@ -1823,11 +2301,17 @@ router.get('/op/status', async (req, res, next) => {
     const v = photoOps.get(String(req.query.op_id || ''));
     if (!v || v.teamId !== req.team.id) return ok(res, { status: 'ok', done: 0, total: 0 });
     return ok(res, {
-      status: v.status, done: v.done, total: v.total,
-      error: v.error || '', failedName: v.failedName || '',
-      photoId: v.photoId || null, photoUrl: v.photoUrl || '',
+      status: v.status,
+      done: v.done,
+      total: v.total,
+      error: v.error || '',
+      failedName: v.failedName || '',
+      photoId: v.photoId || null,
+      photoUrl: v.photoUrl || '',
     });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // ---------- 手动拉取 / 每日核查进度（进程内存登记；重启即清零仅作进度展示） ----------
@@ -1841,7 +2325,17 @@ function newSyncJob(teamId, total, kind, date) {
     if (Date.now() - j.at > SYNC_JOB_TTL) syncJobs.delete(k);
   }
   const id = `${teamId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  syncJobs.set(id, { teamId, kind: kind || 'batch', date: date || '', total, done: 0, failed: 0, failMsg: '', finished: total <= 0, at: Date.now() }); // 无可同步成员 = 即刻完成
+  syncJobs.set(id, {
+    teamId,
+    kind: kind || 'batch',
+    date: date || '',
+    total,
+    done: 0,
+    failed: 0,
+    failMsg: '',
+    finished: total <= 0,
+    at: Date.now(),
+  }); // 无可同步成员 = 即刻完成
   return id;
 }
 
@@ -1859,7 +2353,14 @@ function recentFinishedJob(teamId, kind, withinMs) {
   let hit = null;
   const now = Date.now();
   for (const j of syncJobs.values()) {
-    if (j.teamId === teamId && j.kind === kind && j.finished && now - j.at <= withinMs && (!hit || j.at > hit.at)) hit = j;
+    if (
+      j.teamId === teamId &&
+      j.kind === kind &&
+      j.finished &&
+      now - j.at <= withinMs &&
+      (!hit || j.at > hit.at)
+    )
+      hit = j;
   }
   return hit;
 }
@@ -1867,7 +2368,11 @@ function recentFinishedJob(teamId, kind, withinMs) {
 // 失败提示友好口径：网络/代理类报文归一（原始报文落核查记录 detail，端侧 toast 用本口径）
 function syncFailText(msg) {
   const m = String(msg || '');
-  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|socket hang up|timed?\s*out/i.test(m)) {
+  if (
+    /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|socket hang up|timed?\s*out/i.test(
+      m
+    )
+  ) {
     return '网络/代理异常，无法连接商旅平台';
   }
   return m.slice(0, 60);
@@ -1925,20 +2430,27 @@ router.post('/sync/pull', async (req, res, next) => {
       );
       if (!erows.length) return fail(res, 404, 40400, '日志不存在');
       entryDate = erows[0].log_date;
-      const [mrows] = await pool.query('SELECT member_id FROM worklog_entry_member WHERE entry_id = ?', [entryId]);
+      const [mrows] = await pool.query(
+        'SELECT member_id FROM worklog_entry_member WHERE entry_id = ?',
+        [entryId]
+      );
       onlyMemberIds = mrows.map((r) => r.member_id);
       if (!onlyMemberIds.length) return fail(res, 400, 40042, '该卡片暂无用车人，无需同步');
     }
 
     // 区段批量拉取仅超管 / 本班班组管理员（口径同 requireDictAdmin；卡片级不受限）
-    if (!entryId && req.user.role !== 'admin'
-      && !(req.user.role === 'team_admin' && req.user.team_id === req.team.id)) {
+    if (
+      !entryId &&
+      req.user.role !== 'admin' &&
+      !(req.user.role === 'team_admin' && req.user.team_id === req.team.id)
+    ) {
       return fail(res, 403, 40304, '仅管理员可执行此操作');
     }
 
     const from = entryDate || String((req.body && (req.body.from || req.body.date)) || today());
     const to = entryDate || String((req.body && req.body.to) || from);
-    if (!DATE_RE.test(from) || !DATE_RE.test(to)) return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
+    if (!DATE_RE.test(from) || !DATE_RE.test(to))
+      return fail(res, 400, 40000, '日期格式应为 YYYY-MM-DD');
     if (from > to) return fail(res, 400, 40000, '日期区段不正确');
     // 逐日展开（按 UTC 毫秒步进，避免本地时区影响）；最多跨 62 天
     const DAY_MS = 24 * 60 * 60 * 1000;
@@ -1957,7 +2469,12 @@ router.post('/sync/pull', async (req, res, next) => {
         [req.team.id, from, to]
       );
       if (expired.length) {
-        return fail(res, 409, 40910, `以下成员商旅登录已过期，请先重新绑定后再发起批量同步：${expired.map((x) => x.nm).join('、')}`);
+        return fail(
+          res,
+          409,
+          40910,
+          `以下成员商旅登录已过期，请先重新绑定后再发起批量同步：${expired.map((x) => x.nm).join('、')}`
+        );
       }
     }
     // 批量拉取进行中锁定出工日志子应用：同班组同时只允许一个批量任务（卡片级不在此限）
@@ -1991,7 +2508,9 @@ router.post('/sync/pull', async (req, res, next) => {
     (async () => {
       for (let i = 0; i < days; i += 1) {
         const d = new Date(fromMs + i * DAY_MS).toISOString().slice(0, 10);
-        await syncTeamDay(req.team.id, d, 'daily', onlyMemberIds || undefined, (errMsg) => stepSyncJob(jobId, errMsg));
+        await syncTeamDay(req.team.id, d, 'daily', onlyMemberIds || undefined, (errMsg) =>
+          stepSyncJob(jobId, errMsg)
+        );
       }
     })()
       .catch((err) => {
@@ -2003,9 +2522,13 @@ router.post('/sync/pull', async (req, res, next) => {
     const md = (s) => `${Number(s.slice(5, 7))}月${Number(s.slice(8, 10))}日`;
     const msg = entryId
       ? `已发起从商旅拉取（${md(from)}，仅本卡用车人）`
-      : from === to ? `已发起从商旅拉取（${md(from)}）` : `已发起从商旅拉取（${md(from)} 至 ${md(to)}）`;
+      : from === to
+        ? `已发起从商旅拉取（${md(from)}）`
+        : `已发起从商旅拉取（${md(from)} 至 ${md(to)}）`;
     return ok(res, { jobId, total }, msg);
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // GET /sync/progress?job_id=xxx：手动拉取进度轮询（仅本班组任务可查；任务不存在 / 已过期按已完成回，端侧据此收尾）。
@@ -2015,8 +2538,16 @@ router.get('/sync/progress', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const j = syncJobs.get(String(req.query.job_id || ''));
     if (!j || j.teamId !== req.team.id) return ok(res, { total: 0, done: 0, finished: true });
-    return ok(res, { total: j.total, done: j.done, finished: j.finished, failed: j.failed || 0, failMsg: j.failMsg || '' });
-  } catch (err) { return next(err); }
+    return ok(res, {
+      total: j.total,
+      done: j.done,
+      finished: j.finished,
+      failed: j.failed || 0,
+      failMsg: j.failMsg || '',
+    });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // GET /sync/active：本班组同步进行态。batch = 区段批量拉取（出工日志子应用全局锁：任何端任何人进入时据此出进度遮罩，完成后解锁）；
@@ -2033,7 +2564,14 @@ router.get('/sync/active', async (req, res, next) => {
     const ops = [];
     for (const [opId, v] of photoOps) {
       if (v.teamId === req.team.id && v.status === 'running') {
-        ops.push({ opId, kind: v.kind, entryId: v.entryId, photoId: v.photoId, total: v.total, done: v.done });
+        ops.push({
+          opId,
+          kind: v.kind,
+          entryId: v.entryId,
+          photoId: v.photoId,
+          total: v.total,
+          done: v.done,
+        });
       }
     }
     return ok(res, {
@@ -2041,11 +2579,17 @@ router.get('/sync/active', async (req, res, next) => {
       total: b ? b.total : 0,
       done: b ? b.done : 0,
       failed: b ? b.failed : 0,
-      batchDone: rb ? { total: rb.total, done: rb.done, failed: rb.failed, failMsg: rb.failMsg } : null,
-      daily: dailyToday ? { running: true, total: dailyToday.total, done: dailyToday.done } : { running: false },
+      batchDone: rb
+        ? { total: rb.total, done: rb.done, failed: rb.failed, failMsg: rb.failMsg }
+        : null,
+      daily: dailyToday
+        ? { running: true, total: dailyToday.total, done: dailyToday.done }
+        : { running: false },
       ops,
     });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // GET /sync/logs：核查记录。?month=YYYY-MM（按月、近 100 条，原口径）或 ?from=&to=（按区段、近 200 条，批量同步面板日志区用）
@@ -2070,10 +2614,17 @@ router.get('/sync/logs', async (req, res, next) => {
            FROM worklog_sync_log l LEFT JOIN worklog_member m ON m.id = l.member_id
            WHERE l.team_id = ? AND DATE_FORMAT(l.sync_date, '%Y-%m') = ?
            ORDER BY l.id DESC LIMIT 100`,
-          [req.team.id, /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : today().slice(0, 7)]
+          [
+            req.team.id,
+            /^\d{4}-\d{2}$/.test(String(req.query.month || ''))
+              ? req.query.month
+              : today().slice(0, 7),
+          ]
         );
     return ok(res, { list: rows });
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // DELETE /sync/logs：管理员一键清除本班组全部同步记录（批量同步面板「清除同步记录」）
@@ -2082,7 +2633,9 @@ router.delete('/sync/logs', requireDictAdmin, async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const [r] = await pool.query('DELETE FROM worklog_sync_log WHERE team_id = ?', [req.team.id]);
     return ok(res, { deleted: r.affectedRows }, `已清除 ${r.affectedRows} 条同步记录`);
-  } catch (err) { return next(err); }
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // ---------- 每日定时核查（SGCC_SYNC_TIME，默认 23:00，按北京时间排程）----------
@@ -2106,7 +2659,8 @@ async function notifyMissingEndClockin(teamId, date) {
   if (!rows.length) return;
   const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
   const [teamAdmins] = await pool.query(
-    "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id = ? AND status = 1", [teamId]
+    "SELECT id FROM sys_user WHERE role = 'team_admin' AND team_id = ? AND status = 1",
+    [teamId]
   );
   const managerIds = [...admins.map((a) => a.id), ...teamAdmins.map((a) => a.id)];
   for (const r of rows) {
@@ -2130,7 +2684,10 @@ async function notifyMissingEndClockin(teamId, date) {
     atUserIds: rows.map((r) => r.user_id).filter(Boolean),
     user: `clockin-missing-team-${teamId}`,
   });
-  if (!res.ok) console.warn(`[商旅打卡] 结束打卡未打群通知未发送（班组 ${teamId}）：${res.reason || res.error}`);
+  if (!res.ok)
+    console.warn(
+      `[商旅打卡] 结束打卡未打群通知未发送（班组 ${teamId}）：${res.reason || res.error}`
+    );
 }
 
 // 每日核查结果日报：每班一封，仅发超管（运维向日报，班组管理员不抄送；每日都发，含全部正常）。
@@ -2158,11 +2715,15 @@ async function notifyDailySyncResult(teamId, date, afterId) {
   if (!rows.length) {
     lines.push('今日无卡上绑定成员，未执行数据核查（仅做登录态探测）。');
   } else {
-    lines.push(`今日核查 ${memberIds.size} 名成员：一致 ${cnt.ok || 0} / 回写 ${cnt.diff || 0} / 失败 ${cnt.fail || 0}`);
+    lines.push(
+      `今日核查 ${memberIds.size} 名成员：一致 ${cnt.ok || 0} / 回写 ${cnt.diff || 0} / 失败 ${cnt.fail || 0}`
+    );
     if (fails.length) {
       lines.push('', '失败明细：');
       fails.forEach((r) => {
-        lines.push(`- ${r.member_name || `成员${r.member_id || '?'}`}｜${TYPE_NAME[r.type] || r.type}：${r.detail}`);
+        lines.push(
+          `- ${r.member_name || `成员${r.member_id || '?'}`}｜${TYPE_NAME[r.type] || r.type}：${r.detail}`
+        );
       });
     }
   }
@@ -2183,9 +2744,9 @@ async function notifyDailySyncResult(teamId, date, afterId) {
 // 每日核查任务体：夜间任务队列按 config.sgcc.syncTime 到点调用（排程与失败兜底由 nightq 承担）
 async function dailyCheckJob() {
   try {
-      // 卡片驱动：有绑定账号的班 ∪ 当日卡上有绑定成员的班（token 跟人走后，卡在哪个班就同步哪个班）
-      const [teams] = await pool.query(
-        `SELECT DISTINCT team_id FROM (
+    // 卡片驱动：有绑定账号的班 ∪ 当日卡上有绑定成员的班（token 跟人走后，卡在哪个班就同步哪个班）
+    const [teams] = await pool.query(
+      `SELECT DISTINCT team_id FROM (
            SELECT team_id FROM worklog_sgcc_account WHERE team_id IS NOT NULL
            UNION
            SELECT e.team_id FROM worklog_entry e
@@ -2194,34 +2755,36 @@ async function dailyCheckJob() {
            JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
            WHERE e.log_date = ? AND e.team_id IS NOT NULL
          ) t`,
-        [today()]
+      [today()]
+    );
+    for (const t of teams) {
+      // 日报分界：仅统计当次核查新产生的记录（排除当日早些时候手动拉取的流水）
+      const [beforeRows] = await pool.query(
+        'SELECT COALESCE(MAX(id), 0) AS maxId FROM worklog_sync_log WHERE team_id = ?',
+        [t.team_id]
       );
-      for (const t of teams) {
-        // 日报分界：仅统计当次核查新产生的记录（排除当日早些时候手动拉取的流水）
-        const [beforeRows] = await pool.query(
-          'SELECT COALESCE(MAX(id), 0) AS maxId FROM worklog_sync_log WHERE team_id = ?',
-          [t.team_id]
-        );
-        // 进度登记（kind=daily，仅当日）：端侧据此给当日记录卡片挂进度条并置不可操作（卡片驱动口径同 syncTeamDay）
-        const [c] = await pool.query(
-          `SELECT COUNT(DISTINCT m.id) AS cnt
+      // 进度登记（kind=daily，仅当日）：端侧据此给当日记录卡片挂进度条并置不可操作（卡片驱动口径同 syncTeamDay）
+      const [c] = await pool.query(
+        `SELECT COUNT(DISTINCT m.id) AS cnt
            FROM worklog_entry e
            JOIN worklog_entry_member em ON em.entry_id = e.id
            JOIN worklog_member m ON m.id = em.member_id
            JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
            WHERE e.team_id = ? AND e.log_date = ?`,
-          [t.team_id, today()]
+        [t.team_id, today()]
+      );
+      const jobId = newSyncJob(t.team_id, c[0].cnt, 'daily', today());
+      try {
+        await syncTeamDay(t.team_id, today(), 'daily', undefined, (errMsg) =>
+          stepSyncJob(jobId, errMsg)
         );
-        const jobId = newSyncJob(t.team_id, c[0].cnt, 'daily', today());
-        try {
-          await syncTeamDay(t.team_id, today(), 'daily', undefined, (errMsg) => stepSyncJob(jobId, errMsg));
-        } finally {
-          finishSyncJob(jobId);
-        }
-        // 其余绑定账号（当日卡上成员以外）也做一次登录态探测：token_status 每晚保鲜，
-        // 1→0 跳变由 probeAuth 内自动通知本人+超管；间隔同防风控口径
-        const [rest] = await pool.query(
-          `SELECT a.* FROM worklog_sgcc_account a
+      } finally {
+        finishSyncJob(jobId);
+      }
+      // 其余绑定账号（当日卡上成员以外）也做一次登录态探测：token_status 每晚保鲜，
+      // 1→0 跳变由 probeAuth 内自动通知本人+超管；间隔同防风控口径
+      const [rest] = await pool.query(
+        `SELECT a.* FROM worklog_sgcc_account a
            WHERE a.team_id = ? AND a.id NOT IN (
              SELECT DISTINCT a2.id
              FROM worklog_entry e
@@ -2229,29 +2792,29 @@ async function dailyCheckJob() {
              JOIN worklog_member m ON m.id = em.member_id
              JOIN worklog_sgcc_account a2 ON a2.member_id = m.id OR (m.user_id IS NOT NULL AND a2.user_id = m.user_id)
              WHERE e.team_id = ? AND e.log_date = ?)`,
-          [t.team_id, t.team_id, today()]
-        );
-        for (const acc of rest) {
-          await probeAuth(acc);
-          await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
-        }
-        // 每日核查附加检查：开始打卡已打但结束打卡未打 → 通知本人/本班班组管理员/超管
-        try {
-          await notifyMissingEndClockin(t.team_id, today());
-        } catch (err) {
-          console.error('[商旅打卡] 结束打卡缺失检查失败：', err.message);
-        }
-        // 每日核查结果日报（每班一封，含全部正常，仅发超管；见 16.3）
-        try {
-          await notifyDailySyncResult(t.team_id, today(), beforeRows[0].maxId);
-        } catch (err) {
-          console.error('[商旅打卡] 每日核查日报通知失败：', err.message);
-        }
+        [t.team_id, t.team_id, today()]
+      );
+      for (const acc of rest) {
+        await probeAuth(acc);
+        await new Promise((r) => setTimeout(r, config.sgcc.syncIntervalMs));
       }
-      console.log('[商旅打卡] 每日定时核查完成');
-    } catch (err) {
-      console.error('[商旅打卡] 每日定时核查失败：', err.message);
+      // 每日核查附加检查：开始打卡已打但结束打卡未打 → 通知本人/本班班组管理员/超管
+      try {
+        await notifyMissingEndClockin(t.team_id, today());
+      } catch (err) {
+        console.error('[商旅打卡] 结束打卡缺失检查失败：', err.message);
+      }
+      // 每日核查结果日报（每班一封，含全部正常，仅发超管；见 16.3）
+      try {
+        await notifyDailySyncResult(t.team_id, today(), beforeRows[0].maxId);
+      } catch (err) {
+        console.error('[商旅打卡] 每日核查日报通知失败：', err.message);
+      }
     }
+    console.log('[商旅打卡] 每日定时核查完成');
+  } catch (err) {
+    console.error('[商旅打卡] 每日定时核查失败：', err.message);
+  }
 }
 // 每日核查挂夜间任务队列：与树障同步等夜间任务同点按登记序串行执行（排程/失败兜底由 nightq 承担）
 require('../utils/nightq').register('sgcc-daily', config.sgcc.syncTime, dailyCheckJob);
@@ -2271,11 +2834,15 @@ async function probeProxyTick() {
   if (!r.ok && !proxyDown) {
     proxyDown = true;
     console.error(`[商旅打卡] 出口代理探测异常：${r.error}`);
-    notifyProxyState(r.error).catch((err) => console.error('[商旅打卡] 代理异常通知发送失败：', err.message));
+    notifyProxyState(r.error).catch((err) =>
+      console.error('[商旅打卡] 代理异常通知发送失败：', err.message)
+    );
   } else if (r.ok && proxyDown) {
     proxyDown = false;
     console.log('[商旅打卡] 出口代理探测恢复正常');
-    notifyProxyState('', true).catch((err) => console.error('[商旅打卡] 代理恢复通知发送失败：', err.message));
+    notifyProxyState('', true).catch((err) =>
+      console.error('[商旅打卡] 代理恢复通知发送失败：', err.message)
+    );
   }
 }
 
@@ -2302,7 +2869,9 @@ if (config.sgcc.proxyUrl) {
   const proxyProbeTimer = setInterval(probeProxyTick, config.sgcc.proxyProbeIntervalMs);
   proxyProbeTimer.unref(); // 不阻塞进程退出（与每日核查排程同口径）
   probeProxyTick();
-  console.log(`[商旅打卡] 出口代理健康探测已启用：间隔 ${Math.round(config.sgcc.proxyProbeIntervalMs / 1000)}s`);
+  console.log(
+    `[商旅打卡] 出口代理健康探测已启用：间隔 ${Math.round(config.sgcc.proxyProbeIntervalMs / 1000)}s`
+  );
 }
 
 // 结束打卡傍晚提醒：每日 SGCC_ENDCLOCK_REMIND_TIME（默认 18:00）对「当日已开始打卡但结束卡未打」的成员
@@ -2339,14 +2908,18 @@ async function remindMissingEndClockin(excludeIds = []) {
         text: `结束打卡提醒\n成员「${r.name}」今日${r.start_hm ? `${r.start_hm} 已打开始卡` : '已打开始卡'}，尚未打结束卡，请尽快补打（仅当日可打卡）。`,
         user: `clockin-remind-${r.member_id}`,
       });
-      if (!res.ok) console.warn(`[商旅打卡] 结束打卡提醒未发送（成员「${r.name}」）：${res.reason || res.error}`);
+      if (!res.ok)
+        console.warn(
+          `[商旅打卡] 结束打卡提醒未发送（成员「${r.name}」）：${res.reason || res.error}`
+        );
     }
     if (r.team_id) {
       if (!teamMap.has(r.team_id)) teamMap.set(r.team_id, []);
       teamMap.get(r.team_id).push(r);
     }
   }
-  for (const [teamId, list] of teamMap) { // 打卡班组群：每班合并一条，逐行列出未打结束卡成员并@本人
+  for (const [teamId, list] of teamMap) {
+    // 打卡班组群：每班合并一条，逐行列出未打结束卡成员并@本人
     const lines = list.map((r) => `· ${r.name}${r.start_hm ? `（${r.start_hm} 已打开始卡）` : ''}`);
     const res = await wxpush.sendTo({
       userIds: [],
@@ -2355,13 +2928,18 @@ async function remindMissingEndClockin(excludeIds = []) {
       atUserIds: list.map((r) => r.user_id).filter(Boolean),
       user: `clockin-remind-team-${teamId}`,
     });
-    if (!res.ok) console.warn(`[商旅打卡] 结束打卡提醒群消息未发送（班组 ${teamId}）：${res.reason || res.error}`);
+    if (!res.ok)
+      console.warn(
+        `[商旅打卡] 结束打卡提醒群消息未发送（班组 ${teamId}）：${res.reason || res.error}`
+      );
   }
   console.log(`[商旅打卡] 结束打卡傍晚提醒完成：${rows.length} 名成员未打结束卡`);
 }
 
 function scheduleEndClockRemind() {
-  const [hh, mm] = String(config.sgcc.endClockRemindTime || '18:00').split(':').map((s) => parseInt(s, 10));
+  const [hh, mm] = String(config.sgcc.endClockRemindTime || '18:00')
+    .split(':')
+    .map((s) => parseInt(s, 10));
   const { nextUtc, now } = nextDailyRunUtc(Number.isNaN(hh) ? 18 : hh, mm || 0); // hh 可能为 0（午夜），不能用 || 判缺省
   const timer = setTimeout(async () => {
     // 先对当日卡上绑定成员做打卡轻量同步（成员可能直接在商旅 App 打卡），再按最新数据核查；
@@ -2375,7 +2953,9 @@ function scheduleEndClockRemind() {
     scheduleEndClockRemind(); // 排次日
   }, nextUtc - now);
   timer.unref();
-  console.log(`[商旅打卡] 结束打卡傍晚提醒已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
+  console.log(
+    `[商旅打卡] 结束打卡傍晚提醒已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`
+  );
 }
 scheduleEndClockRemind();
 
@@ -2413,15 +2993,22 @@ async function remindMissingStartClockin(excludeIds = []) {
         text: `开始打卡提醒\n成员「${r.name}」今日有出工卡片，尚未打开始卡（首次打卡），请尽快打卡（仅当日可打卡）。`,
         user: `clockin-remind-${r.member_id}`,
       });
-      if (!res.ok) console.warn(`[商旅打卡] 开始打卡提醒未发送（成员「${r.name}」）：${res.reason || res.error}`);
+      if (!res.ok)
+        console.warn(
+          `[商旅打卡] 开始打卡提醒未发送（成员「${r.name}」）：${res.reason || res.error}`
+        );
     }
-    const teamIds = String(r.team_ids || '').split(',').map(Number).filter(Boolean);
+    const teamIds = String(r.team_ids || '')
+      .split(',')
+      .map(Number)
+      .filter(Boolean);
     for (const tid of teamIds) {
       if (!teamMap.has(tid)) teamMap.set(tid, []);
       teamMap.get(tid).push({ name: r.name, user_id: r.user_id });
     }
   }
-  for (const [teamId, list] of teamMap) { // 卡片班组群：每班合并一条，逐行列出未首次打卡成员并@本人
+  for (const [teamId, list] of teamMap) {
+    // 卡片班组群：每班合并一条，逐行列出未首次打卡成员并@本人
     const res = await wxpush.sendTo({
       userIds: [],
       teamIds: [teamId],
@@ -2429,13 +3016,18 @@ async function remindMissingStartClockin(excludeIds = []) {
       atUserIds: list.map((m) => m.user_id).filter(Boolean),
       user: `clockin-remind-team-${teamId}`,
     });
-    if (!res.ok) console.warn(`[商旅打卡] 开始打卡提醒群消息未发送（班组 ${teamId}）：${res.reason || res.error}`);
+    if (!res.ok)
+      console.warn(
+        `[商旅打卡] 开始打卡提醒群消息未发送（班组 ${teamId}）：${res.reason || res.error}`
+      );
   }
   console.log(`[商旅打卡] 开始打卡午间提醒完成：${rows.length} 名成员未首次打卡`);
 }
 
 function scheduleStartClockRemind() {
-  const [hh, mm] = String(config.sgcc.startClockRemindTime || '11:00').split(':').map((s) => parseInt(s, 10));
+  const [hh, mm] = String(config.sgcc.startClockRemindTime || '11:00')
+    .split(':')
+    .map((s) => parseInt(s, 10));
   const { nextUtc, now } = nextDailyRunUtc(Number.isNaN(hh) ? 11 : hh, mm || 0); // hh 可能为 0（午夜），不能用 || 判缺省
   const timer = setTimeout(async () => {
     // 先对当日卡上绑定成员做打卡轻量同步（成员可能直接在商旅 App 打卡），再按最新数据核查；
@@ -2449,7 +3041,9 @@ function scheduleStartClockRemind() {
     scheduleStartClockRemind(); // 排次日
   }, nextUtc - now);
   timer.unref();
-  console.log(`[商旅打卡] 开始打卡午间提醒已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
+  console.log(
+    `[商旅打卡] 开始打卡午间提醒已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`
+  );
 }
 scheduleStartClockRemind();
 
@@ -2465,7 +3059,9 @@ scheduleStartClockRemind();
   }
   console.error('[商旅打卡] 启动通道自检失败：', r.error);
   try {
-    const [admins] = await pool.query("SELECT id FROM sys_user WHERE role = 'admin' AND status = 1");
+    const [admins] = await pool.query(
+      "SELECT id FROM sys_user WHERE role = 'admin' AND status = 1"
+    );
     if (!admins.length) return;
     await require('../notice').push({
       userIds: admins.map((a) => a.id),

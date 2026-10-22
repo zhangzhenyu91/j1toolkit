@@ -31,7 +31,10 @@ async function syncSgccAccountForUser(user, memberId, oldMemberId = null) {
 
 // 事件驱动同步：单个账号变更后对齐其出工成员记录（幂等）
 async function syncMemberForUser(userId) {
-  const [users] = await pool.query('SELECT id, username, nickname, team_id, status FROM sys_user WHERE id = ?', [userId]);
+  const [users] = await pool.query(
+    'SELECT id, username, nickname, team_id, status FROM sys_user WHERE id = ?',
+    [userId]
+  );
   const user = users[0];
   if (!user) return;
 
@@ -43,7 +46,8 @@ async function syncMemberForUser(userId) {
   // 调出本班：其他班组的同步成员先停用（被直接迁移的行随后由迁移语句换班并重新启用；
   // 历史调班残留的跨班重复行保持停用收敛）
   await pool.query('UPDATE worklog_member SET status = 0 WHERE user_id = ? AND team_id <> ?', [
-    user.id, user.team_id,
+    user.id,
+    user.team_id,
   ]);
 
   // 本班组同步成员：已存在则对齐姓名并启用
@@ -54,7 +58,8 @@ async function syncMemberForUser(userId) {
   if (rows.length) {
     try {
       await pool.query('UPDATE worklog_member SET name = ?, status = 1 WHERE id = ?', [
-        user.nickname, rows[0].id,
+        user.nickname,
+        rows[0].id,
       ]);
       await syncSgccAccountForUser(user, rows[0].id);
     } catch (err) {
@@ -79,9 +84,10 @@ async function syncMemberForUser(userId) {
         'SELECT COALESCE(MAX(sort), 0) AS maxSort FROM worklog_member WHERE team_id = ?',
         [user.team_id]
       );
-      await pool.query('UPDATE worklog_member SET team_id = ?, name = ?, sort = ?, status = 1 WHERE id = ?', [
-        user.team_id, user.nickname, maxRows[0].maxSort + 1, otherRows[0].id,
-      ]);
+      await pool.query(
+        'UPDATE worklog_member SET team_id = ?, name = ?, sort = ?, status = 1 WHERE id = ?',
+        [user.team_id, user.nickname, maxRows[0].maxSort + 1, otherRows[0].id]
+      );
       await syncSgccAccountForUser(user, otherRows[0].id);
       return;
     } catch (err) {
@@ -98,7 +104,10 @@ async function syncMemberForUser(userId) {
     [user.team_id, user.nickname]
   );
   if (same.length) {
-    await pool.query('UPDATE worklog_member SET user_id = ?, status = 1 WHERE id = ?', [user.id, same[0].id]);
+    await pool.query('UPDATE worklog_member SET user_id = ?, status = 1 WHERE id = ?', [
+      user.id,
+      same[0].id,
+    ]);
     await syncSgccAccountForUser(user, same[0].id, oldMemberId);
     return;
   }

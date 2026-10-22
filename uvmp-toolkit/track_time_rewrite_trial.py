@@ -23,6 +23,7 @@
 依赖：同工具箱本体（SSO 凭据取自客户端 config.json 拷入的 toolkit/config.json；
 浏览器取其中 render.chrome 或自动探测；dev.mock 开启时不可用）。
 """
+
 import argparse
 import json
 import sys
@@ -35,10 +36,10 @@ for _p in (str(SCRIPT_DIR), str(SCRIPT_DIR / "toolkit")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import config as _config          # noqa: E402
-import uvmp                        # noqa: E402
-import vehicle_export as ve        # noqa: E402
-import official_track              # noqa: E402
+import config as _config  # noqa: E402
+import uvmp  # noqa: E402
+import vehicle_export as ve  # noqa: E402
+import official_track  # noqa: E402
 
 
 def log(msg):
@@ -50,12 +51,15 @@ def log(msg):
 SCRIPT_VERSION = "v3"
 
 # 弹窗根：优先官方内容盒 trackPictureBox（与截图裁剪同一目标），取不到退回最后一个官方弹窗
-_ROOT_JS = ("document.getElementById('trackPictureBox') || "
-            "(function(){var m=document.querySelectorAll('.cube.modal.fade');"
-            "return m.length ? m[m.length-1] : null;})()")
+_ROOT_JS = (
+    "document.getElementById('trackPictureBox') || "
+    "(function(){var m=document.querySelectorAll('.cube.modal.fade');"
+    "return m.length ? m[m.length-1] : null;})()"
+)
 
 # 收集弹窗内全部「像时间」或「像时长」的叶子元素与输入框：标签/类名/所在行上下文/文本
-DUMP_JS = """
+DUMP_JS = (
+    """
 (function(){
   var root = %s;
   if (!root) return 'ERR:无弹窗';
@@ -100,7 +104,9 @@ DUMP_JS = """
   });
   return JSON.stringify(out);
 })()
-""" % _ROOT_JS
+"""
+    % _ROOT_JS
+)
 
 # 改写：结束时间按值匹配（兼容格式差异）写回新时间；行驶时长按值匹配（±90s 容差）写回新时长。
 # 占位符 __ROOT__/__OLDC__/__NEWC__/__OLDDUR__/__NEWDUR__ 由 Python 侧 str.replace 注入
@@ -186,6 +192,7 @@ REWRITE_JS = r"""
 
 # ---------------------------------------------------------------- 时间校准
 
+
 def calibrate_end(end_str: str):
     """结束时间早于 12:00 → 以 1 小时为单位叠加至 12 点后（10:32→12:32）；否则返回 None"""
     try:
@@ -211,41 +218,65 @@ def _fmt_dur_cn(seconds: int) -> str:
 
 # ---------------------------------------------------------------- 主流程
 
+
 def main():
     ap = argparse.ArgumentParser(description="轨迹弹窗「行程结束时间」CDP 改写试验")
     ap.add_argument("code", help="派车单号（该单应有已完结的实际出/归车时间）")
-    ap.add_argument("--date", default="", help="用车日期提示 YYYY-MM-DD（加速按单号查找）")
-    ap.add_argument("--end", default="", help="改写成的结束时间（缺省按 +1h 叠加规则自动算）")
-    ap.add_argument("--out", default="", help="输出目录（默认 ./output/时间改写试验_时间戳）")
+    ap.add_argument(
+        "--date", default="", help="用车日期提示 YYYY-MM-DD（加速按单号查找）"
+    )
+    ap.add_argument(
+        "--end", default="", help="改写成的结束时间（缺省按 +1h 叠加规则自动算）"
+    )
+    ap.add_argument(
+        "--out", default="", help="输出目录（默认 ./output/时间改写试验_时间戳）"
+    )
     args = ap.parse_args()
-    log("track_time_rewrite_trial %s（结束时间+行驶时间 按值匹配改写）" % SCRIPT_VERSION)
+    log(
+        "track_time_rewrite_trial %s（结束时间+行驶时间 按值匹配改写）" % SCRIPT_VERSION
+    )
 
-    outdir = Path(args.out) if args.out else (
-        SCRIPT_DIR / "output" / ("时间改写试验_%s" % datetime.now().strftime("%Y%m%d_%H%M%S")))
+    outdir = (
+        Path(args.out)
+        if args.out
+        else (
+            SCRIPT_DIR
+            / "output"
+            / ("时间改写试验_%s" % datetime.now().strftime("%Y%m%d_%H%M%S"))
+        )
+    )
     outdir.mkdir(parents=True, exist_ok=True)
     log("输出目录：%s" % outdir)
 
     cfg = _config.load()
     if (cfg.get("dev") or {}).get("mock"):
-        raise SystemExit("dev.mock 开启中：本试验需要真实官方页面，请关闭开发模式后重试")
+        raise SystemExit(
+            "dev.mock 开启中：本试验需要真实官方页面，请关闭开发模式后重试"
+        )
     client, auth = uvmp.make_client(cfg, log)
 
     # 1) 找单 → 找行程段
     lookback = int((cfg.get("order_export") or {}).get("lookback_days", 62))
-    order = ve.query_pcd_by_run_code(client, args.code.strip(), args.date.strip(), lookback, log)
+    order = ve.query_pcd_by_run_code(
+        client, args.code.strip(), args.date.strip(), lookback, log
+    )
     if not order:
         raise SystemExit("未找到派车单：%s" % args.code)
     begin = ve.clean_time(order.get("realSendTime"))
     end = ve.clean_time(order.get("realBackTime"))
-    log("派车单：%s | 车牌 %s | 实际出车 %s | 实际归队 %s"
-        % (args.code, order.get("vehicleNumber"), begin, end))
+    log(
+        "派车单：%s | 车牌 %s | 实际出车 %s | 实际归队 %s"
+        % (args.code, order.get("vehicleNumber"), begin, end)
+    )
     if not (order.get("vehicleId") and begin and end):
         raise SystemExit("该单缺 vehicleId 或实际出/归队时间，无法定位行程段")
     seg = ve.query_track_segment(client, order["vehicleId"], begin, end)
     if not seg or not seg.get("id"):
         raise SystemExit("未查到行程段（无法打开行程详情弹窗），可换个单号再试")
-    log("行程段：id=%s | 开始 %s | 结束 %s | 里程 %s"
-        % (seg.get("id"), seg.get("starttime"), seg.get("endtime"), seg.get("miles")))
+    log(
+        "行程段：id=%s | 开始 %s | 结束 %s | 里程 %s"
+        % (seg.get("id"), seg.get("starttime"), seg.get("endtime"), seg.get("miles"))
+    )
 
     seg_start = ve.clean_time(seg.get("starttime"))
     seg_end = ve.clean_time(seg.get("endtime"))
@@ -253,45 +284,69 @@ def main():
         start_dt = datetime.strptime(seg_start[:19], "%Y-%m-%d %H:%M:%S")
         old_dt = datetime.strptime(seg_end[:19], "%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
-        raise SystemExit("行程段起止时间格式无法识别：%r ~ %r ——请把这行输出发给开发者"
-                         % (seg_start, seg_end))
+        raise SystemExit(
+            "行程段起止时间格式无法识别：%r ~ %r ——请把这行输出发给开发者"
+            % (seg_start, seg_end)
+        )
     if args.end.strip():
         raw = args.end.strip()
-        new_dt = datetime.strptime(raw if len(raw) > 10 else seg_end[:10] + " " + raw,
-                                   "%Y-%m-%d %H:%M:%S")
+        new_dt = datetime.strptime(
+            raw if len(raw) > 10 else seg_end[:10] + " " + raw, "%Y-%m-%d %H:%M:%S"
+        )
     else:
         new_dt = calibrate_end(seg_end)
     do_rewrite = new_dt is not None
     if do_rewrite:
         old_dur = int((old_dt - start_dt).total_seconds())
         new_dur = int((new_dt - start_dt).total_seconds())
-        log("改写目标：结束时间 %s → %s；行驶时间 %s → %s"
-            % (seg_end, new_dt.strftime("%Y-%m-%d %H:%M:%S"),
-               _fmt_dur_cn(old_dur), _fmt_dur_cn(new_dur)))
+        log(
+            "改写目标：结束时间 %s → %s；行驶时间 %s → %s"
+            % (
+                seg_end,
+                new_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                _fmt_dur_cn(old_dur),
+                _fmt_dur_cn(new_dur),
+            )
+        )
     else:
-        log("【注意】行程结束时间 %s 不早于 12:00，本次跳过改写，只出 dump 与 before.png" % seg_end)
+        log(
+            "【注意】行程结束时间 %s 不早于 12:00，本次跳过改写，只出 dump 与 before.png"
+            % seg_end
+        )
 
     # 2) 起官方渲染器（与生产同路径），开行程详情弹窗
     renderer = uvmp.start_renderer(client, auth, cfg, outdir, log)
     if renderer is None:
-        raise SystemExit("官方渲染器启动失败（浏览器配置见设置页/ config.ini [render]）")
+        raise SystemExit(
+            "官方渲染器启动失败（浏览器配置见设置页/ config.ini [render]）"
+        )
     try:
         browser = renderer.browser
         R = official_track.OfficialTrackRenderer
-        r = browser.eval(R.OPEN_DIALOG_JS % (json.dumps(R.TEMPLATE_ROUTE),
-                                             json.dumps({"routeId": seg["id"]})), timeout=60)
+        r = browser.eval(
+            R.OPEN_DIALOG_JS
+            % (json.dumps(R.TEMPLATE_ROUTE), json.dumps({"routeId": seg["id"]})),
+            timeout=60,
+        )
         if r != "ok":
             raise SystemExit("打开官方轨迹弹窗失败: %s" % r)
-        if not browser.wait_expr("!!document.querySelector('.cube.modal.fade .modal-body *')",
-                                 timeout=renderer.wait_dialog_s):
+        if not browser.wait_expr(
+            "!!document.querySelector('.cube.modal.fade .modal-body *')",
+            timeout=renderer.wait_dialog_s,
+        ):
             raise SystemExit("轨迹弹窗未出现")
-        browser.wait_expr("!!document.querySelector('.cube.modal.fade canvas')",
-                          timeout=min(40, renderer.wait_dialog_s))
+        browser.wait_expr(
+            "!!document.querySelector('.cube.modal.fade canvas')",
+            timeout=min(40, renderer.wait_dialog_s),
+        )
         if renderer.min_wait_s > 0:
             time.sleep(renderer.min_wait_s)
-        idle_ok = browser.wait_network_idle(quiet_s=renderer.idle_quiet_s,
-                                            timeout=max(15, renderer.wait_tiles_s),
-                                            url_substr="map.sgcc.com.cn", min_seen=2)
+        idle_ok = browser.wait_network_idle(
+            quiet_s=renderer.idle_quiet_s,
+            timeout=max(15, renderer.wait_tiles_s),
+            url_substr="map.sgcc.com.cn",
+            min_seen=2,
+        )
         log("地图加载检测：%s" % ("静默完成" if idle_ok else "兜底超时"))
         time.sleep(1.0)
 
@@ -300,10 +355,14 @@ def main():
             rows = json.loads(raw) if raw and not str(raw).startswith("ERR") else []
             if tag == "before":
                 (outdir / "dump.json").write_text(
-                    json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+                    json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8"
+                )
             log("弹窗时间/时长元素 %d 个（%s）：" % (len(rows), tag))
             for i, it in enumerate(rows, 1):
-                log("  [%d] %s <%s> %s" % (i, it.get("kind"), it.get("tag"), it.get("text")))
+                log(
+                    "  [%d] %s <%s> %s"
+                    % (i, it.get("kind"), it.get("tag"), it.get("text"))
+                )
                 log("       上下文：%s" % (it.get("ctx") or "（无）"))
             return rows
 
@@ -315,31 +374,44 @@ def main():
         if not rect:
             raise SystemExit("弹窗内容区未找到")
         box = json.loads(rect)
-        clip = {"x": max(0, box["x"]), "y": max(0, box["y"]),
-                "width": box["width"], "height": box["height"], "scale": 1}
+        clip = {
+            "x": max(0, box["x"]),
+            "y": max(0, box["y"]),
+            "width": box["width"],
+            "height": box["height"],
+            "scale": 1,
+        }
         browser.screenshot_clip(clip, outdir / "before.png")
         log("改写前截图：%s" % (outdir / "before.png"))
 
         # 5) 注入改写 → 立即复验 → 改写后截图
         if do_rewrite:
-            rw_js = (REWRITE_JS
-                     .replace("__ROOT__", _ROOT_JS)
-                     .replace("__OLDC__", json.dumps(_comps(old_dt)))
-                     .replace("__NEWC__", json.dumps(_comps(new_dt)))
-                     .replace("__OLDDUR__", str(old_dur))
-                     .replace("__NEWDUR__", str(new_dur)))
+            rw_js = (
+                REWRITE_JS.replace("__ROOT__", _ROOT_JS)
+                .replace("__OLDC__", json.dumps(_comps(old_dt)))
+                .replace("__NEWC__", json.dumps(_comps(new_dt)))
+                .replace("__OLDDUR__", str(old_dur))
+                .replace("__NEWDUR__", str(new_dur))
+            )
             rw_raw = browser.eval(rw_js)
-            rw = json.loads(rw_raw) if rw_raw and not str(rw_raw).startswith("ERR") else {}
+            rw = (
+                json.loads(rw_raw)
+                if rw_raw and not str(rw_raw).startswith("ERR")
+                else {}
+            )
             log("改写完成：命中 %d 处" % rw.get("replaced", 0))
             for d in rw.get("details", []):
                 log("  [%s] %s → %s" % (d.get("kind"), d.get("before"), d.get("after")))
             if not rw.get("replaced"):
-                log("未命中！页面上出现的时间/时长串为：%s" % "、".join(rw.get("seen", [])))
+                log(
+                    "未命中！页面上出现的时间/时长串为：%s"
+                    % "、".join(rw.get("seen", []))
+                )
                 log("请把 dump.json 与以上输出发给开发者调整匹配口径")
             else:
                 log("改写后立即复验：")
                 dump_times("after")
-            time.sleep(0.5)   # 给重排一瞬
+            time.sleep(0.5)  # 给重排一瞬
             browser.screenshot_clip(clip, outdir / "after.png")
             log("改写后截图：%s" % (outdir / "after.png"))
 

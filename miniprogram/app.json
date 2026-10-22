@@ -12,10 +12,7 @@
     {
       "root": "pkg-callme",
       "name": "callme",
-      "pages": [
-        "pages/sessions/sessions",
-        "pages/chat/chat"
-      ]
+      "pages": ["pages/sessions/sessions", "pages/chat/chat"]
     },
     {
       "root": "pkg-worklog",
@@ -32,23 +29,17 @@
     {
       "root": "pkg-filetransfer",
       "name": "filetransfer",
-      "pages": [
-        "pages/index/index"
-      ]
+      "pages": ["pages/index/index"]
     },
     {
       "root": "pkg-safeday",
       "name": "safeday",
-      "pages": [
-        "pages/index/index"
-      ]
+      "pages": ["pages/index/index"]
     },
     {
       "root": "pkg-wmadd",
       "name": "wmadd",
-      "pages": [
-        "pages/index/index"
-      ]
+      "pages": ["pages/index/index"]
     },
     {
       "root": "pkg-quiz",
@@ -65,25 +56,17 @@
     {
       "root": "pkg-netdisk",
       "name": "netdisk",
-      "pages": [
-        "pages/index/index",
-        "pages/shares/shares",
-        "pages/archive/archive"
-      ]
+      "pages": ["pages/index/index", "pages/shares/shares", "pages/archive/archive"]
     },
     {
       "root": "pkg-treehazard",
       "name": "treehazard",
-      "pages": [
-        "pages/index/index"
-      ]
+      "pages": ["pages/index/index"]
     },
     {
       "root": "pkg-teamdata",
       "name": "teamdata",
-      "pages": [
-        "pages/index/index"
-      ]
+      "pages": ["pages/index/index"]
     }
   ],
   "window": {

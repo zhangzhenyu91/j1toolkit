@@ -30,8 +30,8 @@ extraResources:
 win:
   target: [nsis, zip]
   icon: build/icon.png
-  executableName: uvmp-toolkit   # exe 保持 ASCII（产物命名规范；显示名由 productName 承担）
-  artifactName: uvmp-toolkit-${version}-win-portable.${ext}   # nsis 目标由 nsis.artifactName 覆盖
+  executableName: uvmp-toolkit # exe 保持 ASCII（产物命名规范；显示名由 productName 承担）
+  artifactName: uvmp-toolkit-${version}-win-portable.${ext} # nsis 目标由 nsis.artifactName 覆盖
 nsis:
   oneClick: false
   perMachine: false
@@ -58,4 +58,4 @@ deb:
   afterRemove: build/afterRemove.sh
   artifactName: uvmp-toolkit_${version}_${arch}.${ext}
   depends:
-    - libatomic1    # arm64 麒麟跑 Chromium 需要（amd64 也无害）
+    - libatomic1 # arm64 麒麟跑 Chromium 需要（amd64 也无害）

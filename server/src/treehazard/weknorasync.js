@@ -28,7 +28,14 @@ const CHANNEL = 'treehazard-sync'; // 摄取渠道标记（列表过滤 source=�
 const UNGROUPED_LINE = '未分组线路'; // line_name 为空的记录归组名
 const PAGE_SIZE = 100; // 列知识分页大小（batch-delete 单次上限 200，清理分批另切）
 const LIST_MAX_PAGES = 10; // 列知识翻页兜底上限（防接口分页异常死循环）
-const STATE_FILE = path.join(__dirname, '..', '..', 'data', 'treehazard', 'weknora-sync-state.json');
+const STATE_FILE = path.join(
+  __dirname,
+  '..',
+  '..',
+  'data',
+  'treehazard',
+  'weknora-sync-state.json'
+);
 
 function cfg() {
   return config.weknora;
@@ -36,15 +43,20 @@ function cfg() {
 
 // 同步班组：按配置班组名精确匹配启用班组（与 sync.js resolveTeam 同口径）
 async function resolveTeam() {
-  const [rows] = await pool.query('SELECT id, name FROM sys_team WHERE name = ? AND status = 1', [config.treehazard.syncTeam]);
-  if (!rows.length) throw new Error(`未找到同步班组「${config.treehazard.syncTeam}」（未建或已停用）`);
+  const [rows] = await pool.query('SELECT id, name FROM sys_team WHERE name = ? AND status = 1', [
+    config.treehazard.syncTeam,
+  ]);
+  if (!rows.length)
+    throw new Error(`未找到同步班组「${config.treehazard.syncTeam}」（未建或已停用）`);
   return rows[0];
 }
 
 // WeKnora 响应信封解包（{success, data, ...}）；success 显式为 false 时抛错
 function unwrap(body, label) {
   if (!body || body.success === false) {
-    throw new Error(`${label}失败：${(body && (body.message || body.error)) || 'WeKnora 响应异常'}`);
+    throw new Error(
+      `${label}失败：${(body && (body.message || body.error)) || 'WeKnora 响应异常'}`
+    );
   }
   return body.data;
 }
@@ -56,7 +68,9 @@ function loadState() {
   try {
     const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
     if (st && st.version === 2 && st.lines && typeof st.lines === 'object') return st;
-  } catch (e) { /* 缺失或损坏回退空状态 */ }
+  } catch (e) {
+    /* 缺失或损坏回退空状态 */
+  }
   // version=2：知识库表去首行标题（skipTitle）口径；旧版状态（带标题旧件）作废，首轮全量重传替换
   return { version: 2, lines: {} };
 }
@@ -151,10 +165,13 @@ function knowledgeBaseName(k) {
 // 上传 409 响应里已有条目 id（data 形态未实测：单对象 / 数组 / {items|list} 列表均兼容）
 function conflictIds(data) {
   if (!data) return [];
-  const arr = Array.isArray(data) ? data
-    : Array.isArray(data.items) ? data.items
-    : Array.isArray(data.list) ? data.list
-    : [data];
+  const arr = Array.isArray(data)
+    ? data
+    : Array.isArray(data.items)
+      ? data.items
+      : Array.isArray(data.list)
+        ? data.list
+        : [data];
   return arr
     .map((k) => (k && typeof k === 'object' ? (k.id ?? k.knowledge_id) : k))
     .filter((id) => id !== undefined && id !== null);
@@ -163,7 +180,12 @@ function conflictIds(data) {
 // 上传线路表（同名 409 → 取响应已有 id 删除后重试一次，再失败抛错由调用方记 errors）；
 // 返回 { conflictDeleted, knowledgeId }——conflictDeleted=409 兜底删除的旧件数，knowledgeId=上传响应 data.id（缺省 null）
 async function uploadXlsx(kbId, book) {
-  const payload = { buffer: book.buffer, fileName: `${FOLDER_PATH}/${book.fileName}`, title: book.fileName, channel: CHANNEL };
+  const payload = {
+    buffer: book.buffer,
+    fileName: `${FOLDER_PATH}/${book.fileName}`,
+    title: book.fileName,
+    channel: CHANNEL,
+  };
   const doUpload = async () => {
     const data = unwrap(await weknora.uploadKnowledgeFile(kbId, payload), '上传知识文件');
     return (data && (data.id ?? data.knowledge_id)) || null;
@@ -228,7 +250,9 @@ async function syncToWeKnora() {
       if (st) updated += 1;
       else created += 1;
     } catch (err) {
-      errors.push(`${deleteErrMsg ? `${deleteErrMsg}；` : ''}上传「${book.fileName}」失败：${err.message}`);
+      errors.push(
+        `${deleteErrMsg ? `${deleteErrMsg}；` : ''}上传「${book.fileName}」失败：${err.message}`
+      );
     }
   }
   // 已下线路清理：状态里有、本次无记录的线路 → 删条目 + 清状态项（删除失败保留下轮重试）
@@ -251,7 +275,9 @@ async function syncToWeKnora() {
   try {
     const listed = await listFolderKnowledge(kbId);
     const stateIds = new Set(
-      Object.values(state.lines).map((s) => s.knowledgeId).filter((id) => id !== undefined && id !== null)
+      Object.values(state.lines)
+        .map((s) => s.knowledgeId)
+        .filter((id) => id !== undefined && id !== null)
     );
     const orphans = [];
     const seen = new Set();
@@ -279,7 +305,15 @@ let running = false; // 手动触发重入守卫（夜间 nightq 同刻串行本
 
 // 手动/夜间共用一轮同步：全 catch 不抛，返回 { ok, created, updated, deleted, skipped, errors[] }
 async function runSync() {
-  if (running) return { ok: false, created: 0, updated: 0, deleted: 0, skipped: 0, errors: ['同步进行中，请稍后再试'] };
+  if (running)
+    return {
+      ok: false,
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      skipped: 0,
+      errors: ['同步进行中，请稍后再试'],
+    };
   running = true;
   try {
     return await syncToWeKnora();
@@ -307,11 +341,15 @@ async function nightJob() {
 // 未配置知识库 ID 或 WeKnora API Key 时停用不排程
 function start() {
   if (!cfg().treehazardKbId || !cfg().apiKey) {
-    console.error('[树障知识库同步] 未配置 WeKnora（WEKNORA_TREEHAZARD_KB_ID / WEKNORA_API_KEY），知识库同步停用');
+    console.error(
+      '[树障知识库同步] 未配置 WeKnora（WEKNORA_TREEHAZARD_KB_ID / WEKNORA_API_KEY），知识库同步停用'
+    );
     return;
   }
   nightq.register('treehazard-weknora-sync', config.treehazard.syncFetchTime, nightJob);
-  console.log(`[树障知识库同步] 已启用：每日 ${config.treehazard.syncFetchTime}（北京时间，随内网取件同刻串行）按线路同步至知识库「${FOLDER_PATH}」文件夹，另支持手动 POST /weknora-sync/push-now 即时同步`);
+  console.log(
+    `[树障知识库同步] 已启用：每日 ${config.treehazard.syncFetchTime}（北京时间，随内网取件同刻串行）按线路同步至知识库「${FOLDER_PATH}」文件夹，另支持手动 POST /weknora-sync/push-now 即时同步`
+  );
 }
 
 module.exports = {

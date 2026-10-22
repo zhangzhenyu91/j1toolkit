@@ -141,7 +141,9 @@ async function ensureWorklogSchema(pool) {
       console.log(`[初始化] 已为 ${table} 补充 team_id 列`);
     }
   }
-  const [teamRows] = await pool.query('SELECT id FROM sys_team WHERE status = 1 ORDER BY sort, id LIMIT 1');
+  const [teamRows] = await pool.query(
+    'SELECT id FROM sys_team WHERE status = 1 ORDER BY sort, id LIMIT 1'
+  );
   const defaultTeamId = teamRows.length ? teamRows[0].id : null;
   if (defaultTeamId) {
     for (const table of TEAM_TABLES) {
@@ -199,7 +201,8 @@ async function ensureWorklogSchema(pool) {
     stats.forEach((s) => {
       (byIndex[s.INDEX_NAME] = byIndex[s.INDEX_NAME] || []).push(s.COLUMN_NAME);
     });
-    if (Object.values(byIndex).some((cols) => cols.includes('team_id') && cols.includes(field))) continue;
+    if (Object.values(byIndex).some((cols) => cols.includes('team_id') && cols.includes(field)))
+      continue;
     for (const [idxName, cols] of Object.entries(byIndex)) {
       if (cols.length === 1 && cols[0] === field) {
         await pool.query(`ALTER TABLE ${table} DROP INDEX \`${idxName}\``);
@@ -220,8 +223,15 @@ async function ensureWorklogSchema(pool) {
       for (let i = 0; i < rows.length; i += 500) {
         const chunk = rows
           .slice(i, i + 500)
-          .map((r, j) => [defaultTeamId, String(r[0] || ''), String(r[1] || ''), String(r[2] || ''),
-            String(r[3] || ''), String(r[4] || ''), i + j + 1]);
+          .map((r, j) => [
+            defaultTeamId,
+            String(r[0] || ''),
+            String(r[1] || ''),
+            String(r[2] || ''),
+            String(r[3] || ''),
+            String(r[4] || ''),
+            i + j + 1,
+          ]);
         await pool.query(
           'INSERT INTO worklog_tower (team_id, voltage_level, line_name, tower_no, lng, lat, sort) VALUES ?',
           [chunk]
@@ -235,9 +245,18 @@ async function ensureWorklogSchema(pool) {
 
   // 老库兼容：worklog_photo 补充 Dify 新增输出列（MySQL 的 ALTER 不支持 IF NOT EXISTS，先查 information_schema）
   const PHOTO_NEW_COLUMNS = [
-    ['shot_time', `shot_time VARCHAR(32) NOT NULL DEFAULT '' COMMENT '水印拍摄时间（time）' AFTER work_content`],
-    ['weather', `weather VARCHAR(64) NOT NULL DEFAULT '' COMMENT '天气（weather）' AFTER shot_time`],
-    ['location', `location VARCHAR(255) NOT NULL DEFAULT '' COMMENT '地点（location）' AFTER weather`],
+    [
+      'shot_time',
+      `shot_time VARCHAR(32) NOT NULL DEFAULT '' COMMENT '水印拍摄时间（time）' AFTER work_content`,
+    ],
+    [
+      'weather',
+      `weather VARCHAR(64) NOT NULL DEFAULT '' COMMENT '天气（weather）' AFTER shot_time`,
+    ],
+    [
+      'location',
+      `location VARCHAR(255) NOT NULL DEFAULT '' COMMENT '地点（location）' AFTER weather`,
+    ],
     ['date_ok', `date_ok TINYINT NULL COMMENT '日期核验：1 相符 0 不符' AFTER lat`],
     ['dest_ok', `dest_ok TINYINT NULL COMMENT '地点核验：1 相符 0 不符' AFTER date_ok`],
   ];
@@ -256,8 +275,14 @@ async function ensureWorklogSchema(pool) {
   // 老库兼容：worklog_entry 补充备注列（备注文字 + 附件 JSON，同上方查 information_schema 模式）
   const ENTRY_NEW_COLUMNS = [
     ['remark', `remark TEXT NULL COMMENT '备注（可空）' AFTER patrol_content`],
-    ['remark_files', `remark_files JSON NULL COMMENT '备注附件 [{name,url,cos_key,type,size}]（type=image/video/doc）' AFTER remark`],
-    ['cross_team', `cross_team TINYINT NOT NULL DEFAULT 0 COMMENT '跨班日志：1 用车人含非归属班组成员（仅超管可建/删/改派车）' AFTER destination_id`],
+    [
+      'remark_files',
+      `remark_files JSON NULL COMMENT '备注附件 [{name,url,cos_key,type,size}]（type=image/video/doc）' AFTER remark`,
+    ],
+    [
+      'cross_team',
+      `cross_team TINYINT NOT NULL DEFAULT 0 COMMENT '跨班日志：1 用车人含非归属班组成员（仅超管可建/删/改派车）' AFTER destination_id`,
+    ],
   ];
   for (const [col, ddl] of ENTRY_NEW_COLUMNS) {
     const [cols] = await pool.query(
@@ -305,7 +330,9 @@ async function ensureWorklogSchema(pool) {
       `INSERT INTO worklog_fee_std (scope, food_fee, transit_fee, effective_from) VALUES
        (0, 60, 0, '2000-01-01'), (1, 60, 0, '2000-01-01'), (1, 100, 0, '2026-08-14'), (2, 40, 0, '2000-01-01')`
     );
-    console.log('[初始化] 已写入费用验证标准种子（市内 60/0；市外 100/0 自 2026-08-14 起；驻地 40/0）');
+    console.log(
+      '[初始化] 已写入费用验证标准种子（市内 60/0；市外 100/0 自 2026-08-14 起；驻地 40/0）'
+    );
   }
   // 驻地口径行对老库无条件补种（uk_scope_eff 幂等；用户改过/加过同生效日行则不覆盖）
   await pool.query(
@@ -317,8 +344,14 @@ async function ensureWorklogSchema(pool) {
     `INSERT INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES (?, ?, ?, ?, ?, ?, 1)
      ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path),
        terminal = VALUES(terminal), sort = VALUES(sort)`,
-    [APP_WORK_LOG.key, APP_WORK_LOG.name, APP_WORK_LOG.icon, APP_WORK_LOG.path,
-      APP_WORK_LOG.terminal, APP_WORK_LOG.sort]
+    [
+      APP_WORK_LOG.key,
+      APP_WORK_LOG.name,
+      APP_WORK_LOG.icon,
+      APP_WORK_LOG.path,
+      APP_WORK_LOG.terminal,
+      APP_WORK_LOG.sort,
+    ]
   );
 
   // 首批成员种子（仅在空表时写入，归属默认班组，管理端后续自行维护）
@@ -326,7 +359,9 @@ async function ensureWorklogSchema(pool) {
   if (!memberRows[0].cnt && defaultTeamId) {
     for (let i = 0; i < MEMBER_SEED.length; i += 1) {
       await pool.query('INSERT INTO worklog_member (team_id, name, sort) VALUES (?, ?, ?)', [
-        defaultTeamId, MEMBER_SEED[i], i + 1,
+        defaultTeamId,
+        MEMBER_SEED[i],
+        i + 1,
       ]);
     }
     console.log(`[初始化] 已写入出工日志成员种子 ${MEMBER_SEED.length} 人（默认班组）`);
@@ -340,7 +375,9 @@ async function ensureWorklogSchema(pool) {
   await require('./member-sync').syncAllUserMembers();
 
   // 管理员默认授予出工日志权限
-  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [config.admin.username]);
+  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [
+    config.admin.username,
+  ]);
   if (adminRows.length) {
     await pool.query(
       'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',

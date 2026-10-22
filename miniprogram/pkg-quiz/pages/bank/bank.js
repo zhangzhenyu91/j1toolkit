@@ -74,7 +74,9 @@ Page({
   async load(isInitial) {
     if (isInitial) this.setData({ loading: true });
     try {
-      const data = await request({ url: `${API_BASE}/banks/${encodeURIComponent(this._bankId)}/home` });
+      const data = await request({
+        url: `${API_BASE}/banks/${encodeURIComponent(this._bankId)}/home`,
+      });
       this._loaded = true;
       this.setData({ bank: this.mapHome(data || {}), loading: false, emptyText: '' });
       this.refreshSeqText();
@@ -88,20 +90,23 @@ Page({
   mapHome(h) {
     const total = h.questionCount || 0;
     const answered = h.answeredCount || 0;
-    return Object.assign({
-      id: h.id,
-      name: h.name || '',
-      description: h.description || '',
-      scope: h.scope,
-      teamName: h.teamName || '',
-      questionCount: total,
-      answeredCount: answered,
-      rightRateText: h.rightRate === null || h.rightRate === undefined ? '—' : `${h.rightRate}%`,
-      pct: total ? Math.round((answered / total) * 100) : 0,
-      wrongCount: h.wrongCount || 0,
-      favCount: h.favCount || 0,
-      seqIdx: h.seqIdx === null || h.seqIdx === undefined ? null : Number(h.seqIdx), // 顺序练习断点（服务端，跨端续刷）
-    }, mapAnalysis(h.analysis, total));
+    return Object.assign(
+      {
+        id: h.id,
+        name: h.name || '',
+        description: h.description || '',
+        scope: h.scope,
+        teamName: h.teamName || '',
+        questionCount: total,
+        answeredCount: answered,
+        rightRateText: h.rightRate === null || h.rightRate === undefined ? '—' : `${h.rightRate}%`,
+        pct: total ? Math.round((answered / total) * 100) : 0,
+        wrongCount: h.wrongCount || 0,
+        favCount: h.favCount || 0,
+        seqIdx: h.seqIdx === null || h.seqIdx === undefined ? null : Number(h.seqIdx), // 顺序练习断点（服务端，跨端续刷）
+      },
+      mapAnalysis(h.analysis, total)
+    );
   },
 
   // 顺序练习进度文案（服务端断点 seqIdx 为大纲下标 0 起，跨端续刷；null=未开始）
@@ -179,19 +184,23 @@ Page({
       content: '移出后练习记录与错题保留，可随时从题库池重新添加。',
       confirmBtn: '确认移出',
       cancelBtn: '取消',
-    }).then(() => {
-      request({
-        url: `${API_BASE}/banks/${encodeURIComponent(this._bankId)}/join`,
-        method: 'DELETE',
-      }).then(() => {
-        this.toast('已移出我的题库');
-        setTimeout(() => {
-          wx.navigateBack({
-            fail: () => wx.reLaunch({ url: '/pkg-quiz/pages/index/index' }),
-          });
-        }, 600);
-      }).catch((err) => this.toast(err.message));
-    }).catch(() => {});
+    })
+      .then(() => {
+        request({
+          url: `${API_BASE}/banks/${encodeURIComponent(this._bankId)}/join`,
+          method: 'DELETE',
+        })
+          .then(() => {
+            this.toast('已移出我的题库');
+            setTimeout(() => {
+              wx.navigateBack({
+                fail: () => wx.reLaunch({ url: '/pkg-quiz/pages/index/index' }),
+              });
+            }, 600);
+          })
+          .catch((err) => this.toast(err.message));
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

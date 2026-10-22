@@ -36,7 +36,9 @@ async function renderWordmark(file, w, h, markPx, fontPx, ink) {
   const gap = Math.round(markPx * 0.32);
   const groupW = markPx + gap + textW;
   const x0 = Math.round((w - groupW) / 2);
-  const mark = await loadImage(await sharp(MARK_SVG, { density: 384 }).resize(markPx, markPx).png().toBuffer());
+  const mark = await loadImage(
+    await sharp(MARK_SVG, { density: 384 }).resize(markPx, markPx).png().toBuffer()
+  );
   ctx.drawImage(mark, x0, Math.round((h - markPx) / 2), markPx, markPx);
   ctx.fillStyle = ink;
   ctx.textBaseline = 'middle';
@@ -56,11 +58,16 @@ async function renderMark(file, px) {
 // PNG 封装为 ICO（Vista+ 支持 ICO 内嵌 PNG 数据；单张 32×32）
 function wrapIco(pngBuf, px) {
   const header = Buffer.alloc(6);
-  header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(1, 4);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(1, 4);
   const entry = Buffer.alloc(16);
-  entry.writeUInt8(px, 0); entry.writeUInt8(px, 1); // 宽/高（256 记 0）
-  entry.writeUInt16LE(1, 4); entry.writeUInt16LE(32, 6); // 色平面 / 位深
-  entry.writeUInt32LE(pngBuf.length, 8); entry.writeUInt32LE(22, 12);
+  entry.writeUInt8(px, 0);
+  entry.writeUInt8(px, 1); // 宽/高（256 记 0）
+  entry.writeUInt16LE(1, 4);
+  entry.writeUInt16LE(32, 6); // 色平面 / 位深
+  entry.writeUInt32LE(pngBuf.length, 8);
+  entry.writeUInt32LE(22, 12);
   return Buffer.concat([header, entry, pngBuf]);
 }
 
@@ -73,4 +80,7 @@ function wrapIco(pngBuf, px) {
   const mark32 = await sharp(mark64).resize(32, 32).png().toBuffer();
   fs.writeFileSync(path.join(OUT, 'favicon.ico'), wrapIco(mark32, 32));
   console.log('生成 favicon.ico（32×32）');
-})().catch((err) => { console.error(err.message || err); process.exit(1); });
+})().catch((err) => {
+  console.error(err.message || err);
+  process.exit(1);
+});

@@ -10,10 +10,20 @@
     <!-- 进度行：模式切换 + 细进度条 + x/total -->
     <view class="pg-line">
       <view class="vm-switch">
-        <view class="vm-opt {{viewMode === 'answer' ? 'on' : ''}}" hover-class="hover-opacity"
-              bindtap="onViewTap" data-v="answer">答题</view>
-        <view class="vm-opt {{viewMode === 'recite' ? 'on' : ''}}" hover-class="hover-opacity"
-              bindtap="onViewTap" data-v="recite">背题</view>
+        <view
+          class="vm-opt {{viewMode === 'answer' ? 'on' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onViewTap"
+          data-v="answer"
+          >答题</view
+        >
+        <view
+          class="vm-opt {{viewMode === 'recite' ? 'on' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onViewTap"
+          data-v="recite"
+          >背题</view
+        >
       </view>
       <view class="progress"><view class="progress-in" style="width: {{pct}}%;"></view></view>
       <b><em>{{posText}}</em> / {{total}}</b>
@@ -31,7 +41,11 @@
         <scroll-view class="q-item" scroll-y enhanced show-scrollbar="{{false}}">
           <view class="q-item-in" wx:if="{{!item.empty}}">
             <!-- 题干卡 -->
-            <view class="card stem-card"><span class="tag {{item.type === 'judge' ? 'tag-navy' : 'tag-orange'}}">{{item.typeText}}</span>{{item.content}}</view>
+            <view class="card stem-card"
+              ><span class="tag {{item.type === 'judge' ? 'tag-navy' : 'tag-orange'}}"
+                >{{item.typeText}}</span
+              >{{item.content}}</view
+            >
 
             <!-- 判断题：「正确 / 错误」两个大选项卡 -->
             <view class="judge-row" wx:if="{{item.type === 'judge'}}">
@@ -44,8 +58,11 @@
                 catchtap="onOptTap"
                 data-letter="{{o.letter}}"
               >
-                <t-icon name="{{o.letter === 'A' ? 'check-circle' : 'close-circle'}}" size="52rpx"
-                        color="{{o.cls === 'sel' ? '#0E3DA8' : o.cls === 'right' ? '#00B42A' : o.cls === 'wrong' ? '#F53F3F' : 'rgba(29,33,41,.4)'}}" />
+                <t-icon
+                  name="{{o.letter === 'A' ? 'check-circle' : 'close-circle'}}"
+                  size="52rpx"
+                  color="{{o.cls === 'sel' ? '#0E3DA8' : o.cls === 'right' ? '#00B42A' : o.cls === 'wrong' ? '#F53F3F' : 'rgba(29,33,41,.4)'}}"
+                />
                 {{o.text}}
               </view>
             </view>
@@ -68,23 +85,39 @@
                 <view class="opt-tx">{{o.text}}</view>
               </view>
               <!-- 多选底部提示 -->
-              <view class="multi-hint" wx:if="{{item.type === 'multiple' && !item.submitted && viewMode === 'answer'}}">多选题：勾选后点底部「提交答案」，全部选对才算答对</view>
+              <view
+                class="multi-hint"
+                wx:if="{{item.type === 'multiple' && !item.submitted && viewMode === 'answer'}}"
+                >多选题：勾选后点底部「提交答案」，全部选对才算答对</view
+              >
             </block>
 
             <!-- 结果区（考试宝式：正确答案/您的选择 + 本人/全员作答统计 + 错题本动态） -->
             <view class="result-block" wx:if="{{item.submitted && item.result}}">
               <view class="r-main">
                 <text>正确答案 <text class="ok v">{{item.result.answerText}}</text></text>
-                <text wx:if="{{item.result.yourText}}">您的选择 <text class="v {{item.result.right ? 'ok' : 'bad'}}">{{item.result.yourText}}</text></text>
+                <text wx:if="{{item.result.yourText}}"
+                  >您的选择
+                  <text class="v {{item.result.right ? 'ok' : 'bad'}}"
+                    >{{item.result.yourText}}</text
+                  ></text
+                >
               </view>
-              <view class="r-sub" wx:if="{{item.result.myStatsText}}">{{item.result.myStatsText}}</view>
-              <view class="r-sub" wx:if="{{item.result.allStatsText}}">{{item.result.allStatsText}}</view>
-              <view class="r-sub orange" wx:if="{{item.result.bannerSub}}">{{item.result.bannerSub}}</view>
+              <view class="r-sub" wx:if="{{item.result.myStatsText}}"
+                >{{item.result.myStatsText}}</view
+              >
+              <view class="r-sub" wx:if="{{item.result.allStatsText}}"
+                >{{item.result.allStatsText}}</view
+              >
+              <view class="r-sub orange" wx:if="{{item.result.bannerSub}}"
+                >{{item.result.bannerSub}}</view
+              >
             </view>
 
             <!-- 解析卡（解析态；背题模式常显；解析未生成时占位文案）；铅笔入口全员可改解析 -->
             <view class="analysis-card" wx:if="{{item.submitted && item.result}}">
-              <view class="hd"><t-icon name="lightbulb" size="34rpx" color="#0E3DA8" />试题详解
+              <view class="hd"
+                ><t-icon name="lightbulb" size="34rpx" color="#0E3DA8" />试题详解
                 <view class="ana-edit" hover-class="hover-opacity" catchtap="onAnaEditTap">
                   <t-icon name="edit" size="30rpx" color="#86909C" />
                 </view>
@@ -109,17 +142,29 @@
   <view class="q-empty" wx:if="{{emptyText}}">
     <t-icon name="check-circle" size="96rpx" color="#00B42A" wx:if="{{mode === 'wrong'}}" />
     <view class="q-empty-t">{{emptyText}}</view>
-    <view class="btn-ghost q-empty-btn" hover-class="hover-opacity" bindtap="onFinish">返回题库</view>
+    <view class="btn-ghost q-empty-btn" hover-class="hover-opacity" bindtap="onFinish"
+      >返回题库</view
+    >
   </view>
 
   <!-- 底栏（考试宝式单行图标位，无小字）：收藏 / 对错计数 / 已做题（点开答题卡）/ 设置 / 主按钮 -->
   <view class="practice-bar" wx:if="{{win.length && !emptyText}}">
     <view class="b-item {{curFav ? 'faved' : ''}}" hover-class="hover-opacity" bindtap="onFavTap">
-      <t-icon name="{{curFav ? 'star-filled' : 'star'}}" size="40rpx" color="{{curFav ? '#0E3DA8' : '#4E5969'}}" />
+      <t-icon
+        name="{{curFav ? 'star-filled' : 'star'}}"
+        size="40rpx"
+        color="{{curFav ? '#0E3DA8' : '#4E5969'}}"
+      />
     </view>
     <view class="b-item counts">
-      <view class="cnt ok"><t-icon name="check" size="32rpx" color="#00B42A" /><text>{{rightCount}}</text></view>
-      <view class="cnt bad"><t-icon name="error-triangle" size="32rpx" color="#F53F3F" /><text>{{wrongCount}}</text></view>
+      <view class="cnt ok"
+        ><t-icon name="check" size="32rpx" color="#00B42A" /><text>{{rightCount}}</text></view
+      >
+      <view class="cnt bad"
+        ><t-icon name="error-triangle" size="32rpx" color="#F53F3F" /><text
+          >{{wrongCount}}</text
+        ></view
+      >
     </view>
     <view class="b-item sheet" hover-class="hover-opacity" bindtap="onSheetOpen">
       <t-icon name="view-module" size="34rpx" color="#1D2129" />
@@ -128,9 +173,19 @@
     <view class="b-item" hover-class="hover-opacity" bindtap="onSetTap">
       <t-icon name="setting" size="36rpx" color="#1D2129" />
     </view>
-    <view class="btn-navy bar-main {{canSubmit ? '' : 'disabled'}}" wx:if="{{showSubmit}}"
-          hover-class="hover-opacity" bindtap="onSubmit">提交答案</view>
-    <view class="btn-navy bar-main" wx:elif="{{showNext}}" hover-class="hover-opacity" bindtap="onNextOrFinish">
+    <view
+      class="btn-navy bar-main {{canSubmit ? '' : 'disabled'}}"
+      wx:if="{{showSubmit}}"
+      hover-class="hover-opacity"
+      bindtap="onSubmit"
+      >提交答案</view
+    >
+    <view
+      class="btn-navy bar-main"
+      wx:elif="{{showNext}}"
+      hover-class="hover-opacity"
+      bindtap="onNextOrFinish"
+    >
       {{isLast ? '完成' : '下一题'}}
     </view>
     <view class="bar-hint" wx:else>
@@ -147,7 +202,11 @@
         <view class="set-tx">
           <b>答对自动下一题</b>
         </view>
-        <view class="set-sw {{autoNext ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onToggleAutoNext">
+        <view
+          class="set-sw {{autoNext ? 'on' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onToggleAutoNext"
+        >
           <view class="dot"></view>
         </view>
       </view>
@@ -155,7 +214,11 @@
         <view class="set-tx">
           <b>选项乱序</b>
         </view>
-        <view class="set-sw {{shuffleOpt ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onToggleShuffle">
+        <view
+          class="set-sw {{shuffleOpt ? 'on' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onToggleShuffle"
+        >
           <view class="dot"></view>
         </view>
       </view>
@@ -182,13 +245,18 @@
               hover-class="hover-opacity"
               bindtap="onSheetJump"
               data-idx="{{item.idx}}"
-            >{{item.num}}</view>
+              >{{item.num}}</view
+            >
           </view>
         </view>
       </scroll-view>
       <view class="sheet-ft">
-        <view class="reset-link {{canReset ? '' : 'disabled'}}" hover-class="{{canReset ? 'hover-opacity' : ''}}"
-              bindtap="onResetRecords">清空做题记录</view>
+        <view
+          class="reset-link {{canReset ? '' : 'disabled'}}"
+          hover-class="{{canReset ? 'hover-opacity' : ''}}"
+          bindtap="onResetRecords"
+          >清空做题记录</view
+        >
       </view>
     </view>
   </t-popup>
@@ -198,9 +266,17 @@
     <view class="ana-pop">
       <view class="set-hd">修改解析</view>
       <view class="ana-tip">解析对题库内全员可见，保存后即刻生效；留空则由 AI 重新生成</view>
-      <textarea class="ana-input" maxlength="2000" placeholder="填写本题解析" value="{{anaText}}" bindinput="onAnaInput" />
+      <textarea
+        class="ana-input"
+        maxlength="2000"
+        placeholder="填写本题解析"
+        value="{{anaText}}"
+        bindinput="onAnaInput"
+      />
       <view class="ana-foot">
-        <view class="btn-ghost ana-btn" hover-class="hover-opacity" bindtap="onAnaCancel">取消</view>
+        <view class="btn-ghost ana-btn" hover-class="hover-opacity" bindtap="onAnaCancel"
+          >取消</view
+        >
         <view class="btn-navy ana-btn" hover-class="hover-opacity" bindtap="onAnaSave">保存</view>
       </view>
     </view>

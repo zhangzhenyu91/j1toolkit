@@ -32,7 +32,9 @@ function utf8Buffer(str) {
 
 function concatBuffers(buffers) {
   let total = 0;
-  buffers.forEach((b) => { total += b.byteLength; });
+  buffers.forEach((b) => {
+    total += b.byteLength;
+  });
   const out = new Uint8Array(total);
   let offset = 0;
   buffers.forEach((b) => {

@@ -58,9 +58,17 @@ Page({
           success: (up) => {
             try {
               const body = JSON.parse(up.data || '{}');
-              if (up.statusCode >= 200 && up.statusCode < 300 && body.code === 0 && body.data && body.data.url) {
+              if (
+                up.statusCode >= 200 &&
+                up.statusCode < 300 &&
+                body.code === 0 &&
+                body.data &&
+                body.data.url
+              ) {
                 const joiner = this.data.content && !/\n$/.test(this.data.content) ? '\n' : '';
-                this.setData({ content: `${this.data.content}${joiner}![图片](${body.data.url})\n` });
+                this.setData({
+                  content: `${this.data.content}${joiner}![图片](${body.data.url})\n`,
+                });
                 this.toast('图片已插入');
               } else {
                 this.toast(body.message || '图片上传失败');

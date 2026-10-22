@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <!-- Shade 壹匣 · 班组数据网页版（「政企蓝白」token；骨架同 worklog.html：100vh 锁高 + 悬浮卡片 + 页签内部滚动）
      功能：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 / 商旅设备 六分段页签（仅超管 / 班组管理员可入，接口 40304 兜底）——
      前三段字典维护（顶部输入即添加；行内 改名 / 停用启用 / 删除，人员另有 上移 / 下移 排序与「账号同步 / 手动添加」来源标，
@@ -12,1250 +12,2026 @@
      班组隔离：超管页头班组切换下拉（localStorage.teamdata_team_id，GET/DELETE 走 query、POST/PUT 走 body 带 team_id，见 td()/teamBody()），
      班组管理员固定本班；API 直连主平台 /api/v1/teamdata/* 与 /api/v1/sgcc/*（Bearer token 经 Shade.api） -->
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>班组数据 · Shade 壹匣</title>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="stylesheet" href="/assets/theme.css">
-<style>
-  /* ============================================================
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>班组数据 · Shade 壹匣</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/assets/theme.css" />
+    <style>
+      /* ============================================================
      班组数据页内样式 ·「政企蓝白」（色板全部走 theme.css 变量，骨架口径同 worklog）
      ============================================================ */
-  /* ===== 整页不滚动：仅页签内容区内部滚动（body 锁定 100vh，主内容 flex 撑满剩余视口） ===== */
-  html, body { height: 100%; }
-  body { display: flex; flex-direction: column; overflow: hidden; }
-  body > .topbar { flex: none; }
-  /* theme.css 的 .page 带 margin:0 auto，flex 容器内显式 width:100% 恢复满宽（同 worklog 口径） */
-  .page { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; padding-bottom: 24px; }
-  .td-wrap { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
-  .td-wrap[hidden] { display: none !important; } /* author display 规则优先于 UA [hidden]，显式兜底 */
+      /* ===== 整页不滚动：仅页签内容区内部滚动（body 锁定 100vh，主内容 flex 撑满剩余视口） ===== */
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      body > .topbar {
+        flex: none;
+      }
+      /* theme.css 的 .page 带 margin:0 auto，flex 容器内显式 width:100% 恢复满宽（同 worklog 口径） */
+      .page {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        padding-bottom: 24px;
+      }
+      .td-wrap {
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      .td-wrap[hidden] {
+        display: none !important;
+      } /* author display 规则优先于 UA [hidden]，显式兜底 */
 
-  /* ===== 入场关键帧：k-fade / k-rise / paneIn 共享自 theme.css（一次上浮/淡入后静止） ===== */
+      /* ===== 入场关键帧：k-fade / k-rise / paneIn 共享自 theme.css（一次上浮/淡入后静止） ===== */
 
-  /* ===== 页头：标题 + 副标；右侧班组切换（仅超管） ===== */
-  .td-head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap; }
-  .td-head .section-title { display: block; margin: 0; }
-  .td-kick { font-size: 11px; font-weight: 600; letter-spacing: 2px; color: var(--orange); animation: k-fade .5s var(--ease) .06s both; }
-  .td-head .section-title h3 {
-    margin-top: 6px; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: 1px;
-    animation: k-fade .55s var(--ease) .12s both;
-  }
-  .td-head .section-title .more {
-    display: block; margin: 8px 0 0; font-size: 13px; color: var(--sub); letter-spacing: .5px;
-    animation: k-fade .55s var(--ease) .2s both;
-  }
-  .td-head .acts { margin-left: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; animation: k-fade .55s var(--ease) .28s both; }
+      /* ===== 页头：标题 + 副标；右侧班组切换（仅超管） ===== */
+      .td-head {
+        flex: none;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 14px 24px;
+        flex-wrap: wrap;
+      }
+      .td-head .section-title {
+        display: block;
+        margin: 0;
+      }
+      .td-kick {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 2px;
+        color: var(--orange);
+        animation: k-fade 0.5s var(--ease) 0.06s both;
+      }
+      .td-head .section-title h3 {
+        margin-top: 6px;
+        font-size: 24px;
+        line-height: 1.2;
+        font-weight: 700;
+        letter-spacing: 1px;
+        animation: k-fade 0.55s var(--ease) 0.12s both;
+      }
+      .td-head .section-title .more {
+        display: block;
+        margin: 8px 0 0;
+        font-size: 13px;
+        color: var(--sub);
+        letter-spacing: 0.5px;
+        animation: k-fade 0.55s var(--ease) 0.2s both;
+      }
+      .td-head .acts {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        animation: k-fade 0.55s var(--ease) 0.28s both;
+      }
 
-  /* ===== 六分段页签：下划线式页签，激活蓝字 + 2px 蓝条（同 worklog wl-tabs 口径） ===== */
-  .td-tabs {
-    position: relative; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px;
-    border-bottom: 1px solid var(--line); animation: k-fade .55s var(--ease) .34s both;
-  }
-  .td-tabs button {
-    position: relative; padding: 9px 14px; border: none; background: transparent; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 7px;
-    font-size: 13px; font-weight: 600; color: var(--sub); letter-spacing: .5px;
-    transition: color .15s;
-  }
-  .td-tabs button:hover { color: var(--navy); }
-  .td-tabs button.on { color: var(--orange); }
-  .td-tabs button.on::after {
-    content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px;
-    height: 2px; background: var(--orange); border-radius: 2px;
-  }
-  .td-tabs button svg { width: 15px; height: 15px; }
-  .td-tab-ind { display: none; } /* 滑动指示条按稿弃用（激活态已由蓝字 + 蓝条表达）；节点保留供 Shade.moveTabInd 写值 */
+      /* ===== 六分段页签：下划线式页签，激活蓝字 + 2px 蓝条（同 worklog wl-tabs 口径） ===== */
+      .td-tabs {
+        position: relative;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 16px;
+        border-bottom: 1px solid var(--line);
+        animation: k-fade 0.55s var(--ease) 0.34s both;
+      }
+      .td-tabs button {
+        position: relative;
+        padding: 9px 14px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--sub);
+        letter-spacing: 0.5px;
+        transition: color 0.15s;
+      }
+      .td-tabs button:hover {
+        color: var(--navy);
+      }
+      .td-tabs button.on {
+        color: var(--orange);
+      }
+      .td-tabs button.on::after {
+        content: '';
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: -1px;
+        height: 2px;
+        background: var(--orange);
+        border-radius: 2px;
+      }
+      .td-tabs button svg {
+        width: 15px;
+        height: 15px;
+      }
+      .td-tab-ind {
+        display: none;
+      } /* 滑动指示条按稿弃用（激活态已由蓝字 + 蓝条表达）；节点保留供 Shade.moveTabInd 写值 */
 
-  /* ===== 主体：页签内容区内部滚动 ===== */
-  .td-body { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 16px; }
-  .td-body .pane { display: none; flex: 1; min-height: 0; }
-  .td-body .pane.on { display: flex; flex-direction: column; animation: paneIn .34s var(--ease); }
-  /* ===== 列表入场：行级上浮 stagger（编排式 14px；时延链 ≤0.9s：逐行 40ms 递增、0.36s 封顶 + 0.45s 时长；
+      /* ===== 主体：页签内容区内部滚动 ===== */
+      .td-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        margin-top: 16px;
+      }
+      .td-body .pane {
+        display: none;
+        flex: 1;
+        min-height: 0;
+      }
+      .td-body .pane.on {
+        display: flex;
+        flex-direction: column;
+        animation: paneIn 0.34s var(--ease);
+      }
+      /* ===== 列表入场：行级上浮 stagger（编排式 14px；时延链 ≤0.9s：逐行 40ms 递增、0.36s 封顶 + 0.45s 时长；
      切分段时既有行随 .pane.on 入场，列表 innerHTML 重渲的新行同效；降级见文件末 reduce 块） ===== */
-  .td-body .pane.on .drow, .td-body .pane.on .lt tbody tr { animation: k-rise .45s var(--ease) both; }
-  .td-body .pane.on .drow:nth-child(3), .td-body .pane.on .lt tbody tr:nth-child(2) { animation-delay: .04s; }
-  .td-body .pane.on .drow:nth-child(4), .td-body .pane.on .lt tbody tr:nth-child(3) { animation-delay: .08s; }
-  .td-body .pane.on .drow:nth-child(5), .td-body .pane.on .lt tbody tr:nth-child(4) { animation-delay: .12s; }
-  .td-body .pane.on .drow:nth-child(6), .td-body .pane.on .lt tbody tr:nth-child(5) { animation-delay: .16s; }
-  .td-body .pane.on .drow:nth-child(7), .td-body .pane.on .lt tbody tr:nth-child(6) { animation-delay: .2s; }
-  .td-body .pane.on .drow:nth-child(8), .td-body .pane.on .lt tbody tr:nth-child(7) { animation-delay: .24s; }
-  .td-body .pane.on .drow:nth-child(9), .td-body .pane.on .lt tbody tr:nth-child(8) { animation-delay: .28s; }
-  .td-body .pane.on .drow:nth-child(10), .td-body .pane.on .lt tbody tr:nth-child(9) { animation-delay: .32s; }
-  .td-body .pane.on .drow:nth-child(n+11), .td-body .pane.on .lt tbody tr:nth-child(n+10) { animation-delay: .36s; }
-  .pane-scroll {
-    flex: 1; min-height: 0; overflow-y: auto; padding-right: 10px; scrollbar-gutter: stable;
-    scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
-  }
-  .pane-scroll::-webkit-scrollbar { width: 5px; }
-  .pane-scroll::-webkit-scrollbar-thumb { background: rgba(29, 33, 41, .16); border-radius: 8px; }
-  .pane-scroll::-webkit-scrollbar-thumb:hover { background: rgba(29, 33, 41, .34); }
-  .pane-scroll::-webkit-scrollbar-track { background: transparent; }
+      .td-body .pane.on .drow,
+      .td-body .pane.on .lt tbody tr {
+        animation: k-rise 0.45s var(--ease) both;
+      }
+      .td-body .pane.on .drow:nth-child(3),
+      .td-body .pane.on .lt tbody tr:nth-child(2) {
+        animation-delay: 0.04s;
+      }
+      .td-body .pane.on .drow:nth-child(4),
+      .td-body .pane.on .lt tbody tr:nth-child(3) {
+        animation-delay: 0.08s;
+      }
+      .td-body .pane.on .drow:nth-child(5),
+      .td-body .pane.on .lt tbody tr:nth-child(4) {
+        animation-delay: 0.12s;
+      }
+      .td-body .pane.on .drow:nth-child(6),
+      .td-body .pane.on .lt tbody tr:nth-child(5) {
+        animation-delay: 0.16s;
+      }
+      .td-body .pane.on .drow:nth-child(7),
+      .td-body .pane.on .lt tbody tr:nth-child(6) {
+        animation-delay: 0.2s;
+      }
+      .td-body .pane.on .drow:nth-child(8),
+      .td-body .pane.on .lt tbody tr:nth-child(7) {
+        animation-delay: 0.24s;
+      }
+      .td-body .pane.on .drow:nth-child(9),
+      .td-body .pane.on .lt tbody tr:nth-child(8) {
+        animation-delay: 0.28s;
+      }
+      .td-body .pane.on .drow:nth-child(10),
+      .td-body .pane.on .lt tbody tr:nth-child(9) {
+        animation-delay: 0.32s;
+      }
+      .td-body .pane.on .drow:nth-child(n + 11),
+      .td-body .pane.on .lt tbody tr:nth-child(n + 10) {
+        animation-delay: 0.36s;
+      }
+      .pane-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 10px;
+        scrollbar-gutter: stable;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+      }
+      .pane-scroll::-webkit-scrollbar {
+        width: 5px;
+      }
+      .pane-scroll::-webkit-scrollbar-thumb {
+        background: rgba(29, 33, 41, 0.16);
+        border-radius: 8px;
+      }
+      .pane-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(29, 33, 41, 0.34);
+      }
+      .pane-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
 
-  .linkbtn {
-    border: none; background: transparent; color: var(--orange); font-size: 12px; font-weight: 700;
-    letter-spacing: 1px; cursor: pointer; padding: 4px 6px; border-radius: 8px; transition: background .2s;
-  }
-  .linkbtn:hover { background: var(--orange-soft); }
-  .linkbtn.dgr { color: var(--red); }
-  .linkbtn.dgr:hover { background: #FFECE8; }
+      .linkbtn {
+        border: none;
+        background: transparent;
+        color: var(--orange);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        cursor: pointer;
+        padding: 4px 6px;
+        border-radius: 8px;
+        transition: background 0.2s;
+      }
+      .linkbtn:hover {
+        background: var(--orange-soft);
+      }
+      .linkbtn.dgr {
+        color: var(--red);
+      }
+      .linkbtn.dgr:hover {
+        background: #ffece8;
+      }
 
-  /* ===== 字典板块（车牌号 / 目的地 / 人员 共用；口径同 worklog 数据管理） ===== */
-  .dsec { overflow: hidden; }
-  .dsec-h { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; }
-  .dsec-h b { font-size: 13.5px; letter-spacing: 1px; }
-  .dsec-h .cnt { font-size: 11px; color: var(--ph); letter-spacing: 1px; }
-  .drow { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-top: 1px solid var(--hair); font-size: 13px; }
-  .drow .dn { font-weight: 600; word-break: break-all; }
-  .drow.off .dn { opacity: .45; }
-  .dpill { flex: none; border-radius: 8px; padding: 1px 7px; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; }
-  .dpill-sync { background: #EAF5EF; color: var(--green); }
-  .dpill-hand { background: var(--paper); color: var(--ph); }
-  .dpill-out { background: #FFF7E8; color: var(--navy); }
-  /* 目的地费用口径标（市外=警告橙浅底 / 驻地=浅蓝底，互斥；同 worklog 原标记样式） */
-  .dpill-sta { background: var(--orange-soft); color: var(--orange); }
-  .doff-tip { flex: none; font-size: 11px; color: var(--ph); letter-spacing: 1px; }
-  .drow .dops { margin-left: auto; flex: none; display: flex; gap: 2px; }
-  /* 商旅设备行：手机号 · 设备型号 / 系统版本（次级灰字，截断防挤压操作区；口径同 worklog 商旅绑定设备区） */
-  .drow .dspec { flex: 1; min-width: 0; font-size: 12px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dempty { padding: 14px 16px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--ph); letter-spacing: 1px; }
-  /* 板块底部虚线添加行（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
-  .dadd {
-    display: flex; align-items: center; gap: 10px; margin: 10px 12px 12px;
-    padding: 4px 4px 4px 12px; border: 2px dashed var(--dash); border-radius: 8px;
-  }
-  .dadd-in {
-    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
-    font-size: 13px; color: var(--navy); font-family: inherit;
-  }
-  .dadd-in::placeholder { color: var(--ph); }
-  /* 目的地编辑弹层：市外 / 驻地互斥勾选行 */
-  .dck { display: flex; align-items: center; gap: 8px; padding: 5px 2px; font-size: 13px; color: var(--navy); cursor: pointer; }
-  .dck input { width: 15px; height: 15px; accent-color: var(--orange); cursor: pointer; }
+      /* ===== 字典板块（车牌号 / 目的地 / 人员 共用；口径同 worklog 数据管理） ===== */
+      .dsec {
+        overflow: hidden;
+      }
+      .dsec-h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 16px 10px;
+      }
+      .dsec-h b {
+        font-size: 13.5px;
+        letter-spacing: 1px;
+      }
+      .dsec-h .cnt {
+        font-size: 11px;
+        color: var(--ph);
+        letter-spacing: 1px;
+      }
+      .drow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 16px;
+        border-top: 1px solid var(--hair);
+        font-size: 13px;
+      }
+      .drow .dn {
+        font-weight: 600;
+        word-break: break-all;
+      }
+      .drow.off .dn {
+        opacity: 0.45;
+      }
+      .dpill {
+        flex: none;
+        border-radius: 8px;
+        padding: 1px 7px;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+      .dpill-sync {
+        background: #eaf5ef;
+        color: var(--green);
+      }
+      .dpill-hand {
+        background: var(--paper);
+        color: var(--ph);
+      }
+      .dpill-out {
+        background: #fff7e8;
+        color: var(--navy);
+      }
+      /* 目的地费用口径标（市外=警告橙浅底 / 驻地=浅蓝底，互斥；同 worklog 原标记样式） */
+      .dpill-sta {
+        background: var(--orange-soft);
+        color: var(--orange);
+      }
+      .doff-tip {
+        flex: none;
+        font-size: 11px;
+        color: var(--ph);
+        letter-spacing: 1px;
+      }
+      .drow .dops {
+        margin-left: auto;
+        flex: none;
+        display: flex;
+        gap: 2px;
+      }
+      /* 商旅设备行：手机号 · 设备型号 / 系统版本（次级灰字，截断防挤压操作区；口径同 worklog 商旅绑定设备区） */
+      .drow .dspec {
+        flex: 1;
+        min-width: 0;
+        font-size: 12px;
+        color: var(--sub);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .dempty {
+        padding: 14px 16px;
+        border-top: 1px solid var(--hair);
+        font-size: 12px;
+        color: var(--ph);
+        letter-spacing: 1px;
+      }
+      /* 板块底部虚线添加行（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
+      .dadd {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 10px 12px 12px;
+        padding: 4px 4px 4px 12px;
+        border: 2px dashed var(--dash);
+        border-radius: 8px;
+      }
+      .dadd-in {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        font-size: 13px;
+        color: var(--navy);
+        font-family: inherit;
+      }
+      .dadd-in::placeholder {
+        color: var(--ph);
+      }
+      /* 目的地编辑弹层：市外 / 驻地互斥勾选行 */
+      .dck {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 2px;
+        font-size: 13px;
+        color: var(--navy);
+        cursor: pointer;
+      }
+      .dck input {
+        width: 15px;
+        height: 15px;
+        accent-color: var(--orange);
+        cursor: pointer;
+      }
 
-  /* ===== 杆塔信息段：工具行 + 线路表格（电压等级 / 线路名称 / 杆塔数，GET /lines） ===== */
-  .lt-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; }
-  .lt-note { font-size: 11.5px; color: var(--ph); letter-spacing: .5px; }
-  .lt-btns { margin-left: auto; display: flex; gap: 10px; }
-  .lt-wrap { border-top: 1px solid var(--hair); }
-  .lt { width: 100%; border-collapse: collapse; }
-  .lt th, .lt td { padding: 10px 16px; font-size: 13px; text-align: left; border-bottom: 1px solid var(--hair); }
-  .lt th { font-size: 11.5px; font-weight: 700; color: var(--sub); letter-spacing: 1px; background: var(--fill); }
-  .lt tr:last-child td { border-bottom: none; }
-  .lt td { font-weight: 600; }
-  .lt td.lc-n { font-variant-numeric: tabular-nums; }
-  .lt td.lc-v { width: 130px; }
-  .lt td.lc-c { width: 110px; }
-  .lt-empty { padding: 26px 16px; font-size: 12px; color: var(--ph); letter-spacing: 1px; text-align: center; }
+      /* ===== 杆塔信息段：工具行 + 线路表格（电压等级 / 线路名称 / 杆塔数，GET /lines） ===== */
+      .lt-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 14px 16px;
+      }
+      .lt-note {
+        font-size: 11.5px;
+        color: var(--ph);
+        letter-spacing: 0.5px;
+      }
+      .lt-btns {
+        margin-left: auto;
+        display: flex;
+        gap: 10px;
+      }
+      .lt-wrap {
+        border-top: 1px solid var(--hair);
+      }
+      .lt {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .lt th,
+      .lt td {
+        padding: 10px 16px;
+        font-size: 13px;
+        text-align: left;
+        border-bottom: 1px solid var(--hair);
+      }
+      .lt th {
+        font-size: 11.5px;
+        font-weight: 700;
+        color: var(--sub);
+        letter-spacing: 1px;
+        background: var(--fill);
+      }
+      .lt tr:last-child td {
+        border-bottom: none;
+      }
+      .lt td {
+        font-weight: 600;
+      }
+      .lt td.lc-n {
+        font-variant-numeric: tabular-nums;
+      }
+      .lt td.lc-v {
+        width: 130px;
+      }
+      .lt td.lc-c {
+        width: 110px;
+      }
+      .lt-empty {
+        padding: 26px 16px;
+        font-size: 12px;
+        color: var(--ph);
+        letter-spacing: 1px;
+        text-align: center;
+      }
 
-  /* ===== 运维线路段：顶部双输入添加行 + 行内 编辑/删除/上移/下移 + 底部说明 ===== */
-  .drow .olv { flex: none; width: 84px; font-weight: 700; color: var(--sub); font-variant-numeric: tabular-nums; }
-  .dadd-in.ol-v { flex: none; width: 150px; }
-  .ol-foot { padding: 12px 16px; border-top: 1px solid var(--hair); font-size: 11.5px; color: var(--ph); letter-spacing: .5px; }
+      /* ===== 运维线路段：顶部双输入添加行 + 行内 编辑/删除/上移/下移 + 底部说明 ===== */
+      .drow .olv {
+        flex: none;
+        width: 84px;
+        font-weight: 700;
+        color: var(--sub);
+        font-variant-numeric: tabular-nums;
+      }
+      .dadd-in.ol-v {
+        flex: none;
+        width: 150px;
+      }
+      .ol-foot {
+        padding: 12px 16px;
+        border-top: 1px solid var(--hair);
+        font-size: 11.5px;
+        color: var(--ph);
+        letter-spacing: 0.5px;
+      }
 
-  /* ===== 角色门控提示卡（非班管/超管整页提示） ===== */
-  /* author 的 .gate display:flex 优先于 UA [hidden] 规则，必须显式兜底——
+      /* ===== 角色门控提示卡（非班管/超管整页提示） ===== */
+      /* author 的 .gate display:flex 优先于 UA [hidden] 规则，必须显式兜底——
      否则空门控以 flex:1 恒占一半视口高，列表区被挤成固定矮区（高度自适应问题根源；同 .td-wrap[hidden] 口径） */
-  .gate[hidden] { display: none !important; }
-  .gate { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
-  .gate .card { padding: 46px 60px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-  .gate svg { width: 44px; height: 44px; color: var(--dash); }
-  .gate p { font-size: 13px; color: var(--ph); letter-spacing: 1px; }
-  .gate b { font-size: 15px; color: var(--navy); letter-spacing: 1px; }
+      .gate[hidden] {
+        display: none !important;
+      }
+      .gate {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .gate .card {
+        padding: 46px 60px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      .gate svg {
+        width: 44px;
+        height: 44px;
+        color: var(--dash);
+      }
+      .gate p {
+        font-size: 13px;
+        color: var(--ph);
+        letter-spacing: 1px;
+      }
+      .gate b {
+        font-size: 15px;
+        color: var(--navy);
+        letter-spacing: 1px;
+      }
 
-  /* ===== 通用弹层（改名 / 导入确认；结构 .mask>.modal>.m-scroll，Shade.modal 注入） ===== */
-  .mask {
-    position: fixed; inset: 0; z-index: 320; padding: 24px;
-    background: rgba(29, 33, 41, .5); backdrop-filter: blur(3px);
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; transition: opacity .3s;
-  }
-  .mask.open { opacity: 1; }
-  .modal {
-    background: #fff; border: 1px solid var(--line); border-radius: 8px; width: 560px; max-width: 94vw; max-height: 86vh;
-    overflow: hidden; padding: 6px; display: flex; flex-direction: column;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, .05);
-    transform: translateY(16px) scale(.98); transition: transform .35s var(--ease);
-  }
-  .m-scroll {
-    flex: 1; min-height: 0; overflow-y: auto; border-radius: 8px; padding: 14px 18px 16px;
-    scrollbar-gutter: stable both-edges; scrollbar-width: thin; scrollbar-color: rgba(29, 33, 41, .2) transparent;
-  }
-  .m-scroll::-webkit-scrollbar { width: 5px; }
-  .m-scroll::-webkit-scrollbar-thumb { background: rgba(29, 33, 41, .16); border-radius: 8px; }
-  .m-scroll::-webkit-scrollbar-thumb:hover { background: rgba(29, 33, 41, .34); }
-  .m-scroll::-webkit-scrollbar-track { background: transparent; }
-  .mask.open .modal { transform: none; }
-  .m-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-  .m-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; }
-  .m-x {
-    margin-left: auto; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
-    color: var(--navy); cursor: pointer; display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, .05); transition: background .15s, color .15s;
-  }
-  .m-x:hover { background: var(--navy); color: #fff; }
-  .m-x svg { width: 14px; height: 14px; }
-  .m-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+      /* ===== 通用弹层（改名 / 导入确认；结构 .mask>.modal>.m-scroll，Shade.modal 注入） ===== */
+      .mask {
+        position: fixed;
+        inset: 0;
+        z-index: 320;
+        padding: 24px;
+        background: rgba(29, 33, 41, 0.5);
+        backdrop-filter: blur(3px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      .mask.open {
+        opacity: 1;
+      }
+      .modal {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        width: 560px;
+        max-width: 94vw;
+        max-height: 86vh;
+        overflow: hidden;
+        padding: 6px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        transform: translateY(16px) scale(0.98);
+        transition: transform 0.35s var(--ease);
+      }
+      .m-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        border-radius: 8px;
+        padding: 14px 18px 16px;
+        scrollbar-gutter: stable both-edges;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+      }
+      .m-scroll::-webkit-scrollbar {
+        width: 5px;
+      }
+      .m-scroll::-webkit-scrollbar-thumb {
+        background: rgba(29, 33, 41, 0.16);
+        border-radius: 8px;
+      }
+      .m-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(29, 33, 41, 0.34);
+      }
+      .m-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .mask.open .modal {
+        transform: none;
+      }
+      .m-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .m-title {
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 1px;
+      }
+      .m-x {
+        margin-left: auto;
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--navy);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        transition:
+          background 0.15s,
+          color 0.15s;
+      }
+      .m-x:hover {
+        background: var(--navy);
+        color: #fff;
+      }
+      .m-x svg {
+        width: 14px;
+        height: 14px;
+      }
+      .m-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 18px;
+      }
 
-  /* ===== 弹层表单（口径同 worklog 编辑弹层） ===== */
-  .f-lab { display: block; font-size: 12px; color: var(--ph); letter-spacing: 1px; margin: 14px 0 7px; }
-  .f-lab:first-of-type { margin-top: 2px; }
-  .f-sel {
-    width: 100%; height: 40px; border: 1px solid var(--line); border-radius: 8px; background: #fff; outline: none;
-    padding: 0 10px; font-size: 13px; color: var(--navy); font-family: inherit;
-    transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
-  }
-  .f-sel:focus { border-color: var(--orange); box-shadow: var(--hard-s); }
+      /* ===== 弹层表单（口径同 worklog 编辑弹层） ===== */
+      .f-lab {
+        display: block;
+        font-size: 12px;
+        color: var(--ph);
+        letter-spacing: 1px;
+        margin: 14px 0 7px;
+      }
+      .f-lab:first-of-type {
+        margin-top: 2px;
+      }
+      .f-sel {
+        width: 100%;
+        height: 40px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        outline: none;
+        padding: 0 10px;
+        font-size: 13px;
+        color: var(--navy);
+        font-family: inherit;
+        transition:
+          border-color 0.15s var(--ease),
+          box-shadow 0.15s var(--ease);
+      }
+      .f-sel:focus {
+        border-color: var(--orange);
+        box-shadow: var(--hard-s);
+      }
 
-  /* ===== 动效降级 ===== */
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; }
-  }
-</style>
-</head>
-<body>
+      /* ===== 动效降级 ===== */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.001s !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001s !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <div class="td-wrap" id="tdWrap">
+        <!-- 页头：标题 + 副标；右侧班组切换（仅超管可见，Shade.setupTeamSel 装配） -->
+        <div class="td-head">
+          <div class="section-title">
+            <span class="td-kick">TEAM DATA</span>
+            <h3>班组数据</h3>
+            <span class="more">车牌号、目的地、人员、杆塔信息、运维线路与商旅设备维护</span>
+          </div>
+          <div class="acts">
+            <select id="teamSel"></select>
+          </div>
+        </div>
 
-<main class="page">
-  <div class="td-wrap" id="tdWrap">
-    <!-- 页头：标题 + 副标；右侧班组切换（仅超管可见，Shade.setupTeamSel 装配） -->
-    <div class="td-head">
-      <div class="section-title">
-        <span class="td-kick">TEAM DATA</span>
-        <h3>班组数据</h3>
-        <span class="more">车牌号、目的地、人员、杆塔信息、运维线路与商旅设备维护</span>
+        <!-- 六分段页签：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 / 商旅设备 -->
+        <div class="td-tabs" id="tdTabs">
+          <button data-p="vehicles" class="on">车牌号</button>
+          <button data-p="destinations">目的地</button>
+          <button data-p="members">人员</button>
+          <button data-p="lines">杆塔信息</button>
+          <button data-p="oplines">运维线路</button>
+          <button data-p="sgcc">商旅设备</button>
+          <span class="td-tab-ind" id="tdTabInd"></span>
+        </div>
+
+        <!-- 页签主体：前三段共用字典板块，杆塔信息 / 运维线路 / 商旅设备各自独立板块 -->
+        <div class="td-body">
+          <div class="pane on" id="paneDict"><div class="pane-scroll" id="dictBody"></div></div>
+          <div class="pane" id="paneLines"><div class="pane-scroll" id="linesBody"></div></div>
+          <div class="pane" id="paneOpl"><div class="pane-scroll" id="oplBody"></div></div>
+          <div class="pane" id="paneSgcc"><div class="pane-scroll" id="sgccBody"></div></div>
+        </div>
       </div>
-      <div class="acts">
-        <select id="teamSel"></select>
-      </div>
-    </div>
 
-    <!-- 六分段页签：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 / 商旅设备 -->
-    <div class="td-tabs" id="tdTabs">
-      <button data-p="vehicles" class="on">车牌号</button>
-      <button data-p="destinations">目的地</button>
-      <button data-p="members">人员</button>
-      <button data-p="lines">杆塔信息</button>
-      <button data-p="oplines">运维线路</button>
-      <button data-p="sgcc">商旅设备</button>
-      <span class="td-tab-ind" id="tdTabInd"></span>
-    </div>
+      <!-- 角色门控：非班管/超管整页提示（接口 40304 同口径兜底） -->
+      <div class="gate" id="gate" hidden></div>
+    </main>
 
-    <!-- 页签主体：前三段共用字典板块，杆塔信息 / 运维线路 / 商旅设备各自独立板块 -->
-    <div class="td-body">
-      <div class="pane on" id="paneDict"><div class="pane-scroll" id="dictBody"></div></div>
-      <div class="pane" id="paneLines"><div class="pane-scroll" id="linesBody"></div></div>
-      <div class="pane" id="paneOpl"><div class="pane-scroll" id="oplBody"></div></div>
-      <div class="pane" id="paneSgcc"><div class="pane-scroll" id="sgccBody"></div></div>
-    </div>
-  </div>
+    <!-- 杆塔坐标导入：隐藏文件选择（仅 .xlsx ≤10MB，前端先校验） -->
+    <input type="file" id="impFileInput" accept=".xlsx" hidden />
+    <!-- 运维线路导入：隐藏文件选择（同口径） -->
+    <input type="file" id="impOplFileInput" accept=".xlsx" hidden />
 
-  <!-- 角色门控：非班管/超管整页提示（接口 40304 同口径兜底） -->
-  <div class="gate" id="gate" hidden></div>
-</main>
-
-<!-- 杆塔坐标导入：隐藏文件选择（仅 .xlsx ≤10MB，前端先校验） -->
-<input type="file" id="impFileInput" accept=".xlsx" hidden>
-<!-- 运维线路导入：隐藏文件选择（同口径） -->
-<input type="file" id="impOplFileInput" accept=".xlsx" hidden>
-
-<script src="/assets/icons.js"></script>
-<script src="/assets/common.js"></script>
-<script>
-/* ============================================================
+    <script src="/assets/icons.js"></script>
+    <script src="/assets/common.js"></script>
+    <script>
+      /* ============================================================
    班组数据网页版：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 / 商旅设备 六分段页签（全部接口仅班管 / 超管，
    页面渲染前按 shade_user.role 门控，接口 40304 兜底）；字典段与小程序 manage 页同口径（目的地带市外 / 驻地费用口径标），
    杆塔信息段供出工日志加水印 / 商旅打卡带入坐标（导入为全量替换），运维线路段供树障隐患记录分组使用；
    商旅设备段 = worklog 原「数据管理 → 商旅绑定设备」区迁移（/api/v1/sgcc/*，代绑定双通道口径同原实现）
    ============================================================ */
-(function () {
-'use strict';
-Shade.requireAuth();
-/* 统一顶部导航（当前应用：班组数据） */
-Shade.topbar({ active: 'teamdata' });
+      (function () {
+        'use strict';
+        Shade.requireAuth();
+        /* 统一顶部导航（当前应用：班组数据） */
+        Shade.topbar({ active: 'teamdata' });
 
-/* ================= 工具 ================= */
-var $ = Shade.$, $$ = Shade.$$;
-var esc = Shade.esc;
+        /* ================= 工具 ================= */
+        var $ = Shade.$,
+          $$ = Shade.$$;
+        var esc = Shade.esc;
 
-/* 分段配置：接口路径段 / 名称 / 添加占位（与小程序 manage 页 SEGMENTS 同构） */
-var SEGMENTS = [
-  { key: 'vehicles', label: '车牌号', ph: '输入新车牌号', icon: 'view-module' },
-  { key: 'destinations', label: '目的地', ph: '输入新目的地名称', icon: 'location' },
-  { key: 'members', label: '人员', ph: '输入新成员姓名', icon: 'user' }
-];
-function dictSeg(key) {
-  var hit = null;
-  SEGMENTS.forEach(function (s) { if (s.key === key) hit = s; });
-  return hit;
-}
-
-/* ================= 全局状态 ================= */
-var state = {
-  teamId: 0,            // 超管当前切换的班组 id（0=未指定，由后端落默认班组；班管恒 0 固定本班）
-  tab: 'vehicles',      // 当前页签：vehicles | destinations | members | lines | oplines | sgcc
-  lists: {},            // 字典列表缓存（键 seg.key；members 兼作商旅设备段代绑定成员下拉数据源）
-  lines: null,          // 杆塔信息 [{voltage_level, line_name, tower_count}]
-  linesErr: '',         // 杆塔信息加载失败文案
-  oplines: null,        // 运维线路 [{id, voltage_level, line_name, sort, status?}]
-  oplinesErr: '',       // 运维线路加载失败文案
-  sgcc: { list: null, err: '' } // 商旅设备绑定列表（list null=未拉取）
-};
-
-/* 班组隔离：GET / DELETE 走 query 带 team_id（后端 resolveReqTeam 同口径） */
-function td(path) { return Shade.withTeam(path, state.teamId); }
-/* POST / PUT 的 body 注入 team_id（manage.js teamBody 口径） */
-function teamBody(o) { return state.teamId ? Object.assign({ team_id: state.teamId }, o) : o; }
-
-/* 接口 40304（仅管理员可执行）→ 整页门控提示兜底 */
-function gateOnForbidden(e) {
-  if (!e || e.code !== 40304) return false;
-  renderGate();
-  return true;
-}
-
-/* ================= 角色门控 ================= */
-function renderGate() {
-  $('#tdWrap').hidden = true;
-  var gate = $('#gate');
-  gate.hidden = false;
-  gate.innerHTML = '<div class="card">' + Shade.icon('lock-on', 44)
-    + '<b>仅班管/超管可访问</b>'
-    + '<p>班组数据仅面向班组管理员与超级管理员开放，请联系管理员调整角色后再试。</p></div>';
-}
-
-/* ================= 字典段（车牌号 / 目的地 / 人员） ================= */
-async function loadSeg(seg) {
-  var body = $('#dictBody');
-  body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
-  try {
-    var r = await Shade.api(td('/api/v1/teamdata/' + seg.key));
-    state.lists[seg.key] = (r.data && r.data.list) || [];
-    seg.err = '';
-  } catch (e) {
-    if (gateOnForbidden(e)) return;
-    state.lists[seg.key] = [];
-    seg.err = e.message || '加载失败';
-  }
-  renderDict();
-}
-/* 行渲染：名称 + 费用口径标（目的地）+ 来源标（人员）+ 停用态 + 操作（上移/下移·改名·停启用·删除） */
-function dictRowHtml(seg, it, idx, total) {
-  var off = it.status !== 1;
-  return '<div class="drow' + (off ? ' off' : '') + '" data-seg="' + seg.key + '" data-id="' + it.id +
-    '" data-name="' + esc(it.name) + '" data-status="' + it.status + '"' +
-    (seg.key === 'destinations' ? ' data-outcity="' + (it.out_of_city === 1 ? 1 : 0) + '" data-stationed="' + (it.stationed === 1 ? 1 : 0) + '"' : '') + '>' +
-    '<span class="dn">' + esc(it.name) + '</span>' +
-    /* 目的地费用口径标（互斥）：市外=伙食100/交通0；驻地=伙食40/交通0；默认市内 60/0（同 worklog 原标记） */
-    (seg.key === 'destinations' && it.out_of_city === 1 ? '<span class="dpill dpill-out">市外</span>' : '') +
-    (seg.key === 'destinations' && it.stationed === 1 ? '<span class="dpill dpill-sta">驻地</span>' : '') +
-    /* 人员来源标：user_id 非空=账号同步（绿），空=手动添加（灰） */
-    (seg.key === 'members'
-      ? '<span class="dpill ' + (it.user_id ? 'dpill-sync">账号同步' : 'dpill-hand">手动添加') + '</span>'
-      : '') +
-    (off ? '<span class="doff-tip">已停用</span>' : '') +
-    '<span class="dops">' +
-      /* 成员排序（仅人员段）：点亮按钮顺序 */
-      (seg.key === 'members' && idx > 0 ? '<button class="linkbtn" data-dact="up">上移</button>' : '') +
-      (seg.key === 'members' && idx < total - 1 ? '<button class="linkbtn" data-dact="down">下移</button>' : '') +
-      '<button class="linkbtn" data-dact="edit">改名</button>' +
-      '<button class="linkbtn" data-dact="toggle">' + (off ? '启用' : '停用') + '</button>' +
-      '<button class="linkbtn dgr" data-dact="del">删除</button>' +
-    '</span>' +
-  '</div>';
-}
-function renderDict() {
-  var seg = dictSeg(state.tab);
-  if (!seg) return;
-  var list = state.lists[seg.key] || [];
-  $('#dictBody').innerHTML = '<div class="card dsec">' +
-    '<div class="dsec-h"><b>' + seg.label + '</b><span class="cnt">' +
-      (seg.err ? '加载失败' : list.length + ' 条') + '</span></div>' +
-    (seg.err
-      ? '<div class="dempty">' + esc(seg.err) + '</div>'
-      : (list.length
-        ? list.map(function (it, idx) { return dictRowHtml(seg, it, idx, list.length); }).join('')
-        : '<div class="dempty">暂无数据，可在下方添加</div>')) +
-    '<div class="dadd" data-seg="' + seg.key + '">' +
-      '<input class="dadd-in" placeholder="' + seg.ph + '" maxlength="64" autocomplete="off">' +
-      '<button class="btn btn-sm btn-accent" data-dadd="' + seg.key + '">添加</button>' +
-    '</div>' +
-  '</div>';
-}
-
-/* 顶部输入即添加（回车 / 点按钮提交，sort 服务端自动追加） */
-async function dictAdd(segKey, btn) {
-  var seg = dictSeg(segKey);
-  var wrap = $('#dictBody .dadd[data-seg="' + segKey + '"]');
-  var input = wrap ? $('.dadd-in', wrap) : null;
-  var name = input ? input.value.trim() : '';
-  if (!name) { Shade.toast('请' + seg.ph, 'info'); return; }
-  if (btn) btn.disabled = true;
-  try {
-    await Shade.api(td('/api/v1/teamdata/' + segKey), { method: 'POST', body: teamBody({ name: name }) });
-    Shade.toast('已添加', 'success');
-    await loadSeg(seg);
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-    if (btn) btn.disabled = false;
-  }
-}
-
-/* 改名（弹小层，回车 / 保存提交；名称与标记均不变直接关闭）。
-   目的地段另有市外 / 驻地互斥勾选（费用口径标：市外=伙食100/交通0，驻地=伙食40/交通0，默认市内 60/0） */
-function dictRename(seg, item) {
-  var isDest = seg.key === 'destinations';
-  var html = Shade.mHead('编辑' + seg.label)
-    + '<input class="f-sel" id="drInput" maxlength="64" autocomplete="off">'
-    + (isDest
-      ? '<label class="f-lab">费用口径标记（互斥，默认市内）</label>'
-        + '<label class="dck"><input type="checkbox" id="drOutCity">市外（伙食 100 / 交通 0）</label>'
-        + '<label class="dck"><input type="checkbox" id="drStationed">驻地（伙食 40 / 交通 0）</label>'
-      : '')
-    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = Shade.modal(html, { width: 420 });
-  var input = $('#drInput', inst.box);
-  input.value = item.name;
-  var oocEl = isDest ? $('#drOutCity', inst.box) : null;
-  var staEl = isDest ? $('#drStationed', inst.box) : null;
-  if (isDest) {
-    oocEl.checked = item.out_of_city === 1;
-    staEl.checked = item.stationed === 1;
-    /* 互斥：勾一个即清另一个（后端同口径兜底：同置 1 拒绝、标一个自动清另一个） */
-    oocEl.addEventListener('change', function () { if (oocEl.checked) staEl.checked = false; });
-    staEl.addEventListener('change', function () { if (staEl.checked) oocEl.checked = false; });
-  }
-  input.focus();
-  input.select();
-  var saving = false;
-  async function submit() {
-    var name = input.value.trim();
-    if (!name) { Shade.toast('名称不能为空', 'info'); return; }
-    var ooc = oocEl && oocEl.checked ? 1 : 0;
-    var sta = staEl && staEl.checked ? 1 : 0;
-    if (name === item.name && ooc === (item.out_of_city || 0) && sta === (item.stationed || 0)) { inst.close(); return; }
-    if (saving) return;
-    saving = true;
-    try {
-      var body = { name: name };
-      if (isDest) { body.out_of_city = ooc; body.stationed = sta; } // 双字段恒带：取消勾选也要落库
-      await Shade.api(td('/api/v1/teamdata/' + seg.key + '/' + item.id), { method: 'PUT', body: teamBody(body) });
-      inst.close();
-      Shade.toast('已保存', 'success');
-      await loadSeg(seg);
-    } catch (e) {
-      saving = false;
-      if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-    }
-  }
-  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
-  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
-  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-}
-
-/* 停启用切换（停用行灰显 + 「已停用」标记） */
-async function dictToggle(seg, item) {
-  try {
-    await Shade.api(td('/api/v1/teamdata/' + seg.key + '/' + item.id), {
-      method: 'PUT',
-      body: teamBody({ status: item.status === 1 ? 0 : 1 })
-    });
-    Shade.toast(item.status === 1 ? '已停用' : '已启用', 'success');
-    await loadSeg(seg);
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-}
-
-/* 删除（二次确认；被引用时后端拒绝则 toast 后端文案） */
-async function dictDelete(seg, item) {
-  var yes = await Shade.confirm({
-    title: '删除' + seg.label,
-    content: '删除后不可恢复，确定删除「' + item.name + '」吗？',
-    confirmText: '删除',
-    danger: true
-  });
-  if (!yes) return;
-  try {
-    await Shade.api(td('/api/v1/teamdata/' + seg.key + '/' + item.id), { method: 'DELETE' });
-    Shade.toast('已删除', 'success');
-    await loadSeg(seg);
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-}
-
-/* 人员排序：上移 / 下移（仅人员段有此按钮；契约字段 direction:'up'|'down'） */
-async function dictMove(item, dir) {
-  try {
-    await Shade.api(td('/api/v1/teamdata/members/' + item.id + '/move'), {
-      method: 'PUT',
-      body: teamBody({ direction: dir })
-    });
-    await loadSeg(dictSeg('members'));
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-}
-
-/* ================= 杆塔信息段（原「运维线路信息」改名；线路表格 + 杆塔坐标模板下载 / Excel 导入，
-   坐标供出工日志加水印照片、商旅打卡带入定位使用） ================= */
-async function loadLines() {
-  var body = $('#linesBody');
-  body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
-  try {
-    var r = await Shade.api(td('/api/v1/teamdata/lines'));
-    /* 契约 data 即数组；防御兼容 {list} 信封 */
-    state.lines = Array.isArray(r.data) ? r.data : ((r.data && r.data.list) || []);
-    state.linesErr = '';
-  } catch (e) {
-    if (gateOnForbidden(e)) return;
-    state.lines = [];
-    state.linesErr = e.message || '加载失败';
-  }
-  renderLines();
-}
-function renderLines() {
-  var rows = '';
-  if (state.linesErr) {
-    rows = '<div class="lt-empty">' + esc(state.linesErr) + '　<a class="linkbtn" data-lact="reload">重试</a></div>';
-  } else if (!state.lines.length) {
-    rows = '<div class="lt-empty">暂无杆塔坐标数据，可下载模板填写后导入</div>';
-  } else {
-    rows = '<table class="lt"><thead><tr>'
-      + '<th class="lc-v">电压等级</th><th>线路名称</th><th class="lc-c">杆塔数</th>'
-      + '</tr></thead><tbody>'
-      + state.lines.map(function (l) {
-        return '<tr><td class="lc-v">' + esc(Shade.fmtKv(l.voltage_level)) + '</td>'
-          + '<td>' + esc(l.line_name || '—') + '</td>'
-          + '<td class="lc-c lc-n">' + (l.tower_count == null ? 0 : l.tower_count) + '</td></tr>';
-      }).join('')
-      + '</tbody></table>';
-  }
-  $('#linesBody').innerHTML = '<div class="card dsec">'
-    + '<div class="lt-bar">'
-    + '<span class="lt-note">杆塔坐标供出工日志加水印照片、商旅打卡带入定位使用</span>'
-    + '<span class="lt-btns">'
-    + '<button class="btn btn-sm" data-lact="tpl">' + Shade.icon('download', 14) + '下载模板</button>'
-    + '<button class="btn btn-sm btn-accent" data-lact="imp">' + Shade.icon('upload', 14) + '导入 Excel</button>'
-    + '</span></div>'
-    + '<div class="lt-wrap">' + rows + '</div>'
-    + '</div>';
-}
-
-/* 杆塔 / 运维线路 模板下载与 Excel 导入共用参数（两段仅路径、文件名、确认文案与完成后刷新不同） */
-var EXCEL_SEGS = {
-  towers: {
-    tplPath: '/api/v1/teamdata/towers/template',
-    impPath: '/api/v1/teamdata/towers/import',
-    tplName: '杆塔坐标导入模板.xlsx',
-    confirmTitle: '导入杆塔坐标',
-    confirmContent: '导入将全量替换本班组杆塔坐标数据，确定继续吗？',
-    reload: loadLines
-  },
-  oplines: {
-    tplPath: '/api/v1/teamdata/oplines/template',
-    impPath: '/api/v1/teamdata/oplines/import',
-    tplName: '运维线路导入模板.xlsx',
-    confirmTitle: '导入运维线路',
-    confirmContent: '导入将全量替换本班组运维线路，确定继续吗？',
-    reload: loadOplines
-  }
-};
-
-/* 模板下载（两段共用）：xlsx 二进制，apiRaw + saveBlob 落地（口径同出工日志杆塔模板） */
-async function downloadExcelTpl(btn, seg) {
-  var cfg = EXCEL_SEGS[seg];
-  btn.disabled = true;
-  try {
-    var res = await Shade.apiRaw(td(cfg.tplPath));
-    if (!res.ok) {
-      var ej = null;
-      try { ej = await res.json(); } catch (e) { }
-      var err = new Error((ej && ej.message) || ('模板下载失败（' + res.status + '）'));
-      err.code = ej && ej.code;
-      throw err;
-    }
-    await Shade.saveBlob(res, cfg.tplName);
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-  btn.disabled = false;
-}
-
-/* Excel 导入（两段共用）：先确认「全量替换」→ FormData（file + team_id）POST → toast 后端 message → 刷新本段 */
-async function importExcel(f, seg) {
-  var cfg = EXCEL_SEGS[seg];
-  var yes = await Shade.confirm({
-    title: cfg.confirmTitle,
-    content: cfg.confirmContent,
-    confirmText: '导入'
-  });
-  if (!yes) return;
-  var fd = new FormData();
-  fd.append('file', f, f.name);
-  if (state.teamId) fd.append('team_id', String(state.teamId));
-  var wait = Shade.modal('<div class="loading"><span class="spin"></span>正在导入…</div>', { width: 280 });
-  try {
-    var res = await Shade.apiRaw(td(cfg.impPath), { method: 'POST', body: fd });
-    var j = null;
-    try { j = await res.json(); } catch (e) { }
-    if (!res.ok || !j || j.code !== 0) {
-      var err = new Error((j && j.message) || ('导入失败（' + res.status + '）'));
-      err.code = j && j.code;
-      throw err;
-    }
-    wait.close();
-    var skipped = j.data && j.data.skipped;
-    Shade.toast((j.message || '导入完成') + (skipped ? '（跳过 ' + skipped + ' 行）' : ''), 'success');
-    await cfg.reload();
-  } catch (e) {
-    wait.close();
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-}
-
-/* 导入文件选择（两段共用，前端先校验扩展名与大小）：选完即清空以便重复选择同名文件 */
-function bindExcelInput(inputId, seg) {
-  $(inputId).addEventListener('change', function () {
-    var f = this.files && this.files[0];
-    this.value = '';
-    if (!f) return;
-    if (!/\.xlsx$/i.test(f.name)) { Shade.toast('仅支持 .xlsx 文件，请使用模板填写', 'info'); return; }
-    if (f.size > 10 * 1024 * 1024) { Shade.toast('文件大小应在 10MB 以内', 'info'); return; }
-    importExcel(f, seg);
-  });
-}
-
-/* ================= 运维线路段（/oplines 线路字典：顶部双输入即添加；行内 编辑 / 删除 / 上移 / 下移；
-   模板下载 + Excel 导入全量替换；供树障隐患记录分组使用） ================= */
-async function loadOplines() {
-  var body = $('#oplBody');
-  body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
-  try {
-    var r = await Shade.api(td('/api/v1/teamdata/oplines'));
-    state.oplines = (r.data && r.data.list) || [];
-    state.oplinesErr = '';
-  } catch (e) {
-    if (gateOnForbidden(e)) return;
-    state.oplines = [];
-    state.oplinesErr = e.message || '加载失败';
-  }
-  renderOplines();
-}
-
-/* 行渲染：电压等级（幂等显示 Shade.fmtKv）+ 线路名称 + 操作（上移/下移·编辑·删除） */
-function oplRowHtml(it, idx, total) {
-  return '<div class="drow" data-oid="' + it.id + '" data-voltage="' + esc(it.voltage_level || '') +
-    '" data-name="' + esc(it.line_name || '') + '">' +
-    '<span class="olv">' + esc(Shade.fmtKv(it.voltage_level)) + '</span>' +
-    '<span class="dn">' + esc(it.line_name || '—') + '</span>' +
-    '<span class="dops">' +
-      (idx > 0 ? '<button class="linkbtn" data-oact="up">上移</button>' : '') +
-      (idx < total - 1 ? '<button class="linkbtn" data-oact="down">下移</button>' : '') +
-      '<button class="linkbtn" data-oact="edit">编辑</button>' +
-      '<button class="linkbtn dgr" data-oact="del">删除</button>' +
-    '</span>' +
-  '</div>';
-}
-function renderOplines() {
-  var list = state.oplines || [];
-  $('#oplBody').innerHTML = '<div class="card dsec">'
-    + '<div class="dsec-h"><b>运维线路</b><span class="cnt">' +
-      (state.oplinesErr ? '加载失败' : list.length + ' 条') + '</span>'
-    + '<span class="lt-btns">'
-    + '<button class="btn btn-sm" data-oact="tpl">' + Shade.icon('download', 14) + '下载模板</button>'
-    + '<button class="btn btn-sm btn-accent" data-oact="imp">' + Shade.icon('upload', 14) + '导入 Excel</button>'
-    + '</span></div>'
-    /* 顶部双输入即添加（回车 / 点按钮提交，sort 服务端自动追加） */
-    + '<div class="dadd" id="oplAdd">'
-    + '<input class="dadd-in ol-v" id="oplVolt" placeholder="电压等级（如 110）" maxlength="32" autocomplete="off">'
-    + '<input class="dadd-in" id="oplName" placeholder="输入新线路名称" maxlength="64" autocomplete="off">'
-    + '<button class="btn btn-sm btn-accent" data-oadd>添加</button>'
-    + '</div>'
-    + (state.oplinesErr
-      ? '<div class="dempty">' + esc(state.oplinesErr) + '　<a class="linkbtn" data-oact="reload">重试</a></div>'
-      : (list.length
-        ? list.map(function (it, idx) { return oplRowHtml(it, idx, list.length); }).join('')
-        : '<div class="dempty">暂无运维线路，可在上方添加</div>'))
-    + '<div class="ol-foot">供树障隐患记录分组使用</div>'
-    + '</div>';
-}
-
-/* 添加（电压等级 + 线路名称双输入；电压等级原样入库，显示侧 Shade.fmtKv 幂等拼 kV） */
-async function oplAdd(btn) {
-  var voltEl = $('#oplVolt'), nameEl = $('#oplName');
-  var volt = voltEl ? voltEl.value.trim() : '';
-  var name = nameEl ? nameEl.value.trim() : '';
-  if (!volt) { Shade.toast('请输入电压等级', 'info'); return; }
-  if (!name) { Shade.toast('请输入线路名称', 'info'); return; }
-  if (btn) btn.disabled = true;
-  try {
-    await Shade.api(td('/api/v1/teamdata/oplines'), { method: 'POST', body: teamBody({ voltage_level: volt, line_name: name }) });
-    Shade.toast('已添加', 'success');
-    await loadOplines();
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-    if (btn) btn.disabled = false;
-  }
-}
-
-/* 编辑弹层（电压等级 + 线路名称；均不变直接关闭） */
-function oplEdit(item) {
-  var html = Shade.mHead('编辑运维线路')
-    + '<label class="f-lab">电压等级</label>'
-    + '<input class="f-sel" id="oplEditVolt" maxlength="32" autocomplete="off" placeholder="如 110">'
-    + '<label class="f-lab">线路名称</label>'
-    + '<input class="f-sel" id="oplEditName" maxlength="64" autocomplete="off">'
-    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = Shade.modal(html, { width: 420 });
-  var voltEl = $('#oplEditVolt', inst.box);
-  var nameEl = $('#oplEditName', inst.box);
-  voltEl.value = item.voltage_level || '';
-  nameEl.value = item.line_name || '';
-  nameEl.focus();
-  nameEl.select();
-  var saving = false;
-  async function submit() {
-    var volt = voltEl.value.trim();
-    var name = nameEl.value.trim();
-    if (!volt) { Shade.toast('电压等级不能为空', 'info'); return; }
-    if (!name) { Shade.toast('线路名称不能为空', 'info'); return; }
-    if (volt === (item.voltage_level || '') && name === (item.line_name || '')) { inst.close(); return; }
-    if (saving) return;
-    saving = true;
-    try {
-      await Shade.api(td('/api/v1/teamdata/oplines/' + item.id), { method: 'PUT', body: teamBody({ voltage_level: volt, line_name: name }) });
-      inst.close();
-      Shade.toast('已保存', 'success');
-      await loadOplines();
-    } catch (e) {
-      saving = false;
-      if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-    }
-  }
-  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
-  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
-  nameEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-}
-
-/* 删除（二次确认；被引用时后端拒绝则 toast 后端文案） */
-async function oplDelete(item) {
-  var yes = await Shade.confirm({
-    title: '删除运维线路',
-    content: '删除后不可恢复，确定删除「' + Shade.fmtKv(item.voltage_level) + ' ' + (item.line_name || '') + '」吗？',
-    confirmText: '删除',
-    danger: true
-  });
-  if (!yes) return;
-  try {
-    await Shade.api(td('/api/v1/teamdata/oplines/' + item.id), { method: 'DELETE' });
-    Shade.toast('已删除', 'success');
-    await loadOplines();
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-}
-
-/* 排序：上移 / 下移（契约字段 direction:'up'|'down'，同人员段口径） */
-async function oplMove(item, dir) {
-  try {
-    await Shade.api(td('/api/v1/teamdata/oplines/' + item.id + '/move'), {
-      method: 'PUT',
-      body: teamBody({ direction: dir })
-    });
-    await loadOplines();
-  } catch (e) {
-    if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-  }
-}
-
-/* ================= 商旅设备段（worklog 原「数据管理 → 商旅绑定设备」区迁移；/api/v1/sgcc 恒挂载：
-   加载失败区内容错展示；管理员可改设备型号 / 系统版本、代成员绑定商旅账号） ================= */
-/* 拉取绑定列表（不写 DOM；进段整载与操作后静默重拉共用） */
-async function fetchSgccAccounts() {
-  try {
-    var r = await Shade.api(td('/api/v1/sgcc/accounts'));
-    state.sgcc = { list: (r.data && r.data.list) || [], err: '' };
-  } catch (e) {
-    if (gateOnForbidden(e)) return;
-    state.sgcc = { list: [], err: e.message || '加载失败' };
-  }
-}
-/* 代绑定成员数据源 = 人员字典（与本页人员段同源缓存；拉取失败不缓存，下次进段重试） */
-async function ensureMembers() {
-  if (Array.isArray(state.lists.members)) return;
-  try {
-    var r = await Shade.api(td('/api/v1/teamdata/members'));
-    state.lists.members = (r.data && r.data.list) || [];
-  } catch (e) {
-    if (gateOnForbidden(e)) return;
-  }
-}
-/* 进段整载（带 loading）：拉绑定列表 + 确保成员字典已拉（代绑定下拉数据源） */
-async function loadSgcc() {
-  $('#sgccBody').innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
-  await fetchSgccAccounts();
-  await ensureMembers();
-  renderSgcc();
-}
-
-/* 绑定设备行：成员名 + 登录态标 + 手机号 · 设备型号 / 系统版本 +「改设备」 */
-function sgccRowHtml(it) {
-  return '<div class="drow" data-sgcc-id="' + it.id + '">' +
-    '<span class="dn">' + esc(it.memberName || '（未关联成员）') + '</span>' +
-    '<span class="dpill ' + (it.tokenStatus === 1 ? 'dpill-sync">登录有效' : 'dpill-hand">登录过期') + '</span>' +
-    '<span class="dspec">' + esc(it.mobile) + ' · ' + esc(it.deviceType || '—') +
-      (it.systemVersion ? ' / ' + esc(it.systemVersion) : '') + '</span>' +
-    '<span class="dops"><button class="linkbtn" data-sgcc-act="device">改设备</button></span>' +
-  '</div>';
-}
-
-/* 代绑定成员自绘下拉实例（renderSgcc 每次重建 #sgccBody 前需 destroy 旧实例，防 .dd-pop 孤儿残留 body） */
-var sgBindDd = null;
-/* 商旅设备区渲染（整区恒渲染；区底部代绑定行：管理员可代成员绑定商旅账号（成员过期又联系不上时兜底），
-   成员本人仍可在小程序「我的 → 绑定商旅」自助绑定/接管） */
-function renderSgcc() {
-  var sg = state.sgcc;
-  var sgMembers = (state.lists.members || []).filter(function (x) { return x.status === 1; });
-  $('#sgccBody').innerHTML = '<div class="card dsec">' +
-    '<div class="dsec-h"><b>商旅绑定设备</b><span class="cnt">' +
-      (sg.err ? '加载失败' : (sg.list ? sg.list.length + ' 条' : '加载中…')) + '</span></div>' +
-    (sg.err
-      ? '<div class="dempty">' + esc(sg.err) + '</div>'
-      : (!sg.list
-        ? '<div class="dempty">加载中…</div>'
-        : (sg.list.length
-          ? sg.list.map(sgccRowHtml).join('')
-          : '<div class="dempty">本班组暂无绑定成员（成员可在小程序「我的 → 绑定商旅」绑定）</div>'))) +
-    '<div style="display:flex;gap:10px;align-items:center;padding:12px 16px;border-top:1px solid var(--hair)">' +
-      '<select class="f-sel" id="sgBindMember" style="flex:1">' +
-        '<option value="">选择成员…</option>' +
-        sgMembers.map(function (x) { return '<option value="' + x.id + '">' + esc(x.name) + '</option>'; }).join('') +
-      '</select>' +
-      '<button class="btn btn-sm btn-accent" data-sgcc-act="bind">代绑定</button>' +
-    '</div>' +
-  '</div>';
-  // 代绑定成员下拉换自绘下拉（原 select 隐藏保留为数据源；重渲染后需重建，旧实例先 destroy 防弹层孤儿残留 body）
-  if (sgBindDd) { sgBindDd.destroy(); sgBindDd = null; }
-  if ($('#sgBindMember')) {
-    sgBindDd = Shade.dropdown($('#sgBindMember'), { height: 36 });
-    sgBindDd.el.style.flex = '1';
-  }
-}
-
-/* 改设备弹层（设备型号 =「厂商 型号」格式；保存后静默重拉本区） */
-function sgccDeviceEdit(item) {
-  var html = Shade.mHead('改打卡设备 · ' + esc(item.memberName || item.mobile))
-    + '<label class="f-lab">设备型号（厂商 型号）</label>'
-    + '<input class="f-sel" id="sgDevType" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Xiaomi 2509FPN0BC">'
-    + '<label class="f-lab">系统版本</label>'
-    + '<input class="f-sel" id="sgDevSys" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Android 16">'
-    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-    + '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
-  var inst = Shade.modal(html, { width: 420 });
-  var typeEl = $('#sgDevType', inst.box);
-  var sysEl = $('#sgDevSys', inst.box);
-  typeEl.value = item.deviceType || '';
-  sysEl.value = item.systemVersion || '';
-  typeEl.focus();
-  var saving = false;
-  async function submit() {
-    var deviceType = typeEl.value.trim();
-    if (!deviceType) { Shade.toast('设备型号不能为空', 'info'); return; }
-    if (saving) return;
-    saving = true;
-    try {
-      await Shade.api(td('/api/v1/sgcc/accounts/' + item.id + '/device'), {
-        method: 'PUT',
-        body: { deviceType: deviceType, systemVersion: sysEl.value.trim() }
-      });
-      inst.close();
-      Shade.toast('已保存', 'success');
-      await fetchSgccAccounts();
-      renderSgcc();
-    } catch (e) {
-      saving = false;
-      if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
-    }
-  }
-  $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
-  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
-  sysEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-}
-
-/* 代绑定弹层（管理员代成员绑定商旅账号：短信/密码双方式，均为图形码优先、失败降级滑块双通道；
-   滑块以内嵌 iframe 打开 /sgcc-captcha.html，window message（type: sgcc-captcha）回传 captchaToken+constId） */
-function sgccBindFor(member) {
-  var mode = 'sms'; // sms=短信登录 / pwd=密码登录
-  var captchaToken = '', constId = '', imgUrl = '', left = 0, timer = null, sending = false;
-
-  var html = Shade.mHead('代绑定商旅账号 · ' + esc(member.name))
-    + '<div style="display:flex;gap:8px;margin-bottom:4px">'
-    +   '<button class="btn btn-sm btn-accent" id="sgbTabSms" style="flex:1">短信登录</button>'
-    +   '<button class="btn btn-sm" id="sgbTabPwd" style="flex:1">密码登录</button>'
-    + '</div>'
-    + '<label class="f-lab">商旅注册手机号</label>'
-    + '<input class="f-sel" id="sgbMobile" style="height:40px" maxlength="11" inputmode="numeric" autocomplete="off" placeholder="成员商旅账号手机号">'
-    + '<div id="sgbImgBox" style="display:none">'
-    +   '<label class="f-lab">图形验证码（点图片刷新）</label>'
-    +   '<div style="display:flex;gap:8px;align-items:center">'
-    +     '<input class="f-sel" id="sgbImgCode" style="height:40px;flex:1" maxlength="6" autocomplete="off" placeholder="图形验证码">'
-    +     '<img id="sgbImg" style="height:40px;border-radius: 8px;cursor:pointer" alt="图形验证码">'
-    +   '</div>'
-    +   '<div style="text-align:right;margin-top:6px"><a href="javascript:;" id="sgbUseSlider" style="font-size:12px;color:var(--orange)">图形码不可用？改用滑块验证</a></div>'
-    + '</div>'
-    + '<div id="sgbCapHint" style="display:none;margin-top:6px">'
-    +   '<div style="display:flex;align-items:center;gap:10px">'
-    +     '<span style="font-size:12px;color:var(--sub)">图形验证码暂不可用</span>'
-    +     '<button class="btn btn-sm" id="sgbShowSlider">使用滑块验证</button>'
-    +   '</div>'
-    + '</div>'
-    + '<div id="sgbSms">'
-    +   '<label class="f-lab">短信验证码</label>'
-    +   '<div style="display:flex;gap:8px;align-items:center">'
-    +     '<input class="f-sel" id="sgbSmsCode" style="height:40px;flex:1" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="短信验证码">'
-    +     '<button class="btn btn-sm" id="sgbSend">获取验证码</button>'
-    +   '</div>'
-    + '</div>'
-    + '<div id="sgbPwd" style="display:none">'
-    +   '<label class="f-lab">商旅登录密码</label>'
-    +   '<input class="f-sel" type="password" id="sgbPwdIn" style="height:40px" autocomplete="off" placeholder="成员商旅账号密码">'
-    + '</div>'
-    + '<div id="sgbCapBox" style="display:none;margin-top:6px">'
-    +   '<label class="f-lab">安全验证（拖动滑块）</label>'
-    +   '<iframe id="sgbCapFrame" style="width:100%;height:430px;border:0;border-radius: 8px;background:var(--paper)"></iframe>'
-    + '</div>'
-    + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-    + '<button class="btn btn-sm btn-accent" data-a="yes">绑 定</button></div>';
-  var inst = Shade.modal(html, { width: 460, onClose: cleanup });
-  var $id = function (s) { return $(s, inst.box); };
-  var mobileEl = $id('#sgbMobile'), sendBtn = $id('#sgbSend');
-
-  function cleanup() { if (timer) { clearInterval(timer); timer = null; } window.removeEventListener('message', onMsg); }
-  window.addEventListener('message', onMsg);
-
-  function mobile() {
-    var v = mobileEl.value.trim();
-    if (!/^1\d{10}$/.test(v)) { Shade.toast('手机号格式不正确', 'info'); return ''; }
-    return v;
-  }
-  function setTab(m) {
-    mode = m;
-    $id('#sgbTabSms').className = 'btn btn-sm' + (m === 'sms' ? ' btn-accent' : '');
-    $id('#sgbTabPwd').className = 'btn btn-sm' + (m === 'pwd' ? ' btn-accent' : '');
-    $id('#sgbSms').style.display = m === 'sms' ? '' : 'none';
-    $id('#sgbPwd').style.display = m === 'pwd' ? '' : 'none';
-    // 换方式清空滑块凭据并收起滑块与提示（顶象 token 与操作绑定，重拖）
-    captchaToken = ''; constId = '';
-    $id('#sgbCapBox').style.display = 'none';
-    $id('#sgbCapHint').style.display = 'none';
-    // 密码方式不自动取图：点「绑定」时才取（见 submit）
-  }
-  // 展示滑块 iframe（每次展示重载页面，保证拿到新一局；仅用户点「使用滑块验证」或短信通道自动降级时触发）
-  function showSlider() {
-    captchaToken = ''; constId = '';
-    $id('#sgbCapHint').style.display = 'none';
-    $id('#sgbCapBox').style.display = '';
-    $id('#sgbCapFrame').src = '/sgcc-captcha.html?from=web&t=' + Date.now();
-  }
-  // 滑块回传：短信模式自动续发短信，密码模式仅暂存（仅收同源 iframe 消息）
-  function onMsg(e) {
-    if (e.origin !== location.origin) return;
-    var d = e && e.data;
-    if (!d || d.type !== 'sgcc-captcha' || !d.captchaToken) return;
-    captchaToken = d.captchaToken; constId = d.constId || '';
-    $id('#sgbCapBox').style.display = 'none';
-    if (mode === 'sms') doSendSms();
-    else Shade.toast('安全验证已通过', 'success');
-  }
-  function startCountdown() {
-    left = 60;
-    sendBtn.textContent = left + 's 后重发';
-    sendBtn.disabled = true;
-    timer = setInterval(function () {
-      left -= 1;
-      if (left <= 0) {
-        clearInterval(timer); timer = null;
-        sendBtn.textContent = '获取验证码';
-        sendBtn.disabled = false;
-        return;
-      }
-      sendBtn.textContent = left + 's 后重发';
-    }, 1000);
-  }
-  // 取图形码：成功贴图并隐藏「不可用」提示；40035（风控窗口）→ 调用方决定提示或降级
-  async function fetchImg() {
-    var m = mobile(); if (!m) return false;
-    try {
-      var r = await Shade.api(td('/api/v1/sgcc/login/captcha'), { method: 'POST', body: { mobile: m } });
-      imgUrl = (r.data && r.data.image) || '';
-      $id('#sgbImg').src = imgUrl;
-      $id('#sgbImgCode').value = '';
-      $id('#sgbImgBox').style.display = '';
-      $id('#sgbCapHint').style.display = 'none';
-      return true;
-    } catch (err) {
-      imgUrl = '';
-      $id('#sgbImgBox').style.display = 'none';
-      return false;
-    }
-  }
-  // 发短信：滑块凭据 → v3；有图形码 → v2；都没有 → 先取图形码，取不到降级滑块
-  async function onSend() {
-    if (left > 0 || sending) return;
-    var m = mobile(); if (!m) return;
-    if (captchaToken) { doSendSms(); return; }
-    if (imgUrl) {
-      var code = $id('#sgbImgCode').value.trim();
-      if (!code) { Shade.toast('请填写图形验证码', 'info'); return; }
-      doSendSmsV2(code);
-      return;
-    }
-    if (!(await fetchImg())) {
-      Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
-      showSlider();
-    }
-  }
-  async function doSendSms() {
-    var m = mobile(); if (!m) return;
-    sending = true;
-    try {
-      await Shade.api(td('/api/v1/sgcc/login/sms'), { method: 'POST', body: { mobile: m, captchaToken: captchaToken, constId: constId } });
-      Shade.toast('验证码已发送', 'success');
-      startCountdown();
-    } catch (err) {
-      Shade.toast(err.message, 'error');
-      captchaToken = ''; constId = ''; // 滑块凭据失效，重发前重拖
-    } finally { sending = false; }
-  }
-  async function doSendSmsV2(checkImgCode) {
-    var m = mobile(); if (!m) return;
-    sending = true;
-    try {
-      await Shade.api(td('/api/v1/sgcc/login/sms'), { method: 'POST', body: { mobile: m, checkImgCode: checkImgCode } });
-      Shade.toast('验证码已发送', 'success');
-      imgUrl = ''; $id('#sgbImgBox').style.display = 'none'; // 图形码一次性，发送成功即作废
-      startCountdown();
-    } catch (err) {
-      Shade.toast(err.message, 'error');
-      if (!(await fetchImg())) { // 图形码错误自动刷新；刷新失败降级滑块
-        Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
-        showSlider();
-      }
-    } finally { sending = false; }
-  }
-  async function submit() {
-    var m = mobile(); if (!m) return;
-    var body = { memberId: member.id, mobile: m, captchaToken: captchaToken, constId: constId };
-    if (mode === 'pwd') {
-      var pwd = $id('#sgbPwdIn').value.trim();
-      if (!pwd) { Shade.toast('请填写登录密码', 'info'); return; }
-      body.password = pwd;
-      if (!captchaToken) {
-        // 密码双通道：无滑块凭据走图形码（token/v3）；无图形码先取图，取不到仅提示（不自动弹滑块）
-        var ic = $id('#sgbImgCode').value.trim();
-        if (imgUrl && !ic) { Shade.toast('请填写图形验证码', 'info'); return; }
-        if (imgUrl && ic) body.checkImgCode = ic;
-        if (!imgUrl) {
-          if (!(await fetchImg())) $id('#sgbCapHint').style.display = '';
-          return;
+        /* 分段配置：接口路径段 / 名称 / 添加占位（与小程序 manage 页 SEGMENTS 同构） */
+        var SEGMENTS = [
+          { key: 'vehicles', label: '车牌号', ph: '输入新车牌号', icon: 'view-module' },
+          { key: 'destinations', label: '目的地', ph: '输入新目的地名称', icon: 'location' },
+          { key: 'members', label: '人员', ph: '输入新成员姓名', icon: 'user' },
+        ];
+        function dictSeg(key) {
+          var hit = null;
+          SEGMENTS.forEach(function (s) {
+            if (s.key === key) hit = s;
+          });
+          return hit;
         }
-      }
-    } else {
-      var sc = $id('#sgbSmsCode').value.trim();
-      if (!sc) { Shade.toast('请填写短信验证码', 'info'); return; }
-      body.checkCode = sc;
-    }
-    try {
-      await Shade.api(td('/api/v1/sgcc/accounts/bind'), { method: 'POST', body: body });
-      cleanup();
-      inst.close();
-      Shade.toast('绑定成功', 'success');
-      await fetchSgccAccounts();
-      renderSgcc();
-    } catch (err) {
-      if (!gateOnForbidden(err)) Shade.toast(err.message, 'error');
-      captchaToken = ''; constId = ''; // 失败清空凭据，重试前重拖
-      // 密码图形码通道失败：自动刷新图形码（刷新失败仅提示，不自动弹滑块）
-      if (mode === 'pwd' && imgUrl && !(await fetchImg())) $id('#sgbCapHint').style.display = '';
-    }
-  }
-  $id('#sgbTabSms').addEventListener('click', function () { setTab('sms'); });
-  $id('#sgbTabPwd').addEventListener('click', function () { setTab('pwd'); });
-  $id('#sgbUseSlider').addEventListener('click', function () {
-    imgUrl = ''; $id('#sgbImgBox').style.display = 'none';
-    showSlider();
-  });
-  $id('#sgbShowSlider').addEventListener('click', showSlider);
-  $id('#sgbImg').addEventListener('click', async function () {
-    if (!(await fetchImg())) {
-      // 短信通道自动降级滑块；密码通道仅提示，由用户手动点「使用滑块验证」
-      if (mode === 'pwd') $id('#sgbCapHint').style.display = '';
-      else { Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info'); showSlider(); }
-    }
-  });
-  sendBtn.addEventListener('click', onSend);
-  $('[data-a="no"]', inst.box).addEventListener('click', function () { cleanup(); inst.close(); });
-  $('[data-a="yes"]', inst.box).addEventListener('click', submit);
-}
 
-/* ================= 页签切换（前三段共用字典板块，lines / oplines / sgcc 各自独立板块） ================= */
-function switchTab(p) {
-  if (state.tab === p) return;
-  state.tab = p;
-  $$('#tdTabs button[data-p]').forEach(function (b) { b.classList.toggle('on', b.dataset.p === p); });
-  Shade.moveTabInd($('#tdTabs button.on'), $('#tdTabInd'));
-  $('#paneDict').classList.toggle('on', !!dictSeg(p));
-  $('#paneLines').classList.toggle('on', p === 'lines');
-  $('#paneOpl').classList.toggle('on', p === 'oplines');
-  $('#paneSgcc').classList.toggle('on', p === 'sgcc');
-  if (p === 'lines') { loadLines(); return; }
-  if (p === 'oplines') { loadOplines(); return; }
-  if (p === 'sgcc') { loadSgcc(); return; }
-  var seg = dictSeg(p);
-  if (seg) loadSeg(seg); // 每次切回都重拉（可能被其他管理员改动）
-}
+        /* ================= 全局状态 ================= */
+        var state = {
+          teamId: 0, // 超管当前切换的班组 id（0=未指定，由后端落默认班组；班管恒 0 固定本班）
+          tab: 'vehicles', // 当前页签：vehicles | destinations | members | lines | oplines | sgcc
+          lists: {}, // 字典列表缓存（键 seg.key；members 兼作商旅设备段代绑定成员下拉数据源）
+          lines: null, // 杆塔信息 [{voltage_level, line_name, tower_count}]
+          linesErr: '', // 杆塔信息加载失败文案
+          oplines: null, // 运维线路 [{id, voltage_level, line_name, sort, status?}]
+          oplinesErr: '', // 运维线路加载失败文案
+          sgcc: { list: null, err: '' }, // 商旅设备绑定列表（list null=未拉取）
+        };
 
-/* ================= 事件绑定 ================= */
-function initEvents() {
-  /* 页签点击 */
-  $('#tdTabs').addEventListener('click', function (e) {
-    var b = e.target.closest('button[data-p]');
-    if (!b) return;
-    switchTab(b.dataset.p);
-  });
-  /* 字典板块委派：行内操作 / 虚线行添加（按钮） */
-  $('#dictBody').addEventListener('click', function (e) {
-    var addBtn = e.target.closest('[data-dadd]');
-    if (addBtn) { dictAdd(addBtn.dataset.dadd, addBtn); return; }
-    var actBtn = e.target.closest('[data-dact]');
-    if (!actBtn) return;
-    var row = actBtn.closest('.drow');
-    if (!row) return;
-    var seg = dictSeg(row.dataset.seg);
-    var item = { id: Number(row.dataset.id), name: row.dataset.name, status: Number(row.dataset.status), out_of_city: Number(row.dataset.outcity || 0), stationed: Number(row.dataset.stationed || 0) };
-    if (!seg) return;
-    if (actBtn.dataset.dact === 'edit') dictRename(seg, item);
-    else if (actBtn.dataset.dact === 'toggle') dictToggle(seg, item);
-    else if (actBtn.dataset.dact === 'up') dictMove(item, 'up');
-    else if (actBtn.dataset.dact === 'down') dictMove(item, 'down');
-    else if (actBtn.dataset.dact === 'del') dictDelete(seg, item);
-  });
-  /* 虚线行添加（输入框回车） */
-  $('#dictBody').addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter') return;
-    var input = e.target.closest ? e.target.closest('.dadd-in') : null;
-    if (!input) return;
-    var wrap = input.closest('.dadd');
-    if (wrap) dictAdd(wrap.dataset.seg, $('button[data-dadd]', wrap));
-  });
-  /* 杆塔信息委派：下载模板 / 导入 Excel / 重试 */
-  $('#linesBody').addEventListener('click', function (e) {
-    var btn = e.target.closest('[data-lact]');
-    if (!btn) return;
-    if (btn.dataset.lact === 'tpl') downloadExcelTpl(btn, 'towers');
-    else if (btn.dataset.lact === 'imp') $('#impFileInput').click();
-    else if (btn.dataset.lact === 'reload') loadLines();
-  });
-  /* 商旅设备委派：改设备（按 data-sgcc-id 取行数据）/ 代绑定（区底部按钮，读成员下拉） */
-  $('#sgccBody').addEventListener('click', function (e) {
-    var sgBtn = e.target.closest('[data-sgcc-act]');
-    if (!sgBtn) return;
-    var sgRow = sgBtn.closest('[data-sgcc-id]');
-    var sgItem = null;
-    (state.sgcc.list || []).forEach(function (x) { if (sgRow && x.id === Number(sgRow.dataset.sgccId)) sgItem = x; });
-    if (sgItem && sgBtn.dataset.sgccAct === 'device') sgccDeviceEdit(sgItem);
-    if (sgBtn.dataset.sgccAct === 'bind') {
-      var mSel = $('#sgBindMember');
-      var mId = mSel ? Number(mSel.value) : 0;
-      var mItem = null;
-      (state.lists.members || []).forEach(function (x) { if (x.id === mId) mItem = x; });
-      if (!mItem) { Shade.toast('请先选择要绑定的成员', 'info'); return; }
-      sgccBindFor(mItem);
-    }
-  });
-  /* 运维线路委派：下载模板 / 导入 Excel / 重试 / 行内 编辑·删除·上移·下移 / 添加按钮 */
-  $('#oplBody').addEventListener('click', function (e) {
-    var addBtn = e.target.closest('[data-oadd]');
-    if (addBtn) { oplAdd(addBtn); return; }
-    var btn = e.target.closest('[data-oact]');
-    if (!btn) return;
-    var act = btn.dataset.oact;
-    if (act === 'tpl') { downloadExcelTpl(btn, 'oplines'); return; }
-    if (act === 'imp') { $('#impOplFileInput').click(); return; }
-    if (act === 'reload') { loadOplines(); return; }
-    var row = btn.closest('[data-oid]');
-    if (!row) return;
-    var item = { id: Number(row.dataset.oid), voltage_level: row.dataset.voltage, line_name: row.dataset.name };
-    if (act === 'edit') oplEdit(item);
-    else if (act === 'del') oplDelete(item);
-    else if (act === 'up') oplMove(item, 'up');
-    else if (act === 'down') oplMove(item, 'down');
-  });
-  /* 运维线路添加行（输入框回车） */
-  $('#oplBody').addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter') return;
-    var input = e.target.closest ? e.target.closest('#oplAdd .dadd-in') : null;
-    if (input) oplAdd($('[data-oadd]', $('#oplAdd')));
-  });
-  /* 杆塔 / 运维线路导入文件选择（校验共用 bindExcelInput） */
-  bindExcelInput('#impFileInput', 'towers');
-  bindExcelInput('#impOplFileInput', 'oplines');
-}
+        /* 班组隔离：GET / DELETE 走 query 带 team_id（后端 resolveReqTeam 同口径） */
+        function td(path) {
+          return Shade.withTeam(path, state.teamId);
+        }
+        /* POST / PUT 的 body 注入 team_id（manage.js teamBody 口径） */
+        function teamBody(o) {
+          return state.teamId ? Object.assign({ team_id: state.teamId }, o) : o;
+        }
 
-/* ================= 班组切换后整页重载 ================= */
-function reloadTeamData() {
-  state.lists = {};
-  state.lines = null;
-  state.linesErr = '';
-  state.oplines = null;
-  state.oplinesErr = '';
-  state.sgcc = { list: null, err: '' }; // 商旅设备区随班组重拉
-  if (state.tab === 'lines') loadLines();
-  else if (state.tab === 'oplines') loadOplines();
-  else if (state.tab === 'sgcc') loadSgcc();
-  else loadSeg(dictSeg(state.tab));
-}
+        /* 接口 40304（仅管理员可执行）→ 整页门控提示兜底 */
+        function gateOnForbidden(e) {
+          if (!e || e.code !== 40304) return false;
+          renderGate();
+          return true;
+        }
 
-/* ================= 启动 ================= */
-async function init() {
-  /* 页签静态图标注入 + 指示条首帧落位 */
-  $$('#tdTabs button[data-p]').forEach(function (b) {
-    b.insertAdjacentHTML('afterbegin', Shade.icon({ vehicles: 'view-module', destinations: 'location', members: 'user', lines: 'compass', oplines: 'view-list', sgcc: 'money' }[b.dataset.p], 14));
-  });
-  Shade.moveTabInd($('#tdTabs button.on'), $('#tdTabInd'), true);
+        /* ================= 角色门控 ================= */
+        function renderGate() {
+          $('#tdWrap').hidden = true;
+          var gate = $('#gate');
+          gate.hidden = false;
+          gate.innerHTML =
+            '<div class="card">' +
+            Shade.icon('lock-on', 44) +
+            '<b>仅班管/超管可访问</b>' +
+            '<p>班组数据仅面向班组管理员与超级管理员开放，请联系管理员调整角色后再试。</p></div>';
+        }
 
-  /* 顶栏用户：接口失败回退本地缓存 */
-  Shade.refreshUser();
+        /* ================= 字典段（车牌号 / 目的地 / 人员） ================= */
+        async function loadSeg(seg) {
+          var body = $('#dictBody');
+          body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+          try {
+            var r = await Shade.api(td('/api/v1/teamdata/' + seg.key));
+            state.lists[seg.key] = (r.data && r.data.list) || [];
+            seg.err = '';
+          } catch (e) {
+            if (gateOnForbidden(e)) return;
+            state.lists[seg.key] = [];
+            seg.err = e.message || '加载失败';
+          }
+          renderDict();
+        }
+        /* 行渲染：名称 + 费用口径标（目的地）+ 来源标（人员）+ 停用态 + 操作（上移/下移·改名·停启用·删除） */
+        function dictRowHtml(seg, it, idx, total) {
+          var off = it.status !== 1;
+          return (
+            '<div class="drow' +
+            (off ? ' off' : '') +
+            '" data-seg="' +
+            seg.key +
+            '" data-id="' +
+            it.id +
+            '" data-name="' +
+            esc(it.name) +
+            '" data-status="' +
+            it.status +
+            '"' +
+            (seg.key === 'destinations'
+              ? ' data-outcity="' +
+                (it.out_of_city === 1 ? 1 : 0) +
+                '" data-stationed="' +
+                (it.stationed === 1 ? 1 : 0) +
+                '"'
+              : '') +
+            '>' +
+            '<span class="dn">' +
+            esc(it.name) +
+            '</span>' +
+            /* 目的地费用口径标（互斥）：市外=伙食100/交通0；驻地=伙食40/交通0；默认市内 60/0（同 worklog 原标记） */
+            (seg.key === 'destinations' && it.out_of_city === 1
+              ? '<span class="dpill dpill-out">市外</span>'
+              : '') +
+            (seg.key === 'destinations' && it.stationed === 1
+              ? '<span class="dpill dpill-sta">驻地</span>'
+              : '') +
+            /* 人员来源标：user_id 非空=账号同步（绿），空=手动添加（灰） */
+            (seg.key === 'members'
+              ? '<span class="dpill ' +
+                (it.user_id ? 'dpill-sync">账号同步' : 'dpill-hand">手动添加') +
+                '</span>'
+              : '') +
+            (off ? '<span class="doff-tip">已停用</span>' : '') +
+            '<span class="dops">' +
+            /* 成员排序（仅人员段）：点亮按钮顺序 */
+            (seg.key === 'members' && idx > 0
+              ? '<button class="linkbtn" data-dact="up">上移</button>'
+              : '') +
+            (seg.key === 'members' && idx < total - 1
+              ? '<button class="linkbtn" data-dact="down">下移</button>'
+              : '') +
+            '<button class="linkbtn" data-dact="edit">改名</button>' +
+            '<button class="linkbtn" data-dact="toggle">' +
+            (off ? '启用' : '停用') +
+            '</button>' +
+            '<button class="linkbtn dgr" data-dact="del">删除</button>' +
+            '</span>' +
+            '</div>'
+          );
+        }
+        function renderDict() {
+          var seg = dictSeg(state.tab);
+          if (!seg) return;
+          var list = state.lists[seg.key] || [];
+          $('#dictBody').innerHTML =
+            '<div class="card dsec">' +
+            '<div class="dsec-h"><b>' +
+            seg.label +
+            '</b><span class="cnt">' +
+            (seg.err ? '加载失败' : list.length + ' 条') +
+            '</span></div>' +
+            (seg.err
+              ? '<div class="dempty">' + esc(seg.err) + '</div>'
+              : list.length
+                ? list
+                    .map(function (it, idx) {
+                      return dictRowHtml(seg, it, idx, list.length);
+                    })
+                    .join('')
+                : '<div class="dempty">暂无数据，可在下方添加</div>') +
+            '<div class="dadd" data-seg="' +
+            seg.key +
+            '">' +
+            '<input class="dadd-in" placeholder="' +
+            seg.ph +
+            '" maxlength="64" autocomplete="off">' +
+            '<button class="btn btn-sm btn-accent" data-dadd="' +
+            seg.key +
+            '">添加</button>' +
+            '</div>' +
+            '</div>';
+        }
 
-  /* 角色门控：非班管/超管整页提示（渲染前判断，不发业务请求） */
-  var me = Shade.user() || {};
-  if (me.role !== 'admin' && me.role !== 'team_admin') {
-    renderGate();
-    return;
-  }
+        /* 顶部输入即添加（回车 / 点按钮提交，sort 服务端自动追加） */
+        async function dictAdd(segKey, btn) {
+          var seg = dictSeg(segKey);
+          var wrap = $('#dictBody .dadd[data-seg="' + segKey + '"]');
+          var input = wrap ? $('.dadd-in', wrap) : null;
+          var name = input ? input.value.trim() : '';
+          if (!name) {
+            Shade.toast('请' + seg.ph, 'info');
+            return;
+          }
+          if (btn) btn.disabled = true;
+          try {
+            await Shade.api(td('/api/v1/teamdata/' + segKey), {
+              method: 'POST',
+              body: teamBody({ name: name }),
+            });
+            Shade.toast('已添加', 'success');
+            await loadSeg(seg);
+          } catch (e) {
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+            if (btn) btn.disabled = false;
+          }
+        }
 
-  /* 班组切换下拉：全员先换自绘下拉并隐藏（原生 select 保留为数据源），超管由 setupTeamSel 显示 */
-  var teamDd = Shade.dropdown($('#teamSel'), { width: 'auto', minWidth: '132px', height: 36 });
-  teamDd.el.style.display = 'none';
-  if (me.role === 'admin') {
-    /* 超管班组切换器：数据源 GET /admin/teams（仅启用班组），localStorage.teamdata_team_id 持久化，切换后整页数据重载 */
-    var teamSel = await Shade.setupTeamSel({
-      select: $('#teamSel'), dropdown: teamDd, storageKey: 'teamdata_team_id',
-      showEl: teamDd.el,
-      onChange: function (v) { state.teamId = v; reloadTeamData(); }
-    });
-    if (teamSel) state.teamId = teamSel.getTeamId();
-  }
+        /* 改名（弹小层，回车 / 保存提交；名称与标记均不变直接关闭）。
+   目的地段另有市外 / 驻地互斥勾选（费用口径标：市外=伙食100/交通0，驻地=伙食40/交通0，默认市内 60/0） */
+        function dictRename(seg, item) {
+          var isDest = seg.key === 'destinations';
+          var html =
+            Shade.mHead('编辑' + seg.label) +
+            '<input class="f-sel" id="drInput" maxlength="64" autocomplete="off">' +
+            (isDest
+              ? '<label class="f-lab">费用口径标记（互斥，默认市内）</label>' +
+                '<label class="dck"><input type="checkbox" id="drOutCity">市外（伙食 100 / 交通 0）</label>' +
+                '<label class="dck"><input type="checkbox" id="drStationed">驻地（伙食 40 / 交通 0）</label>'
+              : '') +
+            '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>' +
+            '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+          var inst = Shade.modal(html, { width: 420 });
+          var input = $('#drInput', inst.box);
+          input.value = item.name;
+          var oocEl = isDest ? $('#drOutCity', inst.box) : null;
+          var staEl = isDest ? $('#drStationed', inst.box) : null;
+          if (isDest) {
+            oocEl.checked = item.out_of_city === 1;
+            staEl.checked = item.stationed === 1;
+            /* 互斥：勾一个即清另一个（后端同口径兜底：同置 1 拒绝、标一个自动清另一个） */
+            oocEl.addEventListener('change', function () {
+              if (oocEl.checked) staEl.checked = false;
+            });
+            staEl.addEventListener('change', function () {
+              if (staEl.checked) oocEl.checked = false;
+            });
+          }
+          input.focus();
+          input.select();
+          var saving = false;
+          async function submit() {
+            var name = input.value.trim();
+            if (!name) {
+              Shade.toast('名称不能为空', 'info');
+              return;
+            }
+            var ooc = oocEl && oocEl.checked ? 1 : 0;
+            var sta = staEl && staEl.checked ? 1 : 0;
+            if (
+              name === item.name &&
+              ooc === (item.out_of_city || 0) &&
+              sta === (item.stationed || 0)
+            ) {
+              inst.close();
+              return;
+            }
+            if (saving) return;
+            saving = true;
+            try {
+              var body = { name: name };
+              if (isDest) {
+                body.out_of_city = ooc;
+                body.stationed = sta;
+              } // 双字段恒带：取消勾选也要落库
+              await Shade.api(td('/api/v1/teamdata/' + seg.key + '/' + item.id), {
+                method: 'PUT',
+                body: teamBody(body),
+              });
+              inst.close();
+              Shade.toast('已保存', 'success');
+              await loadSeg(seg);
+            } catch (e) {
+              saving = false;
+              if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+            }
+          }
+          $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+          $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+          input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') submit();
+          });
+        }
 
-  initEvents();
-  loadSeg(dictSeg(state.tab));
-}
-init();
+        /* 停启用切换（停用行灰显 + 「已停用」标记） */
+        async function dictToggle(seg, item) {
+          try {
+            await Shade.api(td('/api/v1/teamdata/' + seg.key + '/' + item.id), {
+              method: 'PUT',
+              body: teamBody({ status: item.status === 1 ? 0 : 1 }),
+            });
+            Shade.toast(item.status === 1 ? '已停用' : '已启用', 'success');
+            await loadSeg(seg);
+          } catch (e) {
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+          }
+        }
 
-})();
-</script>
-</body>
+        /* 删除（二次确认；被引用时后端拒绝则 toast 后端文案） */
+        async function dictDelete(seg, item) {
+          var yes = await Shade.confirm({
+            title: '删除' + seg.label,
+            content: '删除后不可恢复，确定删除「' + item.name + '」吗？',
+            confirmText: '删除',
+            danger: true,
+          });
+          if (!yes) return;
+          try {
+            await Shade.api(td('/api/v1/teamdata/' + seg.key + '/' + item.id), {
+              method: 'DELETE',
+            });
+            Shade.toast('已删除', 'success');
+            await loadSeg(seg);
+          } catch (e) {
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+          }
+        }
+
+        /* 人员排序：上移 / 下移（仅人员段有此按钮；契约字段 direction:'up'|'down'） */
+        async function dictMove(item, dir) {
+          try {
+            await Shade.api(td('/api/v1/teamdata/members/' + item.id + '/move'), {
+              method: 'PUT',
+              body: teamBody({ direction: dir }),
+            });
+            await loadSeg(dictSeg('members'));
+          } catch (e) {
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+          }
+        }
+
+        /* ================= 杆塔信息段（原「运维线路信息」改名；线路表格 + 杆塔坐标模板下载 / Excel 导入，
+   坐标供出工日志加水印照片、商旅打卡带入定位使用） ================= */
+        async function loadLines() {
+          var body = $('#linesBody');
+          body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+          try {
+            var r = await Shade.api(td('/api/v1/teamdata/lines'));
+            /* 契约 data 即数组；防御兼容 {list} 信封 */
+            state.lines = Array.isArray(r.data) ? r.data : (r.data && r.data.list) || [];
+            state.linesErr = '';
+          } catch (e) {
+            if (gateOnForbidden(e)) return;
+            state.lines = [];
+            state.linesErr = e.message || '加载失败';
+          }
+          renderLines();
+        }
+        function renderLines() {
+          var rows = '';
+          if (state.linesErr) {
+            rows =
+              '<div class="lt-empty">' +
+              esc(state.linesErr) +
+              '　<a class="linkbtn" data-lact="reload">重试</a></div>';
+          } else if (!state.lines.length) {
+            rows = '<div class="lt-empty">暂无杆塔坐标数据，可下载模板填写后导入</div>';
+          } else {
+            rows =
+              '<table class="lt"><thead><tr>' +
+              '<th class="lc-v">电压等级</th><th>线路名称</th><th class="lc-c">杆塔数</th>' +
+              '</tr></thead><tbody>' +
+              state.lines
+                .map(function (l) {
+                  return (
+                    '<tr><td class="lc-v">' +
+                    esc(Shade.fmtKv(l.voltage_level)) +
+                    '</td>' +
+                    '<td>' +
+                    esc(l.line_name || '—') +
+                    '</td>' +
+                    '<td class="lc-c lc-n">' +
+                    (l.tower_count == null ? 0 : l.tower_count) +
+                    '</td></tr>'
+                  );
+                })
+                .join('') +
+              '</tbody></table>';
+          }
+          $('#linesBody').innerHTML =
+            '<div class="card dsec">' +
+            '<div class="lt-bar">' +
+            '<span class="lt-note">杆塔坐标供出工日志加水印照片、商旅打卡带入定位使用</span>' +
+            '<span class="lt-btns">' +
+            '<button class="btn btn-sm" data-lact="tpl">' +
+            Shade.icon('download', 14) +
+            '下载模板</button>' +
+            '<button class="btn btn-sm btn-accent" data-lact="imp">' +
+            Shade.icon('upload', 14) +
+            '导入 Excel</button>' +
+            '</span></div>' +
+            '<div class="lt-wrap">' +
+            rows +
+            '</div>' +
+            '</div>';
+        }
+
+        /* 杆塔 / 运维线路 模板下载与 Excel 导入共用参数（两段仅路径、文件名、确认文案与完成后刷新不同） */
+        var EXCEL_SEGS = {
+          towers: {
+            tplPath: '/api/v1/teamdata/towers/template',
+            impPath: '/api/v1/teamdata/towers/import',
+            tplName: '杆塔坐标导入模板.xlsx',
+            confirmTitle: '导入杆塔坐标',
+            confirmContent: '导入将全量替换本班组杆塔坐标数据，确定继续吗？',
+            reload: loadLines,
+          },
+          oplines: {
+            tplPath: '/api/v1/teamdata/oplines/template',
+            impPath: '/api/v1/teamdata/oplines/import',
+            tplName: '运维线路导入模板.xlsx',
+            confirmTitle: '导入运维线路',
+            confirmContent: '导入将全量替换本班组运维线路，确定继续吗？',
+            reload: loadOplines,
+          },
+        };
+
+        /* 模板下载（两段共用）：xlsx 二进制，apiRaw + saveBlob 落地（口径同出工日志杆塔模板） */
+        async function downloadExcelTpl(btn, seg) {
+          var cfg = EXCEL_SEGS[seg];
+          btn.disabled = true;
+          try {
+            var res = await Shade.apiRaw(td(cfg.tplPath));
+            if (!res.ok) {
+              var ej = null;
+              try {
+                ej = await res.json();
+              } catch (e) {}
+              var err = new Error((ej && ej.message) || '模板下载失败（' + res.status + '）');
+              err.code = ej && ej.code;
+              throw err;
+            }
+            await Shade.saveBlob(res, cfg.tplName);
+          } catch (e) {
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+          }
+          btn.disabled = false;
+        }
+
+        /* Excel 导入（两段共用）：先确认「全量替换」→ FormData（file + team_id）POST → toast 后端 message → 刷新本段 */
+        async function importExcel(f, seg) {
+          var cfg = EXCEL_SEGS[seg];
+          var yes = await Shade.confirm({
+            title: cfg.confirmTitle,
+            content: cfg.confirmContent,
+            confirmText: '导入',
+          });
+          if (!yes) return;
+          var fd = new FormData();
+          fd.append('file', f, f.name);
+          if (state.teamId) fd.append('team_id', String(state.teamId));
+          var wait = Shade.modal('<div class="loading"><span class="spin"></span>正在导入…</div>', {
+            width: 280,
+          });
+          try {
+            var res = await Shade.apiRaw(td(cfg.impPath), { method: 'POST', body: fd });
+            var j = null;
+            try {
+              j = await res.json();
+            } catch (e) {}
+            if (!res.ok || !j || j.code !== 0) {
+              var err = new Error((j && j.message) || '导入失败（' + res.status + '）');
+              err.code = j && j.code;
+              throw err;
+            }
+            wait.close();
+            var skipped = j.data && j.data.skipped;
+            Shade.toast(
+              (j.message || '导入完成') + (skipped ? '（跳过 ' + skipped + ' 行）' : ''),
+              'success'
+            );
+            await cfg.reload();
+          } catch (e) {
+            wait.close();
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+          }
+        }
+
+        /* 导入文件选择（两段共用，前端先校验扩展名与大小）：选完即清空以便重复选择同名文件 */
+        function bindExcelInput(inputId, seg) {
+          $(inputId).addEventListener('change', function () {
+            var f = this.files && this.files[0];
+            this.value = '';
+            if (!f) return;
+            if (!/\.xlsx$/i.test(f.name)) {
+              Shade.toast('仅支持 .xlsx 文件，请使用模板填写', 'info');
+              return;
+            }
+            if (f.size > 10 * 1024 * 1024) {
+              Shade.toast('文件大小应在 10MB 以内', 'info');
+              return;
+            }
+            importExcel(f, seg);
+          });
+        }
+
+        /* ================= 运维线路段（/oplines 线路字典：顶部双输入即添加；行内 编辑 / 删除 / 上移 / 下移；
+   模板下载 + Excel 导入全量替换；供树障隐患记录分组使用） ================= */
+        async function loadOplines() {
+          var body = $('#oplBody');
+          body.innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+          try {
+            var r = await Shade.api(td('/api/v1/teamdata/oplines'));
+            state.oplines = (r.data && r.data.list) || [];
+            state.oplinesErr = '';
+          } catch (e) {
+            if (gateOnForbidden(e)) return;
+            state.oplines = [];
+            state.oplinesErr = e.message || '加载失败';
+          }
+          renderOplines();
+        }
+
+        /* 行渲染：电压等级（幂等显示 Shade.fmtKv）+ 线路名称 + 操作（上移/下移·编辑·删除） */
+        function oplRowHtml(it, idx, total) {
+          return (
+            '<div class="drow" data-oid="' +
+            it.id +
+            '" data-voltage="' +
+            esc(it.voltage_level || '') +
+            '" data-name="' +
+            esc(it.line_name || '') +
+            '">' +
+            '<span class="olv">' +
+            esc(Shade.fmtKv(it.voltage_level)) +
+            '</span>' +
+            '<span class="dn">' +
+            esc(it.line_name || '—') +
+            '</span>' +
+            '<span class="dops">' +
+            (idx > 0 ? '<button class="linkbtn" data-oact="up">上移</button>' : '') +
+            (idx < total - 1 ? '<button class="linkbtn" data-oact="down">下移</button>' : '') +
+            '<button class="linkbtn" data-oact="edit">编辑</button>' +
+            '<button class="linkbtn dgr" data-oact="del">删除</button>' +
+            '</span>' +
+            '</div>'
+          );
+        }
+        function renderOplines() {
+          var list = state.oplines || [];
+          $('#oplBody').innerHTML =
+            '<div class="card dsec">' +
+            '<div class="dsec-h"><b>运维线路</b><span class="cnt">' +
+            (state.oplinesErr ? '加载失败' : list.length + ' 条') +
+            '</span>' +
+            '<span class="lt-btns">' +
+            '<button class="btn btn-sm" data-oact="tpl">' +
+            Shade.icon('download', 14) +
+            '下载模板</button>' +
+            '<button class="btn btn-sm btn-accent" data-oact="imp">' +
+            Shade.icon('upload', 14) +
+            '导入 Excel</button>' +
+            '</span></div>' +
+            /* 顶部双输入即添加（回车 / 点按钮提交，sort 服务端自动追加） */
+            '<div class="dadd" id="oplAdd">' +
+            '<input class="dadd-in ol-v" id="oplVolt" placeholder="电压等级（如 110）" maxlength="32" autocomplete="off">' +
+            '<input class="dadd-in" id="oplName" placeholder="输入新线路名称" maxlength="64" autocomplete="off">' +
+            '<button class="btn btn-sm btn-accent" data-oadd>添加</button>' +
+            '</div>' +
+            (state.oplinesErr
+              ? '<div class="dempty">' +
+                esc(state.oplinesErr) +
+                '　<a class="linkbtn" data-oact="reload">重试</a></div>'
+              : list.length
+                ? list
+                    .map(function (it, idx) {
+                      return oplRowHtml(it, idx, list.length);
+                    })
+                    .join('')
+                : '<div class="dempty">暂无运维线路，可在上方添加</div>') +
+            '<div class="ol-foot">供树障隐患记录分组使用</div>' +
+            '</div>';
+        }
+
+        /* 添加（电压等级 + 线路名称双输入；电压等级原样入库，显示侧 Shade.fmtKv 幂等拼 kV） */
+        async function oplAdd(btn) {
+          var voltEl = $('#oplVolt'),
+            nameEl = $('#oplName');
+          var volt = voltEl ? voltEl.value.trim() : '';
+          var name = nameEl ? nameEl.value.trim() : '';
+          if (!volt) {
+            Shade.toast('请输入电压等级', 'info');
+            return;
+          }
+          if (!name) {
+            Shade.toast('请输入线路名称', 'info');
+            return;
+          }
+          if (btn) btn.disabled = true;
+          try {
+            await Shade.api(td('/api/v1/teamdata/oplines'), {
+              method: 'POST',
+              body: teamBody({ voltage_level: volt, line_name: name }),
+            });
+            Shade.toast('已添加', 'success');
+            await loadOplines();
+          } catch (e) {
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+            if (btn) btn.disabled = false;
+          }
+        }
+
+        /* 编辑弹层（电压等级 + 线路名称；均不变直接关闭） */
+        function oplEdit(item) {
+          var html =
+            Shade.mHead('编辑运维线路') +
+            '<label class="f-lab">电压等级</label>' +
+            '<input class="f-sel" id="oplEditVolt" maxlength="32" autocomplete="off" placeholder="如 110">' +
+            '<label class="f-lab">线路名称</label>' +
+            '<input class="f-sel" id="oplEditName" maxlength="64" autocomplete="off">' +
+            '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>' +
+            '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+          var inst = Shade.modal(html, { width: 420 });
+          var voltEl = $('#oplEditVolt', inst.box);
+          var nameEl = $('#oplEditName', inst.box);
+          voltEl.value = item.voltage_level || '';
+          nameEl.value = item.line_name || '';
+          nameEl.focus();
+          nameEl.select();
+          var saving = false;
+          async function submit() {
+            var volt = voltEl.value.trim();
+            var name = nameEl.value.trim();
+            if (!volt) {
+              Shade.toast('电压等级不能为空', 'info');
+              return;
+            }
+            if (!name) {
+              Shade.toast('线路名称不能为空', 'info');
+              return;
+            }
+            if (volt === (item.voltage_level || '') && name === (item.line_name || '')) {
+              inst.close();
+              return;
+            }
+            if (saving) return;
+            saving = true;
+            try {
+              await Shade.api(td('/api/v1/teamdata/oplines/' + item.id), {
+                method: 'PUT',
+                body: teamBody({ voltage_level: volt, line_name: name }),
+              });
+              inst.close();
+              Shade.toast('已保存', 'success');
+              await loadOplines();
+            } catch (e) {
+              saving = false;
+              if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+            }
+          }
+          $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+          $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+          nameEl.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') submit();
+          });
+        }
+
+        /* 删除（二次确认；被引用时后端拒绝则 toast 后端文案） */
+        async function oplDelete(item) {
+          var yes = await Shade.confirm({
+            title: '删除运维线路',
+            content:
+              '删除后不可恢复，确定删除「' +
+              Shade.fmtKv(item.voltage_level) +
+              ' ' +
+              (item.line_name || '') +
+              '」吗？',
+            confirmText: '删除',
+            danger: true,
+          });
+          if (!yes) return;
+          try {
+            await Shade.api(td('/api/v1/teamdata/oplines/' + item.id), { method: 'DELETE' });
+            Shade.toast('已删除', 'success');
+            await loadOplines();
+          } catch (e) {
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+          }
+        }
+
+        /* 排序：上移 / 下移（契约字段 direction:'up'|'down'，同人员段口径） */
+        async function oplMove(item, dir) {
+          try {
+            await Shade.api(td('/api/v1/teamdata/oplines/' + item.id + '/move'), {
+              method: 'PUT',
+              body: teamBody({ direction: dir }),
+            });
+            await loadOplines();
+          } catch (e) {
+            if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+          }
+        }
+
+        /* ================= 商旅设备段（worklog 原「数据管理 → 商旅绑定设备」区迁移；/api/v1/sgcc 恒挂载：
+   加载失败区内容错展示；管理员可改设备型号 / 系统版本、代成员绑定商旅账号） ================= */
+        /* 拉取绑定列表（不写 DOM；进段整载与操作后静默重拉共用） */
+        async function fetchSgccAccounts() {
+          try {
+            var r = await Shade.api(td('/api/v1/sgcc/accounts'));
+            state.sgcc = { list: (r.data && r.data.list) || [], err: '' };
+          } catch (e) {
+            if (gateOnForbidden(e)) return;
+            state.sgcc = { list: [], err: e.message || '加载失败' };
+          }
+        }
+        /* 代绑定成员数据源 = 人员字典（与本页人员段同源缓存；拉取失败不缓存，下次进段重试） */
+        async function ensureMembers() {
+          if (Array.isArray(state.lists.members)) return;
+          try {
+            var r = await Shade.api(td('/api/v1/teamdata/members'));
+            state.lists.members = (r.data && r.data.list) || [];
+          } catch (e) {
+            if (gateOnForbidden(e)) return;
+          }
+        }
+        /* 进段整载（带 loading）：拉绑定列表 + 确保成员字典已拉（代绑定下拉数据源） */
+        async function loadSgcc() {
+          $('#sgccBody').innerHTML = '<div class="loading"><span class="spin"></span>加载中…</div>';
+          await fetchSgccAccounts();
+          await ensureMembers();
+          renderSgcc();
+        }
+
+        /* 绑定设备行：成员名 + 登录态标 + 手机号 · 设备型号 / 系统版本 +「改设备」 */
+        function sgccRowHtml(it) {
+          return (
+            '<div class="drow" data-sgcc-id="' +
+            it.id +
+            '">' +
+            '<span class="dn">' +
+            esc(it.memberName || '（未关联成员）') +
+            '</span>' +
+            '<span class="dpill ' +
+            (it.tokenStatus === 1 ? 'dpill-sync">登录有效' : 'dpill-hand">登录过期') +
+            '</span>' +
+            '<span class="dspec">' +
+            esc(it.mobile) +
+            ' · ' +
+            esc(it.deviceType || '—') +
+            (it.systemVersion ? ' / ' + esc(it.systemVersion) : '') +
+            '</span>' +
+            '<span class="dops"><button class="linkbtn" data-sgcc-act="device">改设备</button></span>' +
+            '</div>'
+          );
+        }
+
+        /* 代绑定成员自绘下拉实例（renderSgcc 每次重建 #sgccBody 前需 destroy 旧实例，防 .dd-pop 孤儿残留 body） */
+        var sgBindDd = null;
+        /* 商旅设备区渲染（整区恒渲染；区底部代绑定行：管理员可代成员绑定商旅账号（成员过期又联系不上时兜底），
+   成员本人仍可在小程序「我的 → 绑定商旅」自助绑定/接管） */
+        function renderSgcc() {
+          var sg = state.sgcc;
+          var sgMembers = (state.lists.members || []).filter(function (x) {
+            return x.status === 1;
+          });
+          $('#sgccBody').innerHTML =
+            '<div class="card dsec">' +
+            '<div class="dsec-h"><b>商旅绑定设备</b><span class="cnt">' +
+            (sg.err ? '加载失败' : sg.list ? sg.list.length + ' 条' : '加载中…') +
+            '</span></div>' +
+            (sg.err
+              ? '<div class="dempty">' + esc(sg.err) + '</div>'
+              : !sg.list
+                ? '<div class="dempty">加载中…</div>'
+                : sg.list.length
+                  ? sg.list.map(sgccRowHtml).join('')
+                  : '<div class="dempty">本班组暂无绑定成员（成员可在小程序「我的 → 绑定商旅」绑定）</div>') +
+            '<div style="display:flex;gap:10px;align-items:center;padding:12px 16px;border-top:1px solid var(--hair)">' +
+            '<select class="f-sel" id="sgBindMember" style="flex:1">' +
+            '<option value="">选择成员…</option>' +
+            sgMembers
+              .map(function (x) {
+                return '<option value="' + x.id + '">' + esc(x.name) + '</option>';
+              })
+              .join('') +
+            '</select>' +
+            '<button class="btn btn-sm btn-accent" data-sgcc-act="bind">代绑定</button>' +
+            '</div>' +
+            '</div>';
+          // 代绑定成员下拉换自绘下拉（原 select 隐藏保留为数据源；重渲染后需重建，旧实例先 destroy 防弹层孤儿残留 body）
+          if (sgBindDd) {
+            sgBindDd.destroy();
+            sgBindDd = null;
+          }
+          if ($('#sgBindMember')) {
+            sgBindDd = Shade.dropdown($('#sgBindMember'), { height: 36 });
+            sgBindDd.el.style.flex = '1';
+          }
+        }
+
+        /* 改设备弹层（设备型号 =「厂商 型号」格式；保存后静默重拉本区） */
+        function sgccDeviceEdit(item) {
+          var html =
+            Shade.mHead('改打卡设备 · ' + esc(item.memberName || item.mobile)) +
+            '<label class="f-lab">设备型号（厂商 型号）</label>' +
+            '<input class="f-sel" id="sgDevType" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Xiaomi 2509FPN0BC">' +
+            '<label class="f-lab">系统版本</label>' +
+            '<input class="f-sel" id="sgDevSys" style="height:40px" maxlength="64" autocomplete="off" placeholder="如 Android 16">' +
+            '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>' +
+            '<button class="btn btn-sm btn-accent" data-a="yes">保 存</button></div>';
+          var inst = Shade.modal(html, { width: 420 });
+          var typeEl = $('#sgDevType', inst.box);
+          var sysEl = $('#sgDevSys', inst.box);
+          typeEl.value = item.deviceType || '';
+          sysEl.value = item.systemVersion || '';
+          typeEl.focus();
+          var saving = false;
+          async function submit() {
+            var deviceType = typeEl.value.trim();
+            if (!deviceType) {
+              Shade.toast('设备型号不能为空', 'info');
+              return;
+            }
+            if (saving) return;
+            saving = true;
+            try {
+              await Shade.api(td('/api/v1/sgcc/accounts/' + item.id + '/device'), {
+                method: 'PUT',
+                body: { deviceType: deviceType, systemVersion: sysEl.value.trim() },
+              });
+              inst.close();
+              Shade.toast('已保存', 'success');
+              await fetchSgccAccounts();
+              renderSgcc();
+            } catch (e) {
+              saving = false;
+              if (!gateOnForbidden(e)) Shade.toast(e.message, 'error');
+            }
+          }
+          $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+          $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+          sysEl.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') submit();
+          });
+        }
+
+        /* 代绑定弹层（管理员代成员绑定商旅账号：短信/密码双方式，均为图形码优先、失败降级滑块双通道；
+   滑块以内嵌 iframe 打开 /sgcc-captcha.html，window message（type: sgcc-captcha）回传 captchaToken+constId） */
+        function sgccBindFor(member) {
+          var mode = 'sms'; // sms=短信登录 / pwd=密码登录
+          var captchaToken = '',
+            constId = '',
+            imgUrl = '',
+            left = 0,
+            timer = null,
+            sending = false;
+
+          var html =
+            Shade.mHead('代绑定商旅账号 · ' + esc(member.name)) +
+            '<div style="display:flex;gap:8px;margin-bottom:4px">' +
+            '<button class="btn btn-sm btn-accent" id="sgbTabSms" style="flex:1">短信登录</button>' +
+            '<button class="btn btn-sm" id="sgbTabPwd" style="flex:1">密码登录</button>' +
+            '</div>' +
+            '<label class="f-lab">商旅注册手机号</label>' +
+            '<input class="f-sel" id="sgbMobile" style="height:40px" maxlength="11" inputmode="numeric" autocomplete="off" placeholder="成员商旅账号手机号">' +
+            '<div id="sgbImgBox" style="display:none">' +
+            '<label class="f-lab">图形验证码（点图片刷新）</label>' +
+            '<div style="display:flex;gap:8px;align-items:center">' +
+            '<input class="f-sel" id="sgbImgCode" style="height:40px;flex:1" maxlength="6" autocomplete="off" placeholder="图形验证码">' +
+            '<img id="sgbImg" style="height:40px;border-radius: 8px;cursor:pointer" alt="图形验证码">' +
+            '</div>' +
+            '<div style="text-align:right;margin-top:6px"><a href="javascript:;" id="sgbUseSlider" style="font-size:12px;color:var(--orange)">图形码不可用？改用滑块验证</a></div>' +
+            '</div>' +
+            '<div id="sgbCapHint" style="display:none;margin-top:6px">' +
+            '<div style="display:flex;align-items:center;gap:10px">' +
+            '<span style="font-size:12px;color:var(--sub)">图形验证码暂不可用</span>' +
+            '<button class="btn btn-sm" id="sgbShowSlider">使用滑块验证</button>' +
+            '</div>' +
+            '</div>' +
+            '<div id="sgbSms">' +
+            '<label class="f-lab">短信验证码</label>' +
+            '<div style="display:flex;gap:8px;align-items:center">' +
+            '<input class="f-sel" id="sgbSmsCode" style="height:40px;flex:1" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="短信验证码">' +
+            '<button class="btn btn-sm" id="sgbSend">获取验证码</button>' +
+            '</div>' +
+            '</div>' +
+            '<div id="sgbPwd" style="display:none">' +
+            '<label class="f-lab">商旅登录密码</label>' +
+            '<input class="f-sel" type="password" id="sgbPwdIn" style="height:40px" autocomplete="off" placeholder="成员商旅账号密码">' +
+            '</div>' +
+            '<div id="sgbCapBox" style="display:none;margin-top:6px">' +
+            '<label class="f-lab">安全验证（拖动滑块）</label>' +
+            '<iframe id="sgbCapFrame" style="width:100%;height:430px;border:0;border-radius: 8px;background:var(--paper)"></iframe>' +
+            '</div>' +
+            '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>' +
+            '<button class="btn btn-sm btn-accent" data-a="yes">绑 定</button></div>';
+          var inst = Shade.modal(html, { width: 460, onClose: cleanup });
+          var $id = function (s) {
+            return $(s, inst.box);
+          };
+          var mobileEl = $id('#sgbMobile'),
+            sendBtn = $id('#sgbSend');
+
+          function cleanup() {
+            if (timer) {
+              clearInterval(timer);
+              timer = null;
+            }
+            window.removeEventListener('message', onMsg);
+          }
+          window.addEventListener('message', onMsg);
+
+          function mobile() {
+            var v = mobileEl.value.trim();
+            if (!/^1\d{10}$/.test(v)) {
+              Shade.toast('手机号格式不正确', 'info');
+              return '';
+            }
+            return v;
+          }
+          function setTab(m) {
+            mode = m;
+            $id('#sgbTabSms').className = 'btn btn-sm' + (m === 'sms' ? ' btn-accent' : '');
+            $id('#sgbTabPwd').className = 'btn btn-sm' + (m === 'pwd' ? ' btn-accent' : '');
+            $id('#sgbSms').style.display = m === 'sms' ? '' : 'none';
+            $id('#sgbPwd').style.display = m === 'pwd' ? '' : 'none';
+            // 换方式清空滑块凭据并收起滑块与提示（顶象 token 与操作绑定，重拖）
+            captchaToken = '';
+            constId = '';
+            $id('#sgbCapBox').style.display = 'none';
+            $id('#sgbCapHint').style.display = 'none';
+            // 密码方式不自动取图：点「绑定」时才取（见 submit）
+          }
+          // 展示滑块 iframe（每次展示重载页面，保证拿到新一局；仅用户点「使用滑块验证」或短信通道自动降级时触发）
+          function showSlider() {
+            captchaToken = '';
+            constId = '';
+            $id('#sgbCapHint').style.display = 'none';
+            $id('#sgbCapBox').style.display = '';
+            $id('#sgbCapFrame').src = '/sgcc-captcha.html?from=web&t=' + Date.now();
+          }
+          // 滑块回传：短信模式自动续发短信，密码模式仅暂存（仅收同源 iframe 消息）
+          function onMsg(e) {
+            if (e.origin !== location.origin) return;
+            var d = e && e.data;
+            if (!d || d.type !== 'sgcc-captcha' || !d.captchaToken) return;
+            captchaToken = d.captchaToken;
+            constId = d.constId || '';
+            $id('#sgbCapBox').style.display = 'none';
+            if (mode === 'sms') doSendSms();
+            else Shade.toast('安全验证已通过', 'success');
+          }
+          function startCountdown() {
+            left = 60;
+            sendBtn.textContent = left + 's 后重发';
+            sendBtn.disabled = true;
+            timer = setInterval(function () {
+              left -= 1;
+              if (left <= 0) {
+                clearInterval(timer);
+                timer = null;
+                sendBtn.textContent = '获取验证码';
+                sendBtn.disabled = false;
+                return;
+              }
+              sendBtn.textContent = left + 's 后重发';
+            }, 1000);
+          }
+          // 取图形码：成功贴图并隐藏「不可用」提示；40035（风控窗口）→ 调用方决定提示或降级
+          async function fetchImg() {
+            var m = mobile();
+            if (!m) return false;
+            try {
+              var r = await Shade.api(td('/api/v1/sgcc/login/captcha'), {
+                method: 'POST',
+                body: { mobile: m },
+              });
+              imgUrl = (r.data && r.data.image) || '';
+              $id('#sgbImg').src = imgUrl;
+              $id('#sgbImgCode').value = '';
+              $id('#sgbImgBox').style.display = '';
+              $id('#sgbCapHint').style.display = 'none';
+              return true;
+            } catch (err) {
+              imgUrl = '';
+              $id('#sgbImgBox').style.display = 'none';
+              return false;
+            }
+          }
+          // 发短信：滑块凭据 → v3；有图形码 → v2；都没有 → 先取图形码，取不到降级滑块
+          async function onSend() {
+            if (left > 0 || sending) return;
+            var m = mobile();
+            if (!m) return;
+            if (captchaToken) {
+              doSendSms();
+              return;
+            }
+            if (imgUrl) {
+              var code = $id('#sgbImgCode').value.trim();
+              if (!code) {
+                Shade.toast('请填写图形验证码', 'info');
+                return;
+              }
+              doSendSmsV2(code);
+              return;
+            }
+            if (!(await fetchImg())) {
+              Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
+              showSlider();
+            }
+          }
+          async function doSendSms() {
+            var m = mobile();
+            if (!m) return;
+            sending = true;
+            try {
+              await Shade.api(td('/api/v1/sgcc/login/sms'), {
+                method: 'POST',
+                body: { mobile: m, captchaToken: captchaToken, constId: constId },
+              });
+              Shade.toast('验证码已发送', 'success');
+              startCountdown();
+            } catch (err) {
+              Shade.toast(err.message, 'error');
+              captchaToken = '';
+              constId = ''; // 滑块凭据失效，重发前重拖
+            } finally {
+              sending = false;
+            }
+          }
+          async function doSendSmsV2(checkImgCode) {
+            var m = mobile();
+            if (!m) return;
+            sending = true;
+            try {
+              await Shade.api(td('/api/v1/sgcc/login/sms'), {
+                method: 'POST',
+                body: { mobile: m, checkImgCode: checkImgCode },
+              });
+              Shade.toast('验证码已发送', 'success');
+              imgUrl = '';
+              $id('#sgbImgBox').style.display = 'none'; // 图形码一次性，发送成功即作废
+              startCountdown();
+            } catch (err) {
+              Shade.toast(err.message, 'error');
+              if (!(await fetchImg())) {
+                // 图形码错误自动刷新；刷新失败降级滑块
+                Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
+                showSlider();
+              }
+            } finally {
+              sending = false;
+            }
+          }
+          async function submit() {
+            var m = mobile();
+            if (!m) return;
+            var body = {
+              memberId: member.id,
+              mobile: m,
+              captchaToken: captchaToken,
+              constId: constId,
+            };
+            if (mode === 'pwd') {
+              var pwd = $id('#sgbPwdIn').value.trim();
+              if (!pwd) {
+                Shade.toast('请填写登录密码', 'info');
+                return;
+              }
+              body.password = pwd;
+              if (!captchaToken) {
+                // 密码双通道：无滑块凭据走图形码（token/v3）；无图形码先取图，取不到仅提示（不自动弹滑块）
+                var ic = $id('#sgbImgCode').value.trim();
+                if (imgUrl && !ic) {
+                  Shade.toast('请填写图形验证码', 'info');
+                  return;
+                }
+                if (imgUrl && ic) body.checkImgCode = ic;
+                if (!imgUrl) {
+                  if (!(await fetchImg())) $id('#sgbCapHint').style.display = '';
+                  return;
+                }
+              }
+            } else {
+              var sc = $id('#sgbSmsCode').value.trim();
+              if (!sc) {
+                Shade.toast('请填写短信验证码', 'info');
+                return;
+              }
+              body.checkCode = sc;
+            }
+            try {
+              await Shade.api(td('/api/v1/sgcc/accounts/bind'), { method: 'POST', body: body });
+              cleanup();
+              inst.close();
+              Shade.toast('绑定成功', 'success');
+              await fetchSgccAccounts();
+              renderSgcc();
+            } catch (err) {
+              if (!gateOnForbidden(err)) Shade.toast(err.message, 'error');
+              captchaToken = '';
+              constId = ''; // 失败清空凭据，重试前重拖
+              // 密码图形码通道失败：自动刷新图形码（刷新失败仅提示，不自动弹滑块）
+              if (mode === 'pwd' && imgUrl && !(await fetchImg()))
+                $id('#sgbCapHint').style.display = '';
+            }
+          }
+          $id('#sgbTabSms').addEventListener('click', function () {
+            setTab('sms');
+          });
+          $id('#sgbTabPwd').addEventListener('click', function () {
+            setTab('pwd');
+          });
+          $id('#sgbUseSlider').addEventListener('click', function () {
+            imgUrl = '';
+            $id('#sgbImgBox').style.display = 'none';
+            showSlider();
+          });
+          $id('#sgbShowSlider').addEventListener('click', showSlider);
+          $id('#sgbImg').addEventListener('click', async function () {
+            if (!(await fetchImg())) {
+              // 短信通道自动降级滑块；密码通道仅提示，由用户手动点「使用滑块验证」
+              if (mode === 'pwd') $id('#sgbCapHint').style.display = '';
+              else {
+                Shade.toast('图形验证码暂不可用，请完成滑块验证', 'info');
+                showSlider();
+              }
+            }
+          });
+          sendBtn.addEventListener('click', onSend);
+          $('[data-a="no"]', inst.box).addEventListener('click', function () {
+            cleanup();
+            inst.close();
+          });
+          $('[data-a="yes"]', inst.box).addEventListener('click', submit);
+        }
+
+        /* ================= 页签切换（前三段共用字典板块，lines / oplines / sgcc 各自独立板块） ================= */
+        function switchTab(p) {
+          if (state.tab === p) return;
+          state.tab = p;
+          $$('#tdTabs button[data-p]').forEach(function (b) {
+            b.classList.toggle('on', b.dataset.p === p);
+          });
+          Shade.moveTabInd($('#tdTabs button.on'), $('#tdTabInd'));
+          $('#paneDict').classList.toggle('on', !!dictSeg(p));
+          $('#paneLines').classList.toggle('on', p === 'lines');
+          $('#paneOpl').classList.toggle('on', p === 'oplines');
+          $('#paneSgcc').classList.toggle('on', p === 'sgcc');
+          if (p === 'lines') {
+            loadLines();
+            return;
+          }
+          if (p === 'oplines') {
+            loadOplines();
+            return;
+          }
+          if (p === 'sgcc') {
+            loadSgcc();
+            return;
+          }
+          var seg = dictSeg(p);
+          if (seg) loadSeg(seg); // 每次切回都重拉（可能被其他管理员改动）
+        }
+
+        /* ================= 事件绑定 ================= */
+        function initEvents() {
+          /* 页签点击 */
+          $('#tdTabs').addEventListener('click', function (e) {
+            var b = e.target.closest('button[data-p]');
+            if (!b) return;
+            switchTab(b.dataset.p);
+          });
+          /* 字典板块委派：行内操作 / 虚线行添加（按钮） */
+          $('#dictBody').addEventListener('click', function (e) {
+            var addBtn = e.target.closest('[data-dadd]');
+            if (addBtn) {
+              dictAdd(addBtn.dataset.dadd, addBtn);
+              return;
+            }
+            var actBtn = e.target.closest('[data-dact]');
+            if (!actBtn) return;
+            var row = actBtn.closest('.drow');
+            if (!row) return;
+            var seg = dictSeg(row.dataset.seg);
+            var item = {
+              id: Number(row.dataset.id),
+              name: row.dataset.name,
+              status: Number(row.dataset.status),
+              out_of_city: Number(row.dataset.outcity || 0),
+              stationed: Number(row.dataset.stationed || 0),
+            };
+            if (!seg) return;
+            if (actBtn.dataset.dact === 'edit') dictRename(seg, item);
+            else if (actBtn.dataset.dact === 'toggle') dictToggle(seg, item);
+            else if (actBtn.dataset.dact === 'up') dictMove(item, 'up');
+            else if (actBtn.dataset.dact === 'down') dictMove(item, 'down');
+            else if (actBtn.dataset.dact === 'del') dictDelete(seg, item);
+          });
+          /* 虚线行添加（输入框回车） */
+          $('#dictBody').addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter') return;
+            var input = e.target.closest ? e.target.closest('.dadd-in') : null;
+            if (!input) return;
+            var wrap = input.closest('.dadd');
+            if (wrap) dictAdd(wrap.dataset.seg, $('button[data-dadd]', wrap));
+          });
+          /* 杆塔信息委派：下载模板 / 导入 Excel / 重试 */
+          $('#linesBody').addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-lact]');
+            if (!btn) return;
+            if (btn.dataset.lact === 'tpl') downloadExcelTpl(btn, 'towers');
+            else if (btn.dataset.lact === 'imp') $('#impFileInput').click();
+            else if (btn.dataset.lact === 'reload') loadLines();
+          });
+          /* 商旅设备委派：改设备（按 data-sgcc-id 取行数据）/ 代绑定（区底部按钮，读成员下拉） */
+          $('#sgccBody').addEventListener('click', function (e) {
+            var sgBtn = e.target.closest('[data-sgcc-act]');
+            if (!sgBtn) return;
+            var sgRow = sgBtn.closest('[data-sgcc-id]');
+            var sgItem = null;
+            (state.sgcc.list || []).forEach(function (x) {
+              if (sgRow && x.id === Number(sgRow.dataset.sgccId)) sgItem = x;
+            });
+            if (sgItem && sgBtn.dataset.sgccAct === 'device') sgccDeviceEdit(sgItem);
+            if (sgBtn.dataset.sgccAct === 'bind') {
+              var mSel = $('#sgBindMember');
+              var mId = mSel ? Number(mSel.value) : 0;
+              var mItem = null;
+              (state.lists.members || []).forEach(function (x) {
+                if (x.id === mId) mItem = x;
+              });
+              if (!mItem) {
+                Shade.toast('请先选择要绑定的成员', 'info');
+                return;
+              }
+              sgccBindFor(mItem);
+            }
+          });
+          /* 运维线路委派：下载模板 / 导入 Excel / 重试 / 行内 编辑·删除·上移·下移 / 添加按钮 */
+          $('#oplBody').addEventListener('click', function (e) {
+            var addBtn = e.target.closest('[data-oadd]');
+            if (addBtn) {
+              oplAdd(addBtn);
+              return;
+            }
+            var btn = e.target.closest('[data-oact]');
+            if (!btn) return;
+            var act = btn.dataset.oact;
+            if (act === 'tpl') {
+              downloadExcelTpl(btn, 'oplines');
+              return;
+            }
+            if (act === 'imp') {
+              $('#impOplFileInput').click();
+              return;
+            }
+            if (act === 'reload') {
+              loadOplines();
+              return;
+            }
+            var row = btn.closest('[data-oid]');
+            if (!row) return;
+            var item = {
+              id: Number(row.dataset.oid),
+              voltage_level: row.dataset.voltage,
+              line_name: row.dataset.name,
+            };
+            if (act === 'edit') oplEdit(item);
+            else if (act === 'del') oplDelete(item);
+            else if (act === 'up') oplMove(item, 'up');
+            else if (act === 'down') oplMove(item, 'down');
+          });
+          /* 运维线路添加行（输入框回车） */
+          $('#oplBody').addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter') return;
+            var input = e.target.closest ? e.target.closest('#oplAdd .dadd-in') : null;
+            if (input) oplAdd($('[data-oadd]', $('#oplAdd')));
+          });
+          /* 杆塔 / 运维线路导入文件选择（校验共用 bindExcelInput） */
+          bindExcelInput('#impFileInput', 'towers');
+          bindExcelInput('#impOplFileInput', 'oplines');
+        }
+
+        /* ================= 班组切换后整页重载 ================= */
+        function reloadTeamData() {
+          state.lists = {};
+          state.lines = null;
+          state.linesErr = '';
+          state.oplines = null;
+          state.oplinesErr = '';
+          state.sgcc = { list: null, err: '' }; // 商旅设备区随班组重拉
+          if (state.tab === 'lines') loadLines();
+          else if (state.tab === 'oplines') loadOplines();
+          else if (state.tab === 'sgcc') loadSgcc();
+          else loadSeg(dictSeg(state.tab));
+        }
+
+        /* ================= 启动 ================= */
+        async function init() {
+          /* 页签静态图标注入 + 指示条首帧落位 */
+          $$('#tdTabs button[data-p]').forEach(function (b) {
+            b.insertAdjacentHTML(
+              'afterbegin',
+              Shade.icon(
+                {
+                  vehicles: 'view-module',
+                  destinations: 'location',
+                  members: 'user',
+                  lines: 'compass',
+                  oplines: 'view-list',
+                  sgcc: 'money',
+                }[b.dataset.p],
+                14
+              )
+            );
+          });
+          Shade.moveTabInd($('#tdTabs button.on'), $('#tdTabInd'), true);
+
+          /* 顶栏用户：接口失败回退本地缓存 */
+          Shade.refreshUser();
+
+          /* 角色门控：非班管/超管整页提示（渲染前判断，不发业务请求） */
+          var me = Shade.user() || {};
+          if (me.role !== 'admin' && me.role !== 'team_admin') {
+            renderGate();
+            return;
+          }
+
+          /* 班组切换下拉：全员先换自绘下拉并隐藏（原生 select 保留为数据源），超管由 setupTeamSel 显示 */
+          var teamDd = Shade.dropdown($('#teamSel'), {
+            width: 'auto',
+            minWidth: '132px',
+            height: 36,
+          });
+          teamDd.el.style.display = 'none';
+          if (me.role === 'admin') {
+            /* 超管班组切换器：数据源 GET /admin/teams（仅启用班组），localStorage.teamdata_team_id 持久化，切换后整页数据重载 */
+            var teamSel = await Shade.setupTeamSel({
+              select: $('#teamSel'),
+              dropdown: teamDd,
+              storageKey: 'teamdata_team_id',
+              showEl: teamDd.el,
+              onChange: function (v) {
+                state.teamId = v;
+                reloadTeamData();
+              },
+            });
+            if (teamSel) state.teamId = teamSel.getTeamId();
+          }
+
+          initEvents();
+          loadSeg(dictSeg(state.tab));
+        }
+        init();
+      })();
+    </script>
+  </body>
 </html>

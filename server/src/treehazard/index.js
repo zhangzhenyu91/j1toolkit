@@ -83,7 +83,10 @@ const RECORD_COLS = `id, team_id, voltage_level, line_name, section, pole_from, 
   status, source, crane_session_id, crane_record_id, synced_at, created_by, created_at, updated_at`;
 
 async function loadTeamRecords(teamId) {
-  const [rows] = await pool.query(`SELECT ${RECORD_COLS} FROM treehazard_record WHERE team_id = ?`, [teamId]);
+  const [rows] = await pool.query(
+    `SELECT ${RECORD_COLS} FROM treehazard_record WHERE team_id = ?`,
+    [teamId]
+  );
   return rows;
 }
 
@@ -113,7 +116,9 @@ function fetchThreshold(teamId) {
 function weekStartText() {
   const cnNow = new Date(Date.now() + CN_OFFSET_MS); // 其 UTC 字段即北京墙钟
   const dow = (cnNow.getUTCDay() + 6) % 7; // 周一 = 0
-  const utcMs = Date.UTC(cnNow.getUTCFullYear(), cnNow.getUTCMonth(), cnNow.getUTCDate() - dow, 0, 0, 0) - CN_OFFSET_MS;
+  const utcMs =
+    Date.UTC(cnNow.getUTCFullYear(), cnNow.getUTCMonth(), cnNow.getUTCDate() - dow, 0, 0, 0) -
+    CN_OFFSET_MS;
   const d = new Date(utcMs);
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
@@ -126,21 +131,45 @@ function weekStartText() {
 router.get('/dashboard', async (req, res, next) => {
   try {
     if (!req.team) {
-      return ok(res, { unhandled: 0, week_new: 0, over_threshold: 0, handled: 0, threshold: null, pending_conflicts: 0, staging_batches: 0 });
+      return ok(res, {
+        unhandled: 0,
+        week_new: 0,
+        over_threshold: 0,
+        handled: 0,
+        threshold: null,
+        pending_conflicts: 0,
+        staging_batches: 0,
+      });
     }
     const teamId = req.team.id;
     const threshold = await fetchThreshold(teamId);
-    const [[unhandled]] = await pool.query("SELECT COUNT(*) AS n FROM treehazard_record WHERE team_id = ? AND status = 'unhandled'", [teamId]);
-    const [[weekNew]] = await pool.query('SELECT COUNT(*) AS n FROM treehazard_record WHERE team_id = ? AND created_at >= ?', [teamId, weekStartText()]);
-    const [[overThreshold]] = threshold === null
-      ? [[{ n: 0 }]]
-      : await pool.query(
-        "SELECT COUNT(*) AS n FROM treehazard_record WHERE team_id = ? AND status = 'unhandled' AND vertical_num IS NOT NULL AND vertical_num <= ?",
-        [teamId, threshold]
-      );
-    const [[handled]] = await pool.query("SELECT COUNT(*) AS n FROM treehazard_record WHERE team_id = ? AND status = 'handled'", [teamId]);
-    const [[conflicts]] = await pool.query("SELECT COUNT(*) AS n FROM treehazard_conflict WHERE team_id = ? AND status = 'pending'", [teamId]);
-    const [[staging]] = await pool.query("SELECT COUNT(*) AS n FROM treehazard_staging_batch WHERE team_id = ? AND status = 'pending'", [teamId]);
+    const [[unhandled]] = await pool.query(
+      "SELECT COUNT(*) AS n FROM treehazard_record WHERE team_id = ? AND status = 'unhandled'",
+      [teamId]
+    );
+    const [[weekNew]] = await pool.query(
+      'SELECT COUNT(*) AS n FROM treehazard_record WHERE team_id = ? AND created_at >= ?',
+      [teamId, weekStartText()]
+    );
+    const [[overThreshold]] =
+      threshold === null
+        ? [[{ n: 0 }]]
+        : await pool.query(
+            "SELECT COUNT(*) AS n FROM treehazard_record WHERE team_id = ? AND status = 'unhandled' AND vertical_num IS NOT NULL AND vertical_num <= ?",
+            [teamId, threshold]
+          );
+    const [[handled]] = await pool.query(
+      "SELECT COUNT(*) AS n FROM treehazard_record WHERE team_id = ? AND status = 'handled'",
+      [teamId]
+    );
+    const [[conflicts]] = await pool.query(
+      "SELECT COUNT(*) AS n FROM treehazard_conflict WHERE team_id = ? AND status = 'pending'",
+      [teamId]
+    );
+    const [[staging]] = await pool.query(
+      "SELECT COUNT(*) AS n FROM treehazard_staging_batch WHERE team_id = ? AND status = 'pending'",
+      [teamId]
+    );
     return ok(res, {
       unhandled: unhandled.n,
       week_new: weekNew.n,
@@ -182,8 +211,11 @@ router.get('/records', async (req, res, next) => {
       }
     }
     // 运维线路全部成组下发（含 0 记录线路），线路大卡需展示空线路
-    const lines = lineRows
-      .map((l) => ({ voltage_level: l.voltage_level, line_name: l.line_name, records: byLine.get(l.line_name) || [] }));
+    const lines = lineRows.map((l) => ({
+      voltage_level: l.voltage_level,
+      line_name: l.line_name,
+      records: byLine.get(l.line_name) || [],
+    }));
     return ok(res, { threshold, lines, unmatched });
   } catch (err) {
     return next(err);
@@ -195,7 +227,10 @@ router.get('/records/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const recordId = Number(req.params.id);
-    const [rows] = await pool.query(`SELECT ${RECORD_COLS} FROM treehazard_record WHERE id = ? AND team_id = ?`, [recordId, req.team.id]);
+    const [rows] = await pool.query(
+      `SELECT ${RECORD_COLS} FROM treehazard_record WHERE id = ? AND team_id = ?`,
+      [recordId, req.team.id]
+    );
     if (!rows.length) return fail(res, 404, 40400, '记录不存在');
     await attachPhotos(rows);
     return ok(res, rows[0]);
@@ -211,7 +246,11 @@ function parseHandleBody(req, res) {
     fail(res, 400, 40001, '处理情况不能为空');
     return null;
   }
-  const handlerName = (String((req.body && req.body.handler_name) ?? '').trim() || req.user.nickname || '').slice(0, 32);
+  const handlerName = (
+    String((req.body && req.body.handler_name) ?? '').trim() ||
+    req.user.nickname ||
+    ''
+  ).slice(0, 32);
   let handledAt = String((req.body && req.body.handled_at) ?? '').trim();
   if (!handledAt) handledAt = todayCn();
   if (!DATE_RE.test(handledAt)) {
@@ -228,7 +267,10 @@ router.post('/records/:id/handle', async (req, res, next) => {
     const parsed = parseHandleBody(req, res);
     if (!parsed) return;
     const recordId = Number(req.params.id);
-    const [rows] = await pool.query('SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?', [recordId, req.team.id]);
+    const [rows] = await pool.query(
+      'SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?',
+      [recordId, req.team.id]
+    );
     if (!rows.length) return fail(res, 404, 40400, '记录不存在');
     await pool.query(
       "UPDATE treehazard_record SET status = 'handled', handler_name = ?, handle_note = ?, handled_at = ? WHERE id = ?",
@@ -281,14 +323,19 @@ router.post('/records/:id/photos', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const kind = String(req.query.kind ?? '').trim();
-    if (!['before', 'after'].includes(kind)) return fail(res, 400, 40001, 'kind 应为 before 或 after');
+    if (!['before', 'after'].includes(kind))
+      return fail(res, 400, 40001, 'kind 应为 before 或 after');
     const recordId = Number(req.params.id);
-    const [rows] = await pool.query('SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?', [recordId, req.team.id]);
+    const [rows] = await pool.query(
+      'SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?',
+      [recordId, req.team.id]
+    );
     if (!rows.length) return fail(res, 404, 40400, '记录不存在');
 
     const photo = parseDataUrlPhoto((req.body && req.body.image) || '');
     if (!photo) return fail(res, 400, 40010, '照片格式应为 jpeg/png（base64 dataURL）');
-    if (!photo.buf.length || photo.buf.length > 15 * 1024 * 1024) return fail(res, 400, 40011, '照片大小应在 15MB 以内');
+    if (!photo.buf.length || photo.buf.length > 15 * 1024 * 1024)
+      return fail(res, 400, 40011, '照片大小应在 15MB 以内');
 
     // COS key 后缀随实际格式（png 用 .png），供按扩展名识别格式
     const key = `${config.treehazard.cosPrefix}${exporter.safeFileName(req.team.name)}/${recordId}/${kind}-${Date.now()}.${photo.ext}`;
@@ -320,8 +367,11 @@ router.delete('/records/:id/photos/:photoId', async (req, res, next) => {
     );
     if (!rows.length) return fail(res, 404, 40400, '照片不存在');
     const photo = rows[0];
-    const isManager = req.user.role === 'admin' || (req.user.role === 'team_admin' && req.user.team_id === req.team.id);
-    if (photo.uploaded_by !== req.user.id && !isManager) return fail(res, 403, 40304, '仅上传者本人或管理员可删除');
+    const isManager =
+      req.user.role === 'admin' ||
+      (req.user.role === 'team_admin' && req.user.team_id === req.team.id);
+    if (photo.uploaded_by !== req.user.id && !isManager)
+      return fail(res, 403, 40304, '仅上传者本人或管理员可删除');
     try {
       await cos.deleteObject(photo.cos_key);
     } catch (e) {
@@ -340,7 +390,10 @@ router.delete('/records/:id', requireDictAdmin, async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const recordId = Number(req.params.id);
-    const [rows] = await pool.query('SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?', [recordId, req.team.id]);
+    const [rows] = await pool.query(
+      'SELECT id FROM treehazard_record WHERE id = ? AND team_id = ?',
+      [recordId, req.team.id]
+    );
     if (!rows.length) return fail(res, 404, 40400, '记录不存在');
     await remove.deleteRecord(recordId, req.team.id);
     return ok(res, { id: recordId });
@@ -395,7 +448,12 @@ async function buildTeamExport(team, line, split) {
   const lineRows = await exporter.fetchLineOrder(pool, team.id);
   const lineOrder = new Map(lineRows.map((l, i) => [l.line_name, i]));
   if (line) records = records.filter((r) => r.line_name === line);
-  const wb = await exporter.buildWorkbook({ teamName: team.name, records, split: !!split, lineOrder });
+  const wb = await exporter.buildWorkbook({
+    teamName: team.name,
+    records,
+    split: !!split,
+    lineOrder,
+  });
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   return { buf, fileName: exporter.exportFileName(team.name, line || undefined) };
 }
@@ -419,7 +477,11 @@ router.get('/export/preview', async (req, res, next) => {
     if (req.query.team_id) dq.push(`team_id=${encodeURIComponent(req.query.team_id)}`);
     if (splitOn(req.query.split)) dq.push('split=1');
     const fileName = exporter.exportFileName(req.team.name, line || undefined);
-    const url = buildPreviewUrl(req, `/api/v1/treehazard/export${dq.length ? `?${dq.join('&')}` : ''}`, fileName);
+    const url = buildPreviewUrl(
+      req,
+      `/api/v1/treehazard/export${dq.length ? `?${dq.join('&')}` : ''}`,
+      fileName
+    );
     if (!url) return fail(res, 400, 40011, '未配置文件预览服务');
     return ok(res, { url });
   } catch (err) {
@@ -431,9 +493,19 @@ router.get('/export/preview', async (req, res, next) => {
 router.get(['/export', '/export/:name([^/]+\\.xlsx)'], async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    const { buf, fileName } = await buildTeamExport(req.team, String(req.query.line ?? '').trim(), splitOn(req.query.split));
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="treehazard.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    const { buf, fileName } = await buildTeamExport(
+      req.team,
+      String(req.query.line ?? '').trim(),
+      splitOn(req.query.split)
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="treehazard.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+    );
     return res.send(buf);
   } catch (err) {
     return next(err);
@@ -483,9 +555,19 @@ router.get('/staging/batches/:id', requireDictAdmin, async (req, res, next) => {
 
 // 暂存行可编辑列与长度（白名单；日期列单独归一）
 const STAGING_EDITABLE = {
-  voltage_level: 16, line_name: 64, section: 32, tree_species: 32, tree_count: 16,
-  dist_small: 16, dist_big: 16, diameter: 16, horizontal: 16, vertical: 16, finder_name: 32,
-  handler_name: 32, handle_note: 64,
+  voltage_level: 16,
+  line_name: 64,
+  section: 32,
+  tree_species: 32,
+  tree_count: 16,
+  dist_small: 16,
+  dist_big: 16,
+  diameter: 16,
+  horizontal: 16,
+  vertical: 16,
+  finder_name: 32,
+  handler_name: 32,
+  handle_note: 64,
 };
 
 // PUT /staging/records/:id：更新暂存行业务列（白名单字段；vertical 变更时重算 vertical_num）
@@ -505,7 +587,11 @@ router.put('/staging/records/:id', requireDictAdmin, async (req, res, next) => {
     for (const [col, len] of Object.entries(STAGING_EDITABLE)) {
       if (Object.prototype.hasOwnProperty.call(body, col)) {
         sets.push(`${col} = ?`);
-        vals.push(String(body[col] ?? '').trim().slice(0, len));
+        vals.push(
+          String(body[col] ?? '')
+            .trim()
+            .slice(0, len)
+        );
       }
     }
     for (const col of ['found_at', 'handled_at']) {
@@ -551,8 +637,14 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
     try {
       await conn.beginTransaction();
       const [rows] = ids
-        ? await conn.query('SELECT * FROM treehazard_staging_record WHERE batch_id = ? AND id IN (?) ORDER BY id', [batchId, ids])
-        : await conn.query('SELECT * FROM treehazard_staging_record WHERE batch_id = ? ORDER BY id', [batchId]);
+        ? await conn.query(
+            'SELECT * FROM treehazard_staging_record WHERE batch_id = ? AND id IN (?) ORDER BY id',
+            [batchId, ids]
+          )
+        : await conn.query(
+            'SELECT * FROM treehazard_staging_record WHERE batch_id = ? ORDER BY id',
+            [batchId]
+          );
       // 旧数据回退安全条件：本批仅一条空 crane_record_id 暂存行时空 id 旧照片归属无歧义（转入归挂时据此回退）
       const [[emptyIdCnt]] = await conn.query(
         "SELECT COUNT(*) AS cnt FROM treehazard_staging_record WHERE batch_id = ? AND (crane_record_id IS NULL OR crane_record_id = '')",
@@ -575,8 +667,24 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
             `UPDATE treehazard_record SET voltage_level = ?, line_name = ?, section = ?, pole_from = ?, pole_to = ?,
                tree_species = ?, tree_count = ?, dist_small = ?, dist_big = ?, diameter = ?, horizontal = ?, vertical = ?,
                vertical_num = ?, finder_name = ?, found_at = ? WHERE id = ?`,
-            [s.voltage_level, s.line_name, s.section, poleFrom, poleTo, s.tree_species, s.tree_count,
-              s.dist_small, s.dist_big, s.diameter, s.horizontal, s.vertical, s.vertical_num, s.finder_name, s.found_at, existingId]
+            [
+              s.voltage_level,
+              s.line_name,
+              s.section,
+              poleFrom,
+              poleTo,
+              s.tree_species,
+              s.tree_count,
+              s.dist_small,
+              s.dist_big,
+              s.diameter,
+              s.horizontal,
+              s.vertical,
+              s.vertical_num,
+              s.finder_name,
+              s.found_at,
+              existingId,
+            ]
           );
           recordId = existingId;
         } else {
@@ -585,10 +693,30 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
                tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
                finder_name, found_at, handler_name, handle_note, handled_at, status, source, crane_session_id, crane_record_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'staging', ?, ?)`,
-            [req.team.id, s.voltage_level, s.line_name, s.section, poleFrom, poleTo, s.tree_species, s.tree_count,
-              s.dist_small, s.dist_big, s.diameter, s.horizontal, s.vertical, s.vertical_num, s.finder_name, s.found_at,
-              s.handler_name, s.handle_note, s.handled_at, s.handled_at ? 'handled' : 'unhandled',
-              batch.crane_session_id, s.crane_record_id]
+            [
+              req.team.id,
+              s.voltage_level,
+              s.line_name,
+              s.section,
+              poleFrom,
+              poleTo,
+              s.tree_species,
+              s.tree_count,
+              s.dist_small,
+              s.dist_big,
+              s.diameter,
+              s.horizontal,
+              s.vertical,
+              s.vertical_num,
+              s.finder_name,
+              s.found_at,
+              s.handler_name,
+              s.handle_note,
+              s.handled_at,
+              s.handled_at ? 'handled' : 'unhandled',
+              batch.crane_session_id,
+              s.crane_record_id,
+            ]
           );
           recordId = ir.insertId;
         }
@@ -610,7 +738,8 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
         if (sps.length) {
           if (existingId) {
             const [oldPhotos] = await conn.query(
-              "SELECT id, cos_key FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'", [recordId]
+              "SELECT id, cos_key FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'",
+              [recordId]
             );
             for (const p of oldPhotos) {
               try {
@@ -619,7 +748,10 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
                 console.error('[树障] 转入清理旧辅证 COS 对象失败（继续）：', e.message);
               }
             }
-            await conn.query("DELETE FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'", [recordId]);
+            await conn.query(
+              "DELETE FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'",
+              [recordId]
+            );
           }
           for (const p of sps) {
             await conn.query(
@@ -627,13 +759,21 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
               [recordId, p.cos_key, p.url]
             );
           }
-          await conn.query('DELETE FROM treehazard_staging_photo WHERE id IN (?)', [sps.map((p) => p.id)]);
+          await conn.query('DELETE FROM treehazard_staging_photo WHERE id IN (?)', [
+            sps.map((p) => p.id),
+          ]);
         }
         await conn.query('DELETE FROM treehazard_staging_record WHERE id = ?', [s.id]);
         imported += 1;
       }
-      const [left] = await conn.query('SELECT COUNT(*) AS cnt FROM treehazard_staging_record WHERE batch_id = ?', [batchId]);
-      if (!left[0].cnt) await conn.query("UPDATE treehazard_staging_batch SET status = 'imported' WHERE id = ?", [batchId]);
+      const [left] = await conn.query(
+        'SELECT COUNT(*) AS cnt FROM treehazard_staging_record WHERE batch_id = ?',
+        [batchId]
+      );
+      if (!left[0].cnt)
+        await conn.query("UPDATE treehazard_staging_batch SET status = 'imported' WHERE id = ?", [
+          batchId,
+        ]);
       await conn.commit();
     } catch (e) {
       await conn.rollback().catch(() => {});
@@ -704,7 +844,8 @@ router.post('/conflicts/:id/resolve', requireDictAdmin, async (req, res, next) =
   try {
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     const keep = String((req.body && req.body.keep) ?? '').trim();
-    if (!['server', 'intranet'].includes(keep)) return fail(res, 400, 40001, 'keep 应为 server 或 intranet');
+    if (!['server', 'intranet'].includes(keep))
+      return fail(res, 400, 40001, 'keep 应为 server 或 intranet');
     const conflictId = Number(req.params.id);
     const [rows] = await pool.query(
       "SELECT * FROM treehazard_conflict WHERE id = ? AND team_id = ? AND status = 'pending'",
@@ -724,13 +865,31 @@ router.post('/conflicts/:id/resolve', requireDictAdmin, async (req, res, next) =
                dist_small = ?, dist_big = ?, diameter = ?, horizontal = ?, vertical = ?, finder_name = ?, found_at = ?,
                handler_name = ?, handle_note = ?, handled_at = ?, vertical_num = ?, status = ?, synced_at = NOW()
              WHERE id = ?`,
-            [fields.voltage_level, fields.line_name, fields.section, fields.tree_species, fields.tree_count,
-              fields.dist_small, fields.dist_big, fields.diameter, fields.horizontal, fields.vertical,
-              fields.finder_name, fields.found_at, fields.handler_name, fields.handle_note, fields.handled_at,
-              fields.vertical_num, fields.status, conflict.record_id]
+            [
+              fields.voltage_level,
+              fields.line_name,
+              fields.section,
+              fields.tree_species,
+              fields.tree_count,
+              fields.dist_small,
+              fields.dist_big,
+              fields.diameter,
+              fields.horizontal,
+              fields.vertical,
+              fields.finder_name,
+              fields.found_at,
+              fields.handler_name,
+              fields.handle_note,
+              fields.handled_at,
+              fields.vertical_num,
+              fields.status,
+              conflict.record_id,
+            ]
           );
         } else {
-          await conn.query('UPDATE treehazard_record SET synced_at = NOW() WHERE id = ?', [conflict.record_id]);
+          await conn.query('UPDATE treehazard_record SET synced_at = NOW() WHERE id = ?', [
+            conflict.record_id,
+          ]);
         }
       }
       await conn.query(
@@ -778,7 +937,8 @@ sync.start();
 // await 同步结果返回 {ok, created, updated, deleted, errors[]} 供按钮 toast 明细）
 router.post('/weknora-sync/push-now', requireDictAdmin, async (req, res, next) => {
   try {
-    if (!config.weknora.treehazardKbId || !config.weknora.apiKey) return fail(res, 503, 50301, '未配置知识库同步');
+    if (!config.weknora.treehazardKbId || !config.weknora.apiKey)
+      return fail(res, 503, 50301, '未配置知识库同步');
     if (weknoraSync.isRunning()) return fail(res, 423, 42301, '同步进行中，请稍后再试');
     const r = await weknoraSync.runSync();
     return ok(res, r, r.ok ? '已同步至知识库' : '同步完成，部分失败');

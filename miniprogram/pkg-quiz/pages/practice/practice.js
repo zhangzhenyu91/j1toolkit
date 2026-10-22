@@ -86,7 +86,9 @@ Page({
     const title = opts.title ? decodeURIComponent(opts.title) : '';
     this.setData({
       mode: this._mode,
-      navTitle: title || (this._mode === 'wrong' ? '错题专项练习' : this._mode === 'fav' ? '收藏练习' : '刷题'),
+      navTitle:
+        title ||
+        (this._mode === 'wrong' ? '错题专项练习' : this._mode === 'fav' ? '收藏练习' : '刷题'),
     });
 
     // 内部状态：全量题序大纲 / 批次内容缓存（批首下标 → 题目数组）/ 逐题作答结果 / 收藏标记
@@ -145,11 +147,12 @@ Page({
       if (!this._outline.length) {
         this.setData({
           loading: false,
-          emptyText: this._mode === 'wrong'
-            ? '暂无错题，继续保持'
-            : this._mode === 'fav'
-              ? '暂无收藏题目，刷题时点星标收藏'
-              : '该题库暂无题目',
+          emptyText:
+            this._mode === 'wrong'
+              ? '暂无错题，继续保持'
+              : this._mode === 'fav'
+                ? '暂无收藏题目，刷题时点星标收藏'
+                : '该题库暂无题目',
         });
         return;
       }
@@ -215,8 +218,13 @@ Page({
       const raw = (data && data.list) || [];
       // 按大纲区间 id 对齐重排（对不上则按响应原序兜底）
       const map = {};
-      raw.forEach((q) => { map[q.id] = q; });
-      const seg = this._outline.slice(start, start + LIMIT).map((o) => map[o.id]).filter(Boolean);
+      raw.forEach((q) => {
+        map[q.id] = q;
+      });
+      const seg = this._outline
+        .slice(start, start + LIMIT)
+        .map((o) => map[o.id])
+        .filter(Boolean);
       this._cache[start] = seg.length ? seg : raw;
       this._cache[start].forEach((q) => {
         // 收藏标记入本地表（收藏切换先改本地，失败回滚）
@@ -273,7 +281,8 @@ Page({
       if (recite) {
         // 背题：直接标出正确答案（绿底绿勾），其余普通（乱序不参与背题）
         if ((q.answer || '').includes(origLetter)) {
-          cls = 'right'; icon = 'check';
+          cls = 'right';
+          icon = 'check';
         }
       } else if (!res) {
         // 选中态只属当前题（_sel 随翻题清空；存展示字母）
@@ -283,9 +292,11 @@ Page({
         const inAns = (res.answer || '').includes(origLetter); // 服务端答案为原始字母
         const inSel = (res.selected || []).includes(letter); // 作答记录为展示字母
         if (inAns) {
-          cls = 'right'; icon = 'check';
+          cls = 'right';
+          icon = 'check';
         } else if (inSel) {
-          cls = 'wrong'; icon = 'close';
+          cls = 'wrong';
+          icon = 'close';
         }
       }
       return { letter, text, cls, icon };
@@ -300,7 +311,7 @@ Page({
       content: q.content || '',
       options: opts,
       submitted: recite || !!res, // 背题恒解析态版式（无统计、无提交按钮）
-      result: recite ? this.buildReciteResult(q) : (res ? this.buildResult(res, q) : null),
+      result: recite ? this.buildReciteResult(q) : res ? this.buildResult(res, q) : null,
       fav: this._favs[q.id] ? 1 : 0,
     };
   },
@@ -497,7 +508,9 @@ Page({
     this.refreshCurrentItem();
     this._submitting = true;
     setTimeout(() => {
-      this.onSubmit().finally(() => { this._submitting = false; });
+      this.onSubmit().finally(() => {
+        this._submitting = false;
+      });
     }, 150);
   },
 
@@ -630,9 +643,10 @@ Page({
     const q = this.getQuestion(this._idx);
     if (!q) return;
     const res = this._results[q.id];
-    const cur = this.data.viewMode === 'recite'
-      ? (q.analysis || '')
-      : (((res && res.analysis) || q.analysis) || '');
+    const cur =
+      this.data.viewMode === 'recite'
+        ? q.analysis || ''
+        : (res && res.analysis) || q.analysis || '';
     this.setData({ anaOpen: true, anaText: cur });
   },
 
@@ -671,7 +685,9 @@ Page({
     // 同步批次缓存与作答结果，立即呈现新解析
     const val = (data && data.analysis) || '';
     Object.keys(this._cache).forEach((s) => {
-      (this._cache[s] || []).forEach((x) => { if (x.id === q.id) x.analysis = val || null; });
+      (this._cache[s] || []).forEach((x) => {
+        if (x.id === q.id) x.analysis = val || null;
+      });
     });
     if (this._results[q.id]) this._results[q.id].analysis = val;
     this.setData({ anaOpen: false });
@@ -751,7 +767,8 @@ Page({
         }
         items.push({ idx: i, num: i + 1, st, cur: i === this._idx });
       });
-      if (items.length) groups.push({ type: t, typeText: TYPE_TEXT[t], count: items.length, items });
+      if (items.length)
+        groups.push({ type: t, typeText: TYPE_TEXT[t], count: items.length, items });
     });
     this.setData({
       sheetOpen: true,
@@ -783,51 +800,53 @@ Page({
       content: '仅清空本题库的练习记录与进度，错题本保留。',
       confirmBtn: '确认清空',
       cancelBtn: '取消',
-    }).then(async () => {
-      try {
-        await request({
-          url: `${API_BASE}/practice/reset`,
-          method: 'POST',
-          data: { bankId: this._bankId },
-        });
-      } catch (err) {
-        this.toast(err.message);
-        return;
-      }
-      // 清空本地已答状态（rand 大纲一并换新的 session 随机序；服务端断点已由 reset 重置为 NULL）
-      this._results = {};
-      this._myRight = {};
-      this._cache = {};
-      this._favs = {};
-      this._shuffle = {};
-      if (this._autoTimer) {
-        clearTimeout(this._autoTimer);
-        this._autoTimer = null;
-      }
-      this._sel = [];
-      this._idx = 0;
-      this._seqSent = 0; // 服务端断点已被重置为 NULL（未开始），0 位不再重复上报
-      if (this._seqTimer) {
-        clearTimeout(this._seqTimer);
-        this._seqTimer = null;
-      }
-      this.setData({ sheetOpen: false });
-      try {
-        await this.fetchOutline();
-        if (!this._outline.length) {
-          this.setData({ win: [], total: 0, emptyText: '该题库暂无题目' });
-          this.refreshCounts();
+    })
+      .then(async () => {
+        try {
+          await request({
+            url: `${API_BASE}/practice/reset`,
+            method: 'POST',
+            data: { bankId: this._bankId },
+          });
+        } catch (err) {
+          this.toast(err.message);
           return;
         }
-        await this.ensureBatch(0, false);
-        this.refreshCounts();
-        this.rebuildWindow();
-      } catch (err) {
-        this.toast(err.message);
-        return;
-      }
-      this.toast('已清空做题记录');
-    }).catch(() => {});
+        // 清空本地已答状态（rand 大纲一并换新的 session 随机序；服务端断点已由 reset 重置为 NULL）
+        this._results = {};
+        this._myRight = {};
+        this._cache = {};
+        this._favs = {};
+        this._shuffle = {};
+        if (this._autoTimer) {
+          clearTimeout(this._autoTimer);
+          this._autoTimer = null;
+        }
+        this._sel = [];
+        this._idx = 0;
+        this._seqSent = 0; // 服务端断点已被重置为 NULL（未开始），0 位不再重复上报
+        if (this._seqTimer) {
+          clearTimeout(this._seqTimer);
+          this._seqTimer = null;
+        }
+        this.setData({ sheetOpen: false });
+        try {
+          await this.fetchOutline();
+          if (!this._outline.length) {
+            this.setData({ win: [], total: 0, emptyText: '该题库暂无题目' });
+            this.refreshCounts();
+            return;
+          }
+          await this.ensureBatch(0, false);
+          this.refreshCounts();
+          this.rebuildWindow();
+        } catch (err) {
+          this.toast(err.message);
+          return;
+        }
+        this.toast('已清空做题记录');
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

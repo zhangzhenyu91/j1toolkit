@@ -22,7 +22,9 @@ async function recognize(params) {
     vr = await dify.verifyPhoto(params);
     if (usable(vr)) return vr;
     if (attempt < MAX_RETRY) {
-      console.warn(`[出工日志] Dify ${vr.ok ? '识别施工内容为空' : '调用失败'}，第 ${attempt + 1} 次重试（${params.url}）`);
+      console.warn(
+        `[出工日志] Dify ${vr.ok ? '识别施工内容为空' : '调用失败'}，第 ${attempt + 1} 次重试（${params.url}）`
+      );
     }
   }
   return vr;
@@ -51,13 +53,15 @@ async function notifyManualReview(photoId) {
     [info.team_id]
   );
   const atIds = teamAdmins.map((a) => a.id);
-  await require('../notice').push({ // 与 dispatch-sync 同型惰性加载
+  await require('../notice').push({
+    // 与 dispatch-sync 同型惰性加载
     userIds: atIds,
     targets: [],
     title: '水印照片需人工审核',
-    content: `${info.log_date} ${info.plate_no || '未出车'} 卡片${names ? `（${names}）` : ''}的水印照片`
-      + `经 ${MAX_RETRY} 次重试仍未识别出施工内容，已标记为验证失败。`
-      + '请在出工日志中找到当日该车辆卡片，点击照片「验证失败」手动修正施工内容。',
+    content:
+      `${info.log_date} ${info.plate_no || '未出车'} 卡片${names ? `（${names}）` : ''}的水印照片` +
+      `经 ${MAX_RETRY} 次重试仍未识别出施工内容，已标记为验证失败。` +
+      '请在出工日志中找到当日该车辆卡片，点击照片「验证失败」手动修正施工内容。',
     wxTeamIds: [info.team_id],
     wxAtUserIds: atIds,
   });
@@ -98,8 +102,18 @@ async function verifyAndWriteBack(photoId, params) {
     });
     await pool.query(
       `UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?, location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
-      [chk.status, vr.workContent, vr.time, vr.weather, vr.location, vr.lng, vr.lat,
-        chk.dateOk ? 1 : 0, chk.destOk ? 1 : 0, photoId]
+      [
+        chk.status,
+        vr.workContent,
+        vr.time,
+        vr.weather,
+        vr.location,
+        vr.lng,
+        vr.lat,
+        chk.dateOk ? 1 : 0,
+        chk.destOk ? 1 : 0,
+        photoId,
+      ]
     );
   } catch (err) {
     console.error('[出工日志] 验证结果回写失败：', err.message);

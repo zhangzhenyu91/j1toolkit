@@ -14,7 +14,7 @@ function normalize(text) {
   for (const ch of s) {
     let code = ch.codePointAt(0);
     if (code >= 0xff01 && code <= 0xff5e) code -= 0xfee0; // 全角 ASCII/数字 → 半角
-    if (code === 0x3000) continue;                          // 全角空格
+    if (code === 0x3000) continue; // 全角空格
     const c = String.fromCodePoint(code);
     if (KEEP_RE.test(c)) out += c;
   }
@@ -54,7 +54,8 @@ function findBest(index, ocrText, threshold = 0.6) {
   for (const item of index) {
     let common = 0;
     // 遍历较小集合，O(n)
-    const [small, big] = ocrChars.size <= item.chars.size ? [ocrChars, item.chars] : [item.chars, ocrChars];
+    const [small, big] =
+      ocrChars.size <= item.chars.size ? [ocrChars, item.chars] : [item.chars, ocrChars];
     for (const ch of small) if (big.has(ch)) common++;
     if (common > bestCommon) {
       bestCommon = common;

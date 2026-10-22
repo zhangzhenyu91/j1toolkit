@@ -8,10 +8,22 @@
   <view class="card hazard-top flow-card">
     <view class="flow-title">使用流程</view>
     <view class="flow-steps">
-      <view class="fstep"><text class="no">1</text><text>拍摄 / 从相册选择<text class="b">一张原图</text></text></view>
-      <view class="fstep"><text class="no">2</text><text>非 4:3 / 3:4 时<text class="b">裁剪取景</text>（已是则免裁）</text></view>
-      <view class="fstep"><text class="no">3</text><text><text class="b">编辑水印信息</text>，确认后由服务端渲染水印</text></view>
-      <view class="fstep"><text class="no">4</text><text><text class="b">自动存入相册</text>并全屏展示，仅本人持有</text></view>
+      <view class="fstep"
+        ><text class="no">1</text
+        ><text>拍摄 / 从相册选择<text class="b">一张原图</text></text></view
+      >
+      <view class="fstep"
+        ><text class="no">2</text
+        ><text>非 4:3 / 3:4 时<text class="b">裁剪取景</text>（已是则免裁）</text></view
+      >
+      <view class="fstep"
+        ><text class="no">3</text
+        ><text><text class="b">编辑水印信息</text>，确认后由服务端渲染水印</text></view
+      >
+      <view class="fstep"
+        ><text class="no">4</text
+        ><text><text class="b">自动存入相册</text>并全屏展示，仅本人持有</text></view
+      >
     </view>
   </view>
 
@@ -52,7 +64,8 @@
                 hover-class="hover-opacity"
                 data-text="{{item}}"
                 bindtap="onWmQuickInput"
-              >{{item}}</text>
+                >{{item}}</text
+              >
             </view>
           </view>
           <view class="textarea-wrap wm-textarea">
@@ -71,16 +84,40 @@
         </view>
         <view class="frow">
           <text class="fk">拍摄时间</text>
-          <input class="wm-input" value="{{wmForm.time}}" data-field="time" bindinput="onWmInput" placeholder="请输入拍摄时间" placeholder-class="ph" maxlength="16" />
+          <input
+            class="wm-input"
+            value="{{wmForm.time}}"
+            data-field="time"
+            bindinput="onWmInput"
+            placeholder="请输入拍摄时间"
+            placeholder-class="ph"
+            maxlength="16"
+          />
         </view>
         <view class="frow">
           <text class="fk">天气</text>
-          <input class="wm-input" value="{{wmForm.weather}}" data-field="weather" bindinput="onWmInput" placeholder="请输入天气" placeholder-class="ph" maxlength="64" />
+          <input
+            class="wm-input"
+            value="{{wmForm.weather}}"
+            data-field="weather"
+            bindinput="onWmInput"
+            placeholder="请输入天气"
+            placeholder-class="ph"
+            maxlength="64"
+          />
           <text class="upd-tag" wx:if="{{wmTowerPicked}}">已更新</text>
         </view>
         <view class="frow">
           <text class="fk">地点</text>
-          <input class="wm-input" value="{{wmForm.location}}" data-field="location" bindinput="onWmInput" placeholder="请输入地点" placeholder-class="ph" maxlength="250" />
+          <input
+            class="wm-input"
+            value="{{wmForm.location}}"
+            data-field="location"
+            bindinput="onWmInput"
+            placeholder="请输入地点"
+            placeholder-class="ph"
+            maxlength="250"
+          />
           <text class="upd-tag" wx:if="{{wmTowerPicked}}">已更新</text>
         </view>
         <!-- 经纬度区：右侧跨两行「选择杆塔坐标」按钮（已选则显示杆塔号 + 重选） -->
@@ -88,11 +125,29 @@
           <view class="geo-rows">
             <view class="frow">
               <text class="fk">经度</text>
-              <input class="wm-input" value="{{wmForm.lng}}" data-field="lng" bindinput="onWmInput" type="digit" placeholder="请输入经度" placeholder-class="ph" maxlength="16" />
+              <input
+                class="wm-input"
+                value="{{wmForm.lng}}"
+                data-field="lng"
+                bindinput="onWmInput"
+                type="digit"
+                placeholder="请输入经度"
+                placeholder-class="ph"
+                maxlength="16"
+              />
             </view>
             <view class="frow">
               <text class="fk">纬度</text>
-              <input class="wm-input" value="{{wmForm.lat}}" data-field="lat" bindinput="onWmInput" type="digit" placeholder="请输入纬度" placeholder-class="ph" maxlength="16" />
+              <input
+                class="wm-input"
+                value="{{wmForm.lat}}"
+                data-field="lat"
+                bindinput="onWmInput"
+                type="digit"
+                placeholder="请输入纬度"
+                placeholder-class="ph"
+                maxlength="16"
+              />
             </view>
           </view>
           <view
@@ -135,7 +190,10 @@
 <!-- 选择杆塔坐标弹层（与出工日志同实现同口径：电压等级→线路名称→杆塔号三级级联，线路名称/杆塔号可输入关键字过滤；
      确定将所选坐标按 ≤50m 随机波动后填入水印表单，并按波动后坐标再次调 /geo 刷新地点、天气） -->
 <t-popup visible="{{towerVisible}}" placement="bottom" bind:visible-change="onTowerVisibleChange">
-  <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
+  <view
+    class="sheet"
+    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};"
+  >
     <view class="sheet-title">选择杆塔坐标</view>
     <view class="sheet-note">依次选择电压等级 → 线路名称 → 杆塔号，确定后带出经纬度</view>
     <!-- 键盘弹起时页面不上推（输入框 adjust-position=false），底部 padding 抬高、滚动区同步收减，避免布局跳变 -->
@@ -153,12 +211,24 @@
         <!-- 电压等级（仅下拉选择，不输入筛选） -->
         <view class="sel-row">
           <text class="sel-fk">电压等级</text>
-          <view class="sel-box {{towerOpen === 'level' ? 'open' : ''}}" hover-class="hover-opacity" data-key="level" bindtap="onTowerToggle">
+          <view
+            class="sel-box {{towerOpen === 'level' ? 'open' : ''}}"
+            hover-class="hover-opacity"
+            data-key="level"
+            bindtap="onTowerToggle"
+          >
             <text class="{{towerLevel ? '' : 'ph'}}">{{towerLevel || '请选择电压等级'}}</text>
-            <view class="chev {{towerOpen === 'level' ? 'up' : ''}}"><t-icon name="chevron-down" size="28rpx" color="rgba(29,33,41,.4)" /></view>
+            <view class="chev {{towerOpen === 'level' ? 'up' : ''}}"
+              ><t-icon name="chevron-down" size="28rpx" color="rgba(29,33,41,.4)"
+            /></view>
           </view>
         </view>
-        <scroll-view scroll-y class="opt-list {{towerOpen === 'level' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
+        <scroll-view
+          scroll-y
+          class="opt-list {{towerOpen === 'level' ? 'show' : ''}}"
+          enhanced
+          show-scrollbar="{{false}}"
+        >
           <view
             class="opt {{towerLevel === item ? 'on' : ''}}"
             wx:for="{{towerLevels}}"
@@ -174,7 +244,9 @@
         <!-- 线路名称（未选电压等级时禁用；支持输入关键字筛选后再下拉选择） -->
         <view class="sel-row" id="tower-row-line">
           <text class="sel-fk">线路名称</text>
-          <view class="sel-box {{towerOpen === 'line' ? 'open' : ''}} {{towerLevel ? '' : 'disabled'}}">
+          <view
+            class="sel-box {{towerOpen === 'line' ? 'open' : ''}} {{towerLevel ? '' : 'disabled'}}"
+          >
             <input
               class="sel-input"
               value="{{towerLineKw}}"
@@ -189,10 +261,23 @@
               placeholder-class="ph"
               maxlength="32"
             />
-            <view class="chev {{towerOpen === 'line' ? 'up' : ''}}" data-key="line" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLevel ? 'rgba(29,33,41,.4)' : 'rgba(29,33,41,.35)'}}" /></view>
+            <view
+              class="chev {{towerOpen === 'line' ? 'up' : ''}}"
+              data-key="line"
+              bindtap="onTowerToggle"
+              ><t-icon
+                name="chevron-down"
+                size="28rpx"
+                color="{{towerLevel ? 'rgba(29,33,41,.4)' : 'rgba(29,33,41,.35)'}}"
+            /></view>
           </view>
         </view>
-        <scroll-view scroll-y class="opt-list {{towerOpen === 'line' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
+        <scroll-view
+          scroll-y
+          class="opt-list {{towerOpen === 'line' ? 'show' : ''}}"
+          enhanced
+          show-scrollbar="{{false}}"
+        >
           <view
             class="opt {{towerLine === item ? 'on' : ''}}"
             wx:for="{{towerLines}}"
@@ -208,7 +293,9 @@
         <!-- 杆塔号（未选线路名称时禁用；支持输入关键字筛选后再下拉选择） -->
         <view class="sel-row" id="tower-row-tower">
           <text class="sel-fk">杆塔号</text>
-          <view class="sel-box {{towerOpen === 'tower' ? 'open' : ''}} {{towerLine ? '' : 'disabled'}}">
+          <view
+            class="sel-box {{towerOpen === 'tower' ? 'open' : ''}} {{towerLine ? '' : 'disabled'}}"
+          >
             <input
               class="sel-input"
               value="{{towerTowerKw}}"
@@ -223,10 +310,23 @@
               placeholder-class="ph"
               maxlength="32"
             />
-            <view class="chev {{towerOpen === 'tower' ? 'up' : ''}}" data-key="tower" bindtap="onTowerToggle"><t-icon name="chevron-down" size="28rpx" color="{{towerLine ? 'rgba(29,33,41,.4)' : 'rgba(29,33,41,.35)'}}" /></view>
+            <view
+              class="chev {{towerOpen === 'tower' ? 'up' : ''}}"
+              data-key="tower"
+              bindtap="onTowerToggle"
+              ><t-icon
+                name="chevron-down"
+                size="28rpx"
+                color="{{towerLine ? 'rgba(29,33,41,.4)' : 'rgba(29,33,41,.35)'}}"
+            /></view>
           </view>
         </view>
-        <scroll-view scroll-y class="opt-list {{towerOpen === 'tower' ? 'show' : ''}}" enhanced show-scrollbar="{{false}}">
+        <scroll-view
+          scroll-y
+          class="opt-list {{towerOpen === 'tower' ? 'show' : ''}}"
+          enhanced
+          show-scrollbar="{{false}}"
+        >
           <view
             class="opt {{towerTower && towerTower.no === item.no ? 'on' : ''}}"
             wx:for="{{towerTowers}}"
@@ -236,7 +336,12 @@
             bindtap="onPickTower"
           >
             <text>{{item.no}}</text>
-            <t-icon wx:if="{{towerTower && towerTower.no === item.no}}" name="check" size="28rpx" color="#0E3DA8" />
+            <t-icon
+              wx:if="{{towerTower && towerTower.no === item.no}}"
+              name="check"
+              size="28rpx"
+              color="#0E3DA8"
+            />
           </view>
         </scroll-view>
         <!-- 三级选齐后坐标预览 -->
@@ -248,7 +353,12 @@
     </scroll-view>
     <view class="sheet-actions">
       <view class="btn-ghost" hover-class="hover-opacity" bindtap="onTowerCancel">取 消</view>
-      <view class="btn-dark {{towerTower ? '' : 'disabled'}}" hover-class="hover-opacity" bindtap="onTowerConfirm">确 定</view>
+      <view
+        class="btn-dark {{towerTower ? '' : 'disabled'}}"
+        hover-class="hover-opacity"
+        bindtap="onTowerConfirm"
+        >确 定</view
+      >
     </view>
   </view>
 </t-popup>
@@ -257,9 +367,15 @@
 <t-popup visible="{{cropVisible}}" placement="bottom" bind:visible-change="onCropVisibleChange">
   <view class="crop-sheet">
     <view class="crop-title">调整裁剪区域</view>
-    <view class="crop-note">{{cropLandscape ? '已锁定横向 4:3' : '已锁定纵向 3:4'}}，拖动或双指缩放调整取景</view>
+    <view class="crop-note"
+      >{{cropLandscape ? '已锁定横向 4:3' : '已锁定纵向 3:4'}}，拖动或双指缩放调整取景</view
+    >
     <view class="crop-stage" style="width: {{cropFrameW}}px; height: {{cropFrameH}}px;">
-      <movable-area class="crop-area" style="width: {{cropFrameW}}px; height: {{cropFrameH}}px;" scale-area>
+      <movable-area
+        class="crop-area"
+        style="width: {{cropFrameW}}px; height: {{cropFrameH}}px;"
+        scale-area
+      >
         <movable-view
           class="crop-view"
           style="width: {{cropViewW}}px; height: {{cropViewH}}px;"

@@ -53,7 +53,11 @@ async function buildPhotosPdf(cards) {
       const imgs = [];
       for (const buf of pair) {
         // 逐张嵌入：坏图跳过不留空框（下载失败的张数由调用方统计提示）
-        try { imgs.push(await embedPhoto(pdfDoc, buf)); } catch (err) { /* 跳过损坏照片 */ }
+        try {
+          imgs.push(await embedPhoto(pdfDoc, buf));
+        } catch (err) {
+          /* 跳过损坏照片 */
+        }
       }
       // 整对嵌入全失败时不新增空白页
       if (!imgs.length) continue;

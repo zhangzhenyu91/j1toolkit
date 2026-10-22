@@ -188,7 +188,12 @@ Page({
 
   // sgccweb 回传滑块结果（web-view bindmessage → 上一页回调）；进入滑块通道，弃用图形码
   onCaptchaResult({ captchaToken, constId }) {
-    this.setData({ captchaToken: captchaToken || '', constId: constId || '', captchaImg: '', imgCode: '' });
+    this.setData({
+      captchaToken: captchaToken || '',
+      constId: constId || '',
+      captchaImg: '',
+      imgCode: '',
+    });
     this.toast('安全验证已通过');
     const action = this._pendingAction;
     this._pendingAction = null;
@@ -289,7 +294,11 @@ Page({
       await request({
         url: '/api/v1/sgcc/login/sms',
         method: 'POST',
-        data: this.teamBody({ mobile, captchaToken: this.data.captchaToken, constId: this.data.constId }),
+        data: this.teamBody({
+          mobile,
+          captchaToken: this.data.captchaToken,
+          constId: this.data.constId,
+        }),
       });
       wx.hideLoading();
       this.toast('验证码已发送');
@@ -379,7 +388,15 @@ Page({
       });
       wx.hideLoading();
       this.toast('绑定成功');
-      this.setData({ formMobile: '', password: '', smsCode: '', imgCode: '', captchaImg: '', captchaToken: '', constId: '' });
+      this.setData({
+        formMobile: '',
+        password: '',
+        smsCode: '',
+        imgCode: '',
+        captchaImg: '',
+        captchaToken: '',
+        constId: '',
+      });
       this.loadAccount();
     } catch (err) {
       wx.hideLoading();
@@ -403,7 +420,8 @@ Page({
       title: `修改${label}`,
       editable: true,
       content: this.data[field],
-      placeholderText: field === 'deviceType' ? '「厂商 型号」格式，如 Xiaomi 2509FPN0BC' : '如 Android 16',
+      placeholderText:
+        field === 'deviceType' ? '「厂商 型号」格式，如 Xiaomi 2509FPN0BC' : '如 Android 16',
       confirmText: '保存',
       success: async (res) => {
         if (!res.confirm) return;
@@ -443,21 +461,41 @@ Page({
       content: '解除后将删除本地绑定与已同步的打卡/费用数据，商旅 App 侧不受影响。确定解除吗？',
       confirmBtn: '解除绑定',
       cancelBtn: '取消',
-    }).then(async () => {
-      try {
-        await request({ url: `/api/v1/sgcc/account${this.teamQuery('?')}`, method: 'DELETE' });
-        this.toast('已解除绑定');
-        this.setData({ bound: false, formMobile: '', password: '', smsCode: '', imgCode: '', captchaImg: '', captchaToken: '', constId: '' });
-        this.detectDevice();
-      } catch (err) {
-        this.toast(err.message);
-      }
-    }).catch(() => {});
+    })
+      .then(async () => {
+        try {
+          await request({ url: `/api/v1/sgcc/account${this.teamQuery('?')}`, method: 'DELETE' });
+          this.toast('已解除绑定');
+          this.setData({
+            bound: false,
+            formMobile: '',
+            password: '',
+            smsCode: '',
+            imgCode: '',
+            captchaImg: '',
+            captchaToken: '',
+            constId: '',
+          });
+          this.detectDevice();
+        } catch (err) {
+          this.toast(err.message);
+        }
+      })
+      .catch(() => {});
   },
 
   // 重新登录：回未绑定态表单重新走登录（本地绑定保留，bind 成功后覆盖 token）
   onRelogin() {
-    this.setData({ bound: false, formMobile: '', password: '', smsCode: '', imgCode: '', captchaImg: '', captchaToken: '', constId: '' });
+    this.setData({
+      bound: false,
+      formMobile: '',
+      password: '',
+      smsCode: '',
+      imgCode: '',
+      captchaImg: '',
+      captchaToken: '',
+      constId: '',
+    });
   },
 
   onShareAppMessage() {

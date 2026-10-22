@@ -136,7 +136,8 @@ router.post('/jump', requireApp('kvm'), async (req, res) => {
     const dev = await assertOperable(req, res, { ddns }); // 仅可跳本班组（含回退集）设备
     if (!dev) return; // 维护锁命中时已响应 423
     const sid = await glkvm.getSessionToken(req.user.username);
-    const url = `${config.kvm.url}/jump.html#sid=${encodeURIComponent(sid)}` +
+    const url =
+      `${config.kvm.url}/jump.html#sid=${encodeURIComponent(sid)}` +
       `&to=${encodeURIComponent(build(ddns))}`;
     return ok(res, { url });
   } catch (err) {
@@ -167,7 +168,8 @@ router.get('/devices/:id/status', requireAnyApp(KVM_OR_FT), async (req, res) => 
     if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.get(`${ps.origin}/api/fileshare/status`, {
-      headers: { Cookie: ps.cookie }, timeout: 60000,
+      headers: { Cookie: ps.cookie },
+      timeout: 60000,
     });
     return ok(res, r.data);
   } catch (err) {
@@ -182,7 +184,8 @@ router.get('/devices/:id/files', requireAnyApp(KVM_OR_FT), async (req, res) => {
     if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.get(`${ps.origin}/api/fileshare/list`, {
-      headers: { Cookie: ps.cookie }, timeout: 60000,
+      headers: { Cookie: ps.cookie },
+      timeout: 60000,
     });
     return ok(res, r.data);
   } catch (err) {
@@ -191,33 +194,39 @@ router.get('/devices/:id/files', requireAnyApp(KVM_OR_FT), async (req, res) => {
 });
 
 // 推送文件到盘（设备 /push：断开 → 写入 → 保持非共享；挂载由 /mount 单独触发）
-router.post('/devices/:id/push', requireAnyApp(KVM_OR_FT), upload.array('files', 20), async (req, res) => {
-  const files = req.files || [];
-  if (!files.length) return fail(res, 400, 40001, '请至少上传一个文件（字段名 files）');
-  try {
-    const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
-    if (!dev) return; // 维护锁命中时已响应 423
-    const ps = await glkvm.getProxySession(req.params.id, req.user.username);
-    const fd = new FormData();
-    for (const f of files) {
-      // 文件名口径：小程序 wx.uploadFile 发的是临时路径名，真实文件名在表单字段 filename
-      // （单文件场景）；其余走 multer originalname（latin1 → UTF-8，与 safeday 同口径）
-      const name = (files.length === 1 && req.body && req.body.filename)
-        ? String(req.body.filename).slice(0, 255)
-        : Buffer.from(f.originalname, 'latin1').toString('utf8');
-      fd.append('files', f.buffer, { filename: name });
+router.post(
+  '/devices/:id/push',
+  requireAnyApp(KVM_OR_FT),
+  upload.array('files', 20),
+  async (req, res) => {
+    const files = req.files || [];
+    if (!files.length) return fail(res, 400, 40001, '请至少上传一个文件（字段名 files）');
+    try {
+      const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
+      if (!dev) return; // 维护锁命中时已响应 423
+      const ps = await glkvm.getProxySession(req.params.id, req.user.username);
+      const fd = new FormData();
+      for (const f of files) {
+        // 文件名口径：小程序 wx.uploadFile 发的是临时路径名，真实文件名在表单字段 filename
+        // （单文件场景）；其余走 multer originalname（latin1 → UTF-8，与 safeday 同口径）
+        const name =
+          files.length === 1 && req.body && req.body.filename
+            ? String(req.body.filename).slice(0, 255)
+            : Buffer.from(f.originalname, 'latin1').toString('utf8');
+        fd.append('files', f.buffer, { filename: name });
+      }
+      const r = await axios.post(`${ps.origin}/api/fileshare/push`, fd, {
+        headers: { ...fd.getHeaders(), Cookie: ps.cookie },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        timeout: 0, // 大文件经两跳转发耗时不可预估，不限超时
+      });
+      return ok(res, r.data);
+    } catch (err) {
+      return relayFail(res, err);
     }
-    const r = await axios.post(`${ps.origin}/api/fileshare/push`, fd, {
-      headers: { ...fd.getHeaders(), Cookie: ps.cookie },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-      timeout: 0, // 大文件经两跳转发耗时不可预估，不限超时
-    });
-    return ok(res, r.data);
-  } catch (err) {
-    return relayFail(res, err);
   }
-});
+);
 
 // 下载盘内文件（设备 /download/<name>，流式回传）
 router.get('/devices/:id/download', requireAnyApp(KVM_OR_FT), async (req, res) => {
@@ -227,12 +236,15 @@ router.get('/devices/:id/download', requireAnyApp(KVM_OR_FT), async (req, res) =
     const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
     if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
-    const r = await axios.get(
-      `${ps.origin}/api/fileshare/download/${encodeURIComponent(name)}`,
-      { headers: { Cookie: ps.cookie }, responseType: 'stream', timeout: 0 }
+    const r = await axios.get(`${ps.origin}/api/fileshare/download/${encodeURIComponent(name)}`, {
+      headers: { Cookie: ps.cookie },
+      responseType: 'stream',
+      timeout: 0,
+    });
+    res.setHeader(
+      'Content-Disposition',
+      r.headers['content-disposition'] || `attachment; filename*=UTF-8''${encodeURIComponent(name)}`
     );
-    res.setHeader('Content-Disposition',
-      r.headers['content-disposition'] || `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
     if (r.headers['content-length']) res.setHeader('Content-Length', r.headers['content-length']);
     // pipe 不转发源流 error：上游断流未监听会 uncaughtException，此处销毁响应并记日志
     r.data.on('error', (serr) => {
@@ -252,7 +264,8 @@ router.post('/devices/:id/mount', requireAnyApp(KVM_OR_FT), async (req, res) => 
     if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
     const r = await axios.post(`${ps.origin}/api/fileshare/mount`, null, {
-      headers: { Cookie: ps.cookie }, timeout: 60000,
+      headers: { Cookie: ps.cookie },
+      timeout: 60000,
     });
     return ok(res, r.data);
   } catch (err) {
@@ -270,9 +283,11 @@ router.post('/devices/:id/delete', requireAnyApp(KVM_OR_FT), async (req, res) =>
     const dev = await assertOperable(req, res, { id: req.params.id }); // 仅可操作本班组（含回退集）设备
     if (!dev) return; // 维护锁命中时已响应 423
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
-    const r = await axios.post(`${ps.origin}/api/fileshare/delete`,
+    const r = await axios.post(
+      `${ps.origin}/api/fileshare/delete`,
       { names: names.map((n) => String(n).slice(0, 255)) },
-      { headers: { Cookie: ps.cookie }, timeout: 60000 });
+      { headers: { Cookie: ps.cookie }, timeout: 60000 }
+    );
     return ok(res, r.data);
   } catch (err) {
     return relayFail(res, err);
@@ -293,7 +308,8 @@ router.post('/devices/:id/pull-from-netdisk', requireAnyApp(KVM_OR_FT), async (r
     let paths;
     if (Array.isArray(req.body && req.body.paths)) {
       paths = req.body.paths;
-      if (!paths.length || paths.length > 20) return fail(res, 400, 40001, '参数错误：paths（1-20 个）');
+      if (!paths.length || paths.length > 20)
+        return fail(res, 400, 40001, '参数错误：paths（1-20 个）');
     } else {
       paths = [req.body && req.body.path]; // 旧版单 path
     }
@@ -302,8 +318,12 @@ router.post('/devices/:id/pull-from-netdisk', requireAnyApp(KVM_OR_FT), async (r
     const items = [];
     for (const p of paths) {
       const rel = normRel(p);
-      const name = (rel && rel !== '/' ? rel : String(p || '')).split('/').filter(Boolean).pop() || '未命名';
-      if (!rel || rel === '/') { items.push({ name, ok: false, error: '路径不合法' }); continue; }
+      const name =
+        (rel && rel !== '/' ? rel : String(p || '')).split('/').filter(Boolean).pop() || '未命名';
+      if (!rel || rel === '/') {
+        items.push({ name, ok: false, error: '路径不合法' });
+        continue;
+      }
       try {
         // 网盘侧拉流（buffer 化后经 FormData 推设备，与既有 push 口径一致）
         const r = await netdiskOl.downloadStream(`${root}${rel}`);
@@ -352,15 +372,18 @@ router.post('/devices/:id/save-to-netdisk', requireAnyApp(KVM_OR_FT), async (req
     const name = String((req.body && req.body.name) || '');
     if (!name) return fail(res, 400, 40001, '参数错误：name');
     const ps = await glkvm.getProxySession(req.params.id, req.user.username);
-    const r = await axios.get(
-      `${ps.origin}/api/fileshare/download/${encodeURIComponent(name)}`,
-      { headers: { Cookie: ps.cookie }, responseType: 'stream', timeout: 0 }
-    );
+    const r = await axios.get(`${ps.origin}/api/fileshare/download/${encodeURIComponent(name)}`, {
+      headers: { Cookie: ps.cookie },
+      responseType: 'stream',
+      timeout: 0,
+    });
     const size = Number(r.headers['content-length'] || 0) || undefined;
     const path = await netdiskSave.saveToNetdisk(req.user, {
       space: (req.body && req.body.space) === 'public' ? 'public' : 'my',
       dir: (req.body && req.body.dir) == null ? '文件传输' : String(req.body.dir),
-      name, body: r.data, size,
+      name,
+      body: r.data,
+      size,
     });
     return ok(res, { path }, '已保存到网盘');
   } catch (err) {

@@ -3,7 +3,15 @@
 // withMessage=true 时 resolve 改为 { data, message }（调用方需要信封 message，如批量操作汇总文案）
 const { BASE_URL } = require('../config');
 
-function request({ url, method = 'GET', data, header = {}, timeout = 30000, authRedirect = true, withMessage = false }) {
+function request({
+  url,
+  method = 'GET',
+  data,
+  header = {},
+  timeout = 30000,
+  authRedirect = true,
+  withMessage = false,
+}) {
   return new Promise((resolve, reject) => {
     const token = wx.getStorageSync('token');
     wx.request({

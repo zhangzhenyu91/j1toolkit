@@ -4,6 +4,7 @@
 调用官方 cube.showDialog 打开"行程轨迹"弹窗（官方 dataform 面板 + 官方 SGMap
 轨迹图 + 官方拖拽手柄），对弹窗内容区截图并生成 PDF。
 不再手工仿制官方样式。"""
+
 import base64
 import json
 import subprocess
@@ -38,23 +39,41 @@ CRYPTO_RANDOM_POLYFILL_JS = r"""
 
 
 class CdpBrowser:
-    def __init__(self, chrome: str, width: int = 1500, height: int = 950, log_file: Path = None):
-        self.prof = Path(log_file).parent / ".chrome-official-tmp" if log_file else Path(".chrome-official-tmp")
+    def __init__(
+        self, chrome: str, width: int = 1500, height: int = 950, log_file: Path = None
+    ):
+        self.prof = (
+            Path(log_file).parent / ".chrome-official-tmp"
+            if log_file
+            else Path(".chrome-official-tmp")
+        )
         self.prof.mkdir(parents=True, exist_ok=True)
         port_file = self.prof / "DevToolsActivePort"
         try:
-            port_file.unlink()   # py3.7 无 missing_ok（麒麟核心包基线），用 try/except
+            port_file.unlink()  # py3.7 无 missing_ok（麒麟核心包基线），用 try/except
         except OSError:
             pass
-        cmd = [chrome, "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
-               "--remote-debugging-port=0", "--remote-allow-origins=*",
-               "--user-data-dir=" + str(self.prof),
-               "--ignore-certificate-errors", "--disable-web-security",
-               "--enable-unsafe-swiftshader", "--use-angle=swiftshader",
-               "--window-size=%d,%d" % (width, height), "about:blank"]
+        cmd = [
+            chrome,
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--remote-debugging-port=0",
+            "--remote-allow-origins=*",
+            "--user-data-dir=" + str(self.prof),
+            "--ignore-certificate-errors",
+            "--disable-web-security",
+            "--enable-unsafe-swiftshader",
+            "--use-angle=swiftshader",
+            "--window-size=%d,%d" % (width, height),
+            "about:blank",
+        ]
         stderr = open(log_file, "wb") if log_file else subprocess.DEVNULL
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                     stderr=stderr if log_file else subprocess.DEVNULL)
+        self.proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr if log_file else subprocess.DEVNULL,
+        )
         port = None
         for _ in range(150):
             if port_file.exists():
@@ -72,8 +91,11 @@ class CdpBrowser:
         ws_url = None
         for _ in range(100):
             try:
-                tabs = json.loads(urllib.request.urlopen(
-                    "http://127.0.0.1:%d/json/list" % port, timeout=2).read())
+                tabs = json.loads(
+                    urllib.request.urlopen(
+                        "http://127.0.0.1:%d/json/list" % port, timeout=2
+                    ).read()
+                )
                 for t in tabs:
                     if t.get("type") == "page":
                         ws_url = t.get("webSocketDebuggerUrl")
@@ -87,32 +109,41 @@ class CdpBrowser:
             raise RuntimeError("未找到页面调试目标")
         self.ws = websocket.create_connection(ws_url, timeout=120, suppress_origin=True)
         self._mid = [0]
-        self.console_log = []   # 页面 console/异常环形缓冲（诊断用，见 call() 事件捕获）
+        self.console_log = []  # 页面 console/异常环形缓冲（诊断用，见 call() 事件捕获）
         self._net_requests = {}  # requestId -> url（在途请求表：失败定位 + 静默检测）
         self._net_done = deque(maxlen=600)  # 已完成请求 URL（min_seen 判定用）
         self.call("Page.enable")
-        self.call("Runtime.enable")   # 捕获 consoleAPICalled / exceptionThrown
-        self.call("Log.enable")       # 捕获 Log.entryAdded（网络/资源错误也在这）
-        self.call("Network.enable")   # 捕获资源加载失败/HTTP 错误（require/组件加载诊断）
-        self.call("Page.addScriptToEvaluateOnNewDocument",
-                  {"source": CRYPTO_RANDOM_POLYFILL_JS})
+        self.call("Runtime.enable")  # 捕获 consoleAPICalled / exceptionThrown
+        self.call("Log.enable")  # 捕获 Log.entryAdded（网络/资源错误也在这）
+        self.call(
+            "Network.enable"
+        )  # 捕获资源加载失败/HTTP 错误（require/组件加载诊断）
+        self.call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {"source": CRYPTO_RANDOM_POLYFILL_JS},
+        )
 
     def _capture_event(self, msg: dict):
         """call() 等待响应期间收到的事件消息：console/异常入环形缓冲"""
         method = msg.get("method", "")
         if method == "Runtime.consoleAPICalled":
             p = msg.get("params", {})
-            args = " ".join(str(a.get("value", a.get("description", "")))[:300]
-                            for a in p.get("args", []))
+            args = " ".join(
+                str(a.get("value", a.get("description", "")))[:300]
+                for a in p.get("args", [])
+            )
             self.console_log.append("[console.%s] %s" % (p.get("type"), args))
         elif method == "Runtime.exceptionThrown":
             d = msg.get("params", {}).get("exceptionDetails", {})
             exc = d.get("exception") or {}
-            self.console_log.append("[异常] %s %s" % (d.get("text", ""),
-                                                       exc.get("description", "")[:400]))
+            self.console_log.append(
+                "[异常] %s %s" % (d.get("text", ""), exc.get("description", "")[:400])
+            )
         elif method == "Log.entryAdded":
             e = msg.get("params", {}).get("entry", {})
-            self.console_log.append("[log.%s] %s" % (e.get("level"), str(e.get("text", ""))[:300]))
+            self.console_log.append(
+                "[log.%s] %s" % (e.get("level"), str(e.get("text", ""))[:300])
+            )
         elif method == "Network.requestWillBeSent":
             p = msg.get("params", {})
             rid = p.get("requestId")
@@ -133,7 +164,7 @@ class CdpBrowser:
             if url:
                 self._net_done.append(url)
             err = p.get("errorText", "")
-            if "ERR_ABORTED" not in err:   # 导航中断属常态噪音，不记
+            if "ERR_ABORTED" not in err:  # 导航中断属常态噪音，不记
                 self.console_log.append("[net.fail] %s %s" % (err, url[:220]))
         elif method == "Network.loadingFinished":
             # 在途表出清（wait_network_idle 的"加载完成"信号源）
@@ -150,24 +181,31 @@ class CdpBrowser:
             out_dir.mkdir(parents=True, exist_ok=True)
             if self.console_log:
                 (out_dir / ("diag_console_%s.log" % tag)).write_text(
-                    "\n".join(self.console_log), encoding="utf-8")
+                    "\n".join(self.console_log), encoding="utf-8"
+                )
             r = self.call("Page.captureScreenshot", {"format": "png"})
             data = (r.get("result") or {}).get("data")
             if data:
-                (out_dir / ("diag_page_%s.png" % tag)).write_bytes(base64.b64decode(data))
-            print("  [诊断] console 日志与截图已写入 %s（diag_*_%s.*）" % (out_dir, tag))
+                (out_dir / ("diag_page_%s.png" % tag)).write_bytes(
+                    base64.b64decode(data)
+                )
+            print(
+                "  [诊断] console 日志与截图已写入 %s（diag_*_%s.*）" % (out_dir, tag)
+            )
         except Exception:  # noqa: BLE001
             pass
 
     def call(self, method, params=None, timeout=120):
         self._mid[0] += 1
         self.ws.settimeout(timeout)
-        self.ws.send(json.dumps({"id": self._mid[0], "method": method, "params": params or {}}))
+        self.ws.send(
+            json.dumps({"id": self._mid[0], "method": method, "params": params or {}})
+        )
         while True:
             msg = json.loads(self.ws.recv())
             if msg.get("id") == self._mid[0]:
                 return msg
-            self._capture_event(msg)   # 等待期间的异步事件入缓冲
+            self._capture_event(msg)  # 等待期间的异步事件入缓冲
 
     def _new_ws(self, ws_url):
         ws = websocket.create_connection(ws_url, timeout=120, suppress_origin=True)
@@ -176,7 +214,11 @@ class CdpBrowser:
         def call(method, params=None, timeout=120):
             state["mid"] += 1
             ws.settimeout(timeout)
-            ws.send(json.dumps({"id": state["mid"], "method": method, "params": params or {}}))
+            ws.send(
+                json.dumps(
+                    {"id": state["mid"], "method": method, "params": params or {}}
+                )
+            )
             while True:
                 msg = json.loads(ws.recv())
                 if msg.get("id") == state["mid"]:
@@ -189,8 +231,10 @@ class CdpBrowser:
         info = None
         for method in ("PUT", "GET", None):
             try:
-                req = urllib.request.Request("http://127.0.0.1:%d/json/new?about:blank" % self.port,
-                                             method=method)
+                req = urllib.request.Request(
+                    "http://127.0.0.1:%d/json/new?about:blank" % self.port,
+                    method=method,
+                )
                 info = json.loads(urllib.request.urlopen(req, timeout=5).read())
                 break
             except Exception:  # noqa: BLE001
@@ -207,14 +251,18 @@ class CdpBrowser:
         except Exception:  # noqa: BLE001
             pass
         try:
-            urllib.request.urlopen("http://127.0.0.1:%d/json/close/%s" % (self.port, tab["id"]),
-                                   timeout=5).read()
+            urllib.request.urlopen(
+                "http://127.0.0.1:%d/json/close/%s" % (self.port, tab["id"]), timeout=5
+            ).read()
         except Exception:  # noqa: BLE001
             pass
 
     def eval(self, expression, timeout=30):
-        r = self.call("Runtime.evaluate",
-                      {"expression": expression, "returnByValue": True}, timeout=timeout)
+        r = self.call(
+            "Runtime.evaluate",
+            {"expression": expression, "returnByValue": True},
+            timeout=timeout,
+        )
         return ((r.get("result") or {}).get("result") or {}).get("value")
 
     def wait_expr(self, expression, timeout=60, interval=0.5):
@@ -231,6 +279,7 @@ class CdpBrowser:
         （如地图瓦片域名），避开首页实时监控自身的周期轮询。
         min_seen>0：须先累计见到 N 个匹配请求才开始计静默（以等待开始时的已完成数为
         基线，防"本弹窗加载还没开始就误判完成"——内网实测 3s 裸静默曾截早了几条）。"""
+
         def _counts():
             if url_substr:
                 done_n = sum(1 for u in self._net_done if url_substr in u)
@@ -244,7 +293,7 @@ class CdpBrowser:
         base_done, _ = _counts()
         idle_since = None
         while time.time() < deadline:
-            self.eval("1")   # 泵事件 + 保活
+            self.eval("1")  # 泵事件 + 保活
             done_n, busy = _counts()
             seen = max(0, done_n - base_done) + len(busy)
             if busy or seen < min_seen:
@@ -281,17 +330,29 @@ class CdpBrowser:
 class OfficialTrackRenderer:
     """用官方系统页面渲染行程轨迹弹窗并截图"""
 
-    def __init__(self, chrome: str, log_file: Path, wait_dialog_s: int = 60, wait_tiles_s: int = 12,
-                 wait_login_s: int = 180, idle_quiet_s: float = 5.0, min_wait_s: float = 0.0,
-                 pcd_wait_s: float = 6.0):
+    def __init__(
+        self,
+        chrome: str,
+        log_file: Path,
+        wait_dialog_s: int = 60,
+        wait_tiles_s: int = 12,
+        wait_login_s: int = 180,
+        idle_quiet_s: float = 5.0,
+        min_wait_s: float = 0.0,
+        pcd_wait_s: float = 6.0,
+    ):
         self.chrome = chrome
         self.log_file = Path(log_file)
         self.wait_dialog_s = wait_dialog_s
         self.wait_tiles_s = wait_tiles_s
         self.wait_login_s = wait_login_s
         self.idle_quiet_s = idle_quiet_s
-        self.min_wait_s = min_wait_s   # 轨迹弹窗出现后的固定等待下限（秒），到点才启动静默检测
-        self.pcd_wait_s = pcd_wait_s   # 派车单打印弹窗 Section0 出现后的固定等待（秒），实测 6s 足够
+        self.min_wait_s = (
+            min_wait_s  # 轨迹弹窗出现后的固定等待下限（秒），到点才启动静默检测
+        )
+        self.pcd_wait_s = (
+            pcd_wait_s  # 派车单打印弹窗 Section0 出现后的固定等待（秒），实测 6s 足够
+        )
         self.browser = None
 
     INJECT_AUTH_JS = """
@@ -311,9 +372,9 @@ class OfficialTrackRenderer:
         流程：等 cube 框架加载 → 优先等页面自己走完 #home?T= 自动登录（页面完整初始化
         依赖它：弹窗消息包/地图 AccessToken 都是登录后才就位——凭证注入跳步曾致打印弹窗
         CUBE.self.msg 未初始化、轨迹地图空白）→ 超时再注入凭证兜底 → 失败给全量诊断。"""
-        token = getattr(auth, 'token', auth)
-        refresh = getattr(auth, 'refresh_token', '') or ''
-        login_user = getattr(auth, 'login_user', None) or {}
+        token = getattr(auth, "token", auth)
+        refresh = getattr(auth, "refresh_token", "") or ""
+        login_user = getattr(auth, "login_user", None) or {}
         self.browser = CdpBrowser(self.chrome, log_file=self.log_file)
         self.browser.navigate(INDEX_URL + "#home?T=" + token)
 
@@ -321,25 +382,43 @@ class OfficialTrackRenderer:
         ok = self.browser.wait_expr("typeof cube!=='undefined'", timeout=60)
         if not ok:
             self._dump_failure("cube 框架未加载")
-            raise RuntimeError("cube 框架未加载（页面未打开成功），诊断见 %s" % self._diag_path())
+            raise RuntimeError(
+                "cube 框架未加载（页面未打开成功），诊断见 %s" % self._diag_path()
+            )
 
         # 2) 等页面自动登录完成（完整初始化；每 15s 打一次页面环境便于定位卡点）
         deadline = time.time() + self.wait_login_s
         last_log = 0.0
         while time.time() < deadline:
-            if self.browser.eval("typeof cube!=='undefined' && !!cube.loginUser && !!cube.token") is True:
+            if (
+                self.browser.eval(
+                    "typeof cube!=='undefined' && !!cube.loginUser && !!cube.token"
+                )
+                is True
+            ):
                 print("官方页面渲染器：页面自动登录完成（完整初始化）")
                 return
             if time.time() - last_log >= 15:
                 last_log = time.time()
-                print("  [渲染器] 等待页面自动登录… 环境 %s" % self.browser.eval(self.PROBE_JS))
+                print(
+                    "  [渲染器] 等待页面自动登录… 环境 %s"
+                    % self.browser.eval(self.PROBE_JS)
+                )
             time.sleep(1.0)
 
         # 3) 兜底：注入凭证（页面初始化可能不完整，弹窗/地图渲染可能异常）
-        print("  [渲染器] 页面自动登录 %ds 未完成，改为注入凭证兜底" % self.wait_login_s)
-        r = self.browser.eval(self.INJECT_AUTH_JS % (
-            json.dumps(token), json.dumps(refresh),
-            json.dumps(login_user, ensure_ascii=False)), timeout=30)
+        print(
+            "  [渲染器] 页面自动登录 %ds 未完成，改为注入凭证兜底" % self.wait_login_s
+        )
+        r = self.browser.eval(
+            self.INJECT_AUTH_JS
+            % (
+                json.dumps(token),
+                json.dumps(refresh),
+                json.dumps(login_user, ensure_ascii=False),
+            ),
+            timeout=30,
+        )
         if r != "ok":
             self._dump_failure("凭证注入返回异常")
             raise RuntimeError("凭证注入失败: %s" % r)
@@ -347,7 +426,9 @@ class OfficialTrackRenderer:
         ready = self.browser.wait_expr("!!cube.token && !!cube.loginUser", timeout=30)
         if not ready:
             self._dump_failure("凭证注入后仍未就绪")
-            raise RuntimeError("官方系统页面登录态注入后仍未就绪，诊断见 %s" % self._diag_path())
+            raise RuntimeError(
+                "官方系统页面登录态注入后仍未就绪，诊断见 %s" % self._diag_path()
+            )
 
     def _diag_path(self) -> Path:
         return self.log_file.parent / "official_login_diag.png"
@@ -358,8 +439,12 @@ class OfficialTrackRenderer:
             info = {
                 "why": why,
                 "typeof_cube": self.browser.eval("typeof cube"),
-                "has_token": self.browser.eval("typeof cube!=='undefined' ? !!cube.token : null"),
-                "has_loginUser": self.browser.eval("typeof cube!=='undefined' ? !!cube.loginUser : null"),
+                "has_token": self.browser.eval(
+                    "typeof cube!=='undefined' ? !!cube.token : null"
+                ),
+                "has_loginUser": self.browser.eval(
+                    "typeof cube!=='undefined' ? !!cube.loginUser : null"
+                ),
                 "readyState": self.browser.eval("document.readyState"),
                 "title": self.browser.eval("document.title"),
                 "url": (self.browser.eval("location.href") or "")[:160],
@@ -461,15 +546,17 @@ class OfficialTrackRenderer:
         """新标签页（独立 ws）里的条件等待，替代固定 sleep"""
         deadline = time.time() + timeout
         while time.time() < deadline:
-            r = tab["call"]("Runtime.evaluate",
-                            {"expression": expr, "returnByValue": True})
+            r = tab["call"](
+                "Runtime.evaluate", {"expression": expr, "returnByValue": True}
+            )
             if (((r.get("result") or {}).get("result") or {}).get("value")) is True:
                 return True
             time.sleep(interval)
         return False
 
-    def render_pcd_pdf_one(self, item: dict, out_pdf: Path, tag: str = "",
-                           diag_dir: Path = None):
+    def render_pcd_pdf_one(
+        self, item: dict, out_pdf: Path, tag: str = "", diag_dir: Path = None
+    ):
         """逐单渲染（按需求不批量）：每单独立开官方打印弹窗，失败隔离到单。
         超时/失败自动落诊断包（console 日志+整页截图）到 diag_dir（默认随 PDF）。"""
         diag_dir = diag_dir or out_pdf.parent
@@ -480,27 +567,35 @@ class OfficialTrackRenderer:
             "(typeof ko!=='undefined' && ko.components && "
             "ko.components.isRegistered('factoryLayout.running.pcdmanager.sx.sxpcdlistprint'))"
             " || typeof window.require==='function' || typeof require==='function'",
-            timeout=60)
-        print("  [渲染诊断] 打印组件/加载器就绪=%s；页面环境 %s"
-              % (tpl_ready, self.browser.eval(self.PROBE_JS)))
-        r = self.browser.eval(self.OPEN_PCD_PRINT_JS % json.dumps([item], ensure_ascii=False),
-                              timeout=60)
+            timeout=60,
+        )
+        print(
+            "  [渲染诊断] 打印组件/加载器就绪=%s；页面环境 %s"
+            % (tpl_ready, self.browser.eval(self.PROBE_JS))
+        )
+        r = self.browser.eval(
+            self.OPEN_PCD_PRINT_JS % json.dumps([item], ensure_ascii=False), timeout=60
+        )
         if r != "ok":
-            time.sleep(3)   # 加载竞态兜底：重试一次
-            r = self.browser.eval(self.OPEN_PCD_PRINT_JS % json.dumps([item], ensure_ascii=False),
-                                  timeout=60)
+            time.sleep(3)  # 加载竞态兜底：重试一次
+            r = self.browser.eval(
+                self.OPEN_PCD_PRINT_JS % json.dumps([item], ensure_ascii=False),
+                timeout=60,
+            )
         if r != "ok":
             self.browser.dump_diag(diag_dir, tag or "openfail")
             raise RuntimeError("打开官方派车单打印弹窗失败: %s" % r)
         ok = self.browser.wait_expr(
             "document.querySelectorAll('#sxpcdmanageprint-area .Section0').length >= 1",
-            timeout=120)
+            timeout=120,
+        )
         if not ok:
             state = self.browser.eval(
                 "(function(){return JSON.stringify({"
                 "modal: document.querySelectorAll('.cube.modal.fade').length,"
                 "area: !!document.getElementById('sxpcdmanageprint-area'),"
-                "s0: document.querySelectorAll('#sxpcdmanageprint-area .Section0').length})})()")
+                "s0: document.querySelectorAll('#sxpcdmanageprint-area .Section0').length})})()"
+            )
             print("  [渲染诊断] 弹窗状态 %s" % state)
             self.browser.dump_diag(diag_dir, tag or "section0")
             self.browser.eval(self.CLOSE_DIALOG_JS)
@@ -514,17 +609,30 @@ class OfficialTrackRenderer:
             self.browser.dump_diag(diag_dir, tag or "extract")
             raise RuntimeError("派车单打印区提取失败")
         dom = json.loads(dom)
-        full_html = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
-                     + dom["head"] + "</head><body>" + dom["body"] + "</body></html>")
+        full_html = (
+            "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+            + dom["head"]
+            + "</head><body>"
+            + dom["body"]
+            + "</body></html>"
+        )
         tab = self.browser.new_tab()
         try:
-            tab["call"]("Runtime.evaluate",
-                        {"expression": "document.write(%s); document.close(); 'ok'"
-                                       % json.dumps(full_html), "returnByValue": True})
+            tab["call"](
+                "Runtime.evaluate",
+                {
+                    "expression": "document.write(%s); document.close(); 'ok'"
+                    % json.dumps(full_html),
+                    "returnByValue": True,
+                },
+            )
             # 样式表/文档就绪检测，替代固定 sleep(2.0)；上限与派车单固定等待同档（6s 封顶）
-            self._tab_wait_expr(tab, self.STYLES_READY_JS, timeout=max(1, int(self.pcd_wait_s)))
-            r = tab["call"]("Page.printToPDF",
-                            {"preferCSSPageSize": True, "printBackground": True})
+            self._tab_wait_expr(
+                tab, self.STYLES_READY_JS, timeout=max(1, int(self.pcd_wait_s))
+            )
+            r = tab["call"](
+                "Page.printToPDF", {"preferCSSPageSize": True, "printBackground": True}
+            )
             data = (r.get("result") or {}).get("data")
             if not data:
                 raise RuntimeError("printToPDF 无数据: %s" % str(r)[:200])
@@ -556,17 +664,23 @@ class OfficialTrackRenderer:
 """
 
     def _render(self, template_name: str, params, out_png: Path, pre_shot_js: str = ""):
-        r = self.browser.eval(self.OPEN_DIALOG_JS % (json.dumps(template_name),
-                                                     json.dumps(params, ensure_ascii=False)),
-                              timeout=60)
+        r = self.browser.eval(
+            self.OPEN_DIALOG_JS
+            % (json.dumps(template_name), json.dumps(params, ensure_ascii=False)),
+            timeout=60,
+        )
         if r != "ok":
             raise RuntimeError("打开官方轨迹弹窗失败: %s" % r)
-        if not self.browser.wait_expr("!!document.querySelector('.cube.modal.fade .modal-body *')",
-                                      timeout=self.wait_dialog_s):
+        if not self.browser.wait_expr(
+            "!!document.querySelector('.cube.modal.fade .modal-body *')",
+            timeout=self.wait_dialog_s,
+        ):
             raise RuntimeError("轨迹弹窗未出现")
         # 等地图 canvas 出现（无轨迹点时可能一直没有，容忍）
-        self.browser.wait_expr("!!document.querySelector('.cube.modal.fade canvas')",
-                               timeout=min(40, self.wait_dialog_s))
+        self.browser.wait_expr(
+            "!!document.querySelector('.cube.modal.fade canvas')",
+            timeout=min(40, self.wait_dialog_s),
+        )
         # 固定等待下限：实测多数轨迹完整渲染需 30s+，下限之内不启动静默检测（防截早；
         # config.ini [export] map_min_wait 可调/置 0 关闭）
         if self.min_wait_s > 0:
@@ -576,11 +690,16 @@ class OfficialTrackRenderer:
         # wait_tiles_s 为兜底上限，idle_quiet_s 可调（config.ini [export] map_idle_quiet）
         t0 = time.time()
         idle_ok = self.browser.wait_network_idle(
-            quiet_s=self.idle_quiet_s, timeout=max(15, self.wait_tiles_s),
-            url_substr="map.sgcc.com.cn", min_seen=2)
-        print("  [渲染] 地图加载检测：%s（%.1fs）" % ("静默完成" if idle_ok else "兜底超时",
-                                                       time.time() - t0))
-        time.sleep(1.0)   # 静默后给最后一帧渲染留一瞬
+            quiet_s=self.idle_quiet_s,
+            timeout=max(15, self.wait_tiles_s),
+            url_substr="map.sgcc.com.cn",
+            min_seen=2,
+        )
+        print(
+            "  [渲染] 地图加载检测：%s（%.1fs）"
+            % ("静默完成" if idle_ok else "兜底超时", time.time() - t0)
+        )
+        time.sleep(1.0)  # 静默后给最后一帧渲染留一瞬
         # 「自动校准行程结束时间」：截图前注入改写 JS（build_popup_rewrite_js 生成），
         # 命中数随日志透出；未命中不视为失败（保留官方原始时间，页面结构变化时降级安全）
         rewrite_hits = None
@@ -591,32 +710,43 @@ class OfficialTrackRenderer:
                 rewrite_hits = info.get("replaced", 0)
             except Exception:  # noqa: BLE001
                 rewrite_hits = 0
-            print("  [校准] 弹窗时间改写命中 %d 处%s"
-                  % (rewrite_hits, "" if rewrite_hits else "（保留官方原始时间）"))
+            print(
+                "  [校准] 弹窗时间改写命中 %d 处%s"
+                % (rewrite_hits, "" if rewrite_hits else "（保留官方原始时间）")
+            )
         rect = self.browser.eval(self.RECT_JS)
         if not rect:
             raise RuntimeError("弹窗内容区未找到")
         box = json.loads(rect)
-        clip = {"x": max(0, box["x"]), "y": max(0, box["y"]),
-                "width": box["width"], "height": box["height"], "scale": 1}
+        clip = {
+            "x": max(0, box["x"]),
+            "y": max(0, box["y"]),
+            "width": box["width"],
+            "height": box["height"],
+            "scale": 1,
+        }
         self.browser.screenshot_clip(clip, out_png)
         # 空白告警：内容弹窗截图通常 ≥30KB，过小多半没渲完就拍了
         try:
             size = out_png.stat().st_size
             if size < 30 * 1024:
-                print("  [渲染告警] 轨迹截图仅 %.1f KB，疑似空白（企业浏览器偏慢，"
-                      "可调大 config.ini [export] map_tiles_wait 后重试）" % (size / 1024))
+                print(
+                    "  [渲染告警] 轨迹截图仅 %.1f KB，疑似空白（企业浏览器偏慢，"
+                    "可调大 config.ini [export] map_tiles_wait 后重试）" % (size / 1024)
+                )
                 self.browser.dump_diag(out_png.parent, "blank_" + out_png.stem[:24])
         except OSError:
             pass
         self.browser.eval(self.CLOSE_DIALOG_JS)
         time.sleep(0.5)
-        return rewrite_hits   # 未启用校准时为 None；启用时为命中处数（0 = 未命中）
+        return rewrite_hits  # 未启用校准时为 None；启用时为命中处数（0 = 未命中）
 
     def render_route_png(self, route_id: str, out_png: Path, pre_shot_js: str = ""):
         """行程详情弹窗（理想样式：行程编号/里程/时速/绑定的派车单等）。
         pre_shot_js：截图前注入执行的改写脚本（自动校准行程结束时间用，空串不注入）"""
-        return self._render(self.TEMPLATE_ROUTE, {"routeId": route_id}, out_png, pre_shot_js)
+        return self._render(
+            self.TEMPLATE_ROUTE, {"routeId": route_id}, out_png, pre_shot_js
+        )
 
     def render_pcd_png(self, order: dict, out_png: Path, pre_shot_js: str = ""):
         """按派车单弹窗（找不到行程段时的回退）；pre_shot_js 口径同 render_route_png"""
@@ -721,13 +851,17 @@ POPUP_REWRITE_JS = r"""
 """
 
 
-def build_popup_rewrite_js(old_dt: "object", new_dt: "object",
-                           old_dur_s: int, new_dur_s: int) -> str:
+def build_popup_rewrite_js(
+    old_dt: "object", new_dt: "object", old_dur_s: int, new_dur_s: int
+) -> str:
     """生成弹窗时间改写 JS。old_dt/new_dt 为 datetime；时长为秒（行程开始→结束）。"""
+
     def c(dt):
         return [dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second]
-    return (POPUP_REWRITE_JS
-            .replace("__OLDC__", json.dumps(c(old_dt)))
-            .replace("__NEWC__", json.dumps(c(new_dt)))
-            .replace("__OLDDUR__", str(int(old_dur_s)))
-            .replace("__NEWDUR__", str(int(new_dur_s))))
+
+    return (
+        POPUP_REWRITE_JS.replace("__OLDC__", json.dumps(c(old_dt)))
+        .replace("__NEWC__", json.dumps(c(new_dt)))
+        .replace("__OLDDUR__", str(int(old_dur_s)))
+        .replace("__NEWDUR__", str(int(new_dur_s)))
+    )

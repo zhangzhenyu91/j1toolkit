@@ -10,10 +10,10 @@ page {
 /* ---------- 分段（激活态白底蓝字，政企蓝白分段控件口径） ---------- */
 .seg-wrap {
   /* CSS 变量穿透组件（apply-shared），覆盖 t-segmented 主题 */
-  --td-segmented-bg-color: #E5E6EB;
+  --td-segmented-bg-color: #e5e6eb;
   --td-segmented-item-active-bg: #ffffff;
-  --td-segmented-item-active-color: #0E3DA8;
-  --td-segmented-item-color: #4E5969;
+  --td-segmented-item-active-color: #0e3da8;
+  --td-segmented-item-color: #4e5969;
 }
 
 .seg-wrap .t-segmented {
@@ -37,7 +37,7 @@ page {
   flex: 1;
   height: 84rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -48,7 +48,7 @@ page {
 .inp-input {
   flex: 1;
   font-size: 26rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .ph {
@@ -60,8 +60,8 @@ page {
   height: 84rpx;
   flex: none;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
-  background: #0E3DA8;
+  border: 2rpx solid #e5e6eb;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -86,7 +86,7 @@ page {
 }
 
 .mrow + .mrow {
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .mrow .mi {
@@ -94,7 +94,7 @@ page {
   height: 60rpx;
   flex: none;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -130,7 +130,7 @@ page {
 }
 
 .mrow .ops .edit {
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .mrow .ops .off {
@@ -138,7 +138,7 @@ page {
 }
 
 .mrow .ops .del {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 .mempty {
@@ -151,7 +151,7 @@ page {
 /* ---------- 人员来源标（直角小签） ---------- */
 .sync-pill {
   font-size: 19rpx;
-  color: #00B42A;
+  color: #00b42a;
   background: #eaf6ee;
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
@@ -160,8 +160,8 @@ page {
 
 .hand-pill {
   font-size: 19rpx;
-  color: #4E5969;
-  background: #E8F0FF;
+  color: #4e5969;
+  background: #e8f0ff;
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
@@ -171,14 +171,14 @@ page {
 .line-tower {
   margin-left: auto;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   font-variant-numeric: tabular-nums;
 }
 
 .tower-bar {
   margin-top: 28rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 22rpx 26rpx;
   display: flex;
@@ -207,14 +207,14 @@ page {
 
 .tb-btn.tpl {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
-  color: #1D2129;
+  border: 2rpx solid #e5e6eb;
+  color: #1d2129;
 }
 
 .tb-btn.imp {
-  background: #E8F0FF;
-  border: 3rpx solid #0E3DA8;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  border: 3rpx solid #0e3da8;
+  color: #0e3da8;
 }
 
 .tb-btn.disabled {
@@ -232,14 +232,14 @@ page {
   margin-top: 20rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 /* ---------- 目的地费用标记胶囊（直角小签，口径同人员来源标） ---------- */
 .oc-pill {
   font-size: 19rpx;
-  color: #D25F00;
-  background: #FFF7E8;
+  color: #d25f00;
+  background: #fff7e8;
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
@@ -247,8 +247,8 @@ page {
 
 .st2-pill {
   font-size: 19rpx;
-  color: #0E3DA8;
-  background: #E8F0FF;
+  color: #0e3da8;
+  background: #e8f0ff;
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
@@ -275,7 +275,7 @@ page {
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 表单字段（.f-label/.f-field 用 app.wxss 全局类） */
@@ -299,14 +299,14 @@ page {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 6rpx;
 }
 
@@ -314,7 +314,7 @@ page {
   flex: 2;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;

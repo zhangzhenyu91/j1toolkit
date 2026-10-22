@@ -47,7 +47,9 @@ function mergeDocx(buffers) {
   let xml = base.file('word/document.xml').asText();
   const injection = buffers
     .slice(1)
-    .map((buf) => withPageBreakBefore(bodyContent(new PizZip(buf).file('word/document.xml').asText())))
+    .map((buf) =>
+      withPageBreakBefore(bodyContent(new PizZip(buf).file('word/document.xml').asText()))
+    )
     .join('');
   if (injection) {
     xml = xml.replace(/<w:sectPr[\s\S]*?<\/w:sectPr>/, (sect) => injection + sect);

@@ -4,8 +4,24 @@
 const ExcelJS = require('exceljs');
 
 // 表头（第 2 行；第 1 行为「{班组}树木统计表」合并标题）；第 17 列（Q 列）为隐藏的记录ID 锚点列
-const HEADERS = ['序号', '电压等级', '线路名称', '区段', '树种', '数量', '距小号侧距离（m）', '距大号侧距离（m）',
-  '直径（cm）', '水平距离（m）', '垂直距离（m）', '发现人', '发现时间', '处理人', '处理情况', '处理时间'];
+const HEADERS = [
+  '序号',
+  '电压等级',
+  '线路名称',
+  '区段',
+  '树种',
+  '数量',
+  '距小号侧距离（m）',
+  '距大号侧距离（m）',
+  '直径（cm）',
+  '水平距离（m）',
+  '垂直距离（m）',
+  '发现人',
+  '发现时间',
+  '处理人',
+  '处理情况',
+  '处理时间',
+];
 // 列宽（2026-10 定稿口径）
 const COL_WIDTHS = [5, 10, 15, 15, 15, 10, 10, 10, 10, 10, 10, 15, 15, 15, 10, 15];
 const ID_COL = 17; // Q 列
@@ -34,7 +50,9 @@ function fmtExportDate(v) {
 
 // 文件名非法字符清洗（Windows/COS 通用：\ / : * ? " < > | 与控制字符一律替换为 _）
 function safeFileName(name) {
-  const s = String(name ?? '').replace(/[\\/:*?"<>|]/g, '_').trim();
+  const s = String(name ?? '')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .trim();
   // 控制字符（0x00-0x1f）一并替换为 _
   return s.replace(/[\s\S]/g, (ch) => (ch.charCodeAt(0) < 32 ? '_' : ch)) || '未命名';
 }
@@ -57,8 +75,13 @@ async function fetchLineOrder(pool, teamId) {
 
 // 本班垂直距离阈值（未配置 → null；路由与同步模块共用，供看板/卡片「要紧」红显与计数判定）
 async function fetchThreshold(pool, teamId) {
-  const [rows] = await pool.query('SELECT vertical_threshold FROM treehazard_team_setting WHERE team_id = ?', [teamId]);
-  return rows.length && rows[0].vertical_threshold !== null ? Number(rows[0].vertical_threshold) : null;
+  const [rows] = await pool.query(
+    'SELECT vertical_threshold FROM treehazard_team_setting WHERE team_id = ?',
+    [teamId]
+  );
+  return rows.length && rows[0].vertical_threshold !== null
+    ? Number(rows[0].vertical_threshold)
+    : null;
 }
 
 // 数值前缀（电压等级等按数值排序用；无数字 → Infinity 排尾）
@@ -105,7 +128,8 @@ function makeLineGroupComparator(lineOrder) {
     const la = lineRank(a.line_name);
     const lb = lineRank(b.line_name);
     if (la !== lb) return la - lb;
-    if (la === Infinity) return String(a.line_name || '').localeCompare(String(b.line_name || ''), 'zh-CN');
+    if (la === Infinity)
+      return String(a.line_name || '').localeCompare(String(b.line_name || ''), 'zh-CN');
     return 0;
   };
 }
@@ -127,7 +151,10 @@ function exportGroupComparator(a, b) {
 // 未处理在前已处理在后 > 电压等级降序 > 线路名称升序 > 区段升序
 function sortRecords(records, groupComparator, statusFirst = false) {
   const intra = makeIntraComparator();
-  return [...records].sort((a, b) => (statusFirst ? statusTier(a) - statusTier(b) : 0) || groupComparator(a, b) || intra(a, b));
+  return [...records].sort(
+    (a, b) =>
+      (statusFirst ? statusTier(a) - statusTier(b) : 0) || groupComparator(a, b) || intra(a, b)
+  );
 }
 
 // 电压等级单元格幂等格式化：值已含 kV 不重复追加，纯数字才拼 kV，其余原样（读回剥后缀口径见 diff.js parseIntranetSheet）
@@ -143,7 +170,10 @@ const CELL_CENTER = { horizontal: 'center', vertical: 'middle' };
 // 数据行（R3 起）在居中基础上自动换行（长文本如处理情况不截断）；表头/标题行不换行
 const CELL_CENTER_WRAP = { horizontal: 'center', vertical: 'middle', wrapText: true };
 const THIN_BORDER = {
-  top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' },
+  top: { style: 'thin' },
+  left: { style: 'thin' },
+  bottom: { style: 'thin' },
+  right: { style: 'thin' },
 };
 
 // 单个 worksheet 写入完整模板：默认 R1 合并标题（行高 45 磅/字号 20/加粗居中，不加框线）、R2 表头（35 磅/12 加粗）、
@@ -240,9 +270,19 @@ function groupByLine(records, lineOrder) {
 }
 
 // sheet 名清洗（Excel 约束）：禁字符 [ ] : * ? / \ 换全角、≤31 字符、空名兜底「未命名线路」、重名追加序号（n）
-const SHEET_FULLWIDTH = { '[': '【', ']': '】', ':': '：', '*': '＊', '?': '？', '/': '／', '\\': '＼' };
+const SHEET_FULLWIDTH = {
+  '[': '【',
+  ']': '】',
+  ':': '：',
+  '*': '＊',
+  '?': '？',
+  '/': '／',
+  '\\': '＼',
+};
 function sheetNameOf(base, used) {
-  let name = String(base ?? '').replace(/[[\]:*?/\\]/g, (ch) => SHEET_FULLWIDTH[ch]).trim();
+  let name = String(base ?? '')
+    .replace(/[[\]:*?/\\]/g, (ch) => SHEET_FULLWIDTH[ch])
+    .trim();
   if (!name) name = '未命名线路';
   name = name.slice(0, 31);
   if (!used.has(name)) {
@@ -267,7 +307,11 @@ function sheetNameOf(base, used) {
 // 每 sheet 完整模板、序号自 1 重排，标题「{电压等级}{线路名称}树木统计表」（与分线路导出文件名口径一致），
 // 未匹配线路记录归末尾「未匹配线路」sheet（标题同为「未匹配线路」）
 async function buildWorkbook({ teamName, records, split = false, lineOrder, skipTitle = false }) {
-  const sorted = sortRecords(records, split ? makeLineGroupComparator(lineOrder) : exportGroupComparator, !split);
+  const sorted = sortRecords(
+    records,
+    split ? makeLineGroupComparator(lineOrder) : exportGroupComparator,
+    !split
+  );
   const wb = new ExcelJS.Workbook();
   if (!split) {
     writeSheet(wb, { name: '树障', title: `${teamName}树木统计表`, records: sorted, skipTitle });
@@ -292,6 +336,13 @@ async function buildWorkbook({ teamName, records, split = false, lineOrder, skip
 }
 
 module.exports = {
-  buildWorkbook, sortRecords, makeLineGroupComparator, exportGroupComparator,
-  exportFileName, fetchLineOrder, fetchThreshold, parseVerticalNum, safeFileName,
+  buildWorkbook,
+  sortRecords,
+  makeLineGroupComparator,
+  exportGroupComparator,
+  exportFileName,
+  fetchLineOrder,
+  fetchThreshold,
+  parseVerticalNum,
+  safeFileName,
 };

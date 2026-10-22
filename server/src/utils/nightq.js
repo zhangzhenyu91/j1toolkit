@@ -7,7 +7,9 @@ const groups = new Map(); // 归一时刻 'HH:mm' -> { hh, mm, jobs: [{ name, jo
 
 // 归一时刻文本：'23:0' → '23:00'；非法输入回退 23:00（hh 可能为 0（午夜），不能用 || 判缺省）
 function normalizeTime(timeStr) {
-  const [hh, mm] = String(timeStr || '').split(':').map((s) => parseInt(s, 10));
+  const [hh, mm] = String(timeStr || '')
+    .split(':')
+    .map((s) => parseInt(s, 10));
   const h = Number.isInteger(hh) && hh >= 0 && hh <= 23 ? hh : 23;
   const m = Number.isInteger(mm) && mm >= 0 && mm <= 59 ? mm : 0;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -32,7 +34,9 @@ function scheduleGroup(timeStr, group) {
     scheduleGroup(timeStr, group); // 排次日
   }, nextUtc - now);
   group.timer.unref(); // 不阻塞进程退出
-  console.log(`[夜间任务] ${timeStr} 组已排程（${group.jobs.map((j) => j.name).join('、')}）：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
+  console.log(
+    `[夜间任务] ${timeStr} 组已排程（${group.jobs.map((j) => j.name).join('、')}）：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`
+  );
 }
 
 // 登记夜间任务：name 供日志识别；timeStr 为北京时间 'HH:mm'；job 为 async 函数。

@@ -4,11 +4,31 @@ const XLSX = require('xlsx');
 const { parseVerticalNum } = require('./export');
 
 // 比对列集：发现 12 列 + 处理 3 列（与 treehazard_record / 内网表列序一致）
-const DISCOVERY_COLS = ['voltage_level', 'line_name', 'section', 'tree_species', 'tree_count', 'dist_small',
-  'dist_big', 'diameter', 'horizontal', 'vertical', 'finder_name', 'found_at'];
+const DISCOVERY_COLS = [
+  'voltage_level',
+  'line_name',
+  'section',
+  'tree_species',
+  'tree_count',
+  'dist_small',
+  'dist_big',
+  'diameter',
+  'horizontal',
+  'vertical',
+  'finder_name',
+  'found_at',
+];
 const HANDLE_COLS = ['handler_name', 'handle_note', 'handled_at'];
 // 数字类列：「3」与「3.0」视为相同（Number 等值比较，任一侧 NaN/空 时按字符串比较）
-const NUMERIC_COLS = new Set(['voltage_level', 'tree_count', 'dist_small', 'dist_big', 'diameter', 'horizontal', 'vertical']);
+const NUMERIC_COLS = new Set([
+  'voltage_level',
+  'tree_count',
+  'dist_small',
+  'dist_big',
+  'diameter',
+  'horizontal',
+  'vertical',
+]);
 // 日期列：统一归一为 yyyy-MM-dd 比较
 const DATE_COLS = new Set(['found_at', 'handled_at']);
 
@@ -60,7 +80,11 @@ function parseSectionPoles(section) {
 // record_id 读 Q 列（第 17 列），空/非法 → null；日期 'yyyy.MM.dd' → 'yyyy-MM-dd'
 function parseIntranetSheet(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
-  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+    header: 1,
+    raw: false,
+    defval: '',
+  });
   let headIdx = -1;
   for (let i = 0; i < rows.length; i += 1) {
     if (rows[i].some((c) => String(c).trim() === '序号')) {
@@ -73,7 +97,9 @@ function parseIntranetSheet(buffer) {
   for (let i = headIdx + 1; i < rows.length; i += 1) {
     const r = rows[i];
     // 整行业务列为空 → 跳过（尾部空行/装饰行）
-    const anyBiz = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].some((j) => normStr(r[j]) !== '');
+    const anyBiz = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].some(
+      (j) => normStr(r[j]) !== ''
+    );
     if (!anyBiz) continue;
     const rid = parseInt(normStr(r[16]), 10);
     out.push({
@@ -106,7 +132,10 @@ function snapshotOf(record) {
   for (const c of [...DISCOVERY_COLS, ...HANDLE_COLS]) {
     snap[c] = DATE_COLS.has(c) ? normDateStr(record[c]) : normStr(record[c]);
   }
-  snap.vertical_num = record.vertical_num === null || record.vertical_num === undefined ? null : Number(record.vertical_num);
+  snap.vertical_num =
+    record.vertical_num === null || record.vertical_num === undefined
+      ? null
+      : Number(record.vertical_num);
   snap.status = record.status || 'unhandled';
   return snap;
 }
@@ -134,7 +163,9 @@ function intranetFields(row) {
 
 // 无 ID 行业务键比对：line_name + section + tree_species + tree_count + found_at 全等视为疑似重复
 function bizKeySame(serverRecord, row) {
-  return ['line_name', 'section', 'tree_species', 'tree_count', 'found_at'].every((c) => sameCell(c, serverRecord[c], row[c]));
+  return ['line_name', 'section', 'tree_species', 'tree_count', 'found_at'].every((c) =>
+    sameCell(c, serverRecord[c], row[c])
+  );
 }
 
 function toTime(v) {
@@ -175,7 +206,12 @@ function diffRecords(serverRecords, intranetRows, { deletedIds = [], adjudicated
   // 行与已裁决驳回快照全等判定（15 业务列，等值口径同 sameCell 列比较）
   const isAdjudicated = (rid, row) => {
     const snaps = adjMap.get(rid);
-    return !!snaps && snaps.some((snap) => [...DISCOVERY_COLS, ...HANDLE_COLS].every((c) => sameCell(c, snap[c], row[c])));
+    return (
+      !!snaps &&
+      snaps.some((snap) =>
+        [...DISCOVERY_COLS, ...HANDLE_COLS].every((c) => sameCell(c, snap[c], row[c]))
+      )
+    );
   };
 
   const handleNoId = (row) => {
@@ -193,7 +229,9 @@ function diffRecords(serverRecords, intranetRows, { deletedIds = [], adjudicated
       seenIds.add(rid);
       const srv = serverById.get(rid);
       if (srv) {
-        const changed = [...DISCOVERY_COLS, ...HANDLE_COLS].some((c) => !sameCell(c, srv[c], row[c]));
+        const changed = [...DISCOVERY_COLS, ...HANDLE_COLS].some(
+          (c) => !sameCell(c, srv[c], row[c])
+        );
         if (!changed) {
           skips += 1;
           continue;

@@ -15,14 +15,48 @@ const { parseDate, pad, fmtSize, extOf } = require('../../../utils/util');
 const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#1D2129;word-break:break-word;';
 
 // 附件白名单与上限（与服务端一致；wx.chooseMessageFile extension 过滤 + 端侧复核，同 worklog 先例）
-const ATTACH_EXTS = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'epub', 'mhtml', 'csv', 'md', 'markdown', 'txt', 'json', 'html', 'mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac', 'bmp', 'tiff', 'tif'];
+const ATTACH_EXTS = [
+  'pdf',
+  'docx',
+  'doc',
+  'pptx',
+  'ppt',
+  'xlsx',
+  'xls',
+  'epub',
+  'mhtml',
+  'csv',
+  'md',
+  'markdown',
+  'txt',
+  'json',
+  'html',
+  'mp3',
+  'wav',
+  'm4a',
+  'flac',
+  'ogg',
+  'aac',
+  'bmp',
+  'tiff',
+  'tif',
+];
 const ATTACH_MAX = 5;
 const ATTACH_MAX_SIZE = 50 * 1024 * 1024;
 // 音频扩展名（附件芯片图标区分用）
 const AUDIO_EXTS = ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac'];
 
 // 思考强度档位中文映射（胶囊与选项文案用；未知档位原样显示）
-const EFFORT_LABELS = { off: '关闭', auto: '自动', minimal: '极简', low: '较低', medium: '中等', high: '较高', xhigh: '超高', max: '最高' };
+const EFFORT_LABELS = {
+  off: '关闭',
+  auto: '自动',
+  minimal: '极简',
+  low: '较低',
+  medium: '中等',
+  high: '较高',
+  xhigh: '超高',
+  max: '最高',
+};
 function effortLabel(effort) {
   if (!effort) return '默认';
   return EFFORT_LABELS[effort] || effort;
@@ -77,11 +111,15 @@ Page({
     const { id, title } = options || {};
     if (!id) {
       this.toast('缺少会话 ID');
-      setTimeout(() => wx.navigateBack({
-        delta: 1,
-        // 页面栈仅 1 页（分享卡片首屏进入）时 navigateBack 静默失败，兜底回会话列表
-        fail: () => wx.reLaunch({ url: '/pkg-callme/pages/sessions/sessions' }),
-      }), 800);
+      setTimeout(
+        () =>
+          wx.navigateBack({
+            delta: 1,
+            // 页面栈仅 1 页（分享卡片首屏进入）时 navigateBack 静默失败，兜底回会话列表
+            fail: () => wx.reLaunch({ url: '/pkg-callme/pages/sessions/sessions' }),
+          }),
+        800
+      );
       return;
     }
     this._keySeq = 0; // 消息本地唯一 key（wx:key 用，删除后不复用）
@@ -176,7 +214,12 @@ Page({
   // ---------- 步骤树 ----------
   // 工具节点图标（与网页端同一套口径）
   toolIcon(name) {
-    if (name === 'knowledge_search' || name === 'search_knowledge' || name === 'grep_chunks' || name === 'web_search') {
+    if (
+      name === 'knowledge_search' ||
+      name === 'search_knowledge' ||
+      name === 'grep_chunks' ||
+      name === 'web_search'
+    ) {
       return 'search';
     }
     if (name === 'image_analysis') return 'image';
@@ -206,8 +249,10 @@ Page({
 
   // 完结后的思考摘要（官方口径）：思考 N 轮 · 调用 N 次工具 · 耗时 X
   summaryText(steps, meta, durationMs) {
-    const tools = meta && meta.tools != null ? meta.tools : steps.filter((s) => s.kind === 'tool').length;
-    const rounds = meta && meta.rounds ? meta.rounds : steps.filter((s) => s.kind === 'thought').length;
+    const tools =
+      meta && meta.tools != null ? meta.tools : steps.filter((s) => s.kind === 'tool').length;
+    const rounds =
+      meta && meta.rounds ? meta.rounds : steps.filter((s) => s.kind === 'thought').length;
     const parts = [];
     if (rounds) parts.push(`思考 ${rounds} 轮`);
     if (tools) parts.push(`调用 ${tools} 次工具`);
@@ -345,7 +390,8 @@ Page({
   // 消息取自 GET /sessions/:id（后端合并 WeKnora /messages/:id/load 后按时间升序返回）。
   // assistant 消息的步骤树由后端从 agent_steps 构建为展示就绪的 steps/steps_meta，端侧只渲染。
   buildHistoryMessage(m) {
-    const role = m.role === 'user' ? 'user' : m.role === 'assistant' || m.role === 'ai' ? 'assistant' : null;
+    const role =
+      m.role === 'user' ? 'user' : m.role === 'assistant' || m.role === 'ai' ? 'assistant' : null;
     const content = m.content || m.message || m.text || '';
     if (!role || !content) return null;
     const references = [];
@@ -356,12 +402,16 @@ Page({
         const rid = r.knowledge_id || r.id;
         if (!rid || seen.has(rid)) continue;
         seen.add(rid);
-        references.push({ id: rid, title: r.knowledge_title || r.knowledge_filename || '未命名资料' });
+        references.push({
+          id: rid,
+          title: r.knowledge_title || r.knowledge_filename || '未命名资料',
+        });
       }
     }
-    const steps = role === 'assistant' && Array.isArray(m.steps) && m.steps.length
-      ? this.prepareSteps(m.steps)
-      : [];
+    const steps =
+      role === 'assistant' && Array.isArray(m.steps) && m.steps.length
+        ? this.prepareSteps(m.steps)
+        : [];
     const stepsMeta = m.steps_meta || null;
     this._keySeq += 1;
     return {
@@ -384,7 +434,9 @@ Page({
 
   async loadHistory() {
     try {
-      const data = await request({ url: `/api/v1/callme/sessions/${this.data.sessionId}?limit=50` });
+      const data = await request({
+        url: `/api/v1/callme/sessions/${this.data.sessionId}?limit=50`,
+      });
       const raw = data.messages || data.message_list || data.history || [];
       const messages = [];
       for (const m of raw) {
@@ -541,7 +593,9 @@ Page({
       status: 'uploading',
       progress: 0,
     };
-    this.setData({ attachments: this.data.attachments.concat([chip]) }, () => this.refreshCanSend());
+    this.setData({ attachments: this.data.attachments.concat([chip]) }, () =>
+      this.refreshCanSend()
+    );
     this.uploadAttachment(key, path, name)
       .then((data) => {
         if (this._unloaded) return;
@@ -589,7 +643,11 @@ Page({
           } catch (e) {
             // 非 JSON 响应按失败处理
           }
-          if (res.statusCode >= 200 && res.statusCode < 300 && (body.code === 0 || body.success === true)) {
+          if (
+            res.statusCode >= 200 &&
+            res.statusCode < 300 &&
+            (body.code === 0 || body.success === true)
+          ) {
             resolve(body.data || {});
             return;
           }
@@ -610,7 +668,9 @@ Page({
       delete this._pollTimers[key];
       if (this._unloaded) return;
       try {
-        const list = await request({ url: `/api/v1/callme/sessions/${this.data.sessionId}/attachments` });
+        const list = await request({
+          url: `/api/v1/callme/sessions/${this.data.sessionId}/attachments`,
+        });
         if (this._unloaded) return;
         const found = (list || []).find((a) => a.id === id);
         const idx = this.data.attachments.findIndex((a) => a.key === key);
@@ -636,7 +696,9 @@ Page({
       clearTimeout(this._pollTimers[key]);
       delete this._pollTimers[key];
     }
-    this.setData({ attachments: this.data.attachments.filter((a) => a.key !== key) }, () => this.refreshCanSend());
+    this.setData({ attachments: this.data.attachments.filter((a) => a.key !== key) }, () =>
+      this.refreshCanSend()
+    );
   },
 
   // ---------- 模型与联网搜索 ----------
@@ -673,7 +735,11 @@ Page({
     const levels = cur && Array.isArray(cur.thinking_levels) ? cur.thinking_levels : [];
     const saved = wx.getStorageSync('callme_reasoning_effort') || '';
     const effort = levels.includes(saved) ? saved : '';
-    this.setData({ thinkingLevels: levels, reasoningEffort: effort, reasoningLabel: effortLabel(effort) });
+    this.setData({
+      thinkingLevels: levels,
+      reasoningEffort: effort,
+      reasoningLabel: effortLabel(effort),
+    });
   },
 
   // 思考强度选择：默认（不传）+ 当前模型支持的档位（中文映射文案）
@@ -739,7 +805,9 @@ Page({
     }
 
     const { pendingImage } = this.data;
-    const sendIds = this.data.attachments.filter((a) => a.id && a.status !== 'failed').map((a) => a.id);
+    const sendIds = this.data.attachments
+      .filter((a) => a.id && a.status !== 'failed')
+      .map((a) => a.id);
     const userKey = `k${(this._keySeq += 1)}`;
     const answerKey = `k${(this._keySeq += 1)}`;
     const messages = this.data.messages.concat([
@@ -824,14 +892,20 @@ Page({
               body = null;
             }
           }
-          this.finalizeAnswer(answerIndex, (body && body.message) || `请求失败（${code || '未知'}）`);
+          this.finalizeAnswer(
+            answerIndex,
+            (body && body.message) || `请求失败（${code || '未知'}）`
+          );
           return;
         }
         this.finalizeAnswer(answerIndex);
       },
       fail: () => {
         clearTimeout(silenceTimer);
-        this.finalizeAnswer(answerIndex, watchdogFired ? '响应超时，请稍后重试' : '网络异常，请稍后重试');
+        this.finalizeAnswer(
+          answerIndex,
+          watchdogFired ? '响应超时，请稍后重试' : '网络异常，请稍后重试'
+        );
       },
     });
 
@@ -1040,7 +1114,8 @@ Page({
         [`${key}.timeText`]: msg.timeText || timeTextOf(),
       };
       // done/error 已收尾过步骤树（streaming 已置 false），这里只处理异常路径
-      if (msg.streaming) Object.assign(patch, this.finishSteps(key, msg, !!errorMessage || msg.error));
+      if (msg.streaming)
+        Object.assign(patch, this.finishSteps(key, msg, !!errorMessage || msg.error));
       this.setData(patch);
       this.renderNow(index);
     }

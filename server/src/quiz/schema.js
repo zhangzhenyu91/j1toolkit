@@ -122,7 +122,9 @@ async function ensureQuizSchema(pool) {
   }
 
   // 启动自愈：进程重启会把「生成中」的回写弄丢，复位为 none 防止永远卡 pending（可经 analyze-retry 重新入队）
-  await pool.query("UPDATE quiz_question SET analysis_status = 'none' WHERE analysis_status = 'pending'");
+  await pool.query(
+    "UPDATE quiz_question SET analysis_status = 'none' WHERE analysis_status = 'pending'"
+  );
 
   // 写入/更新应用记录（同出工日志种子模式；terminal 随种子刷新）
   await pool.query(
@@ -133,7 +135,9 @@ async function ensureQuizSchema(pool) {
   );
 
   // 管理员默认授予题库刷题权限
-  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [config.admin.username]);
+  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [
+    config.admin.username,
+  ]);
   if (adminRows.length) {
     await pool.query(
       'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',

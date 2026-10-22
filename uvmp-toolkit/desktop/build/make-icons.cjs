@@ -11,7 +11,10 @@ app.on('window-all-closed', () => {});
 
 app.whenReady().then(() => {
   const src = nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
-  if (src.isEmpty()) { console.error('build/icon.png 读取失败'); process.exit(1); }
+  if (src.isEmpty()) {
+    console.error('build/icon.png 读取失败');
+    process.exit(1);
+  }
   const dir = path.join(__dirname, 'icons');
   fs.mkdirSync(dir, { recursive: true });
   for (const s of [16, 24, 32, 48, 64, 96, 128, 256, 512, 1024]) {

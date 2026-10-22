@@ -120,16 +120,18 @@ Page({
       content: `确定删除「${name}」吗？删除仅限无任何数据的班组，有数据的班组请改为停用。`,
       confirmBtn: '删除',
       cancelBtn: '取消',
-    }).then(async () => {
-      try {
-        await request({ url: `/api/v1/admin/teams/${id}`, method: 'DELETE' });
-        this.toast('已删除');
-        this.setData({ showEdit: false });
-        this.load();
-      } catch (err) {
-        this.toast(err.message);
-      }
-    }).catch(() => {});
+    })
+      .then(async () => {
+        try {
+          await request({ url: `/api/v1/admin/teams/${id}`, method: 'DELETE' });
+          this.toast('已删除');
+          this.setData({ showEdit: false });
+          this.load();
+        } catch (err) {
+          this.toast(err.message);
+        }
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

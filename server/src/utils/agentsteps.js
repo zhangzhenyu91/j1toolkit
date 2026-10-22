@@ -152,7 +152,8 @@ function doneTitle(name, args, data, success) {
   const direct = DONE_DIRECT.has(name);
   const label = TOOL_DONE_LABEL[name] || (direct ? toolLabel(name) : `调用 ${toolLabel(name)}`);
   // 失败口径（官方）：专属完成态文案直接 +「失败」（如 检索知识库失败）；直显族与兜底均为「调用 {中文名} 失败」
-  if (!success) return (!direct && TOOL_DONE_LABEL[name]) ? `${label}失败` : `调用 ${toolLabel(name)} 失败`;
+  if (!success)
+    return !direct && TOOL_DONE_LABEL[name] ? `${label}失败` : `调用 ${toolLabel(name)} 失败`;
   if (QUERY_TOOLS.has(name)) {
     const q = extractQuery(name, args, data);
     if (q) return `${label}：「${q}」`;

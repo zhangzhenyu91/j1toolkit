@@ -31,7 +31,8 @@ const towerCascade = createTowerCascade({
 const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 // 随机时分：10:00-12:00（不含 12:00）内随机，历史带入与无历史预填共用此口径
-const randWmHm = () => `${pad(10 + Math.floor(Math.random() * 2))}:${pad(Math.floor(Math.random() * 60))}`;
+const randWmHm = () =>
+  `${pad(10 + Math.floor(Math.random() * 2))}:${pad(Math.floor(Math.random() * 60))}`;
 
 const parseDate = (s) => {
   const [y, m, d] = s.split('-').map(Number);
@@ -52,7 +53,9 @@ const fmtClockHm = (t) => {
 };
 // 打卡地点短文案：去「中国」前缀与省级段，保留 市/区/县 + 街道/路段（如 中国山西省吕梁市汾阳市西河街道英雄北路 → 汾阳市西河街道英雄北路）
 const shortPosition = (p) => {
-  let s = String(p || '').replace(/^中国/, '').replace(/^[^省]{1,12}省/, '');
+  let s = String(p || '')
+    .replace(/^中国/, '')
+    .replace(/^[^省]{1,12}省/, '');
   const m = /^[^市]{1,12}市(.+)$/.exec(s);
   if (m && /[市区县]/.test(m[1])) s = m[1]; // 前段为地级市时去除（剩余仍含 市/区/县 才判为地级段）
   return s;
@@ -78,7 +81,10 @@ function calFormat(day) {
   const cls = [];
   const st = DAY_STATUS[key];
   // 着色三态：failed 红 / remark 黄（通过但有备注）/ passed 绿
-  if (st) cls.push(st === 'passed' ? 'wl-cal-passed' : st === 'remark' ? 'wl-cal-remark' : 'wl-cal-failed');
+  if (st)
+    cls.push(
+      st === 'passed' ? 'wl-cal-passed' : st === 'remark' ? 'wl-cal-remark' : 'wl-cal-failed'
+    );
   if (key === fmtDate(new Date())) cls.push('wl-cal-today');
   if (!cls.length) return day;
   return { ...day, className: `${day.className || ''} ${cls.join(' ')}`.trim() };
@@ -379,9 +385,11 @@ Page({
     }
     this._teams = teams;
     const saved = Number(wx.getStorageSync('worklog_team_id')) || 0;
-    const cur = teams.find((t) => t.id === saved)
-      || teams.find((t) => t.id === Number(user.team_id))
-      || teams[0] || null;
+    const cur =
+      teams.find((t) => t.id === saved) ||
+      teams.find((t) => t.id === Number(user.team_id)) ||
+      teams[0] ||
+      null;
     this.applyTeam(cur ? cur.id : 0, false);
     this.loadMeta();
     this.loadLogs();
@@ -402,7 +410,7 @@ Page({
   applyTeam(id, switching) {
     this._teamId = id;
     if (id) wx.setStorageSync('worklog_team_id', id);
-    const cur = ((this._teams || []).find((t) => t.id === id)) || null;
+    const cur = (this._teams || []).find((t) => t.id === id) || null;
     this.setData({
       teamName: cur ? cur.name : this.data.teamName,
       teamDropOpen: false,
@@ -454,7 +462,10 @@ Page({
       if (!list.length) return;
       const now = new Date();
       const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const key = `${day}:${list.map((x) => x.memberId || x.mobile).sort().join(',')}`;
+      const key = `${day}:${list
+        .map((x) => x.memberId || x.mobile)
+        .sort()
+        .join(',')}`;
       if (this._expiredAlertKey === key) return;
       this._expiredAlertKey = key;
       const names = list.map((x) => x.memberName || x.mobile).join('、');
@@ -480,17 +491,20 @@ Page({
       clearTimeout(this._flashTimer);
       this._flashTimer = null;
     }
-    if (this._pullTimer) { // 「从商旅同步」的 8 秒静默刷新定时器
+    if (this._pullTimer) {
+      // 「从商旅同步」的 8 秒静默刷新定时器
       clearTimeout(this._pullTimer);
       this._pullTimer = null;
     }
     Object.keys(this._jobTimers || {}).forEach((k) => clearTimeout(this._jobTimers[k])); // 同步进度轮询全部停止
     this._jobTimers = {};
-    if (this._lockTimer) { // 全局锁遮罩轮询
+    if (this._lockTimer) {
+      // 全局锁遮罩轮询
       clearTimeout(this._lockTimer);
       this._lockTimer = null;
     }
-    if (this._dailyTimer) { // 每日核查锁轮询
+    if (this._dailyTimer) {
+      // 每日核查锁轮询
       clearTimeout(this._dailyTimer);
       this._dailyTimer = null;
     }
@@ -583,13 +597,17 @@ Page({
     const ck = this.dayKey(ds);
     if (this._dayLists[ck]) return Promise.resolve(this._dayLists[ck]);
     if (this._inflightDays[ck]) return this._inflightDays[ck];
-    const p = request({ url: `/api/v1/worklog/logs?date=${ds}${this.scopeQuery()}${this.teamQuery()}` })
+    const p = request({
+      url: `/api/v1/worklog/logs?date=${ds}${this.scopeQuery()}${this.teamQuery()}`,
+    })
       .then((data) => {
         const list = this.mapLogList(data);
         this._dayLists[ck] = list;
         return list;
       })
-      .finally(() => { delete this._inflightDays[ck]; });
+      .finally(() => {
+        delete this._inflightDays[ck];
+      });
     this._inflightDays[ck] = p;
     return p;
   },
@@ -598,20 +616,26 @@ Page({
   prefetchDays() {
     (this.data.win || []).forEach((w) => {
       if (w.ready) return;
-      this.fetchDayList(w.dateStr).then((list) => {
-        const idx = (this.data.win || []).findIndex((x) => x.dateStr === w.dateStr);
-        if (idx >= 0 && !this.data.win[idx].ready) {
-          this.setData({ [`win[${idx}].list`]: list, [`win[${idx}].ready`]: true });
-        }
-      }).catch(() => {});
+      this.fetchDayList(w.dateStr)
+        .then((list) => {
+          const idx = (this.data.win || []).findIndex((x) => x.dateStr === w.dateStr);
+          if (idx >= 0 && !this.data.win[idx].ready) {
+            this.setData({ [`win[${idx}].list`]: list, [`win[${idx}].ready`]: true });
+          }
+        })
+        .catch(() => {});
     });
   },
 
   // 预拉缓存裁剪：只留当前窗格三天（防多日连滑堆积）
   pruneDayLists() {
     const keep = {};
-    (this.data.win || []).forEach((w) => { keep[this.dayKey(w.dateStr)] = 1; });
-    Object.keys(this._dayLists).forEach((k) => { if (!keep[k]) delete this._dayLists[k]; });
+    (this.data.win || []).forEach((w) => {
+      keep[this.dayKey(w.dateStr)] = 1;
+    });
+    Object.keys(this._dayLists).forEach((k) => {
+      if (!keep[k]) delete this._dayLists[k];
+    });
   },
 
   // 首屏/口径变化后建窗格（当前日已加载；两侧占位，由 prefetchDays 填充）
@@ -670,14 +694,19 @@ Page({
     this.clearPoll();
     this.setData({ loading: true });
     try {
-      const data = await request({ url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}${this.teamQuery()}` });
+      const data = await request({
+        url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}${this.teamQuery()}`,
+      });
       const list = this.mapLogList(data);
       this._dayLists[this.dayKey(this.data.dateStr)] = list;
       this.setCurPane(list);
       // 核验签名（各卡验证状态 + 备注有无）变化时强刷当月日历色点——覆盖编辑操作与轮询中异步验证落定两条路径
       // （签名单色点口径：verify_passed 与备注；逐条原因变化不触发，卡片本身已随列表重渲染）
       const sig = ((data && data.list) || [])
-        .map((e) => `${e.id}:${e.verify_passed}:${String(e.remark || '').trim() ? 1 : 0}:${(e.remark_files || []).length}`)
+        .map(
+          (e) =>
+            `${e.id}:${e.verify_passed}:${String(e.remark || '').trim() ? 1 : 0}:${(e.remark_files || []).length}`
+        )
         .join('|');
       if (this._verifySig !== undefined && sig !== this._verifySig) {
         this.loadDayStatus(this.data.dateStr.slice(0, 7), true);
@@ -709,11 +738,16 @@ Page({
       // 否则每晚定时核查进行中时当日出车卡同挂进度条（_dailySync）
       const photoOp = (this._photoOps || {})[e.id];
       const syncJob = (this._syncJobs || {})[e.id];
-      const dailyHit = !photoOp && !syncJob && this._dailySync && e.log_date === fmtDate(new Date()) && !!e.vehicle_id;
+      const dailyHit =
+        !photoOp &&
+        !syncJob &&
+        this._dailySync &&
+        e.log_date === fmtDate(new Date()) &&
+        !!e.vehicle_id;
       return {
         id: e.id,
         syncing: !!photoOp || !!syncJob || dailyHit,
-        syncPct: photoOp ? photoOp.pct : (syncJob ? syncJob.pct : (dailyHit ? this._dailySync.pct : 0)),
+        syncPct: photoOp ? photoOp.pct : syncJob ? syncJob.pct : dailyHit ? this._dailySync.pct : 0,
         syncText: photoOp ? PHOTO_OP_TEXT[photoOp.kind] : '从商旅同步中',
         hasVehicle: !!e.vehicle_id,
         plateText: e.vehicle_id ? e.plate_no : '未出车',
@@ -735,7 +769,7 @@ Page({
         showClock,
         feeStd: e.feeStd || null, // 当日费用适用标准（商旅开启时后端装配 {foodFee,transitFee,scope}，费用弹层「按标准填入」用）
         // 他班跨班卡：不渲染「从商旅同步」（仅归属班可发起同步，后端按 entry.team_id 校验）
-        syncHidden: !!e.cross_team && Number(e.team_id) !== ((this._teamId || this._myTeamId) || 0),
+        syncHidden: !!e.cross_team && Number(e.team_id) !== (this._teamId || this._myTeamId || 0),
         ckReadonly,
         photos,
         photoUrls: photos.map((p) => p.url),
@@ -762,7 +796,10 @@ Page({
   // chip 三态：done=已打卡（绿底勾+时间+地点+「更新」，非当日不显示更新）/ todo=未打卡（橙虚线，同记录已有他人同 seq 打卡时副文案提示带入）/ lock=未绑定或非当日（灰锁禁用）
   buildClockRows(members, clockRaw, readonly) {
     // 同 seq 已有他人打卡（与 openClockSheet 带入规则一致：开始/结束不互相带入）
-    const seqClocked = (seq) => Object.keys(clockRaw).some((k) => clockRaw[k] && clockRaw[k][String(seq)] && clockRaw[k][String(seq)].position);
+    const seqClocked = (seq) =>
+      Object.keys(clockRaw).some(
+        (k) => clockRaw[k] && clockRaw[k][String(seq)] && clockRaw[k][String(seq)].position
+      );
     const slot = (s, seq, bound) => {
       const title = seq === 1 ? '开始打卡' : '结束打卡';
       if (s) {
@@ -777,12 +814,36 @@ Page({
         };
       }
       if (readonly) {
-        return { cls: 'lock', icon: 'lock-on', iconColor: '#C9CDD4', title, sub: '仅当日可打卡', done: false, upd: false };
+        return {
+          cls: 'lock',
+          icon: 'lock-on',
+          iconColor: '#C9CDD4',
+          title,
+          sub: '仅当日可打卡',
+          done: false,
+          upd: false,
+        };
       }
       if (!bound) {
-        return { cls: 'lock', icon: 'lock-on', iconColor: '#C9CDD4', title, sub: '引导本人至「我的」页绑定', done: false, upd: false };
+        return {
+          cls: 'lock',
+          icon: 'lock-on',
+          iconColor: '#C9CDD4',
+          title,
+          sub: '引导本人至「我的」页绑定',
+          done: false,
+          upd: false,
+        };
       }
-      return { cls: 'todo', icon: 'time', iconColor: '#0E3DA8', title, sub: seqClocked(seq) ? '点击打卡 · 带入同记录定位' : '点击打卡', done: false, upd: false };
+      return {
+        cls: 'todo',
+        icon: 'time',
+        iconColor: '#0E3DA8',
+        title,
+        sub: seqClocked(seq) ? '点击打卡 · 带入同记录定位' : '点击打卡',
+        done: false,
+        upd: false,
+      };
     };
     return members.map((m) => {
       const bound = m.sgccBound !== false;
@@ -915,7 +976,9 @@ Page({
       return;
     }
     try {
-      const data = await request({ url: `/api/v1/worklog/day-status?month=${month}${this.scopeQuery()}${this.teamQuery()}` });
+      const data = await request({
+        url: `/api/v1/worklog/day-status?month=${month}${this.scopeQuery()}${this.teamQuery()}`,
+      });
       Object.assign(DAY_STATUS, (data && data.map) || {});
       this._dayStatusMonths[month] = true;
       this.recolorCalendar();
@@ -942,7 +1005,11 @@ Page({
   async onRetryVerify(e) {
     const { pid } = e.currentTarget.dataset;
     try {
-      await request({ url: `/api/v1/worklog/photos/${pid}/verify`, method: 'POST', data: this.teamBody({}) });
+      await request({
+        url: `/api/v1/worklog/photos/${pid}/verify`,
+        method: 'POST',
+        data: this.teamBody({}),
+      });
       this.toast('已重新提交验证');
       this.loadLogs();
     } catch (err) {
@@ -976,7 +1043,13 @@ Page({
       this.toast('该用车人未绑定商旅，请引导其本人在「我的 → 绑定商旅」绑定');
       return;
     }
-    this.openClockSheet(Number(entryId), Number(memberId), name, Number(seq) === 2 ? 2 : 1, done ? 'update' : 'mark');
+    this.openClockSheet(
+      Number(entryId),
+      Number(memberId),
+      name,
+      Number(seq) === 2 ? 2 : 1,
+      done ? 'update' : 'mark'
+    );
   },
 
   // 打开弹层：位置优先级 = 同记录他人同 seq 打卡带入 → 当前定位逆编码。
@@ -1000,7 +1073,10 @@ Page({
         break;
       }
     }
-    const title = action === 'update' ? `更新打卡地点 · ${name}` : `${seq === 1 ? '开始' : '结束'}打卡 · ${name}`;
+    const title =
+      action === 'update'
+        ? `更新打卡地点 · ${name}`
+        : `${seq === 1 ? '开始' : '结束'}打卡 · ${name}`;
     let note = `提交时使用 ${name} 绑定的机型；打卡即提交商旅并双写本地`;
     let position = '';
     let locTag = '';
@@ -1094,7 +1170,9 @@ Page({
         this.setData(patch);
         this.setCkLocSub(tag);
       })
-      .catch((err) => console.error('[出工日志] /sgcc/geo 逆编码失败（提交时由服务端兜底）：', err));
+      .catch((err) =>
+        console.error('[出工日志] /sgcc/geo 逆编码失败（提交时由服务端兜底）：', err)
+      );
   },
 
   // 「重新定位」：重走定位 + 逆编码（覆盖带入/手输地址）
@@ -1222,7 +1300,8 @@ Page({
   // entryId 定位卡片取当日适用费用标准（feeStd），供「按标准填入」一键预填
   async openFee(memberId, name, entryId) {
     const entry = (this.data.list || []).find((x) => x.id === entryId) || null;
-    const std = entry && entry.feeStd && typeof entry.feeStd.foodFee === 'number' ? entry.feeStd : null;
+    const std =
+      entry && entry.feeStd && typeof entry.feeStd.foodFee === 'number' ? entry.feeStd : null;
     this.setData({
       feeVisible: true,
       feeMemberId: memberId,
@@ -1237,7 +1316,7 @@ Page({
       feeStdFood: std ? String(std.foodFee) : '',
       feeStdTransit: std ? String(std.transitFee) : '',
       feeStdText: std
-        ? `当日适用标准：伙食${std.foodFee}/交通${std.transitFee}（${std.scope === 1 ? '市外' : (std.scope === 2 ? '驻地' : '市内')}）`
+        ? `当日适用标准：伙食${std.foodFee}/交通${std.transitFee}（${std.scope === 1 ? '市外' : std.scope === 2 ? '驻地' : '市内'}）`
         : '',
     });
     wx.showLoading({ title: '费用信息加载中…', mask: true }); // 单步操作：转圈等待动画
@@ -1259,7 +1338,9 @@ Page({
           const v = JSON.parse(c10.value);
           tplFood = v.foodFee;
           tplArrive = v.arrive;
-        } catch (e) { /* 模板值异常按无值处理 */ }
+        } catch (e) {
+          /* 模板值异常按无值处理 */
+        }
       }
       const num = (v) => {
         const n = Number(v);
@@ -1353,8 +1434,15 @@ Page({
   async onResyncPhoto(e) {
     const { pid } = e.currentTarget.dataset;
     try {
-      const data = await request({ url: `/api/v1/sgcc/photos/${pid}/resync`, method: 'POST', data: this.teamBody({}), timeout: 120000 });
-      const entry = (this.data.list || []).find((x) => (x.photos || []).some((p) => String(p.id) === String(pid)));
+      const data = await request({
+        url: `/api/v1/sgcc/photos/${pid}/resync`,
+        method: 'POST',
+        data: this.teamBody({}),
+        timeout: 120000,
+      });
+      const entry = (this.data.list || []).find((x) =>
+        (x.photos || []).some((p) => String(p.id) === String(pid))
+      );
       if (entry && data && data.opId) {
         this.toast('已发起重新同步');
         this.startCardOp(entry.id, data.opId, 'resync');
@@ -1376,8 +1464,12 @@ Page({
       const tick = async () => {
         let p = null;
         try {
-          p = await request({ url: `/api/v1/sgcc/sync/progress?job_id=${encodeURIComponent(jobId)}${this.teamQuery()}` });
-        } catch (err) { /* 网络抖动：计数后继续 */ }
+          p = await request({
+            url: `/api/v1/sgcc/sync/progress?job_id=${encodeURIComponent(jobId)}${this.teamQuery()}`,
+          });
+        } catch (err) {
+          /* 网络抖动：计数后继续 */
+        }
         if (!p) {
           fails += 1;
           if (fails <= 20) {
@@ -1415,7 +1507,8 @@ Page({
     if (date) delete this._dayLists[this.dayKey(date)]; // 该日缓存已过时（切日窗格重建时强制重拉）
     // 任务终态区分 全部成功 / 部分失败 / 整体失败（failed ≥ total；failMsg 为服务端友好口径；fin=null 为放弃轮询按原口径）
     const failed = fin && Number(fin.failed) > 0 ? Number(fin.failed) : 0;
-    if (failed && failed >= Number(fin.total || 0)) this.toast(`本卡同步失败：${fin.failMsg || '请稍后重试'}`);
+    if (failed && failed >= Number(fin.total || 0))
+      this.toast(`本卡同步失败：${fin.failMsg || '请稍后重试'}`);
     else if (failed) this.toast(`本卡已同步，${failed} 人失败（详见核查记录）`);
     else this.toast('本卡已从商旅同步');
     this.loadLogs();
@@ -1453,7 +1546,11 @@ Page({
     const entryId = Number(id) || 0;
     if (this._syncJobs[entryId]) return; // 本卡同步中，防连点
     try {
-      const data = await request({ url: '/api/v1/sgcc/sync/pull', method: 'POST', data: this.teamBody({ date, entry_id: entryId || undefined }) });
+      const data = await request({
+        url: '/api/v1/sgcc/sync/pull',
+        method: 'POST',
+        data: this.teamBody({ date, entry_id: entryId || undefined }),
+      });
       this.toast('已发起从商旅同步（仅本卡用车人）');
       if (data && data.jobId) {
         this.startCardSync(entryId, data.jobId, date);
@@ -1484,8 +1581,12 @@ Page({
     while (!this._unloaded && this._photoOps[entryId] && !this._photoOps[entryId].spectator) {
       let st = null;
       try {
-        st = await request({ url: `/api/v1/sgcc/op/status?op_id=${op.opId}${this.teamQuery('&')}` });
-      } catch (err) { fails += 1; }
+        st = await request({
+          url: `/api/v1/sgcc/op/status?op_id=${op.opId}${this.teamQuery('&')}`,
+        });
+      } catch (err) {
+        fails += 1;
+      }
       if (this._unloaded) return; // 在途请求落地时页面已卸载：不再 setData
       if (st && st.status === 'running') {
         fails = 0;
@@ -1506,7 +1607,8 @@ Page({
         } else {
           let tip = PHOTO_OP_OK_TEXT[op.kind] || '已完成';
           if (op.kind === 'upload') {
-            if (op.wm && st.photoUrl) tip = await this.saveWmPhotoToAlbum(st.photoUrl); // 失败不阻塞（上传已成功）
+            if (op.wm && st.photoUrl)
+              tip = await this.saveWmPhotoToAlbum(st.photoUrl); // 失败不阻塞（上传已成功）
             else if (op.plain) tip = '已上传（非水印存档，不参与验证）';
           }
           this.toast(tip);
@@ -1555,7 +1657,9 @@ Page({
       let p = null;
       try {
         p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
-      } catch (err) { fails += 1; }
+      } catch (err) {
+        fails += 1;
+      }
       if (this._unloaded) break; // 在途请求落地时页面已卸载：不再挂条/setData
       if (p) {
         fails = 0;
@@ -1685,9 +1789,11 @@ Page({
         return;
       }
       // 归属班组：编辑回填卡片归属班；新建默认当前生效班组（_teamId 为 0 取第一个）
-      const teamHit = meta.teams.find((t) => entry && t.id === entry.teamId)
-        || meta.teams.find((t) => t.id === this._teamId)
-        || meta.teams[0] || null;
+      const teamHit =
+        meta.teams.find((t) => entry && t.id === entry.teamId) ||
+        meta.teams.find((t) => t.id === this._teamId) ||
+        meta.teams[0] ||
+        null;
       this.setData({
         ...base,
         patrol: entry ? entry.patrol : '', // 面板不展示；保存时原样带上（PUT 全量替换）
@@ -1721,7 +1827,11 @@ Page({
         destText: '',
         orderNo: '',
         isNoVehicle: true,
-        members: (this._members || []).map((m) => ({ ...m, checked: false, disabled: usedMids.has(m.id) })),
+        members: (this._members || []).map((m) => ({
+          ...m,
+          checked: false,
+          disabled: usedMids.has(m.id),
+        })),
         memberUsedTip: usedMids.size > 0,
       });
       return;
@@ -1738,7 +1848,11 @@ Page({
       isNoVehicle: !(entry.vehicleId > 0),
       destId: entry.destId || 0,
       orderNo: entry.orderNo || '',
-      members: (this._members || []).map((m) => ({ ...m, checked: entry.memberIds.includes(m.id), disabled: usedMids.has(m.id) })),
+      members: (this._members || []).map((m) => ({
+        ...m,
+        checked: entry.memberIds.includes(m.id),
+        disabled: usedMids.has(m.id),
+      })),
       memberUsedTip: usedMids.size > 0,
     });
     this.refreshDictText();
@@ -1794,7 +1908,11 @@ Page({
       } else if (dropType === 'vehicle') {
         list = meta.vehicles
           .filter((v) => !kw || v.name.includes(kw))
-          .map((v) => ({ id: v.name, name: v.name, selected: !this.data.isNoVehicle && v.name === this.data.vehicleText }));
+          .map((v) => ({
+            id: v.name,
+            name: v.name,
+            selected: !this.data.isNoVehicle && v.name === this.data.vehicleText,
+          }));
         if (!kw || '未出车'.includes(kw)) {
           list.push({ id: '', name: '未出车', none: true, selected: this.data.isNoVehicle });
         }
@@ -1902,12 +2020,21 @@ Page({
 
   // cross 模式提交体：车牌/目的地/成员均按名称（body 的 team_id 为归属班组；未出车不带目的地与人名）
   buildCrossPayload() {
-    const { formDateStr, patrol, crossTeamId, vehicleText, destText, orderNo, members, isNoVehicle } = this.data;
+    const {
+      formDateStr,
+      patrol,
+      crossTeamId,
+      vehicleText,
+      destText,
+      orderNo,
+      members,
+      isNoVehicle,
+    } = this.data;
     return {
       log_date: formDateStr,
       team_id: crossTeamId,
-      plate_no: isNoVehicle ? '' : (vehicleText || ''),
-      destination: isNoVehicle ? '' : (destText || ''),
+      plate_no: isNoVehicle ? '' : vehicleText || '',
+      destination: isNoVehicle ? '' : destText || '',
       member_names: isNoVehicle ? [] : members.filter((m) => m.checked).map((m) => m.name),
       patrol_content: patrol,
       dispatch_order_no: isNoVehicle ? '' : (orderNo || '').trim(),
@@ -1947,7 +2074,11 @@ Page({
         const body = this.buildCrossPayload();
         if (this.data.formId) {
           delete body.log_date; // PUT 不改日期
-          await request({ url: `/api/v1/worklog/logs/cross/${this.data.formId}`, method: 'PUT', data: body });
+          await request({
+            url: `/api/v1/worklog/logs/cross/${this.data.formId}`,
+            method: 'PUT',
+            data: body,
+          });
         } else {
           await request({ url: '/api/v1/worklog/logs/cross', method: 'POST', data: body });
         }
@@ -1963,9 +2094,17 @@ Page({
     this.setData({ formSaving: true });
     try {
       if (this.data.formId) {
-        await request({ url: `/api/v1/worklog/logs/${this.data.formId}`, method: 'PUT', data: this.teamBody(this.buildPayload()) });
+        await request({
+          url: `/api/v1/worklog/logs/${this.data.formId}`,
+          method: 'PUT',
+          data: this.teamBody(this.buildPayload()),
+        });
       } else {
-        await request({ url: '/api/v1/worklog/logs', method: 'POST', data: this.teamBody(this.buildPayload()) });
+        await request({
+          url: '/api/v1/worklog/logs',
+          method: 'POST',
+          data: this.teamBody(this.buildPayload()),
+        });
       }
       this.setData({ formVisible: false, formSaving: false, dropType: '', keyboardHeight: 0 });
       this.loadLogs();
@@ -2026,12 +2165,15 @@ Page({
 
   // 整卡载荷（巡视/备注保存共用）：车牌/目的地/用车人取保存时卡片最新值，extra 仅覆盖各自编辑的字段
   entryCardPayload(entry, extra) {
-    return Object.assign({
-      patrol_content: entry.patrol,
-      vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
-      destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
-      member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
-    }, extra || {});
+    return Object.assign(
+      {
+        patrol_content: entry.patrol,
+        vehicle_id: entry.vehicleId > 0 ? entry.vehicleId : null,
+        destination_id: entry.vehicleId > 0 && entry.destId > 0 ? entry.destId : null,
+        member_ids: entry.vehicleId > 0 ? entry.memberIds : [],
+      },
+      extra || {}
+    );
   },
 
   // 保存巡视内容：PUT 全量字段（车牌/目的地/用车人取保存时卡片最新值，仅替换巡视内容），失败留弹层可重试
@@ -2049,7 +2191,9 @@ Page({
       await request({
         url: `/api/v1/worklog/logs/${entry.id}`,
         method: 'PUT',
-        data: this.teamBody(this.entryCardPayload(entry, { patrol_content: this.data.patrolDraft })),
+        data: this.teamBody(
+          this.entryCardPayload(entry, { patrol_content: this.data.patrolDraft })
+        ),
       });
       this.setData({ patrolVisible: false, patrolSaving: false, keyboardHeight: 0 });
       this.loadLogs();
@@ -2070,7 +2214,10 @@ Page({
       return;
     }
     const files = (entry.remarkFiles || []).map((f) => ({
-      ...f, key: f.cos_key, preview: f.url, isNew: false,
+      ...f,
+      key: f.cos_key,
+      preview: f.url,
+      isNew: false,
     }));
     this.setData({
       rmkVisible: true,
@@ -2120,8 +2267,9 @@ Page({
       sourceType: ['album', 'camera'],
       success: (res) => {
         const now = new Date();
-        const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
-          + `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        const stamp =
+          `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+          `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
         const files = this.data.rmkFiles.slice();
         (res.tempFiles || []).forEach((t, i) => {
           if (t.size > 50 * 1024 * 1024) {
@@ -2129,7 +2277,9 @@ Page({
             return;
           }
           const type = t.fileType === 'video' ? 'video' : 'image';
-          const ext = (t.tempFilePath.split('.').pop() || (type === 'video' ? 'mp4' : 'jpg')).toLowerCase();
+          const ext = (
+            t.tempFilePath.split('.').pop() || (type === 'video' ? 'mp4' : 'jpg')
+          ).toLowerCase();
           files.push({
             type,
             name: `${type === 'video' ? '视频' : '图片'}-${stamp}${i ? `-${i}` : ''}.${ext}`,
@@ -2169,7 +2319,14 @@ Page({
             this.toast('单个附件不超过 50MB');
             return;
           }
-          files.push({ type: 'doc', name: t.name, size: t.size, tempFilePath: t.path, key: t.path, isNew: true });
+          files.push({
+            type: 'doc',
+            name: t.name,
+            size: t.size,
+            tempFilePath: t.path,
+            key: t.path,
+            isNew: true,
+          });
         });
         this.setData({ rmkFiles: files.slice(0, 9) });
         this.deriveRmkLists(this.data.rmkFiles);
@@ -2210,10 +2367,12 @@ Page({
       await request({
         url: `/api/v1/worklog/logs/${entry.id}`,
         method: 'PUT',
-        data: this.teamBody(this.entryCardPayload(entry, {
-          remark: this.data.rmkDraft.trim(),
-          remark_files: metas,
-        })),
+        data: this.teamBody(
+          this.entryCardPayload(entry, {
+            remark: this.data.rmkDraft.trim(),
+            remark_files: metas,
+          })
+        ),
       });
       this.setData({ rmkVisible: false, rmkSaving: false, keyboardHeight: 0 });
       this.toast('备注已保存');
@@ -2352,7 +2511,12 @@ Page({
       if (off) offNames.push(`${m.name}（${off}）`);
       const usedUp = action !== 'plain' && used.has(m.name);
       const disabled = usedUp || !!off;
-      return { name: m.name, checked: checked.includes(m.name), disabled, note: usedUp ? '已上传' : off };
+      return {
+        name: m.name,
+        checked: checked.includes(m.name),
+        disabled,
+        note: usedUp ? '已上传' : off,
+      };
     });
     return {
       candidates,
@@ -2375,9 +2539,10 @@ Page({
       memberEntryId: entryId,
       candidates,
       memberOffTip,
-      memberNote: action === 'plain'
-        ? '点亮即本张照片所属人名（可多选，不限张数）；仅上传存档并同步所选人当日商旅费用照片，不参与卡片验证'
-        : '点亮即本张水印照片中包含的人名（可多选）；照片同步进所选人当日商旅费用照片',
+      memberNote:
+        action === 'plain'
+          ? '点亮即本张照片所属人名（可多选，不限张数）；仅上传存档并同步所选人当日商旅费用照片，不参与卡片验证'
+          : '点亮即本张水印照片中包含的人名（可多选）；照片同步进所选人当日商旅费用照片',
     });
   },
 
@@ -2394,7 +2559,8 @@ Page({
       memberEntryId: entryId,
       candidates,
       memberOffTip,
-      memberNote: '点亮即本张照片中包含的人名（可多选）；新增人名将上传其商旅费用照片，剔除人名将从其商旅费用照片中删除',
+      memberNote:
+        '点亮即本张照片中包含的人名（可多选）；新增人名将上传其商旅费用照片，剔除人名将从其商旅费用照片中删除',
     });
   },
 
@@ -2478,8 +2644,12 @@ Page({
   // 历史带入的拍摄时间：保留日期（兼容 - / . 分隔、带秒或无时分等 OCR 回写格式差异），时分随机为 10:00-12:00 内且不与历史值相同；
   // 历史值缺失/无法识别时回退到记录日期（不能取当天——补录历史记录时当天 ≠ 记录日期）
   randomWmTime(shotTime) {
-    const m = /^(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/.exec(String(shotTime || '').trim());
-    const datePart = m ? `${m[1]}.${pad(Number(m[2]))}.${pad(Number(m[3]))}` : this.data.dateStr.replace(/-/g, '.');
+    const m = /^(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/.exec(
+      String(shotTime || '').trim()
+    );
+    const datePart = m
+      ? `${m[1]}.${pad(Number(m[2]))}.${pad(Number(m[3]))}`
+      : this.data.dateStr.replace(/-/g, '.');
     const oldHm = m && m[4] ? `${m[4]}:${m[5]}` : '';
     let hm = oldHm;
     while (hm === oldHm) hm = randWmHm();
@@ -2495,12 +2665,17 @@ Page({
     this.resetTowerState();
     const entry = this.data.list.find((x) => x.id === this.data.memberEntryId);
     const photos = (entry && entry.photos) || [];
-    const history = photos.filter((p) => p.shotTime || p.workContent || p.location || p.lng || p.lat);
+    const history = photos.filter(
+      (p) => p.shotTime || p.workContent || p.location || p.lng || p.lat
+    );
     const last = history[history.length - 1];
     if (last) {
       const lng = parseFloat(last.lng);
       const lat = parseFloat(last.lat);
-      const jittered = Number.isFinite(lng) && Number.isFinite(lat) ? this.jitterCoord(lng, lat) : { lng: '', lat: '' };
+      const jittered =
+        Number.isFinite(lng) && Number.isFinite(lat)
+          ? this.jitterCoord(lng, lat)
+          : { lng: '', lat: '' };
       this.setData({
         wmVisible: true,
         wmForm: {
@@ -2515,9 +2690,10 @@ Page({
       return;
     }
     // 无历史：拍摄时间当日取当前时间，非当日取记录日期 10:00-12:00 内随机时间；经纬度/地点/天气均按当前定位取值
-    const time = this.data.dateStr === fmtDate(new Date())
-      ? fmtWmTime(new Date())
-      : `${this.data.dateStr.replace(/-/g, '.')} ${randWmHm()}`;
+    const time =
+      this.data.dateStr === fmtDate(new Date())
+        ? fmtWmTime(new Date())
+        : `${this.data.dateStr.replace(/-/g, '.')} ${randWmHm()}`;
     this.setData({
       wmVisible: true,
       wmForm: { content: '', time, weather: '', location: '', lng: '', lat: '' },
@@ -2624,7 +2800,9 @@ Page({
       const data = await request({
         url: `/api/v1/worklog/logs/${this.data.memberEntryId}/photos`,
         method: 'POST',
-        data: this.teamBody(wm ? { image, members, wm } : plain ? { image, members, plain: true } : { image, members }),
+        data: this.teamBody(
+          wm ? { image, members, wm } : plain ? { image, members, plain: true } : { image, members }
+        ),
         timeout: 120000,
       });
       this.setData({ wmVisible: false, wmUploading: false });
@@ -2632,7 +2810,12 @@ Page({
       this.startCardOp(this.data.memberEntryId, data.opId, 'upload', { wm: !!wm, plain: !!plain });
     } catch (err) {
       this.setData({ wmUploading: false });
-      wx.showModal({ title: '上传失败', content: err.message || '上传失败，请重试', showCancel: false, confirmText: '知道了' });
+      wx.showModal({
+        title: '上传失败',
+        content: err.message || '上传失败，请重试',
+        showCancel: false,
+        confirmText: '知道了',
+      });
     }
   },
 
@@ -2662,7 +2845,9 @@ Page({
     })
       .then(async () => {
         // 任务化异步执行（解除商旅关联在后台完成，服务端恒返回 opId）：本卡挂进度条，结果由 pollCardOp 收尾
-        const entry = (this.data.list || []).find((x) => (x.photos || []).some((p) => String(p.id) === String(pid)));
+        const entry = (this.data.list || []).find((x) =>
+          (x.photos || []).some((p) => String(p.id) === String(pid))
+        );
         try {
           const data = await request({
             url: `/api/v1/worklog/photos/${pid}${this.teamQuery('?')}`,
@@ -2701,7 +2886,10 @@ Page({
     })
       .then(async () => {
         try {
-          await request({ url: `/api/v1/worklog/logs/${id}${this.teamQuery('?')}`, method: 'DELETE' });
+          await request({
+            url: `/api/v1/worklog/logs/${id}${this.teamQuery('?')}`,
+            method: 'DELETE',
+          });
           this.toast('已删除');
           this.loadLogs();
         } catch (err) {
@@ -2777,7 +2965,9 @@ Page({
     this.setData({ dlLoading: true });
     try {
       const { dlFrom, dlTo } = this.data;
-      const data = await request({ url: `/api/v1/worklog/photos?from=${dlFrom}&to=${dlTo}${this.teamQuery()}` });
+      const data = await request({
+        url: `/api/v1/worklog/photos?from=${dlFrom}&to=${dlTo}${this.teamQuery()}`,
+      });
       this._dlRaw = (data && data.list) || [];
       this.buildDlGroups();
       this.setData({ dlRangeText: `${dlFrom} ~ ${dlTo}`, dlLoading: false });
@@ -2798,7 +2988,11 @@ Page({
     list.forEach((p) => {
       if (!groupMap[p.month]) {
         const [y, m] = p.month.split('-');
-        groupMap[p.month] = { month: p.month, title: `${Number(y)} 年 ${Number(m)} 月`, photos: [] };
+        groupMap[p.month] = {
+          month: p.month,
+          title: `${Number(y)} 年 ${Number(m)} 月`,
+          photos: [],
+        };
         groups.push(groupMap[p.month]);
       }
       groupMap[p.month].photos.push({
@@ -2826,7 +3020,11 @@ Page({
         if (p.selected) selected += 1;
       })
     );
-    this.setData({ dlTotal: total, dlSelected: selected, dlAllChecked: total > 0 && selected === total });
+    this.setData({
+      dlTotal: total,
+      dlSelected: selected,
+      dlAllChecked: total > 0 && selected === total,
+    });
   },
 
   // 点缩略图预览（urls 为当前范围全部照片，按顺序）
@@ -2839,7 +3037,9 @@ Page({
   // 点选择圈切换单张（wxml 用 catchtap 防穿透触发预览）
   onDlToggle(e) {
     const { gi, pi } = e.currentTarget.dataset;
-    this.setData({ [`dlGroups[${gi}].photos[${pi}].selected`]: !this.data.dlGroups[gi].photos[pi].selected });
+    this.setData({
+      [`dlGroups[${gi}].photos[${pi}].selected`]: !this.data.dlGroups[gi].photos[pi].selected,
+    });
     this.recountDl();
   },
 
@@ -2887,7 +3087,8 @@ Page({
     return new Promise((resolve, reject) => {
       wx.downloadFile({
         url,
-        success: (r) => (r.statusCode === 200 ? resolve(r.tempFilePath) : reject(new Error('下载失败'))),
+        success: (r) =>
+          r.statusCode === 200 ? resolve(r.tempFilePath) : reject(new Error('下载失败')),
         fail: reject,
       });
     });
@@ -2984,10 +3185,12 @@ Page({
       method: 'POST',
       timeout: 120000,
       data: this.teamBody({ from: dlFrom, to: dlTo, dir, space }),
-    }).then((data) => {
-      const failed = data && data.failed ? `，${data.failed} 张照片合成失败` : '';
-      this.toast(`已保存到网盘：${(data && data.path) || ''}${failed}`);
-    }).catch((err) => this.toast(err.message))
+    })
+      .then((data) => {
+        const failed = data && data.failed ? `，${data.failed} 张照片合成失败` : '';
+        this.toast(`已保存到网盘：${(data && data.path) || ''}${failed}`);
+      })
+      .catch((err) => this.toast(err.message))
       .finally(() => {
         wx.hideLoading();
         this.setData({ pdfBusy: false });
@@ -3000,11 +3203,19 @@ Page({
   // 月份 → 面板字段（rpMonthText 展示文案 / rpMonthAtCur 控制「下一月」置灰，不看未来月）
   rpMonthData(month) {
     const [y, m] = month.split('-').map(Number);
-    return { rpMonth: month, rpMonthText: `${y} 年 ${m} 月`, rpMonthAtCur: month >= fmtDate(new Date()).slice(0, 7) };
+    return {
+      rpMonth: month,
+      rpMonthText: `${y} 年 ${m} 月`,
+      rpMonthAtCur: month >= fmtDate(new Date()).slice(0, 7),
+    };
   },
 
   onOpenReport() {
-    this.setData({ rpVisible: true, fabOpen: false, ...this.rpMonthData(this.data.rpMonth || fmtDate(new Date()).slice(0, 7)) });
+    this.setData({
+      rpVisible: true,
+      fabOpen: false,
+      ...this.rpMonthData(this.data.rpMonth || fmtDate(new Date()).slice(0, 7)),
+    });
     this.loadReport();
   },
 
@@ -3037,7 +3248,9 @@ Page({
     const to = fmtDate(new Date(y, m, 0)); // 当月最后一天
     this.setData({ rpLoading: true });
     try {
-      const data = await request({ url: `/api/v1/worklog/report?from=${from}&to=${to}${this.scopeQuery()}${this.teamQuery()}` });
+      const data = await request({
+        url: `/api/v1/worklog/report?from=${from}&to=${to}${this.scopeQuery()}${this.teamQuery()}`,
+      });
       const items = (data && data.list) || [];
       const issues = items
         .filter((x) => (x.reasons || []).length)
@@ -3139,7 +3352,11 @@ Page({
       return;
     }
     try {
-      await request({ url: '/api/v1/sgcc/sync/pull', method: 'POST', data: this.teamBody({ from: bsFrom, to: bsTo }) });
+      await request({
+        url: '/api/v1/sgcc/sync/pull',
+        method: 'POST',
+        data: this.teamBody({ from: bsFrom, to: bsTo }),
+      });
       this.toast('已发起批量从商旅同步');
     } catch (err) {
       this.toast(err.message);
@@ -3154,7 +3371,9 @@ Page({
     if (!bsFrom || !bsTo) return;
     this.setData({ bsLoading: true });
     try {
-      const data = await request({ url: `/api/v1/sgcc/sync/logs?from=${bsFrom}&to=${bsTo}${this.teamQuery()}` });
+      const data = await request({
+        url: `/api/v1/sgcc/sync/logs?from=${bsFrom}&to=${bsTo}${this.teamQuery()}`,
+      });
       const list = (data && data.list) || [];
       const TYPE = { auth: '登录态', clockin: '打卡', fee: '费用', photo: '费用照片' };
       const fails = list
@@ -3213,7 +3432,9 @@ Page({
         this.syncSpectatorOps(p.ops);
         this.pollSpectatorOps();
       }
-    } catch (err) { /* 网络异常：不锁定（商旅恒挂载） */ }
+    } catch (err) {
+      /* 网络异常：不锁定（商旅恒挂载） */
+    }
   },
 
   // 全局锁遮罩：1.5s 轮询 /sync/active 直至完成；完成后解锁并刷新列表 / 核验面板 / 同步日志
@@ -3225,7 +3446,9 @@ Page({
       let p = null;
       try {
         p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
-      } catch (err) { /* 网络抖动：计数后续轮 */ }
+      } catch (err) {
+        /* 网络抖动：计数后续轮 */
+      }
       if (!p) {
         fails += 1;
         if (fails <= 20) {
@@ -3234,7 +3457,9 @@ Page({
         }
       } else if (p.running) {
         fails = 0;
-        this.setData({ sgSyncPct: p.total ? Math.min(99, Math.round((p.done / p.total) * 100)) : 0 });
+        this.setData({
+          sgSyncPct: p.total ? Math.min(99, Math.round((p.done / p.total) * 100)) : 0,
+        });
         this._lockTimer = setTimeout(tick, 1500);
         return;
       }
@@ -3243,7 +3468,8 @@ Page({
       this.setData({ sgSyncVisible: false, sgSyncPct: 100 });
       const bd = p && p.batchDone;
       const failed = bd && Number(bd.failed) > 0 ? Number(bd.failed) : 0;
-      if (failed && failed >= Number(bd.total || 0)) this.toast(`从商旅同步失败：${bd.failMsg || '请稍后重试'}`);
+      if (failed && failed >= Number(bd.total || 0))
+        this.toast(`从商旅同步失败：${bd.failMsg || '请稍后重试'}`);
       else if (failed) this.toast(`从商旅同步完成，${failed} 人失败（详见核查记录）`);
       else this.toast('从商旅同步完成');
       this.loadLogs();
@@ -3269,10 +3495,14 @@ Page({
       let p = null;
       try {
         p = await request({ url: `/api/v1/sgcc/sync/active${this.teamQuery('?')}` });
-      } catch (err) { /* 网络抖动：计数后续轮 */ }
+      } catch (err) {
+        /* 网络抖动：计数后续轮 */
+      }
       if (p && p.daily && p.daily.running) {
         fails = 0;
-        this._dailySync.pct = p.daily.total ? Math.min(99, Math.round((p.daily.done / p.daily.total) * 100)) : 0;
+        this._dailySync.pct = p.daily.total
+          ? Math.min(99, Math.round((p.daily.done / p.daily.total) * 100))
+          : 0;
         this.patchDailyCards();
       } else if (p || fails > 20) {
         break; // 完成（或连续失败兜底）
@@ -3314,7 +3544,11 @@ Page({
   onWmEdit(e) {
     const pid = Number(e.currentTarget.dataset.pid);
     let photo = null;
-    (this.data.list || []).forEach((c) => (c.photos || []).forEach((p) => { if (p.id === pid) photo = p; }));
+    (this.data.list || []).forEach((c) =>
+      (c.photos || []).forEach((p) => {
+        if (p.id === pid) photo = p;
+      })
+    );
     if (!photo || !photo.editable) return;
     this.setData({
       wmEditVisible: true,

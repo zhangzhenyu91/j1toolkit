@@ -5,6 +5,7 @@ U 盘逻辑移植自 export_dispatch_orders.py（卷标 GLKVM 的 KVM 虚拟 U �
 - linux：lsblk 按卷标发现设备；未挂载则用 udisksctl 挂载（重试 3 次）
 - windows：ctypes GetVolumeInformationW 按卷标扫盘符（尽力而为；找不到回退 fallback_dir）
 """
+
 import os
 import re
 import shutil
@@ -25,10 +26,19 @@ def is_linux() -> bool:
 # ---------------------------------------------------------------- Chrome 探测
 
 # Chrome/Chromium 及麒麟常见专用浏览器（按序探测；公司指定浏览器找不到时让用户在设置页手选）
-CHROME_NAMES = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
-                "qaxbrowser",            # 奇安信可信浏览器（麒麟软件商店常见）
-                "browser360", "browser360-cn", "360chrome",   # 360 安全浏览器
-                "microsoft-edge", "microsoft-edge-stable", "chrome"]
+CHROME_NAMES = [
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "chromium-browser",
+    "qaxbrowser",  # 奇安信可信浏览器（麒麟软件商店常见）
+    "browser360",
+    "browser360-cn",
+    "360chrome",  # 360 安全浏览器
+    "microsoft-edge",
+    "microsoft-edge-stable",
+    "chrome",
+]
 
 # 不在 PATH 时的已知绝对路径（麒麟软件商店/厂商默认安装位置）
 LINUX_BROWSER_PATHS = [
@@ -104,16 +114,22 @@ def detect_pdf_renderer(render_cfg: dict, log=print) -> dict:
 
 # ---------------------------------------------------------------- U 盘（按卷标）
 
+
 def _find_usb_linux(label: str, log) -> str:
     """linux：确保卷标为 label 的设备已挂载，返回挂载点；失败返回 None"""
     label = (label or "").upper()
     try:
-        r = subprocess.run(["lsblk", "-J", "-o", "PATH,LABEL,MOUNTPOINT"],
-                           capture_output=True, text=True, timeout=10)
+        r = subprocess.run(
+            ["lsblk", "-J", "-o", "PATH,LABEL,MOUNTPOINT"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
         if r.returncode != 0:
             log("lsblk 执行失败: " + r.stderr.strip())
             return None
         import json as _json
+
         data = _json.loads(r.stdout)
     except Exception as e:
         log("查找U盘设备异常: %s" % e)
@@ -135,8 +151,12 @@ def _find_usb_linux(label: str, log) -> str:
             log("未找到卷标 %s 的U盘设备 (第 %d/3 次)" % (label, attempt))
         else:
             try:
-                r = subprocess.run(["udisksctl", "mount", "-b", device],
-                                   capture_output=True, text=True, timeout=30)
+                r = subprocess.run(
+                    ["udisksctl", "mount", "-b", device],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
                 if r.returncode == 0:
                     m = re.search(r"\bat\s+(.+?)\.?\s*$", r.stdout.strip())
                     actual = m.group(1) if m else ""
@@ -165,10 +185,18 @@ def _find_usb_windows(label: str, log) -> str:
         return None
     try:
         r = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-             "(Get-Volume -FileSystemLabel '%s' -ErrorAction SilentlyContinue).DriveLetter"
-             % label.replace("'", "''")],
-            capture_output=True, text=True, timeout=20)
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "(Get-Volume -FileSystemLabel '%s' -ErrorAction SilentlyContinue).DriveLetter"
+                % label.replace("'", "''"),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
         letter = r.stdout.strip().splitlines()
         if r.returncode == 0 and letter and letter[0].strip():
             root = letter[0].strip() + ":\\"
@@ -216,6 +244,7 @@ def sync_fs():
 
 # ---------------------------------------------------------------- 其他
 
+
 def open_path(path: str):
     """用系统文件管理器打开目录/文件（GUI「打开目录」按钮）"""
     try:
@@ -224,8 +253,11 @@ def open_path(path: str):
         elif sys.platform == "darwin":
             subprocess.Popen(["open", str(path)])
         else:
-            subprocess.Popen(["xdg-open", str(path)],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                ["xdg-open", str(path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         return True
     except Exception:
         return False
@@ -267,5 +299,7 @@ def platform_summary() -> dict:
     return {
         "platform": sys.platform,
         "python": sys.version.split()[0],
-        "machine": os.uname().machine if hasattr(os, "uname") else os.environ.get("PROCESSOR_ARCHITECTURE", ""),
+        "machine": os.uname().machine
+        if hasattr(os, "uname")
+        else os.environ.get("PROCESSOR_ARCHITECTURE", ""),
     }

@@ -112,7 +112,9 @@ async function listModels(username) {
 // Agent 配置（GET /agents/{id}；web_search_enabled / web_search_provider_id 在 data.config 内）
 async function getAgent(username) {
   ensureConfigured();
-  const res = await client.get(`/agents/${config.weknora.agentId}`, { headers: extHeaders(username) });
+  const res = await client.get(`/agents/${config.weknora.agentId}`, {
+    headers: extHeaders(username),
+  });
   return res.data;
 }
 
@@ -127,7 +129,11 @@ async function listWebSearchProviders(username) {
 // webSearch 开启本轮联网搜索；modelId 非空时覆盖本轮总结模型（summary_model_id）；
 // attachmentIds 引用本会话已上传的附件（须先经 POST /sessions/{id}/attachments 上传）；
 // reasoningEffort 为非空字符串时透传本轮思考强度（reasoning_effort）
-async function agentChatStream(username, sessionId, { query, images, attachmentIds, webSearch, modelId, reasoningEffort }) {
+async function agentChatStream(
+  username,
+  sessionId,
+  { query, images, attachmentIds, webSearch, modelId, reasoningEffort }
+) {
   ensureConfigured();
   const payload = {
     query,
@@ -174,7 +180,10 @@ function kbHeaders() {
 // source / keyword / file_type / page / page_size 等过滤分页），透传 WeKnora 响应
 async function listKnowledge(kbId, params = {}) {
   ensureKbConfigured();
-  const res = await client.get(`/knowledge-bases/${kbId}/knowledge`, { headers: kbHeaders(), params });
+  const res = await client.get(`/knowledge-bases/${kbId}/knowledge`, {
+    headers: kbHeaders(),
+    params,
+  });
   return res.data;
 }
 

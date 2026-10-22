@@ -10,15 +10,15 @@ const fs = require('fs');
 const path = require('path');
 const ort = require('onnxruntime-node');
 
-const DET_MAX_SIDE = 960;    // 长边上限（mobile det 标准）
-const DET_MIN_TARGET = 736;  // 短边不足时上采样至此（保留小字召回，同 RapidOCR 默认）
+const DET_MAX_SIDE = 960; // 长边上限（mobile det 标准）
+const DET_MIN_TARGET = 736; // 短边不足时上采样至此（保留小字召回，同 RapidOCR 默认）
 const DET_ABSOLUTE_MAX = 2000;
-const DET_THRESH = 0.3;      // 二值化阈值（config.yaml thresh）
-const DET_BOX_THRESH = 0.5;  // 框平均得分阈值（config.yaml box_thresh）
-const UNCLIP_RATIO = 1.6;    // 框外扩系数（config.yaml unclip_ratio）
-const REC_H = 48;            // 识别输入高（config.yaml rec_img_shape）
-const REC_MAX_W = 960;       // 识别批量内单条最大宽（过长行截断，防显存/内存膨胀）
-const TEXT_SCORE = 0.5;      // 行置信度下限（config.yaml text_score）
+const DET_THRESH = 0.3; // 二值化阈值（config.yaml thresh）
+const DET_BOX_THRESH = 0.5; // 框平均得分阈值（config.yaml box_thresh）
+const UNCLIP_RATIO = 1.6; // 框外扩系数（config.yaml unclip_ratio）
+const REC_H = 48; // 识别输入高（config.yaml rec_img_shape）
+const REC_MAX_W = 960; // 识别批量内单条最大宽（过长行截断，防显存/内存膨胀）
+const TEXT_SCORE = 0.5; // 行置信度下限（config.yaml text_score）
 
 // ---------------------------------------------------------------- 图像原语
 
@@ -58,7 +58,8 @@ function resizePlanes(planes, sw, sh, dw, dh) {
         const p01 = src[y0 * sw + x1];
         const p10 = src[y1 * sw + x0];
         const p11 = src[y1 * sw + x1];
-        dst[y * dw + x] = p00 * (1 - wx) * (1 - wy) + p01 * wx * (1 - wy) + p10 * (1 - wx) * wy + p11 * wx * wy;
+        dst[y * dw + x] =
+          p00 * (1 - wx) * (1 - wy) + p01 * wx * (1 - wy) + p10 * (1 - wx) * wy + p11 * wx * wy;
       }
     }
     return dst;
@@ -104,7 +105,10 @@ function connectedComponents(bitmap, w, h) {
   const parent = [0];
   let next = 1;
   const find = (a) => {
-    while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; }
+    while (parent[a] !== a) {
+      parent[a] = parent[parent[a]];
+      a = parent[a];
+    }
     return a;
   };
   const union = (a, b) => {
@@ -118,10 +122,16 @@ function connectedComponents(bitmap, w, h) {
       if (!bitmap[i]) continue;
       const up = y > 0 ? labels[i - w] : 0;
       const left = x > 0 ? labels[i - 1] : 0;
-      if (up && left) { labels[i] = Math.min(find(up), find(left)); union(up, left); }
-      else if (up) labels[i] = find(up);
+      if (up && left) {
+        labels[i] = Math.min(find(up), find(left));
+        union(up, left);
+      } else if (up) labels[i] = find(up);
       else if (left) labels[i] = find(left);
-      else { labels[i] = next; parent[next] = next; next++; }
+      else {
+        labels[i] = next;
+        parent[next] = next;
+        next++;
+      }
     }
   }
   const boxes = new Map();
@@ -132,7 +142,10 @@ function connectedComponents(bitmap, w, h) {
       if (!l) continue;
       const r = find(l);
       let bx = boxes.get(r);
-      if (!bx) { bx = { minX: x, maxX: x, minY: y, maxY: y, pixels: 0 }; boxes.set(r, bx); }
+      if (!bx) {
+        bx = { minX: x, maxX: x, minY: y, maxY: y, pixels: 0 };
+        boxes.set(r, bx);
+      }
       if (x < bx.minX) bx.minX = x;
       if (x > bx.maxX) bx.maxX = x;
       if (y < bx.minY) bx.minY = y;
@@ -165,7 +178,10 @@ class OcrPipeline {
     p.det = await ort.InferenceSession.create(path.join(modelsDir, 'det.onnx'), opts);
     p.rec = await ort.InferenceSession.create(path.join(modelsDir, 'rec.onnx'), opts);
     const keysText = fs.readFileSync(path.join(modelsDir, 'ppocr_keys.txt'), 'utf8');
-    const keys = keysText.split('\n').map((s) => s.replace(/\r$/, '')).filter((s) => s.length > 0);
+    const keys = keysText
+      .split('\n')
+      .map((s) => s.replace(/\r$/, ''))
+      .filter((s) => s.length > 0);
     // CTC 词表：索引 0 为 blank，末尾再追加空格符（同 RapidOCR insert_special_char 语义：blank@0、" "@len）
     p.chars = ['blank', ...keys, ' '];
     p.detInput = p.det.inputNames[0];
@@ -209,14 +225,17 @@ class OcrPipeline {
     const boxes = [];
     for (const c of comps) {
       const rect = unclipRect(c, dw, dh);
-      if (rect.w < 6 || rect.h < 6) continue;              // 噪点
+      if (rect.w < 6 || rect.h < 6) continue; // 噪点
       // 框平均得分（score_mode=fast 近似：外接矩形内位图像素均值）
       let sum = 0;
       let cnt = 0;
       for (let y = rect.y; y < rect.y + rect.h; y++) {
         for (let x = rect.x; x < rect.x + rect.w; x++) {
           const i = y * dw + x;
-          if (bitmap[i]) { sum += prob[i]; cnt++; }
+          if (bitmap[i]) {
+            sum += prob[i];
+            cnt++;
+          }
         }
       }
       if (cnt === 0 || sum / cnt < DET_BOX_THRESH) continue;
@@ -224,11 +243,15 @@ class OcrPipeline {
       boxes.push({
         x: Math.max(0, Math.floor(rect.x / usedRatio)),
         y: Math.max(0, Math.floor(rect.y / usedRatio)),
-        w: Math.min(width, Math.ceil((rect.x + rect.w) / usedRatio)) - Math.max(0, Math.floor(rect.x / usedRatio)),
-        h: Math.min(height, Math.ceil((rect.y + rect.h) / usedRatio)) - Math.max(0, Math.floor(rect.y / usedRatio)),
+        w:
+          Math.min(width, Math.ceil((rect.x + rect.w) / usedRatio)) -
+          Math.max(0, Math.floor(rect.x / usedRatio)),
+        h:
+          Math.min(height, Math.ceil((rect.y + rect.h) / usedRatio)) -
+          Math.max(0, Math.floor(rect.y / usedRatio)),
       });
     }
-    boxes.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    boxes.sort((a, b) => a.y - b.y || a.x - b.x);
 
     // ---- rec：逐行裁剪（原图）→ 48 高等比 → 批量推理 → CTC 解码
     const lines = [];
@@ -265,8 +288,8 @@ class OcrPipeline {
     const nchw = planesToNchw(planes, w, h);
     const tensor = new ort.Tensor('float32', nchw, [1, 3, h, w]);
     const out = await this.rec.run({ [this.recInput]: tensor });
-    const preds = out[this.recOutput];           // [1, T, C]
-    const dims = preds.dims;                      // [1, T, C]
+    const preds = out[this.recOutput]; // [1, T, C]
+    const dims = preds.dims; // [1, T, C]
     const T = dims[1];
     const C = dims[2];
     const data = preds.data;
@@ -280,11 +303,18 @@ class OcrPipeline {
       let maxV = data[off];
       for (let c = 1; c < C; c++) {
         const v = data[off + c];
-        if (v > maxV) { maxV = v; maxI = c; }
+        if (v > maxV) {
+          maxV = v;
+          maxI = c;
+        }
       }
       if (maxI !== 0 && maxI !== prev) {
         const ch = this.chars[maxI];
-        if (ch) { text += ch; scoreSum += maxV; scoreCnt++; }
+        if (ch) {
+          text += ch;
+          scoreSum += maxV;
+          scoreCnt++;
+        }
       }
       prev = maxI;
     }

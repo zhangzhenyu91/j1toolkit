@@ -148,4 +148,14 @@ function saveFormDefaults(teamName, patch) {
   fs.writeFileSync(DEFAULTS_FILE, JSON.stringify(all, null, 2), 'utf8');
 }
 
-module.exports = { list, create, update, get, remove, backfillTeam, renameTeam, getFormDefaults, saveFormDefaults };
+module.exports = {
+  list,
+  create,
+  update,
+  get,
+  remove,
+  backfillTeam,
+  renameTeam,
+  getFormDefaults,
+  saveFormDefaults,
+};

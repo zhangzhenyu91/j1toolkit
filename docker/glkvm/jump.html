@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <!-- GLKVM Cloud 壹匣带态跳转落地页（自建件，上游 glkvm-cloud 无此文件；部署于平台外层 nginx，不进容器；
      对接契约见 j1toolkit 仓 开发指南.md 第十二节，本文件为唯一留存副本，勿删）
      链路：壹匣后端代登平台取当前员工 sid → 跳 {平台域}/jump.html#sid=…&to=… → 本页种 sid Cookie
@@ -6,34 +6,52 @@
      安全：sid 走 URL hash 不经服务器与访问日志（replace 不留历史）；to 仅放行站内路径（/ 开头、
        非 //、不含反斜杠），防开放跳转 -->
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex">
-<title>正在跳转…</title>
-<style>
-  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-         font: 14px/1.8 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: #4e5969; }
-</style>
-</head>
-<body>
-<p id="msg">正在跳转…</p>
-<noscript><p>需要启用 JavaScript 才能完成跳转。</p></noscript>
-<script>
-(function () {
-  var msg = document.getElementById('msg');
-  function fail(text) { document.title = '跳转失败'; msg.textContent = text; }
-  // hash 形态：#sid=<平台会话>&to=<encodeURIComponent 的站内目标（/#/rtty/{ddns} 或 /web/{ddns}/https/...）>
-  var params;
-  try { params = new URLSearchParams((location.hash || '').replace(/^#/, '')); } catch (e) { params = null; }
-  var sid = params && params.get('sid');
-  var to = (params && params.get('to')) || '/';
-  if (!sid) return fail('跳转参数缺失，请从壹匣重新进入');
-  if (!/^\/(?!\/)/.test(to) || to.indexOf('\\') >= 0) return fail('跳转目标非法');
-  // js-cookie 默认口径：path=/、会话 Cookie、值 encodeURIComponent（sid 为 URL 安全字符集，编码恒等）
-  document.cookie = 'sid=' + encodeURIComponent(sid) + '; path=/';
-  location.replace(to);
-})();
-</script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>正在跳转…</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font:
+          14px/1.8 -apple-system,
+          'PingFang SC',
+          'Microsoft YaHei',
+          sans-serif;
+        color: #4e5969;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="msg">正在跳转…</p>
+    <noscript><p>需要启用 JavaScript 才能完成跳转。</p></noscript>
+    <script>
+      (function () {
+        var msg = document.getElementById('msg');
+        function fail(text) {
+          document.title = '跳转失败';
+          msg.textContent = text;
+        }
+        // hash 形态：#sid=<平台会话>&to=<encodeURIComponent 的站内目标（/#/rtty/{ddns} 或 /web/{ddns}/https/...）>
+        var params;
+        try {
+          params = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+        } catch (e) {
+          params = null;
+        }
+        var sid = params && params.get('sid');
+        var to = (params && params.get('to')) || '/';
+        if (!sid) return fail('跳转参数缺失，请从壹匣重新进入');
+        if (!/^\/(?!\/)/.test(to) || to.indexOf('\\') >= 0) return fail('跳转目标非法');
+        // js-cookie 默认口径：path=/、会话 Cookie、值 encodeURIComponent（sid 为 URL 安全字符集，编码恒等）
+        document.cookie = 'sid=' + encodeURIComponent(sid) + '; path=/';
+        location.replace(to);
+      })();
+    </script>
+  </body>
 </html>

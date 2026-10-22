@@ -24,8 +24,8 @@ name: 发版
 
 on:
   push:
-    tags: ["release-v*", "v*"]
-  workflow_dispatch: {}   # 手动补跑：「运行分支」处选择对应 tag
+    tags: ['release-v*', 'v*']
+  workflow_dispatch: {} # 手动补跑：「运行分支」处选择对应 tag
 
 env:
   CNB_IMAGE: docker.cnb.cool/j1net/j1toolkit/j1toolkit
@@ -52,14 +52,14 @@ jobs:
       contents: write
     steps:
       - if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2   # 建（或复用）空 Release
+        uses: softprops/action-gh-release@v2 # 建（或复用）空 Release
       - if: github.ref_type != 'tag'
         run: echo "非 tag 构建：只编译冒烟，不发 Release"
 
   build-server:
     needs: prepare
     permissions:
-      packages: write   # 推 GHCR
+      packages: write # 推 GHCR
     strategy:
       matrix:
         include:
@@ -112,7 +112,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
       - name: PyInstaller 构建核心（console onedir）
         run: |
           pip install pyinstaller requests gmssl pypdf websocket-client
@@ -138,7 +138,7 @@ jobs:
           if (-not ($ping -match '"ok": true')) { throw "rpc ping 失败" }
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
           cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
       - name: 前端构建 + 打包（NSIS 安装程序 + zip）
@@ -191,7 +191,7 @@ jobs:
             debian:buster bash packaging/build_linux_container.sh
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
           cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
       - name: 前端构建 + 打包（deb + tar.gz）
@@ -241,7 +241,7 @@ jobs:
         working-directory: uvmp-toolkit
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3   # arm64 模拟（较慢，约 10-20 分钟）
+      - uses: docker/setup-qemu-action@v3 # arm64 模拟（较慢，约 10-20 分钟）
       - name: 在 arm64v8/debian:buster 容器内构建核心
         run: |
           docker run --rm --platform linux/arm64 \
@@ -249,7 +249,7 @@ jobs:
             arm64v8/debian:buster bash packaging/build_linux_container.sh
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
           cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
       - name: 前端构建 + 打包（deb + tar.gz；纯打包不执行 arm64 代码）
@@ -283,7 +283,7 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
-      packages: write   # 推 GHCR
+      packages: write # 推 GHCR
     steps:
       - uses: docker/setup-buildx-action@v3
       - uses: actions/download-artifact@v4

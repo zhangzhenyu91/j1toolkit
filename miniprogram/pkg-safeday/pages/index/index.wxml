@@ -62,7 +62,12 @@
       </picker>
     </view>
 
-    <view class="btn-primary {{!files.length ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenTap">生成记录</view>
+    <view
+      class="btn-primary {{!files.length ? 'disabled' : ''}}"
+      hover-class="hover-opacity"
+      bindtap="onGenTap"
+      >生成记录</view
+    >
   </view>
 
   <!-- 生成进度卡（跟踪态） -->
@@ -73,7 +78,9 @@
       </view>
       <view class="fh-r">
         <view class="fn">{{track.name}}</view>
-        <view class="fs">{{track.sourceCount || 1}} 个源文件 · 提交于 {{track.createdText || '—'}}</view>
+        <view class="fs"
+          >{{track.sourceCount || 1}} 个源文件 · 提交于 {{track.createdText || '—'}}</view
+        >
       </view>
     </view>
     <view class="steps">
@@ -81,7 +88,12 @@
         <view class="sd-ic">
           <t-icon wx:if="{{item.state === 'done'}}" name="check" size="20rpx" color="#FFFFFF" />
           <view wx:elif="{{item.state === 'doing'}}" class="dot-ing"></view>
-          <t-icon wx:elif="{{item.state === 'fail'}}" name="error-triangle" size="20rpx" color="#FFFFFF" />
+          <t-icon
+            wx:elif="{{item.state === 'fail'}}"
+            name="error-triangle"
+            size="20rpx"
+            color="#FFFFFF"
+          />
         </view>
         <view class="step-r">
           <view class="st">{{item.t}}</view>
@@ -110,22 +122,33 @@
   </view>
 
   <block wx:if="{{records.length}}">
-    <view class="card rec" wx:for="{{records}}" wx:key="id" data-id="{{item.id}}"
-          hover-class="{{item.done ? 'hover-bg-warm' : ''}}" bindtap="onOpenRecord">
+    <view
+      class="card rec"
+      wx:for="{{records}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      hover-class="{{item.done ? 'hover-bg-warm' : ''}}"
+      bindtap="onOpenRecord"
+    >
       <view class="rec-head">
         <view class="rn">{{item.fileName}}</view>
         <!-- 班组徽章（.team-pill，仅「全部班组」混排视图展示） -->
         <text class="team-pill" wx:if="{{showTeamPill && item.team}}">{{item.team}}</text>
-        <view class="tag tag-{{item.status}}">
-          {{item.statusText}}
-        </view>
+        <view class="tag tag-{{item.status}}"> {{item.statusText}} </view>
       </view>
       <view class="rf">
         <t-icon name="file" size="22rpx" color="rgba(29,33,41,.4)" />
         <text>{{item.sub}}</text>
       </view>
       <view class="rmeta">活动日期 {{item.date}} · 提交 {{item.createdText}}</view>
-      <view wx:if="{{item.failed && item.error}}" class="rerr"><t-icon class="rerr-x" name="error-triangle" size="22rpx" color="#F53F3F" />{{item.error}}</view>
+      <view wx:if="{{item.failed && item.error}}" class="rerr"
+        ><t-icon
+          class="rerr-x"
+          name="error-triangle"
+          size="22rpx"
+          color="#F53F3F"
+        />{{item.error}}</view
+      >
       <!-- 操作行：打开（未生成置灰）+ 删除 -->
       <view class="ops">
         <view class="opb {{item.done ? '' : 'off'}}" catchtap="onOpenRecord" data-id="{{item.id}}">
@@ -133,12 +156,22 @@
             <text class="opb-ing">打开中…</text>
           </block>
           <block wx:else>
-            <t-icon name="download" size="30rpx" color="{{item.done ? '#0E3DA8' : 'rgba(29,33,41,.35)'}}" />
+            <t-icon
+              name="download"
+              size="30rpx"
+              color="{{item.done ? '#0E3DA8' : 'rgba(29,33,41,.35)'}}"
+            />
             <text>打开</text>
           </block>
         </view>
         <!-- 存网盘（仅已生成记录且网盘可用时显示；未开通/未配置探测失败即隐藏） -->
-        <view wx:if="{{item.done && ndOk}}" class="opb" hover-class="hover-opacity" catchtap="onSaveNetdisk" data-id="{{item.id}}">
+        <view
+          wx:if="{{item.done && ndOk}}"
+          class="opb"
+          hover-class="hover-opacity"
+          catchtap="onSaveNetdisk"
+          data-id="{{item.id}}"
+        >
           <block wx:if="{{savingNd === item.id}}">
             <text class="opb-ing">保存中…</text>
           </block>
@@ -147,8 +180,13 @@
             <text>存网盘</text>
           </block>
         </view>
-        <view class="opb del" hover-class="hover-opacity" catchtap="onDeleteRecord"
-              data-id="{{item.id}}" data-name="{{item.name}}">
+        <view
+          class="opb del"
+          hover-class="hover-opacity"
+          catchtap="onDeleteRecord"
+          data-id="{{item.id}}"
+          data-name="{{item.name}}"
+        >
           <t-icon name="delete" size="30rpx" color="#4E5969" />
           <text>删除</text>
         </view>
@@ -171,9 +209,14 @@
 
 <!-- 生成表单弹层（学习内容 + 参会信息，确认后开始生成；参加/缺席互斥点亮；键盘弹起时动态抬高底部 padding，同出工日志弹层） -->
 <t-popup visible="{{genOpen}}" placement="bottom" bind:visible-change="onGenVisibleChange">
-  <view class="sheet" style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};">
+  <view
+    class="sheet"
+    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};"
+  >
     <view class="sheet-title">生成活动记录</view>
-    <view class="sheet-sub">确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</view>
+    <view class="sheet-sub"
+      >确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</view
+    >
     <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
       <view class="f-lab">学习内容（记录名称）</view>
       <!-- 多行编辑框：拉高至可容纳 5 行文本（同网页端 textarea 口径；maxlength 100 不变） -->
@@ -198,19 +241,26 @@
             data-mode="member"
             hover-class="hover-opacity"
             bindtap="onAttendModeTap"
-          >名单选择</view>
+            >名单选择</view
+          >
           <view
             class="ms-opt {{attendMode === 'custom' ? 'on' : ''}}"
             data-mode="custom"
             hover-class="hover-opacity"
             bindtap="onAttendModeTap"
-          >自定义</view>
+            >自定义</view
+          >
         </view>
       </view>
       <view class="f-2col">
         <view>
           <view class="f-lab">主持人</view>
-          <picker wx:if="{{attendMode === 'member'}}" range="{{members}}" value="{{hostIdx}}" bindchange="onHostChange">
+          <picker
+            wx:if="{{attendMode === 'member'}}"
+            range="{{members}}"
+            value="{{hostIdx}}"
+            bindchange="onHostChange"
+          >
             <view class="pick-val">
               <text>{{members[hostIdx] || '—'}}</text>
               <t-icon name="chevron-down" size="26rpx" color="rgba(29,33,41,.4)" />
@@ -252,7 +302,9 @@
         placeholder-class="ph"
       />
       <block wx:if="{{attendMode === 'member'}}">
-        <view class="f-lab">本班组参加人员<text class="f-lab-sub">默认全员参加，点击名字改为缺席</text></view>
+        <view class="f-lab"
+          >本班组参加人员<text class="f-lab-sub">默认全员参加，点击名字改为缺席</text></view
+        >
         <view class="mchips">
           <view
             wx:for="{{members}}"
@@ -261,9 +313,12 @@
             data-idx="{{index}}"
             hover-class="hover-opacity"
             bindtap="onToggleAttend"
-          >{{item}}</view>
+            >{{item}}</view
+          >
         </view>
-        <view class="f-lab">缺席人员<text class="f-lab-sub">与参加人员互斥，点击名字改为参加</text></view>
+        <view class="f-lab"
+          >缺席人员<text class="f-lab-sub">与参加人员互斥，点击名字改为参加</text></view
+        >
         <view class="mchips absent">
           <view
             wx:for="{{members}}"
@@ -272,7 +327,8 @@
             data-idx="{{index}}"
             hover-class="hover-opacity"
             bindtap="onToggleAttend"
-          >{{item}}</view>
+            >{{item}}</view
+          >
         </view>
       </block>
       <block wx:else>
@@ -288,7 +344,9 @@
           placeholder="如：张三 李四"
           placeholder-class="ph"
         />
-        <view class="f-lab">缺席人员<text class="f-lab-sub">多人以空格或顿号分隔，无则留空</text></view>
+        <view class="f-lab"
+          >缺席人员<text class="f-lab-sub">多人以空格或顿号分隔，无则留空</text></view
+        >
         <input
           class="name-input"
           value="{{customAbsentees}}"
@@ -315,8 +373,17 @@
       />
     </scroll-view>
     <view class="sheet-ops">
-      <view class="btn-ghost {{submitting ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenCancel">取消</view>
-      <view class="btn-accent {{submitting ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onGenConfirm">
+      <view
+        class="btn-ghost {{submitting ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onGenCancel"
+        >取消</view
+      >
+      <view
+        class="btn-accent {{submitting ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onGenConfirm"
+      >
         {{submitting ? '正在生成…' : '确定，开始生成'}}
       </view>
     </view>
@@ -324,7 +391,12 @@
 </t-popup>
 
 <!-- 网盘目录选择（存网盘前选目录，共享组件） -->
-<nd-dirpicker visible="{{ndSaveVisible}}" default-path="安全日记录" bind:confirm="onNdSaveDirConfirm" bind:close="onNdSaveDirClose" />
+<nd-dirpicker
+  visible="{{ndSaveVisible}}"
+  default-path="安全日记录"
+  bind:confirm="onNdSaveDirConfirm"
+  bind:close="onNdSaveDirClose"
+/>
 
 <t-dialog id="t-dialog" />
 <t-toast id="t-toast" />

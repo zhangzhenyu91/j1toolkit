@@ -13,17 +13,17 @@
   align-items: center;
   gap: 12rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 12rpx 28rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .ts-cur .arr {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-size: 18rpx;
 }
 
@@ -34,7 +34,7 @@
   left: 0;
   z-index: 21;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   padding: 12rpx;
@@ -64,8 +64,8 @@
 }
 
 .ts-opt.on {
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
 }
 
 .ts-opt .ck {
@@ -98,7 +98,7 @@
   width: 128rpx;
   height: 128rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -113,7 +113,7 @@
 
 .team-empty .te-p {
   font-size: 23rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.8;
   text-align: center;
 }
@@ -137,7 +137,7 @@
   top: 16rpx;
   bottom: 16rpx;
   width: 2rpx;
-  background: #E5E6EB;
+  background: #e5e6eb;
 }
 
 .stat-card b {
@@ -149,14 +149,14 @@
 
 .stat-card b em {
   font-style: normal;
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .stat-card span {
   display: block;
   margin-top: 8rpx;
   font-size: 21rpx;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 2rpx;
 }
 
@@ -166,7 +166,7 @@
   height: 84rpx;
   flex: none;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -175,14 +175,14 @@
 .progress {
   height: 12rpx;
   border-radius: 12rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   overflow: hidden;
 }
 
 .progress-in {
   height: 100%;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .tag {
@@ -197,8 +197,8 @@
 }
 
 .tag-navy {
-  background: #E8F0FF;
-  color: #1D2129;
+  background: #e8f0ff;
+  color: #1d2129;
 }
 
 /* ---------- 「我的题库」板块行（右侧管理入口） ---------- */
@@ -215,7 +215,7 @@
   align-items: center;
   gap: 4rpx;
   font-size: 23rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* ---------- 题库卡 ---------- */
@@ -248,7 +248,7 @@
 .bank-item .meta {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
   display: flex;
   gap: 20rpx;
 }
@@ -266,7 +266,7 @@
 
 .bank-item .pg span {
   font-size: 20rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   white-space: nowrap;
 }
 
@@ -292,12 +292,12 @@
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(29,33,41,.35);
+  border: 3rpx dashed rgba(29, 33, 41, 0.35);
   border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 2rpx;
 }
 
@@ -313,13 +313,13 @@
   bottom: 0;
   z-index: 15;
   padding: 20rpx 28rpx calc(28rpx + env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(244, 241, 234, 0), #F5F7FA 30%);
+  background: linear-gradient(180deg, rgba(244, 241, 234, 0), #f5f7fa 30%);
 }
 
 .btn-navy {
   height: 92rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;

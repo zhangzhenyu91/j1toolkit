@@ -59,7 +59,8 @@ function mapRecord(r, threshold) {
   for (const p of photos) {
     if (pz[p.kind]) pz[p.kind].push(p);
   }
-  const vnum = r.vertical_num === null || r.vertical_num === undefined ? null : Number(r.vertical_num);
+  const vnum =
+    r.vertical_num === null || r.vertical_num === undefined ? null : Number(r.vertical_num);
   return Object.assign({}, r, {
     foundAtText: fmtDot(r.found_at),
     handledAtText: fmtDot(r.handled_at),
@@ -198,9 +199,10 @@ Page({
     try {
       const data = await request({ url: '/api/v1/admin/teams' });
       const teams = ((data && data.list) || []).filter((t) => t.status === 1);
-      const cur = teams.find((t) => t.id === this._teamId)
-        || teams.find((t) => t.id === Number(user.team_id))
-        || teams[0];
+      const cur =
+        teams.find((t) => t.id === this._teamId) ||
+        teams.find((t) => t.id === Number(user.team_id)) ||
+        teams[0];
       if (cur) {
         this._teamId = cur.id;
         this._teamName = cur.name;
@@ -262,7 +264,12 @@ Page({
     for (const r of records) {
       if (r.status !== 'unhandled') continue;
       unhandled += 1;
-      if (threshold !== null && r.vertical_num !== null && r.vertical_num !== undefined && Number(r.vertical_num) <= threshold) {
+      if (
+        threshold !== null &&
+        r.vertical_num !== null &&
+        r.vertical_num !== undefined &&
+        Number(r.vertical_num) <= threshold
+      ) {
         urgent += 1;
       }
     }
@@ -284,7 +291,9 @@ Page({
     for (const l of this._lines || []) {
       const records = l.records || [];
       const st = this.lineStats(records);
-      const vm = String(l.voltage_level === null || l.voltage_level === undefined ? '' : l.voltage_level).match(/\d+(\.\d+)?/);
+      const vm = String(
+        l.voltage_level === null || l.voltage_level === undefined ? '' : l.voltage_level
+      ).match(/\d+(\.\d+)?/);
       cards.push({
         key: `L_${l.line_name}`,
         lineName: l.line_name,
@@ -296,10 +305,13 @@ Page({
         stateClass: (st.urgent || 0) > 0 ? 's-bad' : st.unhandled > 0 ? 's-info' : 's-ok',
       });
     }
-    cards.sort((a, b) => (b.urgent || 0) - (a.urgent || 0)
-      || b.unhandled - a.unhandled
-      || b.volt - a.volt
-      || String(a.lineName).localeCompare(String(b.lineName), 'zh-CN'));
+    cards.sort(
+      (a, b) =>
+        (b.urgent || 0) - (a.urgent || 0) ||
+        b.unhandled - a.unhandled ||
+        b.volt - a.volt ||
+        String(a.lineName).localeCompare(String(b.lineName), 'zh-CN')
+    );
     if ((this._unmatched || []).length) {
       const st = this.lineStats(this._unmatched);
       cards.push({
@@ -332,7 +344,13 @@ Page({
     }
     const st = this.lineStats(records);
     this.setData({
-      groups: [{ key: this.data.curKey, title: this.data.curTitle, records: records.map((r) => mapRecord(r, threshold)) }],
+      groups: [
+        {
+          key: this.data.curKey,
+          title: this.data.curTitle,
+          records: records.map((r) => mapRecord(r, threshold)),
+        },
+      ],
       curTotal: records.length,
       curUnhandled: st.unhandled,
       curUrgent: st.urgent,
@@ -836,7 +854,10 @@ Page({
     const scopeAll = this.data.expScope === 'all';
     let line = '';
     if (!scopeAll) {
-      line = this.data.view === 'ledger' && !this.data.curUnmatched ? this._curLineName : this.data.expLine;
+      line =
+        this.data.view === 'ledger' && !this.data.curUnmatched
+          ? this._curLineName
+          : this.data.expLine;
       if (!line) {
         this.toast('请选择线路');
         return;

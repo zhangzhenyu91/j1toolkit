@@ -16,7 +16,9 @@ import { request } from '../../utils/request';
 const joinPath = (base, name) => (base === '/' ? `/${name}` : `${base}/${name}`);
 // defaultPath（如 出工日志/2026-10）→ 组件内部口径（/出工日志/2026-10；根目录 /）
 const toInternal = (p) => {
-  const segs = String(p || '').split('/').filter(Boolean);
+  const segs = String(p || '')
+    .split('/')
+    .filter(Boolean);
   return segs.length ? `/${segs.join('/')}` : '/';
 };
 const MY_SPACE = { key: 'my', name: '我的空间' };
@@ -59,17 +61,29 @@ Component({
     async openPicker() {
       const target = toInternal(this.data.defaultPath);
       this.setData({
-        space: 'my', dir: target, dirs: [], loading: true, error: '',
-        mkOpen: false, mkName: '', mkSaving: false, keyboardHeight: 0,
+        space: 'my',
+        dir: target,
+        dirs: [],
+        loading: true,
+        error: '',
+        mkOpen: false,
+        mkName: '',
+        mkSaving: false,
+        keyboardHeight: 0,
       });
       this.buildCrumbs();
       try {
         const data = await request({ url: '/api/v1/netdisk/spaces', method: 'GET' });
         const list = ((data && data.spaces) || [])
           .filter((s) => s && (s.key === 'my' || s.key === 'public'))
-          .map((s) => ({ key: s.key, name: s.name || (s.key === 'public' ? '公共区' : '我的空间') }));
+          .map((s) => ({
+            key: s.key,
+            name: s.name || (s.key === 'public' ? '公共区' : '我的空间'),
+          }));
         if (list.length) this.setData({ spaces: list });
-      } catch (err) { /* 探测失败：仅我的空间 */ }
+      } catch (err) {
+        /* 探测失败：仅我的空间 */
+      }
       try {
         const dirs = await this.fetchDirs(target);
         this.setData({ dirs, loading: false });
@@ -96,7 +110,9 @@ Component({
     // 拉目录（只保留文件夹）
     async fetchDirs(path) {
       const data = await request({
-        url: '/api/v1/netdisk/list', method: 'POST', data: { space: this.data.space, path },
+        url: '/api/v1/netdisk/list',
+        method: 'POST',
+        data: { space: this.data.space, path },
       });
       return ((data && data.items) || []).filter((o) => o.is_dir).map((o) => ({ name: o.name }));
     },
@@ -118,7 +134,11 @@ Component({
       const segs = this.data.dir.split('/').filter(Boolean);
       const crumbs = [{ name: spaceName, path: '/', last: segs.length === 0 }];
       segs.forEach((s, i) => {
-        crumbs.push({ name: s, path: `/${segs.slice(0, i + 1).join('/')}`, last: i === segs.length - 1 });
+        crumbs.push({
+          name: s,
+          path: `/${segs.slice(0, i + 1).join('/')}`,
+          last: i === segs.length - 1,
+        });
       });
       this.setData({ crumbs });
     },

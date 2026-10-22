@@ -17,17 +17,23 @@ function isConfigured() {
 // 解析接收方 wxid：用户个人 wxid + 班组群 wxid（均限启用/正常且已设 wxid 者），去重后返回
 async function resolveWxids({ userIds = [], teamIds = [] }) {
   const wxids = [];
-  const uids = [...new Set(userIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0))];
-  const tids = [...new Set(teamIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0))];
+  const uids = [
+    ...new Set(userIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)),
+  ];
+  const tids = [
+    ...new Set(teamIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)),
+  ];
   if (uids.length) {
     const [rows] = await pool.query(
-      "SELECT wxid FROM sys_user WHERE id IN (?) AND status = 1 AND wxid != ''", [uids]
+      "SELECT wxid FROM sys_user WHERE id IN (?) AND status = 1 AND wxid != ''",
+      [uids]
     );
     rows.forEach((r) => wxids.push(r.wxid));
   }
   if (tids.length) {
     const [rows] = await pool.query(
-      "SELECT wxid FROM sys_team WHERE id IN (?) AND status = 1 AND wxid != ''", [tids]
+      "SELECT wxid FROM sys_team WHERE id IN (?) AND status = 1 AND wxid != ''",
+      [tids]
     );
     rows.forEach((r) => wxids.push(r.wxid));
   }
@@ -36,10 +42,13 @@ async function resolveWxids({ userIds = [], teamIds = [] }) {
 
 // 解析被@人：用户 id → { wxid, nickname }（限正常且 wxid/昵称均已设置者，按 wxid 去重）；群消息 @ 用
 async function resolveMentions(userIds = []) {
-  const uids = [...new Set(userIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0))];
+  const uids = [
+    ...new Set(userIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)),
+  ];
   if (!uids.length) return [];
   const [rows] = await pool.query(
-    "SELECT wxid, nickname FROM sys_user WHERE id IN (?) AND status = 1 AND wxid != '' AND nickname != ''", [uids]
+    "SELECT wxid, nickname FROM sys_user WHERE id IN (?) AND status = 1 AND wxid != '' AND nickname != ''",
+    [uids]
   );
   const seen = new Set();
   return rows
@@ -55,7 +64,10 @@ async function sendTo({ userIds = [], teamIds = [], text, atUserIds = [], user =
   let wxids;
   let mentions;
   try {
-    [wxids, mentions] = await Promise.all([resolveWxids({ userIds, teamIds }), resolveMentions(atUserIds)]);
+    [wxids, mentions] = await Promise.all([
+      resolveWxids({ userIds, teamIds }),
+      resolveMentions(atUserIds),
+    ]);
   } catch (err) {
     console.error('[微信推送] wxid 解析失败：', err.message);
     return { ok: false, sent: 0, error: err.message };

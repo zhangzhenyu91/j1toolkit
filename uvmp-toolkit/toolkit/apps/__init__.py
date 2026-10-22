@@ -9,6 +9,7 @@
 注意：backend.py 禁止 import 任何 GUI 依赖（PyQt5 等）——CLI/定时器无头环境没有 GUI 依赖；
 界面由 Electron 桌面端（desktop/src/pages）实现，旧 PyQt page.py 机制已废弃。
 """
+
 import importlib.util
 import json
 from pathlib import Path

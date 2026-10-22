@@ -22,7 +22,8 @@ const MD_TAG_STYLE = {
   td: 'border:1px solid #E5E6EB;padding:6px 10px',
   code: 'font-family:Menlo,Consolas,monospace;font-size:0.9em;color:#0A3592',
   pre: 'background:#F5F7FA;border:1px solid #E5E6EB;border-radius:8px;padding:10px;margin:8px 0;overflow-x:auto',
-  blockquote: 'border-left:3px solid #0E3DA8;margin:6px 0;padding:2px 10px;color:#4E5969;background:#F5F7FA',
+  blockquote:
+    'border-left:3px solid #0E3DA8;margin:6px 0;padding:2px 10px;color:#4E5969;background:#F5F7FA',
   a: 'color:#0E3DA8;text-decoration:underline',
   strong: 'font-weight:600',
   hr: 'border:none;border-top:1px solid #E5E6EB;margin:10px 0',
@@ -46,7 +47,11 @@ function renderMarkdown(text, options) {
   try {
     return pickMd(options).render(src);
   } catch (err) {
-    return src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+    return src
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
   }
 }
 

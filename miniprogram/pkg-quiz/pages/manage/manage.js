@@ -109,20 +109,24 @@ Page({
   // 解析计数收敛 utils/quiz mapAnalysis，anPct/anFinished/anRetryable 为管理页特有字段）
   mapBank(b) {
     const an = mapAnalysis(b.analysis, b.questionCount || 0);
-    return Object.assign({
-      id: b.id,
-      name: b.name || '',
-      description: b.description || '',
-      scope: b.scope === 'all' ? 'all' : 'team',
-      teamName: b.teamName || '',
-      questionCount: b.questionCount || 0,
-    }, an, {
-      anPct: an.anTotal ? Math.round((an.anDone / an.anTotal) * 100) : 0,
-      // 解析完成：无排队无失败且有已生成解析
-      anFinished: an.anPending === 0 && an.anFailed === 0 && an.anDone > 0,
-      // 可续跑：不在解析中且有失败/待解析题（服务重启后 pending 自愈回退 none，经此入口续跑）
-      anRetryable: an.anPending === 0 && (an.anFailed + an.anNone) > 0,
-    });
+    return Object.assign(
+      {
+        id: b.id,
+        name: b.name || '',
+        description: b.description || '',
+        scope: b.scope === 'all' ? 'all' : 'team',
+        teamName: b.teamName || '',
+        questionCount: b.questionCount || 0,
+      },
+      an,
+      {
+        anPct: an.anTotal ? Math.round((an.anDone / an.anTotal) * 100) : 0,
+        // 解析完成：无排队无失败且有已生成解析
+        anFinished: an.anPending === 0 && an.anFailed === 0 && an.anDone > 0,
+        // 可续跑：不在解析中且有失败/待解析题（服务重启后 pending 自愈回退 none，经此入口续跑）
+        anRetryable: an.anPending === 0 && an.anFailed + an.anNone > 0,
+      }
+    );
   },
 
   /* ==================== 新建 / 编辑题库弹层 ==================== */
@@ -231,16 +235,20 @@ Page({
       content: '将同时清空该题库所有题目与全员答题记录，该操作不可恢复。',
       confirmBtn: '确认删除',
       cancelBtn: '取消',
-    }).then(() => {
-      // 删除请求无 body：team_id 走 query（超管缺 team_id 会落到默认班组匹配失败 404）
-      request({
-        url: `${API_BASE}/banks/${encodeURIComponent(id)}${this.teamQuery('?')}`,
-        method: 'DELETE',
-      }).then(() => {
-        this.toast('题库已删除');
-        this.loadBanks(false);
-      }).catch((err) => this.toast(err.message));
-    }).catch(() => {});
+    })
+      .then(() => {
+        // 删除请求无 body：team_id 走 query（超管缺 team_id 会落到默认班组匹配失败 404）
+        request({
+          url: `${API_BASE}/banks/${encodeURIComponent(id)}${this.teamQuery('?')}`,
+          method: 'DELETE',
+        })
+          .then(() => {
+            this.toast('题库已删除');
+            this.loadBanks(false);
+          })
+          .catch((err) => this.toast(err.message));
+      })
+      .catch(() => {});
   },
 
   onRetryAnalyze(e) {
@@ -252,16 +260,20 @@ Page({
       content: `将把题库「${name || ''}」中解析失败的题目重新排队生成解析。`,
       confirmBtn: '重试',
       cancelBtn: '取消',
-    }).then(() => {
-      request({
-        url: `${API_BASE}/banks/${encodeURIComponent(id)}/analyze-retry${this.teamQuery('?')}`,
-        method: 'POST',
-        data: this.teamBody({}),
-      }).then((data) => {
-        this.toast(`已重新排队 ${(data && data.queued) || 0} 题`);
-        this.loadBanks(false);
-      }).catch((err) => this.toast(err.message));
-    }).catch(() => {});
+    })
+      .then(() => {
+        request({
+          url: `${API_BASE}/banks/${encodeURIComponent(id)}/analyze-retry${this.teamQuery('?')}`,
+          method: 'POST',
+          data: this.teamBody({}),
+        })
+          .then((data) => {
+            this.toast(`已重新排队 ${(data && data.queued) || 0} 题`);
+            this.loadBanks(false);
+          })
+          .catch((err) => this.toast(err.message));
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

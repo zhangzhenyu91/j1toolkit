@@ -11,7 +11,15 @@ const ROLE_OPTIONS = [
   { value: 'user', label: '普通用户' },
 ];
 const ROLE_TEXT = { admin: '超级管理员', team_admin: '班组管理员', user: '普通用户' };
-const EMPTY_FORM = { id: null, username: '', nickname: '', password: '', team_id: null, role: 'user', status: 1 };
+const EMPTY_FORM = {
+  id: null,
+  username: '',
+  nickname: '',
+  password: '',
+  team_id: null,
+  role: 'user',
+  status: 1,
+};
 
 Page({
   behaviors: [userGroups],
@@ -109,9 +117,10 @@ Page({
   onTeamPick(e) {
     const raw = e.currentTarget.dataset.id;
     const team_id = raw === '' ? null : Number(raw);
-    const teamName = team_id === null
-      ? '未分配'
-      : ((this.data.teams.find((t) => t.id === team_id) || {}).name || '未分配');
+    const teamName =
+      team_id === null
+        ? '未分配'
+        : (this.data.teams.find((t) => t.id === team_id) || {}).name || '未分配';
     this.setData({ 'form.team_id': team_id, teamName, teamOpen: false });
   },
 

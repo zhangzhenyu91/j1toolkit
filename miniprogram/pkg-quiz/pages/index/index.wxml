@@ -29,8 +29,13 @@
 
   <!-- 统计卡 -->
   <view class="card hazard-top stat-card">
-    <view class="cell"><b>{{overview ? overview.totalAnswered : '—'}}</b><span>累计练习</span></view>
-    <view class="cell"><b><em>{{overview && overview.rightRate !== null ? overview.rightRate + '%' : '—'}}</em></b><span>正确率</span></view>
+    <view class="cell"
+      ><b>{{overview ? overview.totalAnswered : '—'}}</b><span>累计练习</span></view
+    >
+    <view class="cell"
+      ><b><em>{{overview && overview.rightRate !== null ? overview.rightRate + '%' : '—'}}</em></b
+      ><span>正确率</span></view
+    >
     <view class="cell"><b>{{overview ? overview.wrongCount : '—'}}</b><span>错题待攻克</span></view>
   </view>
 
@@ -43,9 +48,16 @@
   </view>
 
   <block wx:if="{{banks.length}}">
-    <view class="card bank-item" wx:for="{{banks}}" wx:key="id"
-          style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;"
-          hover-class="hover-bg-warm" bindtap="onBankTap" data-id="{{item.id}}" data-name="{{item.name}}">
+    <view
+      class="card bank-item"
+      wx:for="{{banks}}"
+      wx:key="id"
+      style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;"
+      hover-class="hover-bg-warm"
+      bindtap="onBankTap"
+      data-id="{{item.id}}"
+      data-name="{{item.name}}"
+    >
       <view class="icon-box"><t-icon name="book" size="40rpx" color="#0E3DA8" /></view>
       <view class="tx">
         <b>
@@ -59,7 +71,9 @@
           <span wx:else>正确率 {{item.rightRateText}}</span>
         </view>
         <view class="pg">
-          <view class="progress"><view class="progress-in" style="width: {{item.pct}}%;"></view></view>
+          <view class="progress"
+            ><view class="progress-in" style="width: {{item.pct}}%;"></view
+          ></view>
           <span>{{item.answeredCount}} / {{item.questionCount}}</span>
         </view>
       </view>

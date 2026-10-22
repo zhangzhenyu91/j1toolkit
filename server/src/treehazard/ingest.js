@@ -37,7 +37,9 @@ function parseEvidencePhotos(raw) {
     const photo = parseDataUrlPhoto(String((item && item.image) || ''));
     if (!photo || !photo.buf.length || photo.buf.length > PHOTO_MAX_BYTES) continue;
     list.push({
-      msgId: String((item && item.msg_id) ?? '').trim().slice(0, 64),
+      msgId: String((item && item.msg_id) ?? '')
+        .trim()
+        .slice(0, 64),
       buf: photo.buf,
       ext: photo.ext,
       contentType: photo.contentType,
@@ -48,7 +50,10 @@ function parseEvidencePhotos(raw) {
 
 // direct 模式整组替换某记录的 evidence 照片（先删旧 COS 对象与表行再逐张上传），返回 { stored, failed }
 async function replaceEvidencePhotos(teamName, recordId, photos) {
-  const [olds] = await pool.query("SELECT id, cos_key FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'", [recordId]);
+  const [olds] = await pool.query(
+    "SELECT id, cos_key FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'",
+    [recordId]
+  );
   for (const p of olds) {
     try {
       await cos.deleteObject(p.cos_key);
@@ -56,7 +61,10 @@ async function replaceEvidencePhotos(teamName, recordId, photos) {
       console.error('[树障] 重推清理旧辅证 COS 对象失败（继续）：', e.message);
     }
   }
-  if (olds.length) await pool.query("DELETE FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'", [recordId]);
+  if (olds.length)
+    await pool.query("DELETE FROM treehazard_photo WHERE record_id = ? AND kind = 'evidence'", [
+      recordId,
+    ]);
   let stored = 0;
   let failed = 0;
   for (let i = 0; i < photos.length; i += 1) {
@@ -102,7 +110,10 @@ async function storeStagingPhotos(teamName, batchId, stagingRecordId, craneRecor
 
 // 批次废弃/整批替换时连带清理暂存照片（COS 对象 + 表行；导入转入走 index.js 的归挂逻辑）
 async function clearStagingPhotos(batchId) {
-  const [rows] = await pool.query('SELECT id, cos_key FROM treehazard_staging_photo WHERE batch_id = ?', [batchId]);
+  const [rows] = await pool.query(
+    'SELECT id, cos_key FROM treehazard_staging_photo WHERE batch_id = ?',
+    [batchId]
+  );
   for (const p of rows) {
     try {
       await cos.deleteObject(p.cos_key);
@@ -110,32 +121,61 @@ async function clearStagingPhotos(batchId) {
       console.error('[树障] 清理暂存辅证 COS 对象失败（继续）：', e.message);
     }
   }
-  if (rows.length) await pool.query('DELETE FROM treehazard_staging_photo WHERE batch_id = ?', [batchId]);
+  if (rows.length)
+    await pool.query('DELETE FROM treehazard_staging_photo WHERE batch_id = ?', [batchId]);
   return rows.length;
 }
 
 // 直推记录清洗：缺 line_name 且缺 line_name_raw 的条目返回 null（跳过计数）；line_name 空时回退 line_name_raw
 function sanitizeRecord(r) {
   if (!r || typeof r !== 'object') return null;
-  const lineName = (String(r.line_name ?? '').trim() || String(r.line_name_raw ?? '').trim()).slice(0, 64);
+  const lineName = (String(r.line_name ?? '').trim() || String(r.line_name_raw ?? '').trim()).slice(
+    0,
+    64
+  );
   if (!lineName) return null;
   return {
-    crane_record_id: String(r.crane_record_id ?? '').trim().slice(0, 64) || null, // 空存 NULL（uk_crane 不约束 NULL）
-    voltage_level: String(r.voltage_level ?? '').trim().slice(0, 16),
+    crane_record_id:
+      String(r.crane_record_id ?? '')
+        .trim()
+        .slice(0, 64) || null, // 空存 NULL（uk_crane 不约束 NULL）
+    voltage_level: String(r.voltage_level ?? '')
+      .trim()
+      .slice(0, 16),
     line_name: lineName,
-    section: String(r.section ?? '').trim().slice(0, 32),
+    section: String(r.section ?? '')
+      .trim()
+      .slice(0, 32),
     pole_from: toIntOrNull(r.pole_from),
     pole_to: toIntOrNull(r.pole_to),
-    position_note: String(r.position_note ?? '').trim().slice(0, 32),
-    tree_species: String(r.tree_species ?? '').trim().slice(0, 32),
-    tree_count: String(r.tree_count ?? '').trim().slice(0, 16),
-    dist_small: String(r.dist_small ?? '').trim().slice(0, 16),
-    dist_big: String(r.dist_big ?? '').trim().slice(0, 16),
-    diameter: String(r.diameter ?? '').trim().slice(0, 16),
-    horizontal: String(r.horizontal ?? '').trim().slice(0, 16),
-    vertical: String(r.vertical ?? '').trim().slice(0, 16),
+    position_note: String(r.position_note ?? '')
+      .trim()
+      .slice(0, 32),
+    tree_species: String(r.tree_species ?? '')
+      .trim()
+      .slice(0, 32),
+    tree_count: String(r.tree_count ?? '')
+      .trim()
+      .slice(0, 16),
+    dist_small: String(r.dist_small ?? '')
+      .trim()
+      .slice(0, 16),
+    dist_big: String(r.dist_big ?? '')
+      .trim()
+      .slice(0, 16),
+    diameter: String(r.diameter ?? '')
+      .trim()
+      .slice(0, 16),
+    horizontal: String(r.horizontal ?? '')
+      .trim()
+      .slice(0, 16),
+    vertical: String(r.vertical ?? '')
+      .trim()
+      .slice(0, 16),
     vertical_num: parseVerticalNum(r.vertical),
-    finder_name: String(r.finder_name ?? '').trim().slice(0, 32),
+    finder_name: String(r.finder_name ?? '')
+      .trim()
+      .slice(0, 32),
     found_at: normDateStr(r.found_at) || null,
   };
 }
@@ -146,9 +186,24 @@ const DISCOVERY_SET = `voltage_level = ?, line_name = ?, section = ?, pole_from 
   vertical_num = ?, finder_name = ?, found_at = ?`;
 
 function discoveryVals(rec) {
-  return [rec.voltage_level, rec.line_name, rec.section, rec.pole_from, rec.pole_to, rec.position_note,
-    rec.tree_species, rec.tree_count, rec.dist_small, rec.dist_big, rec.diameter, rec.horizontal, rec.vertical,
-    rec.vertical_num, rec.finder_name, rec.found_at];
+  return [
+    rec.voltage_level,
+    rec.line_name,
+    rec.section,
+    rec.pole_from,
+    rec.pole_to,
+    rec.position_note,
+    rec.tree_species,
+    rec.tree_count,
+    rec.dist_small,
+    rec.dist_big,
+    rec.diameter,
+    rec.horizontal,
+    rec.vertical,
+    rec.vertical_num,
+    rec.finder_name,
+    rec.found_at,
+  ];
 }
 
 // direct：逐条 upsert（附带辅证照片时整组替换 evidence 组），返回 { inserted, updated, photos, photos_failed }
@@ -168,7 +223,10 @@ async function importDirect(team, sessionId, records) {
     }
     let recordId;
     if (existingId) {
-      await pool.query(`UPDATE treehazard_record SET ${DISCOVERY_SET} WHERE id = ?`, [...discoveryVals(rec), existingId]);
+      await pool.query(`UPDATE treehazard_record SET ${DISCOVERY_SET} WHERE id = ?`, [
+        ...discoveryVals(rec),
+        existingId,
+      ]);
       recordId = existingId;
       updated += 1;
     } else {
@@ -177,9 +235,27 @@ async function importDirect(team, sessionId, records) {
           tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
           finder_name, found_at, status, source, crane_session_id, crane_record_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unhandled', 'crane', ?, ?)`,
-        [team.id, rec.voltage_level, rec.line_name, rec.section, rec.pole_from, rec.pole_to, rec.position_note,
-          rec.tree_species, rec.tree_count, rec.dist_small, rec.dist_big, rec.diameter, rec.horizontal, rec.vertical,
-          rec.vertical_num, rec.finder_name, rec.found_at, sessionId, rec.crane_record_id]
+        [
+          team.id,
+          rec.voltage_level,
+          rec.line_name,
+          rec.section,
+          rec.pole_from,
+          rec.pole_to,
+          rec.position_note,
+          rec.tree_species,
+          rec.tree_count,
+          rec.dist_small,
+          rec.dist_big,
+          rec.diameter,
+          rec.horizontal,
+          rec.vertical,
+          rec.vertical_num,
+          rec.finder_name,
+          rec.found_at,
+          sessionId,
+          rec.crane_record_id,
+        ]
       );
       recordId = r.insertId;
       inserted += 1;
@@ -208,7 +284,15 @@ function saveBatchXlsx(teamId, sessionId, xlsxBase64) {
 // staging：同 (team_id, session_id) 批次整批替换（含已导入批次被重推时复位为 pending；暂存照片连带先清后存），
 // 返回 { batch_id, count, photos, photos_failed }
 // reviewNote：审核意见（可空，空串存 NULL），整批替换时随批次行一并更新
-async function importStaging(team, sessionId, groupName, pusherName, reviewNote, xlsxBase64, records) {
+async function importStaging(
+  team,
+  sessionId,
+  groupName,
+  pusherName,
+  reviewNote,
+  xlsxBase64,
+  records
+) {
   const xlsxPath = xlsxBase64 ? saveBatchXlsx(team.id, sessionId, xlsxBase64) : '';
   const [batches] = await pool.query(
     'SELECT id FROM treehazard_staging_batch WHERE team_id = ? AND crane_session_id = ?',
@@ -239,13 +323,33 @@ async function importStaging(team, sessionId, groupName, pusherName, reviewNote,
         tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
         finder_name, found_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [batchId, rec.crane_record_id, rec.voltage_level, rec.line_name, rec.section,
-        rec.tree_species, rec.tree_count, rec.dist_small, rec.dist_big, rec.diameter, rec.horizontal, rec.vertical,
-        rec.vertical_num, rec.finder_name, rec.found_at]
+      [
+        batchId,
+        rec.crane_record_id,
+        rec.voltage_level,
+        rec.line_name,
+        rec.section,
+        rec.tree_species,
+        rec.tree_count,
+        rec.dist_small,
+        rec.dist_big,
+        rec.diameter,
+        rec.horizontal,
+        rec.vertical,
+        rec.vertical_num,
+        rec.finder_name,
+        rec.found_at,
+      ]
     );
     if (Array.isArray(rec.photos) && rec.photos.length) {
       // 照片按本条暂存行的 insertId 归挂（同批多条空 crane_record_id 时不再互相误挂）
-      const pr = await storeStagingPhotos(team.name, batchId, r.insertId, rec.crane_record_id || '', rec.photos);
+      const pr = await storeStagingPhotos(
+        team.name,
+        batchId,
+        r.insertId,
+        rec.crane_record_id || '',
+        rec.photos
+      );
       photos += pr.stored;
       photosFailed += pr.failed;
     }
@@ -257,22 +361,35 @@ async function importStaging(team, sessionId, groupName, pusherName, reviewNote,
 async function handleIngest(req, res, next) {
   try {
     const body = req.body || {};
-    const sessionId = String(body.session_id ?? '').trim().slice(0, 64);
+    const sessionId = String(body.session_id ?? '')
+      .trim()
+      .slice(0, 64);
     const teamName = String(body.team_name ?? '').trim();
     const mode = String(body.mode ?? '').trim();
     if (!sessionId) return fail(res, 400, 40001, '参数错误：session_id 不能为空');
     if (!teamName) return fail(res, 400, 40001, '参数错误：team_name 不能为空');
-    if (!['direct', 'staging'].includes(mode)) return fail(res, 400, 40001, "参数错误：mode 应为 direct 或 staging");
+    if (!['direct', 'staging'].includes(mode))
+      return fail(res, 400, 40001, '参数错误：mode 应为 direct 或 staging');
 
     // 按班组名精确匹配（仅启用班组）
-    const [teams] = await pool.query('SELECT id, name FROM sys_team WHERE name = ? AND status = 1', [teamName]);
+    const [teams] = await pool.query(
+      'SELECT id, name FROM sys_team WHERE name = ? AND status = 1',
+      [teamName]
+    );
     if (!teams.length) return fail(res, 404, 40400, '班组不存在');
     const team = teams[0];
 
-    const pusherName = String((body.pusher && body.pusher.name) ?? '').trim().slice(0, 32);
-    const groupName = String(body.group_name ?? '').trim().slice(0, 64);
+    const pusherName = String((body.pusher && body.pusher.name) ?? '')
+      .trim()
+      .slice(0, 32);
+    const groupName = String(body.group_name ?? '')
+      .trim()
+      .slice(0, 64);
     // 审核意见（仅 staging 有意义；空串存 NULL）
-    const reviewNote = String(body.review_note ?? '').trim().slice(0, 255) || null;
+    const reviewNote =
+      String(body.review_note ?? '')
+        .trim()
+        .slice(0, 255) || null;
     const rawRecords = Array.isArray(body.records) ? body.records : [];
     // 清洗 + 跳过计数（缺线路名的条目不入库）；辅证照片随记录解析（字段缺省=null 表示旧版直推）
     const records = [];
@@ -311,19 +428,51 @@ async function handleIngest(req, res, next) {
     }
 
     if (mode === 'direct') {
-      const { inserted, updated, photos, photos_failed: photosFailed } = await importDirect(team, sessionId, records);
-      const photoLine = photos || photosFailed ? `\n辅证照片：${photos} 张${photosFailed ? `（失败 ${photosFailed} 张）` : ''}` : '';
-      notify(team, '树障记录入库', `班组：${team.name}\n入库：新增 ${inserted} 条 / 更新 ${updated} 条（跳过 ${skipped} 条）${photoLine}\n推送人：${pusherName || '未知'}`);
+      const {
+        inserted,
+        updated,
+        photos,
+        photos_failed: photosFailed,
+      } = await importDirect(team, sessionId, records);
+      const photoLine =
+        photos || photosFailed
+          ? `\n辅证照片：${photos} 张${photosFailed ? `（失败 ${photosFailed} 张）` : ''}`
+          : '';
+      notify(
+        team,
+        '树障记录入库',
+        `班组：${team.name}\n入库：新增 ${inserted} 条 / 更新 ${updated} 条（跳过 ${skipped} 条）${photoLine}\n推送人：${pusherName || '未知'}`
+      );
       return ok(res, { inserted, updated, skipped, photos, photos_failed: photosFailed, deleted });
     }
 
     const {
-      batch_id: batchId, count, photos, photos_failed: photosFailed,
-    } = await importStaging(team, sessionId, groupName, pusherName, reviewNote, body.xlsx_base64, records);
+      batch_id: batchId,
+      count,
+      photos,
+      photos_failed: photosFailed,
+    } = await importStaging(
+      team,
+      sessionId,
+      groupName,
+      pusherName,
+      reviewNote,
+      body.xlsx_base64,
+      records
+    );
     // 有审核意见时通知附备注摘要（超长截断，全文见暂存区批次）
-    const noteLine = reviewNote ? `\n备注：${reviewNote.length > 80 ? `${reviewNote.slice(0, 80)}…` : reviewNote}` : '';
-    const photoLine = photos || photosFailed ? `\n辅证照片：${photos} 张${photosFailed ? `（失败 ${photosFailed} 张）` : ''}` : '';
-    notify(team, '树障记录进暂存区', `班组：${team.name}\n暂存：${count} 条（跳过 ${skipped} 条），待确认导入${photoLine}\n推送人：${pusherName || '未知'}${noteLine}`);
+    const noteLine = reviewNote
+      ? `\n备注：${reviewNote.length > 80 ? `${reviewNote.slice(0, 80)}…` : reviewNote}`
+      : '';
+    const photoLine =
+      photos || photosFailed
+        ? `\n辅证照片：${photos} 张${photosFailed ? `（失败 ${photosFailed} 张）` : ''}`
+        : '';
+    notify(
+      team,
+      '树障记录进暂存区',
+      `班组：${team.name}\n暂存：${count} 条（跳过 ${skipped} 条），待确认导入${photoLine}\n推送人：${pusherName || '未知'}${noteLine}`
+    );
     return ok(res, { batch_id: batchId, count, photos, photos_failed: photosFailed, deleted });
   } catch (err) {
     return next(err);

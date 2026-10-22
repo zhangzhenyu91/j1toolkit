@@ -17,17 +17,24 @@ const RAW_XML_KEYS = ['活动内容', '结合本次内容复盘分析', '结合�
 
 // 段落属性沿用模板占位符段落口径（行距 240 自动、左对齐），仅 ind 改为首行缩进两字符：
 // firstLineChars=200 为 Word 按字符缩进口径；firstLine=420（字号 21 半磅 × 2 字符）作不支持 chars 口径渲染器的回退
-const PARA_PR = '<w:pPr><w:spacing w:line="240" w:lineRule="auto"/>' +
+const PARA_PR =
+  '<w:pPr><w:spacing w:line="240" w:lineRule="auto"/>' +
   '<w:ind w:firstLine="420" w:firstLineChars="200"/><w:jc w:val="left"/></w:pPr>';
 // 字符属性沿用模板占位符 run 口径（默认宋体系字体，hint=eastAsia 保证中文走中文字体）
-const RUN_PR = '<w:rPr><w:rFonts w:hint="eastAsia"/><w:lang w:val="en-US" w:eastAsia="zh-CN"/></w:rPr>';
+const RUN_PR =
+  '<w:rPr><w:rFonts w:hint="eastAsia"/><w:lang w:val="en-US" w:eastAsia="zh-CN"/></w:rPr>';
 
 // 多行文本 → 多个 w:p（每段首行缩进两字符；段间空行保留为空段落）；空值也给一个带缩进的空段落保持版式
 function toIndentedParagraphs(text) {
-  const lines = String(text == null ? '' : text).trim().split(/\r?\n/);
-  return lines.map((line) =>
-    `<w:p>${PARA_PR}<w:r>${RUN_PR}<w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`
-  ).join('');
+  const lines = String(text == null ? '' : text)
+    .trim()
+    .split(/\r?\n/);
+  return lines
+    .map(
+      (line) =>
+        `<w:p>${PARA_PR}<w:r>${RUN_PR}<w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`
+    )
+    .join('');
 }
 
 // 渲染一条活动记录为 docx buffer；fields 各值先转字符串（undefined/null 一律空串）

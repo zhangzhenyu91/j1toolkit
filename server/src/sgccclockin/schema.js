@@ -81,11 +81,26 @@ async function ensureSgccSchema(pool) {
 
   // worklog_photo 补充商旅同步列（老库兼容：先查 information_schema 再 ALTER）
   const PHOTO_SGCC_COLUMNS = [
-    ['is_watermark', `is_watermark TINYINT NOT NULL DEFAULT 1 COMMENT '1 水印照片（参与验证） 0 非水印照片（仅存档同步，免验证）' AFTER verify_status`],
-    ['source', `source TINYINT NOT NULL DEFAULT 0 COMMENT '来源：0 壹匣上传 1 商旅同步（核查发现）' AFTER is_watermark`],
-    ['sgcc_img_id', `sgcc_img_id VARCHAR(512) NOT NULL DEFAULT '' COMMENT '商旅费用照片关联（JSON：{worklog_member_id: 商旅图片id}）' AFTER source`],
-    ['sgcc_synced', `sgcc_synced TINYINT NOT NULL DEFAULT 0 COMMENT '商旅费用照片同步：0 未同步 1 已同步 2 同步失败' AFTER sgcc_img_id`],
-    ['md5', `md5 VARCHAR(32) NOT NULL DEFAULT '' COMMENT '图片内容 MD5（商旅拉取按内容合并相同照片：一图多人标注）' AFTER sgcc_synced`],
+    [
+      'is_watermark',
+      `is_watermark TINYINT NOT NULL DEFAULT 1 COMMENT '1 水印照片（参与验证） 0 非水印照片（仅存档同步，免验证）' AFTER verify_status`,
+    ],
+    [
+      'source',
+      `source TINYINT NOT NULL DEFAULT 0 COMMENT '来源：0 壹匣上传 1 商旅同步（核查发现）' AFTER is_watermark`,
+    ],
+    [
+      'sgcc_img_id',
+      `sgcc_img_id VARCHAR(512) NOT NULL DEFAULT '' COMMENT '商旅费用照片关联（JSON：{worklog_member_id: 商旅图片id}）' AFTER source`,
+    ],
+    [
+      'sgcc_synced',
+      `sgcc_synced TINYINT NOT NULL DEFAULT 0 COMMENT '商旅费用照片同步：0 未同步 1 已同步 2 同步失败' AFTER sgcc_img_id`,
+    ],
+    [
+      'md5',
+      `md5 VARCHAR(32) NOT NULL DEFAULT '' COMMENT '图片内容 MD5（商旅拉取按内容合并相同照片：一图多人标注）' AFTER sgcc_synced`,
+    ],
   ];
   for (const [col, ddl] of PHOTO_SGCC_COLUMNS) {
     const [cols] = await pool.query(
@@ -101,14 +116,21 @@ async function ensureSgccSchema(pool) {
 
   // 一次性修正：早期商旅拉下（source=1）的照片误落 sgcc_synced=0（卡片/灯箱误显「未同步」），
   // 拉下的照片本就在商旅侧，统一置 1 已同步；修正过的行不再满足条件，天然幂等
-  const [fixed] = await pool.query('UPDATE worklog_photo SET sgcc_synced = 1 WHERE source = 1 AND sgcc_synced = 0');
+  const [fixed] = await pool.query(
+    'UPDATE worklog_photo SET sgcc_synced = 1 WHERE source = 1 AND sgcc_synced = 0'
+  );
   if (fixed.affectedRows) {
-    console.log(`[初始化] 已修正 ${fixed.affectedRows} 张商旅拉下照片的同步标记（sgcc_synced 0→1）`);
+    console.log(
+      `[初始化] 已修正 ${fixed.affectedRows} 张商旅拉下照片的同步标记（sgcc_synced 0→1）`
+    );
   }
 
   // worklog_clockin 补充城市信息列（老库兼容：先查 information_schema 再 ALTER；打卡落库时写入，带入时随地址串一并带入）
   const CLOCKIN_CITY_COLUMNS = [
-    ['city_code', `city_code VARCHAR(32) NOT NULL DEFAULT '' COMMENT '城市行政区编码（高德 adcode）' AFTER latitude`],
+    [
+      'city_code',
+      `city_code VARCHAR(32) NOT NULL DEFAULT '' COMMENT '城市行政区编码（高德 adcode）' AFTER latitude`,
+    ],
     ['city_name', `city_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '城市名' AFTER city_code`],
   ];
   for (const [col, ddl] of CLOCKIN_CITY_COLUMNS) {
@@ -130,7 +152,9 @@ async function ensureSgccSchema(pool) {
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'worklog_sgcc_account' AND COLUMN_NAME = 'user_id'`
   );
   if (uidCols.length && uidCols[0].IS_NULLABLE === 'NO') {
-    await pool.query(`ALTER TABLE worklog_sgcc_account MODIFY user_id BIGINT UNSIGNED NULL COMMENT '绑定人，关联 sys_user.id（NULL=管理员代绑，本人自助重绑时接管回本列）'`);
+    await pool.query(
+      `ALTER TABLE worklog_sgcc_account MODIFY user_id BIGINT UNSIGNED NULL COMMENT '绑定人，关联 sys_user.id（NULL=管理员代绑，本人自助重绑时接管回本列）'`
+    );
     console.log('[初始化] 已将 worklog_sgcc_account.user_id 放宽为允许 NULL（支持管理员代绑定）');
   }
 
@@ -149,24 +173,33 @@ async function ensureSgccSchema(pool) {
     const groups = {};
     accs.forEach((a) => {
       if (a.user_id != null) (groups[`u${a.user_id}`] = groups[`u${a.user_id}`] || []).push(a);
-      if (a.member_id != null) (groups[`m${a.member_id}`] = groups[`m${a.member_id}`] || []).push(a);
+      if (a.member_id != null)
+        (groups[`m${a.member_id}`] = groups[`m${a.member_id}`] || []).push(a);
     });
     const dupIds = new Set();
     for (const list of Object.values(groups)) {
       const alive = list.filter((a) => !dupIds.has(a.id));
       if (alive.length < 2) continue;
-      const keeper = alive.find((a) => a.user_id != null && a.user_team_id != null && a.team_id === a.user_team_id)
-        || alive.slice().sort((x, y) => Number(y.id) - Number(x.id))[0];
-      alive.forEach((a) => { if (a.id !== keeper.id) dupIds.add(a.id); });
+      const keeper =
+        alive.find(
+          (a) => a.user_id != null && a.user_team_id != null && a.team_id === a.user_team_id
+        ) || alive.slice().sort((x, y) => Number(y.id) - Number(x.id))[0];
+      alive.forEach((a) => {
+        if (a.id !== keeper.id) dupIds.add(a.id);
+      });
     }
     if (dupIds.size) {
       await pool.query('DELETE FROM worklog_sgcc_account WHERE id IN (?)', [[...dupIds]]);
-      console.log(`[初始化] 已去重跨班重复商旅绑定 ${dupIds.size} 行（保留与本人当前班组一致/最新行）`);
+      console.log(
+        `[初始化] 已去重跨班重复商旅绑定 ${dupIds.size} 行（保留与本人当前班组一致/最新行）`
+      );
     }
     await pool.query(`ALTER TABLE worklog_sgcc_account
       DROP INDEX uk_team_user, DROP INDEX uk_team_member,
       ADD UNIQUE KEY uk_user (user_id), ADD UNIQUE KEY uk_member (member_id)`);
-    console.log('[初始化] 已将 worklog_sgcc_account 唯一键升级为 uk_user/uk_member（token 跟人走）');
+    console.log(
+      '[初始化] 已将 worklog_sgcc_account 唯一键升级为 uk_user/uk_member（token 跟人走）'
+    );
   }
 
   // 一次性清理：商旅打卡归属出工日志（权限统一走 work-log），删除旧 sgcc-clockin 应用及授权

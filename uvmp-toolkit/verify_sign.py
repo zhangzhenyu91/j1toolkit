@@ -4,6 +4,7 @@
 用途：在同一个浏览器登录会话中取得 cURL 与 cube.mtk，自动扫描签名结构变体。
 运行：python3 verify_sign.py
 """
+
 import base64
 import hashlib
 import hmac
@@ -23,9 +24,11 @@ def b64url(data, pad=False):
 
 
 def parse_curl(text):
-    m = (re.search(r"--url\s+'([^']+)'", text)
-         or re.search(r"curl\s+'(http[^']+)'", text)
-         or re.search(r"(https?://\S+)", text))
+    m = (
+        re.search(r"--url\s+'([^']+)'", text)
+        or re.search(r"curl\s+'(http[^']+)'", text)
+        or re.search(r"(https?://\S+)", text)
+    )
     url = m.group(1).rstrip("'\"")
 
     def header(name):
@@ -37,7 +40,9 @@ def parse_curl(text):
 
 def main():
     print("=" * 64)
-    print("第 1 步：在浏览器完成一次【查询】后，Copy as cURL（带 Auth_Tk 的 GET 那条），")
+    print(
+        "第 1 步：在浏览器完成一次【查询】后，Copy as cURL（带 Auth_Tk 的 GET 那条），"
+    )
     print("         整段粘贴到这里；结束后单独一行输入 EOF 并回车：")
     print("=" * 64)
     lines = []
@@ -55,7 +60,9 @@ def main():
     print("解析成功：X-Content-Token = %s" % expected)
 
     print()
-    print("第 2 步：【同一个浏览器会话】的 Console 执行  copy(JSON.stringify(cube.mtk))")
+    print(
+        "第 2 步：【同一个浏览器会话】的 Console 执行  copy(JSON.stringify(cube.mtk))"
+    )
     mtk_raw = input("         粘贴结果并回车：").strip()
     try:
         mtk = json.loads(mtk_raw)
@@ -95,10 +102,13 @@ def main():
     nd_variants["空对象"] = {}
     nd_variants["不排除rnd等"] = dict(sorted({k: v for k, v in q.items()}.items()))
     if params_obj is not None:
-        d = dict(base); d["params"] = params_obj
+        d = dict(base)
+        d["params"] = params_obj
         nd_variants["params对象+tycl"] = dict(sorted({**d, **tycl}.items()))
         nd_variants["params对象(无tycl)"] = dict(sorted(d.items()))
-        flat = dict(base); flat.pop("params", None); flat.update(params_obj)
+        flat = dict(base)
+        flat.pop("params", None)
+        flat.update(params_obj)
         nd_variants["平铺+tycl"] = dict(sorted({**flat, **tycl}.items()))
         nd_variants["平铺(无tycl)"] = dict(sorted(flat.items()))
         flat2 = dict(flat)
@@ -106,9 +116,11 @@ def main():
             flat2["filter"] = flat2["filter"].replace("+", " ")
         nd_variants["平铺空格+tycl"] = dict(sorted({**flat2, **tycl}.items()))
         nd_variants["平铺空格(无tycl)"] = dict(sorted(flat2.items()))
-        d2 = dict(base); d2.update(params_obj)
+        d2 = dict(base)
+        d2.update(params_obj)
         nd_variants["字符串+平铺+tycl"] = dict(sorted({**d2, **tycl}.items()))
-        d3 = dict(base); d3["params"] = qd.get("params", "")
+        d3 = dict(base)
+        d3["params"] = qd.get("params", "")
         nd_variants["params解码串+tycl"] = dict(sorted({**d3, **tycl}.items()))
         nd_variants["params解码串(无tycl)"] = dict(sorted(d3.items()))
 
@@ -122,22 +134,41 @@ def main():
     total = 0
     for nd_name, nd in nd_variants.items():
         for spaces in (False, True):
-            js = json.dumps(nd, ensure_ascii=False, separators=None if spaces else (",", ":"))
+            js = json.dumps(
+                nd, ensure_ascii=False, separators=None if spaces else (",", ":")
+            )
             for pad in (False, True):
                 np_ = b64url(js_quote(js).encode(), pad=pad)
                 tu = b64url(temp_url.encode(), pad=pad)
                 for order2 in (False, True):
-                    content = (token + "." + tu + "." + np_) if order2 else (token + "." + np_ + "." + tu)
+                    content = (
+                        (token + "." + tu + "." + np_)
+                        if order2
+                        else (token + "." + np_ + "." + tu)
+                    )
                     for keyname, key in (("hex", key_hex), ("raw", mtk.encode())):
                         if key is None:
                             continue
                         total += 1
-                        sig = b64url(hmac.new(key, content.encode(), hashlib.sha256).digest(), pad=pad)
+                        sig = b64url(
+                            hmac.new(key, content.encode(), hashlib.sha256).digest(),
+                            pad=pad,
+                        )
                         if sig == expected:
-                            hits.append((nd_name, "JSON%s" % ("带空格" if spaces else "紧凑"),
-                                         "b64%s" % ("有填充" if pad else "无填充"),
-                                         "顺序%s" % ("token.url.params" if order2 else "token.params.url"),
-                                         "key=%s" % keyname))
+                            hits.append(
+                                (
+                                    nd_name,
+                                    "JSON%s" % ("带空格" if spaces else "紧凑"),
+                                    "b64%s" % ("有填充" if pad else "无填充"),
+                                    "顺序%s"
+                                    % (
+                                        "token.url.params"
+                                        if order2
+                                        else "token.params.url"
+                                    ),
+                                    "key=%s" % keyname,
+                                )
+                            )
     print("扫描 %d 种组合：" % total)
     if hits:
         for h in hits:
@@ -145,7 +176,9 @@ def main():
         print()
         print("请把命中行原样发给开发者。")
     else:
-        print("  全部不一致。可能原因：cURL 与 mtk 不是同一会话，或 token 串接的不是 Auth_Tk。")
+        print(
+            "  全部不一致。可能原因：cURL 与 mtk 不是同一会话，或 token 串接的不是 Auth_Tk。"
+        )
         print("  请把本屏幕输出和粘贴的 cURL、mtk 一起发给开发者。")
 
 

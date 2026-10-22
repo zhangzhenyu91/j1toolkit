@@ -11,7 +11,13 @@
 
   <view class="card list-card" wx:if="{{sessions.length > 0}}">
     <t-swipe-cell wx:for="{{sessions}}" wx:key="id" id="swipe-{{item.id}}">
-      <view class="s-item" hover-class="hover-bg-warm" bindtap="onOpen" data-id="{{item.id}}" data-title="{{item.title}}">
+      <view
+        class="s-item"
+        hover-class="hover-bg-warm"
+        bindtap="onOpen"
+        data-id="{{item.id}}"
+        data-title="{{item.title}}"
+      >
         <view class="s-icon">
           <t-icon name="chat" size="40rpx" color="#0E3DA8" />
         </view>
@@ -22,14 +28,8 @@
         <t-icon name="chevron-right" size="36rpx" color="#C9CDD4" />
       </view>
       <view slot="right" class="swipe-actions">
-        <view
-          class="s-action s-rename"
-          bindtap="onRename"
-          data-id="{{item.id}}"
-        >重命名</view>
-        <view class="s-action s-delete" bindtap="onDelete" data-id="{{item.id}}">
-          删除
-        </view>
+        <view class="s-action s-rename" bindtap="onRename" data-id="{{item.id}}">重命名</view>
+        <view class="s-action s-delete" bindtap="onDelete" data-id="{{item.id}}"> 删除 </view>
       </view>
     </t-swipe-cell>
   </view>
@@ -37,7 +37,9 @@
 
 <!-- 新建对话（固定底部主按钮） -->
 <view class="create-bar">
-  <t-button block size="large" theme="primary" icon="chat-add" bind:tap="onCreate">新建对话</t-button>
+  <t-button block size="large" theme="primary" icon="chat-add" bind:tap="onCreate"
+    >新建对话</t-button
+  >
 </view>
 
 <t-dialog id="t-dialog" />

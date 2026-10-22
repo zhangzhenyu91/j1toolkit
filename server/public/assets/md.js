@@ -36,7 +36,9 @@ function mdRender(src) {
   var lines = src.split('\n');
   var out = [];
   var i = 0;
-  function isBlank(l) { return /^\s*$/.test(l); }
+  function isBlank(l) {
+    return /^\s*$/.test(l);
+  }
   function blockHolder(l) {
     var m = l.match(/^\s*\x00B(\d+)\x00\s*$/);
     return m ? +m[1] : -1;
@@ -46,18 +48,29 @@ function mdRender(src) {
   }
   function isBlockStart(l) {
     // 注意：此时文本已经 Shade.esc 转义，引用标记 > 以 &gt; 形式出现
-    return isBlank(l) || blockHolder(l) >= 0 ||
-      /^\s*#{1,6}\s+/.test(l) || /^\s*&gt;\s?/.test(l) ||
+    return (
+      isBlank(l) ||
+      blockHolder(l) >= 0 ||
+      /^\s*#{1,6}\s+/.test(l) ||
+      /^\s*&gt;\s?/.test(l) ||
       /^\s*(?:[-*+]|\d+[.)])\s+/.test(l) ||
-      /^\s*([-*_])(\s*\1){2,}\s*$/.test(l);
+      /^\s*([-*_])(\s*\1){2,}\s*$/.test(l)
+    );
   }
 
   while (i < lines.length) {
     var line = lines[i];
-    if (isBlank(line)) { i++; continue; }
+    if (isBlank(line)) {
+      i++;
+      continue;
+    }
 
     var bi = blockHolder(line);
-    if (bi >= 0) { out.push(codeBlockHtml(blocks[bi])); i++; continue; }
+    if (bi >= 0) {
+      out.push(codeBlockHtml(blocks[bi]));
+      i++;
+      continue;
+    }
 
     var h = line.match(/^\s*(#{1,6})\s+(.+)$/);
     if (h) {
@@ -67,7 +80,11 @@ function mdRender(src) {
       continue;
     }
 
-    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { out.push('<hr>'); i++; continue; }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+      out.push('<hr>');
+      i++;
+      continue;
+    }
 
     if (isTableStart(i)) {
       var tbl = parseTable(lines, i);
@@ -120,7 +137,9 @@ function mdInline(t) {
   t = t.replace(/\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, function (m, txt, url) {
     var href = url.replace(/&quot;|&#39;/g, '');
     if (!/^(https?:\/\/|mailto:)/i.test(href)) href = '#';
-    return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + (txt || href) + '</a>';
+    return (
+      '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + (txt || href) + '</a>'
+    );
   });
   t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/__([^_]+)__/g, '<strong>$1</strong>');
@@ -132,25 +151,34 @@ function mdInline(t) {
 
 // 代码块 HTML（code 为原始文本，此处转义）
 function codeBlockHtml(b) {
-  return '<div class="md-code"><div class="md-code-h"><span>' +
+  return (
+    '<div class="md-code"><div class="md-code-h"><span>' +
     (b.lang ? Shade.esc(b.lang) : 'code') +
     '</span><span class="md-cp">复制</span></div>' +
-    '<pre><code>' + Shade.esc(b.code) + '</code></pre></div>';
+    '<pre><code>' +
+    Shade.esc(b.code) +
+    '</code></pre></div>'
+  );
 }
 
 // 表格行切分：去掉首尾竖线后按 | 分列
 function splitRow(l) {
   var t = l.trim().replace(/^\|/, '').replace(/\|$/, '');
-  return t.split('|').map(function (c) { return c.trim(); });
+  return t.split('|').map(function (c) {
+    return c.trim();
+  });
 }
 function isTableSep(l) {
   if (l.indexOf('-') < 0) return false;
   var cells = splitRow(l);
   if (!cells.length) return false;
-  return cells.every(function (c) { return /^:?-+:?$/.test(c); });
+  return cells.every(function (c) {
+    return /^:?-+:?$/.test(c);
+  });
 }
 function alignOf(c) {
-  var l = c.charAt(0) === ':', r = c.charAt(c.length - 1) === ':';
+  var l = c.charAt(0) === ':',
+    r = c.charAt(c.length - 1) === ':';
   if (l && r) return 'center';
   if (r) return 'right';
   if (l) return 'left';
@@ -167,13 +195,23 @@ function parseTable(lines, start) {
   }
   var html = '<div class="md-table"><table><thead><tr>';
   head.forEach(function (c, k) {
-    html += '<th' + (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '') + '>' + mdInline(c) + '</th>';
+    html +=
+      '<th' +
+      (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '') +
+      '>' +
+      mdInline(c) +
+      '</th>';
   });
   html += '</tr></thead><tbody>';
   rows.forEach(function (row) {
     html += '<tr>';
     for (var k = 0; k < head.length; k++) {
-      html += '<td' + (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '') + '>' + mdInline(row[k] || '') + '</td>';
+      html +=
+        '<td' +
+        (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '') +
+        '>' +
+        mdInline(row[k] || '') +
+        '</td>';
     }
     html += '</tr>';
   });

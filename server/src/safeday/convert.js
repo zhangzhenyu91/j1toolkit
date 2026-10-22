@@ -46,7 +46,9 @@ function convertToPdf(buffer, ext) {
         (err, stdout, stderr) => {
           if (err) {
             if (err.code === 'ENOENT') {
-              done(new Error('服务端未安装 LibreOffice（soffice），无法转换非 PDF 文件，请联系管理员'));
+              done(
+                new Error('服务端未安装 LibreOffice（soffice），无法转换非 PDF 文件，请联系管理员')
+              );
               return;
             }
             if (err.killed || err.signal === 'SIGTERM') {
@@ -58,7 +60,11 @@ function convertToPdf(buffer, ext) {
           }
           const out = path.join(tmp, 'source.pdf');
           if (!fs.existsSync(out)) {
-            done(new Error(`格式转换失败：未产出 PDF（${(stderr || stdout || '').slice(0, 200) || '无输出'}）`));
+            done(
+              new Error(
+                `格式转换失败：未产出 PDF（${(stderr || stdout || '').slice(0, 200) || '无输出'}）`
+              )
+            );
             return;
           }
           done(null, fs.readFileSync(out));

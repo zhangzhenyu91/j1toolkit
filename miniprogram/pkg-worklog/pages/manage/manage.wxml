@@ -4,12 +4,7 @@
 <view class="page-body" wx:if="{{isAdmin}}">
   <!-- 三分段：车牌号 / 目的地 / 人员 -->
   <view class="seg-wrap">
-    <t-segmented
-      block
-      options="{{segOptions}}"
-      value="{{seg}}"
-      bind:change="onSegChange"
-    />
+    <t-segmented block options="{{segOptions}}" value="{{seg}}" bind:change="onSegChange" />
   </view>
 
   <!-- 顶部输入即添加 -->
@@ -38,14 +33,46 @@
       </view>
       <text class="mt">{{item.name}}</text>
       <!-- 人员来源标（屏六）：user_id 非空=账号同步（绿），空=手动添加（灰） -->
-      <text wx:if="{{seg === 'members'}}" class="{{item.user_id ? 'sync-pill' : 'hand-pill'}}">{{item.user_id ? '账号同步' : '手动添加'}}</text>
+      <text wx:if="{{seg === 'members'}}" class="{{item.user_id ? 'sync-pill' : 'hand-pill'}}"
+        >{{item.user_id ? '账号同步' : '手动添加'}}</text
+      >
       <text class="moff-tip" wx:if="{{item.status !== 1}}">已停用</text>
       <view class="ops">
         <!-- 成员排序（仅人员分段）：点亮按钮顺序；工作任务单「工作负责人」取排序最前的用车人 -->
-        <text wx:if="{{seg === 'members' && index > 0}}" class="edit" hover-class="hover-opacity" bindtap="onMemberMove" data-id="{{item.id}}" data-dir="up">上移</text>
-        <text wx:if="{{seg === 'members' && index < list.length - 1}}" class="edit" hover-class="hover-opacity" bindtap="onMemberMove" data-id="{{item.id}}" data-dir="down">下移</text>
-        <text class="edit" hover-class="hover-opacity" bindtap="onEdit" data-id="{{item.id}}" data-name="{{item.name}}">编辑</text>
-        <text class="off" hover-class="hover-opacity" bindtap="onToggle" data-id="{{item.id}}" data-status="{{item.status}}">{{item.status === 1 ? '停用' : '启用'}}</text>
+        <text
+          wx:if="{{seg === 'members' && index > 0}}"
+          class="edit"
+          hover-class="hover-opacity"
+          bindtap="onMemberMove"
+          data-id="{{item.id}}"
+          data-dir="up"
+          >上移</text
+        >
+        <text
+          wx:if="{{seg === 'members' && index < list.length - 1}}"
+          class="edit"
+          hover-class="hover-opacity"
+          bindtap="onMemberMove"
+          data-id="{{item.id}}"
+          data-dir="down"
+          >下移</text
+        >
+        <text
+          class="edit"
+          hover-class="hover-opacity"
+          bindtap="onEdit"
+          data-id="{{item.id}}"
+          data-name="{{item.name}}"
+          >编辑</text
+        >
+        <text
+          class="off"
+          hover-class="hover-opacity"
+          bindtap="onToggle"
+          data-id="{{item.id}}"
+          data-status="{{item.status}}"
+          >{{item.status === 1 ? '停用' : '启用'}}</text
+        >
       </view>
     </view>
     <view class="mempty" wx:if="{{!loading && list.length === 0}}">暂无数据，可在上方添加</view>
@@ -109,8 +136,17 @@
       </view>
     </view>
     <view class="sheet-actions">
-      <view class="btn-ghost {{importing ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onImpClose">取 消</view>
-      <view class="btn-dark {{!impFile || importing ? 'disabled' : ''}}" hover-class="hover-opacity" bindtap="onImpStart">
+      <view
+        class="btn-ghost {{importing ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onImpClose"
+        >取 消</view
+      >
+      <view
+        class="btn-dark {{!impFile || importing ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onImpStart"
+      >
         {{importing ? '正在导入…' : '开始导入'}}
       </view>
     </view>

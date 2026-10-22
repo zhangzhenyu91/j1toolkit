@@ -6,6 +6,7 @@
 - config.json 存放可调项与 SSO 凭据，写入后置 600 权限；不入仓（模板见 config.example.json）
 - config.ini 仍是导出底层参数（网关/筛选/render/map）的来源，本模块只读不写
 """
+
 import configparser
 import copy
 import json
@@ -18,25 +19,33 @@ TOOLKIT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = TOOLKIT_DIR.parent
 
 DEFAULTS = {
-    "sso": {"username": "", "password": ""},          # 留空则回退读 config.ini [auth]
-    "schedule": {"enabled": True, "time": "09:15",
-                 "driver": "os"},                   # os=系统定时器执行（默认）；app=客户端驻留执行
-    "ui": {"close_to_tray": True,                   # 关窗最小化到托盘（驻留调度的前提）
-           "autostart": False},                    # 开机自启（驻留调度建议开启）
-    "usb": {"label": "GLKVM", "fallback_dir": ""},     # fallback_dir 为空时找不到 U 盘即失败
-    "daily_export": {"temp_dir": ""},                  # 空=~/临时下载（保持旧脚本习惯）
-    "tree_sync": {                                     # 树障统计表同步（U盘指令 snapshot/replace）
-        "local_path": "",                              # 内网树障统计表 xlsx 完整路径（必配）
-        "file_name": "检修一班树木统计表.xlsx",          # 夜间兜底 snapshot 上盘用的文件名
-        "nightly_time": "23:55",                       # 夜间兜底执行时刻（服务端 23:50 挂载 U盘）
+    "sso": {"username": "", "password": ""},  # 留空则回退读 config.ini [auth]
+    "schedule": {
+        "enabled": True,
+        "time": "09:15",
+        "driver": "os",
+    },  # os=系统定时器执行（默认）；app=客户端驻留执行
+    "ui": {
+        "close_to_tray": True,  # 关窗最小化到托盘（驻留调度的前提）
+        "autostart": False,
+    },  # 开机自启（驻留调度建议开启）
+    "usb": {
+        "label": "GLKVM",
+        "fallback_dir": "",
+    },  # fallback_dir 为空时找不到 U 盘即失败
+    "daily_export": {"temp_dir": ""},  # 空=~/临时下载（保持旧脚本习惯）
+    "tree_sync": {  # 树障统计表同步（U盘指令 snapshot/replace）
+        "local_path": "",  # 内网树障统计表 xlsx 完整路径（必配）
+        "file_name": "检修一班树木统计表.xlsx",  # 夜间兜底 snapshot 上盘用的文件名
+        "nightly_time": "23:55",  # 夜间兜底执行时刻（服务端 23:50 挂载 U盘）
     },
     "order_export": {
-        "default_outdir": "",                          # 空=项目目录/output
-        "lookback_days": 62,                           # 无日期提示时按单号兜底查询的回看天数
-        "batch_subdir": True,                          # 在输出目录下建批次子目录
+        "default_outdir": "",  # 空=项目目录/output
+        "lookback_days": 62,  # 无日期提示时按单号兜底查询的回看天数
+        "batch_subdir": True,  # 在输出目录下建批次子目录
     },
-    "dev": {"mock": False},                            # 开发用：假数据替代真实接口
-    "render": {"chrome": ""},                          # 浏览器路径（用户手选的公司浏览器；空=自动探测）
+    "dev": {"mock": False},  # 开发用：假数据替代真实接口
+    "render": {"chrome": ""},  # 浏览器路径（用户手选的公司浏览器；空=自动探测）
 }
 
 
@@ -53,7 +62,9 @@ def config_path() -> Path:
         return Path(env)
     if getattr(sys, "frozen", False):
         if sys.platform.startswith("win"):
-            base = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+            base = Path(
+                os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")
+            )
         else:
             base = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
         user_cfg = base / "uvmp-toolkit" / "config.json"
@@ -146,7 +157,9 @@ def masked_view(cfg: dict) -> dict:
     ini_pw = ((cfg.get("_ini") or {}).get("auth") or {}).get("password") or ""
     view.setdefault("sso", {})["password"] = ""
     view["sso"]["has_password"] = bool(pw or ini_pw)
-    view["sso"]["password_source"] = "config.json" if pw else ("config.ini" if ini_pw else "")
+    view["sso"]["password_source"] = (
+        "config.json" if pw else ("config.ini" if ini_pw else "")
+    )
     return view
 
 
@@ -154,7 +167,9 @@ def sso_credentials(cfg: dict):
     """有效 SSO 凭据：config.json 优先，config.ini [auth] 兜底。返回 (username, password)"""
     sso = cfg.get("sso") or {}
     ini_auth = (cfg.get("_ini") or {}).get("auth") or {}
-    username = (sso.get("username") or "").strip() or (ini_auth.get("username") or "").strip()
+    username = (sso.get("username") or "").strip() or (
+        ini_auth.get("username") or ""
+    ).strip()
     password = (sso.get("password") or "") or (ini_auth.get("password") or "")
     return username, password
 
@@ -164,17 +179,19 @@ def ve_cfg(cfg: dict) -> dict:
     ini = cfg.get("_ini") or {}
     exp = dict(ini.get("export") or {})
     out = dict(exp)
-    out.update({
-        "page_size": int(exp.get("page_size", 50)),
-        "run_state": exp.get("run_state", "2"),
-        "vehicle_state": exp.get("vehicle_state", "04"),
-        "keep_tag": exp.get("keep_tag", "00,01"),
-        "map_tiles_wait": exp.get("map_tiles_wait", "12000"),
-        "map_idle_quiet": exp.get("map_idle_quiet", "5000"),
-        "map_min_wait": exp.get("map_min_wait", "30000"),
-        "pcd_render_wait": exp.get("pcd_render_wait", "6000"),
-        "track_render": exp.get("track_render", "official"),
-    })
+    out.update(
+        {
+            "page_size": int(exp.get("page_size", 50)),
+            "run_state": exp.get("run_state", "2"),
+            "vehicle_state": exp.get("vehicle_state", "04"),
+            "keep_tag": exp.get("keep_tag", "00,01"),
+            "map_tiles_wait": exp.get("map_tiles_wait", "12000"),
+            "map_idle_quiet": exp.get("map_idle_quiet", "5000"),
+            "map_min_wait": exp.get("map_min_wait", "30000"),
+            "pcd_render_wait": exp.get("pcd_render_wait", "6000"),
+            "track_render": exp.get("track_render", "official"),
+        }
+    )
     return out
 
 
@@ -182,6 +199,7 @@ def gateway(cfg: dict) -> str:
     g = ((cfg.get("_ini") or {}).get("gateway") or {}).get("base", "").strip()
     if not g:
         import vehicle_export as ve
+
         g = ve.GATEWAY
     return g if g.endswith("/") else g + "/"
 

@@ -36,13 +36,17 @@ module.exports = Behavior({
     async loadUsers() {
       this.setData({ loading: true });
       try {
-        const query = this.buildUsersQuery(this.data.teamTab !== '' ? [`team_id=${this.data.teamTab}`] : []);
+        const query = this.buildUsersQuery(
+          this.data.teamTab !== '' ? [`team_id=${this.data.teamTab}`] : []
+        );
         const url = `/api/v1/admin/users${query.length ? `?${query.join('&')}` : ''}`;
         const data = await request({ url });
-        const users = (data.list || []).map((u) => this.mapUserItem({
-          ...u,
-          char: (u.nickname || u.username || '?').slice(0, 1),
-        }));
+        const users = (data.list || []).map((u) =>
+          this.mapUserItem({
+            ...u,
+            char: (u.nickname || u.username || '?').slice(0, 1),
+          })
+        );
         this.setData({ users });
         this.buildGroups();
       } catch (err) {
@@ -63,7 +67,8 @@ module.exports = Behavior({
         const unassigned = users.filter((u) => !u.team_id);
         if (unassigned.length > 0) groups.push({ name: '未分组', users: unassigned });
       } else {
-        const name = teamTab === 0 ? '未分组' : ((teams.find((t) => t.id === teamTab) || {}).name || '');
+        const name =
+          teamTab === 0 ? '未分组' : (teams.find((t) => t.id === teamTab) || {}).name || '';
         groups = [{ name, users }];
       }
       this.setData({ groups });

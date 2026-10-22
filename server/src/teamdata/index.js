@@ -40,7 +40,12 @@ function dictRoutes(path, table, field, label, countRefs) {
   router.get(`/${path}`, async (req, res, next) => {
     try {
       if (!req.team) return ok(res, { list: [] });
-      const extra = table === 'worklog_member' ? ', user_id' : (table === 'worklog_destination' ? ', out_of_city, stationed' : '');
+      const extra =
+        table === 'worklog_member'
+          ? ', user_id'
+          : table === 'worklog_destination'
+            ? ', out_of_city, stationed'
+            : '';
       const [rows] = await pool.query(
         `SELECT id, ${field} AS name, sort, status${extra} FROM ${table} WHERE team_id = ? ORDER BY sort, id`,
         [req.team.id]
@@ -54,7 +59,9 @@ function dictRoutes(path, table, field, label, countRefs) {
   router.post(`/${path}`, async (req, res, next) => {
     try {
       if (!req.team) return fail(res, 400, 40010, '无可用班组');
-      const name = String((req.body && req.body.name) || '').trim().slice(0, nameLen);
+      const name = String((req.body && req.body.name) || '')
+        .trim()
+        .slice(0, nameLen);
       if (!name) return fail(res, 400, 40012, `请输入${label}名称`);
       const [maxRows] = await pool.query(
         `SELECT COALESCE(MAX(sort), 0) AS maxSort FROM ${table} WHERE team_id = ?`,
@@ -79,7 +86,10 @@ function dictRoutes(path, table, field, label, countRefs) {
     try {
       if (!req.team) return fail(res, 400, 40010, '无可用班组');
       const id = Number(req.params.id);
-      const [exist] = await pool.query(`SELECT id FROM ${table} WHERE id = ? AND team_id = ?`, [id, req.team.id]);
+      const [exist] = await pool.query(`SELECT id FROM ${table} WHERE id = ? AND team_id = ?`, [
+        id,
+        req.team.id,
+      ]);
       if (!exist.length) return fail(res, 404, 40400, `${label}不存在`);
       const { name, sort, status } = req.body || {};
       if (name !== undefined) {
@@ -96,18 +106,31 @@ function dictRoutes(path, table, field, label, countRefs) {
         await pool.query(`UPDATE ${table} SET sort = ? WHERE id = ?`, [Number(sort) || 0, id]);
       }
       if (status !== undefined) {
-        await pool.query(`UPDATE ${table} SET status = ? WHERE id = ?`, [Number(status) ? 1 : 0, id]);
+        await pool.query(`UPDATE ${table} SET status = ? WHERE id = ?`, [
+          Number(status) ? 1 : 0,
+          id,
+        ]);
       }
       // 市外/驻地标记（仅目的地字典，互斥——费用口径同出工日志）：标一个即清另一个；同置 1 拒绝
-      if (table === 'worklog_destination' && req.body
-        && (req.body.out_of_city !== undefined || req.body.stationed !== undefined)) {
-        const ooc = req.body.out_of_city === undefined ? null : (Number(req.body.out_of_city) ? 1 : 0);
-        const sta = req.body.stationed === undefined ? null : (Number(req.body.stationed) ? 1 : 0);
+      if (
+        table === 'worklog_destination' &&
+        req.body &&
+        (req.body.out_of_city !== undefined || req.body.stationed !== undefined)
+      ) {
+        const ooc =
+          req.body.out_of_city === undefined ? null : Number(req.body.out_of_city) ? 1 : 0;
+        const sta = req.body.stationed === undefined ? null : Number(req.body.stationed) ? 1 : 0;
         if (ooc === 1 && sta === 1) return fail(res, 400, 40012, '市外与驻地只能标记其一');
         const sets = [];
         const vals = [];
-        if (ooc !== null) { sets.push('out_of_city = ?'); vals.push(ooc); }
-        if (sta !== null) { sets.push('stationed = ?'); vals.push(sta); }
+        if (ooc !== null) {
+          sets.push('out_of_city = ?');
+          vals.push(ooc);
+        }
+        if (sta !== null) {
+          sets.push('stationed = ?');
+          vals.push(sta);
+        }
         if (ooc === 1) sets.push('stationed = 0');
         if (sta === 1) sets.push('out_of_city = 0');
         await pool.query(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?`, [...vals, id]);
@@ -124,7 +147,10 @@ function dictRoutes(path, table, field, label, countRefs) {
       const id = Number(req.params.id);
       const refs = await countRefs(id);
       if (refs > 0) return fail(res, 409, 40901, `该${label}已被 ${refs} 条日志引用，请改为停用`);
-      const [r] = await pool.query(`DELETE FROM ${table} WHERE id = ? AND team_id = ?`, [id, req.team.id]);
+      const [r] = await pool.query(`DELETE FROM ${table} WHERE id = ? AND team_id = ?`, [
+        id,
+        req.team.id,
+      ]);
       if (!r.affectedRows) return fail(res, 404, 40400, `${label}不存在`);
       return ok(res, null);
     } catch (err) {
@@ -134,15 +160,24 @@ function dictRoutes(path, table, field, label, countRefs) {
 }
 
 dictRoutes('vehicles', 'worklog_vehicle', 'plate_no', '车牌', async (id) => {
-  const [rows] = await pool.query('SELECT COUNT(*) AS cnt FROM worklog_entry WHERE vehicle_id = ?', [id]);
+  const [rows] = await pool.query(
+    'SELECT COUNT(*) AS cnt FROM worklog_entry WHERE vehicle_id = ?',
+    [id]
+  );
   return rows[0].cnt;
 });
 dictRoutes('destinations', 'worklog_destination', 'name', '目的地', async (id) => {
-  const [rows] = await pool.query('SELECT COUNT(*) AS cnt FROM worklog_entry WHERE destination_id = ?', [id]);
+  const [rows] = await pool.query(
+    'SELECT COUNT(*) AS cnt FROM worklog_entry WHERE destination_id = ?',
+    [id]
+  );
   return rows[0].cnt;
 });
 dictRoutes('members', 'worklog_member', 'name', '成员', async (id) => {
-  const [rows] = await pool.query('SELECT COUNT(*) AS cnt FROM worklog_entry_member WHERE member_id = ?', [id]);
+  const [rows] = await pool.query(
+    'SELECT COUNT(*) AS cnt FROM worklog_entry_member WHERE member_id = ?',
+    [id]
+  );
   return rows[0].cnt;
 });
 
@@ -156,10 +191,9 @@ async function moveRow(req, res, next, table, label) {
     const rawDir = req.body && (req.body.direction || req.body.dir);
     const dir = rawDir === 'up' ? 'up' : 'down';
     await conn.beginTransaction();
-    const [rows] = await conn.query(
-      `SELECT id FROM ${table} WHERE team_id = ? ORDER BY sort, id`,
-      [req.team.id]
-    );
+    const [rows] = await conn.query(`SELECT id FROM ${table} WHERE team_id = ? ORDER BY sort, id`, [
+      req.team.id,
+    ]);
     const idx = rows.findIndex((r) => r.id === id);
     if (idx < 0) {
       await conn.rollback();
@@ -186,7 +220,9 @@ async function moveRow(req, res, next, table, label) {
 }
 
 // PUT /members/:id/move {direction:'up'|'down'}：成员排序（实现见 moveRow）
-router.put('/members/:id/move', async (req, res, next) => moveRow(req, res, next, 'worklog_member', '成员'));
+router.put('/members/:id/move', async (req, res, next) =>
+  moveRow(req, res, next, 'worklog_member', '成员')
+);
 
 // ===== 线路与杆塔 =====
 
@@ -230,7 +266,10 @@ router.get('/towers/template', async (req, res, next) => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '杆塔坐标');
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="tower-template.xlsx"; filename*=UTF-8''${encodeURIComponent('杆塔坐标导入模板.xlsx')}`
@@ -242,7 +281,10 @@ router.get('/towers/template', async (req, res, next) => {
 });
 
 // POST /towers/import：导入杆塔坐标 Excel（.xlsx），全量替换本班组坐标（事务；实现照抄 worklog /towers/import）
-const towerUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+const towerUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
 router.post(
   '/towers/import',
   (req, res, next) => {
@@ -257,7 +299,10 @@ router.post(
   async (req, res, next) => {
     try {
       // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（兼容 formData 携带 team_id）
-      const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
+      const team = await teamUtil.resolveTeam(
+        req.user,
+        req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id
+      );
       if (!team) return fail(res, 400, 40022, '无可用班组');
       if (req.user.role === 'team_admin' && req.user.team_id !== team.id) {
         return fail(res, 403, 40304, '仅管理员可执行此操作');
@@ -266,12 +311,17 @@ router.post(
         return fail(res, 400, 40022, '请选择要上传的 Excel 文件');
       }
       const fname = fixLatin1Name(req.file.originalname);
-      if (!/\.xlsx$/i.test(fname)) return fail(res, 400, 40022, '仅支持 .xlsx 文件，请使用模板填写');
+      if (!/\.xlsx$/i.test(fname))
+        return fail(res, 400, 40022, '仅支持 .xlsx 文件，请使用模板填写');
 
       let rows;
       try {
         const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+          header: 1,
+          raw: false,
+          defval: '',
+        });
       } catch (e) {
         return fail(res, 400, 40022, 'Excel 解析失败，请使用模板文件填写');
       }
@@ -285,15 +335,25 @@ router.post(
         if (cells.every((c) => !c)) continue;
         const [voltage = '', line = '', towerNo = '', lng = '', lat = ''] = cells;
         if (voltage.includes('电压') || towerNo.includes('杆塔')) continue;
-        if (!voltage || !line || !towerNo || !lng || !lat
-          || Number.isNaN(Number(lng)) || Number.isNaN(Number(lat))) {
+        if (
+          !voltage ||
+          !line ||
+          !towerNo ||
+          !lng ||
+          !lat ||
+          Number.isNaN(Number(lng)) ||
+          Number.isNaN(Number(lat))
+        ) {
           skipped++;
           continue;
         }
         data.push([
           team.id,
-          voltage.slice(0, 32), line.slice(0, 64), towerNo.slice(0, 64),
-          lng.slice(0, 32), lat.slice(0, 32),
+          voltage.slice(0, 32),
+          line.slice(0, 64),
+          towerNo.slice(0, 64),
+          lng.slice(0, 32),
+          lat.slice(0, 32),
         ]);
       }
       if (!data.length) return fail(res, 400, 40022, '未识别到有效坐标行，请按模板列填写');
@@ -344,11 +404,18 @@ router.get('/oplines', async (req, res, next) => {
 router.post('/oplines', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
-    const voltage = String((req.body && req.body.voltage_level) || '').trim().slice(0, 16);
-    const lineName = String((req.body && req.body.line_name) || '').trim().slice(0, 64);
+    const voltage = String((req.body && req.body.voltage_level) || '')
+      .trim()
+      .slice(0, 16);
+    const lineName = String((req.body && req.body.line_name) || '')
+      .trim()
+      .slice(0, 64);
     if (!voltage) return fail(res, 400, 40012, '请输入电压等级');
     if (!lineName) return fail(res, 400, 40012, '请输入线路名称');
-    const [maxRows] = await pool.query('SELECT COALESCE(MAX(sort), 0) AS maxSort FROM team_line WHERE team_id = ?', [req.team.id]);
+    const [maxRows] = await pool.query(
+      'SELECT COALESCE(MAX(sort), 0) AS maxSort FROM team_line WHERE team_id = ?',
+      [req.team.id]
+    );
     try {
       const [r] = await pool.query(
         'INSERT INTO team_line (team_id, voltage_level, line_name, sort) VALUES (?, ?, ?, ?)',
@@ -369,7 +436,10 @@ router.put('/oplines/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     const id = Number(req.params.id);
-    const [exist] = await pool.query('SELECT id FROM team_line WHERE id = ? AND team_id = ?', [id, req.team.id]);
+    const [exist] = await pool.query('SELECT id FROM team_line WHERE id = ? AND team_id = ?', [
+      id,
+      req.team.id,
+    ]);
     if (!exist.length) return fail(res, 404, 40400, '线路不存在');
     const { voltage_level: voltage, line_name: lineName } = req.body || {};
     if (voltage !== undefined) {
@@ -398,7 +468,10 @@ router.delete('/oplines/:id', async (req, res, next) => {
   try {
     if (!req.team) return fail(res, 400, 40010, '无可用班组');
     const id = Number(req.params.id);
-    const [r] = await pool.query('DELETE FROM team_line WHERE id = ? AND team_id = ?', [id, req.team.id]);
+    const [r] = await pool.query('DELETE FROM team_line WHERE id = ? AND team_id = ?', [
+      id,
+      req.team.id,
+    ]);
     if (!r.affectedRows) return fail(res, 404, 40400, '线路不存在');
     return ok(res, null);
   } catch (err) {
@@ -407,7 +480,9 @@ router.delete('/oplines/:id', async (req, res, next) => {
 });
 
 // PUT /oplines/:id/move {direction:'up'|'down'}：线路排序（实现与 members move 共用 moveRow）
-router.put('/oplines/:id/move', async (req, res, next) => moveRow(req, res, next, 'team_line', '线路'));
+router.put('/oplines/:id/move', async (req, res, next) =>
+  moveRow(req, res, next, 'team_line', '线路')
+);
 
 // GET /oplines/template：运维线路导入模板（xlsx，仅首行表头；列宽 12/20）
 router.get('/oplines/template', async (req, res, next) => {
@@ -417,7 +492,10 @@ router.get('/oplines/template', async (req, res, next) => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '运维线路');
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="opline-template.xlsx"; filename*=UTF-8''${encodeURIComponent('运维线路导入模板.xlsx')}`
@@ -433,7 +511,8 @@ router.get('/oplines/template', async (req, res, next) => {
 router.post(
   '/oplines/import',
   (req, res, next) => {
-    towerUpload.single('file')(req, res, (err) => { // 与杆塔导入共用同一 multer 口径（10MB/单文件）
+    towerUpload.single('file')(req, res, (err) => {
+      // 与杆塔导入共用同一 multer 口径（10MB/单文件）
       if (err) {
         if (err.code === 'LIMIT_FILE_SIZE') return fail(res, 400, 40022, '文件大小应在 10MB 以内');
         return next(err);
@@ -444,7 +523,10 @@ router.post(
   async (req, res, next) => {
     try {
       // multipart 表单体在路由级 multer 之后才可读：此处重新解析生效班组（兼容 formData 携带 team_id）
-      const team = await teamUtil.resolveTeam(req.user, req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id);
+      const team = await teamUtil.resolveTeam(
+        req.user,
+        req.body && req.body.team_id !== undefined ? req.body.team_id : req.query.team_id
+      );
       if (!team) return fail(res, 400, 40022, '无可用班组');
       if (req.user.role === 'team_admin' && req.user.team_id !== team.id) {
         return fail(res, 403, 40304, '仅管理员可执行此操作');
@@ -453,12 +535,17 @@ router.post(
         return fail(res, 400, 40022, '请选择要上传的 Excel 文件');
       }
       const fname = fixLatin1Name(req.file.originalname);
-      if (!/\.xlsx$/i.test(fname)) return fail(res, 400, 40022, '仅支持 .xlsx 文件，请使用模板填写');
+      if (!/\.xlsx$/i.test(fname))
+        return fail(res, 400, 40022, '仅支持 .xlsx 文件，请使用模板填写');
 
       let rows;
       try {
         const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+          header: 1,
+          raw: false,
+          defval: '',
+        });
       } catch (e) {
         return fail(res, 400, 40022, 'Excel 解析失败，请使用模板文件填写');
       }
@@ -488,7 +575,10 @@ router.post(
         await conn.query('DELETE FROM team_line WHERE team_id = ?', [team.id]);
         for (let i = 0; i < data.length; i += 500) {
           const chunk = data.slice(i, i + 500).map((r, j) => [...r, i + j + 1]);
-          await conn.query('INSERT INTO team_line (team_id, voltage_level, line_name, sort) VALUES ?', [chunk]);
+          await conn.query(
+            'INSERT INTO team_line (team_id, voltage_level, line_name, sort) VALUES ?',
+            [chunk]
+          );
         }
         await conn.commit();
       } catch (e) {

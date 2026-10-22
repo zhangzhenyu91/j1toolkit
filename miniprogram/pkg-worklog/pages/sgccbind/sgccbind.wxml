@@ -11,7 +11,10 @@
       </view>
       <view>
         <text class="tip-t">绑定本人商旅账号</text>
-        <view class="tip-p">打卡、费用与照片均以本人账号提交商旅平台；请用商旅 App 注册手机号登录，短信/密码均可（与 App 登录互不影响）。</view>
+        <view class="tip-p"
+          >打卡、费用与照片均以本人账号提交商旅平台；请用商旅 App 注册手机号登录，短信/密码均可（与
+          App 登录互不影响）。</view
+        >
       </view>
     </view>
 
@@ -22,8 +25,20 @@
     </view>
     <view class="card sg-card">
       <view class="sg-tabs">
-        <view class="sg-tab {{loginType === 'sms' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onSwitchType" data-type="sms">短信登录</view>
-        <view class="sg-tab {{loginType === 'pwd' ? 'on' : ''}}" hover-class="hover-opacity" bindtap="onSwitchType" data-type="pwd">密码登录</view>
+        <view
+          class="sg-tab {{loginType === 'sms' ? 'on' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onSwitchType"
+          data-type="sms"
+          >短信登录</view
+        >
+        <view
+          class="sg-tab {{loginType === 'pwd' ? 'on' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onSwitchType"
+          data-type="pwd"
+          >密码登录</view
+        >
       </view>
       <view class="field">
         <t-icon name="mobile" size="38rpx" color="rgba(29,33,41,.4)" />
@@ -54,7 +69,9 @@
           bindtap="onRefreshCaptcha"
         />
       </view>
-      <view class="sg-alt" wx:if="{{captchaImg}}" hover-class="hover-opacity" bindtap="onUseSlider">图形码不可用？改用滑块验证</view>
+      <view class="sg-alt" wx:if="{{captchaImg}}" hover-class="hover-opacity" bindtap="onUseSlider"
+        >图形码不可用？改用滑块验证</view
+      >
       <view class="field" wx:if="{{loginType === 'sms'}}">
         <t-icon name="lock-on" size="38rpx" color="rgba(29,33,41,.4)" />
         <input
@@ -66,7 +83,11 @@
           value="{{smsCode}}"
           bindinput="onSmsCodeInput"
         />
-        <view class="suffix {{smsCountdown > 0 ? 'off' : ''}}" hover-class="hover-opacity" bindtap="onSendSms">
+        <view
+          class="suffix {{smsCountdown > 0 ? 'off' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onSendSms"
+        >
           {{smsCountdown > 0 ? smsCountdown + 's 后重发' : '获取验证码'}}
         </view>
       </view>
@@ -81,7 +102,11 @@
           bindinput="onPasswordInput"
         />
       </view>
-      <view class="btn-primary sg-bind-btn {{binding ? 'off' : ''}}" hover-class="hover-opacity" bindtap="onBind">
+      <view
+        class="btn-primary sg-bind-btn {{binding ? 'off' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onBind"
+      >
         {{binding ? '绑定中…' : '登录并绑定'}}
       </view>
     </view>
@@ -100,7 +125,12 @@
         </view>
         <view class="rt"><text class="badge-outline">可修改</text></view>
       </view>
-      <view class="kv" hover-class="hover-bg-warm" bindtap="onEditDevice" data-field="systemVersion">
+      <view
+        class="kv"
+        hover-class="hover-bg-warm"
+        bindtap="onEditDevice"
+        data-field="systemVersion"
+      >
         <text class="k">系统版本</text>
         <view class="v">{{systemVersion}}</view>
         <view class="rt"><text class="badge-outline">可修改</text></view>
@@ -137,7 +167,10 @@
         <text class="k">登录状态</text>
         <view class="v {{tokenStatus === 1 ? 'ok' : 'bad'}}">
           {{tokenStatus === 1 ? '有效' : '已过期'}}
-          <text class="v-sub">{{tokenStatus === 1 ? '每次打卡/上传前实时校验；失效提醒重新登录' : '商旅登录已过期，请重新登录恢复打卡与同步'}}</text>
+          <text class="v-sub"
+            >{{tokenStatus === 1 ? '每次打卡/上传前实时校验；失效提醒重新登录' :
+            '商旅登录已过期，请重新登录恢复打卡与同步'}}</text
+          >
         </view>
       </view>
       <view class="kv" hover-class="hover-bg-warm" bindtap="onEditDevice" data-field="deviceType">
@@ -145,7 +178,12 @@
         <view class="v">{{deviceType}}</view>
         <view class="rt"><text class="badge-outline">可修改</text></view>
       </view>
-      <view class="kv" hover-class="hover-bg-warm" bindtap="onEditDevice" data-field="systemVersion">
+      <view
+        class="kv"
+        hover-class="hover-bg-warm"
+        bindtap="onEditDevice"
+        data-field="systemVersion"
+      >
         <text class="k">系统版本</text>
         <view class="v">{{systemVersion}}</view>
         <view class="rt"><text class="badge-outline">可修改</text></view>

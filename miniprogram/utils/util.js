@@ -74,5 +74,14 @@ function wxLoginCode() {
 }
 
 module.exports = {
-  greeting, formatTime, parseDate, wxLoginCode, pad, fmtSize, extOf, fmtDay, IMG_EXTS, DOC_EXTS,
+  greeting,
+  formatTime,
+  parseDate,
+  wxLoginCode,
+  pad,
+  fmtSize,
+  extOf,
+  fmtDay,
+  IMG_EXTS,
+  DOC_EXTS,
 };

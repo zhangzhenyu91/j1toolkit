@@ -20,7 +20,12 @@ router.get('/geo', async (req, res, next) => {
   try {
     const lng = Number(req.query.lng);
     const lat = Number(req.query.lat);
-    if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) {
+    if (
+      !Number.isFinite(lng) ||
+      !Number.isFinite(lat) ||
+      Math.abs(lng) > 180 ||
+      Math.abs(lat) > 90
+    ) {
       return fail(res, 400, 40022, '经纬度参数无效');
     }
     const r = await geo.fetchLocationWeather(lng, lat);
@@ -54,7 +59,11 @@ router.post('/render', async (req, res, next) => {
     if (!buf.length || buf.length > 15 * 1024 * 1024) {
       return fail(res, 400, 40024, '照片大小应在 15MB 以内');
     }
-    const out = await renderWatermarkedPhoto(buf, sanitizeWm(wm || {}), (wm && wm.orientation) || '');
+    const out = await renderWatermarkedPhoto(
+      buf,
+      sanitizeWm(wm || {}),
+      (wm && wm.orientation) || ''
+    );
     return ok(res, { image: `data:image/jpeg;base64,${out.toString('base64')}` });
   } catch (err) {
     return next(err);

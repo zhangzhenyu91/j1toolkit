@@ -37,4 +37,3 @@ module.exports = async function auth(req, res, next) {
   req.tokenExp = payload.exp;
   return next();
 };
-

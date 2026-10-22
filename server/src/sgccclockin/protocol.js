@@ -15,12 +15,18 @@ const net = require('net');
 const { sm2 } = require('sm-crypto');
 const config = require('../config');
 
-const HOST_H5 = 'gwslapi.esgcc.com.cn';   // jsonm 与 jsonx(default)
+const HOST_H5 = 'gwslapi.esgcc.com.cn'; // jsonm 与 jsonx(default)
 const HOST_ZB = 'gwslapizb.esgcc.com.cn'; // jsonx(slapp)
 const VERSION = config.sgcc.version || '3.3.7';
 
 // ---------- 基础工具 ----------
-function b64url(b) { return Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function b64url(b) {
+  return Buffer.from(b)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
 function toPem(b64, label) {
   const body = String(b64 || '').replace(/\s+/g, '');
   return `-----BEGIN ${label}-----\n${body.match(/.{1,64}/g).join('\n')}\n-----END ${label}-----`;
@@ -35,11 +41,17 @@ function need(name, v) {
 function makeJwt(kind = 'tenant') {
   const now = Math.floor(Date.now() / 1000);
   const h = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const payload = kind === 'tenant'
-    ? { tenant: 'newh5', jti: crypto.randomUUID(), exp: now + 120, iat: now }
-    : { sub: 'slapp', jti: crypto.randomUUID(), exp: now + 120 };
+  const payload =
+    kind === 'tenant'
+      ? { tenant: 'newh5', jti: crypto.randomUUID(), exp: now + 120, iat: now }
+      : { sub: 'slapp', jti: crypto.randomUUID(), exp: now + 120 };
   const p = b64url(JSON.stringify(payload));
-  const sig = b64url(crypto.createHmac('sha256', need('SGCC_JWT_SECRET', config.sgcc.jwtSecret)).update(h + '.' + p).digest());
+  const sig = b64url(
+    crypto
+      .createHmac('sha256', need('SGCC_JWT_SECRET', config.sgcc.jwtSecret))
+      .update(h + '.' + p)
+      .digest()
+  );
   return h + '.' + p + '.' + sig;
 }
 
@@ -58,19 +70,37 @@ function genAESKey() {
   for (let i = 0; i < 16; i += 1) s += chars[crypto.randomInt(0, chars.length)];
   return s;
 }
-function sm2Encrypt(text) { return '04' + sm2.doEncrypt(text, need('SGCC_SM2_SERVER_PUB', config.sgcc.sm2ServerPub), 0); }
-function sm2Decrypt(hexWith04) { return sm2.doDecrypt(hexWith04.slice(2), need('SGCC_SM2_CLIENT_PRIV', config.sgcc.sm2ClientPriv), 0); }
+function sm2Encrypt(text) {
+  return '04' + sm2.doEncrypt(text, need('SGCC_SM2_SERVER_PUB', config.sgcc.sm2ServerPub), 0);
+}
+function sm2Decrypt(hexWith04) {
+  return sm2.doDecrypt(
+    hexWith04.slice(2),
+    need('SGCC_SM2_CLIENT_PRIV', config.sgcc.sm2ClientPriv),
+    0
+  );
+}
 
 // sign 头（jsonm）：非空键逗号连接 + ';' + MD5(值串联 + r)
 function makeSignHeaderM(headers, r) {
   const order = ['token', 'uniID', 'tenant', 'funcCode', 'systemCode'];
-  let keys = ''; let vals = '';
+  let keys = '';
+  let vals = '';
   for (const k of order) {
     const v = headers[k];
-    if (v) { keys += (keys ? ',' : '') + k; vals += v; }
+    if (v) {
+      keys += (keys ? ',' : '') + k;
+      vals += v;
+    }
   }
   if (keys) keys += ';';
-  return keys + crypto.createHash('md5').update(vals + String(r), 'utf8').digest('hex');
+  return (
+    keys +
+    crypto
+      .createHash('md5')
+      .update(vals + String(r), 'utf8')
+      .digest('hex')
+  );
 }
 
 // ---------- jsonx 通道（RSA 分块）----------
@@ -78,7 +108,12 @@ function rsaEncryptLong(pubPem, text) {
   const data = Buffer.from(text, 'utf8');
   const out = [];
   for (let i = 0; i < data.length; i += 117) {
-    out.push(crypto.publicEncrypt({ key: pubPem, padding: crypto.constants.RSA_PKCS1_PADDING }, data.subarray(i, i + 117)));
+    out.push(
+      crypto.publicEncrypt(
+        { key: pubPem, padding: crypto.constants.RSA_PKCS1_PADDING },
+        data.subarray(i, i + 117)
+      )
+    );
   }
   return Buffer.concat(out).toString('base64');
 }
@@ -86,7 +121,12 @@ function rsaDecryptLong(privPem, b64) {
   const data = Buffer.from(String(b64).replace(/\s+/g, ''), 'base64');
   const out = [];
   for (let i = 0; i + 128 <= data.length; i += 128) {
-    out.push(crypto.privateDecrypt({ key: privPem, padding: crypto.constants.RSA_PKCS1_PADDING }, data.subarray(i, i + 128)));
+    out.push(
+      crypto.privateDecrypt(
+        { key: privPem, padding: crypto.constants.RSA_PKCS1_PADDING },
+        data.subarray(i, i + 128)
+      )
+    );
   }
   return Buffer.concat(out).toString('utf8');
 }
@@ -107,7 +147,9 @@ function httpsAgent() {
     try {
       SocksProxyAgent = require('socks-proxy-agent').SocksProxyAgent;
     } catch (e) {
-      throw new Error('已配置 SGCC_PROXY_URL 但缺少 socks-proxy-agent 依赖，请在服务端执行 npm install');
+      throw new Error(
+        '已配置 SGCC_PROXY_URL 但缺少 socks-proxy-agent 依赖，请在服务端执行 npm install'
+      );
     }
     try {
       PROXY_AGENT = new SocksProxyAgent(url);
@@ -121,15 +163,22 @@ function httpsAgent() {
 
 function post(host, path, headers, body) {
   return new Promise((resolve, reject) => {
-    const req = https.request({
-      hostname: host, path: '/api/' + path.replace(/^\//, ''), method: 'POST',
-      agent: httpsAgent(),
-      headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => resolve({ status: res.statusCode, raw: Buffer.concat(chunks).toString('utf8') }));
-    });
+    const req = https.request(
+      {
+        hostname: host,
+        path: '/api/' + path.replace(/^\//, ''),
+        method: 'POST',
+        agent: httpsAgent(),
+        headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () =>
+          resolve({ status: res.statusCode, raw: Buffer.concat(chunks).toString('utf8') })
+        );
+      }
+    );
     req.on('error', reject);
     req.setTimeout(20000, () => req.destroy(new Error('timeout')));
     req.write(body);
@@ -176,13 +225,24 @@ async function initSession() {
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const key = genAESKey();
   const body = JSON.stringify({
-    data: aesEncrypt(JSON.stringify({ adClientId: 'android', adSecret: need('SGCC_AD_SECRET', config.sgcc.adSecret), _r: r }), key),
+    data: aesEncrypt(
+      JSON.stringify({
+        adClientId: 'android',
+        adSecret: need('SGCC_AD_SECRET', config.sgcc.adSecret),
+        _r: r,
+      }),
+      key
+    ),
     sign: sm2Encrypt(key),
   });
   const uniID = makeJwt('tenant');
   const headers = {
-    'Content-Type': 'application/jsonm', 'Accept': 'application/jsonm',
-    'tenant': 'newh5', 'uniID': uniID, 'version': VERSION, 'X-Requested-With': 'XMLHttpRequest',
+    'Content-Type': 'application/jsonm',
+    Accept: 'application/jsonm',
+    tenant: 'newh5',
+    uniID: uniID,
+    version: VERSION,
+    'X-Requested-With': 'XMLHttpRequest',
   };
   headers.sign = makeSignHeaderM(headers, r);
   const resp = await post(HOST_H5, 'ads', headers, body);
@@ -208,10 +268,17 @@ async function callJsonm(path, plainObj) {
   const uniID = JWT_POOL.shift();
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const key = genAESKey();
-  const body = JSON.stringify({ data: aesEncrypt(JSON.stringify({ ...(plainObj || {}), _r: r }), key), sign: sm2Encrypt(key) });
+  const body = JSON.stringify({
+    data: aesEncrypt(JSON.stringify({ ...(plainObj || {}), _r: r }), key),
+    sign: sm2Encrypt(key),
+  });
   const headers = {
-    'Content-Type': 'application/jsonm', 'Accept': 'application/jsonm',
-    'tenant': 'newh5', 'uniID': uniID, 'version': VERSION, 'X-Requested-With': 'XMLHttpRequest',
+    'Content-Type': 'application/jsonm',
+    Accept: 'application/jsonm',
+    tenant: 'newh5',
+    uniID: uniID,
+    version: VERSION,
+    'X-Requested-With': 'XMLHttpRequest',
   };
   headers.sign = makeSignHeaderM(headers, r);
   const resp = await post(HOST_H5, path, headers, body);
@@ -219,7 +286,9 @@ async function callJsonm(path, plainObj) {
   try {
     const j = JSON.parse(resp.raw);
     decoded = JSON.parse(aesDecrypt(j.data, sm2Decrypt(j.sign)));
-  } catch (e) { /* 未加密或异常响应 */ }
+  } catch (e) {
+    /* 未加密或异常响应 */
+  }
   return { status: resp.status, decoded };
 }
 
@@ -233,14 +302,23 @@ async function callJsonm(path, plainObj) {
 let JWT_POOL_X = [];
 let JWT_POOL_X_AT = 0; // 上次拉池时间（ms）：池未耗尽也会过期，超 25min 强制重拉
 async function initSessionX() {
-  const r = await callJsonx('ads', { adClientId: 'android', adSecret: need('SGCC_AD_SECRET', config.sgcc.adSecret) }, { tenant: 'slapp', noPool: true });
+  const r = await callJsonx(
+    'ads',
+    { adClientId: 'android', adSecret: need('SGCC_AD_SECRET', config.sgcc.adSecret) },
+    { tenant: 'slapp', noPool: true }
+  );
   const list = r.decoded && r.decoded.data && r.decoded.data.list;
   if (r.status === 200 && Array.isArray(list) && list.length) {
     JWT_POOL_X = list.slice();
     JWT_POOL_X_AT = Date.now();
     return true;
   }
-  throw new Error('商旅 ads 初始化失败（slapp 通道）：HTTP ' + r.status + ' ' + JSON.stringify(r.decoded || r.raw || '').slice(0, 200));
+  throw new Error(
+    '商旅 ads 初始化失败（slapp 通道）：HTTP ' +
+      r.status +
+      ' ' +
+      JSON.stringify(r.decoded || r.raw || '').slice(0, 200)
+  );
 }
 
 // 启动通道自检：jsonm 与 slapp 两通道各拉一次 uniID 池（均为正常业务调用），
@@ -269,7 +347,10 @@ async function takeUniID(slapp) {
 // 设备 uuid（请求头 uuid，真实 App 为设备唯一 UUID）：按手机号确定性派生——同一账号登录与后续业务调用一致
 //（平台若校验登录/调用设备一致性不打架），不同账号互异；未带手机号的调用（极少）落固定 'default' 派生值
 function deviceUuid(mobile) {
-  const hex = crypto.createHash('md5').update(`sgcc-device:${mobile || 'default'}:${config.sgcc.jwtSecret || ''}`, 'utf8').digest('hex');
+  const hex = crypto
+    .createHash('md5')
+    .update(`sgcc-device:${mobile || 'default'}:${config.sgcc.jwtSecret || ''}`, 'utf8')
+    .digest('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`.toUpperCase();
 }
 
@@ -277,19 +358,31 @@ function deviceUuid(mobile) {
 // 头集逐项对齐真实 App 抓包（2026-09-24 HAR 比对 3.3.6，2026-10-09 按 3.3.7 HAR 复核一致）——
 // 版本指纹缺失/过旧会被风控以 99001 笼统拒绝。差异仅两处：Content-Type 由调用方传（jsonx / multipart），
 // sign 头只业务调用需要（multipart 上传无 sign 头，由调用方按需补）
-function jsonxHeaders({ tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '', contentType, token = '', uniID = '' }) {
+function jsonxHeaders({
+  tenant = 'default',
+  deviceType = 'Pixel 7',
+  systemVersion = 'Android 13',
+  mobile = '',
+  contentType,
+  token = '',
+  uniID = '',
+}) {
   const isSlapp = tenant === 'slapp';
   const headers = {
-    'Content-Type': contentType, 'Accept': '*/*',
+    'Content-Type': contentType,
+    Accept: '*/*',
     'User-Agent': `guo wang shang lu yun/${VERSION} (${deviceType}; ${systemVersion}; Scale/2.00)`,
-    'source': '1',
-    'tenant': tenant,
-    'platform': isSlapp ? '1' : 'android',
-    'systemVersion': systemVersion, 'deviceType': deviceType,
-    'appType': '0', 'grayversion': config.sgcc.grayVersion || '2.4.7.1',
+    source: '1',
+    tenant: tenant,
+    platform: isSlapp ? '1' : 'android',
+    systemVersion: systemVersion,
+    deviceType: deviceType,
+    appType: '0',
+    grayversion: config.sgcc.grayVersion || '2.4.7.1',
     'version-code': config.sgcc.versionCode || '202609232038',
-    'uuid': deviceUuid(mobile),
-    'encFlag': '2', 'version': VERSION,
+    uuid: deviceUuid(mobile),
+    encFlag: '2',
+    version: VERSION,
   };
   if (uniID) headers.uniID = uniID;
   if (isSlapp) headers.secretKeyType = '2';
@@ -297,24 +390,72 @@ function jsonxHeaders({ tenant = 'default', deviceType = 'Pixel 7', systemVersio
   return headers;
 }
 
-async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '', noPool = false } = {}) {
+async function callJsonx(
+  path,
+  plainObj,
+  {
+    token,
+    tenant = 'default',
+    deviceType = 'Pixel 7',
+    systemVersion = 'Android 13',
+    mobile = '',
+    noPool = false,
+  } = {}
+) {
   const isSlapp = tenant === 'slapp';
-  const pubPem = toPem(need(isSlapp ? 'SGCC_DCU_PUB' : 'SGCC_RSA_PUB', isSlapp ? config.sgcc.dcuPub : config.sgcc.rsaPub), 'PUBLIC KEY');
-  const privPem = toPem(need(isSlapp ? 'SGCC_WLA_PRIV' : 'SGCC_RSA_PRIV', isSlapp ? config.sgcc.wlaPriv : config.sgcc.rsaPriv), 'PRIVATE KEY');
+  const pubPem = toPem(
+    need(
+      isSlapp ? 'SGCC_DCU_PUB' : 'SGCC_RSA_PUB',
+      isSlapp ? config.sgcc.dcuPub : config.sgcc.rsaPub
+    ),
+    'PUBLIC KEY'
+  );
+  const privPem = toPem(
+    need(
+      isSlapp ? 'SGCC_WLA_PRIV' : 'SGCC_RSA_PRIV',
+      isSlapp ? config.sgcc.wlaPriv : config.sgcc.rsaPriv
+    ),
+    'PRIVATE KEY'
+  );
   const r = 1000000000 + crypto.randomInt(0, 8700000000);
   const body = rsaEncryptLong(pubPem, JSON.stringify({ ...(plainObj || {}), _r: r }));
   const uniID = noPool ? '' : await takeUniID(isSlapp);
-  const headers = jsonxHeaders({ tenant, deviceType, systemVersion, mobile, contentType: 'application/jsonx', token, uniID });
+  const headers = jsonxHeaders({
+    tenant,
+    deviceType,
+    systemVersion,
+    mobile,
+    contentType: 'application/jsonx',
+    token,
+    uniID,
+  });
   // App 版 sign：keyList「token,uniID,tenant;」+ md5(值串联 + r)
-  let keyList = ''; let vals = '';
-  for (const [k, sep] of [['token', ','], ['uniID', ','], ['tenant', ';']]) {
+  let keyList = '';
+  let vals = '';
+  for (const [k, sep] of [
+    ['token', ','],
+    ['uniID', ','],
+    ['tenant', ';'],
+  ]) {
     const v = headers[k];
-    if (v && v !== 'null') { keyList += k + sep; vals += v; }
+    if (v && v !== 'null') {
+      keyList += k + sep;
+      vals += v;
+    }
   }
-  headers.sign = keyList + crypto.createHash('md5').update(vals + String(r), 'utf8').digest('hex');
+  headers.sign =
+    keyList +
+    crypto
+      .createHash('md5')
+      .update(vals + String(r), 'utf8')
+      .digest('hex');
   const resp = await post(isSlapp ? HOST_ZB : HOST_H5, path, headers, body);
   let decoded = null;
-  try { decoded = JSON.parse(rsaDecryptLong(privPem, resp.raw)); } catch (e) { /* 异常响应 */ }
+  try {
+    decoded = JSON.parse(rsaDecryptLong(privPem, resp.raw));
+  } catch (e) {
+    /* 异常响应 */
+  }
   return { status: resp.status, decoded, raw: resp.raw.slice(0, 300) };
 }
 
@@ -325,7 +466,11 @@ async function callJsonx(path, plainObj, { token, tenant = 'default', deviceType
 // 平台原文截断携带，hint 为可选用户指引（密码通道提示可改短信）；sgccStatus 记录平台业务码备查
 function loginBizError(prefix, decoded, hint) {
   const msg = String((decoded && (decoded.msg || decoded.message)) || '').slice(0, 50);
-  const err = new Error(msg ? `${prefix}：${msg}${hint ? `（${hint}）` : ''}` : `${prefix}，请稍后重试${hint ? `（${hint}）` : ''}`);
+  const err = new Error(
+    msg
+      ? `${prefix}：${msg}${hint ? `（${hint}）` : ''}`
+      : `${prefix}，请稍后重试${hint ? `（${hint}）` : ''}`
+  );
   err.status = 400;
   err.sgccStatus = decoded && decoded.statusCode;
   return err;
@@ -353,17 +498,35 @@ async function loginSendSmsV2(mobile, checkImgCode) {
 // 注意 v3 失败时 HTTP/statusCode 仍是 200，成败要看 data.code（成功无 data 或 data.code=0）；
 // riskReviewFlag（3.3.6 新增必填布尔，LoginApiManager.getTextMessageCheckCode3 实证）：滑块完成后固定 true
 async function loginSendSmsSlapp(mobile, { captchaToken, constId } = {}) {
-  const r = await callJsonx('user/sendSmsCode/v3', {
-    mobile, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y', riskReviewFlag: true,
-  }, { tenant: 'slapp', mobile });
+  const r = await callJsonx(
+    'user/sendSmsCode/v3',
+    {
+      mobile,
+      source: '3',
+      constId: constId || '',
+      captchaToken: captchaToken || '',
+      riskFlag: 'Y',
+      riskReviewFlag: true,
+    },
+    { tenant: 'slapp', mobile }
+  );
   return r.decoded;
 }
 // 短信换 token（slapp/jsonx，App 同口径，图形/滑块两通道统一走它）：原 jsonm H5 通道签发的 token
 // 在主 API（dayNew 等）上被风控 99001（2026-09-24 两例实测），App 全程 slapp 通道签发则正常
 async function loginBySmsSlapp(mobile, checkCode, { captchaToken, constId } = {}) {
-  const r = await callJsonx('user/smstoken/v4', {
-    mobile, checkCode, source: '3', constId: constId || '', captchaToken: captchaToken || '', riskFlag: 'Y',
-  }, { tenant: 'slapp', mobile });
+  const r = await callJsonx(
+    'user/smstoken/v4',
+    {
+      mobile,
+      checkCode,
+      source: '3',
+      constId: constId || '',
+      captchaToken: captchaToken || '',
+      riskFlag: 'Y',
+    },
+    { tenant: 'slapp', mobile }
+  );
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
   if (!token) throw loginBizError('短信登录失败', r.decoded);
@@ -374,9 +537,18 @@ async function loginBySmsSlapp(mobile, checkCode, { captchaToken, constId } = {}
 //   图形码通道 token/v3（checkImgCode）；滑块通道 user/token/v4（顶象 captchaToken + constId + riskReviewFlag=true）
 // 注意 token/v3 无前缀（user/token/v3 为 404）、体无 source 字段（3.3.6 LoginApiManager.login 实证）；jsonm/jsonx-default 均 503，按 token/v4 同口径走 slapp（通道待云端实测）
 async function loginByPasswordV3(mobile, password, checkImgCode) {
-  const r = await callJsonx('token/v3', {
-    mobile, password, checkImgCode, constId: '', captchaToken: '', riskFlag: 'Y',
-  }, { tenant: 'slapp', mobile });
+  const r = await callJsonx(
+    'token/v3',
+    {
+      mobile,
+      password,
+      checkImgCode,
+      constId: '',
+      captchaToken: '',
+      riskFlag: 'Y',
+    },
+    { tenant: 'slapp', mobile }
+  );
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
   if (!token) throw loginBizError('密码登录失败', r.decoded, '可改用短信验证码登录');
@@ -386,9 +558,19 @@ async function loginByPasswordV3(mobile, password, checkImgCode) {
 // 滑块通道密码登录（user/token/v4）：jsonm/jsonx-default 通道均 503，必须走 slapp 通道（实测 App 口径）；
 // riskReviewFlag（3.3.6 新增必填布尔，LoginApiManager.login4 实证）：滑块完成真实风控审核后固定 true（同 App 滑块回调路径）
 async function loginByPassword(mobile, password, { captchaToken, constId } = {}) {
-  const r = await callJsonx('user/token/v4', {
-    mobile, password, source: '3', constId: constId || '', riskReviewFlag: true, captchaToken: captchaToken || '', riskFlag: 'Y',
-  }, { tenant: 'slapp', mobile });
+  const r = await callJsonx(
+    'user/token/v4',
+    {
+      mobile,
+      password,
+      source: '3',
+      constId: constId || '',
+      riskReviewFlag: true,
+      captchaToken: captchaToken || '',
+      riskFlag: 'Y',
+    },
+    { tenant: 'slapp', mobile }
+  );
   const d = r.decoded && r.decoded.data;
   const token = d && (d.token || d.accessToken || (typeof d === 'string' ? d : null));
   if (!token) throw loginBizError('密码登录失败', r.decoded, '可改用短信验证码登录');
@@ -397,28 +579,57 @@ async function loginByPassword(mobile, password, { captchaToken, constId } = {})
 
 // 某日打卡详情（token 校验探测也用它：statusCode=200 即登录态有效）
 async function dayNew(token, date, opt = {}) {
-  const r = await callJsonx('clockin/calendar/dayNew', {
-    clockInDate: date, orderNo: '', postClockInNo: '', reimOrderNo: '', informantId: '', isSubmitPlatform: '',
-  }, { token, ...opt });
+  const r = await callJsonx(
+    'clockin/calendar/dayNew',
+    {
+      clockInDate: date,
+      orderNo: '',
+      postClockInNo: '',
+      reimOrderNo: '',
+      informantId: '',
+      isSubmitPlatform: '',
+    },
+    { token, ...opt }
+  );
   return r.decoded;
 }
 
 // 打卡（首次/二次/更新）：seq=1 首次 markNew；seq=2 带 NextClockIn；更新走 updateMark
-async function markNew(token, { clockInDate, cityCode, cityName, position, longitude, latitude, remarks }, isSecond, opt = {}) {
+async function markNew(
+  token,
+  { clockInDate, cityCode, cityName, position, longitude, latitude, remarks },
+  isSecond,
+  opt = {}
+) {
   const body = { clockInDate, cityCode, cityName, position, longitude, latitude, remarks };
   if (isSecond) body.NextClockIn = true;
   const r = await callJsonx('clockin/markNew', body, { token, ...opt });
   return r.decoded;
 }
-async function updateMark(token, { detailId, cityCode, cityName, position, longitude, latitude }, opt = {}) {
-  const r = await callJsonx('clockin/updateMark', { detailId, cityCode, cityName, position, longitude, latitude }, { token, ...opt });
+async function updateMark(
+  token,
+  { detailId, cityCode, cityName, position, longitude, latitude },
+  opt = {}
+) {
+  const r = await callJsonx(
+    'clockin/updateMark',
+    { detailId, cityCode, cityName, position, longitude, latitude },
+    { token, ...opt }
+  );
   return r.decoded;
 }
 
 // 费用模板（提交装配的数据源）
-async function getFeeInfoNew(token, { clockInDate, cityName = '', cityCode = '', position = '' }, opt = {}) {
-  const r = await callJsonx('clockin/getFeeInfoNew',
-    { clockInDate, cityName, cityCode, position, isPostMark: '0' }, { token, ...opt });
+async function getFeeInfoNew(
+  token,
+  { clockInDate, cityName = '', cityCode = '', position = '' },
+  opt = {}
+) {
+  const r = await callJsonx(
+    'clockin/getFeeInfoNew',
+    { clockInDate, cityName, cityCode, position, isPostMark: '0' },
+    { token, ...opt }
+  );
   return r.decoded;
 }
 
@@ -440,14 +651,23 @@ function toMoshi(comp) {
 // overrides: { compId: valueString } 按组件 id 覆盖 value/data（如 id=10 补助明细、id=5 上传图片）
 async function saveFeeInfoNew(token, date, clockTemplate, overrides = {}, opt = {}) {
   const comps = clockTemplate.dtComponentList.map((c) => {
-    if (overrides[c.id] !== undefined) return toMoshi({ ...c, value: overrides[c.id], data: overrides[c.id] });
+    if (overrides[c.id] !== undefined)
+      return toMoshi({ ...c, value: overrides[c.id], data: overrides[c.id] });
     return toMoshi(c);
   });
   const tplBean = {
-    id: clockTemplate.id, name: clockTemplate.name, createtime: clockTemplate.createtime,
-    type: clockTemplate.type, no: clockTemplate.no, dtComponentList: comps,
+    id: clockTemplate.id,
+    name: clockTemplate.name,
+    createtime: clockTemplate.createtime,
+    type: clockTemplate.type,
+    no: clockTemplate.no,
+    dtComponentList: comps,
   };
-  const payload = { clockInDate: date, changeSubsidyFlag: 0, dtContentDetail: { dtContent: JSON.stringify(tplBean) } };
+  const payload = {
+    clockInDate: date,
+    changeSubsidyFlag: 0,
+    dtContentDetail: { dtContent: JSON.stringify(tplBean) },
+  };
   const r = await callJsonx('clockin/saveFeeInfoNew', payload, { token, tenant: 'slapp', ...opt });
   return r.decoded;
 }
@@ -459,33 +679,68 @@ async function uploadImageV2(token, { buf }, opt = {}) {
   const { deviceType = 'Pixel 7', systemVersion = 'Android 13', mobile = '' } = opt;
   const boundary = 'Boundary+' + crypto.randomBytes(8).toString('hex').toUpperCase();
   // 文件名对齐 App 口径：本机时区 yyyyMMddHHmmssSSS.jpg（按东八区生成）
-  const ts = new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace(/[-:T.Z]/g, '').slice(0, 17);
+  const ts = new Date(Date.now() + 8 * 3600 * 1000)
+    .toISOString()
+    .replace(/[-:T.Z]/g, '')
+    .slice(0, 17);
   const body = Buffer.concat([
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${ts}.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`),
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${ts}.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`
+    ),
     buf,
     Buffer.from(`\r\n--${boundary}--\r\n`),
   ]);
   // 头集走 jsonxHeaders 公共内核（slapp 口径；multipart 无 sign 头，2026-10-09 按 3.3.7 HAR 复核一致）
   const uniID = await takeUniID(true);
   const headers = jsonxHeaders({
-    tenant: 'slapp', deviceType, systemVersion, mobile,
-    contentType: `multipart/form-data; boundary=${boundary}`, token, uniID,
+    tenant: 'slapp',
+    deviceType,
+    systemVersion,
+    mobile,
+    contentType: `multipart/form-data; boundary=${boundary}`,
+    token,
+    uniID,
   });
   const resp = await post(HOST_ZB, 'fastdfs/upload/image/sample/v2', headers, body);
   let j = null;
-  try { j = JSON.parse(resp.raw); } catch (e) { /* 异常响应 */ }
+  try {
+    j = JSON.parse(resp.raw);
+  } catch (e) {
+    /* 异常响应 */
+  }
   const result = j && j.data && j.data.result;
-  if (resp.status === 200 && j && Number(j.statusCode) === 200 && result && result.success && result.fileInfoId) {
+  if (
+    resp.status === 200 &&
+    j &&
+    Number(j.statusCode) === 200 &&
+    result &&
+    result.success &&
+    result.fileInfoId
+  ) {
     return { fileInfoId: String(result.fileInfoId), httpUrl: result.httpUrl || '' };
   }
   // 失败信息带 HTTP 状态码与平台 statusCode（区分 99001 风控笼统拒绝与 fastdfs 服务故障——2026-10-09 排查盲区补强）
-  const why = String((j && (j.msg || (j.data && j.data.msg))) || resp.raw || `HTTP ${resp.status}`).slice(0, 120);
+  const why = String(
+    (j && (j.msg || (j.data && j.data.msg))) || resp.raw || `HTTP ${resp.status}`
+  ).slice(0, 120);
   const code = j && j.statusCode != null ? ` statusCode=${j.statusCode}` : '';
   throw new Error(`商旅图片上传失败（HTTP ${resp.status}${code}）：${why}`);
 }
 
 module.exports = {
-  loginCaptcha, loginSendSmsV2, loginSendSmsSlapp, loginBySmsSlapp,
-  loginByPasswordV3, loginByPassword,
-  dayNew, markNew, updateMark, getFeeInfoNew, saveFeeInfoNew, uploadImageV2, probeProxy, httpsAgent, selfCheck,
+  loginCaptcha,
+  loginSendSmsV2,
+  loginSendSmsSlapp,
+  loginBySmsSlapp,
+  loginByPasswordV3,
+  loginByPassword,
+  dayNew,
+  markNew,
+  updateMark,
+  getFeeInfoNew,
+  saveFeeInfoNew,
+  uploadImageV2,
+  probeProxy,
+  httpsAgent,
+  selfCheck,
 };

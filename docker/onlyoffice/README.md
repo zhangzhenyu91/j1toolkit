@@ -13,21 +13,21 @@ networks:
 
 services:
   onlyoffice:
-    image: onlyoffice/documentserver:10.0   # 锁版本，不用 latest
-    container_name: onlyoffice              # Shade 侧 OO_INTERNAL_URL 默认按此容器名互通
+    image: onlyoffice/documentserver:10.0 # 锁版本，不用 latest
+    container_name: onlyoffice # Shade 侧 OO_INTERNAL_URL 默认按此容器名互通
     restart: always
     networks:
       - j1toolkit
     ports:
-      - "9980:80"                           # 浏览器须可达（经反代上 HTTPS，见下）
+      - '9980:80' # 浏览器须可达（经反代上 HTTPS，见下）
     environment:
-      JWT_ENABLED: "true"
-      JWT_SECRET: ${OO_JWT_SECRET}          # 与 Shade .env 的 OO_JWT_SECRET 同值
+      JWT_ENABLED: 'true'
+      JWT_SECRET: ${OO_JWT_SECRET} # 与 Shade .env 的 OO_JWT_SECRET 同值
       JWT_HEADER: Authorization
     volumes:
       - ./onlyoffice/data:/var/lib/onlyoffice
       - ./onlyoffice/logs:/var/log/onlyoffice
-      - ./onlyoffice/fonts:/usr/share/fonts/truetype/custom:ro   # 缺中文字体时放 ttf 进此目录后重启
+      - ./onlyoffice/fonts:/usr/share/fonts/truetype/custom:ro # 缺中文字体时放 ttf 进此目录后重启
       # —— 品牌替换（Shade 壹匣）：下列容器内路径以 10.0 实测为准，先跑「二、路径发现」再取消注释 ——
       # - <本仓>/docker/onlyoffice/brand/header-logo.png:<容器内 header logo 路径>:ro
       # - <本仓>/docker/onlyoffice/brand/loader-logo.png:<容器内加载页 logo 路径>:ro
@@ -52,13 +52,13 @@ header logo（深浅色各一）、加载页大图、关于框图。把确认过
 
 素材规格（`brand/` 目录已按此生成）：
 
-| 文件 | 尺寸 | 用途 |
-|------|------|------|
-| `header-logo.png` | 172×40 | 编辑器左上标（浅色 header） |
-| `header-logo-dark.png` | 172×40 | 同上（深色 header，白字） |
-| `loader-logo.png` | 432×160 | 文档加载页 |
-| `about-logo.png` | 432×70 | 关于对话框 |
-| `favicon.png` / `favicon.ico` | 64×64 / 32×32 | 页签图标 |
+| 文件                          | 尺寸          | 用途                        |
+| ----------------------------- | ------------- | --------------------------- |
+| `header-logo.png`             | 172×40        | 编辑器左上标（浅色 header） |
+| `header-logo-dark.png`        | 172×40        | 同上（深色 header，白字）   |
+| `loader-logo.png`             | 432×160       | 文档加载页                  |
+| `about-logo.png`              | 432×70        | 关于对话框                  |
+| `favicon.png` / `favicon.ico` | 64×64 / 32×32 | 页签图标                    |
 
 素材改动后重新生成（依赖 server/node_modules，须先 `cd server && npm i`）：
 

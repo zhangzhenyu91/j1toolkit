@@ -16,7 +16,7 @@
   display: flex;
   height: 64rpx;
   padding: 4rpx;
-  background: #E5E6EB;
+  background: #e5e6eb;
   border-radius: 16rpx;
   margin-bottom: 20rpx;
 }
@@ -28,12 +28,12 @@
   justify-content: center;
   border-radius: 12rpx;
   font-size: 25rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .seg2 .seg.on {
-  background: #FFFFFF;
-  color: #0E3DA8;
+  background: #ffffff;
+  color: #0e3da8;
   font-weight: 600;
   box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.08);
 }
@@ -43,11 +43,11 @@
   display: flex;
   align-items: center;
   gap: 14rpx;
-  background: #E8F0FF;
-  border-left: 6rpx solid #0E3DA8;
+  background: #e8f0ff;
+  border-left: 6rpx solid #0e3da8;
   padding: 16rpx 20rpx;
   font-size: 23rpx;
-  color: #4E5969;
+  color: #4e5969;
   margin-bottom: 20rpx;
 }
 
@@ -73,7 +73,7 @@
   height: 72rpx;
   flex: none;
   border-radius: 20rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -83,7 +83,7 @@
   font-size: 21rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #0A3592;
+  color: #0a3592;
 }
 
 /* 真实文件类型 PNG 图标（无底块直落；加载失败回退 .ficon 线性文件夹/字母块） */
@@ -98,7 +98,7 @@
   min-width: 0;
   font-size: 27rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -112,7 +112,7 @@
 .sc-sub {
   margin-top: 16rpx;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   line-height: 1.7;
   font-variant-numeric: tabular-nums;
 }
@@ -121,7 +121,7 @@
 .sc-ops {
   margin-top: 20rpx;
   display: flex;
-  border-top: 1rpx solid #E5E6EB;
+  border-top: 1rpx solid #e5e6eb;
 }
 
 .sc-ops .op {
@@ -133,28 +133,28 @@
   padding: 18rpx 0 20rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .sc-ops .op + .op {
-  border-left: 1rpx solid #E5E6EB;
+  border-left: 1rpx solid #e5e6eb;
 }
 
 .sc-ops .op.blue {
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .sc-ops .op.danger {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 /* ---------- 空态（虚线占位） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #C9CDD4;
+  border: 3rpx dashed #c9cdd4;
   border-radius: 24rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #86909C;
+  color: #86909c;
 }

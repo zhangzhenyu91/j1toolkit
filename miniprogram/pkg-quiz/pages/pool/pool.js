@@ -84,14 +84,17 @@ Page({
   // 题库池项 → 展示结构（scope：all=全部池 / team=班组池；added 标记是否已加入我的题库；
   // 解析进度计数收敛 utils/quiz mapAnalysis）
   mapPool(b) {
-    return Object.assign({
-      id: b.id,
-      name: b.name || '',
-      scope: b.scope === 'all' ? 'all' : 'team',
-      teamName: b.teamName || '班组池',
-      questionCount: b.questionCount || 0,
-      added: !!b.added,
-    }, mapAnalysis(b.analysis, b.questionCount || 0));
+    return Object.assign(
+      {
+        id: b.id,
+        name: b.name || '',
+        scope: b.scope === 'all' ? 'all' : 'team',
+        teamName: b.teamName || '班组池',
+        questionCount: b.questionCount || 0,
+        added: !!b.added,
+      },
+      mapAnalysis(b.analysis, b.questionCount || 0)
+    );
   },
 
   /* ==================== 加入 / 移出我的题库 ==================== */
@@ -104,11 +107,15 @@ Page({
     request({
       url: `${API_BASE}/banks/${encodeURIComponent(id)}/join`,
       method: 'POST',
-    }).then(() => {
-      this.toast('已加入我的题库');
-      this.loadPool(false);
-    }).catch((err) => this.toast(err.message))
-      .finally(() => { this._joining = false; });
+    })
+      .then(() => {
+        this.toast('已加入我的题库');
+        this.loadPool(false);
+      })
+      .catch((err) => this.toast(err.message))
+      .finally(() => {
+        this._joining = false;
+      });
   },
 
   // 「已加入」：Dialog 确认（移出后练习记录与错题保留）→ DELETE join → 刷新
@@ -121,15 +128,19 @@ Page({
       content: '移出后练习记录与错题保留，可随时从题库池重新添加。',
       confirmBtn: '确认移出',
       cancelBtn: '取消',
-    }).then(() => {
-      request({
-        url: `${API_BASE}/banks/${encodeURIComponent(id)}/join`,
-        method: 'DELETE',
-      }).then(() => {
-        this.toast('已移出我的题库');
-        this.loadPool(false);
-      }).catch((err) => this.toast(err.message));
-    }).catch(() => {});
+    })
+      .then(() => {
+        request({
+          url: `${API_BASE}/banks/${encodeURIComponent(id)}/join`,
+          method: 'DELETE',
+        })
+          .then(() => {
+            this.toast('已移出我的题库');
+            this.loadPool(false);
+          })
+          .catch((err) => this.toast(err.message));
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

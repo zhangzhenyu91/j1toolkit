@@ -30,14 +30,14 @@ page {
 .sec-note {
   margin-left: auto;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* 底部固定操作区（.bottombar 纸底色条）已随主页悬浮按钮化删除；表单弹层主按钮沿用 .btn-primary */
 .btn-primary {
   height: 96rpx;
   border-radius: 16rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -54,8 +54,8 @@ page {
   align-items: center;
   gap: 12rpx;
   margin: 4rpx 8rpx 0;
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
   border-radius: 12rpx;
   padding: 8rpx 20rpx;
   font-size: 24rpx;
@@ -66,7 +66,7 @@ page {
 /* ---------- 提示条（「未出车」联动说明） ---------- */
 .tip {
   margin-top: 28rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   border-radius: 0;
   display: flex;
   align-items: center;
@@ -89,13 +89,13 @@ page {
   display: block;
   font-size: 24rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .tip .tip-p {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.6;
 }
 
@@ -121,23 +121,23 @@ page {
 
 .tags .t-tag--outline.t-tag--default {
   background: #ffffff;
-  border-color: #E5E6EB;
-  color: #1D2129;
+  border-color: #e5e6eb;
+  color: #1d2129;
 }
 
 /* 点亮态：蓝底白字（特异性压过组件 .t-tag--outline.t-tag--primary） */
 .tags .t-tag--outline.t-tag--primary,
 .tags .t-tag--checked {
-  background: #0E3DA8;
-  border-color: #0E3DA8;
+  background: #0e3da8;
+  border-color: #0e3da8;
   color: #ffffff;
   box-shadow: none;
 }
 
 .tags .t-tag--disabled {
-  background: #F7F8FA;
-  border-color: #E5E6EB;
-  color: #C9CDD4;
+  background: #f7f8fa;
+  border-color: #e5e6eb;
+  color: #c9cdd4;
   box-shadow: none;
 }
 
@@ -156,7 +156,7 @@ page {
 }
 
 .photo-item + .photo-item {
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 /* 缩略图：12rpx 统一圆角 */
@@ -165,9 +165,9 @@ page {
   height: 340rpx;
   flex: none;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   box-sizing: border-box;
-  background: #F7F8FA;
+  background: #f7f8fa;
 }
 
 .ph-right {
@@ -207,7 +207,7 @@ page {
   gap: 10rpx;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   line-height: 1.5;
 }
 
@@ -224,7 +224,7 @@ page {
 }
 
 .ph-wc.empty {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   font-weight: 400;
 }
 
@@ -232,7 +232,7 @@ page {
 .ph-meta {
   margin-top: 12rpx;
   padding-top: 10rpx;
-  border-top: 2rpx dashed #E5E6EB;
+  border-top: 2rpx dashed #e5e6eb;
 }
 
 .meta-line {
@@ -241,7 +241,7 @@ page {
   gap: 12rpx;
   padding: 3rpx 0;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.4;
 }
 
@@ -249,7 +249,7 @@ page {
   flex: none;
   width: 96rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .meta-line .meta-val {
@@ -279,26 +279,26 @@ page {
   height: 38rpx;
   padding: 0 16rpx;
   border-radius: 8rpx;
-  border: 2rpx solid #0E3DA8;
-  color: #0E3DA8;
+  border: 2rpx solid #0e3da8;
+  color: #0e3da8;
   font-size: 20rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
 }
 
 .vtag.ing {
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
 }
 
 .vtag.ok {
-  background: #E8FFEA;
-  color: #0B8A37;
+  background: #e8ffea;
+  color: #0b8a37;
 }
 
 .vtag.bad {
-  background: #FFECE8;
-  color: #F53F3F;
+  background: #ffece8;
+  color: #f53f3f;
 }
 
 /* 照片右上角删除小图标 */
@@ -319,9 +319,9 @@ page {
   margin: 4rpx 0 0;
   height: 104rpx;
   border-radius: 12rpx;
-  background: #F7F8FA;
-  border: 3rpx dashed #C9CDD4;
-  color: #86909C;
+  background: #f7f8fa;
+  border: 3rpx dashed #c9cdd4;
+  color: #86909c;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -346,14 +346,14 @@ page {
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .sheet-note {
   text-align: center;
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   letter-spacing: 1rpx;
 }
 
@@ -372,14 +372,14 @@ page {
   flex: 1;
   height: 88rpx;
   border-radius: 16rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 600;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 2rpx;
   box-sizing: border-box;
 }
@@ -388,7 +388,7 @@ page {
   flex: 2;
   height: 88rpx;
   border-radius: 16rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -406,7 +406,7 @@ page {
 /* ---------- 巡视内容输入框 ---------- */
 .textarea-wrap {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 20rpx 28rpx;
 }
@@ -415,20 +415,20 @@ page {
   width: 100%;
   min-height: 132rpx;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   line-height: 1.7;
   box-sizing: border-box;
 }
 
 .ph {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* ---------- 派车情况表单卡（直角 + 墨边，弹层白底上以描边定义边界，不用柔影） ---------- */
 .form-card {
   background: #ffffff;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   overflow: hidden;
 }
 
@@ -440,7 +440,7 @@ page {
 }
 
 .frow + .frow {
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .frow .fk {
@@ -453,7 +453,7 @@ page {
 .frow .fv {
   flex: 1;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -461,17 +461,17 @@ page {
 }
 
 .frow .fv.placeholder {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   font-weight: 400;
 }
 
 .frow.disabled {
-  background: #F7F8FA;
+  background: #f7f8fa;
 }
 
 .frow.disabled .fk,
 .frow.disabled .fv {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .frow.disabled .fv {
@@ -481,8 +481,8 @@ page {
 /* 「无派车」灰徽章 */
 .badge-mini {
   flex: none;
-  border: 2rpx solid rgba(29,33,41,.35);
-  color: rgba(29,33,41,.4);
+  border: 2rpx solid rgba(29, 33, 41, 0.35);
+  color: rgba(29, 33, 41, 0.4);
   border-radius: 12rpx;
   padding: 0 12rpx;
   font-size: 20rpx;
@@ -492,8 +492,8 @@ page {
 
 /* ---------- 内联筛选下拉（手风琴展开于表单行下方） ---------- */
 .drop-panel {
-  border-top: 2rpx solid #E5E6EB;
-  background: #F7F8FA;
+  border-top: 2rpx solid #e5e6eb;
+  background: #f7f8fa;
   padding: 16rpx 24rpx 20rpx;
 }
 
@@ -502,7 +502,7 @@ page {
   align-items: center;
   gap: 16rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 16rpx 24rpx;
 }
@@ -510,14 +510,14 @@ page {
 .drop-input {
   flex: 1;
   font-size: 26rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .drop-list {
   margin-top: 16rpx;
   max-height: 480rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   overflow: hidden;
   box-sizing: border-box;
@@ -550,7 +550,7 @@ page {
 }
 
 .drop-item + .drop-item {
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .drop-item .t-icon {
@@ -559,16 +559,16 @@ page {
 
 /* 选中项：白底蓝字 + 前置蓝方块（不用浅蓝高亮） */
 .drop-item.on {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 700;
 }
 
 .drop-item.on::before {
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .drop-item.none {
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .drop-item.none .badge-mini {
@@ -580,5 +580,5 @@ page {
   padding: 40rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }

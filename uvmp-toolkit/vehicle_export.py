@@ -40,20 +40,25 @@ if _PYLIB.is_dir():
 try:
     import requests
 except ImportError:
-    sys.exit("缺少 requests 库，请先安装：pip3 install requests（离线安装见《部署说明.md》）")
+    sys.exit(
+        "缺少 requests 库，请先安装：pip3 install requests（离线安装见《部署说明.md》）"
+    )
 
 GATEWAY = "http://20.1.59.23:18080/"
 WEB_ORIGIN = "http://uvmp.sgcc.com.cn"
 # getUserAuth 的 SM2 公钥（前端硬编码，见接口分析.md）
-GDKEY = ("04a1b7b1dfef3b21ef0523fe9496624a"
-         "4b99eb83ceb037e75bbbdcf61dab5"
-         "aced689064385366b46456f4d782699873ed3e4"
-         "3695dc64baa107e6d8a167eb570475")
+GDKEY = (
+    "04a1b7b1dfef3b21ef0523fe9496624a"
+    "4b99eb83ceb037e75bbbdcf61dab5"
+    "aced689064385366b46456f4d782699873ed3e4"
+    "3695dc64baa107e6d8a167eb570475"
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 # ---------------------------------------------------------------- 工具
+
 
 def js_quote(s: str) -> str:
     """等价于 JS encodeURIComponent"""
@@ -89,34 +94,298 @@ def clean_time(v) -> str:
 # ---------------------------------------------------------------- SM4（移植自系统前端 sm4.js，标准 SM4-CBC/PKCS7）
 
 SM4_SBOX = [
-    0xd6, 0x90, 0xe9, 0xfe, 0xcc, 0xe1, 0x3d, 0xb7, 0x16, 0xb6, 0x14, 0xc2, 0x28, 0xfb, 0x2c, 0x05,
-    0x2b, 0x67, 0x9a, 0x76, 0x2a, 0xbe, 0x04, 0xc3, 0xaa, 0x44, 0x13, 0x26, 0x49, 0x86, 0x06, 0x99,
-    0x9c, 0x42, 0x50, 0xf4, 0x91, 0xef, 0x98, 0x7a, 0x33, 0x54, 0x0b, 0x43, 0xed, 0xcf, 0xac, 0x62,
-    0xe4, 0xb3, 0x1c, 0xa9, 0xc9, 0x08, 0xe8, 0x95, 0x80, 0xdf, 0x94, 0xfa, 0x75, 0x8f, 0x3f, 0xa6,
-    0x47, 0x07, 0xa7, 0xfc, 0xf3, 0x73, 0x17, 0xba, 0x83, 0x59, 0x3c, 0x19, 0xe6, 0x85, 0x4f, 0xa8,
-    0x68, 0x6b, 0x81, 0xb2, 0x71, 0x64, 0xda, 0x8b, 0xf8, 0xeb, 0x0f, 0x4b, 0x70, 0x56, 0x9d, 0x35,
-    0x1e, 0x24, 0x0e, 0x5e, 0x63, 0x58, 0xd1, 0xa2, 0x25, 0x22, 0x7c, 0x3b, 0x01, 0x21, 0x78, 0x87,
-    0xd4, 0x00, 0x46, 0x57, 0x9f, 0xd3, 0x27, 0x52, 0x4c, 0x36, 0x02, 0xe7, 0xa0, 0xc4, 0xc8, 0x9e,
-    0xea, 0xbf, 0x8a, 0xd2, 0x40, 0xc7, 0x38, 0xb5, 0xa3, 0xf7, 0xf2, 0xce, 0xf9, 0x61, 0x15, 0xa1,
-    0xe0, 0xae, 0x5d, 0xa4, 0x9b, 0x34, 0x1a, 0x55, 0xad, 0x93, 0x32, 0x30, 0xf5, 0x8c, 0xb1, 0xe3,
-    0x1d, 0xf6, 0xe2, 0x2e, 0x82, 0x66, 0xca, 0x60, 0xc0, 0x29, 0x23, 0xab, 0x0d, 0x53, 0x4e, 0x6f,
-    0xd5, 0xdb, 0x37, 0x45, 0xde, 0xfd, 0x8e, 0x2f, 0x03, 0xff, 0x6a, 0x72, 0x6d, 0x6c, 0x5b, 0x51,
-    0x8d, 0x1b, 0xaf, 0x92, 0xbb, 0xdd, 0xbc, 0x7f, 0x11, 0xd9, 0x5c, 0x41, 0x1f, 0x10, 0x5a, 0xd8,
-    0x0a, 0xc1, 0x31, 0x88, 0xa5, 0xcd, 0x7b, 0xbd, 0x2d, 0x74, 0xd0, 0x12, 0xb8, 0xe5, 0xb4, 0xb0,
-    0x89, 0x69, 0x97, 0x4a, 0x0c, 0x96, 0x77, 0x7e, 0x65, 0xb9, 0xf1, 0x09, 0xc5, 0x6e, 0xc6, 0x84,
-    0x18, 0xf0, 0x7d, 0xec, 0x3a, 0xdc, 0x4d, 0x20, 0x79, 0xee, 0x5f, 0x3e, 0xd7, 0xcb, 0x39, 0x48,
+    0xD6,
+    0x90,
+    0xE9,
+    0xFE,
+    0xCC,
+    0xE1,
+    0x3D,
+    0xB7,
+    0x16,
+    0xB6,
+    0x14,
+    0xC2,
+    0x28,
+    0xFB,
+    0x2C,
+    0x05,
+    0x2B,
+    0x67,
+    0x9A,
+    0x76,
+    0x2A,
+    0xBE,
+    0x04,
+    0xC3,
+    0xAA,
+    0x44,
+    0x13,
+    0x26,
+    0x49,
+    0x86,
+    0x06,
+    0x99,
+    0x9C,
+    0x42,
+    0x50,
+    0xF4,
+    0x91,
+    0xEF,
+    0x98,
+    0x7A,
+    0x33,
+    0x54,
+    0x0B,
+    0x43,
+    0xED,
+    0xCF,
+    0xAC,
+    0x62,
+    0xE4,
+    0xB3,
+    0x1C,
+    0xA9,
+    0xC9,
+    0x08,
+    0xE8,
+    0x95,
+    0x80,
+    0xDF,
+    0x94,
+    0xFA,
+    0x75,
+    0x8F,
+    0x3F,
+    0xA6,
+    0x47,
+    0x07,
+    0xA7,
+    0xFC,
+    0xF3,
+    0x73,
+    0x17,
+    0xBA,
+    0x83,
+    0x59,
+    0x3C,
+    0x19,
+    0xE6,
+    0x85,
+    0x4F,
+    0xA8,
+    0x68,
+    0x6B,
+    0x81,
+    0xB2,
+    0x71,
+    0x64,
+    0xDA,
+    0x8B,
+    0xF8,
+    0xEB,
+    0x0F,
+    0x4B,
+    0x70,
+    0x56,
+    0x9D,
+    0x35,
+    0x1E,
+    0x24,
+    0x0E,
+    0x5E,
+    0x63,
+    0x58,
+    0xD1,
+    0xA2,
+    0x25,
+    0x22,
+    0x7C,
+    0x3B,
+    0x01,
+    0x21,
+    0x78,
+    0x87,
+    0xD4,
+    0x00,
+    0x46,
+    0x57,
+    0x9F,
+    0xD3,
+    0x27,
+    0x52,
+    0x4C,
+    0x36,
+    0x02,
+    0xE7,
+    0xA0,
+    0xC4,
+    0xC8,
+    0x9E,
+    0xEA,
+    0xBF,
+    0x8A,
+    0xD2,
+    0x40,
+    0xC7,
+    0x38,
+    0xB5,
+    0xA3,
+    0xF7,
+    0xF2,
+    0xCE,
+    0xF9,
+    0x61,
+    0x15,
+    0xA1,
+    0xE0,
+    0xAE,
+    0x5D,
+    0xA4,
+    0x9B,
+    0x34,
+    0x1A,
+    0x55,
+    0xAD,
+    0x93,
+    0x32,
+    0x30,
+    0xF5,
+    0x8C,
+    0xB1,
+    0xE3,
+    0x1D,
+    0xF6,
+    0xE2,
+    0x2E,
+    0x82,
+    0x66,
+    0xCA,
+    0x60,
+    0xC0,
+    0x29,
+    0x23,
+    0xAB,
+    0x0D,
+    0x53,
+    0x4E,
+    0x6F,
+    0xD5,
+    0xDB,
+    0x37,
+    0x45,
+    0xDE,
+    0xFD,
+    0x8E,
+    0x2F,
+    0x03,
+    0xFF,
+    0x6A,
+    0x72,
+    0x6D,
+    0x6C,
+    0x5B,
+    0x51,
+    0x8D,
+    0x1B,
+    0xAF,
+    0x92,
+    0xBB,
+    0xDD,
+    0xBC,
+    0x7F,
+    0x11,
+    0xD9,
+    0x5C,
+    0x41,
+    0x1F,
+    0x10,
+    0x5A,
+    0xD8,
+    0x0A,
+    0xC1,
+    0x31,
+    0x88,
+    0xA5,
+    0xCD,
+    0x7B,
+    0xBD,
+    0x2D,
+    0x74,
+    0xD0,
+    0x12,
+    0xB8,
+    0xE5,
+    0xB4,
+    0xB0,
+    0x89,
+    0x69,
+    0x97,
+    0x4A,
+    0x0C,
+    0x96,
+    0x77,
+    0x7E,
+    0x65,
+    0xB9,
+    0xF1,
+    0x09,
+    0xC5,
+    0x6E,
+    0xC6,
+    0x84,
+    0x18,
+    0xF0,
+    0x7D,
+    0xEC,
+    0x3A,
+    0xDC,
+    0x4D,
+    0x20,
+    0x79,
+    0xEE,
+    0x5F,
+    0x3E,
+    0xD7,
+    0xCB,
+    0x39,
+    0x48,
 ]
 SM4_CK = [
-    0x00070e15, 0x1c232a31, 0x383f464d, 0x545b6269,
-    0x70777e85, 0x8c939aa1, 0xa8afb6bd, 0xc4cbd2d9,
-    0xe0e7eef5, 0xfc030a11, 0x181f262d, 0x343b4249,
-    0x50575e65, 0x6c737a81, 0x888f969d, 0xa4abb2b9,
-    0xc0c7ced5, 0xdce3eaf1, 0xf8ff060d, 0x141b2229,
-    0x30373e45, 0x4c535a61, 0x686f767d, 0x848b9299,
-    0xa0a7aeb5, 0xbcc3cad1, 0xd8dfe6ed, 0xf4fb0209,
-    0x10171e25, 0x2c333a41, 0x484f565d, 0x646b7279,
+    0x00070E15,
+    0x1C232A31,
+    0x383F464D,
+    0x545B6269,
+    0x70777E85,
+    0x8C939AA1,
+    0xA8AFB6BD,
+    0xC4CBD2D9,
+    0xE0E7EEF5,
+    0xFC030A11,
+    0x181F262D,
+    0x343B4249,
+    0x50575E65,
+    0x6C737A81,
+    0x888F969D,
+    0xA4ABB2B9,
+    0xC0C7CED5,
+    0xDCE3EAF1,
+    0xF8FF060D,
+    0x141B2229,
+    0x30373E45,
+    0x4C535A61,
+    0x686F767D,
+    0x848B9299,
+    0xA0A7AEB5,
+    0xBCC3CAD1,
+    0xD8DFE6ED,
+    0xF4FB0209,
+    0x10171E25,
+    0x2C333A41,
+    0x484F565D,
+    0x646B7279,
 ]
-SM4_FK = (0xa3b1bac6, 0x56aa3350, 0x677d9197, 0xb27022dc)
+SM4_FK = (0xA3B1BAC6, 0x56AA3350, 0x677D9197, 0xB27022DC)
 
 
 def _rotl(x, n):
@@ -124,8 +393,12 @@ def _rotl(x, n):
 
 
 def _tau(a):
-    return ((SM4_SBOX[(a >> 24) & 0xFF] << 24) | (SM4_SBOX[(a >> 16) & 0xFF] << 16)
-            | (SM4_SBOX[(a >> 8) & 0xFF] << 8) | SM4_SBOX[a & 0xFF])
+    return (
+        (SM4_SBOX[(a >> 24) & 0xFF] << 24)
+        | (SM4_SBOX[(a >> 16) & 0xFF] << 16)
+        | (SM4_SBOX[(a >> 8) & 0xFF] << 8)
+        | SM4_SBOX[a & 0xFF]
+    )
 
 
 def _l1(b):
@@ -137,7 +410,7 @@ def _l2(b):
 
 
 def _sm4_round_keys(key: bytes, decrypt: bool):
-    x = [int.from_bytes(key[4 * i:4 * i + 4], "big") ^ SM4_FK[i] for i in range(4)]
+    x = [int.from_bytes(key[4 * i : 4 * i + 4], "big") ^ SM4_FK[i] for i in range(4)]
     rk = [0] * 32
     for r in range(0, 32, 4):
         x[0] = (x[0] ^ _l2(_tau(x[1] ^ x[2] ^ x[3] ^ SM4_CK[r]))) & 0xFFFFFFFF
@@ -154,7 +427,7 @@ def _sm4_round_keys(key: bytes, decrypt: bool):
 
 
 def _sm4_block(block: bytes, rk) -> bytes:
-    x = [int.from_bytes(block[4 * i:4 * i + 4], "big") for i in range(4)]
+    x = [int.from_bytes(block[4 * i : 4 * i + 4], "big") for i in range(4)]
     for r in range(0, 32, 4):
         x[0] = (x[0] ^ _l1(_tau(x[1] ^ x[2] ^ x[3] ^ rk[r]))) & 0xFFFFFFFF
         x[1] = (x[1] ^ _l1(_tau(x[2] ^ x[3] ^ x[0] ^ rk[r + 1]))) & 0xFFFFFFFF
@@ -174,7 +447,7 @@ def sm4_cbc_decrypt_hex(cipher_hex: str, key: bytes, iv: bytes) -> bytes:
     out = bytearray()
     last = iv
     for off in range(0, len(data), 16):
-        block = data[off:off + 16]
+        block = data[off : off + 16]
         dec = _sm4_block(block, rk)
         out += bytes(a ^ b for a, b in zip(dec, last))
         last = block
@@ -186,14 +459,17 @@ def sm4_cbc_decrypt_hex(cipher_hex: str, key: bytes, iv: bytes) -> bytes:
 
 # ---------------------------------------------------------------- SM2/SM3（依赖 gmssl，仅自动登录用）
 
+
 def sm2_encrypt_hex(plaintext: bytes, pubkey130: str) -> str:
     """等价于前端 SG_sm2Encrypt：SM2 C1C3C2，输出 '04'+C1+C3+C2 的 hex
     （gmssl 的 encrypt 输出不带 04 前缀的 C1，需自行补上）"""
     try:
         from gmssl import sm2
     except ImportError:
-        raise RuntimeError("缺少 gmssl 库（自动登录需要）。安装：pip3 install gmssl，离线安装见《部署说明.md》；"
-                           "或改用 --auth token 手动凭证模式（不需要 gmssl）。")
+        raise RuntimeError(
+            "缺少 gmssl 库（自动登录需要）。安装：pip3 install gmssl，离线安装见《部署说明.md》；"
+            "或改用 --auth token 手动凭证模式（不需要 gmssl）。"
+        )
     crypt = sm2.CryptSM2(public_key=pubkey130[2:], private_key="", mode=1)
     for _ in range(10):
         res = crypt.encrypt(plaintext)
@@ -227,7 +503,9 @@ def sm2_encrypt_asn1(plaintext: bytes, pubkey130: str) -> str:
     try:
         from gmssl import sm2
     except ImportError:
-        raise RuntimeError("缺少 gmssl 库（自动登录需要）。安装：pip3 install gmssl，离线安装见《部署说明.md》。")
+        raise RuntimeError(
+            "缺少 gmssl 库（自动登录需要）。安装：pip3 install gmssl，离线安装见《部署说明.md》。"
+        )
     crypt = sm2.CryptSM2(public_key=pubkey130[2:], private_key="", mode=1)
     raw = None
     for _ in range(10):
@@ -245,27 +523,38 @@ def sm3_hex(data: bytes) -> str:
     try:
         from gmssl import sm3
     except ImportError:
-        raise RuntimeError("缺少 gmssl 库（自动登录需要）。安装：pip3 install gmssl，离线安装见《部署说明.md》。")
+        raise RuntimeError(
+            "缺少 gmssl 库（自动登录需要）。安装：pip3 install gmssl，离线安装见《部署说明.md》。"
+        )
     return sm3.sm3_hash(list(data))
 
 
 # ---------------------------------------------------------------- 认证
+
 
 class AuthError(Exception):
     pass
 
 
 class Auth:
-    def __init__(self, token: str, refresh_token: str, mtk: str, login_user: dict = None):
+    def __init__(
+        self, token: str, refresh_token: str, mtk: str, login_user: dict = None
+    ):
         self.token = token
         self.refresh_token = refresh_token
         self.mtk = mtk
-        self.login_user = login_user or {}   # 官方渲染器凭证注入用（loginUser 原样透传）
+        self.login_user = login_user or {}  # 官方渲染器凭证注入用（loginUser 原样透传）
 
     @classmethod
     def manual(cls, cfg):
-        token = cfg.get("token", "").strip() or input("粘贴 Auth_Tk（cube.token）: ").strip()
-        refresh = cfg.get("refresh_token", "").strip() or input("粘贴 Refresh_Tk（cube.refreshToken）: ").strip()
+        token = (
+            cfg.get("token", "").strip()
+            or input("粘贴 Auth_Tk（cube.token）: ").strip()
+        )
+        refresh = (
+            cfg.get("refresh_token", "").strip()
+            or input("粘贴 Refresh_Tk（cube.refreshToken）: ").strip()
+        )
         mtk = cfg.get("mtk", "").strip() or input("粘贴 mtk（cube.mtk）: ").strip()
         if not (token and refresh and mtk):
             raise AuthError("token / refresh_token / mtk 不能为空")
@@ -286,26 +575,40 @@ class Auth:
         plain = sm4_cbc_decrypt_hex(blob, bytes.fromhex(k), bytes.fromhex(v))
         data = json.loads(urllib.parse.unquote(plain.decode("utf-8")))
         # 诊断输出：打印响应顶层字段（值脱敏，只显示长度），便于核对 token/mtk 字段名
-        brief = ", ".join("%s(len=%d)" % (kk, len(str(vv))) for kk, vv in data.items()
-                          if not isinstance(vv, (dict, list)))
+        brief = ", ".join(
+            "%s(len=%d)" % (kk, len(str(vv)))
+            for kk, vv in data.items()
+            if not isinstance(vv, (dict, list))
+        )
         print("getUserAuth 响应字段: " + brief)
         if not data.get("mtk"):
-            print("!! 警告：getUserAuth 响应中 mtk 字段为空或不存在，签名必然失败，"
-                  "请把上面字段列表发给开发者")
+            print(
+                "!! 警告：getUserAuth 响应中 mtk 字段为空或不存在，签名必然失败，"
+                "请把上面字段列表发给开发者"
+            )
         if not data.get("isLogin"):
             raise AuthError("getUserAuth: isLogin=false，T 已失效，请重新登录获取")
         user = data.get("loginUser") or {}
-        print("登录成功：%s（%s）" % (user.get("loginName", "?"), user.get("defaultOrgCode", "?")))
-        return cls(data["token"], user.get("refreshToken", ""), data.get("mtk", ""),
-                   login_user=user)
+        print(
+            "登录成功：%s（%s）"
+            % (user.get("loginName", "?"), user.get("defaultOrgCode", "?"))
+        )
+        return cls(
+            data["token"],
+            user.get("refreshToken", ""),
+            data.get("mtk", ""),
+            login_user=user,
+        )
 
 
 SSO_BASE = "http://sso.tyqx.sgcc.com.cn/isc_sso"
 SSO_APPID = "8af894fa6a6b03e3016a6b68580100cd"
-REDIRECT_URI = ("http://20.1.59.23:18080/authLogin?redirectUrl="
-                "http://uvmp.sgcc.com.cn/uvmp-web/factoryLayout/index.html"
-                "&tycl_parentMenuId=denglu&tycl_sonMenuId=denglu"
-                "&tycl_sonMenuTitle=%E7%99%BB%E5%BD%95")
+REDIRECT_URI = (
+    "http://20.1.59.23:18080/authLogin?redirectUrl="
+    "http://uvmp.sgcc.com.cn/uvmp-web/factoryLayout/index.html"
+    "&tycl_parentMenuId=denglu&tycl_sonMenuId=denglu"
+    "&tycl_sonMenuTitle=%E7%99%BB%E5%BD%95"
+)
 
 
 def _getuid() -> str:
@@ -361,7 +664,9 @@ def _extract_login_page(html: str):
     return execution, pubkey
 
 
-def sso_login(session: "requests.Session", username: str, password: str, cfg: dict) -> str:
+def sso_login(
+    session: "requests.Session", username: str, password: str, cfg: dict
+) -> str:
     """SSO 账号密码登录，返回 authLogin 颁发的 T(JWT)"""
     # 内网 SSO/网关间歇性把 deflate 响应体发成裸流（错标 zlib 封装），requests 解压即炸
     # （Error -3 incorrect header check，已踩坑）——声明只收未压缩内容，根除这一类问题
@@ -373,29 +678,46 @@ def sso_login(session: "requests.Session", username: str, password: str, cfg: di
     execution, page_pubkey = _extract_login_page(r.text)
     pubkey = (cfg.get("sm2_pubkey") or "").strip() or page_pubkey
     if not pubkey:
-        raise AuthError("登录页中未找到密码加密公钥(encryptKey)，请在 config.ini [sso] sm2_pubkey= 手动配置")
+        raise AuthError(
+            "登录页中未找到密码加密公钥(encryptKey)，请在 config.ini [sso] sm2_pubkey= 手动配置"
+        )
     pubkey = _normalize_pubkey(pubkey)
     # 2. 密码混淆+SM2(ASN.1) 加密；构造签名体
     body = {
-        "appId": SSO_APPID, "authMode": "ACCOUNT_PASSWORD_SGCC",
-        "provinceId": cfg.get("province_id", "sx"), "wangsheng": cfg.get("wangsheng", "sx"),
-        "username": username, "password": encrypt_sso_password(password, pubkey),
-        "execution": execution, "_eventId": "submit",
+        "appId": SSO_APPID,
+        "authMode": "ACCOUNT_PASSWORD_SGCC",
+        "provinceId": cfg.get("province_id", "sx"),
+        "wangsheng": cfg.get("wangsheng", "sx"),
+        "username": username,
+        "password": encrypt_sso_password(password, pubkey),
+        "execution": execution,
+        "_eventId": "submit",
     }
     rt, nonce, sign = _sign_triple()
-    body.update({"requestTime": rt, "nonce": nonce, "sign": sign, "redirectUri": REDIRECT_URI})
+    body.update(
+        {"requestTime": rt, "nonce": nonce, "sign": sign, "redirectUri": REDIRECT_URI}
+    )
     # 3. preLogin/check（URL query 用独立的一组三元组）
     rt2, nonce2, sign2 = _sign_triple()
-    pr = session.post(SSO_BASE + "/preLogin/check",
-                      params={"requestTime": rt2, "nonce": nonce2, "sign": sign2},
-                      data=json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
-                      headers={"Content-Type": "application/json;charset=UTF-8"}, timeout=30)
+    pr = session.post(
+        SSO_BASE + "/preLogin/check",
+        params={"requestTime": rt2, "nonce": nonce2, "sign": sign2},
+        data=json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        ),
+        headers={"Content-Type": "application/json;charset=UTF-8"},
+        timeout=30,
+    )
     user_ticket = None
     try:
         pj = json.loads(pr.text)
         candidates = [pj]
         if isinstance(pj, dict):
-            candidates += [pj.get(k) for k in ("data", "result", "resultValue", "dataMap") if isinstance(pj.get(k), dict)]
+            candidates += [
+                pj.get(k)
+                for k in ("data", "result", "resultValue", "dataMap")
+                if isinstance(pj.get(k), dict)
+            ]
         for c in candidates:
             if isinstance(c, str) and c.startswith("UT-"):
                 user_ticket = c
@@ -410,12 +732,16 @@ def sso_login(session: "requests.Session", username: str, password: str, cfg: di
     except ValueError:
         pass
     if not user_ticket:
-        raise AuthError("preLogin/check 未返回 userTicket（HTTP %s），响应原文：%s"
-                        "——请把该响应发给开发者调整提取逻辑" % (pr.status_code, pr.text[:300]))
+        raise AuthError(
+            "preLogin/check 未返回 userTicket（HTTP %s），响应原文：%s"
+            "——请把该响应发给开发者调整提取逻辑" % (pr.status_code, pr.text[:300])
+        )
     # 4. 正式登录（表单），跟随 302 链：login→authLogin?ticket→authLogin→index#home?T=
     form = dict(body)
     form["userTicket"] = user_ticket
-    lr = session.post(SSO_BASE + "/login", params={"service": service}, data=form, timeout=30)
+    lr = session.post(
+        SSO_BASE + "/login", params={"service": service}, data=form, timeout=30
+    )
     for resp in list(lr.history) + [lr]:
         m = re.search(r"[?&]T=([A-Za-z0-9._-]+)", resp.headers.get("Location", ""))
         if m:
@@ -423,7 +749,9 @@ def sso_login(session: "requests.Session", username: str, password: str, cfg: di
     m = re.search(r"[?&]T=([A-Za-z0-9._-]+)", lr.url)
     if m:
         return m.group(1)
-    raise AuthError("SSO 登录未获得 T：请检查账号密码是否正确（或响应: %s）" % lr.text[:200])
+    raise AuthError(
+        "SSO 登录未获得 T：请检查账号密码是否正确（或响应: %s）" % lr.text[:200]
+    )
 
 
 # ---------------------------------------------------------------- 签名 & 请求客户端
@@ -431,16 +759,25 @@ def sso_login(session: "requests.Session", username: str, password: str, cfg: di
 SIGN_FILTERED = {"rnd", "cl_u_id", "_", "T", "Auth_Token", "ticket"}
 
 
-def make_x_content_token(token: str, mtk_hex: str, temp_url: str, new_data: dict) -> str:
+def make_x_content_token(
+    token: str, mtk_hex: str, temp_url: str, new_data: dict
+) -> str:
     """对应前端签名（已用浏览器真实样本双样本验证命中）：
     new_data = 发送前的原始 p_data（未编码原文，filter 中用空格）合并 url 自有 query（解码后），
     按 key 排序后 JSON 紧凑序列化 -> encodeURIComponent -> base64url(无填充)，
     与 temp_url 的 base64url 一起接在 token 后做 HMAC-SHA256（key=unhex(mtk)），base64url(无填充)"""
     nd = {k: (str(v) if v else v) for k, v in sorted(new_data.items())}
     js = json.dumps(nd, ensure_ascii=False, separators=(",", ":"))
-    content = (token + "." + b64url_nopad(js_quote(js).encode("utf-8"))
-               + "." + b64url_nopad(temp_url.encode("utf-8")))
-    sign = hmac_mod.new(bytes.fromhex(mtk_hex), content.encode("utf-8"), hashlib.sha256).digest()
+    content = (
+        token
+        + "."
+        + b64url_nopad(js_quote(js).encode("utf-8"))
+        + "."
+        + b64url_nopad(temp_url.encode("utf-8"))
+    )
+    sign = hmac_mod.new(
+        bytes.fromhex(mtk_hex), content.encode("utf-8"), hashlib.sha256
+    ).digest()
     return "MAC " + b64url_nopad(sign)
 
 
@@ -450,13 +787,15 @@ class UvmpClient:
         self.auth = auth
         self.retries = retries
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
-            "Origin": WEB_ORIGIN,
-            "Referer": WEB_ORIGIN + "/",
-            # 同 sso_login：网关 deflate 错标间歇出现，统一只收未压缩内容
-            "Accept-Encoding": "identity",
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+                "Origin": WEB_ORIGIN,
+                "Referer": WEB_ORIGIN + "/",
+                # 同 sso_login：网关 deflate 错标间歇出现，统一只收未压缩内容
+                "Accept-Encoding": "identity",
+            }
+        )
 
     def _build(self, base_path: str, p_data: dict):
         """构造最终 URL 与签名用 new_data。
@@ -466,8 +805,10 @@ class UvmpClient:
         url = self.gateway + base_path
         url += ("&" if "?" in url else "?") + "rnd=" + rnd16() + "&cl_u_id=null"
         if p_data:
-            url += "&" + "&".join(urllib.parse.quote_plus(str(k)) + "=" + urllib.parse.quote_plus(str(v))
-                                  for k, v in p_data.items())
+            url += "&" + "&".join(
+                urllib.parse.quote_plus(str(k)) + "=" + urllib.parse.quote_plus(str(v))
+                for k, v in p_data.items()
+            )
         url += "&_=" + ts_ms()
         new_data = {}
         if "?" in base_path:
@@ -483,7 +824,9 @@ class UvmpClient:
             "Content-Type": "application/json",
             "Auth_Tk": self.auth.token,
             "Refresh_Tk": self.auth.refresh_token,
-            "X-Content-Token": make_x_content_token(self.auth.token, self.auth.mtk, temp_url, new_data),
+            "X-Content-Token": make_x_content_token(
+                self.auth.token, self.auth.mtk, temp_url, new_data
+            ),
         }
 
     def get(self, base_path: str, p_data=None, desc: str = "") -> dict:
@@ -497,8 +840,11 @@ class UvmpClient:
     def _refresh(self) -> bool:
         """401 且 Token-Refresh:true 时，用 Refresh_Tk 换新 token（对应前端 tokenRefresh 逻辑）"""
         try:
-            r = self.session.get(self.gateway + "tokenRefresh",
-                                 params={"T": self.auth.token, "R": self.auth.refresh_token}, timeout=30)
+            r = self.session.get(
+                self.gateway + "tokenRefresh",
+                params={"T": self.auth.token, "R": self.auth.refresh_token},
+                timeout=30,
+            )
             data = r.json()
             if data.get("tokenRefreshExpired"):
                 print("  [token 刷新失败：refresh 凭证也已过期]")
@@ -523,35 +869,56 @@ class UvmpClient:
                 if method == "GET":
                     r = self.session.get(url, headers=headers, timeout=60)
                 else:
-                    payload = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
-                    r = self.session.post(url, headers=headers, data=payload.encode("utf-8"), timeout=60)
+                    payload = json.dumps(
+                        body, ensure_ascii=False, separators=(",", ":")
+                    )
+                    r = self.session.post(
+                        url, headers=headers, data=payload.encode("utf-8"), timeout=60
+                    )
                 if r.status_code in (401, 403):
                     # token 过期时服务器会带 Token-Refresh: true 头，可自动换新 token 重试
-                    if not refreshed and r.headers.get("Token-Refresh", "").lower() == "true":
+                    if (
+                        not refreshed
+                        and r.headers.get("Token-Refresh", "").lower() == "true"
+                    ):
                         refreshed = True
                         if self._refresh():
                             continue
                     raise AuthError(
                         "凭证校验失败（HTTP %s）。Token-Refresh=%s；响应体：%s；"
                         "请求URL：%s；计算的X-Content-Token：%s"
-                        % (r.status_code, r.headers.get("Token-Refresh"), r.text[:200],
-                           url[:160], headers["X-Content-Token"][:60]))
+                        % (
+                            r.status_code,
+                            r.headers.get("Token-Refresh"),
+                            r.text[:200],
+                            url[:160],
+                            headers["X-Content-Token"][:60],
+                        )
+                    )
                 r.raise_for_status()
                 data = r.json()
                 if isinstance(data, dict) and data.get("successful") is False:
-                    raise RuntimeError("接口返回失败 %s: %s" % (desc or url, str(data)[:300]))
+                    raise RuntimeError(
+                        "接口返回失败 %s: %s" % (desc or url, str(data)[:300])
+                    )
                 return data
             except AuthError:
                 raise
             except Exception as e:  # noqa: BLE001
                 last_err = e
                 wait = 2 * (attempt + 1)
-                print("  [重试 %d/%d] %s 失败: %s，%ds 后重试" % (attempt + 1, self.retries, desc or url, e, wait))
+                print(
+                    "  [重试 %d/%d] %s 失败: %s，%ds 后重试"
+                    % (attempt + 1, self.retries, desc or url, e, wait)
+                )
                 time.sleep(wait)
-        raise RuntimeError("请求失败（已重试 %d 次）%s: %s" % (self.retries, desc or url, last_err))
+        raise RuntimeError(
+            "请求失败（已重试 %d 次）%s: %s" % (self.retries, desc or url, last_err)
+        )
 
 
 # ---------------------------------------------------------------- 业务接口
+
 
 def rnd16() -> str:
     return "".join(str(secrets.randbelow(10)) for _ in range(16))
@@ -568,18 +935,33 @@ MENU_TRACK = ("monitor", "montrack", "行驶轨迹")
 def tycl_params(menu: tuple) -> dict:
     """tycl_* 参数以原文（中文不编码）放入 p_data，URL 序列化时再 quote_plus"""
     parent, son, title = menu
-    return {"tycl_parentMenuId": parent, "tycl_sonMenuId": son, "tycl_sonMenuTitle": title}
+    return {
+        "tycl_parentMenuId": parent,
+        "tycl_sonMenuId": son,
+        "tycl_sonMenuTitle": title,
+    }
 
 
-def query_pcd_page(client: UvmpClient, cfg, date_from: str, date_to: str, page_index: int) -> dict:
+def query_pcd_page(
+    client: UvmpClient, cfg, date_from: str, date_to: str, page_index: int
+) -> dict:
     # filter 中的日期时间用空格（签名用原始值；发送时 quote_plus 编码为 +，与浏览器一致）
-    flt = ("planSendTime=%s 00:00&planSendTime2=%s 23:59:00&runState=%s&vehicleState=%s&keepTag=%s"
-           % (date_from, date_to, cfg["run_state"], cfg["vehicle_state"], cfg["keep_tag"]))
-    params_str = json.dumps({"pageIndex": page_index, "pageSize": cfg["page_size"], "filter": flt},
-                            ensure_ascii=False, separators=(",", ":"))
+    flt = (
+        "planSendTime=%s 00:00&planSendTime2=%s 23:59:00&runState=%s&vehicleState=%s&keepTag=%s"
+        % (date_from, date_to, cfg["run_state"], cfg["vehicle_state"], cfg["keep_tag"])
+    )
+    params_str = json.dumps(
+        {"pageIndex": page_index, "pageSize": cfg["page_size"], "filter": flt},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     p_data = {"params": params_str}
     p_data.update(tycl_params(MENU_PCD))
-    return client.get("running-service-provider/pcdmanager/", p_data, "派车单查询(第%d页)" % page_index)
+    return client.get(
+        "running-service-provider/pcdmanager/",
+        p_data,
+        "派车单查询(第%d页)" % page_index,
+    )
 
 
 def query_all_pcd(client: UvmpClient, cfg, date_from: str, date_to: str) -> list:
@@ -596,17 +978,28 @@ def query_all_pcd(client: UvmpClient, cfg, date_from: str, date_to: str) -> list
     return items
 
 
-def query_pcd_page_filter(client: UvmpClient, filter_str: str, page_index: int, page_size: int) -> dict:
+def query_pcd_page_filter(
+    client: UvmpClient, filter_str: str, page_index: int, page_size: int
+) -> dict:
     """自由 filter 的派车单分页查询：不附加 runState/vehicleState/keepTag，
     供按单号查找、当日全量导出等需要全部状态单据的场景（内网工具箱使用）"""
-    params_str = json.dumps({"pageIndex": page_index, "pageSize": page_size, "filter": filter_str},
-                            ensure_ascii=False, separators=(",", ":"))
+    params_str = json.dumps(
+        {"pageIndex": page_index, "pageSize": page_size, "filter": filter_str},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     p_data = {"params": params_str}
     p_data.update(tycl_params(MENU_PCD))
-    return client.get("running-service-provider/pcdmanager/", p_data, "派车单查询(第%d页)" % page_index)
+    return client.get(
+        "running-service-provider/pcdmanager/",
+        p_data,
+        "派车单查询(第%d页)" % page_index,
+    )
 
 
-def query_pcd_all_filter(client: UvmpClient, filter_str: str, page_size: int = 100) -> list:
+def query_pcd_all_filter(
+    client: UvmpClient, filter_str: str, page_size: int = 100
+) -> list:
     """按自由 filter 拉取全部页并合并且返回"""
     first = query_pcd_page_filter(client, filter_str, 1, page_size)
     rv = first.get("resultValue") or {}
@@ -620,8 +1013,13 @@ def query_pcd_all_filter(client: UvmpClient, filter_str: str, page_size: int = 1
     return items
 
 
-def query_pcd_by_run_code(client: UvmpClient, code: str, date_hint: str = "",
-                          lookback_days: int = 62, log=print):
+def query_pcd_by_run_code(
+    client: UvmpClient,
+    code: str,
+    date_hint: str = "",
+    lookback_days: int = 62,
+    log=print,
+):
     """按派车单号精确查找单据（不限 runState，任何状态的单都要能打印）。
 
     先按 runCode 过滤直查（该过滤项未经抓包验证，失败/为空自动兜底）；
@@ -649,12 +1047,17 @@ def query_pcd_by_run_code(client: UvmpClient, code: str, date_hint: str = "",
 
     # 2) 日期范围兜底
     from datetime import timedelta
+
     windows = []
     if date_hint:
         try:
             d = datetime.strptime(date_hint[:10], "%Y-%m-%d")
-            windows.append(((d - timedelta(days=3)).strftime("%Y-%m-%d"),
-                            (d + timedelta(days=3)).strftime("%Y-%m-%d")))
+            windows.append(
+                (
+                    (d - timedelta(days=3)).strftime("%Y-%m-%d"),
+                    (d + timedelta(days=3)).strftime("%Y-%m-%d"),
+                )
+            )
         except ValueError:
             pass
     today = datetime.now()
@@ -664,7 +1067,10 @@ def query_pcd_by_run_code(client: UvmpClient, code: str, date_hint: str = "",
         windows.append((start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
     for date_from, date_to in windows:
         try:
-            flt = "planSendTime=%s 00:00&planSendTime2=%s 23:59:00" % (date_from, date_to)
+            flt = "planSendTime=%s 00:00&planSendTime2=%s 23:59:00" % (
+                date_from,
+                date_to,
+            )
             hit = pick(query_pcd_all_filter(client, flt))
         except Exception as e:  # noqa: BLE001
             log("  [提示] 日期兜底查询失败（%s~%s：%s）" % (date_from, date_to, e))
@@ -677,19 +1083,28 @@ def query_pcd_by_run_code(client: UvmpClient, code: str, date_hint: str = "",
 def get_print_details(client: UvmpClient, ids: list, chunk: int) -> list:
     result = []
     for i in range(0, len(ids), chunk):
-        part = ids[i:i + chunk]
-        data = client.get("running-service-provider/pcdmanager/getPrintDetails?id=" + ",".join(part),
-                          tycl_params(MENU_PCD), "打印详情(%d-%d)" % (i + 1, i + len(part)))
+        part = ids[i : i + chunk]
+        data = client.get(
+            "running-service-provider/pcdmanager/getPrintDetails?id=" + ",".join(part),
+            tycl_params(MENU_PCD),
+            "打印详情(%d-%d)" % (i + 1, i + len(part)),
+        )
         result.extend((data.get("resultValue") or {}).get("items") or [])
         time.sleep(0.3)
     return result
 
 
-def query_track_points(client: UvmpClient, vehicle_id: str, begin: str, end: str) -> list:
+def query_track_points(
+    client: UvmpClient, vehicle_id: str, begin: str, end: str
+) -> list:
     # 时间字符串带空格（签名用原始值；发送时编码为 +）
     p_data = {"beginTimeStr": begin, "vehicleId": vehicle_id, "endTimeStr": end}
     p_data.update(tycl_params(MENU_TRACK))
-    data = client.get("monitor-service-provider/tyclTrack/queryTrackHisByVehicle", p_data, "轨迹点查询")
+    data = client.get(
+        "monitor-service-provider/tyclTrack/queryTrackHisByVehicle",
+        p_data,
+        "轨迹点查询",
+    )
     if isinstance(data, dict):
         d = data.get("data")
         if isinstance(d, list):
@@ -708,11 +1123,16 @@ def query_track_segment(client: UvmpClient, vehicle_id: str, begin: str, end: st
     查不到或失败返回 None（调用方回退到按派车单弹窗）。"""
     try:
         flt = "startTime=%s&endTime=%s&vehicleState=04" % (begin, end)
-        params_str = json.dumps({"pageIndex": 1, "pageSize": 50, "filter": flt},
-                                ensure_ascii=False, separators=(",", ":"))
+        params_str = json.dumps(
+            {"pageIndex": 1, "pageSize": 50, "filter": flt},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
         p_data = {"params": params_str}
         p_data.update(tycl_params(MENU_TRACK))
-        data = client.get("monitor-service-provider/tyclMonTrackSub/simpleQuery", p_data, "行程段查询")
+        data = client.get(
+            "monitor-service-provider/tyclMonTrackSub/simpleQuery", p_data, "行程段查询"
+        )
         items = ((data.get("resultValue") or {}).get("items")) or []
         cands = [it for it in items if it.get("vehicleId") == vehicle_id]
         if not cands:
@@ -720,8 +1140,14 @@ def query_track_segment(client: UvmpClient, vehicle_id: str, begin: str, end: st
 
         def keyf(it):
             try:
-                return abs((datetime.strptime(str(it.get("starttime", ""))[:19], "%Y-%m-%d %H:%M:%S")
-                            - datetime.strptime(begin[:19], "%Y-%m-%d %H:%M:%S")).total_seconds())
+                return abs(
+                    (
+                        datetime.strptime(
+                            str(it.get("starttime", ""))[:19], "%Y-%m-%d %H:%M:%S"
+                        )
+                        - datetime.strptime(begin[:19], "%Y-%m-%d %H:%M:%S")
+                    ).total_seconds()
+                )
             except (ValueError, TypeError):
                 return 1e18
 
@@ -737,8 +1163,15 @@ def query_track_segment(client: UvmpClient, vehicle_id: str, begin: str, end: st
 # 官方渲染器不可用时必须报错引导配置浏览器，不得降级出仿制品。
 
 
-CHROME_CANDIDATES = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
-                     "microsoft-edge", "microsoft-edge-stable", "chrome"]
+CHROME_CANDIDATES = [
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "chromium-browser",
+    "microsoft-edge",
+    "microsoft-edge-stable",
+    "chrome",
+]
 
 
 def find_chrome(cfg) -> str:
@@ -749,34 +1182,53 @@ def find_chrome(cfg) -> str:
         if str(SCRIPT_DIR / "toolkit") not in sys.path:
             sys.path.insert(0, str(SCRIPT_DIR / "toolkit"))
         import platform_utils
+
         return platform_utils.detect_chrome(preferred)
     except ImportError:
-        pass   # 无 toolkit/：独立运行场景，走下方本地候选回退
+        pass  # 无 toolkit/：独立运行场景，走下方本地候选回退
     if preferred:
         return preferred
     for name in CHROME_CANDIDATES:
         p = shutil.which(name)
         if p:
             return p
-    raise RuntimeError("未找到 Chrome/Chromium 浏览器，请在 config.ini 的 [render] chrome= 指定路径")
+    raise RuntimeError(
+        "未找到 Chrome/Chromium 浏览器，请在 config.ini 的 [render] chrome= 指定路径"
+    )
 
 
-def _electron_print_pdf(html_path: Path, pdf_path: Path, electron: str,
-                        budget_ms: int = 30000):
+def _electron_print_pdf(
+    html_path: Path, pdf_path: Path, electron: str, budget_ms: int = 30000
+):
     """经应用自带 Electron Chromium 渲染 PDF（离线零依赖通道）：
     electron --no-sandbox --disable-gpu --print-to-pdf in.html out.pdf [budget]"""
-    cmd = [electron, "--no-sandbox", "--disable-gpu", "--print-to-pdf",
-           str(html_path), str(pdf_path), str(budget_ms)]
-    r = subprocess.run(cmd, capture_output=True, timeout=max(60, budget_ms // 1000 + 30))
+    cmd = [
+        electron,
+        "--no-sandbox",
+        "--disable-gpu",
+        "--print-to-pdf",
+        str(html_path),
+        str(pdf_path),
+        str(budget_ms),
+    ]
+    r = subprocess.run(
+        cmd, capture_output=True, timeout=max(60, budget_ms // 1000 + 30)
+    )
     if r.returncode != 0:
-        raise RuntimeError("Electron 渲染失败(exit=%s): %s"
-                           % (r.returncode, (r.stderr or r.stdout or b"").decode(errors="ignore")[-300:]))
+        raise RuntimeError(
+            "Electron 渲染失败(exit=%s): %s"
+            % (
+                r.returncode,
+                (r.stderr or r.stdout or b"").decode(errors="ignore")[-300:],
+            )
+        )
     if not pdf_path.exists() or pdf_path.stat().st_size == 0:
         raise RuntimeError("Electron 渲染产物为空: %s" % pdf_path)
 
 
-def html_to_pdf(html_text: str, pdf_path: Path, chrome: str,
-                budget: str = "", electron: str = ""):
+def html_to_pdf(
+    html_text: str, pdf_path: Path, chrome: str, budget: str = "", electron: str = ""
+):
     """HTML 包版打印 PDF：自带 Electron 优先，回退系统 Chrome（--virtual-time-budget 定时打印）。"""
     pdf_path = pdf_path.resolve()  # as_uri() 要求绝对路径
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
@@ -795,11 +1247,20 @@ def html_to_pdf(html_text: str, pdf_path: Path, chrome: str,
                 raise RuntimeError("PDF 生成失败（Electron 通道）: %s" % err)
             print("  [提示] Electron 渲染失败（%s），回退系统 Chrome" % err)
     if not chrome:
-        raise RuntimeError("无可用 PDF 渲染器（Electron 未注入且未找到 Chrome）: %s" % err)
+        raise RuntimeError(
+            "无可用 PDF 渲染器（Electron 未注入且未找到 Chrome）: %s" % err
+        )
     for headless in ("--headless=new", "--headless"):
-        cmd = [chrome, headless, "--no-sandbox", "--disable-dev-shm-usage",
-               "--no-pdf-header-footer", "--virtual-time-budget=" + budget,
-               "--print-to-pdf=" + str(pdf_path), tmp.as_uri()]
+        cmd = [
+            chrome,
+            headless,
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--no-pdf-header-footer",
+            "--virtual-time-budget=" + budget,
+            "--print-to-pdf=" + str(pdf_path),
+            tmp.as_uri(),
+        ]
         try:
             r = subprocess.run(cmd, capture_output=True, timeout=300)
             if pdf_path.exists() and pdf_path.stat().st_size > 0:
@@ -808,13 +1269,14 @@ def html_to_pdf(html_text: str, pdf_path: Path, chrome: str,
         except Exception as e:  # noqa: BLE001
             err = str(e)
     try:
-        tmp.unlink()   # py3.7 无 missing_ok
+        tmp.unlink()  # py3.7 无 missing_ok
     except OSError:
         pass
     raise RuntimeError("PDF 生成失败: %s" % err)
 
 
 # ---------------------------------------------------------------- 导出流程
+
 
 class Manifest:
     def __init__(self, path: Path):
@@ -831,7 +1293,9 @@ class Manifest:
 
     def put(self, kind: str, key: str, fname: str):
         self.data.setdefault(kind, {})[key] = fname
-        self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.path.write_text(
+            json.dumps(self.data, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
 
 
 def merge_pdfs(files, out_path: Path, log=print) -> bool:
@@ -914,23 +1378,35 @@ def write_noon_end_report(rows, out_path: Path, log=print):
         headers += ["校准后结束时间", "校准后行驶时长"]
     table = []
     for r in rows:
-        row = ["" if r.get("page") is None else r["page"], r.get("code", ""),
-               r.get("vehicle", ""), (r.get("end") or "")[:10], r.get("end") or ""]
+        row = [
+            "" if r.get("page") is None else r["page"],
+            r.get("code", ""),
+            r.get("vehicle", ""),
+            (r.get("end") or "")[:10],
+            r.get("end") or "",
+        ]
         if has_cal:
             row += [r.get("cal_end", ""), r.get("cal_dur", "")]
         table.append(row)
-    xlsx_util.write_table_xlsx(out_path, "12点前结束行程", headers, table, log=lambda *_: None)
+    xlsx_util.write_table_xlsx(
+        out_path, "12点前结束行程", headers, table, log=lambda *_: None
+    )
     log("12 点前结束行程清单：%s（%d 条）" % (Path(out_path).name, len(rows)))
 
 
 def export_pcd(client, orders, outdir: Path, manifest: Manifest, renderer=None):
     todo = [o for o in orders if not manifest.has("pcd", o["id"])]
-    print("派车单：共 %d 单，已导出 %d 单，本次待导出 %d 单" % (len(orders), len(orders) - len(todo), len(todo)))
-    files_dir = outdir / "逐单"   # 逐单文件归子目录，批次根目录留给合并总 PDF/清单
+    print(
+        "派车单：共 %d 单，已导出 %d 单，本次待导出 %d 单"
+        % (len(orders), len(orders) - len(todo), len(todo))
+    )
+    files_dir = outdir / "逐单"  # 逐单文件归子目录，批次根目录留给合并总 PDF/清单
     if todo:
         # 内置模板已删除：派车单只走官方页面直出，渲染器不可用即报错（不得降级出仿制品）
         if renderer is None:
-            raise RuntimeError("官方页面渲染器不可用，派车单无法导出（请在 config.ini [render] 指定公司浏览器）")
+            raise RuntimeError(
+                "官方页面渲染器不可用，派车单无法导出（请在 config.ini [render] 指定公司浏览器）"
+            )
         files_dir.mkdir(parents=True, exist_ok=True)
         # 逐单渲染（不批量：企业浏览器渲染慢/个别单数据异常时不再拖垮整批，也无需 pypdf 拆页）
         ok = 0
@@ -938,11 +1414,14 @@ def export_pcd(client, orders, outdir: Path, manifest: Manifest, renderer=None):
             try:
                 details = get_print_details(client, [o["id"]], 1)
                 d = details[0] if details else o
-                fname = "派车单_%s_%s_%s.pdf" % (safe_name(d.get("runCode")),
-                                                 safe_name(d.get("vehicleNumber")),
-                                                 safe_name((d.get("planSendTimeStr") or "")[:10]))
-                renderer.render_pcd_pdf_one(d, files_dir / fname, tag="cli_%d" % i,
-                                            diag_dir=outdir)
+                fname = "派车单_%s_%s_%s.pdf" % (
+                    safe_name(d.get("runCode")),
+                    safe_name(d.get("vehicleNumber")),
+                    safe_name((d.get("planSendTimeStr") or "")[:10]),
+                )
+                renderer.render_pcd_pdf_one(
+                    d, files_dir / fname, tag="cli_%d" % i, diag_dir=outdir
+                )
                 manifest.put("pcd", o["id"], fname)
                 ok += 1
                 print("[%d/%d] %s" % (i, len(todo), fname))
@@ -951,25 +1430,33 @@ def export_pcd(client, orders, outdir: Path, manifest: Manifest, renderer=None):
             time.sleep(0.3)
         print("派车单导出完成：成功 %d / %d" % (ok, len(todo)))
     # 含此前已导出的全部成功单，按 orders 顺序合并一个总 PDF（逐单文件保留在 逐单/）
-    merge_pdfs([files_dir / manifest.data.get("pcd", {}).get(o["id"], "") for o in orders],
-               outdir / "_合并_派车单.pdf")
+    merge_pdfs(
+        [files_dir / manifest.data.get("pcd", {}).get(o["id"], "") for o in orders],
+        outdir / "_合并_派车单.pdf",
+    )
 
 
-def export_track(client, cfg, orders, outdir: Path, chrome: str, manifest: Manifest, renderer=None):
+def export_track(
+    client, cfg, orders, outdir: Path, chrome: str, manifest: Manifest, renderer=None
+):
     todo = []
     for oi, o in enumerate(orders):
         begin = clean_time(o.get("realSendTime"))
         end = clean_time(o.get("realBackTime"))
         if o.get("vehicleId") and begin and end:
             todo.append((oi, o, begin, end))
-    todo = [(oi, o, b, e) for (oi, o, b, e) in todo if not manifest.has("track", o["id"])]
+    todo = [
+        (oi, o, b, e) for (oi, o, b, e) in todo if not manifest.has("track", o["id"])
+    ]
     print("轨迹：待导出 %d 条（按派车单的实际出车/归队时间取轨迹）" % len(todo))
     # 内置模板已删除：轨迹只走官方页面直出，渲染器不可用即报错
     if todo and renderer is None:
-        raise RuntimeError("官方页面渲染器不可用，轨迹无法导出（请在 config.ini [render] 指定公司浏览器）")
+        raise RuntimeError(
+            "官方页面渲染器不可用，轨迹无法导出（请在 config.ini [render] 指定公司浏览器）"
+        )
     ok = 0
-    noon_rows = []   # 行程结束时间在当日 12 点前的轨迹（出 _12点前结束行程.xlsx）
-    files_dir = outdir / "逐单"   # 逐单文件归子目录，批次根目录留给合并总 PDF/清单
+    noon_rows = []  # 行程结束时间在当日 12 点前的轨迹（出 _12点前结束行程.xlsx）
+    files_dir = outdir / "逐单"  # 逐单文件归子目录，批次根目录留给合并总 PDF/清单
     if todo:
         files_dir.mkdir(parents=True, exist_ok=True)
 
@@ -977,36 +1464,64 @@ def export_track(client, cfg, orders, outdir: Path, chrome: str, manifest: Manif
         label = "%s %s" % (o.get("vehicleNumber"), o.get("runCode"))
         try:
             points = query_track_points(client, o["vehicleId"], begin, end)
-            fname = "轨迹_%s_%s_%s.pdf" % (safe_name(o.get("vehicleNumber")), safe_name(begin[:10]),
-                                         safe_name(o.get("runCode")))
+            fname = "轨迹_%s_%s_%s.pdf" % (
+                safe_name(o.get("vehicleNumber")),
+                safe_name(begin[:10]),
+                safe_name(o.get("runCode")),
+            )
             from official_track import PNG_WRAP_HTML
+
             png = files_dir / (Path(fname).stem + ".png")
             seg = query_track_segment(client, o["vehicleId"], begin, end)
             end_noon = seg_end_before_noon(seg)
-            pre_js = ""   # 「自动校准行程结束时间」：截图前注入弹窗的改写脚本（空 = 不改写）
+            pre_js = (
+                ""  # 「自动校准行程结束时间」：截图前注入弹窗的改写脚本（空 = 不改写）
+            )
             if end_noon:
-                noon_rows.append({"idx": oi, "code": o.get("runCode") or "",
-                                  "vehicle": o.get("vehicleNumber") or "", "end": end_noon})
+                noon_rows.append(
+                    {
+                        "idx": oi,
+                        "code": o.get("runCode") or "",
+                        "vehicle": o.get("vehicleNumber") or "",
+                        "end": end_noon,
+                    }
+                )
                 if cfg.get("calibrate_noon") and renderer is not None:
                     cal = calibrate_noon_end(seg)
                     if cal:
                         from official_track import build_popup_rewrite_js
+
                         new_dt, old_dur, new_dur = cal
                         pre_js = build_popup_rewrite_js(
                             datetime.strptime(end_noon[:19], "%Y-%m-%d %H:%M:%S"),
-                            new_dt, old_dur, new_dur)
+                            new_dt,
+                            old_dur,
+                            new_dur,
+                        )
                         noon_rows[-1]["cal_end"] = new_dt.strftime("%Y-%m-%d %H:%M:%S")
                         noon_rows[-1]["cal_dur"] = fmt_dur_cn(new_dur)
-                        print("  [校准] %s 行程结束 %s → %s，行驶时间 → %s"
-                              % (label, end_noon, noon_rows[-1]["cal_end"], noon_rows[-1]["cal_dur"]))
+                        print(
+                            "  [校准] %s 行程结束 %s → %s，行驶时间 → %s"
+                            % (
+                                label,
+                                end_noon,
+                                noon_rows[-1]["cal_end"],
+                                noon_rows[-1]["cal_dur"],
+                            )
+                        )
             if seg and seg.get("id"):
-                renderer.render_route_png(seg["id"], png, pre_shot_js=pre_js)   # 官方行程详情弹窗
+                renderer.render_route_png(
+                    seg["id"], png, pre_shot_js=pre_js
+                )  # 官方行程详情弹窗
             else:
-                renderer.render_pcd_png(o, png, pre_shot_js=pre_js)             # 回退按派车单弹窗
-            html_to_pdf(PNG_WRAP_HTML.replace("$img_uri", png.as_uri()),
-                        files_dir / fname, chrome)
+                renderer.render_pcd_png(o, png, pre_shot_js=pre_js)  # 回退按派车单弹窗
+            html_to_pdf(
+                PNG_WRAP_HTML.replace("$img_uri", png.as_uri()),
+                files_dir / fname,
+                chrome,
+            )
             try:
-                png.unlink()   # py3.7 无 missing_ok，用 try/except
+                png.unlink()  # py3.7 无 missing_ok，用 try/except
             except OSError:
                 pass
             csv_name = Path(fname).with_suffix(".csv")
@@ -1016,8 +1531,16 @@ def export_track(client, cfg, orders, outdir: Path, chrome: str, manifest: Manif
                     t = p.get("locatetime") or p.get("time") or p.get("gpstime") or ""
                     if isinstance(t, (int, float)) and t > 1e12:
                         t = fmt_epoch_ms(t)
-                    f.write("%s,%s,%s,%s,%s\n" % (t, p.get("dx", ""), p.get("dy", ""),
-                                                  p.get("speed", ""), p.get("direction", "")))
+                    f.write(
+                        "%s,%s,%s,%s,%s\n"
+                        % (
+                            t,
+                            p.get("dx", ""),
+                            p.get("dy", ""),
+                            p.get("speed", ""),
+                            p.get("direction", ""),
+                        )
+                    )
             manifest.put("track", o["id"], fname)
             ok += 1
             print("[%d/%d] %s（%d 个轨迹点）" % (i, len(todo), fname, len(points)))
@@ -1027,43 +1550,64 @@ def export_track(client, cfg, orders, outdir: Path, chrome: str, manifest: Manif
     print("轨迹导出完成：成功 %d / %d" % (ok, len(todo)))
     # 页码 = 该单在「轨迹成功序列」中的位次（_合并_轨迹.pdf 按 orders 顺序、每单恰 1 页合并）；
     # 渲染失败的单没进合并 PDF，页码留空
-    ok_idx = [i for i, o in enumerate(orders) if manifest.data.get("track", {}).get(o["id"])]
+    ok_idx = [
+        i for i, o in enumerate(orders) if manifest.data.get("track", {}).get(o["id"])
+    ]
     page_of = {v: k + 1 for k, v in enumerate(ok_idx)}
     for nr in noon_rows:
         nr["page"] = page_of.get(nr["idx"])
     write_noon_end_report(noon_rows, outdir / "_12点前结束行程.xlsx")
     # 含此前已导出的全部成功轨迹，按 orders 顺序合并一个总 PDF（逐单文件保留在 逐单/）
-    merge_pdfs([files_dir / manifest.data.get("track", {}).get(o["id"], "") for o in orders],
-               outdir / "_合并_轨迹.pdf")
-
+    merge_pdfs(
+        [files_dir / manifest.data.get("track", {}).get(o["id"], "") for o in orders],
+        outdir / "_合并_轨迹.pdf",
+    )
 
 
 # ---------------------------------------------------------------- 入口
+
 
 def main():
     ap = argparse.ArgumentParser(description="派车单/行驶轨迹批量导出 PDF")
     ap.add_argument("--from", dest="date_from", help="开始日期 YYYY-MM-DD")
     ap.add_argument("--to", dest="date_to", help="结束日期 YYYY-MM-DD")
-    ap.add_argument("--type", choices=["pcd", "track", "all"], default="all", help="导出类型，默认 all")
-    ap.add_argument("--auth", choices=["token", "sso"], help="认证方式：token=手动粘贴凭证，sso=账号密码自动登录")
+    ap.add_argument(
+        "--type",
+        choices=["pcd", "track", "all"],
+        default="all",
+        help="导出类型，默认 all",
+    )
+    ap.add_argument(
+        "--auth",
+        choices=["token", "sso"],
+        help="认证方式：token=手动粘贴凭证，sso=账号密码自动登录",
+    )
     ap.add_argument("--outdir", help="输出目录（默认取 config.ini）")
-    ap.add_argument("--config", default=str(SCRIPT_DIR / "config.ini"), help="配置文件路径")
+    ap.add_argument(
+        "--config", default=str(SCRIPT_DIR / "config.ini"), help="配置文件路径"
+    )
     ap.add_argument("--month", help="快捷参数：导出整月，如 2026-09")
-    ap.add_argument("--calibrate-noon", dest="calibrate_noon", action="store_true",
-                    help="自动校准行程结束时间：早于12点的行程按1小时逐次叠加至12点后，行驶时间同步增加")
+    ap.add_argument(
+        "--calibrate-noon",
+        dest="calibrate_noon",
+        action="store_true",
+        help="自动校准行程结束时间：早于12点的行程按1小时逐次叠加至12点后，行驶时间同步增加",
+    )
     args = ap.parse_args()
 
     cfgp = configparser.ConfigParser()
     if os.path.exists(args.config):
         cfgp.read(args.config, encoding="utf-8")
     cfg = dict(cfgp.items("export")) if cfgp.has_section("export") else {}
-    cfg.update({
-        "page_size": int(cfg.get("page_size", 50)),
-        "run_state": cfg.get("run_state", "2"),
-        "vehicle_state": cfg.get("vehicle_state", "04"),
-        "keep_tag": cfg.get("keep_tag", "00,01"),
-        "calibrate_noon": args.calibrate_noon,   # --calibrate-noon：12点前结束行程自动校准
-    })
+    cfg.update(
+        {
+            "page_size": int(cfg.get("page_size", 50)),
+            "run_state": cfg.get("run_state", "2"),
+            "vehicle_state": cfg.get("vehicle_state", "04"),
+            "keep_tag": cfg.get("keep_tag", "00,01"),
+            "calibrate_noon": args.calibrate_noon,  # --calibrate-noon：12点前结束行程自动校准
+        }
+    )
     render_cfg = dict(cfgp.items("render")) if cfgp.has_section("render") else {}
     gateway = cfgp.get("gateway", "base", fallback=GATEWAY)
     if not gateway.endswith("/"):
@@ -1077,20 +1621,28 @@ def main():
     if not args.date_from or not args.date_to:
         ap.error("请用 --from/--to 或 --month 指定日期范围")
 
-    auth_mode = args.auth or (cfgp.get("auth", "mode", fallback="token") if cfgp.has_section("auth") else "token")
+    auth_mode = args.auth or (
+        cfgp.get("auth", "mode", fallback="token")
+        if cfgp.has_section("auth")
+        else "token"
+    )
     auth_cfg = dict(cfgp.items("auth")) if cfgp.has_section("auth") else {}
     if auth_mode == "sso":
         session = requests.Session()
-        session.headers["User-Agent"] = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                                         "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36")
+        session.headers["User-Agent"] = (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+        )
         sso_cfg = dict(cfgp.items("sso")) if cfgp.has_section("sso") else {}
         username = auth_cfg.get("username", "").strip() or input("SSO 用户名: ").strip()
         password = auth_cfg.get("password", "").strip() or getpass.getpass("SSO 密码: ")
         t_jwt = sso_login(session, username, password, sso_cfg)
         auth = Auth.via_getuserauth(gateway, t_jwt, session)
     else:
-        print("手动凭证模式：在浏览器登录系统后按 F12 → Console 执行 "
-              "copy(cube.token+'\n'+cube.refreshToken+'\n'+cube.mtk)，依次粘贴三行：")
+        print(
+            "手动凭证模式：在浏览器登录系统后按 F12 → Console 执行 "
+            "copy(cube.token+'\n'+cube.refreshToken+'\n'+cube.mtk)，依次粘贴三行："
+        )
         auth = Auth.manual(auth_cfg)
 
     client = UvmpClient(gateway, auth)
@@ -1110,16 +1662,22 @@ def main():
     if cfg.get("track_render", "official") == "official":
         try:
             from official_track import OfficialTrackRenderer
+
             renderer = OfficialTrackRenderer(
-                chrome, outdir / ".chrome-tmp" / "official_chrome.log",
+                chrome,
+                outdir / ".chrome-tmp" / "official_chrome.log",
                 wait_tiles_s=max(3, int(cfg.get("map_tiles_wait", 12000)) // 1000),
                 idle_quiet_s=max(2, int(cfg.get("map_idle_quiet", 5000)) // 1000),
                 min_wait_s=max(0, int(cfg.get("map_min_wait", 30000)) // 1000),
-                pcd_wait_s=max(0, int(cfg.get("pcd_render_wait", 6000)) // 1000))
+                pcd_wait_s=max(0, int(cfg.get("pcd_render_wait", 6000)) // 1000),
+            )
             renderer.start(auth)
             print("官方页面渲染器就绪（登录态注入成功）")
         except Exception as e:  # noqa: BLE001
-            raise SystemExit("官方页面渲染器启动失败：%s\n请检查 config.ini [render] chrome= 是否指向公司指定浏览器" % e)
+            raise SystemExit(
+                "官方页面渲染器启动失败：%s\n请检查 config.ini [render] chrome= 是否指向公司指定浏览器"
+                % e
+            )
     try:
         if args.type in ("pcd", "all"):
             export_pcd(client, orders, outdir, manifest, renderer)

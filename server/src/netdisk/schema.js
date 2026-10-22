@@ -39,11 +39,20 @@ async function ensureNetdiskSchema(pool) {
     `INSERT INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES (?, ?, ?, ?, ?, ?, 1)
      ON DUPLICATE KEY UPDATE name = VALUES(name), icon = VALUES(icon), path = VALUES(path),
        terminal = VALUES(terminal), sort = VALUES(sort)`,
-    [APP_NETDISK.key, APP_NETDISK.name, APP_NETDISK.icon, APP_NETDISK.path, APP_NETDISK.terminal, APP_NETDISK.sort]
+    [
+      APP_NETDISK.key,
+      APP_NETDISK.name,
+      APP_NETDISK.icon,
+      APP_NETDISK.path,
+      APP_NETDISK.terminal,
+      APP_NETDISK.sort,
+    ]
   );
 
   // 管理员默认授予团队网盘权限
-  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [config.admin.username]);
+  const [adminRows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [
+    config.admin.username,
+  ]);
   if (adminRows.length) {
     await pool.query(
       'INSERT IGNORE INTO sys_user_app (user_id, app_id) SELECT ?, id FROM sys_app WHERE app_key = ?',

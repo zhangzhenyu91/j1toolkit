@@ -205,7 +205,10 @@ async function ensureSchema() {
   // 班组种子（仅空表时写入）：检修一班 = 默认班组（首个启用班组，sort 最小）
   const [teamCnt] = await pool.query('SELECT COUNT(*) AS cnt FROM sys_team');
   if (!teamCnt[0].cnt) {
-    await pool.query('INSERT INTO sys_team (name, sort) VALUES (?, 1), (?, 2)', ['检修一班', '运维二班']);
+    await pool.query('INSERT INTO sys_team (name, sort) VALUES (?, 1), (?, 2)', [
+      '检修一班',
+      '运维二班',
+    ]);
     console.log('[初始化] 已写入班组种子：检修一班 / 运维二班');
   }
 
@@ -239,7 +242,9 @@ async function ensureSchema() {
   }
 
   // 初始管理员（仅当账号不存在时创建，密码 bcrypt 存储）
-  const [rows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [config.admin.username]);
+  const [rows] = await pool.query('SELECT id FROM sys_user WHERE username = ?', [
+    config.admin.username,
+  ]);
   let adminId = rows[0] && rows[0].id;
   if (!adminId) {
     const hash = await bcrypt.hash(config.admin.password, 10);
@@ -248,11 +253,16 @@ async function ensureSchema() {
       [config.admin.username, hash, config.admin.nickname, '检修一班', 'admin']
     );
     adminId = r.insertId;
-    console.log(`[初始化] 已创建管理员账号 ${config.admin.username}（密码取自环境变量 ADMIN_PASSWORD）`);
+    console.log(
+      `[初始化] 已创建管理员账号 ${config.admin.username}（密码取自环境变量 ADMIN_PASSWORD）`
+    );
   }
 
   // 保证环境变量指定的管理员始终具备 admin 角色（防止误改）
-  await pool.query('UPDATE sys_user SET role = ? WHERE username = ?', ['admin', config.admin.username]);
+  await pool.query('UPDATE sys_user SET role = ? WHERE username = ?', [
+    'admin',
+    config.admin.username,
+  ]);
 
   // 按旧 team 文本回填 sys_user.team_id（含管理员账号；空 team 保持 NULL = 未分配班组）
   await pool.query(

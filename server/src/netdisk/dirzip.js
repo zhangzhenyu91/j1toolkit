@@ -29,12 +29,21 @@ function appendFile(archive, stream, name) {
       if (settled) return;
       settled = true;
       cleanup();
-      if (err) reject(err); else resolve();
+      if (err) reject(err);
+      else resolve();
     }
-    function onEntry(data) { if (data && data.name === name) done(); }
-    function onError(err) { done(err); }
-    function onClose() { done(new Error('目录打包已中止')); }
-    function onStreamError(err) { done(err); }
+    function onEntry(data) {
+      if (data && data.name === name) done();
+    }
+    function onError(err) {
+      done(err);
+    }
+    function onClose() {
+      done(new Error('目录打包已中止'));
+    }
+    function onStreamError(err) {
+      done(err);
+    }
     archive.on('entry', onEntry);
     archive.on('error', onError);
     archive.on('close', onClose);
@@ -57,8 +66,10 @@ async function pipeDirZip(res, absRoot, folderName, ol) {
     archive.destroy();
   });
   res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition',
-    `attachment; filename="download.zip"; filename*=UTF-8''${encodeURIComponent(`${rootName}.zip`)}`);
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="download.zip"; filename*=UTF-8''${encodeURIComponent(`${rootName}.zip`)}`
+  );
   archive.pipe(res);
 
   async function appendDir(abs, zipPath) {

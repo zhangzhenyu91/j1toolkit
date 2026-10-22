@@ -6,12 +6,12 @@
 
 ## 功能
 
-| 应用 | 说明 |
-|---|---|
-| 每日派车单同步 | 每日定时导出当日派车单（全部状态）为 `yyyy-mm-dd-派车单.xlsx`，写入 KVM 虚拟 U 盘（卷标 GLKVM），供壹匣服务端取走同步 |
-| 树障统计表同步 | 按壹匣服务端经 U 盘下发的指令同步树障统计表 xlsx：snapshot 把内网表拷贝上盘，replace 用 U 盘新表覆盖内网表（原文件自动备份 .bak），23:55 夜间定时兜底上盘 |
-| 派车单·轨迹导出 | 按派车单号清单（xlsx 文件或粘贴文本）按序导出派车单 PDF、行驶轨迹 PDF 与轨迹点 CSV，支持断点续传 |
-| 题库搜题 | 屏幕双扫描框实时 OCR 搜题：Excel 题库导入本机落盘（多题库启停管理），框选区域对准题目即出答案悬浮窗；全离线本地推理，不经网络 |
+| 应用            | 说明                                                                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 每日派车单同步  | 每日定时导出当日派车单（全部状态）为 `yyyy-mm-dd-派车单.xlsx`，写入 KVM 虚拟 U 盘（卷标 GLKVM），供壹匣服务端取走同步                                     |
+| 树障统计表同步  | 按壹匣服务端经 U 盘下发的指令同步树障统计表 xlsx：snapshot 把内网表拷贝上盘，replace 用 U 盘新表覆盖内网表（原文件自动备份 .bak），23:55 夜间定时兜底上盘 |
+| 派车单·轨迹导出 | 按派车单号清单（xlsx 文件或粘贴文本）按序导出派车单 PDF、行驶轨迹 PDF 与轨迹点 CSV，支持断点续传                                                          |
+| 题库搜题        | 屏幕双扫描框实时 OCR 搜题：Excel 题库导入本机落盘（多题库启停管理），框选区域对准题目即出答案悬浮窗；全离线本地推理，不经网络                             |
 
 技术要点：Electron + Vue 3 + TDesign 桌面客户端（「政企蓝白」主题，壹匣同族）；业务核心为 Python sidecar（SSO 国密登录 + 请求签名逆向，见《接口分析.md》），壳与核心经 stdio JSON-RPC 通信；PDF 由目标机既有 Chrome 无头渲染；定时采用 due-check 模式（系统定时器高频唤醒 + 配置时刻判定，客户端改时间零权限）；题库搜题的截屏/OCR/悬浮窗全部在壳层（onnxruntime-node + PP-OCRv4 mobile 模型随包，CPU 推理无厂商绑定，win-x64/麒麟 amd64/arm64 同构）。
 
@@ -19,11 +19,11 @@
 
 从公开仓 [j1toolkit](https://github.com/zhangzhenyu91/j1toolkit) 的 Release 下载对应架构（免登录）：
 
-| 平台 | 安装包（推荐） | 绿色包 |
-|---|---|---|
-| Windows 10+ amd64 | `uvmp-toolkit-Setup-x.y.z.exe`（免管理员；自动建快捷方式与计划任务，带卸载程序） | `uvmp-toolkit-x.y.z-win-portable.zip` |
-| 麒麟 V10 SP1 amd64 | `uvmp-toolkit_x.y.z_amd64.deb` | `uvmp-toolkit-x.y.z-amd64.tar.gz` |
-| 麒麟 V10 SP1 arm64 | `uvmp-toolkit_x.y.z_arm64.deb` | `uvmp-toolkit-x.y.z-arm64.tar.gz` |
+| 平台               | 安装包（推荐）                                                                   | 绿色包                                |
+| ------------------ | -------------------------------------------------------------------------------- | ------------------------------------- |
+| Windows 10+ amd64  | `uvmp-toolkit-Setup-x.y.z.exe`（免管理员；自动建快捷方式与计划任务，带卸载程序） | `uvmp-toolkit-x.y.z-win-portable.zip` |
+| 麒麟 V10 SP1 amd64 | `uvmp-toolkit_x.y.z_amd64.deb`                                                   | `uvmp-toolkit-x.y.z-amd64.tar.gz`     |
+| 麒麟 V10 SP1 arm64 | `uvmp-toolkit_x.y.z_arm64.deb`                                                   | `uvmp-toolkit-x.y.z-arm64.tar.gz`     |
 
 ```bash
 # 麒麟（deb：装到 /opt/uvmp-toolkit，自动配好定时器与桌面菜单项「Shade 壹匣 - 内网」）

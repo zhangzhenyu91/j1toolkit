@@ -16,14 +16,17 @@ app.on('window-all-closed', () => {});
 
 async function renderTestImage() {
   const win = new BrowserWindow({
-    show: false, width: 640, height: 240,
+    show: false,
+    width: 640,
+    height: 240,
     webPreferences: { offscreen: true },
   });
-  const html = '<!doctype html><html><body style="margin:0;background:#fff;color:#1D2129;'
-    + 'font:20px/1.9 sans-serif;padding:16px 24px">'
-    + '<div>1、企业应当建立健全安全生产责任制，明确各岗位的责任人员。</div>'
-    + '<div style="color:#4E5969">A. 正确&nbsp;&nbsp;&nbsp;&nbsp;B. 错误</div>'
-    + '</body></html>';
+  const html =
+    '<!doctype html><html><body style="margin:0;background:#fff;color:#1D2129;' +
+    'font:20px/1.9 sans-serif;padding:16px 24px">' +
+    '<div>1、企业应当建立健全安全生产责任制，明确各岗位的责任人员。</div>' +
+    '<div style="color:#4E5969">A. 正确&nbsp;&nbsp;&nbsp;&nbsp;B. 错误</div>' +
+    '</body></html>';
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   await new Promise((r) => setTimeout(r, 800)); // offscreen 首帧渲染等待
   const img = await win.webContents.capturePage();
@@ -43,7 +46,10 @@ app.whenReady().then(async () => {
   const mode = process.argv[2] || 'self';
   try {
     const img = mode === 'screen' ? await captureScreen() : await renderTestImage();
-    if (!img || img.isEmpty()) { console.error('[smoke] 未取到图像'); process.exit(1); }
+    if (!img || img.isEmpty()) {
+      console.error('[smoke] 未取到图像');
+      process.exit(1);
+    }
     const { width, height } = img.getSize();
     const bitmap = img.getBitmap(); // BGRA
     console.log(`[smoke] 图像 ${width}x${height}，加载模型…`);
@@ -53,11 +59,16 @@ app.whenReady().then(async () => {
     const res = await pipeline.run(bitmap, width, height);
     console.log(`[smoke] OCR 完成，耗时 ${res.elapsedMs}ms，${res.lines.length} 行：`);
     for (const l of res.lines) {
-      console.log(`  [${l.score.toFixed(2)}] (${l.box.x},${l.box.y} ${l.box.w}x${l.box.h}) ${l.text}`);
+      console.log(
+        `  [${l.score.toFixed(2)}] (${l.box.x},${l.box.y} ${l.box.w}x${l.box.h}) ${l.text}`
+      );
     }
     if (mode === 'self') {
       const pass = res.text.includes(EXPECT);
-      console.log('[smoke] ' + (pass ? 'PASS：检出期望文本「' + EXPECT + '」' : 'FAIL：未检出期望文本「' + EXPECT + '」'));
+      console.log(
+        '[smoke] ' +
+          (pass ? 'PASS：检出期望文本「' + EXPECT + '」' : 'FAIL：未检出期望文本「' + EXPECT + '」')
+      );
       process.exitCode = pass ? 0 : 1;
       setTimeout(() => process.exit(process.exitCode), 200); // 给 stdout 留冲刷时间
       return;

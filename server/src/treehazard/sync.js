@@ -37,7 +37,9 @@ function kvmUser() {
 
 // 同步班组：按配置班组名精确匹配启用班组
 async function resolveTeam() {
-  const [rows] = await pool.query('SELECT id, name FROM sys_team WHERE name = ? AND status = 1', [cfg().syncTeam]);
+  const [rows] = await pool.query('SELECT id, name FROM sys_team WHERE name = ? AND status = 1', [
+    cfg().syncTeam,
+  ]);
   if (!rows.length) throw new Error(`未找到同步班组「${cfg().syncTeam}」（未建或已停用）`);
   return rows[0];
 }
@@ -47,13 +49,21 @@ async function findDevice() {
   const items = await glkvm.listDevices({}, kvmUser());
   const dev = items.find((d) => String(d.ddns || '') === cfg().syncDeviceDdns);
   if (!dev) {
-    throw new Error(`未找到设备 ddns=${cfg().syncDeviceDdns}（账号 ${kvmUser()} 平台不可见或设备已下线）`);
+    throw new Error(
+      `未找到设备 ddns=${cfg().syncDeviceDdns}（账号 ${kvmUser()} 平台不可见或设备已下线）`
+    );
   }
-  const want = String(cfg().syncDeviceMac || '').replace(/[^0-9a-f]/gi, '').toLowerCase();
+  const want = String(cfg().syncDeviceMac || '')
+    .replace(/[^0-9a-f]/gi, '')
+    .toLowerCase();
   if (want) {
-    const got = String(dev.mac || '').replace(/[^0-9a-f]/gi, '').toLowerCase();
+    const got = String(dev.mac || '')
+      .replace(/[^0-9a-f]/gi, '')
+      .toLowerCase();
     if (got !== want) {
-      throw new Error(`设备 ${cfg().syncDeviceDdns} MAC 校验不符（平台侧 ${dev.mac || '空'} ≠ 配置 ${cfg().syncDeviceMac}），已中止防误操作`);
+      throw new Error(
+        `设备 ${cfg().syncDeviceDdns} MAC 校验不符（平台侧 ${dev.mac || '空'} ≠ 配置 ${cfg().syncDeviceMac}），已中止防误操作`
+      );
     }
   }
   return dev;
@@ -79,7 +89,8 @@ async function deviceCall(dev, label, fn) {
 async function mountToHost(dev) {
   await deviceCall(dev, '挂载 U 盘至被控机', (ps) =>
     axios.post(`${ps.origin}/api/fileshare/mount`, null, {
-      headers: { Cookie: ps.cookie }, timeout: 60000,
+      headers: { Cookie: ps.cookie },
+      timeout: 60000,
     })
   );
 }
@@ -102,7 +113,8 @@ async function downloadFile(dev, name) {
 async function listFiles(dev) {
   return deviceCall(dev, '列 U 盘文件', async (ps) => {
     const r = await axios.get(`${ps.origin}/api/fileshare/list`, {
-      headers: { Cookie: ps.cookie }, timeout: 60000,
+      headers: { Cookie: ps.cookie },
+      timeout: 60000,
     });
     return (r.data && r.data.files) || [];
   });
@@ -111,9 +123,14 @@ async function listFiles(dev) {
 // 删除 U 盘内文件（names 数组一次删多个）
 async function deleteFiles(dev, names) {
   await deviceCall(dev, `删除 ${names.join('、')}`, (ps) =>
-    axios.post(`${ps.origin}/api/fileshare/delete`, { names }, {
-      headers: { Cookie: ps.cookie }, timeout: 60000,
-    })
+    axios.post(
+      `${ps.origin}/api/fileshare/delete`,
+      { names },
+      {
+        headers: { Cookie: ps.cookie },
+        timeout: 60000,
+      }
+    )
   );
 }
 
@@ -174,7 +191,10 @@ function cmdPayload(cycle, kind, fileName) {
 
 // 准备：push snapshot 指令 → 挂载 U 盘至被控机端（设备锁由调用方加）
 async function preparePhase(dev, team, cycle) {
-  const cmd = Buffer.from(JSON.stringify(cmdPayload(cycle, 'snapshot', exporter.exportFileName(team.name))), 'utf8');
+  const cmd = Buffer.from(
+    JSON.stringify(cmdPayload(cycle, 'snapshot', exporter.exportFileName(team.name))),
+    'utf8'
+  );
   await pushFile(dev, CMD_FILE, cmd);
   await mountToHost(dev);
   console.log(`[树障同步] 已下发 snapshot 指令并挂载 U 盘（轮次 ${cycle}），等待被控机导出`);
@@ -208,9 +228,27 @@ async function applyDiff(db, teamId, result) {
          dist_small = ?, dist_big = ?, diameter = ?, horizontal = ?, vertical = ?, finder_name = ?, found_at = ?,
          handler_name = ?, handle_note = ?, handled_at = ?, vertical_num = ?, status = ?, synced_at = NOW()
        WHERE id = ? AND team_id = ?`,
-      [f.voltage_level, f.line_name, f.section, f.tree_species, f.tree_count,
-        f.dist_small, f.dist_big, f.diameter, f.horizontal, f.vertical, f.finder_name, f.found_at,
-        f.handler_name, f.handle_note, f.handled_at, f.vertical_num, f.status, u.id, teamId]
+      [
+        f.voltage_level,
+        f.line_name,
+        f.section,
+        f.tree_species,
+        f.tree_count,
+        f.dist_small,
+        f.dist_big,
+        f.diameter,
+        f.horizontal,
+        f.vertical,
+        f.finder_name,
+        f.found_at,
+        f.handler_name,
+        f.handle_note,
+        f.handled_at,
+        f.vertical_num,
+        f.status,
+        u.id,
+        teamId,
+      ]
     );
   }
   for (const row of result.news || []) {
@@ -221,9 +259,28 @@ async function applyDiff(db, teamId, result) {
          tree_species, tree_count, dist_small, dist_big, diameter, horizontal, vertical, vertical_num,
          finder_name, found_at, handler_name, handle_note, handled_at, status, source, synced_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'intranet', NOW())`,
-      [teamId, f.voltage_level, f.line_name, f.section, poleFrom, poleTo, f.tree_species, f.tree_count,
-        f.dist_small, f.dist_big, f.diameter, f.horizontal, f.vertical, f.vertical_num,
-        f.finder_name, f.found_at, f.handler_name, f.handle_note, f.handled_at, f.status]
+      [
+        teamId,
+        f.voltage_level,
+        f.line_name,
+        f.section,
+        poleFrom,
+        poleTo,
+        f.tree_species,
+        f.tree_count,
+        f.dist_small,
+        f.dist_big,
+        f.diameter,
+        f.horizontal,
+        f.vertical,
+        f.vertical_num,
+        f.finder_name,
+        f.found_at,
+        f.handler_name,
+        f.handle_note,
+        f.handled_at,
+        f.status,
+      ]
     );
   }
   for (const c of result.conflicts || []) {
@@ -302,7 +359,9 @@ async function pushLatest(dev, team, cycle, records) {
 async function fetchPhase(dev, team, cycle) {
   const fileName = exporter.exportFileName(team.name);
   const serverRecords = await loadServerRecords(team.id);
-  const [tomb] = await pool.query('SELECT id FROM treehazard_deleted_id WHERE team_id = ?', [team.id]);
+  const [tomb] = await pool.query('SELECT id FROM treehazard_deleted_id WHERE team_id = ?', [
+    team.id,
+  ]);
   const deletedIds = tomb.map((r) => r.id);
 
   const buf = await downloadFile(dev, fileName);
@@ -312,7 +371,15 @@ async function fetchPhase(dev, team, cycle) {
     await cleanupUsb(dev);
     await pushLatest(dev, team, cycle, serverRecords);
     await markSyncedAfterPush(pool, team.id);
-    return { updates: 0, news: 0, conflicts: 0, skips: 0, adjudicated: 0, pushed: true, noFile: true };
+    return {
+      updates: 0,
+      news: 0,
+      conflicts: 0,
+      skips: 0,
+      adjudicated: 0,
+      pushed: true,
+      noFile: true,
+    };
   }
   console.log(`[树障同步] 已下载 ${fileName}（${(buf.length / 1024).toFixed(1)} KB）`);
   const rows = differ.parseIntranetSheet(buf);
@@ -369,12 +436,17 @@ function buildSummary(counts, err) {
 // 写同步日志 + 结果通知（超管 + 本班班组管理员；失败标题「树障统计表同步失败」）；通知/日志失败仅记日志
 async function logAndNotify(team, kind, { ok: success, text }) {
   try {
-    await pool.query('INSERT INTO treehazard_sync_log (team_id, kind, result) VALUES (?, ?, ?)', [team.id, kind, text]);
+    await pool.query('INSERT INTO treehazard_sync_log (team_id, kind, result) VALUES (?, ?, ?)', [
+      team.id,
+      kind,
+      text,
+    ]);
   } catch (err) {
     console.error('[树障同步] 同步日志写入失败：', err.message);
   }
   try {
-    await require('../notice').push({ // 与 dispatch-sync 同型惰性加载
+    await require('../notice').push({
+      // 与 dispatch-sync 同型惰性加载
       targets: ['admin', 'team_admin'],
       title: success ? `树障统计表同步完成（${team.name}）` : '树障统计表同步失败',
       content: `方式：${KIND_NAME[kind] || kind}\n${text}`,
@@ -442,7 +514,8 @@ async function nightPrepareJob() {
     }
   } catch (err) {
     console.error('[树障同步] 夜间准备失败：', err.message);
-    if (team) await logAndNotify(team, 'night', { ok: false, text: `失败：准备阶段 ${err.message}` });
+    if (team)
+      await logAndNotify(team, 'night', { ok: false, text: `失败：准备阶段 ${err.message}` });
   }
 }
 
@@ -486,8 +559,13 @@ async function nightFetchJob() {
 // 本地每日自排程（同 dispatch-sync：setTimeout 自排程 + unref，北京时间口径）；仅用于夜间准备，
 // 取件挂 nightq 按时刻分组串行
 function scheduleDaily(timeStr, job, label) {
-  const [hh, mm] = String(timeStr || '').split(':').map((s) => parseInt(s, 10));
-  const { nextUtc, now } = nextDailyRunUtc(Number.isInteger(hh) ? hh : 23, Number.isInteger(mm) ? mm : 50);
+  const [hh, mm] = String(timeStr || '')
+    .split(':')
+    .map((s) => parseInt(s, 10));
+  const { nextUtc, now } = nextDailyRunUtc(
+    Number.isInteger(hh) ? hh : 23,
+    Number.isInteger(mm) ? mm : 50
+  );
   const timer = setTimeout(async () => {
     try {
       await job();
@@ -497,18 +575,24 @@ function scheduleDaily(timeStr, job, label) {
     scheduleDaily(timeStr, job, label); // 排次日
   }, nextUtc - now);
   timer.unref(); // 不阻塞进程退出
-  console.log(`[树障同步] ${label}已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`);
+  console.log(
+    `[树障同步] ${label}已排程：${new Date(nextUtc).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）`
+  );
 }
 
 // 由 treehazard 入口调用（未配置设备 ddns 时停用不排程）
 function start() {
   if (!cfg().syncDeviceDdns) {
-    console.error('[树障同步] 未配置同步设备 ddns（TREEHAZARD_SYNC_DEVICE_DDNS），内网 U 盘同步停用');
+    console.error(
+      '[树障同步] 未配置同步设备 ddns（TREEHAZARD_SYNC_DEVICE_DDNS），内网 U 盘同步停用'
+    );
     return;
   }
   scheduleDaily(cfg().syncPrepareTime, nightPrepareJob, '每日准备（锁定并下发 snapshot 指令）');
   nightq.register('treehazard-fetch', cfg().syncFetchTime, nightFetchJob);
-  console.log(`[树障同步] 已启用：每日 ${cfg().syncPrepareTime} 准备 / ${cfg().syncFetchTime} 取件（北京时间），另支持手动 POST /sync/push-now 即时同步`);
+  console.log(
+    `[树障同步] 已启用：每日 ${cfg().syncPrepareTime} 准备 / ${cfg().syncFetchTime} 取件（北京时间），另支持手动 POST /sync/push-now 即时同步`
+  );
 }
 
 // 同步状态：enabled（已配置设备）、running、last（本班最近一条 sync_log）、nextNight（下次夜间取件时间，
@@ -531,8 +615,13 @@ async function status() {
   // 下次夜间取件时间（按 syncFetchTime 排程口径换算，转北京时间 ISO 字符串）
   let nextNight = null;
   if (enabled) {
-    const [hh, mm] = String(cfg().syncFetchTime || '').split(':').map((s) => parseInt(s, 10));
-    const { nextUtc } = nextDailyRunUtc(Number.isInteger(hh) ? hh : 0, Number.isInteger(mm) ? mm : 0);
+    const [hh, mm] = String(cfg().syncFetchTime || '')
+      .split(':')
+      .map((s) => parseInt(s, 10));
+    const { nextUtc } = nextDailyRunUtc(
+      Number.isInteger(hh) ? hh : 0,
+      Number.isInteger(mm) ? mm : 0
+    );
     nextNight = new Date(nextUtc + CN_OFFSET_MS).toISOString().replace('Z', '+08:00');
   }
   return { enabled, running, last, nextNight };

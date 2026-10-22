@@ -143,7 +143,8 @@ const config = {
     // 服务端从保存回调 URL 拉文件时改写的容器内网基址（OnlyOffice 容器名，默认 http://onlyoffice）
     internalUrl: str('OO_INTERNAL_URL', 'http://onlyoffice').replace(/\/+$/, ''),
     // OnlyOffice 容器回源/回调 Shade 的地址；留空按 http://j1toolkit:<PORT> 推导（compose 容器名 + 内外同端口）
-    callbackBase: str('OO_CALLBACK_BASE').replace(/\/+$/, '') || `http://j1toolkit:${num('PORT', 3000)}`,
+    callbackBase:
+      str('OO_CALLBACK_BASE').replace(/\/+$/, '') || `http://j1toolkit:${num('PORT', 3000)}`,
     // OnlyOffice JWT 密钥（与其容器 JWT_SECRET 同值；编辑器 config 签名与回调校验共用）
     jwtSecret: str('OO_JWT_SECRET'),
     // 文件回源票据有效期（秒，OnlyOffice 仅在打开文档时回源一次，600 足够）
@@ -154,15 +155,15 @@ const config = {
   // 商旅打卡（出工日志扩展）
   // 协议密钥取自商旅 App 逆向分析仓 private/esgcc/sgcc/tools/sgcc_client.js（私有仓），只走 env、不入仓
   sgcc: {
-    jwtSecret: str('SGCC_JWT_SECRET'),       // H5/App 自签 JWT 密钥
+    jwtSecret: str('SGCC_JWT_SECRET'), // H5/App 自签 JWT 密钥
     sm2ServerPub: str('SGCC_SM2_SERVER_PUB'), // jsonm 通道 SM2 服务器公钥
     sm2ClientPriv: str('SGCC_SM2_CLIENT_PRIV'), // jsonm 通道 SM2 客户端私钥
-    rsaPub: str('SGCC_RSA_PUB'),             // jsonx default 通道请求加密公钥
-    rsaPriv: str('SGCC_RSA_PRIV'),           // jsonx default 通道响应解密私钥
-    dcuPub: str('SGCC_DCU_PUB'),             // jsonx slapp 通道请求加密公钥（res/dCu.pem 内容）
-    wlaPriv: str('SGCC_WLA_PRIV'),           // jsonx slapp 通道响应解密私钥（res/wLA.pem 内容）
-    adSecret: str('SGCC_AD_SECRET'),         // /api/ads 拉池密钥（App 内嵌客户端常量）
-    dxAppId: str('SGCC_DX_APPID'),           // 顶象滑块 appId（绑定滑块页 sgcc-captcha.html 伺服时注入）
+    rsaPub: str('SGCC_RSA_PUB'), // jsonx default 通道请求加密公钥
+    rsaPriv: str('SGCC_RSA_PRIV'), // jsonx default 通道响应解密私钥
+    dcuPub: str('SGCC_DCU_PUB'), // jsonx slapp 通道请求加密公钥（res/dCu.pem 内容）
+    wlaPriv: str('SGCC_WLA_PRIV'), // jsonx slapp 通道响应解密私钥（res/wLA.pem 内容）
+    adSecret: str('SGCC_AD_SECRET'), // /api/ads 拉池密钥（App 内嵌客户端常量）
+    dxAppId: str('SGCC_DX_APPID'), // 顶象滑块 appId（绑定滑块页 sgcc-captcha.html 伺服时注入）
     // 商旅 App 版本号（请求头 version；App 升级后须同步更新此默认值与 protocol.js 兜底值、docker/.env.example，2026-10-09 起约定）
     version: str('SGCC_VERSION', '3.3.7'),
     // 商旅 App 构建号（请求头 version-code，3.3.7 实测值 202609232038；App 升级随 SGCC_VERSION 一并更新）
@@ -218,7 +219,9 @@ const REQUIRED = [
 function validateConfig() {
   const missing = REQUIRED.filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) {
-    console.error(`[配置错误] 缺少环境变量：${missing.join('、')}，请参照 docker/.env.example 配置`);
+    console.error(
+      `[配置错误] 缺少环境变量：${missing.join('、')}，请参照 docker/.env.example 配置`
+    );
     process.exit(1);
   }
   // 初始管理员密码沿用缺省值时醒目告警（仅提示，不改默认行为；生产环境务必在 .env 配置 ADMIN_PASSWORD）

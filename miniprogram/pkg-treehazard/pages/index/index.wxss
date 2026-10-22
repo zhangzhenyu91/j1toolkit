@@ -25,34 +25,34 @@ page {
 }
 
 .stat + .stat {
-  border-left: 1rpx solid #E5E6EB;
+  border-left: 1rpx solid #e5e6eb;
 }
 
 .stat-num {
   font-size: 32rpx;
   font-weight: 700;
   line-height: 1.3;
-  color: #1D2129;
+  color: #1d2129;
   font-variant-numeric: tabular-nums;
 }
 
 .stat-num-warn {
-  color: #FF7D00;
+  color: #ff7d00;
 }
 
 .stat-num-bad {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 /* 要紧类计数为 0 / 未设阈值：不标红，弱化为辅助灰（仅 >0 才红显） */
 .stat-num-mut {
-  color: #86909C;
+  color: #86909c;
 }
 
 .stat-label {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 /* ---------- 工具行（线路视图：阈值 / 同步 图标胶囊；台账视图：批量开关） ---------- */
@@ -69,8 +69,8 @@ page {
   gap: 10rpx;
   height: 64rpx;
   padding: 0 24rpx;
-  background: #FFFFFF;
-  border: 2rpx solid #E5E6EB;
+  background: #ffffff;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
 }
@@ -78,7 +78,7 @@ page {
 .tool .tool-t {
   font-size: 24rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   max-width: 260rpx;
   overflow: hidden;
   white-space: nowrap;
@@ -86,12 +86,12 @@ page {
 }
 
 .tool-on {
-  background: #0E3DA8;
-  border-color: #0E3DA8;
+  background: #0e3da8;
+  border-color: #0e3da8;
 }
 
 .tool-on .tool-t {
-  color: #FFFFFF;
+  color: #ffffff;
 }
 
 /* 图标化胶囊（班管入口，避免拥挤） */
@@ -108,7 +108,7 @@ page {
   gap: 14rpx;
   height: 72rpx;
   padding: 0 24rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   border-radius: 16rpx;
   margin-top: 28rpx;
 }
@@ -118,11 +118,11 @@ page {
   min-width: 0;
   height: 72rpx;
   font-size: 26rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .ph {
-  color: #C9CDD4;
+  color: #c9cdd4;
 }
 
 /* ---------- 线路大卡片（标题恒正文黑；计数着色：要紧>0 红字、=0 灰字 / 未处理>0 品牌蓝 / 均为 0 置灰；stagger 入场，delay 内联递增） ---------- */
@@ -132,7 +132,7 @@ page {
 }
 
 .lcard.s-ok .lc-st {
-  color: #86909C;
+  color: #86909c;
   font-weight: 400;
 }
 
@@ -151,7 +151,7 @@ page {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -170,17 +170,17 @@ page {
 }
 
 .lc-warn {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 600;
 }
 
 .lc-bad {
-  color: #F53F3F;
+  color: #f53f3f;
   font-weight: 600;
 }
 
 .lc-total {
-  color: #86909C;
+  color: #86909c;
 }
 
 /* ---------- 台账视图：返回行 + 线路标题 ---------- */
@@ -195,7 +195,7 @@ page {
 .backrow-t {
   font-size: 26rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .ledger-head {
@@ -205,7 +205,7 @@ page {
 .lh-title {
   font-size: 36rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .lh-sub {
@@ -218,15 +218,15 @@ page {
 }
 
 .lh-warn {
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .lh-bad {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 .lh-total {
-  color: #86909C;
+  color: #86909c;
 }
 
 /* ---------- FAB（导出，每页主按钮至多一枚；形态同网盘页） ---------- */
@@ -238,7 +238,7 @@ page {
   width: 104rpx;
   height: 104rpx;
   border-radius: 50%;
-  background: #0E3DA8;
+  background: #0e3da8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -284,8 +284,8 @@ page {
   height: 40rpx;
   flex: none;
   border-radius: 50%;
-  border: 2rpx solid #C9CDD4;
-  background: #FFFFFF;
+  border: 2rpx solid #c9cdd4;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -293,12 +293,12 @@ page {
 }
 
 .ck-ring.on {
-  background: #0E3DA8;
-  border-color: #0E3DA8;
+  background: #0e3da8;
+  border-color: #0e3da8;
 }
 
 .ck-ring.dis {
-  background: #F7F8FA;
+  background: #f7f8fa;
   border-style: dashed;
 }
 
@@ -308,7 +308,7 @@ page {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -330,13 +330,13 @@ page {
 
 .th-l {
   font-size: 20rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 .th-v {
   margin-top: 6rpx;
   font-size: 24rpx;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -347,12 +347,12 @@ page {
   flex: none;
   font-size: 32rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   font-variant-numeric: tabular-nums;
 }
 
 .th-vbig-bad {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 /* 折叠/展开开关（首行右端，每卡一枚；点卡同效）：图标固定 chevron-down，展开态旋转 180° */
@@ -363,7 +363,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform .2s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .th-fold.th-fold-open {
@@ -376,7 +376,9 @@ page {
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
-  transition: grid-template-rows .28s cubic-bezier(0.22, 1, 0.36, 1), opacity .22s ease;
+  transition:
+    grid-template-rows 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease;
 }
 
 .th-more.th-more-open {
@@ -394,12 +396,12 @@ page {
   margin-top: 16rpx;
   padding: 16rpx 20rpx;
   border-radius: 8rpx;
-  background: #E8FFEA;
+  background: #e8ffea;
   display: flex;
   flex-wrap: wrap;
   gap: 8rpx 24rpx;
   font-size: 22rpx;
-  color: #0B8A37;
+  color: #0b8a37;
 }
 
 .th-handled b {
@@ -421,22 +423,22 @@ page {
   align-items: center;
   gap: 24rpx;
   padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
-  background: #FFFFFF;
+  background: #ffffff;
   box-shadow: 0 -4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .bb-info {
   flex: 1;
   font-size: 26rpx;
-  color: #4E5969;
+  color: #4e5969;
   font-variant-numeric: tabular-nums;
 }
 
 .bb-btn {
   padding: 14rpx 48rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
   font-size: 26rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
@@ -469,7 +471,7 @@ page {
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 筛选项列表（限高滚动；导出弹层范围/线路单选复用） */
@@ -485,27 +487,27 @@ page {
   gap: 20rpx;
   padding: 26rpx 16rpx;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .flt-item + .flt-item {
-  border-top: 1rpx solid #E5E6EB;
+  border-top: 1rpx solid #e5e6eb;
 }
 
 .flt-item.on {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 600;
 }
 
 /* 导出弹层：范围单选组与按线路分表开关行 */
 .exp-scope {
   margin-top: 12rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   border-radius: 12rpx;
 }
 
 .exp-scope .flt-item + .flt-item {
-  border-top-color: #FFFFFF;
+  border-top-color: #ffffff;
 }
 
 .exp-split {
@@ -523,7 +525,7 @@ page {
 .exp-tip {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   line-height: 1.6;
 }
 
@@ -538,7 +540,7 @@ page {
   justify-content: space-between;
   height: 84rpx;
   font-size: 26rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .qtags {
@@ -551,14 +553,14 @@ page {
 .th-tip {
   margin-top: 16rpx;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   line-height: 1.6;
 }
 
 /* 同步状态 */
 .sync-box {
   margin-top: 24rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   border-radius: 12rpx;
   padding: 8rpx 24rpx;
 }
@@ -571,19 +573,19 @@ page {
 }
 
 .sync-row + .sync-row {
-  border-top: 1rpx solid #E5E6EB;
+  border-top: 1rpx solid #e5e6eb;
 }
 
 .sync-l {
   width: 140rpx;
   flex: none;
-  color: #86909C;
+  color: #86909c;
 }
 
 .sync-v {
   flex: 1;
   min-width: 0;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .sheet-actions {
@@ -596,14 +598,14 @@ page {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 6rpx;
   box-sizing: border-box;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
@@ -613,7 +615,7 @@ page {
   flex: 2;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -638,7 +640,7 @@ page {
 .pz-t {
   font-size: 22rpx;
   font-weight: 600;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .pz-grid {
@@ -652,7 +654,7 @@ page {
   width: 160rpx;
   height: 160rpx;
   border-radius: 8rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
 }
 
 /* 「+」格：上传入口（虚线占位） */
@@ -660,7 +662,7 @@ page {
   width: 160rpx;
   height: 160rpx;
   border-radius: 8rpx;
-  border: 2rpx dashed #C9CDD4;
+  border: 2rpx dashed #c9cdd4;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -678,17 +680,17 @@ page {
 /* 删除记录：描边红字（危险操作弱化为次按钮形态） */
 .btn-act.btn-del {
   margin-right: auto;
-  color: #F53F3F;
-  border-color: #F53F3F;
-  background: #FFECE8;
+  color: #f53f3f;
+  border-color: #f53f3f;
+  background: #ffece8;
 }
 
 .btn-act {
   padding: 10rpx 36rpx;
-  border: 2rpx solid #0E3DA8;
+  border: 2rpx solid #0e3da8;
   border-radius: 12rpx;
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
   font-size: 24rpx;
   font-weight: 700;
 }

@@ -1,6 +1,6 @@
 .tip-bar {
   margin-bottom: 24rpx;
-  color: #4E5969;
+  color: #4e5969;
   font-size: 24rpx;
   text-align: center;
 }
@@ -9,7 +9,7 @@
   display: flex;
   align-items: center;
   padding: 24rpx 28rpx;
-  background: #FFFFFF;
+  background: #ffffff;
   transition: background-color 0.15s ease;
 }
 
@@ -17,7 +17,7 @@
   width: 72rpx;
   height: 72rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -32,7 +32,7 @@
 
 .s-title {
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 500;
   overflow: hidden;
   white-space: nowrap;
@@ -42,7 +42,7 @@
 .s-time {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .list-card {
@@ -57,7 +57,7 @@
 .s-action {
   width: 128rpx;
   height: 100%;
-  color: #FFFFFF;
+  color: #ffffff;
   font-size: 26rpx;
   display: flex;
   align-items: center;
@@ -65,11 +65,11 @@
 }
 
 .s-rename {
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .s-delete {
-  background: #F53F3F;
+  background: #f53f3f;
 }
 
 /* 新建对话按钮（固定底部） */
@@ -80,5 +80,5 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #F5F7FA;
+  background: #f5f7fa;
 }

@@ -21,7 +21,10 @@ async function assertNetdiskAccess(userId) {
 
 // 文件名净化：去路径分隔符与非法字符（与 worklog zip 同口径防路径穿越）
 function sanitizeName(name) {
-  const n = String(name || '').replace(/[/\\:*?"<>|\r\n]/g, '_').trim().slice(0, 200);
+  const n = String(name || '')
+    .replace(/[/\\:*?"<>|\r\n]/g, '_')
+    .trim()
+    .slice(0, 200);
   if (!n || n === '.' || n === '..') return null;
   return n;
 }
@@ -30,7 +33,9 @@ function sanitizeName(name) {
 // 任一段为空 / . / .. 判非法；深度 ≤6、总长 ≤200
 // 合法返回净化后相对路径（不含首尾斜杠；根目录为空串 ''），非法返回 null
 function sanitizeRelDir(dir) {
-  const s = String(dir == null ? '' : dir).trim().replace(/^\/+|\/+$/g, '');
+  const s = String(dir == null ? '' : dir)
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
   if (!s) return '';
   const segs = s.split('/');
   if (segs.length > 6) return null;

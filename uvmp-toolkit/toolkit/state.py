@@ -5,6 +5,7 @@
 root 定时器与桌面用户的 HOME 不同，状态天然分离：
 GUI 里手动跑一次不会抑制 root 定时器当日的 due-check 判定。
 """
+
 import json
 import os
 import re
@@ -40,6 +41,7 @@ def jobs_dir() -> Path:
 
 
 # ---------------------------------------------------------------- 日志清理
+
 
 def _iter_log_files():
     """logs/ 与 jobs/ 下的全部文件（任务日志 + 任务档案）"""
@@ -97,6 +99,7 @@ def write_json(path: Path, data):
 
 # ---------------------------------------------------------------- 定时运行戳
 
+
 def _mirror_dir():
     """镜像状态目录（环境变量 UVMP_TOOLKIT_MIRROR_STATE）。
     deb 的 systemd timer 以 root 跑 daily-export，其状态在 /root/.local/share 下，
@@ -140,6 +143,7 @@ def set_stamp(name: str, data: dict):
 
 # ---------------------------------------------------------------- 应用运行历史（jsonl，每行一条）
 
+
 def append_history(app_id: str, record: dict):
     record = dict(record)
     record.setdefault("time", time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -153,7 +157,7 @@ def append_history(app_id: str, record: dict):
             f.write_text("\n".join(lines[-200:]) + "\n", encoding="utf-8")
     except Exception:
         pass
-    md = _mirror_dir()   # root 定时器镜像给桌面用户（见 _mirror_dir）
+    md = _mirror_dir()  # root 定时器镜像给桌面用户（见 _mirror_dir）
     if md:
         try:
             mf = md / "history" / (app_id + ".jsonl")
@@ -201,7 +205,9 @@ def delete_history_records(app_id: str, job_ids=None) -> dict:
     返回 {"records": 删的记录数, "files": 删的文件数, "skipped": 占用跳过数}"""
     if not _APP_ID_RE.match(app_id or ""):
         raise ValueError("app_id 非法")
-    want = None if job_ids is None else {j for j in job_ids if _JOB_ID_RE.match(j or "")}
+    want = (
+        None if job_ids is None else {j for j in job_ids if _JOB_ID_RE.match(j or "")}
+    )
     records = 0
     doomed = set()
     f = _sub("history") / (app_id + ".jsonl")

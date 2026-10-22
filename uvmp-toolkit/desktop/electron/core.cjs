@@ -21,7 +21,7 @@ class CoreBridge {
     this.pending = new Map();
     this.onEvent = opts.onEvent || (() => {});
     this.onExit = opts.onExit || (() => {});
-    this.lastStderr = [];      // 核心 stderr 环形缓冲（起不来时亮给界面）
+    this.lastStderr = []; // 核心 stderr 环形缓冲（起不来时亮给界面）
     this._lastCmd = null;
   }
 
@@ -50,7 +50,7 @@ class CoreBridge {
     this._lastCmd = cmd + ' ' + args.join(' ');
     this.proc = spawn(cmd, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,   // 核心无窗口
+      windowsHide: true, // 核心无窗口
       env: Object.assign({}, process.env, this.opts.env || {}),
     });
     this.proc.on('error', (err) => {
@@ -79,7 +79,11 @@ class CoreBridge {
 
   _onLine(line) {
     let msg;
-    try { msg = JSON.parse(line); } catch { return; }
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
     if (msg.event) {
       this.onEvent(msg);
       return;
@@ -111,8 +115,12 @@ class CoreBridge {
 
   stop() {
     if (this.proc) {
-      try { this.proc.stdin.end(); } catch {}
-      try { this.proc.kill(); } catch {}
+      try {
+        this.proc.stdin.end();
+      } catch {}
+      try {
+        this.proc.kill();
+      } catch {}
       this.proc = null;
     }
   }

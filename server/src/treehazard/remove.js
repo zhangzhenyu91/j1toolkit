@@ -5,7 +5,9 @@ const cos = require('../worklog/cos');
 
 // 按记录 id 整条删除（调用方已校验记录归属；COS 删除失败仅记日志，继续删表行与墓碑）
 async function deleteRecord(recordId, teamId) {
-  const [photos] = await pool.query('SELECT cos_key FROM treehazard_photo WHERE record_id = ?', [recordId]);
+  const [photos] = await pool.query('SELECT cos_key FROM treehazard_photo WHERE record_id = ?', [
+    recordId,
+  ]);
   for (const p of photos) {
     try {
       await cos.deleteObject(p.cos_key);
@@ -18,7 +20,10 @@ async function deleteRecord(recordId, teamId) {
     await conn.beginTransaction();
     await conn.query('DELETE FROM treehazard_photo WHERE record_id = ?', [recordId]);
     await conn.query('DELETE FROM treehazard_record WHERE id = ?', [recordId]);
-    await conn.query('INSERT IGNORE INTO treehazard_deleted_id (id, team_id) VALUES (?, ?)', [recordId, teamId]);
+    await conn.query('INSERT IGNORE INTO treehazard_deleted_id (id, team_id) VALUES (?, ?)', [
+      recordId,
+      teamId,
+    ]);
     await conn.commit();
   } catch (e) {
     await conn.rollback().catch(() => {});

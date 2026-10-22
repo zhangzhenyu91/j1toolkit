@@ -65,7 +65,8 @@ function createWmPhoto({ geoBase, logTag }) {
       // 取图后分流：拍摄一律进裁剪；相册已为 4:3/3:4（±0.02 容差）则免裁直走 onDone。
       // EXIF 旋转 90/270° 时显示宽高互换；取信息失败按已是 4:3 处理（保持旧流程）
       afterPickWmPhoto(path, src, info, onDone) {
-        const rotated = ['left', 'right', 'left-mirrored', 'right-mirrored'].indexOf(info.orientation) >= 0;
+        const rotated =
+          ['left', 'right', 'left-mirrored', 'right-mirrored'].indexOf(info.orientation) >= 0;
         const dispW = rotated ? info.height : info.width;
         const dispH = rotated ? info.width : info.height;
         const ratio = dispW && dispH ? dispW / dispH : 4 / 3;
@@ -178,8 +179,12 @@ function createWmPhoto({ geoBase, logTag }) {
               ctx.fillStyle = '#000000';
               ctx.fillRect(0, 0, ow, oh); // jpg 无透明通道，兜黑底
               // EXIF 兜底：解码后宽高未按 EXIF 互换（个别机型）时按 orientation 手动旋转
-              const swapped = ['left', 'right', 'left-mirrored', 'right-mirrored'].indexOf(this._cropOrientation) >= 0;
-              const dimsMatch = Math.abs(img.width - dispW) <= 2 && Math.abs(img.height - dispH) <= 2;
+              const swapped =
+                ['left', 'right', 'left-mirrored', 'right-mirrored'].indexOf(
+                  this._cropOrientation
+                ) >= 0;
+              const dimsMatch =
+                Math.abs(img.width - dispW) <= 2 && Math.abs(img.height - dispH) <= 2;
               if (swapped && !dimsMatch) {
                 this.drawCropRotated(ctx, img, sx, sy, sw, sh, ow, oh);
               } else {
@@ -294,7 +299,9 @@ function createWmPhoto({ geoBase, logTag }) {
                   'wmForm.location': this.data.wmForm.location || (r && r.location) || '',
                 });
               })
-              .catch((err) => console.error(`[${logTag}] /geo 地点天气获取失败（留空手填）：`, err));
+              .catch((err) =>
+                console.error(`[${logTag}] /geo 地点天气获取失败（留空手填）：`, err)
+              );
           },
           fail: (err) => console.error(`[${logTag}] wx.getLocation 定位失败（留空手填）：`, err),
         });
@@ -309,7 +316,11 @@ function createWmPhoto({ geoBase, logTag }) {
         request({ url: `${geoBase}/geo?lng=${lng}&lat=${lat}`, timeout: 10000 })
           .then((r) => {
             if (!this.data.wmVisible) return;
-            if (parseFloat(this.data.wmForm.lng) !== lng || parseFloat(this.data.wmForm.lat) !== lat) return;
+            if (
+              parseFloat(this.data.wmForm.lng) !== lng ||
+              parseFloat(this.data.wmForm.lat) !== lat
+            )
+              return;
             this.setData({
               'wmForm.weather': (r && r.weather) || '',
               'wmForm.location': (r && r.location) || '',
@@ -319,7 +330,11 @@ function createWmPhoto({ geoBase, logTag }) {
           .catch((err) => {
             console.error(`[${logTag}] /geo 地点天气刷新失败（留空手填）：`, err);
             if (!this.data.wmVisible) return;
-            if (parseFloat(this.data.wmForm.lng) !== lng || parseFloat(this.data.wmForm.lat) !== lat) return;
+            if (
+              parseFloat(this.data.wmForm.lng) !== lng ||
+              parseFloat(this.data.wmForm.lat) !== lat
+            )
+              return;
             this.setData({ 'wmForm.weather': '', 'wmForm.location': '' });
           });
       },
@@ -331,7 +346,13 @@ function createWmPhoto({ geoBase, logTag }) {
         this._wmGeoTimer = setTimeout(() => {
           const lng = parseFloat(this.data.wmForm.lng);
           const lat = parseFloat(this.data.wmForm.lat);
-          if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) return;
+          if (
+            !Number.isFinite(lng) ||
+            !Number.isFinite(lat) ||
+            Math.abs(lng) > 180 ||
+            Math.abs(lat) > 90
+          )
+            return;
           if (`${lng},${lat}` === this._wmGeoKey) return;
           this.refreshWmGeo(lng, lat, '已按经纬度更新地点、天气');
         }, 800);

@@ -1,292 +1,618 @@
-<!DOCTYPE html>
+<!doctype html>
 <!-- Shade 壹匣 · 网页版登录页（「政企蓝白」：左实景品牌区（班组作业实景 + 深蓝渐变遮罩）+ 右账号密码表单，入场 riseIn 上浮落位） -->
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>登录 · Shade 壹匣</title>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="stylesheet" href="/assets/theme.css">
-<style>
-  /* ===== 登录页布局（body flex 纵列中 flex:1 撑满视口；本页 data-beian="off" 跳过全局页脚，
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>登录 · Shade 壹匣</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/assets/theme.css" />
+    <style>
+      /* ===== 登录页布局（body flex 纵列中 flex:1 撑满视口；本页 data-beian="off" 跳过全局页脚，
      备案链接改放右侧表单块底部；左品牌区 + 右表单） ===== */
-  .login-page { flex: 1; display: flex; flex-direction: column; }
-  .login-box { flex: 1; width: 100%; display: flex; background: #fff; }
-  /* 左侧品牌区：班组作业实景（login-bg.jpg）+ 深蓝渐变遮罩，黄金分割占 61.8%（.hazard-top 类名保留的空壳 div，无任何样式） */
-  .login-brand {
-    width: 61.8%; flex: none; position: relative;
-    display: flex; flex-direction: column;
-    background: #0A3592 url('/login-bg.jpg') 46% 50% / cover no-repeat; color: #fff; overflow: hidden;
-  }
-  /* 深蓝渐变遮罩：上深下深、中部略透，透出作业场景主体同时保证白字可读 */
-  .login-brand::before {
-    content: ""; position: absolute; inset: 0;
-    background: linear-gradient(168deg,
-      rgba(6, 26, 80, .88) 0%,
-      rgba(10, 53, 146, .66) 42%,
-      rgba(10, 53, 146, .58) 62%,
-      rgba(4, 18, 56, .90) 100%);
-  }
-  /* 极淡网格线保留（遮罩之上、内容之下），延续现行质感 */
-  .login-brand::after {
-    content: ""; position: absolute; inset: 0;
-    background-image:
-      linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
-    background-size: 38px 38px;
-  }
-  .login-brand > * { position: relative; z-index: 1; }
-  .brand-top { position: relative; display: flex; align-items: center; gap: 12px; padding: 32px 38px 0; animation: riseIn .6s var(--ease) .03s both; }
-  /* Logo 白底圆角块：toolkit.svg 主体深蓝，需白底承载（padding 内缩使 img 约 34px） */
-  .brand-top .logo-mark { width: 46px; height: 46px; background: #fff; border-radius: 10px; padding: 6px; box-shadow: 0 2px 8px rgba(4, 18, 56, .18); }
-  .brand-name { font-size: 18px; font-weight: 600; letter-spacing: 2px; }
-  .brand-name small { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 400; color: rgba(255, 255, 255, .6); letter-spacing: 3px; }
-  /* 品牌区内容按黄金分割置于左区上半部：::before/::after 弹性间隔 382:618，
-     内容整体中心约在左区高度 38.2% 处；水平居中保持（文字组内部保持左对齐的阅读秩序） */
-  .brand-mid {
-    position: relative; flex: 1; padding: 36px 38px;
-    display: flex; flex-direction: column; align-items: center;
-    text-align: center;
-  }
-  .brand-mid::before, .brand-mid::after { content: ""; display: block; }
-  .brand-mid::before { flex: 382 0 0; }
-  .brand-mid::after { flex: 618 0 0; }
-  .brand-mid h2 { font-size: 29px; line-height: 1.5; font-weight: 600; letter-spacing: 1px; text-shadow: 0 1px 12px rgba(4, 18, 56, .35); animation: riseIn .6s var(--ease) .1s both; }
-  .brand-mid h2 em { font-style: normal; font-weight: 700; }
-  .brand-mid > p { margin-top: 14px; font-size: 13px; line-height: 1.9; color: rgba(255, 255, 255, .72); letter-spacing: .5px; text-shadow: 0 1px 8px rgba(4, 18, 56, .3); animation: riseIn .6s var(--ease) .17s both; }
-  .brand-feats { margin-top: 32px; display: inline-flex; flex-direction: column; gap: 15px; text-align: left; }
-  .feat { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255, 255, 255, .92); letter-spacing: 1px; text-shadow: 0 1px 8px rgba(4, 18, 56, .3); animation: riseIn .55s var(--ease) both; }
-  .brand-feats .feat:nth-child(1) { animation-delay: .22s; }
-  .brand-feats .feat:nth-child(2) { animation-delay: .27s; }
-  .brand-feats .feat:nth-child(3) { animation-delay: .31s; }
-  /* 右侧表单底部推广区：小程序宣传图 + 内网客户端下载卡（同款白卡发丝边，纵列排布） */
-  .form-promo { margin: 26px auto 0; animation: riseIn .55s var(--ease) .33s both;
-                display: flex; flex-direction: column; gap: 12px; }
-  .form-promo > img { display: block; width: 100%; max-width: 340px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--line); }
-  .promo-client {
-    display: flex; align-items: center; gap: 12px; width: 100%; max-width: 340px; margin: 0 auto;
-    padding: 11px 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px;
-    text-decoration: none; color: inherit; transition: border-color .25s, box-shadow .25s;
-  }
-  .promo-client:hover { border-color: var(--orange); box-shadow: var(--shadow-hover); }
-  .pc-ic { width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--orange-soft);
-           display: flex; align-items: center; justify-content: center; }
-  .pc-ic img { width: 26px; height: 26px; }
-  .pc-tx { flex: 1; min-width: 0; text-align: left; }
-  .pc-tx b { display: block; font-size: 13.5px; }
-  .pc-tx small { display: block; margin-top: 2px; font-size: 11px; color: var(--ph); }
-  .pc-ver { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 600;
-            color: var(--orange); font-variant-numeric: tabular-nums; }
-  .pc-arrow { flex: none; color: var(--ph); display: flex; align-items: center; transition: color .25s; }
-  .promo-client:hover .pc-arrow { color: var(--orange); }
-  /* 特性图标：实景遮罩上的半透明白块 */
-  .feat i {
-    width: 32px; height: 32px; flex: none; border-radius: 8px;
-    background: rgba(255, 255, 255, .16); color: #fff;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .feat i svg { width: 17px; height: 17px; }
-  /* 右侧表单：黄金分割窄侧（38.2%），纵列布局——.form-core 弹性居中表单主体，备案页脚垫底 */
-  .login-form { flex: 1; position: relative; display: flex; flex-direction: column; padding: 48px 66px; background: #fff; overflow: hidden; }
-  .form-core { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; }
-  .form-core > * { width: 100%; max-width: 400px; margin-left: auto; margin-right: auto; }
-  .login-form h2 { font-size: 22px; font-weight: 700; letter-spacing: 1px; animation: riseIn .55s var(--ease) .07s both; }
-  /* margin 简写必须带 auto：.login-form .sub 优先级高于 .form-core>*，
-     写成 8px 0 26px 会把左右 auto 冲掉，导致该块脱离 400px 版心歪向左侧 */
-  .login-form .sub { margin: 8px auto 26px; font-size: 12.5px; color: var(--sub); letter-spacing: .5px; animation: riseIn .55s var(--ease) .11s both; }
-  #fUser { animation: riseIn .55s var(--ease) .15s both; }
-  #fPass { animation: riseIn .55s var(--ease) .19s both; }
-  /* margin 需带 auto：等优先级下后置规则会覆盖 .form-core>* 的居中，导致此行错位 */
-  .form-row { display: flex; align-items: center; justify-content: space-between; margin: 2px auto 18px; font-size: 12.5px; color: var(--sub); animation: riseIn .55s var(--ease) .22s both; }
-  .form-row .ck-l { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
-  .form-row a { color: var(--sub); transition: color .25s; }
-  .form-row a:hover { color: var(--orange); }
-  .ck {
-    width: 16px; height: 16px; flex: none; border-radius: 4px;
-    border: 1px solid var(--dash); background: #fff; color: #fff;
-    display: inline-flex; align-items: center; justify-content: center;
-    transition: background .2s, border-color .2s;
-  }
-  .ck.on { background: var(--orange); border-color: var(--orange); }
-  .ck svg { width: 10px; height: 10px; opacity: 0; transition: opacity .2s; }
-  .ck.on svg { opacity: 1; }
-  .agree { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; color: var(--sub); animation: riseIn .55s var(--ease) .29s both; }
-  .agree a { color: var(--orange); font-weight: 600; cursor: pointer; }
-  .login-foot { margin-top: 30px; text-align: center; font-size: 11px; color: var(--ph); letter-spacing: 1px; animation: riseIn .55s var(--ease) .32s both; }
-  #btnLogin { animation: riseIn .55s var(--ease) .25s both; }
-  .login-form .beian-foot { animation: riseIn .55s var(--ease) .35s both; }
-
-  /* ===== 入场动效（riseIn 上浮落位，fill-mode:both 落位静止） ===== */
-  @keyframes riseIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
-
-  /* 移动端上下堆叠：品牌区在上，表单在下 */
-  @media (max-width: 860px) {
-    .login-box { flex-direction: column; }
-    .login-brand { width: 100%; }
-    .brand-mid h2 { font-size: 24px; }
-    .login-form { padding: 36px 28px; }
-  }
-</style>
-</head>
-<body data-beian="off">
-<div class="login-page">
-  <div class="login-box">
-    <!-- 左侧品牌区（深蓝底 + 极淡网格线） -->
-    <div class="login-brand">
-      <div class="brand-top">
-        <span class="logo-mark" id="logoMark"></span>
-        <div class="brand-name">Shade 壹匣<small>班组数字化工具平台</small></div>
-      </div>
-      <div class="brand-mid">
-        <h2>班组应用，<br>一匣尽纳，<br><em>安全每一班。</em></h2>
-        <p>统一登录 · 应用聚合 · 权限管控，班组的一站式数字化工作台。</p>
-        <div class="brand-feats">
-          <div class="feat"><i id="featUser"></i>统一身份认证，班组账号一键登录</div>
-          <div class="feat"><i id="featApp"></i>应用中心聚合，业务应用按权限自动下发</div>
-          <div class="feat"><i id="featShield"></i>数据安全可溯，操作留痕符合班组管理规范</div>
-        </div>
-      </div>
-      <div class="hazard-top"></div>
-    </div>
-    <!-- 右侧登录表单：.form-core 垂直居中主体，备案页脚垫底（本页 data-beian="off"，不注入全局页脚） -->
-    <form class="login-form" id="loginForm" novalidate>
-      <div class="form-core">
-        <h2>欢迎回来</h2>
-        <div class="sub">请使用班组账号登录 Shade 壹匣工作台</div>
-        <div class="field" id="fUser">
-          <input class="input" type="text" id="username" placeholder="请输入账号" autocomplete="username">
-        </div>
-        <div class="field" id="fPass">
-          <input class="input" type="password" id="password" placeholder="请输入密码" autocomplete="current-password">
-        </div>
-        <div class="form-row">
-          <label class="ck-l" for="remember">
-            <input type="checkbox" id="remember" hidden>
-            <span class="ck" id="ckRemember"></span>记住账号
-          </label>
-          <a href="javascript:void 0" id="forgot">忘记密码？</a>
-        </div>
-        <button class="btn btn-primary btn-block" type="submit" id="btnLogin">登 录</button>
-        <div class="agree">登录即代表已阅读并同意<a id="linkUla">《用户协议》</a>和<a id="linkPp">《隐私政策》</a></div>
-        <div class="login-foot">
-          <div>© 2026 Shade 壹匣 · v1.14.0</div>
-        </div>
-      </div>
-      <div class="form-promo">
-        <img src="/mp-promo.jpg" alt="微信搜一搜「Shade 壹匣」小程序">
-        <a class="promo-client" id="promoClient" href="https://cnb.cool/j1net/j1toolkit/j1toolkit/-/releases" target="_blank" rel="noopener">
-          <span class="pc-ic"><img src="/assets/cnb.png" alt="CNB"></span>
-          <span class="pc-tx">
-            <b>内网客户端</b>
-            <small>内网被控机安装包（Windows / 麒麟）</small>
-            <span class="pc-ver" id="promoVer">前往 CNB 下载</span>
-          </span>
-          <span class="pc-arrow" id="promoArrow"></span>
-        </a>
-      </div>
-      <footer class="beian-foot">
-        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>
-        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener"><img src="/public-security.png" alt="公安备案">晋公网安备14118202000050号</a>
-      </footer>
-    </form>
-  </div>
-</div>
-
-<script src="/assets/icons.js"></script>
-<script src="/assets/common.js"></script>
-<script>
-  // 已登录且 token 未过期则直接进入工作台（过期 token 不再放行，留在登录页重新登录）
-  if (localStorage.getItem('shade_token') && !Shade.isTokenExpired()) location.replace('/index.html');
-
-  // 品牌 Logo 用 toolkit.svg（原色透明版，白底圆角块承载），其余注入线性图标
-  document.getElementById('logoMark').innerHTML = '<img src="/toolkit.svg" alt="Shade 壹匣">';
-  document.getElementById('featUser').innerHTML = Shade.icon('user', 17);
-  document.getElementById('featApp').innerHTML = Shade.icon('app', 17);
-  document.getElementById('featShield').innerHTML = Shade.icon('shield', 17);
-  document.getElementById('fUser').insertAdjacentHTML('afterbegin', Shade.icon('user', 18));
-  document.getElementById('fPass').insertAdjacentHTML('afterbegin', Shade.icon('lock-on', 18));
-  document.getElementById('ckRemember').innerHTML = Shade.icon('check', 10, '#fff');
-  document.getElementById('promoArrow').innerHTML = Shade.icon('arrow-right', 16);
-
-  // 内网客户端推广卡：链接指向 CNB Releases 最新 tag（GitHub API 拉最新 tag 拼接；1h 本地缓存，失败保持列表页）
-  (async function () {
-    var linkEl = document.getElementById('promoClient');
-    var verEl = document.getElementById('promoVer');
-    var CNB_BASE = 'https://cnb.cool/j1net/j1toolkit/j1toolkit/-/releases';
-    function apply(tag) {
-      if (!tag) return;
-      linkEl.href = CNB_BASE + '/tag/' + encodeURIComponent(tag);
-      verEl.textContent = '下载最新版 ' + tag;
-    }
-    try {
-      var cached = JSON.parse(localStorage.getItem('shade_latest_tag') || 'null');
-      if (cached && cached.tag && Date.now() - cached.at < 3600000) apply(cached.tag);
-    } catch (e) { /* 缓存损坏忽略 */ }
-    try {
-      var r = await fetch('https://api.github.com/repos/zhangzhenyu91/j1toolkit/releases/latest');
-      if (!r.ok) return;
-      var j = await r.json();
-      if (j && j.tag_name) {
-        apply(j.tag_name);
-        localStorage.setItem('shade_latest_tag', JSON.stringify({ tag: j.tag_name, at: Date.now() }));
+      .login-page {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
       }
-    } catch (e) { /* 拉取失败保持 releases 列表页链接 */ }
-  })();
+      .login-box {
+        flex: 1;
+        width: 100%;
+        display: flex;
+        background: #fff;
+      }
+      /* 左侧品牌区：班组作业实景（login-bg.jpg）+ 深蓝渐变遮罩，黄金分割占 61.8%（.hazard-top 类名保留的空壳 div，无任何样式） */
+      .login-brand {
+        width: 61.8%;
+        flex: none;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        background: #0a3592 url('/login-bg.jpg') 46% 50% / cover no-repeat;
+        color: #fff;
+        overflow: hidden;
+      }
+      /* 深蓝渐变遮罩：上深下深、中部略透，透出作业场景主体同时保证白字可读 */
+      .login-brand::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          168deg,
+          rgba(6, 26, 80, 0.88) 0%,
+          rgba(10, 53, 146, 0.66) 42%,
+          rgba(10, 53, 146, 0.58) 62%,
+          rgba(4, 18, 56, 0.9) 100%
+        );
+      }
+      /* 极淡网格线保留（遮罩之上、内容之下），延续现行质感 */
+      .login-brand::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+        background-size: 38px 38px;
+      }
+      .login-brand > * {
+        position: relative;
+        z-index: 1;
+      }
+      .brand-top {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 32px 38px 0;
+        animation: riseIn 0.6s var(--ease) 0.03s both;
+      }
+      /* Logo 白底圆角块：toolkit.svg 主体深蓝，需白底承载（padding 内缩使 img 约 34px） */
+      .brand-top .logo-mark {
+        width: 46px;
+        height: 46px;
+        background: #fff;
+        border-radius: 10px;
+        padding: 6px;
+        box-shadow: 0 2px 8px rgba(4, 18, 56, 0.18);
+      }
+      .brand-name {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 2px;
+      }
+      .brand-name small {
+        display: block;
+        margin-top: 3px;
+        font-size: 10.5px;
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.6);
+        letter-spacing: 3px;
+      }
+      /* 品牌区内容按黄金分割置于左区上半部：::before/::after 弹性间隔 382:618，
+     内容整体中心约在左区高度 38.2% 处；水平居中保持（文字组内部保持左对齐的阅读秩序） */
+      .brand-mid {
+        position: relative;
+        flex: 1;
+        padding: 36px 38px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+      }
+      .brand-mid::before,
+      .brand-mid::after {
+        content: '';
+        display: block;
+      }
+      .brand-mid::before {
+        flex: 382 0 0;
+      }
+      .brand-mid::after {
+        flex: 618 0 0;
+      }
+      .brand-mid h2 {
+        font-size: 29px;
+        line-height: 1.5;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-shadow: 0 1px 12px rgba(4, 18, 56, 0.35);
+        animation: riseIn 0.6s var(--ease) 0.1s both;
+      }
+      .brand-mid h2 em {
+        font-style: normal;
+        font-weight: 700;
+      }
+      .brand-mid > p {
+        margin-top: 14px;
+        font-size: 13px;
+        line-height: 1.9;
+        color: rgba(255, 255, 255, 0.72);
+        letter-spacing: 0.5px;
+        text-shadow: 0 1px 8px rgba(4, 18, 56, 0.3);
+        animation: riseIn 0.6s var(--ease) 0.17s both;
+      }
+      .brand-feats {
+        margin-top: 32px;
+        display: inline-flex;
+        flex-direction: column;
+        gap: 15px;
+        text-align: left;
+      }
+      .feat {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.92);
+        letter-spacing: 1px;
+        text-shadow: 0 1px 8px rgba(4, 18, 56, 0.3);
+        animation: riseIn 0.55s var(--ease) both;
+      }
+      .brand-feats .feat:nth-child(1) {
+        animation-delay: 0.22s;
+      }
+      .brand-feats .feat:nth-child(2) {
+        animation-delay: 0.27s;
+      }
+      .brand-feats .feat:nth-child(3) {
+        animation-delay: 0.31s;
+      }
+      /* 右侧表单底部推广区：小程序宣传图 + 内网客户端下载卡（同款白卡发丝边，纵列排布） */
+      .form-promo {
+        margin: 26px auto 0;
+        animation: riseIn 0.55s var(--ease) 0.33s both;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .form-promo > img {
+        display: block;
+        width: 100%;
+        max-width: 340px;
+        margin: 0 auto;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+      }
+      .promo-client {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        max-width: 340px;
+        margin: 0 auto;
+        padding: 11px 14px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        text-decoration: none;
+        color: inherit;
+        transition:
+          border-color 0.25s,
+          box-shadow 0.25s;
+      }
+      .promo-client:hover {
+        border-color: var(--orange);
+        box-shadow: var(--shadow-hover);
+      }
+      .pc-ic {
+        width: 40px;
+        height: 40px;
+        flex: none;
+        border-radius: 10px;
+        background: var(--orange-soft);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .pc-ic img {
+        width: 26px;
+        height: 26px;
+      }
+      .pc-tx {
+        flex: 1;
+        min-width: 0;
+        text-align: left;
+      }
+      .pc-tx b {
+        display: block;
+        font-size: 13.5px;
+      }
+      .pc-tx small {
+        display: block;
+        margin-top: 2px;
+        font-size: 11px;
+        color: var(--ph);
+      }
+      .pc-ver {
+        display: block;
+        margin-top: 3px;
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--orange);
+        font-variant-numeric: tabular-nums;
+      }
+      .pc-arrow {
+        flex: none;
+        color: var(--ph);
+        display: flex;
+        align-items: center;
+        transition: color 0.25s;
+      }
+      .promo-client:hover .pc-arrow {
+        color: var(--orange);
+      }
+      /* 特性图标：实景遮罩上的半透明白块 */
+      .feat i {
+        width: 32px;
+        height: 32px;
+        flex: none;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.16);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .feat i svg {
+        width: 17px;
+        height: 17px;
+      }
+      /* 右侧表单：黄金分割窄侧（38.2%），纵列布局——.form-core 弹性居中表单主体，备案页脚垫底 */
+      .login-form {
+        flex: 1;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        padding: 48px 66px;
+        background: #fff;
+        overflow: hidden;
+      }
+      .form-core {
+        flex: 1;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .form-core > * {
+        width: 100%;
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .login-form h2 {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        animation: riseIn 0.55s var(--ease) 0.07s both;
+      }
+      /* margin 简写必须带 auto：.login-form .sub 优先级高于 .form-core>*，
+     写成 8px 0 26px 会把左右 auto 冲掉，导致该块脱离 400px 版心歪向左侧 */
+      .login-form .sub {
+        margin: 8px auto 26px;
+        font-size: 12.5px;
+        color: var(--sub);
+        letter-spacing: 0.5px;
+        animation: riseIn 0.55s var(--ease) 0.11s both;
+      }
+      #fUser {
+        animation: riseIn 0.55s var(--ease) 0.15s both;
+      }
+      #fPass {
+        animation: riseIn 0.55s var(--ease) 0.19s both;
+      }
+      /* margin 需带 auto：等优先级下后置规则会覆盖 .form-core>* 的居中，导致此行错位 */
+      .form-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 2px auto 18px;
+        font-size: 12.5px;
+        color: var(--sub);
+        animation: riseIn 0.55s var(--ease) 0.22s both;
+      }
+      .form-row .ck-l {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .form-row a {
+        color: var(--sub);
+        transition: color 0.25s;
+      }
+      .form-row a:hover {
+        color: var(--orange);
+      }
+      .ck {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border-radius: 4px;
+        border: 1px solid var(--dash);
+        background: #fff;
+        color: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition:
+          background 0.2s,
+          border-color 0.2s;
+      }
+      .ck.on {
+        background: var(--orange);
+        border-color: var(--orange);
+      }
+      .ck svg {
+        width: 10px;
+        height: 10px;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      .ck.on svg {
+        opacity: 1;
+      }
+      .agree {
+        margin-top: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 11.5px;
+        color: var(--sub);
+        animation: riseIn 0.55s var(--ease) 0.29s both;
+      }
+      .agree a {
+        color: var(--orange);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .login-foot {
+        margin-top: 30px;
+        text-align: center;
+        font-size: 11px;
+        color: var(--ph);
+        letter-spacing: 1px;
+        animation: riseIn 0.55s var(--ease) 0.32s both;
+      }
+      #btnLogin {
+        animation: riseIn 0.55s var(--ease) 0.25s both;
+      }
+      .login-form .beian-foot {
+        animation: riseIn 0.55s var(--ease) 0.35s both;
+      }
 
-  var $username = document.getElementById('username');
-  var $password = document.getElementById('password');
-  var $remember = document.getElementById('remember');
-  var $ck = document.getElementById('ckRemember');
-  var $btn = document.getElementById('btnLogin');
+      /* ===== 入场动效（riseIn 上浮落位，fill-mode:both 落位静止） ===== */
+      @keyframes riseIn {
+        from {
+          transform: translateY(14px);
+          opacity: 0;
+        }
+        to {
+          transform: none;
+          opacity: 1;
+        }
+      }
 
-  // 记住账号：回显上次登录的账号
-  var remembered = localStorage.getItem('shade_remember') || '';
-  if (remembered) {
-    $username.value = remembered;
-    $remember.checked = true;
-    $ck.classList.add('on');
-  }
-  $remember.addEventListener('change', function () {
-    $ck.classList.toggle('on', $remember.checked);
-  });
+      /* 移动端上下堆叠：品牌区在上，表单在下 */
+      @media (max-width: 860px) {
+        .login-box {
+          flex-direction: column;
+        }
+        .login-brand {
+          width: 100%;
+        }
+        .brand-mid h2 {
+          font-size: 24px;
+        }
+        .login-form {
+          padding: 36px 28px;
+        }
+      }
+    </style>
+  </head>
+  <body data-beian="off">
+    <div class="login-page">
+      <div class="login-box">
+        <!-- 左侧品牌区（深蓝底 + 极淡网格线） -->
+        <div class="login-brand">
+          <div class="brand-top">
+            <span class="logo-mark" id="logoMark"></span>
+            <div class="brand-name">Shade 壹匣<small>班组数字化工具平台</small></div>
+          </div>
+          <div class="brand-mid">
+            <h2>班组应用，<br />一匣尽纳，<br /><em>安全每一班。</em></h2>
+            <p>统一登录 · 应用聚合 · 权限管控，班组的一站式数字化工作台。</p>
+            <div class="brand-feats">
+              <div class="feat"><i id="featUser"></i>统一身份认证，班组账号一键登录</div>
+              <div class="feat"><i id="featApp"></i>应用中心聚合，业务应用按权限自动下发</div>
+              <div class="feat"><i id="featShield"></i>数据安全可溯，操作留痕符合班组管理规范</div>
+            </div>
+          </div>
+          <div class="hazard-top"></div>
+        </div>
+        <!-- 右侧登录表单：.form-core 垂直居中主体，备案页脚垫底（本页 data-beian="off"，不注入全局页脚） -->
+        <form class="login-form" id="loginForm" novalidate>
+          <div class="form-core">
+            <h2>欢迎回来</h2>
+            <div class="sub">请使用班组账号登录 Shade 壹匣工作台</div>
+            <div class="field" id="fUser">
+              <input
+                class="input"
+                type="text"
+                id="username"
+                placeholder="请输入账号"
+                autocomplete="username"
+              />
+            </div>
+            <div class="field" id="fPass">
+              <input
+                class="input"
+                type="password"
+                id="password"
+                placeholder="请输入密码"
+                autocomplete="current-password"
+              />
+            </div>
+            <div class="form-row">
+              <label class="ck-l" for="remember">
+                <input type="checkbox" id="remember" hidden />
+                <span class="ck" id="ckRemember"></span>记住账号
+              </label>
+              <a href="javascript:void 0" id="forgot">忘记密码？</a>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit" id="btnLogin">登 录</button>
+            <div class="agree">
+              登录即代表已阅读并同意<a id="linkUla">《用户协议》</a>和<a id="linkPp"
+                >《隐私政策》</a
+              >
+            </div>
+            <div class="login-foot">
+              <div>© 2026 Shade 壹匣 · v1.14.1</div>
+            </div>
+          </div>
+          <div class="form-promo">
+            <img src="/mp-promo.jpg" alt="微信搜一搜「Shade 壹匣」小程序" />
+            <a
+              class="promo-client"
+              id="promoClient"
+              href="https://cnb.cool/j1net/j1toolkit/j1toolkit/-/releases"
+              target="_blank"
+              rel="noopener"
+            >
+              <span class="pc-ic"><img src="/assets/cnb.png" alt="CNB" /></span>
+              <span class="pc-tx">
+                <b>内网客户端</b>
+                <small>内网被控机安装包（Windows / 麒麟）</small>
+                <span class="pc-ver" id="promoVer">前往 CNB 下载</span>
+              </span>
+              <span class="pc-arrow" id="promoArrow"></span>
+            </a>
+          </div>
+          <footer class="beian-foot">
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener"
+              >晋ICP备2025063709号-2</a
+            >
+            <a
+              href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050"
+              target="_blank"
+              rel="noopener"
+              ><img src="/public-security.png" alt="公安备案" />晋公网安备14118202000050号</a
+            >
+          </footer>
+        </form>
+      </div>
+    </div>
 
-  document.getElementById('forgot').addEventListener('click', function () {
-    Shade.toast('请联系管理员重置密码', 'info');
-  });
-  document.getElementById('linkUla').addEventListener('click', function () {
-    Shade.toast('用户协议由班组管理员发布，请遵守平台使用规范', 'info');
-  });
-  document.getElementById('linkPp').addEventListener('click', function () {
-    Shade.toast('平台数据仅用于班组内部业务管理', 'info');
-  });
+    <script src="/assets/icons.js"></script>
+    <script src="/assets/common.js"></script>
+    <script>
+      // 已登录且 token 未过期则直接进入工作台（过期 token 不再放行，留在登录页重新登录）
+      if (localStorage.getItem('shade_token') && !Shade.isTokenExpired())
+        location.replace('/index.html');
 
-  // 提交登录
-  document.getElementById('loginForm').addEventListener('submit', async function (e) {
-    e.preventDefault();
-    var username = $username.value.trim();
-    var password = $password.value;
-    if (!username || !password) {
-      Shade.toast('请输入账号和密码', 'error');
-      return;
-    }
-    $btn.disabled = true;
-    $btn.textContent = '登录中…';
-    try {
-      var r = await Shade.api('/api/v1/auth/login', {
-        method: 'POST',
-        body: { username: username, password: password, client: 'web' }, // client:'web' → 服务端签发短时效 token（JWT_WEB_EXPIRES）
+      // 品牌 Logo 用 toolkit.svg（原色透明版，白底圆角块承载），其余注入线性图标
+      document.getElementById('logoMark').innerHTML = '<img src="/toolkit.svg" alt="Shade 壹匣">';
+      document.getElementById('featUser').innerHTML = Shade.icon('user', 17);
+      document.getElementById('featApp').innerHTML = Shade.icon('app', 17);
+      document.getElementById('featShield').innerHTML = Shade.icon('shield', 17);
+      document.getElementById('fUser').insertAdjacentHTML('afterbegin', Shade.icon('user', 18));
+      document.getElementById('fPass').insertAdjacentHTML('afterbegin', Shade.icon('lock-on', 18));
+      document.getElementById('ckRemember').innerHTML = Shade.icon('check', 10, '#fff');
+      document.getElementById('promoArrow').innerHTML = Shade.icon('arrow-right', 16);
+
+      // 内网客户端推广卡：链接指向 CNB Releases 最新 tag（GitHub API 拉最新 tag 拼接；1h 本地缓存，失败保持列表页）
+      (async function () {
+        var linkEl = document.getElementById('promoClient');
+        var verEl = document.getElementById('promoVer');
+        var CNB_BASE = 'https://cnb.cool/j1net/j1toolkit/j1toolkit/-/releases';
+        function apply(tag) {
+          if (!tag) return;
+          linkEl.href = CNB_BASE + '/tag/' + encodeURIComponent(tag);
+          verEl.textContent = '下载最新版 ' + tag;
+        }
+        try {
+          var cached = JSON.parse(localStorage.getItem('shade_latest_tag') || 'null');
+          if (cached && cached.tag && Date.now() - cached.at < 3600000) apply(cached.tag);
+        } catch (e) {
+          /* 缓存损坏忽略 */
+        }
+        try {
+          var r = await fetch(
+            'https://api.github.com/repos/zhangzhenyu91/j1toolkit/releases/latest'
+          );
+          if (!r.ok) return;
+          var j = await r.json();
+          if (j && j.tag_name) {
+            apply(j.tag_name);
+            localStorage.setItem(
+              'shade_latest_tag',
+              JSON.stringify({ tag: j.tag_name, at: Date.now() })
+            );
+          }
+        } catch (e) {
+          /* 拉取失败保持 releases 列表页链接 */
+        }
+      })();
+
+      var $username = document.getElementById('username');
+      var $password = document.getElementById('password');
+      var $remember = document.getElementById('remember');
+      var $ck = document.getElementById('ckRemember');
+      var $btn = document.getElementById('btnLogin');
+
+      // 记住账号：回显上次登录的账号
+      var remembered = localStorage.getItem('shade_remember') || '';
+      if (remembered) {
+        $username.value = remembered;
+        $remember.checked = true;
+        $ck.classList.add('on');
+      }
+      $remember.addEventListener('change', function () {
+        $ck.classList.toggle('on', $remember.checked);
       });
-      Shade.setAuth(r.data.token, r.data.user);
-      if ($remember.checked) localStorage.setItem('shade_remember', username);
-      else localStorage.removeItem('shade_remember');
-      Shade.toast('登录成功，正在进入工作台', 'success');
-      setTimeout(function () { location.href = '/index.html'; }, 300);
-    } catch (err) {
-      Shade.toast(err.message || '登录失败，请稍后重试', 'error');
-      $btn.disabled = false;
-      $btn.textContent = '登 录';
-    }
-  });
-</script>
-</body>
+
+      document.getElementById('forgot').addEventListener('click', function () {
+        Shade.toast('请联系管理员重置密码', 'info');
+      });
+      document.getElementById('linkUla').addEventListener('click', function () {
+        Shade.toast('用户协议由班组管理员发布，请遵守平台使用规范', 'info');
+      });
+      document.getElementById('linkPp').addEventListener('click', function () {
+        Shade.toast('平台数据仅用于班组内部业务管理', 'info');
+      });
+
+      // 提交登录
+      document.getElementById('loginForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var username = $username.value.trim();
+        var password = $password.value;
+        if (!username || !password) {
+          Shade.toast('请输入账号和密码', 'error');
+          return;
+        }
+        $btn.disabled = true;
+        $btn.textContent = '登录中…';
+        try {
+          var r = await Shade.api('/api/v1/auth/login', {
+            method: 'POST',
+            body: { username: username, password: password, client: 'web' }, // client:'web' → 服务端签发短时效 token（JWT_WEB_EXPIRES）
+          });
+          Shade.setAuth(r.data.token, r.data.user);
+          if ($remember.checked) localStorage.setItem('shade_remember', username);
+          else localStorage.removeItem('shade_remember');
+          Shade.toast('登录成功，正在进入工作台', 'success');
+          setTimeout(function () {
+            location.href = '/index.html';
+          }, 300);
+        } catch (err) {
+          Shade.toast(err.message || '登录失败，请稍后重试', 'error');
+          $btn.disabled = false;
+          $btn.textContent = '登 录';
+        }
+      });
+    </script>
+  </body>
 </html>

@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #F5F7FA;
+  background: #f5f7fa;
 }
 
 /* ---------- 消息区 ---------- */
@@ -39,8 +39,8 @@
 }
 
 .user-bubble {
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
   border-bottom-right-radius: 0;
   display: flex;
   flex-direction: column;
@@ -57,7 +57,7 @@
 /* 回答不用气泡（对齐官方前端）：纯文本流式内容，仅用户问题保留气泡 */
 .reply-bubble {
   background: transparent;
-  color: #1D2129;
+  color: #1d2129;
   border-radius: 12rpx;
   max-width: 100%;
   padding: 0;
@@ -66,13 +66,13 @@
 
 .reply-error {
   background: transparent;
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 .thinking {
   margin-bottom: 8rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   line-height: 1.5;
 }
 
@@ -94,18 +94,18 @@
   align-items: center;
   gap: 10rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .think-dot {
   width: 12rpx;
   height: 12rpx;
   border-radius: 50%;
-  background: rgba(29,33,41,.35);
+  background: rgba(29, 33, 41, 0.35);
 }
 
 .think-dot-on {
-  background: #0E3DA8;
+  background: #0e3da8;
   animation: blink 1s infinite;
 }
 
@@ -162,7 +162,7 @@
   width: 2rpx;
   flex: 1;
   min-height: 8rpx;
-  background: #EDE5D2;
+  background: #ede5d2;
 }
 
 .step-main {
@@ -177,18 +177,18 @@
 
 .step-title {
   font-size: 24rpx;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 500;
   line-height: 1.5;
   word-break: break-word;
 }
 
 .step-title-run {
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .step-title-err {
-  color: #F53F3F;
+  color: #f53f3f;
   display: flex;
   align-items: flex-start;
 }
@@ -204,31 +204,43 @@
 .step-summary {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   line-height: 1.5;
 }
 
 .step-text {
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 @keyframes stepPulse {
-  0%, 100% { opacity: 0.45; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.12); }
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
 }
 
 .cursor {
-  color: #0E3DA8;
+  color: #0e3da8;
   animation: blink 1s infinite;
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 .msg-img {
@@ -253,28 +265,28 @@
 
 .msg-time {
   font-size: 24rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* ---------- 引用来源 ---------- */
 .ref-box {
   margin-top: 8rpx;
   padding: 12rpx 20rpx;
-  background: #E8F0FF;
-  border: 1rpx solid #EDE5D2;
+  background: #e8f0ff;
+  border: 1rpx solid #ede5d2;
   border-radius: 12rpx;
 }
 
 .ref-title {
   font-size: 20rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   letter-spacing: 2rpx;
   margin-bottom: 6rpx;
 }
 
 .ref-item {
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.7;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -287,9 +299,9 @@
   margin: 0 auto 20rpx;
   padding: 8rpx 28rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
-  background: #FFFFFF;
-  border: 2rpx solid #E5E6EB;
+  color: rgba(29, 33, 41, 0.4);
+  background: #ffffff;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   width: fit-content;
 }
@@ -305,9 +317,9 @@
 
 /* 输入卡片：白卡收拢附件芯片/图片/输入框/工具栏（同全局 .card 卡族形态） */
 .input-card {
-  background: #FFFFFF;
+  background: #ffffff;
   border-radius: 24rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, .05);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.05);
   padding: 20rpx;
 }
 
@@ -332,7 +344,7 @@
   height: 32rpx;
   border-radius: 12rpx;
   background: rgba(29, 33, 41, 0.72);
-  color: #FFFFFF;
+  color: #ffffff;
   font-size: 20rpx;
   display: flex;
   align-items: center;
@@ -354,8 +366,8 @@
   gap: 6rpx;
   padding: 6rpx 16rpx;
   border-radius: 999rpx;
-  background: #F5F7FA;
-  color: #4E5969;
+  background: #f5f7fa;
+  color: #4e5969;
   font-size: 22rpx;
   line-height: 1.5;
   transition: opacity 0.15s ease;
@@ -370,8 +382,8 @@
 }
 
 .cap-pill-on {
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
 }
 
 /* 仅 1 个可用模型时的禁用态 */
@@ -452,13 +464,13 @@
   display: flex;
   align-items: center;
   gap: 12rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   border-radius: 8rpx;
   padding: 12rpx 16rpx;
 }
 
 .attach-chip-err {
-  background: #FFECE8;
+  background: #ffece8;
 }
 
 .attach-info {
@@ -470,7 +482,7 @@
 
 .attach-name {
   font-size: 24rpx;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -478,30 +490,30 @@
 
 .attach-meta {
   font-size: 20rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 .attach-chip-err .attach-meta {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 .attach-progress {
   margin-top: 8rpx;
   height: 4rpx;
   border-radius: 2rpx;
-  background: #E5E6EB;
+  background: #e5e6eb;
   overflow: hidden;
 }
 
 .attach-progress-bar {
   height: 100%;
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .attach-close {
   flex: none;
   padding: 8rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   font-size: 24rpx;
   line-height: 1;
 }
@@ -525,7 +537,7 @@
   width: 72rpx;
   height: 72rpx;
   border-radius: 50%;
-  background: #F5F7FA;
+  background: #f5f7fa;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -541,23 +553,25 @@
   font-size: 28rpx;
   line-height: 1.5;
   max-height: 180rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .input-ph {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .send-btn {
   width: 72rpx;
   height: 72rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .send-disabled {

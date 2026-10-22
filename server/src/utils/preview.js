@@ -10,7 +10,10 @@ const OFFICE_EXTS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']);
 // fileName 供识别格式（扩展名决定能否预览），displayName 保留兼容旧调用签名（微软查看器用不到）；
 // 非 Office 格式返回空串（调用方按「该格式不支持在线预览，请下载查看」提示）
 function buildPreviewUrl(req, downloadPath, fileName, displayName) {
-  const ext = String(fileName || '').split('.').pop().toLowerCase();
+  const ext = String(fileName || '')
+    .split('.')
+    .pop()
+    .toLowerCase();
   if (!OFFICE_EXTS.has(ext)) return '';
   // 反代后 req.protocol 恒为 http（未开 trust proxy）：优先取 X-Forwarded-Proto 头回退
   const proto = req.headers['x-forwarded-proto'] || req.protocol;

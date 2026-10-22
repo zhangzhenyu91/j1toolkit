@@ -37,7 +37,9 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
         const cached = wx.getStorageSync(KEY);
         if (cached && Array.isArray(cached.rows) && cached.rows.length) {
           request({ url: towersUrl(this), timeout: 10000 })
-            .then((r) => { if (r && Array.isArray(r.rows) && r.rows.length) wx.setStorageSync(KEY, r); })
+            .then((r) => {
+              if (r && Array.isArray(r.rows) && r.rows.length) wx.setStorageSync(KEY, r);
+            })
             .catch(() => {});
           return Promise.resolve(cached.rows);
         }
@@ -62,7 +64,13 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
         const rows = this.data.towerRows || [];
         return rows
           .filter((r) => r[0] === level && r[1] === line)
-          .map((r) => ({ no: r[2], lng: r[3], lat: r[4], lngText: r[3].toFixed(6), latText: r[4].toFixed(6) }));
+          .map((r) => ({
+            no: r[2],
+            lng: r[3],
+            lat: r[4],
+            lngText: r[3].toFixed(6),
+            latText: r[4].toFixed(6),
+          }));
       },
 
       // 每次进入水印编辑前重置杆塔选择态（towerRows 坐标数据缓存保留，供下次直接打开）
@@ -87,7 +95,13 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
       // 打开级联弹层（页面「选择杆塔坐标」入口包装调用）；首次打开需先加载数据（失败关层提示，已选状态保留供重选带回）
       openTowerCascade() {
         wx.hideKeyboard(); // 收起施工内容等 hold-keyboard 输入残留的键盘，弹层统一从键盘收起态布局
-        const base = { towerVisible: true, towerOpen: '', keyboardHeight: 0, towerScrollInto: '', towerLevels: this.towerLevelsOf() };
+        const base = {
+          towerVisible: true,
+          towerOpen: '',
+          keyboardHeight: 0,
+          towerScrollInto: '',
+          towerLevels: this.towerLevelsOf(),
+        };
         if (this.data.towerRows) {
           this.setData(base);
           return;
@@ -115,7 +129,13 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
         const jittered = this.jitterCoord(t.lng, t.lat, 50);
         this.setData({
           towerVisible: false,
-          wmTowerPicked: { level: this.data.towerLevel, line: this.data.towerLine, no: t.no, lng: t.lng, lat: t.lat },
+          wmTowerPicked: {
+            level: this.data.towerLevel,
+            line: this.data.towerLine,
+            no: t.no,
+            lng: t.lng,
+            lat: t.lat,
+          },
           'wmForm.lng': jittered.lng,
           'wmForm.lat': jittered.lat,
         });
@@ -131,8 +151,10 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
         const open = this.data.towerOpen === key ? '' : key;
         const patch = { towerOpen: open };
         if (key === 'level' && open === 'level') patch.towerLevels = this.towerLevelsOf();
-        if (key === 'line' && open === 'line') patch.towerLines = this.towerLinesOf(this.data.towerLevel);
-        if (key === 'tower' && open === 'tower') patch.towerTowers = this.towerTowersOf(this.data.towerLevel, this.data.towerLine);
+        if (key === 'line' && open === 'line')
+          patch.towerLines = this.towerLinesOf(this.data.towerLevel);
+        if (key === 'tower' && open === 'tower')
+          patch.towerTowers = this.towerTowersOf(this.data.towerLevel, this.data.towerLine);
         this.setData(patch);
       },
 
@@ -176,7 +198,8 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
       },
 
       onTowerLineFocus() {
-        if (this.data.towerLevel) this.setData({ towerOpen: 'line', towerScrollInto: 'tower-row-line' });
+        if (this.data.towerLevel)
+          this.setData({ towerOpen: 'line', towerScrollInto: 'tower-row-line' });
       },
 
       onPickLine(e) {
@@ -211,7 +234,8 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
       },
 
       onTowerTowerFocus() {
-        if (this.data.towerLine) this.setData({ towerOpen: 'tower', towerScrollInto: 'tower-row-tower' });
+        if (this.data.towerLine)
+          this.setData({ towerOpen: 'tower', towerScrollInto: 'tower-row-tower' });
       },
 
       onPickTower(e) {

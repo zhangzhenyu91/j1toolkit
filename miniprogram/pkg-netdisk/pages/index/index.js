@@ -31,7 +31,11 @@ const VIDEO_EXTS = ['mp4', 'mov', 'm4v'];
 const ARCHIVE_EXTS = ['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz'];
 // 提取码字符集：去掉易混淆的 I/L/O/0/1（后端校验 ^[A-Z0-9]{4}$）
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const EXPIRE_OPTS = [{ days: 7, text: '7 天' }, { days: 30, text: '30 天' }, { days: 0, text: '永久' }];
+const EXPIRE_OPTS = [
+  { days: 7, text: '7 天' },
+  { days: 30, text: '30 天' },
+  { days: 0, text: '永久' },
+];
 const CHUNK_CONCURRENCY = 2; // 单文件分片并发数
 const CHUNK_MAX_TRY = 5; // 单分片最多尝试次数（429/409 retry 退避重传）
 const SEARCH_PER_PAGE = 30;
@@ -42,7 +46,10 @@ CANCELLED.cancelled = true;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const joinPath = (base, name) => (base === '/' ? `/${name}` : `${base}/${name}`);
 // 提取码：4 位字母数字（自动生成，可刷新）
-const genCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+const genCode = () =>
+  Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join(
+    ''
+  );
 
 Page({
   behaviors: [teamGate],
@@ -81,9 +88,17 @@ Page({
     expireOpts: EXPIRE_OPTS,
     // 目标位置选择弹层（移动 / 复制；srcSpace/srcDir 为打开时源位置快照）
     picker: {
-      open: false, mode: 'move', item: null,
-      srcSpace: '', srcDir: '/', space: 'my', dir: '/',
-      dirs: [], loading: false, error: '', saving: false,
+      open: false,
+      mode: 'move',
+      item: null,
+      srcSpace: '',
+      srcDir: '/',
+      space: 'my',
+      dir: '/',
+      dirs: [],
+      loading: false,
+      error: '',
+      saving: false,
     },
     pickerCrumbs: [],
   },
@@ -138,7 +153,11 @@ Page({
       const task = this._tasks[id];
       task.cancelled = true;
       if (task.uploadId) {
-        request({ url: `${API}/upload/abort`, method: 'POST', data: { upload_id: task.uploadId } }).catch(() => {});
+        request({
+          url: `${API}/upload/abort`,
+          method: 'POST',
+          data: { upload_id: task.uploadId },
+        }).catch(() => {});
       }
     });
   },
@@ -183,7 +202,7 @@ Page({
         spaces,
         hasPublic,
         publicTeam: (pub && pub.team) || '',
-        space: locOk ? loc.space : (hasPublic ? 'public' : 'my'),
+        space: locOk ? loc.space : hasPublic ? 'public' : 'my',
         path: locOk ? loc.path : '/',
         maxUploadMb: (data && data.max_upload_mb) || 0,
       });
@@ -200,10 +219,19 @@ Page({
   restoreLoc() {
     try {
       const loc = wx.getStorageSync('nd_last_loc');
-      if (loc && (loc.space === 'my' || loc.space === 'public')
-        && typeof loc.path === 'string' && loc.path.startsWith('/')
-        && !loc.path.includes('..') && !loc.path.includes('\\') && loc.path.length <= 500) return loc;
-    } catch (e) { /* 读取失败按无记忆 */ }
+      if (
+        loc &&
+        (loc.space === 'my' || loc.space === 'public') &&
+        typeof loc.path === 'string' &&
+        loc.path.startsWith('/') &&
+        !loc.path.includes('..') &&
+        !loc.path.includes('\\') &&
+        loc.path.length <= 500
+      )
+        return loc;
+    } catch (e) {
+      /* 读取失败按无记忆 */
+    }
     return null;
   },
 
@@ -214,7 +242,11 @@ Page({
     const segs = this.data.path.split('/').filter(Boolean);
     const crumbs = [{ name: spaceName, path: '/', last: segs.length === 0 }];
     segs.forEach((s, i) => {
-      crumbs.push({ name: s, path: `/${segs.slice(0, i + 1).join('/')}`, last: i === segs.length - 1 });
+      crumbs.push({
+        name: s,
+        path: `/${segs.slice(0, i + 1).join('/')}`,
+        last: i === segs.length - 1,
+      });
     });
     this.setData({ crumbs, spaceName });
   },
@@ -222,7 +254,16 @@ Page({
   onSpaceTap(e) {
     const key = e.currentTarget.dataset.key;
     if (!key || key === this.data.space) return;
-    this.setData({ space: key, path: '/', items: [], error: '', searching: false, kw: '', searchItems: [], searchState: 'idle' });
+    this.setData({
+      space: key,
+      path: '/',
+      items: [],
+      error: '',
+      searching: false,
+      kw: '',
+      searchItems: [],
+      searchState: 'idle',
+    });
     this.buildCrumbs();
     this.loadList('init');
   },
@@ -255,7 +296,11 @@ Page({
         error: '',
       });
       // 浏览位置记忆：成功加载目录即落盘（仅浏览态经本函数，搜索态不落盘）
-      try { wx.setStorageSync('nd_last_loc', { space: this.data.space, path: this.data.path }); } catch (e) { /* 写失败忽略 */ }
+      try {
+        wx.setStorageSync('nd_last_loc', { space: this.data.space, path: this.data.path });
+      } catch (e) {
+        /* 写失败忽略 */
+      }
     } catch (err) {
       // 恢复的上次路径已失效（目录被删等）：退回空间根目录重载一次（仅首载兜底，不循环）
       if (mode === 'init' && !this._loaded && this.data.path !== '/') {
@@ -264,7 +309,8 @@ Page({
         return this.loadList('init');
       }
       // 首屏失败给错误重试态；已有内容时静默失败仅提示
-      if (mode === 'init' && !this._loaded) this.setData({ loading: false, error: err.message || '列表加载失败' });
+      if (mode === 'init' && !this._loaded)
+        this.setData({ loading: false, error: err.message || '列表加载失败' });
       else this.toast(err.message);
     }
   },
@@ -288,7 +334,7 @@ Page({
       isImg,
       media,
       isArchive: !isDir && ARCHIVE_EXTS.includes(ext),
-      letter: isDir ? '' : (ext ? ext.slice(0, 4).toUpperCase() : 'FILE'),
+      letter: isDir ? '' : ext ? ext.slice(0, 4).toUpperCase() : 'FILE',
       // 真实文件类型图标（/assets/filetypes/，与 Web 同源）；iconFail 时回退字母块/线性文件夹
       icon: fileIconUrl(o.name, isDir),
       iconFail: false,
@@ -376,24 +422,36 @@ Page({
       url: `${API}/search`,
       method: 'POST',
       data: { space: this.data.space, keywords: kw, page: 1, per_page: SEARCH_PER_PAGE },
-    }).then((data) => {
-      const token = wx.getStorageSync('token');
-      const items = ((data && data.items) || []).map((o) => {
-        const fullPath = joinPath(o.parent || '/', o.name);
-        const row = this.mapRow(o, fullPath, token, true);
-        row.sub = `${row.sizeText} · 所在目录：${o.parent || '/'}`;
-        return row;
+    })
+      .then((data) => {
+        const token = wx.getStorageSync('token');
+        const items = ((data && data.items) || []).map((o) => {
+          const fullPath = joinPath(o.parent || '/', o.name);
+          const row = this.mapRow(o, fullPath, token, true);
+          row.sub = `${row.sizeText} · 所在目录：${o.parent || '/'}`;
+          return row;
+        });
+        this.setData({
+          searchItems: items,
+          searchTotal: (data && data.total) || 0,
+          searchState: 'done',
+        });
+      })
+      .catch((err) => {
+        this.toast(err.message);
+        this.setData({ searchItems: [], searchTotal: 0, searchState: 'done' });
       });
-      this.setData({ searchItems: items, searchTotal: (data && data.total) || 0, searchState: 'done' });
-    }).catch((err) => {
-      this.toast(err.message);
-      this.setData({ searchItems: [], searchTotal: 0, searchState: 'done' });
-    });
   },
 
   onSearchCancel() {
     if (this._searchTimer) clearTimeout(this._searchTimer);
-    this.setData({ searching: false, kw: '', searchItems: [], searchState: 'idle', searchTotal: 0 });
+    this.setData({
+      searching: false,
+      kw: '',
+      searchItems: [],
+      searchState: 'idle',
+      searchTotal: 0,
+    });
   },
 
   // 搜索结果点行：文件夹退出搜索态进入该目录；文件就地预览
@@ -430,7 +488,10 @@ Page({
       }));
       wx.previewMedia({
         sources,
-        current: Math.max(0, pool.findIndex((r) => r.fullPath === item.fullPath)),
+        current: Math.max(
+          0,
+          pool.findIndex((r) => r.fullPath === item.fullPath)
+        ),
       });
       return;
     }
@@ -465,7 +526,9 @@ Page({
   afterDownload(item, filePath, mode) {
     // 「下载」操作：图片/视频保存至相册
     if (mode === 'save' && item.media) {
-      const save = IMG_EXTS.includes(item.ext) ? wx.saveImageToPhotosAlbum : wx.saveVideoToPhotosAlbum;
+      const save = IMG_EXTS.includes(item.ext)
+        ? wx.saveImageToPhotosAlbum
+        : wx.saveVideoToPhotosAlbum;
       save({
         filePath,
         success: () => this.toast('已保存至相册'),
@@ -517,7 +580,8 @@ Page({
   onOpShare() {
     const item = this.data.sheet.item;
     this.closeSheet();
-    if (item) this.setData({ shareSheet: { open: true, item, days: 7, code: genCode(), saving: false } });
+    if (item)
+      this.setData({ shareSheet: { open: true, item, days: 7, code: genCode(), saving: false } });
   },
 
   onOpRename() {
@@ -544,14 +608,20 @@ Page({
         : `删除后不可恢复，确定删除「${item.name}」吗？`,
       confirmBtn: '确认删除',
       cancelBtn: '取消',
-    }).then(() => {
-      request({ url: `${API}/remove`, method: 'POST', data: { space: this.data.space, paths: [item.fullPath] } })
-        .then(() => {
-          this.toast('已删除');
-          this.loadList('quiet');
+    })
+      .then(() => {
+        request({
+          url: `${API}/remove`,
+          method: 'POST',
+          data: { space: this.data.space, paths: [item.fullPath] },
         })
-        .catch((err) => this.toast(err.message));
-    }).catch(() => {});
+          .then(() => {
+            this.toast('已删除');
+            this.loadList('quiet');
+          })
+          .catch((err) => this.toast(err.message));
+      })
+      .catch(() => {});
   },
 
   /* ==================== 压缩包（查看 / 解压到当前目录） ==================== */
@@ -562,7 +632,8 @@ Page({
     this.closeSheet();
     if (!item) return;
     wx.navigateTo({
-      url: `/pkg-netdisk/pages/archive/archive?space=${encodeURIComponent(this.data.space)}` +
+      url:
+        `/pkg-netdisk/pages/archive/archive?space=${encodeURIComponent(this.data.space)}` +
         `&path=${encodeURIComponent(item.fullPath)}&name=${encodeURIComponent(item.name)}`,
     });
   },
@@ -579,21 +650,28 @@ Page({
       content: `将「${item.name}」解压到当前目录下的同名文件夹；压缩包较大时耗时较长，请耐心等待。`,
       confirmBtn: '开始解压',
       cancelBtn: '取消',
-    }).then(() => {
-      wx.showLoading({ title: '解压中…', mask: true });
-      request({
-        url: `${API}/archive/decompress`,
-        method: 'POST',
-        timeout: 120000,
-        data: { space: this.data.space, path: item.fullPath, dst_dir: this.data.path, put_into_new_dir: true },
-      })
-        .then(() => {
-          this.toast('已解压');
-          this.loadList('quiet');
+    })
+      .then(() => {
+        wx.showLoading({ title: '解压中…', mask: true });
+        request({
+          url: `${API}/archive/decompress`,
+          method: 'POST',
+          timeout: 120000,
+          data: {
+            space: this.data.space,
+            path: item.fullPath,
+            dst_dir: this.data.path,
+            put_into_new_dir: true,
+          },
         })
-        .catch((err) => this.toast(err.message))
-        .finally(() => wx.hideLoading());
-    }).catch(() => {});
+          .then(() => {
+            this.toast('已解压');
+            this.loadList('quiet');
+          })
+          .catch((err) => this.toast(err.message))
+          .finally(() => wx.hideLoading());
+      })
+      .catch(() => {});
   },
 
   /* ==================== 移动 / 复制（目标位置选择弹层） ==================== */
@@ -613,10 +691,17 @@ Page({
     if (!item) return;
     this.setData({
       picker: {
-        open: true, mode, item,
-        srcSpace: this.data.space, srcDir: this.data.path,
-        space: this.data.space, dir: '/',
-        dirs: [], loading: false, error: '', saving: false,
+        open: true,
+        mode,
+        item,
+        srcSpace: this.data.space,
+        srcDir: this.data.path,
+        space: this.data.space,
+        dir: '/',
+        dirs: [],
+        loading: false,
+        error: '',
+        saving: false,
       },
     });
     this.loadPickerDirs();
@@ -628,8 +713,13 @@ Page({
     this.setData({ 'picker.loading': true, 'picker.error': '' });
     this.buildPickerCrumbs();
     try {
-      const data = await request({ url: `${API}/list`, method: 'POST', data: { space: p.space, path: p.dir } });
-      const dirs = ((data && data.items) || []).filter((o) => o.is_dir)
+      const data = await request({
+        url: `${API}/list`,
+        method: 'POST',
+        data: { space: p.space, path: p.dir },
+      });
+      const dirs = ((data && data.items) || [])
+        .filter((o) => o.is_dir)
         .map((o) => ({ name: o.name, icon: fileIconUrl(o.name, true), iconFail: false }));
       this.setData({ 'picker.dirs': dirs, 'picker.loading': false });
     } catch (err) {
@@ -643,7 +733,11 @@ Page({
     const segs = p.dir.split('/').filter(Boolean);
     const crumbs = [{ name: cur ? cur.name : p.space, path: '/', last: segs.length === 0 }];
     segs.forEach((s, i) => {
-      crumbs.push({ name: s, path: `/${segs.slice(0, i + 1).join('/')}`, last: i === segs.length - 1 });
+      crumbs.push({
+        name: s,
+        path: `/${segs.slice(0, i + 1).join('/')}`,
+        last: i === segs.length - 1,
+      });
     });
     this.setData({ pickerCrumbs: crumbs });
   },
@@ -663,7 +757,10 @@ Page({
   },
 
   onPickerDirTap(e) {
-    this.setData({ 'picker.dir': joinPath(this.data.picker.dir, e.currentTarget.dataset.name), 'picker.dirs': [] });
+    this.setData({
+      'picker.dir': joinPath(this.data.picker.dir, e.currentTarget.dataset.name),
+      'picker.dirs': [],
+    });
     this.loadPickerDirs();
   },
 
@@ -689,8 +786,11 @@ Page({
       return;
     }
     // 文件夹不能移动/复制到自身内部
-    if (p.item.isDir && p.space === p.srcSpace
-      && (p.dir === p.item.fullPath || p.dir.startsWith(`${p.item.fullPath}/`))) {
+    if (
+      p.item.isDir &&
+      p.space === p.srcSpace &&
+      (p.dir === p.item.fullPath || p.dir.startsWith(`${p.item.fullPath}/`))
+    ) {
       this.toast('目标位置在源文件夹内部');
       return;
     }
@@ -701,15 +801,19 @@ Page({
       method: 'POST',
       timeout: 120000,
       data: {
-        src_space: p.srcSpace, src_dir: p.srcDir,
-        dst_space: p.space, dst_dir: p.dir,
+        src_space: p.srcSpace,
+        src_dir: p.srcDir,
+        dst_space: p.space,
+        dst_dir: p.dir,
         names: [p.item.name],
       },
-    }).then(() => {
-      this.setData({ 'picker.open': false });
-      this.toast(move ? '已移动' : '已复制');
-      this.loadList('quiet');
-    }).catch((err) => this.toast(err.message))
+    })
+      .then(() => {
+        this.setData({ 'picker.open': false });
+        this.toast(move ? '已移动' : '已复制');
+        this.loadList('quiet');
+      })
+      .catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'picker.saving': false }));
   },
 
@@ -764,11 +868,13 @@ Page({
       data: mkdir
         ? { space: this.data.space, path: this.data.path, name }
         : { space: this.data.space, path: ns.target.fullPath, name },
-    }).then(() => {
-      this.setData({ 'nameSheet.open': false, keyboardHeight: 0 });
-      this.toast(mkdir ? '已创建' : '已重命名');
-      this.loadList('quiet');
-    }).catch((err) => this.toast(err.message))
+    })
+      .then(() => {
+        this.setData({ 'nameSheet.open': false, keyboardHeight: 0 });
+        this.toast(mkdir ? '已创建' : '已重命名');
+        this.loadList('quiet');
+      })
+      .catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'nameSheet.saving': false }));
   },
 
@@ -803,25 +909,35 @@ Page({
     request({
       url: `${API}/shares`,
       method: 'POST',
-      data: { space: this.data.space, paths: [ss.item.fullPath], password: ss.code, expire_days: ss.days },
-    }).then((data) => {
-      this.setData({ shareSheet: { open: false, item: null, days: 7, code: '', saving: false } });
-      const link = `${config.BASE_URL}/share.html#/s/${data.share_id}`;
-      const expireText = ss.days > 0
-        ? `\n有效期至 ${fmtDay(new Date(Date.now() + ss.days * 86400000))}`
-        : '\n永久有效';
-      // 成功 Dialog：展示链接 + 提取码，确认键复制到剪贴板
-      Dialog.confirm({
-        context: this,
-        selector: '#t-dialog',
-        title: '分享已创建',
-        content: `链接：${link}\n提取码：${ss.code}${expireText}`,
-        confirmBtn: '复制链接',
-        cancelBtn: '关闭',
-      }).then(() => {
-        wx.setClipboardData({ data: `${link}\n提取码：${ss.code}` });
-      }).catch(() => {});
-    }).catch((err) => this.toast(err.message))
+      data: {
+        space: this.data.space,
+        paths: [ss.item.fullPath],
+        password: ss.code,
+        expire_days: ss.days,
+      },
+    })
+      .then((data) => {
+        this.setData({ shareSheet: { open: false, item: null, days: 7, code: '', saving: false } });
+        const link = `${config.BASE_URL}/share.html#/s/${data.share_id}`;
+        const expireText =
+          ss.days > 0
+            ? `\n有效期至 ${fmtDay(new Date(Date.now() + ss.days * 86400000))}`
+            : '\n永久有效';
+        // 成功 Dialog：展示链接 + 提取码，确认键复制到剪贴板
+        Dialog.confirm({
+          context: this,
+          selector: '#t-dialog',
+          title: '分享已创建',
+          content: `链接：${link}\n提取码：${ss.code}${expireText}`,
+          confirmBtn: '复制链接',
+          cancelBtn: '关闭',
+        })
+          .then(() => {
+            wx.setClipboardData({ data: `${link}\n提取码：${ss.code}` });
+          })
+          .catch(() => {});
+      })
+      .catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'shareSheet.saving': false }));
   },
 
@@ -849,8 +965,9 @@ Page({
         const files = (res.tempFiles || []).map((t, i) => {
           const ext = t.tempFilePath.split('.').pop() || (t.fileType === 'video' ? 'mp4' : 'jpg');
           const d = new Date();
-          const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
-            + `_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+          const ts =
+            `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+            `_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
           return {
             name: `${t.fileType === 'video' ? 'VID' : 'IMG'}_${ts}${i ? `_${i}` : ''}.${ext}`,
             size: t.size,
@@ -943,7 +1060,9 @@ Page({
       for (let i = 0; i < total; i += 1) {
         const start = i * chunkSize;
         const end = Math.min(start + chunkSize, file.size) - 1;
-        const covered = ((init && init.received) || []).some((rg) => rg && rg[0] <= start && rg[1] >= end);
+        const covered = ((init && init.received) || []).some(
+          (rg) => rg && rg[0] <= start && rg[1] >= end
+        );
         if (covered) task.doneBytes += end - start + 1;
         else pending.push(i);
       }
@@ -970,7 +1089,11 @@ Page({
       if (err && err.cancelled) throw err;
       // 失败兜底：尝试 abort 会话，避免残留分片占用空间
       if (task.uploadId) {
-        request({ url: `${API}/upload/abort`, method: 'POST', data: { upload_id: task.uploadId } }).catch(() => {});
+        request({
+          url: `${API}/upload/abort`,
+          method: 'POST',
+          data: { upload_id: task.uploadId },
+        }).catch(() => {});
       }
       throw err;
     } finally {
@@ -1017,7 +1140,8 @@ Page({
             return;
           }
           const err = new Error(body.message || `分片上传失败（${res.statusCode}）`);
-          if ((res.statusCode === 429 || res.statusCode === 409) && body.data && body.data.retry) err.retry = true;
+          if ((res.statusCode === 429 || res.statusCode === 409) && body.data && body.data.retry)
+            err.retry = true;
           reject(err);
         },
         fail: () => reject(new Error('网络异常，请检查网络后重试')),
@@ -1058,7 +1182,12 @@ Page({
     task.merging = true;
     this.updateUploadRow(task);
     try {
-      await request({ url: `${API}/upload/complete`, method: 'POST', data: { upload_id: task.uploadId }, timeout: 120000 });
+      await request({
+        url: `${API}/upload/complete`,
+        method: 'POST',
+        data: { upload_id: task.uploadId },
+        timeout: 120000,
+      });
       return;
     } catch (err) {
       for (let i = 0; i < 20; i += 1) {
@@ -1067,9 +1196,13 @@ Page({
         if (task.cancelled) throw CANCELLED;
         try {
           // eslint-disable-next-line no-await-in-loop
-          const st = await request({ url: `${API}/upload/status?upload_id=${encodeURIComponent(task.uploadId)}` });
+          const st = await request({
+            url: `${API}/upload/status?upload_id=${encodeURIComponent(task.uploadId)}`,
+          });
           if (st && st.state === 'completed') return;
-        } catch (perr) { /* 查询失败继续等 */ }
+        } catch (perr) {
+          /* 查询失败继续等 */
+        }
       }
       throw new Error('合并状态确认超时，请稍后刷新确认');
     }
@@ -1081,7 +1214,11 @@ Page({
     if (task) {
       task.cancelled = true;
       if (task.uploadId) {
-        request({ url: `${API}/upload/abort`, method: 'POST', data: { upload_id: task.uploadId } }).catch(() => {});
+        request({
+          url: `${API}/upload/abort`,
+          method: 'POST',
+          data: { upload_id: task.uploadId },
+        }).catch(() => {});
       }
     }
     this.removeUploadRow(id);
@@ -1092,16 +1229,25 @@ Page({
 
   pushUploadRow(task) {
     if (!this._alive) return;
-    const row = { id: task.id, name: task.name, sizeText: fmtSize(task.size), sentText: '0 B', pct: 0, merging: false };
+    const row = {
+      id: task.id,
+      name: task.name,
+      sizeText: fmtSize(task.size),
+      sentText: '0 B',
+      pct: 0,
+      merging: false,
+    };
     this.setData({ uploads: [row].concat(this.data.uploads) });
   },
 
   updateUploadRow(task) {
     if (!this._alive) return;
     const pct = task.size ? Math.min(100, Math.floor((task.doneBytes / task.size) * 100)) : 100;
-    const uploads = this.data.uploads.map((r) => (
-      r.id === task.id ? { ...r, sentText: fmtSize(task.doneBytes), pct, merging: !!task.merging } : r
-    ));
+    const uploads = this.data.uploads.map((r) =>
+      r.id === task.id
+        ? { ...r, sentText: fmtSize(task.doneBytes), pct, merging: !!task.merging }
+        : r
+    );
     this.setData({ uploads });
   },
 

@@ -64,7 +64,14 @@ Page({
     this._wmGeoKey = null; // 「上次取值坐标」记录随表单一起重置（手动改经纬度防抖刷新去重用）
     this.setData({
       wmVisible: true,
-      wmForm: { content: '', time: fmtWmTime(new Date()), weather: '', location: '', lng: '', lat: '' },
+      wmForm: {
+        content: '',
+        time: fmtWmTime(new Date()),
+        weather: '',
+        location: '',
+        lng: '',
+        lat: '',
+      },
     });
     this.fillWmByLocation();
   },
@@ -134,8 +141,14 @@ Page({
     wx.showLoading({ title: '正在生成水印…', mask: true });
     let filePath = '';
     try {
-      const data = await request({ url: '/api/v1/wmadd/render', method: 'POST', data: { image, wm }, timeout: 120000 });
-      const base64 = data && data.image ? String(data.image).replace(/^data:image\/\w+;base64,/, '') : '';
+      const data = await request({
+        url: '/api/v1/wmadd/render',
+        method: 'POST',
+        data: { image, wm },
+        timeout: 120000,
+      });
+      const base64 =
+        data && data.image ? String(data.image).replace(/^data:image\/\w+;base64,/, '') : '';
       if (!base64) throw new Error('水印生成失败');
       filePath = `${wx.env.USER_DATA_PATH}/wmadd_${Date.now()}.jpg`;
       await new Promise((resolve, reject) => {

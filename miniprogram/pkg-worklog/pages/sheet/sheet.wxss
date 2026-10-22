@@ -15,7 +15,7 @@ page {
 /* ---------- 生成卡片（同 manage 页 tower-bar 族：白卡直角 + 墨边浅色硬影 + 墨黑主按钮） ---------- */
 .card {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 28rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
@@ -35,12 +35,12 @@ page {
 .r-t {
   font-size: 27rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .r-s {
   font-size: 20rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   margin-top: 6rpx;
 }
 
@@ -55,7 +55,7 @@ page {
 .range-text {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 1rpx;
 }
 
@@ -65,8 +65,8 @@ page {
   font-size: 24rpx;
   font-weight: 700;
   color: #ffffff;
-  background: #0E3DA8;
-  border: 2rpx solid #E5E6EB;
+  background: #0e3da8;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   padding: 14rpx 32rpx;
@@ -76,7 +76,7 @@ page {
   margin-top: 28rpx;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #1D2129;
+  background: #1d2129;
   color: #ffffff;
   font-size: 27rpx;
   font-weight: 700;
@@ -93,8 +93,8 @@ page {
 /* 存网盘（次按钮：浅蓝底蓝字，与主按钮同形） */
 .gen.nd {
   margin-top: 20rpx;
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
   box-shadow: none;
 }
 
@@ -103,5 +103,5 @@ page {
   padding: 0 8rpx;
   font-size: 22rpx;
   line-height: 1.8;
-  color: #4E5969;
+  color: #4e5969;
 }

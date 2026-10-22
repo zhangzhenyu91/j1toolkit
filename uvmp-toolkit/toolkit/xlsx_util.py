@@ -6,6 +6,7 @@
 该文件格式是壹匣服务端「派车单每日自动同步」的解析契约，禁止改动。
 读侧用于「按派车单号导出」应用解析用户提供的单号清单 xlsx。
 """
+
 import re
 import zipfile
 from datetime import datetime
@@ -14,42 +15,48 @@ from xml.etree import ElementTree as ET
 
 # 每日派车单同步的列契约（字段, 表头），顺序固定
 DISPATCH_COLUMNS = [
-    ('vehicleNumber', '车牌号码'),
-    ('licensePlateColor', '车牌颜色'),
-    ('driverName', '驾驶员'),
-    ('driverTel', '驾驶员电话'),
-    ('userName', '用车人'),
-    ('planSendTime', '预计用车时间'),
-    ('planBackTime', '预计返回时间'),
-    ('planUseTime', '预计用车时间(小时)'),
-    ('frmAddr', '出发地'),
-    ('toAddr', '目的地'),
-    ('departName', '用车部门'),
-    ('dispatchName', '派车人'),
-    ('runCode', '派车单号'),
-    ('runState', '派车单状态'),
-    ('vehicleType', '车辆类型'),
-    ('powerType', '能源类型'),
-    ('userTel', '用车人电话'),
-    ('useReason', '用车事由'),
-    ('remark', '备注'),
-    ('dispatchTime', '创建时间'),
+    ("vehicleNumber", "车牌号码"),
+    ("licensePlateColor", "车牌颜色"),
+    ("driverName", "驾驶员"),
+    ("driverTel", "驾驶员电话"),
+    ("userName", "用车人"),
+    ("planSendTime", "预计用车时间"),
+    ("planBackTime", "预计返回时间"),
+    ("planUseTime", "预计用车时间(小时)"),
+    ("frmAddr", "出发地"),
+    ("toAddr", "目的地"),
+    ("departName", "用车部门"),
+    ("dispatchName", "派车人"),
+    ("runCode", "派车单号"),
+    ("runState", "派车单状态"),
+    ("vehicleType", "车辆类型"),
+    ("powerType", "能源类型"),
+    ("userTel", "用车人电话"),
+    ("useReason", "用车事由"),
+    ("remark", "备注"),
+    ("dispatchTime", "创建时间"),
 ]
 
-RUN_STATE_MAP = {'0': '待派车', '1': '已派车', '2': '已完成', '3': '已取消'}
+RUN_STATE_MAP = {"0": "待派车", "1": "已派车", "2": "已完成", "3": "已取消"}
 
-DATE_FIELDS = ('planSendTime', 'planBackTime', 'dispatchTime')
+DATE_FIELDS = ("planSendTime", "planBackTime", "dispatchTime")
 
 
 # ---------------------------------------------------------------- 写侧（移植，勿改格式）
+
 
 def _escape_xml(s):
     """转义 XML 特殊字符，并过滤 XML 1.0 非法控制字符"""
     if not isinstance(s, str):
         s = str(s)
-    s = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', s)
-    return (s.replace("&", "&amp;").replace("<", "&lt;")
-             .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;"))
+    s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", s)
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
 
 
 def _int_to_col_letter(col):
@@ -155,14 +162,18 @@ def write_dispatch_xlsx(data_items, output_path, log=print):
     header_cells = []
     for col_idx, (_, caption) in enumerate(columns, 1):
         ref = _excel_ref(1, col_idx)
-        header_cells.append('<c r="%s" s="0" t="inlineStr"><is><t>%s</t></is></c>'
-                            % (ref, _escape_xml(caption)))
-    sheet_rows.append('<row r="1" spans="1:%d">%s</row>' % (num_cols, "".join(header_cells)))
+        header_cells.append(
+            '<c r="%s" s="0" t="inlineStr"><is><t>%s</t></is></c>'
+            % (ref, _escape_xml(caption))
+        )
+    sheet_rows.append(
+        '<row r="1" spans="1:%d">%s</row>' % (num_cols, "".join(header_cells))
+    )
 
     for row_idx, item in enumerate(data_items, 2):
         cells = []
         for col_idx, (field, _) in enumerate(columns, 1):
-            value = item.get(field, '')
+            value = item.get(field, "")
             # 时间字段：epoch 毫秒用本地时区格式化（与「当日」过滤口径一致）
             if field in DATE_FIELDS and value:
                 try:
@@ -174,13 +185,13 @@ def write_dispatch_xlsx(data_items, output_path, log=print):
                         value = dt_obj.strftime("%Y-%m-%d %H:%M:%S")
                 except (ValueError, TypeError, OSError):
                     value = str(value)
-            if field == 'runState':
+            if field == "runState":
                 value = RUN_STATE_MAP.get(str(value), value)
 
             ref = _excel_ref(row_idx, col_idx)
-            value_str = '' if value is None else str(value)
+            value_str = "" if value is None else str(value)
 
-            if value is None or value == '':
+            if value is None or value == "":
                 cells.append('<c r="%s"/>' % ref)
             elif isinstance(value, (int, float)) and field not in DATE_FIELDS:
                 cells.append('<c r="%s"><v>%s</v></c>' % (ref, value))
@@ -189,10 +200,13 @@ def write_dispatch_xlsx(data_items, output_path, log=print):
                 if si_idx >= 0:
                     cells.append('<c r="%s" s="1" t="s"><v>%d</v></c>' % (ref, si_idx))
                 else:
-                    cells.append('<c r="%s" s="1"><v>%s</v></c>' % (ref, _escape_xml(value_str)))
+                    cells.append(
+                        '<c r="%s" s="1"><v>%s</v></c>' % (ref, _escape_xml(value_str))
+                    )
 
-        sheet_rows.append('<row r="%d" spans="1:%d">%s</row>'
-                          % (row_idx, num_cols, "".join(cells)))
+        sheet_rows.append(
+            '<row r="%d" spans="1:%d">%s</row>' % (row_idx, num_cols, "".join(cells))
+        )
 
     sheet_data = "".join(sheet_rows)
 
@@ -219,19 +233,25 @@ def write_dispatch_xlsx(data_items, output_path, log=print):
 </sheetData>
 <pageMargins left="0.7" right="0.7" top="1.08" footer="0.78" header="0.78"/>
 <pageSetUpPr fitToPage="1"/>
-</worksheet>""" % (_int_to_col_letter(num_cols), num_rows + 1,
-                    ''.join('<col collapsed="0" hidden="0" max="%d" min="%d" style="0" width="15"/>'
-                            % (c, c) for c in range(1, num_cols + 1)),
-                    sheet_data)
+</worksheet>""" % (
+        _int_to_col_letter(num_cols),
+        num_rows + 1,
+        "".join(
+            '<col collapsed="0" hidden="0" max="%d" min="%d" style="0" width="15"/>'
+            % (c, c)
+            for c in range(1, num_cols + 1)
+        ),
+        sheet_data,
+    )
 
-    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr('[Content_Types].xml', content_types)
-        zf.writestr('_rels/.rels', rels)
-        zf.writestr('xl/workbook.xml', workbook)
-        zf.writestr('xl/_rels/workbook.xml.rels', workbook_rels)
-        zf.writestr('xl/styles.xml', styles)
-        zf.writestr('xl/sharedStrings.xml', sst_content)
-        zf.writestr('xl/worksheets/sheet1.xml', sheet1)
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        zf.writestr("xl/styles.xml", styles)
+        zf.writestr("xl/sharedStrings.xml", sst_content)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
 
     log("  Excel 文件已保存: %s (%d 条记录)" % (output_path, num_rows))
     return num_rows
@@ -317,24 +337,31 @@ def write_table_xlsx(path, sheet_name, headers, rows, log=print):
     header_cells = []
     for col_idx, caption in enumerate(headers, 1):
         ref = _excel_ref(1, col_idx)
-        header_cells.append('<c r="%s" s="0" t="inlineStr"><is><t>%s</t></is></c>'
-                            % (ref, _escape_xml(caption)))
-    sheet_rows.append('<row r="1" spans="1:%d">%s</row>' % (num_cols, "".join(header_cells)))
+        header_cells.append(
+            '<c r="%s" s="0" t="inlineStr"><is><t>%s</t></is></c>'
+            % (ref, _escape_xml(caption))
+        )
+    sheet_rows.append(
+        '<row r="1" spans="1:%d">%s</row>' % (num_cols, "".join(header_cells))
+    )
 
     for row_idx, row in enumerate(rows, 2):
         cells = []
         for col_idx in range(1, num_cols + 1):
             value = row[col_idx - 1] if col_idx - 1 < len(row) else None
             ref = _excel_ref(row_idx, col_idx)
-            if value is None or value == '':
+            if value is None or value == "":
                 cells.append('<c r="%s"/>' % ref)
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
                 cells.append('<c r="%s" s="1"><v>%s</v></c>' % (ref, value))
             else:
-                cells.append('<c r="%s" s="1" t="inlineStr"><is><t>%s</t></is></c>'
-                             % (ref, _escape_xml(value)))
-        sheet_rows.append('<row r="%d" spans="1:%d">%s</row>'
-                          % (row_idx, num_cols, "".join(cells)))
+                cells.append(
+                    '<c r="%s" s="1" t="inlineStr"><is><t>%s</t></is></c>'
+                    % (ref, _escape_xml(value))
+                )
+        sheet_rows.append(
+            '<row r="%d" spans="1:%d">%s</row>' % (row_idx, num_cols, "".join(cells))
+        )
 
     sheet1 = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -352,18 +379,24 @@ def write_table_xlsx(path, sheet_name, headers, rows, log=print):
 %s
 </sheetData>
 <pageMargins left="0.7" right="0.7" top="1.08" footer="0.78" header="0.78"/>
-</worksheet>""" % (_int_to_col_letter(num_cols), num_rows + 1,
-                    ''.join('<col collapsed="0" hidden="0" max="%d" min="%d" style="0" width="%d"/>'
-                            % (c, c, widths[c - 1]) for c in range(1, num_cols + 1)),
-                    "".join(sheet_rows))
+</worksheet>""" % (
+        _int_to_col_letter(num_cols),
+        num_rows + 1,
+        "".join(
+            '<col collapsed="0" hidden="0" max="%d" min="%d" style="0" width="%d"/>'
+            % (c, c, widths[c - 1])
+            for c in range(1, num_cols + 1)
+        ),
+        "".join(sheet_rows),
+    )
 
-    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr('[Content_Types].xml', content_types)
-        zf.writestr('_rels/.rels', rels)
-        zf.writestr('xl/workbook.xml', workbook)
-        zf.writestr('xl/_rels/workbook.xml.rels', workbook_rels)
-        zf.writestr('xl/styles.xml', styles)
-        zf.writestr('xl/worksheets/sheet1.xml', sheet1)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        zf.writestr("xl/styles.xml", styles)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet1)
 
     log("  Excel 文件已保存: %s (%d 条记录)" % (path, num_rows))
     return num_rows
@@ -371,9 +404,10 @@ def write_table_xlsx(path, sheet_name, headers, rows, log=print):
 
 # ---------------------------------------------------------------- 读侧
 
+
 def _local(tag: str) -> str:
     """去掉 XML 命名空间，取本地名"""
-    return tag.rsplit('}', 1)[-1]
+    return tag.rsplit("}", 1)[-1]
 
 
 def _col_index(cell_ref: str) -> int:
@@ -396,6 +430,7 @@ def _read_member(zf: zipfile.ZipFile, name: str) -> bytes:
     except Exception:
         pass
     import zlib
+
     info = zf.getinfo(name)
     fp = zf.fp
     fp.seek(info.header_offset)
@@ -418,8 +453,10 @@ def read_xlsx_rows(path) -> list:
     """读取第一个工作表，返回行列表（每行为字符串列表，按列对齐，空单元为 ''）。
     文件无效（WPS .et/损坏/非 zip）时抛 RuntimeError 并附中文指引。"""
     path = Path(path)
-    guidance = ("清单文件不是有效的 xlsx（可能是 WPS 专有 .et 格式或文件已损坏）。"
-                "请用 Excel/WPS「另存为 → .xlsx」，或直接在界面粘贴单号。")
+    guidance = (
+        "清单文件不是有效的 xlsx（可能是 WPS 专有 .et 格式或文件已损坏）。"
+        "请用 Excel/WPS「另存为 → .xlsx」，或直接在界面粘贴单号。"
+    )
     try:
         with zipfile.ZipFile(path) as zf:
             names = set(zf.namelist())
@@ -438,7 +475,10 @@ def read_xlsx_rows(path) -> list:
                 if rid:
                     rels = ET.fromstring(_read_member(zf, "xl/_rels/workbook.xml.rels"))
                     for el in rels.iter():
-                        if _local(el.tag) == "Relationship" and el.attrib.get("Id") == rid:
+                        if (
+                            _local(el.tag) == "Relationship"
+                            and el.attrib.get("Id") == rid
+                        ):
                             target = el.attrib.get("Target", "")
                             target = target.lstrip("/")
                             if not target.startswith("xl/"):
@@ -456,7 +496,9 @@ def read_xlsx_rows(path) -> list:
                 for si in sst.iter():
                     if _local(si.tag) != "si":
                         continue
-                    text = "".join(t.text or "" for t in si.iter() if _local(t.tag) == "t")
+                    text = "".join(
+                        t.text or "" for t in si.iter() if _local(t.tag) == "t"
+                    )
                     shared.append(text)
 
             sheet = ET.fromstring(_read_member(zf, sheet_part))

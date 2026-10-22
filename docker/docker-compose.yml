@@ -2,8 +2,8 @@
 # 本 compose 仅含 Shade 服务端本身；OpenList（网盘中转）、ONLYOFFICE（在线编辑）等配套容器由部署者自装，
 # 均加入 j1toolkit 网络即可按容器名互通（如 NETDISK_API_URL=http://openlist:5244、OO_INTERNAL_URL=http://onlyoffice）。
 networks:
-    j1toolkit:
-        external: true
+  j1toolkit:
+    external: true
 
 # Shade 壹匣后端（API + 网页端同端口）—— docker compose 部署
 # 用法：cp .env.example .env → 按实际填写（IMAGE 必填）→ docker compose up -d
@@ -18,7 +18,7 @@ services:
       - j1toolkit
     ports:
       # 容器内外同端口（.env 的 PORT 经 env_file 传入容器作为监听端口；缺省 3000 与服务端默认一致）
-      - "${PORT:-3000}:${PORT:-3000}"
+      - '${PORT:-3000}:${PORT:-3000}'
     env_file:
       - .env
     volumes:

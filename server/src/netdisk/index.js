@@ -19,7 +19,11 @@ const ol = require('./openlist');
 const { pipeDirZip } = require('./dirzip');
 // 缩略图组件（网格格子用）：未装 sharp 时 /thumb 接口 503，前端回退类型图标
 let sharp = null;
-try { sharp = require('sharp'); } catch (err) { /* sharp 为预编译原生依赖，缺失不致命 */ }
+try {
+  sharp = require('sharp');
+} catch (err) {
+  /* sharp 为预编译原生依赖，缺失不致命 */
+}
 
 const router = express.Router();
 
@@ -86,7 +90,9 @@ function relayFail(res, err) {
 // ================= 分享公共访问（免登录，挂在 auth 之前） =================
 
 async function loadShare(id) {
-  const sid = String(id || '').trim().slice(0, 32);
+  const sid = String(id || '')
+    .trim()
+    .slice(0, 32);
   if (!/^[a-f0-9]{10,32}$/.test(sid)) return null;
   const [rows] = await pool.query('SELECT * FROM nd_share WHERE share_id = ?', [sid]);
   return rows[0] || null;
@@ -94,10 +100,17 @@ async function loadShare(id) {
 
 // 状态判定：停用 / 过期 / 生效（未通过时直接响应并返回 false）
 function shareUsable(res, row) {
-  if (!row) { fail(res, 404, 40400, '分享不存在或已删除'); return false; }
-  if (row.status !== 1) { fail(res, 403, 40310, '分享已停用'); return false; }
+  if (!row) {
+    fail(res, 404, 40400, '分享不存在或已删除');
+    return false;
+  }
+  if (row.status !== 1) {
+    fail(res, 403, 40310, '分享已停用');
+    return false;
+  }
   if (row.expire_at && new Date(row.expire_at).getTime() < Date.now()) {
-    fail(res, 410, 41010, '分享已过期'); return false;
+    fail(res, 410, 41010, '分享已过期');
+    return false;
   }
   return true;
 }
@@ -127,7 +140,9 @@ function shareAuth(req, row) {
     try {
       const payload = jwt.verify(tk, config.jwt.secret);
       if (payload && payload.sid === row.share_id) return true;
-    } catch (err) { /* 票据无效则回落提取码 */ }
+    } catch (err) {
+      /* 票据无效则回落提取码 */
+    }
   }
   const pw = String((req.query && req.query.password) || (req.body && req.body.password) || '');
   return pw !== '' && pw === row.password;
@@ -136,7 +151,11 @@ function shareAuth(req, row) {
 // 越界校验：rel 须为某个分享项本身或其子路径，返回 OpenList 绝对路径；不合法返回 null
 function resolveShareAbs(row, rel) {
   let paths;
-  paths = Array.isArray(row.paths) ? row.paths : (typeof row.paths === 'string' ? JSON.parse(row.paths) : []);
+  paths = Array.isArray(row.paths)
+    ? row.paths
+    : typeof row.paths === 'string'
+      ? JSON.parse(row.paths)
+      : [];
   if (!Array.isArray(paths)) return null;
   for (const p of paths) {
     if (rel === p || rel.startsWith(`${p}/`)) return joinPath(row.base_path, rel);
@@ -154,7 +173,9 @@ router.get('/public/share/:id', async (req, res) => {
       expire_at: row.expire_at,
       created_at: row.created_at,
     });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 提取码验证：通过则发 2h 访问票据并返回首层内容
@@ -173,19 +194,27 @@ router.post('/public/share/:id/verify', async (req, res) => {
     pwFails.delete(`${req.ip}|${row.share_id}`);
     const ticket = jwt.sign({ sid: row.share_id }, config.jwt.secret, { expiresIn: '2h' });
     return ok(res, { ticket, items: await shareRootItems(row) });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 首层内容：逐项取元信息（已被移动/删除的项跳过）
 async function shareRootItems(row) {
   let paths;
-  paths = Array.isArray(row.paths) ? row.paths : (typeof row.paths === 'string' ? JSON.parse(row.paths) : []);
+  paths = Array.isArray(row.paths)
+    ? row.paths
+    : typeof row.paths === 'string'
+      ? JSON.parse(row.paths)
+      : [];
   const items = [];
   for (const p of paths) {
     try {
       const meta = await ol.fsGet(joinPath(row.base_path, p));
       items.push({ ...mapItem(meta), rel: p });
-    } catch (err) { /* 失效项跳过 */ }
+    } catch (err) {
+      /* 失效项跳过 */
+    }
   }
   return items;
 }
@@ -203,7 +232,9 @@ router.post('/public/share/:id/list', async (req, res) => {
     if (!abs) return fail(res, 403, 40312, '路径超出分享范围');
     const data = await ol.fsList(abs);
     return ok(res, { path: rel, items: (data.content || []).map(mapItem) });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 文件下载（流式中转）
@@ -217,7 +248,9 @@ router.get('/public/share/:id/download', async (req, res) => {
     const abs = resolveShareAbs(row, rel);
     if (!abs) return fail(res, 403, 40312, '路径超出分享范围');
     return await pipeDownload(res, abs, baseName(rel), 'attachment');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // ================= Office 在线预览回源（微软 view.officeapps.live.com 等第三方查看器） =================
@@ -249,14 +282,19 @@ router.get('/preview/:token/:name?', async (req, res) => {
     const r = await ol.downloadStream(abs);
     if (r.headers['content-length']) res.setHeader('Content-Length', r.headers['content-length']);
     // 内容类型按扩展名给准（上游可能只回 octet-stream，查看器依赖它判格式）
-    res.setHeader('Content-Type', PREVIEW_MIME[ext] || r.headers['content-type'] || 'application/octet-stream');
+    res.setHeader(
+      'Content-Type',
+      PREVIEW_MIME[ext] || r.headers['content-type'] || 'application/octet-stream'
+    );
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
     r.data.on('error', (serr) => {
       console.error(`[网盘] 预览回源上游断流（${abs}）：`, serr.message);
       res.destroy(serr);
     });
     return r.data.pipe(res);
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // ================= 登录 + 应用权限门控（以下均需 netdisk 应用权限） =================
@@ -267,8 +305,10 @@ async function pipeDownload(res, abs, name, disposition) {
   const r = await ol.downloadStream(abs);
   if (r.headers['content-length']) res.setHeader('Content-Length', r.headers['content-length']);
   if (r.headers['content-type']) res.setHeader('Content-Type', r.headers['content-type']);
-  res.setHeader('Content-Disposition',
-    `${disposition}; filename*=UTF-8''${encodeURIComponent(name)}`);
+  res.setHeader(
+    'Content-Disposition',
+    `${disposition}; filename*=UTF-8''${encodeURIComponent(name)}`
+  );
   r.data.on('error', (serr) => {
     console.error(`[网盘] 下载上游断流（${abs}）：`, serr.message);
     res.destroy(serr);
@@ -285,7 +325,9 @@ router.get('/spaces', async (req, res) => {
       spaces.push({ key: 'public', name: '公共区', team, manageable: canManagePublic(req.user) });
     }
     return ok(res, { max_upload_mb: config.netdisk.maxUploadMb, spaces });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 目录列表（个人/公共根目录自愈式创建）
@@ -304,7 +346,9 @@ router.post('/list', async (req, res) => {
       manageable: req.body.space === 'my' || canManagePublic(req.user),
       items: (data.content || []).map(mapItem),
     });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 文件名搜索（范围限定当前空间根；需 OpenList 已建索引）
@@ -313,17 +357,24 @@ router.post('/search', async (req, res) => {
     ol.ensureConfigured();
     const root = await resolveRoot(req, res, req.body && req.body.space);
     if (!root) return;
-    const keywords = String((req.body && req.body.keywords) || '').trim().slice(0, 100);
+    const keywords = String((req.body && req.body.keywords) || '')
+      .trim()
+      .slice(0, 100);
     if (!keywords) return fail(res, 400, 40001, '参数错误：keywords');
     const page = Math.max(1, parseInt((req.body && req.body.page) || '1', 10) || 1);
-    const perPage = Math.min(100, Math.max(1, parseInt((req.body && req.body.per_page) || '30', 10) || 30));
+    const perPage = Math.min(
+      100,
+      Math.max(1, parseInt((req.body && req.body.per_page) || '30', 10) || 30)
+    );
     const data = await ol.fsSearch(root, keywords, page, perPage);
     const items = (data.content || []).map((o) => {
       const parent = String(o.parent || root);
       return { ...mapItem(o), parent: parent === root ? '/' : parent.slice(root.length) || '/' };
     });
     return ok(res, { items, total: data.total || 0, page, per_page: perPage });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 新建文件夹（公共区全员可建）
@@ -337,7 +388,9 @@ router.post('/mkdir', async (req, res) => {
     if (rel === null || !name) return fail(res, 400, 40001, '参数错误：path/name');
     await ol.fsMkdir(`${joinPath(root, rel)}/${name}`);
     return ok(res, null, '已创建');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 重命名（公共区仅班管/超管）
@@ -354,7 +407,9 @@ router.post('/rename', async (req, res) => {
     if (rel === null || rel === '/' || !name) return fail(res, 400, 40001, '参数错误：path/name');
     await ol.fsRename(joinPath(root, rel), name);
     return ok(res, null, '已重命名');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 批量删除（公共区仅班管/超管；按目录分组逐批调上游）
@@ -382,7 +437,9 @@ router.post('/remove', async (req, res) => {
       await ol.fsRemove(joinPath(root, dir), names);
     }
     return ok(res, null, '已删除');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 移动 / 复制（跨空间允许：目的侧按上传口径全员可写；移动会移除源位置，源在公共区时仅班管/超管）
@@ -412,7 +469,9 @@ async function moveCopy(req, res, op) {
     const fn = op === 'move' ? ol.fsMove : ol.fsCopy;
     await fn(joinPath(srcRoot, srcDir), joinPath(dstRoot, dstDir), names);
     return ok(res, null, op === 'move' ? '已移动' : '已复制');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 }
 
 router.post('/move', (req, res) => moveCopy(req, res, 'move'));
@@ -428,7 +487,11 @@ const mapArchiveItem = (o, innerBase) => ({
   modified: o.modified || '',
   rel: `${innerBase === '/' ? '' : innerBase}/${o.name}`,
   ...(Array.isArray(o.children) && o.children.length
-    ? { children: o.children.map((c) => mapArchiveItem(c, `${innerBase === '/' ? '' : innerBase}/${o.name}`)) }
+    ? {
+        children: o.children.map((c) =>
+          mapArchiveItem(c, `${innerBase === '/' ? '' : innerBase}/${o.name}`)
+        ),
+      }
     : {}),
 });
 
@@ -446,7 +509,9 @@ router.post('/archive/meta', async (req, res) => {
       comment: meta.comment || '',
       content: (meta.content || []).map((o) => mapArchiveItem(o, '/')),
     });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 压缩包内层目录平铺列表
@@ -459,10 +524,16 @@ router.post('/archive/list', async (req, res) => {
     if (rel === null || rel === '/') return fail(res, 400, 40001, '路径不合法');
     const inner = normRel((req.body && req.body.inner_path) || '/');
     if (inner === null) return fail(res, 400, 40001, '内层路径不合法');
-    const data = await ol.fsArchiveList(joinPath(root, rel), inner, req.body && req.body.archive_pass);
+    const data = await ol.fsArchiveList(
+      joinPath(root, rel),
+      inner,
+      req.body && req.body.archive_pass
+    );
     const items = (data.content || data || []).map((o) => mapArchiveItem(o, inner));
     return ok(res, { inner_path: inner, items });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 解压（写目的目录，口径同上传：全员可用；公共区目的目录同理）
@@ -477,13 +548,20 @@ router.post('/archive/decompress', async (req, res) => {
       return fail(res, 400, 40001, '参数错误：path/dst_dir');
     }
     await ol.ensureDir(joinPath(root, dstDir));
-    await ol.fsArchiveDecompress(dirName(joinPath(root, rel)), joinPath(root, dstDir), [baseName(rel)], {
-      archivePass: req.body && req.body.archive_pass,
-      putIntoNewDir: !req.body || req.body.put_into_new_dir !== false,
-      overwrite: !!(req.body && req.body.overwrite),
-    });
+    await ol.fsArchiveDecompress(
+      dirName(joinPath(root, rel)),
+      joinPath(root, dstDir),
+      [baseName(rel)],
+      {
+        archivePass: req.body && req.body.archive_pass,
+        putIntoNewDir: !req.body || req.body.put_into_new_dir !== false,
+        overwrite: !!(req.body && req.body.overwrite),
+      }
+    );
     return ok(res, null, '已解压');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 包内文件下载（流式中转；inner 为包内路径）
@@ -500,14 +578,18 @@ router.get('/archive/download', async (req, res) => {
     const r = await ol.archiveDownloadStream(joinPath(root, rel), inner, req.query.archive_pass);
     if (r.headers['content-length']) res.setHeader('Content-Length', r.headers['content-length']);
     if (r.headers['content-type']) res.setHeader('Content-Type', r.headers['content-type']);
-    res.setHeader('Content-Disposition',
-      `attachment; filename*=UTF-8''${encodeURIComponent(baseName(inner))}`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(baseName(inner))}`
+    );
     r.data.on('error', (serr) => {
       console.error(`[网盘] 包内下载上游断流（${rel} 内 ${inner}）：`, serr.message);
       res.destroy(serr);
     });
     return r.data.pipe(res);
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 文件夹整包下载：递归保留层级与空目录，archiver 流式 ZIP（前端原生直链触发，无需预读 Blob）
@@ -542,7 +624,9 @@ router.get('/download', async (req, res) => {
     if (rel === null || rel === '/') return fail(res, 400, 40001, '路径不合法');
     const disposition = req.query.disposition === 'inline' ? 'inline' : 'attachment';
     return await pipeDownload(res, joinPath(root, rel), baseName(rel), disposition);
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // ================= 图片缩略图（网格格子专用；杜绝 9MB 原图直链当缩略图的流量/内存放大） =================
@@ -552,12 +636,16 @@ const THUMB_IMG_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']);
 let thumbRunning = 0;
 const thumbQueue = [];
 function thumbAcquire() {
-  if (thumbRunning < 2) { thumbRunning += 1; return Promise.resolve(); }
+  if (thumbRunning < 2) {
+    thumbRunning += 1;
+    return Promise.resolve();
+  }
   return new Promise((resolve) => thumbQueue.push(resolve));
 }
 function thumbRelease() {
   const next = thumbQueue.shift();
-  if (next) next(); else thumbRunning -= 1;
+  if (next) next();
+  else thumbRunning -= 1;
 }
 function sendThumb(res, file) {
   res.setHeader('Content-Type', 'image/webp');
@@ -579,10 +667,16 @@ router.get('/thumb', async (req, res) => {
     if (!meta || meta.is_dir) return fail(res, 400, 40001, '路径不合法');
     const size = meta.size || 0;
     if (size > config.netdisk.thumbMaxMb * 1024 * 1024) {
-      const tk = typeof req.query.token === 'string' ? `&token=${encodeURIComponent(req.query.token)}` : '';
-      return res.redirect(`/api/v1/netdisk/download?space=${encodeURIComponent(req.query.space)}&path=${encodeURIComponent(rel)}&disposition=inline${tk}`);
+      const tk =
+        typeof req.query.token === 'string' ? `&token=${encodeURIComponent(req.query.token)}` : '';
+      return res.redirect(
+        `/api/v1/netdisk/download?space=${encodeURIComponent(req.query.space)}&path=${encodeURIComponent(rel)}&disposition=inline${tk}`
+      );
     }
-    const key = crypto.createHash('sha1').update(`${abs}|${size}|${meta.modified || ''}`).digest('hex');
+    const key = crypto
+      .createHash('sha1')
+      .update(`${abs}|${size}|${meta.modified || ''}`)
+      .digest('hex');
     const file = nodePath.join(config.netdisk.thumbDir, `${key}.webp`);
     if (fs.existsSync(file)) return sendThumb(res, file);
     if (!sharp) return fail(res, 503, 50301, '缩略图组件不可用');
@@ -602,8 +696,12 @@ router.get('/thumb', async (req, res) => {
       await fsp.writeFile(tmp, out);
       await fsp.rename(tmp, file);
       return sendThumb(res, file);
-    } finally { thumbRelease(); }
-  } catch (err) { return relayFail(res, err); }
+    } finally {
+      thumbRelease();
+    }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // Office 在线预览票据签发（仅 Office 格式；回源地址由前端拼 location.origin + /preview/<token>）
@@ -620,7 +718,9 @@ router.post('/preview/sign', async (req, res) => {
     await ol.fsGet(joinPath(root, rel)); // 存在性前置校验
     const token = jwt.sign({ ndp: joinPath(root, rel) }, config.jwt.secret, { expiresIn: '10m' });
     return ok(res, { token, expires_in: 600 });
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 分片上传 - 初始化（0 字节文件直接走 put 建成）
@@ -646,11 +746,14 @@ router.post('/upload/init', async (req, res) => {
     }
     const snap = await ol.mpInit(abs, size);
     return ok(res, snap);
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 分片上传 - 传一片（裸字节中转；429 窗口满 / 409 分片冲突均带 retry 标记由前端退避重传）
-router.put('/upload/chunk',
+router.put(
+  '/upload/chunk',
   express.raw({ type: 'application/octet-stream', limit: '64mb' }),
   async (req, res) => {
     try {
@@ -674,7 +777,8 @@ router.put('/upload/chunk',
       }
       return relayFail(res, err);
     }
-  });
+  }
+);
 
 // 分片上传 - 合并（阻塞到驱动落盘终态；被 CDN 掐断时前端用 status 轮询终态）
 router.post('/upload/complete', async (req, res) => {
@@ -683,7 +787,9 @@ router.post('/upload/complete', async (req, res) => {
     const uploadId = String((req.body && req.body.upload_id) || '').trim();
     if (!/^[0-9a-f-]{16,64}$/i.test(uploadId)) return fail(res, 400, 40001, '参数错误：upload_id');
     return ok(res, await ol.mpComplete(uploadId));
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 分片上传 - 会话查询（upload_id，或 space+path+name+size 找回断线会话）
@@ -692,7 +798,8 @@ router.get('/upload/status', async (req, res) => {
     ol.ensureConfigured();
     const uploadId = String(req.query.upload_id || '').trim();
     if (uploadId) {
-      if (!/^[0-9a-f-]{16,64}$/i.test(uploadId)) return fail(res, 400, 40001, '参数错误：upload_id');
+      if (!/^[0-9a-f-]{16,64}$/i.test(uploadId))
+        return fail(res, 400, 40001, '参数错误：upload_id');
       return ok(res, await ol.mpStatus({ upload_id: uploadId }));
     }
     const root = await resolveRoot(req, res, req.query.space);
@@ -703,8 +810,13 @@ router.get('/upload/status', async (req, res) => {
     if (rel === null || !name || !Number.isFinite(size) || size <= 0) {
       return fail(res, 400, 40001, '参数错误：path/name/size');
     }
-    return ok(res, await ol.mpStatus({ path: `${joinPath(root, rel)}/${name}`, size: String(size) }));
-  } catch (err) { return relayFail(res, err); }
+    return ok(
+      res,
+      await ol.mpStatus({ path: `${joinPath(root, rel)}/${name}`, size: String(size) })
+    );
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 分片上传 - 取消
@@ -714,7 +826,9 @@ router.post('/upload/abort', async (req, res) => {
     const uploadId = String((req.body && req.body.upload_id) || '').trim();
     if (!/^[0-9a-f-]{16,64}$/i.test(uploadId)) return fail(res, 400, 40001, '参数错误：upload_id');
     return ok(res, await ol.mpAbort(uploadId));
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // ================= 分享管理（登录态） =================
@@ -729,7 +843,12 @@ function shareState(row) {
 }
 
 const sharePaths = (row) => {
-  const p = Array.isArray(row.paths) ? row.paths : (typeof row.paths === 'string' ? JSON.parse(row.paths) : null); return Array.isArray(p) ? p : [];
+  const p = Array.isArray(row.paths)
+    ? row.paths
+    : typeof row.paths === 'string'
+      ? JSON.parse(row.paths)
+      : null;
+  return Array.isArray(p) ? p : [];
 };
 
 const mapShare = (row) => ({
@@ -751,11 +870,19 @@ router.get('/shares', async (req, res) => {
     if (scope === 'all' && !canManagePublic(req.user)) {
       return fail(res, 403, 40304, '仅班管/超管可查看全部分享');
     }
-    const [rows] = scope === 'all'
-      ? await pool.query('SELECT * FROM nd_share ORDER BY id DESC LIMIT 500')
-      : await pool.query('SELECT * FROM nd_share WHERE user_id = ? ORDER BY id DESC LIMIT 500', [req.user.id]);
-    return ok(res, rows.map((row) => ({ ...mapShare(row), mine: row.user_id === req.user.id })));
-  } catch (err) { return relayFail(res, err); }
+    const [rows] =
+      scope === 'all'
+        ? await pool.query('SELECT * FROM nd_share ORDER BY id DESC LIMIT 500')
+        : await pool.query('SELECT * FROM nd_share WHERE user_id = ? ORDER BY id DESC LIMIT 500', [
+            req.user.id,
+          ]);
+    return ok(
+      res,
+      rows.map((row) => ({ ...mapShare(row), mine: row.user_id === req.user.id }))
+    );
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 创建分享（paths 相对当前空间根，逐项校验存在性；提取码 4 位字母数字）
@@ -768,7 +895,9 @@ router.post('/shares', async (req, res) => {
     if (!Array.isArray(rawPaths) || !rawPaths.length || rawPaths.length > 20) {
       return fail(res, 400, 40001, '参数错误：paths（1-20 条）');
     }
-    const password = String((req.body && req.body.password) || '').trim().toUpperCase();
+    const password = String((req.body && req.body.password) || '')
+      .trim()
+      .toUpperCase();
     if (!/^[A-Z0-9]{4}$/.test(password)) {
       return fail(res, 400, 40001, '提取码须为 4 位字母或数字');
     }
@@ -790,8 +919,15 @@ router.post('/shares', async (req, res) => {
         await pool.query(
           `INSERT INTO nd_share (share_id, user_id, creator, base_path, paths, password, expire_at, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-          [shareId, req.user.id, req.user.nickname || req.user.username, root,
-            JSON.stringify(rels), password, expireAt]
+          [
+            shareId,
+            req.user.id,
+            req.user.nickname || req.user.username,
+            root,
+            JSON.stringify(rels),
+            password,
+            expireAt,
+          ]
         );
         return ok(res, { share_id: shareId, expire_at: expireAt }, '已创建分享');
       } catch (err) {
@@ -800,18 +936,27 @@ router.post('/shares', async (req, res) => {
       }
     }
     return fail(res, 500, 50000, '分享标识生成失败，请重试');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 // 停用 / 启用 / 删除共用装载与权限校验（本人或班管/超管）
 async function loadOwnedShare(req, res) {
   const sid = String(req.params.id || '').trim();
-  if (!SHARE_ID_RE.test(sid)) { fail(res, 400, 40001, '参数错误：id'); return null; }
+  if (!SHARE_ID_RE.test(sid)) {
+    fail(res, 400, 40001, '参数错误：id');
+    return null;
+  }
   const [rows] = await pool.query('SELECT * FROM nd_share WHERE share_id = ?', [sid]);
   const row = rows[0];
-  if (!row) { fail(res, 404, 40400, '分享不存在'); return null; }
+  if (!row) {
+    fail(res, 404, 40400, '分享不存在');
+    return null;
+  }
   if (row.user_id !== req.user.id && !canManagePublic(req.user)) {
-    fail(res, 403, 40304, '仅创建人或班管/超管可操作'); return null;
+    fail(res, 403, 40304, '仅创建人或班管/超管可操作');
+    return null;
   }
   return row;
 }
@@ -822,7 +967,9 @@ router.post('/shares/:id/disable', async (req, res) => {
     if (!row) return;
     await pool.query('UPDATE nd_share SET status = 0 WHERE id = ?', [row.id]);
     return ok(res, null, '已停用');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 router.post('/shares/:id/enable', async (req, res) => {
@@ -834,7 +981,9 @@ router.post('/shares/:id/enable', async (req, res) => {
     }
     await pool.query('UPDATE nd_share SET status = 1 WHERE id = ?', [row.id]);
     return ok(res, null, '已重新启用');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 router.delete('/shares/:id', async (req, res) => {
@@ -843,7 +992,9 @@ router.delete('/shares/:id', async (req, res) => {
     if (!row) return;
     await pool.query('DELETE FROM nd_share WHERE id = ?', [row.id]);
     return ok(res, null, '已删除');
-  } catch (err) { return relayFail(res, err); }
+  } catch (err) {
+    return relayFail(res, err);
+  }
 });
 
 module.exports = router;

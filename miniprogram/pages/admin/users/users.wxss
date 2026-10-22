@@ -6,7 +6,7 @@
 
 /* 关键词搜索框 */
 .search-field {
-  background: #FFFFFF;
+  background: #ffffff;
   border-radius: 12rpx;
   padding: 0 20rpx;
   margin-bottom: 20rpx;
@@ -32,8 +32,8 @@
   width: 80rpx;
   height: 80rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
   font-size: 36rpx;
   font-weight: 600;
   display: flex;
@@ -43,7 +43,7 @@
 }
 
 .u-avatar-off {
-  background: #E5E6EB;
+  background: #e5e6eb;
 }
 
 .u-main {
@@ -55,7 +55,7 @@
 .u-name {
   font-size: 28rpx;
   font-weight: 500;
-  color: #1D2129;
+  color: #1d2129;
   display: flex;
   align-items: center;
   gap: 12rpx;
@@ -64,7 +64,7 @@
 .u-sub {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* 角色徽章（超管=墨底 / 班组管理员=蓝描边 / 普通用户=灰底） */
@@ -78,24 +78,24 @@
 }
 
 .role-admin {
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
 }
 
 .role-team_admin {
-  border: 1rpx solid #0E3DA8;
-  color: #0E3DA8;
+  border: 1rpx solid #0e3da8;
+  color: #0e3da8;
 }
 
 .role-user {
-  background: #E8F0FF;
-  color: #4E5969;
+  background: #e8f0ff;
+  color: #4e5969;
 }
 
 .hint {
   margin-top: 24rpx;
   text-align: center;
-  color: #E5E6EB;
+  color: #e5e6eb;
   font-size: 22rpx;
 }
 
@@ -107,14 +107,14 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #F5F7FA;
+  background: #f5f7fa;
 }
 
 /* ---------- 新建 / 编辑员工弹层（直角 + 顶部墨线；.sh-head/.sh-title/.sh-sub/.sh-close/.f-label/.f-field/.sh-note/.btn-disabled 已上移 app.wxss 共用） ---------- */
 .sheet {
-  background: #FFFFFF;
+  background: #ffffff;
   border-radius: 12rpx;
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
   padding: 28rpx 32rpx 48rpx;
   max-height: 78vh;
   display: flex;
@@ -135,21 +135,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #F5F7FA;
+  background: #f5f7fa;
   border-radius: 12rpx;
   padding: 20rpx 16rpx;
   font-size: 26rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .f-in-ph {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .team-opts {
   margin-top: 10rpx;
-  background: #FFFFFF;
-  border: 1rpx solid #E5E6EB;
+  background: #ffffff;
+  border: 1rpx solid #e5e6eb;
   border-radius: 12rpx;
   overflow: hidden;
 }
@@ -160,15 +160,15 @@
   justify-content: space-between;
   padding: 18rpx 20rpx;
   font-size: 26rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .opt + .opt {
-  border-top: 1rpx solid #E5E6EB;
+  border-top: 1rpx solid #e5e6eb;
 }
 
 .opt-on {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 600;
 }
 
@@ -187,17 +187,17 @@
   text-align: center;
   padding: 16rpx 0;
   border-radius: 12rpx;
-  border: 1rpx solid #E5E6EB;
-  background: #FFFFFF;
+  border: 1rpx solid #e5e6eb;
+  background: #ffffff;
   font-size: 23rpx;
   font-weight: 600;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .sg-on {
-  border-color: #0E3DA8;
-  color: #0E3DA8;
-  background: #E8F0FF;
+  border-color: #0e3da8;
+  color: #0e3da8;
+  background: #e8f0ff;
 }
 
 .f-row {
@@ -209,7 +209,7 @@
 .fr-lab {
   font-size: 26rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .sh-foot {
@@ -221,20 +221,20 @@
 
 .sum {
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .pwd-link {
   font-size: 24rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .btn-primary {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
-  color: #FFFFFF;
+  background: #0e3da8;
+  color: #ffffff;
   font-size: 30rpx;
   font-weight: 700;
   letter-spacing: 6rpx;

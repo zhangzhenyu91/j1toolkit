@@ -110,7 +110,8 @@ function renderXml(xml, data) {
   if (!tbl) throw new Error('模板缺少 w:tbl');
   const tblPr = tbl[0].match(/<w:tblPr>[\s\S]*?<\/w:tblPr>/);
   const trs = tbl[0].match(/<w:tr[ >][\s\S]*?<\/w:tr>/g);
-  if (!tblPr || !trs || trs.length !== 3) throw new Error('费用汇总模板应为 3 个样板行（表头/数据/合计）');
+  if (!tblPr || !trs || trs.length !== 3)
+    throw new Error('费用汇总模板应为 3 个样板行（表头/数据/合计）');
   const trPrefix = (tr) => tr.match(/^<w:tr[^>]*>(?:<w:trPr>[\s\S]*?<\/w:trPr>)?/)[0];
   const cellsOf = (tr) => tr.match(/<w:tc>[\s\S]*?<\/w:tc>/g);
   const [headCells, rowCells, sumCells] = trs.map(cellsOf);
@@ -122,10 +123,11 @@ function renderXml(xml, data) {
   const tblPrNew = tblPr[0].replace(/(<w:tblW w:w=")\d+(")/, `$1${totalW}$2`);
 
   // 表头：首格为斜线单元格（只改列宽保留原文），其后一个用车人一列
-  const head = trPrefix(trs[0])
-    + fillCell(headCells[0], DATE_COL_W, null)
-    + persons.map((p, i) => fillCell(headCells[1], widths[i], p.name)).join('')
-    + '</w:tr>';
+  const head =
+    trPrefix(trs[0]) +
+    fillCell(headCells[0], DATE_COL_W, null) +
+    persons.map((p, i) => fillCell(headCells[1], widths[i], p.name)).join('') +
+    '</w:tr>';
 
   // 数据行：一卡一行，日期（M月D日）入第 1 列；用车人列填 {费用}×{倍率}={计算值}，非用车人列留空
   const totals = new Array(persons.length).fill(0);
@@ -140,14 +142,20 @@ function renderXml(xml, data) {
       totals[i] += calc;
       return fillCell(rowCells[1], widths[i], `${fee}×${FEE_MULTIPLIER}=${calc}`);
     });
-    return trPrefix(trs[1]) + fillCell(rowCells[0], DATE_COL_W, `${Number(m)}月${Number(d)}日`) + cells.join('') + '</w:tr>';
+    return (
+      trPrefix(trs[1]) +
+      fillCell(rowCells[0], DATE_COL_W, `${Number(m)}月${Number(d)}日`) +
+      cells.join('') +
+      '</w:tr>'
+    );
   });
 
   // 合计行：第 1 列「合计」保留样板原文，各列填本列计算值之和
-  const sum = trPrefix(trs[2])
-    + fillCell(sumCells[0], DATE_COL_W, null)
-    + totals.map((t, i) => fillCell(sumCells[1], widths[i], String(t))).join('')
-    + '</w:tr>';
+  const sum =
+    trPrefix(trs[2]) +
+    fillCell(sumCells[0], DATE_COL_W, null) +
+    totals.map((t, i) => fillCell(sumCells[1], widths[i], String(t))).join('') +
+    '</w:tr>';
 
   const newTbl = `<w:tbl>${tblPrNew}${grid}${head}${rows.join('')}${sum}</w:tbl>`;
   return xml.replace(tbl[0], newTbl);
@@ -160,7 +168,10 @@ async function build(team, from, to) {
   if (!data.persons.length) return null; // 出车卡片必有用车人才产生列；防御（正常已被生成前核验拦截）
   const zip = new PizZip(fs.readFileSync(TEMPLATE_PATH));
   zip.file('word/document.xml', renderXml(zip.file('word/document.xml').asText(), data));
-  return { buffer: zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }), count: data.entries.length };
+  return {
+    buffer: zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }),
+    count: data.entries.length,
+  };
 }
 
 module.exports = { build };

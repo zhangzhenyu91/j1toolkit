@@ -4,23 +4,46 @@
 
 <view class="page-body">
   <!-- 分段（仅班管/超管可见「全部」） -->
-  <view class="seg2 a" wx:if="{{isManager}}" style="--d:.04s">
-    <view class="seg {{scope === 'mine' ? 'on' : ''}}" data-scope="mine" hover-class="hover-opacity" bindtap="onScopeTap">我创建的</view>
-    <view class="seg {{scope === 'all' ? 'on' : ''}}" data-scope="all" hover-class="hover-opacity" bindtap="onScopeTap">全部（班管）</view>
+  <view class="seg2 a" wx:if="{{isManager}}" style="--d: 0.04s">
+    <view
+      class="seg {{scope === 'mine' ? 'on' : ''}}"
+      data-scope="mine"
+      hover-class="hover-opacity"
+      bindtap="onScopeTap"
+      >我创建的</view
+    >
+    <view
+      class="seg {{scope === 'all' ? 'on' : ''}}"
+      data-scope="all"
+      hover-class="hover-opacity"
+      bindtap="onScopeTap"
+      >全部（班管）</view
+    >
   </view>
 
   <!-- 班管提示条（浅蓝底 + 左色条，直角） -->
-  <view class="notice a" wx:if="{{isManager && scope === 'all'}}" style="--d:.1s">
+  <view class="notice a" wx:if="{{isManager && scope === 'all'}}" style="--d: 0.1s">
     <t-icon name="info-circle" size="26rpx" color="#0E3DA8" />
     <text>班管 / 超管可查看并取消班内全部分享链接</text>
   </view>
 
   <!-- 分享卡片 -->
   <block wx:if="{{list.length}}">
-    <view class="card shcard a" wx:for="{{list}}" wx:key="id" style="--d:{{0.14 + (index > 4 ? 4 : index) * 0.06}}s">
+    <view
+      class="card shcard a"
+      wx:for="{{list}}"
+      wx:key="id"
+      style="--d:{{0.14 + (index > 4 ? 4 : index) * 0.06}}s"
+    >
       <view class="sc-body">
         <view class="sc-top">
-          <image wx:if="{{!item.iconFail}}" class="ficon-img" src="{{item.icon}}" data-index="{{index}}" binderror="onIconErr" />
+          <image
+            wx:if="{{!item.iconFail}}"
+            class="ficon-img"
+            src="{{item.icon}}"
+            data-index="{{index}}"
+            binderror="onIconErr"
+          />
           <view wx:elif="{{item.isDir}}" class="ficon">
             <t-icon name="folder" size="38rpx" color="#0A3592" />
           </view>

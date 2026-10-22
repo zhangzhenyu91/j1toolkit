@@ -49,7 +49,10 @@ async function getToken(username) {
   const s = sessions.get(username);
   if (s && s.expiresAt > Date.now()) return s.token;
   if (!loggingIn.get(username)) {
-    loggingIn.set(username, login(username).finally(() => loggingIn.delete(username)));
+    loggingIn.set(
+      username,
+      login(username).finally(() => loggingIn.delete(username))
+    );
   }
   return loggingIn.get(username);
 }

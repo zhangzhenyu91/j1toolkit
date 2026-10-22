@@ -13,7 +13,13 @@ async function getTowers(teamId) {
       [key]
     );
     cache.set(key, {
-      rows: rows.map((r) => [r.voltage_level, r.line_name, r.tower_no, Number(r.lng), Number(r.lat)]),
+      rows: rows.map((r) => [
+        r.voltage_level,
+        r.line_name,
+        r.tower_no,
+        Number(r.lng),
+        Number(r.lat),
+      ]),
     });
   }
   return cache.get(key);

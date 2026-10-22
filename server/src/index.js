@@ -35,7 +35,9 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     // originalUrl 可能携带 ?token= 敏感参数（如 Dify 回调），访问日志中脱敏
-    console.log(`${req.method} ${req.originalUrl.replace(/([?&]token=)[^&]+/, '$1***')} ${res.statusCode} ${Date.now() - start}ms`);
+    console.log(
+      `${req.method} ${req.originalUrl.replace(/([?&]token=)[^&]+/, '$1***')} ${res.statusCode} ${Date.now() - start}ms`
+    );
   });
   next();
 });
@@ -47,7 +49,10 @@ app.get('/healthz', (req, res) => ok(res, { status: 'up' }));
 let sgccCaptchaHtml;
 app.get('/sgcc-captcha.html', (req, res) => {
   if (!sgccCaptchaHtml) {
-    sgccCaptchaHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'sgcc-captcha.html'), 'utf8');
+    sgccCaptchaHtml = fs.readFileSync(
+      path.join(__dirname, '..', 'public', 'sgcc-captcha.html'),
+      'utf8'
+    );
   }
   res.type('html').send(sgccCaptchaHtml.replaceAll('__SGCC_DX_APPID__', config.sgcc.dxAppId || ''));
 });

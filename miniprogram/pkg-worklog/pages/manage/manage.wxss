@@ -15,10 +15,10 @@ page {
 
 .seg-wrap {
   /* CSS 变量穿透组件（apply-shared），覆盖 t-segmented 主题 */
-  --td-segmented-bg-color: #E5E6EB;
+  --td-segmented-bg-color: #e5e6eb;
   --td-segmented-item-active-bg: #ffffff;
-  --td-segmented-item-active-color: #0E3DA8;
-  --td-segmented-item-color: #4E5969;
+  --td-segmented-item-active-color: #0e3da8;
+  --td-segmented-item-color: #4e5969;
 }
 
 .seg-wrap .t-segmented {
@@ -42,7 +42,7 @@ page {
   flex: 1;
   height: 84rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -53,11 +53,11 @@ page {
 .inp-input {
   flex: 1;
   font-size: 26rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .ph {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .btn-add {
@@ -65,8 +65,8 @@ page {
   height: 84rpx;
   flex: none;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
-  background: #0E3DA8;
+  border: 2rpx solid #e5e6eb;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -91,7 +91,7 @@ page {
 }
 
 .mrow + .mrow {
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .mrow .mi {
@@ -99,7 +99,7 @@ page {
   height: 60rpx;
   flex: none;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -112,14 +112,14 @@ page {
 }
 
 .mrow.off .mt {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   font-weight: 400;
 }
 
 .moff-tip {
   font-size: 20rpx;
-  color: rgba(29,33,41,.4);
-  border: 2rpx solid rgba(29,33,41,.35);
+  color: rgba(29, 33, 41, 0.4);
+  border: 2rpx solid rgba(29, 33, 41, 0.35);
   border-radius: 12rpx;
   padding: 0 10rpx;
   line-height: 30rpx;
@@ -134,24 +134,24 @@ page {
 }
 
 .mrow .ops .edit {
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .mrow .ops .off {
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 .mempty {
   padding: 48rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* ---------- 人员来源标（屏六 .sync-pill/.hand-pill，直角小签） ---------- */
 .sync-pill {
   font-size: 19rpx;
-  color: #00B42A;
+  color: #00b42a;
   background: #eaf6ee;
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
@@ -160,8 +160,8 @@ page {
 
 .hand-pill {
   font-size: 19rpx;
-  color: #4E5969;
-  background: #E8F0FF;
+  color: #4e5969;
+  background: #e8f0ff;
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
@@ -174,7 +174,7 @@ page {
 
 .tower-bar {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 22rpx 26rpx;
   display: flex;
@@ -190,7 +190,7 @@ page {
 
 .tower-bar .tb-s {
   font-size: 20rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   margin-top: 4rpx;
 }
 
@@ -203,14 +203,14 @@ page {
 
 .tb-btn.tpl {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
-  color: #1D2129;
+  border: 2rpx solid #e5e6eb;
+  color: #1d2129;
 }
 
 .tb-btn.imp {
-  background: #E8F0FF;
-  border: 3rpx solid #0E3DA8;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  border: 3rpx solid #0e3da8;
+  color: #0e3da8;
 }
 
 .tower-bar .tb-btns {
@@ -235,7 +235,7 @@ page {
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .imp-steps {
@@ -253,8 +253,8 @@ page {
   height: 40rpx;
   flex: none;
   border-radius: 50%;
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
   font-size: 22rpx;
   font-weight: 700;
   display: flex;
@@ -275,7 +275,7 @@ page {
 
 .imp-step .st-d {
   font-size: 21rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   margin-top: 4rpx;
   line-height: 1.6;
 }
@@ -287,16 +287,16 @@ page {
   gap: 12rpx;
   font-size: 23rpx;
   font-weight: 700;
-  color: #0E3DA8;
-  background: #E8F0FF;
-  border: 2rpx solid #0E3DA8;
+  color: #0e3da8;
+  background: #e8f0ff;
+  border: 2rpx solid #0e3da8;
   border-radius: 12rpx;
   padding: 12rpx 22rpx;
 }
 
 .pick-file {
   margin-top: 14rpx;
-  border: 3rpx dashed rgba(29,33,41,.35);
+  border: 3rpx dashed rgba(29, 33, 41, 0.35);
   border-radius: 12rpx;
   padding: 22rpx;
   text-align: center;
@@ -310,29 +310,29 @@ page {
 
 .pick-file .pfn .pfx {
   margin-left: 12rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   font-weight: 400;
 }
 
 .pick-file .pfd {
   font-size: 20rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
   margin-top: 6rpx;
 }
 
 .imp-sum {
   margin-top: 14rpx;
-  background: #F7F8FA;
-  border: 2rpx solid #E5E6EB;
+  background: #f7f8fa;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 18rpx 24rpx;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.8;
 }
 
 .imp-sum b {
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .sheet-actions {
@@ -345,14 +345,14 @@ page {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 6rpx;
   box-sizing: border-box;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
@@ -362,7 +362,7 @@ page {
   flex: 2;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;

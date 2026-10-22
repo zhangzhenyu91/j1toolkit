@@ -5,6 +5,7 @@
 - config.ini [auth] mode=sso（默认）→ SSO 账号密码自动登录（凭据：config.json 优先，config.ini 兜底）
 - mode=token → 直接使用 config.ini [auth] 已填写的三件套（GUI/定时器环境不能交互输入）
 """
+
 import sys
 from pathlib import Path
 
@@ -21,6 +22,7 @@ def make_client(cfg: dict, log=print):
     """返回（client, auth）。client 接口形状同 vehicle_export.UvmpClient"""
     if (cfg.get("dev") or {}).get("mock"):
         import devmock
+
         client = devmock.fake_client(cfg, log)
         return client, client.auth
 
@@ -36,18 +38,24 @@ def make_client(cfg: dict, log=print):
         refresh = (ini_auth.get("refresh_token") or "").strip()
         mtk = (ini_auth.get("mtk") or "").strip()
         if not (token and refresh and mtk):
-            raise RuntimeError("config.ini [auth] mode=token，但 token/refresh_token/mtk 未填齐；"
-                               "GUI 环境不能交互粘贴凭证，请改用 sso 模式或先在 config.ini 填好")
+            raise RuntimeError(
+                "config.ini [auth] mode=token，但 token/refresh_token/mtk 未填齐；"
+                "GUI 环境不能交互粘贴凭证，请改用 sso 模式或先在 config.ini 填好"
+            )
         auth = ve.Auth(token, refresh, mtk)
         log("使用 config.ini 中的手动凭证（token 模式）")
         return ve.UvmpClient(gateway, auth), auth
 
     username, password = _config.sso_credentials(cfg)
     if not username or not password:
-        raise RuntimeError("未配置 SSO 账号密码：请在工具箱设置页填写，或在 config.ini [auth] 填写")
+        raise RuntimeError(
+            "未配置 SSO 账号密码：请在工具箱设置页填写，或在 config.ini [auth] 填写"
+        )
     session = requests.Session()
-    session.headers["User-Agent"] = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                                     "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36")
+    session.headers["User-Agent"] = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+    )
     log("SSO 登录中（%s）..." % username)
     t_jwt = ve.sso_login(session, username, password, _config.sso_cfg(cfg))
     auth = ve.Auth.via_getuserauth(gateway, t_jwt, session)
@@ -66,14 +74,17 @@ def start_renderer(client, auth, cfg: dict, work_dir: Path, log=print):
     try:
         from official_track import OfficialTrackRenderer
         import platform_utils
+
         chrome = platform_utils.detect_chrome(_config.render_cfg(cfg).get("chrome", ""))
         log("官方页面渲染器启动中（浏览器：%s）..." % chrome)
         renderer = OfficialTrackRenderer(
-            chrome, Path(work_dir) / ".chrome-tmp" / "official_chrome.log",
+            chrome,
+            Path(work_dir) / ".chrome-tmp" / "official_chrome.log",
             wait_tiles_s=max(3, int(vecfg.get("map_tiles_wait", 12000)) // 1000),
             idle_quiet_s=max(2, int(vecfg.get("map_idle_quiet", 5000)) // 1000),
             min_wait_s=max(0, int(vecfg.get("map_min_wait", 30000)) // 1000),
-            pcd_wait_s=max(0, int(vecfg.get("pcd_render_wait", 6000)) // 1000))
+            pcd_wait_s=max(0, int(vecfg.get("pcd_render_wait", 6000)) // 1000),
+        )
         renderer.start(auth)
         log("官方页面渲染器就绪（登录态注入成功）")
         return renderer

@@ -5,6 +5,7 @@
 FakeClient 模拟 pcdmanager 分页查询（含 runCode/日期过滤）、getPrintDetails、
 轨迹点查询、行程段查询四类接口的最小行为。
 """
+
 import json
 import time
 from datetime import datetime, timedelta
@@ -49,17 +50,39 @@ def _mk_order(idx: int, day: datetime, run_state: str = "2") -> dict:
         "fixedNumbers": "3",
         "oilType": "02",
         # 归队登记（已完成单）
-        "realSendTime": begin.strftime("%Y-%m-%d %H:%M:%S") + ".0" if run_state == "2" else "",
-        "realBackTime": end.strftime("%Y-%m-%d %H:%M:%S") + ".0" if run_state == "2" else "",
-        "realSendTimeStr": begin.strftime("%Y-%m-%d %H:%M:%S") if run_state == "2" else "",
-        "realBackTimeStr": end.strftime("%Y-%m-%d %H:%M:%S") if run_state == "2" else "",
-        "startMiles": 12000 + idx * 100, "endMiles": 12000 + idx * 100 + 87,
-        "totalMiles": 87, "realNumber": 2, "oilFee": "", "oilUse": "", "oilPrice": "",
-        "sxCardNumber": "", "roadbridgeFee": "", "crossAddrRegister": "", "toAddrRegister": "",
+        "realSendTime": begin.strftime("%Y-%m-%d %H:%M:%S") + ".0"
+        if run_state == "2"
+        else "",
+        "realBackTime": end.strftime("%Y-%m-%d %H:%M:%S") + ".0"
+        if run_state == "2"
+        else "",
+        "realSendTimeStr": begin.strftime("%Y-%m-%d %H:%M:%S")
+        if run_state == "2"
+        else "",
+        "realBackTimeStr": end.strftime("%Y-%m-%d %H:%M:%S")
+        if run_state == "2"
+        else "",
+        "startMiles": 12000 + idx * 100,
+        "endMiles": 12000 + idx * 100 + 87,
+        "totalMiles": 87,
+        "realNumber": 2,
+        "oilFee": "",
+        "oilUse": "",
+        "oilPrice": "",
+        "sxCardNumber": "",
+        "roadbridgeFee": "",
+        "crossAddrRegister": "",
+        "toAddrRegister": "",
         "remark": "",
         "audinList": [
-            {"wfInstanceName": "部门审批", "operatorName": "测试班长", "operatorType": "审批",
-             "operateTime": (begin - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")},
+            {
+                "wfInstanceName": "部门审批",
+                "operatorName": "测试班长",
+                "operatorType": "审批",
+                "operateTime": (begin - timedelta(hours=2)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+            },
         ],
     }
 
@@ -67,8 +90,10 @@ def _mk_order(idx: int, day: datetime, run_state: str = "2") -> dict:
 def make_items(today: datetime = None) -> list:
     today = today or datetime.now()
     items = [_mk_order(i + 1, today, "2") for i in range(5)]
-    items.append(_mk_order(6, today, "1"))   # 已派车未完结：每日同步要包含，轨迹导出应跳过
-    items.append(_mk_order(7, today, "0"))   # 待派车
+    items.append(
+        _mk_order(6, today, "1")
+    )  # 已派车未完结：每日同步要包含，轨迹导出应跳过
+    items.append(_mk_order(7, today, "0"))  # 待派车
     items.append(_mk_order(11, today - timedelta(days=1), "2"))
     items.append(_mk_order(12, today - timedelta(days=1), "2"))
     return items
@@ -113,16 +138,22 @@ class FakeClient:
             items = [it for it in items if str(it.get("runState")) == flt["runState"]]
         total = len(items)
         lo = (page_index - 1) * page_size
-        return {"successful": True, "resultValue": {
-            "itemCount": total, "items": items[lo:lo + page_size]}}
+        return {
+            "successful": True,
+            "resultValue": {"itemCount": total, "items": items[lo : lo + page_size]},
+        }
 
     # ---- 打印详情 ----
     def _print_details(self, base_path: str) -> dict:
-        ids_part = base_path.split("id=", 1)[1].split("&", 1)[0] if "id=" in base_path else ""
+        ids_part = (
+            base_path.split("id=", 1)[1].split("&", 1)[0] if "id=" in base_path else ""
+        )
         ids = [x for x in ids_part.split(",") if x]
         by_id = {it["id"]: it for it in self._items}
-        return {"successful": True, "resultValue": {
-            "items": [by_id[i] for i in ids if i in by_id]}}
+        return {
+            "successful": True,
+            "resultValue": {"items": [by_id[i] for i in ids if i in by_id]},
+        }
 
     # ---- 轨迹点 ----
     @staticmethod
@@ -135,13 +166,15 @@ class FakeClient:
         pts = []
         for i in range(40):
             t = t0 + timedelta(minutes=2 * i)
-            pts.append({
-                "dx": round(112.548 + i * 0.006, 6),
-                "dy": round(37.857 + i * 0.004, 6),
-                "speed": 30 + i % 25,
-                "direction": (45 + i * 3) % 360,
-                "locatetime": t.strftime("%Y-%m-%d %H:%M:%S"),
-            })
+            pts.append(
+                {
+                    "dx": round(112.548 + i * 0.006, 6),
+                    "dy": round(37.857 + i * 0.004, 6),
+                    "speed": 30 + i % 25,
+                    "direction": (45 + i * 3) % 360,
+                    "locatetime": t.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
         return {"successful": True, "data": pts}
 
     # ---- 行程段 ----
@@ -150,17 +183,25 @@ class FakeClient:
         for it in self._items:
             if str(it.get("runState")) != "2" or not it.get("realSendTime"):
                 continue
-            segs.append({
-                "id": "SEG-" + it["id"],
-                "vehicleId": it["vehicleId"],
-                "vehicleNumber": it["vehicleNumber"],
-                "routeNo": "R" + it["id"],
-                "starttime": it["realSendTimeStr"],
-                "endtime": it["realBackTimeStr"],
-                "miles": it["totalMiles"],
-                "startX": 112.548, "startY": 37.857, "endX": 112.782, "endY": 38.013,
-            })
-        return {"successful": True, "resultValue": {"itemCount": len(segs), "items": segs}}
+            segs.append(
+                {
+                    "id": "SEG-" + it["id"],
+                    "vehicleId": it["vehicleId"],
+                    "vehicleNumber": it["vehicleNumber"],
+                    "routeNo": "R" + it["id"],
+                    "starttime": it["realSendTimeStr"],
+                    "endtime": it["realBackTimeStr"],
+                    "miles": it["totalMiles"],
+                    "startX": 112.548,
+                    "startY": 37.857,
+                    "endX": 112.782,
+                    "endY": 38.013,
+                }
+            )
+        return {
+            "successful": True,
+            "resultValue": {"itemCount": len(segs), "items": segs},
+        }
 
     def get(self, base_path: str, p_data=None, desc: str = "") -> dict:
         time.sleep(0.05)  # 模拟网络耗时，让进度可见

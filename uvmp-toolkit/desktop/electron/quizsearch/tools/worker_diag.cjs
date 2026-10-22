@@ -7,7 +7,9 @@
 
 const path = require('path');
 
-function step(name) { console.log('[diag] ' + name + '…'); }
+function step(name) {
+  console.log('[diag] ' + name + '…');
+}
 
 (async () => {
   step('加载 onnxruntime-node');
@@ -23,7 +25,10 @@ function step(name) { console.log('[diag] ' + name + '…'); }
   const t0 = Date.now();
   const detIn = new ort.Tensor('float32', new Float32Array(3 * 64 * 64), [1, 3, 64, 64]);
   const detOut = await det.run({ [det.inputNames[0]]: detIn });
-  console.log('[diag] det 推理 OK（' + (Date.now() - t0) + 'ms），输出维度：', detOut[det.outputNames[0]].dims);
+  console.log(
+    '[diag] det 推理 OK（' + (Date.now() - t0) + 'ms），输出维度：',
+    detOut[det.outputNames[0]].dims
+  );
 
   step('创建 rec 会话');
   const rec = await ort.InferenceSession.create(path.join(modelsDir, 'rec.onnx'));
@@ -34,7 +39,10 @@ function step(name) { console.log('[diag] ' + name + '…'); }
 
   step('读取识别字典 ppocr_keys.txt');
   const fs = require('fs');
-  const keys = fs.readFileSync(path.join(modelsDir, 'ppocr_keys.txt'), 'utf8').split('\n').filter(Boolean);
+  const keys = fs
+    .readFileSync(path.join(modelsDir, 'ppocr_keys.txt'), 'utf8')
+    .split('\n')
+    .filter(Boolean);
   console.log('[diag] 字典字符数：', keys.length);
 
   console.log('[diag] 全部 OK —— 纯 Node 环境下 OCR 引擎与模型可用');

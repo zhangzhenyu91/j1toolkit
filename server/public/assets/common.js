@@ -87,7 +87,9 @@
       var b64 = part.replace(/-/g, '+').replace(/_/g, '/');
       while (b64.length % 4) b64 += '=';
       return JSON.parse(atob(b64));
-    } catch (e) { return null; }
+    } catch (e) {
+      return null;
+    }
   }
 
   // token 是否已过期（无 token 或解析不出 exp 一律视为已过期）
@@ -117,7 +119,12 @@
     if (token) headers['Authorization'] = 'Bearer ' + token;
 
     let body = opts.body;
-    if (body && typeof body === 'object' && !(body instanceof FormData) && !(body instanceof Blob)) {
+    if (
+      body &&
+      typeof body === 'object' &&
+      !(body instanceof FormData) &&
+      !(body instanceof Blob)
+    ) {
       headers['Content-Type'] = 'application/json';
       body = JSON.stringify(body);
     }
@@ -144,7 +151,9 @@
   // 统一接口调用（apiRaw 之上解析 JSON 信封与业务码）
   async function api(path, opts) {
     const res = await apiRaw(path, opts);
-    const json = await res.json().catch(function () { return null; });
+    const json = await res.json().catch(function () {
+      return null;
+    });
     if (!json) throw new Error('服务响应异常（HTTP ' + res.status + '）');
     if (json.code !== 0) {
       const err = new Error(json.message || '请求失败（' + json.code + '）');
@@ -160,7 +169,11 @@
     const cd = res.headers.get('Content-Disposition') || '';
     let m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
     let name = '';
-    if (m) { try { name = decodeURIComponent(m[1].replace(/"/g, '')); } catch (e) { } }
+    if (m) {
+      try {
+        name = decodeURIComponent(m[1].replace(/"/g, ''));
+      } catch (e) {}
+    }
     if (!name) {
       m = /filename="?([^";]+)"?/i.exec(cd);
       name = m ? m[1] : '';
@@ -173,22 +186,32 @@
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 4000);
   }
 
   // 本地缓存的用户对象
   function user() {
-    try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; }
+    try {
+      return JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+    } catch (e) {
+      return null;
+    }
   }
 
   // 角色文案：admin→管理员 / team_admin→班组管理员 / 其他→普通用户
   function roleText(role) {
-    return role === 'admin' ? '管理员' : (role === 'team_admin' ? '班组管理员' : '普通用户');
+    return role === 'admin' ? '管理员' : role === 'team_admin' ? '班组管理员' : '普通用户';
   }
 
   // DOM 选择助手（$$ 返回数组）
-  function $(s, c) { return (c || document).querySelector(s); }
-  function $$(s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); }
+  function $(s, c) {
+    return (c || document).querySelector(s);
+  }
+  function $$(s, c) {
+    return Array.prototype.slice.call((c || document).querySelectorAll(s));
+  }
 
   // 班组隔离 query 助手：teamId 非空时为 path 追加 team_id
   function withTeam(path, teamId) {
@@ -198,8 +221,10 @@
 
   // 备案两条链接 HTML（工信部 + 公安备案）：全局页脚与自放备案的页面（如登录页 data-beian="off"）共用同一段
   function beianHtml() {
-    return '<a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>' +
-      '<a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener"><img src="/public-security.png" alt="公安备案">晋公网安备14118202000050号</a>';
+    return (
+      '<a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">晋ICP备2025063709号-2</a>' +
+      '<a href="https://beian.mps.gov.cn/#/query/webSearch?code=14118202000050" target="_blank" rel="noopener"><img src="/public-security.png" alt="公安备案">晋公网安备14118202000050号</a>'
+    );
   }
 
   // 统一备案页脚：注入为 body 末尾 flex item（样式 theme.css .beian-foot）；
@@ -224,7 +249,11 @@
 
   // 退出登录：通知后端注销 token（失败不阻塞本地清理）；仅供顶栏退出按钮内部调用，不导出
   async function logout() {
-    try { await api('/api/v1/auth/logout', { method: 'POST' }); } catch (e) { /* 忽略，本地照常清理 */ }
+    try {
+      await api('/api/v1/auth/logout', { method: 'POST' });
+    } catch (e) {
+      /* 忽略，本地照常清理 */
+    }
     clearAuth();
     location.href = '/login.html';
   }
@@ -242,31 +271,39 @@
   // 统一顶部导航：左侧 Logo + 常驻导航（工作台 + 按权限下发的应用，顺序同工作台宫格——同取 /api/v1/app/list，
   // 无权限的应用不下发即不显示；本地缓存 shade_apps 先行渲染避免闪烁，接口回来后校正）；
   // 右侧「管理」（仅 admin 可见）+ 用户区 + 退出
-  var APP_NAV = { // 应用 → 网页版落地页（app_key 与 sys_app 种子一致；顶栏导航与工作台宫格落地页共用此单一来源，无网页版的应用不收录）
+  var APP_NAV = {
+    // 应用 → 网页版落地页（app_key 与 sys_app 种子一致；顶栏导航与工作台宫格落地页共用此单一来源，无网页版的应用不收录）
     'call-me': { key: 'callme', href: '/callme.html' },
-    'quiz': { key: 'quiz', href: '/quiz.html' },
+    quiz: { key: 'quiz', href: '/quiz.html' },
     'work-log': { key: 'worklog', href: '/worklog.html' },
     'wm-add': { key: 'wmadd', href: '/wmadd.html' },
     'safe-day': { key: 'safeday', href: '/safeday.html' },
-    'kvm': { key: 'kvm', href: '/kvm.html' },
-    'netdisk': { key: 'netdisk', href: '/netdisk.html' },
+    kvm: { key: 'kvm', href: '/kvm.html' },
+    netdisk: { key: 'netdisk', href: '/netdisk.html' },
     'tree-hazard': { key: 'treehazard', href: '/treehazard.html' },
     'team-data': { key: 'teamdata', href: '/teamdata.html' },
   };
   function cachedApps() {
-    try { return JSON.parse(localStorage.getItem(APPS_KEY) || 'null'); } catch (e) { return null; }
+    try {
+      return JSON.parse(localStorage.getItem(APPS_KEY) || 'null');
+    } catch (e) {
+      return null;
+    }
   }
   function renderLeftNav(active) {
     var items = [{ key: 'index', name: '工作台', href: '/index.html' }];
     (cachedApps() || []).forEach(function (a) {
       var nav = APP_NAV[a.app_key];
-      if (nav && a.terminal !== 'mobile') items.push({ key: nav.key, name: a.name, href: nav.href });
+      if (nav && a.terminal !== 'mobile')
+        items.push({ key: nav.key, name: a.name, href: nav.href });
     });
-    return items.map(function (it) {
-      return it.key === active
-        ? '<span class="topbar-item on">' + esc(it.name) + '</span>'
-        : '<a class="topbar-item" href="' + it.href + '">' + esc(it.name) + '</a>';
-    }).join('');
+    return items
+      .map(function (it) {
+        return it.key === active
+          ? '<span class="topbar-item on">' + esc(it.name) + '</span>'
+          : '<a class="topbar-item" href="' + it.href + '">' + esc(it.name) + '</a>';
+      })
+      .join('');
   }
   function topbar(opts) {
     opts = opts || {};
@@ -281,35 +318,62 @@
 
     // 右侧「管理」：仅 admin 可见；管理页时渲染为激活态
     var adminInner = icon('setting', 14) + '管理';
-    var adminNav = active === 'admin'
-      ? '<span class="topbar-item on" id="navAdmin"' + (isAdmin ? '' : ' hidden') + '>' + adminInner + '</span>'
-      : '<a class="topbar-item" id="navAdmin" href="/admin.html"' + (isAdmin ? '' : ' hidden') + '>' + adminInner + '</a>';
+    var adminNav =
+      active === 'admin'
+        ? '<span class="topbar-item on" id="navAdmin"' +
+          (isAdmin ? '' : ' hidden') +
+          '>' +
+          adminInner +
+          '</span>'
+        : '<a class="topbar-item" id="navAdmin" href="/admin.html"' +
+          (isAdmin ? '' : ' hidden') +
+          '>' +
+          adminInner +
+          '</a>';
 
-    document.body.insertAdjacentHTML('afterbegin',
+    document.body.insertAdjacentHTML(
+      'afterbegin',
       '<header class="topbar"><div class="topbar-in">' +
         '<a class="topbar-logo" href="/index.html">' +
-          '<span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣"></span>' +
-          '<b>Shade <i>壹匣</i></b>' +
+        '<span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣"></span>' +
+        '<b>Shade <i>壹匣</i></b>' +
         '</a>' +
-        '<nav class="topbar-nav" id="topNavApps">' + leftNav + '</nav>' +
+        '<nav class="topbar-nav" id="topNavApps">' +
+        leftNav +
+        '</nav>' +
         '<div class="topbar-right">' +
-          '<nav class="topbar-nav">' + adminNav + '</nav>' +
-          '<div class="topbar-user">' +
-            '<span class="mini-avatar" id="miniAvatar">' + esc(name.charAt(0)) + '</span>' +
-            '<span class="nm" id="topName">' + esc(name) + '</span>' +
-          '</div>' +
-          '<button class="btn btn-sm" id="btnLogout">' + icon('logout', 15) + '退出</button>' +
+        '<nav class="topbar-nav">' +
+        adminNav +
+        '</nav>' +
+        '<div class="topbar-user">' +
+        '<span class="mini-avatar" id="miniAvatar">' +
+        esc(name.charAt(0)) +
+        '</span>' +
+        '<span class="nm" id="topName">' +
+        esc(name) +
+        '</span>' +
         '</div>' +
-      '</div></header>');
-    document.getElementById('btnLogout').addEventListener('click', function () { logout(); });
+        '<button class="btn btn-sm" id="btnLogout">' +
+        icon('logout', 15) +
+        '退出</button>' +
+        '</div>' +
+        '</div></header>'
+    );
+    document.getElementById('btnLogout').addEventListener('click', function () {
+      logout();
+    });
 
     // 拉取最新应用清单校正左侧导航（权限 / 排序变化即时生效；失败保留缓存渲染）
-    api('/api/v1/app/list').then(function (r) {
-      var list = (r.data && r.data.list) || [];
-      localStorage.setItem(APPS_KEY, JSON.stringify(list));
-      var nav = document.getElementById('topNavApps');
-      if (nav) nav.innerHTML = renderLeftNav(active);
-    }).catch(function () { /* 保留缓存渲染 */ });
+    api('/api/v1/app/list')
+      .then(function (r) {
+        var list = (r.data && r.data.list) || [];
+        localStorage.setItem(APPS_KEY, JSON.stringify(list));
+        var nav = document.getElementById('topNavApps');
+        if (nav) nav.innerHTML = renderLeftNav(active);
+      })
+      .catch(function () {
+        /* 保留缓存渲染 */
+      });
   }
 
   // 顶栏用户资料刷新：成功更新 #miniAvatar/#topName 并回调 onUser(data)；失败回退本地缓存同样更新并回调
@@ -322,14 +386,16 @@
       if (av) av.textContent = name.charAt(0);
       if (nm) nm.textContent = name;
     }
-    return api('/api/v1/user/profile').then(function (r) {
-      paint(r.data);
-      if (onUser) onUser(r.data);
-    }).catch(function () {
-      var cached = user();
-      paint(cached);
-      if (onUser) onUser(cached);
-    });
+    return api('/api/v1/user/profile')
+      .then(function (r) {
+        paint(r.data);
+        if (onUser) onUser(r.data);
+      })
+      .catch(function () {
+        var cached = user();
+        paint(cached);
+        if (onUser) onUser(cached);
+      });
   }
 
   // 顶部轻提示
@@ -341,7 +407,8 @@
       wrap.className = 'toast-wrap';
       document.body.appendChild(wrap);
     }
-    const iconName = type === 'success' ? 'check-circle' : (type === 'error' ? 'warn' : 'info-circle');
+    const iconName =
+      type === 'success' ? 'check-circle' : type === 'error' ? 'warn' : 'info-circle';
     const el = document.createElement('div');
     el.className = 'toast toast-' + type;
     el.innerHTML = window.Shade.icon(iconName, 16) + '<span></span>';
@@ -349,7 +416,9 @@
     wrap.appendChild(el);
     setTimeout(function () {
       el.classList.add('out');
-      setTimeout(function () { el.remove(); }, 320);
+      setTimeout(function () {
+        el.remove();
+      }, 320);
     }, 2600);
   }
 
@@ -357,8 +426,14 @@
   /* 样式 .mask / .modal / .m-scroll / .m-head / .m-x 由各页 CSS 提供（worklog / quiz / callme 同套口径） */
   var modalStack = [];
   function mHead(title) {
-    return '<div class="m-head"><span class="m-title">' + esc(title) + '</span>'
-      + '<button class="m-x">' + window.Shade.icon('close', 14) + '</button></div>';
+    return (
+      '<div class="m-head"><span class="m-title">' +
+      esc(title) +
+      '</span>' +
+      '<button class="m-x">' +
+      window.Shade.icon('close', 14) +
+      '</button></div>'
+    );
   }
   function modal(html, opts) {
     opts = opts || {};
@@ -371,22 +446,32 @@
     box.innerHTML = '<div class="m-scroll">' + html + '</div>';
     mask.appendChild(box);
     document.body.appendChild(mask);
-    requestAnimationFrame(function () { mask.classList.add('open'); });
+    requestAnimationFrame(function () {
+      mask.classList.add('open');
+    });
     var inst = {
-      mask: mask, box: box, closed: false,
+      mask: mask,
+      box: box,
+      closed: false,
       close: function () {
         if (inst.closed) return;
         inst.closed = true;
         var i = modalStack.indexOf(inst);
         if (i >= 0) modalStack.splice(i, 1);
         mask.classList.remove('open');
-        setTimeout(function () { mask.remove(); }, 300);
+        setTimeout(function () {
+          mask.remove();
+        }, 300);
         if (opts.onClose) opts.onClose();
-      }
+      },
     };
-    mask.addEventListener('mousedown', function (e) { if (e.target === mask) inst.close(); });
+    mask.addEventListener('mousedown', function (e) {
+      if (e.target === mask) inst.close();
+    });
     modalStack.push(inst);
-    $$('.m-x', box).forEach(function (b) { b.addEventListener('click', inst.close); });
+    $$('.m-x', box).forEach(function (b) {
+      b.addEventListener('click', inst.close);
+    });
     return inst;
   }
   /* Esc 关顶层弹层，全页面统一注册一份；页面可给 Shade.escGuard 赋值优先拦截函数
@@ -405,14 +490,34 @@
   function confirm(opts) {
     return new Promise(function (resolve) {
       var done = false;
-      function finish(v) { if (!done) { done = true; resolve(v); } }
-      var html = mHead(opts.title)
-        + '<div style="font-size:13px;line-height:1.8">' + esc(opts.content) + '</div>'
-        + '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>'
-        + '<button class="btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-primary') + '" data-a="yes">' + esc(opts.confirmText || '确定') + '</button></div>';
-      var inst = modal(html, { width: 420, onClose: function () { finish(false); } });
+      function finish(v) {
+        if (!done) {
+          done = true;
+          resolve(v);
+        }
+      }
+      var html =
+        mHead(opts.title) +
+        '<div style="font-size:13px;line-height:1.8">' +
+        esc(opts.content) +
+        '</div>' +
+        '<div class="m-foot"><button class="btn btn-sm" data-a="no">取消</button>' +
+        '<button class="btn btn-sm ' +
+        (opts.danger ? 'btn-danger' : 'btn-primary') +
+        '" data-a="yes">' +
+        esc(opts.confirmText || '确定') +
+        '</button></div>';
+      var inst = modal(html, {
+        width: 420,
+        onClose: function () {
+          finish(false);
+        },
+      });
       $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
-      $('[data-a="yes"]', inst.box).addEventListener('click', function () { finish(true); inst.close(); });
+      $('[data-a="yes"]', inst.box).addEventListener('click', function () {
+        finish(true);
+        inst.close();
+      });
     });
   }
 
@@ -421,18 +526,23 @@
   function reveal() {
     const els = document.querySelectorAll('.rv:not([data-rv-obs])');
     if (!('IntersectionObserver' in window)) {
-      els.forEach(function (el) { el.classList.add('in'); });
+      els.forEach(function (el) {
+        el.classList.add('in');
+      });
       return;
     }
     if (!rvObserver) {
-      rvObserver = new IntersectionObserver(function (entries) {
-        entries.forEach(function (en) {
-          if (en.isIntersecting) {
-            en.target.classList.add('in');
-            rvObserver.unobserve(en.target);
-          }
-        });
-      }, { threshold: 0.08 });
+      rvObserver = new IntersectionObserver(
+        function (entries) {
+          entries.forEach(function (en) {
+            if (en.isIntersecting) {
+              en.target.classList.add('in');
+              rvObserver.unobserve(en.target);
+            }
+          });
+        },
+        { threshold: 0.08 }
+      );
     }
     els.forEach(function (el) {
       el.setAttribute('data-rv-obs', '1');
@@ -443,7 +553,10 @@
   /* 页签滑动指示条跟随：tab 为当前激活页签元素（null 时收起指示条），ind 为指示条元素；
      instant=true 首帧/窗口缩放直接落位，避免从左侧滑入的残影 */
   function moveTabInd(tab, ind, instant) {
-    if (!tab) { ind.style.width = '0'; return; }
+    if (!tab) {
+      ind.style.width = '0';
+      return;
+    }
     if (instant) {
       ind.style.transition = 'none';
       ind.style.left = tab.offsetLeft + 'px';
@@ -459,7 +572,9 @@
   /* 「未分配班组」整页空态提示卡：填充 el（占位容器，初始 hidden）并显示；页面其余区块的隐藏由页面自行处理 */
   function renderNoTeam(el) {
     el.hidden = false;
-    el.innerHTML = '<div class="empty">' + window.Shade.icon('usergroup', 44) +
+    el.innerHTML =
+      '<div class="empty">' +
+      window.Shade.icon('usergroup', 44) +
       '<p><b>未分配班组</b></p>' +
       '<p style="font-size:12px">你的账号尚未加入任何班组，暂无可查看的数据。<br>请联系超级管理员分配班组后再使用。</p></div>';
   }
@@ -487,7 +602,8 @@
     btn.type = 'button';
     btn.className = 'dd-btn';
     if (opts.height) btn.style.height = opts.height + 'px';
-    btn.innerHTML = '<span class="dd-label"></span>' +
+    btn.innerHTML =
+      '<span class="dd-label"></span>' +
       '<svg class="dd-tri" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>';
     var pop = document.createElement('div');
     pop.className = 'dd-pop';
@@ -500,11 +616,11 @@
       var r = btn.getBoundingClientRect();
       pop.style.minWidth = r.width + 'px';
       pop.style.left = r.left + 'px';
-      pop.style.top = (r.bottom + 6) + 'px';
+      pop.style.top = r.bottom + 6 + 'px';
       // 底部空间不足则向上展开；右侧防溢出
       var h = pop.offsetHeight;
       if (r.bottom + 6 + h > window.innerHeight && r.top - 6 - h > 0) {
-        pop.style.top = (r.top - 6 - h) + 'px';
+        pop.style.top = r.top - 6 - h + 'px';
       }
       var w = pop.offsetWidth;
       if (r.left + w > window.innerWidth - 8) {
@@ -516,18 +632,35 @@
       btn.disabled = !!select.disabled;
       var cur = select.options[select.selectedIndex];
       btn.querySelector('.dd-label').textContent = cur ? cur.text : '';
-      pop.innerHTML = Array.prototype.map.call(select.options, function (o, i) {
-        return '<button type="button" class="dd-opt' + (i === select.selectedIndex ? ' on' : '') + '" data-i="' + i + '">' +
-          '<span>' + esc(o.text) + '</span>' +
-          '<svg class="dd-ck" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' +
-        '</button>';
-      }).join('');
+      pop.innerHTML = Array.prototype.map
+        .call(select.options, function (o, i) {
+          return (
+            '<button type="button" class="dd-opt' +
+            (i === select.selectedIndex ? ' on' : '') +
+            '" data-i="' +
+            i +
+            '">' +
+            '<span>' +
+            esc(o.text) +
+            '</span>' +
+            '<svg class="dd-ck" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' +
+            '</button>'
+          );
+        })
+        .join('');
     }
-    function onDocDown(e) { if (!wrap.contains(e.target) && !pop.contains(e.target)) close(); }
+    function onDocDown(e) {
+      if (!wrap.contains(e.target) && !pop.contains(e.target)) close();
+    }
     function onKey(e) {
-      if (e.key === 'Escape') { e.stopPropagation(); close(); } // 捕获阶段拦截，避免连带关闭页面弹层
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        close();
+      } // 捕获阶段拦截，避免连带关闭页面弹层
     }
-    function onScroll(e) { if (!pop.contains(e.target)) close(); } // 触发器随内容滚动会漂移，直接收起
+    function onScroll(e) {
+      if (!pop.contains(e.target)) close();
+    } // 触发器随内容滚动会漂移，直接收起
     function close() {
       wrap.classList.remove('open');
       pop.classList.remove('open');
@@ -543,7 +676,10 @@
     }
     btn.addEventListener('click', function () {
       if (btn.disabled) return;
-      if (wrap.classList.contains('open')) { close(); return; }
+      if (wrap.classList.contains('open')) {
+        close();
+        return;
+      }
       sync();
       wrap.classList.add('open');
       document.body.appendChild(pop); // 幂等：已在 body 下则为移动
@@ -576,18 +712,35 @@
     if (me.role !== 'admin') return;
     try {
       var r = await api('/api/v1/admin/teams');
-      var list = ((r.data && r.data.list) || []).filter(function (t) { return t.status === 1; });
+      var list = ((r.data && r.data.list) || []).filter(function (t) {
+        return t.status === 1;
+      });
       if (!list.length && !opts.allowAll) return;
       var sel = opts.select;
-      sel.innerHTML = (opts.allowAll ? '<option value="all">全部班组</option>' : '')
-        + list.map(function (t) { return '<option value="' + t.id + '">' + esc(t.name) + '</option>'; }).join('');
+      sel.innerHTML =
+        (opts.allowAll ? '<option value="all">全部班组</option>' : '') +
+        list
+          .map(function (t) {
+            return '<option value="' + t.id + '">' + esc(t.name) + '</option>';
+          })
+          .join('');
       var val;
       if (opts.allowAll) {
         var savedAll = localStorage.getItem(opts.storageKey) || 'all';
-        val = (savedAll === 'all' || list.some(function (t) { return String(t.id) === savedAll; })) ? savedAll : 'all';
+        val =
+          savedAll === 'all' ||
+          list.some(function (t) {
+            return String(t.id) === savedAll;
+          })
+            ? savedAll
+            : 'all';
       } else {
         var saved = Number(localStorage.getItem(opts.storageKey)) || 0;
-        val = list.some(function (t) { return t.id === saved; }) ? saved : list[0].id;
+        val = list.some(function (t) {
+          return t.id === saved;
+        })
+          ? saved
+          : list[0].id;
       }
       sel.value = String(val);
       localStorage.setItem(opts.storageKey, String(val));
@@ -598,19 +751,27 @@
         else showEl.style.display = '';
       }
       sel.addEventListener('change', function () {
-        val = opts.allowAll ? this.value : (Number(this.value) || 0);
+        val = opts.allowAll ? this.value : Number(this.value) || 0;
         localStorage.setItem(opts.storageKey, String(this.value));
         if (opts.onChange) opts.onChange(val);
       });
-      return { getTeamId: function () { return val; } };
-    } catch (e) { /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */ }
+      return {
+        getTeamId: function () {
+          return val;
+        },
+      };
+    } catch (e) {
+      /* 班组列表拉取失败：不显示切换器，由后端落默认班组出数 */
+    }
   }
 
   // 日期格式化
   function fmtDate(d, withTime) {
     const dt = d ? new Date(d) : new Date();
     if (isNaN(dt.getTime())) return '';
-    const p = function (n) { return String(n).padStart(2, '0'); };
+    const p = function (n) {
+      return String(n).padStart(2, '0');
+    };
     let s = dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate());
     if (withTime) s += ' ' + p(dt.getHours()) + ':' + p(dt.getMinutes());
     return s;
@@ -633,7 +794,9 @@
         window.open(href, '_blank', 'noopener');
         return;
       }
-    } catch (e) { /* URL 解析失败按站内当前窗口处理 */ }
+    } catch (e) {
+      /* URL 解析失败按站内当前窗口处理 */
+    }
     location.href = href;
   }
 

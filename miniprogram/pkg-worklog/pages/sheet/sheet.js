@@ -40,7 +40,8 @@ const SHEETS = {
     fileType: 'xlsx',
     verify40901: false,
     rangeTitle: '汇总范围',
-    rangeSub: '范围内已填派车单号的出车卡片一单一行：派车单号 + 用车日期，顺序与工作任务单一致（单次最多 31 天）',
+    rangeSub:
+      '范围内已填派车单号的出车卡片一单一行：派车单号 + 用车日期，顺序与工作任务单一致（单次最多 31 天）',
     hint: '字段口径：列＝派车单号、用车日期（＝卡片日志日期）；数据来自卡片「派车单号」字段——每日同步自动带入，也可点卡片车牌「修改派车」手工补填；仅已填单号的出车卡片出数（同步前日期的历史卡片无此字段）。',
     notFound: '该日期范围没有派车单记录',
   },
@@ -64,7 +65,7 @@ Page({
   async onLoad(query) {
     const cfg = SHEETS[(query && query.type) || ''] || SHEETS.task;
     this._cfg = cfg;
-    this._type = (query && SHEETS[query.type]) ? query.type : 'task'; // save-netdisk 的 sheet 参数与页面 type 同名
+    this._type = query && SHEETS[query.type] ? query.type : 'task'; // save-netdisk 的 sheet 参数与页面 type 同名
     this.setData({ cfg });
     // 超管 / 班组管理员可访问（等启动自检完成再取角色；同 manage 页口径）
     await getApp().globalData.ready;
@@ -148,7 +149,9 @@ Page({
     try {
       const path = res.filePath || res.tempFilePath;
       if (path) ej = JSON.parse(wx.getFileSystemManager().readFileSync(path, 'utf8'));
-    } catch (e) { /* 非 JSON 响应忽略，走通用错误提示 */ }
+    } catch (e) {
+      /* 非 JSON 响应忽略，走通用错误提示 */
+    }
     if (!ej || ej.code !== 40901) return false;
     this.confirmVerify(ej.message, () => this.onGenerate(true), false);
     return true;
@@ -166,7 +169,10 @@ Page({
     this.setData({ generating: true });
     wx.showLoading({ title: '正在生成…', mask: true });
     // 文件名口径同后端各类型生成函数：单日带单日期，跨天带范围
-    const fileName = from === to ? `${cfg.fileName}-${from}.${cfg.fileType}` : `${cfg.fileName}-${from}至${to}.${cfg.fileType}`;
+    const fileName =
+      from === to
+        ? `${cfg.fileName}-${from}.${cfg.fileType}`
+        : `${cfg.fileName}-${from}至${to}.${cfg.fileType}`;
     wx.downloadFile({
       // bindtap 直绑时 force 为事件对象，仅确认按钮传来 true 才算强制执行
       url: `${BASE_URL}${cfg.api}?from=${from}&to=${to}${this._teamId ? `&team_id=${this._teamId}` : ''}${force === true ? '&force=1' : ''}`,
@@ -237,18 +243,21 @@ Page({
         // bindtap 直绑时 force 为事件对象，仅确认按钮传来 true 才算强制执行
         ...(force === true ? { force: 1 } : {}),
       },
-    }).then((data) => {
-      this.toast(`已保存到网盘：${(data && data.path) || ''}`);
-    }).catch((err) => {
-      if (err && err.code === 40901 && this._cfg.verify40901) {
-        this.confirmVerify(err.message, () => this.onSaveNetdisk(true), true);
-        return;
-      }
-      this.toast(err.message);
-    }).finally(() => {
-      wx.hideLoading();
-      this.setData({ savingNd: false });
-    });
+    })
+      .then((data) => {
+        this.toast(`已保存到网盘：${(data && data.path) || ''}`);
+      })
+      .catch((err) => {
+        if (err && err.code === 40901 && this._cfg.verify40901) {
+          this.confirmVerify(err.message, () => this.onSaveNetdisk(true), true);
+          return;
+        }
+        this.toast(err.message);
+      })
+      .finally(() => {
+        wx.hideLoading();
+        this.setData({ savingNd: false });
+      });
   },
 
   onShareAppMessage() {

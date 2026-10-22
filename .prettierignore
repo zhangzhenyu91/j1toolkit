@@ -1,0 +1,40 @@
+# 依赖与构建产物
+node_modules/
+**/node_modules/**
+**/dist/
+**/build-output/
+**/.vite/
+**/*.map
+
+# 微信构建产物
+miniprogram/miniprogram_npm/
+**/miniprogram_npm/
+
+# 独立 submodule 与私有内容
+crane-answer/
+private/
+
+# 内网离线依赖与运行数据
+uvmp-toolkit/offline_packages/
+uvmp-toolkit/toolkit/config.json
+uvmp-toolkit/desktop/electron/quizsearch/models/
+server/data/
+
+# 二进制与字体
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.ico
+**/*.svg
+**/*.ttf
+**/*.otf
+**/*.woff
+**/*.woff2
+**/*.zip
+**/*.7z
+**/*.gz
+**/*.docx
+**/*.xlsx
+**/*.pdf

@@ -35,7 +35,9 @@ for (const dir of [DATA_DIR, DOCS_DIR]) {
 
 // 缺配启动告警：回调 fail-closed，未配置 SAFEDAY_CALLBACK_TOKEN 时 /callback 一律 403（Dify 工作流无法回传结果）
 if (!config.safeday.callbackToken) {
-  console.warn('[安全日] 未配置 SAFEDAY_CALLBACK_TOKEN：/callback 回调将一律拒绝（403），生成结果无法回写，请在环境变量中配置');
+  console.warn(
+    '[安全日] 未配置 SAFEDAY_CALLBACK_TOKEN：/callback 回调将一律拒绝（403），生成结果无法回写，请在环境变量中配置'
+  );
 }
 
 const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'];
@@ -127,13 +129,20 @@ router.post('/callback', async (req, res) => {
     const className = typeof body.class === 'string' ? body.class.trim() : '';
 
     // ===== 新链路：回传文字内容 → 后端渲染落盘 =====
-    const hasTexts = ['activity_content', 'recap_analysis', 'job_analysis']
-      .some((k) => typeof body[k] === 'string');
+    const hasTexts = ['activity_content', 'recap_analysis', 'job_analysis'].some(
+      (k) => typeof body[k] === 'string'
+    );
     if (hasTexts) {
-      const record = store.list().find((r) =>
-        r.status === 'processing' && (!date || r.date === date) && (!className || (r.team || '') === className)
-      );
-      if (!record) return res.json({ ok: false, error: '未找到匹配的处理中记录（可能已被删除或重复回调）' });
+      const record = store
+        .list()
+        .find(
+          (r) =>
+            r.status === 'processing' &&
+            (!date || r.date === date) &&
+            (!className || (r.team || '') === className)
+        );
+      if (!record)
+        return res.json({ ok: false, error: '未找到匹配的处理中记录（可能已被删除或重复回调）' });
       try {
         const f = record.form || {};
         const buf = render.renderRecord({
@@ -155,12 +164,12 @@ router.post('/callback', async (req, res) => {
         fs.mkdirSync(outDir, { recursive: true });
         fs.writeFileSync(path.join(outDir, path.basename(record.fileName)), buf);
         store.update(record.id, { status: 'done' });
-        await deleteSourceFromCos(record);   // 记录置 done：清理 COS 源文件
+        await deleteSourceFromCos(record); // 记录置 done：清理 COS 源文件
         return res.json({ ok: true, done: 1, failed: 0 });
       } catch (e) {
         const msg = e && e.message ? e.message : String(e);
         store.update(record.id, { status: 'failed', error: `文档渲染失败：${msg}` });
-        await deleteSourceFromCos(record);   // 失败同口径清理
+        await deleteSourceFromCos(record); // 失败同口径清理
         return res.status(500).json({ ok: false, error: `文档渲染失败：${msg}` });
       }
     }
@@ -183,7 +192,7 @@ router.post('/callback', async (req, res) => {
         failed++;
       }
       // eslint-disable-next-line no-await-in-loop
-      await deleteSourceFromCos(record);   // 终判（done/failed）后清理 COS 源文件
+      await deleteSourceFromCos(record); // 终判（done/failed）后清理 COS 源文件
     }
     return res.json({ ok: true, done, failed });
   } catch (e) {
@@ -208,7 +217,12 @@ router.use(auth, requireApp('safe-day'));
 router.get('/form-meta', async (req, res) => {
   try {
     const team = await teamUtil.resolveTeam(req.user, req.query.team_id);
-    if (!team) return res.json({ ok: true, members: [], defaults: { superior: config.safeday.defaultSuperior || '', recorder: '' } });
+    if (!team)
+      return res.json({
+        ok: true,
+        members: [],
+        defaults: { superior: config.safeday.defaultSuperior || '', recorder: '' },
+      });
     const [rows] = await pool.query(
       'SELECT name FROM worklog_member WHERE team_id = ? AND status = 1 ORDER BY sort, id',
       [team.id]
@@ -218,10 +232,15 @@ router.get('/form-meta', async (req, res) => {
     return res.json({
       ok: true,
       members,
-      defaults: { superior: saved.superior || config.safeday.defaultSuperior || '', recorder: saved.recorder || '' },
+      defaults: {
+        superior: saved.superior || config.safeday.defaultSuperior || '',
+        recorder: saved.recorder || '',
+      },
     });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: `表单数据加载失败：${e && e.message ? e.message : e}` });
+    return res
+      .status(500)
+      .json({ ok: false, error: `表单数据加载失败：${e && e.message ? e.message : e}` });
   }
 });
 
@@ -333,7 +352,10 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
         try {
           if (fs.existsSync(fp)) fs.unlinkSync(fp);
         } catch (e) {
-          console.error(`[安全日] 清理被覆盖记录旧产物失败 ${fp}：`, e && e.message ? e.message : e);
+          console.error(
+            `[安全日] 清理被覆盖记录旧产物失败 ${fp}：`,
+            e && e.message ? e.message : e
+          );
         }
       }
     };
@@ -415,20 +437,23 @@ async function getAccessibleRecordFile(user, id) {
 }
 
 // 下载产物
-router.get(['/records/:id/download', '/records/:id/download/:name([^/]+\\.[a-zA-Z0-9]+)'], async (req, res) => {
-  const record = store.get(req.params.id);
-  if (!record || record.status !== 'done') {
-    return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
+router.get(
+  ['/records/:id/download', '/records/:id/download/:name([^/]+\\.[a-zA-Z0-9]+)'],
+  async (req, res) => {
+    const record = store.get(req.params.id);
+    if (!record || record.status !== 'done') {
+      return res.status(404).json({ ok: false, error: '记录不存在或文件尚未生成' });
+    }
+    if (!(await canAccess(req.user, record))) {
+      return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
+    }
+    const filePath = recordFilePath(record);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ ok: false, error: '文件不存在，可能已被清理' });
+    }
+    return res.download(filePath, record.fileName);
   }
-  if (!(await canAccess(req.user, record))) {
-    return res.status(403).json({ ok: false, error: '无权访问其他班组的记录' });
-  }
-  const filePath = recordFilePath(record);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ ok: false, error: '文件不存在，可能已被清理' });
-  }
-  return res.download(filePath, record.fileName);
-});
+);
 
 // 保存到网盘（space: my 我的空间（缺省）/ public 公共区；dir 缺省 安全日记录/，可传目标空间内多级相对路径；须持 netdisk 应用权限）
 router.post('/records/:id/save-netdisk', async (req, res) => {
@@ -473,8 +498,12 @@ router.get('/records/:id/preview', async (req, res) => {
   if (config.office.publicUrl) {
     return res.json({
       ok: true,
-      url: '/office.html?src=safeday&id=' + encodeURIComponent(record.id)
-        + '&name=' + encodeURIComponent(record.fileName || '') + '&back=/safeday.html',
+      url:
+        '/office.html?src=safeday&id=' +
+        encodeURIComponent(record.id) +
+        '&name=' +
+        encodeURIComponent(record.fileName || '') +
+        '&back=/safeday.html',
     });
   }
   const url = buildPreviewUrl(
@@ -513,7 +542,7 @@ router.delete('/records/:id', async (req, res) => {
         });
       }
     }
-    await deleteSourceFromCos(record);   // 记录删除：一并清理 COS 源文件（处理中记录兜底）
+    await deleteSourceFromCos(record); // 记录删除：一并清理 COS 源文件（处理中记录兜底）
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({

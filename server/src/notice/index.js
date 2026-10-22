@@ -19,13 +19,23 @@ const ROLES = ['admin', 'team_admin', 'user'];
 
 // 可见性 SQL 片段（别名固定 n）：角色命中 targets 或本人命中 user_ids，占位参数为 [role, String(userId)]；
 // 列表 / 未读计数 / 标记已读 / 一键删已读 / 按人隐藏五处共用
-const NOTICE_VISIBLE = '(JSON_CONTAINS(n.targets, JSON_QUOTE(?)) OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON)))';
+const NOTICE_VISIBLE =
+  '(JSON_CONTAINS(n.targets, JSON_QUOTE(?)) OR JSON_CONTAINS(n.user_ids, CAST(? AS JSON)))';
 
 // 系统自动触发接口：写入一条通知并返回新通知 id；createdBy 缺省 NULL 表示系统。
 // targets 为角色数组（可空），userIds 为按人投放的用户 id 数组（可空）；两者至少其一非空才有接收人
 // wxUserIds / wxTeamIds 可选：同时向这些用户（个人 wxid）与班组（群 wxid）追加微信推送；失败仅记日志
 // wxAtUserIds 可选：微信群发时 @ 这些用户（仅群消息生效，正文前自动拼「@昵称 」并传 at 输入）
-async function push({ targets = [], userIds = null, title, content, createdBy = null, wxUserIds = null, wxTeamIds = null, wxAtUserIds = null }) {
+async function push({
+  targets = [],
+  userIds = null,
+  title,
+  content,
+  createdBy = null,
+  wxUserIds = null,
+  wxTeamIds = null,
+  wxAtUserIds = null,
+}) {
   const roles = Array.isArray(targets) ? [...new Set(targets)] : [];
   const ids = Array.isArray(userIds)
     ? [...new Set(userIds.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0))]
@@ -34,7 +44,10 @@ async function push({ targets = [], userIds = null, title, content, createdBy = 
     'INSERT INTO sys_notice (title, content, targets, user_ids, created_by) VALUES (?, ?, ?, ?, ?)',
     [title, content, JSON.stringify(roles), ids.length ? JSON.stringify(ids) : null, createdBy]
   );
-  if ((Array.isArray(wxUserIds) && wxUserIds.length) || (Array.isArray(wxTeamIds) && wxTeamIds.length)) {
+  if (
+    (Array.isArray(wxUserIds) && wxUserIds.length) ||
+    (Array.isArray(wxTeamIds) && wxTeamIds.length)
+  ) {
     try {
       await wxpush.sendTo({
         userIds: wxUserIds || [],
@@ -110,7 +123,10 @@ router.post('/:id/read', async (req, res, next) => {
       [noticeId, req.user.role, String(req.user.id), req.user.id]
     );
     if (!rows.length) return fail(res, 404, 40403, '通知不存在');
-    await pool.query('INSERT IGNORE INTO sys_notice_read (notice_id, user_id) VALUES (?, ?)', [noticeId, req.user.id]);
+    await pool.query('INSERT IGNORE INTO sys_notice_read (notice_id, user_id) VALUES (?, ?)', [
+      noticeId,
+      req.user.id,
+    ]);
     return ok(res, null);
   } catch (err) {
     return next(err);
@@ -160,10 +176,17 @@ router.post('/push', requireAdmin, async (req, res, next) => {
     const targets = req.body && req.body.targets;
     if (!title || !content) return fail(res, 400, 40030, '标题/内容不能为空');
     if (title.length > 128) return fail(res, 400, 40030, '标题不能超过 128 字');
-    const valid = Array.isArray(targets) && targets.length > 0
-      && targets.every((t) => typeof t === 'string' && ROLES.includes(t));
+    const valid =
+      Array.isArray(targets) &&
+      targets.length > 0 &&
+      targets.every((t) => typeof t === 'string' && ROLES.includes(t));
     if (!valid) return fail(res, 400, 40031, '推送对象不合法');
-    const id = await push({ targets: [...new Set(targets)], title, content, createdBy: req.user.id });
+    const id = await push({
+      targets: [...new Set(targets)],
+      title,
+      content,
+      createdBy: req.user.id,
+    });
     return ok(res, { id }, '推送成功');
   } catch (err) {
     return next(err);
@@ -173,7 +196,12 @@ router.post('/push', requireAdmin, async (req, res, next) => {
 // POST /api/v1/notice/upload-image 超管上传通知配图（multipart 字段 file，仅 image/* ≤5MB），
 // 存 COS notice/ 前缀，返回 { url } 供 Markdown 以 ![描述](url) 引用；
 // COS 未配置时 ensureConfigured 抛普通 Error，经 next(err) 落全局 500（非 expose 可读提示）
-const IMG_MIME_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
+const IMG_MIME_EXT = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+};
 // 类型不在 fileFilter 拦截（拒绝时 req.file 为空会误报「请选择图片」），统一在处理器按 mimetype 校验报错
 const noticeImageUpload = multer({
   storage: multer.memoryStorage(),
@@ -228,7 +256,10 @@ router.delete('/:id', async (req, res, next) => {
       [noticeId, req.user.role, String(req.user.id)]
     );
     if (!rows.length) return fail(res, 404, 40403, '通知不存在');
-    await pool.query('INSERT IGNORE INTO sys_notice_del (notice_id, user_id) VALUES (?, ?)', [noticeId, req.user.id]);
+    await pool.query('INSERT IGNORE INTO sys_notice_del (notice_id, user_id) VALUES (?, ?)', [
+      noticeId,
+      req.user.id,
+    ]);
     return ok(res, null, '删除成功');
   } catch (err) {
     return next(err);

@@ -146,20 +146,24 @@ Page({
       content: '该题将从错题本移除，之后答错会重新收录。',
       confirmBtn: '确认移除',
       cancelBtn: '取消',
-    }).then(() => {
-      request({
-        url: `${API_BASE}/wrongs/${encodeURIComponent(id)}`,
-        method: 'DELETE',
-      }).then(() => {
-        const groups = [];
-        this.data.groups.forEach((g) => {
-          const items = g.items.filter((w) => String(w.questionId) !== String(id));
-          if (items.length) groups.push({ bankId: g.bankId, bankName: g.bankName, items });
-        });
-        this.setData({ groups, total: Math.max(this.data.total - 1, 0) });
-        this.toast('已移出错题本');
-      }).catch((err) => this.toast(err.message));
-    }).catch(() => {});
+    })
+      .then(() => {
+        request({
+          url: `${API_BASE}/wrongs/${encodeURIComponent(id)}`,
+          method: 'DELETE',
+        })
+          .then(() => {
+            const groups = [];
+            this.data.groups.forEach((g) => {
+              const items = g.items.filter((w) => String(w.questionId) !== String(id));
+              if (items.length) groups.push({ bankId: g.bankId, bankName: g.bankName, items });
+            });
+            this.setData({ groups, total: Math.max(this.data.total - 1, 0) });
+            this.toast('已移出错题本');
+          })
+          .catch((err) => this.toast(err.message));
+      })
+      .catch(() => {});
   },
 
   onShareAppMessage() {

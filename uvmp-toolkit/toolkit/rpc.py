@@ -9,6 +9,7 @@
 为什么是 stdio 而不是 HTTP：免端口/令牌管理，父子进程天然 1:1 生命周期，
 Electron 主进程 spawn 即用；核心仍是纯标准库（PyInstaller 好打包）。
 """
+
 import json
 import re
 import sys
@@ -42,6 +43,7 @@ class RpcServer:
     def _apps(self):
         if self._backends is None:
             from apps import scan_apps
+
             self._backends = {a["id"]: a for a in scan_apps()}
         return self._backends
 
@@ -53,7 +55,8 @@ class RpcServer:
         info = platform_utils.platform_summary()
         try:
             info["chrome"] = platform_utils.detect_chrome(
-                _config.render_cfg(_config.load()).get("chrome", ""))
+                _config.render_cfg(_config.load()).get("chrome", "")
+            )
         except Exception:
             info["chrome"] = ""
         info["state_dir"] = str(state.state_dir())
@@ -68,17 +71,26 @@ class RpcServer:
         # 密码留空 = 不修改
         updates = dict(params or {})
         if "sso" in updates and not (updates["sso"] or {}).get("password"):
-            updates["sso"] = {k: v for k, v in updates["sso"].items() if k != "password"}
+            updates["sso"] = {
+                k: v for k, v in updates["sso"].items() if k != "password"
+            }
         saved = _config.save(updates)
         cfg = _config.deep_merge(_config.load(), saved)
         return _config.masked_view(cfg)
 
     def m_getApps(self, _params):
-        return [{"id": a["id"], "name": a.get("name"), "badge": a.get("badge"),
-                 "desc": a.get("desc"), "order": a.get("order", 99),
-                 "has_status": hasattr(a.get("_backend"), "status"),
-                 "has_preview": hasattr(a.get("_backend"), "preview")}
-                for a in self._apps().values()]
+        return [
+            {
+                "id": a["id"],
+                "name": a.get("name"),
+                "badge": a.get("badge"),
+                "desc": a.get("desc"),
+                "order": a.get("order", 99),
+                "has_status": hasattr(a.get("_backend"), "status"),
+                "has_preview": hasattr(a.get("_backend"), "preview"),
+            }
+            for a in self._apps().values()
+        ]
 
     def m_getAppStatus(self, params):
         app = self._apps().get((params or {}).get("app_id", ""))
@@ -102,13 +114,18 @@ class RpcServer:
         backend = (app or {}).get("_backend")
         if not backend:
             raise RuntimeError("应用不存在: " + app_id)
-        if any(j.app_id == app_id and j.status in ("pending", "running")
-               for j in self.manager._jobs.values()):
+        if any(
+            j.app_id == app_id and j.status in ("pending", "running")
+            for j in self.manager._jobs.values()
+        ):
             raise RuntimeError("该应用已有任务在运行")
         job = self.manager.create(app_id, app.get("name", app_id))
-        job.on_log = lambda line, jid=job.id: self._emit("job.log", job_id=jid, line=line)
+        job.on_log = lambda line, jid=job.id: self._emit(
+            "job.log", job_id=jid, line=line
+        )
         job.on_progress = lambda c, t, l, jid=job.id: self._emit(
-            "job.progress", job_id=jid, current=c, total=t, label=l)
+            "job.progress", job_id=jid, current=c, total=t, label=l
+        )
         job.on_done = lambda jb: self._emit("job.done", job_id=jb.id, job=jb.to_dict())
         self.manager.start(job, lambda jb: backend.run(jb, params.get("params") or {}))
         return {"job_id": job.id}
@@ -116,13 +133,17 @@ class RpcServer:
     def _run_selftest(self, kind: str, params: dict):
         """设置页环境自检（渲染 / SSO 登录），复用 jobs 事件模型"""
         import selftest as _st
+
         fn = {"render": _st.run_render, "sso": _st.run_sso}.get(kind)
         if not fn:
             raise RuntimeError("未知自检类型: " + kind)
         job = self.manager.create("selftest", "环境自检·" + kind)
-        job.on_log = lambda line, jid=job.id: self._emit("job.log", job_id=jid, line=line)
+        job.on_log = lambda line, jid=job.id: self._emit(
+            "job.log", job_id=jid, line=line
+        )
         job.on_progress = lambda c, t, l, jid=job.id: self._emit(
-            "job.progress", job_id=jid, current=c, total=t, label=l)
+            "job.progress", job_id=jid, current=c, total=t, label=l
+        )
         job.on_done = lambda jb: self._emit("job.done", job_id=jb.id, job=jb.to_dict())
         self.manager.start(job, lambda jb: fn(jb, params.get("params") or {}))
         return {"job_id": job.id}
@@ -135,27 +156,36 @@ class RpcServer:
         nightly = self._maybe_run_tree_sync_nightly(cfg)
         due, reason, _today = scheduler.due_check(cfg, driver="app")
         if not due:
-            return {"started": False, "reason": reason,
-                    "tree_sync_nightly": nightly}
-        scheduler.mark_attempt(_today)   # 与 OS 定时器同口径：拉开失败重试间隔
+            return {"started": False, "reason": reason, "tree_sync_nightly": nightly}
+        scheduler.mark_attempt(_today)  # 与 OS 定时器同口径：拉开失败重试间隔
         try:
             r = self.m_runJob({"app_id": "daily_sync", "params": {"date": ""}})
         except RuntimeError as e:
-            return {"started": False, "reason": str(e),
-                    "tree_sync_nightly": nightly}
-        return {"started": True, "reason": reason, "job_id": r.get("job_id"),
-                "tree_sync_nightly": nightly}
+            return {"started": False, "reason": str(e), "tree_sync_nightly": nightly}
+        return {
+            "started": True,
+            "reason": reason,
+            "job_id": r.get("job_id"),
+            "tree_sync_nightly": nightly,
+        }
 
     def _maybe_run_tree_sync_nightly(self, cfg: dict) -> dict:
         """树障统计表同步夜间兜底（driver=app 驻留调度侧，与 OS 定时器的 --nightly --if-due 同口径）：
         启用条件=已配置 tree_sync.local_path；时刻=tree_sync.nightly_time；今日已成功则跳过。"""
         ts = cfg.get("tree_sync") or {}
         if not (ts.get("local_path") or "").strip():
-            return {"started": False, "reason": "未配置内网表路径（tree_sync.local_path）"}
-        sch = {"enabled": True, "time": ts.get("nightly_time", "23:55"),
-               "driver": (cfg.get("schedule") or {}).get("driver", "os")}
+            return {
+                "started": False,
+                "reason": "未配置内网表路径（tree_sync.local_path）",
+            }
+        sch = {
+            "enabled": True,
+            "time": ts.get("nightly_time", "23:55"),
+            "driver": (cfg.get("schedule") or {}).get("driver", "os"),
+        }
         due, reason, _today = scheduler.due_check(
-            cfg, driver="app", stamp_name="tree_sync_nightly", schedule=sch)
+            cfg, driver="app", stamp_name="tree_sync_nightly", schedule=sch
+        )
         if not due:
             return {"started": False, "reason": reason}
         scheduler.mark_attempt(_today, stamp_name="tree_sync_nightly")
@@ -173,7 +203,10 @@ class RpcServer:
         if ((cfg.get("schedule") or {}).get("driver") or "os") != "app":
             return {"started": False, "reason": "由系统定时器调度"}
         if not ((cfg.get("tree_sync") or {}).get("local_path") or "").strip():
-            return {"started": False, "reason": "未配置内网表路径（tree_sync.local_path）"}
+            return {
+                "started": False,
+                "reason": "未配置内网表路径（tree_sync.local_path）",
+            }
         try:
             r = self.m_runJob({"app_id": "tree_sync", "params": {"tick": True}})
         except RuntimeError as e:
@@ -197,6 +230,7 @@ class RpcServer:
     def m_openPath(self, params):
         p = (params or {}).get("path", "")
         from pathlib import Path
+
         if not p or not Path(p).exists():
             raise RuntimeError("路径不存在")
         return {"ok": platform_utils.open_path(p)}
@@ -239,8 +273,9 @@ class RpcServer:
 
     # ---------------- 主循环 ----------------
     def serve(self):
-        methods = {name[2:]: getattr(self, name) for name in dir(self)
-                   if name.startswith("m_")}
+        methods = {
+            name[2:]: getattr(self, name) for name in dir(self) if name.startswith("m_")
+        }
         for line in sys.stdin:
             line = line.strip()
             if not line:

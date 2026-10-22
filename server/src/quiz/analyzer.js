@@ -35,12 +35,18 @@ async function processOne(id) {
       options: Array.isArray(options) ? options : [],
       answer: q.answer,
     });
-    await pool.query("UPDATE quiz_question SET analysis = ?, analysis_status = 'done' WHERE id = ?", [analysis, id]);
+    await pool.query(
+      "UPDATE quiz_question SET analysis = ?, analysis_status = 'done' WHERE id = ?",
+      [analysis, id]
+    );
   } catch (err) {
     // Dify 的 4xx 响应体含具体原因（invalid_param 等），打出便于排查
-    const detail = err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
+    const detail =
+      err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
     console.error(`[题库刷题] 题目 ${id} AI 解析失败：`, detail);
-    await pool.query("UPDATE quiz_question SET analysis_status = 'failed' WHERE id = ?", [id]).catch(() => {});
+    await pool
+      .query("UPDATE quiz_question SET analysis_status = 'failed' WHERE id = ?", [id])
+      .catch(() => {});
   } finally {
     inQueue.delete(id);
   }
@@ -53,7 +59,9 @@ async function workerLoop(idx) {
       await new Promise((resolve) => waiters.push(resolve));
       continue;
     }
-    await processOne(id).catch((err) => console.error(`[题库刷题] 解析 worker${idx} 异常：`, err.message));
+    await processOne(id).catch((err) =>
+      console.error(`[题库刷题] 解析 worker${idx} 异常：`, err.message)
+    );
   }
 }
 

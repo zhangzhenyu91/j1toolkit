@@ -10,7 +10,7 @@
   padding: 8rpx 4rpx;
   font-size: 24rpx;
   font-weight: 500;
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 /* 删除已读（红色小字，与单条删除同色） */
@@ -19,7 +19,7 @@
   margin-right: 24rpx;
   font-size: 24rpx;
   font-weight: 500;
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 .list-card {
@@ -32,7 +32,7 @@
 }
 
 .n-item + .n-item {
-  border-top: 1rpx solid #E5E6EB;
+  border-top: 1rpx solid #e5e6eb;
 }
 
 .n-head {
@@ -51,14 +51,14 @@
 }
 
 .n-dot-on {
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .n-title {
   flex: 1;
   min-width: 0;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -72,7 +72,7 @@
   margin-left: 16rpx;
   flex: none;
   font-size: 22rpx;
-  color: rgba(29,33,41,.4);
+  color: rgba(29, 33, 41, 0.4);
 }
 
 /* 内容摘要：默认 2 行省略（展开态改由 mp-html 渲染 Markdown） */
@@ -80,7 +80,7 @@
   margin-top: 12rpx;
   padding-left: 24rpx; /* 与标题左对齐（圆点占位宽度） */
   font-size: 24rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.7;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -100,13 +100,13 @@
   margin-left: 16rpx;
   flex: none;
   font-size: 22rpx;
-  color: #F53F3F;
+  color: #f53f3f;
   padding: 4rpx 8rpx;
 }
 
 .hint {
   margin-top: 24rpx;
   text-align: center;
-  color: #E5E6EB;
+  color: #e5e6eb;
   font-size: 22rpx;
 }

@@ -58,12 +58,12 @@ page {
   height: 64rpx;
   box-sizing: border-box;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 16rpx;
   padding: 0 24rpx 0 22rpx;
   font-size: 25rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 前置品牌蓝小方块（静态） */
@@ -72,11 +72,11 @@ page {
   height: 16rpx;
   flex: none;
   border-radius: 4rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 .ts-cur .arr {
-  color: #86909C;
+  color: #86909c;
   font-size: 18rpx;
 }
 
@@ -87,7 +87,7 @@ page {
   left: 0;
   z-index: 21;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 16rpx;
   box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.1);
   padding: 12rpx;
@@ -118,8 +118,8 @@ page {
 
 /* 选中项：浅蓝底蓝字 */
 .ts-opt.on {
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
   font-weight: 600;
 }
 
@@ -153,7 +153,7 @@ page {
   width: 128rpx;
   height: 128rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -168,7 +168,7 @@ page {
 
 .team-empty .te-p {
   font-size: 23rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.8;
   text-align: center;
 }
@@ -188,7 +188,7 @@ page {
   box-sizing: border-box;
   border-radius: 16rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -212,8 +212,8 @@ page {
   align-items: center;
   margin-left: 12rpx;
   padding: 4rpx 16rpx;
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
   border-radius: 8rpx;
   font-size: 20rpx;
   font-weight: 600;
@@ -227,7 +227,7 @@ page {
   box-sizing: border-box;
   border-radius: 16rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -236,12 +236,12 @@ page {
 /* ---------- 空列表虚线占位 ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed #C9CDD4;
+  border: 3rpx dashed #c9cdd4;
   border-radius: 16rpx;
   padding: 64rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: #86909C;
+  color: #86909c;
   letter-spacing: 2rpx;
 }
 
@@ -254,9 +254,15 @@ page {
   animation: wl-a-rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
 }
 
-.day-pane .logcard:nth-of-type(2) { animation-delay: 0.26s; }
-.day-pane .logcard:nth-of-type(3) { animation-delay: 0.34s; }
-.day-pane .logcard:nth-of-type(n + 4) { animation-delay: 0.42s; }
+.day-pane .logcard:nth-of-type(2) {
+  animation-delay: 0.26s;
+}
+.day-pane .logcard:nth-of-type(3) {
+  animation-delay: 0.34s;
+}
+.day-pane .logcard:nth-of-type(n + 4) {
+  animation-delay: 0.42s;
+}
 
 /* 报告跳转定位：目标卡片短暂高亮（黄色描边呼吸环，1.6s 后由 JS 移除 flash 类；
    落在 ::after 上，避免与卡片入场 animation 互相重播） */
@@ -268,7 +274,7 @@ page {
   bottom: 0;
   left: 0;
   z-index: 6;
-  border: 6rpx solid #FF7D00;
+  border: 6rpx solid #ff7d00;
   border-radius: 24rpx;
   pointer-events: none;
   animation: wl-flash 0.8s ease-in-out 2;
@@ -299,14 +305,14 @@ page {
   height: 64rpx;
   flex: none;
   border-radius: 16rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .lc-head .ci.ci-gray {
-  background: #F7F8FA;
+  background: #f7f8fa;
 }
 
 /* 车牌：墨深色大字锚点（44rpx/700），数字等宽对齐 */
@@ -326,11 +332,11 @@ page {
   display: flex;
   align-items: center;
   padding: 6rpx 16rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   border-radius: 8rpx;
   font-size: 22rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
   white-space: nowrap;
 }
 
@@ -347,8 +353,8 @@ page {
 }
 
 .badge.green {
-  background: #E8FFEA;
-  color: #0B8A37;
+  background: #e8ffea;
+  color: #0b8a37;
 }
 
 .badge.green::before {
@@ -357,20 +363,20 @@ page {
 }
 
 .badge.red {
-  background: #FFECE8;
-  color: #F53F3F;
+  background: #ffece8;
+  color: #f53f3f;
 }
 
 .badge.gray {
-  background: #F7F8FA;
-  color: #86909C;
+  background: #f7f8fa;
+  color: #86909c;
 }
 
 /* 未通过明细：浅红底 + 红左边条，逐行列出全部不满足项（与右上角角标同源，后端 verify_reasons） */
 .lc-fail {
   margin-top: 16rpx;
-  background: #FFECE8;
-  border-left: 6rpx solid #F53F3F;
+  background: #ffece8;
+  border-left: 6rpx solid #f53f3f;
   border-radius: 0;
   padding: 14rpx 20rpx;
 }
@@ -381,7 +387,7 @@ page {
   gap: 10rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #F53F3F;
+  color: #f53f3f;
   line-height: 1.7;
 }
 
@@ -394,7 +400,7 @@ page {
 /* 巡视内容：车牌号下方主内容块（浅蓝底圆角块，与其他信息区分） */
 .lc-patrol {
   margin-top: 20rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   border-radius: 12rpx;
   padding: 18rpx 24rpx 20rpx;
 }
@@ -407,7 +413,7 @@ page {
 .lc-patrol-label {
   font-size: 24rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
   letter-spacing: 1rpx;
 }
 
@@ -419,14 +425,14 @@ page {
   margin-top: 8rpx;
   font-size: 30rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   line-height: 1.6;
 }
 
 /* 卡片内水印照片区（覆盖共享 .photo-item 的内边距与分隔线） */
 .lc-photos {
   margin-top: 16rpx;
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .lc-photos .photo-item {
@@ -434,7 +440,7 @@ page {
 }
 
 .lc-photos .photo-item + .photo-item {
-  border-top: 2rpx dashed #E5E6EB;
+  border-top: 2rpx dashed #e5e6eb;
 }
 
 /* 无照片时添加栏是区块首个子元素，与顶部分隔线拉开距离；
@@ -447,7 +453,7 @@ page {
 .lc-actions {
   display: flex;
   margin: 22rpx -28rpx -16rpx;
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .lc-actions .act {
@@ -459,32 +465,32 @@ page {
   font-size: 26rpx;
   font-weight: 600;
   letter-spacing: 2rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .lc-actions .act + .act {
-  border-left: 2rpx solid #E5E6EB;
+  border-left: 2rpx solid #e5e6eb;
 }
 
 /* 从商旅同步入口（文字链，品牌蓝） */
 .act-sync {
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .act-del {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 /* 备注入口（文字链，深灰） */
 .act-note {
-  color: #4E5969;
+  color: #4e5969;
 }
 
 /* ---------- 备注块（「添加水印照片」虚线框下方；浅橙底 + 橙左边条，无备注不渲染） ---------- */
 .lc-rmk {
   margin-top: 20rpx;
-  background: #FFF7E8;
-  border-left: 6rpx solid #FF7D00;
+  background: #fff7e8;
+  border-left: 6rpx solid #ff7d00;
   border-radius: 0;
   padding: 16rpx 24rpx 20rpx;
 }
@@ -494,7 +500,7 @@ page {
   align-items: center;
   font-size: 22rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 1rpx;
 }
 
@@ -506,7 +512,7 @@ page {
 .lc-rmk-text {
   margin-top: 6rpx;
   font-size: 26rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.6;
 }
 
@@ -523,8 +529,8 @@ page {
   height: 92rpx;
   border-radius: 8rpx;
   overflow: hidden;
-  border: 2rpx solid #E5E6EB;
-  background: #F7F8FA;
+  border: 2rpx solid #e5e6eb;
+  background: #f7f8fa;
 }
 
 .rf-img {
@@ -558,7 +564,7 @@ page {
 }
 
 .rf-doc .fn {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 4rpx;
@@ -578,7 +584,7 @@ page {
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .cal-legend {
@@ -588,7 +594,7 @@ page {
   margin-top: 16rpx;
   font-size: 20rpx;
   font-weight: 400;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 2rpx;
 }
 
@@ -603,15 +609,15 @@ page {
 }
 
 .cal-legend .lg-g {
-  background: #00B42A;
+  background: #00b42a;
 }
 
 .cal-legend .lg-b {
-  background: #F53F3F;
+  background: #f53f3f;
 }
 
 .cal-legend .lg-y {
-  background: #FF7D00;
+  background: #ff7d00;
 }
 
 /* ---------- t-calendar 政企蓝白化 ----------
@@ -628,19 +634,19 @@ page {
   box-sizing: border-box;
   padding: 0;
   margin: 0 6rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .t-calendar .t-calendar-header__icon--disabled {
-  border-color: #E5E6EB;
-  color: #C9CDD4;
+  border-color: #e5e6eb;
+  color: #c9cdd4;
 }
 
 /* 按日验证状态：日期格一律白底，状态以格内下方 10rpx 色点表达
@@ -662,21 +668,21 @@ page {
 }
 
 .t-calendar__dates-item.wl-cal-passed::before {
-  background: #00B42A;
+  background: #00b42a;
 }
 
 .t-calendar__dates-item.wl-cal-failed::before {
-  background: #F53F3F;
+  background: #f53f3f;
 }
 
 /* 黄点 = 验证通过但有备注 */
 .t-calendar__dates-item.wl-cal-remark::before {
-  background: #FF7D00;
+  background: #ff7d00;
 }
 
 /* 选中日：品牌蓝底白字圆角格（覆盖组件默认品牌蓝底，色点仍可叠加于格内下方） */
 .t-calendar .t-calendar__dates-item.t-calendar__dates-item--selected {
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   border-radius: 12rpx;
 }
@@ -697,7 +703,7 @@ page {
   width: 64rpx;
   height: 64rpx;
   border-radius: 50%;
-  background: #0E3DA8;
+  background: #0e3da8;
   z-index: -1;
 }
 
@@ -745,7 +751,7 @@ page {
   margin-top: 16rpx;
   padding: 4rpx;
   border-radius: 16rpx;
-  background: #E5E6EB;
+  background: #e5e6eb;
   animation: wl-a-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both;
 }
 
@@ -756,7 +762,7 @@ page {
   display: flex;
   align-items: center;
   border-radius: 12rpx;
-  color: #4E5969;
+  color: #4e5969;
   font-size: 24rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
@@ -764,7 +770,7 @@ page {
 
 .scope-pill.on {
   background: #ffffff;
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 600;
   box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.08);
 }
@@ -797,22 +803,30 @@ page {
   animation: fabUp 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.fab-item:nth-child(2) { animation-delay: 0.04s; }
-.fab-item:nth-child(3) { animation-delay: 0.08s; }
-.fab-item:nth-child(4) { animation-delay: 0.12s; }
+.fab-item:nth-child(2) {
+  animation-delay: 0.04s;
+}
+.fab-item:nth-child(3) {
+  animation-delay: 0.08s;
+}
+.fab-item:nth-child(4) {
+  animation-delay: 0.12s;
+}
 
 .fab-lab {
   font-size: 22rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 1rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 8rpx 18rpx;
 }
 
-.fab-lab.accent { color: #0E3DA8; }
+.fab-lab.accent {
+  color: #0e3da8;
+}
 
 /* 展开菜单项：白圆 + 发丝边 + 轻影 */
 .fab {
@@ -822,7 +836,7 @@ page {
   box-sizing: border-box;
   border-radius: 50%;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -835,7 +849,7 @@ page {
   height: 104rpx;
   border-radius: 50%;
   box-sizing: border-box;
-  background: #0E3DA8;
+  background: #0e3da8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -844,13 +858,23 @@ page {
 }
 
 @keyframes fabUp {
-  from { opacity: 0; transform: translateY(24rpx) scale(0.9); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(24rpx) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 @keyframes fabFade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* ---------- 新建/编辑表单底部弹层（顶部 24rpx 圆角 + 轻阴影，与 .sheet 族弹层一致） ---------- */
@@ -881,7 +905,7 @@ page {
    顶部 24rpx 圆角 + 轻阴影） ---------- */
 .dl-sheet {
   position: relative;
-  background: #F5F7FA;
+  background: #f5f7fa;
   border-radius: 24rpx 24rpx 0 0;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   height: 1152rpx;
@@ -901,7 +925,7 @@ page {
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .dl-close {
@@ -927,7 +951,7 @@ page {
 
 .dl-range-text {
   font-size: 24rpx;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 1rpx;
 }
 
@@ -935,7 +959,7 @@ page {
 .dl-change {
   font-size: 24rpx;
   color: #ffffff;
-  background: #0E3DA8;
+  background: #0e3da8;
   font-weight: 600;
   border-radius: 12rpx;
   padding: 10rpx 28rpx;
@@ -951,14 +975,14 @@ page {
   padding: 96rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: #86909C;
+  color: #86909c;
   letter-spacing: 2rpx;
 }
 
 /* 一个月份一个卡片（白卡 + 发丝边 + 圆角，纸底面板内以描边定义边界，不用柔影） */
 .dl-month-card {
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 16rpx;
   padding: 24rpx;
 }
@@ -970,7 +994,7 @@ page {
 .dl-month-title {
   font-size: 28rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 1rpx;
   margin-bottom: 20rpx;
 }
@@ -991,7 +1015,7 @@ page {
   width: 100%;
   height: 200rpx;
   border-radius: 8rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   display: block;
 }
 
@@ -999,7 +1023,7 @@ page {
   margin-top: 6rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 /* 选择圈：未选=灰圈，选中=蓝底白勾 */
@@ -1010,7 +1034,7 @@ page {
   width: 36rpx;
   height: 36rpx;
   border-radius: 50%;
-  border: 3rpx solid #E5E6EB;
+  border: 3rpx solid #e5e6eb;
   background: rgba(255, 255, 255, 0.85);
   display: flex;
   align-items: center;
@@ -1020,8 +1044,8 @@ page {
 }
 
 .dl-ring.on {
-  background: #0E3DA8;
-  border-color: #0E3DA8;
+  background: #0e3da8;
+  border-color: #0e3da8;
 }
 
 /* 底部栏里的静态选择圈（覆盖网格内的绝对定位） */
@@ -1031,7 +1055,7 @@ page {
 }
 
 .dl-ring-static.on {
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 /* ---------- 下载面板底部固定栏 ---------- */
@@ -1047,8 +1071,8 @@ page {
   flex: 1;
   height: 72rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
-  color: #0E3DA8;
+  background: #e8f0ff;
+  color: #0e3da8;
   font-size: 26rpx;
   font-weight: 600;
   display: flex;
@@ -1068,7 +1092,7 @@ page {
   justify-content: space-between;
   padding-top: 20rpx;
   margin-top: 12rpx;
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .dl-all {
@@ -1077,21 +1101,21 @@ page {
   gap: 12rpx;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .dl-count {
   margin-left: 8rpx;
   font-size: 22rpx;
   font-weight: 400;
-  color: #86909C;
+  color: #86909c;
 }
 
 .dl-btn {
   min-width: 240rpx;
   height: 80rpx;
   border-radius: 16rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -1126,8 +1150,8 @@ page {
   width: 144rpx;
   height: 144rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
-  background: #F5F7FA;
+  border: 2rpx solid #e5e6eb;
+  background: #f5f7fa;
 }
 
 .wm-head-r {
@@ -1144,7 +1168,7 @@ page {
 .wm-names-tip {
   margin-top: 10rpx;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   letter-spacing: 2rpx;
 }
 
@@ -1187,13 +1211,13 @@ page {
   padding: 4rpx 16rpx;
   font-size: 22rpx;
   line-height: 1.6;
-  color: #0E3DA8;
-  background: #E8F0FF;
+  color: #0e3da8;
+  background: #e8f0ff;
   border-radius: 8rpx;
 }
 
 .wm-row-col + .frow {
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .wm-textarea {
@@ -1208,7 +1232,7 @@ page {
 .wm-input {
   flex: 1;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 600;
 }
 
@@ -1224,18 +1248,18 @@ page {
   gap: 6rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 /* ---------- 经纬度区：无历史场景右侧跨两行「选择杆塔坐标」按钮 ---------- */
 .geo-zone {
   display: flex;
   align-items: stretch;
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .geo-zone + .frow {
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .geo-rows {
@@ -1251,9 +1275,9 @@ page {
   flex: none;
   width: 184rpx;
   margin: 16rpx 32rpx 16rpx 20rpx;
-  border: 2rpx solid #0E3DA8;
+  border: 2rpx solid #0e3da8;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1266,7 +1290,7 @@ page {
   width: 96rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #0E3DA8;
+  color: #0e3da8;
   letter-spacing: 2rpx;
   line-height: 1.4;
   text-align: center;
@@ -1280,7 +1304,7 @@ page {
   max-width: 152rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1289,7 +1313,7 @@ page {
 .tower-btn .tb-re {
   font-size: 20rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
   text-decoration: underline;
   text-underline-offset: 4rpx;
   letter-spacing: 4rpx;
@@ -1300,8 +1324,8 @@ page {
   flex: none;
   font-size: 20rpx;
   font-weight: 600;
-  color: #0E3DA8;
-  background: #E8F0FF;
+  color: #0e3da8;
+  background: #e8f0ff;
   border-radius: 8rpx;
   padding: 2rpx 12rpx;
   letter-spacing: 1rpx;
@@ -1317,7 +1341,7 @@ page {
   padding: 60rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: #86909C;
+  color: #86909c;
   letter-spacing: 2rpx;
 }
 
@@ -1339,7 +1363,7 @@ page {
   flex: 1;
   min-width: 0;
   height: 80rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   background: #ffffff;
   padding: 0 24rpx;
@@ -1349,13 +1373,15 @@ page {
   gap: 16rpx;
   font-size: 28rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   box-sizing: border-box;
-  transition: border-color 0.2s ease-out, background-color 0.2s ease-out;
+  transition:
+    border-color 0.2s ease-out,
+    background-color 0.2s ease-out;
 }
 
 .sel-box .ph {
-  color: #86909C;
+  color: #86909c;
   font-weight: 400;
 }
 
@@ -1365,19 +1391,19 @@ page {
   min-width: 0;
   font-size: 28rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .sel-box.disabled .sel-input {
-  color: #86909C;
+  color: #86909c;
 }
 
 .sel-box.open {
-  border-color: #0E3DA8;
+  border-color: #0e3da8;
 }
 
 .sel-box.disabled {
-  background: #F5F7FA;
+  background: #f5f7fa;
 }
 
 /* 选项列表：内嵌展开于对应行下方，超高滚动；展开/收起带 max-height + 透明度动效（wx:if 无过渡，改 class 开关） */
@@ -1388,12 +1414,16 @@ page {
   background: #ffffff;
   max-height: 0;
   opacity: 0;
-  transition: max-height 0.25s ease-out, opacity 0.2s ease-out, border-color 0.2s ease-out, margin 0.25s ease-out;
+  transition:
+    max-height 0.25s ease-out,
+    opacity 0.2s ease-out,
+    border-color 0.2s ease-out,
+    margin 0.25s ease-out;
 }
 
 .opt-list.show {
   margin: 4rpx 0 8rpx 148rpx;
-  border-color: #1D2129;
+  border-color: #1d2129;
   max-height: 336rpx;
   opacity: 1;
 }
@@ -1416,8 +1446,10 @@ page {
   height: 76rpx;
   padding: 0 24rpx;
   font-size: 28rpx;
-  color: #1D2129;
-  transition: background-color 0.15s ease-out, color 0.15s ease-out;
+  color: #1d2129;
+  transition:
+    background-color 0.15s ease-out,
+    color 0.15s ease-out;
 }
 
 /* 主文案左对齐 + 占满中槽，超长省略不溢出右缘；选中勾（t-icon）随后自然右置 */
@@ -1439,24 +1471,24 @@ page {
 }
 
 .opt + .opt {
-  border-top: 2rpx dashed #E5E6EB;
+  border-top: 2rpx dashed #e5e6eb;
 }
 
 /* 选中项：白底蓝字 + 前置蓝方块（不用浅蓝高亮） */
 .opt.on {
-  color: #0E3DA8;
+  color: #0e3da8;
   font-weight: 700;
 }
 
 .opt.on::before {
-  background: #0E3DA8;
+  background: #0e3da8;
 }
 
 /* 三级选齐后的坐标预览卡（淡入上移） */
 .coord-card {
   margin: 16rpx 0 8rpx;
-  background: #E8F0FF;
-  border-left: 8rpx solid #0E3DA8;
+  background: #e8f0ff;
+  border-left: 8rpx solid #0e3da8;
   border-radius: 12rpx;
   padding: 18rpx 24rpx;
   animation: coord-in 0.25s ease-out;
@@ -1476,7 +1508,7 @@ page {
 .cc-title {
   font-size: 24rpx;
   font-weight: 700;
-  color: #0E3DA8;
+  color: #0e3da8;
   letter-spacing: 2rpx;
 }
 
@@ -1484,11 +1516,11 @@ page {
   margin-top: 8rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .btn-dark.disabled {
-  background: #E5E6EB;
+  background: #e5e6eb;
 }
 
 /* ---------- 添加照片二选一弹层（自绘选项卡） ---------- */
@@ -1498,7 +1530,7 @@ page {
 }
 
 .addsheet-opt {
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 28rpx 32rpx;
 }
@@ -1510,13 +1542,13 @@ page {
 .ao-title {
   font-size: 30rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .ao-note {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   letter-spacing: 1rpx;
 }
 
@@ -1578,7 +1610,7 @@ page {
   position: absolute;
   width: 36rpx;
   height: 36rpx;
-  border: 6rpx solid #0E3DA8;
+  border: 6rpx solid #0e3da8;
   pointer-events: none;
 }
 
@@ -1643,8 +1675,8 @@ page {
   height: 108rpx;
   border-radius: 12rpx;
   overflow: hidden;
-  border: 2rpx solid #E5E6EB;
-  background: #1D2129;
+  border: 2rpx solid #e5e6eb;
+  background: #1d2129;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1674,8 +1706,8 @@ page {
   width: 108rpx;
   height: 108rpx;
   border-radius: 12rpx;
-  border: 3rpx dashed #E5E6EB;
-  color: #86909C;
+  border: 3rpx dashed #e5e6eb;
+  color: #86909c;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1697,12 +1729,12 @@ page {
   gap: 12rpx;
   height: 60rpx;
   padding: 0 20rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   font-size: 24rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .re-doc .nm {
@@ -1723,7 +1755,7 @@ page {
 .rmk-hint {
   margin-top: 20rpx;
   font-size: 20rpx;
-  color: #86909C;
+  color: #86909c;
   line-height: 1.7;
 }
 
@@ -1740,7 +1772,7 @@ page {
 .lc-clock-title {
   font-size: 26rpx;
   font-weight: 600;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 1rpx;
 }
 
@@ -1749,7 +1781,7 @@ page {
 }
 
 .ck-person + .ck-person {
-  border-top: 2rpx dashed #E5E6EB;
+  border-top: 2rpx dashed #e5e6eb;
 }
 
 .ck-person-head {
@@ -1762,7 +1794,7 @@ page {
 .ck-name {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 行右「费用」入口：描边直角小按钮（蓝框蓝字 + 图标，最小高度 48rpx；费用弹层；仅已绑定者显示；margin-left:auto 固定最右端） */
@@ -1775,8 +1807,8 @@ page {
   padding: 0 18rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #0E3DA8;
-  border: 2rpx solid #0E3DA8;
+  color: #0e3da8;
+  border: 2rpx solid #0e3da8;
   border-radius: 12rpx;
   box-sizing: border-box;
 }
@@ -1787,13 +1819,13 @@ page {
   align-items: center;
   gap: 6rpx;
   font-size: 20rpx;
-  color: #86909C;
+  color: #86909c;
 }
 
 /* 工时小签：浅蓝底蓝字（图标由 JS 给色且无法覆盖，隐藏只留文字） */
 .ck-stat.ok {
-  color: #0E3DA8;
-  background: #E8F0FF;
+  color: #0e3da8;
+  background: #e8f0ff;
   border-radius: 8rpx;
   padding: 2rpx 12rpx;
   font-weight: 600;
@@ -1805,7 +1837,7 @@ page {
 }
 
 .ck-stat.red {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 .ck-row2 {
@@ -1847,9 +1879,9 @@ page {
 
 /* 缺卡态：虚线橙边 + 浅橙底；JS 给色的图标隐藏，以前置橙圆点示意「待打卡」 */
 .ck-slot.todo {
-  border: 3rpx dashed #FF7D00;
-  background: #FFF7E8;
-  color: #1D2129;
+  border: 3rpx dashed #ff7d00;
+  background: #fff7e8;
+  color: #1d2129;
 }
 
 .ck-slot.todo .ck-t1 .t-icon {
@@ -1862,18 +1894,18 @@ page {
   width: 14rpx;
   height: 14rpx;
   border-radius: 50%;
-  background: #FF7D00;
+  background: #ff7d00;
 }
 
 .ck-slot.todo .ck-t2 {
-  color: #D25F00;
+  color: #d25f00;
 }
 
 /* 已打卡：白底墨边；JS 给色的图标隐藏，改以前置绿圆白勾（.ck-done-dot，wxml 装饰 view） */
 .ck-slot.done {
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .ck-slot.done .ck-t1 .t-icon {
@@ -1885,7 +1917,7 @@ page {
   height: 26rpx;
   flex: none;
   border-radius: 50%;
-  background: #00B42A;
+  background: #00b42a;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1900,17 +1932,17 @@ page {
 }
 
 .ck-slot.done .ck-t2 {
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .ck-slot.lock {
-  border: 3rpx solid #E5E6EB;
-  background: #F7F8FA;
-  color: #86909C;
+  border: 3rpx solid #e5e6eb;
+  background: #f7f8fa;
+  color: #86909c;
 }
 
 .ck-slot.lock .ck-t2 {
-  color: #C9CDD4;
+  color: #c9cdd4;
   white-space: normal; /* 引导文案较长，允许折行 */
 }
 
@@ -1921,7 +1953,7 @@ page {
   top: 8rpx;
   font-size: 18rpx;
   font-weight: 700;
-  color: #0E3DA8;
+  color: #0e3da8;
   display: flex;
   align-items: center;
   gap: 2rpx;
@@ -1937,8 +1969,8 @@ page {
   padding: 0 14rpx;
   border-radius: 8rpx;
   box-sizing: border-box;
-  background: #FFF7E8;
-  color: #D25F00;
+  background: #fff7e8;
+  color: #d25f00;
   font-size: 20rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
@@ -1951,8 +1983,8 @@ page {
   height: 38rpx;
   padding: 0 16rpx;
   border-radius: 8rpx;
-  border: 2rpx solid #F53F3F;
-  color: #F53F3F;
+  border: 2rpx solid #f53f3f;
+  color: #f53f3f;
   font-size: 20rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
@@ -1960,24 +1992,24 @@ page {
 
 /* ---------- 人名点亮层：商旅登录过期红框虚线（t-class 落在 check-tag 根上） ---------- */
 .tags .t-tag--disabled.ctag-expired {
-  background: #FFECE8;
-  border: 2rpx dashed #F53F3F;
-  color: #F53F3F;
+  background: #ffece8;
+  border: 2rpx dashed #f53f3f;
+  color: #f53f3f;
 }
 
 /* 过期提醒条（复用 .tip 结构，红色变体） */
 .tip.warn {
-  background: #FFECE8;
+  background: #ffece8;
 }
 
 .tip.warn .tip-t {
-  color: #F53F3F;
+  color: #f53f3f;
 }
 
 /* ---------- 打卡确认弹层 ---------- */
 .ck-loc {
   margin-top: 24rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 20rpx 24rpx;
 }
@@ -2002,7 +2034,7 @@ page {
 }
 
 .ck-loc-text.ph {
-  color: #86909C;
+  color: #86909c;
   font-weight: 400;
 }
 
@@ -2014,14 +2046,14 @@ page {
   font-size: 26rpx;
   font-weight: 600;
   line-height: 1.6;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 副行：经纬度 + 来源标注（同记录已打卡人定位 / 当前定位 / 杆塔带入）或失败提示 */
 .ck-loc-sub {
   margin-top: 10rpx;
   font-size: 20rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.7;
 }
 
@@ -2034,8 +2066,8 @@ page {
 .ck-mini {
   font-size: 20rpx;
   font-weight: 700;
-  color: #0E3DA8;
-  border: 2rpx solid #0E3DA8;
+  color: #0e3da8;
+  border: 2rpx solid #0e3da8;
   border-radius: 12rpx;
   padding: 8rpx 16rpx;
   display: inline-flex;
@@ -2049,7 +2081,7 @@ page {
 
 .ck-remark-lab {
   font-size: 22rpx;
-  color: #86909C;
+  color: #86909c;
   margin-bottom: 10rpx;
   display: flex;
   align-items: center;
@@ -2069,7 +2101,7 @@ page {
   flex: 2;
   height: 88rpx;
   border-radius: 16rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -2091,7 +2123,7 @@ page {
   display: flex;
   align-items: center;
   gap: 16rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   border-radius: 8rpx;
   padding: 14rpx 20rpx;
   margin-bottom: 8rpx;
@@ -2101,14 +2133,14 @@ page {
   flex: 1;
   min-width: 0;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 .fee-std-fill {
   flex: none;
   font-size: 22rpx;
   font-weight: 600;
-  color: #0E3DA8;
+  color: #0e3da8;
 }
 
 .fee-row {
@@ -2119,7 +2151,7 @@ page {
 }
 
 .fee-row + .fee-row {
-  border-top: 2rpx solid #E5E6EB;
+  border-top: 2rpx solid #e5e6eb;
 }
 
 .fee-k {
@@ -2127,18 +2159,18 @@ page {
   width: 140rpx;
   font-size: 26rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .fee-input {
   flex: 1;
   min-width: 0;
   height: 72rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 0 20rpx;
   font-size: 28rpx;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 600;
   box-sizing: border-box;
 }
@@ -2149,7 +2181,7 @@ page {
   min-width: 0;
   font-size: 28rpx;
   font-weight: 600;
-  color: #1D2129;
+  color: #1d2129;
   text-align: right;
 }
 
@@ -2172,7 +2204,7 @@ page {
   align-items: center;
   justify-content: center;
   border-radius: 12rpx;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   background: #ffffff;
 }
 
@@ -2185,7 +2217,7 @@ page {
   text-align: center;
   font-size: 30rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 2rpx;
 }
 
@@ -2196,7 +2228,7 @@ page {
 
 /* 问题记录卡：浅红底 + 红叉逐条（点卡定位回列表） */
 .issue-card {
-  background: #FFECE8;
+  background: #ffece8;
   border-radius: 0;
   padding: 20rpx 24rpx;
 }
@@ -2214,7 +2246,7 @@ page {
 .issue-plate {
   font-size: 28rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 徽章紧跟车牌（覆盖 .badge 的 margin-left:auto），箭头靠右 */
@@ -2241,7 +2273,7 @@ page {
   height: 32rpx;
   flex: none;
   border-radius: 50%;
-  background: #FFECE8;
+  background: #ffece8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2251,14 +2283,14 @@ page {
 .issue-txt {
   flex: 1;
   min-width: 0;
-  color: #1D2129;
+  color: #1d2129;
   font-weight: 600;
 }
 
 /* 绿色通过态（全部通过时面板仅此态） */
 .rp-ok {
   margin-top: 20rpx;
-  background: #E8FFEA;
+  background: #e8ffea;
   border-radius: 0;
   display: flex;
   align-items: center;
@@ -2280,13 +2312,13 @@ page {
 .rp-ok-t {
   font-size: 26rpx;
   font-weight: 600;
-  color: #0B8A37;
+  color: #0b8a37;
 }
 
 .rp-ok-p {
   margin-top: 4rpx;
   font-size: 20rpx;
-  color: #4E5969;
+  color: #4e5969;
 }
 
 /* ---------- 批量从商旅同步面板（悬浮钮独立面板） ---------- */
@@ -2303,7 +2335,7 @@ page {
 .bs-range-text {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 1rpx;
 }
 
@@ -2312,8 +2344,8 @@ page {
   font-size: 24rpx;
   font-weight: 700;
   color: #ffffff;
-  background: #0E3DA8;
-  border: 2rpx solid #E5E6EB;
+  background: #0e3da8;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   padding: 14rpx 32rpx;
@@ -2338,16 +2370,16 @@ page {
 .bs-log-t {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 2rpx;
-  border-left: 8rpx solid #0E3DA8;
+  border-left: 8rpx solid #0e3da8;
   padding-left: 14rpx;
 }
 
 .bs-log-clear {
   font-size: 22rpx;
   font-weight: 700;
-  color: #F53F3F;
+  color: #f53f3f;
   padding: 6rpx 12rpx;
 }
 
@@ -2362,18 +2394,18 @@ page {
   align-items: center;
   gap: 10rpx;
   background: #f2fbf7;
-  border: 2rpx solid #E8FFEA;
+  border: 2rpx solid #e8ffea;
   border-radius: 12rpx;
   padding: 18rpx 22rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #00B42A;
+  color: #00b42a;
 }
 
 .bs-fail {
   margin-top: 14rpx;
-  border: 2rpx solid #FFECE8;
-  background: #FFFFFF;
+  border: 2rpx solid #ffece8;
+  background: #ffffff;
   border-radius: 12rpx;
   padding: 16rpx 22rpx;
 }
@@ -2384,7 +2416,7 @@ page {
   gap: 14rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 /* 失败行前置红三角感叹号（图标由 wxml 的 t-icon error-triangle 提供，与 .lc-fail-x 同款口径） */
@@ -2406,8 +2438,8 @@ page {
   flex: none;
   font-size: 20rpx;
   font-weight: 700;
-  color: #F53F3F;
-  background: #FFECE8;
+  color: #f53f3f;
+  background: #ffece8;
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
 }
@@ -2415,7 +2447,7 @@ page {
 .bs-fail-d {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
   line-height: 1.6;
   word-break: break-all;
 }
@@ -2431,7 +2463,7 @@ page {
   margin-top: 22rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #1D2129;
+  color: #1d2129;
   letter-spacing: 1rpx;
 }
 
@@ -2440,10 +2472,10 @@ page {
   height: 80rpx;
   padding: 0 24rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   font-size: 27rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .we-2col {
@@ -2451,7 +2483,6 @@ page {
   grid-template-columns: 1fr 1fr;
   gap: 20rpx;
 }
-
 
 /* ---------- 从商旅同步进度（卡片级进度条 + 批量同步全页遮罩；进度轮询 /sgcc/sync/progress） ---------- */
 
@@ -2470,7 +2501,7 @@ page {
 .cs-box {
   width: 62%;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 28rpx 32rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
@@ -2480,14 +2511,14 @@ page {
   flex: 1;
   height: 10rpx;
   border-radius: 12rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   overflow: hidden;
 }
 
 .cs-fill {
   height: 100%;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   transition: width 0.4s ease;
 }
 
@@ -2497,7 +2528,7 @@ page {
   text-align: center;
   font-size: 20rpx;
   font-weight: 700;
-  color: #0E3DA8;
+  color: #0e3da8;
   letter-spacing: 1rpx;
 }
 
@@ -2515,7 +2546,7 @@ page {
 .sync-card {
   width: 560rpx;
   background: #ffffff;
-  border: 2rpx solid #E5E6EB;
+  border: 2rpx solid #e5e6eb;
   border-radius: 12rpx;
   padding: 48rpx 48rpx 40rpx;
   display: flex;
@@ -2528,7 +2559,7 @@ page {
   width: 88rpx;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #E8F0FF;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2539,7 +2570,7 @@ page {
   font-size: 30rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
-  color: #1D2129;
+  color: #1d2129;
 }
 
 .sync-bar {
@@ -2547,21 +2578,21 @@ page {
   width: 100%;
   height: 14rpx;
   border-radius: 12rpx;
-  background: #F7F8FA;
+  background: #f7f8fa;
   overflow: hidden;
 }
 
 .sync-fill {
   height: 100%;
   border-radius: 12rpx;
-  background: #0E3DA8;
+  background: #0e3da8;
   transition: width 0.4s ease;
 }
 
 .sync-p {
   margin-top: 16rpx;
   font-size: 22rpx;
-  color: #4E5969;
+  color: #4e5969;
   letter-spacing: 1rpx;
 }
 

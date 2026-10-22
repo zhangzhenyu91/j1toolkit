@@ -71,7 +71,9 @@ Page({
   async loadList() {
     this.setData({ loading: true });
     try {
-      const data = await request({ url: `/api/v1/worklog/admin/${this.data.seg}${this.teamQuery('?')}` });
+      const data = await request({
+        url: `/api/v1/worklog/admin/${this.data.seg}${this.teamQuery('?')}`,
+      });
       this.setData({ list: (data && data.list) || [] });
     } catch (err) {
       this.toast(err.message);

@@ -73,10 +73,18 @@ Page({
       const meta = await request({
         url: `${API}/archive/meta`,
         method: 'POST',
-        data: { space: this._space, path: this._path, ...(this._pass ? { archive_pass: this._pass } : {}) },
+        data: {
+          space: this._space,
+          path: this._path,
+          ...(this._pass ? { archive_pass: this._pass } : {}),
+        },
       });
       if (meta && meta.encrypted && !this._pass) {
-        this.setData({ encrypted: true, loading: false, pwSheet: { open: true, value: '', saving: false } });
+        this.setData({
+          encrypted: true,
+          loading: false,
+          pwSheet: { open: true, value: '', saving: false },
+        });
         return;
       }
       this.loadInner('/', true);
@@ -127,11 +135,13 @@ Page({
       url: `${API}/archive/meta`,
       method: 'POST',
       data: { space: this._space, path: this._path, archive_pass: pw },
-    }).then(() => {
-      this._pass = pw;
-      this.setData({ keyboardHeight: 0, pwSheet: { open: false, value: '', saving: false } });
-      this.loadInner('/', true);
-    }).catch((err) => this.toast(err.message))
+    })
+      .then(() => {
+        this._pass = pw;
+        this.setData({ keyboardHeight: 0, pwSheet: { open: false, value: '', saving: false } });
+        this.loadInner('/', true);
+      })
+      .catch((err) => this.toast(err.message))
       .finally(() => this.setData({ 'pwSheet.saving': false }));
   },
 
@@ -142,7 +152,11 @@ Page({
     const segs = this.data.innerPath.split('/').filter(Boolean);
     const crumbs = [{ name: this.data.name, path: '/', last: segs.length === 0 }];
     segs.forEach((s, i) => {
-      crumbs.push({ name: s, path: `/${segs.slice(0, i + 1).join('/')}`, last: i === segs.length - 1 });
+      crumbs.push({
+        name: s,
+        path: `/${segs.slice(0, i + 1).join('/')}`,
+        last: i === segs.length - 1,
+      });
     });
     this.setData({ crumbs });
   },
@@ -177,7 +191,8 @@ Page({
       });
       this.buildCrumbs();
     } catch (err) {
-      if (isInitial && !this._loaded) this.setData({ loading: false, error: err.message || '压缩包读取失败' });
+      if (isInitial && !this._loaded)
+        this.setData({ loading: false, error: err.message || '压缩包读取失败' });
       else this.toast(err.message);
     }
   },
@@ -191,7 +206,7 @@ Page({
       isDir,
       ext,
       media,
-      letter: isDir ? '' : (ext ? ext.slice(0, 4).toUpperCase() : 'FILE'),
+      letter: isDir ? '' : ext ? ext.slice(0, 4).toUpperCase() : 'FILE',
       // 真实文件类型图标（/assets/filetypes/，与 Web 同源）；iconFail 时回退字母块/线性文件夹
       icon: fileIconUrl(o.name, isDir),
       iconFail: false,
@@ -218,7 +233,8 @@ Page({
 
   // 包内文件下载地址（GET 流；query 带 archive_pass，previewMedia 场景另带 token 鉴权）
   downloadUrl(rel, withToken) {
-    let url = `${config.BASE_URL}${API}/archive/download?space=${encodeURIComponent(this._space)}` +
+    let url =
+      `${config.BASE_URL}${API}/archive/download?space=${encodeURIComponent(this._space)}` +
       `&path=${encodeURIComponent(this._path)}&inner=${encodeURIComponent(rel)}`;
     if (this._pass) url += `&archive_pass=${encodeURIComponent(this._pass)}`;
     if (withToken) url += `&token=${encodeURIComponent(wx.getStorageSync('token') || '')}`;
@@ -229,7 +245,12 @@ Page({
   previewFile(item) {
     if (item.media) {
       wx.previewMedia({
-        sources: [{ url: this.downloadUrl(item.rel, true), type: IMG_EXTS.includes(item.ext) ? 'image' : 'video' }],
+        sources: [
+          {
+            url: this.downloadUrl(item.rel, true),
+            type: IMG_EXTS.includes(item.ext) ? 'image' : 'video',
+          },
+        ],
         current: 0,
       });
       return;

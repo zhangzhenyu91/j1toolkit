@@ -44,7 +44,12 @@
         <view wx:else class="reply-side">
           <!-- 步骤树：流式期间展开，回答完毕自动折叠为摘要行，可点击再展开 -->
           <view wx:if="{{item.steps.length}}" class="think-box">
-            <view class="think-head" hover-class="hover-opacity" data-index="{{index}}" bindtap="toggleThinking">
+            <view
+              class="think-head"
+              hover-class="hover-opacity"
+              data-index="{{index}}"
+              bindtap="toggleThinking"
+            >
               <view class="think-title">
                 <view class="think-dot {{item.streaming ? 'think-dot-on' : ''}}"></view>
                 <text>{{item.thinkLabel || (item.streaming ? '正在思考…' : '思考过程')}}</text>
@@ -83,7 +88,13 @@
                       wx:if="{{step.kind === 'tool'}}"
                       class="step-title {{step.status === 'running' ? 'step-title-run' : ''}} {{step.status === 'error' ? 'step-title-err' : ''}}"
                     >
-                      <t-icon wx:if="{{step.status === 'error'}}" class="step-err-x" name="error-triangle" size="22rpx" color="#F53F3F" />
+                      <t-icon
+                        wx:if="{{step.status === 'error'}}"
+                        class="step-err-x"
+                        name="error-triangle"
+                        size="22rpx"
+                        color="#F53F3F"
+                      />
                       {{step.title}}
                     </view>
                     <view wx:if="{{step.summary}}" class="step-summary">{{step.summary}}</view>
@@ -105,7 +116,10 @@
             />
             <text wx:elif="{{item.content}}" user-select>{{item.content}}</text>
             <text wx:if="{{item.streaming}}" class="cursor">▍</text>
-            <view wx:if="{{item.streaming && !item.content && !item.steps.length}}" class="thinking">
+            <view
+              wx:if="{{item.streaming && !item.content && !item.steps.length}}"
+              class="thinking"
+            >
               正在思考…
             </view>
           </view>
@@ -120,14 +134,24 @@
 
           <!-- 操作条：复制 / 删除图标 + 时间（回答完成后显示） -->
           <view wx:if="{{!item.streaming && !item.error}}" class="msg-actions">
-            <view class="action-btn" hover-class="hover-opacity" data-index="{{index}}" bindtap="onCopy">
+            <view
+              class="action-btn"
+              hover-class="hover-opacity"
+              data-index="{{index}}"
+              bindtap="onCopy"
+            >
               <t-icon
                 name="{{item.copied ? 'check' : 'copy'}}"
                 size="28rpx"
                 color="{{item.copied ? '#0E3DA8' : 'rgba(29,33,41,.4)'}}"
               />
             </view>
-            <view class="action-btn" hover-class="hover-opacity" data-index="{{index}}" bindtap="onDelete">
+            <view
+              class="action-btn"
+              hover-class="hover-opacity"
+              data-index="{{index}}"
+              bindtap="onDelete"
+            >
               <t-icon name="delete" size="28rpx" color="rgba(29,33,41,.4)" />
             </view>
             <text class="msg-time" wx:if="{{item.timeText}}">{{item.timeText}}</text>
@@ -159,12 +183,22 @@
           />
           <view class="attach-info">
             <text class="attach-name">{{item.name}}</text>
-            <text class="attach-meta">{{item.sizeText}} · {{item.status === 'uploading' ? '上传中 ' + item.progress + '%' : item.status === 'parsing' ? '解析中…' : item.status === 'ready' ? '已就绪' : (item.error || '解析失败')}}</text>
+            <text class="attach-meta"
+              >{{item.sizeText}} · {{item.status === 'uploading' ? '上传中 ' + item.progress + '%' :
+              item.status === 'parsing' ? '解析中…' : item.status === 'ready' ? '已就绪' :
+              (item.error || '解析失败')}}</text
+            >
             <view wx:if="{{item.status === 'uploading'}}" class="attach-progress">
               <view class="attach-progress-bar" style="width: {{item.progress}}%;"></view>
             </view>
           </view>
-          <view class="attach-close" hover-class="hover-opacity" data-key="{{item.key}}" bindtap="removeAttachment">✕</view>
+          <view
+            class="attach-close"
+            hover-class="hover-opacity"
+            data-key="{{item.key}}"
+            bindtap="removeAttachment"
+            >✕</view
+          >
         </view>
       </view>
 
@@ -217,14 +251,23 @@
             bindtap="chooseModel"
           >
             <text class="model-name">{{modelName || '默认'}}</text>
-            <t-icon wx:if="{{models.length > 1}}" name="chevron-down" size="20rpx" color="#4E5969" />
+            <t-icon
+              wx:if="{{models.length > 1}}"
+              name="chevron-down"
+              size="20rpx"
+              color="#4E5969"
+            />
           </view>
         </view>
         <view class="toolbar-btns">
           <view class="add-btn" hover-class="hover-opacity" bindtap="onAddTap">
             <t-icon name="add" size="40rpx" color="#4E5969" />
           </view>
-          <view class="send-btn {{canSend ? '' : 'send-disabled'}}" hover-class="hover-scale" bindtap="onSend">
+          <view
+            class="send-btn {{canSend ? '' : 'send-disabled'}}"
+            hover-class="hover-scale"
+            bindtap="onSend"
+          >
             <t-icon name="send" size="40rpx" color="#FFFFFF" />
           </view>
         </view>

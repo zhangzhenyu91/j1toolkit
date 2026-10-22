@@ -1,10 +1,10 @@
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import { resolve } from 'path'
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [vue()],
-  base: './',           // 生产环境 file:// 加载，必须相对路径
+  base: './', // 生产环境 file:// 加载，必须相对路径
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -18,4 +18,4 @@ export default defineConfig({
     },
   },
   server: { host: '127.0.0.1', port: 5173, strictPort: true },
-})
+});
