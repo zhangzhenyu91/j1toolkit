@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- Shade 壹匣 · Call Me AI 知识库对话（网页版，「政企蓝白」）
-     布局：topbar + .page 呼吸边距满宽贴边；左侧会话列表为悬浮白卡（贴页面最左，窄屏收为抽屉），右侧为纸底画布——
+     布局：左侧图标栏 + .page 呼吸边距满宽贴边；左侧会话列表为悬浮白卡（贴页面最左，窄屏收为抽屉），右侧为纸底画布——
      聊天列限宽 960px 居中于右区（两侧留白防超宽难读），消息直接落在画布上（问题墨色气泡 / 回答无气泡纯文本 / 步骤树折叠块含进行中动效），
      输入框为聊天列底部的悬浮卡片（默认 3 行高，随内容自增至 150px）
      协议对齐小程序端 pkg-callme：POST /api/v1/callme/chat 为 SSE 流（fetch + ReadableStream 解析，
@@ -15,8 +15,8 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/assets/theme.css" />
     <style>
-      /* ===== 整页布局：body 锁定 100vh 无全局滚动；topbar 之下为 .page 容器（呼吸边距露出页面浅灰底），
-         主体两张悬浮白卡（左会话列表 / 右对话区），卡高 = 视口 - topbar - 边距 - 备案页脚，卡内各自滚动 ===== */
+      /* ===== 整页布局：body 锁定 100vh 无全局滚动；左侧图标栏右侧为 .page 容器（呼吸边距露出页面浅灰底），
+         主体两张悬浮白卡（左会话列表 / 右对话区），卡高 = 视口 - 边距 - 备案页脚，卡内各自滚动 ===== */
       html,
       body {
         height: 100%;
@@ -26,9 +26,6 @@
         flex-direction: column;
         height: 100vh;
         overflow: hidden;
-      }
-      body > .topbar {
-        flex: none;
       }
       /* theme.css 的 .page 带 margin:0 auto，body 为 flex 容器时 auto 外边距会使 stretch 失效、
      页面宽度退化为按内容收缩，此处显式 width:100% 恢复满宽（同 worklog 的踩坑记录） */
@@ -52,7 +49,7 @@
       .cm-mask {
         display: none;
         position: fixed;
-        inset: 60px 0 0 0;
+        inset: 0;
         z-index: 110;
         background: rgba(29, 33, 41, 0.45);
         opacity: 0;
@@ -1241,15 +1238,15 @@
           width: 240px;
         }
       }
-      /* 更窄屏：侧栏收起为抽屉（贴顶栏全高，方角），对话区独占 .page */
+      /* 更窄屏：侧栏收起为抽屉（贴视口全高，left:64px 给左侧图标栏让位，方角），对话区独占 .page */
       @media (max-width: 860px) {
         .cm-page {
           padding: 14px 14px 18px;
         }
         .cm-side {
           position: fixed;
-          left: 0;
-          top: 60px;
+          left: 64px;
+          top: 0;
           bottom: 0;
           z-index: 120;
           width: 272px;
@@ -1271,9 +1268,6 @@
         }
         .cm-toggle {
           display: inline-flex;
-        }
-        .topbar-nav {
-          display: none;
         }
         .cm-head {
           padding: 0 14px;
@@ -1302,7 +1296,7 @@
     </style>
   </head>
   <body>
-    <!-- 顶部导航由 Shade.topbar({active:'callme'}) 统一渲染（见 script） -->
+    <!-- 左侧图标导航栏由 Shade.topbar({active:'callme'}) 统一渲染（见 script） -->
 
     <!-- .page 容器：呼吸边距露出页面浅灰底，内部两张悬浮卡片（左会话列表 / 右对话区） -->
     <div class="page cm-page">
@@ -1395,7 +1389,7 @@
     <script src="/assets/md.js"></script>
     <script>
       Shade.requireAuth();
-      // 统一顶部导航（当前应用：Call Me）
+      // 统一左侧图标导航栏（当前应用：Call Me）
       Shade.topbar({ active: 'callme' });
 
       /* ============================================================
@@ -3106,7 +3100,7 @@
         document.body.classList.remove('side-open');
       });
 
-      // 渲染用户资料（顶栏 + 侧栏底部用户条；接口失败时回退本地缓存）
+      // 渲染用户资料（左侧导航栏 + 侧栏底部用户条；接口失败时回退本地缓存）
       function renderUser(u) {
         var name = u.nickname || u.username || '班组成员';
         var ch = name.charAt(0);
@@ -3119,7 +3113,7 @@
       }
       var cachedUser = Shade.user();
       if (cachedUser) renderUser(cachedUser);
-      /* 接口最新资料刷新（失败回退本地缓存；顶栏头像/昵称由 refreshUser 统一更新，回调渲染侧栏用户条） */
+      /* 接口最新资料刷新（失败回退本地缓存；左侧导航栏头像/昵称由 refreshUser 统一更新，回调渲染侧栏用户条） */
       Shade.refreshUser(function (u) {
         if (u) renderUser(u);
       });

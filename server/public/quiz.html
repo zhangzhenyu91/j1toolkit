@@ -25,9 +25,6 @@
       body {
         overflow: hidden;
       }
-      body > .topbar {
-        flex: none;
-      }
       /* theme.css 的 .page 带 margin:0 auto，flex 容器内显式 width:100% 恢复满宽（同 worklog 口径） */
       .page {
         flex: 1;
@@ -1281,7 +1278,7 @@
     </style>
   </head>
   <body>
-    <!-- 顶部导航由 Shade.topbar({active:'quiz'}) 统一渲染（见 script） -->
+    <!-- 左侧图标导航栏由 Shade.topbar({active:'quiz'}) 统一渲染（见 script） -->
 
     <main class="page">
       <!-- 页签：刷题练习 / 题库管理（文字 + 滑动指示条；题库管理仅管理角色可见，首次切入才加载管理数据） -->
@@ -1361,7 +1358,7 @@
       (function () {
         'use strict';
         Shade.requireAuth();
-        /* 统一顶部导航（当前应用：题库刷题） */
+        /* 统一左侧图标导航栏（当前应用：题库刷题） */
         Shade.topbar({ active: 'quiz' });
 
         /* ================= 工具 ================= */

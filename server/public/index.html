@@ -668,14 +668,11 @@
         .hstat + .hstat {
           border-left: none;
         }
-        .topbar-nav {
-          display: none;
-        }
       }
     </style>
   </head>
   <body>
-    <!-- 顶部导航由 Shade.topbar({active:'index'}) 统一渲染（见 script） -->
+    <!-- 左侧图标导航栏由 Shade.topbar({active:'index'}) 统一渲染（见 script） -->
 
     <main class="page">
       <!-- 欢迎卡（左侧问候与身份 / 右侧当日数据，指标口径与小程序首页一致；.hazard-top 类名保留的空壳 div，无任何样式） -->
@@ -773,10 +770,10 @@
     <script src="/assets/md.js"></script>
     <script>
       Shade.requireAuth();
-      // 统一顶部导航（工作台为当前页；管理入口按缓存角色显隐，接口资料回来后再校正）
+      // 统一左侧图标导航栏（工作台为当前页；管理入口按缓存角色显隐，接口资料回来后再校正）
       Shade.topbar({ active: 'index' });
 
-      // 应用落地页映射统一取自 Shade.APP_NAV（common.js 单一来源，与顶栏导航同源；网页版路由，与小程序分包无关）
+      // 应用落地页映射统一取自 Shade.APP_NAV（common.js 单一来源，与左侧导航栏同源；网页版路由，与小程序分包无关）
 
       // 应用描述与特性标签（接口无此字段，按设计稿 方案A② 的文案本地维护；新应用未登记时不渲染该行）
       var APP_META = {
@@ -1303,7 +1300,7 @@
 
       // 加载数据
       (async function () {
-        /* 用户资料刷新（接口失败回退本地缓存）：顶栏 #miniAvatar/#topName 由 refreshUser 统一更新，用户卡等页面元素进回调 */
+        /* 用户资料刷新（接口失败回退本地缓存）：左侧导航栏 #miniAvatar/#topName 由 refreshUser 统一更新，用户卡等页面元素进回调 */
         await Shade.refreshUser(function (u) {
           if (u) renderProfile(u);
         });

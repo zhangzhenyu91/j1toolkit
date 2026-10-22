@@ -54,9 +54,6 @@
         flex-direction: column;
         overflow: hidden;
       }
-      body > .topbar {
-        flex: none;
-      }
       /* theme.css 的 .page 带 margin:0 auto，body 为 flex 容器时 auto 外边距会使 stretch 失效、
      页面宽度退化为按内容收缩（空态/有记录态版心不一致的根源），此处显式 width:100% 恢复满宽 */
       .page {
@@ -2813,9 +2810,6 @@
           width: 100%;
           max-height: none;
         }
-        .topbar-nav {
-          display: none;
-        }
       }
 
       /* ===== 商旅打卡（出工日志扩展，见《开发指南》第十五章） ===== */
@@ -3247,7 +3241,7 @@
     </style>
   </head>
   <body>
-    <!-- 顶部导航由 Shade.topbar({active:'worklog'}) 统一渲染（见 script） -->
+    <!-- 左侧图标导航栏由 Shade.topbar({active:'worklog'}) 统一渲染（见 script） -->
 
     <main class="page">
       <div class="wl-wrap">
@@ -3516,7 +3510,7 @@
           location.replace('/teamdata.html');
           return;
         }
-        /* 统一顶部导航（当前应用：出工日志） */
+        /* 统一左侧图标导航栏（当前应用：出工日志） */
         Shade.topbar({ active: 'worklog' });
 
         /* ================= 工具 ================= */
@@ -9196,7 +9190,7 @@
           $('#repPrev').innerHTML = Shade.icon('chevron-left', 13);
           $('#repNext').innerHTML = Shade.icon('chevron-right', 13);
 
-          /* 顶栏用户：接口失败回退本地缓存 */
+          /* 左侧导航栏用户：接口失败回退本地缓存 */
           Shade.refreshUser();
 
           probeNetdisk(); // 网盘可用性探测：403 未开通 / 503 未配置 → 「存网盘」入口保持隐藏

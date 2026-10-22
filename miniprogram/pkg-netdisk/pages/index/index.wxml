@@ -259,7 +259,7 @@
   </view>
 </t-popup>
 
-<!-- 文件操作面板（屏②：底部弹层；公共区 manageable=false 时隐藏重命名/删除） -->
+<!-- 文件操作面板（屏②：底部弹层；重命名/删除按 manageable 显隐） -->
 <t-popup visible="{{sheet.open}}" placement="bottom" bind:visible-change="onSheetVisibleChange">
   <view class="sheet" wx:if="{{sheet.item}}">
     <view class="grab"></view>

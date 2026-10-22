@@ -2248,11 +2248,18 @@
       }
       // animate=true 时格子编排式上浮入场（stagger 每格 36ms、时延链封顶 400ms ≤0.9s）
       function cellHtml(it, idx, animate) {
-        var sub = S.search
+        // 元信息行：大小/更新日期（modified 缺省省略）；搜索态并上所在目录
+        var meta = it.is_dir
+          ? it.modified
+            ? Shade.fmtDate(it.modified) + ' 更新'
+            : ''
+          : fmtSize(it.size) + (it.modified ? ' · ' + Shade.fmtDate(it.modified) : '');
+        var subText = S.search ? (meta ? meta + ' · ' : '') + it._parentDisp : meta;
+        var sub = subText
           ? '<span class="g-sub" title="' +
-            esc(it._parentDisp) +
+            esc(subText) +
             '">' +
-            esc(it._parentDisp) +
+            esc(subText) +
             '</span>'
           : '';
         var cls = 'g-cell' + (sel.has(it._rel) ? ' sel' : '') + (animate ? ' cell-in' : '');

@@ -6,7 +6,7 @@
      链路：Shade.api('/api/v1/office/config') 取签发配置（含 JWT）→ 动态加载 OO_PUBLIC_URL 的 api.js →
        DocsAPI.DocEditor 渲染；OnlyOffice 容器回源/回调 Shade 容器内网直走（j1toolkit 网络按容器名互通）；
        保存经回调写回网盘（customization.forcesave 即时落盘，仅编辑模式）
-     外壳（v2 定稿 design/Web-在线编辑.html）：纯 OO 满铺——无 Shade 顶栏/副栏/备案条
+     外壳（v2 定稿 design/Web-在线编辑.html）：纯 OO 满铺——无 Shade 导航栏/备案条
        （body data-beian="off" 跳过 common.js 备案页脚注入）；返回 = OO 右上角「关闭文件」✕
        （customization.close + events.onRequestClose → query.back 指定来源页，仅放行 '/' 开头站内路径，
        缺省回 /netdisk.html），浏览器后退兜底；

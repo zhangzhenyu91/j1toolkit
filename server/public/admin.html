@@ -713,15 +713,10 @@
           max-height: none;
         }
       }
-      @media (max-width: 640px) {
-        .topbar-nav {
-          display: none;
-        }
-      }
     </style>
   </head>
   <body>
-    <!-- 顶部导航由 Shade.topbar({active:'admin'}) 统一渲染（见 script） -->
+    <!-- 左侧图标导航栏由 Shade.topbar({active:'admin'}) 统一渲染（见 script） -->
 
     <main class="page" id="mainWrap" style="display: none">
       <!-- 页签 -->
@@ -1109,7 +1104,7 @@
     <script>
       var $ = Shade.$; // DOM 选择助手（原按 id 取元素的 el() 收敛为 Shade.$，写作 $('#id')）
 
-      // 静态图标注入（顶栏 Logo / 退出按钮由 Shade.topbar 统一渲染）
+      // 静态图标注入（左侧图标栏 Logo / 退出按钮由 Shade.topbar 统一渲染）
       $('#npIcon').innerHTML = Shade.icon('lock-on', 30);
       $('#btnAdd').insertAdjacentHTML('afterbegin', Shade.icon('add', 14));
       $('#btnRefresh').insertAdjacentHTML('afterbegin', Shade.icon('refresh', 14));
@@ -1152,7 +1147,7 @@
       // ===== 初始化：校验管理员身份 =====
       async function initAdmin() {
         me = Shade.user() || {};
-        /* 顶栏用户资料刷新（接口失败回退本地缓存，回调拿到的即最新身份；顶栏头像/昵称由 refreshUser 统一更新） */
+        /* 左侧导航栏用户资料刷新（接口失败回退本地缓存，回调拿到的即最新身份；左侧导航栏头像/昵称由 refreshUser 统一更新） */
         await Shade.refreshUser(function (u) {
           if (u) me = u;
         });
@@ -2079,7 +2074,7 @@
         }
       });
 
-      // ===== 登录门控：未登录跳登录页；已登录渲染统一顶栏并校验管理员身份初始化 =====
+      // ===== 登录门控：未登录跳登录页；已登录渲染统一左侧导航栏并校验管理员身份初始化 =====
       if (Shade.requireAuth()) {
         Shade.topbar({ active: 'admin' });
         initAdmin();

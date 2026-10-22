@@ -8,7 +8,7 @@
 //   进度以会话快照 received_bytes 为准（本地累计作下限）；0 字节文件 init 返回 instant 直接建成
 // 预览：图片/视频 wx.previewMedia（inline 直链 + ?token= 鉴权，同目录媒体合集滑动；openDocument 不支持媒体）；
 //   其余类型一律 wx.downloadFile（filePath 指定真名）→ wx.openDocument 打开（2026-10-09 起统一）
-// 权限：公共区 manageable=false 时操作面板隐藏重命名/删除（上传/新建文件夹全员可用）
+// 权限：重命名/删除按 manageable 显隐（/list 下发；公共区已放开为本班全员可整理，恒 true）
 // 位置记忆：成功加载目录即存 {space,path}（storage nd_last_loc），下次进页恢复
 //   （空间不再下发回默认空间、失效路径首载兜底回根目录）；Web 端 netdisk.html 同键同口径
 import Toast from 'tdesign-miniprogram/toast/index';
@@ -67,7 +67,7 @@ Page({
     crumbs: [], // 面包屑 [{name, path, last}]
     items: [], // 文件行（mapRow 后结构；文件夹在前）
     uploads: [], // 内联上传行 [{id,name,sizeText,sentText,pct,merging}]
-    manageable: true, // 当前空间可整理（重命名/删除入口；公共区按班管/超管）
+    manageable: true, // 当前空间可整理（重命名/删除入口；以 /list 下发为准）
     loading: true,
     error: '', // 首屏加载失败文案（已有内容时失败仅 toast）
     menuOpen: false, // ⋯ 菜单（分享管理 / 新建文件夹）
@@ -428,7 +428,7 @@ Page({
         const items = ((data && data.items) || []).map((o) => {
           const fullPath = joinPath(o.parent || '/', o.name);
           const row = this.mapRow(o, fullPath, token, true);
-          row.sub = `${row.sizeText} · 所在目录：${o.parent || '/'}`;
+          row.sub = `${row.sizeText} · ${fmtDay(o.modified)} · 所在目录：${o.parent || '/'}`;
           return row;
         });
         this.setData({

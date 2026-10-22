@@ -1,6 +1,6 @@
 // 团队网盘：OpenList 中转层（双端自定义前端 → 本模块 → 回环/内网的 OpenList，OpenList 不对公网暴露）
 // 空间口径：my 个人空间 = {personalRoot}/{username}；public 公共区 = {publicRoot}（见 config.netdisk）
-// 权限口径：公共区上传/新建文件夹全员可用，重命名/删除仅班管（team_admin）、超管（admin）；
+// 权限口径：公共区全员可整理（上传/新建/重命名/删除/移动；公共区按班组隔离，能看到公共区即本班成员）；
 //           分享：创建不限，停用/删除需本人或班管/超管，查看全部仅班管/超管
 // 分享免登录访问：/public/* 挂在 auth 门控之前；提取码校验走 nd_share 表，验证通过发 2h 访问票据（JWT）
 const express = require('express');
@@ -32,6 +32,7 @@ router.use(tokenQuery);
 
 // ================= 基础工具 =================
 
+// 分享管理专用判定（查看全部分享 / 停用删除他人分享）；公共区文件整理已对本班全员放开，不再用此函数
 const canManagePublic = (user) => user.role === 'admin' || user.role === 'team_admin';
 
 const { teamNameOf, spaceRootOf, normRel } = require('./space');
@@ -316,13 +317,13 @@ async function pipeDownload(res, abs, name, disposition) {
   return r.data.pipe(res);
 }
 
-// 空间列表（个人空间恒有；公共区按班组隔离，未分配班组不下发；manageable 仅控制公共区重命名/删除入口）
+// 空间列表（个人空间恒有；公共区按班组隔离，未分配班组不下发；manageable 控制重命名/删除入口，公共区本班全员可整理恒 true）
 router.get('/spaces', async (req, res) => {
   try {
     const spaces = [{ key: 'my', name: '我的空间', manageable: true }];
     const team = await teamNameOf(req.user);
     if (team) {
-      spaces.push({ key: 'public', name: '公共区', team, manageable: canManagePublic(req.user) });
+      spaces.push({ key: 'public', name: '公共区', team, manageable: true });
     }
     return ok(res, { max_upload_mb: config.netdisk.maxUploadMb, spaces });
   } catch (err) {
@@ -343,7 +344,7 @@ router.post('/list', async (req, res) => {
     return ok(res, {
       space: req.body.space,
       path: rel,
-      manageable: req.body.space === 'my' || canManagePublic(req.user),
+      manageable: true,
       items: (data.content || []).map(mapItem),
     });
   } catch (err) {
@@ -393,15 +394,12 @@ router.post('/mkdir', async (req, res) => {
   }
 });
 
-// 重命名（公共区仅班管/超管）
+// 重命名（公共区本班全员可整理）
 router.post('/rename', async (req, res) => {
   try {
     ol.ensureConfigured();
     const root = await resolveRoot(req, res, req.body && req.body.space);
     if (!root) return;
-    if (req.body.space === 'public' && !canManagePublic(req.user)) {
-      return fail(res, 403, 40304, '公共区仅班管/超管可整理');
-    }
     const rel = normRel(req.body && req.body.path);
     const name = validName(req.body && req.body.name);
     if (rel === null || rel === '/' || !name) return fail(res, 400, 40001, '参数错误：path/name');
@@ -412,15 +410,12 @@ router.post('/rename', async (req, res) => {
   }
 });
 
-// 批量删除（公共区仅班管/超管；按目录分组逐批调上游）
+// 批量删除（公共区本班全员可整理；按目录分组逐批调上游）
 router.post('/remove', async (req, res) => {
   try {
     ol.ensureConfigured();
     const root = await resolveRoot(req, res, req.body && req.body.space);
     if (!root) return;
-    if (req.body.space === 'public' && !canManagePublic(req.user)) {
-      return fail(res, 403, 40304, '公共区仅班管/超管可整理');
-    }
     const paths = (req.body && req.body.paths) || [];
     if (!Array.isArray(paths) || !paths.length || paths.length > 100) {
       return fail(res, 400, 40001, '参数错误：paths（1-100 条）');
@@ -442,7 +437,7 @@ router.post('/remove', async (req, res) => {
   }
 });
 
-// 移动 / 复制（跨空间允许：目的侧按上传口径全员可写；移动会移除源位置，源在公共区时仅班管/超管）
+// 移动 / 复制（跨空间允许：全员可写；移动会移除源位置，公共区本班全员可整理）
 async function moveCopy(req, res, op) {
   try {
     ol.ensureConfigured();
@@ -451,9 +446,6 @@ async function moveCopy(req, res, op) {
     if (!srcRoot) return;
     const dstRoot = await resolveRoot(req, res, body.dst_space);
     if (!dstRoot) return;
-    if (op === 'move' && body.src_space === 'public' && !canManagePublic(req.user)) {
-      return fail(res, 403, 40304, '公共区仅班管/超管可整理');
-    }
     const srcDir = normRel(body.src_dir);
     const dstDir = normRel(body.dst_dir);
     if (srcDir === null || dstDir === null) return fail(res, 400, 40001, '路径不合法');

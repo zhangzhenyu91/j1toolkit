@@ -21,16 +21,17 @@
    Shade.withTeam(path, teamId) → 班组隔离 query 助手：teamId 非空时为 path 追加 team_id
      （query 优先于 body，后端 resolveReqTeam 同口径）
    Shade.icon(name, size, color) → inline SVG 字符串（见 assets/icons.js）
-   Shade.topbar(opts)         → 统一渲染顶部导航（插入 body 开头；需 icons.js 先加载）
+   Shade.topbar(opts)         → 统一渲染左侧图标导航栏（插入 body 开头并给 body 加 has-rail 类让位；
+     需 icons.js 先加载）
      opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin' | 'client' | 'netdisk'（当前页，渲染为无链接激活态）
-     结构：左侧 Logo（点击回 /index.html）+ 常驻导航（工作台 + /api/v1/app/list 按权限下发的应用，
-           顺序同工作台宫格、无权限不显示，缓存 shade_apps 先渲染后校正，当前页高亮）；
-           右侧「管理」链接（仅 role==='admin' 可见）
-           + 分隔线 + 头像字 + 昵称（取 Shade.user() 缓存）+ 退出按钮
-     渲染后页面可用 Shade.refreshUser 刷新 #miniAvatar / #topName（id 与各页既有逻辑兼容）
+     结构：64px 固定左栏——顶部 Logo（点击回 /index.html）+ 常驻导航图标（工作台 + /api/v1/app/list
+           按权限下发的应用，顺序同工作台宫格、无权限不显示，缓存 shade_apps 先渲染后校正，当前页浅蓝底高亮）；
+           底部「管理」图标（仅 role==='admin' 可见）+ 头像字 + 退出按钮；
+           悬停经 data-tip 自绘气泡显示名称（.rail-tip，栏上事件委托）
+     渲染后页面可用 Shade.refreshUser 刷新 #miniAvatar / #topName / #railUser 的 data-tip（id 与各页既有逻辑兼容）
    Shade.refreshUser(onUser)  → Promise：GET /api/v1/user/profile 成功更新 #miniAvatar/#topName
      （元素存在才更新）并回调 onUser(data)；接口失败回退本地缓存 Shade.user() 同样更新并回调
-     （无缓存时回调 null，顶栏保持 topbar() 渲染的缓存/默认文案）；页面额外刷新逻辑放回调
+     （无缓存时回调 null，导航栏保持 topbar() 渲染的缓存/默认文案）；页面额外刷新逻辑放回调
    Shade.toast(msg, type)     → 顶部轻提示，type: 'info' | 'success' | 'error'
    Shade.dropdown(select, opts) → 把原生 <select> 换为自绘下拉（按钮触发器 + 弹出列表，样式 theme.css .dd）；
      原 select 隐藏保留为数据源：选中回写 value 并派发 change 事件；脚本改选项/value/disabled 后调返回实例的 sync()；
@@ -49,7 +50,7 @@
    Shade.renderNoTeam(el)     → 「未分配班组」整页空态提示卡：填充 el（占位容器，初始 hidden）并显示；
      页面其余区块的隐藏由页面自行处理
    Shade.roleText(role)       → 角色文案：admin→管理员 / team_admin→班组管理员 / 其他→普通用户
-   Shade.APP_NAV              → 应用 → 网页版落地页映射（app_key 与 sys_app 种子一致）：顶栏导航与工作台
+   Shade.APP_NAV              → 应用 → 网页版落地页映射（app_key 与 sys_app 种子一致）：左侧导航与工作台
      宫格落地页共用的单一来源；无网页版的应用不收录
    Shade.setupTeamSel(opts)   → Promise<{getTeamId}|undefined>：超管班组切换器统一装配
      （role!=='admin' 直接返回 undefined）。opts: { select, dropdown, storageKey, allowAll, showEl, onChange }——
@@ -71,7 +72,7 @@
 (function () {
   const TOKEN_KEY = 'shade_token';
   const USER_KEY = 'shade_user';
-  const APPS_KEY = 'shade_apps'; // 顶栏导航用应用清单缓存（/api/v1/app/list 按权限下发，顺序同工作台宫格）
+  const APPS_KEY = 'shade_apps'; // 导航栏应用清单缓存（/api/v1/app/list 按权限下发，顺序同工作台宫格）
 
   function clearAuth() {
     localStorage.removeItem(TOKEN_KEY);
@@ -240,14 +241,14 @@
   if (document.body) beianFooter();
   else document.addEventListener('DOMContentLoaded', beianFooter);
 
-  // 写入登录态（换号登录时清掉顶栏应用清单缓存，避免串用户残留；接口回来后会重建）
+  // 写入登录态（换号登录时清掉导航栏应用清单缓存，避免串用户残留；接口回来后会重建）
   function setAuth(token, userObj) {
     localStorage.removeItem(APPS_KEY);
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(USER_KEY, JSON.stringify(userObj || {}));
   }
 
-  // 退出登录：通知后端注销 token（失败不阻塞本地清理）；仅供顶栏退出按钮内部调用，不导出
+  // 退出登录：通知后端注销 token（失败不阻塞本地清理）；仅供导航栏退出按钮内部调用，不导出
   async function logout() {
     try {
       await api('/api/v1/auth/logout', { method: 'POST' });
@@ -268,11 +269,12 @@
     return true;
   }
 
-  // 统一顶部导航：左侧 Logo + 常驻导航（工作台 + 按权限下发的应用，顺序同工作台宫格——同取 /api/v1/app/list，
-  // 无权限的应用不下发即不显示；本地缓存 shade_apps 先行渲染避免闪烁，接口回来后校正）；
-  // 右侧「管理」（仅 admin 可见）+ 用户区 + 退出
+  // 统一左侧图标导航栏：64px 固定左栏（body 加 has-rail 让位），顶部 Logo + 常驻导航图标（工作台 + 按权限
+  // 下发的应用，顺序同工作台宫格——同取 /api/v1/app/list，无权限的应用不下发即不显示；本地缓存 shade_apps
+  // 先行渲染避免闪烁，接口回来后校正）；底部「管理」（仅 admin 可见）+ 用户头像 + 退出；
+  // 图标悬停经 data-tip 自绘气泡显示名称
   var APP_NAV = {
-    // 应用 → 网页版落地页（app_key 与 sys_app 种子一致；顶栏导航与工作台宫格落地页共用此单一来源，无网页版的应用不收录）
+    // 应用 → 网页版落地页（app_key 与 sys_app 种子一致；左侧导航与工作台宫格落地页共用此单一来源，无网页版的应用不收录）
     'call-me': { key: 'callme', href: '/callme.html' },
     quiz: { key: 'quiz', href: '/quiz.html' },
     'work-log': { key: 'worklog', href: '/worklog.html' },
@@ -291,17 +293,20 @@
     }
   }
   function renderLeftNav(active) {
-    var items = [{ key: 'index', name: '工作台', href: '/index.html' }];
+    var icon = window.Shade.icon;
+    var items = [{ key: 'index', name: '工作台', href: '/index.html', icon: 'app' }];
     (cachedApps() || []).forEach(function (a) {
       var nav = APP_NAV[a.app_key];
       if (nav && a.terminal !== 'mobile')
-        items.push({ key: nav.key, name: a.name, href: nav.href });
+        items.push({ key: nav.key, name: a.name, href: nav.href, icon: a.icon || 'app' });
     });
     return items
       .map(function (it) {
+        var inner = icon(it.icon, 22);
+        var tip = '" data-tip="' + esc(it.name) + '" aria-label="' + esc(it.name) + '">';
         return it.key === active
-          ? '<span class="topbar-item on">' + esc(it.name) + '</span>'
-          : '<a class="topbar-item" href="' + it.href + '">' + esc(it.name) + '</a>';
+          ? '<span class="rail-item on' + tip + inner + '</span>'
+          : '<a class="rail-item" href="' + it.href + tip + inner + '</a>';
       })
       .join('');
   }
@@ -313,57 +318,98 @@
     var isAdmin = u.role === 'admin';
     var icon = window.Shade.icon;
 
-    // 左侧常驻导航：当前页渲染为纯文本激活态（无链接），其余为可点链接
+    // 常驻导航：当前页渲染为纯图标激活态（无链接），其余为可点链接；悬停 data-tip 气泡显名称
     var leftNav = renderLeftNav(active);
 
-    // 右侧「管理」：仅 admin 可见；管理页时渲染为激活态
-    var adminInner = icon('setting', 14) + '管理';
+    // 底部「管理」：仅 admin 可见；管理页时渲染为激活态
+    var adminTip = '" data-tip="管理" aria-label="管理"';
     var adminNav =
       active === 'admin'
-        ? '<span class="topbar-item on" id="navAdmin"' +
+        ? '<span class="rail-item on" id="navAdmin' +
+          adminTip +
           (isAdmin ? '' : ' hidden') +
           '>' +
-          adminInner +
+          icon('setting', 22) +
           '</span>'
-        : '<a class="topbar-item" id="navAdmin" href="/admin.html"' +
+        : '<a class="rail-item" id="navAdmin' +
+          adminTip +
+          ' href="/admin.html"' +
           (isAdmin ? '' : ' hidden') +
           '>' +
-          adminInner +
+          icon('setting', 22) +
           '</a>';
 
     document.body.insertAdjacentHTML(
       'afterbegin',
-      '<header class="topbar"><div class="topbar-in">' +
-        '<a class="topbar-logo" href="/index.html">' +
+      '<aside class="rail">' +
+        '<a class="rail-logo" href="/index.html" data-tip="Shade 壹匣" aria-label="Shade 壹匣">' +
         '<span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣"></span>' +
-        '<b>Shade <i>壹匣</i></b>' +
         '</a>' +
-        '<nav class="topbar-nav" id="topNavApps">' +
+        '<span class="rail-sep"></span>' +
+        '<nav class="rail-nav" id="topNavApps">' +
         leftNav +
         '</nav>' +
-        '<div class="topbar-right">' +
-        '<nav class="topbar-nav">' +
+        '<div class="rail-bottom">' +
+        '<span class="rail-sep"></span>' +
         adminNav +
-        '</nav>' +
-        '<div class="topbar-user">' +
+        '<span class="rail-item rail-user" id="railUser" data-tip="' +
+        esc(name) +
+        '" aria-label="' +
+        esc(name) +
+        '">' +
         '<span class="mini-avatar" id="miniAvatar">' +
         esc(name.charAt(0)) +
         '</span>' +
-        '<span class="nm" id="topName">' +
+        '<span class="nm" id="topName" hidden>' +
         esc(name) +
         '</span>' +
+        '</span>' +
+        '<button class="rail-item" id="btnLogout" data-tip="退出登录" aria-label="退出登录">' +
+        icon('logout', 22) +
+        '</button>' +
         '</div>' +
-        '<button class="btn btn-sm" id="btnLogout">' +
-        icon('logout', 15) +
-        '退出</button>' +
-        '</div>' +
-        '</div></header>'
+        '</aside>'
     );
+    document.body.classList.add('has-rail');
     document.getElementById('btnLogout').addEventListener('click', function () {
       logout();
     });
 
-    // 拉取最新应用清单校正左侧导航（权限 / 排序变化即时生效；失败保留缓存渲染）
+    // 悬停气泡：单实例 + 栏上事件委托（导航区 innerHTML 校正不受影响），fixed 贴栏右缘、纵向对齐图标中心
+    var railEl = document.querySelector('.rail');
+    var tipEl = document.createElement('div');
+    tipEl.className = 'rail-tip';
+    tipEl.hidden = true;
+    document.body.appendChild(tipEl);
+    function tipShow(t) {
+      var text = t.getAttribute('data-tip');
+      if (!text) return;
+      var r = t.getBoundingClientRect();
+      tipEl.textContent = text;
+      tipEl.style.top = Math.round(r.top + r.height / 2) + 'px';
+      tipEl.hidden = false;
+    }
+    function tipTarget(e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+      return t && railEl.contains(t) ? t : null;
+    }
+    railEl.addEventListener('mouseover', function (e) {
+      var t = tipTarget(e);
+      if (t) tipShow(t);
+    });
+    railEl.addEventListener('mouseout', function (e) {
+      var t = tipTarget(e);
+      if (t && !(e.relatedTarget && t.contains(e.relatedTarget))) tipEl.hidden = true;
+    });
+    railEl.addEventListener('focusin', function (e) {
+      var t = tipTarget(e);
+      if (t) tipShow(t);
+    });
+    railEl.addEventListener('focusout', function () {
+      tipEl.hidden = true;
+    });
+
+    // 拉取最新应用清单校正常驻导航（权限 / 排序变化即时生效；失败保留缓存渲染）
     api('/api/v1/app/list')
       .then(function (r) {
         var list = (r.data && r.data.list) || [];
@@ -376,15 +422,20 @@
       });
   }
 
-  // 顶栏用户资料刷新：成功更新 #miniAvatar/#topName 并回调 onUser(data)；失败回退本地缓存同样更新并回调
+  // 导航栏用户资料刷新：成功更新 #miniAvatar/#topName/#railUser 的 data-tip 并回调 onUser(data)；失败回退本地缓存同样更新并回调
   function refreshUser(onUser) {
     function paint(u) {
       if (!u) return;
       var name = u.nickname || u.username || '班组成员';
       var av = document.getElementById('miniAvatar');
       var nm = document.getElementById('topName');
+      var ru = document.getElementById('railUser');
       if (av) av.textContent = name.charAt(0);
       if (nm) nm.textContent = name;
+      if (ru) {
+        ru.setAttribute('data-tip', name);
+        ru.setAttribute('aria-label', name);
+      }
     }
     return api('/api/v1/user/profile')
       .then(function (r) {

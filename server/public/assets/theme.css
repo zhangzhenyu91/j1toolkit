@@ -65,7 +65,8 @@ body {
   background: var(--paper);
   min-height: 100vh;
   /* flex 纵列：主内容 flex:1 把备案页脚（.beian-foot，common.js 统一注入）压到视口底部；
-     worklog/callme 为 100vh 锁定布局，页脚作为 body 末尾 flex item 自然占位列内 */
+     worklog/callme 为 100vh 锁定布局，页脚作为 body 末尾 flex item 自然占位列内；
+     左侧图标导航栏 .rail 为 fixed 定位不占文档流，由 body.has-rail 的 padding-left 让位（见下） */
   display: flex;
   flex-direction: column;
   -webkit-font-smoothing: antialiased;
@@ -90,28 +91,33 @@ svg {
   padding: 28px 40px 48px;
 }
 
-/* ===== 顶部导航（全宽贴边，内部左右 40px；白底 + 底部 1px 发丝线） ===== */
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  height: 60px;
-  background: #fff;
-  border-bottom: 1px solid var(--line);
+/* ===== 左侧图标导航栏（64px fixed 全高，白底 + 右侧 1px 发丝线；不占文档流，body.has-rail 以 padding-left 让位） ===== */
+body.has-rail {
+  padding-left: 64px;
 }
-.topbar-in {
-  height: 100%;
-  margin: 0 auto;
-  padding: 0 40px;
+.rail {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 50;
+  width: 64px;
+  background: #fff;
+  border-right: 1px solid var(--line);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  padding: 12px 0;
+  gap: 4px;
 }
 /* Logo 为 <a>（点击回工作台），颜色继承父级避免全局 a 蓝色覆盖 */
-.topbar-logo {
+.rail-logo {
+  width: 40px;
+  height: 40px;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
   color: inherit;
 }
 /* 品牌 Logo 统一用 工具箱.svg（/favicon.svg） */
@@ -128,83 +134,71 @@ svg {
   height: 100%;
   display: block;
 }
-.topbar-logo b {
-  font-size: 15.5px;
-  letter-spacing: 1px;
+.rail-sep {
+  width: 24px;
+  height: 1px;
+  flex: none;
+  background: var(--line);
+  margin: 6px 0;
 }
-.topbar-logo b i {
-  font-style: normal;
-  color: var(--orange);
-}
-/* 左侧 Logo 旁为当前应用名；右侧用户区前为「工作台 / 管理」导航（与 Logo 间距仅左侧需要） */
-.topbar-nav {
+.rail-nav {
+  flex: 1;
+  width: 100%;
   display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 4px;
-  margin-left: 32px;
-  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
-.topbar-right .topbar-nav {
-  margin-left: 0;
+.rail-nav::-webkit-scrollbar {
+  display: none;
 }
-.topbar-item {
-  position: relative;
+.rail-item {
+  width: 40px;
+  height: 40px;
+  flex: none;
   display: flex;
   align-items: center;
-  font-size: 13.5px;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: none;
   color: var(--sub);
-  padding: 8px 15px;
-  border-radius: 6px;
-  letter-spacing: 1px;
   cursor: pointer;
   transition:
     color 0.2s var(--ease),
     background 0.2s var(--ease);
 }
-.topbar-item:hover {
+.rail-item:hover {
   color: var(--navy);
   background: var(--fill);
 }
-/* 激活项：蓝字 + 底部 2px 蓝条 */
-.topbar-item.on {
+/* 激活项：浅蓝底 + 品牌蓝图标（分段激活底 token 同口径） */
+.rail-item.on {
   color: var(--orange);
-  font-weight: 600;
+  background: var(--orange-soft);
 }
-.topbar-item.on::after {
-  content: '';
-  position: absolute;
-  left: 15px;
-  right: 15px;
-  bottom: 0;
-  height: 2px;
-  background: var(--orange);
-  border-radius: 2px;
-}
-/* 「管理」导航项（统一 topbar 渲染，带内联图标；hidden 时彻底隐藏） */
-#navAdmin {
-  display: inline-flex;
+.rail-bottom {
+  margin-top: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
+/* 「管理」导航项（hidden 时彻底隐藏） */
 #navAdmin[hidden] {
   display: none;
 }
-#navAdmin svg {
-  width: 14px;
-  height: 14px;
+/* 用户项仅作头像载体与气泡锚点，不做 hover 反馈 */
+.rail-user {
+  cursor: default;
 }
-.topbar-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  align-self: stretch;
-}
-.topbar-user {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding-left: 16px;
-  border-left: 1px solid var(--line);
+.rail-user:hover {
+  background: none;
+  color: var(--sub);
 }
 .mini-avatar {
   width: 34px;
@@ -218,18 +212,27 @@ svg {
   font-size: 13px;
   font-weight: 600;
 }
-.topbar-user .nm {
-  font-size: 13px;
-  font-weight: 600;
+/* 悬停气泡：fixed 贴栏右缘，top 由 JS 写入对齐图标中心，translateY(-50%) 垂直居中 */
+.rail-tip {
+  position: fixed;
+  left: 72px;
+  z-index: 60;
+  transform: translateY(-50%);
+  background: var(--navy);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  padding: 7px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-hover);
+  pointer-events: none;
 }
 
 /* 窄屏回退：全宽边距收紧 */
 @media (max-width: 640px) {
   .page {
     padding: 20px 16px 36px;
-  }
-  .topbar-in {
-    padding: 0 16px;
   }
 }
 

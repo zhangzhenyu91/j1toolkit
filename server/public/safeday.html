@@ -688,15 +688,10 @@
           min-width: 640px;
         }
       }
-      @media (max-width: 640px) {
-        .topbar-nav {
-          display: none;
-        }
-      }
     </style>
   </head>
   <body>
-    <!-- 顶部导航由 Shade.topbar({active:'safeday'}) 统一渲染（见 script） -->
+    <!-- 左侧图标导航栏由 Shade.topbar({active:'safeday'}) 统一渲染（见 script） -->
 
     <main class="page">
       <div class="section-title">
@@ -887,7 +882,7 @@
     <script src="/assets/ndpick.js"></script>
     <script>
       Shade.requireAuth();
-      // 统一顶部导航（当前应用：安全日活动记录）
+      // 统一左侧图标导航栏（当前应用：安全日活动记录）
       Shade.topbar({ active: 'safeday' });
 
       /* ===== 常量与页面状态 ===== */

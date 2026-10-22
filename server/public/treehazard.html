@@ -37,9 +37,6 @@
         flex-direction: column;
         overflow: hidden;
       }
-      body > .topbar {
-        flex: none;
-      }
       /* theme.css 的 .page 带 margin:0 auto，flex 容器内显式 width:100% 恢复满宽（同 worklog 口径） */
       .page {
         flex: 1;
@@ -1500,7 +1497,7 @@
       (function () {
         'use strict';
         Shade.requireAuth();
-        /* 统一顶部导航（当前应用：树障隐患记录） */
+        /* 统一左侧图标导航栏（当前应用：树障隐患记录） */
         Shade.topbar({ active: 'treehazard' });
 
         /* ================= 工具 ================= */
@@ -3383,7 +3380,7 @@
           });
           Shade.moveTabInd($('#thTabs button.on'), $('#thTabInd'), true); // 页签指示条首帧落位
 
-          /* 顶栏用户：接口失败回退本地缓存 */
+          /* 左侧导航栏用户：接口失败回退本地缓存 */
           Shade.refreshUser();
 
           me = Shade.user() || {};
