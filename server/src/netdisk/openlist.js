@@ -113,9 +113,10 @@ async function downloadStream(absPath) {
 }
 
 // ---- fs 基础操作 ----
-const fsList = (path) =>
+// refresh=true 强制 OpenList 驱动回源（绕过目录缓存），仅用户显式刷新时透传，防 115 等驱动频繁回源限流
+const fsList = (path, refresh) =>
   call('post', '/api/fs/list', {
-    data: { path, password: '', page: 1, per_page: 0, refresh: false },
+    data: { path, password: '', page: 1, per_page: 0, refresh: !!refresh },
   });
 const fsGet = (path) => call('post', '/api/fs/get', { data: { path, password: '' } });
 const fsSearch = (parent, keywords, page, perPage) =>

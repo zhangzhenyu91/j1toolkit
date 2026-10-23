@@ -163,11 +163,12 @@ Page({
   },
 
   onPullDownRefresh() {
-    this.loadList('quiet').finally(() => wx.stopPullDownRefresh());
+    // 下拉=用户显式刷新：透传 OpenList 强制回源（refresh=true）
+    this.loadList('quiet', true).finally(() => wx.stopPullDownRefresh());
   },
 
   onRetry() {
-    this.loadList('init');
+    this.loadList('init', true);
   },
 
   toast(message) {
@@ -280,13 +281,14 @@ Page({
   },
 
   // 加载模式：init 首屏/重试（骨架屏）；quiet 下拉/进场/操作后静默（保留旧列表）
-  async loadList(mode) {
+  // refresh=true 强制 OpenList 回源（仅用户显式刷新：下拉/错误重试；onShow 静默刷新不传防驱动限流）
+  async loadList(mode, refresh) {
     if (mode === 'init') this.setData({ loading: true, error: '' });
     try {
       const data = await request({
         url: `${API}/list`,
         method: 'POST',
-        data: { space: this.data.space, path: this.data.path },
+        data: { space: this.data.space, path: this.data.path, refresh: !!refresh },
       });
       this._loaded = true;
       this.setData({

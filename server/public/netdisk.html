@@ -317,6 +317,13 @@
       .crumb a:hover {
         filter: brightness(0.85);
       }
+      /* 面包屑拖拽落点高亮（内拖移动至此目录） */
+      .crumb a.drop-hover {
+        background: rgba(14, 61, 168, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(14, 61, 168, 0.45);
+        border-radius: 4px;
+        filter: none;
+      }
       .crumb em {
         font-style: normal;
         color: var(--ph);
@@ -407,6 +414,7 @@
       .gridwrap {
         position: relative;
         margin-top: 8px;
+        -webkit-user-select: none;
         user-select: none;
         flex: 1;
         min-height: 0;
@@ -431,6 +439,12 @@
         outline: 2px dashed var(--orange);
         outline-offset: -2px;
         border-radius: var(--radius);
+      }
+      /* 框选/拖拽手势期间：全页禁文字选中（手势结束移除，含 Safari 需 -webkit- 前缀） */
+      body.nd-gesture,
+      body.nd-gesture * {
+        -webkit-user-select: none !important;
+        user-select: none !important;
       }
       .grid {
         display: grid;
@@ -1180,6 +1194,82 @@
         height: 14px;
         accent-color: var(--orange);
         cursor: pointer;
+      }
+
+      /* ===== 批量重命名弹窗（macOS 风格三模式；预览列表红标非法项、灰显不变项） ===== */
+      .br-form {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      .br-form .input {
+        flex: 1;
+        min-width: 120px;
+      }
+      .br-form .br-num {
+        flex: 0 0 84px;
+        min-width: 0;
+      }
+      .br-form .br-label {
+        flex: none;
+        font-size: 12.5px;
+        color: var(--sub);
+      }
+      .br-list {
+        margin-top: 12px;
+        max-height: 260px;
+        overflow-y: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .br-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        font-size: 12.5px;
+        border-top: 1px solid var(--line);
+      }
+      .br-row:first-child {
+        border-top: none;
+      }
+      .br-row .o,
+      .br-row .n {
+        min-width: 0;
+        word-break: break-all;
+      }
+      .br-row .o {
+        color: var(--sub);
+      }
+      .br-row .a {
+        flex: none;
+        color: var(--ph);
+      }
+      .br-row .n {
+        font-weight: 600;
+      }
+      .br-row.same .n {
+        color: var(--ph);
+        font-weight: 400;
+      }
+      .br-row.bad .n {
+        color: var(--red);
+      }
+      .br-row .why {
+        flex: none;
+        margin-left: auto;
+        font-size: 11.5px;
+        color: var(--red);
+      }
+      .br-hint {
+        margin-right: auto;
+        font-size: 12px;
+        color: var(--sub);
+      }
+      .br-hint.err {
+        color: var(--red);
       }
 
       /* ===== 压缩包预览弹窗（内层面包屑 + 文件行列表 + 加密密码行） ===== */
@@ -2019,11 +2109,11 @@
         var sp = S.spaces[k] || { name: '' };
         return k === 'public' && sp.team ? sp.name + ' · ' + sp.team : sp.name;
       }
-      function loadList(silent) {
+      function loadList(silent, forceRefresh) {
         sel.clear();
         anchorIdx = -1;
         setGridState('loading', null, silent);
-        return ndPost('/list', { space: S.space, path: S.path })
+        return ndPost('/list', { space: S.space, path: S.path, refresh: !!forceRefresh })
           .then(function (d) {
             S.manageable = !!d.manageable;
             S.items = sortItems(d.items || []).map(function (it) {
@@ -2091,9 +2181,10 @@
         searchInput.value = '';
         loadList();
       }
-      function reloadCurrent() {
+      // forceRefresh：用户显式刷新（右键刷新/错误重试）时透传 OpenList 强制回源；搜索态仅重跑搜索（走索引，无目录缓存）
+      function reloadCurrent(forceRefresh) {
         if (S.search) doSearch(S.search.kw);
-        else loadList();
+        else loadList(false, forceRefresh);
       }
 
       /* ================= 渲染 ================= */
@@ -2264,11 +2355,14 @@
           : '';
         var cls = 'g-cell' + (sel.has(it._rel) ? ' sel' : '') + (animate ? ' cell-in' : '');
         var style = animate ? ' style="animation-delay:' + Math.min(idx * 36, 400) + 'ms"' : '';
+        // 可管理空间格子可拖拽（拖动到文件夹格/面包屑=移动；dragstart 内再按选中态兜底拦截）
+        var drag = S.manageable ? ' draggable="true"' : '';
         return (
           '<div class="' +
           cls +
           '"' +
           style +
+          drag +
           ' data-idx="' +
           idx +
           '" data-rel="' +
@@ -2352,11 +2446,21 @@
         rubberBase = null,
         rubberMoved = false,
         rubberLast = null;
+      // 手势期间（框选/拖拽移动）全页禁文字选中：body.nd-gesture + selectstart 拦截双保险，结束务必成对解除
+      function preventSelect(e) {
+        e.preventDefault();
+      }
+      function gestureLock(on) {
+        document.body.classList.toggle('nd-gesture', on);
+        if (on) document.addEventListener('selectstart', preventSelect, true);
+        else document.removeEventListener('selectstart', preventSelect, true);
+      }
       function startRubber(e) {
         rubberStart = contentPos(e.clientX, e.clientY);
         rubberLast = { x: e.clientX, y: e.clientY };
         rubberBase = e.ctrlKey || e.metaKey ? new Set(sel) : new Set();
         rubberMoved = false;
+        gestureLock(true);
         var onMove = function (ev) {
           rubberLast = { x: ev.clientX, y: ev.clientY };
           moveRubber();
@@ -2411,6 +2515,7 @@
         setSel(hit);
       }
       function endRubber() {
+        gestureLock(false);
         if (rubberEl) {
           var el = rubberEl;
           rubberEl = null;
@@ -2588,6 +2693,14 @@
               openRename(single);
             },
           });
+          entries.push({
+            icon: 'edit',
+            label: '批量重命名（' + items.length + ' 项）…',
+            disabled: items.length < 2,
+            onClick: function () {
+              openBatchRename(items);
+            },
+          });
           entries.push('-');
           entries.push({
             icon: 'delete',
@@ -2614,7 +2727,14 @@
             });
           entries.push('-');
         }
-        entries.push({ icon: 'refresh', label: '刷新', onClick: reloadCurrent });
+        // 显式刷新：透传 OpenList 强制回源（refresh=true）
+        entries.push({
+          icon: 'refresh',
+          label: '刷新',
+          onClick: function () {
+            reloadCurrent(true);
+          },
+        });
         openCtxMenu(x, y, entries);
       }
 
@@ -3021,6 +3141,292 @@
               Shade.toast(e.message, 'error');
             });
         });
+      }
+      /* ================= 批量重命名（macOS 风格：替换文本/添加文本/格式化；扩展名保留、实时预览、非法红标） ================= */
+      function openBatchRename(items) {
+        if (!items || items.length < 2) return;
+        var st = {
+          mode: 'replace',
+          find: '',
+          repl: '',
+          affix: '',
+          pos: 'after',
+          fmt: '',
+          numPos: 'after',
+          start: 1,
+          pad: 1,
+        };
+        // 主名/扩展名拆分：最后一个 . 且不在首位才算扩展名；文件夹不按扩展名处理
+        function splitName(it) {
+          if (it.is_dir) return { base: it.name, ext: '' };
+          var d = it.name.lastIndexOf('.');
+          return d > 0
+            ? { base: it.name.slice(0, d), ext: it.name.slice(d) }
+            : { base: it.name, ext: '' };
+        }
+        function padNum(n) {
+          var s = String(n);
+          while (s.length < st.pad) s = '0' + s;
+          return s;
+        }
+        function newName(it, i) {
+          if (st.mode === 'replace') {
+            if (!st.find) return it.name;
+            return it.name.split(st.find).join(st.repl); // 替换作用于完整文件名（含扩展名）
+          }
+          var p = splitName(it);
+          if (st.mode === 'add') {
+            return st.pos === 'before' ? st.affix + p.base + p.ext : p.base + st.affix + p.ext;
+          }
+          var num = padNum(st.start + i);
+          return (st.numPos === 'before' ? num + st.fmt : st.fmt + num) + p.ext;
+        }
+        // 校验口径同后端 validName：trim 后非空 ≤200、不含 / \ 换行、非 . / ..
+        function nameError(name) {
+          var n = String(name || '').trim();
+          if (!n) return '名称为空';
+          if (n.length > 200) return '名称过长';
+          if (/[/\\\r\n]/.test(n)) return '含非法字符';
+          if (n === '.' || n === '..') return '非法名称';
+          return '';
+        }
+        function buildRows() {
+          var rows = items.map(function (it, i) {
+            var nn = newName(it, i).trim();
+            var err = nameError(nn);
+            return { it: it, name: nn, same: nn === it.name, bad: !!err, why: err };
+          });
+          // 批内同目录重名互标
+          var seen = {};
+          rows.forEach(function (r) {
+            if (r.bad || r.same) return;
+            var key = parentOf(r.it._rel) + '\n' + r.name;
+            if (seen[key]) {
+              r.bad = true;
+              r.why = '批内重名';
+              if (!seen[key].bad) {
+                seen[key].bad = true;
+                seen[key].why = '批内重名';
+              }
+            } else seen[key] = r;
+          });
+          // 与未选中兄弟项重名（浏览态 S.items 为当前目录全量可校验；搜索态非全量，交由后端报错）
+          if (!S.search) {
+            var selMap = {};
+            items.forEach(function (it) {
+              selMap[it._rel] = 1;
+            });
+            var siblings = {};
+            S.items.forEach(function (sib) {
+              if (!selMap[sib._rel]) siblings[sib.name] = 1;
+            });
+            rows.forEach(function (r) {
+              if (!r.bad && !r.same && siblings[r.name]) {
+                r.bad = true;
+                r.why = '与现有项重名';
+              }
+            });
+          }
+          return rows;
+        }
+        var MODES = [
+          ['replace', '替换文本'],
+          ['add', '添加文本'],
+          ['format', '格式化'],
+        ];
+        function segHtml(id, opts, cur) {
+          return (
+            '<div class="seg" id="' +
+            id +
+            '">' +
+            opts
+              .map(function (o) {
+                return (
+                  '<button type="button" class="' +
+                  (cur === o[0] ? 'on' : '') +
+                  '" data-v="' +
+                  o[0] +
+                  '">' +
+                  o[1] +
+                  '</button>'
+                );
+              })
+              .join('') +
+            '</div>'
+          );
+        }
+        var html =
+          Shade.mHead('批量重命名（' + items.length + ' 项）') +
+          '<div class="seg" id="brModeSeg">' +
+          MODES.map(function (m) {
+            return (
+              '<button type="button" class="' +
+              (st.mode === m[0] ? 'on' : '') +
+              '" data-mode="' +
+              m[0] +
+              '">' +
+              m[1] +
+              '</button>'
+            );
+          }).join('') +
+          '</div>' +
+          '<div class="br-form" id="brForm"></div>' +
+          '<div class="br-list" id="brList"></div>' +
+          '<div class="m-foot"><span class="br-hint" id="brHint"></span>' +
+          '<button type="button" class="btn btn-sm" data-a="no">取消</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" data-a="yes">重命名</button></div>';
+        var inst = Shade.modal(html, { width: 560 });
+        var yesBtn = $('[data-a="yes"]', inst.box);
+        function renderForm() {
+          var f = $('#brForm', inst.box);
+          if (st.mode === 'replace') {
+            f.innerHTML =
+              '<input class="input" id="brFind" maxlength="200" placeholder="查找">' +
+              '<span class="br-label">替换为</span>' +
+              '<input class="input" id="brRepl" maxlength="200" placeholder="替换为（可为空）">';
+            $('#brFind', f).value = st.find;
+            $('#brRepl', f).value = st.repl;
+          } else if (st.mode === 'add') {
+            f.innerHTML =
+              '<input class="input" id="brAffix" maxlength="100" placeholder="要添加的文本">' +
+              segHtml(
+                'brPosSeg',
+                [
+                  ['before', '名称前'],
+                  ['after', '名称后'],
+                ],
+                st.pos
+              );
+            $('#brAffix', f).value = st.affix;
+          } else {
+            f.innerHTML =
+              '<input class="input" id="brFmt" maxlength="100" placeholder="名称格式，如：巡视记录-">' +
+              segHtml(
+                'brNumPosSeg',
+                [
+                  ['after', '编号在后'],
+                  ['before', '编号在前'],
+                ],
+                st.numPos
+              ) +
+              '<span class="br-label">起始</span>' +
+              '<input class="input br-num" id="brStart" type="number" min="0" step="1" value="' +
+              st.start +
+              '">' +
+              segHtml(
+                'brPadSeg',
+                [
+                  ['1', '不补零'],
+                  ['2', '两位'],
+                  ['3', '三位'],
+                ],
+                String(st.pad)
+              );
+            $('#brFmt', f).value = st.fmt;
+          }
+          f.oninput = function (e) {
+            var t = e.target;
+            if (t.id === 'brFind') st.find = t.value;
+            else if (t.id === 'brRepl') st.repl = t.value;
+            else if (t.id === 'brAffix') st.affix = t.value;
+            else if (t.id === 'brFmt') st.fmt = t.value;
+            else if (t.id === 'brStart') st.start = Math.max(0, parseInt(t.value, 10) || 0);
+            else return;
+            renderPreview();
+          };
+          f.onclick = function (e) {
+            var b = e.target.closest('button[data-v]');
+            if (!b) return;
+            var seg = b.closest('.seg');
+            $$('button', seg).forEach(function (x) {
+              x.classList.toggle('on', x === b);
+            });
+            moveSegPill(seg, false);
+            if (seg.id === 'brPosSeg') st.pos = b.dataset.v;
+            else if (seg.id === 'brNumPosSeg') st.numPos = b.dataset.v;
+            else if (seg.id === 'brPadSeg') st.pad = Number(b.dataset.v) || 1;
+            renderPreview();
+          };
+          $$('.seg', f).forEach(function (s) {
+            moveSegPill(s, true); // 弹窗内分段指示层直接落位
+          });
+        }
+        function renderPreview() {
+          var rows = buildRows();
+          $('#brList', inst.box).innerHTML = rows
+            .map(function (r) {
+              return (
+                '<div class="br-row' +
+                (r.bad ? ' bad' : r.same ? ' same' : '') +
+                '">' +
+                '<span class="o">' +
+                esc(r.it.name) +
+                '</span><span class="a">→</span>' +
+                '<span class="n">' +
+                esc(r.name) +
+                '</span>' +
+                (r.why ? '<span class="why">' + esc(r.why) + '</span>' : '') +
+                '</div>'
+              );
+            })
+            .join('');
+          var bad = 0,
+            todo = 0;
+          rows.forEach(function (r) {
+            if (r.bad) bad++;
+            else if (!r.same) todo++;
+          });
+          var hint = $('#brHint', inst.box);
+          hint.className = 'br-hint' + (bad ? ' err' : '');
+          hint.textContent = bad ? bad + ' 项无法重命名' : '将重命名 ' + todo + ' 项';
+          yesBtn.disabled = bad > 0 || todo === 0;
+        }
+        var modeSeg = $('#brModeSeg', inst.box);
+        moveSegPill(modeSeg, true);
+        modeSeg.addEventListener('click', function (e) {
+          var b = e.target.closest('button[data-mode]');
+          if (!b || b.dataset.mode === st.mode) return;
+          st.mode = b.dataset.mode;
+          $$('button', modeSeg).forEach(function (x) {
+            x.classList.toggle('on', x === b);
+          });
+          moveSegPill(modeSeg, false);
+          renderForm();
+          renderPreview();
+        });
+        $('[data-a="no"]', inst.box).addEventListener('click', inst.close);
+        yesBtn.addEventListener('click', function () {
+          var todoRows = buildRows().filter(function (r) {
+            return !r.bad && !r.same;
+          });
+          if (!todoRows.length) return;
+          yesBtn.disabled = true;
+          ndPost('/rename/batch', {
+            space: S.space,
+            items: todoRows.map(function (r) {
+              return { path: r.it._rel, name: r.name };
+            }),
+          })
+            .then(function (d) {
+              inst.close();
+              if (d && d.failed && d.failed.length) {
+                Shade.toast(
+                  '已重命名 ' + d.renamed + ' 项，失败 ' + d.failed.length + ' 项：' + (d.failed[0].message || ''),
+                  'error'
+                );
+              } else {
+                Shade.toast('已重命名 ' + ((d && d.renamed) || todoRows.length) + ' 项', 'success');
+              }
+              sel.clear();
+              reloadCurrent();
+            })
+            .catch(function (e) {
+              yesBtn.disabled = false;
+              Shade.toast(e.message, 'error');
+            });
+        });
+        renderForm();
+        renderPreview();
       }
       async function removeItems(items) {
         if (!items.length) return;
@@ -3471,6 +3877,56 @@
           .catch(function (e) {
             pasting = false;
             Shade.toast(e.message || '操作失败', 'error'); // 失败保留待粘贴状态
+          });
+      }
+
+      /* ================= 拖拽移动（格子起拖到文件夹格/面包屑落点；同空间，分组串行口径同粘贴移动） ================= */
+      var dndMoving = false; // 拖拽移动提交中（防重复提交）
+      function moveItemsTo(targetRel) {
+        if (dndMoving) return;
+        var items = selItems();
+        if (!items.length || !targetRel) return;
+        // 前置校验：目标不可为被拖文件夹自身或其后代目录
+        for (var i = 0; i < items.length; i++) {
+          var r = items[i]._rel;
+          if (items[i].is_dir && (targetRel === r || targetRel.indexOf(r + '/') === 0)) {
+            Shade.toast('不能移动到自身或其子目录', 'error');
+            return;
+          }
+        }
+        var groups = {};
+        items.forEach(function (it) {
+          var d = parentOf(it._rel);
+          (groups[d] = groups[d] || []).push(it.name);
+        });
+        var dirs = Object.keys(groups);
+        if (dirs.length === 1 && dirs[0] === targetRel) {
+          Shade.toast('源位置与目标位置相同', 'error');
+          return;
+        }
+        dndMoving = true;
+        var chain = Promise.resolve();
+        dirs.forEach(function (d) {
+          chain = chain.then(function () {
+            return ndPost('/move', {
+              src_space: S.space,
+              src_dir: d,
+              dst_space: S.space,
+              dst_dir: targetRel,
+              names: groups[d],
+            });
+          });
+        });
+        chain
+          .then(function () {
+            dndMoving = false;
+            Shade.toast('已移动 ' + items.length + ' 项', 'success');
+            sel.clear();
+            reloadCurrent();
+          })
+          .catch(function (e) {
+            dndMoving = false;
+            Shade.toast(e.message || '移动失败', 'error');
           });
       }
 
@@ -4474,6 +4930,38 @@
           }
         });
 
+        // 面包屑拖拽落点：内拖格子到路径段 = 移动到该目录（仅 a[data-path] 有效，搜索态无落点）
+        var crumbDropEl = null;
+        function markCrumbDrop(a) {
+          if (a === crumbDropEl) return;
+          if (crumbDropEl) crumbDropEl.classList.remove('drop-hover');
+          crumbDropEl = a;
+          if (a) a.classList.add('drop-hover');
+        }
+        function crumbDropTarget(e) {
+          return e.target && e.target.closest ? e.target.closest('a[data-path]') : null;
+        }
+        $('#crumb').addEventListener('dragover', function (e) {
+          if (!isInternalMove(e)) return;
+          var a = crumbDropTarget(e);
+          if (!a) return markCrumbDrop(null);
+          e.preventDefault(); // 仅有效落点放行 drop
+          e.dataTransfer.dropEffect = 'move';
+          markCrumbDrop(a);
+        });
+        $('#crumb').addEventListener('dragleave', function (e) {
+          if (!isInternalMove(e)) return;
+          if (!e.currentTarget.contains(e.relatedTarget)) markCrumbDrop(null);
+        });
+        $('#crumb').addEventListener('drop', function (e) {
+          if (!isInternalMove(e)) return;
+          var a = crumbDropTarget(e);
+          markCrumbDrop(null);
+          if (!a) return;
+          e.preventDefault();
+          moveItemsTo(a.dataset.path);
+        });
+
         // 网格：框选（空白 pointerdown）/ 点选 / 双击打开 / 右键菜单 / 上传格取消
         gridwrap.addEventListener('pointerdown', function (e) {
           if (e.button !== 0) return;
@@ -4488,7 +4976,7 @@
             return;
           }
           if (e.target.closest('[data-retry]')) {
-            reloadCurrent();
+            reloadCurrent(true); // 错误重试同属显式刷新，强制回源
             return;
           }
           var cell = e.target.closest('.g-cell[data-rel]');
@@ -4530,6 +5018,32 @@
           } else if (!e.target.closest('.g-up')) {
             openBlankMenu(e.clientX, e.clientY);
           }
+        });
+
+        // 拖拽移动：格子起拖（HTML5 DnD）；拖到文件夹格/面包屑 = 移动（落点逻辑见 viewFiles/#crumb 监听）
+        gridwrap.addEventListener('dragstart', function (e) {
+          var cell = e.target && e.target.closest ? e.target.closest('.g-cell[data-rel]') : null;
+          if (!cell || !S.manageable) {
+            e.preventDefault();
+            return;
+          }
+          var rel = cell.dataset.rel;
+          if (!sel.has(rel)) {
+            setSel(new Set([rel])); // 起拖未选中格：先单选（多选格上起拖则整组移动）
+            anchorIdx = Number(cell.dataset.idx);
+          }
+          if (!selItems().length) {
+            e.preventDefault();
+            return;
+          }
+          e.dataTransfer.setData('application/x-shade-move', String(sel.size)); // 标记位，数据取选择集
+          e.dataTransfer.effectAllowed = 'move';
+          gestureLock(true); // 拖动全程禁文字选中
+        });
+        gridwrap.addEventListener('dragend', function () {
+          gestureLock(false);
+          markDropCell(null);
+          markCrumbDrop(null);
         });
 
         // 选中操作区（顶部工具条）：下载/分享/移动/复制/删除/取消选择
@@ -4601,18 +5115,34 @@
           dropTargetCell = cell;
           if (cell) cell.classList.add('drop-target');
         }
+        // 内部拖拽移动（格子起拖）与拖入上传分流：自定义 dataTransfer type 判内拖
+        function isInternalMove(e) {
+          var t = e.dataTransfer && e.dataTransfer.types;
+          return !!(t && Array.prototype.indexOf.call(t, 'application/x-shade-move') >= 0);
+        }
         viewFiles.addEventListener('dragenter', function (e) {
           e.preventDefault();
+          if (isInternalMove(e)) {
+            markDropCell(findDropFolder(e));
+            return;
+          }
           dragDepth++;
           if (!S.search) gridwrap.classList.add('dragover');
           markDropCell(findDropFolder(e));
         });
         viewFiles.addEventListener('dragover', function (e) {
           e.preventDefault();
+          if (isInternalMove(e)) {
+            var cell = findDropFolder(e);
+            e.dataTransfer.dropEffect = cell ? 'move' : 'none'; // 仅文件夹格是有效落点
+            markDropCell(cell);
+            return;
+          }
           markDropCell(findDropFolder(e)); // 持续跟随指针换格高亮
         });
         viewFiles.addEventListener('dragleave', function (e) {
           e.preventDefault();
+          if (isInternalMove(e)) return; // 内拖高亮由 dragover 持续校正、dragend/drop 清理
           if (--dragDepth <= 0) {
             dragDepth = 0;
             gridwrap.classList.remove('dragover');
@@ -4621,6 +5151,12 @@
         });
         viewFiles.addEventListener('drop', function (e) {
           e.preventDefault();
+          if (isInternalMove(e)) {
+            var mcell = findDropFolder(e); // 先取落点再清理高亮
+            markDropCell(null);
+            if (mcell) moveItemsTo(mcell.dataset.rel); // 空白处非落点（浏览态即当前目录=源目录，静默不动作）
+            return;
+          }
           dragDepth = 0;
           gridwrap.classList.remove('dragover');
           var cell = findDropFolder(e); // 先取落点再清理高亮

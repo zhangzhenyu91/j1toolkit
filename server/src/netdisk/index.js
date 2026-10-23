@@ -331,7 +331,7 @@ router.get('/spaces', async (req, res) => {
   }
 });
 
-// 目录列表（个人/公共根目录自愈式创建）
+// 目录列表（个人/公共根目录自愈式创建；refresh=true 强制 OpenList 回源，仅用户显式刷新时透传）
 router.post('/list', async (req, res) => {
   try {
     ol.ensureConfigured();
@@ -340,7 +340,7 @@ router.post('/list', async (req, res) => {
     const rel = normRel(req.body && req.body.path);
     if (rel === null) return fail(res, 400, 40001, '路径不合法');
     if (rel === '/') await ol.ensureDir(root);
-    const data = await ol.fsList(joinPath(root, rel));
+    const data = await ol.fsList(joinPath(root, rel), req.body && req.body.refresh === true);
     return ok(res, {
       space: req.body.space,
       path: rel,
@@ -405,6 +405,42 @@ router.post('/rename', async (req, res) => {
     if (rel === null || rel === '/' || !name) return fail(res, 400, 40001, '参数错误：path/name');
     await ol.fsRename(joinPath(root, rel), name);
     return ok(res, null, '已重命名');
+  } catch (err) {
+    return relayFail(res, err);
+  }
+});
+
+// 批量重命名（items: [{path, name}]，1-100 条；逐条执行，单条失败不中断，汇总返回）
+router.post('/rename/batch', async (req, res) => {
+  try {
+    ol.ensureConfigured();
+    const root = await resolveRoot(req, res, req.body && req.body.space);
+    if (!root) return;
+    const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+    if (!items.length || items.length > 100) {
+      return fail(res, 400, 40001, '参数错误：items（1-100 条）');
+    }
+    const failed = [];
+    let renamed = 0;
+    for (const it of items) {
+      const rel = normRel(it && it.path);
+      const name = validName(it && it.name);
+      if (rel === null || rel === '/' || !name) {
+        failed.push({
+          path: (it && it.path) || '',
+          name: (it && it.name) || '',
+          message: '参数不合法',
+        });
+        continue;
+      }
+      try {
+        await ol.fsRename(joinPath(root, rel), name);
+        renamed++;
+      } catch (err) {
+        failed.push({ path: rel, name, message: err.message || '重命名失败' });
+      }
+    }
+    return ok(res, { renamed, failed }, '批量重命名完成');
   } catch (err) {
     return relayFail(res, err);
   }

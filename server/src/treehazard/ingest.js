@@ -479,10 +479,11 @@ async function handleIngest(req, res, next) {
   }
 }
 
-// 站内 + 班组群通知（失败仅记日志，不影响直推应答）
+// 站内通知（超管 + 本班班组管理员；失败仅记日志，不影响直推应答）。
+// 群内反馈一律由 crane-answer 自行发送（成功「已记录」/失败「报送失败…」），壹匣通知系统不向微信群推送
 function notify(team, title, content) {
   notice
-    .push({ targets: ['admin', 'team_admin'], title, content, wxTeamIds: [team.id] })
+    .push({ targets: ['admin', 'team_admin'], title, content })
     .catch((err) => console.error('[树障] 直推结果通知失败：', err.message));
 }
 
