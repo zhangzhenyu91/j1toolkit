@@ -44,9 +44,9 @@
      压缩包（zip/rar/7z/tar/gz/tgz/bz2/xz）：双击预览（meta 判 encrypted，加密先收压缩密码并随请求透传），
        包内按 inner_path 逐级浏览、单文件 /archive/download 下载；右键「解压到…」复用目标选择弹窗
        （附「以压缩包命名的新目录」勾选项，解压接口无 dst_space、锁定当前空间）；
-     布局：整页 100vh 锁定（body 内滚口径同 worklog），文件区占满视口剩余高度、网格区 overflow-y:auto 内滚、
+     布局：整页 100vh 锁定（body 内滚口径同 worklog），内容列上限 1560px 居中，文件区占满视口剩余高度、网格区 overflow-y:auto 内滚、
        状态栏沉底固定（无选择仅「共 N 项」，有选择追加 已选择/合计）；文件区横向双列：左列工具条/路径栏/网格/状态栏，
-       右列常驻详情面板（单选条目详情——修改时间秒级、多选已选汇总、空选显示占位不隐藏——常驻占位列防页面结构突变，≤1024px 隐藏面板）；框选矩形用相对网格
+       右列常驻详情面板（无白卡、文字直落页面背景；单选条目详情——修改时间秒级、多选已选汇总、空选显示占位不隐藏——常驻占位列防页面结构突变，≤1024px 隐藏面板）；框选矩形用相对网格
        内容坐标（scrollLeft/scrollTop 折算），滚动时矩形随内容滚、命中检测同坐标系（offsetLeft/Top）；
      动效（政企克制，缓动 var(--ease)，降级由 theme.css 全局 prefers-reduced-motion 统一关闭）：
        空间分段白 pill 滑动位移（moveSegPill，重建/缩放直接落位）；目录/空间/搜索切换 旧内容淡出（.g-out）
@@ -94,7 +94,7 @@
         flex: 1;
         min-height: 0;
         width: 100%;
-        max-width: 1180px;
+        max-width: 1560px; /* 页面拓宽：网格列数随宽度增多，超宽屏仍居中留白 */
         margin: 0 auto;
         display: flex;
         flex-direction: column;
@@ -755,7 +755,7 @@
         font-variant-numeric: tabular-nums;
       }
 
-      /* ===== 右侧常驻详情面板（白卡同 token）：.nd-main 横向双列，左列网格可滚、右列 280px 面板 ===== */
+      /* ===== 右侧常驻详情面板（无白卡，文字直落页面背景）：.nd-main 横向双列，左列网格可滚、右列 280px 面板 ===== */
       .nd-main {
         flex: 1;
         min-height: 0;
@@ -773,10 +773,8 @@
         width: 280px;
         min-height: 0;
         margin-top: 8px; /* 顶对齐网格区（gridwrap 同 8px） */
-        padding: 16px;
-        background: #ffffff;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        padding: 16px 4px 16px 16px;
+        /* 无白卡：文字直接落在页面背景上（无背景/圆角/阴影） */
         overflow-y: auto;
         scrollbar-width: thin;
         scrollbar-color: rgba(29, 33, 41, 0.2) transparent;

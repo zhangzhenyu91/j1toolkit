@@ -5,7 +5,7 @@
      水印照片上传（选择水印照片直传 / 选片裁剪加水印后上传，服务端渲染，链路同小程序））；
      版心满宽贴边；左侧列表位为「记录 / 批量下载 / 汇总前核验」三页签（原批量下载、验证报告弹层已页签化；
      商旅打卡扩展后验证报告更名「汇总前核验」，范围收窄为仅未通过记录，底部绿色条提示其余全部通过；页头加「从商旅拉取」入口），
-     宽屏（≥1600px）记录页签下汇总前核验常驻卡片流右侧栏（syncSideReport；切到核验页签仍可满宽查看）；
+     宽屏（≥1600px）记录页签下汇总前核验常驻右侧栏，与月历卡同列上下排布——上月历卡、下核验列表（syncSideReport；切到核验页签仍可满宽查看）；
      商旅打卡（见《开发指南》第十五章）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 费用入口 + 并排「开始/结束」两枚 slot 三态；
      点 slot 弹打卡确认层（仅当日；浏览器定位 WGS84→GCJ02 / 手输地址正向解析 / 杆塔带入，已打卡进「更新打卡地点」，同记录他人同 seq 定位自动带入）、
      点「费用」弹费用信息层（伙食补助/交通费可改，成本分配只读，保存即提交商旅；首次开始打卡成功自动弹出，均同小程序口径）、
@@ -228,11 +228,11 @@
         min-height: 0;
       }
 
-      /* ----- 月历卡（rv 进场改为自右滑入，仍由 Shade.reveal 触发 .in） ----- */
+      /* ----- 月历卡（紧凑口径：34px 固定圆形日格居中，卡宽变化不再撑高网格；rv 进场改为自右滑入，仍由 Shade.reveal 触发 .in） ----- */
       .cal {
         width: 340px;
         flex: none;
-        padding: 18px 20px 14px;
+        padding: 14px 16px 12px;
         align-self: flex-start;
         max-height: 100%;
         overflow-y: auto;
@@ -247,10 +247,10 @@
         display: flex;
         align-items: center;
         gap: 10px;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
       }
       .cal-h b {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 700;
         letter-spacing: 1px;
         font-variant-numeric: tabular-nums;
@@ -259,11 +259,11 @@
         border: 1px solid var(--line);
         background: #fff;
         color: var(--orange);
-        font-size: 11.5px;
+        font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.5px;
         cursor: pointer;
-        padding: 3px 10px;
+        padding: 2px 9px;
         border-radius: 6px;
         transition:
           border-color 0.15s,
@@ -280,8 +280,8 @@
         align-items: center;
       }
       .cal-nav button {
-        width: 26px;
-        height: 26px;
+        width: 24px;
+        height: 24px;
         border: 1px solid var(--line);
         border-radius: 6px;
         background: #fff;
@@ -305,26 +305,29 @@
       .cal-grid {
         display: grid;
         grid-template-columns: repeat(7, 1fr);
-        gap: 4px;
+        gap: 2px;
+        /* 日格固定 34px 圆并居中：宽屏右栏 / 窄屏通栏时网格高度不再随卡宽等比放大（紧凑化口径） */
+        justify-items: center;
       }
       .cal-wd {
         text-align: center;
-        font-size: 11px;
+        font-size: 10.5px;
         font-weight: 600;
         color: var(--ph);
-        padding: 6px 0 10px;
+        padding: 4px 0 8px;
         letter-spacing: 2px;
       }
-      /* 日期格：悬停浅灰圆 / 今日品牌蓝圆底白字 / 选中 2px 蓝环 */
+      /* 日期格：固定 34px 圆（aspect-ratio 保持正圆）/ 悬停浅灰圆 / 今日品牌蓝圆底白字 / 选中 2px 蓝环 */
       .day {
         position: relative;
+        width: 34px;
         aspect-ratio: 1;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         border-radius: 50%;
-        font-size: 13px;
+        font-size: 12.5px;
         font-weight: 600;
         cursor: pointer;
         border: 2px solid transparent;
@@ -347,13 +350,13 @@
       }
       .day .ds {
         display: flex;
-        gap: 3px;
-        height: 5px;
-        margin-top: 3px;
+        gap: 2px;
+        height: 4px;
+        margin-top: 2px;
       }
       .dt {
-        width: 5px;
-        height: 5px;
+        width: 4px;
+        height: 4px;
         border-radius: 50%;
       }
       .dt-ok {
@@ -379,11 +382,11 @@
       }
       .cal-lg {
         display: flex;
-        gap: 16px;
-        margin-top: 14px;
-        padding-top: 12px;
+        gap: 12px;
+        margin-top: 10px;
+        padding-top: 10px;
         border-top: 1px solid var(--hair);
-        font-size: 11px;
+        font-size: 10.5px;
         font-weight: 600;
         color: var(--sub);
         letter-spacing: 1px;
@@ -394,8 +397,8 @@
         gap: 6px;
       }
       .cal-lg .dt {
-        width: 8px;
-        height: 8px;
+        width: 7px;
+        height: 7px;
       }
 
       /* ----- 当日日志卡片流（日期导航由月历承担，无日期条，卡顶与月历卡顶齐平） ----- */
@@ -449,21 +452,34 @@
         gap: 10px;
       }
 
-      /* 宽屏（≥1600px）：记录页签下汇总前核验常驻右侧栏（与当日卡片流并列；切到核验页签仍可满宽查看） */
+      /* 宽屏（≥1600px）：记录页签下汇总前核验常驻右侧栏，与月历卡同列上下排布（上月历 / 下核验列表，列表区域内滚动）；
+     .wl-list 此时 display:contents，将其子页签提为 .wl-body 的网格项——卡片流居左列通栏，右列上格月历卡、下格核验列表；
+     切到其他页签 / 窄屏时 rep-side 移除（syncSideReport），恢复默认两栏，核验页签仍满宽查看 */
       @media (min-width: 1600px) {
-        .wl-list.rep-side {
-          flex-direction: row;
-          gap: 24px;
+        .wl-body.rep-side {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 400px;
+          grid-template-rows: auto minmax(0, 1fr);
         }
-        .wl-list.rep-side #paneRecord {
-          flex: 1;
-          min-width: 0;
+        .wl-body.rep-side > .cal {
+          grid-column: 2;
+          grid-row: 1;
+          width: 100%;
         }
-        .wl-list.rep-side #paneRep {
+        .wl-body.rep-side .wl-list {
+          display: contents;
+        }
+        .wl-body.rep-side #paneRecord {
+          grid-column: 1;
+          grid-row: 1 / 3;
+          min-height: 0;
+        }
+        .wl-body.rep-side #paneRep {
+          grid-column: 2;
+          grid-row: 2;
           display: flex;
           flex-direction: column;
-          width: 480px;
-          flex: none;
+          min-height: 0;
           animation: none;
         }
       }
@@ -7873,11 +7889,11 @@
           syncSideReport();
         }
 
-        /* 宽屏（≥1600px）且处于记录页签时，汇总前核验常驻卡片流右侧（窄屏或其他页签仍为页签切换；
-   首次进入按需加载，loaded 复位后（切班组等）自动重查） */
+        /* 宽屏（≥1600px）且处于记录页签时，汇总前核验常驻右侧栏，与月历卡同列上下排布（上月历 / 下核验列表；
+   窄屏或其他页签仍为页签切换；首次进入按需加载，loaded 复位后（切班组等）自动重查） */
         function syncSideReport() {
           var on = window.innerWidth >= 1600 && state.pane === 'Record';
-          $('.wl-list').classList.toggle('rep-side', on);
+          $('.wl-body').classList.toggle('rep-side', on);
           if (on && !state.rep.loaded) loadReport();
         }
 
