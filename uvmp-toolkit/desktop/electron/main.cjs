@@ -118,13 +118,18 @@ if (printIdx !== -1) {
   function startInAppScheduler() {
     const tick = () => {
       if (!bridge) return;
-      // 每日派车单同步到点判定（树障统计表同步的夜间兜底也挂在该调用内，核心侧同门闸）
+      // 每日派车单同步到点判定（树障/交跨统计表同步的夜间兜底也挂在该调用内，核心侧同门闸）
       bridge
         .call('maybeRunDaily')
         .then((r) => {
           if (r && r.started) console.log('[驻留调度] 到点执行每日导出，job=' + r.job_id);
           if (r && r.tree_sync_nightly && r.tree_sync_nightly.started) {
             console.log('[驻留调度] 到点执行树障统计表夜间兜底，job=' + r.tree_sync_nightly.job_id);
+          }
+          if (r && r.crossing_sync_nightly && r.crossing_sync_nightly.started) {
+            console.log(
+              '[驻留调度] 到点执行交跨统计表夜间兜底，job=' + r.crossing_sync_nightly.job_id
+            );
           }
         })
         .catch(() => {});
@@ -133,6 +138,13 @@ if (printIdx !== -1) {
         .call('maybeRunTreeSyncTick')
         .then((r) => {
           if (r && r.started) console.log('[驻留调度] 执行树障统计表指令轮询，job=' + r.job_id);
+        })
+        .catch(() => {});
+      // 交跨统计表同步 U盘指令轮询（同树障口径）
+      bridge
+        .call('maybeRunCrossingSyncTick')
+        .then((r) => {
+          if (r && r.started) console.log('[驻留调度] 执行交跨统计表指令轮询，job=' + r.job_id);
         })
         .catch(() => {});
     };

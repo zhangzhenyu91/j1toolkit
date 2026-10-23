@@ -287,6 +287,7 @@
     kvm: { key: 'kvm', href: '/kvm.html' },
     netdisk: { key: 'netdisk', href: '/netdisk.html' },
     'tree-hazard': { key: 'treehazard', href: '/treehazard.html' },
+    crossing: { key: 'crossing', href: '/crossing.html' },
     'team-data': { key: 'teamdata', href: '/teamdata.html' },
   };
   function cachedApps() {

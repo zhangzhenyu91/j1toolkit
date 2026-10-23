@@ -21,3 +21,13 @@ ws.Run cmd, 0, True
 cmd = "cmd /c ""set PYTHONIOENCODING=utf-8&& " & Q(basedir & "\uvmp-core.exe") _
       & " tree-sync --nightly --if-due >> " & Q(basedir & "\tree-sync.log") & " 2>&1"""
 ws.Run cmd, 0, True
+
+' 交跨统计表同步（与树障同契约、独立指令文件/成功戳，同一唤醒链路）：先按 U盘指令执行
+' （U盘不在秒退），再做 23:55 夜间兜底判定；计划任务为每分钟触发——00:00 后的服务端指令
+' 次晨首轮 tick 补执行（与 linux timer 06..23 同时段语义）。
+cmd = "cmd /c ""set PYTHONIOENCODING=utf-8&& " & Q(basedir & "\uvmp-core.exe") _
+      & " crossing-sync --tick >> " & Q(basedir & "\crossing-sync.log") & " 2>&1"""
+ws.Run cmd, 0, True
+cmd = "cmd /c ""set PYTHONIOENCODING=utf-8&& " & Q(basedir & "\uvmp-core.exe") _
+      & " crossing-sync --nightly --if-due >> " & Q(basedir & "\crossing-sync.log") & " 2>&1"""
+ws.Run cmd, 0, True

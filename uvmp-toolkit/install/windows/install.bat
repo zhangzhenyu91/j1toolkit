@@ -1,6 +1,6 @@
 @echo off
 rem 内网工具箱【源码模式】安装脚本（Windows 10+）
-rem 仅安装每日派车单同步、树障统计表同步计划任务（CLI 无头）；GUI 客户端请用 Release 的 Setup.exe。
+rem 仅安装每日派车单同步、树障统计表同步、交跨统计表同步计划任务（CLI 无头）；GUI 客户端请用 Release 的 Setup.exe。
 rem 用法：双击运行（无需管理员；计划任务以当前用户身份、登录后运行）
 setlocal EnableExtensions
 chcp 65001 >nul
@@ -73,11 +73,31 @@ if errorlevel 1 (
 )
 echo        计划任务 UVMP-Toolkit-TreeSyncNightly 已创建（每分钟检查，到配置时间夜间兜底上盘）
 
+rem 交跨统计表同步（与树障统计表同步同契约、独立指令文件/成功戳）：
+rem --tick 每分钟轮询 U盘指令（U盘不在秒退）；--nightly --if-due 夜间兜底判定
+schtasks /create /tn "UVMP-Toolkit-CrossingSyncTick" /f /sc minute /mo 1 ^
+  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" crossing-sync --tick" >nul
+if errorlevel 1 (
+  echo [错误] 计划任务 UVMP-Toolkit-CrossingSyncTick 创建失败
+  exit /b 1
+)
+echo        计划任务 UVMP-Toolkit-CrossingSyncTick 已创建（每分钟轮询 U盘指令，U盘不在秒退）
+
+schtasks /create /tn "UVMP-Toolkit-CrossingSyncNightly" /f /sc minute /mo 1 ^
+  /tr "\"%PYTHONW%\" \"%BASE_DIR%\toolkit\app.py\" crossing-sync --nightly --if-due" >nul
+if errorlevel 1 (
+  echo [错误] 计划任务 UVMP-Toolkit-CrossingSyncNightly 创建失败
+  exit /b 1
+)
+echo        计划任务 UVMP-Toolkit-CrossingSyncNightly 已创建（每分钟检查，到配置时间夜间兜底上盘）
+
 echo ============================================================
-echo 安装完成！（源码 CLI 模式，每日定时导出 + 树障统计表同步）
+echo 安装完成！（源码 CLI 模式，每日定时导出 + 树障统计表同步 + 交跨统计表同步）
 echo   手动执行一次:  schtasks /run /tn "UVMP-Toolkit-DailyExport"
 echo                  schtasks /run /tn "UVMP-Toolkit-TreeSyncTick"
 echo                  schtasks /run /tn "UVMP-Toolkit-TreeSyncNightly"
+echo                  schtasks /run /tn "UVMP-Toolkit-CrossingSyncTick"
+echo                  schtasks /run /tn "UVMP-Toolkit-CrossingSyncNightly"
 echo   GUI 客户端请使用 Release 的 uvmp-toolkit-Setup-*.exe
 echo ============================================================
 endlocal

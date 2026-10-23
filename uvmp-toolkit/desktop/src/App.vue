@@ -64,6 +64,7 @@ import iconUrl from './assets/icon.png';
 import HomePage from './pages/HomePage.vue';
 import DailySyncPage from './pages/DailySyncPage.vue';
 import TreeSyncPage from './pages/TreeSyncPage.vue';
+import CrossingSyncPage from './pages/CrossingSyncPage.vue';
 import PcdExportPage from './pages/PcdExportPage.vue';
 import QuizSearchPage from './pages/QuizSearchPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
@@ -73,6 +74,7 @@ const PAGE_MAP = {
   settings: SettingsPage,
   daily_sync: DailySyncPage,
   tree_sync: TreeSyncPage,
+  crossing_sync: CrossingSyncPage,
   pcd_export: PcdExportPage,
   quiz_search: QuizSearchPage,
 };
@@ -80,6 +82,7 @@ const PAGE_MAP = {
 const NAV_ICONS = {
   daily_sync: 'refresh',
   tree_sync: 'file',
+  crossing_sync: 'file',
   pcd_export: 'download',
   quiz_search: 'search',
 };

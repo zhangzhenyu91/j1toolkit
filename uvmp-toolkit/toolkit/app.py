@@ -98,6 +98,33 @@ def cmd_tree_sync(cfg: dict, args) -> int:
     return _run_headless("tree_sync", "树障统计表同步", {"tick": True})
 
 
+def cmd_crossing_sync(cfg: dict, args) -> int:
+    """交跨统计表同步：--tick 每分钟轮询 U盘指令（不做 due_check，U盘不在秒退）；
+    --nightly --if-due 夜间兜底（到点判定后执行，无指令也 snapshot 一次）。"""
+    if args.nightly:
+        if args.if_due:
+            ts = cfg.get("crossing_sync") or {}
+            if not (ts.get("local_path") or "").strip():
+                print(
+                    "[crossing-sync] 跳过：未配置内网表路径（crossing_sync.local_path）"
+                )
+                return 0
+            sch = {
+                "enabled": True,
+                "time": ts.get("nightly_time", "23:55"),
+                "driver": (cfg.get("schedule") or {}).get("driver", "os"),
+            }
+            due, reason, _today = scheduler.due_check(
+                cfg, stamp_name="crossing_sync_nightly", schedule=sch
+            )
+            if not due:
+                print("[crossing-sync] 跳过：%s" % reason)
+                return 0
+            scheduler.mark_attempt(_today, stamp_name="crossing_sync_nightly")
+        return _run_headless("crossing_sync", "交跨统计表同步", {"nightly": True})
+    return _run_headless("crossing_sync", "交跨统计表同步", {"tick": True})
+
+
 def cmd_order_export(cfg: dict, args) -> int:
     params = {
         "outdir": args.outdir,
@@ -170,6 +197,21 @@ def main() -> int:
         action="store_true",
         help="仅配合 --nightly：先按 tree_sync.nightly_time 做 due-check 判定",
     )
+    p4 = sub.add_parser(
+        "crossing-sync", help="交跨统计表同步（U盘指令轮询 / 夜间兜底）"
+    )
+    g4 = p4.add_mutually_exclusive_group()
+    g4.add_argument(
+        "--tick", action="store_true", help="轮询一次 U盘指令（默认；每分钟定时器用）"
+    )
+    g4.add_argument(
+        "--nightly", action="store_true", help="夜间兜底：无指令也 snapshot 一次"
+    )
+    p4.add_argument(
+        "--if-due",
+        action="store_true",
+        help="仅配合 --nightly：先按 crossing_sync.nightly_time 做 due-check 判定",
+    )
     p2 = sub.add_parser("order-export", help="按派车单号按序导出")
     p2.add_argument("--xlsx", help="派车单号清单 xlsx 路径")
     p2.add_argument("--codes", help="直接给单号（逗号/空格分隔）")
@@ -205,6 +247,8 @@ def main() -> int:
         return cmd_daily_export(cfg, args)
     if args.cmd == "tree-sync":
         return cmd_tree_sync(cfg, args)
+    if args.cmd == "crossing-sync":
+        return cmd_crossing_sync(cfg, args)
     if args.cmd == "order-export":
         return cmd_order_export(cfg, args)
     return 0

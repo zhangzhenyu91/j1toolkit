@@ -81,6 +81,8 @@ app.use('/api/v1/quiz', require('./quiz'));
 app.use('/api/v1/treehazard', require('./treehazard'));
 // 班组数据：字典/线路杆塔管理（数据复用 worklog 表，种子见 treehazard/schema.js）
 app.use('/api/v1/teamdata', require('./teamdata'));
+// 交跨记录（crane-answer 交跨排查直推，纯文字台账无照片，走全局 12mb 解析器即可）
+app.use('/api/v1/crossing', require('./crossing'));
 // 团队网盘（OpenList 中转，建表/种子见 netdisk/schema.js）
 app.use('/api/v1/netdisk', require('./netdisk'));
 // ONLYOFFICE 在线编辑（配置签发 + 保存回调；文件回源复用网盘 /preview 票据路由）

@@ -24,6 +24,11 @@
     "file_name": "检修一班树木统计表.xlsx",
     "nightly_time": "23:55"
   },
+  "crossing_sync": {
+    "local_path": "",
+    "file_name": "检修一班交跨统计表.xlsx",
+    "nightly_time": "23:55"
+  },
   "order_export": {
     "default_outdir": "",
     "lookback_days": 62,

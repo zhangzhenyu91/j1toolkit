@@ -14,6 +14,9 @@ ExecStart=@RUN_CMD@ daily-export --if-due
 # 与 daily-export 同受 timer 的 06..23 时段限制——00:00 后的服务端指令次晨首轮 tick 补执行。
 ExecStart=@RUN_CMD@ tree-sync --tick
 ExecStart=@RUN_CMD@ tree-sync --nightly --if-due
+# 交跨统计表同步（与树障同契约、独立指令文件/成功戳，同一唤醒链路）。
+ExecStart=@RUN_CMD@ crossing-sync --tick
+ExecStart=@RUN_CMD@ crossing-sync --nightly --if-due
 
 [Install]
 WantedBy=multi-user.target

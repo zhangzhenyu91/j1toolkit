@@ -64,6 +64,11 @@
       "pages": ["pages/index/index"]
     },
     {
+      "root": "pkg-crossing",
+      "name": "crossing",
+      "pages": ["pages/index/index"]
+    },
+    {
       "root": "pkg-teamdata",
       "name": "teamdata",
       "pages": ["pages/index/index"]

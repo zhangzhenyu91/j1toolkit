@@ -328,6 +328,10 @@ async function ensureSchema() {
   await require('./teamdata/schema').ensureTeamdataSchema(pool);
   console.log('[初始化] 班组数据表结构就绪');
 
+  // 交跨记录：建表并写入应用种子（crane-answer 交跨排查直推；无处理流程/辅证照片）
+  await require('./crossing/schema').ensureCrossingSchema(pool);
+  console.log('[初始化] 交跨记录表结构与应用种子就绪');
+
   // 团队网盘：建表并写入应用种子
   await require('./netdisk/schema').ensureNetdiskSchema(pool);
   console.log('[初始化] 团队网盘表结构与应用种子就绪');

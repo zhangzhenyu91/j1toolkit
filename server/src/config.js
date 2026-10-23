@@ -51,6 +51,9 @@ const config = {
     agentId: str('WEKNORA_AGENT_ID'),
     // 树障台账同步目标知识库 ID（Markdown 快照同步至「树木台账」文件夹，见 treehazard/weknorasync.js）
     treehazardKbId: str('WEKNORA_TREEHAZARD_KB_ID', '9784bed2-dbab-41cf-b9eb-fbfdd891f0ef'),
+    // 交跨台账同步目标知识库 ID（按线路 xlsx 快照同步至「交跨台账」文件夹，见 crossing/weknorasync.js；
+    // 留空则交跨知识库同步停用不排程）
+    crossingKbId: str('WEKNORA_CROSSING_KB_ID', ''),
     // 知识库同步接口的 X-External-User-ID 用户名（老接口强制要求）
     syncUser: str('WEKNORA_SYNC_USER', 'admin'),
   },
@@ -205,6 +208,24 @@ const config = {
     // 每日准备时间（锁定设备并挂载 U 盘至被控机）与取件时间（取回内网表比对回写并解禁），HH:mm，北京时间（可跨午夜）
     syncPrepareTime: str('TREEHAZARD_SYNC_PREPARE_TIME', '23:50'),
     syncFetchTime: str('TREEHAZARD_SYNC_FETCH_TIME', '00:00'),
+  },
+  // 交跨记录（crane-answer 交跨排查直推 + 双端台账 + 内网 U 盘同步；纯文字台账，无处理流程/辅证照片/阈值）
+  crossing: {
+    // crane-answer 直推对接密钥（POST /ingest 请求头 X-Ingest-Token；留空则直推接口停用返回 503）
+    ingestToken: str('CROSSING_INGEST_TOKEN', ''),
+    // ===== 内网 U 盘同步（编排见 crossing/sync.js；留空 ddns 则停用）=====
+    // 同步班组（U盘同步目标班组名）
+    syncTeam: str('CROSSING_SYNC_TEAM', '检修一班'),
+    // 被控机所在 KVM 设备：ddns 定位 + MAC 校验（默认回退派车单同机，留空则 U盘同步停用）
+    syncDeviceDdns: str('CROSSING_SYNC_DEVICE_DDNS', ''),
+    syncDeviceMac: str('CROSSING_SYNC_DEVICE_MAC', ''),
+    // 同步任务代登平台所用账号（须在 GLKVM 平台可见该设备组；留空回退 ADMIN_USERNAME）
+    syncKvmUser: str('CROSSING_SYNC_KVM_USER', ''),
+    // 指令窗口分钟数（同步指令下发后被控机取件的有效窗口）
+    syncCmdWindowMin: num('CROSSING_SYNC_CMD_WINDOW_MIN', 5),
+    // 每日准备时间（锁定设备并挂载 U 盘至被控机）与取件时间（取回内网表比对回写并解禁），HH:mm，北京时间（可跨午夜）
+    syncPrepareTime: str('CROSSING_SYNC_PREPARE_TIME', '23:50'),
+    syncFetchTime: str('CROSSING_SYNC_FETCH_TIME', '00:00'),
   },
 };
 

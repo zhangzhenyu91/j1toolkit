@@ -39,6 +39,11 @@ DEFAULTS = {
         "file_name": "检修一班树木统计表.xlsx",  # 夜间兜底 snapshot 上盘用的文件名
         "nightly_time": "23:55",  # 夜间兜底执行时刻（服务端 23:50 挂载 U盘）
     },
+    "crossing_sync": {  # 交跨统计表同步（U盘指令 snapshot/replace，契约同 tree_sync）
+        "local_path": "",  # 内网交跨统计表 xlsx 完整路径（必配）
+        "file_name": "检修一班交跨统计表.xlsx",  # 夜间兜底 snapshot 上盘用的文件名
+        "nightly_time": "23:55",  # 夜间兜底执行时刻（服务端 23:50 挂载 U盘）
+    },
     "order_export": {
         "default_outdir": "",  # 空=项目目录/output
         "lookback_days": 62,  # 无日期提示时按单号兜底查询的回看天数
