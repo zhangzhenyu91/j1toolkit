@@ -5,7 +5,9 @@
 // （未配置 → 503；不等 → 401；先比长度再恒定时间比较，防时序侧信道，同 treehazard /ingest 口径）。
 // 一次调用只带一件：
 //   kind=digest：{ date:'yyyy-MM-dd', group_name, kind, digest_md:'<markdown 正文>' }——存为「{群名}_{date}.md」
-//   kind=file：{ date, group_name, kind, file:{ name, data_base64 } }——用原名，base64 纯内容无前缀，≤30MB
+//   kind=file：{ date, group_name, kind, file:{ name, data_base64 } }——用原名，base64 纯内容无前缀，≤30MB，
+//     扩展名须在文档类白名单内（pdf/doc/docx/ppt/pptx/xlsx/xls/epub/mhtml/csv/md/markdown/txt/json/html，
+//     白名单外与无扩展名拒收 unsupported_file）
 // 落库：知识库 ID 取 config.weknora.chatlogKbId；文件夹 /{yyyy}/{M.d}/ 两级（date=2026-10-23 → 年文件夹「2026」
 // 下「10.23」，月.日单层不带前导零）；fileName 路径前缀即文件夹、按路径归一，无需预创建、并发重跑不产生
 // 重复文件夹（同 weknorasync 口径）。幂等：同文件夹同名文档先删后传（重跑/补跑覆盖当天内容）；
@@ -16,6 +18,7 @@ const express = require('express');
 const crypto = require('crypto');
 const config = require('../config');
 const weknora = require('../services/weknora');
+const { getFileExt } = require('../utils/file'); // 扩展名提取（不含点小写，同 callme 口径）
 
 const router = express.Router();
 
@@ -25,6 +28,25 @@ const PAGE_SIZE = 100; // 列知识分页大小
 const LIST_MAX_PAGES = 10; // 列知识翻页兜底上限（防接口分页异常死循环）
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+// 文档扩展名白名单（不含点小写比较）：WeKnora 知识库仅支持文档类摄取——
+// 与 callme ATTACHMENT_EXTS 的文档类子集对齐（不含 mp3/wav/mp4 等音视频与 bmp/tiff 图片）
+const FILE_EXTS = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'ppt',
+  'pptx',
+  'xlsx',
+  'xls',
+  'epub',
+  'mhtml',
+  'csv',
+  'md',
+  'markdown',
+  'txt',
+  'json',
+  'html',
+]);
 
 // 直推响应（契约形状 {ok, code?, message?, data?}，与 callme /ingest-chat 同口径，不走统一 {code,message,data} 信封）
 function ingestOk(res, data) {
@@ -159,10 +181,12 @@ async function upsertFile(kbId, folderPath, fileName, buffer) {
   }
 }
 
-// 入参校验：合法返回 { date, groupName, kind, fileName, buffer }；非法返回 { error:{ code, message } }
+// 入参校验：合法返回 { date, groupName, kind, fileName, buffer }；非法返回 { error:{ code, message, httpStatus } }
 function parseBody(body) {
   const b = body || {};
-  const bad = (message, code = 'param_invalid') => ({ error: { code, message } });
+  const bad = (message, code = 'param_invalid', httpStatus = 400) => ({
+    error: { code, message, httpStatus },
+  });
 
   const date = String(b.date ?? '').trim();
   if (!DATE_RE.test(date)) return bad('date 应为 yyyy-MM-dd');
@@ -190,6 +214,10 @@ function parseBody(body) {
     const f = b.file;
     const name = f && typeof f.name === 'string' ? f.name.trim() : '';
     if (!name) return bad('file.name 不能为空');
+    // 扩展名白名单（不含点小写；无扩展名同样拒收）；业务拒绝口径同 callme /ingest-chat：HTTP 200 + ok:false
+    if (!FILE_EXTS.has(getFileExt(name))) {
+      return bad('该文件类型暂不支持入知识库', 'unsupported_file', 200);
+    }
     const b64 = f && typeof f.data_base64 === 'string' ? f.data_base64 : '';
     if (!b64.trim()) return bad('file.data_base64 不能为空');
     const compact = b64.replace(/\s+/g, '');
@@ -226,7 +254,9 @@ router.post('/ingest', async (req, res) => {
   }
 
   const parsed = parseBody(req.body);
-  if (parsed.error) return ingestFail(res, 400, parsed.error.code, parsed.error.message);
+  if (parsed.error) {
+    return ingestFail(res, parsed.error.httpStatus, parsed.error.code, parsed.error.message);
+  }
 
   const folderPath = folderSegments(parsed.date).join('/');
   try {
