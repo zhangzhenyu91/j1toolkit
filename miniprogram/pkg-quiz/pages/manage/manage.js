@@ -9,7 +9,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
-import { mapAnalysis } from '../../../utils/quiz';
+import { mapAnalysis } from '../../utils/quiz';
 
 const API_BASE = '/api/v1/quiz';
 const POLL_INTERVAL = 5000; // 有解析中题库时按 5s 轮询（同 safeday 口径）

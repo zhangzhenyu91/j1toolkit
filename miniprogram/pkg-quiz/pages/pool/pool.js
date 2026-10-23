@@ -8,7 +8,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
-import { mapAnalysis } from '../../../utils/quiz';
+import { mapAnalysis } from '../../utils/quiz';
 
 const API_BASE = '/api/v1/quiz';
 
