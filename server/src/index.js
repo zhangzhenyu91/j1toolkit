@@ -28,6 +28,8 @@ app.use('/api/v1/wmadd', express.json({ limit: '22mb' }));
 app.use('/api/v1/treehazard', express.json({ limit: '50mb' }));
 // Call Me 群内提问直推随请求携带图片/附件 base64（file.data_base64 ≤50MB），单独放宽 JSON 上限
 app.use('/api/v1/callme/ingest-chat', express.json({ limit: '80mb' }));
+// 聊天日志归档直推随请求携带单文件 base64（≤30MB，base64 后约 41MB + JSON 包裹余量），单独放宽 JSON 上限
+app.use('/api/v1/chatlog', express.json({ limit: '50mb' }));
 app.use(express.json({ limit: '12mb' })); // 聊天图片以 base64 上送，放宽体积限制
 
 // 简易访问日志
@@ -83,6 +85,8 @@ app.use('/api/v1/treehazard', require('./treehazard'));
 app.use('/api/v1/teamdata', require('./teamdata'));
 // 交跨记录（crane-answer 交跨排查直推，纯文字台账无照片，走全局 12mb 解析器即可）
 app.use('/api/v1/crossing', require('./crossing'));
+// 聊天日志归档（crane-answer 每日推送群兜底消息纪要/文档至 WeKnora 知识库；/ingest 凭 X-Ingest-Token 免登录，见 开发指南.md 二十一节）
+app.use('/api/v1/chatlog', require('./chatlog'));
 // 团队网盘（OpenList 中转，建表/种子见 netdisk/schema.js）
 app.use('/api/v1/netdisk', require('./netdisk'));
 // ONLYOFFICE 在线编辑（配置签发 + 保存回调；文件回源复用网盘 /preview 票据路由）

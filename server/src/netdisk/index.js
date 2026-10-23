@@ -378,6 +378,87 @@ router.post('/search', async (req, res) => {
   }
 });
 
+// ================= 文件夹大小统计（网页端详情面板单选文件夹用） =================
+// 递归经 fsList 目录缓存通道累计大小与计数（不强制驱动回源）；条数/深度/耗时三上限触顶即返回
+// truncated:true 与已统计值；结果进程内短 TTL 缓存，写操作路由收口处主动失效（覆盖不经列表重载的上传 complete 等路径）
+const DIRSIZE_MAX_ITEMS = 5000; // 单次统计最多遍历的条目数
+const DIRSIZE_MAX_DEPTH = 20; // 目录递归深度上限（目标文件夹自身为第 0 层）
+const DIRSIZE_TIMEOUT_MS = 30 * 1000; // 遍历总耗时上限（超时放弃继续展开，返回部分统计）
+const DIRSIZE_TTL_MS = 5 * 60 * 1000; // 统计结果缓存有效期
+const dirsizeCache = new Map(); // key: 空间根|相对路径 → {at, data}
+const dirsizeFlying = new Map(); // key → Promise（同目录并发请求合并等待，避免重复遍历打满 OpenList）
+
+// 写操作后调用：统计结果立即失效（TTL 之外的双保险）
+function invalidateDirSize() {
+  dirsizeCache.clear();
+}
+
+// 栈式遍历（避免深递归爆调用栈）：单个子目录读不到按截断计（已统计值仍可用），根目录失败由路由层归错
+async function calcDirSize(absRoot) {
+  const deadline = Date.now() + DIRSIZE_TIMEOUT_MS;
+  const stat = { size: 0, files: 0, dirs: 0, truncated: false };
+  let visited = 0;
+  const stack = [[absRoot, 0]];
+  while (stack.length && !stat.truncated) {
+    const [abs, depth] = stack.pop();
+    let data;
+    try {
+      data = await ol.fsList(abs);
+    } catch (err) {
+      stat.truncated = true;
+      break;
+    }
+    for (const item of data.content || []) {
+      if (item.is_dir) {
+        stat.dirs += 1;
+        // 到达深度上限的目录只计数不再展开
+        if (depth + 1 < DIRSIZE_MAX_DEPTH) stack.push([`${abs}/${item.name}`, depth + 1]);
+        else stat.truncated = true;
+      } else {
+        stat.size += item.size || 0;
+        stat.files += 1;
+      }
+      visited += 1;
+      if (visited >= DIRSIZE_MAX_ITEMS || Date.now() > deadline) {
+        stat.truncated = true;
+        break;
+      }
+    }
+  }
+  return stat;
+}
+
+// 文件夹大小：递归统计 {size, files, dirs, truncated}（登录 + netdisk 权限，与 /list 同级；GET 查询参数同下载类接口）
+router.get('/dirsize', async (req, res) => {
+  try {
+    ol.ensureConfigured();
+    const root = await resolveRoot(req, res, req.query.space);
+    if (!root) return;
+    const rel = normRel(req.query.path || '');
+    if (rel === null || rel === '/') return fail(res, 400, 40001, '路径不合法');
+    const abs = joinPath(root, rel);
+    const meta = await ol.fsGet(abs); // 存在性 + 目录前置校验（不存在归 40400，口径同 /download/dir）
+    if (!meta || !meta.is_dir) return fail(res, 400, 40001, '该路径不是文件夹');
+    const key = `${root}|${rel}`;
+    const hit = dirsizeCache.get(key);
+    if (hit && Date.now() - hit.at < DIRSIZE_TTL_MS) return ok(res, { ...hit.data });
+    if (!dirsizeFlying.has(key)) {
+      const task = calcDirSize(abs)
+        .then((data) => {
+          if (dirsizeCache.size > 2000) dirsizeCache.clear(); // 防缓慢膨胀（口径同提取码限流表）
+          dirsizeCache.set(key, { at: Date.now(), data });
+          return data;
+        })
+        .finally(() => dirsizeFlying.delete(key));
+      dirsizeFlying.set(key, task);
+    }
+    const data = await dirsizeFlying.get(key);
+    return ok(res, { ...data });
+  } catch (err) {
+    return relayFail(res, err);
+  }
+});
+
 // 新建文件夹（公共区全员可建）
 router.post('/mkdir', async (req, res) => {
   try {
@@ -388,6 +469,7 @@ router.post('/mkdir', async (req, res) => {
     const name = validName(req.body && req.body.name);
     if (rel === null || !name) return fail(res, 400, 40001, '参数错误：path/name');
     await ol.fsMkdir(`${joinPath(root, rel)}/${name}`);
+    invalidateDirSize();
     return ok(res, null, '已创建');
   } catch (err) {
     return relayFail(res, err);
@@ -404,6 +486,7 @@ router.post('/rename', async (req, res) => {
     const name = validName(req.body && req.body.name);
     if (rel === null || rel === '/' || !name) return fail(res, 400, 40001, '参数错误：path/name');
     await ol.fsRename(joinPath(root, rel), name);
+    invalidateDirSize();
     return ok(res, null, '已重命名');
   } catch (err) {
     return relayFail(res, err);
@@ -440,6 +523,7 @@ router.post('/rename/batch', async (req, res) => {
         failed.push({ path: rel, name, message: err.message || '重命名失败' });
       }
     }
+    invalidateDirSize();
     return ok(res, { renamed, failed }, '批量重命名完成');
   } catch (err) {
     return relayFail(res, err);
@@ -467,6 +551,7 @@ router.post('/remove', async (req, res) => {
     for (const [dir, names] of groups) {
       await ol.fsRemove(joinPath(root, dir), names);
     }
+    invalidateDirSize();
     return ok(res, null, '已删除');
   } catch (err) {
     return relayFail(res, err);
@@ -496,6 +581,7 @@ async function moveCopy(req, res, op) {
     await ol.ensureDir(joinPath(dstRoot, dstDir));
     const fn = op === 'move' ? ol.fsMove : ol.fsCopy;
     await fn(joinPath(srcRoot, srcDir), joinPath(dstRoot, dstDir), names);
+    invalidateDirSize();
     return ok(res, null, op === 'move' ? '已移动' : '已复制');
   } catch (err) {
     return relayFail(res, err);
@@ -586,6 +672,7 @@ router.post('/archive/decompress', async (req, res) => {
         overwrite: !!(req.body && req.body.overwrite),
       }
     );
+    invalidateDirSize();
     return ok(res, null, '已解压');
   } catch (err) {
     return relayFail(res, err);
@@ -770,6 +857,7 @@ router.post('/upload/init', async (req, res) => {
     const abs = `${joinPath(root, rel)}/${name}`;
     if (size === 0) {
       await ol.putEmpty(abs);
+      invalidateDirSize();
       return ok(res, { state: 'completed', instant: true });
     }
     const snap = await ol.mpInit(abs, size);
@@ -814,7 +902,9 @@ router.post('/upload/complete', async (req, res) => {
     ol.ensureConfigured();
     const uploadId = String((req.body && req.body.upload_id) || '').trim();
     if (!/^[0-9a-f-]{16,64}$/i.test(uploadId)) return fail(res, 400, 40001, '参数错误：upload_id');
-    return ok(res, await ol.mpComplete(uploadId));
+    const snap = await ol.mpComplete(uploadId);
+    invalidateDirSize(); // 合并落盘终态即文件落盘完成，统计缓存随之失效
+    return ok(res, snap);
   } catch (err) {
     return relayFail(res, err);
   }

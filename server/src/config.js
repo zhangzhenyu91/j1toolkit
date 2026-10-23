@@ -54,6 +54,9 @@ const config = {
     // 交跨台账同步目标知识库 ID（按线路 xlsx 快照同步至「交跨台账」文件夹，见 crossing/weknorasync.js；
     // 留空则交跨知识库同步停用不排程）
     crossingKbId: str('WEKNORA_CROSSING_KB_ID', ''),
+    // 聊天日志归档目标知识库 ID（crane-answer 每日推送群兜底消息纪要/文档，按 /{yyyy}/{M.d}/ 文件夹归档，
+    // 见 chatlog/index.js 与 开发指南.md 二十一节；缺省已内置示例值）
+    chatlogKbId: str('WEKNORA_CHATLOG_KB_ID', '0fe096b0-a4e8-41de-acff-c835b7c6424f'),
     // 知识库同步接口的 X-External-User-ID 用户名（老接口强制要求）
     syncUser: str('WEKNORA_SYNC_USER', 'admin'),
   },
@@ -226,6 +229,13 @@ const config = {
     // 每日准备时间（锁定设备并挂载 U 盘至被控机）与取件时间（取回内网表比对回写并解禁），HH:mm，北京时间（可跨午夜）
     syncPrepareTime: str('CROSSING_SYNC_PREPARE_TIME', '23:50'),
     syncFetchTime: str('CROSSING_SYNC_FETCH_TIME', '00:00'),
+  },
+  // 聊天日志归档（crane-answer 每日推送群兜底消息纪要 md 与当天文档至 WeKnora 知识库「检修一班历史聊天记录」；
+  // 纯对接端点无页面，见 chatlog/index.js 与 开发指南.md 二十一节）
+  chatlog: {
+    // crane-answer 直推对接密钥（POST /ingest 请求头 X-Ingest-Token，与 crane-answer 的 YIXIA_INGEST_TOKEN 配同值；
+    // 同一 crane-answer 实例建议各 *_INGEST_TOKEN 同值；留空则直推接口停用返回 503）
+    ingestToken: str('CHATLOG_INGEST_TOKEN', ''),
   },
 };
 
