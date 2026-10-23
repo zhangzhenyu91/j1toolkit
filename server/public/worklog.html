@@ -3,7 +3,7 @@
      功能与小程序端对齐：月历着色 / 当日卡片 / 水印照片大图 / 卡片直改（改派车·用车人·目的地 / 巡视内容（派车车辆上方）/ 打卡 /
      照片人名·重新验证·删除 / 备注（文字+附件，目的地下方；附件图片·视频媒体层预览、Office 文档 basemetas 预览，均可下载）/ 新建·删除日志 /
      水印照片上传（选择水印照片直传 / 选片裁剪加水印后上传，服务端渲染，链路同小程序））；
-     版心满宽贴边；右侧列表位为「记录 / 批量下载 / 汇总前核验」三页签（原批量下载、验证报告弹层已页签化；
+     版心满宽贴边；左侧列表位为「记录 / 批量下载 / 汇总前核验」三页签（原批量下载、验证报告弹层已页签化；
      商旅打卡扩展后验证报告更名「汇总前核验」，范围收窄为仅未通过记录，底部绿色条提示其余全部通过；页头加「从商旅拉取」入口），
      宽屏（≥1600px）记录页签下汇总前核验常驻卡片流右侧栏（syncSideReport；切到核验页签仍可满宽查看）；
      商旅打卡（见《开发指南》第十五章）：用车人行整段为打卡区，每用车人一行（姓名 + 状态小字 + 费用入口 + 并排「开始/结束」两枚 slot 三态；
@@ -218,16 +218,17 @@
         display: none;
       }
 
-      /* ===== 主体两栏：左月历 / 右当日卡片流（撑满剩余高度，列内容超高时各自内部滚动） ===== */
+      /* ===== 主体两栏：右月历 / 左当日卡片流（撑满剩余高度，列内容超高时各自内部滚动） ===== */
       .wl-body {
         display: flex;
+        flex-direction: row-reverse;
         gap: 20px;
         margin-top: 18px;
         flex: 1;
         min-height: 0;
       }
 
-      /* ----- 月历卡（rv 进场改为自左滑入，仍由 Shade.reveal 触发 .in） ----- */
+      /* ----- 月历卡（rv 进场改为自右滑入，仍由 Shade.reveal 触发 .in） ----- */
       .cal {
         width: 340px;
         flex: none;
@@ -237,7 +238,7 @@
         overflow-y: auto;
       }
       .cal.rv {
-        transform: translateX(-20px);
+        transform: translateX(20px);
       }
       .cal.rv.in {
         transform: none;
@@ -406,8 +407,8 @@
         flex-direction: column;
       }
       .wl-list.rv {
-        transform: translateX(36px);
-      } /* rv 进场改为自右滑入（Shade.reveal 触发 .in 归位） */
+        transform: translateX(-36px);
+      } /* rv 进场改为自左滑入（Shade.reveal 触发 .in 归位） */
       .wl-list.rv.in {
         transform: none;
       } /* 同上，显式归位防内联样式盖过 theme 的 .rv.in */
@@ -3283,7 +3284,7 @@
         </div>
 
         <div class="wl-body">
-          <!-- 左：月历（按 day-status 着色） -->
+          <!-- 右：月历（按 day-status 着色） -->
           <aside class="card cal rv">
             <div class="cal-h">
               <b id="calYm">—</b>
@@ -3301,7 +3302,7 @@
             </div>
           </aside>
 
-          <!-- 右：记录 / 下载 / 报告 / 数据管理 页签共用同一列表位（顶部与月历卡顶齐平） -->
+          <!-- 左：记录 / 下载 / 报告 / 数据管理 页签共用同一列表位（顶部与月历卡顶齐平） -->
           <section class="wl-list rv">
             <!-- 记录：当日日志卡片流（日期导航由月历承担） -->
             <div class="pane on" id="paneRecord"><div id="cardFlow"></div></div>

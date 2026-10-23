@@ -1,12 +1,12 @@
 <!doctype html>
 <!-- Shade 壹匣 · 题库刷题网页版（刷题练习 + 题库管理双页签，页签参考出工日志 wl-tabs：文字 + 滑动指示条；
      「题库管理」页签仅 admin / team_admin 可见，普通用户仅刷题练习）
-     刷题练习：左卡我的题库（个人口径，GET /banks，进度条 + 题库池弹层入口）+ 右卡题库主页（GET /banks/:id/home
-     统计行 + 顺序/随机/错题/收藏四入口，对齐小程序 bank 页）；点入口进刷题页（接管右卡）：顶行 返回 + 答题/背题切换
+     刷题练习：右卡我的题库（个人口径，GET /banks，进度条 + 题库池弹层入口）+ 左卡题库主页（GET /banks/:id/home
+     统计行 + 顺序/随机/错题/收藏四入口，对齐小程序 bank 页）；点入口进刷题页（接管左卡）：顶行 返回 + 答题/背题切换
      + 进度 x/total，选项仅字母圈 + 文字无卡片底、左边界对齐题干内容首字；解析态 = 正确答案/您的选择 + 本人/全员统计
      + 错题本动态 + 试题详解卡；底栏 收藏/对错计数/答题卡/设置 + 主按钮，支持 ← → 方向键切题；
      断点续刷（服务端 quiz_user_bank.seq_idx，跨端续刷）与做题记录恢复（取题 withRecord=1）同小程序，答题卡居中弹层可清空做题记录；
-     题库管理：原双卡视图不变（左题库列表 GET /banks/manage + 右题目表格/导入/AI 解析轮询）；
+     题库管理：原双卡视图不变（右题库列表 GET /banks/manage + 左题目表格/导入/AI 解析轮询）；
      班组隔离：超管页签旁班组切换下拉（localStorage.quiz_team_id，管理请求统一带 team_id，见 qz()）；
      API 直连主平台 /api/v1/quiz/*（Bearer token 经 Shade.api） -->
 <html lang="zh-CN">
@@ -39,6 +39,7 @@
         min-height: 0;
         width: 100%;
         display: flex;
+        flex-direction: row-reverse;
         gap: 20px;
         margin-top: 16px;
       }
@@ -80,7 +81,7 @@
         background: transparent;
       }
 
-      /* ===== 左卡：题库列表 ===== */
+      /* ===== 右卡：题库列表 ===== */
       .qz-side {
         width: 300px;
         flex: none;
@@ -220,7 +221,7 @@
         margin-top: 8px;
       }
 
-      /* ===== 右卡：题库管理 ===== */
+      /* ===== 左卡：题库管理 ===== */
       .qz-main {
         flex: 1;
         min-width: 0;
@@ -746,7 +747,7 @@
           width 0.3s var(--ease);
       }
 
-      /* ===== 刷题练习 · 左卡我的题库（个人口径进度） ===== */
+      /* ===== 刷题练习 · 右卡我的题库（个人口径进度） ===== */
       #wrapPractice .side-item .pg {
         margin-top: 7px;
         display: flex;
@@ -763,7 +764,7 @@
         white-space: nowrap;
       }
 
-      /* ===== 刷题练习 · 右卡题库主页（统计行 + 四宫格入口） ===== */
+      /* ===== 刷题练习 · 左卡题库主页（统计行 + 四宫格入口） ===== */
       .bh-stats {
         display: flex;
         padding: 15px 0;
@@ -850,7 +851,7 @@
         color: var(--ph);
       }
 
-      /* ===== 刷题页（右卡接管）：顶行 返回 + 答题/背题 + 进度 + x/total ===== */
+      /* ===== 刷题页（左卡接管）：顶行 返回 + 答题/背题 + 进度 + x/total ===== */
       #panePractice {
         flex: 1;
         min-height: 0;
@@ -1263,7 +1264,7 @@
         left: 20px;
       }
 
-      /* 窄屏回退：左右卡收窄 */
+      /* 窄屏回退：两卡收窄 */
       @media (max-width: 900px) {
         .page {
           padding: 16px;
@@ -1288,7 +1289,7 @@
         <span class="qz-tab-ind" id="qzTabInd"></span>
       </div>
 
-      <!-- 刷题练习：左卡我的题库 + 右卡题库主页 / 刷题页 -->
+      <!-- 刷题练习：右卡我的题库 + 左卡题库主页 / 刷题页 -->
       <div class="qz-wrap fade-up" id="wrapPractice">
         <aside class="card qz-side">
           <div class="side-head">
@@ -1305,9 +1306,9 @@
         </section>
       </div>
 
-      <!-- 题库管理：左卡题库列表（新建/导入/超管班组切换）+ 右卡题目表格/AI 解析 -->
+      <!-- 题库管理：右卡题库列表（新建/导入/超管班组切换）+ 左卡题目表格/AI 解析 -->
       <div class="qz-wrap fade-up" id="wrapManage" hidden>
-        <!-- 左卡：题库管理（新建 / 导入按钮；超管另见班组切换） -->
+        <!-- 右卡：题库管理（新建 / 导入按钮；超管另见班组切换） -->
         <aside class="card qz-side">
           <div class="side-head">
             <b>题库管理</b>
@@ -1322,7 +1323,7 @@
           </div>
         </aside>
 
-        <!-- 右卡：头部按钮组 + AI 解析通知条 + 搜索 + 题目表格 + 分页 -->
+        <!-- 左卡：头部按钮组 + AI 解析通知条 + 搜索 + 题目表格 + 分页 -->
         <section class="card qz-main">
           <div class="pane" id="paneManage">
             <div class="mg-head" id="mgHead"></div>
@@ -1452,7 +1453,7 @@
           boot();
         }
 
-        /* ================= 左卡数据 ================= */
+        /* ================= 右卡数据 ================= */
         async function loadBanks(quiet) {
           if (!quiet) {
             state.banks = null;
@@ -1473,7 +1474,7 @@
           renderSide();
         }
 
-        /* ================= 左卡渲染 ================= */
+        /* ================= 右卡渲染 ================= */
         function bankMetaManage(b) {
           var p = aiProgress(b);
           var t = b.questionCount + ' 题 · ';
@@ -1582,7 +1583,7 @@
           var head = $('#mgHead');
           if (!b) {
             head.innerHTML =
-              '<div class="tx"><b>暂无题库</b><p>点击左卡右上角 + 新建题库</p></div>';
+              '<div class="tx"><b>暂无题库</b><p>点击右卡右上角 + 新建题库</p></div>';
             return;
           }
           var p = aiProgress(b);
@@ -1835,7 +1836,7 @@
           if (state.pollTimer) return;
           state.pollTimer = setInterval(async function () {
             try {
-              await loadBanks(true); // 左卡与头部统计静默刷新
+              await loadBanks(true); // 右卡与头部统计静默刷新
               renderMgHead();
               renderMgNotice();
               loadMgQuestions(true); // 表格解析状态标签同步
@@ -2286,7 +2287,7 @@
 
         /* ================= 事件绑定 ================= */
         function bindEvents() {
-          /* 左卡：题库选择 / 题库编辑·删除 */
+          /* 右卡：题库选择 / 题库编辑·删除 */
           $('#sideScroll').addEventListener('click', function (e) {
             var opBtn = e.target.closest('.ops button');
             if (opBtn) {
@@ -2309,7 +2310,7 @@
               syncPoll();
             }
           });
-          /* 左卡头部：新建题库 / 导入 Excel（无题库时 openImportPicker 内提示先新建） */
+          /* 右卡头部：新建题库 / 导入 Excel（无题库时 openImportPicker 内提示先新建） */
           $('#btnNewBank').addEventListener('click', function () {
             openBankModal(null);
           });
@@ -2395,7 +2396,7 @@
           inflight: null,
           submitting: false,
           favBusy: false,
-          started: false, // 刷题页是否接管右卡
+          started: false, // 刷题页是否接管左卡
           seqSaved: null, // 服务端 seq 断点（大纲响应 seqIdx；null=未开始）
           settings: { autoNext: false, shuffleOpt: false },
           autoTimer: 0,
@@ -2464,8 +2465,8 @@
           }
         }
 
-        /* ---------- 左卡：我的题库 ---------- */
-        /* 作答/清空后防抖静默刷新左卡进度（个人口径列表轻量；连答合并，600ms 内只发一次） */
+        /* ---------- 右卡：我的题库 ---------- */
+        /* 作答/清空后防抖静默刷新右卡进度（个人口径列表轻量；连答合并，600ms 内只发一次） */
         var pvSideTimer = 0;
         function pvRefreshSideSoon() {
           if (pvSideTimer) clearTimeout(pvSideTimer);
@@ -2572,7 +2573,7 @@
             .join('');
         }
 
-        /* ---------- 右卡：题库主页（统计行 + 四入口） ---------- */
+        /* ---------- 左卡：题库主页（统计行 + 四入口） ---------- */
         async function pvLoadHome(quiet) {
           if (!pv.bankId) {
             pv.home = null;
@@ -2603,7 +2604,7 @@
             box.innerHTML =
               '<div class="empty" style="margin:auto">' +
               Shade.icon('book', 44) +
-              '<p>还没有题库</p><p style="font-size:11px">点左卡右上角罗盘图标，从题库池添加题库</p></div>';
+              '<p>还没有题库</p><p style="font-size:11px">点右卡右上角罗盘图标，从题库池添加题库</p></div>';
             return;
           }
           if (!pv.home) {
@@ -3212,7 +3213,7 @@
             pv.myRight[q.id] = d.right ? 1 : 0; // 计数与答题卡着色数据源同步
             pv.sel = [];
             pvRender();
-            pvRefreshSideSoon(); // 左卡我的题库进度同步（已练 +1）
+            pvRefreshSideSoon(); // 右卡我的题库进度同步（已练 +1）
             if (d.wrong && d.wrong.removed) Shade.toast('已移出错题本', 'success');
             /* 答对自动下一题（设置开启；答错停留看解析；末尾题不自动） */
             if (pv.settings.autoNext && d.right && pv.idx < pv.outline.length - 1) {
@@ -3363,7 +3364,7 @@
             Shade.toast(e.message, 'error');
             return;
           }
-          pvLoadBanks(true); // 清空后左卡进度归零同步
+          pvLoadBanks(true); // 清空后右卡进度归零同步
           Shade.toast('已清空做题记录', 'success');
         }
         function pvOpenSettings() {
@@ -3413,7 +3414,7 @@
           }
           $('#panePractice').hidden = true;
           $('#paneBankHome').hidden = false;
-          pvLoadBanks(true); // 进度已变，静默刷新左卡与主页
+          pvLoadBanks(true); // 进度已变，静默刷新右卡与主页
           pvLoadHome(true);
         }
         async function pvSelectBank(id) {
@@ -3495,7 +3496,7 @@
 
         /* ---------- 刷题练习：事件绑定 ---------- */
         function bindPracticeEvents() {
-          /* 左卡：选题库 */
+          /* 右卡：选题库 */
           $('#pvSideScroll').addEventListener('click', function (e) {
             var item = e.target.closest('.side-item[data-id]');
             if (!item) return;

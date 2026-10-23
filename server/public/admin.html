@@ -273,10 +273,10 @@
         background: rgba(245, 63, 63, 0.08);
       }
 
-      /* ===== 权限管理：左用户 / 右应用 ===== */
+      /* ===== 权限管理：右用户 / 左应用 ===== */
       .perm-wrap {
         display: grid;
-        grid-template-columns: 300px 1fr;
+        grid-template-columns: 1fr 300px;
         gap: 18px;
         align-items: start;
         margin-top: 20px;
@@ -708,6 +708,10 @@
         .perm-wrap {
           grid-template-columns: 1fr;
         }
+        /* 单栏堆叠保持原语义：员工选择列（DOM 已后置）仍居上 */
+        .pm-side {
+          order: -1;
+        }
         .pm-list,
         .pm-apps {
           max-height: none;
@@ -771,6 +775,14 @@
       <!-- ===== 权限管理 ===== -->
       <section class="pane" id="pane-perms">
         <div class="perm-wrap">
+          <div class="card pm-main">
+            <div class="pm-head" id="permHead">
+              <span>请先选择右侧员工</span>
+            </div>
+            <div class="pm-apps" id="permAppList">
+              <div class="empty" id="permEmpty"></div>
+            </div>
+          </div>
           <aside class="card pm-side">
             <div class="pm-search">
               <div class="field">
@@ -789,14 +801,6 @@
               <div class="loading"><span class="spin"></span>加载中</div>
             </div>
           </aside>
-          <div class="card pm-main">
-            <div class="pm-head" id="permHead">
-              <span>请先选择左侧员工</span>
-            </div>
-            <div class="pm-apps" id="permAppList">
-              <div class="empty" id="permEmpty"></div>
-            </div>
-          </div>
         </div>
       </section>
       <!-- ===== 班组管理 ===== -->
@@ -1115,7 +1119,7 @@
         b.innerHTML = Shade.icon('close', 16);
       });
       $('#permEmpty').innerHTML =
-        Shade.icon('usergroup', 44) + '<p>选择左侧员工后勾选应用，勾选即保存</p>';
+        Shade.icon('usergroup', 44) + '<p>选择右侧员工后勾选应用，勾选即保存</p>';
 
       // 原生 select 全部换为自绘下拉（原 select 隐藏保留为数据源；脚本改选项/值/disabled 后调 sync() 重绘）
       var ddTeamFilter = Shade.dropdown($('#teamFilter'), {
@@ -1781,7 +1785,7 @@
         }
       }
 
-      // 左侧员工列表（独立数据源与班组筛选；可搜索，账号 / 昵称模糊匹配）
+      // 右侧员工列表（独立数据源与班组筛选；可搜索，账号 / 昵称模糊匹配）
       async function loadPermUsers() {
         try {
           var r = await Shade.api(
@@ -1899,7 +1903,7 @@
         }
       }
 
-      // 右侧应用勾选列表
+      // 左侧应用勾选列表
       function renderPermApps() {
         if (!apps.length) {
           $('#permAppList').innerHTML =

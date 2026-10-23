@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- Shade 壹匣 · Call Me AI 知识库对话（网页版，「政企蓝白」）
-     布局：左侧图标栏 + .page 呼吸边距满宽贴边；左侧会话列表为悬浮白卡（贴页面最左，窄屏收为抽屉），右侧为纸底画布——
-     聊天列限宽 960px 居中于右区（两侧留白防超宽难读），消息直接落在画布上（问题墨色气泡 / 回答无气泡纯文本 / 步骤树折叠块含进行中动效），
+     布局：左侧图标栏 + .page 呼吸边距满宽贴边；右侧会话列表为悬浮白卡（贴页面最右，窄屏收为右侧抽屉），左侧为纸底画布——
+     聊天列限宽 960px 居中于对话区（两侧留白防超宽难读），消息直接落在画布上（问题墨色气泡 / 回答无气泡纯文本 / 步骤树折叠块含进行中动效），
      输入框为聊天列底部的悬浮卡片（默认 3 行高，随内容自增至 150px）
      协议对齐小程序端 pkg-callme：POST /api/v1/callme/chat 为 SSE 流（fetch + ReadableStream 解析，
      事件 {type: thinking|answer|preamble|tool_start|tool_end|title|references|done|error}，心跳 ': ping' 行忽略），
@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="/assets/theme.css" />
     <style>
       /* ===== 整页布局：body 锁定 100vh 无全局滚动；左侧图标栏右侧为 .page 容器（呼吸边距露出页面浅灰底），
-         主体两张悬浮白卡（左会话列表 / 右对话区），卡高 = 视口 - 边距 - 备案页脚，卡内各自滚动 ===== */
+         主体两张悬浮白卡（左对话区 / 右会话列表），卡高 = 视口 - 边距 - 备案页脚，卡内各自滚动 ===== */
       html,
       body {
         height: 100%;
@@ -38,11 +38,12 @@
         padding: 28px 40px 32px;
       }
 
-      /* ===== 对话区骨架：左右两区（左白卡直角 + 2px 墨边 + 硬影），满宽贴边（左侧会话栏即页面最左） ===== */
+      /* ===== 对话区骨架：左右两区（右白卡直角 + 2px 墨边 + 硬影），满宽贴边（右侧会话栏即页面最右） ===== */
       .cm {
         flex: 1;
         min-height: 0;
         display: flex;
+        flex-direction: row-reverse;
         gap: 20px;
         width: 100%;
       }
@@ -57,7 +58,7 @@
         transition: opacity 0.3s;
       }
 
-      /* ===== 左侧会话栏（悬浮卡片：白底直角 + 2px 墨边 + 硬影），满宽贴边（左侧会话栏即页面最左） ===== */
+      /* ===== 右侧会话栏（悬浮卡片：白底直角 + 2px 墨边 + 硬影），满宽贴边（右侧会话栏即页面最右） ===== */
       .cm-side {
         width: 262px;
         flex: none;
@@ -296,8 +297,8 @@
         margin-top: 1px;
       }
 
-      /* ===== 右侧对话区：无卡片，消息直接落在页面浅灰画布上（对齐官方前端）；
-         聊天列限宽 960px 居中于右区（auto 外边距吸收剩余宽度），两侧留白防超宽难读 ===== */
+      /* ===== 对话区：无卡片，消息直接落在页面浅灰画布上（对齐官方前端）；
+         聊天列限宽 960px 居中于对话区（auto 外边距吸收剩余宽度），两侧留白防超宽难读 ===== */
       .cm-main {
         flex: 1;
         min-width: 0;
@@ -1221,7 +1222,8 @@
         .cm-main {
           animation: fadeUp 0.6s var(--ease) both;
         }
-        .cm-main {
+        /* 错峰自左向右：主区在左先落位，会话栏在右延后 0.1s */
+        .cm-side {
           animation-delay: 0.1s;
         }
       }
@@ -1238,23 +1240,23 @@
           width: 240px;
         }
       }
-      /* 更窄屏：侧栏收起为抽屉（贴视口全高，left:64px 给左侧图标栏让位，方角），对话区独占 .page */
+      /* 更窄屏：侧栏收起为右侧抽屉（贴视口全高，right:0 贴视口右缘滑出，方角），对话区独占 .page */
       @media (max-width: 860px) {
         .cm-page {
           padding: 14px 14px 18px;
         }
         .cm-side {
           position: fixed;
-          left: var(--rail-w, 64px);
+          right: 0;
           top: 0;
           bottom: 0;
           z-index: 120;
           width: 272px;
           border-radius: 8px;
-          border-left: none;
-          transform: translateX(-105%);
+          border-right: none;
+          transform: translateX(105%);
           transition: transform 0.3s var(--ease);
-          box-shadow: 8px 0 0 rgba(29, 33, 41, 0.9);
+          box-shadow: -8px 0 0 rgba(29, 33, 41, 0.9);
         }
         body.side-open .cm-side {
           transform: none;
@@ -1298,10 +1300,10 @@
   <body>
     <!-- 左侧图标导航栏由 Shade.topbar({active:'callme'}) 统一渲染（见 script） -->
 
-    <!-- .page 容器：呼吸边距露出页面浅灰底，内部两张悬浮卡片（左会话列表 / 右对话区） -->
+    <!-- .page 容器：呼吸边距露出页面浅灰底，内部两张悬浮卡片（左对话区 / 右会话列表） -->
     <div class="page cm-page">
       <div class="cm">
-        <!-- 左侧：会话列表 -->
+        <!-- 右侧：会话列表 -->
         <aside class="cm-side" id="cmSide">
           <div class="cm-side-head">
             <div class="cm-logo" id="sideLogo"></div>
@@ -1322,7 +1324,7 @@
         </aside>
         <div class="cm-mask" id="cmMask"></div>
 
-        <!-- 右侧：对话流 -->
+        <!-- 左侧：对话流 -->
         <main class="cm-main">
           <div class="cm-head">
             <button class="cm-toggle" id="cmToggle" title="会话列表"></button>
@@ -2551,7 +2553,7 @@
             renderThink(msg);
           }
         } else if (evt.type === 'title' && evt.content) {
-          // WeKnora 自动生成的会话标题：实时更新标题与左侧列表
+          // WeKnora 自动生成的会话标题：实时更新标题与右侧列表
           state.activeTitle = evt.content;
           cmTitle.textContent = evt.content;
           var titled = findSession(state.activeId);

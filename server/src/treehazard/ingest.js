@@ -434,15 +434,8 @@ async function handleIngest(req, res, next) {
         photos,
         photos_failed: photosFailed,
       } = await importDirect(team, sessionId, records);
-      const photoLine =
-        photos || photosFailed
-          ? `\n辅证照片：${photos} 张${photosFailed ? `（失败 ${photosFailed} 张）` : ''}`
-          : '';
-      notify(
-        team,
-        '树障记录入库',
-        `班组：${team.name}\n入库：新增 ${inserted} 条 / 更新 ${updated} 条（跳过 ${skipped} 条）${photoLine}\n推送人：${pusherName || '未知'}`
-      );
+      // direct 为 crane-answer 逐条实时推送（落库/更正/辅证变更各一次），不发站内通知避免刷屏；
+      // 群内回执由 crane-answer 自行发送（「已记录」/「报送失败…」）
       return ok(res, { inserted, updated, skipped, photos, photos_failed: photosFailed, deleted });
     }
 
@@ -480,6 +473,7 @@ async function handleIngest(req, res, next) {
 }
 
 // 站内通知（超管 + 本班班组管理员；失败仅记日志，不影响直推应答）。
+// 仅 staging 进暂存区时通知（人工整批报送、低频，提醒班管确认导入）；direct 逐条实时推送不通知（避免刷屏）。
 // 群内反馈一律由 crane-answer 自行发送（成功「已记录」/失败「报送失败…」），壹匣通知系统不向微信群推送
 function notify(team, title, content) {
   notice

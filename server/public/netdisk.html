@@ -45,7 +45,8 @@
        包内按 inner_path 逐级浏览、单文件 /archive/download 下载；右键「解压到…」复用目标选择弹窗
        （附「以压缩包命名的新目录」勾选项，解压接口无 dst_space、锁定当前空间）；
      布局：整页 100vh 锁定（body 内滚口径同 worklog），文件区占满视口剩余高度、网格区 overflow-y:auto 内滚、
-       状态栏沉底固定（无选择仅「共 N 项」，有选择追加 已选择/合计）；框选矩形用相对网格
+       状态栏沉底固定（无选择仅「共 N 项」，有选择追加 已选择/合计）；文件区横向双列：左列工具条/路径栏/网格/状态栏，
+       右列常驻详情面板（单选条目详情——修改时间秒级、多选已选汇总、空选隐藏，≤1024px 隐藏面板）；框选矩形用相对网格
        内容坐标（scrollLeft/scrollTop 折算），滚动时矩形随内容滚、命中检测同坐标系（offsetLeft/Top）；
      动效（政企克制，缓动 var(--ease)，降级由 theme.css 全局 prefers-reduced-motion 统一关闭）：
        空间分段白 pill 滑动位移（moveSegPill，重建/缩放直接落位）；目录/空间/搜索切换 旧内容淡出（.g-out）
@@ -752,6 +753,106 @@
         color: var(--sub);
         font-weight: 600;
         font-variant-numeric: tabular-nums;
+      }
+
+      /* ===== 右侧常驻详情面板（白卡同 token）：.nd-main 横向双列，左列网格可滚、右列 280px 面板 ===== */
+      .nd-main {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        gap: 16px;
+      }
+      .nd-files-col {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .nd-info {
+        flex: none;
+        width: 280px;
+        min-height: 0;
+        margin-top: 8px; /* 顶对齐网格区（gridwrap 同 8px） */
+        padding: 16px;
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+        font-size: 12.5px;
+        color: var(--sub);
+      }
+      .nd-info::-webkit-scrollbar {
+        width: 5px;
+      }
+      .nd-info::-webkit-scrollbar-thumb {
+        background: rgba(29, 33, 41, 0.16);
+        border-radius: 8px;
+      }
+      /* 面板头部：大图标（复用格子图标逻辑）+ 可换行文件名 */
+      .ni-head {
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .ni-name {
+        margin-top: 10px;
+        text-align: center;
+        font-size: 13.5px;
+        font-weight: 600;
+        line-height: 1.5;
+        color: var(--navy);
+        word-break: break-all;
+      }
+      /* 定义列表式字段行：dt 固定宽标签、dd 取值（数字 tabular-nums），发丝线分隔 */
+      .ni-fields {
+        margin: 0;
+        padding-top: 4px;
+      }
+      .ni-row {
+        display: flex;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .ni-row:last-child {
+        border-bottom: none;
+      }
+      .ni-row dt {
+        flex: none;
+        width: 56px;
+        color: var(--ph);
+      }
+      .ni-row dd {
+        margin: 0;
+        flex: 1;
+        min-width: 0;
+        color: var(--navy);
+        word-break: break-all;
+        font-variant-numeric: tabular-nums;
+      }
+      /* 多选汇总：已选 N 项 + 合计大小 */
+      .ni-multi {
+        padding: 44px 0;
+        text-align: center;
+      }
+      .ni-multi b {
+        display: block;
+        font-size: 15px;
+        color: var(--navy);
+      }
+      .ni-multi span {
+        display: block;
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--ph);
+        font-variant-numeric: tabular-nums;
+      }
+      /* 窄屏：隐藏详情面板，网格列占满全宽（页内无既有媒体查询，此为本页首个断点） */
+      @media (max-width: 1024px) {
+        .nd-info {
+          display: none;
+        }
       }
       .lk {
         font-size: 12.5px;
@@ -1650,60 +1751,67 @@
 
         <!-- ================= 全部文件视图 ================= -->
         <section id="viewFiles">
-          <div class="nd-toolbar fade-up" style="animation-delay: 0.14s">
-            <div class="seg" id="spaceSeg"></div>
-            <!-- 选中操作区：常驻布局，有选中项时加 .show 淡入（移动/删除按 manageable 显隐；文件与文件夹均可下载，文件夹整包 ZIP） -->
-            <span class="selbar" id="selbar">
-              <button type="button" class="btn btn-sm" data-sel="dl">下载</button>
-              <button type="button" class="btn btn-sm" data-sel="share">分享</button>
-              <button type="button" class="btn btn-sm" data-sel="move">移动</button>
-              <button type="button" class="btn btn-sm" data-sel="copy">复制</button>
-              <button type="button" class="btn btn-sm btn-del" data-sel="del">删除</button>
-              <button type="button" class="btn btn-sm" data-sel="clear">取消选择</button>
-            </span>
-            <div class="tb-right" id="tbRight">
-              <button type="button" class="btn btn-sm" id="btnMkdir"></button>
-              <button type="button" class="btn btn-sm" id="btnUpDir"></button>
-              <button type="button" class="btn btn-sm btn-primary" id="btnUpload"></button>
+          <div class="nd-main">
+            <div class="nd-files-col">
+              <div class="nd-toolbar fade-up" style="animation-delay: 0.14s">
+                <div class="seg" id="spaceSeg"></div>
+                <!-- 选中操作区：常驻布局，有选中项时加 .show 淡入（移动/删除按 manageable 显隐；文件与文件夹均可下载，文件夹整包 ZIP） -->
+                <span class="selbar" id="selbar">
+                  <button type="button" class="btn btn-sm" data-sel="dl">下载</button>
+                  <button type="button" class="btn btn-sm" data-sel="share">分享</button>
+                  <button type="button" class="btn btn-sm" data-sel="move">移动</button>
+                  <button type="button" class="btn btn-sm" data-sel="copy">复制</button>
+                  <button type="button" class="btn btn-sm btn-del" data-sel="del">删除</button>
+                  <button type="button" class="btn btn-sm" data-sel="clear">取消选择</button>
+                </span>
+                <div class="tb-right" id="tbRight">
+                  <button type="button" class="btn btn-sm" id="btnMkdir"></button>
+                  <button type="button" class="btn btn-sm" id="btnUpDir"></button>
+                  <button type="button" class="btn btn-sm btn-primary" id="btnUpload"></button>
+                </div>
+              </div>
+
+              <div class="pathbar fade-up" style="animation-delay: 0.2s">
+                <div class="crumb" id="crumb"></div>
+                <div class="searchw">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="M20.5 20.5L16 16" />
+                  </svg>
+                  <input id="searchInput" placeholder="搜索当前空间文件名" maxlength="100" />
+                  <span class="sw-x" id="searchClear" hidden title="清空搜索">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </span>
+                </div>
+                <!-- 待粘贴提示条：移动/复制进入待粘贴状态后显示，切换目录/空间不丢 -->
+                <div class="paste-bar" id="pasteBar" hidden></div>
+              </div>
+
+              <div class="gridwrap fade-up" id="gridwrap" style="animation-delay: 0.26s">
+                <div class="grid" id="grid"></div>
+              </div>
+
+              <div class="statusbar" id="statusbar"></div>
             </div>
-          </div>
 
-          <div class="pathbar fade-up" style="animation-delay: 0.2s">
-            <div class="crumb" id="crumb"></div>
-            <div class="searchw">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <path d="M20.5 20.5L16 16" />
-              </svg>
-              <input id="searchInput" placeholder="搜索当前空间文件名" maxlength="100" />
-              <span class="sw-x" id="searchClear" hidden title="清空搜索">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </span>
-            </div>
-            <!-- 待粘贴提示条：移动/复制进入待粘贴状态后显示，切换目录/空间不丢 -->
-            <div class="paste-bar" id="pasteBar" hidden></div>
+            <!-- 右侧常驻详情面板：单选显示条目详情（修改时间精确到秒）、多选显示汇总、空选隐藏；窄屏隐藏 -->
+            <aside class="nd-info" id="ndInfo" hidden></aside>
           </div>
-
-          <div class="gridwrap fade-up" id="gridwrap" style="animation-delay: 0.26s">
-            <div class="grid" id="grid"></div>
-          </div>
-
-          <div class="statusbar" id="statusbar"></div>
         </section>
 
         <!-- ================= 分享管理视图 ================= -->
@@ -1774,6 +1882,28 @@
         if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
         if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
         return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+      }
+      // 秒级时间：YYYY-MM-DD HH:mm:ss（详情面板用；网格摘要维持日期级 Shade.fmtDate）
+      function fmtSec(d) {
+        if (!d) return '—';
+        var dt = new Date(d);
+        if (isNaN(dt.getTime())) return '—';
+        var p = function (n) {
+          return String(n).padStart(2, '0');
+        };
+        return (
+          dt.getFullYear() +
+          '-' +
+          p(dt.getMonth() + 1) +
+          '-' +
+          p(dt.getDate()) +
+          ' ' +
+          p(dt.getHours()) +
+          ':' +
+          p(dt.getMinutes()) +
+          ':' +
+          p(dt.getSeconds())
+        );
       }
       function sleep(ms) {
         return new Promise(function (r) {
@@ -2414,6 +2544,56 @@
         }
         $('#statusbar').innerHTML = html;
         renderSelbar(si);
+        renderInfo();
+      }
+      /* ================= 右侧常驻详情面板：单选详情 / 多选汇总 / 空选隐藏 ================= */
+      // 挂在 renderStatus 收口驱动：点选/框选/右键/Esc 走 setSel，切目录/搜索/删除/移动/重命名后的
+      // sel.clear() 也一律经 loadList/renderAll 回到 renderStatus，面板与选择态天然同步，无需散点补齐
+      function renderInfo() {
+        var el = $('#ndInfo');
+        var items = selItems();
+        if (!items.length) {
+          el.hidden = true;
+          el.innerHTML = '';
+          return;
+        }
+        el.hidden = false;
+        if (items.length > 1) {
+          var total = 0;
+          items.forEach(function (it) {
+            if (!it.is_dir) total += it.size || 0;
+          });
+          el.innerHTML =
+            '<div class="ni-multi"><b>已选 ' +
+            items.length +
+            ' 项</b><span>合计 ' +
+            fmtSize(total) +
+            '</span></div>';
+          return;
+        }
+        var it = items[0];
+        // 所在路径：搜索态用结果项所在目录（_parentDisp），浏览态即当前目录
+        var loc = S.search ? it._parentDisp : S.path;
+        el.innerHTML =
+          '<div class="ni-head">' +
+          cellIconHtml(it) +
+          '<div class="ni-name">' +
+          esc(it.name) +
+          '</div></div>' +
+          '<dl class="ni-fields">' +
+          '<div class="ni-row"><dt>类型</dt><dd>' +
+          (it.is_dir ? '文件夹' : esc(typeLabel(it.name)) + ' 文件') +
+          '</dd></div>' +
+          '<div class="ni-row"><dt>大小</dt><dd>' +
+          (it.is_dir ? '—' : fmtSize(it.size)) +
+          '</dd></div>' +
+          '<div class="ni-row"><dt>修改时间</dt><dd>' +
+          fmtSec(it.modified) +
+          '</dd></div>' +
+          '<div class="ni-row"><dt>所在路径</dt><dd>' +
+          esc(loc === '/' ? '根目录' : loc) +
+          '</dd></div>' +
+          '</dl>';
       }
       // 顶部工具条选中操作区：.show 类切换淡入淡出（只在 无选择↔有选择 时过渡一次，数量变化不重播；
       // 移动/删除按 manageable 显隐，下载对文件与文件夹均可用（文件夹整包 ZIP）；
