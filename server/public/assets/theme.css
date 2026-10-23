@@ -91,9 +91,15 @@ svg {
   padding: 28px 40px 48px;
 }
 
-/* ===== 左侧图标导航栏（64px fixed 全高，白底 + 右侧 1px 发丝线；不占文档流，body.has-rail 以 padding-left 让位） ===== */
+/* ===== 左侧可折叠导航栏（fixed 全高，白底 + 右侧 1px 发丝线；不占文档流，body.has-rail 以 padding-left 让位；
+   展开 200px 图标+名称常显，body.nav-mini 收成 64px 图标态（标签全藏、悬停显气泡），偏好存 localStorage shade_nav_mini） ===== */
 body.has-rail {
-  padding-left: 64px;
+  --rail-w: 200px;
+  padding-left: var(--rail-w);
+  transition: padding-left 0.25s var(--ease);
+}
+body.has-rail.nav-mini {
+  --rail-w: 64px;
 }
 .rail {
   position: fixed;
@@ -101,24 +107,37 @@ body.has-rail {
   top: 0;
   bottom: 0;
   z-index: 50;
-  width: 64px;
+  width: var(--rail-w, 200px);
   background: #fff;
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 12px 0;
-  gap: 4px;
+  padding: 14px 10px;
+  transition: width 0.25s var(--ease);
 }
 /* Logo 为 <a>（点击回工作台），颜色继承父级避免全局 a 蓝色覆盖 */
 .rail-logo {
-  width: 40px;
-  height: 40px;
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+  padding: 2px 6px 12px;
   color: inherit;
+}
+.rail-lw b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.rail-lw span {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--ph);
+  letter-spacing: 1px;
+  white-space: nowrap;
 }
 /* 品牌 Logo 统一用 工具箱.svg（/favicon.svg） */
 .logo-mark {
@@ -134,20 +153,36 @@ body.has-rail {
   height: 100%;
   display: block;
 }
-.rail-sep {
+/* 折叠钮：吸附栏右缘的圆形小钮 */
+.rail-fold {
+  position: absolute;
+  top: 18px;
+  right: -12px;
+  z-index: 3;
   width: 24px;
-  height: 1px;
-  flex: none;
-  background: var(--line);
-  margin: 6px 0;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--sub);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+}
+.rail-fold:hover {
+  color: var(--orange);
+  border-color: var(--orange);
 }
 .rail-nav {
   flex: 1;
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  gap: 2px;
+  padding-top: 4px;
   overflow-y: auto;
   scrollbar-width: none;
 }
@@ -155,50 +190,80 @@ body.has-rail {
   display: none;
 }
 .rail-item {
-  width: 40px;
-  height: 40px;
+  width: 100%;
+  height: 38px;
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+  padding: 0 10px;
   border: none;
   border-radius: var(--radius-sm);
-  padding: 0;
   background: none;
+  font-size: 13.5px;
   color: var(--sub);
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
   transition:
     color 0.2s var(--ease),
     background 0.2s var(--ease);
+}
+.rail-item svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
 }
 .rail-item:hover {
   color: var(--navy);
   background: var(--fill);
 }
-/* 激活项：浅蓝底 + 品牌蓝图标（分段激活底 token 同口径） */
+/* 激活项：浅蓝底胶囊 + 品牌蓝（分段激活底 token 同口径） */
 .rail-item.on {
   color: var(--orange);
   background: var(--orange-soft);
+  font-weight: 600;
 }
 .rail-bottom {
   margin-top: auto;
   width: 100%;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 /* 「管理」导航项（hidden 时彻底隐藏） */
 #navAdmin[hidden] {
   display: none;
 }
-/* 用户项仅作头像载体与气泡锚点，不做 hover 反馈 */
+/* 用户卡：头像 + 昵称 + 角色徽章（图标态仅头像），无 hover 反馈 */
 .rail-user {
+  height: auto;
+  padding: 4px 10px 10px;
   cursor: default;
 }
 .rail-user:hover {
   background: none;
   color: var(--sub);
+}
+.rail-uinfo b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rail-role {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-top: 3px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  font-size: 11px;
+  font-weight: 600;
+  font-style: normal;
 }
 .mini-avatar {
   width: 34px;
@@ -211,8 +276,9 @@ body.has-rail {
   justify-content: center;
   font-size: 13px;
   font-weight: 600;
+  flex: none;
 }
-/* 悬停气泡：fixed 贴栏右缘，top 由 JS 写入对齐图标中心，translateY(-50%) 垂直居中 */
+/* 悬停气泡：fixed 贴栏右缘，top 由 JS 写入对齐图标中心，translateY(-50%) 垂直居中（仅图标态显示，见 common.js） */
 .rail-tip {
   position: fixed;
   left: 72px;
@@ -227,6 +293,38 @@ body.has-rail {
   white-space: nowrap;
   box-shadow: var(--shadow-hover);
   pointer-events: none;
+}
+
+/* ===== 折叠态（body.nav-mini）：64px 图标栏，标签与字标全藏、图标放大 ===== */
+.nav-mini .rail {
+  padding: 14px 0;
+  align-items: center;
+}
+.nav-mini .rail-logo {
+  padding: 2px 0 12px;
+}
+.nav-mini .rail-lw,
+.nav-mini .rail-item span:not(.mini-avatar) {
+  display: none;
+}
+.nav-mini .rail-nav,
+.nav-mini .rail-bottom {
+  align-items: center;
+}
+.nav-mini .rail-item {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+.nav-mini .rail-item svg {
+  width: 22px;
+  height: 22px;
+}
+.nav-mini .rail-user {
+  padding: 4px 0 10px;
+  justify-content: center;
 }
 
 /* 窄屏回退：全宽边距收紧 */

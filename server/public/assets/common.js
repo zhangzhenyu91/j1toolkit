@@ -21,14 +21,16 @@
    Shade.withTeam(path, teamId) → 班组隔离 query 助手：teamId 非空时为 path 追加 team_id
      （query 优先于 body，后端 resolveReqTeam 同口径）
    Shade.icon(name, size, color) → inline SVG 字符串（见 assets/icons.js）
-   Shade.topbar(opts)         → 统一渲染左侧图标导航栏（插入 body 开头并给 body 加 has-rail 类让位；
+   Shade.topbar(opts)         → 统一渲染左侧可折叠导航栏（插入 body 开头并给 body 加 has-rail 类让位；
      需 icons.js 先加载）
      opts.active: 'index' | 'quiz' | 'callme' | 'worklog' | 'safeday' | 'kvm' | 'admin' | 'client' | 'netdisk'（当前页，渲染为无链接激活态）
-     结构：64px 固定左栏——顶部 Logo（点击回 /index.html）+ 常驻导航图标（工作台 + /api/v1/app/list
-           按权限下发的应用，顺序同工作台宫格、无权限不显示，缓存 shade_apps 先渲染后校正，当前页浅蓝底高亮）；
-           底部「管理」图标（仅 role==='admin' 可见）+ 头像字 + 退出按钮；
-           悬停经 data-tip 自绘气泡显示名称（.rail-tip，栏上事件委托）
-     渲染后页面可用 Shade.refreshUser 刷新 #miniAvatar / #topName / #railUser 的 data-tip（id 与各页既有逻辑兼容）
+     结构：200px 固定左栏——顶部 Logo + 字标（点击回 /index.html）+ 栏缘圆形折叠钮（#navFold，
+           收起为 64px 图标态，偏好存 localStorage shade_nav_mini，body 加 nav-mini 类）+ 常驻导航
+           图标 + 名称（工作台 + /api/v1/app/list 按权限下发的应用，顺序同工作台宫格、无权限不显示，
+           缓存 shade_apps 先渲染后校正，当前页浅蓝底高亮）；底部用户卡（头像 + 昵称 + 角色徽章）
+           +「管理」（仅 role==='admin' 可见）+ 退出按钮；图标态悬停经 data-tip 自绘气泡显示名称
+           （.rail-tip，栏上事件委托，展开态不显示）
+     渲染后页面可用 Shade.refreshUser 刷新 #miniAvatar / #topName / #railRole / #railUser 的 data-tip（id 与各页既有逻辑兼容）
    Shade.refreshUser(onUser)  → Promise：GET /api/v1/user/profile 成功更新 #miniAvatar/#topName
      （元素存在才更新）并回调 onUser(data)；接口失败回退本地缓存 Shade.user() 同样更新并回调
      （无缓存时回调 null，导航栏保持 topbar() 渲染的缓存/默认文案）；页面额外刷新逻辑放回调
@@ -73,6 +75,7 @@
   const TOKEN_KEY = 'shade_token';
   const USER_KEY = 'shade_user';
   const APPS_KEY = 'shade_apps'; // 导航栏应用清单缓存（/api/v1/app/list 按权限下发，顺序同工作台宫格）
+  const NAV_MINI_KEY = 'shade_nav_mini'; // 左侧导航栏折叠偏好（'1' = 64px 图标态）
 
   function clearAuth() {
     localStorage.removeItem(TOKEN_KEY);
@@ -269,10 +272,11 @@
     return true;
   }
 
-  // 统一左侧图标导航栏：64px 固定左栏（body 加 has-rail 让位），顶部 Logo + 常驻导航图标（工作台 + 按权限
+  // 统一左侧可折叠导航栏：200px 固定左栏（body 加 has-rail 让位），顶部 Logo + 字标 + 栏缘折叠钮
+  // （收起为 64px 图标态，偏好存 shade_nav_mini，body 加 nav-mini）；常驻导航图标 + 名称（工作台 + 按权限
   // 下发的应用，顺序同工作台宫格——同取 /api/v1/app/list，无权限的应用不下发即不显示；本地缓存 shade_apps
-  // 先行渲染避免闪烁，接口回来后校正）；底部「管理」（仅 admin 可见）+ 用户头像 + 退出；
-  // 图标悬停经 data-tip 自绘气泡显示名称
+  // 先行渲染避免闪烁，接口回来后校正）；底部用户卡 +「管理」（仅 admin 可见）+ 退出；
+  // 图标态悬停经 data-tip 自绘气泡显示名称
   var APP_NAV = {
     // 应用 → 网页版落地页（app_key 与 sys_app 种子一致；左侧导航与工作台宫格落地页共用此单一来源，无网页版的应用不收录）
     'call-me': { key: 'callme', href: '/callme.html' },
@@ -302,7 +306,7 @@
     });
     return items
       .map(function (it) {
-        var inner = icon(it.icon, 22);
+        var inner = icon(it.icon, 19) + '<span>' + esc(it.name) + '</span>';
         var tip = '" data-tip="' + esc(it.name) + '" aria-label="' + esc(it.name) + '">';
         return it.key === active
           ? '<span class="rail-item on' + tip + inner + '</span>'
@@ -317,8 +321,9 @@
     var name = u.nickname || u.username || '班组成员';
     var isAdmin = u.role === 'admin';
     var icon = window.Shade.icon;
+    var mini = localStorage.getItem(NAV_MINI_KEY) === '1';
 
-    // 常驻导航：当前页渲染为纯图标激活态（无链接），其余为可点链接；悬停 data-tip 气泡显名称
+    // 常驻导航：当前页渲染为激活态（无链接），其余为可点链接；图标态悬停 data-tip 气泡显名称
     var leftNav = renderLeftNav(active);
 
     // 底部「管理」：仅 admin 可见；管理页时渲染为激活态
@@ -329,29 +334,28 @@
           adminTip +
           (isAdmin ? '' : ' hidden') +
           '>' +
-          icon('setting', 22) +
-          '</span>'
+          icon('setting', 19) +
+          '<span>管理</span></span>'
         : '<a class="rail-item" id="navAdmin' +
           adminTip +
           ' href="/admin.html"' +
           (isAdmin ? '' : ' hidden') +
           '>' +
-          icon('setting', 22) +
-          '</a>';
+          icon('setting', 19) +
+          '<span>管理</span></a>';
 
     document.body.insertAdjacentHTML(
       'afterbegin',
       '<aside class="rail">' +
         '<a class="rail-logo" href="/index.html" data-tip="Shade 壹匣" aria-label="Shade 壹匣">' +
         '<span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣"></span>' +
+        '<span class="rail-lw"><b>Shade 壹匣</b><span>班组数字化工具平台</span></span>' +
         '</a>' +
-        '<span class="rail-sep"></span>' +
+        '<button class="rail-fold" id="navFold" aria-label="收起 / 展开导航"></button>' +
         '<nav class="rail-nav" id="topNavApps">' +
         leftNav +
         '</nav>' +
         '<div class="rail-bottom">' +
-        '<span class="rail-sep"></span>' +
-        adminNav +
         '<span class="rail-item rail-user" id="railUser" data-tip="' +
         esc(name) +
         '" aria-label="' +
@@ -360,28 +364,51 @@
         '<span class="mini-avatar" id="miniAvatar">' +
         esc(name.charAt(0)) +
         '</span>' +
-        '<span class="nm" id="topName" hidden>' +
+        '<span class="rail-uinfo"><b id="topName">' +
         esc(name) +
+        '</b><i class="rail-role" id="railRole">' +
+        esc(roleText(u.role)) +
+        '</i></span>' +
         '</span>' +
-        '</span>' +
+        adminNav +
         '<button class="rail-item" id="btnLogout" data-tip="退出登录" aria-label="退出登录">' +
-        icon('logout', 22) +
+        icon('logout', 19) +
+        '<span>退出登录</span>' +
         '</button>' +
         '</div>' +
         '</aside>'
     );
     document.body.classList.add('has-rail');
+    if (mini) document.body.classList.add('nav-mini');
     document.getElementById('btnLogout').addEventListener('click', function () {
       logout();
     });
 
-    // 悬停气泡：单实例 + 栏上事件委托（导航区 innerHTML 校正不受影响），fixed 贴栏右缘、纵向对齐图标中心
+    // 折叠切换：展开 200px ↔ 图标态 64px，偏好本地记忆
+    var foldBtn = document.getElementById('navFold');
+    function paintFold() {
+      foldBtn.innerHTML = icon(
+        document.body.classList.contains('nav-mini') ? 'chevron-right' : 'chevron-left',
+        13
+      );
+    }
+    foldBtn.addEventListener('click', function () {
+      var collapsed = document.body.classList.toggle('nav-mini');
+      localStorage.setItem(NAV_MINI_KEY, collapsed ? '1' : '0');
+      tipEl.hidden = true;
+      paintFold();
+    });
+    paintFold();
+
+    // 悬停气泡：单实例 + 栏上事件委托（导航区 innerHTML 校正不受影响），fixed 贴栏右缘、纵向对齐图标中心；
+    // 仅图标态（nav-mini）显示——展开态已有文字标签
     var railEl = document.querySelector('.rail');
     var tipEl = document.createElement('div');
     tipEl.className = 'rail-tip';
     tipEl.hidden = true;
     document.body.appendChild(tipEl);
     function tipShow(t) {
+      if (!document.body.classList.contains('nav-mini')) return;
       var text = t.getAttribute('data-tip');
       if (!text) return;
       var r = t.getBoundingClientRect();
@@ -430,12 +457,14 @@
       var av = document.getElementById('miniAvatar');
       var nm = document.getElementById('topName');
       var ru = document.getElementById('railUser');
+      var rl = document.getElementById('railRole');
       if (av) av.textContent = name.charAt(0);
       if (nm) nm.textContent = name;
       if (ru) {
         ru.setAttribute('data-tip', name);
         ru.setAttribute('aria-label', name);
       }
+      if (rl) rl.textContent = roleText(u.role);
     }
     return api('/api/v1/user/profile')
       .then(function (r) {
