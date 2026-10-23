@@ -45,8 +45,9 @@
        包内按 inner_path 逐级浏览、单文件 /archive/download 下载；右键「解压到…」复用目标选择弹窗
        （附「以压缩包命名的新目录」勾选项，解压接口无 dst_space、锁定当前空间）；
      布局：整页 100vh 锁定（body 内滚口径同 worklog），文件区占满视口剩余高度、网格区 overflow-y:auto 内滚、
-       状态栏沉底固定（无选择仅「共 N 项」，有选择追加 已选择/合计）；文件区横向双列：左列工具条/路径栏/网格/状态栏，
-       右列常驻详情面板（单选条目详情——修改时间秒级、多选已选汇总、空选隐藏，≤1024px 隐藏面板）；框选矩形用相对网格
+       状态栏沉底固定（无选择仅「共 N 项」，有选择追加 已选择/合计）；选中条目时网格区右缘浮出详情浮层
+       （绝对定位覆盖不占布局、网格不收缩，纸色半透明 + 背景模糊融入页面底色；单选条目详情——修改时间秒级、
+       多选已选汇总、空选隐藏，≤1024px 隐藏）；框选矩形用相对网格
        内容坐标（scrollLeft/scrollTop 折算），滚动时矩形随内容滚、命中检测同坐标系（offsetLeft/Top）；
      动效（政企克制，缓动 var(--ease)，降级由 theme.css 全局 prefers-reduced-motion 统一关闭）：
        空间分段白 pill 滑动位移（moveSegPill，重建/缩放直接落位）；目录/空间/搜索切换 旧内容淡出（.g-out）
@@ -755,31 +756,29 @@
         font-variant-numeric: tabular-nums;
       }
 
-      /* ===== 右侧常驻详情面板（白卡同 token）：.nd-main 横向双列，左列网格可滚、右列 280px 面板 ===== */
-      .nd-main {
+      /* ===== 右侧详情浮层：绝对定位覆盖网格区右缘（nd-gridzone 为定位容器），不占布局宽度、网格不收缩；
+         纸色半透明 + 背景模糊融入页面底色（非白色卡片、无阴影无描边）；单选条目详情 / 多选汇总 / 空选隐藏 ===== */
+      .nd-gridzone {
         flex: 1;
         min-height: 0;
-        display: flex;
-        gap: 16px;
-      }
-      .nd-files-col {
-        flex: 1;
-        min-width: 0;
         display: flex;
         flex-direction: column;
+        position: relative;
       }
       .nd-info {
-        flex: none;
-        width: 280px;
-        min-height: 0;
-        margin-top: 8px; /* 顶对齐网格区（gridwrap 同 8px） */
-        padding: 16px;
-        background: #ffffff;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 6;
+        width: 264px;
+        padding: 12px 4px 12px 16px;
         overflow-y: auto;
         scrollbar-width: thin;
         scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+        background: rgba(245, 247, 250, 0.72); /* --paper 同色半透明 */
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
         font-size: 12.5px;
         color: var(--sub);
       }
@@ -1751,67 +1750,64 @@
 
         <!-- ================= 全部文件视图 ================= -->
         <section id="viewFiles">
-          <div class="nd-main">
-            <div class="nd-files-col">
-              <div class="nd-toolbar fade-up" style="animation-delay: 0.14s">
-                <div class="seg" id="spaceSeg"></div>
-                <!-- 选中操作区：常驻布局，有选中项时加 .show 淡入（移动/删除按 manageable 显隐；文件与文件夹均可下载，文件夹整包 ZIP） -->
-                <span class="selbar" id="selbar">
-                  <button type="button" class="btn btn-sm" data-sel="dl">下载</button>
-                  <button type="button" class="btn btn-sm" data-sel="share">分享</button>
-                  <button type="button" class="btn btn-sm" data-sel="move">移动</button>
-                  <button type="button" class="btn btn-sm" data-sel="copy">复制</button>
-                  <button type="button" class="btn btn-sm btn-del" data-sel="del">删除</button>
-                  <button type="button" class="btn btn-sm" data-sel="clear">取消选择</button>
-                </span>
-                <div class="tb-right" id="tbRight">
-                  <button type="button" class="btn btn-sm" id="btnMkdir"></button>
-                  <button type="button" class="btn btn-sm" id="btnUpDir"></button>
-                  <button type="button" class="btn btn-sm btn-primary" id="btnUpload"></button>
-                </div>
-              </div>
-
-              <div class="pathbar fade-up" style="animation-delay: 0.2s">
-                <div class="crumb" id="crumb"></div>
-                <div class="searchw">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="M20.5 20.5L16 16" />
-                  </svg>
-                  <input id="searchInput" placeholder="搜索当前空间文件名" maxlength="100" />
-                  <span class="sw-x" id="searchClear" hidden title="清空搜索">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="3"
-                      stroke-linecap="round"
-                    >
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </span>
-                </div>
-                <!-- 待粘贴提示条：移动/复制进入待粘贴状态后显示，切换目录/空间不丢 -->
-                <div class="paste-bar" id="pasteBar" hidden></div>
-              </div>
-
-              <div class="gridwrap fade-up" id="gridwrap" style="animation-delay: 0.26s">
-                <div class="grid" id="grid"></div>
-              </div>
-
-              <div class="statusbar" id="statusbar"></div>
+          <div class="nd-toolbar fade-up" style="animation-delay: 0.14s">
+            <div class="seg" id="spaceSeg"></div>
+            <!-- 选中操作区：常驻布局，有选中项时加 .show 淡入（移动/删除按 manageable 显隐；文件与文件夹均可下载，文件夹整包 ZIP） -->
+            <span class="selbar" id="selbar">
+              <button type="button" class="btn btn-sm" data-sel="dl">下载</button>
+              <button type="button" class="btn btn-sm" data-sel="share">分享</button>
+              <button type="button" class="btn btn-sm" data-sel="move">移动</button>
+              <button type="button" class="btn btn-sm" data-sel="copy">复制</button>
+              <button type="button" class="btn btn-sm btn-del" data-sel="del">删除</button>
+              <button type="button" class="btn btn-sm" data-sel="clear">取消选择</button>
+            </span>
+            <div class="tb-right" id="tbRight">
+              <button type="button" class="btn btn-sm" id="btnMkdir"></button>
+              <button type="button" class="btn btn-sm" id="btnUpDir"></button>
+              <button type="button" class="btn btn-sm btn-primary" id="btnUpload"></button>
             </div>
+          </div>
 
-            <!-- 右侧常驻详情面板：单选显示条目详情（修改时间精确到秒）、多选显示汇总、空选隐藏；窄屏隐藏 -->
+          <div class="pathbar fade-up" style="animation-delay: 0.2s">
+            <div class="crumb" id="crumb"></div>
+            <div class="searchw">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20.5 20.5L16 16" />
+              </svg>
+              <input id="searchInput" placeholder="搜索当前空间文件名" maxlength="100" />
+              <span class="sw-x" id="searchClear" hidden title="清空搜索">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </span>
+            </div>
+            <!-- 待粘贴提示条：移动/复制进入待粘贴状态后显示，切换目录/空间不丢 -->
+            <div class="paste-bar" id="pasteBar" hidden></div>
+          </div>
+
+          <div class="nd-gridzone">
+            <div class="gridwrap fade-up" id="gridwrap" style="animation-delay: 0.26s">
+              <div class="grid" id="grid"></div>
+            </div>
+            <!-- 右侧详情浮层：覆盖网格区右缘不占布局、纸色半透明融入背景；单选条目详情（修改时间精确到秒）/多选汇总/空选隐藏；≤1024px 隐藏 -->
             <aside class="nd-info" id="ndInfo" hidden></aside>
           </div>
+
+          <div class="statusbar" id="statusbar"></div>
         </section>
 
         <!-- ================= 分享管理视图 ================= -->
@@ -2546,7 +2542,7 @@
         renderSelbar(si);
         renderInfo();
       }
-      /* ================= 右侧常驻详情面板：单选详情 / 多选汇总 / 空选隐藏 ================= */
+      /* ================= 右侧详情浮层：单选详情 / 多选汇总 / 空选隐藏 ================= */
       // 挂在 renderStatus 收口驱动：点选/框选/右键/Esc 走 setSel，切目录/搜索/删除/移动/重命名后的
       // sel.clear() 也一律经 loadList/renderAll 回到 renderStatus，面板与选择态天然同步，无需散点补齐
       function renderInfo() {
