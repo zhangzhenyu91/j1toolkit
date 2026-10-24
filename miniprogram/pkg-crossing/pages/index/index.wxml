@@ -31,7 +31,7 @@
 
       <!-- 搜索框（常置浅灰底，输入即过滤线路卡） -->
       <view class="search">
-        <t-icon name="search" size="30rpx" color="#86909C" />
+        <t-icon t-class="ico-30 ico-weak" name="search" />
         <input
           class="s-input"
           value="{{searchKey}}"
@@ -41,8 +41,8 @@
         />
         <t-icon
           wx:if="{{searchKey}}"
+          t-class="ico-32"
           name="close-circle"
-          size="32rpx"
           color="#C9CDD4"
           bindtap="onSearchClear"
         />
@@ -64,7 +64,7 @@
       >
         <view class="lc-head">
           <view class="lc-title">{{item.title}}</view>
-          <t-icon name="chevron-right" size="32rpx" color="#C9CDD4" />
+          <t-icon t-class="ico-32" name="chevron-right" color="#C9CDD4" />
         </view>
         <view class="lc-stats">
           <text class="lc-st {{item.hazard > 0 ? 'lc-bad' : 'lc-total'}}"
@@ -81,7 +81,7 @@
     <view class="view-pane">
       <!-- 返回行 + 线路标题（电压+名称+隐患小字） -->
       <view class="backrow" hover-class="hover-opacity" bindtap="onBackLines">
-        <t-icon name="chevron-left" size="32rpx" color="#0E3DA8" />
+        <t-icon t-class="ico-32 ico-brand" name="chevron-left" />
         <text class="backrow-t">线路列表</text>
       </view>
       <view class="ledger-head">
@@ -123,7 +123,7 @@
               catchtap="onFoldToggle"
               data-id="{{rec.id}}"
             >
-              <t-icon name="chevron-down" size="30rpx" color="#86909C" />
+              <t-icon t-class="ico-30 ico-weak" name="chevron-down" />
             </view>
           </view>
 
@@ -173,7 +173,7 @@
 
 <!-- 全局悬浮导出 FAB（每页主按钮至多一枚） -->
 <view class="fab" wx:if="{{gate}}" hover-class="hover-opacity" bindtap="onOpenExport">
-  <t-icon name="download" size="44rpx" color="#FFFFFF" />
+  <t-icon t-class="ico-44" name="download" />
 </view>
 
 <!-- 导出弹层：范围单选（全部线路 / 当前线路；线路视图为「选择线路」带线路列表）+ 按线路分表开关（仅全部可勾） -->
@@ -190,7 +190,7 @@
           data-scope="all"
         >
           <text>全部线路</text>
-          <t-icon wx:if="{{expScope === 'all'}}" name="check" size="30rpx" color="#0E3DA8" />
+          <t-icon wx:if="{{expScope === 'all'}}" t-class="ico-30" name="check" />
         </view>
         <view
           wx:if="{{view === 'lines' || !curUnmatched}}"
@@ -200,7 +200,7 @@
           data-scope="line"
         >
           <text>{{view === 'ledger' ? '当前线路（' + curTitle + '）' : '选择线路'}}</text>
-          <t-icon wx:if="{{expScope === 'line'}}" name="check" size="30rpx" color="#0E3DA8" />
+          <t-icon wx:if="{{expScope === 'line'}}" t-class="ico-30" name="check" />
         </view>
       </view>
     </view>
@@ -221,7 +221,7 @@
         data-line="{{item.lineName}}"
       >
         <text>{{item.title}}（{{item.total}}）</text>
-        <t-icon wx:if="{{expLine === item.lineName}}" name="check" size="30rpx" color="#0E3DA8" />
+        <t-icon wx:if="{{expLine === item.lineName}}" t-class="ico-30" name="check" />
       </view>
     </scroll-view>
     <view class="f-item exp-split">

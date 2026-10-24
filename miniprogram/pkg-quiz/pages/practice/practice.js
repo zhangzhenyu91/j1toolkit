@@ -55,6 +55,7 @@ Page({
     // swiper 窗口（当前题 ±1，边界处缩减；项结构见 buildItem）
     win: [],
     swiperCurrent: 0,
+    swiperDuration: 260,
     // 底栏镜像（随窗口重建/作答/收藏同步）
     curFav: 0, // 当前题已收藏
     submitted: false, // 当前题已提交（解析态；背题模式恒 true）
@@ -77,6 +78,8 @@ Page({
     // 解析编辑弹层（全员可改）
     anaOpen: false,
     anaText: '',
+    // 解析弹层键盘高度（px；textarea adjust-position=false，弹层底部 padding 随其单次补偿）
+    keyboardHeight: 0,
   },
 
   onLoad(options) {
@@ -385,13 +388,20 @@ Page({
       win.push(this.buildItem(i));
     }
     const cur = win.findIndex((w) => w.idx === this._idx);
+    const resetId = (this._swiperResetId || 0) + 1;
+    this._swiperResetId = resetId;
+    // 内容重建后瞬时复位，避免程序化 current 再回滑一次；下一帧恢复手势动画
     this.setData({
       win,
       swiperCurrent: Math.max(cur, 0),
+      swiperDuration: 0,
       total,
       posText: String(this._idx + 1),
       pct: total ? Math.min(100, Math.round(((this._idx + 1) / total) * 100)) : 0,
       isLast: this._idx >= total - 1,
+    });
+    wx.nextTick(() => {
+      if (this._swiperResetId === resetId) this.setData({ swiperDuration: 260 });
     });
     this.refreshBar();
     // seq 断点上报（服务端存储，跨端续刷；防抖）
@@ -604,6 +614,11 @@ Page({
     this.setData({ setOpen: true });
   },
 
+  // 显式关闭（右上 × ；与遮罩关闭同径）
+  onSetClose() {
+    this.setData({ setOpen: false });
+  },
+
   onSetVisibleChange(e) {
     if (e.detail.visible) return;
     if (this.data.setOpen) this.setData({ setOpen: false });
@@ -652,7 +667,21 @@ Page({
 
   onAnaVisibleChange(e) {
     if (e.detail.visible) return;
-    if (this.data.anaOpen) this.setData({ anaOpen: false });
+    this.closeAnaPop();
+  },
+
+  // 解析弹层键盘高度变化：记录高度，弹层底部 padding 随其单次补偿（页面不被键盘上推，避免布局跳变）
+  onKeyboardHeight(e) {
+    const h = e.detail.height || 0;
+    this.setData({ keyboardHeight: h > 0 ? h : 0 });
+  },
+
+  // 关闭解析弹层：收起键盘残留并复位补偿高度（遮罩/取消/保存共用）
+  closeAnaPop() {
+    wx.hideKeyboard();
+    if (this.data.anaOpen || this.data.keyboardHeight) {
+      this.setData({ anaOpen: false, keyboardHeight: 0 });
+    }
   },
 
   onAnaInput(e) {
@@ -660,7 +689,7 @@ Page({
   },
 
   onAnaCancel() {
-    this.setData({ anaOpen: false });
+    this.closeAnaPop();
   },
 
   async onAnaSave() {
@@ -690,7 +719,7 @@ Page({
       });
     });
     if (this._results[q.id]) this._results[q.id].analysis = val;
-    this.setData({ anaOpen: false });
+    this.closeAnaPop();
     this.refreshCurrentItem();
     this.toast(val ? '解析已更新' : '已清空解析，将重新生成');
   },
@@ -780,6 +809,11 @@ Page({
   onSheetVisibleChange(e) {
     if (e.detail.visible) return;
     if (this.data.sheetOpen) this.setData({ sheetOpen: false });
+  },
+
+  // 显式关闭（右上 × ；与遮罩关闭同径）
+  onSheetClose() {
+    this.setData({ sheetOpen: false });
   },
 
   // 点题号：跳转到该题（所在批次未缓存则先拉批）并关闭弹层

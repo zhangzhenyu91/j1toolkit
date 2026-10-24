@@ -163,9 +163,9 @@
           color 0.15s;
       }
       .seg button.on {
-        background: #fff;
+        background: var(--card);
         color: var(--orange);
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        box-shadow: var(--hard-s);
       }
 
       /* ===== 八页签：下划线式页签，激活蓝字 + 2px 蓝条 ===== */
@@ -199,7 +199,7 @@
       .wl-tabs button.on {
         color: var(--orange);
       }
-      .wl-tabs button.on::after {
+      .wl-tabs button::after {
         content: '';
         position: absolute;
         left: 14px;
@@ -208,6 +208,11 @@
         height: 2px;
         background: var(--orange);
         border-radius: 2px;
+        opacity: 0;
+        transition: opacity 0.18s var(--ease);
+      }
+      .wl-tabs button.on::after {
+        opacity: 1;
       }
       .wl-tabs button svg {
         width: 15px;
@@ -254,7 +259,7 @@
         padding: 5px 8px;
         border: 1px solid var(--line);
         border-radius: var(--radius-sm);
-        background: #fff;
+        background: var(--card);
         color: var(--orange);
         font-size: 11px;
         cursor: pointer;
@@ -273,7 +278,7 @@
       }
       .cal-today {
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         color: var(--orange);
         font-size: 11px;
         font-weight: 600;
@@ -300,7 +305,7 @@
         height: 24px;
         border: 1px solid var(--line);
         border-radius: 6px;
-        background: #fff;
+        background: var(--card);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -354,10 +359,10 @@
           color 0.15s;
       }
       .day:hover {
-        background: rgba(29, 33, 41, 0.05);
+        background: var(--skeleton);
       }
       .day.dim {
-        color: #c9cdd4;
+        color: var(--dash);
         font-weight: 400;
         cursor: default;
       }
@@ -387,11 +392,12 @@
       }
       .day.today {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         font-weight: 700;
       }
       .day.today .dt {
-        background: rgba(255, 255, 255, 0.85);
+        background: var(--on-brand);
+        opacity: 0.85;
       }
       .day.sel {
         border-color: var(--orange);
@@ -447,7 +453,7 @@
         /* 右内边距给行卡/字典卡的右偏硬影让位：滚动容器在自身 padding box 处裁掉视觉溢出，无让位时右影被裁（同 #cardFlow 口径） */
         padding-right: 10px;
         scrollbar-width: thin;
-        scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+        scrollbar-color: var(--dash) transparent;
       }
       .pane-foot {
         flex: none;
@@ -504,7 +510,7 @@
         transition: opacity 0.18s ease;
         padding-right: 10px;
         scrollbar-width: thin;
-        scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+        scrollbar-color: var(--dash) transparent;
       }
       /* 切日/切范围加载中：保留旧内容微透明过渡（不再骨架闪屏），期间禁点 */
       #cardFlow.switching {
@@ -520,13 +526,13 @@
       #cardFlow::-webkit-scrollbar-thumb,
       .cal::-webkit-scrollbar-thumb,
       .pane-scroll::-webkit-scrollbar-thumb {
-        background: rgba(29, 33, 41, 0.16);
+        background: var(--dash);
         border-radius: 8px;
       }
       #cardFlow::-webkit-scrollbar-thumb:hover,
       .cal::-webkit-scrollbar-thumb:hover,
       .pane-scroll::-webkit-scrollbar-thumb:hover {
-        background: rgba(29, 33, 41, 0.34);
+        background: var(--ph);
       }
       #cardFlow::-webkit-scrollbar-track,
       .cal::-webkit-scrollbar-track,
@@ -552,7 +558,7 @@
         color: var(--red);
       }
       .linkbtn.dgr:hover {
-        background: #ffece8;
+        background: var(--danger-soft);
       }
 
       /* ===== 说明卡小节（数据管理跳转卡 / 各 sheet 页签「字段口径」卡；数据管理实现已随迁移删除，字典行样式一并清理） ===== */
@@ -652,7 +658,7 @@
       .pa-sum {
         flex: 1;
         min-width: 110px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 10px 14px;
@@ -691,7 +697,7 @@
         display: flex;
         align-items: center;
         gap: 12px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 12px 16px;
@@ -727,11 +733,11 @@
         color: var(--orange);
       }
       .pa-badge.dest {
-        background: #fff7e8;
+        background: var(--warn-soft);
         color: var(--navy);
       }
       .pa-badge.mem {
-        background: #ffece8;
+        background: var(--danger-soft);
         color: var(--red);
       }
       .pa-badge.none-sys {
@@ -906,7 +912,7 @@
       /* 差异字段输入：黄底黄边提示（黄底墨字） */
       .pa-f-row .f-sel.warn {
         border-color: var(--yellow);
-        background: #fff7e8;
+        background: var(--warn-soft);
       }
       .pa-note {
         font-size: 11px;
@@ -944,11 +950,11 @@
       .pa-cmp .chip.add.on {
         background: var(--green);
         border-style: solid;
-        color: #fff;
+        color: var(--on-brand);
       }
       .pa-cmp .chip.extra.on {
         border-color: var(--red);
-        background: #ffece8;
+        background: var(--danger-soft);
         color: var(--red);
       }
       .pa-foot {
@@ -982,7 +988,8 @@
         position: absolute;
         inset: 0;
         z-index: 5;
-        background: rgba(255, 255, 255, 0.82);
+        background: var(--card);
+        background: color-mix(in srgb, var(--card) 82%, transparent);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -991,7 +998,7 @@
       }
       .cl-box {
         width: 240px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 12px;
         padding: 16px 18px;
@@ -1059,15 +1066,15 @@
       }
       /* 验证通过改绿（--green 业务绿）：JS verifyTag 仍输出通用蓝签 .tag-orange，此处按验证语义覆盖，不动全局 .tag-orange */
       .log-h .tag.tag-orange {
-        background: #e8ffea;
-        color: #0b8a37;
+        background: var(--ok-soft);
+        color: var(--ok-text);
       }
       .log-h .tag.tag-orange::before {
         content: '';
         width: 5px;
         height: 5px;
         border-radius: 50%;
-        background: #0b8a37;
+        background: var(--ok-text);
       }
       .log-h .tag.tag-red::before {
         content: '';
@@ -1127,7 +1134,8 @@
       .log-side-l {
         width: 38.2%;
         flex: none;
-        min-width: 0;
+        /* 左栏须容得下两枚打卡格，避免常见笔记本宽度下逐字换行 */
+        min-width: 320px;
         display: flex;
         flex-direction: column;
       }
@@ -1211,7 +1219,7 @@
       /* 已打卡为绿实底白字（与「已验证」日历色点同 token 语义）；.mchip.on 与 .mchip:hover 等优先级且居后，悬停仍保持绿态 */
       .mchip.on {
         border-color: var(--green);
-        color: #fff;
+        color: var(--on-brand);
         background: var(--green);
         font-weight: 600;
       }
@@ -1223,7 +1231,7 @@
         background: var(--dash);
       }
       .mchip.on .m-dot {
-        background: #fff;
+        background: var(--on-brand);
       }
       /* 左栏底部操作行（margin-top:auto 沉底，与右侧照片区高度无关）：文字链，删除红字 */
       .log-acts {
@@ -1267,7 +1275,7 @@
         margin: 12px 22px 0;
         padding: 10px 14px;
         border-radius: 0;
-        background: #ffece8;
+        background: var(--danger-soft);
         border-left: 4px solid var(--red);
       }
       .fail-head {
@@ -1318,7 +1326,7 @@
         margin-right: 8px;
         font-size: 10.5px;
         font-weight: 600;
-        color: #fff;
+        color: var(--on-brand);
         background: var(--orange);
         border-radius: 4px;
         padding: 1px 6px;
@@ -1340,14 +1348,14 @@
       .patrol.none {
         color: var(--ph);
       }
-      /* 备注块（左栏目的地下方；#FFF7E8 浅橙底 + 4px 橙左边条；
+      /* 备注块（左栏目的地下方；--warn-soft 浅橙底 + 4px 橙左边条；
      无文字且无附件时不渲染，点击块进编辑） */
       .rmk {
         margin: 12px 22px 0;
         padding: 10px 12px;
         border-left: 4px solid var(--yellow);
         border-radius: 0;
-        background: #fff7e8;
+        background: var(--warn-soft);
         cursor: pointer;
         transition: box-shadow 0.15s var(--ease);
       }
@@ -1359,7 +1367,7 @@
         margin-right: 8px;
         font-size: 10.5px;
         font-weight: 600;
-        color: #d25f00;
+        color: var(--warn-text);
         background: rgba(255, 125, 0, 0.12);
         border-radius: 4px;
         padding: 1px 6px;
@@ -1587,7 +1595,7 @@
         font-size: 9.5px;
         font-weight: 600;
         letter-spacing: 0.5px;
-        color: #fff;
+        color: var(--on-brand);
         background: var(--red);
       }
       .ph.has-sync .ph-miss {
@@ -1611,15 +1619,25 @@
         background: rgba(29, 33, 41, 0.74);
       }
       /* ===== 批量从商旅同步 · 子应用全局锁（本班组批量拉取进行中时全页遮罩，完成后解锁） ===== */
+      /* 锁遮罩出现淡入（一次性；[hidden] 切换触发，无循环） */
+      @keyframes wlFade {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
       .sync-lock {
         position: fixed;
         inset: 0;
         z-index: 2000;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
         justify-content: center;
+        animation: wlFade 0.22s var(--ease);
       }
       .sync-lock[hidden] {
         display: none;
@@ -1627,14 +1645,14 @@
       .sl-card {
         width: 380px;
         max-width: 90vw;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 30px 30px 24px;
         display: flex;
         flex-direction: column;
         align-items: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
       }
       .sl-ic {
         width: 46px;
@@ -1737,7 +1755,7 @@
         font-family: inherit;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         padding: 13px 14px;
         box-shadow: var(--hard-s);
         cursor: pointer;
@@ -1750,7 +1768,7 @@
       }
       .sheet-opt:hover {
         transform: translate(2px, 2px);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
       }
       .sheet-opt .ic {
         width: 38px;
@@ -1874,6 +1892,12 @@
         padding: 1px 6px;
         letter-spacing: 1px;
       }
+      /* 深色下 --yellow 翻转为浅橙底，正文变量同为浅色会不可读，此处强制深色字（浅色样式不变） */
+      @media (prefers-color-scheme: dark) {
+        .wm-upd {
+          color: var(--inverse-text);
+        }
+      }
       .wm-code-row {
         display: flex;
         align-items: center;
@@ -1926,18 +1950,18 @@
         min-height: 0;
         max-height: 208px;
         overflow-y: auto;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         box-shadow: var(--hard-s);
         scrollbar-width: thin;
-        scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+        scrollbar-color: var(--dash) transparent;
       }
       .combo-list-in::-webkit-scrollbar {
         width: 5px;
       }
       .combo-list-in::-webkit-scrollbar-thumb {
-        background: rgba(29, 33, 41, 0.16);
+        background: var(--dash);
         border-radius: 8px;
       }
       .combo-list-in::-webkit-scrollbar-track {
@@ -2016,12 +2040,49 @@
         max-height: 84vh;
         border-radius: 8px;
         border: 2px solid var(--paper);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         opacity: 0;
         transition: opacity 0.4s;
       }
       .lb-img.show {
         opacity: 1;
+      }
+      /* ===== 图片加载失败统一占位（卡片缩略图 / Lightbox / 批量下载缩略图 / 备注图片共用）=====
+         明确错误文案 + 手动「重试」，整层可点重试；成功加载后由 wlImgRetry 移除 */
+      .img-err {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: 8px;
+        background: var(--fill);
+        color: var(--sub);
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .img-err .img-err-btn {
+        padding: 3px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--navy);
+        font-size: 12px;
+        cursor: pointer;
+      }
+      img.img-failed {
+        visibility: hidden;
+      }
+      /* 大图层失败时图片无固有尺寸，给舞台兜底尺寸避免占位塌陷 */
+      .lb-stage.has-img-err {
+        min-width: 280px;
+        min-height: 200px;
+      }
+      /* 备注编辑弹层附件缩略图：为失败占位补定位上下文 */
+      .att-thumb {
+        position: relative;
       }
       .lb-count {
         position: absolute;
@@ -2039,7 +2100,7 @@
         position: absolute;
         border-radius: 8px;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
@@ -2054,7 +2115,7 @@
       .lb-dl:hover,
       .lb-arrow:hover {
         transform: translate(2px, 2px);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
       }
       .lb-x {
         top: 18px;
@@ -2107,7 +2168,7 @@
         flex: none;
         max-height: 84vh;
         overflow-y: auto;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 18px 20px;
@@ -2192,7 +2253,7 @@
         color: var(--red);
       }
       .lb-acts .act-danger:hover {
-        background: #ffece8;
+        background: var(--danger-soft);
         border-color: var(--red);
       }
 
@@ -2212,7 +2273,7 @@
         width: 100%;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         outline: none;
         font-size: 13px;
         color: var(--navy);
@@ -2269,7 +2330,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #fff;
+        color: var(--inverse-text);
       }
       .att-thumb img {
         width: 100%;
@@ -2289,7 +2350,7 @@
         height: 18px;
         border-radius: 8px;
         background: var(--navy);
-        color: #fff;
+        color: var(--inverse-text);
         border: none;
         cursor: pointer;
         display: flex;
@@ -2382,7 +2443,7 @@
       .chip {
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         font-size: 12.5px;
         padding: 4px 13px;
@@ -2400,7 +2461,7 @@
       .chip.on {
         border-color: var(--orange);
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         font-weight: 700;
       }
       .chip:disabled {
@@ -2419,7 +2480,8 @@
         color: var(--ph);
       }
       .chip.on small {
-        color: rgba(255, 255, 255, 0.8);
+        color: var(--on-brand);
+        opacity: 0.8;
       }
       .chip.exp {
         border-color: var(--red);
@@ -2467,6 +2529,7 @@
         height: 100%;
         object-fit: cover;
         display: block;
+        transition: opacity 0.2s;
       }
       .dl-ph.sel {
         border-color: var(--orange);
@@ -2482,7 +2545,7 @@
         width: 18px;
         height: 18px;
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         color: transparent;
         display: flex;
@@ -2490,7 +2553,8 @@
         justify-content: center;
         transition:
           background 0.2s,
-          border-color 0.2s;
+          border-color 0.2s,
+          color 0.2s;
       }
       .dl-tick svg {
         width: 11px;
@@ -2499,7 +2563,7 @@
       .dl-ph.sel .dl-tick {
         background: var(--orange);
         border-color: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
       .dl-day {
         position: absolute;
@@ -2521,7 +2585,7 @@
         inset: 0;
         z-index: 320;
         padding: 24px;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
@@ -2534,7 +2598,7 @@
       }
       /* 外壳 overflow:hidden 保四角裁切；滚动内凹到 .m-scroll（外壳 6px 内边距），滚动条不贴右缘 */
       .modal {
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         width: 560px;
@@ -2544,7 +2608,7 @@
         padding: 6px;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transform: translateY(16px) scale(0.98);
         transition: transform 0.35s var(--ease);
       }
@@ -2556,18 +2620,18 @@
         padding: 14px 18px 16px;
         scrollbar-gutter: stable both-edges;
         scrollbar-width: thin;
-        scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+        scrollbar-color: var(--dash) transparent;
       }
       /* 细滚动条：半透明墨、悬停加深，与页面滚动区同口径 */
       .m-scroll::-webkit-scrollbar {
         width: 5px;
       }
       .m-scroll::-webkit-scrollbar-thumb {
-        background: rgba(29, 33, 41, 0.16);
+        background: var(--dash);
         border-radius: 8px;
       }
       .m-scroll::-webkit-scrollbar-thumb:hover {
-        background: rgba(29, 33, 41, 0.34);
+        background: var(--ph);
       }
       .m-scroll::-webkit-scrollbar-track {
         background: transparent;
@@ -2592,20 +2656,20 @@
         height: 30px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transition:
           background 0.15s,
           color 0.15s;
       }
       .m-x:hover {
         background: var(--navy);
-        color: #fff;
+        color: var(--inverse-text);
       }
       .m-x svg {
         width: 14px;
@@ -2664,7 +2728,7 @@
         width: 32px;
         height: 18px;
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         position: relative;
         transition: background 0.2s;
@@ -2689,7 +2753,7 @@
       }
       .rep-mine.on .sw::after {
         left: 16px;
-        background: #fff;
+        background: var(--on-brand);
       }
       .rep-date {
         font-size: 12.5px;
@@ -2708,7 +2772,7 @@
         display: block;
         padding: 12px 16px;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         border-radius: 8px;
         margin-bottom: 10px;
         cursor: pointer;
@@ -2744,7 +2808,7 @@
         font-size: 11px;
         font-weight: 700;
         color: var(--red);
-        background: #ffece8;
+        background: var(--danger-soft);
         border-radius: 8px;
         padding: 3px 9px;
         letter-spacing: 0.5px;
@@ -2800,9 +2864,24 @@
         }
         .cal.open .cal-collapse {
           display: block;
+          animation: paneIn 0.28s var(--ease);
         }
         .wl-head .section-title h3 {
           font-size: 30px;
+        }
+      }
+      /* 月历占据侧栏后卡片不足以同时容纳打卡区与照片时，先上下排列 */
+      @media (min-width: 641px) and (max-width: 1200px) {
+        .log-body {
+          flex-direction: column;
+        }
+        .log-side-l {
+          width: 100%;
+        }
+        .log-side-r {
+          border-left: none;
+          border-top: 1px solid var(--line);
+          margin-top: 12px;
         }
       }
       @media (max-width: 640px) {
@@ -2815,6 +2894,7 @@
         }
         .log-side-l {
           width: 100%;
+          min-width: 0;
         }
         .log-side-r {
           border-left: none;
@@ -2836,6 +2916,8 @@
         .lb {
           padding: 18px;
           overflow-y: auto;
+          /* 小屏超高内容从顶部开始滚动，避免垂直居中把图片舞台挤到不可达的位置 */
+          align-items: flex-start;
         }
         .lb-main {
           flex-direction: column;
@@ -2945,7 +3027,7 @@
       /* 已打卡：白底 1px 墨边；前置绿圆白勾（CSS 绘制，同小程序 ck-done-dot，JS 图标隐藏） */
       .ck-slot.done {
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
       }
       .ck-slot.done .ck-t1 {
         padding-right: 30px;
@@ -2965,7 +3047,7 @@
       }
       .ck-done-dot::before {
         content: '✓';
-        color: #fff;
+        color: var(--on-brand);
         font-size: 9px;
         font-weight: 700;
         line-height: 1;
@@ -2992,7 +3074,7 @@
       /* 缺卡态：橙虚线 + 浅橙底；前置橙圆点示意「待打卡」（time 图标隐藏），副行橙字 */
       .ck-slot.todo {
         border: 1.5px dashed var(--yellow);
-        background: #fff7e8;
+        background: var(--warn-soft);
       }
       .ck-slot.todo .ck-t1 svg {
         display: none;
@@ -3006,7 +3088,7 @@
         background: var(--yellow);
       }
       .ck-slot.todo .ck-t2 {
-        color: #d25f00;
+        color: var(--warn-text);
       }
       /* 未绑定/非当日：灰底灰边，标题灰、副行弱化（引导文案较长允许折行） */
       .ck-slot.lock {
@@ -3050,7 +3132,7 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 10px 12px;
-        background: #fff;
+        background: var(--card);
       }
       .ckm-loc-line {
         display: flex;
@@ -3176,7 +3258,7 @@
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 1px;
-        color: #fff;
+        color: var(--on-brand);
         background: var(--orange);
         border: 1.5px solid var(--line);
       }
@@ -3191,7 +3273,7 @@
         margin-top: 6px;
         padding: 12px 14px;
         border-radius: 8px;
-        background: #eaf5ef;
+        background: var(--ok-soft);
         border: 1.5px solid var(--green);
         border-left: 6px solid var(--green);
         color: var(--green);
@@ -3259,7 +3341,9 @@
         .wl-head .section-title h3,
         .wl-head .section-title .more,
         .wl-head .acts,
-        .wl-tabs {
+        .wl-tabs,
+        .cal.open .cal-collapse,
+        .sync-lock {
           animation: none !important;
         }
         .photos .ph {
@@ -3269,7 +3353,8 @@
           opacity: 1;
           transform: none;
         }
-        .combo-list {
+        .combo-list,
+        .wl-tabs button::after {
           transition: none;
         }
       }
@@ -3567,6 +3652,69 @@
         var RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
         var esc = Shade.esc;
 
+        /* ===== 图片加载失败统一处理（卡片缩略图 / Lightbox / 批量下载缩略图 / 备注图片共用）=====
+   正常加载不附加任何查询参数；首次失败以固定 r=1 自动重试一次；
+   再失败显示「加载失败」+ 手动「重试」占位，手动重试按点击递增 r，避免重复命中同一错误缓存 */
+        function wlImgSrcRetry(src, attempt) {
+          src = String(src || '');
+          if (/^(?:blob|data|wxfile):/i.test(src)) return src; // 本地地址不加参数，仅原样重载
+          var r = Number(attempt) > 0 ? Number(attempt) : 1;
+          try {
+            var u = new URL(src, location.href);
+            u.searchParams.set('r', String(r));
+            return u.href;
+          } catch (e) {
+            return src + (src.indexOf('?') >= 0 ? '&' : '?') + 'r=' + r;
+          }
+        }
+        function wlImgLoad(img, url) {
+          img.removeAttribute('src'); // 强制重载（失败后直接赋同值可能被浏览器跳过）
+          img.src = url;
+        }
+        function wlImgErr(img) {
+          if (!img || img.getAttribute('data-wl-fail') === '1') return;
+          if (!img._wlSrc0) img._wlSrc0 = img.getAttribute('src') || '';
+          if (img.getAttribute('data-wl-retry') !== '1') {
+            img.setAttribute('data-wl-retry', '1');
+            wlImgLoad(img, wlImgSrcRetry(img._wlSrc0));
+            return;
+          }
+          img.setAttribute('data-wl-fail', '1');
+          img.classList.add('img-failed');
+          var box = img.parentNode;
+          if (!box) return;
+          var old = box.querySelector('.img-err');
+          if (old && old.parentNode === box) box.removeChild(old);
+          if (box.classList) box.classList.add('has-img-err');
+          var tip = document.createElement('div');
+          tip.className = 'img-err';
+          tip.innerHTML =
+            '<span>加载失败</span><button type="button" class="img-err-btn">重试</button>';
+          tip.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation(); // 缩略图容器点击开大图的既有交互不被重试吞掉以外的方式干扰
+            wlImgRetry(img);
+          });
+          box.appendChild(tip);
+        }
+        function wlImgRetry(img) {
+          if (!img) return;
+          var box = img.parentNode;
+          if (box) {
+            if (box.classList) box.classList.remove('has-img-err');
+            var tip = box.querySelector('.img-err');
+            if (tip && tip.parentNode === box) box.removeChild(tip);
+          }
+          img.classList.remove('img-failed');
+          img.removeAttribute('data-wl-fail');
+          var attempt = Number(img.getAttribute('data-wl-retry') || 0) + 1;
+          img.setAttribute('data-wl-retry', String(attempt)); // 每次手动重试换确定性缓存键，不发起自动循环
+          wlImgLoad(img, wlImgSrcRetry(img._wlSrc0 || img.getAttribute('src') || '', attempt));
+        }
+        /* onerror 内联属性经 window 作用域解析，而本脚本整体在 IIFE 内——显式挂到 window */
+        window.wlImgErr = wlImgErr;
+        window.wlImgRetry = wlImgRetry;
+
         function pad(n) {
           return n < 10 ? '0' + n : '' + n;
         }
@@ -3819,7 +3967,7 @@
             '">' +
             '<img src="' +
             esc(p.url) +
-            '" loading="lazy" alt="' +
+            '" loading="lazy" onerror="wlImgErr(this)" alt="' +
             (plain ? '非水印照片' : '水印照片') +
             '">' +
             /* 验证状态角标可点击（识别中 pending 除外）：进手动修正层 */
@@ -4163,7 +4311,9 @@
                   .map(function (f, i) {
                     var inner =
                       f.type === 'image'
-                        ? '<img src="' + esc(f.url) + '" loading="lazy" alt="备注图片">'
+                        ? '<img src="' +
+                          esc(f.url) +
+                          '" loading="lazy" onerror="wlImgErr(this)" alt="备注图片">'
                         : '<span class="rk-play">' + SVG_PLAY + '</span>';
                     return (
                       '<span class="rk-thumb" data-ract="media" data-idx="' +
@@ -4519,6 +4669,9 @@
           img.onload = function () {
             img.classList.add('show');
           };
+          img.onerror = function () {
+            wlImgErr(img); // 统一失败重试 / 错误占位，避免大图永久空白
+          };
           img.src = p.url;
           $('.lb-x', lb).addEventListener('click', function (e) {
             e.stopPropagation();
@@ -4633,6 +4786,24 @@
             '</div></div>';
           var lb = $('#lightbox');
           lb.innerHTML = html;
+          /* 大图显示：图片加载完成后加 show（同照片大图层，修复永久透明）；失败走统一重试 / 错误占位。
+     视频直接 show（controls 播放器本身可见），错误同样走统一占位 */
+          var mEl = $('.lb-img', lb);
+          if (mEl) {
+            if (mEl.tagName === 'VIDEO') {
+              mEl.classList.add('show');
+              mEl.onerror = function () {
+                wlImgErr(mEl);
+              };
+            } else {
+              mEl.onload = function () {
+                mEl.classList.add('show');
+              };
+              mEl.onerror = function () {
+                wlImgErr(mEl);
+              };
+            }
+          }
           $('.lb-x', lb).addEventListener('click', function (e) {
             e.stopPropagation();
             closeMediaLb();
@@ -4788,7 +4959,7 @@
                   var inner =
                     f.type === 'video'
                       ? '<span class="att-play">' + SVG_PLAY + '</span>'
-                      : '<img src="' + esc(f.url) + '" alt="备注附件">';
+                      : '<img src="' + esc(f.url) + '" onerror="wlImgErr(this)" alt="备注附件">';
                   return (
                     '<span class="att-cell"><span class="att-thumb">' +
                     inner +
@@ -6810,7 +6981,7 @@
                       '" title="点击切换选中">' +
                       '<img src="' +
                       esc(p.url) +
-                      '" loading="lazy" alt="水印照片">' +
+                      '" loading="lazy" onerror="wlImgErr(this)" alt="水印照片">' +
                       '<span class="dl-tick">' +
                       Shade.icon('check', 11) +
                       '</span>' +

@@ -21,7 +21,7 @@
         />
       </view>
       <view class="btn-add" hover-class="hover-opacity" bindtap="onAdd">
-        <t-icon name="add" size="30rpx" color="#FFFFFF" />
+        <t-icon t-class="ico-30" name="add" />
         添加
       </view>
     </view>
@@ -35,7 +35,7 @@
         style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
       >
         <view class="mi">
-          <t-icon name="{{icon}}" size="32rpx" color="#0E3DA8" />
+          <t-icon t-class="ico-32" name="{{icon}}" />
         </view>
         <text class="mt">{{item.name}}</text>
         <!-- 目的地费用标记：市外（橙）/ 驻地（浅蓝），互斥 -->
@@ -110,7 +110,7 @@
         style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
       >
         <view class="mi">
-          <t-icon name="forest" size="32rpx" color="#0E3DA8" />
+          <t-icon t-class="ico-32" name="forest" />
         </view>
         <text class="mt">{{item.voltage_level}} {{item.line_name}}</text>
         <text class="line-tower">杆塔 {{item.tower_count}}</text>
@@ -164,7 +164,7 @@
         />
       </view>
       <view class="btn-add" hover-class="hover-opacity" bindtap="onOpAdd">
-        <t-icon name="add" size="30rpx" color="#FFFFFF" />
+        <t-icon t-class="ico-30" name="add" />
         添加
       </view>
     </view>
@@ -178,7 +178,7 @@
         style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
       >
         <view class="mi">
-          <t-icon name="thunder" size="32rpx" color="#0E3DA8" />
+          <t-icon t-class="ico-32" name="thunder" />
         </view>
         <text class="mt">{{item.voltageText}} {{item.line_name}}</text>
         <view class="ops">
@@ -254,42 +254,44 @@
 >
   <view class="sheet">
     <view class="sheet-title">编辑目的地</view>
-    <view class="f-item">
-      <view class="f-label">目的地名称</view>
-      <view class="f-field">
-        <t-input
-          borderless
-          placeholder="请输入目的地名称"
-          value="{{destEditName}}"
-          bind:change="onDestNameInput"
-        />
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+      <view class="f-item">
+        <view class="f-label">目的地名称</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="请输入目的地名称"
+            value="{{destEditName}}"
+            bind:change="onDestNameInput"
+          />
+        </view>
       </view>
-    </view>
-    <view class="f-item">
-      <view class="f-label">费用标记（市外与驻地互斥）</view>
-      <view class="qtags">
-        <t-check-tag
-          checked="{{destOutOfCity === 1}}"
-          content=""
-          data-k="ooc"
-          bind:change="onDestTag"
-          shape="round"
-          variant="outline"
-          size="medium"
-          >市外</t-check-tag
-        >
-        <t-check-tag
-          checked="{{destStationed === 1}}"
-          content=""
-          data-k="sta"
-          bind:change="onDestTag"
-          shape="round"
-          variant="outline"
-          size="medium"
-          >驻地</t-check-tag
-        >
+      <view class="f-item">
+        <view class="f-label">费用标记（市外与驻地互斥）</view>
+        <view class="qtags">
+          <t-check-tag
+            checked="{{destOutOfCity === 1}}"
+            content=""
+            data-k="ooc"
+            bind:change="onDestTag"
+            shape="round"
+            variant="outline"
+            size="medium"
+            >市外</t-check-tag
+          >
+          <t-check-tag
+            checked="{{destStationed === 1}}"
+            content=""
+            data-k="sta"
+            bind:change="onDestTag"
+            shape="round"
+            variant="outline"
+            size="medium"
+            >驻地</t-check-tag
+          >
+        </view>
       </view>
-    </view>
+    </scroll-view>
     <view class="sheet-actions">
       <view
         class="btn-ghost {{destSaving ? 'disabled' : ''}}"

@@ -19,13 +19,13 @@
         data-title="{{item.title}}"
       >
         <view class="s-icon">
-          <t-icon name="chat" size="40rpx" color="#0E3DA8" />
+          <t-icon name="chat" t-class="ico-40" />
         </view>
         <view class="s-main">
           <view class="s-title">{{item.title || '未命名对话'}}</view>
           <view class="s-time">{{item.timeText}}</view>
         </view>
-        <t-icon name="chevron-right" size="36rpx" color="#C9CDD4" />
+        <t-icon name="chevron-right" t-class="ico-36" class="s-chev" />
       </view>
       <view slot="right" class="swipe-actions">
         <view class="s-action s-rename" bindtap="onRename" data-id="{{item.id}}">重命名</view>

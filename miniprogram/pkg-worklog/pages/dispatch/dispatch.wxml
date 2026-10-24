@@ -48,7 +48,7 @@
           catchtap="onRemoveFile"
           data-index="{{index}}"
         >
-          <t-icon name="close" size="24rpx" color="#0E3DA8" />
+          <t-icon name="close" t-class="ico-24 ico-brand" />
         </view>
       </view>
     </view>
@@ -57,7 +57,7 @@
       hover-class="hover-opacity"
       bindtap="onPickFiles"
     >
-      <t-icon name="file-copy" size="32rpx" color="#0E3DA8" />
+      <t-icon name="file-copy" t-class="ico-32 ico-brand" />
       <text>从聊天文件选择</text>
     </view>
     <view
@@ -163,7 +163,7 @@
               <picker range="{{plateRange}}" value="{{plateIdx}}" bindchange="onPlateChange">
                 <view class="pick-val {{plateWarn ? 'warn' : ''}}">
                   <text>{{plateRange[plateIdx]}}</text>
-                  <t-icon name="chevron-down" size="26rpx" color="rgba(29,33,41,.4)" />
+                  <t-icon name="chevron-down" t-class="ico-26 ico-weak" />
                 </view>
               </picker>
               <view class="note {{plateNoteRed ? 'red' : ''}}" wx:if="{{plateNote}}">
@@ -196,16 +196,14 @@
                 ><t-icon
                   class="note-red-x"
                   name="error-triangle"
-                  size="20rpx"
-                  color="#F53F3F"
+                  t-class="ico-20 ico-danger"
                 />{{memNote}}</view
               >
               <view class="note red" wx:if="{{memUnknown}}"
                 ><t-icon
                   class="note-red-x"
                   name="error-triangle"
-                  size="20rpx"
-                  color="#F53F3F"
+                  t-class="ico-20 ico-danger"
                 />{{memUnknown}}</view
               >
             </view>
@@ -216,7 +214,7 @@
               <picker range="{{destRange}}" value="{{destIdx}}" bindchange="onDestChange">
                 <view class="pick-val {{destWarn ? 'warn' : ''}}">
                   <text>{{destRange[destIdx]}}</text>
-                  <t-icon name="chevron-down" size="26rpx" color="rgba(29,33,41,.4)" />
+                  <t-icon name="chevron-down" t-class="ico-26 ico-weak" />
                 </view>
               </picker>
               <view class="note {{destNoteRed ? 'red' : ''}}" wx:if="{{destNote}}"

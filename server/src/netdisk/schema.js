@@ -6,7 +6,7 @@ const APP_NETDISK = {
   name: '团队网盘',
   icon: 'folder-open',
   path: '/pkg-netdisk/pages/index/index',
-  sort: 8,
+  sort: 2,
   terminal: 'both', // 适配终端：双端（见 db.js sys_app.terminal 口径）
 };
 

@@ -9,7 +9,7 @@
      预览 /export/preview 经 Shade.openPreviewUrl 打开、下载 apiRaw + saveBlob，分线路带 ?line=）+ 记录 / 暂存区 / 冲突三页签；
      台账记录卡片扁平展示（无详情弹层分级，顺序后端已排好：未处理在前已处理在后 > 区段升序）：默认折叠态一卡两行——
      标题行 区段 + 垂距双大字同级、左对齐（垂距 ≤ 阈值红显）+ 状态点标（未处理橙·已处理绿，处理后整卡降饱和过渡）
-     + 卡内折叠/展开开关（点卡非交互区同效），次级行 树种×数量 / 水平距离；辅证照片条折叠态即展示（有图才渲染、只读，
+     + 卡内折叠/展开开关（点卡非交互区同效），次级行 树种×数量 / 水平距离 / 发现时间（found_at 空则省略）；辅证照片条折叠态即展示（有图才渲染、只读，
      点图进大图查看器）；展开态另出全字段网格（垂直超阈值红底突出）
      + 已处理信息 + 处理前/后照片两区（可上传可删，缩略图进大图查看器）
      + 卡内 处理（未处理）/ 删除（班管·超管）按钮，操作后随 loadRecords 同步重绘（折叠只藏展开区块，摘要与辅证条常驻）；
@@ -344,7 +344,7 @@
         border: none;
         border-radius: 50%;
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -517,7 +517,7 @@
         color: var(--red);
       }
       .linkbtn.dgr:hover {
-        background: #ffece8;
+        background: var(--danger-soft);
       }
 
       /* ===== 记录页签二级「台账视图」：扁平完整隐患卡片（全字段 + 照片三区 + 卡内操作，无详情弹层分级） ===== */
@@ -566,7 +566,7 @@
       .rec-vert.danger {
         color: var(--red);
       }
-      /* 次级字段行：树种×数量 / 水平距离 */
+      /* 次级字段行：树种×数量 / 水平距离 / 发现时间 */
       .rec-subline {
         display: flex;
         align-items: baseline;
@@ -606,18 +606,18 @@
         border-radius: 50%;
       }
       .rec-tag.un {
-        background: #fff7e8;
-        color: #d25f00;
+        background: var(--warn-soft);
+        color: var(--warn-text);
       }
       .rec-tag.un::before {
         background: var(--yellow);
       }
       .rec-tag.ok {
-        background: #e8ffea;
-        color: #0b8a37;
+        background: var(--ok-soft);
+        color: var(--ok-text);
       }
       .rec-tag.ok::before {
-        background: #0b8a37;
+        background: var(--ok-text);
       }
       /* 批量勾选框（批量模式才渲染；已处理卡为禁用态） */
       .rec-ck {
@@ -626,7 +626,7 @@
         height: 20px;
         border-radius: 6px;
         border: 1.5px solid var(--dash);
-        background: #fff;
+        background: var(--card);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -646,7 +646,7 @@
       .rec-ck.on {
         border-color: var(--orange);
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
       .rec-ck.dis {
         opacity: 0.35;
@@ -662,14 +662,14 @@
         gap: 10px;
         margin-top: 14px;
       }
-      /* 折叠/展开开关（标题行右端，每卡一枚）：折叠态整卡只留 区段/垂距/树种×数量/水平 两行摘要，其余整块隐藏 */
+      /* 折叠/展开开关（标题行右端，每卡一枚）：折叠态整卡只留 区段/垂距/树种×数量/水平距离/发现时间 两行摘要，其余整块隐藏 */
       .rec-fold {
         flex: none;
         width: 26px;
         height: 26px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--ph);
         cursor: pointer;
         display: inline-flex;
@@ -718,7 +718,7 @@
       }
       .rf {
         font-size: 12.5px;
-        color: var(--text);
+        color: var(--navy);
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
       }
@@ -732,13 +732,13 @@
         margin-top: 12px;
         padding: 9px 12px;
         border-radius: 8px;
-        background: #e8ffea;
+        background: var(--ok-soft);
         display: flex;
         align-items: center;
         gap: 8px 14px;
         flex-wrap: wrap;
         font-size: 12.5px;
-        color: #0b8a37;
+        color: var(--ok-text);
         letter-spacing: 0.5px;
       }
       .rec-handled::before {
@@ -774,7 +774,7 @@
         height: 22px;
         border-radius: 6px;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         color: var(--orange);
         cursor: pointer;
         display: flex;
@@ -884,7 +884,7 @@
       .stg-note {
         margin-top: 10px;
         padding: 9px 12px;
-        background: #fff7e8;
+        background: var(--warn-soft);
         border-left: 4px solid var(--yellow);
         font-size: 12.5px;
         color: var(--sub);
@@ -930,7 +930,7 @@
         overflow-x: auto;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         scrollbar-width: thin;
       }
       .stg-tb {
@@ -969,7 +969,7 @@
         color: var(--navy);
         font-family: inherit;
         outline: none;
-        background: #fff;
+        background: var(--card);
         transition: border-color 0.15s;
       }
       .stg-in:focus {
@@ -1086,7 +1086,7 @@
         align-items: center;
         gap: 14px;
         padding: 10px 12px 10px 20px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 999px;
         box-shadow: var(--shadow-hover);
@@ -1151,7 +1151,7 @@
         position: absolute;
         border-radius: 8px;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
@@ -1203,7 +1203,7 @@
         inset: 0;
         z-index: 320;
         padding: 24px;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
@@ -1215,7 +1215,7 @@
         opacity: 1;
       }
       .modal {
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         width: 560px;
@@ -1272,7 +1272,7 @@
         height: 30px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
@@ -1284,8 +1284,8 @@
           color 0.15s;
       }
       .m-x:hover {
-        background: var(--navy);
-        color: #fff;
+        background: var(--inverse-bg);
+        color: var(--inverse-text);
       }
       .m-x svg {
         width: 14px;
@@ -1314,7 +1314,7 @@
         width: 100%;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         outline: none;
         font-size: 13px;
         color: var(--navy);
@@ -1352,7 +1352,7 @@
       .chip {
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         font-size: 12.5px;
         padding: 4px 13px;
@@ -1508,14 +1508,13 @@
         /* 超管 / 班组管理员（暂存区·冲突·阈值·同步·删记录等管理类入口的可见性口径） */
         var isManager = me.role === 'admin' || me.role === 'team_admin';
 
-        /* 卡片紧凑信息行字段（区段/垂距在标题行，树种×数量/水平在次级行，不重复占位；空值字段跳过） */
+        /* 卡片紧凑信息行字段（区段/垂距在标题行，树种×数量/水平距离/发现时间在次级行，不重复占位；空值字段跳过） */
         var COMPACT_FIELDS = [
           ['position_note', '位置备注'],
           ['diameter', '直径(cm)'],
           ['dist_small', '距小号(m)'],
           ['dist_big', '距大号(m)'],
           ['finder_name', '发现人'],
-          ['found_at', '发现时间'],
         ];
         /* 15 业务列（发现 12 列 + 处理 3 列）：暂存区编辑与冲突对照共用（key 与后端列名一致） */
         var BIZ_FIELDS = [
@@ -1768,8 +1767,8 @@
 
         /* 记录卡片 HTML（扁平完整卡，无详情弹层分级；默认折叠态一卡两行）：
    标题行 = 区段 + 垂直距离双大字同级、左对齐（垂距 ≤ 阈值红显）+ 状态点标 + 折叠/展开开关 + 批量勾选框；
-   次级行 = 树种×数量 / 水平距离；辅证照片条（rec-evi，有图才渲染）折叠态即展示，点图开大图预览；
-   展开态（.rec-more）另出紧凑信息行（位置备注/直径/距小号/距大号/发现人/发现时间，
+   次级行 = 树种×数量 / 水平距离 / 发现时间（found_at 空则省略）；辅证照片条（rec-evi，有图才渲染）折叠态即展示，点图开大图预览；
+   展开态（.rec-more）另出紧凑信息行（位置备注/直径/距小号/距大号/发现人，
    空值跳过，宽屏一行窄屏两行）+ 已处理信息 + 照片两区（处理前/后可上传可删）+ 卡内操作（处理：未处理卡；删除：班管/超管）。
    点卡（非交互区）折叠/展开同开关；卡内全部交互走 #recBody 事件委派（见 initEvents），重绘无需重绑 */
         function recCardHtml(r, threshold) {
@@ -1812,7 +1811,7 @@
               Shade.icon('chevron-down', 13) +
               '</button>'
           );
-          /* 次级字段行：树种×数量 / 水平距离 */
+          /* 次级字段行：树种×数量 / 水平距离 / 发现时间（仅 found_at，空值省略） */
           var sub = [];
           var species = String(r.tree_species || '').trim();
           if (species)
@@ -1823,6 +1822,8 @@
                 '</span>'
             );
           sub.push('<span class="rec-dist">水平 ' + esc(fmtM(r.horizontal)) + '</span>');
+          var foundAt = String(r.found_at == null ? '' : r.found_at).trim();
+          if (foundAt) sub.push('<span class="rec-dist">发现时间 ' + esc(foundAt) + '</span>');
           /* 紧凑信息行：标签+值同行内联，空值字段不渲染（垂直超阈值红显由标题行承担） */
           var infoItems = COMPACT_FIELDS.map(function (f) {
             var v = String(r[f[0]] == null ? '' : r[f[0]]).trim();

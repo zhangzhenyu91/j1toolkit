@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f5f7fa;
+  background: var(--app-bg-page);
 }
 
 /* ---------- 消息区 ---------- */
@@ -39,8 +39,8 @@
 }
 
 .user-bubble {
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   border-bottom-right-radius: 0;
   display: flex;
   flex-direction: column;
@@ -57,7 +57,7 @@
 /* 回答不用气泡（对齐官方前端）：纯文本流式内容，仅用户问题保留气泡 */
 .reply-bubble {
   background: transparent;
-  color: #1d2129;
+  color: var(--app-text-primary);
   border-radius: 12rpx;
   max-width: 100%;
   padding: 0;
@@ -66,13 +66,13 @@
 
 .reply-error {
   background: transparent;
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 
 .thinking {
   margin-bottom: 8rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   line-height: 1.5;
 }
 
@@ -94,22 +94,23 @@
   align-items: center;
   gap: 10rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .think-dot {
   width: 12rpx;
   height: 12rpx;
   border-radius: 50%;
-  background: rgba(29, 33, 41, 0.35);
+  background: var(--app-border);
 }
 
 .think-dot-on {
-  background: #0e3da8;
-  animation: blink 1s infinite;
+  background: var(--app-brand);
+  animation: blink 1s infinite; /* 流式进行中指示（功能性） */
 }
 
 .think-arrow {
+  color: var(--app-text-tertiary);
   transition: transform 0.2s;
 }
 
@@ -153,6 +154,19 @@
   justify-content: center;
 }
 
+/* 步骤图标状态色（t-icon 不传 color，经宿主 CSS color 继承） */
+.ico-brand {
+  color: var(--app-brand);
+}
+
+.ico-danger {
+  color: var(--app-danger-text);
+}
+
+.ico-mute {
+  color: var(--app-text-tertiary);
+}
+
 /* 正在执行的步骤：图标单点脉冲（功能性反馈；标题明暗呼吸按动效规范删除） */
 .step-icon-run {
   animation: stepPulse 1.2s ease-in-out infinite;
@@ -162,7 +176,7 @@
   width: 2rpx;
   flex: 1;
   min-height: 8rpx;
-  background: #ede5d2;
+  background: var(--app-border);
 }
 
 .step-main {
@@ -177,18 +191,18 @@
 
 .step-title {
   font-size: 24rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-weight: 500;
   line-height: 1.5;
   word-break: break-word;
 }
 
 .step-title-run {
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .step-title-err {
-  color: #f53f3f;
+  color: var(--app-danger-text);
   display: flex;
   align-items: flex-start;
 }
@@ -204,13 +218,13 @@
 .step-summary {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   line-height: 1.5;
 }
 
 .step-text {
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -229,8 +243,8 @@
 }
 
 .cursor {
-  color: #0e3da8;
-  animation: blink 1s infinite;
+  color: var(--app-brand);
+  animation: blink 1s infinite; /* 流式光标指示（功能性） */
 }
 
 @keyframes blink {
@@ -260,33 +274,34 @@
   display: flex;
   align-items: center;
   padding: 4rpx 0;
+  color: var(--app-text-tertiary);
   transition: opacity 0.15s ease;
 }
 
 .msg-time {
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 引用来源 ---------- */
 .ref-box {
   margin-top: 8rpx;
   padding: 12rpx 20rpx;
-  background: #e8f0ff;
-  border: 1rpx solid #ede5d2;
+  background: var(--app-brand-light);
+  border: 1rpx solid var(--app-border);
   border-radius: 12rpx;
 }
 
 .ref-title {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
   margin-bottom: 6rpx;
 }
 
 .ref-item {
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.7;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -299,11 +314,12 @@
   margin: 0 auto 20rpx;
   padding: 8rpx 28rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  color: var(--app-text-tertiary);
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   width: fit-content;
+  transition: opacity 0.15s ease;
 }
 
 .bottom-anchor {
@@ -317,9 +333,9 @@
 
 /* 输入卡片：白卡收拢附件芯片/图片/输入框/工具栏（同全局 .card 卡族形态） */
 .input-card {
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 24rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.05);
+  box-shadow: var(--app-shadow-card);
   padding: 20rpx;
 }
 
@@ -336,6 +352,7 @@
   border-radius: 12rpx;
 }
 
+/* 图片角标关闭钮：浮于照片上的深色半透明胶囊，双主题同值（非表面色） */
 .chip-close {
   position: absolute;
   top: -12rpx;
@@ -366,8 +383,8 @@
   gap: 6rpx;
   padding: 6rpx 16rpx;
   border-radius: 999rpx;
-  background: #f5f7fa;
-  color: #4e5969;
+  background: var(--app-bg-nested);
+  color: var(--app-text-secondary);
   font-size: 22rpx;
   line-height: 1.5;
   transition: opacity 0.15s ease;
@@ -382,8 +399,8 @@
 }
 
 .cap-pill-on {
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
 }
 
 /* 仅 1 个可用模型时的禁用态 */
@@ -391,22 +408,28 @@
   opacity: 0.6;
 }
 
-/* ---------- 选项弹层（思考强度/模型选择共用）：底部弹层 + 遮罩 ---------- */
+/* ---------- 选项弹层（思考强度/模型选择共用）：底部弹层 + 遮罩 ----------
+   头/体/脚三段 flex：整体限高 + overflow:hidden，选项区 flex:1 1 auto 独立滚动（模型多时不顶掉标题与取消） */
 .sheet-mask {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(29, 33, 41, 0.45);
+  background: var(--app-mask);
   display: flex;
   align-items: flex-end;
 }
 
 .sheet {
   width: 100%;
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 24rpx 24rpx 0 0;
   padding: 8rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
   animation: sheetUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 @keyframes sheetUp {
@@ -421,10 +444,19 @@
 }
 
 .sheet-title {
+  flex: none;
   text-align: center;
   font-size: 26rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   padding: 18rpx 0;
+}
+
+/* 弹层内容体（flex-basis 用 auto：0 基准会把自适应高度弹层内容压没） */
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .sheet-opt {
@@ -433,23 +465,24 @@
   justify-content: space-between;
   padding: 26rpx 8rpx;
   font-size: 28rpx;
-  color: #1d2129;
-  border-top: 1rpx solid #e5e6eb;
+  color: var(--app-text-primary);
+  border-top: 1rpx solid var(--app-border);
 }
 
 .sheet-opt-on {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
 }
 
 .sheet-cancel {
+  flex: none;
   margin-top: 12rpx;
   text-align: center;
   padding: 24rpx 0;
-  background: #f5f7fa;
+  background: var(--app-bg-nested);
   border-radius: 16rpx;
   font-size: 28rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 /* ---------- 附件芯片 ---------- */
@@ -464,13 +497,13 @@
   display: flex;
   align-items: center;
   gap: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 8rpx;
   padding: 12rpx 16rpx;
 }
 
 .attach-chip-err {
-  background: #ffece8;
+  background: var(--app-danger-bg);
 }
 
 .attach-info {
@@ -482,7 +515,7 @@
 
 .attach-name {
   font-size: 24rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -490,30 +523,30 @@
 
 .attach-meta {
   font-size: 20rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .attach-chip-err .attach-meta {
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 
 .attach-progress {
   margin-top: 8rpx;
   height: 4rpx;
   border-radius: 2rpx;
-  background: #e5e6eb;
+  background: var(--app-border);
   overflow: hidden;
 }
 
 .attach-progress-bar {
   height: 100%;
-  background: #0e3da8;
+  background: var(--app-brand);
 }
 
 .attach-close {
   flex: none;
   padding: 8rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-size: 24rpx;
   line-height: 1;
 }
@@ -537,7 +570,8 @@
   width: 72rpx;
   height: 72rpx;
   border-radius: 50%;
-  background: #f5f7fa;
+  background: var(--app-bg-nested);
+  color: var(--app-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -553,18 +587,19 @@
   font-size: 28rpx;
   line-height: 1.5;
   max-height: 180rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .input-ph {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .send-btn {
   width: 72rpx;
   height: 72rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -576,4 +611,151 @@
 
 .send-disabled {
   opacity: 0.4;
+}
+
+/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+.ico-20 {
+  font-size: 20rpx;
+}
+.ico-22 {
+  font-size: 22rpx;
+}
+.ico-24 {
+  font-size: 24rpx;
+}
+.ico-28 {
+  font-size: 28rpx;
+}
+.ico-32 {
+  font-size: 32rpx;
+}
+.ico-36 {
+  font-size: 36rpx;
+}
+.ico-40 {
+  font-size: 40rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   聊天保持可读宽度：消息列与输入卡同宽居中限宽，关键 rpx 字阶改固定 px；
+   900px 起弹层限宽居中，1200px 可读宽度略增 */
+@media (min-width: 600px) {
+  .msg-list {
+    box-sizing: border-box;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .input-card {
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+  }
+
+  .bubble {
+    font-size: 14px;
+    padding: 10px 12px;
+    border-radius: 6px;
+  }
+
+  .thinking,
+  .think-title,
+  .step-summary,
+  .step-text {
+    font-size: 11px;
+  }
+
+  .step-title {
+    font-size: 12px;
+  }
+
+  .msg-time {
+    font-size: 12px;
+  }
+
+  .ref-title {
+    font-size: 10px;
+  }
+
+  .ref-item {
+    font-size: 11px;
+  }
+
+  .load-earlier {
+    font-size: 11px;
+  }
+
+  .chat-input {
+    font-size: 14px;
+  }
+
+  .sheet-title {
+    font-size: 13px;
+  }
+
+  .sheet-opt {
+    font-size: 14px;
+  }
+
+  .sheet-cancel {
+    font-size: 14px;
+    border-radius: 8px;
+    padding: 12px 0;
+  }
+
+  .attach-name {
+    font-size: 12px;
+  }
+
+  .attach-meta {
+    font-size: 10px;
+  }
+
+  .msg-img {
+    width: 160px;
+  }
+  .ico-20 {
+    font-size: 10px;
+  }
+  .ico-22 {
+    font-size: 11px;
+  }
+  .ico-24 {
+    font-size: 12px;
+  }
+  .ico-28 {
+    font-size: 14px;
+  }
+  .ico-32 {
+    font-size: 16px;
+  }
+  .ico-36 {
+    font-size: 18px;
+  }
+  .ico-40 {
+    font-size: 20px;
+  }
+}
+
+@media (min-width: 900px) {
+  .msg-list,
+  .input-card {
+    max-width: 800px;
+  }
+
+  /* 弹层限宽居中 */
+  .sheet {
+    max-width: 560px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+@media (min-width: 1200px) {
+  .msg-list,
+  .input-card {
+    max-width: 880px;
+  }
 }

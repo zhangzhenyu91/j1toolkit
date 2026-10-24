@@ -22,6 +22,8 @@ function getClient() {
 }
 
 // 上传 Buffer，返回 COS 对象键
+// CacheControl 显式 private,no-cache：允许缓存但每次复用前重校验，避免错误或旧响应被长期粘住；
+// 公开读仍走无签名 publicUrl（与既有链路一致），不改 ACL
 function putBuffer(key, buf, contentType) {
   return new Promise((resolve, reject) => {
     getClient().putObject(
@@ -31,6 +33,7 @@ function putBuffer(key, buf, contentType) {
         Key: key,
         Body: buf,
         ContentType: contentType || 'image/jpeg',
+        CacheControl: 'private, no-cache',
       },
       (err) => (err ? reject(err) : resolve(key))
     );

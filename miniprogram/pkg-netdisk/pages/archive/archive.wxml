@@ -55,7 +55,7 @@
           data-index="{{index}}"
           binderror="onIconErr"
         />
-        <view wx:else class="ficon"><t-icon name="folder" size="38rpx" color="#0A3592" /></view>
+        <view wx:else class="ficon"><t-icon t-class="ico-38" name="folder" /></view>
       </block>
       <block wx:else>
         <image
@@ -71,7 +71,7 @@
         <text class="fname">{{item.name}}</text>
         <text class="fsub">{{item.sub}}</text>
       </view>
-      <t-icon wx:if="{{item.isDir}}" name="chevron-right" size="30rpx" color="#C9CDD4" />
+      <t-icon wx:if="{{item.isDir}}" t-class="ico-30" name="chevron-right" color="#C9CDD4" />
     </view>
   </view>
 

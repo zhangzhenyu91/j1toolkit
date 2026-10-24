@@ -250,7 +250,7 @@
         color: var(--red);
       }
       .linkbtn.dgr:hover {
-        background: #ffece8;
+        background: var(--danger-soft);
       }
 
       /* ===== 字典板块（车牌号 / 目的地 / 人员 共用；口径同 worklog 数据管理） ===== */
@@ -296,7 +296,7 @@
         letter-spacing: 0.5px;
       }
       .dpill-sync {
-        background: #eaf5ef;
+        background: var(--ok-soft);
         color: var(--green);
       }
       .dpill-hand {
@@ -304,7 +304,7 @@
         color: var(--ph);
       }
       .dpill-out {
-        background: #fff7e8;
+        background: var(--warn-soft);
         color: var(--navy);
       }
       /* 目的地费用口径标（市外=警告橙浅底 / 驻地=浅蓝底，互斥；同 worklog 原标记样式） */
@@ -505,7 +505,7 @@
         inset: 0;
         z-index: 320;
         padding: 24px;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
@@ -517,7 +517,7 @@
         opacity: 1;
       }
       .modal {
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         width: 560px;
@@ -527,7 +527,7 @@
         padding: 6px;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transform: translateY(16px) scale(0.98);
         transition: transform 0.35s var(--ease);
       }
@@ -574,20 +574,20 @@
         height: 30px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transition:
           background 0.15s,
           color 0.15s;
       }
       .m-x:hover {
         background: var(--navy);
-        color: #fff;
+        color: var(--inverse-text);
       }
       .m-x svg {
         width: 14px;
@@ -616,7 +616,7 @@
         height: 40px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         outline: none;
         padding: 0 10px;
         font-size: 13px;

@@ -20,6 +20,20 @@ page {
   opacity: 0.75 !important;
 }
 
+/* 短状态过渡（≤0.2s，仅状态切换反馈；无循环氛围动效；prefers-reduced-motion 由 app.wxss 统一关闭） */
+.btn-primary,
+.btn-ghost,
+.btn-dark,
+.hover-opacity,
+.hover-scale {
+  transition:
+    opacity 0.15s ease-out,
+    background-color 0.15s ease-out,
+    color 0.15s ease-out,
+    border-color 0.15s ease-out,
+    transform 0.15s ease-out;
+}
+
 /* ---------- 板块标题行（标题本体用全局 .section-title） ---------- */
 .sec-row {
   display: flex;
@@ -30,15 +44,15 @@ page {
 .sec-note {
   margin-left: auto;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* 底部固定操作区（.bottombar 纸底色条）已随主页悬浮按钮化删除；表单弹层主按钮沿用 .btn-primary */
 .btn-primary {
   height: 96rpx;
   border-radius: 16rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -54,8 +68,8 @@ page {
   align-items: center;
   gap: 12rpx;
   margin: 4rpx 8rpx 0;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   border-radius: 12rpx;
   padding: 8rpx 20rpx;
   font-size: 24rpx;
@@ -66,7 +80,7 @@ page {
 /* ---------- 提示条（「未出车」联动说明） ---------- */
 .tip {
   margin-top: 28rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
   border-radius: 0;
   display: flex;
   align-items: center;
@@ -79,7 +93,7 @@ page {
   height: 64rpx;
   flex: none;
   border-radius: 0;
-  background: #ffffff;
+  background: var(--app-bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -89,13 +103,13 @@ page {
   display: block;
   font-size: 24rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .tip .tip-p {
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.6;
 }
 
@@ -120,24 +134,24 @@ page {
 }
 
 .tags .t-tag--outline.t-tag--default {
-  background: #ffffff;
-  border-color: #e5e6eb;
-  color: #1d2129;
+  background: var(--app-bg-card);
+  border-color: var(--app-border);
+  color: var(--app-text-primary);
 }
 
 /* 点亮态：蓝底白字（特异性压过组件 .t-tag--outline.t-tag--primary） */
 .tags .t-tag--outline.t-tag--primary,
 .tags .t-tag--checked {
-  background: #0e3da8;
-  border-color: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  border-color: var(--app-brand);
+  color: var(--app-on-brand);
   box-shadow: none;
 }
 
 .tags .t-tag--disabled {
-  background: #f7f8fa;
-  border-color: #e5e6eb;
-  color: #c9cdd4;
+  background: var(--app-bg-nested);
+  border-color: var(--app-border);
+  color: var(--app-text-tertiary);
   box-shadow: none;
 }
 
@@ -156,18 +170,86 @@ page {
 }
 
 .photo-item + .photo-item {
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
 }
 
-/* 缩略图：12rpx 统一圆角 */
-.ph-img {
+/* 缩略图：12rpx 统一圆角（外层 box 固定尺寸，内含 image 或加载失败占位） */
+.ph-img-box {
   width: 168rpx;
   height: 340rpx;
   flex: none;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
+  border: 2rpx solid var(--app-border);
   box-sizing: border-box;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
+  overflow: hidden;
+}
+
+.ph-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 12rpx;
+  box-sizing: border-box;
+}
+
+/* 图片加载失败占位（点按重试；尺寸由所在槽位决定；display 覆盖 image 槽位的 block） */
+.img-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  background: var(--app-bg-nested);
+  color: var(--app-text-tertiary);
+  animation: imgFallbackIn 0.18s ease-out both;
+}
+
+@keyframes imgFallbackIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* t-icon 外部样式类：字号经 t-class 控制（size 内联 rpx 会随屏宽膨胀），图标色经 t-class/父级继承
+   随 --app-* 深浅（不向 color 属性传 var()）；白字图标在品牌/墨黑实底上由父级 color 继承，
+   照片/导出绘制处保留具体值 */
+.ico-brand {
+  color: var(--app-brand);
+}
+
+.ico-main {
+  color: var(--app-text-primary);
+}
+
+.ico-sec {
+  color: var(--app-text-secondary);
+}
+
+.ico-weak {
+  color: var(--app-text-tertiary);
+}
+
+.ico-danger {
+  color: var(--app-danger);
+}
+
+.ico-ok {
+  color: var(--app-success);
+}
+
+.ico-faint {
+  color: var(--app-border);
+}
+
+.img-fallback-t {
+  font-size: 20rpx;
+  color: var(--app-text-tertiary);
 }
 
 .ph-right {
@@ -207,7 +289,7 @@ page {
   gap: 10rpx;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   line-height: 1.5;
 }
 
@@ -224,7 +306,7 @@ page {
 }
 
 .ph-wc.empty {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
@@ -232,7 +314,7 @@ page {
 .ph-meta {
   margin-top: 12rpx;
   padding-top: 10rpx;
-  border-top: 2rpx dashed #e5e6eb;
+  border-top: 2rpx dashed var(--app-border);
 }
 
 .meta-line {
@@ -241,7 +323,7 @@ page {
   gap: 12rpx;
   padding: 3rpx 0;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.4;
 }
 
@@ -249,7 +331,7 @@ page {
   flex: none;
   width: 96rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .meta-line .meta-val {
@@ -279,26 +361,26 @@ page {
   height: 38rpx;
   padding: 0 16rpx;
   border-radius: 8rpx;
-  border: 2rpx solid #0e3da8;
-  color: #0e3da8;
+  border: 2rpx solid var(--app-brand);
+  color: var(--app-brand);
   font-size: 20rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
 }
 
 .vtag.ing {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .vtag.ok {
-  background: #e8ffea;
-  color: #0b8a37;
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
 }
 
 .vtag.bad {
-  background: #ffece8;
-  color: #f53f3f;
+  background: var(--app-danger-bg);
+  color: var(--app-danger);
 }
 
 /* 照片右上角删除小图标 */
@@ -319,9 +401,9 @@ page {
   margin: 4rpx 0 0;
   height: 104rpx;
   border-radius: 12rpx;
-  background: #f7f8fa;
-  border: 3rpx dashed #c9cdd4;
-  color: #86909c;
+  background: var(--app-bg-nested);
+  border: 3rpx dashed var(--app-border);
+  color: var(--app-text-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -332,29 +414,85 @@ page {
 }
 
 /* ---------- 底部弹层（筛选下拉 / 人名点亮共用） ----------
-   顶部 24rpx 圆角 + 轻阴影 */
+   顶部 24rpx 圆角 + 轻阴影；头/体/脚三段 flex 纵列：
+   整体 max-height 封顶 + overflow:hidden，内容区 flex:1;min-height:0 独立滚动，
+   头脚 flex:none 不参与收缩，避免头/说明/脚/安全区叠加溢出 */
 .sheet {
   position: relative;
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 24rpx 24rpx 0 0;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .sheet-title {
+  flex: none;
   text-align: center;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .sheet-note {
+  flex: none;
   text-align: center;
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   letter-spacing: 1rpx;
+}
+
+/* 弹层内容体：flex-basis 必须 auto（flex:1 简写为 0 基准，在 max-height 自适应弹层里会把内容压成 0 高）；
+   min-height:0 允许收缩到剩余空间，超出部分由 scroll-view / overflow-y 自行滚动，头脚始终可见 */
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角关闭热区：closeBtn/close-btn 插槽均未启用时仍是可点隐形块（padding 20rpx），
+   会吞掉弹层右上角点击甚至误关层；各页统一置空（apply-shared 下页面样式可覆盖组件内部） */
+.t-popup__close {
+  display: none;
+}
+
+/* 弹层头行（标题居中 + 右上角显式关闭钮，88rpx 触达区始终可见可点） */
+.sheet-head {
+  position: relative;
+  flex: none;
+}
+
+.sheet-close {
+  position: absolute;
+  right: -8rpx;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 88rpx;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+/* 弹层内非体块默认不参与收缩（头/说明/控件/脚），体块（scroll-view 或 .sheet-body）独占剩余空间并滚动 */
+.sheet > view {
+  flex: none;
+}
+
+.sheet > scroll-view,
+.sheet > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .sheet .tags {
@@ -363,23 +501,27 @@ page {
 }
 
 .sheet-actions {
+  flex: none;
   display: flex;
   gap: 20rpx;
   margin-top: 40rpx;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
 }
 
 .btn-ghost {
   flex: 1;
   height: 88rpx;
   border-radius: 16rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 2rpx;
   box-sizing: border-box;
 }
@@ -388,8 +530,8 @@ page {
   flex: 2;
   height: 88rpx;
   border-radius: 16rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -405,8 +547,8 @@ page {
 
 /* ---------- 巡视内容输入框 ---------- */
 .textarea-wrap {
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 20rpx 28rpx;
 }
@@ -415,20 +557,20 @@ page {
   width: 100%;
   min-height: 132rpx;
   font-size: 28rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   line-height: 1.7;
   box-sizing: border-box;
 }
 
 .ph {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 派车情况表单卡（直角 + 墨边，弹层白底上以描边定义边界，不用柔影） ---------- */
 .form-card {
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
+  border: 2rpx solid var(--app-border);
   overflow: hidden;
 }
 
@@ -440,7 +582,7 @@ page {
 }
 
 .frow + .frow {
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
 }
 
 .frow .fk {
@@ -453,7 +595,7 @@ page {
 .frow .fv {
   flex: 1;
   font-size: 28rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -461,17 +603,17 @@ page {
 }
 
 .frow .fv.placeholder {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .frow.disabled {
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
 }
 
 .frow.disabled .fk,
 .frow.disabled .fv {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .frow.disabled .fv {
@@ -481,8 +623,8 @@ page {
 /* 「无派车」灰徽章 */
 .badge-mini {
   flex: none;
-  border: 2rpx solid rgba(29, 33, 41, 0.35);
-  color: rgba(29, 33, 41, 0.4);
+  border: 2rpx solid var(--app-border);
+  color: var(--app-text-tertiary);
   border-radius: 12rpx;
   padding: 0 12rpx;
   font-size: 20rpx;
@@ -492,8 +634,8 @@ page {
 
 /* ---------- 内联筛选下拉（手风琴展开于表单行下方） ---------- */
 .drop-panel {
-  border-top: 2rpx solid #e5e6eb;
-  background: #f7f8fa;
+  border-top: 2rpx solid var(--app-border);
+  background: var(--app-bg-nested);
   padding: 16rpx 24rpx 20rpx;
 }
 
@@ -501,8 +643,8 @@ page {
   display: flex;
   align-items: center;
   gap: 16rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 16rpx 24rpx;
 }
@@ -510,14 +652,14 @@ page {
 .drop-input {
   flex: 1;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .drop-list {
   margin-top: 16rpx;
   max-height: 480rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   overflow: hidden;
   box-sizing: border-box;
@@ -550,7 +692,7 @@ page {
 }
 
 .drop-item + .drop-item {
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
 }
 
 .drop-item .t-icon {
@@ -559,16 +701,16 @@ page {
 
 /* 选中项：白底蓝字 + 前置蓝方块（不用浅蓝高亮） */
 .drop-item.on {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 700;
 }
 
 .drop-item.on::before {
-  background: #0e3da8;
+  background: var(--app-brand);
 }
 
 .drop-item.none {
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .drop-item.none .badge-mini {
@@ -580,5 +722,5 @@ page {
   padding: 40rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }

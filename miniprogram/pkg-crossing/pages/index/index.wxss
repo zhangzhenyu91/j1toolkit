@@ -1,4 +1,6 @@
-/* 交跨记录（政企蓝白 token；看板/卡片/弹层口径同树障页） */
+/* 交跨记录（政企蓝白 token；看板/卡片/弹层口径同树障页；
+   颜色走 app.wxss --app-* 语义变量，深色随系统；弱化占位 #C9CDD4 / rgba(29,33,41,.4) 无对应
+   token，浅色保持定稿值、深色单独覆盖） */
 
 /* tdesign 组件变量 */
 page {
@@ -25,36 +27,36 @@ page {
 }
 
 .stat + .stat {
-  border-left: 1rpx solid #e5e6eb;
+  border-left: 1rpx solid var(--app-border);
 }
 
 .stat-num {
   font-size: 32rpx;
   font-weight: 700;
   line-height: 1.3;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
 /* 待确认线路数：>0 警告橙 */
 .stat-num-warn {
-  color: #ff7d00;
+  color: var(--app-warning);
 }
 
 /* 存在隐患数：>0 危险红 */
 .stat-num-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 /* 隐患/待确认类计数为 0：不标色，弱化为辅助灰（仅 >0 才显色） */
 .stat-num-mut {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .stat-label {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 搜索框（常置浅灰底，同树障页口径） ---------- */
@@ -64,7 +66,7 @@ page {
   gap: 14rpx;
   height: 72rpx;
   padding: 0 24rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 16rpx;
   margin-top: 28rpx;
 }
@@ -74,7 +76,7 @@ page {
   min-width: 0;
   height: 72rpx;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .ph {
@@ -88,7 +90,7 @@ page {
 }
 
 .lcard.s-ok .lc-st {
-  color: #86909c;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
@@ -107,7 +109,7 @@ page {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -126,17 +128,17 @@ page {
 }
 
 .lc-warn {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
 }
 
 .lc-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
   font-weight: 600;
 }
 
 .lc-total {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 台账视图：返回行 + 线路标题 ---------- */
@@ -146,12 +148,13 @@ page {
   gap: 6rpx;
   height: 64rpx;
   margin-left: -8rpx;
+  transition: opacity 0.15s ease;
 }
 
 .backrow-t {
   font-size: 26rpx;
   font-weight: 600;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .ledger-head {
@@ -161,7 +164,7 @@ page {
 .lh-title {
   font-size: 36rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .lh-sub {
@@ -174,14 +177,14 @@ page {
 }
 
 .lh-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 .lh-total {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
-/* ---------- FAB（导出，每页主按钮至多一枚；形态同树障页） ---------- */
+/* ---------- FAB（导出，每页主按钮至多一枚；形态同树障页；前景 --app-on-brand 图标继承） ---------- */
 .fab {
   position: fixed;
   right: 32rpx;
@@ -190,7 +193,8 @@ page {
   width: 104rpx;
   height: 104rpx;
   border-radius: 50%;
-  background: #0e3da8;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -229,7 +233,7 @@ page {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -240,19 +244,19 @@ page {
   flex: none;
   font-size: 32rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
-/* 隐患标签（状态语义「圆点 + 文字」小胶囊：警告橙浅底 #FFF7E8 + 橙点，同警示条一族色系） */
+/* 隐患标签（状态语义「圆点 + 文字」小胶囊：警告橙浅底 + 橙点，同警示条一族色系） */
 .haz-tag {
   display: flex;
   align-items: center;
   gap: 8rpx;
   padding: 4rpx 16rpx;
   border-radius: 4rpx;
-  background: #fff7e8;
-  color: #d25f00;
+  background: var(--app-warning-bg);
+  color: var(--app-warning-text);
   font-size: 20rpx;
   white-space: nowrap;
   overflow: hidden;
@@ -265,7 +269,7 @@ page {
   width: 8rpx;
   height: 8rpx;
   border-radius: 50%;
-  background: #ff7d00;
+  background: var(--app-warning);
 }
 
 /* 折叠/展开开关（首行右端，每卡一枚；点卡同效）：图标固定 chevron-down，展开态旋转 180° */
@@ -300,13 +304,13 @@ page {
 
 .cr-l {
   font-size: 20rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .cr-v {
   margin-top: 6rpx;
   font-size: 24rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -342,27 +346,50 @@ page {
   color: rgba(29, 33, 41, 0.4);
 }
 
-/* ---------- 底部弹层（sheet 族同树障页口径） ---------- */
+/* ---------- 底部弹层（sheet 族同树障页口径；头/体/脚三段 flex，整体限高 + overflow:hidden，
+   内容体 flex:1 1 auto 独立滚动，头脚 flex:none 不收缩） ---------- */
 .sheet {
   position: relative;
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 24rpx 24rpx 0 0;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .sheet-title {
+  flex: none;
   text-align: center;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+}
+
+/* 弹层内容体（flex-basis 用 auto：0 基准会把自适应高度弹层内容压没） */
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
+.t-popup__close {
+  display: none;
 }
 
 /* 筛选项列表（限高滚动；导出弹层范围/线路单选复用） */
 .flt-list {
   margin-top: 24rpx;
-  max-height: 60vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .flt-item {
@@ -372,27 +399,28 @@ page {
   gap: 20rpx;
   padding: 26rpx 16rpx;
   font-size: 28rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+  transition: color 0.15s ease;
 }
 
 .flt-item + .flt-item {
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .flt-item.on {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
 }
 
 /* 导出弹层：范围单选组与按线路分表开关行 */
 .exp-scope {
   margin-top: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 12rpx;
 }
 
 .exp-scope .flt-item + .flt-item {
-  border-top-color: #ffffff;
+  border-top-color: var(--app-bg-card);
 }
 
 .exp-split {
@@ -410,7 +438,7 @@ page {
 .exp-tip {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   line-height: 1.6;
 }
 
@@ -419,35 +447,53 @@ page {
   margin-top: 24rpx;
 }
 
+/* 弹层内非体块默认不参与收缩（头/说明/控件/脚），体块（scroll-view 或 .sheet-body）独占剩余空间并滚动 */
+.sheet > view {
+  flex: none;
+}
+
+.sheet > scroll-view,
+.sheet > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .sheet-actions {
+  flex: none;
   display: flex;
   gap: 20rpx;
   margin-top: 32rpx;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
 }
 
 .btn-ghost {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 6rpx;
   box-sizing: border-box;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  transition: opacity 0.15s ease;
 }
 
 .btn-dark {
   flex: 2;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -456,6 +502,7 @@ page {
   font-weight: 700;
   letter-spacing: 4rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  transition: opacity 0.15s ease;
 }
 
 .btn-ghost.disabled,
@@ -473,19 +520,20 @@ page {
 
 /* 删除记录：描边红字（危险操作弱化为次按钮形态） */
 .btn-act.btn-del {
-  color: #f53f3f;
-  border-color: #f53f3f;
-  background: #ffece8;
+  color: var(--app-danger);
+  border-color: var(--app-danger);
+  background: var(--app-danger-bg);
 }
 
 .btn-act {
   padding: 10rpx 36rpx;
-  border: 2rpx solid #0e3da8;
+  border: 2rpx solid var(--app-brand);
   border-radius: 12rpx;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   font-size: 24rpx;
   font-weight: 700;
+  transition: opacity 0.15s ease;
 }
 
 /* ---------- 动效（复用全局 fadeUp 上浮入场；全局 prefers-reduced-motion 已兜底） ---------- */
@@ -497,4 +545,188 @@ page {
 /* 线路 ↔ 台账视图切换：整块淡入过渡（wx:if 重建即重播） */
 .view-pane {
   animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* ---------- t-icon 外部样式类（size 属性写内联 rpx 会随屏宽膨胀，改由 t-class 控制字号；
+   图标色不经 color 属性传 var()，经 t-class/父级颜色继承，随 --app-* 深浅） ---------- */
+.ico-30 {
+  font-size: 30rpx;
+}
+
+.ico-32 {
+  font-size: 32rpx;
+}
+
+.ico-44 {
+  font-size: 44rpx;
+}
+
+.ico-brand {
+  color: var(--app-brand);
+}
+
+.ico-weak {
+  color: var(--app-text-tertiary);
+}
+
+/* 弱化占位（#C9CDD4 / rgba(29,33,41,.4) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+@media (prefers-color-scheme: dark) {
+  .ph,
+  .empty-box {
+    color: rgba(255, 255, 255, 0.4);
+  }
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽 + 关键字阶/控件改固定 px；900px 起线路卡/记录卡双列（卡宽约 460px，
+   折叠态首行与次行（跨越类型｜交叉角）仍同排；FAB 保持贴屏右缘） */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* 弹层限宽居中 */
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .stat-num,
+  .lh-title,
+  .cr-section,
+  .cr-vbig,
+  .lc-title {
+    font-size: 16px;
+  }
+
+  .stat-label,
+  .cr-l,
+  .exp-tip {
+    font-size: 10.5px;
+  }
+
+  .lc-st,
+  .lh-sub,
+  .cr-v,
+  .backrow-t {
+    font-size: 12px;
+  }
+
+  .search {
+    height: 36px;
+    margin-top: 14px;
+  }
+
+  .s-input {
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .cr-section {
+    flex-basis: 110px;
+  }
+
+  .cr-fold {
+    width: 24px;
+    height: 24px;
+  }
+
+  .sheet-title {
+    font-size: 16px;
+  }
+
+  .flt-item {
+    font-size: 14px;
+    padding: 13px 8px;
+  }
+
+  .btn-ghost,
+  .btn-dark {
+    height: 44px;
+    font-size: 14px;
+    letter-spacing: 3px;
+  }
+
+  .empty-box {
+    padding: 40px 0;
+    font-size: 12px;
+  }
+
+  .btn-act {
+    padding: 5px 18px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .ico-30 {
+    font-size: 15px;
+  }
+
+  .ico-32 {
+    font-size: 16px;
+  }
+
+  .ico-44 {
+    font-size: 22px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  /* 线路卡双列（标题/搜索/看板仍通栏） */
+  .view-pane {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-content: flex-start;
+  }
+
+  .view-pane > .stats-card,
+  .view-pane > .search,
+  .view-pane > .backrow,
+  .view-pane > .ledger-head,
+  .view-pane > .empty-box,
+  .view-pane > .lgroup,
+  .view-pane > .fab-spacer {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .lcard {
+    width: calc(50% - 9px);
+    box-sizing: border-box;
+  }
+
+  .lcard + .lcard {
+    margin-top: 0;
+  }
+
+  /* 记录卡双列（组内网格；折叠态两行布局不变，次行 跨越类型｜交叉角 仍同排） */
+  .lgroup {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+
+  .crcard {
+    width: calc(50% - 9px);
+    box-sizing: border-box;
+  }
+
+  .crcard + .crcard {
+    margin-top: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
 }

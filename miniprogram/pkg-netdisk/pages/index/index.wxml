@@ -18,14 +18,14 @@
       >
     </view>
     <view class="more-btn" hover-class="hover-opacity" bindtap="onMenuTap">
-      <t-icon name="more" size="40rpx" color="#4E5969" />
+      <t-icon t-class="ico-40 ico-sub" name="more" />
     </view>
     <view class="menu-drop" wx:if="{{menuOpen}}">
       <view class="menu-opt" hover-class="hover-bg-warm" bindtap="onMenuShares">
-        <t-icon name="link" size="32rpx" color="#4E5969" />分享管理
+        <t-icon t-class="ico-32 ico-sub" name="link" />分享管理
       </view>
       <view class="menu-opt" hover-class="hover-bg-warm" bindtap="onMenuMkdir">
-        <t-icon name="folder-add" size="32rpx" color="#4E5969" />新建文件夹
+        <t-icon t-class="ico-32 ico-sub" name="folder-add" />新建文件夹
       </view>
     </view>
   </view>
@@ -39,11 +39,11 @@
     hover-class="hover-opacity"
     bindtap="onSearchTap"
   >
-    <t-icon name="search" size="30rpx" color="#86909C" />
+    <t-icon t-class="ico-30 ico-weak" name="search" />
     <text class="s-ph">搜索{{spaceName}}文件名</text>
   </view>
   <view class="search a" style="--d: 0.1s" wx:else>
-    <t-icon name="search" size="30rpx" color="#86909C" />
+    <t-icon t-class="ico-30 ico-weak" name="search" />
     <input
       class="s-input"
       value="{{kw}}"
@@ -96,7 +96,7 @@
     <view wx:elif="{{items.length || uploads.length}}" class="card flist a" style="--d: 0.22s">
       <!-- 内联上传行（细进度条 + 已传/总量 + 上传中标签 + × 取消） -->
       <view class="fl" wx:for="{{uploads}}" wx:key="id">
-        <view class="ficon"><t-icon name="upload" size="34rpx" color="#0A3592" /></view>
+        <view class="ficon"><t-icon t-class="ico-34" name="upload" /></view>
         <view class="fmain">
           <text class="fname">{{item.name}}</text>
           <view class="fprog"><view class="fprog-in" style="width: {{item.pct}}%;"></view></view>
@@ -112,7 +112,7 @@
           catchtap="onCancelUpload"
           data-id="{{item.id}}"
         >
-          <t-icon name="close" size="28rpx" color="#86909C" />
+          <t-icon t-class="ico-28 ico-weak" name="close" />
         </view>
       </view>
       <!-- 文件/文件夹行（真实类型图标，加载失败回退线性文件夹/字母块；图片保持缩略图直引） -->
@@ -133,7 +133,7 @@
             data-index="{{index}}"
             binderror="onIconErr"
           />
-          <view wx:else class="ficon"><t-icon name="folder" size="38rpx" color="#0A3592" /></view>
+          <view wx:else class="ficon"><t-icon t-class="ico-38" name="folder" /></view>
         </block>
         <image
           wx:elif="{{item.isImg && !item.thumbFail}}"
@@ -161,7 +161,7 @@
           <text class="fsub">{{item.sub}}</text>
         </view>
         <view class="fmore" hover-class="hover-opacity" catchtap="onRowMore" data-item="{{item}}">
-          <t-icon name="more" size="34rpx" color="#86909C" />
+          <t-icon t-class="ico-34 ico-weak" name="more" />
         </view>
       </view>
     </view>
@@ -197,7 +197,7 @@
               data-index="{{index}}"
               binderror="onIconErr"
             />
-            <view wx:else class="ficon"><t-icon name="folder" size="38rpx" color="#0A3592" /></view>
+            <view wx:else class="ficon"><t-icon t-class="ico-38" name="folder" /></view>
           </block>
           <image
             wx:elif="{{item.isImg && !item.thumbFail}}"
@@ -233,7 +233,7 @@
 
 <!-- FAB（上传） -->
 <view class="fab" wx:if="{{!searching}}" hover-class="hover-opacity" bindtap="onPickFiles">
-  <t-icon name="cloud-upload" size="46rpx" color="#FFFFFF" />
+  <t-icon t-class="ico-46" name="cloud-upload" />
 </view>
 
 <!-- 上传来源选择（相册 / 聊天文件；自绘弹层不用 t-action-sheet——仅分包使用会触发主包冗余 JS 审计警告，同出工日志口径） -->
@@ -242,14 +242,14 @@
     <view class="grab"></view>
     <view class="sheet-title">上传文件</view>
     <view class="picksrc" hover-class="hover-bg-warm" bindtap="onPickMedia">
-      <t-icon name="file-image" size="44rpx" color="#0E3DA8" />
+      <t-icon t-class="ico-44 ico-brand" name="file-image" />
       <view class="ps-c">
         <view class="ps-t">从相册选择</view>
         <view class="ps-n">图片 / 视频</view>
       </view>
     </view>
     <view class="picksrc" hover-class="hover-bg-warm" bindtap="onPickChat">
-      <t-icon name="chat" size="44rpx" color="#0E3DA8" />
+      <t-icon t-class="ico-44 ico-brand" name="chat" />
       <view class="ps-c">
         <view class="ps-t">从聊天选取</view>
         <view class="ps-n">任意类型文件</view>
@@ -265,7 +265,7 @@
     <view class="grab"></view>
     <view class="ash-head">
       <view class="ficon" wx:if="{{sheet.item.isDir}}">
-        <t-icon name="folder" size="38rpx" color="#0A3592" />
+        <t-icon t-class="ico-38" name="folder" />
       </view>
       <view class="ficon" wx:else><text class="fletter">{{sheet.item.letter}}</text></view>
       <view class="fmain">
@@ -273,54 +273,56 @@
         <text class="fsub">{{sheet.item.sub}}</text>
       </view>
     </view>
-    <view
-      class="ac"
-      wx:if="{{!sheet.item.isDir}}"
-      hover-class="hover-bg-warm"
-      bindtap="onOpPreview"
-    >
-      <t-icon name="browse" size="36rpx" color="#4E5969" />预览（微信内打开）
-    </view>
-    <view
-      class="ac"
-      wx:if="{{!sheet.item.isDir}}"
-      hover-class="hover-bg-warm"
-      bindtap="onOpDownload"
-    >
-      <t-icon name="download" size="36rpx" color="#4E5969" />下载
-    </view>
-    <!-- 压缩包专属：查看包内内容 / 解压到当前目录 -->
-    <view
-      class="ac"
-      wx:if="{{!sheet.item.isDir && sheet.item.isArchive}}"
-      hover-class="hover-bg-warm"
-      bindtap="onOpArchiveView"
-    >
-      <t-icon name="folder-zip" size="36rpx" color="#4E5969" />查看压缩包
-    </view>
-    <view
-      class="ac"
-      wx:if="{{!sheet.item.isDir && sheet.item.isArchive}}"
-      hover-class="hover-bg-warm"
-      bindtap="onOpDecompress"
-    >
-      <t-icon name="folder-export" size="36rpx" color="#4E5969" />解压到当前目录
-    </view>
-    <view class="ac blue" hover-class="hover-bg-warm" bindtap="onOpShare">
-      <t-icon name="share" size="36rpx" color="#0E3DA8" />分享
-    </view>
-    <view class="ac" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpMove">
-      <t-icon name="folder-move" size="36rpx" color="#4E5969" />移动
-    </view>
-    <view class="ac" hover-class="hover-bg-warm" bindtap="onOpCopy">
-      <t-icon name="file-copy" size="36rpx" color="#4E5969" />复制
-    </view>
-    <view class="ac" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpRename">
-      <t-icon name="edit" size="36rpx" color="#4E5969" />重命名
-    </view>
-    <view class="ac danger" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpDelete">
-      <t-icon name="delete" size="36rpx" color="#F53F3F" />删除
-    </view>
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+      <view
+        class="ac"
+        wx:if="{{!sheet.item.isDir}}"
+        hover-class="hover-bg-warm"
+        bindtap="onOpPreview"
+      >
+        <t-icon t-class="ico-36 ico-sub" name="browse" />预览（微信内打开）
+      </view>
+      <view
+        class="ac"
+        wx:if="{{!sheet.item.isDir}}"
+        hover-class="hover-bg-warm"
+        bindtap="onOpDownload"
+      >
+        <t-icon t-class="ico-36 ico-sub" name="download" />下载
+      </view>
+      <!-- 压缩包专属：查看包内内容 / 解压到当前目录 -->
+      <view
+        class="ac"
+        wx:if="{{!sheet.item.isDir && sheet.item.isArchive}}"
+        hover-class="hover-bg-warm"
+        bindtap="onOpArchiveView"
+      >
+        <t-icon t-class="ico-36 ico-sub" name="folder-zip" />查看压缩包
+      </view>
+      <view
+        class="ac"
+        wx:if="{{!sheet.item.isDir && sheet.item.isArchive}}"
+        hover-class="hover-bg-warm"
+        bindtap="onOpDecompress"
+      >
+        <t-icon t-class="ico-36 ico-sub" name="folder-export" />解压到当前目录
+      </view>
+      <view class="ac blue" hover-class="hover-bg-warm" bindtap="onOpShare">
+        <t-icon t-class="ico-36" name="share" />分享
+      </view>
+      <view class="ac" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpMove">
+        <t-icon t-class="ico-36 ico-sub" name="folder-move" />移动
+      </view>
+      <view class="ac" hover-class="hover-bg-warm" bindtap="onOpCopy">
+        <t-icon t-class="ico-36 ico-sub" name="file-copy" />复制
+      </view>
+      <view class="ac" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpRename">
+        <t-icon t-class="ico-36 ico-sub" name="edit" />重命名
+      </view>
+      <view class="ac danger" wx:if="{{manageable}}" hover-class="hover-bg-warm" bindtap="onOpDelete">
+        <t-icon t-class="ico-36" name="delete" />删除
+      </view>
+    </scroll-view>
     <view class="sh-cancel" hover-class="hover-opacity" bindtap="closeSheet">取消</view>
   </view>
 </t-popup>
@@ -376,7 +378,7 @@
     <view class="sh-title">
       <text class="sh-title-t">创建分享</text>
       <view class="sh-close" hover-class="hover-opacity" bindtap="onShareCancel">
-        <t-icon name="close" size="32rpx" color="#86909C" />
+        <t-icon t-class="ico-32 ico-weak" name="close" />
       </view>
     </view>
     <view class="sh-body">
@@ -389,7 +391,7 @@
           binderror="onIconErr"
         />
         <view wx:elif="{{shareSheet.item.isDir}}" class="ficon">
-          <t-icon name="folder" size="38rpx" color="#0A3592" />
+          <t-icon t-class="ico-38" name="folder" />
         </view>
         <view wx:else class="ficon"><text class="fletter">{{shareSheet.item.letter}}</text></view>
         <view class="fmain">
@@ -416,7 +418,7 @@
         <view class="codebox">
           <view class="cd">{{shareSheet.code}}</view>
           <view class="rf" hover-class="hover-opacity" bindtap="onShareCodeRefresh">
-            <t-icon name="refresh" size="32rpx" color="#4E5969" />
+            <t-icon t-class="ico-32 ico-sub" name="refresh" />
           </view>
         </view>
       </view>
@@ -487,9 +489,9 @@
               data-index="{{index}}"
               binderror="onIconErr"
             />
-            <t-icon wx:else name="folder" size="36rpx" color="#0A3592" />
+            <t-icon wx:else t-class="ico-36 ico-brand" name="folder" />
             <text class="pk-name">{{item.name}}</text>
-            <t-icon name="chevron-right" size="30rpx" color="#C9CDD4" />
+            <t-icon t-class="ico-30" name="chevron-right" color="#C9CDD4" />
           </view>
         </block>
       </scroll-view>

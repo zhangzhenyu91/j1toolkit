@@ -12,18 +12,18 @@
   display: inline-flex;
   align-items: center;
   gap: 12rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 12rpx 28rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #1d2129;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  color: var(--app-text-primary);
+  box-shadow: var(--app-shadow-card);
 }
 
 .ts-cur .arr {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-size: 18rpx;
 }
 
@@ -33,10 +33,10 @@
   top: 76rpx;
   left: 0;
   z-index: 21;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  box-shadow: var(--app-shadow-card);
   padding: 12rpx;
   min-width: 300rpx;
   max-width: 600rpx; /* 上限兜底：超长班组名由 .ts-opt 内文案省略，浮层不撑出屏外 */
@@ -64,8 +64,8 @@
 }
 
 .ts-opt.on {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .ts-opt .ck {
@@ -98,7 +98,8 @@
   width: 128rpx;
   height: 128rpx;
   border-radius: 12rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -113,7 +114,7 @@
 
 .team-empty .te-p {
   font-size: 23rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.8;
   text-align: center;
 }
@@ -137,7 +138,7 @@
   top: 16rpx;
   bottom: 16rpx;
   width: 2rpx;
-  background: #e5e6eb;
+  background: var(--app-border);
 }
 
 .stat-card b {
@@ -149,14 +150,14 @@
 
 .stat-card b em {
   font-style: normal;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .stat-card span {
   display: block;
   margin-top: 8rpx;
   font-size: 21rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 2rpx;
 }
 
@@ -166,7 +167,8 @@
   height: 84rpx;
   flex: none;
   border-radius: 12rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -175,14 +177,14 @@
 .progress {
   height: 12rpx;
   border-radius: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   overflow: hidden;
 }
 
 .progress-in {
   height: 100%;
   border-radius: 12rpx;
-  background: #0e3da8;
+  background: var(--app-brand);
 }
 
 .tag {
@@ -197,8 +199,8 @@
 }
 
 .tag-navy {
-  background: #e8f0ff;
-  color: #1d2129;
+  background: var(--app-brand-light);
+  color: var(--app-text-primary);
 }
 
 /* ---------- 「我的题库」板块行（右侧管理入口） ---------- */
@@ -215,7 +217,11 @@
   align-items: center;
   gap: 4rpx;
   font-size: 23rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
+}
+
+.chev-mute {
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 题库卡 ---------- */
@@ -248,7 +254,7 @@
 .bank-item .meta {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   display: flex;
   gap: 20rpx;
 }
@@ -266,7 +272,7 @@
 
 .bank-item .pg span {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   white-space: nowrap;
 }
 
@@ -292,12 +298,12 @@
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
+  border: 3rpx dashed var(--app-text-tertiary);
   border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
 }
 
@@ -313,14 +319,14 @@
   bottom: 0;
   z-index: 15;
   padding: 20rpx 28rpx calc(28rpx + env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(244, 241, 234, 0), #f5f7fa 30%);
+  background: linear-gradient(180deg, transparent, var(--app-bg-page) 30%);
 }
 
 .btn-navy {
   height: 92rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -328,5 +334,149 @@
   font-size: 29rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  box-shadow: var(--app-shadow-card);
+}
+
+/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+.ico-26 {
+  font-size: 26rpx;
+}
+.ico-34 {
+  font-size: 34rpx;
+}
+.ico-36 {
+  font-size: 36rpx;
+}
+.ico-40 {
+  font-size: 40rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽居中、关键字阶/控件改固定 px；900px 起题库卡网格增列；1200px 再增列 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .bottom-bar {
+    left: 50%;
+    right: auto;
+    width: 100%;
+    max-width: 680px;
+    box-sizing: border-box;
+    transform: translateX(-50%);
+    background: var(--app-bg-page);
+    border-top: 1rpx solid var(--app-border);
+  }
+
+  .ts-cur {
+    font-size: 12.5px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border-width: 1px;
+  }
+
+  .ts-drop {
+    top: 38px;
+    border-width: 1px;
+    border-radius: 6px;
+    padding: 6px;
+  }
+
+  .ts-opt {
+    font-size: 12.5px;
+    padding: 9px 12px;
+    border-radius: 6px;
+  }
+
+  .team-empty .te-t {
+    font-size: 15px;
+  }
+
+  .team-empty .te-p {
+    font-size: 11.5px;
+  }
+
+  .stat-card b {
+    font-size: 20px;
+  }
+
+  .stat-card span {
+    font-size: 10.5px;
+  }
+
+  .bank-item .tx b,
+  .pool-entry .tx b {
+    font-size: 14px;
+  }
+
+  .bank-item .meta {
+    font-size: 11px;
+  }
+
+  .bank-item .pg span {
+    font-size: 10px;
+  }
+
+  .sec-row .more {
+    font-size: 11.5px;
+  }
+
+  .empty-box {
+    font-size: 13px;
+    border-width: 1.5px;
+    border-radius: 6px;
+  }
+
+  .btn-navy {
+    height: 44px;
+    font-size: 14.5px;
+    border-radius: 8px;
+    box-shadow: var(--app-shadow-card);
+  }
+  .ico-26 {
+    font-size: 13px;
+  }
+  .ico-34 {
+    font-size: 17px;
+  }
+  .ico-36 {
+    font-size: 18px;
+  }
+  .ico-40 {
+    font-size: 20px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body,
+  .bottom-bar {
+    max-width: 960px;
+  }
+
+  /* 题库卡两列网格（卡片间距由 grid gap 承担） */
+  .bank-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20rpx;
+  }
+
+  .bank-item + .bank-item {
+    margin-top: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body,
+  .bottom-bar {
+    max-width: 1120px;
+  }
+
+  /* 题库卡三列 */
+  .bank-list {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
 }

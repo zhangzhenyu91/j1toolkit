@@ -1,7 +1,7 @@
-/* 自定义导航栏 ·「政企蓝白」：浅底页 1rpx 发丝底线，深色页首取消底线 */
+/* 自定义导航栏 ·「政企蓝白」：浅底页 1rpx 发丝底线，品牌深蓝页首取消底线 */
 .nav-wrap {
   width: 100%;
-  border-bottom: 1rpx solid #e5e6eb;
+  border-bottom: 1rpx solid var(--app-border, #e5e6eb);
 }
 
 .nav-wrap.nav-dark {
@@ -42,4 +42,14 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.ico-44 {
+  font-size: 44rpx;
+}
+
+@media (min-width: 600px) {
+  .ico-44 {
+    font-size: 22px;
+  }
 }

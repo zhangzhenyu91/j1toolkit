@@ -82,21 +82,22 @@ function createWmPhoto({ geoBase, logTag }) {
       // 交互：movable-view 拖拽 + 双指缩放（scale 原点为视图中心）；取景框锁定 4:3（横）/ 3:4（纵）
       // 导出：离屏 type=2d canvas 按可视区重绘裁出（createImage 解码应用 EXIF；个别机型未应用时手动旋转兜底）
 
-      // 打开裁剪层：取景框横向顶满屏宽、纵向受高度限制；图片按 cover 适配并居中；
-      // onDone 为导出完成回调（两包 proceedWmForm 实参口径不同，由页面选片入口传入）
+      // 当前窗口下的取景框：横向 4:3 同时受宽高限制，纵向 3:4 同原口径
+      wmCropFrame(win, landscape) {
+        const maxW = Math.max(win.windowWidth - 48, 200);
+        const maxH = Math.max(win.windowHeight - 260, 200); // 标题/提示/按钮预留
+        if (landscape) {
+          const fw = Math.min(maxW, (maxH * 4) / 3);
+          return { fw, fh: (fw * 3) / 4 };
+        }
+        const fh = Math.min((maxW * 4) / 3, maxH);
+        return { fw: (fh * 3) / 4, fh };
+      },
+
+      // 打开裁剪层：图片按 cover 适配并居中；onDone 为导出完成回调
       openWmCrop(path, dispW, dispH, orientation, onDone) {
         const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
-        const maxW = win.windowWidth - 48;
-        const maxH = Math.max(win.windowHeight - 260, 200); // 标题/提示/按钮预留
-        let fw;
-        let fh;
-        if (dispW >= dispH) {
-          fw = maxW;
-          fh = (fw * 3) / 4;
-        } else {
-          fh = Math.min((maxW * 4) / 3, maxH);
-          fw = (fh * 3) / 4;
-        }
+        const { fw, fh } = this.wmCropFrame(win, dispW >= dispH);
         const k = Math.max(fw / dispW, fh / dispH); // cover 适配
         const vw = dispW * k;
         const vh = dispH * k;
@@ -121,6 +122,46 @@ function createWmPhoto({ geoBase, logTag }) {
           cropY: y,
           cropScale: 1,
           cropExporting: false,
+        });
+      },
+
+      // 横竖屏切换只重算窗口几何：原图、回调、方向及用户已调整的取景中心均保留
+      onResize() {
+        if (!this.data.cropVisible) return;
+        const dispW = this._cropDispW;
+        const dispH = this._cropDispH;
+        const oldVw = this.data.cropViewW;
+        const oldVh = this.data.cropViewH;
+        if (!dispW || !dispH || !oldVw || !oldVh) return;
+        const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+        const { fw, fh } = this.wmCropFrame(win, dispW >= dispH);
+        const k = Math.max(fw / dispW, fh / dispH);
+        const vw = dispW * k;
+        const vh = dispH * k;
+        const oldFw = this.data.cropFrameW;
+        const oldFh = this.data.cropFrameH;
+        const oldScale = this._cropScale || 1;
+        const oldX = this._cropX === undefined ? this.data.cropX : this._cropX;
+        const oldY = this._cropY === undefined ? this.data.cropY : this._cropY;
+        // 与导出裁剪同一坐标口径：保留原图取景中心，而不是重置到图片中心
+        const centerU =
+          ((oldVw * oldScale) / 2 - oldX - oldVw / 2 + oldFw / 2) / (oldVw * oldScale);
+        const centerV =
+          ((oldVh * oldScale) / 2 - oldY - oldVh / 2 + oldFh / 2) / (oldVh * oldScale);
+        const scale = Math.min(5, Math.max(1, (oldScale * oldVw) / vw));
+        const x = (vw * scale) / 2 - vw / 2 + fw / 2 - centerU * vw * scale;
+        const y = (vh * scale) / 2 - vh / 2 + fh / 2 - centerV * vh * scale;
+        this._cropX = x;
+        this._cropY = y;
+        this._cropScale = scale;
+        this.setData({
+          cropFrameW: fw,
+          cropFrameH: fh,
+          cropViewW: vw,
+          cropViewH: vh,
+          cropX: x,
+          cropY: y,
+          cropScale: scale,
         });
       },
 
@@ -250,13 +291,13 @@ function createWmPhoto({ geoBase, logTag }) {
 
       onWmCancel() {
         wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
-        this.setData({ wmVisible: false });
+        this.setData({ wmVisible: false, keyboardHeight: 0 });
       },
 
       onWmVisibleChange(e) {
         if (!e.detail.visible) {
           wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
-          this.setData({ wmVisible: false });
+          this.setData({ wmVisible: false, keyboardHeight: 0 });
         }
       },
 

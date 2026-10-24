@@ -16,18 +16,18 @@
   display: inline-flex;
   align-items: center;
   gap: 12rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 12rpx 28rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #1d2129;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  color: var(--app-text-primary);
+  box-shadow: var(--app-shadow-card);
 }
 
 .ts-cur .arr {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-size: 18rpx;
 }
 
@@ -37,10 +37,10 @@
   top: 76rpx;
   left: 0;
   z-index: 21;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  box-shadow: var(--app-shadow-card);
   padding: 12rpx;
   min-width: 300rpx;
   max-width: 600rpx; /* 上限兜底：超长班组名由 .ts-opt 内文案省略，浮层不撑出屏外 */
@@ -68,8 +68,8 @@
 }
 
 .ts-opt.on {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .ts-opt .ck {
@@ -93,14 +93,14 @@
   display: flex;
   gap: 16rpx;
   align-items: flex-start;
-  background: #fff7e8;
+  background: var(--app-warning-bg);
   border-radius: 12rpx;
   padding: 18rpx 24rpx;
   margin-bottom: 24rpx;
 }
 
 .fbanner .ic {
-  color: #ff7d00;
+  color: var(--app-warning-text);
   font-size: 26rpx;
   line-height: 1.5;
   flex: none;
@@ -109,7 +109,7 @@
 .fbanner .fb-p {
   flex: 1;
   font-size: 22rpx;
-  color: #ff7d00;
+  color: var(--app-warning-text);
   line-height: 1.6;
   font-weight: 600;
 }
@@ -128,7 +128,8 @@
   width: 128rpx;
   height: 128rpx;
   border-radius: 12rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -143,7 +144,7 @@
 
 .team-empty .te-p {
   font-size: 23rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.8;
   text-align: center;
 }
@@ -152,7 +153,7 @@
 .cnt {
   margin: 10rpx 0 20rpx 20rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 1rpx;
 }
 
@@ -186,25 +187,25 @@
 }
 
 .st-online {
-  color: #00b42a;
+  color: var(--app-success-text);
 }
 .st-online .dot {
-  background: #00b42a;
+  background: var(--app-success);
   box-shadow: 0 0 0 6rpx rgba(0, 180, 42, 0.15);
 }
 
 .st-offline {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 .st-offline .dot {
-  background: rgba(29, 33, 41, 0.35);
+  background: var(--app-text-tertiary);
 }
 
 .st-disabled {
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 .st-disabled .dot {
-  background: #f53f3f;
+  background: var(--app-danger);
 }
 
 /* 设备组标签（同网页端 tag-navy） */
@@ -212,8 +213,8 @@
   margin-left: auto;
   padding: 2rpx 14rpx;
   border-radius: 12rpx;
-  background: #e8f0ff;
-  color: #1d2129;
+  background: var(--app-brand-light);
+  color: var(--app-text-primary);
   font-size: 20rpx;
 }
 
@@ -222,8 +223,8 @@
   margin-left: 12rpx;
   padding: 2rpx 14rpx;
   border-radius: 12rpx;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   font-size: 20rpx;
 }
 
@@ -238,7 +239,7 @@
 .dv-ddns {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   word-break: break-all;
 }
 
@@ -265,7 +266,7 @@
 .dv-info .lab {
   flex: none;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
 }
 
@@ -273,7 +274,7 @@
   margin-left: 24rpx;
   font-size: 25rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   text-align: right;
   word-break: break-all;
 }
@@ -282,7 +283,7 @@
 .dv-ops {
   margin-top: 26rpx;
   padding-top: 24rpx;
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
   display: flex;
   gap: 20rpx;
 }
@@ -298,33 +299,56 @@
   font-size: 26rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
+  transition: opacity 0.15s ease;
 }
 
 .dv-btn.up {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .dv-btn.off {
-  background: #f5f7fa;
+  background: var(--app-bg-page);
   border: none;
-  color: rgba(29, 33, 41, 0.35);
+  color: var(--app-text-tertiary);
 }
 
-/* ---------- 底部弹层（t-popup 内容容器，同出工日志批量下载面板） ---------- */
+/* ---------- 底部弹层（t-popup 内容容器，同出工日志批量下载面板；头/体/脚三段 flex，
+   整体限高 + overflow:hidden，内容体 flex:1 1 auto 独立滚动） ---------- */
 .sheet {
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-bottom: none;
   border-radius: 12rpx;
-  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -8rpx 32rpx var(--app-mask);
   padding: 28rpx 32rpx 48rpx;
-  max-height: 78vh;
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* 弹层内非体块默认不参与收缩（头/操作/脚），体块（scroll-view 或 .sheet-body）独占剩余空间并滚动 */
+.sheet > view {
+  flex: none;
+}
+
+.sheet > scroll-view,
+.sheet > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
+.t-popup__close {
+  display: none;
 }
 
 .sh-head {
+  flex: none;
   display: flex;
   align-items: center;
   margin-bottom: 20rpx;
@@ -340,12 +364,20 @@
   margin-left: 14rpx;
   font-size: 21rpx;
   font-weight: 400;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .sh-close {
   margin-left: auto;
-  padding: 6rpx;
+  /* 可靠关闭钮：88rpx 触达区（图标居中） */
+  width: 88rpx;
+  height: 88rpx;
+  margin: -20rpx -20rpx -20rpx auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-secondary);
+  transition: opacity 0.15s ease;
 }
 
 /* 上传：两种添加方式入口（虚线卡） */
@@ -357,23 +389,26 @@
 
 .pick {
   flex: 1;
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
+  border: 3rpx dashed var(--app-text-tertiary);
   border-radius: 12rpx;
   padding: 24rpx 12rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8rpx;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
 }
 
 .pick-name {
   font-size: 26rpx;
   font-weight: 700;
+  color: var(--app-text-primary);
 }
 
 .pick-note {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* 文件列表 */
@@ -390,19 +425,22 @@
   margin-left: auto;
   font-size: 21rpx;
   font-weight: 400;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .fl-list {
-  max-height: 44vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .frow {
   display: flex;
   align-items: center;
   gap: 16rpx;
-  background: #f7f8fa;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-nested);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 16rpx 20rpx;
   margin-bottom: 14rpx;
@@ -421,38 +459,43 @@
 .frow .fs {
   flex: none;
   font-size: 21rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .frow .doing {
   flex: none;
   font-size: 21rpx;
   font-weight: 700;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 /* 行内删除小标（下载弹层文件行，红色 delete 图标） */
 .fdel {
   flex: none;
   padding: 6rpx;
+  color: var(--app-danger-text);
+  transition: opacity 0.15s ease;
 }
 
 /* 行内下载小标（文件名右侧，蓝色 download 图标，与 .fdel/.fsave 同位口径） */
 .fdl {
   flex: none;
   padding: 6rpx;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
 }
 
 .frow .fx {
   flex: none;
   padding: 4rpx;
+  color: var(--app-text-tertiary);
 }
 
 .fl-empty {
   padding: 48rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
 }
 
@@ -469,31 +512,40 @@
 .dl-state-t {
   font-size: 28rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
   letter-spacing: 1rpx;
 }
 
 .dl-state-n {
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   line-height: 1.8;
 }
 
-/* 弹层说明与底部操作 */
+/* 弹层说明与底部操作（脚部 flex:none + 背景顶线，与滚动内容隔开） */
 .sh-note {
+  flex: none;
   margin-top: 8rpx;
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   line-height: 1.8;
 }
 
 .sh-foot {
+  flex: none;
   margin-top: 20rpx;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
 }
 
 /* 底部双按钮行（上传 / 插入 U 盘） */
 .sh-foot2 {
+  flex: none;
   margin-top: 20rpx;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
   display: flex;
   gap: 20rpx;
 }
@@ -506,15 +558,18 @@
 .btn-outline {
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
-  color: #1d2129;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
+  color: var(--app-text-primary);
   font-size: 30rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .btn-outline.disabled {
@@ -524,14 +579,17 @@
 .btn-primary {
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   font-size: 30rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .btn-primary.disabled {
@@ -541,12 +599,12 @@
 /* ---------- 空态/加载/错误虚线占位（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
+  border: 3rpx dashed var(--app-text-tertiary);
   border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
 }
 
@@ -555,9 +613,10 @@
   margin-top: 24rpx;
   padding: 10rpx 40rpx;
   border-radius: 12rpx;
-  background: #1d2129;
-  color: #ffffff;
+  background: var(--app-text-primary);
+  color: var(--app-bg-card);
   font-size: 24rpx;
+  transition: opacity 0.15s ease;
 }
 
 /* ---------- 网盘联动（从网盘选择弹层 / 行内存网盘小标） ---------- */
@@ -567,7 +626,7 @@
   display: flex;
   height: 64rpx;
   padding: 4rpx;
-  background: #e5e6eb;
+  background: var(--app-border);
   border-radius: 16rpx;
   margin-bottom: 20rpx;
 }
@@ -580,14 +639,14 @@
   padding: 0 12rpx;
   border-radius: 12rpx;
   font-size: 25rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .seg2 .seg.on {
-  background: #ffffff;
-  color: #0e3da8;
+  background: var(--app-bg-card);
+  color: var(--app-brand);
   font-weight: 600;
-  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.08);
+  box-shadow: var(--app-shadow-card);
 }
 
 .seg-t {
@@ -609,37 +668,43 @@
 
 .nd-link {
   flex: none;
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
+  transition: opacity 0.15s ease;
 }
 
 .nd-sep {
   flex: none;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .nd-cur {
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .nd-list {
-  max-height: 44vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* 文件行选中态（浅蓝底 + 对勾；文件夹行右侧为进入箭头） */
 .nd-row.sel {
-  background: #e8f0ff;
-  border-color: #0e3da8;
+  background: var(--app-brand-light);
+  border-color: var(--app-brand);
 }
 
 /* 行内存网盘小标（与 .fdel 同位） */
 .fsave {
   flex: none;
   padding: 6rpx;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
 }
 
 /* 圆形勾选标（网盘选择弹层文件行 / 下载弹层多选态行首；选中填品牌蓝） */
@@ -648,15 +713,16 @@
   height: 36rpx;
   flex: none;
   border-radius: 50%;
-  border: 2rpx solid #c9cdd4;
+  border: 2rpx solid var(--app-text-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--app-on-brand);
 }
 
 .ck-dot.on {
-  background: #0e3da8;
-  border-color: #0e3da8;
+  background: var(--app-brand);
+  border-color: var(--app-brand);
 }
 
 /* 下载弹层标题行「多选」开关（小胶囊；开启态浅蓝底蓝字） */
@@ -664,17 +730,21 @@
   margin-left: auto;
   padding: 8rpx 22rpx;
   border-radius: 999rpx;
-  background: #f7f8fa;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-nested);
+  border: 2rpx solid var(--app-border);
   font-size: 22rpx;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .sh-multi.on {
-  background: #e8f0ff;
-  border-color: #0e3da8;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  border-color: var(--app-brand);
+  color: var(--app-brand);
 }
 
 /* 多选钮占据右推位后，关闭钮改为固定间距（其余弹层 .sh-close 维持 margin-left:auto） */
@@ -695,34 +765,358 @@
   height: 88rpx;
   padding: 0 22rpx;
   border-radius: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   font-size: 24rpx;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
 }
 
 .dl-mbtn {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   font-size: 27rpx;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .dl-mbtn.nd {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .dl-mall.disabled,
 .dl-mbtn.disabled {
   opacity: 0.5;
+}
+
+/* 图标状态色（t-icon 不传 color，经宿主 CSS color 继承） */
+.ico-brand {
+  color: var(--app-brand);
+}
+
+.ico-danger {
+  color: var(--app-danger-text);
+}
+
+.ico-mute {
+  color: var(--app-text-tertiary);
+}
+
+.ico-off {
+  color: var(--app-text-tertiary);
+  opacity: 0.75;
+}
+
+/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+.ico-22 {
+  font-size: 22rpx;
+}
+.ico-30 {
+  font-size: 30rpx;
+}
+.ico-32 {
+  font-size: 32rpx;
+}
+.ico-34 {
+  font-size: 34rpx;
+}
+.ico-36 {
+  font-size: 36rpx;
+}
+.ico-48 {
+  font-size: 48rpx;
+}
+.ico-64 {
+  font-size: 64rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽居中、关键字阶/控件改固定 px；900px 起设备卡两列网格、弹层限宽；1200px 三列 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-bottom: 30px;
+  }
+
+  .ts-cur {
+    font-size: 12.5px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border-width: 1px;
+  }
+
+  .ts-drop {
+    top: 38px;
+    border-width: 1px;
+    border-radius: 6px;
+    padding: 6px;
+  }
+
+  .ts-opt {
+    font-size: 12.5px;
+    padding: 9px 12px;
+    border-radius: 6px;
+  }
+
+  .fbanner {
+    border-radius: 6px;
+    padding: 9px 12px;
+  }
+
+  .fbanner .ic,
+  .fbanner .fb-p {
+    font-size: 11px;
+  }
+
+  .team-empty .te-t {
+    font-size: 15px;
+  }
+
+  .team-empty .te-p {
+    font-size: 11.5px;
+  }
+
+  .cnt {
+    font-size: 11px;
+    margin-left: 10px;
+  }
+
+  .dv-in {
+    padding: 18px 16px 15px;
+    border-radius: 6px;
+  }
+
+  .st {
+    font-size: 12px;
+  }
+
+  .dv-name {
+    font-size: 16px;
+    margin-top: 10px;
+  }
+
+  .dv-ddns {
+    font-size: 11px;
+  }
+
+  .dv-info .lab {
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+
+  .dv-info .val {
+    font-size: 12.5px;
+    margin-left: 12px;
+  }
+
+  .dv-btn {
+    height: 36px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+
+  .sheet {
+    border-width: 1px;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 -4px 16px var(--app-mask);
+    padding: 14px 20px 24px;
+  }
+
+  .sh-title {
+    font-size: 15px;
+  }
+
+  .sh-sub {
+    font-size: 10.5px;
+  }
+
+  .sh-close {
+    width: 44px;
+    height: 44px;
+    margin: -10px -10px -10px auto;
+  }
+
+  .pick {
+    border-width: 1.5px;
+    border-radius: 6px;
+    padding: 12px 6px;
+  }
+
+  .pick-name {
+    font-size: 13px;
+  }
+
+  .pick-note {
+    font-size: 10px;
+  }
+
+  .fl-head {
+    font-size: 12px;
+  }
+
+  .fl-sum {
+    font-size: 10.5px;
+  }
+
+  .frow {
+    border-width: 1px;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 7px;
+  }
+
+  .frow .fn {
+    font-size: 12.5px;
+  }
+
+  .frow .fs,
+  .frow .doing {
+    font-size: 10.5px;
+  }
+
+  .fl-empty {
+    font-size: 12px;
+  }
+
+  .dl-state-t {
+    font-size: 14px;
+  }
+
+  .dl-state-n {
+    font-size: 11px;
+  }
+
+  .sh-note {
+    font-size: 10px;
+  }
+
+  .btn-outline,
+  .btn-primary {
+    height: 44px;
+    font-size: 14.5px;
+    border-radius: 6px;
+  }
+
+  .btn-outline {
+    border-width: 1px;
+  }
+
+  .empty-box {
+    font-size: 13px;
+    border-width: 1.5px;
+    border-radius: 6px;
+  }
+
+  .empty-box .retry {
+    font-size: 12px;
+    border-radius: 6px;
+    padding: 5px 20px;
+  }
+
+  .seg2 {
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .seg2 .seg {
+    font-size: 12.5px;
+    border-radius: 6px;
+  }
+
+  .nd-crumb {
+    font-size: 12px;
+  }
+
+  .ck-dot {
+    width: 18px;
+    height: 18px;
+    border-width: 1px;
+  }
+
+  .sh-multi {
+    font-size: 11px;
+    border-width: 1px;
+  }
+
+  .dl-mall,
+  .dl-mbtn {
+    height: 44px;
+    font-size: 13.5px;
+    border-radius: 6px;
+  }
+  .ico-22 {
+    font-size: 11px;
+  }
+  .ico-30 {
+    font-size: 15px;
+  }
+  .ico-32 {
+    font-size: 16px;
+  }
+  .ico-34 {
+    font-size: 17px;
+  }
+  .ico-36 {
+    font-size: 18px;
+  }
+  .ico-48 {
+    font-size: 24px;
+  }
+  .ico-64 {
+    font-size: 32px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  /* 弹层限宽居中 */
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+
+  /* 设备卡两列网格 */
+  .dev-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20rpx;
+  }
+
+  .dev {
+    margin-bottom: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  .sheet {
+    max-width: 720px;
+  }
+
+  .dev-list {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
 }

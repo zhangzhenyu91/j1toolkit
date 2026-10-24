@@ -10,7 +10,8 @@
   padding: 8rpx 4rpx;
   font-size: 24rpx;
   font-weight: 500;
-  color: #0e3da8;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
 }
 
 /* 删除已读（红色小字，与单条删除同色） */
@@ -19,7 +20,8 @@
   margin-right: 24rpx;
   font-size: 24rpx;
   font-weight: 500;
-  color: #f53f3f;
+  color: var(--app-danger-text);
+  transition: opacity 0.15s ease;
 }
 
 .list-card {
@@ -32,7 +34,7 @@
 }
 
 .n-item + .n-item {
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .n-head {
@@ -51,14 +53,14 @@
 }
 
 .n-dot-on {
-  background: #0e3da8;
+  background: var(--app-brand);
 }
 
 .n-title {
   flex: 1;
   min-width: 0;
   font-size: 28rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -72,7 +74,7 @@
   margin-left: 16rpx;
   flex: none;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* 内容摘要：默认 2 行省略（展开态改由 mp-html 渲染 Markdown） */
@@ -80,13 +82,33 @@
   margin-top: 12rpx;
   padding-left: 24rpx; /* 与标题左对齐（圆点占位宽度） */
   font-size: 24rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.7;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* 全文展开/收起：保留已渲染内容，grid 过渡；首次展开才创建 mp-html */
+.n-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease;
+}
+
+.n-expand.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.n-expand-in {
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 展开态 Markdown 渲染容器（排版由 mdTagStyle / mdContainerStyle 控制） */
@@ -100,13 +122,59 @@
   margin-left: 16rpx;
   flex: none;
   font-size: 22rpx;
-  color: #f53f3f;
+  color: var(--app-danger-text);
   padding: 4rpx 8rpx;
+  transition: opacity 0.15s ease;
 }
 
 .hint {
   margin-top: 24rpx;
   text-align: center;
-  color: #e5e6eb;
+  color: var(--app-text-tertiary);
   font-size: 22rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   通知为通读列表（可展开 Markdown 全文），宽屏限宽居中而不拆双栏 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .read-all,
+  .del-read {
+    font-size: 12px;
+  }
+
+  .n-title {
+    font-size: 14px;
+  }
+
+  .n-time,
+  .n-del {
+    font-size: 11px;
+  }
+
+  .n-content {
+    font-size: 12px;
+  }
+
+  .hint {
+    font-size: 11px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 840px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 900px;
+  }
 }

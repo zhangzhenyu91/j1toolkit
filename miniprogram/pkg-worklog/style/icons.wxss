@@ -1,0 +1,144 @@
+/* ============================================================
+   t-icon 外部样式类（worklog 各页共用：数值字号 + 语义色）
+   数值类 ico-N 由 wxml 的 size="Nrpx" 迁出，字号固定 rpx 不随内联 style 膨胀；
+   语义色类随 --app-* 深浅自适应（不向 t-icon color 属性传 var()）。
+   引入方式：index/dispatch/sgccbind/manage 各自在页面 WXSS 直接 @import 本文件；
+   common.wxss 不集中引入，避免与页面级引入重复。
+   ============================================================ */
+
+/* ---------- 数值字号（N 与原 size="Nrpx" 一致） ---------- */
+.ico-20 {
+  font-size: 20rpx;
+}
+
+.ico-22 {
+  font-size: 22rpx;
+}
+
+.ico-24 {
+  font-size: 24rpx;
+}
+
+.ico-26 {
+  font-size: 26rpx;
+}
+
+.ico-28 {
+  font-size: 28rpx;
+}
+
+.ico-30 {
+  font-size: 30rpx;
+}
+
+.ico-32 {
+  font-size: 32rpx;
+}
+
+.ico-34 {
+  font-size: 34rpx;
+}
+
+.ico-36 {
+  font-size: 36rpx;
+}
+
+.ico-38 {
+  font-size: 38rpx;
+}
+
+.ico-40 {
+  font-size: 40rpx;
+}
+
+.ico-44 {
+  font-size: 44rpx;
+}
+
+.ico-52 {
+  font-size: 52rpx;
+}
+
+/* ---------- 语义色（随 --app-* 深浅） ---------- */
+.ico-brand {
+  color: var(--app-brand);
+}
+
+.ico-main {
+  color: var(--app-text-primary);
+}
+
+.ico-sec {
+  color: var(--app-text-secondary);
+}
+
+.ico-weak {
+  color: var(--app-text-tertiary);
+}
+
+.ico-danger {
+  color: var(--app-danger);
+}
+
+.ico-ok {
+  color: var(--app-success);
+}
+
+.ico-faint {
+  color: var(--app-border);
+}
+
+/* ---------- iPad / 宽屏：600px 起字号改 N/2 px，不再随屏宽膨胀 ---------- */
+@media (min-width: 600px) {
+  .ico-20 {
+    font-size: 10px;
+  }
+
+  .ico-22 {
+    font-size: 11px;
+  }
+
+  .ico-24 {
+    font-size: 12px;
+  }
+
+  .ico-26 {
+    font-size: 13px;
+  }
+
+  .ico-28 {
+    font-size: 14px;
+  }
+
+  .ico-30 {
+    font-size: 15px;
+  }
+
+  .ico-32 {
+    font-size: 16px;
+  }
+
+  .ico-34 {
+    font-size: 17px;
+  }
+
+  .ico-36 {
+    font-size: 18px;
+  }
+
+  .ico-38 {
+    font-size: 19px;
+  }
+
+  .ico-40 {
+    font-size: 20px;
+  }
+
+  .ico-44 {
+    font-size: 22px;
+  }
+
+  .ico-52 {
+    font-size: 26px;
+  }
+}

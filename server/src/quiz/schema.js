@@ -6,7 +6,7 @@ const APP_QUIZ = {
   name: '题库刷题',
   icon: 'book',
   path: '/pkg-quiz/pages/index/index',
-  sort: 7,
+  sort: 8,
   terminal: 'both', // 适配终端：双端（见 db.js sys_app.terminal 口径）
 };
 

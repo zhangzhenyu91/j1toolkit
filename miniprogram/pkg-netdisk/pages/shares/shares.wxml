@@ -23,7 +23,7 @@
 
   <!-- 班管提示条（浅蓝底 + 左色条，直角） -->
   <view class="notice a" wx:if="{{isManager && scope === 'all'}}" style="--d: 0.1s">
-    <t-icon name="info-circle" size="26rpx" color="#0E3DA8" />
+    <t-icon t-class="ico-26 ico-brand" name="info-circle" />
     <text>班管 / 超管可查看并取消班内全部分享链接</text>
   </view>
 
@@ -45,7 +45,7 @@
             binderror="onIconErr"
           />
           <view wx:elif="{{item.isDir}}" class="ficon">
-            <t-icon name="folder" size="38rpx" color="#0A3592" />
+            <t-icon t-class="ico-38" name="folder" />
           </view>
           <view wx:else class="ficon"><text class="fletter">{{item.letter}}</text></view>
           <view class="sc-name">{{item.title}}</view>
@@ -64,7 +64,7 @@
           data-op="{{o.k}}"
           data-id="{{item.id}}"
         >
-          <t-icon name="{{o.icon}}" size="28rpx" color="{{o.color}}" />
+          <t-icon t-class="ico-28" name="{{o.icon}}" />
           <text>{{o.t}}</text>
         </view>
       </view>

@@ -4,7 +4,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { formatTime } from '../../../utils/util';
 import { shareAppMessage } from '../../../utils/share';
-import { renderMarkdown, MD_TAG_STYLE, MD_CONTAINER_STYLE } from '../../../utils/markdown';
+import { renderMarkdown, getMarkdownStyle } from '../../../utils/markdown';
 
 Page({
   data: {
@@ -13,14 +13,30 @@ Page({
     hasRead: false, // 是否有已读通知（控制「删除已读」入口显隐）
     loading: true,
     isAdmin: false, // 超管删除为全局删除（确认文案区分）；删除入口全员可见
-    mdTagStyle: MD_TAG_STYLE,
-    mdContainerStyle: MD_CONTAINER_STYLE,
+    ...getMarkdownStyle('light'), // 标签/容器排版样式计算值（随系统主题刷新，不重建已渲染 HTML）
+  },
+
+  onLoad() {
+    // 系统主题变化时刷新排版样式绑定值
+    this._onThemeChange = (res) => this.setData(getMarkdownStyle(res && res.theme));
+    this.setData(getMarkdownStyle());
+    wx.onThemeChange(this._onThemeChange);
   },
 
   onShow() {
+    // 回前台同步排版样式（主题可能在后台切换）
+    this.setData(getMarkdownStyle());
     const userInfo = wx.getStorageSync('userInfo');
     this.setData({ isAdmin: Boolean(userInfo && userInfo.role === 'admin') });
     this.load();
+  },
+
+  // 页面卸载解除主题监听
+  onUnload() {
+    if (this._onThemeChange) {
+      wx.offThemeChange(this._onThemeChange);
+      this._onThemeChange = null;
+    }
   },
 
   toast(message) {

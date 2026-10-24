@@ -31,66 +31,75 @@
     </view>
   </scroll-view>
 
-  <!-- 员工选择（按班组分组，未分组排最后） -->
-  <view class="section-title">选择员工</view>
-  <t-empty wx:if="{{!loading && groups.length === 0}}" description="暂无员工账号" />
-  <block wx:for="{{groups}}" wx:key="name" wx:for-item="grp">
-    <view class="grp-title">{{grp.name}}<text class="grp-cnt">{{grp.users.length}} 人</text></view>
-    <view class="card list-card">
-      <view
-        class="u-item {{item.id === selectedUserId ? 'u-item-on' : ''}}"
-        hover-class="hover-bg-warm"
-        wx:for="{{grp.users}}"
-        wx:key="id"
-        data-id="{{item.id}}"
-        bindtap="onSelectUser"
-      >
-        <view class="u-avatar">{{item.char}}</view>
-        <view class="u-main">
-          <view class="u-name">{{item.nickname || item.username}}</view>
-          <view class="u-sub"
-            >{{item.username}}<text wx:if="{{item.team}}"> · {{item.team}}</text></view
+  <!-- 员工选择（按班组分组，未分组排最后）与应用授权：宽屏 900px 起左右双栏，手机竖屏保持上下结构 -->
+  <view class="perm-cols">
+    <view class="perm-main">
+      <view class="section-title">选择员工</view>
+      <t-empty wx:if="{{!loading && groups.length === 0}}" description="暂无员工账号" />
+      <block wx:for="{{groups}}" wx:key="name" wx:for-item="grp">
+        <view class="grp-title">{{grp.name}}<text class="grp-cnt">{{grp.users.length}} 人</text></view>
+        <view class="card list-card">
+          <view
+            class="u-item {{item.id === selectedUserId ? 'u-item-on' : ''}}"
+            hover-class="hover-bg-warm"
+            wx:for="{{grp.users}}"
+            wx:key="id"
+            data-id="{{item.id}}"
+            bindtap="onSelectUser"
           >
+            <view class="u-avatar">{{item.char}}</view>
+            <view class="u-main">
+              <view class="u-name">{{item.nickname || item.username}}</view>
+              <view class="u-sub"
+                >{{item.username}}<text wx:if="{{item.team}}"> · {{item.team}}</text></view
+              >
+            </view>
+            <t-icon
+              t-class="ico-40"
+              wx:if="{{item.id === selectedUserId}}"
+              name="check"
+              color="{{ico.brand}}"
+            />
+          </view>
         </view>
-        <t-icon wx:if="{{item.id === selectedUserId}}" name="check" size="40rpx" color="#0E3DA8" />
-      </view>
+      </block>
     </view>
-  </block>
 
-  <!-- 应用授权 -->
-  <block wx:if="{{selectedUserId}}">
-    <view class="section-title app-sec">应用权限</view>
-    <view class="card list-card">
-      <t-empty wx:if="{{apps.length === 0}}" description="暂无已上架应用" />
-      <view
-        class="a-item"
-        hover-class="hover-bg-warm"
-        wx:for="{{apps}}"
-        wx:key="id"
-        data-id="{{item.id}}"
-        bindtap="onToggle"
-      >
-        <view class="cbx {{checkedMap[item.id] ? 'cbx-on' : ''}}"
-          >{{checkedMap[item.id] ? '✓' : ''}}</view
+    <!-- 应用授权 -->
+    <view class="perm-side" wx:if="{{selectedUserId}}">
+      <view class="section-title app-sec">应用权限</view>
+      <view class="card list-card">
+        <t-empty wx:if="{{apps.length === 0}}" description="暂无已上架应用" />
+        <view
+          class="a-item"
+          hover-class="hover-bg-warm"
+          wx:for="{{apps}}"
+          wx:key="id"
+          data-id="{{item.id}}"
+          bindtap="onToggle"
         >
-        <view class="a-ico">
-          <t-icon name="{{item.icon || 'app'}}" size="44rpx" color="#0E3DA8" />
+          <view class="cbx {{checkedMap[item.id] ? 'cbx-on' : ''}}"
+            >{{checkedMap[item.id] ? '✓' : ''}}</view
+          >
+          <view class="a-ico">
+            <t-icon t-class="ico-44" name="{{item.icon || 'app'}}" color="{{ico.brand}}" />
+          </view>
+          <view class="a-main">
+            <view class="a-name">{{item.name}}</view>
+            <view class="a-key">{{item.app_key}}</view>
+          </view>
         </view>
-        <view class="a-main">
-          <view class="a-name">{{item.name}}</view>
-          <view class="a-key">{{item.app_key}}</view>
-        </view>
+      </view>
+
+      <view class="save-bar">
+        <t-button block size="large" theme="primary" loading="{{saving}}" bind:tap="onSave">
+          保存授权
+        </t-button>
       </view>
     </view>
 
-    <view class="save-bar">
-      <t-button block size="large" theme="primary" loading="{{saving}}" bind:tap="onSave">
-        保存授权
-      </t-button>
-    </view>
-  </block>
-
-  <view wx:else class="hint">请先选择一名员工，再勾选其有权限的应用</view>
+    <view wx:else class="hint">请先选择一名员工，再勾选其有权限的应用</view>
+  </view>
 </view>
 
 <t-toast id="t-toast" />

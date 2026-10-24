@@ -17,6 +17,7 @@ import { pad, DOC_EXTS } from '../../../utils/util';
 import { teamQuery as teamQueryOf, teamBody as teamBodyOf } from '../../../utils/teamgate';
 import { createWmPhoto, genAntiCode, fmtWmTime } from '../../../utils/wmphoto';
 import { createTowerCascade } from '../../../utils/tower';
+import { photoRetryUrl, photoSrc, photoLoadFail, photoLoadRetry } from '../../../utils/photo-url';
 
 // 水印照片链路共享（选片分流 + 4:3 裁剪层 + 水印字段公共件 + 相册保存；/api/v1/worklog/geo 地点天气）
 const wmPhoto = createWmPhoto({ geoBase: '/api/v1/worklog', logTag: '出工日志' });
@@ -174,12 +175,16 @@ Page({
     fabOpen: false, // 右下悬浮主钮展开态（＋/×；展开项：数据管理 / 工作任务单 / 费用汇总 / 派车汇总 / 派车对齐 / 批量从商旅同步（均超管与班组管理员）/ 批量下载 / 汇总前核验 / 跨班日志（仅超管）/ 新建日志）
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
+    // 图片加载失败恢复（key=原 URL）：imageVariants 映射当前应展示的重试 URL；imageErrors 标记已进入失败态
+    imageVariants: {},
+    imageErrors: {},
     loading: true,
     loadError: '', // 首载失败内联错误；有旧内容时仅 Toast 保留列表
     flashId: 0, // 报告定位后高亮中的卡片 id（约 1.6s 后消退）
     // 切日 swiper（三窗格预渲染 前/今/后 一天；落定后窗口平移并复位中间格）
     win: [], // [{dateStr, list, ready}]；ready=false 为预拉中的加载占位格
     swiperCurrent: 1, // 恒定位中间格（当前日）
+    daySwiperDuration: 220, // 手势切日时长；程序化复位中间格时临时置 0
     intoView: '', // 中间格滚区 scroll-into-view 锚点（报告定位滚动用）
     // 日历弹层
     calVisible: false,
@@ -354,6 +359,7 @@ Page({
     this._daySwitching = false; // 切日落定处理中（防抖）
     this._syncJobs = {}; // 从商旅同步进行中任务（key 卡片 id → {jobId, pct}；mapLogList 据此给卡片挂进度条）
     this._photoOps = {}; // 照片单操作进行中任务（key 卡片 id → {opId, kind, pct, spectator?, wm?}；同上挂条）
+    this._imgTried = {}; // 每个原 URL 当前使用的重试变体 level（0=原图；自动仅一次，手动递增）
     this._jobTimers = {}; // 进度轮询定时器（key 任务 id）
     // 非超管且未分配班组：整页空态（屏十），不再发任何业务请求
     if (this._role !== 'admin' && !user.team) {
@@ -622,19 +628,29 @@ Page({
     const nextDs = fmtDate(next);
     const prevList = this._dayLists[this.dayKey(prevDs)] || null;
     const nextList = this._dayLists[this.dayKey(nextDs)] || null;
-    this.setData({
+    this.resetDaySwiper({
       list,
       win: [
         { dateStr: prevDs, list: prevList || [], ready: !!prevList },
         { dateStr: target.dateStr, list, ready: true },
         { dateStr: nextDs, list: nextList || [], ready: !!nextList },
       ],
-      swiperCurrent: 1,
-      intoView: '',
     });
     this._daySwitching = false;
     this.pruneDayLists();
     this.prefetchDays();
+  },
+
+  // 新窗格先瞬时复位中间格，避免把新内容再滑回上一格；下一帧恢复手势时长
+  resetDaySwiper(patch) {
+    const resetId = (this._dayResetId || 0) + 1;
+    this._dayResetId = resetId;
+    this.setData({ ...patch, swiperCurrent: 1, daySwiperDuration: 0, intoView: '' });
+    wx.nextTick(() => {
+      if (!this._unloaded && this._dayResetId === resetId) {
+        this.setData({ daySwiperDuration: 220 });
+      }
+    });
   },
 
   // 预拉缓存 key（口径=日期+视图+班组）
@@ -695,14 +711,12 @@ Page({
     prev.setDate(prev.getDate() - 1);
     const next = new Date(d.getTime());
     next.setDate(next.getDate() + 1);
-    this.setData({
+    this.resetDaySwiper({
       win: [
         { dateStr: fmtDate(prev), list: [], ready: false },
         { dateStr: this.data.dateStr, list: this.data.list, ready: true },
         { dateStr: fmtDate(next), list: [], ready: false },
       ],
-      swiperCurrent: 1,
-      intoView: '',
     });
     this.prefetchDays();
   },
@@ -742,7 +756,8 @@ Page({
   // 当日日志卡片列表（始终网络重拉保证新鲜；完成后写缓存、同步中间窗格并预拉邻日；首屏顺带建窗格）
   async loadLogs() {
     this.clearPoll();
-    this.setData({ loading: true, loadError: '' });
+    // 刷新后清除失败占位让图片按当前变体重试（level 保留，避免同一 URL 反复自动重试）
+    this.setData({ loading: true, loadError: '', imageErrors: {} });
     try {
       const data = await request({
         url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}${this.teamQuery()}`,
@@ -856,7 +871,7 @@ Page({
         return {
           cls: 'done',
           icon: 'check',
-          iconColor: '#00B42A',
+          iconCls: 'ico-ok',
           title: `${seq === 1 ? '开始' : '结束'} ${fmtClockHm(s.time)}`,
           sub: shortPosition(s.position) || '地点未知',
           done: true,
@@ -867,7 +882,7 @@ Page({
         return {
           cls: 'lock',
           icon: 'lock-on',
-          iconColor: '#C9CDD4',
+          iconCls: 'ico-faint',
           title,
           sub: '仅当日可打卡',
           done: false,
@@ -878,7 +893,7 @@ Page({
         return {
           cls: 'lock',
           icon: 'lock-on',
-          iconColor: '#C9CDD4',
+          iconCls: 'ico-faint',
           title,
           sub: '引导本人至「我的」页绑定',
           done: false,
@@ -888,7 +903,7 @@ Page({
       return {
         cls: 'todo',
         icon: 'time',
-        iconColor: '#0E3DA8',
+        iconCls: 'ico-brand',
         title,
         sub: seqClocked(seq) ? '点击打卡 · 带入同记录定位' : '点击打卡',
         done: false,
@@ -904,18 +919,18 @@ Page({
       let statText = '';
       let statCls = '';
       let statIcon = '';
-      let statIconColor = '';
+      let statIconCls = '';
       if (!bound) {
         statText = '未绑定商旅';
         statCls = 'red';
         statIcon = 'lock-on';
-        statIconColor = '#F53F3F';
+        statIconCls = 'ico-danger';
       } else if (s1 && s2) {
         const wh = fmtWorkHours((s2 && s2.workHours) || (s1 && s1.workHours));
         statText = wh ? `工时 ${wh}` : '已完成两次打卡';
         statCls = 'ok';
         statIcon = 'check';
-        statIconColor = '#00B42A';
+        statIconCls = 'ico-ok';
       } else if (s1 && !s2) {
         statText = '还差结束打卡';
       }
@@ -926,7 +941,7 @@ Page({
         statText,
         statCls,
         statIcon,
-        statIconColor,
+        statIconCls,
         seq1: slot(s1, 1, bound),
         seq2: slot(s2, 2, bound),
       };
@@ -1069,10 +1084,78 @@ Page({
     }
   },
 
-  // 预览水印照片
+  // 预览水印照片（urls 走当前重试变体；wx.previewImage 失败仅一次有界重试，仍失败提示，不无限循环）
   onPreview(e) {
     const { url, urls } = e.currentTarget.dataset;
-    wx.previewImage({ current: url, urls });
+    this.previewImageSafe(urls, url);
+  },
+
+  // ---------- 图片加载失败恢复（卡片照片 / 备注缩略图 / 批量下载缩略图共用） ----------
+  // 状态机见 utils/photo-url.js：level=0 原图 → 首次失败自动 r=1（level=1）→ 再失败进失败态；
+  // 手动重试 level 递增（首次手动 r=2）；blob:/data:/wxfile: 不加参数，失败即进失败态、重试仅重建。
+  // key 始终取原 URL，避免变体 URL 二次膨胀；bindload 成功清除失败态。
+  onImgError(e) {
+    const key = e.currentTarget.dataset.src;
+    if (!key) return;
+    const step = photoLoadFail(this._imgTried[key], key);
+    this._imgTried[key] = { level: step.level };
+    if (!step.failed) {
+      this.setData({ imageVariants: { ...this.data.imageVariants, [key]: step.src } });
+      return;
+    }
+    this.setData({ imageErrors: { ...this.data.imageErrors, [key]: true } });
+  },
+
+  // 加载成功仅清除失败态；level 保持不变（同 URL 不重复自动重试，失败后由手动重试递增 r）
+  onImgLoad(e) {
+    const key = e.currentTarget.dataset.src;
+    if (!key || !this.data.imageErrors[key]) return;
+    const errors = { ...this.data.imageErrors };
+    delete errors[key];
+    this.setData({ imageErrors: errors });
+  },
+
+  // 点击错误占位手动重试：清失败态并换 level+1 变体重载（本地资源按原地址重建）
+  onImgRetry(e) {
+    const key = e.currentTarget.dataset.src;
+    if (!key) return;
+    const step = photoLoadRetry(this._imgTried[key], key);
+    this._imgTried[key] = { level: step.level };
+    const errors = { ...this.data.imageErrors };
+    delete errors[key];
+    const variants = { ...this.data.imageVariants };
+    if (step.src) {
+      variants[key] = step.src;
+    } else {
+      delete variants[key];
+    }
+    this.setData({ imageErrors: errors, imageVariants: variants });
+  },
+
+  // wx.previewImage 包装：失败仅一次有界重试（换 r 变体），最终失败 toast，不无限循环
+  previewImageSafe(urls, current) {
+    const list = (urls || []).filter(Boolean);
+    if (!list.length) return;
+    const variants = this.data.imageVariants;
+    const show = (retry) => {
+      const used = retry
+        ? list.map((u) => photoRetryUrl(photoSrc(u, variants), 2))
+        : list.map((u) => photoSrc(u, variants));
+      wx.previewImage({
+        current: retry
+          ? photoRetryUrl(photoSrc(current, variants), 2)
+          : photoSrc(current, variants),
+        urls: used,
+        fail: () => {
+          if (retry) {
+            this.toast('图片预览失败，请稍后重试');
+            return;
+          }
+          show(true);
+        },
+      });
+    };
+    show(false);
   },
 
   // 复制施工内容（系统自弹「内容已复制」，不再重复提示）
@@ -2169,8 +2252,16 @@ Page({
   // 遮罩关闭 = 放弃修改（不提交）
   onFormVisibleChange(e) {
     if (!e.detail.visible && this.data.formVisible) {
+      wx.hideKeyboard();
       this.setData({ formVisible: false, dropType: '', keyboardHeight: 0 });
     }
+  },
+
+  // 显式关闭/取消（标题 × 与底部「取 消」共用）：放弃修改，同遮罩关闭口径
+  onFormCancel() {
+    if (this.data.formSaving) return;
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
+    this.setData({ formVisible: false, dropType: '', keyboardHeight: 0 });
   },
 
   // ---------- 巡视内容修改弹层（「保 存」才提交，无实时保存） ----------
@@ -2463,14 +2554,40 @@ Page({
     });
   },
 
-  // 卡片备注附件：图片/视频 wx.previewMedia 全屏（视频直接播放）
+  // 卡片备注附件：图片/视频 wx.previewMedia 全屏（视频直接播放；图片失败一次有界重试，最终失败提示）
   onRemarkMedia(e) {
     const { entryId, url } = e.currentTarget.dataset;
     const entry = this.data.list.find((x) => x.id === entryId);
     if (!entry) return;
-    const sources = entry.remarkMedia.map((f) => ({ url: f.url, type: f.type }));
-    const current = entry.remarkMedia.findIndex((f) => f.url === url);
-    wx.previewMedia({ sources, current: Math.max(current, 0) });
+    const variants = this.data.imageVariants;
+    const build = (retry) =>
+      entry.remarkMedia.map((f) => ({
+        url:
+          f.type === 'image'
+            ? retry
+              ? photoRetryUrl(photoSrc(f.url, variants), 2)
+              : photoSrc(f.url, variants)
+            : f.url,
+        type: f.type,
+      }));
+    const idx = Math.max(
+      entry.remarkMedia.findIndex((f) => f.url === url),
+      0
+    );
+    const show = (retry) => {
+      wx.previewMedia({
+        sources: build(retry),
+        current: idx,
+        fail: () => {
+          if (retry) {
+            this.toast('图片预览失败，请稍后重试');
+            return;
+          }
+          show(true);
+        },
+      });
+    };
+    show(false);
   },
 
   // 卡片备注附件：Office 文档下载后 wx.openDocument 打开（showMenu 显示右上角菜单）
@@ -3079,11 +3196,11 @@ Page({
     });
   },
 
-  // 点缩略图预览（urls 为当前范围全部照片，按顺序）
+  // 点缩略图预览（urls 为当前范围全部照片，按顺序；失败一次有界重试，见 previewImageSafe）
   onDlPreview(e) {
     const { url } = e.currentTarget.dataset;
     if (!this.data.dlUrls.length) return;
-    wx.previewImage({ current: url, urls: this.data.dlUrls });
+    this.previewImageSafe(this.data.dlUrls, url);
   },
 
   // 点选择圈切换单张（wxml 用 catchtap 防穿透触发预览）
@@ -3623,7 +3740,8 @@ Page({
 
   onWmEditClose() {
     if (this.data.wmEditSaving) return;
-    this.setData({ wmEditVisible: false });
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
+    this.setData({ wmEditVisible: false, keyboardHeight: 0 });
   },
 
   onWmEditVisibleChange(e) {
@@ -3632,7 +3750,10 @@ Page({
       this.setData({ wmEditVisible: true }); // 保存中不允许遮罩关闭
       return;
     }
-    if (this.data.wmEditVisible) this.setData({ wmEditVisible: false });
+    if (this.data.wmEditVisible) {
+      wx.hideKeyboard();
+      this.setData({ wmEditVisible: false, keyboardHeight: 0 });
+    }
   },
 
   // 保存：PUT /photos/:id/wm（服务端按记录日期与派车目的地重新核验），成功后刷新列表看角标

@@ -1,10 +1,11 @@
 /* 出工日志 · 派车对齐页（token 同 app.wxss「政企蓝白」；底部弹层 .sheet / .sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
 @import '../../style/common.wxss';
+@import '../../style/icons.wxss';
 
 /* ---------- 卡片（同 sheet 页族：白卡直角 + 墨边 + 浅色硬影 + 墨黑主按钮） ---------- */
 .card {
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 28rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
@@ -30,8 +31,8 @@
 
 /* ---------- 对齐口径说明卡（虚线描边浅纸底，同网页端 .pa-rule） ---------- */
 .rule {
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
-  background: #f5f7fa;
+  border: 3rpx dashed var(--app-border);
+  background: var(--app-bg-page);
   box-shadow: none;
 }
 
@@ -39,13 +40,13 @@
   font-size: 26rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .rule-p {
   margin-top: 10rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.9;
 }
 
@@ -57,12 +58,12 @@
 .r-t {
   font-size: 27rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .r-s {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   margin-top: 6rpx;
 }
 
@@ -80,10 +81,10 @@
   gap: 8rpx;
   max-width: 100%;
   padding: 8rpx 16rpx;
-  border: 2rpx solid #0e3da8;
+  border: 2rpx solid var(--app-brand);
   border-radius: 12rpx;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   font-size: 22rpx;
   font-weight: 700;
 }
@@ -107,9 +108,9 @@
   margin-top: 22rpx;
   height: 96rpx;
   border-radius: 12rpx;
-  background: #f7f8fa;
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
-  color: rgba(29, 33, 41, 0.4);
+  background: var(--app-bg-nested);
+  border: 3rpx dashed var(--app-border);
+  color: var(--app-text-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -128,8 +129,8 @@
   margin-top: 22rpx;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #1d2129;
-  color: #ffffff;
+  background: var(--app-text-primary);
+  color: var(--app-bg-card);
   font-size: 27rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
@@ -153,8 +154,8 @@
 .sum {
   width: calc((100% - 32rpx) / 3);
   box-sizing: border-box;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 18rpx 20rpx;
 }
@@ -162,30 +163,30 @@
 .sum .n {
   font-size: 36rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .sum .t {
   margin-top: 4rpx;
   font-size: 20rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 1rpx;
 }
 
 .sum.ok .n {
-  color: #00b42a;
+  color: var(--app-success);
 }
 
 .sum.warn .n {
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .sum.bad .n {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 .sum.mut .n {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .hint {
@@ -193,7 +194,7 @@
   padding: 0 8rpx;
   font-size: 22rpx;
   line-height: 1.8;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 /* ---------- 不一致清单行 ---------- */
@@ -201,8 +202,8 @@
   display: flex;
   align-items: center;
   gap: 16rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 20rpx 24rpx;
 }
@@ -230,7 +231,7 @@
 .row-date {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
   letter-spacing: 1rpx;
 }
 
@@ -244,34 +245,34 @@
 }
 
 .pa-badge.plate {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .pa-badge.dest {
-  background: #fff7e8;
-  color: #a16207;
+  background: var(--app-warning-bg);
+  color: var(--app-warning-text);
 }
 
 .pa-badge.mem {
-  background: #ffece8;
-  color: #f53f3f;
+  background: var(--app-danger-bg);
+  color: var(--app-danger);
 }
 
 .pa-badge.none-sys {
-  background: #f7f8fa;
-  color: rgba(29, 33, 41, 0.4);
+  background: var(--app-bg-nested);
+  color: var(--app-text-tertiary);
 }
 
 .pa-badge.none-sheet {
-  background: #e9eef7;
-  color: #4a6a9e;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .row-sum {
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -280,51 +281,54 @@
 }
 
 .seg.b {
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-weight: 700;
 }
 
 .seg.hl {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 700;
 }
 
 .seg.hl-r {
-  color: #f53f3f;
+  color: var(--app-danger);
   font-weight: 700;
 }
 
 .seg.vs {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .row-act {
   flex: none;
   font-size: 22rpx;
   font-weight: 700;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .row-act.yes {
-  color: #00b42a;
+  color: var(--app-success);
 }
 
 .allok {
   padding: 48rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 对照弹层 ---------- */
 .dlg-scroll {
-  max-height: 56vh;
+  flex: 1 1 auto;
+  min-height: 0;
   margin-top: 24rpx;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* 对照列（弹层内上下排：表格只读 / 卡片可改；标题左侧 8rpx 蓝方块同板块标题规范） */
 .cmp-col {
-  border: 2rpx solid #e5e6eb;
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   overflow: hidden;
 }
@@ -342,9 +346,9 @@
   font-size: 24rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
-  color: #1d2129;
-  border-bottom: 2rpx solid #e5e6eb;
-  background: #f5f7fa;
+  color: var(--app-text-primary);
+  border-bottom: 2rpx solid var(--app-border);
+  background: var(--app-bg-page);
 }
 
 .cmp-h::before {
@@ -352,19 +356,19 @@
   width: 8rpx;
   height: 24rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
+  background: var(--app-brand);
 }
 
 .cmp-h .sub {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .cmp-h .src {
   margin-left: auto;
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-weight: 400;
   max-width: 40%;
   overflow: hidden;
@@ -380,7 +384,7 @@
   display: flex;
   gap: 18rpx;
   padding: 14rpx 0;
-  border-bottom: 2rpx dashed #e5e6eb;
+  border-bottom: 2rpx dashed var(--app-border);
   font-size: 24rpx;
   align-items: center;
 }
@@ -396,7 +400,7 @@
 .cmp-r .k {
   flex: none;
   width: 120rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
   padding-top: 4rpx;
 }
@@ -405,19 +409,19 @@
   flex: 1;
   min-width: 0;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   word-break: break-all;
   line-height: 1.6;
 }
 
 /* 差异高亮：蓝 = 可改差异（车牌 / 目的地），红 = 用车人差异 */
 .cmp-r .v.diff {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 700;
 }
 
 .cmp-r .v.diff-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
   font-weight: 700;
 }
 
@@ -434,29 +438,29 @@
   gap: 12rpx;
   height: 72rpx;
   padding: 0 20rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-weight: 600;
   box-sizing: border-box;
 }
 
 .pick-val.warn {
-  border-color: #0e3da8;
-  background: #fffbf6;
+  border-color: var(--app-brand);
+  background: var(--app-warning-bg);
 }
 
 /* 派车单号单行输入（与 .pick-val 同款白底墨边直角） */
 .ono-in {
   height: 72rpx;
   padding: 0 20rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-weight: 600;
   box-sizing: border-box;
 }
@@ -464,13 +468,13 @@
 .note {
   margin-top: 8rpx;
   font-size: 20rpx;
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
   line-height: 1.7;
 }
 
 .note.red {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 /* 警示说明前置红三角感叹号（图标由 wxml 的 t-icon error-triangle 提供） */
@@ -482,9 +486,9 @@
 .linkbtn {
   margin-left: 10rpx;
   padding: 2rpx 14rpx;
-  border: 2rpx solid #0e3da8;
+  border: 2rpx solid var(--app-brand);
   border-radius: 12rpx;
-  color: #0e3da8;
+  color: var(--app-brand);
   font-size: 20rpx;
   font-weight: 700;
 }
@@ -501,9 +505,9 @@
   height: 60rpx;
   padding: 0 20rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
-  color: #1d2129;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
+  color: var(--app-text-primary);
   font-size: 24rpx;
   font-weight: 600;
   display: flex;
@@ -513,9 +517,9 @@
 }
 
 .chip.on {
-  background: #0e3da8;
-  border-color: #1d2129;
-  color: #ffffff;
+  background: var(--app-brand);
+  border-color: var(--app-text-primary);
+  color: var(--app-on-brand);
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
@@ -531,32 +535,32 @@
   width: 14rpx;
   height: 14rpx;
   border-radius: 50%;
-  background: #f53f3f;
+  background: var(--app-danger);
 }
 
 .chip.extra.on {
-  border-color: #f53f3f;
-  background: #ffece8;
-  color: #f53f3f;
+  border-color: var(--app-danger);
+  background: var(--app-danger-bg);
+  color: var(--app-danger);
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .chip.add {
   border-style: dashed;
-  border-color: #00b42a;
-  color: #00b42a;
+  border-color: var(--app-success);
+  color: var(--app-success);
 }
 
 .chip.add.on {
-  background: #00b42a;
+  background: var(--app-success);
   border-style: solid;
-  color: #ffffff;
+  color: var(--app-on-brand);
 }
 
 /* 巡视内容只读展示 */
 .patrol-ro {
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.8;
   padding-top: 6rpx;
 }
@@ -564,19 +568,29 @@
 .patrol-ro .sub {
   display: block;
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .dlg-tip {
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 2;
   padding: 0 8rpx;
 }
 
-/* 弹层页脚：上一条 / 跳过本条 一行，主操作组沿用 .sheet-actions */
+/* 弹层页脚：上一条 / 跳过本条 一行，主操作组沿用 .sheet-actions（脚部整体 flex:none + 背景顶线） */
 .dlg-foot {
+  flex: none;
   margin-top: 8rpx;
+  padding-top: 8rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
+}
+
+/* 脚部内的操作行不再重复画顶线 */
+.dlg-foot .sheet-actions {
+  border-top: none;
+  padding-top: 0;
 }
 
 .foot-nav {
@@ -590,25 +604,77 @@
   height: 56rpx;
   padding: 0 24rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 24rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
   box-sizing: border-box;
 }
 
 .btn-mini.disabled {
-  color: #c6ba9c;
-  border-color: #e5e6eb;
+  color: var(--app-text-tertiary);
+  border-color: var(--app-border);
 }
 
 .skip {
   font-size: 24rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   font-weight: 700;
   padding: 8rpx 12rpx;
+}
+
+/* ---------- iPad / 宽屏适配（600px 起限宽并约束关键字阶/控件；手机不受影响） ---------- */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .sheet,
+  .form-sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+  }
+
+  .sheet-title {
+    font-size: 16px;
+  }
+
+  .section-title {
+    font-size: 15px;
+  }
+
+  .go,
+  .btn-mini,
+  .skip {
+    font-size: 13px;
+  }
+
+  .go {
+    height: 44px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  .sheet {
+    max-width: 720px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
 }

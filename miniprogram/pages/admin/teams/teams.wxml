@@ -39,7 +39,10 @@
 
 <!-- 新增 / 编辑班组弹层 -->
 <t-popup visible="{{showEdit}}" placement="bottom" bind:visible-change="onVisibleChange">
-  <view class="sheet">
+  <view
+    class="sheet"
+    style="padding-bottom: calc(48rpx + env(safe-area-inset-bottom) + {{keyboardHeight}}px)"
+  >
     <view class="sh-head">
       <view class="sh-title"
         >{{form.id ? '编辑班组' : '新增班组'}}<text class="sh-sub" wx:if="{{form.id}}"
@@ -47,11 +50,11 @@
         ></view
       >
       <view class="sh-close" hover-class="hover-opacity" bindtap="closeEdit">
-        <t-icon name="close" size="36rpx" color="#4E5969" />
+        <t-icon t-class="ico-36" name="close" color="{{ico.sub}}" />
       </view>
     </view>
 
-    <view class="sh-body">
+    <scroll-view scroll-y class="sh-body">
       <view class="f-item">
         <view class="f-label">班组名称</view>
         <view class="f-field">
@@ -60,7 +63,9 @@
             placeholder="如：运维二班"
             value="{{form.name}}"
             data-k="name"
+            adjust-position="{{false}}"
             bind:change="onField"
+            bind:keyboardheightchange="onKeyboardHeight"
           />
         </view>
       </view>
@@ -68,12 +73,12 @@
         <view class="fr-lab">启用状态</view>
         <t-switch value="{{form.status === 1}}" bind:change="onStatusChange" />
       </view>
-    </view>
 
-    <view class="sh-note">
-      班组改名自动级联安全日记录与 docs 子目录。班组改名后，GLKVM
-      平台侧同名设备组需同步改名，否则本班组的远程连接 / 文件传输将回退显示默认班组设备。
-    </view>
+      <view class="sh-note">
+        班组改名自动级联安全日记录与 docs 子目录。班组改名后，GLKVM
+        平台侧同名设备组需同步改名，否则本班组的远程连接 / 文件传输将回退显示默认班组设备。
+      </view>
+    </scroll-view>
 
     <view class="sh-foot">
       <view class="del-link" hover-class="hover-opacity" wx:if="{{form.id}}" bindtap="onDelete"

@@ -1,9 +1,15 @@
 // 统一响应结构：{ code, message, data }，code 为 0 表示成功
-exports.ok = (res, data = null, message = 'ok') => res.json({ code: 0, message, data });
+// 业务 JSON（照片地址、验证状态等）显式 no-store：禁止浏览器/中间层缓存旧响应，保证列表地址与状态即时更新
+function noStore(res) {
+  res.set('Cache-Control', 'no-store');
+  return res;
+}
+
+exports.ok = (res, data = null, message = 'ok') => noStore(res).json({ code: 0, message, data });
 
 // data 可选：业务明细随错误下发（如生成前核验拦截的未通过记录清单，前端据以弹层展示）
 exports.fail = (res, httpStatus, code, message, data) => {
   const body = { code, message };
   if (data !== undefined) body.data = data;
-  return res.status(httpStatus).json(body);
+  return noStore(res).status(httpStatus).json(body);
 };

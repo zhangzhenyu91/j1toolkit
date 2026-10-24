@@ -60,7 +60,7 @@
                   bindtap="onAppTap"
                 >
                   <view class="g-ico">
-                    <t-icon name="{{item.icon || 'app'}}" size="54rpx" color="#0E3DA8" />
+                    <t-icon t-class="ico-54" name="{{item.icon || 'app'}}" color="{{ico.brand}}" />
                   </view>
                   <text class="g-name">{{item.name}}</text>
                 </view>
@@ -68,7 +68,7 @@
                 <!-- 预留应用入口（占位：灰色无底块图标） -->
                 <view class="g-item g-item-soon" hover-class="hover-scale" bindtap="onSoon">
                   <view class="g-ico g-soon">
-                    <t-icon name="more" size="54rpx" color="#C9CDD4" />
+                    <t-icon t-class="ico-54" name="more" color="{{ico.mute}}" />
                   </view>
                   <text class="g-name g-name-soon">敬请期待</text>
                 </view>
@@ -83,13 +83,13 @@
             <view class="card notice-card" hover-class="hover-bg-warm" bindtap="goNotices">
               <view class="n-head">
                 <view class="n-ico">
-                  <t-icon name="notification" size="30rpx" color="#0E3DA8" />
+                  <t-icon t-class="ico-30" name="notification" color="{{ico.brand}}" />
                 </view>
                 <view class="n-title">消息通知</view>
                 <view class="n-badge" wx:if="{{noticeUnread > 0}}"
                   ><view class="n-badge-dot"></view>{{noticeUnread}} 条未读</view
                 >
-                <t-icon name="chevron-right" size="32rpx" color="#86909C" />
+                <t-icon t-class="ico-32" name="chevron-right" color="{{ico.weak}}" />
               </view>
               <view wx:if="{{noticeLoading}}" class="n-empty">通知加载中…</view>
               <view wx:elif="{{noticeError}}" class="n-error">
@@ -104,15 +104,17 @@
                   >
                   <view class="n-row-time">{{item.timeText}}</view>
                 </view>
-                <block wx:if="{{noticeExpanded}}">
-                  <view class="n-row" wx:for="{{noticeExtra}}" wx:key="id">
-                    <view class="n-dot {{item.read ? 'n-dot-read' : ''}}"></view>
-                    <view class="n-row-title {{item.read ? '' : 'n-row-unread'}}"
-                      >{{item.title}}</view
-                    >
-                    <view class="n-row-time">{{item.timeText}}</view>
+                <view class="n-extra {{noticeExpanded ? 'n-extra-open' : ''}}">
+                  <view class="n-extra-in">
+                    <view class="n-row" wx:for="{{noticeExtra}}" wx:key="id">
+                      <view class="n-dot {{item.read ? 'n-dot-read' : ''}}"></view>
+                      <view class="n-row-title {{item.read ? '' : 'n-row-unread'}}"
+                        >{{item.title}}</view
+                      >
+                      <view class="n-row-time">{{item.timeText}}</view>
+                    </view>
                   </view>
-                </block>
+                </view>
                 <view
                   wx:if="{{noticeRemaining > 0}}"
                   class="n-toggle"
@@ -121,9 +123,9 @@
                 >
                   {{noticeExpanded ? '收起' : '展开其余 ' + noticeRemaining + ' 条'}}
                   <t-icon
+                    t-class="ico-26"
                     name="{{noticeExpanded ? 'chevron-up' : 'chevron-down'}}"
-                    size="26rpx"
-                    color="#0E3DA8"
+                    color="{{ico.brand}}"
                   />
                 </view>
               </block>
@@ -177,7 +179,7 @@
               <t-cell
                 title="关于 Shade 壹匣"
                 left-icon="book"
-                note="v1.19.0"
+                note="v1.20.0"
                 arrow
                 hover
                 bordered="{{false}}"

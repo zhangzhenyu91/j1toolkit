@@ -6,7 +6,7 @@
 <view class="page-body" wx:if="{{isManager}}">
   <!-- 新建题库（虚线占位按钮，弹层输入名称 + 描述） -->
   <view class="new-bank" hover-class="hover-opacity" bindtap="onOpenCreate">
-    <t-icon name="add" size="32rpx" color="#0E3DA8" />新建题库
+    <t-icon name="add" t-class="ico-32" />新建题库
   </view>
 
   <!-- 题库管理列表 -->
@@ -15,7 +15,7 @@
     <view class="cnt">{{banks.length ? banks.length + ' 个题库' : ''}}</view>
   </view>
 
-  <block wx:if="{{banks.length}}">
+  <view class="mg-list" wx:if="{{banks.length}}">
     <view class="card mg-item" wx:for="{{banks}}" wx:key="id">
       <view class="hd">
         <b>{{item.name}}</b>
@@ -31,7 +31,7 @@
             data-description="{{item.description}}"
             data-scope="{{item.scope}}"
           >
-            <t-icon name="edit" size="32rpx" color="rgba(29,33,41,.4)" />
+            <t-icon name="edit" t-class="ico-32" />
           </text>
           <text
             class="op"
@@ -40,7 +40,7 @@
             data-id="{{item.id}}"
             data-name="{{item.name}}"
           >
-            <t-icon name="delete" size="32rpx" color="rgba(29,33,41,.4)" />
+            <t-icon name="delete" t-class="ico-32" />
           </text>
         </span>
       </view>
@@ -51,7 +51,7 @@
       </view>
       <!-- 解析中：蓝色进度条 -->
       <view class="an-line" wx:if="{{item.analyzing}}">
-        <t-icon name="lightbulb" size="26rpx" color="#0E3DA8" />
+        <t-icon name="lightbulb" t-class="ico-26" class="ico-brand" />
         <text>解析中</text>
         <view class="progress"
           ><view class="progress-in" style="width: {{item.anPct}}%;"></view
@@ -67,12 +67,12 @@
           data-id="{{item.id}}"
           data-name="{{item.name}}"
         >
-          <t-icon name="refresh" size="26rpx" color="#0E3DA8" />{{item.anFailed > 0 ? '重试失败解析'
+          <t-icon name="refresh" t-class="ico-26" />{{item.anFailed > 0 ? '重试失败解析'
           : '继续解析'}}
         </span>
       </view>
     </view>
-  </block>
+  </view>
   <view wx:elif="{{loading}}" class="empty-box">题库加载中…</view>
   <view wx:else class="empty-box">暂无题库，点上方「新建题库」创建</view>
 
@@ -90,48 +90,50 @@
     <view class="sheet-sub"
       >{{bankMode === 'edit' ? '修改题库名称与简介' : '新建后请前往网页端 Excel 导入题目'}}</view
     >
-    <input
-      class="name-input"
-      value="{{bankName}}"
-      bindinput="onBankNameInput"
-      adjust-position="{{false}}"
-      bindkeyboardheightchange="onKeyboardHeight"
-      hold-keyboard
-      maxlength="50"
-      placeholder="题库名称（必填）"
-      placeholder-class="ph"
-    />
-    <input
-      class="name-input"
-      value="{{bankDesc}}"
-      bindinput="onBankDescInput"
-      adjust-position="{{false}}"
-      bindkeyboardheightchange="onKeyboardHeight"
-      hold-keyboard
-      maxlength="200"
-      placeholder="题库简介（选填）"
-      placeholder-class="ph"
-    />
-    <!-- 上传至（仅超管可见；team_admin 固定班组池不传 scope） -->
-    <block wx:if="{{isAdmin}}">
-      <view class="scope-label">上传至</view>
-      <view class="scope-row">
-        <view
-          class="scope-opt {{bankScope === 'team' ? 'on' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onScopePick"
-          data-scope="team"
-          >班组池（{{teamName || '当前班组'}}）</view
-        >
-        <view
-          class="scope-opt {{bankScope === 'all' ? 'on' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onScopePick"
-          data-scope="all"
-          >全部池（所有班组可拉取）</view
-        >
-      </view>
-    </block>
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+      <input
+        class="name-input"
+        value="{{bankName}}"
+        bindinput="onBankNameInput"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        maxlength="50"
+        placeholder="题库名称（必填）"
+        placeholder-class="ph"
+      />
+      <input
+        class="name-input"
+        value="{{bankDesc}}"
+        bindinput="onBankDescInput"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        maxlength="200"
+        placeholder="题库简介（选填）"
+        placeholder-class="ph"
+      />
+      <!-- 上传至（仅超管可见；team_admin 固定班组池不传 scope） -->
+      <block wx:if="{{isAdmin}}">
+        <view class="scope-label">上传至</view>
+        <view class="scope-row">
+          <view
+            class="scope-opt {{bankScope === 'team' ? 'on' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onScopePick"
+            data-scope="team"
+            >班组池（{{teamName || '当前班组'}}）</view
+          >
+          <view
+            class="scope-opt {{bankScope === 'all' ? 'on' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onScopePick"
+            data-scope="all"
+            >全部池（所有班组可拉取）</view
+          >
+        </view>
+      </block>
+    </scroll-view>
     <view class="sheet-ops">
       <view
         class="btn-ghost {{bankSaving ? 'disabled' : ''}}"

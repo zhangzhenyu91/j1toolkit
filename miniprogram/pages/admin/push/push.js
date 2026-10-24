@@ -3,7 +3,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { BASE_URL } from '../../../config';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
-import { renderMarkdown, MD_TAG_STYLE, MD_CONTAINER_STYLE } from '../../../utils/markdown';
+import { renderMarkdown, getMarkdownStyle } from '../../../utils/markdown';
 
 Page({
   data: {
@@ -15,8 +15,27 @@ Page({
     contentAutosize: { minHeight: 150 }, // 编辑框最小高度（px，约 6 行），随内容自增
     uploading: false, // 图片上传中（防并发选择）
     pushing: false,
-    mdTagStyle: MD_TAG_STYLE,
-    mdContainerStyle: MD_CONTAINER_STYLE,
+    ...getMarkdownStyle('light'), // 标签/容器排版样式计算值（随系统主题刷新，不重建预览 HTML）
+  },
+
+  onLoad() {
+    // 系统主题变化时刷新排版样式绑定值
+    this._onThemeChange = (res) => this.setData(getMarkdownStyle(res && res.theme));
+    this.setData(getMarkdownStyle());
+    wx.onThemeChange(this._onThemeChange);
+  },
+
+  onShow() {
+    // 回前台同步排版样式（主题可能在后台切换）
+    this.setData(getMarkdownStyle());
+  },
+
+  // 页面卸载解除主题监听
+  onUnload() {
+    if (this._onThemeChange) {
+      wx.offThemeChange(this._onThemeChange);
+      this._onThemeChange = null;
+    }
   },
 
   toast(message) {

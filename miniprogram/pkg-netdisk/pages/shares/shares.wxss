@@ -1,5 +1,6 @@
 /* 团队网盘 · 分享管理（设计稿 design/小程序-团队网盘.html 屏④；
-   token 硬编码：蓝 #0E3DA8 / 深蓝 #0A3592 / 浅蓝底 #E8F0FF / 文字 #1D2129 / #4E5969 / #86909C / 边 #E5E6EB） */
+   颜色一律走 app.wxss --app-* 语义变量，深色随系统；弱化占位 #C9CDD4 无对应 token，
+   浅色保持定稿值、深色单独覆盖） */
 
 .page-body {
   padding-bottom: 60rpx;
@@ -16,7 +17,7 @@
   display: flex;
   height: 64rpx;
   padding: 4rpx;
-  background: #e5e6eb;
+  background: var(--app-border);
   border-radius: 16rpx;
   margin-bottom: 20rpx;
 }
@@ -28,12 +29,15 @@
   justify-content: center;
   border-radius: 12rpx;
   font-size: 25rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .seg2 .seg.on {
-  background: #ffffff;
-  color: #0e3da8;
+  background: var(--app-bg-card);
+  color: var(--app-brand);
   font-weight: 600;
   box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.08);
 }
@@ -43,11 +47,11 @@
   display: flex;
   align-items: center;
   gap: 14rpx;
-  background: #e8f0ff;
-  border-left: 6rpx solid #0e3da8;
+  background: var(--app-brand-light);
+  border-left: 6rpx solid var(--app-brand);
   padding: 16rpx 20rpx;
   font-size: 23rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   margin-bottom: 20rpx;
 }
 
@@ -67,13 +71,14 @@
   gap: 20rpx;
 }
 
-/* 图标块：文件夹线性图标 / 类型字母块（浅蓝底深蓝字） */
+/* 图标块：文件夹线性图标 / 类型字母块（浅蓝底 + 品牌色字/图标，随主题） */
 .ficon {
   width: 72rpx;
   height: 72rpx;
   flex: none;
   border-radius: 20rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -83,7 +88,7 @@
   font-size: 21rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #0a3592;
+  color: var(--app-brand);
 }
 
 /* 真实文件类型 PNG 图标（无底块直落；加载失败回退 .ficon 线性文件夹/字母块） */
@@ -98,7 +103,7 @@
   min-width: 0;
   font-size: 27rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -112,7 +117,7 @@
 .sc-sub {
   margin-top: 16rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   line-height: 1.7;
   font-variant-numeric: tabular-nums;
 }
@@ -121,7 +126,7 @@
 .sc-ops {
   margin-top: 20rpx;
   display: flex;
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .sc-ops .op {
@@ -133,19 +138,20 @@
   padding: 18rpx 0 20rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+  transition: opacity 0.15s ease;
 }
 
 .sc-ops .op + .op {
-  border-left: 1rpx solid #e5e6eb;
+  border-left: 1rpx solid var(--app-border);
 }
 
 .sc-ops .op.blue {
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .sc-ops .op.danger {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 /* ---------- 空态（虚线占位） ---------- */
@@ -156,5 +162,131 @@
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
+}
+
+/* ---------- t-icon 外部样式类（size 属性写内联 rpx 会随屏宽膨胀，改由 t-class 控制字号；
+   操作图标色经 .op/.blue/.danger 父级颜色继承，不在 color 属性传值） ---------- */
+.ico-26 {
+  font-size: 26rpx;
+}
+
+.ico-28 {
+  font-size: 28rpx;
+}
+
+.ico-38 {
+  font-size: 38rpx;
+}
+
+.ico-brand {
+  color: var(--app-brand);
+}
+
+/* 弱化占位（#C9CDD4 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+@media (prefers-color-scheme: dark) {
+  .empty-box {
+    border-color: #626d7d;
+  }
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽 + 关键字阶/控件改固定 px；900px 起分享卡双列、1200px 起三列（按可用宽度增列） */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .seg2 {
+    height: 32px;
+    padding: 2px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+
+  .seg2 .seg {
+    font-size: 12.5px;
+    border-radius: 6px;
+  }
+
+  .notice {
+    font-size: 11.5px;
+    border-left-width: 3px;
+  }
+
+  .sc-name {
+    font-size: 13.5px;
+  }
+
+  .sc-sub {
+    font-size: 11px;
+    margin-top: 8px;
+  }
+
+  .fletter {
+    font-size: 10.5px;
+  }
+
+  .sc-ops .op {
+    font-size: 12px;
+    padding: 9px 0 10px;
+  }
+
+  .empty-box {
+    border-radius: 12px;
+    padding: 32px 16px;
+    font-size: 13px;
+  }
+
+  .ico-26 {
+    font-size: 13px;
+  }
+
+  .ico-28 {
+    font-size: 14px;
+  }
+
+  .ico-38 {
+    font-size: 19px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  /* 分享卡双列（分段/提示/空态仍通栏） */
+  .seg2,
+  .notice,
+  .empty-box {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .shcard {
+    width: calc(50% - 9px);
+    box-sizing: border-box;
+  }
+
+  .page-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 18px;
+    align-content: flex-start;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  /* 分享卡三列 */
+  .shcard {
+    width: calc(33.3333% - 12px);
+  }
 }

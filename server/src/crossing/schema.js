@@ -8,7 +8,7 @@ const APP_CROSSING = {
   name: '交跨记录',
   icon: 'swap',
   path: '/pkg-crossing/pages/index/index',
-  sort: 10,
+  sort: 5,
   terminal: 'both', // 适配终端：双端（见 db.js sys_app.terminal 口径）
 };
 

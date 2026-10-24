@@ -40,7 +40,7 @@
   </view>
 
   <!-- 设备卡片 -->
-  <block wx:if="{{list.length}}">
+  <view class="dev-list" wx:if="{{list.length}}">
     <view class="card hazard-top dev" wx:for="{{list}}" wx:key="id">
       <view class="dv-in">
         <view class="dv-top">
@@ -75,16 +75,12 @@
             data-item="{{item}}"
             bindtap="onOpenUsb"
           >
-            <t-icon
-              name="usb"
-              size="30rpx"
-              color="{{(item.statusKey === 'online' && !item.maintaining) ? '#0E3DA8' : 'rgba(29,33,41,.35)'}}"
-            />打开 U 盘
+            <t-icon name="usb" t-class="ico-30" />打开 U 盘
           </view>
         </view>
       </view>
     </view>
-  </block>
+  </view>
 
   <!-- 首屏加载中 -->
   <view wx:elif="{{loading}}" class="empty-box">设备列表加载中…</view>
@@ -115,24 +111,24 @@
     <view class="sh-head">
       <view class="sh-title">上传文件<text class="sh-sub">{{upDevice.name}}</text></view>
       <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseUpload">
-        <t-icon name="close" size="36rpx" color="#4E5969" />
+        <t-icon name="close" t-class="ico-36" />
       </view>
     </view>
 
     <!-- 两种添加方式 + 网盘入口（网盘可用时显示） -->
     <view class="pick-row">
       <view class="pick" hover-class="hover-opacity" bindtap="onPickMedia">
-        <t-icon name="file-image" size="48rpx" color="#0E3DA8" />
+        <t-icon name="file-image" t-class="ico-48" />
         <view class="pick-name">从手机选择</view>
         <view class="pick-note">图片 / 视频</view>
       </view>
       <view class="pick" hover-class="hover-opacity" bindtap="onPickChat">
-        <t-icon name="chat" size="48rpx" color="#0E3DA8" />
+        <t-icon name="chat" t-class="ico-48" />
         <view class="pick-name">从聊天选取</view>
         <view class="pick-note">任意类型文件</view>
       </view>
       <view class="pick" wx:if="{{ndOk}}" hover-class="hover-opacity" bindtap="onOpenNdPicker">
-        <t-icon name="folder-import" size="48rpx" color="#0E3DA8" />
+        <t-icon name="folder-import" t-class="ico-48" />
         <view class="pick-name">从网盘选择</view>
         <view class="pick-note">推送到设备</view>
       </view>
@@ -145,7 +141,7 @@
     </view>
     <scroll-view scroll-y class="fl-list">
       <view class="frow" wx:for="{{upFiles}}" wx:key="path">
-        <t-icon name="{{item.icon}}" size="34rpx" color="#0E3DA8" />
+        <t-icon name="{{item.icon}}" t-class="ico-34" class="ico-brand" />
         <view class="fn">{{item.name}}</view>
         <view class="fs">{{item.sizeText}}</view>
         <view
@@ -154,7 +150,7 @@
           data-index="{{index}}"
           catchtap="onRemoveUpFile"
         >
-          <t-icon name="close" size="30rpx" color="rgba(29,33,41,.4)" />
+          <t-icon name="close" t-class="ico-30" />
         </view>
       </view>
       <view wx:if="{{!upFiles.length}}" class="fl-empty">尚未添加文件，点上方入口添加</view>
@@ -190,7 +186,7 @@
         >{{dlMulti ? '完成' : '多选'}}</view
       >
       <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseDownload">
-        <t-icon name="close" size="36rpx" color="#4E5969" />
+        <t-icon name="close" t-class="ico-36" />
       </view>
     </view>
 
@@ -200,7 +196,7 @@
     <!-- 已挂载到被控机（共享中）：取回（断开共享挂载回 KVM）后在此读取盘内文件 -->
     <block wx:elif="{{dlState === 'shared'}}">
       <view class="dl-state">
-        <t-icon name="usb" size="64rpx" color="#0E3DA8" />
+        <t-icon name="usb" t-class="ico-64" class="ico-brand" />
         <view class="dl-state-t">U 盘已挂载到被控机</view>
         <view class="dl-state-n">可在该机向 U 盘放入文件；取回后在此读取盘内文件</view>
       </view>
@@ -229,9 +225,9 @@
           bindtap="onDlFileTap"
         >
           <view wx:if="{{dlMulti}}" class="ck-dot {{item.checked ? 'on' : ''}}">
-            <t-icon wx:if="{{item.checked}}" name="check" size="22rpx" color="#FFFFFF" />
+            <t-icon wx:if="{{item.checked}}" name="check" t-class="ico-22" />
           </view>
-          <t-icon name="{{item.icon}}" size="34rpx" color="#0E3DA8" />
+          <t-icon name="{{item.icon}}" t-class="ico-34" class="ico-brand" />
           <view class="fn">{{item.name}}</view>
           <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
           <view wx:else class="fs">{{item.sizeText}}</view>
@@ -245,8 +241,8 @@
           >
             <t-icon
               name="download"
-              size="32rpx"
-              color="{{downloading === item.name ? 'rgba(29,33,41,.35)' : '#0E3DA8'}}"
+              t-class="ico-32"
+              class="{{downloading === item.name ? 'ico-off' : 'ico-brand'}}"
             />
           </view>
           <!-- 存网盘（网盘可用且非多选态时显示；多选批量存走底部操作条；catchtap 拦截不触发勾选） -->
@@ -259,8 +255,8 @@
           >
             <t-icon
               name="folder-import"
-              size="32rpx"
-              color="{{savingNd === item.name ? 'rgba(29,33,41,.35)' : '#0E3DA8'}}"
+              t-class="ico-32"
+              class="{{savingNd === item.name ? 'ico-off' : 'ico-brand'}}"
             />
           </view>
           <!-- 删除小标（catchtap 拦截，不触发勾选） -->
@@ -270,7 +266,7 @@
             data-name="{{item.name}}"
             catchtap="onDeleteFile"
           >
-            <t-icon name="delete" size="32rpx" color="#F53F3F" />
+            <t-icon name="delete" t-class="ico-32" />
           </view>
         </view>
       </scroll-view>
@@ -333,7 +329,7 @@
     <view class="sh-head">
       <view class="sh-title">从网盘选择<text class="sh-sub">{{upDevice.name}}</text></view>
       <view class="sh-close" hover-class="hover-opacity" bindtap="onNdCancel">
-        <t-icon name="close" size="36rpx" color="#4E5969" />
+        <t-icon name="close" t-class="ico-36" />
       </view>
     </view>
 
@@ -379,16 +375,16 @@
           bindtap="onNdRowTap"
         >
           <view wx:if="{{!item.isDir}}" class="ck-dot {{item.checked ? 'on' : ''}}">
-            <t-icon wx:if="{{item.checked}}" name="check" size="22rpx" color="#FFFFFF" />
+            <t-icon wx:if="{{item.checked}}" name="check" t-class="ico-22" />
           </view>
-          <t-icon name="{{item.icon}}" size="34rpx" color="#0E3DA8" />
+          <t-icon name="{{item.icon}}" t-class="ico-34" class="ico-brand" />
           <view class="fn">{{item.name}}</view>
           <view wx:if="{{!item.isDir}}" class="fs">{{item.sizeText}}</view>
           <t-icon
             wx:if="{{item.isDir}}"
             name="chevron-right"
-            size="30rpx"
-            color="rgba(29,33,41,.4)"
+            t-class="ico-30"
+            class="ico-mute"
           />
         </view>
       </block>

@@ -1,4 +1,5 @@
-<!-- 底部标签栏：首页 / 我的（「政企蓝白」：白底 + 顶部发丝线 + 激活品牌蓝字蓝点） -->
+<!-- 底部标签栏：首页 / 我的（「政企蓝白」：白底 + 顶部发丝线 + 激活品牌蓝字蓝点）
+     图标颜色为按系统主题计算的具体颜色值（t-icon color 只接受计算值，不传 CSS 变量） -->
 <view class="tabbar">
   <view
     class="tab {{active === 'home' ? 'on' : ''}}"
@@ -6,11 +7,7 @@
     bindtap="go"
     data-key="home"
   >
-    <t-icon
-      name="home"
-      size="44rpx"
-      color="{{active === 'home' ? '#0E3DA8' : 'rgba(29,33,41,.4)'}}"
-    />
+    <t-icon name="home" t-class="ico-44" color="{{active === 'home' ? iconActiveColor : iconInactiveColor}}" />
     <text class="tab-text">首页</text>
     <view class="t-dot"></view>
   </view>
@@ -20,11 +17,7 @@
     bindtap="go"
     data-key="me"
   >
-    <t-icon
-      name="user"
-      size="44rpx"
-      color="{{active === 'me' ? '#0E3DA8' : 'rgba(29,33,41,.4)'}}"
-    />
+    <t-icon name="user" t-class="ico-44" color="{{active === 'me' ? iconActiveColor : iconInactiveColor}}" />
     <text class="tab-text">我的</text>
     <view class="t-dot"></view>
   </view>

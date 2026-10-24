@@ -5,6 +5,7 @@ import { request } from '../../utils/request';
 import { greeting, formatTime } from '../../utils/util';
 import { shareAppMessage } from '../../utils/share';
 import config from '../../config';
+import { iconColors } from '../common/icon-theme';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
@@ -12,6 +13,7 @@ Page({
   data: {
     gate: false, // 门控是否已通过（未通过时显示启动加载页）
     tab: 'home', // 当前面板：home / me
+    ico: iconColors('light'), // t-icon 图标色计算值（随系统主题刷新）
     greeting: '',
     today: '',
     weekday: '',
@@ -51,8 +53,20 @@ Page({
       greeting: greeting(),
       today: `${now.getMonth() + 1}月${now.getDate()}日`,
       weekday: WEEKDAYS[now.getDay()],
+      ico: iconColors(), // t-icon 图标色按系统主题计算
     });
+    // 系统主题变化时刷新图标计算色
+    this._onThemeChange = (res) => this.setData({ ico: iconColors(res && res.theme) });
+    wx.onThemeChange(this._onThemeChange);
     this.bootGate();
+  },
+
+  // 页面卸载解除主题监听
+  onUnload() {
+    if (this._onThemeChange) {
+      wx.offThemeChange(this._onThemeChange);
+      this._onThemeChange = null;
+    }
   },
 
   // 自动登录门控：等启动自检（token 校验 + 静默续期）完成后按本地 token 判定再进首页——
@@ -91,6 +105,7 @@ Page({
 
   onShow() {
     this._shown = true;
+    this.setData({ ico: iconColors() });
     if (!this.data.gate) return; // 门控未过（含启动自检未完成）：首拉由 passGate 负责
     this.refresh();
   },
@@ -324,7 +339,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v1.19.0 \n 应用权限申请联系 zzy',
+      content: '版本号：v1.20.0 \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },

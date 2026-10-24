@@ -52,7 +52,7 @@
         position: fixed;
         inset: 0;
         z-index: 110;
-        background: rgba(29, 33, 41, 0.45);
+        background: var(--overlay);
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.3s;
@@ -62,7 +62,7 @@
       .cm-side {
         width: 262px;
         flex: none;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         box-shadow: var(--shadow-card);
@@ -82,7 +82,7 @@
         flex: none;
         border-radius: 8px;
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -106,7 +106,7 @@
         margin: 0 14px 12px;
         height: 40px;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         border-radius: 8px;
         display: flex;
         align-items: center;
@@ -208,7 +208,7 @@
         width: 22px;
         height: 22px;
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--hair);
         display: flex;
         align-items: center;
@@ -323,7 +323,7 @@
         flex: none;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--sub);
         align-items: center;
         justify-content: center;
@@ -432,7 +432,7 @@
       .u-bubble {
         max-width: 72%;
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         border-radius: 8px;
         padding: 12px 17px;
         font-size: 13.5px;
@@ -486,7 +486,6 @@
       }
       .think-dot.on {
         background: var(--orange);
-        animation: breath 1.2s ease-in-out infinite;
       }
       .think-chev {
         margin-left: 4px;
@@ -531,7 +530,6 @@
       }
       .step.running .step-icon {
         color: var(--orange);
-        animation: breath 1.2s ease-in-out infinite;
       }
       .step.error .step-icon {
         color: var(--red);
@@ -607,7 +605,7 @@
         padding: 5px 16px;
         font-size: 12px;
         color: var(--ph);
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         cursor: pointer;
@@ -797,10 +795,10 @@
         border: 1px solid var(--hair);
         padding: 6px 10px;
       }
-      /* 代码块（墨黑深底 + 标题栏 + 复制） */
+      /* 代码块（墨黑深底 + 标题栏 + 复制；深底固定不随主题反转，浅字常亮） */
       .md-code {
         margin: 10px 0;
-        background: var(--navy);
+        background: #1d2129;
         border-radius: 8px;
         overflow: hidden;
       }
@@ -865,7 +863,7 @@
         border-radius: 8px;
         object-fit: cover;
         border: 1px solid var(--hair);
-        background: #fff;
+        background: var(--card);
       }
       .chip-x {
         position: absolute;
@@ -875,8 +873,8 @@
         height: 20px;
         border: none;
         border-radius: 8px;
-        background: var(--navy);
-        color: #fff;
+        background: var(--inverse-bg);
+        color: var(--inverse-text);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -895,7 +893,7 @@
         height: 56px;
         max-width: 230px;
         padding: 0 12px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--hair);
         border-radius: 8px;
       }
@@ -940,7 +938,7 @@
         border-color: var(--red);
       }
       .att-chip.failed .a-ic {
-        background: #ffece8;
+        background: var(--danger-soft);
         color: var(--red);
       }
       .att-chip.failed .a-sub {
@@ -950,7 +948,7 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 8px;
@@ -1021,7 +1019,7 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1038,7 +1036,7 @@
       }
       .cm-send:hover {
         transform: translate(2px, 2px);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
       }
       .cm-send.off {
         opacity: 0.4;
@@ -1081,7 +1079,7 @@
       .cm-ws.on {
         background: var(--orange);
         border-color: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
       .cm-model,
       .cm-effort {
@@ -1112,7 +1110,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(29, 33, 41, 0.45);
+        background: var(--overlay);
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.3s;
@@ -1125,10 +1123,10 @@
         width: 400px;
         max-width: 92vw;
         padding: 22px 24px 18px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transform: translateY(16px) scale(0.98);
         transition: transform 0.35s var(--ease);
       }
@@ -1172,13 +1170,13 @@
         height: 30px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transition:
           background 0.15s,
           color 0.15s;
@@ -2098,7 +2096,8 @@
                 Shade.toast('复制失败', 'error');
                 return;
               }
-              btn.innerHTML = Shade.icon('check', 14, '#0E3DA8');
+              btn.innerHTML =
+                '<span style="color:var(--orange)">' + Shade.icon('check', 14) + '</span>';
               setTimeout(function () {
                 btn.innerHTML = Shade.icon('copy', 14);
               }, 1500);
@@ -2791,7 +2790,7 @@
           '</span>' +
           '<div class="a-main"><div class="a-name"></div><div class="a-sub"></div></div>' +
           '<button class="chip-x" title="移除附件">' +
-          Shade.icon('close', 10, '#fff') +
+          Shade.icon('close', 10) +
           '</button>';
         var nameEl = el.querySelector('.a-name');
         nameEl.textContent = att.name;
@@ -3084,15 +3083,15 @@
       /* ============================================================
      侧栏静态注入与用户信息
      ============================================================ */
-      document.getElementById('sideLogo').innerHTML = Shade.icon('robot', 20, '#fff');
+      document.getElementById('sideLogo').innerHTML = Shade.icon('robot', 20);
       document.getElementById('btnNew').innerHTML = Shade.icon('add', 15) + '<span>新建会话</span>';
-      document.getElementById('welcomeIcon').innerHTML = Shade.icon('robot', 36, '#0E3DA8');
+      document.getElementById('welcomeIcon').innerHTML = Shade.icon('robot', 36);
       document.getElementById('cmToggle').innerHTML = Shade.icon('chat', 16);
       btnAttach.innerHTML = Shade.icon('image', 19);
       btnFile.innerHTML = Shade.icon('attach', 19);
       btnWs.innerHTML = Shade.icon('globe', 14) + '<span class="ws-t">联网搜索</span>';
-      btnSend.innerHTML = Shade.icon('send', 17, '#fff');
-      chipX.innerHTML = Shade.icon('close', 10, '#fff');
+      btnSend.innerHTML = Shade.icon('send', 17);
+      chipX.innerHTML = Shade.icon('close', 10);
 
       document.getElementById('btnNew').addEventListener('click', onNewSession);
       document.getElementById('cmToggle').addEventListener('click', function () {

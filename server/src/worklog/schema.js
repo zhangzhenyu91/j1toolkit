@@ -9,7 +9,7 @@ const APP_WORK_LOG = {
   name: '出工日志',
   icon: 'calendar',
   path: '/pkg-worklog/pages/index/index',
-  sort: 2,
+  sort: 3,
   terminal: 'both', // 适配终端：双端（见 db.js sys_app.terminal 口径）
 };
 

@@ -72,7 +72,7 @@
      团队网盘页内样式 ·「政企蓝白」（基准 design/Web-团队网盘.html）
      色板全部走 theme.css 变量：品牌蓝 --orange / 浅蓝底 --orange-soft / 正文 --navy；
      选中与框选的 rgba(14,61,168,.xx) 为 token 无法表达的透明度，按稿直写；
-     状态标签浅底（绿 #E8FFEA / 橙 #FFF7E8 一族）theme 无对应变量，与 worklog 同口径页内定义
+     状态标签浅底走 theme 状态 token（--ok-soft / --warn-soft / --danger-soft 一族）
      ============================================================ */
       /* ===== 整页锁定 100vh：文件区占满剩余高度、网格内滚、状态栏沉底（同 worklog 口径） ===== */
       html,
@@ -265,7 +265,7 @@
         left: 0;
         width: 0;
         pointer-events: none;
-        background: #fff;
+        background: var(--card);
         border-radius: 6px;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
         transition:
@@ -320,7 +320,7 @@
       }
       /* 面包屑拖拽落点高亮（内拖移动至此目录） */
       .crumb a.drop-hover {
-        background: rgba(14, 61, 168, 0.12);
+        background: var(--brand-glow);
         box-shadow: inset 0 0 0 1px rgba(14, 61, 168, 0.45);
         border-radius: 4px;
         filter: none;
@@ -341,7 +341,7 @@
         height: 34px;
         width: 280px;
         padding: 0 12px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         color: var(--sub);
@@ -354,7 +354,7 @@
       }
       .searchw:focus-within {
         border-color: var(--orange);
-        box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+        box-shadow: 0 0 0 3px var(--brand-glow);
       }
       .searchw > svg {
         width: 14px;
@@ -592,7 +592,7 @@
         width: 22px;
         height: 22px;
         border-radius: 6px;
-        background: #fff;
+        background: var(--card);
         box-shadow: var(--shadow-card);
         cursor: pointer;
         display: flex;
@@ -677,7 +677,7 @@
         position: fixed;
         z-index: 1200;
         width: 190px;
-        background: #fff;
+        background: var(--card);
         border-radius: 10px;
         box-shadow: var(--shadow-hover);
         border: 1px solid var(--line);
@@ -885,7 +885,7 @@
         inset: 0;
         z-index: 320;
         padding: 24px;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
@@ -899,7 +899,7 @@
       /* 外壳 overflow:hidden 保四角裁切；滚动内凹到 .m-scroll（外壳 6px 内边距），滚动条不贴右缘；
      入场 translateY(16px) scale(.98)→none 350ms，关闭随 .open 移除反向淡出（Shade.modal 延时 300ms 销毁兜底） */
       .modal {
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         width: 560px;
@@ -909,7 +909,7 @@
         padding: 6px;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transform: translateY(16px) scale(0.98);
         transition: transform 0.35s var(--ease);
       }
@@ -959,20 +959,20 @@
         height: 30px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transition:
           background 0.15s,
           color 0.15s;
       }
       .m-x:hover {
         background: var(--navy);
-        color: #fff;
+        color: var(--inverse-text);
       }
       .m-x svg {
         width: 14px;
@@ -1568,17 +1568,17 @@
         border-radius: 50%;
         background: currentColor;
       }
-      /* 状态小胶囊浅底一族（生效绿 / 过期橙 / 停用红；浅底 theme 无变量，与 worklog 页内同口径） */
+      /* 状态小胶囊浅底一族（生效绿 / 过期橙 / 停用红；浅底走 theme 状态 token） */
       .st-ok {
-        background: #e8ffea;
-        color: #0b8a37;
+        background: var(--ok-soft);
+        color: var(--ok-text);
       }
       .st-warn {
-        background: #fff7e8;
-        color: #d25f00;
+        background: var(--warn-soft);
+        color: var(--warn-text);
       }
       .st-bad {
-        background: #ffece8;
+        background: var(--danger-soft);
         color: var(--red);
       }
       .st-info {
@@ -1593,7 +1593,7 @@
         bottom: 24px;
         z-index: 300;
         width: 320px;
-        background: #fff;
+        background: var(--card);
         border-radius: var(--radius);
         box-shadow: 0 12px 32px rgba(29, 33, 41, 0.16);
         overflow: hidden;

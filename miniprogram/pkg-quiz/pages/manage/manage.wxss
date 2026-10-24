@@ -5,7 +5,7 @@
 .new-bank {
   margin-top: 24rpx;
   height: 88rpx;
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
+  border: 3rpx dashed var(--app-text-tertiary);
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -13,8 +13,9 @@
   gap: 10rpx;
   font-size: 27rpx;
   font-weight: 700;
-  color: #0e3da8;
+  color: var(--app-brand);
   letter-spacing: 2rpx;
+  transition: opacity 0.15s ease;
 }
 
 /* ---------- 题库管理列表 ---------- */
@@ -28,7 +29,7 @@
 .cnt {
   margin-left: auto;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 1rpx;
 }
 
@@ -60,17 +61,19 @@
   display: flex;
   gap: 24rpx;
   flex: none;
+  color: var(--app-text-tertiary);
 }
 
 .mg-item .hd .ops .op {
   display: flex;
   padding: 4rpx;
+  transition: opacity 0.15s ease;
 }
 
 .mg-item .sub {
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   display: flex;
   align-items: center;
   gap: 20rpx;
@@ -83,29 +86,33 @@
   align-items: center;
   gap: 14rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .an-line .progress {
   flex: 1;
   height: 12rpx;
   border-radius: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   overflow: hidden;
 }
 
 .an-line .progress-in {
   height: 100%;
   border-radius: 12rpx;
-  background: #0e3da8;
+  background: var(--app-brand);
 }
 
 .an-line .retry {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 700;
   display: flex;
   align-items: center;
   gap: 8rpx;
+}
+
+.ico-brand {
+  color: var(--app-brand);
 }
 
 /* ---------- 标签 ---------- */
@@ -121,18 +128,18 @@
 }
 
 .tag-green {
-  background: #e8ffea;
-  color: #00b42a;
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
 }
 
 .tag-orange {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .tag-navy {
-  background: #e8f0ff;
-  color: #1d2129;
+  background: var(--app-brand-light);
+  color: var(--app-text-primary);
 }
 
 /* 题库卡头部范围 tag 不压缩 */
@@ -144,7 +151,7 @@
 .scope-label {
   margin-top: 24rpx;
   font-size: 23rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 2rpx;
 }
 
@@ -157,80 +164,122 @@
 .scope-opt {
   flex: 1;
   min-width: 0;
-  border: 2rpx solid #e5e6eb;
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 18rpx 12rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   text-align: center;
   line-height: 1.5;
   box-sizing: border-box;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .scope-opt.on {
-  border-color: #0e3da8;
-  background: #e8f0ff;
-  color: #0e3da8;
+  border-color: var(--app-brand);
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .tag-red {
-  background: #ffece8;
-  color: #f53f3f;
+  background: var(--app-danger-bg);
+  color: var(--app-danger-text);
 }
 
 /* ---------- 空态/加载（同出工日志 empty-box 口径） ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
+  border: 3rpx dashed var(--app-text-tertiary);
   border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
 }
 
-/* ---------- 新建/编辑题库弹层（底部弹层，同 safeday 名称弹层族） ---------- */
+/* ---------- 新建/编辑题库弹层（底部弹层，同 safeday 名称弹层族；头/体/脚三段 flex，
+   整体限高 + overflow:hidden，内容体 flex:1 1 auto 独立滚动） ---------- */
 .sheet {
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-bottom: none;
   border-radius: 12rpx;
-  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -8rpx 32rpx var(--app-mask);
   padding: 36rpx 32rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .sheet-title {
+  flex: none;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
 }
 
 .sheet-sub {
+  flex: none;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.7;
+}
+
+/* 弹层内容体（flex-basis 用 auto：0 基准会把自适应高度弹层内容压没） */
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 弹层内非体块默认不参与收缩（头/说明/控件/脚），体块（scroll-view 或 .sheet-body）独占剩余空间并滚动 */
+.sheet > view {
+  flex: none;
+}
+
+.sheet > scroll-view,
+.sheet > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
+.t-popup__close {
+  display: none;
 }
 
 .name-input {
   margin-top: 24rpx;
   height: 80rpx;
   padding: 0 24rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   font-size: 27rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .ph {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .sheet-ops {
+  flex: none;
   margin-top: 32rpx;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
   display: flex;
   gap: 20rpx;
 }
@@ -239,28 +288,34 @@
   flex: 1;
   height: 84rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
-  color: #1d2129;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
+  color: var(--app-text-primary);
   font-size: 28rpx;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .btn-accent {
   flex: 2;
   height: 84rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   font-size: 28rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .btn-ghost.disabled,
@@ -273,6 +328,139 @@
   margin-top: 40rpx;
   text-align: center;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
+}
+
+/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+.ico-26 {
+  font-size: 26rpx;
+}
+.ico-32 {
+  font-size: 32rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽居中、关键字阶改固定 px；900px 起弹层限宽居中、列表两列网格 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .new-bank {
+    height: 44px;
+    font-size: 13.5px;
+    border-width: 1.5px;
+    border-radius: 6px;
+  }
+
+  .cnt {
+    font-size: 11px;
+  }
+
+  .mg-item .hd b {
+    font-size: 14px;
+  }
+
+  .mg-item .sub {
+    font-size: 11.5px;
+  }
+
+  .an-line {
+    font-size: 11px;
+  }
+
+  .scope-label {
+    font-size: 11.5px;
+  }
+
+  .scope-opt {
+    font-size: 12px;
+    border-width: 1px;
+    border-radius: 6px;
+  }
+
+  .empty-box {
+    font-size: 13px;
+    border-width: 1.5px;
+    border-radius: 6px;
+  }
+
+  .sheet {
+    border-width: 1px;
+    border-radius: 8px 8px 0 0;
+    padding: 18px 20px 24px;
+    box-shadow: 0 -4px 16px var(--app-mask);
+  }
+
+  .sheet-title {
+    font-size: 16px;
+  }
+
+  .sheet-sub {
+    font-size: 11.5px;
+  }
+
+  .name-input {
+    height: 40px;
+    padding: 0 12px;
+    font-size: 13.5px;
+    border-width: 1px;
+    border-radius: 6px;
+  }
+
+  .btn-ghost,
+  .btn-accent {
+    height: 42px;
+    font-size: 14px;
+    border-radius: 6px;
+  }
+
+  .web-hint {
+    font-size: 11px;
+  }
+  .ico-26 {
+    font-size: 13px;
+  }
+  .ico-32 {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  /* 弹层限宽居中 */
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+
+  /* 题库管理卡两列网格 */
+  .mg-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20rpx;
+  }
+
+  .mg-item + .mg-item {
+    margin-top: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  .sheet {
+    max-width: 720px;
+  }
 }

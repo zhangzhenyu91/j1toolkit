@@ -327,7 +327,7 @@
         border: none;
         border-radius: 50%;
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -429,7 +429,7 @@
         padding: 0 5px;
         border-radius: 999px;
         background: var(--red);
-        color: #fff;
+        color: var(--on-brand);
         font-size: 10.5px;
         font-weight: 700;
         line-height: 17px;
@@ -500,7 +500,7 @@
         color: var(--red);
       }
       .linkbtn.dgr:hover {
-        background: #ffece8;
+        background: var(--danger-soft);
       }
 
       /* ===== 记录页签二级「台账视图」：扁平完整交跨卡片（全字段 + 来源信息 + 卡内操作，无详情弹层分级） ===== */
@@ -576,8 +576,8 @@
         border-radius: 50%;
       }
       .rec-tag.hz {
-        background: #fff7e8;
-        color: #d25f00;
+        background: var(--warn-soft);
+        color: var(--warn-text);
       }
       .rec-tag.hz::before {
         background: var(--yellow);
@@ -589,7 +589,7 @@
         height: 26px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--ph);
         cursor: pointer;
         display: inline-flex;
@@ -638,7 +638,7 @@
       }
       .rf {
         font-size: 12.5px;
-        color: var(--text);
+        color: var(--navy);
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
       }
@@ -713,7 +713,7 @@
       .stg-note {
         margin-top: 10px;
         padding: 9px 12px;
-        background: #fff7e8;
+        background: var(--warn-soft);
         border-left: 4px solid var(--yellow);
         font-size: 12.5px;
         color: var(--sub);
@@ -759,7 +759,7 @@
         overflow-x: auto;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         scrollbar-width: thin;
       }
       .stg-tb {
@@ -798,7 +798,7 @@
         color: var(--navy);
         font-family: inherit;
         outline: none;
-        background: #fff;
+        background: var(--card);
         transition: border-color 0.15s;
       }
       .stg-in:focus {
@@ -910,7 +910,7 @@
         inset: 0;
         z-index: 320;
         padding: 24px;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
@@ -922,7 +922,7 @@
         opacity: 1;
       }
       .modal {
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         width: 560px;
@@ -932,7 +932,7 @@
         padding: 6px;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transform: translateY(16px) scale(0.98);
         transition: transform 0.35s var(--ease);
       }
@@ -979,20 +979,20 @@
         height: 30px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transition:
           background 0.15s,
           color 0.15s;
       }
       .m-x:hover {
         background: var(--navy);
-        color: #fff;
+        color: var(--inverse-text);
       }
       .m-x svg {
         width: 14px;
@@ -1021,7 +1021,7 @@
         width: 100%;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         outline: none;
         font-size: 13px;
         color: var(--navy);

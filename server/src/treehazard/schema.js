@@ -7,7 +7,7 @@ const APP_TREE_HAZARD = {
   name: '树障隐患记录',
   icon: 'forest',
   path: '/pkg-treehazard/pages/index/index',
-  sort: 8,
+  sort: 4,
   terminal: 'both', // 适配终端：双端（见 db.js sys_app.terminal 口径）
 };
 const APP_TEAM_DATA = {
@@ -15,7 +15,7 @@ const APP_TEAM_DATA = {
   name: '班组数据',
   icon: 'chart-bar',
   path: '/pkg-teamdata/pages/index/index',
-  sort: 9,
+  sort: 11,
   terminal: 'both',
 };
 

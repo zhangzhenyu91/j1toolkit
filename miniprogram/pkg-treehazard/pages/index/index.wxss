@@ -1,4 +1,6 @@
-/* 树障隐患记录（政企蓝白 token；看板仿首页 stats-card，弹层口径同出工日志 manage 页） */
+/* 树障隐患记录（政企蓝白 token；看板仿首页 stats-card，弹层口径同出工日志 manage 页；
+   颜色走 app.wxss --app-* 语义变量，深色随系统；弱化占位 #C9CDD4 / rgba(29,33,41,.4) 无对应
+   token，浅色保持定稿值、深色单独覆盖） */
 
 /* tdesign 组件变量 */
 page {
@@ -25,34 +27,34 @@ page {
 }
 
 .stat + .stat {
-  border-left: 1rpx solid #e5e6eb;
+  border-left: 1rpx solid var(--app-border);
 }
 
 .stat-num {
   font-size: 32rpx;
   font-weight: 700;
   line-height: 1.3;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
 .stat-num-warn {
-  color: #ff7d00;
+  color: var(--app-warning);
 }
 
 .stat-num-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 /* 要紧类计数为 0 / 未设阈值：不标红，弱化为辅助灰（仅 >0 才红显） */
 .stat-num-mut {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .stat-label {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 工具行（线路视图：阈值 / 同步 图标胶囊；台账视图：批量开关） ---------- */
@@ -69,29 +71,33 @@ page {
   gap: 10rpx;
   height: 64rpx;
   padding: 0 24rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .tool .tool-t {
   font-size: 24rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   max-width: 260rpx;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  transition: color 0.15s ease;
 }
 
 .tool-on {
-  background: #0e3da8;
-  border-color: #0e3da8;
+  background: var(--app-brand);
+  border-color: var(--app-brand);
 }
 
 .tool-on .tool-t {
-  color: #ffffff;
+  color: var(--app-on-brand);
 }
 
 /* 图标化胶囊（班管入口，避免拥挤） */
@@ -108,7 +114,7 @@ page {
   gap: 14rpx;
   height: 72rpx;
   padding: 0 24rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 16rpx;
   margin-top: 28rpx;
 }
@@ -118,7 +124,7 @@ page {
   min-width: 0;
   height: 72rpx;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .ph {
@@ -132,7 +138,7 @@ page {
 }
 
 .lcard.s-ok .lc-st {
-  color: #86909c;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
@@ -151,7 +157,7 @@ page {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -170,17 +176,17 @@ page {
 }
 
 .lc-warn {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
 }
 
 .lc-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
   font-weight: 600;
 }
 
 .lc-total {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 台账视图：返回行 + 线路标题 ---------- */
@@ -190,12 +196,13 @@ page {
   gap: 6rpx;
   height: 64rpx;
   margin-left: -8rpx;
+  transition: opacity 0.15s ease;
 }
 
 .backrow-t {
   font-size: 26rpx;
   font-weight: 600;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .ledger-head {
@@ -205,7 +212,7 @@ page {
 .lh-title {
   font-size: 36rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .lh-sub {
@@ -218,18 +225,18 @@ page {
 }
 
 .lh-warn {
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .lh-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 .lh-total {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
-/* ---------- FAB（导出，每页主按钮至多一枚；形态同网盘页） ---------- */
+/* ---------- FAB（导出，每页主按钮至多一枚；形态同网盘页；前景 --app-on-brand 图标继承） ---------- */
 .fab {
   position: fixed;
   right: 32rpx;
@@ -238,7 +245,8 @@ page {
   width: 104rpx;
   height: 104rpx;
   border-radius: 50%;
-  background: #0e3da8;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -265,7 +273,7 @@ page {
 }
 
 .thcard.done {
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
 }
 
 /* 首行：勾选圆点（批量模式）+ 区段定宽块 + 垂距大字块（各卡竖向对齐）+ 状态点标（右推）+ 折叠/展开开关 */
@@ -290,20 +298,23 @@ page {
   flex: none;
   border-radius: 50%;
   border: 2rpx solid #c9cdd4;
-  background: #ffffff;
+  background: var(--app-bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .ck-ring.on {
-  background: #0e3da8;
-  border-color: #0e3da8;
+  background: var(--app-brand);
+  border-color: var(--app-brand);
 }
 
 .ck-ring.dis {
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-style: dashed;
 }
 
@@ -313,7 +324,7 @@ page {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -335,13 +346,13 @@ page {
 
 .th-l {
   font-size: 20rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .th-v {
   margin-top: 6rpx;
   font-size: 24rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -352,12 +363,12 @@ page {
   flex: none;
   font-size: 32rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
 .th-vbig-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 /* 折叠/展开开关（首行右端，每卡一枚；点卡同效）：图标固定 chevron-down，展开态旋转 180° */
@@ -401,12 +412,12 @@ page {
   margin-top: 16rpx;
   padding: 16rpx 20rpx;
   border-radius: 8rpx;
-  background: #e8ffea;
+  background: var(--app-success-bg);
   display: flex;
   flex-wrap: wrap;
   gap: 8rpx 24rpx;
   font-size: 22rpx;
-  color: #0b8a37;
+  color: var(--app-success-text);
 }
 
 .th-handled b {
@@ -428,25 +439,26 @@ page {
   align-items: center;
   gap: 24rpx;
   padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
-  background: #ffffff;
+  background: var(--app-bg-card);
   box-shadow: 0 -4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
 .bb-info {
   flex: 1;
   font-size: 26rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .bb-btn {
   padding: 14rpx 48rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   font-size: 26rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
+  transition: opacity 0.15s ease;
 }
 
 .bb-btn.disabled {
@@ -462,27 +474,63 @@ page {
   color: rgba(29, 33, 41, 0.4);
 }
 
-/* ---------- 底部弹层（sheet 族同出工日志 manage 页口径） ---------- */
+/* ---------- 底部弹层（sheet 族同出工日志 manage 页口径；头/体/脚三段 flex，
+   整体限高 + overflow:hidden，内容体 flex:1 1 auto 独立滚动） ---------- */
 .sheet {
   position: relative;
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 24rpx 24rpx 0 0;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .sheet-title {
+  flex: none;
   text-align: center;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+}
+
+/* 弹层内容体（flex-basis 用 auto：0 基准会把自适应高度弹层内容压没） */
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 弹层内非体块默认不参与收缩（头/说明/控件/脚），体块（scroll-view 或 .sheet-body）独占剩余空间并滚动 */
+.sheet > view {
+  flex: none;
+}
+
+.sheet > scroll-view,
+.sheet > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
+.t-popup__close {
+  display: none;
 }
 
 /* 筛选项列表（限高滚动；导出弹层范围/线路单选复用） */
 .flt-list {
   margin-top: 24rpx;
-  max-height: 60vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .flt-item {
@@ -492,27 +540,28 @@ page {
   gap: 20rpx;
   padding: 26rpx 16rpx;
   font-size: 28rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+  transition: color 0.15s ease;
 }
 
 .flt-item + .flt-item {
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .flt-item.on {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
 }
 
 /* 导出弹层：范围单选组与按线路分表开关行 */
 .exp-scope {
   margin-top: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 12rpx;
 }
 
 .exp-scope .flt-item + .flt-item {
-  border-top-color: #ffffff;
+  border-top-color: var(--app-bg-card);
 }
 
 .exp-split {
@@ -530,7 +579,7 @@ page {
 .exp-tip {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   line-height: 1.6;
 }
 
@@ -545,7 +594,8 @@ page {
   justify-content: space-between;
   height: 84rpx;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+  transition: opacity 0.15s ease;
 }
 
 .qtags {
@@ -558,14 +608,14 @@ page {
 .th-tip {
   margin-top: 16rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   line-height: 1.6;
 }
 
 /* 同步状态 */
 .sync-box {
   margin-top: 24rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 12rpx;
   padding: 8rpx 24rpx;
 }
@@ -578,50 +628,55 @@ page {
 }
 
 .sync-row + .sync-row {
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .sync-l {
   width: 140rpx;
   flex: none;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .sync-v {
   flex: 1;
   min-width: 0;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .sheet-actions {
+  flex: none;
   display: flex;
   gap: 20rpx;
   margin-top: 32rpx;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
 }
 
 .btn-ghost {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 6rpx;
   box-sizing: border-box;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  transition: opacity 0.15s ease;
 }
 
 .btn-dark {
   flex: 2;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -630,6 +685,7 @@ page {
   font-weight: 700;
   letter-spacing: 4rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  transition: opacity 0.15s ease;
 }
 
 .btn-ghost.disabled,
@@ -645,7 +701,7 @@ page {
 .pz-t {
   font-size: 22rpx;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .pz-grid {
@@ -659,7 +715,7 @@ page {
   width: 160rpx;
   height: 160rpx;
   border-radius: 8rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
 }
 
 /* 「+」格：上传入口（虚线占位） */
@@ -672,6 +728,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
 }
 
 /* ---------- 台账卡展开区：操作行（删除居左，处理居右） ---------- */
@@ -685,19 +742,20 @@ page {
 /* 删除记录：描边红字（危险操作弱化为次按钮形态） */
 .btn-act.btn-del {
   margin-right: auto;
-  color: #f53f3f;
-  border-color: #f53f3f;
-  background: #ffece8;
+  color: var(--app-danger);
+  border-color: var(--app-danger);
+  background: var(--app-danger-bg);
 }
 
 .btn-act {
   padding: 10rpx 36rpx;
-  border: 2rpx solid #0e3da8;
+  border: 2rpx solid var(--app-brand);
   border-radius: 12rpx;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   font-size: 24rpx;
   font-weight: 700;
+  transition: opacity 0.15s ease;
 }
 
 /* ---------- 动效（复用全局 fadeUp 上浮入场；全局 prefers-reduced-motion 已兜底） ---------- */
@@ -718,4 +776,291 @@ page {
 
 .th-grid.has-found .th-f {
   width: 33.3333%;
+}
+
+/* ---------- t-icon 外部样式类（size 属性写内联 rpx 会随屏宽膨胀，改由 t-class 控制字号；
+   图标色不经 color 属性传 var()，经 t-class/父级颜色继承，随 --app-* 深浅） ---------- */
+.ico-22 {
+  font-size: 22rpx;
+}
+
+.ico-28 {
+  font-size: 28rpx;
+}
+
+.ico-30 {
+  font-size: 30rpx;
+}
+
+.ico-32 {
+  font-size: 32rpx;
+}
+
+.ico-36 {
+  font-size: 36rpx;
+}
+
+.ico-44 {
+  font-size: 44rpx;
+}
+
+.ico-brand {
+  color: var(--app-brand);
+}
+
+.ico-weak {
+  color: var(--app-text-tertiary);
+}
+
+.ico-warning {
+  color: var(--app-warning);
+}
+
+.ico-on-brand {
+  color: var(--app-on-brand);
+}
+
+/* 弱化占位（#C9CDD4 / rgba(29,33,41,.4) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+@media (prefers-color-scheme: dark) {
+  .ph,
+  .empty-box {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .ck-ring {
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+
+  .pz-add {
+    border-color: #626d7d;
+  }
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽 + 关键字阶/控件改固定 px；900px 起线路卡/记录卡双列（卡宽约 460px，
+   首行与次行三字段仍同排——树种×数量｜水平距离｜发现时间（仅 found_at，空值省略）） */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .batchbar {
+    left: 50%;
+    right: auto;
+    width: 100%;
+    max-width: 680px;
+    box-sizing: border-box;
+    transform: translateX(-50%);
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  }
+
+  /* 弹层限宽居中（FAB 保持贴屏右缘，避免限宽区间出现负偏移） */
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .stat-num,
+  .lh-title,
+  .th-section,
+  .th-vbig,
+  .lc-title {
+    font-size: 16px;
+  }
+
+  .stat-label,
+  .th-l,
+  .exp-tip,
+  .th-tip,
+  .pz-t {
+    font-size: 10.5px;
+  }
+
+  .tool-t,
+  .lc-st,
+  .lh-sub,
+  .th-v,
+  .backrow-t {
+    font-size: 12px;
+  }
+
+  .tool {
+    height: 32px;
+    padding: 0 12px;
+  }
+
+  .search {
+    height: 36px;
+    margin-top: 14px;
+  }
+
+  .s-input {
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .th-section {
+    flex-basis: 110px;
+  }
+
+  .th-fold {
+    width: 24px;
+    height: 24px;
+  }
+
+  .sheet-title {
+    font-size: 16px;
+  }
+
+  .flt-item {
+    font-size: 14px;
+    padding: 13px 8px;
+  }
+
+  .date-field {
+    height: 42px;
+    font-size: 13px;
+  }
+
+  .sync-l,
+  .sync-v {
+    font-size: 13px;
+  }
+
+  .btn-ghost,
+  .btn-dark {
+    height: 44px;
+    font-size: 14px;
+    letter-spacing: 3px;
+  }
+
+  .bb-info {
+    font-size: 13px;
+  }
+
+  .bb-btn {
+    padding: 7px 24px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+
+  .empty-box {
+    padding: 40px 0;
+    font-size: 12px;
+  }
+
+  .pz-img,
+  .pz-add {
+    width: 80px;
+    height: 80px;
+    border-radius: 4px;
+  }
+
+  .btn-act {
+    padding: 5px 18px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .ico-22 {
+    font-size: 11px;
+  }
+
+  .ico-28 {
+    font-size: 14px;
+  }
+
+  .ico-30 {
+    font-size: 15px;
+  }
+
+  .ico-32 {
+    font-size: 16px;
+  }
+
+  .ico-36 {
+    font-size: 18px;
+  }
+
+  .ico-44 {
+    font-size: 22px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  .fab {
+    right: calc(50% - 464px);
+  }
+
+  .batchbar {
+    max-width: 960px;
+  }
+
+  /* 线路卡双列（标题/提示/工具行仍通栏） */
+  .view-pane {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-content: flex-start;
+  }
+
+  .view-pane > .stats-card,
+  .view-pane > .toolbar,
+  .view-pane > .search,
+  .view-pane > .backrow,
+  .view-pane > .ledger-head,
+  .view-pane > .empty-box,
+  .view-pane > .lgroup,
+  .view-pane > .bb-spacer,
+  .view-pane > .fab-spacer {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .lcard {
+    width: calc(50% - 9px);
+    box-sizing: border-box;
+  }
+
+  .lcard + .lcard {
+    margin-top: 0;
+  }
+
+  /* 记录卡双列（组内网格；折叠态两行布局保持不变，次行三字段仍同排） */
+  .lgroup {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+
+  .thcard {
+    width: calc(50% - 9px);
+    box-sizing: border-box;
+  }
+
+  .thcard + .thcard {
+    margin-top: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  .fab {
+    right: calc(50% - 544px);
+  }
+
+  .batchbar {
+    max-width: 1120px;
+  }
 }

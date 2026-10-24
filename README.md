@@ -19,13 +19,15 @@
 已接入应用：
 
 - **Call Me**（`pkg-callme` + 网页端 `callme.html`）：基于 WeKnora 的 AI 知识库问答（SSE 流式对话）
+- **团队网盘**（分包 `pkg-netdisk` + 网页端 `netdisk.html`）：OpenList 中转的团队文件空间，支持分片上传、下载、分享链接与公开分享页；后端 `server/src/netdisk/`，要求 `netdisk` 应用权限
 - **出工日志**（`pkg-worklog` + 网页端 `worklog.html`）：派车/巡视/打卡记录，水印照片经 Dify 工作流验证；网页端重构自旧 `WorkLogs/` 独立服务，同源直连 `/api/v1/worklog`
-- **安全日活动记录**（分包 `pkg-safeday` + 网页端 `safeday.html`）：上传活动文档经 Dify 工作流生成记录文件；后端已合并进主服务（`server/src/safeday/`），两端均要求 `safe-day` 应用权限；小程序端上传从聊天选取文件，记录经 `wx.openDocument` 打开
-- **远程连接计算机**（PC 端，网页端 `kvm.html`）：对接 GLKVM Cloud 平台（员工同名账号代登取设备列表，卡片展示实时状态），终端/远程控制经带态跳转进平台页（仅能通过壹匣登录平台）；后端子模块 `server/src/kvm/`，要求 `kvm` 应用权限
-- **文件传输**（移动端，小程序分包 `pkg-filetransfer`）：向 KVM 设备虚拟 U 盘推送/取回文件（设备列表同上；上传弹层逐文件推送后统一挂载，下载点按即存相册或打开）；经壹匣转发点 `/api/v1/kvm/devices/{id}/push|mount|files|download`，要求 `file-transfer` 应用权限
-- **水印添加**（双端，小程序分包 `pkg-wmadd` + 网页端 `wmadd.html`）：选片/拍摄 → 4:3 裁剪 → 编辑水印（含防伪码、杆塔坐标选择）→ 服务端渲染水印仅回图（不传 COS、不入库、不触发 Dify 验证），小程序自动存相册并全屏展示、网页端自动下载并全屏预览；后端 `server/src/wmadd/`（无业务表），要求 `wm-add` 应用权限
-- **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断，仅网页端上传），顺序/随机/错题三模式刷题 + 背题模式（答案解析常显）+ 答题卡跳题与清空做题记录（保留错题本），错题本按题库分组专项练习（连对 3 次自动移出），题库分班组池/全部池、用户自行添加进个人题库，Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；网页端 quiz.html 为刷题练习 + 题库管理双页签（管理页签仅 admin/本班 team_admin）；后端 `server/src/quiz/`，要求 `quiz` 应用权限
 - **树障隐患记录**（分包 `pkg-treehazard` + 网页端 `treehazard.html`）：树木隐患台账——crane-answer 群监听项目经 `POST /api/v1/treehazard/ingest`（X-Ingest-Token）直推入库（direct 直写 / staging 暂存区确认导入；辅证照片随记录以壹匣名义写入自家 COS，暂存批次转入时归挂、废弃连带清理），双端看板、单条/批量处理、辅证照片（折叠卡即显、只读、点图预览）与处理前后照片（COS）、exceljs 统计表导出与在线预览（垂直距离超阈值看板计数与线路卡「要紧」红显，仅 >0 标红）；内网 U 盘双向同步（每日 24:00（23:50 准备 / 00:00 取件）+ 手动两触发，Q 列隐藏记录ID 行级比对、冲突人工裁决，被控机侧为内网工具箱 tree_sync 应用）；后端 `server/src/treehazard/`，要求 `tree-hazard` 应用权限（暂存区/冲突/阈值/删除/同步另限超管或本班 team_admin）
+- **交跨记录**（分包 `pkg-crossing` + 网页端 `crossing.html`）：交叉跨越台账，crane-answer 群消息捕获直推入库，支持线路归档、统计导出与内网同步；后端 `server/src/crossing/`，要求 `crossing` 应用权限
+- **文件传输**（移动端，小程序分包 `pkg-filetransfer`）：向 KVM 设备虚拟 U 盘推送/取回文件（设备列表同上；上传弹层逐文件推送后统一挂载，下载点按即存相册或打开）；经壹匣转发点 `/api/v1/kvm/devices/{id}/push|mount|files|download`，要求 `file-transfer` 应用权限
+- **远程连接计算机**（PC 端，网页端 `kvm.html`）：对接 GLKVM Cloud 平台（员工同名账号代登取设备列表，卡片展示实时状态），终端/远程控制经带态跳转进平台页（仅能通过壹匣登录平台）；后端子模块 `server/src/kvm/`，要求 `kvm` 应用权限
+- **题库刷题**（分包 `pkg-quiz` + 网页端 `quiz.html`）：Excel 导入题库（单选/多选/判断，仅网页端上传），顺序/随机/错题三模式刷题 + 背题模式（答案解析常显）+ 答题卡跳题与清空做题记录（保留错题本），错题本按题库分组专项练习（连对 3 次自动移出），题库分班组池/全部池、用户自行添加进个人题库，Dify 工作流 AI 逐题生成解析（导入后异步，全局并发 3）；网页端 quiz.html 为刷题练习 + 题库管理双页签（管理页签仅 admin/本班 team_admin）；后端 `server/src/quiz/`，要求 `quiz` 应用权限
+- **水印添加**（双端，小程序分包 `pkg-wmadd` + 网页端 `wmadd.html`）：选片/拍摄 → 4:3 裁剪 → 编辑水印（含防伪码、杆塔坐标选择）→ 服务端渲染水印仅回图（不传 COS、不入库、不触发 Dify 验证），小程序自动存相册并全屏展示、网页端自动下载并全屏预览；后端 `server/src/wmadd/`（无业务表），要求 `wm-add` 应用权限
+- **安全日活动记录**（分包 `pkg-safeday` + 网页端 `safeday.html`）：上传活动文档经 Dify 工作流生成记录文件；后端已合并进主服务（`server/src/safeday/`），两端均要求 `safe-day` 应用权限；小程序端上传从聊天选取文件，记录经 `wx.openDocument` 打开
 - **班组数据**（分包 `pkg-teamdata` + 网页端 `teamdata.html`）：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 / 商旅设备班组字典统一管理（网页端六分段，小程序端暂为五分段——「杆塔信息」仍名「运维线路信息」、无「运维线路」段；数据复用出工日志字典与杆塔表不建新表，接口形态与 worklog 管理端点 1:1；杆塔坐标 Excel 导入全量替换；出工日志双端「数据管理」入口已改跳本应用）；后端 `server/src/teamdata/`，要求 `team-data` 应用权限且全接口限超管或本班 team_admin
 - **商旅打卡**（出工日志扩展）：商旅账号短信绑定 / 两次打卡 / 费用 / 照片双端同步 / 每日定时核查，权限并入 `work-log`（不单设应用）；后端 `server/src/sgccclockin/`
 - **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:10 锁定目标 KVM 设备并把 U 盘挂载至被控机（被控机 09:15 起由桌面客户端「内网工具箱」导出，独立项目不在本仓），09:20 经文件传输链路取回当日派车单 xlsx 自动建出车卡片（派车单号随卡写入 `dispatch_order_no`，供「派车汇总」导出）、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（详见 开发指南.md 7.7）

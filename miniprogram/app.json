@@ -76,10 +76,13 @@
   ],
   "window": {
     "navigationStyle": "custom",
-    "navigationBarTextStyle": "black",
-    "backgroundColor": "#F5F7FA",
-    "backgroundTextStyle": "dark"
+    "navigationBarTextStyle": "@navTxtStyle",
+    "backgroundColor": "@bgColor",
+    "backgroundTextStyle": "@bgTxtStyle"
   },
+  "darkmode": true,
+  "themeLocation": "theme.json",
+  "resizable": true,
   "style": "v2",
   "lazyCodeLoading": "requiredComponents",
   "permission": {

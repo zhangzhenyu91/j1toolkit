@@ -1,5 +1,7 @@
 /* 绑定商旅 · 账号绑定页（见《开发指南》第十五节，token 同 app.wxss「政企蓝白」） */
 @import '../../style/common.wxss';
+/* t-icon 数值字号外部类（ico-N，含 600px 宽屏；复用 style/icons.wxss） */
+@import '../../style/icons.wxss';
 
 /* 首个提示卡贴导航下沿（common .tip 自带 margin-top，此处收紧） */
 .sg-tip-first {
@@ -17,9 +19,9 @@
   display: flex;
   align-items: center;
   margin-top: 20rpx;
-  border: 2rpx solid #e5e6eb;
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
-  background: #ffffff;
+  background: var(--app-bg-card);
   height: 100rpx;
   padding: 0 24rpx 0 88rpx;
   box-sizing: border-box;
@@ -37,7 +39,7 @@
   min-width: 0;
   height: 100%;
   font-size: 28rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 /* 登录方式切换（短信/密码分段控件：墨边直角条，激活=墨底白字，同主页 .scopebar 口径） */
@@ -45,9 +47,9 @@
   display: flex;
   margin-top: 12rpx;
   padding: 6rpx;
-  border: 2rpx solid #e5e6eb;
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
-  background: #ffffff;
+  background: var(--app-bg-card);
 }
 
 .sg-tab {
@@ -56,12 +58,12 @@
   padding: 14rpx 0;
   border-radius: 12rpx;
   font-size: 26rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .sg-tab.on {
-  background: #1d2129;
-  color: #ffffff;
+  background: var(--app-text-primary);
+  color: var(--app-bg-card);
   font-weight: 700;
 }
 
@@ -72,7 +74,7 @@
   height: 68rpx;
   margin-left: 16rpx;
   border-radius: 12rpx;
-  background: #1d2129;
+  background: rgb(29, 33, 41);
 }
 
 /* 「改用滑块验证」小字链接（图形码不可用时降级入口） */
@@ -80,7 +82,7 @@
   margin-top: 12rpx;
   text-align: right;
   font-size: 22rpx;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 /* 短信验证码右侧「获取验证码 / 倒计时」 */
@@ -89,11 +91,11 @@
   margin-left: 16rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .suffix.off {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
@@ -114,14 +116,14 @@
 }
 
 .kv + .kv {
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
 }
 
 .kv .k {
   flex: none;
   width: 160rpx;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .kv .v {
@@ -129,16 +131,16 @@
   min-width: 0;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   word-break: break-all;
 }
 
 .kv .v.ok {
-  color: #00b42a;
+  color: var(--app-success);
 }
 
 .kv .v.bad {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 .kv .v-sub {
@@ -146,7 +148,7 @@
   margin-top: 6rpx;
   font-size: 22rpx;
   font-weight: 400;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.6;
 }
 
@@ -158,8 +160,8 @@
 
 /* 「已绑定」绿徽章（全局 .badge-outline 的色变体） */
 .badge-outline.green {
-  border-color: #00b42a;
-  color: #00b42a;
+  border-color: var(--app-success);
+  color: var(--app-success);
 }
 
 /* ---------- 已绑定态头部卡 ---------- */
@@ -178,8 +180,8 @@
   height: 104rpx;
   flex: none;
   border-radius: 12rpx;
-  background: #1d2129;
-  color: #ffffff;
+  background: var(--app-text-primary);
+  color: var(--app-bg-card);
   font-size: 42rpx;
   font-weight: 600;
   display: flex;
@@ -195,7 +197,7 @@
 .sg-name {
   font-size: 32rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .sg-badges {
@@ -207,7 +209,7 @@
 
 .sg-team {
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 /* 底部操作区（.sheet-actions / .btn-ghost / .btn-dark 来自分包公共样式） */
@@ -216,6 +218,53 @@
 }
 
 .btn-ghost.danger {
-  color: #f53f3f;
-  border-color: #f53f3f;
+  color: var(--app-danger);
+  border-color: var(--app-danger);
+}
+
+/* ---------- iPad / 宽屏适配（600px 起限宽并约束关键字阶/控件；手机不受影响） ---------- */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+  }
+
+  .sheet-title {
+    font-size: 16px;
+  }
+
+  .btn-dark,
+  .btn-ghost {
+    height: 44px;
+    font-size: 14px;
+  }
+
+  .fi {
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  .sheet {
+    max-width: 720px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
 }

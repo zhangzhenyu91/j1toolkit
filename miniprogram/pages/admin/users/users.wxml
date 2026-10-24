@@ -88,7 +88,7 @@
         ></view
       >
       <view class="sh-close" hover-class="hover-opacity" bindtap="closeEdit">
-        <t-icon name="close" size="36rpx" color="#4E5969" />
+        <t-icon t-class="ico-36" name="close" color="{{ico.sub}}" />
       </view>
     </view>
 
@@ -136,7 +136,7 @@
         <view class="f-label">所属班组</view>
         <view class="f-in" hover-class="hover-opacity" bindtap="toggleTeam">
           <text class="{{form.team_id ? '' : 'f-in-ph'}}">{{teamName}}</text>
-          <t-icon name="chevron-down" size="28rpx" color="rgba(29,33,41,.4)" />
+          <t-icon t-class="ico-28" name="chevron-down" color="{{ico.mute}}" />
         </view>
         <view class="team-opts" wx:if="{{teamOpen}}">
           <view
@@ -146,7 +146,12 @@
             bindtap="onTeamPick"
           >
             未分配
-            <t-icon wx:if="{{form.team_id === null}}" name="check" size="30rpx" color="#0E3DA8" />
+            <t-icon
+              t-class="ico-30"
+              wx:if="{{form.team_id === null}}"
+              name="check"
+              color="{{ico.brand}}"
+            />
           </view>
           <view
             class="opt {{form.team_id === item.id ? 'opt-on' : ''}}"
@@ -158,10 +163,10 @@
           >
             {{item.name}}
             <t-icon
+              t-class="ico-30"
               wx:if="{{form.team_id === item.id}}"
               name="check"
-              size="30rpx"
-              color="#0E3DA8"
+              color="{{ico.brand}}"
             />
           </view>
         </view>

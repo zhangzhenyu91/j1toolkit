@@ -6,13 +6,26 @@ import { wxLoginCode } from './utils/util';
 import './utils/teamgate';
 import './utils/wmphoto';
 import './utils/tower';
+import './utils/photo-url';
 import './utils/multipart';
+
+// 读取系统主题（getAppBaseInfo 提供 theme；旧基础库回退 getSystemInfoSync）
+function readTheme() {
+  try {
+    let info = wx.getAppBaseInfo ? wx.getAppBaseInfo() : null;
+    if ((!info || !info.theme) && wx.getSystemInfoSync) info = wx.getSystemInfoSync();
+    return info && info.theme === 'dark' ? 'dark' : 'light';
+  } catch (e) {
+    return 'light';
+  }
+}
 
 App({
   globalData: {
     statusBarHeight: 20, // 状态栏高度（供自定义导航栏使用）
     userInfo: null, // 当前登录用户信息
     ready: null, // 启动自检 Promise（自动登录门控，首页等待其结果）
+    theme: 'light', // 系统主题（light/dark，深浅色基座取值；品牌深蓝页首不随其变化）
   },
 
   onLaunch() {
@@ -22,8 +35,44 @@ App({
     } catch (e) {
       // 获取失败时使用默认值
     }
+    this.syncTheme();
+    this.bindThemeChange();
     this.globalData.userInfo = wx.getStorageSync('userInfo') || null;
     this.globalData.ready = this.bootstrap();
+  },
+
+  // 回前台重读主题并恢复监听（onHide 已解除，后台期间的变更在此补齐）
+  onShow() {
+    this.syncTheme();
+    this.bindThemeChange();
+  },
+
+  // 退后台解除主题监听（App 无 unload 生命周期，以 hide/show 管理监听）
+  onHide() {
+    this.unbindThemeChange();
+  },
+
+  // 读取系统主题写入 globalData
+  syncTheme() {
+    this.globalData.theme = readTheme();
+  },
+
+  // 监听系统主题切换（先解后绑，避免重复注册）
+  bindThemeChange() {
+    if (!this._onThemeChange) {
+      this._onThemeChange = (res) => {
+        this.globalData.theme = res && res.theme === 'dark' ? 'dark' : 'light';
+      };
+    }
+    wx.offThemeChange(this._onThemeChange);
+    wx.onThemeChange(this._onThemeChange);
+  },
+
+  // 解除主题监听
+  unbindThemeChange() {
+    if (this._onThemeChange) {
+      wx.offThemeChange(this._onThemeChange);
+    }
   },
 
   // 启动自检（自动登录）：

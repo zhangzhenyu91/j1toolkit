@@ -5,7 +5,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f5f7fa;
+  background: var(--app-bg-page);
 }
 
 /* ---------- 跟手翻页 swiper（一题一页；每格内独立纵向滚动） ---------- */
@@ -27,7 +27,7 @@
   padding: 96rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
 }
 
@@ -45,7 +45,7 @@
   flex: none;
   display: flex;
   padding: 4rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 12rpx;
 }
 
@@ -54,26 +54,29 @@
   border-radius: 12rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
 }
 
 .vm-opt.on {
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
 }
 
 .progress {
   flex: 1;
   height: 12rpx;
   border-radius: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   overflow: hidden;
 }
 
 .progress-in {
   height: 100%;
   border-radius: 12rpx;
-  background: #0e3da8;
+  background: var(--app-brand);
   transition: width 0.3s ease;
 }
 
@@ -85,7 +88,7 @@
 
 .pg-line b em {
   font-style: normal;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 /* ---------- 题干卡 ---------- */
@@ -110,21 +113,21 @@
 }
 
 .tag-orange {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .tag-navy {
-  background: #e8f0ff;
-  color: #1d2129;
+  background: var(--app-brand-light);
+  color: var(--app-text-primary);
 }
 
 /* ---------- 选项卡（白卡描边，选中浅蓝底；解析态字母块变对勾/红叉，文字同着色；180ms 过渡） ---------- */
 .opt {
   margin-top: 20rpx;
   padding: 24rpx 26rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -141,7 +144,7 @@
 /* 点按未提交选项的轻微反馈（hover-class）：轻微内缩 + 浅蓝底 */
 .opt-hover {
   transform: scale(0.99);
-  background-color: #e8f0ff !important;
+  background-color: var(--app-brand-light) !important;
 }
 
 .opt .ab {
@@ -149,8 +152,8 @@
   height: 52rpx;
   flex: none;
   border-radius: 50%;
-  border: 3rpx solid rgba(29, 33, 41, 0.35);
-  color: #4e5969;
+  border: 3rpx solid var(--app-text-tertiary);
+  color: var(--app-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -174,45 +177,45 @@
 }
 
 .opt.sel {
-  border-color: #0e3da8;
-  background: #e8f0ff;
+  border-color: var(--app-brand);
+  background: var(--app-brand-light);
 }
 
 .opt.sel .ab {
-  border-color: #0e3da8;
-  background: #0e3da8;
-  color: #ffffff;
+  border-color: var(--app-brand);
+  background: var(--app-brand);
+  color: var(--app-on-brand);
 }
 
 /* 解析态（考试宝式）：正确项绿底绿勾 / 错选项红底红叉，文字同步着色 */
 .opt.right {
-  border-color: #00b42a;
-  background: #e8ffea;
+  border-color: var(--app-success);
+  background: var(--app-success-bg);
 }
 
 .opt.right .ab {
-  border-color: #00b42a;
-  background: #00b42a;
-  color: #ffffff;
+  border-color: var(--app-success);
+  background: var(--app-success);
+  color: var(--app-on-brand);
 }
 
 .opt.right .opt-tx {
-  color: #00b42a;
+  color: var(--app-success-text);
 }
 
 .opt.wrong {
-  border-color: #f53f3f;
-  background: #ffece8;
+  border-color: var(--app-danger);
+  background: var(--app-danger-bg);
 }
 
 .opt.wrong .ab {
-  border-color: #f53f3f;
-  background: #f53f3f;
-  color: #ffffff;
+  border-color: var(--app-danger);
+  background: var(--app-danger);
+  color: var(--app-on-brand);
 }
 
 .opt.wrong .opt-tx {
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 
 /* ---------- 判断题大选项卡（「正确 / 错误」双大卡） ---------- */
@@ -226,8 +229,8 @@
   flex: 1;
   height: 176rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -243,21 +246,21 @@
 }
 
 .judge-btn.sel {
-  border-color: #0e3da8;
-  background: #e8f0ff;
-  color: #0e3da8;
+  border-color: var(--app-brand);
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .judge-btn.right {
-  border-color: #00b42a;
-  background: #e8ffea;
-  color: #00b42a;
+  border-color: var(--app-success);
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
 }
 
 .judge-btn.wrong {
-  border-color: #f53f3f;
-  background: #ffece8;
-  color: #f53f3f;
+  border-color: var(--app-danger);
+  background: var(--app-danger-bg);
+  color: var(--app-danger-text);
 }
 
 /* ---------- 多选提示 ---------- */
@@ -265,7 +268,7 @@
   margin-top: 18rpx;
   padding: 0 6rpx;
   font-size: 21rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 1rpx;
 }
 
@@ -273,7 +276,7 @@
 .result-block {
   margin-top: 22rpx;
   padding: 24rpx 28rpx;
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 12rpx;
   animation: fadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -294,22 +297,22 @@
 }
 
 .result-block .ok {
-  color: #00b42a;
+  color: var(--app-success-text);
 }
 
 .result-block .bad {
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 
 .result-block .r-sub {
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 1rpx;
 }
 
 .result-block .r-sub.orange {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
 }
 
@@ -317,7 +320,7 @@
 .analysis-card {
   margin-top: 22rpx;
   padding: 26rpx 28rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
   border-radius: 12rpx;
   animation: fadeUp 0.5s 0.07s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -326,7 +329,7 @@
   display: flex;
   align-items: center;
   gap: 14rpx;
-  color: #0e3da8;
+  color: var(--app-brand);
   font-size: 27rpx;
   font-weight: 700;
   letter-spacing: 2rpx;
@@ -336,17 +339,17 @@
   margin-top: 16rpx;
   font-size: 25rpx;
   line-height: 1.8;
-  color: #4a5670;
+  color: var(--app-text-secondary);
 }
 
 .analysis-card .bd.ph {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .analysis-card .ft {
   margin-top: 16rpx;
   font-size: 20rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   letter-spacing: 1rpx;
 }
 
@@ -357,8 +360,8 @@
   align-items: center;
   gap: 8rpx;
   padding: 12rpx 20rpx calc(16rpx + env(safe-area-inset-bottom));
-  background: #ffffff;
-  border-top: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
 }
 
 /* 底栏图标位（考试宝式单行：无小字，统一 76rpx 高居中，天然对齐） */
@@ -370,11 +373,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+  transition: opacity 0.15s ease;
 }
 
 .b-item.faved {
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 /* 本 session 对错计数（绿勾 / 红叉 + 数字） */
@@ -394,11 +398,11 @@
 }
 
 .b-item.counts .ok text {
-  color: #00b42a;
+  color: var(--app-success-text);
 }
 
 .b-item.counts .bad text {
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 
 /* 已做题（答题卡入口：图标 + x/total 同行） */
@@ -406,7 +410,7 @@
   gap: 8rpx;
   font-size: 22rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .bar-main {
@@ -424,25 +428,51 @@
   justify-content: center;
   font-size: 22rpx;
   line-height: 1.5;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 1rpx;
 }
 
-/* ---------- 刷题设置弹层（底部弹层圆角卡片；自绘开关） ---------- */
+/* ---------- 刷题设置弹层（底部弹层圆角卡片；自绘开关；骨架同弹层族：限高 + 独立滚动） ---------- */
 .set-pop {
   box-sizing: border-box;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-bottom: none;
   border-radius: 12rpx;
-  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -8rpx 32rpx var(--app-mask);
   padding: 36rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
 }
 
+/* 弹层头（flex:none 不收缩；标题 + 右上显式关闭） */
 .set-hd {
+  flex: none;
+  display: flex;
+  align-items: center;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
+}
+
+/* 显式关闭钮（克制：仅图标；遮罩关闭仍可用） */
+.pop-close {
+  margin-left: auto;
+  padding: 6rpx;
+  color: var(--app-text-tertiary);
+  display: flex;
+  align-items: center;
+  transition: opacity 0.15s ease;
+}
+
+/* 弹层体区（flex-basis auto 保自适应；限高后独立滚动） */
+.set-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .set-row {
@@ -453,7 +483,7 @@
 }
 
 .set-row + .set-row {
-  border-top: 2rpx solid #f7f8fa;
+  border-top: 2rpx solid var(--app-bg-nested);
 }
 
 .set-tx {
@@ -472,7 +502,7 @@
   width: 88rpx;
   height: 52rpx;
   border-radius: 12rpx;
-  background: #e5e6eb;
+  background: var(--app-border);
   padding: 4rpx;
   box-sizing: border-box;
   transition: background-color 0.18s ease;
@@ -482,13 +512,13 @@
   width: 44rpx;
   height: 44rpx;
   border-radius: 12rpx;
-  background: #ffffff;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  background: var(--app-bg-card);
+  box-shadow: var(--app-shadow-card);
   transition: transform 0.18s ease;
 }
 
 .set-sw.on {
-  background: #0e3da8;
+  background: var(--app-brand);
 }
 
 .set-sw.on .dot {
@@ -503,21 +533,33 @@
   display: flex;
 }
 
-/* 解析编辑弹层 */
+/* 解析编辑弹层（骨架同弹层族：限高 + overflow hidden，头/脚 flex:none，体区独立滚动；
+   键盘弹起时底部 padding 由行内 style 单次补偿，体区随剩余空间收缩，不再扣减 max-height） */
 .ana-pop {
   box-sizing: border-box;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-bottom: none;
   border-radius: 12rpx;
-  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -8rpx 32rpx var(--app-mask);
   padding: 36rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
 }
 .ana-tip {
+  flex: none;
   margin-top: 14rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.6;
+}
+.ana-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .ana-input {
   margin-top: 20rpx;
@@ -525,14 +567,15 @@
   min-height: 300rpx;
   box-sizing: border-box;
   padding: 20rpx 22rpx;
-  background: #f7f8fa;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-nested);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   font-size: 26rpx;
   line-height: 1.7;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 .ana-foot {
+  flex: none;
   margin-top: 28rpx;
   display: flex;
   gap: 20rpx;
@@ -547,15 +590,18 @@
 .btn-navy {
   height: 84rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 29rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  box-shadow: var(--app-shadow-card);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .btn-navy.disabled {
@@ -565,9 +611,9 @@
 .btn-ghost {
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
-  color: #1d2129;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
+  color: var(--app-text-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -575,6 +621,9 @@
   font-size: 27rpx;
   font-weight: 600;
   box-sizing: border-box;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 /* ---------- 空态 ---------- */
@@ -591,7 +640,7 @@
 .q-empty-t {
   font-size: 28rpx;
   font-weight: 700;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 2rpx;
 }
 
@@ -599,22 +648,25 @@
   width: 320rpx;
 }
 
-/* ---------- 答题卡弹层（底部弹层圆角卡片，约 70vh） ---------- */
+/* ---------- 答题卡弹层（底部弹层圆角卡片，约 70vh；头/脚 flex:none，体区独立滚动） ---------- */
 .sheet-pop {
   height: 70vh;
   box-sizing: border-box;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-bottom: none;
   border-radius: 12rpx;
-  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -8rpx 32rpx var(--app-mask);
   padding: 36rpx 32rpx 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .sheet-hd {
   flex: none;
+  display: flex;
+  align-items: center;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
@@ -628,7 +680,7 @@
   align-items: center;
   gap: 32rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .sheet-legend .dot {
@@ -636,20 +688,20 @@
   width: 20rpx;
   height: 20rpx;
   border-radius: 50%;
-  background: #f5f7fa;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-page);
+  border: 2rpx solid var(--app-border);
   margin-right: 8rpx;
   vertical-align: -4rpx;
 }
 
 .sheet-legend .dot.green {
-  background: #00b42a;
-  border-color: #00b42a;
+  background: var(--app-success);
+  border-color: var(--app-success);
 }
 
 .sheet-legend .dot.red {
-  background: #f53f3f;
-  border-color: #f53f3f;
+  background: var(--app-danger);
+  border-color: var(--app-danger);
 }
 
 .sheet-scroll {
@@ -676,7 +728,7 @@
   margin-bottom: 16rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 1rpx;
 }
 
@@ -694,8 +746,8 @@
   border-radius: 12rpx;
   border: 2rpx solid transparent;
   box-sizing: border-box;
-  background: #f5f7fa;
-  color: #4e5969;
+  background: var(--app-bg-page);
+  color: var(--app-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -704,18 +756,18 @@
 }
 
 .chip.cur {
-  border-color: #0e3da8;
-  color: #0e3da8;
+  border-color: var(--app-brand);
+  color: var(--app-brand);
 }
 
 .chip.right {
-  background: #00b42a;
-  color: #ffffff;
+  background: var(--app-success);
+  color: var(--app-on-brand);
 }
 
 .chip.wrong {
-  background: #f53f3f;
-  color: #ffffff;
+  background: var(--app-danger);
+  color: var(--app-on-brand);
 }
 
 /* 底部「清空做题记录」红色文字按钮 */
@@ -730,10 +782,295 @@
   padding: 8rpx 24rpx;
   font-size: 26rpx;
   font-weight: 700;
-  color: #f53f3f;
+  color: var(--app-danger-text);
   letter-spacing: 2rpx;
 }
 
 .reset-link.disabled {
-  color: rgba(29, 33, 41, 0.35);
+  color: var(--app-text-tertiary);
+}
+
+/* 图标状态色（t-icon 不传 color，经宿主 CSS color 继承） */
+.ico-brand {
+  color: var(--app-brand);
+}
+
+.ico-ok {
+  color: var(--app-success);
+}
+
+.ico-err {
+  color: var(--app-danger-text);
+}
+
+.ico-mute {
+  color: var(--app-text-tertiary);
+}
+
+.ico-strong {
+  color: var(--app-text-primary);
+}
+
+/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+.ico-30 {
+  font-size: 30rpx;
+}
+.ico-32 {
+  font-size: 32rpx;
+}
+.ico-34 {
+  font-size: 34rpx;
+}
+.ico-36 {
+  font-size: 36rpx;
+}
+.ico-40 {
+  font-size: 40rpx;
+}
+.ico-52 {
+  font-size: 52rpx;
+}
+.ico-96 {
+  font-size: 96rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   刷题保持可读宽度：题目列限宽居中、关键字阶改固定 px；900px 起弹层限宽居中 */
+@media (min-width: 600px) {
+  .pg-line {
+    box-sizing: border-box;
+    max-width: 720px;
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .q-item-in {
+    box-sizing: border-box;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .practice-bar {
+    box-sizing: border-box;
+    max-width: 720px;
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .stem-card {
+    font-size: 15px;
+    padding: 15px 14px;
+    border-radius: 6px;
+  }
+
+  .opt {
+    font-size: 14px;
+    border-width: 1px;
+    border-radius: 6px;
+    padding: 12px 13px;
+    margin-top: 10px;
+  }
+
+  .opt .ab {
+    width: 26px;
+    height: 26px;
+    font-size: 12.5px;
+    border-width: 1.5px;
+    border-radius: 26px;
+  }
+
+  .opt.sq .ab {
+    border-radius: 6px;
+  }
+
+  .judge-btn {
+    height: 88px;
+    font-size: 15.5px;
+    border-width: 1px;
+    border-radius: 6px;
+    margin-top: 10px;
+  }
+
+  .multi-hint,
+  .bar-hint {
+    font-size: 10.5px;
+  }
+
+  .result-block {
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-top: 11px;
+  }
+
+  .result-block .r-main {
+    font-size: 13.5px;
+  }
+
+  .result-block .r-sub {
+    font-size: 11px;
+  }
+
+  .analysis-card {
+    border-radius: 6px;
+    padding: 13px 14px;
+    margin-top: 11px;
+  }
+
+  .analysis-card .hd {
+    font-size: 13.5px;
+  }
+
+  .analysis-card .bd {
+    font-size: 12.5px;
+  }
+
+  .analysis-card .ft {
+    font-size: 10px;
+  }
+
+  .vm-opt {
+    font-size: 11px;
+  }
+
+  .pg-line b {
+    font-size: 12px;
+  }
+
+  .q-loading {
+    font-size: 13px;
+  }
+
+  .b-item.sheet {
+    font-size: 11px;
+  }
+
+  .set-pop,
+  .ana-pop,
+  .sheet-pop {
+    border-width: 1px;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 -4px 16px var(--app-mask);
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 18px;
+  }
+
+  .set-hd,
+  .sheet-hd {
+    font-size: 16px;
+  }
+
+  .set-tx b {
+    font-size: 14px;
+  }
+
+  .ana-tip {
+    font-size: 11px;
+  }
+
+  .ana-input {
+    font-size: 13px;
+    border-width: 1px;
+    border-radius: 6px;
+  }
+
+  .ana-btn {
+    height: 42px;
+    font-size: 14px;
+  }
+
+  .btn-navy {
+    height: 42px;
+    font-size: 14.5px;
+    border-radius: 6px;
+  }
+
+  .btn-ghost {
+    height: 44px;
+    font-size: 13.5px;
+    border-width: 1px;
+    border-radius: 6px;
+  }
+
+  .q-empty-t {
+    font-size: 14px;
+  }
+
+  .sheet-legend,
+  .sec-hd {
+    font-size: 11px;
+  }
+
+  .chip {
+    width: 40px;
+    height: 40px;
+    font-size: 12.5px;
+    border-radius: 6px;
+  }
+
+  .reset-link {
+    font-size: 13px;
+  }
+  .ico-30 {
+    font-size: 15px;
+  }
+  .ico-32 {
+    font-size: 16px;
+  }
+  .ico-34 {
+    font-size: 17px;
+  }
+  .ico-36 {
+    font-size: 18px;
+  }
+  .ico-40 {
+    font-size: 20px;
+  }
+  .ico-52 {
+    font-size: 26px;
+  }
+  .ico-96 {
+    font-size: 48px;
+  }
+}
+
+@media (min-width: 900px) {
+  .pg-line,
+  .q-item-in,
+  .practice-bar {
+    max-width: 840px;
+  }
+
+  /* 弹层限宽居中 */
+  .set-pop,
+  .ana-pop,
+  .sheet-pop {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+
+  .sheet-pop {
+    padding-bottom: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .pg-line,
+  .q-item-in,
+  .practice-bar {
+    max-width: 920px;
+  }
+
+  .set-pop,
+  .ana-pop,
+  .sheet-pop {
+    max-width: 720px;
+  }
 }

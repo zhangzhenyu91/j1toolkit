@@ -1,3 +1,5 @@
+@import '../../style/icons.wxss';
+
 /* ---------- 分段（激活态白底蓝字，政企蓝白分段控件口径） ---------- */
 /* tdesign 组件变量（本页未引用分包 common.wxss，变量块自留） */
 page {
@@ -15,10 +17,10 @@ page {
 
 .seg-wrap {
   /* CSS 变量穿透组件（apply-shared），覆盖 t-segmented 主题 */
-  --td-segmented-bg-color: #e5e6eb;
-  --td-segmented-item-active-bg: #ffffff;
-  --td-segmented-item-active-color: #0e3da8;
-  --td-segmented-item-color: #4e5969;
+  --td-segmented-bg-color: var(--app-border);
+  --td-segmented-item-active-bg: var(--app-bg-card);
+  --td-segmented-item-active-color: var(--app-brand);
+  --td-segmented-item-color: var(--app-text-secondary);
 }
 
 .seg-wrap .t-segmented {
@@ -41,8 +43,8 @@ page {
 .inp {
   flex: 1;
   height: 84rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -53,11 +55,11 @@ page {
 .inp-input {
   flex: 1;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .ph {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .btn-add {
@@ -65,9 +67,9 @@ page {
   height: 84rpx;
   flex: none;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #0e3da8;
-  color: #ffffff;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -91,7 +93,7 @@ page {
 }
 
 .mrow + .mrow {
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
 }
 
 .mrow .mi {
@@ -99,7 +101,7 @@ page {
   height: 60rpx;
   flex: none;
   border-radius: 12rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -112,14 +114,14 @@ page {
 }
 
 .mrow.off .mt {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .moff-tip {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
-  border: 2rpx solid rgba(29, 33, 41, 0.35);
+  color: var(--app-text-tertiary);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 0 10rpx;
   line-height: 30rpx;
@@ -134,25 +136,25 @@ page {
 }
 
 .mrow .ops .edit {
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .mrow .ops .off {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .mempty {
   padding: 48rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 人员来源标（屏六 .sync-pill/.hand-pill，直角小签） ---------- */
 .sync-pill {
   font-size: 19rpx;
-  color: #00b42a;
-  background: #eaf6ee;
+  color: var(--app-success);
+  background: var(--app-success-bg);
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
@@ -160,8 +162,8 @@ page {
 
 .hand-pill {
   font-size: 19rpx;
-  color: #4e5969;
-  background: #e8f0ff;
+  color: var(--app-text-secondary);
+  background: var(--app-brand-light);
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
@@ -173,8 +175,8 @@ page {
 }
 
 .tower-bar {
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 22rpx 26rpx;
   display: flex;
@@ -190,7 +192,7 @@ page {
 
 .tower-bar .tb-s {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   margin-top: 4rpx;
 }
 
@@ -202,15 +204,15 @@ page {
 }
 
 .tb-btn.tpl {
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
-  color: #1d2129;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
+  color: var(--app-text-primary);
 }
 
 .tb-btn.imp {
-  background: #e8f0ff;
-  border: 3rpx solid #0e3da8;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  border: 3rpx solid var(--app-brand);
+  color: var(--app-brand);
 }
 
 .tower-bar .tb-btns {
@@ -221,21 +223,41 @@ page {
 }
 
 /* ---------- 导入弹层（屏七：底部弹层 + 三步） ----------
-   .sheet 族同分包 common.wxss「政企蓝白」口径：顶部 24rpx 圆角 + 软影，无几何记号 */
+   .sheet 族同分包 common.wxss「政企蓝白」口径：顶部 24rpx 圆角 + 软影，无几何记号；
+   头/体/脚三段 flex，整体 max-height 封顶 + overflow:hidden，内容体 flex:1 1 auto 独立滚动 */
 .sheet {
   position: relative;
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 24rpx 24rpx 0 0;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .sheet-title {
+  flex: none;
   text-align: center;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+}
+
+/* 弹层内容体（flex-basis 用 auto：0 基准会把自适应高度弹层内容压没） */
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
+.t-popup__close {
+  display: none;
 }
 
 .imp-steps {
@@ -253,8 +275,8 @@ page {
   height: 40rpx;
   flex: none;
   border-radius: 50%;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   font-size: 22rpx;
   font-weight: 700;
   display: flex;
@@ -275,7 +297,7 @@ page {
 
 .imp-step .st-d {
   font-size: 21rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   margin-top: 4rpx;
   line-height: 1.6;
 }
@@ -287,16 +309,16 @@ page {
   gap: 12rpx;
   font-size: 23rpx;
   font-weight: 700;
-  color: #0e3da8;
-  background: #e8f0ff;
-  border: 2rpx solid #0e3da8;
+  color: var(--app-brand);
+  background: var(--app-brand-light);
+  border: 2rpx solid var(--app-brand);
   border-radius: 12rpx;
   padding: 12rpx 22rpx;
 }
 
 .pick-file {
   margin-top: 14rpx;
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
+  border: 3rpx dashed var(--app-border);
   border-radius: 12rpx;
   padding: 22rpx;
   text-align: center;
@@ -310,49 +332,53 @@ page {
 
 .pick-file .pfn .pfx {
   margin-left: 12rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .pick-file .pfd {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   margin-top: 6rpx;
 }
 
 .imp-sum {
   margin-top: 14rpx;
-  background: #f7f8fa;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-nested);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 18rpx 24rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   line-height: 1.8;
 }
 
 .imp-sum b {
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .sheet-actions {
+  flex: none;
   display: flex;
   gap: 20rpx;
   margin-top: 12rpx;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
 }
 
 .btn-ghost {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 6rpx;
   box-sizing: border-box;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
@@ -362,8 +388,8 @@ page {
   flex: 2;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -377,4 +403,47 @@ page {
 .btn-ghost.disabled,
 .btn-dark.disabled {
   opacity: 0.5;
+}
+
+/* ---------- iPad / 宽屏适配（600px 起限宽并约束关键字阶/控件；手机不受影响） ---------- */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+  }
+
+  .sheet-title {
+    font-size: 16px;
+  }
+
+  .btn-dark,
+  .btn-ghost {
+    height: 44px;
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  .sheet {
+    max-width: 720px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
 }

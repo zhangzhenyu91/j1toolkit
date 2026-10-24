@@ -46,7 +46,7 @@
       .upzone {
         border: 1.5px dashed var(--dash);
         border-radius: var(--radius);
-        background: #fff;
+        background: var(--card);
         padding: 28px 22px;
         text-align: center;
         cursor: pointer;
@@ -61,7 +61,7 @@
         background: var(--paper);
       }
       .upzone.dragover {
-        box-shadow: inset 0 0 0 3px rgba(14, 61, 168, 0.12);
+        box-shadow: inset 0 0 0 3px var(--brand-glow);
       }
       .up-ic {
         width: 56px;
@@ -103,7 +103,7 @@
         display: flex;
         align-items: center;
         gap: 9px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--hair);
         border-radius: 8px;
         padding: 8px 10px;
@@ -149,7 +149,7 @@
       }
       .ftag .fx:hover {
         color: var(--red);
-        background: rgba(245, 63, 63, 0.08);
+        background: var(--danger-soft);
       }
 
       /* ===== 生成参数卡 ===== */
@@ -266,11 +266,11 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #fff;
+        background: var(--card);
       }
       .step.done .sd-ic {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
       .step.done::before {
         background: var(--orange);
@@ -290,7 +290,7 @@
       }
       .step.fail .sd-ic {
         background: var(--red);
-        color: #fff;
+        color: var(--on-brand);
       }
       .step .st {
         font-size: 12.5px;
@@ -471,7 +471,7 @@
         height: 30px;
         border-radius: 8px;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -493,7 +493,7 @@
       .opb.del:hover {
         border-color: var(--red);
         color: var(--red);
-        background: rgba(245, 63, 63, 0.08);
+        background: var(--danger-soft);
       }
       .opb[disabled] {
         opacity: 0.38;
@@ -502,7 +502,7 @@
       .opb[disabled]:hover {
         border-color: var(--line);
         color: var(--sub);
-        background: #fff;
+        background: var(--card);
       }
 
       /* ===== 弹层（生成确认 / 删除确认）：直角 + 2px 墨边 + 硬影 ===== */
@@ -511,7 +511,7 @@
         inset: 0;
         z-index: 100;
         padding: 20px;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
@@ -527,10 +527,10 @@
       .dialog {
         width: 420px;
         max-width: 100%;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         padding: 26px 26px 22px;
         transform: translateY(16px) scale(0.97);
         transition: transform 0.35s var(--ease);
@@ -558,7 +558,7 @@
         height: 44px;
         margin-bottom: 12px;
         border-radius: 8px;
-        background: rgba(245, 63, 63, 0.08);
+        background: var(--danger-soft);
         color: var(--red);
         display: flex;
         align-items: center;
@@ -618,7 +618,7 @@
         padding: 5px 13px;
         border-radius: 8px;
         border: 1.5px solid var(--dash);
-        background: #fff;
+        background: var(--card);
         font-size: 12px;
         font-weight: 600;
         color: var(--sub);
@@ -632,7 +632,7 @@
       .mchip.on {
         border-color: var(--orange);
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
       .mchips.absent .mchip.on {
         border-color: var(--red);
@@ -671,7 +671,7 @@
       }
       .ms-opt.on {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
 
       @media (max-width: 960px) {
@@ -1264,9 +1264,9 @@
         ['记录入库', '生成后自动加入记录列表'],
       ];
       var CHECK_SVG =
-        '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+        '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
       var CROSS_SVG =
-        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
       function stepStates(phase) {
         if (phase === 'parse') {

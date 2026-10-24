@@ -32,7 +32,7 @@
     <!-- 选取入口（聊天文件） -->
     <view class="upzone" hover-class="hover-opacity" bindtap="onPickFiles">
       <view class="up-ic">
-        <t-icon name="upload" size="48rpx" color="#0E3DA8" />
+        <t-icon name="upload" t-class="ico-48" />
       </view>
       <view class="up-t">从聊天选取文件<text class="accent">上传</text></view>
       <view class="up-p">支持 pdf / doc / docx / ppt / pptx / xls / xlsx</view>
@@ -42,11 +42,11 @@
     <!-- 已选文件条 -->
     <block wx:if="{{files.length}}">
       <view class="ftag" wx:for="{{files}}" wx:key="path">
-        <t-icon name="file" size="30rpx" color="#0E3DA8" />
+        <t-icon name="file" t-class="ico-30" class="ico-brand" />
         <view class="fn">{{item.name}}</view>
         <view class="fs">{{item.sizeText}}</view>
         <view class="fx" hover-class="hover-opacity" catchtap="onRemoveFile" data-index="{{index}}">
-          <t-icon name="close" size="30rpx" color="rgba(29,33,41,.4)" />
+          <t-icon name="close" t-class="ico-30" />
         </view>
       </view>
     </block>
@@ -57,7 +57,7 @@
       <picker mode="date" value="{{dateStr}}" bindchange="onDateChange">
         <view class="date-val" hover-class="hover-opacity">
           <text>{{dateStr}}</text>
-          <t-icon name="calendar" size="30rpx" color="rgba(29,33,41,.4)" />
+          <t-icon name="calendar" t-class="ico-30" class="ico-mute" />
         </view>
       </picker>
     </view>
@@ -74,7 +74,7 @@
   <view wx:if="{{track}}" class="card prog">
     <view class="fh">
       <view class="file-ic">
-        <t-icon name="file" size="34rpx" color="#0E3DA8" />
+        <t-icon name="file" t-class="ico-34" />
       </view>
       <view class="fh-r">
         <view class="fn">{{track.name}}</view>
@@ -86,13 +86,12 @@
     <view class="steps">
       <view class="step {{item.state}}" wx:for="{{steps}}" wx:key="t">
         <view class="sd-ic">
-          <t-icon wx:if="{{item.state === 'done'}}" name="check" size="20rpx" color="#FFFFFF" />
+          <t-icon wx:if="{{item.state === 'done'}}" name="check" t-class="ico-20" />
           <view wx:elif="{{item.state === 'doing'}}" class="dot-ing"></view>
           <t-icon
             wx:elif="{{item.state === 'fail'}}"
             name="error-triangle"
-            size="20rpx"
-            color="#FFFFFF"
+            t-class="ico-20"
           />
         </view>
         <view class="step-r">
@@ -111,7 +110,7 @@
   </view>
   <!-- 生成进度卡（空闲态） -->
   <view wx:else class="card prog idle">
-    <t-icon name="time" size="44rpx" color="rgba(29,33,41,.35)" />
+    <t-icon name="time" t-class="ico-44" class="ico-mute" />
     <text>提交生成后，这里将实时展示生成进度</text>
   </view>
 
@@ -121,7 +120,7 @@
     <view class="cnt">{{cntText}}</view>
   </view>
 
-  <block wx:if="{{records.length}}">
+  <view class="rec-list" wx:if="{{records.length}}">
     <view
       class="card rec"
       wx:for="{{records}}"
@@ -137,7 +136,7 @@
         <view class="tag tag-{{item.status}}"> {{item.statusText}} </view>
       </view>
       <view class="rf">
-        <t-icon name="file" size="22rpx" color="rgba(29,33,41,.4)" />
+        <t-icon name="file" t-class="ico-22" />
         <text>{{item.sub}}</text>
       </view>
       <view class="rmeta">活动日期 {{item.date}} · 提交 {{item.createdText}}</view>
@@ -145,8 +144,7 @@
         ><t-icon
           class="rerr-x"
           name="error-triangle"
-          size="22rpx"
-          color="#F53F3F"
+          t-class="ico-22"
         />{{item.error}}</view
       >
       <!-- 操作行：打开（未生成置灰）+ 删除 -->
@@ -158,8 +156,8 @@
           <block wx:else>
             <t-icon
               name="download"
-              size="30rpx"
-              color="{{item.done ? '#0E3DA8' : 'rgba(29,33,41,.35)'}}"
+              t-class="ico-30"
+              class="{{item.done ? 'ico-brand' : ''}}"
             />
             <text>打开</text>
           </block>
@@ -176,7 +174,7 @@
             <text class="opb-ing">保存中…</text>
           </block>
           <block wx:else>
-            <t-icon name="upload" size="30rpx" color="#0E3DA8" />
+            <t-icon name="upload" t-class="ico-30" class="ico-brand" />
             <text>存网盘</text>
           </block>
         </view>
@@ -187,12 +185,12 @@
           data-id="{{item.id}}"
           data-name="{{item.name}}"
         >
-          <t-icon name="delete" size="30rpx" color="#4E5969" />
+          <t-icon name="delete" t-class="ico-30" />
           <text>删除</text>
         </view>
       </view>
     </view>
-  </block>
+  </view>
   <view wx:elif="{{loading}}" class="empty-box">正在加载记录…</view>
   <view wx:else class="empty-box">暂无生成记录，上传活动文件开始生成</view>
 </view>
@@ -263,7 +261,7 @@
           >
             <view class="pick-val">
               <text>{{members[hostIdx] || '—'}}</text>
-              <t-icon name="chevron-down" size="26rpx" color="rgba(29,33,41,.4)" />
+              <t-icon name="chevron-down" t-class="ico-26" class="ico-mute" />
             </view>
           </picker>
           <input
@@ -284,7 +282,7 @@
           <picker range="{{members}}" value="{{recorderIdx}}" bindchange="onRecorderChange">
             <view class="pick-val">
               <text>{{members[recorderIdx] || '—'}}</text>
-              <t-icon name="chevron-down" size="26rpx" color="rgba(29,33,41,.4)" />
+              <t-icon name="chevron-down" t-class="ico-26" class="ico-mute" />
             </view>
           </picker>
         </view>

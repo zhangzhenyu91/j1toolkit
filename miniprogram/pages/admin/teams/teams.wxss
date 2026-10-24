@@ -6,7 +6,7 @@
   margin-left: auto;
   font-size: 22rpx;
   font-weight: 400;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* 班组行 */
@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   gap: 20rpx;
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 12rpx;
   padding: 26rpx 28rpx;
   margin-bottom: 18rpx;
@@ -31,15 +31,15 @@
   align-items: center;
   font-size: 29rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .def-pill {
   margin-left: 12rpx;
   padding: 2rpx 12rpx;
   border-radius: 12rpx;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   font-size: 20rpx;
   font-weight: 600;
 }
@@ -48,8 +48,8 @@
   margin-left: 12rpx;
   padding: 2rpx 12rpx;
   border-radius: 12rpx;
-  background: #e8f0ff;
-  color: #4e5969;
+  background: var(--app-brand-light);
+  color: var(--app-text-secondary);
   font-size: 20rpx;
   font-weight: 600;
 }
@@ -57,13 +57,13 @@
 .tm {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .go {
   flex: none;
   font-size: 24rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .tip-line {
@@ -71,7 +71,7 @@
   text-align: center;
   font-size: 20rpx;
   line-height: 1.8;
-  color: #e5e6eb;
+  color: var(--app-text-tertiary);
 }
 
 /* 新增班组按钮（固定底部，避开右上角胶囊区域） */
@@ -82,21 +82,24 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #f5f7fa;
+  background: var(--app-bg-page);
 }
 
 /* ---------- 新增 / 编辑弹层（直角 + 顶部墨线；.sh-head/.sh-title/.sh-sub/.sh-close/.f-label/.f-field/.sh-note/.btn-disabled 已上移 app.wxss 共用） ---------- */
 .sheet {
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 12rpx;
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
   padding: 28rpx 32rpx 48rpx;
   max-height: 78vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
 .sh-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding-bottom: 4rpx;
 }
 
@@ -113,10 +116,11 @@
 .fr-lab {
   font-size: 26rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .sh-foot {
+  flex: none;
   margin-top: 20rpx;
   display: flex;
   align-items: center;
@@ -125,24 +129,144 @@
 
 .sum {
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .del-link {
   font-size: 24rpx;
-  color: #f53f3f;
+  color: var(--app-danger-text);
+  transition: opacity 0.15s ease;
 }
 
 .btn-primary {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand); /* 品牌底前景色 */
   font-size: 30rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+/* ---------- t-icon 字号（size 属性写内联 rpx 会随屏宽膨胀，改由外部样式类控制） ---------- */
+.ico-36 {
+  font-size: 36rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽 + 关键字阶/控件改固定 px；900px 起班组行双列排布 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .create-bar {
+    left: 50%;
+    right: auto;
+    width: 100%;
+    max-width: 680px;
+    box-sizing: border-box;
+    transform: translateX(-50%);
+  }
+
+  /* 弹层限宽居中 + 底部安全区（与 create-bar 同口径） */
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+    padding-bottom: calc(48rpx + env(safe-area-inset-bottom));
+  }
+
+  .tn,
+  .fr-lab {
+    font-size: 14.5px;
+  }
+
+  .sec-right,
+  .tm,
+  .go,
+  .sum,
+  .f-label {
+    font-size: 11px;
+  }
+
+  .def-pill,
+  .stop-pill {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 6px;
+  }
+
+  .tip-line {
+    font-size: 10px;
+  }
+
+  .sh-title {
+    font-size: 15px;
+  }
+
+  .sh-sub {
+    font-size: 10.5px;
+  }
+
+  .del-link {
+    font-size: 12px;
+  }
+
+  .btn-primary {
+    height: 44px;
+    font-size: 15px;
+  }
+
+  .ico-36 {
+    font-size: 18px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  .create-bar {
+    max-width: 960px;
+  }
+
+  /* 班组行双列排布（标题/提示仍通栏） */
+  .page-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 18px;
+    align-content: flex-start;
+  }
+
+  .sec,
+  .tip-line,
+  t-empty {
+    width: 100%;
+  }
+
+  .trow {
+    width: calc(50% - 9px);
+    box-sizing: border-box;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  .create-bar {
+    max-width: 1120px;
+  }
 }

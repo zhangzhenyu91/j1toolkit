@@ -4,10 +4,12 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import userGroups from '../common/user-groups';
+import { iconColors } from '../../common/icon-theme';
 
 Page({
   behaviors: [userGroups],
   data: {
+    ico: iconColors('light'), // t-icon 图标色计算值（随系统主题刷新）
     apps: [],
     selectedUserId: 0,
     checkedMap: {}, // { [app_id]: true/false }
@@ -16,7 +18,23 @@ Page({
   },
 
   onLoad() {
+    // t-icon 图标色按系统主题计算，主题变化时刷新
+    this._onThemeChange = (res) => this.setData({ ico: iconColors(res && res.theme) });
+    this.setData({ ico: iconColors() });
+    wx.onThemeChange(this._onThemeChange);
     this.init();
+  },
+
+  onShow() {
+    this.setData({ ico: iconColors() });
+  },
+
+  // 页面卸载解除主题监听
+  onUnload() {
+    if (this._onThemeChange) {
+      wx.offThemeChange(this._onThemeChange);
+      this._onThemeChange = null;
+    }
   },
 
   toast(message) {

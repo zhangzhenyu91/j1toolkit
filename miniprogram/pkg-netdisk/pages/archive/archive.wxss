@@ -1,5 +1,6 @@
 /* 团队网盘 · 压缩包预览 / 包内浏览（与主页同族：面包屑 + 单卡多行文件行 + 底部弹层密码输入；
-   token 硬编码：蓝 #0E3DA8 / 深蓝 #0A3592 / 浅蓝底 #E8F0FF / 文字 #1D2129 / #4E5969 / #86909C / 边 #E5E6EB） */
+   颜色一律走 app.wxss --app-* 语义变量，深色随系统；弱化占位 #C9CDD4 无对应 token，
+   浅色保持定稿值、深色单独覆盖） */
 
 .page-body {
   padding-bottom: 60rpx;
@@ -24,18 +25,19 @@
 
 .cr-link {
   flex: none;
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
+  transition: opacity 0.15s ease;
 }
 
 .cr-sep {
   flex: none;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .cr-cur {
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -45,7 +47,7 @@
   margin-left: auto;
   flex: none;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -62,16 +64,17 @@
 }
 
 .fl + .fl {
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
-/* 图标块：文件夹线性图标 / 类型字母块（浅蓝底深蓝字） */
+/* 图标块：文件夹线性图标 / 类型字母块（浅蓝底 + 品牌色字/图标，随主题） */
 .ficon {
   width: 72rpx;
   height: 72rpx;
   flex: none;
   border-radius: 20rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -81,7 +84,7 @@
   font-size: 21rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #0a3592;
+  color: var(--app-brand);
 }
 
 /* 真实文件类型 PNG 图标（无底块直落；加载失败回退 .ficon 线性文件夹/字母块） */
@@ -100,7 +103,7 @@
   display: block;
   font-size: 27rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -110,7 +113,7 @@
   display: block;
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -123,13 +126,13 @@
   height: 72rpx;
   flex: none;
   border-radius: 20rpx;
-  background: #f2f3f5;
+  background: var(--app-bg-nested);
 }
 
 .sk-l {
   height: 26rpx;
   border-radius: 8rpx;
-  background: #f2f3f5;
+  background: var(--app-bg-nested);
 }
 
 .sk-l.sm {
@@ -159,7 +162,7 @@
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .empty-box .retry {
@@ -167,23 +170,48 @@
   margin-top: 24rpx;
   padding: 10rpx 40rpx;
   border-radius: 12rpx;
-  background: #1d2129;
-  color: #ffffff;
+  background: var(--app-text-primary);
+  color: var(--app-bg-card);
   font-size: 24rpx;
+  transition: opacity 0.15s ease;
 }
 
-/* ---------- 底部弹层（压缩包密码输入；顶部圆角 + 抓手） ---------- */
+/* ---------- 底部弹层（压缩包密码输入；顶部圆角 + 抓手；头/体/脚三段 flex，
+   整体限高 + overflow:hidden，内容体 flex:1 1 auto 独立滚动） ---------- */
 .sheet {
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 32rpx 32rpx 0 0;
   padding-bottom: calc(44rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* 弹层内非体块默认不参与收缩（头/说明/控件/脚），体块（scroll-view 或 .sheet-body）独占剩余空间并滚动 */
+.sheet > view {
+  flex: none;
+}
+
+.sheet > scroll-view,
+.sheet > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
+.t-popup__close {
+  display: none;
 }
 
 .grab {
   width: 72rpx;
   height: 8rpx;
   border-radius: 4rpx;
-  background: #e5e6eb;
+  background: var(--app-border);
   margin: 16rpx auto 8rpx;
 }
 
@@ -191,14 +219,14 @@
   padding: 24rpx 32rpx 0;
   font-size: 31rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .sheet-sub {
   padding: 0 32rpx;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   line-height: 1.7;
   word-break: break-all;
 }
@@ -207,10 +235,10 @@
   margin: 28rpx 32rpx 0;
   height: 84rpx;
   padding: 0 24rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 16rpx;
   font-size: 27rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .ph {
@@ -218,7 +246,11 @@
 }
 
 .sheet-ops {
+  flex: none;
   margin: 32rpx 32rpx 0;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
   display: flex;
   gap: 20rpx;
 }
@@ -227,30 +259,187 @@
   flex: 1;
   height: 84rpx;
   border-radius: 16rpx;
-  background: #f7f8fa;
-  color: #4e5969;
+  background: var(--app-bg-nested);
+  color: var(--app-text-secondary);
   font-size: 28rpx;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
 }
 
 .btn-accent {
   flex: 2;
   height: 84rpx;
   border-radius: 16rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   font-size: 28rpx;
   font-weight: 600;
   letter-spacing: 2rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
 }
 
 .btn-ghost.disabled,
 .btn-accent.disabled {
   opacity: 0.5;
+}
+
+/* ---------- t-icon 外部样式类（size 属性写内联 rpx 会随屏宽膨胀，改由 t-class 控制字号） ---------- */
+.ico-30 {
+  font-size: 30rpx;
+}
+
+.ico-38 {
+  font-size: 38rpx;
+}
+
+/* 弱化占位（#C9CDD4 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+@media (prefers-color-scheme: dark) {
+  .ph {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .empty-box {
+    border-color: #626d7d;
+  }
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽 + 关键字阶/控件改固定 px；900px 起文件行双列；1200px 起三列 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* 弹层限宽居中 */
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .crumb {
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+
+  .cr-cnt {
+    font-size: 11px;
+  }
+
+  .fname {
+    font-size: 13.5px;
+  }
+
+  .fsub {
+    font-size: 11px;
+  }
+
+  .fletter {
+    font-size: 10.5px;
+  }
+
+  .sheet-title {
+    font-size: 15.5px;
+  }
+
+  .sheet-sub {
+    font-size: 11.5px;
+  }
+
+  .sh-cancel,
+  .btn-ghost,
+  .btn-accent {
+    height: 42px;
+    font-size: 14px;
+  }
+
+  .name-input {
+    height: 42px;
+    font-size: 13.5px;
+    border-radius: 8px;
+  }
+
+  .empty-box {
+    border-radius: 12px;
+    padding: 32px 16px;
+    font-size: 13px;
+  }
+
+  .empty-box .retry {
+    margin-top: 12px;
+    padding: 5px 20px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .ico-30 {
+    font-size: 15px;
+  }
+
+  .ico-38 {
+    font-size: 19px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  /* 文件行按可用宽度双列 */
+  .flist {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .flist > .fl {
+    width: 50%;
+    box-sizing: border-box;
+    border-top: 1rpx solid var(--app-border);
+  }
+
+  .flist > .fl:nth-child(-n + 2) {
+    border-top: none;
+  }
+
+  .flist > .fl:nth-child(odd) {
+    border-right: 1rpx solid var(--app-border);
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  /* 文件行三列 */
+  .flist > .fl {
+    width: 33.3333%;
+  }
+
+  .flist > .fl:nth-child(-n + 2) {
+    border-top: 1rpx solid var(--app-border);
+  }
+
+  .flist > .fl:nth-child(-n + 3) {
+    border-top: none;
+  }
+
+  .flist > .fl:nth-child(odd) {
+    border-right: none;
+  }
+
+  .flist > .fl:nth-child(3n + 1),
+  .flist > .fl:nth-child(3n + 2) {
+    border-right: 1rpx solid var(--app-border);
+  }
 }

@@ -31,19 +31,33 @@
 }
 
 :root {
+  color-scheme: light;
   --paper: #f5f7fa;
+  --card: #ffffff;
   --navy: #1d2129;
   --orange: #0e3da8;
   --orange-soft: #e8f0ff;
+  --on-brand: #ffffff;
+  --inverse-bg: #1d2129;
+  --inverse-text: #ffffff;
   --red: #f53f3f;
   --green: #00b42a;
   --yellow: #ff7d00;
+  --warn-soft: #fff7e8;
+  --warn-text: #d25f00;
+  --ok-soft: #e8ffea;
+  --ok-text: #0b8a37;
+  --danger-soft: #ffece8;
+  --danger-line: #ffd0c7;
   --line: #e5e6eb;
   --hair: rgba(29, 33, 41, 0.06);
   --sub: #4e5969;
   --ph: #86909c;
   --dash: #c9cdd4;
   --fill: #f7f8fa;
+  --brand-glow: rgba(14, 61, 168, 0.12);
+  --overlay: rgba(29, 33, 41, 0.45);
+  --skeleton: rgba(29, 33, 41, 0.05);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --radius: 12px;
   --radius-sm: 8px;
@@ -51,6 +65,43 @@
   --hard-s: 0 1px 4px rgba(0, 0, 0, 0.05);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
   --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+/* 系统深色：仅切换语义变量，浅色结构与圆角不变；实心按钮文字由 --on-brand 单独保证对比度 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #14171d;
+    --card: #1d222b;
+    --fill: #252b35;
+    --navy: #e5e6eb;
+    --sub: #a9b1bd;
+    --ph: #8a94a3;
+    --dash: #626d7d;
+    --line: #343c49;
+    --hair: rgba(255, 255, 255, 0.09);
+    --orange: #78a6ff;
+    --orange-soft: #1b2d4d;
+    --on-brand: #101820;
+    --inverse-bg: #e5e6eb;
+    --inverse-text: #1d222b;
+    --red: #ff7a73;
+    --green: #4fd37e;
+    --yellow: #f5a94a;
+    --warn-soft: #382b16;
+    --warn-text: #f2b56d;
+    --ok-soft: #153322;
+    --ok-text: #82d89b;
+    --danger-soft: #3a1d1d;
+    --danger-line: #68312f;
+    --brand-glow: rgba(120, 166, 255, 0.18);
+    --overlay: rgba(0, 0, 0, 0.62);
+    --skeleton: rgba(255, 255, 255, 0.08);
+    --hard: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --hard-s: 0 1px 4px rgba(0, 0, 0, 0.24);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.32);
+  }
 }
 
 html {
@@ -114,7 +165,7 @@ body.has-rail.nav-mini {
   bottom: 0;
   z-index: 50;
   width: var(--rail-w, 200px);
-  background: #fff;
+  background: var(--card);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -170,7 +221,7 @@ body.has-rail.nav-mini {
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
-  background: #fff;
+  background: var(--card);
   color: var(--sub);
   display: flex;
   align-items: center;
@@ -276,7 +327,7 @@ body.has-rail.nav-mini {
   height: 34px;
   border-radius: 50%;
   background: var(--orange);
-  color: #fff;
+  color: var(--on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -290,8 +341,8 @@ body.has-rail.nav-mini {
   left: 72px;
   z-index: 60;
   transform: translateY(-50%);
-  background: var(--navy);
-  color: #fff;
+  background: var(--inverse-bg);
+  color: var(--inverse-text);
   font-size: 12px;
   line-height: 1;
   padding: 7px 10px;
@@ -348,7 +399,7 @@ body.has-rail.nav-mini {
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--card);
   color: var(--orange);
   box-shadow: var(--shadow-card);
   font-size: 12px;
@@ -384,7 +435,7 @@ body.has-rail.nav-mini {
     inset: 0;
     z-index: 80;
     display: block;
-    background: rgba(29, 33, 41, 0.36);
+    background: var(--overlay);
   }
   .rail-scrim[hidden] {
     display: none !important;
@@ -453,7 +504,7 @@ body.has-rail.nav-mini {
 /* ===== 卡片（白底 + 12px 圆角 + 轻阴影，无描边） ===== */
 .card {
   position: relative;
-  background: #fff;
+  background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
 }
@@ -512,7 +563,7 @@ body.has-rail.nav-mini {
   padding: 0 20px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--card);
   color: var(--navy);
   font-size: 13.5px;
   font-weight: 600;
@@ -549,14 +600,14 @@ body.has-rail.nav-mini {
 .btn-primary,
 .btn-accent,
 .btn-danger {
-  color: #fff;
+  color: var(--on-brand);
   border-color: transparent;
 }
 .btn-primary {
   background: var(--orange);
 }
 .btn-primary:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 .btn-accent,
@@ -565,7 +616,7 @@ body.has-rail.nav-mini {
 }
 .btn-accent:hover,
 .btn-danger:hover {
-  color: #fff;
+  color: var(--on-brand);
   filter: brightness(0.92);
 }
 
@@ -589,7 +640,7 @@ body.has-rail.nav-mini {
   height: 44px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--card);
   padding: 0 14px;
   font-size: 14px;
   color: var(--navy);
@@ -603,7 +654,7 @@ body.has-rail.nav-mini {
 }
 .input:focus {
   border-color: var(--orange);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 textarea.input {
   height: auto;
@@ -628,7 +679,7 @@ textarea.input {
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--card);
   color: var(--navy);
   font-size: 13px;
   font-weight: 600;
@@ -654,7 +705,7 @@ textarea.input {
 }
 .dd.open .dd-btn {
   border-color: var(--orange);
-  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 .dd.open .dd-btn .dd-tri {
   transform: rotate(180deg);
@@ -674,7 +725,7 @@ textarea.input {
   max-height: 250px;
   overflow-y: auto;
   padding: 5px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-hover);
@@ -706,7 +757,7 @@ textarea.input {
 /* 选中项：蓝底白字，勾选号同步反白 */
 .dd-opt.on {
   background: var(--orange);
-  color: #fff;
+  color: var(--on-brand);
   font-weight: 600;
 }
 .dd-opt .dd-ck {
@@ -717,7 +768,7 @@ textarea.input {
 }
 .dd-opt.on .dd-ck {
   opacity: 1;
-  color: #fff;
+  color: var(--on-brand);
 }
 
 /* 带左侧图标的输入域 */
@@ -765,7 +816,7 @@ textarea.input {
   color: var(--sub);
 }
 .tag-red {
-  background: #ffece8;
+  background: var(--danger-soft);
   color: var(--red);
 }
 
@@ -792,7 +843,7 @@ textarea.input {
 .skeleton {
   position: relative;
   overflow: hidden;
-  background: rgba(29, 33, 41, 0.05);
+  background: var(--skeleton);
   border-radius: 8px;
 }
 .skeleton::after {
@@ -854,7 +905,7 @@ textarea.input {
   max-width: 72vw;
   padding: 10px 18px;
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-hover);
   font-size: 13px;
@@ -875,7 +926,7 @@ textarea.input {
 }
 /* 错误 toast：红色左边框 + 红色图标 */
 .toast-error {
-  border-color: #ffd0c7;
+  border-color: var(--danger-line);
 }
 .toast-error svg {
   color: var(--red);

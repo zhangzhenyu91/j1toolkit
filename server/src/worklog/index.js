@@ -108,6 +108,11 @@ function sanitizeRemarkFile(f) {
   return { name, url, cos_key: cosKey, type, size };
 }
 
+// 照片/附件访问地址：优先按 cos_key 重算（域名配置变更后即时生效），无 cos_key 的历史数据回退库内旧 url
+function photoUrlOf(row) {
+  return row && row.cos_key ? cos.publicUrl(row.cos_key) : row && row.url;
+}
+
 // 装配某日期范围内的卡片全量（含用车人、照片、verify_passed）
 async function loadEntries(where, params) {
   // 超时兜底：pending 超 10 分钟视为验证失败（如服务端在 Dify 回调途中重启导致回写丢失；
@@ -158,7 +163,7 @@ async function loadEntries(where, params) {
   photos.forEach((p) => {
     (photoMap[p.entry_id] = photoMap[p.entry_id] || []).push({
       id: p.id,
-      url: p.url,
+      url: photoUrlOf(p),
       members: typeof p.members === 'string' ? JSON.parse(p.members) : p.members,
       verify_status: p.verify_status,
       work_content: p.work_content,
@@ -244,7 +249,10 @@ async function loadEntries(where, params) {
     const entry = {
       ...e,
       remark: e.remark || '',
-      remark_files: parseRemarkFiles(e.remark_files),
+      // 备注附件同照片链路：有 cos_key 时按其重算访问地址，无 key 的历史数据回退库内旧 url
+      remark_files: parseRemarkFiles(e.remark_files).map((f) =>
+        f && f.cos_key ? { ...f, url: cos.publicUrl(f.cos_key) } : f
+      ),
       members,
       photos: photoMap[e.id] || [],
       clockinMap: clockinByDate[e.log_date] || {},
@@ -1148,13 +1156,14 @@ router.get('/photos', async (req, res, next) => {
     if (from > to) return fail(res, 400, 40013, '开始日期不能晚于结束日期');
     if (!req.team) return ok(res, { list: [] });
     const [rows] = await pool.query(
-      `SELECT p.id, p.url, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date,
+      `SELECT p.id, p.cos_key, p.url, DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date,
               DATE_FORMAT(e.log_date, '%Y-%m') AS month, DAYOFMONTH(e.log_date) AS day, p.members
        FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
        WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ? ORDER BY e.log_date, p.id`,
       [from, to, req.team.id]
     );
     rows.forEach((r) => {
+      r.url = photoUrlOf(r); // 与列表同口径：按 cos_key 重算访问地址，无 key 回退旧 url
       r.members = typeof r.members === 'string' ? JSON.parse(r.members) : r.members;
     });
     return ok(res, { list: rows });
@@ -1686,7 +1695,7 @@ router.post('/photos/:id/verify', async (req, res, next) => {
     if (!req.team) return fail(res, 403, 40310, '未分配班组，请联系管理员分配');
     const photoId = Number(req.params.id);
     const [rows] = await pool.query(
-      `SELECT p.id, p.url, p.verify_status,
+      `SELECT p.id, p.cos_key, p.url, p.verify_status,
               DATE_FORMAT(e.log_date, '%Y-%m-%d') AS log_date, d.name AS destination_name
        FROM worklog_photo p
        JOIN worklog_entry e ON e.id = p.entry_id
@@ -1708,7 +1717,7 @@ router.post('/photos/:id/verify', async (req, res, next) => {
       username: req.user.username,
       date: dots(photo.log_date),
       destination: photo.destination_name || '',
-      url: photo.url,
+      url: photoUrlOf(photo), // 与列表同口径：按 cos_key 重算，供 Dify 回源取图
     });
     return ok(res, { verify_status: 'pending' });
   } catch (err) {
@@ -2062,7 +2071,7 @@ router.post('/zip', async (req, res, next) => {
 // 范围内照片按卡片分组（卡片顺序 = 日期 + 创建序，卡内照片按上传序）
 async function photoCardsOf(teamId, from, to) {
   const [rows] = await pool.query(
-    `SELECT e.id AS entry_id, p.id, p.url
+    `SELECT e.id AS entry_id, p.id, p.cos_key, p.url
      FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
      WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ?
      ORDER BY e.log_date, e.id, p.id`,
@@ -2075,7 +2084,7 @@ async function photoCardsOf(teamId, from, to) {
       cur = { entry_id: r.entry_id, photos: [] };
       cards.push(cur);
     }
-    cur.photos.push(r.url);
+    cur.photos.push(photoUrlOf(r)); // 与列表同口径：按 cos_key 重算回源地址
   }
   return cards;
 }

@@ -49,16 +49,16 @@
       block
       size="large"
       variant="outline"
-      custom-style="background: #FFFFFF; border: 1rpx solid #E5E6EB; color: #1D2129; border-radius: 0;"
+      custom-style="background: var(--app-bg-card); border: 1rpx solid var(--app-border); color: var(--app-text-primary); border-radius: 0;"
       bind:tap="onWxLogin"
     >
       <view class="wx-inner">
-        <t-icon name="chat" size="40rpx" color="#07C160" />
+        <t-icon t-class="ico-40" name="chat" color="#07C160" />
         <text>微信一键登录</text>
       </view>
     </t-button>
 
-    <view class="version">v1.19.0</view>
+    <view class="version">v1.20.0</view>
   </view>
 
   <t-toast id="t-toast" />

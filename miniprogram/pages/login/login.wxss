@@ -1,13 +1,13 @@
 .page {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--app-bg-page);
   display: flex;
   flex-direction: column;
 }
 
-/* ---------- 深蓝品牌横幅 ---------- */
+/* ---------- 深蓝品牌横幅（--app-brand-deep 双主题一致，白字保留） ---------- */
 .banner {
-  background: #0a3592;
+  background: var(--app-brand-deep);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -44,8 +44,8 @@
 }
 
 .field {
-  background: #ffffff;
-  border: 1rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 1rpx solid var(--app-border);
   border-radius: 12rpx;
   margin-bottom: 24rpx;
   padding: 4rpx 16rpx;
@@ -56,14 +56,14 @@
   align-items: center;
   gap: 20rpx;
   margin: 40rpx 0 28rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-size: 22rpx;
 }
 
 .divider .line {
   flex: 1;
   height: 1rpx;
-  background: #e5e6eb;
+  background: var(--app-border);
 }
 
 .wx-inner {
@@ -76,7 +76,51 @@
 .version {
   margin-top: auto;
   text-align: center;
-  color: #c9cdd4;
+  color: var(--app-text-tertiary);
   font-size: 22rpx;
   padding-top: 40rpx;
+}
+
+/* t-icon 字号（size 属性写内联 rpx 会随屏宽膨胀，改由外部样式类控制） */
+.ico-40 {
+  font-size: 40rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ---------- */
+@media (min-width: 600px) {
+  .form {
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .logo {
+    width: 80px;
+    height: 80px;
+    margin-top: 24px;
+  }
+
+  .app-name {
+    font-size: 20px;
+  }
+
+  .app-slogan {
+    font-size: 12px;
+  }
+
+  .divider {
+    font-size: 11px;
+    margin: 20px 0 14px;
+  }
+
+  .version {
+    font-size: 11px;
+    padding-top: 20px;
+  }
+
+  .ico-40 {
+    font-size: 20px;
+  }
 }

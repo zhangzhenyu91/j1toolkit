@@ -4,6 +4,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import userGroups from '../common/user-groups';
+import { iconColors } from '../../common/icon-theme';
 
 const ROLE_OPTIONS = [
   { value: 'admin', label: '超级管理员' },
@@ -24,6 +25,7 @@ const EMPTY_FORM = {
 Page({
   behaviors: [userGroups],
   data: {
+    ico: iconColors('light'), // t-icon 图标色计算值（随系统主题刷新）
     keyword: '',
     loading: true,
     showEdit: false,
@@ -35,8 +37,26 @@ Page({
     form: { ...EMPTY_FORM },
   },
 
+  onLoad() {
+    // t-icon 图标色按系统主题计算，主题变化时刷新
+    this._onThemeChange = (res) => this.setData({ ico: iconColors(res && res.theme) });
+    this.setData({ ico: iconColors() });
+    wx.onThemeChange(this._onThemeChange);
+  },
+
+  // 页面卸载解除主题监听
+  onUnload() {
+    if (this._onThemeChange) {
+      wx.offThemeChange(this._onThemeChange);
+      this._onThemeChange = null;
+    }
+  },
+
   onShow() {
-    this.setData({ selfId: (wx.getStorageSync('userInfo') || {}).id || null });
+    this.setData({
+      ico: iconColors(),
+      selfId: (wx.getStorageSync('userInfo') || {}).id || null,
+    });
     this.loadTeams();
     this.loadUsers();
   },

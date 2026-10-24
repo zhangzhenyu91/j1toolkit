@@ -115,6 +115,87 @@ def detect_pdf_renderer(render_cfg: dict, log=print) -> dict:
 # ---------------------------------------------------------------- U 盘（按卷标）
 
 
+def _desktop_user():
+    """返回本机活动桌面用户名；无活动会话时回退镜像状态目录属主。"""
+    uid = None
+    try:
+        sessions = subprocess.run(
+            ["loginctl", "list-sessions", "--no-legend"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if sessions.returncode == 0:
+            for line in sessions.stdout.splitlines():
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                session_id, raw_uid = parts[0], parts[1]
+                if not raw_uid.isdigit() or int(raw_uid) == 0:
+                    continue
+                info = subprocess.run(
+                    [
+                        "loginctl",
+                        "show-session",
+                        session_id,
+                        "-p",
+                        "Active",
+                        "-p",
+                        "State",
+                        "-p",
+                        "Remote",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if info.returncode != 0:
+                    continue
+                props = dict(
+                    item.split("=", 1)
+                    for item in info.stdout.splitlines()
+                    if "=" in item
+                )
+                if (
+                    props.get("Active") == "yes"
+                    and props.get("State") == "active"
+                    and props.get("Remote") == "no"
+                ):
+                    uid = int(raw_uid)
+                    break
+    except Exception:
+        pass
+    if uid is None:
+        mirror = os.environ.get("UVMP_TOOLKIT_MIRROR_STATE", "").strip()
+        if mirror:
+            try:
+                uid = Path(mirror).stat().st_uid
+            except OSError:
+                pass
+    if uid is None or uid == 0:
+        return None
+    try:
+        import pwd
+
+        return pwd.getpwuid(uid).pw_name
+    except (ImportError, KeyError):
+        return None
+
+
+def _mount_linux_device(device, log):
+    """root 触发时让 udisks 以桌面用户挂载，避免挂载点落在 /run/media/root。"""
+    cmd = ["udisksctl", "mount", "-b", device]
+    if os.geteuid() == 0:
+        user = _desktop_user()
+        runuser = shutil.which("runuser")
+        if user and runuser:
+            log("以桌面用户 %s 挂载U盘" % user)
+            cmd = [runuser, "-u", user, "--"] + cmd
+        else:
+            log("未识别桌面用户或 runuser，按 root 挂载（桌面用户可能无权打开）")
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+
 def _find_usb_linux(label: str, log) -> str:
     """linux：确保卷标为 label 的设备已挂载，返回挂载点；失败返回 None"""
     label = (label or "").upper()
@@ -151,12 +232,7 @@ def _find_usb_linux(label: str, log) -> str:
             log("未找到卷标 %s 的U盘设备 (第 %d/3 次)" % (label, attempt))
         else:
             try:
-                r = subprocess.run(
-                    ["udisksctl", "mount", "-b", device],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
+                r = _mount_linux_device(device, log)
                 if r.returncode == 0:
                     m = re.search(r"\bat\s+(.+?)\.?\s*$", r.stdout.strip())
                     actual = m.group(1) if m else ""

@@ -40,7 +40,7 @@
 
     <!-- 新建文件夹（收起为入口行；展开为行内输入，键盘弹起时动态抬高底部 padding） -->
     <view wx:if="{{!mkOpen}}" class="ndp-mk" hover-class="hover-bg-warm" bindtap="onMkOpen">
-      <t-icon name="folder-add" size="34rpx" color="#0E3DA8" />
+      <t-icon t-class="ico-34 ico-brand" name="folder-add" />
       <text class="ndp-mk-t">新建文件夹</text>
     </view>
     <view wx:else class="ndp-mkedit">
@@ -78,9 +78,9 @@
           hover-class="hover-bg-warm"
           bindtap="onDirTap"
         >
-          <t-icon name="folder" size="38rpx" color="#0A3592" />
+          <t-icon t-class="ico-38 ico-brand" name="folder" />
           <text class="ndp-name">{{item.name}}</text>
-          <t-icon name="chevron-right" size="30rpx" color="#C9CDD4" />
+          <t-icon t-class="ico-30" name="chevron-right" color="#C9CDD4" />
         </view>
       </block>
     </scroll-view>

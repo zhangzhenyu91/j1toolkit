@@ -19,7 +19,7 @@
         flex: 1;
         width: 100%;
         display: flex;
-        background: #fff;
+        background: var(--card);
       }
       /* 左侧品牌区：班组作业实景（login-bg.jpg）+ 深蓝渐变遮罩，黄金分割占 61.8%（.hazard-top 类名保留的空壳 div，无任何样式） */
       .login-brand {
@@ -182,7 +182,7 @@
         max-width: 340px;
         margin: 0 auto;
         padding: 11px 14px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 12px;
         text-decoration: none;
@@ -265,7 +265,7 @@
         display: flex;
         flex-direction: column;
         padding: 48px 66px;
-        background: #fff;
+        background: var(--card);
         overflow: hidden;
       }
       .form-core {
@@ -332,8 +332,8 @@
         flex: none;
         border-radius: 4px;
         border: 1px solid var(--dash);
-        background: #fff;
-        color: #fff;
+        background: var(--card);
+        color: var(--on-brand);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -470,7 +470,7 @@
               >
             </div>
             <div class="login-foot">
-              <div>© 2026 Shade 壹匣 · v1.19.0</div>
+              <div>© 2026 Shade 壹匣 · v1.20.0</div>
             </div>
           </div>
           <div class="form-promo">
@@ -520,7 +520,7 @@
       document.getElementById('featShield').innerHTML = Shade.icon('shield', 17);
       document.getElementById('fUser').insertAdjacentHTML('afterbegin', Shade.icon('user', 18));
       document.getElementById('fPass').insertAdjacentHTML('afterbegin', Shade.icon('lock-on', 18));
-      document.getElementById('ckRemember').innerHTML = Shade.icon('check', 10, '#fff');
+      document.getElementById('ckRemember').innerHTML = Shade.icon('check', 10);
       document.getElementById('promoArrow').innerHTML = Shade.icon('arrow-right', 16);
 
       // 内网客户端推广卡：链接指向 CNB Releases 最新 tag（GitHub API 拉最新 tag 拼接；1h 本地缓存，失败保持列表页）

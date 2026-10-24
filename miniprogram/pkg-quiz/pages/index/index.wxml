@@ -43,11 +43,11 @@
   <view class="sec-row">
     <view class="section-title">我的题库</view>
     <view class="more" wx:if="{{isManager}}" hover-class="hover-opacity" bindtap="onManageTap">
-      管理 <t-icon name="chevron-right" size="26rpx" color="rgba(29,33,41,.4)" />
+      管理 <t-icon name="chevron-right" t-class="ico-26" />
     </view>
   </view>
 
-  <block wx:if="{{banks.length}}">
+  <view class="bank-list" wx:if="{{banks.length}}">
     <view
       class="card bank-item"
       wx:for="{{banks}}"
@@ -58,7 +58,7 @@
       data-id="{{item.id}}"
       data-name="{{item.name}}"
     >
-      <view class="icon-box"><t-icon name="book" size="40rpx" color="#0E3DA8" /></view>
+      <view class="icon-box"><t-icon name="book" t-class="ico-40" /></view>
       <view class="tx">
         <b>
           {{item.name}}
@@ -78,24 +78,24 @@
         </view>
       </view>
     </view>
-  </block>
+  </view>
   <view wx:elif="{{loading}}" class="empty-box">题库加载中…</view>
   <view wx:else class="empty-box">尚未添加题库，从下方题库池挑选</view>
 
   <!-- 题库池入口卡（二级页：挑选管理员上传的题库） -->
   <view class="card pool-entry" hover-class="hover-bg-warm" bindtap="onPoolTap">
-    <view class="icon-box"><t-icon name="app" size="40rpx" color="#0E3DA8" /></view>
+    <view class="icon-box"><t-icon name="app" t-class="ico-40" /></view>
     <view class="tx">
       <b>题库池</b>
     </view>
-    <t-icon name="chevron-right" size="36rpx" color="rgba(29,33,41,.4)" />
+    <t-icon name="chevron-right" t-class="ico-36" class="chev-mute" />
   </view>
 </view>
 
 <!-- 底部主按钮（仅管理角色）：新建题库，进 manage 页 -->
 <view class="bottom-bar" wx:if="{{isManager && !noTeam}}">
   <view class="btn-navy" hover-class="hover-opacity" bindtap="onManageTap">
-    <t-icon name="add" size="34rpx" color="#FFFFFF" />
+    <t-icon name="add" t-class="ico-34" />
     新建题库
   </view>
 </view>

@@ -19,9 +19,9 @@
   min-height: 0;
 }
 
-/* ---------- 轻量深蓝页首（与 navbar 同色 #0A3592，不再承接负边距浮层） ---------- */
+/* ---------- 轻量深蓝页首（与 navbar 同色 --app-brand-deep，不随系统深色变化） ---------- */
 .hero {
-  background: #0a3592;
+  background: var(--app-brand-deep);
   padding: 12rpx 40rpx 36rpx;
   animation: fadeIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -38,7 +38,7 @@
   font-size: 36rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
-  color: #ffffff;
+  color: #ffffff; /* 品牌深蓝页首白字，双主题一致 */
 }
 
 .hero-sub {
@@ -46,7 +46,7 @@
   font-size: 22rpx;
   line-height: 1.5;
   text-align: right;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.72); /* 同上，深蓝底半透明白 */
   letter-spacing: 0.5rpx;
 }
 
@@ -61,10 +61,10 @@
   margin-bottom: 32rpx;
   display: flex;
   padding: 24rpx 0;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 16rpx;
-  box-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.02);
+  box-shadow: var(--app-shadow-card);
   animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s backwards;
 }
 
@@ -76,34 +76,35 @@
 }
 
 .stat + .stat {
-  border-left: 1rpx solid #e5e6eb;
+  border-left: 1rpx solid var(--app-border);
 }
 
 .stat-num {
   font-size: 32rpx;
   font-weight: 700;
   line-height: 1.3;
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-variant-numeric: tabular-nums;
+  transition: color 0.15s ease;
 }
 
 /* 分级着色：全部达标绿 / ≤3 橙 / >3 红（默认值即正文深色，未加载时 — 不着色） */
 .stat-num-good {
-  color: #00b42a;
+  color: var(--app-success);
 }
 
 .stat-num-warn {
-  color: #ff7d00;
+  color: var(--app-warning);
 }
 
 .stat-num-bad {
-  color: #f53f3f;
+  color: var(--app-danger);
 }
 
 .stat-label {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 消息通知卡（应用中心之后的摘要与展开区） ---------- */
@@ -125,7 +126,7 @@
   width: 52rpx;
   height: 52rpx;
   border-radius: 16rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -136,7 +137,7 @@
   margin-left: 16rpx;
   font-size: 28rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 /* 未读计数：红点 + 红字（0 未读时不渲染） */
@@ -146,7 +147,7 @@
   display: flex;
   align-items: center;
   gap: 8rpx;
-  color: #f53f3f;
+  color: var(--app-danger-text);
   font-size: 22rpx;
   font-weight: 600;
 }
@@ -155,7 +156,7 @@
   width: 10rpx;
   height: 10rpx;
   border-radius: 50%;
-  background: #f53f3f;
+  background: var(--app-danger);
 }
 
 /* 通知行：未读红点 / 已读空心点 + 行间发丝线 */
@@ -163,7 +164,7 @@
   display: flex;
   align-items: center;
   padding: 20rpx 0;
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .n-dot {
@@ -172,12 +173,12 @@
   flex: none;
   margin-right: 14rpx;
   border-radius: 50%;
-  background: #f53f3f;
+  background: var(--app-danger);
 }
 
 .n-dot-read {
   background: transparent;
-  border: 2rpx solid #c9cdd4;
+  border: 2rpx solid var(--app-text-tertiary);
   box-sizing: border-box;
 }
 
@@ -185,14 +186,14 @@
   flex: 1;
   min-width: 0;
   font-size: 25rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .n-row-unread {
-  color: #1d2129;
+  color: var(--app-text-primary);
   font-weight: 600;
 }
 
@@ -200,15 +201,15 @@
   margin-left: 16rpx;
   flex: none;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
 .n-empty {
   padding: 18rpx 0 12rpx;
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
   font-size: 24rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 /* 加载失败与空态互斥，重试点击由 catchtap 阻止整卡跳转 */
@@ -217,7 +218,7 @@
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 0 12rpx;
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .n-error-text {
@@ -225,7 +226,7 @@
   min-width: 0;
   font-size: 24rpx;
   line-height: 1.5;
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 
 .n-retry {
@@ -233,7 +234,28 @@
   padding: 12rpx 0 12rpx 16rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #0e3da8;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
+}
+
+/* 通知展开区保留挂载，收起/展开只做过渡，不突然插入整段内容 */
+.n-extra {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease;
+}
+
+.n-extra-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.n-extra-in {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .n-toggle {
@@ -244,9 +266,10 @@
   justify-content: flex-end;
   gap: 4rpx;
   padding: 10rpx 0 6rpx;
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
   font-size: 22rpx;
-  color: #0e3da8;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
 }
 
 /* ---------- 应用宫格（无底块深蓝图标直落白卡） ---------- */
@@ -288,19 +311,19 @@
 .g-name {
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
   text-align: center;
   line-height: 1.4;
 }
 
 .g-name-soon {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .empty {
   padding: 24rpx 28rpx 32rpx;
   text-align: center;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   font-size: 24rpx;
 }
 
@@ -308,7 +331,7 @@
 .tip {
   margin-top: 24rpx;
   text-align: center;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   font-size: 20rpx;
   letter-spacing: 1rpx;
 }
@@ -319,7 +342,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f7fa;
+  background: var(--app-bg-page);
 }
 
 .gate-logo {
@@ -344,8 +367,8 @@
   width: 112rpx;
   height: 112rpx;
   border-radius: 50%;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand); /* 品牌底前景色 */
   font-size: 48rpx;
   font-weight: 600;
   display: flex;
@@ -362,13 +385,13 @@
 .me-panel .me-name {
   font-size: 36rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .me-panel .me-sub {
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 /* 功能列表 */
@@ -379,11 +402,11 @@
 
 /* 「绑定商旅」行右侧状态文案（t-cell note 外部样式类）；已过期为危险红 */
 .me-panel .sgcc-note {
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .me-panel .sgcc-note-expired {
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 
 /* 过期警示前置红色三角感叹号图标 */
@@ -410,8 +433,204 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #f53f3f;
+  color: var(--app-danger-text);
   font-size: 30rpx;
   font-weight: 600;
   transition: background-color 0.15s ease;
+}
+
+/* ---------- t-icon 字号（size 属性写内联 rpx 会随屏宽膨胀，改由外部样式类控制） ---------- */
+.ico-54 {
+  font-size: 54rpx;
+}
+
+.ico-32 {
+  font-size: 32rpx;
+}
+
+.ico-30 {
+  font-size: 30rpx;
+}
+
+.ico-26 {
+  font-size: 26rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起内容限宽居中、关键字阶/控件改固定 px（rpx 会随屏宽膨胀）；
+   900px 起数据条下双栏（应用 | 通知）并把应用网格增为 6 列；1200px 起增为 8 列 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .hero-greet {
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .hero-name {
+    font-size: 18px;
+  }
+
+  .hero-sub {
+    font-size: 11px;
+  }
+
+  .stat-num {
+    font-size: 16px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+  }
+
+  .n-title {
+    font-size: 14px;
+  }
+
+  .n-row-title {
+    font-size: 12.5px;
+  }
+
+  .n-row-time {
+    font-size: 11px;
+  }
+
+  .n-empty,
+  .n-error-text,
+  .n-retry {
+    font-size: 12px;
+  }
+
+  .n-toggle {
+    font-size: 11px;
+  }
+
+  .g-name {
+    font-size: 11px;
+  }
+
+  .empty {
+    font-size: 12px;
+  }
+
+  .tip {
+    font-size: 10px;
+  }
+
+  .me-panel .me-name {
+    font-size: 18px;
+  }
+
+  .me-panel .me-sub {
+    font-size: 12px;
+  }
+
+  .me-panel .logout {
+    height: 48px;
+    font-size: 15px;
+  }
+
+  /* 控件尺寸约束 */
+  .n-ico {
+    width: 26px;
+    height: 26px;
+  }
+
+  .g-ico {
+    width: 46px;
+    height: 46px;
+  }
+
+  .me-panel .avatar {
+    width: 56px;
+    height: 56px;
+    font-size: 24px;
+  }
+
+  .ico-54 {
+    font-size: 27px;
+  }
+
+  .ico-32 {
+    font-size: 16px;
+  }
+
+  .ico-30 {
+    font-size: 15px;
+  }
+
+  .ico-26 {
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  .hero-greet {
+    max-width: 960px;
+  }
+
+  /* 数据条以下双栏：左应用中心、右消息通知（展开区并排，不把拉宽当适配） */
+  .home-body {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    column-gap: 24px;
+    align-items: start;
+  }
+
+  .home-body .stats-strip {
+    grid-column: 1 / -1;
+  }
+
+  .home-body .app-sec {
+    grid-column: 1;
+    grid-row: 2;
+    margin-bottom: 0;
+  }
+
+  .home-body .grid-card {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .home-body .notice-card {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    margin: 0 0 32px;
+  }
+
+  .home-body .tip {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    margin-top: 16px;
+  }
+
+  /* 应用网格增为 6 列 */
+  .g-item {
+    width: 16.6667%;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  .hero-greet {
+    max-width: 1120px;
+  }
+
+  /* 应用网格增为 8 列 */
+  .g-item {
+    width: 12.5%;
+  }
 }

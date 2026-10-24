@@ -56,8 +56,7 @@
               </view>
               <t-icon
                 name="chevron-down"
-                size="32rpx"
-                color="rgba(29,33,41,.4)"
+                t-class="ico-32"
                 class="think-arrow {{item.streaming || item.thinkingExpanded ? 'think-arrow-open' : ''}}"
               />
             </view>
@@ -77,8 +76,8 @@
                     <view class="step-icon {{step.status === 'running' ? 'step-icon-run' : ''}}">
                       <t-icon
                         name="{{step.icon}}"
-                        size="28rpx"
-                        color="{{step.status === 'running' ? '#0E3DA8' : (step.status === 'error' ? '#F53F3F' : 'rgba(29,33,41,.4)')}}"
+                        t-class="ico-28"
+                        class="{{step.status === 'running' ? 'ico-brand' : (step.status === 'error' ? 'ico-danger' : 'ico-mute')}}"
                       />
                     </view>
                     <view wx:if="{{index < item.steps.length - 1}}" class="step-line"></view>
@@ -92,8 +91,7 @@
                         wx:if="{{step.status === 'error'}}"
                         class="step-err-x"
                         name="error-triangle"
-                        size="22rpx"
-                        color="#F53F3F"
+                        t-class="ico-22"
                       />
                       {{step.title}}
                     </view>
@@ -142,8 +140,8 @@
             >
               <t-icon
                 name="{{item.copied ? 'check' : 'copy'}}"
-                size="28rpx"
-                color="{{item.copied ? '#0E3DA8' : 'rgba(29,33,41,.4)'}}"
+                t-class="ico-28"
+                class="{{item.copied ? 'ico-brand' : ''}}"
               />
             </view>
             <view
@@ -152,7 +150,7 @@
               data-index="{{index}}"
               bindtap="onDelete"
             >
-              <t-icon name="delete" size="28rpx" color="rgba(29,33,41,.4)" />
+              <t-icon name="delete" t-class="ico-28" />
             </view>
             <text class="msg-time" wx:if="{{item.timeText}}">{{item.timeText}}</text>
           </view>
@@ -178,8 +176,8 @@
         >
           <t-icon
             name="{{item.icon}}"
-            size="36rpx"
-            color="{{item.status === 'failed' ? '#F53F3F' : '#0E3DA8'}}"
+            t-class="ico-36"
+            class="{{item.status === 'failed' ? 'ico-danger' : 'ico-brand'}}"
           />
           <view class="attach-info">
             <text class="attach-name">{{item.name}}</text>
@@ -232,7 +230,7 @@
             hover-class="hover-opacity"
             bindtap="toggleWebSearch"
           >
-            <t-icon name="internet" size="24rpx" color="{{webSearchOn ? '#FFFFFF' : '#4E5969'}}" />
+            <t-icon name="internet" t-class="ico-24" />
             <text>联网搜索</text>
           </view>
           <view
@@ -242,7 +240,7 @@
             bindtap="chooseReasoning"
           >
             <text>{{reasoningLabel}}</text>
-            <t-icon name="chevron-down" size="20rpx" color="#4E5969" />
+            <t-icon name="chevron-down" t-class="ico-20" />
           </view>
           <view
             wx:if="{{models.length}}"
@@ -254,21 +252,20 @@
             <t-icon
               wx:if="{{models.length > 1}}"
               name="chevron-down"
-              size="20rpx"
-              color="#4E5969"
+              t-class="ico-20"
             />
           </view>
         </view>
         <view class="toolbar-btns">
           <view class="add-btn" hover-class="hover-opacity" bindtap="onAddTap">
-            <t-icon name="add" size="40rpx" color="#4E5969" />
+            <t-icon name="add" t-class="ico-40" />
           </view>
           <view
             class="send-btn {{canSend ? '' : 'send-disabled'}}"
             hover-class="hover-scale"
             bindtap="onSend"
           >
-            <t-icon name="send" size="40rpx" color="#FFFFFF" />
+            <t-icon name="send" t-class="ico-40" />
           </view>
         </view>
       </view>
@@ -279,17 +276,19 @@
   <view wx:if="{{sheetShow}}" class="sheet-mask" bindtap="closeSheet">
     <view class="sheet" catchtap="noop">
       <view class="sheet-title">{{sheetTitle}}</view>
-      <view
-        wx:for="{{sheetOptions}}"
-        wx:key="index"
-        class="sheet-opt {{item.value === sheetValue ? 'sheet-opt-on' : ''}}"
-        data-value="{{item.value}}"
-        hover-class="hover-opacity"
-        bindtap="onSheetPick"
-      >
-        <text>{{item.label}}</text>
-        <t-icon wx:if="{{item.value === sheetValue}}" name="check" size="32rpx" color="#0E3DA8" />
-      </view>
+      <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+        <view
+          wx:for="{{sheetOptions}}"
+          wx:key="index"
+          class="sheet-opt {{item.value === sheetValue ? 'sheet-opt-on' : ''}}"
+          data-value="{{item.value}}"
+          hover-class="hover-opacity"
+          bindtap="onSheetPick"
+        >
+          <text>{{item.label}}</text>
+          <t-icon wx:if="{{item.value === sheetValue}}" name="check" t-class="ico-32" />
+        </view>
+      </scroll-view>
       <view class="sheet-cancel" hover-class="hover-opacity" bindtap="closeSheet">取消</view>
     </view>
   </view>

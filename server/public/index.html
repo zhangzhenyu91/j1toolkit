@@ -47,7 +47,7 @@
         flex: none;
         border-radius: 50%;
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -251,7 +251,7 @@
         padding: 10px 16px;
         border: 0;
         border-top: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         color: var(--orange);
         font-size: 12.5px;
         font-weight: 600;
@@ -401,7 +401,7 @@
       /* 应用区内空态占满整行 */
       .apps .empty {
         grid-column: 1 / -1;
-        background: #fff;
+        background: var(--card);
         border-radius: var(--radius);
         box-shadow: var(--shadow-card);
       }
@@ -427,7 +427,7 @@
         flex: none;
         border-radius: 10px;
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -451,7 +451,7 @@
         position: fixed;
         inset: 0;
         z-index: 200;
-        background: rgba(29, 33, 41, 0.45);
+        background: var(--overlay);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -471,7 +471,7 @@
       .modal {
         width: 100%;
         max-width: 560px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: var(--radius);
         overflow: hidden;
@@ -526,7 +526,7 @@
       #noticeDelRead:hover {
         border-color: var(--red);
         color: var(--red);
-        background: #ffece8;
+        background: var(--danger-soft);
       }
       #noticeDelRead[hidden] {
         display: none;
@@ -676,7 +676,7 @@
         transition: background 0.15s;
       }
       .nm-del:hover {
-        background: #ffece8;
+        background: var(--danger-soft);
       }
       /* 删除确认弹层（复用 .mask/.modal；对齐 admin.html 删除班组确认） */
       .modal-bd {

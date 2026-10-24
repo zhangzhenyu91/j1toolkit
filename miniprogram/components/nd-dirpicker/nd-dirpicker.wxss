@@ -1,18 +1,44 @@
 /* 共享组件 · 网盘目录选择器（样式跟随 pkg-netdisk 目标位置选择弹层，同「政企蓝白」token；
-   组件默认样式隔离，app.wxss 全局类不可达，按压反馈类本地重定义） */
+   组件默认样式隔离，app.wxss 全局类不可达，按压反馈类本地重定义；--app-* 语义变量经继承
+   可达，颜色一律引用之（深色随系统），弱化占位 #C9CDD4 无对应 token 浅色保持定稿值、深色单独覆盖） */
 
 .hover-opacity {
   opacity: 0.75 !important;
 }
 
 .hover-bg-warm {
-  background-color: #e8f0ff !important;
+  background-color: var(--app-brand-light) !important;
 }
 
+/* 弹层壳：固定头（抓手/标题/分段/面包屑/新建入口）+ 目录独立滚动 + 固定操作脚；
+   整体 86vh 限高；底部 padding 由内联 keyboardHeight 机制接管（无键盘时 40rpx+安全区，
+   本规则仅作同值静态兜底，安全区不重复补偿） */
 .ndp-sheet {
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 32rpx 32rpx 0 0;
   padding-bottom: calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* 弹层内非体块默认不参与收缩（头/说明/分段/面包屑/新建/脚），目录 scroll-view 独占剩余空间并滚动 */
+.ndp-sheet > view {
+  flex: none;
+}
+
+.ndp-sheet > scroll-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
+.t-popup__close {
+  display: none;
 }
 
 /* 抓手 */
@@ -20,7 +46,7 @@
   width: 72rpx;
   height: 8rpx;
   border-radius: 4rpx;
-  background: #e5e6eb;
+  background: var(--app-border);
   margin: 16rpx auto 8rpx;
 }
 
@@ -28,14 +54,14 @@
   padding: 24rpx 32rpx 0;
   font-size: 31rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .ndp-sub {
   padding: 0 32rpx;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 /* 空间分段（我的空间/公共区）：浅灰轨道 + 白色激活块 */
@@ -44,7 +70,7 @@
   gap: 8rpx;
   margin: 20rpx 32rpx 0;
   padding: 6rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 16rpx;
 }
 
@@ -57,12 +83,15 @@
   justify-content: center;
   font-size: 25rpx;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .ndp-space.on {
-  background: #ffffff;
-  color: #0e3da8;
+  background: var(--app-bg-card);
+  color: var(--app-brand);
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.06);
 }
 
@@ -79,18 +108,19 @@
 
 .ndp-link {
   flex: none;
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
+  transition: opacity 0.15s ease;
 }
 
 .ndp-sep {
   flex: none;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 .ndp-cur {
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -103,14 +133,15 @@
   gap: 14rpx;
   margin: 16rpx 32rpx 0;
   padding: 16rpx 20rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 16rpx;
+  transition: background-color 0.15s ease;
 }
 
 .ndp-mk-t {
   font-size: 25rpx;
   font-weight: 600;
-  color: #0e3da8;
+  color: var(--app-brand);
 }
 
 .ndp-mkedit {
@@ -125,10 +156,10 @@
   min-width: 0;
   height: 76rpx;
   padding: 0 24rpx;
-  background: #f7f8fa;
+  background: var(--app-bg-nested);
   border-radius: 16rpx;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .ndp-ph {
@@ -146,16 +177,17 @@
   justify-content: center;
   font-size: 26rpx;
   font-weight: 600;
+  transition: opacity 0.15s ease;
 }
 
 .ndp-mkok {
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
 }
 
 .ndp-mkno {
-  background: #f7f8fa;
-  color: #4e5969;
+  background: var(--app-bg-nested);
+  color: var(--app-text-secondary);
 }
 
 .ndp-mkok.disabled,
@@ -164,12 +196,14 @@
   opacity: 0.5;
 }
 
-/* 目录列表（仅文件夹） */
+/* 目录列表（仅文件夹；flex 占剩余空间独立滚动，整体限高由 .ndp-sheet 86vh 承担） */
 .ndp-list {
   margin-top: 8rpx;
   padding: 0 32rpx;
-  max-height: 44vh;
+  flex: 1 1 auto;
   min-height: 200rpx;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .ndp-dir {
@@ -177,7 +211,8 @@
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 8rpx;
-  border-top: 1rpx solid #f7f8fa;
+  border-top: 1rpx solid var(--app-bg-nested);
+  transition: background-color 0.15s ease;
 }
 
 .ndp-name {
@@ -185,7 +220,7 @@
   min-width: 0;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -195,10 +230,10 @@
   padding: 64rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
-/* 底部按钮行：取消 + 主按钮 */
+/* 底部按钮行：取消 + 主按钮（固定操作脚；安全区由壳层 padding 统一承担，此处不重复补偿） */
 .ndp-ops {
   margin: 24rpx 32rpx 0;
   display: flex;
@@ -209,25 +244,200 @@
   flex: 1;
   height: 84rpx;
   border-radius: 16rpx;
-  background: #f7f8fa;
-  color: #4e5969;
+  background: var(--app-bg-nested);
+  color: var(--app-text-secondary);
   font-size: 28rpx;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
 }
 
 .ndp-confirm {
   flex: 2;
   height: 84rpx;
   border-radius: 16rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   font-size: 28rpx;
   font-weight: 600;
   letter-spacing: 2rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+/* ---------- t-icon 外部样式类（size 属性写内联 rpx 会随屏宽膨胀，改由 t-class 控制字号；
+   图标色不经 color 属性传 var()，经 t-class/父级颜色继承，随 --app-* 深浅） ---------- */
+.ico-30 {
+  font-size: 30rpx;
+}
+
+.ico-34 {
+  font-size: 34rpx;
+}
+
+.ico-38 {
+  font-size: 38rpx;
+}
+
+.ico-brand {
+  color: var(--app-brand);
+}
+
+/* 弱化占位（#C9CDD4 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+@media (prefers-color-scheme: dark) {
+  .ndp-ph {
+    color: rgba(255, 255, 255, 0.4);
+  }
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起弹层限宽居中 + 关键字阶/控件改固定 px；900/1200px 起目录行更从容，限宽缓增（无内容增列需求） */
+@media (min-width: 600px) {
+  .ndp-sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .grab {
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 4px;
+  }
+
+  .ndp-title {
+    padding: 12px 16px 0;
+    font-size: 15.5px;
+  }
+
+  .ndp-sub {
+    padding: 0 16px;
+    margin-top: 5px;
+    font-size: 11.5px;
+  }
+
+  .ndp-spaces {
+    gap: 4px;
+    margin: 10px 16px 0;
+    padding: 3px;
+    border-radius: 8px;
+  }
+
+  .ndp-space {
+    height: 32px;
+    border-radius: 6px;
+    font-size: 12.5px;
+  }
+
+  .ndp-crumb {
+    gap: 6px;
+    font-size: 12px;
+    padding: 0 16px;
+    margin-top: 10px;
+  }
+
+  .ndp-mk {
+    gap: 7px;
+    margin: 8px 16px 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+  }
+
+  .ndp-mk-t {
+    font-size: 12.5px;
+  }
+
+  .ndp-mkedit {
+    gap: 8px;
+    margin: 8px 16px 0;
+  }
+
+  .ndp-mkinput {
+    height: 38px;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  .ndp-mkok,
+  .ndp-mkno {
+    height: 38px;
+    padding: 0 14px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  .ndp-list {
+    margin-top: 4px;
+    padding: 0 16px;
+    min-height: 100px;
+  }
+
+  .ndp-dir {
+    gap: 8px;
+    padding: 9px 4px;
+  }
+
+  .ndp-name {
+    font-size: 13px;
+  }
+
+  .ndp-empty {
+    padding: 32px 0;
+    font-size: 12px;
+  }
+
+  .ndp-ops {
+    margin: 12px 16px 0;
+    gap: 10px;
+  }
+
+  .ndp-cancel,
+  .ndp-confirm {
+    height: 42px;
+    border-radius: 8px;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+
+  .ico-30 {
+    font-size: 15px;
+  }
+
+  .ico-34 {
+    font-size: 17px;
+  }
+
+  .ico-38 {
+    font-size: 19px;
+  }
+}
+
+@media (min-width: 900px) {
+  .ndp-sheet {
+    max-width: 680px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .ndp-sheet {
+    max-width: 720px;
+  }
+}
+
+/* 组件内部自行降级：默认样式隔离使 app.wxss 无法覆盖这里的状态过渡 */
+@media (prefers-reduced-motion: reduce) {
+  view,
+  text,
+  image,
+  input,
+  scroll-view,
+  t-icon {
+    animation: none !important;
+    transition: none !important;
+  }
 }

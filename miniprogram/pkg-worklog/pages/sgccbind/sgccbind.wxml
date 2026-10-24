@@ -7,7 +7,7 @@
     <!-- 顶部提示卡 -->
     <view class="tip sg-tip-first">
       <view class="ti">
-        <t-icon name="info-circle" size="36rpx" color="#0E3DA8" />
+        <t-icon name="info-circle" t-class="ico-36 ico-brand" />
       </view>
       <view>
         <text class="tip-t">绑定本人商旅账号</text>
@@ -41,7 +41,7 @@
         >
       </view>
       <view class="field">
-        <t-icon name="mobile" size="38rpx" color="rgba(29,33,41,.4)" />
+        <t-icon name="mobile" t-class="ico-38 ico-weak" />
         <input
           class="fi"
           type="number"
@@ -53,7 +53,7 @@
         />
       </view>
       <view class="field" wx:if="{{captchaImg}}">
-        <t-icon name="check-rectangle" size="38rpx" color="rgba(29,33,41,.4)" />
+        <t-icon name="check-rectangle" t-class="ico-38 ico-weak" />
         <input
           class="fi"
           placeholder="图形验证码"
@@ -73,7 +73,7 @@
         >图形码不可用？改用滑块验证</view
       >
       <view class="field" wx:if="{{loginType === 'sms'}}">
-        <t-icon name="lock-on" size="38rpx" color="rgba(29,33,41,.4)" />
+        <t-icon name="lock-on" t-class="ico-38 ico-weak" />
         <input
           class="fi"
           type="number"
@@ -92,7 +92,7 @@
         </view>
       </view>
       <view class="field" wx:else>
-        <t-icon name="lock-on" size="38rpx" color="rgba(29,33,41,.4)" />
+        <t-icon name="lock-on" t-class="ico-38 ico-weak" />
         <input
           class="fi"
           password
@@ -194,7 +194,7 @@
     <view class="sheet-actions sg-actions">
       <view class="btn-ghost danger" hover-class="hover-opacity" bindtap="onUnbind">解除绑定</view>
       <view class="btn-dark" hover-class="hover-opacity" bindtap="onRelogin">
-        <t-icon name="refresh" size="34rpx" color="#FFFFFF" />
+        <t-icon name="refresh" t-class="ico-34" />
         重新登录
       </view>
     </view>

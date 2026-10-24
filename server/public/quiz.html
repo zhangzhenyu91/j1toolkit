@@ -47,9 +47,9 @@
         display: none !important;
       } /* author display 规则优先于 UA [hidden]，显式兜底 */
 
-      /* 答题对错用色：业务绿 var(--green)（浅绿底 #EAF5EF 同 worklog 口径；解析状态「已解析」标签用） */
+      /* 答题对错用色：业务绿 var(--green)（浅绿底 --ok-soft 同 worklog 口径；解析状态「已解析」标签用） */
       .tag-green {
-        background: #eaf5ef;
+        background: var(--ok-soft);
         color: var(--green);
       }
 
@@ -111,7 +111,7 @@
         flex: none;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--sub);
         cursor: pointer;
         display: flex;
@@ -165,6 +165,14 @@
       }
       .side-item > svg {
         flex: none;
+        color: var(--sub);
+      }
+      .side-item.on > svg {
+        color: var(--orange);
+      }
+      /* 空态成功图标（theme 的 .empty svg 置灰，此处覆盖为业务绿） */
+      .ic-ok svg {
+        color: var(--green);
       }
       .side-item .tx {
         flex: 1;
@@ -204,7 +212,7 @@
       }
       .side-item .ops button:hover {
         color: var(--orange);
-        background: #fff;
+        background: var(--card);
       }
       .side-item .ops svg {
         width: 14px;
@@ -365,7 +373,7 @@
         gap: 12px;
         padding: 11px 14px;
         font-size: 12.5px;
-        background: #fff;
+        background: var(--card);
       }
       .qtable .tr + .tr {
         border-top: 1px solid var(--hair);
@@ -448,7 +456,7 @@
         padding: 0 6px;
         border-radius: 8px;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--card);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -467,7 +475,7 @@
       .pager button.on {
         background: var(--orange);
         border-color: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         font-weight: 700;
       }
       .pager button[disabled] {
@@ -488,7 +496,7 @@
         inset: 0;
         z-index: 320;
         padding: 24px;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
@@ -500,7 +508,7 @@
         opacity: 1;
       }
       .modal {
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         width: 560px;
@@ -510,7 +518,7 @@
         padding: 6px;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transform: translateY(16px) scale(0.98);
         transition: transform 0.35s var(--ease);
       }
@@ -544,13 +552,13 @@
         height: 30px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transition:
           background 0.15s,
           color 0.15s;
@@ -642,7 +650,7 @@
       }
       .type-seg button.on {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         font-weight: 600;
       }
       .opt-edit {
@@ -679,7 +687,7 @@
         padding: 0 13px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--sub);
         font-size: 12.5px;
         font-weight: 700;
@@ -902,7 +910,7 @@
       }
       .pv-vm i.on {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
       .pv-pg {
         flex: 1;
@@ -985,17 +993,17 @@
       .pv-opt.sel .ab {
         border-color: var(--orange);
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
       .pv-opt.right .ab {
         border-color: var(--green);
         background: var(--green);
-        color: #fff;
+        color: var(--on-brand);
       }
       .pv-opt.wrong .ab {
         border-color: var(--red);
         background: var(--red);
-        color: #fff;
+        color: var(--on-brand);
       }
       .pv-opt .tx {
         min-width: 0;
@@ -1007,7 +1015,7 @@
       .r-line {
         margin: 14px 0 0;
         padding: 12px 15px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--hair);
         border-radius: 8px;
       }
@@ -1078,7 +1086,7 @@
       }
       .pv-ana-edit:hover {
         color: var(--orange);
-        background: #fff;
+        background: var(--card);
       }
       .pv-ana-edit svg {
         width: 14px;
@@ -1169,16 +1177,16 @@
       }
       .pv-chip.ok {
         background: var(--green);
-        color: #fff;
+        color: var(--on-brand);
       }
       .pv-chip.bad {
         background: var(--red);
-        color: #fff;
+        color: var(--on-brand);
       }
       .pv-chip.cur {
         box-shadow: inset 0 0 0 2px var(--orange);
         color: var(--navy);
-        background: #fff;
+        background: var(--card);
       }
       .pv-legend {
         display: flex;
@@ -1253,9 +1261,9 @@
         width: 18px;
         height: 18px;
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         transition: left 0.25s;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
       }
       .pv-sw.on {
         background: var(--orange);
@@ -1535,7 +1543,7 @@
                 '" data-id="' +
                 b.id +
                 '">' +
-                Shade.icon('book', 17, on ? '#0E3DA8' : 'rgba(29, 33, 41, .62)') +
+                Shade.icon('book', 17) +
                 '<div class="tx"><b>' +
                 esc(b.name) +
                 '</b><span>' +
@@ -2560,7 +2568,7 @@
                 '" data-id="' +
                 b.id +
                 '">' +
-                Shade.icon('book', 17, on ? '#0E3DA8' : 'rgba(29, 33, 41, .62)') +
+                Shade.icon('book', 17) +
                 '<div class="tx"><b>' +
                 esc(b.name) +
                 '</b><span>' +
@@ -2856,7 +2864,9 @@
                 : '该题库暂无题目';
           pane.innerHTML =
             '<div class="empty" style="margin:auto">' +
-            Shade.icon('check-circle', 44, '#00B42A') +
+            '<span class="ic-ok">' +
+            Shade.icon('check-circle', 44) +
+            '</span>' +
             '<p>' +
             t +
             '</p><button class="btn btn-sm" id="pvBack2">返回题库主页</button></div>';
@@ -2999,8 +3009,8 @@
             else if (pv.settings.shuffleOpt && !res)
               order = pv.shuffle[q.id] = pvShuffleIdx((q.options || []).length);
           }
-          var checkSvg = Shade.icon('check', 13, '#fff');
-          var closeSvg = Shade.icon('close', 13, '#fff');
+          var checkSvg = Shade.icon('check', 13);
+          var closeSvg = Shade.icon('close', 13);
           var optsHtml = (q.options || [])
             .map(function (_, i) {
               var origIdx = order ? order[i] : i;
@@ -3112,9 +3122,13 @@
             Shade.icon('star', 13) +
             '收藏</button>' +
             '<span class="pv-chipbtn">' +
-            Shade.icon('check', 12, '#00B42A') +
+            '<span class="qz-ok">' +
+            Shade.icon('check', 12) +
+            '</span>' +
             counts.right +
-            Shade.icon('close', 12, '#F53F3F') +
+            '<span class="qz-bad">' +
+            Shade.icon('close', 12) +
+            '</span>' +
             counts.wrong +
             '</span>' +
             '<button class="pv-chipbtn" id="pvSheet">' +

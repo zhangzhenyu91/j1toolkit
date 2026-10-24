@@ -14,8 +14,8 @@ page {
 
 /* ---------- 生成卡片（同 manage 页 tower-bar 族：白卡直角 + 墨边浅色硬影 + 墨黑主按钮） ---------- */
 .card {
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 28rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
@@ -35,12 +35,12 @@ page {
 .r-t {
   font-size: 27rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .r-s {
   font-size: 20rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   margin-top: 6rpx;
 }
 
@@ -55,7 +55,7 @@ page {
 .range-text {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--app-text-primary);
   letter-spacing: 1rpx;
 }
 
@@ -64,9 +64,9 @@ page {
   flex: none;
   font-size: 24rpx;
   font-weight: 700;
-  color: #ffffff;
-  background: #0e3da8;
-  border: 2rpx solid #e5e6eb;
+  color: var(--app-on-brand);
+  background: var(--app-brand);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   padding: 14rpx 32rpx;
@@ -76,8 +76,8 @@ page {
   margin-top: 28rpx;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #1d2129;
-  color: #ffffff;
+  background: var(--app-text-primary);
+  color: var(--app-bg-card);
   font-size: 27rpx;
   font-weight: 700;
   display: flex;
@@ -93,8 +93,8 @@ page {
 /* 存网盘（次按钮：浅蓝底蓝字，与主按钮同形） */
 .gen.nd {
   margin-top: 20rpx;
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   box-shadow: none;
 }
 
@@ -103,5 +103,47 @@ page {
   padding: 0 8rpx;
   font-size: 22rpx;
   line-height: 1.8;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+}
+
+/* ---------- iPad / 宽屏适配（600px 起限宽并约束关键字阶/控件；手机不受影响） ---------- */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+  }
+
+  .sheet-title {
+    font-size: 16px;
+  }
+
+  .gen {
+    height: 44px;
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  .sheet {
+    max-width: 720px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
 }

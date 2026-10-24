@@ -78,7 +78,7 @@ const APP_SAFE_DAY = {
   name: '安全日活动记录',
   icon: 'file-safety',
   path: '/pkg-safeday/pages/index/index',
-  sort: 3,
+  sort: 10,
   terminal: 'both',
 };
 
@@ -88,7 +88,7 @@ const APP_KVM = {
   name: '远程连接计算机',
   icon: 'terminal',
   path: '',
-  sort: 4,
+  sort: 7,
   terminal: 'pc',
 };
 
@@ -98,7 +98,7 @@ const APP_FILE_TRANSFER = {
   name: '文件传输',
   icon: 'swap',
   path: '/pkg-filetransfer/pages/index/index',
-  sort: 5,
+  sort: 6,
   terminal: 'mobile',
 };
 
@@ -108,7 +108,7 @@ const APP_WM_ADD = {
   name: '水印添加',
   icon: 'image',
   path: '/pkg-wmadd/pages/index/index',
-  sort: 6,
+  sort: 9,
   terminal: 'both',
 };
 

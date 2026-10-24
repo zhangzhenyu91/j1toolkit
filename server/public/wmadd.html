@@ -92,7 +92,7 @@
         gap: 14px;
         text-align: left;
         font-family: inherit;
-        background: #fff;
+        background: var(--card);
         border: none;
         border-radius: var(--radius);
         box-shadow: var(--shadow-card);
@@ -159,7 +159,7 @@
         inset: 0;
         z-index: 320;
         padding: 24px;
-        background: rgba(29, 33, 41, 0.5);
+        background: var(--overlay);
         backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
@@ -171,7 +171,7 @@
         opacity: 1;
       }
       .modal {
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         width: 560px;
@@ -181,7 +181,7 @@
         padding: 6px;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transform: translateY(16px) scale(0.98);
         transition: transform 0.35s var(--ease);
       }
@@ -231,20 +231,20 @@
         height: 30px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transition:
           background 0.15s,
           color 0.15s;
       }
       .m-x:hover {
         background: var(--navy);
-        color: #fff;
+        color: var(--inverse-text);
       }
       .m-x svg {
         width: 14px;
@@ -273,7 +273,7 @@
         width: 100%;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         outline: none;
         font-size: 13px;
         color: var(--navy);
@@ -332,7 +332,7 @@
       .chip {
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: #fff;
+        background: var(--card);
         color: var(--navy);
         font-size: 12.5px;
         padding: 4px 13px;
@@ -500,7 +500,7 @@
         min-height: 0;
         max-height: 208px;
         overflow-y: auto;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
         box-shadow: var(--hard-s);

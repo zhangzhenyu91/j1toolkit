@@ -3,19 +3,38 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import { iconColors } from '../../common/icon-theme';
 
 const EMPTY_FORM = { id: null, name: '', status: 1 };
 
 Page({
   data: {
+    ico: iconColors('light'), // t-icon 图标色计算值（随系统主题刷新）
     teams: [],
     loading: true,
     showEdit: false,
     saving: false,
+    keyboardHeight: 0,
     form: { ...EMPTY_FORM },
   },
 
+  onLoad() {
+    // t-icon 图标色按系统主题计算，主题变化时刷新
+    this._onThemeChange = (res) => this.setData({ ico: iconColors(res && res.theme) });
+    this.setData({ ico: iconColors() });
+    wx.onThemeChange(this._onThemeChange);
+  },
+
+  // 页面卸载解除主题监听
+  onUnload() {
+    if (this._onThemeChange) {
+      wx.offThemeChange(this._onThemeChange);
+      this._onThemeChange = null;
+    }
+  },
+
   onShow() {
+    this.setData({ ico: iconColors() });
     this.load();
   },
 
@@ -44,13 +63,14 @@ Page({
 
   // ---------- 新增 / 编辑弹层 ----------
   openAdd() {
-    this.setData({ showEdit: true, form: { ...EMPTY_FORM } });
+    this.setData({ showEdit: true, keyboardHeight: 0, form: { ...EMPTY_FORM } });
   },
 
   openEdit(e) {
     const team = this.data.teams[e.currentTarget.dataset.index];
     this.setData({
       showEdit: true,
+      keyboardHeight: 0,
       form: {
         id: team.id,
         name: team.name,
@@ -60,12 +80,16 @@ Page({
   },
 
   closeEdit() {
-    this.setData({ showEdit: false });
+    this.setData({ showEdit: false, keyboardHeight: 0 });
   },
 
   onVisibleChange(e) {
     // 遮罩点击关闭
-    this.setData({ showEdit: e.detail.visible });
+    this.setData({ showEdit: e.detail.visible, keyboardHeight: 0 });
+  },
+
+  onKeyboardHeight(e) {
+    this.setData({ keyboardHeight: e.detail.height || 0 });
   },
 
   onField(e) {

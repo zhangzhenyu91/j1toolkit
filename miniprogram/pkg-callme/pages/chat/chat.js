@@ -9,10 +9,19 @@ import { createUtf8Decoder, createSseParser } from '../../utils/sse';
 import { shareAppMessage } from '../../../utils/share';
 
 // Markdown 排版样式：tag 样式与渲染实例统一用 utils/markdown.js 那一份（「政企蓝白」色板，mp-html 按标签名生效）；
-// 容器样式本地覆盖——聊天气泡字号略大（14.5px），其余与共享口径一致
-const { renderMarkdownRaw, MD_TAG_STYLE } = require('../../../utils/markdown');
+// 经 getMarkdownStyle 按系统主题取 tag/容器排版样式（含深色正文色），容器样式本地覆盖——
+// 聊天气泡字号略大（14.5px），其余与共享口径一致；渲染安全策略不变（markdown-it html:false + breaks:false）
+const { renderMarkdownRaw, getMarkdownStyle } = require('../../../utils/markdown');
 const { parseDate, pad, fmtSize, extOf } = require('../../../utils/util');
-const MD_CONTAINER_STYLE = 'font-size:14.5px;line-height:1.7;color:#1D2129;word-break:break-word;';
+
+// 对话页排版样式绑定值：共享口径 + 容器 14.5px 字号覆盖（theme 缺省读系统主题）
+function chatMdStyle(theme) {
+  const style = getMarkdownStyle(theme);
+  return {
+    mdTagStyle: style.mdTagStyle,
+    mdContainerStyle: style.mdContainerStyle.replace('font-size:14px', 'font-size:14.5px'),
+  };
+}
 
 // 附件白名单与上限（与服务端一致；wx.chooseMessageFile extension 过滤 + 端侧复核，同 worklog 先例）
 const ATTACH_EXTS = [
@@ -103,8 +112,7 @@ Page({
     canSend: false,
     toView: '',
     keyboardHeight: 0, // 键盘弹起高度（px），用于输入栏上移至键盘正上方
-    mdTagStyle: MD_TAG_STYLE,
-    mdContainerStyle: MD_CONTAINER_STYLE,
+    ...chatMdStyle('light'), // 标签/容器排版样式计算值（随系统主题刷新，不重建已渲染 HTML）
   },
 
   onLoad(options) {
@@ -131,12 +139,25 @@ Page({
       sessionId: id,
       title: title ? decodeURIComponent(title) : '新对话',
     });
+    // 系统主题变化时刷新排版样式绑定值（不重建已渲染 HTML）
+    this._onThemeChange = (res) => this.setData(chatMdStyle(res && res.theme));
+    this.setData(chatMdStyle());
+    wx.onThemeChange(this._onThemeChange);
     this.loadHistory();
     this.loadCapabilities();
   },
 
+  onShow() {
+    // 回前台同步排版样式（主题可能在后台切换）
+    this.setData(chatMdStyle());
+  },
+
   onUnload() {
     this._unloaded = true;
+    if (this._onThemeChange) {
+      wx.offThemeChange(this._onThemeChange);
+      this._onThemeChange = null;
+    }
     if (this._renderTimer) {
       clearTimeout(this._renderTimer);
       this._renderTimer = null;

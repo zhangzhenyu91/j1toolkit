@@ -123,7 +123,7 @@
       /* ===== 角色徽章：超管品牌蓝底白字 / 班组管理员浅蓝底蓝字徽章（badge-outline）/ 普通用户浅灰签（tag-navy） ===== */
       .role-admin {
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
       }
       .act[disabled] {
         opacity: 0.45;
@@ -168,8 +168,8 @@
         width: 20px;
         height: 20px;
         border-radius: 8px;
-        background: #fff;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        background: var(--card);
+        box-shadow: var(--shadow-card);
         transition: left 0.25s;
       }
       .switch.on {
@@ -270,7 +270,7 @@
       }
       .act.danger:hover {
         color: var(--red);
-        background: rgba(245, 63, 63, 0.08);
+        background: var(--danger-soft);
       }
 
       /* ===== 权限管理：右用户 / 左应用 ===== */
@@ -324,7 +324,7 @@
         flex: none;
         border-radius: 8px;
         background: var(--orange);
-        color: #fff;
+        color: var(--on-brand);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -388,7 +388,7 @@
         flex: none;
         border-radius: 8px;
         border: 1.5px solid var(--line);
-        background: #fff;
+        background: var(--card);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -399,7 +399,7 @@
       .app-item .cbx svg {
         width: 12px;
         height: 12px;
-        color: #fff;
+        color: var(--on-brand);
         opacity: 0;
         transition: opacity 0.15s;
       }
@@ -449,7 +449,7 @@
         position: fixed;
         inset: 0;
         z-index: 200;
-        background: rgba(29, 33, 41, 0.45);
+        background: var(--overlay);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -469,10 +469,10 @@
       .modal {
         width: 100%;
         max-width: 420px;
-        background: #fff;
+        background: var(--card);
         border: 1px solid var(--line);
         border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--shadow-card);
         transform: translateY(16px) scale(0.98);
         transition: transform 0.35s var(--ease);
       }
@@ -1927,7 +1927,7 @@
               Shade.icon('check', 12) +
               '</span>' +
               '<span class="ai-ic">' +
-              Shade.icon(a.icon || 'app', 20, '#0E3DA8') +
+              Shade.icon(a.icon || 'app', 20) +
               '</span>' +
               '<span><span class="ai-nm">' +
               Shade.esc(a.name) +

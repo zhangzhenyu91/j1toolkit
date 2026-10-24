@@ -13,21 +13,21 @@
 
 .wrong-sum b em {
   font-style: normal;
-  color: #f53f3f;
+  color: var(--app-danger-text);
 }
 
 .wrong-sum p {
   margin: 10rpx 0 26rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 2rpx;
 }
 
 .btn-orange {
   height: 84rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -35,7 +35,10 @@
   font-size: 28rpx;
   font-weight: 700;
   letter-spacing: 3rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  box-shadow: var(--app-shadow-card);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 /* ---------- 错题分组（组头：题库名 + 题数 + 练这组；组内 .wrong-item 不变） ---------- */
@@ -57,7 +60,7 @@
 .g-hd .g-cnt {
   flex: none;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* 「练这组」蓝色文字按钮 */
@@ -67,7 +70,8 @@
   padding: 6rpx 4rpx 6rpx 16rpx;
   font-size: 24rpx;
   font-weight: 700;
-  color: #0e3da8;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
 }
 
 .wrong-item {
@@ -97,17 +101,18 @@
   align-items: center;
   gap: 16rpx;
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .wrong-item .ft .rm {
   margin-left: auto;
   flex: none;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 6rpx;
+  transition: opacity 0.15s ease;
 }
 
 /* ---------- 标签 ---------- */
@@ -128,18 +133,18 @@
 }
 
 .tag-orange {
-  background: #e8f0ff;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
 }
 
 .tag-navy {
-  background: #e8f0ff;
-  color: #1d2129;
+  background: var(--app-brand-light);
+  color: var(--app-text-primary);
 }
 
 .tag-red {
-  background: #ffece8;
-  color: #f53f3f;
+  background: var(--app-danger-bg);
+  color: var(--app-danger-text);
 }
 
 /* ---------- 规则说明 ---------- */
@@ -147,7 +152,7 @@
   margin-top: 26rpx;
   padding: 0 8rpx;
   font-size: 21rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 1rpx;
   display: flex;
   align-items: center;
@@ -157,12 +162,12 @@
 /* ---------- 加载中 / 空态 ---------- */
 .empty-box {
   margin-top: 24rpx;
-  border: 3rpx dashed rgba(29, 33, 41, 0.35);
+  border: 3rpx dashed var(--app-text-tertiary);
   border-radius: 12rpx;
   padding: 64rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
   letter-spacing: 2rpx;
 }
 
@@ -183,6 +188,125 @@
 
 .wrong-empty .we-p {
   font-size: 23rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 1rpx;
+}
+
+/* 图标状态色（t-icon 不传 color，经宿主 CSS color 继承） */
+.ico-ok {
+  color: var(--app-success);
+}
+
+/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+.ico-26 {
+  font-size: 26rpx;
+}
+.ico-32 {
+  font-size: 32rpx;
+}
+.ico-110 {
+  font-size: 110rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽居中、关键字阶改固定 px；900px 起错题卡两列网格 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .wrong-sum {
+    border-radius: 6px;
+  }
+
+  .wrong-sum b {
+    font-size: 22px;
+  }
+
+  .wrong-sum p {
+    font-size: 11px;
+  }
+
+  .btn-orange {
+    height: 42px;
+    font-size: 14px;
+    border-radius: 6px;
+  }
+
+  .g-hd b {
+    font-size: 14px;
+  }
+
+  .g-hd .g-cnt {
+    font-size: 11px;
+  }
+
+  .g-hd .g-go {
+    font-size: 12px;
+  }
+
+  .wrong-item .q {
+    font-size: 13.5px;
+  }
+
+  .wrong-item .ft {
+    font-size: 11px;
+  }
+
+  .rule-note {
+    font-size: 10.5px;
+  }
+
+  .empty-box {
+    font-size: 13px;
+    border-width: 1.5px;
+    border-radius: 6px;
+  }
+
+  .wrong-empty .we-t {
+    font-size: 15px;
+  }
+
+  .wrong-empty .we-p {
+    font-size: 11.5px;
+  }
+  .ico-26 {
+    font-size: 13px;
+  }
+  .ico-32 {
+    font-size: 16px;
+  }
+  .ico-110 {
+    font-size: 55px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  /* 错题卡两列网格（每组内） */
+  .group .items {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20rpx;
+  }
+
+  .wrong-item + .wrong-item {
+    margin-top: 0;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  .group .items {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
 }

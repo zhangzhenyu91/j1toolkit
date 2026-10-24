@@ -4,9 +4,17 @@
   margin-bottom: 16rpx;
 }
 
+/* 班组筛选 chip 状态切换过渡（短过渡，减弱动态效果时全局关闭） */
+.ttab {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
 /* 关键词搜索框 */
 .search-field {
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 12rpx;
   padding: 0 20rpx;
   margin-bottom: 20rpx;
@@ -32,8 +40,8 @@
   width: 80rpx;
   height: 80rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand); /* 品牌底前景色 */
   font-size: 36rpx;
   font-weight: 600;
   display: flex;
@@ -43,7 +51,7 @@
 }
 
 .u-avatar-off {
-  background: #e5e6eb;
+  background: var(--app-border);
 }
 
 .u-main {
@@ -55,7 +63,7 @@
 .u-name {
   font-size: 28rpx;
   font-weight: 500;
-  color: #1d2129;
+  color: var(--app-text-primary);
   display: flex;
   align-items: center;
   gap: 12rpx;
@@ -64,7 +72,7 @@
 .u-sub {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 /* 角色徽章（超管=墨底 / 班组管理员=蓝描边 / 普通用户=灰底） */
@@ -78,24 +86,24 @@
 }
 
 .role-admin {
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand); /* 品牌底前景色 */
 }
 
 .role-team_admin {
-  border: 1rpx solid #0e3da8;
-  color: #0e3da8;
+  border: 1rpx solid var(--app-brand);
+  color: var(--app-brand);
 }
 
 .role-user {
-  background: #e8f0ff;
-  color: #4e5969;
+  background: var(--app-brand-light);
+  color: var(--app-text-secondary);
 }
 
 .hint {
   margin-top: 24rpx;
   text-align: center;
-  color: #e5e6eb;
+  color: var(--app-text-tertiary);
   font-size: 22rpx;
 }
 
@@ -107,14 +115,14 @@
   bottom: 0;
   z-index: 100;
   padding: 16rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));
-  background: #f5f7fa;
+  background: var(--app-bg-page);
 }
 
 /* ---------- 新建 / 编辑员工弹层（直角 + 顶部墨线；.sh-head/.sh-title/.sh-sub/.sh-close/.f-label/.f-field/.sh-note/.btn-disabled 已上移 app.wxss 共用） ---------- */
 .sheet {
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 12rpx;
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
   padding: 28rpx 32rpx 48rpx;
   max-height: 78vh;
   display: flex;
@@ -135,21 +143,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #f5f7fa;
+  background: var(--app-bg-nested);
   border-radius: 12rpx;
   padding: 20rpx 16rpx;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+  transition: opacity 0.15s ease;
 }
 
 .f-in-ph {
-  color: rgba(29, 33, 41, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .team-opts {
   margin-top: 10rpx;
-  background: #ffffff;
-  border: 1rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 1rpx solid var(--app-border);
   border-radius: 12rpx;
   overflow: hidden;
 }
@@ -160,15 +169,18 @@
   justify-content: space-between;
   padding: 18rpx 20rpx;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .opt + .opt {
-  border-top: 1rpx solid #e5e6eb;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .opt-on {
-  color: #0e3da8;
+  color: var(--app-brand);
   font-weight: 600;
 }
 
@@ -187,17 +199,21 @@
   text-align: center;
   padding: 16rpx 0;
   border-radius: 12rpx;
-  border: 1rpx solid #e5e6eb;
-  background: #ffffff;
+  border: 1rpx solid var(--app-border);
+  background: var(--app-bg-card);
   font-size: 23rpx;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .sg-on {
-  border-color: #0e3da8;
-  color: #0e3da8;
-  background: #e8f0ff;
+  border-color: var(--app-brand);
+  color: var(--app-brand);
+  background: var(--app-brand-light);
 }
 
 .f-row {
@@ -209,7 +225,7 @@
 .fr-lab {
   font-size: 26rpx;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .sh-foot {
@@ -221,24 +237,169 @@
 
 .sum {
   font-size: 22rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
 }
 
 .pwd-link {
   font-size: 24rpx;
-  color: #4e5969;
+  color: var(--app-text-secondary);
+  transition: opacity 0.15s ease;
 }
 
 .btn-primary {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand); /* 品牌底前景色 */
   font-size: 30rpx;
   font-weight: 700;
   letter-spacing: 6rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+/* ---------- t-icon 字号（size 属性写内联 rpx 会随屏宽膨胀，改由外部样式类控制） ---------- */
+.ico-36 {
+  font-size: 36rpx;
+}
+
+.ico-30 {
+  font-size: 30rpx;
+}
+
+.ico-28 {
+  font-size: 28rpx;
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起列表限宽、弹层限宽居中并补安全区，关键字阶/控件改固定 px；900px 起员工列表增为两列 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .create-bar {
+    left: 50%;
+    right: auto;
+    width: 100%;
+    max-width: 680px;
+    box-sizing: border-box;
+    transform: translateX(-50%);
+  }
+
+  /* 弹层限宽居中 + 底部安全区（与 create-bar 同口径） */
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+    padding-bottom: calc(48rpx + env(safe-area-inset-bottom));
+  }
+
+  .u-name,
+  .f-in,
+  .opt,
+  .fr-lab {
+    font-size: 13px;
+  }
+
+  .u-sub,
+  .role,
+  .hint,
+  .sum,
+  .f-label {
+    font-size: 11px;
+  }
+
+  .role {
+    padding: 2px 7px;
+    border-radius: 6px;
+  }
+
+  .sh-title {
+    font-size: 15px;
+  }
+
+  .sh-sub {
+    font-size: 10.5px;
+  }
+
+  .pwd-link {
+    font-size: 12px;
+  }
+
+  .sg {
+    font-size: 11.5px;
+    padding: 8px 0;
+    border-radius: 8px;
+  }
+
+  .btn-primary {
+    height: 44px;
+    font-size: 15px;
+  }
+
+  .u-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    border-radius: 8px;
+  }
+
+  .ico-36 {
+    font-size: 18px;
+  }
+
+  .ico-30 {
+    font-size: 15px;
+  }
+
+  .ico-28 {
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  .create-bar {
+    max-width: 960px;
+  }
+
+  /* 员工列表两列网格（行间发丝线按网格重排） */
+  .list-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .list-card .u-item {
+    border-top: 1rpx solid var(--app-border);
+    border-left: 0;
+  }
+
+  .list-card .u-item:nth-child(-n + 2) {
+    border-top: 0;
+  }
+
+  .list-card .u-item:nth-child(even) {
+    border-left: 1rpx solid var(--app-border);
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
+
+  .create-bar {
+    max-width: 1120px;
+  }
 }

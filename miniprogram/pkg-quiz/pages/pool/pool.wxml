@@ -4,14 +4,14 @@
 <navbar back title="题库池" />
 
 <view class="page-body" wx:if="{{!noTeam}}">
-  <block wx:if="{{pool.length}}">
+  <view class="pool-list" wx:if="{{pool.length}}">
     <view
       class="card pool-item"
       wx:for="{{pool}}"
       wx:key="id"
       style="animation-delay: {{(index < 5 ? index : 5) * 40}}ms;"
     >
-      <view class="icon-box"><t-icon name="book" size="40rpx" color="#0E3DA8" /></view>
+      <view class="icon-box"><t-icon name="book" t-class="ico-40" /></view>
       <view class="tx">
         <b>
           {{item.name}}
@@ -41,7 +41,7 @@
         >已加入</view
       >
     </view>
-  </block>
+  </view>
   <view wx:elif="{{loading}}" class="empty-box">题库池加载中…</view>
   <view wx:else class="empty-box">暂无可选题库</view>
 </view>

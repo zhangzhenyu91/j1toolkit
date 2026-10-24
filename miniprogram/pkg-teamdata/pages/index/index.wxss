@@ -1,4 +1,6 @@
-/* 班组数据（政企蓝白 token；样式口径同出工日志 manage 页） */
+/* 班组数据（政企蓝白 token；样式口径同出工日志 manage 页；
+   颜色走 app.wxss --app-* 语义变量，深色随系统；弱化停用灰 rgba(29,33,41,.4) 无对应 token，
+   浅色保持定稿值、深色单独覆盖；表格/表单/弹层横不溢出） */
 
 /* tdesign 组件变量（本页未引用分包 common.wxss，变量块自留） */
 page {
@@ -10,10 +12,10 @@ page {
 /* ---------- 分段（激活态白底蓝字，政企蓝白分段控件口径） ---------- */
 .seg-wrap {
   /* CSS 变量穿透组件（apply-shared），覆盖 t-segmented 主题 */
-  --td-segmented-bg-color: #e5e6eb;
-  --td-segmented-item-active-bg: #ffffff;
-  --td-segmented-item-active-color: #0e3da8;
-  --td-segmented-item-color: #4e5969;
+  --td-segmented-bg-color: var(--app-border);
+  --td-segmented-item-active-bg: var(--app-bg-card);
+  --td-segmented-item-active-color: var(--app-brand);
+  --td-segmented-item-color: var(--app-text-secondary);
 }
 
 .seg-wrap .t-segmented {
@@ -35,9 +37,10 @@ page {
 
 .inp {
   flex: 1;
+  min-width: 0;
   height: 84rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -47,8 +50,9 @@ page {
 
 .inp-input {
   flex: 1;
+  min-width: 0;
   font-size: 26rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
 }
 
 .ph {
@@ -60,9 +64,9 @@ page {
   height: 84rpx;
   flex: none;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #0e3da8;
-  color: #ffffff;
+  border: 2rpx solid var(--app-brand);
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -71,6 +75,7 @@ page {
   font-weight: 700;
   letter-spacing: 4rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  transition: opacity 0.15s ease;
 }
 
 /* ---------- 字典 / 线路列表 ---------- */
@@ -86,7 +91,7 @@ page {
 }
 
 .mrow + .mrow {
-  border-top: 2rpx solid #e5e6eb;
+  border-top: 2rpx solid var(--app-border);
 }
 
 .mrow .mi {
@@ -94,16 +99,21 @@ page {
   height: 60rpx;
   flex: none;
   border-radius: 12rpx;
-  background: #e8f0ff;
+  background: var(--app-brand-light);
+  color: var(--app-brand);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .mrow .mt {
+  min-width: 0;
   font-size: 28rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mrow.off .mt {
@@ -112,6 +122,7 @@ page {
 }
 
 .moff-tip {
+  flex: none;
   font-size: 20rpx;
   color: rgba(29, 33, 41, 0.4);
   border: 2rpx solid rgba(29, 33, 41, 0.35);
@@ -130,15 +141,18 @@ page {
 }
 
 .mrow .ops .edit {
-  color: #0e3da8;
+  color: var(--app-brand);
+  transition: opacity 0.15s ease;
 }
 
 .mrow .ops .off {
   color: rgba(29, 33, 41, 0.4);
+  transition: opacity 0.15s ease;
 }
 
 .mrow .ops .del {
-  color: #f53f3f;
+  color: var(--app-danger);
+  transition: opacity 0.15s ease;
 }
 
 .mempty {
@@ -150,18 +164,20 @@ page {
 
 /* ---------- 人员来源标（直角小签） ---------- */
 .sync-pill {
+  flex: none;
   font-size: 19rpx;
-  color: #00b42a;
-  background: #eaf6ee;
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
 }
 
 .hand-pill {
+  flex: none;
   font-size: 19rpx;
-  color: #4e5969;
-  background: #e8f0ff;
+  color: var(--app-text-secondary);
+  background: var(--app-brand-light);
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
@@ -170,15 +186,16 @@ page {
 /* ---------- 运维线路信息段 ---------- */
 .line-tower {
   margin-left: auto;
+  flex: none;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
 .tower-bar {
   margin-top: 28rpx;
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
   padding: 22rpx 26rpx;
   display: flex;
@@ -187,9 +204,15 @@ page {
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
 }
 
+.tower-bar .tb-l {
+  flex: 1;
+  min-width: 0;
+}
+
 .tower-bar .tb-n {
   font-size: 25rpx;
   font-weight: 700;
+  color: var(--app-text-primary);
 }
 
 .tower-bar .tb-s {
@@ -203,18 +226,20 @@ page {
   font-weight: 700;
   border-radius: 12rpx;
   padding: 12rpx 20rpx;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
 }
 
 .tb-btn.tpl {
-  background: #ffffff;
-  border: 2rpx solid #e5e6eb;
-  color: #1d2129;
+  background: var(--app-bg-card);
+  border: 2rpx solid var(--app-border);
+  color: var(--app-text-primary);
 }
 
 .tb-btn.imp {
-  background: #e8f0ff;
-  border: 3rpx solid #0e3da8;
-  color: #0e3da8;
+  background: var(--app-brand-light);
+  border: 3rpx solid var(--app-brand);
+  color: var(--app-brand);
 }
 
 .tb-btn.disabled {
@@ -224,6 +249,8 @@ page {
 .tower-bar .tb-btns {
   margin-left: auto;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 16rpx;
   flex: none;
 }
@@ -232,23 +259,25 @@ page {
   margin-top: 20rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #86909c;
+  color: var(--app-text-tertiary);
 }
 
 /* ---------- 目的地费用标记胶囊（直角小签，口径同人员来源标） ---------- */
 .oc-pill {
+  flex: none;
   font-size: 19rpx;
-  color: #d25f00;
-  background: #fff7e8;
+  color: var(--app-warning-text);
+  background: var(--app-warning-bg);
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
 }
 
 .st2-pill {
+  flex: none;
   font-size: 19rpx;
-  color: #0e3da8;
-  background: #e8f0ff;
+  color: var(--app-brand);
+  background: var(--app-brand-light);
   border-radius: 12rpx;
   padding: 2rpx 12rpx;
   font-weight: 700;
@@ -261,21 +290,54 @@ page {
   padding: 0 20rpx;
 }
 
-/* ---------- 底部弹层（sheet 族，口径同树障隐患 / 出工日志弹层） ---------- */
+/* ---------- 底部弹层（sheet 族，口径同树障隐患 / 出工日志弹层；头/体/脚三段 flex，
+   整体限高 + overflow:hidden，内容体 flex:1 1 auto 独立滚动） ---------- */
 .sheet {
   position: relative;
-  background: #ffffff;
+  background: var(--app-bg-card);
   border-radius: 24rpx 24rpx 0 0;
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.08);
   padding: 32rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .sheet-title {
+  flex: none;
   text-align: center;
   font-size: 32rpx;
   font-weight: 700;
   letter-spacing: 1rpx;
-  color: #1d2129;
+  color: var(--app-text-primary);
+}
+
+/* 弹层内容体（flex-basis 用 auto：0 基准会把自适应高度弹层内容压没） */
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 弹层内非体块默认不参与收缩（头/说明/控件/脚），体块（scroll-view 或 .sheet-body）独占剩余空间并滚动 */
+.sheet > view {
+  flex: none;
+}
+
+.sheet > scroll-view,
+.sheet > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* t-popup 自带右上角隐形关闭热区（closeBtn 未启用仍可点）：置空防误关 */
+.t-popup__close {
+  display: none;
 }
 
 /* 表单字段（.f-label/.f-field 用 app.wxss 全局类） */
@@ -285,37 +347,43 @@ page {
 
 .qtags {
   display: flex;
+  flex-wrap: wrap;
   gap: 16rpx;
   margin-top: 16rpx;
 }
 
 .sheet-actions {
+  flex: none;
   display: flex;
   gap: 20rpx;
   margin-top: 32rpx;
+  padding-top: 20rpx;
+  background: var(--app-bg-card);
+  border-top: 2rpx solid var(--app-border);
 }
 
 .btn-ghost {
   flex: 1;
   height: 88rpx;
   border-radius: 12rpx;
-  border: 2rpx solid #e5e6eb;
-  background: #ffffff;
+  border: 2rpx solid var(--app-border);
+  background: var(--app-bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 700;
-  color: #4e5969;
+  color: var(--app-text-secondary);
   letter-spacing: 6rpx;
+  transition: opacity 0.15s ease;
 }
 
 .btn-dark {
   flex: 2;
   height: 88rpx;
   border-radius: 12rpx;
-  background: #0e3da8;
-  color: #ffffff;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -323,6 +391,7 @@ page {
   font-size: 28rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
+  transition: opacity 0.15s ease;
 }
 
 .btn-ghost.disabled,
@@ -339,4 +408,184 @@ page {
 /* 列表项 stagger 入场（delay 内联递增） */
 .row-in {
   animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* ---------- t-icon 外部样式类（size 属性写内联 rpx 会随屏宽膨胀，改由 t-class 控制字号；
+   图标色不经 color 属性传 var()，经 t-class/父级颜色继承，随 --app-* 深浅） ---------- */
+.ico-30 {
+  font-size: 30rpx;
+}
+
+.ico-32 {
+  font-size: 32rpx;
+}
+
+/* 弱化停用灰（rgba(29,33,41,.4/.35) 无 --app-* 对应 token：浅色保持定稿值，深色随系统） */
+@media (prefers-color-scheme: dark) {
+  .ph,
+  .mrow.off .mt,
+  .mrow .ops .off,
+  .tower-bar .tb-s,
+  .mempty {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .moff-tip {
+    color: rgba(255, 255, 255, 0.4);
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+}
+
+/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
+   600px 起限宽 + 关键字阶/控件改固定 px；表格行/表单/弹层均不横溢，不拆双列 */
+@media (min-width: 600px) {
+  .page-body {
+    box-sizing: border-box;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* 弹层限宽居中 */
+  .sheet {
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .seg-wrap .t-segmented {
+    border-radius: 8px;
+  }
+
+  .addbar {
+    margin-top: 14px;
+    gap: 10px;
+  }
+
+  .inp {
+    height: 42px;
+    border-radius: 6px;
+    padding: 0 14px;
+  }
+
+  .inp-input {
+    font-size: 13px;
+  }
+
+  .btn-add {
+    width: 86px;
+    height: 42px;
+    font-size: 13px;
+    letter-spacing: 2px;
+    border-radius: 6px;
+  }
+
+  .mrow {
+    padding: 12px 16px;
+    gap: 10px;
+  }
+
+  .mrow .mi {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+  }
+
+  .mrow .mt {
+    font-size: 14px;
+    letter-spacing: 0.5px;
+  }
+
+  .moff-tip {
+    font-size: 10px;
+    line-height: 15px;
+    border-radius: 6px;
+  }
+
+  .mrow .ops {
+    gap: 14px;
+    font-size: 12px;
+  }
+
+  .mempty {
+    padding: 24px 0;
+    font-size: 12px;
+  }
+
+  .sync-pill,
+  .hand-pill,
+  .oc-pill,
+  .st2-pill {
+    font-size: 9.5px;
+    padding: 1px 6px;
+    border-radius: 6px;
+  }
+
+  .line-tower,
+  .lines-note {
+    font-size: 11px;
+  }
+
+  .tower-bar {
+    margin-top: 14px;
+    border-radius: 6px;
+    padding: 11px 13px;
+    gap: 9px;
+  }
+
+  .tower-bar .tb-n {
+    font-size: 12.5px;
+  }
+
+  .tower-bar .tb-s {
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .tb-btn {
+    font-size: 11px;
+    border-radius: 6px;
+    padding: 6px 10px;
+  }
+
+  .inp-volt {
+    width: 95px;
+    padding: 0 10px;
+  }
+
+  .sheet-title {
+    font-size: 16px;
+  }
+
+  .btn-ghost,
+  .btn-dark {
+    height: 44px;
+    font-size: 14px;
+    letter-spacing: 3px;
+  }
+
+  .ico-30 {
+    font-size: 15px;
+  }
+
+  .ico-32 {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    max-width: 960px;
+  }
+
+  /* 列表行保持单列通栏（表格/表单/弹层不横溢，不拆双列） */
+  .tower-bar .tb-btns {
+    flex-wrap: nowrap;
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-body {
+    max-width: 1120px;
+  }
 }
