@@ -173,64 +173,79 @@ page {
   text-align: center;
 }
 
-/* ---------- 日期条（去卡片化：元素直落页面底；‹ › 圆角白底钮；「今天」浅蓝底蓝字小签） ---------- */
-.datebar {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
+/* ---------- 五日日期条：邻日直接点选，色点与完整月历共用 DAY_STATUS 口径 ---------- */
+.date-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) 64rpx;
+  gap: 10rpx;
   animation: wl-a-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
 }
 
-.datebar .arrow {
-  width: 56rpx;
-  height: 56rpx;
-  flex: none;
+.date-cell {
+  position: relative;
+  min-width: 0;
+  min-height: 98rpx;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4rpx;
+  padding: 10rpx 0;
+  border: 2rpx solid transparent;
   border-radius: 16rpx;
   background: #ffffff;
-  border: 2rpx solid #e5e6eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  color: #4e5969;
 }
 
-.datebar .dtxt {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 30rpx;
-  font-weight: 700;
-  letter-spacing: 1rpx;
+.date-week {
+  font-size: 20rpx;
+  color: #86909c;
+}
+
+.date-day {
+  font-size: 28rpx;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
-/* 日期前置红方块已取消（政企蓝白不做几何记号） */
-
-.datebar .dtxt .today {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 12rpx;
-  padding: 4rpx 16rpx;
-  background: #e8f0ff;
-  color: #0e3da8;
-  border-radius: 8rpx;
-  font-size: 20rpx;
-  font-weight: 600;
-  letter-spacing: 1rpx;
+.date-dot {
+  width: 8rpx;
+  height: 8rpx;
+  margin-top: 2rpx;
+  border-radius: 50%;
 }
 
-.datebar .cal {
-  width: 64rpx;
-  height: 64rpx;
-  flex: none;
-  box-sizing: border-box;
-  border-radius: 16rpx;
+.date-dot-passed {
+  background: #00b42a;
+}
+
+.date-dot-remark {
+  background: #ff7d00;
+}
+
+.date-dot-failed {
+  background: #f53f3f;
+}
+
+.date-cell.on {
+  border-color: #0e3da8;
+  background: #0e3da8;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.date-cell.on .date-week {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.date-cell.on .date-dot {
   background: #ffffff;
-  border: 2rpx solid #e5e6eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+}
+
+.date-strip .strip-cal {
+  border-color: #e5e6eb;
+  color: #0e3da8;
 }
 
 /* ---------- 空列表虚线占位 ---------- */
@@ -843,7 +858,142 @@ page {
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
 }
 
-/* 主钮：品牌蓝圆 + 蓝色轻投影；入场弹性旋入 */
+/* 分组底部面板：标题固定、内容滚动、主动作固定，权限条件与原 speed dial 一致 */
+.fab-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 120;
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 24rpx 24rpx 0 0;
+  background: #ffffff;
+  animation: fabSheetUp 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.fs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 28rpx 20rpx;
+  border-bottom: 2rpx solid #e5e6eb;
+}
+
+.fs-heading {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1d2129;
+}
+
+.fs-subtitle {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #86909c;
+}
+
+.fs-close {
+  width: 88rpx;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: -16rpx -16rpx -16rpx 0;
+  border-radius: 16rpx;
+}
+
+.fs-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.fs-group {
+  padding: 24rpx 28rpx 0;
+}
+
+.fs-title {
+  margin-bottom: 16rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #86909c;
+  letter-spacing: 1rpx;
+}
+
+.fs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+}
+
+.fs-action {
+  min-width: 0;
+  min-height: 88rpx;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  box-sizing: border-box;
+  padding: 0 20rpx;
+  border: 2rpx solid #e5e6eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  color: #4e5969;
+  font-size: 24rpx;
+}
+
+.fs-action text {
+  min-width: 0;
+}
+
+.fs-note {
+  padding: 24rpx 28rpx;
+  font-size: 20rpx;
+  line-height: 1.6;
+  color: #86909c;
+}
+
+.fs-foot {
+  padding: 16rpx 28rpx calc(16rpx + env(safe-area-inset-bottom));
+  border-top: 2rpx solid #e5e6eb;
+  background: #ffffff;
+}
+
+.fs-create {
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  border-radius: 16rpx;
+  background: #0e3da8;
+  color: #ffffff;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+/* 首载失败：保留重试入口，不与空日志混用 */
+.error-detail {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #86909c;
+}
+
+.error-retry {
+  min-height: 64rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 20rpx;
+  padding: 0 24rpx;
+  border: 2rpx solid #0e3da8;
+  border-radius: 12rpx;
+  color: #0e3da8;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+/* 主钮：品牌蓝圆 + 蓝色轻投影；仅短距上浮，不再旋转回弹 */
 .fab-main {
   width: 104rpx;
   height: 104rpx;
@@ -854,7 +1004,7 @@ page {
   align-items: center;
   justify-content: center;
   box-shadow: 0 12rpx 32rpx rgba(14, 61, 168, 0.35);
-  animation: wl-a-fab 0.7s cubic-bezier(0.34, 1.4, 0.64, 1) 0.5s both;
+  animation: wl-a-fab 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.25s both;
 }
 
 @keyframes fabUp {
@@ -2597,51 +2747,49 @@ page {
 }
 
 /* ============================================================
-   入场编排关键帧（旋转 + 平移归位，fill-mode both，时延链；
-   引用处：.tswitch/.datebar/.scopebar/.logcard=a-rise，.badge=a-spin，.fab-main=a-fab；
+   入场编排关键帧（仅透明度 + 短距上浮，fill-mode both，时延链；
    prefers-reduced-motion 降级由 app.wxss 全局枚举统一关闭）
    ============================================================ */
-@keyframes wl-a-rise {
+@keyframes fabSheetUp {
   from {
     opacity: 0;
-    transform: translateY(26rpx) rotate(2.5deg) scale(0.97);
-  }
-  60% {
-    opacity: 1;
+    transform: translateY(32rpx);
   }
   to {
     opacity: 1;
-    transform: translateY(0) rotate(0) scale(1);
+    transform: translateY(0);
+  }
+}
+
+@keyframes wl-a-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
 @keyframes wl-a-spin {
   from {
     opacity: 0;
-    transform: rotate(-160deg) scale(0.3);
-  }
-  55% {
-    opacity: 1;
+    transform: translateY(8rpx);
   }
   to {
     opacity: 1;
-    transform: rotate(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 @keyframes wl-a-fab {
-  0% {
+  from {
     opacity: 0;
-    transform: scale(0.2) rotate(-200deg);
+    transform: translateY(28rpx);
   }
-  55% {
+  to {
     opacity: 1;
-  }
-  78% {
-    transform: scale(1.1) rotate(8deg);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) rotate(0);
+    transform: translateY(0);
   }
 }

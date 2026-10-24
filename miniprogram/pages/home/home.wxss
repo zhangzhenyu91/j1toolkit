@@ -1,5 +1,5 @@
 /* ============================================================
-   首页 ·「政企蓝白 Enterprise Blue」—— 深蓝页首 / 数据浮层 / 宫格 / 通知 / 我的
+   首页 ·「政企蓝白 Enterprise Blue」—— 深蓝页首 / 数据条 / 宫格 / 通知 / 我的
    设计稿基准：design/小程序-首页.html（1px=2rpx）
    ============================================================ */
 
@@ -19,41 +19,52 @@
   min-height: 0;
 }
 
-/* ---------- 深蓝页首延伸区（与 navbar 同色 #0A3592；底部留白承接数据卡浮层） ---------- */
+/* ---------- 轻量深蓝页首（与 navbar 同色 #0A3592，不再承接负边距浮层） ---------- */
 .hero {
   background: #0a3592;
-  padding: 12rpx 40rpx 96rpx;
+  padding: 12rpx 40rpx 36rpx;
   animation: fadeIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+.hero-greet {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
 .hero-name {
-  font-size: 40rpx;
+  flex: none;
+  font-size: 36rpx;
   font-weight: 600;
   letter-spacing: 1rpx;
   color: #ffffff;
 }
 
 .hero-sub {
-  margin-top: 12rpx;
-  font-size: 24rpx;
+  min-width: 0;
+  font-size: 22rpx;
+  line-height: 1.5;
+  text-align: right;
   color: rgba(255, 255, 255, 0.72);
   letter-spacing: 0.5rpx;
 }
 
-/* 首页内容区：顶部不留 padding，数据卡以负边距半压深蓝页首 */
+/* 首页内容区：数据条顺次排列，不使用负边距 */
 .home-body {
   padding-top: 0;
 }
 
-/* ---------- 数据概览浮层卡（注意：承载容器不可加 overflow:hidden，会裁掉浮层顶部；
-   position+z-index 保证浮层压在深蓝页首之上，真机不被页首盖住） ---------- */
-.stats-card {
-  position: relative;
-  z-index: 1;
-  margin-top: -56rpx;
+/* ---------- 轻量数据条：白底细边与极轻阴影，保留四项指标 ---------- */
+.stats-strip {
+  margin-top: 22rpx;
   margin-bottom: 32rpx;
   display: flex;
-  padding: 30rpx 0;
+  padding: 24rpx 0;
+  background: #ffffff;
+  border: 2rpx solid #e5e6eb;
+  border-radius: 16rpx;
+  box-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.02);
   animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s backwards;
 }
 
@@ -95,12 +106,12 @@
   color: #86909c;
 }
 
-/* ---------- 消息通知卡 ---------- */
+/* ---------- 消息通知卡（应用中心之后的摘要与展开区） ---------- */
 .notice-card {
-  margin-bottom: 32rpx;
-  padding: 26rpx 28rpx 10rpx;
+  margin: 32rpx 0;
+  padding: 26rpx 28rpx 12rpx;
   transition: background-color 0.15s ease;
-  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.16s backwards;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.28s backwards;
 }
 
 .n-head {
@@ -200,15 +211,53 @@
   color: #86909c;
 }
 
+/* 加载失败与空态互斥，重试点击由 catchtap 阻止整卡跳转 */
+.n-error {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 18rpx 0 12rpx;
+  border-top: 1rpx solid #e5e6eb;
+}
+
+.n-error-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 24rpx;
+  line-height: 1.5;
+  color: #f53f3f;
+}
+
+.n-retry {
+  flex: none;
+  padding: 12rpx 0 12rpx 16rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #0e3da8;
+}
+
+.n-toggle {
+  min-height: 64rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4rpx;
+  padding: 10rpx 0 6rpx;
+  border-top: 1rpx solid #e5e6eb;
+  font-size: 22rpx;
+  color: #0e3da8;
+}
+
 /* ---------- 应用宫格（无底块深蓝图标直落白卡） ---------- */
 .app-sec {
   margin-bottom: 20rpx;
-  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.22s backwards;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.16s backwards;
 }
 
 .grid-card {
   padding: 32rpx 12rpx 24rpx;
-  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.28s backwards;
+  animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.22s backwards;
 }
 
 .grid {

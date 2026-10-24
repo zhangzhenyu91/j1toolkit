@@ -1,0 +1,3906 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>布局精修 · 现状对比 — Shade 壹匣</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --blue: #0e3da8;
+        --deep: #0a3592;
+        --blue-soft: #e8f0ff;
+        --green: #00b42a;
+        --green-soft: #e8ffea;
+        --green-text: #0b8a37;
+        --orange: #ff7d00;
+        --orange-soft: #fff7e8;
+        --orange-text: #d25f00;
+        --red: #f53f3f;
+        --red-soft: #ffece8;
+        --bg: #f5f7fa;
+        --card: #ffffff;
+        --fill: #f7f8fa;
+        --text: #1d2129;
+        --sub: #4e5969;
+        --muted: #86909c;
+        --line: #e5e6eb;
+        --dash: #c9cdd4;
+        --card-radius: 12px;
+        --control-radius: 8px;
+        --tag-radius: 4px;
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      html {
+        scroll-behavior: smooth;
+        scrollbar-gutter: stable;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        color: inherit;
+        font: inherit;
+      }
+
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button {
+        border: 0;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      svg {
+        display: block;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--blue);
+        outline-offset: 3px;
+      }
+
+      .icon {
+        width: 18px;
+        height: 18px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .icon-sm {
+        width: 14px;
+        height: 14px;
+      }
+
+      .icon-lg {
+        width: 23px;
+        height: 23px;
+      }
+
+      .shell {
+        width: min(1440px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .review-head {
+        padding: 28px 0 22px;
+      }
+
+      .back-links {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-bottom: 26px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .back-links a {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 32px;
+        transition: color 0.16s var(--ease);
+      }
+
+      .back-links a:hover {
+        color: var(--blue);
+      }
+
+      .review-title-row {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 28px;
+      }
+
+      .eyebrow {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 2px;
+      }
+
+      .review-head h1 {
+        margin-top: 10px;
+        font-size: clamp(27px, 3.2vw, 38px);
+        line-height: 1.25;
+        letter-spacing: -0.6px;
+        text-wrap: balance;
+      }
+
+      .review-head h1 span {
+        color: var(--blue);
+      }
+
+      .review-description {
+        max-width: 780px;
+        margin-top: 12px;
+        color: var(--sub);
+        font-size: 13px;
+        line-height: 1.85;
+      }
+
+      .review-badge {
+        flex: none;
+        padding: 5px 9px;
+        border-radius: var(--tag-radius);
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .constraints {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .constraints span {
+        padding: 4px 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--tag-radius);
+        background: var(--card);
+        color: var(--sub);
+        font-size: 10.5px;
+      }
+
+      .controls {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--card-radius);
+        background: rgba(255, 255, 255, 0.97);
+        box-shadow: var(--shadow);
+      }
+
+      .control-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .control-group.pages {
+        flex: 1;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .control-group.pages::-webkit-scrollbar {
+        display: none;
+      }
+
+      .control-label {
+        flex: none;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .segmented {
+        display: inline-flex;
+        flex: none;
+        gap: 2px;
+        padding: 3px;
+        border-radius: var(--control-radius);
+        background: #ebedf1;
+      }
+
+      .segment {
+        min-height: 34px;
+        padding: 0 13px;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--sub);
+        font-size: 11.5px;
+        white-space: nowrap;
+        transition:
+          color 0.16s var(--ease),
+          background-color 0.16s var(--ease),
+          box-shadow 0.16s var(--ease);
+      }
+
+      .segment[aria-pressed='true'] {
+        background: var(--card);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .width-control {
+        margin-left: auto;
+      }
+
+      .page-intro {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 24px;
+        margin: 26px 0 14px;
+      }
+
+      .page-intro h2 {
+        font-size: 19px;
+        font-weight: 700;
+      }
+
+      .page-intro p {
+        max-width: 760px;
+        margin-top: 7px;
+        color: var(--sub);
+        font-size: 12px;
+        line-height: 1.75;
+      }
+
+      .change-tags {
+        display: flex;
+        flex: none;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .change-tags span {
+        padding: 4px 7px;
+        border-radius: var(--tag-radius);
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .comparison {
+        display: none;
+      }
+
+      .comparison.active {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        animation: pane-in 0.24s var(--ease) both;
+      }
+
+      body[data-mode='before'] .comparison.active,
+      body[data-mode='after'] .comparison.active {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      body[data-mode='before'] .after,
+      body[data-mode='after'] .before {
+        display: none;
+      }
+
+      .pane {
+        min-width: 0;
+      }
+
+      .pane-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 9px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .pane-label::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--dash);
+      }
+
+      .after > .pane-label {
+        color: var(--blue);
+      }
+
+      .after > .pane-label::before {
+        background: var(--blue);
+      }
+
+      .pane-label small {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 9.5px;
+        font-weight: 400;
+      }
+
+      .mock-browser {
+        width: 100%;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--card-radius);
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .mock-browser.narrow {
+        max-width: 430px;
+        margin: 0 auto;
+      }
+
+      .browser-chrome {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .browser-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--dash);
+      }
+
+      .browser-url {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        width: 230px;
+        height: 20px;
+        margin: 0 auto;
+        border-radius: 5px;
+        background: var(--fill);
+        color: var(--muted);
+        font-size: 8.5px;
+      }
+
+      .mock-app {
+        height: 690px;
+        display: flex;
+        overflow: hidden;
+        background: var(--bg);
+        container-name: mockapp;
+        container-type: inline-size;
+      }
+
+      @container mockapp (max-width: 700px) {
+        .workspace-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .mock-rail {
+        width: 122px;
+        flex: none;
+        padding: 14px 9px;
+        border-right: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .mock-brand {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 5px 16px;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .mock-logo {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--control-radius);
+        background: var(--blue);
+        color: #fff;
+        font-size: 10px;
+      }
+
+      .rail-item {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 32px;
+        margin-top: 3px;
+        padding: 0 8px;
+        border-radius: var(--control-radius);
+        color: var(--sub);
+        font-size: 9px;
+      }
+
+      .rail-item .icon {
+        width: 13px;
+        height: 13px;
+      }
+
+      .rail-item.on {
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .mock-main {
+        min-width: 0;
+        flex: 1;
+        padding: 16px;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        scrollbar-width: thin;
+      }
+
+      .card {
+        border-radius: var(--card-radius);
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .welcome {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 16px;
+        padding: 20px;
+      }
+
+      .welcome-date {
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .welcome-user {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-top: 8px;
+      }
+
+      .avatar {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border-radius: 50%;
+        background: var(--blue);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .welcome-user h3 {
+        font-size: 17px;
+        font-weight: 700;
+      }
+
+      .welcome-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 5px;
+        color: var(--sub);
+        font-size: 8px;
+      }
+
+      .role-badge {
+        padding: 2px 5px;
+        border-radius: var(--tag-radius);
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .welcome-stats {
+        display: grid;
+        grid-template-columns: repeat(4, auto);
+      }
+
+      .stat {
+        min-width: 54px;
+        padding: 0 11px;
+        text-align: center;
+      }
+
+      .stat + .stat {
+        border-left: 1px solid var(--line);
+      }
+
+      .stat b {
+        display: block;
+        font-size: 15px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 7.5px;
+      }
+
+      .stat.good b {
+        color: var(--green-text);
+      }
+
+      .stat.warn b {
+        color: var(--orange-text);
+      }
+
+      .stat.bad b {
+        color: var(--red);
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 17px 0 8px;
+      }
+
+      .section-head h4 {
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .section-head span {
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .section-head .unread {
+        color: var(--red);
+      }
+
+      .section-head a,
+      .section-head button {
+        margin-left: auto;
+        background: transparent;
+        color: var(--blue);
+        font-size: 8px;
+      }
+
+      .notice-list {
+        overflow: hidden;
+      }
+
+      .notice-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 39px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .notice-row:last-child {
+        border-bottom: 0;
+      }
+
+      .notice-dot {
+        width: 5px;
+        height: 5px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--red);
+      }
+
+      .notice-dot.read {
+        border: 1px solid var(--dash);
+        background: transparent;
+      }
+
+      .notice-title {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        font-size: 9px;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .notice-title small {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 7px;
+        font-weight: 400;
+      }
+
+      .notice-time {
+        flex: none;
+        color: var(--muted);
+        font-size: 7px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .app-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 9px;
+      }
+
+      .app-card {
+        min-width: 0;
+        padding: 11px;
+      }
+
+      .app-icon {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border-radius: var(--control-radius);
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+
+      .app-icon .icon {
+        width: 18px;
+        height: 18px;
+      }
+
+      .app-card h5 {
+        margin-top: 8px;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .app-card p {
+        min-height: 30px;
+        margin-top: 4px;
+        color: var(--sub);
+        font-size: 7.5px;
+        line-height: 1.55;
+      }
+
+      .app-foot {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 8px;
+        padding-top: 7px;
+        border-top: 1px solid var(--line);
+        color: var(--blue);
+        font-size: 7px;
+      }
+
+      .app-foot .icon {
+        width: 10px;
+        height: 10px;
+        margin-left: auto;
+      }
+
+      .mini-tag {
+        padding: 2px 4px;
+        border-radius: var(--tag-radius);
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 6.5px;
+        white-space: nowrap;
+      }
+
+      /* Web 工作台精修：任务主列与通知辅助栏。 */
+      .command-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 1px 14px;
+      }
+
+      .command-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .command-title h3 {
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .command-title p {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .command-date {
+        color: var(--sub);
+        font-size: 8px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        overflow: hidden;
+        border: 1px solid var(--line);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      }
+
+      .stat-strip .stat {
+        position: relative;
+        padding: 13px 10px 11px;
+        text-align: left;
+      }
+
+      .stat-strip .stat + .stat::before {
+        position: absolute;
+        top: 13px;
+        bottom: 13px;
+        left: 0;
+        width: 1px;
+        background: var(--line);
+        content: '';
+      }
+
+      .stat-strip .stat b {
+        font-size: 18px;
+      }
+
+      .stat-strip .stat small {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 7px;
+      }
+
+      .workspace-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 184px;
+        gap: 12px;
+        margin-top: 15px;
+      }
+
+      .workspace-grid .section-head {
+        margin: 0 0 8px;
+      }
+
+      .app-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+      }
+
+      .app-row {
+        position: relative;
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr);
+        gap: 9px;
+        min-height: 112px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      }
+
+      .app-row > div {
+        min-width: 0;
+      }
+
+      .app-row h5 {
+        margin-top: 0;
+        padding-right: 12px;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .app-row p {
+        min-height: 0;
+        margin-top: 4px;
+        color: var(--sub);
+        font-size: 7.5px;
+        line-height: 1.55;
+      }
+
+      .app-row .app-foot {
+        grid-column: 1 / -1;
+        margin-top: 0;
+        padding-top: 6px;
+      }
+
+      .app-row > .arrow {
+        position: absolute;
+        top: 12px;
+        right: 10px;
+        width: 11px;
+        height: 11px;
+        color: var(--blue);
+      }
+
+      .notice-side {
+        align-self: start;
+        border: 1px solid var(--line);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      }
+
+      .notice-side .section-head {
+        margin: 0;
+        padding: 12px 12px 9px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .notice-side .notice-row {
+        align-items: flex-start;
+        min-height: 58px;
+        padding: 10px 12px;
+      }
+
+      .notice-side .notice-dot {
+        margin-top: 4px;
+      }
+
+      .notice-side .notice-title {
+        font-size: 8.5px;
+        line-height: 1.5;
+        white-space: normal;
+      }
+
+      .notice-side .notice-time {
+        display: block;
+        margin-top: 5px;
+      }
+
+      .notice-extra {
+        border-top: 1px solid var(--line);
+      }
+
+      /* 出工日志共享。 */
+      .wl-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .wl-kicker {
+        color: var(--blue);
+        font-size: 7px;
+        font-weight: 600;
+        letter-spacing: 1px;
+      }
+
+      .wl-head h3 {
+        margin-top: 4px;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .wl-head p {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .wl-tools {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .tool-count {
+        color: var(--sub);
+        font-size: 8px;
+        white-space: nowrap;
+      }
+
+      .scope {
+        display: inline-flex;
+        padding: 2px;
+        border-radius: var(--control-radius);
+        background: var(--line);
+      }
+
+      .scope span {
+        padding: 5px 8px;
+        border-radius: 6px;
+        color: var(--sub);
+        font-size: 8px;
+      }
+
+      .scope .on {
+        background: var(--card);
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .btn {
+        min-height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: var(--control-radius);
+        background: var(--card);
+        color: var(--sub);
+        font-size: 9px;
+        font-weight: 600;
+        transition:
+          color 0.16s var(--ease),
+          background-color 0.16s var(--ease),
+          border-color 0.16s var(--ease),
+          transform 0.12s var(--ease);
+      }
+
+      .btn:hover {
+        border-color: var(--blue);
+        color: var(--blue);
+      }
+
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      .btn-primary {
+        border-color: var(--blue);
+        background: var(--blue);
+        color: #fff;
+      }
+
+      .btn-primary:hover {
+        background: var(--blue);
+        color: #fff;
+        filter: brightness(0.92);
+      }
+
+      .btn-sm {
+        min-height: 27px;
+        padding: 0 8px;
+        font-size: 8px;
+      }
+
+      .wl-status {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 7.5px;
+      }
+
+      .wl-tabs {
+        display: flex;
+        gap: 2px;
+        margin-top: 7px;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--line);
+        scrollbar-width: none;
+      }
+
+      .wl-tabs::-webkit-scrollbar {
+        display: none;
+      }
+
+      .wl-tabs span {
+        flex: none;
+        padding: 8px 8px;
+        color: var(--sub);
+        font-size: 8px;
+        white-space: nowrap;
+      }
+
+      .wl-tabs .on {
+        border-bottom: 2px solid var(--blue);
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .wl-before-body {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 188px;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .calendar {
+        align-self: start;
+        padding: 11px;
+      }
+
+      .cal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .cal-head b {
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .cal-head span {
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .cal-week,
+      .cal-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+      }
+
+      .cal-week {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 7px;
+        text-align: center;
+      }
+
+      .cal-grid {
+        gap: 2px;
+        margin-top: 5px;
+      }
+
+      .cal-day {
+        position: relative;
+        min-height: 21px;
+        display: grid;
+        place-items: center;
+        border-radius: 5px;
+        color: var(--sub);
+        font-size: 7.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .cal-day.dim {
+        color: var(--dash);
+      }
+
+      .cal-day.today {
+        background: var(--blue);
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .cal-day i {
+        position: absolute;
+        bottom: 1px;
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+
+      .cal-day.warn i {
+        background: var(--orange);
+      }
+
+      .cal-day.bad i {
+        background: var(--red);
+      }
+
+      .cal-day.today i {
+        background: #fff;
+      }
+
+      .cal-legend {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 7px;
+      }
+
+      .cal-legend span {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+
+      .cal-legend i {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+
+      .cal-legend .warn {
+        background: var(--orange);
+      }
+
+      .cal-legend .bad {
+        background: var(--red);
+      }
+
+      .cal-summary {
+        margin-top: 8px;
+        padding: 7px;
+        border-radius: var(--control-radius);
+        background: var(--fill);
+        color: var(--sub);
+        font-size: 7px;
+        line-height: 1.5;
+      }
+
+      .log-card {
+        overflow: hidden;
+      }
+
+      .log-head {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 12px 13px 10px;
+      }
+
+      .plate {
+        font-size: 14px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .log-date {
+        color: var(--muted);
+        font-size: 7px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 19px;
+        padding: 2px 6px;
+        border-radius: var(--tag-radius);
+        font-size: 7px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .tag::before {
+        content: '';
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .tag.ok {
+        background: var(--green-soft);
+        color: var(--green-text);
+      }
+
+      .tag.info {
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+
+      .tag.warn {
+        background: var(--orange-soft);
+        color: var(--orange-text);
+      }
+
+      .log-head .tag:last-of-type {
+        margin-left: auto;
+      }
+
+      .log-body {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: 12px;
+        padding: 0 13px 12px;
+      }
+
+      .patrol {
+        padding: 8px 9px;
+        border-radius: var(--control-radius);
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 8px;
+        font-weight: 600;
+        line-height: 1.5;
+      }
+
+      .patrol small {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 6.5px;
+        font-weight: 500;
+      }
+
+      .field {
+        margin-top: 9px;
+      }
+
+      .field label {
+        display: block;
+        color: var(--muted);
+        font-size: 7px;
+      }
+
+      .field b {
+        display: block;
+        margin-top: 3px;
+        font-size: 8.5px;
+        font-weight: 600;
+      }
+
+      .field small {
+        display: block;
+        margin-top: 3px;
+        color: var(--sub);
+        font-size: 7px;
+        font-weight: 400;
+        line-height: 1.5;
+      }
+
+      .clock-list {
+        margin-top: 8px;
+        padding: 7px 8px;
+        border-radius: var(--control-radius);
+        background: var(--fill);
+      }
+
+      .clock-row {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 19px;
+        color: var(--sub);
+        font-size: 7px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .clock-row + .clock-row {
+        border-top: 1px dashed var(--line);
+      }
+
+      .clock-row b {
+        color: var(--text);
+        font-size: 7.5px;
+      }
+
+      .clock-state {
+        margin-left: auto;
+        color: var(--green-text);
+      }
+
+      .photos {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        margin-top: 7px;
+      }
+
+      .photo {
+        position: relative;
+        min-height: 82px;
+        overflow: hidden;
+        border-radius: var(--control-radius);
+        background: var(--blue-soft);
+      }
+
+      .photo svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      .photo-status {
+        position: absolute;
+        top: 4px;
+        left: 4px;
+        padding: 2px 4px;
+        border-radius: var(--tag-radius);
+        background: var(--green-soft);
+        color: var(--green-text);
+        font-size: 6px;
+        font-weight: 600;
+      }
+
+      .photo-caption {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 5px;
+        background: rgba(29, 33, 41, 0.68);
+        color: #fff;
+        font-size: 6px;
+      }
+
+      .remark {
+        margin-top: 9px;
+        padding: 7px 8px;
+        border-left: 3px solid var(--orange);
+        background: var(--orange-soft);
+        color: var(--sub);
+        font-size: 7px;
+        line-height: 1.6;
+      }
+
+      .remark b {
+        margin-right: 5px;
+        color: var(--orange-text);
+      }
+
+      .log-ops {
+        display: flex;
+        gap: 12px;
+        padding: 9px 13px;
+        border-top: 1px solid var(--line);
+        color: var(--sub);
+        font-size: 7.5px;
+      }
+
+      .log-ops .primary {
+        color: var(--blue);
+      }
+
+      .log-ops .danger {
+        color: var(--red);
+      }
+
+      /* Web 出工日志精修：筛选器左置、工具合并、内容主列拓宽。 */
+      .wl-ref-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .wl-ref-head h3 {
+        font-size: 17px;
+        font-weight: 700;
+      }
+
+      .date-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 28px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--control-radius);
+        background: var(--card);
+        color: var(--sub);
+        font-size: 8px;
+      }
+
+      .wl-ref-head .wl-tools {
+        margin-left: auto;
+      }
+
+      .wl-ref-body {
+        display: grid;
+        grid-template-columns: 172px minmax(0, 1fr);
+        gap: 12px;
+        margin-top: 11px;
+      }
+
+      .ref-calendar {
+        border: 1px solid var(--line);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      }
+
+      .calendar-summary-bar {
+        display: none;
+      }
+
+      .ref-log .log-head {
+        padding-top: 10px;
+        padding-bottom: 9px;
+      }
+
+      .ref-log .log-body {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+        gap: 10px;
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .field-grid .field {
+        margin-top: 0;
+      }
+
+      .clock-inline {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .clock-inline .clock-row {
+        padding: 5px 6px;
+        border: 1px solid var(--line);
+        border-radius: var(--control-radius);
+        background: var(--fill);
+      }
+
+      .clock-inline .clock-row + .clock-row {
+        border-top: 1px solid var(--line);
+      }
+
+      .ref-log .photos {
+        margin-top: 0;
+      }
+
+      .ref-log .photo {
+        min-height: 100px;
+      }
+
+      .ref-log .log-ops {
+        justify-content: flex-end;
+      }
+
+      .mock-browser.narrow .wl-before-body,
+      .mock-browser.narrow .wl-ref-body {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .mock-browser.narrow .before-calendar {
+        order: 2;
+      }
+
+      .mock-browser.narrow .ref-calendar .calendar-full {
+        display: none;
+      }
+
+      .mock-browser.narrow .ref-calendar .calendar-full.open {
+        display: block;
+      }
+
+      .mock-browser.narrow .ref-calendar .calendar-summary-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 8px;
+      }
+
+      .mock-browser.narrow .ref-calendar .calendar-summary-bar button {
+        background: transparent;
+        color: var(--blue);
+        font-size: 8px;
+      }
+
+      .mock-browser.narrow .wl-ref-head {
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .mock-browser.narrow .wl-ref-head .wl-tools {
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+      }
+
+      .mock-browser.narrow .ref-log .log-body {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      /* 手机框与小程序共享样式。 */
+      .phone-stage {
+        display: flex;
+        justify-content: center;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--card-radius);
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .phone {
+        width: 375px;
+        max-width: 100%;
+        height: 812px;
+        padding: 9px;
+        border-radius: 40px;
+        background: #1b1d21;
+      }
+
+      .phone-screen {
+        position: relative;
+        height: 100%;
+        overflow: hidden;
+        border-radius: 32px;
+        background: var(--bg);
+      }
+
+      .phone-scroll {
+        height: 100%;
+        overflow-y: auto;
+        padding-bottom: 76px;
+        scrollbar-width: none;
+      }
+
+      .phone-scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .statusbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 30px;
+        padding: 4px 14px 0;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .status-icons {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .status-icons i {
+        width: 14px;
+        height: 7px;
+        border: 1px solid currentColor;
+        border-radius: 2px;
+      }
+
+      .mini-hero {
+        padding: 0 14px 52px;
+        background: var(--deep);
+        color: #fff;
+      }
+
+      .mini-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 44px;
+      }
+
+      .mini-nav h3 {
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .capsule {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 8px;
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        border-radius: 12px;
+        font-size: 9px;
+      }
+
+      .mini-greet {
+        margin-top: 8px;
+      }
+
+      .mini-greet h4 {
+        font-size: 19px;
+        font-weight: 600;
+      }
+
+      .mini-greet p {
+        margin-top: 5px;
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 9px;
+      }
+
+      .mini-body {
+        padding: 0 11px;
+      }
+
+      .mini-stats {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        margin-top: -32px;
+        padding: 13px 0;
+      }
+
+      .mini-stats .stat {
+        min-width: 0;
+        padding: 0 4px;
+      }
+
+      .mini-stats .stat b {
+        font-size: 15px;
+      }
+
+      .mini-section {
+        margin-top: 13px;
+      }
+
+      .mini-section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 7px;
+        padding: 0 2px;
+      }
+
+      .mini-section-head h5 {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .mini-section-head span {
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .mini-notice {
+        overflow: hidden;
+      }
+
+      .mini-notice-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 11px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .mini-notice-head .icon {
+        width: 15px;
+        height: 15px;
+        color: var(--blue);
+      }
+
+      .mini-notice-head b {
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .mini-notice-head span {
+        margin-left: auto;
+        color: var(--red);
+        font-size: 8px;
+      }
+
+      .mini-notice-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 9px 11px;
+        border-bottom: 1px solid var(--line);
+        font-size: 9px;
+      }
+
+      .mini-notice-row:last-child {
+        border-bottom: 0;
+      }
+
+      .mini-notice-row p {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mini-notice-row time {
+        color: var(--muted);
+        font-size: 7px;
+      }
+
+      .mini-notice-more {
+        width: 100%;
+        padding: 8px;
+        background: transparent;
+        color: var(--blue);
+        font-size: 8px;
+      }
+
+      .mini-apps {
+        padding: 12px 6px;
+      }
+
+      .mini-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 15px 4px;
+      }
+
+      .mini-app {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        color: var(--blue);
+        text-align: center;
+      }
+
+      .mini-app .icon {
+        width: 27px;
+        height: 27px;
+      }
+
+      .mini-app span {
+        color: var(--text);
+        font-size: 8px;
+      }
+
+      .mini-app.soon {
+        color: var(--dash);
+      }
+
+      .mini-app.soon span {
+        color: var(--muted);
+      }
+
+      .mini-tabbar {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 5;
+        display: flex;
+        height: 59px;
+        border-top: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .mini-tabbar span {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .mini-tabbar .on {
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .mini-tabbar .icon {
+        width: 19px;
+        height: 19px;
+      }
+
+      /* 小程序首页精修：应用优先、通知摘要、页首去冗余。 */
+      .ref-mini-hero {
+        padding-bottom: 18px;
+      }
+
+      .ref-mini-hero .mini-greet {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .ref-mini-hero .mini-greet h4 {
+        font-size: 18px;
+      }
+
+      .ref-mini-hero .mini-greet p {
+        margin-top: 0;
+        font-size: 8px;
+      }
+
+      .ref-mini-stats {
+        margin-top: 11px;
+        border: 1px solid var(--line);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      }
+
+      .ref-mini-notice .mini-notice-head {
+        border-bottom: 0;
+      }
+
+      .ref-mini-notice .mini-notice-row {
+        padding-top: 0;
+        border-bottom: 0;
+      }
+
+      .ref-mini-notice .mini-notice-more {
+        padding: 7px 11px 9px;
+        text-align: right;
+      }
+
+      /* 小程序出工日志。 */
+      .worklog-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 45px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .worklog-nav h3 {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .worklog-nav .capsule {
+        border-color: var(--line);
+        color: var(--sub);
+      }
+
+      .worklog-nav .back {
+        color: var(--text);
+        font-size: 17px;
+      }
+
+      .mini-worklog-body {
+        padding: 11px;
+      }
+
+      .mini-toolrow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .team-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 28px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--control-radius);
+        background: var(--card);
+        font-size: 9px;
+        font-weight: 600;
+      }
+
+      .datebar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 11px;
+      }
+
+      .datebar button {
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--line);
+        border-radius: var(--control-radius);
+        background: var(--card);
+        color: var(--sub);
+      }
+
+      .datebar b {
+        font-size: 15px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .datebar small {
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .datebar .today {
+        padding: 4px 6px;
+        border-radius: var(--tag-radius);
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 8px;
+      }
+
+      .datebar .cal-btn {
+        margin-left: auto;
+      }
+
+      .mini-log {
+        margin-top: 12px;
+      }
+
+      .mini-log .log-head {
+        padding: 11px 11px 9px;
+      }
+
+      .mini-log .plate {
+        font-size: 16px;
+      }
+
+      .mini-log .log-content {
+        padding: 0 11px 10px;
+      }
+
+      .mini-log .clock-list {
+        margin-top: 9px;
+      }
+
+      .mini-log .photos {
+        margin-top: 10px;
+      }
+
+      .mini-log .photo {
+        min-height: 78px;
+      }
+
+      .mini-log .log-ops {
+        justify-content: space-between;
+        padding: 10px 11px;
+      }
+
+      .fab {
+        position: absolute;
+        right: 15px;
+        bottom: 73px;
+        z-index: 12;
+        width: 48px;
+        height: 48px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--blue);
+        box-shadow: 0 6px 16px rgba(14, 61, 168, 0.28);
+        color: #fff;
+      }
+
+      .fab-panel {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: flex-end;
+        background: rgba(29, 33, 41, 0.28);
+      }
+
+      .legacy-menu {
+        width: 100%;
+        max-height: 82%;
+        overflow-y: auto;
+        padding: 12px 14px 18px;
+        border-radius: var(--card-radius) var(--card-radius) 0 0;
+        background: var(--card);
+      }
+
+      .legacy-menu a {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 39px;
+        padding: 0 5px;
+        border-bottom: 1px solid var(--line);
+        color: var(--sub);
+        font-size: 10px;
+      }
+
+      .legacy-menu a:last-child {
+        border-bottom: 0;
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .date-strip {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr) 30px;
+        gap: 5px;
+        margin-top: 10px;
+      }
+
+      .date-cell {
+        position: relative;
+        min-height: 49px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        border: 1px solid transparent;
+        border-radius: var(--control-radius);
+        background: var(--card);
+        color: var(--sub);
+        font-size: 9px;
+      }
+
+      .date-cell small {
+        color: var(--muted);
+        font-size: 7px;
+      }
+
+      .date-cell i {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+
+      .date-cell.bad i {
+        background: var(--red);
+      }
+
+      .date-cell.on {
+        border-color: var(--blue);
+        background: var(--blue);
+        color: #fff;
+        font-weight: 600;
+      }
+
+      .date-cell.on small {
+        color: rgba(255, 255, 255, 0.75);
+      }
+
+      .date-cell.on i {
+        background: #fff;
+      }
+
+      .date-strip .strip-cal {
+        background: var(--card);
+        color: var(--blue);
+      }
+
+      .ref-mini-log .log-content {
+        padding-bottom: 8px;
+      }
+
+      .ref-mini-log .field-grid {
+        margin-top: 9px;
+      }
+
+      .ref-mini-log .clock-inline {
+        margin-top: 9px;
+      }
+
+      .ref-mini-log .photos {
+        margin-top: 9px;
+      }
+
+      .grouped-sheet {
+        width: 100%;
+        max-height: 84%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-radius: var(--card-radius) var(--card-radius) 0 0;
+        background: var(--card);
+      }
+
+      .sheet-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 15px 15px 11px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .sheet-head h4 {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .sheet-head p {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .sheet-close {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--control-radius);
+        background: var(--fill);
+        color: var(--sub);
+      }
+
+      .sheet-scroll {
+        min-height: 0;
+        overflow-y: auto;
+        padding: 4px 14px 10px;
+      }
+
+      .action-group {
+        margin-top: 12px;
+      }
+
+      .action-group h5 {
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+
+      .action-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+      }
+
+      .action-item {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 44px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--control-radius);
+        background: var(--card);
+        color: var(--sub);
+        font-size: 9px;
+        text-align: left;
+      }
+
+      .action-item .icon {
+        width: 16px;
+        height: 16px;
+        color: var(--blue);
+      }
+
+      .sheet-primary {
+        margin: 10px 14px 14px;
+        min-height: 44px;
+      }
+
+      .sheet-note {
+        padding: 0 15px 8px;
+        color: var(--muted);
+        font-size: 7.5px;
+        line-height: 1.5;
+      }
+
+      .phone-hint {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 9px;
+        text-align: center;
+      }
+
+      .review-foot {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 24px;
+        margin: 30px 0 36px;
+        padding: 18px 0;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.7;
+      }
+
+      .review-foot b {
+        color: var(--sub);
+      }
+
+      .review-foot a {
+        flex: none;
+        color: var(--blue);
+      }
+
+      .toast-region {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 100;
+        width: min(340px, calc(100vw - 36px));
+      }
+
+      .toast {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--control-radius);
+        background: var(--card);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+        color: var(--sub);
+        font-size: 11px;
+        line-height: 1.6;
+        animation: pane-in 0.2s var(--ease) both;
+      }
+
+      .toast .icon {
+        color: var(--green-text);
+      }
+
+      @keyframes pane-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation: none !important;
+          animation-delay: 0s !important;
+          transition: none !important;
+          transition-delay: 0s !important;
+        }
+      }
+
+      @media (max-width: 1180px) {
+        .comparison.active {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .mock-app {
+          height: 720px;
+        }
+      }
+
+      @media (max-width: 900px) {
+        .controls {
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .control-group.pages {
+          width: 100%;
+          flex-basis: 100%;
+        }
+
+        .width-control {
+          margin-left: 0;
+        }
+
+        .page-intro {
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .change-tags {
+          justify-content: flex-start;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .shell {
+          width: calc(100% - 24px);
+        }
+
+        .review-head {
+          padding-top: 18px;
+        }
+
+        .back-links {
+          margin-bottom: 18px;
+        }
+
+        .review-title-row {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .review-head h1 {
+          font-size: 27px;
+        }
+
+        .controls {
+          padding: 9px;
+        }
+
+        .control-label {
+          display: none;
+        }
+
+        .segment {
+          padding: 0 10px;
+        }
+
+        .mock-rail {
+          display: none;
+        }
+
+        .mock-main {
+          padding: 11px;
+        }
+
+        .welcome {
+          grid-template-columns: 1fr;
+        }
+
+        .welcome-stats {
+          border-top: 1px solid var(--line);
+          padding-top: 10px;
+        }
+
+        .app-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .workspace-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .stat-strip {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .stat-strip .stat:nth-child(3)::before {
+          display: none;
+        }
+
+        .stat-strip .stat:nth-child(n + 3) {
+          border-top: 1px solid var(--line);
+        }
+
+        .wl-before-body,
+        .wl-ref-body {
+          grid-template-columns: 1fr;
+        }
+
+        .before-calendar {
+          order: 2;
+        }
+
+        .ref-calendar .calendar-full {
+          display: none;
+        }
+
+        .ref-calendar .calendar-full.open {
+          display: block;
+        }
+
+        .ref-calendar .calendar-summary-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          font-size: 8px;
+        }
+
+        .ref-calendar .calendar-summary-bar button {
+          background: transparent;
+          color: var(--blue);
+          font-size: 8px;
+        }
+
+        .log-body,
+        .ref-log .log-body {
+          grid-template-columns: 1fr;
+        }
+
+        .phone-stage {
+          padding: 8px;
+        }
+
+        .phone {
+          padding: 7px;
+          border-radius: 34px;
+        }
+
+        .phone-screen {
+          border-radius: 28px;
+        }
+
+        .review-foot {
+          flex-direction: column;
+          gap: 10px;
+        }
+      }
+    </style>
+  </head>
+  <body data-mode="compare">
+    <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+      <symbol id="i-grid" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </symbol>
+      <symbol id="i-log" viewBox="0 0 24 24">
+        <path d="M6 3.5h9l3 3V20.5H6zM14.5 3.5V7H18M9 11h6M9 15h6" />
+      </symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24">
+        <path d="M6.2 16.2v-4.9a5.8 5.8 0 0111.6 0v4.9l1.6 2.6H4.6zM10.2 20.6a2 2 0 003.6 0" />
+      </symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M7 3v4M17 3v4M3 10h18" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4.5 12h15M13.5 6l6 6-6 6" /></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24">
+        <path d="M6 3.5h9l3 3V20.5H6zM14.5 3.5V7H18M9 12h6M9 16h4" />
+      </symbol>
+      <symbol id="i-users" viewBox="0 0 24 24">
+        <circle cx="9" cy="8" r="3" />
+        <path d="M3.5 20v-2a5.5 5.5 0 0111 0v2M16 5.5a3 3 0 010 6M17 14a5 5 0 013.5 4.8V20" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7" /></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M20 7v5h-5M4 17v-5h5" />
+        <path d="M6.1 8.2a7 7 0 0111.8-1L20 12M4 12l2.1 4.8a7 7 0 0011.8-1" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5M4 20h16" />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19 13.5v-3l-2-.7a7 7 0 00-.8-1.8l.9-1.9-2.1-2.1-1.9.9a7 7 0 00-1.8-.8L10.5 2h-3l-.7 2a7 7 0 00-1.8.8l-1.9-.9L1 6.1l.9 1.9a7 7 0 00-.8 1.8L-1 10.5"
+          transform="translate(3 0) scale(.85)"
+        />
+      </symbol>
+      <symbol id="i-money" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path
+          d="M15.5 8.5c-.8-.8-2-1.2-3.5-1.2-2 0-3.3 1-3.3 2.4 0 3.5 7 1.6 7 5 0 1.4-1.4 2.6-3.7 2.6-1.5 0-2.9-.5-3.8-1.4M12 5v14"
+        />
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="8" y="8" width="12" height="12" rx="2" />
+        <path d="M16 8V4H4v12h4" />
+      </symbol>
+      <symbol id="i-task" viewBox="0 0 24 24">
+        <path d="M9 4h6M8 5.5H5.5v15h13v-15H16" />
+        <path d="M8 12l2.5 2.5L16 9" />
+      </symbol>
+      <symbol id="i-car" viewBox="0 0 24 24">
+        <path d="M5 16.5h14M6.5 16.5l1.5-7h8l1.5 7M8 19.5v1.5M16 19.5v1.5" />
+        <circle cx="8" cy="16.5" r="1" />
+        <circle cx="16" cy="16.5" r="1" />
+      </symbol>
+      <symbol id="i-location" viewBox="0 0 24 24">
+        <path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1114 0z" />
+        <circle cx="12" cy="10" r="2.5" />
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3.5 2" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24">
+        <path d="M12 3.2l6.8 2.5v5.2c0 4.5-2.9 7.7-6.8 9.4-3.9-1.7-6.8-4.9-6.8-9.4V5.7z" />
+        <path d="M9 11.7l2.2 2.2 3.8-3.9" />
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 24 24">
+        <path
+          d="M12 7c-1.7-1.3-4-1.6-6.7-1.4v12.8c2.7-.2 5 .1 6.7 1.4 1.7-1.3 4-1.6 6.7-1.4V5.6C16 5.4 13.7 5.7 12 7zM12 7v12.8"
+        />
+      </symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="13" rx="2" />
+        <path d="M8 21h8M12 17v4" />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" /></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24">
+        <path
+          d="M20.5 11.5a8.5 8.5 0 01-12.4 7.6L3.5 20.5l1.5-4.3A8.5 8.5 0 1120.5 11.5zM8.5 10.5h7M8.5 13.5h4.5"
+        />
+      </symbol>
+      <symbol id="i-home" viewBox="0 0 24 24">
+        <path d="M3.5 10.5L12 3l8.5 7.5M6 9v11h12V9M10 20v-6h4v6" />
+      </symbol>
+      <symbol id="i-user" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0116 0" />
+      </symbol>
+      <symbol id="i-tower" viewBox="0 0 240 180">
+        <rect width="240" height="180" fill="#e8f0ff" />
+        <path d="M0 142h240v38H0z" fill="#c9cdd4" opacity=".45" />
+        <g
+          fill="none"
+          stroke="#4e5969"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M120 35L82 160M120 35l38 125M96 112h48M89 140h62M103 82h34M74 65h92M84 50h72M90 35h60"
+          />
+          <path d="M20 60c55 22 145 22 200 0M20 74c55 22 145 22 200 0" opacity=".65" />
+        </g>
+      </symbol>
+    </svg>
+
+    <header class="shell review-head">
+      <nav class="back-links" aria-label="设计稿导航">
+        <a href="./体验精修.html"
+          ><svg class="icon icon-sm" style="transform: rotate(180deg)"><use href="#i-arrow" /></svg
+          >返回交互规范</a
+        >
+        <a href="./index.html">设计稿展厅</a>
+        <a href="./体验精修-Web.html"
+          >Web 交互稿<svg class="icon icon-sm"><use href="#i-arrow" /></svg
+        ></a>
+      </nav>
+      <div class="review-title-row">
+        <div>
+          <div class="eyebrow">SHADE 壹匣 · LAYOUT REFINEMENT</div>
+          <h1>同一套颜色与圆角，<span>重新安排信息优先级。</span></h1>
+          <p class="review-description">
+            不只压缩间距，而是重新审视首屏任务、筛选器位置、内容密度和操作路径。左右对比只改变布局与呈现，业务字段、权限和全部能力保持完整。
+          </p>
+        </div>
+        <span class="review-badge">布局评审 · 不动生产</span>
+      </div>
+      <div class="constraints">
+        <span>品牌色不变</span><span>圆角体系不变</span><span>全部入口保留</span
+        ><span>虚构数据演示</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <div class="controls" aria-label="布局评审控制">
+        <div class="control-group pages">
+          <span class="control-label">页面</span>
+          <div class="segmented" id="pageTabs">
+            <button class="segment" type="button" data-page="web-home" aria-pressed="true">
+              Web 工作台
+            </button>
+            <button class="segment" type="button" data-page="web-worklog" aria-pressed="false">
+              Web 出工日志
+            </button>
+            <button class="segment" type="button" data-page="mini-home" aria-pressed="false">
+              小程序首页
+            </button>
+            <button class="segment" type="button" data-page="mini-worklog" aria-pressed="false">
+              小程序出工日志
+            </button>
+          </div>
+        </div>
+        <div class="control-group">
+          <span class="control-label">视图</span>
+          <div class="segmented" id="modeTabs">
+            <button class="segment" type="button" data-mode="compare" aria-pressed="true">
+              对比
+            </button>
+            <button class="segment" type="button" data-mode="before" aria-pressed="false">
+              现状
+            </button>
+            <button class="segment" type="button" data-mode="after" aria-pressed="false">
+              精修
+            </button>
+          </div>
+        </div>
+        <div class="control-group width-control" id="widthControl" hidden>
+          <span class="control-label">宽度</span>
+          <div class="segmented" id="widthTabs">
+            <button class="segment" type="button" data-width="wide" aria-pressed="true">
+              宽屏
+            </button>
+            <button class="segment" type="button" data-width="narrow" aria-pressed="false">
+              430px
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Web 工作台 -->
+      <section class="comparison active" data-page="web-home">
+        <div class="page-intro" style="grid-column: 1 / -1">
+          <div>
+            <h2>Web 工作台：从“欢迎页”到任务入口</h2>
+            <p>
+              保留欢迎与通知，但不再让它们阻挡应用入口。精修后应用成为主任务区，通知成为右侧辅助栏，四项数据仍能一眼扫读。
+            </p>
+          </div>
+          <div class="change-tags">
+            <span>任务主列</span><span>通知侧栏</span><span>数据条带</span>
+          </div>
+        </div>
+        <div class="pane before">
+          <div class="pane-label">当前结构<small>欢迎卡 → 三行通知 → 应用宫格</small></div>
+          <div class="mock-browser">
+            <div class="browser-chrome">
+              <i class="browser-dot"></i><i class="browser-dot"></i><i class="browser-dot"></i
+              ><span class="browser-url">toolkit.j1net.com/index.html</span>
+            </div>
+            <div class="mock-app">
+              <aside class="mock-rail">
+                <div class="mock-brand"><span class="mock-logo">匣</span>Shade 壹匣</div>
+                <div class="rail-item on">
+                  <svg class="icon"><use href="#i-grid" /></svg>工作台
+                </div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-chat" /></svg>Call Me
+                </div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-log" /></svg>出工日志
+                </div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-shield" /></svg>安全日
+                </div>
+              </aside>
+              <div class="mock-main">
+                <section class="card welcome">
+                  <div>
+                    <div class="welcome-date">2026 年 10 月 24 日 · 星期六</div>
+                    <div class="welcome-user">
+                      <span class="avatar">张</span>
+                      <div>
+                        <h3>上午好，张伟</h3>
+                        <div class="welcome-meta">
+                          <span class="role-badge">班组管理员</span><span>zhangwei · 检修一班</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="welcome-stats">
+                    <div class="stat warn"><b>26/28</b><span>上月通过</span></div>
+                    <div class="stat warn"><b>1</b><span>上月需补</span></div>
+                    <div class="stat warn"><b>18/21</b><span>本月通过</span></div>
+                    <div class="stat warn"><b>2</b><span>本月需补</span></div>
+                  </div>
+                </section>
+                <div class="section-head">
+                  <h4>消息通知</h4>
+                  <span class="unread">2 条未读</span><a>查看全部</a>
+                </div>
+                <section class="card notice-list">
+                  <div class="notice-row">
+                    <i class="notice-dot"></i
+                    ><span class="notice-title"
+                      >秋季线路巡视工作安排<small>检修一班 · 全员通知</small></span
+                    ><time class="notice-time">10-24 09:12</time>
+                  </div>
+                  <div class="notice-row">
+                    <i class="notice-dot"></i
+                    ><span class="notice-title"
+                      >10 月安全日活动记录已生成<small>安全日活动记录</small></span
+                    ><time class="notice-time">10-23 16:40</time>
+                  </div>
+                  <div class="notice-row">
+                    <i class="notice-dot read"></i
+                    ><span class="notice-title"
+                      >出工日志照片核验提醒<small>出工日志 · 核验助手</small></span
+                    ><time class="notice-time">10-22 08:30</time>
+                  </div>
+                </section>
+                <div class="section-head">
+                  <h4>应用中心</h4>
+                  <span>6 个可用应用</span>
+                </div>
+                <div class="app-grid">
+                  <section class="card app-card">
+                    <span class="app-icon"
+                      ><svg class="icon"><use href="#i-chat" /></svg
+                    ></span>
+                    <h5>Call Me</h5>
+                    <p>班组知识库问答，快速定位历史经验。</p>
+                    <div class="app-foot">
+                      <span class="mini-tag">知识问答</span
+                      ><svg class="icon"><use href="#i-arrow" /></svg>
+                    </div>
+                  </section>
+                  <section class="card app-card">
+                    <span class="app-icon"
+                      ><svg class="icon"><use href="#i-log" /></svg
+                    ></span>
+                    <h5>出工日志</h5>
+                    <p>出工记录、水印照片与核验归档。</p>
+                    <div class="app-foot">
+                      <span class="mini-tag">记录存证</span
+                      ><svg class="icon"><use href="#i-arrow" /></svg>
+                    </div>
+                  </section>
+                  <section class="card app-card">
+                    <span class="app-icon"
+                      ><svg class="icon"><use href="#i-shield" /></svg
+                    ></span>
+                    <h5>安全日</h5>
+                    <p>活动文件整理与记录自动归档。</p>
+                    <div class="app-foot">
+                      <span class="mini-tag">活动归档</span
+                      ><svg class="icon"><use href="#i-arrow" /></svg>
+                    </div>
+                  </section>
+                  <section class="card app-card">
+                    <span class="app-icon"
+                      ><svg class="icon"><use href="#i-monitor" /></svg
+                    ></span>
+                    <h5>远程连接</h5>
+                    <p>查看设备状态并发起远程连接。</p>
+                    <div class="app-foot">
+                      <span class="mini-tag">设备管理</span
+                      ><svg class="icon"><use href="#i-arrow" /></svg>
+                    </div>
+                  </section>
+                  <section class="card app-card">
+                    <span class="app-icon"
+                      ><svg class="icon"><use href="#i-book" /></svg
+                    ></span>
+                    <h5>题库刷题</h5>
+                    <p>顺序、随机与错题专项练习。</p>
+                    <div class="app-foot">
+                      <span class="mini-tag">练习提升</span
+                      ><svg class="icon"><use href="#i-arrow" /></svg>
+                    </div>
+                  </section>
+                  <section class="card app-card">
+                    <span class="app-icon"
+                      ><svg class="icon"><use href="#i-folder" /></svg
+                    ></span>
+                    <h5>团队网盘</h5>
+                    <p>班组文件共享、预览与协同编辑。</p>
+                    <div class="app-foot">
+                      <span class="mini-tag">文件协同</span
+                      ><svg class="icon"><use href="#i-arrow" /></svg>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="pane after">
+          <div class="pane-label">布局精修<small>主任务区 + 辅助信息栏</small></div>
+          <div class="mock-browser">
+            <div class="browser-chrome">
+              <i class="browser-dot"></i><i class="browser-dot"></i><i class="browser-dot"></i
+              ><span class="browser-url">toolkit.j1net.com/index.html</span>
+            </div>
+            <div class="mock-app">
+              <aside class="mock-rail">
+                <div class="mock-brand"><span class="mock-logo">匣</span>Shade 壹匣</div>
+                <div class="rail-item on">
+                  <svg class="icon"><use href="#i-grid" /></svg>工作台
+                </div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-chat" /></svg>Call Me
+                </div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-log" /></svg>出工日志
+                </div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-shield" /></svg>安全日
+                </div>
+              </aside>
+              <div class="mock-main">
+                <div class="command-head">
+                  <div class="command-title">
+                    <span class="avatar">张</span>
+                    <div>
+                      <h3>上午好，张伟</h3>
+                      <p>班组管理员 · 检修一班</p>
+                    </div>
+                  </div>
+                  <span class="command-date">10 月 24 日 · 周六</span>
+                </div>
+                <section class="card stat-strip">
+                  <div class="stat warn">
+                    <b>26/28</b><span>上月通过</span><small>2 条未通过</small>
+                  </div>
+                  <div class="stat warn">
+                    <b>1</b><span>上月需补</span><small>待补水印照片</small>
+                  </div>
+                  <div class="stat warn">
+                    <b>18/21</b><span>本月通过</span><small>3 条未通过</small>
+                  </div>
+                  <div class="stat warn">
+                    <b>2</b><span>本月需补</span><small>待补水印照片</small>
+                  </div>
+                </section>
+                <div class="workspace-grid">
+                  <section>
+                    <div class="section-head">
+                      <h4>应用中心</h4>
+                      <span>6 个可用应用</span><a>全部应用</a>
+                    </div>
+                    <div class="app-list">
+                      <section class="card app-row">
+                        <span class="app-icon"
+                          ><svg class="icon"><use href="#i-chat" /></svg
+                        ></span>
+                        <div>
+                          <h5>Call Me</h5>
+                          <p>班组知识库问答，定位历史经验。</p>
+                        </div>
+                        <svg class="icon arrow"><use href="#i-arrow" /></svg>
+                        <div class="app-foot">
+                          <span class="mini-tag">知识问答</span><span>进入应用</span>
+                        </div>
+                      </section>
+                      <section class="card app-row">
+                        <span class="app-icon"
+                          ><svg class="icon"><use href="#i-log" /></svg
+                        ></span>
+                        <div>
+                          <h5>出工日志</h5>
+                          <p>出工记录、照片与核验归档。</p>
+                        </div>
+                        <svg class="icon arrow"><use href="#i-arrow" /></svg>
+                        <div class="app-foot">
+                          <span class="mini-tag">记录存证</span><span>进入应用</span>
+                        </div>
+                      </section>
+                      <section class="card app-row">
+                        <span class="app-icon"
+                          ><svg class="icon"><use href="#i-shield" /></svg
+                        ></span>
+                        <div>
+                          <h5>安全日</h5>
+                          <p>活动文件整理与自动归档。</p>
+                        </div>
+                        <svg class="icon arrow"><use href="#i-arrow" /></svg>
+                        <div class="app-foot">
+                          <span class="mini-tag">活动归档</span><span>进入应用</span>
+                        </div>
+                      </section>
+                      <section class="card app-row">
+                        <span class="app-icon"
+                          ><svg class="icon"><use href="#i-monitor" /></svg
+                        ></span>
+                        <div>
+                          <h5>远程连接</h5>
+                          <p>设备状态与远程控制入口。</p>
+                        </div>
+                        <svg class="icon arrow"><use href="#i-arrow" /></svg>
+                        <div class="app-foot">
+                          <span class="mini-tag">设备管理</span><span>进入应用</span>
+                        </div>
+                      </section>
+                      <section class="card app-row">
+                        <span class="app-icon"
+                          ><svg class="icon"><use href="#i-book" /></svg
+                        ></span>
+                        <div>
+                          <h5>题库刷题</h5>
+                          <p>顺序、随机与错题专项练习。</p>
+                        </div>
+                        <svg class="icon arrow"><use href="#i-arrow" /></svg>
+                        <div class="app-foot">
+                          <span class="mini-tag">练习提升</span><span>进入应用</span>
+                        </div>
+                      </section>
+                      <section class="card app-row">
+                        <span class="app-icon"
+                          ><svg class="icon"><use href="#i-folder" /></svg
+                        ></span>
+                        <div>
+                          <h5>团队网盘</h5>
+                          <p>文件共享、预览与协同编辑。</p>
+                        </div>
+                        <svg class="icon arrow"><use href="#i-arrow" /></svg>
+                        <div class="app-foot">
+                          <span class="mini-tag">文件协同</span><span>进入应用</span>
+                        </div>
+                      </section>
+                    </div>
+                  </section>
+                  <aside class="card notice-side">
+                    <div class="section-head">
+                      <h4>消息通知</h4>
+                      <span class="unread">2 条未读</span
+                      ><button type="button" data-notice>全部 3 条</button>
+                    </div>
+                    <div class="notice-row">
+                      <i class="notice-dot"></i
+                      ><span class="notice-title"
+                        >秋季线路巡视工作安排<small>检修一班 · 全员</small
+                        ><time class="notice-time">10-24 09:12</time></span
+                      >
+                    </div>
+                    <div class="notice-extra" hidden>
+                      <div class="notice-row">
+                        <i class="notice-dot"></i
+                        ><span class="notice-title"
+                          >10 月安全日活动记录已生成<small>安全日活动记录</small
+                          ><time class="notice-time">10-23 16:40</time></span
+                        >
+                      </div>
+                      <div class="notice-row">
+                        <i class="notice-dot read"></i
+                        ><span class="notice-title"
+                          >出工日志照片核验提醒<small>核验助手</small
+                          ><time class="notice-time">10-22 08:30</time></span
+                        >
+                      </div>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Web 出工日志 -->
+      <section class="comparison" data-page="web-worklog" hidden>
+        <div class="page-intro" style="grid-column: 1 / -1">
+          <div>
+            <h2>Web 出工日志：筛选器与内容各就各位</h2>
+            <p>
+              日期是筛选器，放到左侧更自然；顶部工具合并为一行，日志主列获得更多空间。窄屏时月历默认收成摘要，不把记录推到长页面下方。
+            </p>
+          </div>
+          <div class="change-tags">
+            <span>日历左栏</span><span>工具合并</span><span>窄屏摘要</span>
+          </div>
+        </div>
+        <div class="pane before">
+          <div class="pane-label">当前结构<small>多行工具区 + 右侧月历</small></div>
+          <div class="mock-browser">
+            <div class="browser-chrome">
+              <i class="browser-dot"></i><i class="browser-dot"></i><i class="browser-dot"></i
+              ><span class="browser-url">toolkit.j1net.com/worklog.html</span>
+            </div>
+            <div class="mock-app">
+              <aside class="mock-rail">
+                <div class="mock-brand"><span class="mock-logo">匣</span>Shade 壹匣</div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-grid" /></svg>工作台
+                </div>
+                <div class="rail-item on">
+                  <svg class="icon"><use href="#i-log" /></svg>出工日志
+                </div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-shield" /></svg>安全日
+                </div>
+              </aside>
+              <div class="mock-main">
+                <div class="wl-head">
+                  <div>
+                    <span class="wl-kicker">WORKLOG · 班组出工记录</span>
+                    <h3>出工日志</h3>
+                    <p>月历色点看验证状态，点击日期查看当日记录</p>
+                  </div>
+                  <div class="wl-tools">
+                    <span class="tool-count">共 2 条日志 · 5 张照片</span
+                    ><span class="scope"><span class="on">全部</span><span>仅看我</span></span
+                    ><button class="btn btn-sm" type="button" data-demo="从商旅同步为布局演示">
+                      从商旅拉取</button
+                    ><button
+                      class="btn btn-sm btn-primary"
+                      type="button"
+                      data-demo="新建日志入口保留"
+                    >
+                      ＋ 新建日志
+                    </button>
+                  </div>
+                </div>
+                <div class="wl-status">
+                  <span>当前查看 · 2026 年 10 月 24 日</span><span>已更新 10:28</span>
+                </div>
+                <div class="wl-tabs">
+                  <span class="on">记录</span><span>批量下载</span><span>汇总前核验</span
+                  ><span>数据管理</span><span>工作任务单</span><span>费用汇总</span
+                  ><span>派车汇总</span><span>派车对齐</span>
+                </div>
+                <div class="wl-before-body">
+                  <section class="card log-card">
+                    <header class="log-head">
+                      <span class="plate">鄂A·D12345</span><span class="tag info">跨班</span
+                      ><span class="tag ok">验证通过</span>
+                    </header>
+                    <div class="log-body">
+                      <div>
+                        <div class="patrol">
+                          <small>巡视内容</small>110kV 锦城线 #12—#28 塔巡视，检查杆塔与通道环境。
+                        </div>
+                        <div class="field">
+                          <label>派车车辆</label><b>鄂A·D12345</b
+                          ><small>工程车辆 · PD202610240018</small>
+                        </div>
+                        <div class="field">
+                          <label>用车人</label><b>王强、李军</b
+                          ><small>王强 08:02 / 17:36 · 李军 08:05 / 17:42</small>
+                        </div>
+                        <div class="field"><label>目的地</label><b>张河变电站</b></div>
+                      </div>
+                      <div>
+                        <div class="field"><label>水印照片 · 3 张</label></div>
+                        <div class="photos">
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>王强</span><span>09:18</span></span>
+                          </div>
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>李军</span><span>10:06</span></span>
+                          </div>
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>王强</span><span>11:24</span></span>
+                          </div>
+                        </div>
+                        <div class="remark"><b>备注</b>#18 塔绝缘子更换完成，明日复验。</div>
+                      </div>
+                    </div>
+                    <footer class="log-ops">
+                      <span class="primary">从商旅同步</span><span>备注</span
+                      ><span class="danger">删除</span>
+                    </footer>
+                  </section>
+                  <aside class="card calendar before-calendar">
+                    <div class="cal-head"><b>2026 年 10 月</b><span>‹ ›</span></div>
+                    <div class="cal-week">
+                      <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span
+                      ><span>六</span><span>日</span>
+                    </div>
+                    <div class="cal-grid">
+                      <span class="cal-day dim">28</span><span class="cal-day dim">29</span
+                      ><span class="cal-day dim">30</span><span class="cal-day">1</span
+                      ><span class="cal-day">2<i></i></span><span class="cal-day">3</span
+                      ><span class="cal-day">4</span><span class="cal-day">5</span
+                      ><span class="cal-day warn">6<i></i></span><span class="cal-day">7</span
+                      ><span class="cal-day">8</span><span class="cal-day">9<i></i></span
+                      ><span class="cal-day">10</span><span class="cal-day">11</span
+                      ><span class="cal-day bad">12<i></i></span><span class="cal-day">13</span
+                      ><span class="cal-day">14</span><span class="cal-day">15<i></i></span
+                      ><span class="cal-day">16</span><span class="cal-day">17</span
+                      ><span class="cal-day">18</span><span class="cal-day warn">19<i></i></span
+                      ><span class="cal-day">20</span><span class="cal-day">21<i></i></span
+                      ><span class="cal-day bad">22<i></i></span
+                      ><span class="cal-day">23<i></i></span
+                      ><span class="cal-day today">24<i></i></span><span class="cal-day">25</span
+                      ><span class="cal-day">26</span><span class="cal-day">27</span
+                      ><span class="cal-day">28</span><span class="cal-day">29</span
+                      ><span class="cal-day">30</span><span class="cal-day">31</span>
+                    </div>
+                    <div class="cal-legend">
+                      <span><i></i>已验证</span><span><i class="warn"></i>有备注</span
+                      ><span><i class="bad"></i>待核实</span>
+                    </div>
+                    <div class="cal-summary">24 日 · 2 条日志 · 1 条待核实</div>
+                  </aside>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="pane after">
+          <div class="pane-label">布局精修<small>左筛选 + 右内容 + 单行工具</small></div>
+          <div class="mock-browser">
+            <div class="browser-chrome">
+              <i class="browser-dot"></i><i class="browser-dot"></i><i class="browser-dot"></i
+              ><span class="browser-url">toolkit.j1net.com/worklog.html</span>
+            </div>
+            <div class="mock-app">
+              <aside class="mock-rail">
+                <div class="mock-brand"><span class="mock-logo">匣</span>Shade 壹匣</div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-grid" /></svg>工作台
+                </div>
+                <div class="rail-item on">
+                  <svg class="icon"><use href="#i-log" /></svg>出工日志
+                </div>
+                <div class="rail-item">
+                  <svg class="icon"><use href="#i-shield" /></svg>安全日
+                </div>
+              </aside>
+              <div class="mock-main">
+                <div class="wl-ref-head">
+                  <h3>出工日志</h3>
+                  <span class="date-chip"
+                    ><svg class="icon icon-sm"><use href="#i-calendar" /></svg>10 月 24 日</span
+                  >
+                  <div class="wl-tools">
+                    <span class="tool-count">2 条 · 5 张</span
+                    ><span class="scope"><span class="on">全部</span><span>仅看我</span></span
+                    ><button
+                      class="btn btn-sm"
+                      type="button"
+                      aria-label="从商旅同步"
+                      data-demo="从商旅同步为布局演示"
+                    >
+                      <svg class="icon icon-sm"><use href="#i-refresh" /></svg></button
+                    ><button
+                      class="btn btn-sm btn-primary"
+                      type="button"
+                      data-demo="新建日志入口保留"
+                    >
+                      <svg class="icon icon-sm"><use href="#i-plus" /></svg>新建日志
+                    </button>
+                  </div>
+                </div>
+                <div class="wl-tabs">
+                  <span class="on">记录</span><span>批量下载</span><span>汇总前核验</span
+                  ><span>数据管理</span><span>工作任务单</span><span>费用汇总</span
+                  ><span>派车汇总</span><span>派车对齐</span>
+                </div>
+                <div class="wl-ref-body">
+                  <aside class="card calendar ref-calendar">
+                    <div class="calendar-summary-bar">
+                      <b>10 月 24 日 · 1 条待核实</b
+                      ><button type="button" data-cal-toggle aria-expanded="false">展开月历</button>
+                    </div>
+                    <div class="calendar-full">
+                      <div class="cal-head"><b>2026 年 10 月</b><span>‹ ›</span></div>
+                      <div class="cal-week">
+                        <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span
+                        ><span>六</span><span>日</span>
+                      </div>
+                      <div class="cal-grid">
+                        <span class="cal-day dim">28</span><span class="cal-day dim">29</span
+                        ><span class="cal-day dim">30</span><span class="cal-day">1</span
+                        ><span class="cal-day">2<i></i></span><span class="cal-day">3</span
+                        ><span class="cal-day">4</span><span class="cal-day">5</span
+                        ><span class="cal-day warn">6<i></i></span><span class="cal-day">7</span
+                        ><span class="cal-day">8</span><span class="cal-day">9<i></i></span
+                        ><span class="cal-day">10</span><span class="cal-day">11</span
+                        ><span class="cal-day bad">12<i></i></span><span class="cal-day">13</span
+                        ><span class="cal-day">14</span><span class="cal-day">15<i></i></span
+                        ><span class="cal-day">16</span><span class="cal-day">17</span
+                        ><span class="cal-day">18</span><span class="cal-day warn">19<i></i></span
+                        ><span class="cal-day">20</span><span class="cal-day">21<i></i></span
+                        ><span class="cal-day bad">22<i></i></span
+                        ><span class="cal-day">23<i></i></span
+                        ><span class="cal-day today">24<i></i></span><span class="cal-day">25</span
+                        ><span class="cal-day">26</span><span class="cal-day">27</span
+                        ><span class="cal-day">28</span><span class="cal-day">29</span
+                        ><span class="cal-day">30</span><span class="cal-day">31</span>
+                      </div>
+                      <div class="cal-legend">
+                        <span><i></i>已验证</span><span><i class="warn"></i>有备注</span
+                        ><span><i class="bad"></i>待核实</span>
+                      </div>
+                      <div class="cal-summary">24 日 · 2 条日志 · 1 条待核实</div>
+                    </div>
+                  </aside>
+                  <section class="card log-card ref-log">
+                    <header class="log-head">
+                      <span class="plate">鄂A·D12345</span><span class="tag info">跨班</span
+                      ><span class="tag ok">验证通过</span>
+                    </header>
+                    <div class="log-body">
+                      <div>
+                        <div class="patrol"><small>巡视内容</small>110kV 锦城线 #12—#28 塔巡视</div>
+                        <div class="field-grid">
+                          <div class="field"><label>派车车辆</label><b>鄂A·D12345</b></div>
+                          <div class="field"><label>目的地</label><b>张河变电站</b></div>
+                        </div>
+                        <div class="clock-inline">
+                          <span class="clock-row"
+                            ><b>王强</b>08:02 / 17:36<span class="clock-state">✓</span></span
+                          ><span class="clock-row"
+                            ><b>李军</b>08:05 / 17:42<span class="clock-state">✓</span></span
+                          >
+                        </div>
+                        <div class="remark"><b>备注</b>#18 塔绝缘子更换完成，明日复验。</div>
+                      </div>
+                      <div>
+                        <div class="field"><label>水印照片 · 3 张</label></div>
+                        <div class="photos">
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>王强</span><span>09:18</span></span>
+                          </div>
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>李军</span><span>10:06</span></span>
+                          </div>
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>王强</span><span>11:24</span></span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <footer class="log-ops">
+                      <span class="primary">从商旅同步</span><span>备注</span
+                      ><span class="danger">删除</span>
+                    </footer>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 小程序首页 -->
+      <section class="comparison" data-page="mini-home" hidden>
+        <div class="page-intro" style="grid-column: 1 / -1">
+          <div>
+            <h2>小程序首页：高频应用先于信息流</h2>
+            <p>
+              保留深蓝页首和四项指标，把应用入口提前到第一屏核心位置。通知不删除，改为最新一条摘要，其余内容展开可见。
+            </p>
+          </div>
+          <div class="change-tags">
+            <span>应用前置</span><span>通知摘要</span><span>页首减重</span>
+          </div>
+        </div>
+        <div class="pane before">
+          <div class="pane-label">当前结构<small>数据卡 → 三行通知 → 应用宫格</small></div>
+          <div class="phone-stage">
+            <div class="phone">
+              <div class="phone-screen">
+                <div class="phone-scroll">
+                  <div class="mini-hero">
+                    <div class="statusbar">
+                      <span>9:41</span><span class="status-icons"><i></i><i></i></span>
+                    </div>
+                    <div class="mini-nav">
+                      <h3>Shade 壹匣</h3>
+                      <span class="capsule">••• ○</span>
+                    </div>
+                    <div class="mini-greet">
+                      <h4>上午好，陈宇</h4>
+                      <p>chenyu · 10月24日 周六 · 管理员</p>
+                    </div>
+                  </div>
+                  <div class="mini-body">
+                    <section class="card mini-stats">
+                      <div class="stat good"><b>24</b><span>上月通过</span></div>
+                      <div class="stat warn"><b>1</b><span>上月需补</span></div>
+                      <div class="stat"><b>18</b><span>本月通过</span></div>
+                      <div class="stat bad"><b>2</b><span>本月需补</span></div>
+                    </section>
+                    <section class="mini-section">
+                      <div class="mini-notice card">
+                        <div class="mini-notice-head">
+                          <svg class="icon"><use href="#i-bell" /></svg><b>消息通知</b
+                          ><span>2 条未读</span>
+                        </div>
+                        <div class="mini-notice-row">
+                          <i class="notice-dot"></i>
+                          <p>秋季保电工作安排已发布</p>
+                          <time>10-23</time>
+                        </div>
+                        <div class="mini-notice-row">
+                          <i class="notice-dot"></i>
+                          <p>10 月安全日活动记录已生成</p>
+                          <time>10-22</time>
+                        </div>
+                        <div class="mini-notice-row">
+                          <i class="notice-dot read"></i>
+                          <p>差旅资料归档提醒</p>
+                          <time>10-20</time>
+                        </div>
+                        <button class="mini-notice-more" type="button" data-demo="通知列表入口保留">
+                          查看全部 ›
+                        </button>
+                      </div>
+                    </section>
+                    <section class="mini-section">
+                      <div class="mini-section-head">
+                        <h5>应用中心</h5>
+                        <span>7 个应用</span>
+                      </div>
+                      <div class="mini-apps card">
+                        <div class="mini-grid">
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-chat" /></svg><span>Call Me</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-log" /></svg><span>出工日志</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-shield" /></svg><span>安全日</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-monitor" /></svg><span>远程连接</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-refresh" /></svg><span>文件传输</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-plus" /></svg><span>水印添加</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-book" /></svg><span>题库刷题</span>
+                          </div>
+                          <div class="mini-app soon">
+                            <svg class="icon"><use href="#i-grid" /></svg><span>敬请期待</span>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                </div>
+                <div class="mini-tabbar">
+                  <span class="on"
+                    ><svg class="icon"><use href="#i-home" /></svg>首页</span
+                  ><span
+                    ><svg class="icon"><use href="#i-user" /></svg>我的</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="pane after">
+          <div class="pane-label">布局精修<small>应用优先 + 通知摘要</small></div>
+          <div class="phone-stage">
+            <div class="phone">
+              <div class="phone-screen">
+                <div class="phone-scroll">
+                  <div class="mini-hero ref-mini-hero">
+                    <div class="statusbar">
+                      <span>9:41</span><span class="status-icons"><i></i><i></i></span>
+                    </div>
+                    <div class="mini-nav">
+                      <h3>Shade 壹匣</h3>
+                      <span class="capsule">••• ○</span>
+                    </div>
+                    <div class="mini-greet">
+                      <h4>上午好，陈宇</h4>
+                      <p>10月24日 · 管理员</p>
+                    </div>
+                  </div>
+                  <div class="mini-body">
+                    <section class="card mini-stats ref-mini-stats">
+                      <div class="stat good"><b>24</b><span>上月通过</span></div>
+                      <div class="stat warn"><b>1</b><span>上月需补</span></div>
+                      <div class="stat"><b>18</b><span>本月通过</span></div>
+                      <div class="stat bad"><b>2</b><span>本月需补</span></div>
+                    </section>
+                    <section class="mini-section">
+                      <div class="mini-section-head">
+                        <h5>应用中心</h5>
+                        <span>7 个应用</span>
+                      </div>
+                      <div class="mini-apps card">
+                        <div class="mini-grid">
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-chat" /></svg><span>Call Me</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-log" /></svg><span>出工日志</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-shield" /></svg><span>安全日</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-monitor" /></svg><span>远程连接</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-refresh" /></svg><span>文件传输</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-plus" /></svg><span>水印添加</span>
+                          </div>
+                          <div class="mini-app">
+                            <svg class="icon"><use href="#i-book" /></svg><span>题库刷题</span>
+                          </div>
+                          <div class="mini-app soon">
+                            <svg class="icon"><use href="#i-grid" /></svg><span>敬请期待</span>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                    <section class="mini-section">
+                      <div class="mini-notice card ref-mini-notice">
+                        <div class="mini-notice-head">
+                          <svg class="icon"><use href="#i-bell" /></svg><b>消息通知</b
+                          ><span>2 条未读</span>
+                        </div>
+                        <div class="mini-notice-row">
+                          <i class="notice-dot"></i>
+                          <p>秋季保电工作安排已发布</p>
+                          <time>10-23</time>
+                        </div>
+                        <div class="notice-extra" hidden>
+                          <div class="mini-notice-row">
+                            <i class="notice-dot"></i>
+                            <p>10 月安全日活动记录已生成</p>
+                            <time>10-22</time>
+                          </div>
+                          <div class="mini-notice-row">
+                            <i class="notice-dot read"></i>
+                            <p>差旅资料归档提醒</p>
+                            <time>10-20</time>
+                          </div>
+                        </div>
+                        <button
+                          class="mini-notice-more"
+                          type="button"
+                          data-notice
+                          aria-expanded="false"
+                        >
+                          全部 3 条 ›
+                        </button>
+                      </div>
+                    </section>
+                  </div>
+                </div>
+                <div class="mini-tabbar">
+                  <span class="on"
+                    ><svg class="icon"><use href="#i-home" /></svg>首页</span
+                  ><span
+                    ><svg class="icon"><use href="#i-user" /></svg>我的</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 小程序出工日志 -->
+      <section class="comparison" data-page="mini-worklog" hidden>
+        <div class="page-intro" style="grid-column: 1 / -1">
+          <div>
+            <h2>小程序出工日志：日期更快，菜单更易读</h2>
+            <p>
+              邻近日期直接点选，不再连续点箭头。十项 FAB
+              不再纵向堆叠，改为分组底部面板；新建日志仍固定在离拇指最近的位置。
+            </p>
+          </div>
+          <div class="change-tags">
+            <span>日期横条</span><span>菜单分组</span><span>拇指热区</span>
+          </div>
+        </div>
+        <div class="pane before">
+          <div class="pane-label">当前结构<small>箭头切日 + 十项纵向 speed dial</small></div>
+          <div class="phone-stage">
+            <div class="phone">
+              <div class="phone-screen">
+                <div class="phone-scroll">
+                  <div class="statusbar">
+                    <span>9:41</span><span class="status-icons"><i></i><i></i></span>
+                  </div>
+                  <div class="worklog-nav">
+                    <span class="back">‹</span>
+                    <h3>出工日志</h3>
+                    <span class="capsule">••• ○</span>
+                  </div>
+                  <div class="mini-worklog-body">
+                    <div class="mini-toolrow">
+                      <span class="team-chip">检修一班⌄</span
+                      ><span class="scope"><span class="on">全部</span><span>仅看我</span></span>
+                    </div>
+                    <div class="datebar">
+                      <button type="button" data-demo="前一天">‹</button><b>10月24日</b
+                      ><small>周六</small><span class="today">今天</span
+                      ><button type="button" data-demo="后一天">›</button
+                      ><button class="cal-btn" type="button" data-demo="完整月历入口保留">
+                        <svg class="icon icon-sm"><use href="#i-calendar" /></svg>
+                      </button>
+                    </div>
+                    <section class="card mini-log">
+                      <header class="log-head">
+                        <span class="plate">晋A·D72618</span><span class="tag info">跨班</span
+                        ><span class="tag ok">验证通过</span>
+                      </header>
+                      <div class="log-content">
+                        <div class="patrol"><small>巡视内容</small>110kV 青云线 #12—#28 塔巡视</div>
+                        <div class="clock-list">
+                          <div class="clock-row">
+                            <b>陈宇</b>07:58 / 17:36<span class="clock-state">已完成</span>
+                          </div>
+                          <div class="clock-row">
+                            <b>王强</b>08:03 / 17:42<span class="clock-state">已完成</span>
+                          </div>
+                        </div>
+                        <div class="photos">
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>陈宇</span><span>10:24</span></span>
+                          </div>
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>王强</span><span>10:42</span></span>
+                          </div>
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>陈宇</span><span>11:24</span></span>
+                          </div>
+                        </div>
+                        <div class="remark"><b>备注</b>#18 塔绝缘子更换完成，明日复验。</div>
+                      </div>
+                      <footer class="log-ops">
+                        <span class="primary">从商旅同步</span><span>备注</span
+                        ><span class="danger">删除</span>
+                      </footer>
+                    </section>
+                  </div>
+                </div>
+                <button
+                  class="fab"
+                  type="button"
+                  data-fab="legacy"
+                  aria-expanded="false"
+                  aria-label="展开日志管理菜单"
+                >
+                  <svg class="icon icon-lg"><use href="#i-plus" /></svg>
+                </button>
+                <div class="fab-panel" data-fab-panel="legacy" hidden>
+                  <div class="legacy-menu">
+                    <a
+                      >数据管理<svg class="icon"><use href="#i-settings" /></svg></a
+                    ><a
+                      >工作任务单<svg class="icon"><use href="#i-file" /></svg></a
+                    ><a
+                      >费用汇总<svg class="icon"><use href="#i-money" /></svg></a
+                    ><a
+                      >派车汇总<svg class="icon"><use href="#i-copy" /></svg></a
+                    ><a
+                      >派车对齐<svg class="icon"><use href="#i-copy" /></svg></a
+                    ><a
+                      >批量从商旅同步<svg class="icon"><use href="#i-refresh" /></svg></a
+                    ><a
+                      >批量下载<svg class="icon"><use href="#i-download" /></svg></a
+                    ><a
+                      >汇总前核验<svg class="icon"><use href="#i-task" /></svg></a
+                    ><a
+                      >跨班日志<svg class="icon"><use href="#i-users" /></svg></a
+                    ><a
+                      >新建日志<svg class="icon"><use href="#i-plus" /></svg
+                    ></a>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="phone-hint">点击右下角 + 查看当前菜单</p>
+          </div>
+        </div>
+        <div class="pane after">
+          <div class="pane-label">布局精修<small>日期横条 + 分组底部面板</small></div>
+          <div class="phone-stage">
+            <div class="phone">
+              <div class="phone-screen">
+                <div class="phone-scroll">
+                  <div class="statusbar">
+                    <span>9:41</span><span class="status-icons"><i></i><i></i></span>
+                  </div>
+                  <div class="worklog-nav">
+                    <span class="back">‹</span>
+                    <h3>出工日志</h3>
+                    <span class="capsule">••• ○</span>
+                  </div>
+                  <div class="mini-worklog-body">
+                    <div class="mini-toolrow">
+                      <span class="team-chip">检修一班⌄</span
+                      ><span class="scope"><span class="on">全部</span><span>仅看我</span></span>
+                    </div>
+                    <div class="date-strip">
+                      <button class="date-cell" type="button" data-demo="切换至 10 月 22 日">
+                        <small>周四</small>22<i class="bad"></i></button
+                      ><button class="date-cell" type="button" data-demo="切换至 10 月 23 日">
+                        <small>周五</small>23<i></i></button
+                      ><button class="date-cell on" type="button" data-demo="当前为 10 月 24 日">
+                        <small>周六</small>24<i class="bad"></i></button
+                      ><button class="date-cell" type="button" data-demo="切换至 10 月 25 日">
+                        <small>周日</small>25<i></i></button
+                      ><button class="date-cell" type="button" data-demo="切换至 10 月 26 日">
+                        <small>周一</small>26<i></i></button
+                      ><button
+                        class="date-cell strip-cal"
+                        type="button"
+                        data-demo="完整月历入口保留"
+                        aria-label="打开完整月历"
+                      >
+                        <svg class="icon icon-sm"><use href="#i-calendar" /></svg>
+                      </button>
+                    </div>
+                    <section class="card mini-log ref-mini-log">
+                      <header class="log-head">
+                        <span class="plate">晋A·D72618</span><span class="tag info">跨班</span
+                        ><span class="tag ok">验证通过</span>
+                      </header>
+                      <div class="log-content">
+                        <div class="patrol"><small>巡视内容</small>110kV 青云线 #12—#28 塔巡视</div>
+                        <div class="clock-inline">
+                          <span class="clock-row"
+                            ><b>陈宇</b>07:58 / 17:36<span class="clock-state">✓</span></span
+                          ><span class="clock-row"
+                            ><b>王强</b>08:03 / 17:42<span class="clock-state">✓</span></span
+                          >
+                        </div>
+                        <div class="photos">
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>陈宇</span><span>10:24</span></span>
+                          </div>
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>王强</span><span>10:42</span></span>
+                          </div>
+                          <div class="photo">
+                            <svg><use href="#i-tower" /></svg
+                            ><span class="photo-status">核验通过</span
+                            ><span class="photo-caption"><span>陈宇</span><span>11:24</span></span>
+                          </div>
+                        </div>
+                        <div class="remark"><b>备注</b>#18 塔绝缘子更换完成，明日复验。</div>
+                      </div>
+                      <footer class="log-ops">
+                        <span class="primary">从商旅同步</span><span>备注</span
+                        ><span class="danger">删除</span>
+                      </footer>
+                    </section>
+                  </div>
+                </div>
+                <button
+                  class="fab"
+                  type="button"
+                  data-fab="grouped"
+                  aria-expanded="false"
+                  aria-label="展开日志管理菜单"
+                >
+                  <svg class="icon icon-lg"><use href="#i-plus" /></svg>
+                </button>
+                <div class="fab-panel" data-fab-panel="grouped" hidden>
+                  <div class="grouped-sheet">
+                    <header class="sheet-head">
+                      <div>
+                        <h4>日志与管理</h4>
+                        <p>检修一班 · 10 月 24 日 · 管理员视角</p>
+                      </div>
+                      <button
+                        class="sheet-close"
+                        type="button"
+                        data-close-fab
+                        aria-label="关闭管理菜单"
+                      >
+                        <svg class="icon"><use href="#i-close" /></svg>
+                      </button>
+                    </header>
+                    <div class="sheet-scroll">
+                      <section class="action-group">
+                        <h5>记录与核验</h5>
+                        <div class="action-grid">
+                          <button class="action-item" type="button" data-demo="批量下载">
+                            <svg class="icon"><use href="#i-download" /></svg>批量下载</button
+                          ><button class="action-item" type="button" data-demo="汇总前核验">
+                            <svg class="icon"><use href="#i-task" /></svg>汇总前核验</button
+                          ><button class="action-item" type="button" data-demo="跨班日志">
+                            <svg class="icon"><use href="#i-users" /></svg>跨班日志</button
+                          ><button class="action-item" type="button" data-demo="批量从商旅同步">
+                            <svg class="icon"><use href="#i-refresh" /></svg>批量从商旅同步
+                          </button>
+                        </div>
+                      </section>
+                      <section class="action-group">
+                        <h5>管理与汇总</h5>
+                        <div class="action-grid">
+                          <button class="action-item" type="button" data-demo="数据管理">
+                            <svg class="icon"><use href="#i-settings" /></svg>数据管理</button
+                          ><button class="action-item" type="button" data-demo="工作任务单">
+                            <svg class="icon"><use href="#i-file" /></svg>工作任务单</button
+                          ><button class="action-item" type="button" data-demo="费用汇总">
+                            <svg class="icon"><use href="#i-money" /></svg>费用汇总</button
+                          ><button class="action-item" type="button" data-demo="派车汇总">
+                            <svg class="icon"><use href="#i-copy" /></svg>派车汇总</button
+                          ><button class="action-item" type="button" data-demo="派车对齐">
+                            <svg class="icon"><use href="#i-copy" /></svg>派车对齐
+                          </button>
+                        </div>
+                      </section>
+                      <p class="sheet-note">全部入口与权限保持不变，仅按任务类型分组。</p>
+                    </div>
+                    <button
+                      class="btn btn-primary sheet-primary"
+                      type="button"
+                      data-demo="新建日志入口保留"
+                    >
+                      <svg class="icon icon-sm"><use href="#i-plus" /></svg>新建日志
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="phone-hint">点击右下角 + 查看分组菜单</p>
+          </div>
+        </div>
+      </section>
+
+      <footer class="review-foot">
+        <div>
+          <b>实施边界</b><br />颜色与圆角沿用现有
+          token；布局、字阶、间距、阴影、图标、导航和动效可优化。业务数据、接口、权限和功能不在本轮改动范围内。
+        </div>
+        <a href="./体验精修.html">查看交互与状态规范 →</a>
+      </footer>
+    </main>
+
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+
+    <script>
+      (function () {
+        'use strict';
+
+        var body = document.body;
+        var currentPage = 'web-home';
+        var currentWidth = 'wide';
+
+        function setPage(page) {
+          currentPage = page;
+          document.querySelectorAll('.comparison[data-page]').forEach(function (section) {
+            var active = section.dataset.page === page;
+            section.classList.toggle('active', active);
+            section.hidden = !active;
+          });
+          document.querySelectorAll('[data-page].segment').forEach(function (button) {
+            button.setAttribute('aria-pressed', String(button.dataset.page === page));
+          });
+          document.getElementById('widthControl').hidden = page !== 'web-worklog';
+        }
+
+        document.querySelectorAll('[data-page].segment').forEach(function (button) {
+          button.addEventListener('click', function () {
+            setPage(button.dataset.page);
+          });
+        });
+
+        document.querySelectorAll('[data-mode].segment').forEach(function (button) {
+          button.addEventListener('click', function () {
+            body.dataset.mode = button.dataset.mode;
+            document.querySelectorAll('[data-mode].segment').forEach(function (item) {
+              item.setAttribute('aria-pressed', String(item === button));
+            });
+          });
+        });
+
+        function setWidth(width) {
+          currentWidth = width;
+          document.querySelectorAll('[data-width].segment').forEach(function (button) {
+            button.setAttribute('aria-pressed', String(button.dataset.width === width));
+          });
+          document.querySelectorAll('.comparison.active .mock-browser').forEach(function (browser) {
+            browser.classList.toggle('narrow', width === 'narrow');
+          });
+        }
+
+        document.querySelectorAll('[data-width].segment').forEach(function (button) {
+          button.addEventListener('click', function () {
+            setWidth(button.dataset.width);
+          });
+        });
+
+        function toast(message) {
+          var region = document.getElementById('toastRegion');
+          var item = document.createElement('div');
+          item.className = 'toast';
+          item.setAttribute('role', 'status');
+          item.innerHTML =
+            '<svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg><span></span>';
+          item.querySelector('span').textContent = message + '；仅作布局演示，未执行实际业务操作。';
+          region.replaceChildren(item);
+          window.setTimeout(function () {
+            item.remove();
+          }, 2600);
+        }
+
+        document.querySelectorAll('[data-demo]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            toast(button.dataset.demo);
+          });
+        });
+
+        document.querySelectorAll('[data-notice]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            var scope = button.closest('.notice-side, .ref-mini-notice');
+            var extra = scope.querySelector('.notice-extra');
+            var expanded = extra.hidden;
+            extra.hidden = !expanded;
+            button.setAttribute('aria-expanded', String(expanded));
+            button.textContent = expanded ? '收起通知' : '全部 3 条';
+          });
+        });
+
+        document.querySelectorAll('[data-cal-toggle]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            var calendar = button.closest('.ref-calendar');
+            var full = calendar.querySelector('.calendar-full');
+            var expanded = !full.classList.contains('open');
+            full.classList.toggle('open', expanded);
+            button.setAttribute('aria-expanded', String(expanded));
+            button.textContent = expanded ? '收起月历' : '展开月历';
+          });
+        });
+
+        document.querySelectorAll('[data-fab]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            var phone = button.closest('.phone-screen');
+            var panel = phone.querySelector('[data-fab-panel="' + button.dataset.fab + '"]');
+            var open = panel.hidden;
+            panel.hidden = !open;
+            button.setAttribute('aria-expanded', String(open));
+            button.querySelector('use').setAttribute('href', open ? '#i-close' : '#i-plus');
+            if (open) {
+              var close = panel.querySelector('[data-close-fab]');
+              if (close) close.focus({ preventScroll: true });
+            }
+          });
+        });
+
+        document.querySelectorAll('[data-close-fab]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            var phone = button.closest('.phone-screen');
+            var panel = button.closest('[data-fab-panel]');
+            var trigger = phone.querySelector('[data-fab="' + panel.dataset.fabPanel + '"]');
+            panel.hidden = true;
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.querySelector('use').setAttribute('href', '#i-plus');
+            trigger.focus({ preventScroll: true });
+          });
+        });
+
+        document.addEventListener('keydown', function (event) {
+          if (event.key !== 'Escape') return;
+          var openPanel = document.querySelector('[data-fab-panel]:not([hidden])');
+          if (!openPanel) return;
+          var trigger = openPanel
+            .closest('.phone-screen')
+            .querySelector('[data-fab="' + openPanel.dataset.fabPanel + '"]');
+          openPanel.hidden = true;
+          trigger.setAttribute('aria-expanded', 'false');
+          trigger.querySelector('use').setAttribute('href', '#i-plus');
+          trigger.focus({ preventScroll: true });
+        });
+
+        setPage(currentPage);
+        setWidth(currentWidth);
+      })();
+    </script>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 <!-- 树障隐患记录 · 主页（两级视图：线路大卡（状态着色 + 排序 + stagger 入场）→ 线路台账（记录卡默认折叠一卡两行：
-     区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 树种×数量·水平距离；辅证照片条折叠态即展示（有图才显示、只读、点图预览）；
+     区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 树种×数量·水平距离·发现时间；辅证照片条折叠态即展示（有图才显示、只读、点图预览）；
      每卡一枚折叠/展开开关（点卡同效），展开出其他信息、处理前/后照片区与 处理/删除 按钮，
      下一级详情页已取消）；FAB 悬浮导出；处理弹层供卡内单条与批量） -->
 <navbar back title="树障隐患记录" />
@@ -128,16 +128,16 @@
         >该线路暂无树障隐患记录</view
       >
       <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:for-index="gi" wx:key="key">
-        <!-- 记录卡片（默认折叠一卡两行：区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 树种×数量·水平距离；每卡一枚折叠/展开开关，点卡同效）：
+        <!-- 记录卡片（默认折叠一卡两行：区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 树种×数量·水平距离·发现时间；每卡一枚折叠/展开开关，点卡同效）：
            辅证照片条折叠态即展示（有图才显示、只读、点图预览）；展开出其他信息、处理信息、处理前/后照片区（可上传可删）与 处理/删除 按钮（下一级详情页已取消）；
-           已处理整体降饱和；批量模式点击 = 勾选（已处理禁选）；stagger 入场（delay 递增封顶 10 档） -->
+           已处理整体降饱和；批量模式点击 = 勾选（已处理禁选）；stagger 入场（delay 递增封顶 5 档） -->
         <view
           class="card thcard {{rec.status === 'handled' ? 'done' : 'thcard-in'}}"
           wx:for="{{g.records}}"
           wx:for-item="rec"
           wx:for-index="ri"
           wx:key="id"
-          style="animation-delay: {{(ri > 10 ? 10 : ri) * 0.05}}s"
+          style="animation-delay: {{(ri > 5 ? 5 : ri) * 0.05}}s"
           data-id="{{rec.id}}"
           data-status="{{rec.status}}"
           hover-class="hover-opacity"
@@ -167,8 +167,8 @@
             </view>
           </view>
 
-          <!-- 次行（折叠态即首行 + 此行 + 辅证条展示完）：树种×数量 / 水平距离 -->
-          <view class="th-grid">
+          <!-- 次行：树种×数量 / 水平距离 / 发现时间（与 Web 同口径，仅 found_at 有值时显示） -->
+          <view class="th-grid {{rec.foundAtText ? 'has-found' : ''}}">
             <view class="th-f">
               <view class="th-l">树种×数量</view>
               <view class="th-v"
@@ -178,6 +178,10 @@
             <view class="th-f">
               <view class="th-l">水平距离</view>
               <view class="th-v">{{rec.horizontal || '—'}}</view>
+            </view>
+            <view class="th-f" wx:if="{{rec.foundAtText}}">
+              <view class="th-l">发现时间</view>
+              <view class="th-v th-date">{{rec.foundAtText}}</view>
             </view>
           </view>
 

@@ -10,7 +10,7 @@
 
 - `README.md` —— 项目概述、部署与环境变量清单
 - `开发指南.md` —— 开发全参考（架构/数据库/接口/对接细节/踩坑约定），接入新应用前必读
-- `design/` 下 4 份基准稿 —— UI 定稿设计稿（「政企蓝白」：小程序首页 `小程序-首页.html` / 小程序出工日志 `小程序-出工日志.html` / Web 首页 `Web-首页.html` / Web 出工日志 `Web-出工日志.html`，配套 `设计规范.md` 与 `index.html` 展厅总览，见第四节）
+- `design/` 现行基准稿 —— 布局以 `布局精修.html` 为准，交互以 `体验精修.html` / `体验精修-小程序.html` / `体验精修-Web.html` 为准（配套 `设计规范.md` 与 `index.html` 展厅总览，见第四节）；原 4 份首页/出工日志稿仅作历史结构参考
 
 **私有配套仓（重要）**：本仓为公开仓；不宜公开的内容在私有仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private)，以 git submodule 挂载于 `private/`（`git submodule update --init` 拉取；无权限时该目录为空、主仓功能不受影响）。内含：`private/esgcc/` 商旅打卡逆向分析仓与巡视台账素材、`private/WorkLogs/` 旧服务历史数据、`private/_archive/` 公开仓历史归档。（`uvmp-toolkit/` 内网客户端 2026-10 已迁回本仓根目录——安装包本就公开发布、PyInstaller/Electron 产物可解包，源码私密性有限；客户端改动前先读其《内网工具箱开发指南.md》）换机拉代码时若发现 `private/` 为空，先提醒用户拉私有仓。
 
@@ -38,7 +38,7 @@
 
 ## 四、UI 设计规范（已定稿：「政企蓝白」Enterprise Blue）
 
-**实现方式**：组件使用 tdesign-miniprogram，在全局样式（`app.wxss`）覆盖 `--td-*` CSS 变量注入下列 token；状态标签、分段控件、月历色点等用 wxss 自绘。所有页面及后续应用子页面必须沿用同一套 token，与本体风格一致。定稿 token 以下表为准，定稿基准稿为 `design/` 下 4 份：`小程序-首页.html` / `小程序-出工日志.html` / `Web-首页.html` / `Web-出工日志.html`，组件级细则见 `design/设计规范.md`。网页端同用本套 token（`server/public/assets/theme.css` 注入）。旧定稿「包豪斯几何」「安全橙」已全部移除，不再作为实现依据。
+**实现方式**：组件使用 tdesign-miniprogram，在全局样式（`app.wxss`）覆盖 `--td-*` CSS 变量注入下列 token；状态标签、分段控件、月历色点等用 wxss 自绘。所有页面及后续应用子页面必须沿用同一套 token，与本体风格一致。定稿 token 以下表为准；布局以 `design/布局精修.html` 为准，交互以 `design/体验精修.html` / `体验精修-小程序.html` / `体验精修-Web.html` 为准，组件级细则见 `design/设计规范.md`，原 4 份首页/出工日志稿仅作历史结构参考。仅颜色与圆角锁定，布局、字阶、间距、阴影、图标、导航和动效可按任务效率与可访问性优化。网页端同用本套 token（`server/public/assets/theme.css` 注入）。旧定稿「包豪斯几何」「安全橙」已全部移除，不再作为实现依据。
 
 | 用途          | 值        | 说明                                                     |
 | ------------- | --------- | -------------------------------------------------------- |
@@ -57,9 +57,9 @@
 | 边框 / 分隔线 | `#E5E6EB` | 发丝线 1px                                               |
 | 弱化占位      | `#C9CDD4` | 邻月日期、已读空心点、虚线占位                           |
 
-**形态语言**：白卡 12px 圆角 + 极轻阴影（`0 2px 8px rgba(0,0,0,.04)`，hover 加深至 `0 8px 20px rgba(0,0,0,.08)`），无描边无渐变无浮雕；按钮/输入框/分段控件 8px 圆角，标签 4px 小胶囊，FAB/头像圆形；**警示/提示信息块（未通过原因、备注、警示条等「浅底 + 左色条」一族）一律直角**；数字与时刻一律 tabular-nums；状态语义统一由「圆点 + 文字」小标签承担（通过绿 / 未通过红 / 待核验与备注橙 / 跨班与处理中浅蓝），月历图例固定绿=已验证、橙=有备注、红=待核实。
+**形态语言**：白卡 12px 圆角 + 极轻阴影（`0 2px 8px rgba(0,0,0,.04)`，hover 加深至 `0 8px 20px rgba(0,0,0,.08)`）；数据条、工具卡与高密度信息卡可用 1px 发丝线，禁止大面积渐变和浮雕；按钮/输入框/分段控件 8px 圆角，标签 4px 小胶囊，FAB/头像圆形；**警示/提示信息块（未通过原因、备注、警示条等「浅底 + 左色条」一族）一律直角**；数字与时刻一律 tabular-nums；状态语义统一由「圆点 + 文字」小标签承担（通过绿 / 未通过红 / 待核验与备注橙 / 跨班与处理中浅蓝），月历图例固定绿=已验证、橙=有备注、红=待核实。
 
-**特征元素**：小程序首页深蓝页首（状态栏白字）+ 数据概览卡负边距浮层（注意承载容器不可加 overflow:hidden，会裁掉浮层顶部）；宫格图标无底块、27px 深蓝线性图标直落白卡（Web 应用卡保留浅蓝底 44px 图标块，且应用卡五件套同构：图标块 + 名称 + 一句话描述 + 标签胶囊 +「进入应用」——描述/标签在 `index.html` `APP_META` 登记，新应用必须同步登记，细则见 `开发指南.md` 第十一节「工作台应用卡展示规范」）；每页主按钮至多一枚；板块标题 15–16px/600 不加几何记号。动效仅一次编排式上浮入场（`translateY(14px)` 淡出、时延链 ≤0.9s、落位静止），不做循环氛围动效，缓动 `cubic-bezier(.22,1,.36,1)`，全局 `prefers-reduced-motion: reduce` 关闭一切动画。字体：系统无衬线栈，标题 600/700 字重，三级文字颜色（`#1D2129` / `#4E5969` / `#86909C`）必须拉开层级。
+**特征元素**：小程序首页深蓝页首（状态栏白字）+ 轻量数据条，应用入口优先、通知默认最新 1 条可展开；宫格图标无底块、27px 深蓝线性图标直落白卡（Web 应用卡保留浅蓝底 44px 图标块，五件套同构：图标块 + 名称 + 一句话描述 + 标签胶囊 +「进入应用」，可采用横向行卡——描述/标签在 `index.html` `APP_META` 登记，新应用必须同步登记，细则见 `开发指南.md` 第十一节「工作台应用卡展示规范」）；工作台为应用主任务区 + 通知辅助栏，出工日志常规为左筛选月历 + 右内容主列（≥1600px 保留右侧月历与核验组合，窄屏显示摘要可展开）；出工日志 FAB 改为「记录与核验 / 管理与汇总」分组底部面板，新建日志固定底部；树障卡片折叠首屏为区段/垂距首行 + 树种×数量/水平距离/发现时间次行，发现时间与其他次行字段同级；与 Web 一致仅取 `found_at`，空值省略该字段，不使用 `created_at` 或 `handled_at` 兜底。每页主按钮至多一枚；板块标题 15–16px/600 不加几何记号。动效仅一次编排式上浮入场（`translateY(14px)` 淡出、时延链 ≤0.9s、落位静止），不做旋转回弹或循环氛围动效，缓动 `cubic-bezier(.22,1,.36,1)`，全局 `prefers-reduced-motion: reduce` 关闭一切动画与延迟。字体：系统无衬线栈，标题 600/700 字重，三级文字颜色（`#1D2129` / `#4E5969` / `#86909C`）必须拉开层级。
 
 > 禁止项：大面积渐变背景、复杂插画、厚重阴影、浮雕、多套圆角/间距/字体/按钮体系、促销感色条、娱乐化图标、仪表盘堆叠、每页多个主按钮、电商感与娱乐化装饰。
 
@@ -73,7 +73,7 @@
 - `server/public/` —— 网页端（login.html / index.html 工作台 / callme.html / worklog.html / wmadd.html 水印添加 / safeday.html / kvm.html / quiz.html / netdisk.html 团队网盘 / treehazard.html 树障隐患记录 / crossing.html 交跨记录 / teamdata.html 班组数据（worklog 原「数据管理」页签迁移于此） / office.html ONLYOFFICE 承载页（网盘在线编辑 + 出工日志表格/备注附件/安全日记录的 OO 只读预览共用壳） / share.html 网盘公开分享页（免登录，`#/s/<share_id>`）/ admin.html / sgcc-captcha.html 商旅顶象滑块接力页（小程序 web-view 承载，回传 captchaToken+constId 供绑定登录），公共资源 `assets/theme.css`、`assets/common.js`、`assets/icons.js`、`assets/md.js`（精简 Markdown 渲染器，通知中心与 Call Me 共用）；`kvm-device/` 为 KVM 设备一键接入安装包；内网客户端下载入口在登录页推广区（CNB 公开仓 Releases 最新 tag 实时拼接，见 `开发指南.md` 第十一节））
 - `private/` —— 私有配套仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private) 的 submodule 挂载点（`git submodule update --init` 拉取）：`private/esgcc/` 待开发应用素材与商旅打卡逆向分析仓 `sgcc/`（交接文档/API 报告/抓包/tools；`base.apk` 107MB 不入仓本地留存）、`private/WorkLogs/` 旧独立服务历史数据归档（代码已整合进主服务，仅存数据）、`private/_archive/` 公开仓历史归档
 - `crane-answer/` —— 微信群智能应答平台 [crane-answer](https://github.com/zhangzhenyu91/crane-answer) 的 submodule 挂载点（`git submodule update --init` 拉取）：群消息监听按规则调 Dify Workflow 的后端 + Web 管理端，「树木排查（会话捕获）」产出的结构化记录经 `POST /api/v1/treehazard/ingest` 直推入本仓树障台账（对接契约见 `开发指南.md` 19.3）；在该目录内改动前先读其自带 `AGENTS.md`
-- `design/` —— UI 设计稿：现行定稿「政企蓝白」（4 份基准稿 `小程序-首页.html` / `小程序-出工日志.html` / `Web-首页.html` / `Web-出工日志.html` + `设计规范.md` + `index.html` 展厅总览；应用设计稿 `小程序-团队网盘.html` / `Web-团队网盘.html`）；另存分享图生成工具链（`make_share_images.py` / `font/t.ttf` / `share-bg-preview.png`）；旧定稿已全部移除
+- `design/` —— UI 设计稿：现行定稿「政企蓝白」（布局基准 `布局精修.html`，交互基准 `体验精修.html` / `体验精修-小程序.html` / `体验精修-Web.html` + `设计规范.md` + `index.html` 展厅总览；原 4 份首页/出工日志稿仅作历史结构参考，应用设计稿 `小程序-团队网盘.html` / `Web-团队网盘.html`）；另存分享图生成工具链（`make_share_images.py` / `font/t.ttf` / `share-bg-preview.png`）；旧定稿已全部移除
 - `manual/` —— 面向最终用户的使用指南（当前不在仓内；历史版截图含真实班组信息，已随公开化清理归档至私有仓 `_archive/manual/`——日后重建指南时截图须脱敏）
 - 根目录 —— 文档与规则文件（AGENTS.md / README.md / 开发指南.md / LICENSE / .gitignore）+ 镜像构建文件（Dockerfile / .dockerignore，GitHub Actions 发版产线用，仅打包 `server/`）
 - `docker/` —— docker compose 部署包（`docker-compose.yml` + `.env.example` 全仓唯一环境变量示例；compose 仅含 Shade 服务端本身，统一入 `j1toolkit` 外部网络——OpenList/ONLYOFFICE 等配套容器由部署者自装并加入同名网络按容器名互通；自包含，拷到服务器 `cp .env.example .env` 填写后 `docker compose up -d`；本机开发复制为 `server/.env`；`onlyoffice/` 子目录为 ONLYOFFICE 自装对接说明与「Shade 壹匣」品牌替换素材，见 `docker/onlyoffice/README.md`）

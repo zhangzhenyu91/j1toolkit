@@ -163,6 +163,7 @@ Page({
     dateText: '',
     weekText: '',
     isToday: false,
+    dateStrip: [], // 当前日前后各 2 天：日期、星期、选中态与 DAY_STATUS 色点
     isAdmin: false,
     canManage: false, // 「数据管理」入口可见性：超管 / 班组管理员
     // 班组切换器（屏五）：超管可点 chip 下拉切换生效班组；其余角色为静态班组名标签
@@ -174,6 +175,7 @@ Page({
     scope: 'all', // 视图开关：all=全部 / mine=仅看我（后端按 nickname 匹配成员）
     list: [],
     loading: true,
+    loadError: '', // 首载失败内联错误；有旧内容时仅 Toast 保留列表
     flashId: 0, // 报告定位后高亮中的卡片 id（约 1.6s 后消退）
     // 切日 swiper（三窗格预渲染 前/今/后 一天；落定后窗口平移并复位中间格）
     win: [], // [{dateStr, list, ready}]；ready=false 为预拉中的加载占位格
@@ -517,7 +519,39 @@ Page({
     Toast({ context: this, selector: '#t-toast', message });
   },
 
-  // 切换当前日期并联动日期条文案
+  // 当前日前后各 2 天，色点直接复用月历 DAY_STATUS 缓存
+  buildDateStrip(dateStr) {
+    const center = parseDate(dateStr);
+    const strip = [];
+    for (let offset = -2; offset <= 2; offset += 1) {
+      const d = new Date(center.getTime());
+      d.setDate(center.getDate() + offset);
+      const ds = fmtDate(d);
+      const st = DAY_STATUS[ds];
+      const status = st === 'passed' ? 'passed' : st === 'remark' ? 'remark' : st ? 'failed' : '';
+      strip.push({
+        dateStr: ds,
+        day: d.getDate(),
+        weekText: WEEK[d.getDay()],
+        selected: ds === dateStr,
+        statusCls: status ? `date-dot-${status}` : '',
+      });
+    }
+    return strip;
+  },
+
+  refreshDateStrip() {
+    if (!this.data.dateStr) return;
+    this.setData({ dateStrip: this.buildDateStrip(this.data.dateStr) });
+  },
+
+  // 五日条跨月时仍走原 day-status 接口与按月缓存
+  loadDateStripStatus(force) {
+    const months = [...new Set(this.data.dateStrip.map((d) => d.dateStr.slice(0, 7)))];
+    months.forEach((month) => this.loadDayStatus(month, force));
+  },
+
+  // 切换当前日期并联动五日日期条
   applyDate(dateStr) {
     const d = parseDate(dateStr);
     this.setData({
@@ -526,7 +560,23 @@ Page({
       weekText: WEEK[d.getDay()],
       isToday: dateStr === fmtDate(new Date()),
       calValue: d.getTime(),
+      dateStrip: this.buildDateStrip(dateStr),
     });
+    if (this.data.gate && !this.data.noTeam) this.loadDateStripStatus();
+  },
+
+  // 五日条点选与月历选日同路径：重置窗格、应用日期并重拉
+  onDateCell(e) {
+    const date = e.currentTarget.dataset.date;
+    if (!date || date === this.data.dateStr) return;
+    this.setData({ calVisible: false, win: [] });
+    this.applyDate(date);
+    this.loadLogs();
+  },
+
+  onRetryLogs() {
+    this.setData({ win: [], loadError: '' });
+    this.loadLogs();
   },
 
   onPrevDay() {
@@ -537,7 +587,7 @@ Page({
     this.nudgeSwiper(2); // 定到右格（后一天）
   },
 
-  // 日期条按钮：把 swiper 定到目标格，落定与手势同走 onDaySwiperFinish
+  // 前后日切换：把 swiper 定到目标格，落定与手势同走 onDaySwiperFinish
   nudgeSwiper(pos) {
     if (this._daySwitching || this.data.swiperCurrent !== 1 || this.data.win.length !== 3) return;
     this.setData({ swiperCurrent: pos });
@@ -692,7 +742,7 @@ Page({
   // 当日日志卡片列表（始终网络重拉保证新鲜；完成后写缓存、同步中间窗格并预拉邻日；首屏顺带建窗格）
   async loadLogs() {
     this.clearPoll();
-    this.setData({ loading: true });
+    this.setData({ loading: true, loadError: '' });
     try {
       const data = await request({
         url: `/api/v1/worklog/logs?date=${this.data.dateStr}${this.scopeQuery()}${this.teamQuery()}`,
@@ -719,7 +769,7 @@ Page({
       else this.buildWin();
     } catch (err) {
       this.toast(err.message);
-      this.setData({ loading: false });
+      this.setData({ loading: false, loadError: err.message || '日志加载失败，请重试' });
     }
   },
 
@@ -973,6 +1023,7 @@ Page({
     this._dayStatusMonths = this._dayStatusMonths || {};
     if (!force && this._dayStatusMonths[month]) {
       this.recolorCalendar();
+      this.refreshDateStrip();
       return;
     }
     try {
@@ -982,6 +1033,7 @@ Page({
       Object.assign(DAY_STATUS, (data && data.map) || {});
       this._dayStatusMonths[month] = true;
       this.recolorCalendar();
+      this.refreshDateStrip();
     } catch (err) {
       // 着色失败不阻塞选日，仅静默跳过
     }

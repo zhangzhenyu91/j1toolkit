@@ -19,6 +19,7 @@
   position: relative;
   z-index: 2;
   width: 88rpx;
+  height: 88rpx;
   display: flex;
   align-items: center;
   justify-content: center;

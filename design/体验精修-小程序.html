@@ -1,0 +1,4773 @@
+<!doctype html>
+<!--
+  Shade 壹匣 · 小程序体验精修评审稿
+  仅用于离线设计评审：不连接业务数据，不改变信息架构与权限口径。
+  手机内数据均为虚构，图标为内联 SVG，现场照片由 CSS 抽象绘制。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>体验精修 · 小程序 — Shade 壹匣</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --blue: #0e3da8;
+        --navy: #0a3592;
+        --blue-bg: #e8f0ff;
+        --green: #00b42a;
+        --green-bg: #e8ffea;
+        --green-text: #0b8a37;
+        --orange: #ff7d00;
+        --orange-bg: #fff7e8;
+        --orange-text: #d25f00;
+        --red: #f53f3f;
+        --red-bg: #ffece8;
+        --bg: #f5f7fa;
+        --card: #ffffff;
+        --fill: #f7f8fa;
+        --text: #1d2129;
+        --text-2: #4e5969;
+        --text-3: #86909c;
+        --line: #e5e6eb;
+        --placeholder: #c9cdd4;
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      html {
+        background: var(--bg);
+        scroll-behavior: smooth;
+      }
+
+      body {
+        min-width: 280px;
+        color: var(--text);
+        background: var(--bg);
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button {
+        border: 0;
+        color: inherit;
+        background: none;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid var(--blue);
+        outline-offset: 3px;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .svg-defs {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+
+      .icon {
+        display: block;
+        width: 20px;
+        height: 20px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      .gallery-header {
+        background: var(--card);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .header-inner,
+      .review-layout {
+        width: min(1160px, calc(100% - 48px));
+        margin: 0 auto;
+      }
+
+      .header-inner {
+        padding: 22px 0 26px;
+      }
+
+      .gallery-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .gallery-links {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .gallery-link {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 12px;
+        border-radius: 8px;
+        color: var(--text-2);
+        font-size: 13px;
+        font-weight: 600;
+        transition:
+          color 140ms var(--ease),
+          background-color 140ms var(--ease);
+      }
+
+      .gallery-link:hover,
+      .gallery-link:active {
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .gallery-link .icon {
+        width: 16px;
+        height: 16px;
+      }
+
+      .review-badge {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 9px;
+        border-radius: 4px;
+        color: var(--blue);
+        background: var(--blue-bg);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.4px;
+      }
+
+      .gallery-heading {
+        margin-top: 22px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .gallery-eyebrow {
+        color: var(--text-3);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1.6px;
+      }
+
+      .gallery-heading h1 {
+        margin-top: 7px;
+        font-size: 26px;
+        line-height: 1.35;
+        letter-spacing: 0.5px;
+      }
+
+      .gallery-heading p {
+        max-width: 560px;
+        color: var(--text-2);
+        font-size: 13px;
+        line-height: 1.8;
+        text-align: right;
+      }
+
+      .review-layout {
+        display: grid;
+        grid-template-columns: minmax(440px, 1fr) 336px;
+        align-items: start;
+        gap: 28px;
+        padding: 28px 0 52px;
+      }
+
+      .device-panel,
+      .control-panel {
+        background: var(--card);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+      }
+
+      .device-panel {
+        min-width: 0;
+        padding: 26px 20px 20px;
+      }
+
+      .device-fit {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+      }
+
+      .phone-scale {
+        position: relative;
+        width: 395px;
+        height: 832px;
+        flex: none;
+      }
+
+      .phone-shell {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 395px;
+        height: 832px;
+        padding: 10px;
+        border: 1px solid #343a43;
+        border-radius: 48px;
+        background: #20242b;
+        box-shadow:
+          0 22px 44px rgba(29, 33, 41, 0.16),
+          0 5px 14px rgba(29, 33, 41, 0.1);
+        transform-origin: top left;
+      }
+
+      .phone-shell::before,
+      .phone-shell::after {
+        content: '';
+        position: absolute;
+        left: -3px;
+        width: 3px;
+        border-radius: 2px 0 0 2px;
+        background: #343a43;
+      }
+
+      .phone-shell::before {
+        top: 126px;
+        height: 54px;
+      }
+
+      .phone-shell::after {
+        top: 192px;
+        height: 54px;
+      }
+
+      .screen {
+        position: relative;
+        width: 375px;
+        height: 812px;
+        overflow: hidden;
+        border-radius: 38px;
+        background: var(--bg);
+        isolation: isolate;
+      }
+
+      .app-page {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+      }
+
+      .device-caption {
+        margin-top: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        color: var(--text-3);
+        font-size: 12px;
+        line-height: 1.6;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .device-caption::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--blue);
+      }
+
+      .control-panel {
+        position: sticky;
+        top: 20px;
+        overflow: hidden;
+      }
+
+      .control-section {
+        padding: 17px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .control-section:last-child {
+        border-bottom: 0;
+      }
+
+      .control-heading {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .control-heading h2 {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .control-heading span {
+        color: var(--text-3);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .page-tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 3px;
+        padding: 3px;
+        border-radius: 8px;
+        background: var(--line);
+      }
+
+      .page-tab {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border-radius: 6px;
+        color: var(--text-2);
+        font-size: 13px;
+        font-weight: 600;
+        transition:
+          color 140ms var(--ease),
+          background-color 140ms var(--ease),
+          box-shadow 140ms var(--ease);
+      }
+
+      .page-tab .icon {
+        width: 17px;
+        height: 17px;
+      }
+
+      .page-tab[aria-selected='true'] {
+        color: var(--blue);
+        background: var(--card);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 7px;
+      }
+
+      .state-button {
+        min-height: 44px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--text-2);
+        background: var(--card);
+        font-size: 12px;
+        font-weight: 600;
+        transition:
+          color 140ms var(--ease),
+          border-color 140ms var(--ease),
+          background-color 140ms var(--ease);
+      }
+
+      .state-button:hover {
+        border-color: var(--placeholder);
+      }
+
+      .state-button:active {
+        background: var(--blue-bg);
+      }
+
+      .state-button[aria-pressed='true'] {
+        border-color: var(--blue);
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .state-description {
+        min-height: 38px;
+        margin-top: 10px;
+        color: var(--text-3);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+
+      .replay-button {
+        width: 100%;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: 8px;
+        color: #fff;
+        background: var(--blue);
+        font-size: 13px;
+        font-weight: 600;
+        transition:
+          opacity 140ms var(--ease),
+          transform 140ms var(--ease);
+      }
+
+      .replay-button:hover {
+        opacity: 0.92;
+      }
+
+      .replay-button:active {
+        transform: scale(0.98);
+      }
+
+      .replay-button .icon {
+        width: 17px;
+        height: 17px;
+      }
+
+      .motion-row {
+        width: 100%;
+        min-height: 52px;
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-radius: 8px;
+        text-align: left;
+        transition: background-color 140ms var(--ease);
+      }
+
+      .motion-row:active {
+        background: var(--blue-bg);
+      }
+
+      .motion-copy strong,
+      .motion-copy small {
+        display: block;
+      }
+
+      .motion-copy strong {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .motion-copy small {
+        margin-top: 3px;
+        color: var(--text-3);
+        font-size: 10px;
+      }
+
+      .switch-track {
+        position: relative;
+        width: 40px;
+        height: 24px;
+        flex: none;
+        border-radius: 12px;
+        background: var(--placeholder);
+        transition: background-color 140ms var(--ease);
+      }
+
+      .switch-track::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+        transition: transform 140ms var(--ease);
+      }
+
+      .motion-row[aria-checked='true'] .switch-track {
+        background: var(--blue);
+      }
+
+      .motion-row[aria-checked='true'] .switch-track::after {
+        transform: translateX(16px);
+      }
+
+      .motion-hint {
+        color: var(--text-3);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+
+      .review-status {
+        padding: 10px 12px;
+        border-radius: 8px;
+        color: var(--text-2);
+        background: var(--fill);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+
+      .permission-details {
+        margin-top: 10px;
+        border-top: 1px solid var(--line);
+      }
+
+      .permission-details summary {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--text-2);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        list-style: none;
+      }
+
+      .permission-details summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .permission-details summary::after {
+        content: '+';
+        color: var(--text-3);
+        font-size: 18px;
+        font-weight: 400;
+      }
+
+      .permission-details[open] summary::after {
+        content: '−';
+      }
+
+      .permission-copy {
+        padding-bottom: 4px;
+        color: var(--text-3);
+        font-size: 11px;
+        line-height: 1.8;
+      }
+
+      .permission-copy p + p {
+        margin-top: 8px;
+      }
+
+      .permission-copy strong {
+        color: var(--text-2);
+        font-weight: 600;
+      }
+
+      /* 手机通用状态栏与微信胶囊 */
+      .statusbar {
+        height: 38px;
+        padding: 9px 17px 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .status-icons {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .signal {
+        height: 12px;
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+      }
+
+      .signal i {
+        width: 3px;
+        border-radius: 1px;
+        background: currentColor;
+      }
+
+      .signal i:nth-child(1) {
+        height: 4px;
+      }
+
+      .signal i:nth-child(2) {
+        height: 6px;
+      }
+
+      .signal i:nth-child(3) {
+        height: 9px;
+      }
+
+      .signal i:nth-child(4) {
+        height: 12px;
+      }
+
+      .status-icons .icon {
+        width: 15px;
+        height: 12px;
+        stroke-width: 1.8;
+      }
+
+      .battery {
+        position: relative;
+        width: 23px;
+        height: 11px;
+        border: 1.2px solid currentColor;
+        border-radius: 3px;
+      }
+
+      .battery::before {
+        content: '';
+        position: absolute;
+        inset: 2px;
+        width: 14px;
+        border-radius: 1px;
+        background: currentColor;
+      }
+
+      .battery::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        right: -3px;
+        width: 2px;
+        height: 4px;
+        border-radius: 0 1px 1px 0;
+        background: currentColor;
+      }
+
+      .mini-nav {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        padding: 0 11px;
+      }
+
+      .mini-nav h1 {
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+
+      .wechat-capsule {
+        width: 78px;
+        height: 30px;
+        margin-left: auto;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-evenly;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.76);
+      }
+
+      .capsule-more {
+        margin-top: -5px;
+        font-size: 15px;
+        letter-spacing: 1px;
+      }
+
+      .capsule-divider {
+        width: 1px;
+        height: 17px;
+        background: currentColor;
+        opacity: 0.14;
+      }
+
+      .capsule-ring {
+        width: 12px;
+        height: 12px;
+        border: 1.6px solid currentColor;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7);
+      }
+
+      .home-masthead {
+        flex: none;
+        color: #fff;
+        background: var(--navy);
+      }
+
+      .home-masthead .wechat-capsule {
+        border-color: rgba(255, 255, 255, 0.32);
+        color: #fff;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .home-masthead .capsule-ring {
+        box-shadow: inset 0 0 0 2px rgba(10, 53, 146, 0.5);
+      }
+
+      .home-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+        background: var(--navy);
+      }
+
+      .home-scroll::-webkit-scrollbar,
+      .log-list::-webkit-scrollbar,
+      .fab-menu::-webkit-scrollbar,
+      .form-body::-webkit-scrollbar {
+        display: none;
+      }
+
+      .home-hero {
+        min-height: 108px;
+        padding: 8px 20px 52px;
+        color: #fff;
+        background: var(--navy);
+      }
+
+      .home-hero h2 {
+        font-size: 21px;
+        font-weight: 600;
+        line-height: 1.4;
+        letter-spacing: 0.5px;
+      }
+
+      .home-hero p {
+        margin-top: 7px;
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 11px;
+        line-height: 1.5;
+        letter-spacing: 0.2px;
+      }
+
+      .home-content {
+        min-height: calc(100% - 108px);
+        padding: 0 12px 20px;
+        background: var(--bg);
+      }
+
+      .stats-card {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        margin-top: -32px;
+        padding: 16px 0;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .stat {
+        min-width: 0;
+        text-align: center;
+      }
+
+      .stat + .stat {
+        border-left: 1px solid var(--line);
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 18px;
+        line-height: 1.25;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat strong.good {
+        color: var(--green);
+      }
+
+      .stat strong.warn {
+        color: var(--orange);
+      }
+
+      .stat strong.bad {
+        color: var(--red);
+      }
+
+      .stat span {
+        display: block;
+        margin-top: 5px;
+        color: var(--text-3);
+        font-size: 10px;
+      }
+
+      .refresh-note {
+        min-height: 32px;
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border-radius: 8px;
+        color: var(--blue);
+        background: var(--blue-bg);
+        font-size: 11px;
+      }
+
+      .spinner {
+        width: 13px;
+        height: 13px;
+        flex: none;
+        border: 1.7px solid rgba(14, 61, 168, 0.2);
+        border-top-color: var(--blue);
+        border-radius: 50%;
+        animation: spin 800ms linear infinite;
+      }
+
+      .notice-card {
+        margin-top: 12px;
+        padding: 13px 14px 5px;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .notice-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-bottom: 9px;
+      }
+
+      .notice-icon {
+        width: 27px;
+        height: 27px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        border-radius: 8px;
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .notice-icon .icon {
+        width: 15px;
+        height: 15px;
+      }
+
+      .notice-head h2 {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .unread {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--red);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .unread::before {
+        content: '';
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--red);
+      }
+
+      .notice-row {
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        border-top: 1px solid var(--line);
+        font-size: 11px;
+      }
+
+      .notice-dot {
+        width: 6px;
+        height: 6px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--red);
+      }
+
+      .notice-dot.read {
+        border: 1px solid var(--placeholder);
+        background: transparent;
+      }
+
+      .notice-row p {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--text-2);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .notice-row.unread-row p {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .notice-row time {
+        flex: none;
+        color: var(--text-3);
+        font-size: 9px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .notice-more {
+        width: 100%;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        border-top: 1px solid var(--line);
+        border-radius: 0 0 8px 8px;
+        color: var(--blue);
+        font-size: 11px;
+        transition: background-color 140ms var(--ease);
+      }
+
+      .notice-more:active {
+        background: var(--blue-bg);
+      }
+
+      .notice-more .icon {
+        width: 13px;
+        height: 13px;
+      }
+
+      .section-heading {
+        margin: 15px 2px 10px;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+      }
+
+      .section-heading h2 {
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .section-heading span {
+        color: var(--text-3);
+        font-size: 10px;
+      }
+
+      .apps-card {
+        padding: 12px 5px 10px;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .apps-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        row-gap: 8px;
+      }
+
+      .app-entry {
+        min-width: 0;
+        min-height: 72px;
+        padding: 4px 1px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        border-radius: 8px;
+        transition:
+          background-color 140ms var(--ease),
+          transform 140ms var(--ease);
+      }
+
+      .app-entry:active {
+        background: var(--blue-bg);
+      }
+
+      .app-entry:active .app-icon {
+        transform: scale(0.98);
+      }
+
+      .app-icon {
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--blue);
+        transition: transform 140ms var(--ease);
+      }
+
+      .app-icon .icon {
+        width: 27px;
+        height: 27px;
+      }
+
+      .app-entry > span:last-child {
+        max-width: 100%;
+        overflow: hidden;
+        font-size: 10px;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .app-entry.soon {
+        color: var(--text-3);
+      }
+
+      .app-entry.soon .app-icon {
+        color: var(--placeholder);
+      }
+
+      .home-footnote {
+        padding: 14px 0 2px;
+        color: var(--text-3);
+        font-size: 9px;
+        letter-spacing: 0.5px;
+        text-align: center;
+      }
+
+      .tabbar {
+        height: 66px;
+        flex: none;
+        display: flex;
+        padding: 5px 0 11px;
+        border-top: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .tabbar-button {
+        min-height: 48px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        border-radius: 8px;
+        color: var(--text-3);
+        font-size: 10px;
+        transition:
+          color 140ms var(--ease),
+          background-color 140ms var(--ease);
+      }
+
+      .tabbar-button:active {
+        background: var(--blue-bg);
+      }
+
+      .tabbar-button.on {
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .tabbar-button .icon {
+        width: 22px;
+        height: 22px;
+      }
+
+      .home-indicator {
+        position: absolute;
+        z-index: 90;
+        bottom: 5px;
+        left: 50%;
+        width: 126px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(29, 33, 41, 0.82);
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+
+      /* 首页状态 */
+      .hero-skeleton .sk-hero-line {
+        height: 18px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      .hero-skeleton .sk-hero-line:first-child {
+        width: 142px;
+      }
+
+      .hero-skeleton .sk-hero-line:last-child {
+        width: 218px;
+        height: 10px;
+        margin-top: 12px;
+      }
+
+      .sk {
+        border-radius: 4px;
+        background: var(--line);
+      }
+
+      .sk-stats {
+        height: 72px;
+        margin-top: -32px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        align-items: center;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .sk-stat {
+        height: 34px;
+        margin: 0 13px;
+        position: relative;
+      }
+
+      .sk-stat::before,
+      .sk-stat::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        border-radius: 4px;
+        background: var(--line);
+        transform: translateX(-50%);
+      }
+
+      .sk-stat::before {
+        top: 0;
+        width: 28px;
+        height: 14px;
+      }
+
+      .sk-stat::after {
+        bottom: 0;
+        width: 38px;
+        height: 8px;
+      }
+
+      .sk-notice {
+        height: 174px;
+        margin-top: 12px;
+        padding: 16px 14px;
+        border-radius: 12px;
+        background: var(--card);
+      }
+
+      .sk-notice .sk {
+        width: 45%;
+        height: 15px;
+        margin-bottom: 19px;
+      }
+
+      .sk-notice .sk:nth-child(2) {
+        width: 100%;
+        height: 10px;
+        margin-bottom: 25px;
+      }
+
+      .sk-notice .sk:nth-child(3) {
+        width: 82%;
+        height: 10px;
+        margin-bottom: 25px;
+      }
+
+      .sk-notice .sk:nth-child(4) {
+        width: 91%;
+        height: 10px;
+        margin: 0;
+      }
+
+      .sk-section {
+        width: 80px;
+        height: 15px;
+        margin: 17px 2px 12px;
+      }
+
+      .sk-apps {
+        height: 182px;
+        padding: 20px 12px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 24px 10px;
+        border-radius: 12px;
+        background: var(--card);
+      }
+
+      .sk-app {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .sk-app::before {
+        content: '';
+        width: 27px;
+        height: 27px;
+        border-radius: 6px;
+        background: var(--line);
+      }
+
+      .sk-app::after {
+        content: '';
+        width: 40px;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--line);
+      }
+
+      .state-placeholder {
+        min-height: 310px;
+        margin-top: -32px;
+        padding: 58px 26px 30px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+        text-align: center;
+      }
+
+      .state-placeholder .state-icon {
+        width: 52px;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .state-placeholder.error .state-icon {
+        color: var(--red);
+        background: var(--red-bg);
+      }
+
+      .state-placeholder .state-icon .icon {
+        width: 26px;
+        height: 26px;
+      }
+
+      .state-placeholder h2 {
+        margin-top: 18px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .state-placeholder p {
+        max-width: 248px;
+        margin-top: 9px;
+        color: var(--text-3);
+        font-size: 12px;
+        line-height: 1.8;
+      }
+
+      .retry-button {
+        min-width: 112px;
+        min-height: 44px;
+        margin-top: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border-radius: 8px;
+        color: #fff;
+        background: var(--blue);
+        font-size: 13px;
+        font-weight: 600;
+        transition:
+          opacity 140ms var(--ease),
+          transform 140ms var(--ease);
+      }
+
+      .retry-button:active {
+        transform: scale(0.98);
+      }
+
+      .retry-button .icon {
+        width: 16px;
+        height: 16px;
+      }
+
+      /* 出工日志导航与工具区 */
+      .log-nav-wrap {
+        flex: none;
+        border-bottom: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .log-nav {
+        display: grid;
+        grid-template-columns: 82px 1fr 82px;
+        padding: 0 9px;
+      }
+
+      .log-nav h1 {
+        align-self: center;
+        font-size: 16px;
+        text-align: center;
+      }
+
+      .log-back {
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        transition: background-color 140ms var(--ease);
+      }
+
+      .log-back:active {
+        background: var(--blue-bg);
+      }
+
+      .log-back .icon {
+        width: 20px;
+        height: 20px;
+      }
+
+      .log-nav .wechat-capsule {
+        align-self: center;
+      }
+
+      .log-content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .log-tools {
+        position: relative;
+        z-index: 12;
+        flex: none;
+        padding: 10px 12px 0;
+      }
+
+      .team-row {
+        position: relative;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+      }
+
+      .team-button {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--card);
+        font-size: 12px;
+        font-weight: 600;
+        transition: background-color 140ms var(--ease);
+      }
+
+      .team-button:active,
+      .team-button[aria-expanded='true'] {
+        background: var(--blue-bg);
+      }
+
+      .team-square {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--blue);
+      }
+
+      .team-button .icon {
+        width: 13px;
+        height: 13px;
+        color: var(--text-3);
+      }
+
+      .team-options {
+        position: absolute;
+        z-index: 24;
+        top: 44px;
+        left: 0;
+        width: 176px;
+        padding: 5px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--card);
+        box-shadow: var(--shadow-hover);
+      }
+
+      .team-option {
+        width: 100%;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        text-align: left;
+      }
+
+      .team-option:active,
+      .team-option.on {
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .team-option .icon {
+        width: 14px;
+        height: 14px;
+      }
+
+      .datebar {
+        min-height: 44px;
+        margin-top: 5px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .date-arrow,
+      .calendar-button {
+        width: 44px;
+        height: 44px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--card);
+        transition: background-color 140ms var(--ease);
+      }
+
+      .date-arrow:active,
+      .calendar-button:active {
+        background: var(--blue-bg);
+      }
+
+      .date-arrow .icon {
+        width: 16px;
+        height: 16px;
+      }
+
+      .calendar-button {
+        color: var(--blue);
+      }
+
+      .calendar-button .icon {
+        width: 18px;
+        height: 18px;
+      }
+
+      .date-text {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 14px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .date-text .week {
+        color: var(--text-3);
+        font-size: 11px;
+        font-weight: 400;
+      }
+
+      .today-tag {
+        padding: 3px 6px;
+        border-radius: 4px;
+        color: var(--blue);
+        background: var(--blue-bg);
+        font-size: 9px;
+        font-weight: 600;
+      }
+
+      .scopebar {
+        align-self: flex-start;
+        display: flex;
+        margin-top: 6px;
+        padding: 3px;
+        border-radius: 8px;
+        background: var(--line);
+      }
+
+      .scope-button {
+        min-width: 72px;
+        min-height: 44px;
+        padding: 0 14px;
+        border-radius: 6px;
+        color: var(--text-2);
+        font-size: 12px;
+        font-weight: 600;
+        transition:
+          color 140ms var(--ease),
+          background-color 140ms var(--ease);
+      }
+
+      .scope-button.on {
+        color: var(--blue);
+        background: var(--card);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+
+      .log-tools .refresh-note {
+        margin-top: 8px;
+      }
+
+      .log-list {
+        flex: 1;
+        min-height: 0;
+        margin-top: 10px;
+        padding: 0 12px 104px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+      }
+
+      .log-card {
+        overflow: hidden;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .log-card + .log-card {
+        margin-top: 12px;
+      }
+
+      .log-card-body {
+        padding: 13px 13px 0;
+      }
+
+      .log-card-head {
+        min-height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .vehicle-icon {
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        border-radius: 8px;
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .vehicle-icon .icon {
+        width: 18px;
+        height: 18px;
+      }
+
+      .plate {
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .status-tag,
+      .mini-tag {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        flex: none;
+        border-radius: 4px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .status-tag {
+        min-height: 22px;
+        padding: 0 7px;
+        font-size: 10px;
+      }
+
+      .status-tag::before {
+        content: '';
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .status-tag.ok {
+        color: var(--green-text);
+        background: var(--green-bg);
+      }
+
+      .status-tag.fail {
+        color: var(--red);
+        background: var(--red-bg);
+      }
+
+      .status-tag.info {
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .status-tag.warn {
+        color: var(--orange-text);
+        background: var(--orange-bg);
+      }
+
+      .log-card-head .status-tag:last-child {
+        margin-left: auto;
+      }
+
+      .patrol-block {
+        width: 100%;
+        min-height: 66px;
+        margin-top: 10px;
+        padding: 9px 11px;
+        border-radius: 8px;
+        background: var(--blue-bg);
+        text-align: left;
+        transition: background-color 140ms var(--ease);
+      }
+
+      .patrol-block:active {
+        background: #dce8ff;
+      }
+
+      .patrol-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--blue);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .patrol-label .icon {
+        width: 13px;
+        height: 13px;
+        color: #8da8db;
+      }
+
+      .patrol-text {
+        margin-top: 5px;
+        color: var(--text);
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.55;
+      }
+
+      .fail-block {
+        margin-top: 10px;
+        padding: 9px 10px;
+        border-left: 3px solid var(--red);
+        border-radius: 0;
+        color: var(--red);
+        background: var(--red-bg);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+
+      .fail-line {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+      }
+
+      .fail-line + .fail-line {
+        margin-top: 2px;
+      }
+
+      .fail-line .icon {
+        width: 13px;
+        height: 13px;
+        margin-top: 3px;
+      }
+
+      .clock-block {
+        margin-top: 10px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        background: var(--fill);
+      }
+
+      .clock-title {
+        color: var(--text-2);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .clock-person + .clock-person {
+        border-top: 1px dashed var(--line);
+      }
+
+      .clock-person-head {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .clock-name {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .clock-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        color: var(--green-text);
+        font-size: 10px;
+      }
+
+      .clock-state.warn {
+        color: var(--orange-text);
+      }
+
+      .clock-state::before {
+        content: '';
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .fee-button {
+        min-width: 52px;
+        min-height: 44px;
+        margin-left: auto;
+        border: 1px solid #bfd0ef;
+        border-radius: 6px;
+        color: var(--blue);
+        background: var(--card);
+        font-size: 10px;
+        transition: background-color 140ms var(--ease);
+      }
+
+      .fee-button:active {
+        background: var(--blue-bg);
+      }
+
+      .clock-slots {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+        padding-bottom: 9px;
+      }
+
+      .clock-slot {
+        min-height: 51px;
+        padding: 7px 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--card);
+        text-align: left;
+        transition:
+          border-color 140ms var(--ease),
+          background-color 140ms var(--ease);
+      }
+
+      .clock-slot:active {
+        border-color: #bfd0ef;
+        background: var(--blue-bg);
+      }
+
+      .clock-slot-title {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--text-2);
+        font-size: 10px;
+      }
+
+      .clock-slot-title::before {
+        content: '';
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+
+      .clock-slot.pending .clock-slot-title {
+        color: var(--orange-text);
+      }
+
+      .clock-slot.pending .clock-slot-title::before {
+        background: var(--orange);
+      }
+
+      .clock-time {
+        display: block;
+        margin-top: 4px;
+        font-size: 13px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .clock-slot.pending .clock-time {
+        color: var(--orange-text);
+        font-size: 11px;
+      }
+
+      .photo-area {
+        margin-top: 11px;
+        border-top: 1px solid var(--line);
+      }
+
+      .photo-item {
+        position: relative;
+        display: grid;
+        grid-template-columns: 102px minmax(0, 1fr);
+        gap: 10px;
+        padding: 11px 0;
+      }
+
+      .scene-photo {
+        position: relative;
+        height: 126px;
+        overflow: hidden;
+        border-radius: 8px;
+        background: #cfdee7;
+      }
+
+      .scene-ground {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        height: 37%;
+        background: #73856e;
+      }
+
+      .scene-path {
+        position: absolute;
+        z-index: 1;
+        right: 10px;
+        bottom: 0;
+        width: 27px;
+        height: 42px;
+        background: #b7b19f;
+        transform: skewX(-16deg);
+      }
+
+      .scene-pole {
+        position: absolute;
+        z-index: 2;
+        top: 18px;
+        left: 48px;
+        width: 3px;
+        height: 82px;
+        background: #59646a;
+      }
+
+      .scene-pole::before,
+      .scene-pole::after {
+        content: '';
+        position: absolute;
+        left: -15px;
+        width: 33px;
+        height: 3px;
+        border-radius: 1px;
+        background: #59646a;
+      }
+
+      .scene-pole::before {
+        top: 8px;
+      }
+
+      .scene-pole::after {
+        top: 20px;
+      }
+
+      .scene-wire {
+        position: absolute;
+        z-index: 1;
+        top: 29px;
+        left: -8px;
+        width: 118px;
+        height: 1px;
+        background: #6f7c83;
+        transform: rotate(5deg);
+      }
+
+      .scene-wire.second {
+        top: 41px;
+        transform: rotate(-3deg);
+      }
+
+      .scene-tag {
+        position: absolute;
+        z-index: 3;
+        top: 6px;
+        left: 6px;
+        padding: 3px 5px;
+        border-radius: 4px;
+        color: #fff;
+        background: rgba(11, 138, 55, 0.9);
+        font-size: 8px;
+        font-weight: 600;
+      }
+
+      .scene-watermark {
+        position: absolute;
+        z-index: 4;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        padding: 4px 5px;
+        color: #fff;
+        background: rgba(29, 33, 41, 0.74);
+        font-size: 7px;
+        line-height: 1.5;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .photo-info {
+        min-width: 0;
+      }
+
+      .photo-status {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding-right: 24px;
+      }
+
+      .mini-tag {
+        min-height: 19px;
+        padding: 0 5px;
+        font-size: 8px;
+      }
+
+      .mini-tag.ok {
+        color: var(--green-text);
+        background: var(--green-bg);
+      }
+
+      .mini-tag.sync {
+        color: var(--orange-text);
+        background: var(--orange-bg);
+      }
+
+      .photo-names {
+        margin-top: 7px;
+        display: flex;
+        gap: 5px;
+      }
+
+      .photo-name {
+        padding: 2px 6px;
+        border: 1px solid #bfd0ef;
+        border-radius: 4px;
+        color: var(--blue);
+        font-size: 9px;
+      }
+
+      .work-content {
+        margin-top: 7px;
+        color: var(--text-2);
+        font-size: 10px;
+        line-height: 1.5;
+      }
+
+      .work-content strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .photo-meta {
+        margin-top: 6px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px 7px;
+        color: var(--text-3);
+        font-size: 8px;
+        line-height: 1.45;
+      }
+
+      .photo-meta span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .photo-meta .wide {
+        grid-column: 1 / -1;
+      }
+
+      .photo-delete {
+        position: absolute;
+        top: 3px;
+        right: -7px;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: var(--red);
+      }
+
+      .photo-delete:active {
+        background: var(--red-bg);
+      }
+
+      .photo-delete .icon {
+        width: 15px;
+        height: 15px;
+      }
+
+      .add-photo {
+        width: 100%;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        border: 1px dashed var(--placeholder);
+        border-radius: 8px;
+        color: var(--text-3);
+        font-size: 11px;
+        transition:
+          color 140ms var(--ease),
+          border-color 140ms var(--ease),
+          background-color 140ms var(--ease);
+      }
+
+      .add-photo:active {
+        border-color: var(--blue);
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .add-photo .icon {
+        width: 15px;
+        height: 15px;
+      }
+
+      .remark-block {
+        width: 100%;
+        margin-top: 10px;
+        padding: 9px 10px;
+        border-left: 3px solid var(--orange);
+        border-radius: 0;
+        color: var(--text-2);
+        background: var(--orange-bg);
+        font-size: 11px;
+        line-height: 1.7;
+        text-align: left;
+      }
+
+      .remark-block strong {
+        display: block;
+        color: var(--text);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .remark-block span {
+        display: block;
+        margin-top: 2px;
+      }
+
+      .log-actions {
+        min-height: 46px;
+        margin-top: 12px;
+        display: flex;
+        border-top: 1px solid var(--line);
+      }
+
+      .log-action {
+        min-height: 46px;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-2);
+        font-size: 11px;
+        font-weight: 600;
+        transition: background-color 140ms var(--ease);
+      }
+
+      .log-action + .log-action {
+        border-left: 1px solid var(--line);
+      }
+
+      .log-action:active {
+        background: var(--blue-bg);
+      }
+
+      .log-action.sync {
+        color: var(--blue);
+      }
+
+      .log-action.danger {
+        color: var(--red);
+      }
+
+      .log-action.danger:active {
+        background: var(--red-bg);
+      }
+
+      .log-state-view {
+        flex: 1;
+        min-height: 0;
+        margin-top: 10px;
+        padding: 0 12px;
+        overflow-y: auto;
+        scrollbar-width: none;
+      }
+
+      .log-state-view .state-placeholder {
+        min-height: 340px;
+        margin-top: 0;
+      }
+
+      .empty-log {
+        min-height: 230px;
+        padding: 48px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border: 1px dashed var(--placeholder);
+        border-radius: 12px;
+        color: var(--text-3);
+        text-align: center;
+      }
+
+      .empty-log .icon {
+        width: 30px;
+        height: 30px;
+        margin-bottom: 14px;
+        color: var(--placeholder);
+      }
+
+      .empty-log h2 {
+        color: var(--text-2);
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .empty-log p {
+        margin-top: 8px;
+        font-size: 11px;
+        line-height: 1.7;
+      }
+
+      .sk-log-card {
+        min-height: 388px;
+        padding: 15px 13px;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .sk-log-card + .sk-log-card {
+        min-height: 270px;
+        margin-top: 12px;
+      }
+
+      .sk-log-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .sk-log-head .sk:first-child {
+        width: 132px;
+        height: 20px;
+      }
+
+      .sk-log-head .sk:last-child {
+        width: 58px;
+        height: 20px;
+      }
+
+      .sk-patrol {
+        height: 65px;
+        margin-top: 12px;
+        border-radius: 8px;
+        background: #edf2fa;
+      }
+
+      .sk-clock {
+        height: 168px;
+        margin-top: 11px;
+        padding: 13px 10px;
+        border-radius: 8px;
+        background: var(--fill);
+      }
+
+      .sk-clock .sk {
+        width: 42%;
+        height: 11px;
+      }
+
+      .sk-clock-rows {
+        margin-top: 17px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .sk-clock-rows .sk {
+        width: 100%;
+        height: 49px;
+      }
+
+      .sk-photo {
+        margin-top: 13px;
+        display: grid;
+        grid-template-columns: 102px 1fr;
+        gap: 10px;
+      }
+
+      .sk-photo > .sk:first-child {
+        height: 112px;
+        border-radius: 8px;
+      }
+
+      .sk-photo-lines .sk {
+        height: 10px;
+        margin-bottom: 12px;
+      }
+
+      .sk-photo-lines .sk:nth-child(2) {
+        width: 72%;
+      }
+
+      .sk-photo-lines .sk:nth-child(3) {
+        width: 88%;
+      }
+
+      /* 右下 speed dial：仅透明度与位移，不做旋转或回弹 */
+      .fab-scrim {
+        position: absolute;
+        z-index: 30;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        background: rgba(29, 33, 41, 0.3);
+        opacity: 0;
+        transition: opacity 180ms var(--ease);
+      }
+
+      .fab-scrim.is-open {
+        opacity: 1;
+      }
+
+      .fab-dock {
+        position: absolute;
+        z-index: 40;
+        right: 14px;
+        bottom: max(20px, env(safe-area-inset-bottom));
+        width: 52px;
+      }
+
+      .fab-main {
+        position: relative;
+        z-index: 2;
+        width: 52px;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        color: #fff;
+        background: var(--blue);
+        box-shadow: 0 6px 16px rgba(14, 61, 168, 0.3);
+        transition:
+          opacity 140ms var(--ease),
+          transform 140ms var(--ease),
+          background-color 140ms var(--ease);
+      }
+
+      .fab-main:active {
+        opacity: 0.88;
+        transform: scale(0.98);
+      }
+
+      .fab-main:disabled {
+        opacity: 0.45;
+      }
+
+      .fab-main .icon {
+        width: 25px;
+        height: 25px;
+        stroke-width: 2;
+      }
+
+      .fab-menu {
+        position: absolute;
+        right: 0;
+        bottom: 64px;
+        width: max-content;
+        max-height: 584px;
+        padding: 6px 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+        opacity: 0;
+        transform: translateY(8px);
+        pointer-events: none;
+        transition:
+          opacity 140ms var(--ease),
+          transform 140ms var(--ease);
+      }
+
+      .fab-menu.is-open {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+
+      .fab-action {
+        min-height: 46px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 2px 0;
+        border-radius: 8px;
+        text-align: right;
+      }
+
+      .fab-action + .fab-action {
+        margin-top: 2px;
+      }
+
+      .fab-label {
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--text);
+        background: var(--card);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+        transition: background-color 140ms var(--ease);
+      }
+
+      .fab-action:active .fab-label {
+        background: var(--blue-bg);
+      }
+
+      .fab-action.accent .fab-label {
+        color: var(--blue);
+      }
+
+      .fab-mini {
+        width: 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        color: var(--text);
+        background: var(--card);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        transition: transform 140ms var(--ease);
+      }
+
+      .fab-action:active .fab-mini {
+        transform: scale(0.98);
+      }
+
+      .fab-action.accent .fab-mini {
+        color: var(--blue);
+      }
+
+      .fab-mini .icon {
+        width: 19px;
+        height: 19px;
+      }
+
+      .fab-menu.is-open .fab-action {
+        animation: fab-action-in 220ms var(--ease) both;
+        animation-delay: calc(var(--i) * 18ms);
+      }
+
+      /* 新建日志底部表单：固定标题和底部操作，内容独立滚动 */
+      .sheet-layer {
+        position: absolute;
+        z-index: 60;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .sheet-layer.is-open {
+        pointer-events: auto;
+      }
+
+      .sheet-backdrop {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(29, 33, 41, 0.42);
+        opacity: 0;
+        transition: opacity 240ms var(--ease);
+      }
+
+      .sheet-layer.is-open .sheet-backdrop {
+        opacity: 1;
+      }
+
+      .form-sheet {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        height: 684px;
+        max-height: calc(100% - 48px);
+        display: flex;
+        flex-direction: column;
+        border-radius: 12px 12px 0 0;
+        background: var(--card);
+        box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+        opacity: 0;
+        transform: translateY(18px);
+        transition:
+          opacity 240ms var(--ease),
+          transform 240ms var(--ease);
+      }
+
+      .sheet-layer.is-open .form-sheet {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .form-header {
+        min-height: 58px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 10px 0 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .form-header h2 {
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .form-close {
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: var(--text-2);
+        transition: background-color 140ms var(--ease);
+      }
+
+      .form-close:active {
+        background: var(--blue-bg);
+      }
+
+      .form-close .icon {
+        width: 19px;
+        height: 19px;
+      }
+
+      .form-body {
+        flex: 1;
+        min-height: 0;
+        padding: 14px 16px 22px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+      }
+
+      .form-date {
+        min-height: 30px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 9px;
+        border-radius: 4px;
+        color: var(--blue);
+        background: var(--blue-bg);
+        font-size: 11px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .form-date .icon {
+        width: 14px;
+        height: 14px;
+      }
+
+      .form-section-title {
+        margin: 19px 0 9px;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .form-section-title h3 {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .form-section-title span {
+        color: var(--text-3);
+        font-size: 9px;
+      }
+
+      .form-card {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--card);
+      }
+
+      .form-row {
+        min-height: 50px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 12px;
+      }
+
+      .form-row + .form-row,
+      .form-options + .form-row {
+        border-top: 1px solid var(--line);
+      }
+
+      .form-row > label,
+      .form-row > .form-key {
+        width: 66px;
+        flex: none;
+        color: var(--text-2);
+        font-size: 12px;
+      }
+
+      .form-select {
+        min-width: 0;
+        min-height: 48px;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border-radius: 6px;
+        color: var(--text);
+        font-size: 12px;
+        text-align: left;
+      }
+
+      .form-select:active {
+        background: var(--blue-bg);
+      }
+
+      .form-select:disabled {
+        color: var(--placeholder);
+      }
+
+      .form-select .icon {
+        width: 14px;
+        height: 14px;
+        color: var(--text-3);
+      }
+
+      .form-select .no-vehicle-tag {
+        margin-left: auto;
+        padding: 2px 5px;
+        border-radius: 4px;
+        color: var(--text-3);
+        background: var(--fill);
+        font-size: 9px;
+      }
+
+      .form-select .select-value {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .form-options {
+        padding: 5px;
+        border-top: 1px solid var(--line);
+        background: var(--fill);
+      }
+
+      .form-option {
+        width: 100%;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        text-align: left;
+      }
+
+      .form-option:active,
+      .form-option.on {
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .form-option .icon {
+        width: 14px;
+        height: 14px;
+      }
+
+      .form-input {
+        min-width: 0;
+        min-height: 44px;
+        flex: 1;
+        border: 0;
+        outline: 0;
+        color: var(--text);
+        background: transparent;
+        font-size: 12px;
+      }
+
+      .form-input::placeholder {
+        color: var(--placeholder);
+      }
+
+      .form-input:disabled {
+        color: var(--placeholder);
+      }
+
+      .form-tip {
+        margin-top: 10px;
+        padding: 10px 11px;
+        border-left: 3px solid var(--blue);
+        border-radius: 0;
+        color: var(--text-2);
+        background: var(--blue-bg);
+        font-size: 10px;
+        line-height: 1.7;
+      }
+
+      .form-tip strong {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--blue);
+        font-weight: 600;
+      }
+
+      .people-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .person-chip {
+        min-width: 68px;
+        min-height: 44px;
+        padding: 0 13px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--text-2);
+        background: var(--card);
+        font-size: 12px;
+        transition:
+          color 140ms var(--ease),
+          border-color 140ms var(--ease),
+          background-color 140ms var(--ease);
+      }
+
+      .person-chip[aria-pressed='true'] {
+        border-color: var(--blue);
+        color: var(--blue);
+        background: var(--blue-bg);
+      }
+
+      .person-chip:disabled {
+        color: var(--placeholder);
+        background: var(--fill);
+      }
+
+      .person-chip small {
+        display: block;
+        margin-top: 2px;
+        font-size: 8px;
+      }
+
+      .form-footer {
+        flex: none;
+        padding: 12px 16px max(14px, env(safe-area-inset-bottom));
+        border-top: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .form-save {
+        width: 100%;
+        min-height: 46px;
+        border-radius: 8px;
+        color: #fff;
+        background: var(--blue);
+        font-size: 14px;
+        font-weight: 600;
+        transition:
+          opacity 140ms var(--ease),
+          transform 140ms var(--ease);
+      }
+
+      .form-save:active {
+        opacity: 0.9;
+        transform: scale(0.98);
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(14px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes fab-action-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .app-page.is-entering [data-enter] {
+        animation: rise 420ms var(--ease) both;
+        animation-delay: calc(var(--i) * 50ms);
+      }
+
+      .reduce-motion *,
+      .reduce-motion *::before,
+      .reduce-motion *::after {
+        scroll-behavior: auto !important;
+        animation: none !important;
+        animation-delay: 0ms !important;
+        transition: none !important;
+        transition-delay: 0ms !important;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation: none !important;
+          animation-delay: 0ms !important;
+          transition: none !important;
+          transition-delay: 0ms !important;
+        }
+      }
+
+      @media (max-width: 940px) {
+        .review-layout {
+          grid-template-columns: minmax(0, 1fr);
+          max-width: 720px;
+        }
+
+        .control-panel {
+          position: static;
+          order: -1;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .control-section {
+          border-bottom: 1px solid var(--line);
+        }
+
+        .control-section:nth-child(odd) {
+          border-right: 1px solid var(--line);
+        }
+
+        .control-section:last-child {
+          grid-column: 1 / -1;
+          border-bottom: 0;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .header-inner,
+        .review-layout {
+          width: calc(100% - 24px);
+        }
+
+        .header-inner {
+          padding: 14px 0 20px;
+        }
+
+        .gallery-nav {
+          align-items: flex-start;
+          gap: 8px;
+        }
+
+        .gallery-link {
+          padding: 0 8px;
+          font-size: 12px;
+        }
+
+        .review-badge {
+          margin-top: 9px;
+          font-size: 10px;
+        }
+
+        .gallery-heading {
+          margin-top: 16px;
+          display: block;
+        }
+
+        .gallery-heading h1 {
+          font-size: 22px;
+        }
+
+        .gallery-heading p {
+          margin-top: 8px;
+          font-size: 12px;
+          text-align: left;
+        }
+
+        .review-layout {
+          gap: 16px;
+          padding-top: 16px;
+        }
+
+        .control-panel {
+          display: block;
+        }
+
+        .control-section,
+        .control-section:nth-child(odd) {
+          border-right: 0;
+        }
+
+        .device-panel {
+          padding: 18px 8px 16px;
+        }
+      }
+
+      @media (max-width: 440px) {
+        .phone-scale {
+          width: 323.9px;
+          height: 682.24px;
+        }
+
+        .phone-shell {
+          transform: scale(0.82);
+        }
+
+        .gallery-links {
+          gap: 0;
+        }
+
+        .gallery-link .icon {
+          display: none;
+        }
+      }
+
+      @media (max-width: 350px) {
+        .phone-scale {
+          width: 284.4px;
+          height: 599.04px;
+        }
+
+        .phone-shell {
+          transform: scale(0.72);
+        }
+
+        .review-badge {
+          max-width: 96px;
+          line-height: 1.5;
+          text-align: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="i-arrow-left" viewBox="0 0 24 24">
+          <path d="M19 12H5M11 6l-6 6 6 6" />
+        </symbol>
+        <symbol id="i-arrow-right" viewBox="0 0 24 24">
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </symbol>
+        <symbol id="i-chevron-left" viewBox="0 0 24 24">
+          <path d="m15 5-7 7 7 7" />
+        </symbol>
+        <symbol id="i-chevron-right" viewBox="0 0 24 24">
+          <path d="m9 5 7 7-7 7" />
+        </symbol>
+        <symbol id="i-chevron-down" viewBox="0 0 24 24">
+          <path d="m5 9 7 7 7-7" />
+        </symbol>
+        <symbol id="i-home" viewBox="0 0 24 24">
+          <path d="m3.5 10.5 8.5-7 8.5 7M6 9v11h12V9M10 20v-6h4v6" />
+        </symbol>
+        <symbol id="i-user" viewBox="0 0 24 24">
+          <circle cx="12" cy="8" r="3.5" />
+          <path d="M5 20a7 7 0 0 1 14 0" />
+        </symbol>
+        <symbol id="i-users" viewBox="0 0 24 24">
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3.5 19a5.5 5.5 0 0 1 11 0M15 5.5a3 3 0 0 1 0 5.8M16.5 14a5 5 0 0 1 4 5" />
+        </symbol>
+        <symbol id="i-bell" viewBox="0 0 24 24">
+          <path d="M6 16v-5a6 6 0 0 1 12 0v5l2 3H4l2-3ZM10 21h4" />
+        </symbol>
+        <symbol id="i-chat" viewBox="0 0 24 24">
+          <path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.4-4A8 8 0 1 1 20 11.5Z" />
+          <path d="M8.5 10.5h7M8.5 14h4" />
+        </symbol>
+        <symbol id="i-clipboard" viewBox="0 0 24 24">
+          <path
+            d="M9 5H6.5A1.5 1.5 0 0 0 5 6.5v13A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 17.5 5H15"
+          />
+          <rect x="9" y="3" width="6" height="4" rx="1" />
+          <path d="M8.5 11h7M8.5 15h4M9 18l1.5 1.5L14 16" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24">
+          <path d="m12 3 7 2.7v5.1c0 4.5-2.8 8-7 10.2-4.2-2.2-7-5.7-7-10.2V5.7L12 3Z" />
+          <path d="m8.5 12 2.2 2.2 4.8-5" />
+        </symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="13" rx="2" />
+          <path d="M9 21h6M12 17v4M7 9l2.5 2L7 13M12 13h3" />
+        </symbol>
+        <symbol id="i-send" viewBox="0 0 24 24">
+          <path d="m21 3-9 9M21 3l-6.5 18-3.2-8.1L3 9.5 21 3Z" />
+        </symbol>
+        <symbol id="i-droplet" viewBox="0 0 24 24">
+          <path d="M12 3c3.2 3.8 6 7.2 6 10.5a6 6 0 0 1-12 0C6 10.2 8.8 6.8 12 3Z" />
+          <path d="M9.5 14a2.6 2.6 0 0 0 2.5 2.5" />
+        </symbol>
+        <symbol id="i-book" viewBox="0 0 24 24">
+          <path
+            d="M12 6c-2-1.5-4.5-2-8-1.5V19c3.5-.5 6 0 8 1.5 2-1.5 4.5-2 8-1.5V4.5C16.5 4 14 4.5 12 6Z"
+          />
+          <path d="M12 6v14.5" />
+        </symbol>
+        <symbol id="i-more" viewBox="0 0 24 24">
+          <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+          <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+        </symbol>
+        <symbol id="i-wifi" viewBox="0 0 24 24">
+          <path d="M3 8.5a14 14 0 0 1 18 0M6.5 12a9 9 0 0 1 11 0M10 15.5a4 4 0 0 1 4 0" />
+          <circle cx="12" cy="19" r="1" fill="currentColor" stroke="none" />
+        </symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24">
+          <path d="M20 7v5h-5M4 17v-5h5" />
+          <path d="M6 8a7 7 0 0 1 12-1l2 5M4 12l2 5a7 7 0 0 0 12-1" />
+        </symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24">
+          <path d="M12 5v14M5 12h14" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24">
+          <path d="m6 6 12 12M18 6 6 18" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+          <path d="m5 12 4.5 4.5L19 7" />
+        </symbol>
+        <symbol id="i-calendar" viewBox="0 0 24 24">
+          <rect x="3.5" y="5" width="17" height="16" rx="2" />
+          <path d="M3.5 10h17M8 3v4M16 3v4" />
+        </symbol>
+        <symbol id="i-car" viewBox="0 0 24 24">
+          <path d="m5 11 1.7-4.5A2 2 0 0 1 8.6 5h6.8a2 2 0 0 1 1.9 1.5L19 11" />
+          <rect x="3" y="10" width="18" height="8" rx="2" />
+          <path d="M6 18v2M18 18v2M6.5 14h2M15.5 14h2" />
+        </symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24">
+          <path d="m4 20 1-4L16 5a2.1 2.1 0 0 1 3 3L8 19l-4 1ZM14.5 6.5l3 3" />
+        </symbol>
+        <symbol id="i-warning" viewBox="0 0 24 24">
+          <path d="m12 3 10 18H2L12 3Z" />
+          <path d="M12 9v5M12 17.5v.5" />
+        </symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24">
+          <path d="M4 6h16M9 6V4h6v2M6 6l1 15h10l1-15M10 10v7M14 10v7" />
+        </symbol>
+        <symbol id="i-inbox" viewBox="0 0 24 24">
+          <path d="M4 4h16l1 12v4H3v-4L4 4Z" />
+          <path d="M3 16h6l1.5 2h3l1.5-2h6" />
+        </symbol>
+        <symbol id="i-setting" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19 13.5v-3l-2-.6a7 7 0 0 0-.8-1.8l1-1.8-2.2-2.2-1.8 1a7 7 0 0 0-1.8-.8l-.6-2h-3l-.6 2a7 7 0 0 0-1.8.8l-1.8-1-2.2 2.2 1 1.8a7 7 0 0 0-.8 1.8l-2 .6v3l2 .6a7 7 0 0 0 .8 1.8l-1 1.8L4.5 20l1.8-1a7 7 0 0 0 1.8.8l.6 2h3l.6-2a7 7 0 0 0 1.8-.8l1.8 1 2.2-2.2-1-1.8a7 7 0 0 0 .8-1.8l2-.6Z"
+          />
+        </symbol>
+        <symbol id="i-file" viewBox="0 0 24 24">
+          <path d="M6 3h8l4 4v14H6V3Z" />
+          <path d="M14 3v5h4M9 12h6M9 16h6" />
+        </symbol>
+        <symbol id="i-money" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="m8 7 4 5 4-5M8 12h8M8 15h8M12 12v6" />
+        </symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24">
+          <rect x="8" y="8" width="12" height="13" rx="2" />
+          <path d="M16 8V3H4v13h4M12 12h4M12 16h4" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24">
+          <path d="M12 3v12M7 10l5 5 5-5M4 18v3h16v-3" />
+        </symbol>
+        <symbol id="i-task" viewBox="0 0 24 24">
+          <path d="M9 5H6a2 2 0 0 0-2 2v13h16V7a2 2 0 0 0-2-2h-3" />
+          <rect x="9" y="3" width="6" height="4" rx="1" />
+          <path d="m8 13 2 2 3-3M8 18h8" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <header class="gallery-header">
+      <div class="header-inner">
+        <nav class="gallery-nav" aria-label="设计稿导航">
+          <div class="gallery-links">
+            <a class="gallery-link" href="./体验精修.html">
+              <svg class="icon" aria-hidden="true"><use href="#i-arrow-left" /></svg>
+              返回体验精修
+            </a>
+            <a class="gallery-link" href="./体验精修-Web.html">
+              进入 Web 稿
+              <svg class="icon" aria-hidden="true"><use href="#i-arrow-right" /></svg>
+            </a>
+          </div>
+          <span class="review-badge">评审候选 · 不改动业务</span>
+        </nav>
+        <div class="gallery-heading">
+          <div>
+            <div class="gallery-eyebrow">SHADE 壹匣 / 体验评审</div>
+            <h1>小程序 · 体验精修</h1>
+          </div>
+          <p>保留政企蓝白与现有操作路径，仅精修层级、反馈、状态与动效。</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="review-layout">
+      <section class="device-panel" aria-label="小程序高拟真预览">
+        <div class="device-fit" id="deviceFit">
+          <div class="phone-scale" id="phoneScale">
+            <div class="phone-shell" id="phoneShell">
+              <div class="screen">
+                <section
+                  class="app-page home-page is-entering"
+                  id="homePage"
+                  role="tabpanel"
+                  aria-labelledby="homeTab"
+                  data-page-panel="home"
+                >
+                  <div class="home-masthead">
+                    <div class="statusbar" aria-label="状态栏">
+                      <span>9:41</span>
+                      <span class="status-icons" aria-hidden="true">
+                        <span class="signal"><i></i><i></i><i></i><i></i></span>
+                        <svg class="icon"><use href="#i-wifi" /></svg>
+                        <span class="battery"></span>
+                      </span>
+                    </div>
+                    <div class="mini-nav">
+                      <h1>Shade 壹匣</h1>
+                      <span class="wechat-capsule" aria-label="微信胶囊预留">
+                        <span class="capsule-more">•••</span>
+                        <span class="capsule-divider"></span>
+                        <span class="capsule-ring"></span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="home-scroll">
+                    <div
+                      class="home-hero"
+                      data-state-view="normal refresh empty error"
+                      data-enter
+                      style="--i: 0"
+                    >
+                      <h2>上午好，陈宇</h2>
+                      <p>chenyu · 10月24日 周六 · 管理员</p>
+                    </div>
+                    <div class="home-hero hero-skeleton" data-state-view="loading" hidden>
+                      <div class="sk-hero-line"></div>
+                      <div class="sk-hero-line"></div>
+                    </div>
+
+                    <div class="home-content" data-state-view="normal refresh">
+                      <section
+                        class="stats-card"
+                        aria-label="出工日志数据概览"
+                        data-enter
+                        style="--i: 1"
+                      >
+                        <div class="stat">
+                          <strong class="good">24</strong><span>上月通过</span>
+                        </div>
+                        <div class="stat"><strong class="warn">1</strong><span>上月需补</span></div>
+                        <div class="stat"><strong>18</strong><span>本月通过</span></div>
+                        <div class="stat"><strong class="bad">2</strong><span>本月需补</span></div>
+                      </section>
+
+                      <div class="refresh-note" data-refresh role="status" hidden>
+                        <span class="spinner" aria-hidden="true"></span>
+                        正在更新工作台，已保留当前内容
+                      </div>
+
+                      <section class="notice-card" data-enter style="--i: 2">
+                        <div class="notice-head">
+                          <span class="notice-icon">
+                            <svg class="icon" aria-hidden="true"><use href="#i-bell" /></svg>
+                          </span>
+                          <h2>消息通知</h2>
+                          <span class="unread">2 条未读</span>
+                        </div>
+                        <div class="notice-row unread-row">
+                          <span class="notice-dot"></span>
+                          <p>秋季保电工作安排已发布</p>
+                          <time datetime="2026-10-23T18:02">10-23 18:02</time>
+                        </div>
+                        <div class="notice-row unread-row">
+                          <span class="notice-dot"></span>
+                          <p>10 月安全日活动记录已生成</p>
+                          <time datetime="2026-10-22T10:15">10-22 10:15</time>
+                        </div>
+                        <div class="notice-row">
+                          <span class="notice-dot read"></span>
+                          <p>差旅资料归档提醒</p>
+                          <time datetime="2026-10-20T09:40">10-20 09:40</time>
+                        </div>
+                        <button class="notice-more" type="button" data-demo-action="消息通知">
+                          查看全部
+                          <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                        </button>
+                      </section>
+
+                      <div class="section-heading" data-enter style="--i: 3">
+                        <h2>应用中心</h2>
+                        <span>7 个应用</span>
+                      </div>
+                      <section class="apps-card" aria-label="应用中心" data-enter style="--i: 4">
+                        <div class="apps-grid">
+                          <button class="app-entry" type="button" data-demo-action="Call Me">
+                            <span class="app-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-chat" /></svg
+                            ></span>
+                            <span>Call Me</span>
+                          </button>
+                          <button class="app-entry" type="button" id="worklogApp" data-open-worklog>
+                            <span class="app-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-clipboard" /></svg
+                            ></span>
+                            <span>出工日志</span>
+                          </button>
+                          <button class="app-entry" type="button" data-demo-action="安全日活动">
+                            <span class="app-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-shield" /></svg
+                            ></span>
+                            <span>安全日活动</span>
+                          </button>
+                          <button class="app-entry" type="button" data-demo-action="远程连接">
+                            <span class="app-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-monitor" /></svg
+                            ></span>
+                            <span>远程连接</span>
+                          </button>
+                          <button class="app-entry" type="button" data-demo-action="文件传输">
+                            <span class="app-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-send" /></svg
+                            ></span>
+                            <span>文件传输</span>
+                          </button>
+                          <button class="app-entry" type="button" data-demo-action="水印添加">
+                            <span class="app-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-droplet" /></svg
+                            ></span>
+                            <span>水印添加</span>
+                          </button>
+                          <button class="app-entry" type="button" data-demo-action="题库刷题">
+                            <span class="app-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-book" /></svg
+                            ></span>
+                            <span>题库刷题</span>
+                          </button>
+                          <button class="app-entry soon" type="button" data-demo-action="敬请期待">
+                            <span class="app-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-more" /></svg
+                            ></span>
+                            <span>敬请期待</span>
+                          </button>
+                        </div>
+                      </section>
+                      <p class="home-footnote">更多班组应用持续接入中</p>
+                    </div>
+
+                    <div class="home-content" data-state-view="loading" hidden>
+                      <span class="sr-only" role="status">正在加载首页结构与内容</span>
+                      <div class="sk-stats" aria-hidden="true">
+                        <div class="sk-stat"></div>
+                        <div class="sk-stat"></div>
+                        <div class="sk-stat"></div>
+                        <div class="sk-stat"></div>
+                      </div>
+                      <div class="sk-notice" aria-hidden="true">
+                        <div class="sk"></div>
+                        <div class="sk"></div>
+                        <div class="sk"></div>
+                        <div class="sk"></div>
+                      </div>
+                      <div class="sk sk-section" aria-hidden="true"></div>
+                      <div class="sk-apps" aria-hidden="true">
+                        <div class="sk-app"></div>
+                        <div class="sk-app"></div>
+                        <div class="sk-app"></div>
+                        <div class="sk-app"></div>
+                        <div class="sk-app"></div>
+                        <div class="sk-app"></div>
+                        <div class="sk-app"></div>
+                        <div class="sk-app"></div>
+                      </div>
+                    </div>
+
+                    <div class="home-content" data-state-view="empty" hidden>
+                      <section class="state-placeholder">
+                        <span class="state-icon"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-inbox" /></svg
+                        ></span>
+                        <h2>暂无可用应用</h2>
+                        <p>当前账号尚未开通应用权限，请联系管理员。通知与账号入口仍保留。</p>
+                        <button class="retry-button" type="button" data-demo-action="权限说明">
+                          查看权限说明
+                        </button>
+                      </section>
+                    </div>
+
+                    <div class="home-content" data-state-view="error" hidden>
+                      <section class="state-placeholder error">
+                        <span class="state-icon"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-warning" /></svg
+                        ></span>
+                        <h2>工作台暂时无法加载</h2>
+                        <p>网络连接中断，应用与通知未更新。请检查网络后重试。</p>
+                        <button class="retry-button" type="button" data-retry="home">
+                          <svg class="icon" aria-hidden="true"><use href="#i-refresh" /></svg>
+                          重新加载
+                        </button>
+                      </section>
+                    </div>
+                  </div>
+
+                  <nav class="tabbar" aria-label="小程序底部导航">
+                    <button
+                      class="tabbar-button on"
+                      type="button"
+                      aria-current="page"
+                      data-home-tab
+                    >
+                      <svg class="icon" aria-hidden="true"><use href="#i-home" /></svg>
+                      首页
+                    </button>
+                    <button class="tabbar-button" type="button" data-demo-action="我的">
+                      <svg class="icon" aria-hidden="true"><use href="#i-user" /></svg>
+                      我的
+                    </button>
+                  </nav>
+                </section>
+
+                <section
+                  class="app-page worklog-page is-entering"
+                  id="worklogPage"
+                  role="tabpanel"
+                  aria-labelledby="worklogTab"
+                  data-page-panel="worklog"
+                  hidden
+                >
+                  <div class="log-nav-wrap">
+                    <div class="statusbar" aria-label="状态栏">
+                      <span>9:41</span>
+                      <span class="status-icons" aria-hidden="true">
+                        <span class="signal"><i></i><i></i><i></i><i></i></span>
+                        <svg class="icon"><use href="#i-wifi" /></svg>
+                        <span class="battery"></span>
+                      </span>
+                    </div>
+                    <div class="mini-nav log-nav">
+                      <button class="log-back" type="button" aria-label="返回首页" data-log-back>
+                        <svg class="icon" aria-hidden="true"><use href="#i-chevron-left" /></svg>
+                      </button>
+                      <h1>出工日志</h1>
+                      <span class="wechat-capsule" aria-label="微信胶囊预留">
+                        <span class="capsule-more">•••</span>
+                        <span class="capsule-divider"></span>
+                        <span class="capsule-ring"></span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="log-content">
+                    <div class="log-tools">
+                      <div class="team-row" data-enter style="--i: 0">
+                        <button
+                          class="team-button"
+                          type="button"
+                          id="teamButton"
+                          aria-expanded="false"
+                          aria-controls="teamOptions"
+                        >
+                          <span class="team-square"></span>
+                          <span id="teamName">检修一班</span>
+                          <svg class="icon" aria-hidden="true"><use href="#i-chevron-down" /></svg>
+                        </button>
+                        <div class="team-options" id="teamOptions" hidden>
+                          <button class="team-option on" type="button" data-team="检修一班">
+                            检修一班
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                          </button>
+                          <button class="team-option" type="button" data-team="检修二班">
+                            检修二班
+                            <svg class="icon" aria-hidden="true" hidden>
+                              <use href="#i-check" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="datebar" data-enter style="--i: 1">
+                        <button class="date-arrow" type="button" aria-label="前一天" data-day="-1">
+                          <svg class="icon" aria-hidden="true"><use href="#i-chevron-left" /></svg>
+                        </button>
+                        <div class="date-text">
+                          <span id="dateText">10月24日</span>
+                          <span class="week" id="weekText">周六</span>
+                          <span class="today-tag" id="todayTag">今天</span>
+                        </div>
+                        <button class="date-arrow" type="button" aria-label="后一天" data-day="1">
+                          <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                        </button>
+                        <button
+                          class="calendar-button"
+                          type="button"
+                          aria-label="打开日历"
+                          data-demo-action="日历选日"
+                        >
+                          <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg>
+                        </button>
+                      </div>
+
+                      <div
+                        class="scopebar"
+                        role="group"
+                        aria-label="日志查看范围"
+                        data-enter
+                        style="--i: 2"
+                      >
+                        <button
+                          class="scope-button on"
+                          type="button"
+                          aria-pressed="true"
+                          data-scope="all"
+                        >
+                          全部
+                        </button>
+                        <button
+                          class="scope-button"
+                          type="button"
+                          aria-pressed="false"
+                          data-scope="mine"
+                        >
+                          仅看我
+                        </button>
+                      </div>
+
+                      <div class="refresh-note" data-refresh role="status" hidden>
+                        <span class="spinner" aria-hidden="true"></span>
+                        正在刷新当日日志，已保留当前内容
+                      </div>
+                    </div>
+
+                    <div class="log-list" data-state-view="normal refresh">
+                      <article class="log-card" data-enter style="--i: 3" data-scope-card="mine">
+                        <div class="log-card-body">
+                          <div class="log-card-head">
+                            <span class="vehicle-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-car" /></svg
+                            ></span>
+                            <span class="plate">晋A·D72618</span>
+                            <span class="status-tag info">跨班</span>
+                            <span class="status-tag ok">验证通过</span>
+                          </div>
+
+                          <button class="patrol-block" type="button" data-log-action="巡视内容">
+                            <span class="patrol-label">
+                              巡视内容
+                              <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                            </span>
+                            <span class="patrol-text">110kV 青云线 #12—#28 塔巡视</span>
+                          </button>
+
+                          <section class="clock-block" aria-label="商旅打卡">
+                            <h2 class="clock-title">商旅打卡</h2>
+                            <div class="clock-person">
+                              <div class="clock-person-head">
+                                <span class="clock-name">陈宇</span>
+                                <span class="clock-state">已完成</span>
+                                <button
+                                  class="fee-button"
+                                  type="button"
+                                  data-log-action="陈宇的费用信息"
+                                >
+                                  费用
+                                </button>
+                              </div>
+                              <div class="clock-slots">
+                                <button
+                                  class="clock-slot"
+                                  type="button"
+                                  data-log-action="陈宇开始打卡"
+                                >
+                                  <span class="clock-slot-title">开始打卡</span>
+                                  <span class="clock-time">07:58</span>
+                                </button>
+                                <button
+                                  class="clock-slot"
+                                  type="button"
+                                  data-log-action="陈宇结束打卡"
+                                >
+                                  <span class="clock-slot-title">结束打卡</span>
+                                  <span class="clock-time">17:36</span>
+                                </button>
+                              </div>
+                            </div>
+                            <div class="clock-person">
+                              <div class="clock-person-head">
+                                <span class="clock-name">王强</span>
+                                <span class="clock-state">已完成</span>
+                                <button
+                                  class="fee-button"
+                                  type="button"
+                                  data-log-action="王强的费用信息"
+                                >
+                                  费用
+                                </button>
+                              </div>
+                              <div class="clock-slots">
+                                <button
+                                  class="clock-slot"
+                                  type="button"
+                                  data-log-action="王强开始打卡"
+                                >
+                                  <span class="clock-slot-title">开始打卡</span>
+                                  <span class="clock-time">08:03</span>
+                                </button>
+                                <button
+                                  class="clock-slot"
+                                  type="button"
+                                  data-log-action="王强结束打卡"
+                                >
+                                  <span class="clock-slot-title">结束打卡</span>
+                                  <span class="clock-time">17:41</span>
+                                </button>
+                              </div>
+                            </div>
+                          </section>
+
+                          <section class="photo-area" aria-label="水印照片与识别信息">
+                            <div class="photo-item">
+                              <div
+                                class="scene-photo"
+                                role="img"
+                                aria-label="虚构的线路杆塔现场照片"
+                              >
+                                <span class="scene-ground"></span>
+                                <span class="scene-path"></span>
+                                <span class="scene-wire"></span>
+                                <span class="scene-wire second"></span>
+                                <span class="scene-pole"></span>
+                                <span class="scene-tag">核验通过</span>
+                                <span class="scene-watermark"
+                                  >2026.10.24 10:24<br />青云线 #18 塔 · 陈宇</span
+                                >
+                              </div>
+                              <div class="photo-info">
+                                <div class="photo-status">
+                                  <span class="mini-tag ok">核验通过</span>
+                                  <span class="mini-tag sync">已同步商旅</span>
+                                </div>
+                                <div class="photo-names">
+                                  <span class="photo-name">陈宇</span>
+                                  <span class="photo-name">王强</span>
+                                </div>
+                                <p class="work-content">
+                                  <strong>施工内容</strong><br />110kV 青云线 #12—#28 塔巡视
+                                </p>
+                                <div class="photo-meta">
+                                  <span>拍摄&nbsp;10:24</span>
+                                  <span>天气&nbsp;晴 24℃</span>
+                                  <span class="wide">地点&nbsp;吕梁市离石区青云线</span>
+                                  <span>经度&nbsp;111.1426°E</span>
+                                  <span>纬度&nbsp;37.5193°N</span>
+                                </div>
+                              </div>
+                              <button
+                                class="photo-delete"
+                                type="button"
+                                aria-label="删除照片"
+                                data-log-action="删除照片"
+                              >
+                                <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                              </button>
+                            </div>
+                            <button class="add-photo" type="button" data-log-action="添加照片">
+                              <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                              添加照片（水印 / 非水印）
+                            </button>
+                          </section>
+
+                          <button class="remark-block" type="button" data-log-action="备注">
+                            <strong>备 注</strong>
+                            <span>#18 塔绝缘子复查已完成，明日复核后归档。</span>
+                          </button>
+                        </div>
+                        <div class="log-actions">
+                          <button
+                            class="log-action sync"
+                            type="button"
+                            data-log-action="从商旅同步"
+                          >
+                            从商旅同步
+                          </button>
+                          <button class="log-action" type="button" data-log-action="备注">
+                            备 注
+                          </button>
+                          <button
+                            class="log-action danger"
+                            type="button"
+                            data-log-action="删除日志"
+                          >
+                            删 除
+                          </button>
+                        </div>
+                      </article>
+
+                      <article class="log-card" data-enter style="--i: 4" data-scope-card="other">
+                        <div class="log-card-body">
+                          <div class="log-card-head">
+                            <span class="vehicle-icon"
+                              ><svg class="icon" aria-hidden="true"><use href="#i-car" /></svg
+                            ></span>
+                            <span class="plate">晋A·D50936</span>
+                            <span class="status-tag fail">未通过</span>
+                          </div>
+                          <div class="fail-block">
+                            <div class="fail-line">
+                              <svg class="icon" aria-hidden="true"><use href="#i-warning" /></svg>
+                              李军缺少结束打卡
+                            </div>
+                            <div class="fail-line">
+                              <svg class="icon" aria-hidden="true"><use href="#i-warning" /></svg>
+                              李军未上传水印照片
+                            </div>
+                          </div>
+                          <button class="patrol-block" type="button" data-log-action="巡视内容">
+                            <span class="patrol-label">
+                              巡视内容
+                              <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                            </span>
+                            <span class="patrol-text">35kV 西河线通道巡视及树障复查</span>
+                          </button>
+                          <section class="clock-block" aria-label="商旅打卡">
+                            <h2 class="clock-title">商旅打卡</h2>
+                            <div class="clock-person">
+                              <div class="clock-person-head">
+                                <span class="clock-name">李军</span>
+                                <span class="clock-state warn">缺结束卡</span>
+                                <button
+                                  class="fee-button"
+                                  type="button"
+                                  data-log-action="李军的费用信息"
+                                >
+                                  费用
+                                </button>
+                              </div>
+                              <div class="clock-slots">
+                                <button
+                                  class="clock-slot"
+                                  type="button"
+                                  data-log-action="李军开始打卡"
+                                >
+                                  <span class="clock-slot-title">开始打卡</span>
+                                  <span class="clock-time">08:16</span>
+                                </button>
+                                <button
+                                  class="clock-slot pending"
+                                  type="button"
+                                  data-log-action="李军结束打卡"
+                                >
+                                  <span class="clock-slot-title">结束打卡</span>
+                                  <span class="clock-time">待打卡</span>
+                                </button>
+                              </div>
+                            </div>
+                          </section>
+                          <div class="photo-area">
+                            <button class="add-photo" type="button" data-log-action="添加照片">
+                              <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                              添加照片（水印 / 非水印）
+                            </button>
+                          </div>
+                        </div>
+                        <div class="log-actions">
+                          <button
+                            class="log-action sync"
+                            type="button"
+                            data-log-action="从商旅同步"
+                          >
+                            从商旅同步
+                          </button>
+                          <button class="log-action" type="button" data-log-action="备注">
+                            备 注
+                          </button>
+                          <button
+                            class="log-action danger"
+                            type="button"
+                            data-log-action="删除日志"
+                          >
+                            删 除
+                          </button>
+                        </div>
+                      </article>
+                    </div>
+
+                    <div class="log-list" data-state-view="loading" hidden>
+                      <span class="sr-only" role="status">正在加载当日日志</span>
+                      <div class="sk-log-card" aria-hidden="true">
+                        <div class="sk-log-head">
+                          <div class="sk"></div>
+                          <div class="sk"></div>
+                        </div>
+                        <div class="sk-patrol"></div>
+                        <div class="sk-clock">
+                          <div class="sk"></div>
+                          <div class="sk-clock-rows">
+                            <div class="sk"></div>
+                            <div class="sk"></div>
+                          </div>
+                        </div>
+                        <div class="sk-photo">
+                          <div class="sk"></div>
+                          <div class="sk-photo-lines">
+                            <div class="sk"></div>
+                            <div class="sk"></div>
+                            <div class="sk"></div>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="sk-log-card" aria-hidden="true">
+                        <div class="sk-log-head">
+                          <div class="sk"></div>
+                          <div class="sk"></div>
+                        </div>
+                        <div class="sk-patrol"></div>
+                        <div class="sk-clock"></div>
+                      </div>
+                    </div>
+
+                    <div class="log-state-view" data-state-view="empty" hidden>
+                      <div class="empty-log">
+                        <svg class="icon" aria-hidden="true"><use href="#i-clipboard" /></svg>
+                        <h2 id="emptyLogTitle">当日暂无日志</h2>
+                        <p id="emptyLogText">点右下角「＋」新建一条出工日志</p>
+                      </div>
+                    </div>
+
+                    <div class="log-state-view" data-state-view="error" hidden>
+                      <section class="state-placeholder error">
+                        <span class="state-icon"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-warning" /></svg
+                        ></span>
+                        <h2>日志加载失败</h2>
+                        <p>网络连接中断，未能读取当日日志。已选日期与查看范围会保留。</p>
+                        <button class="retry-button" type="button" data-retry="worklog">
+                          <svg class="icon" aria-hidden="true"><use href="#i-refresh" /></svg>
+                          重试
+                        </button>
+                      </section>
+                    </div>
+                  </div>
+
+                  <button
+                    class="fab-scrim"
+                    type="button"
+                    id="fabScrim"
+                    aria-label="收起管理菜单"
+                    tabindex="-1"
+                    hidden
+                  ></button>
+                  <div class="fab-dock">
+                    <div class="fab-menu" id="fabMenu" aria-label="日志管理菜单" hidden>
+                      <button
+                        class="fab-action"
+                        type="button"
+                        style="--i: 0"
+                        data-fab-action="数据管理"
+                      >
+                        <span class="fab-label">数据管理</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-setting" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action"
+                        type="button"
+                        style="--i: 1"
+                        data-fab-action="工作任务单"
+                      >
+                        <span class="fab-label">工作任务单</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-file" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action"
+                        type="button"
+                        style="--i: 2"
+                        data-fab-action="费用汇总"
+                      >
+                        <span class="fab-label">费用汇总</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-money" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action"
+                        type="button"
+                        style="--i: 3"
+                        data-fab-action="派车汇总"
+                      >
+                        <span class="fab-label">派车汇总</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-file" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action"
+                        type="button"
+                        style="--i: 4"
+                        data-fab-action="派车对齐"
+                      >
+                        <span class="fab-label">派车对齐</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-copy" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action"
+                        type="button"
+                        style="--i: 5"
+                        data-fab-action="批量从商旅同步"
+                      >
+                        <span class="fab-label">批量从商旅同步</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-refresh" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action"
+                        type="button"
+                        style="--i: 6"
+                        data-fab-action="批量下载"
+                      >
+                        <span class="fab-label">批量下载</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-download" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action"
+                        type="button"
+                        style="--i: 7"
+                        data-fab-action="汇总前核验"
+                      >
+                        <span class="fab-label">汇总前核验</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-task" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action accent"
+                        type="button"
+                        style="--i: 8"
+                        data-fab-action="跨班日志"
+                      >
+                        <span class="fab-label">跨班日志</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-users" /></svg
+                        ></span>
+                      </button>
+                      <button
+                        class="fab-action accent"
+                        type="button"
+                        style="--i: 9"
+                        id="newLogButton"
+                        data-new-log
+                      >
+                        <span class="fab-label">新建日志</span>
+                        <span class="fab-mini"
+                          ><svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg
+                        ></span>
+                      </button>
+                    </div>
+                    <button
+                      class="fab-main"
+                      type="button"
+                      id="fabMain"
+                      aria-label="展开日志管理菜单"
+                      aria-expanded="false"
+                      aria-controls="fabMenu"
+                    >
+                      <svg class="icon" aria-hidden="true" id="fabMainIcon">
+                        <use href="#i-plus" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div class="sheet-layer" id="sheetLayer" hidden>
+                    <button
+                      class="sheet-backdrop"
+                      type="button"
+                      aria-label="关闭新建日志弹层"
+                      tabindex="-1"
+                      data-sheet-close
+                    ></button>
+                    <section
+                      class="form-sheet"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="formTitle"
+                    >
+                      <header class="form-header">
+                        <h2 id="formTitle">新建日志</h2>
+                        <button
+                          class="form-close"
+                          type="button"
+                          id="formClose"
+                          aria-label="关闭新建日志"
+                          data-sheet-close
+                        >
+                          <svg class="icon" aria-hidden="true"><use href="#i-close" /></svg>
+                        </button>
+                      </header>
+                      <div class="form-body" id="formBody">
+                        <div class="form-date">
+                          <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg>
+                          <span id="formDate">2026年10月24日 周六</span>
+                        </div>
+
+                        <div class="form-section-title"><h3>派车情况</h3></div>
+                        <div class="form-card">
+                          <div class="form-row">
+                            <span class="form-key">车牌号</span>
+                            <button
+                              class="form-select"
+                              type="button"
+                              id="vehicleSelect"
+                              aria-expanded="false"
+                              aria-controls="vehicleOptions"
+                            >
+                              <span class="select-value" id="vehicleValue">未出车</span>
+                              <span class="no-vehicle-tag" id="noVehicleTag">无派车</span>
+                              <svg class="icon" aria-hidden="true">
+                                <use href="#i-chevron-down" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div class="form-options" id="vehicleOptions" hidden>
+                            <button class="form-option on" type="button" data-vehicle="未出车">
+                              未出车
+                              <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                            </button>
+                            <button class="form-option" type="button" data-vehicle="晋A·D72618">
+                              晋A·D72618
+                              <svg class="icon" aria-hidden="true" hidden>
+                                <use href="#i-check" />
+                              </svg>
+                            </button>
+                            <button class="form-option" type="button" data-vehicle="晋A·D50936">
+                              晋A·D50936
+                              <svg class="icon" aria-hidden="true" hidden>
+                                <use href="#i-check" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div class="form-row">
+                            <span class="form-key">目的地</span>
+                            <button
+                              class="form-select"
+                              type="button"
+                              id="destinationSelect"
+                              aria-expanded="false"
+                              aria-controls="destinationOptions"
+                              disabled
+                            >
+                              <span class="select-value" id="destinationValue">未出车不可选</span>
+                              <svg class="icon" aria-hidden="true">
+                                <use href="#i-chevron-down" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div class="form-options" id="destinationOptions" hidden>
+                            <button class="form-option" type="button" data-destination="离石区">
+                              离石区
+                            </button>
+                            <button class="form-option" type="button" data-destination="孝义市">
+                              孝义市
+                            </button>
+                            <button class="form-option" type="button" data-destination="汾阳市">
+                              汾阳市
+                            </button>
+                          </div>
+                          <div class="form-row">
+                            <label for="orderNumber">派车单号</label>
+                            <input
+                              class="form-input"
+                              id="orderNumber"
+                              type="text"
+                              maxlength="64"
+                              placeholder="未出车不可填"
+                              disabled
+                            />
+                          </div>
+                        </div>
+
+                        <div class="form-tip" id="noVehicleTip">
+                          <strong>已选择「未出车」</strong>
+                          人员选择已隐藏；未出车卡片免验证，不参与记录核验。
+                        </div>
+
+                        <section id="peopleSection" hidden>
+                          <div class="form-section-title">
+                            <h3>人员选择</h3>
+                            <span>点亮即用车人；灰色为当日已占用</span>
+                          </div>
+                          <div class="people-list">
+                            <button class="person-chip" type="button" aria-pressed="false">
+                              陈宇
+                            </button>
+                            <button class="person-chip" type="button" aria-pressed="false">
+                              王强
+                            </button>
+                            <button class="person-chip" type="button" aria-pressed="false">
+                              李军
+                            </button>
+                            <button class="person-chip" type="button" disabled>
+                              赵明
+                              <small>已在其他卡片</small>
+                            </button>
+                          </div>
+                        </section>
+                      </div>
+                      <footer class="form-footer">
+                        <button class="form-save" type="button" id="formSave">保 存</button>
+                      </footer>
+                    </section>
+                  </div>
+                </section>
+                <div class="home-indicator" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="device-caption">375 × 812 · 屏幕内容区与弹层均可滚动</p>
+      </section>
+
+      <aside class="control-panel" aria-label="评审控制">
+        <section class="control-section">
+          <div class="control-heading">
+            <h2>展示页面</h2>
+            <span id="currentPageLabel">首页</span>
+          </div>
+          <div class="page-tabs" role="tablist" aria-label="切换展示页面">
+            <button
+              class="page-tab"
+              id="homeTab"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="homePage"
+              tabindex="0"
+              data-page="home"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#i-home" /></svg>
+              首页
+            </button>
+            <button
+              class="page-tab"
+              id="worklogTab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="worklogPage"
+              tabindex="-1"
+              data-page="worklog"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#i-clipboard" /></svg>
+              出工日志
+            </button>
+          </div>
+        </section>
+
+        <section class="control-section">
+          <div class="control-heading">
+            <h2>页面状态</h2>
+            <span>作用于当前页</span>
+          </div>
+          <div class="state-grid" role="group" aria-label="切换页面状态">
+            <button class="state-button" type="button" aria-pressed="true" data-state="normal">
+              正常
+            </button>
+            <button class="state-button" type="button" aria-pressed="false" data-state="loading">
+              首载
+            </button>
+            <button class="state-button" type="button" aria-pressed="false" data-state="refresh">
+              刷新
+            </button>
+            <button class="state-button" type="button" aria-pressed="false" data-state="empty">
+              空
+            </button>
+            <button class="state-button" type="button" aria-pressed="false" data-state="error">
+              错误
+            </button>
+          </div>
+          <p class="state-description" id="stateDescription">完整业务内容与默认入场动效。</p>
+        </section>
+
+        <section class="control-section">
+          <div class="control-heading"><h2>动效预览</h2></div>
+          <button class="replay-button" type="button" id="replayMotion">
+            <svg class="icon" aria-hidden="true"><use href="#i-refresh" /></svg>
+            重播入场
+          </button>
+          <button
+            class="motion-row"
+            type="button"
+            id="motionToggle"
+            role="switch"
+            aria-checked="false"
+          >
+            <span class="motion-copy">
+              <strong>减弱动态效果</strong>
+              <small id="motionState">当前为标准动效</small>
+            </span>
+            <span class="switch-track" aria-hidden="true"></span>
+          </button>
+          <p class="motion-hint" id="motionHint">
+            420ms 上浮入场，50ms 错峰；弹层 240ms。系统减弱设置始终优先。
+          </p>
+        </section>
+
+        <section class="control-section">
+          <div class="review-status" id="reviewStatus" role="status" aria-live="polite">
+            所有数据均为虚构。切换状态不会清除另一页面的预览进度。
+          </div>
+          <details class="permission-details">
+            <summary>FAB 权限与交互说明</summary>
+            <div class="permission-copy">
+              <p>
+                <strong>顺序不变：</strong
+                >数据管理、工作任务单、费用汇总、派车汇总、派车对齐、批量从商旅同步、批量下载、汇总前核验、跨班日志、新建日志；新建日志离主钮最近。
+              </p>
+              <p>
+                <strong>管理权限：</strong>前六项仅超管 /
+                本班班组管理员；跨班日志仅超管；批量下载、汇总前核验、新建日志按现行出工日志权限开放。本稿以超管视角展示全部入口，跨班卡删除仍仅超管可见。
+              </p>
+              <p>
+                <strong>弹层：</strong>新建表单不提交数据。遮罩、右上角或 Esc 关闭；Tab
+                焦点限制在弹层内，关闭后回到 FAB。
+              </p>
+            </div>
+          </details>
+        </section>
+      </aside>
+    </main>
+
+    <script>
+      (() => {
+        'use strict';
+
+        const stateNames = {
+          normal: '正常',
+          loading: '首载',
+          refresh: '刷新',
+          empty: '空',
+          error: '错误',
+        };
+        const pageNames = { home: '首页', worklog: '出工日志' };
+        const stateDescriptions = {
+          normal: '完整业务内容与默认入场动效。',
+          loading: '保留页首、工具区与卡片结构的静态骨架，无扫光。',
+          refresh: '旧内容保持可见，进度在当前工具区就地反馈。',
+          empty: '保留导航、日期上下文与可继续操作的入口。',
+          error: '说明失败原因；点击重试，经刷新反馈后恢复正常。',
+        };
+
+        let currentPage = 'home';
+        const pageStates = { home: 'normal', worklog: 'normal' };
+        let currentScope = 'all';
+        let fabOpen = false;
+        let sheetOpen = false;
+        let fabCloseTimer = 0;
+        let sheetCloseTimer = 0;
+        let retryTimer = 0;
+        let previewDate = new Date(2026, 9, 24);
+        let selectedVehicle = '未出车';
+        let selectedDestination = '';
+
+        const pageTabs = Array.from(document.querySelectorAll('[data-page]'));
+        const stateButtons = Array.from(document.querySelectorAll('[data-state]'));
+        const reviewStatus = document.getElementById('reviewStatus');
+        const stateDescription = document.getElementById('stateDescription');
+        const currentPageLabel = document.getElementById('currentPageLabel');
+        const motionToggle = document.getElementById('motionToggle');
+        const motionState = document.getElementById('motionState');
+        const fabMain = document.getElementById('fabMain');
+        const fabMainIcon = document.getElementById('fabMainIcon');
+        const fabMenu = document.getElementById('fabMenu');
+        const fabScrim = document.getElementById('fabScrim');
+        const sheetLayer = document.getElementById('sheetLayer');
+        const formClose = document.getElementById('formClose');
+        const formBody = document.getElementById('formBody');
+        const teamButton = document.getElementById('teamButton');
+        const teamOptions = document.getElementById('teamOptions');
+
+        function announce(message) {
+          reviewStatus.textContent = message;
+        }
+
+        function isReducedMotion() {
+          return (
+            document.body.classList.contains('reduce-motion') ||
+            window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          );
+        }
+
+        function renderPageState(page) {
+          const panel = document.querySelector(`[data-page-panel="${page}"]`);
+          const mode = pageStates[page];
+          panel.dataset.mode = mode;
+          panel.querySelectorAll('[data-state-view]').forEach((view) => {
+            const modes = view.dataset.stateView.split(' ');
+            view.hidden = !modes.includes(mode);
+          });
+          panel.querySelectorAll('[data-refresh]').forEach((note) => {
+            note.hidden = mode !== 'refresh';
+          });
+          if (page === 'worklog') {
+            fabMain.disabled = mode === 'loading';
+          }
+        }
+
+        function renderControls() {
+          pageTabs.forEach((tab) => {
+            const selected = tab.dataset.page === currentPage;
+            tab.setAttribute('aria-selected', String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+          });
+          stateButtons.forEach((button) => {
+            button.setAttribute(
+              'aria-pressed',
+              String(button.dataset.state === pageStates[currentPage])
+            );
+          });
+          currentPageLabel.textContent = pageNames[currentPage];
+          stateDescription.textContent = stateDescriptions[pageStates[currentPage]];
+        }
+
+        function closeTeam(restoreFocus = false) {
+          teamOptions.hidden = true;
+          teamButton.setAttribute('aria-expanded', 'false');
+          if (restoreFocus) {
+            teamButton.focus({ preventScroll: true });
+          }
+        }
+
+        function closeFab(restoreFocus = false, immediate = false) {
+          window.clearTimeout(fabCloseTimer);
+          fabOpen = false;
+          fabMain.setAttribute('aria-expanded', 'false');
+          fabMain.setAttribute('aria-label', '展开日志管理菜单');
+          fabMainIcon.querySelector('use').setAttribute('href', '#i-plus');
+          fabMenu.classList.remove('is-open');
+          fabScrim.classList.remove('is-open');
+          const finish = () => {
+            if (!fabOpen) {
+              fabMenu.hidden = true;
+              fabScrim.hidden = true;
+            }
+          };
+          if (immediate || isReducedMotion()) {
+            finish();
+          } else {
+            fabCloseTimer = window.setTimeout(finish, 150);
+          }
+          if (restoreFocus) {
+            fabMain.focus({ preventScroll: true });
+          }
+        }
+
+        function openFab() {
+          if (pageStates.worklog === 'loading') {
+            return;
+          }
+          window.clearTimeout(fabCloseTimer);
+          closeTeam();
+          fabOpen = true;
+          fabMenu.hidden = false;
+          fabScrim.hidden = false;
+          fabMenu.scrollTop = 0;
+          fabMain.setAttribute('aria-expanded', 'true');
+          fabMain.setAttribute('aria-label', '收起日志管理菜单');
+          fabMainIcon.querySelector('use').setAttribute('href', '#i-close');
+          window.requestAnimationFrame(() => {
+            if (!fabOpen) {
+              return;
+            }
+            fabMenu.classList.add('is-open');
+            fabScrim.classList.add('is-open');
+          });
+          const firstAction = fabMenu.querySelector('button');
+          if (firstAction) {
+            firstAction.focus({ preventScroll: true });
+          }
+          announce('日志管理菜单已展开；顺序与权限沿用现行结构。');
+        }
+
+        function setPage(page, moveFocus = false) {
+          if (!pageNames[page]) {
+            return;
+          }
+          window.clearTimeout(retryTimer);
+          if (sheetOpen) {
+            closeSheet(false, true);
+          }
+          closeFab(false, true);
+          closeTeam();
+          currentPage = page;
+          document.querySelectorAll('[data-page-panel]').forEach((panel) => {
+            panel.hidden = panel.dataset.pagePanel !== page;
+          });
+          renderPageState(page);
+          renderControls();
+          announce(`已切换至${pageNames[page]} · ${stateNames[pageStates[page]]}状态。`);
+          if (moveFocus) {
+            const selectedTab = pageTabs.find((tab) => tab.dataset.page === page);
+            selectedTab.focus({ preventScroll: true });
+          }
+        }
+
+        function setMode(mode) {
+          if (!stateNames[mode]) {
+            return;
+          }
+          window.clearTimeout(retryTimer);
+          closeFab(false, true);
+          closeTeam();
+          if (sheetOpen) {
+            closeSheet(false, true);
+          }
+          pageStates[currentPage] = mode;
+          renderPageState(currentPage);
+          renderControls();
+          announce(
+            `${pageNames[currentPage]}已切换为${stateNames[mode]}状态。${stateDescriptions[mode]}`
+          );
+        }
+
+        function retryPage(page) {
+          window.clearTimeout(retryTimer);
+          if (currentPage !== page) {
+            setPage(page);
+          }
+          pageStates[page] = 'refresh';
+          renderPageState(page);
+          renderControls();
+          announce(`正在重新加载${pageNames[page]}，旧内容已恢复显示。`);
+          retryTimer = window.setTimeout(
+            () => {
+              pageStates[page] = 'normal';
+              renderPageState(page);
+              renderControls();
+              announce(`${pageNames[page]}已重新加载并恢复正常。`);
+              const normalButton = stateButtons.find((button) => button.dataset.state === 'normal');
+              normalButton.focus({ preventScroll: true });
+            },
+            isReducedMotion() ? 250 : 900
+          );
+        }
+
+        function replayEntrance() {
+          const panel = document.querySelector(`[data-page-panel="${currentPage}"]`);
+          panel.classList.remove('is-entering');
+          void panel.offsetWidth;
+          panel.classList.add('is-entering');
+          announce(
+            isReducedMotion()
+              ? '已重播入场；减弱动态效果开启，内容直接落位。'
+              : `${pageNames[currentPage]}正在重播前五项编排式入场。`
+          );
+        }
+
+        function updateDateText() {
+          const year = previewDate.getFullYear();
+          const month = previewDate.getMonth() + 1;
+          const day = previewDate.getDate();
+          const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][
+            previewDate.getDay()
+          ];
+          document.getElementById('dateText').textContent = `${month}月${day}日`;
+          document.getElementById('weekText').textContent = week;
+          document.getElementById('todayTag').hidden = year !== 2026 || month !== 10 || day !== 24;
+          document.getElementById('formDate').textContent = `${year}年${month}月${day}日 ${week}`;
+        }
+
+        function setScope(scope) {
+          currentScope = scope;
+          document.querySelectorAll('[data-scope]').forEach((button) => {
+            const selected = button.dataset.scope === scope;
+            button.classList.toggle('on', selected);
+            button.setAttribute('aria-pressed', String(selected));
+          });
+          document.querySelectorAll('[data-scope-card="other"]').forEach((card) => {
+            card.hidden = scope === 'mine';
+          });
+          document.getElementById('emptyLogTitle').textContent =
+            scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志';
+          document.getElementById('emptyLogText').textContent =
+            scope === 'mine' ? '可切回「全部」查看班组日志' : '点右下角「＋」新建一条出工日志';
+          announce(
+            scope === 'mine' ? '已切换为仅看我，其他成员卡片已隐藏。' : '已切换为全部日志。'
+          );
+        }
+
+        function resetForm() {
+          selectedVehicle = '未出车';
+          selectedDestination = '';
+          document.getElementById('vehicleValue').textContent = selectedVehicle;
+          document.getElementById('noVehicleTag').hidden = false;
+          document.getElementById('vehicleOptions').hidden = true;
+          document.getElementById('vehicleSelect').setAttribute('aria-expanded', 'false');
+          document.getElementById('destinationOptions').hidden = true;
+          document.getElementById('destinationSelect').setAttribute('aria-expanded', 'false');
+          document.getElementById('destinationSelect').disabled = true;
+          document.getElementById('destinationValue').textContent = '未出车不可选';
+          document.getElementById('orderNumber').disabled = true;
+          document.getElementById('orderNumber').value = '';
+          document.getElementById('orderNumber').placeholder = '未出车不可填';
+          document.getElementById('noVehicleTip').hidden = false;
+          document.getElementById('peopleSection').hidden = true;
+          document.querySelectorAll('[data-vehicle]').forEach((option) => {
+            const selected = option.dataset.vehicle === '未出车';
+            option.classList.toggle('on', selected);
+            option.querySelector('svg').hidden = !selected;
+          });
+          document.querySelectorAll('.person-chip[aria-pressed]').forEach((chip) => {
+            chip.setAttribute('aria-pressed', 'false');
+          });
+          updateDateText();
+        }
+
+        function openSheet() {
+          window.clearTimeout(sheetCloseTimer);
+          closeFab(false, true);
+          closeTeam();
+          resetForm();
+          formBody.scrollTop = 0;
+          sheetLayer.hidden = false;
+          sheetOpen = true;
+          window.requestAnimationFrame(() => {
+            if (sheetOpen) {
+              sheetLayer.classList.add('is-open');
+            }
+          });
+          formClose.focus({ preventScroll: true });
+          announce('新建日志弹层已打开；标题与保存操作固定，表单内容独立滚动。');
+        }
+
+        function closeSheet(restoreFocus = true, immediate = false) {
+          if (!sheetOpen && sheetLayer.hidden) {
+            return;
+          }
+          window.clearTimeout(sheetCloseTimer);
+          sheetOpen = false;
+          sheetLayer.classList.remove('is-open');
+          const finish = () => {
+            sheetLayer.hidden = true;
+            if (restoreFocus && currentPage === 'worklog') {
+              fabMain.focus({ preventScroll: true });
+            }
+          };
+          if (immediate || isReducedMotion()) {
+            finish();
+          } else {
+            sheetCloseTimer = window.setTimeout(finish, 240);
+          }
+        }
+
+        function selectVehicle(value) {
+          selectedVehicle = value;
+          const noVehicle = value === '未出车';
+          document.getElementById('vehicleValue').textContent = value;
+          document.getElementById('noVehicleTag').hidden = !noVehicle;
+          document.getElementById('vehicleOptions').hidden = true;
+          document.getElementById('vehicleSelect').setAttribute('aria-expanded', 'false');
+          document.getElementById('destinationSelect').disabled = noVehicle;
+          document.getElementById('orderNumber').disabled = noVehicle;
+          document.getElementById('orderNumber').placeholder = noVehicle
+            ? '未出车不可填'
+            : '请输入派车单号（可空）';
+          document.getElementById('noVehicleTip').hidden = !noVehicle;
+          document.getElementById('peopleSection').hidden = noVehicle;
+          selectedDestination = '';
+          document.getElementById('destinationValue').textContent = noVehicle
+            ? '未出车不可选'
+            : '请选择目的地';
+          document.getElementById('destinationOptions').hidden = true;
+          document.getElementById('destinationSelect').setAttribute('aria-expanded', 'false');
+          document.querySelectorAll('[data-vehicle]').forEach((option) => {
+            const selected = option.dataset.vehicle === value;
+            option.classList.toggle('on', selected);
+            option.querySelector('svg').hidden = !selected;
+          });
+          const nextControl = noVehicle
+            ? document.getElementById('vehicleSelect')
+            : document.getElementById('destinationSelect');
+          nextControl.focus({ preventScroll: true });
+          announce(
+            noVehicle
+              ? '已选择未出车，人员与目的地已联动收起。'
+              : `已选择 ${value}，可继续选择目的地与用车人。`
+          );
+        }
+
+        function fitPhone() {
+          const fit = document.getElementById('deviceFit');
+          const scaler = document.getElementById('phoneScale');
+          const shell = document.getElementById('phoneShell');
+          const available = fit.clientWidth;
+          if (!available) {
+            return;
+          }
+          const scale = Math.min(1, available / 395);
+          scaler.style.width = `${395 * scale}px`;
+          scaler.style.height = `${832 * scale}px`;
+          shell.style.transform = `scale(${scale})`;
+        }
+
+        pageTabs.forEach((tab) => {
+          tab.addEventListener('click', () => setPage(tab.dataset.page));
+          tab.addEventListener('keydown', (event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+              return;
+            }
+            event.preventDefault();
+            let index = pageTabs.indexOf(tab);
+            if (event.key === 'Home') {
+              index = 0;
+            } else if (event.key === 'End') {
+              index = pageTabs.length - 1;
+            } else {
+              index =
+                (index + (event.key === 'ArrowRight' ? 1 : -1) + pageTabs.length) % pageTabs.length;
+            }
+            setPage(pageTabs[index].dataset.page, true);
+          });
+        });
+
+        stateButtons.forEach((button) => {
+          button.addEventListener('click', () => setMode(button.dataset.state));
+        });
+
+        document.querySelectorAll('[data-retry]').forEach((button) => {
+          button.addEventListener('click', () => retryPage(button.dataset.retry));
+        });
+
+        document.getElementById('replayMotion').addEventListener('click', replayEntrance);
+
+        motionToggle.addEventListener('click', () => {
+          const reduced = !document.body.classList.contains('reduce-motion');
+          document.body.classList.toggle('reduce-motion', reduced);
+          motionToggle.setAttribute('aria-checked', String(reduced));
+          motionState.textContent = reduced ? '当前已减弱动效' : '当前为标准动效';
+          announce(reduced ? '已清除动画、过渡与延迟。' : '已恢复标准动效；系统减弱设置仍然优先。');
+        });
+
+        document.querySelectorAll('[data-open-worklog]').forEach((button) => {
+          button.addEventListener('click', () => setPage('worklog', true));
+        });
+        document
+          .querySelector('[data-log-back]')
+          .addEventListener('click', () => setPage('home', true));
+        document.querySelector('[data-home-tab]').addEventListener('click', () => {
+          announce('当前已在首页。');
+        });
+
+        document.querySelectorAll('[data-demo-action]').forEach((button) => {
+          button.addEventListener('click', () => {
+            announce(`已触发「${button.dataset.demoAction}」入口；本稿不连接业务数据。`);
+          });
+        });
+        document.querySelectorAll('[data-log-action]').forEach((button) => {
+          button.addEventListener('click', () => {
+            announce(`已触发「${button.dataset.logAction}」操作；数据保持虚构且不会提交。`);
+          });
+        });
+
+        document.querySelectorAll('[data-day]').forEach((button) => {
+          button.addEventListener('click', () => {
+            previewDate.setDate(previewDate.getDate() + Number(button.dataset.day));
+            updateDateText();
+            announce(
+              `日期已切换为${document.getElementById('dateText').textContent} ${document.getElementById('weekText').textContent}。`
+            );
+          });
+        });
+
+        document.querySelectorAll('[data-scope]').forEach((button) => {
+          button.addEventListener('click', () => setScope(button.dataset.scope));
+        });
+
+        teamButton.addEventListener('click', () => {
+          const open = teamOptions.hidden;
+          teamOptions.hidden = !open;
+          teamButton.setAttribute('aria-expanded', String(open));
+          if (open) {
+            closeFab(false, true);
+            const selected = teamOptions.querySelector('.on');
+            selected.focus({ preventScroll: true });
+          }
+        });
+
+        document.querySelectorAll('[data-team]').forEach((button) => {
+          button.addEventListener('click', () => {
+            document.getElementById('teamName').textContent = button.dataset.team;
+            document.querySelectorAll('[data-team]').forEach((option) => {
+              const selected = option === button;
+              option.classList.toggle('on', selected);
+              option.querySelector('svg').hidden = !selected;
+            });
+            closeTeam(true);
+            announce(`生效班组已切换为${button.dataset.team}。`);
+          });
+        });
+
+        fabMain.addEventListener('click', () => {
+          if (fabOpen) {
+            closeFab(true);
+            announce('日志管理菜单已收起。');
+          } else {
+            openFab();
+          }
+        });
+        fabScrim.addEventListener('click', () => closeFab(true));
+
+        document.querySelectorAll('[data-fab-action]').forEach((button) => {
+          button.addEventListener('click', () => {
+            closeFab(true);
+            announce(`已触发「${button.dataset.fabAction}」入口；权限与菜单位置保持现行口径。`);
+          });
+        });
+        document.querySelector('[data-new-log]').addEventListener('click', openSheet);
+        document.querySelectorAll('[data-sheet-close]').forEach((button) => {
+          button.addEventListener('click', () => {
+            closeSheet();
+            announce('新建日志弹层已关闭，未提交数据。');
+          });
+        });
+
+        document.getElementById('vehicleSelect').addEventListener('click', () => {
+          const options = document.getElementById('vehicleOptions');
+          const open = options.hidden;
+          options.hidden = !open;
+          document.getElementById('vehicleSelect').setAttribute('aria-expanded', String(open));
+          document.getElementById('destinationOptions').hidden = true;
+          document.getElementById('destinationSelect').setAttribute('aria-expanded', 'false');
+        });
+
+        document.querySelectorAll('[data-vehicle]').forEach((button) => {
+          button.addEventListener('click', () => selectVehicle(button.dataset.vehicle));
+        });
+
+        document.getElementById('destinationSelect').addEventListener('click', () => {
+          const options = document.getElementById('destinationOptions');
+          const open = options.hidden;
+          options.hidden = !open;
+          document.getElementById('destinationSelect').setAttribute('aria-expanded', String(open));
+          document.getElementById('vehicleOptions').hidden = true;
+          document.getElementById('vehicleSelect').setAttribute('aria-expanded', 'false');
+        });
+
+        document.querySelectorAll('[data-destination]').forEach((button) => {
+          button.addEventListener('click', () => {
+            selectedDestination = button.dataset.destination;
+            document.getElementById('destinationValue').textContent = selectedDestination;
+            document.getElementById('destinationOptions').hidden = true;
+            document.getElementById('destinationSelect').setAttribute('aria-expanded', 'false');
+            document.querySelectorAll('[data-destination]').forEach((option) => {
+              option.classList.toggle('on', option === button);
+            });
+            document.getElementById('destinationSelect').focus({ preventScroll: true });
+            announce(`目的地已选择为${selectedDestination}。`);
+          });
+        });
+
+        document.querySelectorAll('.person-chip[aria-pressed]').forEach((button) => {
+          button.addEventListener('click', () => {
+            button.setAttribute(
+              'aria-pressed',
+              String(button.getAttribute('aria-pressed') !== 'true')
+            );
+          });
+        });
+
+        document.getElementById('formSave').addEventListener('click', () => {
+          closeSheet();
+          announce(
+            selectedVehicle === '未出车'
+              ? '未出车表单已完成预览，未提交任何数据。'
+              : `${selectedVehicle} 的新建日志表单已完成预览，未提交任何数据。`
+          );
+        });
+
+        document.addEventListener('keydown', (event) => {
+          if (sheetOpen && event.key === 'Tab') {
+            const focusable = Array.from(
+              sheetLayer.querySelectorAll('button:not([disabled]), input:not([disabled])')
+            ).filter((element) => element.offsetParent !== null && element.tabIndex !== -1);
+            if (!focusable.length) {
+              event.preventDefault();
+              return;
+            }
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+            return;
+          }
+          if (event.key !== 'Escape') {
+            return;
+          }
+          if (sheetOpen) {
+            event.preventDefault();
+            closeSheet();
+            announce('已通过 Esc 关闭新建日志弹层。');
+          } else if (fabOpen) {
+            event.preventDefault();
+            closeFab(true);
+            announce('已通过 Esc 收起日志管理菜单。');
+          } else if (!teamOptions.hidden) {
+            event.preventDefault();
+            closeTeam(true);
+          }
+        });
+
+        document.addEventListener('pointerdown', (event) => {
+          if (!teamOptions.hidden && !event.target.closest('.team-row')) {
+            closeTeam();
+          }
+        });
+
+        if ('ResizeObserver' in window) {
+          new ResizeObserver(fitPhone).observe(document.getElementById('deviceFit'));
+        }
+        window.addEventListener('resize', fitPhone);
+        fitPhone();
+        renderPageState('home');
+        renderPageState('worklog');
+        renderControls();
+        updateDateText();
+      })();
+    </script>
+  </body>
+</html>

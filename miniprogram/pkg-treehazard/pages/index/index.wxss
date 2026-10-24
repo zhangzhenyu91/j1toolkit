@@ -265,7 +265,7 @@ page {
 }
 
 .thcard.done {
-  opacity: 0.62;
+  background: #f7f8fa;
 }
 
 /* 首行：勾选圆点（批量模式）+ 区段定宽块 + 垂距大字块（各卡竖向对齐）+ 状态点标（右推）+ 折叠/展开开关 */
@@ -277,6 +277,11 @@ page {
 
 .th-head .st-tag {
   margin-left: auto;
+}
+
+/* 次行发现时间沿用树种/数量、水平距离的普通字段字阶 */
+.th-date {
+  font-variant-numeric: tabular-nums;
 }
 
 .ck-ring {
@@ -706,7 +711,11 @@ page {
   animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
-/* 垂直距离上提首行后网格仅余两项 → 平铺（同特异性后定义覆盖 33.3333%） */
+/* 次行无发现时间时两项均分；有 found_at 时补第三项，三个字段同一行均分 */
 .th-f {
   width: 50%;
+}
+
+.th-grid.has-found .th-f {
+  width: 33.3333%;
 }

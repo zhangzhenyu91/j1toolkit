@@ -55,6 +55,7 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -81,6 +82,11 @@ button {
 }
 svg {
   display: block;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 3px;
 }
 
 /* ===== 页面容器（全宽贴边铺满，左右 40px）；flex:1 在 body 纵列中撑高、把备案页脚压到视口底 ===== */
@@ -327,8 +333,88 @@ body.has-rail.nav-mini {
   justify-content: center;
 }
 
-/* 窄屏回退：全宽边距收紧 */
-@media (max-width: 640px) {
+.rail-mobile-toggle,
+.rail-scrim {
+  display: none;
+}
+.rail-mobile-toggle {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  z-index: 70;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--orange);
+  box-shadow: var(--shadow-card);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 窄屏回退：全宽边距收紧，侧栏改抽屉 */
+@media (max-width: 720px) {
+  body.has-rail,
+  body.has-rail.nav-mini {
+    --rail-w: 200px;
+    padding-top: 52px;
+    padding-left: 0;
+  }
+  .rail,
+  .nav-mini .rail {
+    z-index: 90;
+    width: var(--rail-w);
+    padding: 14px 10px;
+    align-items: stretch;
+    transform: translateX(-100%);
+    transition: transform 0.24s var(--ease);
+  }
+  .nav-drawer-open .rail {
+    transform: translateX(0);
+  }
+  .rail-mobile-toggle {
+    display: inline-flex;
+  }
+  .rail-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: block;
+    background: rgba(29, 33, 41, 0.36);
+  }
+  .rail-scrim[hidden] {
+    display: none !important;
+  }
+  .nav-mini .rail-lw,
+  .nav-mini .rail-item span:not(.mini-avatar) {
+    display: block;
+  }
+  .nav-mini .rail-logo {
+    padding: 2px 6px 12px;
+  }
+  .nav-mini .rail-nav,
+  .nav-mini .rail-bottom {
+    align-items: stretch;
+  }
+  .nav-mini .rail-item {
+    width: 100%;
+    height: 38px;
+    padding: 0 10px;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .nav-mini .rail-item svg {
+    width: 19px;
+    height: 19px;
+  }
+  .nav-mini .rail-user {
+    justify-content: flex-start;
+    padding: 4px 10px 10px;
+  }
   .page {
     padding: 20px 16px 36px;
   }
@@ -446,6 +532,13 @@ body.has-rail.nav-mini {
 .btn:hover {
   border-color: var(--orange);
   color: var(--orange);
+}
+.btn:active:not([disabled]) {
+  transform: translateY(1px);
+}
+.btn.is-loading {
+  opacity: 0.72;
+  pointer-events: none;
 }
 .btn[disabled] {
   opacity: 0.55;
@@ -873,7 +966,9 @@ textarea.input {
   *::after {
     animation-duration: 0.001s !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
     transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
   }
   .rv {
     opacity: 1;

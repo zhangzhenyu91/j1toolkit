@@ -28,18 +28,21 @@
   </view>
   <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
 
-  <!-- 日期条：±1 天 + 日历入口 -->
-  <view class="datebar">
-    <view class="arrow" hover-class="hover-scale" bindtap="onPrevDay">
-      <t-icon name="chevron-left" size="32rpx" color="#1D2129" />
-    </view>
-    <view class="dtxt"
-      >{{dateText}} {{weekText}}<text class="today" wx:if="{{isToday}}">今天</text></view
+  <!-- 五日日期条：当前日前后各 2 天 + 完整月历入口；左右手势仍由原 swiper 处理 -->
+  <view class="date-strip">
+    <view
+      class="date-cell {{item.selected ? 'on' : ''}}"
+      wx:for="{{dateStrip}}"
+      wx:key="dateStr"
+      hover-class="hover-opacity"
+      bindtap="onDateCell"
+      data-date="{{item.dateStr}}"
     >
-    <view class="arrow" hover-class="hover-scale" bindtap="onNextDay">
-      <t-icon name="chevron-right" size="32rpx" color="#1D2129" />
+      <view class="date-week">{{item.weekText}}</view>
+      <view class="date-day">{{item.day}}</view>
+      <view wx:if="{{item.statusCls}}" class="date-dot {{item.statusCls}}"></view>
     </view>
-    <view class="cal" hover-class="hover-scale" bindtap="onOpenCalendar">
+    <view class="date-cell strip-cal" hover-class="hover-opacity" bindtap="onOpenCalendar">
       <t-icon name="calendar" size="36rpx" color="#0E3DA8" />
     </view>
   </view>
@@ -62,6 +65,13 @@
     >
   </view>
 
+  <!-- 首载失败内联错误：与真正的空日志互斥；有旧内容时仅 Toast 保留列表 -->
+  <view class="empty-box error-box" wx:if="{{loadError && list.length === 0}}">
+    <view>日志加载失败，请重试</view>
+    <view class="error-detail">{{loadError}}</view>
+    <view class="error-retry" hover-class="hover-opacity" bindtap="onRetryLogs">重新加载</view>
+  </view>
+
   <!-- 切日 swiper：三窗格预渲染（前/今/后一天），落定后复位中间格；
        「仅看我」按钮以下通高（flex:1），每格独立纵向滚动（内容不再被截断） -->
   <swiper
@@ -82,7 +92,7 @@
       >
         <view class="day-pane">
           <!-- 空列表虚线占位（文案随视图口径适配）；未就绪为加载占位（首元素 mt-0，间距由 .day-swiper 掌管） -->
-          <view class="empty-box mt-0" wx:if="{{day.ready && day.list.length === 0}}"
+          <view class="empty-box mt-0" wx:if="{{!loadError && day.ready && day.list.length === 0}}"
             >{{scope === 'mine' ? '当日无包含你的日志' : '当日暂无日志，点右下角 ＋ 新建'}}</view
           >
           <view class="empty-box mt-0" wx:if="{{!day.ready}}">日志加载中…</view>
@@ -475,59 +485,78 @@
 <!-- 悬浮按钮：右下橙色主钮（＋/×）点按展开 数据管理（超管 / 班组管理员）/ 工作任务单（超管 / 班组管理员）/ 费用汇总（超管 / 班组管理员）/ 派车汇总（超管 / 班组管理员）/ 派车对齐（超管 / 班组管理员）/ 批量从商旅同步（超管 / 班组管理员）/ 批量下载 / 汇总前核验 / 跨班日志（仅超管）/ 新建日志；
      原底部固定操作区（含底色条 bottombar）已删除，内容区直通屏幕底边 -->
 <view class="fab-mask" wx:if="{{fabOpen}}" bindtap="onFabToggle"></view>
+<view class="fab-sheet" wx:if="{{fabOpen}}" role="dialog" aria-modal="true" aria-label="日志与管理">
+  <view class="fs-head">
+    <view>
+      <view class="fs-heading">日志与管理</view>
+      <view class="fs-subtitle">{{teamName}} · {{dateText}} {{weekText}}</view>
+    </view>
+    <view
+      class="fs-close"
+      hover-class="hover-opacity"
+      bindtap="onFabToggle"
+      aria-label="关闭管理菜单"
+    >
+      <t-icon name="close" size="36rpx" color="#4E5969" />
+    </view>
+  </view>
+  <scroll-view scroll-y class="fs-scroll" enhanced show-scrollbar="{{false}}">
+    <view class="fs-group">
+      <view class="fs-title">记录与核验</view>
+      <view class="fs-grid">
+        <view class="fs-action" hover-class="hover-bg-warm" bindtap="onOpenDownload">
+          <t-icon name="download" size="34rpx" color="#0E3DA8" /><text>批量下载</text>
+        </view>
+        <view class="fs-action" hover-class="hover-bg-warm" bindtap="onOpenReport">
+          <t-icon name="task-checked" size="34rpx" color="#0E3DA8" /><text>汇总前核验</text>
+        </view>
+        <view
+          class="fs-action"
+          wx:if="{{isAdmin}}"
+          hover-class="hover-bg-warm"
+          bindtap="onCreateCross"
+        >
+          <t-icon name="usergroup" size="34rpx" color="#0E3DA8" /><text>跨班日志</text>
+        </view>
+        <view
+          class="fs-action"
+          wx:if="{{canManage}}"
+          hover-class="hover-bg-warm"
+          bindtap="onOpenBatchSync"
+        >
+          <t-icon name="refresh" size="34rpx" color="#0E3DA8" /><text>批量从商旅同步</text>
+        </view>
+      </view>
+    </view>
+    <view class="fs-group" wx:if="{{canManage}}">
+      <view class="fs-title">管理与汇总</view>
+      <view class="fs-grid">
+        <view class="fs-action" hover-class="hover-bg-warm" bindtap="onManage">
+          <t-icon name="setting" size="34rpx" color="#0E3DA8" /><text>数据管理</text>
+        </view>
+        <view class="fs-action" hover-class="hover-bg-warm" bindtap="onTaskSheet">
+          <t-icon name="file" size="34rpx" color="#0E3DA8" /><text>工作任务单</text>
+        </view>
+        <view class="fs-action" hover-class="hover-bg-warm" bindtap="onFeeSheet">
+          <t-icon name="money" size="34rpx" color="#0E3DA8" /><text>费用汇总</text>
+        </view>
+        <view class="fs-action" hover-class="hover-bg-warm" bindtap="onDispatchSheet">
+          <t-icon name="file-excel" size="34rpx" color="#0E3DA8" /><text>派车汇总</text>
+        </view>
+        <view class="fs-action" hover-class="hover-bg-warm" bindtap="onDispatch">
+          <t-icon name="file-copy" size="34rpx" color="#0E3DA8" /><text>派车对齐</text>
+        </view>
+      </view>
+    </view>
+    <view class="fs-note">全部入口与权限保持不变，仅按任务类型分组。</view>
+  </scroll-view>
+  <view class="fs-foot">
+    <view class="fs-create" hover-class="hover-opacity" bindtap="onCreate">
+      <t-icon name="add" size="36rpx" color="#FFFFFF" /><text>新建日志</text>
+    </view>
+  </view>
+</view>
 <view class="fabs" wx:if="{{gate && !noTeam}}">
-  <block wx:if="{{fabOpen}}">
-    <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onManage">
-      <text class="fab-lab">数据管理</text>
-      <view class="fab"><t-icon name="setting" size="40rpx" color="#1D2129" /></view>
-    </view>
-    <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onTaskSheet">
-      <text class="fab-lab">工作任务单</text>
-      <view class="fab"><t-icon name="file" size="40rpx" color="#1D2129" /></view>
-    </view>
-    <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onFeeSheet">
-      <text class="fab-lab">费用汇总</text>
-      <view class="fab"><t-icon name="money" size="40rpx" color="#1D2129" /></view>
-    </view>
-    <view
-      class="fab-item"
-      wx:if="{{canManage}}"
-      hover-class="hover-opacity"
-      bindtap="onDispatchSheet"
-    >
-      <text class="fab-lab">派车汇总</text>
-      <view class="fab"><t-icon name="file-excel" size="40rpx" color="#1D2129" /></view>
-    </view>
-    <view class="fab-item" wx:if="{{canManage}}" hover-class="hover-opacity" bindtap="onDispatch">
-      <text class="fab-lab">派车对齐</text>
-      <view class="fab"><t-icon name="file-copy" size="40rpx" color="#1D2129" /></view>
-    </view>
-    <view
-      class="fab-item"
-      wx:if="{{canManage}}"
-      hover-class="hover-opacity"
-      bindtap="onOpenBatchSync"
-    >
-      <text class="fab-lab">批量从商旅同步</text>
-      <view class="fab"><t-icon name="refresh" size="40rpx" color="#1D2129" /></view>
-    </view>
-    <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenDownload">
-      <text class="fab-lab">批量下载</text>
-      <view class="fab"><t-icon name="download" size="40rpx" color="#1D2129" /></view>
-    </view>
-    <view class="fab-item" hover-class="hover-opacity" bindtap="onOpenReport">
-      <text class="fab-lab">汇总前核验</text>
-      <view class="fab"><t-icon name="task-checked" size="40rpx" color="#1D2129" /></view>
-    </view>
-    <view class="fab-item" wx:if="{{isAdmin}}" hover-class="hover-opacity" bindtap="onCreateCross">
-      <text class="fab-lab accent">跨班日志</text>
-      <view class="fab"><t-icon name="usergroup" size="40rpx" color="#0E3DA8" /></view>
-    </view>
-    <view class="fab-item" hover-class="hover-opacity" bindtap="onCreate">
-      <text class="fab-lab accent">新建日志</text>
-      <view class="fab"><t-icon name="add" size="44rpx" color="#0E3DA8" /></view>
-    </view>
-  </block>
   <view class="fab-main" hover-class="hover-opacity" bindtap="onFabToggle">
     <t-icon name="{{fabOpen ? 'close' : 'add'}}" size="52rpx" color="#FFFFFF" />
   </view>

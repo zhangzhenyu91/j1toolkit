@@ -116,8 +116,8 @@ page {
 
 /* 按压反馈类（配合 hover-class 使用；!important 保证覆盖页面基础样式） */
 .hover-scale {
-  transform: scale(0.94) !important;
-  opacity: 0.85 !important;
+  transform: scale(0.98) !important;
+  opacity: 0.9 !important;
 }
 
 .hover-bg-warm {

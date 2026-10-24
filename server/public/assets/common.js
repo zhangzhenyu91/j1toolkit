@@ -347,7 +347,11 @@
 
     document.body.insertAdjacentHTML(
       'afterbegin',
-      '<aside class="rail">' +
+      '<button class="rail-mobile-toggle" id="railMobileToggle" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="shadeRail">' +
+        icon('app', 18) +
+        '<span>导航</span></button>' +
+        '<div class="rail-scrim" id="railScrim" hidden></div>' +
+        '<aside class="rail" id="shadeRail">' +
         '<a class="rail-logo" href="/index.html" data-tip="Shade 壹匣" aria-label="Shade 壹匣">' +
         '<span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣"></span>' +
         '<span class="rail-lw"><b>Shade 壹匣</b><span>班组数字化工具平台</span></span>' +
@@ -385,15 +389,23 @@
       logout();
     });
 
-    // 折叠切换：展开 200px ↔ 图标态 64px，偏好本地记忆
+    // 折叠切换：展开 200px ↔ 图标态 64px，偏好本地记忆；窄屏改为同风格抽屉
     var foldBtn = document.getElementById('navFold');
+    function isMobileNav() {
+      return window.matchMedia('(max-width: 720px)').matches;
+    }
     function paintFold() {
       foldBtn.innerHTML = icon(
         document.body.classList.contains('nav-mini') ? 'chevron-right' : 'chevron-left',
         13
       );
+      foldBtn.setAttribute('aria-label', isMobileNav() ? '关闭导航' : '收起 / 展开导航');
     }
     foldBtn.addEventListener('click', function () {
+      if (isMobileNav()) {
+        setDrawer(false);
+        return;
+      }
       var collapsed = document.body.classList.toggle('nav-mini');
       localStorage.setItem(NAV_MINI_KEY, collapsed ? '1' : '0');
       tipEl.hidden = true;
@@ -404,6 +416,53 @@
     // 悬停气泡：单实例 + 栏上事件委托（导航区 innerHTML 校正不受影响），fixed 贴栏右缘、纵向对齐图标中心；
     // 仅图标态（nav-mini）显示——展开态已有文字标签
     var railEl = document.querySelector('.rail');
+    var mobileBtn = document.getElementById('railMobileToggle');
+    var scrim = document.getElementById('railScrim');
+    function setDrawer(open) {
+      var wasOpen = document.body.classList.contains('nav-drawer-open');
+      if (!isMobileNav()) open = false;
+      document.body.classList.toggle('nav-drawer-open', open);
+      mobileBtn.setAttribute('aria-expanded', String(open));
+      mobileBtn.setAttribute('aria-label', open ? '关闭导航' : '打开导航');
+      scrim.hidden = !open;
+      paintFold();
+      if (open) foldBtn.focus({ preventScroll: true });
+      else if (wasOpen) mobileBtn.focus({ preventScroll: true });
+    }
+    window.Shade.closeDrawer = function () {
+      setDrawer(false);
+    };
+    mobileBtn.addEventListener('click', function () {
+      setDrawer(true);
+    });
+    scrim.addEventListener('click', function () {
+      setDrawer(false);
+    });
+    railEl.addEventListener('click', function (e) {
+      if (e.target.closest('a')) setDrawer(false);
+    });
+    railEl.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab' || !document.body.classList.contains('nav-drawer-open')) return;
+      var items = Array.from(railEl.querySelectorAll('a[href], button:not([disabled])')).filter(
+        function (el) {
+          return el.offsetParent !== null;
+        }
+      );
+      if (!items.length) return;
+      var first = items[0];
+      var last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+    window.addEventListener('resize', function () {
+      if (!isMobileNav()) setDrawer(false);
+      else paintFold();
+    });
     var tipEl = document.createElement('div');
     tipEl.className = 'rail-tip';
     tipEl.hidden = true;
@@ -492,43 +551,73 @@
       type === 'success' ? 'check-circle' : type === 'error' ? 'warn' : 'info-circle';
     const el = document.createElement('div');
     el.className = 'toast toast-' + type;
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
     el.innerHTML = window.Shade.icon(iconName, 16) + '<span></span>';
     el.querySelector('span').textContent = msg;
     wrap.appendChild(el);
-    setTimeout(function () {
-      el.classList.add('out');
-      setTimeout(function () {
-        el.remove();
-      }, 320);
-    }, 2600);
+    setTimeout(
+      function () {
+        el.classList.add('out');
+        setTimeout(function () {
+          el.remove();
+        }, 320);
+      },
+      type === 'error' ? 4600 : 3000
+    );
   }
 
   /* ================= 通用弹层（可叠层，Esc / 点遮罩关闭） ================= */
   /* 样式 .mask / .modal / .m-scroll / .m-head / .m-x 由各页 CSS 提供（worklog / quiz / callme 同套口径） */
   var modalStack = [];
+  var modalSeq = 0;
   function mHead(title) {
     return (
       '<div class="m-head"><span class="m-title">' +
       esc(title) +
       '</span>' +
-      '<button class="m-x">' +
+      '<button class="m-x" type="button" aria-label="关闭弹层">' +
       window.Shade.icon('close', 14) +
       '</button></div>'
     );
   }
+  function modalFocusables(box) {
+    return $$(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]',
+      box
+    ).filter(function (el) {
+      return el.offsetParent !== null;
+    });
+  }
   function modal(html, opts) {
     opts = opts || {};
+    var previousFocus = document.activeElement;
     var mask = document.createElement('div');
     mask.className = 'mask';
     var box = document.createElement('div');
     box.className = 'modal';
+    box.tabIndex = -1;
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    var titleId = 'shade-modal-title-' + ++modalSeq;
+    box.setAttribute('aria-labelledby', titleId);
     if (opts.width) box.style.width = opts.width + 'px';
     /* 内容包一层滚动容器：外壳 overflow:hidden 保圆角，滚动条内凹不贴角 */
     box.innerHTML = '<div class="m-scroll">' + html + '</div>';
+    var title = box.querySelector('.m-title');
+    if (title) title.id = titleId;
+    else box.setAttribute('aria-label', opts.title || '对话框');
     mask.appendChild(box);
     document.body.appendChild(mask);
     requestAnimationFrame(function () {
       mask.classList.add('open');
+      var initial = box.querySelector(
+        '[autofocus], input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+      );
+      if (!initial)
+        initial = box.querySelector(
+          '.m-foot button:not([disabled]), .m-x, button:not([disabled]), a[href], [tabindex="0"]'
+        );
+      (initial || box).focus({ preventScroll: true });
     });
     var inst = {
       mask: mask,
@@ -544,6 +633,8 @@
           mask.remove();
         }, 300);
         if (opts.onClose) opts.onClose();
+        if (previousFocus && previousFocus.isConnected)
+          previousFocus.focus({ preventScroll: true });
       },
     };
     mask.addEventListener('mousedown', function (e) {
@@ -555,6 +646,26 @@
     });
     return inst;
   }
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Tab') return;
+    var top = modalStack[modalStack.length - 1];
+    if (!top) return;
+    var items = modalFocusables(top.box);
+    if (!items.length) {
+      e.preventDefault();
+      top.box.focus();
+      return;
+    }
+    var first = items[0];
+    var last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
   /* Esc 关顶层弹层，全页面统一注册一份；页面可给 Shade.escGuard 赋值优先拦截函数
      （返回 true 表示已消费本次 Esc，不再关弹层）——如 worklog 大图层需先于弹层响应 Esc */
   document.addEventListener('keydown', function (e) {
@@ -563,6 +674,7 @@
     if (typeof guard === 'function' && guard()) return;
     var top = modalStack[modalStack.length - 1];
     if (top) top.close();
+    else if (window.Shade.closeDrawer) window.Shade.closeDrawer();
   });
 
   /* 通用确认弹层（叠层）：opts: { title, content, confirmText, danger }；返回 Promise<boolean>，
@@ -673,6 +785,7 @@
   // 弹出列表常驻 document.body：容器 innerHTML 重建场景需先调返回实例的 destroy()（close 之上移除弹层节点），
   // 否则触发器已随容器销毁而弹层成孤儿残留。
   // opts: { width, minWidth, height }（工具行传 width:'auto'；表单场景默认宽 100% 高 40px）
+  var dropdownSeq = 0;
   function dropdown(select, opts) {
     opts = opts || {};
     var wrap = document.createElement('div');
@@ -688,6 +801,11 @@
       '<svg class="dd-tri" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>';
     var pop = document.createElement('div');
     pop.className = 'dd-pop';
+    pop.id = 'dd-pop-' + ++dropdownSeq;
+    pop.setAttribute('role', 'listbox');
+    btn.setAttribute('aria-haspopup', 'listbox');
+    btn.setAttribute('aria-controls', pop.id);
+    btn.setAttribute('aria-expanded', 'false');
     select.style.display = 'none'; // 原生控件隐藏，保留为数据源
     select.parentNode.insertBefore(wrap, select.nextSibling);
     wrap.appendChild(btn);
@@ -716,7 +834,9 @@
       pop.innerHTML = Array.prototype.map
         .call(select.options, function (o, i) {
           return (
-            '<button type="button" class="dd-opt' +
+            '<button type="button" role="option" aria-selected="' +
+            (i === select.selectedIndex ? 'true' : 'false') +
+            '" class="dd-opt' +
             (i === select.selectedIndex ? ' on' : '') +
             '" data-i="' +
             i +
@@ -736,19 +856,52 @@
     function onKey(e) {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        close();
+        close(true);
       } // 捕获阶段拦截，避免连带关闭页面弹层
     }
     function onScroll(e) {
       if (!pop.contains(e.target)) close();
     } // 触发器随内容滚动会漂移，直接收起
-    function close() {
+    function close(restoreFocus) {
+      if (!wrap.classList.contains('open')) return;
       wrap.classList.remove('open');
       pop.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
       document.removeEventListener('mousedown', onDocDown, true);
       document.removeEventListener('keydown', onKey, true);
       document.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', close);
+      if (restoreFocus === true) btn.focus({ preventScroll: true });
+    }
+    function open(focusIndex) {
+      if (btn.disabled) return;
+      sync();
+      wrap.classList.add('open');
+      document.body.appendChild(pop); // 幂等：已在 body 下则为移动
+      pop.classList.add('open');
+      btn.setAttribute('aria-expanded', 'true');
+      place();
+      document.addEventListener('mousedown', onDocDown, true);
+      document.addEventListener('keydown', onKey, true);
+      document.addEventListener('scroll', onScroll, true);
+      window.addEventListener('resize', close);
+      var options = $$('.dd-opt', pop);
+      var target = options[focusIndex === undefined ? select.selectedIndex : focusIndex];
+      if (target) target.focus({ preventScroll: true });
+    }
+    function choose(index) {
+      select.selectedIndex = index;
+      close(true);
+      sync();
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    function moveFocus(delta) {
+      var options = $$('.dd-opt', pop);
+      if (!options.length) return;
+      var current = document.activeElement.closest('.dd-opt');
+      var index = current ? Number(current.dataset.i) : select.selectedIndex;
+      index = Math.max(0, Math.min(options.length - 1, index + delta));
+      options[index].focus({ preventScroll: true });
     }
     /* 销毁实例：close 之上把弹出列表从 body 移除（容器重建前先调，防 .dd-pop 孤儿残留） */
     function destroy() {
@@ -756,29 +909,40 @@
       pop.remove();
     }
     btn.addEventListener('click', function () {
-      if (btn.disabled) return;
-      if (wrap.classList.contains('open')) {
-        close();
-        return;
+      if (wrap.classList.contains('open')) close();
+      else open();
+    });
+    btn.addEventListener('keydown', function (e) {
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' '].includes(e.key)) {
+        e.preventDefault();
+        if (e.key === 'Home') open(0);
+        else if (e.key === 'End') open(select.options.length - 1);
+        else if (!wrap.classList.contains('open')) open();
+        else if (e.key === 'ArrowDown') moveFocus(1);
+        else if (e.key === 'ArrowUp') moveFocus(-1);
       }
-      sync();
-      wrap.classList.add('open');
-      document.body.appendChild(pop); // 幂等：已在 body 下则为移动
-      pop.classList.add('open');
-      place();
-      document.addEventListener('mousedown', onDocDown, true);
-      document.addEventListener('keydown', onKey, true);
-      document.addEventListener('scroll', onScroll, true);
-      window.addEventListener('resize', close);
+    });
+    pop.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveFocus(e.key === 'ArrowDown' ? 1 : -1);
+      } else if (e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        var options = $$('.dd-opt', pop);
+        (e.key === 'Home' ? options[0] : options[options.length - 1]).focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        var option = e.target.closest('.dd-opt');
+        if (option) {
+          e.preventDefault();
+          choose(Number(option.dataset.i));
+        }
+      } else if (e.key === 'Tab') close();
     });
     pop.addEventListener('mousedown', function (e) {
       var optBtn = e.target.closest('.dd-opt');
       if (!optBtn) return;
       e.preventDefault();
-      select.selectedIndex = Number(optBtn.dataset.i);
-      close();
-      sync();
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      choose(Number(optBtn.dataset.i));
     });
     sync();
     return { el: wrap, sync: sync, close: close, destroy: destroy };

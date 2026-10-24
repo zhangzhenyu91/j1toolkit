@@ -21,9 +21,15 @@ Page({
     appCount: 0, // 「我的」面板：可见应用数量
     appNames: [], // 「我的」面板：可见应用名称（我的权限弹窗）
     loading: true,
-    notices: [], // 消息通知卡：最新 2 条（含 timeText 展示字段）
+    notices: [], // 消息通知卡：最新 3 条（含 timeText 展示字段）
+    noticePreview: [], // 默认预览最新 1 条
+    noticeExtra: [], // 展开后显示其余最多 2 条
+    noticeRemaining: 0, // 默认预览之外的通知条数
+    noticeExpanded: false,
+    noticeLoading: true,
+    noticeError: '',
     noticeUnread: 0, // 未读通知数（0 时不显示角标）
-    // 数据概览卡：上月通过/需补、本月通过/需补（出工日志 /stats 口径；null=未加载或无权限，显示 —）
+    // 数据概览条：上月通过/需补、本月通过/需补（出工日志 /stats 口径；null=未加载或无权限，显示 —）
     // 数字分级着色（Cls 字段）：通过=未通过数 0 绿 / ≤3 橙 / >3 红；需补=0 绿 / ≤3 橙 / >3 红
     statPrevPass: null,
     statPrevNeed: null,
@@ -135,7 +141,7 @@ Page({
     }
   },
 
-  // 数据概览卡：上月通过 / 上月需补 / 本月通过 / 本月需补（出工日志 /stats 口径，沿用 worklog_team_id 班组上下文）；
+  // 数据概览条：上月通过 / 上月需补 / 本月通过 / 本月需补（出工日志 /stats 口径，沿用 worklog_team_id 班组上下文）；
   // 通过 = 班组当月 verify_passed=passed 卡片数/全部卡片数；需补 = 我当月「未上传水印照片」的卡片条数；
   // 无出工日志权限、未分配班组或接口失败时静默降级，对应项显示 —
   // 分级着色：通过项按未通过数（total-passed）0 绿 / ≤3 橙 / >3 红；需补项 0 绿 / ≤3 橙 / >3 红
@@ -192,18 +198,40 @@ Page({
     }
   },
 
-  // 消息通知卡：未读数 + 最新 2 条；接口失败静默，不阻断首页
+  // 通知展示派生：默认最新 1 条，展开显示其余最多 2 条
+  noticeView(notices) {
+    return {
+      noticePreview: notices.slice(0, 1),
+      noticeExtra: notices.slice(1, 3),
+      noticeRemaining: Math.max(0, notices.length - 1),
+    };
+  },
+
+  // 消息通知卡：未读数 + 最新 3 条；加载失败显示内联错误，不冒充空通知
   async loadNotices() {
+    this.setData({ noticeLoading: true, noticeError: '' });
     try {
-      const data = await request({ url: '/api/v1/notice/list?limit=2' });
+      const data = await request({ url: '/api/v1/notice/list?limit=3' });
       const items = (data && data.items) || [];
+      const notices = items.slice(0, 3).map((n) => ({ ...n, timeText: formatTime(n.createdAt) }));
       this.setData({
         noticeUnread: (data && data.unread) || 0,
-        notices: items.map((n) => ({ ...n, timeText: formatTime(n.createdAt) })),
+        notices,
+        ...this.noticeView(notices),
+        noticeExpanded: this.data.noticeExpanded && notices.length > 1,
+        noticeLoading: false,
       });
     } catch (err) {
-      // 静默失败：保留现状
+      this.setData({
+        noticeLoading: false,
+        noticeError: err.message || '通知加载失败，请重试',
+      });
     }
+  },
+
+  onNoticeToggle() {
+    if (!this.data.noticeRemaining) return;
+    this.setData({ noticeExpanded: !this.data.noticeExpanded });
   },
 
   // 进入消息通知列表
@@ -296,7 +324,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v1.18.4 \n 应用权限申请联系 zzy',
+      content: '版本号：v1.19.0 \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },

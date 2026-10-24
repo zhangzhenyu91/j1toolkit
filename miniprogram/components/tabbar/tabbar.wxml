@@ -2,7 +2,7 @@
 <view class="tabbar">
   <view
     class="tab {{active === 'home' ? 'on' : ''}}"
-    hover-class="hover-scale"
+    hover-class="hover-opacity"
     bindtap="go"
     data-key="home"
   >
@@ -16,7 +16,7 @@
   </view>
   <view
     class="tab {{active === 'me' ? 'on' : ''}}"
-    hover-class="hover-scale"
+    hover-class="hover-opacity"
     bindtap="go"
     data-key="me"
   >
