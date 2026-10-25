@@ -47,11 +47,17 @@ def settings(cfg):
     timeout = int(item.get("step_timeout", 120))
     if timeout <= 0:
         raise RuntimeError("browser_automation.step_timeout 必须大于 0")
+    start_url = (item.get("start_url") or "").strip()
+    if start_url:
+        parsed = urlsplit(start_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise RuntimeError("启动网址必须是完整的 http/https 地址")
     return {
         "cdp_url": cdp_url,
         "port": port,
         "profile_dir": profile,
         "step_timeout": timeout,
+        "start_url": start_url,
     }
 
 
@@ -70,6 +76,25 @@ def _page_list(cdp_url, timeout=1):
     return data
 
 
+def _open_start_url(opts):
+    if not opts["start_url"]:
+        return
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.connect_over_cdp(
+            opts["cdp_url"], timeout=opts["step_timeout"] * 1000
+        )
+        pages = [page for context in browser.contexts for page in context.pages]
+        if not pages:
+            raise RuntimeError("受控浏览器没有可用于打开启动网址的页签")
+        pages[0].goto(
+            opts["start_url"],
+            wait_until="domcontentloaded",
+            timeout=opts["step_timeout"] * 1000,
+        )
+
+
 def status(cfg):
     opts = settings(cfg)
     try:
@@ -82,6 +107,7 @@ def status(cfg):
         "cdp_url": opts["cdp_url"],
         "browser": browser,
         "profile_dir": str(opts["profile_dir"]),
+        "start_url": opts["start_url"],
         "connected": False,
         "pages": 0,
         "playwright": playwright_available(),
@@ -98,6 +124,7 @@ def status(cfg):
 def launch(cfg):
     opts = settings(cfg)
     if status(cfg)["connected"]:
+        _open_start_url(opts)
         result = status(cfg)
         result["launched"] = False
         return result
@@ -129,11 +156,14 @@ def launch(cfg):
     while time.monotonic() < deadline:
         try:
             pages = _page_list(opts["cdp_url"])
-            result = status(cfg)
-            result["launched"] = True
-            result["browser"] = executable
-            result["pages"] = len([p for p in pages if p.get("type") == "page"])
-            return result
+            break
         except Exception:
             time.sleep(0.5)
-    raise RuntimeError("受控浏览器启动后仍未开放 CDP，请检查浏览器路径和桌面会话")
+    else:
+        raise RuntimeError("受控浏览器启动后仍未开放 CDP，请检查浏览器路径和桌面会话")
+    _open_start_url(opts)
+    result = status(cfg)
+    result["launched"] = True
+    result["browser"] = executable
+    result["pages"] = len([p for p in pages if p.get("type") == "page"])
+    return result

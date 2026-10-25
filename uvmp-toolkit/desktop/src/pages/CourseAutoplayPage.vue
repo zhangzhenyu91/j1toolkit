@@ -14,6 +14,10 @@
         <span class="k">可恢复培训班</span><span>{{ st.active_lists }} 个</span>
       </div>
       <div class="row" style="margin-top: 10px">
+        <span class="muted">启动网址</span>
+        <t-input v-model="startUrl" class="grow" placeholder="输入打开浏览器后自动访问的 http/https 网址" />
+      </div>
+      <div class="row" style="margin-top: 10px">
         <t-button variant="outline" :loading="opening" :disabled="running" @click="openBrowser"
           >打开浏览器</t-button
         >
@@ -65,7 +69,7 @@
 
 <script setup>
 import { computed, nextTick, onActivated, onMounted, reactive, ref } from 'vue';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { call, runJob } from '../api';
 import HistoryCard from '../components/HistoryCard.vue';
 
@@ -78,6 +82,7 @@ const st = reactive({
   active_lists: 0,
 });
 const opt = reactive({ scanOnly: false, maxAttempts: 3, timeout: 120 });
+const startUrl = ref('');
 const opening = ref(false);
 const running = ref(false);
 const logs = ref([]);
@@ -106,6 +111,7 @@ function applyStatus(s) {
   st.pages = countOf(s.pages);
   st.playwright = !!s.playwright;
   st.active_lists = countOf(s.active_lists);
+  startUrl.value = s.start_url || '';
 }
 
 async function loadStatus() {
@@ -120,6 +126,7 @@ async function loadStatus() {
 async function openBrowser() {
   opening.value = true;
   try {
+    await call('saveConfig', { browser_automation: { start_url: startUrl.value.trim() } });
     await call('launchAppBrowser', { app_id: 'course_autoplay' });
     await loadStatus();
     MessagePlugin.success('请在该浏览器登录、打开课程设置列表并置前台');
@@ -186,7 +193,17 @@ function startRun() {
             doneInfo.value =
               pending > 0
                 ? { theme: 'warning', text: `仍有未完成：${countText(r)}` }
-                : { theme: 'success', text: `全部学习完成 100%：${countText(r)}` };
+                : {
+                    theme: 'success',
+                    text: `${opt.scanOnly ? '扫描完成' : '全部学习完成 100%'}：${countText(r)}`,
+                  };
+            if (pending === 0 && !opt.scanOnly) {
+              DialogPlugin.confirm({
+                header: '学习完成',
+                body: `当前课程列表已全部达到 100%，共 ${r.total ?? 0} 门课程。`,
+                confirmBtn: '知道了',
+              });
+            }
           } else if (job.status === 'cancelled') {
             doneInfo.value = { theme: 'info', text: `已取消：${countText(r)}` };
           } else {
