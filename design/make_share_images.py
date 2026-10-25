@@ -75,14 +75,14 @@ def main():
         glyph = render_glyph(cp, ICON_SIZE * 2, WHITE)
         img = compose(bg, glyph, ICON_SIZE)
         path = OUT_DIR / f'share-{key}.jpg'
-        img.save(path, 'JPEG', quality=55, optimize=True)
+        img.save(path, 'JPEG', quality=40, optimize=True)
         print(f'{path.name}: {img.size}, {path.stat().st_size // 1024}KB')
 
     # 通用分享图（深色底专用白色 logo，复用 assets/logo-on-dark.png）
     logo = Image.open(LOGO_ON_DARK_PATH).convert('RGBA')
     img = compose(bg, logo, LOGO_SIZE)
     path = OUT_DIR / 'share-toolbox.jpg'
-    img.save(path, 'JPEG', quality=55, optimize=True)
+    img.save(path, 'JPEG', quality=40, optimize=True)
     print(f'{path.name}: {img.size}, {path.stat().st_size // 1024}KB')
 
 
