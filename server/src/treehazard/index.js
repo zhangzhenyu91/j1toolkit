@@ -90,6 +90,11 @@ async function loadTeamRecords(teamId) {
   return rows;
 }
 
+// 按 cos_key 生成当前 CDN 地址，兼容域名配置变更前写入的历史 url；无 key 时保留旧地址
+function currentPhotoUrl(photo) {
+  return photo.cos_key ? cos.publicUrl(photo.cos_key) : photo.url;
+}
+
 // 批量装配照片（一次 IN 查询）
 async function attachPhotos(records) {
   if (!records.length) return records;
@@ -101,7 +106,7 @@ async function attachPhotos(records) {
   const byRecord = new Map();
   for (const p of photos) {
     if (!byRecord.has(p.record_id)) byRecord.set(p.record_id, []);
-    byRecord.get(p.record_id).push(p);
+    byRecord.get(p.record_id).push({ ...p, url: currentPhotoUrl(p) });
   }
   for (const r of records) r.photos = byRecord.get(r.id) || [];
   return records;
@@ -756,7 +761,7 @@ router.post('/staging/batches/:id/import', requireDictAdmin, async (req, res, ne
           for (const p of sps) {
             await conn.query(
               "INSERT INTO treehazard_photo (record_id, kind, cos_key, url, uploaded_by) VALUES (?, 'evidence', ?, ?, NULL)",
-              [recordId, p.cos_key, p.url]
+              [recordId, p.cos_key, currentPhotoUrl(p)]
             );
           }
           await conn.query('DELETE FROM treehazard_staging_photo WHERE id IN (?)', [
