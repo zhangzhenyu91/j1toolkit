@@ -1,8 +1,8 @@
 {
   "navigationStyle": "custom",
   "enablePullDownRefresh": true,
-  "backgroundColor": "#F5F7FA",
-  "backgroundTextStyle": "dark",
+  "backgroundColor": "@bgColor",
+  "backgroundTextStyle": "@bgTxtStyle",
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
     "nd-dirpicker": "/components/nd-dirpicker/nd-dirpicker",

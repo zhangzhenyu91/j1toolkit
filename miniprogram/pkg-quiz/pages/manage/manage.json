@@ -1,7 +1,7 @@
 {
   "navigationStyle": "custom",
-  "backgroundColor": "#F5F7FA",
-  "backgroundTextStyle": "dark",
+  "backgroundColor": "@bgColor",
+  "backgroundTextStyle": "@bgTxtStyle",
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
     "t-icon": "tdesign-miniprogram/icon/icon",

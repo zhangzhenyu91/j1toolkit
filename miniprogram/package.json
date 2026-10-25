@@ -10,5 +10,8 @@
   },
   "overrides": {
     "argparse": "1.0.10"
+  },
+  "devDependencies": {
+    "miniprogram-automator": "^0.13.0"
   }
 }

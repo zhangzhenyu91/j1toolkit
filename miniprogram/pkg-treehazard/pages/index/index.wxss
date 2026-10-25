@@ -142,6 +142,10 @@ page {
   font-weight: 400;
 }
 
+.search + .lcard {
+  margin-top: 24rpx;
+}
+
 .lcard + .lcard {
   margin-top: 24rpx;
 }
@@ -1030,6 +1034,7 @@ page {
     box-sizing: border-box;
   }
 
+  .search + .lcard,
   .lcard + .lcard {
     margin-top: 0;
   }
