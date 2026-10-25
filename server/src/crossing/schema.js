@@ -6,7 +6,7 @@ const config = require('../config');
 const APP_CROSSING = {
   key: 'crossing',
   name: '交跨记录',
-  icon: 'swap',
+  icon: 'fork',
   path: '/pkg-crossing/pages/index/index',
   sort: 5,
   terminal: 'both', // 适配终端：双端（见 db.js sys_app.terminal 口径）

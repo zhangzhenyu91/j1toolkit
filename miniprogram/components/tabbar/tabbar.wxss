@@ -58,11 +58,13 @@
   }
 }
 
-/* 组件样式隔离下的减弱动态效果（不能只依赖 app.wxss 的原生标签选择器） */
+/* 组件样式隔离下的减弱动态效果（只用组件允许的类选择器，不能用标签选择器） */
 @media (prefers-reduced-motion: reduce) {
-  view,
-  text,
-  t-icon {
+  .tabbar,
+  .tab,
+  .tab-text,
+  .t-dot,
+  .ico-44 {
     animation: none !important;
     transition: none !important;
   }

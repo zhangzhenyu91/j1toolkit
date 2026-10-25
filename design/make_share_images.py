@@ -26,7 +26,7 @@ APPS = {
     'quiz': 0xE0CB,           # book
     'netdisk': 0xE3E0,        # folder
     'tree-hazard': 0xE3E4,    # forest
-    'crossing': 0xE7A7,       # swap
+    'crossing': 0xE3E6,       # fork
     'team-data': 0xE171,      # chart-bar
 }
 

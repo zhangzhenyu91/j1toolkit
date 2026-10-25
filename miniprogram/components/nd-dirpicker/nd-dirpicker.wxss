@@ -429,14 +429,35 @@
   }
 }
 
-/* 组件内部自行降级：默认样式隔离使 app.wxss 无法覆盖这里的状态过渡 */
+/* 组件内部自行降级：只用组件允许的类选择器，标签选择器会触发 WXSS 编译警告 */
 @media (prefers-reduced-motion: reduce) {
-  view,
-  text,
-  image,
-  input,
-  scroll-view,
-  t-icon {
+  .ndp-sheet,
+  .grab,
+  .ndp-title,
+  .ndp-sub,
+  .ndp-spaces,
+  .ndp-space,
+  .ndp-crumb,
+  .ndp-link,
+  .ndp-sep,
+  .ndp-cur,
+  .ndp-mk,
+  .ndp-mk-t,
+  .ndp-mkedit,
+  .ndp-mkinput,
+  .ndp-ph,
+  .ndp-mkok,
+  .ndp-mkno,
+  .ndp-list,
+  .ndp-dir,
+  .ndp-name,
+  .ndp-empty,
+  .ndp-ops,
+  .ndp-cancel,
+  .ndp-confirm,
+  .ico-30,
+  .ico-34,
+  .ico-38 {
     animation: none !important;
     transition: none !important;
   }

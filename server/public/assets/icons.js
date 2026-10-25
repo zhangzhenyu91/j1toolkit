@@ -83,6 +83,8 @@
     'chevron-up': '<path d="M6.5 14.5l5.5-5.5 5.5 5.5"/>',
     'close-circle': '<circle cx="12" cy="12" r="8.5"/><path d="M9 9l6 6M15 9l-6 6"/>',
     swap: '<path d="M4 7.5h11.5"/><path d="M13 4l3.5 3.5L13 11"/><path d="M20 16.5H8.5"/><path d="M11 13l-3.5 3.5L11 20"/>',
+    /* 交跨记录（fork 与 sys_app 种子同名）：路径交汇，区别于文件传输的双向箭头 */
+    fork: '<circle cx="6" cy="5" r="2.5"/><circle cx="18" cy="5" r="2.5"/><circle cx="12" cy="19" r="2.5"/><path d="M6 7.5v1.8a4.2 4.2 0 0 0 4.2 4.2h3.6a4.2 4.2 0 0 0 4.2-4.2V7.5M12 13.5v3"/>',
     'view-list':
       '<path d="M9.5 6h11M9.5 12h11M9.5 18h11"/><circle cx="4.5" cy="6" r="1.1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.1" fill="currentColor" stroke="none"/>',
     compass: '<circle cx="12" cy="12" r="8.5"/><path d="M15.6 8.4l-2.1 5.1-5.1 2.1 2.1-5.1z"/>',

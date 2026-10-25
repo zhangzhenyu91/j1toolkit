@@ -2256,6 +2256,43 @@
         background: var(--danger-soft);
         border-color: var(--red);
       }
+      /* 手动修正直接在右侧原字段行内编辑，不再叠加弹层遮挡照片 */
+      .lb-edit-field {
+        display: none;
+        height: 34px;
+        margin-top: 4px;
+        font-weight: 500;
+        letter-spacing: 0;
+        animation: wlFade 0.18s ease;
+      }
+      .lb-side.wm-editing {
+        border-color: var(--blue);
+      }
+      .lb-side.wm-editing .lb-edit-row > .v {
+        display: none;
+      }
+      .lb-side.wm-editing .lb-edit-field {
+        display: block;
+      }
+      .lb-edit-hint {
+        color: var(--ph);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+      .lb-edit-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .lb-edit-actions .btn {
+        flex: 1;
+        min-width: 0;
+        padding-right: 8px;
+        padding-left: 8px;
+      }
+      .lb-arrow:disabled {
+        opacity: 0.35;
+        pointer-events: none;
+      }
 
       /* ===== 编辑弹层表单（改派车 / 巡视内容 / 照片人名）：2px 墨边直角，focus 蓝边 + 硬影 ===== */
       .f-lab {
@@ -4537,10 +4574,10 @@
         }
 
         /* ================= 照片大图遮罩层 ================= */
-        var lbInst = null; // {eid, items:[photo], idx}
+        var lbInst = null; // {eid, items:[photo], idx, editing:boolean}
         function openLightbox(entry, idx) {
           if (!entry || !(entry.photos || []).length) return;
-          lbInst = { eid: entry.id, items: entry.photos, idx: idx };
+          lbInst = { eid: entry.id, items: entry.photos, idx: idx, editing: false };
           renderLB();
           $('#lightbox').classList.add('open');
         }
@@ -4548,9 +4585,9 @@
           lbInst = null;
           $('#lightbox').classList.remove('open');
         }
-        /* 编辑/删除后按当前照片 id 在新数据里重定位；照片已删（或卡片已删）则关闭 */
+        /* 编辑/删除后按当前照片 id 在新数据里重定位；手动修正期间保留未提交输入 */
         function refreshLightbox() {
-          if (!lbInst) return;
+          if (!lbInst || lbInst.editing) return;
           var cur = lbInst.items[lbInst.idx];
           var en = findEntry(lbInst.eid);
           if (cur && en) {
@@ -4568,7 +4605,7 @@
           closeLightbox();
         }
         function shiftLB(delta) {
-          if (!lbInst) return;
+          if (!lbInst || lbInst.editing) return;
           var n = lbInst.items.length;
           lbInst.idx = (lbInst.idx + delta + n) % n;
           renderLB();
@@ -4584,6 +4621,23 @@
             '</div></div>'
           );
         }
+        function lbEditRow(k, v, field, ph) {
+          return (
+            '<div class="lb-row lb-edit-row"><label class="k" for="lb-wm-' +
+            field +
+            '">' +
+            esc(k) +
+            '</label><div class="v">' +
+            (v || '—') +
+            '</div><input type="text" class="f-sel lb-edit-field" id="lb-wm-' +
+            field +
+            '" data-wm-field="' +
+            field +
+            '" maxlength="255" autocomplete="off" placeholder="' +
+            esc(ph || '') +
+            '"></div>'
+          );
+        }
         /* 商旅同步行（接口返回 sgcc_synced 字段时显示）：已同步 / 未同步 / 同步失败·重试 */
         function lbSyncRow(p) {
           if (p.sgcc_synced === undefined || p.sgcc_synced === null) return '';
@@ -4597,6 +4651,7 @@
           return lbRow('商旅同步', '未同步');
         }
         function renderLB() {
+          lbInst.editing = false;
           var p = lbInst.items[lbInst.idx];
           var many = lbInst.items.length > 1;
           /* 非水印照片：仅存档同步商旅、不参与验证——信息卡只留人名 + 说明 + 商旅同步，核验字段行与防伪码块不渲染 */
@@ -4609,12 +4664,12 @@
               lbSyncRow(p)
             : lbRow('验证情况', esc(verifyText(p)), stCls) +
               lbRow('人名', esc((p.members || []).join('、'))) +
-              lbRow('施工内容', esc(p.work_content)) +
-              lbRow('拍摄时间', esc(p.shot_time)) +
-              lbRow('天气', esc(p.weather)) +
-              lbRow('地点', esc(p.location)) +
-              lbRow('经度', esc(p.lng)) +
-              lbRow('纬度', esc(p.lat)) +
+              lbEditRow('施工内容', esc(p.work_content), 'workContent', '如 110kVXX线巡视') +
+              lbEditRow('拍摄时间', esc(p.shot_time), 'shotTime', 'YYYY.MM.DD HH:mm') +
+              lbEditRow('天气', esc(p.weather), 'weather', '如 晴 28℃') +
+              lbEditRow('地点', esc(p.location), 'location', '须包含派车目的地') +
+              lbEditRow('经度', esc(p.lng), 'lng', '选填') +
+              lbEditRow('纬度', esc(p.lat), 'lat', '选填') +
               lbSyncRow(p) +
               '<div class="acode">' +
               Shade.icon('shield', 20) +
@@ -4703,7 +4758,7 @@
               }
               if (act === 'wmedit') {
                 var weEn = findEntry(lbInst.eid);
-                if (weEn) openWmEditModal(weEn, photo);
+                if (weEn) openWmEditor(weEn, photo);
                 return;
               }
               if (act === 'dl') {
@@ -5740,9 +5795,110 @@
           }
         }
 
-        /* ---------- 水印信息手动修正（Dify 小概率识别出错时用；验证状态角标 / 大图「手动修正」进入；
-   保存走 PUT /photos/:id/wm，服务端按记录日期与派车目的地重新核验） ---------- */
-        function openWmEditModal(entry, photo) {
+        /* ---------- 水印信息手动修正：大图内在右栏原字段直接编辑，卡片角标仍用独立表单；
+   两条入口共用 PUT /photos/:id/wm，服务端按记录日期与派车目的地重新核验 ---------- */
+        async function saveWmEdit(photo, values) {
+          if (!values.workContent) {
+            Shade.toast('施工内容不能为空', 'info');
+            return false;
+          }
+          if (!values.shotTime) {
+            Shade.toast('拍摄时间不能为空', 'info');
+            return false;
+          }
+          await Shade.api(wl('/api/v1/worklog/photos/' + photo.id + '/wm'), {
+            method: 'PUT',
+            body: values,
+          });
+          return true;
+        }
+        function openWmEditor(entry, photo) {
+          var current = lbInst && lbInst.items[lbInst.idx];
+          if (current && current.id === photo.id) startWmInlineEdit(entry, photo);
+          else openWmCardEditModal(entry, photo);
+        }
+        function startWmInlineEdit(entry, photo) {
+          var side = $('.lb-side', $('#lightbox'));
+          if (!lbInst || lbInst.editing || !side) return;
+          var actions = $('.lb-acts', side);
+          if (!actions) return;
+          var source = {
+            workContent: photo.work_content || '',
+            shotTime: photo.shot_time || '',
+            weather: photo.weather || '',
+            location: photo.location || '',
+            lng: photo.lng || '',
+            lat: photo.lat || '',
+          };
+          $$('[data-wm-field]', side).forEach(function (input) {
+            input.value = source[input.dataset.wmField] || '';
+          });
+          lbInst.editing = true;
+          side.classList.add('wm-editing');
+          $$('.lb-arrow', $('#lightbox')).forEach(function (btn) {
+            btn.disabled = true;
+          });
+          actions.innerHTML =
+            '<div class="lb-edit-hint">保存后重新判定本卡验证：日期须为记录当天 ' +
+            esc(entry.log_date || '') +
+            '，地点须包含派车目的地。</div>' +
+            '<div class="lb-edit-actions"><button type="button" class="btn btn-sm" data-wm-act="cancel">取消</button>' +
+            '<button type="button" class="btn btn-sm btn-accent" data-wm-act="save">保存并重验</button></div>';
+          var saveButton = $('[data-wm-act="save"]', actions);
+          var cancelButton = $('[data-wm-act="cancel"]', actions);
+          var saving = false;
+          function finish() {
+            if (lbInst && lbInst.editing) renderLB();
+          }
+          function setSaving(busy) {
+            saving = busy;
+            saveButton.disabled = busy;
+            cancelButton.disabled = busy;
+            saveButton.textContent = busy ? '保存中…' : '保存并重验';
+            $$('.lb-edit-field', side).forEach(function (input) {
+              input.disabled = busy;
+            });
+          }
+          async function submit() {
+            if (saving) return;
+            var values = {};
+            $$('[data-wm-field]', side).forEach(function (input) {
+              values[input.dataset.wmField] = input.value.trim();
+            });
+            setSaving(true);
+            try {
+              var saved = await saveWmEdit(photo, values);
+              if (!saved) {
+                setSaving(false);
+                return;
+              }
+              finish();
+              Shade.toast('已保存并重新判定验证', 'success');
+              refreshAfterEdit();
+            } catch (e) {
+              setSaving(false); // 失败保留右栏输入，可直接重试
+              Shade.toast(e.message, 'error');
+            }
+          }
+          cancelButton.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (!saving) finish();
+          });
+          saveButton.addEventListener('click', function (e) {
+            e.stopPropagation();
+            submit();
+          });
+          $$('.lb-edit-field', side).forEach(function (input) {
+            input.addEventListener('keydown', function (e) {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                submit();
+              }
+            });
+          });
+          $('#lb-wm-workContent', side).focus();
+        }
+        function openWmCardEditModal(entry, photo) {
           function row(lab, id, ph) {
             return (
               '<label class="f-lab">' +
@@ -5784,30 +5940,21 @@
           $('#wmContent', inst.box).focus();
           var saving = false;
           async function submit() {
-            var workContent = $('#wmContent', inst.box).value.trim();
-            var shotTime = $('#wmTime', inst.box).value.trim();
-            if (!workContent) {
-              Shade.toast('施工内容不能为空', 'info');
-              return;
-            }
-            if (!shotTime) {
-              Shade.toast('拍摄时间不能为空', 'info');
-              return;
-            }
             if (saving) return;
             saving = true;
             try {
-              await Shade.api(wl('/api/v1/worklog/photos/' + photo.id + '/wm'), {
-                method: 'PUT',
-                body: {
-                  workContent: workContent,
-                  shotTime: shotTime,
-                  weather: $('#wmWeather', inst.box).value.trim(),
-                  location: $('#wmLocation', inst.box).value.trim(),
-                  lng: $('#wmLng', inst.box).value.trim(),
-                  lat: $('#wmLat', inst.box).value.trim(),
-                },
+              var saved = await saveWmEdit(photo, {
+                workContent: $('#wmContent', inst.box).value.trim(),
+                shotTime: $('#wmTime', inst.box).value.trim(),
+                weather: $('#wmWeather', inst.box).value.trim(),
+                location: $('#wmLocation', inst.box).value.trim(),
+                lng: $('#wmLng', inst.box).value.trim(),
+                lat: $('#wmLat', inst.box).value.trim(),
               });
+              if (!saved) {
+                saving = false;
+                return;
+              }
               inst.close();
               Shade.toast('已保存并重新判定验证', 'success');
               refreshAfterEdit(); // 重拉后 refreshLightbox 按照片 id 重定位，信息卡与角标随数据更新
@@ -9317,7 +9464,7 @@
                 (stEn.photos || []).filter(function (x) {
                   return x.id === +stFig.dataset.pid;
                 })[0];
-              if (stEn && stPhoto) openWmEditModal(stEn, stPhoto);
+              if (stEn && stPhoto) openWmEditor(stEn, stPhoto);
               return;
             }
             var fig = e.target.closest('.ph[data-pid]');
@@ -9339,10 +9486,11 @@
               if (mlbInst) closeMediaLb();
             }
           });
-          /* Esc 优先级：大图层在弹层之前关闭（guard 返回 true 表示已消费本次 Esc，common.js 不再关顶层弹层） */
+          /* Esc 优先级：手动修正先退出右栏编辑，其余情况再关大图层（guard 返回 true 表示已消费） */
           Shade.escGuard = function () {
             if (lbInst) {
-              closeLightbox();
+              if (lbInst.editing) renderLB();
+              else closeLightbox();
               return true;
             }
             if (mlbInst) {
@@ -9352,7 +9500,7 @@
             return false;
           };
           document.addEventListener('keydown', function (e) {
-            if (document.querySelector('.mask.open')) return; // 大图层上叠了 Shade.modal（手动修正 / 修改人名等）时方向键归弹层，不切换底层照片
+            if (document.querySelector('.mask.open')) return; // 修改人名等弹层遮挡时不切换底层照片；右栏修正由 shiftLB 拦截
             if (lbInst && e.key === 'ArrowLeft') shiftLB(-1);
             else if (lbInst && e.key === 'ArrowRight') shiftLB(1);
             else if (mlbInst && e.key === 'ArrowLeft') shiftMediaLb(-1);

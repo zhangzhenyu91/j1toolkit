@@ -1,6 +1,6 @@
 {
   "name": "shade-yixia",
-  "version": "1.20.0",
+  "version": "1.20.1",
   "private": true,
   "description": "Shade 壹匣 · 班组数字化工具平台（后端 + 网页端）",
   "main": "src/index.js",

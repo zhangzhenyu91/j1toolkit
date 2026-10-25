@@ -55,18 +55,30 @@ v*:
             # 公开仓匿名列清单即可；若遇 GitHub API 限流，在密钥仓库 envs.yml 加 GITHUB_TOKEN 会自动带上。
             LIST_URL="https://api.github.com/repos/zhangzhenyu91/j1toolkit/releases/tags/${CNB_BRANCH}"
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              ASSETS=$(curl -sfL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$LIST_URL" \
+              ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 -H "Authorization: Bearer ${GITHUB_TOKEN}" "$LIST_URL" \
                 | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))')
             else
-              ASSETS=$(curl -sfL "$LIST_URL" | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))')
+              ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 "$LIST_URL" | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))')
             fi
-            [ -n "$ASSETS" ] || { echo "GitHub Release ${CNB_BRANCH} 无 exe/deb 资产（清单：$LIST_URL）"; exit 1; }
+            # API 限流/失败时改读公开发布页的资产清单，仍按真实文件名过滤，不回退到易错的按版本拼名
+            if [ -z "$ASSETS" ]; then
+              echo "GitHub API 未取到附件清单，改读公开 expanded_assets"
+              ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 \
+                "https://github.com/zhangzhenyu91/j1toolkit/releases/expanded_assets/${CNB_BRANCH}" \
+                | sed -nE 's#.*/releases/download/[^/]*/([^"/?]*[.](exe|deb))".*#\1#p' | sort -u)
+            fi
+            [ -n "$ASSETS" ] || { echo "GitHub Release ${CNB_BRANCH} 无 exe/deb 资产（API 与公开页面均未取到）"; exit 1; }
             for f in $ASSETS; do
+              downloaded=0
               for t in 1 2 3; do
-                curl -sfL -o "$f" "https://github.com/zhangzhenyu91/j1toolkit/releases/download/${CNB_BRANCH}/${f}" && [ -s "$f" ] && break
+                rm -f -- "$f"
+                if curl -sfL --connect-timeout 20 --max-time 300 -o "$f" "https://github.com/zhangzhenyu91/j1toolkit/releases/download/${CNB_BRANCH}/${f}" && [ -s "$f" ]; then
+                  downloaded=1
+                  break
+                fi
                 echo "重试下载 $f（第 $t 次）"; sleep 10
               done
-              [ -s "$f" ] || { echo "下载失败 $f"; exit 1; }
+              [ "$downloaded" -eq 1 ] || { rm -f -- "$f"; echo "下载失败 $f"; exit 1; }
               echo "已下载 $f（$(du -h "$f" | cut -f1)）"
             done
             API="https://api.cnb.cool/${CNB_REPO_SLUG}"
@@ -88,7 +100,7 @@ v*:
             # nullglob 让未匹配数组为空；上传/确认关联一律 curl -f，HTTP 错误显式判失败退出
             shopt -s nullglob
             FILES=( *.exe *.deb )
-            [ "${#FILES[@]}" -gt 0 ] || { echo "无待上传附件（下载环节已把关，此处疑为 glob 异常）"; exit 1; }
+            [ "${#FILES[@]}" -eq 3 ] || { echo "客户端附件应为 3 件，实际 ${#FILES[@]} 件"; exit 1; }
             for f in "${FILES[@]}"; do
               SIZE=$(stat -c%s "$f")
               # 预签名三段式：取上传地址 → PUT 文件 → 确认关联（overwrite 允许重跑覆盖）
@@ -146,18 +158,30 @@ release-v*:
             # 公开仓匿名列清单即可；若遇 GitHub API 限流，在密钥仓库 envs.yml 加 GITHUB_TOKEN 会自动带上。
             LIST_URL="https://api.github.com/repos/zhangzhenyu91/j1toolkit/releases/tags/${CNB_BRANCH}"
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              ASSETS=$(curl -sfL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$LIST_URL" \
+              ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 -H "Authorization: Bearer ${GITHUB_TOKEN}" "$LIST_URL" \
                 | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))')
             else
-              ASSETS=$(curl -sfL "$LIST_URL" | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))')
+              ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 "$LIST_URL" | jq -r '.assets[]?.name | select(test("\\.(exe|deb)$"))')
             fi
-            [ -n "$ASSETS" ] || { echo "GitHub Release ${CNB_BRANCH} 无 exe/deb 资产（清单：$LIST_URL）"; exit 1; }
+            # API 限流/失败时改读公开发布页的资产清单，仍按真实文件名过滤，不回退到易错的按版本拼名
+            if [ -z "$ASSETS" ]; then
+              echo "GitHub API 未取到附件清单，改读公开 expanded_assets"
+              ASSETS=$(curl -sfL --connect-timeout 15 --max-time 60 \
+                "https://github.com/zhangzhenyu91/j1toolkit/releases/expanded_assets/${CNB_BRANCH}" \
+                | sed -nE 's#.*/releases/download/[^/]*/([^"/?]*[.](exe|deb))".*#\1#p' | sort -u)
+            fi
+            [ -n "$ASSETS" ] || { echo "GitHub Release ${CNB_BRANCH} 无 exe/deb 资产（API 与公开页面均未取到）"; exit 1; }
             for f in $ASSETS; do
+              downloaded=0
               for t in 1 2 3; do
-                curl -sfL -o "$f" "https://github.com/zhangzhenyu91/j1toolkit/releases/download/${CNB_BRANCH}/${f}" && [ -s "$f" ] && break
+                rm -f -- "$f"
+                if curl -sfL --connect-timeout 20 --max-time 300 -o "$f" "https://github.com/zhangzhenyu91/j1toolkit/releases/download/${CNB_BRANCH}/${f}" && [ -s "$f" ]; then
+                  downloaded=1
+                  break
+                fi
                 echo "重试下载 $f（第 $t 次）"; sleep 10
               done
-              [ -s "$f" ] || { echo "下载失败 $f"; exit 1; }
+              [ "$downloaded" -eq 1 ] || { rm -f -- "$f"; echo "下载失败 $f"; exit 1; }
               echo "已下载 $f（$(du -h "$f" | cut -f1)）"
             done
             API="https://api.cnb.cool/${CNB_REPO_SLUG}"
@@ -179,7 +203,7 @@ release-v*:
             # nullglob 让未匹配数组为空；上传/确认关联一律 curl -f，HTTP 错误显式判失败退出
             shopt -s nullglob
             FILES=( *.exe *.deb )
-            [ "${#FILES[@]}" -gt 0 ] || { echo "无待上传附件（下载环节已把关，此处疑为 glob 异常）"; exit 1; }
+            [ "${#FILES[@]}" -eq 3 ] || { echo "客户端附件应为 3 件，实际 ${#FILES[@]} 件"; exit 1; }
             for f in "${FILES[@]}"; do
               SIZE=$(stat -c%s "$f")
               # 预签名三段式：取上传地址 → PUT 文件 → 确认关联（overwrite 允许重跑覆盖）
