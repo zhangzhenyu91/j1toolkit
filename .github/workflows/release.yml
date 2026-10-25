@@ -115,10 +115,14 @@ jobs:
           python-version: '3.12'
       - name: PyInstaller 构建核心（console onedir）
         run: |
-          pip install pyinstaller requests gmssl pypdf websocket-client
+          pip install pyinstaller requests gmssl pypdf websocket-client playwright==1.62.0
           python -m PyInstaller --name uvmp-core --onedir --clean --noconfirm `
             --add-data "toolkit/apps;apps" `
             --add-data "toolkit/config.example.json;." `
+            --add-data "course_autoplay_trial.py;." `
+            --collect-all playwright --collect-all greenlet `
+            --hidden-import pyee --hidden-import typing_extensions `
+            --hidden-import browser_automation `
             --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
             --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
             --hidden-import pypdf `

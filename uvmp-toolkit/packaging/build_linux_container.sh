@@ -4,8 +4,9 @@
 # 设计要点（踩坑史见《内网工具箱开发指南.md》）：
 # - 所有设备跑同一个内置 Python 3.12——不再有「buster 系统 Python 3.7 vs 新机 3.14」的差异坑
 #   （3.7 没有 Path.unlink(missing_ok=)，曾在麒麟核心包上崩掉官方渲染器）
-# - 核心依赖全是纯 Python wheel（无 PyQt5/Qt），PyInstaller 6 自带预编译 bootloader（含 aarch64）
-# - buster 基线 glibc 2.28 覆盖麒麟 V10 SP1；pystandalone gnu 构建兼容 glibc 2.17+
+# - 常规依赖用纯 Python wheel；课程自动学习另收编 Playwright/greenlet 与对应架构 Node driver
+# - PyInstaller 6 自带预编译 bootloader（含 aarch64）；buster glibc 2.28 覆盖麒麟 V10 SP1
+# - pystandalone gnu 构建兼容 glibc 2.17+
 # - buster 源已归档走 archive.debian.org；GitHub API 在 runner 上可达
 set -euo pipefail
 

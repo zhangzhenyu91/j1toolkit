@@ -13,14 +13,19 @@ cd "$(dirname "$0")/.."
 PYTHON=${PYTHON:-python3}
 
 echo "== 安装构建依赖 =="
-"$PYTHON" -m pip install --no-cache-dir pyinstaller requests gmssl pypdf websocket-client
+"$PYTHON" -m pip install --no-cache-dir pyinstaller requests gmssl pypdf websocket-client playwright==1.62.0
 
 echo "== PyInstaller 构建（onedir，console）=="
 # hidden-import 说明：apps 的 backend.py 由注册器运行时按路径加载，静态分析够不到，
-# 其依赖（uvmp/vehicle_export/official_track/xlsx_util/devmock/rpc）必须显式收编
+# 其依赖（uvmp/vehicle_export/official_track/browser_automation 等）必须显式收编；
+# 课程引擎按源码资产收编，Playwright 的 Python 包、greenlet 与 Node driver 一并收集
 "$PYTHON" -m PyInstaller --name uvmp-core --onedir --clean --noconfirm \
   --add-data "toolkit/apps:apps" \
   --add-data "toolkit/config.example.json:." \
+  --add-data "course_autoplay_trial.py:." \
+  --collect-all playwright --collect-all greenlet \
+  --hidden-import pyee --hidden-import typing_extensions \
+  --hidden-import browser_automation \
   --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track \
   --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc \
   --hidden-import pypdf \

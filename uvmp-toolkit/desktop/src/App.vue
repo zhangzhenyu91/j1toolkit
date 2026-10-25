@@ -67,6 +67,7 @@ import TreeSyncPage from './pages/TreeSyncPage.vue';
 import CrossingSyncPage from './pages/CrossingSyncPage.vue';
 import PcdExportPage from './pages/PcdExportPage.vue';
 import QuizSearchPage from './pages/QuizSearchPage.vue';
+import CourseAutoplayPage from './pages/CourseAutoplayPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
 
 const PAGE_MAP = {
@@ -77,6 +78,7 @@ const PAGE_MAP = {
   crossing_sync: CrossingSyncPage,
   pcd_export: PcdExportPage,
   quiz_search: QuizSearchPage,
+  course_autoplay: CourseAutoplayPage,
 };
 // 导航图标：壹匣线性图标库同名（见 components/ShadeIcon.vue）；未知应用回退宫格
 const NAV_ICONS = {
@@ -85,6 +87,7 @@ const NAV_ICONS = {
   crossing_sync: 'file',
   pcd_export: 'download',
   quiz_search: 'search',
+  course_autoplay: 'task',
 };
 function navIcon(id) {
   return NAV_ICONS[id] || 'app';

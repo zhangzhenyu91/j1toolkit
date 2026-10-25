@@ -70,10 +70,14 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = "http://127.0.0.1:8899/"
 # ---------- 1) Windows Python 核心 ----------
 if (-not $SkipCore) {
   Write-Host "== PyInstaller 构建 Windows 核心 ==" -ForegroundColor Cyan
-  & $PY -m pip install -q pyinstaller requests gmssl pypdf websocket-client
+  & $PY -m pip install -q pyinstaller requests gmssl pypdf websocket-client playwright==1.62.0
   & $PY -m PyInstaller --name uvmp-core --onedir --clean --noconfirm `
     --add-data "toolkit/apps;apps" `
     --add-data "toolkit/config.example.json;." `
+    --add-data "course_autoplay_trial.py;." `
+    --collect-all playwright --collect-all greenlet `
+    --hidden-import pyee --hidden-import typing_extensions `
+    --hidden-import browser_automation `
     --hidden-import uvmp --hidden-import vehicle_export --hidden-import official_track `
     --hidden-import xlsx_util --hidden-import devmock --hidden-import rpc `
     --hidden-import pypdf `

@@ -3,7 +3,8 @@
 
 新增应用 = 在 apps/ 下新建一个目录，放入：
   app.json   声明（id/名称/徽标/简介/排序，详见《内网工具箱开发指南.md》插件规范）
-  backend.py 契约函数：run(job, params) -> dict；可选 status(cfg) / preview(params)
+  backend.py 契约函数：run(job, params) -> dict；可选 status(cfg) / preview(params) /
+                      launch_browser(cfg)（需要人工准备会话的受控浏览器应用）
 无需改动任何既有文件。
 
 注意：backend.py 禁止 import 任何 GUI 依赖（PyQt5 等）——CLI/定时器无头环境没有 GUI 依赖；

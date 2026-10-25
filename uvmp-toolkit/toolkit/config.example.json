@@ -39,5 +39,13 @@
   },
   "render": {
     "chrome": ""
+  },
+  "browser_automation": {
+    "cdp_url": "http://127.0.0.1:9222",
+    "profile_dir": "",
+    "step_timeout": 120
+  },
+  "course_autoplay": {
+    "max_attempts": 3
   }
 }

@@ -58,7 +58,7 @@
       </view>
     </t-button>
 
-    <view class="version">v1.20.2</view>
+    <view class="version">v1.21.0</view>
   </view>
 
   <t-toast id="t-toast" />

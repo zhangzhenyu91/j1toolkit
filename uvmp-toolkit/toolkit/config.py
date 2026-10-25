@@ -51,6 +51,12 @@ DEFAULTS = {
     },
     "dev": {"mock": False},  # 开发用：假数据替代真实接口
     "render": {"chrome": ""},  # 浏览器路径（用户手选的公司浏览器；空=自动探测）
+    "browser_automation": {
+        "cdp_url": "http://127.0.0.1:9222",  # 仅允许本机回环地址
+        "profile_dir": "",  # 空=用户状态目录/browser-automation/profile
+        "step_timeout": 120,
+    },
+    "course_autoplay": {"max_attempts": 3},  # 达到单课尝试上限后跳过并继续
 }
 
 

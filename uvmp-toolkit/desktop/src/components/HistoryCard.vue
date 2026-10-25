@@ -62,7 +62,8 @@ async function reload() {
     const rows = await call('getHistory', { app_id: props.appId });
     history.value = rows.map((r) => ({
       time: r.time,
-      status: STATUS_CN[r.status] || r.status,
+      // result.paused=true 表示用户主动暂停（非失败，可续跑），状态列显示「已暂停」；其他应用/状态不变
+      status: (r.result || {}).paused ? '已暂停' : STATUS_CN[r.status] || r.status,
       summary: r.error || (props.formatResult ? props.formatResult(r.result) : ''),
       dir: (r.result || {}).dir || '',
       job_id: r.job_id,

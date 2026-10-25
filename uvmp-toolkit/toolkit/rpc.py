@@ -88,6 +88,7 @@ class RpcServer:
                 "order": a.get("order", 99),
                 "has_status": hasattr(a.get("_backend"), "status"),
                 "has_preview": hasattr(a.get("_backend"), "preview"),
+                "has_browser": hasattr(a.get("_backend"), "launch_browser"),
             }
             for a in self._apps().values()
         ]
@@ -98,6 +99,13 @@ class RpcServer:
         if not backend or not hasattr(backend, "status"):
             return {}
         return backend.status(_config.load())
+
+    def m_launchAppBrowser(self, params):
+        app = self._apps().get((params or {}).get("app_id", ""))
+        backend = (app or {}).get("_backend")
+        if not backend or not hasattr(backend, "launch_browser"):
+            raise RuntimeError("该应用不支持受控浏览器")
+        return backend.launch_browser(_config.load())
 
     def m_preview(self, params):
         app = self._apps().get((params or {}).get("app_id", ""))

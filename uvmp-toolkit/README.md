@@ -13,8 +13,9 @@
 | 交跨统计表同步  | 按壹匣服务端经 U 盘下发的指令同步交跨统计表 xlsx：snapshot 把内网表拷贝上盘，replace 用 U 盘新表覆盖内网表（原文件自动备份 .bak），23:55 夜间定时兜底上盘 |
 | 派车单·轨迹导出 | 按派车单号清单（xlsx 文件或粘贴文本）按序导出派车单 PDF、行驶轨迹 PDF 与轨迹点 CSV，支持断点续传                                                          |
 | 题库搜题        | 屏幕双扫描框实时 OCR 搜题：Excel 题库导入本机落盘（多题库启停管理），框选区域对准题目即出答案悬浮窗；全离线本地推理，不经网络                             |
+| 课程自动学习    | 人工登录受控浏览器后自动学习国网学堂课程：多标签识别、全分页扫描、视频真实 ended/上报确认、非视频加载，单课 3 次未过跳过继续、末页后从头复核；支持仅扫描、暂停恢复与按培训班断点续刷 |
 
-技术要点：Electron + Vue 3 + TDesign 桌面客户端（「政企蓝白」主题，壹匣同族）；业务核心为 Python sidecar（SSO 国密登录 + 请求签名逆向，见《接口分析.md》），壳与核心经 stdio JSON-RPC 通信；PDF 由目标机既有 Chrome 无头渲染；定时采用 due-check 模式（系统定时器高频唤醒 + 配置时刻判定，客户端改时间零权限）；题库搜题的截屏/OCR/悬浮窗全部在壳层（onnxruntime-node + PP-OCRv4 mobile 模型随包，CPU 推理无厂商绑定，win-x64/麒麟 amd64/arm64 同构）。
+技术要点：Electron + Vue 3 + TDesign 桌面客户端（「政企蓝白」主题，壹匣同族）；业务核心为 Python sidecar（SSO 国密登录 + 请求签名逆向，见《接口分析.md》），壳与核心经 stdio JSON-RPC 通信；PDF 由目标机既有 Chrome 无头渲染；定时采用 due-check 模式（系统定时器高频唤醒 + 配置时刻判定，客户端改时间零权限）；题库搜题的截屏/OCR/悬浮窗全部在壳层（onnxruntime-node + PP-OCRv4 mobile 模型随包，CPU 推理无厂商绑定，win-x64/麒麟 amd64/arm64 同构）；课程自动学习复用 `course_autoplay_trial.py` 引擎（Playwright/greenlet 与分平台 Node driver 随包收编，安装包离线安装后无需 pip / `playwright install`）。
 
 ## 下载与安装（内网机）
 
