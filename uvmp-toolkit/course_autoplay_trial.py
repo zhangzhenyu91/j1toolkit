@@ -241,7 +241,9 @@ def runtime_root():
             os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
         )
     else:
-        base = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
+        base = Path(
+            os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+        )
     return base / "uvmp-toolkit" / "course-autoplay"
 
 
@@ -343,10 +345,14 @@ class ResponseMonitor(object):
             if self.cancel_check:
                 self.cancel_check()
             for response in self.responses[start:]:
-                if not self._matches_page(response) or not _is_api(response.url, api_path):
+                if not self._matches_page(response) or not _is_api(
+                    response.url, api_path
+                ):
                     continue
                 if response.status != 200:
-                    raise RuntimeError("%s HTTP 状态为 %s" % (description, response.status))
+                    raise RuntimeError(
+                        "%s HTTP 状态为 %s" % (description, response.status)
+                    )
                 try:
                     payload = response.json()
                 except Exception as exc:
@@ -366,7 +372,9 @@ class CourseRunner(object):
         self.timeout_ms = args.timeout * 1000
         self.log_handler = log_handler
         self.log_path = None if log_handler else outdir / "run.log"
-        self.log_file = None if log_handler else self.log_path.open("a", encoding="utf-8")
+        self.log_file = (
+            None if log_handler else self.log_path.open("a", encoding="utf-8")
+        )
         self.cancel_check = getattr(args, "cancel_check", None)
         self.progress_handler = getattr(args, "progress_handler", None)
         self.interrupt_exceptions = getattr(args, "interrupt_exceptions", ())
@@ -403,7 +411,9 @@ class CourseRunner(object):
     def _wait_for_function(self, page, expression, **kwargs):
         timeout_ms = kwargs.pop("timeout", self.timeout_ms)
         return _wait_in_slices(
-            lambda slice_ms: page.wait_for_function(expression, timeout=slice_ms, **kwargs),
+            lambda slice_ms: page.wait_for_function(
+                expression, timeout=slice_ms, **kwargs
+            ),
             timeout_ms,
             self.check_cancel,
         )
@@ -411,7 +421,9 @@ class CourseRunner(object):
     def _wait_for_load_state(self, page, state, **kwargs):
         timeout_ms = kwargs.pop("timeout", self.timeout_ms)
         return _wait_in_slices(
-            lambda slice_ms: page.wait_for_load_state(state, timeout=slice_ms, **kwargs),
+            lambda slice_ms: page.wait_for_load_state(
+                state, timeout=slice_ms, **kwargs
+            ),
             timeout_ms,
             self.check_cancel,
         )
@@ -489,7 +501,9 @@ class CourseRunner(object):
         while True:
             visible_pages = [page for page in pages if is_visible(page)]
             search_pages = visible_pages or pages
-            candidates = [page for page in search_pages if is_train_detail_url(page.url)]
+            candidates = [
+                page for page in search_pages if is_train_detail_url(page.url)
+            ]
             recognition = "地址"
             if not candidates:
                 recognition = "页面内容"
@@ -498,7 +512,10 @@ class CourseRunner(object):
                         text = page.locator("body").inner_text(timeout=2000)
                     except Exception:
                         continue
-                    if all(marker in text for marker in ("课程名称", "学习进度", "进入学习")):
+                    if all(
+                        marker in text
+                        for marker in ("课程名称", "学习进度", "进入学习")
+                    ):
                         candidates.append(page)
             selected = choose(candidates)
             if selected is not None or candidates or time.monotonic() >= deadline:
@@ -510,9 +527,13 @@ class CourseRunner(object):
                     title = page.title()
                 except Exception:
                     title = "(无法读取标题)"
-                self.log("受控标签页：%s | %s" % (title[:100], safe_page_address(page.url)))
+                self.log(
+                    "受控标签页：%s | %s" % (title[:100], safe_page_address(page.url))
+                )
             if candidates:
-                raise RuntimeError("找到多个课程列表候选，请只将一个课程列表窗口置于前台")
+                raise RuntimeError(
+                    "找到多个课程列表候选，请只将一个课程列表窗口置于前台"
+                )
             raise RuntimeError(
                 "未找到课程设置列表（地址和页面内容均未匹配）。请在受控浏览器中"
                 "把需要刷课的课程列表标签页置于前台，等待页面加载完成后重试"
@@ -522,7 +543,9 @@ class CourseRunner(object):
         self.list_page.set_default_timeout(self.timeout_ms)
         self.list_page.set_default_navigation_timeout(self.timeout_ms)
         self.list_page.bring_to_front()
-        self.log("已通过%s识别并接管课程列表；运行期间请勿手动操作受控浏览器" % recognition)
+        self.log(
+            "已通过%s识别并接管课程列表；运行期间请勿手动操作受控浏览器" % recognition
+        )
 
     def _response_json(self, response, description):
         if response.status != 200:
@@ -537,7 +560,9 @@ class CourseRunner(object):
             has_text=re.compile(r"^\s*课程设置\s*$")
         )
         try:
-            if tab.count() and "is-active" not in (tab.first.get_attribute("class") or ""):
+            if tab.count() and "is-active" not in (
+                tab.first.get_attribute("class") or ""
+            ):
                 response = self._expect_response(
                     self.list_page,
                     lambda r: _is_api(r.url, COURSE_PAGE_API),
@@ -567,7 +592,9 @@ class CourseRunner(object):
             has_text=re.compile(r"^\s*重置\s*$")
         )
         try:
-            self._wait_for_locator(reset.first, state="visible", timeout=self.timeout_ms)
+            self._wait_for_locator(
+                reset.first, state="visible", timeout=self.timeout_ms
+            )
         except Exception as exc:
             if self.interrupt_exceptions and isinstance(exc, self.interrupt_exceptions):
                 raise
@@ -653,7 +680,10 @@ class CourseRunner(object):
         pending = []
         while True:
             self.check_cancel()
-            self.log("扫描第 %d 页：本页 %d 门，列表总数 %d" % (page_number, len(items), total))
+            self.log(
+                "扫描第 %d 页：本页 %d 门，列表总数 %d"
+                % (page_number, len(items), total)
+            )
             for index, item in enumerate(items):
                 if not course_has_progress(item):
                     continue
@@ -725,7 +755,12 @@ class CourseRunner(object):
             suffix = "；%s" % reason if reason else ""
             self.log(
                 "未完成：第 %d 页《%s》当前 %s%s"
-                % (entry["page"], item.get("coursename", "未命名课程"), format_progress(item), suffix)
+                % (
+                    entry["page"],
+                    item.get("coursename", "未命名课程"),
+                    format_progress(item),
+                    suffix,
+                )
             )
         self.log(
             "扫描汇总：列表 %d 门，纳入进度判断 %d 门，已 100%% %d 门，未完成 %d 门"
@@ -856,12 +891,16 @@ class CourseRunner(object):
         if not box or box["width"] <= 2 or box["height"] <= 0:
             raise RuntimeError("视频进度条尺寸异常，无法拖动")
         start_ratio = min(0.99, max(0.0, float(state["current"]) / duration))
-        start_x = box["x"] + max(1.0, min(box["width"] - 2.0, box["width"] * start_ratio))
+        start_x = box["x"] + max(
+            1.0, min(box["width"] - 2.0, box["width"] * start_ratio)
+        )
         target_x = box["x"] + min(box["width"] - 1.0, box["width"] * target / duration)
         y = box["y"] + box["height"] / 2.0
         remaining = duration
         for attempt in range(1, 4):
-            if video.evaluate("video => Boolean(video.ended || video.__courseAutoplayEnded)"):
+            if video.evaluate(
+                "video => Boolean(video.ended || video.__courseAutoplayEnded)"
+            ):
                 remaining = 0
                 break
             page.mouse.move(start_x, y)
@@ -879,7 +918,9 @@ class CourseRunner(object):
         else:
             raise RuntimeError("连续 3 次拖动均未生效，课程可能禁止快进或播放器已改版")
 
-        if not video.evaluate("video => Boolean(video.ended || video.__courseAutoplayEnded)"):
+        if not video.evaluate(
+            "video => Boolean(video.ended || video.__courseAutoplayEnded)"
+        ):
             try:
                 video.evaluate("video => video.play()")
             except Exception:
@@ -930,7 +971,9 @@ class CourseRunner(object):
             self._wait_frame_loaded(page, iframe, self.timeout_ms)
         else:
             raise RuntimeError("暂不支持 wareType=%s 的课件加载流程" % ware_type)
-        monitor.wait_success(SAVE_STUDY_API, save_mark, self.timeout_ms, "非视频学习记录上报")
+        monitor.wait_success(
+            SAVE_STUDY_API, save_mark, self.timeout_ms, "非视频学习记录上报"
+        )
         self._wait_for_timeout(page, 500)
 
     def _process_course(self, entry):
@@ -979,7 +1022,9 @@ class CourseRunner(object):
                         LAST_STUDY_API, save_mark, self.timeout_ms, "课件切换响应"
                     )
                 self._wait_for_timeout(popup, 400)
-            name = ware.get("wareName") or ware.get("resName") or "课件 %d" % (index + 1)
+            name = (
+                ware.get("wareName") or ware.get("resName") or "课件 %d" % (index + 1)
+            )
             self.log(
                 "处理课件 %d/%d：《%s》，wareType=%s"
                 % (index + 1, len(wares), name, ware.get("wareType"))
@@ -988,9 +1033,10 @@ class CourseRunner(object):
             if not suffix:
                 source_name = ware.get("resName") or ware.get("wareName") or ""
                 suffix = Path(source_name).suffix
-            is_mp4 = str(ware.get("wareType")) == "1" and str(
-                suffix
-            ).lower().lstrip(".") == "mp4"
+            is_mp4 = (
+                str(ware.get("wareType")) == "1"
+                and str(suffix).lower().lstrip(".") == "mp4"
+            )
             if is_mp4:
                 self._process_video(popup, monitor, save_mark)
             else:
@@ -1075,7 +1121,9 @@ class CourseRunner(object):
                     self.log("全部课程进度均为 100%，刷课完成")
                 checkpoint["resume_page"] = 1
                 checkpoint["processed"] = processed
-                self.report_progress(summary["completed"], summary["total"], "本轮扫描完成")
+                self.report_progress(
+                    summary["completed"], summary["total"], "本轮扫描完成"
+                )
                 return summary
             resume_page = entry["page"]
             checkpoint["resume_page"] = resume_page
@@ -1101,7 +1149,13 @@ class CourseRunner(object):
                 last_progress[resource_id] = progress
             self.log(
                 "开始课程《%s》（第 %d 页，当前 %s，第 %d/%d 次尝试）"
-                % (name, entry["page"], format_progress(item), attempt, self.args.max_attempts)
+                % (
+                    name,
+                    entry["page"],
+                    format_progress(item),
+                    attempt,
+                    self.args.max_attempts,
+                )
             )
             self.report_progress(processed, 0, "第 %d 页 · %s" % (entry["page"], name))
             try:
@@ -1109,7 +1163,8 @@ class CourseRunner(object):
             except Exception as exc:
                 interrupt_error = (
                     exc
-                    if self.interrupt_exceptions and isinstance(exc, self.interrupt_exceptions)
+                    if self.interrupt_exceptions
+                    and isinstance(exc, self.interrupt_exceptions)
                     else None
                 )
                 if interrupt_error is None and self.cancel_check:
@@ -1154,18 +1209,30 @@ def build_parser():
     parser = argparse.ArgumentParser(
         description="接管课程列表，处理未满 100% 的网页课程并汇总未完成项"
     )
-    parser.add_argument("--scan-only", action="store_true", help="只扫描全部分页，不进入课程")
-    parser.add_argument("--launch", action="store_true", help="启动独立受控浏览器并等待人工打开课程页")
-    parser.add_argument("--cdp-url", default="http://127.0.0.1:9222", help="本机浏览器 CDP 地址")
-    parser.add_argument("--browser-path", default="", help="浏览器可执行文件路径（仅 --launch）")
+    parser.add_argument(
+        "--scan-only", action="store_true", help="只扫描全部分页，不进入课程"
+    )
+    parser.add_argument(
+        "--launch", action="store_true", help="启动独立受控浏览器并等待人工打开课程页"
+    )
+    parser.add_argument(
+        "--cdp-url", default="http://127.0.0.1:9222", help="本机浏览器 CDP 地址"
+    )
+    parser.add_argument(
+        "--browser-path", default="", help="浏览器可执行文件路径（仅 --launch）"
+    )
     parser.add_argument(
         "--profile-dir",
         default=str(runtime_root() / "course_browser_profile"),
         help="受控浏览器独立配置目录（仅 --launch）",
     )
     parser.add_argument("--out", default="", help="日志和截图输出目录")
-    parser.add_argument("--timeout", type=int, default=120, help="单步等待超时秒数，默认 120")
-    parser.add_argument("--max-attempts", type=int, default=3, help="单课尝试上限，达到后跳过，默认 3")
+    parser.add_argument(
+        "--timeout", type=int, default=120, help="单步等待超时秒数，默认 120"
+    )
+    parser.add_argument(
+        "--max-attempts", type=int, default=3, help="单课尝试上限，达到后跳过，默认 3"
+    )
     return parser
 
 
@@ -1192,9 +1259,13 @@ def main(argv=None):
         runner.connect(launched=args.launch)
         if args.launch:
             try:
-                input("请在浏览器中登录并打开培训班「课程设置」列表，然后按 Enter 继续……")
+                input(
+                    "请在浏览器中登录并打开培训班「课程设置」列表，然后按 Enter 继续……"
+                )
             except EOFError:
-                raise RuntimeError("当前终端无法等待 Enter；请先人工打开课程页，再不带 --launch 运行")
+                raise RuntimeError(
+                    "当前终端无法等待 Enter；请先人工打开课程页，再不带 --launch 运行"
+                )
         runner.find_list_page()
         first_page = runner.reset_filters()
         if args.scan_only:

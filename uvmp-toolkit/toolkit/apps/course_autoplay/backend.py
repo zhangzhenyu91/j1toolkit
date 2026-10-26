@@ -23,7 +23,9 @@ def _engine():
             path = Path(sys._MEIPASS) / "course_autoplay_trial.py"
         else:
             path = Path(__file__).resolve().parents[3] / "course_autoplay_trial.py"
-        spec = importlib.util.spec_from_file_location("uvmp_course_autoplay_engine", path)
+        spec = importlib.util.spec_from_file_location(
+            "uvmp_course_autoplay_engine", path
+        )
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         _ENGINE = module
@@ -60,7 +62,9 @@ def _clean_checkpoint(raw):
         clean["skipped_ids"] = [x for x in raw["skipped_ids"] if isinstance(x, str)]
     for key in ("resume_page", "processed"):
         try:
-            clean[key] = max(0 if key == "processed" else 1, int(raw.get(key, clean[key])))
+            clean[key] = max(
+                0 if key == "processed" else 1, int(raw.get(key, clean[key]))
+            )
         except (TypeError, ValueError):
             pass
     clean["active"] = bool(raw.get("active"))
@@ -113,7 +117,9 @@ def status(cfg):
 
 def launch_browser(cfg):
     if not browser_automation.playwright_available():
-        raise RuntimeError("当前客户端未内置 Playwright，请安装完整客户端后再打开受控浏览器")
+        raise RuntimeError(
+            "当前客户端未内置 Playwright，请安装完整客户端后再打开受控浏览器"
+        )
     return browser_automation.launch(cfg)
 
 
@@ -122,7 +128,11 @@ def run(job, params: dict) -> dict:
     opts = browser_automation.settings(cfg)
     scan_only = bool(params.get("scan_only", False))
     timeout = int(params.get("timeout", opts["step_timeout"]))
-    max_attempts = int(params.get("max_attempts", (cfg.get("course_autoplay") or {}).get("max_attempts", 3)))
+    max_attempts = int(
+        params.get(
+            "max_attempts", (cfg.get("course_autoplay") or {}).get("max_attempts", 3)
+        )
+    )
     if timeout <= 0 or max_attempts <= 0:
         raise RuntimeError("单步超时和单课尝试次数必须大于 0")
     checkpoints = _load_checkpoints()

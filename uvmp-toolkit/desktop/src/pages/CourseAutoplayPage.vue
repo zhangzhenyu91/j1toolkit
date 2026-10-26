@@ -15,7 +15,11 @@
       </div>
       <div class="row" style="margin-top: 10px">
         <span class="muted">启动网址</span>
-        <t-input v-model="startUrl" class="grow" placeholder="输入打开浏览器后自动访问的 http/https 网址" />
+        <t-input
+          v-model="startUrl"
+          class="grow"
+          placeholder="输入打开浏览器后自动访问的 http/https 网址"
+        />
       </div>
       <div class="row" style="margin-top: 10px">
         <t-button variant="outline" :loading="opening" :disabled="running" @click="openBrowser"
@@ -100,12 +104,7 @@ const histCard = ref(null);
 let currentJob = null;
 
 const canStart = computed(
-  () =>
-    st.connected &&
-    st.playwright &&
-    !running.value &&
-    !starting.value &&
-    !opening.value
+  () => st.connected && st.playwright && !running.value && !starting.value && !opening.value
 );
 
 // pages / active_lists 后端可能给数字或数组，统一按数量展示
