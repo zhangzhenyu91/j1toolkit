@@ -87,7 +87,7 @@
 >
   <view
     class="sheet"
-    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : (isTablet ? 'calc(20px + env(safe-area-inset-bottom))' : 'calc(40rpx + env(safe-area-inset-bottom))'}};"
+    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : (isTablet ? 'calc(20px + env(safe-area-inset-bottom))' : 'calc(40rpx + env(safe-area-inset-bottom))')}};"
   >
     <view class="grab"></view>
     <view class="sheet-title">输入压缩包密码</view>
