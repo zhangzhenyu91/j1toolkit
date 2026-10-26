@@ -3,6 +3,7 @@
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
     "tabbar": "/components/tabbar/tabbar",
+    "wide-shell": "/components/wide-shell/wide-shell",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-cell": "tdesign-miniprogram/cell/cell",
     "t-dialog": "tdesign-miniprogram/dialog/dialog",

@@ -1,312 +1,314 @@
 <!-- 班组数据（超管 / 班组管理员）：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 五分段 -->
-<navbar back title="班组数据" />
+<wide-shell active="team-data">
+  <navbar back title="班组数据" />
 
-<view class="page-body" wx:if="{{isAdmin}}">
-  <!-- 五分段：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 -->
-  <view class="seg-wrap">
-    <t-segmented block options="{{segOptions}}" value="{{seg}}" bind:change="onSegChange" />
-  </view>
-
-  <!-- 字典段（车牌号 / 目的地 / 人员）：顶部输入即添加 + 列表维护（pane-in：分段切换淡入过渡，wx:if 重建即重播） -->
-  <block wx:if="{{seg !== 'lines' && seg !== 'oplines'}}">
-    <view class="addbar pane-in">
-      <view class="inp">
-        <input
-          class="inp-input"
-          value="{{keyword}}"
-          bindinput="onKeywordInput"
-          bindconfirm="onAdd"
-          placeholder="{{placeholder}}"
-          placeholder-class="ph"
-        />
-      </view>
-      <view class="btn-add" hover-class="hover-opacity" bindtap="onAdd">
-        <t-icon t-class="ico-30" name="add" />
-        添加
-      </view>
+  <view class="page-body" wx:if="{{isAdmin}}">
+    <!-- 五分段：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 -->
+    <view class="seg-wrap">
+      <t-segmented block options="{{segOptions}}" value="{{seg}}" bind:change="onSegChange" />
     </view>
 
-    <!-- 字典列表（编辑 / 停用 / 删除；删除仅限无引用记录，被引用时后端拒绝并提示改停用；row-in：列表项 stagger 入场） -->
-    <view class="card mlist pane-in">
-      <view
-        class="mrow row-in {{item.status === 1 ? '' : 'off'}}"
-        wx:for="{{list}}"
-        wx:key="id"
-        style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
-      >
-        <view class="mi">
-          <t-icon t-class="ico-32" name="{{icon}}" />
-        </view>
-        <text class="mt">{{item.name}}</text>
-        <!-- 目的地费用标记：市外（橙）/ 驻地（浅蓝），互斥 -->
-        <text wx:if="{{seg === 'destinations' && item.out_of_city === 1}}" class="oc-pill"
-          >市外</text
-        >
-        <text wx:if="{{seg === 'destinations' && item.stationed === 1}}" class="st2-pill"
-          >驻地</text
-        >
-        <!-- 人员来源标：user_id 非空=账号同步（绿），空=手动添加（灰） -->
-        <text wx:if="{{seg === 'members'}}" class="{{item.user_id ? 'sync-pill' : 'hand-pill'}}"
-          >{{item.user_id ? '账号同步' : '手动添加'}}</text
-        >
-        <text class="moff-tip" wx:if="{{item.status !== 1}}">已停用</text>
-        <view class="ops">
-          <!-- 成员排序（仅人员分段） -->
-          <text
-            wx:if="{{seg === 'members' && index > 0}}"
-            class="edit"
-            hover-class="hover-opacity"
-            bindtap="onMemberMove"
-            data-id="{{item.id}}"
-            data-dir="up"
-            >上移</text
-          >
-          <text
-            wx:if="{{seg === 'members' && index < list.length - 1}}"
-            class="edit"
-            hover-class="hover-opacity"
-            bindtap="onMemberMove"
-            data-id="{{item.id}}"
-            data-dir="down"
-            >下移</text
-          >
-          <text
-            class="edit"
-            hover-class="hover-opacity"
-            bindtap="onEdit"
-            data-id="{{item.id}}"
-            data-name="{{item.name}}"
-            >编辑</text
-          >
-          <text
-            class="off"
-            hover-class="hover-opacity"
-            bindtap="onToggle"
-            data-id="{{item.id}}"
-            data-status="{{item.status}}"
-            >{{item.status === 1 ? '停用' : '启用'}}</text
-          >
-          <text
-            class="del"
-            hover-class="hover-opacity"
-            bindtap="onDelete"
-            data-id="{{item.id}}"
-            data-name="{{item.name}}"
-            >删除</text
-          >
-        </view>
-      </view>
-      <view class="mempty" wx:if="{{!loading && list.length === 0}}">暂无数据，可在上方添加</view>
-    </view>
-  </block>
-
-  <!-- 杆塔信息段：线路清单（树障隐患记录分组依据）+ 杆塔坐标模板下载 / Excel 导入全量替换（pane-in / row-in 动效同字典段） -->
-  <block wx:if="{{seg === 'lines'}}">
-    <view class="card mlist pane-in">
-      <view
-        class="mrow row-in"
-        wx:for="{{lines}}"
-        wx:key="line_name"
-        style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
-      >
-        <view class="mi">
-          <t-icon t-class="ico-32" name="forest" />
-        </view>
-        <text class="mt">{{item.voltage_level}} {{item.line_name}}</text>
-        <text class="line-tower">杆塔 {{item.tower_count}}</text>
-      </view>
-      <view class="mempty" wx:if="{{!linesLoading && lines.length === 0}}"
-        >暂无线路信息，可下载模板填写后导入</view
-      >
-    </view>
-
-    <!-- 杆塔坐标导入（按当前生效班组全量替换，不影响其他班组） -->
-    <view class="tower-bar pane-in">
-      <view class="tb-l">
-        <view class="tb-n">杆塔坐标</view>
-        <view class="tb-s">导入即全量替换，仅作用于当前班组</view>
-      </view>
-      <view class="tb-btns">
-        <view class="tb-btn tpl" hover-class="hover-opacity" bindtap="onTplDownload"
-          >下载导入模板</view
-        >
-        <view
-          class="tb-btn imp {{importing ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onImpPick"
-          >{{importing ? '正在导入…' : '导入 Excel'}}</view
-        >
-      </view>
-    </view>
-    <view class="lines-note pane-in">线路信息供树障隐患记录分组使用</view>
-  </block>
-
-  <!-- 运维线路段：双输入添加（电压等级 + 线路名称）+ 上移 / 下移 / 编辑 / 删除 + 模板下载 / Excel 导入全量替换（pane-in / row-in 动效同字典段） -->
-  <block wx:if="{{seg === 'oplines'}}">
-    <view class="addbar pane-in">
-      <view class="inp inp-volt">
-        <input
-          class="inp-input"
-          value="{{opVolt}}"
-          bindinput="onOpVoltInput"
-          placeholder="电压等级"
-          placeholder-class="ph"
-        />
-      </view>
-      <view class="inp">
-        <input
-          class="inp-input"
-          value="{{opName}}"
-          bindinput="onOpNameInput"
-          bindconfirm="onOpAdd"
-          placeholder="线路名称"
-          placeholder-class="ph"
-        />
-      </view>
-      <view class="btn-add" hover-class="hover-opacity" bindtap="onOpAdd">
-        <t-icon t-class="ico-30" name="add" />
-        添加
-      </view>
-    </view>
-
-    <!-- 运维线路列表（树障隐患记录分组即取此清单；无停用，删除不拦截） -->
-    <view class="card mlist pane-in">
-      <view
-        class="mrow row-in"
-        wx:for="{{oplines}}"
-        wx:key="id"
-        style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
-      >
-        <view class="mi">
-          <t-icon t-class="ico-32" name="thunder" />
-        </view>
-        <text class="mt">{{item.voltageText}} {{item.line_name}}</text>
-        <view class="ops">
-          <text
-            wx:if="{{index > 0}}"
-            class="edit"
-            hover-class="hover-opacity"
-            bindtap="onOpMove"
-            data-id="{{item.id}}"
-            data-dir="up"
-            >上移</text
-          >
-          <text
-            wx:if="{{index < oplines.length - 1}}"
-            class="edit"
-            hover-class="hover-opacity"
-            bindtap="onOpMove"
-            data-id="{{item.id}}"
-            data-dir="down"
-            >下移</text
-          >
-          <text
-            class="edit"
-            hover-class="hover-opacity"
-            bindtap="onOpEdit"
-            data-id="{{item.id}}"
-            data-volt="{{item.voltage_level}}"
-            data-name="{{item.line_name}}"
-            >编辑</text
-          >
-          <text
-            class="del"
-            hover-class="hover-opacity"
-            bindtap="onOpDelete"
-            data-id="{{item.id}}"
-            data-name="{{item.line_name}}"
-            >删除</text
-          >
-        </view>
-      </view>
-      <view class="mempty" wx:if="{{!opLoading && oplines.length === 0}}"
-        >暂无运维线路，可在上方添加或下载模板导入</view
-      >
-    </view>
-
-    <!-- 运维线路导入（按当前生效班组全量替换，不影响其他班组） -->
-    <view class="tower-bar pane-in">
-      <view class="tb-l">
-        <view class="tb-n">批量导入</view>
-        <view class="tb-s">导入即全量替换，仅作用于当前班组</view>
-      </view>
-      <view class="tb-btns">
-        <view class="tb-btn tpl" hover-class="hover-opacity" bindtap="onOpTplDownload"
-          >下载导入模板</view
-        >
-        <view
-          class="tb-btn imp {{importing ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onOpImpPick"
-          >{{importing ? '正在导入…' : '导入 Excel'}}</view
-        >
-      </view>
-    </view>
-    <view class="lines-note pane-in">供树障隐患记录分组使用</view>
-  </block>
-</view>
-
-<!-- 目的地编辑弹层（名称 + 市外/驻地互斥标记：点亮一个即清另一个，再点取消） -->
-<t-popup
-  visible="{{destEditVisible}}"
-  placement="bottom"
-  bind:visible-change="onDestEditVisibleChange"
->
-  <view class="sheet">
-    <view class="sheet-title">编辑目的地</view>
-    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
-      <view class="f-item">
-        <view class="f-label">目的地名称</view>
-        <view class="f-field">
-          <t-input
-            borderless
-            placeholder="请输入目的地名称"
-            value="{{destEditName}}"
-            bind:change="onDestNameInput"
+    <!-- 字典段（车牌号 / 目的地 / 人员）：顶部输入即添加 + 列表维护（pane-in：分段切换淡入过渡，wx:if 重建即重播） -->
+    <block wx:if="{{seg !== 'lines' && seg !== 'oplines'}}">
+      <view class="addbar pane-in">
+        <view class="inp">
+          <input
+            class="inp-input"
+            value="{{keyword}}"
+            bindinput="onKeywordInput"
+            bindconfirm="onAdd"
+            placeholder="{{placeholder}}"
+            placeholder-class="ph"
           />
         </view>
+        <view class="btn-add" hover-class="hover-opacity" bindtap="onAdd">
+          <t-icon t-class="ico-30" name="add" />
+          添加
+        </view>
       </view>
-      <view class="f-item">
-        <view class="f-label">费用标记（市外与驻地互斥）</view>
-        <view class="qtags">
-          <t-check-tag
-            checked="{{destOutOfCity === 1}}"
-            content=""
-            data-k="ooc"
-            bind:change="onDestTag"
-            shape="round"
-            variant="outline"
-            size="medium"
-            >市外</t-check-tag
+
+      <!-- 字典列表（编辑 / 停用 / 删除；删除仅限无引用记录，被引用时后端拒绝并提示改停用；row-in：列表项 stagger 入场） -->
+      <view class="card mlist pane-in">
+        <view
+          class="mrow row-in {{item.status === 1 ? '' : 'off'}}"
+          wx:for="{{list}}"
+          wx:key="id"
+          style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
+        >
+          <view class="mi">
+            <t-icon t-class="ico-32" name="{{icon}}" />
+          </view>
+          <text class="mt">{{item.name}}</text>
+          <!-- 目的地费用标记：市外（橙）/ 驻地（浅蓝），互斥 -->
+          <text wx:if="{{seg === 'destinations' && item.out_of_city === 1}}" class="oc-pill"
+            >市外</text
           >
-          <t-check-tag
-            checked="{{destStationed === 1}}"
-            content=""
-            data-k="sta"
-            bind:change="onDestTag"
-            shape="round"
-            variant="outline"
-            size="medium"
-            >驻地</t-check-tag
+          <text wx:if="{{seg === 'destinations' && item.stationed === 1}}" class="st2-pill"
+            >驻地</text
+          >
+          <!-- 人员来源标：user_id 非空=账号同步（绿），空=手动添加（灰） -->
+          <text wx:if="{{seg === 'members'}}" class="{{item.user_id ? 'sync-pill' : 'hand-pill'}}"
+            >{{item.user_id ? '账号同步' : '手动添加'}}</text
+          >
+          <text class="moff-tip" wx:if="{{item.status !== 1}}">已停用</text>
+          <view class="ops">
+            <!-- 成员排序（仅人员分段） -->
+            <text
+              wx:if="{{seg === 'members' && index > 0}}"
+              class="edit"
+              hover-class="hover-opacity"
+              bindtap="onMemberMove"
+              data-id="{{item.id}}"
+              data-dir="up"
+              >上移</text
+            >
+            <text
+              wx:if="{{seg === 'members' && index < list.length - 1}}"
+              class="edit"
+              hover-class="hover-opacity"
+              bindtap="onMemberMove"
+              data-id="{{item.id}}"
+              data-dir="down"
+              >下移</text
+            >
+            <text
+              class="edit"
+              hover-class="hover-opacity"
+              bindtap="onEdit"
+              data-id="{{item.id}}"
+              data-name="{{item.name}}"
+              >编辑</text
+            >
+            <text
+              class="off"
+              hover-class="hover-opacity"
+              bindtap="onToggle"
+              data-id="{{item.id}}"
+              data-status="{{item.status}}"
+              >{{item.status === 1 ? '停用' : '启用'}}</text
+            >
+            <text
+              class="del"
+              hover-class="hover-opacity"
+              bindtap="onDelete"
+              data-id="{{item.id}}"
+              data-name="{{item.name}}"
+              >删除</text
+            >
+          </view>
+        </view>
+        <view class="mempty" wx:if="{{!loading && list.length === 0}}">暂无数据，可在上方添加</view>
+      </view>
+    </block>
+
+    <!-- 杆塔信息段：线路清单（树障隐患记录分组依据）+ 杆塔坐标模板下载 / Excel 导入全量替换（pane-in / row-in 动效同字典段） -->
+    <block wx:if="{{seg === 'lines'}}">
+      <view class="card mlist pane-in">
+        <view
+          class="mrow row-in"
+          wx:for="{{lines}}"
+          wx:key="line_name"
+          style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
+        >
+          <view class="mi">
+            <t-icon t-class="ico-32" name="forest" />
+          </view>
+          <text class="mt">{{item.voltage_level}} {{item.line_name}}</text>
+          <text class="line-tower">杆塔 {{item.tower_count}}</text>
+        </view>
+        <view class="mempty" wx:if="{{!linesLoading && lines.length === 0}}"
+          >暂无线路信息，可下载模板填写后导入</view
+        >
+      </view>
+
+      <!-- 杆塔坐标导入（按当前生效班组全量替换，不影响其他班组） -->
+      <view class="tower-bar pane-in">
+        <view class="tb-l">
+          <view class="tb-n">杆塔坐标</view>
+          <view class="tb-s">导入即全量替换，仅作用于当前班组</view>
+        </view>
+        <view class="tb-btns">
+          <view class="tb-btn tpl" hover-class="hover-opacity" bindtap="onTplDownload"
+            >下载导入模板</view
+          >
+          <view
+            class="tb-btn imp {{importing ? 'disabled' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onImpPick"
+            >{{importing ? '正在导入…' : '导入 Excel'}}</view
           >
         </view>
       </view>
-    </scroll-view>
-    <view class="sheet-actions">
-      <view
-        class="btn-ghost {{destSaving ? 'disabled' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="onCloseDestEdit"
-        >取 消</view
-      >
-      <view
-        class="btn-dark {{destSaving ? 'disabled' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="onDestEditSave"
-        >{{destSaving ? '正在保存…' : '保 存'}}</view
-      >
-    </view>
-  </view>
-</t-popup>
+      <view class="lines-note pane-in">线路信息供树障隐患记录分组使用</view>
+    </block>
 
-<t-toast id="t-toast" />
+    <!-- 运维线路段：双输入添加（电压等级 + 线路名称）+ 上移 / 下移 / 编辑 / 删除 + 模板下载 / Excel 导入全量替换（pane-in / row-in 动效同字典段） -->
+    <block wx:if="{{seg === 'oplines'}}">
+      <view class="addbar pane-in">
+        <view class="inp inp-volt">
+          <input
+            class="inp-input"
+            value="{{opVolt}}"
+            bindinput="onOpVoltInput"
+            placeholder="电压等级"
+            placeholder-class="ph"
+          />
+        </view>
+        <view class="inp">
+          <input
+            class="inp-input"
+            value="{{opName}}"
+            bindinput="onOpNameInput"
+            bindconfirm="onOpAdd"
+            placeholder="线路名称"
+            placeholder-class="ph"
+          />
+        </view>
+        <view class="btn-add" hover-class="hover-opacity" bindtap="onOpAdd">
+          <t-icon t-class="ico-30" name="add" />
+          添加
+        </view>
+      </view>
+
+      <!-- 运维线路列表（树障隐患记录分组即取此清单；无停用，删除不拦截） -->
+      <view class="card mlist pane-in">
+        <view
+          class="mrow row-in"
+          wx:for="{{oplines}}"
+          wx:key="id"
+          style="animation-delay: {{(index > 12 ? 12 : index) * 0.04}}s"
+        >
+          <view class="mi">
+            <t-icon t-class="ico-32" name="thunder" />
+          </view>
+          <text class="mt">{{item.voltageText}} {{item.line_name}}</text>
+          <view class="ops">
+            <text
+              wx:if="{{index > 0}}"
+              class="edit"
+              hover-class="hover-opacity"
+              bindtap="onOpMove"
+              data-id="{{item.id}}"
+              data-dir="up"
+              >上移</text
+            >
+            <text
+              wx:if="{{index < oplines.length - 1}}"
+              class="edit"
+              hover-class="hover-opacity"
+              bindtap="onOpMove"
+              data-id="{{item.id}}"
+              data-dir="down"
+              >下移</text
+            >
+            <text
+              class="edit"
+              hover-class="hover-opacity"
+              bindtap="onOpEdit"
+              data-id="{{item.id}}"
+              data-volt="{{item.voltage_level}}"
+              data-name="{{item.line_name}}"
+              >编辑</text
+            >
+            <text
+              class="del"
+              hover-class="hover-opacity"
+              bindtap="onOpDelete"
+              data-id="{{item.id}}"
+              data-name="{{item.line_name}}"
+              >删除</text
+            >
+          </view>
+        </view>
+        <view class="mempty" wx:if="{{!opLoading && oplines.length === 0}}"
+          >暂无运维线路，可在上方添加或下载模板导入</view
+        >
+      </view>
+
+      <!-- 运维线路导入（按当前生效班组全量替换，不影响其他班组） -->
+      <view class="tower-bar pane-in">
+        <view class="tb-l">
+          <view class="tb-n">批量导入</view>
+          <view class="tb-s">导入即全量替换，仅作用于当前班组</view>
+        </view>
+        <view class="tb-btns">
+          <view class="tb-btn tpl" hover-class="hover-opacity" bindtap="onOpTplDownload"
+            >下载导入模板</view
+          >
+          <view
+            class="tb-btn imp {{importing ? 'disabled' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onOpImpPick"
+            >{{importing ? '正在导入…' : '导入 Excel'}}</view
+          >
+        </view>
+      </view>
+      <view class="lines-note pane-in">供树障隐患记录分组使用</view>
+    </block>
+  </view>
+
+  <!-- 目的地编辑弹层（名称 + 市外/驻地互斥标记：点亮一个即清另一个，再点取消） -->
+  <t-popup
+    visible="{{destEditVisible}}"
+    placement="{{isWide ? 'center' : 'bottom'}}"
+    bind:visible-change="onDestEditVisibleChange"
+  >
+    <view class="sheet">
+      <view class="sheet-title">编辑目的地</view>
+      <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+        <view class="f-item">
+          <view class="f-label">目的地名称</view>
+          <view class="f-field">
+            <t-input
+              borderless
+              placeholder="请输入目的地名称"
+              value="{{destEditName}}"
+              bind:change="onDestNameInput"
+            />
+          </view>
+        </view>
+        <view class="f-item">
+          <view class="f-label">费用标记（市外与驻地互斥）</view>
+          <view class="qtags">
+            <t-check-tag
+              checked="{{destOutOfCity === 1}}"
+              content=""
+              data-k="ooc"
+              bind:change="onDestTag"
+              shape="round"
+              variant="outline"
+              size="medium"
+              >市外</t-check-tag
+            >
+            <t-check-tag
+              checked="{{destStationed === 1}}"
+              content=""
+              data-k="sta"
+              bind:change="onDestTag"
+              shape="round"
+              variant="outline"
+              size="medium"
+              >驻地</t-check-tag
+            >
+          </view>
+        </view>
+      </scroll-view>
+      <view class="sheet-actions">
+        <view
+          class="btn-ghost {{destSaving ? 'disabled' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onCloseDestEdit"
+          >取 消</view
+        >
+        <view
+          class="btn-dark {{destSaving ? 'disabled' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onDestEditSave"
+          >{{destSaving ? '正在保存…' : '保 存'}}</view
+        >
+      </view>
+    </view>
+  </t-popup>
+
+  <t-toast id="t-toast" />
+</wide-shell>

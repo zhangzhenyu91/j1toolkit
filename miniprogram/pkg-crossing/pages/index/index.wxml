@@ -1,252 +1,258 @@
 <!-- 交跨记录 · 主页（两级视图：线路大卡（状态着色 + 排序 + stagger 入场）→ 线路台账（记录卡默认折叠一卡两行：
      区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 跨越类型·交叉角；每卡一枚折叠/展开开关（点卡同效），
      展开出全字段与 删除 按钮（班管/超管，t-dialog 确认））；FAB 悬浮导出。无处理流程 / 无照片 / 无人工新增编辑） -->
-<navbar back title="交跨记录" />
+<wide-shell active="crossing">
+  <navbar back title="交跨记录" />
 
-<view class="page-body" wx:if="{{gate}}">
-  <!-- ==================== 线路视图（view-pane：视图切换淡入过渡，wx:if 重建即重播） ==================== -->
-  <block wx:if="{{view === 'lines'}}">
-    <view class="view-pane">
-      <!-- 看板四格（仿树障页 stats-card）：记录总数 / 本周新增 / 存在隐患数（>0 红、=0 灰）/ 待确认线路数（>0 橙、=0 灰） -->
-      <view class="card stats-card">
-        <view class="stat"
-          ><text class="stat-num">{{dash.total}}</text
-          ><text class="stat-label">记录总数</text></view
-        >
-        <view class="stat"
-          ><text class="stat-num">{{dash.week_new}}</text
-          ><text class="stat-label">本周新增</text></view
-        >
-        <view class="stat"
-          ><text class="stat-num {{dash.hazard > 0 ? 'stat-num-bad' : 'stat-num-mut'}}"
-            >{{dash.hazard}}</text
-          ><text class="stat-label">存在隐患</text></view
-        >
-        <view class="stat"
-          ><text class="stat-num {{dash.pending_lines > 0 ? 'stat-num-warn' : 'stat-num-mut'}}"
-            >{{dash.pending_lines}}</text
-          ><text class="stat-label">待确认线路</text></view
-        >
-      </view>
-
-      <!-- 搜索框（常置浅灰底，输入即过滤线路卡） -->
-      <view class="search">
-        <t-icon t-class="ico-30 ico-weak" name="search" />
-        <input
-          class="s-input"
-          value="{{searchKey}}"
-          bindinput="onSearchInput"
-          placeholder="搜索线路名称"
-          placeholder-class="ph"
-        />
-        <t-icon
-          wx:if="{{searchKey}}"
-          t-class="ico-32"
-          name="close-circle"
-          color="#C9CDD4"
-          bindtap="onSearchClear"
-        />
-      </view>
-
-      <!-- 线路大卡片流：计数着色（隐患>0 红字、=0 灰字 / 有记录品牌蓝 / 0 记录灰）+ stagger 入场（delay 递增封顶 12 档）；
-         排序：隐患降序 > 电压等级降序 > 名称升序；未匹配组排尾 -->
-      <view class="empty-box" wx:if="{{!loading && lineCards.length === 0}}"
-        >{{searchKey ? '未找到匹配线路' : '暂无线路'}}</view
-      >
-      <view
-        class="card lcard {{item.stateClass}}"
-        wx:for="{{lineCards}}"
-        wx:key="key"
-        data-key="{{item.key}}"
-        style="animation-delay: {{(index > 12 ? 12 : index) * 0.05}}s"
-        hover-class="hover-opacity"
-        bindtap="onLineCardTap"
-      >
-        <view class="lc-head">
-          <view class="lc-title">{{item.title}}</view>
-          <t-icon t-class="ico-32" name="chevron-right" color="#C9CDD4" />
-        </view>
-        <view class="lc-stats">
-          <text class="lc-st {{item.hazard > 0 ? 'lc-bad' : 'lc-total'}}"
-            >隐患 {{item.hazard}}</text
+  <view class="page-body" wx:if="{{gate}}">
+    <!-- ==================== 线路视图（view-pane：视图切换淡入过渡，wx:if 重建即重播） ==================== -->
+    <block wx:if="{{view === 'lines'}}">
+      <view class="view-pane">
+        <!-- 看板四格（仿树障页 stats-card）：记录总数 / 本周新增 / 存在隐患数（>0 红、=0 灰）/ 待确认线路数（>0 橙、=0 灰） -->
+        <view class="card stats-card">
+          <view class="stat"
+            ><text class="stat-num">{{dash.total}}</text
+            ><text class="stat-label">记录总数</text></view
           >
-          <text class="lc-st lc-total">共 {{item.total}} 条</text>
+          <view class="stat"
+            ><text class="stat-num">{{dash.week_new}}</text
+            ><text class="stat-label">本周新增</text></view
+          >
+          <view class="stat"
+            ><text class="stat-num {{dash.hazard > 0 ? 'stat-num-bad' : 'stat-num-mut'}}"
+              >{{dash.hazard}}</text
+            ><text class="stat-label">存在隐患</text></view
+          >
+          <view class="stat"
+            ><text class="stat-num {{dash.pending_lines > 0 ? 'stat-num-warn' : 'stat-num-mut'}}"
+              >{{dash.pending_lines}}</text
+            ><text class="stat-label">待确认线路</text></view
+          >
+        </view>
+
+        <!-- 搜索框（常置浅灰底，输入即过滤线路卡） -->
+        <view class="search">
+          <t-icon t-class="ico-30 ico-weak" name="search" />
+          <input
+            class="s-input"
+            value="{{searchKey}}"
+            bindinput="onSearchInput"
+            placeholder="搜索线路名称"
+            placeholder-class="ph"
+          />
+          <t-icon
+            wx:if="{{searchKey}}"
+            t-class="ico-32"
+            name="close-circle"
+            color="#C9CDD4"
+            bindtap="onSearchClear"
+          />
+        </view>
+
+        <!-- 线路大卡片流：计数着色（隐患>0 红字、=0 灰字 / 有记录品牌蓝 / 0 记录灰）+ stagger 入场（delay 递增封顶 12 档）；
+         排序：隐患降序 > 电压等级降序 > 名称升序；未匹配组排尾 -->
+        <view class="empty-box" wx:if="{{!loading && lineCards.length === 0}}"
+          >{{searchKey ? '未找到匹配线路' : '暂无线路'}}</view
+        >
+        <view
+          class="card lcard {{item.stateClass}}"
+          wx:for="{{lineCards}}"
+          wx:key="key"
+          data-key="{{item.key}}"
+          style="animation-delay: {{(index > 12 ? 12 : index) * 0.05}}s"
+          hover-class="hover-opacity"
+          bindtap="onLineCardTap"
+        >
+          <view class="lc-head">
+            <view class="lc-title">{{item.title}}</view>
+            <t-icon t-class="ico-32" name="chevron-right" color="#C9CDD4" />
+          </view>
+          <view class="lc-stats">
+            <text class="lc-st {{item.hazard > 0 ? 'lc-bad' : 'lc-total'}}"
+              >隐患 {{item.hazard}}</text
+            >
+            <text class="lc-st lc-total">共 {{item.total}} 条</text>
+          </view>
         </view>
       </view>
-    </view>
-  </block>
+    </block>
 
-  <!-- ==================== 台账视图（view-pane：视图切换淡入过渡，wx:if 重建即重播） ==================== -->
-  <block wx:else>
-    <view class="view-pane">
-      <!-- 返回行 + 线路标题（电压+名称+隐患小字） -->
-      <view class="backrow" hover-class="hover-opacity" bindtap="onBackLines">
-        <t-icon t-class="ico-32 ico-brand" name="chevron-left" />
-        <text class="backrow-t">线路列表</text>
-      </view>
-      <view class="ledger-head">
-        <view class="lh-title">{{curTitle}}</view>
-        <view class="lh-sub">
-          <text class="{{curHazard > 0 ? 'lh-bad' : 'lh-total'}}">隐患 {{curHazard}}</text>
-          <text class="lh-total">共 {{curTotal}} 条</text>
+    <!-- ==================== 台账视图（view-pane：视图切换淡入过渡，wx:if 重建即重播） ==================== -->
+    <block wx:else>
+      <view class="view-pane">
+        <!-- 返回行 + 线路标题（电压+名称+隐患小字） -->
+        <view class="backrow" hover-class="hover-opacity" bindtap="onBackLines">
+          <t-icon t-class="ico-32 ico-brand" name="chevron-left" />
+          <text class="backrow-t">线路列表</text>
         </view>
-      </view>
+        <view class="ledger-head">
+          <view class="lh-title">{{curTitle}}</view>
+          <view class="lh-sub">
+            <text class="{{curHazard > 0 ? 'lh-bad' : 'lh-total'}}">隐患 {{curHazard}}</text>
+            <text class="lh-total">共 {{curTotal}} 条</text>
+          </view>
+        </view>
 
-      <!-- 记录卡片流（后端已按区段升序排好，直接渲染；组空态兜底） -->
-      <view
-        class="empty-box"
-        wx:if="{{!loading && groups.length === 1 && groups[0].records.length === 0}}"
-        >该线路暂无交跨记录</view
-      >
-      <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:key="key">
-        <!-- 记录卡片（默认折叠一卡两行：区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 跨越类型·交叉角；每卡一枚折叠/展开开关，点卡同效）：
+        <!-- 记录卡片流（后端已按区段升序排好，直接渲染；组空态兜底） -->
+        <view
+          class="empty-box"
+          wx:if="{{!loading && groups.length === 1 && groups[0].records.length === 0}}"
+          >该线路暂无交跨记录</view
+        >
+        <view class="lgroup" wx:for="{{groups}}" wx:for-item="g" wx:key="key">
+          <!-- 记录卡片（默认折叠一卡两行：区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 跨越类型·交叉角；每卡一枚折叠/展开开关，点卡同效）：
            展开出全字段（跨越区段/类型/距小大号侧/边线水平/垂直距离/交叉角/是否存在隐患/发现人/巡视时间/来源/备注）与 删除 按钮；
            有隐患时首行亮橙色「圆点+文字」标签；stagger 入场（delay 递增封顶 10 档） -->
-        <view
-          class="card crcard crcard-in"
-          wx:for="{{g.records}}"
-          wx:for-item="rec"
-          wx:for-index="ri"
-          wx:key="id"
-          style="animation-delay: {{(ri > 10 ? 10 : ri) * 0.05}}s"
-          data-id="{{rec.id}}"
-          hover-class="hover-opacity"
-          bindtap="onCardTap"
-        >
-          <!-- 首行（分两个块：区段定宽块 + 垂距大字块，各卡垂距左缘竖向对齐）：区段 + 垂距 + 隐患标签（有值才渲染）+ 折叠/展开开关 -->
-          <view class="cr-head">
-            <view class="cr-section">{{rec.section || '未填写区段'}}</view>
-            <view class="cr-vbig">垂距 {{rec.verticalText}}</view>
-            <view class="haz-tag" wx:if="{{rec.has_hazard}}">{{rec.has_hazard}}</view>
-            <view
-              class="cr-fold {{expanded[rec.id] ? 'cr-fold-open' : ''}}"
-              catchtap="onFoldToggle"
-              data-id="{{rec.id}}"
-            >
-              <t-icon t-class="ico-30 ico-weak" name="chevron-down" />
+          <view
+            class="card crcard crcard-in"
+            wx:for="{{g.records}}"
+            wx:for-item="rec"
+            wx:for-index="ri"
+            wx:key="id"
+            style="animation-delay: {{(ri > 10 ? 10 : ri) * 0.05}}s"
+            data-id="{{rec.id}}"
+            hover-class="hover-opacity"
+            bindtap="onCardTap"
+          >
+            <!-- 首行（分两个块：区段定宽块 + 垂距大字块，各卡垂距左缘竖向对齐）：区段 + 垂距 + 隐患标签（有值才渲染）+ 折叠/展开开关 -->
+            <view class="cr-head">
+              <view class="cr-section">{{rec.section || '未填写区段'}}</view>
+              <view class="cr-vbig">垂距 {{rec.verticalText}}</view>
+              <view class="haz-tag" wx:if="{{rec.has_hazard}}">{{rec.has_hazard}}</view>
+              <view
+                class="cr-fold {{expanded[rec.id] ? 'cr-fold-open' : ''}}"
+                catchtap="onFoldToggle"
+                data-id="{{rec.id}}"
+              >
+                <t-icon t-class="ico-30 ico-weak" name="chevron-down" />
+              </view>
             </view>
-          </view>
 
-          <!-- 次行（折叠态即首行 + 此行展示完）：跨越类型 / 交叉角 -->
-          <view class="cr-grid">
-            <view class="cr-f">
-              <view class="cr-l">跨越类型</view>
-              <view class="cr-v">{{rec.crossing_type || '—'}}</view>
+            <!-- 次行（折叠态即首行 + 此行展示完）：跨越类型 / 交叉角 -->
+            <view class="cr-grid">
+              <view class="cr-f">
+                <view class="cr-l">跨越类型</view>
+                <view class="cr-v">{{rec.crossing_type || '—'}}</view>
+              </view>
+              <view class="cr-f">
+                <view class="cr-l">交叉角</view>
+                <view class="cr-v">{{rec.angleText}}</view>
+              </view>
             </view>
-            <view class="cr-f">
-              <view class="cr-l">交叉角</view>
-              <view class="cr-v">{{rec.angleText}}</view>
-            </view>
-          </view>
 
-          <!-- 展开区：全字段（grid-rows 折叠动画：常驻渲染、class 开关；旧 WebView 不支持 grid-rows 动画时退化为直切） -->
-          <view class="cr-more {{expanded[rec.id] ? 'cr-more-open' : ''}}">
-            <view class="cr-more-in">
-              <view class="cr-grid">
-                <view class="cr-f" wx:for="{{rec.moreFields}}" wx:for-item="f" wx:key="label">
-                  <view class="cr-l">{{f.label}}</view>
-                  <view class="cr-v">{{f.value}}</view>
+            <!-- 展开区：全字段（grid-rows 折叠动画：常驻渲染、class 开关；旧 WebView 不支持 grid-rows 动画时退化为直切） -->
+            <view class="cr-more {{expanded[rec.id] ? 'cr-more-open' : ''}}">
+              <view class="cr-more-in">
+                <view class="cr-grid">
+                  <view class="cr-f" wx:for="{{rec.moreFields}}" wx:for-item="f" wx:key="label">
+                    <view class="cr-l">{{f.label}}</view>
+                    <view class="cr-v">{{f.value}}</view>
+                  </view>
+                </view>
+
+                <!-- 操作行：删除（班管/超管） -->
+                <view class="cr-foot">
+                  <view
+                    class="btn-act btn-del"
+                    wx:if="{{canManage}}"
+                    hover-class="hover-opacity"
+                    catchtap="onDeleteRecord"
+                    data-id="{{rec.id}}"
+                    >删 除</view
+                  >
                 </view>
               </view>
-
-              <!-- 操作行：删除（班管/超管） -->
-              <view class="cr-foot">
-                <view
-                  class="btn-act btn-del"
-                  wx:if="{{canManage}}"
-                  hover-class="hover-opacity"
-                  catchtap="onDeleteRecord"
-                  data-id="{{rec.id}}"
-                  >删 除</view
-                >
-              </view>
             </view>
           </view>
         </view>
       </view>
-    </view>
-  </block>
+    </block>
 
-  <!-- FAB 底部占位（防末卡被悬浮钮遮挡） -->
-  <view class="fab-spacer"></view>
-</view>
-
-<!-- 全局悬浮导出 FAB（每页主按钮至多一枚） -->
-<view class="fab" wx:if="{{gate}}" hover-class="hover-opacity" bindtap="onOpenExport">
-  <t-icon t-class="ico-44" name="download" />
-</view>
-
-<!-- 导出弹层：范围单选（全部线路 / 当前线路；线路视图为「选择线路」带线路列表）+ 按线路分表开关（仅全部可勾） -->
-<t-popup visible="{{expVisible}}" placement="bottom" bind:visible-change="onExpVisibleChange">
-  <view class="sheet">
-    <view class="sheet-title">导出统计表</view>
-    <view class="f-item">
-      <view class="f-label">导出范围</view>
-      <view class="exp-scope">
-        <view
-          class="flt-item {{expScope === 'all' ? 'on' : ''}}"
-          hover-class="hover-bg-warm"
-          bindtap="onExpScopeTap"
-          data-scope="all"
-        >
-          <text>全部线路</text>
-          <t-icon wx:if="{{expScope === 'all'}}" t-class="ico-30" name="check" />
-        </view>
-        <view
-          wx:if="{{view === 'lines' || !curUnmatched}}"
-          class="flt-item {{expScope === 'line' ? 'on' : ''}}"
-          hover-class="hover-bg-warm"
-          bindtap="onExpScopeTap"
-          data-scope="line"
-        >
-          <text>{{view === 'ledger' ? '当前线路（' + curTitle + '）' : '选择线路'}}</text>
-          <t-icon wx:if="{{expScope === 'line'}}" t-class="ico-30" name="check" />
-        </view>
-      </view>
-    </view>
-    <!-- 线路视图「选择线路」：线路列表（未匹配组不可按线路导出，不入列） -->
-    <scroll-view
-      wx:if="{{expScope === 'line' && view === 'lines'}}"
-      scroll-y
-      class="flt-list"
-      enhanced
-      show-scrollbar="{{false}}"
-    >
-      <view
-        class="flt-item {{expLine === item.lineName ? 'on' : ''}}"
-        wx:for="{{expLineOptions}}"
-        wx:key="key"
-        hover-class="hover-bg-warm"
-        bindtap="onExpLineTap"
-        data-line="{{item.lineName}}"
-      >
-        <text>{{item.title}}（{{item.total}}）</text>
-        <t-icon wx:if="{{expLine === item.lineName}}" t-class="ico-30" name="check" />
-      </view>
-    </scroll-view>
-    <view class="f-item exp-split">
-      <view class="exp-split-l">
-        <view class="f-label">按线路分表</view>
-        <view class="exp-tip">每条线路一个工作表；仅范围为全部线路时可勾选</view>
-      </view>
-      <t-switch value="{{expSplit}}" disabled="{{expScope !== 'all'}}" bind:change="onExpSplit" />
-    </view>
-    <view class="sheet-actions">
-      <view
-        class="btn-ghost {{exporting ? 'disabled' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="onCloseExport"
-        >取 消</view
-      >
-      <view
-        class="btn-dark {{exporting ? 'disabled' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="onConfirmExport"
-        >{{exporting ? '正在导出…' : '导 出'}}</view
-      >
-    </view>
+    <!-- FAB 底部占位（防末卡被悬浮钮遮挡） -->
+    <view class="fab-spacer"></view>
   </view>
-</t-popup>
 
-<t-dialog id="t-dialog" />
-<t-toast id="t-toast" />
+  <!-- 全局悬浮导出 FAB（每页主按钮至多一枚） -->
+  <view class="fab" wx:if="{{gate}}" hover-class="hover-opacity" bindtap="onOpenExport">
+    <t-icon t-class="ico-44" name="download" />
+  </view>
+
+  <!-- 导出弹层：范围单选（全部线路 / 当前线路；线路视图为「选择线路」带线路列表）+ 按线路分表开关（仅全部可勾） -->
+  <t-popup
+    visible="{{expVisible}}"
+    placement="{{isWide ? 'center' : 'bottom'}}"
+    bind:visible-change="onExpVisibleChange"
+  >
+    <view class="sheet">
+      <view class="sheet-title">导出统计表</view>
+      <view class="f-item">
+        <view class="f-label">导出范围</view>
+        <view class="exp-scope">
+          <view
+            class="flt-item {{expScope === 'all' ? 'on' : ''}}"
+            hover-class="hover-bg-warm"
+            bindtap="onExpScopeTap"
+            data-scope="all"
+          >
+            <text>全部线路</text>
+            <t-icon wx:if="{{expScope === 'all'}}" t-class="ico-30" name="check" />
+          </view>
+          <view
+            wx:if="{{view === 'lines' || !curUnmatched}}"
+            class="flt-item {{expScope === 'line' ? 'on' : ''}}"
+            hover-class="hover-bg-warm"
+            bindtap="onExpScopeTap"
+            data-scope="line"
+          >
+            <text>{{view === 'ledger' ? '当前线路（' + curTitle + '）' : '选择线路'}}</text>
+            <t-icon wx:if="{{expScope === 'line'}}" t-class="ico-30" name="check" />
+          </view>
+        </view>
+      </view>
+      <!-- 线路视图「选择线路」：线路列表（未匹配组不可按线路导出，不入列） -->
+      <scroll-view
+        wx:if="{{expScope === 'line' && view === 'lines'}}"
+        scroll-y
+        class="flt-list"
+        enhanced
+        show-scrollbar="{{false}}"
+      >
+        <view
+          class="flt-item {{expLine === item.lineName ? 'on' : ''}}"
+          wx:for="{{expLineOptions}}"
+          wx:key="key"
+          hover-class="hover-bg-warm"
+          bindtap="onExpLineTap"
+          data-line="{{item.lineName}}"
+        >
+          <text>{{item.title}}（{{item.total}}）</text>
+          <t-icon wx:if="{{expLine === item.lineName}}" t-class="ico-30" name="check" />
+        </view>
+      </scroll-view>
+      <view class="f-item exp-split">
+        <view class="exp-split-l">
+          <view class="f-label">按线路分表</view>
+          <view class="exp-tip">每条线路一个工作表；仅范围为全部线路时可勾选</view>
+        </view>
+        <t-switch value="{{expSplit}}" disabled="{{expScope !== 'all'}}" bind:change="onExpSplit" />
+      </view>
+      <view class="sheet-actions">
+        <view
+          class="btn-ghost {{exporting ? 'disabled' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onCloseExport"
+          >取 消</view
+        >
+        <view
+          class="btn-dark {{exporting ? 'disabled' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onConfirmExport"
+          >{{exporting ? '正在导出…' : '导 出'}}</view
+        >
+      </view>
+    </view>
+  </t-popup>
+
+  <t-dialog id="t-dialog" />
+  <t-toast id="t-toast" />
+</wide-shell>

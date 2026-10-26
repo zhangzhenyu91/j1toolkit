@@ -38,7 +38,11 @@
 </view>
 
 <!-- 新增 / 编辑班组弹层 -->
-<t-popup visible="{{showEdit}}" placement="bottom" bind:visible-change="onVisibleChange">
+<t-popup
+  visible="{{showEdit}}"
+  placement="{{isWide ? 'center' : 'bottom'}}"
+  bind:visible-change="onVisibleChange"
+>
   <view
     class="sheet"
     style="padding-bottom: calc(48rpx + env(safe-area-inset-bottom) + {{keyboardHeight}}px)"

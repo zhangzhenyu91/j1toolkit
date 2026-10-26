@@ -10,6 +10,7 @@ import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { mapAnalysis } from '../../utils/quiz';
+import widePage from '../../../utils/wide-page';
 
 const API_BASE = '/api/v1/quiz';
 
@@ -18,7 +19,7 @@ const API_BASE = '/api/v1/quiz';
 const teamGate = createTeamGate({ storageKey: 'quiz_team_id', teamNameKey: 'quiz_team_name' });
 
 Page({
-  behaviors: [teamGate],
+  behaviors: [teamGate, widePage],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
     // 班组切换器数据（isAdmin/noTeam/teamName/teamOptions/teamDropOpen）由 teamgate behavior 提供；

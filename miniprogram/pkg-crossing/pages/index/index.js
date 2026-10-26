@@ -12,6 +12,7 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
+import widePage from '../../../utils/wide-page';
 
 const API_BASE = '/api/v1/crossing';
 
@@ -73,6 +74,7 @@ function mapRecord(r) {
 }
 
 Page({
+  behaviors: [widePage],
   data: {
     gate: false, // 门控（参照树障页 gate 模式）
     canManage: false, // 班管/超管（删记录入口可见）

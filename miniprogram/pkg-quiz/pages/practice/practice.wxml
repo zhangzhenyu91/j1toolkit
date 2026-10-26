@@ -196,7 +196,11 @@
 
   <!-- 刷题设置弹层（答对自动下一题 / 选项乱序；本地 storage 持久化；
        骨架同弹层族：限高 86vh + overflow hidden，头/脚 flex:none，体区 scroll-view 独立滚动） -->
-  <t-popup visible="{{setOpen}}" placement="bottom" bind:visible-change="onSetVisibleChange">
+  <t-popup
+    visible="{{setOpen}}"
+    placement="{{isWide ? 'center' : 'bottom'}}"
+    bind:visible-change="onSetVisibleChange"
+  >
     <view class="set-pop">
       <view class="set-hd">
         <text>刷题设置</text>
@@ -235,7 +239,11 @@
 
   <!-- 答题卡弹层（按题型分区块 + 图例；背题模式仅导航，chips 全灰 + 当前蓝框；
        骨架同弹层族：限高 + overflow hidden，头/脚 flex:none，体区 scroll-view 独立滚动） -->
-  <t-popup visible="{{sheetOpen}}" placement="bottom" bind:visible-change="onSheetVisibleChange">
+  <t-popup
+    visible="{{sheetOpen}}"
+    placement="{{isWide ? 'center' : 'bottom'}}"
+    bind:visible-change="onSheetVisibleChange"
+  >
     <view class="sheet-pop">
       <view class="sheet-hd">
         <text>答题卡（已答 {{answeredCount}}/{{total}}）</text>
@@ -279,10 +287,14 @@
        骨架同弹层族：限高 86vh + overflow hidden，头/脚 flex:none，体区 scroll-view 独立滚动；
        键盘弹起时页面不上推（textarea adjust-position=false），仅由弹层底部 padding 抬高一次补偿，
        取消/保存始终可达） -->
-  <t-popup visible="{{anaOpen}}" placement="bottom" bind:visible-change="onAnaVisibleChange">
+  <t-popup
+    visible="{{anaOpen}}"
+    placement="{{isWide ? 'center' : 'bottom'}}"
+    bind:visible-change="onAnaVisibleChange"
+  >
     <view
       class="ana-pop"
-      style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};"
+      style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : (isTablet ? 'calc(20px + env(safe-area-inset-bottom))' : 'calc(40rpx + env(safe-area-inset-bottom))')}};"
     >
       <view class="set-hd">修改解析</view>
       <view class="ana-tip">解析对题库内全员可见，保存后即刻生效；留空则由 AI 重新生成</view>

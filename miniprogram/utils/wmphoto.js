@@ -126,7 +126,7 @@ function createWmPhoto({ geoBase, logTag }) {
       },
 
       // 横竖屏切换只重算窗口几何：原图、回调、方向及用户已调整的取景中心均保留
-      onResize() {
+      resizeWmCrop() {
         if (!this.data.cropVisible) return;
         const dispW = this._cropDispW;
         const dispH = this._cropDispH;

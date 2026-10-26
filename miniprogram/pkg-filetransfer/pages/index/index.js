@@ -14,6 +14,7 @@ import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf, IMG_EXTS, DOC_EXTS } from '../../../utils/util';
 import config from '../../../config';
+import widePage from '../../../utils/wide-page';
 
 // 班组切换器 + 生效班组门控（storage filetransfer_team_id，全部请求带 team_id）
 const teamGate = createTeamGate({ storageKey: 'filetransfer_team_id' });
@@ -47,7 +48,7 @@ const fmtLast = (sec) => {
 };
 
 Page({
-  behaviors: [teamGate],
+  behaviors: [teamGate, widePage],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
     list: [],

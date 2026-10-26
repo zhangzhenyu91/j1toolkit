@@ -1,0 +1,63 @@
+<view class="wide-shell {{collapsed ? 'wide-collapsed' : ''}}">
+  <view class="wide-side" style="padding-top: {{statusBarHeight}}px;">
+    <view class="wide-brand">
+      <view class="wide-logo">匣</view>
+      <view class="wide-brand-text">
+        <view class="wide-brand-name">Shade 壹匣</view>
+        <view class="wide-brand-team">检修一班</view>
+      </view>
+    </view>
+    <view
+      class="wide-collapse"
+      hover-class="hover-bg-warm"
+      bindtap="toggleCollapse"
+      aria-label="{{collapsed ? '展开侧栏' : '收起侧栏'}}"
+    >
+      <t-icon name="chevron-left" t-class="wide-collapse-icon" />
+    </view>
+    <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="wide-side-scroll">
+      <view
+        class="wide-nav-item {{active === 'home' ? 'on' : ''}}"
+        hover-class="hover-bg-warm"
+        bindtap="goHome"
+        aria-label="首页"
+      >
+        <t-icon name="home" t-class="wide-nav-icon" />
+        <text class="wide-nav-text">首页</text>
+        <text class="wide-compact-text">首页</text>
+      </view>
+      <view class="wide-section">应用中心</view>
+      <view
+        class="wide-nav-item {{active === item.app_key ? 'on' : ''}}"
+        wx:for="{{navApps}}"
+        wx:key="app_key"
+        hover-class="hover-bg-warm"
+        data-path="{{item.path}}"
+        data-key="{{item.app_key}}"
+        bindtap="goApp"
+        aria-label="{{item.name}}"
+      >
+        <t-icon name="{{item.icon || 'app'}}" t-class="wide-nav-icon" />
+        <text class="wide-nav-text">{{item.name}}</text>
+        <text class="wide-compact-text">{{item.shortName}}</text>
+      </view>
+      <view wx:if="{{!navApps.length}}" class="wide-nav-empty">暂无可用应用</view>
+    </scroll-view>
+    <view
+      class="wide-user {{active === 'me' ? 'on' : ''}}"
+      hover-class="hover-bg-warm"
+      bindtap="goMe"
+      aria-label="我的"
+    >
+      <view class="wide-avatar">{{avatarChar}}</view>
+      <view class="wide-user-meta">
+        <view class="wide-user-name">{{profile.nickname || profile.username || '同事'}}</view>
+        <view class="wide-user-role">{{profile.role === 'admin' ? '管理员' : '班组成员'}}</view>
+      </view>
+      <t-icon name="chevron-right" t-class="wide-user-arrow" />
+    </view>
+  </view>
+  <view class="wide-content">
+    <slot />
+  </view>
+</view>

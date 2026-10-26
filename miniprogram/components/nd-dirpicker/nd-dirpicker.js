@@ -1,4 +1,4 @@
-// 共享组件 · 网盘目录选择器（各业务「保存到网盘」前自选空间与目录；t-popup 底部弹层）
+// 共享组件 · 网盘目录选择器（各业务「保存到网盘」前自选空间与目录；窄屏底部 / 宽屏居中弹层）
 // 用法：页面 json usingComponents 加 "nd-dirpicker": "/components/nd-dirpicker/nd-dirpicker"，
 //   wxml：<nd-dirpicker visible="{{x}}" default-path="出工日志" bind:confirm="onDirConfirm" bind:close="onDirClose" />
 // properties：
@@ -43,6 +43,20 @@ Component({
     mkName: '',
     mkSaving: false,
     keyboardHeight: 0,
+    isWide: false,
+    isTablet: false,
+  },
+
+  lifetimes: {
+    attached() {
+      this.syncWide();
+    },
+  },
+
+  pageLifetimes: {
+    resize() {
+      this.syncWide();
+    },
   },
 
   observers: {
@@ -53,6 +67,11 @@ Component({
   },
 
   methods: {
+    syncWide() {
+      const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+      this.setData({ isWide: info.windowWidth >= 900, isTablet: info.windowWidth >= 600 });
+    },
+
     toast(message) {
       Toast({ context: this, selector: '#t-toast', message });
     },

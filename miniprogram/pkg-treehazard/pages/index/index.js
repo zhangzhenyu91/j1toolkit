@@ -14,6 +14,7 @@ import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 import { pad } from '../../../utils/util';
+import widePage from '../../../utils/wide-page';
 
 const API_BASE = '/api/v1/treehazard';
 
@@ -79,6 +80,7 @@ function mapRecord(r, threshold) {
 }
 
 Page({
+  behaviors: [widePage],
   data: {
     gate: false, // 门控（参照 quiz bank 页 gate 模式）
     canManage: false, // 班管/超管（阈值设置 / 内网同步入口可见）

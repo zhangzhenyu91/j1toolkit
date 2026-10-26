@@ -41,8 +41,11 @@
         />
       </div>
       <div class="row" style="margin-top: 10px">
-        <t-button theme="primary" :disabled="!canStart" @click="startRun">开始学习</t-button>
+        <t-button theme="primary" :loading="starting" :disabled="!canStart" @click="startRun"
+          >开始学习</t-button
+        >
         <t-button v-if="running" theme="danger" @click="pause">暂停学习</t-button>
+        <span v-if="pausing" class="muted">正在暂停</span>
         <span class="muted" v-if="!st.connected || !st.playwright">请先打开受控浏览器</span>
       </div>
       <t-alert v-if="runError" theme="error" style="margin-top: 10px">
@@ -85,6 +88,8 @@ const opt = reactive({ scanOnly: false, maxAttempts: 3, timeout: 120 });
 const startUrl = ref('');
 const opening = ref(false);
 const running = ref(false);
+const starting = ref(false);
+const pausing = ref(false);
 const logs = ref([]);
 const logEl = ref(null);
 const progress = reactive({ pct: 0, text: '' });
@@ -95,7 +100,12 @@ const histCard = ref(null);
 let currentJob = null;
 
 const canStart = computed(
-  () => st.connected && st.playwright && !running.value && !opening.value
+  () =>
+    st.connected &&
+    st.playwright &&
+    !running.value &&
+    !starting.value &&
+    !opening.value
 );
 
 // pages / active_lists 后端可能给数字或数组，统一按数量展示
@@ -155,18 +165,26 @@ function fmtResult(r) {
   return countText(r);
 }
 
-function startRun() {
-  logs.value = [];
-  runError.value = '';
-  doneInfo.value = null;
-  running.value = true;
-  progress.pct = 0;
-  progress.text = '';
+async function startRun() {
+  if (starting.value || running.value) return;
+  starting.value = true;
   try {
-    currentJob = runJob(
+    const previousJob = currentJob;
+    if (previousJob) await previousJob.finished;
+
+    const scanOnly = !!opt.scanOnly;
+    logs.value = [];
+    runError.value = '';
+    doneInfo.value = null;
+    running.value = true;
+    pausing.value = false;
+    progress.pct = 0;
+    progress.text = '';
+    let job;
+    job = runJob(
       'course_autoplay',
       {
-        scan_only: !!opt.scanOnly,
+        scan_only: scanOnly,
         timeout: Number(opt.timeout) || 120,
         max_attempts: Number(opt.maxAttempts) || 3,
       },
@@ -176,11 +194,14 @@ function startRun() {
           progress.pct = p.total > 0 ? Math.round((p.current * 100) / p.total) : 0;
           progress.text = p.total > 0 ? `${p.label || ''} ${p.current}/${p.total}` : p.label || '';
         },
-        onDone: (job) => {
+        onDone: (doneJob) => {
+          if (currentJob !== job) return;
+          currentJob = null;
           running.value = false;
+          pausing.value = false;
           loadStatus();
           histCard.value && histCard.value.reload();
-          const r = job.result || {};
+          const r = doneJob.result || {};
           // 任务结束保留最终日志（不清空），结果以提示条 + 历史记录收口
           if (r.paused) {
             // 用户暂停：浏览器/登录态保留，可续刷，不是失败
@@ -188,45 +209,64 @@ function startRun() {
               theme: 'info',
               text: `已暂停：浏览器和登录态保留，可切换列表后再次开始学习。${countText(r)}`,
             };
-          } else if (job.status === 'success') {
+          } else if (doneJob.status === 'success') {
             const pending = r.pending ?? 0;
             doneInfo.value =
               pending > 0
                 ? { theme: 'warning', text: `仍有未完成：${countText(r)}` }
                 : {
                     theme: 'success',
-                    text: `${opt.scanOnly ? '扫描完成' : '全部学习完成 100%'}：${countText(r)}`,
+                    text: `${scanOnly ? '扫描完成' : '全部学习完成 100%'}：${countText(r)}`,
                   };
-            if (pending === 0 && !opt.scanOnly) {
+            if (pending === 0 && !scanOnly) {
               DialogPlugin.confirm({
                 header: '学习完成',
                 body: `当前课程列表已全部达到 100%，共 ${r.total ?? 0} 门课程。`,
                 confirmBtn: '知道了',
               });
             }
-          } else if (job.status === 'cancelled') {
+          } else if (doneJob.status === 'cancelled') {
             doneInfo.value = { theme: 'info', text: `已取消：${countText(r)}` };
           } else {
             doneInfo.value = {
               theme: 'error',
-              text: `执行失败：${job.error || countText(r)}`,
+              text: `执行失败：${doneJob.error || countText(r)}`,
             };
           }
         },
         onError: (e) => {
+          if (currentJob !== job) return;
+          currentJob = null;
           running.value = false;
+          pausing.value = false;
           runError.value = String(e.message || e);
         },
       }
     );
+    currentJob = job;
   } catch (e) {
     running.value = false;
+    pausing.value = false;
     runError.value = String(e.message || e);
+  } finally {
+    starting.value = false;
   }
 }
 
-function pause() {
-  if (currentJob) currentJob.cancel();
+async function pause() {
+  const job = currentJob;
+  if (!job || pausing.value) return;
+  running.value = false;
+  pausing.value = true;
+  try {
+    await job.cancel();
+  } catch (e) {
+    if (currentJob === job) {
+      running.value = true;
+      pausing.value = false;
+    }
+    MessagePlugin.error(`暂停失败：${String(e.message || e)}`);
+  }
 }
 
 // keep-alive：首次显示与每次切回都自动刷新受控浏览器状态

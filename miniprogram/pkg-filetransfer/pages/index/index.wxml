@@ -1,414 +1,423 @@
 <!-- 文件传输 · 设备列表 + 虚拟 U 盘统一管理（移动端应用，app_key file-transfer）
      设备卡片与网页端 kvm.html 同口径；设备卡单按钮「打开 U 盘」进统一管理弹层（t-popup 底部弹层）：
      挂载至被控机 → 「取回 U 盘」；在 KVM 侧 → 文件列表（行右下载/存网盘/删除）+「上传 / 插入 U 盘」 -->
-<navbar back title="文件传输" />
+<wide-shell active="file-transfer">
+  <navbar back title="文件传输" />
 
-<view class="page-body" wx:if="{{!noTeam}}">
-  <!-- 班组切换器（超管可点 chip 下拉切换生效班组；其余角色为静态班组名标签） -->
-  <view class="tswitch">
-    <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
-      <text>{{teamName}}</text>
-      <text class="arr" wx:if="{{isAdmin}}">▾</text>
-    </view>
-    <view class="ts-drop" wx:if="{{teamDropOpen}}">
-      <view
-        class="ts-opt {{item.on ? 'on' : ''}}"
-        wx:for="{{teamOptions}}"
-        wx:key="id"
-        hover-class="hover-bg-warm"
-        bindtap="onTeamPick"
-        data-id="{{item.id}}"
-      >
-        <text>{{item.name}}</text>
-        <text class="ck" wx:if="{{item.on}}">✓</text>
+  <view class="page-body" wx:if="{{!noTeam}}">
+    <!-- 班组切换器（超管可点 chip 下拉切换生效班组；其余角色为静态班组名标签） -->
+    <view class="tswitch">
+      <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
+        <text>{{teamName}}</text>
+        <text class="arr" wx:if="{{isAdmin}}">▾</text>
+      </view>
+      <view class="ts-drop" wx:if="{{teamDropOpen}}">
+        <view
+          class="ts-opt {{item.on ? 'on' : ''}}"
+          wx:for="{{teamOptions}}"
+          wx:key="id"
+          hover-class="hover-bg-warm"
+          bindtap="onTeamPick"
+          data-id="{{item.id}}"
+        >
+          <text>{{item.name}}</text>
+          <text class="ck" wx:if="{{item.on}}">✓</text>
+        </view>
       </view>
     </view>
-  </view>
-  <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
+    <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
 
-  <view class="section-title">设备列表</view>
-  <view class="cnt"
-    >{{list.length ? '共 ' + list.length + ' 台设备 · ' : ''}}数据实时取自 GLKVM 平台</view
+    <view class="section-title">设备列表</view>
+    <view class="cnt"
+      >{{list.length ? '共 ' + list.length + ' 台设备 · ' : ''}}数据实时取自 GLKVM 平台</view
+    >
+
+    <!-- 班组设备回退提示（屏九 .fbanner：本班组暂未接入设备，回退展示默认班组设备） -->
+    <view class="fbanner" wx:if="{{fallback}}">
+      <text class="ic">⚠</text>
+      <text class="fb-p"
+        >本班组暂未接入设备，当前展示「{{fallbackTeam}}」的设备；本班组设备组接入后自动切换、此提示消失。</text
+      >
+    </view>
+
+    <!-- 设备卡片 -->
+    <view class="dev-list" wx:if="{{list.length}}">
+      <view class="card hazard-top dev" wx:for="{{list}}" wx:key="id">
+        <view class="dv-in">
+          <view class="dv-top">
+            <view class="st st-{{item.statusKey}}">
+              <view class="dot"></view>
+              <text>{{item.statusText}}</text>
+            </view>
+            <view wx:if="{{item.group}}" class="dv-tag">{{item.group}}</view>
+            <view wx:if="{{item.maintaining}}" class="dv-tag-maint">维护中</view>
+          </view>
+          <view class="dv-name">{{item.name}}</view>
+          <view class="dv-ddns" wx:if="{{item.ddns}}">{{item.ddns}}</view>
+          <view class="dv-info">
+            <view class="row">
+              <text class="lab">IP 地址</text>
+              <text class="val mono">{{item.ip}}</text>
+            </view>
+            <view class="row">
+              <text class="lab">MAC</text>
+              <text class="val mono">{{item.mac}}</text>
+            </view>
+            <view class="row">
+              <text class="lab">最近在线</text>
+              <text class="val">{{item.last}}</text>
+            </view>
+          </view>
+          <!-- 卡底按钮行：打开 U 盘（上传/下载/挂载统一入口）；离线/维护中置灰 -->
+          <view class="dv-ops">
+            <view
+              class="dv-btn up {{(item.statusKey !== 'online' || item.maintaining) ? 'off' : ''}}"
+              hover-class="hover-opacity"
+              data-item="{{item}}"
+              bindtap="onOpenUsb"
+            >
+              <t-icon name="usb" t-class="ico-30" />打开 U 盘
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 首屏加载中 -->
+    <view wx:elif="{{loading}}" class="empty-box">设备列表加载中…</view>
+
+    <!-- 首屏加载失败（如平台账号未接入/开启 2FA/密码不一致，按后端返回文案展示） -->
+    <view wx:elif="{{error}}" class="empty-box">
+      <view>{{error}}</view>
+      <view class="retry" hover-class="hover-opacity" bindtap="onRetry">重新加载</view>
+    </view>
+
+    <!-- 空态 -->
+    <view wx:else class="empty-box">暂无设备，或联系管理员开通平台设备权限</view>
+  </view>
+
+  <!-- 未分配班组空态（屏十：非超管且未加入任何班组；整页替代，不发业务请求） -->
+  <view class="page-body" wx:if="{{noTeam}}">
+    <view class="team-empty">
+      <view class="te-ic">👷</view>
+      <view class="te-t">未分配班组</view>
+      <view class="te-p">你的账号尚未加入任何班组，暂无可查看的数据。</view>
+      <view class="te-p">请联系超级管理员分配班组后再使用。</view>
+    </view>
+  </view>
+
+  <!-- 上传文件弹层（t-popup 底部弹层，同出工日志批量下载结构） -->
+  <t-popup
+    visible="{{upOpen}}"
+    placement="{{isWide ? 'center' : 'bottom'}}"
+    bind:visible-change="onUpVisibleChange"
   >
-
-  <!-- 班组设备回退提示（屏九 .fbanner：本班组暂未接入设备，回退展示默认班组设备） -->
-  <view class="fbanner" wx:if="{{fallback}}">
-    <text class="ic">⚠</text>
-    <text class="fb-p"
-      >本班组暂未接入设备，当前展示「{{fallbackTeam}}」的设备；本班组设备组接入后自动切换、此提示消失。</text
-    >
-  </view>
-
-  <!-- 设备卡片 -->
-  <view class="dev-list" wx:if="{{list.length}}">
-    <view class="card hazard-top dev" wx:for="{{list}}" wx:key="id">
-      <view class="dv-in">
-        <view class="dv-top">
-          <view class="st st-{{item.statusKey}}">
-            <view class="dot"></view>
-            <text>{{item.statusText}}</text>
-          </view>
-          <view wx:if="{{item.group}}" class="dv-tag">{{item.group}}</view>
-          <view wx:if="{{item.maintaining}}" class="dv-tag-maint">维护中</view>
-        </view>
-        <view class="dv-name">{{item.name}}</view>
-        <view class="dv-ddns" wx:if="{{item.ddns}}">{{item.ddns}}</view>
-        <view class="dv-info">
-          <view class="row">
-            <text class="lab">IP 地址</text>
-            <text class="val mono">{{item.ip}}</text>
-          </view>
-          <view class="row">
-            <text class="lab">MAC</text>
-            <text class="val mono">{{item.mac}}</text>
-          </view>
-          <view class="row">
-            <text class="lab">最近在线</text>
-            <text class="val">{{item.last}}</text>
-          </view>
-        </view>
-        <!-- 卡底按钮行：打开 U 盘（上传/下载/挂载统一入口）；离线/维护中置灰 -->
-        <view class="dv-ops">
-          <view
-            class="dv-btn up {{(item.statusKey !== 'online' || item.maintaining) ? 'off' : ''}}"
-            hover-class="hover-opacity"
-            data-item="{{item}}"
-            bindtap="onOpenUsb"
-          >
-            <t-icon name="usb" t-class="ico-30" />打开 U 盘
-          </view>
+    <view class="sheet">
+      <view class="sh-head">
+        <view class="sh-title">上传文件<text class="sh-sub">{{upDevice.name}}</text></view>
+        <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseUpload">
+          <t-icon name="close" t-class="ico-36" />
         </view>
       </view>
-    </view>
-  </view>
 
-  <!-- 首屏加载中 -->
-  <view wx:elif="{{loading}}" class="empty-box">设备列表加载中…</view>
-
-  <!-- 首屏加载失败（如平台账号未接入/开启 2FA/密码不一致，按后端返回文案展示） -->
-  <view wx:elif="{{error}}" class="empty-box">
-    <view>{{error}}</view>
-    <view class="retry" hover-class="hover-opacity" bindtap="onRetry">重新加载</view>
-  </view>
-
-  <!-- 空态 -->
-  <view wx:else class="empty-box">暂无设备，或联系管理员开通平台设备权限</view>
-</view>
-
-<!-- 未分配班组空态（屏十：非超管且未加入任何班组；整页替代，不发业务请求） -->
-<view class="page-body" wx:if="{{noTeam}}">
-  <view class="team-empty">
-    <view class="te-ic">👷</view>
-    <view class="te-t">未分配班组</view>
-    <view class="te-p">你的账号尚未加入任何班组，暂无可查看的数据。</view>
-    <view class="te-p">请联系超级管理员分配班组后再使用。</view>
-  </view>
-</view>
-
-<!-- 上传文件弹层（t-popup 底部弹层，同出工日志批量下载结构） -->
-<t-popup visible="{{upOpen}}" placement="bottom" bind:visible-change="onUpVisibleChange">
-  <view class="sheet">
-    <view class="sh-head">
-      <view class="sh-title">上传文件<text class="sh-sub">{{upDevice.name}}</text></view>
-      <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseUpload">
-        <t-icon name="close" t-class="ico-36" />
-      </view>
-    </view>
-
-    <!-- 两种添加方式 + 网盘入口（网盘可用时显示） -->
-    <view class="pick-row">
-      <view class="pick" hover-class="hover-opacity" bindtap="onPickMedia">
-        <t-icon name="file-image" t-class="ico-48" />
-        <view class="pick-name">从手机选择</view>
-        <view class="pick-note">图片 / 视频</view>
-      </view>
-      <view class="pick" hover-class="hover-opacity" bindtap="onPickChat">
-        <t-icon name="chat" t-class="ico-48" />
-        <view class="pick-name">从聊天选取</view>
-        <view class="pick-note">任意类型文件</view>
-      </view>
-      <view class="pick" wx:if="{{ndOk}}" hover-class="hover-opacity" bindtap="onOpenNdPicker">
-        <t-icon name="folder-import" t-class="ico-48" />
-        <view class="pick-name">从网盘选择</view>
-        <view class="pick-note">推送到设备</view>
-      </view>
-    </view>
-
-    <!-- 已添加文件列表 -->
-    <view class="fl-head">
-      <text>已添加（{{upFiles.length}}）</text>
-      <text class="fl-sum">合计 {{upTotalText}}</text>
-    </view>
-    <scroll-view scroll-y class="fl-list">
-      <view class="frow" wx:for="{{upFiles}}" wx:key="path">
-        <t-icon name="{{item.icon}}" t-class="ico-34" class="ico-brand" />
-        <view class="fn">{{item.name}}</view>
-        <view class="fs">{{item.sizeText}}</view>
-        <view
-          class="fx"
-          hover-class="hover-opacity"
-          data-index="{{index}}"
-          catchtap="onRemoveUpFile"
-        >
-          <t-icon name="close" t-class="ico-30" />
+      <!-- 两种添加方式 + 网盘入口（网盘可用时显示） -->
+      <view class="pick-row">
+        <view class="pick" hover-class="hover-opacity" bindtap="onPickMedia">
+          <t-icon name="file-image" t-class="ico-48" />
+          <view class="pick-name">从手机选择</view>
+          <view class="pick-note">图片 / 视频</view>
+        </view>
+        <view class="pick" hover-class="hover-opacity" bindtap="onPickChat">
+          <t-icon name="chat" t-class="ico-48" />
+          <view class="pick-name">从聊天选取</view>
+          <view class="pick-note">任意类型文件</view>
+        </view>
+        <view class="pick" wx:if="{{ndOk}}" hover-class="hover-opacity" bindtap="onOpenNdPicker">
+          <t-icon name="folder-import" t-class="ico-48" />
+          <view class="pick-name">从网盘选择</view>
+          <view class="pick-note">推送到设备</view>
         </view>
       </view>
-      <view wx:if="{{!upFiles.length}}" class="fl-empty">尚未添加文件，点上方入口添加</view>
-    </scroll-view>
 
-    <view class="sh-note"
-      >逐文件依次推送到 U 盘（不自动挂载，需在列表层点「插入 U 盘」）；同名文件覆盖，单文件
-      ≤200MB。</view
-    >
-    <view class="sh-foot">
-      <view
-        class="btn-primary {{(!upFiles.length || uploading) ? 'disabled' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="onUploadStart"
-      >
-        {{uploading ? '正在上传 ' + upIndex + '/' + upFiles.length + '…' : '开始上传'}}
+      <!-- 已添加文件列表 -->
+      <view class="fl-head">
+        <text>已添加（{{upFiles.length}}）</text>
+        <text class="fl-sum">合计 {{upTotalText}}</text>
       </view>
-    </view>
-  </view>
-</t-popup>
-
-<!-- U 盘弹层（打开 U 盘统一入口；按挂载状态分流：checking 查询中 / shared 已挂载到被控机 / local 展示盘内文件） -->
-<t-popup visible="{{dlOpen}}" placement="bottom" bind:visible-change="onDlVisibleChange">
-  <view class="sheet">
-    <view class="sh-head">
-      <view class="sh-title">U 盘<text class="sh-sub">{{dlDevice.name}} · 虚拟 U 盘</text></view>
-      <!-- 多选开关（仅文件列表态显示；进入/退出均清空已选） -->
-      <view
-        wx:if="{{dlState === 'local'}}"
-        class="sh-multi {{dlMulti ? 'on' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="onDlMultiToggle"
-        >{{dlMulti ? '完成' : '多选'}}</view
-      >
-      <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseDownload">
-        <t-icon name="close" t-class="ico-36" />
-      </view>
-    </view>
-
-    <!-- 查询挂载状态中 -->
-    <view wx:if="{{dlState === 'checking'}}" class="fl-empty">正在查询 U 盘挂载状态…</view>
-
-    <!-- 已挂载到被控机（共享中）：取回（断开共享挂载回 KVM）后在此读取盘内文件 -->
-    <block wx:elif="{{dlState === 'shared'}}">
-      <view class="dl-state">
-        <t-icon name="usb" t-class="ico-64" class="ico-brand" />
-        <view class="dl-state-t">U 盘已挂载到被控机</view>
-        <view class="dl-state-n">可在该机向 U 盘放入文件；取回后在此读取盘内文件</view>
-      </view>
-      <view class="sh-foot">
-        <view
-          class="btn-primary {{dlLoading ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="loadDlFiles"
-        >
-          {{dlLoading ? '正在取回…' : '取回 U 盘'}}
-        </view>
-      </view>
-    </block>
-
-    <!-- 挂载在 KVM 本机：直接展示盘内文件（多选态：行首圆形勾选标，点按行 = toggle 选择；
-         单选态行不响应点按，下载走文件名右侧图标按钮） -->
-    <block wx:else>
       <scroll-view scroll-y class="fl-list">
-        <view wx:if="{{!dlFiles.length}}" class="fl-empty">盘内暂无文件</view>
-        <view
-          class="frow"
-          wx:for="{{dlFiles}}"
-          wx:key="name"
-          data-file="{{item}}"
-          hover-class="hover-opacity"
-          bindtap="onDlFileTap"
-        >
-          <view wx:if="{{dlMulti}}" class="ck-dot {{item.checked ? 'on' : ''}}">
-            <t-icon wx:if="{{item.checked}}" name="check" t-class="ico-22" />
-          </view>
+        <view class="frow" wx:for="{{upFiles}}" wx:key="path">
           <t-icon name="{{item.icon}}" t-class="ico-34" class="ico-brand" />
           <view class="fn">{{item.name}}</view>
-          <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
-          <view wx:else class="fs">{{item.sizeText}}</view>
-          <!-- 下载（文件名右侧图标按钮，与存网盘/删除同位口径；catchtap 拦截不触发勾选） -->
+          <view class="fs">{{item.sizeText}}</view>
           <view
-            wx:if="{{!dlMulti}}"
-            class="fdl"
+            class="fx"
             hover-class="hover-opacity"
-            data-name="{{item.name}}"
-            catchtap="onDlDownloadTap"
+            data-index="{{index}}"
+            catchtap="onRemoveUpFile"
           >
-            <t-icon
-              name="download"
-              t-class="ico-32"
-              class="{{downloading === item.name ? 'ico-off' : 'ico-brand'}}"
-            />
-          </view>
-          <!-- 存网盘（网盘可用且非多选态时显示；多选批量存走底部操作条；catchtap 拦截不触发勾选） -->
-          <view
-            wx:if="{{ndOk && !dlMulti}}"
-            class="fsave"
-            hover-class="hover-opacity"
-            data-name="{{item.name}}"
-            catchtap="onSaveToNetdisk"
-          >
-            <t-icon
-              name="folder-import"
-              t-class="ico-32"
-              class="{{savingNd === item.name ? 'ico-off' : 'ico-brand'}}"
-            />
-          </view>
-          <!-- 删除小标（catchtap 拦截，不触发勾选） -->
-          <view
-            class="fdel"
-            hover-class="hover-opacity"
-            data-name="{{item.name}}"
-            catchtap="onDeleteFile"
-          >
-            <t-icon name="delete" t-class="ico-32" />
+            <t-icon name="close" t-class="ico-30" />
           </view>
         </view>
+        <view wx:if="{{!upFiles.length}}" class="fl-empty">尚未添加文件，点上方入口添加</view>
       </scroll-view>
 
       <view class="sh-note"
-        >「上传」仅把文件放入 U 盘（不挂载）；「插入 U
-        盘」挂载到被控机后可在该机读写，取回后在此读取。图片 /
-        视频下载后保存至相册；其他类型经微信打开（可另存 / 转发）。</view
+        >逐文件依次推送到 U 盘（不自动挂载，需在列表层点「插入 U 盘」）；同名文件覆盖，单文件
+        ≤200MB。</view
       >
-
-      <!-- 多选操作条：全选（toggle）/ 下载所选 / 存网盘（n=0 或批量处理中禁用） -->
-      <view wx:if="{{dlMulti}}" class="dl-mbar">
+      <view class="sh-foot">
         <view
-          class="dl-mall {{dlBusy ? 'disabled' : ''}}"
+          class="btn-primary {{(!upFiles.length || uploading) ? 'disabled' : ''}}"
           hover-class="hover-opacity"
-          bindtap="onDlSelAll"
+          bindtap="onUploadStart"
         >
-          {{dlFiles.length && dlSel.length === dlFiles.length ? '取消全选' : '全选'}}
-        </view>
-        <view
-          class="dl-mbtn {{(!dlSel.length || dlBusy) ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onDlBatchDownload"
-        >
-          {{dlBusy ? '处理中…' : '下载所选（' + dlSel.length + '）'}}
-        </view>
-        <view
-          wx:if="{{ndOk}}"
-          class="dl-mbtn nd {{(!dlSel.length || dlBusy) ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onDlBatchSave"
-        >
-          存网盘（{{dlSel.length}}）
+          {{uploading ? '正在上传 ' + upIndex + '/' + upFiles.length + '…' : '开始上传'}}
         </view>
       </view>
-      <view wx:else class="sh-foot2">
+    </view>
+  </t-popup>
+
+  <!-- U 盘弹层（打开 U 盘统一入口；按挂载状态分流：checking 查询中 / shared 已挂载到被控机 / local 展示盘内文件） -->
+  <t-popup
+    visible="{{dlOpen}}"
+    placement="{{isWide ? 'center' : 'bottom'}}"
+    bind:visible-change="onDlVisibleChange"
+  >
+    <view class="sheet">
+      <view class="sh-head">
+        <view class="sh-title">U 盘<text class="sh-sub">{{dlDevice.name}} · 虚拟 U 盘</text></view>
+        <!-- 多选开关（仅文件列表态显示；进入/退出均清空已选） -->
         <view
-          class="btn-primary {{(downloading || dlBusy) ? 'disabled' : ''}}"
+          wx:if="{{dlState === 'local'}}"
+          class="sh-multi {{dlMulti ? 'on' : ''}}"
           hover-class="hover-opacity"
-          bindtap="onOpenUpload"
+          bindtap="onDlMultiToggle"
+          >{{dlMulti ? '完成' : '多选'}}</view
         >
-          上传
-        </view>
-        <view
-          class="btn-outline {{(mounting || downloading || dlBusy) ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onMount"
-        >
-          {{mounting ? '正在挂载…' : '插入 U 盘'}}
+        <view class="sh-close" hover-class="hover-opacity" bindtap="onCloseDownload">
+          <t-icon name="close" t-class="ico-36" />
         </view>
       </view>
-    </block>
-  </view>
-</t-popup>
 
-<!-- 网盘文件选择弹层（从网盘拉取到设备：空间分段（有公共区才显示，默认公共区）+ 面包屑 + 文件列表；
-     文件夹进入、文件勾选（圆形勾选标，可多选跨目录，同空间内保留；切空间清空）） -->
-<t-popup visible="{{ndPicker.open}}" placement="bottom" bind:visible-change="onNdVisibleChange">
-  <view class="sheet">
-    <view class="sh-head">
-      <view class="sh-title">从网盘选择<text class="sh-sub">{{upDevice.name}}</text></view>
-      <view class="sh-close" hover-class="hover-opacity" bindtap="onNdCancel">
-        <t-icon name="close" t-class="ico-36" />
-      </view>
-    </view>
+      <!-- 查询挂载状态中 -->
+      <view wx:if="{{dlState === 'checking'}}" class="fl-empty">正在查询 U 盘挂载状态…</view>
 
-    <view class="seg2" wx:if="{{ndHasPublic}}">
-      <view
-        wx:for="{{ndSpaces}}"
-        wx:key="key"
-        class="seg {{ndPicker.space === item.key ? 'on' : ''}}"
-        data-key="{{item.key}}"
-        hover-class="hover-opacity"
-        bindtap="onNdSpaceTap"
-        ><text class="seg-t">{{item.label}}</text></view
-      >
-    </view>
-
-    <view class="nd-crumb">
-      <block wx:for="{{ndCrumbs}}" wx:key="path">
-        <text
-          wx:if="{{!item.last}}"
-          class="nd-link"
-          data-path="{{item.path}}"
-          hover-class="hover-opacity"
-          bindtap="onNdCrumbTap"
-          >{{item.name}}</text
-        >
-        <text wx:else class="nd-cur">{{item.name}}</text>
-        <text wx:if="{{!item.last}}" class="nd-sep">/</text>
-      </block>
-    </view>
-
-    <scroll-view scroll-y class="fl-list nd-list">
-      <view wx:if="{{ndPicker.loading}}" class="fl-empty">目录加载中…</view>
-      <view wx:elif="{{ndPicker.error}}" class="fl-empty">{{ndPicker.error}}</view>
-      <view wx:elif="{{!ndPicker.items.length}}" class="fl-empty">该目录为空</view>
-      <block wx:else>
-        <view
-          wx:for="{{ndPicker.items}}"
-          wx:key="fullPath"
-          class="frow nd-row {{item.checked ? 'sel' : ''}}"
-          data-item="{{item}}"
-          data-index="{{index}}"
-          hover-class="hover-opacity"
-          bindtap="onNdRowTap"
-        >
-          <view wx:if="{{!item.isDir}}" class="ck-dot {{item.checked ? 'on' : ''}}">
-            <t-icon wx:if="{{item.checked}}" name="check" t-class="ico-22" />
+      <!-- 已挂载到被控机（共享中）：取回（断开共享挂载回 KVM）后在此读取盘内文件 -->
+      <block wx:elif="{{dlState === 'shared'}}">
+        <view class="dl-state">
+          <t-icon name="usb" t-class="ico-64" class="ico-brand" />
+          <view class="dl-state-t">U 盘已挂载到被控机</view>
+          <view class="dl-state-n">可在该机向 U 盘放入文件；取回后在此读取盘内文件</view>
+        </view>
+        <view class="sh-foot">
+          <view
+            class="btn-primary {{dlLoading ? 'disabled' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="loadDlFiles"
+          >
+            {{dlLoading ? '正在取回…' : '取回 U 盘'}}
           </view>
-          <t-icon name="{{item.icon}}" t-class="ico-34" class="ico-brand" />
-          <view class="fn">{{item.name}}</view>
-          <view wx:if="{{!item.isDir}}" class="fs">{{item.sizeText}}</view>
-          <t-icon
-            wx:if="{{item.isDir}}"
-            name="chevron-right"
-            t-class="ico-30"
-            class="ico-mute"
-          />
         </view>
       </block>
-    </scroll-view>
 
-    <view class="sh-foot">
-      <view
-        class="btn-primary {{(!ndPicker.selectedList.length || ndPicker.saving) ? 'disabled' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="onNdConfirm"
-      >
-        {{ndPicker.saving ? '正在拉取…' : '推送到设备（' + ndPicker.selectedList.length + '）'}}
+      <!-- 挂载在 KVM 本机：直接展示盘内文件（多选态：行首圆形勾选标，点按行 = toggle 选择；
+         单选态行不响应点按，下载走文件名右侧图标按钮） -->
+      <block wx:else>
+        <scroll-view scroll-y class="fl-list">
+          <view wx:if="{{!dlFiles.length}}" class="fl-empty">盘内暂无文件</view>
+          <view
+            class="frow"
+            wx:for="{{dlFiles}}"
+            wx:key="name"
+            data-file="{{item}}"
+            hover-class="hover-opacity"
+            bindtap="onDlFileTap"
+          >
+            <view wx:if="{{dlMulti}}" class="ck-dot {{item.checked ? 'on' : ''}}">
+              <t-icon wx:if="{{item.checked}}" name="check" t-class="ico-22" />
+            </view>
+            <t-icon name="{{item.icon}}" t-class="ico-34" class="ico-brand" />
+            <view class="fn">{{item.name}}</view>
+            <view wx:if="{{downloading === item.name}}" class="doing">下载中…</view>
+            <view wx:else class="fs">{{item.sizeText}}</view>
+            <!-- 下载（文件名右侧图标按钮，与存网盘/删除同位口径；catchtap 拦截不触发勾选） -->
+            <view
+              wx:if="{{!dlMulti}}"
+              class="fdl"
+              hover-class="hover-opacity"
+              data-name="{{item.name}}"
+              catchtap="onDlDownloadTap"
+            >
+              <t-icon
+                name="download"
+                t-class="ico-32"
+                class="{{downloading === item.name ? 'ico-off' : 'ico-brand'}}"
+              />
+            </view>
+            <!-- 存网盘（网盘可用且非多选态时显示；多选批量存走底部操作条；catchtap 拦截不触发勾选） -->
+            <view
+              wx:if="{{ndOk && !dlMulti}}"
+              class="fsave"
+              hover-class="hover-opacity"
+              data-name="{{item.name}}"
+              catchtap="onSaveToNetdisk"
+            >
+              <t-icon
+                name="folder-import"
+                t-class="ico-32"
+                class="{{savingNd === item.name ? 'ico-off' : 'ico-brand'}}"
+              />
+            </view>
+            <!-- 删除小标（catchtap 拦截，不触发勾选） -->
+            <view
+              class="fdel"
+              hover-class="hover-opacity"
+              data-name="{{item.name}}"
+              catchtap="onDeleteFile"
+            >
+              <t-icon name="delete" t-class="ico-32" />
+            </view>
+          </view>
+        </scroll-view>
+
+        <view class="sh-note"
+          >「上传」仅把文件放入 U 盘（不挂载）；「插入 U
+          盘」挂载到被控机后可在该机读写，取回后在此读取。图片 /
+          视频下载后保存至相册；其他类型经微信打开（可另存 / 转发）。</view
+        >
+
+        <!-- 多选操作条：全选（toggle）/ 下载所选 / 存网盘（n=0 或批量处理中禁用） -->
+        <view wx:if="{{dlMulti}}" class="dl-mbar">
+          <view
+            class="dl-mall {{dlBusy ? 'disabled' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onDlSelAll"
+          >
+            {{dlFiles.length && dlSel.length === dlFiles.length ? '取消全选' : '全选'}}
+          </view>
+          <view
+            class="dl-mbtn {{(!dlSel.length || dlBusy) ? 'disabled' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onDlBatchDownload"
+          >
+            {{dlBusy ? '处理中…' : '下载所选（' + dlSel.length + '）'}}
+          </view>
+          <view
+            wx:if="{{ndOk}}"
+            class="dl-mbtn nd {{(!dlSel.length || dlBusy) ? 'disabled' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onDlBatchSave"
+          >
+            存网盘（{{dlSel.length}}）
+          </view>
+        </view>
+        <view wx:else class="sh-foot2">
+          <view
+            class="btn-primary {{(downloading || dlBusy) ? 'disabled' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onOpenUpload"
+          >
+            上传
+          </view>
+          <view
+            class="btn-outline {{(mounting || downloading || dlBusy) ? 'disabled' : ''}}"
+            hover-class="hover-opacity"
+            bindtap="onMount"
+          >
+            {{mounting ? '正在挂载…' : '插入 U 盘'}}
+          </view>
+        </view>
+      </block>
+    </view>
+  </t-popup>
+
+  <!-- 网盘文件选择弹层（从网盘拉取到设备：空间分段（有公共区才显示，默认公共区）+ 面包屑 + 文件列表；
+     文件夹进入、文件勾选（圆形勾选标，可多选跨目录，同空间内保留；切空间清空）） -->
+  <t-popup
+    visible="{{ndPicker.open}}"
+    placement="{{isWide ? 'center' : 'bottom'}}"
+    bind:visible-change="onNdVisibleChange"
+  >
+    <view class="sheet">
+      <view class="sh-head">
+        <view class="sh-title">从网盘选择<text class="sh-sub">{{upDevice.name}}</text></view>
+        <view class="sh-close" hover-class="hover-opacity" bindtap="onNdCancel">
+          <t-icon name="close" t-class="ico-36" />
+        </view>
+      </view>
+
+      <view class="seg2" wx:if="{{ndHasPublic}}">
+        <view
+          wx:for="{{ndSpaces}}"
+          wx:key="key"
+          class="seg {{ndPicker.space === item.key ? 'on' : ''}}"
+          data-key="{{item.key}}"
+          hover-class="hover-opacity"
+          bindtap="onNdSpaceTap"
+          ><text class="seg-t">{{item.label}}</text></view
+        >
+      </view>
+
+      <view class="nd-crumb">
+        <block wx:for="{{ndCrumbs}}" wx:key="path">
+          <text
+            wx:if="{{!item.last}}"
+            class="nd-link"
+            data-path="{{item.path}}"
+            hover-class="hover-opacity"
+            bindtap="onNdCrumbTap"
+            >{{item.name}}</text
+          >
+          <text wx:else class="nd-cur">{{item.name}}</text>
+          <text wx:if="{{!item.last}}" class="nd-sep">/</text>
+        </block>
+      </view>
+
+      <scroll-view scroll-y class="fl-list nd-list">
+        <view wx:if="{{ndPicker.loading}}" class="fl-empty">目录加载中…</view>
+        <view wx:elif="{{ndPicker.error}}" class="fl-empty">{{ndPicker.error}}</view>
+        <view wx:elif="{{!ndPicker.items.length}}" class="fl-empty">该目录为空</view>
+        <block wx:else>
+          <view
+            wx:for="{{ndPicker.items}}"
+            wx:key="fullPath"
+            class="frow nd-row {{item.checked ? 'sel' : ''}}"
+            data-item="{{item}}"
+            data-index="{{index}}"
+            hover-class="hover-opacity"
+            bindtap="onNdRowTap"
+          >
+            <view wx:if="{{!item.isDir}}" class="ck-dot {{item.checked ? 'on' : ''}}">
+              <t-icon wx:if="{{item.checked}}" name="check" t-class="ico-22" />
+            </view>
+            <t-icon name="{{item.icon}}" t-class="ico-34" class="ico-brand" />
+            <view class="fn">{{item.name}}</view>
+            <view wx:if="{{!item.isDir}}" class="fs">{{item.sizeText}}</view>
+            <t-icon wx:if="{{item.isDir}}" name="chevron-right" t-class="ico-30" class="ico-mute" />
+          </view>
+        </block>
+      </scroll-view>
+
+      <view class="sh-foot">
+        <view
+          class="btn-primary {{(!ndPicker.selectedList.length || ndPicker.saving) ? 'disabled' : ''}}"
+          hover-class="hover-opacity"
+          bindtap="onNdConfirm"
+        >
+          {{ndPicker.saving ? '正在拉取…' : '推送到设备（' + ndPicker.selectedList.length + '）'}}
+        </view>
       </view>
     </view>
-  </view>
-</t-popup>
+  </t-popup>
 
-<!-- 存网盘目录选择（共享组件；单文件行内按钮与多选批量共用，defaultPath 文件传输） -->
-<nd-dirpicker
-  visible="{{ndSave.open}}"
-  default-path="文件传输"
-  bind:confirm="onNdSaveDirConfirm"
-  bind:close="onNdSaveDirClose"
-/>
+  <!-- 存网盘目录选择（共享组件；单文件行内按钮与多选批量共用，defaultPath 文件传输） -->
+  <nd-dirpicker
+    visible="{{ndSave.open}}"
+    default-path="文件传输"
+    bind:confirm="onNdSaveDirConfirm"
+    bind:close="onNdSaveDirClose"
+  />
 
-<t-toast id="t-toast" />
-<t-dialog id="t-dialog" />
+  <t-toast id="t-toast" />
+  <t-dialog id="t-dialog" />
+</wide-shell>

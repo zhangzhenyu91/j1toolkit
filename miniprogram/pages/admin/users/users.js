@@ -5,6 +5,7 @@ import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import userGroups from '../common/user-groups';
 import { iconColors } from '../../common/icon-theme';
+import widePage from '../../../utils/wide-page';
 
 const ROLE_OPTIONS = [
   { value: 'admin', label: '超级管理员' },
@@ -23,7 +24,7 @@ const EMPTY_FORM = {
 };
 
 Page({
-  behaviors: [userGroups],
+  behaviors: [userGroups, widePage],
   data: {
     ico: iconColors('light'), // t-icon 图标色计算值（随系统主题刷新）
     keyword: '',

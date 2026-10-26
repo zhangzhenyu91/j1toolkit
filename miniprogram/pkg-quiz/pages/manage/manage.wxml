@@ -67,8 +67,8 @@
           data-id="{{item.id}}"
           data-name="{{item.name}}"
         >
-          <t-icon name="refresh" t-class="ico-26" />{{item.anFailed > 0 ? '重试失败解析'
-          : '继续解析'}}
+          <t-icon name="refresh" t-class="ico-26" />{{item.anFailed > 0 ? '重试失败解析' :
+          '继续解析'}}
         </span>
       </view>
     </view>
@@ -81,10 +81,14 @@
 </view>
 
 <!-- 新建 / 编辑题库弹层（底部弹层，同 safeday 名称弹层族；键盘弹起时动态抬高底部 padding） -->
-<t-popup visible="{{bankOpen}}" placement="bottom" bind:visible-change="onBankVisibleChange">
+<t-popup
+  visible="{{bankOpen}}"
+  placement="{{isWide ? 'center' : 'bottom'}}"
+  bind:visible-change="onBankVisibleChange"
+>
   <view
     class="sheet"
-    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};"
+    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : (isTablet ? 'calc(20px + env(safe-area-inset-bottom))' : 'calc(40rpx + env(safe-area-inset-bottom))')}};"
   >
     <view class="sheet-title">{{bankMode === 'edit' ? '编辑题库' : '新建题库'}}</view>
     <view class="sheet-sub"

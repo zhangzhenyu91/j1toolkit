@@ -26,7 +26,8 @@ export function qs() {
 /**
  * 跑一个核心任务并接线事件。
  * callbacks: onLog(line) / onProgress({current,total,label}) / onDone(job) / onError(err)
- * 返回 { jobId: Promise<string>, cancel: fn }
+ * 返回 { jobId: Promise<string>, finished: Promise, cancel: fn }
+ * finished 只等待任务终态；启动错误由 onError 报告，不在此重复 reject。
  *
  * 关键：job_id 由 runJob 响应带回，但核心在拿到任务后【立即】执行——
  * 快速失败的任务（如未配凭据）可能在响应到达前就发完全部事件。
@@ -35,6 +36,10 @@ export function qs() {
 export function runJob(appId, params, callbacks = {}) {
   let jobId = null;
   const buffered = [];
+  let resolveFinished;
+  const finished = new Promise((resolve) => {
+    resolveFinished = resolve;
+  });
   // 上报主进程"任务进行中"（托盘退出确认用），done/error/cancel 均收口一次
   window.core.jobRunning && window.core.jobRunning(1);
   let ended = false;
@@ -51,6 +56,7 @@ export function runJob(appId, params, callbacks = {}) {
     else if (ev.event === 'job.done') {
       off();
       endOnce();
+      resolveFinished(ev.job);
       callbacks.onDone && callbacks.onDone(ev.job);
     }
   }
@@ -64,26 +70,30 @@ export function runJob(appId, params, callbacks = {}) {
     if (ev.job_id === jobId) handle(ev);
   });
 
-  const idPromise = call('runJob', { app_id: appId, params })
-    .then((r) => {
-      jobId = r.job_id;
-      for (const ev of buffered) {
-        if (ev.job_id === jobId) handle(ev);
-      }
-      buffered.length = 0;
-      return jobId;
-    })
-    .catch((err) => {
-      off();
-      endOnce();
-      callbacks.onError && callbacks.onError(err);
-      throw err;
-    });
+  const idPromise = call('runJob', { app_id: appId, params }).then((r) => {
+    jobId = r.job_id;
+    for (const ev of buffered) {
+      if (ev.job_id === jobId) handle(ev);
+    }
+    buffered.length = 0;
+    return jobId;
+  });
+  // 取消与页面等待共用已处理的启动结果，保留 jobId 本身的拒绝语义。
+  const cancelReady = idPromise.catch((err) => {
+    off();
+    endOnce();
+    resolveFinished();
+    callbacks.onError && callbacks.onError(err);
+    return null;
+  });
 
   return {
     jobId: idPromise,
-    cancel: () => {
-      if (jobId) call('cancelJob', { job_id: jobId });
-    },
+    finished,
+    cancel: () =>
+      cancelReady.then((id) => {
+        if (!id || ended) return undefined;
+        return call('cancelJob', { job_id: id });
+      }),
   };
 }

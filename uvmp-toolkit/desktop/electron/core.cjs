@@ -109,7 +109,12 @@ class CoreBridge {
       }
       const id = ++this.seq;
       this.pending.set(id, { resolve, reject });
-      this.proc.stdin.write(JSON.stringify({ id, method, params }) + '\n');
+      // 与核心响应的 ensure_ascii=True 对称：只传 ASCII，避免 Windows 用系统代码页误读 UTF-8 中文。
+      const payload = JSON.stringify({ id, method, params }).replace(
+        /[^\x00-\x7F]/g,
+        (ch) => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0')
+      );
+      this.proc.stdin.write(payload + '\n');
     });
   }
 

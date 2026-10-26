@@ -14,6 +14,7 @@ import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf } from '../../../utils/util';
 import { utf8Buffer, concatBuffers } from '../../../utils/multipart';
+import widePage from '../../../utils/wide-page';
 
 const API_BASE = '/api/v1/safeday';
 const POLL_INTERVAL = 5000; // 与网页端一致：存在生成中记录时按 5s 轮询 records
@@ -60,7 +61,7 @@ const stepStates = (phase) => {
 const phasePct = (phase) => ({ parse: 45, dify: 75, done: 100 })[phase] || 75;
 
 Page({
-  behaviors: [teamGate],
+  behaviors: [teamGate, widePage],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
     // 班组切换器数据（isAdmin/noTeam/teamName/teamOptions/teamDropOpen/showTeamPill）由 teamgate behavior 提供；

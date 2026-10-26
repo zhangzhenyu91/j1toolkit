@@ -93,7 +93,11 @@
 </view>
 
 <!-- 杆塔坐标导入弹层（屏七三步：下载模板 → 选择 .xlsx → 确认导入） -->
-<t-popup visible="{{impOpen}}" placement="bottom" bind:visible-change="onImpVisibleChange">
+<t-popup
+  visible="{{impOpen}}"
+  placement="{{isWide ? 'center' : 'bottom'}}"
+  bind:visible-change="onImpVisibleChange"
+>
   <view class="sheet">
     <view class="sheet-title">导入杆塔坐标</view>
     <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">

@@ -6,8 +6,10 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { formatTime, parseDate } from '../../../utils/util';
 import { shareAppMessage } from '../../../utils/share';
+import widePage from '../../../utils/wide-page';
 
 Page({
+  behaviors: [widePage],
   data: {
     sessions: [],
     loading: true,

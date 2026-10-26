@@ -36,6 +36,64 @@ COURSE_PAGE_API = "/learningc/trainclass/course/page"
 WARE_LIST_API = "/learningc/course/ware-catalog-relation/listRes"
 LAST_STUDY_API = "/learningc/course/study-record-info/lastStudyHour"
 SAVE_STUDY_API = "/learningc/course/study-record-info/getPassWare"
+_CANCEL_WAIT_SLICE_MS = 200
+
+
+def _wait_for_timeout(page, timeout_ms, cancel_check=None):
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    while True:
+        if cancel_check:
+            cancel_check()
+        remaining_ms = (deadline - time.monotonic()) * 1000.0
+        if remaining_ms <= 0:
+            return
+        page.wait_for_timeout(min(_CANCEL_WAIT_SLICE_MS, remaining_ms))
+
+
+def _wait_in_slices(wait, timeout_ms, cancel_check=None):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    while True:
+        if cancel_check:
+            cancel_check()
+        remaining_ms = (deadline - time.monotonic()) * 1000.0
+        if remaining_ms <= 0:
+            raise PlaywrightTimeoutError("Timeout %sms exceeded." % timeout_ms)
+        try:
+            return wait(min(_CANCEL_WAIT_SLICE_MS, remaining_ms))
+        except PlaywrightTimeoutError:
+            if cancel_check:
+                cancel_check()
+            if time.monotonic() >= deadline:
+                raise
+
+
+def _wait_for_event(page, event_name, predicate, action, timeout_ms, cancel_check=None):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    events = []
+
+    def on_event(event):
+        if not events and (predicate is None or predicate(event)):
+            events.append(event)
+
+    page.on(event_name, on_event)
+    try:
+        if cancel_check:
+            cancel_check()
+        action()
+        while not events:
+            if cancel_check:
+                cancel_check()
+            remaining_ms = (deadline - time.monotonic()) * 1000.0
+            if remaining_ms <= 0:
+                raise PlaywrightTimeoutError("Timeout %sms exceeded." % timeout_ms)
+            page.wait_for_timeout(min(_CANCEL_WAIT_SLICE_MS, remaining_ms))
+        return events[0]
+    finally:
+        page.remove_listener(event_name, on_event)
 
 
 def _is_api(url, path):
@@ -297,7 +355,7 @@ class ResponseMonitor(object):
                 return payload
             if self.page.is_closed():
                 raise RuntimeError("等待%s时学习页已关闭" % description)
-            self.page.wait_for_timeout(200)
+            _wait_for_timeout(self.page, 200, self.cancel_check)
         raise RuntimeError("等待%s超时（%.0f 秒）" % (description, timeout_ms / 1000.0))
 
 
@@ -338,6 +396,43 @@ class CourseRunner(object):
     def report_progress(self, current, total, label):
         if self.progress_handler:
             self.progress_handler(current, total, label)
+
+    def _wait_for_timeout(self, page, timeout_ms):
+        return _wait_for_timeout(page, timeout_ms, self.check_cancel)
+
+    def _wait_for_function(self, page, expression, **kwargs):
+        timeout_ms = kwargs.pop("timeout", self.timeout_ms)
+        return _wait_in_slices(
+            lambda slice_ms: page.wait_for_function(expression, timeout=slice_ms, **kwargs),
+            timeout_ms,
+            self.check_cancel,
+        )
+
+    def _wait_for_load_state(self, page, state, **kwargs):
+        timeout_ms = kwargs.pop("timeout", self.timeout_ms)
+        return _wait_in_slices(
+            lambda slice_ms: page.wait_for_load_state(state, timeout=slice_ms, **kwargs),
+            timeout_ms,
+            self.check_cancel,
+        )
+
+    def _wait_for_locator(self, locator, **kwargs):
+        timeout_ms = kwargs.pop("timeout", self.timeout_ms)
+        return _wait_in_slices(
+            lambda slice_ms: locator.wait_for(timeout=slice_ms, **kwargs),
+            timeout_ms,
+            self.check_cancel,
+        )
+
+    def _expect_response(self, page, predicate, action):
+        return _wait_for_event(
+            page, "response", predicate, action, self.timeout_ms, self.check_cancel
+        )
+
+    def _expect_popup(self, page, action):
+        return _wait_for_event(
+            page, "popup", None, action, self.timeout_ms, self.check_cancel
+        )
 
     def load_playwright(self):
         try:
@@ -443,19 +538,24 @@ class CourseRunner(object):
         )
         try:
             if tab.count() and "is-active" not in (tab.first.get_attribute("class") or ""):
-                with self.list_page.expect_response(
-                    lambda r: _is_api(r.url, COURSE_PAGE_API), timeout=self.timeout_ms
-                ) as response_info:
-                    tab.first.click()
-                return parse_course_page(
-                    self._response_json(response_info.value, "课程列表")
+                response = self._expect_response(
+                    self.list_page,
+                    lambda r: _is_api(r.url, COURSE_PAGE_API),
+                    tab.first.click,
                 )
-            with self.list_page.expect_response(
-                lambda r: _is_api(r.url, COURSE_PAGE_API), timeout=self.timeout_ms
-            ) as response_info:
-                self.list_page.reload(wait_until="domcontentloaded")
-            return parse_course_page(self._response_json(response_info.value, "课程列表"))
+                return parse_course_page(self._response_json(response, "课程列表"))
+            response = self._expect_response(
+                self.list_page,
+                lambda r: _is_api(r.url, COURSE_PAGE_API),
+                lambda: self.list_page.reload(wait_until="commit"),
+            )
+            self._wait_for_load_state(
+                self.list_page, "domcontentloaded", timeout=self.timeout_ms
+            )
+            return parse_course_page(self._response_json(response, "课程列表"))
         except Exception as exc:
+            if self.interrupt_exceptions and isinstance(exc, self.interrupt_exceptions):
+                raise
             self.save_diagnostic(self.list_page, "list")
             raise RuntimeError(
                 "刷新课程列表失败。请确认已登录且位于「课程设置」页：%s" % exc
@@ -467,19 +567,23 @@ class CourseRunner(object):
             has_text=re.compile(r"^\s*重置\s*$")
         )
         try:
-            reset.first.wait_for(state="visible", timeout=self.timeout_ms)
-        except Exception:
+            self._wait_for_locator(reset.first, state="visible", timeout=self.timeout_ms)
+        except Exception as exc:
+            if self.interrupt_exceptions and isinstance(exc, self.interrupt_exceptions):
+                raise
             raise RuntimeError("未找到课程设置区的「重置」按钮，无法保证扫描全部课程")
-        with self.list_page.expect_response(
-            lambda r: _is_api(r.url, COURSE_PAGE_API), timeout=self.timeout_ms
-        ) as response_info:
-            reset.first.click()
-        data = parse_course_page(self._response_json(response_info.value, "课程列表"))
+        response = self._expect_response(
+            self.list_page,
+            lambda r: _is_api(r.url, COURSE_PAGE_API),
+            reset.first.click,
+        )
+        data = parse_course_page(self._response_json(response, "课程列表"))
         self.log("已清空课程筛选条件并回到第一页")
         return data
 
     def _wait_page_number(self, page_number):
-        self.list_page.wait_for_function(
+        self._wait_for_function(
+            self.list_page,
             """target => Array.from(document.querySelectorAll('.el-pagination')).some(pager => {
                 if (pager.offsetParent === null) return false;
                 const active = pager.querySelector('.el-pager li.active');
@@ -494,15 +598,22 @@ class CourseRunner(object):
             ".el-pagination:visible .el-pagination__jump input"
         ).first
         try:
-            jump.wait_for(state="visible", timeout=self.timeout_ms)
-        except Exception:
+            self._wait_for_locator(jump, state="visible", timeout=self.timeout_ms)
+        except Exception as exc:
+            if self.interrupt_exceptions and isinstance(exc, self.interrupt_exceptions):
+                raise
             raise RuntimeError("未找到分页器的页码输入框，无法跳回续刷页")
-        with self.list_page.expect_response(
-            lambda r: _is_api(r.url, COURSE_PAGE_API), timeout=self.timeout_ms
-        ) as response_info:
+
+        def goto_page():
             jump.fill(str(page_number))
             jump.press("Enter")
-        data = parse_course_page(self._response_json(response_info.value, "课程列表"))
+
+        response = self._expect_response(
+            self.list_page,
+            lambda r: _is_api(r.url, COURSE_PAGE_API),
+            goto_page,
+        )
+        data = parse_course_page(self._response_json(response, "课程列表"))
         self._wait_page_number(page_number)
         self.log("刷新后直接跳转到第 %d 页续刷" % page_number)
         return data
@@ -511,11 +622,12 @@ class CourseRunner(object):
         button = self.list_page.locator(".el-pagination:visible .btn-next").first
         if not button.count() or button.is_disabled():
             raise RuntimeError("课程总数显示仍有下一页，但分页器下一页不可用")
-        with self.list_page.expect_response(
-            lambda r: _is_api(r.url, COURSE_PAGE_API), timeout=self.timeout_ms
-        ) as response_info:
-            button.click()
-        data = parse_course_page(self._response_json(response_info.value, "课程列表"))
+        response = self._expect_response(
+            self.list_page,
+            lambda r: _is_api(r.url, COURSE_PAGE_API),
+            button.click,
+        )
+        data = parse_course_page(self._response_json(response, "课程列表"))
         self._wait_page_number(page_number)
         return data
 
@@ -627,7 +739,8 @@ class CourseRunner(object):
 
     def _course_row(self, entry):
         expected = " ".join((entry["item"].get("coursename") or "").split())
-        self.list_page.wait_for_function(
+        self._wait_for_function(
+            self.list_page,
             """({expectedCount, expectedIndex, expectedName}) => {
                 const tables = Array.from(document.querySelectorAll('.el-table')).filter(
                     table => table.offsetParent !== null
@@ -690,12 +803,13 @@ class CourseRunner(object):
                     break
             if frame is not None:
                 break
-            page.wait_for_timeout(200)
+            self._wait_for_timeout(page, 200)
         if frame is None:
             raise RuntimeError("课件预览 iframe 尚未建立")
-        frame.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
-        frame.wait_for_load_state("load", timeout=timeout_ms)
-        frame.wait_for_function(
+        self._wait_for_load_state(frame, "domcontentloaded", timeout=timeout_ms)
+        self._wait_for_load_state(frame, "load", timeout=timeout_ms)
+        self._wait_for_function(
+            frame,
             """() => {
                 const body = document.body;
                 if (!body) return false;
@@ -709,7 +823,8 @@ class CourseRunner(object):
         )
 
     def _drag_video_to_end(self, page):
-        page.wait_for_function(
+        self._wait_for_function(
+            page,
             """() => Array.from(document.querySelectorAll('video')).some(video =>
                 video.offsetParent !== null && video.readyState >= 1 &&
                 Number.isFinite(video.duration) && video.duration > 0
@@ -731,7 +846,7 @@ class CourseRunner(object):
         slider = page.get_by_role("slider", name="进度小节", exact=True).first
         if not slider.count():
             slider = page.locator(".vjs-progress-control [role='slider']:visible").first
-        slider.wait_for(state="visible", timeout=self.timeout_ms)
+        self._wait_for_locator(slider, state="visible", timeout=self.timeout_ms)
         state = video.evaluate(
             "video => ({current: video.currentTime, duration: video.duration, ended: video.ended})"
         )
@@ -753,7 +868,7 @@ class CourseRunner(object):
             page.mouse.down()
             page.mouse.move(target_x, y, steps=12)
             page.mouse.up()
-            page.wait_for_timeout(400)
+            self._wait_for_timeout(page, 400)
             current = float(video.evaluate("video => video.currentTime"))
             remaining = duration - current
             threshold = max(2.0, min(6.0, duration * 0.002))
@@ -780,7 +895,8 @@ class CourseRunner(object):
             self.check_cancel()
             self._drag_video_to_end(page)
             try:
-                page.wait_for_function(
+                self._wait_for_function(
+                    page,
                     """() => Array.from(document.querySelectorAll('video')).some(video =>
                         video.offsetParent !== null && Boolean(video.ended || video.__courseAutoplayEnded)
                     )""",
@@ -795,12 +911,13 @@ class CourseRunner(object):
                 self.log("等待视频结束超过 30 秒，重新拖动进度条")
         self.log("已收到视频真实 ended 事件，等待学习记录上报")
         monitor.wait_success(SAVE_STUDY_API, save_mark, self.timeout_ms, "学习记录上报")
-        page.wait_for_timeout(1000)
+        self._wait_for_timeout(page, 1000)
 
     def _process_other(self, page, monitor, save_mark, ware):
         ware_type = str(ware.get("wareType"))
         if ware_type == "1":
-            page.wait_for_function(
+            self._wait_for_function(
+                page,
                 """() => Array.from(document.querySelectorAll('audio')).some(audio =>
                     audio.offsetParent !== null && audio.readyState >= 1
                 )""",
@@ -809,12 +926,12 @@ class CourseRunner(object):
         elif ware_type in ("2", "3"):
             selector = "#my_iframe" if ware_type == "3" else "iframe:visible"
             iframe = page.locator(selector).first
-            iframe.wait_for(state="visible", timeout=self.timeout_ms)
+            self._wait_for_locator(iframe, state="visible", timeout=self.timeout_ms)
             self._wait_frame_loaded(page, iframe, self.timeout_ms)
         else:
             raise RuntimeError("暂不支持 wareType=%s 的课件加载流程" % ware_type)
         monitor.wait_success(SAVE_STUDY_API, save_mark, self.timeout_ms, "非视频学习记录上报")
-        page.wait_for_timeout(500)
+        self._wait_for_timeout(page, 500)
 
     def _process_course(self, entry):
         item = entry["item"]
@@ -825,9 +942,7 @@ class CourseRunner(object):
         monitor = ResponseMonitor(cancel_check=self.check_cancel)
         self.context_response_monitor = monitor
         self.context.on("response", monitor)
-        with self.list_page.expect_popup(timeout=self.timeout_ms) as popup_info:
-            button.click()
-        popup = popup_info.value
+        popup = self._expect_popup(self.list_page, button.click)
         self.active_popup = popup
         monitor.page = popup
         popup.set_default_timeout(self.timeout_ms)
@@ -842,7 +957,8 @@ class CourseRunner(object):
                 raise RuntimeError("课件清单与当前课程不一致，已停止处理")
         self.log("学习页已打开，共 %d 个课件" % len(wares))
         if len(wares) > 1:
-            popup.wait_for_function(
+            self._wait_for_function(
+                popup,
                 "expected => document.querySelectorAll('.el-tree .nameClass').length === expected",
                 arg=len(wares),
                 timeout=self.timeout_ms,
@@ -862,7 +978,7 @@ class CourseRunner(object):
                     monitor.wait_success(
                         LAST_STUDY_API, save_mark, self.timeout_ms, "课件切换响应"
                     )
-                popup.wait_for_timeout(400)
+                self._wait_for_timeout(popup, 400)
             name = ware.get("wareName") or ware.get("resName") or "课件 %d" % (index + 1)
             self.log(
                 "处理课件 %d/%d：《%s》，wareType=%s"
@@ -1020,7 +1136,7 @@ class CourseRunner(object):
                 processed += 1
                 checkpoint["processed"] = processed
                 self.report_progress(processed, 0, "页面流程完成 · %s" % name)
-                self.list_page.wait_for_timeout(1500)
+                self._wait_for_timeout(self.list_page, 1500)
 
     def close(self):
         self.close_popup()

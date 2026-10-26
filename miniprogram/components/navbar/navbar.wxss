@@ -49,7 +49,39 @@
 }
 
 @media (min-width: 600px) {
+  .nav-row {
+    height: 56px;
+    padding: 0 18px;
+    box-sizing: border-box;
+  }
+
+  .nav-left {
+    width: 44px;
+    height: 44px;
+    flex: none;
+  }
+
+  .nav-title {
+    position: static;
+    min-width: 0;
+    flex: 1;
+    justify-content: flex-start;
+    font-size: 17px;
+    letter-spacing: 0;
+  }
+
   .ico-44 {
     font-size: 22px;
+  }
+}
+
+@media (min-width: 900px) {
+  .nav-row {
+    height: 60px;
+    padding: 0 24px;
+  }
+
+  .nav-title {
+    font-size: 18px;
   }
 }

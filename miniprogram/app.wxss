@@ -198,6 +198,71 @@ page {
     --td-button-medium-padding-horizontal: 16px;
     --td-button-large-padding-horizontal: 20px;
     --td-button-border-width: 1px;
+    --td-button-border-radius: 8px;
+    --td-dialog-border-radius: 12px;
+    --td-popup-border-radius: 12px;
+    --td-toast-radius: 4px;
+    --td-calendar-radius: 12px;
+    --td-calendar-selected-border-radius: 8px;
+    --td-cell-height: 56px;
+    --td-cell-horizontal-padding: 16px;
+    --td-cell-vertical-padding: 10px;
+    --td-cell-left-icon-size: 19px;
+    --td-cell-right-icon-size: 16px;
+    --td-cell-note-font-size: 12px;
+    --td-cell-image-width: 40px;
+    --td-cell-image-height: 40px;
+    --app-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  .card {
+    border-radius: 12px;
+  }
+
+  .section-title {
+    font-size: 15px;
+  }
+
+  .page-body {
+    box-sizing: border-box;
+    padding: 20px 20px 96px;
+  }
+
+  .st-tag {
+    gap: 4px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+
+  .st-tag::before {
+    width: 5px;
+    height: 5px;
+  }
+
+  .badge-outline {
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+  }
+}
+
+@media (min-width: 900px) {
+  .page-body {
+    padding: 22px 24px 40px;
+  }
+
+  .t-popup--center {
+    box-sizing: border-box;
+    width: calc(100% - 64px);
+    max-width: 760px;
+  }
+}
+
+@media (min-width: 600px) and (prefers-color-scheme: dark) {
+  page {
+    --app-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.28);
   }
 }
 

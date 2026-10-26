@@ -10,6 +10,7 @@ import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { mapAnalysis } from '../../utils/quiz';
+import widePage from '../../../utils/wide-page';
 
 const API_BASE = '/api/v1/quiz';
 const POLL_INTERVAL = 5000; // 有解析中题库时按 5s 轮询（同 safeday 口径）
@@ -18,7 +19,7 @@ const POLL_INTERVAL = 5000; // 有解析中题库时按 5s 轮询（同 safeday 
 const teamGate = createTeamGate({ storageKey: 'quiz_team_id' });
 
 Page({
-  behaviors: [teamGate],
+  behaviors: [teamGate, widePage],
   data: {
     isManager: false, // 门控：仅 admin / team_admin 可见页面内容
     isAdmin: false, // 超管：弹层显示「上传至」选择（可建/改全部池）

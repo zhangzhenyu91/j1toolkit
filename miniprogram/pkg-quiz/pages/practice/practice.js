@@ -19,6 +19,7 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
+import widePage from '../../../utils/wide-page';
 
 const API_BASE = '/api/v1/quiz';
 const LIMIT = 20; // 每批拉题数（与后端约定一致）
@@ -41,6 +42,7 @@ const shuffleIdx = (n) => {
 };
 
 Page({
+  behaviors: [widePage],
   data: {
     gate: false,
     navTitle: '刷题',

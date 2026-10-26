@@ -146,7 +146,6 @@ def run(job, params: dict) -> dict:
     )
     engine = _engine()
     runner = engine.CourseRunner(args, state.logs_dir(), log_handler=job.log)
-    job.add_cancel_hook(runner.close)
 
     def paused_result():
         job.log("学习已暂停：受控浏览器和登录状态已保留，可切换课程列表后再次开始学习")

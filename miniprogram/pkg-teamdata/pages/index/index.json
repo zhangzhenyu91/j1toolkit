@@ -2,6 +2,7 @@
   "navigationStyle": "custom",
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
+    "wide-shell": "/components/wide-shell/wide-shell",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-segmented": "tdesign-miniprogram/segmented/segmented",
     "t-input": "tdesign-miniprogram/input/input",

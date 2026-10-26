@@ -5,6 +5,7 @@
   "backgroundTextStyle": "@bgTxtStyle",
   "usingComponents": {
     "navbar": "/components/navbar/navbar",
+    "wide-shell": "/components/wide-shell/wide-shell",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-popup": "tdesign-miniprogram/popup/popup",
     "t-switch": "tdesign-miniprogram/switch/switch",
