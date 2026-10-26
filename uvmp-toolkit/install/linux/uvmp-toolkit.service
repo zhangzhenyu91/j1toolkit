@@ -11,7 +11,7 @@ Environment=UVMP_TOOLKIT_MIRROR_STATE=@MIRROR_STATE@
 Environment=PYTHONIOENCODING=utf-8
 ExecStart=@RUN_CMD@ daily-export --if-due
 # 树障统计表同步（同一唤醒链路）：先按 U盘指令执行（U盘不在秒退），再做 23:55 夜间兜底判定；
-# 与 daily-export 同受 timer 的 06..23 时段限制——00:00 后的服务端指令次晨首轮 tick 补执行。
+# timer 全天每分钟轮询，00:00 服务端回写 replace 后下一轮即可执行。
 ExecStart=@RUN_CMD@ tree-sync --tick
 ExecStart=@RUN_CMD@ tree-sync --nightly --if-due
 # 交跨统计表同步（与树障同契约、独立指令文件/成功戳，同一唤醒链路）。

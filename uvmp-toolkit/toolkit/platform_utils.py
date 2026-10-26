@@ -7,7 +7,6 @@ U 盘逻辑移植自 export_dispatch_orders.py（卷标 GLKVM 的 KVM 虚拟 U �
 """
 
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -183,14 +182,25 @@ def _desktop_user():
 
 
 def _mount_linux_device(device, log):
-    """root 触发时让 udisks 以桌面用户挂载，避免挂载点落在 /run/media/root。"""
+    """root 触发时优先以桌面用户挂载，失败后回退 root 保证自动任务可用。"""
     cmd = ["udisksctl", "mount", "-b", device]
     if os.geteuid() == 0:
         user = _desktop_user()
         runuser = shutil.which("runuser")
         if user and runuser:
             log("以桌面用户 %s 挂载U盘" % user)
-            cmd = [runuser, "-u", user, "--"] + cmd
+            r = subprocess.run(
+                [runuser, "-u", user, "--"] + cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if r.returncode == 0:
+                return r
+            log(
+                "桌面用户挂载失败，改用 root 挂载（桌面用户可能无权打开）: %s"
+                % r.stderr.strip()
+            )
         else:
             log("未识别桌面用户或 runuser，按 root 挂载（桌面用户可能无权打开）")
     return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -199,32 +209,35 @@ def _mount_linux_device(device, log):
 def _find_usb_linux(label: str, log) -> str:
     """linux：确保卷标为 label 的设备已挂载，返回挂载点；失败返回 None"""
     label = (label or "").upper()
-    try:
-        r = subprocess.run(
-            ["lsblk", "-J", "-o", "PATH,LABEL,MOUNTPOINT"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if r.returncode != 0:
-            log("lsblk 执行失败: " + r.stderr.strip())
-            return None
-        import json as _json
-
-        data = _json.loads(r.stdout)
-    except Exception as e:
-        log("查找U盘设备异常: %s" % e)
-        return None
 
     def scan():
+        try:
+            r = subprocess.run(
+                ["lsblk", "-J", "-o", "PATH,LABEL,MOUNTPOINT"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if r.returncode != 0:
+                log("lsblk 执行失败: " + r.stderr.strip())
+                return None
+            import json as _json
+
+            data = _json.loads(r.stdout)
+        except Exception as e:
+            log("查找U盘设备异常: %s" % e)
+            return None
         for dev in data.get("blockdevices", []):
             for node in [dev] + (dev.get("children") or []):
                 if (node.get("label") or "").upper() == label:
                     return node.get("path"), node.get("mountpoint")
         return None, None
 
-    device, mountpoint = scan()
     for attempt in range(1, 4):
+        found = scan()
+        if found is None:
+            return None
+        device, mountpoint = found
         if mountpoint:
             log("U盘已挂载: %s" % mountpoint)
             return mountpoint
@@ -233,16 +246,18 @@ def _find_usb_linux(label: str, log) -> str:
         else:
             try:
                 r = _mount_linux_device(device, log)
-                if r.returncode == 0:
-                    m = re.search(r"\bat\s+(.+?)\.?\s*$", r.stdout.strip())
-                    actual = m.group(1) if m else ""
-                    time.sleep(1)
-                    if actual and os.path.ismount(actual):
-                        log("U盘挂载成功: %s" % actual)
-                        return actual
-                    log("挂载后未检测到挂载点: %s" % actual)
-                else:
+                if r.returncode != 0:
                     log("挂载失败 (%s): %s" % (device, r.stderr.strip()))
+                time.sleep(1)
+                found = scan()
+                if found is None:
+                    return None
+                _device, actual = found
+                if actual:
+                    log("U盘挂载成功: %s" % actual)
+                    return actual
+                if r.returncode == 0:
+                    log("挂载后未检测到挂载点")
             except subprocess.TimeoutExpired:
                 log("挂载超时")
             except Exception as e:
