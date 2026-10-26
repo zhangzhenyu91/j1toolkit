@@ -708,10 +708,10 @@ class CourseRunner(object):
             timeout=timeout_ms,
         )
 
-    def _process_video(self, page, monitor, save_mark):
+    def _drag_video_to_end(self, page):
         page.wait_for_function(
             """() => Array.from(document.querySelectorAll('video')).some(video =>
-                video.offsetParent !== null && !video.ended && video.readyState >= 1 &&
+                video.offsetParent !== null && video.readyState >= 1 &&
                 Number.isFinite(video.duration) && video.duration > 0
             )""",
             timeout=self.timeout_ms,
@@ -772,12 +772,27 @@ class CourseRunner(object):
                 if not play.count():
                     raise RuntimeError("视频暂停且无法恢复播放")
                 play.click()
-        page.wait_for_function(
-            """() => Array.from(document.querySelectorAll('video')).some(video =>
-                video.offsetParent !== null && Boolean(video.ended || video.__courseAutoplayEnded)
-            )""",
-            timeout=self.timeout_ms,
-        )
+
+    def _process_video(self, page, monitor, save_mark):
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        for wait_attempt in range(1, 4):
+            self.check_cancel()
+            self._drag_video_to_end(page)
+            try:
+                page.wait_for_function(
+                    """() => Array.from(document.querySelectorAll('video')).some(video =>
+                        video.offsetParent !== null && Boolean(video.ended || video.__courseAutoplayEnded)
+                    )""",
+                    timeout=30000,
+                )
+                break
+            except PlaywrightTimeoutError as exc:
+                if wait_attempt == 3:
+                    raise RuntimeError(
+                        "连续 3 轮拖动后，视频均未在 30 秒内播放结束"
+                    ) from exc
+                self.log("等待视频结束超过 30 秒，重新拖动进度条")
         self.log("已收到视频真实 ended 事件，等待学习记录上报")
         monitor.wait_success(SAVE_STUDY_API, save_mark, self.timeout_ms, "学习记录上报")
         page.wait_for_timeout(1000)
