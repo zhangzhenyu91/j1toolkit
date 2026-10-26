@@ -912,8 +912,7 @@
           bindinput="onRmkInput"
           placeholder="请输入备注（可空）"
           placeholder-class="ph"
-          adjust-position="{{false}}"
-          bindkeyboardheightchange="onKeyboardHeight"
+          adjust-position="{{true}}"
           hold-keyboard
           auto-height
           maxlength="500"

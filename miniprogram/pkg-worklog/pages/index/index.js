@@ -1994,8 +1994,6 @@ Page({
   },
 
   onKeyboardHeight(e) {
-    // 备注原生 textarea 在键盘高度回调中重绘会立即失焦；编辑期间不更新页面数据
-    if (this.data.rmkVisible) return;
     const h = e.detail.height || 0;
     this.setData({ keyboardHeight: h > 0 ? h : 0 });
   },
