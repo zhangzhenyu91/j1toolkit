@@ -88,67 +88,10 @@
   background: var(--app-bg-page);
 }
 
-/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+/* ---------- t-icon 数值字阶（t-class 外部类） ---------- */
 .ico-36 {
   font-size: 36rpx;
 }
 .ico-40 {
   font-size: 40rpx;
-}
-
-/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
-   600px 起列表限宽居中、关键字阶改固定 px、底部按钮条同宽居中；900/1200px 限宽递增 */
-@media (min-width: 600px) {
-  .page-body {
-    box-sizing: border-box;
-    max-width: 680px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .create-bar {
-    left: 50%;
-    right: auto;
-    width: 100%;
-    max-width: 680px;
-    box-sizing: border-box;
-    transform: translateX(-50%);
-  }
-
-  .tip-bar {
-    font-size: 12px;
-  }
-
-  .s-title {
-    font-size: 14px;
-  }
-
-  .s-time {
-    font-size: 11px;
-  }
-
-  .s-action {
-    font-size: 13px;
-    width: 64px;
-  }
-  .ico-36 {
-    font-size: 18px;
-  }
-  .ico-40 {
-    font-size: 20px;
-  }
-}
-
-@media (min-width: 900px) {
-  .page-body,
-  .create-bar {
-    max-width: 840px;
-  }
-}
-
-@media (min-width: 1200px) {
-  .page-body,
-  .create-bar {
-    max-width: 960px;
-  }
 }

@@ -15,7 +15,6 @@ import { shareAppMessage } from '../../../utils/share';
 import { fmtSize, extOf } from '../../../utils/util';
 import { teamQuery as teamQueryOf, teamBody as teamBodyOf } from '../../../utils/teamgate';
 import { utf8Buffer, concatBuffers } from '../../../utils/multipart';
-import widePage from '../../../utils/wide-page';
 
 const MAX_FILES = 20; // 与服务端 multer files 上限一致
 const MAX_SIZE = 10 * 1024 * 1024; // 单文件 10MB，与服务端一致
@@ -111,7 +110,6 @@ function mapItem(it) {
 }
 
 Page({
-  behaviors: [widePage],
   data: {
     gate: false,
     // 每日自动同步派车单开关（按生效班组）

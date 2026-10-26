@@ -1,262 +1,247 @@
 <!-- 首页 · 应用中心 + 我的（同页双面板，tab 切换左右滑动） -->
-<wide-shell active="{{tab}}" apps="{{apps}}" apps-ready="{{!loading}}" user-info="{{userInfo}}">
-  <block wx:if="{{gate}}">
-    <swiper
-      class="main-swiper"
-      current="{{tab === 'me' ? 1 : 0}}"
-      duration="250"
-      easing-function="easeOutCubic"
-      bindchange="onSwiperChange"
-    >
-      <!-- 首页面板（「政企蓝白」：轻量深蓝页首 + 数据条 + 应用优先 + 通知摘要） -->
-      <swiper-item>
-        <view class="panel">
-          <navbar
-            title="{{isWide ? '工作台' : 'Shade 壹匣'}}"
-            bg="{{isWide ? '#F5F7FA' : '#0A3592'}}"
-            color="{{isWide ? '#1D2129' : '#FFFFFF'}}"
-            frontColor="{{isWide ? '#000000' : '#ffffff'}}"
-          />
-          <scroll-view scroll-y class="panel-scroll">
-            <!-- 深蓝页首（与 navbar 同色，取消数据卡浮层承接区） -->
-            <view class="hero">
-              <view class="hero-greet">
-                <view class="hero-name">{{greeting}}，{{userInfo.nickname || '同事'}}</view>
-                <view class="hero-sub"
-                  >{{today}} · {{userInfo.role === 'admin' ? '管理员' : '班组成员'}}</view
+<block wx:if="{{gate}}">
+  <swiper
+    class="main-swiper"
+    current="{{tab === 'me' ? 1 : 0}}"
+    duration="250"
+    easing-function="easeOutCubic"
+    bindchange="onSwiperChange"
+  >
+    <!-- 首页面板（「政企蓝白」：轻量深蓝页首 + 数据条 + 应用优先 + 通知摘要） -->
+    <swiper-item>
+      <view class="panel">
+        <navbar title="Shade 壹匣" bg="#0A3592" color="#FFFFFF" frontColor="#ffffff" />
+        <scroll-view scroll-y class="panel-scroll">
+          <!-- 深蓝页首（与 navbar 同色，取消数据卡浮层承接区） -->
+          <view class="hero">
+            <view class="hero-greet">
+              <view class="hero-name">{{greeting}}，{{userInfo.nickname || '同事'}}</view>
+              <view class="hero-sub"
+                >{{today}} · {{userInfo.role === 'admin' ? '管理员' : '班组成员'}}</view
+              >
+            </view>
+          </view>
+          <view class="page-body home-body">
+            <!-- 轻量数据条（无出工日志权限时对应项显示 —；数字分级着色：绿/橙/红） -->
+            <view class="stats-strip">
+              <view class="stat"
+                ><text class="stat-num {{statPrevPassCls}}"
+                  >{{statPrevPass === null ? '—' : statPrevPass}}</text
+                ><text class="stat-label">上月通过</text></view
+              >
+              <view class="stat"
+                ><text class="stat-num {{statPrevNeedCls}}"
+                  >{{statPrevNeed === null ? '—' : statPrevNeed}}</text
+                ><text class="stat-label">上月需补</text></view
+              >
+              <view class="stat"
+                ><text class="stat-num {{statCurPassCls}}"
+                  >{{statCurPass === null ? '—' : statCurPass}}</text
+                ><text class="stat-label">本月通过</text></view
+              >
+              <view class="stat"
+                ><text class="stat-num {{statCurNeedCls}}"
+                  >{{statCurNeed === null ? '—' : statCurNeed}}</text
+                ><text class="stat-label">本月需补</text></view
+              >
+            </view>
+
+            <!-- 应用中心（优先于通知摘要） -->
+            <view class="section-title app-sec">应用中心</view>
+            <view class="card grid-card">
+              <view class="grid">
+                <view
+                  class="g-item"
+                  hover-class="hover-scale"
+                  wx:for="{{apps}}"
+                  wx:key="app_key"
+                  data-path="{{item.path}}"
+                  data-name="{{item.name}}"
+                  bindtap="onAppTap"
                 >
+                  <view class="g-ico">
+                    <t-icon t-class="ico-54" name="{{item.icon || 'app'}}" color="{{ico.brand}}" />
+                  </view>
+                  <text class="g-name">{{item.name}}</text>
+                </view>
+
+                <!-- 预留应用入口（占位：灰色无底块图标） -->
+                <view class="g-item g-item-soon" hover-class="hover-scale" bindtap="onSoon">
+                  <view class="g-ico g-soon">
+                    <t-icon t-class="ico-54" name="more" color="{{ico.mute}}" />
+                  </view>
+                  <text class="g-name g-name-soon">敬请期待</text>
+                </view>
+              </view>
+
+              <view wx:if="{{!loading && apps.length === 0}}" class="empty">
+                暂无可用应用，请联系管理员开通权限
               </view>
             </view>
-            <view class="page-body home-body">
-              <!-- 轻量数据条（无出工日志权限时对应项显示 —；数字分级着色：绿/橙/红） -->
-              <view class="stats-strip">
-                <view class="stat"
-                  ><text class="stat-num {{statPrevPassCls}}"
-                    >{{statPrevPass === null ? '—' : statPrevPass}}</text
-                  ><text class="stat-label">上月通过</text></view
+
+            <!-- 消息通知（默认最新 1 条，展开其余最多 2 条；整卡进入列表，展开/重试不跳转） -->
+            <view class="card notice-card" hover-class="hover-bg-warm" bindtap="goNotices">
+              <view class="n-head">
+                <view class="n-ico">
+                  <t-icon t-class="ico-30" name="notification" color="{{ico.brand}}" />
+                </view>
+                <view class="n-title">消息通知</view>
+                <view class="n-badge" wx:if="{{noticeUnread > 0}}"
+                  ><view class="n-badge-dot"></view>{{noticeUnread}} 条未读</view
                 >
-                <view class="stat"
-                  ><text class="stat-num {{statPrevNeedCls}}"
-                    >{{statPrevNeed === null ? '—' : statPrevNeed}}</text
-                  ><text class="stat-label">上月需补</text></view
-                >
-                <view class="stat"
-                  ><text class="stat-num {{statCurPassCls}}"
-                    >{{statCurPass === null ? '—' : statCurPass}}</text
-                  ><text class="stat-label">本月通过</text></view
-                >
-                <view class="stat"
-                  ><text class="stat-num {{statCurNeedCls}}"
-                    >{{statCurNeed === null ? '—' : statCurNeed}}</text
-                  ><text class="stat-label">本月需补</text></view
-                >
+                <t-icon t-class="ico-32" name="chevron-right" color="{{ico.weak}}" />
               </view>
-
-              <!-- 应用中心（优先于通知摘要） -->
-              <view class="section-title app-sec">应用中心</view>
-              <view class="card grid-card">
-                <view class="grid">
-                  <view
-                    class="g-item"
-                    hover-class="hover-scale"
-                    wx:for="{{apps}}"
-                    wx:key="app_key"
-                    data-path="{{item.path}}"
-                    data-name="{{item.name}}"
-                    bindtap="onAppTap"
-                  >
-                    <view class="g-ico">
-                      <t-icon
-                        t-class="ico-54"
-                        name="{{item.icon || 'app'}}"
-                        color="{{ico.brand}}"
-                      />
-                    </view>
-                    <text class="g-name">{{item.name}}</text>
-                  </view>
-
-                  <!-- 预留应用入口（占位：灰色无底块图标） -->
-                  <view class="g-item g-item-soon" hover-class="hover-scale" bindtap="onSoon">
-                    <view class="g-ico g-soon">
-                      <t-icon t-class="ico-54" name="more" color="{{ico.mute}}" />
-                    </view>
-                    <text class="g-name g-name-soon">敬请期待</text>
-                  </view>
-                </view>
-
-                <view wx:if="{{!loading && apps.length === 0}}" class="empty">
-                  暂无可用应用，请联系管理员开通权限
-                </view>
+              <view wx:if="{{noticeLoading}}" class="n-empty">通知加载中…</view>
+              <view wx:elif="{{noticeError}}" class="n-error">
+                <view class="n-error-text">{{noticeError}}</view>
+                <view class="n-retry" hover-class="hover-opacity" catchtap="loadNotices">重试</view>
               </view>
-
-              <!-- 消息通知（默认最新 1 条，展开其余最多 2 条；整卡进入列表，展开/重试不跳转） -->
-              <view class="card notice-card" hover-class="hover-bg-warm" bindtap="goNotices">
-                <view class="n-head">
-                  <view class="n-ico">
-                    <t-icon t-class="ico-30" name="notification" color="{{ico.brand}}" />
-                  </view>
-                  <view class="n-title">消息通知</view>
-                  <view class="n-badge" wx:if="{{noticeUnread > 0}}"
-                    ><view class="n-badge-dot"></view>{{noticeUnread}} 条未读</view
+              <block wx:elif="{{notices.length > 0}}">
+                <view class="n-row" wx:for="{{noticePreview}}" wx:key="id">
+                  <view class="n-dot {{item.read ? 'n-dot-read' : ''}}"></view>
+                  <view class="n-row-title {{item.read ? '' : 'n-row-unread'}}"
+                    >{{item.title}}</view
                   >
-                  <t-icon t-class="ico-32" name="chevron-right" color="{{ico.weak}}" />
+                  <view class="n-row-time">{{item.timeText}}</view>
                 </view>
-                <view wx:if="{{noticeLoading}}" class="n-empty">通知加载中…</view>
-                <view wx:elif="{{noticeError}}" class="n-error">
-                  <view class="n-error-text">{{noticeError}}</view>
-                  <view class="n-retry" hover-class="hover-opacity" catchtap="loadNotices"
-                    >重试</view
-                  >
-                </view>
-                <block wx:elif="{{notices.length > 0}}">
-                  <view class="n-row" wx:for="{{noticePreview}}" wx:key="id">
-                    <view class="n-dot {{item.read ? 'n-dot-read' : ''}}"></view>
-                    <view class="n-row-title {{item.read ? '' : 'n-row-unread'}}"
-                      >{{item.title}}</view
-                    >
-                    <view class="n-row-time">{{item.timeText}}</view>
-                  </view>
-                  <view class="n-extra {{noticeExpanded ? 'n-extra-open' : ''}}">
-                    <view class="n-extra-in">
-                      <view class="n-row" wx:for="{{noticeExtra}}" wx:key="id">
-                        <view class="n-dot {{item.read ? 'n-dot-read' : ''}}"></view>
-                        <view class="n-row-title {{item.read ? '' : 'n-row-unread'}}"
-                          >{{item.title}}</view
-                        >
-                        <view class="n-row-time">{{item.timeText}}</view>
-                      </view>
+                <view class="n-extra {{noticeExpanded ? 'n-extra-open' : ''}}">
+                  <view class="n-extra-in">
+                    <view class="n-row" wx:for="{{noticeExtra}}" wx:key="id">
+                      <view class="n-dot {{item.read ? 'n-dot-read' : ''}}"></view>
+                      <view class="n-row-title {{item.read ? '' : 'n-row-unread'}}"
+                        >{{item.title}}</view
+                      >
+                      <view class="n-row-time">{{item.timeText}}</view>
                     </view>
                   </view>
-                  <view
-                    wx:if="{{noticeRemaining > 0}}"
-                    class="n-toggle"
-                    hover-class="hover-opacity"
-                    catchtap="onNoticeToggle"
-                  >
-                    {{noticeExpanded ? '收起' : '展开其余 ' + noticeRemaining + ' 条'}}
-                    <t-icon
-                      t-class="ico-26"
-                      name="{{noticeExpanded ? 'chevron-up' : 'chevron-down'}}"
-                      color="{{ico.brand}}"
-                    />
-                  </view>
-                </block>
-                <view wx:else class="n-empty">暂无通知</view>
-              </view>
-
-              <view class="tip">更多班组应用持续接入中</view>
-            </view>
-          </scroll-view>
-        </view>
-      </swiper-item>
-
-      <!-- 我的面板（「政企蓝白」：用户大卡 + 功能列表 + 退出登录） -->
-      <swiper-item>
-        <view class="panel me-panel">
-          <navbar title="我的" />
-          <scroll-view scroll-y class="panel-scroll">
-            <view class="page-body">
-              <!-- 用户大卡 -->
-              <view class="me-card card hazard-top">
-                <view class="me-body">
-                  <view class="avatar">{{avatarChar}}</view>
-                  <view class="me-info">
-                    <view class="me-name">{{userInfo.nickname || '同事'}}</view>
-                    <view class="me-sub">账号：{{userInfo.username || '-'}}</view>
-                  </view>
                 </view>
-              </view>
-
-              <!-- 功能列表 -->
-              <view class="card cells-card">
-                <!-- 绑定商旅（出工日志扩展，仅出工日志权限可见）：三态文案 未绑定/已绑定/登录已过期（红字） -->
-                <t-cell
-                  wx:if="{{hasWorklog}}"
-                  title="绑定商旅"
-                  left-icon="location"
-                  note="{{sgccNote}}"
-                  t-class-note="sgcc-note{{sgccExpired ? ' sgcc-note-expired' : ''}}"
-                  arrow
-                  hover
-                  bind:click="goSgccBind"
-                />
-                <t-cell
-                  title="我的权限"
-                  left-icon="key"
-                  note="{{appCount}} 个应用"
-                  arrow
-                  hover
-                  bind:click="onPerms"
-                />
-                <t-cell
-                  title="关于 Shade 壹匣"
-                  left-icon="book"
-                  note="v1.22.1"
-                  arrow
-                  hover
-                  bordered="{{false}}"
-                  bind:click="onAbout"
-                />
-              </view>
-
-              <!-- 管理功能（仅管理员可见） -->
-              <block wx:if="{{userInfo.role === 'admin'}}">
-                <view class="section-title admin-sec">管理功能</view>
-                <view class="card cells-card">
-                  <t-cell
-                    title="员工管理"
-                    left-icon="usergroup"
-                    note="账号与状态"
-                    arrow
-                    hover
-                    bind:click="goUsers"
-                  />
-                  <t-cell
-                    title="权限管理"
-                    left-icon="lock-on"
-                    note="应用授权"
-                    arrow
-                    hover
-                    bind:click="goPerms"
-                  />
-                  <t-cell
-                    title="消息推送"
-                    left-icon="notification"
-                    note="全员通知"
-                    arrow
-                    hover
-                    bind:click="goPush"
-                  />
-                  <t-cell
-                    title="班组管理"
-                    left-icon="server"
-                    note="班组与设备组"
-                    arrow
-                    hover
-                    bordered="{{false}}"
-                    bind:click="goTeams"
+                <view
+                  wx:if="{{noticeRemaining > 0}}"
+                  class="n-toggle"
+                  hover-class="hover-opacity"
+                  catchtap="onNoticeToggle"
+                >
+                  {{noticeExpanded ? '收起' : '展开其余 ' + noticeRemaining + ' 条'}}
+                  <t-icon
+                    t-class="ico-26"
+                    name="{{noticeExpanded ? 'chevron-up' : 'chevron-down'}}"
+                    color="{{ico.brand}}"
                   />
                 </view>
               </block>
-
-              <!-- 退出登录 -->
-              <view class="logout card" hover-class="hover-bg-warm" bindtap="onLogout"
-                >退出登录</view
-              >
+              <view wx:else class="n-empty">暂无通知</view>
             </view>
-          </scroll-view>
-        </view>
-      </swiper-item>
-    </swiper>
 
-    <tabbar active="{{tab}}" bind:switch="onTabSwitch" />
-  </block>
+            <view class="tip">更多班组应用持续接入中</view>
+          </view>
+        </scroll-view>
+      </view>
+    </swiper-item>
 
-  <!-- 启动加载页（自动登录校验中） -->
-  <view wx:else class="gate-loading">
-    <image class="gate-logo" src="/assets/logo.png" mode="aspectFit" />
-  </view>
+    <!-- 我的面板（「政企蓝白」：用户大卡 + 功能列表 + 退出登录） -->
+    <swiper-item>
+      <view class="panel me-panel">
+        <navbar title="我的" />
+        <scroll-view scroll-y class="panel-scroll">
+          <view class="page-body">
+            <!-- 用户大卡 -->
+            <view class="me-card card hazard-top">
+              <view class="me-body">
+                <view class="avatar">{{avatarChar}}</view>
+                <view class="me-info">
+                  <view class="me-name">{{userInfo.nickname || '同事'}}</view>
+                  <view class="me-sub">账号：{{userInfo.username || '-'}}</view>
+                </view>
+              </view>
+            </view>
 
-  <t-dialog id="t-dialog" />
-  <t-toast id="t-toast" />
-</wide-shell>
+            <!-- 功能列表 -->
+            <view class="card cells-card">
+              <!-- 绑定商旅（出工日志扩展，仅出工日志权限可见）：三态文案 未绑定/已绑定/登录已过期（红字） -->
+              <t-cell
+                wx:if="{{hasWorklog}}"
+                title="绑定商旅"
+                left-icon="location"
+                note="{{sgccNote}}"
+                t-class-note="sgcc-note{{sgccExpired ? ' sgcc-note-expired' : ''}}"
+                arrow
+                hover
+                bind:click="goSgccBind"
+              />
+              <t-cell
+                title="我的权限"
+                left-icon="key"
+                note="{{appCount}} 个应用"
+                arrow
+                hover
+                bind:click="onPerms"
+              />
+              <t-cell
+                title="关于 Shade 壹匣"
+                left-icon="book"
+                note="v1.23.0"
+                arrow
+                hover
+                bordered="{{false}}"
+                bind:click="onAbout"
+              />
+            </view>
+
+            <!-- 管理功能（仅管理员可见） -->
+            <block wx:if="{{userInfo.role === 'admin'}}">
+              <view class="section-title admin-sec">管理功能</view>
+              <view class="card cells-card">
+                <t-cell
+                  title="员工管理"
+                  left-icon="usergroup"
+                  note="账号与状态"
+                  arrow
+                  hover
+                  bind:click="goUsers"
+                />
+                <t-cell
+                  title="权限管理"
+                  left-icon="lock-on"
+                  note="应用授权"
+                  arrow
+                  hover
+                  bind:click="goPerms"
+                />
+                <t-cell
+                  title="消息推送"
+                  left-icon="notification"
+                  note="全员通知"
+                  arrow
+                  hover
+                  bind:click="goPush"
+                />
+                <t-cell
+                  title="班组管理"
+                  left-icon="server"
+                  note="班组与设备组"
+                  arrow
+                  hover
+                  bordered="{{false}}"
+                  bind:click="goTeams"
+                />
+              </view>
+            </block>
+
+            <!-- 退出登录 -->
+            <view class="logout card" hover-class="hover-bg-warm" bindtap="onLogout">退出登录</view>
+          </view>
+        </scroll-view>
+      </view>
+    </swiper-item>
+  </swiper>
+
+  <tabbar active="{{tab}}" bind:switch="onTabSwitch" />
+</block>
+
+<!-- 启动加载页（自动登录校验中） -->
+<view wx:else class="gate-loading">
+  <image class="gate-logo" src="/assets/logo.png" mode="aspectFit" />
+</view>
+
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

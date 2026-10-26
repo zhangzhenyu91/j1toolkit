@@ -4,12 +4,10 @@ import Dialog from 'tdesign-miniprogram/dialog/index';
 import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { iconColors } from '../../common/icon-theme';
-import widePage from '../../../utils/wide-page';
 
 const EMPTY_FORM = { id: null, name: '', status: 1 };
 
 Page({
-  behaviors: [widePage],
   data: {
     ico: iconColors('light'), // t-icon 图标色计算值（随系统主题刷新）
     teams: [],

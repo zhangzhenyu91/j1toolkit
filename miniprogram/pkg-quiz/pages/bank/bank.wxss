@@ -225,7 +225,7 @@
   letter-spacing: 2rpx;
 }
 
-/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+/* ---------- t-icon 数值字阶（t-class 外部类） ---------- */
 .ico-24 {
   font-size: 24rpx;
 }
@@ -234,89 +234,4 @@
 }
 .ico-40 {
   font-size: 40rpx;
-}
-
-/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
-   600px 起限宽居中、关键字阶改固定 px；900px 起练习宫格增为四列一行 */
-@media (min-width: 600px) {
-  .page-body {
-    box-sizing: border-box;
-    max-width: 680px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .bank-card .nm {
-    font-size: 16px;
-  }
-
-  .bank-card .desc {
-    font-size: 11.5px;
-  }
-
-  .stat-row b {
-    font-size: 19px;
-  }
-
-  .stat-row span {
-    font-size: 10.5px;
-  }
-
-  .pg > span {
-    font-size: 10px;
-  }
-
-  .an-tip {
-    font-size: 11px;
-  }
-
-  .g-item {
-    border-width: 1px;
-    border-radius: 6px;
-    padding: 14px;
-  }
-
-  .g-item b {
-    font-size: 14px;
-  }
-
-  .g-item p {
-    font-size: 11px;
-  }
-
-  .leave {
-    font-size: 13px;
-  }
-
-  .empty-box {
-    font-size: 13px;
-    border-width: 1.5px;
-    border-radius: 6px;
-  }
-  .ico-24 {
-    font-size: 12px;
-  }
-  .ico-28 {
-    font-size: 14px;
-  }
-  .ico-40 {
-    font-size: 20px;
-  }
-}
-
-@media (min-width: 900px) {
-  .page-body {
-    max-width: 960px;
-  }
-
-  /* 练习宫格四列一行 */
-  .g-item {
-    width: calc(25% - 15rpx);
-  }
-}
-
-@media (min-width: 1200px) {
-  .page-body {
-    max-width: 1120px;
-  }
 }

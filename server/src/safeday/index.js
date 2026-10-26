@@ -3,7 +3,7 @@
 // 鉴权：/callback 凭 SAFEDAY_CALLBACK_TOKEN 校验（不做登录；fail-closed——token 未配置或不符一律 403）；其余接口需登录 + safe-day 应用权限
 // 班组隔离：记录带 team 字段（班组名），产物存 docs/{班组名}/ 子目录；超管可 ?team_id= 指定或 all 全部
 // 生成链路（新）：学习文件合并后传 COS 拿公网 URL，以 string 变量（url/date/class）调 Dify 工作流；
-// 工作流只产出三段文字并经 /callback 回传 → 后端套模板渲染 docx 落盘（render.js），不再经 DOCX-MCP；
+// 工作流只产出六段文字并经 /callback 回传 → 后端套模板渲染 docx 落盘（render.js），不再经 DOCX-MCP；
 // COS 源文件为中转性质，记录到终态（done/failed/删除）即删
 const fs = require('fs');
 const path = require('path');
@@ -110,9 +110,9 @@ async function deleteSourceFromCos(record) {
 
 // Dify 工作流结束回调：不做登录鉴权，凭 SAFEDAY_CALLBACK_TOKEN 校验（fail-closed：token 未配置或不符
 // 均 403，杜绝免鉴权回调；须挂在登录门控之前）
-// 新链路：工作流末尾 HTTP 节点回传三段文字（activity_content 活动内容 / recap_analysis 结合本次内容复盘分析 /
-// job_analysis 结合实际岗位剖析内容）+ date + class，后端套模板渲染 docx 落盘 docs/{班组}/YYYY.MM.DD.docx；
-// 未带文字内容时按旧口径仅做文件存在性终判（兼容存量工作流）
+// 新链路：工作流末尾 HTTP 节点回传六段文字（accident_process / cause_analysis / self_check /
+// rectification_list / prevention_measures / supervision_inspection，对应模板六段正文）+ date + class，
+// 后端套模板渲染 docx 落盘 docs/{班组}/YYYY.MM.DD.docx；未带文字内容时按旧口径仅做文件存在性终判（兼容存量工作流）
 router.post('/callback', async (req, res) => {
   // fail-closed：token 未配置或与请求不符均 403
   const token = config.safeday.callbackToken;
@@ -129,9 +129,14 @@ router.post('/callback', async (req, res) => {
     const className = typeof body.class === 'string' ? body.class.trim() : '';
 
     // ===== 新链路：回传文字内容 → 后端渲染落盘 =====
-    const hasTexts = ['activity_content', 'recap_analysis', 'job_analysis'].some(
-      (k) => typeof body[k] === 'string'
-    );
+    const hasTexts = [
+      'accident_process',
+      'cause_analysis',
+      'self_check',
+      'rectification_list',
+      'prevention_measures',
+      'supervision_inspection',
+    ].some((k) => typeof body[k] === 'string');
     if (hasTexts) {
       const record = store
         .list()
@@ -154,10 +159,15 @@ router.post('/callback', async (req, res) => {
           本班组参加人员: f.attendees || '',
           缺席人员: f.absentees || '无',
           缺席人员原因: f.absentReason || '无',
-          // 三段正文截 20000 字符兜底（防异常超长；实测活动通报类内容可达 8 千字，6000 会截断正文）
-          活动内容: String(body.activity_content || '').slice(0, 20000),
-          结合本次内容复盘分析: String(body.recap_analysis || '').slice(0, 20000),
-          结合实际岗位剖析内容: String(body.job_analysis || '').slice(0, 20000),
+          // 六段正文各截 20000 字符兜底（防异常超长；实测活动通报类内容可达 8 千字，6000 会截断正文）
+          客观还原事故经过: String(body.accident_process || '').slice(0, 20000),
+          分层剖析事故原因: String(body.cause_analysis || '').slice(0, 20000),
+          对照自查举一反三: String(body.self_check || '').slice(0, 20000),
+          制定整改清单: String(body.rectification_list || '').slice(0, 20000),
+          讨论防范措施: String(body.prevention_measures || '').slice(0, 20000),
+          定期督导检查防范措施落实情况和整改完成情况: String(
+            body.supervision_inspection || ''
+          ).slice(0, 20000),
           记录人: f.recorder || '',
         });
         const outDir = path.join(DOCS_DIR, record.team || '');
@@ -365,7 +375,7 @@ router.post('/generate', upload.array('files', 10), async (req, res) => {
 
     // 学习文件（合并产物/单文件原样）上传 COS 拿公网 URL，作为 string 变量调 Dify 工作流
     //（2026-10-09 起不再经 Dify files/upload + document 入参——云端解析插件会话故障实证，改由 Dify 回源 URL）；
-    // 触发后立即返回不等工作流完成；产出三段文字经 /callback 回传，由后端渲染 docx 落盘（render.js）。
+    // 触发后立即返回不等工作流完成；产出六段文字经 /callback 回传，由后端渲染 docx 落盘（render.js）。
     // COS 源文件为中转性质：记录终态（回调 done/failed、工作流失败、记录被删）即删（deleteSourceFromCos）
     const srcExt = getFileExt(fileName) || 'pdf';
     const cosKey = `safeday/${team.name}/${date}-${Date.now()}.${srcExt}`;

@@ -74,7 +74,7 @@ def _snapshot(local: Path, usb_dir: Path, file_name: str, log) -> dict:
     """内网表 → U 盘根（文件名 file_name）"""
     if not local.is_file():
         raise RuntimeError(
-            "内网表不存在: %s（请到交跨统计表同步页检查 local_path 配置）" % local
+            "内网表不存在: %s（请到交跨同步页检查 local_path 配置）" % local
         )
     dest = usb_dir / file_name
     shutil.copy2(str(local), str(dest))
@@ -138,7 +138,7 @@ def _tick(job, cfg, params: dict) -> dict:
         # 夜间兜底：无指令也执行一次 snapshot，文件名用配置
         if not local_path:
             raise RuntimeError(
-                "未配置内网表路径（crossing_sync.local_path）：请到交跨统计表同步页选择内网 xlsx 文件"
+                "未配置内网表路径（crossing_sync.local_path）：请到交跨同步页选择内网 xlsx 文件"
             )
         file_name = (ts.get("file_name") or "").strip() or DEFAULT_FILE_NAME
         log("夜间兜底：U盘无指令，执行 snapshot（%s）" % file_name)
@@ -162,7 +162,7 @@ def _tick(job, cfg, params: dict) -> dict:
     if not local_path:
         # 有指令要执行但配置缺失：失败留痕，指令保留（配置补齐后下一轮 tick 自动补执行）
         raise RuntimeError(
-            "未配置内网表路径（crossing_sync.local_path）：请到交跨统计表同步页选择内网 xlsx 文件"
+            "未配置内网表路径（crossing_sync.local_path）：请到交跨同步页选择内网 xlsx 文件"
         )
 
     job.set_progress(2, 2, "执行指令")

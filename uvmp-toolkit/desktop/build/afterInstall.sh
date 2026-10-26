@@ -44,5 +44,5 @@ systemctl enable --now uvmp-toolkit.timer || true
 # 图标缓存刷新（UKUI 等桌面不刷新可能仍显示旧/占位图标）
 gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
 
-echo "Shade 壹匣 - 内网 已安装。请打开「Shade 壹匣 - 内网」→ 设置页填写 SSO 凭据，再到「每日派车单同步」页启用定时。"
+echo "Shade 壹匣 - 内网 已安装。请打开「Shade 壹匣 - 内网」→ 设置页填写 SSO 凭据，再到「派车同步」页启用定时。"
 exit 0

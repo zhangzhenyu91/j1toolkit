@@ -9,7 +9,6 @@ import { request } from '../../../utils/request';
 import { fmtSize, extOf, fmtDay, IMG_EXTS } from '../../../utils/util';
 import config from '../../../config';
 import { fileIconUrl } from '../../fileicon';
-import widePage from '../../../utils/wide-page';
 
 const API = '/api/v1/netdisk';
 
@@ -17,7 +16,6 @@ const API = '/api/v1/netdisk';
 const VIDEO_EXTS = ['mp4', 'mov', 'm4v'];
 
 Page({
-  behaviors: [widePage],
   data: {
     name: '', // 压缩包名（navbar 标题与面包屑根）
     innerPath: '/', // 当前包内目录

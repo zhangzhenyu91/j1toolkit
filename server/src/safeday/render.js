@@ -1,7 +1,7 @@
-// 安全日活动记录：后端模板渲染（Dify 只产出三段文字，文档由本模块生成，替代旧 DOCX-MCP 链路）
+// 安全日活动记录：后端模板渲染（Dify 只产出六段文字，文档由本模块生成，替代旧 DOCX-MCP 链路）
 // 模板：server/assets/safeday/activity-record-template.docx（docxtemplater 渲染，兼容占位符被 Word 拆散到多个 run）
 //   - 普通字段：纯文本 {占位符}，linebreaks 使文本内换行落入文档
-//   - 活动内容/结合本次内容复盘分析/结合实际岗位剖析内容：{@占位符} 原生 XML 注入——按换行拆为独立段落，
+//   - 六段正文：{@占位符} 原生 XML 注入——按换行拆为独立段落，
 //     每段首行缩进两字符（firstLineChars=200），段落/字体口径沿用模板占位符段落
 // 占位符口径见《开发指南》8.1
 const fs = require('fs');
@@ -12,8 +12,15 @@ const { escapeXml } = require('../utils/file');
 
 const TEMPLATE_PATH = path.join(__dirname, '../../assets/safeday/activity-record-template.docx');
 
-// 模板中以 {@xxx} 形式存在的三段正文占位符（渲染时注入段落 XML，其余字段仍走纯文本替换）
-const RAW_XML_KEYS = ['活动内容', '结合本次内容复盘分析', '结合实际岗位剖析内容'];
+// 模板中以 {@xxx} 形式存在的六段正文占位符（渲染时注入段落 XML，其余字段仍走纯文本替换）
+const RAW_XML_KEYS = [
+  '客观还原事故经过',
+  '分层剖析事故原因',
+  '对照自查举一反三',
+  '制定整改清单',
+  '讨论防范措施',
+  '定期督导检查防范措施落实情况和整改完成情况',
+];
 
 // 段落属性沿用模板占位符段落口径（行距 240 自动、左对齐），仅 ind 改为首行缩进两字符：
 // firstLineChars=200 为 Word 按字符缩进口径；firstLine=420（字号 21 半磅 × 2 字符）作不支持 chars 口径渲染器的回退

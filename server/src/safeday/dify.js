@@ -78,7 +78,7 @@ async function consumeStream(response, onFailed) {
  * 触发 Dify 工作流（入参三个 string：url 学习文件 COS 公网地址 / date YYYY.MM.DD / class 班组名）。
  * 触发成功后立即返回，SSE 流在后台消费；
  * 工作流 failed/stopped 或流读取异常时调用 onFailed(error)。
- * 工作流末尾由 HTTP 节点把三段文字 + date + class 回传 /callback，后端据此渲染 docx 落盘（不再由工作流写文件）
+ * 工作流末尾由 HTTP 节点把六段文字 + date + class 回传 /callback，后端据此渲染 docx 落盘（不再由工作流写文件）
  */
 async function runWorkflow({ url, date, className, onFailed }) {
   if (!apiBaseUrl(config.dify.apiUrl) || !API_KEY()) {

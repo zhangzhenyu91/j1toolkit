@@ -1,8 +1,8 @@
 {
   "id": "crossing_sync",
-  "name": "交跨统计表同步",
+  "name": "交跨同步",
   "badge": "交表",
   "desc": "按壹匣服务端经 U 盘下发的指令同步交跨统计表 xlsx：snapshot 内网表上盘 / replace 新表回内网，夜间定时兜底上盘",
-  "order": 4,
+  "order": 5,
   "schedule": true
 }

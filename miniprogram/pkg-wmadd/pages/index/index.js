@@ -9,7 +9,6 @@ import { request } from '../../../utils/request';
 import { shareAppMessage } from '../../../utils/share';
 import { createWmPhoto, genAntiCode, fmtWmTime } from '../../../utils/wmphoto';
 import { createTowerCascade } from '../../../utils/tower';
-import widePage from '../../../utils/wide-page';
 
 // 水印照片链路共享（/api/v1/wmadd/geo 地点天气）
 const wmPhoto = createWmPhoto({ geoBase: '/api/v1/wmadd', logTag: '水印添加' });
@@ -24,7 +23,7 @@ const towerCascade = createTowerCascade({
 });
 
 Page({
-  behaviors: [wmPhoto, towerCascade, widePage],
+  behaviors: [wmPhoto, towerCascade],
   data: {
     // ---------- 水印字段编辑弹层 ----------
     wmVisible: false,

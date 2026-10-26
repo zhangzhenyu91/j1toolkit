@@ -52,41 +52,6 @@
   font-size: 44rpx;
 }
 
-@media (min-width: 600px) {
-  .tabbar {
-    height: 64px;
-    justify-content: center;
-  }
-
-  .tab {
-    width: 160px;
-    flex: none;
-    padding: 6px 0 4px;
-    letter-spacing: 0;
-  }
-
-  .tab-text {
-    margin-top: 2px;
-    font-size: 11px;
-  }
-
-  .t-dot {
-    width: 4px;
-    height: 4px;
-    margin-top: 3px;
-  }
-
-  .ico-44 {
-    font-size: 21px;
-  }
-}
-
-@media (min-width: 900px) {
-  .tabbar {
-    display: none;
-  }
-}
-
 /* 组件样式隔离下的减弱动态效果（只用组件允许的类选择器，不能用标签选择器） */
 @media (prefers-reduced-motion: reduce) {
   .tabbar,

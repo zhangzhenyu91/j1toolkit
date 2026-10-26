@@ -1,6 +1,6 @@
 /* 绑定商旅 · 账号绑定页（见《开发指南》第十五节，token 同 app.wxss「政企蓝白」） */
 @import '../../style/common.wxss';
-/* t-icon 数值字号外部类（ico-N，含 600px 宽屏；复用 style/icons.wxss） */
+/* t-icon 数值字号外部类（ico-N；复用 style/icons.wxss） */
 @import '../../style/icons.wxss';
 
 /* 首个提示卡贴导航下沿（common .tip 自带 margin-top，此处收紧） */
@@ -220,51 +220,4 @@
 .btn-ghost.danger {
   color: var(--app-danger);
   border-color: var(--app-danger);
-}
-
-/* ---------- iPad / 宽屏适配（600px 起限宽并约束关键字阶/控件；手机不受影响） ---------- */
-@media (min-width: 600px) {
-  .page-body {
-    box-sizing: border-box;
-    max-width: 720px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .sheet {
-    max-width: 640px;
-    margin-left: auto;
-    margin-right: auto;
-    box-sizing: border-box;
-  }
-
-  .sheet-title {
-    font-size: 16px;
-  }
-
-  .btn-dark,
-  .btn-ghost {
-    height: 44px;
-    font-size: 14px;
-  }
-
-  .fi {
-    font-size: 13px;
-  }
-}
-
-@media (min-width: 900px) {
-  .page-body {
-    max-width: 960px;
-  }
-
-  .sheet {
-    max-width: 720px;
-  }
-}
-
-@media (min-width: 1200px) {
-  .page-body {
-    max-width: 1120px;
-  }
 }

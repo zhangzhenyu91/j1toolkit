@@ -80,14 +80,10 @@
 </view>
 
 <!-- 压缩包密码输入层（tdesign Dialog 无输入能力，用底部弹层实现；键盘弹起动态抬高底部 padding） -->
-<t-popup
-  visible="{{pwSheet.open}}"
-  placement="{{isWide ? 'center' : 'bottom'}}"
-  bind:visible-change="onPwVisibleChange"
->
+<t-popup visible="{{pwSheet.open}}" placement="bottom" bind:visible-change="onPwVisibleChange">
   <view
     class="sheet"
-    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : (isTablet ? 'calc(20px + env(safe-area-inset-bottom))' : 'calc(40rpx + env(safe-area-inset-bottom))')}};"
+    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};"
   >
     <view class="grab"></view>
     <view class="sheet-title">输入压缩包密码</view>

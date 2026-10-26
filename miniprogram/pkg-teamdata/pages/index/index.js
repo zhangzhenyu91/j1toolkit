@@ -6,7 +6,6 @@ import Toast from 'tdesign-miniprogram/toast/index';
 import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
-import widePage from '../../../utils/wide-page';
 
 const API_BASE = '/api/v1/teamdata';
 
@@ -20,7 +19,6 @@ const SEGMENTS = [
 ];
 
 Page({
-  behaviors: [widePage],
   data: {
     isAdmin: false,
     seg: 'vehicles',

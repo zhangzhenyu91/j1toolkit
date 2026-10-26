@@ -1,7 +1,7 @@
 // 安全日活动记录 · 小程序端（app_key safe-day；与网页端 safeday.html 逻辑一致：
 // 上传活动文件（多文件由后端转换合并为单个 PDF）→ 弹层确认学习内容与参会信息
 // （主持人/记录人/上级参加人员/参加缺席互斥点亮或自定义输入/缺席原因）→ 提交生成 → 进度卡跟踪 → 记录列表 5s 轮询至终态）
-// 文档由后端套模板生成（Dify 仅回传三段文字），见 server/src/safeday/render.js
+// 文档由后端套模板生成（Dify 仅回传六段文字），见 server/src/safeday/render.js
 // 上传：wx.chooseMessageFile 从聊天选取；下载：wx.downloadFile 取回后 wx.openDocument 打开
 // 接口信封 {ok,error,...}（非主平台 {code,message,data}），故不用 utils/request，本地封装 sdFetch
 // 班组口径（屏八）：超管顶部切换器可选「全部班组」+ 各班组（records 带 team_id，全部=all）；
@@ -14,7 +14,6 @@ import { shareAppMessage } from '../../../utils/share';
 import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf } from '../../../utils/util';
 import { utf8Buffer, concatBuffers } from '../../../utils/multipart';
-import widePage from '../../../utils/wide-page';
 
 const API_BASE = '/api/v1/safeday';
 const POLL_INTERVAL = 5000; // 与网页端一致：存在生成中记录时按 5s 轮询 records
@@ -61,7 +60,7 @@ const stepStates = (phase) => {
 const phasePct = (phase) => ({ parse: 45, dify: 75, done: 100 })[phase] || 75;
 
 Page({
-  behaviors: [teamGate, widePage],
+  behaviors: [teamGate],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
     // 班组切换器数据（isAdmin/noTeam/teamName/teamOptions/teamDropOpen/showTeamPill）由 teamgate behavior 提供；

@@ -24,7 +24,6 @@ App({
   globalData: {
     statusBarHeight: 20, // 状态栏高度（供自定义导航栏使用）
     userInfo: null, // 当前登录用户信息
-    apps: null, // 当前用户可见应用（宽屏侧栏与首页共用缓存）
     ready: null, // 启动自检 Promise（自动登录门控，首页等待其结果）
     theme: 'light', // 系统主题（light/dark，深浅色基座取值；品牌深蓝页首不随其变化）
   },

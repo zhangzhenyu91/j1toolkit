@@ -79,11 +79,7 @@
 </view>
 
 <!-- 新建 / 编辑员工弹层 -->
-<t-popup
-  visible="{{showEdit}}"
-  placement="{{isWide ? 'center' : 'bottom'}}"
-  bind:visible-change="onVisibleChange"
->
+<t-popup visible="{{showEdit}}" placement="bottom" bind:visible-change="onVisibleChange">
   <view class="sheet">
     <view class="sh-head">
       <view class="sh-title"

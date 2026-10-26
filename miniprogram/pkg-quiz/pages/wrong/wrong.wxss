@@ -197,7 +197,7 @@
   color: var(--app-success);
 }
 
-/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+/* ---------- t-icon 数值字阶（t-class 外部类） ---------- */
 .ico-26 {
   font-size: 26rpx;
 }
@@ -206,107 +206,4 @@
 }
 .ico-110 {
   font-size: 110rpx;
-}
-
-/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
-   600px 起限宽居中、关键字阶改固定 px；900px 起错题卡两列网格 */
-@media (min-width: 600px) {
-  .page-body {
-    box-sizing: border-box;
-    max-width: 680px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .wrong-sum {
-    border-radius: 6px;
-  }
-
-  .wrong-sum b {
-    font-size: 22px;
-  }
-
-  .wrong-sum p {
-    font-size: 11px;
-  }
-
-  .btn-orange {
-    height: 42px;
-    font-size: 14px;
-    border-radius: 6px;
-  }
-
-  .g-hd b {
-    font-size: 14px;
-  }
-
-  .g-hd .g-cnt {
-    font-size: 11px;
-  }
-
-  .g-hd .g-go {
-    font-size: 12px;
-  }
-
-  .wrong-item .q {
-    font-size: 13.5px;
-  }
-
-  .wrong-item .ft {
-    font-size: 11px;
-  }
-
-  .rule-note {
-    font-size: 10.5px;
-  }
-
-  .empty-box {
-    font-size: 13px;
-    border-width: 1.5px;
-    border-radius: 6px;
-  }
-
-  .wrong-empty .we-t {
-    font-size: 15px;
-  }
-
-  .wrong-empty .we-p {
-    font-size: 11.5px;
-  }
-  .ico-26 {
-    font-size: 13px;
-  }
-  .ico-32 {
-    font-size: 16px;
-  }
-  .ico-110 {
-    font-size: 55px;
-  }
-}
-
-@media (min-width: 900px) {
-  .page-body {
-    max-width: 960px;
-  }
-
-  /* 错题卡两列网格（每组内） */
-  .group .items {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20rpx;
-  }
-
-  .wrong-item + .wrong-item {
-    margin-top: 0;
-  }
-}
-
-@media (min-width: 1200px) {
-  .page-body {
-    max-width: 1120px;
-  }
-
-  .group .items {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
 }

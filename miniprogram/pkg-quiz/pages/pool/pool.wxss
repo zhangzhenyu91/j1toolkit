@@ -116,74 +116,7 @@
   line-height: 1.8;
 }
 
-/* ---------- t-icon 数值字阶（t-class 外部类；600px 起折半 px） ---------- */
+/* ---------- t-icon 数值字阶（t-class 外部类） ---------- */
 .ico-40 {
   font-size: 40rpx;
-}
-
-/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
-   600px 起限宽居中、关键字阶改固定 px；900px 起列表两列网格 */
-@media (min-width: 600px) {
-  .page-body {
-    box-sizing: border-box;
-    max-width: 680px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .pool-item .tx b {
-    font-size: 14px;
-  }
-
-  .pool-item .meta {
-    font-size: 11px;
-  }
-
-  .btn-join {
-    height: 28px;
-    font-size: 12px;
-    border-width: 2px;
-    border-radius: 6px;
-    padding: 0 14px;
-  }
-
-  .pool-item .joined {
-    font-size: 12px;
-  }
-
-  .empty-box {
-    font-size: 13px;
-    border-width: 1.5px;
-    border-radius: 6px;
-  }
-  .ico-40 {
-    font-size: 20px;
-  }
-}
-
-@media (min-width: 900px) {
-  .page-body {
-    max-width: 960px;
-  }
-
-  /* 题库池列表两列网格 */
-  .pool-list {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20rpx;
-  }
-
-  .pool-item + .pool-item {
-    margin-top: 0;
-  }
-}
-
-@media (min-width: 1200px) {
-  .page-body {
-    max-width: 1120px;
-  }
-
-  .pool-list {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
 }

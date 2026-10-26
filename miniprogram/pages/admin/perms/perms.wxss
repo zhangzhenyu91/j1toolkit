@@ -138,7 +138,7 @@
   font-size: 24rpx;
 }
 
-/* 宽屏双栏容器（手机竖屏为普通块级流，布局不变） */
+/* 员工选择与应用授权容器（手机端普通块级流） */
 .perm-cols {
   display: block;
 }
@@ -155,88 +155,4 @@
 
 .ico-40 {
   font-size: 40rpx;
-}
-
-/* ---------- iPad / 宽屏适配（CSS 媒体查询；普通手机竖屏不受影响） ----------
-   600px 起限宽 + 关键字阶/控件改固定 px；900px 起员工选择与应用授权左右双栏 */
-@media (min-width: 600px) {
-  .page-body {
-    box-sizing: border-box;
-    max-width: 680px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .u-name,
-  .a-name {
-    font-size: 14px;
-  }
-
-  .u-sub,
-  .a-key {
-    font-size: 11px;
-  }
-
-  .hint {
-    font-size: 12px;
-  }
-
-  .u-avatar {
-    width: 36px;
-    height: 36px;
-    font-size: 16px;
-    border-radius: 8px;
-  }
-
-  .a-ico {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-  }
-
-  .cbx {
-    width: 18px;
-    height: 18px;
-    line-height: 18px;
-    font-size: 12px;
-    border-radius: 6px;
-    border-width: 1px;
-    margin-right: 10px;
-  }
-
-  .ico-44 {
-    font-size: 22px;
-  }
-
-  .ico-40 {
-    font-size: 20px;
-  }
-}
-
-@media (min-width: 900px) {
-  .page-body {
-    max-width: 960px;
-  }
-
-  /* 员工选择 | 应用授权 双栏（选择员工后授权区并排展示，不把拉宽当适配） */
-  .perm-cols {
-    display: flex;
-    align-items: flex-start;
-    gap: 32px;
-  }
-
-  .perm-main {
-    flex: 3;
-  }
-
-  .perm-side,
-  .hint {
-    flex: 2;
-  }
-}
-
-@media (min-width: 1200px) {
-  .page-body {
-    max-width: 1120px;
-  }
 }

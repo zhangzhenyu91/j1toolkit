@@ -1,5 +1,5 @@
 // 出工日志 · 主页：日期条切换 / 视图开关（全部·仅看我）/ 日志卡片直改 / 日历选日（按日验证状态着色）
-// 新建与「改派车/用车人」共用窄屏底部 / 宽屏居中表单弹层（仅「保 存」提交，无实时保存；改派车保存前弹内网派车单同步警告）；
+// 新建与「改派车/用车人」共用底部表单弹层（仅「保 存」提交，无实时保存；改派车保存前弹内网派车单同步警告）；
 // 跨班日志（仅超管）：悬浮钮「跨班日志」新建 / 点跨班卡车牌头编辑均走 cross 模式（/logs/cross/*，全启用班组
 // 字典按名称选择，归属班组可选）；跨班卡车牌行加「跨班」徽章，非超管不可改派车 / 删除，他班跨班卡不显示「从商旅同步」；
 // 巡视内容点卡片主块单独弹层修改（带快捷输入）；备注（文字+附件传 COS）点「备 注」按钮或备注块弹层编辑；
@@ -160,8 +160,6 @@ Page({
   behaviors: [wmPhoto, towerCascade],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
-    isWide: false, // 900px 起常驻月历、工具栏与居中弹层
-    isTablet: false, // 600px 起弹层安全区与控件使用固定 px
     dateStr: '', // 当前日期 YYYY-MM-DD
     dateText: '',
     weekText: '',
@@ -328,10 +326,7 @@ Page({
 
   onLoad() {
     const now = new Date();
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
     this.setData({
-      isWide: info.windowWidth >= 900,
-      isTablet: info.windowWidth >= 600,
       minDate: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).getTime(),
       maxDate: new Date(now.getFullYear(), now.getMonth() + 3, now.getDate()).getTime(),
     });
@@ -381,7 +376,6 @@ Page({
       this.initTeams(user); // 超管先定生效班组，再整页加载
       return;
     }
-    if (this.data.isWide) this.loadDateStripStatus(true);
     this.loadMeta();
     this.loadLogs();
   },
@@ -405,7 +399,6 @@ Page({
       teams[0] ||
       null;
     this.applyTeam(cur ? cur.id : 0, false);
-    if (this.data.isWide) this.loadDateStripStatus(true);
     this.loadMeta();
     this.loadLogs();
   },
@@ -459,22 +452,6 @@ Page({
       return;
     }
     this.applyTeam(id, true);
-  },
-
-  onResize() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
-    const isWide = info.windowWidth >= 900;
-    const isTablet = info.windowWidth >= 600;
-    const wasWide = this.data.isWide;
-    if (isWide !== wasWide || isTablet !== this.data.isTablet) {
-      this.setData({ isWide, isTablet, calVisible: false }, () => {
-        this.recolorCalendar();
-        if (isWide && !wasWide && this.data.gate && !this.data.noTeam) {
-          this.loadDateStripStatus();
-        }
-      });
-    }
-    if (typeof this.resizeWmCrop === 'function') this.resizeWmCrop();
   },
 
   onShow() {
@@ -1035,7 +1012,7 @@ Page({
   // 切换后按新月份拉着色数据（等同 panel-change 链路），新网格按滑动方向平移进入
   switchCalMonth(delta) {
     if (this._calSwitching) return; // 动画期间连滑防抖
-    const cal = this.selectComponent(this.data.isWide ? '#wl-inline-calendar' : '#wl-calendar');
+    const cal = this.selectComponent('#wl-calendar');
     if (!cal || typeof cal.getCurrentDate !== 'function') return;
     const cur = new Date(cal.getCurrentDate());
     const target = new Date(cur.getFullYear(), cur.getMonth() + delta, 1);
@@ -1082,13 +1059,11 @@ Page({
   // 注意 switch-mode="month" 时网格渲染的是 currentMonth（由 months 推导），
   // 只 calcMonths 不够，必须再 updateCurrentMonth——否则点过日期才着色
   recolorCalendar() {
-    ['#wl-calendar', '#wl-inline-calendar'].forEach((selector) => {
-      const cal = this.selectComponent(selector);
-      if (!cal || !cal.base || typeof cal.calcMonths !== 'function') return;
-      cal.base.format = calFormat;
-      cal.calcMonths();
-      if (typeof cal.updateCurrentMonth === 'function') cal.updateCurrentMonth();
-    });
+    const cal = this.selectComponent('#wl-calendar');
+    if (!cal || !cal.base || typeof cal.calcMonths !== 'function') return;
+    cal.base.format = calFormat;
+    cal.calcMonths();
+    if (typeof cal.updateCurrentMonth === 'function') cal.updateCurrentMonth();
   },
 
   // ---------- 卡片交互 ----------
@@ -1880,7 +1855,7 @@ Page({
     return this._crossMeta;
   },
 
-  // 「＋ 新建日志」：打开窄屏底部 / 宽屏居中表单弹层（默认未出车）
+  // 「＋ 新建日志」：不再跳页，打开表单底部弹层（默认未出车）
   onCreate() {
     this.setData({ fabOpen: false, formCross: false });
     this.openForm(0);
@@ -2414,13 +2389,13 @@ Page({
   },
 
   onRmkCancel() {
-    wx.hideKeyboard(); // 关层前主动收起键盘
+    wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
     this.setData({ rmkVisible: false, keyboardHeight: 0 });
   },
 
   onRmkVisibleChange(e) {
     if (!e.detail.visible && this.data.rmkVisible) {
-      wx.hideKeyboard(); // 遮罩关闭同步收起键盘
+      wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
       this.setData({ rmkVisible: false, keyboardHeight: 0 });
     }
   },
@@ -2516,7 +2491,7 @@ Page({
   // 保存：新附件逐个 wx.uploadFile 传 COS → PUT 全量字段（派车/目的地/用车人取卡片最新值）+ 备注
   async onRmkSave() {
     if (this.data.rmkSaving) return;
-    wx.hideKeyboard(); // 保存前主动收起键盘
+    wx.hideKeyboard(); // 保存前收起 hold-keyboard 残留键盘
     const entry = this.data.list.find((x) => x.id === this.data.rmkEntryId);
     if (!entry) {
       this.toast('日志不存在或已被删除');

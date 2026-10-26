@@ -84,7 +84,6 @@
   },
   "darkmode": true,
   "themeLocation": "theme.json",
-  "resizable": true,
   "style": "v2",
   "lazyCodeLoading": "requiredComponents",
   "permission": {

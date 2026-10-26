@@ -19,7 +19,6 @@ import { createTeamGate } from '../../../utils/teamgate';
 import { pad, fmtSize, extOf, fmtDay, IMG_EXTS, DOC_EXTS } from '../../../utils/util';
 import config from '../../../config';
 import { fileIconUrl } from '../../fileicon';
-import widePage from '../../../utils/wide-page';
 
 const API = '/api/v1/netdisk';
 // 班组门控（storage netdisk_team_id）：仅复用其门控节奏与生效班组确定；公共区按班组隔离后
@@ -53,7 +52,7 @@ const genCode = () =>
   );
 
 Page({
-  behaviors: [teamGate, widePage],
+  behaviors: [teamGate],
   data: {
     gate: false, // 门控（参照首页 gate 模式）
     // 班组数据由 teamgate behavior 提供；公共区按班组隔离：未分配班组时 spaces 不下发 public，

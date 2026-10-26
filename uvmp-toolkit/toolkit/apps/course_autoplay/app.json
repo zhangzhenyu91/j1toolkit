@@ -1,7 +1,7 @@
 {
   "id": "course_autoplay",
-  "name": "课程自动学习",
+  "name": "学堂刷课",
   "badge": "学习",
   "desc": "接管受控浏览器自动学习课程，支持暂停、切换培训班与断点续刷",
-  "order": 6
+  "order": 2
 }

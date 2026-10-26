@@ -2,7 +2,7 @@
   <div>
     <t-card>
       <div class="sec-title">
-        每日派车单同步
+        派车同步
         <span class="right">
           <t-button size="small" theme="primary" @click="$emit('goto', 'daily_sync')"
             >前往</t-button

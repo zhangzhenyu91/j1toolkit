@@ -1,405 +1,388 @@
 <!-- 安全日活动记录 · 小程序端（双端应用，app_key safe-day）
      布局与逻辑同网页端 safeday.html：上传卡（选文件/活动日期/生成）+ 生成进度卡 + 记录列表；
      上传走 wx.chooseMessageFile 聊天选取，记录点击经 wx.openDocument 打开 -->
-<wide-shell active="safe-day">
-  <navbar back title="安全日活动记录" />
+<navbar back title="安全日活动记录" />
 
-  <view class="page-body" wx:if="{{!noTeam}}">
-    <!-- 班组切换器（屏八）：超管可切「全部班组」+ 各班组；其余角色为静态班组名标签 -->
-    <view class="tswitch">
-      <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
-        <text>{{teamName}}</text>
-        <text class="arr" wx:if="{{isAdmin}}">▾</text>
+<view class="page-body" wx:if="{{!noTeam}}">
+  <!-- 班组切换器（屏八）：超管可切「全部班组」+ 各班组；其余角色为静态班组名标签 -->
+  <view class="tswitch">
+    <view class="ts-cur" hover-class="{{isAdmin ? 'hover-opacity' : ''}}" bindtap="onTeamChipTap">
+      <text>{{teamName}}</text>
+      <text class="arr" wx:if="{{isAdmin}}">▾</text>
+    </view>
+    <view class="ts-drop" wx:if="{{teamDropOpen}}">
+      <view
+        class="ts-opt {{item.on ? 'on' : ''}}"
+        wx:for="{{teamOptions}}"
+        wx:key="id"
+        hover-class="hover-bg-warm"
+        bindtap="onTeamPick"
+        data-id="{{item.id}}"
+      >
+        <text>{{item.name}}</text>
+        <text class="ck" wx:if="{{item.on}}">✓</text>
       </view>
-      <view class="ts-drop" wx:if="{{teamDropOpen}}">
+    </view>
+  </view>
+  <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
+
+  <!-- 上传活动文件卡 -->
+  <view class="section-title">上传活动文件</view>
+  <view class="card hazard-top up-card">
+    <!-- 选取入口（聊天文件） -->
+    <view class="upzone" hover-class="hover-opacity" bindtap="onPickFiles">
+      <view class="up-ic">
+        <t-icon name="upload" t-class="ico-48" />
+      </view>
+      <view class="up-t">从聊天选取文件<text class="accent">上传</text></view>
+      <view class="up-p">支持 pdf / doc / docx / ppt / pptx / xls / xlsx</view>
+      <view class="up-p">单文件 ≤ 50MB，最多 10 个；多文件自动合并（非 PDF 由服务端转换）</view>
+    </view>
+
+    <!-- 已选文件条 -->
+    <block wx:if="{{files.length}}">
+      <view class="ftag" wx:for="{{files}}" wx:key="path">
+        <t-icon name="file" t-class="ico-30" class="ico-brand" />
+        <view class="fn">{{item.name}}</view>
+        <view class="fs">{{item.sizeText}}</view>
+        <view class="fx" hover-class="hover-opacity" catchtap="onRemoveFile" data-index="{{index}}">
+          <t-icon name="close" t-class="ico-30" />
+        </view>
+      </view>
+    </block>
+
+    <!-- 活动日期（提交格式 YYYY.MM.DD） -->
+    <view class="date-row">
+      <view class="date-lab">活动日期</view>
+      <picker mode="date" value="{{dateStr}}" bindchange="onDateChange">
+        <view class="date-val" hover-class="hover-opacity">
+          <text>{{dateStr}}</text>
+          <t-icon name="calendar" t-class="ico-30" class="ico-mute" />
+        </view>
+      </picker>
+    </view>
+
+    <view
+      class="btn-primary {{!files.length ? 'disabled' : ''}}"
+      hover-class="hover-opacity"
+      bindtap="onGenTap"
+      >生成记录</view
+    >
+  </view>
+
+  <!-- 生成进度卡（跟踪态） -->
+  <view wx:if="{{track}}" class="card prog">
+    <view class="fh">
+      <view class="file-ic">
+        <t-icon name="file" t-class="ico-34" />
+      </view>
+      <view class="fh-r">
+        <view class="fn">{{track.name}}</view>
+        <view class="fs"
+          >{{track.sourceCount || 1}} 个源文件 · 提交于 {{track.createdText || '—'}}</view
+        >
+      </view>
+    </view>
+    <view class="steps">
+      <view class="step {{item.state}}" wx:for="{{steps}}" wx:key="t">
+        <view class="sd-ic">
+          <t-icon wx:if="{{item.state === 'done'}}" name="check" t-class="ico-20" />
+          <view wx:elif="{{item.state === 'doing'}}" class="dot-ing"></view>
+          <t-icon wx:elif="{{item.state === 'fail'}}" name="error-triangle" t-class="ico-20" />
+        </view>
+        <view class="step-r">
+          <view class="st">{{item.t}}</view>
+          <view class="ss">{{item.state === 'fail' ? (track.error || '生成失败') : item.s}}</view>
+        </view>
+      </view>
+    </view>
+    <view class="pbar {{track.phase === 'failed' ? 'fail' : ''}}">
+      <view class="pbar-in" style="width: {{pct}}%;"></view>
+    </view>
+    <view class="pnum {{track.phase === 'failed' ? 'fail' : ''}}">
+      <text>{{track.phase === 'failed' ? '生成失败' : '生成进度'}}</text>
+      <text class="pct">{{pct}}%</text>
+    </view>
+  </view>
+  <!-- 生成进度卡（空闲态） -->
+  <view wx:else class="card prog idle">
+    <t-icon name="time" t-class="ico-44" class="ico-mute" />
+    <text>提交生成后，这里将实时展示生成进度</text>
+  </view>
+
+  <!-- 记录列表 -->
+  <view class="sec-row">
+    <view class="section-title">活动记录列表</view>
+    <view class="cnt">{{cntText}}</view>
+  </view>
+
+  <view class="rec-list" wx:if="{{records.length}}">
+    <view
+      class="card rec"
+      wx:for="{{records}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      hover-class="{{item.done ? 'hover-bg-warm' : ''}}"
+      bindtap="onOpenRecord"
+    >
+      <view class="rec-head">
+        <view class="rn">{{item.fileName}}</view>
+        <!-- 班组徽章（.team-pill，仅「全部班组」混排视图展示） -->
+        <text class="team-pill" wx:if="{{showTeamPill && item.team}}">{{item.team}}</text>
+        <view class="tag tag-{{item.status}}"> {{item.statusText}} </view>
+      </view>
+      <view class="rf">
+        <t-icon name="file" t-class="ico-22" />
+        <text>{{item.sub}}</text>
+      </view>
+      <view class="rmeta">活动日期 {{item.date}} · 提交 {{item.createdText}}</view>
+      <view wx:if="{{item.failed && item.error}}" class="rerr"
+        ><t-icon class="rerr-x" name="error-triangle" t-class="ico-22" />{{item.error}}</view
+      >
+      <!-- 操作行：打开（未生成置灰）+ 删除 -->
+      <view class="ops">
+        <view class="opb {{item.done ? '' : 'off'}}" catchtap="onOpenRecord" data-id="{{item.id}}">
+          <block wx:if="{{openingId === item.id}}">
+            <text class="opb-ing">打开中…</text>
+          </block>
+          <block wx:else>
+            <t-icon name="download" t-class="ico-30" class="{{item.done ? 'ico-brand' : ''}}" />
+            <text>打开</text>
+          </block>
+        </view>
+        <!-- 存网盘（仅已生成记录且网盘可用时显示；未开通/未配置探测失败即隐藏） -->
         <view
-          class="ts-opt {{item.on ? 'on' : ''}}"
-          wx:for="{{teamOptions}}"
-          wx:key="id"
-          hover-class="hover-bg-warm"
-          bindtap="onTeamPick"
+          wx:if="{{item.done && ndOk}}"
+          class="opb"
+          hover-class="hover-opacity"
+          catchtap="onSaveNetdisk"
           data-id="{{item.id}}"
         >
-          <text>{{item.name}}</text>
-          <text class="ck" wx:if="{{item.on}}">✓</text>
+          <block wx:if="{{savingNd === item.id}}">
+            <text class="opb-ing">保存中…</text>
+          </block>
+          <block wx:else>
+            <t-icon name="upload" t-class="ico-30" class="ico-brand" />
+            <text>存网盘</text>
+          </block>
+        </view>
+        <view
+          class="opb del"
+          hover-class="hover-opacity"
+          catchtap="onDeleteRecord"
+          data-id="{{item.id}}"
+          data-name="{{item.name}}"
+        >
+          <t-icon name="delete" t-class="ico-30" />
+          <text>删除</text>
         </view>
       </view>
     </view>
-    <view class="ts-mask" wx:if="{{teamDropOpen}}" bindtap="onTeamDropClose"></view>
+  </view>
+  <view wx:elif="{{loading}}" class="empty-box">正在加载记录…</view>
+  <view wx:else class="empty-box">暂无生成记录，上传活动文件开始生成</view>
+</view>
 
-    <!-- 上传活动文件卡 -->
-    <view class="section-title">上传活动文件</view>
-    <view class="card hazard-top up-card">
-      <!-- 选取入口（聊天文件） -->
-      <view class="upzone" hover-class="hover-opacity" bindtap="onPickFiles">
-        <view class="up-ic">
-          <t-icon name="upload" t-class="ico-48" />
-        </view>
-        <view class="up-t">从聊天选取文件<text class="accent">上传</text></view>
-        <view class="up-p">支持 pdf / doc / docx / ppt / pptx / xls / xlsx</view>
-        <view class="up-p">单文件 ≤ 50MB，最多 10 个；多文件自动合并（非 PDF 由服务端转换）</view>
-      </view>
+<!-- 未分配班组空态（屏十：非超管且未加入任何班组；整页替代，不发业务请求） -->
+<view class="page-body" wx:if="{{noTeam}}">
+  <view class="team-empty">
+    <view class="te-ic">👷</view>
+    <view class="te-t">未分配班组</view>
+    <view class="te-p">你的账号尚未加入任何班组，暂无可查看的数据。</view>
+    <view class="te-p">请联系超级管理员分配班组后再使用。</view>
+  </view>
+</view>
 
-      <!-- 已选文件条 -->
-      <block wx:if="{{files.length}}">
-        <view class="ftag" wx:for="{{files}}" wx:key="path">
-          <t-icon name="file" t-class="ico-30" class="ico-brand" />
-          <view class="fn">{{item.name}}</view>
-          <view class="fs">{{item.sizeText}}</view>
+<!-- 生成表单弹层（学习内容 + 参会信息，确认后开始生成；参加/缺席互斥点亮；键盘弹起时动态抬高底部 padding，同出工日志弹层） -->
+<t-popup visible="{{genOpen}}" placement="bottom" bind:visible-change="onGenVisibleChange">
+  <view
+    class="sheet"
+    style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : 'calc(40rpx + env(safe-area-inset-bottom))'}};"
+  >
+    <view class="sheet-title">生成活动记录</view>
+    <view class="sheet-sub"
+      >确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</view
+    >
+    <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="f-lab">学习内容（记录名称）</view>
+      <!-- 多行编辑框：拉高至可容纳 5 行文本（同网页端 textarea 口径；maxlength 100 不变） -->
+      <textarea
+        class="name-input name-area"
+        value="{{nameDraft}}"
+        bindinput="onNameInput"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        show-confirm-bar="{{false}}"
+        maxlength="100"
+        placeholder="请输入记录名称"
+        placeholder-class="ph"
+      />
+      <!-- 参会人员模式：名单点亮 / 自定义输入（自定义适用于名单外人员，主持人同可自行填写） -->
+      <view class="f-lab mode-row">
+        <text>参会人员</text>
+        <view class="mswitch">
           <view
-            class="fx"
+            class="ms-opt {{attendMode === 'member' ? 'on' : ''}}"
+            data-mode="member"
             hover-class="hover-opacity"
-            catchtap="onRemoveFile"
-            data-index="{{index}}"
+            bindtap="onAttendModeTap"
+            >名单选择</view
           >
-            <t-icon name="close" t-class="ico-30" />
-          </view>
+          <view
+            class="ms-opt {{attendMode === 'custom' ? 'on' : ''}}"
+            data-mode="custom"
+            hover-class="hover-opacity"
+            bindtap="onAttendModeTap"
+            >自定义</view
+          >
+        </view>
+      </view>
+      <view class="f-2col">
+        <view>
+          <view class="f-lab">主持人</view>
+          <picker
+            wx:if="{{attendMode === 'member'}}"
+            range="{{members}}"
+            value="{{hostIdx}}"
+            bindchange="onHostChange"
+          >
+            <view class="pick-val">
+              <text>{{members[hostIdx] || '—'}}</text>
+              <t-icon name="chevron-down" t-class="ico-26" class="ico-mute" />
+            </view>
+          </picker>
+          <input
+            wx:else
+            class="name-input host-input"
+            value="{{hostCustom}}"
+            bindinput="onHostCustomInput"
+            adjust-position="{{false}}"
+            bindkeyboardheightchange="onKeyboardHeight"
+            hold-keyboard
+            maxlength="64"
+            placeholder="请输入主持人"
+            placeholder-class="ph"
+          />
+        </view>
+        <view>
+          <view class="f-lab">记录人</view>
+          <picker range="{{members}}" value="{{recorderIdx}}" bindchange="onRecorderChange">
+            <view class="pick-val">
+              <text>{{members[recorderIdx] || '—'}}</text>
+              <t-icon name="chevron-down" t-class="ico-26" class="ico-mute" />
+            </view>
+          </picker>
+        </view>
+      </view>
+      <view class="f-lab">上级参加人员</view>
+      <input
+        class="name-input"
+        value="{{superior}}"
+        bindinput="onSuperiorInput"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        maxlength="64"
+        placeholder="请输入上级参加人员"
+        placeholder-class="ph"
+      />
+      <block wx:if="{{attendMode === 'member'}}">
+        <view class="f-lab"
+          >本班组参加人员<text class="f-lab-sub">默认全员参加，点击名字改为缺席</text></view
+        >
+        <view class="mchips">
+          <view
+            wx:for="{{members}}"
+            wx:key="name"
+            class="mchip {{attendFlags[index] ? 'on' : ''}}"
+            data-idx="{{index}}"
+            hover-class="hover-opacity"
+            bindtap="onToggleAttend"
+            >{{item}}</view
+          >
+        </view>
+        <view class="f-lab"
+          >缺席人员<text class="f-lab-sub">与参加人员互斥，点击名字改为参加</text></view
+        >
+        <view class="mchips absent">
+          <view
+            wx:for="{{members}}"
+            wx:key="name"
+            class="mchip {{attendFlags[index] ? '' : 'on'}}"
+            data-idx="{{index}}"
+            hover-class="hover-opacity"
+            bindtap="onToggleAttend"
+            >{{item}}</view
+          >
         </view>
       </block>
-
-      <!-- 活动日期（提交格式 YYYY.MM.DD） -->
-      <view class="date-row">
-        <view class="date-lab">活动日期</view>
-        <picker mode="date" value="{{dateStr}}" bindchange="onDateChange">
-          <view class="date-val" hover-class="hover-opacity">
-            <text>{{dateStr}}</text>
-            <t-icon name="calendar" t-class="ico-30" class="ico-mute" />
-          </view>
-        </picker>
-      </view>
-
-      <view
-        class="btn-primary {{!files.length ? 'disabled' : ''}}"
-        hover-class="hover-opacity"
-        bindtap="onGenTap"
-        >生成记录</view
-      >
-    </view>
-
-    <!-- 生成进度卡（跟踪态） -->
-    <view wx:if="{{track}}" class="card prog">
-      <view class="fh">
-        <view class="file-ic">
-          <t-icon name="file" t-class="ico-34" />
-        </view>
-        <view class="fh-r">
-          <view class="fn">{{track.name}}</view>
-          <view class="fs"
-            >{{track.sourceCount || 1}} 个源文件 · 提交于 {{track.createdText || '—'}}</view
-          >
-        </view>
-      </view>
-      <view class="steps">
-        <view class="step {{item.state}}" wx:for="{{steps}}" wx:key="t">
-          <view class="sd-ic">
-            <t-icon wx:if="{{item.state === 'done'}}" name="check" t-class="ico-20" />
-            <view wx:elif="{{item.state === 'doing'}}" class="dot-ing"></view>
-            <t-icon wx:elif="{{item.state === 'fail'}}" name="error-triangle" t-class="ico-20" />
-          </view>
-          <view class="step-r">
-            <view class="st">{{item.t}}</view>
-            <view class="ss">{{item.state === 'fail' ? (track.error || '生成失败') : item.s}}</view>
-          </view>
-        </view>
-      </view>
-      <view class="pbar {{track.phase === 'failed' ? 'fail' : ''}}">
-        <view class="pbar-in" style="width: {{pct}}%;"></view>
-      </view>
-      <view class="pnum {{track.phase === 'failed' ? 'fail' : ''}}">
-        <text>{{track.phase === 'failed' ? '生成失败' : '生成进度'}}</text>
-        <text class="pct">{{pct}}%</text>
-      </view>
-    </view>
-    <!-- 生成进度卡（空闲态） -->
-    <view wx:else class="card prog idle">
-      <t-icon name="time" t-class="ico-44" class="ico-mute" />
-      <text>提交生成后，这里将实时展示生成进度</text>
-    </view>
-
-    <!-- 记录列表 -->
-    <view class="sec-row">
-      <view class="section-title">活动记录列表</view>
-      <view class="cnt">{{cntText}}</view>
-    </view>
-
-    <view class="rec-list" wx:if="{{records.length}}">
-      <view
-        class="card rec"
-        wx:for="{{records}}"
-        wx:key="id"
-        data-id="{{item.id}}"
-        hover-class="{{item.done ? 'hover-bg-warm' : ''}}"
-        bindtap="onOpenRecord"
-      >
-        <view class="rec-head">
-          <view class="rn">{{item.fileName}}</view>
-          <!-- 班组徽章（.team-pill，仅「全部班组」混排视图展示） -->
-          <text class="team-pill" wx:if="{{showTeamPill && item.team}}">{{item.team}}</text>
-          <view class="tag tag-{{item.status}}"> {{item.statusText}} </view>
-        </view>
-        <view class="rf">
-          <t-icon name="file" t-class="ico-22" />
-          <text>{{item.sub}}</text>
-        </view>
-        <view class="rmeta">活动日期 {{item.date}} · 提交 {{item.createdText}}</view>
-        <view wx:if="{{item.failed && item.error}}" class="rerr"
-          ><t-icon class="rerr-x" name="error-triangle" t-class="ico-22" />{{item.error}}</view
+      <block wx:else>
+        <view class="f-lab">本班组参加人员<text class="f-lab-sub">多人以空格或顿号分隔</text></view>
+        <input
+          class="name-input"
+          value="{{customAttendees}}"
+          bindinput="onCustomAttendeesInput"
+          adjust-position="{{false}}"
+          bindkeyboardheightchange="onKeyboardHeight"
+          hold-keyboard
+          maxlength="512"
+          placeholder="如：张三 李四"
+          placeholder-class="ph"
+        />
+        <view class="f-lab"
+          >缺席人员<text class="f-lab-sub">多人以空格或顿号分隔，无则留空</text></view
         >
-        <!-- 操作行：打开（未生成置灰）+ 删除 -->
-        <view class="ops">
-          <view
-            class="opb {{item.done ? '' : 'off'}}"
-            catchtap="onOpenRecord"
-            data-id="{{item.id}}"
-          >
-            <block wx:if="{{openingId === item.id}}">
-              <text class="opb-ing">打开中…</text>
-            </block>
-            <block wx:else>
-              <t-icon name="download" t-class="ico-30" class="{{item.done ? 'ico-brand' : ''}}" />
-              <text>打开</text>
-            </block>
-          </view>
-          <!-- 存网盘（仅已生成记录且网盘可用时显示；未开通/未配置探测失败即隐藏） -->
-          <view
-            wx:if="{{item.done && ndOk}}"
-            class="opb"
-            hover-class="hover-opacity"
-            catchtap="onSaveNetdisk"
-            data-id="{{item.id}}"
-          >
-            <block wx:if="{{savingNd === item.id}}">
-              <text class="opb-ing">保存中…</text>
-            </block>
-            <block wx:else>
-              <t-icon name="upload" t-class="ico-30" class="ico-brand" />
-              <text>存网盘</text>
-            </block>
-          </view>
-          <view
-            class="opb del"
-            hover-class="hover-opacity"
-            catchtap="onDeleteRecord"
-            data-id="{{item.id}}"
-            data-name="{{item.name}}"
-          >
-            <t-icon name="delete" t-class="ico-30" />
-            <text>删除</text>
-          </view>
-        </view>
-      </view>
-    </view>
-    <view wx:elif="{{loading}}" class="empty-box">正在加载记录…</view>
-    <view wx:else class="empty-box">暂无生成记录，上传活动文件开始生成</view>
-  </view>
-
-  <!-- 未分配班组空态（屏十：非超管且未加入任何班组；整页替代，不发业务请求） -->
-  <view class="page-body" wx:if="{{noTeam}}">
-    <view class="team-empty">
-      <view class="te-ic">👷</view>
-      <view class="te-t">未分配班组</view>
-      <view class="te-p">你的账号尚未加入任何班组，暂无可查看的数据。</view>
-      <view class="te-p">请联系超级管理员分配班组后再使用。</view>
-    </view>
-  </view>
-
-  <!-- 生成表单弹层（学习内容 + 参会信息，确认后开始生成；参加/缺席互斥点亮；键盘弹起时动态抬高底部 padding，同出工日志弹层） -->
-  <t-popup
-    visible="{{genOpen}}"
-    placement="{{isWide ? 'center' : 'bottom'}}"
-    bind:visible-change="onGenVisibleChange"
-  >
-    <view
-      class="sheet"
-      style="padding-bottom: {{keyboardHeight ? keyboardHeight + 'px' : (isTablet ? 'calc(20px + env(safe-area-inset-bottom))' : 'calc(40rpx + env(safe-area-inset-bottom))')}};"
-    >
-      <view class="sheet-title">生成活动记录</view>
-      <view class="sheet-sub"
-        >确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认</view
-      >
-      <scroll-view scroll-y class="form-scroll" enhanced show-scrollbar="{{false}}">
-        <view class="f-lab">学习内容（记录名称）</view>
-        <!-- 多行编辑框：拉高至可容纳 5 行文本（同网页端 textarea 口径；maxlength 100 不变） -->
-        <textarea
-          class="name-input name-area"
-          value="{{nameDraft}}"
-          bindinput="onNameInput"
-          adjust-position="{{false}}"
-          bindkeyboardheightchange="onKeyboardHeight"
-          hold-keyboard
-          show-confirm-bar="{{false}}"
-          maxlength="100"
-          placeholder="请输入记录名称"
-          placeholder-class="ph"
-        />
-        <!-- 参会人员模式：名单点亮 / 自定义输入（自定义适用于名单外人员，主持人同可自行填写） -->
-        <view class="f-lab mode-row">
-          <text>参会人员</text>
-          <view class="mswitch">
-            <view
-              class="ms-opt {{attendMode === 'member' ? 'on' : ''}}"
-              data-mode="member"
-              hover-class="hover-opacity"
-              bindtap="onAttendModeTap"
-              >名单选择</view
-            >
-            <view
-              class="ms-opt {{attendMode === 'custom' ? 'on' : ''}}"
-              data-mode="custom"
-              hover-class="hover-opacity"
-              bindtap="onAttendModeTap"
-              >自定义</view
-            >
-          </view>
-        </view>
-        <view class="f-2col">
-          <view>
-            <view class="f-lab">主持人</view>
-            <picker
-              wx:if="{{attendMode === 'member'}}"
-              range="{{members}}"
-              value="{{hostIdx}}"
-              bindchange="onHostChange"
-            >
-              <view class="pick-val">
-                <text>{{members[hostIdx] || '—'}}</text>
-                <t-icon name="chevron-down" t-class="ico-26" class="ico-mute" />
-              </view>
-            </picker>
-            <input
-              wx:else
-              class="name-input host-input"
-              value="{{hostCustom}}"
-              bindinput="onHostCustomInput"
-              adjust-position="{{false}}"
-              bindkeyboardheightchange="onKeyboardHeight"
-              hold-keyboard
-              maxlength="64"
-              placeholder="请输入主持人"
-              placeholder-class="ph"
-            />
-          </view>
-          <view>
-            <view class="f-lab">记录人</view>
-            <picker range="{{members}}" value="{{recorderIdx}}" bindchange="onRecorderChange">
-              <view class="pick-val">
-                <text>{{members[recorderIdx] || '—'}}</text>
-                <t-icon name="chevron-down" t-class="ico-26" class="ico-mute" />
-              </view>
-            </picker>
-          </view>
-        </view>
-        <view class="f-lab">上级参加人员</view>
         <input
           class="name-input"
-          value="{{superior}}"
-          bindinput="onSuperiorInput"
+          value="{{customAbsentees}}"
+          bindinput="onCustomAbsenteesInput"
           adjust-position="{{false}}"
           bindkeyboardheightchange="onKeyboardHeight"
           hold-keyboard
-          maxlength="64"
-          placeholder="请输入上级参加人员"
-          placeholder-class="ph"
-        />
-        <block wx:if="{{attendMode === 'member'}}">
-          <view class="f-lab"
-            >本班组参加人员<text class="f-lab-sub">默认全员参加，点击名字改为缺席</text></view
-          >
-          <view class="mchips">
-            <view
-              wx:for="{{members}}"
-              wx:key="name"
-              class="mchip {{attendFlags[index] ? 'on' : ''}}"
-              data-idx="{{index}}"
-              hover-class="hover-opacity"
-              bindtap="onToggleAttend"
-              >{{item}}</view
-            >
-          </view>
-          <view class="f-lab"
-            >缺席人员<text class="f-lab-sub">与参加人员互斥，点击名字改为参加</text></view
-          >
-          <view class="mchips absent">
-            <view
-              wx:for="{{members}}"
-              wx:key="name"
-              class="mchip {{attendFlags[index] ? '' : 'on'}}"
-              data-idx="{{index}}"
-              hover-class="hover-opacity"
-              bindtap="onToggleAttend"
-              >{{item}}</view
-            >
-          </view>
-        </block>
-        <block wx:else>
-          <view class="f-lab"
-            >本班组参加人员<text class="f-lab-sub">多人以空格或顿号分隔</text></view
-          >
-          <input
-            class="name-input"
-            value="{{customAttendees}}"
-            bindinput="onCustomAttendeesInput"
-            adjust-position="{{false}}"
-            bindkeyboardheightchange="onKeyboardHeight"
-            hold-keyboard
-            maxlength="512"
-            placeholder="如：张三 李四"
-            placeholder-class="ph"
-          />
-          <view class="f-lab"
-            >缺席人员<text class="f-lab-sub">多人以空格或顿号分隔，无则留空</text></view
-          >
-          <input
-            class="name-input"
-            value="{{customAbsentees}}"
-            bindinput="onCustomAbsenteesInput"
-            adjust-position="{{false}}"
-            bindkeyboardheightchange="onKeyboardHeight"
-            hold-keyboard
-            maxlength="512"
-            placeholder="无"
-            placeholder-class="ph"
-          />
-        </block>
-        <view class="f-lab">缺席人员原因</view>
-        <input
-          class="name-input"
-          value="{{absentReason}}"
-          bindinput="onAbsentReasonInput"
-          adjust-position="{{false}}"
-          bindkeyboardheightchange="onKeyboardHeight"
-          hold-keyboard
-          maxlength="200"
+          maxlength="512"
           placeholder="无"
           placeholder-class="ph"
         />
-      </scroll-view>
-      <view class="sheet-ops">
-        <view
-          class="btn-ghost {{submitting ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onGenCancel"
-          >取消</view
-        >
-        <view
-          class="btn-accent {{submitting ? 'disabled' : ''}}"
-          hover-class="hover-opacity"
-          bindtap="onGenConfirm"
-        >
-          {{submitting ? '正在生成…' : '确定，开始生成'}}
-        </view>
+      </block>
+      <view class="f-lab">缺席人员原因</view>
+      <input
+        class="name-input"
+        value="{{absentReason}}"
+        bindinput="onAbsentReasonInput"
+        adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight"
+        hold-keyboard
+        maxlength="200"
+        placeholder="无"
+        placeholder-class="ph"
+      />
+    </scroll-view>
+    <view class="sheet-ops">
+      <view
+        class="btn-ghost {{submitting ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onGenCancel"
+        >取消</view
+      >
+      <view
+        class="btn-accent {{submitting ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onGenConfirm"
+      >
+        {{submitting ? '正在生成…' : '确定，开始生成'}}
       </view>
     </view>
-  </t-popup>
+  </view>
+</t-popup>
 
-  <!-- 网盘目录选择（存网盘前选目录，共享组件） -->
-  <nd-dirpicker
-    visible="{{ndSaveVisible}}"
-    default-path="安全日记录"
-    bind:confirm="onNdSaveDirConfirm"
-    bind:close="onNdSaveDirClose"
-  />
+<!-- 网盘目录选择（存网盘前选目录，共享组件） -->
+<nd-dirpicker
+  visible="{{ndSaveVisible}}"
+  default-path="安全日记录"
+  bind:confirm="onNdSaveDirConfirm"
+  bind:close="onNdSaveDirClose"
+/>
 
-  <t-dialog id="t-dialog" />
-  <t-toast id="t-toast" />
-</wide-shell>
+<t-dialog id="t-dialog" />
+<t-toast id="t-toast" />

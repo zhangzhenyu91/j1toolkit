@@ -13,7 +13,6 @@ Page({
   data: {
     gate: false, // 门控是否已通过（未通过时显示启动加载页）
     tab: 'home', // 当前面板：home / me
-    isWide: false, // 600px 起首页导航由深蓝页首切换为浅色顶栏
     ico: iconColors('light'), // t-icon 图标色计算值（随系统主题刷新）
     greeting: '',
     today: '',
@@ -48,12 +47,9 @@ Page({
     sgccExpired: false, // true=已绑定但商旅登录已过期（红字）
   },
 
-  onLoad(options = {}) {
+  onLoad() {
     const now = new Date();
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
     this.setData({
-      tab: options.tab === 'me' ? 'me' : 'home',
-      isWide: info.windowWidth >= 600,
       greeting: greeting(),
       today: `${now.getMonth() + 1}月${now.getDate()}日`,
       weekday: WEEKDAYS[now.getDay()],
@@ -107,12 +103,6 @@ Page({
     this.loadNotices();
   },
 
-  onResize() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
-    const isWide = info.windowWidth >= 600;
-    if (isWide !== this.data.isWide) this.setData({ isWide });
-  },
-
   onShow() {
     this._shown = true;
     this.setData({ ico: iconColors() });
@@ -152,11 +142,8 @@ Page({
     try {
       const data = await request({ url: '/api/v1/app/list' });
       const list = (data && data.list) || [];
-      const apps = list.filter((item) => item.terminal !== 'pc');
-      getApp().globalData.apps = apps;
-      wx.setStorageSync('wide_apps', apps);
       this.setData({
-        apps,
+        apps: list.filter((item) => item.terminal !== 'pc'),
         appCount: list.length,
         appNames: list.map((item) => item.name),
         hasWorklog: list.some((item) => item.app_key === 'work-log'), // 「绑定商旅」行显隐（商旅打卡归属出工日志）
@@ -352,7 +339,7 @@ Page({
       context: this,
       selector: '#t-dialog',
       title: '关于 Shade 壹匣',
-      content: '版本号：v1.22.1 \n 应用权限申请联系 zzy',
+      content: '版本号：v1.23.0 \n 应用权限申请联系 zzy',
       confirmBtn: '知道了',
     });
   },
@@ -393,9 +380,7 @@ Page({
         wx.removeStorageSync('token');
         wx.removeStorageSync('userInfo');
         wx.removeStorageSync('canSilentWx'); // 清除"可静默微信登录"标记，避免下次冷启动被静默重新登录
-        wx.removeStorageSync('wide_apps');
         getApp().globalData.userInfo = null;
-        getApp().globalData.apps = null;
         wx.reLaunch({ url: '/pages/login/login' });
       })
       .catch(() => {});

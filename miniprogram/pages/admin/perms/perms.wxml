@@ -31,13 +31,15 @@
     </view>
   </scroll-view>
 
-  <!-- 员工选择（按班组分组，未分组排最后）与应用授权：宽屏 900px 起左右双栏，手机竖屏保持上下结构 -->
+  <!-- 员工选择（按班组分组，未分组排最后）与应用授权，手机端按上下结构展示 -->
   <view class="perm-cols">
     <view class="perm-main">
       <view class="section-title">选择员工</view>
       <t-empty wx:if="{{!loading && groups.length === 0}}" description="暂无员工账号" />
       <block wx:for="{{groups}}" wx:key="name" wx:for-item="grp">
-        <view class="grp-title">{{grp.name}}<text class="grp-cnt">{{grp.users.length}} 人</text></view>
+        <view class="grp-title"
+          >{{grp.name}}<text class="grp-cnt">{{grp.users.length}} 人</text></view
+        >
         <view class="card list-card">
           <view
             class="u-item {{item.id === selectedUserId ? 'u-item-on' : ''}}"

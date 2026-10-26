@@ -6,7 +6,6 @@ import { request } from '../../../utils/request';
 import { BASE_URL } from '../../../config';
 import { shareAppMessage } from '../../../utils/share';
 import { teamQuery as teamQueryOf, teamBody as teamBodyOf } from '../../../utils/teamgate';
-import widePage from '../../../utils/wide-page';
 
 // 分段配置：接口路径段 / 名称 / 行图标 / 添加占位
 const SEGMENTS = [
@@ -16,7 +15,6 @@ const SEGMENTS = [
 ];
 
 Page({
-  behaviors: [widePage],
   data: {
     isAdmin: false,
     seg: 'vehicles',

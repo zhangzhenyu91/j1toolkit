@@ -110,11 +110,7 @@
 </view>
 
 <!-- 对照弹层：上表格只读 / 下卡片可改（matched）；建卡表单（sheetOnly）；纯提示（entryOnly） -->
-<t-popup
-  visible="{{dlgVisible}}"
-  placement="{{isWide ? 'center' : 'bottom'}}"
-  bind:visible-change="onDlgVisibleChange"
->
+<t-popup visible="{{dlgVisible}}" placement="bottom" bind:visible-change="onDlgVisibleChange">
   <view class="sheet">
     <view class="sheet-title">派车对齐 · 逐条处理</view>
     <view class="sheet-note">{{dlgProg}}</view>

@@ -49,7 +49,7 @@ linux:
   artifactName: uvmp-toolkit-${version}-${arch}.${ext}
   desktop:
     Name: Shade 壹匣 - 内网
-    Comment: 每日派车单同步 / 派车单·轨迹导出 / 题库搜题
+    Comment: 派车同步 / 轨迹导出 / 题库搜题
     # WM_CLASS 关联名（Unicode 产品名做 StartupWMClass 在 X11 下匹配失败，已踩坑）；
     # 与 main.cjs 的 app.setDesktopName('uvmp-toolkit.desktop') 对应
     StartupWMClass: uvmp-toolkit
