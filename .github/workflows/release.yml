@@ -53,6 +53,8 @@ jobs:
     steps:
       - if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2 # 建（或复用）空 Release
+        with:
+          prerelease: ${{ contains(github.ref_name, '-alpha.') || contains(github.ref_name, '-beta.') || contains(github.ref_name, '-rc.') }}
       - if: github.ref_type != 'tag'
         run: echo "非 tag 构建：只编译冒烟，不发 Release"
 
@@ -101,7 +103,7 @@ jobs:
           retention-days: 1
 
   client-windows:
-    needs: release-init
+    needs: [release-init, prepare]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -145,6 +147,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 对齐客户端版本号（取发版 tag，覆盖 manifest 与 lockfile）
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --prefix desktop
       - name: 前端构建 + 打包（NSIS 安装程序 + zip）
         run: |
           New-Item -ItemType Directory -Force dist-core | Out-Null
@@ -179,7 +183,7 @@ jobs:
             uvmp-toolkit/dist-electron/*.exe
 
   client-linux-amd64:
-    needs: release-init
+    needs: [release-init, prepare]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -198,6 +202,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 对齐客户端版本号（取发版 tag，覆盖 manifest 与 lockfile）
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --prefix desktop
       - name: 前端构建 + 打包（deb + tar.gz）
         env:
           # onnxruntime-node 的 postinstall 在 linux/x64 会联网拉 CUDA 库，CPU 场景必须跳过
@@ -236,7 +242,7 @@ jobs:
             uvmp-toolkit/dist-electron/*.deb
 
   client-linux-arm64:
-    needs: release-init
+    needs: [release-init, prepare]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -256,6 +262,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: uvmp-toolkit/desktop/package-lock.json
+      - name: 对齐客户端版本号（取发版 tag，覆盖 manifest 与 lockfile）
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --prefix desktop
       - name: 前端构建 + 打包（deb + tar.gz；纯打包不执行 arm64 代码）
         env:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
