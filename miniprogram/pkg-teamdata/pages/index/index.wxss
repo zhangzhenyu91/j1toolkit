@@ -435,3 +435,184 @@ page {
     border-color: rgba(255, 255, 255, 0.35);
   }
 }
+
+/* ---------- 运维线路段补充（design/小程序-运维线路.html 文案/操作口径） ---------- */
+.op-add-title {
+  margin-top: 28rpx;
+  display: flex;
+  align-items: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.op-add-tag {
+  margin-left: auto;
+  font-size: 20rpx;
+  font-weight: 400;
+  color: var(--app-text-tertiary);
+}
+
+.op-head {
+  margin: 32rpx 4rpx 12rpx;
+  display: flex;
+  align-items: center;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: var(--app-text-secondary);
+}
+
+.op-count {
+  margin-left: auto;
+  font-size: 20rpx;
+  font-weight: 400;
+  color: var(--app-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 电压等级小签（行右，直角小胶囊口径同来源标；纯数字补 kV 由 js fmtVoltage 格式化） */
+.volt-pill {
+  flex: none;
+  font-size: 19rpx;
+  color: var(--app-text-secondary);
+  background: var(--app-bg-nested);
+  border-radius: 12rpx;
+  padding: 2rpx 12rpx;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 行内名称占满剩余宽度，电压小签贴右侧操作区（同设计稿 line-name flex:1） */
+.mrow .op-name {
+  flex: 1;
+}
+
+/* 空态（图标 + 标题 + 两行说明） */
+.op-empty {
+  padding: 64rpx 24rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--app-text-tertiary);
+}
+
+.op-empty-t {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--app-text-secondary);
+}
+
+.op-empty-d {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  line-height: 1.7;
+  text-align: center;
+}
+
+/* 共用来源说明（浅底 + 左蓝条，提示信息块族一律直角） */
+.op-note {
+  margin-top: 20rpx;
+  padding: 18rpx 22rpx;
+  border-left: 6rpx solid var(--app-brand);
+  background: var(--app-brand-light);
+  color: var(--app-text-secondary);
+  font-size: 21rpx;
+  line-height: 1.75;
+  border-radius: 0;
+}
+
+/* ---------- 运维线路弹层补充（编辑双字段 / 全量导入确认 / 删除确认） ---------- */
+.f-req {
+  margin-left: 6rpx;
+  color: var(--app-danger);
+  font-weight: 700;
+}
+
+.f-hint {
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  line-height: 1.6;
+  color: var(--app-text-tertiary);
+}
+
+/* 导入确认文件卡（文件名 + 大小） */
+.op-file {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  padding: 20rpx 22rpx;
+  background: var(--app-bg-nested);
+  border: 2rpx solid var(--app-border);
+  border-radius: 12rpx;
+}
+
+.op-file-txt {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.op-file-n {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: var(--app-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-file-s {
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: var(--app-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ico-op-file {
+  color: var(--app-success-text);
+}
+
+/* 警示块（浅底 + 左橙条，警示/提示信息块族一律直角） */
+.op-warn {
+  margin-top: 20rpx;
+  padding: 18rpx 22rpx;
+  border-left: 6rpx solid var(--app-warning);
+  background: var(--app-warning-bg);
+  color: var(--app-warning-text);
+  font-size: 21rpx;
+  line-height: 1.8;
+  border-radius: 0;
+}
+
+.op-confirm-txt {
+  margin-top: 20rpx;
+  font-size: 24rpx;
+  line-height: 1.8;
+  color: var(--app-text-secondary);
+}
+
+/* 确认弹层危险主按钮（确认删除 / 确认全量替换，白字同设计稿 btn.danger） */
+.btn-danger {
+  flex: 2;
+  height: 88rpx;
+  border-radius: 12rpx;
+  background: var(--app-danger);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+  transition: opacity 0.15s ease;
+}
+
+/* t-icon 外部样式类补充（空态 / 文件卡图标） */
+.ico-40 {
+  font-size: 40rpx;
+}
+
+.ico-64 {
+  font-size: 64rpx;
+}

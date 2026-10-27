@@ -1,6 +1,10 @@
 # 依赖目录
 node_modules/
 
+# Go 二进制构建产物（go build 输出，发版产物走 Release 附件）
+go/shade
+go/shade.exe
+
 # 小程序 npm 构建产物（开发者工具「构建 npm」生成，可重建）
 miniprogram_npm/
 

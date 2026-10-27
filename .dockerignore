@@ -1,6 +1,9 @@
-# Docker 构建上下文裁剪：仅 server/ 参与镜像（小程序、客户端、设计稿、两个 submodule 等不进上下文）
+# Docker 构建上下文裁剪：仅 go/、web/ 与 server/assets 参与镜像（Go 多阶段构建：
+# go 编译 + web npm ci/build + server/assets 素材）；小程序、客户端、设计稿、两个 submodule、
+# 旧 Node 服务端（server/src、server/public）等不进上下文
 .git
 .gitmodules
+.github/
 private/
 crane-answer/
 miniprogram/
@@ -8,10 +11,21 @@ design/
 docker/
 .kimi-code/
 uvmp-toolkit/
+server/src/
+server/public/*
+!server/public/sgcc-captcha.html
+server/package.json
+server/package-lock.json
 
-# 本地依赖/数据/真实密钥绝不进镜像（依赖在镜像内 npm ci 重装；data 运行时挂卷；配置走环境变量）
+# 本地依赖/构建产物/数据/真实密钥绝不进镜像（依赖在镜像内重装；data 运行时挂卷；配置走环境变量）
 server/node_modules/
 server/data/
 server/.env
+web/node_modules/
+web/dist/
+web/.tmp/
+go/shade
+go/shade.exe
 
+**/__pycache__/
 **/.DS_Store

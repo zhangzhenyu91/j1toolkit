@@ -1,0 +1,1560 @@
+<!doctype html>
+<!--
+  政企蓝白 · 管理 / 应用配置 Web 设计评审稿
+  静态模拟：配置分组 / 密钥替换与清除 / 未保存提醒 / 保存热生效；不包含真实配置值。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>应用配置 · Web 设计评审稿</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      :root {
+        --blue: #0e3da8;
+        --navy: #0a3592;
+        --blue-bg: #e8f0ff;
+        --green: #00b42a;
+        --green-text: #0b8a37;
+        --green-bg: #e8ffea;
+        --orange: #ff7d00;
+        --orange-text: #d25f00;
+        --orange-bg: #fff7e8;
+        --red: #f53f3f;
+        --red-bg: #ffece8;
+        --bg: #f5f7fa;
+        --card: #fff;
+        --fill: #f7f8fa;
+        --text: #1d2129;
+        --t2: #4e5969;
+        --t3: #86909c;
+        --line: #e5e6eb;
+        --ph: #c9cdd4;
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      body {
+        margin: 0;
+        padding: 42px 24px 72px;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 3px solid rgba(14, 61, 168, 0.18);
+        outline-offset: 2px;
+      }
+      .review-head {
+        max-width: 1240px;
+        margin: 0 auto 22px;
+        display: flex;
+        align-items: end;
+        gap: 18px;
+      }
+      .kicker {
+        color: var(--t3);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 3px;
+      }
+      .review-head h1 {
+        margin: 7px 0 0;
+        font-size: 26px;
+        letter-spacing: 1px;
+      }
+      .review-head h1 em {
+        color: var(--blue);
+        font-style: normal;
+      }
+      .review-head p {
+        margin: 0 0 2px auto;
+        max-width: 510px;
+        color: var(--t2);
+        font-size: 12px;
+        line-height: 1.8;
+        text-align: right;
+      }
+      .review-tag {
+        display: inline-flex;
+        margin-left: 8px;
+        padding: 3px 7px;
+        border-radius: 4px;
+        background: var(--orange-bg);
+        color: var(--orange-text);
+        font-size: 10px;
+        vertical-align: 5px;
+      }
+      .demo-bar {
+        max-width: 1240px;
+        margin: 0 auto 14px;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--t2);
+        font-size: 12px;
+      }
+      .demo-bar b {
+        margin-right: 4px;
+        color: var(--text);
+      }
+      .demo-bar button {
+        padding: 5px 10px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--fill);
+        color: var(--t2);
+      }
+      .demo-bar button.on {
+        background: var(--blue-bg);
+        color: var(--blue);
+        font-weight: 600;
+      }
+      .demo-bar span {
+        margin-left: auto;
+        color: var(--t3);
+      }
+      .browser {
+        position: relative;
+        max-width: 1240px;
+        height: 840px;
+        margin: 0 auto;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--bg);
+        box-shadow: 0 20px 50px rgba(29, 33, 41, 0.1);
+      }
+      .browser-bar {
+        height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 14px;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+      }
+      .browser-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--ph);
+      }
+      .browser-url {
+        width: 320px;
+        height: 23px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        background: var(--fill);
+        color: var(--t3);
+        font-size: 10px;
+      }
+      .app {
+        display: flex;
+        height: calc(100% - 38px);
+      }
+      .rail {
+        width: 174px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        border-right: 1px solid var(--line);
+      }
+      .brand {
+        height: 66px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--blue);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .brand b {
+        display: block;
+        font-size: 14px;
+      }
+      .brand small {
+        color: var(--t3);
+        font-size: 9px;
+        letter-spacing: 1px;
+      }
+      .nav {
+        flex: 1;
+        padding: 12px 10px;
+      }
+      .nav-item {
+        height: 37px;
+        margin-bottom: 3px;
+        padding: 0 10px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        border-radius: 8px;
+        color: var(--t2);
+        font-size: 12px;
+      }
+      .nav-item svg {
+        width: 16px;
+        height: 16px;
+      }
+      .nav-item.on {
+        background: var(--blue-bg);
+        color: var(--blue);
+        font-weight: 600;
+      }
+      .rail-user {
+        margin: 10px;
+        padding: 12px 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-top: 1px solid var(--line);
+      }
+      .avatar {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--navy);
+        color: #fff;
+        font-size: 11px;
+      }
+      .rail-user b {
+        display: block;
+        font-size: 11px;
+      }
+      .rail-user small {
+        color: var(--t3);
+        font-size: 9px;
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        overflow-y: auto;
+        padding: 22px 24px 30px;
+      }
+      .page-title {
+        display: flex;
+        align-items: flex-start;
+      }
+      .page-title h2 {
+        margin: 0;
+        font-size: 21px;
+      }
+      .page-title p {
+        margin: 6px 0 0;
+        color: var(--t3);
+        font-size: 11px;
+      }
+      .admin-badge {
+        margin-left: auto;
+        padding: 5px 8px;
+        border-radius: 4px;
+        background: var(--blue-bg);
+        color: var(--blue);
+        font-size: 10px;
+      }
+      .tabs {
+        margin-top: 18px;
+        display: flex;
+        gap: 3px;
+        border-bottom: 1px solid var(--line);
+      }
+      .tab {
+        position: relative;
+        padding: 11px 15px;
+        border: 0;
+        background: none;
+        color: var(--t2);
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .tab.on {
+        color: var(--blue);
+      }
+      .tab.on::after {
+        content: '';
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: -1px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--blue);
+      }
+      .config-layout {
+        margin-top: 16px;
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+      }
+      .config-side {
+        width: 210px;
+        flex: none;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: var(--shadow);
+      }
+      .side-label {
+        padding: 6px 8px;
+        color: var(--t3);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 1.4px;
+      }
+      .config-nav {
+        width: 100%;
+        min-height: 42px;
+        margin-bottom: 3px;
+        padding: 7px 9px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--t2);
+        text-align: left;
+      }
+      .config-nav:hover {
+        background: var(--fill);
+      }
+      .config-nav.on {
+        background: var(--blue-bg);
+        color: var(--blue);
+      }
+      .config-nav svg {
+        width: 16px;
+        height: 16px;
+        flex: none;
+      }
+      .config-nav span {
+        min-width: 0;
+        flex: 1;
+      }
+      .config-nav b {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 10.5px;
+      }
+      .config-nav small {
+        display: block;
+        margin-top: 3px;
+        color: var(--t3);
+        font-size: 8.5px;
+      }
+      .config-nav em {
+        width: 6px;
+        height: 6px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--orange);
+      }
+      .config-content {
+        flex: 1;
+        min-width: 0;
+      }
+      .config-head {
+        padding: 15px 17px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: var(--shadow);
+      }
+      .config-head h3 {
+        margin: 0;
+        font-size: 15px;
+      }
+      .config-head p {
+        margin: 5px 0 0;
+        color: var(--t3);
+        font-size: 9.5px;
+      }
+      .save-state {
+        margin-left: auto;
+        text-align: right;
+        color: var(--t3);
+        font-size: 9px;
+      }
+      .save-state b {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--green-text);
+        font-size: 10px;
+      }
+      .save-state.dirty b {
+        color: var(--orange-text);
+      }
+      .save-state.failed b {
+        color: var(--red);
+      }
+      .btn {
+        min-height: 34px;
+        padding: 0 13px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--text);
+        font-size: 10.5px;
+        font-weight: 600;
+      }
+      .btn:hover {
+        border-color: var(--blue);
+        color: var(--blue);
+      }
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+      .btn.primary {
+        border-color: var(--blue);
+        background: var(--blue);
+        color: #fff;
+      }
+      .btn.primary:hover {
+        filter: brightness(0.94);
+      }
+      .btn.small {
+        min-height: 29px;
+        padding: 0 9px;
+        font-size: 9.5px;
+      }
+      .btn svg {
+        width: 14px;
+        height: 14px;
+      }
+      .config-head .btn {
+        flex: none;
+      }
+      .boot-note {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-left: 3px solid var(--blue);
+        background: var(--blue-bg);
+        color: var(--t2);
+        font-size: 9.5px;
+        line-height: 1.8;
+      }
+      .boot-note b {
+        color: var(--blue);
+      }
+      .unsaved-bar {
+        margin-top: 10px;
+        padding: 10px 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-left: 3px solid var(--orange);
+        background: var(--orange-bg);
+        color: var(--orange-text);
+        font-size: 10px;
+      }
+      .unsaved-bar div:last-child {
+        margin-left: auto;
+        display: flex;
+        gap: 7px;
+      }
+      .form-section {
+        margin-top: 12px;
+        padding: 16px 17px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: var(--shadow);
+        animation: rise 0.24s var(--ease);
+      }
+      .form-section h4 {
+        margin: 0 0 4px;
+        font-size: 12.5px;
+      }
+      .section-hint {
+        margin: 0 0 14px;
+        color: var(--t3);
+        font-size: 9.5px;
+        line-height: 1.7;
+      }
+      .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 13px 14px;
+      }
+      .field {
+        min-width: 0;
+      }
+      .field.full {
+        grid-column: 1/-1;
+      }
+      .field label {
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--t2);
+        font-size: 10px;
+        font-weight: 600;
+      }
+      .required {
+        color: var(--red);
+      }
+      .env-name {
+        margin-left: auto;
+        color: var(--t3);
+        font:
+          8px Consolas,
+          monospace;
+        font-weight: 400;
+      }
+      .input {
+        width: 100%;
+        height: 35px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        outline: 0;
+        background: var(--fill);
+        color: var(--text);
+        font-size: 10.5px;
+      }
+      .input:focus {
+        border-color: var(--blue);
+        background: #fff;
+      }
+      .input.invalid {
+        border-color: var(--red);
+        background: var(--red-bg);
+      }
+      .field-help {
+        margin-top: 5px;
+        color: var(--t3);
+        font-size: 8.5px;
+        line-height: 1.6;
+      }
+      .field-error {
+        margin-top: 5px;
+        color: var(--red);
+        font-size: 9px;
+      }
+      .secret-shell {
+        position: relative;
+      }
+      .secret-shell .input {
+        padding-right: 69px;
+      }
+      .secret-status {
+        position: absolute;
+        top: 50%;
+        right: 9px;
+        transform: translateY(-50%);
+        color: var(--green-text);
+        font-size: 8.5px;
+      }
+      .secret-status.empty {
+        color: var(--t3);
+      }
+      .secret-status.clear {
+        color: var(--orange-text);
+      }
+      .secret-actions {
+        margin-top: 5px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .text-btn {
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--blue);
+        font-size: 9px;
+      }
+      .text-btn.danger {
+        color: var(--red);
+      }
+      .text-btn.gray {
+        color: var(--t2);
+      }
+      .secret-actions span {
+        color: var(--t3);
+        font-size: 8.5px;
+      }
+      .check-field {
+        min-height: 35px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--t2);
+        font-size: 10.5px;
+      }
+      .check-field input {
+        accent-color: var(--blue);
+      }
+      .shared-card {
+        margin-top: 12px;
+        padding: 13px 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid #cfdbef;
+        border-radius: 10px;
+        background: var(--blue-bg);
+      }
+      .shared-card svg {
+        width: 20px;
+        height: 20px;
+        flex: none;
+        color: var(--blue);
+      }
+      .shared-card b {
+        display: block;
+        color: var(--blue);
+        font-size: 10.5px;
+      }
+      .shared-card p {
+        margin: 4px 0 0;
+        color: var(--t2);
+        font-size: 9px;
+        line-height: 1.6;
+      }
+      .shared-card .btn {
+        margin-left: auto;
+        flex: none;
+      }
+      .empty-config {
+        padding: 36px 22px;
+        text-align: center;
+      }
+      .empty-config svg {
+        width: 32px;
+        height: 32px;
+        margin-bottom: 10px;
+        color: var(--ph);
+      }
+      .empty-config b {
+        display: block;
+        font-size: 12px;
+      }
+      .empty-config p {
+        margin: 7px 0 0;
+        color: var(--t3);
+        font-size: 9.5px;
+        line-height: 1.8;
+      }
+      .toast {
+        position: absolute;
+        left: 50%;
+        top: 54px;
+        z-index: 50;
+        transform: translateX(-50%);
+        max-width: 80%;
+        padding: 10px 16px;
+        border-radius: 8px;
+        background: #1d2129;
+        color: #fff;
+        font-size: 10.5px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      }
+      .toast.error {
+        background: var(--red);
+      }
+      @keyframes rise {
+        from {
+          transform: translateY(8px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+      @media (max-width: 1050px) {
+        body {
+          padding: 24px 12px 40px;
+        }
+        .rail {
+          width: 62px;
+        }
+        .brand {
+          padding: 0 15px;
+        }
+        .brand-word,
+        .nav-item span,
+        .rail-user div {
+          display: none;
+        }
+        .nav-item {
+          justify-content: center;
+        }
+        .config-side {
+          width: 180px;
+        }
+        .main {
+          padding: 18px;
+        }
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+        .field.full {
+          grid-column: auto;
+        }
+        .config-head {
+          flex-wrap: wrap;
+        }
+        .save-state {
+          margin-left: 0;
+        }
+        .config-head .btn {
+          margin-left: auto;
+        }
+      }
+      @media (max-width: 760px) {
+        .review-head p,
+        .demo-bar span {
+          display: none;
+        }
+        .rail {
+          display: none;
+        }
+        .config-layout {
+          flex-direction: column;
+        }
+        .config-side {
+          width: 100%;
+          display: flex;
+          gap: 5px;
+          overflow-x: auto;
+        }
+        .side-label {
+          display: none;
+        }
+        .config-nav {
+          width: 150px;
+          flex: none;
+        }
+        .tab {
+          padding: 10px 9px;
+          font-size: 10px;
+        }
+        .tabs {
+          overflow-x: auto;
+        }
+        .save-state {
+          width: 100%;
+          text-align: left;
+        }
+        .config-head .btn {
+          margin-left: 0;
+        }
+        .shared-card {
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+        .shared-card .btn {
+          margin-left: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-home" viewBox="0 0 24 24">
+        <path
+          d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7" />
+        <path
+          d="M19 13.5v-3l-2-.7-.8-1.9.9-1.9-2.1-2.1-1.9.9-1.9-.8-.7-2h-3l-.7 2-1.9.8-1.9-.9-2.1 2.1.9 1.9-.8 1.9-2 .7v3l2 .7.8 1.9-.9 1.9 2.1 2.1 1.9-.9 1.9.8.7 2h3l.7-2 1.9-.8 1.9.9 2.1-2.1-.9-1.9.8-1.9z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+        />
+      </symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24">
+        <path
+          d="M20 15a3 3 0 0 1-3 3H9l-5 3v-6a3 3 0 0 1-1-2V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 24 24">
+        <path
+          d="M4 4a3 3 0 0 1 3-1h5v17H7a3 3 0 0 0-3 1zm16 0a3 3 0 0 0-3-1h-5v17h5a3 3 0 0 1 3 1z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+        />
+      </symbol>
+      <symbol id="i-tree" viewBox="0 0 24 24">
+        <path
+          d="M12 3 5 12h4l-5 6h16l-5-6h4zM12 18v3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+      </symbol>
+      <symbol id="i-link" viewBox="0 0 24 24">
+        <path
+          d="m9 15 6-6m-7 1 2-2a4 4 0 0 1 6 6l-2 2m-6 0 2 2a4 4 0 0 0 6-6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path
+          d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="1.9" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <rect
+          x="5"
+          y="10"
+          width="14"
+          height="11"
+          rx="2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+        <path
+          d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+      </symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24">
+        <rect
+          x="3"
+          y="4"
+          width="18"
+          height="16"
+          rx="2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+        <path d="m7 9 3 3-3 3m6 0h4" fill="none" stroke="currentColor" stroke-width="1.7" />
+      </symbol>
+      <symbol id="i-robot" viewBox="0 0 24 24">
+        <rect
+          x="4"
+          y="6"
+          width="16"
+          height="13"
+          rx="3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+        <path d="M12 2v4M8 11v2m8-2v2m-8 4h8" stroke="currentColor" stroke-width="1.7" />
+      </symbol>
+    </svg>
+
+    <header class="review-head">
+      <div>
+        <div class="kicker">SHADE YIXIA · UI REVIEW</div>
+        <h1>管理 <em>应用配置</em><span class="review-tag">评审中</span></h1>
+      </div>
+      <p>
+        运行配置统一入库，敏感值加密且不回显。此处仅演示信息架构与交互，示例域名均为无效地址，不包含真实密钥。
+      </p>
+    </header>
+    <div class="demo-bar">
+      <b>保存结果演示</b><button class="on" data-demo="normal">保存并热生效</button
+      ><button data-demo="failed">热更新失败</button><button data-demo="invalid">必填校验</button
+      ><span>修改任意字段可查看未保存与切换拦截</span>
+    </div>
+
+    <div class="browser" id="browser">
+      <div class="browser-bar">
+        <i class="browser-dot"></i><i class="browser-dot"></i><i class="browser-dot"></i>
+        <div class="browser-url">toolkit.j1net.com/admin.html#config · 设计演示</div>
+      </div>
+      <div class="app">
+        <aside class="rail">
+          <div class="brand">
+            <span class="brand-mark">匣</span>
+            <div class="brand-word"><b>Shade 壹匣</b><small>ENTERPRISE</small></div>
+          </div>
+          <nav class="nav">
+            <div class="nav-item">
+              <svg><use href="#i-home" /></svg><span>工作台</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-book" /></svg><span>出工日志</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-tree" /></svg><span>树障隐患记录</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-link" /></svg><span>交跨记录</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-settings" /></svg><span>班组数据</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-chat" /></svg><span>微信智能应答</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-book" /></svg><span>应用日志</span>
+            </div>
+          </nav>
+          <div class="rail-user">
+            <span class="avatar">管</span>
+            <div><b>管理员</b><small>管理 · 当前页面</small></div>
+          </div>
+        </aside>
+        <main class="main">
+          <div class="page-title">
+            <div>
+              <h2>管理</h2>
+              <p>员工、权限、班组与全平台运行配置。</p>
+            </div>
+            <span class="admin-badge">仅超级管理员</span>
+          </div>
+          <div class="tabs">
+            <button class="tab">员工管理</button><button class="tab">权限管理</button
+            ><button class="tab">班组管理</button><button class="tab">消息推送</button
+            ><button class="tab on">应用配置</button>
+          </div>
+          <div class="config-layout">
+            <aside class="config-side" id="configSide">
+              <div class="side-label">通用与应用</div>
+            </aside>
+            <section class="config-content">
+              <div class="config-head">
+                <div>
+                  <h3 id="configTitle">通用集成</h3>
+                  <p id="configDesc">Dify、腾讯云 COS 与微信小程序公共配置</p>
+                </div>
+                <div class="save-state" id="saveState">
+                  <b>配置已生效</b><span>保存后立即热更新</span>
+                </div>
+                <button class="btn primary" id="btnSave">
+                  <svg><use href="#i-check" /></svg>保存配置
+                </button>
+              </div>
+              <div class="boot-note">
+                <b>启动配置仍由 env 维护：</b
+                >PORT、MySQL、Redis、JWT_SECRET、配置加密主密钥与首次管理员种子。现有 env
+                只在数据库缺值时首次导入，之后以面板保存值为准。
+              </div>
+              <div class="unsaved-bar" id="unsavedBar" hidden>
+                <span>当前分组有未保存修改，切换前请先处理。</span>
+                <div>
+                  <button class="btn small" id="btnDiscardSwitch">放弃并切换</button
+                  ><button class="btn small primary" id="btnSaveSwitch">保存并切换</button>
+                </div>
+              </div>
+              <div id="formBody"></div>
+            </section>
+          </div>
+        </main>
+      </div>
+      <div class="toast" id="toast" role="status" hidden></div>
+    </div>
+
+    <script>
+      (function () {
+        'use strict';
+        const $ = (s) => document.querySelector(s),
+          $$ = (s) => Array.from(document.querySelectorAll(s));
+        const text = (key, label, value, extra = {}) => ({
+          key,
+          label,
+          type: 'text',
+          value,
+          ...extra,
+        });
+        const secret = (key, label, configured = true, extra = {}) => ({
+          key,
+          label,
+          type: 'password',
+          configured,
+          value: '',
+          ...extra,
+        });
+        const number = (key, label, value, extra = {}) => ({
+          key,
+          label,
+          type: 'number',
+          value,
+          ...extra,
+        });
+        const check = (key, label, value, extra = {}) => ({
+          key,
+          label,
+          type: 'checkbox',
+          value,
+          ...extra,
+        });
+        const section = (title, hint, fields) => ({ title, hint, fields });
+        const configs = {
+          common: {
+            name: '通用集成',
+            desc: 'Dify、腾讯云 COS 与微信小程序公共配置',
+            icon: 'settings',
+            dify: false,
+            sections: [
+              section(
+                'Dify 公共服务',
+                '所有应用的 Dify 工作流共用 URL、user 和超时；各工作流 Key 仍在所属应用中维护。',
+                [
+                  text('DIFY_API_URL', 'Dify API URL', 'https://dify.example.invalid', {
+                    full: true,
+                    required: true,
+                  }),
+                  text('DIFY_USER', 'Workflow User', 'shade-yixia', { required: true }),
+                  number('DIFY_TIMEOUT_MS', '调用超时（毫秒）', 90000, { required: true }),
+                ]
+              ),
+              section('腾讯云 COS', '出工照片、树障辅证和文档附件共用对象存储凭据。', [
+                secret('COS_SECRET_ID', 'COS SecretId'),
+                secret('COS_SECRET_KEY', 'COS SecretKey'),
+                text('COS_BUCKET', 'Bucket', 'shade-demo-1250000000'),
+                text('COS_REGION', 'Region', 'ap-demo'),
+              ]),
+              section(
+                '微信小程序登录',
+                '仅用于小程序 code 换登录态；与 WeChatPadPro 群监听不是同一套配置。',
+                [
+                  text('WX_APPID', '小程序 AppID', 'wx-demo-appid'),
+                  secret('WX_SECRET', '小程序 AppSecret'),
+                ]
+              ),
+            ],
+          },
+          'wechat-answer': {
+            name: '微信智能应答',
+            desc: 'WeChatPadPro 接入与聊天归档公共设置',
+            icon: 'chat',
+            dify: true,
+            sections: [
+              section('WeChatPadPro 接入', 'Token 加密保存；保存后自动重建 WebSocket 连接。', [
+                secret('WECHATPADPRO_TOKEN', 'Cloud Access Token', true, { full: true }),
+                text('WECHATPADPRO_API_BASE', 'API Base', 'https://api.example.invalid', {
+                  full: true,
+                }),
+                text('WECHATPADPRO_WS_URL', 'WebSocket 地址', 'wss://api.example.invalid/ws/sync', {
+                  full: true,
+                }),
+                text('WECHATPADPRO_BOT_WXID', '监听账号 wxid', 'demo-bot-wxid'),
+                check('LOG_RAW_MESSAGE', '记录原始报文日志（脱敏，保留 7 天）', false, {
+                  full: true,
+                }),
+              ]),
+              section('聊天归档', '每日未消费消息总结与文档归档；排查汇总和报送不参与此处。', [
+                text('CHATLOG_DIGEST_TIME', '每日总结时间', '23:26'),
+                text('WEKNORA_CHATLOG_KB_ID', '聊天归档知识库 ID', 'kb-demo-chatlog'),
+                secret('CHATLOG_INGEST_TOKEN', '兼容直推对接密钥', false),
+              ]),
+            ],
+          },
+          'work-log': {
+            name: '出工日志',
+            desc: '照片验证、地理服务、派车同步与存储前缀',
+            icon: 'book',
+            dify: true,
+            sections: [
+              section('照片与地理服务', '照片验证工作流使用独立 Key；地理服务供出工和商旅共用。', [
+                secret('DIFY_WORKLOG_API_KEY', '照片验证工作流 Key'),
+                secret('AMAP_MAP_KEY', '高德 Web 服务 Key'),
+                text('COS_WORKLOG_PREFIX', 'COS 照片前缀', 'worklog/'),
+                text('AMAP_BASE_URL', '高德接口 Base URL', 'https://restapi.example.invalid'),
+              ]),
+              section('派车每日同步', '同步设备与每日任务时间；保存后重新排程。', [
+                text('WORKLOG_DISPATCH_DEVICE_DDNS', '目标设备 DDNS', 'device-demo.invalid'),
+                text('WORKLOG_DISPATCH_DEVICE_MAC', '目标设备 MAC', '00:00:00:00:00:00'),
+                text('WORKLOG_DISPATCH_PREPARE_TIME', '每日准备时间', '09:10'),
+                text('WORKLOG_DISPATCH_FETCH_TIME', '每日取件时间', '09:20'),
+              ]),
+            ],
+          },
+          netdisk: {
+            name: '团队网盘',
+            desc: 'OpenList 与 ONLYOFFICE 在线编辑',
+            icon: 'folder',
+            dify: false,
+            sections: [
+              section('OpenList 中转', '服务账户密码加密保存，空间根目录与上传限制为普通配置。', [
+                text('NETDISK_API_URL', 'OpenList API URL', 'http://openlist.demo.invalid:5244', {
+                  full: true,
+                }),
+                text('NETDISK_USERNAME', '服务账户', 'shade-service'),
+                secret('NETDISK_PASSWORD', '服务账户密码'),
+                text('NETDISK_PUBLIC_ROOT', '公共区根目录', '/public'),
+                number('NETDISK_MAX_UPLOAD_MB', '单文件上传上限（MB）', 1024),
+              ]),
+              section('ONLYOFFICE', '编辑器 JWT 密钥加密保存；保存后重新签发后续编辑配置。', [
+                text('OO_PUBLIC_URL', '浏览器访问地址', 'https://office.example.invalid', {
+                  full: true,
+                }),
+                secret('OO_JWT_SECRET', 'ONLYOFFICE JWT 密钥'),
+                text('OO_INTERNAL_URL', '容器内网地址', 'http://onlyoffice.demo.invalid'),
+                number('OO_CALLBACK_TICKET_TTL', '回调票据有效期（秒）', 43200),
+              ]),
+            ],
+          },
+          'call-me': {
+            name: 'Call Me',
+            desc: 'WeKnora 知识库问答与群内提问对接',
+            icon: 'robot',
+            dify: false,
+            sections: [
+              section('WeKnora 知识库', 'API Key 加密保存，智能体 ID 与同步用户名作为普通配置。', [
+                text('WEKNORA_API_URL', 'WeKnora API URL', 'https://know.example.invalid/api/v1', {
+                  full: true,
+                }),
+                secret('WEKNORA_API_KEY', 'WeKnora API Key'),
+                text('WEKNORA_AGENT_ID', '智能体 ID', 'agent-demo'),
+                text('WEKNORA_SYNC_USER', '同步用户标识', 'admin'),
+                secret('CALLME_INGEST_TOKEN', '群内提问兼容对接密钥', false),
+              ]),
+            ],
+          },
+          'tree-hazard': {
+            name: '树障隐患记录',
+            desc: '直推兼容、辅证存储与内网同步',
+            icon: 'tree',
+            dify: false,
+            sections: [
+              section('直推与辅证', '整合后内部直写正式表；既有外部直推接口保留兼容。', [
+                secret('TREEHAZARD_INGEST_TOKEN', '直推兼容对接密钥', false),
+                text('COS_TREEHAZARD_PREFIX', '辅证 COS 前缀', 'treehazard/'),
+              ]),
+              section('内网同步', '目标班组、KVM 设备与夜间排程。', [
+                text('TREEHAZARD_SYNC_TEAM', '同步班组', '检修一班'),
+                text('TREEHAZARD_SYNC_DEVICE_DDNS', '设备 DDNS', 'tree-sync.demo.invalid'),
+                text('TREEHAZARD_SYNC_PREPARE_TIME', '准备时间', '23:50'),
+                text('TREEHAZARD_SYNC_FETCH_TIME', '取件时间', '00:00'),
+              ]),
+            ],
+          },
+          crossing: {
+            name: '交跨记录',
+            desc: '直推兼容与内网同步',
+            icon: 'link',
+            dify: false,
+            sections: [
+              section('直推兼容', '整合后内部直写正式表，旧接口配置仅用于兼容。', [
+                secret('CROSSING_INGEST_TOKEN', '直推兼容对接密钥', false),
+              ]),
+              section('内网同步', '目标班组、KVM 设备与夜间排程。', [
+                text('CROSSING_SYNC_TEAM', '同步班组', '检修一班'),
+                text('CROSSING_SYNC_DEVICE_DDNS', '设备 DDNS', 'crossing-sync.demo.invalid'),
+                text('CROSSING_SYNC_PREPARE_TIME', '准备时间', '23:50'),
+                text('CROSSING_SYNC_FETCH_TIME', '取件时间', '00:00'),
+              ]),
+            ],
+          },
+          kvm: {
+            name: '远程连接计算机',
+            desc: 'GLKVM Cloud 平台连接',
+            icon: 'terminal',
+            dify: false,
+            sections: [
+              section('GLKVM Cloud', '统一密码加密保存，员工仍以本人壹匣账号代登。', [
+                text('GLKVM_URL', 'GLKVM Cloud 地址', 'https://kvm.example.invalid', {
+                  full: true,
+                }),
+                secret('GLKVM_PASSWORD', '平台统一密码'),
+              ]),
+            ],
+          },
+          quiz: {
+            name: '题库刷题',
+            desc: 'AI 题目解析工作流',
+            icon: 'book',
+            dify: true,
+            sections: [
+              section('AI 题目解析', '留空并清除 Key 后停用解析，刷题功能不受影响。', [
+                secret('DIFY_QUIZ_API_KEY', '题目解析工作流 Key'),
+              ]),
+            ],
+          },
+          'safe-day': {
+            name: '安全日活动记录',
+            desc: '活动生成、回调与文档转换',
+            icon: 'book',
+            dify: true,
+            sections: [
+              section('Dify 与回调', '回调 Token 加密保存，回调校验保持 fail-closed。', [
+                secret('DIFY_SAFEDAY_API_KEY', '活动生成工作流 Key'),
+                secret('SAFEDAY_CALLBACK_TOKEN', 'Dify 回调 Token'),
+                text('SAFEDAY_DATA_DIR', '记录与产物目录', './data/safeday'),
+                text('SAFEDAY_SOFFICE_PATH', 'LibreOffice 路径', 'soffice'),
+              ]),
+            ],
+          },
+          sgcc: {
+            name: '商旅打卡',
+            desc: '商旅协议、滑块、代理与每日提醒',
+            icon: 'book',
+            dify: false,
+            sections: [
+              section('商旅协议密钥', '密钥与私钥均加密保存，公开部分也不回显完整内容。', [
+                secret('SGCC_JWT_SECRET', 'JWT 密钥'),
+                secret('SGCC_SM2_CLIENT_PRIV', 'SM2 客户端私钥'),
+                secret('SGCC_RSA_PRIV', 'RSA 响应解密私钥'),
+                secret('SGCC_AD_SECRET', '广告池密钥'),
+              ]),
+              section('版本与提醒', '版本、任务时间与同步节奏修改后热生效。', [
+                text('SGCC_VERSION', '商旅 App 版本', '3.3.7'),
+                text('SGCC_VERSION_CODE', '构建号', '202609232038'),
+                text('SGCC_STARTCLOCK_REMIND_TIME', '午间提醒', '11:00'),
+                text('SGCC_ENDCLOCK_REMIND_TIME', '傍晚提醒', '18:00'),
+              ]),
+              section('出口代理', '代理 URL 可能包含账号密码，整项按敏感配置加密。', [
+                secret('SGCC_PROXY_URL', 'SOCKS5 代理 URL', false, { full: true }),
+              ]),
+            ],
+          },
+          'file-transfer': {
+            name: '文件传输',
+            desc: '无独立配置，共用 GLKVM 与同步任务设置',
+            icon: 'folder',
+            dify: false,
+            shared: 'kvm',
+            sections: [],
+          },
+          'wm-add': {
+            name: '水印添加',
+            desc: '无独立配置，共用水印照片与地理服务设置',
+            icon: 'book',
+            dify: false,
+            shared: 'work-log',
+            sections: [],
+          },
+          'team-data': {
+            name: '班组数据',
+            desc: '班组字典在应用页面维护，无独立运行配置',
+            icon: 'settings',
+            dify: false,
+            sections: [],
+          },
+          'app-log': {
+            name: '应用日志',
+            desc: '结构化日志保留策略与采集说明',
+            icon: 'book',
+            dify: false,
+            sections: [
+              section('日志保留', '按需求固定保留 7 天，不在面板开放修改，避免误删排错依据。', [
+                text('APP_LOG_RETENTION_DAYS', '日志保留天数', 7, { disabled: true }),
+                check('APP_LOG_ENABLED', '记录业务、外部调用与异常', true, { disabled: true }),
+              ]),
+            ],
+          },
+        };
+        let current = 'common',
+          dirty = false,
+          pendingSwitch = null,
+          demo = 'normal',
+          toastTimer;
+        const esc = (v) =>
+          String(v == null ? '' : v).replace(
+            /[&<>"']/g,
+            (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+          );
+        function toast(message, error) {
+          clearTimeout(toastTimer);
+          const el = $('#toast');
+          el.textContent = message;
+          el.className = 'toast' + (error ? ' error' : '');
+          el.hidden = false;
+          toastTimer = setTimeout(() => {
+            el.hidden = true;
+          }, 2500);
+        }
+        function markDirty() {
+          dirty = true;
+          renderHead();
+          renderNav();
+        }
+        function renderNav() {
+          $('#configSide').innerHTML =
+            '<div class="side-label">通用与应用</div>' +
+            Object.entries(configs)
+              .map(
+                ([key, c]) =>
+                  `<button class="config-nav ${key === current ? 'on' : ''}" data-config="${key}"><svg><use href="#i-${c.icon}"/></svg><span><b>${c.name}</b><small>${c.dify ? '含 Dify 工作流' : c.sections.length ? '应用运行配置' : '共享 / 无独立配置'}</small></span>${key === current && dirty ? '<em title="未保存"></em>' : ''}</button>`
+              )
+              .join('');
+        }
+        function renderHead(state) {
+          const c = configs[current];
+          $('#configTitle').textContent = c.name;
+          $('#configDesc').textContent = c.desc;
+          const el = $('#saveState');
+          el.className = 'save-state' + (dirty ? ' dirty' : state === 'failed' ? ' failed' : '');
+          el.innerHTML = `<b>${dirty ? '有未保存修改' : state === 'failed' ? '热更新失败' : '配置已生效'}</b><span>${dirty ? '切换分组前需处理' : state === 'failed' ? '新值已入库，模块仍用旧值' : '保存后立即热更新'}</span>`;
+          $('#btnSave').disabled = !dirty;
+        }
+        function fieldHtml(f) {
+          const disabled = f.disabled ? 'disabled' : '';
+          if (f.type === 'checkbox')
+            return `<div class="field ${f.full ? 'full' : ''}"><label class="check-field"><input type="checkbox" data-key="${f.key}" ${f.value ? 'checked' : ''} ${disabled}/>${f.label}<span class="env-name">${f.key}</span></label></div>`;
+          const value = f.type === 'password' ? '' : esc(f.value);
+          const status =
+            f.type === 'password'
+              ? `<span class="secret-status ${f.clearPending ? 'clear' : f.configured ? '' : 'empty'}">${f.clearPending ? '待清除' : f.configured ? '已配置' : '未配置'}</span>`
+              : '';
+          const shell =
+            f.type === 'password'
+              ? `<div class="secret-shell"><input class="input" type="password" data-key="${f.key}" placeholder="${f.configured && !f.clearPending ? '已配置，输入以替换' : '输入新值'}" ${disabled}/>${status}</div>`
+              : `<input class="input" type="${f.type}" data-key="${f.key}" value="${value}" ${disabled}/>`;
+          return `<div class="field ${f.full ? 'full' : ''}"><label>${f.label}${f.required ? '<span class="required">*</span>' : ''}<span class="env-name">${f.key}</span></label>${shell}${f.type === 'password' ? `<div class="secret-actions"><button class="text-btn ${f.clearPending ? 'gray' : 'danger'}" data-clear="${f.key}">${f.clearPending ? '撤销清除' : '清除已存密钥'}</button><span>不回显明文 · 保存时生效</span></div>` : ''}${f.help ? `<div class="field-help">${f.help}</div>` : ''}<div class="field-error" data-error="${f.key}" hidden>此必填项未配置</div></div>`;
+        }
+        function renderForm() {
+          const c = configs[current];
+          let html = '';
+          if (c.dify)
+            html += `<div class="shared-card"><svg><use href="#i-link"/></svg><div><b>Dify 使用「通用集成」公共设置</b><p>URL：https://dify.example.invalid · user：shade-yixia · 超时：90 秒<br>此处仅维护本应用独立工作流 Key。</p></div><button class="btn small" id="btnGoCommon">查看公共设置</button></div>`;
+          if (c.shared)
+            html += `<div class="shared-card"><svg><use href="#i-link"/></svg><div><b>共用「${configs[c.shared].name}」配置</b><p>本应用没有独立配置项，相关连接和任务设置统一在来源应用维护。</p></div><button class="btn small" id="btnGoShared">前往来源配置</button></div>`;
+          if (!c.sections.length && !c.shared)
+            html += `<section class="form-section empty-config"><svg><use href="#i-settings"/></svg><b>没有独立运行配置</b><p>字典与业务数据请进入应用页面维护；<br>启动级配置仍由环境变量提供。</p></section>`;
+          html += c.sections
+            .map(
+              (s) =>
+                `<section class="form-section"><h4>${s.title}</h4><p class="section-hint">${s.hint}</p><div class="form-grid">${s.fields.map(fieldHtml).join('')}</div></section>`
+            )
+            .join('');
+          $('#formBody').innerHTML = html;
+          $('#unsavedBar').hidden = true;
+        }
+        function render() {
+          renderNav();
+          renderHead();
+          renderForm();
+        }
+        function requestSwitch(key) {
+          if (key === current) return;
+          if (dirty) {
+            pendingSwitch = key;
+            $('#unsavedBar').hidden = false;
+            toast('当前配置尚未保存', true);
+            return;
+          }
+          current = key;
+          render();
+        }
+        $('#configSide').addEventListener('click', (e) => {
+          const b = e.target.closest('[data-config]');
+          if (b) requestSwitch(b.dataset.config);
+        });
+        $('#formBody').addEventListener('click', (e) => {
+          if (e.target.id === 'btnGoCommon') {
+            requestSwitch('common');
+            return;
+          }
+          if (e.target.id === 'btnGoShared') {
+            requestSwitch(configs[current].shared);
+            return;
+          }
+          const b = e.target.closest('[data-clear]');
+          if (!b) return;
+          const f = configs[current].sections
+            .flatMap((s) => s.fields)
+            .find((x) => x.key === b.dataset.clear);
+          if (!f) return;
+          f.clearPending = !f.clearPending;
+          markDirty();
+          const field = b.closest('.field');
+          const status = field.querySelector('.secret-status');
+          status.className =
+            'secret-status ' + (f.clearPending ? 'clear' : f.configured ? '' : 'empty');
+          status.textContent = f.clearPending ? '待清除' : f.configured ? '已配置' : '未配置';
+          b.className = 'text-btn ' + (f.clearPending ? 'gray' : 'danger');
+          b.textContent = f.clearPending ? '撤销清除' : '清除已存密钥';
+          const input = field.querySelector('.input');
+          input.placeholder = f.configured && !f.clearPending ? '已配置，输入以替换' : '输入新值';
+        });
+        $('#formBody').addEventListener('input', (e) => {
+          if (e.target.matches('.input')) {
+            e.target.classList.remove('invalid');
+            const err = $('#formBody [data-error="' + e.target.dataset.key + '"]');
+            if (err) err.hidden = true;
+            markDirty();
+          }
+        });
+        $('#formBody').addEventListener('change', (e) => {
+          if (e.target.type === 'checkbox') markDirty();
+        });
+        function validate() {
+          let valid = true;
+          if (demo === 'invalid') {
+            const first = configs[current].sections
+              .flatMap((s) => s.fields)
+              .find((f) => !f.disabled);
+            if (first) {
+              const input = $('#formBody [data-key="' + first.key + '"]');
+              if (input) input.classList.add('invalid');
+              const err = $('#formBody [data-error="' + first.key + '"]');
+              if (err) err.hidden = false;
+            }
+            return false;
+          }
+          configs[current].sections
+            .flatMap((s) => s.fields)
+            .forEach((f) => {
+              if (!f.required) return;
+              const input = $('#formBody [data-key="' + f.key + '"]');
+              const empty =
+                f.type === 'password' ? !f.configured && !input.value.trim() : !input.value.trim();
+              if (empty) {
+                valid = false;
+                input.classList.add('invalid');
+                const err = $('#formBody [data-error="' + f.key + '"]');
+                if (err) err.hidden = false;
+              }
+            });
+          return valid;
+        }
+        function save(after) {
+          if (!validate()) {
+            toast('存在未配置的必填项，请检查标红字段', true);
+            return false;
+          }
+          $('#btnSave').disabled = true;
+          $('#btnSave').textContent = '正在保存…';
+          setTimeout(() => {
+            if (demo === 'failed') {
+              dirty = false;
+              renderHead('failed');
+              renderNav();
+              toast('配置已写入，但模块热更新失败，仍使用旧配置（演示）', true);
+            } else {
+              configs[current].sections
+                .flatMap((s) => s.fields)
+                .forEach((f) => {
+                  if (f.type !== 'password') {
+                    const input = $('#formBody [data-key="' + f.key + '"]');
+                    if (input)
+                      f.value =
+                        f.type === 'checkbox'
+                          ? input.checked
+                          : f.type === 'number'
+                            ? Number(input.value)
+                            : input.value;
+                  } else if (f.clearPending) {
+                    f.configured = false;
+                    f.clearPending = false;
+                  } else {
+                    const input = $('#formBody [data-key="' + f.key + '"]');
+                    if (input && input.value) f.configured = true;
+                  }
+                });
+              dirty = false;
+              render();
+              toast('配置已保存，相关模块已热更新（演示）');
+            }
+            $('#btnSave').innerHTML = '<svg><use href="#i-check"/></svg>保存配置';
+            renderHead(demo === 'failed' ? 'failed' : undefined);
+            if (after) after();
+          }, 650);
+          return true;
+        }
+        $('#btnSave').addEventListener('click', () => save());
+        $('#btnDiscardSwitch').addEventListener('click', () => {
+          if (!pendingSwitch) return;
+          current = pendingSwitch;
+          pendingSwitch = null;
+          dirty = false;
+          render();
+          toast('已放弃未保存修改（演示）');
+        });
+        $('#btnSaveSwitch').addEventListener('click', () => {
+          const target = pendingSwitch;
+          save(() => {
+            if (target && demo !== 'failed') {
+              current = target;
+              pendingSwitch = null;
+              render();
+            }
+          });
+        });
+        $$('.demo-bar button').forEach((b) =>
+          b.addEventListener('click', () => {
+            demo = b.dataset.demo;
+            $$('.demo-bar button').forEach((x) => x.classList.toggle('on', x === b));
+            renderHead();
+            toast('已切换保存结果演示，点击“保存配置”查看');
+          })
+        );
+        $$('.tab').forEach((b) =>
+          b.addEventListener('click', () => {
+            if (!b.classList.contains('on')) toast('本评审稿仅演示「应用配置」页签');
+          })
+        );
+        render();
+      })();
+    </script>
+  </body>
+</html>

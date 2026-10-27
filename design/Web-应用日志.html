@@ -1,0 +1,1678 @@
+<!doctype html>
+<!--
+  政企蓝白 · 应用日志 Web 设计评审稿
+  静态模拟：应用子页 / 日志筛选 / 中文与原文切换 / 行详情 / 分页；不读取真实日志。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>应用日志 · Web 设计评审稿</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      :root {
+        --blue: #0e3da8;
+        --navy: #0a3592;
+        --blue-bg: #e8f0ff;
+        --green: #00b42a;
+        --green-text: #0b8a37;
+        --green-bg: #e8ffea;
+        --orange: #ff7d00;
+        --orange-text: #d25f00;
+        --orange-bg: #fff7e8;
+        --red: #f53f3f;
+        --red-bg: #ffece8;
+        --bg: #f5f7fa;
+        --card: #fff;
+        --fill: #f7f8fa;
+        --text: #1d2129;
+        --t2: #4e5969;
+        --t3: #86909c;
+        --line: #e5e6eb;
+        --ph: #c9cdd4;
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      body {
+        margin: 0;
+        padding: 42px 24px 72px;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 3px solid rgba(14, 61, 168, 0.18);
+        outline-offset: 2px;
+      }
+      .review-head {
+        max-width: 1240px;
+        margin: 0 auto 22px;
+        display: flex;
+        align-items: end;
+        gap: 18px;
+      }
+      .kicker {
+        color: var(--t3);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 3px;
+      }
+      .review-head h1 {
+        margin: 7px 0 0;
+        font-size: 26px;
+        letter-spacing: 1px;
+      }
+      .review-head h1 em {
+        color: var(--blue);
+        font-style: normal;
+      }
+      .review-head p {
+        margin: 0 0 2px auto;
+        max-width: 500px;
+        color: var(--t2);
+        font-size: 12px;
+        line-height: 1.8;
+        text-align: right;
+      }
+      .review-tag {
+        display: inline-flex;
+        margin-left: 8px;
+        padding: 3px 7px;
+        border-radius: 4px;
+        background: var(--orange-bg);
+        color: var(--orange-text);
+        font-size: 10px;
+        vertical-align: 5px;
+      }
+      .demo-bar {
+        max-width: 1240px;
+        margin: 0 auto 14px;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--t2);
+        font-size: 12px;
+      }
+      .demo-bar b {
+        margin-right: 4px;
+        color: var(--text);
+      }
+      .demo-bar button {
+        padding: 5px 10px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--fill);
+        color: var(--t2);
+      }
+      .demo-bar button.on {
+        background: var(--blue-bg);
+        color: var(--blue);
+        font-weight: 600;
+      }
+      .demo-bar span {
+        margin-left: auto;
+        color: var(--t3);
+      }
+      .browser {
+        position: relative;
+        max-width: 1240px;
+        height: 820px;
+        margin: 0 auto;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--bg);
+        box-shadow: 0 20px 50px rgba(29, 33, 41, 0.1);
+      }
+      .browser-bar {
+        height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 14px;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+      }
+      .browser-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--ph);
+      }
+      .browser-url {
+        width: 330px;
+        height: 23px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        background: var(--fill);
+        color: var(--t3);
+        font-size: 10px;
+      }
+      .app {
+        display: flex;
+        height: calc(100% - 38px);
+      }
+      .rail {
+        width: 174px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        border-right: 1px solid var(--line);
+      }
+      .brand {
+        height: 66px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--blue);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .brand b {
+        display: block;
+        font-size: 14px;
+      }
+      .brand small {
+        color: var(--t3);
+        font-size: 9px;
+        letter-spacing: 1px;
+      }
+      .nav {
+        flex: 1;
+        padding: 12px 10px;
+      }
+      .nav-item {
+        height: 37px;
+        margin-bottom: 3px;
+        padding: 0 10px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        border-radius: 8px;
+        color: var(--t2);
+        font-size: 12px;
+      }
+      .nav-item svg {
+        width: 16px;
+        height: 16px;
+      }
+      .nav-item.on {
+        background: var(--blue-bg);
+        color: var(--blue);
+        font-weight: 600;
+      }
+      .rail-user {
+        margin: 10px;
+        padding: 12px 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-top: 1px solid var(--line);
+      }
+      .avatar {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--navy);
+        color: #fff;
+        font-size: 11px;
+      }
+      .rail-user b {
+        display: block;
+        font-size: 11px;
+      }
+      .rail-user small {
+        color: var(--t3);
+        font-size: 9px;
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .page-head {
+        flex: none;
+        padding: 22px 24px 0;
+      }
+      .page-title {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+      }
+      .page-title h2 {
+        margin: 0;
+        font-size: 22px;
+      }
+      .page-title p {
+        margin: 7px 0 0;
+        color: var(--t3);
+        font-size: 12px;
+      }
+      .retention {
+        margin-left: auto;
+        padding: 8px 11px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--t2);
+        font-size: 10.5px;
+      }
+      .retention svg {
+        width: 15px;
+        height: 15px;
+        color: var(--blue);
+      }
+      .log-layout {
+        flex: 1;
+        min-height: 0;
+        margin-top: 18px;
+        display: flex;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+      .app-sidebar {
+        width: 218px;
+        flex: none;
+        overflow-y: auto;
+        padding: 14px 10px;
+        border-right: 1px solid var(--line);
+        background: #fff;
+      }
+      .side-label {
+        padding: 5px 9px 8px;
+        color: var(--t3);
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+      }
+      .app-nav-item {
+        width: 100%;
+        min-height: 43px;
+        margin-bottom: 3px;
+        padding: 6px 9px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--t2);
+        text-align: left;
+      }
+      .app-nav-item:hover {
+        background: var(--fill);
+      }
+      .app-nav-item.on {
+        background: var(--blue-bg);
+        color: var(--blue);
+      }
+      .app-nav-item.system {
+        margin-bottom: 10px;
+      }
+      .app-icon {
+        width: 29px;
+        height: 29px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--fill);
+        color: var(--t2);
+      }
+      .app-nav-item.on .app-icon {
+        background: #fff;
+        color: var(--blue);
+      }
+      .app-icon svg {
+        width: 16px;
+        height: 16px;
+      }
+      .app-nav-text {
+        min-width: 0;
+        flex: 1;
+      }
+      .app-nav-text b {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .app-nav-text small {
+        display: block;
+        margin-top: 3px;
+        color: var(--t3);
+        font-size: 8.5px;
+      }
+      .app-nav-item.on .app-nav-text small {
+        color: var(--blue);
+        opacity: 0.72;
+      }
+      .log-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+      }
+      .log-summary {
+        flex: none;
+        padding: 16px 18px 12px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+      .current-app {
+        min-width: 170px;
+      }
+      .current-app h3 {
+        margin: 0;
+        font-size: 15px;
+      }
+      .current-app p {
+        margin: 4px 0 0;
+        color: var(--t3);
+        font-size: 9.5px;
+      }
+      .metrics {
+        display: flex;
+        gap: 16px;
+        margin-left: auto;
+      }
+      .metric {
+        min-width: 52px;
+        text-align: right;
+      }
+      .metric b {
+        display: block;
+        font-size: 18px;
+        font-variant-numeric: tabular-nums;
+      }
+      .metric span {
+        color: var(--t3);
+        font-size: 9px;
+      }
+      .metric.warn b {
+        color: var(--orange-text);
+      }
+      .metric.error b {
+        color: var(--red);
+      }
+      .filters {
+        flex: none;
+        padding: 12px 18px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+      .search {
+        width: 220px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--fill);
+        color: var(--t3);
+      }
+      .search svg {
+        width: 14px;
+        height: 14px;
+        flex: none;
+      }
+      .search input {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+        font-size: 11px;
+      }
+      .select {
+        height: 34px;
+        min-width: 102px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--fill);
+        color: var(--t2);
+        font-size: 10.5px;
+      }
+      .seg {
+        height: 34px;
+        padding: 2px;
+        display: flex;
+        border-radius: 8px;
+        background: #ebedf1;
+      }
+      .seg button {
+        padding: 0 11px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--t2);
+        font-size: 10px;
+      }
+      .seg button.on {
+        background: #fff;
+        color: var(--blue);
+        font-weight: 600;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .refresh {
+        height: 34px;
+        padding: 0 11px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--t2);
+        font-size: 10.5px;
+      }
+      .refresh:hover {
+        color: var(--blue);
+        border-color: var(--blue);
+      }
+      .refresh svg {
+        width: 14px;
+        height: 14px;
+      }
+      .log-content {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 12px 18px 16px;
+      }
+      .result-meta {
+        margin-bottom: 9px;
+        display: flex;
+        align-items: center;
+        color: var(--t3);
+        font-size: 9.5px;
+      }
+      .result-meta span:last-child {
+        margin-left: auto;
+        font-variant-numeric: tabular-nums;
+      }
+      .log-list {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+      .log-row {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: #fff;
+        transition:
+          border-color 0.15s,
+          box-shadow 0.15s;
+      }
+      .log-row:hover {
+        border-color: #c7d4ee;
+        box-shadow: var(--shadow);
+      }
+      .log-line {
+        width: 100%;
+        padding: 11px 12px;
+        display: grid;
+        grid-template-columns: 82px 54px 72px minmax(0, 1fr) 20px;
+        align-items: start;
+        gap: 9px;
+        border: 0;
+        background: transparent;
+        color: var(--text);
+        text-align: left;
+      }
+      .log-time {
+        color: var(--t2);
+        font-size: 9.5px;
+        line-height: 1.6;
+        font-variant-numeric: tabular-nums;
+      }
+      .log-time small {
+        display: block;
+        color: var(--t3);
+      }
+      .level {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        width: max-content;
+        padding: 3px 6px;
+        border-radius: 4px;
+        font-size: 9px;
+        white-space: nowrap;
+      }
+      .level.info {
+        background: var(--blue-bg);
+        color: var(--blue);
+      }
+      .level.warn {
+        background: var(--orange-bg);
+        color: var(--orange-text);
+      }
+      .level.error {
+        background: var(--red-bg);
+        color: var(--red);
+      }
+      .level i {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .category {
+        padding-top: 3px;
+        color: var(--t2);
+        font-size: 9.5px;
+      }
+      .message {
+        min-width: 0;
+      }
+      .message b {
+        display: block;
+        font-size: 11px;
+        line-height: 1.6;
+        font-weight: 600;
+      }
+      .message p {
+        margin: 3px 0 0;
+        color: var(--t2);
+        font-size: 9.5px;
+        line-height: 1.65;
+        word-break: break-word;
+      }
+      .message.raw b,
+      .message.raw p {
+        font-family: Consolas, 'SFMono-Regular', monospace;
+        font-weight: 400;
+        font-size: 9.5px;
+      }
+      .chevron {
+        width: 15px;
+        height: 15px;
+        margin-top: 2px;
+        color: var(--t3);
+        transition: transform 0.18s;
+      }
+      .log-row.open .chevron {
+        transform: rotate(180deg);
+      }
+      .log-detail {
+        padding: 0 12px 12px 116px;
+      }
+      .context {
+        padding: 10px 11px;
+        border-radius: 7px;
+        background: var(--fill);
+      }
+      .context dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: 88px minmax(0, 1fr);
+        gap: 6px 10px;
+        font-size: 9px;
+      }
+      .context dt {
+        color: var(--t3);
+      }
+      .context dd {
+        margin: 0;
+        color: var(--t2);
+        word-break: break-word;
+        font-family: Consolas, 'SFMono-Regular', monospace;
+      }
+      .raw-detail {
+        margin-top: 8px;
+        padding: 10px 11px;
+        overflow: auto;
+        border-radius: 7px;
+        background: #20242c;
+        color: #dbe4f3;
+        font:
+          9px/1.7 Consolas,
+          'SFMono-Regular',
+          monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .empty {
+        padding: 58px 20px;
+        text-align: center;
+        color: var(--t3);
+      }
+      .empty svg {
+        width: 35px;
+        height: 35px;
+        margin-bottom: 12px;
+        color: var(--ph);
+      }
+      .empty b {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--t2);
+        font-size: 13px;
+      }
+      .empty p {
+        margin: 0;
+        font-size: 10px;
+      }
+      .empty.error b {
+        color: var(--red);
+      }
+      .pager {
+        flex: none;
+        padding: 10px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+      .pager span {
+        margin-right: auto;
+        color: var(--t3);
+        font-size: 9.5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .pager button {
+        min-width: 29px;
+        height: 28px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--t2);
+        font-size: 10px;
+      }
+      .pager button.on {
+        border-color: var(--blue);
+        background: var(--blue);
+        color: #fff;
+      }
+      .pager button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .toast {
+        position: absolute;
+        left: 50%;
+        top: 54px;
+        z-index: 50;
+        transform: translateX(-50%);
+        padding: 10px 16px;
+        border-radius: 8px;
+        background: #1d2129;
+        color: #fff;
+        font-size: 11px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      }
+      @keyframes rise {
+        from {
+          transform: translateY(8px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+      .log-row {
+        animation: rise 0.24s var(--ease) both;
+      }
+      @media (max-width: 1050px) {
+        body {
+          padding: 24px 12px 40px;
+        }
+        .rail {
+          width: 62px;
+        }
+        .brand {
+          padding: 0 15px;
+        }
+        .brand-word,
+        .nav-item span,
+        .rail-user div {
+          display: none;
+        }
+        .nav-item {
+          justify-content: center;
+        }
+        .app-sidebar {
+          width: 188px;
+        }
+        .filters .search {
+          width: 180px;
+        }
+        .log-line {
+          grid-template-columns: 74px 50px 58px minmax(0, 1fr) 18px;
+          gap: 6px;
+        }
+        .log-detail {
+          padding-left: 102px;
+        }
+      }
+      @media (max-width: 800px) {
+        .review-head p,
+        .demo-bar span {
+          display: none;
+        }
+        .rail {
+          display: none;
+        }
+        .log-layout {
+          flex-direction: column;
+        }
+        .app-sidebar {
+          width: 100%;
+          max-height: 138px;
+          display: flex;
+          gap: 5px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          padding: 8px;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+        .side-label {
+          display: none;
+        }
+        .app-nav-item {
+          width: 150px;
+          flex: none;
+          margin: 0;
+        }
+        .app-nav-item.system {
+          margin: 0;
+        }
+        .log-summary {
+          padding: 12px;
+        }
+        .filters {
+          padding: 10px 12px;
+        }
+        .filters .search {
+          width: 100%;
+        }
+        .log-content {
+          padding: 10px 12px;
+        }
+        .metrics {
+          gap: 8px;
+        }
+        .log-line {
+          grid-template-columns: 68px 48px minmax(0, 1fr) 18px;
+        }
+        .category {
+          display: none;
+        }
+        .log-detail {
+          padding-left: 12px;
+        }
+        .browser {
+          height: 900px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-home" viewBox="0 0 24 24">
+        <path
+          d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24">
+        <path
+          d="M20 15a3 3 0 0 1-3 3H9l-5 3v-6a3 3 0 0 1-1-2V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 24 24">
+        <path
+          d="M4 4a3 3 0 0 1 3-1h5v17H7a3 3 0 0 0-3 1zm16 0a3 3 0 0 0-3-1h-5v17h5a3 3 0 0 1 3 1z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-tree" viewBox="0 0 24 24">
+        <path
+          d="M12 3 5 12h4l-5 6h16l-5-6h4zM12 18v3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-link" viewBox="0 0 24 24">
+        <path
+          d="m9 15 6-6m-7 1 2-2a4 4 0 0 1 6 6l-2 2m-6 0 2 2a4 4 0 0 0 6-6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+        />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7" />
+        <path
+          d="M19 13.5v-3l-2-.7-.8-1.9.9-1.9-2.1-2.1-1.9.9-1.9-.8-.7-2h-3l-.7 2-1.9.8-1.9-.9-2.1 2.1.9 1.9-.8 1.9-2 .7v3l2 .7.8 1.9-.9 1.9 2.1 2.1 1.9-.9 1.9.8.7 2h3l.7-2 1.9-.8 1.9.9 2.1-2.1-.9-1.9.8-1.9z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+        />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="10.8" cy="10.8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="m16 16 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7" />
+        <path
+          d="M12 7v5l3 2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+        />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24">
+        <path
+          d="m6 9 6 6 6-6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path
+          d="M20 7v5h-5M4 17v-5h5M6.1 8a7 7 0 0 1 11.8-1L20 12M4 12l2.1 5a7 7 0 0 0 11.8-1"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24">
+        <path d="M12 3 2.8 20h18.4z" fill="none" stroke="currentColor" stroke-width="1.7" />
+        <path d="M12 9v5m0 3v.1" stroke="currentColor" stroke-width="1.8" />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path
+          d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+      </symbol>
+      <symbol id="i-robot" viewBox="0 0 24 24">
+        <rect
+          x="4"
+          y="6"
+          width="16"
+          height="13"
+          rx="3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+        <path
+          d="M12 2v4M8 11v2m8-2v2m-8 4h8"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+        />
+      </symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24">
+        <rect
+          x="3"
+          y="4"
+          width="18"
+          height="16"
+          rx="2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+        />
+        <path
+          d="m7 9 3 3-3 3m6 0h4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+        />
+      </symbol>
+    </svg>
+
+    <header class="review-head">
+      <div>
+        <div class="kicker">SHADE YIXIA · UI REVIEW</div>
+        <h1>应用日志 <em>统一排错中心</em><span class="review-tag">评审中</span></h1>
+      </div>
+      <p>
+        每个应用独立子页，默认阅读结构化中文事件，需要时切换技术原文。演示内容全部为虚构日志，敏感值仅显示脱敏占位。
+      </p>
+    </header>
+    <div class="demo-bar">
+      <b>演示状态</b><button class="on" data-demo="normal">标准日志</button
+      ><button data-demo="empty">空日志</button><button data-demo="error">加载失败</button
+      ><span>可切换应用、筛选、展开单行并切换原文</span>
+    </div>
+
+    <div class="browser" id="browser">
+      <div class="browser-bar">
+        <i class="browser-dot"></i><i class="browser-dot"></i><i class="browser-dot"></i>
+        <div class="browser-url">toolkit.j1net.com/app-logs.html · 设计演示</div>
+      </div>
+      <div class="app">
+        <aside class="rail">
+          <div class="brand">
+            <span class="brand-mark">匣</span>
+            <div class="brand-word"><b>Shade 壹匣</b><small>ENTERPRISE</small></div>
+          </div>
+          <nav class="nav">
+            <div class="nav-item">
+              <svg><use href="#i-home" /></svg><span>工作台</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-book" /></svg><span>出工日志</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-tree" /></svg><span>树障隐患记录</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-link" /></svg><span>交跨记录</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-settings" /></svg><span>班组数据</span>
+            </div>
+            <div class="nav-item">
+              <svg><use href="#i-chat" /></svg><span>微信智能应答</span>
+            </div>
+            <div class="nav-item on">
+              <svg><use href="#i-book" /></svg><span>应用日志</span>
+            </div>
+          </nav>
+          <div class="rail-user">
+            <span class="avatar">管</span>
+            <div><b>管理员</b><small>超级管理员</small></div>
+          </div>
+        </aside>
+        <main class="main">
+          <div class="page-head">
+            <div class="page-title">
+              <div>
+                <h2>应用日志</h2>
+                <p>服务端业务事件、外部调用、定时任务与异常统一归档。</p>
+              </div>
+              <div class="retention">
+                <svg><use href="#i-clock" /></svg>仅保留近 7 天 · 自动清理
+              </div>
+            </div>
+          </div>
+          <div class="log-layout">
+            <aside class="app-sidebar" id="appSidebar" aria-label="日志应用列表"></aside>
+            <section class="log-main">
+              <div class="log-summary">
+                <div class="current-app">
+                  <h3 id="currentAppName">系统公共</h3>
+                  <p id="currentAppDesc">鉴权、数据库、Redis 与进程运行事件</p>
+                </div>
+                <div class="metrics">
+                  <div class="metric"><b id="metricInfo">0</b><span>信息</span></div>
+                  <div class="metric warn"><b id="metricWarn">0</b><span>警告</span></div>
+                  <div class="metric error"><b id="metricError">0</b><span>错误</span></div>
+                </div>
+              </div>
+              <div class="filters">
+                <label class="search"
+                  ><svg><use href="#i-search" /></svg
+                  ><input id="logSearch" placeholder="搜索中文说明或原始日志" aria-label="搜索日志"
+                /></label>
+                <select class="select" id="levelFilter" aria-label="日志级别">
+                  <option value="all">全部级别</option>
+                  <option value="info">信息</option>
+                  <option value="warn">警告</option>
+                  <option value="error">错误</option>
+                </select>
+                <select class="select" id="categoryFilter" aria-label="日志类别">
+                  <option value="all">全部类别</option>
+                  <option value="business">业务事件</option>
+                  <option value="external">外部调用</option>
+                  <option value="scheduler">定时任务</option>
+                  <option value="config">配置变更</option>
+                  <option value="message">微信消息</option>
+                </select>
+                <select class="select" id="rangeFilter" aria-label="时间范围">
+                  <option value="24">近 24 小时</option>
+                  <option value="72">近 3 天</option>
+                  <option value="168">近 7 天</option>
+                </select>
+                <div class="seg" aria-label="日志显示方式">
+                  <button class="on" data-view="cn">中文说明</button
+                  ><button data-view="raw">原始日志</button>
+                </div>
+                <button class="refresh" id="btnRefresh">
+                  <svg><use href="#i-refresh" /></svg>刷新
+                </button>
+              </div>
+              <div class="log-content">
+                <div class="result-meta">
+                  <span id="resultText">共 0 条日志</span
+                  ><span id="refreshTime">演示快照：2026-10-27 11:00:00</span>
+                </div>
+                <div class="log-list" id="logList"></div>
+                <div class="empty" id="logEmpty" hidden>
+                  <svg><use href="#i-book" /></svg><b>没有符合条件的日志</b>
+                  <p>可放宽级别、类别或时间范围后重试。</p>
+                </div>
+                <div class="empty error" id="logError" hidden>
+                  <svg><use href="#i-alert" /></svg><b>日志读取失败</b>
+                  <p>演示服务异常状态，不会将失败误显示为“暂无日志”。</p>
+                  <button class="refresh" id="btnRetry" style="margin-top: 14px">重新加载</button>
+                </div>
+              </div>
+              <div class="pager">
+                <span id="pageText">第 1 / 1 页</span><button id="pagePrev">上一页</button
+                ><button class="on" id="pageCurrent">1</button><button id="pageNext">下一页</button>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+      <div class="toast" id="toast" role="status" hidden></div>
+    </div>
+
+    <script>
+      (function () {
+        'use strict';
+        const $ = (s) => document.querySelector(s),
+          $$ = (s) => Array.from(document.querySelectorAll(s));
+        const apps = [
+          {
+            key: 'system',
+            name: '系统公共',
+            desc: '鉴权、数据库、Redis 与进程运行事件',
+            terminal: '平台基础',
+            icon: 'settings',
+          },
+          {
+            key: 'call-me',
+            name: 'Call Me',
+            desc: '知识库问答与群内提问',
+            terminal: '双端',
+            icon: 'robot',
+          },
+          {
+            key: 'netdisk',
+            name: '团队网盘',
+            desc: 'OpenList 文件与分享操作',
+            terminal: '双端',
+            icon: 'folder',
+          },
+          {
+            key: 'work-log',
+            name: '出工日志',
+            desc: '照片、派车、核验与同步任务',
+            terminal: '双端',
+            icon: 'book',
+          },
+          {
+            key: 'tree-hazard',
+            name: '树障隐患记录',
+            desc: '树障直推、照片与同步',
+            terminal: '双端',
+            icon: 'tree',
+          },
+          {
+            key: 'crossing',
+            name: '交跨记录',
+            desc: '交跨直推与台账同步',
+            terminal: '双端',
+            icon: 'link',
+          },
+          {
+            key: 'file-transfer',
+            name: '文件传输',
+            desc: '虚拟 U 盘文件任务',
+            terminal: '小程序端',
+            icon: 'folder',
+          },
+          {
+            key: 'kvm',
+            name: '远程连接计算机',
+            desc: 'GLKVM 连接与设备锁',
+            terminal: 'Web 端',
+            icon: 'terminal',
+          },
+          {
+            key: 'quiz',
+            name: '题库刷题',
+            desc: '题库导入与 AI 解析',
+            terminal: '双端',
+            icon: 'book',
+          },
+          {
+            key: 'wm-add',
+            name: '水印添加',
+            desc: '照片水印渲染与地理服务',
+            terminal: '双端',
+            icon: 'book',
+          },
+          {
+            key: 'safe-day',
+            name: '安全日活动记录',
+            desc: 'Dify 生成与文档转换',
+            terminal: '双端',
+            icon: 'book',
+          },
+          {
+            key: 'team-data',
+            name: '班组数据',
+            desc: '班组字典与运维线路',
+            terminal: '双端',
+            icon: 'settings',
+          },
+          {
+            key: 'wechat-answer',
+            name: '微信智能应答',
+            desc: '微信监听、规则与聊天归档',
+            terminal: 'Web 端',
+            icon: 'chat',
+          },
+          {
+            key: 'app-log',
+            name: '应用日志',
+            desc: '日志写入、查询与保留清理',
+            terminal: 'Web 端',
+            icon: 'book',
+          },
+        ];
+        const samples = {
+          system: [
+            [
+              'info',
+              'business',
+              0.2,
+              '数据库连接池已就绪',
+              'MySQL 连接池初始化完成，等待应用模块加载。',
+              '[db] connection pool ready (connections=10)',
+              'event=db.ready\nconnections=10\nduration_ms=38',
+            ],
+            [
+              'info',
+              'config',
+              1.1,
+              '运行配置首次导入完成',
+              '从环境变量补齐数据库中缺失的配置；面板后续修改以数据库值为准。',
+              '[settings] imported missing runtime values from env',
+              'event=settings.env_import\nimported=18\nupdated=0',
+            ],
+            [
+              'warn',
+              'external',
+              3.4,
+              'Redis 连接曾中断，现已恢复',
+              '会话黑名单读取在重连期间按失败关闭策略处理。',
+              '[redis] connection recovered after ECONNRESET',
+              'event=redis.recovered\nretry=2\noutage_ms=4210',
+            ],
+            [
+              'error',
+              'business',
+              7.2,
+              '未捕获请求异常已由统一错误处理器拦截',
+              '请求返回 500，错误堆栈仅保留在受控日志中。',
+              '[server] unhandled route error: TypeError: Example failed',
+              'event=http.unhandled_error\nstatus=500\nrequest_id=req-demo-001',
+            ],
+          ],
+          'wechat-answer': [
+            [
+              'info',
+              'message',
+              0.4,
+              '收到监听群文本消息',
+              '群「检修一班运维群」的消息进入规则分发，发送者已匹配壹匣员工昵称。',
+              '[message] incoming group text (conversation=demo-team-one@chatroom)',
+              'event=wechat.message.received\nkind=text\nsender=wxid_demo_user_01',
+            ],
+            [
+              'info',
+              'external',
+              1.3,
+              '树障提取工作流调用成功',
+              'WF1 返回结构化结果，记录已写入树障正式表。',
+              '[dify] workflow completed (workflow=WF1, status=success)',
+              'event=dify.workflow.completed\nworkflow=WF1\nduration_ms=2380',
+            ],
+            [
+              'warn',
+              'business',
+              2.6,
+              '发送者 wxid 未匹配唯一员工',
+              '已回退使用群昵称，建议管理员检查员工 wxid 是否缺失或重复。',
+              '[member] wxid matched 0 active users; fallback to group display name',
+              'event=member.alias_fallback\nwxid=wxid_demo_unknown\nmatches=0',
+            ],
+            [
+              'error',
+              'external',
+              5.8,
+              '交跨提取工作流调用超时',
+              '本次提取进入重试队列，群聊收到失败反馈，不生成空记录。',
+              '[dify] workflow timeout after 90000ms (workflow=WF1c)',
+              'event=dify.workflow.timeout\nworkflow=WF1c\nattempt=1\nnext_retry_sec=300',
+            ],
+            [
+              'info',
+              'scheduler',
+              9.1,
+              '失败事件自动补推成功',
+              '一条交跨待重试事件已完成幂等写入并出队。',
+              '[outbox] event delivered and acknowledged',
+              'event=outbox.delivered\nkind=crossing.upsert\nrecord_id=rec_demo_001',
+            ],
+          ],
+          'work-log': [
+            [
+              'info',
+              'business',
+              0.8,
+              '出工照片上传完成',
+              '照片已写入 COS 并关联到对应日志，开始水印信息识别。',
+              '[worklog] photo uploaded; verification queued',
+              'event=worklog.photo.uploaded\nentry_id=1001\nphoto_id=2001',
+            ],
+            [
+              'error',
+              'external',
+              4.7,
+              '照片识别工作流超时',
+              'Dify 第 1 次调用超过 90 秒，将按既有策略重试。',
+              '[worklog] Dify verification failed: timeout of 90000ms exceeded',
+              'event=worklog.verify.timeout\nentry_id=1001\nattempt=1',
+            ],
+            [
+              'info',
+              'scheduler',
+              8.4,
+              '午间打卡提醒核查完成',
+              '已同步卡上成员状态，本次无需发送提醒。',
+              '[sgcc] noon reminder check completed; no recipients',
+              'event=sgcc.reminder.checked\nmembers=9\nfailed=0',
+            ],
+          ],
+          crossing: [
+            [
+              'info',
+              'business',
+              0.6,
+              '交跨记录幂等写入完成',
+              'crane 记录已在正式表新增，可在对应线路台账查看。',
+              '[crossing] direct ingest completed (inserted=1 updated=0 skipped=0)',
+              'event=crossing.ingest\ninserted=1\nupdated=0\nskipped=0',
+            ],
+            [
+              'warn',
+              'business',
+              2.1,
+              '交跨记录因缺少线路被跳过',
+              '提取结果未包含可用线路名，技术队列保留待处理后重试。',
+              '[crossing] record skipped: line_name and line_name_raw are empty',
+              'event=crossing.record.skipped\nreason=missing_line\nrecord_id=rec_demo_002',
+            ],
+            [
+              'info',
+              'external',
+              6.3,
+              '交跨知识库快照同步完成',
+              '一条线路快照已更新，未变化线路未重复上传。',
+              '[crossing] knowledge snapshot synchronized',
+              'event=crossing.weknora.synced\ncreated=0\nupdated=1\nskipped=4',
+            ],
+          ],
+          'app-log': [
+            [
+              'info',
+              'scheduler',
+              1.8,
+              '七天前日志清理完成',
+              '过期结构化日志已删除，当前保留策略未改变。',
+              '[app-log] retention cleanup completed',
+              'event=log.retention.completed\nretention_days=7\ndeleted=128',
+            ],
+            [
+              'info',
+              'business',
+              3.9,
+              '管理员查询应用日志',
+              '按应用和级别筛选日志，未返回任何敏感配置值。',
+              '[app-log] entries queried by administrator',
+              'event=log.entries.queried\napp=app-log\nlevel=info',
+            ],
+          ],
+        };
+        const categories = {
+          business: '业务事件',
+          external: '外部调用',
+          scheduler: '定时任务',
+          config: '配置变更',
+          message: '微信消息',
+        };
+        const levelNames = { info: '信息', warn: '警告', error: '错误' };
+        let currentApp = 'system',
+          view = 'cn',
+          demo = 'normal',
+          page = 1,
+          expanded = null,
+          toastTimer;
+        const perPage = 5;
+        const esc = (v) =>
+          String(v == null ? '' : v).replace(
+            /[&<>"']/g,
+            (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+          );
+        function logsFor(app) {
+          const specific = samples[app];
+          const list = specific || [
+            [
+              'info',
+              'business',
+              0.9,
+              '应用业务事件已完成',
+              '该演示事件用于展示当前应用的结构化中文说明。',
+              '[app] business operation completed',
+              'event=app.operation.completed\napp=' + app,
+            ],
+            [
+              'info',
+              'external',
+              2.8,
+              '外部服务调用成功',
+              '上游返回成功，耗时与请求标识已保留供排错。',
+              '[external] upstream request succeeded (HTTP 200)',
+              'event=external.request.completed\nhttp_status=200\nduration_ms=186',
+            ],
+            [
+              'warn',
+              'business',
+              5.2,
+              '发现需要管理员关注的状态',
+              '功能没有中断，但建议检查对应应用配置。',
+              '[app] operation degraded; review suggested',
+              'event=app.operation.degraded\napp=' + app,
+            ],
+            [
+              'error',
+              'external',
+              8.6,
+              '外部服务调用失败',
+              '已记录错误原文，可切换原始日志查看技术细节。',
+              '[external] upstream request failed (HTTP 502)',
+              'event=external.request.failed\nhttp_status=502\nretry=1',
+            ],
+            [
+              'info',
+              'scheduler',
+              10.4,
+              '应用定时任务执行完成',
+              '本轮任务正常结束，没有遗留待处理项。',
+              '[scheduler] job completed successfully',
+              'event=scheduler.job.completed\napp=' + app,
+            ],
+            [
+              'info',
+              'config',
+              12.7,
+              '应用配置已热更新',
+              '管理员保存配置后，相关模块已重新加载。',
+              '[settings] runtime configuration reloaded',
+              'event=settings.reloaded\napp=' + app + '\noperator=admin',
+            ],
+            [
+              'info',
+              'message',
+              14.2,
+              '应用事件已写入日志',
+              '中文事件与技术原文同时保留，便于快速阅读与深入排错。',
+              '[app-log] event persisted',
+              'event=log.persisted\napp=' + app,
+            ],
+          ];
+          return list.map((x, i) => {
+            const at = new Date(Date.UTC(2026, 9, 27, 11, 0, 0) - x[2] * 3600000);
+            const pad = (n) => String(n).padStart(2, '0');
+            const time = `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())} ${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`;
+            return {
+              id: app + '-' + i,
+              level: x[0],
+              category: x[1],
+              age: x[2],
+              title: x[3],
+              detail: x[4],
+              raw: x[5],
+              context: x[6],
+              app,
+              time,
+            };
+          });
+        }
+        function toast(text) {
+          clearTimeout(toastTimer);
+          const el = $('#toast');
+          el.textContent = text;
+          el.hidden = false;
+          toastTimer = setTimeout(() => {
+            el.hidden = true;
+          }, 2200);
+        }
+        function renderApps() {
+          $('#appSidebar').innerHTML =
+            '<div class="side-label">平台与应用</div>' +
+            apps
+              .map(
+                (a) =>
+                  `<button class="app-nav-item ${a.key === 'system' ? 'system' : ''} ${a.key === currentApp ? 'on' : ''}" data-app="${a.key}"><span class="app-icon"><svg><use href="#i-${a.icon}"/></svg></span><span class="app-nav-text"><b>${a.name}</b><small>${a.terminal}</small></span></button>`
+              )
+              .join('');
+        }
+        function filteredLogs() {
+          if (demo !== 'normal') return [];
+          const kw = $('#logSearch').value.trim().toLowerCase(),
+            level = $('#levelFilter').value,
+            category = $('#categoryFilter').value,
+            range = Number($('#rangeFilter').value);
+          return logsFor(currentApp).filter(
+            (l) =>
+              (level === 'all' || l.level === level) &&
+              (category === 'all' || l.category === category) &&
+              l.age <= range &&
+              (!kw || (l.title + l.detail + l.raw + l.context).toLowerCase().includes(kw))
+          );
+        }
+        function render() {
+          renderApps();
+          const app = apps.find((a) => a.key === currentApp),
+            logs = filteredLogs(),
+            all = logsFor(currentApp);
+          $('#currentAppName').textContent = app.name;
+          $('#currentAppDesc').textContent = app.desc;
+          $('#metricInfo').textContent = all.filter((l) => l.level === 'info').length;
+          $('#metricWarn').textContent = all.filter((l) => l.level === 'warn').length;
+          $('#metricError').textContent = all.filter((l) => l.level === 'error').length;
+          const pages = Math.max(1, Math.ceil(logs.length / perPage));
+          if (page > pages) page = pages;
+          const visible = logs.slice((page - 1) * perPage, page * perPage);
+          $('#resultText').textContent =
+            demo === 'error'
+              ? '读取失败'
+              : `共 ${logs.length} 条日志 · ${view === 'cn' ? '中文说明' : '原始日志'}`;
+          $('#logEmpty').hidden = demo === 'error' || (demo !== 'empty' && logs.length > 0);
+          $('#logError').hidden = demo !== 'error';
+          $('#logList').hidden = demo === 'error';
+          $('#logList').innerHTML = visible
+            .map((l) => {
+              const open = expanded === l.id;
+              return `<article class="log-row ${open ? 'open' : ''}"><button class="log-line" data-log="${l.id}" aria-expanded="${open}"><span class="log-time">${l.time.slice(5, 10)}<small>${l.time.slice(11)}</small></span><span class="level ${l.level}"><i></i>${levelNames[l.level]}</span><span class="category">${categories[l.category]}</span><span class="message ${view === 'raw' ? 'raw' : ''}"><b>${esc(view === 'cn' ? l.title : l.raw)}</b><p>${esc(view === 'cn' ? l.detail : l.context.split('\n')[0])}</p></span><svg class="chevron"><use href="#i-chevron"/></svg></button>${
+                open
+                  ? `<div class="log-detail"><div class="context"><dl><dt>应用标识</dt><dd>${l.app}</dd><dt>事件类别</dt><dd>${categories[l.category]}</dd><dt>完整时间</dt><dd>${l.time}</dd>${l.context
+                      .split('\n')
+                      .map((line) => {
+                        const p = line.indexOf('=');
+                        return `<dt>${esc(line.slice(0, p))}</dt><dd>${esc(line.slice(p + 1))}</dd>`;
+                      })
+                      .join(
+                        ''
+                      )}</dl></div><div class="raw-detail">${esc(l.raw)}\n${esc(l.context)}</div></div>`
+                  : ''
+              }</article>`;
+            })
+            .join('');
+          $('#pageText').textContent = `第 ${page} / ${pages} 页 · 每页 ${perPage} 条`;
+          $('#pageCurrent').textContent = page;
+          $('#pagePrev').disabled = page <= 1;
+          $('#pageNext').disabled = page >= pages;
+        }
+        $('#appSidebar').addEventListener('click', (e) => {
+          const b = e.target.closest('[data-app]');
+          if (!b) return;
+          currentApp = b.dataset.app;
+          page = 1;
+          expanded = null;
+          render();
+        });
+        ['logSearch', 'levelFilter', 'categoryFilter', 'rangeFilter'].forEach((id) =>
+          $('#' + id).addEventListener(id === 'logSearch' ? 'input' : 'change', () => {
+            page = 1;
+            expanded = null;
+            render();
+          })
+        );
+        $$('.seg button').forEach((b) =>
+          b.addEventListener('click', () => {
+            view = b.dataset.view;
+            $$('.seg button').forEach((x) => x.classList.toggle('on', x === b));
+            expanded = null;
+            render();
+          })
+        );
+        $('#logList').addEventListener('click', (e) => {
+          const b = e.target.closest('[data-log]');
+          if (!b) return;
+          expanded = expanded === b.dataset.log ? null : b.dataset.log;
+          render();
+        });
+        $$('.demo-bar button').forEach((b) =>
+          b.addEventListener('click', () => {
+            demo = b.dataset.demo;
+            $$('.demo-bar button').forEach((x) => x.classList.toggle('on', x === b));
+            page = 1;
+            expanded = null;
+            render();
+          })
+        );
+        $('#btnRefresh').addEventListener('click', () => {
+          demo = 'normal';
+          $('#refreshTime').textContent = '演示快照：刚刚刷新（未读取真实服务）';
+          render();
+          toast('已刷新当前应用的演示日志');
+        });
+        $('#btnRetry').addEventListener('click', () => {
+          demo = 'normal';
+          $$('.demo-bar button').forEach((x) =>
+            x.classList.toggle('on', x.dataset.demo === 'normal')
+          );
+          render();
+        });
+        $('#pagePrev').addEventListener('click', () => {
+          if (page > 1) {
+            page--;
+            expanded = null;
+            render();
+          }
+        });
+        $('#pageNext').addEventListener('click', () => {
+          page++;
+          expanded = null;
+          render();
+        });
+        render();
+      })();
+    </script>
+  </body>
+</html>

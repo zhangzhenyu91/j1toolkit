@@ -141,8 +141,12 @@
     <view class="lines-note pane-in">线路信息供树障隐患记录分组使用</view>
   </block>
 
-  <!-- 运维线路段：双输入添加（电压等级 + 线路名称）+ 上移 / 下移 / 编辑 / 删除 + 模板下载 / Excel 导入全量替换（pane-in / row-in 动效同字典段） -->
+  <!-- 运维线路段（文案/操作按 design/小程序-运维线路.html）：双输入添加 + 本班线路列表
+       （行内 上移/下移/编辑/删除）+ 模板下载 / Excel 导入全量替换 + 微信应答共用说明 -->
   <block wx:if="{{seg === 'oplines'}}">
+    <view class="op-add-title pane-in"
+      >新增运维线路<text class="op-add-tag">班内名称唯一</text></view
+    >
     <view class="addbar pane-in">
       <view class="inp inp-volt">
         <input
@@ -169,7 +173,11 @@
       </view>
     </view>
 
-    <!-- 运维线路列表（树障隐患记录分组即取此清单；无停用，删除不拦截） -->
+    <view class="op-head pane-in"
+      >本班线路<text class="op-count">共 {{oplines.length}} 条</text></view
+    >
+
+    <!-- 运维线路列表（树障/交跨分组与微信智能应答线路匹配共用此清单；无停用，删除不拦截） -->
     <view class="card mlist pane-in">
       <view
         class="mrow row-in"
@@ -180,7 +188,8 @@
         <view class="mi">
           <t-icon t-class="ico-32" name="thunder" />
         </view>
-        <text class="mt">{{item.voltageText}} {{item.line_name}}</text>
+        <text class="mt op-name">{{item.line_name}}</text>
+        <text class="volt-pill">{{item.voltageText}}</text>
         <view class="ops">
           <text
             wx:if="{{index > 0}}"
@@ -219,16 +228,20 @@
           >
         </view>
       </view>
-      <view class="mempty" wx:if="{{!opLoading && oplines.length === 0}}"
-        >暂无运维线路，可在上方添加或下载模板导入</view
-      >
+      <!-- 空态（设计稿口径：图标 + 标题 + 逐条添加/批量导入与微信应答说明） -->
+      <view class="op-empty" wx:if="{{!opLoading && oplines.length === 0}}">
+        <t-icon t-class="ico-64" name="thunder" />
+        <text class="op-empty-t">暂无运维线路</text>
+        <text class="op-empty-d">可在上方逐条添加，或下载模板后批量导入。</text>
+        <text class="op-empty-d">微信应答在线路匹配前会读取这份清单。</text>
+      </view>
     </view>
 
-    <!-- 运维线路导入（按当前生效班组全量替换，不影响其他班组） -->
+    <!-- 批量导入（按当前生效班组全量替换，不影响其他班组） -->
     <view class="tower-bar pane-in">
       <view class="tb-l">
         <view class="tb-n">批量导入</view>
-        <view class="tb-s">导入即全量替换，仅作用于当前班组</view>
+        <view class="tb-s">模板下载与 Excel 导入；导入按当前班组全量替换。</view>
       </view>
       <view class="tb-btns">
         <view class="tb-btn tpl" hover-class="hover-opacity" bindtap="onOpTplDownload"
@@ -242,7 +255,11 @@
         >
       </view>
     </view>
-    <view class="lines-note pane-in">供树障隐患记录分组使用</view>
+    <!-- 共用来源说明（设计稿 source-note：浅底 + 左蓝条直角提示块） -->
+    <view class="op-note pane-in"
+      >供树障、交跨分组及微信智能应答线路匹配共用。所有读取都限定当前班组，不使用
+      crane-answer 独立线路表。</view
+    >
   </block>
 </view>
 
@@ -305,6 +322,104 @@
         bindtap="onDestEditSave"
         >{{destSaving ? '正在保存…' : '保 存'}}</view
       >
+    </view>
+  </view>
+</t-popup>
+
+<!-- 运维线路编辑弹层（电压等级 + 线路名称双字段，design/小程序-运维线路.html 口径） -->
+<t-popup
+  visible="{{opEditVisible}}"
+  placement="bottom"
+  bind:visible-change="onOpEditVisibleChange"
+>
+  <view class="sheet">
+    <view class="sheet-title">编辑运维线路</view>
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+      <view class="f-item">
+        <view class="f-label">电压等级<text class="f-req">*</text></view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="请输入电压等级"
+            value="{{opEditVolt}}"
+            bind:change="onOpEditVoltInput"
+          />
+        </view>
+        <view class="f-hint">纯数字展示时自动补 kV，已含单位则原样显示。</view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">线路名称<text class="f-req">*</text></view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="请输入线路名称"
+            value="{{opEditName}}"
+            bind:change="onOpEditNameInput"
+          />
+        </view>
+        <view class="f-hint">微信报送原文按此名称归一匹配，班内不可重复。</view>
+      </view>
+    </scroll-view>
+    <view class="sheet-actions">
+      <view
+        class="btn-ghost {{opEditSaving ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onCloseOpEdit"
+        >取 消</view
+      >
+      <view
+        class="btn-dark {{opEditSaving ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onOpEditSave"
+        >{{opEditSaving ? '正在保存…' : '保 存'}}</view
+      >
+    </view>
+  </view>
+</t-popup>
+
+<!-- 运维线路全量导入确认弹层（设计稿口径：先清空再写入的影响提示） -->
+<t-popup visible="{{impVisible}}" placement="bottom" bind:visible-change="onImpVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">确认全量导入</view>
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+      <view class="op-file">
+        <t-icon t-class="ico-40 ico-op-file" name="file-excel" />
+        <view class="op-file-txt">
+          <text class="op-file-n">{{impFileName}}</text>
+          <text class="op-file-s">{{impFileText}}</text>
+        </view>
+      </view>
+      <view class="op-warn"
+        >导入后将先清空{{impTeamLabel}}现有运维线路，再写入文件内容。其他班组不受影响，历史树障与交跨正式记录不会删除。</view
+      >
+      <view class="op-confirm-txt"
+        >全量替换可能影响后续记录分组和微信报送线路匹配，请确认文件来自本班最新线路表。</view
+      >
+    </scroll-view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onCloseImp">取 消</view>
+      <view class="btn-danger" hover-class="hover-opacity" bindtap="onImpConfirm">确认全量替换</view>
+    </view>
+  </view>
+</t-popup>
+
+<!-- 运维线路删除确认弹层（设计稿口径：删除只影响之后的分组和匹配） -->
+<t-popup
+  visible="{{opDelVisible}}"
+  placement="bottom"
+  bind:visible-change="onOpDelVisibleChange"
+>
+  <view class="sheet">
+    <view class="sheet-title">删除运维线路</view>
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+      <view class="op-confirm-txt">确认删除「{{opDelName}}」吗？</view>
+      <view class="op-warn"
+        >删除只影响之后的分组和匹配，已有正式记录保留；既有记录若找不到同名线路，将进入「未匹配线路」。</view
+      >
+    </scroll-view>
+    <view class="sheet-actions">
+      <view class="btn-ghost" hover-class="hover-opacity" bindtap="onCloseOpDelete">取 消</view>
+      <view class="btn-danger" hover-class="hover-opacity" bindtap="onOpConfirmDelete">确认删除</view>
     </view>
   </view>
 </t-popup>

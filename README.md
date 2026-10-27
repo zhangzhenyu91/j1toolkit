@@ -5,8 +5,8 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/zhangzhenyu91/j1toolkit)](https://github.com/zhangzhenyu91/j1toolkit/commits/main)
 ![微信小程序](https://img.shields.io/badge/微信小程序-原生-07C160?logo=wechat&logoColor=white)
 ![TDesign](https://img.shields.io/badge/TDesign-Miniprogram-0052D9)
-![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522-339933?logo=nodedotjs&logoColor=white)
-![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go&logoColor=white)
+![Vue3](https://img.shields.io/badge/Vue3-Vite%20TDesign-42B883?logo=vuedotjs&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-业务存储-4479A1?logo=mysql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-会话缓存-DC382D?logo=redis&logoColor=white)
 ![腾讯云COS](https://img.shields.io/badge/腾讯云_COS-文件存储-006DFF)
@@ -14,7 +14,7 @@
 
 > 仓库托管：主仓 [GitHub](https://github.com/zhangzhenyu91/j1toolkit)，[CNB](https://cnb.cool/j1net/j1toolkit/j1toolkit) 为国内镜像仓（main 推送自动同步，发版 tag 由发版产线在构建完成后回推）。
 
-班组数字化工具平台：微信小程序 + 网页端，本体提供统一登录（账号密码 + 微信）与应用权限控制，各应用以分包/网页形式持续接入。
+班组数字化工具平台：微信小程序 + 网页端，本体提供统一登录（账号密码 + 微信）与应用权限控制，各应用以分包/网页形式持续接入。后端为 Go 服务（`go/`，单端口托管 `/api/v1` 与网页端），网页端为 Vue3 + Vite + TDesign（`web/`，构建产物 `web/dist`）；原 Node 实现（`server/`）为**回退实现、未退役**（接口契约与踩坑细节见 `开发指南.md`，与 Go 实现同契约），crane-answer 为微信智能应答的**迁移参考、未退役**（直推端点继续兼容）。
 
 已接入应用：
 
@@ -31,8 +31,10 @@
 - **班组数据**（分包 `pkg-teamdata` + 网页端 `teamdata.html`）：车牌号 / 目的地 / 人员 / 杆塔信息 / 运维线路 / 商旅设备班组字典统一管理（网页端六分段，小程序端暂为五分段——「杆塔信息」仍名「运维线路信息」、无「运维线路」段；数据复用出工日志字典与杆塔表不建新表，接口形态与 worklog 管理端点 1:1；杆塔坐标 Excel 导入全量替换；出工日志双端「数据管理」入口已改跳本应用）；后端 `server/src/teamdata/`，要求 `team-data` 应用权限且全接口限超管或本班 team_admin
 - **商旅打卡**（出工日志扩展）：商旅账号短信绑定 / 两次打卡 / 费用 / 照片双端同步 / 每日定时核查，权限并入 `work-log`（不单设应用）；后端 `server/src/sgccclockin/`
 - **派车单每日自动同步**（出工日志扩展，仅检修一班）：每日 09:10 锁定目标 KVM 设备并把 U 盘挂载至被控机（被控机 09:15 起由桌面客户端「内网工具箱」导出，独立项目不在本仓），09:20 经文件传输链路取回当日派车单 xlsx 自动建出车卡片（派车单号随卡写入 `dispatch_order_no`，供「派车汇总」导出）、删 U 盘文件并解禁，结果通知超管与班组管理员；后端 `server/src/worklog/dispatch-sync.js`（详见 开发指南.md 7.7）
+- **微信智能应答**（管理应用 `wechat-answer`，仅网页端 `wechat-answer.html`）：微信群消息监听（WeChatPadPro 云端网关通道）+ 每群规则（location / treeWatch 两类，规则内独立 Dify 密钥：树障提取/更正、交跨提取/更正、群内提问 WF3、聊天总结 WF4、位置处理），树障/交跨结构化记录直推入台账，未消费消息兜底归档聊天日志；能力迁移自 crane-answer（迁移参考、未退役），直推端点继续兼容；要求 `wechat-answer` 应用权限（管理写操作限超管/班组管理员）
+- **应用日志**（管理应用 `app-log`，仅网页端 `app-log.html`）：全服务结构化应用日志查看（业务/调度/访问三类事件、级别与关键词过滤），日志保留 7 天（启动即清一次、此后每 24h 清理）；要求 `app-log` 应用权限（超管恒可见）
 
-应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。内网客户端（内网工具箱安装包）不在应用列表内：下载入口在登录页推广区（直链 CNB 公开仓 Releases 最新 tag，安装包不托管本站，见 开发指南.md 第十一节）。
+上表各应用「后端」所注 `server/src/*` 路径为 Node 回退实现的同名子模块（**未退役**，接口契约与 Go 实现一致，细节与踩坑见 `开发指南.md`）；现行后端实现为 Go（`go/internal/apps/*`）。应用均带「适配终端」参数（`sys_app.terminal`：`both` 双端 / `mobile` 仅小程序 / `pc` 仅网页端），小程序与网页端宫格按端过滤展示。内网客户端（内网工具箱安装包）不在应用列表内：下载入口在登录页推广区（直链 CNB 公开仓 Releases 最新 tag，安装包不托管本站，见 开发指南.md 第十一节）。
 
 **文档导航**：协作规则与 UI 定稿 token 见 `AGENTS.md`；开发全参考（架构/数据库/接口/对接细节/踩坑）见 `开发指南.md`；UI 定稿为「政企蓝白 Enterprise Blue」，布局基准为 `design/布局精修.html`，交互基准为 `design/体验精修.html`、`体验精修-小程序.html`、`体验精修-Web.html`，组件细则见 `design/设计规范.md`。不宜公开的内容（内网客户端、逆向分析仓、历史数据）在私有仓 [j1toolkit-private](https://github.com/zhangzhenyu91/j1toolkit-private)，经 submodule 挂载于 `private/`。
 
@@ -40,8 +42,8 @@
 
 | 层       | 选型                                                                                                                                                                                                                       |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 前端     | 微信小程序原生 + tdesign-miniprogram（「政企蓝白」定制主题）；网页端原生 HTML/JS（同源 token）                                                                                                                             |
-| 后端     | Node.js ≥22 + Express（云服务器以 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建 amd64/arm64 多架构镜像推 GHCR + Docker Hub，CNB 在国内重建同版镜像推腾讯云 TCR + CNB 制品库；单端口同时托管网页端与 `/api/v1`） |
+| 前端     | 微信小程序原生 + tdesign-miniprogram（「政企蓝白」定制主题）；网页端 Vue3 + Vite + TDesign Vue Next（`web/`，构建产物 `web/dist`，同源 token）                                                                                            |
+| 后端     | Go 1.27+（`go/`，chi 路由；云服务器以 Docker 容器运行：GitHub Actions 按仓根 `Dockerfile` 构建 amd64/arm64 多架构镜像推 GHCR + Docker Hub，CNB 在国内重建同版镜像推腾讯云 TCR + CNB 制品库；单端口同时托管网页端与 `/api/v1`）；Node.js ≥22 + Express 实现（`server/`）为回退实现、未退役 |
 | 存储     | MySQL（业务数据）/ Redis（JWT 黑名单、会话）/ 腾讯云 COS（文件/照片）                                                                                                                                                      |
 | 鉴权     | JWT + Redis，客户端 `Authorization: Bearer <token>` 携带（网页端 token 存 localStorage）                                                                                                                                   |
 | 外部服务 | WeKnora 知识库（Call Me）、Dify 工作流（出工日志照片验证、安全日活动记录生成、题库 AI 解析）、GLKVM Cloud（远程连接计算机/文件传输）、高德地图 Web 服务（出工日志/水印添加/商旅打卡地点天气）、商旅平台中继（商旅打卡）    |
@@ -58,8 +60,10 @@ miniprogram/   微信小程序（主包：登录/首页/我的/管理页）
   pkg-quiz/      题库刷题分包（index/bank/practice/wrong/manage/pool 六页）
   pkg-treehazard/  树障隐患记录分包（index 单页：看板/记录卡片流/批量处理/暂存/冲突）
   pkg-teamdata/    班组数据分包（index 单页：车牌/目的地/人员/运维线路信息/商旅设备五分段）
-server/        后端 Node.js 单端口整合服务（API + 托管网页端）
-  public/        网页端（login.html / index.html 工作台 / callme / worklog / wmadd 水印添加 / safeday / kvm / quiz / netdisk 团队网盘 / treehazard 树障隐患 / teamdata 班组数据 / office 在线编辑承载 / share 网盘公开分享 / admin / sgcc-captcha 商旅滑块接力 + assets 公共资源 + kvm-device 设备安装包）
+go/            后端 Go 服务（Go 1.27+，module shade；cmd/shade 装配入口 + internal/apps 各业务模块 + config 运行配置中心 + httpapi 路由/SPA 托管 + integrations Dify/WeKnora/COS/高德对接）
+web/           网页端 Vue3 + Vite + TDesign Vue Next（src/views 页面 + src/features 业务模块；构建产物 dist/ 由 Go 服务以 SPA 托管，与 /api/v1 同端口）
+server/        后端 Node.js 回退实现（未退役，接口契约与 Go 实现一致：API + 托管网页端 server/public；细节与踩坑见 开发指南.md）
+  public/        网页端原生 HTML/JS 回退实现（login.html / index.html 工作台 / callme / worklog / wmadd 水印添加 / safeday / kvm / quiz / netdisk 团队网盘 / treehazard 树障隐患 / teamdata 班组数据 / office 在线编辑承载 / share 网盘公开分享 / admin / sgcc-captcha 商旅滑块接力 + assets 公共资源 + kvm-device 设备安装包）
   src/routes/    本体路由（auth/user/app/admin/callme）
   src/worklog/   出工日志后端子模块（schema/cos/dify/verify 验证规则/photoverify 验证流水线/dispatch-sync 派车单同步/路由）
   src/safeday/   安全日活动记录后端子模块（dify/merge/store/路由）
@@ -70,9 +74,9 @@ server/        后端 Node.js 单端口整合服务（API + 托管网页端）
   src/treehazard/ 树障隐患记录后端子模块（schema 建表种子/ingest crane-answer 直推/export 统计表/diff 行级比对/sync 内网 U 盘同步/路由）
   src/teamdata/    班组数据后端子模块（车牌/目的地/成员字典与线路杆塔管理路由，复用 worklog 表不建新表）
 uvmp-toolkit/  内网工具箱客户端（Electron + Vue + TDesign 壳 + Python sidecar 核心，装在内网被控机；与后端同版本线，`release-v*` / `v*` tag 触发 .github/workflows/release.yml 的 client-* job 三平台构建发版）
-design/        UI 设计稿（定稿「政企蓝白 Enterprise Blue」：布局基准 布局精修.html，交互基准 体验精修.html / 体验精修-小程序.html / 体验精修-Web.html，配套 设计规范.md 与 index.html 展厅；另存分享图生成工具链）
+design/        UI 设计稿（定稿「政企蓝白 Enterprise Blue」：布局基准 布局精修.html，交互基准 体验精修.html / 体验精修-小程序.html / 体验精修-Web.html，配套 设计规范.md 与 index.html 展厅；应用设计稿 小程序-团队网盘.html / Web-团队网盘.html / Web-微信智能应答.html / Web-应用日志.html / Web-应用配置.html；另存分享图生成工具链与 dify-json-extract.py Dify 代码节点脚本）
 private/       私有配套仓 j1toolkit-private（git submodule，需有权限账号 `git submodule update --init`）：esgcc 商旅逆向分析仓与巡视素材 / WorkLogs 旧服务历史数据 / _archive 公开仓历史归档
-crane-answer/  微信群智能应答平台（git submodule，`git submodule update --init` 拉取）：群监听按规则调 Dify Workflow 的后端 + Web 管理端，树木排查会话捕获记录直推本仓 treehazard ingest（开发指南 19.3）
+crane-answer/  微信群智能应答平台（git submodule，`git submodule update --init` 拉取）：群监听按规则调 Dify Workflow 的后端 + Web 管理端，树木排查会话捕获记录直推本仓 treehazard ingest（开发指南 19.3）；本仓微信智能应答能力迁移自该平台，**迁移参考、未退役**（直推端点继续兼容）
 ```
 
 ## 后端部署（云服务器 Docker 容器）
@@ -100,7 +104,7 @@ docker compose up -d   # 端口映射/数据卷（./data → /app/server/data）
 
 镜像已内置 LibreOffice（安全日非 PDF 附件转 PDF 合并用）与中文字体；验证：`curl http://127.0.0.1:3000/healthz` 返回 `{"code":0,...}` 即正常（Dockerfile 已配 HEALTHCHECK，容器列表可直看健康状态）。**首次迁移需把旧部署 `server/data/`（安全日记录）拷入数据卷目录。**
 
-**本机开发（不用镜像）**：`cd server` → 首次 `npm install` 并 `cp ../docker/.env.example .env` 按实际填写 → `npm run dev`（`node --watch` 改代码自动重启），浏览器访问 `http://127.0.0.1:3000/login.html` 测页面；前提为本机可连 `.env` 所指的 MySQL/Redis。
+**本机开发（不用镜像）**：Go 服务——把 `docker/.env.example` 各值导出为进程环境变量（至少 `JWT_SECRET` / `MYSQL_*` / `REDIS_*`，本地无库可 `SHADE_LOCAL_FIXTURE=1` 跳过 MySQL 跑 fixture），`cd go` → `/d/Program Files/Go/bin/go.exe run ./cmd/shade`（Windows；macOS/Linux 即 `go run ./cmd/shade`），浏览器访问 `http://127.0.0.1:3000/` 测页面（网页端 `web/`：`cd web && npm install && npm run dev` 走 Vite 开发服，构建产物 `npm run build` 出 `web/dist` 由 Go 以 SPA 托管，`SHADE_WEB_DIR` 可改托管目录）；自检 `/d/Program Files/Go/bin/go.exe test ./...`（全部用 fake/httptest，不连真实 MySQL/Redis）。Node 回退实现（未退役）：`cd server` → `npm install` 并 `cp ../docker/.env.example .env` → `npm run dev`。前提为本机可连 `.env`/环境变量所指的 MySQL/Redis。
 
 **代码格式化**：全仓单一来源为仓根 `.prettierrc.json` / `.prettierignore`（Prettier 3）——JS/JSON/HTML/CSS/Vue/Markdown/YAML 统一 `npx --yes prettier@3 --write .`，Python（uvmp-toolkit）用 `ruff format`；`.wxml` 无推断 parser，需临时改后缀 `.html` 并以 `--parser html` 处理；排除范围见 `.prettierignore`，格式化提交不混入业务改动（详见 `AGENTS.md` 第六节）。
 
@@ -114,16 +118,22 @@ proxy_read_timeout 300s;  # 推荐：长生成不被掐断（服务端另有 15s
 client_max_body_size 20m; # 图片上传（base64）需要
 ```
 
-**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加应用记录（含适配终端 terminal；历史「内网客户端」应用记录启动时自动清理——下载入口已改至登录页推广区），创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；同时建出工日志 7 张业务表并写入应用与 7 名成员种子、建题库刷题 quiz_* 表并写入应用种子、建树障隐患记录 treehazard_* 八张业务表并写入树障隐患记录与班组数据应用种子（初始管理员默认授予两应用权限）。给用户开权限：管理员在小程序「我的 → 权限管理」勾选即可。
+**初始化**：首次启动自动建 `sys_user` / `sys_team` / `sys_app` / `sys_user_app` / `sys_notice` / `sys_notice_read` / `sys_notice_del` 七张表，另建 `sys_runtime_config`（运行配置，敏感项加密，env 首次缺值导入）与 `app_log`（应用日志，保留 7 天）两表；写入 Call Me、安全日活动记录、远程连接计算机、文件传输、水印添加应用记录（含适配终端 terminal；历史「内网客户端」应用记录启动时自动清理——下载入口已改至登录页推广区），并补「微信智能应答」（`wechat-answer`，sort 12）与「应用日志」（`app-log`，sort 13）两枚管理应用种子（INSERT IGNORE 不覆盖已有行）；创建初始管理员（`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `Admin@123`，**请尽快修改**）；同时建出工日志 7 张业务表并写入应用与 7 名成员种子、建题库刷题 quiz_* 表并写入应用种子、建树障隐患记录 treehazard_* 业务表并写入树障隐患记录与班组数据应用种子（初始管理员默认授予相关应用权限）。给用户开权限：管理员在小程序「我的 → 权限管理」（或网页端 admin 页）勾选即可。
 
 ## 环境变量清单
 
-所有配置统一从 env 读取，敏感信息不入仓；`docker/.env.example`（全仓唯一一份）随功能同步维护。
+配置分两层，敏感信息一律不入仓；`docker/.env.example`（全仓唯一一份）随功能同步维护：
+
+- **启动必需项**（每次启动读取）：`CONFIG_MASTER_KEY`（运行配置加密主密钥，缺省从 `JWT_SECRET` 派生）、`JWT_SECRET`、`MYSQL_*`、`REDIS_*`，以及 `PORT` / `ADMIN_*` / `SHADE_WEB_DIR` / `SHADE_LOCAL_FIXTURE` 等启动参数；
+- **首次缺值导入**：下表业务类配置在启动时按「库内无值才从 env 补缺」写入 `sys_runtime_config`（敏感项加密存储），**库内已有值永不被 env 覆盖**——日常改配置走网页端「应用配置」（`/admin/config`），改后即时生效；下表即首次导入的取值清单与语义说明；
+- **应用日志**：`app-log` 管理应用（网页端 `/app-logs`）查看，保留 7 天（启动即清一次、此后每 24h 清理）；
+- **数据目录**：可写数据只落 `/app/server/data`（compose 挂 `./data → /app/server/data`，含安全日记录、缩略图缓存、树障/交跨随批 xlsx 等）。
 
 | 变量名                                                                                    | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PORT`                                                                                    | 服务端口（默认 3000；网页端与 API 同端口，反代 `toolkit.j1net.com → 127.0.0.1:PORT`）                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `JWT_SECRET`                                                                              | JWT 签名密钥                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `JWT_SECRET`                                                                              | JWT 签名密钥（启动必需）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `CONFIG_MASTER_KEY`                                                                       | 运行配置加密主密钥（启动必需语义：`sys_runtime_config` 敏感项 AES-256-GCM 加密；64 hex / base64 32 字节 / 其他任意串 SHA-256 派生；留空从 `JWT_SECRET` 派生——固定后勿改，轮换 `JWT_SECRET` 前先固定本项）                                                                                                                                                                                                                                                                                                                                         |
 | `JWT_EXPIRES`                                                                             | JWT 有效期（如 `7d`）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `JWT_WEB_EXPIRES`                                                                         | 网页端登录态有效期（如 `12h`，默认 12 小时；网页端可远程控制公司电脑（KVM），到期强制重新登录，仅网页端登录生效，小程序不受影响）                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_NICKNAME`                                    | 初始管理员（仅首次启动、账号不存在时创建；指定账号始终为 admin）                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -182,6 +192,10 @@ client_max_body_size 20m; # 图片上传（base64）需要
 | `TREEHAZARD_SYNC_PREPARE_TIME` / `TREEHAZARD_SYNC_FETCH_TIME`                             | 树障同步每日准备时间（锁定设备并挂载 U 盘至被控机，默认 `23:50`）与取件时间（取回内网表比对回写并解禁，默认 `00:00`，即每日 24:00 同步、跨午夜取件落在次日），HH:mm，北京时间                                                                                                                                                                                                                                                                                                                                                                  |
 | `CHATLOG_INGEST_TOKEN`                                                                    | 聊天日志归档 crane-answer 直推对接密钥（每日把群兜底消息纪要 md 与当天文档直推到 `/api/v1/chatlog/ingest`，请求头 `X-Ingest-Token` 须与此值相等、与 crane-answer 侧 `YIXIA_INGEST_TOKEN` 配同值；留空则直推接口停用返回 503，见开发指南二十一节）                                                                                                                                                                                                                                                                                              |
 | `WEKNORA_CHATLOG_KB_ID`                                                                   | 聊天日志归档目标 WeKnora 知识库 ID（「检修一班历史聊天记录」，按 `/{yyyy}/{M.d}/` 文件夹归档，缺省已内置示例值；见开发指南二十一节）                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `WECHATPADPRO_TOKEN` / `WECHATPADPRO_API_BASE` / `WECHATPADPRO_TICKET_PATH` / `WECHATPADPRO_WS_URL` | 微信智能应答 WeChatPadPro 云端网关通道（群消息 WebSocket；未配置 `WECHATPADPRO_TOKEN` 时消息通道不启动，见开发指南二十二节）                                                                                                                                                                                                                                                                                                                                                                  |
+| `WECHATPADPRO_BOT_WXID` / `WECHATPADPRO_FILE_APP_ID`                                      | 微信智能应答机器人 wxid 与文件通道 appId（收发媒体用）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `DIFY_WF3_API_KEY` / `DIFY_WF4_API_KEY`                                                   | 微信智能应答全局工作流密钥：WF3 群内提问回答文件命名 / WF4 聊天兜底总结（树障/交跨提取更正等按群按规则在管理页维护，不走 env）                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `CHATLOG_DIGEST_TIME` / `LOG_RAW_MESSAGE`                                                 | 聊天兜底归档每日触发时间（HH:mm，默认 `23:26`）/ 原始报文落应用日志开关（默认 `0`）                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## 小程序开发（微信开发者工具）
 
@@ -193,5 +207,7 @@ client_max_body_size 20m; # 图片上传（base64）需要
 
 ## 验证状态
 
-- 后端：依赖安装、`node --check` 语法、配置校验均本地通过；云端 MySQL/Redis/COS/WeKnora/Dify 实连以部署后日志为准。
-- 小程序：全部 JS/JSON 静态校验通过；构建 npm 与真机交互（登录、键盘、相册、日历着色、批量下载）以真机验证为准。
+- Go 后端（`go/`）：`go test ./...` 全模块本地通过（测试一律 fake/httptest，不连真实 MySQL/Redis/云端）；语法与构建校验本地通过。**真实云端未验证**——MySQL/Redis/COS/WeKnora/Dify/GLKVM/商旅/WeChatPadPro 实连与容器镜像运行以部署后日志为准。
+- Node 回退实现（`server/`，未退役）：`node --check` 语法与配置校验本地通过（沿用既有结论）；云端实连同样待部署验证。
+- 网页端（`web/`，Vue3 + Vite + TDesign）：`npm run build` 构建通过；页面交互以浏览器实测为准。
+- 小程序：全部 JS/JSON 静态校验通过；构建 npm 与真机交互（登录、键盘、相册、日历着色、批量下载）**真机未验证**，以真机验证为准。

@@ -1,46 +1,62 @@
-# Shade 壹匣后端镜像（后端 API + 网页端同端口托管）
+# Shade 壹匣后端镜像（Go 服务 + Vue 网页端同端口托管；Go/Vue 重写口径，旧 Node 服务端不进镜像）
 # 构建：GitHub Actions 发版产线（仓根 .github/workflows/release.yml，上下文为仓根、Dockerfile 即本文件），
 #       推 tag release-vX.Y.Z：GitHub Actions 原生构建 amd64/arm64 推 Docker Hub；
 #       CNB 国内重建推腾讯云 TCR + CNB 制品库（见 .cnb.yml）；
 #       本地手动构建：docker build -t j1toolkit:dev .
+# 多架构：Go 由 TARGETARCH 交叉编译（CGO_ENABLED=0 无原生依赖，amd64/arm64 同一产线）。
 
-# ---------- 依赖阶段：严格按 lockfile 安装生产依赖 ----------
-# 基础镜像不得低于 Node 22：商旅 jsonx 通道依赖 crypto.privateDecrypt 的 RSA_PKCS1_PADDING——
-# Node 20（OpenSSL 3.0.x）按 CVE-2023-46809 防护默认禁用它（报 "RSA_PKCS1_PADDING is no longer
-# supported for private decryption"，致 slapp/default 通道应答全部不可解、商旅功能整体不可用，
-# 2026-10-06 v1.0.2 镜像实证）；Node ≥22（OpenSSL ≥3.2，内置隐式拒绝缓解）安全且可用
-FROM node:24-bookworm-slim AS deps
-WORKDIR /app/server
+# ---------- Go 编译阶段（交叉编译，构建机原生工具链） ----------
+FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS gobuild
+ARG TARGETOS=linux
+ARG TARGETARCH
+WORKDIR /src
+COPY go/go.mod go/go.sum ./go/
+RUN cd go && go mod download
+COPY go/ ./go/
+RUN cd go && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/shade ./cmd/shade
+
+# ---------- web 构建阶段（npm ci 严格按 lockfile，产出 dist/） ----------
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS webbuild
+WORKDIR /src/web
 # CNB 国内构建机走 npmmirror 更快；可在构建参数覆盖（--build-arg NPM_REGISTRY=...）
 ARG NPM_REGISTRY=https://registry.npmmirror.com
-COPY server/package.json server/package-lock.json ./
+COPY web/package.json web/package-lock.json ./
 RUN npm config set registry "$NPM_REGISTRY" \
- && npm ci --omit=dev
+ && npm ci
+COPY web/ ./
+RUN npm run build
 
-# ---------- 运行阶段 ----------
-FROM node:24-bookworm-slim
-ENV NODE_ENV=production \
-    TZ=Asia/Shanghai \
-    PORT=3000
-# LibreOffice：安全日记录多文件含非 PDF 时转 PDF 再合并（src/safeday/convert.js 调 soffice）；
-# fonts-noto-cjk：转换中文文档排版所需；tzdata：TZ=Asia/Shanghai 生效（打卡/日志时间戳依赖）
+# ---------- 运行阶段（Debian slim：LibreOffice + 中文字体 + tzdata，无 Node） ----------
+FROM debian:bookworm-slim
+ENV TZ=Asia/Shanghai \
+    PORT=3000 \
+    SHADE_WEB_DIR=/app/web/dist \
+    SHADE_LEGACY_PUBLIC_DIR=/app/server/public \
+    WORKLOG_ASSETS_DIR=assets/worklog
+# LibreOffice：安全日记录多文件含非 PDF 时转 PDF 再合并（safeday 调 soffice）；
+# fonts-noto-cjk：转换中文文档排版所需；tzdata：TZ=Asia/Shanghai 生效（打卡/日志时间戳依赖）；
+# curl：健康检查探针
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       libreoffice-writer libreoffice-calc libreoffice-impress \
       fonts-noto-cjk tzdata curl \
  && rm -rf /var/lib/apt/lists/*
+# 数据/素材相对路径（./data/…、assets/…）以 /app/server 为基准：
+# server/assets → ./assets（字体 assets/fonts、模板 assets/worklog、assets/safeday/…）
 WORKDIR /app/server
-COPY --from=deps /app/server/node_modules ./node_modules
-COPY server/package.json ./
-COPY server/src ./src
-COPY server/public ./public
+COPY --from=gobuild /out/shade /usr/local/bin/shade
 COPY server/assets ./assets
-# 可写数据目录（安全日记录等，见 src 各 data/ 写入点）：运行时必须挂卷持久化，
-# 如 -v /opt/j1toolkit/data:/app/server/data
+COPY server/public/sgcc-captcha.html ./public/sgcc-captcha.html
+# Vue 网页端构建产物：SHADE_WEB_DIR 指向（safeday.Renderer.TemplatePath=assets/safeday/… 同口径）
+COPY --from=webbuild /src/web/dist /app/web/dist
+# 可写数据目录（安全日记录、树障/交跨收件箱、缩略图缓存等，见 go 各 data/ 写入点）：
+# 运行时必须挂卷持久化，如 -v /opt/j1toolkit/data:/app/server/data
 RUN mkdir -p /app/server/data
 VOLUME ["/app/server/data"]
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" || exit 1
-# 与 package.json 的 start 脚本同口径（node src/index.js）；全部配置从环境变量读取
-CMD ["node", "src/index.js"]
+# 与 go/cmd/shade 装配同口径（监听 0.0.0.0:$PORT，单端口托管 API + /healthz + 网页端）；
+# 全部配置从环境变量/运行配置读取
+CMD ["shade"]

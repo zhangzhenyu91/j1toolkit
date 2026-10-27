@@ -1,5 +1,7 @@
 // 班组数据（超管 / 班组管理员）：车牌号 / 目的地（含市外/驻地互斥标记）/ 人员 三类字典同构维护（人员支持上移 / 下移排序）
-// + 杆塔信息（线路清单 + 杆塔坐标模板下载 / Excel 导入全量替换）+ 运维线路（双输入添加 / 排序 / 模板下载 / Excel 导入全量替换）
+// + 杆塔信息（线路清单 + 杆塔坐标模板下载 / Excel 导入全量替换）+ 运维线路（双输入添加 / 编辑 / 删除 / 上移下移排序
+//   + 模板下载 / Excel 导入全量替换；文案与操作按 design/小程序-运维线路.html：编辑双字段弹层、全量导入与删除
+//   确认弹层带影响提示；清单供树障 / 交跨分组及微信智能应答线路匹配共用，发送者别名与线路均不另建存储）
 // 后端 /api/v1/teamdata 与出工日志管理端点形态 1:1（交互照搬 pkg-worklog manage 页，仅换基路径）；
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；班组管理员后端强制本班，不传
 import Toast from 'tdesign-miniprogram/toast/index';
@@ -39,6 +41,21 @@ Page({
     opVolt: '',
     opName: '',
     opAdding: false,
+    // 运维线路编辑弹层（电压等级 + 线路名称双字段，design/小程序-运维线路.html）
+    opEditVisible: false,
+    opEditId: 0,
+    opEditVolt: '',
+    opEditName: '',
+    opEditSaving: false,
+    // 运维线路删除确认弹层（删除后既有记录落「未匹配线路」提示）
+    opDelVisible: false,
+    opDelId: 0,
+    opDelName: '',
+    // 运维线路全量导入确认弹层（先清空再写入的影响提示；杆塔段仍走系统弹窗）
+    impVisible: false,
+    impFileName: '',
+    impFileText: '',
+    impTeamLabel: '当前班组',
     // 目的地编辑弹层（名称 + 市外/驻地互斥标记）
     destEditVisible: false,
     destEditId: 0,
@@ -59,10 +76,29 @@ Page({
     }
     // 生效班组：仅超管带切换器存下的 team_id（其余角色后端强制本班，带错值反而越不了权还可能误判，干脆不传）
     this._teamId = user.role === 'admin' ? Number(wx.getStorageSync('worklog_team_id')) || 0 : 0;
+    this.initTeamName(user);
     this.setData({ isAdmin: true });
     this.loadList();
     this.loadLines();
     this.loadOplines();
+  },
+
+  // 生效班组名（仅全量导入确认文案「清空『xx』现有运维线路」用）：非超管取本人班组名；
+  // 超管经 /admin/teams 解析切换器存下的 team_id（口径同 treehazard initTeam），失败退化「当前班组」不阻塞
+  async initTeamName(user) {
+    this._teamName = user.team || '';
+    if (user.role !== 'admin') return;
+    try {
+      const data = await request({ url: '/api/v1/admin/teams' });
+      const teams = ((data && data.list) || []).filter((t) => t.status === 1);
+      const cur =
+        teams.find((t) => t.id === this._teamId) ||
+        teams.find((t) => t.id === Number(user.team_id)) ||
+        teams[0];
+      if (cur) this._teamName = cur.name;
+    } catch (err) {
+      // 班组名仅用于导入确认文案，拉取失败不阻塞
+    }
   },
 
   // 生效班组 query 片段（lead 为前导连接符；无选中班组则不携带）
@@ -397,6 +433,17 @@ Page({
           this.toast('仅支持 .xlsx 文件，请使用模板填写');
           return;
         }
+        // 运维线路按设计稿走底部「确认全量导入」弹层（先清空再写入的影响提示）；杆塔段保持系统弹窗
+        if (path === 'oplines') {
+          this._impFile = f;
+          this.setData({
+            impVisible: true,
+            impFileName: f.name,
+            impFileText: `${Math.max(1, Math.round((f.size || 0) / 1024))} KB`,
+            impTeamLabel: this._teamName ? `「${this._teamName}」` : '当前班组',
+          });
+          return;
+        }
         wx.showModal({
           title: '确认导入',
           content: `导入后全量替换本班组${conf.dataLabel}，确认导入「${f.name}」吗？`,
@@ -407,6 +454,22 @@ Page({
         });
       },
     });
+  },
+
+  onImpVisibleChange(e) {
+    if (!e.detail.visible) this.setData({ impVisible: false });
+  },
+
+  onCloseImp() {
+    this.setData({ impVisible: false });
+  },
+
+  // 确认全量替换：先关弹层再走 doImport（成功 toast 后端 message 并刷新清单）
+  onImpConfirm() {
+    const f = this._impFile;
+    this.setData({ impVisible: false });
+    if (!f) return;
+    this.doImport('oplines', f);
   },
 
   // 执行导入：成功 toast 后端返回的 message（含导入条数）并刷新对应清单
@@ -507,64 +570,92 @@ Page({
     }
   },
 
-  // 编辑（系统可输入弹窗只有一个输入框：电压等级与线路名同条编辑、空格分隔，按首个空白切分）
+  // 编辑（底部弹层双字段：电压等级 + 线路名称，design/小程序-运维线路.html 口径）
   onOpEdit(e) {
     const { id, volt, name } = e.currentTarget.dataset;
-    wx.showModal({
-      title: '编辑运维线路',
-      editable: true,
-      content: `${volt} ${name}`,
-      placeholderText: '电压等级 线路名称（空格分隔）',
-      confirmText: '保存',
-      success: async (res) => {
-        if (!res.confirm) return;
-        const text = (res.content || '').trim();
-        const sep = text.search(/\s/);
-        const voltage = sep < 0 ? text : text.slice(0, sep);
-        const lineName = sep < 0 ? '' : text.slice(sep).trim();
-        if (!voltage || !lineName) {
-          this.toast('请输入「电压等级 线路名称」，空格分隔');
-          return;
-        }
-        if (voltage === String(volt) && lineName === String(name)) return;
-        try {
-          await request({
-            url: `${API_BASE}/oplines/${id}`,
-            method: 'PUT',
-            data: this.teamBody({ voltage_level: voltage, line_name: lineName }),
-          });
-          this.toast('已保存');
-          this.loadOplines();
-        } catch (err) {
-          this.toast(err.message);
-        }
-      },
+    this.setData({
+      opEditVisible: true,
+      opEditId: id,
+      opEditVolt: String(volt == null ? '' : volt),
+      opEditName: String(name == null ? '' : name),
     });
   },
 
-  // 删除（无外键引用拦截；树障记录按 line_name 文本关联，后端不拦）
+  onOpEditVisibleChange(e) {
+    if (!e.detail.visible && !this.data.opEditSaving) this.setData({ opEditVisible: false });
+  },
+
+  onCloseOpEdit() {
+    if (this.data.opEditSaving) return;
+    this.setData({ opEditVisible: false });
+  },
+
+  onOpEditVoltInput(e) {
+    this.setData({ opEditVolt: e.detail.value });
+  },
+
+  onOpEditNameInput(e) {
+    this.setData({ opEditName: e.detail.value });
+  },
+
+  // 保存：电压等级 + 线路名一并 PUT（班内名称唯一由后端 uk_team_line 兜底，冲突原文透出）
+  async onOpEditSave() {
+    if (this.data.opEditSaving) return;
+    const voltage = (this.data.opEditVolt || '').trim();
+    const lineName = (this.data.opEditName || '').trim();
+    if (!voltage) {
+      this.toast('请输入电压等级');
+      return;
+    }
+    if (!lineName) {
+      this.toast('请输入线路名称');
+      return;
+    }
+    this.setData({ opEditSaving: true });
+    try {
+      await request({
+        url: `${API_BASE}/oplines/${this.data.opEditId}`,
+        method: 'PUT',
+        data: this.teamBody({ voltage_level: voltage, line_name: lineName }),
+      });
+      this.toast('已保存');
+      this.setData({ opEditVisible: false });
+      this.loadOplines();
+    } catch (err) {
+      this.toast(err.message);
+    } finally {
+      this.setData({ opEditSaving: false });
+    }
+  },
+
+  // 删除（底部确认弹层：删除只影响之后的分组和匹配，既有记录落「未匹配线路」）
   onOpDelete(e) {
     const { id, name } = e.currentTarget.dataset;
-    wx.showModal({
-      title: '删除运维线路',
-      content: `确认删除「${name}」吗？`,
-      confirmText: '删除',
-      confirmColor: '#F53F3F',
-      success: async (res) => {
-        if (!res.confirm) return;
-        try {
-          await request({
-            url: `${API_BASE}/oplines/${id}${this.teamQuery('?')}`,
-            method: 'DELETE',
-            data: this.teamBody({}),
-          });
-          this.toast('已删除');
-          this.loadOplines();
-        } catch (err) {
-          this.toast(err.message);
-        }
-      },
-    });
+    this.setData({ opDelVisible: true, opDelId: id, opDelName: name });
+  },
+
+  onOpDelVisibleChange(e) {
+    if (!e.detail.visible) this.setData({ opDelVisible: false });
+  },
+
+  onCloseOpDelete() {
+    this.setData({ opDelVisible: false });
+  },
+
+  // 确认删除（无外键引用拦截；树障记录按 line_name 文本关联，删线后其记录落 unmatched）
+  async onOpConfirmDelete() {
+    try {
+      await request({
+        url: `${API_BASE}/oplines/${this.data.opDelId}${this.teamQuery('?')}`,
+        method: 'DELETE',
+        data: this.teamBody({}),
+      });
+      this.toast('已删除');
+      this.setData({ opDelVisible: false });
+      this.loadOplines();
+    } catch (err) {
+      this.toast(err.message);
+    }
   },
 
   // 排序：上移 / 下移（与班内相邻线路换位，direction 口径同成员排序）

@@ -1,0 +1,915 @@
+// 水印照片：上传（dataURL 解析 + 可选水印渲染 + COS 落库）、Dify 验证流水线（重试 + 回写）、
+// 手动修正 / 人名调整 / 删除 / 下载 / 范围列表 / 批量 PDF。日期/地点核验在后端 CheckWatermark 完成。
+package worklog
+
+import (
+	"bytes"
+	"context"
+	"crypto/md5"
+	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"shade/internal/compat/imagepdf"
+)
+
+// Dots 把 'YYYY-MM-DD' 转 'YYYY.MM.DD'（水印日期比对口径）。
+func Dots(dateStr string) string { return strings.ReplaceAll(dateStr, "-", ".") }
+
+// parseDataUrlPhoto 解析 base64 dataURL 照片（jpeg/png）；不合法返回 nil。
+func parseDataUrlPhoto(dataURL string) (buf []byte, contentType string) {
+	const jpegPrefix = "data:image/jpeg;base64,"
+	const pngPrefix = "data:image/png;base64,"
+	switch {
+	case strings.HasPrefix(dataURL, jpegPrefix):
+		contentType = "image/jpeg"
+		dataURL = dataURL[len(jpegPrefix):]
+	case strings.HasPrefix(dataURL, pngPrefix):
+		contentType = "image/png"
+		dataURL = dataURL[len(pngPrefix):]
+	case strings.HasPrefix(dataURL, "data:image/jpg;base64,"):
+		contentType = "image/jpeg"
+		dataURL = dataURL[len("data:image/jpg;base64,"):]
+	default:
+		return nil, ""
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(dataURL))
+	if err != nil || len(raw) == 0 {
+		return nil, ""
+	}
+	return raw, contentType
+}
+
+// checkPhotoMembers 照片人名校验：⊆ 本卡用车人；非水印（isPlain）不占「每人限一张」名额。
+func (m *Module) checkPhotoMembers(ctx context.Context, entryID int64, names []string, excludePhotoID int64, isPlain bool) (int, string) {
+	rows, err := m.DB.QueryContext(ctx,
+		`SELECT m.name FROM worklog_entry_member em JOIN worklog_member m ON m.id = em.member_id
+		 WHERE em.entry_id = ?`, entryID)
+	if err != nil {
+		return codeInternal, "服务器开小差了，请稍后再试"
+	}
+	inEntry := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) == nil {
+			inEntry[name] = true
+		}
+	}
+	rows.Close()
+	for _, n := range names {
+		if !inEntry[n] {
+			return codeNotCardMember, "「" + n + "」不是本卡用车人"
+		}
+	}
+	if isPlain {
+		return 0, ""
+	}
+	prows, err := m.DB.QueryContext(ctx,
+		`SELECT id, members FROM worklog_photo WHERE entry_id = ? AND is_watermark = 1`, entryID)
+	if err != nil {
+		return codeInternal, "服务器开小差了，请稍后再试"
+	}
+	used := map[string]bool{}
+	for prows.Next() {
+		var id int64
+		var membersJSON string
+		if prows.Scan(&id, &membersJSON) != nil {
+			continue
+		}
+		if excludePhotoID > 0 && id == excludePhotoID {
+			continue
+		}
+		for _, n := range parseNames(membersJSON) {
+			used[n] = true
+		}
+	}
+	prows.Close()
+	for _, n := range names {
+		if used[n] {
+			return codeMemberUsed, "「" + n + "」已有水印照片，每人限一张"
+		}
+	}
+	return 0, ""
+}
+
+// handlePhotoUpload POST /logs/{id}/photos：上传照片（base64 → COS）。
+// body.wm 可选：服务端渲染水印；body.plain=true 为非水印照片（免验证、不占每人一张）。
+func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
+	ident, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusForbidden, codeNoTeam, "未分配班组，请联系管理员分配")
+		return
+	}
+	entryID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var entryTeamID, vehicleID int64
+	var logDate, destName, teamName string
+	err := m.DB.QueryRowContext(r.Context(),
+		`SELECT e.team_id, COALESCE(e.vehicle_id, 0), DATE_FORMAT(e.log_date, '%Y-%m-%d'),
+		        COALESCE(d.name, ''), COALESCE(t.name, '')
+		 FROM worklog_entry e
+		 LEFT JOIN worklog_destination d ON d.id = e.destination_id
+		 LEFT JOIN sys_team t ON t.id = e.team_id
+		 WHERE e.id = ? AND `+entryVisibleSQL,
+		entryID, team.ID, team.ID).
+		Scan(&entryTeamID, &vehicleID, &logDate, &destName, &teamName)
+	if err != nil {
+		fail(w, http.StatusNotFound, codeMissing, "日志不存在")
+		return
+	}
+	if vehicleID == 0 {
+		fail(w, http.StatusBadRequest, codeInput, "未出车不可上传照片")
+		return
+	}
+	if m.SgccOps != nil && m.SgccOps.ActivePhotoOp(entryTeamID, entryID) {
+		fail(w, http.StatusConflict, codeOpRunning, "该卡片有商旅同步任务进行中，请稍后再传")
+		return
+	}
+	body, err := decodeBody(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, codeInput, "参数错误")
+		return
+	}
+	isPlain := rawBool(body["plain"])
+	names := parseNameList(body["members"])
+	if len(names) == 0 {
+		fail(w, http.StatusBadRequest, codePickMembers, "请选择照片所属人名")
+		return
+	}
+	if code, msg := m.checkPhotoMembers(r.Context(), entryID, names, 0, isPlain); code != 0 {
+		fail(w, http.StatusBadRequest, code, msg)
+		return
+	}
+	buf, contentType := parseDataUrlPhoto(rawString(body["image"]))
+	if buf == nil {
+		fail(w, http.StatusBadRequest, codePhotoFormat, "照片格式应为 jpeg/png（base64 dataURL）")
+		return
+	}
+	if len(buf) > 15*1024*1024 {
+		fail(w, http.StatusBadRequest, codePhotoSize, "照片大小应在 15MB 以内")
+		return
+	}
+	if !isPlain {
+		if wmRaw, exists := body["wm"]; exists && strings.TrimSpace(string(wmRaw)) != "null" {
+			var wm wmFields
+			if err := jsonUnmarshal(wmRaw, &wm); err == nil && (wm.Content != "" || wm.Time != "") {
+				rendered, err := renderWMPicture(buf, wm)
+				if err != nil {
+					fail(w, http.StatusBadRequest, codeWM, "水印渲染失败，请重试")
+					return
+				}
+				buf = rendered
+				contentType = "image/jpeg"
+			}
+		}
+	}
+
+	ext := "jpg"
+	if contentType == "image/png" {
+		ext = "png"
+	}
+	// 商旅远端先行 + 本地收尾：SgccRemote+PhotoOps 均注入时任务化异步（响应带 opId，端侧轮询收尾），
+	// 否则同步执行（远端失败本地零写入）
+	var photoID int64
+	var photoOut string
+	run := func(ctx context.Context, rec PhotoOpRec) error {
+		prefix := m.configValue(ctx, "COS_WORKLOG_PREFIX")
+		if prefix == "" {
+			prefix = "worklog/"
+		}
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		key := fmt.Sprintf("%s%s/%s/%d-%d.%s", prefix, teamName, Dots(logDate), entryID, nowMillis(), ext)
+		links := ""
+		if m.SgccRemote != nil {
+			var err error
+			links, err = m.SgccRemote.UploadToMembers(ctx, entryTeamID, logDate, names, buf)
+			if err != nil {
+				return &remoteFail{msg: fmt.Sprintf("商旅同步失败（%v），本地未上传", err)}
+			}
+		}
+		if m.Store != nil {
+			if err := m.Store.PutBuffer(ctx, key, buf, contentType); err != nil {
+				return err
+			}
+		}
+		imgMD5 := md5.Sum(buf)
+		membersJSON, _ := json.Marshal(names)
+		res, err := m.DB.ExecContext(ctx,
+			`INSERT INTO worklog_photo (entry_id, cos_key, url, members, md5, sgcc_img_id, sgcc_synced)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			entryID, key, m.photoURL(key, ""), string(membersJSON), hex.EncodeToString(imgMD5[:]),
+			links, boolToInt(m.SgccRemote != nil))
+		if err != nil {
+			return err
+		}
+		photoID, _ = res.LastInsertId()
+		photoOut = m.photoURL(key, "")
+		if rec != nil {
+			rec.SetPhoto(photoID, photoOut)
+		}
+		if isPlain {
+			_, _ = m.DB.ExecContext(ctx,
+				`UPDATE worklog_photo SET is_watermark = 0, verify_status = 'skipped' WHERE id = ?`, photoID)
+			return nil
+		}
+		m.runVerify(photoID, ident.Username, logDate, destName, photoOut)
+		return nil
+	}
+	if m.PhotoOps != nil && m.SgccRemote != nil {
+		opID := m.PhotoOps.StartPhotoOp("upload", entryTeamID, entryID, 0,
+			func(ctx context.Context, rec PhotoOpRec) error { return run(ctx, rec) })
+		writeOK(w, map[string]any{"opId": opID}, "已发起上传，商旅同步中")
+		return
+	}
+	if err := run(r.Context(), nil); err != nil {
+		writeRunErr(w, err)
+		return
+	}
+	writeOK(w, map[string]any{"id": photoID}, "照片已上传")
+}
+
+// runVerify 触发验证流水线（DisableAsync 同步执行，测试确定性；生产异步）。
+func (m *Module) runVerify(photoID int64, username, logDate, destName, url string) {
+	if m.DisableAsync {
+		m.verifyAndWriteBack(context.Background(), photoID, username, logDate, destName, url)
+		return
+	}
+	go m.verifyAndWriteBack(context.Background(), photoID, username, logDate, destName, url)
+}
+
+// wmFields 手动水印字段（渲染与修正共用）。
+type wmFields struct {
+	Content     string `json:"content"`
+	Time        string `json:"time"`
+	Weather     string `json:"weather"`
+	Location    string `json:"location"`
+	Longitude   string `json:"longitude"`
+	Latitude    string `json:"latitude"`
+	Lng         string `json:"lng"`
+	Lat         string `json:"lat"`
+	AntiCode    string `json:"antiCode"`
+	Orientation string `json:"orientation"`
+}
+
+// renderWMPicture 水印渲染（EXIF 方向矫正 + DrawWatermark）；产物 JPEG。
+func renderWMPicture(buf []byte, wm wmFields) ([]byte, error) {
+	img, orientation, err := imagepdf.DecodeWithOrientation(buf)
+	if err != nil {
+		return nil, err
+	}
+	img = imagepdf.AutoOrient(img, orientation)
+	fonts, err := imagepdf.LoadDefaultFonts()
+	if err != nil {
+		return nil, err
+	}
+	lng := wm.Longitude
+	if lng == "" {
+		lng = wm.Lng
+	}
+	lat := wm.Latitude
+	if lat == "" {
+		lat = wm.Lat
+	}
+	opts := imagepdf.WatermarkOptions{
+		Lines: []imagepdf.WatermarkLine{
+			{Text: wm.Content},
+			{Text: wm.Time},
+			{Text: wm.Weather},
+			{Text: wm.Location},
+			{Text: strings.TrimSpace(lng + " " + lat)},
+			{Text: wm.AntiCode, Mono: true},
+		},
+	}
+	out, err := imagepdf.DrawWatermark(img, fonts, opts)
+	if err != nil {
+		return nil, err
+	}
+	var bb bytes.Buffer
+	if err := imagepdf.EncodeJPEG(&bb, out, 90); err != nil {
+		return nil, err
+	}
+	return bb.Bytes(), nil
+}
+
+// verifyAndWriteBack Dify 识别（含重试）→ 回写（写库前重查目的地规避竞态）→ 必要时通知人工审核。
+func (m *Module) verifyAndWriteBack(ctx context.Context, photoID int64, username, logDate, destName, url string) {
+	if m.Dify == nil {
+		m.markPhotoFailed(ctx, photoID)
+		return
+	}
+	vr := recognize(ctx, m.Dify, username, Dots(logDate), destName, url)
+	var curDate, curDest string
+	err := m.DB.QueryRowContext(ctx,
+		`SELECT DATE_FORMAT(e.log_date, '%Y-%m-%d'), COALESCE(d.name, '')
+		 FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+		 LEFT JOIN worklog_destination d ON d.id = e.destination_id
+		 WHERE p.id = ?`, photoID).Scan(&curDate, &curDest)
+	if err != nil {
+		return // 照片已删除
+	}
+	if !verifyUsable(vr) {
+		m.markPhotoFailed(ctx, photoID)
+		if vr.OK && m.Notifier != nil {
+			_ = m.Notifier.NotifyManualReview(ctx, photoID)
+		}
+		return
+	}
+	chk := CheckWatermark(vr.Time, vr.Location, Dots(curDate), curDest)
+	_, _ = m.DB.ExecContext(ctx,
+		`UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?,
+		 location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
+		chk.Status, vr.WorkContent, vr.Time, vr.Weather, vr.Location, vr.Lng, vr.Lat,
+		boolToInt(chk.DateOK), boolToInt(chk.DestOK), photoID)
+}
+
+// markPhotoFailed 置验证失败（清空识别字段）。
+func (m *Module) markPhotoFailed(ctx context.Context, photoID int64) {
+	_, _ = m.DB.ExecContext(ctx,
+		`UPDATE worklog_photo SET verify_status = 'failed', work_content = '', shot_time = '', weather = '',
+		 location = '', lng = '', lat = '', date_ok = NULL, dest_ok = NULL WHERE id = ?`, photoID)
+}
+
+// handlePhotoVerify POST /photos/{id}/verify：验证失败后重新验证（重置 pending 并重调 Dify）。
+func (m *Module) handlePhotoVerify(w http.ResponseWriter, r *http.Request) {
+	ident, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusForbidden, codeNoTeam, "未分配班组，请联系管理员分配")
+		return
+	}
+	photoID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var status, logDate, destName, cosKey, url string
+	err := m.DB.QueryRowContext(r.Context(),
+		`SELECT p.verify_status, DATE_FORMAT(e.log_date, '%Y-%m-%d'), COALESCE(d.name, ''), p.cos_key, p.url
+		 FROM worklog_photo p
+		 JOIN worklog_entry e ON e.id = p.entry_id
+		 LEFT JOIN worklog_destination d ON d.id = e.destination_id
+		 WHERE p.id = ? AND `+entryVisibleSQL,
+		photoID, team.ID, team.ID).Scan(&status, &logDate, &destName, &cosKey, &url)
+	if err != nil {
+		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
+		return
+	}
+	if status != "failed" {
+		fail(w, http.StatusBadRequest, codeVerifyBusy, "仅验证失败的照片可重新验证")
+		return
+	}
+	_, _ = m.DB.ExecContext(r.Context(),
+		`UPDATE worklog_photo SET verify_status = 'pending', work_content = '', shot_time = '',
+		 weather = '', location = '', lng = '', lat = '', date_ok = NULL, dest_ok = NULL WHERE id = ?`, photoID)
+	m.runVerify(photoID, ident.Username, logDate, destName, m.photoURL(cosKey, url))
+	writeOK(w, map[string]any{"verify_status": "pending"})
+}
+
+// handlePhotoUpdateWM PUT /photos/{id}/wm：手动修正水印识别信息（仅水印照片、非识别中可改）。
+func (m *Module) handlePhotoUpdateWM(w http.ResponseWriter, r *http.Request) {
+	_, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusForbidden, codeNoTeam, "未分配班组，请联系管理员分配")
+		return
+	}
+	photoID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var status string
+	var isWM int
+	var logDate, destName string
+	err := m.DB.QueryRowContext(r.Context(),
+		`SELECT p.verify_status, p.is_watermark, DATE_FORMAT(e.log_date, '%Y-%m-%d'), COALESCE(d.name, '')
+		 FROM worklog_photo p
+		 JOIN worklog_entry e ON e.id = p.entry_id
+		 LEFT JOIN worklog_destination d ON d.id = e.destination_id
+		 WHERE p.id = ? AND `+entryVisibleSQL,
+		photoID, team.ID, team.ID).Scan(&status, &isWM, &logDate, &destName)
+	if err != nil {
+		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
+		return
+	}
+	if isWM == 0 {
+		fail(w, http.StatusBadRequest, codeVerifyBusy, "非水印照片不参与验证")
+		return
+	}
+	if status == "pending" {
+		fail(w, http.StatusBadRequest, codeVerifyBusy, "照片识别中，请稍后再修正")
+		return
+	}
+	body, err := decodeBody(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, codeInput, "参数错误")
+		return
+	}
+	workContent := truncate(strings.TrimSpace(rawString(body["workContent"])), 512)
+	if workContent == "" {
+		workContent = truncate(strings.TrimSpace(rawString(body["work_content"])), 512)
+	}
+	shotTime := truncate(strings.TrimSpace(rawString(body["shotTime"])), 32)
+	if shotTime == "" {
+		shotTime = truncate(strings.TrimSpace(rawString(body["shot_time"])), 32)
+	}
+	// 拍摄时间归一：YYYY-MM-DD → YYYY.MM.DD（核验为点分口径）
+	shotTime = normalizeShotTime(shotTime)
+	if workContent == "" {
+		fail(w, http.StatusBadRequest, codeVerifyBusy, "施工内容不能为空")
+		return
+	}
+	if shotTime == "" {
+		fail(w, http.StatusBadRequest, codeVerifyBusy, "拍摄时间不能为空")
+		return
+	}
+	weather := truncate(strings.TrimSpace(rawString(body["weather"])), 64)
+	location := truncate(strings.TrimSpace(rawString(body["location"])), 255)
+	lng := truncate(strings.TrimSpace(rawString(body["lng"])), 32)
+	lat := truncate(strings.TrimSpace(rawString(body["lat"])), 32)
+
+	chk := CheckWatermark(shotTime, location, Dots(logDate), destName)
+	if _, err := m.DB.ExecContext(r.Context(),
+		`UPDATE worklog_photo SET verify_status = ?, work_content = ?, shot_time = ?, weather = ?,
+		 location = ?, lng = ?, lat = ?, date_ok = ?, dest_ok = ? WHERE id = ?`,
+		chk.Status, workContent, shotTime, weather, location, lng, lat,
+		boolToInt(chk.DateOK), boolToInt(chk.DestOK), photoID); err != nil {
+		writeErr(w, err)
+		return
+	}
+	msg := "已保存，仍未通过核验"
+	if chk.Status == "passed" {
+		msg = "已保存，照片核验通过"
+	}
+	writeOK(w, map[string]any{
+		"id": photoID, "verify_status": chk.Status,
+		"date_ok": boolToInt(chk.DateOK), "dest_ok": boolToInt(chk.DestOK),
+	}, msg)
+}
+
+// normalizeShotTime 把 YYYY-MM-DD 形式归一为 YYYY.MM.DD（核验为点分口径）。
+func normalizeShotTime(s string) string {
+	out := s
+	if len(out) >= 10 && out[4] == '-' && out[7] == '-' {
+		out = out[:4] + "." + out[5:7] + "." + out[8:]
+	}
+	return out
+}
+
+// handlePhotoUpdateMembers PUT /photos/{id}/members：调整照片所属人名。
+func (m *Module) handlePhotoUpdateMembers(w http.ResponseWriter, r *http.Request) {
+	_, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusForbidden, codeNoTeam, "未分配班组，请联系管理员分配")
+		return
+	}
+	photoID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var entryID, entryTeamID int64
+	var isWM int
+	var membersRaw string
+	err := m.DB.QueryRowContext(r.Context(),
+		`SELECT p.entry_id, p.members, e.team_id, p.is_watermark FROM worklog_photo p
+		 JOIN worklog_entry e ON e.id = p.entry_id
+		 WHERE p.id = ? AND `+entryVisibleSQL, photoID, team.ID, team.ID).
+		Scan(&entryID, &membersRaw, &entryTeamID, &isWM)
+	if err != nil {
+		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
+		return
+	}
+	body, err := decodeBody(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, codeInput, "参数错误")
+		return
+	}
+	names := parseNameList(body["members"])
+	if len(names) == 0 {
+		fail(w, http.StatusBadRequest, codePickMembers, "请选择照片所属人名")
+		return
+	}
+	if code, msg := m.checkPhotoMembers(r.Context(), entryID, names, photoID, isWM == 0); code != 0 {
+		fail(w, http.StatusBadRequest, code, msg)
+		return
+	}
+	oldNames := parseNames(membersRaw)
+	// 先校验未绑定/登录过期成员的人名状态不可更改（增减均拒绝；此类成员的商旅联动无法进行）
+	if m.SgccRemote != nil {
+		if msg := m.checkSgccBound(r, entryID, oldNames, names); msg != "" {
+			fail(w, http.StatusBadRequest, codeBoundMember, msg)
+			return
+		}
+	}
+	if m.SgccOps != nil && m.SgccOps.ActivePhotoOp(entryTeamID, entryID) {
+		fail(w, http.StatusConflict, codeOpRunning, "该卡片有商旅同步任务进行中，请稍后再试")
+		return
+	}
+	removed := diffNames(oldNames, names)
+	// 变更双向远端先行——剔除人名先从其商旅费用照片移除、新增人名先补传进商旅费用照片，全部成功后才变更本地；
+	// 任务化（双注入）异步执行登记后返回 opId，端侧轮询 /op/status 收尾
+	membersJSON, _ := json.Marshal(names)
+	run := func(ctx context.Context, rec PhotoOpRec) error {
+		if m.SgccRemote != nil {
+			if len(removed) > 0 {
+				if err := m.SgccRemote.RemoveMembers(ctx, photoID, removed); err != nil {
+					if rec != nil {
+						rec.SetFailedName(failedNameOf(err))
+					}
+					return &remoteFail{msg: fmt.Sprintf("商旅费用照片删除失败（%v），本地未修改", err)}
+				}
+			}
+			if err := m.SgccRemote.SyncMembers(ctx, photoID, names); err != nil {
+				if rec != nil {
+					rec.SetFailedName(failedNameOf(err))
+				}
+				return &remoteFail{msg: fmt.Sprintf("商旅费用照片同步失败（%v），本地未修改", err)}
+			}
+		}
+		_, err := m.DB.ExecContext(ctx,
+			`UPDATE worklog_photo SET members = ? WHERE id = ?`, string(membersJSON), photoID)
+		return err
+	}
+	if m.PhotoOps != nil && m.SgccRemote != nil {
+		opID := m.PhotoOps.StartPhotoOp("members", entryTeamID, entryID, photoID,
+			func(ctx context.Context, rec PhotoOpRec) error { return run(ctx, rec) })
+		writeOK(w, map[string]any{"opId": opID}, "已发起人名修改，商旅同步中")
+		return
+	}
+	if err := run(r.Context(), nil); err != nil {
+		writeRunErr(w, err)
+		return
+	}
+	writeOK(w, map[string]any{"members": names})
+}
+
+// diffNames 返回在 old 中、不在 next 的人名（剔除名单）。
+func diffNames(old, next []string) []string {
+	in := map[string]bool{}
+	for _, n := range next {
+		in[n] = true
+	}
+	out := make([]string, 0)
+	for _, n := range old {
+		if !in[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// failedNameOf 从远端错误中取失败人名（实现侧可包装带人名的错误；无法识别返回空串）。
+type namedError interface{ FailedName() string }
+
+func failedNameOf(err error) string {
+	var ne namedError
+	if errors.As(err, &ne) {
+		return ne.FailedName()
+	}
+	return ""
+}
+
+// checkSgccBound 调人名前校验：状态变化的成员须绑定商旅且登录态有效（token_status=1），否则返回提示（空串=通过）。
+func (m *Module) checkSgccBound(r *http.Request, entryID int64, oldNames, names []string) string {
+	rows, err := m.DB.QueryContext(r.Context(),
+		`SELECT m.name, a.token_status FROM worklog_entry_member em
+		 JOIN worklog_member m ON m.id = em.member_id
+		 LEFT JOIN worklog_sgcc_account a ON a.member_id = m.id
+		 WHERE em.entry_id = ?`, entryID)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	now := map[string]bool{}
+	for _, n := range names {
+		now[n] = true
+	}
+	was := map[string]bool{}
+	for _, n := range oldNames {
+		was[n] = true
+	}
+	for rows.Next() {
+		var name string
+		var tokenStatus sql.NullInt64
+		if rows.Scan(&name, &tokenStatus) != nil {
+			continue
+		}
+		if tokenStatus.Valid && tokenStatus.Int64 == 1 {
+			continue // 绑定且登录态有效
+		}
+		if was[name] != now[name] {
+			reason := "未绑定商旅账号"
+			if tokenStatus.Valid && tokenStatus.Int64 == 0 {
+				reason = "商旅登录已过期"
+			}
+			return "成员「" + name + "」" + reason + "，人名状态不可更改"
+		}
+	}
+	return ""
+}
+
+// handlePhotoDelete DELETE /photos/{id}：删除照片（远端先解除商旅费用照片关联，成功后才删 COS 对象与库记录）。
+func (m *Module) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
+	_, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusForbidden, codeNoTeam, "未分配班组，请联系管理员分配")
+		return
+	}
+	photoID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var cosKey string
+	var entryTeamID, entryID int64
+	err := m.DB.QueryRowContext(r.Context(),
+		`SELECT p.cos_key, p.entry_id, e.team_id FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+		 WHERE p.id = ? AND `+entryVisibleSQL, photoID, team.ID, team.ID).Scan(&cosKey, &entryID, &entryTeamID)
+	if err != nil {
+		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
+		return
+	}
+	if m.SgccOps != nil && m.SgccOps.ActivePhotoOp(entryTeamID, entryID) {
+		fail(w, http.StatusConflict, codeOpRunning, "该卡片有商旅同步任务进行中，请稍后再试")
+		return
+	}
+	run := func(ctx context.Context, rec PhotoOpRec) error {
+		if m.SgccRemote != nil {
+			if err := m.SgccRemote.Unlink(ctx, photoID); err != nil {
+				if rec != nil {
+					rec.SetFailedName(failedNameOf(err))
+				}
+				return &remoteFail{msg: fmt.Sprintf("商旅费用照片解除失败（%v），本地未删除", err)}
+			}
+		}
+		if m.Store != nil && cosKey != "" {
+			_ = m.Store.DeleteObject(ctx, cosKey)
+		}
+		_, err := m.DB.ExecContext(ctx, `DELETE FROM worklog_photo WHERE id = ?`, photoID)
+		return err
+	}
+	if m.PhotoOps != nil && m.SgccRemote != nil {
+		opID := m.PhotoOps.StartPhotoOp("delete", entryTeamID, entryID, photoID,
+			func(ctx context.Context, rec PhotoOpRec) error { return run(ctx, rec) })
+		writeOK(w, map[string]any{"opId": opID}, "已发起删除，解除商旅关联中")
+		return
+	}
+	if err := run(r.Context(), nil); err != nil {
+		writeRunErr(w, err)
+		return
+	}
+	writeOK(w, nil)
+}
+
+// handlePhotoDownload GET /photos/{id}/download：302 到照片访问地址。
+func (m *Module) handlePhotoDownload(w http.ResponseWriter, r *http.Request) {
+	_, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusForbidden, codeNoTeam, "未分配班组，请联系管理员分配")
+		return
+	}
+	photoID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var cosKey, url string
+	err := m.DB.QueryRowContext(r.Context(),
+		`SELECT p.cos_key, p.url FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+		 WHERE p.id = ? AND `+entryVisibleSQL, photoID, team.ID, team.ID).Scan(&cosKey, &url)
+	if err != nil {
+		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
+		return
+	}
+	http.Redirect(w, r, m.photoURL(cosKey, url), http.StatusFound)
+}
+
+// handlePhotoList GET /photos?from=&to=：日期范围内的全部水印照片（批量下载用）。
+func (m *Module) handlePhotoList(w http.ResponseWriter, r *http.Request) {
+	_, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+	if !dateRe.MatchString(from) || !dateRe.MatchString(to) {
+		fail(w, http.StatusBadRequest, codeParam, "日期格式应为 YYYY-MM-DD")
+		return
+	}
+	if from > to {
+		fail(w, http.StatusBadRequest, codeDateRange, "开始日期不能晚于结束日期")
+		return
+	}
+	if team == nil {
+		writeOK(w, map[string]any{"list": []any{}})
+		return
+	}
+	rows, err := m.DB.QueryContext(r.Context(),
+		`SELECT p.id, p.cos_key, p.url, DATE_FORMAT(e.log_date, '%Y-%m-%d'), DAYOFMONTH(e.log_date), p.members
+		 FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+		 WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ? ORDER BY e.log_date, p.id`,
+		from, to, team.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	defer rows.Close()
+	type item struct {
+		ID      int64    `json:"id"`
+		URL     string   `json:"url"`
+		LogDate string   `json:"log_date"`
+		Month   string   `json:"month"`
+		Day     int      `json:"day"`
+		Members []string `json:"members"`
+	}
+	list := make([]item, 0)
+	for rows.Next() {
+		var it item
+		var cosKey, url, membersJSON string
+		if rows.Scan(&it.ID, &cosKey, &url, &it.LogDate, &it.Day, &membersJSON) == nil {
+			it.URL = m.photoURL(cosKey, url)
+			it.Month = it.LogDate[:7]
+			it.Members = parseNames(membersJSON)
+			list = append(list, it)
+		}
+	}
+	writeOK(w, map[string]any{"list": list})
+}
+
+// handlePhotosPDF GET /photos.pdf?from=&to=：范围照片组合 PDF（复用 compat/imagepdf.BuildPhotosPDF）。
+func (m *Module) handlePhotosPDF(w http.ResponseWriter, r *http.Request) {
+	_, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+	if !dateRe.MatchString(from) || !dateRe.MatchString(to) {
+		fail(w, http.StatusBadRequest, codeParam, "日期格式应为 YYYY-MM-DD")
+		return
+	}
+	if from > to {
+		fail(w, http.StatusBadRequest, codeDateRange, "开始日期不能晚于结束日期")
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusBadRequest, codeNoPhoto, "该日期范围没有水印照片")
+		return
+	}
+	pdf, failed, err := m.buildRangePhotosPDF(r.Context(), team.ID, from, to)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if len(pdf) == 0 {
+		fail(w, http.StatusBadRequest, codeNoPhoto, "该日期范围没有水印照片")
+		return
+	}
+	_ = failed
+	fileName := "水印照片-" + from + ".pdf"
+	if from != to {
+		fileName = "水印照片-" + from + "至" + to + ".pdf"
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition",
+		`attachment; filename="photos.pdf"; filename*=UTF-8''`+encURI(fileName))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdf)
+}
+
+// handlePhotosPDFSaveNetdisk POST /photos-pdf/save-netdisk {from,to,dir?,space?}：
+// 组合 PDF 保存到网盘（space: my 我的空间（缺省）/ public 公共区；dir 缺省 出工日志/）。
+func (m *Module) handlePhotosPDFSaveNetdisk(w http.ResponseWriter, r *http.Request) {
+	ident, team, ok := m.enter(w, r)
+	if !ok {
+		return
+	}
+	body, err := decodeBody(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, codeParam, "参数错误")
+		return
+	}
+	from, to := rawString(body["from"]), rawString(body["to"])
+	if !dateRe.MatchString(from) || !dateRe.MatchString(to) {
+		fail(w, http.StatusBadRequest, codeParam, "日期格式应为 YYYY-MM-DD")
+		return
+	}
+	if from > to {
+		fail(w, http.StatusBadRequest, codeDateRange, "开始日期不能晚于结束日期")
+		return
+	}
+	if team == nil {
+		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		return
+	}
+	pdf, failed, err := m.buildRangePhotosPDF(r.Context(), team.ID, from, to)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if len(pdf) == 0 {
+		fail(w, http.StatusNotFound, codeNoPhotos, "该日期范围没有水印照片")
+		return
+	}
+	fileName := "水印照片-" + from + ".pdf"
+	if from != to {
+		fileName = "水印照片-" + from + "至" + to + ".pdf"
+	}
+	space := "my"
+	if rawString(body["space"]) == "public" {
+		space = "public"
+	}
+	dir := "出工日志"
+	if raw, has := body["dir"]; has && string(raw) != "null" {
+		dir = rawString(raw)
+	}
+	path, err := m.saveToNetdisk(r.Context(), ident, NetdiskSaveRequest{
+		Space: space, Dir: dir, Name: fileName, Body: pdf,
+	})
+	if err != nil {
+		writeNetdiskErr(w, err)
+		return
+	}
+	writeOK(w, map[string]any{"path": path, "failed": failed}, "已保存到网盘")
+}
+
+// buildRangePhotosPDF 组合范围内水印照片为 PDF（按卡片分组，每卡两张一页）；
+// 无照片返回空 buf；failed 为回源失败的照片数（记名跳过，不中断）。
+func (m *Module) buildRangePhotosPDF(ctx context.Context, teamID int64, from, to string) (pdf []byte, failed int, err error) {
+	rows, err := m.DB.QueryContext(ctx,
+		`SELECT p.entry_id, p.cos_key, p.url FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+		 WHERE e.log_date BETWEEN ? AND ? AND e.team_id = ? ORDER BY e.log_date, e.created_at, e.id, p.id`,
+		from, to, teamID)
+	if err != nil {
+		return nil, 0, err
+	}
+	byEntry := map[int64][]photoRef{}
+	order := make([]int64, 0)
+	for rows.Next() {
+		var entryID int64
+		var cosKey, url string
+		if rows.Scan(&entryID, &cosKey, &url) == nil {
+			if _, ok := byEntry[entryID]; !ok {
+				order = append(order, entryID)
+			}
+			byEntry[entryID] = append(byEntry[entryID], photoRef{cosKey: cosKey, url: url})
+		}
+	}
+	rows.Close()
+	if len(order) == 0 {
+		return nil, 0, nil
+	}
+	cards := make([]imagepdf.PhotoCard, 0, len(order))
+	for _, id := range order {
+		photos := make([][]byte, 0, len(byEntry[id]))
+		for _, ref := range byEntry[id] {
+			buf, err := fetchObjectBytes(ctx, m.Store, ref.cosKey, m.photoURL(ref.cosKey, ref.url))
+			if err == nil && len(buf) > 0 && len(buf) <= zipPhotoMaxLen {
+				photos = append(photos, buf)
+			} else {
+				failed++
+			}
+		}
+		if len(photos) > 0 {
+			cards = append(cards, imagepdf.PhotoCard{Photos: photos})
+		}
+	}
+	if len(cards) == 0 {
+		return nil, failed, nil
+	}
+	built, err := imagepdf.BuildPhotosPDF(cards)
+	if err != nil {
+		return nil, failed, err
+	}
+	return built, failed, nil
+}
+
+// photoRef 照片回源引用。
+type photoRef struct {
+	cosKey string
+	url    string
+}
+
+// parseNameList 解析人名数组字段（去空白去重保序）。
+func parseNameList(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var arr []string
+	if err := jsonUnmarshal(raw, &arr); err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(arr))
+	for _, n := range arr {
+		n = strings.TrimSpace(n)
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}
