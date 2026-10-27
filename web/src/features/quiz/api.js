@@ -13,6 +13,50 @@ function token() {
   }
 }
 
+// manageTeamId 超管班组切换的生效班组（0=不指定，由后端落默认班组）。
+// 管理口径请求（管理列表/题库 CRUD/导入/解析重试/题库池/订阅/题目 CRUD）统一带 team_id；
+// 个人口径（我的题库/题库主页/刷题/错题/收藏/模板下载）不带，见 withTeam。
+let manageTeamId = 0;
+
+// setManageTeam 设置管理口径生效班组（超管班组切换器调用）。
+export function setManageTeam(id) {
+  manageTeamId = Number(id) || 0;
+}
+
+// withTeam 管理口径路径拼接 team_id（与旧页 qz() 同口径：管理/题库池/订阅/题目 CRUD 带，
+// 我的题库/题库主页/刷题/错题/收藏/模板下载为个人口径不带）。
+function withTeam(path, options = {}) {
+  if (!manageTeamId) return path;
+  const method = (options.method || 'GET').toUpperCase();
+  const personal =
+    /^\/(overview|practice\/|wrongs|favorites)/.test(path) ||
+    /^\/banks\/[^/]+\/home/.test(path) ||
+    /^\/banks\/template/.test(path) ||
+    (path === '/banks' && method === 'GET');
+  if (personal) return path;
+  const isManage =
+    method !== 'GET' ||
+    /^\/banks\/manage|^\/banks\/pool|^\/banks\/[^/]+\/(import|analyze-retry|join|questions)|^\/questions\//.test(
+      path
+    );
+  if (!isManage) return path;
+  return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'team_id=' + manageTeamId;
+}
+
+// listTeams 超管班组窄列表（GET /api/v1/admin/teams，仅启用班组）[{id,name}]。
+export async function listTeams() {
+  const headers = {};
+  const tk = token();
+  if (tk) headers.Authorization = `Bearer ${tk}`;
+  const res = await fetch('/api/v1/admin/teams', { headers });
+  const body = await res.json().catch(() => ({
+    code: 'http_error',
+    message: `服务返回异常（HTTP ${res.status}）`,
+  }));
+  if (body.code !== 0) throw new Error(body.message || '班组列表加载失败');
+  return body.data;
+}
+
 // request 统一请求：非 0 业务码抛 Error（带 err.code / err.data）。
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
@@ -21,7 +65,7 @@ async function request(path, options = {}) {
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(BASE + path, { ...options, headers });
+  const res = await fetch(BASE + withTeam(path, options), { ...options, headers });
   const body = await res.json().catch(() => ({
     code: 'http_error',
     message: `服务返回异常（HTTP ${res.status}）`,

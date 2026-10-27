@@ -1,91 +1,104 @@
 <template>
-  <div v-if="open" class="wl-modal-mask" @click.self="close">
-    <div class="wl-modal card">
-      <h3 class="card-title">{{ entry ? '编辑跨班日志' : '新建跨班日志' }}</h3>
+  <div v-if="open" class="mask open" @click.self="close">
+    <div class="modal">
+      <div class="m-scroll">
+        <div class="m-head">
+          <span class="m-title">{{ entry ? '修改跨班派车 / 用车人' : '新建跨班日志' }}</span>
+          <button type="button" class="m-x" @click="close">
+            <WlIcon name="close" :size="14" />
+          </button>
+        </div>
 
-      <div class="wl-field">
-        <span class="field-label">日期</span>
-        <input v-if="!entry" v-model="form.log_date" type="date" class="wl-input" />
-        <span v-else class="num">{{ form.log_date }}</span>
-      </div>
+        <!-- 日期（编辑时仅展示） -->
+        <div class="f-hint" style="margin: 0 0 2px">
+          <template v-if="entry">{{ fmtDateCN(form.log_date) }}</template>
+        </div>
+        <template v-if="!entry">
+          <label class="f-lab">日期</label>
+          <input v-model="form.log_date" type="date" class="f-sel" />
+        </template>
 
-      <div class="wl-field">
-        <span class="field-label">归属班组</span>
-        <select v-model="form.team_id" class="wl-input" :disabled="!!entry">
+        <label class="f-lab">归属班组</label>
+        <select v-model="form.team_id" class="f-sel" :disabled="!!entry">
           <option :value="0" disabled>请选择</option>
           <option v-for="t in meta.teams" :key="t.id" :value="t.id">{{ t.name }}</option>
         </select>
-      </div>
 
-      <div class="wl-field">
-        <span class="field-label">车牌号</span>
+        <label class="f-lab">派车车辆（留空 = 未出车）</label>
         <input
           v-model="form.plate_no"
           type="text"
-          class="wl-input"
+          class="f-sel"
           list="cross-vehicles"
           placeholder="留空 = 未出车"
+          autocomplete="off"
         />
         <datalist id="cross-vehicles">
           <option v-for="v in meta.vehicles" :key="v.name" :value="v.name">
             {{ (v.teams || []).join('、') }}
           </option>
         </datalist>
-      </div>
 
-      <div class="wl-field">
-        <span class="field-label">目的地</span>
-        <input
-          v-model="form.destination"
-          type="text"
-          class="wl-input"
-          list="cross-dests"
-          placeholder="选填"
-        />
-        <datalist id="cross-dests">
-          <option v-for="d in meta.destinations" :key="d.name" :value="d.name">
-            {{ (d.teams || []).join('、') }}
-          </option>
-        </datalist>
-      </div>
+        <template v-if="form.plate_no">
+          <label class="f-lab">目的地（可空）</label>
+          <input
+            v-model="form.destination"
+            type="text"
+            class="f-sel"
+            list="cross-dests"
+            placeholder="请输入目的地（可空）"
+            autocomplete="off"
+          />
+          <datalist id="cross-dests">
+            <option v-for="d in meta.destinations" :key="d.name" :value="d.name">
+              {{ (d.teams || []).join('、') }}
+            </option>
+          </datalist>
 
-      <div class="wl-field">
-        <span class="field-label">用车人</span>
-        <div class="wl-chips">
-          <button
-            v-for="m in meta.members"
-            :key="m.name"
-            type="button"
-            class="wl-chip"
-            :class="{ on: form.member_names.includes(m.name) }"
-            @click="toggleMember(m.name)"
-          >
-            {{ m.name }}
-          </button>
-          <span v-if="!meta.members.length" class="muted">加载中…</span>
-        </div>
-      </div>
+          <label class="f-lab">派车单号（可空）</label>
+          <input
+            v-model="form.dispatch_order_no"
+            type="text"
+            class="f-sel"
+            maxlength="64"
+            placeholder="请输入派车单号（可空）"
+            autocomplete="off"
+          />
 
-      <div class="wl-field">
-        <span class="field-label">派车单号</span>
-        <input v-model="form.dispatch_order_no" type="text" class="wl-input" placeholder="选填" />
-      </div>
+          <label class="f-lab">用车人（点亮即为用车人；同名多班见名称后小字）</label>
+          <div class="chips">
+            <button
+              v-for="m in meta.members"
+              :key="m.name"
+              type="button"
+              class="chip"
+              :class="{ on: form.member_names.includes(m.name) }"
+              @click="toggleMember(m.name)"
+            >
+              {{ m.name }}
+              <small v-if="(m.teams || []).length > 1">{{ (m.teams || []).join('/') }}</small>
+            </button>
+            <span v-if="!meta.members.length" class="f-hint">加载中…</span>
+          </div>
+        </template>
+        <div v-else class="f-hint">未出车为站内作业，不参与验证，不可选目的地与用车人</div>
 
-      <div class="wl-field">
-        <span class="field-label">巡视内容</span>
+        <label class="f-lab">巡视内容（可空）</label>
         <textarea
           v-model="form.patrol_content"
-          class="wl-input wl-area"
+          class="f-ta"
           rows="3"
-          placeholder="选填"
+          placeholder="如 110kVXX线巡视"
         ></textarea>
-      </div>
 
-      <div v-if="error" class="wl-error">{{ error }}</div>
+        <div v-if="error" class="wl-error">{{ error }}</div>
 
-      <div class="wl-modal-foot">
-        <t-button variant="outline" @click="close">取消</t-button>
-        <t-button :loading="saving" @click="submit">保存</t-button>
+        <div class="m-foot">
+          <button type="button" class="btn btn-sm" @click="close">取消</button>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="saving" @click="submit">
+            {{ saving ? '保存中…' : '保 存' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -93,9 +106,11 @@
 
 <script setup>
 import { reactive, ref, watch } from 'vue';
+import WlIcon from './WlIcon.vue';
 import { createCrossLog, updateCrossLog } from '../api.js';
 
-// 跨班日志弹窗（仅超管）：归属班组 + 车牌/目的地/成员按名称精确命中（缺则服务端补建）。
+// 跨班日志弹层（仅超管；旧版 .modal 弹层骨架 + f-lab/f-sel/chips 密度）：
+// 归属班组 + 车牌/目的地/成员按名称精确命中（缺则服务端补建）。
 // meta 来自 /logs/cross/meta；保存成功抛 saved 由父视图刷新。
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -119,6 +134,12 @@ const form = reactive({
   dispatch_order_no: '',
   patrol_content: '',
 });
+
+// fmtDateCN 日期中文。
+function fmtDateCN(d) {
+  const [y, m, dd] = String(d || '').split('-');
+  return `${y} 年 ${Number(m)} 月 ${Number(dd)} 日`;
+}
 
 // open 变化时回填（编辑时成员名取 entry.members）。
 watch(
@@ -189,86 +210,214 @@ async function submit() {
 </script>
 
 <style scoped>
-.wl-modal-mask {
+/* ===== 通用弹层骨架（旧版 .mask/.modal/.m-scroll/.m-head/.m-foot） ===== */
+.mask {
   position: fixed;
   inset: 0;
+  z-index: 320;
+  padding: 24px;
   background: rgba(29, 33, 41, 0.45);
+  backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
 }
-.wl-modal {
-  width: min(560px, calc(100vw - 32px));
-  max-height: calc(100vh - 64px);
-  overflow: auto;
-}
-.wl-field {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 7px 0;
-}
-.wl-field .field-label {
-  width: 64px;
-  flex-shrink: 0;
-  padding-top: 7px;
-}
-.wl-input {
-  flex: 1;
-  min-width: 0;
-  height: 32px;
+.modal {
+  background: #fff;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  padding: 0 10px;
+  width: 520px;
+  max-width: 94vw;
+  max-height: 86vh;
+  overflow: hidden;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--tk-shadow-card);
+}
+.m-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 14px 18px 16px;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-dash) transparent;
+}
+.m-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.m-scroll::-webkit-scrollbar-thumb {
+  background: var(--tk-dash);
+  border-radius: 8px;
+}
+.m-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.m-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.m-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--tk-shadow-card);
+}
+.m-x:hover {
+  background: var(--tk-ink);
+  color: #fff;
+}
+.m-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* ===== 表单（f-lab / f-sel / f-ta / chips） ===== */
+.f-lab {
+  display: block;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+  margin: 14px 0 7px;
+}
+.f-lab:first-of-type {
+  margin-top: 2px;
+}
+.f-sel,
+.f-ta {
+  width: 100%;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
   font-size: 13px;
   color: var(--tk-ink);
-  background: var(--tk-fill);
+  font-family: inherit;
 }
-.wl-area {
-  height: auto;
-  padding: 8px 10px;
-  resize: vertical;
-  line-height: 1.6;
+.f-sel {
+  height: 36px;
+  padding: 0 10px;
 }
-.wl-input:focus {
-  outline: none;
+.f-sel:focus,
+.f-ta:focus {
   border-color: var(--tk-brand);
-  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
-.wl-chips {
-  flex: 1;
+.f-ta {
+  min-height: 76px;
+  padding: 10px 12px;
+  line-height: 1.7;
+  resize: vertical;
+}
+.f-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+}
+.chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
-.wl-chip {
-  padding: 4px 12px;
-  border-radius: 4px;
+.chip {
   border: 1px solid var(--tk-line);
-  background: var(--tk-fill);
-  color: var(--tk-sub);
-  font-size: 12px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 12.5px;
+  padding: 4px 13px;
   cursor: pointer;
+  font-family: inherit;
 }
-.wl-chip.on {
-  background: var(--tk-blue-soft);
-  border-color: transparent;
+.chip:hover {
+  border-color: var(--tk-brand);
   color: var(--tk-brand);
-  font-weight: 600;
 }
+.chip.on {
+  border-color: var(--tk-brand);
+  background: var(--tk-brand);
+  color: #fff;
+  font-weight: 700;
+}
+/* 同名多班时名称后的来源班组小字 */
+.chip small {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--tk-ph);
+}
+.chip.on small {
+  color: #fff;
+  opacity: 0.8;
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn:hover:not([disabled]) {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-sm {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+.btn-primary {
+  color: #fff;
+  border-color: transparent;
+  background: var(--tk-brand);
+}
+.btn-primary:hover:not([disabled]) {
+  color: #fff;
+  filter: brightness(0.92);
+}
+
 .wl-error {
-  margin-top: 8px;
+  margin-top: 12px;
   background: var(--tk-red-soft);
   border-left: 3px solid var(--tk-red);
   padding: 8px 10px;
   font-size: 12px;
   color: var(--tk-red);
-}
-.wl-modal-foot {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
 }
 </style>

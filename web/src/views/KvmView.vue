@@ -1,18 +1,9 @@
 <template>
   <div>
-    <div class="page-head">
-      <h1 class="page-title">远程连接计算机</h1>
-      <span class="page-sub">设备实时数据代理自 GLKVM 平台 · 终端/远程控制带态跳转 · 文件互推</span>
-      <div class="spacer"></div>
-      <t-select
-        v-if="teamOptions.length > 1"
-        v-model="teamId"
-        :options="teamOptions"
-        size="small"
-        style="width: 150px"
-        title="仅超级管理员可切换班组；其余角色固定为本班组"
-        @change="onTeamChange"
-      />
+    <!-- 板块标题行（旧页 section-title 口径） -->
+    <div class="kv-head">
+      <h3>设备列表</h3>
+      <span class="more">{{ devCnt }}</span>
     </div>
 
     <div v-if="isDemo" class="demo-banner">
@@ -24,23 +15,51 @@
     </div>
 
     <!-- 筛选工具条 -->
-    <div class="toolbar">
-      <t-input
+    <div class="kv-bar">
+      <input
         v-model="query"
-        class="dev-search"
-        clearable
+        class="kv-input"
         placeholder="搜索名称 / IP / MAC"
-        @change="debouncedLoad"
+        @input="debouncedLoad"
       />
-      <div class="spacer"></div>
-      <t-button size="small" variant="outline" :loading="loading" @click="loadDevices"
-        >刷新</t-button
-      >
+      <div class="kv-ops-r">
+        <select
+          v-if="teamOptions.length > 1"
+          v-model="teamId"
+          class="kv-sel"
+          title="仅超级管理员可切换班组；其余角色固定为本班组"
+          @change="onTeamChange"
+        >
+          <option v-for="t in teamOptions" :key="t.value" :value="t.value">{{ t.label }}</option>
+        </select>
+        <button
+          type="button"
+          class="kv-btn"
+          :disabled="manualLoading"
+          @click="loadDevices('manual')"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :class="{ 'kv-rot': manualLoading }"
+          >
+            <path d="M20 12a8 8 0 1 1-2.4-5.7" />
+            <path d="M20 3.5v4h-4" />
+          </svg>
+          刷新
+        </button>
+      </div>
     </div>
 
-    <!-- 班组设备回退提示 -->
-    <div v-if="fallback" class="fb-banner">
-      <span>⚠</span>
+    <!-- 班组设备回退提示（fallback=true 时显示，屏十四口径） -->
+    <div v-if="fallback" class="kv-fb">
+      <span class="ic">⚠</span>
       <p>
         本班组暂未接入设备，当前展示「{{
           fallbackTeam || '默认班组'
@@ -48,28 +67,63 @@
       </p>
     </div>
 
-    <div class="muted dev-cnt">共 {{ devices.length }} 台设备 · 每 30s 自动刷新</div>
-
     <!-- 设备卡片宫格 -->
-    <div v-if="loading && !loaded" class="dev-grid">
-      <div v-for="i in 3" :key="i" class="card dev-sk"></div>
-    </div>
-    <div v-else-if="error && !loaded" class="empty">
-      <p>{{ error }}</p>
-      <t-button size="small" variant="outline" @click="loadDevices">重新加载</t-button>
-    </div>
-    <div v-else-if="!devices.length" class="empty">
-      <p>{{ query ? '暂无设备，试试更换搜索关键字' : '暂无设备，或联系管理员开通平台设备权限' }}</p>
-    </div>
-    <div v-else class="dev-grid">
-      <DeviceCard
-        v-for="d in devices"
-        :key="d.id"
-        :device="d"
-        @jump="doJump"
-        @open-files="openFiles"
-      />
-    </div>
+    <section class="kv-grid">
+      <template v-if="loading && !loaded">
+        <div v-for="i in 3" :key="'sk' + i" class="card kv-sk"></div>
+      </template>
+      <div v-else-if="error && !loaded" class="kv-empty">
+        <svg
+          viewBox="0 0 24 24"
+          width="44"
+          height="44"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M10.3 4.1L2.4 17.6a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 4.1a2 2 0 0 0-3.4 0z"
+          />
+          <path d="M12 9.2v4" />
+          <circle cx="12" cy="16.8" r="1" fill="currentColor" stroke="none" />
+        </svg>
+        <p>{{ error }}</p>
+        <button type="button" class="kv-btn kv-btn-sm" @click="loadDevices('init')">
+          重新加载
+        </button>
+      </div>
+      <div v-else-if="!devices.length" class="kv-empty">
+        <svg
+          viewBox="0 0 24 24"
+          width="44"
+          height="44"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="3" y="4" width="18" height="12.5" rx="2" />
+          <path d="M8.5 20.5h7M12 16.5v4" />
+        </svg>
+        <p>
+          {{ query ? '暂无设备，试试更换搜索关键字' : '暂无设备，或联系管理员开通平台设备权限' }}
+        </p>
+      </div>
+      <template v-else>
+        <DeviceCard
+          v-for="(d, i) in devices"
+          :key="d.id"
+          :device="d"
+          :animate="animateCards"
+          :index="i"
+          @jump="doJump"
+          @open-files="openFiles"
+        />
+      </template>
+    </section>
 
     <!-- 文件互推面板 -->
     <FilePanel
@@ -83,6 +137,9 @@
 </template>
 
 <script setup>
+// 远程连接计算机（迁移 server/public/kvm.html）：设备卡片实时数据代理自 GLKVM Cloud 平台；
+// 终端/远程控制经 /api/v1/kvm/jump 签发带态跳转地址；文件互推为后续新增能力（保留全套功能）。
+// 加载模式：init 首屏（骨架+入场动画）；filter 筛选（重排+动画）；manual 手动刷新（保留卡片、按钮图标转圈）；auto 定时静默。
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { getApiMode } from '../api.js';
@@ -115,9 +172,13 @@ async function loadTeams() {
   }
 }
 
-function onTeamChange(v) {
-  localStorage.setItem(TEAM_KEY, String(v));
-  loadDevices();
+function onTeamChange() {
+  try {
+    localStorage.setItem(TEAM_KEY, String(teamId.value));
+  } catch (e) {
+    /* 忽略 */
+  }
+  loadDevices('filter');
 }
 
 // ---- 设备列表 ----
@@ -126,17 +187,33 @@ const fallback = ref(false);
 const fallbackTeam = ref('');
 const loading = ref(false);
 const loaded = ref(false);
+const manualLoading = ref(false);
+const animateCards = ref(false);
 const error = ref('');
 const query = ref('');
 let qTimer = null;
 
+const devCnt = computed(() =>
+  loaded.value ? `共 ${devices.value.length} 台设备 · 每 30s 自动刷新` : '数据实时取自 GLKVM 平台'
+);
+
 function debouncedLoad() {
   clearTimeout(qTimer);
-  qTimer = setTimeout(() => loadDevices(), 400);
+  qTimer = setTimeout(() => loadDevices('filter'), 400);
 }
 
-async function loadDevices() {
-  loading.value = true;
+async function loadDevices(mode = 'filter') {
+  if (mode === 'init') {
+    loading.value = true;
+    loaded.value = false;
+    animateCards.value = true;
+  } else if (mode === 'filter') {
+    loading.value = true;
+    animateCards.value = true;
+  } else if (mode === 'manual') {
+    manualLoading.value = true;
+    animateCards.value = false;
+  }
   try {
     const data = await api.getDevices(teamId.value, query.value.trim());
     devices.value = (data && data.items) || [];
@@ -145,10 +222,13 @@ async function loadDevices() {
     error.value = '';
     loaded.value = true;
   } catch (e) {
-    error.value = e.message || '设备列表加载失败';
-    if (!loaded.value) devices.value = [];
+    if (mode === 'auto') return; // 静默刷新失败不打断页面
+    if (loaded.value) MessagePlugin.error(e.message || '刷新失败');
+    // 已有内容时仅提示；首屏失败渲染错误态
+    else error.value = e.message || '设备列表加载失败';
   } finally {
     loading.value = false;
+    manualLoading.value = false;
   }
 }
 
@@ -185,10 +265,8 @@ function onToast({ type, msg }) {
 let timer = null;
 
 onMounted(() => {
-  loadTeams().then(loadDevices);
-  timer = setInterval(() => {
-    if (!document.hidden) loadDevices();
-  }, 30000);
+  loadTeams().then(() => loadDevices('init'));
+  timer = setInterval(() => loadDevices('auto'), 30000);
 });
 onUnmounted(() => {
   clearInterval(timer);
@@ -197,52 +275,200 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.spacer {
-  flex: 1;
+/* ===== 板块标题行 ===== */
+.kv-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 6px 0 16px;
 }
-.dev-search {
-  width: 240px;
+.kv-head h3 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
-.fb-banner {
+.kv-head .more {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+
+/* ===== 筛选工具条 ===== */
+.kv-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  flex-wrap: wrap;
+}
+.kv-input {
+  height: 38px;
+  width: 210px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--tk-ink);
+  outline: none;
+}
+.kv-input::placeholder {
+  color: var(--tk-ph);
+}
+.kv-input:focus {
+  border-color: var(--tk-brand);
+  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+}
+.kv-sel {
+  height: 38px;
+  min-width: 132px;
+  padding: 0 10px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12.5px;
+  color: var(--tk-ink);
+  outline: none;
+}
+.kv-ops-r {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ===== 按钮（旧页 .btn / .btn-sm 口径） ===== */
+.kv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    color 0.15s;
+}
+.kv-btn svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.kv-btn:hover:not(:disabled) {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.kv-btn:disabled {
+  opacity: 0.72;
+}
+.kv-btn-sm {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+/* 手动刷新期间按钮图标转圈（不重排卡片、不出骨架，避免闪现） */
+.kv-btn svg.kv-rot {
+  animation: kv-rot 1s linear infinite;
+}
+@keyframes kv-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== 班组设备回退提示横幅（浅黄底 + 黄色描边，屏十四口径） ===== */
+.kv-fb {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 14px;
+  margin: 0 0 18px;
   padding: 10px 14px;
+  border-radius: 8px;
+  border: 1.5px solid var(--tk-yellow);
   background: var(--tk-yellow-soft);
-  border-left: 3px solid var(--tk-yellow);
+  color: var(--tk-ink);
   font-size: 12.5px;
-  color: var(--tk-sub);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  line-height: 1.7;
 }
-.fb-banner p {
+.kv-fb .ic {
+  flex: none;
+  font-size: 14px;
+}
+.kv-fb p {
   margin: 0;
 }
-.dev-cnt {
-  margin-bottom: 10px;
-}
-.dev-grid {
+
+/* ===== 设备卡片宫格（同工作台应用宫格口径） ===== */
+.kv-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
+  gap: 18px;
 }
-.dev-sk {
-  height: 224px;
-  background: linear-gradient(90deg, var(--tk-fill) 25%, #fff 50%, var(--tk-fill) 75%);
-  background-size: 400% 100%;
-  animation: sk 1.2s ease infinite;
-}
-@keyframes sk {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
-}
-.empty {
-  padding: 36px;
-  text-align: center;
+
+/* 宫格内空态/错误态占满整行（白卡 + 1px 发丝边 + 轻影）；骨架卡片 */
+.kv-empty {
+  grid-column: 1 / -1;
+  background: #fff;
+  border: 1px solid var(--tk-line);
+  border-radius: 12px;
+  box-shadow: var(--tk-shadow-card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 56px 20px;
   color: var(--tk-ph);
+}
+.kv-empty svg {
+  color: var(--tk-dash);
+}
+.kv-empty p {
+  margin: 0;
   font-size: 13px;
+  letter-spacing: 1px;
+}
+.kv-sk {
+  height: 224px;
+  background: var(--tk-fill);
+  position: relative;
+  overflow: hidden;
+}
+.kv-sk::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.65), transparent 75%);
+  transform: translateX(-100%);
+  animation: kv-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes kv-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 640px) {
+  .kv-input {
+    width: 140px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kv-btn svg.kv-rot,
+  .kv-sk::after {
+    animation: none;
+  }
 }
 </style>

@@ -1,0 +1,617 @@
+/* ============================================================
+   班组数据页内样式 ·「政企蓝白」（对照 server/public/teamdata.html 还原结构与密度，
+   色板映射 web/src/styles.css 的 --tk-* token；选择器统一挂在 .td-page 下避免串扰）
+   ============================================================ */
+
+/* ===== 整页不滚动：仅页签内容区内部滚动 ===== */
+.td-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ===== 页头：领标 + 标题 + 副标；右侧班组切换（仅超管） ===== */
+.td-page .td-head {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 24px;
+  flex-wrap: wrap;
+}
+.td-page .td-head .section-title {
+  display: block;
+}
+.td-page .td-kick {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--tk-brand);
+  animation: tdFade 0.5s var(--tk-ease) 0.06s both;
+}
+.td-page .td-head h3 {
+  margin: 6px 0 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 1px;
+  animation: tdFade 0.55s var(--tk-ease) 0.12s both;
+}
+.td-page .td-head .more {
+  display: block;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--tk-sub);
+  letter-spacing: 0.5px;
+  animation: tdFade 0.55s var(--tk-ease) 0.2s both;
+}
+.td-page .td-head .acts {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  animation: tdFade 0.55s var(--tk-ease) 0.28s both;
+}
+.td-page .td-team-sel {
+  width: auto;
+  min-width: 132px;
+  height: 36px;
+  padding: 0 10px;
+}
+
+/* ===== 分段页签：下划线式，激活蓝字 + 2px 蓝条（同旧版 td-tabs 口径） ===== */
+.td-page .td-tabs {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 16px;
+  border-bottom: 1px solid var(--tk-line);
+  animation: tdFade 0.55s var(--tk-ease) 0.34s both;
+}
+.td-page .td-tabs button {
+  position: relative;
+  padding: 9px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tk-sub);
+  letter-spacing: 0.5px;
+  transition: color 0.15s;
+}
+.td-page .td-tabs button:hover {
+  color: var(--tk-ink);
+}
+.td-page .td-tabs button.on {
+  color: var(--tk-brand);
+}
+.td-page .td-tabs button.on::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--tk-brand);
+  border-radius: 2px;
+}
+.td-page .td-tabs button svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* ===== 主体：页签内容区内部滚动（paneIn 入场 + 行级上浮 stagger） ===== */
+.td-page .td-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 16px;
+}
+.td-page .td-body .pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: tdPaneIn 0.34s var(--tk-ease);
+}
+.td-page .td-body .pane .drow,
+.td-page .td-body .pane .lt tbody tr {
+  animation: tdRise 0.45s var(--tk-ease) both;
+}
+.td-page .td-body .pane .drow:nth-child(3),
+.td-page .td-body .pane .lt tbody tr:nth-child(2) {
+  animation-delay: 0.04s;
+}
+.td-page .td-body .pane .drow:nth-child(4),
+.td-page .td-body .pane .lt tbody tr:nth-child(3) {
+  animation-delay: 0.08s;
+}
+.td-page .td-body .pane .drow:nth-child(5),
+.td-page .td-body .pane .lt tbody tr:nth-child(4) {
+  animation-delay: 0.12s;
+}
+.td-page .td-body .pane .drow:nth-child(6),
+.td-page .td-body .pane .lt tbody tr:nth-child(5) {
+  animation-delay: 0.16s;
+}
+.td-page .td-body .pane .drow:nth-child(7),
+.td-page .td-body .pane .lt tbody tr:nth-child(6) {
+  animation-delay: 0.2s;
+}
+.td-page .td-body .pane .drow:nth-child(8),
+.td-page .td-body .pane .lt tbody tr:nth-child(7) {
+  animation-delay: 0.24s;
+}
+.td-page .td-body .pane .drow:nth-child(9),
+.td-page .td-body .pane .lt tbody tr:nth-child(8) {
+  animation-delay: 0.28s;
+}
+.td-page .td-body .pane .drow:nth-child(10),
+.td-page .td-body .pane .lt tbody tr:nth-child(9) {
+  animation-delay: 0.32s;
+}
+.td-page .td-body .pane .drow:nth-child(n + 11),
+.td-page .td-body .pane .lt tbody tr:nth-child(n + 10) {
+  animation-delay: 0.36s;
+}
+.td-page .pane-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 10px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.td-page .pane-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.td-page .pane-scroll::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.td-page .pane-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.td-page .pane-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ===== 文字按钮（卡片操作行；主操作蓝 / 删除红） ===== */
+.td-page .linkbtn {
+  border: none;
+  background: transparent;
+  color: var(--tk-brand);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+.td-page .linkbtn:hover {
+  background: var(--tk-blue-soft);
+}
+.td-page .linkbtn.dgr {
+  color: var(--tk-red);
+}
+.td-page .linkbtn.dgr:hover {
+  background: var(--tk-red-soft);
+}
+
+/* ===== 实体按钮（旧版 .btn 几何：40px / sm 34px、8px 圆角、发丝边） ===== */
+.td-page .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    color 0.15s,
+    filter 0.15s,
+    background 0.15s;
+}
+.td-page .btn svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.td-page .btn:hover {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.td-page .btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.td-page .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.td-page .btn-primary,
+.td-page .btn-danger {
+  color: #fff;
+  border-color: transparent;
+}
+.td-page .btn-primary {
+  background: var(--tk-brand);
+}
+.td-page .btn-danger {
+  background: var(--tk-red);
+}
+.td-page .btn-primary:hover,
+.td-page .btn-danger:hover {
+  color: #fff;
+  filter: brightness(0.92);
+}
+.td-page .btn-sm {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
+/* ===== 字典板块（车牌号 / 目的地 / 人员 / 运维线路 共用行卡） ===== */
+.td-page .td-dsec {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: var(--tk-shadow-card);
+  overflow: hidden;
+  flex: none;
+}
+.td-page .dsec-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+}
+.td-page .dsec-h b {
+  font-size: 13.5px;
+  letter-spacing: 1px;
+}
+.td-page .dsec-h .cnt {
+  font-size: 11px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+.td-page .drow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-top: 1px solid rgba(29, 33, 41, 0.06);
+  font-size: 13px;
+}
+.td-page .drow .dn {
+  font-weight: 600;
+  word-break: break-all;
+}
+.td-page .drow.off .dn {
+  opacity: 0.45;
+}
+.td-page .dpill {
+  flex: none;
+  border-radius: 8px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.td-page .dpill-sync {
+  background: var(--tk-green-soft);
+  color: var(--tk-green);
+}
+.td-page .dpill-hand {
+  background: var(--tk-fill);
+  color: var(--tk-ph);
+}
+.td-page .dpill-out {
+  background: var(--tk-yellow-soft);
+  color: var(--tk-ink);
+}
+.td-page .dpill-sta {
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+}
+.td-page .doff-tip {
+  flex: none;
+  font-size: 11px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+.td-page .drow .dops {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+.td-page .dempty {
+  padding: 14px 16px;
+  border-top: 1px solid rgba(29, 33, 41, 0.06);
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+/* 板块底部虚线添加行（输入名称回车 / 点按钮提交，sort 服务端自动追加） */
+.td-page .dadd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 12px 12px;
+  padding: 4px 4px 4px 12px;
+  border: 2px dashed var(--tk-dash);
+  border-radius: 8px;
+}
+.td-page .dadd-in {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--tk-ink);
+  font-family: inherit;
+}
+.td-page .dadd-in::placeholder {
+  color: var(--tk-ph);
+}
+.td-page .dadd-in.ol-v {
+  flex: none;
+  width: 150px;
+}
+/* 目的地编辑弹层：市外 / 驻地互斥勾选行 */
+.td-page .dck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  font-size: 13px;
+  color: var(--tk-ink);
+  cursor: pointer;
+}
+.td-page .dck input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--tk-brand);
+  cursor: pointer;
+}
+
+/* ===== 杆塔信息段：工具行 + 线路表格（电压等级 / 线路名称 / 杆塔数，GET /lines） ===== */
+.td-page .lt-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+}
+.td-page .lt-note {
+  font-size: 11.5px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+}
+.td-page .lt-btns {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+}
+.td-page .lt-wrap {
+  border-top: 1px solid rgba(29, 33, 41, 0.06);
+}
+.td-page .lt {
+  width: 100%;
+  border-collapse: collapse;
+}
+.td-page .lt th,
+.td-page .lt td {
+  padding: 10px 16px;
+  font-size: 13px;
+  text-align: left;
+  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+}
+.td-page .lt th {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--tk-sub);
+  letter-spacing: 1px;
+  background: var(--tk-fill);
+}
+.td-page .lt tr:last-child td {
+  border-bottom: none;
+}
+.td-page .lt td {
+  font-weight: 600;
+}
+.td-page .lt td.lc-n {
+  font-variant-numeric: tabular-nums;
+}
+.td-page .lt td.lc-v {
+  width: 130px;
+}
+.td-page .lt td.lc-c {
+  width: 110px;
+}
+.td-page .lt-empty {
+  padding: 26px 16px;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+/* ===== 运维线路段：电压列 + 底部说明 ===== */
+.td-page .drow .olv {
+  flex: none;
+  width: 84px;
+  font-weight: 700;
+  color: var(--tk-sub);
+  font-variant-numeric: tabular-nums;
+}
+.td-page .ol-foot {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(29, 33, 41, 0.06);
+  font-size: 11.5px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+}
+
+/* ===== 角色门控提示卡（非班管/超管整页提示） ===== */
+.td-page .gate {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.td-page .gate-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: var(--tk-shadow-card);
+  padding: 46px 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.td-page .gate-card svg {
+  width: 44px;
+  height: 44px;
+  color: var(--tk-dash);
+}
+.td-page .gate-card p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+.td-page .gate-card b {
+  font-size: 15px;
+  color: var(--tk-ink);
+  letter-spacing: 1px;
+}
+
+/* ===== 弹层表单（口径同旧版 编辑弹层） ===== */
+.td-page .f-lab {
+  display: block;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+  margin: 14px 0 7px;
+}
+.td-page .f-lab:first-of-type {
+  margin-top: 2px;
+}
+.td-page .f-sel {
+  width: 100%;
+  height: 40px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--tk-ink);
+  font-family: inherit;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    box-shadow 0.15s var(--tk-ease);
+}
+.td-page .f-sel:focus {
+  border-color: var(--tk-brand);
+  box-shadow: var(--tk-shadow-hover);
+}
+
+/* ===== 加载中（spinner + 文案） ===== */
+.td-page .loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+.td-page .loading .spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--tk-dash);
+  border-top-color: var(--tk-brand);
+  border-radius: 50%;
+  animation: tdSpin 0.8s linear infinite;
+}
+.td-page .m-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 8px;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--tk-sub);
+  letter-spacing: 1px;
+}
+
+/* ===== 入场关键帧与动效降级 ===== */
+@keyframes tdFade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes tdRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes tdPaneIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes tdSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .td-page *,
+  .td-page *::before,
+  .td-page *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}

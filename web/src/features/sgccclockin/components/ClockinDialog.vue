@@ -1,51 +1,64 @@
 <template>
-  <div v-if="open" class="wl-modal-mask" @click.self="close">
-    <div class="wl-modal card sg-ck-modal">
-      <h3 class="card-title">{{ title }}</h3>
-      <div class="sub-text">{{ note }}</div>
-
-      <!-- 位置卡：地址输入 + 重新定位 / 选择杆塔 -->
-      <div class="sg-ck-loc">
-        <input
-          v-model="position"
-          maxlength="255"
-          class="wl-range"
-          placeholder="可手动输入地点，或重新定位 / 选择杆塔"
-          @input="manualPos = true"
-        />
-        <div v-if="locSub" class="sg-ck-sub num">{{ locSub }}</div>
-        <div class="sg-ck-acts">
-          <button type="button" class="wl-act" :disabled="locating" @click="relocate">
-            {{ locating ? '定位中…' : '重新定位' }}
-          </button>
-          <button type="button" class="wl-act" @click="towerOpen = !towerOpen">
-            选择杆塔带入坐标
+  <div v-if="open" class="mask open" @click.self="close">
+    <div class="modal">
+      <div class="m-scroll">
+        <div class="m-head">
+          <span class="m-title">{{ title }}</span>
+          <button type="button" class="m-x" @click="close">
+            <WlIcon name="close" :size="14" />
           </button>
         </div>
-      </div>
+        <div class="f-hint" style="margin: 0 0 2px">{{ note }}</div>
 
-      <!-- 杆塔选择（简单可搜列表） -->
-      <div v-if="towerOpen" class="sg-ck-towers">
-        <input v-model="towerQuery" type="text" class="wl-range" placeholder="搜索线路 / 杆塔号" />
-        <div class="sg-ck-tower-list">
-          <button
-            v-for="(t, i) in filteredTowers"
-            :key="i"
-            type="button"
-            class="sg-ck-tower-item"
-            @click="pickTower(t)"
-          >
-            <span>{{ t[1] }} · {{ t[2] }}</span>
-            <span class="muted num">{{ t[3] }}, {{ t[4] }}</span>
-          </button>
-          <div v-if="!filteredTowers.length" class="muted">无匹配杆塔</div>
+        <!-- 位置卡：地址行（可手输）+ 经纬度/来源副行 + 重新定位 / 选择杆塔带入坐标 -->
+        <div class="ckm-loc">
+          <div class="ckm-loc-line">
+            <WlIcon name="location" :size="15" />
+            <input
+              v-model="position"
+              maxlength="255"
+              class="ckm-loc-input"
+              placeholder="可手动输入地点，或重新定位 / 选择杆塔"
+              @input="manualPos = true"
+            />
+          </div>
+          <div v-if="locSub" class="ckm-loc-sub num">{{ locSub }}</div>
+          <div class="ckm-loc-acts">
+            <button type="button" class="ckm-mini" :disabled="locating" @click="relocate">
+              <WlIcon name="refresh" :size="12" />
+              {{ locating ? '定位中…' : '重新定位' }}
+            </button>
+            <button type="button" class="ckm-mini" @click="towerOpen = !towerOpen">
+              <WlIcon name="location" :size="12" />选择杆塔带入坐标
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div v-if="error" class="wl-error">{{ error }}</div>
-      <div class="wl-modal-foot">
-        <t-button variant="outline" @click="close">取消</t-button>
-        <t-button :loading="saving" @click="confirm">确认打卡</t-button>
+        <!-- 杆塔选择（可搜列表） -->
+        <div v-if="towerOpen" class="combo-list open">
+          <input v-model="towerQuery" type="text" class="f-sel" placeholder="搜索线路 / 杆塔号" />
+          <div class="combo-list-in">
+            <button
+              v-for="(t, i) in filteredTowers"
+              :key="i"
+              type="button"
+              class="combo-opt"
+              @click="pickTower(t)"
+            >
+              {{ t[1] }} · {{ t[2] }}
+              <small class="f-hint num" style="margin-left: 8px">{{ t[3] }}, {{ t[4] }}</small>
+            </button>
+            <div v-if="!filteredTowers.length" class="combo-none">无匹配杆塔</div>
+          </div>
+        </div>
+
+        <div v-if="error" class="wl-error">{{ error }}</div>
+        <div class="m-foot">
+          <button type="button" class="btn btn-sm" @click="close">取消</button>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="saving" @click="confirm">
+            {{ saving ? '提交中…' : '确认打卡' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -54,10 +67,12 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
+import WlIcon from '../../worklog/components/WlIcon.vue';
 import { fetchGeo, fetchTowers } from '../../worklog/api.js';
 import { postClockin } from '../api.js';
 
-// 打卡确认弹层：位置优先级 = 同记录他人同 seq 打卡整套带入 → 浏览器定位（WGS84→GCJ02）+ 逆编码；
+// 打卡确认弹层（旧版 .modal 弹层骨架 + .ckm-loc 位置卡）：位置优先级 =
+// 同记录他人同 seq 打卡整套带入 → 浏览器定位（WGS84→GCJ02）+ 逆编码；
 // 支持手输地址与杆塔坐标带入。提交 POST /sgcc/clockin（seq 1 首次 / 2 结束 / 0 更新地点）。
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -305,93 +320,240 @@ function close() {
 </script>
 
 <style scoped>
-.sg-ck-modal {
-  width: min(520px, calc(100vw - 32px));
-}
-.sg-ck-loc {
-  background: var(--tk-fill);
-  padding: 10px;
-  margin: 12px 0;
-}
-.sg-ck-sub {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--tk-sub);
-}
-.sg-ck-acts {
-  margin-top: 8px;
+/* ===== 通用弹层骨架（旧版 .mask/.modal/.m-scroll/.m-head/.m-foot） ===== */
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  padding: 24px;
+  background: rgba(29, 33, 41, 0.45);
+  backdrop-filter: blur(3px);
   display: flex;
-  gap: 14px;
+  align-items: center;
+  justify-content: center;
 }
-.sg-ck-towers {
-  margin: 8px 0;
-}
-.sg-ck-tower-list {
-  max-height: 220px;
-  overflow: auto;
+.modal {
+  background: #fff;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  margin-top: 6px;
-}
-.sg-ck-tower-item {
+  width: 520px;
+  max-width: 94vw;
+  max-height: 86vh;
+  overflow: hidden;
+  padding: 6px;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  box-shadow: var(--tk-shadow-card);
+}
+.m-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 14px 18px 16px;
+}
+.m-head {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  width: 100%;
-  padding: 7px 10px;
-  border: none;
-  border-bottom: 1px solid var(--tk-line);
+  margin-bottom: 14px;
+}
+.m-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.m-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
   background: #fff;
-  font-size: 12px;
   color: var(--tk-ink);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--tk-shadow-card);
 }
-.sg-ck-tower-item:hover {
+.m-x:hover {
+  background: var(--tk-ink);
+  color: #fff;
+}
+.m-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* ===== 打卡确认弹层位置卡（旧版 .ckm-loc） ===== */
+.ckm-loc {
+  margin: 10px 0 2px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.ckm-loc-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ckm-loc-line > svg {
+  flex: none;
+  color: var(--tk-brand);
+}
+.ckm-loc-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--tk-ink);
+}
+.ckm-loc-input::placeholder {
+  color: var(--tk-ph);
+}
+.ckm-loc-sub {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--tk-ph);
+}
+.ckm-loc-acts {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+.ckm-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--tk-brand);
+  cursor: pointer;
+  font-family: inherit;
+}
+.ckm-mini:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ===== 杆塔可搜列表（旧版 .combo-list） ===== */
+.f-sel {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  font-size: 13px;
+  color: var(--tk-ink);
+  font-family: inherit;
+  padding: 0 10px;
+  margin-top: 8px;
+}
+.f-sel:focus {
+  border-color: var(--tk-brand);
+}
+.combo-list {
+  margin-top: 4px;
+}
+.combo-list-in {
+  min-height: 0;
+  max-height: 208px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  margin-top: 6px;
+}
+.combo-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  word-break: break-all;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  color: var(--tk-ink);
+}
+.combo-opt:hover {
   background: var(--tk-blue-soft);
+  color: var(--tk-brand);
 }
+.combo-none {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+}
+
+.f-hint {
+  font-size: 11px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+  line-height: 1.7;
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn:hover:not([disabled]) {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-sm {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+.btn-primary {
+  color: #fff;
+  border-color: transparent;
+  background: var(--tk-brand);
+}
+.btn-primary:hover:not([disabled]) {
+  color: #fff;
+  filter: brightness(0.92);
+}
+
 .wl-error {
-  margin: 8px 0;
+  margin-top: 12px;
   background: var(--tk-red-soft);
   border-left: 3px solid var(--tk-red);
   padding: 8px 10px;
   font-size: 12px;
   color: var(--tk-red);
-}
-.wl-modal-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(29, 33, 41, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.wl-modal {
-  max-height: calc(100vh - 64px);
-  overflow: auto;
-}
-.wl-modal-foot {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-.wl-act {
-  border: none;
-  background: none;
-  padding: 0;
-  color: var(--tk-brand);
-  font-size: 12px;
-  cursor: pointer;
-}
-.wl-range {
-  width: 100%;
-  height: 32px;
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
-  padding: 0 8px;
-  font-size: 13px;
-  color: var(--tk-ink);
-  background: #fff;
 }
 </style>

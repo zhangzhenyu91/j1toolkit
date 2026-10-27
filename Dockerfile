@@ -36,11 +36,12 @@ ENV TZ=Asia/Shanghai \
     WORKLOG_ASSETS_DIR=assets/worklog
 # LibreOffice：安全日记录多文件含非 PDF 时转 PDF 再合并（safeday 调 soffice）；
 # fonts-noto-cjk：转换中文文档排版所需；tzdata：TZ=Asia/Shanghai 生效（打卡/日志时间戳依赖）；
-# curl：健康检查探针
+# curl：健康检查探针；ca-certificates：Go 的 HTTPS/WSS 系统证书链验证
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       libreoffice-writer libreoffice-calc libreoffice-impress \
-      fonts-noto-cjk tzdata curl \
+      fonts-noto-cjk tzdata curl ca-certificates \
+ && update-ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 # 数据/素材相对路径（./data/…、assets/…）以 /app/server 为基准：
 # server/assets → ./assets（字体 assets/fonts、模板 assets/worklog、assets/safeday/…）

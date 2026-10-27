@@ -21,6 +21,8 @@
 //   PUT    /api/v1/admin/apps/{id}          {status?, sort?}             → data:null
 //   GET    /api/v1/admin/users/{id}/apps    → data:{app_ids:[...]}
 //   PUT    /api/v1/admin/users/{id}/apps    {app_ids:[...]}              → data:{app_ids:[...]}（全量替换）
+//   POST   /api/v1/notice/push              {title,content,targets:[role]} → data:{id}（超管手动推送站内通知）
+//   POST   /api/v1/notice/upload-image      multipart file               → data:{url}（通知 Markdown 配图）
 //
 // 说明：GET /api/v1/admin/teams（窄列表 id/name）由 httpapi 基础层提供、班组管理需要的
 // 成员数/状态/排序在 /admin/teams/full，本模块统一只打 full 口径。
@@ -59,9 +61,14 @@ function clearSession() {
 }
 
 // request 原始请求封装：解析 {code,message,data} 契约，失败抛出带 code 的 Error。
+// FormData（图片上传）不设 Content-Type，由浏览器自带 multipart 边界。
 async function request(path, options = {}) {
   const { headers: optionHeaders, ...rest } = options;
-  const headers = { 'Content-Type': 'application/json', ...(optionHeaders || {}) };
+  const isForm = typeof FormData !== 'undefined' && rest.body instanceof FormData;
+  const headers = {
+    ...(isForm ? {} : { 'Content-Type': 'application/json' }),
+    ...(optionHeaders || {}),
+  };
   const token = currentToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   let res;
@@ -188,4 +195,23 @@ export function setUserApps(userId, appIds) {
     method: 'PUT',
     body: JSON.stringify({ app_ids: appIds }),
   }).then((data) => data.app_ids || []);
+}
+
+// ---- 消息推送（超管手动推送，仅站内通知）----
+
+// noticePush 推送站内通知（targets 为角色数组，取 admin/team_admin/user 非空子集）。
+export function noticePush({ title, content, targets }) {
+  return request('/api/v1/notice/push', {
+    method: 'POST',
+    body: JSON.stringify({ title, content, targets }),
+  }).then((data) => data.id);
+}
+
+// noticeUploadImage 通知内容配图上传（JPG/PNG/GIF/WebP，≤5MB），返回图片地址。
+export function noticeUploadImage(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  return request('/api/v1/notice/upload-image', { method: 'POST', body: fd }).then(
+    (data) => data.url
+  );
 }

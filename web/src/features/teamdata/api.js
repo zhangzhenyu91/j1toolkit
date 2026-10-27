@@ -2,8 +2,33 @@
 // 响应契约 {code,message,data}；本文件统一解包，失败抛出带 code 的 Error（err.data 附业务明细）。
 // 全部命名导出，便于主代理在公共 api.js 统一适配/替换；不修改公共装配文件。
 // 鉴权与 web/src/api.js 同一 JWT（sessionStorage 'shade.token'）。
+// 班组隔离对齐旧版 td()/teamBody() 口径：GET/DELETE 走 query 带 team_id，POST/PUT 走 body 带 team_id，
+// 导入 FormData 带 team_id（后端 resolveReqTeam：超管可指定班组、班管固定本班）；0/空=不带，落默认班组。
 
 const BASE = '/api/v1/teamdata';
+
+// teamId 当前生效班组（0=未指定，由后端落默认班组；班组管理员恒本班）。
+let teamId = 0;
+
+// setTeamId 设定后续请求的生效班组（超管班组切换器写入；0=不指定）。
+export function setTeamId(id) {
+  teamId = Number(id) || 0;
+}
+
+// getTeamId 读取当前生效班组。
+export function getTeamId() {
+  return teamId;
+}
+
+// withTeam GET/DELETE 路径拼 team_id（空值忽略）。
+function withTeam(path) {
+  return buildURL(path, teamId ? { team_id: teamId } : {});
+}
+
+// teamBody POST/PUT body 注入 team_id（0=不带）。
+function teamBody(payload = {}) {
+  return teamId ? { team_id: teamId, ...payload } : { ...payload };
+}
 
 // currentToken 读取会话 JWT（与公共 api.js 同存储键）。
 function currentToken() {
@@ -84,7 +109,9 @@ function parseDisposition(header, fallback) {
 
 // download 模板下载并直接保存。
 export async function downloadTo(path, params = {}, fallbackName = 'download') {
-  const res = await fetch(buildURL(path, params), { headers: authHeaders() });
+  const res = await fetch(buildURL(path, { ...(teamId ? { team_id: teamId } : {}), ...params }), {
+    headers: authHeaders(),
+  });
   const type = res.headers.get('Content-Type') || '';
   if (type.includes('application/json')) {
     const body = await res.json().catch(() => ({
@@ -106,11 +133,11 @@ export async function downloadTo(path, params = {}, fallbackName = 'download') {
   );
 }
 
-// uploadForm 上传 Excel（multipart，字段名 file）。
+// uploadForm 上传 Excel（multipart，字段名 file；导入按表单优先口径带 team_id）。
 async function uploadForm(path, file, fields = {}) {
   const form = new FormData();
   form.append('file', file);
-  Object.entries(fields).forEach(([k, v]) => {
+  Object.entries(teamBody(fields)).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') form.append(k, String(v));
   });
   const res = await fetch(path, { method: 'POST', headers: authHeaders(), body: form });
@@ -127,33 +154,46 @@ async function uploadForm(path, file, fields = {}) {
   return body.data;
 }
 
+// ---- 班组列表（超管班组切换器数据源）----
+
+// listTeams 班组列表（GET /admin/teams；兼容 data.list / data.teams / data.items 三种返回形状）。
+export function listTeams() {
+  return request('/api/v1/admin/teams').then((data) => data.list || data.teams || data.items || []);
+}
+
 // ---- 班组字典（车牌 / 目的地 / 出工成员）----
 
 // listDict 字典列表（kind=vehicles|destinations|members）。
 export function listDict(kind) {
-  return request(`${BASE}/${kind}`);
+  return request(withTeam(`${BASE}/${kind}`));
 }
 
 // createDict 新增字典项 {name}（sort 排尾）。
 export function createDict(kind, payload) {
-  return request(`${BASE}/${kind}`, { method: 'POST', body: JSON.stringify(payload) });
+  return request(withTeam(`${BASE}/${kind}`), {
+    method: 'POST',
+    body: JSON.stringify(teamBody(payload)),
+  });
 }
 
 // updateDict 修改字典项（name/sort/status；目的地另有 out_of_city/stationed 互斥标记）。
 export function updateDict(kind, id, payload) {
-  return request(`${BASE}/${kind}/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+  return request(withTeam(`${BASE}/${kind}/${id}`), {
+    method: 'PUT',
+    body: JSON.stringify(teamBody(payload)),
+  });
 }
 
 // deleteDict 删除字典项（有日志引用 → 40901 改为停用）。
 export function deleteDict(kind, id) {
-  return request(`${BASE}/${kind}/${id}`, { method: 'DELETE' });
+  return request(withTeam(`${BASE}/${kind}/${id}`), { method: 'DELETE' });
 }
 
 // moveMember 成员排序（direction=up|down，与相邻行换位）。
 export function moveMember(id, direction) {
-  return request(`${BASE}/members/${id}/move`, {
+  return request(withTeam(`${BASE}/members/${id}/move`), {
     method: 'PUT',
-    body: JSON.stringify({ direction }),
+    body: JSON.stringify(teamBody({ direction })),
   });
 }
 
@@ -161,38 +201,44 @@ export function moveMember(id, direction) {
 
 // listOplines 运维线路列表（sort 序）。
 export function listOplines() {
-  return request(`${BASE}/oplines`);
+  return request(withTeam(`${BASE}/oplines`));
 }
 
 // createOpline 新增线路 {voltage_level, line_name}。
 export function createOpline(payload) {
-  return request(`${BASE}/oplines`, { method: 'POST', body: JSON.stringify(payload) });
+  return request(withTeam(`${BASE}/oplines`), {
+    method: 'POST',
+    body: JSON.stringify(teamBody(payload)),
+  });
 }
 
 // updateOpline 修改线路（voltage_level/line_name 仅出现的字段）。
 export function updateOpline(id, payload) {
-  return request(`${BASE}/oplines/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+  return request(withTeam(`${BASE}/oplines/${id}`), {
+    method: 'PUT',
+    body: JSON.stringify(teamBody(payload)),
+  });
 }
 
 // deleteOpline 删除线路。
 export function deleteOpline(id) {
-  return request(`${BASE}/oplines/${id}`, { method: 'DELETE' });
+  return request(withTeam(`${BASE}/oplines/${id}`), { method: 'DELETE' });
 }
 
 // moveOpline 线路排序（direction=up|down）。
 export function moveOpline(id, direction) {
-  return request(`${BASE}/oplines/${id}/move`, {
+  return request(withTeam(`${BASE}/oplines/${id}/move`), {
     method: 'PUT',
-    body: JSON.stringify({ direction }),
+    body: JSON.stringify(teamBody({ direction })),
   });
 }
 
 // downloadOplineTemplate 运维线路导入模板 xlsx。
 export function downloadOplineTemplate() {
-  return downloadTo(`${BASE}/oplines/template`, {}, 'opline-template.xlsx');
+  return downloadTo(`${BASE}/oplines/template`, {}, '运维线路导入模板.xlsx');
 }
 
-// importOplines 导入运维线路 xlsx。
+// importOplines 导入运维线路 xlsx（全量替换本班组运维线路）。
 export function importOplines(file) {
   return uploadForm(`${BASE}/oplines/import`, file);
 }
@@ -201,17 +247,17 @@ export function importOplines(file) {
 
 // listTowers 本班全部杆塔行（含 id 与 sort）。
 export function listTowers() {
-  return request(`${BASE}/towers`);
+  return request(withTeam(`${BASE}/towers`));
 }
 
 // fetchLines 本班线路聚合 [{voltage_level, line_name, tower_count}]。
 export function fetchLines() {
-  return request(`${BASE}/lines`);
+  return request(withTeam(`${BASE}/lines`));
 }
 
 // downloadTowerTemplate 杆塔坐标导入模板 xlsx。
 export function downloadTowerTemplate() {
-  return downloadTo(`${BASE}/towers/template`, {}, 'tower-template.xlsx');
+  return downloadTo(`${BASE}/towers/template`, {}, '杆塔坐标导入模板.xlsx');
 }
 
 // importTowers 导入杆塔坐标 xlsx（全量替换本班组坐标，按导入顺序定 sort）。

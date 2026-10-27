@@ -219,3 +219,51 @@ export function previewRoute(url) {
   });
   return { path, query };
 }
+
+// ---- 网盘目录浏览（存网盘目标目录选择器，对应旧页 assets/ndpick.js 的接口口径） ----
+// 平台信封 {code,message,data}（与 /api/v1/netdisk/* 主平台接口一致，不同于本模块 {ok,error}）。
+
+// platformRequest 平台信封请求：注入 Bearer，code!==0 一律抛错。
+async function platformRequest(path, options = {}) {
+  if (isDemo()) {
+    throw new Error('演示模式不提供网盘目录浏览，请切换 live 适配层');
+  }
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const token = authToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(path, { ...options, headers });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || body.code !== 0) {
+    throw new Error((body && body.message) || `请求失败（HTTP ${res.status}）`);
+  }
+  return body.data || {};
+}
+
+// netdiskSpaces 空间分段数据源 → [{key,name}]（仅 my/public；未下发则空数组，分段隐藏）。
+export function netdiskSpaces() {
+  return platformRequest('/api/v1/netdisk/spaces').then((d) =>
+    (d.spaces || [])
+      .filter((s) => s && (s.key === 'my' || s.key === 'public'))
+      .map((s) => ({ key: s.key, name: s.name || (s.key === 'public' ? '公共区' : '我的空间') }))
+  );
+}
+
+// netdiskDirs 目录列表（仅文件夹，按中文名排序）：path 为 '/'（根）或 '/相对路径'。
+export function netdiskDirs(space, path) {
+  return platformRequest('/api/v1/netdisk/list', {
+    method: 'POST',
+    body: JSON.stringify({ space, path }),
+  }).then((d) =>
+    (d.items || [])
+      .filter((x) => x && x.is_dir)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh'))
+  );
+}
+
+// netdiskMkdir 就地新建文件夹（path 当前浏览目录，name 文件夹名）。
+export function netdiskMkdir(space, path, name) {
+  return platformRequest('/api/v1/netdisk/mkdir', {
+    method: 'POST',
+    body: JSON.stringify({ space, path, name }),
+  });
+}

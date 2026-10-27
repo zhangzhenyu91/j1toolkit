@@ -1,7 +1,10 @@
 <template>
   <div v-if="open" class="wl-modal-mask" @click.self="close">
     <div class="wl-modal card sg-bind-modal">
-      <h3 class="card-title">商旅账号</h3>
+      <div class="m-head">
+        <h3 class="m-title">商旅账号</h3>
+        <button type="button" class="m-x" aria-label="关闭" @click="close">×</button>
+      </div>
       <div class="sub-text">绑定后可在出工日志发起打卡 / 同步费用；登录态过期可在此重新登录</div>
 
       <!-- 当前绑定状态 -->
@@ -502,5 +505,62 @@ function close() {
   font-size: 13px;
   color: var(--tk-ink);
   background: #fff;
+}
+/* ===== 旧版弹层骨架覆写（.mask/.modal/.m-head/.m-title/.m-x） ===== */
+.wl-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  padding: 24px;
+  background: rgba(29, 33, 41, 0.45);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wl-modal {
+  background: #fff;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  width: 520px;
+  max-width: 94vw;
+  max-height: 86vh;
+  overflow: hidden auto;
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--tk-shadow-card);
+}
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.m-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin: 0;
+}
+.m-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+}
+.m-x:hover {
+  background: var(--tk-ink);
+  color: #fff;
 }
 </style>

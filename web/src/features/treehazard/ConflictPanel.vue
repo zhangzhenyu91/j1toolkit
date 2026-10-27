@@ -1,12 +1,35 @@
 <template>
+  <!-- 冲突对照卡（班管/超管）：系统值 | 内网值两列对照、差异字段标红，二选一裁决（旧版 cft 卡口径） -->
   <div>
-    <div v-if="loading" class="loading">加载中…</div>
+    <div v-if="loading" class="loading"><span class="spin"></span>加载中…</div>
     <div v-else-if="error" class="empty">
+      <svg viewBox="0 0 44 44" width="44" height="44">
+        <path
+          d="M22 6l18 32H4L22 6zM22 18v10M22 32v2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+      </svg>
       <p>{{ error }}</p>
-      <t-button size="small" variant="outline" @click="emit('reload')">重试</t-button>
+      <button class="btn btn-sm" type="button" @click="emit('reload')">重试</button>
     </div>
-    <div v-else-if="!conflicts.length" class="empty muted">暂无待解决冲突</div>
-    <div v-else class="cft-list">
+    <div v-else-if="!conflicts.length" class="empty">
+      <svg viewBox="0 0 44 44" width="44" height="44">
+        <path
+          d="M8 22l10 10 18-20"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <p>暂无待解决冲突</p>
+    </div>
+    <div v-else>
       <div v-for="c in conflicts" :key="c.id" class="card cft">
         <div class="cft-head">
           <b>{{ dash(serverVal(c, 'line_name')) }} · {{ dash(serverVal(c, 'section')) }}</b>
@@ -55,22 +78,22 @@
           </div>
         </div>
         <div class="cft-acts">
-          <t-button
-            size="small"
-            variant="outline"
+          <button
+            class="btn btn-sm"
+            type="button"
             :disabled="resolving === c.id"
             @click="keep(c, 'server')"
           >
             以系统为准
-          </t-button>
-          <t-button
-            size="small"
-            theme="primary"
+          </button>
+          <button
+            class="btn btn-sm btn-primary"
+            type="button"
             :disabled="resolving === c.id"
             @click="keep(c, 'intranet')"
           >
             {{ resolving === c.id ? '提交中…' : '以内网为准' }}
-          </t-button>
+          </button>
         </div>
       </div>
     </div>
@@ -155,30 +178,131 @@ function keep(c, side) {
 </script>
 
 <style scoped>
-.cft-list {
+/* ===== 加载 / 空态 ===== */
+.spin {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2.5px solid var(--tk-line);
+  border-top-color: var(--tk-brand);
+  animation: th-rot 1s linear infinite;
+}
+@keyframes th-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: var(--tk-ph);
+  font-size: 12.5px;
+  letter-spacing: 1px;
+}
+.empty {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 12px;
+  padding: 56px 20px;
+  color: var(--tk-ph);
+}
+.empty svg {
+  width: 44px;
+  height: 44px;
+  color: var(--tk-dash);
+}
+.empty p {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+/* ===== 旧式按钮 ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    color 0.15s,
+    filter 0.15s,
+    background 0.15s;
+}
+.btn:hover {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.btn:active:not([disabled]) {
+  transform: translateY(1px);
+}
+.btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-primary {
+  color: #fff;
+  border-color: transparent;
+  background: var(--tk-brand);
+}
+.btn-primary:hover {
+  color: #fff;
+  filter: brightness(0.92);
+}
+.btn-sm {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
+/* ===== 冲突对照卡（系统值 | 内网值，差异字段标红） ===== */
+.cft {
+  margin-bottom: 16px;
+  padding: 16px 22px;
 }
 .cft-head {
   display: flex;
   align-items: baseline;
   gap: 10px;
+  flex-wrap: wrap;
 }
 .cft-head b {
-  font-size: 14.5px;
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
-.cft-time {
+.cft-head .cft-time {
   margin-left: auto;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--tk-ph);
+  letter-spacing: 0.5px;
   font-variant-numeric: tabular-nums;
 }
 .cft-cmp {
-  margin-top: 10px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 14px;
+  margin-top: 12px;
+}
+@media (max-width: 1000px) {
+  .cft-cmp {
+    grid-template-columns: 1fr;
+  }
 }
 .cft-col {
   border: 1px solid var(--tk-line);
@@ -186,57 +310,47 @@ function keep(c, side) {
   overflow: hidden;
 }
 .cft-col-h {
-  padding: 6px 10px;
+  padding: 9px 14px;
   font-size: 12.5px;
-  font-weight: 600;
-  color: var(--tk-sub);
-  background: var(--tk-block, #f7f8fa);
+  font-weight: 700;
+  letter-spacing: 1px;
+  background: var(--tk-fill);
+  border-bottom: 1px solid var(--tk-line);
 }
 .cft-rows {
-  padding: 2px 10px;
+  padding: 4px 14px 10px;
 }
 .cft-r {
   display: flex;
-  gap: 8px;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--tk-line);
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--tk-line);
   font-size: 12.5px;
 }
 .cft-r:last-child {
   border-bottom: none;
 }
 .cft-r .k {
-  flex: 0 0 72px;
+  flex: none;
+  width: 84px;
   color: var(--tk-ph);
+  letter-spacing: 1px;
 }
 .cft-r .v {
   flex: 1;
-  color: var(--tk-ink);
+  min-width: 0;
+  font-weight: 600;
   word-break: break-all;
+  font-variant-numeric: tabular-nums;
 }
 .cft-r .v.df {
   color: var(--tk-red);
-  font-weight: 600;
+  font-weight: 700;
 }
 .cft-acts {
-  margin-top: 10px;
   display: flex;
-  gap: 10px;
   justify-content: flex-end;
-}
-.loading {
-  padding: 30px;
-  text-align: center;
-  color: var(--tk-ph);
-  font-size: 13px;
-}
-.empty {
-  padding: 36px;
-  text-align: center;
-  color: var(--tk-ph);
-  font-size: 13px;
-}
-.empty.muted {
-  color: var(--tk-ph);
+  gap: 10px;
+  margin-top: 14px;
 }
 </style>

@@ -1,463 +1,786 @@
 <template>
   <div>
-    <div class="page-head">
-      <h1 class="page-title">账号与权限管理</h1>
-      <span class="page-sub">班组 · 员工 · 应用启停排序 · 按人应用授权 · 仅超级管理员</span>
+    <!-- 无权限提示（旧版 admin.html 口径；路由守卫之外的兜底） -->
+    <div v-if="!isAdmin" class="card noperm page-entry">
+      <div class="np-ic"><Icon name="lock-on" :size="30" /></div>
+      <h3>无权限访问</h3>
+      <p>管理页仅对管理员开放。<br />如需权限请联系班组管理员。</p>
+      <t-button theme="primary" @click="goWorkbench">返回工作台</t-button>
     </div>
 
-    <div class="subnav">
-      <div
-        v-for="t in tabs"
-        :key="t.key"
-        class="subnav-item"
-        :class="{ active: tab === t.key }"
-        @click="switchTab(t.key)"
-      >
-        {{ t.label }}
-      </div>
-    </div>
-
-    <!-- ===== 员工管理 ===== -->
-    <template v-if="tab === 'users'">
-      <div class="toolbar">
-        <t-select
-          v-model="userTeamFilter"
-          :options="teamFilterOptions"
-          style="width: 160px"
-          @change="loadUsers"
-        />
-        <t-input
-          v-model="userKeyword"
-          placeholder="搜索账号或昵称"
-          clearable
-          style="max-width: 220px"
-          @enter="loadUsers"
-          @clear="loadUsers"
-        />
-        <span class="muted num">共 {{ users.length }} 名员工</span>
-        <div class="spacer"></div>
-        <t-button variant="outline" @click="loadUsers">刷新</t-button>
-        <t-button theme="primary" @click="openUserDialog(null)">新建员工</t-button>
+    <template v-else>
+      <div class="page-head page-entry">
+        <h1 class="page-title">账号与权限管理</h1>
+        <span class="page-sub"
+          >班组 · 员工 · 应用启停排序 · 按人应用授权 · 消息推送 · 仅超级管理员</span
+        >
       </div>
 
-      <div class="card">
-        <t-loading :loading="usersLoading" size="small">
-          <div v-if="usersError" class="state-box error">
-            <b>员工列表加载失败</b>
-            <p>{{ usersError }}</p>
-            <t-button size="small" variant="outline" style="margin-top: 12px" @click="loadUsers">
-              重新加载
-            </t-button>
-          </div>
-          <table v-else-if="users.length" class="acct-table">
-            <thead>
-              <tr>
-                <th>账号</th>
-                <th>昵称</th>
-                <th>wxid</th>
-                <th>班组</th>
-                <th>角色</th>
-                <th>状态</th>
-                <th>注册时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="u in users" :key="u.id">
-                <td class="num">
-                  <b>{{ u.username }}</b>
-                </td>
-                <td>{{ u.nickname || '—' }}</td>
-                <td class="num">{{ u.wxid || '—' }}</td>
-                <td>
-                  <span v-if="u.team" class="dot-tag green"
-                    ><span class="dot"></span>{{ u.team }}</span
-                  >
-                  <span v-else class="muted">未分配</span>
-                </td>
-                <td>
-                  <span v-if="u.role === 'admin'" class="role-badge admin">超级管理员</span>
-                  <span v-else-if="u.role === 'team_admin'" class="role-badge outline"
-                    >班组管理员</span
-                  >
-                  <span v-else class="role-badge gray">普通用户</span>
-                </td>
-                <td>
-                  <span v-if="u.status === 1" class="dot-tag green"
-                    ><span class="dot"></span>启用</span
-                  >
-                  <span v-else class="dot-tag red"><span class="dot"></span>停用</span>
-                </td>
-                <td class="num muted">{{ u.created_at || '—' }}</td>
-                <td>
-                  <div class="row-actions">
-                    <t-button size="small" variant="text" @click="openUserDialog(u)">编辑</t-button>
-                    <t-button size="small" variant="text" @click="openPasswordDialog(u)">
-                      重置密码
-                    </t-button>
-                    <t-button
-                      size="small"
-                      variant="text"
-                      :theme="u.status === 1 ? 'danger' : 'default'"
-                      :disabled="isMe(u)"
-                      :title="isMe(u) ? '不能停用自己的账号' : ''"
-                      @click="onToggleUserStatus(u)"
-                    >
-                      {{ u.status === 1 ? '停用' : '启用' }}
-                    </t-button>
-                    <t-button
-                      size="small"
-                      variant="text"
-                      theme="danger"
-                      :disabled="isMe(u)"
-                      :title="isMe(u) ? '不能删除自己的账号' : ''"
-                      @click="onDeleteUser(u)"
-                    >
-                      删除
-                    </t-button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else-if="!usersLoading" class="state-box">
-            <b>暂无员工</b>
-            <p>点击右上角「新建员工」创建账号；未分配班组的员工显示在筛选「未分配」里。</p>
-          </div>
-        </t-loading>
+      <!-- 分段导航（滑动指示条，同旧版 admin.html 页签） -->
+      <div class="tabs page-entry">
+        <button
+          v-for="t in tabs"
+          :key="t.key"
+          :ref="(el) => setTabEl(t.key, el)"
+          class="tab"
+          :class="{ on: tab === t.key }"
+          @click="switchTab(t.key)"
+        >
+          {{ t.label }}
+        </button>
+        <span class="tab-ind" :class="{ ready: indReady }" :style="indStyle"></span>
       </div>
-    </template>
 
-    <!-- ===== 权限管理（按人应用授权） ===== -->
-    <template v-else-if="tab === 'perms'">
-      <div class="perm-layout">
-        <aside class="card perm-side">
-          <div class="toolbar" style="padding: 0 0 10px">
+      <div :key="tab" class="pane-in">
+        <!-- ===== 员工管理 ===== -->
+        <template v-if="tab === 'users'">
+          <div class="toolbar">
+            <t-select
+              v-model="teamFilter"
+              :options="teamFilterOptions"
+              style="width: 170px"
+              @change="loadUsers"
+            />
             <t-input
-              v-model="permKeyword"
+              v-model="userKeyword"
               placeholder="搜索账号或昵称"
               clearable
-              style="width: 100%"
+              style="width: 200px"
               @enter="loadUsers"
               @clear="loadUsers"
             />
+            <span class="cnt num">{{ userCountText }}</span>
+            <span class="sp">
+              <t-button size="small" variant="outline" @click="loadUsers">
+                <Icon name="refresh" :size="14" />刷新
+              </t-button>
+              <t-button size="small" theme="primary" @click="openAddUser">
+                <Icon name="add" :size="14" />新建员工
+              </t-button>
+            </span>
           </div>
-          <t-select
-            v-model="userTeamFilter"
-            :options="teamFilterOptions"
-            style="width: 100%; margin-bottom: 10px"
-            @change="loadUsers"
-          />
-          <t-loading :loading="usersLoading" size="small">
-            <div class="perm-user-list">
-              <div
-                v-for="u in permUsers"
-                :key="u.id"
-                class="perm-user"
-                :class="{ on: selectedUser && selectedUser.id === u.id }"
-                @click="selectPermUser(u)"
-              >
-                <b>{{ u.nickname || u.username }}</b>
-                <small class="muted num">{{ u.username }}</small>
-              </div>
-              <div v-if="!permUsers.length" class="muted" style="padding: 12px">
-                {{ usersLoading ? '加载中…' : '没有匹配的员工' }}
-              </div>
-            </div>
-          </t-loading>
-        </aside>
 
-        <section class="card perm-main">
-          <template v-if="selectedUser">
-            <div class="perm-head">
-              <div>
-                <b>{{ selectedUser.nickname || selectedUser.username }}</b>
-                <span class="muted num" style="margin-left: 8px">{{ selectedUser.username }}</span>
-                <div class="muted" style="font-size: 12px; margin-top: 2px">
-                  勾选该员工可使用的应用；保存后立即生效（全量替换）。
+          <div class="card tbl-card">
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>账号</th>
+                    <th>昵称</th>
+                    <th>wxid</th>
+                    <th>班组</th>
+                    <th>角色</th>
+                    <th>状态</th>
+                    <th>注册时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="usersLoading">
+                    <td colspan="8">
+                      <div class="loading"><span class="spin"></span>加载中</div>
+                    </td>
+                  </tr>
+                  <tr v-else-if="usersError">
+                    <td colspan="8">
+                      <div class="empty">
+                        <Icon name="warn" :size="44" />
+                        <p>{{ usersError }}</p>
+                      </div>
+                    </td>
+                  </tr>
+                  <template v-else-if="users.length">
+                    <!-- 选了具体班组 / 未分组 → 单组平铺；「全部班组」按班组分组（组标题行） -->
+                    <template v-if="teamFilter !== ''">
+                      <tr v-for="u in users" :key="u.id">
+                        <td class="uname num">{{ u.username }}</td>
+                        <td>
+                          <span v-if="u.nickname">{{ u.nickname }}</span>
+                          <span v-else class="mut">—</span>
+                        </td>
+                        <td class="num">
+                          <span v-if="u.wxid">{{ u.wxid }}</span>
+                          <span v-else class="mut">—</span>
+                        </td>
+                        <td>
+                          <span v-if="u.team">{{ u.team }}</span>
+                          <span v-else class="mut">未分配</span>
+                        </td>
+                        <td>
+                          <span v-if="u.role === 'admin'" class="tag role-admin">超级管理员</span>
+                          <span v-else-if="u.role === 'team_admin'" class="badge-outline"
+                            >班组管理员</span
+                          >
+                          <span v-else class="tag tag-navy">普通用户</span>
+                        </td>
+                        <td>
+                          <span v-if="u.status === 1" class="tag tag-orange">启用</span>
+                          <span v-else class="tag tag-red">停用</span>
+                        </td>
+                        <td class="mut num">{{ fmtDate(u.created_at) }}</td>
+                        <td>
+                          <button class="act" @click="openEditUser(u)">
+                            <Icon name="edit" :size="13" />编辑
+                          </button>
+                          <button class="act" @click="openPwd(u)">
+                            <Icon name="key" :size="13" />重置密码
+                          </button>
+                          <button
+                            class="act"
+                            :class="{ danger: u.status === 1 }"
+                            :disabled="isMe(u)"
+                            :title="isMe(u) ? '不能停用自己的账号' : ''"
+                            @click="openToggle(u)"
+                          >
+                            <Icon
+                              :name="u.status === 1 ? 'lock-on' : 'check-circle'"
+                              :size="13"
+                            />{{ u.status === 1 ? '停用' : '启用' }}
+                          </button>
+                          <button
+                            class="act danger"
+                            :disabled="isMe(u)"
+                            :title="isMe(u) ? '不能删除自己的账号' : ''"
+                            @click="onDeleteUser(u)"
+                          >
+                            <Icon name="delete" :size="13" />删除
+                          </button>
+                        </td>
+                      </tr>
+                    </template>
+                    <template v-else>
+                      <template v-for="g in userGroups" :key="g.name || '未分组'">
+                        <tr class="grp-row">
+                          <td colspan="8">
+                            {{ g.name || '未分组' }}
+                            <span class="grp-cnt">{{ g.items.length }} 人</span>
+                          </td>
+                        </tr>
+                        <tr v-for="u in g.items" :key="u.id">
+                          <td class="uname num">{{ u.username }}</td>
+                          <td>
+                            <span v-if="u.nickname">{{ u.nickname }}</span>
+                            <span v-else class="mut">—</span>
+                          </td>
+                          <td class="num">
+                            <span v-if="u.wxid">{{ u.wxid }}</span>
+                            <span v-else class="mut">—</span>
+                          </td>
+                          <td>
+                            <span v-if="u.team">{{ u.team }}</span>
+                            <span v-else class="mut">未分配</span>
+                          </td>
+                          <td>
+                            <span v-if="u.role === 'admin'" class="tag role-admin">超级管理员</span>
+                            <span v-else-if="u.role === 'team_admin'" class="badge-outline"
+                              >班组管理员</span
+                            >
+                            <span v-else class="tag tag-navy">普通用户</span>
+                          </td>
+                          <td>
+                            <span v-if="u.status === 1" class="tag tag-orange">启用</span>
+                            <span v-else class="tag tag-red">停用</span>
+                          </td>
+                          <td class="mut num">{{ fmtDate(u.created_at) }}</td>
+                          <td>
+                            <button class="act" @click="openEditUser(u)">
+                              <Icon name="edit" :size="13" />编辑
+                            </button>
+                            <button class="act" @click="openPwd(u)">
+                              <Icon name="key" :size="13" />重置密码
+                            </button>
+                            <button
+                              class="act"
+                              :class="{ danger: u.status === 1 }"
+                              :disabled="isMe(u)"
+                              :title="isMe(u) ? '不能停用自己的账号' : ''"
+                              @click="openToggle(u)"
+                            >
+                              <Icon
+                                :name="u.status === 1 ? 'lock-on' : 'check-circle'"
+                                :size="13"
+                              />{{ u.status === 1 ? '停用' : '启用' }}
+                            </button>
+                            <button
+                              class="act danger"
+                              :disabled="isMe(u)"
+                              :title="isMe(u) ? '不能删除自己的账号' : ''"
+                              @click="onDeleteUser(u)"
+                            >
+                              <Icon name="delete" :size="13" />删除
+                            </button>
+                          </td>
+                        </tr>
+                      </template>
+                    </template>
+                  </template>
+                  <tr v-else>
+                    <td colspan="8">
+                      <div class="empty">
+                        <Icon name="usergroup" :size="44" />
+                        <p>暂无员工，点击右上角「新建员工」创建</p>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 权限管理（左应用矩阵 / 右员工列表，勾选即保存） ===== -->
+        <template v-else-if="tab === 'perms'">
+          <div class="perm-wrap">
+            <div class="card pm-main">
+              <div class="pm-head">
+                <template v-if="selectedUser">
+                  <span
+                    >正在为
+                    <b>{{ selectedUser.nickname || selectedUser.username }}</b> 配置应用权限</span
+                  >
+                </template>
+                <span v-else>请先选择右侧员工</span>
+                <span v-if="selectedUser" class="st">勾选即保存</span>
+              </div>
+              <div class="pm-apps">
+                <div v-if="permLoading" class="loading"><span class="spin"></span>加载中</div>
+                <div v-else-if="permError" class="empty">
+                  <Icon name="warn" :size="44" />
+                  <p>{{ permError }}</p>
+                </div>
+                <template v-else-if="selectedUser">
+                  <div
+                    v-for="a in apps"
+                    :key="a.id"
+                    class="app-item"
+                    :class="{ on: !!checkedMap[a.id], 'off-app': a.status !== 1 }"
+                    @click="togglePerm(a)"
+                  >
+                    <span class="cbx"><Icon name="check" :size="12" /></span>
+                    <span class="ai-ic"><Icon :name="a.icon || 'app'" :size="20" /></span>
+                    <span class="ai-txt">
+                      <span class="ai-nm">{{ a.name }}</span>
+                      <span class="ai-key">{{ a.app_key }}</span>
+                    </span>
+                    <span v-if="a.status !== 1" class="ai-state">已下架</span>
+                  </div>
+                  <div v-if="!apps.length" class="empty">
+                    <Icon name="app" :size="44" />
+                    <p>暂无应用，请先在 sys_app 表配置应用</p>
+                  </div>
+                </template>
+                <div v-else class="empty">
+                  <Icon name="usergroup" :size="44" />
+                  <p>选择右侧员工后勾选应用，勾选即保存</p>
                 </div>
               </div>
-              <div class="spacer"></div>
-              <t-button
-                theme="primary"
-                :loading="permSaving"
-                :disabled="permLoading"
-                @click="onSaveUserApps"
-              >
-                保存授权
-              </t-button>
             </div>
-            <t-loading :loading="permLoading" size="small">
-              <div v-if="permError" class="state-box error">
-                <b>授权读取失败</b>
-                <p>{{ permError }}</p>
-                <t-button
-                  size="small"
-                  variant="outline"
-                  style="margin-top: 12px"
-                  @click="loadUserApps"
-                >
-                  重新加载
+
+            <aside class="card pm-side">
+              <div class="pm-search">
+                <div class="field">
+                  <Icon name="search" :size="18" />
+                  <input
+                    v-model="permKeyword"
+                    class="input"
+                    placeholder="搜索账号 / 昵称"
+                    autocomplete="off"
+                  />
+                </div>
+                <t-select
+                  v-model="permTeamFilter"
+                  :options="teamFilterOptions"
+                  style="width: 100%; margin-top: 10px"
+                  @change="loadPermUsers"
+                />
+              </div>
+              <div class="pm-list">
+                <template v-if="filteredPermUsers.length">
+                  <template v-if="permTeamFilter !== ''">
+                    <button
+                      v-for="u in filteredPermUsers"
+                      :key="u.id"
+                      class="pm-user"
+                      :class="{ on: selectedUser && selectedUser.id === u.id }"
+                      @click="selectPermUser(u)"
+                    >
+                      <span class="pm-ava">{{ (u.nickname || u.username || '?').charAt(0) }}</span>
+                      <span class="pm-meta">
+                        <span class="nm">{{ u.nickname || u.username }}</span>
+                        <span class="un num">{{ u.username }}</span>
+                      </span>
+                    </button>
+                  </template>
+                  <template v-else>
+                    <template v-for="g in permUserGroups" :key="g.name || '未分组'">
+                      <div class="pm-grp">{{ g.name || '未分组' }} · {{ g.items.length }} 人</div>
+                      <button
+                        v-for="u in g.items"
+                        :key="u.id"
+                        class="pm-user"
+                        :class="{ on: selectedUser && selectedUser.id === u.id }"
+                        @click="selectPermUser(u)"
+                      >
+                        <span class="pm-ava">{{
+                          (u.nickname || u.username || '?').charAt(0)
+                        }}</span>
+                        <span class="pm-meta">
+                          <span class="nm">{{ u.nickname || u.username }}</span>
+                          <span class="un num">{{ u.username }}</span>
+                        </span>
+                      </button>
+                    </template>
+                  </template>
+                </template>
+                <div v-else class="empty">
+                  <Icon name="search" :size="44" />
+                  <p>{{ permUsers.length ? '没有匹配的员工' : '暂无员工' }}</p>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </template>
+
+        <!-- ===== 班组管理 ===== -->
+        <template v-else-if="tab === 'teams'">
+          <div class="toolbar">
+            <span class="cnt num">{{ teamCountText }}</span>
+            <span class="sp">
+              <t-button size="small" variant="outline" @click="loadTeams">
+                <Icon name="refresh" :size="14" />刷新
+              </t-button>
+              <t-button size="small" theme="primary" @click="openTeamModal(null)">
+                <Icon name="add" :size="14" />新增班组
+              </t-button>
+            </span>
+          </div>
+
+          <div class="card tbl-card">
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>班组名称</th>
+                    <th>微信群 wxid</th>
+                    <th>成员数</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="teamsLoading">
+                    <td colspan="5">
+                      <div class="loading"><span class="spin"></span>加载中</div>
+                    </td>
+                  </tr>
+                  <tr v-else-if="teamsError">
+                    <td colspan="5">
+                      <div class="empty">
+                        <Icon name="warn" :size="44" />
+                        <p>{{ teamsError }}</p>
+                      </div>
+                    </td>
+                  </tr>
+                  <template v-else>
+                    <tr v-for="t in teams" :key="t.id">
+                      <td class="uname">
+                        {{ t.name
+                        }}<span v-if="t.id === defaultTeamId" class="def-pill">默认班组</span>
+                      </td>
+                      <td class="num">
+                        <span v-if="t.wxid">{{ t.wxid }}</span>
+                        <span v-else class="mut">—</span>
+                      </td>
+                      <td class="num">{{ t.user_count || 0 }} 人</td>
+                      <td>
+                        <span v-if="t.status === 1" class="tag tag-orange">启用</span>
+                        <span v-else class="tag tag-red">停用</span>
+                      </td>
+                      <td>
+                        <button class="act" @click="openTeamModal(t)">
+                          <Icon name="edit" :size="13" />编辑
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="!teams.length">
+                      <td colspan="5">
+                        <div class="empty">
+                          <Icon name="usergroup" :size="44" />
+                          <p>暂无班组，点击右上角「新增班组」创建</p>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 应用管理（启停/排序） ===== -->
+        <template v-else-if="tab === 'apps'">
+          <div class="toolbar">
+            <span class="cnt num">{{ appsCountText }}</span>
+            <span class="sp">
+              <t-button size="small" variant="outline" @click="loadApps">
+                <Icon name="refresh" :size="14" />刷新
+              </t-button>
+            </span>
+          </div>
+
+          <div class="card tbl-card">
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>应用</th>
+                    <th>标识</th>
+                    <th>终端</th>
+                    <th>排序</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="appsLoading">
+                    <td colspan="6">
+                      <div class="loading"><span class="spin"></span>加载中</div>
+                    </td>
+                  </tr>
+                  <tr v-else-if="appsError">
+                    <td colspan="6">
+                      <div class="empty">
+                        <Icon name="warn" :size="44" />
+                        <p>{{ appsError }}</p>
+                      </div>
+                    </td>
+                  </tr>
+                  <template v-else>
+                    <tr v-for="a in apps" :key="a.id">
+                      <td class="uname">
+                        <span class="ai-inline">
+                          <span class="ai-ic"><Icon :name="a.icon || 'app'" :size="18" /></span>
+                          {{ a.name }}
+                        </span>
+                      </td>
+                      <td class="mut num">{{ a.app_key }}</td>
+                      <td>{{ terminalName(a.terminal) }}</td>
+                      <td>
+                        <input
+                          v-model.number="appDraft[a.id].sort"
+                          class="input cell-num"
+                          type="number"
+                          min="0"
+                          step="1"
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          class="switch"
+                          :class="{ on: appDraft[a.id].status === 1 }"
+                          title="点击切换上架 / 下架"
+                          @click="appDraft[a.id].status = appDraft[a.id].status === 1 ? 0 : 1"
+                        ></button>
+                      </td>
+                      <td>
+                        <button
+                          class="act primary"
+                          :disabled="appSavingId === a.id"
+                          @click="onSaveApp(a)"
+                        >
+                          <Icon name="check" :size="13" />{{
+                            appSavingId === a.id ? '保存中…' : '保存'
+                          }}
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="!apps.length">
+                      <td colspan="6">
+                        <div class="empty">
+                          <Icon name="app" :size="44" />
+                          <p>应用目录为空，应用由各业务模块建表种子登记</p>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 消息推送 ===== -->
+        <template v-else-if="tab === 'push'">
+          <div class="card push-card">
+            <div class="f-row">
+              <label>标题</label>
+              <input
+                v-model="pushTitle"
+                class="input"
+                maxlength="128"
+                placeholder="请输入通知标题（128 字以内）"
+                autocomplete="off"
+              />
+            </div>
+            <div class="f-row">
+              <label>内容 <i>支持 Markdown 语法，可插入图片</i></label>
+              <div class="push-tools">
+                <t-button size="small" variant="outline" @click="pickPushImage">
+                  <Icon name="image" :size="14" />插入图片
+                </t-button>
+                <t-button size="small" variant="outline" @click="togglePushPreview">
+                  {{ pushPreviewOn ? '继续编辑' : '预览' }}
                 </t-button>
               </div>
-              <div v-else class="perm-apps">
-                <label v-for="a in apps" :key="a.id" class="perm-app">
-                  <t-checkbox :checked="permChecked[a.id]" @change="(v) => togglePerm(a.id, v)">
-                    {{ a.name }}
-                    <span class="muted num" style="margin-left: 6px">{{ a.app_key }}</span>
-                  </t-checkbox>
-                  <span v-if="a.status !== 1" class="dot-tag orange"
-                    ><span class="dot"></span>已下架</span
-                  >
+              <textarea
+                v-show="!pushPreviewOn"
+                ref="pushContentEl"
+                v-model="pushContent"
+                class="input"
+                placeholder="请输入通知内容，支持 Markdown：# 标题、**加粗**、- 列表、![图片描述](图片地址) 等"
+              ></textarea>
+              <div v-show="pushPreviewOn" class="push-preview" v-html="pushPreviewHtml"></div>
+              <input
+                ref="pushImgFileEl"
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                style="display: none"
+                @change="onPushImageChange"
+              />
+            </div>
+            <div class="f-row">
+              <label>推送对象 <i>至少选择一项</i></label>
+              <div class="push-targets">
+                <label v-for="r in pushRoles" :key="r.value" class="push-ck">
+                  <input v-model="pushTargets" type="checkbox" :value="r.value" />{{ r.label }}
                 </label>
-                <div v-if="!apps.length" class="muted">应用目录为空，请先在「应用管理」查看。</div>
               </div>
-            </t-loading>
-          </template>
-          <div v-else class="state-box">
-            <b>选择左侧员工</b>
-            <p>按人查看与设置应用授权；授权以「应用管理」里的上架应用为准。</p>
+            </div>
+            <div class="f-note">
+              通知按角色推送，成员在工作台「消息通知」与小程序首页的通知卡可见，未读数以红色徽章提示。内容支持
+              Markdown 排版，图片经「插入图片」上传后自动引用。
+            </div>
+            <div class="push-ft">
+              <t-button theme="primary" :loading="pushSaving" @click="onPushSubmit">
+                <Icon name="send" :size="14" />{{ pushSaving ? '推送中…' : '推送' }}
+              </t-button>
+            </div>
           </div>
-        </section>
+        </template>
       </div>
     </template>
 
-    <!-- ===== 班组管理 ===== -->
-    <template v-else-if="tab === 'teams'">
-      <div class="toolbar">
-        <span class="muted num">共 {{ teams.length }} 个班组</span>
-        <div class="spacer"></div>
-        <t-button variant="outline" @click="loadTeams">刷新</t-button>
-        <t-button theme="primary" @click="openTeamDialog(null)">新增班组</t-button>
-      </div>
-
-      <div class="card">
-        <t-loading :loading="teamsLoading" size="small">
-          <div v-if="teamsError" class="state-box error">
-            <b>班组列表加载失败</b>
-            <p>{{ teamsError }}</p>
-            <t-button size="small" variant="outline" style="margin-top: 12px" @click="loadTeams">
-              重新加载
-            </t-button>
-          </div>
-          <table v-else-if="teams.length" class="acct-table">
-            <thead>
-              <tr>
-                <th>班组名称</th>
-                <th>班组群 wxid</th>
-                <th>排序</th>
-                <th>成员数</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="t in teams" :key="t.id">
-                <td>
-                  <b>{{ t.name }}</b>
-                </td>
-                <td class="num">{{ t.wxid || '—' }}</td>
-                <td class="num">{{ t.sort }}</td>
-                <td class="num">{{ t.user_count }}</td>
-                <td>
-                  <span v-if="t.status === 1" class="dot-tag green"
-                    ><span class="dot"></span>启用</span
-                  >
-                  <span v-else class="dot-tag red"><span class="dot"></span>停用</span>
-                </td>
-                <td>
-                  <div class="row-actions">
-                    <t-button size="small" variant="text" @click="openTeamDialog(t)">编辑</t-button>
-                    <t-button size="small" variant="text" theme="danger" @click="onDeleteTeam(t)">
-                      删除
-                    </t-button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else-if="!teamsLoading" class="state-box">
-            <b>暂无班组</b>
-            <p>点击右上角「新增班组」创建；班组下有员工或业务数据时只能停用、不能删除。</p>
-          </div>
-        </t-loading>
-      </div>
-    </template>
-
-    <!-- ===== 应用管理（启停/排序） ===== -->
-    <template v-else-if="tab === 'apps'">
-      <div class="toolbar">
-        <span class="muted num">共 {{ apps.length }} 个应用</span>
-        <div class="spacer"></div>
-        <t-button variant="outline" @click="loadApps">刷新</t-button>
-      </div>
-
-      <div class="card">
-        <t-loading :loading="appsLoading" size="small">
-          <div v-if="appsError" class="state-box error">
-            <b>应用列表加载失败</b>
-            <p>{{ appsError }}</p>
-            <t-button size="small" variant="outline" style="margin-top: 12px" @click="loadApps">
-              重新加载
-            </t-button>
-          </div>
-          <table v-else-if="apps.length" class="acct-table">
-            <thead>
-              <tr>
-                <th>应用</th>
-                <th>标识</th>
-                <th>终端</th>
-                <th>排序</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="a in apps" :key="a.id">
-                <td>
-                  <b>{{ a.name }}</b>
-                </td>
-                <td class="num">{{ a.app_key }}</td>
-                <td>{{ terminalName(a.terminal) }}</td>
-                <td>
-                  <t-input-number
-                    v-model="appDraft[a.id].sort"
-                    theme="column"
-                    :min="0"
-                    :step="1"
-                    style="width: 110px"
-                  />
-                </td>
-                <td>
-                  <t-switch v-model="appDraft[a.id].status" :custom-value="[1, 0]" />
-                </td>
-                <td>
-                  <div class="row-actions">
-                    <t-button
-                      size="small"
-                      variant="text"
-                      theme="primary"
-                      :loading="appSavingId === a.id"
-                      @click="onSaveApp(a)"
-                    >
-                      保存
-                    </t-button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else-if="!appsLoading" class="state-box">
-            <b>应用目录为空</b>
-            <p>应用由各业务模块建表种子登记；停用后所有端不再展示该应用入口。</p>
-          </div>
-        </t-loading>
-      </div>
-    </template>
-
-    <!-- 新建/编辑员工 -->
+    <!-- ===== 新建员工弹层 ===== -->
     <t-dialog
-      v-model:visible="userDialogVisible"
-      :header="userForm.id ? '编辑员工' : '新建员工'"
+      v-model:visible="addVisible"
+      header="新建员工"
+      width="440px"
       :confirm-btn="{
-        content: userSaving ? '保存中…' : userForm.id ? '保存修改' : '创建账号',
+        content: addSaving ? '创建中…' : '创建',
         theme: 'primary',
-        loading: userSaving,
+        loading: addSaving,
       }"
       :cancel-btn="{ content: '取消' }"
       :close-on-overlay-click="false"
-      @confirm="onSaveUser"
-      @close="userDialogVisible = false"
+      @confirm="onAddSubmit"
+      @close="addVisible = false"
     >
-      <t-form layout="vertical">
-        <t-form-item v-if="!userForm.id" label="登录账号" required>
-          <t-input v-model="userForm.username" placeholder="2-64 位字母、数字或下划线" />
-        </t-form-item>
-        <t-form-item label="昵称 / 姓名">
-          <t-input v-model="userForm.nickname" placeholder="选填" />
-        </t-form-item>
-        <t-form-item label="微信 wxid">
-          <t-input v-model="userForm.wxid" placeholder="选填，消息微信推送用" />
-        </t-form-item>
-        <t-form-item label="所属班组">
-          <t-select
-            v-model="userForm.teamId"
-            :options="teamOptions"
-            placeholder="未分配"
-            clearable
-          />
-          <div class="field-help">班组管理员必须有所属班组。</div>
-        </t-form-item>
-        <t-form-item label="角色">
-          <t-select v-model="userForm.role" :options="roleOptions" :disabled="userForm.isSelf" />
-          <div v-if="userForm.isSelf" class="field-help">不能降级自己的账号。</div>
-        </t-form-item>
-        <t-form-item v-if="!userForm.id" label="初始密码" required>
-          <t-input v-model="userForm.password" type="password" placeholder="至少 6 位" />
-        </t-form-item>
-      </t-form>
-      <div v-if="userFormError" class="field-error">{{ userFormError }}</div>
+      <div class="f-row">
+        <label>账号</label>
+        <t-input
+          v-model="addForm.username"
+          class="f-input"
+          placeholder="2-64 位字母、数字或下划线"
+          autocomplete="off"
+        />
+      </div>
+      <div class="f-row">
+        <label>昵称 <i>选填</i></label>
+        <t-input v-model="addForm.nickname" class="f-input" placeholder="选填" autocomplete="off" />
+      </div>
+      <div class="f-row">
+        <label>wxid <i>选填</i></label>
+        <t-input
+          v-model="addForm.wxid"
+          class="f-input"
+          placeholder="微信 wxid，消息微信推送用，可空"
+          autocomplete="off"
+          :maxlength="128"
+        />
+      </div>
+      <div class="f-row">
+        <label>班组 <i>选填</i></label>
+        <t-select
+          v-model="addForm.teamId"
+          :options="dialogTeamOptions"
+          placeholder="未分配"
+          clearable
+          style="width: 100%"
+        />
+      </div>
+      <div class="f-row">
+        <label>角色</label>
+        <t-select v-model="addForm.role" :options="roleOptions" style="width: 100%" />
+      </div>
+      <div class="f-row">
+        <label>初始密码</label>
+        <t-input
+          v-model="addForm.password"
+          class="f-input"
+          type="password"
+          placeholder="至少 6 位"
+          autocomplete="new-password"
+        />
+      </div>
     </t-dialog>
 
-    <!-- 重置密码 -->
+    <!-- ===== 编辑员工弹层 ===== -->
     <t-dialog
-      v-model:visible="passwordDialogVisible"
-      :header="`重置密码 · ${passwordTarget ? passwordTarget.username : ''}`"
+      v-model:visible="editVisible"
+      header="编辑员工"
+      width="440px"
       :confirm-btn="{
-        content: passwordSaving ? '提交中…' : '重置密码',
+        content: editSaving ? '保存中…' : '保存',
         theme: 'primary',
-        loading: passwordSaving,
+        loading: editSaving,
       }"
       :cancel-btn="{ content: '取消' }"
       :close-on-overlay-click="false"
-      @confirm="onResetPassword"
-      @close="passwordDialogVisible = false"
+      @confirm="onEditSubmit"
+      @close="editVisible = false"
     >
-      <t-form layout="vertical">
-        <t-form-item label="新密码" required>
-          <t-input v-model="passwordValue" type="password" placeholder="至少 6 位" />
-        </t-form-item>
-      </t-form>
-      <div v-if="passwordError" class="field-error">{{ passwordError }}</div>
+      <div class="tip">账号：{{ editForm.username }}</div>
+      <div class="f-row">
+        <label>昵称</label>
+        <t-input
+          v-model="editForm.nickname"
+          class="f-input"
+          placeholder="选填"
+          autocomplete="off"
+        />
+      </div>
+      <div class="f-row">
+        <label>wxid <i>选填</i></label>
+        <t-input
+          v-model="editForm.wxid"
+          class="f-input"
+          placeholder="微信 wxid，消息微信推送用，可空"
+          autocomplete="off"
+          :maxlength="128"
+        />
+      </div>
+      <div class="f-row">
+        <label>班组</label>
+        <t-select
+          v-model="editForm.teamId"
+          :options="dialogTeamOptions"
+          placeholder="未分配"
+          clearable
+          style="width: 100%"
+        />
+      </div>
+      <div class="f-row">
+        <label>角色 <i v-if="editForm.isSelf">不能降级自己的账号</i></label>
+        <t-select
+          v-model="editForm.role"
+          :options="roleOptions"
+          :disabled="editForm.isSelf"
+          style="width: 100%"
+        />
+      </div>
     </t-dialog>
 
-    <!-- 新增/编辑班组 -->
+    <!-- ===== 重置密码弹层 ===== -->
     <t-dialog
-      v-model:visible="teamDialogVisible"
+      v-model:visible="pwdVisible"
+      header="重置密码"
+      width="440px"
+      :confirm-btn="{
+        content: pwdSaving ? '提交中…' : '重置',
+        theme: 'primary',
+        loading: pwdSaving,
+      }"
+      :cancel-btn="{ content: '取消' }"
+      :close-on-overlay-click="false"
+      @confirm="onPwdSubmit"
+      @close="pwdVisible = false"
+    >
+      <div class="tip">
+        重置密码：{{ pwdTarget ? pwdTarget.nickname || pwdTarget.username : '' }}
+      </div>
+      <div class="f-row">
+        <label>新密码</label>
+        <t-input
+          v-model="pwdValue"
+          class="f-input"
+          type="password"
+          placeholder="请输入新密码（至少 6 位）"
+          autocomplete="new-password"
+        />
+      </div>
+    </t-dialog>
+
+    <!-- ===== 新增 / 编辑班组弹层（删除班组在弹层内，二次确认） ===== -->
+    <t-dialog
+      v-model:visible="teamVisible"
       :header="teamForm.id ? '编辑班组' : '新增班组'"
-      :confirm-btn="{
-        content: teamSaving ? '保存中…' : teamForm.id ? '保存修改' : '创建班组',
-        theme: 'primary',
-        loading: teamSaving,
-      }"
-      :cancel-btn="{ content: '取消' }"
+      width="440px"
       :close-on-overlay-click="false"
-      @confirm="onSaveTeam"
-      @close="teamDialogVisible = false"
+      @close="teamVisible = false"
     >
-      <t-form layout="vertical">
-        <t-form-item label="班组名称" required>
-          <t-input v-model="teamForm.name" placeholder="例如：检修一班" />
-        </t-form-item>
-        <t-form-item label="班组群 wxid">
-          <t-input v-model="teamForm.wxid" placeholder="选填，班组群消息推送用" />
-        </t-form-item>
-        <t-form-item v-if="teamForm.id" label="排序">
-          <t-input-number v-model="teamForm.sort" theme="column" :min="0" :step="1" />
-          <div class="field-help">数值小的排在前面；首个启用班组即默认班组。</div>
-        </t-form-item>
-        <t-form-item label="状态">
-          <t-switch v-model="teamForm.status" :custom-value="[1, 0]" />
-          <div class="field-help">停用后不再出现在班组选择里，历史数据保留。</div>
-        </t-form-item>
-      </t-form>
-      <div v-if="teamFormError" class="field-error">{{ teamFormError }}</div>
+      <template #footer>
+        <button v-if="teamForm.id" class="link-danger" @click="onTeamDelClick">删除班组</button>
+        <span class="ft-spacer"></span>
+        <t-button variant="outline" @click="teamVisible = false">取消</t-button>
+        <t-button theme="primary" :loading="teamSaving" @click="onTeamSubmit">保存</t-button>
+      </template>
+      <div class="f-row">
+        <label>班组名称</label>
+        <t-input
+          v-model="teamForm.name"
+          class="f-input"
+          placeholder="如：运维二班"
+          autocomplete="off"
+          :maxlength="64"
+        />
+      </div>
+      <div class="f-row">
+        <label>微信群 wxid <i>选填</i></label>
+        <t-input
+          v-model="teamForm.wxid"
+          class="f-input"
+          placeholder="班组微信群 wxid，消息推送用，可空"
+          autocomplete="off"
+          :maxlength="128"
+        />
+      </div>
+      <div v-if="teamForm.id" class="f-row">
+        <label>排序</label>
+        <t-input-number v-model="teamForm.sort" theme="column" :min="0" :step="1" />
+        <div class="f-note">数值小的排在前面；首个启用班组即默认班组。</div>
+      </div>
+      <div v-if="teamForm.id" class="f-row">
+        <label>启用状态</label>
+        <button
+          type="button"
+          class="switch"
+          :class="{ on: teamForm.status === 1 }"
+          title="点击切换启用 / 停用"
+          @click="teamForm.status = teamForm.status === 1 ? 0 : 1"
+        ></button>
+      </div>
+      <div class="f-note">
+        KVM 设备组与班组同名，无需单独设置；班组改名后，GLKVM 平台侧设备组需同步改名，否则远程连接 /
+        文件传输将回退显示默认班组设备。
+      </div>
     </t-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import {
   createTeam,
@@ -469,20 +792,71 @@ import {
   listApps,
   listTeams,
   listUsers,
+  noticePush,
+  noticeUploadImage,
   setUserApps,
   updateApp,
   updateTeam,
   updateUser,
 } from '../features/accounts/api.js';
+import { renderMd } from '../features/callme/md.js';
+import Icon from '../features/accounts/Icon.vue';
 
-// 页签（消息推送在「通知中心/推送」入口维护，此处只管账号与授权）
+// 旧版 admin.html 还原：分段导航（滑动指示条）+ 员工（按班组分组）/ 权限（勾选即存）/
+// 班组（默认班组徽章、删除在编辑弹层内）/ 应用（启停排序）/ 消息推送（Markdown + 配图）。
+// 接口全部走 features/accounts/api.js 真实后端，失败原文如实提示，不伪造成功。
+
+const router = useRouter();
+
+// 页签（旧版页签顺序：员工 / 权限 / 班组 / 推送；「应用管理」为既有能力，插在推送前）
 const tabs = [
   { key: 'users', label: '员工管理' },
   { key: 'perms', label: '权限管理' },
   { key: 'teams', label: '班组管理' },
   { key: 'apps', label: '应用管理' },
+  { key: 'push', label: '消息推送' },
 ];
 const tab = ref('users');
+
+// ---- 滑动指示条（同旧版 Shade.moveTabInd：首帧直接落位，之后 left/width 过渡） ----
+const tabEls = {};
+const indStyle = ref({ left: '0px', width: '0px' });
+const indReady = ref(false);
+
+function setTabEl(key, el) {
+  if (el) tabEls[key] = el;
+}
+
+function moveTabInd(instant) {
+  const el = tabEls[tab.value];
+  if (!el) return;
+  if (instant) indReady.value = false;
+  indStyle.value = { left: `${el.offsetLeft}px`, width: `${el.offsetWidth}px` };
+  if (instant) {
+    nextTick(() => {
+      indReady.value = true;
+    });
+  }
+}
+
+function switchTab(key) {
+  if (tab.value === key) return;
+  tab.value = key;
+  nextTick(() => moveTabInd(false));
+}
+
+function onResize() {
+  moveTabInd(false);
+}
+
+// ---- 当前登录用户（自我保护：不能停用/降级/删除自己，与服务端同口径） ----
+const me = currentUser() || {};
+const isAdmin = computed(() => me.role === 'admin');
+const isMe = (u) => !!me.id && u.id === me.id;
+
+function goWorkbench() {
+  router.push({ name: 'workbench' });
+}
 
 const roleOptions = [
   { label: '普通用户', value: 'user' },
@@ -491,11 +865,34 @@ const roleOptions = [
 ];
 const terminalName = (t) => ({ both: '双端', mobile: '仅小程序', pc: '仅网页端' })[t] || t || '—';
 
-// 当前登录用户（自我保护标识；与服务端口径一致：不能停用/降级/删除自己）
-const me = currentUser() || {};
-const isMe = (u) => !!me.id && u.id === me.id;
+// 注册时间展示（同旧版 Shade.fmtDate：YYYY-MM-DD）
+function fmtDate(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '—';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+}
 
-// ---- 班组数据（筛选/弹层共用）----
+// 按班组分组（组序同班组列表 sort 序，表外名兜底，未分组排最后；同旧版 groupByTeam）
+function groupByTeam(list) {
+  const byTeam = {};
+  (list || []).forEach((u) => {
+    const k = u.team || '';
+    (byTeam[k] = byTeam[k] || []).push(u);
+  });
+  const order = [];
+  teams.value.forEach((t) => {
+    if (byTeam[t.name] && !order.includes(t.name)) order.push(t.name);
+  });
+  Object.keys(byTeam).forEach((k) => {
+    if (k && !order.includes(k)) order.push(k);
+  });
+  if (byTeam['']) order.push('');
+  return order.map((k) => ({ name: k, items: byTeam[k] }));
+}
+
+// ---- 班组数据（筛选 / 弹层共用） ----
 const teams = ref([]);
 const teamsLoading = ref(false);
 const teamsError = ref('');
@@ -506,160 +903,226 @@ async function loadTeams() {
   try {
     teams.value = await listTeams();
   } catch (e) {
+    teams.value = [];
     teamsError.value = e.message || '班组列表加载失败';
   } finally {
     teamsLoading.value = false;
   }
 }
 
-const teamOptions = computed(() =>
-  (teams.value || [])
-    .filter((t) => t.status === 1)
-    .map((t) => ({ label: `${t.name}${t.status === 1 ? '' : '（已停用）'}`, value: t.id }))
-);
+// 默认班组 = 首个启用班组（与后端 getDefaultTeam 同口径，KVM 设备回退归它）
+const defaultTeamId = computed(() => {
+  const t = teams.value.find((x) => x.status === 1);
+  return t ? t.id : 0;
+});
+
+// 筛选下拉（全部班组 / 各班组 / 未分组，同旧版 renderTeamFilter 顺序）
 const teamFilterOptions = computed(() => [
   { label: '全部班组', value: '' },
-  { label: '未分配', value: 0 },
-  ...(teams.value || []).map((t) => ({
+  ...teams.value.map((t) => ({
     label: t.status === 1 ? t.name : `${t.name}（已停用）`,
     value: t.id,
   })),
+  { label: '未分组', value: 0 },
 ]);
+
+// 新建/编辑弹层班组下拉（仅可选启用班组；原班组已停用/删除时保留显示，提交由后端校验；
+// 「未分配」取 0 哨兵，提交时转 null——TDesign 下拉 null 值不稳）
+const dialogTeamOptions = ref([]);
+
+function buildDialogTeamOptions(selectedId) {
+  const opts = [{ label: '未分配', value: 0 }];
+  teams.value
+    .filter((t) => t.status === 1)
+    .forEach((t) => opts.push({ label: t.name, value: t.id }));
+  if (selectedId && !opts.some((o) => o.value === selectedId)) {
+    const t = teams.value.find((x) => x.id === selectedId);
+    opts.push({ label: `${(t && t.name) || '原班组'}（已停用）`, value: selectedId });
+  }
+  dialogTeamOptions.value = opts;
+}
 
 // ---- 员工管理 ----
 const users = ref([]);
 const usersLoading = ref(false);
 const usersError = ref('');
 const userKeyword = ref('');
-const userTeamFilter = ref('');
+const teamFilter = ref('');
+
+const userCountText = computed(() => {
+  if (usersLoading.value) return '加载中…';
+  if (usersError.value) return '加载失败';
+  return `共 ${users.value.length} 名员工`;
+});
+const userGroups = computed(() => groupByTeam(users.value));
 
 async function loadUsers() {
   usersLoading.value = true;
   usersError.value = '';
   try {
-    users.value = await listUsers({ keyword: userKeyword.value, teamId: userTeamFilter.value });
+    users.value = await listUsers({ keyword: userKeyword.value, teamId: teamFilter.value });
   } catch (e) {
+    users.value = [];
     usersError.value = e.message || '员工列表加载失败';
   } finally {
     usersLoading.value = false;
   }
 }
 
-// ---- 员工弹层 ----
-const userDialogVisible = ref(false);
-const userSaving = ref(false);
-const userFormError = ref('');
-const userForm = reactive({
+// ---- 新建员工 ----
+const addVisible = ref(false);
+const addSaving = ref(false);
+const addForm = reactive({
+  username: '',
+  nickname: '',
+  wxid: '',
+  teamId: 0, // 0 = 未分配（TDesign 下拉 null 值不稳，用 0 哨兵，提交转 null）
+  role: 'user',
+  password: '',
+});
+
+function openAddUser() {
+  addForm.username = '';
+  addForm.nickname = '';
+  addForm.wxid = '';
+  addForm.teamId = 0;
+  addForm.role = 'user';
+  addForm.password = '';
+  buildDialogTeamOptions(0);
+  addVisible.value = true;
+}
+
+async function onAddSubmit() {
+  const username = addForm.username.trim();
+  const password = addForm.password;
+  if (!username || !password) {
+    MessagePlugin.info('请填写账号和初始密码');
+    return;
+  }
+  const teamId = addForm.teamId ? Number(addForm.teamId) : null;
+  if (addForm.role === 'team_admin' && !teamId) {
+    MessagePlugin.info('班组管理员必须有所属班组');
+    return;
+  }
+  addSaving.value = true;
+  try {
+    await createUser({
+      username,
+      password,
+      nickname: addForm.nickname.trim(),
+      wxid: addForm.wxid.trim(),
+      teamId,
+      role: addForm.role,
+    });
+    MessagePlugin.success('已创建');
+    addVisible.value = false;
+    loadTeams(); // 成员数变化
+    loadUsers();
+    loadPermUsers();
+  } catch (e) {
+    MessagePlugin.error(e.message || '创建失败'); // 服务端原文（账号已存在等）如实提示
+  } finally {
+    addSaving.value = false;
+  }
+}
+
+// ---- 编辑员工（昵称 / wxid / 班组 / 角色） ----
+const editVisible = ref(false);
+const editSaving = ref(false);
+const editForm = reactive({
   id: null,
   username: '',
   nickname: '',
   wxid: '',
-  teamId: null,
+  teamId: 0, // 0 = 未分配，提交转 null
   role: 'user',
-  password: '',
   isSelf: false,
 });
 
-function openUserDialog(u) {
-  userFormError.value = '';
-  if (u) {
-    userForm.id = u.id;
-    userForm.username = u.username;
-    userForm.nickname = u.nickname || '';
-    userForm.wxid = u.wxid || '';
-    userForm.teamId = u.team_id == null ? null : u.team_id;
-    userForm.role = u.role || 'user';
-    userForm.password = '';
-    userForm.isSelf = isMe(u);
-  } else {
-    userForm.id = null;
-    userForm.username = '';
-    userForm.nickname = '';
-    userForm.wxid = '';
-    userForm.teamId = null;
-    userForm.role = 'user';
-    userForm.password = '';
-    userForm.isSelf = false;
-  }
-  userDialogVisible.value = true;
+function openEditUser(u) {
+  editForm.id = u.id;
+  editForm.username = u.username;
+  editForm.nickname = u.nickname || '';
+  editForm.wxid = u.wxid || '';
+  editForm.teamId = u.team_id == null ? 0 : u.team_id;
+  editForm.role = u.role === 'admin' ? 'admin' : u.role === 'team_admin' ? 'team_admin' : 'user';
+  editForm.isSelf = isMe(u); // 编辑自己时角色置灰（不能降级自己的账号）
+  buildDialogTeamOptions(editForm.teamId);
+  editVisible.value = true;
 }
 
-async function onSaveUser() {
-  userFormError.value = '';
-  userSaving.value = true;
+async function onEditSubmit() {
+  const teamId = editForm.teamId ? Number(editForm.teamId) : null;
+  if (editForm.role === 'team_admin' && !teamId && !editForm.isSelf) {
+    MessagePlugin.info('班组管理员必须有所属班组');
+    return;
+  }
+  editSaving.value = true;
   try {
-    if (userForm.id) {
-      const patch = {
-        nickname: userForm.nickname,
-        wxid: userForm.wxid,
-        team_id: userForm.teamId == null ? null : Number(userForm.teamId),
-      };
-      if (!userForm.isSelf) patch.role = userForm.role;
-      await updateUser(userForm.id, patch);
-      MessagePlugin.success('已保存');
-    } else {
-      await createUser({
-        username: userForm.username,
-        password: userForm.password,
-        nickname: userForm.nickname,
-        wxid: userForm.wxid,
-        teamId: userForm.teamId == null ? null : Number(userForm.teamId),
-        role: userForm.role,
-      });
-      MessagePlugin.success('已创建');
-    }
-    userDialogVisible.value = false;
-    await loadUsers();
+    const patch = {
+      nickname: editForm.nickname.trim(),
+      wxid: editForm.wxid.trim(),
+      team_id: teamId, // null = 未分配
+    };
+    if (!editForm.isSelf) patch.role = editForm.role;
+    await updateUser(editForm.id, patch);
+    MessagePlugin.success('已保存');
+    editVisible.value = false;
+    loadTeams(); // 成员数变化
+    loadUsers();
+    loadPermUsers();
   } catch (e) {
-    // 服务端原文如实展示（账号已存在 / 班组管理员必须有所属班组等），不伪成功
-    userFormError.value = e.message || '保存失败';
+    MessagePlugin.error(e.message || '保存失败');
   } finally {
-    userSaving.value = false;
+    editSaving.value = false;
   }
 }
 
 // ---- 重置密码 ----
-const passwordDialogVisible = ref(false);
-const passwordSaving = ref(false);
-const passwordError = ref('');
-const passwordTarget = ref(null);
-const passwordValue = ref('');
+const pwdVisible = ref(false);
+const pwdSaving = ref(false);
+const pwdTarget = ref(null);
+const pwdValue = ref('');
 
-function openPasswordDialog(u) {
-  passwordTarget.value = u;
-  passwordValue.value = '';
-  passwordError.value = '';
-  passwordDialogVisible.value = true;
+function openPwd(u) {
+  pwdTarget.value = u;
+  pwdValue.value = '';
+  pwdVisible.value = true;
 }
 
-async function onResetPassword() {
-  passwordError.value = '';
-  passwordSaving.value = true;
+async function onPwdSubmit() {
+  const password = pwdValue.value.trim();
+  if (password.length < 6) {
+    MessagePlugin.info('密码至少 6 位');
+    return;
+  }
+  pwdSaving.value = true;
   try {
-    await updateUser(passwordTarget.value.id, { password: passwordValue.value });
-    MessagePlugin.success('已重置密码');
-    passwordDialogVisible.value = false;
+    await updateUser(pwdTarget.value.id, { password });
+    MessagePlugin.success('密码已重置');
+    pwdVisible.value = false;
   } catch (e) {
-    passwordError.value = e.message || '重置失败';
+    MessagePlugin.error(e.message || '重置失败');
   } finally {
-    passwordSaving.value = false;
+    pwdSaving.value = false;
   }
 }
 
-// ---- 启停 / 删除员工 ----
-function onToggleUserStatus(u) {
+// ---- 启用 / 停用（二次确认，同旧版 cfmMask 文案） ----
+function openToggle(u) {
   const disabling = u.status === 1;
+  const name = u.nickname || u.username;
   const confirm = DialogPlugin.confirm({
     header: disabling ? '停用账号' : '启用账号',
-    body: disabling
-      ? `确定停用账号「${u.username}」吗？停用后该账号将无法登录。`
-      : `确定启用账号「${u.username}」吗？`,
+    body: `确定${disabling ? '停用' : '启用'}「${name}」吗？${
+      disabling ? '停用后该账号将无法登录。' : ''
+    }`,
     confirmBtn: { content: disabling ? '停用' : '启用', theme: disabling ? 'danger' : 'primary' },
     async onConfirm() {
       try {
         await updateUser(u.id, { status: disabling ? 0 : 1 });
         MessagePlugin.success(disabling ? '已停用' : '已启用');
-        await loadUsers();
+        loadUsers();
       } catch (e) {
         MessagePlugin.error(e.message || '操作失败');
       } finally {
@@ -669,6 +1132,7 @@ function onToggleUserStatus(u) {
   });
 }
 
+// ---- 删除员工 ----
 function onDeleteUser(u) {
   const confirm = DialogPlugin.confirm({
     header: '删除员工',
@@ -678,7 +1142,9 @@ function onDeleteUser(u) {
       try {
         await deleteUser(u.id);
         MessagePlugin.success('已删除');
-        await loadUsers();
+        loadTeams();
+        loadUsers();
+        loadPermUsers();
       } catch (e) {
         MessagePlugin.error(e.message || '删除失败');
       } finally {
@@ -688,78 +1154,100 @@ function onDeleteUser(u) {
   });
 }
 
-// ---- 权限管理（按人应用授权）----
+// ---- 权限管理（左应用矩阵 / 右员工列表；勾选即全量保存） ----
+const permUsers = ref([]);
+const permTeamFilter = ref('');
 const permKeyword = ref('');
 const selectedUser = ref(null);
 const permLoading = ref(false);
-const permSaving = ref(false);
 const permError = ref('');
-const permChecked = reactive({});
+const checkedMap = reactive({});
+let savingPerm = false;
+let permDirty = false; // 保存期间又有新勾选
 
-const permUsers = computed(() => {
+const filteredPermUsers = computed(() => {
   const kw = permKeyword.value.trim().toLowerCase();
-  return (users.value || []).filter((u) => {
-    if (userTeamFilter.value !== '' && userTeamFilter.value !== null) {
-      const want = Number(userTeamFilter.value);
-      if (want === 0 ? u.team_id != null : Number(u.team_id) !== want) return false;
-    }
+  return (permUsers.value || []).filter((u) => {
     if (!kw) return true;
     return (
       (u.username || '').toLowerCase().includes(kw) || (u.nickname || '').toLowerCase().includes(kw)
     );
   });
 });
+const permUserGroups = computed(() => groupByTeam(filteredPermUsers.value));
+
+async function loadPermUsers() {
+  try {
+    permUsers.value = await listUsers({ teamId: permTeamFilter.value });
+  } catch (e) {
+    permUsers.value = [];
+  }
+}
 
 function selectPermUser(u) {
+  if (selectedUser.value && selectedUser.value.id === u.id) return;
   selectedUser.value = u;
+  permDirty = false; // 切换用户清 dirty：上个用户保存期间的勾选不再补存，防止写错账号
+  Object.keys(checkedMap).forEach((k) => delete checkedMap[k]);
   loadUserApps();
 }
 
 async function loadUserApps() {
-  if (!selectedUser.value) return;
+  const uid = selectedUser.value.id;
   permLoading.value = true;
   permError.value = '';
   try {
-    const ids = await getUserApps(selectedUser.value.id);
-    Object.keys(permChecked).forEach((k) => delete permChecked[k]);
+    const ids = await getUserApps(uid);
+    if (!selectedUser.value || selectedUser.value.id !== uid) return; // 过期响应丢弃
+    Object.keys(checkedMap).forEach((k) => delete checkedMap[k]);
     (ids || []).forEach((id) => {
-      permChecked[id] = true;
+      checkedMap[id] = true;
     });
   } catch (e) {
-    permError.value = e.message || '授权读取失败';
+    if (!selectedUser.value || selectedUser.value.id !== uid) return;
+    permError.value = e.message || '授权信息加载失败';
   } finally {
-    permLoading.value = false;
+    if (selectedUser.value && selectedUser.value.id === uid) permLoading.value = false;
   }
 }
 
-function togglePerm(appId, checked) {
-  permChecked[appId] = !!checked;
+function togglePerm(a) {
+  if (!selectedUser.value) return;
+  checkedMap[a.id] = !checkedMap[a.id];
+  savePerms();
 }
 
-async function onSaveUserApps() {
-  if (!selectedUser.value) return;
-  permSaving.value = true;
+async function savePerms() {
+  if (savingPerm) {
+    permDirty = true;
+    return;
+  }
+  savingPerm = true;
+  const uid = selectedUser.value.id; // 快照本次保存用户：保存期间切换用户时补存不串号
+  const ids = Object.keys(checkedMap)
+    .filter((k) => checkedMap[k])
+    .map(Number);
   try {
-    const ids = Object.keys(permChecked)
-      .filter((k) => permChecked[k])
-      .map(Number);
-    const saved = await setUserApps(selectedUser.value.id, ids);
-    MessagePlugin.success(`已保存 ${saved.length} 项授权`);
+    await setUserApps(uid, ids);
+    MessagePlugin.success('授权已保存');
   } catch (e) {
     MessagePlugin.error(e.message || '授权保存失败');
   } finally {
-    permSaving.value = false;
+    savingPerm = false;
+    // 保存期间产生的勾选补一次保存；仍属原用户才补（切换用户时 dirty 已清，双保险防误写他人权限）
+    if (permDirty && selectedUser.value && selectedUser.value.id === uid) {
+      permDirty = false;
+      savePerms();
+    }
   }
 }
 
-// ---- 班组弹层 ----
-const teamDialogVisible = ref(false);
+// ---- 班组弹层（新增/编辑；删除在弹层内 + 二次确认） ----
+const teamVisible = ref(false);
 const teamSaving = ref(false);
-const teamFormError = ref('');
 const teamForm = reactive({ id: null, name: '', wxid: '', sort: 0, status: 1 });
 
-function openTeamDialog(t) {
-  teamFormError.value = '';
+function openTeamModal(t) {
   if (t) {
     teamForm.id = t.id;
     teamForm.name = t.name;
@@ -773,47 +1261,57 @@ function openTeamDialog(t) {
     teamForm.sort = 0;
     teamForm.status = 1;
   }
-  teamDialogVisible.value = true;
+  teamVisible.value = true;
 }
 
-async function onSaveTeam() {
-  teamFormError.value = '';
+async function onTeamSubmit() {
+  const name = teamForm.name.trim();
+  if (!name) {
+    MessagePlugin.info('请输入班组名称');
+    return;
+  }
   teamSaving.value = true;
   try {
     if (teamForm.id) {
       await updateTeam(teamForm.id, {
-        name: teamForm.name,
-        wxid: teamForm.wxid,
+        name,
+        wxid: teamForm.wxid.trim(),
         sort: Number(teamForm.sort) || 0,
-        status: teamForm.status,
+        status: teamForm.status === 1 ? 1 : 0,
       });
       MessagePlugin.success('已保存');
     } else {
-      await createTeam({ name: teamForm.name, wxid: teamForm.wxid });
+      await createTeam({ name, wxid: teamForm.wxid.trim() });
       MessagePlugin.success('已创建');
     }
-    teamDialogVisible.value = false;
-    await Promise.all([loadTeams(), loadUsers()]);
+    teamVisible.value = false;
+    loadTeams();
+    loadUsers(); // 班改名 / 停启用后员工列表同步
+    loadPermUsers();
   } catch (e) {
-    teamFormError.value = e.message || '保存失败';
+    MessagePlugin.error(e.message || '保存失败');
   } finally {
     teamSaving.value = false;
   }
 }
 
-function onDeleteTeam(t) {
+function onTeamDelClick() {
+  if (!teamForm.id) return;
+  const editingTeam = teams.value.find((x) => x.id === teamForm.id) || { name: teamForm.name };
   const confirm = DialogPlugin.confirm({
     header: '删除班组',
-    body: `确定删除班组「${t.name}」吗？删除后不可恢复；班组下仍有员工或业务数据时无法删除，可改为停用。`,
+    body: `确定删除班组「${editingTeam.name}」吗？删除后不可恢复；班组下仍有员工或业务数据时无法删除，可改为停用。`,
     confirmBtn: { content: '确认删除', theme: 'danger' },
     async onConfirm() {
       try {
-        await deleteTeam(t.id);
+        await deleteTeam(teamForm.id);
         MessagePlugin.success('已删除');
-        await Promise.all([loadTeams(), loadUsers()]);
+        teamVisible.value = false;
+        loadTeams();
+        loadUsers();
+        loadPermUsers();
       } catch (e) {
-        // 40903 等服务端拒绝原文（含引用数量）如实展示
-        MessagePlugin.error(e.message || '删除失败');
+        MessagePlugin.error(e.message || '删除失败'); // 40903 等冲突文案由后端给出
       } finally {
         confirm.destroy();
       }
@@ -821,12 +1319,18 @@ function onDeleteTeam(t) {
   });
 }
 
-// ---- 应用管理（启停/排序）----
+// ---- 应用管理（启停/排序） ----
 const apps = ref([]);
 const appsLoading = ref(false);
 const appsError = ref('');
 const appSavingId = ref(null);
 const appDraft = reactive({});
+
+const appsCountText = computed(() => {
+  if (appsLoading.value) return '加载中…';
+  if (appsError.value) return '加载失败';
+  return `共 ${apps.value.length} 个应用`;
+});
 
 async function loadApps() {
   appsLoading.value = true;
@@ -838,6 +1342,7 @@ async function loadApps() {
       appDraft[a.id] = { sort: a.sort, status: a.status };
     });
   } catch (e) {
+    apps.value = [];
     appsError.value = e.message || '应用列表加载失败';
   } finally {
     appsLoading.value = false;
@@ -858,125 +1363,889 @@ async function onSaveApp(a) {
   }
 }
 
-// ---- 页签切换（数据按需加载）----
-async function switchTab(key) {
-  tab.value = key;
-  if (key === 'perms' && !selectedUser.value && users.value.length) {
-    // 切到权限页时保持未选中，等用户点选
+// ---- 消息推送（Markdown + 配图；三类对象勾选制） ----
+const pushTitle = ref('');
+const pushContent = ref('');
+const pushTargets = ref([]);
+const pushSaving = ref(false);
+const pushPreviewOn = ref(false);
+const pushContentEl = ref(null);
+const pushImgFileEl = ref(null);
+
+const pushRoles = [
+  { label: '超级管理员', value: 'admin' },
+  { label: '班组管理员', value: 'team_admin' },
+  { label: '普通成员', value: 'user' },
+];
+
+const pushPreviewHtml = computed(
+  () => renderMd(pushContent.value) || '<span style="color: var(--tk-ph)">暂无内容</span>'
+);
+
+function pickPushImage() {
+  if (pushImgFileEl.value) pushImgFileEl.value.click();
+}
+
+async function onPushImageChange(e) {
+  const input = e.target;
+  const file = input.files && input.files[0];
+  input.value = ''; // 置空以允许重复选择同一文件
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    MessagePlugin.info('图片大小应在 5MB 以内');
+    return;
+  }
+  MessagePlugin.info('图片上传中…');
+  try {
+    const url = await noticeUploadImage(file);
+    if (!url) throw new Error('上传失败，未返回图片地址');
+    insertAtCursor(`\n![图片](${url})\n`);
+    MessagePlugin.success('图片已插入');
+  } catch (err) {
+    MessagePlugin.error(err.message || '上传失败');
   }
 }
 
-onMounted(async () => {
-  await loadTeams();
-  await loadUsers();
-  await loadApps();
+// 在 textarea 光标处插入文本（取不到光标时追加到末尾）
+function insertAtCursor(text) {
+  const ta = pushContentEl.value;
+  if (!ta || typeof ta.selectionStart !== 'number') {
+    pushContent.value += text;
+    return;
+  }
+  const s = ta.selectionStart;
+  const e2 = ta.selectionEnd;
+  pushContent.value = pushContent.value.slice(0, s) + text + pushContent.value.slice(e2);
+  nextTick(() => {
+    ta.selectionStart = ta.selectionEnd = s + text.length;
+    ta.focus();
+  });
+}
+
+function togglePushPreview() {
+  pushPreviewOn.value = !pushPreviewOn.value;
+}
+
+async function onPushSubmit() {
+  const title = pushTitle.value.trim();
+  const content = pushContent.value.trim();
+  const targets = pushTargets.value.slice();
+  if (!title || !content) {
+    MessagePlugin.info('请填写标题和内容');
+    return;
+  }
+  if (!targets.length) {
+    MessagePlugin.info('请至少选择一个推送对象');
+    return;
+  }
+  pushSaving.value = true;
+  try {
+    await noticePush({ title, content, targets });
+    MessagePlugin.success('推送成功');
+    pushTitle.value = '';
+    pushContent.value = '';
+    pushTargets.value = [];
+    pushPreviewOn.value = false;
+  } catch (e) {
+    MessagePlugin.error(e.message || '推送失败');
+  } finally {
+    pushSaving.value = false;
+  }
+}
+
+onMounted(() => {
+  if (!isAdmin.value) return;
+  loadTeams();
+  loadUsers();
+  loadPermUsers();
+  loadApps();
+  nextTick(() => moveTabInd(true));
+  window.addEventListener('resize', onResize);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize);
 });
 </script>
 
 <style scoped>
-.role-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.role-badge.admin {
-  background: #0e3da8;
-  color: #fff;
-}
-.role-badge.outline {
-  border: 1px solid #0e3da8;
-  color: #0e3da8;
-}
-.role-badge.gray {
-  background: #f2f3f5;
-  color: #4e5969;
-}
-
-.acct-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.acct-table th {
-  padding: 8px 10px;
-  text-align: left;
-  color: #86909c;
-  font-weight: 500;
-  border-bottom: 1px solid #e5e6eb;
-  white-space: nowrap;
-}
-.acct-table td {
-  padding: 10px;
-  border-bottom: 1px solid #f2f3f5;
-  vertical-align: middle;
-}
-.acct-table tr:last-child td {
-  border-bottom: none;
-}
-.row-actions {
+/* ===== 页签（滑动指示条，同旧版 admin.html） ===== */
+.tabs {
+  position: relative;
   display: flex;
-  gap: 2px;
-  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
 }
-
-.perm-layout {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 14px;
-  align-items: start;
-}
-.perm-user-list {
-  max-height: 560px;
-  overflow: auto;
-}
-.perm-user {
-  padding: 9px 10px;
-  border-radius: 8px;
+.tab {
+  padding: 11px 20px;
+  border: none;
+  background: none;
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tk-sub);
+  letter-spacing: 1.5px;
+  transition: color 0.25s;
 }
-.perm-user:hover {
-  background: #f2f3f5;
+.tab:hover {
+  color: var(--tk-brand);
 }
-.perm-user.on {
-  background: #e8f0ff;
+.tab.on {
+  color: var(--tk-brand);
 }
-.perm-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 12px;
+.tab-ind {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 0;
+  height: 3px;
+  border-radius: 8px;
+  background: var(--tk-brand);
 }
-.perm-apps {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 8px;
+.tab-ind.ready {
+  transition:
+    left 0.3s var(--tk-ease),
+    width 0.3s var(--tk-ease);
 }
-.perm-app {
+
+/* 入场动效（一次编排式上浮；reduce 时关闭） */
+.page-entry {
+  animation: admFadeUp 0.55s var(--tk-ease) both;
+}
+.pane-in {
+  animation: admFadeUp 0.34s var(--tk-ease) both;
+}
+@keyframes admFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-entry,
+  .pane-in {
+    animation: none !important;
+  }
+  .tab-ind,
+  .tab-ind.ready {
+    transition: none !important;
+  }
+}
+
+/* ===== 工具条 ===== */
+.toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid #e5e6eb;
-  border-radius: 8px;
+  gap: 10px;
+  margin: 20px 0 14px;
+}
+.toolbar .cnt {
+  font-size: 12.5px;
+  color: var(--tk-dash);
+  letter-spacing: 1px;
+}
+.toolbar .sp {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
 }
 
-.field-help {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #86909c;
-  line-height: 1.6;
+/* ===== 表格（同旧版 .tbl 密度：13px/16px、表头浅底 12px 加粗） ===== */
+.tbl-card {
+  overflow: hidden;
+  padding: 0;
 }
-.field-error {
-  margin-top: 10px;
-  padding: 8px 10px;
-  background: #ffece8;
-  color: #cb2634;
+.tbl-wrap {
+  overflow-x: auto;
+}
+table.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+.tbl th,
+.tbl td {
+  padding: 13px 16px;
+  text-align: left;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  white-space: nowrap;
+}
+.tbl th {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tk-sub);
+  letter-spacing: 1.5px;
+  background: #f5f7fa;
+}
+.tbl tbody tr:last-child td {
+  border-bottom: none;
+}
+.tbl tbody tr {
+  transition: background 0.2s;
+}
+.tbl tbody tr:hover {
+  background: #f5f7fa;
+}
+.tbl .uname {
+  font-weight: 700;
+}
+.tbl .mut {
+  color: var(--tk-ph);
+}
+
+/* 员工表按班组分组（「全部班组」视图）：组标题行 = 蓝条 + 班组名 + 人数 */
+.grp-row td {
+  padding: 9px 16px;
+  background: #f5f7fa;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tk-brand);
+  letter-spacing: 1px;
+}
+.grp-row td::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 12px;
+  margin-right: 8px;
+  border-radius: 8px;
+  background: var(--tk-brand);
+  vertical-align: -1px;
+}
+.grp-row .grp-cnt {
+  margin-left: 8px;
+  font-weight: 500;
+  color: var(--tk-ph);
+}
+
+/* 行内操作按钮（同旧版 .act） */
+.act {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tk-sub);
+  letter-spacing: 0.5px;
+  transition:
+    color 0.2s,
+    background 0.2s;
+}
+.act:hover {
+  color: var(--tk-brand);
+  background: var(--tk-blue-soft);
+}
+.act.danger:hover {
+  color: var(--tk-red);
+  background: var(--tk-red-soft);
+}
+.act.primary {
+  color: var(--tk-brand);
+}
+.act[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.act[disabled]:hover {
+  color: var(--tk-sub);
+  background: none;
+}
+
+/* ===== 标签（4px 小胶囊；同旧版 .tag / .badge-outline） ===== */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.tag-orange {
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+}
+.tag-navy {
+  background: #f7f8fa;
+  color: var(--tk-sub);
+}
+.tag-red {
+  background: var(--tk-red-soft);
+  color: var(--tk-red);
+}
+.role-admin {
+  background: var(--tk-brand);
+  color: #fff;
+}
+.badge-outline {
+  display: inline-block;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.5px;
+}
+
+/* 默认班组徽章（首个启用班组） */
+.def-pill {
+  display: inline-block;
+  margin-left: 6px;
+  border-radius: 8px;
+  padding: 1px 7px;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  vertical-align: 1px;
+}
+
+/* 启用状态开关（班组编辑弹层 / 应用启停，同旧版 .switch） */
+.switch {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  border: none;
+  border-radius: 8px;
+  background: var(--tk-dash);
+  cursor: pointer;
+  transition: background 0.25s;
+  padding: 0;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--tk-shadow-card);
+  transition: left 0.25s;
+}
+.switch.on {
+  background: var(--tk-brand);
+}
+.switch.on::after {
+  left: 23px;
+}
+
+/* ===== 权限管理：左应用矩阵 / 右员工列表 ===== */
+.perm-wrap {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 18px;
+  align-items: start;
+  margin-top: 20px;
+}
+.pm-side {
+  overflow: hidden;
+  padding: 0;
+}
+.pm-search {
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+}
+.pm-search .field {
+  position: relative;
+}
+.pm-search .field > svg {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--tk-ph);
+  pointer-events: none;
+}
+.pm-search .field .input {
+  height: 40px;
+  padding-left: 44px;
+}
+.pm-list {
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 8px;
+}
+.pm-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s;
+}
+.pm-user:hover {
+  background: #f5f7fa;
+}
+.pm-user.on {
+  background: var(--tk-blue-soft);
+}
+.pm-ava {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--tk-brand);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+.pm-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pm-user .nm {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--tk-ink);
+}
+.pm-user .un {
+  font-size: 11.5px;
+  color: var(--tk-ph);
+  margin-top: 1px;
+}
+/* 权限管理左栏分组标签（蓝条口径同员工表组标题） */
+.pm-grp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+.pm-grp::before {
+  content: '';
+  width: 3px;
+  height: 10px;
+  border-radius: 8px;
+  background: var(--tk-brand);
+}
+.pm-main {
+  overflow: hidden;
+  padding: 0;
+}
+.pm-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 20px;
+  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
+  font-size: 13px;
+  color: var(--tk-sub);
+  letter-spacing: 0.5px;
+}
+.pm-head b {
+  color: var(--tk-ink);
+}
+.pm-head .st {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--tk-ph);
+}
+.pm-apps {
+  padding: 10px 14px 16px;
+  max-height: 560px;
+  overflow-y: auto;
+}
+.app-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.app-item:hover {
+  background: #f5f7fa;
+}
+.app-item .cbx {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  border-radius: 8px;
+  border: 1.5px solid var(--tk-line);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+.app-item .cbx svg {
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.app-item.on .cbx {
+  background: var(--tk-brand);
+  border-color: var(--tk-brand);
+}
+.app-item.on .cbx svg {
+  opacity: 1;
+}
+.app-item .ai-ic {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-item .ai-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.app-item .ai-nm {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.app-item .ai-key {
+  font-size: 11.5px;
+  color: var(--tk-ph);
+  margin-top: 1px;
+}
+.app-item.off-app {
+  opacity: 0.45;
+}
+.app-item .ai-state {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+.ai-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-inline .ai-ic {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 应用表排序输入 */
+.cell-num {
+  width: 90px;
+  height: 32px;
+  padding: 0 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 弹层表单（旧版 .f-row / .tip / .f-note 口径） ===== */
+.tip {
+  font-size: 13px;
+  color: var(--tk-sub);
+  line-height: 1.8;
+  margin-bottom: 14px;
+}
+.f-row {
+  margin-bottom: 14px;
+}
+.f-row label {
+  display: block;
   font-size: 12.5px;
+  font-weight: 700;
+  color: var(--tk-sub);
+  letter-spacing: 1px;
+  margin-bottom: 7px;
+}
+.f-row label i {
+  font-style: normal;
+  color: var(--tk-ph);
+  font-weight: 500;
+}
+.f-input {
+  height: 42px;
+}
+.f-note {
+  font-size: 11.5px;
+  color: var(--tk-ph);
+  line-height: 1.8;
+  margin: 4px 0 8px;
+}
+.link-danger {
+  margin-right: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--tk-red);
+  letter-spacing: 1px;
+}
+.link-danger:hover {
+  text-decoration: underline;
+}
+.ft-spacer {
+  flex: 1;
+}
+
+/* ===== 消息推送（旧版 .push-card 口径） ===== */
+.push-card {
+  margin-top: 20px;
+  padding: 22px 24px 16px;
+  max-width: 640px;
+}
+.push-card .input {
+  width: 100%;
+  height: 44px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--tk-ink);
+  outline: none;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    box-shadow 0.15s var(--tk-ease);
+}
+.push-card .input::placeholder {
+  color: var(--tk-ph);
+}
+.push-card .input:focus {
+  border-color: var(--tk-brand);
+  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+}
+.push-card textarea.input {
+  height: auto;
+  min-height: 140px;
+  padding: 10px 14px;
+  resize: vertical;
   line-height: 1.7;
+}
+.push-targets {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  min-height: 42px;
+}
+.push-targets .push-ck {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 0;
+  font-size: 13.5px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.push-ck input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--tk-brand);
+  cursor: pointer;
+}
+.push-tools {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.push-ft {
+  display: flex;
+  justify-content: flex-end;
+}
+/* Markdown 预览区（对齐通知弹层排版） */
+.push-preview {
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-height: 96px;
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--tk-ink);
+  background: #f5f7fa;
+  word-break: break-word;
+}
+.push-preview :deep(h1),
+.push-preview :deep(h2),
+.push-preview :deep(h3),
+.push-preview :deep(h4) {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 10px 0 6px;
+}
+.push-preview :deep(p) {
+  margin: 4px 0;
+}
+.push-preview :deep(ul),
+.push-preview :deep(ol) {
+  margin: 4px 0 4px 1.2em;
+  padding: 0;
+}
+.push-preview :deep(li) {
+  margin: 2px 0;
+}
+.push-preview :deep(code) {
+  font-family: Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  color: var(--tk-brand);
+}
+.push-preview :deep(pre) {
+  background: #f5f7fa;
+  border: 1px solid rgba(29, 33, 41, 0.06);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+.push-preview :deep(blockquote) {
+  border-left: 3px solid var(--tk-brand);
+  margin: 6px 0;
+  padding: 2px 10px;
+  color: var(--tk-sub);
+  background: #f5f7fa;
+}
+.push-preview :deep(a) {
+  color: var(--tk-brand);
+}
+.push-preview :deep(hr) {
+  border: none;
+  border-top: 1px solid rgba(29, 33, 41, 0.06);
+  margin: 10px 0;
+}
+.push-preview :deep(table) {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.push-preview :deep(th),
+.push-preview :deep(td) {
+  border: 1px solid rgba(29, 33, 41, 0.06);
+  padding: 5px 9px;
+}
+.push-preview :deep(th) {
+  background: #f5f7fa;
+}
+.push-preview :deep(img) {
+  display: block;
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 6px 0;
+}
+
+/* ===== 空态 / 加载（同旧版 .empty / .loading / .spin） ===== */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 56px 20px;
+  color: var(--tk-ph);
+}
+.empty svg {
+  color: var(--tk-dash);
+}
+.empty p {
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: var(--tk-ph);
+  font-size: 12.5px;
+  letter-spacing: 1px;
+}
+.spin {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2.5px solid var(--tk-line);
+  border-top-color: var(--tk-brand);
+  animation: admRot 1s linear infinite;
+}
+@keyframes admRot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== 无权限 ===== */
+.noperm {
+  max-width: 460px;
+  margin: 90px auto 0;
+  text-align: center;
+  padding: 46px 30px;
+}
+.noperm .np-ic {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
+  border-radius: 8px;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.noperm h3 {
+  font-size: 17px;
+  letter-spacing: 1px;
+  margin: 0 0 10px;
+}
+.noperm p {
+  margin: 10px 0 22px;
+  font-size: 13px;
+  color: var(--tk-sub);
+  line-height: 1.8;
+}
+
+/* 窄屏：权限页单栏堆叠，员工选择列仍居上（同旧版 ≤860px 口径） */
+@media (max-width: 860px) {
+  .perm-wrap {
+    grid-template-columns: 1fr;
+  }
+  .pm-side {
+    order: -1;
+  }
+  .pm-list,
+  .pm-apps {
+    max-height: none;
+  }
 }
 </style>

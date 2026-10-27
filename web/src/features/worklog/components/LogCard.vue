@@ -1,177 +1,294 @@
 <template>
-  <div class="card wl-card">
-    <!-- 任务锁（照片 op / 卡片级从商旅同步）：整卡遮罩进度 -->
-    <div v-if="opLock" class="wl-op-lock">
-      <div class="wl-op-box">
-        <div class="wl-op-bar">
-          <div class="wl-op-fill" :style="{ width: (opLock.pct || 0) + '%' }"></div>
+  <article class="card log-card anim-in">
+    <!-- 任务锁（照片 op / 卡片级从商旅同步）：整卡遮罩 + 居中进度块 -->
+    <div v-if="opLock" class="card-lock">
+      <div class="cl-box">
+        <div class="cl-bar">
+          <div class="cl-fill" :style="{ width: (opLock.pct || 0) + '%' }"></div>
         </div>
-        <div class="wl-op-text">{{ opLock.text || '商旅同步中' }} {{ opLock.pct || 0 }}%</div>
+        <div class="cl-t">
+          {{ opLock.text || '商旅同步中' }} {{ opLock.pct || 0 }}% · 暂不可操作
+        </div>
       </div>
     </div>
 
-    <!-- 卡头：车牌 + 目的地 + 状态标签 -->
-    <div class="wl-card-head">
-      <div class="wl-card-plate">
-        <span class="wl-plate">{{ entry.plate_no || '未出车' }}</span>
-        <span v-if="entry.destination_name" class="sub-text">→ {{ entry.destination_name }}</span>
-        <span v-if="entry.cross_team" class="dot-tag blue"><span class="dot"></span>跨班</span>
-      </div>
-      <span class="dot-tag" :class="verifyClass"> <span class="dot"></span>{{ verifyText }} </span>
+    <!-- 卡头：车牌 20px 粗字 + 跨班签 + 日期序号 + 验证状态签 + 编辑入口 -->
+    <div class="log-h" title="点击修改派车 / 用车人" @click="emit('edit', entry)">
+      <b class="num">{{ entry.plate_no || '站内作业' }}</b>
+      <span v-if="entry.cross_team" class="tag-cross">跨班</span>
+      <small class="num">{{ dateDot }} · 第 {{ idx + 1 }} / {{ total }} 条</small>
+      <span class="tag" :class="verifyClass">{{ verifyText }}</span>
+      <span class="he"><WlIcon name="edit" :size="14" /></span>
     </div>
 
-    <!-- 巡视内容 -->
-    <p v-if="entry.patrol_content" class="wl-patrol">{{ entry.patrol_content }}</p>
-
-    <!-- 派车单号 -->
-    <div v-if="entry.dispatch_order_no" class="wl-order">
-      <span class="field-label">派车单号</span>
-      <span class="num">{{ entry.dispatch_order_no }}</span>
+    <!-- 未通过原因块（浅红底 + 左色条，直角） -->
+    <div
+      v-if="entry.verify_passed === 'failed' && entry.verify_reasons && entry.verify_reasons.length"
+      class="fail-list"
+    >
+      <div class="fail-head"><WlIcon name="warn" :size="14" /><b>未通过原因</b></div>
+      <div v-for="(r, i) in entry.verify_reasons" :key="i" class="fail-row">{{ r }}</div>
     </div>
 
-    <!-- 用车人：商旅打卡区（每用车人一行：状态 + 费用入口 + 开始/结束两枚 slot）；
-         他班跨班卡或成员无商旅字段时回退打卡胶囊 -->
-    <div v-if="entry.members && entry.members.length" class="wl-members-wrap">
-      <span class="field-label">用车人</span>
-      <div class="wl-mem-body">
-        <template v-if="clockRow">
-          <div v-for="row in sortedMembers" :key="row.id" class="ck-person">
-            <div class="ck-head">
-              <span class="ck-name">{{ row.name }}</span>
-              <span v-if="memberStat(row).cls === 'ok'" class="ck-stat ok">{{
-                memberStat(row).text
-              }}</span>
-              <span v-else-if="memberStat(row).cls === 'red'" class="ck-stat red">{{
-                memberStat(row).text
-              }}</span>
-              <span v-else class="ck-stat">{{ memberStat(row).text }}</span>
-              <button
-                v-if="row.sgccBound !== false"
-                type="button"
-                class="ck-fee"
-                title="修改当日费用信息（伙食补助 / 交通费）"
-                @click="emit('fee-tap', { entry, member: row })"
-              >
-                费用
-              </button>
+    <!-- 卡片主体：左栏信息 / 右栏照片（照片侧为大侧 61.8%） -->
+    <div class="log-body">
+      <div class="log-side-l">
+        <!-- 巡视内容块（点击进编辑） -->
+        <div
+          class="patrol"
+          :class="{ none: !entry.patrol_content }"
+          title="点击修改巡视内容"
+          @click="emit('edit', entry)"
+        >
+          <span class="p-tag">巡视内容</span>
+          <span class="p-edit"><WlIcon name="edit" :size="12" /></span>
+          {{ entry.patrol_content || '未填写巡视内容' }}
+        </div>
+
+        <div class="log-rows">
+          <!-- 派车车辆 -->
+          <div class="lrow">
+            <div class="li"><WlIcon name="car" :size="16" /></div>
+            <div class="lk">派车车辆</div>
+            <div class="lv">
+              {{ noCar ? '未出车' : entry.plate_no }}
+              <small>
+                {{ noCar ? '站内作业，不参与验证' : '工程车辆'
+                }}<template v-if="entry.dispatch_order_no">
+                  · 单号 {{ entry.dispatch_order_no }}</template
+                >
+              </small>
             </div>
-            <div class="ck-slots">
-              <button
-                v-for="seq in [1, 2]"
-                :key="seq"
-                type="button"
-                class="ck-slot"
-                :class="slotClass(row, seq)"
-                :title="slotTitle(row, seq)"
-                @click="
-                  emit('clock-tap', {
-                    entry,
-                    member: row,
-                    seq,
-                    action: slotDone(row, seq) ? 'update' : 'mark',
-                  })
-                "
-              >
-                <span class="ck-t1">
-                  <span v-if="slotDone(row, seq)" class="ck-done-dot"></span>
-                  {{ slotText(row, seq) }}
+          </div>
+
+          <!-- 用车人：商旅打卡区（每用车人一行）；他班跨班卡回退打卡胶囊 -->
+          <div class="lrow" :class="{ 'lrow-ck': clockRow }">
+            <div class="li"><WlIcon name="user" :size="16" /></div>
+            <div class="lk">用车人</div>
+            <div class="lv">
+              <template v-if="clockRow">
+                <div v-for="row in sortedMembers" :key="row.id" class="ck-person">
+                  <div class="ck-head">
+                    <span class="ck-name">{{ row.name }}</span>
+                    <span class="ck-stat" :class="memberStat(row).cls">
+                      <WlIcon v-if="memberStat(row).cls === 'red'" name="lock-on" :size="10" />
+                      {{ memberStat(row).text }}
+                    </span>
+                    <span
+                      v-if="row.sgccBound !== false"
+                      class="ck-fee"
+                      title="修改当日费用信息（伙食补助 / 交通费）"
+                      @click="emit('fee-tap', { entry, member: row })"
+                    >
+                      <WlIcon name="money" :size="11" />费用
+                    </span>
+                  </div>
+                  <div class="ck-slots">
+                    <span
+                      v-for="seq in [1, 2]"
+                      :key="seq"
+                      class="ck-slot"
+                      :class="slotClass(row, seq)"
+                      :title="slotTitle(row, seq)"
+                      @click="
+                        emit('clock-tap', {
+                          entry,
+                          member: row,
+                          seq,
+                          action: slotDone(row, seq) ? 'update' : 'mark',
+                        })
+                      "
+                    >
+                      <span class="ck-t1">
+                        <WlIcon
+                          v-if="!slotDone(row, seq) && slotClass(row, seq) === 'lock'"
+                          name="lock-on"
+                          :size="10"
+                        />
+                        <span v-if="slotDone(row, seq)" class="ck-done-dot"></span>
+                        {{ slotText(row, seq) }}
+                      </span>
+                      <span class="ck-t2">{{ slotSub(row, seq) }}</span>
+                      <span v-if="slotDone(row, seq) && isToday" class="ck-upd">
+                        <WlIcon name="refresh" :size="9" />更新
+                      </span>
+                    </span>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <span
+                  v-for="row in sortedMembers"
+                  :key="row.id"
+                  class="mchip"
+                  :class="{ on: row.checked === 1 }"
+                  :title="row.checked === 1 ? '点击取消打卡' : '点击打卡'"
+                  @click="emit('check', { entry, row })"
+                >
+                  <span class="m-dot"></span>{{ row.name }}
                 </span>
-                <span class="ck-t2">{{ slotSub(row, seq) }}</span>
-                <span v-if="slotDone(row, seq) && isToday" class="ck-upd">更新</span>
-              </button>
+                <span v-if="!sortedMembers.length" style="color: var(--tk-ph)">无</span>
+                <small v-if="sortedMembers.length"
+                  >已打卡 {{ checkedN }} / {{ sortedMembers.length }} 人</small
+                >
+              </template>
+            </div>
+          </div>
+
+          <!-- 目的地 -->
+          <div class="lrow">
+            <div class="li"><WlIcon name="location" :size="16" /></div>
+            <div class="lk">目的地</div>
+            <div class="lv">{{ noCar ? '—' : entry.destination_name || '未选择' }}</div>
+          </div>
+        </div>
+
+        <!-- 备注块：目的地下方；无文字且无附件不渲染，点击进编辑 -->
+        <div
+          v-if="entry.remark || (entry.remark_files && entry.remark_files.length)"
+          class="rmk"
+          title="点击修改备注"
+          @click="emit('edit', entry)"
+        >
+          <span class="rk-tag">备注</span>
+          <span class="rk-edit"><WlIcon name="edit" :size="12" /></span>
+          <div v-if="entry.remark" class="rk-text">{{ entry.remark }}</div>
+          <div v-if="mediaFiles.length" class="rk-files">
+            <span
+              v-for="(f, i) in mediaFiles"
+              :key="f.cos_key"
+              class="rk-thumb"
+              title="点击预览"
+              @click.stop="emit('remark-open', { entry, file: f, index: i })"
+            >
+              <img v-if="f.type === 'image'" :src="f.url" loading="lazy" alt="备注图片" />
+              <span v-else class="rk-play"><WlIcon name="play" :size="20" /></span>
+            </span>
+          </div>
+          <div v-if="docFiles.length" class="rk-docs">
+            <span v-for="f in docFiles" :key="f.cos_key" class="rk-doc">
+              <WlIcon name="file" :size="13" />
+              <span
+                class="fn"
+                title="点击预览"
+                @click.stop="emit('remark-open', { entry, file: f })"
+                >{{ f.name }}</span
+              >
+              <span
+                class="dl"
+                title="下载"
+                @click.stop="emit('remark-open', { entry, file: f, download: true })"
+              >
+                <WlIcon name="download" :size="13" />
+              </span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 左栏底部操作行：从商旅同步 / 备注 / 删除（文字链） -->
+        <div class="log-acts">
+          <button
+            v-if="clockRow && !opLock"
+            type="button"
+            class="act-sync"
+            title="仅拉取本卡用车人的当日打卡 / 费用 / 照片，以商旅平台为准覆盖本地"
+            @click="emit('sync-card', entry)"
+          >
+            从商旅同步
+          </button>
+          <button type="button" class="act-note" @click="emit('edit', entry)">备注</button>
+          <button
+            v-if="!entry.cross_team || canDeleteCross"
+            type="button"
+            class="act-del"
+            @click="emit('remove', entry)"
+          >
+            删除
+          </button>
+        </div>
+      </div>
+
+      <!-- 右栏：水印照片网格 -->
+      <div class="log-side-r">
+        <template v-if="entry.photos && entry.photos.length">
+          <div class="ph-lab">照片 · {{ entry.photos.length }} 张（点击查看大图与核验信息）</div>
+          <div class="photos">
+            <figure
+              v-for="(p, i) in entry.photos"
+              :key="p.id"
+              class="ph"
+              @click="emit('open-photo', { entry, index: i })"
+            >
+              <img
+                :src="p.url"
+                loading="lazy"
+                :alt="p.is_watermark === 0 ? '非水印照片' : '水印照片'"
+              />
+              <span
+                v-if="p.is_watermark !== 0"
+                class="ph-st"
+                :class="[photoStatus(p).cls, { ed: p.verify_status !== 'pending' }]"
+                :title="p.verify_status !== 'pending' ? '点击修正水印信息' : ''"
+                @click.stop="p.verify_status !== 'pending' && emit('manage-photos', entry)"
+              >
+                {{ photoStatus(p).txt }}
+              </span>
+              <span v-if="p.sgcc_synced === 1" class="ph-sync" title="已同步至商旅费用照片"
+                >商旅</span
+              >
+              <span
+                v-else-if="p.sgcc_synced === 2"
+                class="ph-sync fail"
+                title="同步商旅失败，可在大图中重试"
+                >同步失败</span
+              >
+              <span v-if="photoMismatch(p).length" class="ph-miss">
+                <span v-for="m in photoMismatch(p)" :key="m" class="ph-mis">{{ m }}</span>
+              </span>
+              <figcaption class="ph-info">
+                <span>{{ (p.members || []).join('、') }}</span>
+                <span class="num">{{ String(p.shot_time || '').slice(0, 16) }}</span>
+              </figcaption>
+            </figure>
+            <div
+              v-if="!noCar"
+              class="ph-add"
+              title="上传照片"
+              @click="emit('manage-photos', entry)"
+            >
+              <WlIcon name="add" :size="20" />
+              <span>添加照片</span>
             </div>
           </div>
         </template>
-        <template v-else>
-          <button
-            v-for="row in sortedMembers"
-            :key="row.id"
-            type="button"
-            class="wl-member num"
-            :class="{ checked: row.checked === 1 }"
-            :title="row.checked === 1 ? '点击取消打卡' : '点击打卡'"
-            @click="emit('check', { entry, row })"
-          >
-            <span class="wl-member-dot"></span>{{ row.name }}
-          </button>
-        </template>
+        <div
+          v-else-if="!noCar"
+          class="photos-empty can-add"
+          title="上传照片"
+          @click="emit('manage-photos', entry)"
+        >
+          ＋ 添加照片
+        </div>
+        <div v-else class="photos-empty">暂无水印照片</div>
       </div>
     </div>
-
-    <!-- 照片缩略（点击看大图；商旅同步角标左上） -->
-    <div v-if="entry.photos && entry.photos.length" class="wl-photos">
-      <button
-        v-for="(p, i) in entry.photos"
-        :key="p.id"
-        type="button"
-        class="wl-photo"
-        @click="emit('open-photo', { entry, index: i })"
-      >
-        <img :src="p.url" :alt="(p.members || []).join('、')" loading="lazy" />
-        <span v-if="p.sgcc_synced === 1" class="wl-photo-sync" title="已同步至商旅费用照片"
-          >商旅</span
-        >
-        <span
-          v-else-if="p.sgcc_synced === 2"
-          class="wl-photo-sync fail"
-          title="同步商旅失败，可在大图中重试"
-        >
-          同步失败
-        </span>
-        <span class="wl-photo-tag" :class="photoClass(p)">{{ photoText(p) }}</span>
-      </button>
-    </div>
-
-    <!-- 未通过原因（浅底 + 左色条，直角） -->
-    <div v-if="entry.verify_reasons && entry.verify_reasons.length" class="wl-reasons">
-      <div v-for="(r, i) in entry.verify_reasons" :key="i">{{ r }}</div>
-    </div>
-
-    <!-- 备注 + 附件（点击附件走预览 / 下载） -->
-    <div v-if="entry.remark || (entry.remark_files && entry.remark_files.length)" class="wl-remark">
-      <div v-if="entry.remark" class="sub-text">{{ entry.remark }}</div>
-      <div v-if="entry.remark_files && entry.remark_files.length" class="wl-files">
-        <button
-          v-for="f in entry.remark_files"
-          :key="f.cos_key"
-          type="button"
-          class="wl-file"
-          @click="emit('remark-open', { entry, file: f })"
-        >
-          {{ f.name }}
-        </button>
-      </div>
-    </div>
-
-    <!-- 操作行 -->
-    <div class="wl-card-foot">
-      <button type="button" class="wl-act" @click="emit('manage-photos', entry)">
-        照片（{{ (entry.photos || []).length }}）
-      </button>
-      <button
-        v-if="clockRow"
-        type="button"
-        class="wl-act"
-        title="仅拉取本卡用车人的当日打卡 / 费用，以商旅平台为准覆盖本地"
-        @click="emit('sync-card', entry)"
-      >
-        从商旅同步
-      </button>
-      <button type="button" class="wl-act" @click="emit('edit', entry)">编辑</button>
-      <button type="button" class="wl-act danger" @click="emit('remove', entry)">删除</button>
-    </div>
-  </div>
+  </article>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import WlIcon from './WlIcon.vue';
 
-// 日志卡片：车牌/目的地/巡视内容/派车单号/商旅打卡区/照片缩略/备注/未通过原因。
+// 日志卡片（旧版 .log-card 双栏结构还原）：卡头 / 未通过原因 / 左信息栏（巡视内容、
+// 派车车辆、用车人打卡区、目的地、备注）/ 右照片栏（3 列网格 + 状态角标）。
 // 交互一律抛事件由父视图调 API 后刷新，本组件不发请求。
 const props = defineProps({
   entry: { type: Object, required: true },
   effTeamId: { type: Number, default: 0 }, // 当前生效班组（判他班跨班卡）
   opLock: { type: Object, default: null }, // {pct, text} 任务锁（照片 op / 卡片级同步）
+  idx: { type: Number, default: 0 }, // 当日序号（从 0 起）
+  total: { type: Number, default: 1 }, // 当日条数
+  canDeleteCross: { type: Boolean, default: false }, // 跨班卡是否可删（仅超管）
 });
 const emit = defineEmits([
   'edit',
@@ -188,10 +305,19 @@ const emit = defineEmits([
 // todayStr 今日（本地）YYYY-MM-DD。
 const todayStr = new Date().toISOString().slice(0, 10);
 
+// dateDot 卡头日期（点分）。
+const dateDot = computed(() => String(props.entry.log_date || '').replace(/-/g, '.'));
+
+// noCar 未出车卡（站内作业）。
+const noCar = computed(() => props.entry.vehicle_id == null);
+
 // sortedMembers 用车人按 sort 排序。
 const sortedMembers = computed(() =>
   [...(props.entry.members || [])].sort((a, b) => (a.sort || 0) - (b.sort || 0))
 );
+
+// checkedN 已打卡人数（回退胶囊态副标）。
+const checkedN = computed(() => sortedMembers.value.filter((m) => m.checked === 1).length);
 
 // isToday 本卡是否当日（仅当日可打卡）。
 const isToday = computed(() => props.entry.log_date === todayStr);
@@ -210,34 +336,39 @@ const clockRow = computed(
   () => !crossOther.value && (props.entry.members || []).some((m) => m.sgccBound !== undefined)
 );
 
-// verifyClass/verifyText 卡片核验状态标签（passed 绿 / failed 红 / exempt 灰）。
+// mediaFiles/docFiles 备注附件（图片/视频缩略、文档文件条）。
+const mediaFiles = computed(() => (props.entry.remark_files || []).filter((f) => f.type !== 'doc'));
+const docFiles = computed(() => (props.entry.remark_files || []).filter((f) => f.type === 'doc'));
+
+// verifyClass/verifyText 卡片核验状态签（通过浅绿 / 未通过浅红 / 免验证灰）。
 const verifyClass = computed(() => {
   const v = props.entry.verify_passed;
-  if (v === 'passed') return 'green';
-  if (v === 'failed') return 'red';
-  return '';
+  if (v === 'passed') return 'tag-ok';
+  if (v === 'failed') return 'tag-red';
+  return 'tag-navy';
 });
 const verifyText = computed(() => {
   const v = props.entry.verify_passed;
-  if (v === 'passed') return '已验证';
-  if (v === 'failed') return '待核实';
+  if (v === 'passed') return '验证通过';
+  if (v === 'failed') return '未通过';
   return '免验证';
 });
 
-// photoClass/photoText 照片角标（验证状态 + 非水印标记）。
-function photoClass(p) {
-  if (p.is_watermark === 0) return 'plain';
-  if (p.verify_status === 'passed') return 'ok';
-  if (p.verify_status === 'failed' || p.verify_status === 'mismatch') return 'bad';
-  return 'pending';
+// photoStatus 照片验证角标（pending=验证中 / passed=核验通过 / 其余=验证失败）。
+function photoStatus(p) {
+  if (p.verify_status === 'pending') return { cls: 'ing', txt: '验证中' };
+  if (p.verify_status === 'passed') return { cls: 'pass', txt: '核验通过' };
+  return { cls: 'fail', txt: '验证失败' };
 }
-function photoText(p) {
-  if (p.is_watermark === 0) return '非水印';
-  return (
-    { passed: '通过', mismatch: '不符', failed: '失败', pending: '识别中', skipped: '免验证' }[
-      p.verify_status
-    ] || '识别中'
-  );
+
+// photoMismatch 完成态逐项列「日期不符」「地点不符」。
+function photoMismatch(p) {
+  const arr = [];
+  if (p.date_ok === 0 || (p.date_ok == null && p.verify_status === 'date_mismatch'))
+    arr.push('日期不符');
+  if (p.dest_ok === 0 || (p.dest_ok == null && p.verify_status === 'dest_mismatch'))
+    arr.push('地点不符');
+  return arr;
 }
 
 // ckOf 取某人打卡记录（clockinMap[memberId][seq]，seq 1 开始 / 2 结束）。
@@ -270,7 +401,7 @@ function shortPosition(p) {
   return s;
 }
 
-// memberStat 用车人状态小字（工时 / 还差结束打卡 / 未绑定商旅）。
+// memberStat 用车人状态小字（工时小签 / 还差结束打卡 / 未绑定商旅 / 登录过期）。
 function memberStat(row) {
   const s1 = ckOf(row, 1);
   const s2 = ckOf(row, 2);
@@ -314,7 +445,6 @@ function slotSub(row, seq) {
   if (!isToday.value) return '仅当日可打卡';
   if (row.sgccBound === false) return '引导本人至「我的」页绑定';
   if (row.sgccTokenStatus === 0) return '登录已过期，请本人重新登录';
-  // 同 seq 已有他人打卡时提示带入定位
   const ck = props.entry.clockinMap || {};
   const bringIn = Object.keys(ck).some((k) => ck[k] && ck[k][seq] && ck[k][seq].position);
   return bringIn ? '点击打卡 · 带入同记录定位' : '点击打卡';
@@ -328,346 +458,860 @@ function slotTitle(row, seq) {
 </script>
 
 <style scoped>
-.wl-card {
+/* ===== 卡片壳（12px 圆角轻阴影；卡顶色带无样式） ===== */
+.log-card {
   position: relative;
+  overflow: hidden;
+  margin-bottom: 18px;
+  padding: 0;
+  border-radius: 12px;
 }
-.wl-op-lock {
+
+/* ===== 任务锁遮罩 ===== */
+.card-lock {
   position: absolute;
   inset: 0;
+  z-index: 5;
   background: rgba(255, 255, 255, 0.82);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 5;
+  border-radius: inherit;
+  cursor: not-allowed;
+}
+.cl-box {
+  width: 240px;
+  background: #fff;
+  border: 1px solid var(--tk-line);
   border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: var(--tk-shadow-hover);
 }
-.wl-op-box {
-  width: 70%;
-  text-align: center;
-}
-.wl-op-bar {
-  height: 6px;
-  border-radius: 4px;
+.cl-bar {
+  height: 8px;
+  border-radius: 999px;
   background: var(--tk-fill);
   overflow: hidden;
 }
-.wl-op-fill {
+.cl-fill {
   height: 100%;
+  border-radius: 999px;
   background: var(--tk-brand);
-  transition: width 0.3s;
+  transition: width 0.4s ease;
 }
-.wl-op-text {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--tk-sub);
-}
-.wl-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.wl-card-plate {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.wl-plate {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--tk-ink);
-}
-.wl-patrol {
-  margin: 8px 0 0;
-  color: var(--tk-sub);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.wl-order {
+.cl-t {
   margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tk-brand);
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+
+/* ===== 卡头（可点击进编辑）：车牌 20px 粗字 + 日期序号 + 状态签 + 编辑图标 ===== */
+.log-h {
   display: flex;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--tk-ink);
+  align-items: center;
+  gap: 12px;
+  padding: 16px 22px 14px;
+  border-bottom: 1px solid var(--tk-line);
+  cursor: pointer;
+  transition: background 0.2s;
 }
-.wl-members-wrap {
-  margin-top: 10px;
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
+.log-h:hover {
+  background: var(--tk-fill);
 }
-.wl-members-wrap > .field-label {
-  width: 44px;
-  flex-shrink: 0;
-  padding-top: 4px;
+.log-h b {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
 }
-.wl-mem-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.log-h small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
 }
-/* 用车人打卡胶囊（回退态） */
-.wl-member {
+/* 状态小胶囊：通过浅绿底深绿字 / 未通过浅红底红字 / 免验证灰 */
+.log-h .tag {
+  margin-left: auto;
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--tk-line);
-  background: var(--tk-fill);
-  color: var(--tk-sub);
-  font-size: 12px;
-  cursor: pointer;
-  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
 }
-.wl-member.checked {
+.log-h .tag::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.tag-ok {
   background: var(--tk-green-soft);
-  border-color: transparent;
   color: #0b8a37;
 }
-.wl-member-dot {
+.tag-ok::before {
+  background: #0b8a37;
+}
+.tag-red {
+  background: var(--tk-red-soft);
+  color: var(--tk-red);
+}
+.tag-red::before {
+  background: var(--tk-red);
+}
+.tag-navy {
+  background: var(--tk-fill);
+  color: var(--tk-ph);
+}
+.tag-navy::before {
+  background: var(--tk-ph);
+}
+.log-h .he {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tk-ph);
+  transition:
+    color 0.2s,
+    background 0.2s;
+}
+.log-h:hover .he {
+  color: var(--tk-brand);
+  background: var(--tk-blue-soft);
+}
+/* 跨班日志签（浅蓝底蓝字小胶囊） */
+.tag-cross {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  background: var(--tk-blue-soft);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--tk-brand);
+  letter-spacing: 1px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* ===== 未通过原因块（浅红底 + 4px 红左边条，直角） ===== */
+.fail-list {
+  margin: 12px 22px 0;
+  padding: 10px 14px;
+  border-radius: 0;
+  background: var(--tk-red-soft);
+  border-left: 4px solid var(--tk-red);
+}
+.fail-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--tk-red);
+  letter-spacing: 0.5px;
+}
+.fail-head svg {
+  flex: none;
+}
+.fail-row {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tk-sub);
+  line-height: 1.7;
+  padding: 1.5px 0;
+}
+
+/* ===== 卡片主体：左栏 38.2% / 右栏照片 61.8%，发丝竖线分隔 ===== */
+.log-body {
+  display: flex;
+  align-items: stretch;
+}
+.log-side-l {
+  width: 38.2%;
+  flex: none;
+  min-width: 320px; /* 容得下两枚打卡格，避免逐字换行 */
+  display: flex;
+  flex-direction: column;
+}
+.log-side-r {
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--tk-line);
+  display: flex;
+  flex-direction: column;
+}
+.log-rows {
+  padding: 6px 22px;
+}
+.lrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px dashed rgba(29, 33, 41, 0.06);
+}
+.lrow:last-child {
+  border-bottom: none;
+}
+.lrow .li {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lrow .lk {
+  width: 56px;
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tk-sub);
+  letter-spacing: 1px;
+}
+.lrow .lv {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.lrow .lv small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--tk-ph);
+  font-weight: 400;
+}
+
+/* 用车人打卡胶囊（跨班回退展示）：已打卡绿实底白字 */
+.mchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 6px 2px 0;
+  padding: 2px 10px;
+  border: 1px solid var(--tk-dash);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--tk-sub);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background 0.2s;
+}
+.mchip:hover {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.mchip.on {
+  border-color: var(--tk-green);
+  color: #fff;
+  background: var(--tk-green);
+  font-weight: 600;
+}
+.m-dot {
+  display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--tk-dash);
 }
-.wl-member.checked .wl-member-dot {
-  background: var(--tk-green);
-}
-/* 商旅打卡区（每用车人一行） */
-.ck-person {
-  border-bottom: 1px solid var(--tk-line);
-  padding-bottom: 8px;
-}
-.ck-person:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.ck-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.ck-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--tk-ink);
-}
-.ck-stat {
-  font-size: 11px;
-  color: var(--tk-sub);
-}
-.ck-stat.ok {
-  background: var(--tk-blue-soft);
-  color: var(--tk-brand);
-  padding: 1px 8px;
-  border-radius: 4px;
-}
-.ck-stat.red {
-  color: var(--tk-red);
-}
-.ck-fee {
-  margin-left: auto;
-  border: none;
-  background: none;
-  padding: 0;
-  color: var(--tk-brand);
-  font-size: 12px;
-  cursor: pointer;
-}
-.ck-slots {
-  margin-top: 6px;
-  display: flex;
-  gap: 8px;
-}
-.ck-slot {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--tk-line);
+.mchip.on .m-dot {
   background: #fff;
-  cursor: pointer;
 }
-.ck-slot .ck-t1 {
+
+/* ===== 巡视内容块（浅蓝底圆角块，点击进编辑） ===== */
+.patrol {
+  margin: 12px 22px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--tk-blue-soft);
+  font-size: 12.5px;
+  color: var(--tk-ink);
+  line-height: 1.7;
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition:
+    box-shadow 0.15s var(--tk-ease),
+    background 0.2s;
+}
+.patrol:hover {
+  box-shadow: var(--tk-shadow-hover);
+}
+.patrol .p-tag {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--tk-brand);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 1px;
+}
+.patrol .p-edit {
+  float: right;
+  color: var(--tk-ph);
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--tk-ink);
 }
-.ck-slot .ck-t2 {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--tk-sub);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ck-slot.done {
-  border-color: var(--tk-ink);
-}
-.ck-done-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--tk-green);
-  position: relative;
-  flex-shrink: 0;
-}
-.ck-done-dot::after {
-  content: '';
-  position: absolute;
-  left: 3px;
-  top: 5px;
-  width: 4px;
-  height: 2px;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #fff;
-  transform: rotate(-45deg);
-}
-.ck-upd {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  font-size: 10px;
+.patrol:hover .p-edit {
   color: var(--tk-brand);
-  background: var(--tk-blue-soft);
-  padding: 0 5px;
-  border-radius: 4px;
 }
-.ck-slot.todo {
-  border-style: dashed;
-  border-color: var(--tk-yellow);
-  background: var(--tk-yellow-soft);
-}
-.ck-slot.todo .ck-t1 {
-  color: var(--tk-yellow-ink, #d25f00);
-}
-.ck-slot.lock {
-  background: var(--tk-fill);
-  border-color: var(--tk-line);
-  cursor: not-allowed;
-}
-.ck-slot.lock .ck-t1 {
+.patrol.none {
   color: var(--tk-ph);
 }
-/* 照片缩略 */
-.wl-photos {
-  margin-top: 10px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+
+/* ===== 备注块（浅橙底 + 4px 橙左边条，直角；点击进编辑） ===== */
+.rmk {
+  margin: 12px 22px 0;
+  padding: 10px 12px;
+  border-left: 4px solid var(--tk-yellow);
+  border-radius: 0;
+  background: var(--tk-yellow-soft);
+  cursor: pointer;
+  transition: box-shadow 0.15s var(--tk-ease);
 }
-.wl-photo {
+.rmk:hover {
+  box-shadow: var(--tk-shadow-card);
+}
+.rmk .rk-tag {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #d25f00;
+  background: rgba(255, 125, 0, 0.12);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 1px;
+}
+.rmk .rk-edit {
+  float: right;
+  color: var(--tk-sub);
+  display: flex;
+  align-items: center;
+}
+.rmk:hover .rk-edit {
+  color: var(--tk-ink);
+}
+.rmk .rk-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--tk-sub);
+  line-height: 1.7;
+  word-break: break-all;
+}
+/* 附件：图片 / 视频缩略图（视频深色底 + 播放标） */
+.rmk .rk-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.rk-thumb {
   position: relative;
-  width: 84px;
-  height: 84px;
-  padding: 0;
-  border: 1px solid var(--tk-line);
+  width: 52px;
+  height: 52px;
   border-radius: 8px;
   overflow: hidden;
-  cursor: pointer;
+  border: 1px solid var(--tk-line);
   background: var(--tk-fill);
+  cursor: zoom-in;
+  display: block;
 }
-.wl-photo img {
+.rk-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
-.wl-photo-tag {
+.rk-thumb .rk-play {
   position: absolute;
-  left: 0;
-  bottom: 0;
-  right: 0;
-  font-size: 11px;
-  text-align: center;
-  padding: 1px 0;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--tk-sub);
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(29, 33, 41, 0.38);
 }
-.wl-photo-tag.ok {
-  color: #0b8a37;
+/* 附件：文档文件条（下划线品牌蓝文件名 + 行尾下载钮） */
+.rmk .rk-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
 }
-.wl-photo-tag.bad {
-  color: var(--tk-red);
+.rk-doc {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  min-width: 0;
 }
-.wl-photo-tag.plain {
+.rk-doc > svg {
+  flex: none;
   color: var(--tk-ph);
 }
-.wl-photo-sync {
-  position: absolute;
-  left: 0;
-  top: 0;
-  font-size: 10px;
-  padding: 1px 5px;
-  background: var(--tk-brand);
-  color: #fff;
-}
-.wl-photo-sync.fail {
-  background: var(--tk-red);
-}
-.wl-reasons {
-  margin-top: 10px;
-  background: var(--tk-red-soft);
-  border-left: 3px solid var(--tk-red);
-  padding: 8px 10px;
-  font-size: 12px;
-  color: var(--tk-red);
-  line-height: 1.7;
-}
-.wl-remark {
-  margin-top: 10px;
-  background: var(--tk-yellow-soft);
-  border-left: 3px solid var(--tk-yellow);
-  padding: 8px 10px;
-  font-size: 12px;
-}
-.wl-files {
-  margin-top: 4px;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.wl-file {
-  border: none;
-  background: none;
-  padding: 0;
+.rk-doc .fn {
   color: var(--tk-brand);
-  font-size: 12px;
+  font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.wl-card-foot {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--tk-line);
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.wl-act {
-  border: none;
-  background: none;
-  padding: 0;
-  color: var(--tk-brand);
-  font-size: 13px;
+.rk-doc .dl {
+  flex: none;
+  margin-left: auto;
+  color: var(--tk-ph);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 8px;
+  transition:
+    color 0.2s,
+    background 0.2s;
 }
-.wl-act.danger {
+.rk-doc .dl:hover {
+  color: var(--tk-brand);
+  background: var(--tk-blue-soft);
+}
+
+/* ===== 左栏底部操作行（沉底文字链） ===== */
+.log-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: auto;
+  padding: 8px 22px 14px;
+}
+.act-sync,
+.act-note,
+.act-del {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  padding: 2px 0;
+  border-radius: 4px;
+}
+.act-sync:hover,
+.act-note:hover,
+.act-del:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.act-sync {
+  color: var(--tk-brand);
+}
+.act-note {
+  color: var(--tk-ink);
+}
+.act-del {
   color: var(--tk-red);
 }
-.wl-act:hover {
-  opacity: 0.8;
+
+/* ===== 商旅打卡区（每用车人一行：头行 + 开始/结束两枚 slot） ===== */
+.lrow-ck {
+  align-items: flex-start;
+}
+.lrow-ck .li,
+.lrow-ck .lk {
+  margin-top: 7px;
+}
+.lrow-ck .lv {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 400;
+}
+.ck-person + .ck-person {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--tk-line);
+}
+.ck-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ck-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--tk-ink);
+}
+.ck-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  color: var(--tk-ph);
+}
+.ck-stat.ok {
+  color: var(--tk-brand);
+  background: var(--tk-blue-soft);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-weight: 600;
+}
+.ck-stat.red {
+  color: var(--tk-red);
+}
+.ck-slots {
+  display: flex;
+  gap: 8px;
+}
+/* slot 三态：done=白底墨边 + 绿圆白勾 / todo=橙虚线浅橙底 / lock=灰底灰边锁 */
+.ck-slot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-radius: 6px;
+  padding: 6px 9px;
+  cursor: pointer;
+  user-select: none;
+}
+.ck-t1 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--tk-ink);
+}
+.ck-t1 svg {
+  flex: none;
+}
+.ck-t2 {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tk-sub);
+}
+.ck-slot.done {
+  border: 1px solid var(--tk-line);
+  background: #fff;
+}
+.ck-slot.done .ck-t1 {
+  padding-right: 30px; /* 避开右上角「更新」小标 */
+}
+.ck-done-dot {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tk-green);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ck-done-dot::before {
+  content: '✓';
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+.ck-upd {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--tk-brand);
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.ck-slot.todo {
+  border: 1.5px dashed var(--tk-yellow);
+  background: var(--tk-yellow-soft);
+}
+.ck-slot.todo .ck-t1::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tk-yellow);
+}
+.ck-slot.todo .ck-t2 {
+  color: #d25f00;
+}
+.ck-slot.lock {
+  border: 1.5px solid var(--tk-line);
+  background: var(--tk-fill);
+  cursor: not-allowed;
+}
+.ck-slot.lock .ck-t1 {
+  color: var(--tk-ph);
+}
+.ck-slot.lock .ck-t2 {
+  color: var(--tk-dash);
+  white-space: normal;
+}
+/* 费用入口（头行最右端描边小签） */
+.ck-fee {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  border: 1px solid var(--tk-brand);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--tk-brand);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+.ck-fee:hover {
+  background: var(--tk-blue-soft);
+}
+
+/* ===== 右栏照片网格（3 列，行高 1fr 均分吃满剩余高度） ===== */
+.ph-lab {
+  padding: 14px 22px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tk-sub);
+  letter-spacing: 2px;
+}
+.photos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
+  gap: 10px;
+  padding: 0 22px 20px;
+  flex: 1;
+}
+.ph {
+  position: relative;
+  min-height: 148px;
+  margin: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--tk-fill);
+  transition:
+    opacity 0.32s var(--tk-ease),
+    transform 0.32s var(--tk-ease),
+    box-shadow 0.18s var(--tk-ease);
+}
+.ph:hover {
+  box-shadow: var(--tk-shadow-hover);
+}
+.ph img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* 验证状态角标：右上小胶囊（绿=核验通过 / 蓝=验证中 / 红=验证失败，白字 + 白圆点） */
+.ph-st {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #fff;
+}
+.ph-st::before {
+  content: '';
+  flex: none;
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+}
+.ph-st.pass {
+  background: rgba(0, 180, 42, 0.92);
+}
+.ph-st.ing {
+  background: rgba(14, 61, 168, 0.92);
+}
+.ph-st.fail {
+  background: rgba(245, 63, 63, 0.92);
+}
+.ph-st.ed {
+  cursor: pointer;
+  outline: 1.5px dashed rgba(255, 255, 255, 0.8);
+  outline-offset: -2px;
+}
+/* 「日期/地点不符」chips 列（让位状态角标） */
+.ph-miss {
+  position: absolute;
+  top: 28px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-end;
+}
+.ph-mis {
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: var(--tk-red);
+}
+/* 照片底部信息条：墨色半透明平涂 */
+.ph-info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  padding: 4px 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.8px;
+  background: rgba(29, 33, 41, 0.74);
+}
+/* 商旅同步签（左上直角小签） */
+.ph-sync {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  border-radius: 8px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #fff;
+  background: var(--tk-brand);
+  border: 1.5px solid var(--tk-line);
+}
+.ph-sync.fail {
+  background: var(--tk-red);
+}
+/* 添加照片入口（网格尾部虚线块 / 空态虚线框） */
+.ph-add {
+  min-height: 148px;
+  border: 2px dashed var(--tk-dash);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background 0.2s;
+}
+.ph-add:hover,
+.photos-empty.can-add:hover {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+  background: var(--tk-blue-soft);
+}
+.photos-empty {
+  flex: 1;
+  min-height: 140px;
+  margin: 14px 22px 20px;
+  border: 2px dashed var(--tk-dash);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+}
+.photos-empty.can-add {
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background 0.2s;
+}
+
+/* ===== 响应式：月历占侧栏后卡片容不下双栏时上下排列 ===== */
+@media (min-width: 641px) and (max-width: 1200px) {
+  .log-body {
+    flex-direction: column;
+  }
+  .log-side-l {
+    width: 100%;
+  }
+  .log-side-r {
+    border-left: none;
+    border-top: 1px solid var(--tk-line);
+    margin-top: 12px;
+  }
+}
+@media (max-width: 640px) {
+  .photos {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .log-body {
+    flex-direction: column;
+  }
+  .log-side-l {
+    width: 100%;
+    min-width: 0;
+  }
+  .log-side-r {
+    border-left: none;
+    border-top: 1px solid var(--tk-line);
+    margin-top: 12px;
+  }
 }
 </style>

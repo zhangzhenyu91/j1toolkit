@@ -1,137 +1,192 @@
 <template>
-  <div class="sh-page">
-    <div class="sh-head">
-      <div class="sh-brand">
-        <div class="sh-mark">壹</div>
-        <span>Shade 壹匣 · 文件分享</span>
+  <div class="sh-root">
+    <!-- 顶部品牌行（简洁无导航，同旧 share.html） -->
+    <header class="sh-brand">
+      <span class="logo-mark"><img src="/favicon.svg" alt="Shade 壹匣" /></span>
+      <b>Shade <i>壹匣</i></b>
+      <span class="sep">·</span>
+      <span class="sub">团队网盘分享</span>
+    </header>
+
+    <main class="sh-main">
+      <!-- 链接无效 / 分享不可用 -->
+      <div v-if="state === 'error'" class="card sh-state">
+        <span class="ic" v-html="ic(errIcon, 44)"></span>
+        <h2>{{ errMsg || '分享不可用' }}</h2>
+        <p>{{ errDetail || '如有疑问请联系分享人重新生成链接。' }}</p>
       </div>
-    </div>
 
-    <div class="sh-card">
-      <!-- 载入 / 错误态 -->
-      <div v-if="state === 'loading'" class="sh-center muted">正在加载分享信息…</div>
-
-      <div v-else-if="state === 'error'" class="sh-center">
-        <div class="sh-err-ic">!</div>
-        <h2 class="sh-title">{{ errMsg || '分享不可用' }}</h2>
-        <p v-if="errDetail" class="muted">{{ errDetail }}</p>
+      <!-- 加载中 -->
+      <div v-else-if="state === 'loading'" class="card sh-state">
+        <span class="spin" style="margin: 0 auto"></span>
+        <p>加载中…</p>
       </div>
 
-      <!-- 提取码校验 -->
-      <template v-else-if="state === 'password'">
-        <h2 class="sh-title">请输入提取码</h2>
-        <p class="muted">
-          {{ info.creator ? `「${info.creator}」` : '好友' }}向你分享了文件<template
-            v-if="info.expire_at"
-          >
-            · 有效期至 {{ fmtSec(info.expire_at) }}</template
-          >
-        </p>
-        <div class="sh-pw-row">
+      <!-- 提取码表单 -->
+      <div v-else-if="state === 'password'" class="card sh-card">
+        <div class="sh-owner">
+          <span class="sh-av">{{ avatarChar }}</span>
+          <div>
+            <h1><b>{{ info.creator }}</b> 的分享</h1>
+            <div class="sh-meta">{{ expireText }}</div>
+          </div>
+        </div>
+        <div class="pw-row">
           <input
             ref="pwInput"
             v-model="password"
-            class="sh-pw num"
+            class="pw-in"
             maxlength="4"
-            placeholder="4 位提取码"
+            placeholder="请输入 4 位提取码"
             autocomplete="off"
             @keydown.enter.prevent="doVerify"
           />
-          <button
-            type="button"
-            class="sh-btn primary"
-            :disabled="verifying || !password.trim()"
-            @click="doVerify"
-          >
-            {{ verifying ? '校验中…' : '提取文件' }}
+          <button type="button" class="btn btn-primary" :disabled="verifying" @click="doVerify">
+            {{ verifying ? '验证中…' : '提取文件' }}
           </button>
         </div>
-        <p v-if="pwErr" class="sh-err">{{ pwErr }}</p>
-      </template>
+        <div class="pw-err">{{ pwErr }}</div>
+        <div class="pw-tip">提取码为 4 位字母或数字（不区分大小写），由分享人提供。</div>
+      </div>
 
       <!-- 分享内容 -->
       <template v-else-if="state === 'content'">
-        <div class="sh-ctx">
-          <div>
-            <h2 class="sh-title" style="margin: 0">
-              {{ info.creator ? `${info.creator} 的分享` : '分享内容' }}
-            </h2>
-            <p class="muted sh-meta">
-              <template v-if="info.expire_at">有效期至 {{ fmtSec(info.expire_at) }}</template>
-              <template v-else>永久有效</template>
-            </p>
+        <div class="card sh-card sh-card-sm">
+          <div class="sh-owner">
+            <span class="sh-av">{{ avatarChar }}</span>
+            <div>
+              <h1><b>{{ info.creator }}</b> 的分享</h1>
+              <div class="sh-meta">{{ expireText }}</div>
+            </div>
           </div>
-          <div class="spacer"></div>
-          <button type="button" class="sh-btn" :disabled="loading" @click="reload">刷新</button>
         </div>
 
-        <!-- 面包屑：根 = 分享项集合 -->
-        <div class="sh-crumb">
-          <a href="javascript:;" @click="navTo('')">分享内容</a>
-          <template v-for="seg in crumbs" :key="seg.rel">
-            <span class="sh-sep">/</span>
-            <a v-if="seg.rel !== viewRel" href="javascript:;" @click="navTo(seg.rel)">{{
-              seg.name
-            }}</a>
-            <span v-else class="sh-crumb-cur">{{ seg.name }}</span>
+        <div class="card sh-list">
+          <div class="sh-crumb">
+            <a href="javascript:;" @click="openDir('/')">分享内容</a>
+            <template v-for="seg in crumbs" :key="seg.rel">
+              <em>/</em>
+              <a
+                v-if="seg.rel !== viewRel"
+                href="javascript:;"
+                @click="openDir(seg.rel)"
+                >{{ seg.name }}</a
+              >
+              <b v-else>{{ seg.name }}</b>
+            </template>
+            <span class="cnt">共 {{ rows.length }} 项</span>
+          </div>
+
+          <div v-if="loading" class="loading"><span class="spin"></span>加载中…</div>
+          <div v-else-if="!rows.length" class="empty">
+            <span class="ic" v-html="ic('folder', 44)"></span>
+            <p>此文件夹为空</p>
+          </div>
+          <template v-else>
+            <div
+              v-for="it in rows"
+              :key="it.rel"
+              class="f-row"
+              :title="it.name"
+              @click="it.is_dir ? openDir(it.rel) : openFile(it)"
+            >
+              <span class="ft-ic" :style="{ width: '30px', height: '30px' }">
+                <img
+                  class="ft-img"
+                  :src="fileIconUrl(it.name, it.is_dir)"
+                  width="30"
+                  height="30"
+                  draggable="false"
+                  alt=""
+                  @error="onFtError"
+                />
+                <span class="ft-fb" hidden>
+                  <span v-if="it.is_dir" class="ic" v-html="ic('folder', 30)"></span>
+                  <span v-else class="ft-fb-lb" :style="ftLbStyle(it.name, 30)">{{
+                    typeLabel(it.name)
+                  }}</span>
+                </span>
+              </span>
+              <div class="f-mid">
+                <span class="f-nm">{{ it.name }}</span>
+                <span class="f-sub">{{ rowSub(it) }}</span>
+              </div>
+              <button
+                v-if="!it.is_dir"
+                type="button"
+                class="btn btn-sm f-dl"
+                :disabled="downloading === it.rel"
+                @click.stop="doDownload(it)"
+              >
+                {{ downloading === it.rel ? '下载中…' : '下载' }}
+              </button>
+            </div>
           </template>
         </div>
-
-        <div v-if="loading" class="sh-center muted">正在加载…</div>
-        <table v-else class="sh-table">
-          <thead>
-            <tr>
-              <th>名称</th>
-              <th class="sh-col-size num">大小</th>
-              <th class="sh-col-time num">修改时间</th>
-              <th class="sh-col-op">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="it in rows" :key="it.rel">
-              <td>
-                <div class="sh-name" @click="it.is_dir && navTo(it.rel)">
-                  <span class="sh-ic" :class="it.is_dir ? 'dir' : 'file'">{{
-                    it.is_dir ? '夹' : '文'
-                  }}</span>
-                  <span class="sh-nm" :title="it.name">{{ it.name }}</span>
-                </div>
-              </td>
-              <td class="sh-col-size num muted">{{ it.is_dir ? '—' : fmtSize(it.size) }}</td>
-              <td class="sh-col-time num muted">{{ fmtSec(it.modified) }}</td>
-              <td class="sh-col-op">
-                <button v-if="it.is_dir" type="button" class="sh-link" @click="navTo(it.rel)">
-                  进入
-                </button>
-                <button
-                  v-else
-                  type="button"
-                  class="sh-link"
-                  :disabled="downloading === it.rel"
-                  @click="doDownload(it)"
-                >
-                  {{ downloading === it.rel ? '下载中…' : '下载' }}
-                </button>
-              </td>
-            </tr>
-            <tr v-if="!rows.length">
-              <td colspan="4" class="sh-empty muted">该目录为空</td>
-            </tr>
-          </tbody>
-        </table>
       </template>
+    </main>
+
+    <!-- 视频 Lightbox -->
+    <div v-if="media.open" class="mask open" @click.self="closeMedia">
+      <div class="modal" style="width: 920px" @click.stop>
+        <div class="m-scroll">
+          <div class="m-head">
+            <span class="m-title">{{ media.name }}</span>
+            <button type="button" class="m-x" @click="closeMedia">
+              <span class="ic" v-html="ic('close', 14)"></span>
+            </button>
+          </div>
+          <video class="lb-media" :src="media.url" controls autoplay></video>
+        </div>
+      </div>
     </div>
 
-    <p class="sh-foot muted">Shade 壹匣 · 检修一班</p>
+    <!-- 图片全屏查看器（←→ 循环 / 滚轮缩放 / 拖拽平移 / 单击 适应↔原图 / Esc） -->
+    <div v-if="vwr.open" class="vwr">
+      <div class="vwr-top">
+        <span class="vwr-name">{{ vwrName }}</span>
+        <span class="vwr-idx">{{ vwr.idx + 1 }} / {{ vwr.imgs.length }}</span>
+        <span class="vwr-x" title="关闭（Esc）" @click="closeViewer">
+          <span class="ic" v-html="ic('close', 16)"></span>
+        </span>
+      </div>
+      <div ref="vwrStageEl" class="vwr-stage" @wheel.prevent="onVwrWheel">
+        <img
+          ref="vwrImgEl"
+          class="vwr-img"
+          :class="{ free: vwr.mode === 'free', dragging: vwrDragging }"
+          :src="vwrUrl"
+          draggable="false"
+          alt=""
+          :style="vwrTransform"
+          @load="onVwrLoad"
+          @pointerdown="onVwrDown"
+        />
+      </div>
+      <div class="vwr-bar">
+        <button type="button" :disabled="vwr.imgs.length < 2" @click="vwrNav(-1)">
+          <span class="ic" v-html="ic('chevron-left', 16)"></span>
+        </button>
+        <button type="button" @click="vwrToggleFit">
+          {{ vwr.mode === 'fit' ? '原图' : '适应' }}
+        </button>
+        <button type="button" @click="doDownload(vwrCurrentItem)">
+          <span class="ic" v-html="ic('download', 16)"></span>
+        </button>
+        <button type="button" :disabled="vwr.imgs.length < 2" @click="vwrNav(1)">
+          <span class="ic" v-html="ic('chevron-right', 16)"></span>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-// 公开分享页（免登录）：/share/:id 对应 Go /api/v1/netdisk/public/share/:id 的
-// 信息 / verify / list / download 四口。分享 id 兼容三种进入方式：
-// 路由参数 /share/:id、查询 ?id= 或 ?s=、以及旧分享链接 hash 形态 #/s/<id>。
-// 内容一律来自服务端，无演示数据；提取码票据（2h）留存在 sessionStorage。
-import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+// 公开分享页（免登录）：对照 server/public/share.html 还原——品牌行 / 提取码卡（头像 + 创建人 +
+// 创建与有效期）/ 文件行列表（真实类型图标 + 名称 + 大小·时间子行）/ 面包屑（共 N 项）/
+// 图片全屏查看器 + 视频 Lightbox。内容一律来自服务端，无演示数据；
+// 提取码票据（2h）留存在 sessionStorage（features/share/api.js）。
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   shareInfo,
@@ -146,9 +201,144 @@ import {
 
 const route = useRoute();
 
+/* ================= 图标（旧 assets/icons.js 同一套 SVG 路径） ================= */
+const ICONS = {
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  download: '<path d="M12 3.5v11M7 10l5 5 5-5"/><path d="M4.5 19.5h15"/>',
+  'error-circle':
+    '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v5"/><circle cx="12" cy="16.2" r="1" fill="currentColor" stroke="none"/>',
+  'chevron-right': '<path d="M9.5 6.5l5.5 5.5-5.5 5.5"/>',
+  'chevron-left': '<path d="M14.5 6.5L9 12l5.5 5.5"/>',
+  folder: '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  link: '<path d="M10 14a5 5 0 0 0 7 .5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+};
+function ic(name, size) {
+  const body = ICONS[name] || ICONS.folder;
+  return `<svg width="${size || 24}" height="${size || 24}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+}
+
+/* ================= 文件类型（旧 share.html 同一映射） ================= */
+const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
+const EXT_LABEL = {
+  doc: 'DOC',
+  docx: 'DOC',
+  xls: 'XLS',
+  xlsx: 'XLS',
+  csv: 'XLS',
+  ppt: 'PPT',
+  pptx: 'PPT',
+  pdf: 'PDF',
+  zip: 'ZIP',
+  rar: 'ZIP',
+  '7z': 'ZIP',
+  tar: 'ZIP',
+  gz: 'ZIP',
+  tgz: 'ZIP',
+  bz2: 'ZIP',
+  xz: 'ZIP',
+  txt: 'TXT',
+  md: 'TXT',
+  log: 'TXT',
+  mp4: 'MP4',
+  mov: 'MP4',
+  webm: 'MP4',
+  m4v: 'MP4',
+  mp3: 'MP3',
+  wav: 'MP3',
+};
+const FT_BASE = '/assets/filetypes/';
+const FT_MAP = {
+  doc: 'docx',
+  docx: 'docx',
+  xls: 'xlsx',
+  xlsx: 'xlsx',
+  csv: 'csv',
+  ppt: 'pptx',
+  pptx: 'pptx',
+  pdf: 'pdf',
+  txt: 'txt',
+  md: 'md',
+  log: 'txt',
+  zip: 'zip',
+  rar: 'rar',
+  '7z': '7z',
+  tar: 'tar',
+  gz: 'gz',
+  tgz: 'zip',
+  bz2: 'zip',
+  xz: 'zip',
+  jpg: 'jpg',
+  jpeg: 'jpg',
+  png: 'png',
+  gif: 'gif',
+  bmp: 'bmp',
+  webp: 'jpg',
+  svg: 'png',
+  mp4: 'mp4',
+  mov: 'mov',
+  webm: 'mp4',
+  m4v: 'mp4',
+  mp3: 'mp3',
+  wav: 'wav',
+};
+function extOf(name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || '');
+  return m ? m[1].toLowerCase() : '';
+}
+function typeLabel(name) {
+  const e = extOf(name);
+  return EXT_LABEL[e] || (e ? e.slice(0, 4).toUpperCase() : 'FILE');
+}
+function isImg(name) {
+  return IMG_EXTS.includes(extOf(name));
+}
+function isVideo(name) {
+  return VIDEO_EXTS.includes(extOf(name));
+}
+function fileIconUrl(name, isDir) {
+  if (isDir) return FT_BASE + 'folder.png';
+  return FT_BASE + (FT_MAP[extOf(name)] || 'unknown') + '.png';
+}
+function ftLbStyle(name, size) {
+  return { fontSize: `${Math.max(7, Math.round(size * 0.26))}px` };
+}
+function onFtError(e) {
+  const img = e.target;
+  if (!img) return;
+  img.style.display = 'none';
+  const fb = img.nextElementSibling;
+  if (fb && fb.classList.contains('ft-fb')) fb.hidden = false;
+}
+
+/* ================= 工具 ================= */
+function fmtSize(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+function toDate(d) {
+  if (!d) return null;
+  let dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) dt = new Date(String(d).replace(' ', 'T').replace(/\//g, '-'));
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+function fmtDate(d, withTime) {
+  const dt = toDate(d);
+  if (!dt) return '—';
+  const p = (n) => String(n).padStart(2, '0');
+  let s = `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+  if (withTime) s += ` ${p(dt.getHours())}:${p(dt.getMinutes())}`;
+  return s;
+}
+
+/* ================= 状态 ================= */
 const state = ref('loading'); // loading / error / password / content
 const errMsg = ref('');
 const errDetail = ref('');
+const errIcon = ref('error-circle');
 const shareId = ref('');
 const info = reactive({ creator: '', expire_at: '', created_at: '' });
 
@@ -162,27 +352,13 @@ const downloading = ref('');
 const viewRel = ref(''); // 当前浏览的分享范围内相对路径（'' = 分享项首层）
 const items = ref([]); // 当前层条目（含 rel）
 
-// ---- 工具 ----
-function fmtSize(n) {
-  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
-  if (n >= 1024) return Math.round(n / 1024) + ' KB';
-  return `${n || 0} B`;
-}
-function fmtSec(d) {
-  if (!d) return '—';
-  const dt = new Date(String(d).replace(' ', 'T').replace(/\//g, '-'));
-  if (Number.isNaN(dt.getTime())) return String(d);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}`;
-}
-
-// baseName 路径末段。
-function baseName(rel) {
-  const parts = String(rel || '')
-    .split('/')
-    .filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : rel;
-}
+const avatarChar = computed(() => String(info.creator || '友').charAt(0));
+const expireText = computed(() => {
+  if (!info.created_at && !info.expire_at) return '';
+  return `创建于 ${fmtDate(info.created_at)} · 有效期至 ${
+    info.expire_at ? fmtDate(info.expire_at, true) : '永久'
+  }`;
+});
 
 // rows 当前层条目（附 rel；子层 rel = 当前目录 rel + 名称）。
 const rows = computed(() =>
@@ -191,19 +367,25 @@ const rows = computed(() =>
     return { ...it, rel };
   })
 );
-
-// crumbs 面包屑（按当前层 rel 拆段；首层段取分享项名）。
+// crumbs 面包屑（按当前层 rel 拆段）。
 const crumbs = computed(() => {
   const segs = [];
   if (!viewRel.value) return segs;
-  const parts = viewRel.value.split('/').filter(Boolean);
   let acc = '';
-  parts.forEach((p) => {
-    acc = acc ? `${acc}/${p}` : p;
-    segs.push({ name: p, rel: acc });
-  });
+  viewRel.value
+    .split('/')
+    .filter(Boolean)
+    .forEach((p) => {
+      acc = acc ? `${acc}/${p}` : p;
+      segs.push({ name: p, rel: acc });
+    });
   return segs;
 });
+function rowSub(it) {
+  return it.is_dir
+    ? '文件夹'
+    : fmtSize(it.size) + (it.modified ? ` · ${fmtDate(it.modified)}` : '');
+}
 
 // resolveShareId 兼容路由参数 / 查询 / 旧 hash 形态。
 function resolveShareId() {
@@ -215,13 +397,13 @@ function resolveShareId() {
   return m ? normalizeShareId(m[1]) : '';
 }
 
-// ---- 载入与校验 ----
-function showError(msg, detail) {
+/* ================= 载入与校验 ================= */
+function showError(msg, detail, icon) {
   state.value = 'error';
   errMsg.value = msg || '分享不可用';
-  errDetail.value = detail || '';
+  errDetail.value = detail || '如有疑问请联系分享人重新生成链接。';
+  errIcon.value = icon || 'error-circle';
 }
-
 function requirePassword(msg) {
   state.value = 'password';
   pwErr.value = msg || '';
@@ -238,9 +420,13 @@ async function loadRoot() {
   } catch (e) {
     if (e.code === 40311 || e.status === 403) {
       clearTicket(shareId.value);
-      requirePassword(e.code === 42901 ? e.message : '请重新输入提取码');
-    } else if (e.code === 41010 || e.code === 40310 || e.code === 40400) {
-      showError(e.message);
+      requirePassword(e.code === 42901 ? e.message : '访问票据已过期，请重新输入提取码');
+    } else if (e.code === 40310) {
+      showError('该分享已被创建者停用');
+    } else if (e.code === 41010) {
+      showError('该分享已过期');
+    } else if (e.code === 40400) {
+      showError('分享不存在或已删除');
     } else {
       showError('分享内容加载失败', e.message || '');
     }
@@ -250,8 +436,11 @@ async function loadRoot() {
 }
 
 async function doVerify() {
-  const pw = password.value.trim();
-  if (!pw) return;
+  const pw = password.value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(pw)) {
+    pwErr.value = '请输入 4 位提取码（字母或数字）';
+    return;
+  }
   verifying.value = true;
   pwErr.value = '';
   try {
@@ -260,34 +449,30 @@ async function doVerify() {
     items.value = (d && d.items) || [];
     viewRel.value = '';
   } catch (e) {
-    if (e.code === 42901) {
-      showError(e.message, '请稍后再试');
-    } else {
-      pwErr.value = e.message || '提取码错误';
-    }
+    if (e.code === 40310) showError('该分享已被创建者停用');
+    else if (e.code === 41010) showError('该分享已过期');
+    else if (e.code === 40400) showError('分享不存在或已删除');
+    else if (e.code === 42901) pwErr.value = e.message; // 尝试过多 原样提示
+    else pwErr.value = e.message || '提取码错误';
   } finally {
     verifying.value = false;
   }
 }
 
-async function navTo(rel) {
+// 目录下钻（path 为分享范围内相对路径，'/' 为首层）
+async function openDir(rel) {
   if (state.value !== 'content') return;
-  if (!rel) {
-    // 回首层：优先 list('/')，票据失效时回提取码框
-    await loadRoot();
-    return;
-  }
   loading.value = true;
   try {
-    const d = await shareList(shareId.value, rel);
+    const d = await shareList(shareId.value, rel || '/');
     items.value = (d && d.items) || [];
-    viewRel.value = (d && d.path && d.path !== '/' ? d.path : rel) || rel;
+    viewRel.value =
+      rel === '/' ? '' : ((d && d.path && d.path !== '/' ? d.path : rel) || rel || '');
   } catch (e) {
     if (e.code === 40311 || e.status === 403) {
       clearTicket(shareId.value);
-      requirePassword('请重新输入提取码');
+      requirePassword('访问票据已过期，请重新输入提取码');
     } else if (e.code === 40312) {
-      pwErr.value = '';
       showError(e.message || '路径超出分享范围');
     } else {
       showError('目录加载失败', e.message || '');
@@ -297,11 +482,21 @@ async function navTo(rel) {
   }
 }
 
-function reload() {
-  navTo(viewRel.value);
+// 文件：图片走网页内全屏查看器，视频内联 Lightbox 播放，其余直接下载
+function openFile(it) {
+  if (isImg(it.name)) {
+    openViewer(it);
+    return;
+  }
+  if (isVideo(it.name)) {
+    previewMedia(it);
+    return;
+  }
+  doDownload(it);
 }
 
 async function doDownload(it) {
+  if (!it) return;
   downloading.value = it.rel;
   try {
     const res = await shareDownload(shareId.value, it.rel);
@@ -309,9 +504,14 @@ async function doDownload(it) {
   } catch (e) {
     if (e.code === 40311 || e.status === 403) {
       clearTicket(shareId.value);
-      requirePassword('请重新输入提取码');
+      requirePassword('访问票据已过期，请重新输入提取码');
+    } else if (e.code === 40310) {
+      showError('该分享已被创建者停用');
+    } else if (e.code === 41010) {
+      showError('该分享已过期');
+    } else if (e.code === 40400) {
+      showError('分享不存在或已删除');
     } else {
-      // 用原生 alert 太糙，就地展示在页脚下方不可靠——统一走标题错误态不合适，改为简单提示
       window.alert(e.message || '下载失败');
     }
   } finally {
@@ -319,11 +519,189 @@ async function doDownload(it) {
   }
 }
 
-// ---- 初始化 ----
+/* ================= 视频 Lightbox / 图片全屏查看器 ================= */
+const media = reactive({ open: false, name: '', url: '' });
+async function previewMedia(it) {
+  try {
+    const res = await shareDownload(shareId.value, it.rel);
+    const blob = await res.blob();
+    if (media.url) URL.revokeObjectURL(media.url);
+    media.url = URL.createObjectURL(blob);
+    media.name = it.name;
+    media.open = true;
+  } catch (e) {
+    if (e.code === 40311 || e.status === 403) {
+      clearTicket(shareId.value);
+      requirePassword('访问票据已过期，请重新输入提取码');
+    } else {
+      window.alert(e.message || '预览失败');
+    }
+  }
+}
+function closeMedia() {
+  media.open = false;
+  if (media.url) URL.revokeObjectURL(media.url);
+  media.url = '';
+}
+
+const vwr = reactive({ open: false, imgs: [], idx: 0, mode: 'fit', scale: 1, tx: 0, ty: 0 });
+const vwrStageEl = ref(null);
+const vwrImgEl = ref(null);
+const vwrDragging = ref(false);
+const vwrCurrentItem = computed(() => (vwr.imgs[vwr.idx] ? vwr.imgs[vwr.idx].item : null));
+const vwrName = computed(() => (vwrCurrentItem.value ? vwrCurrentItem.value.name : ''));
+const vwrUrl = computed(() => (vwr.imgs[vwr.idx] ? vwr.imgs[vwr.idx].url : ''));
+const vwrTransform = computed(
+  () => `transform: translate(-50%, -50%) translate(${vwr.tx}px, ${vwr.ty}px) scale(${vwr.scale})`
+);
+const urlCache = reactive({}); // rel → objectURL
+
+async function openViewer(it) {
+  const imgs = rows.value.filter((x) => !x.is_dir && isImg(x.name));
+  const idx = imgs.findIndex((x) => x.rel === it.rel);
+  if (idx < 0) return;
+  vwr.imgs = imgs.map((x) => ({ item: x, url: urlCache[x.rel] || '' }));
+  vwr.idx = idx;
+  vwr.open = true;
+  vwr.mode = 'fit';
+  vwr.scale = 1;
+  vwr.tx = 0;
+  vwr.ty = 0;
+  document.body.style.overflow = 'hidden';
+  window.addEventListener('keydown', onVwrKey, true);
+  window.addEventListener('resize', onVwrResize);
+  await ensureVwrUrl();
+}
+async function ensureVwrUrl() {
+  const cur = vwr.imgs[vwr.idx];
+  if (!cur || cur.url) return;
+  if (urlCache[cur.item.rel]) {
+    cur.url = urlCache[cur.item.rel];
+    return;
+  }
+  try {
+    const res = await shareDownload(shareId.value, cur.item.rel);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    urlCache[cur.item.rel] = url;
+    if (vwr.imgs[vwr.idx] === cur) cur.url = url;
+  } catch (e) {
+    /* 加载失败保持空白，可重试切换 */
+  }
+}
+function vwrShow() {
+  vwr.mode = 'fit';
+  vwr.tx = 0;
+  vwr.ty = 0;
+  vwr.scale = 1;
+  ensureVwrUrl();
+  nextTick(() => {
+    const img = vwrImgEl.value;
+    if (img && img.complete && img.naturalWidth) vwrFit();
+  });
+}
+function vwrNav(d) {
+  if (vwr.imgs.length < 2) return;
+  vwr.idx = (vwr.idx + d + vwr.imgs.length) % vwr.imgs.length;
+  vwrShow();
+}
+function vwrFit() {
+  const img = vwrImgEl.value;
+  const stage = vwrStageEl.value;
+  if (!img || !stage) return;
+  const natW = img.naturalWidth;
+  const natH = img.naturalHeight;
+  if (!natW || !natH) return;
+  const r = stage.getBoundingClientRect();
+  vwr.scale = Math.min(8, Math.max(0.1, Math.min(r.width / natW, r.height / natH)));
+  vwr.tx = 0;
+  vwr.ty = 0;
+  vwr.mode = 'fit';
+}
+function vwrToggleFit() {
+  if (vwr.mode === 'fit') {
+    vwr.scale = 1;
+    vwr.tx = 0;
+    vwr.ty = 0;
+    vwr.mode = 'free';
+  } else vwrFit();
+}
+function onVwrLoad() {
+  if (vwr.mode === 'fit') vwrFit();
+}
+function onVwrResize() {
+  if (vwr.open && vwr.mode === 'fit') vwrFit();
+}
+function onVwrWheel(e) {
+  const ns = Math.min(8, Math.max(0.1, vwr.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+  if (ns === vwr.scale) return;
+  const stage = vwrStageEl.value;
+  const r = stage.getBoundingClientRect();
+  const px = e.clientX - r.left - r.width / 2;
+  const py = e.clientY - r.top - r.height / 2;
+  vwr.tx = px - (px - vwr.tx) * (ns / vwr.scale);
+  vwr.ty = py - (py - vwr.ty) * (ns / vwr.scale);
+  vwr.scale = ns;
+  vwr.mode = 'free';
+}
+let vwrDrag = null;
+function onVwrDown(e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  vwrDrag = { x: e.clientX, y: e.clientY, moved: false };
+  vwrImgEl.value.setPointerCapture(e.pointerId);
+  const onMove = (ev) => {
+    if (!vwrDrag) return;
+    const dx = ev.clientX - vwrDrag.x;
+    const dy = ev.clientY - vwrDrag.y;
+    if (!vwrDrag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+    vwrDrag.moved = true;
+    if (vwr.mode !== 'free') return;
+    vwrDragging.value = true;
+    vwr.tx += dx;
+    vwr.ty += dy;
+    vwrDrag.x = ev.clientX;
+    vwrDrag.y = ev.clientY;
+  };
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    vwrDragging.value = false;
+    const wasDrag = vwrDrag && vwrDrag.moved;
+    vwrDrag = null;
+    if (!wasDrag) vwrToggleFit();
+  };
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+}
+function onVwrKey(e) {
+  if (!vwr.open) return;
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    e.preventDefault();
+    closeViewer();
+  } else if (e.key === 'ArrowLeft') {
+    e.stopPropagation();
+    vwrNav(-1);
+  } else if (e.key === 'ArrowRight') {
+    e.stopPropagation();
+    vwrNav(1);
+  }
+}
+function closeViewer() {
+  vwr.open = false;
+  document.body.style.overflow = '';
+  window.removeEventListener('keydown', onVwrKey, true);
+  window.removeEventListener('resize', onVwrResize);
+}
+
+/* ================= 初始化 ================= */
 onMounted(async () => {
   shareId.value = resolveShareId();
   if (!shareId.value) {
-    showError('分享链接不完整', '请从分享者提供的完整链接进入');
+    showError('链接无效', '分享链接格式不正确，请核对后重新打开。', 'link');
     return;
   }
   try {
@@ -332,7 +710,10 @@ onMounted(async () => {
     info.expire_at = (d && d.expire_at) || '';
     info.created_at = (d && d.created_at) || '';
   } catch (e) {
-    showError(e.message || '分享不存在或已删除', '');
+    if (e.code === 40310) showError('该分享已被创建者停用');
+    else if (e.code === 41010) showError('该分享已过期');
+    else if (e.code === 40400) showError('分享不存在或已删除');
+    else showError(e.message || '分享不存在或已删除');
     return;
   }
   if (getTicket(shareId.value)) {
@@ -341,228 +722,613 @@ onMounted(async () => {
     requirePassword('');
   }
 });
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onVwrKey, true);
+  window.removeEventListener('resize', onVwrResize);
+  Object.values(urlCache).forEach((u) => URL.revokeObjectURL(u));
+  if (media.url) URL.revokeObjectURL(media.url);
+});
 </script>
 
 <style scoped>
-/* 公开分享页（bare 无壳布局）：独立自足样式，沿用全局 token（styles.css 注入） */
-.sh-page {
+/* 公开分享页样式：对照 server/public/share.html 移植（旧 theme.css 变量映射到 --tk-* token） */
+.sh-root {
+  --card: #fff;
+  --navy: var(--tk-ink);
+  --orange: var(--tk-brand);
+  --orange-soft: var(--tk-blue-soft);
+  --red: var(--tk-red);
+  --line: var(--tk-line);
+  --sub: var(--tk-sub);
+  --ph: var(--tk-ph);
+  --dash: var(--tk-dash);
+  --fill: var(--tk-fill);
+  --paper: var(--tk-bg);
+  --on-brand: #fff;
+  --inverse-text: #fff;
+  --shadow-card: var(--tk-shadow-card);
+  --shadow-hover: var(--tk-shadow-hover);
+  --ease: var(--tk-ease);
+  --radius-sm: 8px;
+  --overlay: rgba(29, 33, 41, 0.45);
+  --brand-glow: rgba(14, 61, 168, 0.12);
+  --danger-soft: var(--tk-red-soft);
+
   min-height: 100vh;
-  background: var(--tk-bg, #f5f7fa);
+  background: var(--paper);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 24px 16px 40px;
 }
-.sh-head {
-  width: 100%;
-  max-width: 860px;
-  display: flex;
-  align-items: center;
-  margin-bottom: 16px;
+.sh-root :deep(*) {
+  box-sizing: border-box;
 }
+
+/* 顶部品牌行（简洁无导航） */
 .sh-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--tk-ink, #1d2129);
+  height: 60px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  padding: 0 24px;
+  flex: none;
 }
-.sh-mark {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--tk-brand, #0e3da8);
-  color: #fff;
-  display: inline-flex;
+.sh-brand .logo-mark {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sh-brand .logo-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.sh-brand b {
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+.sh-brand b i {
+  font-style: normal;
+  color: var(--orange);
+}
+.sh-brand .sep {
+  color: var(--dash);
+}
+.sh-brand .sub {
+  font-size: 13px;
+  color: var(--ph);
+  letter-spacing: 1px;
+}
+
+.sh-main {
+  flex: 1;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 20px 56px;
+}
+
+/* 卡片（白卡 12px + 轻阴影，同全局口径） */
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+/* 分享信息卡 / 提取码表单 */
+.sh-card {
+  padding: 28px 30px;
+}
+.sh-card-sm {
+  padding: 18px 22px;
+}
+.sh-owner {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.sh-av {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--orange);
+  color: var(--on-brand);
+  display: flex;
   align-items: center;
   justify-content: center;
   font-size: 15px;
+  font-weight: 700;
 }
-.sh-card {
-  width: 100%;
-  max-width: 860px;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: var(--tk-shadow-card, 0 2px 8px rgba(0, 0, 0, 0.04));
-  padding: 28px;
+.sh-owner h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
-.sh-title {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--tk-ink, #1d2129);
-}
-.sh-center {
-  text-align: center;
-  padding: 36px 0;
-}
-.sh-err-ic {
-  width: 44px;
-  height: 44px;
-  margin: 0 auto 12px;
-  border-radius: 50%;
-  background: var(--tk-red-soft, #ffece8);
-  color: var(--tk-red, #f53f3f);
-  font-size: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.sh-pw-row {
-  display: flex;
-  gap: 10px;
-  margin-top: 16px;
-}
-.sh-pw {
-  width: 180px;
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--tk-line, #e5e6eb);
-  border-radius: 8px;
-  font-size: 16px;
-  letter-spacing: 4px;
-  color: var(--tk-ink, #1d2129);
-  outline: none;
-}
-.sh-pw:focus {
-  border-color: var(--tk-brand, #0e3da8);
-}
-.sh-btn {
-  height: 38px;
-  padding: 0 18px;
-  border-radius: 8px;
-  border: 1px solid var(--tk-line, #e5e6eb);
-  background: #fff;
-  color: var(--tk-sub, #4e5969);
-  font-size: 13px;
-  cursor: pointer;
-}
-.sh-btn.primary {
-  background: var(--tk-brand, #0e3da8);
-  border-color: transparent;
-  color: #fff;
-  font-weight: 600;
-}
-.sh-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.sh-err {
-  margin-top: 10px;
-  color: var(--tk-red, #f53f3f);
-  font-size: 13px;
-}
-.sh-ctx {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.sh-ctx .spacer {
-  flex: 1;
+.sh-owner h1 b {
+  color: var(--orange);
 }
 .sh-meta {
-  margin: 4px 0 0;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--ph);
+  letter-spacing: 0.5px;
+}
+.pw-row {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+}
+.pw-in {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0 14px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: var(--navy);
+  text-transform: uppercase;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+  transition:
+    border-color 0.15s var(--ease),
+    box-shadow 0.15s var(--ease);
+}
+.pw-in::placeholder {
+  color: var(--ph);
+  font-weight: 400;
+  letter-spacing: 2px;
+  font-size: 13px;
+}
+.pw-in:focus {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px var(--brand-glow);
+}
+.pw-row .btn {
+  height: 44px;
+  flex: none;
+}
+.pw-err {
+  margin-top: 10px;
   font-size: 12px;
+  color: var(--red);
+  letter-spacing: 0.5px;
+  min-height: 16px;
+}
+.pw-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ph);
+  line-height: 1.7;
+}
+
+/* 文件列表卡 */
+.sh-list {
+  margin-top: 18px;
+  overflow: hidden;
 }
 .sh-crumb {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   flex-wrap: wrap;
-  margin: 12px 0;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
 .sh-crumb a {
-  color: var(--tk-brand, #0e3da8);
+  color: var(--orange);
+  font-weight: 600;
+  cursor: pointer;
   text-decoration: none;
 }
-.sh-sep {
-  color: var(--tk-dash, #c9cdd4);
+.sh-crumb a:hover {
+  filter: brightness(0.85);
 }
-.sh-crumb-cur {
-  color: var(--tk-ink, #1d2129);
+.sh-crumb em {
+  font-style: normal;
+  color: var(--ph);
+}
+.sh-crumb b {
   font-weight: 600;
+  word-break: break-all;
 }
-.sh-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+.sh-crumb .cnt {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ph);
+  font-variant-numeric: tabular-nums;
 }
-.sh-table th {
-  text-align: left;
-  font-weight: 600;
-  color: var(--tk-sub, #4e5969);
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--tk-line, #e5e6eb);
-}
-.sh-table td {
-  padding: 10px;
-  border-bottom: 1px solid var(--tk-line, #e5e6eb);
-}
-.sh-col-size {
-  width: 90px;
-}
-.sh-col-time {
-  width: 130px;
-}
-.sh-col-op {
-  width: 90px;
-}
-.sh-name {
+.f-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 11px;
+  padding: 9px 18px;
   cursor: pointer;
 }
-.sh-ic {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+.f-row + .f-row {
+  border-top: 1px solid var(--fill);
+}
+.f-row:hover {
+  background: var(--fill);
+}
+/* 真实文件类型图标（无底块直落）；img 404 由 @error 回退 */
+.ft-ic {
+  position: relative;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  flex-shrink: 0;
 }
-.sh-ic.dir {
-  background: var(--tk-blue-soft, #e8f0ff);
-  color: var(--tk-brand, #0e3da8);
+.ft-ic .ft-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
-.sh-ic.file {
-  background: var(--tk-fill, #f7f8fa);
-  color: var(--tk-sub, #4e5969);
+.ft-ic .ft-fb {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.sh-nm {
+.ft-ic .ft-fb[hidden] {
+  display: none;
+}
+.ft-fb-lb {
+  width: 100%;
+  height: 100%;
+  border-radius: 22%;
+  background: var(--orange-soft);
+  color: var(--orange);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.ft-fb .ic {
+  color: var(--orange);
+  display: inline-flex;
+}
+.f-mid {
+  flex: 1;
+  min-width: 0;
+}
+.f-nm {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sh-link {
-  border: none;
-  background: none;
-  color: var(--tk-brand, #0e3da8);
-  font-size: 13px;
-  cursor: pointer;
-  padding: 0;
+.f-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ph);
+  font-variant-numeric: tabular-nums;
 }
-.sh-link:disabled {
-  color: var(--tk-ph, #86909c);
+.f-dl {
+  flex: none;
+}
+
+/* 空态/错误卡 */
+.sh-state {
+  padding: 52px 26px;
+  text-align: center;
+  color: var(--ph);
+}
+.sh-state .ic {
+  width: 44px;
+  height: 44px;
+  color: var(--dash);
+  margin: 0 auto;
+  display: inline-flex;
+}
+.sh-state h2 {
+  margin: 14px 0 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 1px;
+}
+.sh-state p {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+
+/* 通用按钮（旧 theme.css 同口径） */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--navy);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    border-color 0.15s var(--ease),
+    color 0.15s,
+    filter 0.15s,
+    background 0.15s;
+}
+.btn:hover {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+.btn[disabled] {
+  opacity: 0.55;
   cursor: not-allowed;
 }
-.sh-empty {
-  text-align: center;
-  padding: 28px 0;
+.btn-primary {
+  color: var(--on-brand);
+  border-color: transparent;
+  background: var(--orange);
 }
-.sh-foot {
-  margin-top: 16px;
+.btn-primary:hover {
+  color: var(--on-brand);
+  filter: brightness(0.92);
+}
+.btn-sm {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
+/* 空态 / 加载 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 56px 20px;
+  color: var(--ph);
+}
+.empty .ic {
+  color: var(--dash);
+  display: inline-flex;
+}
+.empty p {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.spin {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2.5px solid var(--line);
+  border-top-color: var(--orange);
+  animation: rot 1s linear infinite;
+}
+@keyframes rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: var(--ph);
+  font-size: 12.5px;
+  letter-spacing: 1px;
+}
+
+/* ===== 通用弹层（视频 Lightbox） ===== */
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  padding: 24px;
+  background: var(--overlay);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: maskIn 0.3s ease both;
+}
+@keyframes maskIn {
+  from {
+    opacity: 0;
+  }
+}
+.modal {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  width: 560px;
+  max-width: 94vw;
+  max-height: 86vh;
+  overflow: hidden;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-card);
+  animation: modalIn 0.35s var(--ease) both;
+}
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+}
+.m-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 14px 18px 16px;
+}
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.m-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.m-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--navy);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-card);
+}
+.m-x:hover {
+  background: var(--navy);
+  color: var(--inverse-text);
+}
+.lb-media {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  max-height: 68vh;
+  border-radius: 8px;
+  background: var(--fill);
+}
+
+/* ===== 图片全屏查看器（深色底为查看器惯例） ===== */
+.vwr {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  flex-direction: column;
+  animation: vwrIn 0.18s ease both;
+}
+@keyframes vwrIn {
+  from {
+    opacity: 0;
+  }
+}
+.vwr-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  color: #fff;
+}
+.vwr-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vwr-idx {
+  flex: none;
   font-size: 12px;
-}
-.muted {
-  color: var(--tk-ph, #86909c);
-}
-.num {
+  color: rgba(255, 255, 255, 0.6);
   font-variant-numeric: tabular-nums;
+}
+.vwr-x {
+  margin-left: auto;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.vwr-x:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.vwr-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  margin: 0 4vw 4vh;
+}
+.vwr-img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center;
+  user-select: none;
+  cursor: zoom-in;
+  transition: transform 0.15s var(--ease);
+}
+.vwr-img.free {
+  cursor: grab;
+}
+.vwr-img.free.dragging {
+  cursor: grabbing;
+  transition: none;
+}
+.vwr-bar {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 4px 0 18px;
+}
+.vwr-bar button {
+  height: 36px;
+  min-width: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.vwr-bar button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.vwr-bar button[disabled] {
+  opacity: 0.4;
+  cursor: default;
 }
 </style>

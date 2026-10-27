@@ -1,183 +1,304 @@
 <template>
-  <t-dialog
-    v-model:visible="visible"
-    :header="`文件互推 · ${device?.description || device?.ddns || '设备'}`"
-    width="720px"
-    :close-on-overlay-click="false"
-    :footer="false"
-    @close="$emit('close')"
-  >
-    <!-- 挂载状态条 -->
-    <div class="fs-bar">
-      <span class="dot-tag" :class="shared ? 'green' : ''">
-        <span class="dot"></span>{{ shared ? '已共享给被控机' : '未共享' }}
-      </span>
-      <t-button size="small" variant="outline" :loading="loading" @click="refresh">刷新</t-button>
-      <t-button size="small" variant="outline" :loading="mounting" @click="doMount"
-        >挂载到被控机</t-button
-      >
-      <div class="spacer"></div>
-      <t-button size="small" theme="primary" :disabled="busy" @click="pickUpload"
-        >上传文件</t-button
-      >
-      <t-button
-        size="small"
-        variant="outline"
-        :disabled="busy || !selNames.length"
-        @click="doDownload"
-      >
-        下载{{ selNames.length ? `（${selNames.length}）` : '' }}
-      </t-button>
-      <t-button
-        size="small"
-        variant="outline"
-        :disabled="busy || !selNames.length"
-        @click="doSaveNetdisk"
-      >
-        存到网盘
-      </t-button>
-      <t-button
-        size="small"
-        theme="danger"
-        variant="outline"
-        :disabled="busy || !selNames.length"
-        @click="doDelete"
-      >
-        删除
-      </t-button>
-      <t-button size="small" variant="outline" :disabled="busy" @click="openPicker"
-        >从网盘拉取</t-button
-      >
-    </div>
-    <div class="muted fs-hint">
-      上传单文件 ≤2GB、单次最多 20 个；上传完成后自动挂载到被控机。共享中断开才能查看/管理盘内文件。
-    </div>
+  <!-- 文件互推主面板 -->
+  <div v-if="visible" class="fs-mask" @mousedown.self="emit('update:visible', false)">
+    <div class="fs-modal fs-modal-lg" role="dialog" aria-modal="true">
+      <div class="fs-scroll">
+        <div class="fs-head">
+          <span class="fs-title"
+            >文件互推 · {{ device?.description || device?.ddns || '设备' }}</span
+          >
+          <button
+            type="button"
+            class="fs-x"
+            aria-label="关闭"
+            @click="emit('update:visible', false)"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
 
-    <!-- 进度提示 -->
-    <div v-if="progress" class="fs-progress">{{ progress }}</div>
+        <!-- 挂载状态条 + 操作 -->
+        <div class="fs-bar">
+          <span class="dot-tag" :class="shared ? 'green' : ''">
+            <span class="dot"></span>{{ shared ? '已共享给被控机' : '未共享' }}
+          </span>
+          <button type="button" class="fs-btn fs-btn-sm" :disabled="loading" @click="refresh">
+            刷新
+          </button>
+          <button type="button" class="fs-btn fs-btn-sm" :disabled="mounting" @click="doMount">
+            挂载到被控机
+          </button>
+          <div class="spacer"></div>
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm fs-btn-on"
+            :disabled="busy"
+            @click="pickUpload"
+          >
+            上传文件
+          </button>
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm"
+            :disabled="busy || !selNames.length"
+            @click="doDownload"
+          >
+            下载{{ selNames.length ? `（${selNames.length}）` : '' }}
+          </button>
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm"
+            :disabled="busy || !selNames.length"
+            @click="doSaveNetdisk"
+          >
+            存到网盘
+          </button>
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm fs-btn-danger"
+            :disabled="busy || !selNames.length"
+            @click="delConfirmVisible = true"
+          >
+            删除
+          </button>
+          <button type="button" class="fs-btn fs-btn-sm" :disabled="busy" @click="openPicker">
+            从网盘拉取
+          </button>
+        </div>
+        <div class="fs-hint">
+          上传单文件 ≤2GB、单次最多 20
+          个；上传完成后自动挂载到被控机。共享中断开才能查看/管理盘内文件。
+        </div>
 
-    <!-- 文件列表 -->
-    <div v-if="loading" class="fs-empty muted">加载中…</div>
-    <div v-else-if="shared" class="fs-empty muted">
-      已共享给被控机，如需查看/管理盘内文件请先刷新（会断开共享）。
-    </div>
-    <div v-else-if="!files.length" class="fs-empty muted">盘内暂无文件</div>
-    <table v-else class="fs-table">
-      <thead>
-        <tr>
-          <th>
-            <input type="checkbox" :checked="allChecked" :disabled="busy" @change="toggleAll" />
-          </th>
-          <th>文件名</th>
-          <th>大小</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="f in files" :key="f.name">
-          <td>
-            <input
-              type="checkbox"
-              :checked="!!sel[f.name]"
-              :disabled="busy"
-              @change="toggle(f.name)"
-            />
-          </td>
-          <td class="mono">{{ f.name }}</td>
-          <td class="num">{{ fmtSize(f.size) }}</td>
-        </tr>
-      </tbody>
-    </table>
+        <!-- 进度提示 -->
+        <div v-if="progress" class="fs-progress">{{ progress }}</div>
 
-    <!-- 上传选择（隐藏） -->
-    <input ref="upInput" type="file" multiple hidden @change="onUpload" />
-
-    <!-- 从网盘拉取：轻量文件选择 -->
-    <t-dialog
-      v-model:visible="pickerVisible"
-      header="从网盘拉取"
-      width="560px"
-      :close-on-overlay-click="false"
-      :confirm-btn="{
-        content: `拉取到设备（${pickerSel.size}）`,
-        theme: 'primary',
-        disabled: !pickerSel.size,
-        loading: pulling,
-      }"
-      cancel-btn="取消"
-      @confirm="doPull"
-    >
-      <div class="pk-bar">
-        <t-select
-          v-model="pickerSpace"
-          :options="[
-            { label: '我的空间', value: 'my' },
-            { label: '公共区', value: 'public' },
-          ]"
-          size="small"
-          style="width: 120px"
-          @change="pickerCd('/')"
-        />
-        <t-button size="small" variant="outline" :disabled="pickerPath === '/'" @click="pickerUp">
-          ‹ 上级
-        </t-button>
-        <span class="mono pk-path">{{ pickerPath }}</span>
-        <div class="spacer"></div>
-        <span class="muted">已选 {{ pickerSel.size }}/20</span>
+        <!-- 文件列表 -->
+        <div v-if="loading" class="fs-empty">加载中…</div>
+        <div v-else-if="shared" class="fs-empty">
+          已共享给被控机，如需查看/管理盘内文件请先刷新（会断开共享）。
+        </div>
+        <div v-else-if="!files.length" class="fs-empty">盘内暂无文件</div>
+        <table v-else class="fs-table">
+          <thead>
+            <tr>
+              <th class="fs-cb">
+                <input type="checkbox" :checked="allChecked" :disabled="busy" @change="toggleAll" />
+              </th>
+              <th>文件名</th>
+              <th class="fs-sz">大小</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="f in files" :key="f.name">
+              <td class="fs-cb">
+                <input
+                  type="checkbox"
+                  :checked="!!sel[f.name]"
+                  :disabled="busy"
+                  @change="toggle(f.name)"
+                />
+              </td>
+              <td class="mono">{{ f.name }}</td>
+              <td class="fs-sz num">{{ fmtSize(f.size) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <div v-if="pickerLoading" class="fs-empty muted">加载中…</div>
-      <div v-else-if="pickerError" class="fs-empty">{{ pickerError }}</div>
-      <div v-else-if="!pickerItems.length" class="fs-empty muted">该目录为空</div>
-      <table v-else class="fs-table">
-        <tbody>
-          <tr v-for="it in pickerItems" :key="it.name" :class="{ 'pk-dir': it.is_dir }">
-            <td style="width: 30px">
-              <input
-                v-if="!it.is_dir"
-                type="checkbox"
-                :checked="pickerSel.has(pickerPath === '/' ? it.name : pickerPath + '/' + it.name)"
-                @change="togglePick(it)"
-              />
-            </td>
-            <td class="mono" @click="it.is_dir ? pickerCd(joinName(it.name)) : togglePick(it)">
-              {{ it.is_dir ? '📁 ' : '' }}{{ it.name }}
-            </td>
-            <td class="num">{{ it.is_dir ? '' : fmtSize(it.size) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </t-dialog>
+    </div>
+  </div>
 
-    <!-- 存到网盘：空间 + 目录 -->
-    <t-dialog
-      v-model:visible="saveVisible"
-      header="存到网盘"
-      :close-on-overlay-click="false"
-      :confirm-btn="{ content: '保 存', theme: 'primary', loading: saving }"
-      cancel-btn="取消"
-      @confirm="doSaveConfirm"
-    >
-      <div class="pk-bar">
-        <label class="field-label">空间</label>
-        <t-select
-          v-model="saveSpace"
-          :options="[
-            { label: '我的空间', value: 'my' },
-            { label: '公共区', value: 'public' },
-          ]"
-          size="small"
-          style="width: 120px"
-        />
-        <label class="field-label">目录</label>
-        <t-input v-model="saveDir" size="small" placeholder="文件传输" style="width: 180px" />
+  <!-- 上传选择（隐藏） -->
+  <input ref="upInput" type="file" multiple hidden @change="onUpload" />
+
+  <!-- 从网盘拉取：目录浏览 + 文件多选（≤20） -->
+  <div v-if="pickerVisible" class="fs-mask fs-mask-sub">
+    <div class="fs-modal" role="dialog" aria-modal="true">
+      <div class="fs-scroll">
+        <div class="fs-head">
+          <span class="fs-title">从网盘拉取</span>
+          <button type="button" class="fs-x" aria-label="关闭" @click="pickerVisible = false">
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="pk-bar">
+          <select v-model="pickerSpace" class="fs-sel" @change="pickerCd('/')">
+            <option value="my">我的空间</option>
+            <option value="public">公共区</option>
+          </select>
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm"
+            :disabled="pickerPath === '/'"
+            @click="pickerUp"
+          >
+            ‹ 上级
+          </button>
+          <span class="mono pk-path">{{ pickerPath }}</span>
+          <div class="spacer"></div>
+          <span class="pk-cnt">已选 {{ pickerSel.size }}/20</span>
+        </div>
+        <div v-if="pickerLoading" class="fs-empty">加载中…</div>
+        <div v-else-if="pickerError" class="fs-empty">{{ pickerError }}</div>
+        <div v-else-if="!pickerItems.length" class="fs-empty">该目录为空</div>
+        <table v-else class="fs-table">
+          <tbody>
+            <tr v-for="it in pickerItems" :key="it.name" :class="{ 'pk-dir': it.is_dir }">
+              <td class="fs-cb">
+                <input
+                  v-if="!it.is_dir"
+                  type="checkbox"
+                  :checked="
+                    pickerSel.has(pickerPath === '/' ? it.name : pickerPath + '/' + it.name)
+                  "
+                  @change="togglePick(it)"
+                />
+              </td>
+              <td class="mono" @click="it.is_dir ? pickerCd(joinName(it.name)) : togglePick(it)">
+                {{ it.is_dir ? '📁 ' : '' }}{{ it.name }}
+              </td>
+              <td class="fs-sz num">{{ it.is_dir ? '' : fmtSize(it.size) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="fs-actions">
+          <button type="button" class="fs-btn fs-btn-sm" @click="pickerVisible = false">
+            取消
+          </button>
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm fs-btn-on"
+            :disabled="pulling || !pickerSel.size"
+            @click="doPull"
+          >
+            {{ pulling ? '推送中…' : `拉取到设备（${pickerSel.size}）` }}
+          </button>
+        </div>
       </div>
-      <div class="muted">
-        将保存 {{ selNames.length }} 个文件到网盘「{{ saveDir || '文件传输' }}」目录。
+    </div>
+  </div>
+
+  <!-- 存到网盘：空间 + 目录（含目录合法性校验） -->
+  <div v-if="saveVisible" class="fs-mask fs-mask-sub">
+    <div class="fs-modal fs-modal-sm" role="dialog" aria-modal="true">
+      <div class="fs-scroll">
+        <div class="fs-head">
+          <span class="fs-title">存到网盘</span>
+          <button type="button" class="fs-x" aria-label="关闭" @click="saveVisible = false">
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="pk-bar">
+          <label class="fs-lab">空间</label>
+          <select v-model="saveSpace" class="fs-sel">
+            <option value="my">我的空间</option>
+            <option value="public">公共区</option>
+          </select>
+          <label class="fs-lab">目录</label>
+          <input v-model="saveDir" class="fs-in" type="text" placeholder="文件传输" />
+        </div>
+        <div class="fs-hint">
+          将保存 {{ selNames.length }} 个文件到网盘「{{ saveDir || '文件传输' }}」目录。
+        </div>
+        <div class="fs-actions">
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm"
+            :disabled="saving"
+            @click="saveVisible = false"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm fs-btn-on"
+            :disabled="saving"
+            @click="doSaveConfirm"
+          >
+            {{ saving ? '保存中…' : '保 存' }}
+          </button>
+        </div>
       </div>
-    </t-dialog>
-  </t-dialog>
+    </div>
+  </div>
+
+  <!-- 删除确认 -->
+  <div v-if="delConfirmVisible" class="fs-mask fs-mask-sub">
+    <div class="fs-modal fs-modal-sm" role="dialog" aria-modal="true">
+      <div class="fs-scroll">
+        <div class="fs-head">
+          <span class="fs-title">删除选中文件？</span>
+          <button type="button" class="fs-x" aria-label="关闭" @click="delConfirmVisible = false">
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="fs-hint">确定删除选中的 {{ selNames.length }} 个文件吗？该操作不可恢复。</div>
+        <div class="fs-actions">
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm"
+            :disabled="busy"
+            @click="delConfirmVisible = false"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="fs-btn fs-btn-sm fs-btn-danger"
+            :disabled="busy"
+            @click="doDelete"
+          >
+            确认删除
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
+// 设备文件互推（文件转发点 fileshare）：挂载/断开查看、上传推送（批量校验）、下载、删除、
+// 存到网盘、从网盘拉取（目录浏览多选）。弹层沿用旧页 ndpick 弹层骨架（8px 圆角白卡 + 发丝边）。
 import { computed, ref, watch } from 'vue';
 import * as api from './api.js';
 import { fmtSize, saveBlob } from './util.js';
@@ -197,7 +318,10 @@ watch(
     if (v) refresh();
   }
 );
-watch(visible, (v) => emit('update:visible', v));
+watch(visible, (v) => {
+  emit('update:visible', v);
+  if (!v) emit('close');
+});
 
 // ---- 盘内文件状态 ----
 const shared = ref(false);
@@ -255,7 +379,7 @@ async function doMount() {
   }
 }
 
-// ---- 上传（推送前校验：数量/单文件大小/文件名，与 Go filePush 口径一致） ----
+// ---- 上传（推送前批量校验：数量/单文件大小/文件名/重名，与 Go filePush 口径一致） ----
 const upInput = ref(null);
 function pickUpload() {
   upInput.value?.click();
@@ -314,8 +438,8 @@ async function onUpload(e) {
       try {
         await api.mount(props.device.id, props.teamId);
         shared.value = true;
-      } catch (e) {
-        emit('toast', { type: 'warning', msg: `已上传但挂载失败：${e.message}` });
+      } catch (err) {
+        emit('toast', { type: 'warning', msg: `已上传但挂载失败：${err.message}` });
       }
       await refresh();
     }
@@ -341,8 +465,9 @@ async function doDownload() {
   }
 }
 
+const delConfirmVisible = ref(false);
 async function doDelete() {
-  if (!window.confirm(`确定删除选中的 ${selNames.value.length} 个文件吗？`)) return;
+  delConfirmVisible.value = false;
   busy.value = true;
   try {
     await api.deleteFiles(props.device.id, selNames.value, props.teamId);
@@ -424,7 +549,7 @@ async function doSaveConfirm() {
   }
 }
 
-// ---- 从网盘拉取（轻量文件选择） ----
+// ---- 从网盘拉取（目录浏览 + 文件多选） ----
 const pickerVisible = ref(false);
 const pickerSpace = ref('my');
 const pickerPath = ref('/');
@@ -532,6 +657,151 @@ async function doPull() {
 </script>
 
 <style scoped>
+/* ===== 弹层骨架（迁移旧页 ndpick 弹层口径：8px 圆角白卡 + 发丝边 + 轻影） ===== */
+.fs-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  padding: 24px;
+  background: rgba(29, 33, 41, 0.45);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fs-mask-sub {
+  z-index: 210;
+}
+.fs-modal {
+  background: #fff;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  width: 560px;
+  max-width: 94vw;
+  max-height: 86vh;
+  overflow: hidden;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--tk-shadow-card);
+}
+.fs-modal-lg {
+  width: 720px;
+}
+.fs-modal-sm {
+  width: 420px;
+}
+.fs-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 14px 18px 16px;
+}
+.fs-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.fs-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.fs-x:hover {
+  background: var(--tk-ink);
+  color: #fff;
+}
+
+/* ===== 按钮 / 输入（紧凑） ===== */
+.fs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fs-btn:hover:not(:disabled) {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.fs-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.fs-btn-on {
+  background: var(--tk-brand);
+  border-color: transparent;
+  color: #fff;
+}
+.fs-btn-on:hover:not(:disabled) {
+  color: #fff;
+  filter: brightness(0.92);
+}
+.fs-btn-danger {
+  background: var(--tk-red);
+  border-color: transparent;
+  color: #fff;
+}
+.fs-btn-danger:hover:not(:disabled) {
+  color: #fff;
+  filter: brightness(0.92);
+}
+.fs-sel,
+.fs-in {
+  height: 34px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  font-size: 12.5px;
+  color: var(--tk-ink);
+  outline: none;
+}
+.fs-sel:focus,
+.fs-in:focus {
+  border-color: var(--tk-brand);
+  box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
+}
+.fs-in {
+  width: 180px;
+}
+.fs-lab {
+  font-size: 12px;
+  color: var(--tk-sub);
+}
+
+/* ===== 工具条 / 提示 ===== */
 .fs-bar {
   display: flex;
   align-items: center;
@@ -541,6 +811,9 @@ async function doPull() {
 }
 .fs-hint {
   margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--tk-ph);
+  line-height: 1.7;
 }
 .fs-progress {
   margin-bottom: 8px;
@@ -551,7 +824,10 @@ async function doPull() {
   padding: 28px;
   text-align: center;
   font-size: 13px;
+  color: var(--tk-ph);
 }
+
+/* ===== 文件表（紧凑行高） ===== */
 .fs-table {
   width: 100%;
   border-collapse: collapse;
@@ -560,18 +836,33 @@ async function doPull() {
 .fs-table th,
 .fs-table td {
   padding: 7px 8px;
-  border-bottom: 1px solid var(--tk-line);
+  border-bottom: 1px solid rgba(29, 33, 41, 0.06);
   text-align: left;
 }
 .fs-table th {
   background: var(--tk-fill);
   color: var(--tk-sub);
   font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 1px;
+}
+.fs-cb {
+  width: 30px;
+}
+.fs-sz {
+  width: 90px;
+  white-space: nowrap;
+  color: var(--tk-sub);
 }
 .mono {
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
   word-break: break-all;
 }
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 网盘拉取面板 ===== */
 .pk-bar {
   display: flex;
   align-items: center;
@@ -583,10 +874,20 @@ async function doPull() {
   font-size: 12px;
   color: var(--tk-sub);
 }
+.pk-cnt {
+  font-size: 12px;
+  color: var(--tk-ph);
+}
 .pk-dir td {
   cursor: pointer;
 }
 .spacer {
   flex: 1;
+}
+.fs-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
 }
 </style>

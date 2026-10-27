@@ -1,249 +1,343 @@
 <template>
-  <div class="cm-wrap">
-    <!-- 左：会话列表 -->
-    <div class="col-side card cm-side">
-      <div class="toolbar">
-        <h2 class="card-title" style="margin: 0">会话</h2>
-        <div class="spacer"></div>
-        <t-button size="small" theme="primary" :disabled="creating" @click="onNewSession">
-          新建会话
-        </t-button>
-      </div>
-      <t-loading :loading="sessionsLoading" size="small">
-        <div
-          v-for="s in sessions"
-          :key="s.id"
-          class="cm-item"
-          :class="{ on: s.id === activeId }"
-          @click="openSession(s.id)"
-        >
-          <div class="cm-item-main">
-            <div class="tt">{{ s.title || '新对话' }}</div>
-            <div class="tm num">{{ s.timeText }}</div>
-          </div>
-          <div class="cm-item-acts">
-            <button class="ia" title="重命名" @click.stop="renameSession(s)">改名</button>
-            <button class="ia danger" title="删除" @click.stop="onDeleteSession(s)">删除</button>
+  <div class="cm-root" :class="{ 'side-open': sideOpen }">
+    <div class="cm">
+      <!-- 右侧：会话列表 -->
+      <aside class="cm-side">
+        <div class="cm-side-head">
+          <div class="cm-logo" v-html="icon('robot', 20)"></div>
+          <div>
+            <b>Call Me</b>
+            <small>AI 知识库问答</small>
           </div>
         </div>
-        <div v-if="!sessions.length && !sessionsLoading" class="muted">
-          {{ sessionsErr || '暂无对话，点击上方「新建会话」开始' }}
+        <button class="cm-new" @click="onNewSession">
+          <span v-html="icon('add', 15)"></span>
+          <span>新建会话</span>
+        </button>
+        <div class="cm-list">
+          <div class="cm-lab">最近会话</div>
+          <template v-if="sessionsLoading && !sessions.length">
+            <div class="sk-item">
+              <span class="skeleton s-ic"></span>
+              <div class="s-tx">
+                <div class="skeleton s-l1"></div>
+                <div class="skeleton s-l2"></div>
+              </div>
+            </div>
+            <div class="sk-item">
+              <span class="skeleton s-ic"></span>
+              <div class="s-tx">
+                <div class="skeleton s-l1"></div>
+                <div class="skeleton s-l2"></div>
+              </div>
+            </div>
+            <div class="sk-item">
+              <span class="skeleton s-ic"></span>
+              <div class="s-tx">
+                <div class="skeleton s-l1"></div>
+                <div class="skeleton s-l2"></div>
+              </div>
+            </div>
+          </template>
+          <div v-else-if="!sessions.length" class="list-err">
+            <span v-html="icon('chat', 22)"></span>
+            <p>{{ sessionsErr || '暂无对话，点击上方「新建会话」开始' }}</p>
+          </div>
+          <template v-else>
+            <div
+              v-for="s in sessions"
+              :key="s.id"
+              class="cm-item"
+              :class="{ on: s.id === activeId }"
+              @click="
+                sideOpen = false;
+                openSession(s.id);
+              "
+            >
+              <span v-html="icon('chat', 16)"></span>
+              <div class="cm-item-main">
+                <div class="tt">{{ s.title || '新对话' }}</div>
+                <div class="tm">{{ s.timeText }}</div>
+              </div>
+              <div class="cm-item-acts">
+                <span class="ia" title="重命名" @click.stop="renameSession(s)">
+                  <span v-html="icon('edit', 12)"></span>
+                </span>
+                <span class="ia danger" title="删除" @click.stop="onDeleteSession(s)">
+                  <span v-html="icon('delete', 12)"></span>
+                </span>
+              </div>
+            </div>
+          </template>
         </div>
-      </t-loading>
-    </div>
+        <div class="cm-side-foot">
+          <span class="mini-avatar">{{ userAvatarChar }}</span>
+          <div>
+            <div class="nm">{{ userName }}</div>
+            <div class="rl">{{ userRoleText }}</div>
+          </div>
+        </div>
+      </aside>
+      <div class="cm-mask" @click="sideOpen = false"></div>
 
-    <!-- 右：对话区 -->
-    <div class="col-main card cm-main">
-      <!-- 头部：标题 + 能力控件 -->
-      <div class="cm-head">
-        <div class="cm-title-box">
-          <b class="cm-title">{{ activeTitle || 'Call Me' }}</b>
-          <span class="cm-sub">AI 知识库问答</span>
-        </div>
-        <div class="cm-caps">
-          <t-select
-            v-model="modelId"
-            size="small"
-            class="cap-sel"
-            :placeholder="caps ? '默认模型' : '能力加载中'"
-            clearable
-            @change="saveCapsPrefs"
-          >
-            <t-option
-              v-for="m in (caps && caps.models) || []"
-              :key="m.id"
-              :value="m.id"
-              :label="m.name || m.id"
-            />
-          </t-select>
-          <t-select
-            v-model="reasoningEffort"
-            size="small"
-            class="cap-sel"
-            placeholder="思考强度：默认"
-            clearable
-            @change="saveCapsPrefs"
-          >
-            <t-option
-              v-for="lv in effortOptions"
-              :key="lv"
-              :value="lv"
-              :label="'思考强度：' + effortLabel(lv)"
-            />
-          </t-select>
-          <t-tooltip v-if="caps && !caps.web_search" content="联网搜索能力未启用（服务端探测）">
-            <span class="ws-wrap disabled">
-              <span class="ws-label">联网</span>
-              <t-switch v-model="webSearch" size="small" disabled />
-            </span>
-          </t-tooltip>
-          <span v-else class="ws-wrap">
-            <span class="ws-label">联网</span>
-            <t-switch v-model="webSearch" size="small" @change="saveCapsPrefs" />
+      <!-- 左侧：对话流 -->
+      <main class="cm-main">
+        <div class="cm-head">
+          <button class="cm-toggle" title="会话列表" @click="sideOpen = true">
+            <span v-html="icon('chat', 16)"></span>
+          </button>
+          <span class="cm-h-title">{{ activeTitle || 'Call Me' }}</span>
+          <span class="src">
+            <span class="pulse-dot"></span>
+            <span>WeKnora 知识库</span>
           </span>
         </div>
-      </div>
 
-      <!-- 消息流 -->
-      <div ref="msgListEl" class="cm-body">
-        <div v-if="!activeId" class="cm-welcome">
-          <p class="w-title">向 AI 知识库提问</p>
-          <p class="w-sub">支持文字、图片与文档附件（pdf / docx / xlsx / txt 等，单件 ≤50MB）</p>
-        </div>
-        <template v-else>
-          <div v-if="hasMore && messages.length" class="load-earlier" @click="loadEarlier">
-            {{ loadingEarlier ? '加载中…' : '加载更早消息' }}
+        <div ref="msgListEl" class="cm-body">
+          <div v-if="!activeId" class="cm-welcome">
+            <div class="w-ic" v-html="icon('robot', 36)"></div>
+            <b>Call Me · AI 知识库问答</b>
+            <p>正在接入 AI 知识库…</p>
           </div>
+          <div v-else class="msg-list">
+            <div v-if="hasMore" class="load-earlier" @click="loadEarlier">
+              {{ loadingEarlier ? '加载中…' : '加载更早消息' }}
+            </div>
 
-          <div v-for="(msg, mi) in messages" :key="mi" class="msg-row" :class="msg.role">
-            <!-- 用户气泡 -->
-            <template v-if="msg.role === 'user'">
-              <div class="bubble user">
-                <img v-if="msg.image" :src="msg.image" class="msg-img" alt="用户图片" />
-                <div class="md-body" v-html="mdHtml(msg.content)"></div>
-              </div>
-            </template>
+            <div
+              v-for="(msg, mi) in messages"
+              :key="mi"
+              class="msg-row"
+              :class="msg.role === 'user' ? 'right' : 'left'"
+            >
+              <!-- 用户气泡 -->
+              <template v-if="msg.role === 'user'">
+                <div class="u-bubble">
+                  <img v-if="msg.image" class="u-img" :src="msg.image" alt="附件图片" />
+                  <span v-html="escHTML(msg.content).replace(/\n/g, '<br>')"></span>
+                </div>
+              </template>
 
-            <!-- AI 气泡 -->
-            <template v-else>
-              <div class="ai-col">
-                <!-- 步骤树 / 思考过程 -->
-                <div v-if="msg.steps && msg.steps.length" class="think-box">
-                  <div class="think-head" @click="msg.thinkingExpanded = !msg.thinkingExpanded">
-                    <span class="think-dot" :class="{ on: msg.streaming }"></span>
-                    <span class="think-label">{{
-                      msg.thinkLabel || (msg.streaming ? '正在思考…' : '思考过程')
-                    }}</span>
-                    <span
-                      class="think-chev"
-                      :class="{ open: msg.streaming || msg.thinkingExpanded }"
-                    >
-                      ›
-                    </span>
-                  </div>
-                  <div v-show="msg.streaming || msg.thinkingExpanded" class="think-body">
+              <!-- AI 回答列：步骤树 / 回答 / 参考来源 / 操作条 -->
+              <template v-else>
+                <div class="ai-col">
+                  <div v-if="msg.steps && msg.steps.length" class="think-box">
                     <div
-                      v-for="(step, si) in msg.steps"
-                      :key="si"
-                      class="step"
-                      :class="step.status || ''"
+                      class="think-head"
+                      @click="!msg.streaming && (msg.thinkingExpanded = !msg.thinkingExpanded)"
                     >
-                      <div class="step-rail">
-                        <div class="step-icon">{{ step.kind === 'thought' ? '思' : '工' }}</div>
-                        <div v-if="si < msg.steps.length - 1" class="step-line"></div>
-                      </div>
-                      <div class="step-main">
-                        <div v-if="step.kind === 'tool'" class="step-title">
-                          {{ step.title || '工具调用' }}
+                      <span class="think-dot" :class="{ on: msg.streaming }"></span>
+                      <span class="think-label">
+                        {{ msg.thinkLabel || (msg.streaming ? '正在思考…' : '思考过程') }}
+                      </span>
+                      <span
+                        class="think-chev"
+                        :style="{
+                          transform: msg.streaming || msg.thinkingExpanded ? 'rotate(90deg)' : '',
+                        }"
+                      >
+                        <span v-html="icon('chevron-right', 13)"></span>
+                      </span>
+                    </div>
+                    <div v-show="msg.streaming || msg.thinkingExpanded" class="think-body">
+                      <div
+                        v-for="(step, si) in msg.steps"
+                        :key="si"
+                        class="step"
+                        :class="step.status || ''"
+                      >
+                        <div class="step-rail">
+                          <div class="step-icon" v-html="stepIcon(step)"></div>
+                          <div v-if="si < msg.steps.length - 1" class="step-line"></div>
                         </div>
-                        <div v-if="step.summary" class="step-summary">{{ step.summary }}</div>
-                        <div v-if="step.kind === 'thought'" class="step-text">{{ step.text }}</div>
+                        <div class="step-main">
+                          <div v-if="step.kind === 'tool'" class="step-title">
+                            {{ step.title || '工具调用' }}
+                          </div>
+                          <div v-if="step.summary" class="step-summary">{{ step.summary }}</div>
+                          <div v-if="step.kind === 'thought'" class="step-text">
+                            {{ step.text }}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <!-- 回答气泡 -->
-                <div class="bubble ai" :class="{ err: msg.error }">
-                  <div
-                    v-if="msg.streaming && !msg.content && !(msg.steps && msg.steps.length)"
-                    class="typing"
-                  >
-                    <i></i><i></i><i></i><span class="typing-txt">正在思考…</span>
+                  <div class="a-bubble" :class="{ err: msg.error }">
+                    <template
+                      v-if="msg.streaming && !msg.content && !(msg.steps && msg.steps.length)"
+                    >
+                      <span class="typing"><i></i><i></i><i></i></span>
+                      <span class="typing-txt">正在思考…</span>
+                    </template>
+                    <template v-else>
+                      <span v-html="mdHtml(msg.content)"></span>
+                    </template>
+                    <span v-if="msg.streaming && msg.content" class="caret"></span>
                   </div>
-                  <div v-else class="md-body" v-html="mdHtml(msg.content)"></div>
-                  <span v-if="msg.streaming && msg.content" class="caret"></span>
-                </div>
 
-                <!-- 参考来源 -->
-                <div v-if="msg.references && msg.references.length" class="ref-box">
-                  <div class="ref-title">参考来源</div>
-                  <div v-for="(r, ri) in msg.references" :key="ri" class="ref-item">
-                    {{ r.title || '未命名资料' }}
+                  <div v-if="msg.references && msg.references.length" class="ref-box">
+                    <div class="ref-title">参考来源</div>
+                    <div v-for="(r, ri) in msg.references" :key="ri" class="ref-item">
+                      {{ r.title || '未命名资料' }}
+                    </div>
+                  </div>
+
+                  <div v-if="!msg.streaming && !msg.error && msg.content" class="msg-acts">
+                    <span class="act-btn" title="复制回答" @click="copyText(msg.content)">
+                      <span v-html="icon('copy', 14)"></span>
+                    </span>
+                    <span
+                      v-if="msg.msgId"
+                      class="act-btn"
+                      title="删除问答"
+                      @click="onDeleteMsg(msg)"
+                    >
+                      <span v-html="icon('delete', 14)"></span>
+                    </span>
+                    <span class="msg-time">{{ msg.timeText }}</span>
                   </div>
                 </div>
-
-                <!-- 操作条 -->
-                <div v-if="!msg.streaming && !msg.error && msg.content" class="act-bar">
-                  <button class="act" @click="copyText(msg.content)">复制</button>
-                  <button v-if="msg.msgId" class="act danger" @click="onDeleteMsg(msg)">
-                    删除
-                  </button>
-                  <span class="act-time num">{{ msg.timeText }}</span>
-                </div>
-              </div>
-            </template>
-          </div>
-        </template>
-      </div>
-
-      <!-- 输入区 -->
-      <div class="cm-input">
-        <!-- 芯片行：图片 / 附件 -->
-        <div v-if="pendingImage || attachments.length" class="chip-row">
-          <div v-if="pendingImage" class="chip img-chip">
-            <img :src="pendingImage" alt="待发送图片" />
-            <button class="chip-x" @click="clearImage">×</button>
-          </div>
-          <div
-            v-for="att in attachments"
-            :key="att.uid"
-            class="chip att-chip"
-            :class="{ failed: att.status === 'failed' }"
-          >
-            <div class="a-main">
-              <div class="a-name">{{ att.name }}</div>
-              <div class="a-sub num">{{ attSubText(att) }}</div>
+              </template>
             </div>
-            <button class="chip-x" title="移除附件" @click="removeAttachment(att)">×</button>
           </div>
         </div>
 
-        <div class="input-row">
-          <button
-            class="tool-btn"
-            title="图片（≤8MB）"
-            :disabled="sending"
-            @click="imageInput && imageInput.click()"
-          >
-            图片
-          </button>
-          <button
-            class="tool-btn"
-            title="文档附件（≤50MB）"
-            :disabled="sending || !activeId"
-            @click="attInput && attInput.click()"
-          >
-            附件
-          </button>
-          <textarea
-            ref="inputEl"
-            v-model="draft"
-            class="cm-text"
-            rows="1"
-            placeholder="输入问题，Enter 发送 / Shift+Enter 换行"
-            @input="autoGrow"
-            @keydown="onKeydown"
-          ></textarea>
-          <t-button
-            size="small"
-            theme="primary"
-            :disabled="!canSend"
-            :loading="sending"
-            @click="onSend"
-          >
-            发送
-          </t-button>
-        </div>
+        <!-- 输入区：chips 在卡上、提示在卡下 -->
+        <div class="cm-input">
+          <div v-if="pendingImage || attachments.length" class="cm-chip-row">
+            <div v-if="pendingImage" class="img-chip">
+              <img :src="pendingImage" alt="待发送图片" />
+              <button class="chip-x" title="移除图片" @click="clearImage">
+                <span v-html="icon('close', 10)"></span>
+              </button>
+            </div>
+            <div
+              v-for="att in attachments"
+              :key="att.uid"
+              class="att-chip"
+              :class="{ failed: att.status === 'failed' }"
+            >
+              <div class="a-ic"><span v-html="icon('file', 16)"></span></div>
+              <div class="a-main">
+                <div class="a-name">{{ att.name }}</div>
+                <div class="a-sub">{{ attSubText(att) }}</div>
+              </div>
+              <button class="chip-x" title="移除附件" @click="removeAttachment(att)">
+                <span v-html="icon('close', 10)"></span>
+              </button>
+            </div>
+          </div>
 
-        <input
-          ref="imageInput"
-          type="file"
-          accept=".jpg,.jpeg,.png,.gif,.webp"
-          hidden
-          @change="onPickImage"
-        />
-        <input ref="attInput" type="file" hidden multiple @change="onPickFiles" />
+          <div class="cm-box">
+            <textarea
+              ref="inputEl"
+              v-model="draft"
+              class="cm-text"
+              rows="3"
+              maxlength="2000"
+              placeholder="向 AI 知识库提问，Enter 发送 / Shift+Enter 换行"
+              @input="autoGrow"
+              @keydown="onKeydown"
+            ></textarea>
+            <div class="cm-toolbar">
+              <button class="cm-tool" title="添加图片" @click="imageInput && imageInput.click()">
+                <span v-html="icon('image', 19)"></span>
+              </button>
+              <button
+                class="cm-tool"
+                title="添加附件"
+                :disabled="!activeId"
+                @click="attInput && attInput.click()"
+              >
+                <span v-html="icon('attach', 19)"></span>
+              </button>
+              <div class="cm-tools-r">
+                <button
+                  v-if="caps && caps.web_search"
+                  class="cm-ws"
+                  :class="{ on: webSearch }"
+                  title="联网搜索"
+                  @click="toggleWs"
+                >
+                  <span v-html="icon('globe', 14)"></span>
+                  <span class="ws-t">联网搜索</span>
+                </button>
+                <select
+                  v-if="hasEffortLevels"
+                  v-model="reasoningEffort"
+                  class="cm-effort"
+                  @change="saveCapsPrefs"
+                >
+                  <option value="">默认</option>
+                  <option v-for="lv in effortOptions" :key="lv" :value="lv">
+                    {{ effortLabel(lv) }}
+                  </option>
+                </select>
+                <select
+                  v-model="modelId"
+                  class="cm-model"
+                  :disabled="!caps || (caps.models || []).length <= 1"
+                  @change="onModelChange"
+                >
+                  <option v-if="!caps || !(caps.models || []).length" value="">默认模型</option>
+                  <option v-for="m in (caps && caps.models) || []" :key="m.id" :value="m.id">
+                    {{ m.name || m.id }}
+                  </option>
+                </select>
+                <button
+                  class="cm-send"
+                  :class="{ off: !canSend }"
+                  title="发送"
+                  :disabled="!canSend"
+                  @click="onSend"
+                >
+                  <span v-html="icon('send', 17)"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="cm-hint">回答由 AI 基于班组知识库生成，关键操作请以现行规程为准</div>
+
+          <!-- 图片选择（本地读取为 base64 dataURL 上送，不经 COS） -->
+          <input
+            ref="imageInput"
+            type="file"
+            accept=".jpg,.jpeg,.png,.gif,.webp"
+            hidden
+            @change="onPickImage"
+          />
+          <!-- 附件选择（文档/音频等，≤50MB，走 /attachments 上传 + 解析状态轮询） -->
+          <input ref="attInput" type="file" hidden multiple @change="onPickFiles" />
+        </div>
+      </main>
+    </div>
+
+    <!-- ================= 弹层：新建 / 重命名输入 & 删除确认（旧式 .modal-t/.modal-b/.modal-f） ================= -->
+    <div v-if="overlay.visible" class="mask open" @click.self="closeOverlay(false)">
+      <div class="modal">
+        <div class="modal-t">{{ overlay.title }}</div>
+        <div class="modal-b">
+          <input
+            v-if="overlay.prompt"
+            ref="overlayInputEl"
+            v-model="overlay.value"
+            class="input"
+            :placeholder="overlay.placeholder"
+            @keydown.enter="closeOverlay(true)"
+          />
+          <template v-else>{{ overlay.content }}</template>
+        </div>
+        <div class="modal-f">
+          <button class="btn btn-sm" @click="closeOverlay(false)">取消</button>
+          <button
+            class="btn btn-sm"
+            :class="overlay.danger ? 'btn-danger' : 'btn-primary'"
+            @click="closeOverlay(true)"
+          >
+            {{ overlay.okText }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -251,7 +345,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import { MessagePlugin } from 'tdesign-vue-next';
 import {
   createSession as createSessionApi,
   deleteMessage,
@@ -265,6 +359,7 @@ import {
   uploadAttachment,
 } from '../features/callme/api.js';
 import { renderMd } from '../features/callme/md.js';
+import { currentUser } from '../api.js';
 
 // ---- 常量（与后端白名单一致）----
 const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
@@ -343,10 +438,10 @@ function effortLabel(lv) {
       off: '关闭',
       auto: '自动',
       minimal: '极简',
-      low: '低',
-      medium: '中',
-      high: '高',
-      xhigh: '极高',
+      low: '较低',
+      medium: '中等',
+      high: '较高',
+      xhigh: '超高',
       max: '最高',
     }[lv] || lv
   );
@@ -527,70 +622,61 @@ async function createSession(title) {
   }
 }
 
-function onNewSession() {
-  const dlg = DialogPlugin.confirm({
-    header: '新建会话',
-    body: '会话标题留空时首轮提问后自动命名。',
-    confirmBtn: { content: '创建', theme: 'primary' },
-    cancelBtn: { content: '取消' },
-    onConfirm: () => {
-      dlg.destroy();
-      createSession('');
-    },
-    onCancel: () => dlg.destroy(),
-    onClose: () => dlg.destroy(),
-  });
+// onNewSession 新建会话（旧式输入弹层：留空则首轮对话后自动命名）。
+async function onNewSession() {
+  if (sending.value) {
+    MessagePlugin.warning('回答生成中，请稍候');
+    return;
+  }
+  const name = await promptBox(
+    '新建对话',
+    '',
+    '创建',
+    '请输入对话标题（留空则首轮对话后自动生成）'
+  );
+  if (name === null) return;
+  createSession(name.trim());
 }
 
-function renameSession(s) {
-  const dlg = DialogPlugin.confirm({
-    header: '重命名会话',
-    body: `将「${s.title || '新对话'}」改名为：`,
-    confirmBtn: { content: '保存', theme: 'primary' },
-    cancelBtn: { content: '取消' },
-    onConfirm: async () => {
-      dlg.destroy();
-      // 简化交互：改名走浏览器 prompt（TDesign 无内联输入弹层，避免额外表单态）
-      const title = (window.prompt('会话名称', s.title || '') || '').trim();
-      if (!title) return;
-      try {
-        await updateSession(s.id, title);
-        s.title = title;
-        if (s.id === activeId.value) activeTitle.value = title;
-        MessagePlugin.success('已保存');
-      } catch (err) {
-        MessagePlugin.error(err.message || '重命名失败');
-      }
-    },
-    onCancel: () => dlg.destroy(),
-    onClose: () => dlg.destroy(),
-  });
+// renameSession 重命名会话（旧式输入弹层）。
+async function renameSession(s) {
+  const name = await promptBox('重命名对话', s.title || '', '保存', '请输入新的对话名称');
+  if (name === null) return;
+  const title = name.trim();
+  if (!title) {
+    MessagePlugin.error('名称不能为空');
+    return;
+  }
+  try {
+    await updateSession(s.id, title);
+    s.title = title;
+    if (s.id === activeId.value) activeTitle.value = title;
+    MessagePlugin.success('已保存');
+  } catch (err) {
+    MessagePlugin.error(err.message || '重命名失败');
+  }
 }
 
+// onDeleteSession 删除会话（旧式确认弹层）。
 async function onDeleteSession(s) {
-  const dlg = DialogPlugin.confirm({
-    header: '删除会话？',
-    body: `将删除「${s.title || '新对话'}」及其全部消息，不可恢复。`,
-    confirmBtn: { content: '删除', theme: 'danger' },
-    cancelBtn: { content: '取消' },
-    onConfirm: async () => {
-      dlg.destroy();
-      try {
-        await deleteSession(s.id);
-        sessions.value = sessions.value.filter((x) => x.id !== s.id);
-        if (s.id === activeId.value) {
-          activeId.value = '';
-          activeTitle.value = '';
-          messages.value = [];
-        }
-        MessagePlugin.success('已删除');
-      } catch (err) {
-        MessagePlugin.error(err.message || '删除失败');
-      }
-    },
-    onCancel: () => dlg.destroy(),
-    onClose: () => dlg.destroy(),
-  });
+  const ok = await confirmBox(
+    '删除会话？',
+    `将删除「${s.title || '新对话'}」及其全部消息，不可恢复。`,
+    '删除'
+  );
+  if (!ok) return;
+  try {
+    await deleteSession(s.id);
+    sessions.value = sessions.value.filter((x) => x.id !== s.id);
+    if (s.id === activeId.value) {
+      activeId.value = '';
+      activeTitle.value = '';
+      messages.value = [];
+    }
+    MessagePlugin.success('已删除');
+  } catch (err) {
+    MessagePlugin.error(err.message || '删除失败');
+  }
 }
 
 /* ================= 历史消息 ================= */
@@ -995,33 +1081,25 @@ function finalizeAnswer(msg, errorMessage) {
 }
 
 // onDeleteMsg 问答成对删除（同 request_id）。
+// onDeleteMsg 问答成对删除（旧式确认弹层，同 request_id）。
 async function onDeleteMsg(msg) {
   if (!msg.msgId) return;
-  const dlg = DialogPlugin.confirm({
-    header: '删除该问答？',
-    body: '将成对删除本轮提问与回答，不可恢复。',
-    confirmBtn: { content: '删除', theme: 'danger' },
-    cancelBtn: { content: '取消' },
-    onConfirm: async () => {
-      dlg.destroy();
-      try {
-        await deleteMessage(activeId.value, msg.msgId);
-        // 本地移除本轮问答（同 request 的相邻 user/assistant）
-        const idx = messages.value.indexOf(msg);
-        const removeSet = new Set([idx]);
-        if (idx > 0 && messages.value[idx - 1].role === 'user') removeSet.add(idx - 1);
-        if (idx + 1 < messages.value.length && messages.value[idx + 1].role === 'assistant') {
-          removeSet.add(idx + 1);
-        }
-        messages.value = messages.value.filter((_, i) => !removeSet.has(i));
-        MessagePlugin.success('已删除');
-      } catch (err) {
-        MessagePlugin.error(err.message || '删除失败');
-      }
-    },
-    onCancel: () => dlg.destroy(),
-    onClose: () => dlg.destroy(),
-  });
+  const ok = await confirmBox('删除该问答？', '将成对删除本轮提问与回答，不可恢复。', '删除');
+  if (!ok) return;
+  try {
+    await deleteMessage(activeId.value, msg.msgId);
+    // 本地移除本轮问答（同 request 的相邻 user/assistant）
+    const idx = messages.value.indexOf(msg);
+    const removeSet = new Set([idx]);
+    if (idx > 0 && messages.value[idx - 1].role === 'user') removeSet.add(idx - 1);
+    if (idx + 1 < messages.value.length && messages.value[idx + 1].role === 'assistant') {
+      removeSet.add(idx + 1);
+    }
+    messages.value = messages.value.filter((_, i) => !removeSet.has(i));
+    MessagePlugin.success('已删除');
+  } catch (err) {
+    MessagePlugin.error(err.message || '删除失败');
+  }
 }
 
 /* ================= 图片 / 附件 ================= */
@@ -1195,45 +1273,363 @@ onBeforeUnmount(() => {
   Object.keys(attPolls).forEach(stopAttPoll);
   clearAttachments();
 });
+
+/* ================= 旧版还原补充：图标 / 侧栏抽屉 / 旧式弹层 / 步骤图标 / 用户条 / 能力控件 ================= */
+
+// 旧页线性图标（路径与 server/public/assets/icons.js 同源；viewBox 24，描边 1.7 圆角端点）。
+const ICONS = {
+  add: '<path d="M12 5v14M5 12h14"/>',
+  attach:
+    '<path d="M18.5 10.8l-6.9 6.9a4.6 4.6 0 0 1-6.5-6.5l7.4-7.4a3.2 3.2 0 0 1 4.5 4.5l-7.4 7.4a1.8 1.8 0 0 1-2.5-2.5l6.4-6.4"/>',
+  chat: '<path d="M20.5 4.5h-17A1.5 1.5 0 0 0 2 6v9a1.5 1.5 0 0 0 1.5 1.5H7l4 4 4-4h5.5A1.5 1.5 0 0 0 22 15V6a1.5 1.5 0 0 0-1.5-1.5z"/><circle cx="8" cy="10.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="10.5" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="10.5" r="1" fill="currentColor" stroke="none"/>',
+  'chevron-right': '<path d="M9.5 6.5l5.5 5.5-5.5 5.5"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  delete:
+    '<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 12.2a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L18 7"/><path d="M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7"/>',
+  edit: '<path d="M16.8 3.8l3.4 3.4L8 19.4l-4.6 1.2L4.6 16z"/><path d="M14.5 6.1l3.4 3.4"/>',
+  file: '<path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5z"/><path d="M13.5 3v4.5H19"/><path d="M9 13h6M9 17h6"/>',
+  globe:
+    '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.4 2.2 3.7 5.1 3.7 8.5s-1.3 6.3-3.7 8.5c-2.4-2.2-3.7-5.1-3.7-8.5s1.3-6.3 3.7-8.5z"/>',
+  image:
+    '<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15.5l-4.5-4.5L8 19.5"/>',
+  lightbulb:
+    '<path d="M9.5 18.5h5M10.5 21h3"/><path d="M12 3.5a5.8 5.8 0 0 0-3.6 10.3c.8.7 1.4 1.6 1.6 2.7h4c.2-1.1.8-2 1.6-2.7A5.8 5.8 0 0 0 12 3.5z"/>',
+  robot:
+    '<rect x="4" y="8" width="16" height="11.5" rx="2.5"/><path d="M12 4.5V8"/><circle cx="12" cy="3.8" r=".9" fill="currentColor" stroke="none"/><circle cx="9" cy="13" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="13" r="1" fill="currentColor" stroke="none"/><path d="M9.5 16.5h5"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20.5 20.5L16 16"/>',
+  send: '<path d="M21 3.5L3 10.5l7 2.5 2.5 7z"/><path d="M21 3.5L10 13"/>',
+  tools:
+    '<path d="M14.6 6.2a4 4 0 0 0-5.5 5.2L4 16.5V20h3.5l5.1-5.1a4 4 0 0 0 5.2-5.5l-2.7 2.7-2.4-.6-.6-2.4z"/>',
+  warn: '<path d="M10.3 4.1L2.4 17.6a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 4.1a2 2 0 0 0-3.4 0z"/><path d="M12 9.2v4"/><circle cx="12" cy="16.8" r="1" fill="currentColor" stroke="none"/>',
+};
+
+// icon 生成 inline SVG 图标字符串（同旧页 Shade.icon）。
+function icon(name, size) {
+  const body = ICONS[name] || ICONS.chat;
+  const s = size || 24;
+  return (
+    '<svg width="' +
+    s +
+    '" height="' +
+    s +
+    '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+    body +
+    '</svg>'
+  );
+}
+
+// stepIcon 步骤树节点图标：思考=灯泡，工具按工具名映射（同旧页 toolIcon）。
+function stepIcon(step) {
+  if (step.kind === 'thought') return icon('lightbulb', 14);
+  const name = step.name || '';
+  if (
+    name === 'knowledge_search' ||
+    name === 'search_knowledge' ||
+    name === 'grep_chunks' ||
+    name === 'web_search'
+  ) {
+    return icon('search', 14);
+  }
+  if (name === 'image_analysis') return icon('image', 14);
+  return icon('tools', 14);
+}
+
+/* ================= 窄屏侧栏抽屉（≤860px 右侧滑出；宽屏无感） ================= */
+const sideOpen = ref(false);
+
+/* ================= 旧式弹层（新建/重命名输入 .modal-b 内输入框 + 删除确认） ================= */
+const overlay = reactive({
+  visible: false,
+  prompt: false,
+  title: '',
+  content: '',
+  placeholder: '',
+  value: '',
+  okText: '确定',
+  danger: false,
+  _resolve: null,
+});
+const overlayInputEl = ref(null);
+
+// closeOverlay 关闭弹层：确认返回 true/false，输入返回文本，取消返回 null。
+function closeOverlay(ok) {
+  const resolve = overlay._resolve;
+  const value = overlay.value;
+  overlay._resolve = null;
+  overlay.visible = false;
+  if (!resolve) return;
+  if (!ok) {
+    resolve(null);
+    return;
+  }
+  resolve(overlay.prompt ? value : true);
+}
+
+// promptBox 旧式输入弹层（同旧页 promptModal：取消返回 null）。
+function promptBox(title, initial, okText, placeholder) {
+  return new Promise((resolve) => {
+    overlay.prompt = true;
+    overlay.title = title;
+    overlay.content = '';
+    overlay.placeholder = placeholder || '';
+    overlay.value = initial || '';
+    overlay.okText = okText || '确定';
+    overlay.danger = false;
+    overlay._resolve = resolve;
+    overlay.visible = true;
+    nextTick(() => {
+      const el = overlayInputEl.value;
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    });
+  });
+}
+
+// confirmBox 旧式确认弹层（同旧页 confirmModal：危险按钮红底）。
+function confirmBox(title, content, okText) {
+  return new Promise((resolve) => {
+    overlay.prompt = false;
+    overlay.title = title;
+    overlay.content = content;
+    overlay.value = '';
+    overlay.okText = okText || '确定';
+    overlay.danger = true;
+    overlay._resolve = resolve;
+    overlay.visible = true;
+  });
+}
+
+// onCmKey Esc 关闭弹层。
+function onCmKey(e) {
+  if (e.key === 'Escape' && overlay.visible) {
+    e.preventDefault();
+    closeOverlay(false);
+  }
+}
+
+/* ================= 侧栏底部用户条（同旧页 renderUser 口径） ================= */
+const me = currentUser() || {};
+const userName = me.nickname || me.username || '班组成员';
+const userAvatarChar = userName.charAt(0);
+const userRoleText =
+  me.role === 'admin' ? '管理员' : me.role === 'team_admin' ? '班组管理员' : '普通用户';
+
+/* ================= 能力控件：思考强度档位显隐 / 联网开关 / 模型切换 ================= */
+// hasEffortLevels 当前模型带思考强度档位时才显示强度下拉（同旧页 refreshEffortSel）。
+const hasEffortLevels = computed(() => {
+  const models = (caps.value && caps.value.models) || [];
+  const m = models.find((x) => x.id === modelId.value);
+  return !!(m && Array.isArray(m.thinking_levels) && m.thinking_levels.length);
+});
+
+// toggleWs 联网搜索胶囊开关（开=品牌蓝底白字，记忆于 localStorage）。
+function toggleWs() {
+  webSearch.value = !webSearch.value;
+  saveCapsPrefs();
+}
+
+// onModelChange 模型切换：档位不在新模型清单即回退默认，并记忆选择。
+function onModelChange() {
+  const models = (caps.value && caps.value.models) || [];
+  const m = models.find((x) => x.id === modelId.value);
+  const levels = (m && Array.isArray(m.thinking_levels) && m.thinking_levels) || [];
+  if (!levels.length || levels.indexOf(reasoningEffort.value) < 0) reasoningEffort.value = '';
+  saveCapsPrefs();
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onCmKey);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onCmKey);
+});
 </script>
 
 <style scoped>
-/* 双栏布局 */
-.cm-wrap {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 14px;
-  height: calc(100vh - 150px);
-  min-height: 480px;
-}
-.cm-side {
+/* ===== 「政企蓝白」旧版 token（值与 server/public/assets/theme.css 一致），限定本组件 ===== */
+.cm-root {
+  --paper: #f5f7fa;
+  --card: #ffffff;
+  --navy: #1d2129;
+  --orange: #0e3da8;
+  --orange-soft: #e8f0ff;
+  --on-brand: #ffffff;
+  --inverse-bg: #1d2129;
+  --inverse-text: #ffffff;
+  --red: #f53f3f;
+  --green: #00b42a;
+  --yellow: #ff7d00;
+  --warn-soft: #fff7e8;
+  --warn-text: #d25f00;
+  --ok-soft: #e8ffea;
+  --ok-text: #0b8a37;
+  --danger-soft: #ffece8;
+  --danger-line: #ffd0c7;
+  --line: #e5e6eb;
+  --hair: rgba(29, 33, 41, 0.06);
+  --sub: #4e5969;
+  --ph: #86909c;
+  --dash: #c9cdd4;
+  --fill: #f7f8fa;
+  --brand-glow: rgba(14, 61, 168, 0.12);
+  --overlay: rgba(29, 33, 41, 0.45);
+  --skeleton: rgba(29, 33, 41, 0.05);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --hard: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --hard-s: 0 1px 4px rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
+  /* 整页骨架：覆盖父级内容区内边距，整页不滚动、仅卡片内部滚动（同旧页 body 锁定口径） */
+  height: calc(100% + 40px);
+  margin: -20px -24px;
+  box-sizing: border-box;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-}
-.cm-main {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
+  padding: 28px 40px 32px;
 }
 
-/* 会话列表 */
-.cm-item {
+/* ===== 以下布局样式移植自 server/public/callme.html（旧版基准） ===== */
+.cm {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 20px;
+  width: 100%;
+}
+.cm-mask {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: var(--overlay);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+/* ===== 右侧会话栏（悬浮卡片：白底直角 + 2px 墨边 + 硬影），满宽贴边（右侧会话栏即页面最右） ===== */
+.cm-side {
+  width: 262px;
+  flex: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cm-side-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 10px;
+  gap: 10px;
+  padding: 18px 18px 14px;
+}
+.cm-logo {
+  width: 36px;
+  height: 36px;
+  flex: none;
   border-radius: 8px;
+  background: var(--orange);
+  color: var(--on-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cm-logo svg {
+  width: 20px;
+  height: 20px;
+}
+.cm-side-head b {
+  font-size: 14.5px;
+  letter-spacing: 1px;
+}
+.cm-side-head small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--ph);
+  letter-spacing: 1px;
+}
+.cm-new {
+  margin: 0 14px 12px;
+  height: 40px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 1px;
   cursor: pointer;
-  border: 1px solid transparent;
+  transition:
+    border-color 0.25s,
+    color 0.25s,
+    box-shadow 0.25s;
+}
+.cm-new svg {
+  width: 15px;
+  height: 15px;
+}
+.cm-new:hover {
+  border-color: var(--orange);
+  color: var(--orange);
+  box-shadow: var(--hard-s);
+}
+.cm-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 10px;
+}
+.cm-lab {
+  padding: 6px 10px 8px;
+  font-size: 11px;
+  color: var(--ph);
+  letter-spacing: 2px;
+}
+.cm-item {
+  position: relative;
+  display: flex;
+  gap: 9px;
+  padding: 10px 12px;
+  margin-bottom: 2px;
+  border-radius: 8px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.25s,
+    border-color 0.25s;
 }
 .cm-item:hover {
-  background: var(--tk-fill);
+  background: var(--paper);
 }
 .cm-item.on {
-  background: var(--tk-blue-soft);
-  border-color: var(--tk-brand);
+  background: var(--orange-soft);
+  border-left-color: var(--orange);
+}
+.cm-item > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--sub);
+}
+.cm-item.on > svg {
+  color: var(--orange);
 }
 .cm-item-main {
   flex: 1;
@@ -1242,237 +1638,337 @@ onBeforeUnmount(() => {
 .cm-item .tt {
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.5;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .cm-item .tm {
-  margin-top: 2px;
+  margin-top: 3px;
   font-size: 11px;
-  color: var(--tk-ph);
+  color: var(--ph);
 }
+/* 悬停浮现的重命名 / 删除按钮 */
 .cm-item-acts {
-  display: none;
-  gap: 2px;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
-.cm-item:hover .cm-item-acts {
-  display: inline-flex;
+.cm-item:hover .cm-item-acts,
+.cm-item.on .cm-item-acts {
+  opacity: 1;
 }
 .ia {
-  appearance: none;
-  border: none;
-  background: none;
-  font-size: 11px;
-  color: var(--tk-sub);
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--hair);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ph);
+  transition:
+    color 0.2s,
+    border-color 0.2s;
+}
+.ia svg {
+  width: 12px;
+  height: 12px;
 }
 .ia:hover {
-  background: var(--tk-blue-soft);
-  color: var(--tk-brand);
+  color: var(--orange);
+  border-color: var(--orange);
 }
 .ia.danger:hover {
-  background: var(--tk-red-soft);
-  color: var(--tk-red);
+  color: var(--red);
+  border-color: var(--red);
 }
-
-/* 头部 */
-.cm-head {
+.list-err {
+  padding: 26px 14px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--tk-line);
-  flex-wrap: wrap;
-}
-.cm-title-box {
-  min-width: 0;
-}
-.cm-title {
-  font-size: 15px;
-}
-.cm-sub {
-  margin-left: 8px;
+  gap: 10px;
   font-size: 12px;
-  color: var(--tk-ph);
-}
-.cm-caps {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.cap-sel {
-  width: 150px;
-}
-.ws-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.ws-wrap.disabled {
-  opacity: 0.6;
-}
-.ws-label {
-  font-size: 12px;
-  color: var(--tk-sub);
-}
-
-/* 消息流 */
-.cm-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-}
-.cm-welcome {
+  color: var(--ph);
   text-align: center;
-  padding: 60px 20px;
+  line-height: 1.8;
 }
-.cm-welcome .w-title {
-  font-size: 17px;
-  font-weight: 600;
+.list-err svg {
+  width: 22px;
+  height: 22px;
+  color: var(--dash);
 }
-.cm-welcome .w-sub {
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--tk-ph);
-}
-.load-earlier {
-  text-align: center;
-  margin-bottom: 14px;
-  font-size: 12px;
-  color: var(--tk-brand);
-  cursor: pointer;
-}
-.msg-row {
+/* 会话列表骨架 */
+.sk-item {
   display: flex;
-  margin-bottom: 16px;
-}
-.msg-row.user {
-  justify-content: flex-end;
-}
-.msg-row.assistant {
-  justify-content: flex-start;
-}
-.bubble {
-  max-width: 78%;
-  border-radius: 12px;
-  padding: 10px 14px;
-  font-size: 14px;
-  line-height: 1.7;
-}
-.bubble.user {
-  background: var(--tk-brand);
-  color: #fff;
-}
-.bubble.user .md-body {
-  color: #fff;
-}
-.bubble.ai {
-  background: var(--tk-fill);
-  border: 1px solid var(--tk-line);
-}
-.bubble.ai.err {
-  background: var(--tk-red-soft);
-  border-color: var(--tk-red);
-}
-.msg-img {
-  max-width: 220px;
-  max-height: 220px;
-  border-radius: 8px;
-  display: block;
-  margin-bottom: 6px;
-}
-.ai-col {
-  max-width: 78%;
-  min-width: 0;
-}
-
-/* markdown 内容 */
-.md-body :deep(p) {
-  margin: 0 0 8px;
-}
-.md-body :deep(p:last-child) {
-  margin-bottom: 0;
-}
-.md-body :deep(pre) {
-  background: #1d2129;
-  color: #f5f7fa;
+  gap: 9px;
   padding: 10px 12px;
-  border-radius: 8px;
-  overflow-x: auto;
-  font-size: 12px;
+  margin-bottom: 4px;
 }
-.md-body :deep(code) {
-  font-family: Consolas, Menlo, monospace;
-  font-size: 12px;
-}
-.md-body :deep(table) {
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.md-body :deep(th),
-.md-body :deep(td) {
-  border: 1px solid var(--tk-line);
-  padding: 4px 8px;
-}
-.md-body :deep(blockquote) {
-  margin: 6px 0;
-  padding: 4px 10px;
-  border-left: 3px solid var(--tk-dash);
-  color: var(--tk-sub);
-}
-.md-body :deep(img) {
-  max-width: 100%;
+.sk-item .s-ic {
+  width: 16px;
+  height: 16px;
+  flex: none;
   border-radius: 8px;
 }
-
-/* 思考过程 */
-.think-box {
-  margin-bottom: 8px;
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
-  background: #fff;
-}
-.think-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--tk-sub);
-}
-.think-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--tk-dash);
-}
-.think-dot.on {
-  background: var(--tk-brand);
-}
-.think-label {
+.sk-item .s-tx {
   flex: 1;
 }
-.think-chev {
-  transition: transform 0.2s var(--tk-ease);
+.sk-item .s-l1 {
+  height: 12px;
+  width: 78%;
+  border-radius: 8px;
 }
-.think-chev.open {
-  transform: rotate(90deg);
+.sk-item .s-l2 {
+  height: 9px;
+  width: 42%;
+  border-radius: 8px;
+  margin-top: 7px;
 }
-.think-body {
-  max-height: 260px;
-  overflow-y: auto;
-  padding: 4px 12px 10px;
-  border-top: 1px solid var(--tk-line);
-}
-.step {
+/* 底部用户条 */
+.cm-side-foot {
+  border-top: 1px solid var(--hair);
+  padding: 12px 16px;
   display: flex;
+  align-items: center;
   gap: 10px;
 }
+.cm-side-foot .mini-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.cm-side-foot .nm {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.cm-side-foot .rl {
+  font-size: 10.5px;
+  color: var(--ph);
+  margin-top: 1px;
+}
+
+/* ===== 对话区：无卡片，消息直接落在页面浅灰画布上（对齐官方前端）；
+         聊天列限宽 960px 居中于对话区（auto 外边距吸收剩余宽度），两侧留白防超宽难读 ===== */
+.cm-main {
+  flex: 1;
+  min-width: 0;
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cm-head {
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 30px 0 22px;
+}
+.cm-toggle {
+  display: none;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--sub);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.cm-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+.cm-h-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-head .src {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--sub);
+}
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--orange);
+} /* 在线状态静态圆点（原呼吸圈属氛围动效，已删） */
+
+.cm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 30px 30px;
+}
+.msg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.chat-start {
+  text-align: center;
+  font-size: 12px;
+  color: var(--ph);
+  letter-spacing: 1px;
+  padding: 6px 0;
+}
+.sk-bubble {
+  width: min(460px, 70%);
+  height: 96px;
+  border-radius: 8px;
+}
+
+/* 欢迎/空态 */
+.cm-welcome {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 20px;
+  color: var(--ph);
+}
+.cm-welcome .w-ic {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cm-welcome .w-ic svg {
+  width: 36px;
+  height: 36px;
+}
+.cm-welcome b {
+  font-size: 16px;
+  color: var(--navy);
+  letter-spacing: 1px;
+}
+.cm-welcome p {
+  font-size: 12.5px;
+  letter-spacing: 1px;
+  line-height: 2;
+}
+
+/* 消息行 */
+.msg-row {
+  display: flex;
+  animation: fadeUp 0.3s var(--ease) both;
+}
+.msg-row.right {
+  justify-content: flex-end;
+}
+.msg-row.left {
+  width: 100%;
+}
+.u-bubble {
+  max-width: 72%;
+  background: var(--orange);
+  color: var(--on-brand);
+  border-radius: 8px;
+  padding: 12px 17px;
+  font-size: 13.5px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+.u-img {
+  display: block;
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.ai-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* AI 回答不用气泡（对齐官方前端）：纯文本流式内容，仅用户问题保留气泡 */
+.a-bubble {
+  font-size: 13.5px;
+  line-height: 1.9;
+  word-break: break-word;
+  color: var(--navy);
+}
+.a-bubble.err {
+  color: var(--red);
+}
+
+/* 步骤树（思考过程）：摘要行 + 可展开树 */
+.think-box {
+  margin-bottom: 6px;
+}
+.think-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--ph);
+  cursor: pointer;
+  user-select: none;
+}
+.think-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dash);
+}
+.think-dot.on {
+  background: var(--orange);
+}
+.think-chev {
+  margin-left: 4px;
+  display: flex;
+  color: var(--ph);
+  transition: transform 0.25s;
+}
+.think-chev svg {
+  width: 13px;
+  height: 13px;
+}
+.think-body {
+  padding: 6px 0 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* 步骤节点：左图标轨 + 连接线；running 态图标脉冲 + 标题呼吸 */
+.step {
+  display: flex;
+  align-items: stretch;
+}
 .step-rail {
+  width: 22px;
+  flex: none;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1480,251 +1976,952 @@ onBeforeUnmount(() => {
 .step-icon {
   width: 22px;
   height: 22px;
-  border: 1px solid var(--tk-line);
-  border-radius: 50%;
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  color: var(--tk-sub);
-  flex-shrink: 0;
+  color: var(--ph);
+}
+.step-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.step.running .step-icon {
+  color: var(--orange);
+}
+.step.error .step-icon {
+  color: var(--red);
 }
 .step-line {
   width: 1px;
   flex: 1;
-  background: var(--tk-line);
-  min-height: 8px;
+  min-height: 6px;
+  background: var(--hair);
 }
 .step-main {
-  padding-bottom: 10px;
+  flex: 1;
   min-width: 0;
+  padding: 1px 0 12px 8px;
+}
+.step:last-child .step-main {
+  padding-bottom: 2px;
 }
 .step-title {
-  font-size: 12px;
+  font-size: 12.5px;
+  color: var(--navy);
   font-weight: 600;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.step.running .step-title {
+  color: var(--orange);
+}
+.step.error .step-title {
+  color: var(--red);
 }
 .step-summary {
   margin-top: 2px;
-  font-size: 11px;
-  color: var(--tk-ph);
+  font-size: 12px;
+  color: var(--ph);
+  line-height: 1.6;
 }
 .step-text {
-  margin-top: 2px;
   font-size: 12px;
-  color: var(--tk-sub);
+  color: var(--ph);
+  line-height: 1.7;
   white-space: pre-wrap;
-}
-.step.error .step-icon {
-  border-color: var(--tk-red);
-  color: var(--tk-red);
-}
-.step.running .step-icon {
-  border-color: var(--tk-brand);
-  color: var(--tk-brand);
+  word-break: break-word;
 }
 
-/* 打字光标 / 呼吸点 */
+/* 引用来源 */
+.ref-box {
+  margin-top: 8px;
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  padding: 9px 13px;
+}
+.ref-title {
+  font-size: 11px;
+  color: var(--ph);
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+.ref-item {
+  font-size: 12px;
+  color: var(--sub);
+  line-height: 1.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 加载更早消息 */
+.load-earlier {
+  align-self: center;
+  margin: 0 auto;
+  padding: 5px 16px;
+  font-size: 12px;
+  color: var(--ph);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
+}
+.load-earlier:hover {
+  color: var(--orange);
+  border-color: var(--orange);
+}
+
+/* 流式光标 / 呼吸点 */
+.caret {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  margin-left: 3px;
+  border-radius: 8px;
+  background: var(--orange);
+  vertical-align: -2px;
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
 .typing {
   display: inline-flex;
+  gap: 5px;
   align-items: center;
-  gap: 8px;
 }
 .typing i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--tk-dash);
-  animation: cm-blink 1.2s infinite;
+  background: var(--orange);
+  animation: breath 1.2s ease-in-out infinite;
 }
 .typing i:nth-child(2) {
-  animation-delay: 0.2s;
+  animation-delay: 0.15s;
 }
 .typing i:nth-child(3) {
-  animation-delay: 0.4s;
+  animation-delay: 0.3s;
+}
+@keyframes breath {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
 }
 .typing-txt {
+  margin-left: 9px;
   font-size: 12px;
-  color: var(--tk-ph);
-}
-@keyframes cm-blink {
-  0%,
-  80%,
-  100% {
-    opacity: 0.3;
-  }
-  40% {
-    opacity: 1;
-  }
-}
-.caret {
-  display: inline-block;
-  width: 2px;
-  height: 14px;
-  background: var(--tk-brand);
-  margin-left: 2px;
-  vertical-align: -2px;
-  animation: cm-blink 1s infinite;
+  color: var(--ph);
+  letter-spacing: 1px;
 }
 
-/* 参考来源 */
-.ref-box {
-  margin-top: 8px;
-  border-left: 3px solid var(--tk-blue-soft);
-  padding: 8px 12px;
-  background: var(--tk-fill);
-}
-.ref-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--tk-sub);
-  margin-bottom: 4px;
-}
-.ref-item {
-  font-size: 12px;
-  color: var(--tk-sub);
-  line-height: 1.8;
-}
-
-/* 操作条 */
-.act-bar {
+/* 回答操作条：复制 / 删除 + 时间 */
+.msg-acts {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 6px;
+  gap: 8px;
+  margin-top: 7px;
+  padding-left: 2px;
 }
-.act {
-  appearance: none;
-  border: none;
-  background: none;
-  font-size: 12px;
-  color: var(--tk-sub);
+.act-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ph);
   cursor: pointer;
-  padding: 0;
+  transition:
+    background 0.2s,
+    color 0.2s;
 }
-.act:hover {
-  color: var(--tk-brand);
+.act-btn svg {
+  width: 14px;
+  height: 14px;
 }
-.act.danger:hover {
-  color: var(--tk-red);
+.act-btn:hover {
+  background: var(--orange-soft);
+  color: var(--orange);
 }
-.act-time {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--tk-ph);
+.msg-time {
+  margin-left: 4px;
+  font-size: 11.5px;
+  color: var(--ph);
 }
 
-/* 输入区 */
-.cm-input {
-  border-top: 1px solid var(--tk-line);
-  padding: 10px 12px;
+/* ===== markdown 渲染样式（对齐小程序端 MD_TAG_STYLE 色板） ===== */
+.a-bubble h1,
+.a-bubble h2,
+.a-bubble h3,
+.a-bubble h4 {
+  color: var(--navy);
+  font-weight: 700;
+  line-height: 1.5;
+  margin: 10px 0 6px;
 }
-.chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 8px;
+.a-bubble h1 {
+  font-size: 17px;
 }
-.chip {
+.a-bubble h2 {
+  font-size: 16px;
+}
+.a-bubble h3,
+.a-bubble h4 {
+  font-size: 15px;
+  margin: 8px 0 4px;
+}
+.a-bubble p {
+  margin: 4px 0;
+}
+.a-bubble ul,
+.a-bubble ol {
+  margin: 4px 0 4px 1.2em;
+  padding: 0;
+}
+.a-bubble li {
+  margin: 2px 0;
+}
+.a-bubble ul > li::marker {
+  color: var(--orange);
+}
+.a-bubble ol > li::marker {
+  color: var(--orange);
+  font-weight: 700;
+}
+.a-bubble strong {
+  font-weight: 700;
+}
+.a-bubble a {
+  color: var(--orange);
+  text-decoration: underline;
+}
+.a-bubble hr {
+  border: none;
+  border-top: 1px solid var(--hair);
+  margin: 10px 0;
+}
+.a-bubble code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+  font-size: 0.9em;
+  color: var(--orange);
+  background: var(--paper);
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+.a-bubble blockquote {
+  border-left: 3px solid var(--orange);
+  margin: 6px 0;
+  padding: 2px 10px;
+  color: var(--sub);
+  background: var(--paper);
+  border-radius: 8px;
+}
+/* 表格 */
+.md-table {
+  display: block;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.md-table table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.md-table th {
+  border: 1px solid var(--hair);
+  background: var(--paper);
+  padding: 6px 10px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--navy);
+}
+.md-table td {
+  border: 1px solid var(--hair);
+  padding: 6px 10px;
+}
+/* 代码块（墨黑深底 + 标题栏 + 复制；深底固定不随主题反转，浅字常亮） */
+.md-code {
+  margin: 10px 0;
+  background: #1d2129;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.md-code-h {
   display: flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
-  padding: 6px 8px;
-  background: var(--tk-fill);
+  padding: 7px 14px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.18);
+  letter-spacing: 1px;
 }
-.chip.img-chip img {
-  width: 48px;
-  height: 48px;
+.md-code-h .md-cp {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  letter-spacing: 0;
+  transition: color 0.2s;
+}
+.md-code-h .md-cp:hover {
+  color: #fff;
+}
+.md-code pre {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.85;
+  color: #e8edf6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.md-code pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* ===== 底部输入区：悬浮卡片，满宽落于右侧区域底部；chips 在卡上、提示在卡下 ===== */
+.cm-input {
+  flex: none;
+  padding: 0 30px 12px;
+}
+.cm-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.img-chip {
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+.img-chip img {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
   object-fit: cover;
-  border-radius: 4px;
+  border: 1px solid var(--hair);
+  background: var(--card);
 }
 .chip-x {
-  appearance: none;
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
   border: none;
-  background: none;
-  font-size: 14px;
-  color: var(--tk-ph);
+  border-radius: 8px;
+  background: var(--inverse-bg);
+  color: var(--inverse-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  line-height: 1;
 }
-.chip-x:hover {
-  color: var(--tk-red);
+.chip-x svg {
+  width: 10px;
+  height: 10px;
+}
+/* 附件芯片（非图片：图标 + 文件名 + 大小/状态；失败标红，可点 × 移除重传） */
+.att-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  max-width: 230px;
+  padding: 0 12px;
+  background: var(--card);
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+}
+.att-chip .a-ic {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.att-chip .a-ic svg {
+  width: 16px;
+  height: 16px;
 }
 .att-chip .a-main {
   min-width: 0;
 }
 .att-chip .a-name {
+  max-width: 136px;
   font-size: 12px;
   font-weight: 600;
-  max-width: 180px;
+  color: var(--navy);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .att-chip .a-sub {
-  font-size: 11px;
-  color: var(--tk-ph);
   margin-top: 2px;
+  max-width: 150px;
+  font-size: 10.5px;
+  color: var(--ph);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .att-chip.failed {
-  border-color: var(--tk-red);
-  background: var(--tk-red-soft);
+  border-color: var(--red);
+}
+.att-chip.failed .a-ic {
+  background: var(--danger-soft);
+  color: var(--red);
 }
 .att-chip.failed .a-sub {
-  color: var(--tk-red);
+  color: var(--red);
 }
-.input-row {
+.cm-box {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 0.25s,
+    box-shadow 0.25s;
+}
+.cm-box:focus-within {
+  border-color: var(--orange);
+  box-shadow: var(--hard-s);
+}
+/* 工具行：左组附件图标钮；右组（margin-left:auto 顶右）联网胶囊 + 思考强度/模型下拉 + 发送钮 */
+.cm-toolbar {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
-.tool-btn {
-  appearance: none;
-  border: 1px solid var(--tk-line);
-  background: #fff;
+.cm-tools-r {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cm-tool {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: none;
   border-radius: 8px;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: var(--tk-sub);
+  background: transparent;
+  color: var(--ph);
   cursor: pointer;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    color 0.25s,
+    background 0.25s;
 }
-.tool-btn:hover:not(:disabled) {
-  border-color: var(--tk-brand);
-  color: var(--tk-brand);
+.cm-tool svg {
+  width: 19px;
+  height: 19px;
 }
-.tool-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.cm-tool:hover {
+  color: var(--orange);
+  background: var(--orange-soft);
 }
 .cm-text {
-  flex: 1;
-  resize: none;
-  border: 1px solid var(--tk-line);
-  border-radius: 8px;
-  padding: 9px 12px;
-  font-size: 14px;
-  font-family: inherit;
-  line-height: 1.5;
+  border: none;
   outline: none;
-  min-height: 38px;
+  background: transparent;
+  resize: none;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--navy);
+  padding: 6px 2px;
   max-height: 150px;
 }
-.cm-text:focus {
-  border-color: var(--tk-brand);
+.cm-text::placeholder {
+  color: var(--ph);
+}
+.cm-send {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--orange);
+  color: var(--on-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--hard-s);
+  transition:
+    transform 0.25s,
+    opacity 0.25s,
+    box-shadow 0.25s;
+}
+.cm-send svg {
+  width: 17px;
+  height: 17px;
+}
+.cm-send:hover {
+  transform: translate(2px, 2px);
+  box-shadow: var(--shadow-card);
+}
+.cm-send.off {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none;
+}
+.cm-hint {
+  margin: 9px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ph);
+  letter-spacing: 0.5px;
+}
+/* 联网搜索胶囊开关（开=品牌蓝底白字 / 关=灰）与思考强度/模型下拉（复用 common.js .dd 体系，工具行紧凑化） */
+.cm-ws {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--sub);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.2s,
+    color 0.2s,
+    border-color 0.2s;
+}
+.cm-ws svg {
+  width: 14px;
+  height: 14px;
+}
+.cm-ws.on {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--on-brand);
+}
+.cm-model,
+.cm-effort {
+  flex: none;
+}
+.cm-model .dd-btn,
+.cm-effort .dd-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sub);
+  padding: 0 10px;
+  gap: 6px;
+}
+.cm-model .dd-btn .dd-label {
+  max-width: 140px;
+}
+.cm-model .dd-btn .dd-tri,
+.cm-effort .dd-btn .dd-tri {
+  color: var(--ph);
 }
 
+/* ===== 通用弹窗（新建/重命名输入用 promptModal（.modal-t/.modal-b/.modal-f）；删除确认走 Shade.confirm，
+     .m-head/.m-foot 结构与 quiz / worklog 同口径；直角 + 2px 墨边 + 硬影，白底卡片样式直接落在 .modal 上） ===== */
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.mask.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mask .modal {
+  width: 400px;
+  max-width: 92vw;
+  padding: 22px 24px 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+  transform: translateY(16px) scale(0.98);
+  transition: transform 0.35s var(--ease);
+}
+.mask.open .modal {
+  transform: none;
+}
+.modal-t {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.modal-b {
+  margin: 14px 0 20px;
+  font-size: 13px;
+  color: var(--sub);
+  line-height: 1.8;
+}
+.modal-b .input {
+  height: 42px;
+}
+.modal-f {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+/* Shade.confirm 确认弹层结构（与 quiz / worklog 同口径） */
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.m-title {
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.m-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--navy);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-card);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.m-x:hover {
+  background: var(--fill);
+  color: var(--orange);
+}
+.m-x svg {
+  width: 14px;
+  height: 14px;
+}
+.m-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* 细滚动条 */
+.cm-list::-webkit-scrollbar,
+.cm-body::-webkit-scrollbar,
+.think-body::-webkit-scrollbar {
+  width: 6px;
+}
+.cm-list::-webkit-scrollbar-thumb,
+.cm-body::-webkit-scrollbar-thumb,
+.think-body::-webkit-scrollbar-thumb {
+  background: var(--dash);
+  border-radius: 8px;
+}
+.cm-list::-webkit-scrollbar-track,
+.cm-body::-webkit-scrollbar-track,
+.think-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 入页动效：左右两卡错峰上浮（仅宽屏；窄屏侧栏为抽屉、自身带 transform，不叠加避免冲突） */
+@media (min-width: 861px) {
+  .cm-side,
+  .cm-main {
+    animation: fadeUp 0.6s var(--ease) both;
+  }
+  /* 错峰自左向右：主区在左先落位，会话栏在右延后 0.1s */
+  .cm-side {
+    animation-delay: 0.1s;
+  }
+}
+
+/* 窄屏：呼吸边距与卡片间距收紧、侧栏收窄 */
 @media (max-width: 960px) {
-  .cm-wrap {
-    grid-template-columns: 1fr;
-    height: auto;
+  .cm-root {
+    padding: 20px 24px 24px;
+  }
+  .cm {
+    gap: 14px;
   }
   .cm-side {
-    max-height: 220px;
+    width: 240px;
   }
-  .cm-main {
-    min-height: 60vh;
+}
+/* 更窄屏：侧栏收起为右侧抽屉（贴视口全高，right:0 贴视口右缘滑出，方角），对话区独占 .page */
+@media (max-width: 860px) {
+  .cm-root {
+    padding: 14px 14px 18px;
+  }
+  .cm-side {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 120;
+    width: 272px;
+    border-radius: 8px;
+    border-right: none;
+    transform: translateX(105%);
+    transition: transform 0.3s var(--ease);
+    box-shadow: -8px 0 0 rgba(29, 33, 41, 0.9);
+  }
+  .cm-root.side-open .cm-side {
+    transform: none;
+  }
+  .cm-mask {
+    display: block;
+  }
+  .cm-root.side-open .cm-mask {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .cm-toggle {
+    display: inline-flex;
+  }
+  .cm-head {
+    padding: 0 14px;
+  }
+  .cm-body {
+    padding: 8px 14px 22px;
+  }
+  .cm-input {
+    padding: 0 14px 12px;
+  }
+  /* 窄屏输入区收紧：工具行间距收紧、联网胶囊只留图标，模型名下拉限宽 */
+  .cm-toolbar,
+  .cm-tools-r {
+    gap: 6px;
+  }
+  .cm-ws {
+    padding: 0 9px;
+  }
+  .cm-ws .ws-t {
+    display: none;
+  }
+  .cm-model .dd-btn .dd-label {
+    max-width: 88px;
+  }
+}
+
+/* ===== theme.css 共享件（按钮 / 输入 / 骨架 / 头像 / 入场动效），旧页口径随本组件 scoped 注入 ===== */
+.mini-avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--navy);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--ease),
+    color 0.15s,
+    filter 0.15s,
+    background 0.15s;
+  font-family: inherit;
+}
+.btn svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.btn:hover:not([disabled]) {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+.btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-primary,
+.btn-danger {
+  color: var(--on-brand);
+  border-color: transparent;
+}
+.btn-primary {
+  background: var(--orange);
+}
+.btn-primary:hover:not([disabled]) {
+  color: var(--on-brand);
+  filter: brightness(0.92);
+}
+.btn-danger {
+  background: var(--red);
+}
+.btn-danger:hover:not([disabled]) {
+  color: var(--on-brand);
+  filter: brightness(0.92);
+}
+.btn-sm {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
+.input {
+  width: 100%;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--navy);
+  outline: none;
+  font-family: inherit;
+  transition:
+    border-color 0.15s var(--ease),
+    box-shadow 0.15s var(--ease);
+}
+.input::placeholder {
+  color: var(--ph);
+}
+.input:focus {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px var(--brand-glow);
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--skeleton);
+  border-radius: 8px;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.65), transparent 75%);
+  transform: translateX(-100%);
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ===== 本组件补位：图标 span 包裹 / 原生下拉（旧版 .dd-btn 口径） ===== */
+.cm-item > span {
+  flex: none;
+  margin-top: 2px;
+  display: inline-flex;
+  color: var(--sub);
+}
+.cm-item.on > span {
+  color: var(--orange);
+}
+.cm-model,
+.cm-effort {
+  flex: none;
+  height: 34px;
+  max-width: 150px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--sub);
+  font-size: 12px;
+  padding: 0 10px;
+  outline: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.cm-model:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.cm-tool[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 动效降级 */
+@media (prefers-reduced-motion: reduce) {
+  .cm-side,
+  .cm-main,
+  .msg-row,
+  .skeleton::after {
+    animation: none !important;
   }
 }
 </style>

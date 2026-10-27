@@ -245,7 +245,7 @@ const live = {
       }),
     }),
 
-  archiveDecompress: ({ srcSpace, srcDir, names, dstSpace, dstDir, innerPath, archivePass }) =>
+  archiveDecompress: ({ srcSpace, srcDir, names, dstSpace, dstDir, innerPath, archivePass, putIntoNewDir }) =>
     request('/archive/decompress', {
       method: 'POST',
       body: JSON.stringify({
@@ -256,7 +256,7 @@ const live = {
         dst_dir: dstDir,
         inner_path: innerPath || '/',
         archive_pass: archivePass || '',
-        put_into_new_dir: 'true',
+        put_into_new_dir: putIntoNewDir === false ? 'false' : 'true',
         overwrite: 'false',
       }),
     }),
@@ -419,7 +419,8 @@ export function archiveList(params) {
   return adapter().archiveList(params);
 }
 
-// archiveDecompress 解压到目标目录（names 为包文件名，返回 OpenList 原样载荷）。
+// archiveDecompress 解压到目标目录（names 为包文件名，putIntoNewDir=false 关闭
+// 「解压到以压缩包命名的新目录」，返回 OpenList 原样载荷）。
 export function archiveDecompress(params) {
   return adapter().archiveDecompress(params);
 }

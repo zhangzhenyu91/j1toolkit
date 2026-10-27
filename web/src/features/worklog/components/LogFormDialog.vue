@@ -1,122 +1,138 @@
 <template>
-  <div v-if="open" class="wl-modal-mask" @click.self="close">
-    <div class="wl-modal card">
-      <h3 class="card-title">{{ entry ? '编辑日志' : '新建日志' }}</h3>
+  <div v-if="open" class="mask open" @click.self="close">
+    <div class="modal">
+      <div class="m-scroll">
+        <div class="m-head">
+          <span class="m-title">{{ entry ? '修改派车 / 用车人' : '新建日志' }}</span>
+          <button type="button" class="m-x" @click="close">
+            <WlIcon name="close" :size="14" />
+          </button>
+        </div>
 
-      <!-- 日期（仅新建可改） -->
-      <div class="wl-field">
-        <span class="field-label">日期</span>
-        <input v-if="!entry" v-model="form.log_date" type="date" class="wl-input" />
-        <span v-else class="num">{{ form.log_date }}</span>
-      </div>
+        <!-- 日期（仅新建可改） -->
+        <div class="f-hint" style="margin: 0 0 2px">
+          <template v-if="entry">{{ fmtDateCN(form.log_date) }}</template>
+        </div>
+        <template v-if="!entry">
+          <label class="f-lab">日期</label>
+          <input v-model="form.log_date" type="date" class="f-sel" />
+        </template>
 
-      <!-- 车牌（空 = 未出车） -->
-      <div class="wl-field">
-        <span class="field-label">车牌号</span>
-        <select v-model="form.vehicle_id" class="wl-input">
+        <!-- 派车车辆（空 = 未出车） -->
+        <label class="f-lab">派车车辆</label>
+        <select v-model="form.vehicle_id" class="f-sel">
           <option :value="0">未出车</option>
           <option v-for="v in meta.vehicles" :key="v.id" :value="v.id">{{ v.plate_no }}</option>
         </select>
-      </div>
 
-      <!-- 目的地 -->
-      <div class="wl-field">
-        <span class="field-label">目的地</span>
-        <select v-model="form.destination_id" class="wl-input" :disabled="form.vehicle_id === 0">
-          <option :value="0">无</option>
-          <option v-for="d in meta.destinations" :key="d.id" :value="d.id">{{ d.name }}</option>
-        </select>
-      </div>
+        <template v-if="form.vehicle_id !== 0">
+          <label class="f-lab">目的地</label>
+          <select v-model="form.destination_id" class="f-sel">
+            <option :value="0">未选择</option>
+            <option v-for="d in meta.destinations" :key="d.id" :value="d.id">{{ d.name }}</option>
+          </select>
 
-      <!-- 派车单号 -->
-      <div class="wl-field">
-        <span class="field-label">派车单号</span>
-        <input
-          v-model="form.dispatch_order_no"
-          type="text"
-          class="wl-input"
-          placeholder="选填"
-          :disabled="form.vehicle_id === 0"
-        />
-      </div>
+          <label class="f-lab">派车单号（可空）</label>
+          <input
+            v-model="form.dispatch_order_no"
+            type="text"
+            class="f-sel"
+            maxlength="64"
+            placeholder="请输入派车单号（可空）"
+            autocomplete="off"
+          />
 
-      <!-- 巡视内容 -->
-      <div class="wl-field">
-        <span class="field-label">巡视内容</span>
+          <label class="f-lab">用车人（点亮即为用车人）</label>
+          <div class="chips">
+            <button
+              v-for="m in meta.members"
+              :key="m.id"
+              type="button"
+              class="chip"
+              :class="{ on: form.member_ids.includes(m.id) }"
+              @click="toggleMember(m.id)"
+            >
+              {{ m.name }}
+            </button>
+            <span v-if="!meta.members.length" class="f-hint">暂无成员，请到「班组数据」维护</span>
+          </div>
+        </template>
+        <div v-else class="f-hint">未出车为站内作业，不参与验证，不可选目的地与用车人</div>
+
+        <!-- 巡视内容 -->
+        <label class="f-lab">巡视内容（可空）</label>
         <textarea
           v-model="form.patrol_content"
-          class="wl-input wl-area"
+          class="f-ta"
           rows="3"
-          placeholder="选填"
+          placeholder="如 110kVXX线巡视"
         ></textarea>
-      </div>
 
-      <!-- 用车人（多选） -->
-      <div class="wl-field">
-        <span class="field-label">用车人</span>
-        <div class="wl-chips" :class="{ disabled: form.vehicle_id === 0 }">
-          <button
-            v-for="m in meta.members"
-            :key="m.id"
-            type="button"
-            class="wl-chip"
-            :class="{ on: form.member_ids.includes(m.id) }"
-            :disabled="form.vehicle_id === 0"
-            @click="toggleMember(m.id)"
-          >
-            {{ m.name }}
-          </button>
-          <span v-if="!meta.members.length" class="muted">暂无成员，请到「班组数据」维护</span>
-        </div>
-      </div>
+        <!-- 备注 + 附件（编辑模式才可改） -->
+        <template v-if="entry">
+          <label class="f-lab">备注（可空）</label>
+          <textarea v-model="form.remark" class="f-ta" rows="2" placeholder="备注说明"></textarea>
 
-      <!-- 备注（编辑模式才可改） -->
-      <div v-if="entry" class="wl-field">
-        <span class="field-label">备注</span>
-        <textarea
-          v-model="form.remark"
-          class="wl-input wl-area"
-          rows="2"
-          placeholder="选填"
-        ></textarea>
-      </div>
-      <div v-if="entry" class="wl-field">
-        <span class="field-label">备注附件</span>
-        <div class="wl-chips">
-          <span v-for="(f, i) in form.remark_files" :key="f.cos_key" class="wl-file-chip">
-            {{ f.name }}
-            <button
-              type="button"
-              class="wl-file-x"
-              aria-label="移除附件"
-              @click="form.remark_files.splice(i, 1)"
-            >
-              ×
+          <label class="f-lab">备注附件</label>
+          <div v-if="mediaFiles.length" class="att-grid">
+            <span v-for="(f, i) in mediaFiles" :key="f.cos_key" class="att-cell">
+              <span class="att-thumb">
+                <img v-if="f.type === 'image'" :src="f.url" alt="附件" />
+                <span v-else class="att-play"><WlIcon name="play" :size="22" /></span>
+              </span>
+              <button type="button" class="att-x" aria-label="移除附件" @click="removeFile(f)">
+                <WlIcon name="close" :size="10" />
+              </button>
+            </span>
+            <button type="button" class="att-add" :disabled="uploadingFile" @click="pickRemarkFile">
+              <WlIcon :name="uploadingFile ? 'refresh' : 'add'" :size="17" />
+              {{ uploadingFile ? '上传中' : '添加' }}
             </button>
-          </span>
-          <button type="button" class="wl-chip" :disabled="uploadingFile" @click="pickRemarkFile">
-            {{ uploadingFile ? '上传中…' : '+ 上传附件' }}
+          </div>
+          <div v-if="docFiles.length" class="att-docs">
+            <div v-for="f in docFiles" :key="f.cos_key" class="att-docrow">
+              <WlIcon name="file" :size="13" />
+              <span class="nm">{{ f.name }}</span>
+              <button type="button" class="att-x" aria-label="移除附件" @click="removeFile(f)">
+                <WlIcon name="close" :size="11" />
+              </button>
+            </div>
+          </div>
+          <button
+            v-if="!mediaFiles.length"
+            type="button"
+            class="att-add"
+            style="margin-top: 8px"
+            :disabled="uploadingFile"
+            @click="pickRemarkFile"
+          >
+            <WlIcon :name="uploadingFile ? 'refresh' : 'add'" :size="17" />
+            {{ uploadingFile ? '上传中' : '添加附件' }}
           </button>
-          <input ref="remarkInput" type="file" class="wl-hidden-input" @change="onRemarkFile" />
+          <input ref="remarkInput" type="file" class="wl-hidden" @change="onRemarkFile" />
+          <div class="f-hint">最多 9 个（图片/视频/Office 文档，单个 50MB 以内）</div>
+        </template>
+
+        <div v-if="error" class="wl-error">{{ error }}</div>
+
+        <div class="m-foot">
+          <button type="button" class="btn btn-sm" @click="close">取消</button>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="saving" @click="submit">
+            {{ saving ? '保存中…' : '保 存' }}
+          </button>
         </div>
-        <div class="muted">最多 9 个（图片/视频/Office 文档，单个 50MB 以内）</div>
-      </div>
-
-      <div v-if="error" class="wl-error">{{ error }}</div>
-
-      <div class="wl-modal-foot">
-        <t-button variant="outline" @click="close">取消</t-button>
-        <t-button :loading="saving" @click="submit">保存</t-button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+import WlIcon from './WlIcon.vue';
 import { createLog, updateLog, uploadRemarkFile } from '../api.js';
 
-// 新建/编辑日志弹窗：车辆/目的地/用车人来自 /meta；备注与备注附件仅编辑模式可改。
+// 新建/编辑日志弹层（旧版 .modal 弹层骨架 + f-lab/f-sel/chips 密度）：
+// 新建 = 日期 + 派车/目的地/派车单号/用车人 + 巡视内容；编辑另可改备注与附件。
 // 保存成功抛 saved，由父视图刷新日志列表与月历。
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -139,6 +155,16 @@ const form = reactive({
   remark: '',
   remark_files: [],
 });
+
+// mediaFiles/docFiles 附件分组。
+const mediaFiles = computed(() => (form.remark_files || []).filter((f) => f.type !== 'doc'));
+const docFiles = computed(() => (form.remark_files || []).filter((f) => f.type === 'doc'));
+
+// fmtDateCN 日期中文。
+function fmtDateCN(d) {
+  const [y, m, dd] = String(d || '').split('-');
+  return `${y} 年 ${Number(m)} 月 ${Number(dd)} 日`;
+}
 
 // open/entry 变化时回填表单（新建取 defaultDate）。
 watch(
@@ -175,6 +201,12 @@ function pickRemarkFile() {
   remarkInput.value && remarkInput.value.click();
 }
 
+// removeFile 移除附件（本地移除，保存时 PUT 落库）。
+function removeFile(f) {
+  const i = form.remark_files.indexOf(f);
+  if (i >= 0) form.remark_files.splice(i, 1);
+}
+
 // onRemarkFile 上传备注附件（成功后挂入 form.remark_files，保存时 PUT 落库）。
 async function onRemarkFile(ev) {
   const file = ev.target.files && ev.target.files[0];
@@ -196,7 +228,7 @@ async function onRemarkFile(ev) {
   }
 }
 
-// close 关闭弹窗。
+// close 关闭弹层。
 function close() {
   emit('update:open', false);
 }
@@ -241,115 +273,329 @@ async function submit() {
 </script>
 
 <style scoped>
-.wl-modal-mask {
+/* ===== 通用弹层骨架（旧版 .mask/.modal/.m-scroll/.m-head/.m-foot） ===== */
+.mask {
   position: fixed;
   inset: 0;
+  z-index: 320;
+  padding: 24px;
   background: rgba(29, 33, 41, 0.45);
+  backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
 }
-.wl-modal {
-  width: min(520px, calc(100vw - 32px));
-  max-height: calc(100vh - 64px);
-  overflow: auto;
-}
-.wl-field {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 7px 0;
-}
-.wl-field .field-label {
-  width: 64px;
-  flex-shrink: 0;
-  padding-top: 7px;
-}
-.wl-input {
-  flex: 1;
-  min-width: 0;
-  height: 32px;
+.modal {
+  background: #fff;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  padding: 0 10px;
+  width: 520px;
+  max-width: 94vw;
+  max-height: 86vh;
+  overflow: hidden;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--tk-shadow-card);
+}
+.m-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 14px 18px 16px;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-dash) transparent;
+}
+.m-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.m-scroll::-webkit-scrollbar-thumb {
+  background: var(--tk-dash);
+  border-radius: 8px;
+}
+.m-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.m-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.m-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--tk-shadow-card);
+}
+.m-x:hover {
+  background: var(--tk-ink);
+  color: #fff;
+}
+.m-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* ===== 表单（旧版 f-lab / f-sel / f-ta） ===== */
+.f-lab {
+  display: block;
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 1px;
+  margin: 14px 0 7px;
+}
+.f-lab:first-of-type {
+  margin-top: 2px;
+}
+.f-sel,
+.f-ta {
+  width: 100%;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
   font-size: 13px;
   color: var(--tk-ink);
-  background: var(--tk-fill);
+  font-family: inherit;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    box-shadow 0.15s var(--tk-ease);
 }
-.wl-area {
-  height: auto;
-  padding: 8px 10px;
-  resize: vertical;
-  line-height: 1.6;
+.f-sel {
+  height: 36px;
+  padding: 0 10px;
 }
-.wl-input:focus {
-  outline: none;
+.f-sel:focus,
+.f-ta:focus {
   border-color: var(--tk-brand);
-  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
-.wl-input:disabled {
+.f-ta {
+  min-height: 76px;
+  padding: 10px 12px;
+  line-height: 1.7;
+  resize: vertical;
+}
+.f-hint {
+  margin-top: 6px;
+  font-size: 11px;
   color: var(--tk-ph);
+  letter-spacing: 0.5px;
 }
-.wl-chips {
-  flex: 1;
+
+/* 用车人 chips（点亮蓝底白字） */
+.chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
-.wl-chip {
-  padding: 4px 12px;
-  border-radius: 4px;
+.chip {
   border: 1px solid var(--tk-line);
-  background: var(--tk-fill);
-  color: var(--tk-sub);
-  font-size: 12px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 12.5px;
+  padding: 4px 13px;
   cursor: pointer;
+  font-family: inherit;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background 0.2s;
 }
-.wl-chip.on {
-  background: var(--tk-blue-soft);
-  border-color: transparent;
+.chip:hover:not(:disabled) {
+  border-color: var(--tk-brand);
   color: var(--tk-brand);
-  font-weight: 600;
 }
-.wl-chip:disabled {
+.chip.on {
+  border-color: var(--tk-brand);
+  background: var(--tk-brand);
+  color: #fff;
+  font-weight: 700;
+}
+.chip:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
-  opacity: 0.5;
 }
-.wl-file-chip {
-  display: inline-flex;
+
+/* 备注附件：缩略图 × 移除 + 虚线添加钮；文档文件条 */
+.att-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+.att-cell {
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+.att-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  overflow: hidden;
+  background: var(--tk-ink);
+  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: var(--tk-fill);
-  color: var(--tk-sub);
-  font-size: 12px;
+  justify-content: center;
+  color: #fff;
 }
-.wl-file-x {
+.att-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.att-x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 8px;
+  background: var(--tk-ink);
+  color: #fff;
   border: none;
-  background: none;
-  color: var(--tk-ph);
   cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
 }
-.wl-hidden-input {
-  display: none;
+.att-add {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  border: 2px dashed var(--tk-dash);
+  background: transparent;
+  color: var(--tk-ph);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 10px;
+  letter-spacing: 0;
+  font-family: inherit;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
 }
-.wl-error {
+.att-add:hover:not(:disabled) {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.att-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin-top: 8px;
+}
+.att-docrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: 1.5px solid var(--tk-line);
+  border-radius: 8px;
+  background: var(--tk-bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tk-ink);
+}
+.att-docrow > svg {
+  flex: none;
+  color: var(--tk-ph);
+}
+.att-docrow .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.att-docrow .att-x {
+  position: static;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  color: var(--tk-ph);
+}
+.att-docrow .att-x:hover {
+  color: var(--tk-red);
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn:hover:not([disabled]) {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-sm {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+.btn-primary {
+  color: #fff;
+  border-color: transparent;
+  background: var(--tk-brand);
+}
+.btn-primary:hover:not([disabled]) {
+  color: #fff;
+  filter: brightness(0.92);
+}
+
+.wl-error {
+  margin-top: 12px;
   background: var(--tk-red-soft);
   border-left: 3px solid var(--tk-red);
   padding: 8px 10px;
   font-size: 12px;
   color: var(--tk-red);
 }
-.wl-modal-foot {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+.wl-hidden {
+  display: none;
 }
 </style>

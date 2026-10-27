@@ -4,13 +4,13 @@
     <div ref="holderEl" class="oo-holder" :class="{ on: ready }"></div>
     <div v-if="state !== 'done'" class="oo-state" :class="{ out: state === 'ready' }">
       <div v-if="state === 'loading'" class="oo-ld">
-        <div class="oo-ld-mk">壹</div>
+        <img class="oo-ld-mk" src="/favicon.svg" alt="Shade 壹匣" />
         <div class="oo-ld-name">{{ docName }}</div>
         <div class="oo-ld-bar"><i></i></div>
         <div class="oo-ld-t">正在加载编辑器…</div>
       </div>
       <div v-else class="oo-err">
-        <div class="oo-err-ic">!</div>
+        <span class="ic" v-html="ic('warn', 40)"></span>
         <p>{{ errMsg }}</p>
         <t-button theme="primary" @click="retry">重新加载</t-button>
       </div>
@@ -34,6 +34,15 @@ const holderEl = ref(null);
 const state = ref('loading'); // loading / ready / done / error
 const ready = ref(false);
 const errMsg = ref('');
+
+// ic 内联 SVG 图标（旧 assets/icons.js warn 同路径）
+function ic(name, size) {
+  const body =
+    name === 'warn'
+      ? '<path d="M10.3 4.1L2.4 17.6a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 4.1a2 2 0 0 0-3.4 0z"/><path d="M12 9.2v4"/><circle cx="12" cy="16.8" r="1" fill="currentColor" stroke="none"/>'
+      : '<circle cx="12" cy="12" r="8.5"/>';
+  return `<svg width="${size || 24}" height="${size || 24}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+}
 
 // 文档名：query.name 优先，缺省取 path 末段（与旧页一致）
 const body = {};
@@ -178,14 +187,7 @@ if (isDemo()) {
   width: 46px;
   height: 46px;
   margin: 0 auto 14px;
-  border-radius: 12px;
-  background: var(--tk-brand);
-  color: #fff;
-  font-size: 20px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   box-shadow: 0 8px 20px rgba(14, 61, 168, 0.22);
 }
 .oo-ld-name {
@@ -214,7 +216,7 @@ if (isDemo()) {
   width: 40%;
   height: 100%;
   border-radius: 2px;
-  background: var(--tk-yellow);
+  background: var(--tk-brand);
   animation: oo-sweep 1.1s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 .oo-ld-t {
@@ -228,18 +230,10 @@ if (isDemo()) {
   line-height: 1.9;
   padding: 0 20px;
 }
-.oo-err-ic {
-  width: 40px;
-  height: 40px;
+.oo-err .ic {
+  display: block;
   margin: 0 auto 10px;
-  border-radius: 50%;
-  background: var(--tk-yellow-soft);
-  color: #d25f00;
-  font-size: 22px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  color: var(--tk-ph);
 }
 .oo-err p {
   margin: 0 0 12px;

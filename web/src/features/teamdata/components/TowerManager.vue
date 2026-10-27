@@ -1,62 +1,103 @@
 <template>
   <div>
-    <div class="card">
-      <div class="toolbar">
-        <h2 class="card-title" style="margin: 0">杆塔信息</h2>
-        <div class="spacer"></div>
-        <t-button variant="outline" @click="downloadTemplate">下载模板</t-button>
-        <t-button variant="outline" @click="pickImport">导入 Excel</t-button>
-        <input
-          ref="importInput"
-          type="file"
-          accept=".xlsx"
-          class="td-hidden-input"
-          @change="onImport"
-        />
+    <!-- 线路表格（电压等级 / 线路名称 / 杆塔数，GET /lines）：坐标供出工日志加水印、商旅打卡带入定位 -->
+    <div class="td-dsec">
+      <div class="lt-bar">
+        <span class="lt-note">杆塔坐标供出工日志加水印照片、商旅打卡带入定位使用</span>
+        <span class="lt-btns">
+          <button type="button" class="btn btn-sm" :disabled="tplBusy" @click="downloadTemplate">
+            <span v-html="icon('download', 14)"></span>下载模板
+          </button>
+          <button type="button" class="btn btn-sm btn-primary" @click="pickImport">
+            <span v-html="icon('upload', 14)"></span>导入 Excel
+          </button>
+        </span>
       </div>
-
-      <div class="muted">
-        模板列：电压等级 / 线路名称 / 杆塔号 / 经度 /
-        纬度；导入为全量替换本班组坐标，行序即导入顺序。
+      <div class="lt-wrap">
+        <div v-if="loading" class="loading"><span class="spin"></span>加载中…</div>
+        <div v-else-if="error" class="lt-empty">
+          {{ error }}　<a class="linkbtn" @click="reload">重试</a>
+        </div>
+        <div v-else-if="!lines.length" class="lt-empty">暂无杆塔坐标数据，可下载模板填写后导入</div>
+        <table v-else class="lt">
+          <thead>
+            <tr>
+              <th class="lc-v">电压等级</th>
+              <th>线路名称</th>
+              <th class="lc-c">杆塔数</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="l in lines" :key="`${l.voltage_level}|${l.line_name}`">
+              <td class="lc-v">{{ fmtKv(l.voltage_level) }}</td>
+              <td>{{ l.line_name || '—' }}</td>
+              <td class="lc-c lc-n">{{ l.tower_count == null ? 0 : l.tower_count }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <div v-if="error" class="td-error">{{ error }}</div>
-      <div v-if="importMsg" class="td-ok">{{ importMsg }}</div>
-
-      <t-table
-        :data="towers"
-        :columns="columns"
-        :loading="loading"
-        row-key="id"
-        size="small"
-        :bordered="false"
-      >
-        <template #lng="{ row }">
-          <span class="num">{{ row.lng }}</span>
-        </template>
-        <template #lat="{ row }">
-          <span class="num">{{ row.lat }}</span>
-        </template>
-      </t-table>
     </div>
 
-    <!-- 线路聚合 -->
-    <div class="card">
-      <h2 class="card-title">线路汇总</h2>
-      <div v-if="!lines.length" class="muted">暂无线路数据</div>
-      <t-table
-        v-else
-        :data="lines"
-        :columns="lineColumns"
-        :loading="linesLoading"
-        row-key="line_name"
-        size="small"
-        :bordered="false"
-      >
-        <template #tower_count="{ row }">
-          <span class="num">{{ row.tower_count }}</span>
-        </template>
-      </t-table>
+    <!-- 杆塔坐标明细（导入序全量行；导入为全量替换本班组坐标） -->
+    <div class="td-dsec" style="margin-top: 14px">
+      <div class="dsec-h">
+        <b>杆塔坐标明细</b>
+        <span class="cnt">{{ loading ? '加载中…' : `${towers.length} 条` }}</span>
+      </div>
+      <div class="lt-wrap">
+        <div v-if="loading" class="loading"><span class="spin"></span>加载中…</div>
+        <div v-else-if="!towers.length" class="lt-empty">暂无杆塔坐标明细</div>
+        <table v-else class="lt">
+          <thead>
+            <tr>
+              <th class="lc-v">电压等级</th>
+              <th>线路名称</th>
+              <th class="lc-c">杆塔号</th>
+              <th class="lc-n">经度</th>
+              <th class="lc-n">纬度</th>
+              <th class="lc-c">行序</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in towers" :key="t.id">
+              <td class="lc-v">{{ fmtKv(t.voltage_level) }}</td>
+              <td>{{ t.line_name || '—' }}</td>
+              <td class="lc-c">{{ t.tower_no || '—' }}</td>
+              <td class="lc-n">{{ t.lng }}</td>
+              <td class="lc-n">{{ t.lat }}</td>
+              <td class="lc-c lc-n">{{ t.sort }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="ol-foot">
+        模板列：电压等级 / 线路名称 / 杆塔号 / 经度 / 纬度；导入为全量替换本班组坐标，行序即导入顺序
+      </div>
     </div>
+
+    <input
+      ref="importInput"
+      type="file"
+      accept=".xlsx"
+      class="td-hidden-input"
+      @change="onImport"
+    />
+
+    <!-- 导入确认（全量替换本班组杆塔坐标数据） -->
+    <Modal v-if="impConfirm" title="导入杆塔坐标" @close="impConfirm = false">
+      <div class="f-lab" style="color: var(--tk-ink); font-size: 13px; letter-spacing: 0">
+        导入将全量替换本班组杆塔坐标数据，确定继续吗？
+      </div>
+      <template #footer>
+        <button type="button" class="btn btn-sm" @click="impConfirm = false">取消</button>
+        <button type="button" class="btn btn-sm btn-primary" @click="runImport">导入</button>
+      </template>
+    </Modal>
+
+    <!-- 导入进行中 -->
+    <Modal v-if="impBusy" title="导入杆塔坐标" :width="280" @close="() => {}">
+      <div class="m-loading"><span class="spin"></span>正在导入…</div>
+    </Modal>
   </div>
 </template>
 
@@ -64,78 +105,100 @@
 import { onMounted, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { downloadTowerTemplate, fetchLines, importTowers, listTowers } from '../api.js';
+import { fmtKv, icon } from '../helpers.js';
+import Modal from './Modal.vue';
 
-// 杆塔信息管理：坐标列表（导入序）+ 模板下载 + Excel 导入（全量替换）+ 线路聚合。
-const towers = ref([]);
+// 杆塔信息段（对照旧版 teamdata.html）：主视图 = 线路聚合表（电压等级 / 线路名称 / 杆塔数，GET /lines）；
+// 另保留 杆塔坐标明细（GET /towers 全量行）。模板下载 + Excel 导入全量替换（前端先校验 .xlsx 与 10MB）；
+// 40304 → 通知整页门控。
+const emit = defineEmits(['forbidden']);
+
 const lines = ref([]);
+const towers = ref([]);
 const loading = ref(false);
-const linesLoading = ref(false);
 const error = ref('');
-const importMsg = ref('');
+const tplBusy = ref(false);
 const importInput = ref(null);
+const impConfirm = ref(false);
+const impBusy = ref(false);
+const impFile = ref(null);
 
-const columns = [
-  { colKey: 'voltage_level', title: '电压等级', width: 120 },
-  { colKey: 'line_name', title: '线路名称' },
-  { colKey: 'tower_no', title: '杆塔号', width: 120 },
-  { colKey: 'lng', title: '经度', cell: 'lng', width: 130 },
-  { colKey: 'lat', title: '纬度', cell: 'lat', width: 130 },
-  { colKey: 'sort', title: '行序', width: 80 },
-];
-const lineColumns = [
-  { colKey: 'voltage_level', title: '电压等级', width: 120 },
-  { colKey: 'line_name', title: '线路名称' },
-  { colKey: 'tower_count', title: '杆塔数', cell: 'tower_count', width: 100 },
-];
+// gateOnForbidden 40304 → 整页门控。
+function gateOnForbidden(e) {
+  if (e && e.code === 40304) {
+    emit('forbidden');
+    return true;
+  }
+  return false;
+}
 
-// reload 杆塔列表 + 线路聚合。
+// reload 线路聚合 + 杆塔明细（契约 data 即数组；防御兼容 {list} 信封）。
 async function reload() {
   loading.value = true;
-  linesLoading.value = true;
   error.value = '';
   try {
-    const [t, l] = await Promise.all([listTowers(), fetchLines()]);
-    towers.value = t || [];
-    lines.value = l || [];
+    const [l, t] = await Promise.all([fetchLines(), listTowers()]);
+    lines.value = Array.isArray(l) ? l : (l && l.list) || [];
+    towers.value = Array.isArray(t) ? t : (t && t.list) || [];
   } catch (e) {
+    if (gateOnForbidden(e)) return;
     error.value = e.message || '加载失败';
-    towers.value = [];
     lines.value = [];
+    towers.value = [];
   } finally {
     loading.value = false;
-    linesLoading.value = false;
   }
 }
 
 // downloadTemplate 杆塔坐标模板 xlsx。
 async function downloadTemplate() {
-  error.value = '';
+  tplBusy.value = true;
   try {
     await downloadTowerTemplate();
   } catch (e) {
-    error.value = e.message || '模板下载失败';
+    if (!gateOnForbidden(e)) MessagePlugin.error(e.message || '模板下载失败');
+  } finally {
+    tplBusy.value = false;
   }
 }
 
 function pickImport() {
-  importMsg.value = '';
   importInput.value && importInput.value.click();
 }
 
-// onImport Excel 导入（全量替换）。
-async function onImport(ev) {
+// onImport 前端先校验扩展名与大小，再走「全量替换」二次确认；选完即清空以便重复选择同名文件。
+function onImport(ev) {
   const file = ev.target.files && ev.target.files[0];
   ev.target.value = '';
   if (!file) return;
-  error.value = '';
+  if (!/\.xlsx$/i.test(file.name)) {
+    MessagePlugin.info('仅支持 .xlsx 文件，请使用模板填写');
+    return;
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    MessagePlugin.info('文件大小应在 10MB 以内');
+    return;
+  }
+  impFile.value = file;
+  impConfirm.value = true;
+}
+
+// runImport 确认后 FormData 上传（全量替换），toast 后端 message 并刷新。
+async function runImport() {
+  const file = impFile.value;
+  if (!file) return;
+  impConfirm.value = false;
+  impBusy.value = true;
   try {
     const data = await importTowers(file);
-    importMsg.value =
-      `已导入 ${data.imported} 条坐标` + (data.skipped ? `，跳过 ${data.skipped} 条` : '');
-    reload();
+    const skipped = data && data.skipped;
+    MessagePlugin.success(`导入完成${skipped ? `（跳过 ${skipped} 行）` : ''}`);
+    await reload();
   } catch (e) {
-    error.value = e.message || '导入失败';
-    MessagePlugin.error(e.message || '导入失败');
+    if (!gateOnForbidden(e)) MessagePlugin.error(e.message || '导入失败');
+  } finally {
+    impBusy.value = false;
+    impFile.value = null;
   }
 }
 
@@ -143,22 +206,6 @@ onMounted(reload);
 </script>
 
 <style scoped>
-.td-error {
-  margin: 8px 0;
-  background: var(--tk-red-soft);
-  border-left: 3px solid var(--tk-red);
-  padding: 8px 10px;
-  font-size: 12px;
-  color: var(--tk-red);
-}
-.td-ok {
-  margin: 8px 0;
-  background: var(--tk-green-soft);
-  border-left: 3px solid var(--tk-green);
-  padding: 8px 10px;
-  font-size: 12px;
-  color: #0b8a37;
-}
 .td-hidden-input {
   display: none;
 }

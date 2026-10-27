@@ -1,18 +1,25 @@
 <template>
-  <div>
-    <div class="page-head">
-      <h1 class="page-title">交跨记录</h1>
-      <span class="page-sub">输电线路交叉跨越台账的归档、核对与统计</span>
-      <div class="spacer"></div>
-      <t-select
-        v-if="teamOptions.length > 1"
-        v-model="teamId"
-        :options="teamOptions"
-        size="small"
-        style="width: 150px"
-        title="仅超级管理员可切换班组；其余角色固定为本班组"
-        @change="onTeamChange"
-      />
+  <!-- 旧版 crossing.html 骨架：页头 + 看板四格（仅记录页签）+ 工具行（管理）+ 下划线页签 + 页签内部滚动
+       + 导出 FAB 弹层 -->
+  <div class="cx-wrap">
+    <!-- 页头：kicker + 标题 + 副标；右侧班组切换（仅超管可见） -->
+    <div class="cx-head">
+      <div class="section-title">
+        <span class="cx-kick">LINE CROSSING</span>
+        <h3>交跨记录</h3>
+        <span class="more">输电线路交叉跨越台账的归档、核对与统计</span>
+      </div>
+      <div class="acts">
+        <select
+          v-if="teamOptions.length > 1"
+          v-model="teamId"
+          class="cx-team num"
+          title="仅超级管理员可切换班组；其余角色固定为本班组"
+          @change="onTeamChange"
+        >
+          <option v-for="t in teamOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+        </select>
+      </div>
     </div>
 
     <div v-if="isDemo" class="demo-banner">
@@ -23,8 +30,8 @@
       >
     </div>
 
-    <!-- 看板四格 + 管理待办 -->
-    <div v-if="tab === 'records'" class="cx-dash">
+    <!-- 看板四格 + 管理待办入口（仅记录页签展示） -->
+    <div v-show="tab === 'records'" class="cx-dash">
       <div class="card dc">
         <span class="dc-n blue num">{{ dashVal(dash.total) }}</span>
         <span class="dc-t">记录总数</span>
@@ -34,7 +41,7 @@
         <span class="dc-t">本周新增</span>
       </div>
       <div class="card dc">
-        <span class="dc-n red num">{{ dashVal(dash.hazard) }}</span>
+        <span class="dc-n num" :class="hazClass">{{ dashVal(dash.hazard) }}</span>
         <span class="dc-t">存在隐患</span>
       </div>
       <div class="card dc">
@@ -42,163 +49,258 @@
         <span class="dc-t">待确认线路</span>
       </div>
       <div v-if="isManager && (dash.staging_batches || dash.pending_conflicts)" class="dash-todo">
+        <svg viewBox="0 0 14 14" width="14" height="14">
+          <path
+            d="M7 1.5l6 11H1l6-11zM7 5.5v3.5M7 10.8v.9"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+        </svg>
         <span>待办：</span>
         <a v-if="dash.staging_batches" @click="switchTab('staging')"
           >暂存 {{ dash.staging_batches }} 批</a
         >
-        <a v-if="dash.pending_conflicts" @click="switchTab('conflicts')">
-          冲突 {{ dash.pending_conflicts }} 条
-        </a>
+        <span v-if="dash.staging_batches && dash.pending_conflicts">·</span>
+        <a v-if="dash.pending_conflicts" @click="switchTab('conflicts')"
+          >冲突 {{ dash.pending_conflicts }} 条</a
+        >
       </div>
     </div>
 
-    <!-- 页签 -->
-    <div class="subnav">
-      <div class="subnav-item" :class="{ active: tab === 'records' }" @click="switchTab('records')">
+    <!-- 工具行（管理角色）：同步至内网 / 同步知识库 + 同步状态小字 -->
+    <div v-if="isManager" class="cx-tools">
+      <button class="btn btn-sm" type="button" :disabled="syncBusy" @click="pushSync">
+        同步至内网
+      </button>
+      <button class="btn btn-sm" type="button" :disabled="wxSyncing" @click="pushWxSync">
+        <svg viewBox="0 0 15 15" width="15" height="15">
+          <path
+            d="M3 2.5h6.5L12 5v7.5H3v-10zM4.8 7h5.4M4.8 9.2h5.4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+          />
+        </svg>
+        {{ wxSyncing ? '同步中…' : '同步知识库' }}
+      </button>
+      <span v-if="syncHint" class="sync-hint">{{ syncHint }}</span>
+    </div>
+
+    <!-- 页签：记录 / 暂存区（管理）/ 冲突（管理） -->
+    <div class="cx-tabs">
+      <button type="button" :class="{ on: tab === 'records' }" @click="switchTab('records')">
         记录
-      </div>
-      <div
+      </button>
+      <button
         v-if="isManager"
-        class="subnav-item"
-        :class="{ active: tab === 'staging' }"
+        type="button"
+        :class="{ on: tab === 'staging' }"
         @click="switchTab('staging')"
       >
         暂存区
         <span v-if="dash.staging_batches" class="bdg num">{{ dash.staging_batches }}</span>
-      </div>
-      <div
+      </button>
+      <button
         v-if="isManager"
-        class="subnav-item"
-        :class="{ active: tab === 'conflicts' }"
+        type="button"
+        :class="{ on: tab === 'conflicts' }"
         @click="switchTab('conflicts')"
       >
         冲突
         <span v-if="dash.pending_conflicts" class="bdg num">{{ dash.pending_conflicts }}</span>
-      </div>
-      <div
-        v-if="isManager"
-        class="subnav-item"
-        :class="{ active: tab === 'sync' }"
-        @click="switchTab('sync')"
-      >
-        同步
-      </div>
+      </button>
     </div>
 
-    <!-- 记录页签 -->
-    <template v-if="tab === 'records'">
-      <div v-if="view === 'lines'" class="toolbar">
-        <t-input
-          v-model="lineSearch"
-          class="rec-search"
-          maxlength="32"
-          clearable
-          placeholder="搜索线路名称 / 电压等级"
-        />
-      </div>
-      <div v-else class="toolbar">
-        <t-button size="small" variant="outline" @click="backToLines">返回线路</t-button>
-        <span class="ledger-title">{{ ledgerGroup ? ledgerGroup.title : '' }}</span>
-        <span class="ledger-sub num">共 {{ ledgerGroup ? ledgerGroup.records.length : 0 }} 条</span>
-      </div>
+    <!-- 页签主体（仅活动页签内容滚动） -->
+    <div class="cx-body">
+      <div class="pane" :class="{ on: tab === 'records' }">
+        <!-- 一级「线路视图」顶栏：搜索框（输入即过滤线路名/电压等级） -->
+        <div v-if="view === 'lines'" class="rec-bar">
+          <label class="rec-search">
+            <svg viewBox="0 0 15 15" width="15" height="15">
+              <circle
+                cx="6.5"
+                cy="6.5"
+                r="4.2"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+              />
+              <path
+                d="M9.8 9.8l3 3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+              />
+            </svg>
+            <input
+              v-model="lineSearch"
+              maxlength="32"
+              autocomplete="off"
+              placeholder="搜索线路名称 / 电压等级"
+            />
+          </label>
+        </div>
+        <!-- 二级「台账视图」顶栏：返回 + 线路标题与计数 -->
+        <div v-else class="rec-bar">
+          <button class="btn btn-sm" type="button" @click="backToLines">返回线路</button>
+          <span class="ledger-title">{{ ledgerGroup ? ledgerGroup.title : '' }}</span>
+          <span class="ledger-sub num" v-html="ledgerSubHtml"></span>
+        </div>
 
-      <div v-if="recLoading" class="loading">加载中…</div>
-      <div v-else-if="recError" class="empty">
-        <p>{{ recError }}</p>
-        <t-button size="small" variant="outline" @click="loadRecords()">重试</t-button>
-      </div>
+        <div class="pane-scroll">
+          <div v-if="recLoading" class="loading"><span class="spin"></span>加载中…</div>
+          <div v-else-if="recError" class="empty">
+            <svg viewBox="0 0 44 44" width="44" height="44">
+              <path
+                d="M22 6l18 32H4L22 6zM22 18v10M22 32v2"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linejoin="round"
+                stroke-linecap="round"
+              />
+            </svg>
+            <p>{{ recError }}</p>
+            <button class="btn btn-sm" type="button" @click="loadRecords()">重试</button>
+          </div>
 
-      <!-- 一级线路大卡 -->
-      <div v-else-if="view === 'lines'" class="lc-grid">
-        <div
-          v-for="(g, idx) in visibleLineGroups"
-          :key="g.key"
-          class="card lc"
-          :class="{ 'lc-clear': g.stats.hz === 0 }"
-          :style="{ animationDelay: Math.min(idx * 0.05, 0.4).toFixed(2) + 's' }"
-          title="点击进入线路台账"
-          @click="openLedger(g.key)"
-        >
-          <div class="lc-main">
-            <div class="lc-title">{{ g.title }}</div>
-            <div class="lc-stats">
-              <span :class="g.stats.hz > 0 ? 'lc-key' : 'lc-total'"
-                >有隐患<b class="num">{{ g.stats.hz }}</b></span
-              >
-              <span class="lc-total num">共 {{ g.stats.total }} 条</span>
+          <!-- 一级线路大卡 -->
+          <div v-else-if="view === 'lines'" :key="'lines'" class="lc-grid view-in">
+            <div
+              v-for="(g, idx) in visibleLineGroups"
+              :key="g.key"
+              class="card lc"
+              :class="{ 'lc-clear': g.stats.hz === 0 }"
+              :style="{ animationDelay: Math.min(idx * 0.05, 0.4).toFixed(2) + 's' }"
+              title="点击进入线路台账"
+              @click="openLedger(g.key)"
+            >
+              <div class="lc-main">
+                <div class="lc-title">{{ g.title }}</div>
+                <div class="lc-stats">
+                  <span :class="g.stats.hz > 0 ? 'lc-key' : 'lc-total'"
+                    >存在隐患<b class="num">{{ g.stats.hz }}</b></span
+                  >
+                  <span class="lc-total num">共 {{ g.stats.total }} 条</span>
+                </div>
+              </div>
+              <span class="lc-go">
+                <svg viewBox="0 0 16 16" width="16" height="16">
+                  <path
+                    d="M6 3l5 5-5 5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </div>
+            <div v-if="!visibleLineGroups.length" class="empty">
+              <svg viewBox="0 0 44 44" width="44" height="44">
+                <circle
+                  cx="19"
+                  cy="19"
+                  r="11"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                />
+                <path
+                  d="M27 27l9 9"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <p>
+                {{
+                  lineSearch
+                    ? `未找到匹配「${lineSearch}」的线路`
+                    : '暂无运维线路，可先到「班组数据」维护'
+                }}
+              </p>
             </div>
           </div>
-          <span class="lc-go">›</span>
-        </div>
-        <div v-if="!visibleLineGroups.length" class="empty">
-          <p>
-            {{
-              lineSearch
-                ? `未找到匹配「${lineSearch}」的线路`
-                : '暂无运维线路，可先到「班组数据」维护'
-            }}
-          </p>
+
+          <!-- 二级台账卡片流 -->
+          <div v-else :key="'ledger'" class="ledger-flow view-in">
+            <template v-if="ledgerGroup && ledgerGroup.records.length">
+              <RecordCard
+                v-for="r in ledgerGroup.records"
+                :key="r.id"
+                :record="r"
+                :is-manager="isManager"
+                @remove="removeRecord"
+              />
+            </template>
+            <div v-else class="empty">
+              <svg viewBox="0 0 44 44" width="44" height="44">
+                <path
+                  d="M10 8h24v28H10V8zM15 15h14M15 21h14M15 27h9"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <p>该线路下暂无记录</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 二级台账卡片流 -->
-      <div v-else class="ledger-flow">
-        <template v-if="ledgerGroup && ledgerGroup.records.length">
-          <RecordCard
-            v-for="r in ledgerGroup.records"
-            :key="r.id"
-            :record="r"
-            :is-manager="isManager"
-            @remove="removeRecord"
+      <!-- 暂存区页签（管理） -->
+      <div class="pane" :class="{ on: tab === 'staging' }">
+        <div class="pane-scroll">
+          <StagingPanel
+            :batches="stgBatches"
+            :detail="stgDetail"
+            :loading="stgLoading"
+            :error="stgError"
+            :team-id="teamId"
+            @reload="loadStaging"
+            @open="openBatch"
+            @back="stgDetail = null"
+            @save-row="saveStagingRow"
+            @import="importStaging"
+            @discard="discardStaging"
           />
-        </template>
-        <div v-else class="empty">
-          <p>该线路下暂无记录</p>
         </div>
       </div>
-    </template>
 
-    <!-- 暂存区页签 -->
-    <div v-else-if="tab === 'staging'" class="card">
-      <StagingPanel
-        :batches="stgBatches"
-        :detail="stgDetail"
-        :loading="stgLoading"
-        :error="stgError"
-        @reload="loadStaging"
-        @open="openBatch"
-        @back="stgDetail = null"
-        @save-row="saveStagingRow"
-        @import="importStaging"
-        @discard="discardStaging"
-      />
+      <!-- 冲突页签（管理） -->
+      <div class="pane" :class="{ on: tab === 'conflicts' }">
+        <div class="pane-scroll">
+          <ConflictPanel
+            :conflicts="cftList"
+            :loading="cftLoading"
+            :error="cftError"
+            @reload="loadConflicts"
+            @resolve="onResolveConflict"
+          />
+        </div>
+      </div>
     </div>
 
-    <!-- 冲突页签（管理） -->
-    <div v-else-if="tab === 'conflicts'" class="card">
-      <ConflictPanel
-        :conflicts="cftList"
-        :loading="cftLoading"
-        :error="cftError"
-        @reload="loadConflicts"
-        @resolve="onResolveConflict"
-      />
-    </div>
-
-    <!-- 同步页签（管理）：内网同步状态 + 知识库同步 -->
-    <div v-else-if="tab === 'sync'">
-      <SyncPanel :team-id="teamId" />
-    </div>
-
-    <!-- 导出 FAB -->
-    <button class="fab" title="导出统计表" @click="openExport">
-      <svg viewBox="0 0 20 20" width="20" height="20">
+    <!-- 导出 FAB（右下角悬浮圆形品牌蓝；点击弹层选导出范围 / 按线路分表，再预览或下载） -->
+    <button class="fab" type="button" title="导出统计表" @click="openExport">
+      <svg viewBox="0 0 22 22" width="22" height="22">
         <path
-          d="M10 3v9m0 0l-3.2-3.2M10 12l3.2-3.2M4 15.5h12"
+          d="M11 3v10m0 0l-4-4m4 4l4-4M4 18h14"
           fill="none"
           stroke="currentColor"
           stroke-width="1.8"
           stroke-linecap="round"
+          stroke-linejoin="round"
         />
       </svg>
     </button>
@@ -225,9 +327,9 @@ import RecordCard from '../features/crossing/RecordCard.vue';
 import ExportDialog from '../features/crossing/ExportDialog.vue';
 import StagingPanel from '../features/crossing/StagingPanel.vue';
 import ConflictPanel from '../features/crossing/ConflictPanel.vue';
-import SyncPanel from '../features/crossing/SyncPanel.vue';
 import {
   fmtKv,
+  fmtDate,
   lineStats,
   saveBlob,
   sortLineGroups,
@@ -247,7 +349,7 @@ async function loadTeams() {
   if (me.role !== 'admin') return;
   try {
     const list = await api.listTeams();
-    teamOptions.value = list.map((t) => ({ label: t.name, value: t.id }));
+    teamOptions.value = list.map((t) => ({ id: t.id, name: t.name }));
     const saved = Number(localStorage.getItem(TEAM_KEY)) || 0;
     if (list.some((t) => t.id === saved)) teamId.value = saved;
     else if (list.length) {
@@ -259,8 +361,8 @@ async function loadTeams() {
   }
 }
 
-function onTeamChange(v) {
-  localStorage.setItem(TEAM_KEY, String(v));
+function onTeamChange() {
+  localStorage.setItem(TEAM_KEY, String(teamId.value));
   loadAll();
 }
 
@@ -277,6 +379,8 @@ const lineSearch = ref('');
 function dashVal(v) {
   return v == null ? '—' : v;
 }
+// 隐患类计数仅 >0 才红显，=0 弱化为辅助灰
+const hazClass = computed(() => (Number(dash.value.hazard) > 0 ? 'red' : 'zero'));
 
 async function loadDashboard() {
   try {
@@ -347,6 +451,11 @@ const visibleLineGroups = computed(() => {
 });
 
 const ledgerGroup = computed(() => allGroups.value.find((g) => g.key === curLine.value) || null);
+const ledgerSubHtml = computed(() => {
+  if (!ledgerGroup.value) return '';
+  const st = lineStats(ledgerGroup.value.records);
+  return `<span class="${st.hz > 0 ? 'ls-key' : ''}">存在隐患 ${st.hz}</span> · 共 ${st.total} 条`;
+});
 
 function openLedger(key) {
   curLine.value = key;
@@ -359,7 +468,7 @@ function backToLines() {
 
 // ---- 记录删除 ----
 async function removeRecord(id) {
-  if (!window.confirm('删除后不可恢复，确定删除该交跨记录吗？')) return;
+  if (!window.confirm('删除后不可恢复，确定删除吗？')) return;
   try {
     await api.deleteRecord(id, teamId.value);
     MessagePlugin.success('已删除');
@@ -492,7 +601,7 @@ async function importStaging(recordIds) {
     MessagePlugin.success(`已转入 ${(r && r.imported) || 0} 条`);
     loadDashboard();
     loadRecords(true);
-    openBatch(d.batch.id, true);
+    openBatch(d.batch.id, true); // 批次行空后服务端置 imported，详情 404 时静默回列表
   } catch (e) {
     MessagePlugin.error(e.message || '导入失败');
   }
@@ -517,15 +626,82 @@ async function discardStaging() {
   }
 }
 
+// ---- 同步至内网 / 同步知识库（管理；旧版工具行口径） ----
+const sync = ref(null); // {enabled,running,last,nextNight}
+const syncBusy = ref(false);
+const wxSyncing = ref(false);
+const syncHint = computed(() => {
+  const st = sync.value;
+  if (!st) return '';
+  if (st.running) return '同步中…';
+  if (st.enabled === false) return '同步未启用';
+  let text = '每日 24:00 自动同步';
+  if (st.nextNight) text += ' · 下次 ' + fmtDate(st.nextNight, true);
+  if (st.last)
+    text +=
+      ' · 最近 ' +
+      fmtDate(st.last.created_at, true) +
+      (st.last.result ? ' · ' + st.last.result : '');
+  return text;
+});
+
+async function loadSyncStatus() {
+  if (!isManager) return;
+  try {
+    sync.value = (await api.getSyncStatus(teamId.value)) || null;
+  } catch (e) {
+    sync.value = null;
+  }
+}
+// pushSync 手动触发一轮内网同步：started 仅表示已发起，结果以后续状态与站内通知为准，不假成功。
+async function pushSync() {
+  if (syncBusy.value) return;
+  syncBusy.value = true;
+  try {
+    await api.syncPushNow(teamId.value);
+    MessagePlugin.success('已触发同步，结果见同步状态与站内通知');
+    await loadSyncStatus();
+  } catch (e) {
+    MessagePlugin.error(e.message || '触发同步失败');
+  } finally {
+    syncBusy.value = false;
+  }
+}
+// pushWxSync 知识库快照同步：errors 非空如实按部分失败提示，不假成功。
+async function pushWxSync() {
+  if (wxSyncing.value) return;
+  wxSyncing.value = true;
+  try {
+    const d = (await api.weknoraPushNow(teamId.value)) || {};
+    const errs = d.errors || [];
+    if (errs.length) {
+      if ((d.created || 0) + (d.updated || 0) + (d.deleted || 0) > 0) {
+        MessagePlugin.warning(`已同步至知识库（失败 ${errs.length} 项）`);
+      } else {
+        MessagePlugin.error(errs[0]);
+      }
+    } else {
+      MessagePlugin.success('已同步至知识库');
+    }
+  } catch (e) {
+    MessagePlugin.error(e.message || '知识库同步失败');
+  } finally {
+    wxSyncing.value = false;
+  }
+}
+
 function switchTab(t) {
+  if (tab.value === t) return;
   tab.value = t;
-  if (t === 'staging' && !stgBatches.value.length && !stgLoading.value) loadStaging();
-  if (t === 'conflicts' && !cftLoading.value) loadConflicts();
+  // 暂存区 / 冲突每次切回都重拉（可能被其他管理员改动）
+  if (t === 'staging') loadStaging();
+  if (t === 'conflicts') loadConflicts();
 }
 
 function loadAll() {
   loadDashboard();
   loadRecords();
+  loadSyncStatus();
 }
 
 onMounted(() => {
@@ -534,24 +710,100 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.spacer {
-  flex: 1;
-}
-.cx-dash {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
-  align-items: stretch;
-}
-.dc {
+/* ===== 整页骨架：页头/看板/工具行/页签固定，仅页签内容区内部滚动（同旧版 cx-wrap 口径） ===== */
+.cx-wrap {
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+}
+
+/* ===== 页头 ===== */
+.cx-head {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 24px;
+  flex-wrap: wrap;
+}
+.cx-head .section-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  margin: 0;
+}
+.cx-kick {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--tk-brand);
+  animation: cx-fade 0.5s var(--tk-ease) 0.06s both;
+}
+.cx-head h3 {
+  margin: 6px 0 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 1px;
+  animation: cx-fade 0.55s var(--tk-ease) 0.12s both;
+}
+.cx-head .more {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--tk-sub);
+  letter-spacing: 0.5px;
+  animation: cx-fade 0.55s var(--tk-ease) 0.2s both;
+}
+.cx-head .acts {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  animation: cx-fade 0.55s var(--tk-ease) 0.28s both;
+}
+.cx-team {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+.cx-team:focus {
+  border-color: var(--tk-brand);
+}
+
+/* ===== 看板四格卡 ===== */
+.cx-dash {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-top: 16px;
+  animation: cx-fade 0.55s var(--tk-ease) 0.3s both;
+}
+@media (max-width: 900px) {
+  .cx-dash {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.dc {
+  padding: 16px 20px 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
 }
 .dc-n {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
   color: var(--tk-ink);
 }
 .dc-n.blue {
@@ -560,91 +812,399 @@ onMounted(() => {
 .dc-n.red {
   color: var(--tk-red);
 }
+.dc-n.zero {
+  color: var(--tk-ph);
+} /* 隐患类计数为 0：不标红，弱化为辅助灰 */
 .dc-t {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--tk-sub);
+  letter-spacing: 0.5px;
 }
 .dash-todo {
   grid-column: 1 / -1;
-  font-size: 12.5px;
+  margin-top: -4px;
+  font-size: 12px;
   color: var(--tk-sub);
+  letter-spacing: 0.5px;
   display: flex;
-  gap: 6px;
   align-items: center;
+  gap: 6px;
+}
+.dash-todo > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--tk-yellow);
+  flex: none;
 }
 .dash-todo a {
-  color: var(--tk-brand);
+  font-weight: 700;
   cursor: pointer;
+  color: var(--tk-brand);
 }
-.bdg {
-  margin-left: 6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--tk-red);
-  color: #fff;
-  font-size: 11px;
+
+/* ===== 工具行：同步至内网 / 同步知识库（管理角色可见） ===== */
+.cx-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  animation: cx-fade 0.55s var(--tk-ease) 0.36s both;
+}
+.sync-hint {
+  font-size: 11.5px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+}
+
+/* ===== 页签：下划线式（激活蓝字 + 2px 蓝条，角标红胶囊） ===== */
+.cx-tabs {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 14px;
+  border-bottom: 1px solid var(--tk-line);
+  animation: cx-fade 0.55s var(--tk-ease) 0.4s both;
+}
+.cx-tabs button {
+  position: relative;
+  padding: 9px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--tk-sub);
+  letter-spacing: 0.5px;
+  transition: color 0.15s;
+}
+.cx-tabs button:hover {
+  color: var(--tk-ink);
+}
+.cx-tabs button.on {
+  color: var(--tk-brand);
+}
+.cx-tabs button.on::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--tk-brand);
+  border-radius: 2px;
+}
+.bdg {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--tk-red);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 主体：三页签共用列表位，内容各自内部滚动 ===== */
+.cx-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 14px;
+}
+.cx-body .pane {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.cx-body .pane.on {
+  display: flex;
+  animation: cx-pane-in 0.34s var(--tk-ease);
+}
+.pane-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 10px;
+  padding-bottom: 64px; /* 底部内容给右下角 FAB 留位 */
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.pane-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.pane-scroll::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.pane-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.pane-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ===== 记录页签顶栏 ===== */
+.rec-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
 }
 .rec-search {
-  width: 260px;
+  flex: 1;
+  min-width: 220px;
+  max-width: 420px;
+  height: 36px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--tk-fill);
+  border-radius: 8px;
+}
+.rec-search svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--tk-ph);
+}
+.rec-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: var(--tk-ink);
+  font-family: inherit;
+  letter-spacing: 0.5px;
 }
 .ledger-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
 }
 .ledger-sub {
-  font-size: 12.5px;
-  color: var(--tk-sub);
+  font-size: 12px;
+  color: var(--tk-ph);
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
 }
+.ledger-sub :deep(.ls-key) {
+  color: var(--tk-red);
+} /* 存在隐患>0：危险红 */
+
+/* ===== 一级「线路视图」：线路大卡片网格 ===== */
 .lc-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 14px;
 }
 .lc {
+  padding: 18px 20px 16px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 12px;
-  cursor: pointer;
-  animation: lc-in 0.5s var(--tk-ease) both;
+  transition:
+    transform 0.18s var(--tk-ease),
+    box-shadow 0.18s var(--tk-ease);
+  animation: cx-rise 0.5s var(--tk-ease) both; /* 编排式上浮入场，逐卡时延链由行内 animation-delay 给出 */
 }
 .lc:hover {
+  transform: translateY(-2px);
   box-shadow: var(--tk-shadow-hover);
 }
+.lc-main {
+  flex: 1;
+  min-width: 0;
+}
 .lc-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
 }
 .lc-stats {
-  margin-top: 8px;
+  margin-top: 10px;
   display: flex;
-  gap: 12px;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
   font-size: 12px;
-  color: var(--tk-sub);
+  letter-spacing: 0.5px;
 }
 .lc-stats b {
-  margin-left: 4px;
-  font-size: 15px;
+  margin-left: 3px;
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
+.lc-key,
 .lc-key b {
   color: var(--tk-red);
-}
+} /* 存在隐患：>0 红字 */
 .lc-total {
   color: var(--tk-ph);
 }
+.lc-clear .lc-key,
 .lc-clear .lc-key b {
   color: var(--tk-ph);
-}
+} /* 隐患为 0：计数整体置灰 */
 .lc-go {
-  margin-left: auto;
-  color: var(--tk-dash);
-  font-size: 18px;
+  flex: none;
+  display: flex;
+  color: var(--tk-ph);
 }
-@keyframes lc-in {
+
+/* ===== 二级台账卡片流 ===== */
+.ledger-flow {
+  display: flex;
+  flex-direction: column;
+}
+/* 视图切换 fade + slide 入场 */
+.view-in {
+  animation: cx-rise 0.34s var(--tk-ease);
+}
+
+/* ===== 加载 / 空态 ===== */
+.spin {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2.5px solid var(--tk-line);
+  border-top-color: var(--tk-brand);
+  animation: cx-rot 1s linear infinite;
+}
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: var(--tk-ph);
+  font-size: 12.5px;
+  letter-spacing: 1px;
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 56px 20px;
+  color: var(--tk-ph);
+}
+.empty svg {
+  width: 44px;
+  height: 44px;
+  color: var(--tk-dash);
+}
+.empty p {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+/* ===== 旧式按钮 ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 8px;
+  border: 1px solid var(--tk-line);
+  background: #fff;
+  color: var(--tk-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    color 0.15s,
+    filter 0.15s,
+    background 0.15s;
+}
+.btn:hover {
+  border-color: var(--tk-brand);
+  color: var(--tk-brand);
+}
+.btn:active:not([disabled]) {
+  transform: translateY(1px);
+}
+.btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-primary {
+  color: #fff;
+  border-color: transparent;
+  background: var(--tk-brand);
+}
+.btn-primary:hover {
+  color: #fff;
+  filter: brightness(0.92);
+}
+.btn-sm {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
+/* ===== 导出 FAB（右下角悬浮圆形品牌蓝） ===== */
+.fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 110;
+  width: 52px;
+  height: 52px;
+  border: none;
+  border-radius: 50%;
+  background: var(--tk-brand);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 20px rgba(14, 61, 168, 0.32);
+  transition:
+    transform 0.18s var(--tk-ease),
+    box-shadow 0.18s var(--tk-ease);
+}
+.fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 26px rgba(14, 61, 168, 0.4);
+}
+
+/* ===== 入场关键帧 ===== */
+@keyframes cx-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes cx-rise {
   from {
     opacity: 0;
     transform: translateY(14px);
@@ -654,41 +1214,30 @@ onMounted(() => {
     transform: none;
   }
 }
-.ledger-flow {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+@keyframes cx-rot {
+  to {
+    transform: rotate(360deg);
+  }
 }
-.loading {
-  padding: 30px;
-  text-align: center;
-  color: var(--tk-ph);
-  font-size: 13px;
+@keyframes cx-pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
-.empty {
-  padding: 36px;
-  text-align: center;
-  color: var(--tk-ph);
-  font-size: 13px;
-}
-.fab {
-  position: fixed;
-  right: 28px;
-  bottom: 28px;
-  width: 52px;
-  height: 52px;
-  border: none;
-  border-radius: 50%;
-  background: var(--tk-brand);
-  color: #fff;
-  cursor: pointer;
-  box-shadow: var(--tk-shadow-hover);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 20;
-}
-.fab:hover {
-  background: var(--tk-brand-deep);
+
+/* ===== 动效降级 ===== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
 }
 </style>

@@ -1,7 +1,10 @@
 <template>
   <div v-if="open" class="wl-modal-mask" @click.self="close">
     <div class="wl-modal card sg-pull-modal">
-      <h3 class="card-title">从商旅拉取</h3>
+      <div class="m-head">
+        <h3 class="m-title">从商旅拉取</h3>
+        <button type="button" class="m-x" aria-label="关闭" @click="close">×</button>
+      </div>
       <div class="sub-text">
         选择区段后，按「日期 × 用车人」逐人拉取打卡/费用数据，以商旅平台为准覆盖本地。
       </div>
@@ -260,5 +263,62 @@ function close() {
   font-size: 13px;
   color: var(--tk-ink);
   background: #fff;
+}
+/* ===== 旧版弹层骨架覆写（.mask/.modal/.m-head/.m-title/.m-x） ===== */
+.wl-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  padding: 24px;
+  background: rgba(29, 33, 41, 0.45);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wl-modal {
+  background: #fff;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  width: 520px;
+  max-width: 94vw;
+  max-height: 86vh;
+  overflow: hidden auto;
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--tk-shadow-card);
+}
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.m-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin: 0;
+}
+.m-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tk-ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+}
+.m-x:hover {
+  background: var(--tk-ink);
+  color: #fff;
 }
 </style>
