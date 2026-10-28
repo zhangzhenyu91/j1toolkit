@@ -75,6 +75,19 @@ func ParseSM2PrivateKey(s string) (*sm2.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cryptoaudio: SM2 私钥 hex 解码: %w", err)
 	}
+	// sm-crypto 接受前导零标量（如 33 字节 00||32B）；Go 严格乘法器只收 32B。
+	// 仅规整前导零，超出 32B 的非零前缀仍拒绝，不改变私钥数值。
+	for len(raw) > 32 && raw[0] == 0 {
+		raw = raw[1:]
+	}
+	if len(raw) > 32 {
+		return nil, errors.New("cryptoaudio: SM2 私钥标量超过 32 字节")
+	}
+	if len(raw) < 32 {
+		padded := make([]byte, 32)
+		copy(padded[32-len(raw):], raw)
+		raw = padded
+	}
 	return sm2.NewPrivateKey(raw)
 }
 

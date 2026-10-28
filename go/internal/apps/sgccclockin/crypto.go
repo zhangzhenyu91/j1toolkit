@@ -100,13 +100,10 @@ func (k Keys) MakeJWT(kind string) (string, error) {
 	header := b64url([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	var payload string
 	if kind == "tenant" {
-		body := map[string]any{"tenant": "newh5", "jti": newUUID(), "exp": now + 120, "iat": now}
-		b, _ := json.Marshal(body)
-		payload = b64url(b)
+		// 与 Node JSON.stringify 插入顺序逐字一致；不能让 map 按字母重排改变 uniID 原文。
+		payload = b64url([]byte(fmt.Sprintf(`{"tenant":"newh5","jti":%q,"exp":%d,"iat":%d}`, newUUID(), now+120, now)))
 	} else {
-		body := map[string]any{"sub": "slapp", "jti": newUUID(), "exp": now + 120}
-		b, _ := json.Marshal(body)
-		payload = b64url(b)
+		payload = b64url([]byte(fmt.Sprintf(`{"sub":"slapp","jti":%q,"exp":%d}`, newUUID(), now+120)))
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(header + "." + payload))
@@ -136,7 +133,13 @@ func (k Keys) jsonmEncryptBody(plainObj map[string]any, r int64) (string, error)
 		obj[k2] = v
 	}
 	obj["_r"] = r // Node 口径：{_r} 恒后置覆盖（JSON.stringify({...plainObj, _r: r})）
-	plain, _ := json.Marshal(obj)
+	var plain []byte
+	if clientID, hasID := plainObj["adClientId"]; hasID && len(obj) == 3 {
+		// ads 明文字段顺序与 Node 完全一致，避免 map 把 _r 提前。
+		plain = []byte(fmt.Sprintf(`{"adClientId":%q,"adSecret":%q,"_r":%d}`, clientID, plainObj["adSecret"], r))
+	} else {
+		plain, _ = json.Marshal(obj)
+	}
 	ct, err := cryptoaudio.AESEncryptECBB64(string(plain), key)
 	if err != nil {
 		return "", err
@@ -149,7 +152,7 @@ func (k Keys) jsonmEncryptBody(plainObj map[string]any, r int64) (string, error)
 	if err != nil {
 		return "", err
 	}
-	body := map[string]any{"data": ct, "sign": "04" + sign}
+	body := map[string]any{"data": ct, "sign": sign}
 	out, _ := json.Marshal(body)
 	return string(out), nil
 }

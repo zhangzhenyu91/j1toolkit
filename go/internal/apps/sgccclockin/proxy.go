@@ -21,6 +21,7 @@ import (
 func directTransport() http.RoundTripper {
 	rt := http.DefaultTransport.(*http.Transport).Clone()
 	rt.Proxy = nil
+	rt.DisableCompression = true // Node https.request 不协商 gzip，避免网关按压缩头分流应答
 	return rt
 }
 
@@ -68,11 +69,13 @@ func buildTransport(proxyURL string) (http.RoundTripper, error) {
 			DialContext:         dialerContext(d),
 			Proxy:               nil,
 			TLSHandshakeTimeout: 10 * time.Second,
+			DisableCompression:  true,
 		}, nil
 	case "http", "https":
 		return &http.Transport{
 			Proxy:               http.ProxyURL(u),
 			TLSHandshakeTimeout: 10 * time.Second,
+			DisableCompression:  true,
 		}, nil
 	default:
 		return nil, fmt.Errorf("SGCC_PROXY_URL 代理地址无效：不支持的代理协议 %q（仅支持 socks5/http/https）", u.Scheme)

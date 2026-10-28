@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"strings"
 	"sync"
 	"testing"
@@ -179,6 +180,57 @@ func TestPostSuppressesDefaultUserAgent(t *testing.T) {
 	}
 	if userAgent != "guo wang shang lu yun/3.3.7" {
 		t.Fatalf("调用方显式 App UA 必须保留，实际=%q", userAgent)
+	}
+}
+
+// dumpRoundTripper 发送前用 DumpRequestOut 留存原始报文，随后直接返回 200，不触真实网络。
+type dumpRoundTripper struct {
+	dump []byte
+	err  error
+}
+
+func (rt *dumpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	rt.dump, rt.err = httputil.DumpRequestOut(req, true)
+	return &http.Response{
+		Status:     "200 OK",
+		StatusCode: http.StatusOK,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader("ok")),
+		Request:    req,
+	}, nil
+}
+
+// TestPostPreservesProtocolHeaderCase 商旅 camelCase 头不得被 Go 规范化改形。
+// httptest 服务端读到的 Header 已被服务端规范化，不能作凭据；故注入自定义 RoundTripper，
+// 在发送前用 DumpRequestOut 检查原始报文大小写。
+func TestPostPreservesProtocolHeaderCase(t *testing.T) {
+	rt := &dumpRoundTripper{}
+	p := NewProtocol(testKeys(t))
+	p.Scheme = "http"
+	p.HTTP = &http.Client{Transport: rt} // 可注入（仅无代理时生效）
+	headers := map[string]string{
+		"uniID": "uid", "systemVersion": "Android 13", "deviceType": "Pixel 7",
+		"version-code": "202609232038", "secretKeyType": "2", "encFlag": "2",
+	}
+	if _, _, err := p.post(context.Background(), "", "sgcc-headercase.test", "ping", headers, "x"); err != nil {
+		t.Fatalf("请求失败: %v", err)
+	}
+	if rt.err != nil {
+		t.Fatalf("DumpRequestOut: %v", rt.err)
+	}
+	dump := string(rt.dump)
+	for _, key := range []string{"uniID", "systemVersion", "deviceType", "version-code", "secretKeyType", "encFlag"} {
+		if !strings.Contains(dump, "\r\n"+key+": ") {
+			t.Errorf("原始 header 键 %s 未保留，原始报文=\n%s", key, dump)
+		}
+	}
+	for _, key := range []string{"Uniid", "Systemversion", "Devicetype", "Version-Code", "Secretkeytype", "Encflag"} {
+		if strings.Contains(dump, "\r\n"+key+": ") {
+			t.Errorf("不应出现 Go 规范化 header 键 %s，原始报文=\n%s", key, dump)
+		}
 	}
 }
 

@@ -101,7 +101,9 @@ func (p *Protocol) post(ctx context.Context, proxyURL, host, path string, header
 		return 0, "", err
 	}
 	for k, v := range headers {
-		req.Header.Set(k, v)
+		// 直接写原始键，禁止 CanonicalMIMEHeaderKey 把 uniID/systemVersion 等改成另一形态；
+		// Node 保留 camelCase，商旅网关按这些原始键名校验，大小写变化会返回 503。
+		req.Header[k] = []string{v}
 	}
 	// Node https.request 默认不带 User-Agent；调用方未显式给出时用空切片阻止 Go 自动补
 	// Go-http-client/1.1（实测会触发网关 302）。JSONX 自带的商旅 App UA 必须原样保留。
@@ -171,15 +173,43 @@ func (p *Protocol) initSessionM(ctx context.Context, k Keys, proxyURL string) er
 	}
 	decoded, err := k.jsonmDecryptBody(raw)
 	if err != nil {
-		return fmt.Errorf("商旅 ads 初始化失败：HTTP %d", status)
+		return fmt.Errorf("商旅 ads 应答解密失败（HTTP %d）：%w", status, err)
 	}
 	list := extractList(decoded)
 	if status != 200 || len(list) == 0 {
-		return fmt.Errorf("商旅 ads 初始化失败：HTTP %d", status)
+		return fmt.Errorf("商旅 ads 初始化失败：%s", adsFailureSummary(status, decoded))
 	}
 	p.poolM = list
 	p.poolAT = p.now()
 	return nil
+}
+
+// adsFailureSummary 只保留状态与字段形状，不输出 uniID、密钥或原始应答。
+func adsFailureSummary(status int, decoded map[string]any) string {
+	parts := []string{fmt.Sprintf("HTTP %d", status)}
+	if decoded == nil {
+		return parts[0] + "，应答为空"
+	}
+	if v, ok := decoded["statusCode"]; ok {
+		parts = append(parts, "statusCode="+jsString(v))
+	}
+	for _, key := range []string{"msg", "message"} {
+		if msg, ok := decoded[key].(string); ok && strings.TrimSpace(msg) != "" {
+			parts = append(parts, truncate(strings.TrimSpace(msg), 80))
+			break
+		}
+	}
+	data, _ := decoded["data"].(map[string]any)
+	if data == nil {
+		parts = append(parts, "缺少 data.list")
+	} else if list, ok := data["list"].([]any); !ok {
+		parts = append(parts, "data.list 不是数组")
+	} else if len(list) == 0 {
+		parts = append(parts, "uniID 列表为空")
+	} else {
+		parts = append(parts, "uniID 列表未正确读取")
+	}
+	return strings.Join(parts, "，")
 }
 
 func (p *Protocol) hostH5() string {

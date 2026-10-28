@@ -66,6 +66,12 @@ func TestJSONMBodyRoundtrip(t *testing.T) {
 	if !strings.HasPrefix(mustSign(t, body), "04") {
 		t.Fatalf("SM2 密文应带 04 前缀")
 	}
+	if strings.HasPrefix(mustSign(t, body), "0404") {
+		t.Fatalf("SM2 密文不得重复添加 04 前缀")
+	}
+	if len(mustSign(t, body)) != 226 {
+		t.Fatalf("16 字节 AES 密钥的 sign 应为 226 hex，实际 %d", len(mustSign(t, body)))
+	}
 	decoded, err := k.jsonmDecryptBody(mustSymmetric(t, k, body))
 	if err != nil {
 		t.Fatalf("解密: %v", err)
@@ -164,6 +170,14 @@ func TestMakeJWT(t *testing.T) {
 	payload2, _ := base64.RawURLEncoding.DecodeString(strings.Split(token2, ".")[1])
 	if !strings.Contains(string(payload2), "slapp") {
 		t.Fatalf("slapp 型 payload 缺 sub: %s", payload2)
+	}
+	if !strings.HasPrefix(string(payload), `{"tenant":"newh5","jti":`) ||
+		!strings.Contains(string(payload), `,"exp":`) || !strings.Contains(string(payload), `,"iat":`) {
+		t.Fatalf("tenant payload 字段或顺序与 Node 不符: %s", payload)
+	}
+	if !strings.HasPrefix(string(payload2), `{"sub":"slapp","jti":`) ||
+		!strings.Contains(string(payload2), `,"exp":`) {
+		t.Fatalf("slapp payload 字段或顺序与 Node 不符: %s", payload2)
 	}
 }
 

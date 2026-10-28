@@ -592,7 +592,7 @@ func TestLoginSmsWireReplay(t *testing.T) {
 			t.Errorf("SM2 加密: %v", err)
 			return
 		}
-		out, _ := json.Marshal(map[string]any{"data": ct, "sign": "04" + sign})
+		out, _ := json.Marshal(map[string]any{"data": ct, "sign": sign})
 		w.Header().Set("Content-Type", "application/jsonm")
 		_, _ = w.Write(out)
 	}))
