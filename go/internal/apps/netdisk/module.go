@@ -105,12 +105,12 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 		// ---- 免登录区 ----
 		r.Get("/preview/{token}", m.handlePreviewStream)
 		r.Get("/preview/{token}/{name}", m.handlePreviewStream)
-		r.Route("/public/share/{id}", func(r chi.Router) {
-			r.Get("/", m.handleShareInfo)
-			r.Post("/verify", m.handleShareVerify)
-			r.Post("/list", m.handleShareList)
-			r.Get("/download", m.handleShareDownload)
-		})
+		// 公开分享（Express 非严格路由：带/不带尾斜杠同径，两形态都注册）。
+		r.Get("/public/share/{id}", m.handleShareInfo)
+		r.Get("/public/share/{id}/", m.handleShareInfo)
+		r.Post("/public/share/{id}/verify", m.handleShareVerify)
+		r.Post("/public/share/{id}/list", m.handleShareList)
+		r.Get("/public/share/{id}/download", m.handleShareDownload)
 
 		// ---- 登录 + netdisk 应用权限 ----
 		r.Group(func(r chi.Router) {

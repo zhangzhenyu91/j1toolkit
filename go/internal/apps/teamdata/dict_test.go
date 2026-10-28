@@ -45,11 +45,15 @@ func TestVehicleList(t *testing.T) {
 func TestDictListExtraColumns(t *testing.T) {
 	fake, srv := newTestEnv(t, admin())
 	fake.on("FROM worklog_member WHERE team_id = ?", []string{"id", "name", "sort", "status", "user_id"},
-		[][]driverRow{{int64(1), "张三", int64(1), int64(1), int64(9)}})
+		[][]driverRow{{int64(1), "张三", int64(1), int64(1), int64(9)}, {int64(2), "李四", int64(2), int64(1), nil}})
 	_, body := do(t, srv, http.MethodGet, "/api/v1/teamdata/members", nil)
-	item := body["data"].(map[string]any)["list"].([]any)[0].(map[string]any)
+	list := body["data"].(map[string]any)["list"].([]any)
+	item := list[0].(map[string]any)
 	if item["user_id"] != float64(9) {
 		t.Fatalf("成员应带 user_id: %v", item)
+	}
+	if list[1].(map[string]any)["user_id"] != nil {
+		t.Fatalf("未绑定账号 user_id 应为 null: %v", list[1])
 	}
 
 	fake.on("FROM worklog_destination WHERE team_id = ?", []string{"id", "name", "sort", "status", "out_of_city", "stationed"},
@@ -123,6 +127,17 @@ func TestDestinationFlagExclusion(t *testing.T) {
 	// out_of_city=1、stationed=0 写在 SQL 里、id=5
 	if !containsAll(ex.query, "stationed = 0") || len(ex.args) != 2 || ex.args[0] != int64(1) || ex.args[1] != int64(5) {
 		t.Fatalf("互斥标记参数不符: query=%q args=%v", ex.query, ex.args)
+	}
+
+	// 布尔入参按 JS Number(true)=1 口径。
+	status, body = do(t, srv, http.MethodPut, "/api/v1/teamdata/destinations/5",
+		map[string]any{"stationed": true})
+	if status != http.StatusOK {
+		t.Fatalf("布尔标记驻地应 200，got %d %v", status, body)
+	}
+	ex, ok = fake.lastExec("UPDATE worklog_destination SET stationed = ?")
+	if !ok || ex.args[0] != int64(1) {
+		t.Fatalf("布尔 true 应写 1: %+v", ex)
 	}
 }
 

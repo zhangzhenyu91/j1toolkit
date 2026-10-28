@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // ---- 路径防护（normRel/validName/sanitize*）----
@@ -87,7 +90,10 @@ func TestZipSegment(t *testing.T) {
 	if zipSegment("a.txt") != "a.txt" {
 		t.Fatal("合法段被拒")
 	}
-	for _, bad := range []string{"", "..", ".", "a/b", "c:x", "a\nb"} {
+	if zipSegment("a-b:c") != "a-b:c" {
+		t.Fatal("非盘符式冒号段被误拒")
+	}
+	for _, bad := range []string{"", "..", ".", "a/b", "c:x", "abcd:x", "a\nb"} {
 		if zipSegment(bad) != "" {
 			t.Fatalf("非法 ZIP 段 %q 通过", bad)
 		}
@@ -119,6 +125,16 @@ func fakeOpenList(t *testing.T) (*httptest.Server, *int64) {
 			_, _ = w.Write([]byte(`{"code":200,"data":{"name":"a.txt","is_dir":false,"size":3,"modified":"2026-10-27 10:00:00","sign":"s1"}}`))
 		case r.URL.Path == "/api/fs/mkdir" || r.URL.Path == "/api/fs/rename" ||
 			r.URL.Path == "/api/fs/remove" || r.URL.Path == "/api/fs/move" || r.URL.Path == "/api/fs/copy":
+			_, _ = w.Write([]byte(`{"code":200,"data":null}`))
+		case r.URL.Path == "/api/fs/archive/meta":
+			_, _ = w.Write([]byte(`{"code":200,"data":{"encrypted":false,"comment":"cmt","sign":"s1","content":[
+        {"name":"a.txt","is_dir":false,"size":3,"modified":"2026-10-27 10:00:00"},
+        {"name":"d","is_dir":true,"size":0,"modified":"2026-10-27 10:00:00","children":[
+          {"name":"y.txt","is_dir":false,"size":1,"modified":"2026-10-27 10:00:00"}]}]}}`))
+		case r.URL.Path == "/api/fs/archive/list":
+			_, _ = w.Write([]byte(`{"code":200,"data":{"content":[
+        {"name":"f.txt","is_dir":false,"size":2,"modified":"2026-10-27 10:00:00"}]}}`))
+		case r.URL.Path == "/api/fs/archive/decompress":
 			_, _ = w.Write([]byte(`{"code":200,"data":null}`))
 		case strings.HasPrefix(r.URL.Path, "/api/fs/multipart"):
 			_, _ = w.Write([]byte(`{"code":200,"data":{"upload_id":"abcd-1234-abcd-1234","state":"in_progress"}}`))
@@ -357,5 +373,260 @@ func TestSpacesListsTeamPublic(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "公共区") {
 		t.Fatalf("公共区缺失: %s", rec.Body.String())
+	}
+}
+
+// ---- 分享公开访问（Node 契约回归）----
+
+// newShareTestModule 构造分享/压缩包测试模块（fake OpenList + 假库分享行）。
+func newShareTestModule(t *testing.T, srvURL string) (*Module, http.Handler) {
+	t.Helper()
+	m := New(nil)
+	m.OL = &OpenListHTTP{BaseURL: srvURL, Username: "u", Password: "p"}
+	m.Base = BaseDirs{PersonalRoot: "/nd/my", PublicRoot: "/nd/pub"}
+	m.JWTSecret = "s"
+	return m, newTestRouter(t, m)
+}
+
+func TestShareListBodyTicketPath(t *testing.T) {
+	srv, _ := fakeOpenList(t)
+	m, r := newShareTestModule(t, srv.URL)
+	tk := m.signTicket(jwt.MapClaims{"sid": "abcd1234ef"}, time.Hour)
+	// 票据与 path 同放 body：不得因 body 被 shareAuth 提前消费而丢 path（双读回归）。
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/public/share/abcd1234ef/list",
+		strings.NewReader(`{"ticket":"`+tk+`","path":"/docs"}`))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list 失败: %d %s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Data struct {
+			Path  string `json:"path"`
+			Items []any  `json:"items"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env.Data.Path != "/docs" {
+		t.Fatalf("body 内 path 丢失（双读 bug 回归）: %s", rec.Body.String())
+	}
+	if len(env.Data.Items) != 2 {
+		t.Fatalf("下钻 items 错误: %s", rec.Body.String())
+	}
+}
+
+func TestShareInfoRouteForms(t *testing.T) {
+	srv, _ := fakeOpenList(t)
+	_, r := newShareTestModule(t, srv.URL)
+	for _, p := range []string{
+		"/api/v1/netdisk/public/share/abcd1234ef",
+		"/api/v1/netdisk/public/share/abcd1234ef/",
+	} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "阿狸") {
+			t.Fatalf("分享信息 %s 失败: %d %s", p, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// ---- 压缩包契约（Node 映射口径）----
+
+func TestArchiveMetaListShape(t *testing.T) {
+	srv, _ := fakeOpenList(t)
+	_, r := newShareTestModule(t, srv.URL)
+
+	// meta：{encrypted, comment, content} 映射 rel/children；上游 sign 不外发。
+	req := withFakeAuth(httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/archive/meta",
+		strings.NewReader(`{"space":"my","path":"/pack.zip"}`)))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("meta 失败: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"sign"`) {
+		t.Fatalf("sign 不应外发: %s", rec.Body.String())
+	}
+	var env struct {
+		Data struct {
+			Encrypted bool   `json:"encrypted"`
+			Comment   string `json:"comment"`
+			Content   []struct {
+				Name     string `json:"name"`
+				Rel      string `json:"rel"`
+				Children []struct {
+					Rel string `json:"rel"`
+				} `json:"children"`
+			} `json:"content"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env.Data.Comment != "cmt" || len(env.Data.Content) != 2 {
+		t.Fatalf("meta 映射错误: %s", rec.Body.String())
+	}
+	if env.Data.Content[0].Rel != "/a.txt" {
+		t.Fatalf("rel 映射错误: %s", rec.Body.String())
+	}
+	if len(env.Data.Content[1].Children) != 1 || env.Data.Content[1].Children[0].Rel != "/d/y.txt" {
+		t.Fatalf("children rel 映射错误: %s", rec.Body.String())
+	}
+
+	// list：{inner_path, items} 包装 + rel 映射。
+	req = withFakeAuth(httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/archive/list",
+		strings.NewReader(`{"space":"my","path":"/pack.zip","inner_path":"/d"}`)))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list 失败: %d %s", rec.Code, rec.Body.String())
+	}
+	var env2 struct {
+		Data struct {
+			InnerPath string `json:"inner_path"`
+			Items     []struct {
+				Name string `json:"name"`
+				Rel  string `json:"rel"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env2)
+	if env2.Data.InnerPath != "/d" || len(env2.Data.Items) != 1 || env2.Data.Items[0].Rel != "/d/f.txt" {
+		t.Fatalf("list 映射错误: %s", rec.Body.String())
+	}
+}
+
+func TestArchiveDecompressNodeContract(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/auth/login":
+			_, _ = w.Write([]byte(`{"code":200,"data":{"token":"tk-1"}}`))
+		case "/api/fs/mkdir":
+			_, _ = w.Write([]byte(`{"code":200,"data":null}`))
+		case "/api/fs/archive/decompress":
+			b, _ := io.ReadAll(r.Body)
+			gotBody = string(b)
+			_, _ = w.Write([]byte(`{"code":200,"data":null}`))
+		default:
+			_, _ = w.Write([]byte(`{"code":500,"message":"unknown"}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	_, r := newShareTestModule(t, srv.URL)
+
+	// Node 口径：{space, path, dst_dir, put_into_new_dir}（miniprogram / server/public 同款）。
+	req := withFakeAuth(httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/archive/decompress",
+		strings.NewReader(`{"space":"my","path":"/pack.zip","dst_dir":"/out","put_into_new_dir":true}`)))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Node 口径解压失败: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"src_dir":"/nd/my/alice"`, `"dst_dir":"/nd/my/alice/out"`, `"name":["pack.zip"]`,
+	} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("解压载荷缺 %s: %s", want, gotBody)
+		}
+	}
+
+	// web 批量口径仍可用（src_dir/names 形态）。
+	req = withFakeAuth(httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/archive/decompress",
+		strings.NewReader(`{"src_space":"my","src_dir":"/zips","names":["a.zip","b.zip"],"dst_space":"my","dst_dir":"/out2","put_into_new_dir":"false"}`)))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("批量口径解压失败: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(gotBody, `"name":["a.zip","b.zip"]`) || !strings.Contains(gotBody, `"dst_dir":"/nd/my/alice/out2"`) {
+		t.Fatalf("批量载荷错误: %s", gotBody)
+	}
+}
+
+func TestArchiveInnerPathValidation(t *testing.T) {
+	srv, _ := fakeOpenList(t)
+	_, r := newShareTestModule(t, srv.URL)
+
+	// list：内层路径穿越 → 400 内层路径不合法。
+	req := withFakeAuth(httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/archive/list",
+		strings.NewReader(`{"space":"my","path":"/pack.zip","inner_path":"/../x"}`)))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("穿越 inner 未拒绝: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// download：inner 为根 → 400 参数错误：path/inner。
+	req = withFakeAuth(httptest.NewRequest(http.MethodGet,
+		"/api/v1/netdisk/archive/download?space=my&path=/pack.zip&inner=/", nil))
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("inner 根未拒绝: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---- 上传分片与预览票据契约 ----
+
+func TestUploadChunkContract(t *testing.T) {
+	srv, _ := fakeOpenList(t)
+	_, r := newShareTestModule(t, srv.URL)
+
+	// 大写 upload_id（Node /i 口径）+ octet-stream → 200。
+	req := withFakeAuth(httptest.NewRequest(http.MethodPut, "/api/v1/netdisk/upload/chunk", strings.NewReader("BYTES")))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("X-Upload-Id", "ABCD1234ABCD1234")
+	req.Header.Set("X-Chunk-Index", "0")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("大写 upload_id 被拒: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Content-Type 非 octet-stream → 400（Node express.raw 口径）。
+	req2 := withFakeAuth(httptest.NewRequest(http.MethodPut, "/api/v1/netdisk/upload/chunk", strings.NewReader("BYTES")))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-Upload-Id", "abcd1234abcd1234")
+	req2.Header.Set("X-Chunk-Index", "0")
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusBadRequest {
+		t.Fatalf("非 octet-stream 未拒绝: %d %s", rec2.Code, rec2.Body.String())
+	}
+}
+
+func TestPreviewSignRejectsPdf(t *testing.T) {
+	srv, _ := fakeOpenList(t)
+	_, r := newShareTestModule(t, srv.URL)
+	// Node PREVIEW_MIME 白名单不含 pdf（pdf 走 ONLYOFFICE 承载页）。
+	req := withFakeAuth(httptest.NewRequest(http.MethodPost, "/api/v1/netdisk/preview/sign",
+		strings.NewReader(`{"space":"my","path":"/a.pdf"}`)))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("pdf 不应签预览票据: %d %s", rec.Code, rec.Body.String())
+	}
+	var env Envelope
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env.Code != codeNoTeam {
+		t.Fatalf("业务码 = %d want %d", env.Code, codeNoTeam)
+	}
+}
+
+func TestClientIPLoopbackForwarded(t *testing.T) {
+	// 回环反代：信任 X-Forwarded-For 首项（Node trust proxy 'loopback' 口径）。
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:5678"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9, 127.0.0.1")
+	if got := clientIP(req); got != "203.0.113.9" {
+		t.Fatalf("回环反代应取 XFF 首项: %q", got)
+	}
+	// 非回环来源不信任转发头。
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.RemoteAddr = "198.51.100.7:1234"
+	req2.Header.Set("X-Forwarded-For", "203.0.113.9")
+	if got := clientIP(req2); got != "198.51.100.7" {
+		t.Fatalf("非回环不应采信 XFF: %q", got)
 	}
 }

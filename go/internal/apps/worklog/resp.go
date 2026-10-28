@@ -24,6 +24,7 @@ const (
 	codeMemberUsed    = 40008 // 每人限一张
 	codePickMembers   = 40009
 	codePhotoFormat   = 40010
+	codeNoUsableTeam  = 40010 // 无可用班组 / 归属班组无效（Node 与照片格式同码 40010）
 	codePhotoSize     = 40011
 	codeDictName      = 40012
 	codeDateRange     = 40013
@@ -45,12 +46,14 @@ const (
 	codeMissing       = 40400
 	codeNoPhotos      = 40402
 	codeDupName       = 40900
+	// codeDictInUse / codeVerifyFailed 同为 Node 40901（字典被引用、汇总前核验拦截两场景同码）。
 	codeDictInUse     = 40901
-	codeVerifyFailed  = 40902 // 汇总前核验拦截（Node 40901 同码另一场景）
+	codeVerifyFailed  = 40901
 	codeOpRunning     = 40909
 	codeInternal      = 50000
 	codeDownload      = 50001 // ZIP 打包照片全部下载失败
 	codeUpstream      = 50201
+	codeSyncFail      = 50024 // 派车单手动同步失败
 	codeNotConfigured = 50301
 )
 
@@ -141,7 +144,7 @@ func rawNumberOr0(raw json.RawMessage) int64 {
 	return 0
 }
 
-// rawBool 取 JSON 字段的布尔（true/1/"true" 为真）。
+// rawBool 取 JSON 字段的布尔（true/非零数/"true"/"1" 为真，JS Number(x)?1:0 同口径）。
 func rawBool(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return false
@@ -150,7 +153,12 @@ func rawBool(raw json.RawMessage) bool {
 	if err := json.Unmarshal(raw, &b); err == nil {
 		return b
 	}
-	return strings.Trim(string(raw), `"`) == "true" || strings.TrimSpace(string(raw)) == "1"
+	var n float64
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n != 0
+	}
+	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	return s == "true" || s == "1"
 }
 
 // truncate 按列宽截断（入库前防 ER_DATA_TOO_LONG）。

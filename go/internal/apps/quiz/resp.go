@@ -121,6 +121,32 @@ func rawNumberOr0(raw json.RawMessage) int64 {
 	return int64(n)
 }
 
+// jsParseInt 按 JS parseInt(x, 10) 口径解析：跳过前导空白与符号，取前导连续数字（忽略尾随字符）；
+// 无数字返回 ok=false（调用方按 || 默认值 口径回落）。
+func jsParseInt(raw string) (int, bool) {
+	s := strings.TrimLeft(raw, " \t\r\n\v\f")
+	i := 0
+	sign := 1
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		if s[i] == '-' {
+			sign = -1
+		}
+		i++
+	}
+	start := i
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == start {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s[start:i])
+	if err != nil {
+		return 0, false
+	}
+	return sign * n, true
+}
+
 // rawHas 判定字段存在且非 null。
 func rawHas(raw json.RawMessage) bool {
 	return len(raw) > 0 && string(raw) != "null"

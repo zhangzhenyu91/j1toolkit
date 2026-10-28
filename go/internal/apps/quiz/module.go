@@ -144,7 +144,11 @@ func (m *Module) withApp(next handlerFunc) http.HandlerFunc {
 				return
 			}
 		}
-		team := m.resolveTeam(r.Context(), r, ident)
+		team, err := m.resolveTeam(r.Context(), r, ident)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
 		next(w, r, requestCtx{ident: ident, team: team})
 	}
 }
@@ -164,18 +168,47 @@ func (m *Module) manage(next handlerFunc) handlerFunc {
 	}
 }
 
-// resolveTeam 解析请求生效班组（超管可指定，其余固定本班；无可用班组返回 nil）。
-func (m *Module) resolveTeam(ctx context.Context, r *http.Request, ident auth.Identity) *httpapi.Team {
+// resolveTeam 解析请求生效班组（对齐 Node utils/team.js resolveTeam：超管逐级回落
+// wanted → 本班 → 默认班组，其余角色固定本班）。未分配/班组停用/无班组返回 (nil, nil)
+// （Node 侧 null 口径）；数据库错误原样返回，由调用方按旧版错误契约回 500。
+func (m *Module) resolveTeam(ctx context.Context, r *http.Request, ident auth.Identity) (*httpapi.Team, error) {
 	if m.DB == nil {
-		return nil
+		return nil, nil
 	}
 	wanted := parseWantedTeamID(r.URL.Query().Get("team_id"))
-	adapter := httpapi.IdentityAdapter{TeamID: ident.TeamID, Role: ident.Role}
-	team, err := httpapi.ResolveTeam(ctx, m.DB, adapter, wanted)
-	if err != nil {
-		return nil
+	if ident.Role == "admin" {
+		for _, id := range []int64{wanted, ident.TeamID} {
+			if id <= 0 {
+				continue
+			}
+			team, err := httpapi.TeamByID(ctx, m.DB, id)
+			if err == nil {
+				return &team, nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return nil, err
+			}
+		}
+		team, err := httpapi.DefaultTeam(ctx, m.DB)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &team, nil
 	}
-	return &team
+	if ident.TeamID == 0 {
+		return nil, nil
+	}
+	team, err := httpapi.TeamByID(ctx, m.DB, ident.TeamID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &team, nil
 }
 
 // parseWantedTeamID 按 JS Number(x) + Number.isInteger 判定。
@@ -353,12 +386,7 @@ func (m *Module) overview(w http.ResponseWriter, r *http.Request, rc requestCtx)
 	_ = m.DB.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) AS cnt FROM quiz_wrong WHERE user_id = ?`, rc.ident.ID).Scan(&wrongCnt)
 	totalAnswered := total.Int64
-	var rightRate any
-	if totalAnswered > 0 {
-		rightRate = int(float64(rights.Int64) / float64(totalAnswered) * 100)
-	} else {
-		rightRate = nil
-	}
+	rightRate := rateOrNil(totalAnswered, rights.Int64)
 	writeOK(w, map[string]any{
 		"totalAnswered": totalAnswered,
 		"rightRate":     rightRate,
@@ -459,20 +487,13 @@ func (m *Module) myBanks(w http.ResponseWriter, r *http.Request, rc requestCtx) 
 		us := ustats[b.ID]
 		uTotal := int64(0)
 		answered := int64(0)
-		var rightRate any
 		if us != nil {
 			uTotal = us["total"]
 			answered = us["answered"]
-			if uTotal > 0 {
-				rightRate = int(float64(us["rights"]) / float64(uTotal) * 100)
-			}
-		}
-		if rightRate == nil {
-			rightRate = nil
 		}
 		item := bankItem(b, st)
 		item["answeredCount"] = answered
-		item["rightRate"] = rightRate
+		item["rightRate"] = rateOrNil(uTotal, us["rights"])
 		list = append(list, item)
 	}
 	writeOK(w, map[string]any{"list": list})
@@ -606,11 +627,7 @@ func (m *Module) bankHome(w http.ResponseWriter, r *http.Request, rc requestCtx)
 	_ = m.DB.QueryRowContext(r.Context(),
 		`SELECT COUNT(DISTINCT question_id) AS answered, COUNT(*) AS total, SUM(is_right) AS rights
      FROM quiz_record WHERE user_id = ? AND bank_id = ?`, rc.ident.ID, b.ID).Scan(&answered, &total, &rights)
-	uTotal := total.Int64
-	var rightRate any
-	if uTotal > 0 {
-		rightRate = int(float64(rights.Int64) / float64(uTotal) * 100)
-	}
+	rightRate := rateOrNil(total.Int64, rights.Int64)
 	var wrongCnt, favCnt sql.NullInt64
 	_ = m.DB.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) AS cnt FROM quiz_wrong WHERE user_id = ? AND bank_id = ?`, rc.ident.ID, b.ID).Scan(&wrongCnt)
@@ -742,7 +759,8 @@ func (m *Module) bankUpdate(w http.ResponseWriter, r *http.Request, rc requestCt
 	}
 	scope := b.Scope
 	var teamID any = b.TeamID
-	if raw, has := body["scope"]; has && rawHas(raw) {
+	// Node 口径 body.scope !== undefined：键存在即生效（null/非 'all' 一律按 'team'）
+	if raw, has := body["scope"]; has {
 		wanted := "team"
 		if rawString(raw) == "all" {
 			wanted = "all"

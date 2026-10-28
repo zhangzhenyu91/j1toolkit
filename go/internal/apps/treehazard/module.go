@@ -4,7 +4,7 @@
 //
 // 路由基路径 /api/v1/treehazard；POST /ingest 凭 X-Ingest-Token 免登录（需主程序把该路径放行到
 // 鉴权中间件之外，见 httpapi.publicAuthPath），其余接口需登录 + tree-hazard 应用权限 + 生效班组，
-// 暂存区/设置修改/删记录限 超管 或 本班 team_admin。响应信封 {code,message,data} 沿用现有数字业务码。
+// 暂存区/设置修改/删记录/手动新增与编辑限 超管 或 本班 team_admin。响应信封 {code,message,data} 沿用现有数字业务码。
 package treehazard
 
 import (
@@ -148,6 +148,8 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 			r.Get("/dashboard", m.handleDashboard)
 			r.Get("/records", m.handleRecords)
 			r.Get("/records/{id}", m.handleRecordGet)
+			r.Post("/records", m.handleRecordCreate)
+			r.Put("/records/{id}", m.handleRecordUpdate)
 			r.Post("/records/{id}/handle", m.handleRecordHandle)
 			r.Post("/records/handle-batch", m.handleRecordHandleBatch)
 			r.Post("/records/{id}/photos", m.handlePhotoUpload)
@@ -253,7 +255,7 @@ func requireManager(ident auth.Identity, team httpapi.Team) bool {
 	return httpapi.RequireTeamAdmin(httpapi.IdentityAdapter{TeamID: ident.TeamID, Role: ident.Role}, team)
 }
 
-// requireManagerNow 当前请求的管理门控（暂存区/设置修改/删记录）。
+// requireManagerNow 当前请求的管理门控（暂存区/设置修改/删记录/手动新增与编辑）。
 func requireManagerNow(w http.ResponseWriter, r *http.Request) (httpapi.Team, auth.Identity, bool) {
 	team, ok := teamFrom(r.Context())
 	ident, _ := identityFrom(r.Context())
@@ -364,7 +366,7 @@ var schemaDDL = []string{
     handle_note VARCHAR(64) NOT NULL DEFAULT '' COMMENT '处理情况',
     handled_at DATE NULL COMMENT '处理时间',
     status VARCHAR(16) NOT NULL DEFAULT 'unhandled' COMMENT '状态：unhandled 未处理 / handled 已处理',
-    source VARCHAR(16) NOT NULL DEFAULT 'crane' COMMENT '来源：crane 直推 / staging 暂存区导入 / intranet 内网回写',
+    source VARCHAR(16) NOT NULL DEFAULT 'crane' COMMENT '来源：crane 直推 / staging 暂存区导入 / intranet 内网回写 / manual 手动录入',
     crane_session_id VARCHAR(64) NULL COMMENT 'crane-answer 排查会话 id（幂等键，空存 NULL）',
     crane_record_id VARCHAR(64) NULL COMMENT 'crane-answer 记录 id（幂等键，空存 NULL）',
     synced_at DATETIME NULL COMMENT '上次与内网同步时刻（NULL=从未同步，差异比对基准）',

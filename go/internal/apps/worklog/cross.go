@@ -35,8 +35,7 @@ func parseCrossBody(w http.ResponseWriter, body map[string]json.RawMessage) *cro
 	if raw, exists := body["member_names"]; exists {
 		var names []string
 		if err := jsonUnmarshal(raw, &names); err != nil {
-			fail(w, http.StatusBadRequest, codeInput, "参数错误")
-			return nil
+			names = nil // Node 同口径：非数组按空名单处理
 		}
 		seen := map[string]bool{}
 		for _, n := range names {
@@ -55,7 +54,7 @@ func parseCrossBody(w http.ResponseWriter, body map[string]json.RawMessage) *cro
 		return nil
 	}
 	if p.OwnerID <= 0 {
-		fail(w, http.StatusBadRequest, codeNoTeam, "归属班组无效或已停用")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "归属班组无效或已停用")
 		return nil
 	}
 	return p
@@ -154,7 +153,7 @@ func (m *Module) handleCrossMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ident.Role != "admin" {
-		fail(w, http.StatusForbidden, codeForbidden, "仅超级管理员可执行此操作")
+		fail(w, http.StatusForbidden, codeForbidden, "仅管理员可执行此操作")
 		return
 	}
 	teams := queryDictRows(r.Context(), m.DB,
@@ -217,7 +216,7 @@ func (m *Module) handleCrossCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ident.Role != "admin" {
-		fail(w, http.StatusForbidden, codeForbidden, "仅超级管理员可执行此操作")
+		fail(w, http.StatusForbidden, codeForbidden, "仅管理员可执行此操作")
 		return
 	}
 	body, err := decodeBody(r)
@@ -238,7 +237,7 @@ func (m *Module) handleCrossCreate(w http.ResponseWriter, r *http.Request) {
 	var ownerStatus int
 	if err := m.DB.QueryRowContext(r.Context(),
 		`SELECT name, status FROM sys_team WHERE id = ?`, parsed.OwnerID).Scan(&ownerName, &ownerStatus); err != nil || ownerStatus != 1 {
-		fail(w, http.StatusBadRequest, codeNoTeam, "归属班组无效或已停用")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "归属班组无效或已停用")
 		return
 	}
 
@@ -319,18 +318,18 @@ func (m *Module) handleCrossUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ident.Role != "admin" {
-		fail(w, http.StatusForbidden, codeForbidden, "仅超级管理员可执行此操作")
+		fail(w, http.StatusForbidden, codeForbidden, "仅管理员可执行此操作")
 		return
 	}
 	entryID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	var ownerTeamID, vehicleID, destID int64
 	var crossTeam int
-	var logDate string
+	var logDate, curOrderNo string
 	err := m.DB.QueryRowContext(r.Context(),
 		`SELECT team_id, COALESCE(vehicle_id, 0), COALESCE(destination_id, 0), cross_team,
-		        DATE_FORMAT(log_date, '%Y-%m-%d')
+		        DATE_FORMAT(log_date, '%Y-%m-%d'), COALESCE(dispatch_order_no, '')
 		 FROM worklog_entry WHERE id = ?`, entryID).
-		Scan(&ownerTeamID, &vehicleID, &destID, &crossTeam, &logDate)
+		Scan(&ownerTeamID, &vehicleID, &destID, &crossTeam, &logDate, &curOrderNo)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "日志不存在")
 		return
@@ -351,7 +350,7 @@ func (m *Module) handleCrossUpdate(w http.ResponseWriter, r *http.Request) {
 	var ownerStatus int
 	if err := m.DB.QueryRowContext(r.Context(),
 		`SELECT status FROM sys_team WHERE id = ?`, parsed.OwnerID).Scan(&ownerStatus); err != nil || ownerStatus != 1 {
-		fail(w, http.StatusBadRequest, codeNoTeam, "归属班组无效或已停用")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "归属班组无效或已停用")
 		return
 	}
 	if parsed.Plate == "" {
@@ -407,14 +406,22 @@ func (m *Module) handleCrossUpdate(w http.ResponseWriter, r *http.Request) {
 			newCross = 1
 		}
 	}
+	// 派车单号（Node 同口径）：表单提交以提交值为准；未提交该键则保留库内现值；未出车强制置空
+	orderVal := any(nil)
+	if newVehicleID != 0 {
+		orderVal = nullIfEmpty(curOrderNo)
+		if _, has := body["dispatch_order_no"]; has {
+			orderVal = nullIfEmpty(parsed.OrderNo)
+		}
+	}
 	tx, err := m.DB.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	if _, err := tx.ExecContext(r.Context(),
-		`UPDATE worklog_entry SET team_id = ?, patrol_content = ?, vehicle_id = ?, destination_id = ?, cross_team = ? WHERE id = ?`,
-		parsed.OwnerID, parsed.Patrol, nullIfZero(newVehicleID), nullIfZero(newDestID), newCross, entryID); err != nil {
+		`UPDATE worklog_entry SET team_id = ?, patrol_content = ?, vehicle_id = ?, destination_id = ?, cross_team = ?, dispatch_order_no = ? WHERE id = ?`,
+		parsed.OwnerID, parsed.Patrol, nullIfZero(newVehicleID), nullIfZero(newDestID), newCross, orderVal, entryID); err != nil {
 		tx.Rollback()
 		writeErr(w, err)
 		return

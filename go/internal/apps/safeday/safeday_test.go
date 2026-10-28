@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -286,6 +287,10 @@ func TestGenerate(t *testing.T) {
 	}
 	if record["sourceCount"] != float64(1) {
 		t.Fatalf("sourceCount 不符: %v", record)
+	}
+	// 出参 record 为建记录对象（对齐 Node：不含生成后写入的 sourceCosKey）
+	if _, has := record["sourceCosKey"]; has {
+		t.Fatalf("生成响应 record 不应含 sourceCosKey: %v", record)
 	}
 	// COS 已上传且记录了 sourceCosKey
 	if len(env.cos.objects) != 1 {
@@ -864,5 +869,49 @@ func TestResolveTemplatePath(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if got := ResolveTemplatePath(); got != defaultTemplatePath {
 		t.Fatalf("缺省应回 %q，got %q", defaultTemplatePath, got)
+	}
+}
+
+// TestDBErrorContracts 数据库错误按旧版契约回 500 与模块文案（form-meta / records / generate）。
+func TestDBErrorContracts(t *testing.T) {
+	// 生效班组解析失败（sys_team 查询错误）
+	env := newTestServer(t, identTeamA)
+	env.fake.onErr("FROM sys_team", errors.New("db down"))
+	rec := env.do(t, http.MethodGet, "/api/v1/safeday/form-meta", nil)
+	if body := decodeBodyMap(t, rec); rec.Code != http.StatusInternalServerError || !strings.HasPrefix(body["error"].(string), "表单数据加载失败") {
+		t.Fatalf("form-meta 库错应 500 表单数据加载失败: %d %v", rec.Code, body)
+	}
+	rec = env.do(t, http.MethodGet, "/api/v1/safeday/records", nil)
+	if body := decodeBodyMap(t, rec); rec.Code != http.StatusInternalServerError || !strings.HasPrefix(body["error"].(string), "读取记录失败") {
+		t.Fatalf("records 库错应 500 读取记录失败: %d %v", rec.Code, body)
+	}
+	rec = env.doMultipart(t, "/api/v1/safeday/generate", map[string]string{"name": "X", "date": "2026.10.27"},
+		map[string][]byte{"a.pdf": []byte("%PDF-1.4 fake")})
+	if body := decodeBodyMap(t, rec); rec.Code != http.StatusInternalServerError || !strings.HasPrefix(body["error"].(string), "生成请求处理失败") {
+		t.Fatalf("generate 库错应 500 生成请求处理失败: %d %v", rec.Code, body)
+	}
+
+	// 成员名单查询失败（worklog_member 查询错误）
+	env2 := newTestServer(t, identTeamA)
+	teamRules(env2.fake)
+	env2.fake.onErr("FROM worklog_member", errors.New("db down"))
+	rec = env2.do(t, http.MethodGet, "/api/v1/safeday/form-meta", nil)
+	if body := decodeBodyMap(t, rec); rec.Code != http.StatusInternalServerError || !strings.HasPrefix(body["error"].(string), "表单数据加载失败") {
+		t.Fatalf("成员查询失败应 500 表单数据加载失败: %d %v", rec.Code, body)
+	}
+}
+
+// TestAdminTeamFallback 超管指定不存在的 team_id 时按 Node 口径逐级回落本班（而非空结果）。
+func TestAdminTeamFallback(t *testing.T) {
+	env := newTestServer(t, identAdmin)
+	teamRules(env.fake)
+	// 指定班组不存在 → 回落本班（id=1 检修一班）
+	env.fake.onArgs("FROM sys_team WHERE id = ?", []driver.Value{int64(999)}, []string{"id", "name"}, nil)
+	_, _, _ = env.store.Create(Record{Name: "A", Date: "2026.10.30", FileName: "2026.10.30.docx", Team: "检修一班", Status: "done"})
+	rec := env.do(t, http.MethodGet, "/api/v1/safeday/records?team_id=999", nil)
+	body := decodeBodyMap(t, rec)
+	list, _ := body["records"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("指定班组无效应回落本班记录: %v", body)
 	}
 }

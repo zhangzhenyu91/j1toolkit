@@ -59,7 +59,7 @@ const routes = [
   {
     path: '/safeday',
     name: 'safeday',
-    meta: { title: '安全日' },
+    meta: { title: '安全日活动' },
     component: () => import('./views/SafedayView.vue'),
   },
   {
@@ -77,7 +77,7 @@ const routes = [
   {
     path: '/kvm',
     name: 'kvm',
-    meta: { title: 'KVM 远程' },
+    meta: { title: '远程控制' },
     component: () => import('./views/KvmView.vue'),
   },
   // 文件传输复用 KVM 视图（旧入口地址保留）

@@ -4,9 +4,10 @@
 //   ledger 台账视图：返回行 + 线路标题（未处理/要紧小字）+ 记录卡片流（后端已按 未处理在前已处理在后>区段升序 排好）。
 //           记录卡默认折叠一卡两行（区段+垂距双大字左对齐 / 树种×数量·水平距离·发现时间），每卡一枚折叠/展开开关（点卡同效），
 //           辅证照片条折叠态即展示（有图才显示、只读、点图预览），展开出其他信息、处理信息、处理前/后照片区（可上传可删）
-//           与 处理/删除 按钮——下一级详情页已取消，全部信息卡内承载；批量模式开关与批量处理条仅本视图可用（批量模式点击 = 勾选，已处理禁选）。
+//           与 处理/编辑/删除 按钮（编辑与删除限班管/超管）——下一级详情页已取消，全部信息卡内承载；批量模式开关与批量处理条仅本视图可用（批量模式点击 = 勾选，已处理禁选）。
 // 右下角全局悬浮导出 FAB：范围单选（全部线路 / 当前线路，线路视图为「选择线路」）+ 按线路分表开关（split=1，仅全部可勾）。
-// 班管/超管另有阈值设置与内网同步（线路视图工具行，图标化；删记录入口在卡片展开区）。
+// 班管/超管另有手动新增（两级视图工具行）与阈值设置、内网同步（线路视图工具行，图标化）；手动编辑入口在卡片展开区——
+// 新增/编辑共用同一表单弹层（发现 12 列 + 处理 3 列，线路名必填、校验失败不丢输入，成功后整表重拉）。
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；其余角色后端强制本班，不传
 import Toast from 'tdesign-miniprogram/toast/index';
 import Dialog from 'tdesign-miniprogram/dialog/index';
@@ -17,8 +18,8 @@ import { pad } from '../../../utils/util';
 
 const API_BASE = '/api/v1/treehazard';
 
-// 记录来源文案（treehazard_record.source：crane 直推 / staging 暂存区导入 / intranet 内网回写）
-const SOURCE_TEXT = { crane: '排查直推', staging: '暂存导入', intranet: '内网回写' };
+// 记录来源文案（treehazard_record.source：crane 直推 / staging 暂存区导入 / intranet 内网回写 / manual 手动录入）
+const SOURCE_TEXT = { crane: '排查直推', staging: '暂存导入', intranet: '内网回写', manual: '手动录入' };
 
 // 空值展示占位
 function dash(v) {
@@ -78,6 +79,30 @@ function mapRecord(r, threshold) {
   });
 }
 
+// blankEditForm 手动新增/编辑表单初值（*_text 为日期显示口径，提交不带）
+function blankEditForm() {
+  return {
+    line_name: '',
+    voltage_level: '',
+    section: '',
+    position_note: '',
+    tree_species: '',
+    tree_count: '',
+    dist_small: '',
+    dist_big: '',
+    diameter: '',
+    horizontal: '',
+    vertical: '',
+    finder_name: '',
+    found_at: '',
+    found_at_text: '',
+    handler_name: '',
+    handle_note: '',
+    handled_at: '',
+    handled_at_text: '',
+  };
+}
+
 Page({
   data: {
     gate: false, // 门控（参照 quiz bank 页 gate 模式）
@@ -113,6 +138,11 @@ Page({
     handleDate: '', // YYYY-MM-DD（提交口径）
     handleDateText: '', // yyyy.MM.dd（显示口径）
     handling: false,
+    // 手动新增/编辑弹层（统一表单：editId=0 为新增；校验失败不丢输入）
+    editVisible: false,
+    editId: 0,
+    editForm: {},
+    editSaving: false,
     // 处理时间日历（单选，点日期即选中并自动关闭）
     calVisible: false,
     calValue: null,
@@ -440,6 +470,96 @@ Page({
     this.openHandle([Number(id)]);
   },
 
+  /* ==================== 手动新增 / 编辑（统一表单弹层，班管/超管） ==================== */
+
+  // 打开新增表单：台账视图预填当前线路（未匹配组无线路名，留空由用户填写）
+  onOpenCreate() {
+    if (!this.data.canManage) return;
+    const form = blankEditForm();
+    if (this.data.view === 'ledger' && !this.data.curUnmatched) form.line_name = this._curLineName || '';
+    this.setData({ editVisible: true, editId: 0, editForm: form, editSaving: false });
+  },
+
+  // 卡内「编辑」按钮（展开区；catchtap 防冒泡）：预填该卡当前值
+  onCardEdit(e) {
+    const { id } = e.currentTarget.dataset;
+    if (!this.data.canManage || !id) return;
+    const rec = this.findRecord(id);
+    if (!rec) return;
+    const form = blankEditForm();
+    Object.keys(form).forEach((k) => {
+      if (k.slice(-5) === '_text') return;
+      form[k] = rec[k] === null || rec[k] === undefined ? '' : String(rec[k]);
+    });
+    form.found_at_text = fmtDot(form.found_at);
+    form.handled_at_text = fmtDot(form.handled_at);
+    this.setData({ editVisible: true, editId: Number(id), editForm: form, editSaving: false });
+  },
+
+  onCloseEdit() {
+    if (this.data.editSaving) return;
+    this.setData({ editVisible: false });
+  },
+
+  onEditVisibleChange(e) {
+    if (!e.detail.visible && !this.data.editSaving) this.setData({ editVisible: false });
+  },
+
+  // 表单字段输入（data-key 对应业务列名）
+  onEditField(e) {
+    const { key } = e.currentTarget.dataset;
+    const editForm = Object.assign({}, this.data.editForm);
+    editForm[key] = e.detail.value;
+    this.setData({ editForm });
+  },
+
+  // 发现/处理时间：复用单选日历（_calTarget 记录目标字段，与处理时间互不干扰）
+  onEditDateTap(e) {
+    const { key } = e.currentTarget.dataset;
+    const cur = (this.data.editForm[key] || todayStr()).slice(0, 10);
+    this._calTarget = key;
+    this.setData({ calVisible: true, calValue: new Date(`${cur}T00:00:00`).getTime() });
+  },
+
+  // 提交：editId=0 走 POST /records，否则 PUT /records/:id；校验/保存失败弹层与输入保留，成功整表重拉
+  async onSubmitEdit() {
+    if (this.data.editSaving) return;
+    const form = this.data.editForm || {};
+    if (!String(form.line_name || '').trim()) {
+      this.toast('线路名称不能为空');
+      return;
+    }
+    this.setData({ editSaving: true });
+    const body = {};
+    Object.keys(blankEditForm()).forEach((k) => {
+      if (k.slice(-5) === '_text') return;
+      body[k] = String(form[k] || '').trim();
+    });
+    try {
+      if (this.data.editId) {
+        await request({
+          url: `${API_BASE}/records/${this.data.editId}${this.teamQuery('?')}`,
+          method: 'PUT',
+          data: this.teamBody(body),
+        });
+        this.toast('已保存');
+      } else {
+        await request({
+          url: `${API_BASE}/records${this.teamQuery('?')}`,
+          method: 'POST',
+          data: this.teamBody(body),
+        });
+        this.toast('已新增');
+      }
+      this.setData({ editVisible: false });
+      this.loadAll();
+    } catch (err) {
+      this.toast(err.message);
+    } finally {
+      this.setData({ editSaving: false });
+    }
+  },
+
   /* ==================== 照片（辅证条折叠态常驻只读预览 / 展开区处理前后上传与长按删除） ==================== */
 
   // 按记录 id 取当前台账记录（照片、处理等卡内操作共用）
@@ -630,13 +750,22 @@ Page({
     });
   },
 
-  // 单选日历：点日期即选中并自动关闭（confirm-btn 已置空）
+  // 单选日历：点日期即选中并自动关闭（confirm-btn 已置空）；_calTarget 指向手动表单日期字段时写表单
   onCalChange(e) {
     const value = e.detail.value;
     if (!value) return;
     const d = new Date(value);
     const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    this.setData({ calVisible: false, handleDate: date, handleDateText: fmtDot(date) });
+    this.setData({ calVisible: false });
+    if (this._calTarget) {
+      const editForm = Object.assign({}, this.data.editForm);
+      editForm[this._calTarget] = date;
+      editForm[`${this._calTarget}_text`] = fmtDot(date);
+      this._calTarget = '';
+      this.setData({ editForm });
+      return;
+    }
+    this.setData({ handleDate: date, handleDateText: fmtDot(date) });
   },
 
   onCalClose() {

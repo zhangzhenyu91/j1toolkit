@@ -19,6 +19,7 @@ type fakeWeKnora struct {
 	providers []map[string]any // ListWebSearchProviders 返回
 	stream    string           // AgentChatStream SSE 文本
 	streamErr error            // AgentChatStream 错误
+	body      io.ReadCloser    // 直接注入 SSE 流（模拟中途断流等；优先于 stream）
 	uploaded  []uploadCall     // UploadAttachment 记录
 	deleted   []string         // DeleteSession/DeleteMessage 记录
 	chatReqs  []ChatRequest    // AgentChatStream 入参
@@ -114,6 +115,11 @@ func (f *fakeWeKnora) AgentChatStream(_ context.Context, username, sessionID str
 	f.chatReqs = append(f.chatReqs, req)
 	if f.streamErr != nil {
 		return nil, f.streamErr
+	}
+	if f.body != nil {
+		body := f.body
+		f.body = nil
+		return body, nil
 	}
 	stream := f.stream
 	if stream == "" {

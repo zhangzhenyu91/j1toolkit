@@ -1,7 +1,9 @@
 // 消息处理管线（移植 crane-answer src/wechatpadpro/messageHandler.js）：
 // 树障/交跨双漏斗初筛 → Dify 终审提取 → CaptureSink 上送；引用更正、撤回启发式、
-// 图片辅证挂接、未消费聊天归档。严禁汇总 xlsx 与群内「报送」指令（@指令仅静默消费）。
+// 图片辅证挂接（仅「先引用图片、再发送记录文字」路径）、未消费聊天归档。
+// 严禁汇总 xlsx 与群内「报送」指令（@指令仅静默消费）。
 // 消息串行处理（单条处理完再下一条），提取中撤回/更正竞态不出现。
+// 撤回定位一律以撤回人为准（同 sender 时间线），任何兜底不跨 sender，绝不误删他人记录。
 package wechatanswer
 
 import (
@@ -226,8 +228,9 @@ func extractSender(msg *Message) (senderID, content string) {
 /* ------------------------- 初筛闸（交跨/树障语义） ------------------------- */
 
 var (
-	poleRangeRe    = regexp.MustCompile(`\d+\s*#?\s*[-—~－至]\s*#?\s*\d+`)
-	poleSingleRe   = regexp.MustCompile(`\d+\s*(?:#|号)(?:塔底)?`)
+	// 杆号允许字母后缀（12A#/15B#、12A号）与连字符标签（12-A#），区间两侧同样允许（12A#-15B#），不剥离字母。
+	poleRangeRe    = regexp.MustCompile(`\d+[A-Za-z-]*\s*#?\s*[-—~－至]\s*#?\s*\d+[A-Za-z-]*`)
+	poleSingleRe   = regexp.MustCompile(`\d+[A-Za-z-]*\s*(?:#|号)(?:塔底)?`)
 	featureWordRe  = regexp.MustCompile(`棵|垂距|垂直|超高|水平`)
 	treeWordRe     = regexp.MustCompile(`树|棵`)
 	measureWordRe  = regexp.MustCompile(`水平|垂距|垂直|超高`)
@@ -608,9 +611,9 @@ func (m *Module) handleTreeWatch(ctx context.Context, msg *Message, rule Rule, s
 		return true, nil
 	}
 
-	// 图片消息先行分流：裸发缓存备查；引用记录发图 → 挂辅证照片
+	// 图片消息先行分流：一律只缓存 CDN 参数备查（辅证挂接仅「先引用图片、再发送记录文字」路径）
 	if msg.Kind == "image" || msg.Image != nil {
-		if err := m.handleImageMessage(ctx, msg, rule, senderID); err != nil {
+		if err := m.handleImageMessage(ctx, msg, senderID); err != nil {
 			log.Printf("[微信智能应答] 图片消息处理失败：%v", err)
 		}
 		return true, nil
@@ -1011,7 +1014,7 @@ func toPatchMap(v any) map[string]any {
 
 var recallNameRe = regexp.MustCompile(`^["“](.+?)["”]\s*撤回了一条消息`)
 
-// handleRecall 撤回事件：图片时间线与记录时间线合并启发式定位——
+// handleRecall 撤回事件：撤回人时间线内定位（绝不跨 sender，撤回人无法确定时不删任何记录）——
 // 撤到图片 → 摘删辅证照片（记录保留）并重推；撤到记录 → 先推删除再本地连带删照片；皆无 → 暂存补判。
 func (m *Module) handleRecall(ctx context.Context, msg *Message, rule Rule) error {
 	now := m.msgTime(msg)
@@ -1076,7 +1079,11 @@ func (m *Module) handleRecall(ctx context.Context, msg *Message, rule Rule) erro
 	}
 
 	if target == nil {
-		log.Printf("%s 撤回事件未命中任何记录（撤回人=%s），暂存待补判", logPrefix, recallerWxid)
+		if recallerWxid == "" {
+			log.Printf("%s 撤回事件无法确定撤回人，不删除任何记录", logPrefix)
+			return nil
+		}
+		log.Printf("%s 撤回事件未命中撤回人 %s 的记录，暂存待补判（同 sender 方向性窗口内生效）", logPrefix, recallerWxid)
 		m.stashRecall(msg.ConversationID, recallerWxid, now)
 		return nil
 	}
@@ -1131,43 +1138,17 @@ func (m *Module) purgeRecordPhotos(ctx context.Context, rec *Record) int {
 
 /* ------------------------- 图片辅证 ------------------------- */
 
-// handleImageMessage 图片消息：裸发缓存 CDN 参数备查；引用记录发图 → 下载挂接辅证并重推。
-func (m *Module) handleImageMessage(ctx context.Context, msg *Message, rule Rule, senderID string) error {
+// handleImageMessage 图片消息：只缓存 CDN 参数备查（供「先引用图片、再发送记录文字」挂辅证与撤回清理）。
+// 「引用记录文字再发图片」形态按无法识别处理：不挂接、不误删——图片报文 extcommoninfo 简形的
+// svrid/createtime 无法可靠锚定记录，按内容/时间兜底曾把普通群图误挂他人记录，该路径已停用。
+func (m *Module) handleImageMessage(ctx context.Context, msg *Message, senderID string) error {
 	entry := m.cacheImage(ctx, msg, senderID)
-	quote := extractQuote(msg, msg.Content)
-	if quote == nil || quote.SvrID == "" {
-		if entry != nil {
-			log.Printf("[树木排查] 缓存群图片 %s（群 %s），待引用挂接", entry.SvrID, msg.ConversationID)
-		}
+	if extractQuote(msg, msg.Content) != nil {
+		log.Printf("[树木排查] 引用记录发图形态不识别，仅缓存不挂接（svr_id=%s）", msg.SvrID)
 		return nil
 	}
-	dayStart, dayEnd, _ := beijingDayRange(beijingDay(m.msgTime(msg)))
-	rec, err := m.recordStore().FindTodayRecord(ctx, msg.ConversationID, quote.SvrID, quote.Content, dayStart, dayEnd)
-	if err != nil {
-		return err
-	}
-	if rec == nil && quote.CreateTime != "" {
-		if t, err := strconv.ParseInt(quote.CreateTime, 10, 64); err == nil && t > 0 {
-			rec, _ = m.recordStore().FindNearTime(ctx, msg.ConversationID, t, 2)
-		}
-	}
-	if rec == nil {
-		log.Printf("[树木排查] 图片引用的消息未命中当日记录（svr_id=%s），仅缓存不挂接", quote.SvrID)
-		return nil
-	}
-	if entry == nil {
-		log.Printf("[树木排查] 图片消息缺少 CDN 下载参数，无法挂接辅证（记录 %s）", rec.Key)
-		m.receiptQuote(ctx, msg, "辅证照片下载失败")
-		return nil
-	}
-	if err := m.downloadAndAttach(ctx, rec, entry, senderID); err != nil {
-		log.Printf("[树木排查] 辅证照片下载失败（记录 %s）：%v", rec.Key, err)
-		m.receiptQuote(ctx, msg, "辅证照片下载失败")
-		return nil
-	}
-	m.receiptQuote(ctx, msg, "已添加辅证照片")
-	if err := m.pushRecordToSink(ctx, rec, m.teamLabel(ctx, rule)); err != nil {
-		log.Printf("[树木排查] 记录 %s 辅证新增重推失败：%v", rec.Key, err)
+	if entry != nil {
+		log.Printf("[树木排查] 缓存群图片 %s（群 %s），待引用挂接", entry.SvrID, msg.ConversationID)
 	}
 	return nil
 }

@@ -162,11 +162,27 @@ func (m *Module) weknoraCfg(ctx context.Context) (kbID string, client WeKnoraCli
 	return kbID, client, state, nil
 }
 
-// recordsHash 内容哈希：对 exportGroupComparator 排序后的记录集序列化算 sha256
-// （不哈希 xlsx buffer——zip 时间戳不稳定；记录内容不变 ⇒ 表内容不变）。
+// recordsHash 内容哈希：对 exportGroupComparator 排序后的记录集序列化算 sha256。
+// 只哈希稳定业务列（Node SELECT 行同列集）：不含 synced_at/updated_at 等，避免同步点回写
+// 误判表内容变化导致全量重传；不哈希 xlsx buffer（zip 时间戳不稳定）。
 func recordsHash(records []Record) string {
 	sorted := sortRecords(records, exportGroupComparator)
-	raw, _ := json.Marshal(sorted)
+	rows := make([]map[string]any, 0, len(sorted))
+	for _, r := range sorted {
+		inspectAt := ""
+		if r.InspectAt != nil {
+			inspectAt = *r.InspectAt
+		}
+		rows = append(rows, map[string]any{
+			"id": r.ID, "voltage_level": r.VoltageLevel, "line_name": r.LineName, "section": r.Section,
+			"pole_from": r.PoleFrom, "pole_to": r.PoleTo, "crossing_type": r.CrossingType,
+			"dist_small": r.DistSmall, "dist_big": r.DistBig, "cross_horizontal": r.CrossHorizontal,
+			"cross_vertical": r.CrossVertical, "cross_angle": r.CrossAngle, "has_hazard": r.HasHazard,
+			"finder_name": r.FinderName, "inspect_at": inspectAt, "remark": r.Remark,
+			"created_at": r.CreatedAt,
+		})
+	}
+	raw, _ := json.Marshal(rows)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
@@ -198,7 +214,8 @@ func buildLineBooks(records []Record) ([]weknoraBook, error) {
 		recs := groups[name]
 		sorted := sortRecords(recs, exportGroupComparator)
 		buf, err := exceldoc.WriteWorkbook(exceldoc.WorkbookSpec{
-			Sheets: []exceldoc.SheetSpec{sheetSpecOf(sheetNameOf(name, map[string]bool{}), "", sorted)},
+			// sheet 名沿用整表导出的「交跨」（Node buildWorkbook 同口径），标题行跳过（skipTitle）
+			Sheets: []exceldoc.SheetSpec{sheetSpecOf("交跨", "", sorted)},
 		})
 		if err != nil {
 			return nil, err

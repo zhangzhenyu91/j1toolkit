@@ -128,7 +128,7 @@ func (s *AMapService) fetchLocationWeather(ctx context.Context, lng, lat string)
 	if area == "" {
 		area = gstr(ac["city"])
 	}
-	// pois 不保证按距离升序，显式取距离最小者
+	// pois 不保证按距离升序，显式取距离最小者（distance 可能是字符串或数值，同 Node Number() 口径）
 	var nearestName string
 	nearestDist := 0.0
 	if pois, ok := rg["pois"].([]any); ok {
@@ -138,7 +138,7 @@ func (s *AMapService) fetchLocationWeather(ctx context.Context, lng, lat string)
 				continue
 			}
 			name := gstr(p["name"])
-			dist, err := strconv.ParseFloat(gstr(p["distance"]), 64)
+			dist, err := parseFloatAny(p["distance"])
 			if name == "" || err != nil {
 				continue
 			}
@@ -216,4 +216,16 @@ func (s *AMapService) getJSON(ctx context.Context, endpoint string, params map[s
 		return err
 	}
 	return json.Unmarshal(raw, out)
+}
+
+// parseFloatAny 宽松取数值（字符串/数值均可，同 Node Number() 口径）。
+func parseFloatAny(v any) (float64, error) {
+	switch t := v.(type) {
+	case float64:
+		return t, nil
+	case string:
+		return strconv.ParseFloat(strings.TrimSpace(t), 64)
+	default:
+		return strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(v)), 64)
+	}
 }

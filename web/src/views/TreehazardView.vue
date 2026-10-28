@@ -70,8 +70,9 @@
       </div>
     </div>
 
-    <!-- 工具行（管理角色）：阈值设置 / 同步至内网 / 同步知识库 + 同步状态小字 -->
+    <!-- 工具行（管理角色）：手动新增 / 阈值设置 / 同步至内网 / 同步知识库 + 同步状态小字 -->
     <div v-if="isManager" class="th-tools">
+      <button class="btn btn-sm" type="button" @click="openCreate">手动新增</button>
       <button class="btn btn-sm" type="button" @click="openThreshold">阈值设置</button>
       <button class="btn btn-sm" type="button" :disabled="syncBusy" @click="pushSync">
         同步至内网
@@ -257,6 +258,7 @@
                 :batch-on="batchOn"
                 :selected="!!batchSel[r.id]"
                 @handle="openHandle([r.id])"
+                @edit="openEdit"
                 @remove="removeRecord"
                 @remove-photo="removePhoto"
                 @upload="uploadPhotos"
@@ -342,6 +344,12 @@
 
     <!-- 弹层 -->
     <HandleDialog v-model:visible="handleVisible" :ids="handleIds" @submit="submitHandle" />
+    <RecordEditDialog
+      v-model:visible="editVisible"
+      :record="editRecord"
+      :preset-line="presetLineName"
+      @submit="submitEdit"
+    />
     <ExportDialog
       v-model:visible="exportVisible"
       :lines="
@@ -404,6 +412,7 @@ import { getApiMode } from '../api.js';
 import * as api from '../features/treehazard/api.js';
 import RecordCard from '../features/treehazard/RecordCard.vue';
 import HandleDialog from '../features/treehazard/HandleDialog.vue';
+import RecordEditDialog from '../features/treehazard/RecordEditDialog.vue';
 import ExportDialog from '../features/treehazard/ExportDialog.vue';
 import StagingPanel from '../features/treehazard/StagingPanel.vue';
 import ConflictPanel from '../features/treehazard/ConflictPanel.vue';
@@ -637,6 +646,45 @@ async function submitHandle(payload) {
   } catch (e) {
     payload.fail?.();
     MessagePlugin.error(e.message || '处理失败');
+  }
+}
+
+// ---- 手动新增 / 编辑（统一弹层 RecordEditDialog；成功后真实刷新，失败弹层内提示且不丢输入） ----
+const editVisible = ref(false);
+const editRecord = ref(null);
+// presetLineName 新增时预填当前台账线路（未匹配组无线路名，留空）
+const presetLineName = computed(() =>
+  view.value === 'ledger' && ledgerGroup.value && !ledgerGroup.value.unmatched
+    ? ledgerGroup.value.lineName
+    : ''
+);
+
+function openCreate() {
+  editRecord.value = null;
+  editVisible.value = true;
+}
+
+function openEdit(rec) {
+  editRecord.value = rec;
+  editVisible.value = true;
+}
+
+async function submitEdit(payload) {
+  try {
+    if (editRecord.value) {
+      await api.updateRecord(editRecord.value.id, payload.body, teamId.value);
+      payload.done?.();
+      MessagePlugin.success('已保存');
+    } else {
+      await api.createRecord(payload.body, teamId.value);
+      payload.done?.();
+      MessagePlugin.success('已新增');
+    }
+    loadDashboard();
+    loadRecords(true);
+  } catch (e) {
+    payload.fail?.(e.message || '保存失败');
+    MessagePlugin.error(e.message || '保存失败');
   }
 }
 
@@ -959,6 +1007,12 @@ onMounted(() => {
   flex-direction: column;
 }
 
+/* 演示状态条：strong 不压折行（全局 flex 下会被挤窄换行） */
+.demo-banner strong {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* ===== 页头：kicker + 标题 + 副标；右侧班组切换 ===== */
 .th-head {
   flex: none;
@@ -1034,7 +1088,8 @@ onMounted(() => {
     grid-template-columns: repeat(2, 1fr);
   }
 }
-.dc {
+.th-dash .dc {
+  margin-top: 0; /* 全局 .card + .card 间距不进网格，防首卡被撑高、相邻卡下移不等高 */
   padding: 16px 20px 14px;
   display: flex;
   align-items: baseline;
@@ -1188,9 +1243,8 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 10px;
   padding-bottom: 64px; /* 底部内容给右下角 FAB 留位 */
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges; /* 常驻滚动条槽位：滚动条出现/消失不挤动内容，内容不因滚动条偏左 */
   scrollbar-width: thin;
   scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
 }
@@ -1276,7 +1330,8 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 14px;
 }
-.lc {
+.lc-grid .lc {
+  margin-top: 0; /* 全局 .card + .card 间距不进网格，防相邻线路卡下移不等高 */
   padding: 18px 20px 16px;
   cursor: pointer;
   display: flex;
@@ -1573,8 +1628,10 @@ onMounted(() => {
   *::before,
   *::after {
     animation-duration: 0.001s !important;
+    animation-delay: 0s !important; /* 时延链同步清零，避免降级后仍延迟浮现 */
     animation-iteration-count: 1 !important;
     transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
   }
 }
 </style>

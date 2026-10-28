@@ -37,17 +37,48 @@ func (p syncPair) Run(ctx context.Context) {
 
 // record 结构化应用日志（无 logger 时回退标准日志）。
 func (p syncPair) record(ctx context.Context, level, event, messageCN string, err error, summary string) {
+	recordSched(ctx, "[夜间同步]", p.Logger, level, event, messageCN, err, summary)
+}
+
+// recordSched 排程段结果日志（syncPair / dispatchPair 共用；无 logger 时回退标准日志）。
+func recordSched(ctx context.Context, label string, l *logging.Logger, level, event, messageCN string, err error, summary string) {
 	raw := summary
 	fields := map[string]any{}
 	if err != nil {
 		raw = err.Error()
 		fields["summary"] = summary
 	}
-	if p.Logger == nil {
-		log.Printf("[夜间同步] %s：%s（%s）", messageCN, raw, event)
+	if l == nil {
+		log.Printf("%s %s：%s（%s）", label, messageCN, raw, event)
 		return
 	}
-	_ = p.Logger.Record(ctx, level, "scheduler", event, messageCN, raw, fields)
+	_ = l.Record(ctx, level, "scheduler", event, messageCN, raw, fields)
+}
+
+// dispatchPair 派车每日排程编排（Node dispatch-sync.start 两段：09:10 准备锁设备挂载 →
+// 09:20 取件建卡解禁；作业体来自 bridge.NewDispatchJobs）。
+type dispatchPair struct {
+	Logger  *logging.Logger
+	Prepare func(context.Context) (string, error)
+	Fetch   func(context.Context) (string, error)
+}
+
+// RunPrepare 每日准备段（失败已由执行器解禁并通知，此处仅记日志）。
+func (p dispatchPair) RunPrepare(ctx context.Context) {
+	if summary, err := p.Prepare(ctx); err != nil {
+		recordSched(ctx, "[派车单排程]", p.Logger, "warn", "dispatch.prepare.failed", "派车单同步准备未完成", err, summary)
+	} else {
+		recordSched(ctx, "[派车单排程]", p.Logger, "info", "dispatch.prepare.completed", "派车单同步准备完成", nil, summary)
+	}
+}
+
+// RunFetch 每日取件段（取件建卡 + 解禁；结果通知由执行器逐班组分发）。
+func (p dispatchPair) RunFetch(ctx context.Context) {
+	if summary, err := p.Fetch(ctx); err != nil {
+		recordSched(ctx, "[派车单排程]", p.Logger, "warn", "dispatch.fetch.failed", "派车单取件建卡未完成", err, summary)
+	} else {
+		recordSched(ctx, "[派车单排程]", p.Logger, "info", "dispatch.fetch.completed", "派车单取件建卡完成", nil, summary)
+	}
 }
 
 // scheduleDailyCn 每日 HH:MM（北京时间固定 UTC+8，同 sgccclockin 排程口径）执行 job，

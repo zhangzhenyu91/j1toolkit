@@ -143,6 +143,14 @@
             删除
           </button>
           <button
+            v-if="isManager"
+            class="btn btn-sm"
+            type="button"
+            @click.stop="$emit('edit', record)"
+          >
+            编辑
+          </button>
+          <button
             v-if="!isDone"
             class="btn btn-sm btn-primary"
             type="button"
@@ -177,7 +185,7 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['handle', 'remove', 'remove-photo', 'upload', 'toggle-select']);
+const emit = defineEmits(['handle', 'edit', 'remove', 'remove-photo', 'upload', 'toggle-select']);
 
 // expanded 折叠状态（默认折叠，仅两行摘要 + 辅证条）
 const expanded = ref(false);
@@ -324,7 +332,8 @@ function openViewer(list, p) {
 }
 
 /* ===== 记录卡（扁平完整卡，无详情弹层分级） ===== */
-.rec {
+.card.rec {
+  margin-top: 0; /* 全局 .card + .card 间距不叠加：卡片流间距沿旧版 margin-bottom 14px 口径 */
   margin-bottom: 14px;
   padding: 15px 22px;
   position: relative;
@@ -628,7 +637,7 @@ function openViewer(list, p) {
   letter-spacing: 0.5px;
   padding: 8px 0;
 }
-/* 卡内操作行：删除居左，处理居右 */
+/* 卡内操作行：删除居左，编辑/处理居右 */
 .rec-acts {
   display: flex;
   justify-content: flex-end;

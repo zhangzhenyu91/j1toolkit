@@ -63,7 +63,7 @@
                 class="wm-quick-chip"
                 hover-class="hover-opacity"
                 data-text="{{item}}"
-                bindtap="onWmQuickInput"
+                catchtap="onWmQuickInput"
                 >{{item}}</text
               >
             </view>

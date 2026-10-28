@@ -1,73 +1,120 @@
 <template>
-  <div v-if="visible" class="ndp-mask" @mousedown.self="cancel">
-    <div class="ndp-modal" role="dialog" aria-modal="true" aria-label="保存到网盘：选择目录">
-      <div class="ndp-scroll">
-        <div class="ndp-head">
-          <span class="ndp-title">{{ title }}</span>
-          <button type="button" class="ndp-x" aria-label="关闭" @click="cancel">
-            <svg
-              viewBox="0 0 24 24"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-              stroke-linecap="round"
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div v-if="spaces.length > 1" class="ndp-spaces">
-          <button
-            v-for="s in spaces"
-            :key="s.key"
-            type="button"
-            class="ndp-space"
-            :class="{ on: space === s.key }"
-            @click="switchSpace(s.key)"
-          >
-            {{ s.name }}
-          </button>
-        </div>
-
-        <div class="ndp-crumb">
-          <template v-for="(seg, i) in crumbSegs" :key="seg.path">
-            <em v-if="i > 0">/</em>
-            <a
-              v-if="i < crumbSegs.length - 1"
-              role="button"
-              tabindex="0"
-              @click="goDir(seg.path)"
-              @keydown.enter.prevent="goDir(seg.path)"
-              >{{ seg.name }}</a
-            >
-            <b v-else>{{ seg.name }}</b>
-          </template>
-        </div>
-
-        <div class="ndp-list">
-          <div v-if="loading" class="ndp-state"><span class="ndp-spin"></span>加载中…</div>
-          <div v-else-if="error" class="ndp-state">
-            {{ error }}
-            <button type="button" class="ndp-mini" @click="loadDirs(false)">重试</button>
-          </div>
-          <div v-else-if="!items.length" class="ndp-state">此目录下没有文件夹</div>
-          <template v-else>
-            <div
-              v-for="it in items"
-              :key="it.name"
-              class="ndp-row"
-              role="button"
-              tabindex="0"
-              @click="enterDir(it.name)"
-              @keydown.enter.prevent="enterDir(it.name)"
-            >
+  <!-- 开合过渡同旧页 ShadeNdPick：遮罩淡入 0.3s + 弹体上浮缩放 0.35s -->
+  <transition name="ndp">
+    <div v-if="visible" class="ndp-mask" @mousedown.self="cancel">
+      <div class="ndp-modal" role="dialog" aria-modal="true" aria-label="保存到网盘：选择目录">
+        <div class="ndp-scroll">
+          <div class="ndp-head">
+            <span class="ndp-title">{{ title }}</span>
+            <button type="button" class="ndp-x" aria-label="关闭" @click="cancel">
               <svg
                 viewBox="0 0 24 24"
-                width="20"
-                height="20"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+              >
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+
+          <div v-if="spaces.length > 1" class="ndp-spaces">
+            <button
+              v-for="s in spaces"
+              :key="s.key"
+              type="button"
+              class="ndp-space"
+              :class="{ on: space === s.key }"
+              @click="switchSpace(s.key)"
+            >
+              {{ s.name }}
+            </button>
+          </div>
+
+          <div class="ndp-crumb">
+            <template v-for="(seg, i) in crumbSegs" :key="seg.path">
+              <em v-if="i > 0">/</em>
+              <a
+                v-if="i < crumbSegs.length - 1"
+                role="button"
+                tabindex="0"
+                @click="goDir(seg.path)"
+                @keydown.enter.prevent="goDir(seg.path)"
+                >{{ seg.name }}</a
+              >
+              <b v-else>{{ seg.name }}</b>
+            </template>
+          </div>
+
+          <div class="ndp-list">
+            <div v-if="loading" class="ndp-state"><span class="ndp-spin"></span>加载中…</div>
+            <div v-else-if="error" class="ndp-state">
+              {{ error }}
+              <button type="button" class="ndp-mini" @click="loadDirs(false)">重试</button>
+            </div>
+            <div v-else-if="!items.length" class="ndp-state">此目录下没有文件夹</div>
+            <template v-else>
+              <div
+                v-for="it in items"
+                :key="it.name"
+                class="ndp-row"
+                role="button"
+                tabindex="0"
+                @click="enterDir(it.name)"
+                @keydown.enter.prevent="enterDir(it.name)"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="20"
+                  height="20"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"
+                  />
+                </svg>
+                <span class="ndp-nm">{{ it.name }}</span>
+              </div>
+            </template>
+          </div>
+
+          <div v-if="mkdirOpen" class="ndp-mkdirrow">
+            <input
+              ref="mkdirInput"
+              v-model="mkdirName"
+              class="ndp-in"
+              type="text"
+              maxlength="200"
+              placeholder="文件夹名称"
+              autocomplete="off"
+              @keydown.enter.prevent="submitMkdir"
+            />
+            <button
+              type="button"
+              class="ndp-mini ndp-mini-on"
+              :disabled="mkdirBusy"
+              @click="submitMkdir"
+            >
+              创建
+            </button>
+            <button type="button" class="ndp-mini" :disabled="mkdirBusy" @click="mkdirOpen = false">
+              取消
+            </button>
+          </div>
+
+          <div class="ndp-foot">
+            <button type="button" class="ndp-mkdir" @click="openMkdir">
+              <svg
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="1.7"
@@ -77,61 +124,17 @@
                 <path
                   d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"
                 />
+                <path d="M12 10.5v5M9.5 13h5" />
               </svg>
-              <span class="ndp-nm">{{ it.name }}</span>
-            </div>
-          </template>
-        </div>
-
-        <div v-if="mkdirOpen" class="ndp-mkdirrow">
-          <input
-            ref="mkdirInput"
-            v-model="mkdirName"
-            class="ndp-in"
-            type="text"
-            maxlength="200"
-            placeholder="文件夹名称"
-            autocomplete="off"
-            @keydown.enter.prevent="submitMkdir"
-          />
-          <button
-            type="button"
-            class="ndp-mini ndp-mini-on"
-            :disabled="mkdirBusy"
-            @click="submitMkdir"
-          >
-            创建
-          </button>
-          <button type="button" class="ndp-mini" :disabled="mkdirBusy" @click="mkdirOpen = false">
-            取消
-          </button>
-        </div>
-
-        <div class="ndp-foot">
-          <button type="button" class="ndp-mkdir" @click="openMkdir">
-            <svg
-              viewBox="0 0 24 24"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path
-                d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"
-              />
-              <path d="M12 10.5v5M9.5 13h5" />
-            </svg>
-            新建文件夹
-          </button>
-          <button type="button" class="ndp-btn" @click="cancel">取消</button>
-          <button type="button" class="ndp-btn ndp-btn-on" @click="confirm">确定</button>
+              新建文件夹
+            </button>
+            <button type="button" class="ndp-btn" @click="cancel">取消</button>
+            <button type="button" class="ndp-btn ndp-btn-on" @click="confirm">确定</button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </transition>
 </template>
 
 <script setup>
@@ -300,6 +303,15 @@ watch(
   align-items: center;
   justify-content: center;
 }
+/* 开合过渡（旧页 ndpick.js：遮罩 opacity .3s + 弹体 translateY(16px) scale(.98) .35s） */
+.ndp-enter-active,
+.ndp-leave-active {
+  transition: opacity 0.3s;
+}
+.ndp-enter-from,
+.ndp-leave-to {
+  opacity: 0;
+}
 .ndp-modal {
   background: var(--tk-bg, #fff);
   background: #fff;
@@ -313,6 +325,12 @@ watch(
   display: flex;
   flex-direction: column;
   box-shadow: var(--tk-shadow-card);
+  transform: none;
+  transition: transform 0.35s var(--tk-ease);
+}
+.ndp-enter-from .ndp-modal,
+.ndp-leave-to .ndp-modal {
+  transform: translateY(16px) scale(0.98);
 }
 .ndp-scroll {
   flex: 1;
@@ -320,6 +338,23 @@ watch(
   overflow-y: auto;
   border-radius: 8px;
   padding: 14px 18px 16px;
+  /* 滚动条出现时不挤偏内容（同旧页 ndpick.js） */
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.ndp-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.ndp-scroll::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.ndp-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.ndp-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 .ndp-head {
   display: flex;
@@ -346,6 +381,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: var(--tk-shadow-card);
   transition:
     background 0.15s,
     color 0.15s;
@@ -413,6 +449,22 @@ watch(
   min-height: 180px;
   max-height: 300px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.ndp-list::-webkit-scrollbar {
+  width: 5px;
+}
+.ndp-list::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.ndp-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.ndp-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 .ndp-row {
   display: flex;
@@ -553,6 +605,15 @@ watch(
 @media (prefers-reduced-motion: reduce) {
   .ndp-spin {
     animation: none;
+  }
+  .ndp-enter-active,
+  .ndp-leave-active,
+  .ndp-modal {
+    transition: none;
+  }
+  .ndp-enter-from .ndp-modal,
+  .ndp-leave-to .ndp-modal {
+    transform: none;
   }
 }
 </style>

@@ -186,6 +186,18 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 	return nil
 }
 
+// lastQuery 取最后一条匹配子串的查询语句（分页 SQL 断言用）。
+func (f *fakeDB) lastQuery(substr string) (fakeExec, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.queries) - 1; i >= 0; i-- {
+		if strings.Contains(f.queries[i].query, substr) {
+			return f.queries[i], true
+		}
+	}
+	return fakeExec{}, false
+}
+
 // fakePermit 应用权限桩。
 type fakePermit struct{ allow bool }
 

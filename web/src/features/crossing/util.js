@@ -160,4 +160,9 @@ export const COMPACT_FIELDS = [
 ];
 
 // SOURCE_TEXT 来源展示文案。
-export const SOURCE_TEXT = { crane: '群捕获直推', staging: '暂存导入', intranet: '内网回写' };
+export const SOURCE_TEXT = {
+  crane: '群捕获直推',
+  staging: '暂存导入',
+  intranet: '内网回写',
+  manual: '手动录入',
+};

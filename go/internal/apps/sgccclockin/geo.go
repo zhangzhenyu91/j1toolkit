@@ -56,15 +56,13 @@ func (m *Module) geo(w http.ResponseWriter, r *http.Request) {
 			writeOK(w, geoResult{})
 			return
 		}
-		result, err := m.reverseGeo(r.Context(), lng, lat)
-		if err != nil {
-			writeErr(w, err)
-			return
+		rev, rerr := m.reverseGeo(r.Context(), lng, lat)
+		if rerr != nil {
+			rev = geoResult{Longitude: strconv.FormatFloat(lng, 'f', 6, 64), Latitude: strconv.FormatFloat(lat, 'f', 6, 64)}
 		}
-		if result.CityCode == "" {
-			result.CityCode = forward.Geocodes[0].Adcode
-		}
-		writeOK(w, result)
+		// 城市编码优先取正向解析 adcode（Node 口径：g.adcode || rev.cityCode）
+		rev.CityCode = firstNonEmpty(forward.Geocodes[0].Adcode, rev.CityCode)
+		writeOK(w, rev)
 		return
 	}
 	lng, err1 := strconv.ParseFloat(strings.TrimSpace(r.URL.Query().Get("lng")), 64)
@@ -75,10 +73,25 @@ func (m *Module) geo(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := m.reverseGeo(r.Context(), lng, lat)
 	if err != nil {
-		writeErr(w, err)
+		// Node reverseGeocode 口径：逆编码失败回空值由前端手填/兜底，不落全局错误
+		writeOK(w, geoResult{Longitude: strconv.FormatFloat(lng, 'f', 6, 64), Latitude: strconv.FormatFloat(lat, 'f', 6, 64)})
 		return
 	}
 	writeOK(w, result)
+}
+
+// reverseGeoQuiet 逆编码（失败回空值，打卡定位兜底同 Node reverseGeocode 口径）。
+func (m *Module) reverseGeoQuiet(ctx context.Context, lng, lat string) geoResult {
+	fLng, err1 := strconv.ParseFloat(strings.TrimSpace(lng), 64)
+	fLat, err2 := strconv.ParseFloat(strings.TrimSpace(lat), 64)
+	if err1 != nil || err2 != nil {
+		return geoResult{}
+	}
+	result, err := m.reverseGeo(ctx, fLng, fLat)
+	if err != nil {
+		return geoResult{}
+	}
+	return result
 }
 
 func (m *Module) geoGET(ctx context.Context, path string, q url.Values, out any) error {

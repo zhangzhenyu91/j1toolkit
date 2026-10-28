@@ -19,7 +19,11 @@ WF1c（交跨报送提取）配置在 treeWatch 规则每群的「交跨提取 A
 结束节点按同名变量逐个输出。本项目端直接读取 outputs 下各字段。
 
 兼容：markdown 围栏、首尾废话、尾随逗号、数字带单位（"50米"/"10棵"/"90度"）。
+杆号（pole_from / pole_to）：纯数字归一为数字串；带字母杆号（12A#、15B#）与区间原文保留——
+不得删字母或转纯数字（原样拼入区段 section，如 12A#-15B#），无法确定时留空（数值 pole_from/pole_to 可空）。
 解析失败：WF1/WF1c 返回 is_tree_hazard / is_crossing="false"（记录丢弃不打断流程），WF2/WF2c 返回 action="none"。
+
+WF1/WF1c 提示词全文见《开发指南.md》22.6（含字母杆号示例）；Dify 工作流里的提示词部署时需同步更新。
 """
 
 # ============================================================
@@ -50,6 +54,20 @@ def main(text: str) -> dict:
         f = float(s)
         return str(int(f)) if f.is_integer() else str(f)
 
+    def pole(v):
+        # 杆号清洗：纯数字（可带 #）归一为数字串；带字母杆号/区间（12A#、15B#、12A#-15B#）
+        # 原文保留——不删字母、不转纯数字（原样拼入区段 section），空→""
+        if v is None or isinstance(v, bool):
+            return ""
+        s = str(v).strip()
+        if not s:
+            return ""
+        t = s.rstrip("#")
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", t):
+            f = float(t)
+            return str(int(f)) if f.is_integer() else str(f)
+        return s
+
     def txt(v):
         return "" if v is None else str(v).strip()
 
@@ -57,8 +75,8 @@ def main(text: str) -> dict:
     return {
         "is_tree_hazard": "true" if hazard in (True, "true", "True", "1", "是") else "false",
         "line_name": txt(data.get("line_name")),
-        "pole_from": num(data.get("pole_from")),
-        "pole_to": num(data.get("pole_to")),
+        "pole_from": pole(data.get("pole_from")),
+        "pole_to": pole(data.get("pole_to")),
         "position_note": txt(data.get("position_note")),
         "side": txt(data.get("side")),
         "distance": num(data.get("distance")),
@@ -129,6 +147,20 @@ def main(text: str) -> dict:
         f = float(s)
         return str(int(f)) if f.is_integer() else str(f)
 
+    def pole(v):
+        # 杆号清洗：纯数字（可带 #）归一为数字串；带字母杆号/区间（12A#、15B#、12A#-15B#）
+        # 原文保留——不删字母、不转纯数字（原样拼入区段 section），空→""
+        if v is None or isinstance(v, bool):
+            return ""
+        s = str(v).strip()
+        if not s:
+            return ""
+        t = s.rstrip("#")
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", t):
+            f = float(t)
+            return str(int(f)) if f.is_integer() else str(f)
+        return s
+
     def txt(v):
         return "" if v is None else str(v).strip()
 
@@ -136,8 +168,8 @@ def main(text: str) -> dict:
     return {
         "is_crossing": "true" if crossing in (True, "true", "True", "1", "是") else "false",
         "line_name": txt(data.get("line_name")),
-        "pole_from": num(data.get("pole_from")),
-        "pole_to": num(data.get("pole_to")),
+        "pole_from": pole(data.get("pole_from")),
+        "pole_to": pole(data.get("pole_to")),
         "crossing_type": txt(data.get("crossing_type")),
         "side": txt(data.get("side")),
         "distance": num(data.get("distance")),

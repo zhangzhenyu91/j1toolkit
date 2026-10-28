@@ -118,7 +118,7 @@
     <!-- 页签主体（仅活动页签内容滚动） -->
     <div class="cx-body">
       <div class="pane" :class="{ on: tab === 'records' }">
-        <!-- 一级「线路视图」顶栏：搜索框（输入即过滤线路名/电压等级） -->
+        <!-- 一级「线路视图」顶栏：搜索框（输入即过滤线路名/电压等级）+ 手动新增（班管/超管） -->
         <div v-if="view === 'lines'" class="rec-bar">
           <label class="rec-search">
             <svg viewBox="0 0 15 15" width="15" height="15">
@@ -145,12 +145,36 @@
               placeholder="搜索线路名称 / 电压等级"
             />
           </label>
+          <button v-if="isManager" class="btn btn-sm" type="button" @click="openAdd">
+            <svg viewBox="0 0 15 15" width="15" height="15">
+              <path
+                d="M7.5 2.5v10M2.5 7.5h10"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+            新增记录
+          </button>
         </div>
-        <!-- 二级「台账视图」顶栏：返回 + 线路标题与计数 -->
+        <!-- 二级「台账视图」顶栏：返回 + 线路标题与计数 + 手动新增（班管/超管） -->
         <div v-else class="rec-bar">
           <button class="btn btn-sm" type="button" @click="backToLines">返回线路</button>
           <span class="ledger-title">{{ ledgerGroup ? ledgerGroup.title : '' }}</span>
           <span class="ledger-sub num" v-html="ledgerSubHtml"></span>
+          <button v-if="isManager" class="btn btn-sm rec-add" type="button" @click="openAdd">
+            <svg viewBox="0 0 15 15" width="15" height="15">
+              <path
+                d="M7.5 2.5v10M2.5 7.5h10"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+            新增记录
+          </button>
         </div>
 
         <div class="pane-scroll">
@@ -240,6 +264,7 @@
                 :record="r"
                 :is-manager="isManager"
                 @remove="removeRecord"
+                @save="saveRecord"
               />
             </template>
             <div v-else class="empty">
@@ -305,6 +330,23 @@
       </svg>
     </button>
 
+    <!-- 手动新增弹层（班管/超管；统一表单 RecordForm，与展开卡编辑同款） -->
+    <t-dialog
+      v-model:visible="addVisible"
+      header="新增记录"
+      :close-on-overlay-click="false"
+      :confirm-btn="null"
+      :cancel-btn="null"
+    >
+      <RecordForm
+        :key="addTick"
+        :record="null"
+        :saving="addSaving"
+        @save="onCreateRecord"
+        @cancel="addVisible = false"
+      />
+    </t-dialog>
+
     <ExportDialog
       v-model:visible="exportVisible"
       :lines="
@@ -324,6 +366,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { getApiMode } from '../api.js';
 import * as api from '../features/crossing/api.js';
 import RecordCard from '../features/crossing/RecordCard.vue';
+import RecordForm from '../features/crossing/RecordForm.vue';
 import ExportDialog from '../features/crossing/ExportDialog.vue';
 import StagingPanel from '../features/crossing/StagingPanel.vue';
 import ConflictPanel from '../features/crossing/ConflictPanel.vue';
@@ -476,6 +519,48 @@ async function removeRecord(id) {
     loadRecords(true);
   } catch (e) {
     MessagePlugin.error(e.message || '删除失败');
+  }
+}
+
+// ---- 手动新增 / 展开卡编辑（班管/超管；统一表单 RecordForm） ----
+const addVisible = ref(false);
+const addSaving = ref(false);
+const addTick = ref(0); // 每次打开重挂表单，清空上次输入
+
+function openAdd() {
+  if (!isManager) return;
+  addTick.value++;
+  addVisible.value = true;
+}
+
+// onCreateRecord 手动新增：成功关弹层并重拉看板/列表；失败保留弹层表单。
+async function onCreateRecord(body) {
+  if (addSaving.value) return;
+  addSaving.value = true;
+  try {
+    await api.createRecord(body, teamId.value);
+    MessagePlugin.success('已新增');
+    addVisible.value = false;
+    loadDashboard();
+    loadRecords(true);
+  } catch (e) {
+    MessagePlugin.error(e.message || '新增失败');
+  } finally {
+    addSaving.value = false;
+  }
+}
+
+// saveRecord 展开卡编辑：done(ok) 由卡片复位保存/编辑态（失败保留表单便于改后重试）。
+async function saveRecord(id, body, done) {
+  try {
+    await api.updateRecord(id, body, teamId.value);
+    MessagePlugin.success('已保存');
+    loadDashboard();
+    await loadRecords(true);
+    done?.(true);
+  } catch (e) {
+    MessagePlugin.error(e.message || '保存失败');
+    done?.(false);
   }
 }
 
@@ -718,6 +803,12 @@ onMounted(() => {
   flex-direction: column;
 }
 
+/* 演示状态条：strong 不压折行（全局 flex 下会被挤窄换行） */
+.demo-banner strong {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* ===== 页头 ===== */
 .cx-head {
   flex: none;
@@ -793,7 +884,8 @@ onMounted(() => {
     grid-template-columns: repeat(2, 1fr);
   }
 }
-.dc {
+.cx-dash .dc {
+  margin-top: 0; /* 全局 .card + .card 间距不进网格，防首卡被撑高、相邻卡下移不等高 */
   padding: 16px 20px 14px;
   display: flex;
   align-items: baseline;
@@ -937,9 +1029,8 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 10px;
   padding-bottom: 64px; /* 底部内容给右下角 FAB 留位 */
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges; /* 常驻滚动条槽位：滚动条出现/消失不挤动内容，内容不因滚动条偏左 */
   scrollbar-width: thin;
   scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
 }
@@ -965,6 +1056,10 @@ onMounted(() => {
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 12px;
+}
+/* 台账视图顶栏手动新增（居右；班管/超管） */
+.rec-add {
+  margin-left: auto;
 }
 .rec-search {
   flex: 1;
@@ -1016,7 +1111,8 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 14px;
 }
-.lc {
+.lc-grid .lc {
+  margin-top: 0; /* 全局 .card + .card 间距不进网格，防相邻线路卡下移不等高 */
   padding: 18px 20px 16px;
   cursor: pointer;
   display: flex;
@@ -1236,8 +1332,10 @@ onMounted(() => {
   *::before,
   *::after {
     animation-duration: 0.001s !important;
+    animation-delay: 0s !important; /* 时延链同步清零，避免降级后仍延迟浮现 */
     animation-iteration-count: 1 !important;
     transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
   }
 }
 </style>

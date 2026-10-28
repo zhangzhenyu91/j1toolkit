@@ -283,10 +283,10 @@
             <t-select v-model="ruleForm.type" :options="typeOptions" :disabled="!!ruleForm.id" />
           </t-form-item>
           <t-form-item label="启用状态">
-            <t-switch v-model="ruleForm.enabled" />
-            <span class="muted" style="margin-left: 8px">{{
-              ruleForm.enabled ? '启用此规则' : '停用此规则'
-            }}</span>
+            <div class="switch-line">
+              <t-switch v-model="ruleForm.enabled" />
+              <span class="muted">{{ ruleForm.enabled ? '启用此规则' : '停用此规则' }}</span>
+            </div>
           </t-form-item>
         </t-form>
       </div>
@@ -352,10 +352,12 @@
           <p class="hint">每日未消费聊天总结和文档归档保留；提问与 Call Me 共用。</p>
           <t-form layout="vertical">
             <t-form-item label="群内提问">
-              <t-switch v-model="ruleForm.askEnabled" />
-              <span class="muted" style="margin-left: 8px">
-                {{ ruleForm.askEnabled ? '启用群内提问（引用消息提问）' : '不启用群内提问' }}
-              </span>
+              <div class="switch-line">
+                <t-switch v-model="ruleForm.askEnabled" />
+                <span class="muted">
+                  {{ ruleForm.askEnabled ? '启用群内提问（引用消息提问）' : '不启用群内提问' }}
+                </span>
+              </div>
             </t-form-item>
             <t-form-item label="WF3 · 回答文件命名 Key" :required="ruleForm.askEnabled">
               <t-input
@@ -966,9 +968,12 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
 }
-.rule-top > div {
+.rule-top > div:first-child {
   flex: 1;
   min-width: 0;
+}
+.rule-top > .t-switch {
+  flex: none;
 }
 .rule-top p {
   margin: 2px 0 0;
@@ -1018,5 +1023,34 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 10px;
   padding: 14px 0 4px;
+}
+
+/* 开关 + 说明文字同行：flex 垂直居中，不随基线错位 */
+.switch-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 列表入场（对照设计稿 rise 口径：一次轻上浮后静止；reduce 降级） */
+.group-table tbody tr,
+.rule-card {
+  animation: waRise 0.24s var(--tk-ease) both;
+}
+@keyframes waRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .group-table tbody tr,
+  .rule-card {
+    animation: none !important;
+  }
 }
 </style>

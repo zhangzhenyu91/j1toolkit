@@ -131,6 +131,7 @@
                   class="stg-in"
                   :value="r[f[0]] || ''"
                   @input="setField(r, f[0], $event.target.value)"
+                  @click="openPicker"
                 />
                 <input
                   v-else
@@ -209,6 +210,14 @@ function toggleAll() {
     });
   }
   sel.value = next;
+}
+// openPicker 点日期文字区直接唤起原生日历（原生仅点图标弹出；不支持或非手势时静默回退）
+function openPicker(e) {
+  try {
+    e.target.showPicker?.();
+  } catch {
+    /* 忽略：仍可点输入框右侧图标选择 */
+  }
 }
 function setField(row, key, val) {
   row[key] = val;

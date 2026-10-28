@@ -417,4 +417,24 @@ onMounted(() => {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* 日志行入场（对照设计稿 .log-row：一次上浮后静止，无浮夸动效） */
+:deep(.t-table__body tr) {
+  animation: logRise 0.24s var(--tk-ease) both;
+}
+@keyframes logRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :deep(.t-table__body tr) {
+    animation: none !important;
+  }
+}
 </style>

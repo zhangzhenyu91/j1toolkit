@@ -15,6 +15,8 @@ type PhotoOp struct {
 	TeamID     int64          `json:"team_id"`
 	EntryID    int64          `json:"entry_id"`
 	PhotoID    int64          `json:"photo_id,omitempty"`
+	Total      int            `json:"total"`    // 进度总单元（Node rec.total；未细分时按 0/0 呈现）
+	Done       int            `json:"done"`     // 已完成单元（Node rec.done）
 	Progress   int            `json:"progress"` // 0~100
 	Step       string         `json:"step"`
 	Failed     bool           `json:"failed"`
@@ -141,6 +143,15 @@ func (m *PhotoOpManager) SetProgress(id int64, progress int, step string) {
 		if step != "" {
 			op.Step = step
 		}
+	}
+}
+
+// SetCounts 更新进度计数（done/total，Node rec.prog 口径；端侧 /op/status 按 done/total 渲染）。
+func (m *PhotoOpManager) SetCounts(id int64, done, total int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if op, ok := m.ops[id]; ok {
+		op.Done, op.Total = done, total
 	}
 }
 

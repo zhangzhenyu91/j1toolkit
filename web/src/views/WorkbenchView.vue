@@ -361,7 +361,8 @@ async function loadApps() {
       const meta = metaForApp(code);
       return {
         code,
-        name: a.name || (meta && meta.name) || code,
+        // 展示名以目录为准（定稿展示名），后端 name 仅在目录未登记时兜底（见 app-catalog.js）
+        name: (meta && meta.name) || a.name || code,
         description: a.description || (meta && meta.desc) || '',
         icon: a.icon || (meta && meta.icon) || 'app',
         tags: (meta && meta.tags) || [],

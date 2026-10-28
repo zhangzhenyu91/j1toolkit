@@ -59,8 +59,8 @@ func sheetParams(ref office.WlsRef) (from, to string, ok bool) {
 	if ref.Sheet != "task" && ref.Sheet != "fee" && ref.Sheet != "dispatch" {
 		return "", "", false
 	}
-	from, to, errCode := sheetRange(map[string]string{"from": ref.From, "to": ref.To})
-	if errCode != 0 {
+	from, to, errMsg := sheetRange(map[string]string{"from": ref.From, "to": ref.To})
+	if errMsg != "" {
 		return "", "", false
 	}
 	return from, to, true

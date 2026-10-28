@@ -602,6 +602,26 @@ page {
   transition: opacity 0.15s ease;
 }
 
+/* 手动新增/编辑表单：分组小节标题 / 必填星标 / 表单尾注 */
+.ed-sec {
+  margin-top: 28rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: var(--app-text-secondary);
+  letter-spacing: 2rpx;
+}
+
+.ed-req {
+  color: var(--app-danger);
+}
+
+.ed-tip {
+  margin-top: 24rpx;
+  font-size: 22rpx;
+  color: var(--app-text-tertiary);
+  line-height: 1.6;
+}
+
 .qtags {
   display: flex;
   gap: 16rpx;

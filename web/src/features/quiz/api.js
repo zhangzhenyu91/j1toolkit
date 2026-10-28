@@ -2,6 +2,8 @@
 // 响应契约 {code,message,data}（数字业务码），只发真实请求、不内置演示数据。
 // 鉴权：Bearer JWT，取 api.js live 适配层写入的 sessionStorage 'shade.token'。
 
+import { normalizeList } from '../core/list-response.js';
+
 const BASE = '/api/v1/quiz';
 
 // token 当前会话 JWT（未登录时留空，由服务端 401 拦截）。
@@ -43,7 +45,8 @@ function withTeam(path, options = {}) {
   return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'team_id=' + manageTeamId;
 }
 
-// listTeams 超管班组窄列表（GET /api/v1/admin/teams，仅启用班组）[{id,name}]。
+// listTeams 超管班组列表（GET /api/v1/admin/teams）：data 兼容直接数组与 list/teams/items
+// 包装，统一归一为数组返回（启用班组过滤由调用方处理）。
 export async function listTeams() {
   const headers = {};
   const tk = token();
@@ -54,7 +57,7 @@ export async function listTeams() {
     message: `服务返回异常（HTTP ${res.status}）`,
   }));
   if (body.code !== 0) throw new Error(body.message || '班组列表加载失败');
-  return body.data;
+  return normalizeList(body.data);
 }
 
 // request 统一请求：非 0 业务码抛 Error（带 err.code / err.data）。

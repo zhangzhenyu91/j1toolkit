@@ -245,12 +245,19 @@ const animStyle = computed(() =>
 
 <style scoped>
 .dev {
+  box-sizing: border-box;
+  /* 旧页 .card 自身无内边距（内层 .dv-in 承担）；中和 styles.css .card 自带 padding */
+  padding: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: box-shadow 0.16s var(--tk-ease);
+  transition:
+    box-shadow 0.18s var(--tk-ease),
+    transform 0.18s var(--tk-ease);
 }
+/* 旧页 .card-hover 口径：hover 上浮 2px + 影加深（无缩放） */
 .dev:hover {
+  transform: translateY(-2px);
   box-shadow: var(--tk-shadow-hover);
 }
 .dv-in {
@@ -331,9 +338,10 @@ const animStyle = computed(() =>
 .mono {
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
 }
-/* 信息行：标签左、值右 */
+/* 信息行：标签左、值右；占满剩余高度使卡底操作条贴底、相邻卡按钮行对齐 */
 .dv-info {
   margin-top: 14px;
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -357,14 +365,15 @@ const animStyle = computed(() =>
   word-break: break-all;
   text-align: right;
 }
-/* 卡底操作条 */
+/* 卡底操作条（贴底对齐；窄卡可换行不溢出） */
 .dv-ops {
   margin-top: 15px;
   padding-top: 13px;
   border-top: 1px solid rgba(29, 33, 41, 0.06);
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
 }
 .act {
   display: inline-flex;
@@ -372,6 +381,7 @@ const animStyle = computed(() =>
   gap: 5px;
   font-size: 12.5px;
   font-weight: 600;
+  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
   color: var(--tk-brand);
@@ -412,6 +422,13 @@ const animStyle = computed(() =>
 @media (prefers-reduced-motion: reduce) {
   .fade-in {
     animation: none;
+  }
+  .dev {
+    transition: none;
+  }
+  .dev:hover {
+    transform: none;
+    box-shadow: var(--tk-shadow-hover);
   }
 }
 </style>

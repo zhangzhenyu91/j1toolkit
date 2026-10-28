@@ -1,12 +1,11 @@
 // 任务单 / 费用汇总 / 派车汇总：范围内出车卡片生成 docx/xlsx（模板见 assets/worklog/，
 // 渲染复用 compat/exceldoc：RenderDocument + MergeDocx / RenderFeeTableXML / WriteWorkbook）。
-// 任务单与费用汇总生成前核验（未通过记录拦截 40902 + failures 清单，force=1 跳过）；派车汇总不核验。
+// 任务单与费用汇总生成前核验（未通过记录拦截 40901 + failures 清单，force=1 跳过）；派车汇总不核验。
 package worklog
 
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,23 +18,24 @@ import (
 )
 
 // sheetRange 解析日期范围：from/to 或 date 单日；上限 31 天。
-func sheetRange(q map[string]string) (from, to string, errCode int) {
+// 失败返回可读原因（Node 同口径两分支：参数错 / 超 31 天分列）。
+func sheetRange(q map[string]string) (from, to string, errMsg string) {
 	from, to = q["from"], q["to"]
 	if from == "" && to == "" && q["date"] != "" {
 		from, to = q["date"], q["date"]
 	}
 	if !dateRe.MatchString(from) || !dateRe.MatchString(to) || from > to {
-		return "", "", codeParam
+		return "", "", "日期格式应为 YYYY-MM-DD，且 from 不晚于 to"
 	}
 	d1, e1 := time.Parse("2006-01-02", from)
 	d2, e2 := time.Parse("2006-01-02", to)
 	if e1 != nil || e2 != nil {
-		return "", "", codeParam
+		return "", "", "日期格式应为 YYYY-MM-DD，且 from 不晚于 to"
 	}
 	if d2.Sub(d1).Hours()/24+1 > 31 {
-		return "", "", codeParam
+		return "", "", "日期范围不能超过 31 天"
 	}
-	return from, to, 0
+	return from, to, ""
 }
 
 // sheetVerifyFailures 汇总前核验：范围内未通过记录清单（无则 nil）。
@@ -416,7 +416,7 @@ func (m *Module) sheetHasRows(r *http.Request, teamID int64, from, to, kind stri
 	return cnt > 0
 }
 
-// sheetVerifyGate 汇总前核验拦截（task/fee 且非 force）：有未通过记录写 40902 + failures 清单并返回 true。
+// sheetVerifyGate 汇总前核验拦截（task/fee 且非 force）：有未通过记录写 40901 + failures 清单并返回 true。
 func (m *Module) sheetVerifyGate(w http.ResponseWriter, r *http.Request, teamID int64, from, to string, force bool) bool {
 	if force {
 		return false
@@ -433,9 +433,9 @@ func (m *Module) sheetVerifyGate(w http.ResponseWriter, r *http.Request, teamID 
 
 // serveSheetRange 汇总表各入口共用参数解析：入参映射 → 日期范围 + 生效班组；失败已写响应。
 func (m *Module) serveSheetRange(w http.ResponseWriter, r *http.Request, q map[string]string) (string, string, *httpapi.Team, bool) {
-	from, to, errCode := sheetRange(q)
-	if errCode != 0 {
-		fail(w, http.StatusBadRequest, codeParam, "日期格式应为 YYYY-MM-DD，且 from 不晚于 to、范围不超过 31 天")
+	from, to, errMsg := sheetRange(q)
+	if errMsg != "" {
+		fail(w, http.StatusBadRequest, codeParam, errMsg)
 		return "", "", nil, false
 	}
 	_, team, ok := m.enterDict(w, r)
@@ -443,7 +443,7 @@ func (m *Module) serveSheetRange(w http.ResponseWriter, r *http.Request, q map[s
 		return "", "", nil, false
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return "", "", nil, false
 	}
 	return from, to, team, true
@@ -519,8 +519,19 @@ func (m *Module) serveSheetPreview(w http.ResponseWriter, r *http.Request, kind 
 		proto = "http"
 	}
 	srcPath := "/api/v1/worklog/" + kind + "-sheet/" + encURI(fileName)
-	downloadURL := proto + "://" + r.Host + srcPath + "?" + strings.Join(qParts, "&")
+	downloadURL := proto + "://" + r.Host + srcPath + "?" + strings.Join(qParts, "&") +
+		"&token=" + encURI(bearerToken(r))
 	writeOK(w, map[string]any{"url": viewer + "?src=" + encURI(downloadURL)})
+}
+
+// bearerToken 取当前请求 JWT（Authorization: Bearer 或 ?token= 回源），
+// 供微软 Office 查看器回源地址内嵌 ?token= 鉴权（同 Node utils/preview.js 口径）。
+func bearerToken(r *http.Request) string {
+	v := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(v) >= 7 && strings.EqualFold(v[:7], "Bearer ") {
+		return strings.TrimSpace(v[7:])
+	}
+	return strings.TrimSpace(r.URL.Query().Get("token"))
 }
 
 // handleSheetSaveNetdisk POST /sheet/save-netdisk {sheet,from,to,force?,dir?,space?}：
@@ -545,13 +556,13 @@ func (m *Module) handleSheetSaveNetdisk(w http.ResponseWriter, r *http.Request) 
 		"to":   rawString(body["to"]),
 		"date": rawString(body["date"]),
 	}
-	from, to, errCode := sheetRange(q)
-	if errCode != 0 {
-		fail(w, http.StatusBadRequest, codeParam, "日期格式应为 YYYY-MM-DD，且 from 不晚于 to、范围不超过 31 天")
+	from, to, errMsg := sheetRange(q)
+	if errMsg != "" {
+		fail(w, http.StatusBadRequest, codeParam, errMsg)
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	force := rawBool(body["force"])
@@ -623,13 +634,13 @@ func (m *Module) serveSheet(w http.ResponseWriter, r *http.Request, kind string)
 		"to":   r.URL.Query().Get("to"),
 		"date": r.URL.Query().Get("date"),
 	}
-	from, to, errCode := sheetRange(q)
-	if errCode != 0 {
-		fail(w, http.StatusBadRequest, codeParam, "日期格式应为 YYYY-MM-DD，且 from 不晚于 to、范围不超过 31 天")
+	from, to, errMsg := sheetRange(q)
+	if errMsg != "" {
+		fail(w, http.StatusBadRequest, codeParam, errMsg)
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	force := r.URL.Query().Get("force") == "1"
@@ -665,7 +676,13 @@ func (m *Module) serveSheet(w http.ResponseWriter, r *http.Request, kind string)
 		return
 	}
 	if len(buf) == 0 {
-		fail(w, http.StatusNotFound, codeNoPhotos, "该日期范围没有出车记录，无可生成的内容")
+		msg := "该日期范围没有出车记录，无可生成的卡片"
+		if kind == "fee" {
+			msg = "该日期范围没有出车记录，无可生成的汇总"
+		} else if kind == "dispatch" {
+			msg = "该日期范围没有派车单记录，无可生成的汇总"
+		}
+		fail(w, http.StatusNotFound, codeNoPhotos, msg)
 		return
 	}
 	fullName := fileName + "-" + from + "." + ext
@@ -673,7 +690,8 @@ func (m *Module) serveSheet(w http.ResponseWriter, r *http.Request, kind string)
 		fullName = fileName + "-" + from + "至" + to + "." + ext
 	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", `attachment; filename="sheet.`+ext+`"; filename*=UTF-8''`+url.QueryEscape(fullName))
+	w.Header().Set("Content-Disposition",
+		`attachment; filename="`+kind+`-sheet-`+from+`.`+ext+`"; filename*=UTF-8''`+encURI(fullName))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(buf)
 }

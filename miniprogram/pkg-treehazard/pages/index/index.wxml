@@ -30,8 +30,12 @@
         >
       </view>
 
-      <!-- 工具行（班管/超管，图标化避免拥挤）：阈值设置 / 内网同步 -->
+      <!-- 工具行（班管/超管，图标化避免拥挤）：手动新增 / 阈值设置 / 内网同步 -->
       <view class="toolbar" wx:if="{{canManage}}">
+        <view class="tool" hover-class="hover-opacity" bindtap="onOpenCreate">
+          <t-icon t-class="ico-28 ico-brand" name="add" />
+          <text class="tool-t">新增</text>
+        </view>
         <view class="tool tool-ic" hover-class="hover-opacity" bindtap="onOpenThreshold">
           <t-icon t-class="ico-30 ico-brand" name="setting" />
         </view>
@@ -109,8 +113,17 @@
         </view>
       </view>
 
-      <!-- 工具行：批量模式开关（仅台账视图可用） -->
+      <!-- 工具行：手动新增（班管/超管）+ 批量模式开关（仅台账视图可用） -->
       <view class="toolbar">
+        <view
+          class="tool"
+          wx:if="{{canManage}}"
+          hover-class="hover-opacity"
+          bindtap="onOpenCreate"
+        >
+          <t-icon t-class="ico-28 ico-brand" name="add" />
+          <text class="tool-t">新增</text>
+        </view>
         <view
           class="tool {{batchMode ? 'tool-on' : ''}}"
           hover-class="hover-opacity"
@@ -287,7 +300,7 @@
                 </view>
               </view>
 
-              <!-- 操作行：删除（班管/超管）居左，处理（未处理且非批量模式）居右 -->
+              <!-- 操作行：删除（班管/超管）居左，编辑（班管/超管）与处理（未处理且非批量模式）居右 -->
               <view class="th-foot">
                 <view
                   class="btn-act btn-del"
@@ -296,6 +309,14 @@
                   catchtap="onDeleteRecord"
                   data-id="{{rec.id}}"
                   >删 除</view
+                >
+                <view
+                  class="btn-act"
+                  wx:if="{{canManage}}"
+                  hover-class="hover-opacity"
+                  catchtap="onCardEdit"
+                  data-id="{{rec.id}}"
+                  >编 辑</view
                 >
                 <view
                   class="btn-act"
@@ -403,6 +424,224 @@
         hover-class="hover-opacity"
         bindtap="onConfirmExport"
         >{{exporting ? '正在导出…' : '导 出'}}</view
+      >
+    </view>
+  </view>
+</t-popup>
+
+<!-- 手动新增/编辑弹层（统一表单：发现 12 列 + 处理 3 列；线路名必填，校验失败不丢输入） -->
+<t-popup visible="{{editVisible}}" placement="bottom" bind:visible-change="onEditVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">{{editId ? '编辑记录' : '新增记录'}}</view>
+    <scroll-view scroll-y class="sheet-body" enhanced show-scrollbar="{{false}}">
+      <view class="ed-sec">发现信息</view>
+      <view class="f-item">
+        <view class="f-label">线路名称 <text class="ed-req">*</text></view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="如：甲线"
+            value="{{editForm.line_name}}"
+            maxlength="64"
+            data-key="line_name"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">电压等级</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="如：110"
+            value="{{editForm.voltage_level}}"
+            maxlength="16"
+            data-key="voltage_level"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">区段</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="如：3#-4#"
+            value="{{editForm.section}}"
+            maxlength="32"
+            data-key="section"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">位置备注</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.position_note}}"
+            maxlength="32"
+            data-key="position_note"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">树种</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.tree_species}}"
+            maxlength="32"
+            data-key="tree_species"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">数量</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.tree_count}}"
+            maxlength="16"
+            data-key="tree_count"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">距小号侧距离（m）</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.dist_small}}"
+            maxlength="16"
+            data-key="dist_small"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">距大号侧距离（m）</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.dist_big}}"
+            maxlength="16"
+            data-key="dist_big"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">直径（cm）</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.diameter}}"
+            maxlength="16"
+            data-key="diameter"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">水平距离（m）</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.horizontal}}"
+            maxlength="16"
+            data-key="horizontal"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">垂直距离</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="如：超高2.5"
+            value="{{editForm.vertical}}"
+            maxlength="16"
+            data-key="vertical"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">发现人</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.finder_name}}"
+            maxlength="32"
+            data-key="finder_name"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">发现时间</view>
+        <view class="f-field date-field" hover-class="hover-opacity" bindtap="onEditDateTap" data-key="found_at">
+          <text>{{editForm.found_at_text || '请选择'}}</text>
+          <t-icon t-class="ico-30 ico-brand" name="calendar" />
+        </view>
+      </view>
+      <view class="ed-sec">处理信息</view>
+      <view class="f-item">
+        <view class="f-label">处理人</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            value="{{editForm.handler_name}}"
+            maxlength="32"
+            data-key="handler_name"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">处理情况</view>
+        <view class="f-field">
+          <t-input
+            borderless
+            placeholder="如：削枝"
+            value="{{editForm.handle_note}}"
+            maxlength="64"
+            data-key="handle_note"
+            bind:change="onEditField"
+          />
+        </view>
+      </view>
+      <view class="f-item">
+        <view class="f-label">处理时间</view>
+        <view
+          class="f-field date-field"
+          hover-class="hover-opacity"
+          bindtap="onEditDateTap"
+          data-key="handled_at"
+        >
+          <text>{{editForm.handled_at_text || '请选择'}}</text>
+          <t-icon t-class="ico-30 ico-brand" name="calendar" />
+        </view>
+      </view>
+      <view class="ed-tip">留空处理时间视为未处理；垂直距离原文自动解析数值供阈值比对。</view>
+    </scroll-view>
+    <view class="sheet-actions">
+      <view
+        class="btn-ghost {{editSaving ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onCloseEdit"
+        >取 消</view
+      >
+      <view
+        class="btn-dark {{editSaving ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onSubmitEdit"
+        >{{editSaving ? '正在提交…' : editId ? '保存修改' : '确认新增'}}</view
       >
     </view>
   </view>

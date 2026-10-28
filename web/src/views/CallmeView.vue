@@ -93,7 +93,7 @@
           </span>
         </div>
 
-        <div ref="msgListEl" class="cm-body">
+        <div ref="msgListEl" class="cm-body" @click="onMdCopy">
           <div v-if="!activeId" class="cm-welcome">
             <div class="w-ic" v-html="icon('robot', 36)"></div>
             <b>Call Me · AI 知识库问答</b>
@@ -280,7 +280,7 @@
                   :disabled="!caps || (caps.models || []).length <= 1"
                   @change="onModelChange"
                 >
-                  <option v-if="!caps || !(caps.models || []).length" value="">默认模型</option>
+                  <option value="">默认模型</option>
                   <option v-for="m in (caps && caps.models) || []" :key="m.id" :value="m.id">
                     {{ m.name || m.id }}
                   </option>
@@ -313,8 +313,14 @@
       </main>
     </div>
 
-    <!-- ================= 弹层：新建 / 重命名输入 & 删除确认（旧式 .modal-t/.modal-b/.modal-f） ================= -->
-    <div v-if="overlay.visible" class="mask open" @click.self="closeOverlay(false)">
+    <!-- ================= 弹层：新建 / 重命名输入 & 删除确认（旧式 .modal-t/.modal-b/.modal-f；
+         打开/关闭过渡同旧页 Shade.modal：插入后次帧加 .open 淡入上浮、关闭先摘 .open 淡出后移除） ================= -->
+    <div
+      v-if="overlay.visible"
+      class="mask"
+      :class="{ open: overlay.opened }"
+      @click.self="closeOverlay(false)"
+    >
       <div class="modal">
         <div class="modal-t">{{ overlay.title }}</div>
         <div class="modal-b">
@@ -522,6 +528,55 @@ async function copyText(text) {
     MessagePlugin.success('已复制');
   } catch (e) {
     MessagePlugin.error('复制失败，请手动选择文本复制');
+  }
+}
+
+// prefersReducedMotion 动效降级：尊重系统「减少动态效果」偏好（平滑滚动随之降为瞬时）。
+function prefersReducedMotion() {
+  try {
+    return !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch (e) {
+    return false;
+  }
+}
+
+// onMdCopy 代码块「复制」按钮（事件委托，同旧页 msgList click：成功按钮文案回显「已复制」）。
+function onMdCopy(e) {
+  const t = e.target;
+  const cp = t && t.closest ? t.closest('.md-cp') : null;
+  if (!cp) return;
+  const box = cp.closest('.md-code');
+  const codeEl = box ? box.querySelector('pre code') : null;
+  const text = codeEl ? codeEl.textContent : '';
+  const done = (ok) => {
+    if (!ok) {
+      MessagePlugin.error('复制失败，请手动选择文本复制');
+      return;
+    }
+    cp.textContent = '已复制';
+    setTimeout(() => {
+      cp.textContent = '复制';
+    }, 1500);
+  };
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch (err) {
+      // 忽略：交由 done(false) 提示
+    }
+    ta.remove();
+    done(ok);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => done(true), fallback);
+  } else {
+    fallback();
   }
 }
 
@@ -846,7 +901,9 @@ function scrollBottom(smooth) {
   nextTick(() => {
     const el = msgListEl.value;
     if (!el) return;
-    if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    // 平滑滚动在「减少动态效果」下降为瞬时
+    if (smooth && !prefersReducedMotion())
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     else el.scrollTop = el.scrollHeight;
   });
 }
@@ -1080,7 +1137,6 @@ function finalizeAnswer(msg, errorMessage) {
   scrollBottom(false);
 }
 
-// onDeleteMsg 问答成对删除（同 request_id）。
 // onDeleteMsg 问答成对删除（旧式确认弹层，同 request_id）。
 async function onDeleteMsg(msg) {
   if (!msg.msgId) return;
@@ -1342,6 +1398,7 @@ const sideOpen = ref(false);
 /* ================= 旧式弹层（新建/重命名输入 .modal-b 内输入框 + 删除确认） ================= */
 const overlay = reactive({
   visible: false,
+  opened: false, // 过渡态：挂载后次帧置 true 淡入上浮，关闭先回 false 淡出再移除（同旧页 Shade.modal）
   prompt: false,
   title: '',
   content: '',
@@ -1352,13 +1409,31 @@ const overlay = reactive({
   _resolve: null,
 });
 const overlayInputEl = ref(null);
+let overlayCloseTimer = 0;
 
-// closeOverlay 关闭弹层：确认返回 true/false，输入返回文本，取消返回 null。
+// showOverlay 挂载弹层并触发打开过渡（rAF 等首帧样式落地后再加 .open）。
+function showOverlay() {
+  clearTimeout(overlayCloseTimer);
+  overlay.visible = true;
+  overlay.opened = false;
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      overlay.opened = true;
+    });
+  });
+}
+
+// closeOverlay 关闭弹层：确认返回 true/false，输入返回文本，取消返回 null；先淡出再移除。
 function closeOverlay(ok) {
   const resolve = overlay._resolve;
   const value = overlay.value;
   overlay._resolve = null;
-  overlay.visible = false;
+  overlay.opened = false;
+  clearTimeout(overlayCloseTimer);
+  overlayCloseTimer = setTimeout(() => {
+    overlay.visible = false;
+    overlay.opened = false;
+  }, 320);
   if (!resolve) return;
   if (!ok) {
     resolve(null);
@@ -1378,7 +1453,7 @@ function promptBox(title, initial, okText, placeholder) {
     overlay.okText = okText || '确定';
     overlay.danger = false;
     overlay._resolve = resolve;
-    overlay.visible = true;
+    showOverlay();
     nextTick(() => {
       const el = overlayInputEl.value;
       if (el) {
@@ -1399,7 +1474,7 @@ function confirmBox(title, content, okText) {
     overlay.okText = okText || '确定';
     overlay.danger = true;
     overlay._resolve = resolve;
-    overlay.visible = true;
+    showOverlay();
   });
 }
 
@@ -1451,6 +1526,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* ===== 旧页全局重置随本组件收口（旧 theme.css * { margin:0; padding:0; box-sizing:border-box }，
+   Vue 端 legacy-theme.css 未带此重置）；v-html 节点须 :deep 覆盖，置于样式最前让组件规则可覆盖 ===== */
+.cm-root :deep(*),
+.cm-root :deep(*::before),
+.cm-root :deep(*::after) {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 /* ===== 「政企蓝白」旧版 token（值与 server/public/assets/theme.css 一致），限定本组件 ===== */
 .cm-root {
   --paper: #f5f7fa;
@@ -1486,9 +1571,10 @@ onBeforeUnmount(() => {
   --hard-s: 0 1px 4px rgba(0, 0, 0, 0.05);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
   --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
-  /* 整页骨架：覆盖父级内容区内边距，整页不滚动、仅卡片内部滚动（同旧页 body 锁定口径） */
-  height: calc(100% + 40px);
-  margin: -20px -24px;
+  /* 整页骨架：覆盖父级内容区内边距（.page 实际 padding 28px 40px 48px，见 web/src/styles.css），
+     整页不滚动、仅卡片内部滚动（同旧页 body 锁定口径） */
+  height: calc(100% + 76px);
+  margin: -28px -40px -48px;
   box-sizing: border-box;
   overflow: hidden;
   display: flex;
@@ -1820,6 +1906,8 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   padding: 8px 30px 30px;
+  /* 滚动条两侧预留对称槽位：滚动条出现/消失时不挤动居中内容（防偏左） */
+  scrollbar-gutter: stable both-edges;
 }
 .msg-list {
   display: flex;
@@ -2163,58 +2251,59 @@ onBeforeUnmount(() => {
   color: var(--ph);
 }
 
-/* ===== markdown 渲染样式（对齐小程序端 MD_TAG_STYLE 色板） ===== */
-.a-bubble h1,
-.a-bubble h2,
-.a-bubble h3,
-.a-bubble h4 {
+/* ===== markdown 渲染样式（对齐小程序端 MD_TAG_STYLE 色板）。
+   注意：内容由 v-html 注入、不带 scope 属性，全部经 :deep() 穿透 scoped 限制，否则表格/排版样式匹配不到 ===== */
+.a-bubble :deep(h1),
+.a-bubble :deep(h2),
+.a-bubble :deep(h3),
+.a-bubble :deep(h4) {
   color: var(--navy);
   font-weight: 700;
   line-height: 1.5;
   margin: 10px 0 6px;
 }
-.a-bubble h1 {
+.a-bubble :deep(h1) {
   font-size: 17px;
 }
-.a-bubble h2 {
+.a-bubble :deep(h2) {
   font-size: 16px;
 }
-.a-bubble h3,
-.a-bubble h4 {
+.a-bubble :deep(h3),
+.a-bubble :deep(h4) {
   font-size: 15px;
   margin: 8px 0 4px;
 }
-.a-bubble p {
+.a-bubble :deep(p) {
   margin: 4px 0;
 }
-.a-bubble ul,
-.a-bubble ol {
+.a-bubble :deep(ul),
+.a-bubble :deep(ol) {
   margin: 4px 0 4px 1.2em;
   padding: 0;
 }
-.a-bubble li {
+.a-bubble :deep(li) {
   margin: 2px 0;
 }
-.a-bubble ul > li::marker {
+.a-bubble :deep(ul > li::marker) {
   color: var(--orange);
 }
-.a-bubble ol > li::marker {
+.a-bubble :deep(ol > li::marker) {
   color: var(--orange);
   font-weight: 700;
 }
-.a-bubble strong {
+.a-bubble :deep(strong) {
   font-weight: 700;
 }
-.a-bubble a {
+.a-bubble :deep(a) {
   color: var(--orange);
   text-decoration: underline;
 }
-.a-bubble hr {
+.a-bubble :deep(hr) {
   border: none;
   border-top: 1px solid var(--hair);
   margin: 10px 0;
 }
-.a-bubble code {
+.a-bubble :deep(code) {
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
   font-size: 0.9em;
   color: var(--orange);
@@ -2222,7 +2311,7 @@ onBeforeUnmount(() => {
   padding: 1px 5px;
   border-radius: 8px;
 }
-.a-bubble blockquote {
+.a-bubble :deep(blockquote) {
   border-left: 3px solid var(--orange);
   margin: 6px 0;
   padding: 2px 10px;
@@ -2231,16 +2320,16 @@ onBeforeUnmount(() => {
   border-radius: 8px;
 }
 /* 表格 */
-.md-table {
+.a-bubble :deep(.md-table) {
   display: block;
   overflow-x: auto;
   margin: 8px 0;
 }
-.md-table table {
+.a-bubble :deep(.md-table table) {
   border-collapse: collapse;
   font-size: 13px;
 }
-.md-table th {
+.a-bubble :deep(.md-table th) {
   border: 1px solid var(--hair);
   background: var(--paper);
   padding: 6px 10px;
@@ -2249,18 +2338,19 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   color: var(--navy);
 }
-.md-table td {
+.a-bubble :deep(.md-table td) {
   border: 1px solid var(--hair);
   padding: 6px 10px;
 }
-/* 代码块（墨黑深底 + 标题栏 + 复制；深底固定不随主题反转，浅字常亮） */
-.md-code {
+/* 代码块（墨黑深底 + 标题栏 + 复制；浅色保持墨黑深底浅字，深色随 prefers-color-scheme 切换为深色面板，
+   覆盖范围仅代码模块，其它 Markdown 元素不做简单反色） */
+.a-bubble :deep(.md-code) {
   margin: 10px 0;
   background: #1d2129;
   border-radius: 8px;
   overflow: hidden;
 }
-.md-code-h {
+.a-bubble :deep(.md-code-h) {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2270,17 +2360,17 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.18);
   letter-spacing: 1px;
 }
-.md-code-h .md-cp {
+.a-bubble :deep(.md-code-h .md-cp) {
   margin-left: auto;
   color: rgba(255, 255, 255, 0.45);
   cursor: pointer;
   letter-spacing: 0;
   transition: color 0.2s;
 }
-.md-code-h .md-cp:hover {
+.a-bubble :deep(.md-code-h .md-cp:hover) {
   color: #fff;
 }
-.md-code pre {
+.a-bubble :deep(.md-code pre) {
   margin: 0;
   padding: 12px 16px;
   overflow-x: auto;
@@ -2291,11 +2381,42 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.md-code pre code {
+.a-bubble :deep(.md-code pre code) {
   background: none;
   color: inherit;
   padding: 0;
   font-size: inherit;
+}
+/* 代码模块深色适配（prefers-color-scheme；色阶取 theme.css 深色 token：品牌蓝 #78A6FF、
+   浅蓝底 #1B2D4D、正文 #e5e6eb、辅助 #8a94a3；覆盖对象仅代码块背景/标题栏/正文/行内代码/复制按钮，
+   全部经 :deep 命中 v-html 注入节点；其它 Markdown 元素不做简单反色） */
+@media (prefers-color-scheme: dark) {
+  .a-bubble :deep(.md-code) {
+    background: #14171d;
+  }
+  .a-bubble :deep(.md-code-h) {
+    color: #8a94a3;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .a-bubble :deep(.md-code-h .md-cp) {
+    color: #8a94a3;
+  }
+  .a-bubble :deep(.md-code-h .md-cp:hover) {
+    color: #e5e6eb;
+  }
+  .a-bubble :deep(.md-code pre) {
+    color: #e5e6eb;
+  }
+  .a-bubble :deep(code) {
+    color: #78a6ff;
+    background: #1b2d4d;
+  }
+  .a-bubble :deep(.md-code pre code) {
+    background: none;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+  }
 }
 
 /* ===== 底部输入区：悬浮卡片，满宽落于右侧区域底部；chips 在卡上、提示在卡下 ===== */
@@ -2509,7 +2630,7 @@ onBeforeUnmount(() => {
   color: var(--ph);
   letter-spacing: 0.5px;
 }
-/* 联网搜索胶囊开关（开=品牌蓝底白字 / 关=灰）与思考强度/模型下拉（复用 common.js .dd 体系，工具行紧凑化） */
+/* 联网搜索胶囊开关（开=品牌蓝底白字 / 关=灰）与思考强度/模型原生下拉（样式见文末「原生下拉」补位，工具行紧凑化） */
 .cm-ws {
   flex: none;
   display: flex;
@@ -2538,25 +2659,6 @@ onBeforeUnmount(() => {
   background: var(--orange);
   border-color: var(--orange);
   color: var(--on-brand);
-}
-.cm-model,
-.cm-effort {
-  flex: none;
-}
-.cm-model .dd-btn,
-.cm-effort .dd-btn {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--sub);
-  padding: 0 10px;
-  gap: 6px;
-}
-.cm-model .dd-btn .dd-label {
-  max-width: 140px;
-}
-.cm-model .dd-btn .dd-tri,
-.cm-effort .dd-btn .dd-tri {
-  color: var(--ph);
 }
 
 /* ===== 通用弹窗（新建/重命名输入用 promptModal（.modal-t/.modal-b/.modal-f）；删除确认走 Shade.confirm，
@@ -2747,8 +2849,8 @@ onBeforeUnmount(() => {
   .cm-ws .ws-t {
     display: none;
   }
-  .cm-model .dd-btn .dd-label {
-    max-width: 88px;
+  .cm-model {
+    max-width: 112px;
   }
 }
 
@@ -2905,6 +3007,18 @@ onBeforeUnmount(() => {
   outline: none;
   font-family: inherit;
   cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+.cm-model:hover:not(:disabled),
+.cm-effort:hover:not(:disabled) {
+  border-color: var(--dash);
+  color: var(--navy);
+}
+.cm-model:focus,
+.cm-effort:focus {
+  border-color: var(--orange);
 }
 .cm-model:disabled {
   opacity: 0.6;
@@ -2915,13 +3029,16 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-/* 动效降级 */
+/* 动效降级（与旧 theme.css 同口径：关闭动画与延迟；:deep 覆盖 v-html 注入的 markdown 节点） */
 @media (prefers-reduced-motion: reduce) {
-  .cm-side,
-  .cm-main,
-  .msg-row,
-  .skeleton::after {
-    animation: none !important;
+  .cm-root :deep(*),
+  .cm-root :deep(*::before),
+  .cm-root :deep(*::after) {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
   }
 }
 </style>

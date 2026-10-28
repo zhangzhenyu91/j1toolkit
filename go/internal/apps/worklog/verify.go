@@ -103,6 +103,7 @@ type Entry struct {
 	DestinationStationed int                             `json:"destination_stationed"`
 	DispatchOrderNo      string                          `json:"dispatch_order_no"`
 	CreatedBy            int64                           `json:"created_by"`
+	CreatedAt            string                          `json:"created_at"`
 	Members              []MemberRow                     `json:"members"`
 	Photos               []PhotoItem                     `json:"photos"`
 	ClockinMap           map[string]map[int]ClockinEntry `json:"clockinMap"`
@@ -187,7 +188,7 @@ func feeStdText(std FeeStd) string {
 	case 2:
 		suffix = "（驻地）"
 	}
-	return feeNum(std.FoodFee) + "/" + feeNum(std.TransitFee) + suffix
+	return "伙食" + feeNum(std.FoodFee) + "/交通" + feeNum(std.TransitFee) + suffix
 }
 
 func feeNum(v float64) string {

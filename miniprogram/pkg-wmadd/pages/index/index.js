@@ -52,8 +52,10 @@ Page({
     this.chooseWmPhoto(src, (p) => this.proceedWmForm(p));
   },
 
-  // 裁剪完成/免裁：记录照片路径、生成防伪码，进字段编辑弹层
+  // 裁剪完成/免裁：记录照片路径、生成防伪码，进字段编辑弹层。
+  // 防重复执行：表单已开或上传中时忽略迟到/重复回调，避免重置重绘用户正在编辑的表单
   proceedWmForm(path) {
+    if (this.data.wmVisible || this.data.wmUploading) return;
     this.resetTowerState();
     this.setData({ wmPhotoPath: path, wmCode: genAntiCode() });
     this.prefillWmForm();
@@ -76,10 +78,13 @@ Page({
     this.fillWmByLocation();
   },
 
-  // 级联输入框键盘高度变化：记录键盘高度，弹层底部 padding 与滚动区高度随其调整（页面不被键盘上推，避免布局跳变）
+  // 级联输入框键盘高度变化：记录键盘高度，弹层底部 padding 与滚动区高度随其调整（页面不被键盘上推，避免布局跳变）；
+  // 同高度重复事件不重绘，避免各弹层 padding 反复重算互顶
   onKeyboardHeight(e) {
     const h = e.detail.height || 0;
-    this.setData({ keyboardHeight: h > 0 ? h : 0 });
+    const next = h > 0 ? h : 0;
+    if (next === this.data.keyboardHeight) return;
+    this.setData({ keyboardHeight: next });
   },
 
   // 「选择杆塔坐标」按钮：打开级联弹层（共享实现；首次打开先加载数据，失败关层提示，已选状态保留供重选带回）

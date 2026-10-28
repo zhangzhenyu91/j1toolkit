@@ -234,3 +234,44 @@ func TestGlkvmFileshareHTTP(t *testing.T) {
 		t.Fatalf("missing calls: %v (got %v)", want, paths)
 	}
 }
+
+// 设备调用失败重试（Node deviceCall 口径：共试 Attempts 次，每次换新代理会话；404 不重试）。
+func TestGlkvmFileshareRetry(t *testing.T) {
+	var mountHits, dlHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/fileshare/mount":
+			mountHits++
+			if mountHits < 3 {
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte(`{"ok":false,"error":"转发抖动"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "shared": true})
+		case strings.HasPrefix(r.URL.Path, "/api/fileshare/download/"):
+			dlHits++
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	p := &fakePlatform{ps: kvm.ProxySession{Origin: srv.URL, Cookie: "rtty-http-sid=1"}}
+	f := &GlkvmFileshare{Platform: p, Attempts: 3, RetryGap: 0}
+	dev := DeviceRef{ID: "9", Ddns: "d"}
+	ctx := context.Background()
+
+	if err := f.MountToHost(ctx, dev, "ops"); err != nil {
+		t.Fatalf("mount should retry and succeed: %v", err)
+	}
+	if mountHits != 3 {
+		t.Fatalf("mountHits = %d, want 3", mountHits)
+	}
+	// 404 = 文件不存在：接受不重试。
+	if buf, err := f.DownloadFile(ctx, dev, "ops", "none.xlsx"); err != nil || buf != nil {
+		t.Fatalf("download 404 = %v %v", buf, err)
+	}
+	if dlHits != 1 {
+		t.Fatalf("dlHits = %d, want 1（404 不重试）", dlHits)
+	}
+}

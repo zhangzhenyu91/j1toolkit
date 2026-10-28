@@ -44,8 +44,11 @@ function createWmPhoto({ geoBase, logTag }) {
     methods: {
       // ---------- 选片 →（按需 4:3 裁剪）→ onDone 进表单 ----------
 
-      // 按来源取图（camera=拍摄 / album=相册；sizeType 锁定原图取片，不允许压缩上传）后分流判定
+      // 按来源取图（camera=拍摄 / album=相册；sizeType 锁定原图取片，不允许压缩上传）后分流判定。
+      // _wmChoosing 防连点重复取图：重复触发会让 onDone（proceedWmForm）执行多次，表单被重复打开/重绘
       chooseWmPhoto(src, onDone) {
+        if (this._wmChoosing) return;
+        this._wmChoosing = true;
         wx.chooseMedia({
           count: 1,
           mediaType: ['image'],
@@ -58,6 +61,9 @@ function createWmPhoto({ geoBase, logTag }) {
               success: (info) => this.afterPickWmPhoto(path, src, info || {}, onDone),
               fail: () => this.afterPickWmPhoto(path, src, {}, onDone),
             });
+          },
+          complete: () => {
+            this._wmChoosing = false;
           },
         });
       },
@@ -197,8 +203,11 @@ function createWmPhoto({ geoBase, logTag }) {
                 success: (r) => {
                   // 导出期间用户已取消：丢弃结果，不再进字段编辑弹层
                   if (!this.data.cropVisible) return;
+                  // 一次性回调：取出后即清空，防止 onDone（proceedWmForm）重复执行重复打开/重置表单
+                  const done = this._cropOnDone;
+                  this._cropOnDone = null;
                   this.setData({ cropVisible: false, cropExporting: false });
-                  if (this._cropOnDone) this._cropOnDone(r.tempFilePath);
+                  if (done) done(r.tempFilePath);
                 },
                 fail: () => {
                   this.setData({ cropExporting: false });
@@ -230,13 +239,16 @@ function createWmPhoto({ geoBase, logTag }) {
 
       // ---------- 水印字段编辑公共件 ----------
 
+      // 输入期只写影子数据、不 setData：受控 value 回写会触发整层重绘，auto-height + hold-keyboard
+      // 下重绘会导致键盘闪收（秒退）、value 被重复应用（内容重复追加）。保存/快捷追加/防伪均读 this.data
       onWmInput(e) {
         const { field } = e.currentTarget.dataset;
-        this.setData({ [`wmForm.${field}`]: e.detail.value });
+        this.data.wmForm[field] = e.detail.value;
         if (field === 'lng' || field === 'lat') this.scheduleWmGeoRefresh(); // 手动改经纬度同样刷新地点/天气
       },
 
-      // 施工内容快捷输入：点击将字符追加到当前输入内容末尾（不超出 textarea 的 maxlength 500）
+      // 施工内容快捷输入：仅用户点击 chip 时追加一次到当前输入内容末尾（不超出 textarea 的 maxlength 500）；
+      // 此处须 setData 同步视图（外部改值，非输入中回写）；chip 用 catchtap 阻断冒泡防重复追加
       onWmQuickInput(e) {
         const { text } = e.currentTarget.dataset;
         if (!text) return;

@@ -136,9 +136,8 @@ type RecordStore interface {
 	GetRecord(ctx context.Context, key string) (*Record, error)
 	// FindTodayRecord 当天（[dayStart,dayEnd)）同群记录定位：tree 优先、crossing 其次，msgId 优先 content 兜底。
 	FindTodayRecord(ctx context.Context, groupID, msgID, content string, dayStart, dayEnd int64) (*Record, error)
-	// FindNearTime 按被引用消息创建时间 ±windowSec 定位记录（extcommoninfo 简形兜底）。
-	FindNearTime(ctx context.Context, groupID string, at, windowSec int64) (*Record, error)
-	// FindRecallTarget 撤回启发式定位：时间窗内同 kind 记录取较新者，senderID 命中优先；matchedBy 为 sender|latest。
+	// FindRecallTarget 撤回定位：时间窗内该撤回人的同 kind 记录取较新者；senderID 为空或无同 sender 记录时不命中
+	// （任何兜底都不跨 sender，绝不误删他人记录）。matchedBy 恒为 sender。
 	FindRecallTarget(ctx context.Context, groupID, senderID string, windowSec int64, kind string, now int64) (*Record, string, error)
 	// FindRecentLine 该成员最近一次同类有效记录的线路名（省略线路自动补全）。
 	FindRecentLine(ctx context.Context, senderID, kind string) (string, error)
@@ -236,20 +235,24 @@ func (s *SQLRecordStore) GetRecord(ctx context.Context, key string) (*Record, er
 	return s.byCond(ctx, `record_key=?`, key)
 }
 
-// FindNearTime 按被引用消息创建时间 ±windowSec 定位最近一条记录（extcommoninfo 简形兜底）。
-func (s *SQLRecordStore) FindNearTime(ctx context.Context, groupID string, at, windowSec int64) (*Record, error) {
-	return s.byCond(ctx,
-		`group_id=? AND captured_at>=? AND captured_at<=? AND status<>'dropped'`,
-		groupID, at-windowSec, at+windowSec)
-}
-
-func (s *SQLRecordStore) byCond(ctx context.Context, cond string, args ...any) (*Record, error) {
-	row := s.DB.QueryRowContext(ctx, `SELECT `+recordCols+` FROM wa_record WHERE `+cond+` ORDER BY id DESC LIMIT 1`, args...)
+// FindRecallTarget 撤回定位：时间窗内该撤回人的同 kind 记录取较新者；senderID 为空或无同 sender 记录时不命中
+// （不跨 sender 兜底，绝不误删他人记录）。
+func (s *SQLRecordStore) FindRecallTarget(ctx context.Context, groupID, senderID string, windowSec int64, kind string, now int64) (*Record, string, error) {
+	if senderID == "" {
+		return nil, "", nil
+	}
+	row := s.DB.QueryRowContext(ctx, `
+    SELECT `+recordCols+` FROM wa_record
+    WHERE group_id=? AND kind=? AND sender_id=? AND captured_at>=? AND status<>'dropped'
+    ORDER BY captured_at DESC, id DESC LIMIT 1`, groupID, kind, senderID, now-windowSec)
 	rec, err := scanRecord(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, "", nil
 	}
-	return rec, err
+	if err != nil {
+		return nil, "", err
+	}
+	return rec, "sender", nil
 }
 
 // FindTodayRecord 当天记录定位（tree 优先，msgId 优先 content 兜底）。
@@ -289,36 +292,13 @@ func (s *SQLRecordStore) FindTodayRecord(ctx context.Context, groupID, msgID, co
 	return nil, nil
 }
 
-// FindRecallTarget 撤回定位（时间窗内较新者；撤回人命中优先，群主撤回他人消息兜底 latest）。
-func (s *SQLRecordStore) FindRecallTarget(ctx context.Context, groupID, senderID string, windowSec int64, kind string, now int64) (*Record, string, error) {
-	rows, err := s.DB.QueryContext(ctx, `
-    SELECT `+recordCols+` FROM wa_record
-    WHERE group_id=? AND kind=? AND captured_at>=? AND status<>'dropped'
-    ORDER BY captured_at DESC`, groupID, kind, now-windowSec)
-	if err != nil {
-		return nil, "", err
+func (s *SQLRecordStore) byCond(ctx context.Context, cond string, args ...any) (*Record, error) {
+	row := s.DB.QueryRowContext(ctx, `SELECT `+recordCols+` FROM wa_record WHERE `+cond+` ORDER BY id DESC LIMIT 1`, args...)
+	rec, err := scanRecord(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	defer rows.Close()
-	var latest *Record
-	for rows.Next() {
-		rec, err := scanRecord(rows)
-		if err != nil {
-			return nil, "", err
-		}
-		if latest == nil {
-			latest = rec
-		}
-		if senderID != "" && rec.SenderID == senderID {
-			return rec, "sender", nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, "", err
-	}
-	if latest != nil {
-		return latest, "latest", nil
-	}
-	return nil, "", nil
+	return rec, err
 }
 
 // FindRecentLine 该成员最近一次同类有效记录的线路名。

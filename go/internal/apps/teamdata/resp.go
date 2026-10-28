@@ -112,22 +112,46 @@ func rawString(raw json.RawMessage) string {
 
 // rawNumberOr0 按 JS Number(x) || 0 口径取整数：非数字/0 → 0。
 func rawNumberOr0(raw json.RawMessage) int64 {
-	text := rawString(raw)
-	n, err := strconv.ParseFloat(text, 64)
-	if err != nil || n == 0 {
-		return 0
+	if n, ok := jsNumber(raw); ok && n != 0 {
+		return int64(n)
 	}
-	return int64(n)
+	return 0
 }
 
 // rawFlag01 按 JS Number(x) ? 1 : 0 口径取 0/1 标记。
 func rawFlag01(raw json.RawMessage) int {
-	text := rawString(raw)
-	n, err := strconv.ParseFloat(text, 64)
-	if err != nil || n == 0 {
-		return 0
+	if n, ok := jsNumber(raw); ok && n != 0 {
+		return 1
 	}
-	return 1
+	return 0
+}
+
+// jsNumber 按 JS Number(x) 口径取数值：数字/布尔/可解析文本 → 数值，其余为 NaN。
+func jsNumber(raw json.RawMessage) (float64, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return f, true
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		if b {
+			return 1, true
+		}
+		return 0, true
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return 0, true // Number("") = 0
+		}
+		n, err := strconv.ParseFloat(s, 64)
+		return n, err == nil
+	}
+	return 0, false
 }
 
 // isDupEntry 判定 MySQL 唯一键冲突（ER_DUP_ENTRY=1062），对齐 Node 的 err.code === 'ER_DUP_ENTRY'。

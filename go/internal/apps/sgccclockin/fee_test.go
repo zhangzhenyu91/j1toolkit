@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"shade/internal/compat/cryptoaudio"
 )
 
 // mapCfg 测试用运行时配置桩（键值表可变，模拟 config.Store 变更）。
@@ -438,5 +440,180 @@ func TestConfigHotEffect(t *testing.T) {
 	_, proxy = p.resolve(ctx)
 	if proxy != "socks5://127.0.0.1:1080" {
 		t.Fatalf("键缺失应回退静态字段: %q", proxy)
+	}
+}
+
+// TestLoginWireReplay 登录链路请求线格式回放（fixture 解密 + 头集/签名断言，
+// 与 server/src/sgccclockin/protocol.js loginByPassword / jsonxHeaders 同口径）。
+func TestLoginWireReplay(t *testing.T) {
+	k := testKeys(t)
+	var gotPath string
+	var gotPayload map[string]any
+	var gotHeader http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = strings.TrimPrefix(r.URL.Path, "/api/")
+		gotHeader = r.Header.Clone()
+		buf, _ := io.ReadAll(r.Body)
+		payload, err := k.jsonxDecryptBody("slapp", string(buf))
+		if err != nil {
+			t.Errorf("fixture 解请求失败: %v", err)
+			return
+		}
+		gotPayload = payload
+		ct, err := k.jsonxEncryptBody("slapp", map[string]any{
+			"statusCode": 200,
+			"data":       map[string]any{"token": "tok-1"},
+		}, 1)
+		if err != nil {
+			t.Errorf("fixture 加密应答失败: %v", err)
+			return
+		}
+		_, _ = w.Write([]byte(ct))
+	}))
+	defer srv.Close()
+	p := fixtureProtocol(t, k, srv)
+
+	token, err := p.LoginByPassword(context.Background(), "13800138000", "pw", "cap-tok", "const-1",
+		CallOpts{Mobile: "13800138000"})
+	if err != nil || token != "tok-1" {
+		t.Fatalf("密码登录: token=%q err=%v", token, err)
+	}
+	if gotPath != "user/token/v4" {
+		t.Fatalf("路径不符: %s", gotPath)
+	}
+	// 请求体字段集（Node loginByPassword 同口径）
+	if gotPayload["mobile"] != "13800138000" || gotPayload["password"] != "pw" {
+		t.Fatalf("凭据字段不符: %v", gotPayload)
+	}
+	if gotPayload["source"] != "3" || gotPayload["riskFlag"] != "Y" {
+		t.Fatalf("source/riskFlag 不符: %v", gotPayload)
+	}
+	if gotPayload["riskReviewFlag"] != true {
+		t.Fatalf("riskReviewFlag 应为 true: %v", gotPayload)
+	}
+	if gotPayload["captchaToken"] != "cap-tok" || gotPayload["constId"] != "const-1" {
+		t.Fatalf("风控字段不符: %v", gotPayload)
+	}
+	if _, ok := gotPayload["_r"]; !ok {
+		t.Fatalf("缺 _r: %v", gotPayload)
+	}
+	// 头集（jsonx slapp 公共内核；登录调用不带 token 头）
+	for key, want := range map[string]string{
+		"tenant": "slapp", "platform": "1", "secretKeyType": "2", "encFlag": "2",
+		"version": "3.3.7", "version-code": "202609232038", "grayversion": "2.4.7.1",
+		"appType": "0", "source": "1", "uniID": "uid-x",
+		"systemVersion": "Android 13", "deviceType": "Pixel 7",
+	} {
+		if gotHeader.Get(key) != want {
+			t.Fatalf("头 %s = %q，期望 %q", key, gotHeader.Get(key), want)
+		}
+	}
+	if gotHeader.Get("token") != "" {
+		t.Fatalf("登录请求不应带 token 头: %q", gotHeader.Get("token"))
+	}
+	if ua := gotHeader.Get("User-Agent"); ua != "guo wang shang lu yun/3.3.7 (Pixel 7; Android 13; Scale/2.00)" {
+		t.Fatalf("User-Agent 不符: %q", ua)
+	}
+	if gotHeader.Get("Content-Type") != "application/jsonx" {
+		t.Fatalf("Content-Type 不符: %q", gotHeader.Get("Content-Type"))
+	}
+	// sign 头：keyList「uniID,tenant;」+ md5(值串联 + r)（登录调用无 token）
+	rVal := int64(num(gotPayload["_r"]))
+	sign := MakeSignHeaderX(map[string]string{
+		"token": gotHeader.Get("token"), "uniID": gotHeader.Get("uniID"), "tenant": gotHeader.Get("tenant"),
+	}, rVal)
+	if gotHeader.Get("sign") != sign {
+		t.Fatalf("sign 头不符: %q ≠ %q", gotHeader.Get("sign"), sign)
+	}
+	if !strings.HasPrefix(sign, "uniID,tenant;") {
+		t.Fatalf("sign keyList 不符: %q", sign)
+	}
+}
+
+// TestLoginSmsWireReplay 短信链路双通道请求体字段（v2 jsonm / v3 slapp）回放。
+func TestLoginSmsWireReplay(t *testing.T) {
+	k := testKeys(t)
+	var v3Payload map[string]any
+	var v3Path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/")
+		buf, _ := io.ReadAll(r.Body)
+		if strings.HasPrefix(path, "user/sendSmsCode/v3") {
+			v3Path = path
+			payload, err := k.jsonxDecryptBody("slapp", string(buf))
+			if err != nil {
+				t.Errorf("fixture 解请求失败: %v", err)
+				return
+			}
+			v3Payload = payload
+			ct, err := k.jsonxEncryptBody("slapp", map[string]any{"statusCode": 200}, 1)
+			if err != nil {
+				t.Errorf("fixture 加密应答失败: %v", err)
+				return
+			}
+			_, _ = w.Write([]byte(ct))
+			return
+		}
+		// jsonm 通道（v2/ads）：解请求后回加密应答
+		var j struct {
+			Data string `json:"data"`
+			Sign string `json:"sign"`
+		}
+		if err := json.Unmarshal(buf, &j); err != nil {
+			t.Errorf("jsonm 体解析失败: %v", err)
+			return
+		}
+		keyHex := strings.TrimPrefix(j.Sign, "04")
+		key, err := cryptoaudio.SM2DecryptHex(keyHex, k.SM2ClientPriv)
+		if err != nil {
+			t.Errorf("SM2 解 key 失败: %v", err)
+			return
+		}
+		plain, err := cryptoaudio.AESDecryptECBB64(j.Data, key)
+		if err != nil {
+			t.Errorf("AES 解失败: %v", err)
+			return
+		}
+		if !strings.Contains(plain, `"checkImgCode":"6789"`) {
+			t.Errorf("v2 请求体不符: %s", plain)
+		}
+		respKey, err := cryptoaudio.GenAESKey()
+		if err != nil {
+			t.Errorf("gen key: %v", err)
+			return
+		}
+		ct, err := cryptoaudio.AESEncryptECBB64(`{"statusCode":200}`, respKey)
+		if err != nil {
+			t.Errorf("AES 加密: %v", err)
+			return
+		}
+		sign, err := cryptoaudio.SM2EncryptHex(respKey, k.SM2ServerPub)
+		if err != nil {
+			t.Errorf("SM2 加密: %v", err)
+			return
+		}
+		out, _ := json.Marshal(map[string]any{"data": ct, "sign": "04" + sign})
+		w.Header().Set("Content-Type", "application/jsonm")
+		_, _ = w.Write(out)
+	}))
+	defer srv.Close()
+	p := fixtureProtocol(t, k, srv)
+
+	if _, err := p.LoginSendSmsV2(context.Background(), "13800138000", "6789"); err != nil {
+		t.Fatalf("v2 发短信: %v", err)
+	}
+	if _, err := p.LoginSendSmsSlapp(context.Background(), "13800138000", "cap-tok", "const-1",
+		CallOpts{Mobile: "13800138000"}); err != nil {
+		t.Fatalf("v3 发短信: %v", err)
+	}
+	if v3Path != "user/sendSmsCode/v3" {
+		t.Fatalf("v3 路径不符: %s", v3Path)
+	}
+	// v3 字段（Node loginSendSmsSlapp 同口径：riskReviewFlag 固定 true）
+	if v3Payload["source"] != "3" || v3Payload["riskFlag"] != "Y" || v3Payload["riskReviewFlag"] != true {
+		t.Fatalf("v3 风控字段不符: %v", v3Payload)
+	}
+	if v3Payload["captchaToken"] != "cap-tok" || v3Payload["constId"] != "const-1" {
+		t.Fatalf("v3 滑块凭据不符: %v", v3Payload)
 	}
 }

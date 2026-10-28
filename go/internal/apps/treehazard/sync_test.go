@@ -185,6 +185,20 @@ func TestDiffRecordsUpdateAndNews(t *testing.T) {
 	}
 }
 
+// TestSnapshotOfVerticalNum 快照 vertical_num 保留小数（DECIMAL 2.5 不得被吞成 nil）。
+func TestSnapshotOfVerticalNum(t *testing.T) {
+	v := 2.5
+	snap := snapshotOf(map[string]any{"id": int64(7), "vertical_num": &v, "status": "unhandled"})
+	f, ok := snap["vertical_num"].(float64)
+	if !ok || f != 2.5 {
+		t.Fatalf("vertical_num 应保留小数 2.5，got %#v", snap["vertical_num"])
+	}
+	empty := snapshotOf(map[string]any{"id": int64(7), "vertical_num": (*float64)(nil)})
+	if empty["vertical_num"] != nil {
+		t.Fatalf("空 vertical_num 应为 nil，got %#v", empty["vertical_num"])
+	}
+}
+
 func TestDiffRecordsAdjudicatedSkip(t *testing.T) {
 	server := []map[string]any{{
 		"id": int64(1), "line_name": "甲线", "section": "3#-4#", "tree_species": "杨树",

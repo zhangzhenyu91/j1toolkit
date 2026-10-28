@@ -76,14 +76,15 @@ func (m *Module) metaOf(ctx context.Context, ol OpenListClient, abs string) (siz
 	return meta.Size, meta.Modified, false, nil
 }
 
-// bridgeErr 桥边界错误归一：上游 not found → NotFoundError（office 口径）。
+// bridgeErr 桥边界错误归一：上游 not found → NotFoundError（office 口径；文案同 Node relayFail
+// 40400「文件或目录不存在」）。
 func bridgeErr(err error) error {
 	if err == nil {
 		return nil
 	}
 	var ue *UpstreamError
 	if errors.As(err, &ue) && strings.Contains(strings.ToLower(ue.Message), "not found") {
-		return &NotFoundError{Message: ue.Message}
+		return &NotFoundError{Message: "文件或目录不存在"}
 	}
 	return err
 }

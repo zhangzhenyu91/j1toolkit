@@ -17,11 +17,13 @@ type fakeNotice struct {
 	gotUsers   []int64
 	gotTitle   string
 	gotContent string
+	titles     []string // 全部推送标题（多班组逐条分发断言用）
 	err        error
 }
 
 func (f *fakeNotice) PushNotice(_ context.Context, targets []string, userIds []int64, title, content string) error {
 	f.gotTargets, f.gotUsers, f.gotTitle, f.gotContent = targets, userIds, title, content
+	f.titles = append(f.titles, title)
 	return f.err
 }
 
@@ -80,6 +82,34 @@ func TestRoleNotifierNoWxTeam(t *testing.T) {
 	}
 	if n.gotTitle != "t" {
 		t.Fatalf("notice = %+v", n)
+	}
+}
+
+// 直推暂存通知仅站内不发微信群（Node ingest.js notify 无 wxTeamIds）；同步结果通知仍外发班组群。
+func TestRoleNotifierStagingSiteOnly(t *testing.T) {
+	for _, title := range []string{"树障记录进暂存区", "交跨记录进暂存区"} {
+		n := &fakeNotice{}
+		w := &fakeWx{}
+		r := &RoleNotifier{Notice: n, Wx: w, WxTeams: func(context.Context) []int64 { return []int64{42} }}
+		if err := r.Push(context.Background(), []string{"admin", "team_admin"}, title, "c"); err != nil {
+			t.Fatalf("Push(%s): %v", title, err)
+		}
+		if n.gotTitle != title {
+			t.Fatalf("notice = %+v", n)
+		}
+		if w.calls != 0 {
+			t.Fatalf("%s 应仅站内，wx = %+v", title, w)
+		}
+	}
+	// 同步结果通知照常外发班组群（Node sync.js logAndNotify wxTeamIds 口径）。
+	n := &fakeNotice{}
+	w := &fakeWx{}
+	r := &RoleNotifier{Notice: n, Wx: w, WxTeams: func(context.Context) []int64 { return []int64{42} }}
+	if err := r.Push(context.Background(), []string{"admin", "team_admin"}, "树障统计表同步完成（检修一班）", "c"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if w.calls != 1 || w.teams[0] != 42 {
+		t.Fatalf("wx = %+v", w)
 	}
 }
 

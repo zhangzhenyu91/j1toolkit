@@ -564,3 +564,88 @@ func (e *testEnv) doImport(t *testing.T, path, filename string, data []byte) *ht
 
 // errNoRowsSentinel sql.ErrNoRows 语义桩错误（无记录）。
 func errNoRowsSentinel() error { return sql.ErrNoRows }
+
+// TestRightRateRounding 正确率取整对齐 Node Math.round（2/3→67、3/8→38，截断口径会得 66/37）。
+func TestRightRateRounding(t *testing.T) {
+	// 总览：答 3 对 2 → 67
+	env := newTestServer(t, identUser)
+	teamRules(env.fake)
+	env.fake.on("FROM quiz_record WHERE user_id", []string{"total", "rights"},
+		[][]driver.Value{{int64(3), int64(2)}})
+	env.fake.on("FROM quiz_wrong WHERE user_id", []string{"cnt"}, [][]driver.Value{{int64(1)}})
+	rec := env.do(t, http.MethodGet, "/api/v1/quiz/overview", nil)
+	code, _, data := decodeEnvelope(t, rec)
+	if code != 0 {
+		t.Fatalf("总览应成功: %s", rec.Body.String())
+	}
+	if data["rightRate"] != float64(67) {
+		t.Fatalf("总览正确率应 Math.round(2/3)=67: %v", data)
+	}
+
+	// 作答统计：本人 2/3→67、全员 3/8→38
+	env2 := newTestServer(t, identUser)
+	teamRules(env2.fake)
+	env2.fake.on("FROM quiz_bank WHERE id = ? AND status = 1", []string{"id", "team_id", "scope"},
+		[][]driver.Value{{int64(3), int64(1), "team"}})
+	env2.fake.on("SELECT bank_id, answer, analysis FROM quiz_question", []string{"bank_id", "answer", "analysis"},
+		[][]driver.Value{{int64(3), "A", "解析"}})
+	env2.fake.on("FROM quiz_record WHERE question_id = ?", []string{"total", "rights"},
+		[][]driver.Value{{int64(8), int64(3)}})
+	env2.fake.on("FROM quiz_record WHERE question_id = ? AND user_id = ?", []string{"total", "rights"},
+		[][]driver.Value{{int64(3), int64(2)}})
+	rec = env2.do(t, http.MethodPost, "/api/v1/quiz/practice/answer", map[string]any{"questionId": 31, "answer": "A"})
+	code, _, data = decodeEnvelope(t, rec)
+	if code != 0 {
+		t.Fatalf("作答应成功: %s", rec.Body.String())
+	}
+	stats, _ := data["stats"].(map[string]any)
+	if stats["myRightRate"] != float64(67) || stats["allRightRate"] != float64(38) {
+		t.Fatalf("作答正确率应 Math.round: %v", stats)
+	}
+}
+
+// TestPracticeParamClamp 查询参数钳制对齐 Node parseInt||默认值 + Math.max/min（负值落 1 而非默认值）。
+func TestPracticeParamClamp(t *testing.T) {
+	env := newTestServer(t, identTeamAdmin)
+	teamRules(env.fake)
+	env.fake.on("FROM quiz_bank WHERE id = ?", []string{"id", "team_id", "scope"},
+		[][]driver.Value{{int64(3), int64(1), "team"}})
+	env.fake.on("SELECT COUNT(*) AS total FROM quiz_question", []string{"total"}, [][]driver.Value{{int64(9)}})
+	env.fake.on("SELECT id, type, content, options FROM quiz_question", []string{"id", "type", "content", "options"}, nil)
+	// size=-5 → Math.max(1,-5)=1；page=-3 → 1 → OFFSET 0
+	rec := env.do(t, http.MethodGet, "/api/v1/quiz/banks/3/questions?page=-3&size=-5", nil)
+	if code, _, _ := decodeEnvelope(t, rec); code != 0 {
+		t.Fatalf("题目列表应成功: %s", rec.Body.String())
+	}
+	if q, ok := env.fake.lastQuery("ORDER BY sort, id LIMIT"); !ok || !strings.Contains(q.query, "LIMIT 1 OFFSET 0") {
+		t.Fatalf("size/page 负值应钳制为 LIMIT 1 OFFSET 0: %+v", q)
+	}
+	// 非数字 → 缺省 20/1
+	rec = env.do(t, http.MethodGet, "/api/v1/quiz/banks/3/questions?page=abc&size=abc", nil)
+	if code, _, _ := decodeEnvelope(t, rec); code != 0 {
+		t.Fatalf("题目列表应成功: %s", rec.Body.String())
+	}
+	if q, ok := env.fake.lastQuery("ORDER BY sort, id LIMIT"); !ok || !strings.Contains(q.query, "LIMIT 20 OFFSET 0") {
+		t.Fatalf("size/page 非数字应落缺省 20: %+v", q)
+	}
+}
+
+// TestBankUpdateScopeNull body.scope 显式 null 按 Node `!== undefined` 口径视同 'team'（可触发题库池变更）。
+func TestBankUpdateScopeNull(t *testing.T) {
+	env := newTestServer(t, identAdmin)
+	teamRules(env.fake)
+	env.fake.on("FROM quiz_bank WHERE id = ?", []string{"id", "team_id", "scope"},
+		[][]driver.Value{{int64(5), nil, "all"}})
+	rec := env.do(t, http.MethodPut, "/api/v1/quiz/banks/5", map[string]any{"name": "改名", "scope": nil})
+	code, _, _ := decodeEnvelope(t, rec)
+	if code != 0 {
+		t.Fatalf("改名应成功: %s", rec.Body.String())
+	}
+	e, ok := env.fake.lastExec("UPDATE quiz_bank SET name")
+	if !ok || len(e.args) < 4 {
+		t.Fatalf("应更新题库: %+v", e)
+	}
+	if e.args[2] != "team" || e.args[3] != int64(1) {
+		t.Fatalf("scope=null 应视同 'team' 并挂生效班组: %+v", e.args)
+	}
+}

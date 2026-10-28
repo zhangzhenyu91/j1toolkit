@@ -1,6 +1,7 @@
 // Package crossing 迁移 server/src/crossing：交跨记录（crossing_record）、crane-answer 直推入库
-// （direct 幂等 upsert / staging 暂存区整批替换 / deletes 撤回删除）、暂存区确认导入、删除墓碑、
-// 看板与按运维线路（team_line）分组的记录列表、统计表导出。
+// （direct 幂等 upsert / staging 暂存区整批替换 / deletes 撤回删除）、暂存区确认导入、手动新增与编辑
+// （POST /records、PUT /records/:id，见 recordwrite.go）、删除墓碑、看板与按运维线路（team_line）分组的
+// 记录列表、统计表导出。
 // 表结构与 Node 版一致（幂等键 uk_crane = (team_id, crane_session_id, crane_record_id)，空值存 NULL）；
 // 鉴权沿用 httpapi.IdentityFromContext：超管可 ?team_id= 指定班组，team_admin 仅本班，
 // 普通用户按 crossing 应用权限（AppPermit 可注入，nil 暂不拦截）；直推 /ingest 凭 X-Ingest-Token 免登录。
@@ -89,7 +90,9 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 	r.Route("/crossing", func(r chi.Router) {
 		r.Get("/dashboard", m.dashboard)
 		r.Get("/records", m.recordList)
+		r.Post("/records", m.recordCreate)
 		r.Get("/records/{id}", m.recordDetail)
+		r.Put("/records/{id}", m.recordUpdate)
 		r.Delete("/records/{id}", m.recordDelete)
 		r.Get("/export/preview", m.exportPreview)
 		r.Get("/export", m.exportXLSX)

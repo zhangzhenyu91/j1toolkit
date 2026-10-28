@@ -1334,7 +1334,8 @@ Page({
   },
 
   onCkRemarkInput(e) {
-    this.setData({ ckRemarks: e.detail.value });
+    // 输入期不触发整页重绘，避免原生 textarea 丢失焦点（同 onRmkInput 口径）；提交时读 this.data.ckRemarks
+    this.data.ckRemarks = e.detail.value;
   },
 
   onCkCancel() {
@@ -1995,7 +1996,10 @@ Page({
 
   onKeyboardHeight(e) {
     const h = e.detail.height || 0;
-    this.setData({ keyboardHeight: h > 0 ? h : 0 });
+    const next = h > 0 ? h : 0;
+    // 同高度重复事件（输入框间切换焦点等）不重绘，避免各弹层 padding 反复重算互顶
+    if (next === this.data.keyboardHeight) return;
+    this.setData({ keyboardHeight: next });
   },
 
   // ---------- 面板内联筛选下拉（车牌/目的地，选中即收起） ----------
@@ -2284,10 +2288,12 @@ Page({
   },
 
   onPatrolInput(e) {
-    this.setData({ patrolDraft: e.detail.value });
+    // 输入期不触发整页重绘，避免原生 textarea 丢失焦点（同 onRmkInput 口径）；保存时读 this.data.patrolDraft
+    this.data.patrolDraft = e.detail.value;
   },
 
-  // 快捷输入（与水印施工内容一致）：点击将字符追加到当前内容末尾
+  // 快捷输入（与水印施工内容一致）：仅用户点击 chip 时追加一次到当前内容末尾；
+  // 此处须 setData 同步视图（外部改值，非输入中回写）；chip 用 catchtap 阻断冒泡防重复追加
   onPatrolQuickInput(e) {
     const { text } = e.currentTarget.dataset;
     if (!text) return;
@@ -2809,8 +2815,10 @@ Page({
     this.chooseWmPhoto(this.data.wmSourceType, (p) => this.proceedWmForm(p, names));
   },
 
-  // 裁剪完成/免裁：记录照片路径与人名、生成防伪码，进字段编辑弹层
+  // 裁剪完成/免裁：记录照片路径与人名、生成防伪码，进字段编辑弹层。
+  // 防重复执行：表单已开或上传中时忽略迟到/重复回调，避免重置重绘用户正在编辑的表单
   proceedWmForm(path, names) {
+    if (this.data.wmVisible || this.data.wmUploading) return;
     this.setData({ wmPhotoPath: path, wmNames: names, wmCode: genAntiCode() });
     this.prefillWmForm();
   },
@@ -2895,7 +2903,14 @@ Page({
       const lat = t.lat.toFixed(6);
       this._ckLocTag = `杆塔带入 · ${this.data.towerLine} ${t.no}`;
       this._ckManualPos = false; // 选杆塔视同重新定位：geo 回填覆盖带入/手输地址
-      this.setData({ towerVisible: false, ckLng: lng, ckLat: lat, ckLocating: false });
+      // 关层时复位 keyboardHeight，避免残留高度顶起下层打卡弹层
+      this.setData({
+        towerVisible: false,
+        keyboardHeight: 0,
+        ckLng: lng,
+        ckLat: lat,
+        ckLocating: false,
+      });
       this.ckGeo(lng, lat, this._ckLocTag);
       return;
     }

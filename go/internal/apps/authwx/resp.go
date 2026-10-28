@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"shade/internal/httpapi"
 )
@@ -71,18 +72,47 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// decodeJSON 严格解码请求体（未知字段报错，与 httpapi 口径一致）。
+// decodeJSON 解码请求体（未知字段忽略，与 Node express.json 同口径——登录体允许随客户端扩展字段）。
 func decodeJSON(r *http.Request, target any) error {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	return dec.Decode(target)
+	return json.NewDecoder(r.Body).Decode(target)
 }
 
-// clientIP 取请求来源 IP（与 Node req.ip 同口径：不信任 X-Forwarded-For）。
+// clientIP 取请求来源 IP。Node 侧 app.set('trust proxy', 'loopback')（server/src/index.js）：
+// 环回反代（nginx 同机）之后按 X-Forwarded-For 自右向左取第一个非环回地址，直连不认 XFF——
+// 登录限流按 IP 统计依赖此口径，不能只看 RemoteAddr（否则反代后全站共享一个限流桶）。
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	host = strings.TrimSpace(host)
+	if !isLoopbackAddr(host) {
+		return host
+	}
+	parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	var hops []string
+	for _, p := range parts {
+		if ip := strings.TrimSpace(p); ip != "" {
+			hops = append(hops, ip)
+		}
+	}
+	for i := len(hops) - 1; i >= 0; i-- {
+		if !isLoopbackAddr(hops[i]) {
+			return hops[i]
+		}
+	}
+	if len(hops) > 0 {
+		return hops[0]
 	}
 	return host
+}
+
+// isLoopbackAddr 判定环回地址（Node proxy-addr loopback：127.0.0.0/8 与 ::1）。
+func isLoopbackAddr(host string) bool {
+	h := strings.Trim(host, "[]")
+	if h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }

@@ -863,7 +863,7 @@
             class="wm-quick-chip"
             hover-class="hover-opacity"
             data-text="{{item}}"
-            bindtap="onPatrolQuickInput"
+            catchtap="onPatrolQuickInput"
             >{{item}}</text
           >
         </view>
@@ -912,7 +912,8 @@
           bindinput="onRmkInput"
           placeholder="请输入备注（可空）"
           placeholder-class="ph"
-          adjust-position="{{true}}"
+          adjust-position="{{false}}"
+          bindkeyboardheightchange="onKeyboardHeight"
           hold-keyboard
           auto-height
           maxlength="500"
@@ -1443,7 +1444,7 @@
                 class="wm-quick-chip"
                 hover-class="hover-opacity"
                 data-text="{{item}}"
-                bindtap="onWmQuickInput"
+                catchtap="onWmQuickInput"
                 >{{item}}</text
               >
             </view>

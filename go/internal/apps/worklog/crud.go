@@ -2,6 +2,7 @@
 package worklog
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -238,21 +239,23 @@ func (m *Module) handleLogUpdate(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, err)
 			return
 		}
-		m.updateRemark(w, r, entryID, body)
+		if !m.updateRemark(w, r, entryID, body) {
+			return
+		}
 		writeOK(w, map[string]any{"id": entryID})
 		return
 	}
 
 	if vehicleID == 0 {
+		if destID != 0 {
+			fail(w, http.StatusBadRequest, codeInput, "未出车时不可填写目的地")
+			return
+		}
 		var photoCnt int
 		_ = m.DB.QueryRowContext(r.Context(),
 			`SELECT COUNT(*) FROM worklog_photo WHERE entry_id = ?`, entryID).Scan(&photoCnt)
 		if photoCnt > 0 {
 			fail(w, http.StatusBadRequest, codeHasPhoto, "存在水印照片，不可改为未出车，请先删除照片")
-			return
-		}
-		if destID != 0 {
-			fail(w, http.StatusBadRequest, codeInput, "未出车时不可填写目的地")
 			return
 		}
 		memberIDs = nil
@@ -372,11 +375,13 @@ func (m *Module) handleLogUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	m.updateRemark(w, r, entryID, body)
+	if !m.updateRemark(w, r, entryID, body) {
+		return
+	}
 	writeOK(w, map[string]any{"id": entryID})
 }
 
-// sameMembersNow 跨班卡派车比对：提交成员集合与库内现值是否一致。
+// sameMembersNow 跨班卡派车比对（Node 同口径）：提交成员数量与库内现值一致，且库内每个成员都在提交集合中。
 func (m *Module) sameMembersNow(r *http.Request, entryID int64, memberIDs []int64) bool {
 	rows, err := m.DB.QueryContext(r.Context(),
 		`SELECT member_id FROM worklog_entry_member WHERE entry_id = ?`, entryID)
@@ -391,7 +396,19 @@ func (m *Module) sameMembersNow(r *http.Request, entryID int64, memberIDs []int6
 			cur = append(cur, id)
 		}
 	}
-	return sameIDSet(cur, dedupIDs(memberIDs))
+	if len(cur) != len(memberIDs) {
+		return false
+	}
+	submitted := map[int64]bool{}
+	for _, id := range memberIDs {
+		submitted[id] = true
+	}
+	for _, id := range cur {
+		if !submitted[id] {
+			return false
+		}
+	}
+	return true
 }
 
 // memberHasPhotoOutside 被移出名单的成员若已有水印照片，拒绝（需先调整照片人名）。
@@ -534,19 +551,20 @@ func (m *Module) handleMemberCheck(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]any{"checked": checked})
 }
 
-// updateRemark 备注与附件更新（仅请求显式携带对应字段时更新，避免误清）。
-func (m *Module) updateRemark(w http.ResponseWriter, r *http.Request, entryID int64, body map[string]json.RawMessage) {
+// updateRemark 备注与附件更新（仅请求显式携带对应字段时更新，避免误清）；
+// 失败已写响应返回 false，调用方不得再写成功响应。
+func (m *Module) updateRemark(w http.ResponseWriter, r *http.Request, entryID int64, body map[string]json.RawMessage) bool {
 	_, hasRemark := body["remark"]
 	_, hasFiles := body["remark_files"]
 	if !hasRemark && !hasFiles {
-		return
+		return true
 	}
 	var oldRemark, oldFilesRaw string
 	if err := m.DB.QueryRowContext(r.Context(),
 		`SELECT COALESCE(remark, ''), COALESCE(remark_files, '') FROM worklog_entry WHERE id = ?`, entryID).
 		Scan(&oldRemark, &oldFilesRaw); err != nil {
 		writeErr(w, err)
-		return
+		return false
 	}
 	oldFiles := parseRemarkFiles(oldFilesRaw)
 	newRemark := oldRemark
@@ -555,25 +573,21 @@ func (m *Module) updateRemark(w http.ResponseWriter, r *http.Request, entryID in
 	}
 	newFiles := oldFiles
 	if hasFiles {
-		var arr []RemarkFile
-		if err := json.Unmarshal(body["remark_files"], &arr); err != nil || len(arr) > 9 {
+		raw := bytes.TrimSpace(body["remark_files"])
+		var arr []json.RawMessage
+		// Node 口径：非数组（含 null）一律 40020，数组超 9 个同码
+		if len(raw) == 0 || raw[0] != '[' || jsonUnmarshal(raw, &arr) != nil || len(arr) > 9 {
 			fail(w, http.StatusBadRequest, codeFileCount, "备注附件最多 9 个")
-			return
+			return false
 		}
 		cleaned := make([]RemarkFile, 0, len(arr))
-		for _, f := range arr {
-			if f.Name == "" || !strings.HasPrefix(f.URL, "http") || f.CosKey == "" || strings.Contains(f.CosKey, "..") {
+		for _, item := range arr {
+			clean, valid := sanitizeRemarkFile(item)
+			if !valid {
 				fail(w, http.StatusBadRequest, codeFileBad, "备注附件数据不完整或格式不支持")
-				return
+				return false
 			}
-			if f.Type != "image" && f.Type != "video" && f.Type != "doc" {
-				fail(w, http.StatusBadRequest, codeFileBad, "备注附件数据不完整或格式不支持")
-				return
-			}
-			f.Name = truncate(strings.TrimSpace(f.Name), 128)
-			f.URL = truncate(strings.TrimSpace(f.URL), 512)
-			f.CosKey = truncate(strings.TrimSpace(f.CosKey), 255)
-			cleaned = append(cleaned, f)
+			cleaned = append(cleaned, clean)
 		}
 		newFiles = cleaned
 	}
@@ -582,7 +596,7 @@ func (m *Module) updateRemark(w http.ResponseWriter, r *http.Request, entryID in
 		`UPDATE worklog_entry SET remark = ?, remark_files = ? WHERE id = ?`,
 		newRemark, string(filesJSON), entryID); err != nil {
 		writeErr(w, err)
-		return
+		return false
 	}
 	// 被移除附件同步删 COS 对象（删除集合只来自库内旧值）
 	kept := map[string]bool{}
@@ -591,14 +605,40 @@ func (m *Module) updateRemark(w http.ResponseWriter, r *http.Request, entryID in
 	}
 	if m.Store != nil {
 		for _, f := range oldFiles {
-			if !kept[f.CosKey] {
+			if f.CosKey != "" && !kept[f.CosKey] {
 				_ = m.Store.DeleteObject(r.Context(), f.CosKey)
 			}
 		}
 	}
+	return true
 }
 
-// parseIDList 解析 id 数组字段（number[]，兼容字符串数字）。
+// sanitizeRemarkFile 备注附件入库前清洗（Node sanitizeRemarkFile 同口径）：
+// 字段形状校验 + 长度截断；不合法返回 false（cos_key 仅作留存，删除集合只取库内旧值）。
+func sanitizeRemarkFile(raw json.RawMessage) (RemarkFile, bool) {
+	var obj map[string]json.RawMessage
+	if len(raw) == 0 || jsonUnmarshal(raw, &obj) != nil || obj == nil {
+		return RemarkFile{}, false
+	}
+	f := RemarkFile{
+		Name:   truncate(strings.TrimSpace(rawString(obj["name"])), 128),
+		URL:    truncate(strings.TrimSpace(rawString(obj["url"])), 512),
+		CosKey: truncate(strings.TrimSpace(rawString(obj["cos_key"])), 255),
+		Type:   rawString(obj["type"]),
+	}
+	f.Size = rawNumberOr0(obj["size"])
+	lowerURL := strings.ToLower(f.URL)
+	if f.Name == "" || (!strings.HasPrefix(lowerURL, "http://") && !strings.HasPrefix(lowerURL, "https://")) ||
+		f.CosKey == "" || strings.Contains(f.CosKey, "..") {
+		return RemarkFile{}, false
+	}
+	if f.Type != "image" && f.Type != "video" && f.Type != "doc" {
+		return RemarkFile{}, false
+	}
+	return f, true
+}
+
+// parseIDList 解析 id 数组字段（number[]，兼容字符串数字；显式 0 保留，交由成员校验按无效拦截，Node 同口径）。
 func parseIDList(raw json.RawMessage) []int64 {
 	if len(raw) == 0 {
 		return nil
@@ -609,8 +649,16 @@ func parseIDList(raw json.RawMessage) []int64 {
 	}
 	out := make([]int64, 0, len(arr))
 	for _, item := range arr {
-		if n := rawNumberOr0(item); n != 0 {
-			out = append(out, n)
+		var n float64
+		if json.Unmarshal(item, &n) == nil {
+			out = append(out, int64(n))
+			continue
+		}
+		var s string
+		if json.Unmarshal(item, &s) == nil {
+			if v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+				out = append(out, v)
+			}
 		}
 	}
 	return out

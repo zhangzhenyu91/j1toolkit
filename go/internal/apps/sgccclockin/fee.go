@@ -392,7 +392,7 @@ func ParseFeeImageList(value any) []map[string]any {
 func firstStr(m map[string]any, keys ...string) string {
 	for _, k := range keys {
 		if v, ok := m[k]; ok {
-			if s := fmt.Sprintf("%v", v); s != "" && s != "<nil>" {
+			if s := jsString(v); s != "" && s != "<nil>" {
 				return s
 			}
 		}

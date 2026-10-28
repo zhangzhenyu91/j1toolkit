@@ -6,8 +6,9 @@
 // - live：请求 Go HTTP API /api/v1/netdisk（go/internal/apps/netdisk，信封 {code,message,data}）。
 //
 // 鉴权沿用 src/api.js 的登录态：Bearer token 取 sessionStorage 'shade.token'（不在公共 api.js 之上加改）。
-// 注意：Go 端 bearerToken 仅认 Authorization 头、未开放 ?token= 直链（旧 Node 口径），故下载/缩略图
-// 一律走 fetch + Bearer + Blob 落地，不拼浏览器直链。
+// 列表/管理接口只认 Authorization 头；下载/缩略图取流路径 Go 端兼容 ?token= query
+// （httpapi.fileDownloadPath，同旧 Node tokenQuery 语义），供 <img>/<video>/<a download>
+// 等无法带请求头的场景拼浏览器直链（mediaUrl / thumbUrl），其余请求仍走 fetch + Bearer。
 
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
@@ -245,7 +246,16 @@ const live = {
       }),
     }),
 
-  archiveDecompress: ({ srcSpace, srcDir, names, dstSpace, dstDir, innerPath, archivePass, putIntoNewDir }) =>
+  archiveDecompress: ({
+    srcSpace,
+    srcDir,
+    names,
+    dstSpace,
+    dstDir,
+    innerPath,
+    archivePass,
+    putIntoNewDir,
+  }) =>
     request('/archive/decompress', {
       method: 'POST',
       body: JSON.stringify({
@@ -387,6 +397,35 @@ export function downloadDir(params) {
 // thumb 图片缩略图（≤384px webp，返回 fetch Response）。
 export function thumb(params) {
   return adapter().thumb(params);
+}
+
+// mediaUrl 文件取流浏览器直链（<img>/<video>/<a download> 无法带请求头，补 ?token= 兜底；
+// 同旧 netdisk.html 的 dlUrl）。演示模式无服务端，返回 '' 由页面走类型图标回退。
+export function mediaUrl({ space, path, disposition = 'inline' }) {
+  if (isDemo()) return '';
+  return (
+    `${BASE}/download?space=${encodeURIComponent(space)}` +
+    `&path=${encodeURIComponent(path)}&disposition=${disposition}` +
+    `&token=${encodeURIComponent(authToken())}`
+  );
+}
+
+// thumbUrl 图片缩略图浏览器直链（同旧 netdisk.html 的 gridImgUrl 位图口径；svg 等小图走 mediaUrl）。
+export function thumbUrl({ space, path }) {
+  if (isDemo()) return '';
+  return (
+    `${BASE}/thumb?space=${encodeURIComponent(space)}` +
+    `&path=${encodeURIComponent(path)}&token=${encodeURIComponent(authToken())}`
+  );
+}
+
+// dirZipUrl 目录整包 ZIP 浏览器直链（后端递归流式打包，保留层级与空目录；同旧 dirZipUrl）。
+export function dirZipUrl({ space, path }) {
+  if (isDemo()) return '';
+  return (
+    `${BASE}/download/dir?space=${encodeURIComponent(space)}` +
+    `&path=${encodeURIComponent(path)}&token=${encodeURIComponent(authToken())}`
+  );
 }
 
 // moveItems / copyItems 移动 / 复制（names 为源目录下的条目名，dstSpace 可跨空间）。

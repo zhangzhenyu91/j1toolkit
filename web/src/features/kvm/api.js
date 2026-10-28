@@ -3,6 +3,7 @@
 // demo 模式返回 demo.js 静态演示数据（DEMO ONLY），不发起任何网络请求。
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
+import { normalizeList } from '../core/list-response.js';
 
 const TOKEN_KEY = 'shade.token';
 
@@ -197,9 +198,10 @@ export function netdiskList(space, path) {
   });
 }
 
-// listTeams 超管班组切换器数据源（GET /admin/teams，status===1 生效班组）。
+// listTeams 超管班组切换器数据源（GET /admin/teams，data 兼容直接数组与 list/teams/items 包装，
+// status===1 生效班组）。
 export async function listTeams() {
   if (isDemo()) return demo.delay(demo.teams);
   const data = await request('/api/v1/admin/teams');
-  return (data.list || []).filter((t) => t.status === 1);
+  return normalizeList(data).filter((t) => t.status === 1);
 }

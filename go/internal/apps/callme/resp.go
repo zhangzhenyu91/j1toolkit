@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // 响应信封 {code,message,data}（与 server/src/utils/resp.js 一致；/ingest-chat 用 {ok,...} 契约另见 ingest.go）。
@@ -80,4 +81,27 @@ func (AllowAllPermit) Allow(context.Context, int64, string) (bool, error) { retu
 // ConfigReader 运行时配置读取（CALLME_INGEST_TOKEN / WeKnora 配置）。
 type ConfigReader interface {
 	Get(ctx context.Context, key string) (string, error)
+}
+
+// rawJSONString 取 JSON 字段文本（非字符串/缺失按空串，空串即「未提供」）。
+func rawJSONString(raw json.RawMessage) string {
+	s, _ := rawJSONStringOK(raw)
+	return s
+}
+
+// rawJSONStringOK 取 JSON 字段文本；仅接受 JSON 字符串。
+func rawJSONStringOK(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", false
+	}
+	return s, true
+}
+
+// isJSONNull 判定字段为显式 null。
+func isJSONNull(raw json.RawMessage) bool {
+	return strings.TrimSpace(string(raw)) == "null"
 }

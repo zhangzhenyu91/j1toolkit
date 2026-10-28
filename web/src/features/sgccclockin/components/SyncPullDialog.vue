@@ -14,9 +14,23 @@
 
       <div class="sg-pull-range">
         <span class="field-label">起</span>
-        <input v-model="from" type="date" class="wl-range num" :disabled="running" />
+        <input
+          v-model="from"
+          type="date"
+          class="wl-range num"
+          :disabled="running"
+          @click="openPicker"
+          @change="checkRange('from')"
+        />
         <span class="field-label">止</span>
-        <input v-model="to" type="date" class="wl-range num" :disabled="running" />
+        <input
+          v-model="to"
+          type="date"
+          class="wl-range num"
+          :disabled="running"
+          @click="openPicker"
+          @change="checkRange('to')"
+        />
       </div>
 
       <div v-if="running" class="sg-pull-progress">
@@ -77,6 +91,24 @@ watch(
     resultText.value = '';
   }
 );
+
+// openPicker 点日期输入框任意位置即展开系统日期选择（不支持的浏览器保留原生行为）。
+function openPicker(ev) {
+  const el = ev && ev.target;
+  try {
+    if (el && el.showPicker) el.showPicker();
+  } catch (e) {
+    // 浏览器拒绝非手势触发时保留原生行为
+  }
+}
+
+// checkRange 起止校验：from > to 时回退改动的那端并提示。
+function checkRange(which) {
+  if (!from.value || !to.value || from.value <= to.value) return;
+  MessagePlugin.info('开始日期不能晚于结束日期');
+  if (which === 'from') from.value = to.value;
+  else to.value = from.value;
+}
 
 // collectPairs 区段内逐日拉卡片清单，收集（日期 × 用车人）去重对。
 async function collectPairs() {
@@ -187,6 +219,13 @@ function close() {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 .sg-pull-modal {
   width: min(520px, calc(100vw - 32px));
 }
@@ -284,6 +323,9 @@ function close() {
   max-width: 94vw;
   max-height: 86vh;
   overflow: hidden auto;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-dash) transparent;
   padding: 14px 18px 16px;
   display: flex;
   flex-direction: column;
@@ -320,5 +362,16 @@ function close() {
 .m-x:hover {
   background: var(--tk-ink);
   color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
 }
 </style>

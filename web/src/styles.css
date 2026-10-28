@@ -43,6 +43,21 @@
   --tk-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* 与旧 server/public/assets/theme.css 同口径全局复位：盒模型统一 border-box（按钮/输入/Select
+   高度对齐依赖此项）、消除 UA 默认外边距/内边距不一致（相邻卡片不等高、字阶漂移的根源之一）。
+   仅复位 UA 样式，不压任何组件规则；scoped 样式特异性更高照常覆盖。 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  /* 旧口径：滚动条出现/消失不引起内容横移 */
+  scrollbar-gutter: stable;
+}
+
 html,
 body,
 #app {
@@ -71,6 +86,8 @@ body {
   flex: 1;
   min-width: 0;
   overflow: auto;
+  /* 双侧稳定滚动条槽：滚动条出现/消失都不挤动内容（防内容因右侧滚动条偏左） */
+  scrollbar-gutter: stable both-edges;
   padding: 28px 40px 48px;
 }
 .page-head {
@@ -300,4 +317,212 @@ body {
 .col-main {
   flex: 1;
   min-width: 0;
+}
+
+/* ---- flex/grid 子项默认可收缩：长文本/控件顶宽轨道会把相邻卡挤出（悬挂）或把首卡撑大 ---- */
+:where(
+    .app-shell,
+    .page,
+    .page-head,
+    .card,
+    .two-col,
+    .col-side,
+    .col-main,
+    .toolbar,
+    .cfg-row,
+    .cfg-label,
+    .list-row,
+    .row-main,
+    .subnav,
+    .demo-banner,
+    .workspace-grid,
+    .app-section,
+    .notice-side,
+    .apps,
+    .uc-body,
+    .uc-hello-row,
+    .uc-meta,
+    .uc-role
+  )
+  > * {
+  min-width: 0;
+}
+
+/* ---- 相邻卡片纵向堆叠间距：仅内容流堆叠生效；flex/grid 行内由 gap 承担 ----
+   行内若再叠加兄弟上边距，会把首卡行高撑起（首卡独高）、相邻卡整体下移（不等高/悬挂）。
+   父容器用 :where() 降权，卡片选择器与基础 .card + .card 同级并后置覆盖。 */
+:where(
+    .apps,
+    .workspace-grid,
+    .two-col,
+    .perm-wrap,
+    .config-layout,
+    .dl-grid,
+    .kv-grid,
+    .lc-grid,
+    .cx-dash,
+    [class$='-grid'],
+    [class$='-dash']
+  )
+  > .card
+  + .card {
+  margin-top: 0;
+}
+
+/* ---- 表单控件基线（旧 theme.css button/input 口径 + 旧 worklog .f-sel）：按钮/输入/开关行内垂直对齐 ---- */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+button,
+input,
+select,
+textarea,
+.t-switch {
+  vertical-align: middle;
+}
+button {
+  cursor: pointer;
+}
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+/* 原生下拉 / 日期输入基线（旧 .f-sel：36px 高、8px 圆角、发丝边、白底）：
+   保持原生控件能力（下拉列表/系统日期面板正常展开），页面 scoped 样式按需覆盖 */
+.f-sel,
+select,
+input[type='date'] {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  color: var(--tk-ink);
+  outline: none;
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    box-shadow 0.15s var(--tk-ease);
+}
+.f-sel {
+  width: 100%;
+}
+.f-sel:focus,
+select:focus,
+input[type='date']:focus {
+  border-color: var(--tk-brand);
+  box-shadow: 0 0 0 3px var(--td-brand-color-focus);
+}
+.f-sel:disabled,
+select:disabled,
+input[type='date']:disabled {
+  background: var(--tk-fill);
+  color: var(--tk-ph);
+  cursor: not-allowed;
+}
+
+/* ---- TDesign 控件全局兜底（只补对齐/可点/面板观感，不改组件内部结构） ---- */
+/* 开关行内基线错位修正（按钮/输入/开关垂直对齐） */
+.t-switch {
+  vertical-align: middle;
+}
+/* 日期控件：文字区域整块可点开选择器（配合 main.js 对原生 date 的 showPicker 委托同口径） */
+.t-date-picker,
+.t-date-picker .t-input__inner {
+  cursor: pointer;
+}
+/* Select 可点区域与下拉面板观感（旧自绘下拉 .dd-pop 同口径：白卡 + 发丝边 + 轻影） */
+.t-select {
+  cursor: pointer;
+}
+.t-select__dropdown,
+.t-date-picker__panel {
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  box-shadow: var(--tk-shadow-hover);
+}
+.t-select-option:not(.t-is-disabled) {
+  transition: background-color 0.16s var(--tk-ease);
+}
+.t-select-option:not(.t-is-disabled):hover,
+.t-select-option--hover:not(.t-is-disabled) {
+  background-color: var(--tk-blue-soft);
+}
+
+/* ---- 共享入场（旧 theme.css 同口径：一次上浮淡入后静止；页面用 .fade-up + animation-delay 编排） ---- */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-up {
+  animation: fadeUp 0.55s var(--tk-ease) both;
+}
+@keyframes k-fade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes k-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes paneIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- 克制过渡：按钮/输入/下拉/标签/列表行/分段（120–240ms，落位静止） ---- */
+button,
+.btn,
+.subnav-item,
+.list-row,
+.dot-tag {
+  transition:
+    color 0.16s var(--tk-ease),
+    background-color 0.16s var(--tk-ease),
+    border-color 0.16s var(--tk-ease),
+    box-shadow 0.18s var(--tk-ease),
+    opacity 0.16s var(--tk-ease);
+}
+
+/* ---- 页入场（App.vue 路由切换过渡）：克制淡入，不做位移编排（各页自有上浮入场不叠加） ---- */
+.page-in-enter-active {
+  transition: opacity 0.18s var(--tk-ease);
+}
+.page-in-leave-active {
+  transition: opacity 0.12s ease;
+}
+.page-in-enter-from,
+.page-in-leave-to {
+  opacity: 0;
 }

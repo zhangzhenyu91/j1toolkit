@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"sort"
 	"strings"
 
 	"shade/internal/auth"
@@ -22,7 +23,7 @@ func (m *Module) loadEntries(ctx context.Context, where string, params []any) ([
 		        COALESCE(e.remark, ''), COALESCE(e.remark_files, ''), e.cross_team,
 		        COALESCE(e.vehicle_id, 0), COALESCE(v.plate_no, ''), COALESCE(e.destination_id, 0),
 		        COALESCE(d.name, ''), COALESCE(d.out_of_city, 0), COALESCE(d.stationed, 0),
-		        COALESCE(e.dispatch_order_no, ''), e.created_by
+		        COALESCE(e.dispatch_order_no, ''), e.created_by, DATE_FORMAT(e.created_at, '%Y-%m-%d %H:%i:%s')
 		 FROM worklog_entry e
 		 LEFT JOIN worklog_vehicle v ON v.id = e.vehicle_id
 		 LEFT JOIN worklog_destination d ON d.id = e.destination_id
@@ -36,7 +37,7 @@ func (m *Module) loadEntries(ctx context.Context, where string, params []any) ([
 		var remarkFiles string
 		if err := rows.Scan(&e.ID, &e.TeamID, &e.LogDate, &e.PatrolContent, &e.Remark, &remarkFiles,
 			&e.CrossTeam, &e.VehicleID, &e.PlateNo, &e.DestinationID, &e.DestinationName,
-			&e.DestinationOutOfCity, &e.DestinationStationed, &e.DispatchOrderNo, &e.CreatedBy); err != nil {
+			&e.DestinationOutOfCity, &e.DestinationStationed, &e.DispatchOrderNo, &e.CreatedBy, &e.CreatedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -246,7 +247,7 @@ func (m *Module) loadEntries(ctx context.Context, where string, params []any) ([
 	return entries, nil
 }
 
-// parseRemarkFiles 备注附件 JSON 解析（兼容字符串/对象回传）。
+// parseRemarkFiles 备注附件 JSON 解析（兼容字符串/对象回传；与 Node 同口径宽松解析，读侧不丢弃历史条目）。
 func parseRemarkFiles(raw string) []RemarkFile {
 	if strings.TrimSpace(raw) == "" {
 		return []RemarkFile{}
@@ -255,7 +256,7 @@ func parseRemarkFiles(raw string) []RemarkFile {
 	// 逐个对象宽松解析：[{...},{...}]
 	for _, seg := range splitJSONObjects(raw) {
 		var f RemarkFile
-		if err := jsonUnmarshal([]byte(seg), &f); err == nil && f.CosKey != "" && f.Name != "" {
+		if err := jsonUnmarshal([]byte(seg), &f); err == nil {
 			out = append(out, f)
 		}
 	}
@@ -559,6 +560,13 @@ func (m *Module) handleReport(w http.ResponseWriter, r *http.Request) {
 			RemarkHasFiles: len(e.RemarkFiles) > 0,
 		})
 	}
+	// 报告清单按日期 + 创建序排列（Node 同口径；loadEntries 为 created_at 序，范围查询需重排）
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].LogDate != items[j].LogDate {
+			return items[i].LogDate < items[j].LogDate
+		}
+		return items[i].ID < items[j].ID
+	})
 	writeOK(w, map[string]any{"list": items, "total": len(list)})
 }
 

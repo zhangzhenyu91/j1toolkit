@@ -3,6 +3,7 @@
 package worklog
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -92,7 +93,7 @@ func (m *Module) dictCreate(w http.ResponseWriter, r *http.Request, spec dictSpe
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	body, err := decodeBody(r)
@@ -130,7 +131,7 @@ func (m *Module) dictUpdate(w http.ResponseWriter, r *http.Request, spec dictSpe
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -225,7 +226,7 @@ func (m *Module) dictDelete(w http.ResponseWriter, r *http.Request, spec dictSpe
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -291,7 +292,7 @@ func (m *Module) handleMemberMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -523,7 +524,7 @@ func (m *Module) handleSyncSwitchGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if team == nil {
-		writeOK(w, map[string]any{"enabled": false})
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	var cnt int
@@ -539,7 +540,7 @@ func (m *Module) handleSyncSwitchPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	body, err := decodeBody(r)
@@ -567,14 +568,15 @@ func (m *Module) handleSyncSwitchPut(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, map[string]any{"enabled": enabled}, msg)
 }
 
-// handleSyncNow POST /dispatch/sync-now：立即同步一次派车单。
+// handleSyncNow POST /dispatch/sync-now：立即同步一次派车单（结果通知照常发送；
+// 当日无文件按旧版口径由执行器发「今日无文件」通知并正常返回，不报 500）。
 func (m *Module) handleSyncNow(w http.ResponseWriter, r *http.Request) {
 	_, team, ok := m.enterDict(w, r)
 	if !ok {
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	if m.Dispatcher == nil {
@@ -583,10 +585,11 @@ func (m *Module) handleSyncNow(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := m.Dispatcher.SyncNow(r.Context(), team.ID)
 	if err != nil {
-		writeErr(w, err)
+		fail(w, http.StatusInternalServerError, codeSyncFail, err.Error())
 		return
 	}
-	writeOK(w, map[string]any{"synced": n})
+	msg := fmt.Sprintf("同步完成：新建 %d 张出车卡片", n)
+	writeOK(w, map[string]any{"ok": true, "message": msg, "synced": n}, msg)
 }
 
 // isDupEntry MySQL ER_DUP_ENTRY 判定（1062）。

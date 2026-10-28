@@ -3,7 +3,6 @@
 package worklog
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5"
 	"database/sql"
@@ -13,10 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"shade/internal/apps/wmadd"
 	"shade/internal/compat/imagepdf"
 )
 
@@ -158,10 +159,11 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codePhotoSize, "照片大小应在 15MB 以内")
 		return
 	}
+	// 需要加水印时：服务端渲染（方向矫正 + 防伪码校验），产物统一为 JPEG；非水印跳过渲染
 	if !isPlain {
 		if wmRaw, exists := body["wm"]; exists && strings.TrimSpace(string(wmRaw)) != "null" {
 			var wm wmFields
-			if err := jsonUnmarshal(wmRaw, &wm); err == nil && (wm.Content != "" || wm.Time != "") {
+			if err := jsonUnmarshal(wmRaw, &wm); err == nil {
 				rendered, err := renderWMPicture(buf, wm)
 				if err != nil {
 					fail(w, http.StatusBadRequest, codeWM, "水印渲染失败，请重试")
@@ -242,10 +244,10 @@ func (m *Module) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 // runVerify 触发验证流水线（DisableAsync 同步执行，测试确定性；生产异步）。
 func (m *Module) runVerify(photoID int64, username, logDate, destName, url string) {
 	if m.DisableAsync {
-		m.verifyAndWriteBack(context.Background(), photoID, username, logDate, destName, url)
+		m.VerifyAndWriteBack(context.Background(), photoID, username, logDate, destName, url)
 		return
 	}
-	go m.verifyAndWriteBack(context.Background(), photoID, username, logDate, destName, url)
+	go m.VerifyAndWriteBack(context.Background(), photoID, username, logDate, destName, url)
 }
 
 // wmFields 手动水印字段（渲染与修正共用）。
@@ -262,17 +264,13 @@ type wmFields struct {
 	Orientation string `json:"orientation"`
 }
 
-// renderWMPicture 水印渲染（EXIF 方向矫正 + DrawWatermark）；产物 JPEG。
+// wmRenderer 水印渲染器：与「水印添加」共用同一实现（Node 侧 worklog/render-photo.js 两应用同口径）；
+// 测试可替换为桩。
+var wmRenderer wmadd.PhotoRenderer = &wmadd.WatermarkRenderer{}
+
+// renderWMPicture 水印渲染：字段清洗（截断 + 防伪码字符集校验/服务端重生成）后走共享渲染器；
+// 方向按小程序 wx.getImageInfo 标签（wm.orientation）摆正，产物 JPEG。
 func renderWMPicture(buf []byte, wm wmFields) ([]byte, error) {
-	img, orientation, err := imagepdf.DecodeWithOrientation(buf)
-	if err != nil {
-		return nil, err
-	}
-	img = imagepdf.AutoOrient(img, orientation)
-	fonts, err := imagepdf.LoadDefaultFonts()
-	if err != nil {
-		return nil, err
-	}
 	lng := wm.Longitude
 	if lng == "" {
 		lng = wm.Lng
@@ -281,29 +279,21 @@ func renderWMPicture(buf []byte, wm wmFields) ([]byte, error) {
 	if lat == "" {
 		lat = wm.Lat
 	}
-	opts := imagepdf.WatermarkOptions{
-		Lines: []imagepdf.WatermarkLine{
-			{Text: wm.Content},
-			{Text: wm.Time},
-			{Text: wm.Weather},
-			{Text: wm.Location},
-			{Text: strings.TrimSpace(lng + " " + lat)},
-			{Text: wm.AntiCode, Mono: true},
-		},
-	}
-	out, err := imagepdf.DrawWatermark(img, fonts, opts)
-	if err != nil {
-		return nil, err
-	}
-	var bb bytes.Buffer
-	if err := imagepdf.EncodeJPEG(&bb, out, 90); err != nil {
-		return nil, err
-	}
-	return bb.Bytes(), nil
+	fields := wmadd.SanitizeWm(map[string]string{
+		"content":   wm.Content,
+		"time":      wm.Time,
+		"weather":   wm.Weather,
+		"location":  wm.Location,
+		"longitude": lng,
+		"latitude":  lat,
+		"antiCode":  wm.AntiCode,
+	})
+	return wmRenderer.Render(buf, fields, wm.Orientation)
 }
 
-// verifyAndWriteBack Dify 识别（含重试）→ 回写（写库前重查目的地规避竞态）→ 必要时通知人工审核。
-func (m *Module) verifyAndWriteBack(ctx context.Context, photoID int64, username, logDate, destName, url string) {
+// VerifyAndWriteBack Dify 识别（含重试）→ 回写（写库前重查目的地规避竞态）→ 必要时通知人工审核。
+// 同时是 sgccclockin.PhotoVerifier 钩子（费用照片拉下入库后异步触发，main 生产装配注入）。
+func (m *Module) VerifyAndWriteBack(ctx context.Context, photoID int64, username, logDate, destName, url string) {
 	if m.Dify == nil {
 		m.markPhotoFailed(ctx, photoID)
 		return
@@ -454,14 +444,22 @@ func (m *Module) handlePhotoUpdateWM(w http.ResponseWriter, r *http.Request) {
 	}, msg)
 }
 
-// normalizeShotTime 把 YYYY-MM-DD 形式归一为 YYYY.MM.DD（核验为点分口径）。
+// normalizeShotTime 拍摄时间归一：全文把 YYYY-M-D 归一为 YYYY.MM.DD（月日补零；Node replace 全量同口径）。
 func normalizeShotTime(s string) string {
-	out := s
-	if len(out) >= 10 && out[4] == '-' && out[7] == '-' {
-		out = out[:4] + "." + out[5:7] + "." + out[8:]
+	pad2 := func(v string) string {
+		if len(v) == 1 {
+			return "0" + v
+		}
+		return v
 	}
-	return out
+	return shotTimeDateRe.ReplaceAllStringFunc(s, func(m string) string {
+		parts := shotTimeDateRe.FindStringSubmatch(m)
+		return parts[1] + "." + pad2(parts[2]) + "." + pad2(parts[3])
+	})
 }
+
+// shotTimeDateRe 拍摄时间中的年-月-日片段（月/日 1~2 位）。
+var shotTimeDateRe = regexp.MustCompile(`(\d{4})-(\d{1,2})-(\d{1,2})`)
 
 // handlePhotoUpdateMembers PUT /photos/{id}/members：调整照片所属人名。
 func (m *Module) handlePhotoUpdateMembers(w http.ResponseWriter, r *http.Request) {
@@ -667,7 +665,7 @@ func (m *Module) handlePhotoDelete(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, nil)
 }
 
-// handlePhotoDownload GET /photos/{id}/download：302 到照片访问地址。
+// handlePhotoDownload GET /photos/{id}/download：单张照片下载代理（COS 跨域无 CORS，网页端经本接口回源并附下载文件名）。
 func (m *Module) handlePhotoDownload(w http.ResponseWriter, r *http.Request) {
 	_, team, ok := m.enter(w, r)
 	if !ok {
@@ -678,15 +676,32 @@ func (m *Module) handlePhotoDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	photoID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	var cosKey, url string
+	var cosKey, url, logDate string
 	err := m.DB.QueryRowContext(r.Context(),
-		`SELECT p.cos_key, p.url FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
-		 WHERE p.id = ? AND `+entryVisibleSQL, photoID, team.ID, team.ID).Scan(&cosKey, &url)
+		`SELECT p.cos_key, p.url, DATE_FORMAT(e.log_date, '%Y-%m-%d')
+		 FROM worklog_photo p JOIN worklog_entry e ON e.id = p.entry_id
+		 WHERE p.id = ? AND `+entryVisibleSQL, photoID, team.ID, team.ID).Scan(&cosKey, &url, &logDate)
 	if err != nil {
 		fail(w, http.StatusNotFound, codeMissing, "照片不存在")
 		return
 	}
-	http.Redirect(w, r, m.photoURL(cosKey, url), http.StatusFound)
+	buf, err := fetchObjectBytes(r.Context(), m.Store, cosKey, m.photoURL(cosKey, url))
+	if err != nil {
+		fail(w, http.StatusBadGateway, codeUpstream, "照片回源失败（"+err.Error()+"）")
+		return
+	}
+	// 文件名沿用打包下载规则：日期-照片id.jpg；RFC5987 编码，附 ASCII fallback
+	name := (logDate + "-" + itoa(photoID) + ".jpg")
+	contentType := "image/jpeg"
+	if strings.HasSuffix(strings.ToLower(cosKey), ".png") {
+		contentType = "image/png"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(buf)))
+	w.Header().Set("Content-Disposition",
+		`attachment; filename="photo-`+itoa(photoID)+`.jpg"; filename*=UTF-8''`+encURI(name))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(buf)
 }
 
 // handlePhotoList GET /photos?from=&to=：日期范围内的全部水印照片（批量下载用）。
@@ -720,6 +735,7 @@ func (m *Module) handlePhotoList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	type item struct {
 		ID      int64    `json:"id"`
+		CosKey  string   `json:"cos_key"`
 		URL     string   `json:"url"`
 		LogDate string   `json:"log_date"`
 		Month   string   `json:"month"`
@@ -731,6 +747,7 @@ func (m *Module) handlePhotoList(w http.ResponseWriter, r *http.Request) {
 		var it item
 		var cosKey, url, membersJSON string
 		if rows.Scan(&it.ID, &cosKey, &url, &it.LogDate, &it.Day, &membersJSON) == nil {
+			it.CosKey = cosKey
 			it.URL = m.photoURL(cosKey, url)
 			it.Month = it.LogDate[:7]
 			it.Members = parseNames(membersJSON)
@@ -756,7 +773,7 @@ func (m *Module) handlePhotosPDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoPhoto, "该日期范围没有水印照片")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	pdf, failed, err := m.buildRangePhotosPDF(r.Context(), team.ID, from, to)
@@ -765,7 +782,7 @@ func (m *Module) handlePhotosPDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(pdf) == 0 {
-		fail(w, http.StatusBadRequest, codeNoPhoto, "该日期范围没有水印照片")
+		fail(w, http.StatusNotFound, codeNoPhotos, "该日期范围没有水印照片")
 		return
 	}
 	_ = failed
@@ -775,7 +792,7 @@ func (m *Module) handlePhotosPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition",
-		`attachment; filename="photos.pdf"; filename*=UTF-8''`+encURI(fileName))
+		`attachment; filename="photos-`+from+`.pdf"; filename*=UTF-8''`+encURI(fileName))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(pdf)
 }
@@ -802,7 +819,7 @@ func (m *Module) handlePhotosPDFSaveNetdisk(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if team == nil {
-		fail(w, http.StatusBadRequest, codeNoTeam, "无可用班组")
+		fail(w, http.StatusBadRequest, codeNoUsableTeam, "无可用班组")
 		return
 	}
 	pdf, failed, err := m.buildRangePhotosPDF(r.Context(), team.ID, from, to)

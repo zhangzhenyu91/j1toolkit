@@ -20,8 +20,10 @@ import (
 const (
 	codeOK            = 0
 	codeParam         = 40001
+	codeBadFormat     = 40030
 	codeUnknownSrc    = 40010
 	codeUnsupported   = 40011
+	codeAppDenied     = 40301
 	codeUnauthorized  = 40101
 	codeBadTicket     = 40311
 	codeNotFound      = 40400
@@ -54,9 +56,21 @@ func fail(w http.ResponseWriter, status, code int, message string) {
 	writeJSON(w, status, Envelope{Code: code, Message: message})
 }
 
-// writePlain 纯文本应答（OnlyOffice 回调 {error:0} 等不走 JSON 信封）。
-func writePlain(w http.ResponseWriter, status int, text string) {
+// writeOO OnlyOffice 约定应答（不走统一信封）：{"error":0} 或 {"error":1,"message":"..."}。
+func writeOO(w http.ResponseWriter, status, errCode int, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	if errCode == 0 {
+		_, _ = w.Write([]byte(`{"error":0}`))
+		return
+	}
+	msg, _ := json.Marshal(message)
+	_, _ = w.Write([]byte(`{"error":1,"message":` + string(msg) + `}`))
+}
+
+// writeText 纯文本应答（/raw 回源错误；OO 不消费 {code,message,data} 信封，Node .type('text') 同口径）。
+func writeText(w http.ResponseWriter, status int, text string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(text))
 }

@@ -48,12 +48,20 @@ type fakeDB struct {
 	mu sync.Mutex
 }
 
-// dispatch 默认响应：sys_team 名称查询返回班组名（公共区口径），其余空集/affected=1。
+// dispatch 默认响应：sys_team 名称查询返回班组名（公共区口径），nd_share 返回一条分享行（分享路由用），
+// 其余空集/affected=1。
 func (d *fakeDB) dispatch(query string, isExec bool) (driver.Rows, driver.Result, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if strings.Contains(query, "SELECT name FROM sys_team") {
 		return &fakeRows{cols: []string{"name"}, data: [][]driver.Value{{"检修一班"}}}, nil, nil
+	}
+	if strings.Contains(query, "FROM nd_share WHERE share_id") {
+		return &fakeRows{cols: []string{"id", "share_id", "user_id", "creator", "base_path", "paths", "password", "expire_at", "status", "created_at"},
+			data: [][]driver.Value{{
+				int64(1), "abcd1234ef", int64(1), "阿狸", "/nd/my/alice",
+				`["/docs","/file.txt"]`, "1234", nil, int64(1), time.Now(),
+			}}}, nil, nil
 	}
 	if isExec {
 		return nil, fakeResult(1), nil

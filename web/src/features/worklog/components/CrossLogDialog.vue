@@ -15,11 +15,11 @@
         </div>
         <template v-if="!entry">
           <label class="f-lab">日期</label>
-          <input v-model="form.log_date" type="date" class="f-sel" />
+          <input v-model="form.log_date" type="date" class="f-sel" @click="openPicker" />
         </template>
 
         <label class="f-lab">归属班组</label>
-        <select v-model="form.team_id" class="f-sel" :disabled="!!entry">
+        <select v-model="form.team_id" class="f-sel f-drop" :disabled="!!entry">
           <option :value="0" disabled>请选择</option>
           <option v-for="t in meta.teams" :key="t.id" :value="t.id">{{ t.name }}</option>
         </select>
@@ -141,6 +141,16 @@ function fmtDateCN(d) {
   return `${y} 年 ${Number(m)} 月 ${Number(dd)} 日`;
 }
 
+// openPicker 点日期输入框任意位置即展开系统日期选择（不支持的浏览器保留原生行为）。
+function openPicker(ev) {
+  const el = ev && ev.target;
+  try {
+    if (el && el.showPicker) el.showPicker();
+  } catch (e) {
+    // 浏览器拒绝非手势触发时保留原生行为
+  }
+}
+
 // open 变化时回填（编辑时成员名取 entry.members）。
 watch(
   () => [props.open, props.entry],
@@ -210,6 +220,13 @@ async function submit() {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 /* ===== 通用弹层骨架（旧版 .mask/.modal/.m-scroll/.m-head/.m-foot） ===== */
 .mask {
   position: fixed;
@@ -317,6 +334,23 @@ async function submit() {
   height: 36px;
   padding: 0 10px;
 }
+/* 原生下拉（select）：自绘箭头、悬停/聚焦着色，保持原生可展开 */
+select.f-drop {
+  padding: 0 30px 0 10px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%234E5969' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+select.f-drop:hover {
+  border-color: var(--tk-brand);
+}
+select.f-drop:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
 .f-sel:focus,
 .f-ta:focus {
   border-color: var(--tk-brand);
@@ -419,5 +453,16 @@ async function submit() {
   padding: 8px 10px;
   font-size: 12px;
   color: var(--tk-red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
 }
 </style>

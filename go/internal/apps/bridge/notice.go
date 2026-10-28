@@ -263,7 +263,8 @@ func (p *DifyWxPusher) Send(ctx context.Context, userIds, teamIds []int64, text 
 // ---- treehazard.SyncNotifier / crossing.Notifier ----
 
 // RoleNotifier 按角色投放的站内通知（treehazard.SyncNotifier / crossing.Notifier 实现）：
-// 站内写 sys_notice（targets=角色）；Wx 非 nil 时追加班组群外发（WxTeams 供班组 id）。
+// 站内写 sys_notice（targets=角色）；Wx 非 nil 时追加班组群外发（WxTeams 供班组 id）；
+// 直推暂存通知标题仅站内不外发（见 stagingNoticeTitles，Node ingest.js notify 无 wxTeamIds）。
 type RoleNotifier struct {
 	Notice NoticePusher
 	// Wx 微信外发（可 nil：仅站内通知）。
@@ -272,7 +273,15 @@ type RoleNotifier struct {
 	WxTeams func(ctx context.Context) []int64
 }
 
-// Push 写站内通知 + 可选班组群外发（外发失败不影响站内结果）。
+// stagingNoticeTitles 直推暂存通知标题（tree/crossing ingest notifyStaging 固定文案）。
+// Node 口径：暂存通知仅站内（ingest.js notify 的 notice.push 不带 wxTeamIds）；同步结果通知
+// （sync.js logAndNotify 带 wxTeamIds）仍外发对应班组群，故按标题出站过滤而非整类禁发。
+var stagingNoticeTitles = map[string]bool{
+	"树障记录进暂存区": true,
+	"交跨记录进暂存区": true,
+}
+
+// Push 写站内通知 + 可选班组群外发（外发失败不影响站内结果；暂存通知仅站内）。
 func (n *RoleNotifier) Push(ctx context.Context, targets []string, title, content string) error {
 	if n == nil || n.Notice == nil {
 		return errors.New("站内通知未接入")
@@ -280,7 +289,7 @@ func (n *RoleNotifier) Push(ctx context.Context, targets []string, title, conten
 	if err := n.Notice.PushNotice(ctx, targets, nil, title, content); err != nil {
 		return err
 	}
-	if n.Wx != nil && n.WxTeams != nil {
+	if n.Wx != nil && n.WxTeams != nil && !stagingNoticeTitles[title] {
 		if teams := n.WxTeams(ctx); len(teams) > 0 {
 			_, _ = n.Wx.Send(ctx, nil, teams, title+"\n"+content, nil)
 		}

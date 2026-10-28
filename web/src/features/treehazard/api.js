@@ -3,6 +3,7 @@
 // demo 模式返回 demo.js 静态演示数据（DEMO ONLY），不发起任何网络请求。
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
+import { normalizeList } from '../core/list-response.js';
 
 const TOKEN_KEY = 'shade.token';
 
@@ -82,6 +83,24 @@ export function handleRecord(id, body, teamId) {
   if (isDemo()) return demo.delay({ id });
   return request(withTeam(`/api/v1/treehazard/records/${id}/handle`, teamId), {
     method: 'POST',
+    body: JSON.stringify(teamBody(teamId, body)),
+  });
+}
+
+// createRecord 手动新增（班管/超管）：body 为业务字段全集（线路必填），vertical 自动解析 vertical_num
+export function createRecord(body, teamId) {
+  if (isDemo()) return demo.delay({ id: Date.now() });
+  return request(withTeam('/api/v1/treehazard/records', teamId), {
+    method: 'POST',
+    body: JSON.stringify(teamBody(teamId, body)),
+  });
+}
+
+// updateRecord 手动编辑（班管/超管）：全量覆盖业务字段，不触碰内网同步锚点
+export function updateRecord(id, body, teamId) {
+  if (isDemo()) return demo.delay({ id });
+  return request(withTeam(`/api/v1/treehazard/records/${id}`, teamId), {
+    method: 'PUT',
     body: JSON.stringify(teamBody(teamId, body)),
   });
 }
@@ -242,10 +261,10 @@ export function exportPreview(query, teamId) {
   return request(withTeam(`/api/v1/treehazard/export/preview${query}`, teamId));
 }
 
-// listTeams 超管班组切换器数据源（GET /admin/teams，status===1 生效班组）。
-// Go 侧该端点未挂载时抛 404，调用方隐藏切换器回退本班。
+// listTeams 超管班组切换器数据源（GET /admin/teams，data 兼容直接数组与 list/teams/items 包装，
+// status===1 生效班组）；请求失败时调用方隐藏切换器回退本班。
 export async function listTeams() {
   if (isDemo()) return demo.delay(demo.teams);
   const data = await request('/api/v1/admin/teams');
-  return (data.list || []).filter((t) => t.status === 1);
+  return normalizeList(data).filter((t) => t.status === 1);
 }

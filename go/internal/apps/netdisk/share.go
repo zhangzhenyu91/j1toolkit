@@ -127,13 +127,11 @@ func pwFailClear(ip, sid string) {
 }
 
 // shareAuth 访问凭据：ticket（verify 签发的 2h JWT）或 password（逐次校验）。
-func (m *Module) shareAuth(r *http.Request, row *ShareRow) bool {
+// body 由调用方一次性解析后传入（Node req.body 单次解析口径；避免二次读流丢参数）。
+func (m *Module) shareAuth(r *http.Request, row *ShareRow, body map[string]json.RawMessage) bool {
 	tk := strings.TrimSpace(r.URL.Query().Get("ticket"))
 	if tk == "" {
-		var body map[string]json.RawMessage
-		if err := decodeBody(r, &body); err == nil {
-			tk = rawString(body["ticket"])
-		}
+		tk = rawString(body["ticket"])
 	}
 	if tk != "" {
 		if claims := m.verifyTicket(tk); claims != nil && claimsString(claims, "sid") == row.ShareID {
@@ -142,10 +140,7 @@ func (m *Module) shareAuth(r *http.Request, row *ShareRow) bool {
 	}
 	pw := strings.TrimSpace(r.URL.Query().Get("password"))
 	if pw == "" {
-		var body map[string]json.RawMessage
-		if err := decodeBody(r, &body); err == nil {
-			pw = rawString(body["password"])
-		}
+		pw = rawString(body["password"])
 	}
 	return pw != "" && pw == row.Password
 }
@@ -221,12 +216,12 @@ func (m *Module) handleShareList(w http.ResponseWriter, r *http.Request) {
 	if !shareUsable(w, row) {
 		return
 	}
-	if !m.shareAuth(r, row) {
+	var body map[string]json.RawMessage
+	_ = decodeBody(r, &body)
+	if !m.shareAuth(r, row, body) {
 		writeFail(w, http.StatusForbidden, codeBadTicket, "提取码错误", nil)
 		return
 	}
-	var body map[string]json.RawMessage
-	_ = decodeBody(r, &body)
 	rel, ok := NormRel(rawString(body["path"]))
 	if !ok {
 		writeFail(w, http.StatusBadRequest, codeParam, "路径不合法", nil)
@@ -265,7 +260,9 @@ func (m *Module) handleShareDownload(w http.ResponseWriter, r *http.Request) {
 	if !shareUsable(w, row) {
 		return
 	}
-	if !m.shareAuth(r, row) {
+	var body map[string]json.RawMessage
+	_ = decodeBody(r, &body)
+	if !m.shareAuth(r, row, body) {
 		writeFail(w, http.StatusForbidden, codeBadTicket, "提取码错误", nil)
 		return
 	}
@@ -502,12 +499,29 @@ func randomShareID() string {
 	return hex.EncodeToString(buf)
 }
 
+// clientIP 客户端 IP（Node trust proxy 'loopback' 同口径：来自回环的反代信任 X-Forwarded-For 首项，
+// 提取码失败限流按真实客户端 IP 计）。
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if isLoopbackHost(host) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if first := strings.TrimSpace(strings.Split(xff, ",")[0]); first != "" {
+				return first
+			}
+		}
 	}
 	return host
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 type sqlRows struct{}

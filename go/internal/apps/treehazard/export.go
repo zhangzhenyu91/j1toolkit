@@ -171,7 +171,8 @@ func statusTier(r Record) int {
 	return 0
 }
 
-// compareSection 区段升序：中文序 + 数字自然序，空值排尾。
+// compareSection 区段升序：中文序 + 数字自然序（「2-10」排在「10-20」前），空值排尾。
+// Go 标准库无 zh-CN localeCompare，按 数字自然序 + 码点序 近似（中文按 Unicode 码点，同 crossing 口径）。
 func compareSection(a, b string) int {
 	sa, sb := strings.TrimSpace(a), strings.TrimSpace(b)
 	if sa == "" && sb == "" {
@@ -183,8 +184,52 @@ func compareSection(a, b string) int {
 	if sb == "" {
 		return -1
 	}
-	return strings.Compare(sa, sb)
+	return naturalCompare(sa, sb)
 }
+
+// naturalCompare 数字自然序比较（连续数字段按数值比较，其余按 rune 码点）。
+func naturalCompare(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	i, j := 0, 0
+	for i < len(ra) || j < len(rb) {
+		if i < len(ra) && j < len(rb) && isDigit(ra[i]) && isDigit(rb[j]) {
+			si, sj := i, j
+			for i < len(ra) && isDigit(ra[i]) {
+				i++
+			}
+			for j < len(rb) && isDigit(rb[j]) {
+				j++
+			}
+			na, _ := strconv.ParseFloat(string(ra[si:i]), 64)
+			nb, _ := strconv.ParseFloat(string(rb[sj:j]), 64)
+			if na != nb {
+				if na < nb {
+					return -1
+				}
+				return 1
+			}
+			continue
+		}
+		ca, cb := rune(0), rune(0)
+		if i < len(ra) {
+			ca = ra[i]
+		}
+		if j < len(rb) {
+			cb = rb[j]
+		}
+		if ca != cb {
+			if ca < cb {
+				return -1
+			}
+			return 1
+		}
+		i++
+		j++
+	}
+	return 0
+}
+
+func isDigit(r rune) bool { return r >= '0' && r <= '9' }
 
 // makeIntraComparator 组内比较器：状态档位 → 区段升序 → pole_from 升序（空排尾）→ created_at。
 func makeIntraComparator() func(a, b Record) int {
@@ -229,7 +274,7 @@ func makeLineGroupComparator(lineOrder map[string]int) func(a, b Record) int {
 			return 1
 		}
 		if la == math.MaxInt {
-			return strings.Compare(a.LineName, b.LineName)
+			return naturalCompare(a.LineName, b.LineName)
 		}
 		return 0
 	}
@@ -250,7 +295,7 @@ func exportGroupComparator(a, b Record) int {
 		}
 		return 1
 	}
-	return strings.Compare(a.LineName, b.LineName)
+	return naturalCompare(a.LineName, b.LineName)
 }
 
 // sortRecords 记录排序：分组键比较器 → 组内比较器；statusFirst=true（单表导出）把状态档位提到最前。
@@ -352,18 +397,34 @@ func sheetNameOf(base string, used map[string]bool) string {
 // buildWorkbook 生成统计表（exceldoc 与 exceljs 导出口径一致：合并标题 + 隐藏记录ID 列）：
 // split=false 单 sheet「树障」，行序 = 未处理在前 > 电压降序 → 线路名 → 区段；
 // split=true 按线路分 sheet（team_line 导入序，未匹配排尾），sheet 内未处理在前 > 区段升序。
+// 兼容入口：不带阈值不标红（内网同步表 / 知识表沿用）；导出标红见 buildWorkbookWithThreshold。
 func buildWorkbook(teamName string, records []Record, split bool, lineOrder map[string]int) ([]byte, error) {
+	return buildWorkbookWithThreshold(teamName, records, split, lineOrder, nil)
+}
+
+// overThreshold 垂距标红判定（与看板计数/卡片红显同口径）：阈值已配置且 vertical_num
+// 非空且 ≤ 阈值（含等于）；未配置阈值、垂距空值/无数字不标红。
+func overThreshold(rec Record, threshold *float64) bool {
+	if threshold == nil || rec.VerticalNum == nil {
+		return false
+	}
+	return *rec.VerticalNum <= *threshold
+}
+
+// buildWorkbookWithThreshold 同 buildWorkbook，另按当前班组垂直距离阈值标红：
+// 达到阈值（overThreshold）的数据行整行字体红色（含隐藏 ID 列），单表与分表均生效。
+func buildWorkbookWithThreshold(teamName string, records []Record, split bool, lineOrder map[string]int, threshold *float64) ([]byte, error) {
 	sorted := sortRecords(records, makeLineGroupComparator(lineOrder), false)
 	if !split {
 		sorted = sortRecords(records, exportGroupComparator, true)
 		return exceldoc.WriteWorkbook(exceldoc.WorkbookSpec{
-			Sheets: []exceldoc.SheetSpec{buildSheet("树障", teamName+"树木统计表", sorted)},
+			Sheets: []exceldoc.SheetSpec{buildSheetWithThreshold("树障", teamName+"树木统计表", sorted, threshold)},
 		})
 	}
 	groups := groupByLine(sorted, lineOrder)
 	if len(groups) == 0 {
 		return exceldoc.WriteWorkbook(exceldoc.WorkbookSpec{
-			Sheets: []exceldoc.SheetSpec{buildSheet("树障", teamName+"树木统计表", nil)},
+			Sheets: []exceldoc.SheetSpec{buildSheetWithThreshold("树障", teamName+"树木统计表", nil, threshold)},
 		})
 	}
 	used := map[string]bool{}
@@ -375,19 +436,25 @@ func buildWorkbook(teamName string, records []Record, split bool, lineOrder map[
 			label = "未匹配线路"
 			title = "未匹配线路"
 		}
-		sheets = append(sheets, buildSheet(sheetNameOf(label, used), title, g.Records))
+		sheets = append(sheets, buildSheetWithThreshold(sheetNameOf(label, used), title, g.Records, threshold))
 	}
 	return exceldoc.WriteWorkbook(exceldoc.WorkbookSpec{Sheets: sheets})
 }
 
-// buildSheet 单 worksheet 模板：序号自 1 重排，日期 'yyyy.MM.dd'，隐藏记录 ID 列。
+// buildSheet 单 worksheet 模板：序号自 1 重排，日期 'yyyy.MM.dd'，隐藏记录 ID 列（不标红）。
 func buildSheet(name, title string, records []Record) exceldoc.SheetSpec {
+	return buildSheetWithThreshold(name, title, records, nil)
+}
+
+// buildSheetWithThreshold 同 buildSheet，另按阈值给达标数据行整行标红（含隐藏 ID 列）。
+func buildSheetWithThreshold(name, title string, records []Record, threshold *float64) exceldoc.SheetSpec {
 	cols := make([]exceldoc.Column, 0, len(exportHeaders))
 	for i, h := range exportHeaders {
 		cols = append(cols, exceldoc.Column{Header: h, Width: exportColWidths[i]})
 	}
 	rows := make([][]string, 0, len(records))
 	ids := make([]int64, 0, len(records))
+	redRows := make([]bool, 0, len(records))
 	for i, rec := range records {
 		rows = append(rows, []string{
 			strconv.Itoa(i + 1),
@@ -408,8 +475,9 @@ func buildSheet(name, title string, records []Record) exceldoc.SheetSpec {
 			fmtExportDate(rec.HandledAt),
 		})
 		ids = append(ids, rec.ID)
+		redRows = append(redRows, overThreshold(rec, threshold))
 	}
-	return exceldoc.SheetSpec{Name: name, Title: title, Columns: cols, Rows: rows, IDs: ids}
+	return exceldoc.SheetSpec{Name: name, Title: title, Columns: cols, Rows: rows, IDs: ids, RedRows: redRows}
 }
 
 // handleExport GET /export?line=&split=1：统计表 xlsx 下载（二进制响应不走 {code,data} 信封）。
@@ -431,6 +499,12 @@ func (m *Module) handleExport(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusInternalServerError, codeParam, "导出失败", nil)
 		return
 	}
+	// 当前班组垂直距离阈值：供导出整行标红（未配置 → 不标红）
+	threshold, err := m.fetchThreshold(r.Context(), team.ID)
+	if err != nil {
+		writeFail(w, http.StatusInternalServerError, codeParam, "导出失败", nil)
+		return
+	}
 	lineOrder := map[string]int{}
 	for i, l := range lineRows {
 		lineOrder[l.LineName] = i
@@ -444,7 +518,7 @@ func (m *Module) handleExport(w http.ResponseWriter, r *http.Request) {
 		}
 		records = filtered
 	}
-	buf, err := buildWorkbook(team.Name, records, split, lineOrder)
+	buf, err := buildWorkbookWithThreshold(team.Name, records, split, lineOrder, threshold)
 	if err != nil {
 		writeFail(w, http.StatusInternalServerError, codeParam, "导出失败", nil)
 		return

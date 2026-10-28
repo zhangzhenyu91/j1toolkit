@@ -80,7 +80,10 @@
     </aside>
 
     <main class="page">
-      <router-view />
+      <!-- 页入场：路由切换克制淡入落位静止（过渡定义见 styles.css；reduced-motion 全局瞬时降级） -->
+      <Transition name="page-in" mode="out-in">
+        <router-view />
+      </Transition>
     </main>
 
     <!-- 折叠态悬停气泡（贴栏右缘，纵向对齐图标中心） -->
@@ -233,7 +236,12 @@ onMounted(() => {
         if (meta && meta.adminOnly) return;
         const to = routeForApp(code);
         if (!to) return;
-        items.push({ to, label: a.name || (meta && meta.name) || code, icon: a.icon || (meta && meta.icon) || 'app' });
+        // 展示名以目录为准（定稿展示名，如「安全日活动」「远程控制」），后端 name 仅兜底
+        items.push({
+          to,
+          label: (meta && meta.name) || a.name || code,
+          icon: a.icon || (meta && meta.icon) || 'app',
+        });
       });
       navItems.value = [{ to: '/', label: '工作台', icon: 'app' }, ...items];
     })

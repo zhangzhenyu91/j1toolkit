@@ -422,6 +422,13 @@ function close() {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 /* ===== 大图遮罩层（Lightbox）：深色舞台 + 右侧信息卡 ===== */
 .lb {
   position: fixed;
@@ -515,6 +522,10 @@ function close() {
   flex: none;
   max-height: 84vh;
   overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-dash) transparent;
   background: #fff;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
@@ -753,6 +764,17 @@ function close() {
   .lb-side {
     width: 100%;
     max-height: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
   }
 }
 </style>

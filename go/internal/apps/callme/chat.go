@@ -292,13 +292,15 @@ func CollectAnswer(ctx context.Context, client WeKnoraClient, username, sessionI
 	select {
 	case err := <-readErr:
 		parser.end()
-		emit(ChatEvent{Type: "done"})
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
+			// 上游连接中断：只发 error 不发 done（Node upstream 'error' 分支同口径——
+			// done 表示回答完结，失败流不得先发 done 让端侧误判成功）。
 			emit(ChatEvent{Type: "error", Content: "AI 服务连接中断"})
 			return CollectResult{}, fmt.Errorf("%w: AI 服务连接中断", ErrEmitted)
 		}
+		emit(ChatEvent{Type: "done"})
+		mu.Lock()
+		defer mu.Unlock()
 		if answerFailed {
 			return CollectResult{}, fmt.Errorf("%w: AI 服务返回错误", ErrEmitted)
 		}

@@ -249,21 +249,50 @@ func (m *Module) configValue(ctx context.Context, key string) string {
 	return v
 }
 
-// resolveTeam 解析请求生效班组（超管可指定 body/query team_id，其余固定本班；无可用班组返回 nil）。
-func (m *Module) resolveTeam(ctx context.Context, r *http.Request, ident auth.Identity, wantedTeamID int64) *httpapi.Team {
+// resolveTeam 解析请求生效班组（对齐 Node utils/team.js resolveTeam：超管逐级回落
+// wanted → 本班 → 默认班组，其余角色固定本班）。无可用班组返回 (nil, nil)（Node 侧 null 口径）；
+// 数据库错误原样返回，由调用方按旧版错误契约回 500。
+func (m *Module) resolveTeam(ctx context.Context, r *http.Request, ident auth.Identity, wantedTeamID int64) (*httpapi.Team, error) {
 	if m.DB == nil {
-		return nil
+		return nil, nil
 	}
 	wanted := wantedTeamID
 	if wanted == 0 {
 		wanted = parseWantedTeamID(r.URL.Query().Get("team_id"))
 	}
-	adapter := httpapi.IdentityAdapter{TeamID: ident.TeamID, Role: ident.Role}
-	team, err := httpapi.ResolveTeam(ctx, m.DB, adapter, wanted)
-	if err != nil {
-		return nil
+	if ident.Role == "admin" {
+		for _, id := range []int64{wanted, ident.TeamID} {
+			if id <= 0 {
+				continue
+			}
+			team, err := httpapi.TeamByID(ctx, m.DB, id)
+			if err == nil {
+				return &team, nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return nil, err
+			}
+		}
+		team, err := httpapi.DefaultTeam(ctx, m.DB)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &team, nil
 	}
-	return &team
+	if ident.TeamID == 0 {
+		return nil, nil
+	}
+	team, err := httpapi.TeamByID(ctx, m.DB, ident.TeamID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &team, nil
 }
 
 // parseWantedTeamID 按 JS Number(x) + Number.isInteger 判定：整数 > 0 才生效，其余 0。
@@ -275,13 +304,17 @@ func parseWantedTeamID(raw string) int64 {
 	return int64(n)
 }
 
-// canAccess 记录归属校验：超管任意班组；其余角色仅本班（按班组名比对）。
+// canAccess 记录归属校验：超管任意班组；其余角色仅本班（按班组名比对）；
+// 班组解析失败（数据库错误）按无权处理（旧版此处为未捕获异常，无既定响应契约）。
 func (m *Module) canAccess(ctx context.Context, r *http.Request, ident auth.Identity, record Record) bool {
 	if ident.Role == "admin" {
 		return true
 	}
-	team := m.resolveTeam(ctx, r, ident, 0)
-	return team != nil && record.Team == team.Name
+	team, err := m.resolveTeam(ctx, r, ident, 0)
+	if err != nil || team == nil {
+		return false
+	}
+	return record.Team == team.Name
 }
 
 // deleteSourceFromCos COS 源文件清理：生成时上传的合并学习文件是中转性质，记录到终态即删。
@@ -449,7 +482,11 @@ func (m *Module) judgeOnce(record Record) string {
 // ===== GET /form-meta：生成表单数据源（班组成员名单 + 按班组记忆的默认值） =====
 
 func (m *Module) formMeta(w http.ResponseWriter, r *http.Request, ident auth.Identity) {
-	team := m.resolveTeam(r.Context(), r, ident, 0)
+	team, terr := m.resolveTeam(r.Context(), r, ident, 0)
+	if terr != nil {
+		writeFail(w, http.StatusInternalServerError, "表单数据加载失败："+terr.Error(), nil)
+		return
+	}
 	defaults := FormDefaults{
 		Superior: m.configValue(r.Context(), "SAFEDAY_DEFAULT_SUPERIOR"),
 	}
@@ -464,13 +501,15 @@ func (m *Module) formMeta(w http.ResponseWriter, r *http.Request, ident auth.Ide
 	if m.DB != nil {
 		rows, err := m.DB.QueryContext(r.Context(),
 			`SELECT name FROM worklog_member WHERE team_id = ? AND status = 1 ORDER BY sort, id`, team.ID)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var name string
-				if rows.Scan(&name) == nil {
-					members = append(members, name)
-				}
+		if err != nil {
+			writeFail(w, http.StatusInternalServerError, "表单数据加载失败："+err.Error(), nil)
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if rows.Scan(&name) == nil {
+				members = append(members, name)
 			}
 		}
 	}
@@ -577,8 +616,12 @@ func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Ide
 		}
 	}
 
-	// 生效班组：超管可用表单 team_id 指定；其余角色固定本班（未分配拒绝生成）
-	team := m.resolveTeam(r.Context(), r, ident, parseWantedTeamID(r.FormValue("team_id")))
+	// 生效班组：超管可用表单 team_id 指定（无效时逐级回落本班/默认班组）；其余角色固定本班（未分配拒绝生成）
+	team, terr := m.resolveTeam(r.Context(), r, ident, parseWantedTeamID(r.FormValue("team_id")))
+	if terr != nil {
+		writeFail(w, http.StatusInternalServerError, "生成请求处理失败："+terr.Error(), nil)
+		return
+	}
 	if team == nil {
 		writeFail(w, http.StatusBadRequest, "未分配班组，请联系管理员分配后再生成", nil)
 		return
@@ -727,8 +770,8 @@ func (m *Module) generate(w http.ResponseWriter, r *http.Request, ident auth.Ide
 		return
 	}
 
-	rec, _ := m.Store.Get(full.ID)
-	writeOK(w, map[string]any{"record": rec})
+	// 返回建记录时的对象（对齐 Node：不含随后写入的 sourceCosKey，出参无 error/sourceCosKey 键）
+	writeOK(w, map[string]any{"record": full})
 }
 
 // mkdirTeamDocs 确保班组产物目录存在。
@@ -767,7 +810,11 @@ func (m *Module) records(w http.ResponseWriter, r *http.Request, ident auth.Iden
 		writeOK(w, map[string]any{"records": m.Store.List("")})
 		return
 	}
-	team := m.resolveTeam(r.Context(), r, ident, 0)
+	team, terr := m.resolveTeam(r.Context(), r, ident, 0)
+	if terr != nil {
+		writeFail(w, http.StatusInternalServerError, "读取记录失败："+terr.Error(), nil)
+		return
+	}
 	if team == nil {
 		writeOK(w, map[string]any{"records": []Record{}})
 		return

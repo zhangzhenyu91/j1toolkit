@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -239,7 +240,8 @@ func (m *Module) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		}
 		built, meta := BuildSteps(stepMaps)
 		metaMap := map[string]any{
-			"toolCalls":  meta.ToolCalls,
+			"rounds":     meta.Rounds,
+			"tools":      meta.Tools,
 			"durationMs": anyToInt64(msg["agent_duration_ms"]),
 		}
 		msg["steps"] = built
@@ -254,12 +256,39 @@ func (m *Module) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	ok(w, out, "")
 }
 
+// sortByCreatedAt 按创建时间升序（同 Node new Date(created_at) 数值比较；兼容 ISO 串与时间戳数值）。
 func sortByCreatedAt(list []map[string]any) {
+	less := func(a, b map[string]any) bool { return createdOrder(a) < createdOrder(b) }
 	for i := 1; i < len(list); i++ {
-		for j := i; j > 0 && StringOf(list[j], "created_at") < StringOf(list[j-1], "created_at"); j-- {
+		for j := i; j > 0 && less(list[j], list[j-1]); j-- {
 			list[j], list[j-1] = list[j-1], list[j]
 		}
 	}
+}
+
+// createdOrder created_at 归一为可比较序值（数值时间戳原样；ISO 串尽力解析；缺省 0）。
+func createdOrder(m map[string]any) float64 {
+	v, ok := m["created_at"]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return t
+	case string:
+		if t == "" {
+			return 0
+		}
+		if n, err := strconv.ParseFloat(t, 64); err == nil {
+			return n
+		}
+		for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+			if ts, err := time.Parse(layout, t); err == nil {
+				return float64(ts.UnixMilli())
+			}
+		}
+	}
+	return 0
 }
 
 // handleUpdateSession PUT /sessions/{id}：改名。
@@ -451,50 +480,78 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusUnauthorized, codeUnauthorized, "未登录或登录已过期")
 		return
 	}
-	var body struct {
-		SessionID       string   `json:"session_id"`
-		Query           string   `json:"query"`
-		Images          []Image  `json:"images"`
-		AttachmentIDs   []string `json:"attachment_ids"`
-		WebSearch       *bool    `json:"web_search"`
-		ModelID         *string  `json:"model_id"`
-		ReasoningEffort *string  `json:"reasoning_effort"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// 入参按 Node 松类型口径校验（各字段错误码 40043–40049 逐一对应，不因类型不匹配落 40003）。
+	raw := map[string]json.RawMessage{}
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		fail(w, http.StatusBadRequest, codeParam, "缺少 session_id 或 query")
 		return
 	}
-	if body.SessionID == "" || body.Query == "" {
+	sessionID := rawJSONString(raw["session_id"])
+	query := rawJSONString(raw["query"])
+	if sessionID == "" || query == "" {
 		fail(w, http.StatusBadRequest, codeParam, "缺少 session_id 或 query")
 		return
 	}
-	if body.AttachmentIDs != nil {
-		if len(body.AttachmentIDs) > 5 {
+	var attachmentIDs []string
+	if v, ok := raw["attachment_ids"]; ok {
+		var arr []any
+		if isJSONNull(v) || json.Unmarshal(v, &arr) != nil || len(arr) > 5 {
 			fail(w, http.StatusBadRequest, codeAttachIDs, "attachment_ids 参数无效（最多 5 个附件）")
 			return
 		}
-		for _, id := range body.AttachmentIDs {
-			if strings.TrimSpace(id) == "" {
+		for _, id := range arr {
+			s, isStr := id.(string)
+			if !isStr || strings.TrimSpace(s) == "" {
 				fail(w, http.StatusBadRequest, codeAttachIDs, "attachment_ids 参数无效（最多 5 个附件）")
 				return
 			}
+			attachmentIDs = append(attachmentIDs, s)
 		}
 	}
 	modelID := ""
-	if body.ModelID != nil {
-		modelID = strings.TrimSpace(*body.ModelID)
+	if v, ok := raw["model_id"]; ok && !isJSONNull(v) {
+		s, isStr := rawJSONStringOK(v)
+		if !isStr {
+			fail(w, http.StatusBadRequest, codeModelID, "model_id 参数无效")
+			return
+		}
+		modelID = strings.TrimSpace(s)
 	}
-	if body.ReasoningEffort != nil && !validReasoningEffort(*body.ReasoningEffort) {
-		fail(w, http.StatusBadRequest, codeReasoningEffort, "reasoning_effort 参数无效")
-		return
+	var reasoningEffort string
+	if v, ok := raw["reasoning_effort"]; ok {
+		s, isStr := rawJSONStringOK(v)
+		if !isStr || !validReasoningEffort(s) {
+			fail(w, http.StatusBadRequest, codeReasoningEffort, "reasoning_effort 参数无效")
+			return
+		}
+		reasoningEffort = s
 	}
-	if body.Images != nil {
-		if len(body.Images) > 1 {
+	var webSearch *bool
+	if v, ok := raw["web_search"]; ok {
+		var b bool
+		if isJSONNull(v) || json.Unmarshal(v, &b) != nil {
+			fail(w, http.StatusBadRequest, codeWebSearch, "web_search 参数无效")
+			return
+		}
+		webSearch = &b
+	}
+	var images []Image
+	if v, ok := raw["images"]; ok {
+		var arr []any
+		if isJSONNull(v) || json.Unmarshal(v, &arr) != nil || len(arr) > 1 {
 			fail(w, http.StatusBadRequest, codeImageCount, "图片最多 1 张")
 			return
 		}
-		if len(body.Images) == 1 {
-			switch checkImageDataUrl(body.Images[0].Data) {
+		if len(arr) == 1 {
+			// 兼容 {data: dataURL} 与纯 dataURL 字符串两种形态（Node 同口径）。
+			var dataURL string
+			switch item := arr[0].(type) {
+			case string:
+				dataURL = item
+			case map[string]any:
+				dataURL = StringOf(item, "data")
+			}
+			switch checkImageDataUrl(dataURL) {
 			case "format":
 				fail(w, http.StatusBadRequest, codeImageFormat, "图片格式应为 jpeg/png/gif/webp（base64 dataURL）")
 				return
@@ -502,6 +559,7 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 				fail(w, http.StatusBadRequest, codeImageSize, "图片大小应在 8MB 以内")
 				return
 			}
+			images = []Image{{Data: dataURL}}
 		}
 	}
 	if m.WeKnora == nil {
@@ -548,18 +606,16 @@ func (m *Module) handleChat(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	chatReq := ChatRequest{
-		Query: body.Query, Images: body.Images,
-		AttachmentIDs: body.AttachmentIDs, ModelID: modelID,
+		Query: query, Images: images,
+		AttachmentIDs: attachmentIDs, ModelID: modelID,
+		ReasoningEffort: reasoningEffort,
 	}
-	if body.WebSearch != nil {
-		chatReq.WebSearch = *body.WebSearch
-	} else {
-		chatReq.WebSearch = true
+	// web_search 缺省 false（Node agentChatStream 的 `web_search_enabled: !!webSearch` 同口径）：
+	// 端侧关闭联网搜索时不传该字段，缺省必须是关闭，不得默认开启。
+	if webSearch != nil {
+		chatReq.WebSearch = *webSearch
 	}
-	if body.ReasoningEffort != nil {
-		chatReq.ReasoningEffort = *body.ReasoningEffort
-	}
-	_, err := CollectAnswer(ctx, m.WeKnora, ident.Username, body.SessionID, chatReq, send)
+	_, err := CollectAnswer(ctx, m.WeKnora, ident.Username, sessionID, chatReq, send)
 	if err != nil {
 		if errors.Is(err, ErrEmitted) || errors.Is(err, ErrClientGone) {
 			return

@@ -118,7 +118,7 @@ func AutoOrient(img image.Image, orientation int) image.Image {
 			case 6: // 顺时针 90°
 				sx, sy = oy, h-1-ox
 			case 7: // 反对角线翻转
-				sx, sy = h-1-oy, w-1-ox
+				sx, sy = w-1-oy, h-1-ox
 			case 8: // 逆时针 90°
 				sx, sy = w-1-oy, ox
 			}
@@ -128,7 +128,8 @@ func AutoOrient(img image.Image, orientation int) image.Image {
 	return dst
 }
 
-// DecodeWithOrientation 解码图片（jpeg/png/webp）并做 EXIF 方向摆正。
+// DecodeWithOrientation 解码图片（jpeg/png/webp）并做 EXIF 方向摆正（含镜像 2/4/5/7，恰好一次；
+// 对齐 @napi-rs/canvas loadImage 的摆正行为，返回图已端正，调用方不得再 AutoOrient 二次摆正）。
 // 返回摆正后的图与原始 orientation（png/webp 恒为 1）。
 func DecodeWithOrientation(data []byte) (image.Image, int, error) {
 	img, err := DecodeImage(data)

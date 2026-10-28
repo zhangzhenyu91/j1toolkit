@@ -384,6 +384,13 @@ function close() {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 .sg-bind-modal {
   width: min(520px, calc(100vw - 32px));
 }
@@ -526,6 +533,9 @@ function close() {
   max-width: 94vw;
   max-height: 86vh;
   overflow: hidden auto;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-dash) transparent;
   padding: 14px 18px 16px;
   display: flex;
   flex-direction: column;
@@ -562,5 +572,16 @@ function close() {
 .m-x:hover {
   background: var(--tk-ink);
   color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
 }
 </style>

@@ -39,7 +39,8 @@ type UsbKeys struct {
 // dev / find 可后续替换为测试桩。
 func NewUsbLink(platform kvm.Platform, cfg ConfigGet, keys UsbKeys, adminUser string) *UsbLink {
 	return &UsbLink{
-		Dev:          &GlkvmFileshare{Platform: platform},
+		// 设备调用重试同 Node deviceCall（共试 3 次、间隔 1 分钟，两跳转发偶发抖动）。
+		Dev:          &GlkvmFileshare{Platform: platform, Attempts: 3, RetryGap: time.Minute},
 		Find:         &GlkvmFinder{Platform: platform},
 		Cfg:          cfg,
 		DdnsKey:      keys.DdnsKey,
@@ -176,6 +177,10 @@ type GlkvmFileshare struct {
 	HTTP *http.Client
 	// HTTPBig 大文件转发客户端（push/download，不限超时；nil 用无超时客户端）。
 	HTTPBig *http.Client
+	// Attempts 设备调用重试次数（Node deviceCall 共试 3 次；0 = 单次不重试，测试/直连构造用）。
+	Attempts int
+	// RetryGap 重试间隔（Node RETRY_GAP_MS 1 分钟；0 = 不等待，测试用）。
+	RetryGap time.Duration
 }
 
 // std 常规客户端。
@@ -194,14 +199,18 @@ func (f *GlkvmFileshare) big() *http.Client {
 	return &http.Client{}
 }
 
-// do 设备 fileshare 转发（big=true 走大文件客户端）；返回状态码与响应体。
-func (f *GlkvmFileshare) do(ctx context.Context, dev DeviceRef, username, method, path, contentType string, body io.Reader, big bool) (int, []byte, error) {
+// doOnce 设备 fileshare 单次转发（big=true 走大文件客户端）；返回状态码与响应体。
+func (f *GlkvmFileshare) doOnce(ctx context.Context, dev DeviceRef, username, method, path, contentType string, payload []byte, big bool) (int, []byte, error) {
 	if f == nil || f.Platform == nil {
 		return 0, nil, errors.New("GLKVM Cloud 未配置（GLKVM_URL / GLKVM_PASSWORD）")
 	}
 	ps, err := f.Platform.ProxySession(ctx, dev.ID, username)
 	if err != nil {
 		return 0, nil, err
+	}
+	var body io.Reader
+	if payload != nil {
+		body = bytes.NewReader(payload)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, ps.Origin+path, body)
 	if err != nil {
@@ -224,6 +233,41 @@ func (f *GlkvmFileshare) do(ctx context.Context, dev DeviceRef, username, method
 	return resp.StatusCode, data, err
 }
 
+// do 设备 fileshare 转发，按 Node deviceCall 口径失败重试：每次换新代理会话，共试 attempts 次
+// （默认 1 次；NewUsbLink 装配为 3 次）、间隔 RetryGap（1 分钟）；状态码被 ok 接受或重试耗尽才返回
+// （下载 404 视文件不存在、不重试，同 Node validateStatus 口径）。
+func (f *GlkvmFileshare) do(ctx context.Context, dev DeviceRef, username, method, path, contentType string, payload []byte, big bool, ok func(status int) bool) (int, []byte, error) {
+	attempts := 1
+	if f.Attempts > 0 {
+		attempts = f.Attempts
+	}
+	var status int
+	var data []byte
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		status, data, err = f.doOnce(ctx, dev, username, method, path, contentType, payload, big)
+		if err == nil && ok(status) {
+			return status, data, nil
+		}
+		if attempt < attempts && f.RetryGap > 0 {
+			select {
+			case <-ctx.Done():
+				return status, data, ctx.Err()
+			case <-time.After(f.RetryGap):
+			}
+		}
+	}
+	return status, data, err
+}
+
+// okStatus 仅 200 接受（mount/list/delete/push）。
+func okStatus(status int) bool { return status == http.StatusOK }
+
+// okDownload 200/404 接受（404 = 文件不存在，区别于链路故障）。
+func okDownload(status int) bool {
+	return status == http.StatusOK || status == http.StatusNotFound
+}
+
 // fileshareErr 设备错误信封 {ok:false,error} → 可读错误。
 func fileshareErr(status int, data []byte, err error) error {
 	if err != nil {
@@ -240,7 +284,7 @@ func fileshareErr(status int, data []byte, err error) error {
 
 // MountToHost POST /api/fileshare/mount。
 func (f *GlkvmFileshare) MountToHost(ctx context.Context, dev DeviceRef, username string) error {
-	status, data, err := f.do(ctx, dev, username, http.MethodPost, "/api/fileshare/mount", "", nil, false)
+	status, data, err := f.do(ctx, dev, username, http.MethodPost, "/api/fileshare/mount", "", nil, false, okStatus)
 	if err != nil || status != http.StatusOK {
 		return fileshareErr(status, data, err)
 	}
@@ -250,7 +294,7 @@ func (f *GlkvmFileshare) MountToHost(ctx context.Context, dev DeviceRef, usernam
 // DownloadFile GET /api/fileshare/download/{name}（404 → nil,nil；共享中由设备侧自动断开）。
 func (f *GlkvmFileshare) DownloadFile(ctx context.Context, dev DeviceRef, username, name string) ([]byte, error) {
 	status, data, err := f.do(ctx, dev, username, http.MethodGet,
-		"/api/fileshare/download/"+url.PathEscape(name), "", nil, true)
+		"/api/fileshare/download/"+url.PathEscape(name), "", nil, true, okDownload)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +309,7 @@ func (f *GlkvmFileshare) DownloadFile(ctx context.Context, dev DeviceRef, userna
 
 // ListFiles GET /api/fileshare/list（响应 {ok,files:[{name,size}]}）。
 func (f *GlkvmFileshare) ListFiles(ctx context.Context, dev DeviceRef, username string) ([]string, error) {
-	status, data, err := f.do(ctx, dev, username, http.MethodGet, "/api/fileshare/list", "", nil, false)
+	status, data, err := f.do(ctx, dev, username, http.MethodGet, "/api/fileshare/list", "", nil, false, okStatus)
 	if err != nil || status != http.StatusOK {
 		return nil, fileshareErr(status, data, err)
 	}
@@ -289,7 +333,7 @@ func (f *GlkvmFileshare) ListFiles(ctx context.Context, dev DeviceRef, username 
 func (f *GlkvmFileshare) DeleteFiles(ctx context.Context, dev DeviceRef, username string, names []string) error {
 	payload, _ := json.Marshal(map[string]any{"names": names})
 	status, data, err := f.do(ctx, dev, username, http.MethodPost, "/api/fileshare/delete",
-		"application/json", bytes.NewReader(payload), false)
+		"application/json", payload, false, okStatus)
 	if err != nil || status != http.StatusOK {
 		return fileshareErr(status, data, err)
 	}
@@ -311,7 +355,7 @@ func (f *GlkvmFileshare) PushFile(ctx context.Context, dev DeviceRef, username, 
 		return err
 	}
 	status, resp, err := f.do(ctx, dev, username, http.MethodPost, "/api/fileshare/push",
-		mw.FormDataContentType(), &buf, true)
+		mw.FormDataContentType(), buf.Bytes(), true, okStatus)
 	if err != nil || status != http.StatusOK {
 		return fileshareErr(status, resp, err)
 	}

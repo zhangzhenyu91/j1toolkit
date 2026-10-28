@@ -9,28 +9,34 @@
           </button>
         </div>
 
-        <!-- 日期（仅新建可改） -->
+        <!-- 日期（仅新建可改；点输入框任意位置展开系统日期选择） -->
         <div class="f-hint" style="margin: 0 0 2px">
           <template v-if="entry">{{ fmtDateCN(form.log_date) }}</template>
         </div>
         <template v-if="!entry">
           <label class="f-lab">日期</label>
-          <input v-model="form.log_date" type="date" class="f-sel" />
+          <input v-model="form.log_date" type="date" class="f-sel" @click="openPicker" />
         </template>
 
         <!-- 派车车辆（空 = 未出车） -->
         <label class="f-lab">派车车辆</label>
-        <select v-model="form.vehicle_id" class="f-sel">
+        <select v-model="form.vehicle_id" class="f-sel f-drop">
           <option :value="0">未出车</option>
           <option v-for="v in meta.vehicles" :key="v.id" :value="v.id">{{ v.plate_no }}</option>
         </select>
 
         <template v-if="form.vehicle_id !== 0">
           <label class="f-lab">目的地</label>
-          <select v-model="form.destination_id" class="f-sel">
+          <select v-model="form.destination_id" class="f-sel f-drop">
             <option :value="0">未选择</option>
-            <option v-for="d in meta.destinations" :key="d.id" :value="d.id">{{ d.name }}</option>
+            <option v-for="d in meta.destinations" :key="d.id" :value="d.id">
+              {{ d.name }}{{ markSuffix(d) }}
+            </option>
           </select>
+          <div v-if="destMarkText" class="dest-mark-line">
+            <em class="dest-mark" :class="destMarkCls">{{ destMarkText }}</em>
+            <span class="f-hint" style="margin: 0">{{ destStdText }}</span>
+          </div>
 
           <label class="f-lab">派车单号（可空）</label>
           <input
@@ -166,6 +172,38 @@ function fmtDateCN(d) {
   return `${y} 年 ${Number(m)} 月 ${Number(dd)} 日`;
 }
 
+// openPicker 点日期输入框任意位置即展开系统日期选择（不支持的浏览器保留原生行为）。
+function openPicker(ev) {
+  const el = ev && ev.target;
+  try {
+    if (el && el.showPicker) el.showPicker();
+  } catch (e) {
+    // 浏览器拒绝非手势触发时保留原生行为
+  }
+}
+
+// markSuffix 目的地选项费用口径后缀（市外 / 驻地互斥，默认市内不标注）。
+function markSuffix(d) {
+  if (d.out_of_city === 1) return '（市外）';
+  if (d.stationed === 1) return '（驻地）';
+  return '';
+}
+
+// destMarkText / destMarkCls / destStdText 当前选中目的地的费用口径标记与标准提示。
+const destMarkText = computed(() => {
+  const d = (props.meta.destinations || []).find((x) => x.id === form.destination_id);
+  if (!d) return '';
+  if (d.out_of_city === 1) return '市外';
+  if (d.stationed === 1) return '驻地';
+  return '';
+});
+const destMarkCls = computed(() => (destMarkText.value === '市外' ? 'out' : 'sta'));
+const destStdText = computed(() => {
+  if (destMarkText.value === '市外') return '费用口径：伙食 100 / 交通 0';
+  if (destMarkText.value === '驻地') return '费用口径：伙食 40 / 交通 0';
+  return '费用口径：市内（伙食 60 / 交通 0）';
+});
+
 // open/entry 变化时回填表单（新建取 defaultDate）。
 watch(
   () => [props.open, props.entry],
@@ -273,6 +311,13 @@ async function submit() {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 /* ===== 通用弹层骨架（旧版 .mask/.modal/.m-scroll/.m-head/.m-foot） ===== */
 .mask {
   position: fixed;
@@ -382,6 +427,20 @@ async function submit() {
 .f-sel {
   height: 36px;
   padding: 0 10px;
+}
+/* 原生下拉（select）：自绘箭头、悬停/聚焦着色，保持原生可展开 */
+select.f-drop {
+  padding: 0 30px 0 10px;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%234E5969' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+select.f-drop:hover {
+  border-color: var(--tk-brand);
 }
 .f-sel:focus,
 .f-ta:focus {
@@ -597,5 +656,43 @@ async function submit() {
 }
 .wl-hidden {
   display: none;
+}
+
+/* ===== 目的地费用口径标记（市外 / 驻地互斥；同班组数据字典 dpill 口径） ===== */
+.dest-mark-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.dest-mark {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: 1px;
+  line-height: 1.5;
+}
+.dest-mark.out {
+  background: var(--tk-yellow-soft);
+  color: #d25f00;
+}
+.dest-mark.sta {
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
 }
 </style>

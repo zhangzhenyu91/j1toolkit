@@ -56,7 +56,12 @@ type Notifier interface {
 
 // DispatchSyncer 派车单每日同步执行器（可注入；nil 时 sync-now 返回依赖未接入）。
 type DispatchSyncer interface {
+	// PrepareNow 每日准备：锁定设备并挂载 U 盘至被控机（Node prepareJob）；无开启班组跳过、
+	// 失败解禁并通知后返回可读 error（排程侧记日志）。
+	PrepareNow(ctx context.Context) error
 	// SyncNow 立即同步一次派车单（取件建卡）；返回同步条数。
+	// 当日无文件按旧版口径发「今日无文件」通知后返回 (0, nil)（正常结果，sync-now 不报 500）；
+	// 取件/解析/建卡失败发「派车单同步失败」通知并返回可读 error（Node fetchJob catch 口径）。
 	SyncNow(ctx context.Context, teamID int64) (int, error)
 }
 

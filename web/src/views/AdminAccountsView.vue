@@ -1559,6 +1559,36 @@ onBeforeUnmount(() => {
   overflow: hidden;
   padding: 0;
 }
+/* 表格/列表滚动区：细滚动条 + 稳定占位，出现滚动条时内容不偏移、不被挤偏 */
+.tbl-wrap,
+.pm-list,
+.pm-apps {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.tbl-wrap::-webkit-scrollbar,
+.pm-list::-webkit-scrollbar,
+.pm-apps::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.tbl-wrap::-webkit-scrollbar-thumb,
+.pm-list::-webkit-scrollbar-thumb,
+.pm-apps::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.tbl-wrap::-webkit-scrollbar-thumb:hover,
+.pm-list::-webkit-scrollbar-thumb:hover,
+.pm-apps::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.tbl-wrap::-webkit-scrollbar-track,
+.pm-list::-webkit-scrollbar-track,
+.pm-apps::-webkit-scrollbar-track {
+  background: transparent;
+}
 .tbl-wrap {
   overflow-x: auto;
 }
@@ -1715,9 +1745,10 @@ table.tbl {
   vertical-align: 1px;
 }
 
-/* 启用状态开关（班组编辑弹层 / 应用启停，同旧版 .switch） */
+/* 启用状态开关（班组编辑弹层 / 应用启停，同旧版 .switch；表格单元格内垂直居中不压基线） */
 .switch {
   position: relative;
+  display: inline-block;
   width: 46px;
   height: 26px;
   border: none;
@@ -1726,6 +1757,7 @@ table.tbl {
   cursor: pointer;
   transition: background 0.25s;
   padding: 0;
+  vertical-align: middle;
 }
 .switch::after {
   content: '';

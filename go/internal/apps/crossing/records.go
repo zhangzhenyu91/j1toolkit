@@ -103,7 +103,7 @@ func weekStartText() string { return weekStartTextAt(time.Now()) }
 
 // weekStartTextAt 同 weekStartText，时间源可注入（测试用）。
 func weekStartTextAt(now time.Time) string {
-	cn := now.Add(8 * time.Hour) // 北京时间（UTC+8，无夏令时）
+	cn := now.UTC().Add(8 * time.Hour) // UTC 字段即北京墙钟（TZ 无关，同 Node getUTC* 口径）
 	dow := (int(cn.Weekday()) + 6) % 7
 	monday := time.Date(cn.Year(), cn.Month(), cn.Day()-dow, 0, 0, 0, 0, time.UTC)
 	utcWall := monday.Add(-8 * time.Hour)

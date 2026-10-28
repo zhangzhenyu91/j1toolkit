@@ -143,9 +143,9 @@ func GroupForKey(key string) string {
 	case strings.HasPrefix(key, "NETDISK_"), strings.HasPrefix(key, "OO_"):
 		return "团队网盘"
 	case strings.HasPrefix(key, "SAFEDAY_"):
-		return "安全日活动记录"
+		return "安全日活动"
 	case strings.HasPrefix(key, "GLKVM_"):
-		return "远程连接计算机"
+		return "远程控制"
 	case strings.HasPrefix(key, "WEKNORA_"), key == "CALLME_INGEST_TOKEN":
 		return "Call Me"
 	case key == "APP_LOG_RETENTION_DAYS":

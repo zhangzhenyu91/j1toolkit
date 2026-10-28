@@ -23,7 +23,7 @@
         </button>
       </div>
       <label class="f-lab">处理时间</label>
-      <input v-model="handledAt" type="date" class="f-sel" />
+      <input v-model="handledAt" type="date" class="f-sel" @click="openPicker" />
       <div class="m-foot">
         <button class="btn btn-sm" type="button" :disabled="submitting" @click="visible = false">
           取消
@@ -72,6 +72,15 @@ const handlerName = ref('');
 const handleNote = ref('');
 const handledAt = ref(todayStr());
 const submitting = ref(false);
+
+// openPicker 点日期文字区直接唤起原生日历（原生仅点图标弹出；不支持或非手势时静默回退）
+function openPicker(e) {
+  try {
+    e.target.showPicker?.();
+  } catch {
+    /* 忽略：仍可点输入框右侧图标选择 */
+  }
+}
 
 async function onConfirm() {
   const note = handleNote.value.trim();

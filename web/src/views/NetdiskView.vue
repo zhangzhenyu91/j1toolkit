@@ -24,7 +24,15 @@
       </div>
 
       <!-- ================= 全部文件视图 ================= -->
-      <section v-show="view === 'files'" class="nd-view" :class="{ 'view-in': viewAnim === 'files' }">
+      <section
+        v-show="view === 'files'"
+        class="nd-view"
+        :class="{ 'view-in': viewAnim === 'files' }"
+        @dragenter.prevent="onViewDragEnter"
+        @dragover.prevent="onViewDragOver"
+        @dragleave.prevent="onViewDragLeave"
+        @drop.prevent="onDropFiles"
+      >
         <div class="nd-main">
           <div class="nd-files-col">
             <div class="nd-toolbar fade-up" style="animation-delay: 0.14s">
@@ -58,7 +66,11 @@
                 >
                   <span class="ic" v-html="ic('swap', 14)"></span>移动
                 </button>
-                <button type="button" class="btn btn-sm" @click="moveCopyItems('copy', selectedItems)">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  @click="moveCopyItems('copy', selectedItems)"
+                >
                   <span class="ic" v-html="ic('copy', 14)"></span>复制
                 </button>
                 <button
@@ -98,19 +110,25 @@
             </div>
 
             <div class="pathbar fade-up" style="animation-delay: 0.2s">
-              <div class="crumb">
+              <div
+                class="crumb"
+                @dragover="onCrumbDragOver"
+                @dragleave="onCrumbDragLeave"
+                @drop.prevent="onCrumbDrop"
+              >
                 <template v-if="searchActive">
                   <a href="javascript:;" @click="exitSearch">{{ spaceLabel(space) }}</a>
                   <em>/</em>
                   <b>搜索“{{ searchKw }}”</b>
                 </template>
                 <template v-else>
-                  <a href="javascript:;" @click="navTo('')">{{ spaceLabel(space) }}</a>
+                  <a href="javascript:;" data-path="" @click="navTo('')">{{ spaceLabel(space) }}</a>
                   <template v-for="(seg, i) in crumbSegs" :key="seg.path">
                     <em>/</em>
                     <a
                       v-if="i < crumbSegs.length - 1"
                       href="javascript:;"
+                      :data-path="seg.path"
                       @click="navTo(seg.path)"
                       >{{ seg.name }}</a
                     >
@@ -146,14 +164,12 @@
             </div>
 
             <div
+              ref="gridwrapEl"
               class="gridwrap fade-up"
               :class="{ dragover: dragOver }"
               style="animation-delay: 0.26s"
-              @click.self="clearSel"
+              @pointerdown="onGridPointerDown"
               @contextmenu.prevent="openBlankMenu($event)"
-              @dragover.prevent="dragOver = true"
-              @dragleave="dragOver = false"
-              @drop.prevent="onDropFiles"
             >
               <div class="grid" :class="{ 'g-out': fading }">
                 <!-- 骨架屏（首载/空目录切换） -->
@@ -168,7 +184,9 @@
                 <div v-else-if="loadError" class="nd-state card">
                   <span class="ic" v-html="ic('error-circle', 40)"></span>
                   <div style="margin-top: 10px">{{ loadError }}</div>
-                  <button type="button" class="btn btn-sm" @click="reloadCurrent(true)">重试</button>
+                  <button type="button" class="btn btn-sm" @click="reloadCurrent(true)">
+                    重试
+                  </button>
                 </div>
 
                 <!-- 空态 -->
@@ -188,19 +206,33 @@
                     class="g-cell"
                     :class="{ sel: sel.has(it._rel), 'cell-in': animate }"
                     :style="animate ? { animationDelay: Math.min(i * 36, 400) + 'ms' } : null"
+                    :data-rel="it._rel"
+                    :data-idx="i"
+                    :draggable="manageable ? 'true' : 'false'"
                     :title="it.name"
                     @click.stop="onCellClick(it, $event)"
                     @dblclick.stop="openItem(it)"
                     @contextmenu.prevent.stop="openItemMenu(it, $event)"
+                    @dragstart="onCellDragStart($event, it)"
+                    @dragend="onCellDragEnd"
                   >
                     <div class="g-icon">
                       <img
-                        v-if="thumbUrls[it._rel]"
+                        v-if="gridImgSrc(it) && !thumbFailed.has(it._rel)"
                         class="g-thumb"
-                        :src="thumbUrls[it._rel]"
+                        :src="gridImgSrc(it)"
                         loading="lazy"
                         alt=""
+                        @error="onThumbFail(it._rel)"
                       />
+                      <video
+                        v-else-if="gridVideoSrc(it)"
+                        class="g-thumb"
+                        :src="gridVideoSrc(it)"
+                        preload="metadata"
+                        muted
+                        playsinline
+                      ></video>
                       <span v-else class="ft-ic" :style="icBox(48)">
                         <img
                           class="ft-img"
@@ -267,10 +299,16 @@
             </div>
 
             <div class="statusbar">
-              <span>共 <b>{{ items.length }}</b> 项</span>
+              <span
+                >共 <b>{{ items.length }}</b> 项</span
+              >
               <template v-if="selectedItems.length">
-                <span>已选择 <b>{{ selectedItems.length }}</b> 项</span>
-                <span>合计 <b>{{ fmtSize(selTotalSize) }}</b></span>
+                <span
+                  >已选择 <b>{{ selectedItems.length }}</b> 项</span
+                >
+                <span
+                  >合计 <b>{{ fmtSize(selTotalSize) }}</b></span
+                >
               </template>
             </div>
           </div>
@@ -286,11 +324,20 @@
               <div class="ni-head">
                 <div class="g-icon">
                   <img
-                    v-if="thumbUrls[infoItem._rel]"
+                    v-if="gridImgSrc(infoItem) && !thumbFailed.has(infoItem._rel)"
                     class="g-thumb"
-                    :src="thumbUrls[infoItem._rel]"
+                    :src="gridImgSrc(infoItem)"
                     alt=""
+                    @error="onThumbFail(infoItem._rel)"
                   />
+                  <video
+                    v-else-if="gridVideoSrc(infoItem)"
+                    class="g-thumb"
+                    :src="gridVideoSrc(infoItem)"
+                    preload="metadata"
+                    muted
+                    playsinline
+                  ></video>
                   <span v-else class="ft-ic" :style="icBox(48)">
                     <img
                       class="ft-img"
@@ -361,9 +408,7 @@
           </span>
         </div>
         <div class="card tbl-card">
-          <div v-if="sharesLoading" class="loading">
-            <span class="spin"></span>加载中…
-          </div>
+          <div v-if="sharesLoading" class="loading"><span class="spin"></span>加载中…</div>
           <div v-else-if="sharesError" class="nd-state">
             <span class="ic" v-html="ic('error-circle', 40)"></span>
             <div style="margin-top: 10px">{{ sharesError }}</div>
@@ -435,10 +480,7 @@
                 </td>
                 <td>
                   <div class="ops">
-                    <span
-                      v-if="s.state === 'active'"
-                      class="lk"
-                      @click="copyShareLink(s)"
+                    <span v-if="s.state === 'active'" class="lk" @click="copyShareLink(s)"
                       >复制链接</span
                     >
                     <span v-else class="lk gray dis">复制链接</span>
@@ -511,8 +553,8 @@
 
     <!-- ================= 右键菜单 ================= -->
     <div
-      v-if="ctx.open"
       class="ctxmenu"
+      :class="{ open: ctx.open }"
       :style="{ left: ctx.x + 'px', top: ctx.y + 'px' }"
       @click.stop
     >
@@ -531,7 +573,7 @@
     </div>
 
     <!-- ================= 弹层：单输入（新建/重命名/压缩密码） ================= -->
-    <div v-if="promptDlg.open" class="mask open" @click.self="closePrompt(null)">
+    <div class="mask" :class="{ open: promptDlg.open }" @click.self="closePrompt(null)">
       <div class="modal" style="width: 420px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
@@ -565,7 +607,7 @@
     </div>
 
     <!-- ================= 弹层：删除确认 ================= -->
-    <div v-if="delDlg.open" class="mask open" @click.self="delDlg.open = false">
+    <div class="mask" :class="{ open: delDlg.open }" @click.self="delDlg.open = false">
       <div class="modal" style="width: 420px" @click.stop>
         <div class="m-scroll">
           <div class="m-head"><span class="m-title">删除确认</span></div>
@@ -588,7 +630,7 @@
     </div>
 
     <!-- ================= 弹层：创建分享 / 分享已创建 ================= -->
-    <div v-if="shareDlg.open" class="mask open" @click.self="shareDlg.open = false">
+    <div class="mask" :class="{ open: shareDlg.open }" @click.self="shareDlg.open = false">
       <div class="modal" style="width: 460px" @click.stop>
         <div class="m-scroll">
           <template v-if="!shareDlg.result">
@@ -675,7 +717,9 @@
             </div>
             <div class="kv">
               <label>提取码</label>
-              <div class="codebox"><span class="cd">{{ shareDlg.result.code }}</span></div>
+              <div class="codebox">
+                <span class="cd">{{ shareDlg.result.code }}</span>
+              </div>
             </div>
             <div class="m-foot">
               <button type="button" class="btn btn-sm" @click="shareDlg.open = false">关闭</button>
@@ -689,7 +733,7 @@
     </div>
 
     <!-- ================= 弹层：批量重命名（替换文本 / 添加文本 / 格式化） ================= -->
-    <div v-if="batchDlg.open" class="mask open" @click.self="batchDlg.open = false">
+    <div class="mask" :class="{ open: batchDlg.open }" @click.self="batchDlg.open = false">
       <div class="modal" style="width: 560px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
@@ -817,7 +861,7 @@
     </div>
 
     <!-- ================= 弹层：压缩包预览 / 解压 ================= -->
-    <div v-if="arcDlg.open" class="mask open" @click.self="arcDlg.open = false">
+    <div class="mask" :class="{ open: arcDlg.open }" @click.self="arcDlg.open = false">
       <div class="modal" style="width: 720px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
@@ -859,12 +903,9 @@
               }}</a>
               <template v-for="seg in arcCrumbs" :key="seg.rel">
                 <em>/</em>
-                <a
-                  v-if="seg.rel !== arcDlg.inner"
-                  href="javascript:;"
-                  @click="arcNavTo(seg.rel)"
-                  >{{ seg.name }}</a
-                >
+                <a v-if="seg.rel !== arcDlg.inner" href="javascript:;" @click="arcNavTo(seg.rel)">{{
+                  seg.name
+                }}</a>
                 <b v-else>{{ seg.name }}</b>
               </template>
             </div>
@@ -908,7 +949,9 @@
                   <div class="ar-mid">
                     <span class="ar-nm">{{ x.name }}</span>
                     <span class="ar-sub">{{
-                      x.is_dir ? '文件夹' : fmtSize(x.size) + (x.modified ? ' · ' + fmtDate(x.modified) : '')
+                      x.is_dir
+                        ? '文件夹'
+                        : fmtSize(x.size) + (x.modified ? ' · ' + fmtDate(x.modified) : '')
                     }}</span>
                   </div>
                   <button
@@ -935,7 +978,7 @@
     </div>
 
     <!-- ================= 弹层：目标位置选择（解压到…） ================= -->
-    <div v-if="pickDlg.open" class="mask open" @click.self="closePick(null)">
+    <div class="mask" :class="{ open: pickDlg.open }" @click.self="closePick(null)">
       <div class="modal" style="width: 520px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
@@ -960,12 +1003,9 @@
             <a href="javascript:;" @click="pickNavTo('')">{{ spaceLabel(pickDlg.space) }}</a>
             <template v-for="seg in pickCrumbs" :key="seg.path">
               <em>/</em>
-              <a
-                v-if="seg.path !== pickDlg.dir"
-                href="javascript:;"
-                @click="pickNavTo(seg.path)"
-                >{{ seg.name }}</a
-              >
+              <a v-if="seg.path !== pickDlg.dir" href="javascript:;" @click="pickNavTo(seg.path)">{{
+                seg.name
+              }}</a>
               <b v-else>{{ seg.name }}</b>
             </template>
           </div>
@@ -1036,10 +1076,12 @@
     </div>
 
     <!-- ================= 弹层：Office 打开方式（协同编辑 / 仅预览） ================= -->
-    <div v-if="ooDlg.open" class="mask open" @click.self="ooDlg.open = false">
+    <div class="mask" :class="{ open: ooDlg.open }" @click.self="ooDlg.open = false">
       <div class="modal" style="width: 300px" @click.stop>
         <div class="m-scroll">
-          <div class="m-head"><span class="m-title">{{ ooDlg.item ? ooDlg.item.name : '' }}</span></div>
+          <div class="m-head">
+            <span class="m-title">{{ ooDlg.item ? ooDlg.item.name : '' }}</span>
+          </div>
           <div style="padding: 4px 2px 2px; display: flex; flex-direction: column; gap: 10px">
             <button type="button" class="btn btn-primary" @click="openOfficePage('edit')">
               协同编辑（可多人同时）
@@ -1051,7 +1093,7 @@
     </div>
 
     <!-- ================= 弹层：视频预览（Lightbox） ================= -->
-    <div v-if="mediaDlg.open" class="mask open" @click.self="closeMedia">
+    <div class="mask" :class="{ open: mediaDlg.open }" @click.self="closeMedia">
       <div class="modal" style="width: 920px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
@@ -1091,7 +1133,9 @@
         <button type="button" :disabled="vwr.imgs.length < 2" @click="vwrNav(-1)">
           <span class="ic" v-html="ic('chevron-left', 16)"></span>
         </button>
-        <button type="button" @click="vwrToggleFit">{{ vwr.mode === 'fit' ? '原图' : '适应' }}</button>
+        <button type="button" @click="vwrToggleFit">
+          {{ vwr.mode === 'fit' ? '原图' : '适应' }}
+        </button>
         <button type="button" @click="downloadItems([vwrCurrentItem])">
           <span class="ic" v-html="ic('download', 16)"></span>
         </button>
@@ -1127,8 +1171,6 @@ import {
   disableShare,
   enableShare,
   deleteShare,
-  download,
-  downloadDir,
   saveBlob,
   shareLinkUrl,
   randShareCode,
@@ -1142,10 +1184,19 @@ import {
   archiveList,
   archiveDecompress,
   archiveDownload,
-  thumb,
+  mediaUrl,
+  thumbUrl,
+  dirZipUrl,
   isArchiveName,
   isImageName,
 } from '../features/netdisk/api.js';
+import {
+  extOf,
+  typeLabel,
+  ftLbStyle,
+  fileIconUrl,
+  onFtError,
+} from '../features/netdisk/fileicon.js';
 
 const router = useRouter();
 const demoMode = isDemo();
@@ -1171,7 +1222,8 @@ const ICONS = {
   edit: '<path d="M16.8 3.8l3.4 3.4L8 19.4l-4.6 1.2L4.6 16z"/><path d="M14.5 6.1l3.4 3.4"/>',
   warn: '<path d="M10.3 4.1L2.4 17.6a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 4.1a2 2 0 0 0-3.4 0z"/><path d="M12 9.2v4"/><circle cx="12" cy="16.8" r="1" fill="currentColor" stroke="none"/>',
   swap: '<path d="M4 7.5h11.5"/><path d="M13 4l3.5 3.5L13 11"/><path d="M20 16.5H8.5"/><path d="M11 13l-3.5 3.5L11 20"/>',
-  folder: '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  folder:
+    '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   'folder-open':
     '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2v1"/><path d="M3.5 7v10a2 2 0 0 0 2 2h11.5a2 2 0 0 0 1.86-1.26l2.28-5.7A1.5 1.5 0 0 0 19.75 10H7.44a2 2 0 0 0-1.86 1.26L3.5 16.8"/>',
   'folder-add':
@@ -1187,35 +1239,10 @@ function icBox(size) {
 }
 
 /* ================= 文件类型（旧 netdisk.html 同一映射与回退口径） ================= */
+// 类型图标映射与渲染收敛到 features/netdisk/fileicon.js（真实类型 PNG + 文件夹线性图标/字母块回退），
+// extOf / typeLabel / ftLbStyle / fileIconUrl / onFtError 自该模块引入
 const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
-const EXT_LABEL = {
-  doc: 'DOC',
-  docx: 'DOC',
-  xls: 'XLS',
-  xlsx: 'XLS',
-  csv: 'XLS',
-  ppt: 'PPT',
-  pptx: 'PPT',
-  pdf: 'PDF',
-  zip: 'ZIP',
-  rar: 'ZIP',
-  '7z': 'ZIP',
-  tar: 'ZIP',
-  gz: 'ZIP',
-  tgz: 'ZIP',
-  bz2: 'ZIP',
-  xz: 'ZIP',
-  txt: 'TXT',
-  md: 'TXT',
-  log: 'TXT',
-  mp4: 'MP4',
-  mov: 'MP4',
-  webm: 'MP4',
-  m4v: 'MP4',
-  mp3: 'MP3',
-  wav: 'MP3',
-};
 // ONLYOFFICE 格式族（与后端白名单同口径）：edit=可编辑（双击弹「仅预览/协同编辑」）、view=仅预览
 const OO_EDIT_EXTS =
   'doc docx docm dot dotx dotm odt ott rtf txt md html epub fb2 xls xlsx xlsm xlt xltx xltm xlsb ods ots csv tsv ppt pptx pptm pot potx potm pps ppsx ppsm odp otp pdf'.split(
@@ -1225,14 +1252,6 @@ const OO_VIEW_EXTS =
   'fodt hml htm hwp hwpx mht mhtml pages stw sxw wps wpt xml et ett fods numbers sxc dps dpt fodp key odg sxi djvu xps oxps ofd'.split(
     ' '
   );
-function extOf(name) {
-  const m = /\.([a-z0-9]+)$/i.exec(name || '');
-  return m ? m[1].toLowerCase() : '';
-}
-function typeLabel(name) {
-  const e = extOf(name);
-  return EXT_LABEL[e] || (e ? e.slice(0, 4).toUpperCase() : 'FILE');
-}
 function isImg(name) {
   return IMG_EXTS.includes(extOf(name));
 }
@@ -1245,58 +1264,6 @@ function isArchive(name) {
 function ooKind(name) {
   const e = extOf(name);
   return OO_EDIT_EXTS.includes(e) ? 'edit' : OO_VIEW_EXTS.includes(e) ? 'view' : '';
-}
-function ftLbStyle(name, size) {
-  return { fontSize: `${Math.max(7, Math.round(size * 0.26))}px` };
-}
-
-// 真实文件类型图标（/assets/filetypes/<ext>.png）：合并同类，无映射→unknown.png；
-// img 404 由 @error 隐藏自身、露出 .ft-fb 回退（文件夹线性图标 / 字母块）
-const FT_BASE = '/assets/filetypes/';
-const FT_MAP = {
-  doc: 'docx',
-  docx: 'docx',
-  xls: 'xlsx',
-  xlsx: 'xlsx',
-  csv: 'csv',
-  ppt: 'pptx',
-  pptx: 'pptx',
-  pdf: 'pdf',
-  txt: 'txt',
-  md: 'md',
-  log: 'txt',
-  zip: 'zip',
-  rar: 'rar',
-  '7z': '7z',
-  tar: 'tar',
-  gz: 'gz',
-  tgz: 'zip',
-  bz2: 'zip',
-  xz: 'zip',
-  jpg: 'jpg',
-  jpeg: 'jpg',
-  png: 'png',
-  gif: 'gif',
-  bmp: 'bmp',
-  webp: 'jpg',
-  svg: 'png',
-  mp4: 'mp4',
-  mov: 'mov',
-  webm: 'mp4',
-  m4v: 'mp4',
-  mp3: 'mp3',
-  wav: 'wav',
-};
-function fileIconUrl(name, isDir) {
-  if (isDir) return FT_BASE + 'folder.png';
-  return FT_BASE + (FT_MAP[extOf(name)] || 'unknown') + '.png';
-}
-function onFtError(e) {
-  const img = e.target;
-  if (!img) return;
-  img.style.display = 'none';
-  const fb = img.nextElementSibling;
-  if (fb && fb.classList.contains('ft-fb')) fb.hidden = false;
 }
 
 /* ================= 工具 ================= */
@@ -1331,7 +1298,9 @@ function joinRel(dir, name) {
   return dir ? `${dir}/${name}` : name;
 }
 function parentOf(rel) {
-  const p = String(rel || '').split('/').filter(Boolean);
+  const p = String(rel || '')
+    .split('/')
+    .filter(Boolean);
   p.pop();
   return p.join('/');
 }
@@ -1484,7 +1453,7 @@ async function loadList(silent = false, forceRefresh = false) {
     items.value = decorate(d.items || [], () => path.value);
     searchActive.value = false;
     animate.value = !silent;
-    loadThumbs(items.value);
+    thumbFailed.clear();
   } catch (e) {
     loadError.value = e.message || '加载失败';
   } finally {
@@ -1516,7 +1485,7 @@ async function doSearch(kw) {
     });
     searchActive.value = true;
     animate.value = true;
-    loadThumbs(items.value);
+    thumbFailed.clear();
   } catch (e) {
     loadError.value = e.message || '搜索失败';
   } finally {
@@ -1582,28 +1551,342 @@ function onCellClick(it, e) {
   }
 }
 
-/* ================= 图片缩略图（懒加载 /thumb） ================= */
-const thumbUrls = reactive({}); // rel → objectURL
-const thumbPending = new Set();
-function loadThumbs(list) {
-  list
-    .filter(
-      (it) =>
-        !it.is_dir && isImageName(it.name) && !thumbUrls[it._rel] && !thumbPending.has(it._rel)
-    )
-    .slice(0, 12)
-    .forEach((it) => {
-      thumbPending.add(it._rel);
-      thumb({ space: space.value, path: it._rel })
-        .then((res) => res.blob())
-        .then((blob) => {
-          thumbUrls[it._rel] = URL.createObjectURL(blob);
-        })
-        .catch(() => {
-          /* 缩略图失败回退类型图标 */
-        })
-        .finally(() => thumbPending.delete(it._rel));
+/* ================= 框选 / 拖放（旧 netdisk.html 同口径） ================= */
+const gridwrapEl = ref(null);
+function setSel(next) {
+  sel.clear();
+  next.forEach((r) => sel.add(r));
+}
+// 手势期间（框选/拖拽移动）全页禁文字选中：body.nd-gesture + selectstart 拦截双保险，结束务必成对解除
+function preventSelect(e) {
+  e.preventDefault();
+}
+function gestureLock(on) {
+  document.body.classList.toggle('nd-gesture', on);
+  if (on) document.addEventListener('selectstart', preventSelect, true);
+  else document.removeEventListener('selectstart', preventSelect, true);
+}
+// 客户端坐标 → gridwrap 内容坐标（滚动折算；rect 每次现取，锁定布局下仅滚动可变）
+function contentPos(cx, cy) {
+  const wrap = gridwrapEl.value;
+  const r = wrap.getBoundingClientRect();
+  return { x: cx - r.left + wrap.scrollLeft, y: cy - r.top + wrap.scrollTop };
+}
+let rubberEl = null;
+let rubberStart = null;
+let rubberBase = null;
+let rubberMoved = false;
+let rubberLast = null;
+function onGridPointerDown(e) {
+  if (e.button !== 0) return;
+  if (e.target.closest && e.target.closest('.g-cell')) return; // 格子上的按下走 click/dblclick
+  startRubber(e);
+}
+function startRubber(e) {
+  rubberStart = contentPos(e.clientX, e.clientY);
+  rubberLast = { x: e.clientX, y: e.clientY };
+  rubberBase = e.ctrlKey || e.metaKey ? new Set(sel) : new Set();
+  rubberMoved = false;
+  gestureLock(true);
+  const onMove = (ev) => {
+    rubberLast = { x: ev.clientX, y: ev.clientY };
+    moveRubber();
+  };
+  const onScroll = () => {
+    if (rubberMoved) moveRubber();
+  }; // 拖动中滚动：矩形随内容滚并重算命中
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    gridwrapEl.value.removeEventListener('scroll', onScroll);
+    endRubber();
+  };
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+  gridwrapEl.value.addEventListener('scroll', onScroll);
+}
+function moveRubber() {
+  const cur = contentPos(rubberLast.x, rubberLast.y);
+  const dx = cur.x - rubberStart.x;
+  const dy = cur.y - rubberStart.y;
+  if (!rubberMoved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+  if (!rubberMoved) {
+    rubberMoved = true;
+    rubberEl = document.createElement('div');
+    rubberEl.className = 'rubber';
+    gridwrapEl.value.appendChild(rubberEl);
+  }
+  const x1 = Math.min(rubberStart.x, cur.x);
+  const x2 = Math.max(rubberStart.x, cur.x);
+  const y1 = Math.min(rubberStart.y, cur.y);
+  const y2 = Math.max(rubberStart.y, cur.y);
+  rubberEl.style.left = x1 + 'px';
+  rubberEl.style.top = y1 + 'px';
+  rubberEl.style.width = x2 - x1 + 'px';
+  rubberEl.style.height = y2 - y1 + 'px';
+  // 命中检测同用内容坐标（格子静态定位，offset 相对 position:relative 的 gridwrap）
+  const hit = new Set(rubberBase);
+  gridwrapEl.value.querySelectorAll('.g-cell[data-rel]').forEach((c) => {
+    const l = c.offsetLeft;
+    const t = c.offsetTop;
+    if (l < x2 && l + c.offsetWidth > x1 && t < y2 && t + c.offsetHeight > y1)
+      hit.add(c.dataset.rel);
+  });
+  setSel(hit);
+}
+function endRubber() {
+  gestureLock(false);
+  if (rubberEl) {
+    const el = rubberEl;
+    rubberEl = null;
+    el.classList.add('out'); // 淡出后移除
+    setTimeout(() => {
+      el.remove();
+    }, 130);
+  }
+  if (!rubberMoved) setSel(new Set(rubberBase)); // 纯点击空白：清空（Ctrl 保持原选择）
+  rubberStart = null;
+  rubberBase = null;
+  rubberMoved = false;
+  rubberLast = null;
+}
+// 内部拖拽移动（格子起拖）与拖入上传分流：自定义 dataTransfer type 判内拖
+function isInternalMove(e) {
+  const t = e.dataTransfer && e.dataTransfer.types;
+  return !!(t && Array.prototype.indexOf.call(t, 'application/x-shade-move') >= 0);
+}
+function onCellDragStart(e, it) {
+  if (!manageable.value) {
+    e.preventDefault();
+    return;
+  }
+  if (!sel.has(it._rel)) {
+    setSel(new Set([it._rel])); // 起拖未选中格：先单选（多选格上起拖则整组移动）
+    anchorIdx = items.value.indexOf(it);
+  }
+  if (!selectedItems.value.length) {
+    e.preventDefault();
+    return;
+  }
+  e.dataTransfer.setData('application/x-shade-move', String(sel.size)); // 标记位，数据取选择集
+  e.dataTransfer.effectAllowed = 'move';
+  gestureLock(true); // 拖动全程禁文字选中
+}
+function onCellDragEnd() {
+  gestureLock(false);
+  markDropCell(null);
+  markCrumbDrop(null);
+}
+// 落点解析：仅文件夹格子可作目标目录（上传格/空白无落点，维持当前目录行为）
+function findDropFolder(ev) {
+  const cell = ev.target && ev.target.closest ? ev.target.closest('.g-cell[data-rel]') : null;
+  if (!cell) return null;
+  const it = items.value[Number(cell.dataset.idx)];
+  return it && it.is_dir ? cell : null;
+}
+function markDropCell(cell) {
+  if (cell === dropTargetCell) return;
+  if (dropTargetCell) dropTargetCell.classList.remove('drop-target');
+  dropTargetCell = cell;
+  if (cell) cell.classList.add('drop-target');
+}
+function markCrumbDrop(a) {
+  if (a === crumbDropEl) return;
+  if (crumbDropEl) crumbDropEl.classList.remove('drop-hover');
+  crumbDropEl = a;
+  if (a) a.classList.add('drop-hover');
+}
+function crumbDropTarget(e) {
+  return e.target && e.target.closest ? e.target.closest('.crumb a[data-path]') : null;
+}
+let dropTargetCell = null;
+let crumbDropEl = null;
+let dragDepth = 0;
+function onViewDragEnter(e) {
+  e.preventDefault();
+  if (isInternalMove(e)) {
+    markDropCell(findDropFolder(e));
+    return;
+  }
+  dragDepth++;
+  if (!searchActive.value) dragOver.value = true;
+  markDropCell(findDropFolder(e));
+}
+function onViewDragOver(e) {
+  e.preventDefault();
+  if (isInternalMove(e)) {
+    const cell = findDropFolder(e);
+    e.dataTransfer.dropEffect = cell ? 'move' : 'none'; // 仅文件夹格是有效落点
+    markDropCell(cell);
+    return;
+  }
+  markDropCell(findDropFolder(e)); // 持续跟随指针换格高亮
+}
+function onViewDragLeave(e) {
+  e.preventDefault();
+  if (isInternalMove(e)) return; // 内拖高亮由 dragover 持续校正、dragend/drop 清理
+  if (--dragDepth <= 0) {
+    dragDepth = 0;
+    dragOver.value = false;
+    markDropCell(null);
+  }
+}
+function onCrumbDragOver(e) {
+  if (!isInternalMove(e)) return;
+  const a = crumbDropTarget(e);
+  if (!a) {
+    markCrumbDrop(null);
+    return;
+  }
+  e.preventDefault(); // 仅有效落点放行 drop
+  e.dataTransfer.dropEffect = 'move';
+  markCrumbDrop(a);
+}
+function onCrumbDragLeave(e) {
+  if (!isInternalMove(e)) return;
+  if (!e.currentTarget.contains(e.relatedTarget)) markCrumbDrop(null);
+}
+function onCrumbDrop(e) {
+  if (!isInternalMove(e)) return;
+  const a = crumbDropTarget(e);
+  markCrumbDrop(null);
+  if (!a) return;
+  e.preventDefault();
+  moveItemsTo(a.dataset.path);
+}
+// 内拖移动入口：把选中条目移入目标目录（'' = 空间根；校验自身/子目录与同目录）
+let dndMoving = false;
+function moveItemsTo(targetRel) {
+  if (dndMoving) return;
+  const list = selectedItems.value;
+  if (!list.length || targetRel === null || targetRel === undefined) return;
+  for (const it of list) {
+    const r = it._rel;
+    if (it.is_dir && (targetRel === r || targetRel.indexOf(r + '/') === 0)) {
+      MessagePlugin.error('不能移动到自身或其子目录');
+      return;
+    }
+  }
+  const groups = {};
+  list.forEach((it) => {
+    const d = parentOf(it._rel);
+    (groups[d] = groups[d] || []).push(it.name);
+  });
+  const dirs = Object.keys(groups);
+  if (dirs.length === 1 && dirs[0] === targetRel) {
+    MessagePlugin.error('源位置与目标位置相同');
+    return;
+  }
+  dndMoving = true;
+  Promise.resolve()
+    .then(async () => {
+      for (const d of dirs) {
+        await moveItems({
+          srcSpace: space.value,
+          srcDir: d,
+          names: groups[d],
+          dstSpace: space.value,
+          dstDir: targetRel,
+        });
+      }
+    })
+    .then(() => {
+      dndMoving = false;
+      MessagePlugin.success(`已移动 ${list.length} 项`);
+      sel.clear();
+      clearDirSizeCache();
+      reloadCurrent();
+    })
+    .catch((e) => {
+      dndMoving = false;
+      MessagePlugin.error(e.message || '移动失败');
     });
+}
+// collectDropFiles 拖放项收集为 [{file,relPath}] / [{dir:true,relPath}]（目录感知，保留层级）
+function collectDropFiles(dt) {
+  const items = (dt && dt.items) || [];
+  const entries = [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].kind !== 'file') continue;
+    const entry = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+    if (entry) entries.push(entry);
+  }
+  if (!entries.length) {
+    return Promise.resolve(
+      Array.prototype.slice.call((dt && dt.files) || []).map((f) => ({ file: f, relPath: f.name }))
+    );
+  }
+  const out = [];
+  let chain = Promise.resolve();
+  entries.forEach((entry) => {
+    chain = chain.then(() => walkEntry(entry, '', out));
+  });
+  return chain.then(() => out);
+}
+// 单个 FileSystemEntry 递归收集（坏项跳过不中断整体）；目录项另推 {dir:true, relPath} 记录——
+// 空文件夹借此建出（非空目录同样记录，uploadEntries 建树时按目录集去重）
+function walkEntry(entry, prefix, out) {
+  if (entry.isFile) {
+    return new Promise((res, rej) => {
+      entry.file(res, rej);
+    })
+      .then((f) => {
+        out.push({ file: f, relPath: prefix + f.name });
+      })
+      .catch(() => {
+        /* 读取失败的项跳过 */
+      });
+  }
+  if (entry.isDirectory) {
+    out.push({ dir: true, relPath: prefix + entry.name });
+    return readEntriesAll(entry.createReader())
+      .then((children) => {
+        let chain = Promise.resolve();
+        children.forEach((c) => {
+          chain = chain.then(() => walkEntry(c, prefix + entry.name + '/', out));
+        });
+        return chain;
+      })
+      .catch(() => {
+        /* 目录读取失败跳过 */
+      });
+  }
+  return Promise.resolve();
+}
+// readEntries 每次最多 100 条，循环取到空为止
+function readEntriesAll(reader) {
+  const out = [];
+  function step() {
+    return new Promise((res, rej) => {
+      reader.readEntries(res, rej);
+    }).then((batch) => {
+      if (!batch.length) return out;
+      out.push(...batch);
+      return step();
+    });
+  }
+  return step();
+}
+
+/* ================= 网格/详情图标区媒体源（旧 cellIconHtml / gridImgUrl 同口径） ================
+   位图走 /thumb 缩略图直链（lazy 交给浏览器）、svg 等小图 inline 直链、视频取首帧（preload=metadata）；
+   其余走文件类型图标。缩略图加载失败回退类型图标（不回退原图直链，防大文件流量/内存回潮）。 */
+const thumbFailed = reactive(new Set()); // 缩略图加载失败的 rel（该条目改走类型图标）
+function gridImgSrc(it) {
+  if (!it || it.is_dir) return '';
+  const e = extOf(it.name);
+  if (isImageName(it.name)) return thumbUrl({ space: space.value, path: it._rel });
+  if (e === 'svg') return mediaUrl({ space: space.value, path: it._rel, disposition: 'inline' });
+  return '';
+}
+function gridVideoSrc(it) {
+  if (!it || it.is_dir || !isVideo(it.name)) return '';
+  return mediaUrl({ space: space.value, path: it._rel, disposition: 'inline' });
+}
+function onThumbFail(rel) {
+  thumbFailed.add(rel);
 }
 
 /* ================= 目录大小（单选文件夹：会话缓存 + 请求序号防过期覆盖） ================= */
@@ -1696,19 +1979,30 @@ function openOfficePage(mode) {
   if (it) openOfficeRoute(it, mode);
 }
 
-async function downloadItem(it) {
-  try {
-    if (it.is_dir) {
-      MessagePlugin.info(`正在打包文件夹「${it.name}」，完成后将自动下载 ZIP`);
-      const res = await downloadDir({ space: space.value, path: it._rel });
-      await saveBlob(res, `${it.name}.zip`);
-      return;
-    }
-    const res = await download({ space: space.value, path: it._rel });
-    await saveBlob(res, it.name);
-  } catch (e) {
-    MessagePlugin.error(e.message || '下载失败');
+// 原生直链下载：临时 <a download> 触发浏览器保存，不经内存 Blob 中转（大文件即点即下，
+// 浏览器下载器出进度）；name 仅作回退，缺省/为空时取响应 Content-Disposition 文件名
+function triggerDownload(url, name) {
+  if (!url) {
+    MessagePlugin.info('演示模式不执行该下载操作，请切换 live 适配层');
+    return;
   }
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name || '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+function downloadItem(it) {
+  // 文件夹整包 ZIP 直链：后端递归流式打包，保留层级与空目录
+  if (it.is_dir) {
+    triggerDownload(dirZipUrl({ space: space.value, path: it._rel }), `${it.name}.zip`);
+    return;
+  }
+  triggerDownload(
+    mediaUrl({ space: space.value, path: it._rel, disposition: 'attachment' }),
+    it.name
+  );
 }
 function downloadItems(list) {
   if (!list.length) {
@@ -1720,23 +2014,20 @@ function downloadItems(list) {
   });
 }
 
-// 视频 Lightbox：Go 端仅认 Authorization 头，取流经 fetch + Blob 落 objectURL
+// 视频 Lightbox：URL 带 ?token= 鉴权直引（同旧 previewMedia）
 const mediaDlg = reactive({ open: false, name: '', url: '' });
-async function previewMedia(it) {
-  try {
-    const res = await download({ space: space.value, path: it._rel, disposition: 'inline' });
-    const blob = await res.blob();
-    if (mediaDlg.url) URL.revokeObjectURL(mediaDlg.url);
-    mediaDlg.url = URL.createObjectURL(blob);
-    mediaDlg.name = it.name;
-    mediaDlg.open = true;
-  } catch (e) {
-    MessagePlugin.error(e.message || '预览失败');
+function previewMedia(it) {
+  const url = mediaUrl({ space: space.value, path: it._rel, disposition: 'inline' });
+  if (!url) {
+    MessagePlugin.info('演示模式不执行该预览操作，请切换 live 适配层');
+    return;
   }
+  mediaDlg.url = url;
+  mediaDlg.name = it.name;
+  mediaDlg.open = true;
 }
 function closeMedia() {
   mediaDlg.open = false;
-  if (mediaDlg.url) URL.revokeObjectURL(mediaDlg.url);
   mediaDlg.url = '';
 }
 
@@ -1757,15 +2048,17 @@ const vwrCurrentItem = computed(() => (vwr.imgs[vwr.idx] ? vwr.imgs[vwr.idx].ite
 const vwrName = computed(() => (vwrCurrentItem.value ? vwrCurrentItem.value.name : ''));
 const vwrUrl = computed(() => (vwr.imgs[vwr.idx] ? vwr.imgs[vwr.idx].url : ''));
 const vwrTransform = computed(
-  () =>
-    `transform: translate(-50%, -50%) translate(${vwr.tx}px, ${vwr.ty}px) scale(${vwr.scale})`
+  () => `transform: translate(-50%, -50%) translate(${vwr.tx}px, ${vwr.ty}px) scale(${vwr.scale})`
 );
 
 async function openViewer(it) {
   const imgs = items.value.filter((x) => !x.is_dir && isImg(x.name));
   const idx = imgs.indexOf(it);
   if (idx < 0) return;
-  vwr.imgs = imgs.map((x) => ({ item: x, url: thumbUrls[x._rel + ':full'] || '' }));
+  vwr.imgs = imgs.map((x) => ({
+    item: x,
+    url: mediaUrl({ space: space.value, path: x._rel, disposition: 'inline' }),
+  }));
   vwr.idx = idx;
   vwr.open = true;
   vwr.mode = 'fit';
@@ -1777,24 +2070,11 @@ async function openViewer(it) {
   window.addEventListener('resize', onVwrResize);
   await ensureVwrUrl();
 }
-// ensureVwrUrl 当前图片取流（fetch + Bearer + Blob；命中缓存直接用）
+// ensureVwrUrl 当前图片取流（?token= 直链，同旧 vwrUrl；预生成 URL 缺失时补齐）
 async function ensureVwrUrl() {
   const cur = vwr.imgs[vwr.idx];
-  if (!cur) return;
-  if (cur.url) return;
-  const key = cur.item._rel + ':full';
-  if (thumbUrls[key]) {
-    cur.url = thumbUrls[key];
-    return;
-  }
-  try {
-    const res = await download({ space: space.value, path: cur.item._rel, disposition: 'inline' });
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    thumbUrls[key] = url;
-    if (vwr.imgs[vwr.idx] === cur) cur.url = url;
-  } catch (e) {
-    MessagePlugin.error(e.message || '图片加载失败');
+  if (cur && !cur.url) {
+    cur.url = mediaUrl({ space: space.value, path: cur.item._rel, disposition: 'inline' });
   }
 }
 function vwrShow() {
@@ -2050,19 +2330,27 @@ function onDirPicked(e) {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
   if (!files.length) return;
-  uploadEntries(
-    files.map((f) => ({ file: f, relPath: f.webkitRelativePath || f.name }))
-  );
+  uploadEntries(files.map((f) => ({ file: f, relPath: f.webkitRelativePath || f.name })));
 }
+// 拖放落点（旧 viewFiles drop 同口径）：内拖=移动到文件夹格；外拖=目录感知上传，
+// 拖到文件夹格子上以该文件夹为目标目录，空白仍当前目录
 function onDropFiles(e) {
-  dragOver.value = false;
-  const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-  if (!files.length) return;
-  if (searchActive.value) {
-    MessagePlugin.info('搜索状态下请先返回目录浏览再上传');
+  e.preventDefault();
+  if (isInternalMove(e)) {
+    const mcell = findDropFolder(e); // 先取落点再清理高亮
+    markDropCell(null);
+    if (mcell) moveItemsTo(mcell.dataset.rel); // 空白处非落点（浏览态即当前目录=源目录，静默不动作）
     return;
   }
-  enqueueUploads(files);
+  dragDepth = 0;
+  dragOver.value = false;
+  const cell = findDropFolder(e); // 先取落点再清理高亮
+  markDropCell(null);
+  const targetPath = cell ? cell.dataset.rel : null; // 文件夹格落点（搜索态仅此放行），空白仍当前目录
+  collectDropFiles(e.dataTransfer).then((list) => {
+    if (!list.length) return;
+    uploadEntries(list, targetPath); // 统一走目录感知入口（扁平文件 relPath 即文件名，不触发建树）
+  });
 }
 const dragOver = ref(false);
 
@@ -2115,9 +2403,7 @@ async function uploadEntries(entries, targetPath) {
     }
     if (en.file) fileCount += 1;
   });
-  const dirs = Object.keys(dirSet).sort(
-    (a, b) => a.split('/').length - b.split('/').length
-  );
+  const dirs = Object.keys(dirSet).sort((a, b) => a.split('/').length - b.split('/').length);
   if (dirs.length) {
     MessagePlugin.info('正在创建目录结构…');
     const made = {};
@@ -2661,7 +2947,9 @@ function batchNewName(it, i) {
   }
   const p = splitName(it);
   if (batchDlg.mode === 'add') {
-    return batchDlg.pos === 'before' ? batchDlg.affix + p.base + p.ext : p.base + batchDlg.affix + p.ext;
+    return batchDlg.pos === 'before'
+      ? batchDlg.affix + p.base + p.ext
+      : p.base + batchDlg.affix + p.ext;
   }
   const num = padNum((Number(batchDlg.start) || 0) + i);
   return (batchDlg.numPos === 'before' ? num + batchDlg.fmt : batchDlg.fmt + num) + p.ext;
@@ -2738,7 +3026,9 @@ async function confirmBatchRename() {
     });
     const failed = (d && d.failed) || [];
     if (failed.length) {
-      MessagePlugin.warning(`成功 ${d.renamed} 项，失败 ${failed.length} 项：${failed[0].message || ''}`);
+      MessagePlugin.warning(
+        `成功 ${d.renamed} 项，失败 ${failed.length} 项：${failed[0].message || ''}`
+      );
     } else {
       MessagePlugin.success(`已重命名 ${d.renamed} 项`);
     }
@@ -2784,7 +3074,11 @@ function openArchive(it) {
 async function arcLoadMeta() {
   arcDlg.loading = true;
   try {
-    const d = await archiveMeta({ space: space.value, path: arcDlg.item._rel, archivePass: arcDlg.pass });
+    const d = await archiveMeta({
+      space: space.value,
+      path: arcDlg.item._rel,
+      archivePass: arcDlg.pass,
+    });
     arcDlg.comment = d.comment || '';
     if (d.encrypted) {
       arcDlg.knownEncrypted = true;
@@ -3118,8 +3412,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey, true);
   window.removeEventListener('keydown', onVwrKey, true);
   window.removeEventListener('resize', onVwrResize);
-  Object.values(thumbUrls).forEach((u) => URL.revokeObjectURL(u));
-  if (mediaDlg.url) URL.revokeObjectURL(mediaDlg.url);
 });
 </script>
 
@@ -3256,6 +3548,9 @@ onBeforeUnmount(() => {
   background: rgba(29, 33, 41, 0.16);
   border-radius: 8px;
 }
+.nd-toolbar::-webkit-scrollbar-track {
+  background: transparent;
+}
 .nd-toolbar .seg {
   flex: none;
 }
@@ -3347,6 +3642,9 @@ onBeforeUnmount(() => {
   right: 0;
   background: var(--paper);
   padding-left: 12px;
+  transition:
+    opacity 0.18s var(--ease),
+    visibility 0s linear 0.18s;
 }
 .tb-right.gone {
   width: 0;
@@ -3354,6 +3652,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   visibility: hidden;
   opacity: 0;
+  transition:
+    opacity 0.18s var(--ease),
+    visibility 0s linear 0.18s;
 }
 
 /* ===== 面包屑 + 搜索 ===== */
@@ -3479,6 +3780,12 @@ onBeforeUnmount(() => {
 .gridwrap::-webkit-scrollbar-thumb {
   background: rgba(29, 33, 41, 0.16);
   border-radius: 8px;
+}
+.gridwrap::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.gridwrap::-webkit-scrollbar-track {
+  background: transparent;
 }
 .gridwrap.dragover {
   outline: 2px dashed var(--orange);
@@ -3690,6 +3997,21 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-hover);
   border: 1px solid var(--line);
   padding: 5px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(0.98);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease,
+    visibility 0s linear 0.12s;
+}
+.ctxmenu.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition: none;
   animation: popIn 0.16s var(--ease) both;
 }
 @keyframes popIn {
@@ -3779,6 +4101,13 @@ onBeforeUnmount(() => {
   scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
   font-size: 12.5px;
   color: var(--sub);
+}
+.nd-info::-webkit-scrollbar {
+  width: 5px;
+}
+.nd-info::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
 }
 .ni-head {
   padding-bottom: 12px;
@@ -4052,12 +4381,18 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: maskIn 0.3s ease both;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.3s,
+    visibility 0s linear 0.3s;
 }
-@keyframes maskIn {
-  from {
-    opacity: 0;
-  }
+.mask.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.3s;
 }
 .modal {
   background: var(--card);
@@ -4071,13 +4406,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-card);
-  animation: modalIn 0.35s var(--ease) both;
+  transform: translateY(16px) scale(0.98);
+  transition: transform 0.35s var(--ease);
 }
-@keyframes modalIn {
-  from {
-    opacity: 0;
-    transform: translateY(16px) scale(0.98);
-  }
+.mask.open .modal {
+  transform: none;
 }
 .m-scroll {
   flex: 1;
@@ -4088,6 +4421,19 @@ onBeforeUnmount(() => {
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.m-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.m-scroll::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.m-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.m-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 .m-head {
   display: flex;
@@ -4554,6 +4900,10 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: var(--ph);
 }
+.num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .t2 {
   color: var(--sub);
   white-space: nowrap;
@@ -4815,5 +5165,57 @@ onBeforeUnmount(() => {
 .vwr-bar button[disabled] {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ===== 框选 / 拖放落点（对照旧 netdisk.html 同口径） ===== */
+/* 框选/拖拽手势期间：全页禁文字选中（手势结束移除，含 Safari 需 -webkit- 前缀） */
+:global(body.nd-gesture),
+:global(body.nd-gesture *) {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+/* 拖动框选矩形（自空白处拖出，命中即选；出现/消失轻微 opacity 过渡） */
+.rubber {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  border-radius: 2px;
+  border: 1px solid rgba(14, 61, 168, 0.55);
+  background: rgba(14, 61, 168, 0.1);
+  animation: rubberIn 0.15s ease both;
+  transition: opacity 0.12s ease;
+}
+.rubber.out {
+  opacity: 0;
+}
+@keyframes rubberIn {
+  from {
+    opacity: 0;
+  }
+}
+/* 拖放落点：拖入文件夹格子时高亮（drop-target），提示将上传进该文件夹 */
+.g-cell.drop-target {
+  background: rgba(14, 61, 168, 0.16);
+  box-shadow: inset 0 0 0 2px rgba(14, 61, 168, 0.55);
+}
+/* 面包屑拖拽落点高亮（内拖移动至此目录） */
+.crumb a.drop-hover {
+  background: var(--brand-glow);
+  box-shadow: inset 0 0 0 1px rgba(14, 61, 168, 0.45);
+  border-radius: 4px;
+  filter: none;
+}
+
+/* 动效降级（同旧 theme.css 全局口径，scoped 内自持）：减少动态偏好下关闭动画与延迟 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
 }
 </style>

@@ -5,6 +5,7 @@ package bridge
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -153,13 +154,24 @@ func TestBucketDispatchRows(t *testing.T) {
 
 // fakeUsb UsbFetcher 桩。
 type fakeUsb struct {
-	file    []byte
-	deleted [][]string
-	dlName  string
+	file     []byte
+	deleted  [][]string
+	dlName   string
+	dlErr    error
+	mounted  int
+	mountErr error
+}
+
+func (f *fakeUsb) MountToHost(context.Context) error {
+	f.mounted++
+	return f.mountErr
 }
 
 func (f *fakeUsb) DownloadFile(_ context.Context, name string) ([]byte, error) {
 	f.dlName = name
+	if f.dlErr != nil {
+		return nil, f.dlErr
+	}
 	return f.file, nil
 }
 
@@ -175,10 +187,23 @@ type fakeStore struct {
 	dests     []dispatchDest
 	occupied  map[int64]bool
 	entries   []dispatchEntry
+	teams     []dispatchTeam // nil = 回退单班 {9, teamName}（既有用例缺省）；空切片 = 无开启班组
 	created   []CreateCardRequest
 	savedNo   [][2]any
 	notifyIDs []int64
 	teamName  string
+}
+
+// EnabledTeams 开启派车同步班组（teams nil 回退单班 {9, teamName}；空切片视为无开启班组）。
+func (s *fakeStore) EnabledTeams(context.Context) ([]dispatchTeam, error) {
+	if s.teams == nil {
+		name := s.teamName
+		if name == "" {
+			name = "检修一班"
+		}
+		return []dispatchTeam{{ID: 9, Name: name}}, nil
+	}
+	return s.teams, nil
 }
 
 func (s *fakeStore) AllEnabledMembers(context.Context) ([]dispatchMember, error) {
@@ -221,13 +246,6 @@ func (s *fakeStore) NotifyTargets(context.Context, int64) ([]int64, error) {
 		return []int64{1, 2}, nil
 	}
 	return s.notifyIDs, nil
-}
-
-func (s *fakeStore) TeamName(context.Context, int64) (string, error) {
-	if s.teamName == "" {
-		return "检修一班", nil
-	}
-	return s.teamName, nil
 }
 
 func TestDispatchSyncerSyncNow(t *testing.T) {
@@ -281,13 +299,51 @@ func TestDispatchSyncerSyncNow(t *testing.T) {
 	}
 }
 
+// 当日无文件：按旧版口径发「今日无文件」通知后正常返回（sync-now 不报 500），不删件。
 func TestDispatchSyncerNoFile(t *testing.T) {
 	usb := &fakeUsb{file: nil} // (nil,nil) = 文件不存在
-	s := &DispatchSyncer{Usb: usb, Store: &fakeStore{},
+	notice := &fakeNotice{}
+	unlocked := 0
+	s := &DispatchSyncer{Usb: usb, Store: &fakeStore{}, Notice: notice,
+		Unlock: func(context.Context) error { unlocked++; return nil },
+		Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) }}
+	n, err := s.SyncNow(context.Background(), 9)
+	if err != nil || n != 0 {
+		t.Fatalf("无文件应正常返回: n=%d err=%v", n, err)
+	}
+	if unlocked != 1 {
+		t.Fatalf("unlocked = %d", unlocked)
+	}
+	if notice.gotTitle != "派车单同步：今日无文件" {
+		t.Fatalf("notice title = %q", notice.gotTitle)
+	}
+	for _, want := range []string{"未在设备 U 盘找到「2026-10-27-派车单.xlsx」", "可能当日无派车单"} {
+		if !strings.Contains(notice.gotContent, want) {
+			t.Fatalf("missing %q in %s", want, notice.gotContent)
+		}
+	}
+	if len(usb.deleted) != 0 {
+		t.Fatalf("无文件不应删件: %v", usb.deleted)
+	}
+}
+
+// 取件失败：通知「派车单同步失败」（含解禁补跑指引）并返回可读 error（Node fetchJob catch 口径）。
+func TestDispatchSyncerFetchFailNotifies(t *testing.T) {
+	usb := &fakeUsb{dlErr: errors.New("设备不在线")}
+	notice := &fakeNotice{}
+	s := &DispatchSyncer{Usb: usb, Store: &fakeStore{}, Notice: notice,
 		Now: func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) }}
 	_, err := s.SyncNow(context.Background(), 9)
-	if err == nil || !strings.Contains(err.Error(), "未在设备 U 盘找到") {
+	if err == nil || !strings.Contains(err.Error(), "取件失败") {
 		t.Fatalf("err = %v", err)
+	}
+	if notice.gotTitle != "派车单同步失败" {
+		t.Fatalf("notice title = %q", notice.gotTitle)
+	}
+	for _, want := range []string{"取件失败：", "设备不在线", "设备已解禁", "手动补跑"} {
+		if !strings.Contains(notice.gotContent, want) {
+			t.Fatalf("missing %q in %s", want, notice.gotContent)
+		}
 	}
 }
 
@@ -329,5 +385,187 @@ func TestDispatchSyncerNotWired(t *testing.T) {
 	s := &DispatchSyncer{}
 	if _, err := s.SyncNow(context.Background(), 1); err == nil {
 		t.Fatal("expect not-wired error")
+	}
+}
+
+// 多开启班组一次导出件全部建卡（Node importOrdersMulti 口径：单班处理会吞掉他班行）。
+func TestDispatchSyncerMultiTeam(t *testing.T) {
+	data := buildDispatchXlsx(t, [][]string{
+		dispatchCells("晋A1", "张三", "2026-10-27 08:00", "西郊变电站", "D-1", "正常"),
+		dispatchCells("晋A2", "王五", "2026-10-27 09:00", "东郊", "D-2", "正常"),
+	})
+	usb := &fakeUsb{file: data}
+	store := &fakeStore{
+		teams: []dispatchTeam{{ID: 9, Name: "检修一班"}, {ID: 7, Name: "检修二班"}},
+		members: []dispatchMember{
+			{ID: 1, Name: "张三", Sort: 1, TeamID: 9},
+			{ID: 3, Name: "王五", Sort: 1, TeamID: 7},
+		},
+		vehicles: []dispatchVehicle{{ID: 11, Plate: "晋A1"}, {ID: 12, Plate: "晋A2"}},
+		dests:    []dispatchDest{{ID: 21, Name: "西郊变电站"}, {ID: 22, Name: "东郊变电站"}},
+	}
+	notice := &fakeNotice{}
+	s := &DispatchSyncer{Usb: usb, Store: store, Notice: notice,
+		Now: func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) }}
+
+	// 请求上下文班组（9）不圈定范围：两班的行都要建卡。
+	n, err := s.SyncNow(context.Background(), 9)
+	if err != nil {
+		t.Fatalf("SyncNow: %v", err)
+	}
+	if n != 2 || len(store.created) != 2 {
+		t.Fatalf("synced = %d, created = %+v", n, store.created)
+	}
+	got := map[int64]string{}
+	for _, c := range store.created {
+		got[c.TeamID] = c.OrderNo
+	}
+	if got[9] != "D-1" || got[7] != "D-2" {
+		t.Fatalf("created by team = %+v", store.created)
+	}
+	// 结果通知逐班组分发（同 Node fetchJob 每班组一条）。
+	if len(notice.titles) != 2 ||
+		notice.titles[0] != "派车单同步完成（检修一班）" ||
+		notice.titles[1] != "派车单同步完成（检修二班）" {
+		t.Fatalf("notice titles = %v", notice.titles)
+	}
+}
+
+// 无开启班组：不取件不删件（文件留给开启后再跑），报可读错误。
+func TestDispatchSyncerNoEnabledTeams(t *testing.T) {
+	usb := &fakeUsb{file: []byte("x")}
+	store := &fakeStore{teams: []dispatchTeam{}}
+	s := &DispatchSyncer{Usb: usb, Store: store,
+		Now: func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) }}
+	_, err := s.SyncNow(context.Background(), 9)
+	if err == nil || !strings.Contains(err.Error(), "没有开启派车同步的班组") {
+		t.Fatalf("err = %v", err)
+	}
+	if usb.dlName != "" || len(usb.deleted) != 0 {
+		t.Fatalf("不应取件：dlName=%q deleted=%v", usb.dlName, usb.deleted)
+	}
+}
+
+// 取件重入守卫：并行第二次直接报「已有取件任务在执行中」。
+func TestDispatchSyncerReentryGuard(t *testing.T) {
+	store := &fakeStore{}
+	s := &DispatchSyncer{
+		Usb: &fakeUsb{file: nil}, Store: store,
+		Now: func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },
+	}
+	if !s.begin() {
+		t.Fatal("first begin should succeed")
+	}
+	if s.begin() {
+		t.Fatal("second begin should fail")
+	}
+	s.end()
+	if !s.begin() {
+		t.Fatal("begin after end should succeed")
+	}
+	s.end()
+}
+
+// 每日准备：锁设备 + 挂载 U 盘（Node prepareJob）。
+func TestDispatchPrepareNow(t *testing.T) {
+	usb := &fakeUsb{}
+	locked, unlocked := 0, 0
+	s := &DispatchSyncer{
+		Usb: usb, Store: &fakeStore{},
+		Lock:   func(context.Context) error { locked++; return nil },
+		Unlock: func(context.Context) error { unlocked++; return nil },
+	}
+	if err := s.PrepareNow(context.Background()); err != nil {
+		t.Fatalf("PrepareNow: %v", err)
+	}
+	if locked != 1 || usb.mounted != 1 {
+		t.Fatalf("locked=%d mounted=%d", locked, usb.mounted)
+	}
+	if unlocked != 0 {
+		t.Fatalf("unlocked = %d（成功不解禁）", unlocked)
+	}
+}
+
+// 每日准备：无开启班组跳过（不锁不挂）。
+func TestDispatchPrepareNowNoTeams(t *testing.T) {
+	usb := &fakeUsb{}
+	locked := 0
+	s := &DispatchSyncer{
+		Usb: usb, Store: &fakeStore{teams: []dispatchTeam{}},
+		Lock: func(context.Context) error { locked++; return nil },
+	}
+	if err := s.PrepareNow(context.Background()); err != nil {
+		t.Fatalf("PrepareNow: %v", err)
+	}
+	if locked != 0 || usb.mounted != 0 {
+		t.Fatalf("locked=%d mounted=%d", locked, usb.mounted)
+	}
+}
+
+// 每日准备：挂载失败 → 解禁 + 多班组合并通知「派车单同步准备失败」+ 可读 error。
+func TestDispatchPrepareNowMountFail(t *testing.T) {
+	usb := &fakeUsb{mountErr: errors.New("设备不在线")}
+	locked, unlocked := 0, 0
+	notice := &fakeNotice{}
+	w := &fakeWx{}
+	s := &DispatchSyncer{
+		Usb: usb, Store: &fakeStore{teams: []dispatchTeam{{ID: 9, Name: "检修一班"}, {ID: 7, Name: "检修二班"}}},
+		Notice: notice, Wx: w,
+		Lock:   func(context.Context) error { locked++; return nil },
+		Unlock: func(context.Context) error { unlocked++; return nil },
+	}
+	err := s.PrepareNow(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "锁定设备 / 挂载 U 盘失败") {
+		t.Fatalf("err = %v", err)
+	}
+	if locked != 1 || unlocked != 1 || usb.mounted != 1 {
+		t.Fatalf("locked=%d unlocked=%d mounted=%d", locked, unlocked, usb.mounted)
+	}
+	if notice.gotTitle != "派车单同步准备失败" {
+		t.Fatalf("notice title = %q", notice.gotTitle)
+	}
+	for _, want := range []string{"设备不在线", "设备已解禁", "取件任务仍按排程执行"} {
+		if !strings.Contains(notice.gotContent, want) {
+			t.Fatalf("content = %s", notice.gotContent)
+		}
+	}
+	// 班组群外发含全部开启班组（Node notify wxTeamIds 同口径）。
+	if w.calls != 1 || len(w.teams) != 2 {
+		t.Fatalf("wx = %+v", w)
+	}
+}
+
+// 派车排程作业体（bridge/wire.go）：Prepare/Fetch 与执行器对接，未接入触发即报可读错误。
+func TestDispatchJobs(t *testing.T) {
+	usb := &fakeUsb{}
+	store := &fakeStore{
+		members:  []dispatchMember{{ID: 1, Name: "张三", Sort: 1, TeamID: 9}},
+		vehicles: []dispatchVehicle{{ID: 11, Plate: "晋A1"}},
+		dests:    []dispatchDest{{ID: 21, Name: "西郊变电站"}},
+	}
+	s := &DispatchSyncer{
+		Usb: usb, Store: store,
+		Lock:   func(context.Context) error { return nil },
+		Unlock: func(context.Context) error { return nil },
+		Now:    func() time.Time { return time.Date(2026, 10, 27, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)) },
+	}
+	jobs := NewDispatchJobs(s)
+	summary, err := jobs.Prepare(context.Background())
+	if err != nil || usb.mounted != 1 || !strings.Contains(summary, "已锁定") {
+		t.Fatalf("prepare: %q %v", summary, err)
+	}
+	usb.file = buildDispatchXlsx(t, [][]string{
+		dispatchCells("晋A1", "张三", "2026-10-27 08:00", "西郊变电站", "D-1", "正常"),
+	})
+	summary, err = jobs.Fetch(context.Background())
+	if err != nil || !strings.Contains(summary, "新建 1 张出车卡片") {
+		t.Fatalf("fetch: %q %v", summary, err)
+	}
+	empty := NewDispatchJobs(nil)
+	if _, err := empty.Prepare(context.Background()); err == nil {
+		t.Fatal("expect not-wired prepare error")
+	}
+	if _, err := empty.Fetch(context.Background()); err == nil {
+		t.Fatal("expect not-wired fetch error")
 	}
 }

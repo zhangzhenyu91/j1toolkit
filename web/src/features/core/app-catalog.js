@@ -1,7 +1,8 @@
 // 工作台/侧导航应用目录：sys_app.app_key → 网页端落地路由与展示标签。
 // 与旧 Node 网页端 Shade.APP_NAV / APP_META 同口径（app_key 与 sys_app 种子一致）：
-// 名称、描述、启用态以后端 GET /api/v1/app/list 为准，本文件只补接口不返回的路由与标签；
-// 描述/标签仅在后端字段为空时兜底（同旧页「接口无此字段本地维护」的做法）。
+// 展示名以本目录为准（定稿展示名，如「安全日活动」「远程控制」），工作台/侧栏直用 meta.name，
+// 后端 GET /api/v1/app/list 的 name 仅在目录未登记时兜底——防 sys_app 历史名回潮；
+// 启用态与权限以后端下发为准；描述/标签仅在后端字段为空时兜底（同旧页「接口无此字段本地维护」的做法）。
 // 无网页版的应用不给落地路由：wm-add（工作水印）为小程序能力，不硬造 Web 应用。
 // icon 为 tdesign 同名线性图标（features/core/icons.js），后端 icon 为空时兜底。
 
@@ -67,7 +68,7 @@ const CATALOG = {
   },
   'safe-day': {
     route: '/safeday',
-    name: '安全日',
+    name: '安全日活动',
     icon: 'file-safety',
     tag: '文件生成',
     tagColor: 'orange',
@@ -79,7 +80,7 @@ const CATALOG = {
   },
   kvm: {
     route: '/kvm',
-    name: 'KVM 远程',
+    name: '远程控制',
     icon: 'terminal',
     tag: '远程终端',
     tagColor: 'orange',
@@ -253,8 +254,8 @@ export const NAV_ITEMS = [
   { to: '/treehazard', label: '树障隐患', icon: 'forest' },
   { to: '/crossing', label: '交跨记录', icon: 'fork' },
   { to: '/netdisk', label: '团队网盘', icon: 'folder-open' },
-  { to: '/safeday', label: '安全日', icon: 'file-safety' },
+  { to: '/safeday', label: '安全日活动', icon: 'file-safety' },
   { to: '/quiz', label: '刷题练习', icon: 'task' },
   { to: '/callme', label: 'Call Me', icon: 'robot' },
-  { to: '/kvm', label: 'KVM 远程', icon: 'terminal' },
+  { to: '/kvm', label: '远程控制', icon: 'terminal' },
 ];

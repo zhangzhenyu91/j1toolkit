@@ -1,5 +1,5 @@
 <template>
-  <article class="card log-card anim-in">
+  <article class="card log-card anim-in" :class="{ in: shown }">
     <!-- 任务锁（照片 op / 卡片级从商旅同步）：整卡遮罩 + 居中进度块 -->
     <div v-if="opLock" class="card-lock">
       <div class="cl-box">
@@ -135,11 +135,17 @@
             </div>
           </div>
 
-          <!-- 目的地 -->
+          <!-- 目的地（费用口径标记：市外 / 驻地互斥，默认市内不标注） -->
           <div class="lrow">
             <div class="li"><WlIcon name="location" :size="16" /></div>
             <div class="lk">目的地</div>
-            <div class="lv">{{ noCar ? '—' : entry.destination_name || '未选择' }}</div>
+            <div class="lv">
+              {{ noCar ? '—' : entry.destination_name || '未选择' }}
+              <em v-if="!noCar && entry.destination_out_of_city === 1" class="dest-mark out"
+                >市外</em
+              >
+              <em v-if="!noCar && entry.destination_stationed === 1" class="dest-mark sta">驻地</em>
+            </div>
           </div>
         </div>
 
@@ -276,7 +282,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import WlIcon from './WlIcon.vue';
 
 // 日志卡片（旧版 .log-card 双栏结构还原）：卡头 / 未通过原因 / 左信息栏（巡视内容、
@@ -301,6 +307,24 @@ const emit = defineEmits([
   'sync-card',
   'remark-open',
 ]);
+
+// shown 入场动画触发（同旧版 renderCards：40ms + i*70ms 错峰上浮；reduced-motion 立即落位；
+// 静默刷新复用组件不重播，仅挂载时播一次）。
+const shown = ref(false);
+let showTimer = 0;
+onMounted(() => {
+  const rm =
+    typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const delay = rm ? 0 : 40 + Math.min(props.idx, 6) * 70;
+  showTimer = setTimeout(() => {
+    shown.value = true;
+  }, delay);
+});
+onBeforeUnmount(() => {
+  if (showTimer) clearTimeout(showTimer);
+});
 
 // todayStr 今日（本地）YYYY-MM-DD。
 const todayStr = new Date().toISOString().slice(0, 10);
@@ -458,13 +482,35 @@ function slotTitle(row, seq) {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 /* ===== 卡片壳（12px 圆角轻阴影；卡顶色带无样式） ===== */
-.log-card {
+/* 中和 styles.css `.card + .card` 相邻上边距（同 KvmView 口径）：卡间距统一由 margin-bottom 掌管 */
+.card.log-card {
   position: relative;
   overflow: hidden;
+  margin-top: 0;
   margin-bottom: 18px;
   padding: 0;
   border-radius: 12px;
+}
+
+/* ===== 卡片入场（旧版 anim-in：短距上浮 + 错峰；JS 挂载后加 .in） ===== */
+.anim-in {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s var(--tk-ease);
+}
+.anim-in.in {
+  opacity: 1;
+  transform: none;
 }
 
 /* ===== 任务锁遮罩 ===== */
@@ -962,13 +1008,15 @@ function slotTitle(row, seq) {
 .ck-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   margin-bottom: 6px;
 }
 .ck-name {
   font-size: 13px;
   font-weight: 700;
   color: var(--tk-ink);
+  white-space: nowrap;
 }
 .ck-stat {
   display: inline-flex;
@@ -976,6 +1024,7 @@ function slotTitle(row, seq) {
   gap: 3px;
   font-size: 10.5px;
   color: var(--tk-ph);
+  white-space: nowrap;
 }
 .ck-stat.ok {
   color: var(--tk-brand);
@@ -1130,9 +1179,29 @@ function slotTitle(row, seq) {
   cursor: pointer;
   background: var(--tk-fill);
   transition:
-    opacity 0.32s var(--tk-ease),
-    transform 0.32s var(--tk-ease),
-    box-shadow 0.18s var(--tk-ease);
+    opacity 0.32s var(--tk-ease) var(--pd, 0s),
+    transform 0.32s var(--tk-ease) var(--pd, 0s),
+    box-shadow 0.18s var(--tk-ease) 0s;
+}
+/* 照片逐张短距上浮，前五项错峰；静默/切日重渲染复用组件时不重播 */
+.anim-in:not(.in) .ph {
+  opacity: 0;
+  transform: translateY(14px);
+}
+.anim-in.in .ph:nth-child(2) {
+  --pd: 0.05s;
+}
+.anim-in.in .ph:nth-child(3) {
+  --pd: 0.1s;
+}
+.anim-in.in .ph:nth-child(4) {
+  --pd: 0.15s;
+}
+.anim-in.in .ph:nth-child(5) {
+  --pd: 0.2s;
+}
+.anim-in.in .ph:nth-child(n + 6) {
+  --pd: 0.25s;
 }
 .ph:hover {
   box-shadow: var(--tk-shadow-hover);
@@ -1312,6 +1381,47 @@ function slotTitle(row, seq) {
     border-left: none;
     border-top: 1px solid var(--tk-line);
     margin-top: 12px;
+  }
+}
+
+/* ===== 目的地费用口径标记（市外 / 驻地互斥；同班组数据字典 dpill 口径） ===== */
+.dest-mark {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: 1px;
+  line-height: 1.5;
+  vertical-align: 1px;
+}
+.dest-mark.out {
+  background: var(--tk-yellow-soft);
+  color: #d25f00;
+}
+.dest-mark.sta {
+  background: var(--tk-blue-soft);
+  color: var(--tk-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 动效降级（同旧版 theme.css）：入场与照片错峰瞬时完成 */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
+  .anim-in,
+  .anim-in:not(.in) .ph {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 }
 </style>

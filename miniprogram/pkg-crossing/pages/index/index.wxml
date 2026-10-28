@@ -1,6 +1,7 @@
 <!-- 交跨记录 · 主页（两级视图：线路大卡（状态着色 + 排序 + stagger 入场）→ 线路台账（记录卡默认折叠一卡两行：
      区段定宽块+垂距大字块并排（各卡垂距竖向对齐）/ 跨越类型·交叉角；每卡一枚折叠/展开开关（点卡同效），
-     展开出全字段与 删除 按钮（班管/超管，t-dialog 确认））；FAB 悬浮导出。无处理流程 / 无照片 / 无人工新增编辑） -->
+     展开出全字段与 编辑 / 删除 按钮（班管/超管；删除 t-dialog 确认，编辑就地换统一表单）；
+     手动新增/编辑底部弹层统一表单，新增入口在搜索下与台账标题行）；FAB 悬浮导出。无处理流程 / 无照片） -->
 <navbar back title="交跨记录" />
 
 <view class="page-body" wx:if="{{gate}}">
@@ -48,6 +49,11 @@
         />
       </view>
 
+      <!-- 手动新增入口（班管/超管；与台账标题行入口同开统一表单弹层） -->
+      <view class="add-row" wx:if="{{canManage}}">
+        <view class="btn-act" hover-class="hover-opacity" bindtap="openAddForm">新增记录</view>
+      </view>
+
       <!-- 线路大卡片流：计数着色（隐患>0 红字、=0 灰字 / 有记录品牌蓝 / 0 记录灰）+ stagger 入场（delay 递增封顶 12 档）；
          排序：隐患降序 > 电压等级降序 > 名称升序；未匹配组排尾 -->
       <view class="empty-box" wx:if="{{!loading && lineCards.length === 0}}"
@@ -89,6 +95,10 @@
         <view class="lh-sub">
           <text class="{{curHazard > 0 ? 'lh-bad' : 'lh-total'}}">隐患 {{curHazard}}</text>
           <text class="lh-total">共 {{curTotal}} 条</text>
+        </view>
+        <!-- 手动新增入口（班管/超管；台账视图预填当前线路） -->
+        <view class="add-row" wx:if="{{canManage}}">
+          <view class="btn-act" hover-class="hover-opacity" bindtap="openAddForm">新增记录</view>
         </view>
       </view>
 
@@ -149,8 +159,16 @@
                 </view>
               </view>
 
-              <!-- 操作行：删除（班管/超管） -->
+              <!-- 操作行：编辑（统一表单弹层）/ 删除（班管/超管） -->
               <view class="cr-foot">
+                <view
+                  class="btn-act"
+                  wx:if="{{canManage}}"
+                  hover-class="hover-opacity"
+                  catchtap="openEditForm"
+                  data-id="{{rec.id}}"
+                  >编 辑</view
+                >
                 <view
                   class="btn-act btn-del"
                   wx:if="{{canManage}}"
@@ -175,6 +193,53 @@
 <view class="fab" wx:if="{{gate}}" hover-class="hover-opacity" bindtap="onOpenExport">
   <t-icon t-class="ico-44" name="download" />
 </view>
+
+<!-- 手动新增/编辑弹层：统一表单（13 业务列；线路名称必填；区段原文保留带字母杆号，pole 锚点由后端按区段解析可空） -->
+<t-popup visible="{{formVisible}}" placement="bottom" bind:visible-change="onFormVisibleChange">
+  <view class="sheet">
+    <view class="sheet-title">{{formTitle}}</view>
+    <scroll-view scroll-y class="form-body" enhanced show-scrollbar="{{false}}">
+      <view class="f-item" wx:for="{{formFields}}" wx:for-item="f" wx:for-index="fi" wx:key="key">
+        <view class="f-label">{{f.label}}<text wx:if="{{f.required}}" class="f-req">*</text></view>
+        <picker
+          wx:if="{{f.type === 'date'}}"
+          mode="date"
+          value="{{f.value}}"
+          bindchange="onFormDateChange"
+          data-idx="{{fi}}"
+        >
+          <view class="form-in form-in-text {{f.value ? '' : 'form-ph'}}"
+            >{{f.value || '请选择日期'}}</view
+          >
+        </picker>
+        <input
+          wx:else
+          class="form-in"
+          value="{{f.value}}"
+          maxlength="{{f.max}}"
+          placeholder="{{f.ph}}"
+          placeholder-class="ph"
+          data-idx="{{fi}}"
+          bindinput="onFormInput"
+        />
+      </view>
+    </scroll-view>
+    <view class="sheet-actions">
+      <view
+        class="btn-ghost {{formSaving ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onCloseForm"
+        >取 消</view
+      >
+      <view
+        class="btn-dark {{formSaving ? 'disabled' : ''}}"
+        hover-class="hover-opacity"
+        bindtap="onSubmitForm"
+        >{{formSaving ? '保存中…' : '保 存'}}</view
+      >
+    </view>
+  </view>
+</t-popup>
 
 <!-- 导出弹层：范围单选（全部线路 / 当前线路；线路视图为「选择线路」带线路列表）+ 按线路分表开关（仅全部可勾） -->
 <t-popup visible="{{expVisible}}" placement="bottom" bind:visible-change="onExpVisibleChange">

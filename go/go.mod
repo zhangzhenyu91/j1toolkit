@@ -8,6 +8,7 @@ require (
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/pdfcpu/pdfcpu v0.16.3
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/wdvxdr1123/go-silk v0.0.0-20220304095002-f67345df09ea

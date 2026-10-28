@@ -451,6 +451,42 @@ page {
   margin-top: 24rpx;
 }
 
+/* ---------- 手动新增/编辑统一表单弹层（13 业务列，与 Web RecordForm 同口径） ---------- */
+/* 新增入口行（线路视图搜索下 / 台账标题行，居右；班管/超管） */
+.add-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16rpx;
+}
+
+/* 必填星标 */
+.f-req {
+  margin-left: 6rpx;
+  color: var(--app-danger);
+}
+
+/* 表单体块：13 列内滚动，标题与操作脚常驻可见 */
+.form-body {
+  max-height: 56vh;
+}
+
+/* 表单输入（含日期选择器的文本行）：嵌套浅灰底 16rpx 圆角，同 .f-field 形态 */
+.form-in {
+  height: 76rpx;
+  padding: 0 20rpx;
+  background: var(--app-bg-nested);
+  border-radius: 16rpx;
+  font-size: 26rpx;
+  color: var(--app-text-primary);
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.form-ph {
+  color: var(--app-text-tertiary);
+}
+
 /* 弹层内非体块默认不参与收缩（头/说明/控件/脚），体块（scroll-view 或 .sheet-body）独占剩余空间并滚动 */
 .sheet > view {
   flex: none;

@@ -1226,8 +1226,13 @@ body.has-rail.nav-mini {
 /* ===== 应用中心横向行卡（图标 + 名称 + 说明 + 标签 + 进入链接） ===== */
 .apps {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  /* auto-fill（非 auto-fit）：不满行的卡拉满整行会「无故放大」，留空轨保持卡片等宽 */
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
   gap: 14px;
+}
+.apps > .card {
+  /* 行内卡片间距由 gap 承担，不吃全局 .card + .card 堆叠间距（防首卡被行高撑起、相邻卡下移不等高） */
+  margin-top: 0;
 }
 .wb-page .app-card {
   display: grid;

@@ -1,18 +1,13 @@
 <template>
-  <!-- 文件互推主面板 -->
-  <div v-if="visible" class="fs-mask" @mousedown.self="emit('update:visible', false)">
+  <!-- 文件互推主面板（旧页 .mask.show 弹层口径：遮罩淡入淡出 + 白卡上浮） -->
+  <div class="fs-mask" :class="{ show: visible }" @mousedown.self="closeMain">
     <div class="fs-modal fs-modal-lg" role="dialog" aria-modal="true">
       <div class="fs-scroll">
         <div class="fs-head">
           <span class="fs-title"
             >文件互推 · {{ device?.description || device?.ddns || '设备' }}</span
           >
-          <button
-            type="button"
-            class="fs-x"
-            aria-label="关闭"
-            @click="emit('update:visible', false)"
-          >
+          <button type="button" class="fs-x" aria-label="关闭" @click="closeMain">
             <svg
               viewBox="0 0 24 24"
               width="14"
@@ -122,7 +117,7 @@
   <input ref="upInput" type="file" multiple hidden @change="onUpload" />
 
   <!-- 从网盘拉取：目录浏览 + 文件多选（≤20） -->
-  <div v-if="pickerVisible" class="fs-mask fs-mask-sub">
+  <div class="fs-mask fs-mask-sub" :class="{ show: pickerVisible }">
     <div class="fs-modal" role="dialog" aria-modal="true">
       <div class="fs-scroll">
         <div class="fs-head">
@@ -199,7 +194,7 @@
   </div>
 
   <!-- 存到网盘：空间 + 目录（含目录合法性校验） -->
-  <div v-if="saveVisible" class="fs-mask fs-mask-sub">
+  <div class="fs-mask fs-mask-sub" :class="{ show: saveVisible }">
     <div class="fs-modal fs-modal-sm" role="dialog" aria-modal="true">
       <div class="fs-scroll">
         <div class="fs-head">
@@ -253,7 +248,7 @@
   </div>
 
   <!-- 删除确认 -->
-  <div v-if="delConfirmVisible" class="fs-mask fs-mask-sub">
+  <div class="fs-mask fs-mask-sub" :class="{ show: delConfirmVisible }">
     <div class="fs-modal fs-modal-sm" role="dialog" aria-modal="true">
       <div class="fs-scroll">
         <div class="fs-head">
@@ -299,13 +294,13 @@
 <script setup>
 // 设备文件互推（文件转发点 fileshare）：挂载/断开查看、上传推送（批量校验）、下载、删除、
 // 存到网盘、从网盘拉取（目录浏览多选）。弹层沿用旧页 ndpick 弹层骨架（8px 圆角白卡 + 发丝边）。
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import * as api from './api.js';
 import { fmtSize, saveBlob } from './util.js';
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
-  device: { type: Object, required: true },
+  device: { type: Object, default: null },
   teamId: { type: Number, default: 0 },
 });
 const emit = defineEmits(['update:visible', 'close', 'toast']);
@@ -323,6 +318,22 @@ watch(visible, (v) => {
   if (!v) emit('close');
 });
 
+// closeMain 关闭主面板（遮罩空白处 / 右上角关闭 / Esc 共用）
+function closeMain() {
+  visible.value = false;
+}
+
+// Esc 关闭最上层弹层（设计规范：弹层 Esc 关闭）
+function onKeydown(e) {
+  if (e.key !== 'Escape') return;
+  if (delConfirmVisible.value) delConfirmVisible.value = false;
+  else if (saveVisible.value) saveVisible.value = false;
+  else if (pickerVisible.value) pickerVisible.value = false;
+  else if (visible.value) closeMain();
+}
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onUnmounted(() => window.removeEventListener('keydown', onKeydown));
+
 // ---- 盘内文件状态 ----
 const shared = ref(false);
 const files = ref([]);
@@ -338,6 +349,7 @@ const allChecked = computed(
 );
 
 async function refresh() {
+  if (!props.device) return;
   loading.value = true;
   progress.value = '';
   try {
@@ -657,22 +669,32 @@ async function doPull() {
 </script>
 
 <style scoped>
-/* ===== 弹层骨架（迁移旧页 ndpick 弹层口径：8px 圆角白卡 + 发丝边 + 轻影） ===== */
+/* ===== 弹层骨架（迁移旧页 .mask/.modal 弹层口径：遮罩淡入淡出 + 8px 圆角白卡上浮 + 发丝边 + 轻影） ===== */
 .fs-mask {
   position: fixed;
   inset: 0;
   z-index: 200;
   padding: 24px;
   background: rgba(29, 33, 41, 0.45);
-  backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.24s var(--tk-ease),
+    visibility 0s linear 0.24s;
+}
+.fs-mask.show {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.24s var(--tk-ease);
 }
 .fs-mask-sub {
   z-index: 210;
 }
 .fs-modal {
+  box-sizing: border-box;
   background: #fff;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
@@ -684,6 +706,11 @@ async function doPull() {
   display: flex;
   flex-direction: column;
   box-shadow: var(--tk-shadow-card);
+  transform: translateY(16px) scale(0.98);
+  transition: transform 0.3s var(--tk-ease);
+}
+.fs-mask.show .fs-modal {
+  transform: none;
 }
 .fs-modal-lg {
   width: 720px;
@@ -697,6 +724,20 @@ async function doPull() {
   overflow-y: auto;
   border-radius: 8px;
   padding: 14px 18px 16px;
+  /* 预留滚动条槽位 + 细滚动条：长列表出滚动条时内容不偏移（同 teamdata 弹层口径） */
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.fs-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.fs-scroll::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.fs-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 .fs-head {
   display: flex;
@@ -713,6 +754,7 @@ async function doPull() {
   white-space: nowrap;
 }
 .fs-x {
+  box-sizing: border-box;
   margin-left: auto;
   width: 30px;
   height: 30px;
@@ -735,6 +777,7 @@ async function doPull() {
 
 /* ===== 按钮 / 输入（紧凑） ===== */
 .fs-btn {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -746,10 +789,16 @@ async function doPull() {
   background: #fff;
   color: var(--tk-ink);
   font-size: 12.5px;
+  font-family: inherit;
   font-weight: 600;
   letter-spacing: 0.5px;
+  line-height: 1;
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    color 0.15s,
+    background 0.15s;
 }
 .fs-btn:hover:not(:disabled) {
   border-color: var(--tk-brand);
@@ -777,14 +826,33 @@ async function doPull() {
   color: #fff;
   filter: brightness(0.92);
 }
-.fs-sel,
+/* 原生下拉：去系统外观换主题箭头，仍走原生弹层（可正常打开） */
+.fs-sel {
+  box-sizing: border-box;
+  height: 34px;
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+  background: #fff
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2386909C' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E")
+    no-repeat right 9px center / 14px 14px;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 28px 0 10px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--tk-ink);
+  outline: none;
+  cursor: pointer;
+}
 .fs-in {
+  box-sizing: border-box;
   height: 34px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
   background: #fff;
   padding: 0 10px;
   font-size: 12.5px;
+  font-family: inherit;
   color: var(--tk-ink);
   outline: none;
 }
@@ -820,8 +888,14 @@ async function doPull() {
   font-size: 12.5px;
   color: var(--tk-brand);
 }
+/* 加载/空态占位等高（loading → 空态 → 列表 高度不跳变） */
 .fs-empty {
+  box-sizing: border-box;
+  min-height: 132px;
   padding: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   font-size: 13px;
   color: var(--tk-ph);
@@ -889,5 +963,16 @@ async function doPull() {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-mask,
+  .fs-mask.show,
+  .fs-modal {
+    transition: none;
+  }
+  .fs-modal {
+    transform: none;
+  }
 }
 </style>

@@ -5,6 +5,8 @@
 // 班组隔离对齐旧版 td()/teamBody() 口径：GET/DELETE 走 query 带 team_id，POST/PUT 走 body 带 team_id，
 // 导入 FormData 带 team_id（后端 resolveReqTeam：超管可指定班组、班管固定本班）；0/空=不带，落默认班组。
 
+import { normalizeList } from '../core/list-response.js';
+
 const BASE = '/api/v1/teamdata';
 
 // teamId 当前生效班组（0=未指定，由后端落默认班组；班组管理员恒本班）。
@@ -156,9 +158,9 @@ async function uploadForm(path, file, fields = {}) {
 
 // ---- 班组列表（超管班组切换器数据源）----
 
-// listTeams 班组列表（GET /admin/teams；兼容 data.list / data.teams / data.items 三种返回形状）。
+// listTeams 班组列表（GET /admin/teams）：data 兼容直接数组与 list/teams/items 包装，统一归一为数组。
 export function listTeams() {
-  return request('/api/v1/admin/teams').then((data) => data.list || data.teams || data.items || []);
+  return request('/api/v1/admin/teams').then((data) => normalizeList(data));
 }
 
 // ---- 班组字典（车牌 / 目的地 / 出工成员）----

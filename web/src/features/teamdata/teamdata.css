@@ -55,7 +55,8 @@
   flex-wrap: wrap;
   animation: tdFade 0.55s var(--tk-ease) 0.28s both;
 }
-.td-page .td-team-sel {
+/* 页头班组切换：type 锚定抬高优先级，压过 .f-sel 的 100%/40px 表单口径 */
+.td-page select.td-team-sel {
   width: auto;
   min-width: 132px;
   height: 36px;
@@ -168,8 +169,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 10px;
-  scrollbar-gutter: stable;
+  padding: 0 10px;
+  scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
 }
@@ -538,6 +539,24 @@
 .td-page .f-sel:focus {
   border-color: var(--tk-brand);
   box-shadow: var(--tk-shadow-hover);
+}
+/* 原生下拉（班组切换等 select.f-sel）：去系统箭头换自绘 chevron，整框可点、原生展开不受遮挡 */
+.td-page select.f-sel {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 30px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%2386909C' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+}
+.td-page select.f-sel:hover {
+  border-color: var(--tk-brand);
+}
+.td-page select.f-sel option {
+  background: #fff;
+  color: var(--tk-ink);
 }
 
 /* ===== 加载中（spinner + 文案） ===== */

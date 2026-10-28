@@ -42,16 +42,23 @@ func (m *Module) questionList(w http.ResponseWriter, r *http.Request, rc request
 		fail(w, http.StatusNotFound, codeMissing, "题库不存在")
 		return
 	}
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
+	// page/size 钳制对齐 Node：parseInt||1/||20（0/非数字落默认值）后 Math.max(1,…)、Math.min(100,…)
+	page := 1
+	if v, ok := jsParseInt(r.URL.Query().Get("page")); ok && v != 0 {
+		if v < 1 {
+			v = 1
+		}
+		page = v
 	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 {
-		size = 20
-	}
-	if size > 100 {
-		size = 100
+	size := 20
+	if v, ok := jsParseInt(r.URL.Query().Get("size")); ok && v != 0 {
+		size = v
+		if size < 1 {
+			size = 1
+		}
+		if size > 100 {
+			size = 100
+		}
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	where := ""
@@ -377,17 +384,19 @@ func (m *Module) bankImport(w http.ResponseWriter, r *http.Request, rc requestCt
 	rowErrors := []importRowError{}
 	for i := 1; i < len(rows); i++ {
 		cells := make([]string, 10)
-		for j := 0; j < 10 && j < len(rows[i]); j++ {
-			cells[j] = strings.TrimSpace(rows[i][j])
-		}
-		empty := true
-		for _, c := range cells {
+		// 整行判空对齐 Node（cells.every(c => !c)：全列含 J 列之后都参与），仅 J 列后有内容的行
+		// 不跳过、按题型无法识别出行错误
+		rowEmpty := true
+		for j, raw := range rows[i] {
+			c := strings.TrimSpace(raw)
+			if j < 10 {
+				cells[j] = c
+			}
 			if c != "" {
-				empty = false
-				break
+				rowEmpty = false
 			}
 		}
-		if empty {
+		if rowEmpty {
 			continue
 		}
 		rowNo := i + 1 // Excel 行号（1-based，含表头偏移）

@@ -8,10 +8,13 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"shade/internal/auth"
 )
 
 // fakeNamer Dify WF3 文件名桩（记录调用）。
@@ -287,5 +290,192 @@ func TestCollectAnswerErrorFrame(t *testing.T) {
 	_, err := CollectAnswer(context.Background(), wk, "u1", "s1", ChatRequest{Query: "问"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "上游炸了") && !strings.Contains(err.Error(), "AI 服务返回错误") {
 		t.Fatalf("回答级 error 应判失败: %v", err)
+	}
+}
+
+// ===== 步骤树文案与形状（agentsteps.js 口径） =====
+
+func TestToolTitlesMatchAgentSteps(t *testing.T) {
+	if got := PendingTitle("web_search"); got != "正在调用 网络搜索…" {
+		t.Fatalf("进行中标题不符: %q", got)
+	}
+	if got := PendingTitle("shell_exec"); got != "正在执行沙箱命令…" {
+		t.Fatalf("进行中特殊文案不符: %q", got)
+	}
+	// 完成态标题：搜索类带查询词（官方「：「query」」口径）。
+	if got := DoneTitle("web_search", map[string]any{"query": "电阻"}, nil, true); got != "网络搜索：「电阻」" {
+		t.Fatalf("完成态标题不符: %q", got)
+	}
+	if got := DoneTitle("knowledge_search", nil, map[string]any{"query": "带电"}, true); got != "检索知识库：「带电」" {
+		t.Fatalf("知识库完成态标题不符: %q", got)
+	}
+	// 失败口径：专属文案 +「失败」；直显族与兜底为「调用 {名} 失败」。
+	if got := DoneTitle("web_search", nil, nil, false); got != "网络搜索失败" {
+		t.Fatalf("失败标题不符: %q", got)
+	}
+	if got := DoneTitle("shell_exec", nil, nil, false); got != "调用 执行沙箱命令 失败" {
+		t.Fatalf("直显族失败标题不符: %q", got)
+	}
+	// 摘要文案。
+	if got := ToolSummary("web_search", map[string]any{"count": float64(3)}); got != "找到 3 条网页" {
+		t.Fatalf("web_search 摘要不符: %q", got)
+	}
+	if got := ToolSummary("grep_chunks", map[string]any{
+		"total_matches": float64(30), "document_count": float64(24),
+	}); got != "找到 30 个匹配片段，来自 24 个文档" {
+		t.Fatalf("grep 摘要不符: %q", got)
+	}
+	if got := ToolSummary("knowledge_search", map[string]any{
+		"count": float64(2), "kb_counts": map[string]any{"a": float64(1), "b": float64(1)},
+	}); got != "找到 2 个结果，来自 2 个文件" {
+		t.Fatalf("知识库摘要不符: %q", got)
+	}
+}
+
+func TestBuildStepsContract(t *testing.T) {
+	// WeKnora 历史消息 agent_steps 形状：{reasoning_content|thought, tool_calls:[{name,args,duration,result}]}。
+	agentSteps := []map[string]any{
+		{"reasoning_content": "先想一想", "tool_calls": []any{
+			map[string]any{
+				"name": "knowledge_search", "args": map[string]any{"query": "带电"},
+				"duration": float64(1200),
+				"result":   map[string]any{"success": true, "data": map[string]any{"count": float64(5)}},
+			},
+		}},
+		{"tool_calls": []any{
+			map[string]any{
+				"name": "web_search",
+				"result": map[string]any{
+					"success": false, "error": "上游超时",
+				},
+			},
+		}},
+	}
+	steps, meta := BuildSteps(agentSteps)
+	if meta.Rounds != 2 || meta.Tools != 2 {
+		t.Fatalf("meta 应为 rounds=2 tools=2: %+v", meta)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("应 1 思考 + 2 工具: %+v", steps)
+	}
+	if steps[0].Kind != "thought" || steps[0].Text != "先想一想" {
+		t.Fatalf("思考节点形状不符: %+v", steps[0])
+	}
+	if steps[1].Kind != "tool" || steps[1].Status != "done" || steps[1].Name != "knowledge_search" {
+		t.Fatalf("工具节点形状不符: %+v", steps[1])
+	}
+	if steps[1].Title != "检索知识库：「带电」" || steps[1].Summary != "找到 5 个结果" {
+		t.Fatalf("工具标题/摘要不符: %+v", steps[1])
+	}
+	if steps[1].DurationMs != 1200 {
+		t.Fatalf("耗时不符: %+v", steps[1])
+	}
+	if steps[2].Status != "error" || steps[2].Title != "网络搜索失败" || steps[2].Summary != "上游超时" {
+		t.Fatalf("失败工具节点不符: %+v", steps[2])
+	}
+}
+
+// errReader 读若干字节后报错的流（模拟上游连接中断）。
+type errReader struct {
+	data []byte
+	done bool
+}
+
+func (e *errReader) Read(p []byte) (int, error) {
+	if !e.done && len(e.data) > 0 {
+		n := copy(p, e.data)
+		e.data = e.data[n:]
+		return n, nil
+	}
+	return 0, errors.New("connection reset")
+}
+
+func (e *errReader) Close() error { return nil }
+
+func TestCollectAnswerStreamErrorNoDone(t *testing.T) {
+	wk := &fakeWeKnora{body: &errReader{data: []byte(`data:{"response_type":"answer","content":"半截"}` + "\n\n")}}
+	var events []ChatEvent
+	_, err := CollectAnswer(context.Background(), wk, "u1", "s1",
+		ChatRequest{Query: "问"}, func(ev ChatEvent) { events = append(events, ev) })
+	if err == nil || !errors.Is(err, ErrEmitted) {
+		t.Fatalf("连接中断应 ErrEmitted: %v", err)
+	}
+	for _, ev := range events {
+		if ev.Type == "done" {
+			t.Fatalf("连接中断不得下发 done（端侧会误判成功）: %+v", events)
+		}
+	}
+	last := events[len(events)-1]
+	if last.Type != "error" || last.Content != "AI 服务连接中断" {
+		t.Fatalf("末事件应为 error: %+v", events)
+	}
+}
+
+// ===== POST /chat 入参与 web_search 缺省 =====
+
+func TestChatParamsAndWebSearchDefault(t *testing.T) {
+	newReq := func(body string) (*httptest.ResponseRecorder, *fakeWeKnora) {
+		wk := &fakeWeKnora{}
+		m := &Module{DB: nil, WeKnora: wk, Permit: AllowAllPermit{}}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/callme/chat", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), identityContextKey,
+			auth.Identity{ID: 1, Username: "u1", Role: "user"}))
+		rec := httptest.NewRecorder()
+		m.handleChat(rec, req)
+		return rec, wk
+	}
+
+	// 缺省不传 web_search → false（端侧关闭联网搜索时不传字段，不得默认开启）。
+	rec, wk := newReq(`{"session_id":"s1","query":"问"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("应 200: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(wk.chatReqs) != 1 || wk.chatReqs[0].WebSearch {
+		t.Fatalf("web_search 缺省应为 false: %+v", wk.chatReqs)
+	}
+
+	// 显式 true 才开启。
+	_, wk = newReq(`{"session_id":"s1","query":"问","web_search":true}`)
+	if !wk.chatReqs[0].WebSearch {
+		t.Fatalf("web_search=true 未透传: %+v", wk.chatReqs)
+	}
+
+	// 类型校验错误码逐一对应 Node（40043–40049）。
+	cases := []struct {
+		body string
+		code int
+	}{
+		{`{"session_id":"s1","query":"问","web_search":"1"}`, codeWebSearch},
+		{`{"session_id":"s1","query":"问","web_search":null}`, codeWebSearch},
+		{`{"session_id":"s1","query":"问","model_id":3}`, codeModelID},
+		{`{"session_id":"s1","query":"问","model_id":null}`, 0}, // null 合法（走默认模型）
+		{`{"session_id":"s1","query":"问","reasoning_effort":"nope"}`, codeReasoningEffort},
+		{`{"session_id":"s1","query":"问","attachment_ids":[""]}`, codeAttachIDs},
+		{`{"session_id":"s1","query":"问","attachment_ids":"a1"}`, codeAttachIDs},
+		{`{"session_id":"s1","query":"问","attachment_ids":null}`, codeAttachIDs},
+		{`{"session_id":"s1","query":"问","images":null}`, codeImageCount},
+		{`{"session_id":"s1","query":"问","images":["data:text/plain;base64,aGk="]}`, codeImageFormat},
+		{`{"session_id":"s1","query":"问","images":[{"data":"data:text/plain;base64,aGk="}]}`, codeImageFormat},
+		{`{"query":"问"}`, codeParam},
+	}
+	for _, c := range cases {
+		rec, _ := newReq(c.body)
+		var env Envelope
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		if c.code == 0 {
+			if env.Code != codeOK {
+				t.Fatalf("应成功: %s → %+v", c.body, env)
+			}
+			continue
+		}
+		if env.Code != c.code {
+			t.Fatalf("入参 %s 应 %d 实际 %d", c.body, c.code, env.Code)
+		}
+	}
+
+	// 纯 dataURL 字符串图片（Node 兼容形态）应放行。
+	rec, wk = newReq(`{"session_id":"s1","query":"问","images":["data:image/png;base64,aGk="]}`)
+	if rec.Code != http.StatusOK || len(wk.chatReqs) != 1 || len(wk.chatReqs[0].Images) != 1 {
+		t.Fatalf("字符串形态图片应放行: %d %s", rec.Code, rec.Body.String())
 	}
 }

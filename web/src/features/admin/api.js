@@ -21,7 +21,7 @@
 //   POST   /api/v1/wechat-answer/groups/{id}/rules  {type,name,enabled,ask_enabled,keys} → data:{rule}
 //   PUT    /api/v1/wechat-answer/rules/{id}         {name,enabled,ask_enabled,keys}     → data:{rule}
 //   DELETE /api/v1/wechat-answer/rules/{id}         → data:{id}
-//   GET    /api/v1/admin/teams                      → data:{list|teams|items:[{id,name,...}]}
+//   GET    /api/v1/admin/teams                      → data 为班组数组（直接数组或 list|teams|items 包装，normalizeList 归一）
 //   GET    /api/v1/app/list                         → data:{apps:[{code,name,...}]}
 //   GET    /api/v1/app-logs?...                     → data:{items,total,page,page_size}
 //   GET    /api/v1/admin/config                     → data:{items:[{key,group,value,sensitive,updated_at}]}
@@ -34,6 +34,8 @@
 //    created_at, updated_at}
 // 规则保存 keys 载荷（各项均可省略；提交空串/缺省 = 保持已存值不变，与管理配置敏感项同口径）：
 //   {tree_extract, tree_correct, crossing_extract, crossing_correct, ask_name, chat_digest, location}
+
+import { normalizeList } from '../core/list-response.js';
 
 // 会话标记键与 web/src/api.js 保持一致（本文件不改 api.js，只读写同一存储）。
 const TOKEN_KEY = 'shade.token';
@@ -199,9 +201,9 @@ export function deleteWechatRule(ruleId) {
 
 // ---- 班组字典（群「归属班组」下拉用）----
 
-// listTeams 班组列表；兼容 data.list / data.teams / data.items 三种返回形状。
+// listTeams 班组列表；data 兼容直接数组与 list/teams/items 包装，统一归一为数组。
 export function listTeams() {
-  return request('/api/v1/admin/teams').then((data) => data.list || data.teams || data.items || []);
+  return request('/api/v1/admin/teams').then((data) => normalizeList(data));
 }
 
 // ---- 应用日志 ----

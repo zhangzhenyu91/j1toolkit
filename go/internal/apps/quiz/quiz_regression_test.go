@@ -177,6 +177,35 @@ func TestImportExcelRowErrors(t *testing.T) {
 	}
 }
 
+// TestImportRowContentBeyondJ 第 11 列起有内容的行不判空行（对齐 Node 整行判空口径）：
+// 按题型无法识别出行错误，而非静默跳过。
+func TestImportRowContentBeyondJ(t *testing.T) {
+	env := newTestServer(t, identAdmin)
+	teamRules(env.fake)
+	env.fake.on("FROM quiz_bank WHERE id = ?", []string{"id", "team_id", "scope"},
+		[][]driver.Value{{int64(3), int64(1), "team"}})
+	rows := [][]string{
+		{"题型", "题干", "选项A", "选项B", "选项C", "选项D", "选项E", "选项F", "答案", "解析", "备注"},
+		{"", "", "", "", "", "", "", "", "", "", "只有第 11 列有内容"},
+	}
+	rec := env.doImport(t, "/api/v1/quiz/banks/3/import", "q.xlsx", importXLSX(t, rows))
+	code, _, data := decodeEnvelope(t, rec)
+	if code != codeRows {
+		t.Fatalf("第 11 列起有内容的行应按行错误处理: %s", rec.Body.String())
+	}
+	errs, _ := data["errors"].([]any)
+	if len(errs) != 1 {
+		t.Fatalf("应 1 条行错误: %v", data)
+	}
+	row, _ := errs[0].(map[string]any)
+	if row["row"] != float64(2) || !strings.Contains(fmt.Sprint(row["message"]), "题型无法识别") {
+		t.Fatalf("行错误不符: %v", row)
+	}
+	if env.fake.execCount("INSERT INTO quiz_question") != 0 {
+		t.Fatalf("有错应整体失败不入库")
+	}
+}
+
 // TestAnalyzerQueueRegression 队列既有行为回归：题被删除静默跳过、空解析归 failed、
 // 单题失败不中断 worker、处理完可再入队、EnqueueBank 状态过滤与缺省 none。
 func TestAnalyzerQueueRegression(t *testing.T) {

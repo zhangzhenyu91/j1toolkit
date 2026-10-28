@@ -1,7 +1,8 @@
 // 图片水印渲染（对齐 server/src/worklog/render-photo.js + worklog/watermark.js 语义）：
 // 字段清洗 sanitizeWm（内容/时间/天气/地点/经纬度按库列宽截断，防伪码服务端生成）、
-// EXIF 方向矫正（wx.getImageInfo 口径 up/down/left/right ± mirrored）、
-// 水印绘制复用 compat/imagepdf（左下角半透明背板 + 文本行），JPEG 输出。
+// EXIF 方向矫正（与 @napi-rs/canvas loadImage 一致按 EXIF 1-8 摆正，再按 wx.getImageInfo
+// 口径 up/down/left/right ± mirrored 转画布）、v2 卡片水印绘制（compat/imagepdf
+// DrawWatermarkCard：蓝头黄点卡片 + 右下品牌块防伪双软影），JPEG quality 95 输出。
 package wmadd
 
 import (
@@ -9,12 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
 	"math/rand"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"shade/internal/assetpath"
 	"shade/internal/compat/imagepdf"
 )
 
@@ -60,15 +62,36 @@ func RandomAntiCode(n int) string {
 	return string(b)
 }
 
-// cut 字符串清洗：字符串、去首尾空格、限长。
+// utf16Len UTF-16 码元数（JS 字符串长度口径）。
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		if r > 0xFFFF {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
+}
+
+// cut 字符串清洗：字符串、去首尾空格、按 UTF-16 码元限长（对齐 JS String.slice(0,n)）。
+// JS 的 slice 会切开代理对，此处按完整字符截断，边缘行为更安全。
 func cut(v string, n int) string {
 	v = strings.TrimSpace(v)
-	if len(v) > n {
-		// 按 rune 截断防切开多字节字符
-		r := []rune(v)
-		if len(r) > n {
-			v = string(r[:n])
+	if utf16Len(v) <= n {
+		return v
+	}
+	units := 0
+	for i, r := range v {
+		w := 1
+		if r > 0xFFFF {
+			w = 2
 		}
+		if units+w > n {
+			return v[:i]
+		}
+		units += w
 	}
 	return v
 }
@@ -78,7 +101,7 @@ func cut(v string, n int) string {
 func SanitizeWm(wm map[string]string) WatermarkFields {
 	get := func(k string) string { return strings.TrimSpace(wm[k]) }
 	code := cut(get("antiCode"), antiCodeLen)
-	ok := len([]rune(code)) == antiCodeLen
+	ok := utf16Len(code) == antiCodeLen
 	for _, r := range code {
 		if !strings.ContainsRune(antiCodeAlphabet, r) {
 			ok = false
@@ -105,20 +128,27 @@ type PhotoRenderer interface {
 	Render(photo []byte, wm WatermarkFields, orientation string) ([]byte, error)
 }
 
-// WatermarkRenderer 基于 compat/imagepdf 的默认渲染实现。
-// Fonts 为 nil 时 Render 懒加载默认字体三件套（imagepdf.LoadDefaultFonts，自适应容器/仓根布局），
-// 装配方可直接零值注入（main 的 &wmadd.WatermarkRenderer{}）或用 NewWatermarkRenderer 预加载。
+// WatermarkRenderer 基于 compat/imagepdf 的默认渲染实现（v2 卡片版式）。
+// Fonts/品牌素材为 nil 时 Render 懒加载默认素材（字体 imagepdf.LoadDefaultFonts、
+// 品牌三件 assetpath 探测 assets/…），装配方可零值注入（main 的 &wmadd.WatermarkRenderer{}）。
 type WatermarkRenderer struct {
-	Fonts *imagepdf.FontFiles // 字体三件套（DefaultFontsDir 加载；nil 懒加载）
+	Fonts           *imagepdf.FontFiles // 字体三件套（DefaultFontsDir 加载；nil 懒加载）
+	Brand           image.Image         // brand-logo.png 品牌 logo（nil 懒加载）
+	CodeShadow      image.Image         // code-shadow.png 码值底衬软影条（nil 懒加载）
+	CodeShadowLabel image.Image         // code-shadow-label.png 「防伪」软影短条（nil 懒加载）
+
+	assetsMu   sync.Mutex
+	assetsDone bool
 }
 
-// NewWatermarkRenderer 构造渲染器并自动加载 assets/fonts 字体三件套；
+// NewWatermarkRenderer 构造渲染器并自动加载字体三件套与品牌素材；
 // 加载失败不报错，降级为懒加载由 Render 时给出明确错误（避免装配期误杀启动）。
 func NewWatermarkRenderer() *WatermarkRenderer {
 	r := &WatermarkRenderer{}
 	if fonts, err := imagepdf.LoadDefaultFonts(); err == nil {
 		r.Fonts = fonts
 	}
+	_ = r.ensureAssets()
 	return r
 }
 
@@ -130,10 +160,49 @@ func (r *WatermarkRenderer) fonts() (*imagepdf.FontFiles, error) {
 	return imagepdf.LoadDefaultFonts()
 }
 
+// ensureAssets 懒加载品牌素材三件（显式注入优先；assetpath 探测 assets/ 与 server/assets/）。
+func (r *WatermarkRenderer) ensureAssets() error {
+	r.assetsMu.Lock()
+	defer r.assetsMu.Unlock()
+	if r.assetsDone {
+		return nil
+	}
+	load := func(sub string, dst *image.Image) error {
+		if *dst != nil {
+			return nil
+		}
+		p := assetpath.ResolveFile(sub)
+		if p == "" {
+			return fmt.Errorf("wmadd: 素材缺失 %s", sub)
+		}
+		buf, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("wmadd: 读素材 %s: %w", sub, err)
+		}
+		img, err := imagepdf.DecodeImage(buf)
+		if err != nil {
+			return fmt.Errorf("wmadd: 解码素材 %s: %w", sub, err)
+		}
+		*dst = img
+		return nil
+	}
+	if err := load("brand-logo.png", &r.Brand); err != nil {
+		return err
+	}
+	if err := load("code-shadow.png", &r.CodeShadow); err != nil {
+		return err
+	}
+	if err := load("code-shadow-label.png", &r.CodeShadowLabel); err != nil {
+		return err
+	}
+	r.assetsDone = true
+	return nil
+}
+
 // 编译期确认 WatermarkRenderer 满足 PhotoRenderer（可装配）。
 var _ PhotoRenderer = (*WatermarkRenderer)(nil)
 
-// Render 解码原图 → 方向摆正 → 画水印 → JPEG 输出（quality 95，与 Node 一致）。
+// Render 解码原图 → EXIF/wx 方向摆正 → 画 v2 卡片水印 → JPEG 输出（quality 95，与 Node 一致）。
 func (r *WatermarkRenderer) Render(photo []byte, wm WatermarkFields, orientation string) ([]byte, error) {
 	if r == nil {
 		return nil, errors.New("wmadd: 渲染器未装配")
@@ -142,7 +211,10 @@ func (r *WatermarkRenderer) Render(photo []byte, wm WatermarkFields, orientation
 	if err != nil {
 		return nil, fmt.Errorf("wmadd: 字体未加载: %w", err)
 	}
-	img, _, err := imagepdf.DecodeWithOrientation(photo)
+	if err := r.ensureAssets(); err != nil {
+		return nil, err
+	}
+	img, err := decodeOriented(photo)
 	if err != nil {
 		return nil, fmt.Errorf("wmadd: 图片解码失败: %w", err)
 	}
@@ -152,28 +224,17 @@ func (r *WatermarkRenderer) Render(photo []byte, wm WatermarkFields, orientation
 	if wm.Time == "" {
 		wm.Time = time.Now().Format("2006.01.02 15:04")
 	}
-	lines := []imagepdf.WatermarkLine{
-		{Text: "工程记录", Bold: true, Size: 18},
-	}
-	add := func(label, value string) {
-		if value == "" {
-			return
-		}
-		lines = append(lines, imagepdf.WatermarkLine{Text: label + "：" + value, Size: 15})
-	}
-	add("施工内容", wm.Content)
-	add("拍摄时间", wm.Time)
-	add("天气", wm.Weather)
-	add("地点", wm.Location)
-	add("经度", wm.Longitude)
-	add("纬度", wm.Latitude)
-	lines = append(lines, imagepdf.WatermarkLine{Text: "防伪：" + wm.AntiCode, Mono: true, Size: 15})
-
-	out, err := imagepdf.DrawWatermark(img, fonts, imagepdf.WatermarkOptions{
-		Lines:       lines,
-		TextColor:   color.White,
-		PanelColor:  color.RGBA{R: 0, G: 0, B: 0, A: 140},
-		LineSpacing: 1.35,
+	out, err := imagepdf.DrawWatermarkCard(img, fonts, imagepdf.WatermarkCardParams{
+		Content:              wm.Content,
+		Time:                 wm.Time,
+		Weather:              wm.Weather,
+		Location:             wm.Location,
+		Longitude:            wm.Longitude,
+		Latitude:             wm.Latitude,
+		AntiCode:             wm.AntiCode,
+		BrandImage:           r.Brand,
+		CodeShadowImage:      r.CodeShadow,
+		CodeShadowLabelImage: r.CodeShadowLabel,
 	})
 	if err != nil {
 		return nil, err
@@ -183,6 +244,63 @@ func (r *WatermarkRenderer) Render(photo []byte, wm WatermarkFields, orientation
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// decodeOriented 解码 jpeg/png/webp 并按 EXIF orientation(1-8) 摆正
+// （对齐 @napi-rs/canvas loadImage 的 EXIF 行为；非 JPEG 恒无 EXIF）。
+func decodeOriented(data []byte) (image.Image, error) {
+	img, err := imagepdf.DecodeImage(data)
+	if err != nil {
+		return nil, err
+	}
+	o := 1
+	if imagepdf.ImageFormat(data) == "jpeg" {
+		o = imagepdf.JPEGOrientation(data)
+	}
+	return autoOrientEXIF(img, o), nil
+}
+
+// autoOrientEXIF 按 EXIF orientation(1-8) 摆正像素（含镜像），对齐 @napi-rs/canvas loadImage。
+// 注：与 compat/imagepdf.AutoOrient 同表，独立保留本包回归参照。
+func autoOrientEXIF(img image.Image, o int) image.Image {
+	if img == nil {
+		return nil
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	switch o {
+	case 2, 3, 4, 5, 6, 7, 8:
+	default:
+		return img
+	}
+	outW, outH := w, h
+	if o >= 5 {
+		outW, outH = h, w
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, outW, outH))
+	for oy := 0; oy < outH; oy++ {
+		for ox := 0; ox < outW; ox++ {
+			var sx, sy int
+			switch o {
+			case 2: // 水平镜像
+				sx, sy = w-1-ox, oy
+			case 3: // 旋转 180°
+				sx, sy = w-1-ox, h-1-oy
+			case 4: // 垂直镜像
+				sx, sy = ox, h-1-oy
+			case 5: // 转置（主对角线翻转）
+				sx, sy = oy, ox
+			case 6: // 顺时针 90°
+				sx, sy = oy, h-1-ox
+			case 7: // 反对角线翻转
+				sx, sy = w-1-oy, h-1-ox
+			case 8: // 逆时针 90°
+				sx, sy = w-1-oy, ox
+			}
+			dst.Set(ox, oy, img.At(b.Min.X+sx, b.Min.Y+sy))
+		}
+	}
+	return dst
 }
 
 // orientByWxTag 按微信 wx.getImageInfo 的 orientation 标签把像素摆正

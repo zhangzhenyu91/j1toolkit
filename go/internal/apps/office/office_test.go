@@ -203,26 +203,37 @@ func TestRawAndCallback(t *testing.T) {
 		t.Fatalf("坏票据应 401: %d", rec.Code)
 	}
 
-	// 回调：OnlyOffice JWT + 票据双校验，status=2 写回网盘，应答 {"error":0}。
+	// 回调：OnlyOffice JWT + 票据双校验（载荷须含数值型 status），status=4 关闭无改动 → {"error":0}。
 	p := TicketPayload{Src: "ndp", Name: "a.docx", NDP: &NDP{Space: "my", User: "u1", Path: "/a.docx"}}
 	cbTk, _ := m.SignTicket(context.Background(), p, 60)
-	ooToken, err := m.SignOOJWT(context.Background(), map[string]any{"payload": "save"})
+	ooToken, err := m.SignOOJWT(context.Background(), map[string]any{"status": 4, "url": ""})
 	if err != nil {
 		t.Fatalf("OO JWT 签发: %v", err)
 	}
-	body, _ := json.Marshal(map[string]any{"status": 2, "url": "https://oo.internal/save/a.docx"})
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+cbTk, bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+cbTk, bytes.NewReader([]byte(`{}`)))
 	req.Header.Set("Authorization", "Bearer "+ooToken)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	// 写回需 http.Get 保存产物（测试环境不通）→ 容忍 error:1，但应答必须是 OO 约定格式。
-	if !strings.Contains(rec.Body.String(), `"error"`) {
-		t.Fatalf("回调应答应为 OO 约定格式: %s", rec.Body)
+	if rec.Body.String() != `{"error":0}` {
+		t.Fatalf("无改动回调应 {"+"error"+":0}: %s", rec.Body)
+	}
+
+	// status=2 保存：产物地址不通 → 写回失败 200 {"error":1,"message":"写回网盘失败"}（OO 约定格式）。
+	ooToken2, _ := m.SignOOJWT(context.Background(), map[string]any{"status": 2, "url": "https://oo.internal/save/a.docx"})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+cbTk, bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+ooToken2)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `"error":1`) || !strings.Contains(rec.Body.String(), "写回网盘失败") {
+		t.Fatalf("写回失败应 {"+"error"+":1}+message: %s", rec.Body)
+	}
+	if len(nd.written) != 0 {
+		t.Fatalf("产物地址不通不应写回")
 	}
 
 	// 只读源回调不写回、应答 error:0。
 	vTk, _ := m.SignTicket(context.Background(), TicketPayload{Src: "wls", Ref: "r1"}, 60)
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+vTk, bytes.NewReader([]byte(`{"status":2}`)))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+vTk, bytes.NewReader([]byte(`{}`)))
 	req.Header.Set("Authorization", "Bearer "+ooToken)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -233,14 +244,42 @@ func TestRawAndCallback(t *testing.T) {
 		t.Fatalf("只读源不应写回")
 	}
 
-	// 无 JWT 密钥配置时 VerifyOOJWT 空 token 放行（OnlyOffice 未启用 JWT 口径）。
+	// JWT 载荷缺数值型 status → 401 签名校验失败（Node 口径：回调体必须在 JWT 内）。
+	ooBad, _ := m.SignOOJWT(context.Background(), map[string]any{"payload": "save"})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+cbTk, bytes.NewReader([]byte(`{"status":2}`)))
+	req.Header.Set("Authorization", "Bearer "+ooBad)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "回调签名校验失败") {
+		t.Fatalf("缺 status 应 401: %d %s", rec.Code, rec.Body)
+	}
+
+	// 无 JWT（双校验不过）→ 401，即便 body 自带 status 也不采信。
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+cbTk, bytes.NewReader([]byte(`{"status":2}`)))
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("无 JWT 应 401: %d %s", rec.Code, rec.Body)
+	}
+
+	// 坏票据 + 合法 JWT → 401 票据无效。
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/bad-ticket", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+ooToken)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "回调票据无效") {
+		t.Fatalf("坏票据应 401: %d %s", rec.Code, rec.Body)
+	}
+
+	// OO_JWT_SECRET 未配置 → 回调一律拒（Node：无密钥时 body 恒空，401）。
 	m.OOJWTSecret = ""
 	vTk2, _ := m.SignTicket(context.Background(), TicketPayload{Src: "wls", Ref: "r1"}, 60)
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+vTk2, bytes.NewReader([]byte(`{"status":1}`)))
+	req.Header.Set("Authorization", "Bearer "+ooToken)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Body.String() != `{"error":0}` {
-		t.Fatalf("空 JWT 应放行: %s", rec.Body)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("未配置 OO_JWT_SECRET 应 401: %d %s", rec.Code, rec.Body)
 	}
 }
 
@@ -312,4 +351,144 @@ func extractConfig(t *testing.T, rec *httptest.ResponseRecorder) map[string]any 
 	}
 	data := env.Data.(map[string]any)
 	return data["config"].(map[string]any)
+}
+
+// ---- 契约补齐：/config 校验与 docCfg 形状、/raw 响应头、回调写回成功路径 ----
+
+// TestConfigRequiresOOJWTSecret OO_JWT_SECRET 缺失时拒发配置（Node 口径 503）。
+func TestConfigRequiresOOJWTSecret(t *testing.T) {
+	m, _ := newTestModule(t)
+	m.OOJWTSecret = ""
+	m.Cfg = fixedCfg{"OO_PUBLIC_URL": "https://oo.example.com", "OO_CALLBACK_BASE": "https://tool.example.com"}
+	h := newRouter(m)
+	rec := doJSON(t, h, "/api/v1/office/config", map[string]any{
+		"src": "ndp", "space": "my", "path": "/a.docx", "name": "a.docx",
+	})
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "OO_JWT_SECRET") {
+		t.Fatalf("缺 OO_JWT_SECRET 应 503: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestConfigDocShape docCfg 形状对齐 Node：编辑态 permissions review/comment、forcesave；
+// 只读态无 forcesave/无 callbackUrl。
+func TestConfigDocShape(t *testing.T) {
+	m, _ := newTestModule(t)
+	h := newRouter(m)
+
+	// 网盘编辑态。
+	rec := doJSON(t, h, "/api/v1/office/config", map[string]any{
+		"src": "ndp", "space": "my", "path": "/docs/a.docx", "name": "a.docx",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("config 失败: %d %s", rec.Code, rec.Body)
+	}
+	cfg := extractConfig(t, rec)
+	doc := cfg["document"].(map[string]any)
+	perm := doc["permissions"].(map[string]any)
+	if perm["edit"] != true || perm["review"] != true || perm["comment"] != true {
+		t.Fatalf("编辑态权限错误: %+v", perm)
+	}
+	editor := cfg["editorConfig"].(map[string]any)
+	cust := editor["customization"].(map[string]any)
+	if cust["forcesave"] != true {
+		t.Fatalf("编辑态应 forcesave: %+v", cust)
+	}
+	if _, has := cust["chat"]; has {
+		t.Fatalf("customization 不应有 chat 键: %+v", cust)
+	}
+
+	// view 模式：只读、无 callbackUrl、无 forcesave。
+	rec = doJSON(t, h, "/api/v1/office/config", map[string]any{
+		"src": "ndp", "space": "my", "path": "/docs/a.docx", "name": "a.docx", "mode": "view",
+	})
+	cfg = extractConfig(t, rec)
+	doc = cfg["document"].(map[string]any)
+	perm = doc["permissions"].(map[string]any)
+	if perm["edit"] != false || perm["review"] != false || perm["comment"] != false {
+		t.Fatalf("只读态权限错误: %+v", perm)
+	}
+	editor = cfg["editorConfig"].(map[string]any)
+	cust = editor["customization"].(map[string]any)
+	if _, has := cust["forcesave"]; has {
+		t.Fatalf("只读态不应有 forcesave: %+v", cust)
+	}
+	if _, has := editor["callbackUrl"]; has {
+		t.Fatalf("只读态不应有 callbackUrl")
+	}
+
+	// 未知扩展 → 400 40030 该格式不支持在线打开。
+	rec = doJSON(t, h, "/api/v1/office/config", map[string]any{
+		"src": "ndp", "space": "my", "path": "/a.xyz", "name": "a.xyz",
+	})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "该格式不支持在线打开") {
+		t.Fatalf("未知格式应 400: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestRawHeaders /raw 成功响应头：Content-Type 按 RAW_MIME 给准、filename* 定名取票据载荷。
+func TestRawHeaders(t *testing.T) {
+	m, _ := newTestModule(t)
+	h := newRouter(m)
+	tk, _ := m.SignTicket(context.Background(), TicketPayload{Src: "wls", Ref: "r1", Name: "任务单.docx"}, 60)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/office/raw/"+tk+"/other-name.bin", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("raw 失败: %d %s", rec.Code, rec.Body)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+		t.Fatalf("Content-Type 错误: %s", ct)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "filename*=UTF-8''") {
+		t.Fatalf("Content-Disposition 错误: %s", cd)
+	}
+
+	// 未知来源票据 → 401 纯文本。
+	bad, _ := m.SignTicket(context.Background(), TicketPayload{Src: "xxx", Name: "a.docx"}, 60)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/office/raw/"+bad, nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "回源票据无效") {
+		t.Fatalf("未知来源应 401: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestCallbackWriteBackSuccess 回调写回成功路径：OO_INTERNAL_URL 改写拉回产物 → 写回 → {"error":0}。
+func TestCallbackWriteBackSuccess(t *testing.T) {
+	ooInternal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("SAVED-DOC"))
+	}))
+	t.Cleanup(ooInternal.Close)
+
+	m, nd := newTestModule(t)
+	m.Cfg = fixedCfg{
+		"OO_PUBLIC_URL":    "https://oo.example.com",
+		"OO_CALLBACK_BASE": "https://tool.example.com",
+		"OO_INTERNAL_URL":  ooInternal.URL,
+	}
+	h := newRouter(m)
+
+	p := TicketPayload{Src: "ndp", Name: "a.docx", NDP: &NDP{Space: "my", User: "u1", Path: "/a.docx"}}
+	cbTk, _ := m.SignTicket(context.Background(), p, 60)
+	ooToken, _ := m.SignOOJWT(context.Background(), map[string]any{"status": 2, "url": "http://oo-container/internal/save/a.docx"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+cbTk, bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+ooToken)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Body.String() != `{"error":0}` {
+		t.Fatalf("写回成功应 {"+"error"+":0}: %s", rec.Body)
+	}
+	if len(nd.written) != 1 || string(nd.written[0]) != "SAVED-DOC" {
+		t.Fatalf("写回内容错误: %q", nd.written)
+	}
+
+	// status=2 但缺 url → 写回失败 {"error":1,"message"}。
+	ooToken2, _ := m.SignOOJWT(context.Background(), map[string]any{"status": 2})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/office/callback/"+cbTk, bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+ooToken2)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `"error":1`) || !strings.Contains(rec.Body.String(), "写回网盘失败") {
+		t.Fatalf("缺 url 应写回失败: %s", rec.Body)
+	}
 }

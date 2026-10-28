@@ -349,11 +349,11 @@ func (c *HTTPClient) UploadAttachment(ctx context.Context, username, sessionID, 
 	_ = json.Unmarshal(raw, &resp)
 	doc := unwrapData(resp)
 	return Attachment{
-		ID:       fmt.Sprint(doc["id"]),
-		FileName: fmt.Sprint(doc["file_name"]),
+		ID:       StringOf(doc, "id"),
+		FileName: StringOf(doc, "file_name"),
 		FileSize: anyToInt64(doc["file_size"]),
-		Status:   fmt.Sprint(doc["status"]),
-		Error:    fmt.Sprint(doc["error_message"]),
+		Status:   StringOf(doc, "status"),
+		Error:    StringOf(doc, "error_message"),
 	}, nil
 }
 
@@ -366,11 +366,11 @@ func (c *HTTPClient) ListAttachments(ctx context.Context, username, sessionID st
 	var out []Attachment
 	for _, m := range unwrapList(resp) {
 		out = append(out, Attachment{
-			ID:       fmt.Sprint(m["id"]),
-			FileName: fmt.Sprint(m["file_name"]),
+			ID:       StringOf(m, "id"),
+			FileName: StringOf(m, "file_name"),
 			FileSize: anyToInt64(m["file_size"]),
-			Status:   fmt.Sprint(m["status"]),
-			Error:    fmt.Sprint(m["error_message"]),
+			Status:   StringOf(m, "status"),
+			Error:    StringOf(m, "error_message"),
 		})
 	}
 	return out, nil

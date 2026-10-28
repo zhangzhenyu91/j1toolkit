@@ -51,7 +51,7 @@
 
     <!-- 主体两栏：左筛选月历 / 右内容主列（撑满剩余高度，列内容各自内部滚动） -->
     <div class="wl-body" :class="{ 'rep-side': repSideOn }">
-      <aside class="card cal">
+      <aside class="card wl-cal">
         <MonthCalendar
           v-model:month="month"
           v-model:selected="date"
@@ -110,9 +110,21 @@
         <!-- 批量下载：日期范围 + 按月分组勾选 + 底部操作行 -->
         <div class="pane" :class="{ on: tab === 'dl' }">
           <div class="rep-bar">
-            <input v-model="dl.from" type="date" class="f-sel rg-date num" />
+            <input
+              v-model="dl.from"
+              type="date"
+              class="f-sel rg-date num"
+              @click="openPicker"
+              @change="checkRange(dl, 'from')"
+            />
             <span class="rep-sep">-</span>
-            <input v-model="dl.to" type="date" class="f-sel rg-date num" />
+            <input
+              v-model="dl.to"
+              type="date"
+              class="f-sel rg-date num"
+              @click="openPicker"
+              @change="checkRange(dl, 'to')"
+            />
             <button type="button" class="btn btn-sm" @click="loadPhotos">查询</button>
             <span class="dl-meta num">{{ dlMetaText }}</span>
           </div>
@@ -175,7 +187,7 @@
         <!-- 汇总前核验：整月切换 + 未通过记录分组列表 + 底部绿色条（≥1600px 记录页签下常驻右栏） -->
         <div class="pane pane-rep" :class="{ on: tab === 'rep' }">
           <div class="rep-bar">
-            <div class="cal-nav rep-nav">
+            <div class="rep-nav">
               <button type="button" title="上一月" @click="shiftVerifyMonth(-1)">
                 <WlIcon name="chevron-left" :size="12" />
               </button>
@@ -246,9 +258,21 @@
             <span class="hint">与「派车对齐」共用同一开关，按当前生效班组保存</span>
           </div>
           <div class="rep-bar">
-            <input v-model="sheet.from" type="date" class="f-sel rg-date num" />
+            <input
+              v-model="sheet.from"
+              type="date"
+              class="f-sel rg-date num"
+              @click="openPicker"
+              @change="checkRange(sheet, 'from')"
+            />
             <span class="rep-sep">-</span>
-            <input v-model="sheet.to" type="date" class="f-sel rg-date num" />
+            <input
+              v-model="sheet.to"
+              type="date"
+              class="f-sel rg-date num"
+              @click="openPicker"
+              @change="checkRange(sheet, 'to')"
+            />
             <span class="dl-meta">{{ sheetDesc }}</span>
           </div>
           <div class="pane-scroll">
@@ -740,6 +764,24 @@ function noop() {}
 function fmtDateCN(d) {
   const [y, m, dd] = String(d || '').split('-');
   return `${y} 年 ${Number(m)} 月 ${Number(dd)} 日`;
+}
+
+// openPicker 点日期输入框任意位置即展开系统日期选择（showPicker，不支持的浏览器保留原生点击行为）。
+function openPicker(ev) {
+  const el = ev && ev.target;
+  try {
+    if (el && el.showPicker) el.showPicker();
+  } catch (e) {
+    // 浏览器拒绝非手势触发时保留原生行为
+  }
+}
+
+// checkRange 起止校验（同旧版 bindRangeInput）：from > to 时回退改动的那端并提示。
+function checkRange(st, which) {
+  if (!st.from || !st.to || st.from <= st.to) return;
+  MessagePlugin.info('开始日期不能晚于结束日期');
+  if (which === 'from') st.from = st.to;
+  else st.to = st.from;
 }
 
 // ---- 加载 ----
@@ -1274,7 +1316,7 @@ function sheetKind() {
   return tab.value === 'ts' ? 'task' : tab.value === 'fs' ? 'fee' : 'dispatch';
 }
 
-// saveSheet 汇总表下载（40902 拦截 → 弹层可 force）。
+// saveSheet 汇总表下载（40901 拦截 → 弹层可 force）。
 async function saveSheet(forceFlag) {
   sheet.loading = true;
   sheet.error = '';
@@ -1287,7 +1329,7 @@ async function saveSheet(forceFlag) {
     else await downloadDispatchSheet({ from: sheet.from, to: sheet.to });
     MessagePlugin.success('已下载');
   } catch (e) {
-    if (e.code === 40902 && e.data && e.data.failures) {
+    if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
       force.kind = sheetKind();
       force.open = true;
@@ -1314,7 +1356,7 @@ async function saveSheetNetdisk(forceFlag) {
     });
     MessagePlugin.success(data && data.path ? `已保存到网盘：${data.path}` : '已保存到网盘');
   } catch (e) {
-    if (e.code === 40902 && e.data && e.data.failures) {
+    if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
       force.kind = sheetKind();
       force.open = true;
@@ -1353,7 +1395,7 @@ async function previewSheet(forceFlag) {
       sheet.error = '预览地址获取失败';
     }
   } catch (e) {
-    if (e.code === 40902 && e.data && e.data.failures) {
+    if (e.code === 40901 && e.data && e.data.failures) {
       force.failures = e.data.failures;
       force.kind = sheetKind();
       force.open = true;
@@ -1446,6 +1488,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset；公共 styles.css 未提供，组件内各自补齐） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 /* ===== 整页填充：页头/页签固定，主体两栏内部滚动（旧版整页不滚动口径） ===== */
 .wl-page {
   margin: -20px -24px;
@@ -1496,18 +1545,35 @@ onBeforeUnmount(() => {
   gap: 12px;
   flex-wrap: wrap;
 }
-/* 班组切换下拉 */
+/* 班组切换下拉（原生 select：自绘箭头、悬停/聚焦着色，保证可正常展开） */
 .team-sel {
   height: 34px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  padding: 0 10px;
+  padding: 0 28px 0 10px;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.5px;
   color: var(--tk-ink);
-  background: #fff;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%234E5969' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
   max-width: 160px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    box-shadow 0.15s var(--tk-ease);
+}
+.team-sel:hover {
+  border-color: var(--tk-brand);
+}
+.team-sel:focus {
+  outline: none;
+  border-color: var(--tk-brand);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
 /* 当日统计小字（「共 N 条日志 · M 张照片」） */
 .photo-cnt {
@@ -1652,13 +1718,31 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
 }
-.cal {
+/* 左侧月历卡（类名避开 MonthCalendar 内部 .cal：子组件根节点会带父作用域属性） */
+.wl-cal {
   width: 320px;
   flex: none;
   padding: 14px 16px 12px;
   align-self: flex-start;
   max-height: 100%;
   overflow-y: auto;
+  overflow-x: hidden; /* 月历格子流体化后仍兜底：绝不出横向滚动条 */
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-dash) transparent;
+}
+.wl-cal::-webkit-scrollbar {
+  width: 5px;
+}
+.wl-cal::-webkit-scrollbar-thumb {
+  background: var(--tk-dash);
+  border-radius: 8px;
+}
+.wl-cal::-webkit-scrollbar-thumb:hover {
+  background: var(--tk-ph);
+}
+.wl-cal::-webkit-scrollbar-track {
+  background: transparent;
 }
 /* 本月统计小字（月历图例下方） */
 .cal-stats {
@@ -1702,7 +1786,9 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 10px; /* 给行卡右偏影让位 */
+  overflow-x: hidden;
+  padding: 0 10px; /* 给行卡右偏影让位 */
+  scrollbar-gutter: stable both-edges; /* 滚动条常驻槽位，出现/消失不使内容左右偏移 */
   scrollbar-width: thin;
   scrollbar-color: var(--tk-dash) transparent;
 }
@@ -1737,9 +1823,9 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
   transition: opacity 0.18s ease;
-  padding-right: 10px;
+  padding: 0 10px;
   scrollbar-width: thin;
   scrollbar-color: var(--tk-dash) transparent;
 }
@@ -1786,7 +1872,7 @@ onBeforeUnmount(() => {
     grid-template-columns: minmax(0, 1fr) 400px;
     grid-template-rows: auto minmax(0, 1fr);
   }
-  .wl-body.rep-side > .cal {
+  .wl-body.rep-side > .wl-cal {
     grid-column: 2;
     grid-row: 1;
     width: 100%;
@@ -1933,8 +2019,33 @@ onBeforeUnmount(() => {
   gap: 8px;
   flex-wrap: wrap;
 }
+/* 核验页签月份切换（同月历 .cal-nav 规格：24px 方钮 + 年月文字居中对齐） */
 .rep-nav {
   margin-left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rep-nav button {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 1px solid var(--tk-line);
+  border-radius: 6px;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tk-sub);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.rep-nav button:hover {
+  color: var(--tk-brand);
+  border-color: var(--tk-brand);
 }
 .rep-month {
   font-size: 13px;
@@ -1974,13 +2085,16 @@ onBeforeUnmount(() => {
 .rep-mine .sw::after {
   content: '';
   position: absolute;
-  top: 2px;
+  top: 50%;
   left: 2px;
+  margin-top: -5px; /* 垂直居中滑钮（旧 top:2px 在 18px 槽内偏上，此处校正） */
   width: 10px;
   height: 10px;
   border-radius: 8px;
   background: var(--tk-ink);
-  transition: left 0.2s var(--tk-ease);
+  transition:
+    left 0.2s var(--tk-ease),
+    background 0.2s;
 }
 .rep-mine.on {
   color: var(--tk-brand);
@@ -2369,10 +2483,12 @@ onBeforeUnmount(() => {
     flex-direction: column;
     overflow-y: auto;
   }
-  .cal {
+  .wl-cal {
     width: 100%;
     max-height: none;
     overflow-y: visible;
+    overflow-x: hidden;
+    scrollbar-gutter: auto;
   }
   .wl-title h3 {
     font-size: 30px;
@@ -2392,10 +2508,26 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wl-list .pane.on,
+  /* 动效降级（同旧版 theme.css）：动画与过渡瞬时完成，不播放入场位移 */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
+  .wl-list .pane.on {
+    animation: none !important;
+  }
   .wl-tabs button::after {
-    animation: none;
     transition: none;
+  }
+  .card-flow.switching {
+    transition: none;
+  }
+  .btn:active:not([disabled]) {
+    transform: none;
   }
 }
 </style>

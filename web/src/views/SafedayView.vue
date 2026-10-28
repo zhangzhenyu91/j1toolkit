@@ -1,7 +1,7 @@
 <template>
   <div>
     <!-- 未分配班组整页空态（非超管且无班组，屏十口径） -->
-    <div v-if="noTeam" class="card">
+    <div v-if="noTeam" class="card sd-card-flat">
       <div class="sd-empty">
         <svg
           viewBox="0 0 24 24"
@@ -99,8 +99,8 @@
             @change="onFilesPicked"
           />
 
-          <!-- 已选文件条（逐行紧凑，可单条移除） -->
-          <div class="sd-ftags">
+          <!-- 已选文件条（逐行紧凑，可单条移除；新条目一次上浮入场） -->
+          <transition-group name="sd-ftag" tag="div" class="sd-ftags">
             <div v-for="(f, i) in files" :key="f.name" class="sd-ftag">
               <svg
                 viewBox="0 0 24 24"
@@ -127,13 +127,20 @@
                 ×
               </button>
             </div>
-          </div>
+          </transition-group>
 
           <!-- 生成参数卡 -->
           <div class="card sd-gen">
             <label class="sd-lab" for="sdDate">活动日期</label>
-            <div class="sd-date-row">
-              <input id="sdDate" v-model="dateISO" type="date" class="sd-input num" />
+            <!-- 整行可点开日期选择器（原生 input 仅点图标可开，补 showPicker 让文字区也能点开） -->
+            <div class="sd-date-row" @click="openDatePicker">
+              <input
+                id="sdDate"
+                ref="dateInput"
+                v-model="dateISO"
+                type="date"
+                class="sd-input num"
+              />
             </div>
             <button
               type="button"
@@ -273,100 +280,37 @@
             <span class="sd-spin"></span><span>正在加载记录…</span>
           </div>
           <template v-else>
-            <table class="sd-rtable">
-              <thead>
-                <tr>
-                  <th>记录文件</th>
-                  <th class="sd-col-date">活动日期</th>
-                  <th v-if="teamId === 'all'" class="sd-col-team">班组</th>
-                  <th class="sd-col-time">提交时间</th>
-                  <th class="sd-col-state">状态</th>
-                  <th class="sd-col-op">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="rec in lastRecords"
-                  :key="rec.id"
-                  :class="{
-                    'sd-row-prev': rec.status === 'done',
-                    'sd-row-new': newIds.has(String(rec.id)),
-                  }"
-                  :title="rec.status === 'done' ? '点击预览' : ''"
-                  @click="rec.status === 'done' && previewRecordAction(rec)"
-                >
-                  <td>
-                    <div class="sd-rn">{{ rec.fileName || '—' }}</div>
-                    <div class="sd-rf">
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="12"
-                        height="12"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5z" />
-                        <path d="M13.5 3v4.5H19" />
-                        <path d="M9 13h6M9 17h6" />
-                      </svg>
-                      <span>{{ recSub(rec) }}</span>
-                    </div>
-                  </td>
-                  <td class="sd-col-date sd-mut num">{{ rec.date || '—' }}</td>
-                  <td v-if="teamId === 'all'" class="sd-col-team">
-                    <span v-if="rec.team" class="sd-tag sd-tag-navy">{{ rec.team }}</span>
-                    <span v-else class="sd-mut">—</span>
-                  </td>
-                  <td class="sd-col-time sd-mut num">{{ fmtDate(rec.createdAt) || '—' }}</td>
-                  <td class="sd-col-state">
-                    <span v-if="rec.status === 'done'" class="sd-tag sd-tag-orange">已生成</span>
-                    <span
-                      v-else-if="rec.status === 'failed'"
-                      class="sd-tag sd-tag-red"
-                      :title="rec.error || '生成失败'"
-                      >生成失败</span
-                    >
-                    <span v-else class="sd-tag sd-tag-navy"
-                      ><span class="sd-pulse-dot"></span>生成中</span
-                    >
-                  </td>
-                  <td class="sd-col-op" @click.stop>
-                    <div class="sd-op">
-                      <button
-                        type="button"
-                        class="sd-opb"
-                        title="下载记录文件"
-                        :disabled="rec.status !== 'done'"
-                        @click="downloadRecordAction(rec)"
-                      >
+            <!-- 表格滚动区：窄宽时横向滚动，不裁切操作列；细滚动条 + gutter 防内容偏移 -->
+            <div class="sd-tbl-scroll">
+              <table class="sd-rtable">
+                <thead>
+                  <tr>
+                    <th>记录文件</th>
+                    <th class="sd-col-date">活动日期</th>
+                    <th v-if="teamId === 'all'" class="sd-col-team">班组</th>
+                    <th class="sd-col-time">提交时间</th>
+                    <th class="sd-col-state">状态</th>
+                    <th class="sd-col-op">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="rec in lastRecords"
+                    :key="rec.id"
+                    :class="{
+                      'sd-row-prev': rec.status === 'done',
+                      'sd-row-new': newIds.has(String(rec.id)),
+                    }"
+                    :title="rec.status === 'done' ? '点击预览' : ''"
+                    @click="rec.status === 'done' && previewRecordAction(rec)"
+                  >
+                    <td>
+                      <div class="sd-rn">{{ rec.fileName || '—' }}</div>
+                      <div class="sd-rf">
                         <svg
                           viewBox="0 0 24 24"
-                          width="15"
-                          height="15"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="1.7"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <path d="M12 3.5v11M7 10l5 5 5-5" />
-                          <path d="M4.5 19.5h15" />
-                        </svg>
-                      </button>
-                      <button
-                        v-if="rec.status === 'done' && netdiskOk"
-                        type="button"
-                        class="sd-opb"
-                        title="存网盘"
-                        @click="openSaveNetdisk(rec)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="15"
-                          height="15"
+                          width="12"
+                          height="12"
                           fill="none"
                           stroke="currentColor"
                           stroke-width="1.7"
@@ -374,36 +318,104 @@
                           stroke-linejoin="round"
                         >
                           <path
-                            d="M17.8 19.5a4.3 4.3 0 0 0 .4-8.58A6 6 0 0 0 6.5 9.7 4.8 4.8 0 0 0 6.7 19.5z"
+                            d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5z"
                           />
+                          <path d="M13.5 3v4.5H19" />
+                          <path d="M9 13h6M9 17h6" />
                         </svg>
-                      </button>
-                      <button
-                        type="button"
-                        class="sd-opb sd-opb-del"
-                        title="删除记录"
-                        @click="openDelMask(rec)"
+                        <span>{{ recSub(rec) }}</span>
+                      </div>
+                    </td>
+                    <td class="sd-col-date sd-mut num">{{ rec.date || '—' }}</td>
+                    <td v-if="teamId === 'all'" class="sd-col-team">
+                      <span v-if="rec.team" class="sd-tag sd-tag-navy">{{ rec.team }}</span>
+                      <span v-else class="sd-mut">—</span>
+                    </td>
+                    <td class="sd-col-time sd-mut num">{{ fmtDate(rec.createdAt) || '—' }}</td>
+                    <td class="sd-col-state">
+                      <span v-if="rec.status === 'done'" class="sd-tag sd-tag-orange">已生成</span>
+                      <span
+                        v-else-if="rec.status === 'failed'"
+                        class="sd-tag sd-tag-red"
+                        :title="rec.error || '生成失败'"
+                        >生成失败</span
                       >
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="15"
-                          height="15"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="1.7"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
+                      <span v-else class="sd-tag sd-tag-navy"
+                        ><span class="sd-pulse-dot"></span>生成中</span
+                      >
+                    </td>
+                    <td class="sd-col-op" @click.stop>
+                      <div class="sd-op">
+                        <button
+                          type="button"
+                          class="sd-opb"
+                          title="下载记录文件"
+                          :disabled="rec.status !== 'done'"
+                          @click="downloadRecordAction(rec)"
                         >
-                          <path d="M4 7h16M10 11v6M14 11v6" />
-                          <path d="M6 7l1 12.2a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L18 7" />
-                          <path d="M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7" />
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="15"
+                            height="15"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.7"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <path d="M12 3.5v11M7 10l5 5 5-5" />
+                            <path d="M4.5 19.5h15" />
+                          </svg>
+                        </button>
+                        <button
+                          v-if="rec.status === 'done' && netdiskOk"
+                          type="button"
+                          class="sd-opb"
+                          title="存网盘"
+                          @click="openSaveNetdisk(rec)"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="15"
+                            height="15"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.7"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <path
+                              d="M17.8 19.5a4.3 4.3 0 0 0 .4-8.58A6 6 0 0 0 6.5 9.7 4.8 4.8 0 0 0 6.7 19.5z"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          class="sd-opb sd-opb-del"
+                          title="删除记录"
+                          @click="openDelMask(rec)"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="15"
+                            height="15"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.7"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <path d="M4 7h16M10 11v6M14 11v6" />
+                            <path d="M6 7l1 12.2a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L18 7" />
+                            <path d="M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <div v-if="!lastRecords.length" class="sd-empty">
               <svg
                 viewBox="0 0 24 24"
@@ -427,206 +439,212 @@
       </div>
     </template>
 
-    <!-- ===== 弹层：生成表单（学习内容 + 参会信息，确认后开始生成） ===== -->
-    <div v-if="genMask" class="sd-mask">
-      <div
-        class="sd-dialog sd-dlg-form"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sdGenTitle"
-      >
-        <h3 id="sdGenTitle">生成活动记录</h3>
-        <p class="sd-dsub">
-          确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认
-        </p>
+    <!-- ===== 弹层：生成表单（学习内容 + 参会信息，确认后开始生成；开合过渡同旧页 mask/Dialog 口径） ===== -->
+    <transition name="sd-mask">
+      <div v-if="genMask" class="sd-mask">
+        <div
+          class="sd-dialog sd-dlg-form"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sdGenTitle"
+        >
+          <h3 id="sdGenTitle">生成活动记录</h3>
+          <p class="sd-dsub">
+            确认学习内容与参会信息后开始生成；上级参加人员与记录人将记忆为下次默认
+          </p>
 
-        <label class="sd-lab" for="sdName">学习内容（记录名称）</label>
-        <textarea
-          id="sdName"
-          ref="nameInput"
-          v-model="form.name"
-          class="sd-input sd-name-area"
-          rows="5"
-        ></textarea>
+          <label class="sd-lab" for="sdName">学习内容（记录名称）</label>
+          <textarea
+            id="sdName"
+            ref="nameInput"
+            v-model="form.name"
+            class="sd-input sd-name-area"
+            rows="5"
+          ></textarea>
 
-        <div class="sd-mode-row">
-          <label class="sd-lab">参会人员</label>
-          <span class="sd-mswitch">
-            <button
-              type="button"
-              class="sd-ms-opt"
-              :class="{ on: attendMode === 'member' }"
-              @click="setAttendMode('member')"
+          <div class="sd-mode-row">
+            <label class="sd-lab">参会人员</label>
+            <span class="sd-mswitch">
+              <button
+                type="button"
+                class="sd-ms-opt"
+                :class="{ on: attendMode === 'member' }"
+                @click="setAttendMode('member')"
+              >
+                名单选择
+              </button>
+              <button
+                type="button"
+                class="sd-ms-opt"
+                :class="{ on: attendMode === 'custom' }"
+                @click="setAttendMode('custom')"
+              >
+                自定义
+              </button>
+            </span>
+          </div>
+
+          <div class="sd-2col">
+            <div>
+              <label class="sd-lab">主持人</label>
+              <select v-if="attendMode === 'member'" v-model="form.host" class="sd-input">
+                <option v-for="m in members" :key="m" :value="m">{{ m }}</option>
+              </select>
+              <input
+                v-else
+                v-model="form.hostCustom"
+                class="sd-input"
+                type="text"
+                autocomplete="off"
+                maxlength="64"
+                placeholder="请输入主持人"
+              />
+            </div>
+            <div>
+              <label class="sd-lab" for="sdRecorder">记录人</label>
+              <select id="sdRecorder" v-model="form.recorder" class="sd-input">
+                <option v-for="m in members" :key="m" :value="m">{{ m }}</option>
+              </select>
+            </div>
+          </div>
+
+          <label class="sd-lab" for="sdSuperior">上级参加人员</label>
+          <input
+            id="sdSuperior"
+            v-model="form.superior"
+            class="sd-input"
+            type="text"
+            autocomplete="off"
+          />
+
+          <template v-if="attendMode === 'member'">
+            <label class="sd-lab"
+              >本班组参加人员 <small>默认全员参加，点击名字改为缺席</small></label
             >
-              名单选择
-            </button>
-            <button
-              type="button"
-              class="sd-ms-opt"
-              :class="{ on: attendMode === 'custom' }"
-              @click="setAttendMode('custom')"
-            >
-              自定义
-            </button>
-          </span>
-        </div>
+            <div class="sd-mchips">
+              <button
+                v-for="m in members"
+                :key="'a' + m"
+                type="button"
+                class="sd-mchip"
+                :class="{ on: attendSet.has(m) }"
+                @click="toggleAttend(m)"
+              >
+                {{ m }}
+              </button>
+              <span v-if="!members.length" class="sd-chips-loading">成员加载中…</span>
+            </div>
+            <label class="sd-lab">缺席人员 <small>与参加人员互斥，点击名字改为参加</small></label>
+            <div class="sd-mchips sd-absent">
+              <button
+                v-for="m in members"
+                :key="'b' + m"
+                type="button"
+                class="sd-mchip"
+                :class="{ on: !attendSet.has(m) }"
+                @click="toggleAttend(m)"
+              >
+                {{ m }}
+              </button>
+            </div>
+          </template>
 
-        <div class="sd-2col">
-          <div>
-            <label class="sd-lab">主持人</label>
-            <select v-if="attendMode === 'member'" v-model="form.host" class="sd-input">
-              <option v-for="m in members" :key="m" :value="m">{{ m }}</option>
-            </select>
+          <template v-else>
+            <label class="sd-lab" for="sdAttend"
+              >本班组参加人员 <small>多人以空格或顿号分隔</small></label
+            >
             <input
-              v-else
-              v-model="form.hostCustom"
+              id="sdAttend"
+              v-model="form.attendeesCustom"
               class="sd-input"
               type="text"
               autocomplete="off"
-              maxlength="64"
-              placeholder="请输入主持人"
+              maxlength="512"
+              placeholder="如：张三 李四"
             />
-          </div>
-          <div>
-            <label class="sd-lab" for="sdRecorder">记录人</label>
-            <select id="sdRecorder" v-model="form.recorder" class="sd-input">
-              <option v-for="m in members" :key="m" :value="m">{{ m }}</option>
-            </select>
-          </div>
-        </div>
-
-        <label class="sd-lab" for="sdSuperior">上级参加人员</label>
-        <input
-          id="sdSuperior"
-          v-model="form.superior"
-          class="sd-input"
-          type="text"
-          autocomplete="off"
-        />
-
-        <template v-if="attendMode === 'member'">
-          <label class="sd-lab">本班组参加人员 <small>默认全员参加，点击名字改为缺席</small></label>
-          <div class="sd-mchips">
-            <button
-              v-for="m in members"
-              :key="'a' + m"
-              type="button"
-              class="sd-mchip"
-              :class="{ on: attendSet.has(m) }"
-              @click="toggleAttend(m)"
+            <label class="sd-lab" for="sdAbsent"
+              >缺席人员 <small>多人以空格或顿号分隔，无则留空</small></label
             >
-              {{ m }}
-            </button>
-            <span v-if="!members.length" class="sd-chips-loading">成员加载中…</span>
-          </div>
-          <label class="sd-lab">缺席人员 <small>与参加人员互斥，点击名字改为参加</small></label>
-          <div class="sd-mchips sd-absent">
-            <button
-              v-for="m in members"
-              :key="'b' + m"
-              type="button"
-              class="sd-mchip"
-              :class="{ on: !attendSet.has(m) }"
-              @click="toggleAttend(m)"
-            >
-              {{ m }}
-            </button>
-          </div>
-        </template>
+            <input
+              id="sdAbsent"
+              v-model="form.absenteesCustom"
+              class="sd-input"
+              type="text"
+              autocomplete="off"
+              maxlength="512"
+              placeholder="无"
+            />
+          </template>
 
-        <template v-else>
-          <label class="sd-lab" for="sdAttend"
-            >本班组参加人员 <small>多人以空格或顿号分隔</small></label
-          >
+          <label class="sd-lab" for="sdAbsentReason">缺席人员原因</label>
           <input
-            id="sdAttend"
-            v-model="form.attendeesCustom"
+            id="sdAbsentReason"
+            v-model="form.absentReason"
             class="sd-input"
             type="text"
-            autocomplete="off"
-            maxlength="512"
-            placeholder="如：张三 李四"
-          />
-          <label class="sd-lab" for="sdAbsent"
-            >缺席人员 <small>多人以空格或顿号分隔，无则留空</small></label
-          >
-          <input
-            id="sdAbsent"
-            v-model="form.absenteesCustom"
-            class="sd-input"
-            type="text"
-            autocomplete="off"
-            maxlength="512"
             placeholder="无"
+            autocomplete="off"
           />
-        </template>
 
-        <label class="sd-lab" for="sdAbsentReason">缺席人员原因</label>
-        <input
-          id="sdAbsentReason"
-          v-model="form.absentReason"
-          class="sd-input"
-          type="text"
-          placeholder="无"
-          autocomplete="off"
-        />
-
-        <div class="sd-actions">
-          <button type="button" class="sd-btn" :disabled="submitting" @click="closeGenMask">
-            取消
-          </button>
-          <button
-            type="button"
-            class="sd-btn sd-btn-primary"
-            :disabled="submitting"
-            @click="submitGenerate"
-          >
-            {{ submitting ? '正在生成…' : '确定，开始生成' }}
-          </button>
+          <div class="sd-actions">
+            <button type="button" class="sd-btn" :disabled="submitting" @click="closeGenMask">
+              取消
+            </button>
+            <button
+              type="button"
+              class="sd-btn sd-btn-primary"
+              :disabled="submitting"
+              @click="submitGenerate"
+            >
+              {{ submitting ? '正在生成…' : '确定，开始生成' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </transition>
 
     <!-- ===== 弹层：删除确认 ===== -->
-    <div v-if="delMask" class="sd-mask">
-      <div class="sd-dialog" role="dialog" aria-modal="true" aria-labelledby="sdDelTitle">
-        <div class="sd-d-ic">
-          <svg
-            viewBox="0 0 24 24"
-            width="22"
-            height="22"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.7"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M4 7h16M10 11v6M14 11v6" />
-            <path d="M6 7l1 12.2a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L18 7" />
-            <path d="M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7" />
-          </svg>
-        </div>
-        <h3 id="sdDelTitle">删除这条记录？</h3>
-        <p class="sd-dsub">
-          记录「{{
-            delTarget ? delTarget.name : ''
-          }}」及已生成的记录文件将一并删除，该操作不可恢复。
-        </p>
-        <div class="sd-actions">
-          <button type="button" class="sd-btn" :disabled="deleting" @click="delMask = false">
-            取消
-          </button>
-          <button
-            type="button"
-            class="sd-btn sd-btn-danger"
-            :disabled="deleting"
-            @click="confirmDelete"
-          >
-            {{ deleting ? '删除中…' : '确认删除' }}
-          </button>
+    <transition name="sd-mask">
+      <div v-if="delMask" class="sd-mask">
+        <div class="sd-dialog" role="dialog" aria-modal="true" aria-labelledby="sdDelTitle">
+          <div class="sd-d-ic">
+            <svg
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M4 7h16M10 11v6M14 11v6" />
+              <path d="M6 7l1 12.2a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L18 7" />
+              <path d="M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7" />
+            </svg>
+          </div>
+          <h3 id="sdDelTitle">删除这条记录？</h3>
+          <p class="sd-dsub">
+            记录「{{
+              delTarget ? delTarget.name : ''
+            }}」及已生成的记录文件将一并删除，该操作不可恢复。
+          </p>
+          <div class="sd-actions">
+            <button type="button" class="sd-btn" :disabled="deleting" @click="delMask = false">
+              取消
+            </button>
+            <button
+              type="button"
+              class="sd-btn sd-btn-danger"
+              :disabled="deleting"
+              @click="confirmDelete"
+            >
+              {{ deleting ? '删除中…' : '确认删除' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </transition>
 
     <!-- ===== 弹层：存网盘目录选择（迁移旧页 ShadeNdPick 浏览式选目录） ===== -->
     <DirPicker
@@ -713,7 +731,17 @@ const fileInput = ref(null);
 const files = ref([]);
 const dragOver = ref(false);
 const dateISO = ref(todayISO());
+const dateInput = ref(null);
 let dragDepth = 0;
+
+// 日期文字区点击也唤起原生选择器（input[type=date] 默认仅点图标可开；不支持 showPicker 的浏览器自动忽略）
+function openDatePicker() {
+  try {
+    dateInput.value?.showPicker?.();
+  } catch (e) {
+    /* 已在打开或浏览器不支持时忽略 */
+  }
+}
 
 function addFiles(fileList) {
   let badType = 0;
@@ -1214,16 +1242,33 @@ onBeforeUnmount(() => {
   color: var(--tk-ph);
   letter-spacing: 1px;
 }
+/* 原生下拉（班组切换/主持人/记录人）：自绘箭头 + 指针，保持原生可点开 */
+.sd-team-sel,
+select.sd-input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2386909c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
 .sd-team-sel {
-  height: 36px;
+  height: 40px;
   min-width: 132px;
-  padding: 0 10px;
+  padding-left: 12px;
   border: 1px solid var(--tk-line);
   border-radius: 8px;
-  background: #fff;
+  background-color: #fff;
   font-size: 12.5px;
   color: var(--tk-ink);
   outline: none;
+  transition:
+    border-color 0.15s var(--tk-ease),
+    box-shadow 0.15s var(--tk-ease);
+}
+.sd-team-sel:hover {
+  border-color: var(--tk-brand);
 }
 .sd-team-sel:focus {
   border-color: var(--tk-brand);
@@ -1243,6 +1288,17 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+/* 中和 styles.css `.card + .card` 相邻上边距：间距统一交给 flex gap，防首卡被撑高、相邻卡下移不等高 */
+.sd-side > .card {
+  margin-top: 0;
+}
+/* 卡片作外壳时零内边距（旧页 .card 无全局 padding，内边距由内部块自带） */
+.sd-card-flat {
+  padding: 0;
+}
+.sd-ftags:empty {
+  display: none;
 }
 
 /* ===== 拖传上传区 ===== */
@@ -1287,7 +1343,7 @@ onBeforeUnmount(() => {
   color: var(--tk-brand);
 }
 .sd-drop p {
-  margin-top: 8px;
+  margin: 8px 0 0;
   font-size: 11.5px;
   color: var(--tk-ph);
   line-height: 1.8;
@@ -1397,7 +1453,10 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 3px rgba(14, 61, 168, 0.12);
 }
 .sd-date-row .sd-input {
-  height: 40px;
+  /* 与「生成记录」块按钮同高对齐 */
+  height: 44px;
+  flex: 1;
+  min-width: 0;
   color-scheme: light;
 }
 textarea.sd-name-area {
@@ -1669,6 +1728,27 @@ textarea.sd-name-area {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  padding: 0; /* 外壳零内边距（同旧页 .card）：表头/单元格自带 22px 边距，防内容区被挤窄裁切 */
+}
+/* 表格滚动区：超宽时横向滚动不裁切操作列；细滚动条 + gutter 防滚动条出现把内容挤偏 */
+.sd-tbl-scroll {
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.sd-tbl-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+.sd-tbl-scroll::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.sd-tbl-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.sd-tbl-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 .sd-tbl-h {
   display: flex;
@@ -1679,7 +1759,7 @@ textarea.sd-name-area {
 }
 .sd-tbl-h b {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.5px;
 }
 .sd-tbl-h .sd-refresh {
@@ -1751,7 +1831,7 @@ textarea.sd-name-area {
   }
 }
 .sd-rn {
-  font-weight: 700;
+  font-weight: 700; /* 长文件名自然按 CJK 断行；超宽时由 .sd-tbl-scroll 横向滚动兜底，不裁切 */
 }
 .sd-rf {
   margin-top: 3px;
@@ -1889,6 +1969,27 @@ textarea.sd-name-area {
   align-items: center;
   justify-content: center;
 }
+/* 弹层开合过渡（旧页 mask/Dialog 口径：遮罩淡入 0.3s + 对话框上浮缩放 0.35s） */
+.sd-mask-enter-active,
+.sd-mask-leave-active {
+  transition: opacity 0.3s;
+}
+.sd-mask-enter-from,
+.sd-mask-leave-to {
+  opacity: 0;
+}
+.sd-mask .sd-dialog {
+  transform: none;
+  transition: transform 0.35s var(--tk-ease);
+}
+.sd-mask-enter-from .sd-dialog,
+.sd-mask-leave-to .sd-dialog {
+  transform: translateY(16px) scale(0.97);
+}
+/* 文件条新行入场（旧页 .ftag fadeUp 0.4s） */
+.sd-ftag-enter-active {
+  animation: sd-fade-up 0.4s var(--tk-ease) both;
+}
 .sd-dialog {
   width: 420px;
   max-width: 100%;
@@ -1900,6 +2001,24 @@ textarea.sd-name-area {
   border-radius: 8px;
   box-shadow: var(--tk-shadow-card);
   padding: 26px 26px 22px;
+  /* 滚动条出现时不挤偏内容（both-edges 保持居中；不支持时退化为单侧 gutter） */
+  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+}
+.sd-dialog::-webkit-scrollbar {
+  width: 5px;
+}
+.sd-dialog::-webkit-scrollbar-thumb {
+  background: rgba(29, 33, 41, 0.16);
+  border-radius: 8px;
+}
+.sd-dialog::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 33, 41, 0.34);
+}
+.sd-dialog::-webkit-scrollbar-track {
+  background: transparent;
 }
 .sd-dialog h3 {
   margin: 0;
@@ -2037,6 +2156,19 @@ textarea.sd-name-area {
   }
 }
 
+/* 中等宽度收紧单元格水平边距，保证操作列完整可见；宽屏保持旧页 22px 口径 */
+@media (max-width: 1500px) {
+  .sd-rtable th,
+  .sd-rtable td {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .sd-tbl-h {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
 @media (max-width: 960px) {
   .sd-body {
     flex-direction: column;
@@ -2046,6 +2178,8 @@ textarea.sd-name-area {
   }
   .sd-tbl {
     width: 100%;
+  }
+  .sd-tbl-scroll {
     overflow-x: auto;
   }
   .sd-rtable {
@@ -2059,7 +2193,8 @@ textarea.sd-name-area {
   .sd-head .more,
   .sd-side,
   .sd-tbl,
-  .sd-rtable tr.sd-row-new {
+  .sd-rtable tr.sd-row-new,
+  .sd-ftag-enter-active {
     animation: none;
   }
   .sd-step.doing .sd-step-ic i,
@@ -2067,6 +2202,15 @@ textarea.sd-name-area {
   .sd-refresh svg.sd-rot,
   .sd-spin {
     animation: none;
+  }
+  .sd-mask-enter-active,
+  .sd-mask-leave-active,
+  .sd-mask .sd-dialog {
+    transition: none;
+  }
+  .sd-mask-enter-from .sd-dialog,
+  .sd-mask-leave-to .sd-dialog {
+    transform: none;
   }
 }
 </style>

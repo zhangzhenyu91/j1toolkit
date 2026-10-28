@@ -63,22 +63,22 @@ func TestRecallImageRemovesPhotoOnly(t *testing.T) {
 		"is_tree_hazard": "true", "line_name": "10kV某线", "pole_from": 12.0,
 	}
 	at := env.now.Unix()
-	// 张三报送记录 → 李四补挂辅证图 → 李四撤回图片
-	env.m.HandleMessage(context.Background(), textMsg("u1", "msg-rm-2", "12# 杨树超高", at))
-	refer := referXMLFor("msg-rm-2", "12# 杨树超高", "0")
-	env.m.HandleMessage(context.Background(), imageMsg("u2", "img-rm-1", "file-no-1", at+10, refer))
-	if len(env.sink.payloads()) != 2 {
-		t.Fatalf("挂接后应重推，sink 调用 %d 次", len(env.sink.payloads()))
+	// 李四发图 → 张三「先引用图片、再发送记录文字」挂辅证 → 李四撤回图片
+	env.m.HandleMessage(context.Background(), imageMsg("u2", "img-rm-1", "file-no-1", at, ""))
+	report := quoteImageTextMsg("u1", "msg-rm-2", "img-rm-1", "12# 杨树超高", at+10)
+	env.m.HandleMessage(context.Background(), report)
+	if len(env.sink.payloads()) != 1 {
+		t.Fatalf("记录带辅证一次性上送，sink 调用 %d 次", len(env.sink.payloads()))
 	}
 
 	if !env.m.HandleMessage(context.Background(), recallMsg("u2", "sys-rm-2", at+20)) {
 		t.Fatal("撤回事件应被消费")
 	}
 	calls := env.sink.payloads()
-	if len(calls) != 3 {
-		t.Fatalf("sink 调用 %d 次，期望 3 次（辅证变更重推）", len(calls))
+	if len(calls) != 2 {
+		t.Fatalf("sink 调用 %d 次，期望 2 次（辅证变更重推）", len(calls))
 	}
-	rec := decodePayload(t, calls[2].Payload)["records"].([]any)[0].(map[string]any)
+	rec := decodePayload(t, calls[1].Payload)["records"].([]any)[0].(map[string]any)
 	photos, _ := rec["evidence_photos"].([]any)
 	if len(photos) != 0 {
 		t.Fatalf("辅证应被摘除，剩余 %d 张", len(photos))

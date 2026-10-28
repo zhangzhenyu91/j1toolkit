@@ -113,56 +113,27 @@ func (s *memState) FindTodayRecord(_ context.Context, groupID, msgID, content st
 	return try(KindCrossing), nil
 }
 
-func (s *memState) FindNearTime(_ context.Context, groupID string, at, windowSec int64) (*Record, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var best *Record
-	for _, rec := range s.records {
-		if rec.GroupID != groupID || rec.Status == "dropped" {
-			continue
-		}
-		if rec.CapturedAt < at-windowSec || rec.CapturedAt > at+windowSec {
-			continue
-		}
-		if best == nil || rec.CapturedAt > best.CapturedAt {
-			best = rec
-		}
-	}
-	if best == nil {
-		return nil, nil
-	}
-	cp := *best
-	return &cp, nil
-}
-
 func (s *memState) FindRecallTarget(_ context.Context, groupID, senderID string, windowSec int64, kind string, now int64) (*Record, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var latest *Record
+	if senderID == "" {
+		return nil, "", nil
+	}
 	var own *Record
 	for _, rec := range s.records {
-		if rec.GroupID != groupID || rec.Kind != kind || rec.Status == "dropped" {
+		if rec.GroupID != groupID || rec.Kind != kind || rec.Status == "dropped" || rec.SenderID != senderID {
 			continue
 		}
 		if now-rec.CapturedAt > windowSec {
 			continue
 		}
-		if latest == nil || rec.CapturedAt > latest.CapturedAt {
-			latest = rec
-		}
-		if senderID != "" && rec.SenderID == senderID {
-			if own == nil || rec.CapturedAt > own.CapturedAt {
-				own = rec
-			}
+		if own == nil || rec.CapturedAt > own.CapturedAt {
+			own = rec
 		}
 	}
 	if own != nil {
 		cp := *own
 		return &cp, "sender", nil
-	}
-	if latest != nil {
-		cp := *latest
-		return &cp, "latest", nil
 	}
 	return nil, "", nil
 }

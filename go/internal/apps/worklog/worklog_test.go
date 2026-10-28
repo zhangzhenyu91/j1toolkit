@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -404,11 +405,11 @@ func TestDayStatusAndStats(t *testing.T) {
 	env.fake.on("FROM worklog_entry e", []string{
 		"id", "team_id", "log_date", "patrol_content", "remark", "remark_files", "cross_team",
 		"vehicle_id", "plate_no", "destination_id", "destination_name", "out_of_city",
-		"stationed", "dispatch_order_no", "created_by",
+		"stationed", "dispatch_order_no", "created_by", "created_at",
 	}, [][]driver.Value{{
 		int64(1), int64(1), "2026-08-18", "", "", "", int64(0),
 		int64(5), "晋A12345", int64(0), "", int64(0),
-		int64(0), "PC-1", int64(4),
+		int64(0), "PC-1", int64(4), "2026-08-18 09:00:00",
 	}})
 	env.fake.on("FROM worklog_entry_member", []string{"id", "entry_id", "member_id", "name", "checked", "sort"},
 		[][]driver.Value{{int64(1), int64(1), int64(10), "赵登", int64(0), int64(1)}})
@@ -558,11 +559,11 @@ func TestCrossTeamVisibility(t *testing.T) {
 	env.fake.on("FROM worklog_entry e", []string{
 		"id", "team_id", "log_date", "patrol_content", "remark", "remark_files", "cross_team",
 		"vehicle_id", "plate_no", "destination_id", "destination_name", "out_of_city",
-		"stationed", "dispatch_order_no", "created_by",
+		"stationed", "dispatch_order_no", "created_by", "created_at",
 	}, [][]driver.Value{{
 		int64(7), int64(2), "2026-08-18", "", "", "", int64(1),
 		int64(5), "晋B", int64(2), "交城县", int64(0),
-		int64(0), "", int64(1),
+		int64(0), "", int64(1), "2026-08-18 09:00:00",
 	}})
 	env.fake.on("FROM worklog_entry_member", []string{"id", "entry_id", "member_id", "name", "checked", "sort"},
 		[][]driver.Value{{int64(1), int64(7), int64(10), "赵登", int64(0), int64(1)}})
@@ -626,3 +627,95 @@ func base64Of(b []byte) string {
 }
 
 var _ = bytes.MinRead
+
+// ---- 识别包装导出 / sync-now 无文件兜底（sgccclockin 联动与派车手动触发口径）----
+
+// memNotifier 人工审核通知 fake。
+type memNotifier struct{ photoIDs []int64 }
+
+func (n *memNotifier) NotifyManualReview(_ context.Context, photoID int64) error {
+	n.photoIDs = append(n.photoIDs, photoID)
+	return nil
+}
+
+// TestVerifyAndWriteBackExported 导出包装（sgccclockin.PhotoVerifier 契约）：识别含空内容
+// 重试后回写；全部不可用时置 failed 并通知人工审核——复用现有 verifyAndWriteBack 流水线。
+func TestVerifyAndWriteBackExported(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	notifier := &memNotifier{}
+	env.module.Notifier = notifier
+	// 识别重试：首调 OK 但施工内容为空 → 重试；次调可用 → 回写核验结果
+	env.dify.results = []VerifyResult{
+		{OK: true, WorkContent: ""},
+		{OK: true, WorkContent: "绝缘子清扫", Time: "2026.08.18 09:30", Location: "孝义市·现场"},
+	}
+	env.fake.on("FROM worklog_photo p JOIN worklog_entry e",
+		[]string{"log_date", "destination_name"}, [][]driver.Value{{"2026-08-18", "孝义市"}})
+	// date 传 'YYYY.MM.DD'（sgccclockin 拉下入库口径）；Dots 归一幂等
+	env.module.VerifyAndWriteBack(context.Background(), 55, "u", "2026.08.18", "孝义市", "https://cos.test/x.jpg")
+	if env.dify.calls != 2 {
+		t.Fatalf("识别应重试至可用: calls=%d", env.dify.calls)
+	}
+	if env.fake.execCount("UPDATE worklog_photo SET verify_status = ?") == 0 {
+		t.Fatalf("应回写识别结果")
+	}
+	if len(notifier.photoIDs) != 0 {
+		t.Fatalf("可用结果不应通知人工审核: %v", notifier.photoIDs)
+	}
+
+	// 识别成功但始终无施工内容 → 重试耗尽置 failed + 通知人工审核
+	env2 := newTestServer(t, identUser).withTeam()
+	notifier2 := &memNotifier{}
+	env2.module.Notifier = notifier2
+	env2.dify.results = []VerifyResult{{OK: true, WorkContent: ""}}
+	env2.fake.on("FROM worklog_photo p JOIN worklog_entry e",
+		[]string{"log_date", "destination_name"}, [][]driver.Value{{"2026-08-18", "孝义市"}})
+	env2.module.VerifyAndWriteBack(context.Background(), 56, "u", "2026.08.18", "孝义市", "https://cos.test/y.jpg")
+	if env2.dify.calls != 1+maxVerifyRetry {
+		t.Fatalf("识别应共调 %d 次: calls=%d", 1+maxVerifyRetry, env2.dify.calls)
+	}
+	if env2.fake.execCount("verify_status = 'failed'") == 0 {
+		t.Fatalf("应置 failed")
+	}
+	if len(notifier2.photoIDs) != 1 || notifier2.photoIDs[0] != 56 {
+		t.Fatalf("应通知人工审核: %v", notifier2.photoIDs)
+	}
+}
+
+// fakeDispatcher DispatchSyncer fake（sync-now 兜底口径断言用）。
+type fakeDispatcher struct {
+	n   int
+	err error
+}
+
+func (d fakeDispatcher) PrepareNow(context.Context) error { return nil }
+
+func (d fakeDispatcher) SyncNow(context.Context, int64) (int, error) { return d.n, d.err }
+
+// TestSyncNowNoFileOK 当日无文件按旧版口径 200 正常返回（执行器已发「今日无文件」通知，不报 500）；
+// 真失败仍按 codeSyncFail 下发。
+func TestSyncNowNoFileOK(t *testing.T) {
+	env := newTestServer(t, identAdmin).withTeam()
+	env.module.Dispatcher = fakeDispatcher{} // 无文件口径：(0, nil)
+	rec := env.do(t, "POST", "/api/v1/worklog/dispatch/sync-now", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP = %d", rec.Code)
+	}
+	envr := decodeEnv(t, rec)
+	if envr.Code != codeOK {
+		t.Fatalf("无文件应正常返回，实际 %d %s", envr.Code, envr.Message)
+	}
+	data, _ := envr.Data.(map[string]any)
+	if data != nil {
+		if synced, ok := data["synced"].(float64); !ok || synced != 0 {
+			t.Fatalf("synced = %v", data["synced"])
+		}
+	}
+
+	env2 := newTestServer(t, identAdmin).withTeam()
+	env2.module.Dispatcher = fakeDispatcher{err: errors.New("取件失败：设备不在线")}
+	rec2 := env2.do(t, "POST", "/api/v1/worklog/dispatch/sync-now", nil)
+	if envr := decodeEnv(t, rec2); envr.Code != codeSyncFail {
+		t.Fatalf("真失败应 %d，实际 %d %s", codeSyncFail, envr.Code, envr.Message)
+	}
+}

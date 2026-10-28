@@ -292,7 +292,8 @@ func (m *Module) fetchIntranetPhase(ctx context.Context, link UsbLink, teamID in
 		Skips: result.Skips, Adjudicated: result.Adjudicated,
 	}
 	if err := cleanupUsb(ctx, link); err != nil {
-		return counts, err
+		// 收尾清扫 best-effort：失败仅记日志不阻断同步（下一轮收尾再清，同 Node cleanupUsb 口径）
+		fmt.Printf("[树障同步] U 盘残留清扫失败（继续收尾）：%v\n", err)
 	}
 	if !needPush {
 		// 无差异：消费完的表连同残留一并清盘后重挂回共享态收尾

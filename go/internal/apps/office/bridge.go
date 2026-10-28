@@ -29,7 +29,8 @@ func (e *RefError) Error() string { return e.Message }
 // IsNotFounder 「不存在」判定（netdisk 桥哨兵 netdisk.NotFoundError 满足；不强制实现）。
 type IsNotFounder interface{ IsNotFound() bool }
 
-// mapDocErr 桥错误归一：*RefError / ErrDocNotFound 原样；「不存在」语义 → ErrDocNotFound。
+// mapDocErr 桥错误归一：*RefError / ErrDocNotFound 原样；「不存在/路径不合法」语义按 Node 口径
+// 归一为对应业务码（路径不合法 40001、不存在 40400，保留原可读文案）。
 func mapDocErr(err error) error {
 	if err == nil {
 		return nil
@@ -38,17 +39,23 @@ func mapDocErr(err error) error {
 	if errors.As(err, &re) || errors.Is(err, ErrDocNotFound) {
 		return err
 	}
-	if nf, ok := err.(IsNotFounder); ok && nf.IsNotFound() {
-		return ErrDocNotFound
-	}
 	msg := err.Error()
+	if nf, ok := err.(IsNotFounder); ok && nf.IsNotFound() {
+		if msg == "路径不合法" || strings.HasPrefix(msg, "参数错误") {
+			return &RefError{Status: http.StatusBadRequest, Code: codeParam, Message: msg}
+		}
+		if msg == "" {
+			msg = "文件或目录不存在"
+		}
+		return &RefError{Status: http.StatusNotFound, Code: codeNotFound, Message: msg}
+	}
 	if strings.Contains(msg, "不存在") || strings.Contains(strings.ToLower(msg), "not found") {
-		return ErrDocNotFound
+		return &RefError{Status: http.StatusNotFound, Code: codeNotFound, Message: msg}
 	}
 	return err
 }
 
-// refFail 把桥错误映射为应答（RefError 直出；不存在 404；其余 502）。
+// refFail 把桥错误映射为 /config 应答（RefError 直出；不存在 404；未配置 503；其余 502）。
 func refFail(w http.ResponseWriter, err error) {
 	var re *RefError
 	if errors.As(err, &re) {
@@ -64,6 +71,10 @@ func refFail(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, ErrDocNotFound) {
 		fail(w, 404, codeNotFound, "文档不存在")
+		return
+	}
+	if strings.Contains(err.Error(), "未配置") {
+		fail(w, http.StatusServiceUnavailable, codeNotConfigured, err.Error())
 		return
 	}
 	fail(w, 502, codeUpstream, "在线编辑服务异常，请稍后再试")

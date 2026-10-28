@@ -128,10 +128,10 @@ func (m *Module) SignOOJWT(ctx context.Context, claims map[string]any) (string, 
 	return t.SignedString([]byte(secret))
 }
 
-// VerifyOOJWT 校验 OnlyOffice 回调 JWT（无 token 时按 OnlyOffice 未启用 JWT 也放行的口径返回空 claims）。
+// VerifyOOJWT 校验 OnlyOffice 回调 JWT（Node 口径：双校验必过，无 token / 验签失败一律失败）。
 func (m *Module) VerifyOOJWT(ctx context.Context, token string) (map[string]any, error) {
 	if strings.TrimSpace(token) == "" {
-		return map[string]any{}, nil
+		return nil, errors.New("OnlyOffice 回调 JWT 缺失")
 	}
 	secret, err := m.ooSecret(ctx)
 	if err != nil {
@@ -154,7 +154,14 @@ func (m *Module) ooSecret(ctx context.Context) (string, error) {
 	if m.Cfg == nil {
 		return "", errors.New("OnlyOffice JWT 密钥未配置")
 	}
-	return m.Cfg.Get(ctx, "OO_JWT_SECRET")
+	v, err := m.Cfg.Get(ctx, "OO_JWT_SECRET")
+	if err != nil {
+		return "", err
+	}
+	if v == "" {
+		return "", errors.New("OnlyOffice JWT 密钥未配置")
+	}
+	return v, nil
 }
 
 // NewTicketID 随机票据 id（回调路由用短 id）。

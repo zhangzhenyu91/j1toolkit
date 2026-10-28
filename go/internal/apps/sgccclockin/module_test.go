@@ -32,6 +32,8 @@ type fakeAPI struct {
 	dayNew     map[string]any
 	dayNewErr  error
 	markCalls  int
+	markResp   map[string]any // 非空覆盖 MarkClockin 应答（默认 statusCode=200）
+	markLast   map[string]any // 最近一次 MarkClockin 请求体
 	saveCalls  int
 	feeTpl     map[string]any
 	feeSave    map[string]any
@@ -62,8 +64,12 @@ func (f *fakeAPI) LoginByPassword(context.Context, string, string, string, strin
 func (f *fakeAPI) DayNew(context.Context, string, string, CallOpts) (map[string]any, error) {
 	return f.dayNew, f.dayNewErr
 }
-func (f *fakeAPI) MarkClockin(context.Context, string, map[string]any, CallOpts) (map[string]any, error) {
+func (f *fakeAPI) MarkClockin(_ context.Context, _ string, payload map[string]any, _ CallOpts) (map[string]any, error) {
 	f.markCalls++
+	f.markLast = payload
+	if f.markResp != nil {
+		return f.markResp, nil
+	}
 	return map[string]any{"statusCode": 200}, nil
 }
 func (f *fakeAPI) SaveFee(context.Context, string, map[string]any, CallOpts) (map[string]any, error) {
@@ -412,8 +418,8 @@ func TestAccountGetMasked(t *testing.T) {
 	h := newTestRouter(m, testIdentity())
 	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
 	fdb.onRowsAlways("FROM worklog_sgcc_account WHERE user_id",
-		[]string{"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status"},
-		[]driver.Value{int64(1), int64(1), int64(7), int64(11), "13800138000", "tk", "dev", "sys", int64(1)})
+		[]string{"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status", "last_check_at"},
+		[]driver.Value{int64(1), int64(1), int64(7), int64(11), "13800138000", "tk", "dev", "sys", int64(1), nil})
 	fdb.onRowsAlways("FROM worklog_clockin", []string{"seq", "clock_time", "position", "work_hours"})
 	fdb.onRowsAlways("FROM worklog_fee", []string{"food_fee", "transit_fee"})
 
@@ -425,6 +431,605 @@ func TestAccountGetMasked(t *testing.T) {
 	data := env["data"].(map[string]any)
 	if data["mobile_masked"] != "138****8000" {
 		t.Fatalf("脱敏不符: %v", data["mobile_masked"])
+	}
+}
+
+// TestParseDayClockinsBodyShape dayNew 应答解析（data.body.clockInDetailList + body.workHours 同 Node 口径）。
+func TestParseDayClockinsBodyShape(t *testing.T) {
+	decoded := map[string]any{
+		"statusCode": float64(200),
+		"data": map[string]any{"body": map[string]any{
+			"clockInDetailList": []any{
+				map[string]any{
+					"detailId": "D1", "clockInTime": "2026-10-27 08:00:00",
+					"position": "P1", "longitude": "111.5", "latitude": "36.1",
+				},
+				map[string]any{
+					"id": "D2", "createTime": float64(1761532800000), // 毫秒时间戳
+					"position": "P2",
+				},
+			},
+			"workHours": "8",
+		}},
+	}
+	recs := ParseDayClockins(decoded)
+	if len(recs) != 2 {
+		t.Fatalf("应解析 2 条: %d", len(recs))
+	}
+	if recs[0].DetailID != "D1" || recs[0].ClockTime != "2026-10-27 08:00:00" {
+		t.Fatalf("首条解析不符: %+v", recs[0])
+	}
+	if recs[1].DetailID != "D2" || recs[1].ClockTime == "" {
+		t.Fatalf("次条（id/createTime 兜底）解析不符: %+v", recs[1])
+	}
+	if recs[0].WorkHours != "8" || recs[1].WorkHours != "8" {
+		t.Fatalf("工时应取 body.workHours 逐行同值: %+v", recs)
+	}
+	// 旧形状（data.list）不再解析
+	if got := ParseDayClockins(map[string]any{
+		"data": map[string]any{"list": []any{map[string]any{"detailId": "X"}}},
+	}); got != nil {
+		t.Fatalf("data.list 形状不应解析出记录: %+v", got)
+	}
+}
+
+// clockinAPIReady 打卡路由测试共用：班组/成员/绑定行就绪（登录态有效）。
+func clockinAPIReady(t *testing.T, db *sql.DB, fdb *fakeDB) {
+	t.Helper()
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
+	fdb.onRowsAlways("FROM worklog_member m", []string{"id"}, []driver.Value{int64(11)})
+	fdb.onRowsAlways("FROM worklog_sgcc_account WHERE member_id",
+		[]string{"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status"},
+		[]driver.Value{int64(1), int64(1), int64(7), int64(11), "13800138000", "tk", "dev", "sys", int64(1)})
+}
+
+// TestClockinPostMarkContract 打卡请求体口径：remarks 默认值、seq=1 不带 NextClockIn、成功回「打卡成功」并补写城市。
+func TestClockinPostMarkContract(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	api := &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
+	m.API = api
+	h := newTestRouter(m, testIdentity())
+	clockinAPIReady(t, db, fdb)
+
+	body := fmt.Sprintf(`{"member_id":11,"date":"%s","seq":1,"position":"中国山西省临汾市尧都区","longitude":"111.5","latitude":"36.1","city_code":"141002","city_name":"临汾市"}`, TodayCN())
+	rec := doJSON(t, h, http.MethodPost, "/api/v1/sgcc/clockin", body)
+	env := decodeEnvelope(t, rec)
+	if env["code"] != float64(0) {
+		t.Fatalf("打卡应成功: %v", env)
+	}
+	if env["message"] != "打卡成功" {
+		t.Fatalf("message 应为「打卡成功」: %v", env["message"])
+	}
+	if api.markCalls != 1 || api.markLast == nil {
+		t.Fatalf("应调用 markNew 一次: %+v", api.markLast)
+	}
+	if got := api.markLast["remarks"]; got != "110kV及220kV输电线路巡视" {
+		t.Fatalf("remarks 应默认「110kV及220kV输电线路巡视」: %v", got)
+	}
+	if _, has := api.markLast["NextClockIn"]; has {
+		t.Fatalf("seq=1 不应带 NextClockIn: %+v", api.markLast)
+	}
+	if api.markLast["clockInDate"] != TodayCN() {
+		t.Fatalf("clockInDate 不符: %v", api.markLast["clockInDate"])
+	}
+	if len(fdb.callsWith("UPDATE worklog_clockin SET city_code")) != 1 {
+		t.Fatalf("打卡成功后应补写城市信息")
+	}
+}
+
+// TestClockinPostDuplicate40037 已有该 seq 记录再打卡 → 40037「已开始打卡」。
+func TestClockinPostDuplicate40037(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	api := &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
+	m.API = api
+	h := newTestRouter(m, testIdentity())
+	clockinAPIReady(t, db, fdb)
+	fdb.onRowsAlways("FROM worklog_clockin WHERE member_id = ? AND clock_date = ? AND seq",
+		[]string{"cnt"}, []driver.Value{int64(1)})
+
+	body := fmt.Sprintf(`{"member_id":11,"date":"%s","seq":1,"position":"P","longitude":"111.5","latitude":"36.1","city_code":"141002","city_name":"临汾市"}`, TodayCN())
+	rec := doJSON(t, h, http.MethodPost, "/api/v1/sgcc/clockin", body)
+	env := decodeEnvelope(t, rec)
+	if env["code"] != float64(codePlatform) || env["message"] != "已开始打卡" {
+		t.Fatalf("应 40037 已开始打卡: %v", env)
+	}
+	if api.markCalls != 0 {
+		t.Fatalf("不应再调商旅打卡")
+	}
+}
+
+// TestClockinPostFailMapping 平台失败 → 探测登录态：仍有效 40036 带平台原文；已过期 40021。
+func TestClockinPostFailMapping(t *testing.T) {
+	run := func(dayNew map[string]any, wantCode float64, wantMsg string) {
+		db, fdb := openFake(t)
+		defer db.Close()
+		m := New(db)
+		api := &fakeAPI{dayNew: dayNew, markResp: map[string]any{"statusCode": float64(500), "msg": "服务丢了"}}
+		m.API = api
+		h := newTestRouter(m, testIdentity())
+		clockinAPIReady(t, db, fdb)
+		body := fmt.Sprintf(`{"member_id":11,"date":"%s","seq":1,"position":"P","longitude":"111.5","latitude":"36.1","city_code":"141002","city_name":"临汾市"}`, TodayCN())
+		rec := doJSON(t, h, http.MethodPost, "/api/v1/sgcc/clockin", body)
+		env := decodeEnvelope(t, rec)
+		if env["code"] != wantCode || env["message"] != wantMsg {
+			t.Fatalf("映射不符: code=%v message=%v（期望 %v %q）", env["code"], env["message"], wantCode, wantMsg)
+		}
+	}
+	run(map[string]any{"statusCode": float64(200)}, 40036, "服务丢了")
+	run(map[string]any{"statusCode": float64(401)}, 40021, "该成员商旅登录已过期，请其本人重新登录")
+}
+
+// TestSyncOneRemoteOverwrite 对账以商旅为准：商旅有 1 条 → 本地多出的 detailId 行删除并记 ok/diff 明细。
+func TestSyncOneRemoteOverwrite(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	m.API = &fakeAPI{dayNew: map[string]any{
+		"statusCode": float64(200),
+		"data": map[string]any{"body": map[string]any{
+			"clockInDetailList": []any{
+				map[string]any{"detailId": "D1", "clockInTime": "2026-10-27 08:00:00", "position": "P"},
+			},
+			"workHours": "8",
+		}},
+	}}
+	fdb.onRowsAlways("SELECT COUNT(*) FROM worklog_clockin", []string{"cnt"}, []driver.Value{int64(3)})
+	fdb.onRowsAlways("SELECT seq, detail_id FROM worklog_clockin", []string{"seq", "detail_id"})
+	fdb.onRowsAlways("SELECT id, detail_id FROM worklog_clockin", []string{"id", "detail_id"},
+		[]driver.Value{int64(9), "OLD"})
+	fdb.onExec("INSERT INTO worklog_clockin", 0)
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+
+	acc := &Account{ID: 3, MemberID: 11, TokenStatus: 1, Token: "tk"}
+	if err := m.SyncOne(context.Background(), acc, "2026-10-27", "daily", 1); err != nil {
+		t.Fatalf("对账应成功: %v", err)
+	}
+	deletes := fdb.callsWith("DELETE FROM worklog_clockin WHERE id = ?")
+	if len(deletes) != 1 || fmt.Sprintf("%v", deletes[0].args) != "[9]" {
+		t.Fatalf("应删除商旅已无的本地行 id=9: %+v", deletes)
+	}
+	logs := fdb.callsWith("INSERT INTO worklog_sync_log")
+	found := false
+	for _, c := range logs {
+		if strings.Contains(fmt.Sprintf("%v", c.args), "打卡：商旅 1 条覆盖本地（本地原 3 条）") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("应记对账明细「打卡：商旅 1 条覆盖本地（本地原 3 条）」: %+v", logs)
+	}
+}
+
+// ---- 路由审计补差回归（超管 team_id / sync/pull 三模式 / 进度任务 / op/status / sync/logs / accounts / fee / day）----
+
+// adminIdentity 超管身份（team_id 指定用）。
+func adminIdentity() auth.Identity {
+	return auth.Identity{ID: 7, Username: "zhang", Nickname: "张振宇", Role: "admin", TeamID: 1}
+}
+
+// userIdentity 普通用户身份。
+func userIdentity() auth.Identity {
+	return auth.Identity{ID: 8, Username: "li", Nickname: "李四", Role: "user", TeamID: 1}
+}
+
+// TestWantedTeamIDResolve 超管 ?team_id= / body.team_id 生效班组解析（Node resolveReqTeam 语义）。
+func TestWantedTeamIDResolve(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	h := newTestRouter(m, adminIdentity())
+	// 超管指定班组 2：生效班组应为 2（查询参数进 SQL）
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(2), "检修二班"})
+	fdb.onRowsAlways("FROM worklog_sync_log", []string{"id", "team_id", "member_id", "member_name", "sync_date", "scope", "type", "result", "detail", "created_at"})
+	_ = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/sync/logs?team_id=2", "")
+	for _, c := range fdb.callsWith("FROM worklog_sync_log") {
+		if len(c.args) > 0 && c.args[0] == int64(2) {
+			return // 命中：team_id=2 已生效
+		}
+	}
+	t.Fatalf("超管 ?team_id= 未生效: %+v", fdb.callsWith("FROM worklog_sync_log"))
+}
+
+// TestWantedTeamIDBodyAndNonAdmin body.team_id 生效；非超管传 team_id 被收敛回本班。
+func TestWantedTeamIDBodyAndNonAdmin(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
+	m.IntervalMs = 0
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(2), "检修二班"})
+	fdb.onRowsAlways("FROM worklog_member m", []string{"id"}, []driver.Value{int64(11)})
+	fdb.onRowsAlways("FROM worklog_sgcc_account WHERE member_id",
+		[]string{"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status"},
+		[]driver.Value{int64(1), int64(2), int64(7), int64(11), "13800138000", "tk", "dev", "sys", int64(1)})
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+
+	// 超管 body.team_id=2：requireMemberAccount 校验 SQL 应带班组 2
+	h := newTestRouter(m, adminIdentity())
+	rec := doJSON(t, h, http.MethodPost, "/api/v1/sgcc/sync/pull",
+		`{"team_id":2,"member_id":11,"date":"2026-10-28"}`)
+	env := decodeEnvelope(t, rec)
+	if env["code"] != float64(0) {
+		t.Fatalf("body.team_id 拉取应成功: %v", env)
+	}
+	found := false
+	for _, c := range fdb.callsWith("FROM worklog_member m") {
+		for _, a := range c.args {
+			if a == int64(2) {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("body.team_id= 未生效: %+v", fdb.callsWith("FROM worklog_member m"))
+	}
+
+	// 非超管传 team_id=2：收敛回本班 1（生效班组解析只按本人 team_id 查）
+	db2, fdb2 := openFake(t)
+	defer db2.Close()
+	m2 := New(db2)
+	m2.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
+	m2.IntervalMs = 0
+	fdb2.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
+	fdb2.onRowsAlways("FROM worklog_member m", []string{"id"}, []driver.Value{int64(11)})
+	fdb2.onRowsAlways("FROM worklog_sgcc_account WHERE member_id",
+		[]string{"id", "team_id", "user_id", "member_id", "mobile", "token", "device_type", "system_version", "token_status"},
+		[]driver.Value{int64(1), int64(1), int64(7), int64(11), "13800138000", "tk", "dev", "sys", int64(1)})
+	fdb2.onExec("INSERT INTO worklog_sync_log", 0)
+	h2 := newTestRouter(m2, userIdentity())
+	_ = doJSON(t, h2, http.MethodPost, "/api/v1/sgcc/sync/pull",
+		`{"team_id":2,"member_id":11,"date":"2026-10-28"}`)
+	for _, c := range fdb2.callsWith("FROM sys_team") {
+		for _, a := range c.args {
+			if a == int64(2) {
+				t.Fatalf("非超管 team_id 不应生效（不应按 2 查班组）: %+v", c.args)
+			}
+		}
+	}
+	for _, c := range fdb2.callsWith("FROM worklog_member m") {
+		for _, a := range c.args {
+			if a == int64(2) {
+				t.Fatalf("非超管 team_id 不应进校验 SQL: %+v", c.args)
+			}
+		}
+	}
+}
+
+// TestSyncPullEntryAndBatch /sync/pull 三模式：entry_id 卡片级、区段批量门禁、进度与 active 形状。
+func TestSyncPullEntryAndBatch(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	m.API = &fakeAPI{dayNew: map[string]any{"statusCode": 200}}
+	m.IntervalMs = 0
+	h := newTestRouter(m, adminIdentity())
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
+	fdb.onRowsAlways("FROM worklog_entry WHERE id", []string{"log_date"}, []driver.Value{"2026-10-28"})
+	fdb.onRowsAlways("FROM worklog_entry_member WHERE entry_id", []string{"member_id"},
+		[]driver.Value{int64(11)}, []driver.Value{int64(12)})
+	fdb.onRowsAlways("COUNT(DISTINCT m.id) FROM worklog_member", []string{"cnt"}, []driver.Value{int64(2)})
+	fdb.onRowsAlways("COUNT(DISTINCT m.id, e.log_date)", []string{"cnt"}, []driver.Value{int64(3)})
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+
+	// 卡片级：{entry_id} → jobId+total，文案「仅本卡用车人」
+	rec := doJSON(t, h, http.MethodPost, "/api/v1/sgcc/sync/pull", `{"entry_id":100}`)
+	env := decodeEnvelope(t, rec)
+	if env["code"] != float64(0) {
+		t.Fatalf("entry_id 拉取应成功: %v", env)
+	}
+	data := env["data"].(map[string]any)
+	if data["total"] != float64(2) {
+		t.Fatalf("卡片级 total 应为 2: %v", data)
+	}
+	if !strings.Contains(env["message"].(string), "仅本卡用车人") {
+		t.Fatalf("文案不符: %v", env["message"])
+	}
+
+	// 缺 job → 200 空完成态（Node 口径）
+	rec = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/sync/progress?job_id=999999", "")
+	env = decodeEnvelope(t, rec)
+	if env["code"] != float64(0) {
+		t.Fatalf("缺 job 应 200: %v", env)
+	}
+	p := env["data"].(map[string]any)
+	if p["finished"] != true || p["total"] != float64(0) {
+		t.Fatalf("缺 job 空完成态不符: %v", p)
+	}
+
+	// 进度字段：failed/failMsg/errors 齐备（web errors 旧键并存）
+	jobID := jobs.New(1, 3, "card", "2026-10-28")
+	jobs.Step(jobID, "connect ECONNREFUSED")
+	rec = doJSON(t, h, http.MethodGet, fmt.Sprintf("/api/v1/sgcc/sync/progress?job_id=%d", jobID), "")
+	env = decodeEnvelope(t, rec)
+	p = env["data"].(map[string]any)
+	if p["total"] != float64(3) || p["done"] != float64(1) || p["failed"] != float64(1) {
+		t.Fatalf("进度计数不符: %v", p)
+	}
+	if p["failMsg"] != "网络/代理异常，无法连接商旅平台" {
+		t.Fatalf("failMsg 友好口径不符: %v", p)
+	}
+	if p["errors"] != float64(1) || p["finished"] != false {
+		t.Fatalf("errors/finished 不符: %v", p)
+	}
+
+	// /sync/active 形状：running/total/done/failed/batchDone/daily/ops/jobs
+	batchID := jobs.New(1, 5, "batch", "2026-10-28")
+	jobs.Step(batchID, "")
+	rec = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/sync/active", "")
+	env = decodeEnvelope(t, rec)
+	a := env["data"].(map[string]any)
+	for _, key := range []string{"running", "total", "done", "failed", "batchDone", "daily", "ops", "jobs"} {
+		if _, ok := a[key]; !ok {
+			t.Fatalf("sync/active 缺 %s: %v", key, a)
+		}
+	}
+	if a["running"] != true || a["total"] != float64(5) || a["done"] != float64(1) {
+		t.Fatalf("active 计数不符: %v", a)
+	}
+	if d, _ := a["daily"].(map[string]any); d["running"] != false {
+		t.Fatalf("daily 空态不符: %v", a["daily"])
+	}
+	jobs.Finish(batchID)
+	rec = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/sync/active", "")
+	env = decodeEnvelope(t, rec)
+	a = env["data"].(map[string]any)
+	if bd, _ := a["batchDone"].(map[string]any); bd == nil || bd["total"] != float64(5) {
+		t.Fatalf("batchDone 终态不符: %v", a["batchDone"])
+	}
+
+	// 批量门禁：普通用户 40304；进行中批量 40909
+	hu := newTestRouter(m, userIdentity())
+	rec = doJSON(t, hu, http.MethodPost, "/api/v1/sgcc/sync/pull", `{"from":"2026-10-01","to":"2026-10-28"}`)
+	env = decodeEnvelope(t, rec)
+	if env["code"] != float64(40304) {
+		t.Fatalf("批量应仅管理员: %v", env)
+	}
+	jobs.New(1, 1, "batch", "2026-10-28")
+	rec = doJSON(t, h, http.MethodPost, "/api/v1/sgcc/sync/pull", `{"from":"2026-10-01","to":"2026-10-28"}`)
+	env = decodeEnvelope(t, rec)
+	if env["code"] != float64(40909) {
+		t.Fatalf("批量互斥应 40909: %v", env)
+	}
+
+	// 登录过期门禁 40910
+	fdb.onRowsAlways("a.token_status = 0", []string{"name"}, []driver.Value{"王五"})
+	rec = doJSON(t, h, http.MethodPost, "/api/v1/sgcc/sync/pull", `{"date":"2026-10-27"}`)
+	env = decodeEnvelope(t, rec)
+	if env["code"] != float64(40910) || !strings.Contains(env["message"].(string), "王五") {
+		t.Fatalf("过期门禁不符: %v", env)
+	}
+
+	// 区段超 62 天 40000
+	rec = doJSON(t, h, http.MethodPost, "/api/v1/sgcc/sync/pull", `{"from":"2026-01-01","to":"2026-03-15"}`)
+	env = decodeEnvelope(t, rec)
+	if env["code"] != float64(40000) {
+		t.Fatalf("区段超限应 40000: %v", env)
+	}
+}
+
+// TestOpStatusEmptyAndShape /op/status：未命中 200 空完成态；命中返回双端超集字段。
+func TestOpStatusEmptyAndShape(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	h := newTestRouter(m, testIdentity())
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
+
+	// 未命中：200 空完成态（status=ok、step=done 兼容网页端收尾）
+	rec := doJSON(t, h, http.MethodGet, "/api/v1/sgcc/op/status?op_id=999999", "")
+	env := decodeEnvelope(t, rec)
+	if env["code"] != float64(0) {
+		t.Fatalf("缺任务应 200: %v", env)
+	}
+	empty := env["data"].(map[string]any)
+	if empty["status"] != "ok" || empty["done"] != float64(0) || empty["total"] != float64(0) {
+		t.Fatalf("空完成态不符: %v", empty)
+	}
+	if empty["step"] != "done" {
+		t.Fatalf("空态应带 step=done（网页端收尾）: %v", empty)
+	}
+
+	// 命中：Node 字段 + 网页端字段并存
+	op := m.Ops.New("resync", 1, 100, 9)
+	if op == nil {
+		t.Fatalf("任务登记失败")
+	}
+	m.Ops.SetCounts(op.ID, 2, 5)
+	m.Ops.SetProgress(op.ID, 40, "running")
+	rec = doJSON(t, h, http.MethodGet, fmt.Sprintf("/api/v1/sgcc/op/status?op_id=%d", op.ID), "")
+	env = decodeEnvelope(t, rec)
+	got := env["data"].(map[string]any)
+	if got["status"] != "running" || got["done"] != float64(2) || got["total"] != float64(5) {
+		t.Fatalf("Node 字段不符: %v", got)
+	}
+	if got["step"] != "running" || got["progress"] != float64(40) {
+		t.Fatalf("网页端字段不符: %v", got)
+	}
+	if got["entryId"] != float64(100) || got["entry_id"] != float64(100) {
+		t.Fatalf("entry 键不符: %v", got)
+	}
+
+	// 终态：fail → status=fail + failedName/error
+	m.Ops.SetFailedName(op.ID, "张三")
+	m.Ops.Run(op.ID, func(*PhotoOp) error { return fmt.Errorf("商旅同步失败") })
+	rec = doJSON(t, h, http.MethodGet, fmt.Sprintf("/api/v1/sgcc/op/status?op_id=%d", op.ID), "")
+	env = decodeEnvelope(t, rec)
+	got = env["data"].(map[string]any)
+	if got["status"] != "fail" || got["failed"] != true || got["failedName"] != "张三" {
+		t.Fatalf("失败终态不符: %v", got)
+	}
+	if got["error"] != "商旅同步失败" {
+		t.Fatalf("error 不符: %v", got)
+	}
+}
+
+// TestSyncLogsMonthRange /sync/logs：month/from-to 与既有过滤并存。
+func TestSyncLogsMonthRange(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	h := newTestRouter(m, testIdentity())
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
+	cols := []string{"id", "team_id", "member_id", "member_name", "sync_date", "scope", "type", "result", "detail", "created_at"}
+	fdb.onRowsAlways("FROM worklog_sync_log", cols,
+		[]driver.Value{int64(1), int64(1), int64(11), "张三", "2026-10-28", "daily", "clockin", "ok", "", "2026-10-28 23:00"})
+
+	// month：按月 + LIMIT 100
+	_ = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/sync/logs?month=2026-10", "")
+	qs := fdb.callsWith("FROM worklog_sync_log")
+	if len(qs) == 0 || !strings.Contains(qs[0].query, "DATE_FORMAT(l.sync_date, '%Y-%m') = ?") ||
+		!strings.Contains(qs[0].query, "LIMIT 100") {
+		t.Fatalf("month 查询不符: %+v", qs)
+	}
+
+	// from/to：区段 + LIMIT 200
+	_ = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/sync/logs?from=2026-10-01&to=2026-10-28", "")
+	qs = fdb.callsWith("FROM worklog_sync_log")
+	last := qs[len(qs)-1]
+	if !strings.Contains(last.query, "l.sync_date BETWEEN ? AND ?") || !strings.Contains(last.query, "LIMIT 200") {
+		t.Fatalf("区段查询不符: %+v", last)
+	}
+
+	// 既有过滤（网页端）：type/result 保留
+	_ = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/sync/logs?type=clockin&result=fail", "")
+	qs = fdb.callsWith("FROM worklog_sync_log")
+	last = qs[len(qs)-1]
+	if !strings.Contains(last.query, "l.type = ?") || !strings.Contains(last.query, "l.result = ?") {
+		t.Fatalf("既有过滤丢失: %+v", last)
+	}
+}
+
+// TestAccountsCamelCase /accounts 双端键名（camel + snake 并存）。
+func TestAccountsCamelCase(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	h := newTestRouter(m, adminIdentity())
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
+	fdb.onRowsAlways("FROM worklog_sgcc_account a",
+		[]string{"id", "name", "member_name", "mobile", "device_type", "system_version", "token_status", "last_check_at"},
+		[]driver.Value{int64(1), "张三", "张三", "13800138000", "Pixel 7", "Android 13", int64(1),
+			time.Date(2026, 10, 28, 23, 0, 0, 0, time.UTC)})
+	rec := doJSON(t, h, http.MethodGet, "/api/v1/sgcc/accounts", "")
+	env := decodeEnvelope(t, rec)
+	if env["code"] != float64(0) {
+		t.Fatalf("accounts 查询失败: %v", env)
+	}
+	list := env["data"].(map[string]any)["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("列表条数不符: %v", list)
+	}
+	it := list[0].(map[string]any)
+	if it["memberName"] != "张三" || it["mobile"] != "138****8000" {
+		t.Fatalf("camel 字段不符: %v", it)
+	}
+	if it["deviceType"] != "Pixel 7" || it["systemVersion"] != "Android 13" ||
+		it["tokenStatus"] != float64(1) || it["lastCheckAt"] != "2026-10-28 23:00" {
+		t.Fatalf("camel 字段缺失: %v", it)
+	}
+	if it["name"] != "张三" || it["mobile_masked"] != "138****8000" ||
+		it["device_type"] != "Pixel 7" || it["token_status"] != float64(1) {
+		t.Fatalf("snake 字段丢失: %v", it)
+	}
+}
+
+// TestFeeGetTemplateError40038 /fee 模板取不到 → 40038。
+func TestFeeGetTemplateError40038(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	m.API = &fakeAPI{feeTpl: nil}
+	h := newTestRouter(m, testIdentity())
+	clockinAPIReady(t, db, fdb)
+	fdb.onRowsAlways("FROM worklog_fee", []string{"food_fee", "transit_fee", "cost_center_code", "cost_center_name", "extra"})
+	rec := doJSON(t, h, http.MethodGet, "/api/v1/sgcc/fee?member_id=11&date=2026-10-28", "")
+	env := decodeEnvelope(t, rec)
+	if env["code"] != float64(codeFeeTpl) {
+		t.Fatalf("模板缺失应 40038: %v", env)
+	}
+	// 有模板 → 正常返回 clockTemplate
+	m.API = &fakeAPI{feeTpl: map[string]any{
+		"statusCode": float64(200),
+		"data": map[string]any{"body": map[string]any{"clockTemplate": map[string]any{
+			"id": 7, "name": "T", "dtComponentList": []any{},
+		}}},
+	}}
+	rec = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/fee?member_id=11&date=2026-10-28", "")
+	env = decodeEnvelope(t, rec)
+	if env["code"] != float64(0) {
+		t.Fatalf("模板正常应成功: %v", env)
+	}
+	if _, ok := env["data"].(map[string]any)["clockTemplate"]; !ok {
+		t.Fatalf("应返回 clockTemplate: %v", env["data"])
+	}
+}
+
+// TestDayMembersShape /day 全班 members 形状（Node）+ member_id 单成员摘要旧键并存。
+func TestDayMembersShape(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	h := newTestRouter(m, testIdentity())
+	fdb.onRowsAlways("FROM sys_team", []string{"id", "name"}, []driver.Value{int64(1), "检修一班"})
+	fdb.onRowsAlways("UNION", []string{"id"}, []driver.Value{int64(11)}, []driver.Value{int64(12)})
+	fdb.onRowsAlways("JOIN worklog_sgcc_account a ON a.member_id = m.id",
+		[]string{"id", "token_status"}, []driver.Value{int64(11), int64(1)})
+	fdb.onRowsAlways("FROM worklog_clockin WHERE member_id IN",
+		[]string{"member_id", "seq", "detail_id", "clock_time", "position", "work_hours"},
+		[]driver.Value{int64(11), int64(1), "D1", "2026-10-28 08:00:00", "变电站", "8"})
+	fdb.onRowsAlways("FROM worklog_fee WHERE member_id IN",
+		[]string{"member_id", "food_fee", "transit_fee", "cost_center_code", "cost_center_name"},
+		[]driver.Value{int64(11), float64(60), float64(0), "C1", "成本中心"})
+
+	rec := doJSON(t, h, http.MethodGet, "/api/v1/sgcc/day?date=2026-10-28", "")
+	env := decodeEnvelope(t, rec)
+	if env["code"] != float64(0) {
+		t.Fatalf("day 查询失败: %v", env)
+	}
+	members := env["data"].(map[string]any)["members"].(map[string]any)
+	mm := members["11"].(map[string]any)
+	if mm["bound"] != true || mm["tokenStatus"] != float64(1) {
+		t.Fatalf("绑定态不符: %v", mm)
+	}
+	seq1 := mm["seq1"].(map[string]any)
+	if seq1["detailId"] != "D1" || seq1["time"] != "2026-10-28 08:00:00" {
+		t.Fatalf("打卡行不符: %v", seq1)
+	}
+	if mm["workHours"] != "8" {
+		t.Fatalf("工时不符: %v", mm)
+	}
+	fee := mm["fee"].(map[string]any)
+	if fee["foodFee"] != float64(60) || fee["costCenterCode"] != "C1" {
+		t.Fatalf("费用行不符: %v", fee)
+	}
+
+	// member_id 摘要旧键并存（网页端）
+	fdb.onRowsAlways("FROM worklog_clockin WHERE member_id = ? AND clock_date = ?",
+		[]string{"seq", "clock_time", "position", "work_hours"})
+	fdb.onRowsAlways("FROM worklog_fee WHERE member_id = ? AND fee_date = ?",
+		[]string{"food_fee", "transit_fee"}, []driver.Value{float64(60), float64(0)})
+	rec = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/day?date=2026-10-28&member_id=11", "")
+	env = decodeEnvelope(t, rec)
+	data := env["data"].(map[string]any)
+	if data["date"] != "2026-10-28" {
+		t.Fatalf("缺 date 摘要键: %v", data)
+	}
+	if _, ok := data["clockin"]; !ok {
+		t.Fatalf("缺 clockin 摘要键: %v", data)
+	}
+	if _, ok := data["members"]; !ok {
+		t.Fatalf("缺 members 键: %v", data)
+	}
+
+	// 日期格式非法 40000
+	rec = doJSON(t, h, http.MethodGet, "/api/v1/sgcc/day?date=2026/10/28", "")
+	env = decodeEnvelope(t, rec)
+	if env["code"] != float64(40000) {
+		t.Fatalf("日期非法应 40000: %v", env)
 	}
 }
 

@@ -1,9 +1,9 @@
-// 图片挂接测试：裸图缓存备查、引用图片发文字带辅证、引用记录发图挂辅证并重推、参数缺失回执。
+// 图片挂接测试：裸图缓存备查、仅「先引用图片、再发送记录文字」挂辅证；
+// 「引用记录文字、再发图片」按无法识别处理（不挂接、不误删），普通群图不挂后续记录。
 package wechatanswer
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -111,7 +111,7 @@ func TestQuoteImageReportAttachesPhoto(t *testing.T) {
 	}
 }
 
-func TestQuoteRecordWithImageAttachesPhotoAndRepublishes(t *testing.T) {
+func TestQuoteRecordImageCachedNotAttached(t *testing.T) {
 	env := newTestEnv(t, treeRule())
 	env.dify.outputs["tree-extract"] = map[string]any{
 		"is_tree_hazard": "true", "line_name": "10kV某线", "pole_from": 12.0,
@@ -119,63 +119,81 @@ func TestQuoteRecordWithImageAttachesPhotoAndRepublishes(t *testing.T) {
 	at := env.now.Unix()
 	// 先报送一条树障记录
 	env.m.HandleMessage(context.Background(), textMsg("u1", "msg-rec-1", "12# 杨树超高", at))
-	// 李四引用该记录发图（图片 XML 自带 refermsg 简形）→ 挂接辅证
+	// 李四引用该记录发图 → 按已证实无法识别处理：仅缓存，不挂接、不误删、不重推
 	refer := referXMLFor("msg-rec-1", "12# 杨树超高", "0")
 	img := imageMsg("u2", "img-3", "file-no-1", at+20, refer)
 	if !env.m.HandleMessage(context.Background(), img) {
 		t.Fatal("引用记录发图应被消费")
 	}
-	calls := env.sink.payloads()
-	if len(calls) != 2 {
-		t.Fatalf("sink 调用 %d 次，期望 2 次（原始 + 辅证变更重推）", len(calls))
+	if len(env.sink.payloads()) != 1 {
+		t.Fatalf("引用记录发图不应重推，sink 调用 %d 次", len(env.sink.payloads()))
 	}
-	var last map[string]any
-	if err := json.Unmarshal(calls[1].Payload, &last); err != nil {
-		t.Fatal(err)
+	entry, _ := env.state.Image(context.Background(), "img-3")
+	if entry == nil {
+		t.Fatal("图片应缓存备查")
 	}
-	rec := last["records"].([]any)[0].(map[string]any)
-	photos, _ := rec["evidence_photos"].([]any)
-	if len(photos) != 1 {
-		t.Fatalf("辅证照片 %d 张，期望 1 张", len(photos))
+	if entry.RecordKey != "" {
+		t.Fatalf("引用记录发图不得挂接记录，实际挂到 %s", entry.RecordKey)
 	}
-	if rec["crane_record_id"] != decodePayload(t, calls[0].Payload)["records"].([]any)[0].(map[string]any)["crane_record_id"] {
-		t.Fatal("重推应保持同一 crane_record_id")
+	records := env.state.all()
+	if len(records) != 1 {
+		t.Fatalf("记录应保留，现存 %d 条", len(records))
 	}
-	if len(env.sender.quotes) != 2 || env.sender.quotes[0] != "已记录" || env.sender.quotes[1] != "已添加辅证照片" {
+	photos, _ := env.state.PhotosByRecord(context.Background(), records[0].Key)
+	if len(photos) != 0 {
+		t.Fatalf("不得误挂辅证照片，实际 %d 张", len(photos))
+	}
+	if len(env.sender.quotes) != 1 || env.sender.quotes[0] != "已记录" {
 		t.Fatalf("回执不符: %v", env.sender.quotes)
 	}
 }
 
-func TestImageQuoteMissingCDNParams(t *testing.T) {
+func TestImageQuoteMissingCDNParamsNotAttached(t *testing.T) {
 	env := newTestEnv(t, treeRule())
 	env.dify.outputs["tree-extract"] = map[string]any{"is_tree_hazard": "true", "line_name": "10kV某线"}
 	at := env.now.Unix()
 	env.m.HandleMessage(context.Background(), textMsg("u1", "msg-rec-2", "12# 杨树超高", at))
-	// 无 CDN 参数的图片引用记录发图 → 挂接失败回执，记录保留
+	// 无 CDN 参数的图片（含引用形态）同样不挂接、不误删
 	refer := referXMLFor("msg-rec-2", "12# 杨树超高", "0")
 	env.m.HandleMessage(context.Background(), imageMsg("u2", "img-4", "", at+20, refer))
-	if len(env.sender.quotes) != 2 || env.sender.quotes[1] != "辅证照片下载失败" {
+	if len(env.sender.quotes) != 1 || env.sender.quotes[0] != "已记录" {
 		t.Fatalf("回执不符: %v", env.sender.quotes)
 	}
 	records := env.state.all()
 	if len(records) != 1 {
 		t.Fatalf("记录应保留，现存 %d 条", len(records))
 	}
+	photos, _ := env.state.PhotosByRecord(context.Background(), records[0].Key)
+	if len(photos) != 0 {
+		t.Fatalf("不得误挂辅证照片，实际 %d 张", len(photos))
+	}
 	if len(env.sink.payloads()) != 1 {
-		t.Fatalf("挂接失败不应重推，sink 调用 %d 次", len(env.sink.payloads()))
+		t.Fatalf("不应重推，sink 调用 %d 次", len(env.sink.payloads()))
 	}
 }
 
-func TestImageQuoteCreatetimeFallbackLocatesRecord(t *testing.T) {
+func TestImageQuoteCreatetimeNoFallbackAttach(t *testing.T) {
 	env := newTestEnv(t, treeRule())
 	env.dify.outputs["tree-extract"] = map[string]any{"is_tree_hazard": "true", "line_name": "10kV某线"}
 	at := env.now.Unix()
 	env.m.HandleMessage(context.Background(), textMsg("u1", "msg-rec-3", "12# 杨树超高", at))
-	// extcommoninfo 简形无 content 标签：按被引用消息创建时间 ±2s 定位
+	// extcommoninfo 简形 createtime 贴近记录也不得挂接（普通群图不随意挂到记录）
 	refer := "<refermsg><svrid>unknown-id</svrid><type>1</type><createtime>" +
 		itoa(int(at)) + "</createtime></refermsg>"
 	env.m.HandleMessage(context.Background(), imageMsg("u2", "img-5", "file-no-1", at+1, refer))
-	if len(env.sender.quotes) != 2 || env.sender.quotes[1] != "已添加辅证照片" {
-		t.Fatalf("createtime 兜底定位失败，回执: %v", env.sender.quotes)
+	entry, _ := env.state.Image(context.Background(), "img-5")
+	if entry == nil {
+		t.Fatal("图片应缓存备查")
+	}
+	if entry.RecordKey != "" {
+		t.Fatalf("createtime 兜底不得挂接记录，实际挂到 %s", entry.RecordKey)
+	}
+	records := env.state.all()
+	if len(records) != 1 {
+		t.Fatalf("记录应保留，现存 %d 条", len(records))
+	}
+	photos, _ := env.state.PhotosByRecord(context.Background(), records[0].Key)
+	if len(photos) != 0 {
+		t.Fatalf("不得误挂辅证照片，实际 %d 张", len(photos))
 	}
 }

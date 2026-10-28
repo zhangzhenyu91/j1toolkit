@@ -409,12 +409,44 @@ func (m *Module) Ingest(ctx context.Context, token string, raw []byte) (*IngestR
 	}
 	result.BatchID, result.Count = batchID, count
 	result.Photos, result.PhotosFailed = photos, photosFailed
+	m.notifyStaging(matchedName, result, pusherName, reviewNote)
 	return result, nil
+}
+
+// notifyStaging staging 进暂存区站内通知（超管 + 本班班组管理员；失败仅跳过，不影响直推应答）。
+// 仅 staging 进暂存区时通知（人工整批报送、低频，提醒班管确认导入）；direct 逐条实时推送不通知（避免刷屏）。
+// 群内反馈一律由 crane-answer 自行发送（成功「已记录」/失败「报送失败…」）；文案与 Node handleIngest 同口径。
+func (m *Module) notifyStaging(teamName string, res *IngestResult, pusherName, reviewNote string) {
+	if m.SyncNotifier == nil {
+		return
+	}
+	noteLine := ""
+	if reviewNote != "" {
+		text := reviewNote
+		if runes := []rune(text); len(runes) > 80 {
+			text = string(runes[:80]) + "…"
+		}
+		noteLine = "\n备注：" + text
+	}
+	photoLine := ""
+	if res.Photos > 0 || res.PhotosFailed > 0 {
+		photoLine = fmt.Sprintf("\n辅证照片：%d 张", res.Photos)
+		if res.PhotosFailed > 0 {
+			photoLine += fmt.Sprintf("（失败 %d 张）", res.PhotosFailed)
+		}
+	}
+	pusher := pusherName
+	if pusher == "" {
+		pusher = "未知"
+	}
+	content := fmt.Sprintf("班组：%s\n暂存：%d 条（跳过 %d 条），待确认导入%s\n推送人：%s%s",
+		teamName, res.Count, res.Skipped, photoLine, pusher, noteLine)
+	_ = m.SyncNotifier.Push(context.Background(), []string{"admin", "team_admin"}, "树障记录进暂存区", content)
 }
 
 // handleIngest POST /ingest（鉴权凭 X-Ingest-Token，转调 Ingest 并映射错误到响应码）。
 // direct 为 crane-answer 逐条实时推送（落库/更正/辅证变更各一次），不发站内通知避免刷屏；
-// staging 进暂存区的站内通知依赖 notice 模块，尚未在 Go 侧接入（见迁移报告）。
+// staging 进暂存区的站内通知在 Ingest 核心内经 SyncNotifier 推送（超管 + 本班班组管理员）。
 func (m *Module) handleIngest(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {

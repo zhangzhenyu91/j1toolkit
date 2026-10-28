@@ -12,7 +12,8 @@ import (
 // 分片上传（OpenList multipart 协议）：init / chunk / complete / status / abort；
 // 0 字节文件直接走 put 建成；429 窗口满 / 409 分片冲突带 retry 标记由前端退避重传。
 
-var uploadIDRe = regexp.MustCompile(`^[0-9a-f-]{16,64}$`)
+// uploadIDRe 会话 id（Node /i 口径：十六进制与连字符，大小写不敏感）。
+var uploadIDRe = regexp.MustCompile(`(?i)^[0-9a-f-]{16,64}$`)
 
 // handleUploadInit POST /upload/init：初始化（0 字节文件直接 put 建成）。
 func (m *Module) handleUploadInit(w http.ResponseWriter, r *http.Request) {
@@ -82,9 +83,21 @@ func (m *Module) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, codeParam, "参数错误：X-Upload-Id / X-Chunk-Index", nil)
 		return
 	}
-	chunk, err := io.ReadAll(io.LimitReader(r.Body, 64<<20+1))
+	// Node express.raw(type: application/octet-stream) 口径：Content-Type 非 octet-stream 不收。
+	if ct := r.Header.Get("Content-Type"); ct == "" {
+		writeFail(w, http.StatusBadRequest, codeParam, "分片内容为空或 Content-Type 非 application/octet-stream", nil)
+		return
+	} else if base, _, _ := strings.Cut(ct, ";"); !strings.EqualFold(strings.TrimSpace(base), "application/octet-stream") {
+		writeFail(w, http.StatusBadRequest, codeParam, "分片内容为空或 Content-Type 非 application/octet-stream", nil)
+		return
+	}
+	chunk, err := io.ReadAll(io.LimitReader(r.Body, 64<<20+1)) // Node limit 64mb 同口径
 	if err != nil || len(chunk) == 0 {
 		writeFail(w, http.StatusBadRequest, codeParam, "分片内容为空或 Content-Type 非 application/octet-stream", nil)
+		return
+	}
+	if int64(len(chunk)) > 64<<20 {
+		writeFail(w, http.StatusRequestEntityTooLarge, codeTooLarge, "分片内容超限（64 MB）", nil)
 		return
 	}
 	data, err := ol.Call(r.Context(), http.MethodPut, "/api/fs/multipart/chunk", CallOpts{

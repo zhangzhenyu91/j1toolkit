@@ -10,6 +10,7 @@
 
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
+import { normalizeList } from '../core/list-response.js';
 
 const BASE = '/api/v1/safeday';
 
@@ -96,8 +97,8 @@ const live = {
     return res.ok;
   },
 
-  // GET /api/v1/admin/teams 超管班组列表（data.list，status===1 为启用）。
-  // 注意：Go 重写端暂无该端点（见交付说明），调用失败时视图静默隐藏切换器。
+  // GET /api/v1/admin/teams 超管班组列表（data 兼容直接数组与 list/teams/items 包装；
+  // status===1 为启用，由视图侧过滤）。调用失败时视图静默隐藏切换器。
   listTeams: async () => {
     const headers = {};
     const token = authToken();
@@ -107,7 +108,7 @@ const live = {
     if (!res.ok || !body || body.code !== 0) {
       throw new Error((body && body.message) || `班组列表加载失败（HTTP ${res.status}）`);
     }
-    return (body.data && body.data.list) || [];
+    return normalizeList(body.data);
   },
 };
 
@@ -170,7 +171,7 @@ export function probeNetdisk() {
   return adapter().probeNetdisk();
 }
 
-// listTeams 超管班组列表（仅 admin 用；端点缺失/失败时抛错，视图静默降级）。
+// listTeams 超管班组列表（仅 admin 用；请求失败时抛错，视图静默降级）。
 export function listTeams() {
   return adapter().listTeams();
 }

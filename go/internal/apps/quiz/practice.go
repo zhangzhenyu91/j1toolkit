@@ -3,6 +3,7 @@ package quiz
 
 import (
 	"database/sql"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,16 +20,24 @@ func (m *Module) practiceQuestions(w http.ResponseWriter, r *http.Request, rc re
 	if mode != "seq" && mode != "rand" && mode != "wrong" && mode != "fav" {
 		mode = "seq"
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit < 1 {
-		limit = 20
+	// limit/offset 钳制对齐 Node：parseInt||20（0/非数字落 20）后 Math.max(1,…)、Math.min(50,…)；
+	// offset parseInt||0 后 Math.max(0,…)
+	limit := 20
+	if v, ok := jsParseInt(r.URL.Query().Get("limit")); ok && v != 0 {
+		limit = v
+		if limit < 1 {
+			limit = 1
+		}
+		if limit > 50 {
+			limit = 50
+		}
 	}
-	if limit > 50 {
-		limit = 50
-	}
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
+	offset := 0
+	if v, ok := jsParseInt(r.URL.Query().Get("offset")); ok && v != 0 {
+		offset = v
+		if offset < 0 {
+			offset = 0
+		}
 	}
 	bankID, _ := strconv.ParseInt(r.URL.Query().Get("bankId"), 10, 64)
 	lite := r.URL.Query().Get("lite") == "1"
@@ -229,7 +238,8 @@ func (m *Module) practiceQuestions(w http.ResponseWriter, r *http.Request, rc re
 				answer = q.answer.String
 			}
 			var analysis any
-			if q.analysis.Valid {
+			// Node 口径 r.analysis || null：空串视同无解析出 null
+			if q.analysis.Valid && q.analysis.String != "" {
 				analysis = q.analysis.String
 			}
 			item["answer"] = answer
@@ -466,12 +476,12 @@ func (m *Module) practiceAnswer(w http.ResponseWriter, r *http.Request, rc reque
 	})
 }
 
-// rateOrNil 正确率百分比（无样本返回 null）。
+// rateOrNil 正确率百分比（无样本返回 null）；取整对齐 Node Math.round（非截断）。
 func rateOrNil(total, rights int64) any {
 	if total == 0 {
 		return nil
 	}
-	return int(float64(rights) / float64(total) * 100)
+	return int(math.Round(float64(rights) / float64(total) * 100))
 }
 
 // ===== GET /wrongs：当前用户错题本（最近答错倒序，含来源题库） =====

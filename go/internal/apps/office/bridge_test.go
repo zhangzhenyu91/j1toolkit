@@ -197,11 +197,11 @@ func TestBridgeRawFetch(t *testing.T) {
 		t.Fatalf("sdr 回源失败: %d %q", rec.Code, rec.Body)
 	}
 
-	// 桥业务错误直出（RefError）。
+	// 桥业务错误直出（RefError，纯文本应答）。
 	safe.err = &RefError{Status: 403, Code: 40304, Message: "仅管理员可执行此操作"}
 	tk, _ = m.SignTicket(context.Background(), TicketPayload{Src: "sdr", Ref: EncodeRef(SdrRef{ID: "r2"})}, 60)
 	rec = rawGet(t, h, tk)
-	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "40304") {
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "仅管理员可执行此操作") {
 		t.Fatalf("RefError 应直出: %d %s", rec.Code, rec.Body)
 	}
 

@@ -13,16 +13,17 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 // PadProClient WeChatPadPro 云端网关客户端（MemberSource + ImageDownloader + MessageSender + SyncSource）。
 type PadProClient struct {
 	Cfg  ConfigGet
 	HTTP *http.Client
-	// DialWS WebSocket 拨号（测试可注入）；nil 用 x/net/websocket。
+	// DialWS WebSocket 拨号（测试可注入）；nil 用 gorilla/websocket。
 	DialWS func(ctx context.Context, wsURL string) (WSConn, error)
 }
 
@@ -263,7 +264,8 @@ func (c *PadProClient) Run(ctx context.Context, onMessage func(raw map[string]an
 		return fmt.Errorf("wechatpadpro: WebSocket 连接失败: %w", err)
 	}
 	defer conn.Close()
-	lastSeen := time.Now()
+	var lastSeen atomic.Int64
+	lastSeen.Store(time.Now().UnixNano())
 	staleCh := make(chan struct{})
 	go func() {
 		defer close(staleCh)
@@ -275,7 +277,7 @@ func (c *PadProClient) Run(ctx context.Context, onMessage func(raw map[string]an
 				_ = conn.Close()
 				return
 			case <-ticker.C:
-				if time.Since(lastSeen) > 90*time.Second {
+				if time.Since(time.Unix(0, lastSeen.Load())) > 90*time.Second {
 					_ = conn.Close()
 					return
 				}
@@ -292,7 +294,7 @@ func (c *PadProClient) Run(ctx context.Context, onMessage func(raw map[string]an
 			}
 			return err
 		}
-		lastSeen = time.Now()
+		lastSeen.Store(time.Now().UnixNano())
 		var raw map[string]any
 		if err := json.Unmarshal(data, &raw); err != nil {
 			continue
@@ -312,15 +314,22 @@ func (c *PadProClient) Run(ctx context.Context, onMessage func(raw map[string]an
 	}
 }
 
-// dial 默认 x/net/websocket 拨号；可注入替换。
+// dial 与旧 Node 一样不发送 Origin；握手错误只保留状态和正文，不输出票据 URL。
 func (c *PadProClient) dial(ctx context.Context, wsURL string) (WSConn, error) {
 	if c.DialWS != nil {
 		return c.DialWS(ctx, wsURL)
 	}
-	cfg := c.loadCfg(ctx)
-	origin := strings.Replace(strings.TrimRight(cfg.APIBase, "/"), "https://", "http://", 1)
-	ws, err := websocket.Dial(wsURL, "", origin)
+	dialer := *websocket.DefaultDialer
+	ws, resp, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
+		if resp != nil {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			if len(body) > 0 {
+				return nil, fmt.Errorf("HTTP %d %s：%s", resp.StatusCode, resp.Status, truncate(string(body), 500))
+			}
+			return nil, fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status)
+		}
 		return nil, err
 	}
 	return &netWSConn{ws: ws}, nil
@@ -346,21 +355,25 @@ func extractPushedMessages(raw map[string]any) []map[string]any {
 	return out
 }
 
-// netWSConn x/net/websocket 适配。
+// netWSConn gorilla/websocket 适配。
 type netWSConn struct {
 	ws *websocket.Conn
 }
 
 func (c *netWSConn) Read() ([]byte, error) {
-	var msg []byte
-	if err := websocket.Message.Receive(c.ws, &msg); err != nil {
-		return nil, err
+	for {
+		kind, msg, err := c.ws.ReadMessage()
+		if err != nil {
+			return nil, err
+		}
+		if kind == websocket.TextMessage {
+			return msg, nil
+		}
 	}
-	return msg, nil
 }
 
 func (c *netWSConn) Ping() error {
-	return websocket.Message.Send(c.ws, []byte("ping"))
+	return c.ws.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(10*time.Second))
 }
 
 func (c *netWSConn) Close() error {

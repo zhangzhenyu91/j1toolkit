@@ -1,9 +1,17 @@
 package treehazard
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"database/sql/driver"
+	"encoding/xml"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"shade/internal/apps/office"
 	"shade/internal/compat/exceldoc"
 )
 
@@ -180,6 +188,10 @@ func TestSortRecordsGroupOrder(t *testing.T) {
 	if last.LineName != "丙线" {
 		t.Fatalf("未匹配应排尾，实际 %s", last.LineName)
 	}
+	// 组内区段数字自然序（2#-3# 在 10#-20# 前，对齐 Node localeCompare zh-CN numeric）。
+	if compareSection("2-10", "10-20") >= 0 {
+		t.Fatal("2-10 应排在 10-20 前（数字自然序）")
+	}
 }
 
 // TestSheetNameOf sheet 名清洗：禁字符转全角、重名追加序号。
@@ -202,5 +214,344 @@ func TestExportFileName(t *testing.T) {
 	}
 	if got := exportFileName("检修一班", "甲线"); got != "甲线树木统计表.xlsx" {
 		t.Fatalf("分线路文件名不对：%q", got)
+	}
+}
+
+// ===== 导出标红（垂距 ≤ 阈值整行红字）=====
+
+// redSampleRecords 标红样例：垂距 2.5（低于阈值）/ 3（等于阈值）/ 4（高于阈值）/ 空值。
+func redSampleRecords() []Record {
+	num := func(f float64) *float64 { return &f }
+	return []Record{
+		{ID: 11, VoltageLevel: "110", LineName: "甲线", Section: "1#-2#", TreeSpecies: "杨树", TreeCount: "2",
+			Vertical: "2.5", VerticalNum: num(2.5), FinderName: "张三", FoundAt: "2026-10-20", Status: "unhandled",
+			CreatedAt: time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC)},
+		{ID: 12, VoltageLevel: "110", LineName: "甲线", Section: "3#-4#", TreeSpecies: "柳树", TreeCount: "1",
+			Vertical: "3", VerticalNum: num(3), FinderName: "李四", FoundAt: "2026-10-21", Status: "unhandled",
+			CreatedAt: time.Date(2026, 10, 21, 8, 0, 0, 0, time.UTC)},
+		{ID: 13, VoltageLevel: "220", LineName: "乙线", Section: "1#-2#", TreeSpecies: "松树", TreeCount: "3",
+			Vertical: "4", VerticalNum: num(4), FinderName: "赵六", FoundAt: "2026-10-19", Status: "unhandled",
+			CreatedAt: time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)},
+		{ID: 14, VoltageLevel: "110", LineName: "丙线", Section: "7#-8#", TreeSpecies: "柏树", TreeCount: "1",
+			FinderName: "钱七", FoundAt: "2026-10-18", Status: "unhandled",
+			CreatedAt: time.Date(2026, 10, 18, 8, 0, 0, 0, time.UTC)},
+	}
+}
+
+// TestOverThreshold 标红判定：垂距 ≤ 阈值（含等于）标红；未配置阈值/垂距空值不标红。
+func TestOverThreshold(t *testing.T) {
+	num := func(f float64) *float64 { return &f }
+	th := 3.0
+	cases := []struct {
+		name string
+		rec  Record
+		th   *float64
+		want bool
+	}{
+		{"低于阈值", Record{VerticalNum: num(2.5)}, &th, true},
+		{"等于阈值", Record{VerticalNum: num(3)}, &th, true},
+		{"高于阈值", Record{VerticalNum: num(3.5)}, &th, false},
+		{"垂距空值", Record{VerticalNum: nil}, &th, false},
+		{"未配置阈值", Record{VerticalNum: num(2.5)}, nil, false},
+	}
+	for _, c := range cases {
+		if got := overThreshold(c.rec, c.th); got != c.want {
+			t.Fatalf("%s: overThreshold = %v，期望 %v", c.name, got, c.want)
+		}
+	}
+}
+
+// xlsxStylesView styles.xml 解析视图（仅取标红校验所需字段）。
+type xlsxStylesView struct {
+	Fonts struct {
+		Font []struct {
+			Color struct {
+				RGB string `xml:"rgb,attr"`
+			} `xml:"color"`
+		} `xml:"font"`
+	} `xml:"fonts"`
+	CellXfs struct {
+		Xf []struct {
+			FontID int `xml:"fontId,attr"`
+		} `xml:"xf"`
+	} `xml:"cellXfs"`
+}
+
+// xlsxSheetView worksheet 解析视图（行/单元格样式索引与单元格值）。
+type xlsxSheetView struct {
+	SheetData struct {
+		Rows []struct {
+			R     int `xml:"r,attr"`
+			Cells []struct {
+				R string `xml:"r,attr"`
+				S string `xml:"s,attr"`
+				V string `xml:"v"`
+			} `xml:"c"`
+		} `xml:"row"`
+	} `xml:"sheetData"`
+}
+
+// xlsxEntry 取 xlsx（zip）内单个条目内容。
+func xlsxEntry(t *testing.T, data []byte, name string) string {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("打开 xlsx zip: %v", err)
+	}
+	for _, f := range zr.File {
+		if f.Name != name {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("打开条目 %s: %v", name, err)
+		}
+		defer rc.Close()
+		var buf bytes.Buffer
+		if _, err := buf.ReadFrom(rc); err != nil {
+			t.Fatalf("读条目 %s: %v", name, err)
+		}
+		return buf.String()
+	}
+	t.Fatalf("xlsx 缺少条目 %s", name)
+	return ""
+}
+
+// redXfIDs 解析 styles.xml：返回「字体为红色 rgb="FFFF0000"」的 cellXfs 样式索引集合。
+func redXfIDs(t *testing.T, stylesXML string) map[string]bool {
+	t.Helper()
+	var v xlsxStylesView
+	if err := xml.Unmarshal([]byte(stylesXML), &v); err != nil {
+		t.Fatalf("解析 styles.xml: %v", err)
+	}
+	redFonts := map[int]bool{}
+	for i, f := range v.Fonts.Font {
+		if strings.EqualFold(strings.TrimSpace(f.Color.RGB), "FFFF0000") {
+			redFonts[i] = true
+		}
+	}
+	out := map[string]bool{}
+	for i, xf := range v.CellXfs.Xf {
+		if redFonts[xf.FontID] {
+			out[strconv.Itoa(i)] = true
+		}
+	}
+	return out
+}
+
+// redByID 解析 sheet XML：隐藏 ID 列（Q 列）值 → 该数据行是否整行红样式（含隐藏 ID 列，全有或全无）。
+func redByID(t *testing.T, sheetXML string, reds map[string]bool) map[int64]bool {
+	t.Helper()
+	var v xlsxSheetView
+	if err := xml.Unmarshal([]byte(sheetXML), &v); err != nil {
+		t.Fatalf("解析 worksheet XML: %v", err)
+	}
+	out := map[int64]bool{}
+	for _, row := range v.SheetData.Rows {
+		if row.R < 3 { // 行 1 标题 / 行 2 表头
+			continue
+		}
+		var id int64
+		found := false
+		redCount := 0
+		for _, c := range row.Cells {
+			if strings.HasPrefix(c.R, "Q") && c.V != "" {
+				n, err := strconv.ParseInt(c.V, 10, 64)
+				if err != nil {
+					t.Fatalf("行 %d 隐藏 ID 列值非法 %q", row.R, c.V)
+				}
+				id, found = n, true
+			}
+			if reds[c.S] {
+				redCount++
+			}
+		}
+		if !found {
+			t.Fatalf("行 %d 缺隐藏 ID 列值", row.R)
+		}
+		if redCount != 0 && redCount != len(row.Cells) {
+			t.Fatalf("行 %d 标红应整行一致，实际 %d/%d 单元格红", row.R, redCount, len(row.Cells))
+		}
+		out[id] = redCount == len(row.Cells)
+	}
+	return out
+}
+
+// TestBuildWorkbookRedRows 单表导出标红：解包 xlsx 核对 styles.xml 红字体与行级样式（含隐藏 ID 列）。
+func TestBuildWorkbookRedRows(t *testing.T) {
+	th := 3.0
+	buf, err := buildWorkbookWithThreshold("检修一班", redSampleRecords(), false, map[string]int{"甲线": 0, "乙线": 1}, &th)
+	if err != nil {
+		t.Fatalf("生成工作簿失败: %v", err)
+	}
+	styles := xlsxEntry(t, buf, "xl/styles.xml")
+	if !strings.Contains(styles, `rgb="FFFF0000"`) {
+		t.Fatal("styles.xml 应含红色字体")
+	}
+	reds := redXfIDs(t, styles)
+	if len(reds) == 0 {
+		t.Fatal("应生成红色样式")
+	}
+	byID := redByID(t, xlsxEntry(t, buf, "xl/worksheets/sheet1.xml"), reds)
+	want := map[int64]bool{11: true, 12: true, 13: false, 14: false}
+	for id, w := range want {
+		if byID[id] != w {
+			t.Fatalf("记录 %d 标红 = %v，期望 %v（实际全部 %v）", id, byID[id], w, byID)
+		}
+	}
+	// 表结构与隐藏 ID 列兼容不变
+	wb, err := exceldoc.ReadWorkbook(buf)
+	if err != nil {
+		t.Fatalf("回读工作簿失败: %v", err)
+	}
+	sheet := wb.Sheets[0]
+	if !sheet.IDColHidden {
+		t.Fatal("记录 ID 列应隐藏")
+	}
+	if len(sheet.Headers) != 17 {
+		t.Fatalf("表头列数应 17（含隐藏 ID 列），实际 %d", len(sheet.Headers))
+	}
+	if sheet.Rows[0][16] == "" || sheet.Rows[3][16] == "" {
+		t.Fatalf("隐藏 ID 列应逐行写入，实际 %v %v", sheet.Rows[0][16], sheet.Rows[3][16])
+	}
+	gotIDs := map[string]bool{}
+	for _, r := range sheet.Rows {
+		gotIDs[r[16]] = true
+	}
+	for _, id := range []string{"11", "12", "13", "14"} {
+		if !gotIDs[id] {
+			t.Fatalf("隐藏 ID 列缺记录 %s，实际 %v", id, gotIDs)
+		}
+	}
+}
+
+// TestBuildWorkbookRedRowsNoThreshold 未配置阈值（或旧 buildWorkbook 入口）：整簿不标红、不出红字体样式。
+func TestBuildWorkbookRedRowsNoThreshold(t *testing.T) {
+	builders := map[string]func() ([]byte, error){
+		"带阈值入参但阈值 nil": func() ([]byte, error) {
+			return buildWorkbookWithThreshold("检修一班", redSampleRecords(), false, map[string]int{"甲线": 0, "乙线": 1}, nil)
+		},
+		"旧入口 buildWorkbook": func() ([]byte, error) {
+			return buildWorkbook("检修一班", redSampleRecords(), false, map[string]int{"甲线": 0, "乙线": 1})
+		},
+	}
+	for name, build := range builders {
+		buf, err := build()
+		if err != nil {
+			t.Fatalf("%s: 生成工作簿失败: %v", name, err)
+		}
+		styles := xlsxEntry(t, buf, "xl/styles.xml")
+		if strings.Contains(styles, `rgb="FFFF0000"`) {
+			t.Fatalf("%s: 未配置阈值不应生成红字体", name)
+		}
+		byID := redByID(t, xlsxEntry(t, buf, "xl/worksheets/sheet1.xml"), redXfIDs(t, styles))
+		for id, red := range byID {
+			if red {
+				t.Fatalf("%s: 未配置阈值记录 %d 不应标红", name, id)
+			}
+		}
+	}
+}
+
+// TestBuildWorkbookRedRowsSplit 分表导出标红：各 sheet 独立判定，未匹配组同样生效。
+func TestBuildWorkbookRedRowsSplit(t *testing.T) {
+	th := 3.0
+	buf, err := buildWorkbookWithThreshold("检修一班", redSampleRecords(), true, map[string]int{"甲线": 0, "乙线": 1}, &th)
+	if err != nil {
+		t.Fatalf("生成工作簿失败: %v", err)
+	}
+	reds := redXfIDs(t, xlsxEntry(t, buf, "xl/styles.xml"))
+	if len(reds) == 0 {
+		t.Fatal("应生成红色样式")
+	}
+	// sheet 顺序：甲线（11/12）→ 乙线（13）→ 未匹配线路（14）
+	wants := []map[int64]bool{
+		{11: true, 12: true},
+		{13: false},
+		{14: false},
+	}
+	for i, want := range wants {
+		byID := redByID(t, xlsxEntry(t, buf, "xl/worksheets/sheet"+strconv.Itoa(i+1)+".xml"), reds)
+		for id, w := range want {
+			if byID[id] != w {
+				t.Fatalf("sheet%d 记录 %d 标红 = %v，期望 %v（实际 %v）", i+1, id, byID[id], w, byID)
+			}
+		}
+	}
+}
+
+// fetchRecordRow Fetch 测试用记录行（29 列，vertical/vertical_num 可配）。
+func fetchRecordRow(id int64, line, vertical string, verticalNum any) []driver.Value {
+	now := driver.Value(time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC))
+	return []driver.Value{
+		id, int64(1), "10", line, "3#-4#", nil, nil, "", "杨树", "3", "5", "5", "20", "2", vertical, verticalNum,
+		"张三", "2026-10-01", "", "", nil, "unhandled", "crane", nil, nil, nil, nil, now, now,
+	}
+}
+
+// TestTeamExportFetchRedRows ONLYOFFICE 回源（teamExport.Fetch）标红与下载同口径：
+// 阈值 3 时垂距 2.5 整行标红，垂距 4 / 空值不标红；未配置阈值整簿不标红。
+func TestTeamExportFetchRedRows(t *testing.T) {
+	cols := []string{
+		"id", "team_id", "voltage_level", "line_name", "section", "pole_from", "pole_to", "position_note",
+		"tree_species", "tree_count", "dist_small", "dist_big", "diameter", "horizontal", "vertical",
+		"vertical_num", "finder_name", "found_at", "handler_name", "handle_note", "handled_at",
+		"status", "source", "crane_session_id", "crane_record_id", "synced_at", "created_by",
+		"created_at", "updated_at",
+	}
+	rows := [][]driver.Value{
+		fetchRecordRow(11, "甲线", "2.5", float64(2.5)),
+		fetchRecordRow(13, "乙线", "4", float64(4)),
+		fetchRecordRow(14, "丙线", "", nil),
+	}
+	newEnv := func(threshold [][]driver.Value) (*Module, *fakeDB) {
+		db, fake := openFake(t)
+		rule := teamRule()
+		fake.on(rule.match, rule.cols, rule.rows)
+		fake.on("FROM treehazard_record WHERE team_id = ?", cols, rows)
+		if threshold != nil {
+			fake.on("SELECT vertical_threshold FROM treehazard_team_setting",
+				[]string{"vertical_threshold"}, threshold)
+		}
+		m := New(db)
+		m.Cfg = memConfig{}
+		return m, fake
+	}
+
+	m, _ := newEnv([][]driver.Value{{float64(3)}})
+	buf, err := (&teamExport{m: m}).Fetch(context.Background(), office.LineRef{Team: 1})
+	if err != nil {
+		t.Fatalf("Fetch 失败: %v", err)
+	}
+	reds := redXfIDs(t, xlsxEntry(t, buf, "xl/styles.xml"))
+	if len(reds) == 0 {
+		t.Fatal("应生成红色样式")
+	}
+	byID := redByID(t, xlsxEntry(t, buf, "xl/worksheets/sheet1.xml"), reds)
+	want := map[int64]bool{11: true, 13: false, 14: false}
+	for id, w := range want {
+		if byID[id] != w {
+			t.Fatalf("记录 %d 标红 = %v，期望 %v（实际 %v）", id, byID[id], w, byID)
+		}
+	}
+
+	// 未配置阈值（settings 无行）→ 整簿不标红、不出红字体
+	m2, fake2 := newEnv(nil)
+	buf2, err := (&teamExport{m: m2}).Fetch(context.Background(), office.LineRef{Team: 1})
+	if err != nil {
+		t.Fatalf("Fetch 失败: %v", err)
+	}
+	if !strings.Contains(strings.Join(fake2.allQueries(), "\n"), "vertical_threshold") {
+		t.Fatal("Fetch 应读取班组阈值配置")
+	}
+	styles2 := xlsxEntry(t, buf2, "xl/styles.xml")
+	if strings.Contains(styles2, `rgb="FFFF0000"`) {
+		t.Fatal("未配置阈值不应生成红字体")
+	}
+	byID2 := redByID(t, xlsxEntry(t, buf2, "xl/worksheets/sheet1.xml"), redXfIDs(t, styles2))
+	for id, red := range byID2 {
+		if red {
+			t.Fatalf("未配置阈值记录 %d 不应标红", id)
+		}
 	}
 }

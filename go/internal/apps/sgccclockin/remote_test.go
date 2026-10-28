@@ -559,3 +559,181 @@ func itoaArgs(args []driver.Value) string {
 	}
 	return strings.Join(parts, ",")
 }
+
+// ---- 费用照片双向对账（syncFeePhotos）----
+
+// fakeStore 对象存储 fake（记录上传/删除，生成可断言的访问地址）。
+type fakeStore struct {
+	mu      sync.Mutex
+	puts    []string
+	deletes []string
+}
+
+func (s *fakeStore) PutBuffer(_ context.Context, key string, _ []byte, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.puts = append(s.puts, key)
+	return nil
+}
+
+func (s *fakeStore) DeleteObject(_ context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deletes = append(s.deletes, key)
+	return nil
+}
+
+func (s *fakeStore) PublicURL(key string) string { return "https://cos.test/" + key }
+
+// fakeVerifier 水印识别钩子 fake（done 通道回传触发信号，测试阻塞等待，消除轮询时序抖动）。
+type fakeVerifier struct {
+	mu    sync.Mutex
+	calls []int64
+	done  chan int64 // 可空：非空时每次回调后投递 photoID（缓冲 1 + 非阻塞投递）
+}
+
+func (v *fakeVerifier) VerifyAndWriteBack(_ context.Context, photoID int64, _, _, _, _ string) {
+	v.mu.Lock()
+	v.calls = append(v.calls, photoID)
+	v.mu.Unlock()
+	if v.done != nil {
+		select {
+		case v.done <- photoID:
+		default:
+		}
+	}
+}
+
+// TestSyncFeePhotosReconcile 费用照片双向对账：商旅有本地无 → 下载入库（识别钩子触发）；
+// 商旅已删 → source=1 整照删除、source=0 摘空整照删除；收尾计数日志。
+func TestSyncFeePhotosReconcile(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	store := &fakeStore{}
+	verifier := &fakeVerifier{done: make(chan int64, 1)}
+	m.Store = store
+	m.VerifyPhoto = verifier
+	m.FetchSgccImage = func(_ context.Context, url string) ([]byte, error) {
+		if !strings.HasPrefix(url, "https://") {
+			return nil, fmt.Errorf("商旅侧未返回有效图片地址")
+		}
+		return []byte("JPEGDATA"), nil
+	}
+	// 成员 / username / 首个出工记录 / 班组名
+	fdb.onRowsAlways("SELECT name, user_id FROM worklog_member", []string{"name", "user_id"},
+		[]driver.Value{"张三", int64(7)})
+	fdb.onRowsAlways("SELECT username FROM sys_user", []string{"username"}, []driver.Value{"zhang"})
+	fdb.onRowsAlways("ORDER BY e.id LIMIT 1", []string{"id", "destination_name"},
+		[]driver.Value{int64(100), "500kV变电站"})
+	fdb.onRowsAlways("SELECT name FROM sys_team", []string{"name"}, []driver.Value{"检修一班"})
+	// 本地照片：source=1 商旅镜像（商旅已删）与 source=0 壹匣上传（商旅已删，摘空）
+	fdb.onRowsAlways("FROM worklog_photo p JOIN worklog_entry e",
+		[]string{"id", "cos_key", "source", "sgcc_img_id"},
+		[]driver.Value{int64(1), "worklog/old1.jpg", int64(1), `{"11":"OLD1"}`},
+		[]driver.Value{int64(2), "worklog/old2.jpg", int64(0), `{"11":"UP1"}`})
+	// 同 MD5 合并查询无命中 → 走入库
+	fdb.onExec("INSERT INTO worklog_photo", 55)
+	// 摘除路径重读当前值：只剩本成员 → 摘空删除
+	fdb.onRowsAlways("SELECT members, sgcc_img_id, cos_key FROM worklog_photo",
+		[]string{"members", "sgcc_img_id", "cos_key"},
+		[]driver.Value{`["张三"]`, `{"11":"UP1"}`, "worklog/old2.jpg"})
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+
+	tpl := map[string]any{
+		"dtComponentList": []any{
+			map[string]any{"id": float64(5), "value": `[{"fileInfoId":"R1","url":"https://sgcc.test/1.jpg"}]`},
+		},
+	}
+	acc := &Account{ID: 3, TeamID: 1, UserID: 7, MemberID: 11, Token: "tk", TokenStatus: 1}
+	m.syncPhotoPart(context.Background(), acc, "2026-10-28", "daily", 1, 11, tpl)
+
+	// 方向一：下载入库（COS key 规则 + 识别钩子）
+	store.mu.Lock()
+	puts := append([]string(nil), store.puts...)
+	deletes := append([]string(nil), store.deletes...)
+	store.mu.Unlock()
+	if len(puts) != 1 || !strings.HasPrefix(puts[0], "worklog/检修一班/2026.10.28/100-") ||
+		!strings.HasSuffix(puts[0], "-R1.jpg") {
+		t.Fatalf("入库 key 不符: %v", puts)
+	}
+	// 识别钩子为 fire-and-forget 异步：通道握手等待落地（done 缓冲投递，无轮询时序抖动）
+	select {
+	case <-verifier.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("水印识别钩子超时未触发")
+	}
+	verifier.mu.Lock()
+	vcalls := append([]int64(nil), verifier.calls...)
+	verifier.mu.Unlock()
+	if len(vcalls) != 1 || vcalls[0] != 55 {
+		t.Fatalf("水印识别钩子不符: %v", vcalls)
+	}
+	inserts := fdb.callsWith("INSERT INTO worklog_photo")
+	if len(inserts) != 1 || !strings.Contains(fmt.Sprint(inserts[0].args), "worklog/检修一班/2026.10.28/100-") ||
+		!strings.Contains(fmt.Sprint(inserts[0].args), `{"11":"R1"}`) {
+		t.Fatalf("入库行不符: %+v", inserts)
+	}
+	// 方向二：source=1 整照删除、source=0 摘空整照删除
+	if len(deletes) != 2 || !strings.Contains(strings.Join(deletes, ","), "worklog/old1.jpg") ||
+		!strings.Contains(strings.Join(deletes, ","), "worklog/old2.jpg") {
+		t.Fatalf("删除对象不符: %v", deletes)
+	}
+	rowDeletes := fdb.callsWith("DELETE FROM worklog_photo")
+	if len(rowDeletes) != 2 {
+		t.Fatalf("应删除两行: %+v", rowDeletes)
+	}
+	// 收尾计数日志
+	logs := fdb.callsWith("INSERT INTO worklog_sync_log")
+	found := false
+	for _, c := range logs {
+		if strings.Contains(fmt.Sprint(c.args), "费用照片：拉下 1 张 / 合并 0 张 / 删除 2 张 / 摘除 0 人") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("收尾计数日志不符: %+v", logs)
+	}
+}
+
+// TestSyncFeePhotosShapeGuard comp5 value 非 JSON 数组 → 跳过对账并记诊断（保护本地）。
+func TestSyncFeePhotosShapeGuard(t *testing.T) {
+	db, fdb := openFake(t)
+	defer db.Close()
+	m := New(db)
+	fdb.onExec("INSERT INTO worklog_sync_log", 0)
+	tpl := map[string]any{
+		"dtComponentList": []any{
+			map[string]any{"id": float64(5), "value": `{"oops":true}`},
+		},
+	}
+	acc := &Account{ID: 3, TeamID: 1, MemberID: 11, Token: "tk", TokenStatus: 1}
+	m.syncPhotoPart(context.Background(), acc, "2026-10-28", "daily", 1, 11, tpl)
+	logs := fdb.callsWith("INSERT INTO worklog_sync_log")
+	found := false
+	for _, c := range logs {
+		if strings.Contains(fmt.Sprint(c.args), "上传图片组件形态异常") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("形状守卫诊断缺失: %+v", logs)
+	}
+	// 未识别 id（键名漂移）→ 跳过保护本地
+	tpl2 := map[string]any{
+		"dtComponentList": []any{
+			map[string]any{"id": float64(5), "value": `[{"oops":"x"}]`},
+		},
+	}
+	m.syncPhotoPart(context.Background(), acc, "2026-10-28", "daily", 1, 11, tpl2)
+	logs = fdb.callsWith("INSERT INTO worklog_sync_log")
+	found = false
+	for _, c := range logs {
+		if strings.Contains(fmt.Sprint(c.args), "无可识别图片 id") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("键名漂移守卫缺失: %+v", logs)
+	}
+}

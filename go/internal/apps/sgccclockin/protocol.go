@@ -4,6 +4,7 @@ package sgccclockin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -415,7 +416,13 @@ func (p *Protocol) LoginCaptcha(ctx context.Context, mobile string) (string, err
 			return data, nil
 		}
 	}
-	return "", fmt.Errorf("获取图形验证码失败：%v %d", r.Decoded, r.Status)
+	// 错误文案同 Node：JSON.stringify(decoded || status)
+	shown := any(r.Status)
+	if r.Decoded != nil {
+		shown = any(r.Decoded)
+	}
+	b, _ := json.Marshal(shown)
+	return "", fmt.Errorf("获取图形验证码失败：%s", string(b))
 }
 
 // LoginSendSmsV2 图形码通道发短信（v2）：statusCode=200 即成功。

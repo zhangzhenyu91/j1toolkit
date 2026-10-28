@@ -27,7 +27,9 @@
         <div class="sh-owner">
           <span class="sh-av">{{ avatarChar }}</span>
           <div>
-            <h1><b>{{ info.creator }}</b> 的分享</h1>
+            <h1>
+              <b>{{ info.creator }}</b> 的分享
+            </h1>
             <div class="sh-meta">{{ expireText }}</div>
           </div>
         </div>
@@ -55,7 +57,9 @@
           <div class="sh-owner">
             <span class="sh-av">{{ avatarChar }}</span>
             <div>
-              <h1><b>{{ info.creator }}</b> 的分享</h1>
+              <h1>
+                <b>{{ info.creator }}</b> 的分享
+              </h1>
               <div class="sh-meta">{{ expireText }}</div>
             </div>
           </div>
@@ -66,12 +70,9 @@
             <a href="javascript:;" @click="openDir('/')">分享内容</a>
             <template v-for="seg in crumbs" :key="seg.rel">
               <em>/</em>
-              <a
-                v-if="seg.rel !== viewRel"
-                href="javascript:;"
-                @click="openDir(seg.rel)"
-                >{{ seg.name }}</a
-              >
+              <a v-if="seg.rel !== viewRel" href="javascript:;" @click="openDir(seg.rel)">{{
+                seg.name
+              }}</a>
               <b v-else>{{ seg.name }}</b>
             </template>
             <span class="cnt">共 {{ rows.length }} 项</span>
@@ -127,7 +128,7 @@
     </main>
 
     <!-- 视频 Lightbox -->
-    <div v-if="media.open" class="mask open" @click.self="closeMedia">
+    <div class="mask" :class="{ open: media.open }" @click.self="closeMedia">
       <div class="modal" style="width: 920px" @click.stop>
         <div class="m-scroll">
           <div class="m-head">
@@ -186,18 +187,24 @@
 // 创建与有效期）/ 文件行列表（真实类型图标 + 名称 + 大小·时间子行）/ 面包屑（共 N 项）/
 // 图片全屏查看器 + 视频 Lightbox。内容一律来自服务端，无演示数据；
 // 提取码票据（2h）留存在 sessionStorage（features/share/api.js）。
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   shareInfo,
   shareVerify,
   shareList,
-  shareDownload,
-  saveBlob,
+  shareFileUrl,
   getTicket,
   clearTicket,
   normalizeShareId,
 } from '../features/share/api.js';
+import {
+  extOf,
+  typeLabel,
+  ftLbStyle,
+  fileIconUrl,
+  onFtError,
+} from '../features/netdisk/fileicon.js';
 
 const route = useRoute();
 
@@ -209,7 +216,8 @@ const ICONS = {
     '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v5"/><circle cx="12" cy="16.2" r="1" fill="currentColor" stroke="none"/>',
   'chevron-right': '<path d="M9.5 6.5l5.5 5.5-5.5 5.5"/>',
   'chevron-left': '<path d="M14.5 6.5L9 12l5.5 5.5"/>',
-  folder: '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  folder:
+    '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   link: '<path d="M10 14a5 5 0 0 0 7 .5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
 };
 function ic(name, size) {
@@ -218,97 +226,15 @@ function ic(name, size) {
 }
 
 /* ================= 文件类型（旧 share.html 同一映射） ================= */
+// 类型图标映射与渲染收敛到 features/netdisk/fileicon.js（真实类型 PNG + 文件夹线性图标/字母块回退），
+// extOf / typeLabel / ftLbStyle / fileIconUrl / onFtError 自该模块引入
 const IMG_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
-const EXT_LABEL = {
-  doc: 'DOC',
-  docx: 'DOC',
-  xls: 'XLS',
-  xlsx: 'XLS',
-  csv: 'XLS',
-  ppt: 'PPT',
-  pptx: 'PPT',
-  pdf: 'PDF',
-  zip: 'ZIP',
-  rar: 'ZIP',
-  '7z': 'ZIP',
-  tar: 'ZIP',
-  gz: 'ZIP',
-  tgz: 'ZIP',
-  bz2: 'ZIP',
-  xz: 'ZIP',
-  txt: 'TXT',
-  md: 'TXT',
-  log: 'TXT',
-  mp4: 'MP4',
-  mov: 'MP4',
-  webm: 'MP4',
-  m4v: 'MP4',
-  mp3: 'MP3',
-  wav: 'MP3',
-};
-const FT_BASE = '/assets/filetypes/';
-const FT_MAP = {
-  doc: 'docx',
-  docx: 'docx',
-  xls: 'xlsx',
-  xlsx: 'xlsx',
-  csv: 'csv',
-  ppt: 'pptx',
-  pptx: 'pptx',
-  pdf: 'pdf',
-  txt: 'txt',
-  md: 'md',
-  log: 'txt',
-  zip: 'zip',
-  rar: 'rar',
-  '7z': '7z',
-  tar: 'tar',
-  gz: 'gz',
-  tgz: 'zip',
-  bz2: 'zip',
-  xz: 'zip',
-  jpg: 'jpg',
-  jpeg: 'jpg',
-  png: 'png',
-  gif: 'gif',
-  bmp: 'bmp',
-  webp: 'jpg',
-  svg: 'png',
-  mp4: 'mp4',
-  mov: 'mov',
-  webm: 'mp4',
-  m4v: 'mp4',
-  mp3: 'mp3',
-  wav: 'wav',
-};
-function extOf(name) {
-  const m = /\.([a-z0-9]+)$/i.exec(name || '');
-  return m ? m[1].toLowerCase() : '';
-}
-function typeLabel(name) {
-  const e = extOf(name);
-  return EXT_LABEL[e] || (e ? e.slice(0, 4).toUpperCase() : 'FILE');
-}
 function isImg(name) {
   return IMG_EXTS.includes(extOf(name));
 }
 function isVideo(name) {
   return VIDEO_EXTS.includes(extOf(name));
-}
-function fileIconUrl(name, isDir) {
-  if (isDir) return FT_BASE + 'folder.png';
-  return FT_BASE + (FT_MAP[extOf(name)] || 'unknown') + '.png';
-}
-function ftLbStyle(name, size) {
-  return { fontSize: `${Math.max(7, Math.round(size * 0.26))}px` };
-}
-function onFtError(e) {
-  const img = e.target;
-  if (!img) return;
-  img.style.display = 'none';
-  const fb = img.nextElementSibling;
-  if (fb && fb.classList.contains('ft-fb')) fb.hidden = false;
 }
 
 /* ================= 工具 ================= */
@@ -452,7 +378,8 @@ async function doVerify() {
     if (e.code === 40310) showError('该分享已被创建者停用');
     else if (e.code === 41010) showError('该分享已过期');
     else if (e.code === 40400) showError('分享不存在或已删除');
-    else if (e.code === 42901) pwErr.value = e.message; // 尝试过多 原样提示
+    else if (e.code === 42901)
+      pwErr.value = e.message; // 尝试过多 原样提示
     else pwErr.value = e.message || '提取码错误';
   } finally {
     verifying.value = false;
@@ -466,8 +393,7 @@ async function openDir(rel) {
   try {
     const d = await shareList(shareId.value, rel || '/');
     items.value = (d && d.items) || [];
-    viewRel.value =
-      rel === '/' ? '' : ((d && d.path && d.path !== '/' ? d.path : rel) || rel || '');
+    viewRel.value = rel === '/' ? '' : (d && d.path && d.path !== '/' ? d.path : rel) || rel || '';
   } catch (e) {
     if (e.code === 40311 || e.status === 403) {
       clearTicket(shareId.value);
@@ -495,52 +421,65 @@ function openFile(it) {
   doDownload(it);
 }
 
+// 原生直链下载：临时 <a download> 触发浏览器保存，不经内存 Blob 中转（大文件即点即下，
+// 浏览器下载器出进度）；name 仅作回退，缺省/为空时取响应 Content-Disposition 文件名
+function triggerDownload(url, name) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name || '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+// 下载：先 Range 预检判 JSON 信封（ticket 失效 40311 回引导重验），通过再走原生直链落地，不再整读内存 Blob。
+// 取舍：后端 pipeDownload 不支持 Range 会回 200 全流，预检取到响应头即取消 body，开销可忽略；
+// 预检通过到直跳之间票据恰好失效等极小概率场景会存下 JSON 文件而非回引导，属接受范围
 async function doDownload(it) {
   if (!it) return;
   downloading.value = it.rel;
   try {
-    const res = await shareDownload(shareId.value, it.rel);
-    await saveBlob(res, it.name);
-  } catch (e) {
-    if (e.code === 40311 || e.status === 403) {
-      clearTicket(shareId.value);
-      requirePassword('访问票据已过期，请重新输入提取码');
-    } else if (e.code === 40310) {
-      showError('该分享已被创建者停用');
-    } else if (e.code === 41010) {
-      showError('该分享已过期');
-    } else if (e.code === 40400) {
-      showError('分享不存在或已删除');
-    } else {
-      window.alert(e.message || '下载失败');
+    const url = shareFileUrl(shareId.value, it.rel);
+    const res = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+    const ct = res.headers.get('Content-Type') || '';
+    if (!res.ok || /json/i.test(ct)) {
+      const j = await res.json().catch(() => null);
+      if (j && j.code === 40311) {
+        clearTicket(shareId.value);
+        requirePassword('访问票据已过期，请重新输入提取码');
+        return;
+      }
+      if (j && j.code === 40310) {
+        showError('该分享已被创建者停用');
+        return;
+      }
+      if (j && j.code === 41010) {
+        showError('该分享已过期');
+        return;
+      }
+      if (j && j.code === 40400) {
+        showError('分享不存在或已删除');
+        return;
+      }
+      throw new Error((j && j.message) || `HTTP ${res.status}`);
     }
+    if (res.body) res.body.cancel().catch(() => {});
+    triggerDownload(url, it.name);
+  } catch (e) {
+    window.alert(`下载失败：${e.message}`);
   } finally {
     downloading.value = '';
   }
 }
 
-/* ================= 视频 Lightbox / 图片全屏查看器 ================= */
+/* ================= 视频 Lightbox / 图片全屏查看器（同旧 dlUrl 直引） ================= */
 const media = reactive({ open: false, name: '', url: '' });
-async function previewMedia(it) {
-  try {
-    const res = await shareDownload(shareId.value, it.rel);
-    const blob = await res.blob();
-    if (media.url) URL.revokeObjectURL(media.url);
-    media.url = URL.createObjectURL(blob);
-    media.name = it.name;
-    media.open = true;
-  } catch (e) {
-    if (e.code === 40311 || e.status === 403) {
-      clearTicket(shareId.value);
-      requirePassword('访问票据已过期，请重新输入提取码');
-    } else {
-      window.alert(e.message || '预览失败');
-    }
-  }
+function previewMedia(it) {
+  media.url = shareFileUrl(shareId.value, it.rel);
+  media.name = it.name;
+  media.open = true;
 }
 function closeMedia() {
   media.open = false;
-  if (media.url) URL.revokeObjectURL(media.url);
   media.url = '';
 }
 
@@ -554,13 +493,12 @@ const vwrUrl = computed(() => (vwr.imgs[vwr.idx] ? vwr.imgs[vwr.idx].url : ''));
 const vwrTransform = computed(
   () => `transform: translate(-50%, -50%) translate(${vwr.tx}px, ${vwr.ty}px) scale(${vwr.scale})`
 );
-const urlCache = reactive({}); // rel → objectURL
 
 async function openViewer(it) {
   const imgs = rows.value.filter((x) => !x.is_dir && isImg(x.name));
   const idx = imgs.findIndex((x) => x.rel === it.rel);
   if (idx < 0) return;
-  vwr.imgs = imgs.map((x) => ({ item: x, url: urlCache[x.rel] || '' }));
+  vwr.imgs = imgs.map((x) => ({ item: x, url: shareFileUrl(shareId.value, x.rel) }));
   vwr.idx = idx;
   vwr.open = true;
   vwr.mode = 'fit';
@@ -574,20 +512,7 @@ async function openViewer(it) {
 }
 async function ensureVwrUrl() {
   const cur = vwr.imgs[vwr.idx];
-  if (!cur || cur.url) return;
-  if (urlCache[cur.item.rel]) {
-    cur.url = urlCache[cur.item.rel];
-    return;
-  }
-  try {
-    const res = await shareDownload(shareId.value, cur.item.rel);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    urlCache[cur.item.rel] = url;
-    if (vwr.imgs[vwr.idx] === cur) cur.url = url;
-  } catch (e) {
-    /* 加载失败保持空白，可重试切换 */
-  }
+  if (cur && !cur.url) cur.url = shareFileUrl(shareId.value, cur.item.rel);
 }
 function vwrShow() {
   vwr.mode = 'fit';
@@ -698,7 +623,10 @@ function closeViewer() {
 }
 
 /* ================= 初始化 ================= */
-onMounted(async () => {
+async function initShare() {
+  state.value = 'loading';
+  items.value = [];
+  viewRel.value = '';
   shareId.value = resolveShareId();
   if (!shareId.value) {
     showError('链接无效', '分享链接格式不正确，请核对后重新打开。', 'link');
@@ -721,13 +649,14 @@ onMounted(async () => {
   } else {
     requirePassword('');
   }
-});
+}
+
+// 同一组件内切换分享链接时也必须重新初始化，不能保留上一个链接的状态。
+watch(() => route.fullPath, initShare, { immediate: true });
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onVwrKey, true);
   window.removeEventListener('resize', onVwrResize);
-  Object.values(urlCache).forEach((u) => URL.revokeObjectURL(u));
-  if (media.url) URL.revokeObjectURL(media.url);
 });
 </script>
 
@@ -1150,12 +1079,18 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: maskIn 0.3s ease both;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.3s,
+    visibility 0s linear 0.3s;
 }
-@keyframes maskIn {
-  from {
-    opacity: 0;
-  }
+.mask.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.3s;
 }
 .modal {
   background: var(--card);
@@ -1169,13 +1104,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-card);
-  animation: modalIn 0.35s var(--ease) both;
+  transform: translateY(16px) scale(0.98);
+  transition: transform 0.35s var(--ease);
 }
-@keyframes modalIn {
-  from {
-    opacity: 0;
-    transform: translateY(16px) scale(0.98);
-  }
+.mask.open .modal {
+  transform: none;
 }
 .m-scroll {
   flex: 1;
@@ -1183,6 +1116,9 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   border-radius: 8px;
   padding: 14px 18px 16px;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
 }
 .m-head {
   display: flex;
@@ -1330,5 +1266,18 @@ onBeforeUnmount(() => {
 .vwr-bar button[disabled] {
   opacity: 0.4;
   cursor: default;
+}
+
+/* 动效降级（同旧 theme.css 全局口径，scoped 内自持）：减少动态偏好下关闭动画与延迟 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
 }
 </style>

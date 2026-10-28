@@ -131,10 +131,11 @@ func (k Keys) jsonmEncryptBody(plainObj map[string]any, r int64) (string, error)
 	if err != nil {
 		return "", err
 	}
-	obj := map[string]any{"_r": r}
+	obj := map[string]any{}
 	for k2, v := range plainObj {
 		obj[k2] = v
 	}
+	obj["_r"] = r // Node 口径：{_r} 恒后置覆盖（JSON.stringify({...plainObj, _r: r})）
 	plain, _ := json.Marshal(obj)
 	ct, err := cryptoaudio.AESEncryptECBB64(string(plain), key)
 	if err != nil {
@@ -224,10 +225,11 @@ func MakeSignHeaderX(headers map[string]string, r int64) string {
 
 // jsonxEncryptBody 组装 jsonx 请求体（RSA 分块密文）。
 func (k Keys) jsonxEncryptBody(tenant string, plainObj map[string]any, r int64) (string, error) {
-	obj := map[string]any{"_r": r}
+	obj := map[string]any{}
 	for k2, v := range plainObj {
 		obj[k2] = v
 	}
+	obj["_r"] = r // Node 口径：{_r} 恒后置覆盖
 	plain, _ := json.Marshal(obj)
 	name := "SGCC_RSA_PUB"
 	pubIn := k.RSAPub

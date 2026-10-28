@@ -1,7 +1,7 @@
 <template>
   <!-- 旧版 crossing.html 口径：默认折叠一卡两行——标题行 区段 + 交叉垂距双大字 + 有隐患点标 + 折叠开关，
-       次级行 跨越类型 / 交叉角；展开区紧凑信息行（13 业务列，摘要行已占位不重复）+ 来源与推送信息行 + 卡内删除。
-       点卡（非交互区）= 折叠/展开。 -->
+       次级行 跨越类型 / 交叉角；展开区紧凑信息行（13 业务列，摘要行已占位不重复）+ 来源与推送信息行
+       + 卡内编辑（展开卡内统一表单，同手动新增）/ 删除。点卡（非交互区）= 折叠/展开。 -->
   <div class="card rec" :class="{ fold: !expanded }" @click="onCardClick">
     <div class="rec-top">
       <b class="rec-sec">{{ dash(record.section) }}</b>
@@ -27,7 +27,7 @@
     <!-- 展开区（grid 0fr→1fr 折叠过渡） -->
     <div class="rec-more">
       <div class="rec-more-in">
-        <div v-if="infoItems.length" class="rf-row">
+        <div v-if="infoItems.length && !editing" class="rf-row">
           <span v-for="it in infoItems" :key="it.key" class="rf"
             ><i>{{ it.label }}</i
             >{{ it.value }}</span
@@ -38,7 +38,9 @@
             >{{ it.label }} <b>{{ it.value }}</b></span
           >
         </div>
-        <div v-if="isManager" class="rec-acts">
+        <!-- 操作行：编辑（展开卡内统一表单）/ 删除，居右；编辑态由表单自带保存/取消 -->
+        <div v-if="isManager && !editing" class="rec-acts">
+          <button class="btn btn-sm" type="button" @click.stop="startEdit">编辑</button>
           <button
             class="btn btn-sm btn-danger"
             type="button"
@@ -47,6 +49,14 @@
             删除
           </button>
         </div>
+        <RecordForm
+          v-if="editing"
+          class="rec-form"
+          :record="record"
+          :saving="saving"
+          @save="onFormSave"
+          @cancel="editing = false"
+        />
       </div>
     </div>
   </div>
@@ -54,6 +64,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import RecordForm from './RecordForm.vue';
 import {
   COMPACT_FIELDS,
   SOURCE_TEXT,
@@ -69,10 +80,13 @@ const props = defineProps({
   record: { type: Object, required: true },
   isManager: { type: Boolean, default: false },
 });
-defineEmits(['remove']);
+const emit = defineEmits(['remove', 'save']);
 
 // expanded 折叠状态（默认折叠，仅两行摘要）
 const expanded = ref(false);
+// editing 展开卡内编辑态（统一表单就地切换）；saving 保存中防重入
+const editing = ref(false);
+const saving = ref(false);
 
 const isHazard = computed(() => hasHazard(props.record));
 const crossingType = computed(() => String(props.record.crossing_type || '').trim());
@@ -110,6 +124,22 @@ const srcItems = computed(() => {
 
 function toggle() {
   expanded.value = !expanded.value;
+}
+
+// startEdit 进入展开卡编辑（统一表单复用 RecordForm，与手动新增同款）。
+function startEdit() {
+  if (!props.isManager || saving.value) return;
+  editing.value = true;
+}
+
+// onFormSave 提交编辑：交上级调 API，done(ok) 回调复位保存态；失败保留表单便于修改重试。
+function onFormSave(body) {
+  if (saving.value) return;
+  saving.value = true;
+  emit('save', props.record.id, body, (ok) => {
+    saving.value = false;
+    if (ok !== false) editing.value = false;
+  });
 }
 
 // onCardClick 点卡（非交互区）= 折叠/展开；拖拽选中文字不触发。
@@ -178,7 +208,8 @@ function onCardClick(e) {
 }
 
 /* ===== 记录卡（扁平完整交跨卡，无详情弹层分级） ===== */
-.rec {
+.card.rec {
+  margin-top: 0; /* 全局 .card + .card 间距不叠加：卡片流间距沿旧版 margin-bottom 14px 口径 */
   margin-bottom: 14px;
   padding: 15px 22px;
   position: relative;
@@ -340,12 +371,18 @@ function onCardClick(e) {
   font-weight: 600;
   color: var(--tk-ink);
 }
-/* 卡内操作行：删除居右 */
+/* 卡内操作行：编辑 / 删除居右 */
 .rec-acts {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 14px;
+}
+/* 展开卡内统一表单（编辑态替换紧凑信息行） */
+.rec-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tk-line);
 }
 @media (prefers-reduced-motion: reduce) {
   .rec,

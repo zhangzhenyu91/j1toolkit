@@ -4,10 +4,12 @@
 package sgccclockin
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -76,7 +78,8 @@ type Account struct {
 	DeviceType    string
 	SystemVersion string
 	TokenStatus   int
-	CardMemberID  int64 // 联表解析的卡片成员 id（loadEntries 同口径，可空）
+	LastCheckAt   *time.Time // last_check_at（代绑行等口径一致）
+	CardMemberID  int64      // 联表解析的卡片成员 id（loadEntries 同口径，可空）
 }
 
 // MissingClockinRow 提醒/核查查询结果行。
@@ -111,10 +114,18 @@ type Module struct {
 	Recompense func(ctx context.Context, memberID int64)
 	// FetchPhoto 照片原文回源函数（COS 公网地址 GET；nil 用默认 http 客户端 60s 超时）；测试注入 fake/httptest。
 	FetchPhoto PhotoFetcher
+	// FetchSgccImage 商旅费用照片下载（默认经出口代理，同 API 链路）；测试注入 fake。
+	FetchSgccImage PhotoFetcher
+	// Store 对象存储（费用照片拉下入库 / 删除对账；nil 时拉下方向不可用并记 fail 日志）。
+	Store PhotoStore
+	// VerifyPhoto 拉下入库照片的水印识别回写钩子（异步触发；nil 跳过）。
+	VerifyPhoto PhotoVerifier
 	// GeoHTTP 高德定位客户端；nil 使用 8 秒超时默认客户端。
 	GeoHTTP *http.Client
 	// IntervalMs 日期间防风控间隔缺省值（Cfg 的 SGCC_SYNC_INTERVAL_MS 优先；默认 500ms；测试置 0）。
 	IntervalMs int
+
+	photoTransports transportCache // 商旅图片下载代理传输层缓存
 }
 
 // New 构造商旅打卡模块。
@@ -173,11 +184,45 @@ func (m *Module) enter(w http.ResponseWriter, r *http.Request) (auth.Identity, *
 		}
 	}
 	adapter := httpapi.IdentityAdapter{TeamID: ident.TeamID, Role: ident.Role}
-	team, err := httpapi.ResolveTeam(r.Context(), m.DB, adapter, 0)
+	wanted := wantedTeamID(r)
+	team, err := httpapi.ResolveTeam(r.Context(), m.DB, adapter, wanted)
+	if err != nil && wanted > 0 {
+		// Node resolveReqTeam 口径：超管期望班组不可用（不存在/停用）时回退本人班组，再无则默认班组
+		team, err = httpapi.ResolveTeam(r.Context(), m.DB, adapter, 0)
+	}
 	if err != nil {
 		return ident, nil, true // 无可用班组 → 空态（各路由自行判空）
 	}
 	return ident, &team, true
+}
+
+// wantedTeamID 请求期望班组（Node resolveReqTeam 口径：query 优先、其次 body；仅超管生效，
+// 非法/缺省落 0 由 ResolveTeam 按角色收敛）。读 body 后原样放回，不影响后续 decodeBody。
+func wantedTeamID(r *http.Request) int64 {
+	if v := strings.TrimSpace(r.URL.Query().Get("team_id")); v != "" {
+		n, _ := strconv.ParseInt(v, 10, 64)
+		if n > 0 {
+			return n
+		}
+		return 0
+	}
+	if r.Body == nil || r.Method == http.MethodGet || r.Method == http.MethodDelete {
+		return 0
+	}
+	buf, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		return 0
+	}
+	r.Body = io.NopCloser(bytes.NewReader(buf))
+	var body map[string]json.RawMessage
+	if json.Unmarshal(buf, &body) != nil {
+		return 0
+	}
+	n, _ := strconv.ParseInt(rawString(body["team_id"]), 10, 64)
+	if n > 0 {
+		return n
+	}
+	return 0
 }
 
 // requireDictAdmin 管理门控：超管任意班组，班组管理员仅本班。
@@ -269,7 +314,11 @@ func (m *Module) loginSms(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if num(d["statusCode"]) != 200 {
-			msg := msgOr(d, "短信发送失败，请重试")
+			// v2 错误文案取顶层 msg（Node 口径）
+			msg := "短信发送失败，请重试"
+			if s, ok := d["msg"].(string); ok && s != "" {
+				msg = s
+			}
 			fail(w, http.StatusBadRequest, codeSMSFail, msg)
 			return
 		}
@@ -498,20 +547,46 @@ func truncateStr(s string, n int) string {
 }
 
 // myAccount 本人绑定行（无则 nil）。
-func (m *Module) myAccount(ctx context.Context, userID int64) *Account {
-	var a Account
-	var memberID sql.NullInt64
-	err := m.DB.QueryRowContext(ctx,
-		`SELECT id, team_id, user_id, member_id, mobile, token, device_type, system_version, token_status
-		 FROM worklog_sgcc_account WHERE user_id = ?`, userID,
-	).Scan(&a.ID, &a.TeamID, &a.UserID, &memberID, &a.Mobile, &a.Token, &a.DeviceType, &a.SystemVersion, &a.TokenStatus)
-	if err != nil {
+func (m *Module) myAccount(ctx context.Context, ident auth.Identity, team *httpapi.Team) *Account {
+	scan := func(query string, args ...any) *Account {
+		var a Account
+		var memberID, userID sql.NullInt64
+		var lastCheck sql.NullTime
+		err := m.DB.QueryRowContext(ctx, query, args...).Scan(&a.ID, &a.TeamID, &userID, &memberID,
+			&a.Mobile, &a.Token, &a.DeviceType, &a.SystemVersion, &a.TokenStatus, &lastCheck)
+		if err != nil {
+			return nil
+		}
+		if memberID.Valid {
+			a.MemberID = memberID.Int64
+		}
+		if userID.Valid {
+			a.UserID = userID.Int64
+		}
+		if lastCheck.Valid {
+			t := lastCheck.Time
+			a.LastCheckAt = &t
+		}
+		return &a
+	}
+	// user_id 直连优先；落空按班组人级兜底（Node myAccount 同口径）：本人成员行或
+	// 同名未认领（管理员代绑 user_id=NULL）行——代绑行在「我的 → 绑定商旅」可见
+	if a := scan(
+		`SELECT id, team_id, user_id, member_id, mobile, token, device_type, system_version, token_status, last_check_at
+		 FROM worklog_sgcc_account WHERE user_id = ?`, ident.ID); a != nil {
+		return a
+	}
+	if team == nil {
 		return nil
 	}
-	if memberID.Valid {
-		a.MemberID = memberID.Int64
-	}
-	return &a
+	return scan(
+		`SELECT a.id, a.team_id, a.user_id, a.member_id, a.mobile, a.token, a.device_type, a.system_version,
+		        a.token_status, a.last_check_at
+		 FROM worklog_sgcc_account a
+		 JOIN worklog_member m ON m.id = a.member_id
+		 WHERE m.team_id = ? AND (m.user_id = ? OR (m.user_id IS NULL AND m.name = ?))
+		 ORDER BY (m.user_id = ?) DESC, a.id LIMIT 1`,
+		team.ID, ident.ID, ident.Nickname, ident.ID)
 }
 
 // accountGet GET /account：本人绑定状态 + 今日打卡/费用摘要。
@@ -520,24 +595,80 @@ func (m *Module) accountGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	acc := m.myAccount(r.Context(), ident.ID)
+	if team == nil {
+		fail(w, http.StatusForbidden, codeNoAssign, "未分配班组，请联系管理员分配")
+		return
+	}
+	acc := m.myAccount(r.Context(), ident, team)
 	if acc == nil {
 		writeOK(w, map[string]any{"bound": false})
 		return
 	}
 	today := TodayCN()
+	masked := maskMobile(acc.Mobile)
 	out := map[string]any{
-		"bound":          true,
-		"mobile_masked":  maskMobile(acc.Mobile),
+		"bound": true,
+		// 网页端（snake）与小程序（camel）双端键名并存（Node /account camel 口径）
+		"mobile_masked":  masked,
+		"mobile":         masked,
 		"device_type":    acc.DeviceType,
+		"deviceType":     acc.DeviceType,
 		"system_version": acc.SystemVersion,
+		"systemVersion":  acc.SystemVersion,
 		"token_status":   acc.TokenStatus,
+		"tokenStatus":    acc.TokenStatus,
+		"lastCheckAt":    acc.LastCheckAt,
 		"member_id":      acc.MemberID,
 		"clockin":        m.clockinSummary(r.Context(), acc.MemberID, today),
-		"fee":            m.feeSummary(r.Context(), acc.MemberID, today),
+		"clockins":       m.clockinRows(r.Context(), acc.MemberID, today),
+		"fee":            m.feeRow(r.Context(), acc.MemberID, today),
 	}
-	_ = team
 	writeOK(w, out)
+}
+
+// clockinRows 当日打卡行（Node /account clockins 口径：[{seq, clock_time, position, work_hours}]）。
+func (m *Module) clockinRows(ctx context.Context, memberID int64, date string) []map[string]any {
+	out := []map[string]any{}
+	if memberID == 0 {
+		return out
+	}
+	rows, err := m.DB.QueryContext(ctx,
+		`SELECT seq, DATE_FORMAT(clock_time, '%Y-%m-%d %H:%i:%s'), position, work_hours
+		 FROM worklog_clockin WHERE member_id = ? AND clock_date = ? ORDER BY seq`, memberID, date)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int
+		var clockTime, position, workHours sql.NullString
+		if err := rows.Scan(&seq, &clockTime, &position, &workHours); err == nil {
+			out = append(out, map[string]any{
+				"seq": seq, "clock_time": clockTime.String,
+				"position": position.String, "work_hours": workHours.String,
+			})
+		}
+	}
+	return out
+}
+
+// feeRow 当日费用行（Node /account fee 口径：{food_fee, transit_fee, cost_center_code, cost_center_name} 或 null）。
+func (m *Module) feeRow(ctx context.Context, memberID int64, date string) any {
+	if memberID == 0 {
+		return nil
+	}
+	var food, transit float64
+	var ccCode, ccName sql.NullString
+	err := m.DB.QueryRowContext(ctx,
+		`SELECT food_fee, transit_fee, cost_center_code, cost_center_name FROM worklog_fee
+		 WHERE member_id = ? AND fee_date = ?`, memberID, date).Scan(&food, &transit, &ccCode, &ccName)
+	if err != nil {
+		return nil
+	}
+	return map[string]any{
+		"food_fee": food, "transit_fee": transit,
+		"cost_center_code": ccCode.String, "cost_center_name": ccName.String,
+	}
 }
 
 // maskMobile 手机号脱敏：前三后四。
@@ -550,7 +681,7 @@ func maskMobile(mobile string) string {
 
 // accountDevice PUT /account/device：本人改设备口径。
 func (m *Module) accountDevice(w http.ResponseWriter, r *http.Request) {
-	ident, _, ok := m.enter(w, r)
+	ident, team, ok := m.enter(w, r)
 	if !ok {
 		return
 	}
@@ -561,35 +692,46 @@ func (m *Module) accountDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	devType := truncateStr(rawString(body["deviceType"]), 64)
 	sysVer := truncateStr(rawString(body["systemVersion"]), 64)
-	res, err := m.DB.ExecContext(r.Context(),
-		`UPDATE worklog_sgcc_account SET device_type = ?, system_version = ? WHERE user_id = ?`,
-		devType, sysVer, ident.ID)
-	if err != nil {
-		writeErr(w, err)
+	if devType == "" {
+		fail(w, http.StatusBadRequest, 40033, "设备型号不能为空")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		fail(w, http.StatusNotFound, codeMissing, "未绑定商旅账号")
+	acc := m.myAccount(r.Context(), ident, team)
+	if acc == nil {
+		fail(w, http.StatusBadRequest, 40020, "请先绑定商旅账号")
+		return
+	}
+	if _, err := m.DB.ExecContext(r.Context(),
+		`UPDATE worklog_sgcc_account SET device_type = ?, system_version = ? WHERE id = ?`,
+		devType, sysVer, acc.ID); err != nil {
+		writeErr(w, err)
 		return
 	}
 	writeOK(w, nil)
 }
 
-// accountDelete DELETE /account：解绑（本人）。
+// accountDelete DELETE /account：解绑（本人；仅删本地绑定与已同步的打卡/费用数据，商旅 App 侧不受影响）。
 func (m *Module) accountDelete(w http.ResponseWriter, r *http.Request) {
-	ident, _, ok := m.enter(w, r)
+	ident, team, ok := m.enter(w, r)
 	if !ok {
 		return
 	}
-	res, err := m.DB.ExecContext(r.Context(),
-		`DELETE FROM worklog_sgcc_account WHERE user_id = ?`, ident.ID)
-	if err != nil {
+	acc := m.myAccount(r.Context(), ident, team)
+	if acc == nil {
+		writeOK(w, nil) // Node 口径：本就未绑定按成功返回
+		return
+	}
+	if _, err := m.DB.ExecContext(r.Context(),
+		`DELETE FROM worklog_sgcc_account WHERE id = ?`, acc.ID); err != nil {
 		writeErr(w, err)
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		fail(w, http.StatusNotFound, codeMissing, "未绑定商旅账号")
-		return
+	// 级联清理该成员已同步的打卡/费用数据（Node /account DELETE 同口径）
+	if acc.MemberID != 0 {
+		_, _ = m.DB.ExecContext(r.Context(),
+			`DELETE FROM worklog_clockin WHERE member_id = ?`, acc.MemberID)
+		_, _ = m.DB.ExecContext(r.Context(),
+			`DELETE FROM worklog_fee WHERE member_id = ?`, acc.MemberID)
 	}
 	writeOK(w, nil)
 }
@@ -637,37 +779,47 @@ func (m *Module) accountsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := m.DB.QueryContext(r.Context(),
-		`SELECT a.id, COALESCE(m.name, u.nickname, a.mobile), a.mobile, a.device_type, a.system_version,
+		`SELECT a.id, COALESCE(m.name, u.nickname, a.mobile), m.name, a.mobile, a.device_type, a.system_version,
 		        a.token_status, a.last_check_at
 		 FROM worklog_sgcc_account a
 		 LEFT JOIN worklog_member m ON m.id = a.member_id
 		 LEFT JOIN sys_user u ON u.id = a.user_id
-		 WHERE a.team_id = ? ORDER BY a.id`, team.ID)
+		 WHERE a.team_id = ? ORDER BY m.sort IS NULL, m.sort, a.id`, team.ID)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	defer rows.Close()
-	type item struct {
-		ID            int64      `json:"id"`
-		Name          string     `json:"name"`
-		MobileMasked  string     `json:"mobile_masked"`
-		DeviceType    string     `json:"device_type"`
-		SystemVersion string     `json:"system_version"`
-		TokenStatus   int        `json:"token_status"`
-		LastCheckAt   *time.Time `json:"last_check_at"`
-	}
-	list := make([]item, 0)
+	list := make([]map[string]any, 0)
 	for rows.Next() {
-		var it item
-		var mobile string
+		var id int64
+		var name, memberName sql.NullString
+		var mobile, devType, sysVer string
+		var tokenStatus int
 		var lastCheck sql.NullTime
-		if err := rows.Scan(&it.ID, &it.Name, &mobile, &it.DeviceType, &it.SystemVersion,
-			&it.TokenStatus, &lastCheck); err == nil {
-			it.MobileMasked = maskMobile(mobile)
+		if err := rows.Scan(&id, &name, &memberName, &mobile, &devType, &sysVer,
+			&tokenStatus, &lastCheck); err == nil {
+			it := map[string]any{
+				"id": id,
+				// 网页端（snake/name）与小程序（camel/memberName）双端键名并存（Node /accounts camel 口径）；
+				// memberName 为空 = 绑定账号昵称未匹配到出工成员（Node 同口径）
+				"name":           name.String,
+				"memberName":     memberName.String,
+				"mobile_masked":  maskMobile(mobile),
+				"mobile":         maskMobile(mobile),
+				"device_type":    devType,
+				"deviceType":     devType,
+				"system_version": sysVer,
+				"systemVersion":  sysVer,
+				"token_status":   tokenStatus,
+				"tokenStatus":    tokenStatus,
+				"last_check_at":  nil,
+				"lastCheckAt":    "",
+			}
 			if lastCheck.Valid {
 				t := lastCheck.Time
-				it.LastCheckAt = &t
+				it["last_check_at"] = &t
+				it["lastCheckAt"] = t.Format("2006-01-02 15:04")
 			}
 			list = append(list, it)
 		}

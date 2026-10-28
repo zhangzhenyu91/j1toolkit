@@ -61,7 +61,7 @@
       <!-- 左卡：题库主页 / 刷题页 -->
       <section class="card qz-main">
         <!-- 题库主页（统计行 + 四宫格入口） -->
-        <div v-if="!practice.started" class="pane">
+        <div v-if="!practice.started" class="pane home-pane">
           <template v-if="homeLoading && !home">
             <div class="skeleton" style="height: 120px; border-radius: 8px"></div>
             <div class="skeleton" style="height: 210px; border-radius: 8px; margin-top: 14px"></div>
@@ -163,8 +163,8 @@
           </template>
 
           <template v-else>
-            <div class="pv-col">
-              <div class="pv-col-in">
+            <div ref="pvColEl" class="pv-col">
+              <div :key="curQ.id" class="pv-col-in">
                 <div class="pv-stem">
                   <span class="tag" :class="curQ.type === 'judge' ? 'tag-navy' : 'tag-orange'">
                     {{ typeText(curQ.type) }}
@@ -459,381 +459,403 @@
     </div>
 
     <!-- ================= 弹层：题库池 ================= -->
-    <div v-if="poolVisible" class="mask open" @click.self="poolVisible = false">
-      <div class="modal" style="width: 520px">
-        <div class="m-scroll">
-          <div class="m-head">
-            <div class="m-title">题库池</div>
-            <button class="m-x" @click="poolVisible = false">
-              <span v-html="icon('close', 14)"></span>
-            </button>
-          </div>
-          <div class="imp-err-tip">
-            从班组池 / 全部池把题库添加进「我的题库」，移出保留练习记录与错题
-          </div>
-          <template v-if="poolLoading">
-            <div class="loading"><span class="spin"></span>加载中…</div>
-          </template>
-          <div v-else-if="!pool.length" class="empty">
-            <span v-html="icon('book', 40)"></span>
-            <p>暂无可添加的题库</p>
-          </div>
-          <template v-else>
-            <div v-for="b in pool" :key="b.id" class="imp-err pool-row">
-              <div class="pool-main">
-                <b>
-                  {{ b.name }}
-                  <span class="tag" :class="b.scope === 'all' ? 'tag-orange' : 'tag-navy'">
-                    {{ b.scope === 'all' ? '全部池' : b.teamName || '班组池' }}
-                  </span>
-                </b>
-                <p>{{ b.questionCount }} 题{{ b.description ? ' · ' + b.description : '' }}</p>
-              </div>
-              <button v-if="!b.added" class="btn btn-sm btn-accent" @click="onJoin(b)">添加</button>
-              <button v-else class="btn btn-sm" @click="onLeave(b)">移出</button>
+    <Transition name="qz-fade">
+      <div v-if="poolVisible" class="mask" @click.self="poolVisible = false">
+        <div class="modal" style="width: 520px">
+          <div class="m-scroll">
+            <div class="m-head">
+              <div class="m-title">题库池</div>
+              <button class="m-x" @click="poolVisible = false">
+                <span v-html="icon('close', 14)"></span>
+              </button>
             </div>
-          </template>
+            <div class="imp-err-tip">
+              从班组池 / 全部池把题库添加进「我的题库」，移出保留练习记录与错题
+            </div>
+            <template v-if="poolLoading">
+              <div class="loading"><span class="spin"></span>加载中…</div>
+            </template>
+            <div v-else-if="!pool.length" class="empty">
+              <span v-html="icon('book', 40)"></span>
+              <p>暂无可添加的题库</p>
+            </div>
+            <template v-else>
+              <div v-for="b in pool" :key="b.id" class="imp-err pool-row">
+                <div class="pool-main">
+                  <b>
+                    {{ b.name }}
+                    <span class="tag" :class="b.scope === 'all' ? 'tag-orange' : 'tag-navy'">
+                      {{ b.scope === 'all' ? '全部池' : b.teamName || '班组池' }}
+                    </span>
+                  </b>
+                  <p>{{ b.questionCount }} 题{{ b.description ? ' · ' + b.description : '' }}</p>
+                </div>
+                <button v-if="!b.added" class="btn btn-sm btn-accent" @click="onJoin(b)">
+                  添加
+                </button>
+                <button v-else class="btn btn-sm" @click="onLeave(b)">移出</button>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- ================= 弹层：题库新增 / 编辑 ================= -->
-    <div v-if="bankVisible" class="mask open" @click.self="bankVisible = false">
-      <div class="modal" style="width: 460px">
-        <div class="m-scroll">
-          <div class="m-head">
-            <div class="m-title">{{ bankForm.id ? '编辑题库' : '新建题库' }}</div>
-            <button class="m-x" @click="bankVisible = false">
-              <span v-html="icon('close', 14)"></span>
-            </button>
-          </div>
-          <div class="f-label">题库名称</div>
-          <input
-            v-model="bankForm.name"
-            class="input"
-            maxlength="50"
-            placeholder="如：电力安全工作规程"
-          />
-          <div class="f-label">题库描述</div>
-          <textarea
-            v-model="bankForm.description"
-            class="input"
-            placeholder="选填：题库范围或说明"
-          ></textarea>
-          <template v-if="isAdmin">
-            <div class="f-label">上传至</div>
-            <div class="type-seg">
-              <button :class="{ on: bankForm.scope === 'team' }" @click="bankForm.scope = 'team'">
-                班组池（本班组）
-              </button>
-              <button :class="{ on: bankForm.scope === 'all' }" @click="bankForm.scope = 'all'">
-                全部池（所有用户可拉取）
+    <Transition name="qz-fade">
+      <div v-if="bankVisible" class="mask" @click.self="bankVisible = false">
+        <div class="modal" style="width: 460px">
+          <div class="m-scroll">
+            <div class="m-head">
+              <div class="m-title">{{ bankForm.id ? '编辑题库' : '新建题库' }}</div>
+              <button class="m-x" @click="bankVisible = false">
+                <span v-html="icon('close', 14)"></span>
               </button>
             </div>
-          </template>
-          <div class="m-foot">
-            <button class="btn btn-sm" @click="bankVisible = false">取消</button>
-            <button class="btn btn-sm btn-primary" @click="saveBank">保存</button>
+            <div class="f-label">题库名称</div>
+            <input
+              v-model="bankForm.name"
+              class="input"
+              maxlength="50"
+              placeholder="如：电力安全工作规程"
+            />
+            <div class="f-label">题库描述</div>
+            <textarea
+              v-model="bankForm.description"
+              class="input"
+              placeholder="选填：题库范围或说明"
+            ></textarea>
+            <template v-if="isAdmin">
+              <div class="f-label">上传至</div>
+              <div class="type-seg">
+                <button :class="{ on: bankForm.scope === 'team' }" @click="bankForm.scope = 'team'">
+                  班组池（本班组）
+                </button>
+                <button :class="{ on: bankForm.scope === 'all' }" @click="bankForm.scope = 'all'">
+                  全部池（所有用户可拉取）
+                </button>
+              </div>
+            </template>
+            <div class="m-foot">
+              <button class="btn btn-sm" @click="bankVisible = false">取消</button>
+              <button class="btn btn-sm btn-primary" @click="saveBank">保存</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- ================= 弹层：题目新增 / 编辑 ================= -->
-    <div v-if="questionVisible" class="mask open" @click.self="questionVisible = false">
-      <div class="modal" style="width: 620px">
-        <div class="m-scroll">
-          <div class="m-head">
-            <div class="m-title">{{ questionForm.id ? '编辑题目' : '新增题目' }}</div>
-            <button class="m-x" @click="questionVisible = false">
-              <span v-html="icon('close', 14)"></span>
-            </button>
-          </div>
-          <div class="f-label">题型</div>
-          <div class="type-seg">
-            <button
-              :class="{ on: questionForm.type === 'single' }"
-              @click="
-                questionForm.type = 'single';
-                onTypeChange('single');
-              "
-            >
-              单选题
-            </button>
-            <button
-              :class="{ on: questionForm.type === 'multiple' }"
-              @click="
-                questionForm.type = 'multiple';
-                onTypeChange('multiple');
-              "
-            >
-              多选题
-            </button>
-            <button
-              :class="{ on: questionForm.type === 'judge' }"
-              @click="
-                questionForm.type = 'judge';
-                onTypeChange('judge');
-              "
-            >
-              判断题
-            </button>
-          </div>
-          <div class="f-label">题干</div>
-          <textarea
-            v-model="questionForm.content"
-            class="input"
-            placeholder="请输入题干"
-          ></textarea>
-          <div class="f-label">选项</div>
-          <template v-if="questionForm.type === 'judge'">
-            <div class="opt-edit">
-              <span class="ab">A</span>
-              <input class="input" value="正确" disabled />
-            </div>
-            <div class="opt-edit">
-              <span class="ab">B</span>
-              <input class="input" value="错误" disabled />
-            </div>
-          </template>
-          <template v-else>
-            <div v-for="(opt, i) in questionForm.options" :key="i" class="opt-edit">
-              <span class="ab">{{ LETTERS[i] }}</span>
-              <input
-                v-model="questionForm.options[i]"
-                class="input"
-                :placeholder="'选项 ' + LETTERS[i]"
-                maxlength="200"
-              />
-              <button
-                class="mini-btn qm-del"
-                title="删除选项"
-                :disabled="questionForm.options.length <= 2"
-                @click="questionForm.options.splice(i, 1)"
-              >
-                <span v-html="icon('delete', 14)"></span>
+    <Transition name="qz-fade">
+      <div v-if="questionVisible" class="mask" @click.self="questionVisible = false">
+        <div class="modal" style="width: 620px">
+          <div class="m-scroll">
+            <div class="m-head">
+              <div class="m-title">{{ questionForm.id ? '编辑题目' : '新增题目' }}</div>
+              <button class="m-x" @click="questionVisible = false">
+                <span v-html="icon('close', 14)"></span>
               </button>
             </div>
-            <button
-              class="btn btn-sm"
-              style="margin-top: 10px"
-              :disabled="questionForm.options.length >= 6"
-              @click="questionForm.options.push('')"
-            >
-              <span v-html="icon('add', 14)"></span>添加选项
-            </button>
-          </template>
-          <div class="f-label">答案</div>
-          <div class="ans-chips">
+            <div class="f-label">题型</div>
+            <div class="type-seg">
+              <button
+                :class="{ on: questionForm.type === 'single' }"
+                @click="
+                  questionForm.type = 'single';
+                  onTypeChange('single');
+                "
+              >
+                单选题
+              </button>
+              <button
+                :class="{ on: questionForm.type === 'multiple' }"
+                @click="
+                  questionForm.type = 'multiple';
+                  onTypeChange('multiple');
+                "
+              >
+                多选题
+              </button>
+              <button
+                :class="{ on: questionForm.type === 'judge' }"
+                @click="
+                  questionForm.type = 'judge';
+                  onTypeChange('judge');
+                "
+              >
+                判断题
+              </button>
+            </div>
+            <div class="f-label">题干</div>
+            <textarea
+              v-model="questionForm.content"
+              class="input"
+              placeholder="请输入题干"
+            ></textarea>
+            <div class="f-label">选项</div>
             <template v-if="questionForm.type === 'judge'">
-              <button
-                class="a-chip"
-                :class="{ on: judgeAnswer === 'A' }"
-                @click="onJudgeAnswer('A')"
-              >
-                正确
-              </button>
-              <button
-                class="a-chip"
-                :class="{ on: judgeAnswer === 'B' }"
-                @click="onJudgeAnswer('B')"
-              >
-                错误
-              </button>
+              <div class="opt-edit">
+                <span class="ab">A</span>
+                <input class="input" value="正确" disabled />
+              </div>
+              <div class="opt-edit">
+                <span class="ab">B</span>
+                <input class="input" value="错误" disabled />
+              </div>
             </template>
             <template v-else>
+              <div v-for="(opt, i) in questionForm.options" :key="i" class="opt-edit">
+                <span class="ab">{{ LETTERS[i] }}</span>
+                <input
+                  v-model="questionForm.options[i]"
+                  class="input"
+                  :placeholder="'选项 ' + LETTERS[i]"
+                  maxlength="200"
+                />
+                <button
+                  class="mini-btn qm-del"
+                  title="删除选项"
+                  :disabled="questionForm.options.length <= 2"
+                  @click="questionForm.options.splice(i, 1)"
+                >
+                  <span v-html="icon('delete', 14)"></span>
+                </button>
+              </div>
               <button
-                v-for="(opt, i) in questionForm.options"
-                :key="i"
-                class="a-chip"
-                :class="{ on: questionForm.answer.indexOf(LETTERS[i]) >= 0 }"
-                :disabled="!questionForm.options[i]"
-                @click="toggleAnswerLetter(LETTERS[i])"
+                class="btn btn-sm"
+                style="margin-top: 10px"
+                :disabled="questionForm.options.length >= 6"
+                @click="questionForm.options.push('')"
               >
-                {{ LETTERS[i] }}
+                <span v-html="icon('add', 14)"></span>添加选项
               </button>
             </template>
-          </div>
-          <div class="f-tip">
-            {{
-              questionForm.type === 'judge'
-                ? '判断题答案：A=正确，B=错误'
-                : questionForm.type === 'multiple'
-                  ? '多选题可点选多个选项字母'
-                  : '单选题点选一个选项字母'
-            }}
-          </div>
-          <div class="f-label">解析</div>
-          <textarea
-            v-model="questionForm.analysis"
-            class="input"
-            placeholder="留空则由 AI 自动生成"
-          ></textarea>
-          <div class="m-foot">
-            <button class="btn btn-sm" @click="questionVisible = false">取消</button>
-            <button class="btn btn-sm btn-primary" @click="saveQuestion">保存</button>
+            <div class="f-label">答案</div>
+            <div class="ans-chips">
+              <template v-if="questionForm.type === 'judge'">
+                <button
+                  class="a-chip"
+                  :class="{ on: judgeAnswer === 'A' }"
+                  @click="onJudgeAnswer('A')"
+                >
+                  正确
+                </button>
+                <button
+                  class="a-chip"
+                  :class="{ on: judgeAnswer === 'B' }"
+                  @click="onJudgeAnswer('B')"
+                >
+                  错误
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  v-for="(opt, i) in questionForm.options"
+                  :key="i"
+                  class="a-chip"
+                  :class="{ on: questionForm.answer.indexOf(LETTERS[i]) >= 0 }"
+                  :disabled="!questionForm.options[i]"
+                  @click="toggleAnswerLetter(LETTERS[i])"
+                >
+                  {{ LETTERS[i] }}
+                </button>
+              </template>
+            </div>
+            <div class="f-tip">
+              {{
+                questionForm.type === 'judge'
+                  ? '判断题答案：A=正确，B=错误'
+                  : questionForm.type === 'multiple'
+                    ? '多选题可点选多个选项字母'
+                    : '单选题点选一个选项字母'
+              }}
+            </div>
+            <div class="f-label">解析</div>
+            <textarea
+              v-model="questionForm.analysis"
+              class="input"
+              placeholder="留空则由 AI 自动生成"
+            ></textarea>
+            <div class="m-foot">
+              <button class="btn btn-sm" @click="questionVisible = false">取消</button>
+              <button class="btn btn-sm btn-primary" @click="saveQuestion">保存</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- ================= 弹层：导入校验未通过 ================= -->
-    <div v-if="importErrors.length" class="mask open" @click.self="importErrors = []">
-      <div class="modal" style="width: 480px">
-        <div class="m-scroll">
-          <div class="m-head">
-            <div class="m-title">导入校验未通过</div>
-            <button class="m-x" @click="importErrors = []">
-              <span v-html="icon('close', 14)"></span>
-            </button>
-          </div>
-          <div class="imp-err-tip warn">
-            <span v-html="icon('warn', 14)"></span>
-            <span>以下行校验未通过，请修正后重新导入</span>
-          </div>
-          <div v-for="e in importErrors" :key="e.row" class="imp-err">
-            <b>第 {{ e.row }} 行</b>
-            <span>{{ e.message }}</span>
-          </div>
-          <div class="m-foot">
-            <button class="btn btn-sm btn-primary" @click="importErrors = []">知道了</button>
+    <Transition name="qz-fade">
+      <div v-if="importErrors.length" class="mask" @click.self="importErrors = []">
+        <div class="modal" style="width: 480px">
+          <div class="m-scroll">
+            <div class="m-head">
+              <div class="m-title">导入校验未通过</div>
+              <button class="m-x" @click="importErrors = []">
+                <span v-html="icon('close', 14)"></span>
+              </button>
+            </div>
+            <div class="imp-err-tip warn">
+              <span v-html="icon('warn', 14)"></span>
+              <span>以下行校验未通过，请修正后重新导入</span>
+            </div>
+            <div v-for="e in importErrors" :key="e.row" class="imp-err">
+              <b>第 {{ e.row }} 行</b>
+              <span>{{ e.message }}</span>
+            </div>
+            <div class="m-foot">
+              <button class="btn btn-sm btn-primary" @click="importErrors = []">知道了</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- ================= 弹层：刷题设置 ================= -->
-    <div v-if="settingsVisible" class="mask open" @click.self="settingsVisible = false">
-      <div class="modal" style="width: 440px">
-        <div class="m-scroll">
-          <div class="m-head">
-            <div class="m-title">刷题设置</div>
-            <button class="m-x" @click="settingsVisible = false">
-              <span v-html="icon('close', 14)"></span>
-            </button>
-          </div>
-          <div class="pv-set-row">
-            <div class="tx">
-              <b>答对自动下一题</b>
-              <p>答错停留看解析，末尾题不自动</p>
+    <Transition name="qz-fade">
+      <div v-if="settingsVisible" class="mask" @click.self="settingsVisible = false">
+        <div class="modal" style="width: 440px">
+          <div class="m-scroll">
+            <div class="m-head">
+              <div class="m-title">刷题设置</div>
+              <button class="m-x" @click="settingsVisible = false">
+                <span v-html="icon('close', 14)"></span>
+              </button>
             </div>
-            <span
-              class="pv-sw"
-              :class="{ on: practice.settings.autoNext }"
-              @click="
-                practice.settings.autoNext = !practice.settings.autoNext;
-                saveSettings();
-              "
-            >
-              <i class="dot"></i>
-            </span>
-          </div>
-          <div class="pv-set-row">
-            <div class="tx">
-              <b>选项乱序</b>
-              <p>仅答题模式单选/多选未答题生效，已答题保留作答时显示</p>
+            <div class="pv-set-row">
+              <div class="tx">
+                <b>答对自动下一题</b>
+                <p>答错停留看解析，末尾题不自动</p>
+              </div>
+              <span
+                class="pv-sw"
+                :class="{ on: practice.settings.autoNext }"
+                @click="
+                  practice.settings.autoNext = !practice.settings.autoNext;
+                  saveSettings();
+                "
+              >
+                <i class="dot"></i>
+              </span>
             </div>
-            <span
-              class="pv-sw"
-              :class="{ on: practice.settings.shuffleOpt }"
-              @click="toggleShuffleOpt"
-            >
-              <i class="dot"></i>
-            </span>
+            <div class="pv-set-row">
+              <div class="tx">
+                <b>选项乱序</b>
+                <p>仅答题模式单选/多选未答题生效，已答题保留作答时显示</p>
+              </div>
+              <span
+                class="pv-sw"
+                :class="{ on: practice.settings.shuffleOpt }"
+                @click="toggleShuffleOpt"
+              >
+                <i class="dot"></i>
+              </span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- ================= 弹层：答题卡 ================= -->
-    <div v-if="sheetVisible" class="mask open" @click.self="sheetVisible = false">
-      <div class="modal" style="width: 680px">
-        <div class="m-scroll">
-          <div class="m-head">
-            <div class="m-title">
-              答题卡（已答 {{ counts.answered }}/{{ practice.outline.length }}）
-            </div>
-            <button class="m-x" @click="sheetVisible = false">
-              <span v-html="icon('close', 14)"></span>
-            </button>
-          </div>
-          <div class="pv-legend">
-            <span><i></i>未作答</span><span><i class="g"></i>答对</span
-            ><span><i class="r"></i>答错</span>
-          </div>
-          <template v-for="sec in sheetSections" :key="sec.type">
-            <div class="f-label">
-              {{ typeText(sec.type) }}
-              <span style="color: var(--ph); font-weight: 600">（{{ sec.items.length }} 题）</span>
-            </div>
-            <div class="pv-sheet-grid">
-              <div
-                v-for="it in sec.items"
-                :key="it.i"
-                class="pv-chip"
-                :class="[it.st, { cur: it.i === practice.idx }]"
-                @click="onSheetJump(it.i)"
-              >
-                {{ it.i + 1 }}
+    <Transition name="qz-fade">
+      <div v-if="sheetVisible" class="mask" @click.self="sheetVisible = false">
+        <div class="modal" style="width: 680px">
+          <div class="m-scroll">
+            <div class="m-head">
+              <div class="m-title">
+                答题卡（已答 {{ counts.answered }}/{{ practice.outline.length }}）
               </div>
+              <button class="m-x" @click="sheetVisible = false">
+                <span v-html="icon('close', 14)"></span>
+              </button>
             </div>
-          </template>
-          <div
-            class="pv-clear"
-            :class="{ disabled: isRecite || !counts.answered }"
-            @click="onResetRecords"
-          >
-            清空做题记录（错题本保留）
+            <div class="pv-legend">
+              <span><i></i>未作答</span><span><i class="g"></i>答对</span
+              ><span><i class="r"></i>答错</span>
+            </div>
+            <template v-for="sec in sheetSections" :key="sec.type">
+              <div class="f-label">
+                {{ typeText(sec.type) }}
+                <span style="color: var(--ph); font-weight: 600"
+                  >（{{ sec.items.length }} 题）</span
+                >
+              </div>
+              <div class="pv-sheet-grid">
+                <div
+                  v-for="it in sec.items"
+                  :key="it.i"
+                  class="pv-chip"
+                  :class="[it.st, { cur: it.i === practice.idx }]"
+                  @click="onSheetJump(it.i)"
+                >
+                  {{ it.i + 1 }}
+                </div>
+              </div>
+            </template>
+            <div
+              class="pv-clear"
+              :class="{ disabled: isRecite || !counts.answered }"
+              @click="onResetRecords"
+            >
+              清空做题记录（错题本保留）
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- ================= 弹层：修改解析 ================= -->
-    <div v-if="anaVisible" class="mask open" @click.self="anaVisible = false">
-      <div class="modal" style="width: 560px">
-        <div class="m-scroll">
-          <div class="m-head">
-            <div class="m-title">修改解析</div>
-            <button class="m-x" @click="anaVisible = false">
-              <span v-html="icon('close', 14)"></span>
-            </button>
-          </div>
-          <div class="imp-err-tip">解析对题库内全员可见，保存后即刻生效；留空则由 AI 重新生成</div>
-          <textarea
-            v-model="anaText"
-            class="input pv-ana-text"
-            maxlength="2000"
-            placeholder="填写本题解析"
-          ></textarea>
-          <div class="m-foot">
-            <button class="btn btn-sm" @click="anaVisible = false">取消</button>
-            <button class="btn btn-sm btn-primary" @click="saveAnalysis">保存</button>
+    <Transition name="qz-fade">
+      <div v-if="anaVisible" class="mask" @click.self="anaVisible = false">
+        <div class="modal" style="width: 560px">
+          <div class="m-scroll">
+            <div class="m-head">
+              <div class="m-title">修改解析</div>
+              <button class="m-x" @click="anaVisible = false">
+                <span v-html="icon('close', 14)"></span>
+              </button>
+            </div>
+            <div class="imp-err-tip">
+              解析对题库内全员可见，保存后即刻生效；留空则由 AI 重新生成
+            </div>
+            <textarea
+              v-model="anaText"
+              class="input pv-ana-text"
+              maxlength="2000"
+              placeholder="填写本题解析"
+            ></textarea>
+            <div class="m-foot">
+              <button class="btn btn-sm" @click="anaVisible = false">取消</button>
+              <button class="btn btn-sm btn-primary" @click="saveAnalysis">保存</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- ================= 弹层：通用确认（旧式 Shade.confirm 口径） ================= -->
-    <div v-if="confirmDlg.visible" class="mask open" @click.self="closeConfirm(false)">
-      <div class="modal" style="width: 400px">
-        <div class="m-scroll">
-          <div class="m-head">
-            <div class="m-title">{{ confirmDlg.title }}</div>
-            <button class="m-x" @click="closeConfirm(false)">
-              <span v-html="icon('close', 14)"></span>
-            </button>
-          </div>
-          <div class="imp-err-tip">{{ confirmDlg.content }}</div>
-          <div class="m-foot">
-            <button class="btn btn-sm" @click="closeConfirm(false)">取消</button>
-            <button class="btn btn-sm btn-danger" @click="closeConfirm(true)">
-              {{ confirmDlg.confirmText }}
-            </button>
+    <Transition name="qz-fade">
+      <div v-if="confirmDlg.visible" class="mask" @click.self="closeConfirm(false)">
+        <div class="modal" style="width: 400px">
+          <div class="m-scroll">
+            <div class="m-head">
+              <div class="m-title">{{ confirmDlg.title }}</div>
+              <button class="m-x" @click="closeConfirm(false)">
+                <span v-html="icon('close', 14)"></span>
+              </button>
+            </div>
+            <div class="imp-err-tip">{{ confirmDlg.content }}</div>
+            <div class="m-foot">
+              <button class="btn btn-sm" @click="closeConfirm(false)">取消</button>
+              <button class="btn btn-sm btn-danger" @click="closeConfirm(true)">
+                {{ confirmDlg.confirmText }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- 题库 Excel 导入：隐藏文件选择（仅 .xlsx ≤10MB，前端先校验） -->
     <input ref="importFileEl" type="file" accept=".xlsx" hidden @change="onImportFile" />
@@ -841,7 +863,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { currentUser } from '../api.js';
 import {
@@ -912,6 +934,15 @@ const practice = reactive({
 });
 const emptyText = ref('');
 const autoTimer = ref(0);
+// pvColEl 答题区滚动容器（切题 / 答题·背题切换后复位到顶，同旧页 pvRender 的 col.scrollTop = 0 口径）
+const pvColEl = ref(null);
+function resetPvScroll() {
+  nextTick(() => {
+    if (pvColEl.value) pvColEl.value.scrollTop = 0;
+  });
+}
+watch(() => practice.idx, resetPvScroll);
+watch(() => practice.viewMode, resetPvScroll);
 
 // seq 断点上报（防抖 500ms，同值跳过；离开页面兜底补发）
 let seqTimer = 0;
@@ -1234,7 +1265,16 @@ const resultAnswerText = computed(() =>
 const resultYourText = computed(() => {
   const res = curResult.value;
   if (!res) return '';
-  return mapAnswerText((res.selected || []).slice().sort().join(''));
+  // 用户所选即展示字母（旧页不回映射乱序），仅判断题翻成中文
+  let text = (res.selected || []).slice().sort().join('');
+  if (curQ.value && curQ.value.type === 'judge') {
+    const jm = { A: '正确', B: '错误' };
+    text = text
+      .split('')
+      .map((l) => jm[l] || l)
+      .join(' ');
+  }
+  return text;
 });
 const wrongBanner = computed(() => {
   const res = curResult.value;
@@ -2279,14 +2319,20 @@ onBeforeUnmount(() => {
   --hard-s: 0 1px 4px rgba(0, 0, 0, 0.05);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04);
   --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
-  /* 整页骨架：覆盖父级内容区内边距，整页不滚动、仅卡片内部滚动（同旧页 body 锁定口径） */
-  height: calc(100% + 40px);
-  margin: -20px -24px;
+  /* 整页骨架：精确覆盖父级 .page 内边距（28px 40px 48px，见 styles.css），整页不滚动、仅卡片内部滚动（同旧页 body 锁定口径） */
+  height: calc(100% + 76px);
+  margin: -28px -40px -48px;
   box-sizing: border-box;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   padding: 22px 40px 30px;
+}
+/* 尺寸口径补齐：旧 theme.css 全局 border-box，本组件 scoped 还原（按钮/输入/Select 高度对齐依赖此项） */
+.qz-root *,
+.qz-root *::before,
+.qz-root *::after {
+  box-sizing: border-box;
 }
 
 /* ===== 以下布局样式移植自 server/public/quiz.html（旧版基准） ===== */
@@ -2296,8 +2342,13 @@ onBeforeUnmount(() => {
   width: 100%;
   display: flex;
   flex-direction: row-reverse;
+  align-items: stretch;
   gap: 20px;
   margin-top: 16px;
+}
+/* 两卡等高对齐：全局 styles.css 的 .card + .card 上边距会把 row-reverse 下的左卡（第二个 .card 兄弟）压矮、顶边下沉，此处归零 */
+.qz-wrap > .qz-main {
+  margin-top: 0;
 }
 .qz-wrap[hidden] {
   display: none !important;
@@ -2309,32 +2360,47 @@ onBeforeUnmount(() => {
   color: var(--green);
 }
 
-/* 细滚动条：半透明墨，全页滚动区统一口径（同 worklog） */
+/* 细滚动条：半透明墨，全页滚动区统一口径（同 worklog）；gutter 常驻，滚动条出现/消失时内容不左右跳动 */
 .side-scroll,
-.qtable {
+.qtable,
+.pv-col,
+.home-pane {
   scrollbar-width: thin;
   scrollbar-color: rgba(29, 33, 41, 0.2) transparent;
+  scrollbar-gutter: stable both-edges;
 }
 .side-scroll::-webkit-scrollbar,
 .qtable::-webkit-scrollbar,
+.pv-col::-webkit-scrollbar,
+.home-pane::-webkit-scrollbar,
 .m-scroll::-webkit-scrollbar {
   width: 5px;
 }
 .side-scroll::-webkit-scrollbar-thumb,
 .qtable::-webkit-scrollbar-thumb,
+.pv-col::-webkit-scrollbar-thumb,
+.home-pane::-webkit-scrollbar-thumb,
 .m-scroll::-webkit-scrollbar-thumb {
   background: rgba(29, 33, 41, 0.16);
   border-radius: 8px;
 }
 .side-scroll::-webkit-scrollbar-thumb:hover,
 .qtable::-webkit-scrollbar-thumb:hover,
+.pv-col::-webkit-scrollbar-thumb:hover,
+.home-pane::-webkit-scrollbar-thumb:hover,
 .m-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(29, 33, 41, 0.34);
 }
 .side-scroll::-webkit-scrollbar-track,
 .qtable::-webkit-scrollbar-track,
+.pv-col::-webkit-scrollbar-track,
+.home-pane::-webkit-scrollbar-track,
 .m-scroll::-webkit-scrollbar-track {
   background: transparent;
+}
+/* 题库主页：内容高于卡片时卡内滚动（与答题区/题库列表同口径，不撑破卡片） */
+.home-pane {
+  overflow-y: auto;
 }
 
 /* ===== 右卡：题库列表 ===== */
@@ -2558,6 +2624,7 @@ onBeforeUnmount(() => {
   background: var(--orange-soft);
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 9px;
   font-size: 12px;
   font-weight: 600;
@@ -2754,11 +2821,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-.mask.open {
-  opacity: 1;
 }
 .modal {
   background: var(--card);
@@ -2772,11 +2834,43 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-card);
-  transform: translateY(16px) scale(0.98);
-  transition: transform 0.35s var(--ease);
 }
-.mask.open .modal {
-  transform: none;
+/* 弹层开合过渡（Vue Transition 驱动，还原旧 Shade.modal 的进出场：遮罩淡入淡出 + 弹窗轻微上浮） */
+.qz-fade-enter-active {
+  transition: opacity 0.28s var(--ease);
+}
+.qz-fade-leave-active {
+  transition: opacity 0.22s ease;
+}
+.qz-fade-enter-from,
+.qz-fade-leave-to {
+  opacity: 0;
+}
+.qz-fade-enter-active .modal {
+  animation: qzModalIn 0.32s var(--ease);
+}
+.qz-fade-leave-active .modal {
+  animation: qzModalOut 0.2s ease forwards;
+}
+@keyframes qzModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes qzModalOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
 }
 .m-scroll {
   flex: 1;
@@ -3064,7 +3158,7 @@ onBeforeUnmount(() => {
 .bh-grid {
   margin-top: 14px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .bh-entry {
@@ -3196,6 +3290,18 @@ onBeforeUnmount(() => {
 .pv-col-in {
   max-width: 840px;
   padding: 16px 2px 4px;
+  /* 翻页 / 答题卡跳转：题目块轻微上浮淡入（约 220ms 克制止渡，由题目 key 重挂载触发） */
+  animation: qzTurn 0.22s var(--ease);
+}
+@keyframes qzTurn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 /* 题干：无卡片，与选项同一平面（tag 起于 15px；选项字母圈对齐内容首字 69px 口径不变） */
 .pv-stem {
@@ -3364,6 +3470,8 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex: none;
+  white-space: nowrap;
   background: var(--paper);
   border: 1px solid var(--hair);
   border-radius: 8px;
@@ -3395,7 +3503,11 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
 }
+.pv-foot .sp .btn {
+  flex: none;
+}
 .pv-hint {
+  min-width: 0;
   font-size: 11px;
   color: var(--ph);
   letter-spacing: 1px;
@@ -3542,6 +3654,8 @@ onBeforeUnmount(() => {
    与 server/public/assets/theme.css 旧页口径一致，随本组件 scoped 注入 ===== */
 .badge-outline {
   display: inline-block;
+  flex: none;
+  white-space: nowrap;
   background: var(--orange-soft);
   color: var(--orange);
   border-radius: 4px;
@@ -3566,6 +3680,7 @@ onBeforeUnmount(() => {
   font-size: 13.5px;
   font-weight: 600;
   letter-spacing: 1px;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     border-color 0.15s var(--ease),
@@ -3792,18 +3907,38 @@ textarea.input {
   background: var(--card);
   color: var(--navy);
   font-size: 12.5px;
-  padding: 0 10px;
+  padding: 0 30px 0 10px;
   outline: none;
   font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  /* 自绘下拉箭头：收起态美观，点击仍走原生下拉（可正常展开选择） */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234E5969' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+.side-team select:hover {
+  border-color: var(--orange);
 }
 .side-team select:focus {
   border-color: var(--orange);
 }
 
-/* 动效降级 */
+/* 动效降级：与旧 theme.css 同口径（关动画与延迟、过渡时长趋零），覆盖翻页淡入/弹层开合/骨架微光等 */
 @media (prefers-reduced-motion: reduce) {
+  .qz-root *,
+  .qz-root *::before,
+  .qz-root *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
   .fade-up,
   .pane,
+  .pv-col-in,
   .skeleton::after,
   .spin {
     animation: none !important;

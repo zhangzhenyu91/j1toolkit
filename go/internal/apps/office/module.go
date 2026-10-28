@@ -73,7 +73,7 @@ func (m *Module) authed(w http.ResponseWriter, r *http.Request, appKey string) (
 			return auth.Identity{}, false
 		}
 		if !allow {
-			fail(w, http.StatusForbidden, codeUnauthorized, "暂无该应用的使用权限，请联系管理员开通")
+			fail(w, http.StatusForbidden, codeAppDenied, "暂无该应用的使用权限，请联系管理员开通")
 			return auth.Identity{}, false
 		}
 	}
@@ -90,6 +90,19 @@ func (m *Module) configValue(ctx context.Context, key string) string {
 		return ""
 	}
 	return v
+}
+
+// requireOOEnabled 功能开关与 OO JWT 密钥校验（Node enabled()/jwtSecret 口径：两者缺一拒发配置）。
+func (m *Module) requireOOEnabled(w http.ResponseWriter, r *http.Request) bool {
+	if m.configValue(r.Context(), "OO_PUBLIC_URL") == "" {
+		fail(w, http.StatusServiceUnavailable, codeNotConfigured, "在线编辑未配置（OO_PUBLIC_URL）")
+		return false
+	}
+	if _, err := m.ooSecret(r.Context()); err != nil {
+		fail(w, http.StatusServiceUnavailable, codeNotConfigured, "在线编辑未配置（OO_JWT_SECRET）")
+		return false
+	}
+	return true
 }
 
 // handleStatus GET /status：启用状态（OO 公网地址已配置即启用）。
@@ -126,7 +139,11 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	src := srcAlias[strings.ToLower(strings.TrimSpace(body.Src))]
 	if src == "" {
-		fail(w, http.StatusBadRequest, codeUnknownSrc, "未知文档来源")
+		fail(w, http.StatusBadRequest, codeParam, "参数错误：src")
+		return
+	}
+	// 校验顺序照抄 Node：view-only 源先开关/密钥后权限；网盘源先权限后开关/密钥。
+	if src != "ndp" && !m.requireOOEnabled(w, r) {
 		return
 	}
 	// 应用权限按来源分派（口径同 requireApp：netdisk / work-log / safeday / tree-hazard / crossing）。
@@ -136,6 +153,9 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}[src]
 	ident, okAuth := m.authed(w, r, appKey)
 	if !okAuth {
+		return
+	}
+	if src == "ndp" && !m.requireOOEnabled(w, r) {
 		return
 	}
 	team := int64(body.Team)
@@ -212,7 +232,7 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	docType, editable := DocTypeOf(name)
 	if docType == "" {
-		fail(w, http.StatusBadRequest, codeUnsupported, "不支持的文档格式")
+		fail(w, http.StatusBadRequest, codeBadFormat, "该格式不支持在线打开")
 		return
 	}
 	viewOnly := viewOnlySources(src) || !editable || strings.EqualFold(strings.TrimSpace(body.Mode), "view")
@@ -245,10 +265,6 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 	base := strings.TrimRight(m.configValue(r.Context(), "OO_CALLBACK_BASE"), "/")
 	public := strings.TrimRight(m.configValue(r.Context(), "OO_PUBLIC_URL"), "/")
-	if public == "" {
-		fail(w, http.StatusServiceUnavailable, codeNotConfigured, "OnlyOffice 未配置（OO_PUBLIC_URL）")
-		return
-	}
 	fileTTL := m.ttlSeconds(r.Context(), "OO_FILE_TICKET_TTL", 600)
 	cbTTL := m.ttlSeconds(r.Context(), "OO_CALLBACK_TICKET_TTL", 43200)
 	token, err := m.SignTicket(r.Context(), ticket, fileTTL)
@@ -257,25 +273,29 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fileURL := fmt.Sprintf("%s/api/v1/office/raw/%s/%s", base, token, url.PathEscape(name))
+	// 权限与外壳（Node 口径）：编辑态 review/comment 开启、forcesave 触发 status 6 回调即时写回；
+	// 只读态强制 view、不配 forcesave。
+	perm := map[string]any{"download": true, "print": true, "edit": !viewOnly, "review": !viewOnly, "comment": !viewOnly}
+	customization := map[string]any{
+		"close":    map[string]any{"visible": true, "text": "关闭文件"}, // 配合页面 onRequestClose 返回来源页
+		"unit":     "cm",
+		"features": map[string]any{"spellcheck": false},
+	}
+	if !viewOnly {
+		customization["forcesave"] = true // 保存按钮触发 status 6 回调即时写回（仅编辑模式有意义）
+	}
 	doc := map[string]any{
 		"fileType":    fileExt(name),
 		"key":         docVer,
 		"title":       name,
 		"url":         fileURL,
-		"permissions": map[string]any{"edit": !viewOnly, "download": true, "print": true},
+		"permissions": perm,
 	}
 	editor := map[string]any{
-		"lang":   "zh-CN",
-		"region": "zh-CN",
-		"customization": map[string]any{
-			"forcesave": false, // 只读源无 forcesave；网盘源以回调保存为准
-			"chat":      false,
-			"comments":  false,
-			"close":     map[string]any{"visible": true, "text": "关闭文件"}, // 配合页面 onRequestClose 返回来源页
-			"unit":      "cm",
-			"features":  map[string]any{"spellcheck": false},
-		},
-		"user": map[string]any{"id": fmt.Sprint(ident.ID), "name": firstNonEmpty(ident.Nickname, ident.Username)},
+		"lang":          "zh-CN",
+		"region":        "zh-CN",
+		"customization": customization,
+		"user":          map[string]any{"id": fmt.Sprint(ident.ID), "name": firstNonEmpty(ident.Nickname, ident.Username)},
 	}
 	if !viewOnly {
 		editor["mode"] = "edit"
@@ -295,10 +315,13 @@ func (m *Module) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"editorConfig": editor,
 		"type":         "desktop",
 	}
-	// OnlyOffice JWT：config 全量签名（OO_JWT_SECRET 未配置则不带 token）。
-	if ooToken, err := m.SignOOJWT(r.Context(), config); err == nil {
-		config["token"] = ooToken
+	// OnlyOffice JWT：config 全量签名（OO_JWT_SECRET 已由 requireOOEnabled 保证，Node 同口径必签）。
+	ooToken, err := m.SignOOJWT(r.Context(), config)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, codeUpstream, "票据签发失败")
+		return
 	}
+	config["token"] = ooToken
 	ok(w, map[string]any{"config": config, "public_url": public, "publicUrl": public}, "")
 }
 
@@ -353,36 +376,82 @@ func isDate(s string) bool {
 }
 
 // handleRaw GET /raw/:ticket/:name?：免登录回源（票据即鉴权）。
+// 错误一律纯文本（OO 不消费 {code,message,data} 信封，Node res.status().type('text') 同口径）；
+// URL 尾段 :name 仅供 OO 按扩展名识别格式，实际取数与定名全按票据载荷。
 func (m *Module) handleRaw(w http.ResponseWriter, r *http.Request) {
 	p, err := m.VerifyTicket(r.Context(), chi.URLParam(r, "ticket"))
-	if err != nil {
-		fail(w, http.StatusUnauthorized, codeBadTicket, "文件票据无效或已过期")
+	if err != nil || !knownSrc(p.Src) {
+		writeText(w, http.StatusUnauthorized, "回源票据无效或已过期")
 		return
 	}
-	name := chi.URLParam(r, "name")
+	name := p.Name
 	if name == "" {
-		name = p.Name
+		name = chi.URLParam(r, "name")
 	}
-	data, contentType, err := m.fetchDoc(r.Context(), p, name)
+	data, fetchedCT, err := m.fetchDoc(r.Context(), p, name)
 	if err != nil {
-		var re *RefError
-		if errors.As(err, &re) {
-			refFail(w, err) // 桥业务错误（范围/归属等）直出
-			return
-		}
-		if errors.Is(err, ErrDocNotFound) {
-			fail(w, http.StatusNotFound, codeNotFound, "文档不存在")
-			return
-		}
-		fail(w, http.StatusBadGateway, codeUpstream, "文档回源失败")
+		rawFetchFail(w, err)
 		return
 	}
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	ct := rawMIME(name) // 内容类型按扩展名给准（上游可能只回 octet-stream，OO 依赖它判格式）
+	if ct == "" {
+		ct = fetchedCT
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", `inline; filename="`+strings.ReplaceAll(name, `"`, "")+`"`)
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Disposition", "inline; filename*=UTF-8''"+url.PathEscape(name))
+	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+// knownSrc 票据来源白名单（未知来源按无效票据处理，Node 同口径）。
+func knownSrc(src string) bool {
+	switch src {
+	case "ndp", "wls", "sdr", "wlr", "thd", "crs":
+		return true
+	}
+	return false
+}
+
+// rawFetchFail 回源失败应答（纯文本；状态/文案由桥错误携带，缺省 500）。
+func rawFetchFail(w http.ResponseWriter, err error) {
+	var re *RefError
+	if errors.As(err, &re) {
+		status := re.Status
+		if status == 0 {
+			status = http.StatusBadRequest
+		}
+		writeText(w, status, re.Message)
+		return
+	}
+	if errors.Is(err, ErrDocNotFound) {
+		writeText(w, http.StatusNotFound, "文档不存在")
+		return
+	}
+	writeText(w, http.StatusInternalServerError, "回源失败，请稍后再试")
+}
+
+// rawMIME 回源 Content-Type 白名单（Node RAW_MIME 同口径，网盘 PREVIEW_MIME 扩展 pdf）。
+func rawMIME(name string) string {
+	switch fileExt(name) {
+	case "doc":
+		return "application/msword"
+	case "docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case "xls":
+		return "application/vnd.ms-excel"
+	case "xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case "ppt":
+		return "application/vnd.ms-powerpoint"
+	case "pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	case "pdf":
+		return "application/pdf"
+	}
+	return ""
 }
 
 // fetchDoc 按票据来源取文档。
@@ -406,82 +475,108 @@ func (m *Module) fetchDoc(ctx context.Context, p TicketPayload, name string) ([]
 }
 
 // handleCallback POST /callback/:ticket：保存回调（OnlyOffice JWT + 票据双校验；应答 {"error":0}）。
+// 口径照抄 Node：JWT 两个携带位（Bearer 头 / body.token）都认、头位载荷解包 {payload: 回调体}
+// （v10 DocsCoServer.js sendServerRequest 口径）；验签失败或载荷缺数值型 status 一律 401
+// {error:1,message}；写回失败 200 {error:1,message:"写回网盘失败"}。
 func (m *Module) handleCallback(w http.ResponseWriter, r *http.Request) {
+	rawBody, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	claims := m.callbackClaims(r, rawBody)
+	st, okStatus := claimNumber(claims, "status")
+	if !okStatus {
+		writeOO(w, http.StatusUnauthorized, 1, "回调签名校验失败")
+		return
+	}
 	p, err := m.VerifyTicket(r.Context(), chi.URLParam(r, "ticket"))
 	if err != nil {
-		writePlain(w, http.StatusOK, `{"error":1}`)
+		writeOO(w, http.StatusUnauthorized, 1, "回调票据无效或已过期")
 		return
-	}
-	rawBody, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-	claims, err := m.VerifyOOJWT(r.Context(), callbackJWT(r, rawBody))
-	if err != nil {
-		writePlain(w, http.StatusOK, `{"error":1}`)
-		return
-	}
-	// 回调体取值：优先 JWT 载荷（v10 头位 token 还会包一层 {payload: 回调体}，须解包；
-	// 仅 body.token 携带时载荷同样在 JWT 内），回落 rawBody JSON（OO 未启用 JWT 口径）。
-	var cb struct {
-		Status int    `json:"status"`
-		URL    string `json:"url"` // status=2 保存产物地址
-	}
-	if inner, ok := claims["payload"].(map[string]any); ok {
-		claims = inner
-	}
-	if st, ok := claims["status"].(float64); ok {
-		cb.Status = int(st)
-		cb.URL, _ = claims["url"].(string)
-	} else {
-		_ = json.Unmarshal(rawBody, &cb)
 	}
 	// 只读源无 callbackUrl（防御：即便被调用也不写回）。
 	if viewOnlySources(p.Src) || m.Netdisk == nil || p.NDP == nil {
-		writePlain(w, http.StatusOK, `{"error":0}`)
+		writeOO(w, http.StatusOK, 0, "")
 		return
 	}
-	// status=2 会话结束保存 / status=6 强制保存（forcesave）：拉回产物写回网盘原路径。
-	if (cb.Status == 2 || cb.Status == 6) && cb.URL != "" {
-		saveURL := cb.URL
-		// 保存产物地址改写：OO 容器返回自身可达地址，本服务经 OO_INTERNAL_URL 拉回（Node 口径）。
-		if internal := strings.TrimRight(m.configValue(r.Context(), "OO_INTERNAL_URL"), "/"); internal != "" {
-			if u, perr := url.Parse(cb.URL); perr == nil && u.Path != "" {
-				saveURL = internal + u.Path
-				if u.RawQuery != "" {
-					saveURL += "?" + u.RawQuery
-				}
-			}
-		}
-		resp, err := http.Get(saveURL)
-		if err != nil {
-			writePlain(w, http.StatusOK, `{"error":1}`)
-			return
-		}
-		defer resp.Body.Close()
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<20))
-		if len(data) == 0 {
-			writePlain(w, http.StatusOK, `{"error":1}`)
-			return
-		}
-		if err := m.Netdisk.WriteBack(r.Context(), *p.NDP, data); err != nil {
-			writePlain(w, http.StatusOK, `{"error":1}`)
+	// 2=会话结束保存；6=强制保存（customization.forcesave）：拉回产物写回网盘原路径。
+	if st == 2 || st == 6 {
+		if err := m.writeBackFromURL(r.Context(), *p.NDP, claimString(claims, "url")); err != nil {
+			writeOO(w, http.StatusOK, 1, "写回网盘失败")
 			return
 		}
 	}
-	writePlain(w, http.StatusOK, `{"error":0}`)
+	// 3/7=文档损坏：仅记录，不写回；1=编辑中 / 4=关闭无改动 / 其余：仅应答确认。
+	writeOO(w, http.StatusOK, 0, "")
 }
 
-// callbackJWT 取 OnlyOffice 回调 JWT：Authorization Bearer / X-Callback-JWT / body.token 兼容。
-func callbackJWT(r *http.Request, rawBody []byte) string {
+// callbackClaims 校验 OnlyOffice 回调 JWT 并解包（头位 token 载荷再包一层 {payload: 回调体}）；
+// Bearer 头与 body.token 两个携带位依次尝试（头位验签失败回落 body 位，Node 同口径）。
+func (m *Module) callbackClaims(r *http.Request, rawBody []byte) map[string]any {
+	tokens := make([]string, 0, 2)
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		return strings.TrimPrefix(h, "Bearer ")
-	}
-	if t := r.Header.Get("X-Callback-JWT"); t != "" {
-		return t
+		tokens = append(tokens, strings.TrimPrefix(h, "Bearer "))
 	}
 	var body struct {
 		Token string `json:"token"`
 	}
 	_ = json.Unmarshal(rawBody, &body)
-	return body.Token
+	if body.Token != "" {
+		tokens = append(tokens, body.Token)
+	}
+	for _, tk := range tokens {
+		claims, err := m.VerifyOOJWT(r.Context(), tk)
+		if err != nil {
+			continue
+		}
+		if inner, ok := claims["payload"].(map[string]any); ok {
+			claims = inner
+		}
+		return claims
+	}
+	return nil
+}
+
+// claimNumber 载荷数值字段（Node typeof status === 'number' 同口径：仅 JSON number）。
+func claimNumber(claims map[string]any, key string) (int, bool) {
+	switch v := claims[key].(type) {
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	}
+	return 0, false
+}
+
+func claimString(claims map[string]any, key string) string {
+	s, _ := claims[key].(string)
+	return s
+}
+
+// writeBackFromURL 保存产物拉回并写回网盘原路径（Node 写回口径：地址改写 OO_INTERNAL_URL + path；
+// 地址无效 / 拉回失败 / 空产物 / 写回失败都判失败）。
+func (m *Module) writeBackFromURL(ctx context.Context, ndp NDP, rawURL string) error {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Path == "" {
+		return errors.New("回调产物地址无效")
+	}
+	saveURL := rawURL
+	if internal := strings.TrimRight(m.configValue(ctx, "OO_INTERNAL_URL"), "/"); internal != "" {
+		saveURL = internal + u.Path
+		if u.RawQuery != "" {
+			saveURL += "?" + u.RawQuery
+		}
+	}
+	resp, err := http.Get(saveURL) // 大文档拉回+写回两跳耗时不可预估，不限超时
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 512<<20))
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return errors.New("回调产物为空")
+	}
+	return m.Netdisk.WriteBack(ctx, ndp, data)
 }
 
 func firstNonEmpty(vals ...string) string {

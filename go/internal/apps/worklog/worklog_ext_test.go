@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/xuri/excelize/v2"
 
+	"shade/internal/apps/wmadd"
 	"shade/internal/auth"
 )
 
@@ -768,5 +770,341 @@ func TestAssetsDir(t *testing.T) {
 	t.Chdir(repo)
 	if got := m.assetsDir(); got != filepath.Join("server", "assets", "worklog") {
 		t.Fatalf("仓根布局探测错: %q", got)
+	}
+}
+
+// ---- 与 Node 契约回归（对照 server/src/worklog/index.js、开发指南 7/15）----
+
+// memWMRenderer 水印渲染桩（记录清洗后字段与方向标签）。
+type memWMRenderer struct {
+	called int
+	fields wmadd.WatermarkFields
+	orient string
+}
+
+func (r *memWMRenderer) Render(_ []byte, wm wmadd.WatermarkFields, orientation string) ([]byte, error) {
+	r.called++
+	r.fields = wm
+	r.orient = orientation
+	return []byte("WMJPEG"), nil
+}
+
+// entryLoadCols loadEntries 卡片查询列（含 created_at）。
+func entryLoadCols() []string {
+	return []string{
+		"id", "team_id", "log_date", "patrol_content", "remark", "remark_files", "cross_team",
+		"vehicle_id", "plate_no", "destination_id", "destination_name", "out_of_city",
+		"stationed", "dispatch_order_no", "created_by", "created_at",
+	}
+}
+
+// entryLoadRow 卡片行（已出车、有目的地与派车单号；remark 可带）。
+func entryLoadRow(id int64, logDate, remark string) []driver.Value {
+	return []driver.Value{id, int64(1), logDate, "", remark, "", int64(0),
+		int64(5), "晋A12345", int64(2), "孝义市", int64(0),
+		int64(0), "PC-1", int64(4), "2026-08-18 09:00:00"}
+}
+
+// withEmptySatellites 注册 loadEntries 卫星查询（人/照片/打卡/费用）空规则。
+func (e *testEnv) withEmptySatellites() *testEnv {
+	e.fake.on("FROM worklog_entry_member", []string{"id", "entry_id", "member_id", "name", "checked", "sort"}, nil)
+	e.fake.on("FROM worklog_photo", []string{
+		"id", "entry_id", "cos_key", "url", "members", "verify_status", "work_content", "shot_time",
+		"weather", "location", "lng", "lat", "date_ok", "dest_ok", "is_watermark", "source", "sgcc_synced",
+	}, nil)
+	e.fake.on("FROM worklog_sgcc_account", []string{"id", "token_status"}, nil)
+	e.fake.on("FROM worklog_clockin", []string{
+		"member_id", "clock_date", "seq", "detail_id", "clock_time", "position",
+		"longitude", "latitude", "city_code", "city_name", "work_hours",
+	}, nil)
+	e.fake.on("FROM worklog_fee ", []string{"member_id", "fee_date", "food_fee", "transit_fee"}, nil)
+	e.fake.on("FROM worklog_fee_std", []string{"scope", "food_fee", "transit_fee", "eff"}, nil)
+	return e
+}
+
+// logUpdateRow PUT /logs/{id} 主行查询规则（6 列）。
+func logUpdateRow(crossTeam, vehicleID, destID int64, orderNo string) fakeRule {
+	return fakeRule{match: "FROM worklog_entry e WHERE e.id",
+		cols: []string{"team_id", "vehicle_id", "destination_id", "cross_team", "dispatch_order_no", "log_date"},
+		rows: [][]driver.Value{{int64(1), vehicleID, destID, crossTeam, orderNo, "2026-08-18"}}}
+}
+
+func TestLogUpdateRemarkRejectNoDoubleWrite(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	r := logUpdateRow(1, 0, 0, "")
+	env.fake.on(r.match, r.cols, r.rows)
+	env.fake.on("COALESCE(remark, '')", []string{"remark", "remark_files"},
+		[][]driver.Value{{"", "[]"}})
+
+	rec := env.do(t, "PUT", "/api/v1/worklog/logs/7", map[string]any{
+		"patrol_content": "巡视",
+		"remark_files": []any{map[string]any{
+			"name": "", "url": "https://cos.test/a", "cos_key": "k", "type": "image", "size": 1,
+		}},
+	})
+	envr := decodeEnv(t, rec)
+	if envr.Code != codeFileBad {
+		t.Fatalf("非法附件应 40018，实际 %d %s", envr.Code, envr.Message)
+	}
+	if strings.Count(rec.Body.String(), `"code"`) != 1 {
+		t.Fatalf("备注校验失败后不得再写成功响应: %s", rec.Body.String())
+	}
+
+	// remark_files=null（非数组）→ 40020（Node 同码）
+	rec = env.do(t, "PUT", "/api/v1/worklog/logs/7", map[string]any{
+		"patrol_content": "巡视", "remark_files": nil,
+	})
+	if envr := decodeEnv(t, rec); envr.Code != codeFileCount {
+		t.Fatalf("remark_files=null 应 40020，实际 %d %s", envr.Code, envr.Message)
+	}
+}
+
+func TestLogUpdateNoVehicleRejectsDestinationFirst(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	r := logUpdateRow(0, 5, 2, "PC-1")
+	env.fake.on(r.match, r.cols, r.rows)
+	rec := env.do(t, "PUT", "/api/v1/worklog/logs/7", map[string]any{
+		"vehicle_id": 0, "destination_id": 3,
+	})
+	if envr := decodeEnv(t, rec); envr.Code != codeInput {
+		t.Fatalf("未出车填目的地应 40001（先于已有照片校验），实际 %d %s", envr.Code, envr.Message)
+	}
+}
+
+func TestSanitizeRemarkFile(t *testing.T) {
+	f, ok := sanitizeRemarkFile(json.RawMessage(
+		`{"name":" a.jpg ","url":" https://cos.test/a.jpg ","cos_key":"k/a.jpg","type":"image","size":"12"}`))
+	if !ok || f.Name != "a.jpg" || f.URL != "https://cos.test/a.jpg" || f.CosKey != "k/a.jpg" || f.Size != 12 {
+		t.Fatalf("清洗应去空白并兼容字符串 size: %+v %v", f, ok)
+	}
+	if _, ok := sanitizeRemarkFile(json.RawMessage(`{"name":"   ","url":"https://x","cos_key":"k","type":"image"}`)); ok {
+		t.Fatal("空白名应拒绝")
+	}
+	if _, ok := sanitizeRemarkFile(json.RawMessage(`{"name":"a","url":"httpx://x","cos_key":"k","type":"image"}`)); ok {
+		t.Fatal("非法 URL 应拒绝")
+	}
+	if _, ok := sanitizeRemarkFile(json.RawMessage(`{"name":"a","url":"https://x","cos_key":"../k","type":"image"}`)); ok {
+		t.Fatal("路径穿越 key 应拒绝")
+	}
+	if _, ok := sanitizeRemarkFile(json.RawMessage(`{"name":"a","url":"https://x","cos_key":"k","type":"exe"}`)); ok {
+		t.Fatal("白名单外类型应拒绝")
+	}
+}
+
+func TestFeeStdTextFormat(t *testing.T) {
+	if got := feeStdText(FeeStd{FoodFee: 60, TransitFee: 0, Scope: 0}); got != "伙食60/交通0" {
+		t.Fatalf("费用文案口径不符: %q", got)
+	}
+	if got := feeStdText(FeeStd{FoodFee: 100, TransitFee: 0, Scope: 1}); got != "伙食100/交通0（市外）" {
+		t.Fatalf("市外文案口径不符: %q", got)
+	}
+	entry := baseEntry()
+	entry.FeeMap = map[string]FeeEntry{}
+	found := false
+	for _, reason := range ComputeFailReasons(entry) {
+		if strings.Contains(reason, "费用信息未填写或不为 伙食60/交通0") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("缺费用原因应含伙食/交通前缀: %v", ComputeFailReasons(entry))
+	}
+}
+
+func TestNormalizeShotTime(t *testing.T) {
+	cases := map[string]string{
+		"2026-08-18 09:30": "2026.08.18 09:30",
+		"2026-8-5 09:30":   "2026.08.05 09:30",
+		"拍摄于2026-8-5晴":     "拍摄于2026.08.05晴",
+		"2026.08.18":       "2026.08.18",
+	}
+	for in, want := range cases {
+		if got := normalizeShotTime(in); got != want {
+			t.Fatalf("normalizeShotTime(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestPhotoDownloadProxy(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	env.objects.items["worklog/a/9-1.jpg"] = []byte("JPEGDATA")
+	env.fake.on("FROM worklog_photo p JOIN worklog_entry e", []string{"cos_key", "url", "log_date"},
+		[][]driver.Value{{"worklog/a/9-1.jpg", "", "2026-08-18"}})
+	rec := env.do(t, "GET", "/api/v1/worklog/photos/9/download", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("下载代理应 200 回源，实际 %d", rec.Code)
+	}
+	cd := rec.Header().Get("Content-Disposition")
+	if !strings.Contains(cd, `filename="photo-9.jpg"`) || !strings.Contains(cd, "2026-08-18-9.jpg") {
+		t.Fatalf("下载文件名口径不符: %q", cd)
+	}
+	if rec.Body.String() != "JPEGDATA" {
+		t.Fatalf("应代理回源对象内容，实际 %q", rec.Body.String())
+	}
+}
+
+func TestPhotoListIncludesCosKey(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	env.fake.on("FROM worklog_photo p JOIN worklog_entry e",
+		[]string{"id", "cos_key", "url", "log_date", "day", "members"},
+		[][]driver.Value{{int64(3), "worklog/a/3-1.jpg", "", "2026-08-18", int64(18), `["赵登"]`}})
+	rec := env.do(t, "GET", "/api/v1/worklog/photos?from=2026-08-18&to=2026-08-18", nil)
+	envr := decodeEnv(t, rec)
+	if envr.Code != codeOK {
+		t.Fatalf("照片清单应成功，实际 %d %s", envr.Code, envr.Message)
+	}
+	list, _ := envr.Data.(map[string]any)["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("应 1 条，实际 %#v", list)
+	}
+	item := list[0].(map[string]any)
+	if item["cos_key"] != "worklog/a/3-1.jpg" {
+		t.Fatalf("照片清单应带 cos_key: %#v", item)
+	}
+}
+
+func TestPhotosPDFEmptyNotFound(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	env.fake.on("FROM worklog_photo p JOIN worklog_entry e", []string{"entry_id", "cos_key", "url"}, nil)
+	rec := env.do(t, "GET", "/api/v1/worklog/photos.pdf?from=2026-08-18&to=2026-08-18", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("无照片应 404，实际 %d", rec.Code)
+	}
+	if envr := decodeEnv(t, rec); envr.Code != codeNoPhotos {
+		t.Fatalf("无照片应 40402，实际 %d %s", envr.Code, envr.Message)
+	}
+}
+
+func TestSheetVerifyGate40901(t *testing.T) {
+	env := newTestServer(t, identAdmin).withTeam()
+	env.fake.on("FROM worklog_entry e", entryLoadCols(),
+		[][]driver.Value{entryLoadRow(1, "2026-08-18", "")})
+	env.withEmptySatellites()
+	rec := env.do(t, "GET", "/api/v1/worklog/task-sheet?from=2026-08-18&to=2026-08-18", nil)
+	envr := decodeEnv(t, rec)
+	if envr.Code != 40901 {
+		t.Fatalf("生成前核验应按契约 40901 拦截，实际 %d %s", envr.Code, envr.Message)
+	}
+	data, _ := envr.Data.(map[string]any)
+	failures, _ := data["failures"].([]any)
+	if len(failures) != 1 {
+		t.Fatalf("应随信封带未通过清单，实际 %#v", envr.Data)
+	}
+}
+
+func TestSheetRangeMessages(t *testing.T) {
+	if _, _, msg := sheetRange(map[string]string{"from": "2026-08-01", "to": "2026-08-01"}); msg != "" {
+		t.Fatalf("合法范围不应报错: %q", msg)
+	}
+	if _, _, msg := sheetRange(map[string]string{"from": "2026-01-01", "to": "2026-03-01"}); msg != "日期范围不能超过 31 天" {
+		t.Fatalf("超长提示不符: %q", msg)
+	}
+	if _, _, msg := sheetRange(map[string]string{"from": "2026/01/01", "to": "2026-01-02"}); msg != "日期格式应为 YYYY-MM-DD，且 from 不晚于 to" {
+		t.Fatalf("参数错提示不符: %q", msg)
+	}
+}
+
+func TestSheetPreviewEmbedsToken(t *testing.T) {
+	env := newTestServer(t, identAdmin).withTeam()
+	env.fake.on("COUNT(*)", []string{"cnt"}, [][]driver.Value{{int64(1)}})
+	rec := env.do(t, "GET", "/api/v1/worklog/dispatch-sheet/preview?from=2026-08-18&to=2026-08-18", nil)
+	envr := decodeEnv(t, rec)
+	url, _ := envr.Data.(map[string]any)["url"].(string)
+	if envr.Code != codeOK || !strings.Contains(url, "token%3Dtest") {
+		t.Fatalf("查看器回源地址应内嵌 ?token=（Authorization 同值）: %d %q", envr.Code, url)
+	}
+}
+
+func TestReportSortedByDate(t *testing.T) {
+	env := newTestServer(t, identUser).withTeam()
+	// 按 created_at 序返回两条不同日期的卡，报告须按 log_date 重排
+	env.fake.on("FROM worklog_entry e", entryLoadCols(),
+		[][]driver.Value{
+			entryLoadRow(2, "2026-08-19", "有备注"),
+			entryLoadRow(1, "2026-08-18", ""),
+		})
+	env.withEmptySatellites()
+	rec := env.do(t, "GET", "/api/v1/worklog/report?from=2026-08-18&to=2026-08-19", nil)
+	envr := decodeEnv(t, rec)
+	if envr.Code != codeOK {
+		t.Fatalf("report 应成功，实际 %d %s", envr.Code, envr.Message)
+	}
+	list, _ := envr.Data.(map[string]any)["list"].([]any)
+	if len(list) != 2 {
+		t.Fatalf("应 2 条，实际 %#v", list)
+	}
+	first := list[0].(map[string]any)["log_date"].(string)
+	if first != "2026-08-18" {
+		t.Fatalf("报告应按 log_date 排序，首条 %q", first)
+	}
+}
+
+func TestCrossUpdateKeepsOrderNo(t *testing.T) {
+	env := newTestServer(t, identAdmin)
+	env.fake.on("SELECT status FROM sys_team", []string{"status"}, [][]driver.Value{{int64(1)}})
+	env.withTeam()
+	r := fakeRule{match: "FROM worklog_entry WHERE id",
+		cols: []string{"team_id", "vehicle_id", "destination_id", "cross_team", "log_date", "dispatch_order_no"},
+		rows: [][]driver.Value{{int64(1), int64(5), int64(0), int64(1), "2026-08-18", "PC-9"}}}
+	env.fake.on(r.match, r.cols, r.rows)
+	env.fake.on("FROM worklog_vehicle WHERE team_id", []string{"id", "status"},
+		[][]driver.Value{{int64(5), int64(1)}})
+
+	rec := env.do(t, "PUT", "/api/v1/worklog/logs/cross/7", map[string]any{
+		"team_id": 1, "plate_no": "晋A12345", "member_names": []string{},
+	})
+	if envr := decodeEnv(t, rec); envr.Code != codeOK {
+		t.Fatalf("跨班改派车应成功，实际 %d %s", envr.Code, envr.Message)
+	}
+	ex, found := env.fake.lastExec("UPDATE worklog_entry SET team_id")
+	if !found {
+		t.Fatal("应执行主行更新")
+	}
+	kept := false
+	for _, a := range ex.args {
+		if s, ok := a.(string); ok && s == "PC-9" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatalf("未提交 dispatch_order_no 应保留库内现值，args=%v", ex.args)
+	}
+}
+
+func TestPhotoUploadWMSanitized(t *testing.T) {
+	saved := wmRenderer
+	defer func() { wmRenderer = saved }()
+	stub := &memWMRenderer{}
+	wmRenderer = stub
+
+	env := newTestServer(t, identUser).withTeam()
+	r := photoEntryRule()
+	env.fake.on(r.match, r.cols, r.rows)
+	mr := photoMemberRule()
+	env.fake.on(mr.match, mr.cols, mr.rows)
+
+	rec := env.do(t, "POST", "/api/v1/worklog/logs/1/photos", map[string]any{
+		"image":   "data:image/png;base64," + base64Of(tinyPNG(t)),
+		"members": []string{"赵登"},
+		"wm": map[string]any{
+			"content": "绝缘子清扫", "time": " 2026.08.18 09:30 ", "weather": "多云",
+			"location": "孝义市·示范变电站", "longitude": "111.7", "latitude": "37.1",
+			"antiCode": "00000000000000", "orientation": "right",
+		},
+	})
+	if envr := decodeEnv(t, rec); envr.Code != codeOK {
+		t.Fatalf("上传应成功，实际 %d %s", envr.Code, envr.Message)
+	}
+	if stub.called != 1 {
+		t.Fatalf("携带 wm 对象应触发服务端水印渲染，实际 %d", stub.called)
+	}
+	if stub.orient != "right" {
+		t.Fatalf("方向标签应透传共享渲染器: %q", stub.orient)
+	}
+	if stub.fields.Time != "2026.08.18 09:30" {
+		t.Fatalf("清洗应去首尾空白: %q", stub.fields.Time)
+	}
+	if len([]rune(stub.fields.AntiCode)) != 14 || stub.fields.AntiCode == "00000000000000" {
+		t.Fatalf("非法防伪码应服务端重生成 14 位: %q", stub.fields.AntiCode)
 	}
 }

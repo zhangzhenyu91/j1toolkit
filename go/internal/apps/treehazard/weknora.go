@@ -163,11 +163,24 @@ func (m *Module) weknoraCfg(ctx context.Context) (kbID string, client WeKnoraCli
 	return kbID, client, state, nil
 }
 
-// recordsHash 内容哈希：对 exportGroupComparator 排序后的记录集序列化算 sha256
-// （不哈希 xlsx buffer——zip 时间戳不稳定；记录内容不变 ⇒ 表内容不变）。
+// recordsHash 内容哈希：对 exportGroupComparator 排序后的记录集序列化算 sha256。
+// 只哈希稳定业务列（Node SELECT 行同列集）：不含 synced_at/updated_at/photos 等，
+// 避免同步点回写或照片变动误判表内容变化导致全量重传；不哈希 xlsx buffer（zip 时间戳不稳定）。
 func recordsHash(records []Record) string {
 	sorted := sortRecords(records, exportGroupComparator, true)
-	raw, _ := json.Marshal(sorted)
+	rows := make([]map[string]any, 0, len(sorted))
+	for _, r := range sorted {
+		rows = append(rows, map[string]any{
+			"id": r.ID, "voltage_level": r.VoltageLevel, "line_name": r.LineName, "section": r.Section,
+			"pole_from": r.PoleFrom, "pole_to": r.PoleTo, "position_note": r.PositionNote,
+			"tree_species": r.TreeSpecies, "tree_count": r.TreeCount, "dist_small": r.DistSmall,
+			"dist_big": r.DistBig, "diameter": r.Diameter, "horizontal": r.Horizontal, "vertical": r.Vertical,
+			"finder_name": r.FinderName, "found_at": r.FoundAt,
+			"handler_name": r.HandlerName, "handle_note": r.HandleNote, "handled_at": r.HandledAt,
+			"status": r.Status, "created_at": r.CreatedAt,
+		})
+	}
+	raw, _ := json.Marshal(rows)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
@@ -212,11 +225,11 @@ type weknoraBook struct {
 	Hash     string
 }
 
-// exceldocWriteSingle 单线路知识表（去首行标题）。
+// exceldocWriteSingle 单线路知识表（去首行标题；sheet 名沿用整表导出的「树障」，与 Node buildWorkbook 同口径）。
 func exceldocWriteSingle(lineName string, records []Record) ([]byte, error) {
 	sorted := sortRecords(records, exportGroupComparator, true)
 	return exceldoc.WriteWorkbook(exceldoc.WorkbookSpec{
-		Sheets: []exceldoc.SheetSpec{buildSheet(sheetNameOf(lineName, map[string]bool{}), "", sorted)},
+		Sheets: []exceldoc.SheetSpec{buildSheet("树障", "", sorted)},
 	})
 }
 

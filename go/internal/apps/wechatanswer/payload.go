@@ -57,22 +57,36 @@ func textOf(v any) string {
 }
 
 // formatSection 区段文本：`起#[-止#][位置备注]`（位置备注=塔底时省略）。
+// 杆号含字母（12A/15B）时原文保留、不剥离字母；此时数值 pole_from/pole_to 置空（可空）。
 func formatSection(ex map[string]any) string {
-	from, okFrom := asFloat(ex["pole_from"])
-	if !okFrom || from <= 0 {
+	from := poleLabel(ex["pole_from"])
+	if from == "" {
 		return ""
 	}
-	fromI := int64(from)
 	note := textOf(ex["position_note"])
 	suffix := ""
 	if note != "" && note != "塔底" {
 		suffix = note
 	}
-	to, okTo := asFloat(ex["pole_to"])
-	if !okTo || to <= 0 || int64(to) == fromI {
-		return fmt.Sprintf("%d#%s", fromI, suffix)
+	to := poleLabel(ex["pole_to"])
+	if to == "" || to == from {
+		return from + "#" + suffix
 	}
-	return fmt.Sprintf("%d#-%d#%s", fromI, int64(to), suffix)
+	return from + "#-" + to + "#" + suffix
+}
+
+// poleLabel 杆号展示标签：数值形态取整（12 → "12"）；含字母等非数值原文保留（"12A#" → "12A"，不剥离字母）。
+func poleLabel(v any) string {
+	if v == nil {
+		return ""
+	}
+	if f, ok := asFloat(v); ok {
+		if f <= 0 {
+			return ""
+		}
+		return strconv.FormatInt(int64(f), 10)
+	}
+	return strings.TrimSuffix(strings.TrimSpace(textOf(v)), "#")
 }
 
 // formatVertical 垂直距离文本：over_height 优先（超高X），否则 vertical 原文。

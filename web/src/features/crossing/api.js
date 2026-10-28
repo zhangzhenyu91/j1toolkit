@@ -3,6 +3,7 @@
 // demo 模式返回 demo.js 静态演示数据（DEMO ONLY），不发起任何网络请求。
 import { getApiMode } from '../../api.js';
 import * as demo from './demo.js';
+import { normalizeList } from '../core/list-response.js';
 
 const TOKEN_KEY = 'shade.token';
 
@@ -81,6 +82,26 @@ export function getRecords(teamId) {
 export function deleteRecord(id, teamId) {
   if (isDemo()) return demo.delay({ id });
   return request(withTeam(`/api/v1/crossing/records/${id}`, teamId), { method: 'DELETE' });
+}
+
+// createRecord 手动新增记录（班管/超管）：body 为 13 业务列（line_name 必填），
+// pole_from/pole_to 数值锚点由后端按区段文本解析（带字母杆号区段原文保留、锚点可空）。
+export function createRecord(body, teamId) {
+  if (isDemo()) return demo.delay({ id: 0 });
+  return request(withTeam('/api/v1/crossing/records', teamId), {
+    method: 'POST',
+    body: JSON.stringify(teamBody(teamId, body)),
+  });
+}
+
+// updateRecord 编辑记录（班管/超管）：body 为业务列白名单（出现哪个键改哪个键），
+// 原地更新保留记录 ID / 来源 / 直推幂等键 / 同步点，班组隔离由后端兜底。
+export function updateRecord(id, body, teamId) {
+  if (isDemo()) return demo.delay({ id });
+  return request(withTeam(`/api/v1/crossing/records/${id}`, teamId), {
+    method: 'PUT',
+    body: JSON.stringify(teamBody(teamId, body)),
+  });
 }
 
 // exportDownload 统计表 xlsx 下载（二进制；line= 单线路，split=1 按线路分表）。
@@ -189,9 +210,10 @@ export function exportPreview(query, teamId) {
   return request(withTeam(`/api/v1/crossing/export/preview${query}`, teamId));
 }
 
-// listTeams 超管班组切换器数据源（GET /admin/teams，status===1 生效班组）。
+// listTeams 超管班组切换器数据源（GET /admin/teams，data 兼容直接数组与 list/teams/items 包装，
+// status===1 生效班组）。
 export async function listTeams() {
   if (isDemo()) return demo.delay(demo.teams);
   const data = await request('/api/v1/admin/teams');
-  return (data.list || []).filter((t) => t.status === 1);
+  return normalizeList(data).filter((t) => t.status === 1);
 }

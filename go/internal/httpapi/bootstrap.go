@@ -20,9 +20,9 @@ const seedAppsSQL = `
 INSERT IGNORE INTO sys_app (app_key, name, icon, path, terminal, sort, status) VALUES
   ('call-me', 'Call Me', 'robot', '/pkg-callme/pages/sessions/sessions', 'both', 1, 1),
   ('file-transfer', '文件传输', 'swap', '/pkg-filetransfer/pages/index/index', 'mobile', 6, 1),
-  ('kvm', '远程连接计算机', 'terminal', '', 'pc', 7, 1),
+  ('kvm', '远程控制', 'terminal', '', 'pc', 7, 1),
   ('wm-add', '水印添加', 'image', '/pkg-wmadd/pages/index/index', 'both', 9, 1),
-  ('safe-day', '安全日活动记录', 'file-safety', '/pkg-safeday/pages/index/index', 'both', 10, 1)
+  ('safe-day', '安全日活动', 'file-safety', '/pkg-safeday/pages/index/index', 'both', 10, 1)
 `
 
 // 管理应用种子（新应用，sort 12/13；INSERT IGNORE 不覆盖已有行）。
@@ -40,7 +40,16 @@ func SeedAppExtras(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, seedAppsSQL); err != nil {
 		return err
 	}
-	_, err := db.ExecContext(ctx, seedAppExtrasSQL)
+	if _, err := db.ExecContext(ctx, seedAppExtrasSQL); err != nil {
+		return err
+	}
+	// 仅迁移明确更名的旧显示名，不覆盖用户自定义名称。
+	_, err := db.ExecContext(ctx, `UPDATE sys_app SET name = CASE app_key
+		WHEN 'safe-day' THEN '安全日活动'
+		WHEN 'kvm' THEN '远程控制'
+		ELSE name END
+	WHERE (app_key = 'safe-day' AND name IN ('安全日', '安全日活动记录'))
+		OR (app_key = 'kvm' AND name IN ('KVM 远程', '远程连接计算机'))`)
 	return err
 }
 

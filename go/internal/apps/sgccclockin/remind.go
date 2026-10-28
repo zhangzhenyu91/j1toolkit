@@ -343,7 +343,7 @@ func (s *Scheduler) BeforeClockinRemind(ctx context.Context, date, label string)
 	failedRows := make([]MissingClockinRow, 0)
 	for _, item := range list {
 		acc := item.acc
-		if err := m.SyncOne(ctx, &acc, date, "remind", acc.TeamID); err != nil {
+		if err := m.SyncOneClockin(ctx, &acc, date, "remind", acc.TeamID); err != nil {
 			failed = append(failed, item.cardID)
 			failedRows = append(failedRows, MissingClockinRow{
 				TeamID: acc.TeamID, MemberID: item.cardID, UserID: acc.UserID,
@@ -426,8 +426,7 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 		_ = m.DB.QueryRowContext(ctx,
 			`SELECT COALESCE(MAX(id), 0) FROM worklog_sync_log WHERE team_id = ?`, teamID).Scan(&beforeID)
 
-		jobID := jobs.New(teamID, 0, "daily", date)
-		// 当日卡上绑定成员逐人对账
+		// 当日卡上绑定成员逐人对账（先取齐名单再登记任务：total 即名单数，total<=0 即刻完成）
 		accRows, err := m.DB.QueryContext(ctx,
 			`SELECT DISTINCT a.id, a.team_id, a.user_id, a.member_id, a.mobile, a.token,
 			        a.device_type, a.system_version, a.token_status
@@ -436,6 +435,7 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 			 JOIN worklog_member m ON m.id = em.member_id
 			 JOIN worklog_sgcc_account a ON a.member_id = m.id OR (m.user_id IS NOT NULL AND a.user_id = m.user_id)
 			 WHERE e.team_id = ? AND e.log_date = ?`, teamID, date)
+		list := make([]Account, 0)
 		if err == nil {
 			for accRows.Next() {
 				var acc Account
@@ -447,15 +447,20 @@ func (s *Scheduler) DailyCheckJob(ctx context.Context) {
 					if memberID.Valid {
 						acc.MemberID = memberID.Int64
 					}
-					if err := m.SyncOne(ctx, &acc, date, "daily", teamID); err != nil {
-						jobs.Step(jobID, err.Error())
-					} else {
-						jobs.Step(jobID, "")
-					}
-					m.sleepInterval(ctx)
+					list = append(list, acc)
 				}
 			}
 			accRows.Close()
+		}
+		jobID := jobs.New(teamID, len(list), "daily", date)
+		for i := range list {
+			acc := &list[i]
+			if err := m.SyncOne(ctx, acc, date, "daily", teamID); err != nil {
+				jobs.Step(jobID, err.Error())
+			} else {
+				jobs.Step(jobID, "")
+			}
+			m.sleepInterval(ctx)
 		}
 		jobs.Finish(jobID)
 

@@ -16,6 +16,19 @@ if (!document.querySelector('link[rel="icon"]')) {
   document.head.appendChild(link);
 }
 
+// 原生日期输入：点击输入框任意位置（含日期文字区域）即展开系统日期选择——旧页
+// bindRangeInput 同口径（showPicker，不支持的浏览器/非用户手势时保留原生点击行为）；
+// 委托到文档层，覆盖各页面与弹层的 input[type=date]，免得逐页绑定漏掉。
+document.addEventListener('click', (e) => {
+  const el = e.target && e.target.closest ? e.target.closest('input[type="date"]') : null;
+  if (!el || typeof el.showPicker !== 'function') return;
+  try {
+    el.showPicker();
+  } catch (err) {
+    /* 浏览器拒绝（非用户手势等）时保留原生点击行为 */
+  }
+});
+
 // 旧 Node 网页端 *.html 直链（如 /worklog.html?date=2026-10、/share.html#/s/<id>）
 // 先归一为 SPA hash 路由（保留 query/hash）再挂载应用；非旧地址直接启动。
 const legacyTarget = legacyRedirectTarget(window.location);

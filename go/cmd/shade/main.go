@@ -241,6 +241,11 @@ func main() {
 		wl.PhotoOps = sgc    // 商旅照片任务队列（异步任务化，端侧凭 opId 轮询）
 		// Notifier 人工审核通知 / Dispatcher 派车单取件建卡 / Netdisk 保存：由下方 bridge.Wire 注入
 
+		// 费用照片双向对账生产装配（Node syncFeePhotos 同链路）：COS 对象存储（拉下入库/删除对账）
+		// + 水印识别回写钩子（worklog.VerifyAndWriteBack，拉下入库后异步触发，含失败班组通知）
+		sgc.Store = cosStore
+		sgc.VerifyPhoto = wl
+
 		// 班组数据（复用 worklog 字典表 + team_line）
 		td := teamdata.New(db, store)
 		td.Permit = permit
@@ -404,7 +409,7 @@ func main() {
 			wxAuth, admin, wl, td, sgc, th, cr, nd, of, qz, cm, cl, sd, kv, wm, wa,
 		)
 
-		// ---- 后台排程：商旅提醒/核查 + 树障/交跨夜间同步 + 微信智能应答通道 ----
+		// ---- 后台排程：商旅提醒/核查 + 树障/交跨夜间同步 + 派车单每日同步 + 微信智能应答通道 ----
 		sched := sgccclockin.NewScheduler(sgc)
 		// Start 返回停止函数（幂等）：只登记一次，不另挂 sched.Stop，避免重复 Stop/空排程
 		cleanups = append(cleanups, sched.Start())
@@ -444,6 +449,19 @@ func main() {
 					return fmt.Sprintf("建%d/改%d/删%d/跳过%d", res.Created, res.Updated, res.Deleted, res.Skipped), err
 				},
 			}.Run))
+		// 派车单每日排程（Node dispatch-sync.start：09:10 准备锁设备+挂载 U 盘 → 09:20 取件建卡解禁）；
+		// 生效班组以 worklog_dispatch_sync_team 开关表为准，未配置设备 ddns 在触发时明确报出
+		//（不假成功）；执行器与手动 sync-now 共用同一重入守卫（bridge.DispatchSyncer）。
+		if wl.Dispatcher != nil {
+			jobs := bridge.NewDispatchJobs(wl.Dispatcher)
+			disp := dispatchPair{Logger: logging.New(db, "work-log"), Prepare: jobs.Prepare, Fetch: jobs.Fetch}
+			cleanups = append(cleanups, scheduleDailyCn(
+				func(ctx context.Context) string { return cfgOrEnv(ctx, store, "WORKLOG_DISPATCH_PREPARE_TIME") },
+				9, 10, disp.RunPrepare))
+			cleanups = append(cleanups, scheduleDailyCn(
+				func(ctx context.Context) string { return cfgOrEnv(ctx, store, "WORKLOG_DISPATCH_FETCH_TIME") },
+				9, 20, disp.RunFetch))
+		}
 
 		// ---- 应用日志 7 天清理（启动即清一次，此后每 24h）----
 		retentionStop := make(chan struct{})

@@ -86,6 +86,15 @@ export function shareList(shareId, path, password) {
   });
 }
 
+// shareFileUrl 文件取流浏览器直链（?ticket= 票据鉴权，同旧 share.html 的 dlUrl）：
+// 供 <a download>/<img>/<video> 直引与原生直链下载（不经内存 Blob，浏览器下载器出进度）。
+export function shareFileUrl(shareId, path) {
+  const ticket = getTicket(shareId);
+  const qs = new URLSearchParams({ path: path || '' });
+  if (ticket) qs.set('ticket', ticket);
+  return `${BASE}/${encodeURIComponent(shareId)}/download?${qs.toString()}`;
+}
+
 // shareDownload 文件下载（返回 fetch Response，配合 saveBlob 落地）。
 export async function shareDownload(shareId, path, password) {
   const ticket = getTicket(shareId);

@@ -118,24 +118,6 @@ func dedupIDs(ids []int64) []int64 {
 	return out
 }
 
-// sameIDSet 两个 id 集合是否等价（顺序无关）。
-func sameIDSet(a, b []int64) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	set := map[int64]int{}
-	for _, id := range a {
-		set[id]++
-	}
-	for _, id := range b {
-		set[id]--
-		if set[id] < 0 {
-			return false
-		}
-	}
-	return true
-}
-
 // readUploadFile 读取 multipart 字段 file（单文件，超限/缺文件写响应并 ok=false）。
 func readUploadFile(w http.ResponseWriter, r *http.Request, maxBytes int64) (data []byte, name string, ok bool) {
 	if err := r.ParseMultipartForm(maxBytes); err != nil {

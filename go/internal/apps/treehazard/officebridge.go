@@ -1,6 +1,7 @@
 // office 文档源桥（office.TeamExport 能力实现）：thd 源——树障统计表 xlsx 签发/回源。
 // 签发期（Resolve）校验班组归属（非超管仅本班）并定名；回源期（Fetch）按签名票据参数
-// 即时生成统计表，与 GET /export 下载同口径（loadTeamRecords + fetchLineOrder + buildWorkbook）。
+// 即时生成统计表，与 GET /export 下载同口径（loadTeamRecords + fetchLineOrder + fetchThreshold
+// + buildWorkbookWithThreshold，垂距 ≤ 阈值整行标红）。
 package treehazard
 
 import (
@@ -65,6 +66,11 @@ func (e *teamExport) Fetch(ctx context.Context, ref office.LineRef) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
+	// 当前班组垂直距离阈值：与 GET /export 下载同口径整行标红（未配置 → 不标红）
+	threshold, err := e.m.fetchThreshold(ctx, team.ID)
+	if err != nil {
+		return nil, err
+	}
 	lineOrder := map[string]int{}
 	for i, l := range lineRows {
 		lineOrder[l.LineName] = i
@@ -78,5 +84,5 @@ func (e *teamExport) Fetch(ctx context.Context, ref office.LineRef) ([]byte, err
 		}
 		records = filtered
 	}
-	return buildWorkbook(team.Name, records, ref.Split, lineOrder)
+	return buildWorkbookWithThreshold(team.Name, records, ref.Split, lineOrder, threshold)
 }

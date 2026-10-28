@@ -84,13 +84,25 @@ func genVoicePCM(ms int) []byte {
 }
 
 // genVoiceSilk 生成微信变体 SILK 测试素材（经 cryptoaudio 真实编码器，tencent 封装）。
+// go-silk 编码器在进程内有并发网络活动时偶发产出坏流（长度异常、自解码报 not a silk stream），
+// 素材生成做编码→解码回环校验并有限重试兜稳用例；生产链路只解码真实微信语音、不经此编码路径。
 func genVoiceSilk(t *testing.T) []byte {
 	t.Helper()
-	silk, err := cryptoaudio.EncodeSilk(genVoicePCM(200), cryptoaudio.DefaultSilkSampleRate)
-	if err != nil {
-		t.Fatalf("SILK 测试素材编码失败: %v", err)
+	var last error
+	for attempt := 0; attempt < 8; attempt++ {
+		silk, err := cryptoaudio.EncodeSilk(genVoicePCM(200), cryptoaudio.DefaultSilkSampleRate)
+		if err != nil {
+			last = err
+			continue
+		}
+		if _, err := cryptoaudio.DecodeSilk(silk, cryptoaudio.DefaultSilkSampleRate); err != nil {
+			last = err
+			continue
+		}
+		return silk
 	}
-	return silk
+	t.Fatalf("SILK 测试素材编码失败：%v", last)
+	return nil
 }
 
 // voiceEntry 构造语音下载参数。

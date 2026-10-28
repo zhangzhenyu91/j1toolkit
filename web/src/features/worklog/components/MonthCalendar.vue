@@ -131,6 +131,13 @@ function select(date) {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 .cal {
   padding: 0;
 }
@@ -168,7 +175,12 @@ function select(date) {
   letter-spacing: 1px;
   font-variant-numeric: tabular-nums;
 }
+/* 今天 / 上下月切换：同高 24px 方钮，行内垂直居中对齐 */
 .cal-today {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--tk-line);
   background: #fff;
   color: var(--tk-brand);
@@ -176,7 +188,7 @@ function select(date) {
   font-weight: 600;
   letter-spacing: 0.5px;
   cursor: pointer;
-  padding: 2px 9px;
+  padding: 0 9px;
   border-radius: 6px;
   transition:
     border-color 0.15s,
@@ -195,6 +207,7 @@ function select(date) {
 .cal-nav button {
   width: 24px;
   height: 24px;
+  flex: none;
   border: 1px solid var(--tk-line);
   border-radius: 6px;
   background: #fff;
@@ -214,9 +227,10 @@ function select(date) {
 }
 .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 2px;
   justify-items: center;
+  overflow: hidden; /* 兜底：任何宽度下不出横向滚动 */
 }
 .cal-wd {
   text-align: center;
@@ -229,6 +243,7 @@ function select(date) {
 .day {
   position: relative;
   width: 34px;
+  max-width: 100%; /* 窄容器随列宽收缩，保持 7 列均匀且不溢出 */
   aspect-ratio: 1;
   display: flex;
   flex-direction: column;
@@ -335,8 +350,17 @@ function select(date) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* 动效降级（同旧版 theme.css）：展开月历不播放入场 */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
   .cal.open .cal-collapse {
-    animation: none;
+    animation: none !important;
   }
 }
 </style>

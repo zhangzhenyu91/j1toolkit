@@ -3,6 +3,8 @@ package exceldoc
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/xml"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -183,5 +185,162 @@ func TestWorkbookRerunDeterministic(t *testing.T) {
 	}
 	if unzipEntry(t, a, "xl/worksheets/sheet1.xml") != unzipEntry(t, b, "xl/worksheets/sheet1.xml") {
 		t.Fatal("同 spec 两次生成 sheet XML 不一致")
+	}
+}
+
+// stylesXMLView styles.xml 解析视图（仅取标红校验所需字段）。
+type stylesXMLView struct {
+	Fonts struct {
+		Font []struct {
+			Color struct {
+				RGB string `xml:"rgb,attr"`
+			} `xml:"color"`
+		} `xml:"font"`
+	} `xml:"fonts"`
+	CellXfs struct {
+		Xf []struct {
+			FontID int `xml:"fontId,attr"`
+		} `xml:"xf"`
+	} `xml:"cellXfs"`
+}
+
+// sheetXMLView worksheet 解析视图（行/单元格样式索引与单元格值）。
+type sheetXMLView struct {
+	SheetData struct {
+		Rows []struct {
+			R     int `xml:"r,attr"`
+			Cells []struct {
+				R string `xml:"r,attr"`
+				S string `xml:"s,attr"`
+				V string `xml:"v"`
+			} `xml:"c"`
+		} `xml:"row"`
+	} `xml:"sheetData"`
+}
+
+// redXfIDs 解析 styles.xml：返回「字体为红色 rgb="FFFF0000"」的 cellXfs 样式索引集合。
+func redXfIDs(t *testing.T, stylesXML string) map[string]bool {
+	t.Helper()
+	var v stylesXMLView
+	if err := xml.Unmarshal([]byte(stylesXML), &v); err != nil {
+		t.Fatalf("解析 styles.xml: %v", err)
+	}
+	redFonts := map[int]bool{}
+	for i, f := range v.Fonts.Font {
+		if strings.EqualFold(strings.TrimSpace(f.Color.RGB), "FFFF0000") {
+			redFonts[i] = true
+		}
+	}
+	out := map[string]bool{}
+	for i, xf := range v.CellXfs.Xf {
+		if redFonts[xf.FontID] {
+			out[strconv.Itoa(i)] = true
+		}
+	}
+	return out
+}
+
+// parseSheetXML 解析 worksheet XML。
+func parseSheetXML(t *testing.T, sheetXML string) sheetXMLView {
+	t.Helper()
+	var v sheetXMLView
+	if err := xml.Unmarshal([]byte(sheetXML), &v); err != nil {
+		t.Fatalf("解析 worksheet XML: %v", err)
+	}
+	return v
+}
+
+// assertRowRed 断言某数据行整行（含隐藏 ID 列）样式是否全部为红：want=true 时行内全部单元格
+// 须落在红样式集；want=false 时不得出现红样式。
+func assertRowRed(t *testing.T, v sheetXMLView, rowNum int, reds map[string]bool, want bool) {
+	t.Helper()
+	for _, row := range v.SheetData.Rows {
+		if row.R != rowNum {
+			continue
+		}
+		if len(row.Cells) == 0 {
+			t.Fatalf("行 %d 无单元格", rowNum)
+		}
+		redCount := 0
+		for _, c := range row.Cells {
+			if reds[c.S] {
+				redCount++
+			}
+		}
+		if want && redCount != len(row.Cells) {
+			t.Fatalf("行 %d 应整行标红，实际 %d/%d 单元格红：%+v", rowNum, redCount, len(row.Cells), row.Cells)
+		}
+		if !want && redCount != 0 {
+			t.Fatalf("行 %d 不应标红，实际 %d 单元格红：%+v", rowNum, redCount, row.Cells)
+		}
+		return
+	}
+	t.Fatalf("未找到行 %d", rowNum)
+}
+
+// TestWriteWorkbookRedRows 标红行：styles.xml 出红字体，行级样式整行（含隐藏 ID 列）命中，未标红行不沾红。
+func TestWriteWorkbookRedRows(t *testing.T) {
+	spec := WorkbookSpec{Sheets: []SheetSpec{{
+		Name:  "树障",
+		Title: "检修一班树木统计表",
+		Columns: []Column{
+			{Header: "序号", Width: 5},
+			{Header: "区段", Width: 15},
+		},
+		Rows:    [][]string{{"1", "3#-4#"}, {"2", "10#-11#"}, {"3", "1#-2#"}},
+		IDs:     []int64{11, 12, 13},
+		RedRows: []bool{false, true, false},
+	}}}
+	data, err := WriteWorkbook(spec)
+	if err != nil {
+		t.Fatalf("WriteWorkbook: %v", err)
+	}
+	styles := unzipEntry(t, data, "xl/styles.xml")
+	mustContain(t, styles, `rgb="FFFF0000"`)
+	reds := redXfIDs(t, styles)
+	if len(reds) != 2 {
+		t.Fatalf("应生成数据行 + 隐藏 ID 列两套红样式，实际 %v", reds)
+	}
+	v := parseSheetXML(t, unzipEntry(t, data, "xl/worksheets/sheet1.xml"))
+	// 行号：1 标题 / 2 表头 / 3..5 数据；第 2 条数据行（r=4）标红
+	assertRowRed(t, v, 3, reds, false)
+	assertRowRed(t, v, 4, reds, true)
+	assertRowRed(t, v, 5, reds, false)
+	// 表头行不沾红
+	assertRowRed(t, v, 2, reds, false)
+}
+
+// TestWriteWorkbookRedRowsLazy 无标红行时不生成红字体样式（其他模块导出 styles.xml 不变）。
+func TestWriteWorkbookRedRowsLazy(t *testing.T) {
+	spec := WorkbookSpec{Sheets: []SheetSpec{{
+		Name:    "s",
+		Title:   "标题",
+		Columns: []Column{{Header: "a", Width: 5}},
+		Rows:    [][]string{{"x"}, {"y"}},
+		IDs:     []int64{1, 2},
+		RedRows: []bool{false, false},
+	}}}
+	data, err := WriteWorkbook(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := unzipEntry(t, data, "xl/styles.xml")
+	mustNotContain(t, styles, `rgb="FFFF0000"`)
+	if reds := redXfIDs(t, styles); len(reds) != 0 {
+		t.Fatalf("无标红行不应有红样式，实际 %v", reds)
+	}
+}
+
+// TestWriteWorkbookRedRowsMismatch RedRows 长度与数据行数不一致应报错。
+func TestWriteWorkbookRedRowsMismatch(t *testing.T) {
+	_, err := WriteWorkbook(WorkbookSpec{Sheets: []SheetSpec{{
+		Name:    "s",
+		Columns: []Column{{Header: "a", Width: 5}},
+		Rows:    [][]string{{"x"}, {"y"}},
+		IDs:     []int64{1, 2},
+		RedRows: []bool{true},
+	}}})
+	if err == nil {
+		t.Fatal("标红行数与数据行数不一致应报错")
 	}
 }

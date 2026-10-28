@@ -92,7 +92,11 @@ func scanDictRow(rows *sql.Rows, spec dictSpec) (map[string]any, error) {
 		if err := rows.Scan(&id, &name, &sort, &status, &userID); err != nil {
 			return nil, err
 		}
-		item["user_id"] = userID.Int64
+		if userID.Valid {
+			item["user_id"] = userID.Int64
+		} else {
+			item["user_id"] = nil // 未绑定账号为 null（同 mysql2 行值）
+		}
 	default:
 		if err := rows.Scan(&id, &name, &sort, &status); err != nil {
 			return nil, err

@@ -3,8 +3,10 @@
 //           排序：隐患降序 > 电压降序 > 名称升序，未匹配卡排尾；stagger 入场）；
 //   ledger 台账视图：返回行 + 线路标题（隐患小字）+ 记录卡片流（后端已按区段升序排好）。
 //           记录卡默认折叠一卡两行（区段+垂距双大字左对齐 / 跨越类型·交叉角），每卡一枚折叠/展开开关（点卡同效），
-//           展开出全字段（区段/类型/距小大号侧/边线水平/垂直距离/交叉角/隐患/发现人/巡视时间/来源/备注）与删除按钮
-//           （班管/超管，t-dialog 确认）——无处理流程、无照片、无人工新增编辑。
+//           展开出全字段（区段/类型/距小大号侧/边线水平/垂直距离/交叉角/隐患/发现人/巡视时间/来源/备注）与
+//           编辑 / 删除按钮（班管/超管；删除 t-dialog 确认，编辑就地换统一表单）——无处理流程、无照片。
+// 手动新增/编辑（班管/超管，底部弹层统一表单 13 业务列）：新增入口在线路视图搜索下与台账标题行；
+//   区段原文提交（带字母杆号不剔除），pole_from/to 数值锚点由后端按区段解析（可空）。
 // 右下角全局悬浮导出 FAB：范围单选（全部线路 / 当前线路，线路视图为「选择线路」）+ 按线路分表开关（split=1，仅全部可勾）。
 // 班组口径：仅超管按出工日志主页切换器存下的 worklog_team_id 生效（全部请求带 team_id）；其余角色后端强制本班，不传
 import Toast from 'tdesign-miniprogram/toast/index';
@@ -15,8 +17,30 @@ import { shareAppMessage } from '../../../utils/share';
 
 const API_BASE = '/api/v1/crossing';
 
-// 记录来源文案（crossing_record.source：crane 直推 / staging 暂存区导入 / intranet 内网回写）
-const SOURCE_TEXT = { crane: '排查直推', staging: '暂存导入', intranet: '内网回写' };
+// 记录来源文案（crossing_record.source：crane 直推 / staging 暂存区导入 / intranet 内网回写 / manual 手动录入）
+const SOURCE_TEXT = {
+  crane: '排查直推',
+  staging: '暂存导入',
+  intranet: '内网回写',
+  manual: '手动录入',
+};
+
+// 手动新增/编辑统一表单列（key 与后端业务列一致；inspect_at 日期列，其余文本列）
+const FORM_FIELDS = [
+  { key: 'voltage_level', label: '电压等级', max: 16, ph: '如 110' },
+  { key: 'line_name', label: '线路名称', max: 64, ph: '如 甲线', required: true },
+  { key: 'section', label: '跨越区段', max: 32, ph: '如 15#-16#（杆号可带字母）' },
+  { key: 'crossing_type', label: '跨越类型', max: 128, ph: '跨越物 / 交叉方式' },
+  { key: 'dist_small', label: '距小号侧(m)', max: 16 },
+  { key: 'dist_big', label: '距大号侧(m)', max: 16 },
+  { key: 'cross_horizontal', label: '边线水平(m)', max: 16 },
+  { key: 'cross_vertical', label: '垂直距离(m)', max: 16 },
+  { key: 'cross_angle', label: '交叉角(°)', max: 16 },
+  { key: 'has_hazard', label: '是否存在隐患', max: 16 },
+  { key: 'finder_name', label: '发现人', max: 32 },
+  { key: 'inspect_at', label: '巡视时间', type: 'date' },
+  { key: 'remark', label: '备注', max: 255 },
+];
 
 // 空值展示占位
 function dash(v) {
@@ -99,6 +123,12 @@ Page({
     expLineOptions: [], // 可选线路（未匹配组不可按线路导出，不入列）
     expSplit: false, // 按线路分表（URL 拼 split=1；仅范围为全部线路时可勾）
     exporting: false,
+    // 手动新增/编辑弹层（班管/超管；底部统一表单 13 业务列，与 Web RecordForm 同口径）
+    formVisible: false,
+    formSaving: false,
+    formEditId: 0, // 0=手动新增 / >0=编辑记录 id
+    formTitle: '新增记录',
+    formFields: [], // 统一表单渲染列（FORM_FIELDS 装配 value 后）
   },
 
   onLoad() {
@@ -373,6 +403,115 @@ Page({
         }
       })
       .catch(() => {});
+  },
+
+  /* ==================== 手动新增 / 编辑（班管/超管；底部弹层统一表单） ==================== */
+
+  // buildForm 装配统一表单渲染列（record 缺省给空值；键与后端业务列一致）。
+  buildForm(record) {
+    return FORM_FIELDS.map((f) => ({
+      key: f.key,
+      label: f.label,
+      ph: f.ph || '',
+      max: f.max || 64,
+      type: f.type || 'text',
+      required: !!f.required,
+      value: String(
+        record && record[f.key] !== null && record[f.key] !== undefined ? record[f.key] : ''
+      ),
+    }));
+  },
+
+  // findRecord 按 id 在当前台账数据源中找记录（未匹配组查 _unmatched，其余查当前线路）。
+  findRecord(id) {
+    const inList = (list) => (list || []).find((r) => Number(r.id) === Number(id));
+    if (this.data.curUnmatched) return inList(this._unmatched);
+    const line = (this._lines || []).find((l) => l.line_name === this._curLineName);
+    return inList(line && line.records);
+  },
+
+  // openAddForm 手动新增：台账视图下预填当前线路与电压等级（区段等留空）。
+  openAddForm() {
+    if (!this.data.canManage) return;
+    const record = {};
+    if (this.data.view === 'ledger' && !this.data.curUnmatched) {
+      record.line_name = this._curLineName || '';
+      const line = (this._lines || []).find((l) => l.line_name === this._curLineName);
+      if (line) record.voltage_level = line.voltage_level;
+    }
+    this.setData({
+      formVisible: true,
+      formEditId: 0,
+      formTitle: '新增记录',
+      formFields: this.buildForm(record),
+      formSaving: false,
+    });
+  },
+
+  // openEditForm 展开卡内编辑入口：预填该记录全字段（统一表单同新增）。
+  openEditForm(e) {
+    if (!this.data.canManage) return;
+    const rec = this.findRecord(e.currentTarget.dataset.id);
+    if (!rec) return;
+    this.setData({
+      formVisible: true,
+      formEditId: rec.id,
+      formTitle: '编辑记录',
+      formFields: this.buildForm(rec),
+      formSaving: false,
+    });
+  },
+
+  // onFormInput 文本列输入（data-idx 定位表单列）。
+  onFormInput(e) {
+    const idx = Number(e.currentTarget.dataset.idx);
+    this.setData({ [`formFields[${idx}].value`]: e.detail.value });
+  },
+
+  // onFormDateChange 巡视时间日期列（picker mode=date）。
+  onFormDateChange(e) {
+    const idx = Number(e.currentTarget.dataset.idx);
+    this.setData({ [`formFields[${idx}].value`]: e.detail.value });
+  },
+
+  onCloseForm() {
+    if (this.data.formSaving) return;
+    this.setData({ formVisible: false });
+  },
+
+  onFormVisibleChange(e) {
+    if (!e.detail.visible && !this.data.formSaving) this.setData({ formVisible: false });
+  },
+
+  // onSubmitForm 保存：line_name 必填；新增 POST /records、编辑 PUT /records/:id（区段原文提交），
+  // 成功关弹层整表重拉；失败保留弹层便于改后重试。
+  async onSubmitForm() {
+    if (this.data.formSaving || !this.data.canManage) return;
+    const body = {};
+    let lineName = '';
+    for (const f of this.data.formFields) {
+      const v = String(f.value === null || f.value === undefined ? '' : f.value).trim();
+      body[f.key] = v;
+      if (f.key === 'line_name') lineName = v;
+    }
+    if (!lineName) {
+      this.toast('请填写线路名称');
+      return;
+    }
+    this.setData({ formSaving: true });
+    try {
+      const isEdit = !!this.data.formEditId;
+      const url = isEdit
+        ? `${API_BASE}/records/${this.data.formEditId}${this.teamQuery('?')}`
+        : `${API_BASE}/records${this.teamQuery('?')}`;
+      await request({ url, method: isEdit ? 'PUT' : 'POST', data: this.teamBody(body) });
+      this.toast(isEdit ? '已保存' : '已新增');
+      this.setData({ formVisible: false, formSaving: false });
+      this.loadAll();
+    } catch (err) {
+      this.setData({ formSaving: false });
+      this.toast(err.message);
+    }
   },
 
   /* ==================== 导出统计表（FAB 弹层） ==================== */

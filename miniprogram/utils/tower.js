@@ -92,8 +92,10 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
         });
       },
 
-      // 打开级联弹层（页面「选择杆塔坐标」入口包装调用）；首次打开需先加载数据（失败关层提示，已选状态保留供重选带回）
+      // 打开级联弹层（页面「选择杆塔坐标」入口包装调用）；首次打开需先加载数据（失败关层提示，已选状态保留供重选带回）。
+      // 已打开时防连点重复打开/重复加载；打开前收起键盘并复位共享 keyboardHeight，弹层统一从键盘收起态布局
       openTowerCascade() {
+        if (this.data.towerVisible) return;
         wx.hideKeyboard(); // 收起施工内容等 hold-keyboard 输入残留的键盘，弹层统一从键盘收起态布局
         const base = {
           towerVisible: true,
@@ -124,11 +126,12 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
       },
 
       // 级联「确定」默认分支：所选杆塔坐标按 ≤50m 随机波动后填入水印表单（不直接带入原值，仍可手改），
-      // 并再次调高德地图接口按波动后坐标覆盖刷新地点、天气
+      // 并再次调高德地图接口按波动后坐标覆盖刷新地点、天气；关层时复位 keyboardHeight，避免残留高度顶起下层表单
       applyTowerToWm(t) {
         const jittered = this.jitterCoord(t.lng, t.lat, 50);
         this.setData({
           towerVisible: false,
+          keyboardHeight: 0,
           wmTowerPicked: {
             level: this.data.towerLevel,
             line: this.data.towerLine,
@@ -163,7 +166,7 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
         wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
         const v = e.currentTarget.dataset.v;
         if (v === this.data.towerLevel) {
-          this.setData({ towerOpen: '' });
+          this.setData({ towerOpen: '', keyboardHeight: 0 });
           return;
         }
         this.setData({
@@ -175,6 +178,7 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
           towerTower: null,
           towerTowerKw: '',
           towerOpen: 'line',
+          keyboardHeight: 0,
         });
       },
 
@@ -206,7 +210,7 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
         wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
         const v = e.currentTarget.dataset.v;
         if (v === this.data.towerLine) {
-          this.setData({ towerOpen: '' });
+          this.setData({ towerOpen: '', keyboardHeight: 0 });
           return;
         }
         this.setData({
@@ -216,6 +220,7 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
           towerTower: null,
           towerTowerKw: '',
           towerOpen: 'tower',
+          keyboardHeight: 0,
         });
       },
 
@@ -242,7 +247,7 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
         wx.hideKeyboard(); // 选中即结束筛选输入，收起 hold-keyboard 残留键盘
         const t = this.data.towerTowers[e.currentTarget.dataset.i];
         if (!t) return;
-        this.setData({ towerTower: t, towerTowerKw: t.no, towerOpen: '' });
+        this.setData({ towerTower: t, towerTowerKw: t.no, towerOpen: '', keyboardHeight: 0 });
       },
 
       // 级联输入框失焦：复位滚动定位，下次聚焦可再次触发 scroll-into-view
@@ -252,13 +257,13 @@ function createTowerCascade({ towersUrl, cacheKey, logTag }) {
 
       onTowerCancel() {
         wx.hideKeyboard(); // 关层前收起 hold-keyboard 残留键盘
-        this.setData({ towerVisible: false });
+        this.setData({ towerVisible: false, keyboardHeight: 0 });
       },
 
       onTowerVisibleChange(e) {
         if (!e.detail.visible) {
           wx.hideKeyboard(); // 遮罩关闭同步收起 hold-keyboard 残留键盘
-          this.setData({ towerVisible: false });
+          this.setData({ towerVisible: false, keyboardHeight: 0 });
         }
       },
     },

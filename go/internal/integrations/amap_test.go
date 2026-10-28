@@ -83,6 +83,14 @@ func TestAMapFallbacks(t *testing.T) {
 		t.Fatalf("乡镇回退 location = %q", got.Location)
 	}
 
+	// POI 距离为数值类型（AMap 实测两种形态都有）同样参与最近点比较
+	regeoResp = `{"status": "1", "regeocode": {
+		"addressComponent": {"district": "尧都区", "township": "段店乡", "adcode": "141002"},
+		"pois": [{"name": "较远地标", "distance": 500}, {"name": "数值近点", "distance": 30}]}}`
+	if got := svc.FetchLocationWeather(context.Background(), "116.48", "39.98"); got.Location != "尧都区·数值近点" {
+		t.Fatalf("数值距离 POI location = %q", got.Location)
+	}
+
 	// 无乡镇 → streetNumber.street
 	regeoResp = `{"status": "1", "regeocode": {
 		"addressComponent": {"district": "尧都区", "streetNumber": {"street": "解放东路"}, "adcode": "141002"}}}`

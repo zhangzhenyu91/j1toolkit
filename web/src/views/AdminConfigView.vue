@@ -36,8 +36,8 @@
           </div>
         </aside>
 
-        <!-- 当前分组表单 -->
-        <section class="config-content card">
+        <!-- 当前分组表单（按分组重挂载：切换分组时一次轻上浮入场） -->
+        <section :key="currentGroup" class="config-content card">
           <div class="config-head">
             <h2 class="card-title" style="margin: 0">{{ currentGroup }}</h2>
             <div class="spacer"></div>
@@ -158,8 +158,8 @@ const KEY_META = {
   COS_TREEHAZARD_PREFIX: ['COS 树障前缀', '树障照片'],
   AMAP_MAP_KEY: ['高德 Web 服务 Key', '出工与商旅地理服务'],
   AMAP_BASE_URL: ['高德接口 Base URL', '地理服务地址'],
-  GLKVM_URL: ['GLKVM 远程地址', '远程连接计算机'],
-  GLKVM_PASSWORD: ['GLKVM 密码', '远程连接计算机'],
+  GLKVM_URL: ['GLKVM 远程地址', '远程控制'],
+  GLKVM_PASSWORD: ['GLKVM 密码', '远程控制'],
   NETDISK_API_URL: ['OpenList API URL', '团队网盘中转'],
   NETDISK_USERNAME: ['网盘服务账户', 'OpenList 服务账户'],
   NETDISK_PASSWORD: ['网盘服务密码', 'OpenList 服务密码'],
@@ -364,6 +364,22 @@ onMounted(load);
 .config-content {
   flex: 1;
   min-width: 0;
+  animation: cfgRise 0.24s var(--tk-ease);
+}
+@keyframes cfgRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .config-content {
+    animation: none !important;
+  }
 }
 .config-head {
   display: flex;

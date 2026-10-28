@@ -75,10 +75,24 @@ func snapshotOf(record map[string]any) map[string]any {
 			snap[c] = normStr(record[c])
 		}
 	}
-	if v, ok := asInt64(record["vertical_num"]); ok {
+	// vertical_num 为 DECIMAL（可带小数），按浮点保留（Node Number() 同口径）；空/非法 → nil。
+	switch v := record["vertical_num"].(type) {
+	case *float64:
+		if v != nil {
+			snap["vertical_num"] = *v
+		} else {
+			snap["vertical_num"] = nil
+		}
+	case float64:
 		snap["vertical_num"] = v
-	} else {
+	case nil:
 		snap["vertical_num"] = nil
+	default:
+		if f, err := strconv.ParseFloat(normStr(v), 64); err == nil {
+			snap["vertical_num"] = f
+		} else {
+			snap["vertical_num"] = nil
+		}
 	}
 	status := normStr(record["status"])
 	if status == "" {

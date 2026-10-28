@@ -174,7 +174,7 @@ watch(
     if (!towers.value.length) {
       try {
         const data = await fetchTowers();
-        towers.value = data.rows || data.list || [];
+        towers.value = Array.isArray(data) ? data : (data && (data.rows || data.list)) || [];
       } catch (e) {
         towers.value = [];
       }
@@ -320,6 +320,13 @@ function close() {
 </script>
 
 <style scoped>
+/* ===== 盒模型基线（对齐旧版 theme.css * reset） ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 /* ===== 通用弹层骨架（旧版 .mask/.modal/.m-scroll/.m-head/.m-foot） ===== */
 .mask {
   position: fixed;
@@ -349,8 +356,22 @@ function close() {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   border-radius: 8px;
   padding: 14px 18px 16px;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-dash) transparent;
+}
+.m-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.m-scroll::-webkit-scrollbar-thumb {
+  background: var(--tk-dash);
+  border-radius: 8px;
+}
+.m-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 .m-head {
   display: flex;
@@ -555,5 +576,16 @@ function close() {
   padding: 8px 10px;
   font-size: 12px;
   color: var(--tk-red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001s !important;
+    transition-delay: 0s !important;
+  }
 }
 </style>

@@ -388,6 +388,33 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
+// ---- 登录限流 IP 口径（Node trust proxy: 'loopback'，server/src/index.js） ----
+
+func TestClientIPTrustsLoopbackProxy(t *testing.T) {
+	cases := []struct {
+		name       string
+		remoteAddr string
+		xff        string
+		want       string
+	}{
+		{"直连不认 XFF", "203.0.113.9:4242", "6.6.6.6", "203.0.113.9"},
+		{"环回反代取 XFF 右起首个非环回", "127.0.0.1:4242", "6.6.6.6, 203.0.113.9", "203.0.113.9"},
+		{"环回反代无 XFF 落环回", "127.0.0.1:4242", "", "127.0.0.1"},
+		{"全链环回取最左", "127.0.0.1:4242", "127.0.0.2, 127.0.0.3", "127.0.0.2"},
+		{"IPv6 环回反代", "[::1]:4242", "2001:db8::1", "2001:db8::1"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{}`))
+		req.RemoteAddr = c.remoteAddr
+		if c.xff != "" {
+			req.Header.Set("X-Forwarded-For", c.xff)
+		}
+		if got := clientIP(req); got != c.want {
+			t.Fatalf("%s: clientIP = %q，应 %q", c.name, got, c.want)
+		}
+	}
+}
+
 // ---- HTTP code2session 适配（httptest 本地回环，不连微信） ----
 
 func TestHTTPCode2Session(t *testing.T) {

@@ -28,6 +28,7 @@ const (
 	borderStyleThin  = 1  // excelize Border.Style：1 = Continuous 1px（thin）
 	horizontalCenter = "center"
 	verticalCenter   = "center"
+	fontColorRed     = "FF0000" // 标红行字体色（Excelize 'RRGGBB'，产物 styles.xml 为 rgb="FFFF0000"）
 )
 
 // Column 描述一列可见表头（不含隐藏记录 ID 列）。
@@ -43,6 +44,7 @@ type SheetSpec struct {
 	Columns []Column   // 可见表头列
 	Rows    [][]string // 数据行，按 Columns 顺序的文本值（含序号等，由调用方排好序）
 	IDs     []int64    // 隐藏记录 ID 列，与 Rows 按行对齐；0 写空单元格
+	RedRows []bool     // 数据行标红标记，与 Rows 按行对齐；true 时该行整行字体红色（含隐藏 ID 列）；空/全 false 不标红
 }
 
 // WorkbookSpec 描述整个工作簿（多 sheet）。
@@ -125,6 +127,16 @@ func WriteWorkbook(spec WorkbookSpec) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// hasRedRow 是否存在需要标红的数据行（全 false/空不生成红色样式）。
+func (s SheetSpec) hasRedRow() bool {
+	for _, red := range s.RedRows {
+		if red {
+			return true
+		}
+	}
+	return false
+}
+
 // writeSheet 写入单个 worksheet 的完整模板（合并标题 / 表头 / 数据区 / 隐藏 ID 列）。
 func writeSheet(f *excelize.File, idHeader string, s SheetSpec) error {
 	if len(s.Columns) == 0 {
@@ -132,6 +144,9 @@ func writeSheet(f *excelize.File, idHeader string, s SheetSpec) error {
 	}
 	if len(s.IDs) != 0 && len(s.IDs) != len(s.Rows) {
 		return fmt.Errorf("exceldoc: sheet %q 记录 ID 数 %d 与数据行数 %d 不一致", s.Name, len(s.IDs), len(s.Rows))
+	}
+	if len(s.RedRows) != 0 && len(s.RedRows) != len(s.Rows) {
+		return fmt.Errorf("exceldoc: sheet %q 标红行数 %d 与数据行数 %d 不一致", s.Name, len(s.RedRows), len(s.Rows))
 	}
 	visibleCols := len(s.Columns)
 	idColIdx := visibleCols + 1 // 隐藏 ID 列列号
@@ -195,6 +210,29 @@ func writeSheet(f *excelize.File, idHeader string, s SheetSpec) error {
 		return err
 	}
 
+	// 标红行样式（字体红色，其余与默认数据/ID 样式一致）：仅存在标红行时生成，
+	// 未标红工作簿的 cellXfs 不多出条目（其他模块导出产物不变）。
+	var dataStyleRed, idStyleRed int
+	if s.hasRedRow() {
+		dataStyleRed, err = f.NewStyle(&excelize.Style{
+			Font:      &excelize.Font{Size: dataFontSize, Color: fontColorRed},
+			Alignment: &excelize.Alignment{Horizontal: horizontalCenter, Vertical: verticalCenter, WrapText: true},
+			Border:    thinBorders(),
+			NumFmt:    numFmtText,
+		})
+		if err != nil {
+			return err
+		}
+		idStyleRed, err = f.NewStyle(&excelize.Style{
+			Font:      &excelize.Font{Size: dataFontSize, Color: fontColorRed},
+			Alignment: &excelize.Alignment{Horizontal: horizontalCenter, Vertical: verticalCenter, WrapText: true},
+			Border:    thinBorders(),
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	// 第 1 行合并标题（skipTitle 口径：Title 为空则跳过）
 	headerRow := 1
 	if s.Title != "" {
@@ -238,6 +276,11 @@ func writeSheet(f *excelize.File, idHeader string, s SheetSpec) error {
 		if err := f.SetRowHeight(s.Name, rowNum, dataRowHeight); err != nil {
 			return err
 		}
+		// 标红行整行（含隐藏 ID 列）用红色字体样式
+		rowDataStyle, rowIDStyle := dataStyle, idStyle
+		if len(s.RedRows) > r && s.RedRows[r] {
+			rowDataStyle, rowIDStyle = dataStyleRed, idStyleRed
+		}
 		for col := 1; col <= visibleCols; col++ {
 			cell, _ := excelize.CoordinatesToCellName(col, rowNum)
 			val := ""
@@ -249,12 +292,12 @@ func writeSheet(f *excelize.File, idHeader string, s SheetSpec) error {
 			}
 		}
 		rowEnd, _ := excelize.CoordinatesToCellName(idColIdx, rowNum)
-		if err := f.SetCellStyle(s.Name, mustCellName(1, rowNum), rowEnd, dataStyle); err != nil {
+		if err := f.SetCellStyle(s.Name, mustCellName(1, rowNum), rowEnd, rowDataStyle); err != nil {
 			return err
 		}
 		// 隐藏 ID 列：数值写入（行级比对锚点），0 写空
 		idCell, _ := excelize.CoordinatesToCellName(idColIdx, rowNum)
-		if err := f.SetCellStyle(s.Name, idCell, idCell, idStyle); err != nil {
+		if err := f.SetCellStyle(s.Name, idCell, idCell, rowIDStyle); err != nil {
 			return err
 		}
 		if len(s.IDs) > r && s.IDs[r] != 0 {

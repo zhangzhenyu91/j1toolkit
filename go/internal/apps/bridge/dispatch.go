@@ -1,5 +1,6 @@
 // worklog.DispatchSyncer 真实适配：派车单「取件建卡」（迁移 server/src/worklog/dispatch-sync.js
-// fetchJob / importOrdersMulti 的单班组口径）：U 盘取「yyyy-MM-dd-派车单.xlsx」→ 解析
+// fetchJob / importOrdersMulti 的全量开启班组建卡口径：一次导出件覆盖全部开启班组，范围以
+// worklog_dispatch_sync_team 开关表为准）：U 盘取「yyyy-MM-dd-派车单.xlsx」→ 解析
 // （A=车牌 C=驾驶员 E=用车人 F=预计用车时间 J=目的地 M=派车单号 N=状态 T=创建时间）→
 // 剔除已取消/非当日/无车牌行 → 用车人子串匹配（跨班仅通知不建卡）→ 车牌/目的地字典命中 →
 // 事务建卡（派车单号随卡写 dispatch_order_no）→ 已有手动卡比对（仅通知不改库）→ 结果通知。
@@ -17,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -164,6 +166,12 @@ type dispatchVehicle struct {
 
 // dispatchDest 本班启用目的地。
 type dispatchDest struct {
+	ID   int64
+	Name string
+}
+
+// dispatchTeam 开启派车同步的启用班组（worklog_dispatch_sync_team 开关表）。
+type dispatchTeam struct {
 	ID   int64
 	Name string
 }
@@ -317,6 +325,8 @@ func bucketDispatchRows(rows []dispatchRow, allMembers []dispatchMember, enabled
 
 // UsbFetcher U 盘取件最小面（*UsbLink 天然满足；测试注入 fake）。
 type UsbFetcher interface {
+	// MountToHost 挂载（共享）U 盘至被控机端（每日准备用）。
+	MountToHost(ctx context.Context) error
 	// DownloadFile 下载 U 盘内文件；文件不存在返回 (nil, nil)。
 	DownloadFile(ctx context.Context, name string) ([]byte, error)
 	// DeleteFiles 删除 U 盘内文件（下载完毕即删，同 Node 口径）。
@@ -351,6 +361,9 @@ type DispatchStore interface {
 	TeamDestinations(ctx context.Context, teamID int64) ([]dispatchDest, error)
 	// OccupiedMembers 当日全局已挂卡成员（含别班/跨班卡）。
 	OccupiedMembers(ctx context.Context, date string) (map[int64]bool, error)
+	// EnabledTeams 开启派车同步的全部启用班组（worklog_dispatch_sync_team 开关表；一次导出件
+	// 服务全部开启班组，同 Node resolveTeams，取件建卡与结果通知范围均以此为准）。
+	EnabledTeams(ctx context.Context) ([]dispatchTeam, error)
 	// TeamEntries 本班当日已有出车卡片（含成员名单）。
 	TeamEntries(ctx context.Context, teamID int64, date string) ([]dispatchEntry, error)
 	// CreatorID 系统建卡人（管理员账号，缺省回退首个超管）。
@@ -361,8 +374,6 @@ type DispatchStore interface {
 	SaveOrderNo(ctx context.Context, entryID int64, orderNo string) error
 	// NotifyTargets 结果通知接收人（超管 + 本班启用班组管理员）。
 	NotifyTargets(ctx context.Context, teamID int64) ([]int64, error)
-	// TeamName 班组名（通知标题用）。
-	TeamName(ctx context.Context, teamID int64) (string, error)
 }
 
 // SQLDispatchStore DispatchStore 真实现（worklog_* / sys_* 表，dispatch-sync.js SQL 同口径）。
@@ -579,16 +590,29 @@ func (s SQLDispatchStore) NotifyTargets(ctx context.Context, teamID int64) ([]in
 	return out, nil
 }
 
-// TeamName 班组名。
-func (s SQLDispatchStore) TeamName(ctx context.Context, teamID int64) (string, error) {
-	var name string
-	err := s.DB.QueryRowContext(ctx, `SELECT name FROM sys_team WHERE id = ?`, teamID).Scan(&name)
-	return name, err
+// EnabledTeams 开启派车同步的全部启用班组（dispatch-sync.js resolveTeams 同 SQL）。
+func (s SQLDispatchStore) EnabledTeams(ctx context.Context) ([]dispatchTeam, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT t.id, t.name FROM worklog_dispatch_sync_team s
+		 JOIN sys_team t ON t.id = s.team_id AND t.status = 1 ORDER BY t.sort, t.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []dispatchTeam
+	for rows.Next() {
+		var t dispatchTeam
+		if rows.Scan(&t.ID, &t.Name) == nil {
+			out = append(out, t)
+		}
+	}
+	return out, nil
 }
 
 // ---- DispatchSyncer ----
 
-// DispatchSyncer worklog.DispatchSyncer 实现（单班组「取件建卡」，手动触发口径）。
+// DispatchSyncer worklog.DispatchSyncer 实现（「取件建卡」手动触发口径；范围 = 开关表
+// worklog_dispatch_sync_team 全部开启班组，同 Node runFetchNow → fetchJob）。
 type DispatchSyncer struct {
 	// Usb U 盘取件（*UsbLink 满足；nil 报链路未接入）。
 	Usb UsbFetcher
@@ -602,10 +626,16 @@ type DispatchSyncer struct {
 	Locker kvm.Locker
 	// UnlockDdns 解禁设备 ddns（与 UsbLink 解析同一配置值；空则跳过解禁）。
 	UnlockDdns string
-	// Unlock 取件结束解禁钩子（可 nil；优先于 Locker/UnlockDdns 组合，支持热配置解析）。
+	// Lock 每日准备锁定设备（可 nil：不锁直接挂载；Node prepareJob devlock.lock 同口径）。
+	Lock func(ctx context.Context) error
+	// Unlock 取件/准备结束解禁钩子（可 nil；优先于 Locker/UnlockDdns 组合，支持热配置解析）。
 	Unlock func(ctx context.Context) error
 	// Now 时间源（测试可注入）；nil = time.Now（北京时间自然日）。
 	Now func() time.Time
+
+	// mu/running 取件重入守卫（定时与手动触发共用；Node fetchJob fetching 口径）。
+	mu      sync.Mutex
+	running bool
 }
 
 // dispatchFileName 当日派车单文件名。
@@ -619,74 +649,194 @@ func (s *DispatchSyncer) nowCn() time.Time {
 	return time.Now()
 }
 
-// SyncNow 立即同步一次派车单（取件建卡）；返回新建出车卡片张数。
-// 当日无文件 / 解析失败 / 链路未接入均返回可读 error（不假成功）；结果通知失败不影响返回值。
+// begin/end 取件重入守卫（占用中 begin 返回 false；Node fetchJob fetching 口径）。
+func (s *DispatchSyncer) begin() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running {
+		return false
+	}
+	s.running = true
+	return true
+}
+
+func (s *DispatchSyncer) end() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.running = false
+}
+
+// dispatchLockReason 每日准备锁定设备原因（Node dispatch-sync.js LOCK_REASON）。
+const dispatchLockReason = "每日派车单同步（预计 09:45 恢复）"
+
+// dispatchLockTTLSec 维护锁 TTL 兜底自动解禁（Node devlock.lock 缺省 7200s）。
+const dispatchLockTTLSec = 7200
+
+// unlockDevice 取件/准备结束解禁（无论成败；Unlock 钩子优先，回退 Locker+UnlockDdns）。
+func (s *DispatchSyncer) unlockDevice(ctx context.Context) {
+	if s.Unlock != nil {
+		_ = s.Unlock(ctx)
+		return
+	}
+	if s.Locker != nil && s.UnlockDdns != "" {
+		_ = s.Locker.Unlock(ctx, s.UnlockDdns)
+	}
+}
+
+// PrepareNow 每日准备（Node prepareJob）：锁定设备并挂载（共享）U 盘至被控机。
+// 无开启班组跳过（不锁不挂）；失败无论此前是否锁定都解禁、多班组合并通知
+// 「派车单同步准备失败」，并返回可读 error 供排程侧记日志。
+func (s *DispatchSyncer) PrepareNow(ctx context.Context) error {
+	if s == nil || s.Usb == nil || s.Store == nil {
+		return errors.New("派车单同步服务未接入")
+	}
+	var teams []dispatchTeam
+	var err error
+	fail := func(err error) error {
+		s.unlockDevice(ctx)
+		s.notifyTeams(ctx, teams, "派车单同步准备失败", []string{
+			"锁定设备 / 挂载 U 盘失败：" + err.Error(),
+			"设备已解禁，取件任务仍按排程执行。",
+		})
+		return fmt.Errorf("锁定设备 / 挂载 U 盘失败：%w", err)
+	}
+	teams, err = s.Store.EnabledTeams(ctx)
+	if err != nil {
+		return fail(err) // Node prepareJob catch：班组解析失败同样解禁并通知（仅超管）
+	}
+	if len(teams) == 0 {
+		return nil // 无开启班组，准备任务跳过（Node prepareJob 口径）
+	}
+	if s.Lock != nil {
+		if err := s.Lock(ctx); err != nil {
+			return fail(err)
+		}
+	}
+	if err := s.Usb.MountToHost(ctx); err != nil {
+		return fail(err)
+	}
+	return nil
+}
+
+// SyncNow 立即同步一次派车单（取件建卡）；返回新建出车卡片张数（全部开启班组合计）。
+// teamID 为请求上下文班组，仅作接口兼容保留、不圈定同步范围：一次导出件覆盖全部开启班组，
+// 只处理单班会吞掉他班行（文件下载即删），范围以 worklog_dispatch_sync_team 开关表为准
+// （Node runFetchNow → fetchJob resolveTeams 口径）；无开启班组时不取件不删件直接报可读错误。
+// 当日无文件按旧版口径发「今日无文件」通知后返回 (0, nil)（正常结果，sync-now 不报 500）；
+// 取件/解析/建卡失败发「派车单同步失败」通知并返回可读 error（Node fetchJob catch 口径）；
+// 结果通知失败不影响返回值。
 func (s *DispatchSyncer) SyncNow(ctx context.Context, teamID int64) (int, error) {
 	if s == nil || s.Usb == nil || s.Store == nil {
 		return 0, errors.New("派车单同步服务未接入")
 	}
-	if s.Unlock != nil {
-		defer func() { _ = s.Unlock(ctx) }()
-	} else if s.Locker != nil && s.UnlockDdns != "" {
-		defer func() { _ = s.Locker.Unlock(ctx, s.UnlockDdns) }()
+	if !s.begin() {
+		return 0, errors.New("已有取件任务在执行中，请稍后再试")
 	}
+	defer s.end()
+	defer s.unlockDevice(ctx)
+	teams, err := s.Store.EnabledTeams(ctx)
+	if err != nil {
+		return 0, s.fetchFail(ctx, nil, err)
+	}
+	if len(teams) == 0 {
+		return 0, errors.New("当前没有开启派车同步的班组（在「派车对齐」页按班组开启）")
+	}
+	_ = teamID // 范围以开关表全部开启班组为准（见上）
 	today := s.nowCn().In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
 	fileName := dispatchFileName(today)
 	buf, err := s.Usb.DownloadFile(ctx, fileName)
 	if err != nil {
-		return 0, fmt.Errorf("取件失败：%w", err)
+		return 0, s.fetchFail(ctx, teams, err)
 	}
 	if buf == nil {
-		return 0, fmt.Errorf("未在设备 U 盘找到「%s」（可能当日无派车单，或被控机导出客户端异常）", fileName)
+		// 当日无文件（Node fetchJob 口径）：正常通知后返回，不是失败（sync-now 不报 500）。
+		s.notifyTeams(ctx, teams, "派车单同步：今日无文件", []string{
+			fmt.Sprintf("未在设备 U 盘找到「%s」。", fileName),
+			"可能当日无派车单，或被控机导出客户端（内网工具箱）异常。",
+		})
+		return 0, nil
 	}
 	// 口径：下载完毕即删除 U 盘中派车单文件（删除失败不阻断建卡）。
 	_ = s.Usb.DeleteFiles(ctx, []string{fileName})
 
-	created, err := s.buildCards(ctx, teamID, buf, today)
+	n, err := s.importOrders(ctx, teams, buf, today)
+	if err != nil {
+		return n, s.fetchFail(ctx, teams, err)
+	}
+	return n, nil
+}
+
+// fetchFail 取件失败通知（Node fetchJob catch 口径：「取件失败：…」+ 解禁补跑指引），
+// 并返回带「取件失败：」前缀的可读 error。
+func (s *DispatchSyncer) fetchFail(ctx context.Context, teams []dispatchTeam, err error) error {
+	wrapped := fmt.Errorf("取件失败：%w", err)
+	s.notifyTeams(ctx, teams, "派车单同步失败", []string{
+		wrapped.Error(),
+		"设备已解禁，可在出工日志「派车对齐」人工导入导出件或手动补跑。",
+	})
+	return wrapped
+}
+
+// importOrders 解析 + 行级班组判定 + 逐班组建卡/已有卡比对/结果通知（importOrdersMulti 口径）；
+// 返回全部开启班组新建卡片合计。
+func (s *DispatchSyncer) importOrders(ctx context.Context, teams []dispatchTeam, buf []byte, today string) (int, error) {
+	rows, dropped, stale, err := parseDispatchOrders(buf, today)
 	if err != nil {
 		return 0, err
 	}
-	return len(created), nil
-}
-
-// buildCards 解析 + 行级班组判定 + 建卡/已有卡比对 + 结果通知（importOrdersMulti 单班组口径）。
-func (s *DispatchSyncer) buildCards(ctx context.Context, teamID int64, buf []byte, today string) ([]cardPlan, error) {
-	rows, dropped, stale, err := parseDispatchOrders(buf, today)
-	if err != nil {
-		return nil, err
-	}
 	allMembers, err := s.Store.AllEnabledMembers(ctx)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	buckets := bucketDispatchRows(rows, allMembers, map[int64]bool{teamID: true})
-	teamRows := buckets.ByTeam[teamID]
+	enabled := map[int64]bool{}
+	for _, t := range teams {
+		enabled[t.ID] = true
+	}
+	buckets := bucketDispatchRows(rows, allMembers, enabled)
 
 	occupied, err := s.Store.OccupiedMembers(ctx, today)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	createdBy, err := s.Store.CreatorID(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("未找到管理员账号作为建卡人：%w", err)
+		return 0, fmt.Errorf("未找到管理员账号作为建卡人：%w", err)
 	}
+	total := 0
+	for _, team := range teams {
+		n, err := s.buildTeamCards(ctx, team, buckets, allMembers, occupied, createdBy,
+			today, len(rows), dropped, stale)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+// buildTeamCards 单班组建卡 + 已有卡比对 + 结果通知（importOrdersMulti 单班组段，逐班组分发）；
+// 返回本班新建卡片数。
+func (s *DispatchSyncer) buildTeamCards(ctx context.Context, team dispatchTeam, buckets dispatchBuckets,
+	allMembers []dispatchMember, occupied map[int64]bool, createdBy int64,
+	today string, total, dropped, stale int) (int, error) {
+	teamRows := buckets.ByTeam[team.ID]
 	var members []dispatchMember
 	for _, m := range allMembers {
-		if m.TeamID == teamID {
+		if m.TeamID == team.ID {
 			members = append(members, m)
 		}
 	}
-	vehicles, err := s.Store.TeamVehicles(ctx, teamID)
+	vehicles, err := s.Store.TeamVehicles(ctx, team.ID)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	dests, err := s.Store.TeamDestinations(ctx, teamID)
+	dests, err := s.Store.TeamDestinations(ctx, team.ID)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	entries, err := s.Store.TeamEntries(ctx, teamID, today)
+	entries, err := s.Store.TeamEntries(ctx, team.ID, today)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	entryByMember := map[int64]*dispatchEntry{}
 	for i := range entries {
@@ -728,7 +878,7 @@ func (s *DispatchSyncer) buildCards(ctx context.Context, teamID int64, buf []byt
 	created := make([]cardPlan, 0, len(plans))
 	for _, p := range plans {
 		req := CreateCardRequest{
-			TeamID: teamID, LogDate: today, VehicleID: p.Vehicle.ID,
+			TeamID: team.ID, LogDate: today, VehicleID: p.Vehicle.ID,
 			DestID: nil, OrderNo: p.Row.OrderNo, CreatedBy: createdBy, Members: p.Members,
 		}
 		if p.Dest != nil {
@@ -736,7 +886,7 @@ func (s *DispatchSyncer) buildCards(ctx context.Context, teamID int64, buf []byt
 			req.DestID = &id
 		}
 		if _, err := s.Store.CreateCard(ctx, req); err != nil {
-			return created, err
+			return len(created), err
 		}
 		created = append(created, p)
 	}
@@ -744,10 +894,9 @@ func (s *DispatchSyncer) buildCards(ctx context.Context, teamID int64, buf []byt
 	// 已有卡比对（派车单号回填 + 差异指引；全项一致仅计数）。
 	_, mismatches := s.compareOverlaps(ctx, overlapRows, members, vehicles, occupied, entryByMember)
 
-	teamName, _ := s.Store.TeamName(ctx, teamID)
-	lines := buildDispatchLines(today, len(rows), created, skipped, buckets, dropped, stale, len(overlapRows), mismatches, buckets.Cross[teamID])
-	s.notify(ctx, teamID, fmt.Sprintf("派车单同步完成（%s）", teamName), lines)
-	return created, nil
+	lines := buildDispatchLines(today, total, created, skipped, buckets, dropped, stale, len(overlapRows), mismatches, buckets.Cross[team.ID])
+	s.notify(ctx, team.ID, fmt.Sprintf("派车单同步完成（%s）", team.Name), lines)
+	return len(created), nil
 }
 
 // overlapMismatch 已有卡比对差异（通知文本行）。
@@ -915,25 +1064,54 @@ func buildDispatchLines(today string, total int, created []cardPlan, skipped []s
 
 // notify 结果通知：站内（超管 + 本班班组管理员）+ 微信外发到班组群；失败仅忽略（Node 同口径）。
 func (s *DispatchSyncer) notify(ctx context.Context, teamID int64, title string, lines []string) {
+	s.notifyTeams(ctx, []dispatchTeam{{ID: teamID}}, title, lines)
+}
+
+// notifyTeams 结果通知（Node notify 同口径：站内收件人合并去重一条、微信外发各班组群；
+// 无收件人整体不发，失败仅忽略）。
+func (s *DispatchSyncer) notifyTeams(ctx context.Context, teams []dispatchTeam, title string, lines []string) {
 	if s.Notice == nil {
 		return
 	}
-	users, err := s.Store.NotifyTargets(ctx, teamID)
-	if err != nil || len(users) == 0 {
+	targets := teams
+	if len(targets) == 0 {
+		// Node notify 口径：teamIds 空时仅超管（如班组解析失败场景）；不发班组群微信。
+		targets = []dispatchTeam{{ID: 0}}
+	}
+	var users []int64
+	var teamIDs []int64
+	seen := map[int64]bool{}
+	for _, t := range targets {
+		us, err := s.Store.NotifyTargets(ctx, t.ID)
+		if err != nil {
+			continue
+		}
+		for _, id := range us {
+			if id > 0 && !seen[id] {
+				seen[id] = true
+				users = append(users, id)
+			}
+		}
+		if t.ID > 0 {
+			teamIDs = append(teamIDs, t.ID)
+		}
+	}
+	if len(users) == 0 {
 		return
 	}
 	content := strings.Join(lines, "\n")
 	if err := s.Notice.PushNotice(ctx, nil, users, title, content); err != nil {
 		return
 	}
-	if s.Wx != nil {
-		_, _ = s.Wx.Send(ctx, nil, []int64{teamID}, title+"\n"+content, nil)
+	if s.Wx != nil && len(teamIDs) > 0 {
+		_, _ = s.Wx.Send(ctx, nil, teamIDs, title+"\n"+content, nil)
 	}
 }
 
 // NewDispatchSyncer 构造派车单「取件建卡」执行器（worklog.DispatchSyncer）：
 // 设备链路 NewUsbLink（WORKLOG_DISPATCH_DEVICE_DDNS/MAC/KVM_USER 键组）+ SQLDispatchStore
-// （系统建卡人 adminUsername，缺省首个超管）+ 站内/微信结果通知 + 取件结束设备解禁（Node finally 口径）。
+// （系统建卡人 adminUsername，缺省首个超管）+ 站内/微信结果通知 + 每日准备锁定设备
+// （Node prepareJob devlock.lock）与取件结束解禁（Node fetchJob finally 口径）。
 func NewDispatchSyncer(db *sql.DB, platform kvm.Platform, cfg ConfigGet, adminUsername string, locker kvm.Locker) *DispatchSyncer {
 	s := &DispatchSyncer{
 		Usb:    NewUsbLink(platform, cfg, UsbKeys{DdnsKey: "WORKLOG_DISPATCH_DEVICE_DDNS", MacKey: "WORKLOG_DISPATCH_DEVICE_MAC", UserKey: "WORKLOG_DISPATCH_KVM_USER"}, adminUsername),
@@ -944,6 +1122,13 @@ func NewDispatchSyncer(db *sql.DB, platform kvm.Platform, cfg ConfigGet, adminUs
 		s.Wx = NewDifyWxPusher(cfg, SQLWxidResolver{DB: db})
 	}
 	if locker != nil {
+		s.Lock = func(ctx context.Context) error {
+			ddns := tokenOf(ctx, cfg, "WORKLOG_DISPATCH_DEVICE_DDNS")
+			if ddns == "" {
+				return errors.New("未配置派车同步设备（WORKLOG_DISPATCH_DEVICE_DDNS）")
+			}
+			return locker.Lock(ctx, ddns, dispatchLockReason, dispatchLockTTLSec)
+		}
 		s.Unlock = func(ctx context.Context) error {
 			ddns := tokenOf(ctx, cfg, "WORKLOG_DISPATCH_DEVICE_DDNS")
 			if ddns == "" {

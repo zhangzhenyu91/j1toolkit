@@ -639,7 +639,8 @@ func (m *Module) handlePreviewStream(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, rc)
 }
 
-// previewMIME Office 预览格式白名单（第三方查看器按 Content-Type 判格式）。
+// previewMIME Office 预览格式白名单（第三方查看器按 Content-Type 判格式；Node PREVIEW_MIME 同径，
+// 不含 pdf——pdf 走 ONLYOFFICE 承载页，本路由仅微软查看器六族）。
 func previewMIME(name string) string {
 	switch strings.ToLower(extOf(name)) {
 	case "doc":
@@ -654,8 +655,6 @@ func previewMIME(name string) string {
 		return "application/vnd.ms-powerpoint"
 	case "pptx":
 		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-	case "pdf":
-		return "application/pdf"
 	}
 	return ""
 }

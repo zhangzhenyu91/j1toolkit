@@ -154,12 +154,13 @@ function mdInline(t) {
   return t;
 }
 
-// codeBlockHtml 代码块 HTML（code 为原始文本，此处转义）。
+// codeBlockHtml 代码块 HTML（code 为原始文本，此处转义；标题栏带「复制」按钮，点击由调用方事件委托处理）。
 function codeBlockHtml(b) {
   return (
     '<div class="md-code"><div class="md-code-h"><span>' +
     (b.lang ? esc(b.lang) : 'code') +
-    '</span></div><pre><code>' +
+    '</span><span class="md-cp">复制</span></div>' +
+    '<pre><code>' +
     esc(b.code) +
     '</code></pre></div>'
   );
