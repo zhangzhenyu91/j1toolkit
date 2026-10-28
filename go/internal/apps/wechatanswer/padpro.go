@@ -25,6 +25,10 @@ type PadProClient struct {
 	HTTP *http.Client
 	// DialWS WebSocket 拨号（测试可注入）；nil 用 gorilla/websocket。
 	DialWS func(ctx context.Context, wsURL string) (WSConn, error)
+
+	pingInterval       time.Duration
+	staleCheckInterval time.Duration
+	staleTimeout       time.Duration
 }
 
 var (
@@ -266,22 +270,46 @@ func (c *PadProClient) Run(ctx context.Context, onMessage func(raw map[string]an
 	defer conn.Close()
 	var lastSeen atomic.Int64
 	lastSeen.Store(time.Now().UnixNano())
+	// Pong 与业务消息一样是连接活性证据；只看消息会把正常空闲连接误判为死连接。
+	if pc, ok := conn.(interface{ SetPongHandler(func(string) error) }); ok {
+		pc.SetPongHandler(func(string) error {
+			lastSeen.Store(time.Now().UnixNano())
+			return nil
+		})
+	}
+	pingInterval, checkInterval, staleTimeout := c.pingInterval, c.staleCheckInterval, c.staleTimeout
+	if pingInterval <= 0 {
+		pingInterval = 30 * time.Second
+	}
+	if checkInterval <= 0 {
+		checkInterval = 30 * time.Second
+	}
+	if staleTimeout <= 0 {
+		staleTimeout = 90 * time.Second
+	}
 	staleCh := make(chan struct{})
 	go func() {
 		defer close(staleCh)
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
+		lastPing := time.Time{}
 		for {
 			select {
 			case <-ctx.Done():
 				_ = conn.Close()
 				return
-			case <-ticker.C:
-				if time.Since(time.Unix(0, lastSeen.Load())) > 90*time.Second {
+			case now := <-ticker.C:
+				if time.Since(time.Unix(0, lastSeen.Load())) > staleTimeout {
 					_ = conn.Close()
 					return
 				}
-				_ = conn.Ping()
+				if now.Sub(lastPing) >= pingInterval {
+					if err := conn.Ping(); err != nil {
+						_ = conn.Close()
+						return
+					}
+					lastPing = now
+				}
 			}
 		}
 	}()
@@ -374,6 +402,10 @@ func (c *netWSConn) Read() ([]byte, error) {
 
 func (c *netWSConn) Ping() error {
 	return c.ws.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(10*time.Second))
+}
+
+func (c *netWSConn) SetPongHandler(h func(string) error) {
+	c.ws.SetPongHandler(h)
 }
 
 func (c *netWSConn) Close() error {

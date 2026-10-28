@@ -6,6 +6,7 @@ package sgccclockin
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +15,14 @@ import (
 
 	"golang.org/x/net/proxy"
 )
+
+// directTransport 未显式配置 SGCC_PROXY_URL 时直连：Node 商旅通道不继承进程 HTTP_PROXY，
+// Go 也不能让同名环境变量把请求悄悄带去其它代理。其余默认传输参数保持不变。
+func directTransport() http.RoundTripper {
+	rt := http.DefaultTransport.(*http.Transport).Clone()
+	rt.Proxy = nil
+	return rt
+}
 
 // transportCache 代理传输层缓存（按代理地址重建；并发安全）。
 type transportCache struct {
@@ -37,6 +46,7 @@ func (c *transportCache) get(proxyURL string) (http.RoundTripper, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("[商旅打卡] API 出口代理已启用：%s", maskProxyURL(proxyURL))
 	c.url, c.rt = proxyURL, rt
 	return rt, nil
 }

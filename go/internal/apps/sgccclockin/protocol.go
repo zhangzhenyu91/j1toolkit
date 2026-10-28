@@ -49,8 +49,20 @@ func NewProtocol(keys Keys) *Protocol {
 		Keys:   keys,
 		HostH5: defaultHostH5,
 		HostZB: defaultHostZB,
-		HTTP:   &http.Client{Timeout: 20 * time.Second},
+		HTTP:   newSGCCHTTPClient(directTransport()),
 		Now:    time.Now,
+	}
+}
+
+// newSGCCHTTPClient 与 Node https.request 同口径：不自动跟随重定向。
+// 默认 http.Client 会跳到 Location 指定的第三地址，既偏离旧实现，也会把真实网关响应藏成另一地址的超时。
+func newSGCCHTTPClient(rt http.RoundTripper) *http.Client {
+	return &http.Client{
+		Transport: rt,
+		Timeout:   20 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 }
 
@@ -75,9 +87,9 @@ func (p *Protocol) post(ctx context.Context, proxyURL, host, path string, header
 	case p.HTTP != nil && proxyURL == "":
 		c = p.HTTP
 	case transport != nil:
-		c = &http.Client{Transport: transport, Timeout: 20 * time.Second}
+		c = newSGCCHTTPClient(transport)
 	default:
-		c = &http.Client{Timeout: 20 * time.Second}
+		c = newSGCCHTTPClient(directTransport())
 	}
 	scheme := p.Scheme
 	if scheme == "" {
@@ -91,12 +103,30 @@ func (p *Protocol) post(ctx context.Context, proxyURL, host, path string, header
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// Node https.request 默认不带 User-Agent；调用方未显式给出时用空切片阻止 Go 自动补
+	// Go-http-client/1.1（实测会触发网关 302）。JSONX 自带的商旅 App UA 必须原样保留。
+	if _, ok := req.Header["User-Agent"]; !ok {
+		req.Header["User-Agent"] = []string{}
+	}
 	req.ContentLength = int64(len(body))
 	resp, err := c.Do(req)
 	if err != nil {
+		if proxyURL != "" {
+			return 0, "", errors.New(strings.ReplaceAll(err.Error(), proxyURL, maskProxyURL(proxyURL)))
+		}
 		return 0, "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		location := resp.Header.Get("Location")
+		if u, parseErr := url.Parse(location); parseErr == nil {
+			u.User = nil
+			u.RawQuery = ""
+			u.Fragment = ""
+			location = u.String()
+		}
+		return resp.StatusCode, "", fmt.Errorf("商旅接口返回重定向（HTTP %d，已停止跟随）：%s", resp.StatusCode, location)
+	}
 	buf, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return resp.StatusCode, "", err

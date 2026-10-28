@@ -6,6 +6,7 @@ package wechatanswer
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -231,4 +232,93 @@ func TestPadProWSHandshake401BodyNoTicketLeak(t *testing.T) {
 	if strings.Contains(msg, "ticket=") || strings.Contains(msg, "ws/sync?") {
 		t.Fatalf("错误不得泄露票据 URL：%s", msg)
 	}
+}
+
+// wsPongConn 只回 Pong、不发业务消息的假连接：用于复现空闲连接被看门狗误杀。
+type wsPongConn struct {
+	closed    chan struct{}
+	closeOnce sync.Once
+	replyPong bool
+	mu        sync.Mutex
+	handler   func(string) error
+}
+
+func (c *wsPongConn) Read() ([]byte, error) {
+	<-c.closed
+	return nil, net.ErrClosed
+}
+
+func (c *wsPongConn) Ping() error {
+	if !c.replyPong {
+		return nil
+	}
+	c.mu.Lock()
+	h := c.handler
+	c.mu.Unlock()
+	if h != nil {
+		return h("ping")
+	}
+	return nil
+}
+
+func (c *wsPongConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return nil
+}
+
+func (c *wsPongConn) SetPongHandler(h func(string) error) {
+	c.mu.Lock()
+	c.handler = h
+	c.mu.Unlock()
+}
+
+func runPongWatchdog(t *testing.T, replyPong bool) {
+	t.Helper()
+	srv, _ := newWSGW(t, nil)
+	conn := &wsPongConn{closed: make(chan struct{}), replyPong: replyPong}
+	cli := wsClient(srv)
+	cli.DialWS = func(context.Context, string) (WSConn, error) { return conn, nil }
+	cli.pingInterval = 10 * time.Millisecond
+	cli.staleCheckInterval = 5 * time.Millisecond
+	cli.staleTimeout = 40 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- cli.Run(ctx, func(map[string]any) {}) }()
+
+	if replyPong {
+		select {
+		case err := <-done:
+			t.Fatalf("只有 Pong、无业务消息时不应断线: %v", err)
+		case <-time.After(180 * time.Millisecond):
+		}
+	} else {
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("无 Pong 时看门狗应返回断线错误")
+			}
+			return
+		case <-time.After(2 * time.Second):
+			t.Fatal("无 Pong 时看门狗未及时断线")
+		}
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("主动停止不应返回断线错误: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run 未随主动停止退出")
+	}
+}
+
+func TestPadProWSPongKeepsIdleConnectionAlive(t *testing.T) {
+	runPongWatchdog(t, true)
+}
+
+func TestPadProWSWatchdogWithoutPong(t *testing.T) {
+	runPongWatchdog(t, false)
 }

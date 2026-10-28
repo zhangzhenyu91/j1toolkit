@@ -153,6 +153,98 @@ func TestPostViaHTTPProxy(t *testing.T) {
 	}
 }
 
+// TestPostSuppressesDefaultUserAgent 对齐 Node：不得让 Go 默认 User-Agent 触发商旅网关 302。
+func TestPostSuppressesDefaultUserAgent(t *testing.T) {
+	var userAgent string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userAgent = r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer target.Close()
+
+	p := NewProtocol(testKeys(t))
+	p.Scheme = "http"
+	status, _, err := p.post(context.Background(), "", strings.TrimPrefix(target.URL, "http://"), "ping", nil, "x")
+	if err != nil || status != 200 {
+		t.Fatalf("请求失败: status=%d err=%v", status, err)
+	}
+	if userAgent != "" {
+		t.Fatalf("不应发送默认 User-Agent，实际=%q", userAgent)
+	}
+
+	status, _, err = p.post(context.Background(), "", strings.TrimPrefix(target.URL, "http://"), "ping",
+		map[string]string{"User-Agent": "guo wang shang lu yun/3.3.7"}, "x")
+	if err != nil || status != 200 {
+		t.Fatalf("显式 App UA 请求失败: status=%d err=%v", status, err)
+	}
+	if userAgent != "guo wang shang lu yun/3.3.7" {
+		t.Fatalf("调用方显式 App UA 必须保留，实际=%q", userAgent)
+	}
+}
+
+// TestPostDirectIgnoresEnvironmentProxy 未配置 SGCC_PROXY_URL 时不得被进程环境变量带去其它代理。
+func TestPostDirectIgnoresEnvironmentProxy(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("direct"))
+	}))
+	defer target.Close()
+	envProxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("unexpected environment proxy"))
+	}))
+	defer envProxy.Close()
+
+	oldTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = oldTransport })
+	targetAddr := strings.TrimPrefix(target.URL, "http://")
+	proxyAddr := strings.TrimPrefix(envProxy.URL, "http://")
+	http.DefaultTransport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
+			if addr == proxyAddr {
+				return net.Dial(network, proxyAddr)
+			}
+			return net.Dial(network, targetAddr)
+		},
+	}
+	t.Setenv("HTTP_PROXY", envProxy.URL)
+	t.Setenv("HTTPS_PROXY", envProxy.URL)
+
+	p := NewProtocol(testKeys(t))
+	p.Scheme = "http"
+	status, raw, err := p.post(context.Background(), "", "sgcc-direct.test", "ping", nil, "x")
+	if err != nil || status != 200 || raw != "direct" {
+		t.Fatalf("未显式配置代理应直连且忽略环境代理: status=%d raw=%q err=%v", status, raw, err)
+	}
+}
+
+// TestPostDoesNotFollowRedirect 与 Node https.request 一致：不得自动跳往 Location 的第三地址。
+func TestPostDoesNotFollowRedirect(t *testing.T) {
+	hits := 0
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write([]byte("unexpected redirect target"))
+	}))
+	defer final.Close()
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+"/?ticket=do-not-log", http.StatusFound)
+	}))
+	defer first.Close()
+
+	p := NewProtocol(testKeys(t))
+	p.Scheme = "http"
+	_, _, err := p.post(context.Background(), "", strings.TrimPrefix(first.URL, "http://"), "ping", nil, "x")
+	if err == nil || !strings.Contains(err.Error(), "HTTP 302") {
+		t.Fatalf("重定向应作为明确错误停在原响应: %v", err)
+	}
+	if hits != 0 {
+		t.Fatalf("不得请求 Location 的第三地址，实际访问 %d 次", hits)
+	}
+	if strings.Contains(err.Error(), "do-not-log") {
+		t.Fatalf("重定向错误不得携带 query 敏感值: %v", err)
+	}
+}
+
 // TestProxyHotSwap 代理地址变更后传输层热重建（先走代理 A，再切代理 B，各自收到流量）。
 func TestProxyHotSwap(t *testing.T) {
 	var hitsA, hitsB int
